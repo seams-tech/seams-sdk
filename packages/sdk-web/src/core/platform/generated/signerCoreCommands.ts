@@ -48,13 +48,3 @@ export type EcdsaReadyPublicFacts = { contextBinding32B64u: string, derivationCl
 export type FinalizeEcdsaClientBootstrapOutput = { stateBlob: EcdsaRoleLocalReadyStateBlob, publicFacts: EcdsaReadyPublicFacts, };
 
 export type FinalizeEcdsaClientBootstrapErrorCode = "invalid_pending_state" | "invalid_relayer_public_identity" | "public_identity_mismatch" | "crypto_failure";
-
-export type BuildEcdsaRoleLocalExportArtifactCommandKind = "build_ecdsa_role_local_export_artifact_v1";
-
-export type EcdsaRoleLocalExportPublicFacts = { applicationBindingDigestB64u: string, clientParticipantId: number, relayerParticipantId: number, participantIds: Array<number>, contextBinding32B64u: string, derivationClientSharePublicKey33B64u: string, relayerPublicKey33B64u: string, groupPublicKey33B64u: string, ethereumAddress: string, };
-
-export type BuildEcdsaRoleLocalExportArtifactCommand = { kind: BuildEcdsaRoleLocalExportArtifactCommandKind, algorithm: EcdsaClientBootstrapAlgorithm, stateBlob: EcdsaRoleLocalReadyStateBlob, publicFacts: EcdsaRoleLocalExportPublicFacts, serverExportShare32B64u: string, };
-
-export type BuildEcdsaRoleLocalExportArtifactOutput = { publicKeyHex: string, privateKeyHex: string, ethereumAddress: string, };
-
-export type BuildEcdsaRoleLocalExportArtifactErrorCode = "invalid_ready_state" | "invalid_public_identity" | "crypto_failure";

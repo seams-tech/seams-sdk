@@ -7,6 +7,7 @@ import {
 } from '@/SeamsWeb/walletIframe/shared/exactSessionState';
 import {
   activeWalletSessionFixture,
+  activeLinkedDeviceWalletSessionFixture,
   activeWalletSessionWithNonceDiagnosticsFixture,
   authorizationRequiredEcdsaWalletSessionFixture,
   failedEcdsaWalletSessionFixture,
@@ -55,6 +56,21 @@ test.describe('wallet iframe Wallet Session boundary', () => {
         'iframe-wallet',
       ),
     ).toEqual(input);
+  });
+
+  test('preserves a distinct linked-device Wallet Session across the iframe boundary', () => {
+    const input = activeLinkedDeviceWalletSessionFixture({
+      walletId: 'linked-iframe-wallet',
+      walletSessionId: 'linked-iframe-session',
+    });
+
+    expect(parseWalletSessionFromBoundary(input, 'linked-iframe-wallet')).toEqual(input);
+    expect(exactSessionStateFromWalletSession(input)).toMatchObject({
+      kind: 'active_session',
+      status: 'active',
+      walletId: 'linked-iframe-wallet',
+      authMethod: 'linked_device',
+    });
   });
 
   test('rejects a response for a different wallet', () => {

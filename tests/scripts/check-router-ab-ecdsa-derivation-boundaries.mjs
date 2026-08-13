@@ -31,9 +31,7 @@ const forbiddenEcdsaDerivationClientPackages = new Map([
 ]);
 
 const allowedEcdsaDerivationClientExports = new Set([
-  'build_ecdsa_role_local_export_artifact_v1',
   'finalize_ecdsa_client_bootstrap_v1',
-  'open_ecdsa_role_local_signing_share_v1',
   'prepare_ecdsa_client_bootstrap_v1',
   'sign_ecdsa_wallet_recovery_material_possession_proof_v1',
 ]);
@@ -47,7 +45,7 @@ const allowedEcdsaClientCeremonyWasmExports = new Set([
   'routerabecdsaclientceremonyv1_close',
   'routerabecdsaclientceremonyv1_explicit_export_request_digest_b64u',
   'routerabecdsaclientceremonyv1_new',
-  'routerabecdsaclientceremonyv1_open_signing_worker_export_share',
+  'routerabecdsaclientceremonyv1_finalize_explicit_export',
   'routerabecdsaclientceremonyv1_public_key',
   'routerabecdsaclientceremonyv1_registration_binding',
   'routerabecdsaclientceremonyv1_verify_encrypted_proof_bundles',
@@ -59,6 +57,17 @@ const allowedEcdsaLaneHolderWasmExports = new Set([
   'ecdsalaneholdersessionv1_prepare',
 ]);
 
+const allowedEcdsaRoleLocalPresignWasmExports = new Set([
+  '__wbg_ecdsarolelocalpresignsessionv1_free',
+  'ecdsarolelocalpresignsessionv1_message',
+  'ecdsarolelocalpresignsessionv1_new',
+  'ecdsarolelocalpresignsessionv1_poll',
+  'ecdsarolelocalpresignsessionv1_presignature_big_r_33',
+  'ecdsarolelocalpresignsessionv1_compute_signature_share',
+  'ecdsarolelocalpresignsessionv1_stage',
+  'ecdsarolelocalpresignsessionv1_start_presign',
+]);
+
 const requiredEcdsaClientCeremonyTypeMethods = [
   'free',
   'public_key',
@@ -68,7 +77,7 @@ const requiredEcdsaClientCeremonyTypeMethods = [
   'build_activation_refresh_request',
   'activation_refresh_request_digest_b64u',
   'explicit_export_request_digest_b64u',
-  'open_signing_worker_export_share',
+  'finalize_explicit_export',
   'verify_encrypted_proof_bundles',
   'close',
 ];
@@ -78,6 +87,12 @@ const forbiddenRawEcdsaClientSecretBoundaryTokens = [
   'clientEphemeralPrivateKey32B64u',
   'open_and_finalize_router_ab_ecdsa_client_proof_bundles_v1',
   'finalize_router_ab_ecdsa_prf_output_v1',
+  'open_ecdsa_role_local_signing_share_v1',
+  'signingShare32B64u',
+  'serverExportShare32B64u',
+  'server_export_share32_b64u',
+  'open_signing_worker_export_share',
+  'take_presignature_97',
 ];
 
 const forbiddenEcdsaDerivationArtifactTokens = [
@@ -85,10 +100,6 @@ const forbiddenEcdsaDerivationArtifactTokens = [
   'ecdsa-hss',
   'hss_client',
   'threshold_signatures',
-  'threshold_ecdsa_presign',
-  'presignature',
-  'presign_',
-  'triple',
   'cait_sith',
   'deriver_',
   'relayer_bootstrap',
@@ -162,8 +173,6 @@ function checkNoRuntimeV1DerivationSurfaces() {
     'packages/shared-ts/src',
     'wasm/evm_crypto/src',
     'wasm/router_ab_ecdsa_client/src',
-    'wasm/router_ab_ecdsa_online_client/src',
-    'wasm/router_ab_ecdsa_presign_client/src',
     'wasm/router_ab_ecdsa_signing_worker/src',
   ];
   const forbiddenTokens = [
@@ -211,7 +220,6 @@ function checkProductionBridgeDoesNotExposeRootMaterial() {
     'privateKeyHex',
     'private_key_hex',
     'clientRootShare32B64u',
-    'serverExportShare32B64u',
     'reconstruct_export_key',
     'reconstructExportKey',
     'x_export',
@@ -284,9 +292,7 @@ function checkEcdsaDerivationClientHasOneExplicitOwner() {
     'packages/sdk-web/src',
     'packages/sdk-web/scripts',
     'wasm/evm_crypto',
-    'wasm/router_ab_ecdsa_derivation_client',
-    'wasm/router_ab_ecdsa_online_client',
-    'wasm/router_ab_ecdsa_presign_client',
+    'wasm/router_ab_ecdsa_client',
     'wasm/router_ab_ecdsa_signing_worker',
   ];
   const forbiddenTokens = [
@@ -379,8 +385,6 @@ function checkActiveSourceUsesCurrentVocabulary() {
     'packages/shared-ts/src',
     'wasm/evm_crypto/src',
     'wasm/router_ab_ecdsa_client/src',
-    'wasm/router_ab_ecdsa_online_client/src',
-    'wasm/router_ab_ecdsa_presign_client/src',
     'wasm/router_ab_ecdsa_signing_worker/src',
   ];
   const forbiddenTokens = [
@@ -891,6 +895,7 @@ function checkGeneratedEcdsaDerivationClientArtifactSurface() {
       !allowedEcdsaDerivationClientExports.has(entry.name) &&
       !allowedEcdsaClientCeremonyWasmExports.has(entry.name) &&
       !allowedEcdsaLaneHolderWasmExports.has(entry.name) &&
+      !allowedEcdsaRoleLocalPresignWasmExports.has(entry.name) &&
       !isAllowedWasmBindgenRuntimeExport(entry.name)
     ) {
       unexpectedExports.push(`${entry.name}:${entry.kind}`);
@@ -913,6 +918,12 @@ function checkGeneratedEcdsaDerivationClientArtifactSurface() {
     );
   }
   for (const requiredExport of allowedEcdsaLaneHolderWasmExports) {
+    assert.ok(
+      namedWasmExports.includes(requiredExport),
+      `generated ECDSA derivation client WASM is missing ${requiredExport}`,
+    );
+  }
+  for (const requiredExport of allowedEcdsaRoleLocalPresignWasmExports) {
     assert.ok(
       namedWasmExports.includes(requiredExport),
       `generated ECDSA derivation client WASM is missing ${requiredExport}`,
@@ -943,8 +954,21 @@ function checkGeneratedEcdsaDerivationClientArtifactSurface() {
     'generated ECDSA derivation client TypeScript is missing the opaque ceremony class',
   );
   assert.ok(
+    generatedTypes.includes('  finalize_explicit_export('),
+    'generated ECDSA ceremony must expose only the final authorized export artifact operation',
+  );
+  assert.equal(
+    generatedTypes.includes('  open_signing_worker_export_share('),
+    false,
+    'generated ECDSA ceremony must not expose an intermediate export-share operation',
+  );
+  assert.ok(
     generatedTypes.includes('export class EcdsaLaneHolderSessionV1 {'),
     'generated ECDSA derivation client TypeScript is missing the lane holder session class',
+  );
+  assert.ok(
+    generatedTypes.includes('export class EcdsaRoleLocalPresignSessionV1 {'),
+    'generated ECDSA derivation client TypeScript is missing the opaque presign session class',
   );
   for (const methodName of requiredEcdsaClientCeremonyTypeMethods) {
     assert.ok(

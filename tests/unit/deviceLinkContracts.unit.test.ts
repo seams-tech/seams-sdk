@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   buildActiveLinkedDeviceSessionState,
   buildCancelledUnclaimedLinkedDeviceSessionState,
+  buildCommittedCompletionRequiredLinkedDeviceSessionState,
   computeLinkedDeviceApprovalDigestV1,
   computeLinkedDeviceSessionClaimDigestV1,
   buildLinkedDeviceHolderDeliveryAcknowledgementV1,
@@ -189,6 +190,14 @@ test.describe('R103 shared linked-device contracts', () => {
     });
     expect(parseLinkedDeviceSessionState(active)).toEqual(active);
     expect(parseLinkedDeviceSessionState(cancelled)).toEqual(cancelled);
+    const committed = buildCommittedCompletionRequiredLinkedDeviceSessionState({
+      linkSessionId: fixture.payload.linkSessionId,
+      walletId: fixture.approval.walletId,
+      enrollmentId: fixture.approval.enrollmentId,
+      keyManifestDigestB64u: fixture.receipt.manifestDigestB64u,
+      transcriptSetDigestB64u: fixture.receipt.aggregateReceiptDigestB64u,
+    });
+    expect(parseLinkedDeviceSessionState(committed)).toEqual(committed);
     expect(() =>
       parseLinkedDeviceSessionState({ ...cancelled, walletId: fixture.approval.walletId }),
     ).toThrow(/walletId/);

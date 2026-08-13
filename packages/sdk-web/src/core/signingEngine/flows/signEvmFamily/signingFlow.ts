@@ -12,7 +12,10 @@ import type {
   SignatureBytes,
 } from '@/core/signingEngine/interfaces/signing';
 import type { TxDisplayModel } from '@/core/signingEngine/interfaces/display';
-import { isWarmSessionSigningAuthPlan } from '@/core/signingEngine/stepUpConfirmation/types';
+import {
+  isWarmSessionSigningAuthPlan,
+  type SigningAuthPlan,
+} from '@/core/signingEngine/stepUpConfirmation/types';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { ManagedNonceReservation } from '@/core/rpcClients/evm/nonceBackend';
 import { toManagedNonceReservationSnapshot } from '@/core/rpcClients/evm/nonceBackend';
@@ -298,6 +301,25 @@ export type EvmFamilyUiConfirmFlowConfig<TRequest, TResult extends object> = {
   webauthn: EvmFamilySigningWebAuthnMode<TRequest>;
 };
 
+export type OwnerEvmFamilySigningAuthorization = {
+  readonly kind: 'owner';
+};
+
+export type LinkedDeviceEvmFamilySigningAuthorization = {
+  readonly kind: 'linked_device';
+  readonly confirmationAuthPlan: Extract<SigningAuthPlan, { kind: 'warmSession' }>;
+  readonly sign: (input: {
+    readonly requestId: string;
+    readonly operationId: string;
+    readonly operationDigests: OperationDigestSet;
+    readonly signingDigest32: Uint8Array;
+  }) => Promise<Uint8Array>;
+};
+
+export type EvmFamilySigningAuthorization =
+  | OwnerEvmFamilySigningAuthorization
+  | LinkedDeviceEvmFamilySigningAuthorization;
+
 export type SignEvmFamilyWithUiConfirmArgs<TRequest> = {
   ctx: UiConfirmContext;
   touchConfirm: UiConfirmSigningPort & UiConfirmRequestConfirmationPort;
@@ -319,7 +341,41 @@ export type SignEvmFamilyWithUiConfirmArgs<TRequest> = {
   releaseNonceReservation?: (reservation: ManagedNonceReservation) => void | Promise<void>;
   onConfirmationDisplayed?: () => void;
   thresholdEcdsaStepUp: EvmFamilyThresholdEcdsaStepUp;
+  authorization: EvmFamilySigningAuthorization;
 };
+
+function assertNeverEvmFamilySigningAuthorization(value: never): never {
+  throw new Error(`[chains] unsupported EVM-family signing authorization: ${String(value)}`);
+}
+
+async function resolvePreparedEvmFamilyAuthorization(input: {
+  readonly authorization: EvmFamilySigningAuthorization;
+  readonly thresholdEcdsaStepUp: EvmFamilyThresholdEcdsaStepUp;
+  readonly hasThresholdEcdsaRequest: boolean;
+  readonly needsWebAuthn: boolean;
+  readonly requiredSignatureUses: number;
+  readonly explicitAuthErrorLabel: 'EVM' | 'Tempo';
+}): Promise<EvmFamilyPreparedStepUpAuth> {
+  switch (input.authorization.kind) {
+    case 'linked_device':
+      return {
+        kind: 'warm_session',
+        confirmationAuthPayload: {
+          signingAuthPlan: input.authorization.confirmationAuthPlan,
+        },
+      };
+    case 'owner':
+      return await requireEvmFamilyStepUpAuth({
+        thresholdEcdsaStepUp: input.thresholdEcdsaStepUp,
+        hasThresholdEcdsaRequest: input.hasThresholdEcdsaRequest,
+        needsWebAuthn: input.needsWebAuthn,
+        requiredSignatureUses: input.requiredSignatureUses,
+        explicitAuthErrorLabel: input.explicitAuthErrorLabel,
+      });
+    default:
+      return assertNeverEvmFamilySigningAuthorization(input.authorization);
+  }
+}
 
 export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends object>(args: {
   config: EvmFamilyUiConfirmFlowConfig<TRequest & { senderSignatureAlgorithm: string }, TResult>;
@@ -334,7 +390,16 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
     thresholdEcdsaStepUp.kind === 'not_required' ? undefined : thresholdEcdsaStepUp.runtime;
   const signingAuthPlan = signingAuthPlanFromThresholdEcdsaStepUp(thresholdEcdsaStepUp);
   if (hasThresholdEcdsaRequest && !signingAuthPlan) {
-    throw new Error('[chains] threshold ECDSA transaction signing requires an explicit auth plan');
+    switch (input.authorization.kind) {
+      case 'owner':
+        throw new Error(
+          '[chains] threshold ECDSA transaction signing requires an explicit auth plan',
+        );
+      case 'linked_device':
+        break;
+      default:
+        assertNeverEvmFamilySigningAuthorization(input.authorization);
+    }
   }
   const authMethod = signingAuthPlan
     ? resolveSigningConfirmationAuthMethod(signingAuthPlan)
@@ -629,7 +694,8 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
       interaction: { kind: 'transaction_confirmation', overlay: 'show' },
     });
     input.onConfirmationDisplayed?.();
-    const stepUp = await requireEvmFamilyStepUpAuth({
+    const stepUp = await resolvePreparedEvmFamilyAuthorization({
+      authorization: input.authorization,
       thresholdEcdsaStepUp,
       hasThresholdEcdsaRequest,
       needsWebAuthn,
@@ -696,10 +762,18 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
     });
     confirmation = await runConfirmation();
     notifyAuthSideEffectStarted('auth_confirmed');
-    stepUpAuthorization = buildEvmFamilyEcdsaStepUpAuthorization({
-      prepared: stepUp,
-      confirmation,
-    });
+    switch (input.authorization.kind) {
+      case 'owner':
+        stepUpAuthorization = buildEvmFamilyEcdsaStepUpAuthorization({
+          prepared: stepUp,
+          confirmation,
+        });
+        break;
+      case 'linked_device':
+        break;
+      default:
+        assertNeverEvmFamilySigningAuthorization(input.authorization);
+    }
     emitProgress({
       phase: SigningEventPhase.STEP_05_CONFIRMATION_APPROVED,
       status: 'succeeded',
@@ -717,13 +791,21 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
     if (!preparedStepUpAuth) {
       throw new Error('[chains] signing auth payload is required before threshold admission');
     }
-    if (!stepUpAuthorization) {
-      throw new Error(
-        '[chains] signing step-up authorization is required before threshold admission',
-      );
-    }
-    if (intentHasSecp256k1Request && !activeThresholdEcdsaOperation) {
-      throw new Error('[chains] threshold ECDSA operation must be prepared before signing');
+    switch (input.authorization.kind) {
+      case 'owner':
+        if (!stepUpAuthorization) {
+          throw new Error(
+            '[chains] signing step-up authorization is required before threshold admission',
+          );
+        }
+        if (intentHasSecp256k1Request && !activeThresholdEcdsaOperation) {
+          throw new Error('[chains] threshold ECDSA operation must be prepared before signing');
+        }
+        break;
+      case 'linked_device':
+        break;
+      default:
+        assertNeverEvmFamilySigningAuthorization(input.authorization);
     }
   };
 
@@ -762,6 +844,33 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
           })
         ).keyRef;
       } else if (signReq.algorithm === 'secp256k1') {
+        const operationDigests = await buildEvmFamilyOperationDigests({
+          operationFingerprint: input.signingOperation?.operationFingerprint,
+          signingDigest32: signReq.digest32,
+          displayModel: intentPrepared.displayModel,
+        });
+        switch (input.authorization.kind) {
+          case 'linked_device': {
+            const operationId = input.signingOperation?.operationId;
+            if (!operationId) {
+              throw new Error('[chains] linked-device ECDSA signing requires an operation id');
+            }
+            signatures.push(
+              await input.authorization.sign({
+                requestId: sessionId,
+                operationId: String(operationId),
+                operationDigests,
+                signingDigest32: signReq.digest32,
+              }),
+            );
+            continue;
+          }
+          case 'owner':
+            break;
+          default:
+            assertNeverEvmFamilySigningAuthorization(input.authorization);
+        }
+        const thresholdEcdsaOperation = await getThresholdEcdsaOperation();
         const engine = input.engines.secp256k1;
         if (!engine) {
           throw new Error(`[chains] missing engine for algorithm: ${signReq.algorithm}`);
@@ -769,12 +878,6 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
         if (!isReadySecp256k1Signer(engine)) {
           throw new Error('[chains] secp256k1 signing engine requires ready material support');
         }
-        const thresholdEcdsaOperation = await getThresholdEcdsaOperation();
-        const operationDigests = await buildEvmFamilyOperationDigests({
-          operationFingerprint: input.signingOperation?.operationFingerprint,
-          signingDigest32: signReq.digest32,
-          displayModel: intentPrepared.displayModel,
-        });
         if (!input.runEcdsaMaterialUse) {
           throw new Error('[chains] secp256k1 signing requires exact material serialization');
         }

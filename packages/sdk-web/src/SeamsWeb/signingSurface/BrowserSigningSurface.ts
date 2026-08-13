@@ -342,6 +342,10 @@ import { createBrowserWarmSessionPublicDeps } from '../assembly/createBrowserWar
 import { createWalletHostOwnerAuthoritiesV1 } from '../operations/devices/walletHostOwnerAuthority';
 import type { WalletHostCompositionDependenciesV1 } from '../operations/devices/walletHostComposition';
 import { createWalletHostSourceLanePortsV1 } from '../operations/devices/walletHostSourceLanePorts';
+import {
+  signLinkedDeviceEvmFamilyV1,
+  signLinkedDeviceNearTransactionV1,
+} from '../operations/devices/linkedDeviceSigningRuntime';
 import type {
   LinkSessionOwnerApprovalUpdatesPortV1,
   LinkSessionOwnerAuthenticatedRequestPortV1,
@@ -1741,6 +1745,7 @@ export class BrowserSigningSurface {
   private readonly userPreferencesManager: UserPreferencesManager;
   private readonly nearClient: NearClient;
   private readonly nonceCoordinator: NonceCoordinator;
+  private linkedDeviceAuthenticator: AuthenticatorPort | null = null;
   private workerBaseOrigin: string = '';
   private appearance: AppearanceConfig;
   private readonly thresholdEcdsaBootstrapQueueByWallet: Map<string, Promise<void>> = new Map();
@@ -2847,6 +2852,26 @@ export class BrowserSigningSurface {
     this.applyAuthenticatedWalletState(state);
   }
 
+  setLinkedDeviceWalletSession(
+    state: Extract<WalletAuthenticationState, { kind: 'linked_device_session' }>,
+  ): void {
+    this.walletAuthenticationRestoreGeneration += 1;
+    this.walletAuthenticationRestorationBlocked = true;
+    this.walletAuthenticationState = state;
+    this.userPreferencesManager.setCurrentWallet(state.walletId);
+  }
+
+  clearLinkedDeviceWalletSession(walletId: WalletId): void {
+    if (
+      this.walletAuthenticationState.kind !== 'linked_device_session' ||
+      this.walletAuthenticationState.walletId !== walletId
+    ) {
+      return;
+    }
+    this.walletAuthenticationRestoreGeneration += 1;
+    this.walletAuthenticationState = { kind: 'signed_out' };
+  }
+
   clearWalletAuthentication(): void {
     this.walletAuthenticationRestoreGeneration += 1;
     this.walletAuthenticationRestorationBlocked = true;
@@ -3140,6 +3165,10 @@ export class BrowserSigningSurface {
     return this.nonceCoordinator;
   }
 
+  configureLinkedDeviceSigning(authenticator: AuthenticatorPort): void {
+    this.linkedDeviceAuthenticator = authenticator;
+  }
+
   setAppearance(appearance: AppearanceConfig): void {
     this.appearance = appearance;
   }
@@ -3155,6 +3184,26 @@ export class BrowserSigningSurface {
   async signNear<TRequest extends NearSignIntentRequest>(
     request: TRequest,
   ): Promise<NearSignIntentResult<TRequest>> {
+    const authentication = this.readWalletAuthenticationState();
+    if (
+      request.kind === 'transactionWithActions' &&
+      this.linkedDeviceAuthenticator &&
+      authentication.kind === 'linked_device_session' &&
+      authentication.walletId === request.args.commandSubject.walletSession.walletId
+    ) {
+      const linked = await signLinkedDeviceNearTransactionV1({
+        walletId: toWalletId(request.args.commandSubject.walletSession.walletId),
+        nearAccountId: String(request.args.commandSubject.nearAccount.accountId),
+        transaction: request.args.transaction,
+        authenticator: this.linkedDeviceAuthenticator,
+        relayServerUrl: String(this.seamsWebConfigs.network.relayer?.url || ''),
+        chains: this.seamsWebConfigs.network.chains,
+        nonceCoordinator: this.nonceCoordinator,
+        nearClient: this.nearClient,
+        workerCtx: this.getSignerWorkerContext(),
+      });
+      if (linked) return linked as NearSignIntentResult<TRequest>;
+    }
     return await signNearOperation(this.enginePorts.nearSigningDeps, request);
   }
 
@@ -4398,6 +4447,26 @@ export class BrowserSigningSurface {
     shouldAbort?: () => boolean;
     onEvent?: (event: SigningFlowEvent) => void;
   }): Promise<TempoSignedResult | EvmSignedResult> {
+    const authentication = this.readWalletAuthenticationState();
+    if (
+      this.linkedDeviceAuthenticator &&
+      authentication.kind === 'linked_device_session' &&
+      authentication.walletId === args.walletSession.walletId
+    ) {
+      const linked = await signLinkedDeviceEvmFamilyV1({
+        deps: this.enginePorts.tempoSigningDeps,
+        authenticator: this.linkedDeviceAuthenticator,
+        walletSession: args.walletSession,
+        request: args.request,
+        chainTarget: args.chainTarget,
+        ...(args.confirmationConfigOverride
+          ? { confirmationConfigOverride: args.confirmationConfigOverride }
+          : {}),
+        ...(args.shouldAbort ? { shouldAbort: args.shouldAbort } : {}),
+        ...(args.onEvent ? { onEvent: args.onEvent } : {}),
+      });
+      if (linked) return linked;
+    }
     return await signEvmFamilyOperation(this.enginePorts.tempoSigningDeps, args);
   }
 

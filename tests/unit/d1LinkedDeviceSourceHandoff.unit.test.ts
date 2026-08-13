@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { parseAuthorizedOperationId } from '@shared/authorization/capabilityKinds';
 import {
+  buildLinkedDeviceEnrollmentReceiptV1,
   buildLinkedDeviceTargetCredentialRegistrationV1,
   buildLinkedDeviceTargetPreparationV1,
   parseLinkedDeviceProvisioningDeliveriesV1,
@@ -14,7 +15,10 @@ import {
   parseRotatableSigningLaneJobV1,
 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
 import { computeLaneEnrollmentManifestDigestV1 } from '../../packages/shared-ts/src/signing-lanes/rotationDigests';
-import { computeLinkedDeviceTargetPreparationDigestV1 } from '../../packages/shared-ts/src/device-linking/digests';
+import {
+  computeLinkedDeviceProvisioningDeliveriesDigestV1,
+  computeLinkedDeviceTargetPreparationDigestV1,
+} from '../../packages/shared-ts/src/device-linking/digests';
 import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
@@ -26,6 +30,7 @@ import { buildR102ProtocolCommitReceipt } from './helpers/r102LaneGateway.fixtur
 import { LinkedDeviceSessionServiceV1 } from '../../packages/sdk-server-ts/src/core/deviceLinking/linkedDeviceSession';
 import { D1LinkedDeviceSessionStoreV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceSessionStore';
 import { D1LinkedDeviceSourceHandoffProviderV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceSourceHandoffProvider';
+import { D1LinkedDeviceProvisioningProviderV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceProvisioningProvider';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,
@@ -89,6 +94,14 @@ test('persists exact target-ready input, accepts one delivery submission, and re
       requestedAtMs: 3_000,
     }),
   ).resolves.toEqual(handoff.targetReady);
+  const provisioning = await service.recordTargetCredentialV1({
+    linkSessionId: approval.linkSessionId,
+    expectedRevision: session.revision,
+    keyManifestDigestB64u: handoff.manifestDigestB64u,
+    nowMs: 3_001,
+  });
+  expect(provisioning.outcome).toBe('applied');
+  if (provisioning.outcome !== 'applied') throw new Error('expected provisioning session');
   const submission = {
     kind: 'linked_device_provisioning_deliveries_submission_v1' as const,
     linkSessionId: approval.linkSessionId,
@@ -101,17 +114,31 @@ test('persists exact target-ready input, accepts one delivery submission, and re
   await expect(
     provider.submitPreparedProvisioningDeliveriesV1({
       submission,
-      session,
+      session: provisioning.record,
       approval,
-      requestedAtMs: 3_001,
+      requestedAtMs: 3_002,
     }),
   ).resolves.toEqual(submission);
+  const committed = await store.getSessionV1(approval.linkSessionId);
+  expect(committed?.state).toEqual({
+    state: 'committed_completion_required',
+    linkSessionId: approval.linkSessionId,
+    walletId: approval.walletId,
+    enrollmentId: approval.enrollmentId,
+    keyManifestDigestB64u: handoff.manifestDigestB64u,
+    transcriptSetDigestB64u: await computeLinkedDeviceProvisioningDeliveriesDigestV1(
+      handoff.deliveries,
+    ),
+  });
+  if (!committed || committed.state.state !== 'committed_completion_required') {
+    throw new Error('expected committed session');
+  }
   await expect(
     provider.submitPreparedProvisioningDeliveriesV1({
       submission,
-      session,
+      session: provisioning.record,
       approval,
-      requestedAtMs: 3_002,
+      requestedAtMs: 3_003,
     }),
   ).resolves.toEqual(submission);
   await expect(
@@ -128,9 +155,9 @@ test('persists exact target-ready input, accepts one delivery submission, and re
           ],
         },
       },
-      session,
+      session: provisioning.record,
       approval,
-      requestedAtMs: 3_003,
+      requestedAtMs: 3_004,
     }),
   ).rejects.toThrow(/conflict|differs from target-ready/);
   const command: LinkedDeviceProvisioningCommandV1 = {
@@ -142,33 +169,17 @@ test('persists exact target-ready input, accepts one delivery submission, and re
   await expect(
     provider.prepareProvisioningDeliveriesV1({
       command,
-      session,
+      session: provisioning.record,
       approval,
-      requestedAtMs: 3_004,
+      requestedAtMs: 3_005,
     }),
   ).resolves.toEqual(handoff.deliveries);
   await expect(
     provider.getTargetReadyV1({ session, approval, requestedAtMs: 9_500 }),
   ).rejects.toThrow(/expired|does not match approved session/);
-  const provisioning = await service.recordTargetCredentialV1({
-    linkSessionId: approval.linkSessionId,
-    expectedRevision: session.revision,
-    keyManifestDigestB64u: handoff.manifestDigestB64u,
-    nowMs: 8_000,
-  });
-  expect(provisioning.outcome).toBe('applied');
-  if (provisioning.outcome !== 'applied') throw new Error('expected provisioning session');
-  const committed = await service.markCommittedCompletionRequiredV1({
-    linkSessionId: approval.linkSessionId,
-    expectedRevision: provisioning.record.revision,
-    transcriptSetDigestB64u: fixture.receipt.aggregateReceiptDigestB64u,
-    nowMs: 8_001,
-  });
-  expect(committed.outcome).toBe('applied');
-  if (committed.outcome !== 'applied') throw new Error('expected committed session');
   await expect(
     provider.getTargetReadyV1({
-      session: committed.record,
+      session: committed,
       approval,
       requestedAtMs: 9_500,
     }),
@@ -176,11 +187,138 @@ test('persists exact target-ready input, accepts one delivery submission, and re
   await expect(
     provider.prepareProvisioningDeliveriesV1({
       command,
-      session: committed.record,
+      session: committed,
       approval,
       requestedAtMs: 9_500,
     }),
   ).resolves.toEqual(handoff.deliveries);
+});
+
+test('delivery submission replay heals a persisted-output crash gap', async () => {
+  const scenario = await createProvisioningHandoffScenario();
+  const deliveriesDigestB64u = await persistPreparedDeliveriesCrashGap(
+    temporaryDatabase(),
+    scenario.handoff,
+    3_010,
+  );
+
+  expect((await scenario.store.getSessionV1(scenario.approval.linkSessionId))?.state.state).toBe(
+    'provisioning',
+  );
+  await expect(
+    scenario.sourceHandoff.submitPreparedProvisioningDeliveriesV1({
+      submission: scenario.submission,
+      session: scenario.provisioningSession,
+      approval: scenario.approval,
+      requestedAtMs: 3_011,
+    }),
+  ).resolves.toEqual(scenario.submission);
+  await expectCommittedDigest(scenario.store, scenario.approval.linkSessionId, deliveriesDigestB64u);
+});
+
+test('provision replay heals a persisted-output crash gap', async () => {
+  const scenario = await createProvisioningHandoffScenario();
+  const deliveriesDigestB64u = await persistPreparedDeliveriesCrashGap(
+    temporaryDatabase(),
+    scenario.handoff,
+    3_010,
+  );
+  const provisioning = createProvisioningProvider(scenario);
+
+  await expect(
+    provisioning.provisionLinkedDeviceV1({
+      command: scenario.command,
+      session: scenario.provisioningSession,
+      approval: scenario.approval,
+      requestedAtMs: 3_011,
+    }),
+  ).resolves.toEqual(scenario.handoff.deliveries);
+  await expectCommittedDigest(scenario.store, scenario.approval.linkSessionId, deliveriesDigestB64u);
+});
+
+test('holder delivery heals a persisted-output crash gap', async () => {
+  const scenario = await createProvisioningHandoffScenario();
+  const provisioning = createProvisioningProvider(scenario);
+  await persistProvisioningReplayCrashGap(temporaryDatabase(), scenario, 3_010);
+  const deliveriesDigestB64u = await persistPreparedDeliveriesCrashGap(
+    temporaryDatabase(),
+    scenario.handoff,
+    3_011,
+  );
+
+  await expect(
+    provisioning.recordHolderDeliveriesV1({
+      acknowledgement: scenario.provisioningFixture.acknowledgement,
+      session: scenario.provisioningSession,
+      approval: scenario.approval,
+      requestedAtMs: 3_012,
+    }),
+  ).resolves.toEqual(scenario.receipt);
+  await expectCommittedDigest(scenario.store, scenario.approval.linkSessionId, deliveriesDigestB64u);
+});
+
+test('cancellation heals a persisted-output crash gap and preserves committed recovery', async () => {
+  const scenario = await createProvisioningHandoffScenario();
+  const deliveriesDigestB64u = await persistPreparedDeliveriesCrashGap(
+    temporaryDatabase(),
+    scenario.handoff,
+    3_010,
+  );
+
+  await expect(
+    scenario.service.cancelSessionV1({
+      linkSessionId: scenario.approval.linkSessionId,
+      expectedRevision: scenario.provisioningSession.revision,
+      nowMs: 3_011,
+    }),
+  ).resolves.toMatchObject({
+    outcome: 'invalid_state',
+    state: 'committed_completion_required',
+  });
+  await expectCommittedDigest(scenario.store, scenario.approval.linkSessionId, deliveriesDigestB64u);
+});
+
+test('expiry heals a persisted-output crash gap and preserves committed recovery', async () => {
+  const scenario = await createProvisioningHandoffScenario();
+  const deliveriesDigestB64u = await persistPreparedDeliveriesCrashGap(
+    temporaryDatabase(),
+    scenario.handoff,
+    3_010,
+  );
+
+  await expect(
+    scenario.service.expireSessionV1({
+      linkSessionId: scenario.approval.linkSessionId,
+      expectedRevision: scenario.provisioningSession.revision,
+      nowMs: 10_000,
+    }),
+  ).resolves.toMatchObject({
+    outcome: 'invalid_state',
+    state: 'committed_completion_required',
+  });
+  await expectCommittedDigest(scenario.store, scenario.approval.linkSessionId, deliveriesDigestB64u);
+});
+
+test('delivery replay rejects a parent commitment digest mismatch', async () => {
+  const scenario = await createProvisioningHandoffScenario();
+  const wrongCommit = await scenario.service.markCommittedCompletionRequiredV1({
+    linkSessionId: scenario.approval.linkSessionId,
+    expectedRevision: scenario.provisioningSession.revision,
+    transcriptSetDigestB64u: scenario.fixture.receipt.aggregateReceiptDigestB64u,
+    nowMs: 3_010,
+  });
+  expect(wrongCommit.outcome).toBe('applied');
+  if (wrongCommit.outcome !== 'applied') throw new Error('expected mismatched committed fixture');
+  await persistPreparedDeliveriesCrashGap(temporaryDatabase(), scenario.handoff, 3_011);
+
+  await expect(
+    scenario.sourceHandoff.submitPreparedProvisioningDeliveriesV1({
+      submission: scenario.submission,
+      session: wrongCommit.record,
+      approval: scenario.approval,
+      requestedAtMs: 3_012,
+    }),
+  ).rejects.toThrow('committed linked-device output digest changed');
 });
 
 test('waits for deliveries submitted after provisioning preparation starts', async () => {
@@ -254,6 +392,183 @@ test('waits for deliveries submitted after provisioning preparation starts', asy
   ).resolves.toEqual(submission);
   await expect(preparing).resolves.toEqual(handoff.deliveries);
 });
+
+async function createProvisioningHandoffScenario() {
+  temporary = createTemporaryD1Database();
+  await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+  const fixture = buildR103DeviceLinkFixture();
+  const approval = { ...fixture.approval, expiresAtMs: 9_000 };
+  const store = new D1LinkedDeviceSessionStoreV1({ database: temporary.database, scope });
+  const service = new LinkedDeviceSessionServiceV1({
+    store,
+    authorization: ownerAuthorization(),
+    aggregateActivationVerifier: {
+      verifyAggregateActivationV1: async () => ({ kind: 'verified' as const }),
+    },
+  });
+  await service.createUnclaimedSessionV1({ payload: fixture.payload, nowMs: 3_000 });
+  await service.claimSessionV1({ payload: fixture.claimRequest.payload, nowMs: 3_001 });
+  const approved = await service.recordOwnerApprovalV1({ approval, nowMs: 3_002 });
+  if (approved.outcome !== 'applied') throw new Error('expected approved session');
+  const handoff = await buildSourceHandoffFixture(approval);
+  await persistRegisteredTargetCredential(temporary.database, handoff);
+  const sourceHandoff = new D1LinkedDeviceSourceHandoffProviderV1({
+    database: temporary.database,
+    scope,
+  });
+  await sourceHandoff.persistTargetReadyV1({
+    targetReady: handoff.targetReady,
+    session: approved.record,
+    approval,
+    requestedAtMs: 3_003,
+  });
+  const provisioning = await service.recordTargetCredentialV1({
+    linkSessionId: approval.linkSessionId,
+    expectedRevision: approved.record.revision,
+    keyManifestDigestB64u: handoff.manifestDigestB64u,
+    nowMs: 3_004,
+  });
+  if (provisioning.outcome !== 'applied') throw new Error('expected provisioning session');
+  const provisioningFixture = buildR103ProvisioningFixture({ ...fixture, approval });
+  const receipt = buildLinkedDeviceEnrollmentReceiptV1({
+    enrollmentId: approval.enrollmentId,
+    walletId: approval.walletId,
+    deviceId: approval.deviceId,
+    manifestDigestB64u: handoff.manifestDigestB64u,
+    aggregateReceiptDigestB64u: fixture.receipt.aggregateReceiptDigestB64u,
+    orderedChildReceipts: fixture.receipt.orderedChildReceipts,
+    activatedAtMs: 3_012,
+  });
+  return {
+    fixture,
+    approval,
+    handoff,
+    store,
+    service,
+    sourceHandoff,
+    provisioningSession: provisioning.record,
+    provisioningFixture,
+    receipt,
+    submission: {
+      kind: 'linked_device_provisioning_deliveries_submission_v1' as const,
+      linkSessionId: approval.linkSessionId,
+      walletId: approval.walletId,
+      enrollmentId: approval.enrollmentId,
+      deviceId: approval.deviceId,
+      manifestDigestB64u: handoff.manifestDigestB64u,
+      deliveries: handoff.deliveries,
+    },
+    command: {
+      kind: 'linked_device_provisioning_command_v1' as const,
+      linkSessionId: approval.linkSessionId,
+      enrollmentId: approval.enrollmentId,
+      deviceId: approval.deviceId,
+    },
+  };
+}
+
+type ProvisioningHandoffScenario = Awaited<ReturnType<typeof createProvisioningHandoffScenario>>;
+
+class ScenarioProvisioningExecution {
+  constructor(private readonly scenario: ProvisioningHandoffScenario) {}
+
+  async prepareProvisioningDeliveriesV1() {
+    return this.scenario.handoff.deliveries;
+  }
+
+  async recordHolderDeliveriesAndActivateV1() {
+    return this.scenario.receipt;
+  }
+}
+
+function createProvisioningProvider(
+  scenario: ProvisioningHandoffScenario,
+): D1LinkedDeviceProvisioningProviderV1 {
+  return new D1LinkedDeviceProvisioningProviderV1({
+    database: temporaryDatabase(),
+    scope,
+    execution: new ScenarioProvisioningExecution(scenario),
+  });
+}
+
+async function persistPreparedDeliveriesCrashGap(
+  database: TemporaryD1Database['database'],
+  handoff: Awaited<ReturnType<typeof buildSourceHandoffFixture>>,
+  requestedAtMs: number,
+) {
+  const deliveriesDigestB64u = await computeLinkedDeviceProvisioningDeliveriesDigestV1(
+    handoff.deliveries,
+  );
+  await database
+    .prepare(
+      `UPDATE linked_device_source_handoffs
+          SET deliveries_json = ?, deliveries_digest_b64u = ?, updated_at_ms = ?
+        WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+          AND link_session_id = ?`,
+    )
+    .bind(
+      JSON.stringify(handoff.deliveries),
+      deliveriesDigestB64u,
+      requestedAtMs,
+      scope.namespace,
+      scope.orgId,
+      scope.projectId,
+      scope.envId,
+      String(handoff.targetReady.linkSessionId),
+    )
+    .run();
+  return deliveriesDigestB64u;
+}
+
+async function persistProvisioningReplayCrashGap(
+  database: TemporaryD1Database['database'],
+  scenario: ProvisioningHandoffScenario,
+  requestedAtMs: number,
+): Promise<void> {
+  await database
+    .prepare(
+      `INSERT INTO linked_device_provisioning_records (
+         namespace, org_id, project_id, env_id, link_session_id,
+         enrollment_id, wallet_id, device_id, manifest_digest_b64u,
+         deliveries_json, created_at_ms, updated_at_ms
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      scope.namespace,
+      scope.orgId,
+      scope.projectId,
+      scope.envId,
+      String(scenario.approval.linkSessionId),
+      String(scenario.approval.enrollmentId),
+      String(scenario.approval.walletId),
+      String(scenario.approval.deviceId),
+      scenario.handoff.manifestDigestB64u,
+      JSON.stringify(scenario.handoff.deliveries),
+      requestedAtMs,
+      requestedAtMs,
+    )
+    .run();
+}
+
+async function expectCommittedDigest(
+  store: D1LinkedDeviceSessionStoreV1,
+  linkSessionId: LinkedDeviceApprovalV1['linkSessionId'],
+  deliveriesDigestB64u: Awaited<
+    ReturnType<typeof computeLinkedDeviceProvisioningDeliveriesDigestV1>
+  >,
+): Promise<void> {
+  await expect(store.getSessionV1(linkSessionId)).resolves.toMatchObject({
+    state: {
+      state: 'committed_completion_required',
+      transcriptSetDigestB64u: deliveriesDigestB64u,
+    },
+  });
+}
+
+function temporaryDatabase(): TemporaryD1Database['database'] {
+  if (!temporary) throw new Error('temporary D1 database is unavailable');
+  return temporary.database;
+}
 
 async function waitForTestDelay(delayMs: number): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, delayMs));

@@ -28,7 +28,6 @@ CREATE TABLE IF NOT EXISTS linked_device_sessions (
     'claimed_by_owner',
     'awaiting_target_passkey',
     'provisioning',
-    'awaiting_aggregate_receipt',
     'active',
     'expired_unclaimed',
     'expired_claimed',

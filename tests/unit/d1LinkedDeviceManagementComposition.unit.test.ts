@@ -270,6 +270,7 @@ test('management composition uses the authenticated owner context', async () => 
       prepareLinkedDeviceRevocationV1: async () => ({ kind: 'conflict' as const }),
     },
     aggregateRevocation: {
+      fenceLaneEnrollmentV1: async () => ({ kind: 'conflict' as const }),
       revokeLaneEnrollmentV1: async () => {
         throw new Error('aggregate mutation should not run');
       },

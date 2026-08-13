@@ -51,7 +51,10 @@ class LinkedSigningTransportFixture implements LinkedDeviceEd25519NormalSigningT
         authorized_operation_id: `linked-ed25519-authorized-operation:${input.request.scope.request_id}`,
         operation_id: input.request.intent.operation_id,
         capability_kind: 'near_ed25519_mpc_signing',
-        operation_kind: 'near.sign_nep413_message',
+        operation_kind:
+          input.request.intent.kind === 'near_transaction_v1'
+            ? 'near.sign_transaction'
+            : 'near.sign_nep413_message',
         lane_digest_b64u: DIGEST,
         intent_digest_b64u: intentDigestB64u,
         display_digest_b64u: DIGEST,
@@ -184,12 +187,13 @@ async function linkedSigningFixture() {
   };
 }
 
-function linkedRequest(input: { readonly issuedAtMs: number; readonly expiresAtMs: number }) {
+function linkedRequest(expiresAtMs: number) {
   return {
+    kind: 'nep413' as const,
     requestId: 'request:test',
     operationId: SigningSessionIds.signingOperation('operation:test'),
     operationFingerprint: SigningSessionIds.signingOperationFingerprint(`sha256:${DIGEST}`),
-    expiresAtMs: input.expiresAtMs,
+    expiresAtMs,
     displayDigestB64u: DIGEST,
     nearAccountId: 'alice.testnet',
     nearNetworkId: 'testnet' as const,
@@ -198,6 +202,27 @@ function linkedRequest(input: { readonly issuedAtMs: number; readonly expiresAtM
     nonce: 'QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE',
     callbackUrl: 'https://wallet.example/callback',
     expectedSigningDigestB64u: SIGNING_DIGEST,
+  };
+}
+
+async function linkedNearTransactionRequest(input: { readonly expiresAtMs: number }) {
+  const unsignedTransactionBorsh = new Uint8Array([1, 2, 3]);
+  return {
+    kind: 'near_transaction' as const,
+    requestId: 'request:near-transaction',
+    operationId: SigningSessionIds.signingOperation('operation:near-transaction'),
+    operationFingerprint: SigningSessionIds.signingOperationFingerprint(`sha256:${DIGEST}`),
+    expiresAtMs: input.expiresAtMs,
+    displayDigestB64u: DIGEST,
+    nearAccountId: 'alice.testnet',
+    nearNetworkId: 'testnet' as const,
+    transactions: [{ receiverId: 'receiver.testnet', actionFingerprint: DIGEST }],
+    unsignedTransactionBorshB64u: base64UrlEncode(unsignedTransactionBorsh),
+    expectedSigningDigestB64u: parseDigestB64u(
+      base64UrlEncode(
+        new Uint8Array(await crypto.subtle.digest('SHA-256', unsignedTransactionBorsh)),
+      ),
+    ),
   };
 }
 
@@ -211,10 +236,7 @@ test('signs one linked Ed25519 operation with exact presence and holder cleanup'
     child: fixture.child,
     walletSession: fixture.walletSession,
     issuedAtMs: fixture.bundle.issuedAtMs,
-    request: linkedRequest({
-      issuedAtMs: fixture.bundle.issuedAtMs,
-      expiresAtMs: fixture.bundle.issuedAtMs + 500,
-    }),
+    request: linkedRequest(fixture.bundle.issuedAtMs + 500),
     transport,
   });
 
@@ -224,6 +246,7 @@ test('signs one linked Ed25519 operation with exact presence and holder cleanup'
   expect(transport.prepareRequest?.linkedDeviceExecution.enrollmentId).toBe(
     fixture.bundle.enrollmentId,
   );
+  expect(transport.prepareRequest?.intent.kind).toBe('nep413_v1');
   expect(transport.finalizeRequest?.localPresenceAssertion).toEqual(
     transport.prepareRequest?.localPresenceAssertion,
   );
@@ -245,12 +268,30 @@ test('rejects a Wallet Session delivery from another linked device before presen
       child: fixture.child,
       walletSession,
       issuedAtMs: fixture.bundle.issuedAtMs,
-      request: linkedRequest({
-        issuedAtMs: fixture.bundle.issuedAtMs,
-        expiresAtMs: fixture.bundle.issuedAtMs + 500,
-      }),
+      request: linkedRequest(fixture.bundle.issuedAtMs + 500),
       transport: new LinkedSigningTransportFixture(),
     }),
   ).rejects.toThrow('Wallet Session token does not match');
   expect(fixture.state).toEqual({ authentications: 0, shares: 0, discards: 0 });
+});
+
+test('dispatches the linked NEAR transaction discriminator to the transaction request', async () => {
+  const fixture = await linkedSigningFixture();
+  const transport = new LinkedSigningTransportFixture();
+
+  await executeLinkedDeviceEd25519NormalSigningV1({
+    relayServerUrl: 'https://router.example',
+    ...fixture.dependencies,
+    bundle: fixture.bundle,
+    child: fixture.child,
+    walletSession: fixture.walletSession,
+    issuedAtMs: fixture.bundle.issuedAtMs,
+    request: await linkedNearTransactionRequest({
+      expiresAtMs: fixture.bundle.issuedAtMs + 500,
+    }),
+    transport,
+  });
+
+  expect(transport.prepareRequest?.intent.kind).toBe('near_transaction_v1');
+  expect(fixture.state).toEqual({ authentications: 1, shares: 1, discards: 1 });
 });

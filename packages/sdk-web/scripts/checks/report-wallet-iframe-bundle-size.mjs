@@ -40,7 +40,7 @@ Budget keys:
   walletHostGzip, walletHostBootPathGzip, walletHostStaticImportsGzip
   workerAndWasmGzip, ecdsaWasmGzip, nearWasmGzip, tempoWasmGzip
   ecdsaRegistrationPathGzip, registrationWasmGzip, derivationWasmGzip
-  presignWasmGzip, onlineWasmGzip, ed25519YaoClientWasmGzip
+  ed25519YaoClientWasmGzip
 `.trim(),
   );
   process.exit(0);
@@ -232,16 +232,10 @@ const workerTargets = [
     'dist/workers/ecdsa-presign-client.worker.js',
   ],
   [
-    'presignWasm',
-    'ECDSA presign client WASM',
-    'dist/workers/router_ab_ecdsa_presign_client_bg.wasm',
-  ],
-  [
     'ecdsaOnlineClientWorker',
     'ECDSA online client worker',
     'dist/workers/ecdsa-online-client.worker.js',
   ],
-  ['onlineWasm', 'ECDSA online client WASM', 'dist/workers/router_ab_ecdsa_online_client_bg.wasm'],
   [
     'ed25519YaoClientWasm',
     'Ed25519 Yao client WASM',
@@ -299,8 +293,6 @@ for (const row of workerRows) {
   if (row.id === 'tempoWasm') metrics.tempoWasmGzip = row.gzip;
   if (row.id === 'registrationWasm') metrics.registrationWasmGzip = row.gzip;
   if (row.id === 'derivationWasm') metrics.derivationWasmGzip = row.gzip;
-  if (row.id === 'presignWasm') metrics.presignWasmGzip = row.gzip;
-  if (row.id === 'onlineWasm') metrics.onlineWasmGzip = row.gzip;
   if (row.id === 'ed25519YaoClientWasm') metrics.ed25519YaoClientWasmGzip = row.gzip;
 }
 

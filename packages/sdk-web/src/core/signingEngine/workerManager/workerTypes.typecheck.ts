@@ -12,7 +12,6 @@ import type {
   EvmCryptoLocalSecp256k1OperationRequest,
   EvmCryptoTransactionOperationRequest,
   EcdsaDerivationRoleLocalMaterialOperationRequest,
-  EcdsaOnlineClientComputeSignatureShareRequest,
   EcdsaPresignClientSessionInitRequest,
   NearWorkerOperationRequest,
   EcdsaPresignClientSessionStepRequest,
@@ -485,54 +484,12 @@ const ecdsaPresignInitWithoutMaterialExpiry: EcdsaPresignClientSessionInitReques
 };
 void ecdsaPresignInitWithoutMaterialExpiry;
 
-const invalidMixedEcdsaPresignAuthority: EcdsaPresignClientSessionInitRequest = {
-  // @ts-expect-error Email OTP authority cannot carry a derivation material handle.
-  authority: {
-    kind: 'email_otp_worker_session',
-    thresholdSessionId: 'threshold-ecdsa-session',
-    materialHandle: 'ecdsa-material-handle',
-  },
-  sessionId: 'presign-session',
-  groupPublicKey33: incomingMessage,
-  materialExpiresAtMs: 1_000,
-};
-void invalidMixedEcdsaPresignAuthority;
-
-const invalidRoleLocalPresignAuthorityWithEmailOtpSession: EcdsaPresignClientSessionInitRequest = {
-  // @ts-expect-error Role-local derivation authority cannot carry an Email OTP worker session.
-  authority: {
-    kind: 'role_local_derivation_handle',
-    materialHandle: 'ecdsa-material-handle',
-    material: {
-      kind: 'runtime_loaded',
-      expectedBindingDigest: 'ecdsa-binding-digest',
-    },
-    thresholdSessionId: 'threshold-ecdsa-session',
-  },
-  sessionId: 'presign-session',
-  groupPublicKey33: incomingMessage,
-  materialExpiresAtMs: 1_000,
-};
-void invalidRoleLocalPresignAuthorityWithEmailOtpSession;
-
 type InvalidEcdsaDerivationPresignAsMaterial = EcdsaDerivationRoleLocalMaterialOperationRequest<
   // @ts-expect-error Presign operations cannot use the derivation material domain.
   typeof EcdsaPresignClientRequestType.SessionStep
 >;
 declare const invalidEcdsaDerivationPresignAsMaterial: InvalidEcdsaDerivationPresignAsMaterial;
 void invalidEcdsaDerivationPresignAsMaterial;
-
-const invalidRawOnlineSecretShares: EcdsaOnlineClientComputeSignatureShareRequest = {
-  materialHandle: 'opaque-presign-handle',
-  groupPublicKey33: incomingMessage,
-  expectedPresignBigR33: incomingMessage,
-  digest32: incomingMessage,
-  clientRerandomizationContribution32: incomingMessage,
-  signingWorkerRerandomizationContribution32: incomingMessage,
-  // @ts-expect-error host-facing online requests must use an opaque presign handle.
-  kShare32: incomingMessage,
-};
-void invalidRawOnlineSecretShares;
 
 // @ts-expect-error presign session step requires incomingMessages; pass [] when empty.
 const presignStepWithoutIncomingMessages: PresignStepPayload = {

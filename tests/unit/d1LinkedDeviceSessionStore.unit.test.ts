@@ -4,10 +4,7 @@ import {
   parseLinkedDeviceId,
   parseLinkDeviceSessionId,
 } from '@shared/signing-lanes';
-import {
-  buildAwaitingAggregateReceiptLinkedDeviceSessionState,
-  buildLinkedDeviceEnrollmentReceiptV1,
-} from '@shared/device-linking/parsers';
+import { buildLinkedDeviceEnrollmentReceiptV1 } from '@shared/device-linking/parsers';
 import { parseWalletId } from '@shared/utils/domainIds';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
@@ -99,7 +96,7 @@ test('expires an unclaimed session through the read projection and preserves ter
   expect(expired?.state).not.toHaveProperty('walletId');
 });
 
-test('records owner approval exactly once, rejects a conflicting transcript, and cancels before commit', async () => {
+test('records owner approval exactly once, rejects a conflicting transcript, and cancels provisioning before commit', async () => {
   temporary = createTemporaryD1Database();
   await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
   const fixture = buildR103DeviceLinkFixture();
@@ -124,10 +121,18 @@ test('records owner approval exactly once, rejects a conflicting transcript, and
     nowMs: 3_002,
   });
   expect(conflicting.outcome).toBe('conflict');
-  const cancelled = await service.cancelSessionV1({
+  const provisioning = await service.recordTargetCredentialV1({
     linkSessionId: fixture.payload.linkSessionId,
     expectedRevision: approved.record.revision,
+    keyManifestDigestB64u: fixture.receipt.manifestDigestB64u,
     nowMs: 3_003,
+  });
+  expect(provisioning.outcome).toBe('applied');
+  if (provisioning.outcome !== 'applied') throw new Error('expected provisioning');
+  const cancelled = await service.cancelSessionV1({
+    linkSessionId: fixture.payload.linkSessionId,
+    expectedRevision: provisioning.record.revision,
+    nowMs: 3_004,
   });
   expect(cancelled.outcome).toBe('applied');
   if (cancelled.outcome !== 'applied') throw new Error('expected cancellation');
@@ -135,12 +140,12 @@ test('records owner approval exactly once, rejects a conflicting transcript, and
   const cancelReplay = await service.cancelSessionV1({
     linkSessionId: fixture.payload.linkSessionId,
     expectedRevision: cancelled.record.revision,
-    nowMs: 3_003,
+    nowMs: 3_004,
   });
   expect(cancelReplay.outcome).toBe('replayed');
 });
 
-test('refuses postcommit cancellation, records completion-required state, and replays aggregate activation', async () => {
+test('keeps committed sessions resumable after cancellation and expiry, then replays activation', async () => {
   temporary = createTemporaryD1Database();
   await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
   const fixture = buildR103DeviceLinkFixture();
@@ -156,28 +161,17 @@ test('refuses postcommit cancellation, records completion-required state, and re
   const approved = await service.recordOwnerApprovalV1({ approval, nowMs: 3_002 });
   expect(approved.outcome).toBe('applied');
   if (approved.outcome !== 'applied') throw new Error('expected approval');
-  const provisioning = parseLinkedDeviceSessionRecordV1({
-    ...approved.record,
-    state: {
-      state: 'provisioning',
-      linkSessionId: fixture.payload.linkSessionId,
-      walletId: approved.record.state.walletId,
-      enrollmentId: approved.record.state.enrollmentId,
-      keyManifestDigestB64u: fixture.approval.policyDigestB64u,
-    },
-    revision: approved.record.revision + 1,
-    updatedAtMs: 3_003,
-  });
-  await overwriteRecord(provisioning);
-  const cancelled = await service.cancelSessionV1({
+  const provisioning = await service.recordTargetCredentialV1({
     linkSessionId: fixture.payload.linkSessionId,
-    expectedRevision: provisioning.revision,
-    nowMs: 3_004,
+    expectedRevision: approved.record.revision,
+    keyManifestDigestB64u: fixture.receipt.manifestDigestB64u,
+    nowMs: 3_003,
   });
-  expect(cancelled.outcome).toBe('invalid_state');
+  expect(provisioning.outcome).toBe('applied');
+  if (provisioning.outcome !== 'applied') throw new Error('expected provisioning');
   const committed = await service.markCommittedCompletionRequiredV1({
     linkSessionId: fixture.payload.linkSessionId,
-    expectedRevision: provisioning.revision,
+    expectedRevision: provisioning.record.revision,
     transcriptSetDigestB64u: fixture.approval.policyDigestB64u,
     nowMs: 3_004,
   });
@@ -190,23 +184,20 @@ test('refuses postcommit cancellation, records completion-required state, and re
     nowMs: 3_004,
   });
   expect(committedReplay.outcome).toBe('replayed');
-
-  const awaitingReceipt = parseLinkedDeviceSessionRecordV1({
-    ...committed.record,
-    state: {
-      state: 'awaiting_aggregate_receipt',
-      linkSessionId: fixture.payload.linkSessionId,
-      walletId: committed.record.state.walletId,
-      enrollmentId: committed.record.state.enrollmentId,
-      keyManifestDigestB64u: fixture.approval.policyDigestB64u,
-    },
-    revision: committed.record.revision + 1,
-    updatedAtMs: 3_005,
+  const postcommitCancel = await service.cancelSessionV1({
+    linkSessionId: fixture.payload.linkSessionId,
+    expectedRevision: committed.record.revision,
+    nowMs: 3_005,
   });
-  await overwriteRecord(awaitingReceipt);
+  expect(postcommitCancel.outcome).toBe('invalid_state');
+  const postcommitExpiry = await service.getSessionV1({
+    linkSessionId: fixture.payload.linkSessionId,
+    nowMs: 9_001,
+  });
+  expect(postcommitExpiry?.state.state).toBe('committed_completion_required');
   const activated = await service.recordAggregateActivationV1({
     linkSessionId: fixture.payload.linkSessionId,
-    expectedRevision: awaitingReceipt.revision,
+    expectedRevision: committed.record.revision,
     receipt: fixture.receipt,
     nowMs: 3_006,
   });
@@ -219,12 +210,6 @@ test('refuses postcommit cancellation, records completion-required state, and re
     nowMs: 3_006,
   });
   expect(activationReplay.outcome).toBe('replayed');
-  const postcommitCancel = await service.cancelSessionV1({
-    linkSessionId: fixture.payload.linkSessionId,
-    expectedRevision: activated.record.revision,
-    nowMs: 3_007,
-  });
-  expect(postcommitCancel.outcome).toBe('invalid_state');
 });
 
 test('rejects aggregate activation unless the approved manifest and child set match exactly', async () => {
@@ -243,18 +228,22 @@ test('rejects aggregate activation unless the approved manifest and child set ma
   const approved = await service.recordOwnerApprovalV1({ approval, nowMs: 3_002 });
   expect(approved.outcome).toBe('applied');
   if (approved.outcome !== 'applied') throw new Error('expected approval');
-  const awaitingReceipt = parseLinkedDeviceSessionRecordV1({
-    ...approved.record,
-    state: buildAwaitingAggregateReceiptLinkedDeviceSessionState({
-      linkSessionId: fixture.payload.linkSessionId,
-      walletId: approved.record.state.walletId,
-      enrollmentId: approved.record.state.enrollmentId,
-      keyManifestDigestB64u: fixture.approval.policyDigestB64u,
-    }),
-    revision: approved.record.revision + 1,
-    updatedAtMs: 3_003,
+  const provisioning = await service.recordTargetCredentialV1({
+    linkSessionId: fixture.payload.linkSessionId,
+    expectedRevision: approved.record.revision,
+    keyManifestDigestB64u: fixture.receipt.manifestDigestB64u,
+    nowMs: 3_003,
   });
-  await overwriteRecord(awaitingReceipt);
+  expect(provisioning.outcome).toBe('applied');
+  if (provisioning.outcome !== 'applied') throw new Error('expected provisioning');
+  const committed = await service.markCommittedCompletionRequiredV1({
+    linkSessionId: fixture.payload.linkSessionId,
+    expectedRevision: provisioning.record.revision,
+    transcriptSetDigestB64u: fixture.receipt.aggregateReceiptDigestB64u,
+    nowMs: 3_004,
+  });
+  expect(committed.outcome).toBe('applied');
+  if (committed.outcome !== 'applied') throw new Error('expected committed state');
 
   const differentManifestDigest = parseDigestB64u(
     base64UrlEncode(new Uint8Array(32).fill(9)),
@@ -270,7 +259,7 @@ test('rejects aggregate activation unless the approved manifest and child set ma
   });
   const manifestResult = await service.recordAggregateActivationV1({
     linkSessionId: fixture.payload.linkSessionId,
-    expectedRevision: awaitingReceipt.revision,
+    expectedRevision: committed.record.revision,
     receipt: wrongManifest,
     nowMs: 3_004,
   });
@@ -297,7 +286,7 @@ test('rejects aggregate activation unless the approved manifest and child set ma
   });
   const familyResult = await service.recordAggregateActivationV1({
     linkSessionId: fixture.payload.linkSessionId,
-    expectedRevision: awaitingReceipt.revision,
+    expectedRevision: committed.record.revision,
     receipt: wrongFamily,
     nowMs: 3_004,
   });
@@ -317,7 +306,7 @@ test('rejects aggregate activation unless the approved manifest and child set ma
   });
   const duplicateResult = await service.recordAggregateActivationV1({
     linkSessionId: fixture.payload.linkSessionId,
-    expectedRevision: awaitingReceipt.revision,
+    expectedRevision: committed.record.revision,
     receipt: duplicateChildren,
     nowMs: 3_004,
   });
@@ -327,7 +316,7 @@ test('rejects aggregate activation unless the approved manifest and child set ma
   });
 
   const persisted = await store.getSessionV1(fixture.payload.linkSessionId);
-  expect(persisted?.state.state).toBe('awaiting_aggregate_receipt');
+  expect(persisted?.state.state).toBe('committed_completion_required');
 });
 
 test('rejects tampered durable record and transcript rows', async () => {
@@ -439,44 +428,6 @@ function ownerAuthForFixture(): LinkedDeviceOwnerAuthorizationPortV1 {
     }),
     authorizeOwnerApprovalV1: async () => ({ kind: 'authorized' as const }),
   };
-}
-
-async function overwriteRecord(record: {
-  readonly linkSessionId: string;
-  readonly state: { readonly state: string };
-  readonly qrPayload: { readonly expiresAtMs: number };
-  readonly revision: number;
-  readonly claimTranscript?: { readonly value: { readonly claimExpiresAtMs: number }; readonly digestB64u: string };
-  readonly approvalTranscript?: { readonly digestB64u: string };
-  readonly updatedAtMs: number;
-  readonly createdAtMs: number;
-}): Promise<void> {
-  if (!temporary) throw new Error('temporary database is unavailable');
-  await temporary.database
-    .prepare(
-      `UPDATE linked_device_sessions
-          SET state = ?, record_json = ?, revision = ?, expires_at_ms = ?,
-              claim_expires_at_ms = ?, claim_digest_b64u = ?, approval_digest_b64u = ?,
-              created_at_ms = ?, updated_at_ms = ?
-        WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ? AND link_session_id = ?`,
-    )
-    .bind(
-      record.state.state,
-      JSON.stringify(record),
-      record.revision,
-      record.qrPayload.expiresAtMs,
-      record.claimTranscript?.value.claimExpiresAtMs ?? null,
-      record.claimTranscript?.digestB64u ?? null,
-      record.approvalTranscript?.digestB64u ?? null,
-      record.createdAtMs,
-      record.updatedAtMs,
-      scope.namespace,
-      scope.orgId,
-      scope.projectId,
-      scope.envId,
-      String(record.linkSessionId),
-    )
-    .run();
 }
 
 function tamperClaimDeviceId(record: unknown): unknown {

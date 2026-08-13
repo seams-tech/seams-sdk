@@ -5,7 +5,7 @@ import {
 } from '@shared/device-linking';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import type { LinkedDeviceEnrollmentId, WalletKeyId } from '@shared/signing-lanes/ids';
-import { SEAMS_WALLET_STORES } from '../schemaNames';
+import { SEAMS_WALLET_INDEXES, SEAMS_WALLET_STORES } from '../schemaNames';
 import { seamsWalletDB } from '../singletons';
 import type { SeamsWalletDBManager } from './manager';
 
@@ -23,7 +23,7 @@ export type LinkedDeviceWalletSessionReadResultV1 =
       readonly delivery: LinkedDeviceWalletSessionDeliveryV1;
     }
   | {
-      readonly kind: 'missing' | 'expired' | 'corrupt' | 'persistence_unavailable';
+      readonly kind: 'missing' | 'expired' | 'corrupt' | 'ambiguous' | 'persistence_unavailable';
       readonly delivery?: never;
     };
 
@@ -34,7 +34,7 @@ export type LinkedDeviceWalletSessionTokenReadResultV1 =
       readonly token: LinkedDeviceWalletSessionTokenV1;
     }
   | {
-      readonly kind: 'missing' | 'expired' | 'corrupt' | 'persistence_unavailable';
+      readonly kind: 'missing' | 'expired' | 'corrupt' | 'ambiguous' | 'persistence_unavailable';
       readonly delivery?: never;
       readonly token?: never;
     };
@@ -142,6 +142,36 @@ export class LinkedDeviceWalletSessionRepositoryV1 {
       if (!delivery) return { kind: 'corrupt' };
       if (delivery.expiresAtMs <= input.nowMs) return { kind: 'expired' };
       return { kind: 'found', delivery };
+    } catch {
+      return { kind: 'persistence_unavailable' };
+    }
+  }
+
+  async readUniqueActiveForWalletV1(input: {
+    readonly walletId?: string;
+    readonly nowMs: number;
+  }): Promise<LinkedDeviceWalletSessionReadResultV1> {
+    if (!Number.isSafeInteger(input.nowMs) || input.nowMs <= 0) {
+      throw new Error('Linked-device Wallet Session read time is invalid');
+    }
+    try {
+      const db = await this.manager.getDB();
+      const index = db
+        .transaction(STORE, 'readonly')
+        .objectStore(STORE)
+        .index(SEAMS_WALLET_INDEXES.walletId);
+      const rows = input.walletId ? await index.getAll(input.walletId) : await index.getAll();
+      if (rows.length === 0) return { kind: 'missing' };
+      const active: LinkedDeviceWalletSessionDeliveryV1[] = [];
+      for (const row of rows) {
+        const delivery = parseStoredRow(row);
+        if (!delivery) return { kind: 'corrupt' };
+        if (delivery.expiresAtMs > input.nowMs) active.push(delivery);
+      }
+      if (active.length === 0) return { kind: 'expired' };
+      if (active.length > 1) return { kind: 'ambiguous' };
+      const delivery = active[0];
+      return delivery ? { kind: 'found', delivery } : { kind: 'missing' };
     } catch {
       return { kind: 'persistence_unavailable' };
     }

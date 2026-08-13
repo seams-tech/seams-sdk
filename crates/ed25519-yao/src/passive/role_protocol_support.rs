@@ -18,13 +18,12 @@ use super::roles::{
     DeriverASigningWorkerScalarOutputCoin, DeriverBClientScalarOutputCoin, DeriverBClientTau,
     DeriverBClientY, DeriverBSeedOutputCoin, DeriverBServerTau, DeriverBServerY,
     DeriverBSigningWorkerScalarOutputCoin, ExportDeriverAInputs, ExportDeriverAStart,
-    ExportDeriverBInputs, ExportDeriverBStart, ExportSessionBinding, LaneDeriverAHolderShare,
-    LaneDeriverAInputs, LaneDeriverAOffsetShare, LaneDeriverASigningWorkerShare, LaneDeriverAStart,
-    LaneDeriverBHolderShare, LaneDeriverBInputs, LaneDeriverBOffsetShare,
-    LaneDeriverBSigningWorkerShare, LaneDeriverBStart, LaneSessionBinding, RoleBoundaryError,
-    SessionId, TranscriptDigest32, ACTIVATION_INPUT_BITS_PER_ROLE, ACTIVATION_OUTPUT_BITS_PER_ROLE,
-    EXPORT_INPUT_BITS_PER_ROLE, EXPORT_OUTPUT_BITS_PER_ROLE,
-    LANE_MATERIALIZATION_INPUT_BITS_PER_ROLE, LANE_MATERIALIZATION_OUTPUT_BITS_PER_ROLE,
+    ExportDeriverBInputs, ExportDeriverBStart, ExportSessionBinding, LaneDeriverAInputs,
+    LaneDeriverAOffsetShare, LaneDeriverAStart, LaneDeriverBInputs, LaneDeriverBOffsetShare,
+    LaneDeriverBStart, LaneSessionBinding, RoleBoundaryError, SessionId, TranscriptDigest32,
+    ACTIVATION_INPUT_BITS_PER_ROLE, ACTIVATION_OUTPUT_BITS_PER_ROLE, EXPORT_INPUT_BITS_PER_ROLE,
+    EXPORT_OUTPUT_BITS_PER_ROLE, LANE_MATERIALIZATION_INPUT_BITS_PER_ROLE,
+    LANE_MATERIALIZATION_OUTPUT_BITS_PER_ROLE,
 };
 
 const ZERO: [u8; 32] = [0_u8; 32];
@@ -124,8 +123,12 @@ pub(super) fn lane_deriver_a_fixture_start(
     Ok(LaneDeriverAStart::new(
         binding,
         LaneDeriverAInputs::new(
-            LaneDeriverAHolderShare::from_canonical_secret_bytes(ZERO)?,
-            LaneDeriverASigningWorkerShare::from_canonical_secret_bytes(ZERO)?,
+            DeriverAClientY::from_secret_bytes(FIXTURE_SEED),
+            DeriverAServerY::from_secret_bytes(ZERO),
+            DeriverAClientTau::from_canonical_secret_bytes(ZERO)?,
+            DeriverAServerTau::from_canonical_secret_bytes(ZERO)?,
+            DeriverAClientScalarOutputCoin::random_os()?,
+            DeriverASigningWorkerScalarOutputCoin::random_os()?,
             LaneDeriverAOffsetShare::from_canonical_secret_bytes(ZERO)?,
         ),
     ))
@@ -138,8 +141,12 @@ pub(super) fn lane_deriver_b_fixture_start(
     Ok(LaneDeriverBStart::new(
         binding,
         LaneDeriverBInputs::new(
-            LaneDeriverBHolderShare::from_canonical_secret_bytes(ZERO)?,
-            LaneDeriverBSigningWorkerShare::from_canonical_secret_bytes(ZERO)?,
+            DeriverBClientY::from_secret_bytes(ZERO),
+            DeriverBServerY::from_secret_bytes(ZERO),
+            DeriverBClientTau::from_canonical_secret_bytes(ZERO)?,
+            DeriverBServerTau::from_canonical_secret_bytes(ZERO)?,
+            DeriverBClientScalarOutputCoin::random_os()?,
+            DeriverBSigningWorkerScalarOutputCoin::random_os()?,
             LaneDeriverBOffsetShare::from_canonical_secret_bytes(ZERO)?,
         ),
     ))

@@ -363,6 +363,7 @@ export function buildR103LinkedWalletSessionDeliveryFixture(
   return parseLinkedDeviceWalletSessionDeliveryV1({
     kind: 'linked_device_wallet_session_delivery_v1',
     ...identity,
+    ...(binding.keyFamily === 'ed25519' ? { nearAccountId: 'alice.testnet' } : {}),
     orderedTokens: [
       {
         kind: 'linked_device_wallet_session_token_v1',

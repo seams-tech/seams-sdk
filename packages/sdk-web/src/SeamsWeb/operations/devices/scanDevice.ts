@@ -350,7 +350,6 @@ function pendingApprovalStateV1(
 ):
   | 'awaiting_target_passkey'
   | 'provisioning'
-  | 'awaiting_aggregate_receipt'
   | 'committed_completion_required'
   | null {
   if (result.outcome === 'pending') return result.state.state;

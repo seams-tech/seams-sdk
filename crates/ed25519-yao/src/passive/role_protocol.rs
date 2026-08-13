@@ -1929,11 +1929,9 @@ pub mod benchmark {
         DeriverBServerTau, DeriverBServerY, DeriverBSigningWorkerScalarOutputCoin,
         ExportDeriverAInputs as PrivateExportDeriverAInputs,
         ExportDeriverBInputs as PrivateExportDeriverBInputs, ExportSessionBinding,
-        LaneDeriverAHolderShare, LaneDeriverAInputs as PrivateLaneDeriverAInputs,
-        LaneDeriverAOffsetShare, LaneDeriverASigningWorkerShare, LaneDeriverAStart,
-        LaneDeriverBHolderShare, LaneDeriverBInputs as PrivateLaneDeriverBInputs,
-        LaneDeriverBOffsetShare, LaneDeriverBSigningWorkerShare, LaneDeriverBStart,
-        LaneSessionBinding, SessionId,
+        LaneDeriverAInputs as PrivateLaneDeriverAInputs, LaneDeriverAOffsetShare,
+        LaneDeriverAStart, LaneDeriverBInputs as PrivateLaneDeriverBInputs,
+        LaneDeriverBOffsetShare, LaneDeriverBStart, LaneSessionBinding, SessionId,
     };
     use crate::passive::stream::Chunk128KiB;
     #[cfg(feature = "phase9-role-benchmark")]
@@ -3604,17 +3602,21 @@ pub mod benchmark {
     #[cfg(feature = "local-protocol")]
     impl LaneDeriverAInputs {
         pub fn new(
-            source_holder_share: [u8; 32],
-            source_signing_worker_share: [u8; 32],
-            offset_share: [u8; 32],
+            y_client: [u8; 32],
+            y_server: [u8; 32],
+            tau_client: [u8; 32],
+            tau_server: [u8; 32],
+            offset: [u8; 32],
         ) -> Result<Self, BenchmarkRoleError> {
             Ok(Self {
                 inner: PrivateLaneDeriverAInputs::new(
-                    LaneDeriverAHolderShare::from_canonical_secret_bytes(source_holder_share)?,
-                    LaneDeriverASigningWorkerShare::from_canonical_secret_bytes(
-                        source_signing_worker_share,
-                    )?,
-                    LaneDeriverAOffsetShare::from_canonical_secret_bytes(offset_share)?,
+                    DeriverAClientY::from_secret_bytes(y_client),
+                    DeriverAServerY::from_secret_bytes(y_server),
+                    DeriverAClientTau::from_canonical_secret_bytes(tau_client)?,
+                    DeriverAServerTau::from_canonical_secret_bytes(tau_server)?,
+                    DeriverAClientScalarOutputCoin::random_os()?,
+                    DeriverASigningWorkerScalarOutputCoin::random_os()?,
+                    LaneDeriverAOffsetShare::from_canonical_secret_bytes(offset)?,
                 ),
             })
         }
@@ -3635,17 +3637,21 @@ pub mod benchmark {
     #[cfg(feature = "local-protocol")]
     impl LaneDeriverBInputs {
         pub fn new(
-            source_holder_share: [u8; 32],
-            source_signing_worker_share: [u8; 32],
-            offset_share: [u8; 32],
+            y_client: [u8; 32],
+            y_server: [u8; 32],
+            tau_client: [u8; 32],
+            tau_server: [u8; 32],
+            offset: [u8; 32],
         ) -> Result<Self, BenchmarkRoleError> {
             Ok(Self {
                 inner: PrivateLaneDeriverBInputs::new(
-                    LaneDeriverBHolderShare::from_canonical_secret_bytes(source_holder_share)?,
-                    LaneDeriverBSigningWorkerShare::from_canonical_secret_bytes(
-                        source_signing_worker_share,
-                    )?,
-                    LaneDeriverBOffsetShare::from_canonical_secret_bytes(offset_share)?,
+                    DeriverBClientY::from_secret_bytes(y_client),
+                    DeriverBServerY::from_secret_bytes(y_server),
+                    DeriverBClientTau::from_canonical_secret_bytes(tau_client)?,
+                    DeriverBServerTau::from_canonical_secret_bytes(tau_server)?,
+                    DeriverBClientScalarOutputCoin::random_os()?,
+                    DeriverBSigningWorkerScalarOutputCoin::random_os()?,
+                    LaneDeriverBOffsetShare::from_canonical_secret_bytes(offset)?,
                 ),
             })
         }

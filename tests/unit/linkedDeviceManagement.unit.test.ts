@@ -119,6 +119,9 @@ test('refuses a public revoke plan whose lane command does not bind the requeste
       }),
     },
     aggregateRevocation: {
+      fenceLaneEnrollmentV1: async () => {
+        throw new Error('unexpected enrollment fence');
+      },
       revokeLaneEnrollmentV1: async () => {
         aggregateCalls += 1;
         throw new Error('aggregate should not run for a mismatched plan');
@@ -173,6 +176,10 @@ test('fences every linked Wallet Session before retiring child lanes', async () 
   };
   const order: string[] = [];
   const revokedAuthorizationIds: string[] = [];
+  let releaseEnrollmentFence: (() => void) | undefined;
+  const enrollmentFenceReady = new Promise<void>((resolve) => {
+    releaseEnrollmentFence = resolve;
+  });
   const service = new LinkedDeviceManagementServiceV1({
     projection: {
       listLinkedDevicesV1: async () => [target.summary],
@@ -210,12 +217,18 @@ test('fences every linked Wallet Session before retiring child lanes', async () 
     },
     walletSessionRevocation: {
       revokeLinkedDeviceWalletSessionV1: async ({ target: walletSession }) => {
+        await enrollmentFenceReady;
         order.push('wallet_session');
         revokedAuthorizationIds.push(String(walletSession.authorizationId));
         return { kind: 'applied' };
       },
     },
     aggregateRevocation: {
+      fenceLaneEnrollmentV1: async () => {
+        order.push('enrollment_fence');
+        releaseEnrollmentFence?.();
+        return { kind: 'applied' };
+      },
       revokeLaneEnrollmentV1: async () => {
         order.push('aggregate');
         return {
@@ -240,7 +253,7 @@ test('fences every linked Wallet Session before retiring child lanes', async () 
   }, ownerForWallet(walletId));
 
   expect(result).toEqual({ kind: 'conflict' });
-  expect(order).toEqual(['wallet_session', 'wallet_session', 'aggregate']);
+  expect(order).toEqual(['enrollment_fence', 'wallet_session', 'wallet_session', 'aggregate']);
   expect(revokedAuthorizationIds).toEqual([
     'authorization:management:first',
     'authorization:management:renewed',
@@ -261,6 +274,9 @@ function neverPreparation() {
 
 function neverAggregate() {
   return {
+    fenceLaneEnrollmentV1: async () => {
+      throw new Error('unexpected enrollment fence');
+    },
     revokeLaneEnrollmentV1: async () => {
       throw new Error('unexpected aggregate revocation');
     },

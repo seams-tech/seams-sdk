@@ -17,6 +17,12 @@ use router_ab_ecdsa_client_protocol::{
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 use zeroize::Zeroize;
+use base64ct::{Base64UrlUnpadded, Encoding};
+use router_ab_ecdsa_derivation::RouterAbEcdsaDerivationStableKeyContext;
+use signer_core::ecdsa_role_local_client::{
+    reconstruct_ecdsa_role_local_export, EcdsaRoleLocalExportPublicFacts,
+    EcdsaRoleLocalExportReconstructionInput, EcdsaRoleLocalReadyStateBlob,
+};
 
 use crate::client_proof_verifier::finalize_encrypted_client_proof_output_v1;
 use crate::encoders::base64_url_encode;
@@ -196,24 +202,29 @@ impl RouterAbEcdsaClientCeremonyV1 {
         Ok(base64_url_encode(&digest))
     }
 
-    /// Opens the exact SigningWorker share only when every expected export binding matches.
-    pub fn open_signing_worker_export_share(
-        &self,
-        envelope_json: &str,
-        expected_binding_json: &str,
-    ) -> Result<String, JsValue> {
-        let envelope: EcdsaSigningWorkerExportShareEnvelopeV1 = parse_json(envelope_json)?;
-        let expected_binding: EcdsaSigningWorkerExportShareBindingV1 =
-            parse_json(expected_binding_json)?;
+    /// Opens the exact SigningWorker share and reconstructs the final key entirely in Rust.
+    pub fn finalize_explicit_export(&self, input_json: &str) -> Result<String, JsValue> {
+        let input: ExplicitExportFinalizationInputV1 = parse_json(input_json)?;
         let mut share = open_ecdsa_signing_worker_export_share_v1(
-            &envelope,
-            &expected_binding,
+            &input.signing_worker_export,
+            &input.expected_binding,
             self.active_keypair()?.private_key_bytes(),
         )
         .map_err(protocol_error)
         .map_err(js_error)?;
-        let output = SigningWorkerExportShareOutputV1 {
-            server_export_share32_b64u: base64_url_encode(&share),
+        let public_facts = input.public_facts.into_core()?;
+        let state_blob = Base64UrlUnpadded::decode_vec(&input.state_blob_b64u)
+            .map_err(|error| js_error(format!("stateBlobB64u is invalid: {error}")))?;
+        let artifact = reconstruct_ecdsa_role_local_export(EcdsaRoleLocalExportReconstructionInput {
+            ready_state_blob: EcdsaRoleLocalReadyStateBlob { state_blob },
+            public_facts,
+            server_export_share32: share,
+        })
+        .map_err(|error| js_error(error.to_string()))?;
+        let output = ExplicitExportArtifactOutputV1 {
+            public_key_hex: hex_prefixed(&artifact.public_key33),
+            private_key_hex: hex_prefixed(&artifact.private_key32),
+            ethereum_address: hex_prefixed(&artifact.ethereum_address20),
         };
         share.zeroize();
         serde_json::to_string(&output).map_err(|error| js_error(error.to_string()))
@@ -228,10 +239,62 @@ impl RouterAbEcdsaClientCeremonyV1 {
     }
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ExplicitExportFinalizationInputV1 {
+    signing_worker_export: EcdsaSigningWorkerExportShareEnvelopeV1,
+    expected_binding: EcdsaSigningWorkerExportShareBindingV1,
+    state_blob_b64u: String,
+    public_facts: ExplicitExportPublicFactsInputV1,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ExplicitExportPublicFactsInputV1 {
+    application_binding_digest_b64u: String,
+    context_binding32_b64u: String,
+    derivation_client_share_public_key33_b64u: String,
+    relayer_public_key33_b64u: String,
+    group_public_key33_b64u: String,
+    ethereum_address: String,
+}
+
+impl ExplicitExportPublicFactsInputV1 {
+    fn into_core(self) -> Result<EcdsaRoleLocalExportPublicFacts, JsValue> {
+        let context = RouterAbEcdsaDerivationStableKeyContext::new(decode_fixed_base64::<32>(
+            &self.application_binding_digest_b64u,
+            "applicationBindingDigestB64u",
+        )?);
+        context.validate().map_err(|error| js_error(error.message))?;
+        Ok(EcdsaRoleLocalExportPublicFacts {
+            context,
+            context_binding32: decode_fixed_base64(
+                &self.context_binding32_b64u,
+                "contextBinding32B64u",
+            )?,
+            derivation_client_share_public_key33: decode_fixed_base64(
+                &self.derivation_client_share_public_key33_b64u,
+                "derivationClientSharePublicKey33B64u",
+            )?,
+            relayer_public_key33: decode_fixed_base64(
+                &self.relayer_public_key33_b64u,
+                "relayerPublicKey33B64u",
+            )?,
+            group_public_key33: decode_fixed_base64(
+                &self.group_public_key33_b64u,
+                "groupPublicKey33B64u",
+            )?,
+            ethereum_address20: decode_hex_fixed::<20>(&self.ethereum_address, "ethereumAddress")?,
+        })
+    }
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct SigningWorkerExportShareOutputV1 {
-    server_export_share32_b64u: String,
+struct ExplicitExportArtifactOutputV1 {
+    public_key_hex: String,
+    private_key_hex: String,
+    ethereum_address: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -765,6 +828,41 @@ where
 {
     serde_json::to_string(value)
         .map_err(|error| JsValue::from_str(&format!("request JSON serialization failed: {error}")))
+}
+
+fn decode_fixed_base64<const N: usize>(value: &str, field_name: &str) -> Result<[u8; N], JsValue> {
+    let decoded = Base64UrlUnpadded::decode_vec(value.trim())
+        .map_err(|error| js_error(format!("{field_name} is invalid base64url: {error}")))?;
+    decoded.try_into().map_err(|_| {
+        js_error(format!(
+            "{field_name} must decode to {N} bytes"
+        ))
+    })
+}
+
+fn decode_hex_fixed<const N: usize>(value: &str, field_name: &str) -> Result<[u8; N], JsValue> {
+    let value = value.trim().strip_prefix("0x").ok_or_else(|| {
+        js_error(format!("{field_name} must be 0x-prefixed"))
+    })?;
+    if value.len() != N * 2 {
+        return Err(js_error(format!("{field_name} must contain {N} bytes")));
+    }
+    let mut output = [0_u8; N];
+    for (index, byte) in output.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&value[index * 2..index * 2 + 2], 16)
+            .map_err(|_| js_error(format!("{field_name} is invalid hex")))?;
+    }
+    Ok(output)
+}
+
+fn hex_prefixed(bytes: &[u8]) -> String {
+    let mut output = String::with_capacity(2 + bytes.len() * 2);
+    output.push_str("0x");
+    for byte in bytes {
+        use core::fmt::Write;
+        let _ = write!(output, "{byte:02x}");
+    }
+    output
 }
 
 fn protocol_error(error: EcdsaClientProtocolError) -> String {

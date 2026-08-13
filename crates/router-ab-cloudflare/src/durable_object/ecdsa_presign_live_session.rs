@@ -1,27 +1,28 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::rc::Rc;
 
+use router_ab_core::{
+    PublicDigest32, RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningPrepareResponseV1,
+    RouterAbEcdsaDerivationSignatureSchemeV1,
+};
 use router_ab_ecdsa_presign::session::{
     derive_presign_pair_context, PresignSessionEvent, PresignSessionStage,
     SigningWorkerPresignSession,
 };
 use router_ab_ecdsa_presign::AdditiveKeyShare;
 use router_ab_ecdsa_wire::{CompressedPointBytes, ScalarBytes};
-use router_ab_core::{
-    RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningPrepareResponseV1,
-    RouterAbEcdsaDerivationSignatureSchemeV1,
-};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use super::{
-    durable_object_error_status, RouterAbProtocolError, RouterAbProtocolErrorCode,
-    RouterAbProtocolResult, CloudflareSigningWorkerEcdsaPresignatureRecordV1,
+    durable_object_error_status, CloudflareSigningWorkerEcdsaPresignatureRecordV1,
+    RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult,
 };
 use crate::{
-    ActiveSigningWorkerStateV1,
     cloudflare_now_unix_ms_v1, decode_base64url_bytes_v1, decode_base64url_fixed_32_v1,
-    decode_base64url_fixed_33_v1, encode_base64url_bytes_v1, CloudflareSignerProofGetrandomRngV1,
+    decode_base64url_fixed_33_v1, encode_base64url_bytes_v1, require_non_empty,
+    require_positive_ms, ActiveSigningWorkerStateV1, CloudflareSignerProofGetrandomRngV1,
     CloudflareSigningWorkerEcdsaPresignRequestedStageV1,
     CloudflareSigningWorkerEcdsaPresignSessionInitRequestV1,
     CloudflareSigningWorkerEcdsaPresignSessionStepRequestV1,
@@ -32,11 +33,9 @@ use crate::{
     RouterAbEcdsaDerivationNormalSigningScopeV1,
     CLOUDFLARE_SIGNING_WORKER_ECDSA_PRESIGN_SESSION_DO_INIT_PATH,
     CLOUDFLARE_SIGNING_WORKER_ECDSA_PRESIGN_SESSION_DO_STEP_PATH,
+    CLOUDFLARE_SIGNING_WORKER_LINKED_ECDSA_PRESIGNATURE_DO_CONSUME_PATH,
     CLOUDFLARE_SIGNING_WORKER_LINKED_ECDSA_PRESIGN_SESSION_DO_INIT_PATH,
     CLOUDFLARE_SIGNING_WORKER_LINKED_ECDSA_PRESIGN_SESSION_DO_STEP_PATH,
-    CLOUDFLARE_SIGNING_WORKER_LINKED_ECDSA_PRESIGNATURE_DO_CONSUME_PATH,
-    require_non_empty,
-    require_positive_ms,
 };
 
 pub(super) struct CloudflareSigningWorkerEcdsaPresignLiveSessionV1 {
@@ -83,9 +82,16 @@ pub(super) struct CloudflareSigningWorkerLinkedDeviceEcdsaPresignLiveSessionV1 {
 pub(super) type CloudflareSigningWorkerLinkedDeviceEcdsaPresignLiveSessionsV1 =
     RefCell<BTreeMap<String, CloudflareSigningWorkerLinkedDeviceEcdsaPresignLiveSessionV1>>;
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct CloudflareSigningWorkerLinkedDeviceEcdsaCompletedPresignatureRecordV1 {
-    scope_digest: router_ab_core::PublicDigest32,
-    record: CloudflareSigningWorkerEcdsaPresignatureRecordV1,
+    /// Session id used to replay the exact terminal step after DO restart.
+    pub(super) presign_session_id: String,
+    /// Digest of the complete terminal step request, including protocol messages.
+    pub(super) terminal_step_digest: PublicDigest32,
+    pub(super) scope_digest: PublicDigest32,
+    pub(super) record: CloudflareSigningWorkerEcdsaPresignatureRecordV1,
+    pub(super) response: CloudflareSigningWorkerLinkedDeviceEcdsaPresignSessionDoProgressV1,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -376,9 +382,7 @@ fn continue_progress(
 pub(super) async fn handle_cloudflare_signing_worker_linked_ecdsa_presign_session_do_fetch_v1(
     mut request: worker::Request,
     sessions: &CloudflareSigningWorkerLinkedDeviceEcdsaPresignLiveSessionsV1,
-    completed_records: &std::cell::RefCell<
-        BTreeMap<String, CloudflareSigningWorkerLinkedDeviceEcdsaCompletedPresignatureRecordV1>,
-    >,
+    storage: &worker::Storage,
 ) -> worker::Result<worker::Response> {
     if request.method() != worker::Method::Post {
         return worker::Response::error(
@@ -390,7 +394,9 @@ pub(super) async fn handle_cloudflare_signing_worker_linked_ecdsa_presign_sessio
         Ok(value) => value,
         Err(error) => return presign_do_error_response(error),
     };
-    if request.path().as_str() == CLOUDFLARE_SIGNING_WORKER_LINKED_ECDSA_PRESIGNATURE_DO_CONSUME_PATH {
+    if request.path().as_str()
+        == CLOUDFLARE_SIGNING_WORKER_LINKED_ECDSA_PRESIGNATURE_DO_CONSUME_PATH
+    {
         let parsed = match request
             .json::<CloudflareSigningWorkerLinkedDeviceEcdsaPresignatureDoConsumeRequestV1>()
             .await
@@ -398,12 +404,14 @@ pub(super) async fn handle_cloudflare_signing_worker_linked_ecdsa_presign_sessio
             Ok(value) => value,
             Err(error) => {
                 return worker::Response::error(
-                    format!("SigningWorker linked ECDSA presign consume JSON parse failed: {error}"),
+                    format!(
+                        "SigningWorker linked ECDSA presign consume JSON parse failed: {error}"
+                    ),
                     400,
                 );
             }
         };
-        return match consume_linked_presignature(parsed, completed_records) {
+        return match consume_linked_presignature(parsed, storage).await {
             Ok(response) => worker::Response::from_json(&response),
             Err(error) => presign_do_error_response(error),
         };
@@ -417,7 +425,9 @@ pub(super) async fn handle_cloudflare_signing_worker_linked_ecdsa_presign_sessio
                 Ok(value) => value,
                 Err(error) => {
                     return worker::Response::error(
-                        format!("SigningWorker linked ECDSA presign init JSON parse failed: {error}"),
+                        format!(
+                            "SigningWorker linked ECDSA presign init JSON parse failed: {error}"
+                        ),
                         400,
                     );
                 }
@@ -432,12 +442,14 @@ pub(super) async fn handle_cloudflare_signing_worker_linked_ecdsa_presign_sessio
                 Ok(value) => value,
                 Err(error) => {
                     return worker::Response::error(
-                        format!("SigningWorker linked ECDSA presign step JSON parse failed: {error}"),
+                        format!(
+                            "SigningWorker linked ECDSA presign step JSON parse failed: {error}"
+                        ),
                         400,
                     );
                 }
             };
-            step_linked_presign_session(parsed, sessions, completed_records, now_unix_ms)
+            step_linked_presign_session(parsed, sessions, storage, now_unix_ms).await
         }
         _ => {
             return worker::Response::error(
@@ -507,15 +519,26 @@ fn create_linked_presign_session(
     Ok(progress)
 }
 
-fn step_linked_presign_session(
+async fn step_linked_presign_session(
     input: CloudflareSigningWorkerLinkedDeviceEcdsaPresignSessionStepRequestV1,
     sessions: &CloudflareSigningWorkerLinkedDeviceEcdsaPresignLiveSessionsV1,
-    completed_records: &std::cell::RefCell<
-        BTreeMap<String, CloudflareSigningWorkerLinkedDeviceEcdsaCompletedPresignatureRecordV1>,
-    >,
+    storage: &worker::Storage,
     now_unix_ms: u64,
 ) -> RouterAbProtocolResult<CloudflareSigningWorkerLinkedDeviceEcdsaPresignSessionDoProgressV1> {
     input.validate_at(now_unix_ms)?;
+    let terminal_step_digest = linked_terminal_step_digest(&input)?;
+    if let Some(replayed) = load_linked_terminal_replay(storage, &input.presign_session_id)
+        .await
+        .map_err(durable_storage_protocol_error)?
+    {
+        if replayed.terminal_step_digest == terminal_step_digest {
+            return Ok(replayed.response);
+        }
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ReplayedLocalRequest,
+            "linked ECDSA presign terminal step does not match the completed request",
+        ));
+    }
     let mut entry = sessions
         .borrow_mut()
         .remove(&input.presign_session_id)
@@ -544,13 +567,16 @@ fn step_linked_presign_session(
             CloudflareSigningWorkerEcdsaPresignRequestedStageV1::Triples,
             PresignSessionStage::TriplesDone,
         ) => {
-            let response = CloudflareSigningWorkerLinkedDeviceEcdsaPresignSessionDoProgressV1::Continue {
-                presign_session_id: input.presign_session_id.clone(),
-                stage: "triples_done".to_owned(),
-                event: "triples_done".to_owned(),
-                outgoing_messages_b64u: Vec::new(),
-            };
-            sessions.borrow_mut().insert(input.presign_session_id, entry);
+            let response =
+                CloudflareSigningWorkerLinkedDeviceEcdsaPresignSessionDoProgressV1::Continue {
+                    presign_session_id: input.presign_session_id.clone(),
+                    stage: "triples_done".to_owned(),
+                    event: "triples_done".to_owned(),
+                    outgoing_messages_b64u: Vec::new(),
+                };
+            sessions
+                .borrow_mut()
+                .insert(input.presign_session_id, entry);
             return Ok(response);
         }
         (
@@ -629,21 +655,6 @@ fn step_linked_presign_session(
             now_unix_ms,
             entry.expires_at_ms,
         )?;
-        let mut completed_records = completed_records.borrow_mut();
-        completed_records.retain(|_, record| record.record.expires_at_ms > now_unix_ms);
-        if completed_records.contains_key(&server_presignature_id) {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::ReplayedLocalRequest,
-                "linked ECDSA server presignature id already exists",
-            ));
-        }
-        completed_records.insert(
-            server_presignature_id.clone(),
-            CloudflareSigningWorkerLinkedDeviceEcdsaCompletedPresignatureRecordV1 {
-                scope_digest: entry.scope.scope_digest()?,
-                record,
-            },
-        );
         let prepared_response =
             RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningPrepareResponseV1 {
                 scope: entry.scope.clone(),
@@ -659,15 +670,25 @@ fn step_linked_presign_session(
                 prepared_at_ms: now_unix_ms,
                 expires_at_ms: entry.expires_at_ms,
             };
-        return Ok(
+        let response =
             CloudflareSigningWorkerLinkedDeviceEcdsaPresignSessionDoProgressV1::Complete {
-                presign_session_id: input.presign_session_id,
+                presign_session_id: input.presign_session_id.clone(),
                 server_presignature_id,
                 server_big_r33_b64u,
                 signing_worker_rerandomization_contribution32_b64u,
                 prepared_response,
-            },
-        );
+            };
+        let completed = CloudflareSigningWorkerLinkedDeviceEcdsaCompletedPresignatureRecordV1 {
+            presign_session_id: input.presign_session_id,
+            terminal_step_digest,
+            scope_digest: entry.scope.scope_digest()?,
+            record,
+            response: response.clone(),
+        };
+        persist_linked_terminal_completion(storage, &completed)
+            .await
+            .map_err(durable_storage_protocol_error)?;
+        return Ok(response);
     }
     let response = linked_continue_progress(&input.presign_session_id, progress);
     sessions
@@ -692,42 +713,185 @@ fn linked_continue_progress(
     }
 }
 
-fn consume_linked_presignature(
+async fn consume_linked_presignature(
     input: CloudflareSigningWorkerLinkedDeviceEcdsaPresignatureDoConsumeRequestV1,
-    completed_records: &std::cell::RefCell<
-        BTreeMap<String, CloudflareSigningWorkerLinkedDeviceEcdsaCompletedPresignatureRecordV1>,
-    >,
+    storage: &worker::Storage,
 ) -> RouterAbProtocolResult<CloudflareSigningWorkerLinkedDeviceEcdsaPresignatureDoConsumeResponseV1>
 {
-    require_non_empty("linked ECDSA server presignature id", &input.server_presignature_id)?;
-    require_positive_ms("linked ECDSA presignature consume now_unix_ms", input.now_unix_ms)?;
-    let mut records = completed_records.borrow_mut();
-    records.retain(|_, record| record.record.expires_at_ms > input.now_unix_ms);
-    let candidate = records.get(&input.server_presignature_id).ok_or_else(|| {
-            RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::ExpiredLocalRequest,
-                "linked ECDSA presignature record is missing or already consumed",
-            )
-        })?;
-    if candidate.scope_digest != input.scope_digest {
-        return Err(RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::InvalidGateDecision,
-            "linked ECDSA presignature scope digest does not match finalize request",
-        ));
-    }
-    candidate.record.validate_for_request(
-        &candidate.record.active_signing_worker_state,
+    require_non_empty(
+        "linked ECDSA server presignature id",
         &input.server_presignature_id,
-        input.request_digest,
-        input.signing_digest,
+    )?;
+    require_positive_ms(
+        "linked ECDSA presignature consume now_unix_ms",
         input.now_unix_ms,
     )?;
-    let record = records
-        .remove(&input.server_presignature_id)
-        .expect("validated linked ECDSA presignature record disappeared");
-    Ok(CloudflareSigningWorkerLinkedDeviceEcdsaPresignatureDoConsumeResponseV1 {
-        record: record.record,
-    })
+    let storage_key = linked_completion_server_storage_key(&input.server_presignature_id);
+    let outcome: Rc<
+        RefCell<
+            Option<
+                RouterAbProtocolResult<
+                    CloudflareSigningWorkerLinkedDeviceEcdsaPresignatureDoConsumeResponseV1,
+                >,
+            >,
+        >,
+    > = Rc::new(RefCell::new(None));
+    let outcome_for_transaction = Rc::clone(&outcome);
+    let session_key_holder = Rc::new(RefCell::new(None::<String>));
+    let session_key_for_transaction = Rc::clone(&session_key_holder);
+    let server_presignature_id = input.server_presignature_id.clone();
+    let scope_digest = input.scope_digest;
+    let request_digest = input.request_digest;
+    let signing_digest = input.signing_digest;
+    let now_unix_ms = input.now_unix_ms;
+    storage
+        .transaction(move |transaction| async move {
+            let candidate = match transaction_get_optional::<
+                CloudflareSigningWorkerLinkedDeviceEcdsaCompletedPresignatureRecordV1,
+            >(&transaction, &storage_key)
+            .await
+            {
+                Ok(Some(value)) => value,
+                Ok(None) => {
+                    outcome_for_transaction.replace(Some(Err(RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::ExpiredLocalRequest,
+                        "linked ECDSA presignature record is missing or already consumed",
+                    ))));
+                    return Ok(());
+                }
+                Err(error) => return Err(error),
+            };
+            session_key_for_transaction.replace(Some(linked_completion_session_storage_key(
+                &candidate.presign_session_id,
+            )));
+            if candidate.scope_digest != scope_digest {
+                outcome_for_transaction.replace(Some(Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidGateDecision,
+                    "linked ECDSA presignature scope digest does not match finalize request",
+                ))));
+                return Ok(());
+            }
+            if let Err(error) = candidate.record.validate_for_request(
+                &candidate.record.active_signing_worker_state,
+                &server_presignature_id,
+                request_digest,
+                signing_digest,
+                now_unix_ms,
+            ) {
+                outcome_for_transaction.replace(Some(Err(error)));
+                return Ok(());
+            }
+            transaction.delete(&storage_key).await?;
+            let session_key = session_key_for_transaction.borrow().clone();
+            if let Some(session_key) = session_key {
+                transaction.delete(&session_key).await?;
+            }
+            outcome_for_transaction.replace(Some(Ok(
+                CloudflareSigningWorkerLinkedDeviceEcdsaPresignatureDoConsumeResponseV1 {
+                    record: candidate.record,
+                },
+            )));
+            Ok(())
+        })
+        .await
+        .map_err(durable_storage_protocol_error)?;
+    let outcome = outcome.borrow_mut().take().unwrap_or_else(|| {
+        Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "linked ECDSA presignature consume transaction returned no outcome",
+        ))
+    });
+    outcome
+}
+
+const LINKED_ECDSA_COMPLETION_SESSION_STORAGE_PREFIX_V1: &str = "linked-ecdsa-presign-session/v1/";
+const LINKED_ECDSA_COMPLETION_SERVER_STORAGE_PREFIX_V1: &str = "linked-ecdsa-presignature/v1/";
+
+fn linked_completion_storage_suffix(value: &str) -> String {
+    encode_base64url_bytes_v1(Sha256::digest(value.as_bytes()).as_slice())
+}
+
+fn linked_completion_session_storage_key(session_id: &str) -> String {
+    format!(
+        "{LINKED_ECDSA_COMPLETION_SESSION_STORAGE_PREFIX_V1}{}",
+        linked_completion_storage_suffix(session_id)
+    )
+}
+
+fn linked_completion_server_storage_key(server_presignature_id: &str) -> String {
+    format!(
+        "{LINKED_ECDSA_COMPLETION_SERVER_STORAGE_PREFIX_V1}{}",
+        linked_completion_storage_suffix(server_presignature_id)
+    )
+}
+
+fn linked_terminal_step_digest(
+    input: &CloudflareSigningWorkerLinkedDeviceEcdsaPresignSessionStepRequestV1,
+) -> RouterAbProtocolResult<PublicDigest32> {
+    let encoded = serde_json::to_vec(input).map_err(|error| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!("linked ECDSA terminal step digest encoding failed: {error}"),
+        )
+    })?;
+    Ok(PublicDigest32::new(Sha256::digest(encoded).into()))
+}
+
+async fn load_linked_terminal_replay(
+    storage: &worker::Storage,
+    session_id: &str,
+) -> worker::Result<Option<CloudflareSigningWorkerLinkedDeviceEcdsaCompletedPresignatureRecordV1>> {
+    storage
+        .get(&linked_completion_session_storage_key(session_id))
+        .await
+}
+
+async fn persist_linked_terminal_completion(
+    storage: &worker::Storage,
+    completed: &CloudflareSigningWorkerLinkedDeviceEcdsaCompletedPresignatureRecordV1,
+) -> worker::Result<()> {
+    let session_key = linked_completion_session_storage_key(&completed.presign_session_id);
+    let server_key = linked_completion_server_storage_key(&completed.record.server_presignature_id);
+    let completed = completed.clone();
+    storage
+        .transaction(move |transaction| async move {
+            if transaction_get_optional::<
+                CloudflareSigningWorkerLinkedDeviceEcdsaCompletedPresignatureRecordV1,
+            >(&transaction, &session_key)
+            .await?
+            .is_some()
+                || transaction_get_optional::<
+                    CloudflareSigningWorkerLinkedDeviceEcdsaCompletedPresignatureRecordV1,
+                >(&transaction, &server_key)
+                .await?
+                .is_some()
+            {
+                return Err(worker::Error::RustError(
+                    "linked ECDSA presignature terminal completion already exists".to_owned(),
+                ));
+            }
+            transaction.put(&session_key, &completed).await?;
+            transaction.put(&server_key, &completed).await
+        })
+        .await
+}
+
+async fn transaction_get_optional<T: DeserializeOwned>(
+    transaction: &worker::Transaction,
+    key: &str,
+) -> worker::Result<Option<T>> {
+    match transaction.get(key).await {
+        Ok(value) => Ok(Some(value)),
+        Err(worker::Error::JsError(message)) if message == "No such value in storage." => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+fn durable_storage_protocol_error(error: worker::Error) -> RouterAbProtocolError {
+    RouterAbProtocolError::new(
+        RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+        format!("linked ECDSA presignature durable storage failed: {error}"),
+    )
 }
 
 fn presign_protocol_error(error: impl std::fmt::Display) -> RouterAbProtocolError {

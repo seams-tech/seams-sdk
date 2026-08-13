@@ -93,6 +93,13 @@ export class D1LinkedDeviceExecutionAdmissionResolverV1 implements LinkedDeviceE
       const nowMs = this.nowV1();
       const laneEnrollmentId = parseLaneEnrollmentId(String(input.enrollmentId));
       if (!laneEnrollmentId.ok) return refused('linked_enrollment_mismatch');
+      // The enrollment fence is the parent admission barrier. Read it before
+      // resolving lane material so a revocation cannot start new private work
+      // while child products are still being retired.
+      const enrollment = await this.lanes.getEnrollment(laneEnrollmentId.value);
+      if (!enrollment || enrollment.value.lifecycle.state !== 'active') {
+        return refused('lane_inactive');
+      }
       const product = await this.lanes.getProductEpoch({
         walletId: input.walletId,
         walletKeyId: input.walletKeyId,

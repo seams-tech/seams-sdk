@@ -68,7 +68,11 @@ const FORBIDDEN_DOCUMENT_DEFAULT_HEADERS = [
 const CANONICAL_WALLET_STATIC_ASSETS = ['wallet-shims.js', 'wallet-service.css'];
 
 const REFERENCED_ROUTE_CLASSES = new Set(['javascript', 'css', 'htmlDocument']);
-const WASM_FREE_WORKER_ROUTES = new Set(['/sdk/workers/passkey-confirm.worker.js']);
+const WASM_FREE_WORKER_ROUTES = new Set([
+  '/sdk/workers/ecdsa-online-client.worker.js',
+  '/sdk/workers/ecdsa-presign-client.worker.js',
+  '/sdk/workers/passkey-confirm.worker.js',
+]);
 const JS_REFERENCE_PATTERNS = [
   /\bimport\s+(?:[^'"]+\s+from\s+)?["']([^"']+)["']/g,
   /\bexport\s+[^'"]+\s+from\s+["']([^"']+)["']/g,

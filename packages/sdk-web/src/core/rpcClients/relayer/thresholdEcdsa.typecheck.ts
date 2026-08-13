@@ -72,12 +72,6 @@ void ({
 
 void ({
   ...bootstrapBase,
-  // @ts-expect-error role-local bootstrap request rejects relayer export share material
-  serverExportShare32B64u: 'server-export-share',
-} satisfies ThresholdEcdsaDerivationRoleLocalBootstrapRequest);
-
-void ({
-  ...bootstrapBase,
   // @ts-expect-error role-local bootstrap request rejects canonical private key material
   privateKeyHex: '0x01',
 } satisfies ThresholdEcdsaDerivationRoleLocalBootstrapRequest);

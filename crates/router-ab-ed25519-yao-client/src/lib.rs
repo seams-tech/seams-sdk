@@ -65,7 +65,8 @@ pub use signing::{
 pub use wasm::{
     WasmActivatedClientV1, WasmClientSigningShareV1, WasmCustodyEnvelopeExportSessionV1,
     WasmEd25519YaoLaneClientV1, WasmEd25519YaoLaneSourceV1, WasmExportedEd25519SeedV1,
-    WasmLaneCustodySealV1, WasmLaneHolderRecipientV1, WasmLaneHolderSigningMaterialV1,
+    WasmLaneCustodySealV1, WasmLaneHolderEcdsaPresignSessionV1, WasmLaneHolderRecipientV1,
+    WasmLaneHolderSigningMaterialV1,
 };
 
 type InputHpkeV1 = Hpke<DhKemX25519HkdfSha256, HkdfSha256, Aes256Gcm>;

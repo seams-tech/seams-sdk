@@ -172,7 +172,6 @@ type LinkedDevicePendingSessionStateV1 = Extract<
     readonly state:
       | 'awaiting_target_passkey'
       | 'provisioning'
-      | 'awaiting_aggregate_receipt'
       | 'committed_completion_required';
   }
 >;
@@ -329,6 +328,10 @@ export type DeviceLinkingRouteServiceV1 = {
       }
     | { readonly kind: 'unavailable' }
   >;
+  resolveNearAccountIdForEd25519WalletKeyV1(input: {
+    readonly walletId: LinkedDeviceApprovalV1['walletId'];
+    readonly walletKeyId: LinkedDeviceApprovalV1['orderedKeyBindings'][number]['walletKeyId'];
+  }): Promise<string>;
   readonly provisioning: DeviceLinkingProvisioningProviderV1;
   readonly provisioningVerifier: DeviceLinkingProvisioningVerifierV1;
   /** Owner-authenticated R102 source handoff and Device2 refetch source. */
@@ -908,6 +911,17 @@ async function handleWalletSession(
     );
   }
   const authorization = resolution.authorization.authorization;
+  let ed25519Token: Extract<LinkedDeviceWalletSessionTokenV1, { keyFamily: 'ed25519' }> | null =
+    null;
+  for (const token of signed.orderedTokens) {
+    if (token.keyFamily === 'ed25519') ed25519Token = token;
+  }
+  const nearAccountId = ed25519Token
+    ? await service.resolveNearAccountIdForEd25519WalletKeyV1({
+        walletId: authorization.walletId,
+        walletKeyId: ed25519Token.walletKeyId,
+      })
+    : null;
   return json(
     buildLinkedDeviceWalletSessionDeliveryV1({
       kind: 'linked_device_wallet_session_delivery_v1',
@@ -923,6 +937,7 @@ async function handleWalletSession(
       revocationEpoch: authorization.revocationEpoch,
       issuedAtMs: authorization.issuedAtMs,
       expiresAtMs: authorization.expiresAtMs,
+      ...(nearAccountId ? { nearAccountId } : {}),
       orderedTokens: signed.orderedTokens,
     }),
     { status: 200 },
@@ -1437,7 +1452,7 @@ function assertAggregateReceiptMatchesSession(
 function manifestDigestFromSession(session: LinkedDeviceSessionRecordV1): string | null {
   switch (session.state.state) {
     case 'provisioning':
-    case 'awaiting_aggregate_receipt':
+    case 'committed_completion_required':
       return session.state.keyManifestDigestB64u;
     case 'active':
       if (!session.aggregateReceipt) {
@@ -1451,7 +1466,6 @@ function manifestDigestFromSession(session: LinkedDeviceSessionRecordV1): string
     case 'expired_claimed':
     case 'cancelled_unclaimed':
     case 'cancelled_claimed_precommit':
-    case 'committed_completion_required':
       return null;
     default:
       return assertNever(session.state);
@@ -1462,7 +1476,6 @@ function isProvisioningSessionState(state: LinkedDeviceSessionState): boolean {
   return (
     state.state === 'awaiting_target_passkey' ||
     state.state === 'provisioning' ||
-    state.state === 'awaiting_aggregate_receipt' ||
     state.state === 'committed_completion_required'
   );
 }
@@ -1791,7 +1804,6 @@ function isPendingSessionState(
   return (
     state.state === 'awaiting_target_passkey' ||
     state.state === 'provisioning' ||
-    state.state === 'awaiting_aggregate_receipt' ||
     state.state === 'committed_completion_required'
   );
 }

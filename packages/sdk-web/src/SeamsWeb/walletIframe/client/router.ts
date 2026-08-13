@@ -2255,9 +2255,6 @@ export class WalletIframeRouter {
   }
 
   async getExactSessionState(): Promise<WalletIframeExactSessionState> {
-    if (this.hostedAuthMenuRequestIds.size > 0 && this.exactSessionState !== null) {
-      return this.exactSessionState;
-    }
     return await this.refreshExactSessionState('current', { kind: 'current' });
   }
 
@@ -2313,6 +2310,18 @@ export class WalletIframeRouter {
     } catch {}
   }
 
+  private handlePreferencesChanged(payload: PreferencesChangedPayload): void {
+    this.emitPreferencesChanged(payload);
+    const walletId = String(payload.walletId || '').trim();
+    if (!walletId) return;
+    void this.refreshExactSessionAndEmitLoginStatus('current', {
+      kind: 'exact',
+      walletId: parseRequestedWalletId(walletId),
+    }).catch((error: unknown) => {
+      console.warn('[WalletIframeRouter] Exact session refresh after wallet change failed:', error);
+    });
+  }
+
   private emitSdkLifecycleEvent(event: SdkLifecycleEvent): void {
     const eventName = event.event;
     switch (eventName) {
@@ -2337,9 +2346,10 @@ export class WalletIframeRouter {
   private mirrorExpiredSession(event: SigningSessionExpiredEvent): void {
     const state = this.exactSessionState;
     if (state === null || state.kind !== 'active_session') return;
+    if (state.authMethod === 'linked_device') return;
     if (state.walletId !== event.walletId || state.walletSessionId !== event.walletSessionId)
       return;
-    this.exactSessionState = {
+    const expiredState: WalletIframeExactSessionState = {
       kind: 'expired_session',
       walletId: event.walletId,
       authorizationId: state.authorizationId,
@@ -2347,7 +2357,8 @@ export class WalletIframeRouter {
       authMethod: event.authMethod,
       expiresAtMs: event.expiresAtMs,
     };
-    this.emitLoginStatusChanged(walletIframeLoginStatusFromExactSession(this.exactSessionState));
+    this.exactSessionState = expiredState;
+    this.emitLoginStatusChanged(walletIframeLoginStatusFromExactSession(expiredState));
   }
 
   private failPendingRequestsForExpiredSession(event: SigningSessionExpiredEvent): void {
@@ -3714,7 +3725,7 @@ export class WalletIframeRouter {
     // Some wallet-host messages are push-style and are not correlated to a requestId.
     if (msg.type === 'PREFERENCES_CHANGED') {
       const payload = msg.payload as PreferencesChangedPayload;
-      this.emitPreferencesChanged(payload);
+      this.handlePreferencesChanged(payload);
       return;
     }
     if (msg.type === 'AUTH_MENU_EXTERNAL_AUTH_REQUEST') {
@@ -4037,14 +4048,23 @@ export class WalletIframeRouter {
     if (state === null || state.kind !== 'active_session' || state.walletId !== requestWalletId) {
       return { kind: 'unbound' };
     }
-    return {
-      kind: 'exact_session',
-      walletId: state.walletId,
-      authorizationId: state.authorizationId,
-      walletSessionId: state.walletSessionId,
-      authMethod: state.authMethod,
-      expiresAtMs: state.expiresAtMs,
-    };
+    return state.authMethod === 'linked_device'
+      ? {
+          kind: 'exact_session',
+          walletId: state.walletId,
+          authorizationId: state.authorizationId,
+          walletSessionId: state.walletSessionId,
+          authMethod: 'linked_device',
+          expiresAtMs: state.expiresAtMs,
+        }
+      : {
+          kind: 'exact_session',
+          walletId: state.walletId,
+          authorizationId: state.authorizationId,
+          walletSessionId: state.walletSessionId,
+          authMethod: state.authMethod,
+          expiresAtMs: state.expiresAtMs,
+        };
   }
 
   private requestAdmission(
@@ -4057,16 +4077,8 @@ export class WalletIframeRouter {
     if (!expiredSessionIds?.has(binding.walletSessionId)) {
       return { kind: 'admitted', binding };
     }
-    return {
-      kind: 'expired',
-      identity: {
-        walletId: binding.walletId,
-        authorizationId: binding.authorizationId,
-        walletSessionId: binding.walletSessionId,
-        authMethod: binding.authMethod,
-        expiresAtMs: binding.expiresAtMs,
-      },
-    };
+    const { kind: _kind, ...identity } = binding;
+    return { kind: 'expired', identity };
   }
 
   private allocateRequestId(): WalletIframeRequestId {

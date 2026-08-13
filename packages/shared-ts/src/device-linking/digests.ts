@@ -1,11 +1,12 @@
 import { base64UrlDecode, base64UrlEncode } from '../utils/base64';
 import { parseDigestB64u, type DigestB64u } from '../utils/canonicalPrimitives';
-import { sha256Bytes } from '../utils/digests';
+import { alphabetizeStringify, sha256Bytes, sha256BytesUtf8 } from '../utils/digests';
 import type {
   LinkedDeviceApprovalV1,
   LinkedDeviceEnrollmentKeyBindingV1,
   LinkedDeviceOwnerAuthorizationSourceV1,
   LinkedDeviceProtocolVersionV1,
+  LinkedDeviceProvisioningDeliveriesV1,
   LinkedDeviceSessionClaimV1,
   LinkedDeviceTargetCredentialRegistrationV1,
   LinkedDeviceTargetPreparationChildV1,
@@ -21,6 +22,12 @@ const APPROVAL_DOMAIN = 'seams/linked-device/owner-approval/v1';
 const TARGET_PREPARATION_DOMAIN = 'seams/linked-device/target-preparation/v1';
 const LOCAL_PRESENCE_DOMAIN = 'seams/linked-device/local-presence/v1';
 const TEXT_ENCODER = new TextEncoder();
+
+export async function computeLinkedDeviceProvisioningDeliveriesDigestV1(
+  value: LinkedDeviceProvisioningDeliveriesV1,
+): Promise<DigestB64u> {
+  return parseDigestB64u(base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(value))));
+}
 
 function concat(parts: readonly Uint8Array[]): Uint8Array {
   let length = 0;

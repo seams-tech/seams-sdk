@@ -20,6 +20,7 @@ import { resolveWorkerUrl } from '@/core/walletRuntimePaths';
 import { resolveEmailOtpWorkerUrl } from '@/core/walletRuntimePaths/emailOtpWorker';
 import { resolveWalletCustodyCeremonyWorkerUrl } from '@/core/walletRuntimePaths/walletCustodyCeremonyWorker';
 import { EcdsaClientWorkerControlKind } from './ecdsaClientWorkerChannels';
+import { clearAllRouterAbEcdsaDerivationClientPresignatures } from '../routerAb/ecdsaDerivation/presignaturePool';
 import type {
   EcdsaDerivationWorkerOperationRequest,
   EcdsaDerivationWorkerOperationResult,
@@ -228,7 +229,7 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
   private readonly messageHandlers = new Map<SignerWorkerKind, (event: MessageEvent) => void>();
   private readonly errorHandlers = new Map<SignerWorkerKind, (event: ErrorEvent) => void>();
   private derivationPresignConnected = false;
-  private emailOtpPresignConnected = false;
+  private presignOnlineConnected = false;
   private ecdsaRegistrationCryptoPrewarmPromise: Promise<{
     kind: 'succeeded' | 'failed';
     wasmInitMs: number;
@@ -405,6 +406,7 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
       return await this.requestRpcOperation('ecdsaPresignClient', args.request);
     }
     if (args.kind === 'ecdsaOnlineClient') {
+      this.connectPresignOnlineChannel();
       return await this.requestRpcOperation('ecdsaOnlineClient', args.request);
     }
     if (args.kind === 'evmCrypto') {
@@ -610,9 +612,6 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
       case 'role_local_derivation_handle':
         this.connectDerivationPresignChannel(presignWorker);
         return;
-      case 'email_otp_worker_session':
-        this.connectEmailOtpPresignChannel(presignWorker);
-        return;
       case 'linked_holder_signing_material':
         return;
       default:
@@ -622,16 +621,12 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
 
   private parsePresignAuthorityKind(
     payload: unknown,
-  ):
-    | 'role_local_derivation_handle'
-    | 'email_otp_worker_session'
-    | 'linked_holder_signing_material' {
+  ): 'role_local_derivation_handle' | 'linked_holder_signing_material' {
     if (!isObject(payload) || !isObject(payload.authority)) {
       throw new Error('ECDSA presign init authority is required');
     }
     switch (payload.authority.kind) {
       case 'role_local_derivation_handle':
-      case 'email_otp_worker_session':
       case 'linked_holder_signing_material':
         return payload.authority.kind;
       default:
@@ -641,6 +636,7 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
 
   createLinkedHolderPresignAuthorityPortV1(): MessagePort {
     const presignWorker = this.getOrCreateWorker('ecdsaPresignClient');
+    clearAllRouterAbEcdsaDerivationClientPresignatures();
     const channel = new MessageChannel();
     presignWorker.postMessage(
       {
@@ -654,6 +650,7 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
 
   private connectDerivationPresignChannel(presignWorker: Worker): void {
     if (this.derivationPresignConnected) return;
+    clearAllRouterAbEcdsaDerivationClientPresignatures();
     const derivationWorker = this.getOrCreateWorker('ecdsaDerivationClient');
     const channel = new MessageChannel();
     derivationWorker.postMessage(
@@ -673,25 +670,20 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
     this.derivationPresignConnected = true;
   }
 
-  private connectEmailOtpPresignChannel(presignWorker: Worker): void {
-    if (this.emailOtpPresignConnected) return;
-    const emailOtpWorker = this.getOrCreateWorker('emailOtp');
+  private connectPresignOnlineChannel(): void {
+    if (this.presignOnlineConnected) return;
+    const presignWorker = this.getOrCreateWorker('ecdsaPresignClient');
+    const onlineWorker = this.getOrCreateWorker('ecdsaOnlineClient');
     const channel = new MessageChannel();
-    emailOtpWorker.postMessage(
-      {
-        kind: EcdsaClientWorkerControlKind.AttachEmailOtpToPresign,
-        port: channel.port1,
-      },
+    presignWorker.postMessage(
+      { kind: EcdsaClientWorkerControlKind.AttachPresignToOnline, port: channel.port1 },
       [channel.port1],
     );
-    presignWorker.postMessage(
-      {
-        kind: EcdsaClientWorkerControlKind.AttachEmailOtpToPresign,
-        port: channel.port2,
-      },
+    onlineWorker.postMessage(
+      { kind: EcdsaClientWorkerControlKind.AttachPresignToOnline, port: channel.port2 },
       [channel.port2],
     );
-    this.emailOtpPresignConnected = true;
+    this.presignOnlineConnected = true;
   }
 
   private createWorker(kind: SignerWorkerKind): Worker {
@@ -1051,13 +1043,27 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
       this.resetWorker('ecdsaPresignClient');
     } else if (kind === 'ecdsaPresignClient') {
       this.derivationPresignConnected = false;
-      this.emailOtpPresignConnected = false;
-    } else if (kind === 'emailOtp') {
-      this.emailOtpPresignConnected = false;
-      this.resetWorker('ecdsaPresignClient');
+      this.presignOnlineConnected = false;
+      this.resetWorker('ecdsaOnlineClient');
+      this.terminateWorkerOnly('ecdsaDerivationClient');
+    } else if (kind === 'ecdsaOnlineClient') {
+      this.presignOnlineConnected = false;
     }
+    if (
+      kind === 'ecdsaDerivationClient' ||
+      kind === 'ecdsaPresignClient' ||
+      kind === 'ecdsaOnlineClient'
+    ) {
+      clearAllRouterAbEcdsaDerivationClientPresignatures();
+    }
+    this.terminateWorkerOnly(kind);
+  }
+
+  private terminateWorkerOnly(kind: SignerWorkerKind): void {
     const worker = this.workers.get(kind);
     if (!worker) return;
+
+    this.rejectAllPending(kind, new Error(`${kind} worker was reset`));
 
     const messageHandler = this.messageHandlers.get(kind);
     const errorHandler = this.errorHandlers.get(kind);

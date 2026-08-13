@@ -51,8 +51,8 @@ import {
 } from '@/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
 import {
   isAttachLinkedHolderToPresignPort,
-  type LinkedHolderEcdsaAdditiveShareRequest,
-  type LinkedHolderEcdsaAdditiveShareResponse,
+  type OpaqueEcdsaPresignAuthorityRequestV1,
+  type OpaqueEcdsaPresignAuthorityResponseV1,
 } from '../ecdsaClientWorkerChannels';
 import { parseEcdsaClientPresignPoolIdentity } from '../ecdsaPresignPoolIdentity';
 import initEd25519YaoClient, {
@@ -61,6 +61,10 @@ import initEd25519YaoClient, {
   WasmLaneHolderSigningMaterialV1,
 } from '../../../../../../../crates/router-ab-ed25519-yao-client/pkg/router_ab_ed25519_yao_client.js';
 import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
+import {
+  OpaqueEcdsaPresignAuthorityV1,
+  type OpaqueEcdsaPresignSessionV1,
+} from './opaqueEcdsaPresignAuthority';
 
 /**
  * The worker is the only owner of these key objects. The browser receives
@@ -222,7 +226,10 @@ export type DeviceLinkingLaneSigningMaterialV1 = {
     signingWorkerCommitmentsJson: string,
     signingWorkerVerifyingShare: Uint8Array,
   ): DeviceLinkingEd25519SigningShareOutputV1;
-  ecdsa_additive_share32(): Uint8Array;
+  create_ecdsa_presign_session(
+    groupPublicKey33: Uint8Array,
+    sessionId: string,
+  ): OpaqueEcdsaPresignSessionV1;
   destroy(): void;
   free(): void;
 };
@@ -265,6 +272,7 @@ export type DeviceLinkingLaneRecipientFactoryV1 = {
 const keySlots = new Map<string, DeviceLinkingKeySlotV1>();
 const holderSigningMaterialSlots = new Map<string, DeviceLinkingHolderSigningMaterialSlotV1>();
 let linkedHolderPresignPort: MessagePort | null = null;
+const linkedHolderOpaquePresignAuthority = new OpaqueEcdsaPresignAuthorityV1();
 const laneRecipientWasmUrl = resolveWasmUrl(
   'router_ab_ed25519_yao_client_bg.wasm',
   'Ed25519 Yao Client',
@@ -1214,50 +1222,189 @@ function createEd25519HolderSigningShare(
   }
 }
 
-function linkedHolderShareError(
+type LinkedHolderOpaquePresignRequestV1 =
+  | Extract<
+      OpaqueEcdsaPresignAuthorityRequestV1,
+      {
+        readonly kind: 'opaque_ecdsa_presign_session_init_v1';
+        readonly authority: { readonly kind: 'linked_holder_signing_material' };
+      }
+    >
+  | Extract<
+      OpaqueEcdsaPresignAuthorityRequestV1,
+      { readonly kind: 'opaque_ecdsa_presign_session_step_v1' }
+    >
+  | Extract<
+      OpaqueEcdsaPresignAuthorityRequestV1,
+      { readonly kind: 'opaque_ecdsa_presign_session_abort_v1' }
+    >
+  | Extract<
+      OpaqueEcdsaPresignAuthorityRequestV1,
+      { readonly kind: 'opaque_ecdsa_online_compute_v1' }
+    >
+  | Extract<
+      OpaqueEcdsaPresignAuthorityRequestV1,
+      { readonly kind: 'opaque_ecdsa_presign_material_destroy_v1' }
+    >;
+
+function linkedHolderPresignError(
   requestId: string,
   error: unknown,
-): LinkedHolderEcdsaAdditiveShareResponse {
+): OpaqueEcdsaPresignAuthorityResponseV1 {
   return {
-    kind: 'linked_holder_ecdsa_additive_share_result_v1',
+    kind: 'opaque_ecdsa_presign_authority_result_v1',
     requestId,
     ok: false,
     error: workerError(error),
   };
 }
 
-function requireLinkedHolderShareRequest(value: unknown): LinkedHolderEcdsaAdditiveShareRequest {
-  const record = exactRecord(
-    value,
-    ['kind', 'requestId', 'holderHandleId', 'poolIdentity', 'groupPublicKey33'],
-    'linked holder ECDSA share request',
-  );
-  if (record.kind !== 'linked_holder_ecdsa_additive_share_request_v1') {
-    throw new Error('linked holder ECDSA share request kind is invalid');
-  }
+function requireLinkedHolderPresignRequest(value: unknown): LinkedHolderOpaquePresignRequestV1 {
+  const record = requireRecord(value, 'linked holder ECDSA presign request');
   if (typeof record.requestId !== 'string' || !record.requestId.trim()) {
-    throw new Error('linked holder ECDSA share requestId is required');
+    throw new Error('linked holder ECDSA presign requestId is required');
   }
-  if (typeof record.holderHandleId !== 'string' || !record.holderHandleId.trim()) {
-    throw new Error('linked holder ECDSA holderHandleId is required');
+  switch (record.kind) {
+    case 'opaque_ecdsa_presign_session_init_v1': {
+      exactRecord(
+        record,
+        [
+          'kind',
+          'requestId',
+          'sessionId',
+          'authority',
+          'poolIdentity',
+          'groupPublicKey33',
+          'materialExpiresAtMs',
+        ],
+        'linked holder ECDSA presign init request',
+      );
+      const authority = exactRecord(
+        record.authority,
+        ['kind', 'holderHandleId'],
+        'linked holder ECDSA presign authority',
+      );
+      if (
+        authority.kind !== 'linked_holder_signing_material' ||
+        typeof authority.holderHandleId !== 'string' ||
+        !authority.holderHandleId.trim()
+      ) {
+        throw new Error('linked holder ECDSA presign authority is invalid');
+      }
+      if (
+        !(record.groupPublicKey33 instanceof ArrayBuffer) ||
+        record.groupPublicKey33.byteLength !== 33
+      ) {
+        throw new Error('linked holder ECDSA presign groupPublicKey33 must be 33 bytes');
+      }
+      const materialExpiresAtMs = Number(record.materialExpiresAtMs);
+      if (!Number.isSafeInteger(materialExpiresAtMs) || materialExpiresAtMs <= Date.now()) {
+        throw new Error('linked holder ECDSA presign material expiry must be in the future');
+      }
+      return {
+        kind: record.kind,
+        requestId: record.requestId,
+        sessionId: requireLinkedHolderString(record.sessionId, 'sessionId'),
+        authority: {
+          kind: authority.kind,
+          holderHandleId: authority.holderHandleId,
+        },
+        poolIdentity: parseEcdsaClientPresignPoolIdentity(record.poolIdentity),
+        groupPublicKey33: record.groupPublicKey33,
+        materialExpiresAtMs,
+      };
+    }
+    case 'opaque_ecdsa_presign_session_step_v1': {
+      exactRecord(
+        record,
+        ['kind', 'requestId', 'sessionId', 'stage', 'incomingMessages'],
+        'linked holder ECDSA presign step request',
+      );
+      if (record.stage !== 'triples' && record.stage !== 'presign') {
+        throw new Error('linked holder ECDSA presign stage is invalid');
+      }
+      if (
+        !Array.isArray(record.incomingMessages) ||
+        !record.incomingMessages.every(isArrayBuffer)
+      ) {
+        throw new Error('linked holder ECDSA presign messages must be ArrayBuffers');
+      }
+      return {
+        kind: record.kind,
+        requestId: record.requestId,
+        sessionId: requireLinkedHolderString(record.sessionId, 'sessionId'),
+        stage: record.stage,
+        incomingMessages: record.incomingMessages,
+      };
+    }
+    case 'opaque_ecdsa_presign_session_abort_v1':
+      exactRecord(
+        record,
+        ['kind', 'requestId', 'sessionId'],
+        'linked holder ECDSA presign abort request',
+      );
+      return {
+        kind: record.kind,
+        requestId: record.requestId,
+        sessionId: requireLinkedHolderString(record.sessionId, 'sessionId'),
+      };
+    case 'opaque_ecdsa_online_compute_v1':
+      return {
+        kind: record.kind,
+        requestId: record.requestId,
+        materialHandle: requireLinkedHolderString(record.materialHandle, 'materialHandle'),
+        groupPublicKey33: requireLinkedHolderBuffer(record.groupPublicKey33, 33, 'groupPublicKey33'),
+        expectedPresignBigR33: requireLinkedHolderBuffer(
+          record.expectedPresignBigR33,
+          33,
+          'expectedPresignBigR33',
+        ),
+        digest32: requireLinkedHolderBuffer(record.digest32, 32, 'digest32'),
+        clientRerandomizationContribution32: requireLinkedHolderBuffer(
+          record.clientRerandomizationContribution32,
+          32,
+          'clientRerandomizationContribution32',
+        ),
+        signingWorkerRerandomizationContribution32: requireLinkedHolderBuffer(
+          record.signingWorkerRerandomizationContribution32,
+          32,
+          'signingWorkerRerandomizationContribution32',
+        ),
+      };
+    case 'opaque_ecdsa_presign_material_destroy_v1':
+      return {
+        kind: record.kind,
+        requestId: record.requestId,
+        materialHandle: requireLinkedHolderString(record.materialHandle, 'materialHandle'),
+      };
+    default:
+      throw new Error('linked holder ECDSA presign request kind is invalid');
   }
-  if (
-    !(record.groupPublicKey33 instanceof ArrayBuffer) ||
-    record.groupPublicKey33.byteLength !== 33
-  ) {
-    throw new Error('linked holder ECDSA groupPublicKey33 must be 33 bytes');
-  }
-  return {
-    kind: 'linked_holder_ecdsa_additive_share_request_v1',
-    requestId: record.requestId,
-    holderHandleId: record.holderHandleId,
-    poolIdentity: parseEcdsaClientPresignPoolIdentity(record.poolIdentity),
-    groupPublicKey33: record.groupPublicKey33,
-  };
 }
 
-function createLinkedHolderEcdsaShare(request: LinkedHolderEcdsaAdditiveShareRequest): Uint8Array {
-  const slot = holderSigningMaterialSlots.get(request.holderHandleId);
+function requireLinkedHolderString(value: unknown, label: string): string {
+  if (typeof value !== 'string' || !value.trim()) throw new Error(`${label} is required`);
+  return value;
+}
+
+function requireLinkedHolderBuffer(value: unknown, length: number, label: string): ArrayBuffer {
+  if (!(value instanceof ArrayBuffer) || value.byteLength !== length) {
+    throw new Error(`${label} must be a ${length}-byte ArrayBuffer`);
+  }
+  return value;
+}
+
+function isArrayBuffer(value: unknown): value is ArrayBuffer {
+  return value instanceof ArrayBuffer;
+}
+
+function createLinkedHolderEcdsaPresignSession(
+  request: Extract<
+    LinkedHolderOpaquePresignRequestV1,
+    { readonly kind: 'opaque_ecdsa_presign_session_init_v1' }
+  >,
+): OpaqueEcdsaPresignSessionV1 {
+  const slot = holderSigningMaterialSlots.get(request.authority.holderHandleId);
   if (!slot || slot.job.keyFamily !== 'ecdsa_secp256k1') {
     throw new Error('ECDSA holder signing material is unknown, discarded, or cross-curve');
   }
@@ -1282,45 +1429,76 @@ function createLinkedHolderEcdsaShare(request: LinkedHolderEcdsaAdditiveShareReq
     ) {
       throw new Error('ECDSA presign group key changed the persisted R102 child');
     }
-    const share = slot.material.ecdsa_additive_share32();
-    if (share.length !== 32) {
-      share.fill(0);
-      throw new Error('ECDSA linked holder additive share must be 32 bytes');
-    }
-    return share;
+    return slot.material.create_ecdsa_presign_session(requestedGroupKey, request.sessionId);
   } finally {
     requestedGroupKey.fill(0);
     persistedGroupKey.fill(0);
   }
 }
 
+async function handleLinkedHolderPresignRequest(event: MessageEvent<unknown>): Promise<void> {
+  if (!linkedHolderPresignPort) return;
+  let requestId = '';
+  try {
+    const request = requireLinkedHolderPresignRequest(event.data);
+    requestId = request.requestId;
+    let result: Extract<OpaqueEcdsaPresignAuthorityResponseV1, { readonly ok: true }>['result'];
+    switch (request.kind) {
+      case 'opaque_ecdsa_presign_session_init_v1':
+        result = {
+          kind: 'progress',
+          progress: await linkedHolderOpaquePresignAuthority.initialize({
+            sessionId: request.sessionId,
+            session: createLinkedHolderEcdsaPresignSession(request),
+            groupPublicKey33: new Uint8Array(request.groupPublicKey33),
+            expiresAtMs: request.materialExpiresAtMs,
+            poolIdentity: request.poolIdentity,
+          }),
+        };
+        break;
+      case 'opaque_ecdsa_presign_session_step_v1':
+        result = {
+          kind: 'progress',
+          progress: await linkedHolderOpaquePresignAuthority.step(request),
+        };
+        break;
+      case 'opaque_ecdsa_presign_session_abort_v1':
+        result = {
+          kind: 'aborted',
+          sessionId: (await linkedHolderOpaquePresignAuthority.abort(request.sessionId)).sessionId,
+        };
+        break;
+      case 'opaque_ecdsa_online_compute_v1': {
+        const signatureShare32 =
+          await linkedHolderOpaquePresignAuthority.computeSignatureShare(request);
+        result = { kind: 'online_share', signatureShare32 };
+        break;
+      }
+      case 'opaque_ecdsa_presign_material_destroy_v1':
+        await linkedHolderOpaquePresignAuthority.destroyMaterial(request.materialHandle);
+        result = { kind: 'material_destroyed', materialHandle: request.materialHandle };
+        break;
+    }
+    linkedHolderPresignPort.postMessage({
+      kind: 'opaque_ecdsa_presign_authority_result_v1',
+      requestId,
+      ok: true,
+      result,
+    } satisfies OpaqueEcdsaPresignAuthorityResponseV1);
+  } catch (error) {
+    if (requestId) linkedHolderPresignPort.postMessage(linkedHolderPresignError(requestId, error));
+  }
+}
+
+function enqueueLinkedHolderPresignRequest(event: MessageEvent<unknown>): void {
+  void handleLinkedHolderPresignRequest(event);
+}
+
 function attachLinkedHolderPresignPort(port: MessagePort): void {
   linkedHolderPresignPort?.close();
+  linkedHolderOpaquePresignAuthority.close();
   linkedHolderPresignPort = port;
-  port.onmessage = (event: MessageEvent): void => {
-    let requestId = '';
-    try {
-      const request = requireLinkedHolderShareRequest(event.data);
-      requestId = request.requestId;
-      const additiveShare = createLinkedHolderEcdsaShare(request);
-      try {
-        port.postMessage(
-          {
-            kind: 'linked_holder_ecdsa_additive_share_result_v1',
-            requestId,
-            ok: true,
-            additiveShare32: additiveShare.buffer,
-          } satisfies LinkedHolderEcdsaAdditiveShareResponse,
-          [additiveShare.buffer],
-        );
-      } catch (error) {
-        additiveShare.fill(0);
-        throw error;
-      }
-    } catch (error) {
-      if (requestId) port.postMessage(linkedHolderShareError(requestId, error));
-    }
-  };
+  port.onmessage = enqueueLinkedHolderPresignRequest;
   port.start();
 }
 
@@ -1444,6 +1622,7 @@ export function installDeviceLinkingKeyWorkerV1(
         .then(() => {
           linkedHolderPresignPort?.close();
           linkedHolderPresignPort = null;
+          linkedHolderOpaquePresignAuthority.close();
           for (const slot of keySlots.values()) destroySlot(slot);
           keySlots.clear();
           for (const handleId of holderSigningMaterialSlots.keys()) {

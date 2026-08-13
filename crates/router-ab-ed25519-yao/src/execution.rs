@@ -201,10 +201,7 @@ impl Ed25519YaoLaneRoleExecutionV1 {
         if self.session != self.job.session_v1()? {
             return Err(invalid_execution("lane role session does not match job"));
         }
-        let expected_transcript = self.job.transcript_digest_v1()?;
-        if self.transcript != expected_transcript {
-            return Err(invalid_execution("lane role transcript does not match job"));
-        }
+        validate_nonzero(self.transcript, "lane role transcript")?;
         validate_nonzero(self.holder_commitment, "lane holder commitment")?;
         validate_nonzero(
             self.signing_worker_commitment,
@@ -484,7 +481,7 @@ pub fn commit_ed25519_yao_lane_result_v1(
         deriver_a.transcript,
         holder_commitment,
         signing_worker_commitment,
-        deriver_a.job.registered_public_key_b64u.as_bytes(),
+        &decode_lane_digest(&deriver_a.job.registered_public_key_b64u)?,
     );
     let holder_ciphertext_digest_set = lane_ciphertext_digest_set(
         b"holder",

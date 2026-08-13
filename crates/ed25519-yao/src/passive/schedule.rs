@@ -12,7 +12,7 @@ const RECORD_BYTES: usize = 1 + 3 * SLOT_WIDTH;
 const XOR_OPCODE: u8 = 1;
 const AND_OPCODE: u8 = 2;
 const INV_OPCODE: u8 = 3;
-const MAX_SLOT_COUNT: usize = 6_785;
+const MAX_SLOT_COUNT: usize = 7_297;
 
 #[cfg(test)]
 const ACTIVATION_SCHEDULE: &[u8] = include_bytes!(concat!(
@@ -140,22 +140,22 @@ const PHASE4_EXPORT_SPEC: FixedScheduleSpec = FixedScheduleSpec {
 const LANE_MATERIALIZATION_SPEC: FixedScheduleSpec = FixedScheduleSpec {
     component: 0x95,
     ir_digest: [
-        0xba, 0x88, 0xdc, 0xab, 0x5c, 0x70, 0xa3, 0x08, 0xd6, 0xe5, 0x00, 0xb6, 0x66, 0x44, 0x24,
-        0xd1, 0xa7, 0xaf, 0x26, 0x68, 0xa2, 0x1d, 0x87, 0x49, 0x87, 0x8d, 0x42, 0xb5, 0x2a, 0x48,
-        0x69, 0x19,
+        0xb8, 0x2d, 0x95, 0x99, 0x1e, 0x0d, 0x3f, 0x91, 0xf2, 0xd3, 0x10, 0x09, 0xcb, 0x15, 0x58,
+        0xf7, 0x3a, 0xbd, 0x1d, 0x0a, 0x66, 0x7f, 0xec, 0x99, 0xe0, 0x2d, 0xdb, 0x75, 0x1f, 0x65,
+        0x2d, 0x06,
     ],
     schedule_digest: [
-        0xa4, 0xed, 0x46, 0x17, 0x49, 0x3e, 0x0a, 0xd7, 0xed, 0x46, 0x86, 0x5d, 0x4a, 0xa8, 0x66,
-        0xd1, 0x9e, 0x00, 0xae, 0xb0, 0xd7, 0xb9, 0x55, 0x5f, 0x36, 0x02, 0xfa, 0x00, 0x7b, 0xa3,
-        0xab, 0xaa,
+        0x3b, 0xba, 0xe3, 0x84, 0x3b, 0xab, 0x64, 0x4b, 0x3b, 0x7e, 0x7e, 0xd6, 0xdd, 0x37, 0x9b,
+        0x6b, 0x40, 0xb7, 0xc3, 0x21, 0x33, 0xc5, 0x09, 0x4e, 0x4b, 0x1f, 0xc4, 0xe9, 0x66, 0xfd,
+        0x57, 0xd4,
     ],
-    input_count: 1_536,
-    gate_count: 21_056,
+    input_count: 3_584,
+    gate_count: 403_106,
     output_count: 1_024,
-    slot_count: 1_794,
-    xor_count: 14_268,
-    and_count: 4_590,
-    inv_count: 2_198,
+    slot_count: 7_297,
+    xor_count: 318_491,
+    and_count: 70_370,
+    inv_count: 14_245,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -576,12 +576,12 @@ mod tests {
     #[test]
     fn lane_materialization_schedule_validates_distinct_ir_and_counts() {
         let lane = lane_materialization().expect("lane materialization schedule");
-        assert_eq!(lane.input_count(), 1_536);
-        assert_eq!(lane.gate_count(), 21_056);
+        assert_eq!(lane.input_count(), 3_584);
+        assert_eq!(lane.gate_count(), 403_106);
         assert_eq!(lane.output_count(), 1_024);
-        assert_eq!(lane.slot_count(), 1_794);
-        assert_eq!(lane.and_count(), 4_590);
-        assert_eq!(lane.gates().len(), 21_056);
+        assert_eq!(lane.slot_count(), 7_297);
+        assert_eq!(lane.and_count(), 70_370);
+        assert_eq!(lane.gates().len(), 403_106);
         assert_eq!(lane.output_slots().len(), 1_024);
     }
 

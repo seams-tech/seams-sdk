@@ -1018,7 +1018,7 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
             ...values,
             JSON.stringify(retired),
             aggregateDigest,
-            input.activatedAtMs,
+            now,
             String(retirement.previous.walletKeyId),
             String(retirement.previous.laneId),
             String(retirement.previous.targetMaterialActivationId),
@@ -1062,7 +1062,7 @@ export class CloudflareD1LaneLifecycleStore implements LaneLifecycleStore {
             ...values,
             JSON.stringify(active),
             aggregateDigest,
-            input.activatedAtMs,
+            now,
             String(child.operationId),
           ),
       );

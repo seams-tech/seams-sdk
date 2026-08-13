@@ -252,6 +252,40 @@ test.describe('D1 linked-device authorization', () => {
           materialActivation: ecdsaProduct.materialActivation,
         }),
       ).resolves.toEqual({ kind: 'refused', reason: 'linked_execution_unavailable' });
+
+      // The parent enrollment fence must reject admission while its child
+      // products still appear active. This keeps private material resolution
+      // behind the durable revocation barrier.
+      await temporary.database
+        .prepare(
+          `UPDATE lane_enrollments
+              SET lifecycle_json = ?1
+            WHERE namespace = ?2 AND org_id = ?3 AND project_id = ?4
+              AND env_id = ?5 AND enrollment_id = ?6`,
+        )
+        .bind(
+          JSON.stringify({
+            state: 'revoking_committed_targets',
+            manifestDigestB64u: String(manifestDigest),
+            reason: 'revoked_during_activation',
+            markedAtMs: 5_003,
+          }),
+          scope.namespace,
+          scope.orgId,
+          scope.projectId,
+          scope.envId,
+          String(fixture.manifest.enrollmentId),
+        )
+        .run();
+      await expect(
+        resolver.resolveActiveLinkedDeviceExecutionV1({
+          ...common,
+          walletKeyId: ecdsaProduct.walletKeyId,
+          laneId: ecdsaProduct.laneId,
+          laneShareEpoch: ecdsaProduct.laneShareEpoch,
+          materialActivation: ecdsaProduct.materialActivation,
+        }),
+      ).resolves.toEqual({ kind: 'refused', reason: 'lane_inactive' });
     } finally {
       cleanupTemporaryD1Database(temporary.tempDir);
     }

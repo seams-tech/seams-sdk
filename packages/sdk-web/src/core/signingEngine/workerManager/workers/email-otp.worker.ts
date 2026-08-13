@@ -46,11 +46,6 @@ import {
 import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
-  isAttachEmailOtpToPresignPort,
-  type EmailOtpEcdsaSigningShareRequest,
-  type EmailOtpEcdsaSigningShareResponse,
-} from '../ecdsaClientWorkerChannels';
-import {
   EMAIL_OTP_CHANNEL,
   WALLET_EMAIL_OTP_ACTIONS,
   WALLET_EMAIL_OTP_EXPORT_OPERATION,
@@ -304,7 +299,6 @@ type WorkerErrorPayload = {
 
 type EmailOtpWarmSessionEntry = {
   signingSessionSecret32: Uint8Array;
-  clientAdditiveShare32?: Uint8Array;
   expiresAtMs: number;
   remainingUses: number;
 };
@@ -406,10 +400,6 @@ type SigningSessionSealRouteResult =
       expiresAtMs?: number;
       remainingUses?: number;
     }
-  | { ok: false; code: string; message: string };
-
-type EmailOtpEcdsaSigningShareClaimResult =
-  | { ok: true; clientSigningShare32: ArrayBuffer; remainingUses: number; expiresAtMs: number }
   | { ok: false; code: string; message: string };
 
 type EmailOtpEd25519YaoActiveClientEntry = {
@@ -1077,7 +1067,6 @@ function deleteEmailOtpWarmSession(thresholdSessionId: string): void {
   const entry = emailOtpWarmSessions.get(thresholdSessionId);
   if (entry) {
     zeroizeBytes(entry.signingSessionSecret32);
-    zeroizeBytes(entry.clientAdditiveShare32);
     emailOtpWarmSessions.delete(thresholdSessionId);
   }
 }
@@ -1242,9 +1231,6 @@ function updateEmailOtpWarmMaterialPolicy(args: {
       }
       emailOtpWarmSessions.set(args.target.thresholdSessionId, {
         signingSessionSecret32: args.material.entry.signingSessionSecret32,
-        ...(args.material.entry.clientAdditiveShare32
-          ? { clientAdditiveShare32: args.material.entry.clientAdditiveShare32 }
-          : {}),
         remainingUses: args.remainingUses,
         expiresAtMs: args.expiresAtMs,
       });
@@ -1597,79 +1583,6 @@ async function rehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
 
   signingSessionSealRemoveInFlight.set(singleFlightKey, task);
   return await task;
-}
-
-function claimEmailOtpEcdsaSigningShare(
-  thresholdSessionIdRaw: unknown,
-): EmailOtpEcdsaSigningShareClaimResult {
-  const thresholdSessionId = String(thresholdSessionIdRaw || '').trim();
-  const status = readEmailOtpWarmSessionStatus({
-    kind: 'ecdsa',
-    thresholdSessionId,
-  });
-  if (!status.ok) return status;
-  const entry = emailOtpWarmSessions.get(thresholdSessionId);
-  if (!entry?.clientAdditiveShare32) {
-    return {
-      ok: false,
-      code: 'not_found',
-      message: 'Email OTP ECDSA signing material is not available',
-    };
-  }
-  const clientSigningShare32 = Uint8Array.from(entry.clientAdditiveShare32);
-  entry.remainingUses -= 1;
-  const remainingUses = entry.remainingUses;
-  const expiresAtMs = entry.expiresAtMs;
-  if (remainingUses <= 0) {
-    deleteEmailOtpWarmSession(thresholdSessionId);
-  } else {
-    emailOtpWarmSessions.set(thresholdSessionId, entry);
-  }
-  return {
-    ok: true,
-    clientSigningShare32: clientSigningShare32.buffer,
-    remainingUses,
-    expiresAtMs,
-  };
-}
-
-let ecdsaPresignPort: MessagePort | null = null;
-
-function handleEmailOtpEcdsaSigningShareRequest(
-  event: MessageEvent<EmailOtpEcdsaSigningShareRequest>,
-): void {
-  if (!ecdsaPresignPort) return;
-  const request = event.data;
-  if (request.kind !== 'email_otp_ecdsa_signing_share_request_v1') return;
-  const result = claimEmailOtpEcdsaSigningShare(request.thresholdSessionId);
-  if (!result.ok) {
-    const failure: EmailOtpEcdsaSigningShareResponse = {
-      kind: 'email_otp_ecdsa_signing_share_result_v1',
-      requestId: request.requestId,
-      ok: false,
-      error: result.message || result.code,
-    };
-    ecdsaPresignPort.postMessage(failure);
-    return;
-  }
-  const success: EmailOtpEcdsaSigningShareResponse = {
-    kind: 'email_otp_ecdsa_signing_share_result_v1',
-    requestId: request.requestId,
-    ok: true,
-    additiveShare32: result.clientSigningShare32,
-    remainingUses: result.remainingUses,
-    expiresAtMs: result.expiresAtMs,
-  };
-  ecdsaPresignPort.postMessage(success, [result.clientSigningShare32]);
-}
-
-function attachEcdsaPresignChannel(value: unknown): boolean {
-  if (!isAttachEmailOtpToPresignPort(value)) return false;
-  ecdsaPresignPort?.close();
-  ecdsaPresignPort = value.port;
-  ecdsaPresignPort.onmessage = handleEmailOtpEcdsaSigningShareRequest;
-  ecdsaPresignPort.start();
-  return true;
 }
 
 function requireFixed32ArrayBuffer(value: unknown, label: string): Uint8Array {
@@ -5940,7 +5853,6 @@ setTimeout(() => {
 }, 0);
 
 self.addEventListener('message', async (event: MessageEvent) => {
-  if (attachEcdsaPresignChannel(event.data)) return;
   const msg = parseEmailOtpWorkerRequest(event.data);
   if (!msg) return;
 

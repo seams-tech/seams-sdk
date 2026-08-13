@@ -230,7 +230,7 @@ impl CircuitBuilder {
         self,
         outputs: Vec<BuilderBit>,
     ) -> Result<CanonicalBooleanCircuitV1, CircuitBuildError> {
-        if self.input_count != 1_536 {
+        if self.input_count != 3_584 {
             return Err(CircuitBuildError::InputSchemaWireCountMismatch);
         }
         if outputs.len() != 1_024 {

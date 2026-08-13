@@ -10,12 +10,12 @@ fn lane_materialization_vector_fixture_matches_distinct_circuit_and_schedule() {
     let circuit = compile_lane_materialization_v1();
     assert_eq!(
         hex::encode(circuit.benchmark_component_digest().expose_public_bytes()),
-        "ba88dcab5c70a308d6e500b6664424d1a7af2668a21d8749878d42b52a486919"
+        "b82d95991e0d3f91f2d31009cb1558f73abd1d0a667fec99e02ddb751f652d06"
     );
     assert_eq!(
         hex::encode(circuit.benchmark_schedule_digest().expose_public_bytes()),
-        "a4ed4617493e0ad7ed46865d4aa866d19e00aeb0d7b9555f3602fa007ba3abaa"
+        "3bbae3843bab644b3b7e7ed6dd379b6b40b7c32133c5094e4b1fc4e966fd57d4"
     );
-    assert_eq!(circuit.metrics().input_wire_count(), 1536);
+    assert_eq!(circuit.metrics().input_wire_count(), 3584);
     assert_eq!(circuit.metrics().output_wire_count(), 1024);
 }

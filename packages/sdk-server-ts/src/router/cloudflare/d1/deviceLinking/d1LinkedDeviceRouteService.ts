@@ -18,6 +18,7 @@ import {
 } from './d1LinkedDeviceWalletSessionIssuer';
 import type { AuthorizationService } from '../../../../authorization/service';
 import type { TenantId } from '@shared/authorization/capabilityKinds';
+import { D1WalletStore } from '../../../../core/d1WalletStore';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import type {
   DeviceLinkingAuthenticatedRequestV1,
@@ -78,6 +79,13 @@ export function createD1LinkedDeviceRouteServiceV1(
     tenantId: options.tenantId,
     authorizationService: options.authorizationService,
     laneLifecycle,
+  });
+  const walletStore = new D1WalletStore({
+    database: options.database,
+    namespace: options.scope.namespace,
+    orgId: options.scope.orgId,
+    projectId: options.scope.projectId,
+    envId: options.scope.envId,
   });
   const completion = createD1LinkedDeviceCompletionAdaptersV1({
     sessionService,
@@ -144,12 +152,40 @@ export function createD1LinkedDeviceRouteServiceV1(
     targetCredential: options.targetCredential,
     acknowledgeReceiptV1,
     readWalletSessionAuthorizationV1,
+    resolveNearAccountIdForEd25519WalletKeyV1:
+      resolveNearAccountIdForEd25519WalletKeyV1.bind(undefined, walletStore),
     retryCommittedDeliveryV1: completion.retry.retryCommittedDeliveryV1.bind(completion.retry),
     operatorRecovery: options.operatorRecovery,
     provisioning: options.provisioning,
     provisioningVerifier,
     sourceHandoff: options.sourceHandoff,
   };
+}
+
+async function resolveNearAccountIdForEd25519WalletKeyV1(
+  walletStore: D1WalletStore,
+  input: Parameters<
+    DeviceLinkingRouteServiceV1['resolveNearAccountIdForEd25519WalletKeyV1']
+  >[0],
+): Promise<string> {
+  const signers = await walletStore.listEd25519SignersForWallet({ walletId: input.walletId });
+  const matches = [];
+  for (const signer of signers) {
+    if (
+      `wallet-key:ed25519:${signer.walletId}:${signer.nearEd25519SigningKeyId}` ===
+      String(input.walletKeyId)
+    ) {
+      matches.push(signer);
+    }
+  }
+  if (matches.length !== 1) {
+    throw new Error('authoritative linked-device NEAR account identity is unavailable');
+  }
+  const signer = matches[0]!;
+  if (signer.activeYaoCapability.nearAccountId !== signer.nearAccountId) {
+    throw new Error('authoritative linked-device NEAR account identity changed');
+  }
+  return signer.nearAccountId;
 }
 
 async function acknowledgeReceiptAndIssueWalletSessionV1(

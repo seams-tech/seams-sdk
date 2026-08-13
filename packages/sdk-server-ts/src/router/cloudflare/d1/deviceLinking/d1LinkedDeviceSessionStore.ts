@@ -1,5 +1,5 @@
 import { alphabetizeStringify } from '@shared/utils/digests';
-import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
+import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
   computeLinkedDeviceApprovalDigestV1,
   computeLinkedDeviceSessionClaimDigestV1,
@@ -18,6 +18,7 @@ import type {
   LinkedDeviceSessionState,
 } from '@shared/device-linking/contracts';
 import {
+  buildCommittedCompletionRequiredLinkedDeviceSessionRecordV1,
   parseLinkedDeviceSessionRecordV1,
   type LinkedDeviceSessionMutationResultV1,
   type LinkedDeviceSessionRecordV1,
@@ -42,6 +43,11 @@ export type D1LinkedDeviceSessionStoreOptionsV1 = {
 
 const SESSION_TABLE = 'linked_device_sessions';
 const TRANSCRIPT_TABLE = 'linked_device_session_transcripts';
+const SOURCE_HANDOFF_TABLE = 'linked_device_source_handoffs';
+
+type CommittedSourceHandoffRowV1 = {
+  readonly deliveries_digest_b64u?: unknown;
+};
 
 export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 {
   private readonly database: D1DatabaseLike;
@@ -179,7 +185,7 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
       expectedRevision: input.expectedRevision,
       nextRecord: input.nextRecord,
       nowMs: input.nowMs,
-      expectedStates: ['provisioning', 'awaiting_aggregate_receipt'],
+      expectedStates: ['provisioning'],
       replay: (current) =>
         current.state.state === 'committed_completion_required' &&
         current.state.transcriptSetDigestB64u === input.transcriptSetDigestB64u,
@@ -241,12 +247,66 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
       expectedRevision: input.expectedRevision,
       nextRecord: input.nextRecord,
       nowMs: input.nowMs,
-      expectedStates: ['awaiting_aggregate_receipt'],
+      expectedStates: ['committed_completion_required'],
       replay: (current) =>
         current.state.state === 'active' &&
         Boolean(current.aggregateReceipt) &&
         alphabetizeStringify(current.aggregateReceipt) === alphabetizeStringify(input.receipt),
     });
+  }
+
+  async reconcileCommittedProvisioningOutputV1(input: {
+    readonly record: LinkedDeviceSessionRecordV1;
+    readonly nowMs: number;
+  }): Promise<LinkedDeviceSessionRecordV1> {
+    const record = parseLinkedDeviceSessionRecordV1(input.record);
+    if (
+      record.state.state !== 'provisioning' &&
+      record.state.state !== 'committed_completion_required'
+    ) {
+      return record;
+    }
+    const row = await this.database
+      .prepare(
+        `SELECT deliveries_digest_b64u
+           FROM ${SOURCE_HANDOFF_TABLE}
+          WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+            AND link_session_id = ?
+            AND deliveries_json IS NOT NULL AND deliveries_digest_b64u IS NOT NULL
+          LIMIT 1`,
+      )
+      .bind(...scopeValues(this.scope), String(record.linkSessionId))
+      .first<CommittedSourceHandoffRowV1>();
+    if (!row) return record;
+    const transcriptSetDigestB64u = parseDigestB64u(row.deliveries_digest_b64u);
+    if (record.state.state === 'committed_completion_required') {
+      if (record.state.transcriptSetDigestB64u !== transcriptSetDigestB64u) {
+        throw new Error('committed linked-device output digest changed');
+      }
+      return record;
+    }
+    const nextRecord = buildCommittedCompletionRequiredLinkedDeviceSessionRecordV1({
+      record,
+      transcriptSetDigestB64u,
+      committedAtMs: input.nowMs,
+    });
+    const result = await this.markCommittedCompletionRequiredV1({
+      linkSessionId: record.linkSessionId,
+      expectedRevision: record.revision,
+      transcriptSetDigestB64u,
+      nextRecord,
+      nowMs: input.nowMs,
+    });
+    if (result.outcome === 'applied' || result.outcome === 'replayed') return result.record;
+    if (
+      result.outcome === 'conflict' &&
+      result.record?.state.state === 'committed_completion_required' &&
+      result.record.state.transcriptSetDigestB64u === transcriptSetDigestB64u &&
+      result.record.state.keyManifestDigestB64u === record.state.keyManifestDigestB64u
+    ) {
+      return result.record;
+    }
+    throw new Error('linked-device committed output could not advance its parent session');
   }
 
   async cancelSessionV1(input: {
@@ -255,12 +315,21 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
     readonly nextRecord: LinkedDeviceSessionRecordV1;
     readonly nowMs: number;
   }): Promise<LinkedDeviceSessionMutationResultV1> {
+    const current = await this.getSessionV1(input.linkSessionId);
+    if (!current) return conflictResult(input.expectedRevision, null);
+    const reconciled = await this.reconcileCommittedProvisioningOutputV1({
+      record: current,
+      nowMs: input.nowMs,
+    });
+    if (reconciled.state.state === 'committed_completion_required') {
+      return invalidStateResult(reconciled);
+    }
     return this.applyStateCas({
       linkSessionId: input.linkSessionId,
       expectedRevision: input.expectedRevision,
       nextRecord: input.nextRecord,
       nowMs: input.nowMs,
-      expectedStates: ['displaying_qr', 'claimed_by_owner', 'awaiting_target_passkey'],
+      expectedStates: ['displaying_qr', 'claimed_by_owner', 'awaiting_target_passkey', 'provisioning'],
       replay: (current) =>
         (current.state.state === 'cancelled_unclaimed' ||
           current.state.state === 'cancelled_claimed_precommit') &&
@@ -274,8 +343,12 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
     readonly nextRecord: LinkedDeviceSessionRecordV1;
     readonly nowMs: number;
   }): Promise<LinkedDeviceSessionMutationResultV1> {
-    const current = await this.getSessionV1(input.linkSessionId);
-    if (!current) return conflictResult(input.expectedRevision, null);
+    const stored = await this.getSessionV1(input.linkSessionId);
+    if (!stored) return conflictResult(input.expectedRevision, null);
+    const current = await this.reconcileCommittedProvisioningOutputV1({
+      record: stored,
+      nowMs: input.nowMs,
+    });
     if (current.state.state === 'expired_unclaimed' || current.state.state === 'expired_claimed')
       return { outcome: 'replayed', record: current };
     if (!isExpirableState(current.state)) return invalidStateResult(current);
@@ -291,7 +364,6 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
         'claimed_by_owner',
         'awaiting_target_passkey',
         'provisioning',
-        'awaiting_aggregate_receipt',
       ],
       replay: (record) => record.state.state === input.nextRecord.state.state,
     });
@@ -570,7 +642,6 @@ function isExpirableState(state: LinkedDeviceSessionState): boolean {
     case 'claimed_by_owner':
     case 'awaiting_target_passkey':
     case 'provisioning':
-    case 'awaiting_aggregate_receipt':
       return true;
     case 'active':
     case 'expired_unclaimed':
@@ -593,7 +664,6 @@ function expiryMs(record: LinkedDeviceSessionRecordV1): number {
     case 'awaiting_target_passkey':
       return record.state.credentialDeadlineMs;
     case 'provisioning':
-    case 'awaiting_aggregate_receipt':
       return record.qrPayload.expiresAtMs;
     default:
       return Number.POSITIVE_INFINITY;

@@ -31,6 +31,7 @@ import type {
 } from '@/core/signingEngine/session/lanes/linkedDevicePorts';
 import { authorizeAndOpenLinkedDeviceHolderV1 } from '@/core/signingEngine/session/lanes/linkedDeviceLocalPresence';
 import {
+  buildRouterAbEd25519NearTransactionPrepareRequestV2,
   buildRouterAbEd25519Nep413PrepareRequestV2,
   buildRouterAbEd25519NormalSigningFinalizeRequestV2,
   finalizeRouterAbNormalSigningV2,
@@ -54,7 +55,7 @@ import type {
   SigningOperationId,
 } from '@/core/signingEngine/session/operationState/types';
 
-export type LinkedDeviceEd25519Nep413RequestV1 = {
+type LinkedDeviceEd25519NormalSigningRequestBaseV1 = {
   readonly requestId: string;
   readonly operationId: SigningOperationId;
   readonly operationFingerprint: SigningOperationFingerprint;
@@ -62,12 +63,37 @@ export type LinkedDeviceEd25519Nep413RequestV1 = {
   readonly displayDigestB64u: DigestB64u;
   readonly nearAccountId: string;
   readonly nearNetworkId: 'testnet' | 'mainnet';
+};
+
+export type LinkedDeviceEd25519Nep413RequestV1 = LinkedDeviceEd25519NormalSigningRequestBaseV1 & {
+  readonly kind: 'nep413';
   readonly message: string;
   readonly recipient: string;
   readonly nonce: string;
   readonly callbackUrl?: string;
+  readonly transactions?: never;
+  readonly unsignedTransactionBorshB64u?: never;
   readonly expectedSigningDigestB64u: DigestB64u;
 };
+
+export type LinkedDeviceEd25519NearTransactionRequestV1 =
+  LinkedDeviceEd25519NormalSigningRequestBaseV1 & {
+    readonly kind: 'near_transaction';
+    readonly transactions: readonly {
+      readonly receiverId: string;
+      readonly actionFingerprint: string;
+    }[];
+    readonly unsignedTransactionBorshB64u: string;
+    readonly message?: never;
+    readonly recipient?: never;
+    readonly nonce?: never;
+    readonly callbackUrl?: never;
+    readonly expectedSigningDigestB64u: DigestB64u;
+  };
+
+export type LinkedDeviceEd25519NormalSigningRequestV1 =
+  | LinkedDeviceEd25519Nep413RequestV1
+  | LinkedDeviceEd25519NearTransactionRequestV1;
 
 export type LinkedDeviceEd25519NormalSigningPrepareRequestV1 =
   RouterAbNormalSigningPrepareRequestV2Wire & {
@@ -106,7 +132,7 @@ export type LinkedDeviceEd25519NormalSigningInputV1 = {
     { readonly kind: 'found' }
   >;
   readonly issuedAtMs: number;
-  readonly request: LinkedDeviceEd25519Nep413RequestV1;
+  readonly request: LinkedDeviceEd25519NormalSigningRequestV1;
   readonly transport?: LinkedDeviceEd25519NormalSigningTransportV1;
 };
 
@@ -227,6 +253,15 @@ function assertWalletSessionMatchesChild(
   }
 }
 
+function assertWalletSessionMatchesNearAccount(
+  walletSession: Extract<LinkedDeviceWalletSessionTokenReadResultV1, { readonly kind: 'found' }>,
+  nearAccountId: string,
+): void {
+  if (String(walletSession.delivery.nearAccountId) !== nearAccountId) {
+    throw new Error('linked-device Wallet Session NEAR account does not match the signing request');
+  }
+}
+
 function buildScope(input: {
   readonly bundle: ActiveLinkedDeviceExecutionBundleV1;
   readonly child: Extract<ActiveLinkedDeviceExecutionChildV1, { readonly keyFamily: 'ed25519' }>;
@@ -254,25 +289,49 @@ function buildScope(input: {
 
 async function buildPrepare(input: {
   readonly scope: RouterAbNormalSigningScopeV2Wire;
-  readonly request: LinkedDeviceEd25519Nep413RequestV1;
+  readonly request: LinkedDeviceEd25519NormalSigningRequestV1;
 }): Promise<{
   readonly request: RouterAbNormalSigningPrepareRequestV2Wire;
   readonly admissionMaterial: RouterAbEd25519NormalSigningAdmissionMaterialV2Wire;
 }> {
-  return await buildRouterAbEd25519Nep413PrepareRequestV2({
-    scope: input.scope,
-    expiresAtMs: input.request.expiresAtMs,
-    operationId: input.request.operationId,
-    operationFingerprint: input.request.operationFingerprint,
-    displayDigestB64u: input.request.displayDigestB64u,
-    nearAccountId: input.request.nearAccountId,
-    nearNetworkId: input.request.nearNetworkId,
-    message: input.request.message,
-    recipient: input.request.recipient,
-    nonce: input.request.nonce,
-    ...(input.request.callbackUrl === undefined ? {} : { callbackUrl: input.request.callbackUrl }),
-    expectedSigningDigestB64u: input.request.expectedSigningDigestB64u,
-  });
+  switch (input.request.kind) {
+    case 'nep413':
+      return await buildRouterAbEd25519Nep413PrepareRequestV2({
+        scope: input.scope,
+        expiresAtMs: input.request.expiresAtMs,
+        operationId: input.request.operationId,
+        operationFingerprint: input.request.operationFingerprint,
+        displayDigestB64u: input.request.displayDigestB64u,
+        nearAccountId: input.request.nearAccountId,
+        nearNetworkId: input.request.nearNetworkId,
+        message: input.request.message,
+        recipient: input.request.recipient,
+        nonce: input.request.nonce,
+        ...(input.request.callbackUrl === undefined
+          ? {}
+          : { callbackUrl: input.request.callbackUrl }),
+        expectedSigningDigestB64u: input.request.expectedSigningDigestB64u,
+      });
+    case 'near_transaction':
+      return await buildRouterAbEd25519NearTransactionPrepareRequestV2({
+        scope: input.scope,
+        expiresAtMs: input.request.expiresAtMs,
+        operationId: input.request.operationId,
+        operationFingerprint: input.request.operationFingerprint,
+        displayDigestB64u: input.request.displayDigestB64u,
+        nearAccountId: input.request.nearAccountId,
+        nearNetworkId: input.request.nearNetworkId,
+        transactions: input.request.transactions,
+        unsignedTransactionBorshB64u: input.request.unsignedTransactionBorshB64u,
+        expectedSigningDigestB64u: input.request.expectedSigningDigestB64u,
+      });
+    default:
+      return assertNeverLinkedDeviceEd25519NormalSigningRequest(input.request);
+  }
+}
+
+function assertNeverLinkedDeviceEd25519NormalSigningRequest(value: never): never {
+  throw new Error(`unsupported linked-device Ed25519 signing request: ${String(value)}`);
 }
 
 function buildEnvelope(
@@ -323,6 +382,7 @@ export async function executeLinkedDeviceEd25519NormalSigningV1(
   parseSigningOperationFingerprintDigest(input.request.operationFingerprint);
   assertEd25519ChildIsActive(input.bundle, input.child);
   assertWalletSessionMatchesChild(input.walletSession, input.bundle, input.child);
+  assertWalletSessionMatchesNearAccount(input.walletSession, input.request.nearAccountId);
   const authorizedOperationId = requireAuthorizedOperationId(requestId);
   const scope = buildScope({ bundle: input.bundle, child: input.child, requestId });
   const envelope = buildEnvelope(input.bundle, input.child);

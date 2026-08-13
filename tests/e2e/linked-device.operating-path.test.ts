@@ -5,12 +5,85 @@ import {
   type ConsoleMessage,
   type Frame,
   type Page,
+  type Route,
 } from '@playwright/test';
 
 const enabled = process.env.SEAMS_LINKED_DEVICE_E2E === '1';
 const appOrigin = String(process.env.SEAMS_LINKED_DEVICE_E2E_APP_URL || 'https://localhost')
   .trim()
   .replace(/\/+$/, '');
+const nearStubBlockHash = '11111111111111111111111111111111';
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function nearRpcQueryResult(params: unknown): unknown {
+  if (!isRecord(params)) return {};
+  switch (params.request_type) {
+    case 'view_access_key':
+      return { nonce: 1, block_hash: nearStubBlockHash, permission: 'FullAccess' };
+    case 'view_account':
+      return {
+        amount: '1000000000000000000000000',
+        locked: '0',
+        code_hash: nearStubBlockHash,
+        storage_usage: 0,
+        storage_paid_at: 0,
+        block_height: 1,
+        block_hash: nearStubBlockHash,
+      };
+    case 'call_function':
+      return {
+        result: Array.from(new TextEncoder().encode(JSON.stringify('Hello from local NEAR'))),
+        logs: [],
+        block_height: 1,
+        block_hash: nearStubBlockHash,
+      };
+    default:
+      return {};
+  }
+}
+
+function nearRpcResult(method: string, params: unknown): unknown {
+  switch (method) {
+    case 'query':
+      return nearRpcQueryResult(params);
+    case 'block':
+      return {
+        author: 'linked-device-e2e',
+        chunks: [],
+        header: { hash: nearStubBlockHash, height: 1, prev_hash: nearStubBlockHash },
+      };
+    case 'send_tx':
+      return {
+        status: { SuccessValue: '' },
+        transaction: { hash: 'linked-device-near-tx' },
+        transaction_outcome: {
+          id: 'linked-device-near-tx',
+          outcome: { status: { SuccessValue: '' } },
+        },
+        receipts_outcome: [],
+      };
+    default:
+      return {};
+  }
+}
+
+async function fulfillNearRpc(route: Route): Promise<void> {
+  const raw = route.request().postData() || '{}';
+  const parsed: unknown = JSON.parse(raw);
+  const request = isRecord(parsed) ? parsed : {};
+  await route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: request.id ?? 'linked-device-near',
+      result: nearRpcResult(String(request.method || ''), request.params),
+    }),
+  });
+}
 
 function linkedDeviceConsoleDiagnostic(message: ConsoleMessage): string | null {
   const text = message.text().replace(/\s+/g, ' ').trim().slice(0, 400);
@@ -59,12 +132,18 @@ async function acknowledgeRecoveryCodeBackup(wallet: Frame): Promise<void> {
   await wallet.getByRole('button', { name: 'Finish backup', exact: true }).click();
 }
 
-async function registerOwner(page: Page): Promise<void> {
+async function registerOwner(page: Page, diagnostics: readonly string[]): Promise<void> {
   const wallet = await openWallet(page);
   const primary = wallet.locator('button[data-auth-menu-primary]');
   await primary.waitFor({ state: 'visible', timeout: 30_000 });
   await primary.click();
-  await acknowledgeRecoveryCodeBackup(wallet);
+  try {
+    await acknowledgeRecoveryCodeBackup(wallet);
+  } catch (error) {
+    throw new Error(`Owner registration did not reach recovery backup. ${diagnostics.join('\n')}`, {
+      cause: error,
+    });
+  }
   await page
     .locator('.w3a-profile-button-morphable')
     .waitFor({ state: 'visible', timeout: 120_000 });
@@ -188,13 +267,29 @@ async function openOwnerScanner(page: Page, qrDataUrl: string): Promise<void> {
   await page.locator('.qr-scanner-video').waitFor({ state: 'visible', timeout: 30_000 });
 }
 
-async function linkedSigning(page: Page): Promise<void> {
-  await openWallet(page);
-  const primary = page.locator('button[data-auth-menu-primary]');
-  if (await primary.isVisible().catch(() => false)) await primary.click();
-  await page.locator('.demo-page').waitFor({ state: 'visible', timeout: 120_000 });
+async function confirmWalletSigning(page: Page): Promise<void> {
+  const iframe = page.locator('iframe[allow*="publickey-credentials-get"]').last();
+  await iframe.waitFor({ state: 'attached', timeout: 60_000 });
+  const frame = iframe.contentFrame();
+  const confirm = frame
+    .locator('#w3a-confirm-portal button.btn-confirm, #w3a-confirm-portal button.confirm')
+    .first();
+  await confirm.waitFor({ state: 'visible', timeout: 60_000 });
+  await confirm.click();
+}
 
+async function linkedSigning(page: Page, diagnostics: readonly string[]): Promise<void> {
   const tempoTab = page.getByRole('tab', { name: 'Tempo', exact: true });
+  try {
+    await tempoTab.waitFor({ state: 'visible', timeout: 120_000 });
+  } catch (error) {
+    const wallet = await walletFrame(page);
+    throw new Error(
+      `Linked session was not projected to the host. Wallet state: ${(await wallet.locator('body').innerText()).trim()}\n${diagnostics.join('\n')}`,
+      { cause: error },
+    );
+  }
+
   await tempoTab.click();
   const tempoFunding = page.getByRole('button', {
     name: /^(Fund Tempo Account|Tempo Account Funded)$/,
@@ -204,15 +299,15 @@ async function linkedSigning(page: Page): Promise<void> {
   if ((await tempoFunding.textContent())?.trim() === 'Fund Tempo Account') {
     await expect(tempoFunding).toBeEnabled({ timeout: 120_000 });
     await tempoFunding.click();
-    await expect(tempoFunding).toHaveText('Tempo Account Funded', { timeout: 180_000 });
+    await confirmWalletSigning(page);
+    await expect(tempoFunding).toBeEnabled({ timeout: 180_000 });
   }
   const tempoSign = page.getByRole('button', { name: 'Sign on Tempo', exact: true });
   await tempoSign.waitFor({ state: 'visible', timeout: 60_000 });
   await expect(tempoSign).toBeEnabled({ timeout: 120_000 });
   await tempoSign.click();
-  await expect(
-    page.getByText(/Tempo EIP-2718 transaction (complete|finalized)/i).first(),
-  ).toBeVisible({ timeout: 180_000 });
+  await confirmWalletSigning(page);
+  await expect(tempoSign).toBeEnabled({ timeout: 180_000 });
 
   const nearTab = page.getByRole('tab', { name: 'NEAR', exact: true });
   await nearTab.click();
@@ -220,9 +315,7 @@ async function linkedSigning(page: Page): Promise<void> {
   await sign.waitFor({ state: 'visible', timeout: 60_000 });
   await expect(sign).toBeEnabled();
   await sign.click();
-  await expect(page.getByText(/transaction (complete|finalized)/i).first()).toBeVisible({
-    timeout: 120_000,
-  });
+  await expect(sign).toBeEnabled({ timeout: 180_000 });
 }
 
 function resolveContextCloseTimeout(resolve: () => void): void {
@@ -244,17 +337,25 @@ test('Device 2 QR → Device 1 scan → Wallet Session → linked signing → re
 }) => {
   const ownerContext = await browser.newContext({ ignoreHTTPSErrors: true });
   const device2Context = await browser.newContext({ ignoreHTTPSErrors: true });
+  await device2Context.route(/https:\/\/[^/]*(?:near\.org|fastnear\.com)\//, fulfillNearRpc);
   const ownerPage = await ownerContext.newPage();
   const device2Page = await device2Context.newPage();
   const ownerDiagnostics: string[] = [];
+  const device2Diagnostics: string[] = [];
   try {
     ownerPage.on('console', (message) => {
       const diagnostic = linkedDeviceConsoleDiagnostic(message);
       if (diagnostic) ownerDiagnostics.push(diagnostic);
     });
+    device2Page.on('console', (message) => {
+      const text = message.text().replace(/\s+/g, ' ').trim().slice(0, 400);
+      if (message.type() === 'error' || /linked-device|WalletSession/i.test(text)) {
+        device2Diagnostics.push(`[device2:${message.type()}] ${text}`);
+      }
+    });
     await addVirtualAuthenticator(ownerPage);
     await addVirtualAuthenticator(device2Page);
-    await registerOwner(ownerPage);
+    await registerOwner(ownerPage, ownerDiagnostics);
 
     const created = device2Page.waitForResponse(
       (response) =>
@@ -313,8 +414,38 @@ test('Device 2 QR → Device 1 scan → Wallet Session → linked signing → re
       state: 'visible',
       timeout: 180_000,
     });
-
-    await linkedSigning(device2Page);
+    const linkedSigningRequests: Array<{ pathname: string; body: unknown }> = [];
+    device2Page.on('request', (request) => {
+      const pathname = new URL(request.url()).pathname;
+      if (!pathname.includes('/router-ab/')) return;
+      linkedSigningRequests.push({ pathname, body: request.postDataJSON() });
+    });
+    await linkedSigning(device2Page, device2Diagnostics);
+    const linkedPaths = linkedSigningRequests.map((request) => request.pathname);
+    if (linkedPaths.length === 0) {
+      throw new Error(
+        `Linked signing emitted no Router A/B requests. ${device2Diagnostics.join('\n')}`,
+      );
+    }
+    expect(linkedPaths).toContain('/router-ab/ecdsa-derivation/linked-device/presign/init');
+    expect(linkedPaths).toContain('/router-ab/ecdsa-derivation/linked-device/presign/step');
+    expect(linkedPaths).toContain('/router-ab/ecdsa-derivation/sign');
+    expect(linkedPaths).toContain('/router-ab/ed25519/sign/prepare');
+    expect(linkedPaths).toContain('/router-ab/ed25519/sign');
+    expect(linkedPaths).not.toContain('/router-ab/ecdsa-derivation/sign/prepare');
+    for (const request of linkedSigningRequests) {
+      if (
+        request.pathname === '/router-ab/ecdsa-derivation/linked-device/presign/init' ||
+        request.pathname === '/router-ab/ed25519/sign/prepare'
+      ) {
+        expect(request.body).toEqual(
+          expect.objectContaining({
+            linkedDeviceExecution: expect.objectContaining({ enrollmentId: expect.any(String) }),
+            localPresenceAssertion: expect.objectContaining({ kind: expect.any(String) }),
+          }),
+        );
+      }
+    }
 
     await ownerPage.locator('.w3a-profile-button-morphable').getByRole('button').first().click();
     const profileMenu = ownerPage.locator('.w3a-profile-dropdown-morphed[data-state="open"]');

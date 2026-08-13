@@ -589,6 +589,10 @@ export interface WalletAuthenticationSurface {
   setWalletAuthenticated(
     state: Extract<WalletAuthenticationState, { kind: 'authenticated' }>,
   ): void;
+  setLinkedDeviceWalletSession(
+    state: Extract<WalletAuthenticationState, { kind: 'linked_device_session' }>,
+  ): void;
+  clearLinkedDeviceWalletSession(walletId: WalletId): void;
   clearWalletAuthentication(): void;
 }
 
@@ -607,7 +611,10 @@ export type WalletSessionReadSurface = RuntimeStartupSurface &
   WarmSessionStatusSurface &
   Pick<
     WalletAuthenticationSurface,
-    'readWalletAuthenticationState' | 'restoreWalletAuthenticationState'
+    | 'readWalletAuthenticationState'
+    | 'restoreWalletAuthenticationState'
+    | 'setLinkedDeviceWalletSession'
+    | 'clearLinkedDeviceWalletSession'
   > &
   Pick<
     SigningSessionSurface,

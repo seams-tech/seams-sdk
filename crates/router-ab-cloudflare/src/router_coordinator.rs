@@ -281,12 +281,27 @@ pub async fn handle_cloudflare_router_ed25519_yao_lane_execute_private_fetch_v1(
                 ))
             }
         },
-        RouterEd25519YaoExecuteResultV1::RecoverableFailure { .. }
-        | RouterEd25519YaoExecuteResultV1::Rejected { .. }
-        | RouterEd25519YaoExecuteResultV1::Burned { .. } => {
-            return protocol_error_response(invalid_coordinator(
-                "Router lane dispatch did not produce a committed result",
-            ))
+        RouterEd25519YaoExecuteResultV1::RecoverableFailure {
+            code,
+            retry_after_ms,
+        } => {
+            let message = format!(
+                "Router lane dispatch ended with recoverable failure {code:?} after {retry_after_ms}ms",
+            );
+            return protocol_error_response(invalid_coordinator(&message));
+        }
+        RouterEd25519YaoExecuteResultV1::Rejected { code } => {
+            return protocol_error_response(invalid_coordinator(&format!(
+                "Router lane dispatch was rejected with {code:?}",
+            )))
+        }
+        RouterEd25519YaoExecuteResultV1::Burned {
+            execution_id: _,
+            reason,
+        } => {
+            return protocol_error_response(invalid_coordinator(&format!(
+                "Router lane dispatch burned the execution with {reason:?}",
+            )))
         }
     };
     let receipt = match lane_protocol_commit_receipt_v1(&lane_result) {

@@ -138,14 +138,16 @@ where
         request.client_contribution,
     )?;
     validate_lane_product_binding(&binding, &job, &recipients)?;
-    let (client_y, _client_tau) = client.into_parts();
-    let (server_y, _server_tau) = server.into_parts();
+    let (client_y, client_tau) = client.into_parts();
+    let (server_y, server_tau) = server.into_parts();
     let role = build_lane_materialization_deriver_a(
         &job,
         Ed25519YaoLaneDeriverAContributionV1 {
-            source_holder_share: canonical_lane_y_share_v1(client_y.into_bytes()),
-            source_signing_worker_share: canonical_lane_y_share_v1(server_y.into_bytes()),
-            offset_share: random_scalar_v1(rng),
+            y_client: client_y.into_bytes(),
+            y_server: server_y.into_bytes(),
+            tau_client: client_tau.into_bytes(),
+            tau_server: server_tau.into_bytes(),
+            offset: random_scalar_v1(rng),
         },
     )
     .map_err(|_| AdapterError::RoleProtocol)?;
@@ -182,14 +184,16 @@ where
         request.client_contribution,
     )?;
     validate_lane_product_binding(&binding, &job, &recipients)?;
-    let (client_y, _client_tau) = client.into_parts();
-    let (server_y, _server_tau) = server.into_parts();
+    let (client_y, client_tau) = client.into_parts();
+    let (server_y, server_tau) = server.into_parts();
     let role = build_lane_materialization_deriver_b(
         &job,
         Ed25519YaoLaneDeriverBContributionV1 {
-            source_holder_share: canonical_lane_y_share_v1(client_y.into_bytes()),
-            source_signing_worker_share: canonical_lane_y_share_v1(server_y.into_bytes()),
-            offset_share: random_scalar_v1(rng),
+            y_client: client_y.into_bytes(),
+            y_server: server_y.into_bytes(),
+            tau_client: client_tau.into_bytes(),
+            tau_server: server_tau.into_bytes(),
+            offset: random_scalar_v1(rng),
         },
     )
     .map_err(|_| AdapterError::RoleProtocol)?;
@@ -237,12 +241,6 @@ where
     let mut wide = [0_u8; 64];
     rng.fill_bytes(&mut wide);
     Scalar::from_bytes_mod_order_wide(&wide).to_bytes()
-}
-
-/// Lane role inputs require canonical scalar encodings; Yao y contributions
-/// remain raw HKDF bytes until they cross this boundary.
-fn canonical_lane_y_share_v1(raw: [u8; 32]) -> [u8; 32] {
-    Scalar::from_bytes_mod_order(raw).to_bytes()
 }
 
 /// Builds one activation Deriver A role from already selected effective state.
@@ -429,25 +427,4 @@ fn product_context(
     participant_ids: [u16; 2],
 ) -> Result<Ed25519YaoStableKeyDerivationContextV1, AdapterError> {
     stable_key_derivation_context_v1(application, participant_ids)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::canonical_lane_y_share_v1;
-    use crate::{YaoLaneDeriverAInputs, YaoLaneDeriverBInputs};
-    use curve25519_dalek::scalar::Scalar;
-
-    #[test]
-    fn lane_materialization_reduces_raw_y_before_role_inputs() {
-        let raw = [0xff_u8; 32];
-        let offset = Scalar::ONE.to_bytes();
-
-        assert!(YaoLaneDeriverAInputs::new(raw, raw, offset).is_err());
-        assert!(YaoLaneDeriverBInputs::new(raw, raw, offset).is_err());
-
-        let canonical = canonical_lane_y_share_v1(raw);
-        assert_eq!(canonical, Scalar::from_bytes_mod_order(raw).to_bytes());
-        assert!(YaoLaneDeriverAInputs::new(canonical, canonical, offset).is_ok());
-        assert!(YaoLaneDeriverBInputs::new(canonical, canonical, offset).is_ok());
-    }
 }

@@ -89,6 +89,9 @@ export type ActiveLinkedDeviceExecutionBundleV1 = {
   readonly linkSessionId: ReturnType<typeof parseLinkedDeviceApprovalV1>['linkSessionId'];
   readonly tenantId: ReturnType<typeof parseLinkedDeviceWalletSessionDeliveryV1>['tenantId'];
   readonly walletId: ReturnType<typeof parseLinkedDeviceApprovalV1>['walletId'];
+  readonly nearAccountId: ReturnType<
+    typeof parseLinkedDeviceWalletSessionDeliveryV1
+  >['nearAccountId'];
   readonly enrollmentId: ReturnType<typeof parseLinkedDeviceApprovalV1>['enrollmentId'];
   readonly deviceId: ReturnType<typeof parseLinkedDeviceApprovalV1>['deviceId'];
   readonly targetPreparation: ReturnType<typeof parseLinkedDeviceTargetPreparationV1>;
@@ -389,6 +392,7 @@ export async function buildActiveLinkedDeviceExecutionBundleFromEvidenceV1(input
     linkSessionId: approval.linkSessionId,
     tenantId: walletSession.tenantId,
     walletId: approval.walletId,
+    nearAccountId: walletSession.nearAccountId,
     enrollmentId: approval.enrollmentId,
     deviceId: approval.deviceId,
     targetPreparation: preparation,

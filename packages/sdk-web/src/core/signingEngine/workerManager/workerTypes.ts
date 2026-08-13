@@ -21,8 +21,6 @@ import {
   type WasmPrepareThresholdEcdsaDerivationRoleLocalClientBootstrapResult,
   type WasmFinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapRequest,
   type WasmFinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapResult,
-  type WasmBuildThresholdEcdsaDerivationRoleLocalExportArtifactRequest,
-  type WasmBuildThresholdEcdsaDerivationRoleLocalExportArtifactResult,
 } from '@/core/types/signer-worker';
 import type { MultichainWorkerKind } from '@/core/walletRuntimePaths/multichainWorkers';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../threshold/ecdsa/activation';
@@ -1137,7 +1135,6 @@ export type NearEd25519FinalizeOperationRequest<T extends NearEd25519FinalizeOpe
 export const EcdsaDerivationClientCustomRequestType = {
   PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap: 70_000,
   FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap: 70_001,
-  BuildThresholdEcdsaDerivationRoleLocalExportArtifact: 70_002,
   CreateRouterAbEcdsaRegistrationCeremony: 70_005,
   VerifyRouterAbEcdsaRegistrationClientProofs: 70_006,
   CloseRouterAbEcdsaRegistrationCeremony: 70_007,
@@ -1161,7 +1158,6 @@ export type EcdsaDerivationClientCustomRequestType =
 export const EcdsaDerivationClientCustomResponseType = {
   PrepareThresholdEcdsaDerivationRoleLocalClientBootstrapSuccess: 70_100,
   FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapSuccess: 70_101,
-  BuildThresholdEcdsaDerivationRoleLocalExportArtifactSuccess: 70_102,
   CreateRouterAbEcdsaRegistrationCeremonySuccess: 70_105,
   VerifyRouterAbEcdsaRegistrationClientProofsSuccess: 70_106,
   CloseRouterAbEcdsaRegistrationCeremonySuccess: 70_107,
@@ -1223,15 +1219,6 @@ export type EcdsaPresignClientSessionInitRequest = EcdsaPresignClientSessionPara
                 expectedBindingDigest: string;
                 materialRef?: never;
               };
-          thresholdSessionId?: never;
-        };
-      }
-    | {
-        authority: {
-          kind: 'email_otp_worker_session';
-          thresholdSessionId: string;
-          materialHandle?: never;
-          material?: never;
         };
       }
     | {
@@ -1240,7 +1227,6 @@ export type EcdsaPresignClientSessionInitRequest = EcdsaPresignClientSessionPara
           holderHandleId: string;
           materialHandle?: never;
           material?: never;
-          thresholdSessionId?: never;
         };
       }
   );
@@ -1248,14 +1234,6 @@ export type EcdsaPresignClientSessionInitRequest = EcdsaPresignClientSessionPara
 export type EcdsaPresignClientSessionInitResult =
   | {
       authority: { kind: 'role_local_derivation_handle' };
-      progress: ThresholdEcdsaPresignProgressResult;
-    }
-  | {
-      authority: {
-        kind: 'email_otp_worker_session';
-        remainingUses: number;
-        expiresAtMs: number;
-      };
       progress: ThresholdEcdsaPresignProgressResult;
     }
   | {
@@ -1501,14 +1479,6 @@ type EcdsaDerivationClientCustomOperationMap = {
       diagnostics?: WorkerResponseDiagnostics;
     };
   };
-  [EcdsaDerivationClientCustomRequestType.BuildThresholdEcdsaDerivationRoleLocalExportArtifact]: {
-    payload: WasmBuildThresholdEcdsaDerivationRoleLocalExportArtifactRequest;
-    result: {
-      type: typeof EcdsaDerivationClientCustomResponseType.BuildThresholdEcdsaDerivationRoleLocalExportArtifactSuccess;
-      payload: WasmBuildThresholdEcdsaDerivationRoleLocalExportArtifactResult;
-      diagnostics?: WorkerResponseDiagnostics;
-    };
-  };
   [EcdsaDerivationClientCustomRequestType.StoreThresholdEcdsaRoleLocalSigningMaterial]: {
     payload: StoreThresholdEcdsaRoleLocalSigningMaterialRequest;
     result: StoreThresholdEcdsaRoleLocalSigningMaterialResponse;
@@ -1652,7 +1622,6 @@ export type EcdsaDerivationRoleLocalMaterialOperationType =
   | typeof EcdsaDerivationClientCustomRequestType.VerifyRouterAbEcdsaPostRegistrationProofs
   | typeof EcdsaDerivationClientCustomRequestType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap
   | typeof EcdsaDerivationClientCustomRequestType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap
-  | typeof EcdsaDerivationClientCustomRequestType.BuildThresholdEcdsaDerivationRoleLocalExportArtifact
   | typeof EcdsaDerivationClientCustomRequestType.StoreThresholdEcdsaRoleLocalSigningMaterial
   | typeof EcdsaDerivationClientCustomRequestType.RehydrateEcdsaRoleLocalSigningMaterial
   | typeof EcdsaDerivationClientCustomRequestType.SignWalletRecoveryEcdsaMaterialPossessionProof

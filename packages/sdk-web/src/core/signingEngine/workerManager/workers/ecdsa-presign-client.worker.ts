@@ -1,31 +1,24 @@
-import initPresignClient, {
-  ClientPresignSession,
-  init_router_ab_ecdsa_presign_client,
-} from '../../../../../../../wasm/router_ab_ecdsa_presign_client/pkg/router_ab_ecdsa_presign_client.js';
-import { initializeWasm, resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
 import { safeErrorMessage } from '@shared/utils/errors';
 import { WorkerDeferred } from '../workerDeferred';
 import {
   EcdsaPresignClientRequestType,
   EcdsaPresignClientResponseType,
+  EcdsaOnlineClientRequestType,
+  EcdsaOnlineClientResponseType,
   WorkerControlMessage,
+  type EcdsaOnlineClientOperationMap,
   type EcdsaPresignClientOperationMap,
   type ThresholdEcdsaPresignProgressResult,
 } from '../workerTypes';
 import {
   isAttachEcdsaDerivationToPresignPort,
-  isAttachEmailOtpToPresignPort,
   isAttachLinkedHolderToPresignPort,
-  type EcdsaDerivationAdditiveShareRequest,
-  type EcdsaDerivationAdditiveShareResponse,
-  type EmailOtpEcdsaSigningShareResponse,
-  type LinkedHolderEcdsaAdditiveShareResponse,
+  isAttachPresignToOnlinePort,
+  type OpaqueEcdsaPresignAuthorityRequestV1,
+  type OpaqueEcdsaPresignAuthorityResponseV1,
 } from '../ecdsaClientWorkerChannels';
 import {
-  IndexedDbClientPresignMaterialStore,
-  type DurableClientPresignatureRef,
-} from '../../../indexedDB/seamsWalletDB/ecdsaPresignMaterialStore';
-import {
+  equalEcdsaClientPresignPoolIdentity,
   parseEcdsaClientPresignPoolIdentity,
   type EcdsaClientPresignPoolIdentity,
 } from '../ecdsaPresignPoolIdentity';
@@ -39,12 +32,6 @@ type PresignRpcRequest = {
   };
 }[PresignOperationType];
 
-type SessionMaterialBinding = {
-  readonly groupPublicKey33: Uint8Array;
-  readonly expiresAtMs: number;
-  readonly poolIdentity: EcdsaClientPresignPoolIdentity;
-};
-
 type WorkerClientPresignatureRef = {
   presignatureId: string;
   materialHandle: string;
@@ -53,51 +40,57 @@ type WorkerClientPresignatureRef = {
   expiresAtMs: number;
 };
 
-function durableRefToWorkerRef(ref: DurableClientPresignatureRef): WorkerClientPresignatureRef {
-  return {
-    presignatureId: ref.presignatureId,
-    materialHandle: ref.materialHandle,
-    bigR33: ref.bigR33.buffer,
-    createdAtMs: ref.createdAtMs,
-    expiresAtMs: ref.expiresAtMs,
-  };
-}
+type OpaqueEcdsaPresignAuthorityResultV1 = Extract<
+  OpaqueEcdsaPresignAuthorityResponseV1,
+  { readonly ok: true }
+>['result'];
 
-type PendingAdditiveShare = {
-  readonly resolve: (share: Uint8Array) => void;
-  readonly reject: (error: Error) => void;
+type PendingOpaquePresignAuthority = {
+  readonly port: MessagePort;
+  readonly deferred: WorkerDeferred<OpaqueEcdsaPresignAuthorityResultV1>;
 };
 
-type EmailOtpSigningShare = {
-  readonly additiveShare32: Uint8Array;
-  readonly remainingUses: number;
+type OpaquePresignMaterialState =
+  | { readonly kind: 'pending_admission' }
+  | { readonly kind: 'available' }
+  | {
+      readonly kind: 'reserved';
+      readonly requestBinding: string;
+      readonly reservationId: string;
+      readonly leaseExpiresAtMs: number;
+    }
+  | {
+      readonly kind: 'committed';
+      readonly requestBinding: string;
+      readonly reservationId: string;
+      readonly leaseExpiresAtMs: number;
+    };
+
+type OpaquePresignMaterialEntry = {
+  readonly authorityPort: MessagePort;
+  readonly poolIdentity: EcdsaClientPresignPoolIdentity;
+  readonly groupPublicKey33: Uint8Array;
+  readonly bigR33: ArrayBuffer;
+  readonly createdAtMs: number;
   readonly expiresAtMs: number;
+  state: OpaquePresignMaterialState;
 };
 
-type PendingEmailOtpSigningShare = {
-  readonly resolve: (share: EmailOtpSigningShare) => void;
-  readonly reject: (error: Error) => void;
-};
-
-const presignWasmUrl = resolveWasmUrl(
-  'router_ab_ecdsa_presign_client_bg.wasm',
-  'ECDSA presign client',
-);
-const sessions = new Map<string, ClientPresignSession>();
-const sessionMaterialBindings = new Map<string, SessionMaterialBinding>();
-const materialStore = new IndexedDbClientPresignMaterialStore();
-const pendingAdditiveShares = new Map<string, PendingAdditiveShare>();
-const pendingEmailOtpSigningShares = new Map<string, PendingEmailOtpSigningShare>();
-const pendingLinkedHolderShares = new Map<string, PendingAdditiveShare>();
+const opaqueMaterials = new Map<string, OpaquePresignMaterialEntry>();
+const pendingOpaqueAuthorities = new Map<string, PendingOpaquePresignAuthority>();
+const opaqueSessionPorts = new Map<string, MessagePort>();
+const opaqueSessionBindings = new Map<
+  string,
+  {
+    readonly poolIdentity: EcdsaClientPresignPoolIdentity;
+    readonly groupPublicKey33: Uint8Array;
+    readonly expiresAtMs: number;
+  }
+>();
 let derivationPort: MessagePort | null = null;
-let emailOtpPort: MessagePort | null = null;
 let linkedHolderPort: MessagePort | null = null;
-let wasmInitPromise: Promise<void> | null = null;
+let onlinePort: MessagePort | null = null;
 let messageQueue: Promise<void> = Promise.resolve();
-
-function zeroize(bytes: Uint8Array): void {
-  bytes.fill(0);
-}
 
 function randomHandle(prefix: string): string {
   const bytes = new Uint8Array(16);
@@ -130,217 +123,53 @@ function requireFutureTimestamp(value: unknown, label: string): number {
   return timestamp;
 }
 
-async function initializePresignWasm(): Promise<void> {
-  if (wasmInitPromise) return wasmInitPromise;
-  wasmInitPromise = initializeWasm({
-    workerName: 'ECDSA presign client',
-    wasmUrl: presignWasmUrl,
-    initFunction: initPresignClient as unknown as (wasmModule?: unknown) => Promise<void>,
-    validateFunction: init_router_ab_ecdsa_presign_client,
-  });
-  return wasmInitPromise;
-}
-
-function freeSession(sessionId: string): void {
-  const session = sessions.get(sessionId);
-  sessions.delete(sessionId);
-  sessionMaterialBindings.delete(sessionId);
-  if (!session) return;
-  try {
-    session.free();
-  } catch {}
-}
-
-function parsePollResult(raw: unknown): {
-  stage: 'triples' | 'triples_done' | 'presign' | 'done';
-  event: 'none' | 'triples_done' | 'presign_done';
-  outgoing: Uint8Array[];
-} {
-  const record = (raw ?? {}) as Record<string, unknown>;
-  const stage =
-    record.stage === 'triples' ||
-    record.stage === 'triples_done' ||
-    record.stage === 'presign' ||
-    record.stage === 'done'
-      ? record.stage
-      : 'triples';
-  const event =
-    record.event === 'triples_done' || record.event === 'presign_done' ? record.event : 'none';
-  const outgoing = Array.isArray(record.outgoing)
-    ? record.outgoing.map((entry) => toBytes(entry, 'outgoing presign message'))
-    : [];
-  return { stage, event, outgoing };
-}
-
-async function pollSession(
-  sessionId: string,
-  session: ClientPresignSession,
-): Promise<ThresholdEcdsaPresignProgressResult> {
-  const result = parsePollResult(session.poll());
-  const outgoingMessages = result.outgoing.map((message) => message.slice().buffer);
-  if (result.event !== 'presign_done') {
-    return { stage: result.stage, event: result.event, outgoingMessages };
-  }
-  const binding = sessionMaterialBindings.get(sessionId);
-  if (!binding) throw new Error('ECDSA Client presign session has no material binding');
-  const presignature97 = session.take_presignature_97();
-  freeSession(sessionId);
-  if (presignature97.length !== 97) {
-    zeroize(presignature97);
-    throw new Error('Client presignature must be 97 bytes');
-  }
-  const materialHandle = randomHandle(`ecdsa-presign-${sessionId}`);
-  const bigR33 = presignature97.slice(0, 33);
-  const kShare32 = presignature97.slice(33, 65);
-  const sigmaShare32 = presignature97.slice(65, 97);
-  const presignatureBigR33 = bigR33.slice().buffer;
-  try {
-    await materialStore.putPendingAdmission({
-      materialHandle,
-      presignSessionId: sessionId,
-      poolIdentity: binding.poolIdentity,
-      groupPublicKey33: binding.groupPublicKey33,
-      bigR33,
-      kShare32,
-      sigmaShare32,
-      createdAtMs: Date.now(),
-      expiresAtMs: binding.expiresAtMs,
-    });
-    return {
-      stage: 'done',
-      event: 'presign_done',
-      outgoingMessages,
-      presignatureHandle: materialHandle,
-      presignatureBigR33,
-    };
-  } finally {
-    zeroize(presignature97);
-    zeroize(bigR33);
-    zeroize(kShare32);
-    zeroize(sigmaShare32);
-  }
-}
-
-function handleDerivationResponse(event: MessageEvent<EcdsaDerivationAdditiveShareResponse>): void {
-  const response = event.data;
-  if (response.kind !== 'ecdsa_derivation_additive_share_result_v1') return;
-  const pending = pendingAdditiveShares.get(response.requestId);
-  if (!pending) return;
-  pendingAdditiveShares.delete(response.requestId);
-  if (!response.ok) {
-    pending.reject(new Error(response.error));
-    return;
-  }
-  const additiveShare32 = new Uint8Array(response.additiveShare32);
-  if (additiveShare32.length !== 32) {
-    additiveShare32.fill(0);
-    pending.reject(new Error('Linked holder ECDSA additive share must be 32 bytes'));
-    return;
-  }
-  pending.resolve(additiveShare32);
-}
-
-function rejectPendingLinkedHolderShares(message: string): void {
-  for (const [requestId, pending] of pendingLinkedHolderShares) {
-    pendingLinkedHolderShares.delete(requestId);
-    pending.reject(new Error(message));
-  }
-}
-
-function handleEmailOtpResponse(event: MessageEvent<EmailOtpEcdsaSigningShareResponse>): void {
-  const response = event.data;
-  if (response.kind !== 'email_otp_ecdsa_signing_share_result_v1') return;
-  const pending = pendingEmailOtpSigningShares.get(response.requestId);
-  if (!pending) return;
-  pendingEmailOtpSigningShares.delete(response.requestId);
-  if (!response.ok) {
-    pending.reject(new Error(response.error));
-    return;
-  }
-  pending.resolve({
-    additiveShare32: new Uint8Array(response.additiveShare32),
-    remainingUses: response.remainingUses,
-    expiresAtMs: response.expiresAtMs,
-  });
-}
-
-function handleLinkedHolderResponse(
-  event: MessageEvent<LinkedHolderEcdsaAdditiveShareResponse>,
+function handleOpaqueAuthorityResponse(
+  port: MessagePort,
+  event: MessageEvent<OpaqueEcdsaPresignAuthorityResponseV1>,
 ): void {
   const response = event.data;
-  if (response.kind !== 'linked_holder_ecdsa_additive_share_result_v1') return;
-  const pending = pendingLinkedHolderShares.get(response.requestId);
-  if (!pending) return;
-  pendingLinkedHolderShares.delete(response.requestId);
+  if (response.kind !== 'opaque_ecdsa_presign_authority_result_v1') return;
+  const pending = pendingOpaqueAuthorities.get(response.requestId);
+  if (!pending || pending.port !== port) return;
+  pendingOpaqueAuthorities.delete(response.requestId);
   if (!response.ok) {
-    pending.reject(new Error(response.error));
+    pending.deferred.reject(new Error(response.error));
     return;
   }
-  pending.resolve(new Uint8Array(response.additiveShare32));
+  pending.deferred.resolve(response.result);
 }
 
-function requestAdditiveShare(args: {
-  materialHandle: string;
-  material: EcdsaDerivationAdditiveShareRequest['material'];
-  poolIdentity: EcdsaClientPresignPoolIdentity;
-}): Promise<Uint8Array> {
-  if (!derivationPort) {
-    throw new Error('ECDSA presign client has no derivation material channel');
+function purgeAuthorityPort(port: MessagePort, message: string): void {
+  rejectPendingOpaqueAuthorities(port, message);
+  for (const [sessionId, sessionPort] of opaqueSessionPorts) {
+    if (sessionPort !== port) continue;
+    opaqueSessionPorts.delete(sessionId);
+    opaqueSessionBindings.delete(sessionId);
   }
-  const requestId = randomHandle('ecdsa-derivation-share');
-  const deferred = new WorkerDeferred<Uint8Array>();
-  pendingAdditiveShares.set(requestId, deferred);
-  derivationPort.postMessage({
-    kind: 'ecdsa_derivation_additive_share_request_v1',
-    requestId,
-    materialHandle: args.materialHandle,
-    material: args.material,
-    poolIdentity: args.poolIdentity,
-  });
-  return deferred.promise;
+  for (const [materialHandle, entry] of opaqueMaterials) {
+    if (entry.authorityPort === port) opaqueMaterials.delete(materialHandle);
+  }
 }
 
-function requestEmailOtpSigningShare(thresholdSessionId: string): Promise<EmailOtpSigningShare> {
-  if (!emailOtpPort) {
-    throw new Error('ECDSA presign client has no Email OTP material channel');
+function rejectPendingOpaqueAuthorities(port: MessagePort, message: string): void {
+  for (const [requestId, pending] of pendingOpaqueAuthorities) {
+    if (pending.port !== port) continue;
+    pendingOpaqueAuthorities.delete(requestId);
+    pending.deferred.reject(new Error(message));
   }
-  const requestId = randomHandle('email-otp-ecdsa-share');
-  const deferred = new WorkerDeferred<EmailOtpSigningShare>();
-  pendingEmailOtpSigningShares.set(requestId, deferred);
-  emailOtpPort.postMessage({
-    kind: 'email_otp_ecdsa_signing_share_request_v1',
-    requestId,
-    thresholdSessionId,
-  });
-  return deferred.promise;
 }
 
-function requestLinkedHolderShare(input: {
-  readonly holderHandleId: string;
-  readonly poolIdentity: EcdsaClientPresignPoolIdentity;
-  readonly groupPublicKey33: Uint8Array;
-}): Promise<Uint8Array> {
-  if (!linkedHolderPort) {
-    throw new Error('ECDSA presign client has no linked holder material channel');
-  }
-  const requestId = randomHandle('linked-holder-ecdsa-share');
-  const deferred = new WorkerDeferred<Uint8Array>();
-  const groupPublicKey33 = input.groupPublicKey33.slice();
-  pendingLinkedHolderShares.set(requestId, deferred);
+function requestOpaqueAuthority(
+  port: MessagePort,
+  request: OpaqueEcdsaPresignAuthorityRequestV1,
+  transfer: Transferable[] = [],
+): Promise<OpaqueEcdsaPresignAuthorityResultV1> {
+  const deferred = new WorkerDeferred<OpaqueEcdsaPresignAuthorityResultV1>();
+  pendingOpaqueAuthorities.set(request.requestId, { port, deferred });
   try {
-    linkedHolderPort.postMessage(
-      {
-        kind: 'linked_holder_ecdsa_additive_share_request_v1',
-        requestId,
-        holderHandleId: input.holderHandleId,
-        poolIdentity: input.poolIdentity,
-        groupPublicKey33: groupPublicKey33.buffer,
-      },
-      [groupPublicKey33.buffer],
-    );
+    port.postMessage(request, transfer);
   } catch (error) {
-    pendingLinkedHolderShares.delete(requestId);
-    groupPublicKey33.fill(0);
+    pendingOpaqueAuthorities.delete(request.requestId);
     deferred.reject(error instanceof Error ? error : new Error(String(error)));
   }
   return deferred.promise;
@@ -351,79 +180,100 @@ async function initializeSession(
 ): Promise<
   EcdsaPresignClientOperationMap[typeof EcdsaPresignClientRequestType.SessionInit]['result']['payload']
 > {
-  await initializePresignWasm();
   const sessionId = requireString(payload.sessionId, 'sessionId');
-  freeSession(sessionId);
+  if (opaqueSessionPorts.has(sessionId)) await abortSession({ sessionId });
   const poolIdentity = parseEcdsaClientPresignPoolIdentity(payload.poolIdentity);
   const groupPublicKey33 = toBytes(payload.groupPublicKey33, 'groupPublicKey33');
   if (groupPublicKey33.length !== 33) throw new Error('groupPublicKey33 must be 33 bytes');
-  let additiveShare32: Uint8Array;
-  let emailOtpAuthority: { remainingUses: number; expiresAtMs: number } | null = null;
-  switch (payload.authority.kind) {
-    case 'role_local_derivation_handle':
-      additiveShare32 = await requestAdditiveShare({
-        materialHandle: requireString(payload.authority.materialHandle, 'materialHandle'),
-        material: payload.authority.material,
-        poolIdentity,
-      });
-      break;
-    case 'email_otp_worker_session': {
-      const claimed = await requestEmailOtpSigningShare(
-        requireString(payload.authority.thresholdSessionId, 'thresholdSessionId'),
-      );
-      additiveShare32 = claimed.additiveShare32;
-      emailOtpAuthority = {
-        remainingUses: claimed.remainingUses,
-        expiresAtMs: claimed.expiresAtMs,
-      };
-      break;
-    }
-    case 'linked_holder_signing_material':
-      additiveShare32 = await requestLinkedHolderShare({
-        holderHandleId: requireString(payload.authority.holderHandleId, 'holderHandleId'),
-        poolIdentity,
-        groupPublicKey33,
-      });
-      break;
-    default:
-      payload.authority satisfies never;
-      throw new Error('Unsupported ECDSA presign authority');
-  }
   const materialExpiresAtMs = requireFutureTimestamp(
     payload.materialExpiresAtMs,
     'materialExpiresAtMs',
   );
-  try {
-    const session = new ClientPresignSession(additiveShare32, groupPublicKey33, sessionId);
-    sessions.set(sessionId, session);
-    sessionMaterialBindings.set(sessionId, {
-      groupPublicKey33: groupPublicKey33.slice(),
-      expiresAtMs: materialExpiresAtMs,
-      poolIdentity,
-    });
-    const progress = await pollSession(sessionId, session);
-    if (emailOtpAuthority) {
-      return {
-        authority: {
-          kind: 'email_otp_worker_session',
-          remainingUses: emailOtpAuthority.remainingUses,
-          expiresAtMs: emailOtpAuthority.expiresAtMs,
+  switch (payload.authority.kind) {
+    case 'role_local_derivation_handle': {
+      if (!derivationPort) {
+        throw new Error('ECDSA presign client has no derivation material channel');
+      }
+      const requestId = randomHandle('ecdsa-role-local-presign');
+      const groupPublicKeyBuffer = groupPublicKey33.slice().buffer;
+      const result = await requestOpaqueAuthority(
+        derivationPort,
+        {
+          kind: 'opaque_ecdsa_presign_session_init_v1',
+          requestId,
+          sessionId,
+          authority: {
+            kind: 'role_local_derivation_handle',
+            materialHandle: requireString(payload.authority.materialHandle, 'materialHandle'),
+            material: payload.authority.material,
+          },
+          poolIdentity,
+          groupPublicKey33: groupPublicKeyBuffer,
+          materialExpiresAtMs,
         },
+        [groupPublicKeyBuffer],
+      );
+      const progress = requireOpaqueProgress(result);
+      retainCompletedMaterial({
         progress,
-      };
+        authorityPort: derivationPort,
+        poolIdentity,
+        groupPublicKey33,
+        expiresAtMs: materialExpiresAtMs,
+      });
+      if (progress.event !== 'presign_done') {
+        opaqueSessionPorts.set(sessionId, derivationPort);
+        opaqueSessionBindings.set(sessionId, {
+          poolIdentity,
+          groupPublicKey33: groupPublicKey33.slice(),
+          expiresAtMs: materialExpiresAtMs,
+        });
+      }
+      return { authority: { kind: 'role_local_derivation_handle' }, progress };
     }
-    if (payload.authority.kind === 'linked_holder_signing_material') {
-      return {
-        authority: { kind: 'linked_holder_signing_material' },
+    case 'linked_holder_signing_material': {
+      if (!linkedHolderPort) {
+        throw new Error('ECDSA presign client has no linked holder material channel');
+      }
+      const requestId = randomHandle('linked-holder-ecdsa-presign');
+      const groupPublicKeyBuffer = groupPublicKey33.slice().buffer;
+      const result = await requestOpaqueAuthority(
+        linkedHolderPort,
+        {
+          kind: 'opaque_ecdsa_presign_session_init_v1',
+          requestId,
+          sessionId,
+          authority: {
+            kind: 'linked_holder_signing_material',
+            holderHandleId: requireString(payload.authority.holderHandleId, 'holderHandleId'),
+          },
+          poolIdentity,
+          groupPublicKey33: groupPublicKeyBuffer,
+          materialExpiresAtMs,
+        },
+        [groupPublicKeyBuffer],
+      );
+      const progress = requireOpaqueProgress(result);
+      retainCompletedMaterial({
         progress,
-      };
+        authorityPort: linkedHolderPort,
+        poolIdentity,
+        groupPublicKey33,
+        expiresAtMs: materialExpiresAtMs,
+      });
+      if (progress.event !== 'presign_done') {
+        opaqueSessionPorts.set(sessionId, linkedHolderPort);
+        opaqueSessionBindings.set(sessionId, {
+          poolIdentity,
+          groupPublicKey33: groupPublicKey33.slice(),
+          expiresAtMs: materialExpiresAtMs,
+        });
+      }
+      return { authority: { kind: 'linked_holder_signing_material' }, progress };
     }
-    return {
-      authority: { kind: 'role_local_derivation_handle' },
-      progress,
-    };
-  } finally {
-    zeroize(additiveShare32);
+    default:
+      payload.authority satisfies never;
+      throw new Error('Unsupported ECDSA presign authority');
   }
 }
 
@@ -431,23 +281,142 @@ async function stepSession(
   payload: EcdsaPresignClientOperationMap[typeof EcdsaPresignClientRequestType.SessionStep]['payload'],
 ): Promise<ThresholdEcdsaPresignProgressResult> {
   const sessionId = requireString(payload.sessionId, 'sessionId');
-  const session = sessions.get(sessionId);
-  if (!session) throw new Error('Unknown ECDSA Client presign session');
-  if (payload.stage === 'presign' && session.stage() === 'triples_done') {
-    session.start_presign();
+  const opaquePort = opaqueSessionPorts.get(sessionId);
+  if (opaquePort) {
+    const activeBinding = opaqueSessionBindings.get(sessionId);
+    if (!activeBinding || Date.now() >= activeBinding.expiresAtMs) {
+      await abortSession({ sessionId });
+      throw new Error('Opaque ECDSA presign session expired');
+    }
+    try {
+      const requestId = randomHandle('opaque-ecdsa-presign-step');
+      const incomingMessages = payload.incomingMessages.map(copyArrayBuffer);
+      const result = await requestOpaqueAuthority(
+        opaquePort,
+        {
+          kind: 'opaque_ecdsa_presign_session_step_v1',
+          requestId,
+          sessionId,
+          stage: payload.stage,
+          incomingMessages,
+        },
+        incomingMessages,
+      );
+      const progress = requireOpaqueProgress(result);
+      if (progress.event === 'presign_done') {
+        const binding = opaqueSessionBindings.get(sessionId);
+        if (!binding) throw new Error('Opaque ECDSA presign session binding is unknown');
+        retainCompletedMaterial({
+          progress,
+          authorityPort: opaquePort,
+          poolIdentity: binding.poolIdentity,
+          groupPublicKey33: binding.groupPublicKey33,
+          expiresAtMs: binding.expiresAtMs,
+        });
+        opaqueSessionPorts.delete(sessionId);
+        opaqueSessionBindings.delete(sessionId);
+      }
+      return progress;
+    } catch (error) {
+      opaqueSessionPorts.delete(sessionId);
+      opaqueSessionBindings.delete(sessionId);
+      throw error;
+    }
   }
-  for (const incoming of payload.incomingMessages) {
-    session.message(new Uint8Array(incoming));
-  }
-  return await pollSession(sessionId, session);
+  throw new Error('Unknown ECDSA Client presign session');
 }
 
-function abortSession(
+async function abortSession(
   payload: EcdsaPresignClientOperationMap[typeof EcdsaPresignClientRequestType.SessionAbort]['payload'],
-): { kind: 'threshold_ecdsa_presign_session_aborted'; sessionId: string } {
+): Promise<{ kind: 'threshold_ecdsa_presign_session_aborted'; sessionId: string }> {
   const sessionId = requireString(payload.sessionId, 'sessionId');
-  freeSession(sessionId);
+  const opaquePort = opaqueSessionPorts.get(sessionId);
+  if (opaquePort) {
+    opaqueSessionPorts.delete(sessionId);
+    opaqueSessionBindings.delete(sessionId);
+    const result = await requestOpaqueAuthority(opaquePort, {
+      kind: 'opaque_ecdsa_presign_session_abort_v1',
+      requestId: randomHandle('opaque-ecdsa-presign-abort'),
+      sessionId,
+    });
+    if (result.kind !== 'aborted' || result.sessionId !== sessionId) {
+      throw new Error('Opaque ECDSA presign authority returned an invalid abort result');
+    }
+    return { kind: 'threshold_ecdsa_presign_session_aborted', sessionId };
+  }
   return { kind: 'threshold_ecdsa_presign_session_aborted', sessionId };
+}
+
+function requireOpaqueProgress(
+  result: OpaqueEcdsaPresignAuthorityResultV1,
+): ThresholdEcdsaPresignProgressResult {
+  if (result.kind !== 'progress') {
+    throw new Error('Opaque ECDSA presign authority returned an invalid progress result');
+  }
+  return result.progress;
+}
+
+function copyArrayBuffer(value: ArrayBuffer): ArrayBuffer {
+  return value.slice(0);
+}
+
+async function presignatureId(bigR33: ArrayBuffer): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bigR33));
+  let binary = '';
+  for (const byte of digest) binary += String.fromCharCode(byte);
+  return `presig-${btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')}`;
+}
+
+function retainCompletedMaterial(args: {
+  progress: ThresholdEcdsaPresignProgressResult;
+  authorityPort: MessagePort;
+  poolIdentity: EcdsaClientPresignPoolIdentity;
+  groupPublicKey33: Uint8Array;
+  expiresAtMs: number;
+}): void {
+  if (args.progress.event !== 'presign_done') return;
+  const materialHandle = requireString(args.progress.presignatureHandle, 'presignatureHandle');
+  const bigR33 = toBytes(args.progress.presignatureBigR33, 'presignatureBigR33');
+  if (bigR33.length !== 33) throw new Error('presignatureBigR33 must be 33 bytes');
+  opaqueMaterials.set(materialHandle, {
+    authorityPort: args.authorityPort,
+    poolIdentity: args.poolIdentity,
+    groupPublicKey33: args.groupPublicKey33.slice(),
+    bigR33: bigR33.slice().buffer,
+    createdAtMs: Date.now(),
+    expiresAtMs: args.expiresAtMs,
+    state: { kind: 'pending_admission' },
+  });
+}
+
+function requireOpaqueMaterial(
+  materialHandle: string,
+  poolIdentity: EcdsaClientPresignPoolIdentity,
+): OpaquePresignMaterialEntry {
+  const entry = opaqueMaterials.get(materialHandle);
+  if (!entry) throw new Error('ECDSA Client presign material unavailable: not_found');
+  if (!equalEcdsaClientPresignPoolIdentity(entry.poolIdentity, poolIdentity)) {
+    opaqueMaterials.delete(materialHandle);
+    void destroyOpaqueMaterial(materialHandle, entry);
+    throw new Error('ECDSA Client presign material unavailable: binding_rejected');
+  }
+  if (Date.now() >= entry.expiresAtMs) {
+    opaqueMaterials.delete(materialHandle);
+    void destroyOpaqueMaterial(materialHandle, entry);
+    throw new Error('ECDSA Client presign material unavailable: material_expired');
+  }
+  return entry;
+}
+
+async function destroyOpaqueMaterial(
+  materialHandle: string,
+  entry: OpaquePresignMaterialEntry,
+): Promise<void> {
+  await requestOpaqueAuthority(entry.authorityPort, {
+    kind: 'opaque_ecdsa_presign_material_destroy_v1',
+    requestId: randomHandle('opaque-ecdsa-presign-destroy'),
+    materialHandle,
+  }).catch(() => undefined);
 }
 
 async function admitPresignature(
@@ -462,19 +431,24 @@ async function admitPresignature(
     payload.expectedPresignatureId,
     'expectedPresignatureId',
   );
-  const admitted = await materialStore.admit({
+  const entry = requireOpaqueMaterial(
     materialHandle,
-    expectedPresignatureId,
-    poolIdentity: parseEcdsaClientPresignPoolIdentity(payload.poolIdentity),
-    nowMs: Date.now(),
-  });
-  if (!admitted.ok) {
-    throw new Error(`ECDSA Client presign admission failed: ${admitted.code}`);
+    parseEcdsaClientPresignPoolIdentity(payload.poolIdentity),
+  );
+  const actualPresignatureId = await presignatureId(entry.bigR33);
+  if (actualPresignatureId !== expectedPresignatureId) {
+    opaqueMaterials.delete(materialHandle);
+    await destroyOpaqueMaterial(materialHandle, entry);
+    throw new Error('ECDSA Client presign admission failed: binding_rejected');
   }
+  if (entry.state.kind !== 'pending_admission' && entry.state.kind !== 'available') {
+    throw new Error('ECDSA Client presign admission failed: invalid_state');
+  }
+  entry.state = { kind: 'available' };
   return {
     kind: 'ecdsa_client_presignature_admitted_v1',
     materialHandle,
-    presignatureId: admitted.presignatureId,
+    presignatureId: actualPresignatureId,
   };
 }
 
@@ -485,15 +459,12 @@ async function destroyPresignature(
   materialHandle: string;
 }> {
   const materialHandle = requireString(payload.materialHandle, 'materialHandle');
-  if (
-    !(await materialStore.destroy(
-      materialHandle,
-      parseEcdsaClientPresignPoolIdentity(payload.poolIdentity),
-      Date.now(),
-    ))
-  ) {
-    throw new Error('ECDSA Client presignature destruction failed');
-  }
+  const entry = requireOpaqueMaterial(
+    materialHandle,
+    parseEcdsaClientPresignPoolIdentity(payload.poolIdentity),
+  );
+  opaqueMaterials.delete(materialHandle);
+  await destroyOpaqueMaterial(materialHandle, entry);
   return { kind: 'ecdsa_client_presignature_destroyed_v1', materialHandle };
 }
 
@@ -504,15 +475,23 @@ async function reservePresignature(
   materialHandle: string;
 }> {
   const materialHandle = requireString(payload.materialHandle, 'materialHandle');
-  const result = await materialStore.reserve({
+  const entry = requireOpaqueMaterial(
     materialHandle,
-    poolIdentity: parseEcdsaClientPresignPoolIdentity(payload.poolIdentity),
+    parseEcdsaClientPresignPoolIdentity(payload.poolIdentity),
+  );
+  if (entry.state.kind !== 'available') {
+    throw new Error('ECDSA Client presign reservation failed: invalid_state');
+  }
+  const leaseExpiresAtMs = requireFutureTimestamp(payload.leaseExpiresAtMs, 'leaseExpiresAtMs');
+  if (leaseExpiresAtMs > entry.expiresAtMs) {
+    throw new Error('ECDSA Client presign reservation failed: material_expired');
+  }
+  entry.state = {
+    kind: 'reserved',
     requestBinding: requireString(payload.requestBinding, 'requestBinding'),
     reservationId: requireString(payload.reservationId, 'reservationId'),
-    leaseExpiresAtMs: requireFutureTimestamp(payload.leaseExpiresAtMs, 'leaseExpiresAtMs'),
-    nowMs: Date.now(),
-  });
-  if (!result.ok) throw new Error(`ECDSA Client presign reservation failed: ${result.code}`);
+    leaseExpiresAtMs,
+  };
   return { kind: 'ecdsa_client_presignature_lifecycle_advanced_v1', materialHandle };
 }
 
@@ -523,54 +502,227 @@ async function commitPresignature(
   materialHandle: string;
 }> {
   const materialHandle = requireString(payload.materialHandle, 'materialHandle');
-  const result = await materialStore.commit({
+  const entry = requireOpaqueMaterial(
     materialHandle,
-    poolIdentity: parseEcdsaClientPresignPoolIdentity(payload.poolIdentity),
-    requestBinding: requireString(payload.requestBinding, 'requestBinding'),
-    reservationId: requireString(payload.reservationId, 'reservationId'),
-    nowMs: Date.now(),
-  });
-  if (!result.ok) throw new Error(`ECDSA Client presign commit failed: ${result.code}`);
+    parseEcdsaClientPresignPoolIdentity(payload.poolIdentity),
+  );
+  const requestBinding = requireString(payload.requestBinding, 'requestBinding');
+  const reservationId = requireString(payload.reservationId, 'reservationId');
+  if (
+    entry.state.kind !== 'reserved' ||
+    entry.state.requestBinding !== requestBinding ||
+    entry.state.reservationId !== reservationId ||
+    Date.now() >= entry.state.leaseExpiresAtMs
+  ) {
+    throw new Error('ECDSA Client presign commit failed: binding_rejected');
+  }
+  entry.state = {
+    kind: 'committed',
+    requestBinding,
+    reservationId,
+    leaseExpiresAtMs: entry.state.leaseExpiresAtMs,
+  };
   return { kind: 'ecdsa_client_presignature_lifecycle_advanced_v1', materialHandle };
 }
 
 async function listAvailablePresignatures(
   payload: EcdsaPresignClientOperationMap[typeof EcdsaPresignClientRequestType.ListAvailable]['payload'],
 ): Promise<WorkerClientPresignatureRef[]> {
-  const refs = await materialStore.listAvailable(
-    parseEcdsaClientPresignPoolIdentity(payload.poolIdentity),
-    Date.now(),
-  );
-  return refs.map(durableRefToWorkerRef);
+  const poolIdentity = parseEcdsaClientPresignPoolIdentity(payload.poolIdentity);
+  const refs: WorkerClientPresignatureRef[] = [];
+  for (const [materialHandle, entry] of opaqueMaterials) {
+    if (entry.state.kind !== 'available') continue;
+    if (!equalEcdsaClientPresignPoolIdentity(entry.poolIdentity, poolIdentity)) continue;
+    if (Date.now() >= entry.expiresAtMs) {
+      opaqueMaterials.delete(materialHandle);
+      await destroyOpaqueMaterial(materialHandle, entry);
+      continue;
+    }
+    refs.push({
+      presignatureId: await presignatureId(entry.bigR33),
+      materialHandle,
+      bigR33: entry.bigR33.slice(0),
+      createdAtMs: entry.createdAtMs,
+      expiresAtMs: entry.expiresAtMs,
+    });
+  }
+  return refs.sort((left, right) => left.createdAtMs - right.createdAtMs);
 }
 
 function attachControlChannel(value: unknown): boolean {
   if (isAttachEcdsaDerivationToPresignPort(value)) {
+    if (derivationPort) {
+      purgeAuthorityPort(derivationPort, 'ECDSA derivation presign authority channel was replaced');
+    }
     derivationPort?.close();
     derivationPort = value.port;
-    derivationPort.onmessage = handleDerivationResponse;
+    derivationPort.onmessage = (event) => handleOpaqueAuthorityResponse(value.port, event);
+    derivationPort.onmessageerror = () =>
+      purgeAuthorityPort(value.port, 'ECDSA derivation presign authority channel failed');
     derivationPort.start();
     return true;
   }
-  if (isAttachEmailOtpToPresignPort(value)) {
-    emailOtpPort?.close();
-    emailOtpPort = value.port;
-    emailOtpPort.onmessage = handleEmailOtpResponse;
-    emailOtpPort.start();
-    return true;
-  }
   if (isAttachLinkedHolderToPresignPort(value)) {
-    rejectPendingLinkedHolderShares('Linked holder ECDSA material channel was replaced');
+    if (linkedHolderPort) {
+      purgeAuthorityPort(
+        linkedHolderPort,
+        'Linked holder ECDSA presign authority channel was replaced',
+      );
+    }
     linkedHolderPort?.close();
     linkedHolderPort = value.port;
-    linkedHolderPort.onmessage = handleLinkedHolderResponse;
+    linkedHolderPort.onmessage = (event) => handleOpaqueAuthorityResponse(value.port, event);
     linkedHolderPort.onmessageerror = () => {
-      rejectPendingLinkedHolderShares('Linked holder ECDSA material channel failed');
+      purgeAuthorityPort(value.port, 'Linked holder ECDSA presign authority channel failed');
     };
     linkedHolderPort.start();
     return true;
   }
+  if (isAttachPresignToOnlinePort(value)) {
+    onlinePort?.close();
+    onlinePort = value.port;
+    onlinePort.onmessage = (event) => enqueueOnlineRequest(value.port, event);
+    onlinePort.start();
+    return true;
+  }
   return false;
+}
+
+type OnlineRpcRequest = {
+  readonly id: string;
+  readonly type: keyof EcdsaOnlineClientOperationMap;
+  readonly payload: EcdsaOnlineClientOperationMap[keyof EcdsaOnlineClientOperationMap]['payload'];
+};
+
+async function computeOnlineShare(
+  payload: EcdsaOnlineClientOperationMap[typeof EcdsaOnlineClientRequestType.ComputeSignatureShare]['payload'],
+): Promise<ArrayBuffer> {
+  const materialHandle = requireString(payload.materialHandle, 'materialHandle');
+  const entry = requireOpaqueMaterial(
+    materialHandle,
+    parseEcdsaClientPresignPoolIdentity(payload.poolIdentity),
+  );
+  const requestBinding = requireString(payload.requestBinding, 'requestBinding');
+  const reservationId = requireString(payload.reservationId, 'reservationId');
+  if (
+    entry.state.kind !== 'committed' ||
+    entry.state.requestBinding !== requestBinding ||
+    entry.state.reservationId !== reservationId ||
+    Date.now() >= entry.state.leaseExpiresAtMs
+  ) {
+    throw new Error('ECDSA Client presign material unavailable: binding_rejected');
+  }
+  const suppliedGroupPublicKey33 = new Uint8Array(payload.groupPublicKey33);
+  if (!equalPublicBytes(entry.groupPublicKey33, suppliedGroupPublicKey33)) {
+    opaqueMaterials.delete(materialHandle);
+    await destroyOpaqueMaterial(materialHandle, entry);
+    throw new Error('ECDSA Client presign material unavailable: binding_rejected');
+  }
+  const buffers = [
+    copyArrayBuffer(payload.groupPublicKey33),
+    copyArrayBuffer(payload.expectedPresignBigR33),
+    copyArrayBuffer(payload.digest32),
+    copyArrayBuffer(payload.clientRerandomizationContribution32),
+    copyArrayBuffer(payload.signingWorkerRerandomizationContribution32),
+  ];
+  try {
+    const result = await requestOpaqueAuthority(
+      entry.authorityPort,
+      {
+        kind: 'opaque_ecdsa_online_compute_v1',
+        requestId: randomHandle('opaque-ecdsa-online'),
+        materialHandle,
+        groupPublicKey33: buffers[0]!,
+        expectedPresignBigR33: buffers[1]!,
+        digest32: buffers[2]!,
+        clientRerandomizationContribution32: buffers[3]!,
+        signingWorkerRerandomizationContribution32: buffers[4]!,
+      },
+      buffers,
+    );
+    if (result.kind !== 'online_share') {
+      throw new Error('Opaque ECDSA authority returned an invalid online result');
+    }
+    opaqueMaterials.delete(materialHandle);
+    return result.signatureShare32;
+  } catch (error) {
+    opaqueMaterials.delete(materialHandle);
+    await destroyOpaqueMaterial(materialHandle, entry);
+    throw error;
+  }
+}
+
+function equalPublicBytes(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.length !== right.length) return false;
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) return false;
+  }
+  return true;
+}
+
+async function retireOpaquePool(
+  payload: EcdsaOnlineClientOperationMap[typeof EcdsaOnlineClientRequestType.RetirePool]['payload'],
+) {
+  const poolIdentity = parseEcdsaClientPresignPoolIdentity(payload.poolIdentity);
+  let retiredCount = 0;
+  for (const [materialHandle, entry] of opaqueMaterials) {
+    if (!equalEcdsaClientPresignPoolIdentity(entry.poolIdentity, poolIdentity)) continue;
+    opaqueMaterials.delete(materialHandle);
+    await destroyOpaqueMaterial(materialHandle, entry);
+    retiredCount += 1;
+  }
+  return {
+    kind: 'ecdsa_client_presignature_pool_retired_v1' as const,
+    poolIdentity,
+    reason: payload.reason,
+    retiredCount,
+  };
+}
+
+async function handleOnlineRequest(port: MessagePort, request: OnlineRpcRequest): Promise<void> {
+  try {
+    switch (request.type) {
+      case EcdsaOnlineClientRequestType.ComputeSignatureShare: {
+        const signatureShare32 = await computeOnlineShare(
+          request.payload as EcdsaOnlineClientOperationMap[72000]['payload'],
+        );
+        port.postMessage(
+          {
+            id: request.id,
+            ok: true,
+            result: {
+              type: EcdsaOnlineClientResponseType.ComputeSignatureShareSuccess,
+              payload: signatureShare32,
+            },
+          },
+          [signatureShare32],
+        );
+        return;
+      }
+      case EcdsaOnlineClientRequestType.RetirePool:
+        port.postMessage({
+          id: request.id,
+          ok: true,
+          result: {
+            type: EcdsaOnlineClientResponseType.RetirePoolSuccess,
+            payload: await retireOpaquePool(
+              request.payload as EcdsaOnlineClientOperationMap[72001]['payload'],
+            ),
+          },
+        });
+        return;
+    }
+  } catch (error) {
+    try {
+      port.postMessage({ id: request.id, ok: false, error: safeErrorMessage(error) });
+    } catch {
+      // The caller reset its channel; the opaque material was already burned.
+    }
+  }
+}
+
+function enqueueOnlineRequest(port: MessagePort, event: MessageEvent<OnlineRpcRequest>): void {
+  void handleOnlineRequest(port, event.data);
 }
 
 async function handleRpcRequest(request: PresignRpcRequest): Promise<void> {
@@ -602,7 +754,7 @@ async function handleRpcRequest(request: PresignRpcRequest): Promise<void> {
           ok: true,
           result: {
             type: EcdsaPresignClientResponseType.SessionAbortSuccess,
-            payload: abortSession(request.payload),
+            payload: await abortSession(request.payload),
           },
         });
         return;

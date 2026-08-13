@@ -97,6 +97,7 @@ import {
   type WalletIframeControlCapability,
 } from './publicApi';
 import { createWalletHostCompositionV1 } from './operations/devices/walletHostComposition';
+import type { WalletHostCompositionDependenciesV1 } from './operations/devices/walletHostComposition';
 import { createLinkedDeviceLocalStateInvalidationPortV1 } from './operations/devices/linkedDeviceLocalStateInvalidation';
 import type {
   AuthCapability,
@@ -133,6 +134,7 @@ import {
   type WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { TempoChainTarget } from '@/core/platform/types';
+import type { LinkedDeviceWalletSessionDeliveryV1 } from '@shared/device-linking';
 import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import {
@@ -705,6 +707,29 @@ function deliverNearProvisioningStateChanged(
  * Main SeamsWeb class that provides framework-agnostic passkey operations
  * with flexible event-based callbacks for custom UX implementation
  */
+type WalletHostLinkedDeviceSessionRepository =
+  WalletHostCompositionDependenciesV1['walletSessionRepository'];
+
+class ProjectingLinkedDeviceWalletSessionRepository
+  implements WalletHostLinkedDeviceSessionRepository
+{
+  constructor(
+    private readonly repository: WalletHostLinkedDeviceSessionRepository,
+    private readonly userPreferences: Pick<
+      ReturnType<BrowserSigningSurface['getUserPreferences']>,
+      'projectCurrentWallet'
+    >,
+  ) {}
+
+  async putExactActiveDeliveryV1(
+    delivery: LinkedDeviceWalletSessionDeliveryV1,
+  ): Promise<LinkedDeviceWalletSessionDeliveryV1> {
+    const persisted = await this.repository.putExactActiveDeliveryV1(delivery);
+    this.userPreferences.projectCurrentWallet(persisted.walletId);
+    return persisted;
+  }
+}
+
 export class SeamsWeb {
   private readonly signingEngine: SeamsWebSigningSurface;
   private readonly nearClient: NearClient;
@@ -754,6 +779,9 @@ export class SeamsWeb {
       internalOptions?.kind === 'wallet_host'
         ? createBrowserHostPlatformRuntime(browserSigningSurface.getSignerWorkerContext())
         : null;
+    if (walletHostPlatformRuntime) {
+      browserSigningSurface.configureLinkedDeviceSigning(walletHostPlatformRuntime.authenticator);
+    }
 
     this.appearance = this.configs.ui.appearance;
     this.theme = this.appearance.theme.mode;
@@ -761,6 +789,11 @@ export class SeamsWeb {
       this.signingEngine.setAppearance(this.appearance);
     } catch {}
     const userPreferences = this.signingEngine.getUserPreferences();
+    const projectedLinkedDeviceWalletSessions =
+      new ProjectingLinkedDeviceWalletSessionRepository(
+        linkedDeviceWalletSessions,
+        userPreferences,
+      );
 
     this.walletIframe = new WalletIframeCoordinator({
       configs: this.configs,
@@ -778,7 +811,7 @@ export class SeamsWeb {
           http: walletHostPlatformRuntime.http,
           authenticator: walletHostPlatformRuntime.authenticator,
           repository: laneSealedHolderMaterialRepository,
-          walletSessionRepository: linkedDeviceWalletSessions,
+          walletSessionRepository: projectedLinkedDeviceWalletSessions,
           executionEvidenceRepository: linkedDeviceExecutionEvidence,
         }),
       );

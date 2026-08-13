@@ -13,10 +13,12 @@ import { base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import { parseWalletId } from '@shared/utils/domainIds';
 import { buildSignedDeviceRequestProofFixtureV1 } from './helpers/deviceRequestProof.fixtures';
-import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
+import {
+  buildR103DeviceLinkFixture,
+  buildR103ProvisioningFixture,
+} from './helpers/deviceLinkContracts.fixtures';
 import {
   buildR102HolderDeliveryReceipt,
-  buildR102LaneJob,
   buildR102ManifestChild,
   buildR102ProtocolCommitReceipt,
 } from './helpers/r102LaneGateway.fixtures';
@@ -79,7 +81,7 @@ test('rejects linked activation when the R102 enrollment is absent', async () =>
 
 test('binds deliveries and holder receipts to the persisted child operation', async () => {
   const fixture = buildR103DeviceLinkFixture();
-  const job = linkedJobForApproval('persisted-child-operation', fixture.approval);
+  const job = linkedJobForFixture('persisted-child-operation', fixture);
   const receipt = buildR102ProtocolCommitReceipt(job);
   const receiptDigestB64u = base64UrlEncode(
     await sha256Bytes(encodeLaneProtocolCommitReceiptV1(receipt)),
@@ -142,7 +144,7 @@ test('binds deliveries and holder receipts to the persisted child operation', as
     }),
   ).resolves.toBeUndefined();
 
-  const substitutedJob = linkedJobForApproval('substituted-child-operation', fixture.approval);
+  const substitutedJob = linkedJobForFixture('substituted-child-operation', fixture);
   const substitutedReceipt = buildR102ProtocolCommitReceipt(substitutedJob);
   await expect(
     verifier.verifyProvisioningDeliveriesV1({
@@ -317,45 +319,27 @@ function sourceHandoffNotConfigured() {
   };
 }
 
-function linkedJobForApproval(
+function linkedJobForFixture(
   operationId: string,
-  approval: ReturnType<typeof buildR103DeviceLinkFixture>['approval'],
+  fixture: ReturnType<typeof buildR103DeviceLinkFixture>,
 ) {
-  const source = buildR102LaneJob('linked-device-persisted');
-  const approvedChild = approval.orderedKeyBindings[0];
-  if (!approvedChild) throw new Error('approval fixture has no child');
+  const source = buildR103ProvisioningFixture(fixture).deliveries.orderedChildren[0].job;
   return parseRotatableSigningLaneJobV1({
     ...source,
     operationId,
-    enrollmentId: approval.enrollmentId,
     idempotencyKey: `idempotency:${operationId}`,
-    walletId: approval.walletId,
-    walletKeyId: approvedChild.walletKeyId,
-    source: {
-      ...source.source,
-      laneId: approvedChild.sourceLaneId,
-      laneShareEpoch: approvedChild.sourceLaneShareEpoch,
-      revocationEpoch: approvedChild.sourceRevocationEpoch,
-      holderParticipantId: approvedChild.sourceHolderParticipantId,
-      signingWorkerParticipantId: approvedChild.sourceSigningWorkerParticipantId,
-    },
-    target: {
-      ...source.target,
-      laneId: approvedChild.targetLaneId,
-      laneShareEpoch: approvedChild.targetLaneShareEpoch,
-    },
     authorization: {
       kind: 'linked_device_enrollment',
       authorizedOperationId: source.authorization.authorizedOperationId,
-      linkedDeviceEnrollmentId: approval.enrollmentId,
-      linkedDevicePermissionDigestB64u: approval.policyDigestB64u,
+      linkedDeviceEnrollmentId: fixture.approval.enrollmentId,
+      linkedDevicePermissionDigestB64u: fixture.approval.policyDigestB64u,
     },
   });
 }
 
 function provisioningDeliveries(
   fixture: ReturnType<typeof buildR103DeviceLinkFixture>,
-  job: ReturnType<typeof linkedJobForApproval>,
+  job: ReturnType<typeof linkedJobForFixture>,
   receipt: ReturnType<typeof buildR102ProtocolCommitReceipt>,
 ) {
   return parseLinkedDeviceProvisioningDeliveriesV1({
