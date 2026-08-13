@@ -336,6 +336,8 @@ test.describe('hosted auth-menu passkey continuation', () => {
     const messages: unknown[] = [];
     let expiryCallback: (() => void) | null = null;
     let preparationCount = 0;
+    let preparationDeadlineCleared = false;
+    const preparationDeadlineHandle = 2 as ReturnType<typeof setTimeout>;
     globalThis.fetch = async () =>
       new Response(
         JSON.stringify({
@@ -347,13 +349,20 @@ test.describe('hosted auth-menu passkey continuation', () => {
         { status: 200, headers: { 'content-type': 'application/json' } },
       );
     globalThis.setTimeout = ((handler: TimerHandler, delay?: number, ...args: unknown[]) => {
-      if (typeof handler === 'function' && Number(delay) > 10_000) {
+      if (typeof handler === 'function' && Number(delay) === 20_000) {
+        return preparationDeadlineHandle;
+      }
+      if (typeof handler === 'function' && Number(delay) > 60_000) {
         expiryCallback = () => handler(...args);
         return 1 as ReturnType<typeof setTimeout>;
       }
       return originalSetTimeout(handler, delay, ...args);
     }) as typeof setTimeout;
     globalThis.clearTimeout = ((handle: ReturnType<typeof setTimeout>) => {
+      if (handle === preparationDeadlineHandle) {
+        preparationDeadlineCleared = true;
+        return;
+      }
       if (handle !== 1) originalClearTimeout(handle);
     }) as typeof clearTimeout;
     try {
@@ -373,6 +382,7 @@ test.describe('hosted auth-menu passkey continuation', () => {
         },
       });
       await expect.poll(() => session.state.kind, { timeout: 2_000 }).toBe('ready');
+      expect(preparationDeadlineCleared).toBe(true);
       expect(expiryCallback).not.toBeNull();
       expiryCallback?.();
       expect(preparationCount).toBe(1);
@@ -397,6 +407,70 @@ test.describe('hosted auth-menu passkey continuation', () => {
       session.cleanup();
     } finally {
       globalThis.fetch = originalFetch;
+      globalThis.setTimeout = originalSetTimeout;
+      globalThis.clearTimeout = originalClearTimeout;
+    }
+  });
+
+  test('times out a never-settling registration preparation and enables retry', async () => {
+    const originalSetTimeout = globalThis.setTimeout;
+    const originalClearTimeout = globalThis.clearTimeout;
+    const messages: unknown[] = [];
+    let deadlineCallback: (() => void) | null = null;
+    let preparationSignal: AbortSignal | null = null;
+    let deadlineCleared = false;
+    const deadlineHandle = 2 as ReturnType<typeof setTimeout>;
+    globalThis.setTimeout = ((handler: TimerHandler, delay?: number, ...args: unknown[]) => {
+      if (typeof handler === 'function' && Number(delay) === 20_000) {
+        deadlineCallback = () => handler(...args);
+        return deadlineHandle;
+      }
+      return originalSetTimeout(handler, delay, ...args);
+    }) as typeof setTimeout;
+    globalThis.clearTimeout = ((handle: ReturnType<typeof setTimeout>) => {
+      if (handle === deadlineHandle) {
+        deadlineCleared = true;
+        return;
+      }
+      originalClearTimeout(handle);
+    }) as typeof clearTimeout;
+    try {
+      const session = authMenuSession({
+        mode: 'register',
+        sendToParent: messages.push.bind(messages),
+      });
+      session.setRegistrationPreparation((_registrationValue, cancellation) => {
+        preparationSignal = cancellation.signal;
+        return new Promise<never>(() => {});
+      });
+      await Promise.resolve();
+
+      expect(deadlineCallback).not.toBeNull();
+      expect(session.state.kind).toBe('preparing');
+      deadlineCallback?.();
+
+      expect(deadlineCleared).toBe(true);
+      expect(preparationSignal?.aborted).toBe(true);
+      expect(session.state.kind).toBe('preparing');
+      if (session.state.kind === 'preparing') {
+        expect(session.state.viewModel.status).toEqual({
+          kind: 'recoverable',
+          reason: 'error',
+          message: 'Passkey preparation timed out. Retry to continue.',
+        });
+      }
+      expect(messages).toContainEqual({
+        type: 'AUTH_MENU_ERROR',
+        requestId: session.identity.requestId,
+        payload: {
+          kind: 'hosted_auth_menu_error_v1',
+          authMenuSessionId: session.identity.authMenuSessionId,
+          mode: 'register',
+          message: 'Passkey preparation timed out. Retry to continue.',
+        },
+      });
+      session.cleanup();
+    } finally {
       globalThis.setTimeout = originalSetTimeout;
       globalThis.clearTimeout = originalClearTimeout;
     }

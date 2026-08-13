@@ -92,17 +92,6 @@ export type WalletIframeExactSessionState =
     } & WalletIframeExactSessionIdentity)
   | ({ readonly kind: 'expired_session' } & WalletIframeExactSessionIdentity);
 
-export type WalletIframePendingSessionBinding =
-  | { readonly kind: 'unbound' }
-  | ({ readonly kind: 'exact_session' } & WalletIframeExactSessionIdentity);
-
-export type WalletIframeSessionExpiredFailure = {
-  readonly kind: 'wallet_iframe_request_failure';
-  readonly code: 'wallet_session_expired';
-  readonly walletId: WalletId;
-  readonly walletSessionId: WalletSessionId;
-};
-
 export type WalletIframeExactSessionLockResult =
   | {
       readonly kind: 'locked';
@@ -113,16 +102,6 @@ export type WalletIframeExactSessionLockResult =
       readonly expected: WalletIframeExactSessionIdentity;
       readonly current: WalletIframeExactSessionState;
     };
-
-export class WalletIframeSessionExpiredRequestError extends Error {
-  readonly failure: WalletIframeSessionExpiredFailure;
-
-  constructor(failure: WalletIframeSessionExpiredFailure) {
-    super('Wallet session expired');
-    this.name = 'WalletIframeSessionExpiredRequestError';
-    this.failure = failure;
-  }
-}
 
 export function exactSessionStateFromWalletSession(
   session: WalletSession,

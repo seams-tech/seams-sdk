@@ -42,7 +42,7 @@ function DashboardWindow(): React.JSX.Element {
     <div className="h2-window" role="img" aria-label="Seams merchant dashboard overview">
       <div className="h2-window__side">
         <div className="h2-window__brand">
-          <SeamsWordmark height={14} theme="light" />
+          <SeamsWordmark height={14} />
         </div>
         <div className="h2-window__navitem is-active">
           <Home aria-hidden /> Home
@@ -319,7 +319,7 @@ function HomeHeroCurrent(): React.JSX.Element {
       <header className="h2-hero-simple h2-hero-simple--sage" aria-labelledby="h2-home-title">
         <div className="h2-shell">
           <h1 id="h2-home-title" className="h2-display h2-hero-simple__title">
-            Commerce accounts for people and AI agents
+            Ecommerce on autopilot. Embedded wallets made simple.
           </h1>
           <p className="h2-hero-simple__sub">
             Auth, wallets, credentials, and delegated access in one SDK. Policy checks every action

@@ -14,6 +14,7 @@
   --h2-radius-card: 22px;
   --h2-taupe: #f5f3f1;
   --h2-stone: #ebe8e4;
+  --h2-gradient-sage: linear-gradient(160deg, #919690 0%, #c7d0cf 100%);
   /* structural hairlines (column borders, rules): a half step lighter than
      component outlines so the grid recedes but stays visible */
   --h2-line: #f2f0ed;
@@ -414,7 +415,7 @@ body:has(.h2-page) {
 }
 
 .h2-hero-simple--sage > .h2-shell {
-  background: linear-gradient(160deg, #919690 0%, #c7d0cf 100%);
+  background: var(--h2-gradient-sage);
   border-radius: var(--h2-radius-card);
   padding: 10rem 56px 72px;
 }
