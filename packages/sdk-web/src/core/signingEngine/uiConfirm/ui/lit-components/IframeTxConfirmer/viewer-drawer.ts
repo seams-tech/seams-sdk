@@ -177,16 +177,13 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
   }
 
   private _rpIdText(): string {
-    return String(this.securityContext?.rpId || '').trim() || 'loading...';
+    return String(this.securityContext?.rpId || '').trim();
   }
 
   private _isSecurityDetailsLoading(): boolean {
-    if (this.loading) return true;
-    const chainId = String(this.model?.chainId || '').trim();
-    if (chainId) return false;
-    const blockHeight = String(this.securityContext?.blockHeight || '').trim();
+    if (this._securityDetailsText()) return false;
     const submittingTransaction = isNearSigningProgressNotice(String(this.body || ''));
-    return submittingTransaction && !blockHeight;
+    return this.loading || submittingTransaction;
   }
 
   private _isEmailOtpMode(): boolean {
@@ -695,6 +692,7 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
 
     const securityDetailsText = this._securityDetailsText();
     const securityDetailsLoading = this._isSecurityDetailsLoading();
+    const rpIdText = this._rpIdText();
     return html`
       <w3a-drawer
         .open=${this._open}
@@ -740,16 +738,18 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
               <div class="rpid">
                 <div class="secure-indicator">
                   <w3a-padlock-icon class="padlock-icon"></w3a-padlock-icon>
-                  ${this.loading
-                    ? html`
-                        <span class="loading-ellipsis" aria-hidden="true">
-                          <span class="loading-ellipsis__dot">.</span>
-                          <span class="loading-ellipsis__dot">.</span>
-                          <span class="loading-ellipsis__dot">.</span>
-                        </span>
-                        <span class="sr-only" role="status">Loading website</span>
-                      `
-                    : html`<span class="domain-text">${this._rpIdText()}</span>`}
+                  <span role="status">
+                    ${rpIdText
+                      ? html`<span class="domain-text">${rpIdText}</span>`
+                      : html`
+                          <span class="loading-ellipsis" aria-hidden="true">
+                            <span class="loading-ellipsis__dot">.</span>
+                            <span class="loading-ellipsis__dot">.</span>
+                            <span class="loading-ellipsis__dot">.</span>
+                          </span>
+                          <span class="sr-only">Loading website</span>
+                        `}
+                  </span>
                 </div>
                 <span class="security-details">
                   <svg
@@ -769,16 +769,18 @@ export class DrawerTxConfirmerElement extends LitElementWithProps implements Con
                     <path d="m3.3 7 8.7 5 8.7-5" />
                     <path d="M12 22V12" />
                   </svg>
-                  ${securityDetailsLoading
-                    ? html`
-                        <span class="loading-ellipsis" aria-hidden="true">
-                          <span class="loading-ellipsis__dot">.</span>
-                          <span class="loading-ellipsis__dot">.</span>
-                          <span class="loading-ellipsis__dot">.</span>
-                        </span>
-                        <span class="sr-only" role="status">Loading chain details</span>
-                      `
-                    : html`${securityDetailsText || 'block'}`}
+                  <span role="status">
+                    ${securityDetailsLoading
+                      ? html`
+                          <span class="loading-ellipsis" aria-hidden="true">
+                            <span class="loading-ellipsis__dot">.</span>
+                            <span class="loading-ellipsis__dot">.</span>
+                            <span class="loading-ellipsis__dot">.</span>
+                          </span>
+                          <span class="sr-only">Loading chain details</span>
+                        `
+                      : html`${securityDetailsText || 'block'}`}
+                  </span>
                 </span>
               </div>
             </div>
