@@ -34,14 +34,6 @@ import { normalizeRuntimePolicyScope } from '../../packages/shared-ts/src/thresh
 import { parseServerAllocatedWalletId } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 import {
-  EMAIL_OTP_RECOVERY_KEY_COUNT,
-  EMAIL_OTP_RECOVERY_WRAP_ALG,
-  EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
-  EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
-  buildEmailOtpRecoveryWrapBinding,
-  encodeEmailOtpRecoveryWrappedEnrollmentAad,
-} from '../../packages/shared-ts/src/utils/emailOtpRecoveryKey';
-import {
   secp256k1PrivateKey32ToPublicKey33,
   signSecp256k1Recoverable,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/evmCryptoWasm';
@@ -122,17 +114,6 @@ import {
   listGoogleEmailOtpRegistrationAttemptRows,
   registrationAttemptRecordFromRow,
   insertEmailOtpAuthState,
-  insertEmailOtpRecoveryEscrow,
-  insertEmailOtpGrant,
-  emailOtpGrantRecord,
-  emailOtpRecoveryEscrowRecord,
-  makeRecoveryRotationEscrowInputs,
-  recoveryRotationEscrowInput,
-  makeRecoveryWrappedEnrollmentEscrows,
-  recoveryWrappedEnrollmentEscrowInput,
-  recoveryEscrowAadHashB64u,
-  readRecoveryEscrowStatusCounts,
-  countActiveRecoveryWrappedEnrollmentEscrows,
   insertRecoverySession,
   recoverySessionRecord,
 } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
@@ -429,214 +410,6 @@ test('Cloudflare D1 Router API auth service rate-limits Google Email OTP registr
     expect(second.code).toBe('rate_limited');
     expect(second.retryAfterMs).toBeGreaterThan(0);
     expect(second.resetAtMs).toBeGreaterThan(Date.now());
-  } finally {
-    cleanupTemporaryD1Database(tempDir);
-  }
-});
-
-test('Cloudflare D1 Router API auth service rotates Email OTP recovery keys after fresh auth', async () => {
-  const { database, tempDir } = createTemporaryD1Database();
-  try {
-    await applySignerMigrations(database);
-    const scope = {
-      namespace: 'seams-local-test',
-      orgId: 'org-a',
-      projectId: 'project-a',
-      envId: 'env-a',
-    };
-    await insertEmailOtpEnrollment({ database, ...scope });
-    await insertEmailOtpAuthState({ database, ...scope });
-    await insertEmailOtpRecoveryEscrow({
-      database,
-      ...scope,
-      recoveryKeyId: 'recovery-old-active',
-      recoveryKeyStatus: 'active',
-      issuedAtMs: 900,
-      updatedAtMs: 910,
-    });
-    await insertEmailOtpRecoveryEscrow({
-      database,
-      ...scope,
-      recoveryKeyId: 'recovery-old-consumed',
-      recoveryKeyStatus: 'consumed',
-      issuedAtMs: 920,
-      updatedAtMs: 930,
-    });
-
-    const service = createCloudflareD1RouterApiAuthService({
-      database,
-      namespace: scope.namespace,
-      orgId: scope.orgId,
-      projectId: scope.projectId,
-      envId: scope.envId,
-      emailOtpGrantTtlMs: 60_000,
-    });
-    const freshAuth = await service.emailOtp.markEmailOtpStrongAuthSatisfied({
-      walletId: 'email-wallet.testnet',
-    });
-    expect(freshAuth.ok).toBe(true);
-    if (!freshAuth.ok) throw new Error(freshAuth.message);
-
-    const rotated = await service.emailOtp.rotateEmailOtpRecoveryKeys({
-      userId: 'google:email-user',
-      walletId: 'email-wallet.testnet',
-      orgId: scope.orgId,
-      enrollmentId: 'enrollment-a',
-      enrollmentSealKeyVersion: 'seal-v1',
-      recoveryWrappedEnrollmentEscrows: makeRecoveryRotationEscrowInputs(),
-    });
-    expect(rotated.ok).toBe(true);
-    if (!rotated.ok) throw new Error(rotated.message);
-    expect(rotated).toMatchObject({
-      walletId: 'email-wallet.testnet',
-      enrollmentId: 'enrollment-a',
-      enrollmentSealKeyVersion: 'seal-v1',
-      activeRecoveryCodeCount: 10,
-      revokedRecoveryCodeCount: 1,
-      totalRecoveryCodeCount: 12,
-    });
-
-    const counts = await readRecoveryEscrowStatusCounts({ database, ...scope });
-    expect(counts).toEqual({ active: 10, consumed: 1, revoked: 1 });
-    await expect(
-      service.emailOtp.getEmailOtpRecoveryCodeStatus({
-        subject: {
-          kind: 'provider_identity',
-          orgId: requireParsedDomainId(parseOrgId(scope.orgId)),
-          providerSubject: requireParsedDomainId(parseProviderSubject('google:email-user')),
-          walletId: requireParsedDomainId(parseWalletId('email-wallet.testnet')),
-        },
-      }),
-    ).resolves.toMatchObject({
-      ok: true,
-      status: 'ready',
-      activeRecoveryCodeCount: 10,
-      consumedRecoveryCodeCount: 1,
-      revokedRecoveryCodeCount: 1,
-      totalRecoveryCodeCount: 12,
-    });
-  } finally {
-    cleanupTemporaryD1Database(tempDir);
-  }
-});
-
-test('Cloudflare D1 Router API auth service rejects stale Email OTP recovery-key rotation', async () => {
-  const { database, tempDir } = createTemporaryD1Database();
-  try {
-    await applySignerMigrations(database);
-    const scope = {
-      namespace: 'seams-local-test',
-      orgId: 'org-a',
-      projectId: 'project-a',
-      envId: 'env-a',
-    };
-    await insertEmailOtpEnrollment({ database, ...scope });
-    await insertEmailOtpAuthState({ database, ...scope });
-    await insertEmailOtpRecoveryEscrow({
-      database,
-      ...scope,
-      recoveryKeyId: 'recovery-old-active',
-      recoveryKeyStatus: 'active',
-      issuedAtMs: 900,
-      updatedAtMs: 910,
-    });
-
-    const service = createCloudflareD1RouterApiAuthService({
-      database,
-      namespace: scope.namespace,
-      orgId: scope.orgId,
-      projectId: scope.projectId,
-      envId: scope.envId,
-      emailOtpGrantTtlMs: 60_000,
-    });
-    await expect(
-      service.emailOtp.rotateEmailOtpRecoveryKeys({
-        userId: 'google:email-user',
-        walletId: 'email-wallet.testnet',
-        orgId: scope.orgId,
-        enrollmentId: 'enrollment-a',
-        enrollmentSealKeyVersion: 'seal-v1',
-        recoveryWrappedEnrollmentEscrows: makeRecoveryRotationEscrowInputs(),
-      }),
-    ).resolves.toMatchObject({ ok: false, code: 'fresh_auth_required' });
-
-    const counts = await readRecoveryEscrowStatusCounts({ database, ...scope });
-    expect(counts).toEqual({ active: 1 });
-  } finally {
-    cleanupTemporaryD1Database(tempDir);
-  }
-});
-
-test('Cloudflare D1 Router API auth service rejects invalid Email OTP recovery-key rotation payloads', async () => {
-  const { database, tempDir } = createTemporaryD1Database();
-  try {
-    await applySignerMigrations(database);
-    const scope = {
-      namespace: 'seams-local-test',
-      orgId: 'org-a',
-      projectId: 'project-a',
-      envId: 'env-a',
-    };
-    await insertEmailOtpEnrollment({ database, ...scope });
-    await insertEmailOtpAuthState({ database, ...scope });
-    await insertEmailOtpRecoveryEscrow({
-      database,
-      ...scope,
-      recoveryKeyId: 'recovery-old-active',
-      recoveryKeyStatus: 'active',
-      issuedAtMs: 900,
-      updatedAtMs: 910,
-    });
-
-    const service = createCloudflareD1RouterApiAuthService({
-      database,
-      namespace: scope.namespace,
-      orgId: scope.orgId,
-      projectId: scope.projectId,
-      envId: scope.envId,
-      emailOtpGrantTtlMs: 60_000,
-    });
-    const freshAuth = await service.emailOtp.markEmailOtpStrongAuthSatisfied({
-      walletId: 'email-wallet.testnet',
-    });
-    expect(freshAuth.ok).toBe(true);
-    if (!freshAuth.ok) throw new Error(freshAuth.message);
-
-    const duplicateInputs = makeRecoveryRotationEscrowInputs();
-    duplicateInputs[1] = {
-      ...duplicateInputs[1],
-      recoveryKeyId: duplicateInputs[0].recoveryKeyId,
-      aadHashB64u: duplicateInputs[0].aadHashB64u,
-    };
-    await expect(
-      service.emailOtp.rotateEmailOtpRecoveryKeys({
-        userId: 'google:email-user',
-        walletId: 'email-wallet.testnet',
-        orgId: scope.orgId,
-        enrollmentId: 'enrollment-a',
-        enrollmentSealKeyVersion: 'seal-v1',
-        recoveryWrappedEnrollmentEscrows: duplicateInputs,
-      }),
-    ).resolves.toMatchObject({ ok: false, code: 'invalid_body' });
-
-    const badAadInputs = makeRecoveryRotationEscrowInputs();
-    badAadInputs[0] = {
-      ...badAadInputs[0],
-      aadHashB64u: base64UrlEncode(new Uint8Array(32).fill(250)),
-    };
-    await expect(
-      service.emailOtp.rotateEmailOtpRecoveryKeys({
-        userId: 'google:email-user',
-        walletId: 'email-wallet.testnet',
-        orgId: scope.orgId,
-        enrollmentId: 'enrollment-a',
-        enrollmentSealKeyVersion: 'seal-v1',
-        recoveryWrappedEnrollmentEscrows: badAadInputs,
-      }),
-    ).resolves.toMatchObject({ ok: false, code: 'invalid_body' });
-
-    const counts = await readRecoveryEscrowStatusCounts({ database, ...scope });
-    expect(counts).toEqual({ active: 1 });
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }
@@ -1059,15 +832,6 @@ test('Cloudflare D1 Router API auth service verifies registration Email OTP enro
     privateKey32[31] = 7;
     const publicKey33 = await secp256k1PrivateKey32ToPublicKey33(privateKey32);
     const publicKeyB64u = base64UrlEncode(publicKey33);
-    const recoveryWrappedEnrollmentEscrows = makeRecoveryWrappedEnrollmentEscrows({
-      walletId,
-      userId: providerSubject,
-      enrollmentId: 'email-otp-device-enrollment-v1:registration-wallet:google-user',
-      enrollmentSealKeyVersion,
-      signingRootId: 'project-a:env-a',
-      signingRootVersion: 'root-v1',
-    });
-
     const verified = await service.emailOtp.verifyEmailOtpEnrollment({
       providerSubject,
       walletId,
@@ -1078,11 +842,9 @@ test('Cloudflare D1 Router API auth service verifies registration Email OTP enro
       sessionHash,
       appSessionVersion,
       proofEmail: 'register.user@example.test',
-      recoveryWrappedEnrollmentEscrows,
       enrollmentSealKeyVersion,
       clientUnlockPublicKeyB64u: publicKeyB64u,
       unlockKeyVersion,
-      thresholdEcdsaClientVerifyingShareB64u: publicKeyB64u,
     });
     expect(verified.ok).toBe(true);
     if (!verified.ok) throw new Error(verified.message);
@@ -1107,21 +869,10 @@ test('Cloudflare D1 Router API auth service verifies registration Email OTP enro
         providerUserId: providerSubject,
         orgId: scope.orgId,
         verifiedEmail: 'register.user@example.test',
-        recoveryWrappedEnrollmentEscrowCount: EMAIL_OTP_RECOVERY_KEY_COUNT,
         enrollmentSealKeyVersion,
         unlockKeyVersion,
       },
     });
-    await expect(
-      countActiveRecoveryWrappedEnrollmentEscrows({
-        database,
-        namespace: scope.namespace,
-        orgId: scope.orgId,
-        projectId: scope.projectId,
-        envId: scope.envId,
-        walletId,
-      }),
-    ).resolves.toBe(EMAIL_OTP_RECOVERY_KEY_COUNT);
     await expect(
       service.emailOtp.readEmailOtpOutboxEntry({
         challengeId: challenge.challenge.challengeId,
@@ -1140,11 +891,9 @@ test('Cloudflare D1 Router API auth service verifies registration Email OTP enro
         sessionHash,
         appSessionVersion,
         proofEmail: 'register.user@example.test',
-        recoveryWrappedEnrollmentEscrows,
         enrollmentSealKeyVersion,
         clientUnlockPublicKeyB64u: publicKeyB64u,
         unlockKeyVersion,
-        thresholdEcdsaClientVerifyingShareB64u: publicKeyB64u,
       }),
     ).resolves.toMatchObject({ ok: false, code: 'challenge_expired_or_invalid' });
   } finally {
@@ -1583,230 +1332,6 @@ test('Cloudflare D1 Router API auth service fails closed when Email OTP provider
       .bind(scope.namespace, scope.orgId, scope.projectId, scope.envId)
       .all<SqliteJsonRow>();
     expect(challengeRows.results || []).toEqual([]);
-  } finally {
-    cleanupTemporaryD1Database(tempDir);
-  }
-});
-
-test('Cloudflare D1 Router API auth service issues and verifies device recovery Email OTP challenges', async () => {
-  const { database, tempDir } = createTemporaryD1Database();
-  try {
-    await applySignerMigrations(database);
-    const scope = {
-      namespace: 'seams-local-test',
-      orgId: 'org-a',
-      projectId: 'project-a',
-      envId: 'env-a',
-    };
-    await insertEmailOtpEnrollment({ database, ...scope });
-    await insertEmailOtpRecoveryEscrow({
-      database,
-      ...scope,
-      recoveryKeyId: 'recovery-active',
-      recoveryKeyStatus: 'active',
-      issuedAtMs: 900,
-      updatedAtMs: 910,
-    });
-    await insertEmailOtpRecoveryEscrow({
-      database,
-      ...scope,
-      recoveryKeyId: 'recovery-consumed',
-      recoveryKeyStatus: 'consumed',
-      issuedAtMs: 880,
-      updatedAtMs: 920,
-    });
-
-    const service = createCloudflareD1RouterApiAuthService({
-      database,
-      namespace: scope.namespace,
-      orgId: scope.orgId,
-      projectId: scope.projectId,
-      envId: scope.envId,
-      emailOtpDeliveryMode: 'dev_d1_outbox',
-      emailOtpRecoveryKeyAttemptRateLimitMax: 1,
-      emailOtpRecoveryKeyAttemptRateLimitWindowMs: 60_000,
-    });
-
-    const challenge = await service.emailOtp.createEmailOtpDeviceRecoveryChallenge({
-      userId: 'google:email-user',
-      walletId: 'email-wallet.testnet',
-      orgId: scope.orgId,
-      otpChannel: 'email_otp',
-      sessionHash: 'session-hash-a',
-      appSessionVersion: 'session-v1',
-    });
-    expect(challenge.ok).toBe(true);
-    if (!challenge.ok) throw new Error(challenge.message);
-    expect(challenge.challenge).toMatchObject({
-      userId: 'google:email-user',
-      walletId: 'email-wallet.testnet',
-      orgId: scope.orgId,
-      action: 'wallet_email_otp_device_recovery',
-      operation: 'wallet_unlock',
-    });
-
-    const outbox = await service.emailOtp.readEmailOtpOutboxEntry({
-      challengeId: challenge.challenge.challengeId,
-      userId: 'google:email-user',
-      walletId: 'email-wallet.testnet',
-    });
-    expect(outbox.ok).toBe(true);
-    if (!outbox.ok) throw new Error(outbox.message);
-
-    await expect(
-      service.emailOtp.verifyEmailOtpChallenge({
-        userId: 'google:email-user',
-        walletId: 'email-wallet.testnet',
-        orgId: scope.orgId,
-        challengeId: challenge.challenge.challengeId,
-        otpCode: outbox.otpCode,
-        otpChannel: 'email_otp',
-        sessionHash: 'session-hash-a',
-        appSessionVersion: 'session-v1',
-        operation: 'wallet_unlock',
-      }),
-    ).resolves.toMatchObject({ ok: false, code: 'challenge_purpose_mismatch' });
-
-    const verified = await service.emailOtp.verifyEmailOtpDeviceRecoveryChallenge({
-      userId: 'google:email-user',
-      walletId: 'email-wallet.testnet',
-      orgId: scope.orgId,
-      challengeId: challenge.challenge.challengeId,
-      otpCode: outbox.otpCode,
-      otpChannel: 'email_otp',
-      sessionHash: 'session-hash-a',
-      appSessionVersion: 'session-v1',
-    });
-    expect(verified.ok).toBe(true);
-    if (!verified.ok) throw new Error(verified.message);
-    expect(verified.challengeId).toBe(challenge.challenge.challengeId);
-    expect(verified.recoveryConsumeGrant).toMatch(/^[A-Za-z0-9_-]+$/);
-    expect(verified.recoveryWrappedEnrollmentEscrows).toHaveLength(1);
-    expect(verified.recoveryWrappedEnrollmentEscrows[0]).toMatchObject({
-      walletId: 'email-wallet.testnet',
-      userId: 'google:email-user',
-      enrollmentId: 'enrollment-a',
-      nonceB64u: 'nonce-recovery-active',
-    });
-    expect(
-      Object.prototype.hasOwnProperty.call(
-        verified.recoveryWrappedEnrollmentEscrows[0],
-        'recoveryKeyId',
-      ),
-    ).toBe(false);
-    expect(verified.enrollment).toMatchObject({
-      walletId: 'email-wallet.testnet',
-      providerUserId: 'google:email-user',
-      recoveryWrappedEnrollmentEscrowCount: 3,
-    });
-
-    const grantRow = await database
-      .prepare(
-        `SELECT action
-           FROM email_otp_grants
-          WHERE namespace = ?
-            AND org_id = ?
-            AND project_id = ?
-            AND env_id = ?
-            AND grant_token = ?
-          LIMIT 1`,
-      )
-      .bind(
-        scope.namespace,
-        scope.orgId,
-        scope.projectId,
-        scope.envId,
-        verified.recoveryConsumeGrant,
-      )
-      .first<SqliteJsonRow>();
-    expect(grantRow?.action).toBe('wallet_email_otp_device_recovery');
-
-    const failureReport = await service.emailOtp.recordEmailOtpRecoveryKeyAttemptFailure({
-      recoveryConsumeGrant: verified.recoveryConsumeGrant,
-      userId: 'google:email-user',
-      walletId: 'email-wallet.testnet',
-      orgId: scope.orgId,
-      clientIp: '203.0.113.42',
-    });
-    expect(failureReport.ok).toBe(true);
-    if (!failureReport.ok) throw new Error(failureReport.message);
-    expect(failureReport.walletId).toBe('email-wallet.testnet');
-    expect(failureReport.recordedAtMs).toBeGreaterThan(0);
-
-    await expect(
-      service.emailOtp.recordEmailOtpRecoveryKeyAttemptFailure({
-        recoveryConsumeGrant: verified.recoveryConsumeGrant,
-        userId: 'google:email-user',
-        walletId: 'email-wallet.testnet',
-        orgId: scope.orgId,
-        clientIp: '203.0.113.42',
-      }),
-    ).resolves.toMatchObject({ ok: false, code: 'rate_limited' });
-
-    const consumed = await service.emailOtp.consumeEmailOtpRecoveryKey({
-      recoveryConsumeGrant: verified.recoveryConsumeGrant,
-      userId: 'google:email-user',
-      walletId: 'email-wallet.testnet',
-      orgId: scope.orgId,
-      recoveryKeyId: 'recovery-active',
-    });
-    expect(consumed.ok).toBe(true);
-    if (!consumed.ok) throw new Error(consumed.message);
-    expect(consumed).toMatchObject({
-      walletId: 'email-wallet.testnet',
-      recoveryKeyId: 'recovery-active',
-      activeRecoveryWrappedEnrollmentEscrowCount: 0,
-    });
-    expect(consumed.consumedAtMs).toBeGreaterThan(0);
-
-    const consumedEscrowRow = await database
-      .prepare(
-        `SELECT recovery_key_status
-           FROM email_otp_recovery_wrapped_enrollment_escrows
-          WHERE namespace = ?
-            AND org_id = ?
-            AND project_id = ?
-            AND env_id = ?
-            AND wallet_id = ?
-            AND recovery_key_id = ?
-          LIMIT 1`,
-      )
-      .bind(
-        scope.namespace,
-        scope.orgId,
-        scope.projectId,
-        scope.envId,
-        'email-wallet.testnet',
-        'recovery-active',
-      )
-      .first<SqliteJsonRow>();
-    expect(consumedEscrowRow?.recovery_key_status).toBe('consumed');
-
-    await expect(
-      service.emailOtp.consumeEmailOtpRecoveryKey({
-        recoveryConsumeGrant: verified.recoveryConsumeGrant,
-        userId: 'google:email-user',
-        walletId: 'email-wallet.testnet',
-        orgId: scope.orgId,
-        recoveryKeyId: 'recovery-active',
-      }),
-    ).resolves.toMatchObject({
-      ok: false,
-      code: 'recovery_consume_grant_invalid_or_expired',
-    });
-
-    await expect(
-      service.emailOtp.verifyEmailOtpDeviceRecoveryChallenge({
-        userId: 'google:email-user',
-        walletId: 'email-wallet.testnet',
-        orgId: scope.orgId,
-        challengeId: challenge.challenge.challengeId,
-        otpCode: outbox.otpCode,
-        otpChannel: 'email_otp',
-        sessionHash: 'session-hash-a',
-        appSessionVersion: 'session-v1',
-      }),
-    ).resolves.toMatchObject({ ok: false, code: 'challenge_expired_or_invalid' });
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }

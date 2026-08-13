@@ -12,6 +12,15 @@ import type { RouterAbEcdsaStrictRegistrationPort } from '../../../domains/ecdsa
 import type { SigningSessionSealShamir3PassRootConfig } from '../../../../threshold/session/signingSessionSeal/crypto/cipher';
 import { parseSigningSessionSealRootConfig } from '../../../../threshold/session/signingSessionSeal/options';
 import type { D1DatabaseLike } from '../../../../storage/tenantRoute';
+import type { NormalizedLogger } from '../../../../core/logger';
+import type { LinkedDeviceOwnerAuthorizationPortV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
+import type { WebAuthnRpId } from '@shared/utils/domainIds';
+import type { DeviceLinkingGatewayCompletionServiceV1 } from '../../../transport/fetch/routes/deviceLinkingGateway';
+import type { D1LinkedDeviceOperatorRecoveryProviderOptionsV1 } from '../deviceLinking/d1LinkedDeviceOperatorRecoveryProvider';
+import type { LinkedDeviceTargetDeploymentDescriptorProviderV1 } from '../deviceLinking/d1LinkedDeviceTargetDeploymentDescriptorProvider';
+import type { RouterAbEd25519YaoActivationKeysetV1 } from '@shared/utils/routerAbEd25519Yao';
+import type { CloudflareLaneServiceBindingV1 } from '../../signingLanes/cloudflareLaneProtocolCommitter';
+import type { SessionAdapter } from '../../../framework/routerApi';
 import {
   normalizeOidcExchangeConfig,
   type CloudflareD1OidcExchangeConfig,
@@ -47,6 +56,63 @@ export type CloudflareD1EmailOtpServerSealConfig = {
   readonly currentKeyVersion: string;
   readonly acceptedWarmKeyVersions?: readonly string[];
 };
+
+export type CloudflareD1LinkedDeviceExecutionOptionsV1 = {
+  readonly nowV1: () => number;
+  readonly rpId: WebAuthnRpId;
+  readonly expectedOrigin: string;
+  readonly logger: NormalizedLogger;
+};
+
+/** Service bindings and admission material for the D1-owned lane runtime. */
+export type CloudflareD1LinkedDeviceLaneRuntimeOptionsV1 = {
+  readonly router: CloudflareLaneServiceBindingV1;
+  readonly signingWorker: CloudflareLaneServiceBindingV1;
+  readonly internalServiceAuth: string;
+  readonly ed25519YaoKeyset: RouterAbEd25519YaoActivationKeysetV1;
+};
+
+export type CloudflareD1LinkedDeviceSessionOptionsV1 = {
+  /** Session verifier used for the owner Wallet Session request boundary. */
+  readonly session: SessionAdapter;
+  readonly laneRuntime: CloudflareD1LinkedDeviceLaneRuntimeOptionsV1;
+  /** Required whenever the linked-device session surface is enabled. */
+  readonly operatorRecovery: D1LinkedDeviceOperatorRecoveryProviderOptionsV1;
+  /** Gateway-owned authenticated target deployment authority for both curves. */
+  readonly targetDeploymentDescriptorProvider: LinkedDeviceTargetDeploymentDescriptorProviderV1;
+};
+
+export type CloudflareD1LinkedDeviceManagementOptionsV1 = {
+  /** Presence enables the owner-authenticated management routes. */
+  readonly enabled?: never;
+};
+
+export type CloudflareD1LinkedDeviceGatewayOptionsV1 = {
+  readonly ownerAuthorization: LinkedDeviceOwnerAuthorizationPortV1;
+  readonly authenticateGatewayRequestV1: DeviceLinkingGatewayCompletionServiceV1['authenticateGatewayRequestV1'];
+};
+
+type CloudflareD1LinkedDeviceCompositionWithoutSessionV1 = {
+  readonly execution: CloudflareD1LinkedDeviceExecutionOptionsV1;
+  readonly session?: never;
+  readonly management?: never;
+  readonly gateway?: CloudflareD1LinkedDeviceGatewayOptionsV1;
+};
+
+type CloudflareD1LinkedDeviceCompositionWithSessionV1 = {
+  readonly execution: CloudflareD1LinkedDeviceExecutionOptionsV1;
+  readonly session: CloudflareD1LinkedDeviceSessionOptionsV1;
+  readonly management?: CloudflareD1LinkedDeviceManagementOptionsV1;
+  readonly gateway?: CloudflareD1LinkedDeviceGatewayOptionsV1;
+};
+
+/**
+ * Optional R103 composition. Each enabled surface requires its complete
+ * external boundary; omitted surfaces stay fail-closed at their route.
+ */
+export type CloudflareD1LinkedDeviceCompositionOptionsV1 =
+  | CloudflareD1LinkedDeviceCompositionWithoutSessionV1
+  | CloudflareD1LinkedDeviceCompositionWithSessionV1;
 
 export type CloudflareD1GithubOAuthConfig = {
   readonly clientId: string;
@@ -90,13 +156,12 @@ export interface CloudflareD1RouterApiAuthServiceOptions {
   readonly emailOtpVerifyRateLimitWindowMs?: number | string;
   readonly emailOtpGrantRateLimitMax?: number | string;
   readonly emailOtpGrantRateLimitWindowMs?: number | string;
-  readonly emailOtpRecoveryKeyAttemptRateLimitMax?: number | string;
-  readonly emailOtpRecoveryKeyAttemptRateLimitWindowMs?: number | string;
   readonly emailOtpGoogleRegistrationAttemptRateLimitMax?: number | string;
   readonly emailOtpGoogleRegistrationAttemptRateLimitWindowMs?: number | string;
   readonly routerAbEcdsaPresignRuntime?: RouterAbEcdsaPresignRuntime | null;
   readonly ed25519YaoProductRegistration?: RouterAbEd25519YaoProductRegistrationRuntimeV1 | null;
   readonly ecdsaStrictRegistration: RouterAbEcdsaStrictRegistrationPort;
+  readonly linkedDevice?: CloudflareD1LinkedDeviceCompositionOptionsV1;
 }
 
 export type EmailOtpDeliveryMode =
@@ -129,7 +194,6 @@ export type EmailOtpRuntimeConfig = {
     readonly challenge: EmailOtpRateLimitPolicy;
     readonly verify: EmailOtpRateLimitPolicy;
     readonly grant: EmailOtpRateLimitPolicy;
-    readonly recoveryKeyAttempt: EmailOtpRateLimitPolicy;
     readonly googleRegistrationAttempt: EmailOtpRateLimitPolicy;
   };
 };
@@ -179,8 +243,6 @@ export type NormalizedCloudflareD1RouterApiAuthServiceOptions = Omit<
   | 'emailOtpVerifyRateLimitWindowMs'
   | 'emailOtpGrantRateLimitMax'
   | 'emailOtpGrantRateLimitWindowMs'
-  | 'emailOtpRecoveryKeyAttemptRateLimitMax'
-  | 'emailOtpRecoveryKeyAttemptRateLimitWindowMs'
   | 'emailOtpGoogleRegistrationAttemptRateLimitMax'
   | 'emailOtpGoogleRegistrationAttemptRateLimitWindowMs'
   | 'routerAbEcdsaPresignRuntime'
@@ -272,6 +334,7 @@ export function normalizeD1RouterApiAuthOptions(
     routerAbEcdsaPresignRuntime: input.routerAbEcdsaPresignRuntime,
     ed25519YaoProductRegistration: input.ed25519YaoProductRegistration,
     ecdsaStrictRegistration: input.ecdsaStrictRegistration,
+    linkedDevice: input.linkedDevice,
   };
 }
 
@@ -450,9 +513,6 @@ function normalizeEmailOtpConfig(
   const grantDefault = production
     ? { limit: 30, windowMs: 60_000 }
     : { limit: 100, windowMs: 60_000 };
-  const recoveryKeyAttemptDefault = production
-    ? { limit: 10, windowMs: 5 * 60_000 }
-    : { limit: 100, windowMs: 60_000 };
   const googleRegistrationAttemptDefault = production
     ? { limit: 12, windowMs: 10 * 60_000 }
     : { limit: 200, windowMs: 60_000 };
@@ -530,15 +590,6 @@ function normalizeEmailOtpConfig(
         windowRaw: input.emailOtpGrantRateLimitWindowMs,
         windowFallback: grantDefault.windowMs,
       }),
-      recoveryKeyAttempt: emailOtpRateLimitPolicy({
-        limitField: 'emailOtpRecoveryKeyAttemptRateLimitMax',
-        limitRaw: input.emailOtpRecoveryKeyAttemptRateLimitMax,
-        limitFallback: recoveryKeyAttemptDefault.limit,
-        limitMax: 1000,
-        windowField: 'emailOtpRecoveryKeyAttemptRateLimitWindowMs',
-        windowRaw: input.emailOtpRecoveryKeyAttemptRateLimitWindowMs,
-        windowFallback: recoveryKeyAttemptDefault.windowMs,
-      }),
       googleRegistrationAttempt: emailOtpRateLimitPolicy({
         limitField: 'emailOtpGoogleRegistrationAttemptRateLimitMax',
         limitRaw: input.emailOtpGoogleRegistrationAttemptRateLimitMax,
@@ -555,7 +606,8 @@ function normalizeEmailOtpConfig(
 function missingEmailOtpServerSealConfig(): EmailOtpServerSealRuntimeConfig {
   return {
     configured: false,
-    message: 'Email OTP server seal requires emailOtpServerSeal.rootSecretB64u and currentKeyVersion',
+    message:
+      'Email OTP server seal requires emailOtpServerSeal.rootSecretB64u and currentKeyVersion',
   };
 }
 

@@ -117,6 +117,9 @@ impl LocalEd25519YaoPairLifecycleV1 {
             router_ab_core::Ed25519YaoCircuitFamilyV1::Export => {
                 router_ab_core::Ed25519YaoInputKindV1::Export
             }
+            router_ab_core::Ed25519YaoCircuitFamilyV1::LaneMaterialization => {
+                router_ab_core::Ed25519YaoInputKindV1::LaneMaterialization
+            }
         };
         if input.kind() != expected_kind {
             return Err(pair_lifecycle_error(

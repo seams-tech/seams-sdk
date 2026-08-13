@@ -136,7 +136,9 @@ export class OverlayController {
   private generation = 0;
   private pointerCapture: PointerCapture | null = null;
   private restoreFocus: HTMLElement | null = null;
-  private suppressCloseDismiss = false;
+  // Dialog close events can arrive after the next surface is visible. Count
+  // programmatic closes so a stale event cannot dismiss that newer request.
+  private pendingProgrammaticCloseEvents = 0;
   private listenersInstalled = false;
   private lastAppliedGeometry: WalletIframeSurfaceGeometry | null = null;
   private authMenuVisualScale = 1;
@@ -245,9 +247,7 @@ export class OverlayController {
 
     const requestedDisplayMode = authMenu ? 'nonmodal' : 'modal';
     if (dialog.open && this.dialogDisplayMode !== requestedDisplayMode) {
-      this.suppressCloseDismiss = true;
-      dialog.close();
-      this.suppressCloseDismiss = false;
+      this.closeDialogProgrammatically(dialog);
       this.dialogDisplayMode = null;
     }
     if (!dialog.open) {
@@ -269,6 +269,11 @@ export class OverlayController {
     }
     dialog.showModal();
     this.dialogDisplayMode = 'modal';
+  }
+
+  private closeDialogProgrammatically(dialog: HTMLDialogElement): void {
+    this.pendingProgrammaticCloseEvents += 1;
+    dialog.close();
   }
 
   private hideOverlay(): void {
@@ -294,9 +299,7 @@ export class OverlayController {
     this.dialog.classList.add(OverlayStyleClasses.HIDDEN);
     clearDialogGeometry(this.dialog);
     if (this.dialog.open) {
-      this.suppressCloseDismiss = true;
-      this.dialog.close();
-      this.suppressCloseDismiss = false;
+      this.closeDialogProgrammatically(this.dialog);
     }
     this.dialogDisplayMode = null;
     if (wasVisible) {
@@ -344,9 +347,11 @@ export class OverlayController {
 
   private handleClose = (): void => {
     this.dialogDisplayMode = null;
-    if (!this.suppressCloseDismiss && this.visible) {
-      this.requestDismiss('escape');
+    if (this.pendingProgrammaticCloseEvents > 0) {
+      this.pendingProgrammaticCloseEvents -= 1;
+      return;
     }
+    if (this.visible) this.requestDismiss('escape');
   };
 
   private handlePointerDown = (event: PointerEvent): void => {
@@ -416,9 +421,7 @@ export class OverlayController {
       window.removeEventListener('pointercancel', this.handlePointerCancel);
     }
     if (dialog.open) {
-      this.suppressCloseDismiss = true;
       dialog.close();
-      this.suppressCloseDismiss = false;
     }
     clearDialogGeometry(dialog);
     dialog.remove();

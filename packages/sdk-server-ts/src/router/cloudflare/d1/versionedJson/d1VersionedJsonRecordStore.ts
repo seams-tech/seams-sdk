@@ -5,9 +5,7 @@ import type {
   D1ResultLike,
 } from '../../../../storage/tenantRoute';
 import { isD1DatabaseLike } from '../../../../storage/d1Sql';
-import {
-  containsControlCharacter,
-} from '../../durableObjects/versionedJsonRecordStore';
+import { containsControlCharacter } from '../../durableObjects/versionedJsonRecordStore';
 import type {
   VersionedJsonObject,
   VersionedJsonRecordPutResult,
@@ -117,6 +115,61 @@ export class CloudflareD1VersionedJsonRecordStore<T> {
    * shared and ceremony state must use this method so they never merge rows
    * from different database versions.
    */
+  /**
+   * Reads every record whose key starts with `keyStartsWith`, inside this
+   * scope.
+   *
+   * A prefix scan rather than a key batch because the caller does not know the
+   * keys: enumerating a wallet's envelopes means finding rows it has never
+   * seen. The prefix is matched literally — `LIKE` wildcards in it are escaped
+   * — so a caller cannot widen its own scan into another wallet's rows by
+   * passing `%`.
+   *
+   * Rows that fail to parse are skipped rather than failing the scan. A single
+   * unreadable row must not make a wallet's whole envelope set unlistable,
+   * which would turn one corrupt record into a wallet nobody can manage.
+   */
+  async listByKeyPrefix(
+    keyStartsWith: string,
+    options: { readonly limit?: number } = {},
+  ): Promise<readonly CloudflareD1VersionedJsonRecordReadManyEntryV1<T>[]> {
+    const prefix = `${this.keyPrefix}${normalizeRecordKey(keyStartsWith)}`;
+    const limit = Math.min(Math.max(options.limit ?? 100, 1), 1000);
+    const rows = await this.database
+      .prepare(
+        `SELECT record_key, version, record_json
+           FROM ${TABLE_NAME}
+          WHERE namespace = ?1
+            AND org_id = ?2
+            AND project_id = ?3
+            AND env_id = ?4
+            AND record_key LIKE ?5 ESCAPE '\\'
+          ORDER BY record_key
+          LIMIT ?6`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        `${escapeLikePattern(prefix)}%`,
+        limit,
+      )
+      .all<StoredRecord & { record_key: string }>();
+
+    const entries: CloudflareD1VersionedJsonRecordReadManyEntryV1<T>[] = [];
+    for (const row of rows.results ?? []) {
+      const value = parseJson(String(row.record_json));
+      const parsed = value === null ? null : this.parse(value);
+      if (!parsed) continue;
+      entries.push({
+        key: String(row.record_key).slice(this.keyPrefix.length),
+        result: { kind: 'present', value: parsed, version: String(row.version) },
+      });
+    }
+    return entries;
+  }
+
   async readMany(
     keys: readonly string[],
   ): Promise<readonly CloudflareD1VersionedJsonRecordReadManyEntryV1<T>[]> {
@@ -203,12 +256,26 @@ export class CloudflareD1VersionedJsonRecordStore<T> {
   async putMany(
     mutations: readonly CloudflareD1VersionedJsonRecordMutationV1<T>[],
   ): Promise<CloudflareD1VersionedJsonRecordBatchPutResultV1> {
+    return await this.putManyWithAdditionalStatements(mutations, []);
+  }
+
+  /**
+   * Applies versioned-record mutations and caller-owned D1 statements in the
+   * same transaction. The additional statements are used only where a domain
+   * commit spans this JSON store and a normalized table (for example, a
+   * recovery envelope plus its WebAuthn authenticator and binding).
+   */
+  async putManyWithAdditionalStatements(
+    mutations: readonly CloudflareD1VersionedJsonRecordMutationV1<T>[],
+    additionalStatements: readonly D1PreparedStatementLike[],
+  ): Promise<CloudflareD1VersionedJsonRecordBatchPutResultV1> {
     const prepared = this.prepareBatchMutations(mutations);
     const statements: D1PreparedStatementLike[] = [];
     for (const mutation of prepared) {
       statements.push(this.prepareMutationStatement(mutation));
       statements.push(this.database.prepare(CAS_GUARD_SQL));
     }
+    statements.push(...additionalStatements);
     try {
       const results = await this.database.batch<D1ResultLike>(statements);
       assertBatchSucceeded(results, statements.length);
@@ -601,4 +668,9 @@ function invalidRecordFailure(message: string): CloudflareD1VersionedJsonRecordS
 
 function invalidResponseFailure(message: string): CloudflareD1VersionedJsonRecordStoreError {
   return new CloudflareD1VersionedJsonRecordStoreError('invalid_response', message);
+}
+
+/** Escapes `LIKE` metacharacters so a prefix matches literally. */
+function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, (match) => `\\${match}`);
 }

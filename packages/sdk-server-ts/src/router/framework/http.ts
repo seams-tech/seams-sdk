@@ -1,5 +1,6 @@
 import { buildCorsOrigins, normalizeCorsOrigin } from '../../core/SessionService';
 import type { RouterApiOptions } from './routerApi';
+import { LINKED_DEVICE_REQUEST_PROOF_HEADER_V1 } from '@shared/device-linking';
 import { ROUTER_AB_TRACE_ID_HEADER_V1 } from '@shared/utils/routerAbTraceContext';
 
 const CORS_ALLOW_METHODS = 'GET,POST,PUT,PATCH,DELETE,OPTIONS';
@@ -7,6 +8,7 @@ const CORS_ALLOW_HEADERS = [
   'Content-Type',
   'Authorization',
   'X-Seams-Benchmark-Diagnostics',
+  LINKED_DEVICE_REQUEST_PROOF_HEADER_V1,
   ROUTER_AB_TRACE_ID_HEADER_V1,
   'X-Seams-Environment-Id',
   'X-Environment-Id',

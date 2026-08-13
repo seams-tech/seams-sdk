@@ -179,7 +179,7 @@ export async function provisionThresholdEd25519Session(
   const expiresAtMs = Number(connected.expiresAtMs);
   const remainingUses = Number(connected.remainingUses);
   const jwt = String(connected.jwt || '').trim();
-  const prfFirstB64u = String(connected.ecdsaDerivationPasskeyPrfFirstB64u || '').trim();
+  const prfFirstB64u = String(connected.passkeyPrfFirstB64u || '').trim();
   const runtimePolicyScope = connected.runtimePolicyScope;
   if (
     !resolvedThresholdSessionId ||
@@ -219,7 +219,6 @@ export async function provisionThresholdEd25519Session(
     remainingUses,
     runtimePolicyScope,
     jwt,
-    ecdsaDerivationPasskeyPrfFirstB64u: prfFirstB64u,
   };
   const rpId = deps.touchIdPrompt.getRpId();
   if (prfFirstB64u && args.source === 'email_otp') {
@@ -282,8 +281,5 @@ export async function provisionThresholdEd25519Session(
     remainingUses,
     runtimePolicyScope,
     jwt,
-    ...(connected.ecdsaDerivationPasskeyPrfFirstB64u
-      ? { ecdsaDerivationPasskeyPrfFirstB64u: connected.ecdsaDerivationPasskeyPrfFirstB64u }
-      : {}),
   };
 }

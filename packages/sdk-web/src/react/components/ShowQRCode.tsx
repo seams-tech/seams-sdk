@@ -13,7 +13,7 @@ export interface ShowQRCodeProps {
 }
 
 export function ShowQRCode({ isOpen, onClose, onEvent, onError }: ShowQRCodeProps) {
-  const { startDevice2LinkingFlow, stopDevice2LinkingFlow, accountInputState, loginState } =
+  const { startDevice2LinkingFlow, cancelDeviceLinking, accountInputState, loginState } =
     useSeams();
 
   const [deviceLinkingState, setDeviceLinkingState] = useState<{
@@ -79,7 +79,7 @@ export function ShowQRCode({ isOpen, onClose, onEvent, onError }: ShowQRCodeProp
       cancelled = true;
       sessionRef.current++;
       try {
-        stopDevice2LinkingFlow().catch(() => {});
+        cancelDeviceLinking().catch(() => {});
       } catch {}
     };
   }, [
@@ -90,7 +90,7 @@ export function ShowQRCode({ isOpen, onClose, onEvent, onError }: ShowQRCodeProp
     onEvent,
     onError,
     startDevice2LinkingFlow,
-    stopDevice2LinkingFlow,
+    cancelDeviceLinking,
   ]);
 
   if (!isOpen) return null;

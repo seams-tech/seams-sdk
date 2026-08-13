@@ -81,7 +81,7 @@ export class AuthMenuController {
       beginGoogleEmailOtp: async ({ idToken, mode, signal }) =>
         await this.beginGoogleEmailOtp({ idToken, mode, signal }),
       startDeviceLinking: this.startDeviceLinking,
-      stopDeviceLinking: this.stopDeviceLinking,
+      cancelDeviceLinking: this.cancelDeviceLinking,
       sendToParent: this.deps.send,
     });
     const outcomePromise = session.waitForOutcome();
@@ -198,8 +198,8 @@ export class AuthMenuController {
   ): Promise<StartDevice2LinkingFlowResults> =>
     await this.deps.getSeamsWeb().devices.startDevice2LinkingFlow({ options: { onEvent } });
 
-  private stopDeviceLinking = async (): Promise<void> =>
-    await this.deps.getSeamsWeb().devices.stopDevice2LinkingFlow();
+  private cancelDeviceLinking = async (): Promise<void> =>
+    await this.deps.getSeamsWeb().devices.cancelDeviceLinking();
 
   private async prepareRegistration(
     request: HostedAuthMenuOpenRequest,

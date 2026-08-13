@@ -978,14 +978,29 @@ async function resolveIssuedEd25519OperationStepUpAuthorization(args: {
   credential: Ed25519OperationStepUpCredential;
 }): Promise<NearEd25519OperationStepUpAuthorization> {
   if (args.issuedAuthorization) return args.issuedAuthorization;
-  return await issueEd25519OperationStepUpAuthorization({
-    relayerUrl: args.relayerUrl,
-    normalSigningRequest: args.normalSigningRequest,
-    displayDigest: args.displayDigest,
-    proof: args.proof,
-    credential: args.credential,
-    materialRecovery: { kind: 'not_requested' },
-  });
+  switch (args.proof.kind) {
+    case 'passkey':
+      return await issueEd25519OperationStepUpAuthorization({
+        relayerUrl: args.relayerUrl,
+        normalSigningRequest: args.normalSigningRequest,
+        displayDigest: args.displayDigest,
+        proof: args.proof,
+        credential: args.credential,
+        materialRecovery: { kind: 'not_requested' },
+      });
+    case 'email_otp':
+      return await issueEd25519OperationStepUpAuthorization({
+        relayerUrl: args.relayerUrl,
+        normalSigningRequest: args.normalSigningRequest,
+        displayDigest: args.displayDigest,
+        proof: args.proof,
+        credential: args.credential,
+        materialRecovery: { kind: 'not_requested' },
+      });
+    default:
+      args.proof satisfies never;
+      throw new Error('[SigningEngine][near] unsupported operation step-up proof');
+  }
 }
 
 export async function tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning(

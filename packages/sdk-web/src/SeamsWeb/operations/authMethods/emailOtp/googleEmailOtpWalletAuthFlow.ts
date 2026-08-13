@@ -42,10 +42,6 @@ import type {
 } from '@/core/signingEngine/session/emailOtp/publicTypes';
 import { walletIdFromString, type WalletId } from '@shared/utils/registrationIntent';
 import { parseGoogleEmailOtpRegistrationOffer } from './registrationOffer';
-import {
-  EMAIL_OTP_DEVICE_RECOVERY_REQUIRED_CODE,
-  EMAIL_OTP_DEVICE_RECOVERY_REQUIRED_MESSAGE,
-} from './errors';
 
 const DEFAULT_FLOW_TTL_MS = 10 * 60 * 1000;
 
@@ -159,26 +155,7 @@ function failWithMessage<T>(
   };
 }
 
-function isEmailOtpDeviceRecoveryRequired(error: unknown): boolean {
-  const code =
-    error && typeof error === 'object' && 'code' in error
-      ? String((error as { code?: unknown }).code || '').toLowerCase()
-      : '';
-  if (code === EMAIL_OTP_DEVICE_RECOVERY_REQUIRED_CODE) return true;
-  const message =
-    error instanceof Error ? error.message.toLowerCase() : String(error || '').toLowerCase();
-  return (
-    message.includes('email otp device-local enc_s(s) is missing') ||
-    message.includes('email otp device-local enc_s(s) metadata mismatch')
-  );
-}
-
-function emailOtpDeviceRecoveryRequiredMessage(): string {
-  return EMAIL_OTP_DEVICE_RECOVERY_REQUIRED_MESSAGE;
-}
-
 function classifyEmailOtpSubmitError(error: unknown): GoogleEmailOtpWalletAuthFailureCode {
-  if (isEmailOtpDeviceRecoveryRequired(error)) return 'email_otp_device_recovery_required';
   const code =
     error && typeof error === 'object' && 'code' in error
       ? String((error as { code?: unknown }).code || '')
@@ -896,13 +873,6 @@ function createGoogleEmailOtpWalletLoginFlow(
         const session = await assertLoggedIn(deps, args.state.walletId);
         return ok({ walletId: args.state.walletId, mode: 'login', session });
       } catch (error: unknown) {
-        if (isEmailOtpDeviceRecoveryRequired(error)) {
-          return failWithMessage(
-            'email_otp_device_recovery_required',
-            emailOtpDeviceRecoveryRequiredMessage(),
-            error,
-          );
-        }
         return fail(classifyEmailOtpSubmitError(error), error);
       }
     },

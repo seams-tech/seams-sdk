@@ -203,8 +203,9 @@ test('respond establishes the verified authority in the same write as the result
     if (after.signerState.kind !== 'signer_set_registration') {
       throw new Error('expected signer-set state');
     }
-    expect(after.signerState.branches.some((b) => b.kind === 'evm_family_ecdsa_pending_activation'))
-      .toBe(true);
+    expect(
+      after.signerState.branches.some((b) => b.kind === 'evm_family_ecdsa_pending_activation'),
+    ).toBe(true);
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }

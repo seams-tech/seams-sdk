@@ -337,9 +337,8 @@ test('setup prepares ECDSA only for a mixed plan, for either auth method', async
 });
 
 test('the setup route definition accepts a publishable key and nothing else', async () => {
-  const { createRouterApiRouteDefinitions } = await import(
-    '../../packages/sdk-server-ts/src/router/framework/routeDefinitions'
-  );
+  const { createRouterApiRouteDefinitions } =
+    await import('../../packages/sdk-server-ts/src/router/framework/routeDefinitions');
   const routes = createRouterApiRouteDefinitions({});
   const setup = routes.find((route) => route.id === 'wallet_registration_setup');
   if (!setup) throw new Error('Expected the setup route definition');
@@ -353,9 +352,8 @@ test('the setup route definition accepts a publishable key and nothing else', as
 });
 
 test('add-signer intent accepts a publishable key and nothing else', async () => {
-  const { createRouterApiRouteDefinitions } = await import(
-    '../../packages/sdk-server-ts/src/router/framework/routeDefinitions'
-  );
+  const { createRouterApiRouteDefinitions } =
+    await import('../../packages/sdk-server-ts/src/router/framework/routeDefinitions');
   const routes = createRouterApiRouteDefinitions({});
   const addSigner = routes.find((route) => route.id === 'wallet_add_signer_intent');
   if (!addSigner) throw new Error('Expected the add-signer intent route definition');

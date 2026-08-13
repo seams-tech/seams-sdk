@@ -88,6 +88,9 @@ import { activeWalletOrHostedAppSessionJwt } from '@/SeamsWeb/walletIframe/host/
 import type { EcdsaOperationStepUpSessionAuth } from '@/core/signingEngine/threshold/ecdsa/operationStepUp';
 import { __isWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode';
 import { walletSessionJwtForCurve } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { readOwnerWalletExecutionLaneProjectionV1 } from '@/core/rpcClients/relayer/ownerWalletExecutionLanePreflight';
+import { hydrateWalletExecutionLane } from '@/core/signingEngine/session/lanes/walletExecutionLaneHydration';
+import type { EcdsaCapabilityManifestLookup } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
 
 type SigningEnginePorts = ReturnType<typeof createSigningEnginePorts>;
 
@@ -332,6 +335,9 @@ async function activeEcdsaReplacementManifestForTarget(args: {
 }): Promise<ActiveEcdsaCapabilityManifest | null> {
   for (const subject of args.subjects) {
     const lookup = await ecdsaCapabilityManifestStore.lookup(subject);
+    if (lookup.kind === 'persistence_unavailable') {
+      throw new Error('ECDSA capability persistence is unavailable');
+    }
     if (lookup.kind !== 'active') continue;
     const manifest = lookup.manifest;
     if (manifest.signer.walletId !== args.walletId) continue;
@@ -347,12 +353,17 @@ async function activeEcdsaReplacementManifestForTarget(args: {
   return null;
 }
 
-async function getBrowserCanonicalEcdsaSigningCapability(
+type BrowserCanonicalEcdsaCapabilityResolution = {
+  readonly capability: CanonicalEvmFamilyEcdsaSigningCapability;
+  readonly lookup: Extract<EcdsaCapabilityManifestLookup, { readonly kind: 'active' }>;
+};
+
+async function resolveBrowserCanonicalEcdsaSigningCapability(
   args: BrowserEcdsaCapabilityReaderContext,
   input: Parameters<
     Parameters<typeof createSigningEnginePorts>[0]['resolveCanonicalEcdsaSigningCapability']
   >[0],
-): Promise<CanonicalEvmFamilyEcdsaSigningCapability> {
+): Promise<BrowserCanonicalEcdsaCapabilityResolution> {
   const walletId = toWalletId(input.walletId);
   const subjects = await ecdsaCapabilityManifestStore.listActiveWalletCapabilitySubjects(walletId);
   if (subjects.kind !== 'resolved') {
@@ -381,25 +392,21 @@ async function getBrowserCanonicalEcdsaSigningCapability(
     }
     return fallback();
   };
-  const matches = subjects.subjects.filter(
-    (subject) => subject.capability === input.materialActivation.capability,
-  );
-  if (matches.length !== 1) {
-    if (matches.length === 0) {
-      await throwSupersededByReplacement(() => {
-        throw new Error('ECDSA capability manifest is missing');
-      });
-    }
-    throw new Error('ECDSA capability manifest is ambiguous');
-  }
-  const manifestLookup = await ecdsaCapabilityManifestStore.lookup(matches[0]);
-  if (manifestLookup.kind === 'retired') {
-    await throwSupersededByReplacement(() => {
-      throw new Error('ECDSA capability manifest is retired');
-    });
+  const manifestLookup = await ecdsaCapabilityManifestStore.lookupByMaterialActivation({
+    walletId,
+    materialActivation: input.materialActivation,
+  });
+  if (
+    manifestLookup.kind === 'persistence_unavailable' ||
+    manifestLookup.kind === 'exact_record_conflict' ||
+    manifestLookup.kind === 'corrupt'
+  ) {
+    throw new Error(`ECDSA material activation is ${manifestLookup.kind}`);
   }
   if (manifestLookup.kind !== 'active') {
-    throw new Error(`ECDSA capability manifest is ${manifestLookup.kind}`);
+    return await throwSupersededByReplacement(() => {
+      throw new Error('ECDSA capability manifest is missing');
+    });
   }
   const manifest = manifestLookup.manifest;
   if (
@@ -416,7 +423,7 @@ async function getBrowserCanonicalEcdsaSigningCapability(
   // references and returns the typed `superseded` outcome, which owns the single
   // canonical re-resolution. Throwing here would turn routine replacement into
   // a terminal signing failure before that boundary can classify it.
-  return await buildCanonicalEvmFamilyEcdsaSigningCapability({
+  const capability = await buildCanonicalEvmFamilyEcdsaSigningCapability({
     authority: await resolveExactWalletAuthAuthority(
       manifest.signer.authority,
       args.sealedSigningSessionStore,
@@ -433,6 +440,16 @@ async function getBrowserCanonicalEcdsaSigningCapability(
       publicFacts: manifest.durableMaterial.roleLocalPublicFacts,
     }),
   });
+  return { capability, lookup: manifestLookup };
+}
+
+async function getBrowserCanonicalEcdsaSigningCapability(
+  args: BrowserEcdsaCapabilityReaderContext,
+  input: Parameters<
+    Parameters<typeof createSigningEnginePorts>[0]['resolveCanonicalEcdsaSigningCapability']
+  >[0],
+): Promise<CanonicalEvmFamilyEcdsaSigningCapability> {
+  return (await resolveBrowserCanonicalEcdsaSigningCapability(args, input)).capability;
 }
 
 async function getBrowserEcdsaSigningCapability(
@@ -449,8 +466,32 @@ async function getBrowserEcdsaSigningCapability(
     throw new Error(resolution.reason);
   }
   const browserAuthorization = resolution.authorization;
+  const canonical = await resolveBrowserCanonicalEcdsaSigningCapability(args, input);
+  const walletSessionJwt = walletSessionJwtForCurve(browserAuthorization.projection, 'ecdsa');
+  if (!walletSessionJwt) {
+    throw new Error('Owner ECDSA execution-lane preflight requires a Wallet Session JWT');
+  }
+  const projection = await readOwnerWalletExecutionLaneProjectionV1({
+    relayerUrl: String(args.seamsWebConfigs.network.relayer?.url || '').trim(),
+    walletSessionJwt,
+    curve: 'ecdsa_secp256k1',
+    expectedMaterialActivation: canonical.capability.manifest.activation.materialActivation,
+  });
+  const hydrated = hydrateWalletExecutionLane({
+    walletKey: projection.walletKey,
+    lane: projection.lane,
+    material: {
+      keyFamily: 'ecdsa_secp256k1',
+      laneShareEpoch: projection.lane.laneShareEpoch,
+      lookup: canonical.lookup,
+      runtime: { kind: 'absent' },
+    },
+  });
+  if (hydrated.kind !== 'active_wallet_execution_lane_v1') {
+    throw new Error(`Owner ECDSA execution lane is ${hydrated.reason}`);
+  }
   return authorizeEvmFamilyEcdsaSigningCapability({
-    capability: await getBrowserCanonicalEcdsaSigningCapability(args, input),
+    capability: canonical.capability,
     authorization: browserAuthorization,
   });
 }
@@ -723,8 +764,25 @@ export function createBrowserSigningSurfaceEnginePorts(
     readAvailableSigningLanesForSigning: (readArgs) =>
       readPersistedAvailableSigningLanesForSigningOperation(
         {
+          ed25519YaoPublicCapabilityLanes: args.ed25519YaoPublicCapabilityReferences,
+          isEd25519YaoPublicCapabilityActive: (reference) => {
+            switch (reference.auth.kind) {
+              case 'email_otp':
+                return true;
+              case 'passkey':
+                return (
+                  args.getEnginePorts().ed25519YaoActiveClients.resolve({
+                    walletId: reference.walletId,
+                    nearAccountId: reference.nearAccountId,
+                    materialActivation: reference.materialActivation,
+                  }) !== null
+                );
+            }
+          },
           readActiveWalletSessionAuthorization: async (walletId) => {
-            const read = await walletSessionAuthorizations.readActiveForWallet(toWalletId(walletId));
+            const read = await walletSessionAuthorizations.readActiveForWallet(
+              toWalletId(walletId),
+            );
             return read.kind === 'found' ? read.projection : null;
           },
           listEcdsaSigningCapabilitiesForWallet: (input) =>
@@ -738,14 +796,8 @@ export function createBrowserSigningSurfaceEnginePorts(
         {
           queueByWallet: args.thresholdEcdsaBootstrapQueueByWallet,
           activationDeps: args.getEnginePorts().walletSessionActivationDeps,
-          sealPersistence: args.passkeyMpcSession,
           persistEcdsaRoleLocalReadyRecord:
             args.runtimePorts.storage.persistEcdsaRoleLocalReadyRecord,
-          resolveSealTransport: ({ lane, authorization }) =>
-            args.warmSigning.capabilityReader.resolveEcdsaSealTransportForLane({
-              lane,
-              authorization,
-            }),
         },
         provisionArgs,
       ),

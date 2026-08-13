@@ -12,6 +12,8 @@ path = "src/lib.rs"
 crate-type = ["rlib"]
 
 [dependencies]
+base64ct = { version = "1.6", features = ["alloc"] }
+curve25519-dalek = { version = "=4.1.3", features = ["zeroize"] }
 ed25519-yao = { path = "../ed25519-yao", features = ["local-protocol"] }
 hpke-ng = "0.1.0"
 rand_core_09 = { package = "rand_core", version = "0.9.5" }

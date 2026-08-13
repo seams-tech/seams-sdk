@@ -214,21 +214,14 @@ test.describe('Seams wallet repositories', () => {
           accountAddress: nearAccountId,
           signerId,
         });
-        const keyMaterial = await db.getKeyMaterial(
-          walletId,
-          1,
-          chainIdKey,
-          'threshold_share_v1',
-        );
+        const keyMaterial = await db.getKeyMaterial(walletId, 1, chainIdKey, 'threshold_share_v1');
         const nonceLeases = await db.readNonceLaneLeaseRecords(laneKey);
         const lastProfileState = await db.getLastProfileState();
 
         return {
           signerProfileId: signer?.profileId,
           signerAccountAddress: signer?.accountAddress,
-          signerNearEd25519SigningKeyId: String(
-            signer?.metadata?.nearEd25519SigningKeyId || '',
-          ),
+          signerNearEd25519SigningKeyId: String(signer?.metadata?.nearEd25519SigningKeyId || ''),
           keyMaterialProfileId: keyMaterial?.profileId,
           keyMaterialAccountAddress: keyMaterial?.accountAddress,
           keyMaterialNearAccountId: String(keyMaterial?.payload?.nearAccountId || ''),
@@ -246,9 +239,7 @@ test.describe('Seams wallet repositories', () => {
     expect(result.signerAccountAddress).toBe(
       '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
     );
-    expect(result.signerNearEd25519SigningKeyId).toBe(
-      'near-ed25519-frost-vermillion-k7p9m2',
-    );
+    expect(result.signerNearEd25519SigningKeyId).toBe('near-ed25519-frost-vermillion-k7p9m2');
     expect(result.keyMaterialProfileId).toBe('frost-vermillion-k7p9m2');
     expect(result.keyMaterialAccountAddress).toBe(
       '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
@@ -256,14 +247,11 @@ test.describe('Seams wallet repositories', () => {
     expect(result.keyMaterialNearAccountId).toBe(
       '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
     );
-    expect(result.keyMaterialNearEd25519SigningKeyId).toBe(
-      'near-ed25519-frost-vermillion-k7p9m2',
-    );
+    expect(result.keyMaterialNearEd25519SigningKeyId).toBe('near-ed25519-frost-vermillion-k7p9m2');
     expect(result.nonceLease).toMatchObject({
       family: 'near',
       walletId: 'frost-vermillion-k7p9m2',
-      nearAccountId:
-        '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+      nearAccountId: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
     });
     expect(result.lastProfileState).toEqual({
       profileId: 'frost-vermillion-k7p9m2',
@@ -346,7 +334,11 @@ test.describe('Seams wallet repositories', () => {
         const db = new UnifiedIndexedDBManager({ seamsWalletDB });
 
         const profileId = 'profile-repo-ecdsa-owner-repair';
-        const chainTarget = { kind: 'tempo' as const, chainId: 42431, networkSlug: 'tempo-testnet' };
+        const chainTarget = {
+          kind: 'tempo' as const,
+          chainId: 42431,
+          networkSlug: 'tempo-testnet',
+        };
         const keyHandle = 'ederivation-owner-repair-key';
         const ecdsaThresholdKeyId = 'ederivation-owner-repair-threshold-key';
         const firstOwner = `0x${'11'.repeat(20)}`;

@@ -288,45 +288,135 @@ export function OpsCockpitPage(): React.JSX.Element {
   return (
     <div className="dashboard-view dashboard-ops-cockpit-view" aria-label="Ops cockpit page">
       <section className="dashboard-hero" aria-label="Quick actions">
-        <h2 className="dashboard-hero__title">What would you like to do?</h2>
-        <div className="dashboard-hero__cards">
-          {OVERVIEW_HERO_ACTIONS.map((action) => {
-            const ActionIcon = action.icon;
-            const navProps = linkProps(action.path);
-            return (
-              <a
-                key={action.path}
-                className="dashboard-hero__card"
-                href={navProps.href}
-                onClick={navProps.onClick}
-              >
-                <span
-                  className={`dashboard-hero__card-icon dashboard-hero__card-icon--${action.tone}`}
-                  aria-hidden="true"
+        <div className="dashboard-hero__primary">
+          <h2 className="dashboard-hero__title">What would you like to do?</h2>
+          <div className="dashboard-hero__cards">
+            {OVERVIEW_HERO_ACTIONS.map((action) => {
+              const ActionIcon = action.icon;
+              const navProps = linkProps(action.path);
+              return (
+                <a
+                  key={action.path}
+                  className="dashboard-hero__card"
+                  href={navProps.href}
+                  onClick={navProps.onClick}
                 >
-                  <ActionIcon size={20} />
-                </span>
-                <span className="dashboard-hero__card-title">{action.title}</span>
-                <span className="dashboard-hero__card-description">{action.description}</span>
-              </a>
-            );
-          })}
-        </div>
-        <a
-          className="dashboard-hero__promo"
-          href={linkProps('/dashboard/gas-sponsorship').href}
-          onClick={linkProps('/dashboard/gas-sponsorship').onClick}
-        >
-          <span className="dashboard-hero__promo-copy">
-            <span className="dashboard-hero__promo-title">Sponsor gas for your users</span>
-            <span className="dashboard-hero__promo-description">
-              Cover transaction fees with policies and spend caps — no user top-ups required.
+                  <span
+                    className={`dashboard-hero__card-icon dashboard-hero__card-icon--${action.tone}`}
+                    aria-hidden="true"
+                  >
+                    <ActionIcon size={20} />
+                  </span>
+                  <span className="dashboard-hero__card-title">{action.title}</span>
+                  <span className="dashboard-hero__card-description">{action.description}</span>
+                </a>
+              );
+            })}
+          </div>
+          <a
+            className="dashboard-hero__promo"
+            href={linkProps('/dashboard/gas-sponsorship').href}
+            onClick={linkProps('/dashboard/gas-sponsorship').onClick}
+          >
+            <span className="dashboard-hero__promo-copy">
+              <span className="dashboard-hero__promo-title">Sponsor gas for your users</span>
+              <span className="dashboard-hero__promo-description">
+                Cover transaction fees with policies and spend caps — no user top-ups required.
+              </span>
             </span>
-          </span>
-          <span className="dashboard-pagination-button dashboard-pagination-button--primary">
-            Set up sponsorship
-          </span>
-        </a>
+            <span className="dashboard-pagination-button dashboard-pagination-button--primary">
+              Set up sponsorship
+            </span>
+          </a>
+          <div className="dashboard-hero__status-grid">
+            <section className="dashboard-hero__status-card" aria-label="Pending approvals summary">
+              <h2>Pending approvals</h2>
+              {approvalMutationNotice ? (
+                <p className="dashboard-pagination-note">{approvalMutationNotice}</p>
+              ) : null}
+              {approvalMutationErrorMessage ? (
+                <p className="dashboard-pagination-note">{approvalMutationErrorMessage}</p>
+              ) : null}
+              {pendingApprovals.length === 0 ? (
+                <p className="dashboard-pagination-note">No pending approvals.</p>
+              ) : (
+                <ul className="dashboard-view-list">
+                  {pendingApprovals.slice(0, 6).map((row) => (
+                    <li key={row.id}>
+                      <p>
+                        <strong>{formatApprovalLabel(row.operationType)}</strong> for{' '}
+                        {formatApprovalLabel(row.resourceType || 'resource').toLowerCase()}{' '}
+                        <code>{row.resourceId || row.id}</code> by{' '}
+                        <code>{row.requestedByUserId}</code> at {formatTimestamp(row.createdAt)}
+                      </p>
+                      {row.reason ? (
+                        <p className="dashboard-pagination-note">Requested reason: {row.reason}</p>
+                      ) : null}
+                      <p className="dashboard-pagination-note">
+                        {row.requiredApprovals === 1
+                          ? '1 approval required.'
+                          : `${row.requiredApprovals} approvals required.`}{' '}
+                        {row.requireMfa ? 'MFA verification is required to approve.' : ''}
+                      </p>
+                      {row.requireMfa ? (
+                        <p className="dashboard-pagination-note">
+                          Approve unavailable in overview: this request requires MFA verification.
+                        </p>
+                      ) : null}
+                      <p>
+                        {!row.requireMfa ? (
+                          <>
+                            <button
+                              type="button"
+                              className="dashboard-inline-link"
+                              onClick={() => onApprovePendingApproval(row)}
+                              disabled={
+                                approvingApprovalId === row.id || rejectingApprovalId === row.id
+                              }
+                            >
+                              {approvingApprovalId === row.id ? 'Approving...' : 'Approve'}
+                            </button>{' '}
+                          </>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="dashboard-inline-link dashboard-inline-link--danger"
+                          onClick={() => onRejectPendingApproval(row)}
+                          disabled={
+                            approvingApprovalId === row.id || rejectingApprovalId === row.id
+                          }
+                        >
+                          {rejectingApprovalId === row.id ? 'Rejecting...' : 'Reject'}
+                        </button>
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            {showBillingQueue ? (
+              <OpsCockpitQueuePanel
+                ariaLabel="Billing failure summary"
+                title="Failed or overdue invoices"
+                badge={`${failedInvoices.length}`}
+              >
+                {failedInvoices.length === 0 ? (
+                  <p className="dashboard-pagination-note">No failed or overdue invoices.</p>
+                ) : (
+                  <ul className="dashboard-view-list">
+                    {failedInvoices.slice(0, 6).map((row) => (
+                      <li key={row.id}>
+                        Invoice <code>{row.id}</code> is <strong>{row.status}</strong> with due date{' '}
+                        {formatTimestamp(row.dueAt)}.
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </OpsCockpitQueuePanel>
+            ) : null}
+          </div>
+        </div>
       </section>
 
       {loading || visibleErrorMessage || summaryWarnings.length > 0 ? (
@@ -351,68 +441,6 @@ export function OpsCockpitPage(): React.JSX.Element {
           ) : null}
         </section>
       ) : null}
-
-      <section className="dashboard-view__section" aria-label="Pending approvals summary">
-        <h2>Pending approvals</h2>
-        {approvalMutationNotice ? (
-          <p className="dashboard-pagination-note">{approvalMutationNotice}</p>
-        ) : null}
-        {approvalMutationErrorMessage ? (
-          <p className="dashboard-pagination-note">{approvalMutationErrorMessage}</p>
-        ) : null}
-        {pendingApprovals.length === 0 ? (
-          <p className="dashboard-pagination-note">No pending approvals.</p>
-        ) : (
-          <ul className="dashboard-view-list">
-            {pendingApprovals.slice(0, 6).map((row) => (
-              <li key={row.id}>
-                <p>
-                  <strong>{formatApprovalLabel(row.operationType)}</strong> for{' '}
-                  {formatApprovalLabel(row.resourceType || 'resource').toLowerCase()}{' '}
-                  <code>{row.resourceId || row.id}</code> by <code>{row.requestedByUserId}</code> at{' '}
-                  {formatTimestamp(row.createdAt)}
-                </p>
-                {row.reason ? (
-                  <p className="dashboard-pagination-note">Requested reason: {row.reason}</p>
-                ) : null}
-                <p className="dashboard-pagination-note">
-                  {row.requiredApprovals === 1
-                    ? '1 approval required.'
-                    : `${row.requiredApprovals} approvals required.`}{' '}
-                  {row.requireMfa ? 'MFA verification is required to approve.' : ''}
-                </p>
-                {row.requireMfa ? (
-                  <p className="dashboard-pagination-note">
-                    Approve unavailable in overview: this request requires MFA verification.
-                  </p>
-                ) : null}
-                <p>
-                  {!row.requireMfa ? (
-                    <>
-                      <button
-                        type="button"
-                        className="dashboard-inline-link"
-                        onClick={() => onApprovePendingApproval(row)}
-                        disabled={approvingApprovalId === row.id || rejectingApprovalId === row.id}
-                      >
-                        {approvingApprovalId === row.id ? 'Approving...' : 'Approve'}
-                      </button>{' '}
-                    </>
-                  ) : null}
-                  <button
-                    type="button"
-                    className="dashboard-inline-link dashboard-inline-link--danger"
-                    onClick={() => onRejectPendingApproval(row)}
-                    disabled={approvingApprovalId === row.id || rejectingApprovalId === row.id}
-                  >
-                    {rejectingApprovalId === row.id ? 'Rejecting...' : 'Reject'}
-                  </button>
-                </p>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
 
       <div className="dashboard-ops-cockpit-grid" aria-label="Ops cockpit queues">
         {showWebhookQueue ? (
@@ -447,27 +475,6 @@ export function OpsCockpitPage(): React.JSX.Element {
                     >
                       {replayingDeadLetterId === entry.deadLetter.id ? 'Replaying...' : 'Replay'}
                     </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </OpsCockpitQueuePanel>
-        ) : null}
-
-        {showBillingQueue ? (
-          <OpsCockpitQueuePanel
-            ariaLabel="Billing failure summary"
-            title="Failed or overdue invoices"
-            badge={`${failedInvoices.length}`}
-          >
-            {failedInvoices.length === 0 ? (
-              <p className="dashboard-pagination-note">No failed or overdue invoices.</p>
-            ) : (
-              <ul className="dashboard-view-list">
-                {failedInvoices.slice(0, 6).map((row) => (
-                  <li key={row.id}>
-                    Invoice <code>{row.id}</code> is <strong>{row.status}</strong> with due date{' '}
-                    {formatTimestamp(row.dueAt)}.
                   </li>
                 ))}
               </ul>

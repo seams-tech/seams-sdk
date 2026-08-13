@@ -101,7 +101,6 @@ fn strict_router_router_ab_ecdsa_derivation_routes_apply_boundary_parsers() {
         "CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_REGISTRATION_PUBLIC_REQUEST_PATH",
         "CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_ADD_SIGNER_PUBLIC_REQUEST_PATH",
         "CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PUBLIC_REQUEST_PATH",
-        "CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PUBLIC_REQUEST_PATH",
         "CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_REFRESH_PUBLIC_REQUEST_PATH",
         "CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PREPARE_PUBLIC_REQUEST_PATH",
         "CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PUBLIC_REQUEST_PATH",
@@ -110,7 +109,6 @@ fn strict_router_router_ab_ecdsa_derivation_routes_apply_boundary_parsers() {
         "validate_for_registration_purpose",
         "handle_cloudflare_router_ab_ecdsa_derivation_registration_bootstrap_authenticated_public_request_v1",
         "handle_cloudflare_router_ab_ecdsa_derivation_explicit_export_authenticated_public_request_v1",
-        "handle_cloudflare_router_ab_ecdsa_derivation_recovery_authenticated_public_request_v1",
         "handle_cloudflare_router_ab_ecdsa_derivation_activation_refresh_authenticated_public_request_v1",
         "cloudflare_router_normal_signing_response_v1",
     ] {

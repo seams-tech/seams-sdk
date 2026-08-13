@@ -580,6 +580,18 @@ class FailureInjectingYaoRuntime implements RouterAbEd25519YaoProductRegistratio
     return result;
   }
 
+  async replayActivatedRegistration(
+    input: Parameters<
+      RouterAbEd25519YaoProductRegistrationRuntimeV1['replayActivatedRegistration']
+    >[0],
+  ): Promise<
+    Awaited<
+      ReturnType<RouterAbEd25519YaoProductRegistrationRuntimeV1['replayActivatedRegistration']>
+    >
+  > {
+    return await this.delegate.replayActivatedRegistration(input);
+  }
+
   async installRegistrationFinalizeCapability(
     input: Parameters<
       RouterAbEd25519YaoProductRegistrationRuntimeV1['installRegistrationFinalizeCapability']
@@ -760,6 +772,15 @@ function buildCeremony(input: {
  * its own fixed ids. The receipt binding mirrors the request scope, so every
  * field it needs is derivable from that request.
  */
+/** Splits an admission request's `signing_root_id` back into scope fields. */
+function incomingSigningRootScope(
+  incoming: RouterAbEd25519YaoRegistrationAdmissionRequestV1 | undefined,
+): { projectId?: string; envId?: string } {
+  if (!incoming) return {};
+  const [projectId, envId] = String(incoming.application_binding.signing_root_id).split(':');
+  return projectId && envId ? { projectId, envId } : {};
+}
+
 export async function createActivatedFinalizeYaoRuntimeFixture(overrides?: {
   readonly admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
   readonly signingRootVersion?: string;
@@ -782,19 +803,28 @@ export async function createActivatedFinalizeYaoRuntimeFixture(overrides?: {
     thresholdSessionId: incoming
       ? incoming.scope.threshold_session_id
       : 'threshold-finalize-convergence',
-    signerSlot: incoming
-      ? incoming.application_binding.key_creation_signer_slot
-      : 1,
+    signerSlot: incoming ? incoming.application_binding.key_creation_signer_slot : 1,
     signingWorkerId: incoming ? incoming.scope.signing_worker_id : SIGNING_WORKER_ID,
     participantIds: [1, 2],
     runtimePolicyScope: {
       ...TEST_SCOPE,
+      /* The ceremony's own project/env, so the signing root id this fixture
+         derives equals the one the incoming request carries. */
+      ...incomingSigningRootScope(incoming),
       signingRootVersion:
         incoming?.scope.root_share_epoch ?? overrides?.signingRootVersion ?? 'root-finalize-v1',
     },
     seed: 93,
     ...(incoming
-      ? { lifecycleId: incoming.scope.lifecycle_id, signerSetId: incoming.scope.signer_set_id }
+      ? {
+          lifecycleId: incoming.scope.lifecycle_id,
+          signerSetId: incoming.scope.signer_set_id,
+          /* Everything the incoming request already decided is carried rather
+             than re-invented, so the admission request this rebuilds is byte-
+             equal to the one admitted — which is what finalize compares its
+             stored signer branch against. */
+          materialActivation: incoming.scope.material_activation as never,
+        }
       : {}),
   });
   if (capability.capability.version !== 'wallet_ed25519_yao_registration_capability_v1') {

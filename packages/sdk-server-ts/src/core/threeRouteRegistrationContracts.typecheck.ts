@@ -31,9 +31,6 @@ declare const activateEcdsa: ActivateEcdsaWorkV2;
 declare const emailOtpEnrollment: NonNullable<
   Extract<WalletRegistrationActivateRequestV2, { authMethod: 'email_otp' }>['emailOtpEnrollment']
 >;
-declare const emailOtpBackupAck: NonNullable<
-  Extract<WalletRegistrationActivateRequestV2, { authMethod: 'email_otp' }>['emailOtpBackupAck']
->;
 
 const RESPOND_BASE = {
   registrationCeremonyId: 'wrc_1',
@@ -66,7 +63,6 @@ const emailOtpEd25519OnlyActivate: WalletRegistrationActivateRequestV2 = {
   ...ACTIVATE_BASE,
   authMethod: 'email_otp',
   emailOtpEnrollment,
-  emailOtpBackupAck,
   /* Enrollment is an auth concern, not an ECDSA one: an Ed25519-only wallet
      registered with Email OTP still enrolls. */
   kind: 'near_ed25519',
@@ -103,18 +99,6 @@ const ecdsaActivateWithoutEcdsa: WalletRegistrationActivateRequestV2 = {
   kind: 'evm_family_ecdsa',
 };
 
-// The commit refuses enrollment without the backup acknowledgement: issuing
-// recovery codes the user never confirmed saving is how an account becomes
-// unrecoverable.
-// @ts-expect-error Email OTP activation requires the recovery-code backup ack
-const emailOtpActivateWithoutBackupAck: WalletRegistrationActivateRequestV2 = {
-  ...ACTIVATE_BASE,
-  authMethod: 'email_otp',
-  emailOtpEnrollment,
-  kind: 'evm_family_ecdsa',
-  ecdsa: activateEcdsa,
-};
-
 // @ts-expect-error passkey activation has no enrollment to carry
 const passkeyActivateWithEnrollment: WalletRegistrationActivateRequestV2 = {
   ...ACTIVATE_BASE,
@@ -147,5 +131,4 @@ export const _threeRouteRequestFixtures = [
   ecdsaActivateWithoutEcdsa,
   passkeyActivateWithEnrollment,
   emailOtpActivateWithoutEnrollment,
-  emailOtpActivateWithoutBackupAck,
 ] as const;

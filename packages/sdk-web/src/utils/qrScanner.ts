@@ -1,6 +1,6 @@
-import type { DeviceLinkingQRData } from '../core/types/linkDevice';
+import type { QrLinkedDeviceSessionPayloadV4 } from '@shared/device-linking';
 import { DeviceLinkingError, DeviceLinkingErrorCode } from '../core/types/linkDevice';
-import { validateDeviceLinkingQRData } from '../SeamsWeb/operations/devices/scanDevice';
+import { validateQrLinkedDeviceSessionPayloadV4 } from '../SeamsWeb/operations/devices/scanDevice';
 import type { LinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
 
 // ===========================
@@ -19,7 +19,7 @@ export interface ScanQRCodeFlowOptions {
 
 export interface ScanQRCodeFlowEvents {
   onEvent?: (event: LinkDeviceFlowEvent) => void;
-  onQRDetected?: (qrData: DeviceLinkingQRData) => void;
+  onQRDetected?: (qrData: QrLinkedDeviceSessionPayloadV4) => void;
   onError?: (error: Error) => void;
   onCameraReady?: (stream: MediaStream) => void;
   onScanProgress?: (duration: number) => void; // Called periodically during scanning
@@ -53,7 +53,7 @@ export class ScanQRCodeFlow {
   private progressIntervalId: NodeJS.Timeout | null = null;
   private scanStartTime: number = 0;
   private currentError: Error | null = null;
-  private detectedQRData: DeviceLinkingQRData | null = null;
+  private detectedQRData: QrLinkedDeviceSessionPayloadV4 | null = null;
 
   constructor(
     private options: ScanQRCodeFlowOptions = {},
@@ -75,7 +75,7 @@ export class ScanQRCodeFlow {
     isScanning: boolean;
     scanDuration: number;
     error: Error | null;
-    qrData: DeviceLinkingQRData | null;
+    qrData: QrLinkedDeviceSessionPayloadV4 | null;
   } {
     return {
       state: this.state,
@@ -296,8 +296,8 @@ export class ScanQRCodeFlow {
     return code ? code.data : null;
   }
 
-  private parseAndValidateQRData(qrData: string): DeviceLinkingQRData {
-    let parsedData: DeviceLinkingQRData;
+  private parseAndValidateQRData(qrData: string): QrLinkedDeviceSessionPayloadV4 {
+    let parsedData: unknown;
     try {
       parsedData = JSON.parse(qrData);
     } catch {
@@ -310,12 +310,10 @@ export class ScanQRCodeFlow {
       throw new Error('Invalid QR code format - expected JSON device linking data');
     }
 
-    // Use the validation function from scanDevice.ts
-    validateDeviceLinkingQRData(parsedData);
-    return parsedData;
+    return validateQrLinkedDeviceSessionPayloadV4(parsedData);
   }
 
-  private handleSuccess(qrData: DeviceLinkingQRData): void {
+  private handleSuccess(qrData: QrLinkedDeviceSessionPayloadV4): void {
     this.setState(ScanQRCodeFlowState.SUCCESS);
     this.detectedQRData = qrData;
     this.cleanup();
@@ -369,7 +367,7 @@ export class ScanQRCodeFlow {
 /**
  * Scan QR code from file with lazy loading
  */
-export async function scanQRCodeFromFile(file: File): Promise<DeviceLinkingQRData> {
+export async function scanQRCodeFromFile(file: File): Promise<QrLinkedDeviceSessionPayloadV4> {
   // Setup canvas
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
@@ -467,8 +465,8 @@ async function scanQRFromImageData(imageData: ImageData): Promise<string | null>
   return code ? code.data : null;
 }
 
-function parseAndValidateQRData(qrData: string): DeviceLinkingQRData {
-  let parsedData: DeviceLinkingQRData;
+function parseAndValidateQRData(qrData: string): QrLinkedDeviceSessionPayloadV4 {
+  let parsedData: unknown;
   try {
     parsedData = JSON.parse(qrData);
   } catch {
@@ -481,9 +479,7 @@ function parseAndValidateQRData(qrData: string): DeviceLinkingQRData {
     throw new Error('Invalid QR code format - expected JSON device linking data');
   }
 
-  // Use the validation function from scanDevice.ts
-  validateDeviceLinkingQRData(parsedData);
-  return parsedData;
+  return validateQrLinkedDeviceSessionPayloadV4(parsedData);
 }
 
 function createQRError(message: string): DeviceLinkingError {

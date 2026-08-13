@@ -149,9 +149,8 @@ test('a successful deferred commit reaches and republishes near_ready', async ()
      Yao consume, signer persistence, capability install — would mean stubbing
      a cryptographic binding check and asserting the stub, so the seam under
      test is the one that decides the published outcome. */
-  const { runSingleFlightNearProvisioning } = await import(
-    '@/core/signingEngine/flows/registration/nearProvisioningRegistry'
-  );
+  const { runSingleFlightNearProvisioning } =
+    await import('@/core/signingEngine/flows/registration/nearProvisioningRegistry');
   resetNearProvisioningRegistryForTests();
   const published: string[] = [];
   const unsubscribe = subscribeToNearProvisioning((_walletId, state) => {
@@ -180,9 +179,8 @@ test('a successful deferred commit reaches and republishes near_ready', async ()
 test('a settled ready wallet is not re-provisioned by a later request', async () => {
   /* Ready is terminal: a second caller must not restart Yao for a wallet whose
      NEAR signer already exists. */
-  const { runSingleFlightNearProvisioning } = await import(
-    '@/core/signingEngine/flows/registration/nearProvisioningRegistry'
-  );
+  const { runSingleFlightNearProvisioning } =
+    await import('@/core/signingEngine/flows/registration/nearProvisioningRegistry');
   resetNearProvisioningRegistryForTests();
   let attempts = 0;
   const ready = async () => {

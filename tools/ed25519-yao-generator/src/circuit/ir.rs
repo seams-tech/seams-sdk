@@ -9,6 +9,7 @@ const CANONICAL_IR_PROVISIONAL_ACTIVATION_CORE_V1: u8 = 0x91;
 const CANONICAL_IR_PROVISIONAL_EXPORT_CORE_V1: u8 = 0x92;
 const CANONICAL_IR_PHASE4_PRIVATE_OUTPUT_ACTIVATION_CORE_V1: u8 = 0x93;
 const CANONICAL_IR_PHASE4_PRIVATE_OUTPUT_EXPORT_CORE_V1: u8 = 0x94;
+const CANONICAL_IR_LANE_MATERIALIZATION_CORE_V1: u8 = 0x95;
 const CANONICAL_IR_HEADER_LEN_V1: usize = 86;
 const CANONICAL_GATE_RECORD_LEN_V1: usize = 9;
 
@@ -222,6 +223,24 @@ impl CircuitBuilder {
             CANONICAL_IR_PHASE4_PRIVATE_OUTPUT_EXPORT_CORE_V1,
             super::phase4_families::PHASE4_PRIVATE_OUTPUT_EXPORT_INPUT_SCHEMA_V1.as_bytes(),
             super::phase4_families::PHASE4_PRIVATE_OUTPUT_EXPORT_OUTPUT_SCHEMA_V1.as_bytes(),
+        )
+    }
+
+    pub(super) fn finish_lane_materialization_core(
+        self,
+        outputs: Vec<BuilderBit>,
+    ) -> Result<CanonicalBooleanCircuitV1, CircuitBuildError> {
+        if self.input_count != 3_584 {
+            return Err(CircuitBuildError::InputSchemaWireCountMismatch);
+        }
+        if outputs.len() != 1_024 {
+            return Err(CircuitBuildError::OutputSchemaWireCountMismatch);
+        }
+        self.finish_with_schema(
+            outputs,
+            CANONICAL_IR_LANE_MATERIALIZATION_CORE_V1,
+            super::lane_materialization::LANE_MATERIALIZATION_INPUT_SCHEMA_V1.as_bytes(),
+            super::lane_materialization::LANE_MATERIALIZATION_OUTPUT_SCHEMA_V1.as_bytes(),
         )
     }
 

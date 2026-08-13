@@ -14,10 +14,7 @@ type RecoveryCodeStatusRequest = Extract<
   ParentToChildEnvelope,
   { type: 'PM_GET_EMAIL_OTP_RECOVERY_CODE_STATUS' }
 >;
-type RegisterWalletRequest = Extract<
-  ParentToChildEnvelope,
-  { type: 'PM_REGISTER_WALLET' }
->;
+type RegisterWalletRequest = Extract<ParentToChildEnvelope, { type: 'PM_REGISTER_WALLET' }>;
 
 function handlerDeps(input: { seamsWeb: unknown; posts: ChildToParentEnvelope[] }) {
   return {

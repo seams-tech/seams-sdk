@@ -50,7 +50,9 @@ test.describe('SeamsWeb.setTheme', () => {
     expect(result).toEqual({ theme: 'light' });
   });
 
-  test('setAppearance updates local signing-surface appearance for key export UI', async ({ page }) => {
+  test('setAppearance updates local signing-surface appearance for key export UI', async ({
+    page,
+  }) => {
     const result = await page.evaluate(async () => {
       const mod = await import('/_test-sdk/esm/SeamsWeb/index.js');
       const { SeamsWeb } = mod as any;

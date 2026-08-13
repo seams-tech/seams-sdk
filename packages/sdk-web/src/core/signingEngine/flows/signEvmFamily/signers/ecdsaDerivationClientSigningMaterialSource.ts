@@ -1,6 +1,4 @@
-import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WorkerOperationContext } from '../../../workerManager/executeWorkerOperation';
-import { updateExactSealedSessionPolicy } from '../../../session/persistence/sealedSessionStore';
 import type {
   HydratedEcdsaSignerMaterial,
   ThresholdEcdsaRoleLocalWorkerShare,
@@ -13,7 +11,6 @@ import {
   thresholdEcdsaRoleLocalCommitPresignatureWasm,
   thresholdEcdsaRoleLocalListAvailablePresignaturesWasm,
   thresholdEcdsaRoleLocalRetirePresignaturePoolWasm,
-  thresholdEcdsaEmailOtpPresignSessionInitWasm,
   thresholdEcdsaRoleLocalComputeSignatureShareFromPresignatureHandleWasm,
   thresholdEcdsaRoleLocalPresignSessionAbortWasm,
   thresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandleWasm,
@@ -21,63 +18,11 @@ import {
 } from '../../../threshold/crypto/ecdsaDerivationClientWasm';
 import type { RouterAbEcdsaDerivationClientSigningMaterialSource } from '../../../routerAb/ecdsaDerivation/presignaturePool';
 
-type EcdsaSessionChain = 'tempo' | 'evm';
-
 export type LoadedRouterAbEcdsaDerivationSigningMaterialSource = {
   signerSession: HydratedEcdsaSignerMaterial;
   clientSigningMaterial: RouterAbEcdsaDerivationClientSigningMaterialSource;
   cleanupAfterSign: (args: { singleUseEmailOtpSession: boolean }) => Promise<void>;
 };
-
-function readySignerSessionEmailOtpWorkerShareChain(
-  signerSession: HydratedEcdsaSignerMaterial,
-): EcdsaSessionChain | null {
-  switch (signerSession.clientShare.kind) {
-    case 'role_local_worker_share':
-      return null;
-    case 'email_otp_worker_share':
-      return signerSession.clientShare.handle.laneIdentity.chainTarget.kind;
-  }
-}
-
-async function updateEmailOtpSealedRecordPolicyAfterEcdsaClaim(args: {
-  thresholdSessionId: string;
-  chainTarget: ThresholdEcdsaChainTarget;
-  remainingUses: number;
-  expiresAtMs: number;
-}): Promise<void> {
-  const thresholdSessionId = String(args.thresholdSessionId || '').trim();
-  if (!thresholdSessionId) return;
-  await updateExactSealedSessionPolicy({
-    thresholdSessionId,
-    filter: {
-      authMethod: 'email_otp',
-      curve: 'ecdsa',
-      chainTarget: args.chainTarget,
-    },
-    remainingUses: args.remainingUses,
-    expiresAtMs: args.expiresAtMs,
-    updatedAtMs: Date.now(),
-  }).catch(() => undefined);
-}
-
-async function clearEmailOtpWorkerSessionBestEffort(args: {
-  workerCtx: WorkerOperationContext;
-  thresholdSessionId: string;
-}): Promise<void> {
-  const thresholdSessionId = String(args.thresholdSessionId || '').trim();
-  if (!thresholdSessionId) return;
-  await args.workerCtx
-    .requestWorkerOperation({
-      kind: 'emailOtp',
-      request: {
-        type: 'clearEmailOtpWarmSessionMaterial',
-        timeoutMs: 5_000,
-        payload: { target: { kind: 'ecdsa', thresholdSessionId } },
-      },
-    })
-    .catch(() => undefined);
-}
 
 async function ensureRoleLocalSigningMaterialLoaded(args: {
   workerCtx: WorkerOperationContext;
@@ -104,40 +49,12 @@ export async function loadRouterAbEcdsaDerivationSigningMaterialSource(args: {
   workerCtx: WorkerOperationContext;
 }): Promise<LoadedRouterAbEcdsaDerivationSigningMaterialSource> {
   const signerSession = args.signerSession;
-  const emailOtpWorkerShareThresholdSessionId =
-    signerSession.clientShare.kind === 'email_otp_worker_share'
-      ? signerSession.clientShare.handle.thresholdSessionId
-      : '';
-  const emailOtpWorkerShareChain = readySignerSessionEmailOtpWorkerShareChain(signerSession);
-  let emailOtpWorkerShareExhausted = false;
 
   return {
     signerSession,
     clientSigningMaterial: {
       kind: 'router_ab_ecdsa_derivation_client_signing_material_source_v1',
       initClientPresignSession: async (input) => {
-        if (signerSession.clientShare.kind === 'email_otp_worker_share') {
-          if (!emailOtpWorkerShareChain) {
-            throw new Error(
-              '[multichain] Missing Email OTP ECDSA chain for signing-session policy update',
-            );
-          }
-          const initialized = await thresholdEcdsaEmailOtpPresignSessionInitWasm({
-            thresholdSessionId: signerSession.clientShare.handle.thresholdSessionId,
-            ...input,
-          });
-          emailOtpWorkerShareExhausted =
-            initialized.remainingUses <= 0 || initialized.expiresAtMs <= Date.now();
-          await updateEmailOtpSealedRecordPolicyAfterEcdsaClaim({
-            thresholdSessionId: String(
-              signerSession.clientShare.handle.laneIdentity.thresholdSessionId,
-            ),
-            chainTarget: signerSession.clientShare.handle.laneIdentity.chainTarget,
-            remainingUses: initialized.remainingUses,
-            expiresAtMs: initialized.expiresAtMs,
-          });
-          return initialized.progress;
-        }
         await ensureRoleLocalSigningMaterialLoaded({
           workerCtx: args.workerCtx,
           clientShare: signerSession.clientShare,
@@ -168,16 +85,6 @@ export async function loadRouterAbEcdsaDerivationSigningMaterialSource(args: {
       computeSignatureShareFromPresignatureHandle:
         thresholdEcdsaRoleLocalComputeSignatureShareFromPresignatureHandleWasm,
     },
-    cleanupAfterSign: async (cleanupArgs) => {
-      if (
-        emailOtpWorkerShareThresholdSessionId &&
-        (cleanupArgs.singleUseEmailOtpSession || emailOtpWorkerShareExhausted)
-      ) {
-        await clearEmailOtpWorkerSessionBestEffort({
-          workerCtx: args.workerCtx,
-          thresholdSessionId: emailOtpWorkerShareThresholdSessionId,
-        });
-      }
-    },
+    cleanupAfterSign: async () => undefined,
   };
 }

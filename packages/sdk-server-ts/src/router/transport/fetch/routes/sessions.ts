@@ -11,44 +11,38 @@ import { emitRouterApiWebhookEvent } from '../../../framework/routerApiWebhooks'
 import type { FetchRouterApiContext } from '../createFetchRouter';
 import { headersToRecord, json, readJson } from '../../../framework/http';
 import { resolveThresholdRuntimePolicyScope } from '../../../auth/commonRouterUtils';
+import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import { alphabetizeStringify } from '@shared/utils/digests';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
   handleWalletUnlockChallengeRoute,
   handleWalletUnlockVerifyRoute,
+  type WalletUnlockEcdsaCustodySignerV1,
   type WalletUnlockEcdsaSessionContext,
   type WalletUnlockCapabilityContext,
 } from '../../../domains/walletUnlock/walletUnlockRouteHandlers';
 import { handleStrictEcdsaSessionActivation } from './thresholdEcdsa';
 import {
-  parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1,
+  parseRouterAbEcdsaPostRegistrationSessionActivationPolicyV1,
   parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1,
+  type RouterAbEcdsaPostRegistrationSessionActivationRequestV1,
   type RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
   routerApiEmailOtpRouteService,
   type EmailOtpChallengeDelivery,
-  type RouterApiSessionExchangeJournal,
-  type RouterApiSessionExchangeMutationResult,
 } from '../../../framework/authServicePort';
 import {
   handleEmailOtpDevCleanupGoogleRegistrationRoute,
   handleEmailOtpDevOtpOutboxRoute,
-  handleEmailOtpDeviceRecoveryChallengeRoute,
   handleEmailOtpLoginChallengeRoute,
-  handleEmailOtpLoginVerifyAndUnsealRoute,
-  handleEmailOtpRecoveryKeyAttemptFailedRoute,
-  handleEmailOtpRecoveryKeyConsumeRoute,
-  handleEmailOtpRecoveryKeyRotateRoute,
-  handleEmailOtpRecoveryKeyStatusRoute,
-  handleEmailOtpRecoveryWrappedEscrowsRoute,
+  handleEmailOtpFactorReleaseRoute,
   handleEmailOtpSigningSessionChallengeRoute,
   handleEmailOtpLoginVerifyRoute,
   handleEmailOtpSigningSessionVerifyRoute,
   handleEmailOtpRegistrationChallengeRoute,
   handleEmailOtpRegistrationFinalizeRoute,
   handleEmailOtpRegistrationSealRoute,
-  handleEmailOtpUnsealRoute,
-  handleEmailOtpSigningSessionUnsealRoute,
 } from '../../../domains/emailOtp/emailOtpRouteHandlers';
 import {
   emailOtpChallengeResponseBody,
@@ -67,7 +61,11 @@ import {
   parseRouterAbEcdsaDerivationWalletSessionClaims,
   parseRouterAbEd25519WalletSessionClaims,
 } from '../../../../core/ThresholdService/validation';
-import { parseGoogleProviderSubject, parseVerifiedGoogleEmail } from '@shared/utils/domainIds';
+import {
+  parseGoogleProviderSubject,
+  parseVerifiedGoogleEmail,
+  parseWalletId,
+} from '@shared/utils/domainIds';
 import { parseWalletUnlockRequestedCapabilitiesRequest } from '../../../domains/walletUnlock/walletUnlockRequestedCapabilitiesValidation';
 import {
   buildPasskeyWalletAuthAuthority,
@@ -98,102 +96,33 @@ import {
   parseAppSessionVersion,
   parseProviderSubject,
   parseWebAuthnCredentialIdB64u,
+  parseWebAuthnRpId,
   type DomainIdParseResult,
 } from '@shared/utils/domainIds';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
-import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
-import { base64UrlEncode } from '@shared/utils/encoders';
+import { walletIdFromString } from '@shared/utils/registrationIntent';
+import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
+import type { RouterAbEd25519YaoActiveCapabilityDescriptorV1 } from '../../../domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
 
 const HOSTED_WALLET_SESSION_EXCHANGE_TTL_MS = 60_000;
-const GOOGLE_EMAIL_OTP_SESSION_EXCHANGE_REPLAY_TTL_MS = 15 * 60_000;
 
-type GoogleEmailOtpSessionExchangeCommand = Extract<
-  SessionExchangeRouteCommand,
-  { readonly kind: 'oidc_jwt' }
-> & {
-  readonly provider: 'google';
-  readonly accountMode: 'login';
-  readonly idempotencyKey: string;
+type PasskeySessionCustodyUnlockV1 = {
+  readonly kind: 'wallet_custody_passkey_login_v1';
+  readonly envelope: PasskeyCustodyEnvelopeRecord;
+  readonly storeVersion: string;
+  readonly ed25519:
+    | { readonly kind: 'absent' }
+    | {
+        readonly kind: 'active';
+        readonly nearAccountId: string;
+        readonly nearEd25519SigningKeyId: string;
+        readonly signerSlot: number;
+        readonly publicKey: string;
+        readonly relayerKeyId: string;
+        readonly participantIds: readonly [number, number];
+        readonly capability: RouterAbEd25519YaoActiveCapabilityDescriptorV1;
+      };
 };
-
-function isGoogleEmailOtpSessionExchangeCommand(
-  command: SessionExchangeRouteCommand,
-): command is GoogleEmailOtpSessionExchangeCommand {
-  return (
-    command.kind === 'oidc_jwt' &&
-    command.provider === 'google' &&
-    command.accountMode === 'login' &&
-    typeof command.idempotencyKey === 'string' &&
-    command.idempotencyKey.length > 0
-  );
-}
-
-async function googleEmailOtpSessionExchangeRequestFingerprint(input: {
-  readonly command: GoogleEmailOtpSessionExchangeCommand;
-  readonly origin: string | null;
-}): Promise<string> {
-  const tokenDigest = base64UrlEncode(await sha256BytesUtf8(input.command.token));
-  return base64UrlEncode(
-    await sha256BytesUtf8(
-      alphabetizeStringify({
-        kind: input.command.kind,
-        provider: input.command.provider,
-        accountMode: input.command.accountMode,
-        sessionKind: input.command.sessionKind,
-        projectEnvironmentId: input.command.projectEnvironmentId || null,
-        origin: input.origin || null,
-        tokenDigest,
-      }),
-    ),
-  );
-}
-
-function replayGoogleEmailOtpSessionExchange(journal: RouterApiSessionExchangeJournal): Response {
-  const response = journal.response;
-  if (!response) throw new Error('Completed session exchange is missing its replay response');
-  const headers = new Headers({ 'Content-Type': 'application/json; charset=utf-8' });
-  if (response.setCookie) headers.set('Set-Cookie', response.setCookie);
-  return new Response(response.bodyText, { status: response.status, headers });
-}
-
-function sessionExchangeMutationFailureResponse(
-  result: Exclude<
-    RouterApiSessionExchangeMutationResult,
-    { readonly kind: 'stored' } | { readonly kind: 'replayed' }
-  >,
-): Response {
-  if (result.kind === 'in_progress') {
-    return json(
-      {
-        ok: false,
-        code: 'session_exchange_in_progress',
-        message: 'Session exchange is already in progress',
-        retryAfterMs: result.retryAfterMs,
-      },
-      { status: 409 },
-    );
-  }
-  if (result.kind === 'conflict') {
-    return json({ ok: false, code: result.code, message: result.message }, { status: 409 });
-  }
-  return json(
-    {
-      ok: false,
-      code: 'storage_temporarily_unavailable',
-      message: 'Session exchange storage is temporarily unavailable',
-      retryAfterMs: 250,
-    },
-    { status: 503 },
-  );
-}
-
-function isTransientD1StorageReset(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return (
-    message.includes('D1_ERROR: D1 DB storage operation exceeded timeout') ||
-    message.includes('D1 DB storage operation exceeded timeout which caused object to be reset')
-  );
-}
 
 type SessionExchangeTimingPhase =
   | 'request_validation'
@@ -271,20 +200,120 @@ async function dispatchSessionExchangeSucceeded(
   await emission;
 }
 
+function projectWalletUnlockEcdsaCustodySigner(
+  signer: Awaited<
+    ReturnType<
+      FetchRouterApiContext['service']['walletRegistration']['listWalletEcdsaCustodyContinuity']
+    >
+  >[number],
+): WalletUnlockEcdsaCustodySignerV1 {
+  return {
+    chainTarget: signer.chainTarget,
+    walletKey: {
+      walletId: signer.walletKey.walletId,
+      keyHandle: signer.walletKey.keyHandle,
+      ecdsaThresholdKeyId: signer.walletKey.ecdsaThresholdKeyId,
+      signingRootId: signer.walletKey.signingRootId,
+      signingRootVersion: signer.walletKey.signingRootVersion,
+      relayerKeyId: signer.walletKey.relayerKeyId,
+      contextBinding32B64u: signer.walletKey.contextBinding32B64u,
+      derivationClientSharePublicKey33B64u: signer.walletKey.derivationClientSharePublicKey33B64u,
+      participantIds: signer.walletKey.participantIds,
+      publicCapability: signer.walletKey.publicCapability,
+    },
+    activationReceipt: signer.activationReceipt,
+    runtimePolicyScope: signer.runtimePolicyScope,
+  };
+}
+
+type WalletUnlockEcdsaAuthoredRequest = {
+  readonly request: RouterAbEcdsaPostRegistrationSessionActivationRequestV1;
+  readonly activationReceipt: WalletUnlockEcdsaCustodySignerV1['activationReceipt'];
+  readonly continuity: {
+    readonly kind: 'wallet_custody_ecdsa_sync_continuity_v1';
+    readonly signers: readonly WalletUnlockEcdsaCustodySignerV1[];
+  };
+};
+
+async function authorWalletUnlockEcdsaRequest(
+  ctx: FetchRouterApiContext,
+  walletId: string,
+  policy: ReturnType<typeof parseRouterAbEcdsaPostRegistrationSessionActivationPolicyV1>,
+): Promise<
+  | { readonly ok: true; readonly value: WalletUnlockEcdsaAuthoredRequest }
+  | { readonly ok: false; readonly status: number; readonly code: string; readonly message: string }
+> {
+  const signers = await ctx.service.walletRegistration.listWalletEcdsaCustodyContinuity({
+    walletId,
+  });
+  const matching = signers.filter((signer) => signer.walletKey.keyHandle === policy.key_handle);
+  const first = matching[0];
+  if (!first) {
+    return {
+      ok: false,
+      status: 404,
+      code: 'ecdsa_key_not_found',
+      message: 'ECDSA key handle is not active for this wallet',
+    };
+  }
+  const requestedScope = normalizeRuntimePolicyScope(policy.session_policy.runtime_policy_scope);
+  if (
+    matching.some(
+      (signer) =>
+        alphabetizeStringify(signer.runtimePolicyScope) !== alphabetizeStringify(requestedScope) ||
+        alphabetizeStringify(signer.walletKey.publicCapability) !==
+          alphabetizeStringify(first.walletKey.publicCapability) ||
+        alphabetizeStringify(signer.activationReceipt) !==
+          alphabetizeStringify(first.activationReceipt),
+    )
+  ) {
+    return {
+      ok: false,
+      status: 409,
+      code: 'ecdsa_key_continuity_conflict',
+      message: 'ECDSA key handle resolves to conflicting active custody records',
+    };
+  }
+  return {
+    ok: true,
+    value: {
+      request: {
+        kind: 'router_ab_ecdsa_post_registration_session_activation_v1',
+        public_capability: first.walletKey.publicCapability,
+        session_policy: policy.session_policy,
+      },
+      activationReceipt: first.activationReceipt,
+      continuity: {
+        kind: 'wallet_custody_ecdsa_sync_continuity_v1',
+        signers: matching.map(projectWalletUnlockEcdsaCustodySigner),
+      },
+    },
+  };
+}
+
 function walletUnlockEcdsaSessionContext(
   ctx: FetchRouterApiContext,
   body: unknown,
 ): WalletUnlockEcdsaSessionContext {
-  if (!isPlainObject(body) || body.ecdsaSessionActivation === undefined) {
+  if (isPlainObject(body) && body.ecdsaSessionActivation !== undefined) {
+    throw new Error('ecdsaSessionActivation is no longer accepted; send ecdsaSessionPolicy');
+  }
+  if (!isPlainObject(body) || body.ecdsaSessionPolicy === undefined) {
     return { kind: 'no_ecdsa_session' };
   }
-  const request = parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1(
-    body.ecdsaSessionActivation,
+  const policy = parseRouterAbEcdsaPostRegistrationSessionActivationPolicyV1(
+    body.ecdsaSessionPolicy,
   );
+  const walletId = String(body.walletId || '').trim();
+  if (!walletId) throw new Error('walletId is required with ecdsaSessionPolicy');
   return {
     kind: 'provision_first_ecdsa_session',
-    walletId: request.public_capability.client_id,
+    walletId,
+    policy,
     provisionWalletSession: async (authorization) => {
+      const authored = await authorWalletUnlockEcdsaRequest(ctx, walletId, policy);
+      if (!authored.ok) return authored;
+      const { request, activationReceipt, continuity } = authored.value;
       let response: Response;
       if (authorization.kind === 'reuse_ed25519_wallet_session') {
         response = await handleStrictEcdsaSessionActivation({
@@ -298,7 +327,7 @@ function walletUnlockEcdsaSessionContext(
         if (authorization.verifiedProviderUserId) {
           const resolvedAuthority =
             await ctx.service.walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject({
-              walletId: request.public_capability.client_id,
+              walletId,
               providerUserId: authorization.verifiedProviderUserId,
             });
           if (!resolvedAuthority.ok) {
@@ -333,6 +362,8 @@ function walletUnlockEcdsaSessionContext(
       return {
         ok: true,
         activation: parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1(responseBody),
+        activationReceipt,
+        continuity,
       };
     },
   };
@@ -566,7 +597,7 @@ async function readWalletUnlockSourceSession(ctx: FetchRouterApiContext): Promis
     const parsed = await session.parse(headersToRecord(ctx.request.headers));
     if (!parsed.ok) throw new Error('No valid authorization session');
     const ed25519WalletSession = parseRouterAbEd25519WalletSessionClaims(parsed.claims);
-    if (ed25519WalletSession) {
+    if (ed25519WalletSession?.authorizationKind === 'owner_wallet_session') {
       const sessionId = ed25519WalletSession.sid;
       if (!sessionId) throw new Error('Wallet Session app-session binding is missing');
       const principalSubject =
@@ -675,9 +706,14 @@ async function readAndValidateEmailOtpSigningSession(ctx: FetchRouterApiContext)
     };
   }
   const claims = parsed.claims;
+  const parsedEcdsaWalletSession = parseRouterAbEcdsaDerivationWalletSessionClaims(claims);
+  const parsedEd25519WalletSession = parseRouterAbEd25519WalletSessionClaims(claims);
   const walletSession =
-    parseRouterAbEcdsaDerivationWalletSessionClaims(claims) ||
-    parseRouterAbEd25519WalletSessionClaims(claims);
+    parsedEcdsaWalletSession?.authorizationKind === 'owner_wallet_session'
+      ? parsedEcdsaWalletSession
+      : parsedEd25519WalletSession?.authorizationKind === 'owner_wallet_session'
+        ? parsedEd25519WalletSession
+        : null;
   if (!walletSession) {
     return {
       ok: false,
@@ -979,8 +1015,6 @@ export async function handleSessionExchange(ctx: FetchRouterApiContext): Promise
       return await handleHostedWalletExchangeCodeRedeem(ctx, command);
     }
 
-    let googleEmailOtpSessionExchangeJournal: RouterApiSessionExchangeJournal | undefined;
-
     let userId = '';
     let provider: 'oidc' | 'passkey' = 'oidc';
     let providerSubject: string | undefined;
@@ -999,6 +1033,7 @@ export async function handleSessionExchange(ctx: FetchRouterApiContext): Promise
     let passkeyChallengeId: string | undefined;
     let passkeyCredentialIdB64u: string | undefined;
     let passkeyAuthorityRef: WalletAuthAuthorityRef | undefined;
+    let passkeyCustodyUnlock: PasskeySessionCustodyUnlockV1 | undefined;
     let emailOtpAuthorityRef: WalletAuthAuthorityRef | undefined;
     let walletId: string | undefined;
     let googleEmailOtpResolution:
@@ -1106,7 +1141,7 @@ export async function handleSessionExchange(ctx: FetchRouterApiContext): Promise
         : oidcProvider === 'google'
           ? await ctx.service.identity.verifyGoogleLogin({ idToken: command.token })
           : await ctx.service.identity.verifyOidcJwtExchange({ token: command.token });
-      if (!verified.ok || !verified.verified || !verified.userId) {
+      if (!verified.ok) {
         const code = verified.code || 'not_verified';
         const status =
           code === 'internal'
@@ -1205,37 +1240,6 @@ export async function handleSessionExchange(ctx: FetchRouterApiContext): Promise
         providerSubject = googleProviderSubject.value;
         oidcEmail = verifiedGoogleEmail.value;
       }
-      if (isGoogleEmailOtpSessionExchangeCommand(command)) {
-        const claim = await ctx.service.sessionExchanges.claimGoogleEmailOtp({
-          idempotencyKey: command.idempotencyKey,
-          requestFingerprint: await googleEmailOtpSessionExchangeRequestFingerprint({
-            command,
-            origin: ctx.request.headers.get('origin'),
-          }),
-          accountMode: command.accountMode,
-          nowMs: Date.now(),
-        });
-        switch (claim.kind) {
-          case 'claimed':
-          case 'resume':
-            googleEmailOtpSessionExchangeJournal = claim.journal;
-            break;
-          case 'replayed':
-            return replayGoogleEmailOtpSessionExchange(claim.journal);
-          case 'conflict':
-            return json({ ok: false, code: claim.code, message: claim.message }, { status: 409 });
-          case 'uncertain':
-            return json(
-              {
-                ok: false,
-                code: 'storage_temporarily_unavailable',
-                message: 'Session exchange storage is temporarily unavailable',
-                retryAfterMs: 250,
-              },
-              { status: 503 },
-            );
-        }
-      }
       try {
         if (isGoogleEmailOtpExchange) {
           const scoped = await requireRuntimePolicyScopeForOidcWallet();
@@ -1328,24 +1332,16 @@ export async function handleSessionExchange(ctx: FetchRouterApiContext): Promise
           });
         }
       } catch (e: any) {
-        const transientD1Reset = isTransientD1StorageReset(e);
-        const code = transientD1Reset
-          ? 'storage_temporarily_unavailable'
-          : typeof e?.code === 'string' && e.code
-            ? e.code
-            : 'internal';
-        const status = transientD1Reset
-          ? 503
-          : code === 'not_found'
+        const code = typeof e?.code === 'string' && e.code ? e.code : 'internal';
+        const status =
+          code === 'not_found'
             ? 404
             : code === 'invalid_body'
               ? 400
               : code === 'already_linked' || code === 'stale_identity_mapping'
                 ? 409
                 : 500;
-        const message = transientD1Reset
-          ? 'Session exchange storage is temporarily unavailable'
-          : e?.message || 'Failed to resolve OIDC wallet id';
+        const message = e?.message || 'Failed to resolve OIDC wallet id';
         await emitSessionExchangeFailed(ctx, {
           status,
           code,
@@ -1354,15 +1350,7 @@ export async function handleSessionExchange(ctx: FetchRouterApiContext): Promise
           sessionKind,
           userId,
         });
-        return json(
-          {
-            ok: false,
-            code,
-            message,
-            ...(transientD1Reset ? { retryAfterMs: 250 } : {}),
-          },
-          { status },
-        );
+        return json({ ok: false, code, message }, { status });
       }
       if (isGoogleEmailOtpExchange && oidcAccountMode === 'login') {
         const enrollment = await ctx.service.emailOtp.readEmailOtpEnrollment({
@@ -1397,7 +1385,7 @@ export async function handleSessionExchange(ctx: FetchRouterApiContext): Promise
         expected_origin: expectedOrigin,
       });
       recordSessionExchangeTiming(timings, 'webauthn_verification', webauthnStartedAt);
-      if (!verified.ok || !verified.verified || !verified.userId) {
+      if (!verified.ok) {
         const code = verified.code || 'not_verified';
         const status = code === 'internal' ? 500 : code === 'invalid_body' ? 400 : 401;
         await emitSessionExchangeFailed(ctx, {
@@ -1416,8 +1404,7 @@ export async function handleSessionExchange(ctx: FetchRouterApiContext): Promise
       walletId = userId;
       provider = 'passkey';
       passkeyChallengeId = challengeId;
-      passkeyCredentialIdB64u =
-        command.webauthnAuthentication.rawId || command.webauthnAuthentication.id;
+      passkeyCredentialIdB64u = verified.credentialIdB64u;
       passkeyAuthorityRef = await walletAuthAuthorityRef({
         authority: buildPasskeyWalletAuthAuthority({
           walletId: userId,
@@ -1425,6 +1412,56 @@ export async function handleSessionExchange(ctx: FetchRouterApiContext): Promise
           credentialIdB64u: passkeyCredentialIdB64u,
         }),
       });
+      const custodyRpId = parseWebAuthnRpId(verified.rpId);
+      const custodyCredentialId = parseWebAuthnCredentialIdB64u(verified.credentialIdB64u);
+      if (!custodyRpId.ok || !custodyCredentialId.ok) {
+        throw new Error('Verified passkey custody identity is invalid');
+      }
+      const custodyEnvelope = await ctx.service.passkeyCustody.readVerifiedFactorCustody({
+        walletId: walletIdFromString(verified.userId),
+        factor: {
+          kind: 'passkey',
+          rpId: custodyRpId.value,
+          credentialIdB64u: custodyCredentialId.value,
+        },
+      });
+      if (custodyEnvelope.kind !== 'active') {
+        throw new Error('Verified passkey has no unique active wallet custody envelope');
+      }
+      let ed25519: PasskeySessionCustodyUnlockV1['ed25519'] = { kind: 'absent' };
+      if (verified.ed25519.kind === 'active') {
+        const yaoRuntime = ctx.opts.routerAbEd25519YaoProduct;
+        if (!yaoRuntime) {
+          throw new Error('Ed25519 Yao product is not configured');
+        }
+        const capability = await yaoRuntime.resolveActiveCapability({
+          kind: 'router_ab_ed25519_yao_active_capability_lookup_v1',
+          walletId: userId,
+          nearEd25519SigningKeyId: verified.ed25519.nearEd25519SigningKeyId,
+          signerSlot: verified.ed25519.signerSlot,
+          signingWorkerId: verified.ed25519.relayerKeyId,
+          participantIds: verified.ed25519.participantIds,
+        });
+        if (!capability.ok) {
+          throw new Error(capability.message);
+        }
+        ed25519 = {
+          kind: 'active',
+          nearAccountId: verified.ed25519.nearAccountId,
+          nearEd25519SigningKeyId: verified.ed25519.nearEd25519SigningKeyId,
+          signerSlot: verified.ed25519.signerSlot,
+          publicKey: verified.ed25519.publicKey,
+          relayerKeyId: verified.ed25519.relayerKeyId,
+          participantIds: verified.ed25519.participantIds,
+          capability: capability.capability,
+        };
+      }
+      passkeyCustodyUnlock = {
+        kind: 'wallet_custody_passkey_login_v1',
+        envelope: custodyEnvelope.envelope,
+        storeVersion: custodyEnvelope.storeVersion,
+        ed25519,
+      };
     }
 
     if (!userId) {
@@ -1517,16 +1554,10 @@ export async function handleSessionExchange(ctx: FetchRouterApiContext): Promise
     try {
       principalId = requiredAuthorizationValue(parsePrincipalId(userId));
       seamsSessionId = requiredAuthorizationValue(
-        parseSeamsSessionId(
-          googleEmailOtpSessionExchangeJournal?.prepared.seamsSessionId ||
-            `ses_${secureRandomBase64Url(24, 'Seams Sessions')}`,
-        ),
+        parseSeamsSessionId(`ses_${secureRandomBase64Url(24, 'Seams Sessions')}`),
       );
       deviceId = requiredAuthorizationValue(
-        parseDeviceId(
-          googleEmailOtpSessionExchangeJournal?.prepared.deviceId ||
-            `dev_${secureRandomBase64Url(18, 'session devices')}`,
-        ),
+        parseDeviceId(`dev_${secureRandomBase64Url(18, 'session devices')}`),
       );
       normalizedAppSessionVersion = requiredAuthorizationValue(
         parseAppSessionVersion(appSessionVersion),
@@ -1600,37 +1631,11 @@ export async function handleSessionExchange(ctx: FetchRouterApiContext): Promise
     if (emailOtpAuthorityRef) {
       sessionClaims.walletAuthAuthorityRef = emailOtpAuthorityRef;
     }
-    let jwt = '';
-    let sessionExpiresAtMs = Number.NaN;
-    const persistedJwt = googleEmailOtpSessionExchangeJournal?.phaseData.jwt;
-    const persistedExpiresAtMs = googleEmailOtpSessionExchangeJournal?.phaseData.sessionExpiresAtMs;
-    if (typeof persistedJwt === 'string' && Number.isSafeInteger(persistedExpiresAtMs)) {
-      jwt = persistedJwt;
-      sessionExpiresAtMs = Number(persistedExpiresAtMs);
-    } else {
-      const jwtSigningStartedAt = performance.now();
-      jwt = await session.signJwt(userId, sessionClaims);
-      recordSessionExchangeTiming(timings, 'jwt_signing', jwtSigningStartedAt);
-      const signedSessionExpiresAt = deriveJwtExpiresAtIso(jwt);
-      sessionExpiresAtMs = signedSessionExpiresAt ? Date.parse(signedSessionExpiresAt) : Number.NaN;
-      if (googleEmailOtpSessionExchangeJournal) {
-        const checkpoint = await ctx.service.sessionExchanges.checkpoint({
-          key: googleEmailOtpSessionExchangeJournal.idempotencyKey,
-          expectedVersion: googleEmailOtpSessionExchangeJournal.version,
-          phase: 'session_prepared',
-          data: { jwt, sessionExpiresAtMs },
-        });
-        if (checkpoint.kind === 'stored' || checkpoint.kind === 'replayed') {
-          googleEmailOtpSessionExchangeJournal = checkpoint.journal;
-          if (checkpoint.kind === 'replayed') {
-            return replayGoogleEmailOtpSessionExchange(checkpoint.journal);
-          }
-        } else {
-          return sessionExchangeMutationFailureResponse(checkpoint);
-        }
-      }
-    }
+    const jwtSigningStartedAt = performance.now();
+    const jwt = await session.signJwt(userId, sessionClaims);
+    recordSessionExchangeTiming(timings, 'jwt_signing', jwtSigningStartedAt);
     const sessionExpiresAt = deriveJwtExpiresAtIso(jwt);
+    const sessionExpiresAtMs = sessionExpiresAt ? Date.parse(sessionExpiresAt) : Number.NaN;
     if (!Number.isSafeInteger(sessionExpiresAtMs)) {
       throw new Error('signed app session did not contain a valid expiry');
     }
@@ -1648,7 +1653,7 @@ export async function handleSessionExchange(ctx: FetchRouterApiContext): Promise
         },
         appSessionVersion: normalizedAppSessionVersion,
         assurance: 'session',
-        createdAtMs: googleEmailOtpSessionExchangeJournal?.prepared.createdAtMs || Date.now(),
+        createdAtMs: Date.now(),
         lifecycle: {
           kind: 'active',
           expiresAtMs: sessionExpiresAtMs,
@@ -1657,6 +1662,8 @@ export async function handleSessionExchange(ctx: FetchRouterApiContext): Promise
     );
     recordSessionExchangeTiming(timings, 'active_session_commit', activeSessionCommitStartedAt);
     let ecdsaSession: RouterAbEcdsaPostRegistrationSessionActivationResponseV1 | undefined;
+    let ecdsaActivationReceipt: WalletUnlockEcdsaCustodySignerV1['activationReceipt'] | undefined;
+    let ecdsaCustody: WalletUnlockEcdsaAuthoredRequest['continuity'] | undefined;
     if (
       command.kind === 'passkey_assertion' &&
       command.ecdsaActivation.kind === 'activate_first_ecdsa_wallet_session'
@@ -1664,16 +1671,46 @@ export async function handleSessionExchange(ctx: FetchRouterApiContext): Promise
       if (!passkeyAuthorityRef) {
         throw new Error('verified passkey exchange did not resolve an authority');
       }
+      if (command.walletId !== userId) {
+        return json(
+          {
+            ok: false,
+            code: 'scope_mismatch',
+            message: 'Passkey ECDSA policy wallet does not match the verified passkey wallet',
+          },
+          { status: 403 },
+        );
+      }
+      const authored = await authorWalletUnlockEcdsaRequest(
+        ctx,
+        userId,
+        command.ecdsaActivation.policy,
+      );
+      if (!authored.ok) {
+        await emitSessionExchangeFailed(ctx, {
+          status: authored.status,
+          code: authored.code,
+          message: authored.message,
+          exchangeType,
+          sessionKind,
+          userId,
+        });
+        return json(
+          { ok: false, code: authored.code, message: authored.message },
+          { status: authored.status },
+        );
+      }
       const ecdsaActivationStartedAt = performance.now();
       const activationResponse = await handleStrictEcdsaSessionActivation({
         ctx,
-        body: command.ecdsaActivation.request,
+        body: authored.value.request,
         source: 'verified_passkey_session_exchange',
         authorization: {
           walletId: userId,
           principalId,
           authorizationSessionId: seamsSessionId,
           authority: passkeyAuthorityRef,
+          authSource,
         },
       });
       recordSessionExchangeTiming(timings, 'ecdsa_activation', ecdsaActivationStartedAt);
@@ -1691,6 +1728,8 @@ export async function handleSessionExchange(ctx: FetchRouterApiContext): Promise
         return json(activationBody, { status: activationResponse.status });
       }
       ecdsaSession = parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1(activationBody);
+      ecdsaActivationReceipt = authored.value.activationReceipt;
+      ecdsaCustody = authored.value.continuity;
     }
     if (provider === 'passkey') {
       const strongAuthCommitStartedAt = performance.now();
@@ -1750,6 +1789,9 @@ export async function handleSessionExchange(ctx: FetchRouterApiContext): Promise
     const responseBody = {
       ok: true,
       ...(ecdsaSession ? { ecdsaSession } : {}),
+      ...(ecdsaActivationReceipt ? { ecdsaActivationReceipt } : {}),
+      ...(ecdsaCustody ? { ecdsaCustody } : {}),
+      ...(passkeyCustodyUnlock ? { walletCustody: passkeyCustodyUnlock } : {}),
       session: {
         kind: 'app_session_v1',
         userId,
@@ -1808,6 +1850,13 @@ export async function handleSessionExchange(ctx: FetchRouterApiContext): Promise
         ...(oidcName ? { name: oidcName } : {}),
       },
     };
+    await dispatchSessionExchangeSucceeded(ctx, {
+      provider,
+      sessionKind,
+      appSessionVersion,
+      userId,
+      ...(passkeyChallengeId ? { passkeyChallengeId } : {}),
+    });
     recordSessionExchangeTiming(timings, 'total', exchangeStartedAt);
     ctx.logger.debug('[router-api][session-exchange] timing', {
       provider,
@@ -1816,39 +1865,6 @@ export async function handleSessionExchange(ctx: FetchRouterApiContext): Promise
       timings,
     });
     const serverTiming = sessionExchangeServerTiming(timings);
-    const terminalResponseBody = sessionKind === 'cookie' ? responseBody : { ...responseBody, jwt };
-    if (googleEmailOtpSessionExchangeJournal) {
-      const setCookie = sessionKind === 'cookie' ? session.buildSetCookie(jwt) : undefined;
-      const completed = await ctx.service.sessionExchanges.complete({
-        key: googleEmailOtpSessionExchangeJournal.idempotencyKey,
-        expectedVersion: googleEmailOtpSessionExchangeJournal.version,
-        response: {
-          status: 200,
-          bodyText: JSON.stringify(terminalResponseBody),
-          ...(setCookie ? { setCookie } : {}),
-        },
-        expiresAtMs: Date.now() + GOOGLE_EMAIL_OTP_SESSION_EXCHANGE_REPLAY_TTL_MS,
-      });
-      if (completed.kind === 'stored' || completed.kind === 'replayed') {
-        if (completed.kind === 'stored') {
-          await dispatchSessionExchangeSucceeded(ctx, {
-            provider,
-            sessionKind,
-            appSessionVersion,
-            userId,
-          });
-        }
-        return replayGoogleEmailOtpSessionExchange(completed.journal);
-      }
-      return sessionExchangeMutationFailureResponse(completed);
-    }
-    await dispatchSessionExchangeSucceeded(ctx, {
-      provider,
-      sessionKind,
-      appSessionVersion,
-      userId,
-      ...(passkeyChallengeId ? { passkeyChallengeId } : {}),
-    });
     if (sessionKind === 'cookie') {
       return json(responseBody, {
         status: 200,
@@ -1858,25 +1874,16 @@ export async function handleSessionExchange(ctx: FetchRouterApiContext): Promise
         },
       });
     }
-    return json(terminalResponseBody, { status: 200, headers: { 'Server-Timing': serverTiming } });
+    return json(
+      { ...responseBody, jwt },
+      { status: 200, headers: { 'Server-Timing': serverTiming } },
+    );
   } catch (error: unknown) {
-    const transientD1Reset = isTransientD1StorageReset(error);
     await emitSessionExchangeFailed(ctx, {
-      status: transientD1Reset ? 503 : 500,
-      code: transientD1Reset ? 'storage_temporarily_unavailable' : 'internal',
+      status: 500,
+      code: 'internal',
       message: error instanceof Error ? error.message : String(error),
     });
-    if (transientD1Reset) {
-      return json(
-        {
-          ok: false,
-          code: 'storage_temporarily_unavailable',
-          message: 'Session exchange storage is temporarily unavailable',
-          retryAfterMs: 250,
-        },
-        { status: 503 },
-      );
-    }
     return json(
       {
         ok: false,
@@ -2107,9 +2114,14 @@ async function readAndValidateWalletSessionStatusAuthorization(
     };
   }
 
+  const parsedEcdsaWalletSession = parseRouterAbEcdsaDerivationWalletSessionClaims(parsed.claims);
+  const parsedEd25519WalletSession = parseRouterAbEd25519WalletSessionClaims(parsed.claims);
   const walletSession =
-    parseRouterAbEcdsaDerivationWalletSessionClaims(parsed.claims) ||
-    parseRouterAbEd25519WalletSessionClaims(parsed.claims);
+    parsedEcdsaWalletSession?.authorizationKind === 'owner_wallet_session'
+      ? parsedEcdsaWalletSession
+      : parsedEd25519WalletSession?.authorizationKind === 'owner_wallet_session'
+        ? parsedEd25519WalletSession
+        : null;
   if (!walletSession) {
     return {
       ok: false,
@@ -2327,6 +2339,15 @@ export async function handleWalletUnlockVerify(
     body,
     origin: String(ctx.request.headers.get('origin') || '').trim() || undefined,
     service: ctx.service.walletUnlock,
+    resolveEmailOtpCustody: async ({ walletId, enrollmentId, enrollmentSealKeyVersion }) =>
+      await ctx.service.passkeyCustody.readVerifiedFactorCustody({
+        walletId: walletIdFromString(walletId),
+        factor: {
+          kind: 'email_otp',
+          enrollmentId,
+          enrollmentSealKeyVersion,
+        },
+      }),
     capabilityContext,
     ecdsaSession,
     emitRouterApiWebhook: async (event) => {
@@ -2500,32 +2521,134 @@ export async function handleWalletEmailOtpSigningSessionChallenge(
   return json(response.body, { status: response.status });
 }
 
-export async function handleWalletEmailOtpDeviceRecoveryChallenge(
+export async function handleWalletEmailOtpRecoveryBootstrapChallenge(
   ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
-  if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/recovery-challenge') {
+  if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/recovery-bootstrap/challenge') {
     return null;
   }
   const body = await readJson(ctx.request);
-  const validated = await readAndValidateAppSession(ctx);
-  if (!validated.ok) {
-    await maybeEmitWarmExpiredFromValidationFailure({
-      ctx,
-      validated,
-      source: 'wallet.email_otp.recovery_challenge',
-    });
-    return validated.response;
+  const record = isPlainObject(body) ? body : {};
+  const walletId = typeof record.walletId === 'string' ? record.walletId.trim() : '';
+  const orgId = typeof record.orgId === 'string' ? record.orgId.trim() : '';
+  if (!walletId || !orgId) {
+    return json(
+      { ok: false, code: 'recovery_unavailable', message: 'wallet recovery is unavailable' },
+      { status: 404 },
+    );
   }
-  const response = await handleEmailOtpDeviceRecoveryChallengeRoute({
-    body,
-    claims: validated.claims,
-    userId: validated.userId,
-    appSessionVersion: validated.appSessionVersion,
+  const result = await ctx.service.emailOtp.createEmailOtpWalletRecoveryBootstrapChallenge({
+    walletId,
+    orgId,
     clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
     requestOrigin: ctx.request.headers.get('origin'),
-    service: routerApiEmailOtpRouteService(ctx.service),
   });
-  return json(response.body, { status: response.status });
+  if (!result.ok) {
+    return json(
+      { ok: false, code: 'recovery_unavailable', message: 'wallet recovery is unavailable' },
+      { status: 404 },
+    );
+  }
+  return json(
+    {
+      ok: true,
+      challengeId: result.challengeId,
+      otpChannel: result.otpChannel,
+      expiresAtMs: result.expiresAtMs,
+      emailHint: result.emailHint,
+    },
+    { status: 200 },
+  );
+}
+
+/** Verifies the recovery-only challenge and returns a one-purpose grant. */
+export async function handleWalletEmailOtpRecoveryBootstrapVerify(
+  ctx: FetchRouterApiContext,
+): Promise<Response | null> {
+  if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/recovery-bootstrap/verify') {
+    return null;
+  }
+  const body = await readJson(ctx.request);
+  const record = isPlainObject(body) ? body : {};
+  const walletId = typeof record.walletId === 'string' ? record.walletId.trim() : '';
+  const orgId = typeof record.orgId === 'string' ? record.orgId.trim() : '';
+  const challengeId = typeof record.challengeId === 'string' ? record.challengeId.trim() : '';
+  const otpCode = typeof record.otpCode === 'string' ? record.otpCode.trim() : '';
+  if (!walletId || !orgId || !challengeId || !otpCode) {
+    return json(
+      {
+        ok: false,
+        code: 'challenge_expired_or_invalid',
+        message: 'Email OTP challenge expired or invalid',
+      },
+      { status: 401 },
+    );
+  }
+  const result = await ctx.service.emailOtp.verifyEmailOtpWalletRecoveryBootstrap({
+    walletId,
+    orgId,
+    challengeId,
+    otpCode,
+    clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
+  });
+  if (!result.ok) {
+    return json(
+      { ok: false, code: result.code, message: result.message },
+      { status: result.code === 'invalid_body' ? 400 : 401 },
+    );
+  }
+  const replaceableCredentials = await listWalletRecoveryBootstrapCredentialChoices(
+    ctx,
+    result.walletId,
+  );
+  if (!replaceableCredentials) {
+    return json(
+      { ok: false, code: 'recovery_unavailable', message: 'wallet recovery is unavailable' },
+      { status: 503 },
+    );
+  }
+  return json(
+    {
+      ok: true,
+      walletId: result.walletId,
+      challengeId: result.challengeId,
+      recoveryBootstrapGrant: result.recoveryBootstrapGrant,
+      recoveryBootstrapGrantExpiresAtMs: result.recoveryBootstrapGrantExpiresAtMs,
+      replaceableCredentials,
+    },
+    { status: 200 },
+  );
+}
+
+async function listWalletRecoveryBootstrapCredentialChoices(
+  ctx: FetchRouterApiContext,
+  walletId: string,
+): Promise<readonly { readonly credentialIdB64u: string; readonly label?: string }[] | null> {
+  const parsedWalletId = parseWalletId(walletId);
+  if (!parsedWalletId.ok) return null;
+  try {
+    const credentials = await ctx.service.passkeyCustody.listWalletCredentials({
+      walletId: parsedWalletId.value,
+    });
+    return credentials.flatMap((credential) => {
+      if (
+        credential.index.factor.kind !== 'passkey' ||
+        credential.index.lifecycle.state !== 'active'
+      ) {
+        return [];
+      }
+      return [
+        {
+          credentialIdB64u: credential.index.factor.credentialIdB64u,
+          ...((credential.index.deviceLabel ?? credential.activity.label)
+            ? { label: credential.index.deviceLabel ?? credential.activity.label }
+            : {}),
+        },
+      ];
+    });
+  } catch {
+    return null;
+  }
 }
 
 export async function handleWalletEmailOtpLoginVerify(
@@ -2543,42 +2666,6 @@ export async function handleWalletEmailOtpLoginVerify(
     return validated.response;
   }
   const response = await handleEmailOtpLoginVerifyRoute({
-    body,
-    claims: validated.claims,
-    userId: validated.userId,
-    appSessionVersion: validated.appSessionVersion,
-    clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
-    service: routerApiEmailOtpRouteService(ctx.service),
-    opts: ctx.opts,
-    emitWebhook: async (event) => {
-      await emitEmailOtpWebhookDescriptor(ctx, {
-        descriptor: event.descriptor,
-        claims: event.claims,
-        userId: event.userId,
-        ...(event.walletId ? { walletId: event.walletId } : {}),
-      });
-    },
-  });
-  return json(response.body, { status: response.status });
-}
-
-export async function handleWalletEmailOtpLoginVerifyAndUnseal(
-  ctx: FetchRouterApiContext,
-): Promise<Response | null> {
-  if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/login/verify-and-unseal') {
-    return null;
-  }
-  const body = await readJson(ctx.request);
-  const validated = await readAndValidateAppSession(ctx);
-  if (!validated.ok) {
-    await maybeEmitWarmExpiredFromValidationFailure({
-      ctx,
-      validated,
-      source: 'wallet.email_otp.login.verify_and_unseal',
-    });
-    return validated.response;
-  }
-  const response = await handleEmailOtpLoginVerifyAndUnsealRoute({
     body,
     claims: validated.claims,
     userId: validated.userId,
@@ -2628,189 +2715,25 @@ export async function handleWalletEmailOtpSigningSessionVerify(
   return json(response.body, { status: response.status });
 }
 
-export async function handleWalletEmailOtpRecoveryWrappedEscrows(
+export async function handleWalletEmailOtpFactorRelease(
   ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
-  if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/recovery-wrapped-escrows') {
-    return null;
-  }
+  if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/factor-release') return null;
   const body = await readJson(ctx.request);
   const validated = await readAndValidateAppSession(ctx);
   if (!validated.ok) {
     await maybeEmitWarmExpiredFromValidationFailure({
       ctx,
       validated,
-      source: 'wallet.email_otp.recovery_wrapped_escrows',
+      source: 'wallet.email_otp.factor_release',
     });
     return validated.response;
   }
-  const response = await handleEmailOtpRecoveryWrappedEscrowsRoute({
+  const response = await handleEmailOtpFactorReleaseRoute({
     body,
     claims: validated.claims,
     userId: validated.userId,
     appSessionVersion: validated.appSessionVersion,
-    clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
-    service: routerApiEmailOtpRouteService(ctx.service),
-  });
-  return json(response.body, { status: response.status });
-}
-
-export async function handleWalletEmailOtpRecoveryKeyConsume(
-  ctx: FetchRouterApiContext,
-): Promise<Response | null> {
-  if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/recovery-key/consume') {
-    return null;
-  }
-  const body = await readJson(ctx.request);
-  const validated = await readAndValidateAppSession(ctx);
-  if (!validated.ok) {
-    await maybeEmitWarmExpiredFromValidationFailure({
-      ctx,
-      validated,
-      source: 'wallet.email_otp.recovery_key.consume',
-    });
-    return validated.response;
-  }
-  const response = await handleEmailOtpRecoveryKeyConsumeRoute({
-    body,
-    claims: validated.claims,
-    userId: validated.userId,
-    appSessionVersion: validated.appSessionVersion,
-    clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
-    service: routerApiEmailOtpRouteService(ctx.service),
-  });
-  return json(response.body, { status: response.status });
-}
-
-export async function handleWalletEmailOtpRecoveryKeyStatus(
-  ctx: FetchRouterApiContext,
-): Promise<Response | null> {
-  if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/recovery-key/status') {
-    return null;
-  }
-  const body = await readJson(ctx.request);
-  const validated = await readAndValidateAppSession(ctx);
-  if (!validated.ok) {
-    await maybeEmitWarmExpiredFromValidationFailure({
-      ctx,
-      validated,
-      source: 'wallet.email_otp.recovery_key.status',
-    });
-    return validated.response;
-  }
-  const response = await handleEmailOtpRecoveryKeyStatusRoute({
-    body,
-    claims: validated.claims,
-    userId: validated.userId,
-    appSessionVersion: validated.appSessionVersion,
-    clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
-    service: routerApiEmailOtpRouteService(ctx.service),
-  });
-  return json(response.body, { status: response.status });
-}
-
-export async function handleWalletEmailOtpRecoveryKeyRotate(
-  ctx: FetchRouterApiContext,
-): Promise<Response | null> {
-  if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/recovery-key/rotate') {
-    return null;
-  }
-  const body = await readJson(ctx.request);
-  const validated = await readAndValidateAppSession(ctx);
-  if (!validated.ok) {
-    await maybeEmitWarmExpiredFromValidationFailure({
-      ctx,
-      validated,
-      source: 'wallet.email_otp.recovery_key.rotate',
-    });
-    return validated.response;
-  }
-  const response = await handleEmailOtpRecoveryKeyRotateRoute({
-    body,
-    claims: validated.claims,
-    userId: validated.userId,
-    appSessionVersion: validated.appSessionVersion,
-    clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
-    service: routerApiEmailOtpRouteService(ctx.service),
-  });
-  return json(response.body, { status: response.status });
-}
-
-export async function handleWalletEmailOtpRecoveryKeyAttemptFailed(
-  ctx: FetchRouterApiContext,
-): Promise<Response | null> {
-  if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/recovery-key/attempt-failed') {
-    return null;
-  }
-  const body = await readJson(ctx.request);
-  const validated = await readAndValidateAppSession(ctx);
-  if (!validated.ok) {
-    await maybeEmitWarmExpiredFromValidationFailure({
-      ctx,
-      validated,
-      source: 'wallet.email_otp.recovery_key.attempt_failed',
-    });
-    return validated.response;
-  }
-  const response = await handleEmailOtpRecoveryKeyAttemptFailedRoute({
-    body,
-    claims: validated.claims,
-    userId: validated.userId,
-    appSessionVersion: validated.appSessionVersion,
-    clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
-    service: routerApiEmailOtpRouteService(ctx.service),
-  });
-  return json(response.body, { status: response.status });
-}
-
-export async function handleWalletEmailOtpUnseal(
-  ctx: FetchRouterApiContext,
-): Promise<Response | null> {
-  if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/unseal') return null;
-  const body = await readJson(ctx.request);
-  const validated = await readAndValidateAppSession(ctx);
-  if (!validated.ok) {
-    await maybeEmitWarmExpiredFromValidationFailure({
-      ctx,
-      validated,
-      source: 'wallet.email_otp.unseal',
-    });
-    return validated.response;
-  }
-  const response = await handleEmailOtpUnsealRoute({
-    body,
-    claims: validated.claims,
-    userId: validated.userId,
-    appSessionVersion: validated.appSessionVersion,
-    clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
-    service: routerApiEmailOtpRouteService(ctx.service),
-    emitWebhook: async (event) => {
-      await emitEmailOtpWebhookDescriptor(ctx, {
-        descriptor: event.descriptor,
-        claims: event.claims,
-        userId: event.userId,
-        ...(event.walletId ? { walletId: event.walletId } : {}),
-      });
-    },
-  });
-  return json(response.body, { status: response.status });
-}
-
-export async function handleWalletEmailOtpSigningSessionUnseal(
-  ctx: FetchRouterApiContext,
-): Promise<Response | null> {
-  if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/signing-session/unseal') {
-    return null;
-  }
-  const body = await readJson(ctx.request);
-  const validated = await readAndValidateEmailOtpSigningSession(ctx);
-  if (!validated.ok) return validated.response;
-  const response = await handleEmailOtpSigningSessionUnsealRoute({
-    body,
-    claims: validated.claims,
-    userId: validated.userId,
-    appSessionVersion: validated.appSessionVersion,
-    sessionHash: validated.sessionHash,
     clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
     service: routerApiEmailOtpRouteService(ctx.service),
     emitWebhook: async (event) => {

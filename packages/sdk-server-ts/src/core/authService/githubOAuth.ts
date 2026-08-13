@@ -49,7 +49,7 @@ function githubHeaders(accessToken: string): HeadersInit {
   return {
     Accept: 'application/vnd.github+json',
     Authorization: `Bearer ${accessToken}`,
-    'User-Agent': 'seams-dashboard-auth',
+    'User-Agent': 'seams-sdk-auth',
     'X-GitHub-Api-Version': GITHUB_API_VERSION,
   };
 }

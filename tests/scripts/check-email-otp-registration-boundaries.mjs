@@ -66,20 +66,9 @@ function checkGoogleSsoEmailOtpRegistrationDoesNotIssueLoginChallenges() {
 }
 
 function checkDirectGoogleSsoEmailOtpRegistrationBackupDoesNotManufactureChallengeId() {
-  const source = readRepoFile('packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts');
-  const backupMaterialAdapter = extractRequiredBlock(
-    source,
-    'function googleEmailOtpRegistrationMaterialToBackupEnrollment',
-    'async function resolveEmailOtpRegistrationEnrollmentMaterial',
-    'Google Email OTP registration backup material adapter',
+  const source = readRepoFile(
+    'packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts',
   );
-
-  assert.match(
-    backupMaterialAdapter,
-    /\bregistrationAuthorityId:\s*input\.registrationAuthorityId\b/,
-    'backup material adapter must preserve registrationAuthorityId',
-  );
-  assertDoesNotMatch(backupMaterialAdapter, /\bchallengeId\b/, 'backup material adapter');
   assertDoesNotMatch(
     source,
     /\bchallengeId:\s*input\.registrationAuthorityId\b/,
@@ -154,7 +143,10 @@ function checkOtpOnlyRegistrationOfferParserRejectsMixedProtocolFields() {
   ];
 
   for (const marker of requiredMarkers) {
-    assert.ok(source.includes(marker), `registration offer parser missing rejection marker ${marker}`);
+    assert.ok(
+      source.includes(marker),
+      `registration offer parser missing rejection marker ${marker}`,
+    );
   }
 }
 

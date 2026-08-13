@@ -1,4 +1,11 @@
 use crate::*;
+use router_ab_core::{
+    RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningFinalizeRequestV1,
+    RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningPrepareResponseV1,
+    RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningRequestV1,
+    RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningResponseV1,
+    RouterAbEcdsaDerivationSignatureSchemeV1,
+};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
@@ -17,6 +24,18 @@ use signer_core::near_threshold_ed25519::{
 mod private_d1;
 #[cfg(feature = "workers-rs")]
 pub use private_d1::*;
+mod ecdsa_lane;
+pub use ecdsa_lane::*;
+#[cfg(feature = "workers-rs")]
+mod ed25519_lane_activation;
+#[cfg(feature = "workers-rs")]
+pub use ed25519_lane_activation::*;
+#[cfg(feature = "workers-rs")]
+mod ed25519_lane_retirement;
+#[cfg(feature = "workers-rs")]
+pub use ed25519_lane_retirement::*;
+mod lane_private_d1;
+pub use lane_private_d1::*;
 
 /// Platform-neutral signer logic behind the Cloudflare transport wrapper.
 pub trait CloudflareSignerWireHandlerV1 {
@@ -63,6 +82,14 @@ pub trait CloudflareSigningWorkerRouterAbEcdsaDerivationEvmDigestFinalizeHandler
     ) -> RouterAbProtocolResult<RouterAbEcdsaDerivationEvmDigestSigningResponseV1>;
 }
 
+/// SigningWorker finalize logic for a lane-native linked-device ECDSA request.
+pub trait CloudflareSigningWorkerLinkedDeviceEcdsaFinalizeHandlerV1 {
+    fn handle_linked_device_ecdsa_finalize_request_v1(
+        &self,
+        request: CloudflareSigningWorkerMaterializedLinkedDeviceEcdsaFinalizeRequestV1,
+    ) -> RouterAbProtocolResult<RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningResponseV1>;
+}
+
 fn cloudflare_signing_worker_digest_hex_v1(digest: PublicDigest32) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut encoded = String::with_capacity(64);
@@ -81,6 +108,30 @@ pub enum CloudflareSigningWorkerEcdsaPresignRequestedStageV1 {
     Presign,
 }
 
+const MAX_ECDSA_PRESIGN_SESSION_TTL_MS: u64 = 15 * 60 * 1_000;
+
+fn validate_presign_session_expiry(
+    field: &str,
+    expires_at_ms: u64,
+    now_unix_ms: u64,
+) -> RouterAbProtocolResult<()> {
+    require_positive_ms(field, expires_at_ms)?;
+    require_positive_ms("ECDSA presign session now_unix_ms", now_unix_ms)?;
+    if expires_at_ms <= now_unix_ms {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ExpiredLocalRequest,
+            "ECDSA presign session request expired",
+        ));
+    }
+    if expires_at_ms.saturating_sub(now_unix_ms) > MAX_ECDSA_PRESIGN_SESSION_TTL_MS {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            "ECDSA presign session expiry exceeds the server maximum",
+        ));
+    }
+    Ok(())
+}
+
 /// Private request to create a SigningWorker-owned ECDSA presign session.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -94,14 +145,11 @@ impl CloudflareSigningWorkerEcdsaPresignSessionInitRequestV1 {
     pub fn validate_at(&self, now_unix_ms: u64) -> RouterAbProtocolResult<()> {
         self.scope.validate()?;
         require_non_empty("presign_session_id", &self.presign_session_id)?;
-        require_positive_ms("ECDSA presign session expires_at_ms", self.expires_at_ms)?;
-        require_positive_ms("ECDSA presign session now_unix_ms", now_unix_ms)?;
-        if self.expires_at_ms <= now_unix_ms {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::ExpiredLocalRequest,
-                "ECDSA presign session request expired",
-            ));
-        }
+        validate_presign_session_expiry(
+            "ECDSA presign session expires_at_ms",
+            self.expires_at_ms,
+            now_unix_ms,
+        )?;
         Ok(())
     }
 }
@@ -121,17 +169,85 @@ impl CloudflareSigningWorkerEcdsaPresignSessionStepRequestV1 {
     pub fn validate_at(&self, now_unix_ms: u64) -> RouterAbProtocolResult<()> {
         self.scope.validate()?;
         require_non_empty("presign_session_id", &self.presign_session_id)?;
-        require_positive_ms("ECDSA presign session expires_at_ms", self.expires_at_ms)?;
-        require_positive_ms("ECDSA presign session now_unix_ms", now_unix_ms)?;
-        if self.expires_at_ms <= now_unix_ms {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::ExpiredLocalRequest,
-                "ECDSA presign session request expired",
-            ));
-        }
+        validate_presign_session_expiry(
+            "ECDSA presign session expires_at_ms",
+            self.expires_at_ms,
+            now_unix_ms,
+        )?;
         for message in &self.outgoing_messages_b64u {
             let decoded = decode_base64url_bytes_v1("ECDSA presign message", message)?;
             require_non_empty_vec("ECDSA presign message", &decoded)?;
+        }
+        Ok(())
+    }
+}
+
+/// Private request to create a request-bound linked-device ECDSA presign
+/// session. Linked sessions have their own Durable Object map and never enter
+/// the owner presignature pool.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CloudflareSigningWorkerLinkedDeviceEcdsaPresignSessionInitRequestV1 {
+    pub request: RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningRequestV1,
+    pub material_source: CloudflareSigningWorkerNormalSigningMaterialSourceV1,
+    pub presign_session_id: String,
+    pub expires_at_ms: u64,
+}
+
+impl CloudflareSigningWorkerLinkedDeviceEcdsaPresignSessionInitRequestV1 {
+    pub fn validate_at(&self, now_unix_ms: u64) -> RouterAbProtocolResult<()> {
+        self.request.validate_at(now_unix_ms)?;
+        self.material_source
+            .validate_for_linked_ecdsa_scope(&self.request.scope)?;
+        require_non_empty("linked ECDSA presign session id", &self.presign_session_id)?;
+        validate_presign_session_expiry(
+            "linked ECDSA presign session expires_at_ms",
+            self.expires_at_ms,
+            now_unix_ms,
+        )?;
+        if self.expires_at_ms != self.request.expires_at_ms {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ExpiredLocalRequest,
+                "linked ECDSA presign session expiry does not match request",
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Private request to advance a request-bound linked-device ECDSA presign
+/// session.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CloudflareSigningWorkerLinkedDeviceEcdsaPresignSessionStepRequestV1 {
+    pub request: RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningRequestV1,
+    pub material_source: CloudflareSigningWorkerNormalSigningMaterialSourceV1,
+    pub presign_session_id: String,
+    pub requested_stage: CloudflareSigningWorkerEcdsaPresignRequestedStageV1,
+    pub outgoing_messages_b64u: Vec<String>,
+    pub expires_at_ms: u64,
+}
+
+impl CloudflareSigningWorkerLinkedDeviceEcdsaPresignSessionStepRequestV1 {
+    pub fn validate_at(&self, now_unix_ms: u64) -> RouterAbProtocolResult<()> {
+        self.request.validate_at(now_unix_ms)?;
+        self.material_source
+            .validate_for_linked_ecdsa_scope(&self.request.scope)?;
+        require_non_empty("linked ECDSA presign session id", &self.presign_session_id)?;
+        validate_presign_session_expiry(
+            "linked ECDSA presign session expires_at_ms",
+            self.expires_at_ms,
+            now_unix_ms,
+        )?;
+        if self.expires_at_ms != self.request.expires_at_ms {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ExpiredLocalRequest,
+                "linked ECDSA presign session expiry does not match request",
+            ));
+        }
+        for message in &self.outgoing_messages_b64u {
+            let decoded = decode_base64url_bytes_v1("linked ECDSA presign message", message)?;
+            require_non_empty_vec("linked ECDSA presign message", &decoded)?;
         }
         Ok(())
     }
@@ -151,6 +267,11 @@ pub enum CloudflareSigningWorkerEcdsaPresignSessionProgressV1 {
         presign_session_id: String,
         server_presignature_id: String,
         server_big_r33_b64u: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        signing_worker_rerandomization_contribution32_b64u: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        prepared_response:
+            Option<RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningPrepareResponseV1>,
     },
 }
 
@@ -170,6 +291,8 @@ pub struct CloudflareSigningWorkerRouterAbEcdsaDerivationPresignaturePoolPutRequ
     pub server_sigma_share32_b64u: String,
     /// Expiry timestamp in Unix milliseconds.
     pub expires_at_ms: u64,
+    /// Exact active material source selected by the Gateway.
+    pub material_source: CloudflareSigningWorkerNormalSigningMaterialSourceV1,
 }
 
 impl CloudflareSigningWorkerRouterAbEcdsaDerivationPresignaturePoolPutRequestV1 {
@@ -182,6 +305,10 @@ impl CloudflareSigningWorkerRouterAbEcdsaDerivationPresignaturePoolPutRequestV1 
         server_sigma_share32_b64u: impl Into<String>,
         expires_at_ms: u64,
     ) -> RouterAbProtocolResult<Self> {
+        let material_source =
+            CloudflareSigningWorkerNormalSigningMaterialSourceV1::registration_for_ecdsa_scope(
+                &scope,
+            )?;
         let request = Self {
             scope,
             server_presignature_id: server_presignature_id.into(),
@@ -189,6 +316,29 @@ impl CloudflareSigningWorkerRouterAbEcdsaDerivationPresignaturePoolPutRequestV1 
             server_k_share32_b64u: server_k_share32_b64u.into(),
             server_sigma_share32_b64u: server_sigma_share32_b64u.into(),
             expires_at_ms,
+            material_source,
+        };
+        request.validate()?;
+        Ok(request)
+    }
+
+    pub fn new_with_material_source(
+        scope: RouterAbEcdsaDerivationNormalSigningScopeV1,
+        server_presignature_id: impl Into<String>,
+        server_big_r33_b64u: impl Into<String>,
+        server_k_share32_b64u: impl Into<String>,
+        server_sigma_share32_b64u: impl Into<String>,
+        expires_at_ms: u64,
+        material_source: CloudflareSigningWorkerNormalSigningMaterialSourceV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self {
+            scope,
+            server_presignature_id: server_presignature_id.into(),
+            server_big_r33_b64u: server_big_r33_b64u.into(),
+            server_k_share32_b64u: server_k_share32_b64u.into(),
+            server_sigma_share32_b64u: server_sigma_share32_b64u.into(),
+            expires_at_ms,
+            material_source,
         };
         request.validate()?;
         Ok(request)
@@ -197,6 +347,7 @@ impl CloudflareSigningWorkerRouterAbEcdsaDerivationPresignaturePoolPutRequestV1 
     /// Validates request fields without applying wall-clock expiry.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         self.scope.validate()?;
+        self.material_source.validate_for_ecdsa_scope(&self.scope)?;
         require_non_empty("server_presignature_id", &self.server_presignature_id)?;
         decode_base64url_fixed_33_v1("server_big_r33_b64u", &self.server_big_r33_b64u)?;
         decode_base64url_fixed_32_v1("server_k_share32_b64u", &self.server_k_share32_b64u)?;
@@ -254,6 +405,156 @@ impl CloudflareSigningWorkerRouterAbEcdsaDerivationPresignaturePoolPutRequestV1 
     }
 }
 
+/// Exact active material source selected by Gateway admission.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CloudflareSigningWorkerNormalSigningMaterialSourceV1 {
+    /// Owner registration material selected from the SigningWorker activation index.
+    RegistrationActivation {
+        lookup: CloudflareActiveSigningWorkerStateLookupV1,
+    },
+    /// Rotatable lane material selected from the committed active child product.
+    RotatableLane {
+        lookup: CloudflareSigningWorkerNormalSigningLaneMaterialLookupV1,
+        /// Stable group public key for Ed25519/FROST aggregation. This is public
+        /// protocol metadata and never contains private lane material.
+        group_public_key: String,
+    },
+}
+
+impl CloudflareSigningWorkerNormalSigningMaterialSourceV1 {
+    pub fn registration_for_scope(scope: &NormalSigningScopeV1) -> RouterAbProtocolResult<Self> {
+        Ok(Self::RegistrationActivation {
+            lookup: CloudflareActiveSigningWorkerStateLookupV1::from_normal_signing_scope(scope)?,
+        })
+    }
+
+    pub fn registration_for_ecdsa_scope(
+        scope: &RouterAbEcdsaDerivationNormalSigningScopeV1,
+    ) -> RouterAbProtocolResult<Self> {
+        Ok(Self::RegistrationActivation {
+            lookup: CloudflareActiveSigningWorkerStateLookupV1::from_router_ab_ecdsa_derivation_normal_signing_scope(scope)?,
+        })
+    }
+
+    pub fn validate_for_normal_scope(
+        &self,
+        scope: &NormalSigningScopeV1,
+    ) -> RouterAbProtocolResult<()> {
+        scope.validate()?;
+        match self {
+            Self::RegistrationActivation { lookup } => {
+                let expected =
+                    CloudflareActiveSigningWorkerStateLookupV1::from_normal_signing_scope(scope)?;
+                if lookup == &expected {
+                    return Ok(());
+                }
+            }
+            Self::RotatableLane {
+                lookup,
+                group_public_key,
+            } => {
+                lookup.validate()?;
+                require_non_empty("normal-signing lane group_public_key", group_public_key)?;
+                let identity = &lookup.identity;
+                if identity.wallet_id == scope.account_id
+                    && identity.target_material_activation_id
+                        == scope.material_activation.activation_id
+                    && identity.key_family == CloudflareSigningWorkerLaneKeyFamilyV1::Ed25519
+                {
+                    return Ok(());
+                }
+            }
+        }
+        Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidGateDecision,
+            "normal-signing material source does not match scope",
+        ))
+    }
+
+    pub fn validate_for_ecdsa_scope(
+        &self,
+        scope: &RouterAbEcdsaDerivationNormalSigningScopeV1,
+    ) -> RouterAbProtocolResult<()> {
+        scope.validate()?;
+        match self {
+            Self::RegistrationActivation { lookup } => {
+                let expected = CloudflareActiveSigningWorkerStateLookupV1::from_router_ab_ecdsa_derivation_normal_signing_scope(scope)?;
+                if lookup == &expected {
+                    return Ok(());
+                }
+            }
+            Self::RotatableLane {
+                lookup,
+                group_public_key,
+            } => {
+                lookup.validate()?;
+                require_non_empty(
+                    "ECDSA normal-signing lane group_public_key",
+                    group_public_key,
+                )?;
+                let identity = &lookup.identity;
+                if identity.wallet_id == scope.wallet_id
+                    && identity.wallet_key_id == scope.ecdsa_threshold_key_id
+                    && identity.target_material_activation_id
+                        == scope.material_activation.activation_id
+                    && identity.key_family == CloudflareSigningWorkerLaneKeyFamilyV1::EcdsaSecp256k1
+                {
+                    return Ok(());
+                }
+            }
+        }
+        Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidGateDecision,
+            "ECDSA normal-signing material source does not match scope",
+        ))
+    }
+
+    pub fn validate_for_linked_ecdsa_scope(
+        &self,
+        scope: &RouterAbEcdsaDerivationLinkedDeviceNormalSigningScopeV1,
+    ) -> RouterAbProtocolResult<()> {
+        scope.validate()?;
+        let Self::RotatableLane {
+            lookup,
+            group_public_key,
+        } = self
+        else {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "linked ECDSA signing requires rotatable lane material",
+            ));
+        };
+        lookup.validate()?;
+        let identity = &lookup.identity;
+        if identity.operation_id == scope.operation_id
+            && identity.enrollment_id == scope.enrollment_id
+            && identity.wallet_id == scope.wallet_id
+            && identity.wallet_key_id == scope.wallet_key_id
+            && identity.target_lane_id == scope.lane_id
+            && identity.target_lane_share_epoch == scope.lane_share_epoch
+            && identity.target_material_activation_id == scope.target_material_activation_id
+            && identity.key_family == CloudflareSigningWorkerLaneKeyFamilyV1::EcdsaSecp256k1
+            && identity.holder_participant_binding_digest_b64u
+                == scope.holder_participant_binding_digest_b64u
+            && identity.signing_worker_participant_binding_digest_b64u
+                == scope.signing_worker_participant_binding_digest_b64u
+            && identity.holder_recipient_key_digest_b64u == scope.holder_recipient_key_digest_b64u
+            && identity.server_recipient_key_digest_b64u == scope.server_recipient_key_digest_b64u
+            && identity.transcript_hash_b64u == scope.transcript_hash_b64u
+            && identity.protocol_commit_receipt_digest_b64u
+                == scope.protocol_commit_receipt_digest_b64u
+            && group_public_key == &scope.threshold_public_key33_b64u
+        {
+            return Ok(());
+        }
+        Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidGateDecision,
+            "linked ECDSA lane material does not match authoritative scope",
+        ))
+    }
+}
+
 /// Router-admitted v2 prepare request sent to SigningWorker.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CloudflareSigningWorkerAdmittedNormalSigningPrepareRequestV2 {
@@ -265,6 +566,8 @@ pub struct CloudflareSigningWorkerAdmittedNormalSigningPrepareRequestV2 {
     pub admission_candidate: CloudflareRouterNormalSigningPrepareAdmissionCandidateV2,
     /// Accepted Router store admission decision for this request.
     pub trusted_admission: CloudflareRouterNormalSigningTrustedAdmissionV1,
+    /// Exact active material source selected by the Gateway.
+    pub material_source: CloudflareSigningWorkerNormalSigningMaterialSourceV1,
 }
 
 impl CloudflareSigningWorkerAdmittedNormalSigningPrepareRequestV2 {
@@ -275,11 +578,33 @@ impl CloudflareSigningWorkerAdmittedNormalSigningPrepareRequestV2 {
         admission_candidate: CloudflareRouterNormalSigningPrepareAdmissionCandidateV2,
         trusted_admission: CloudflareRouterNormalSigningTrustedAdmissionV1,
     ) -> RouterAbProtocolResult<Self> {
+        let material_source =
+            CloudflareSigningWorkerNormalSigningMaterialSourceV1::registration_for_scope(&scope)?;
         let request = Self {
             scope,
             expires_at_ms,
             admission_candidate,
             trusted_admission,
+            material_source,
+        };
+        request.validate()?;
+        Ok(request)
+    }
+
+    /// Creates a request with the Gateway-admitted source branch.
+    pub fn new_with_material_source(
+        scope: NormalSigningScopeV1,
+        expires_at_ms: u64,
+        admission_candidate: CloudflareRouterNormalSigningPrepareAdmissionCandidateV2,
+        trusted_admission: CloudflareRouterNormalSigningTrustedAdmissionV1,
+        material_source: CloudflareSigningWorkerNormalSigningMaterialSourceV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self {
+            scope,
+            expires_at_ms,
+            admission_candidate,
+            trusted_admission,
+            material_source,
         };
         request.validate()?;
         Ok(request)
@@ -288,6 +613,8 @@ impl CloudflareSigningWorkerAdmittedNormalSigningPrepareRequestV2 {
     /// Validates Router admission accepted this exact v2 prepare request.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         self.scope.validate()?;
+        self.material_source
+            .validate_for_normal_scope(&self.scope)?;
         require_positive_ms(
             "normal-signing v2 prepare expires_at_ms",
             self.expires_at_ms,
@@ -353,6 +680,8 @@ pub struct CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2 {
     pub authorized_operation_identity: CloudflareSigningWorkerAuthorizedOperationIdentityV1,
     /// Exact claim that the SigningWorker must commit before evaluating crypto.
     pub effect_claim: CloudflareSigningWorkerNormalSigningEffectClaimV1,
+    /// Exact active material source selected by the Gateway.
+    pub material_source: CloudflareSigningWorkerNormalSigningMaterialSourceV1,
 }
 
 /// Authorization-specific effect claim committed by SigningWorker private D1.
@@ -749,6 +1078,33 @@ impl CloudflareSigningWorkerNormalSigningEffectClaimV1 {
         Ok(())
     }
 
+    pub fn validate_for_linked_ecdsa_finalize_request(
+        &self,
+        request: &RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningFinalizeRequestV1,
+    ) -> RouterAbProtocolResult<()> {
+        request.validate()?;
+        let (
+            Self::ReusableWalletSession { claim },
+            NormalSigningAuthorizationV1::ReusableWalletSession { wallet_session_id },
+        ) = (self, &request.authorization)
+        else {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "linked ECDSA effect claim requires reusable Wallet Session authorization",
+            ));
+        };
+        claim.validate()?;
+        if claim.wallet_session_id == *wallet_session_id
+            && claim.operation_id == request.operation_id
+        {
+            return Ok(());
+        }
+        Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidGateDecision,
+            "linked ECDSA effect claim does not match finalize request",
+        ))
+    }
+
     fn claim_operation_id(&self) -> &str {
         match self {
             Self::ReusableWalletSession { claim } => &claim.operation_id,
@@ -766,12 +1122,38 @@ impl CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2 {
         authorized_operation_identity: CloudflareSigningWorkerAuthorizedOperationIdentityV1,
         effect_claim: CloudflareSigningWorkerNormalSigningEffectClaimV1,
     ) -> RouterAbProtocolResult<Self> {
+        let material_source =
+            CloudflareSigningWorkerNormalSigningMaterialSourceV1::registration_for_scope(
+                &request.scope,
+            )?;
         let request = Self {
             request,
             admission_candidate,
             trusted_admission,
             authorized_operation_identity,
             effect_claim,
+            material_source,
+        };
+        request.validate()?;
+        Ok(request)
+    }
+
+    /// Creates a finalize request with the Gateway-admitted source branch.
+    pub fn new_with_material_source(
+        request: RouterAbEd25519NormalSigningFinalizeRequestV2,
+        admission_candidate: CloudflareRouterNormalSigningFinalizeAdmissionCandidateV2,
+        trusted_admission: CloudflareRouterNormalSigningTrustedAdmissionV1,
+        authorized_operation_identity: CloudflareSigningWorkerAuthorizedOperationIdentityV1,
+        effect_claim: CloudflareSigningWorkerNormalSigningEffectClaimV1,
+        material_source: CloudflareSigningWorkerNormalSigningMaterialSourceV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self {
+            request,
+            admission_candidate,
+            trusted_admission,
+            authorized_operation_identity,
+            effect_claim,
+            material_source,
         };
         request.validate()?;
         Ok(request)
@@ -780,6 +1162,8 @@ impl CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2 {
     /// Validates Router admission accepted this exact v2 finalize request.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         self.request.validate()?;
+        self.material_source
+            .validate_for_normal_scope(&self.request.scope)?;
         self.admission_candidate
             .validate_for_finalize_request(&self.request)?;
         self.trusted_admission
@@ -967,6 +1351,8 @@ pub struct CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestSignin
     pub request: RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
     /// Accepted Router store admission decision for this request.
     pub trusted_admission: CloudflareRouterNormalSigningTrustedAdmissionV1,
+    /// Exact active material source selected by the Gateway.
+    pub material_source: CloudflareSigningWorkerNormalSigningMaterialSourceV1,
 }
 
 impl CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestSigningRequestV1 {
@@ -975,9 +1361,28 @@ impl CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestSigningReque
         request: RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
         trusted_admission: CloudflareRouterNormalSigningTrustedAdmissionV1,
     ) -> RouterAbProtocolResult<Self> {
+        let material_source =
+            CloudflareSigningWorkerNormalSigningMaterialSourceV1::registration_for_ecdsa_scope(
+                &request.scope,
+            )?;
         let request = Self {
             request,
             trusted_admission,
+            material_source,
+        };
+        request.validate()?;
+        Ok(request)
+    }
+
+    pub fn new_with_material_source(
+        request: RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
+        trusted_admission: CloudflareRouterNormalSigningTrustedAdmissionV1,
+        material_source: CloudflareSigningWorkerNormalSigningMaterialSourceV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self {
+            request,
+            trusted_admission,
+            material_source,
         };
         request.validate()?;
         Ok(request)
@@ -986,6 +1391,8 @@ impl CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestSigningReque
     /// Validates Router-admitted Router A/B ECDSA derivation normal-signing material.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         self.request.validate()?;
+        self.material_source
+            .validate_for_ecdsa_scope(&self.request.scope)?;
         self.trusted_admission.validate()?;
         if self.trusted_admission.metadata.account_id != self.request.scope.wallet_id {
             return Err(RouterAbProtocolError::new(
@@ -1039,6 +1446,8 @@ pub struct CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestFinali
     pub authorized_operation_identity: CloudflareSigningWorkerAuthorizedOperationIdentityV1,
     /// Exact Gateway authorization claim converted by Router into the worker effect claim.
     pub effect_claim: CloudflareSigningWorkerNormalSigningEffectClaimV1,
+    /// Exact active material source selected by the Gateway.
+    pub material_source: CloudflareSigningWorkerNormalSigningMaterialSourceV1,
 }
 
 impl CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestFinalizeRequestV1 {
@@ -1049,11 +1458,34 @@ impl CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestFinalizeRequ
         authorized_operation_identity: CloudflareSigningWorkerAuthorizedOperationIdentityV1,
         effect_claim: CloudflareSigningWorkerNormalSigningEffectClaimV1,
     ) -> RouterAbProtocolResult<Self> {
+        let material_source =
+            CloudflareSigningWorkerNormalSigningMaterialSourceV1::registration_for_ecdsa_scope(
+                &request.scope,
+            )?;
         let request = Self {
             request,
             trusted_admission,
             authorized_operation_identity,
             effect_claim,
+            material_source,
+        };
+        request.validate()?;
+        Ok(request)
+    }
+
+    pub fn new_with_material_source(
+        request: RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
+        trusted_admission: CloudflareRouterNormalSigningTrustedAdmissionV1,
+        authorized_operation_identity: CloudflareSigningWorkerAuthorizedOperationIdentityV1,
+        effect_claim: CloudflareSigningWorkerNormalSigningEffectClaimV1,
+        material_source: CloudflareSigningWorkerNormalSigningMaterialSourceV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self {
+            request,
+            trusted_admission,
+            authorized_operation_identity,
+            effect_claim,
+            material_source,
         };
         request.validate()?;
         Ok(request)
@@ -1062,6 +1494,8 @@ impl CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestFinalizeRequ
     /// Validates Router admission accepted this exact Router A/B ECDSA derivation finalize body.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         self.request.validate()?;
+        self.material_source
+            .validate_for_ecdsa_scope(&self.request.scope)?;
         self.trusted_admission.validate()?;
         if self.trusted_admission.metadata.account_id != self.request.scope.wallet_id {
             return Err(RouterAbProtocolError::new(
@@ -1130,6 +1564,323 @@ impl CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestFinalizeRequ
             )
         })?);
         Ok(PublicDigest32::new(hasher.finalize().into()))
+    }
+}
+
+/// Router-admitted linked-device ECDSA prepare request.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareSigningWorkerAdmittedLinkedDeviceEcdsaPrepareRequestV1 {
+    pub request: RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningRequestV1,
+    pub trusted_admission: CloudflareRouterNormalSigningTrustedAdmissionV1,
+    pub material_source: CloudflareSigningWorkerNormalSigningMaterialSourceV1,
+}
+
+impl CloudflareSigningWorkerAdmittedLinkedDeviceEcdsaPrepareRequestV1 {
+    pub fn new(
+        request: RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningRequestV1,
+        trusted_admission: CloudflareRouterNormalSigningTrustedAdmissionV1,
+        material_source: CloudflareSigningWorkerNormalSigningMaterialSourceV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let admitted = Self {
+            request,
+            trusted_admission,
+            material_source,
+        };
+        admitted.validate()?;
+        Ok(admitted)
+    }
+
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.request.validate()?;
+        self.material_source
+            .validate_for_linked_ecdsa_scope(&self.request.scope)?;
+        self.trusted_admission.validate()?;
+        let CloudflareRouterAuthContextV1::AuthenticatedSession { session_id, .. } =
+            &self.trusted_admission.metadata.auth
+        else {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "linked ECDSA prepare requires authenticated Wallet Session admission",
+            ));
+        };
+        let NormalSigningAuthorizationV1::ReusableWalletSession { wallet_session_id } =
+            &self.request.authorization
+        else {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "linked ECDSA prepare authorization is invalid",
+            ));
+        };
+        if self.trusted_admission.metadata.account_id == self.request.scope.wallet_id
+            && session_id.as_str() == wallet_session_id.as_str()
+            && self.trusted_admission.metadata.intent_digest == self.request.request_digest()?
+            && self.trusted_admission.allows_signing_worker_forwarding()?
+        {
+            return Ok(());
+        }
+        Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidGateDecision,
+            "linked ECDSA prepare admission does not match request",
+        ))
+    }
+}
+
+/// Router-admitted linked-device ECDSA finalize request.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareSigningWorkerAdmittedLinkedDeviceEcdsaFinalizeRequestV1 {
+    pub request: RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningFinalizeRequestV1,
+    pub authorized_operation: CloudflareRouterEcdsaAcceptedAuthorizedOperationV1,
+    pub material_source: CloudflareSigningWorkerNormalSigningMaterialSourceV1,
+}
+
+impl CloudflareSigningWorkerAdmittedLinkedDeviceEcdsaFinalizeRequestV1 {
+    pub fn new(
+        request: RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningFinalizeRequestV1,
+        authorized_operation: CloudflareRouterEcdsaAcceptedAuthorizedOperationV1,
+        material_source: CloudflareSigningWorkerNormalSigningMaterialSourceV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let admitted = Self {
+            request,
+            authorized_operation,
+            material_source,
+        };
+        admitted.validate()?;
+        Ok(admitted)
+    }
+
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.request.validate()?;
+        self.material_source
+            .validate_for_linked_ecdsa_scope(&self.request.scope)?;
+        self.authorized_operation
+            .validate_for_linked_device_ecdsa_finalize_request(&self.request)
+    }
+
+    pub fn effect_operation_key(&self) -> RouterAbProtocolResult<String> {
+        self.validate()?;
+        Ok(format!(
+            "linked-evm-ecdsa/{}/{}/{}",
+            self.request.scope.enrollment_id,
+            self.request.material_activation.activation_id,
+            self.request.operation_id,
+        ))
+    }
+
+    pub fn effect_request_digest(&self) -> RouterAbProtocolResult<PublicDigest32> {
+        self.validate()?;
+        let mut hasher = Sha256::new();
+        hasher.update(b"seams/signing-worker/linked-evm-ecdsa-effect/v1");
+        hasher.update(serde_json::to_vec(self).map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                format!("linked ECDSA finalize serialization failed: {error}"),
+            )
+        })?);
+        Ok(PublicDigest32::new(hasher.finalize().into()))
+    }
+}
+
+/// Materialized linked-device ECDSA prepare request.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareSigningWorkerMaterializedLinkedDeviceEcdsaPrepareRequestV1 {
+    pub request: CloudflareSigningWorkerAdmittedLinkedDeviceEcdsaPrepareRequestV1,
+    pub active_signing_worker: ActiveSigningWorkerStateV1,
+    pub material: CloudflareServerOutputMaterialRecordV1,
+    pub materialized_at_ms: u64,
+}
+
+impl CloudflareSigningWorkerMaterializedLinkedDeviceEcdsaPrepareRequestV1 {
+    pub fn new(
+        request: CloudflareSigningWorkerAdmittedLinkedDeviceEcdsaPrepareRequestV1,
+        active_signing_worker: ActiveSigningWorkerStateV1,
+        material: CloudflareServerOutputMaterialRecordV1,
+        materialized_at_ms: u64,
+    ) -> RouterAbProtocolResult<Self> {
+        let materialized = Self {
+            request,
+            active_signing_worker,
+            material,
+            materialized_at_ms,
+        };
+        materialized.validate()?;
+        Ok(materialized)
+    }
+
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.request.validate()?;
+        self.request.request.validate_at(self.materialized_at_ms)?;
+        validate_cloudflare_linked_device_ecdsa_normal_signing_active_material_v1(
+            &self.request.request.scope,
+            &self.active_signing_worker,
+            &self.material,
+        )
+    }
+}
+
+/// Operation-bound identity retained while one linked-device ECDSA presign runs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CloudflareSigningWorkerLinkedDeviceEcdsaPresignSessionBindingV1 {
+    /// Durable-object session key for this one presign attempt.
+    pub presign_session_id: String,
+    /// Exact authorized operation carried by the linked request.
+    pub operation_id: String,
+    /// Exact Router request identity carried by the linked request.
+    pub request_id: String,
+    /// Canonical linked scope digest.
+    pub scope_digest: PublicDigest32,
+    /// Canonical linked prepare request digest.
+    pub request_digest: PublicDigest32,
+    /// Exact EVM digest admitted for this presignature.
+    pub signing_digest: PublicDigest32,
+    /// Exclusive request expiry.
+    pub expires_at_ms: u64,
+}
+
+impl CloudflareSigningWorkerLinkedDeviceEcdsaPresignSessionBindingV1 {
+    /// Creates a binding from one validated linked-device prepare request.
+    pub fn new(
+        request: &CloudflareSigningWorkerMaterializedLinkedDeviceEcdsaPrepareRequestV1,
+        presign_session_id: impl Into<String>,
+    ) -> RouterAbProtocolResult<Self> {
+        request.validate()?;
+        let binding = Self {
+            presign_session_id: presign_session_id.into(),
+            operation_id: request.request.request.operation_id.clone(),
+            request_id: request.request.request.request_id.clone(),
+            scope_digest: request.request.request.scope.scope_digest()?,
+            request_digest: request.request.request.request_digest()?,
+            signing_digest: request.request.request.signing_digest()?,
+            expires_at_ms: request.request.request.expires_at_ms,
+        };
+        binding.validate_for_request(request)?;
+        Ok(binding)
+    }
+
+    /// Validates a live session still belongs to the exact admitted request.
+    pub fn validate_for_request(
+        &self,
+        request: &CloudflareSigningWorkerMaterializedLinkedDeviceEcdsaPrepareRequestV1,
+    ) -> RouterAbProtocolResult<()> {
+        request.validate()?;
+        require_non_empty("linked ECDSA presign session id", &self.presign_session_id)?;
+        let expected_scope_digest = request.request.request.scope.scope_digest()?;
+        let expected_request_digest = request.request.request.request_digest()?;
+        let expected_signing_digest = request.request.request.signing_digest()?;
+        if self.operation_id == request.request.request.operation_id
+            && self.request_id == request.request.request.request_id
+            && self.scope_digest == expected_scope_digest
+            && self.request_digest == expected_request_digest
+            && self.signing_digest == expected_signing_digest
+            && self.expires_at_ms == request.request.request.expires_at_ms
+        {
+            return Ok(());
+        }
+        Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "linked ECDSA presign session binding does not match request",
+        ))
+    }
+
+    /// Consumes one completed 97-byte SigningWorker presign output into the
+    /// request-bound record used by linked finalize.
+    pub fn complete_from_presignature_output(
+        &self,
+        request: &CloudflareSigningWorkerMaterializedLinkedDeviceEcdsaPrepareRequestV1,
+        presignature97: &[u8],
+        signing_worker_rerandomization_contribution32_b64u: impl Into<String>,
+        completed_at_ms: u64,
+    ) -> RouterAbProtocolResult<CloudflareSigningWorkerLinkedDeviceEcdsaPreparedV1> {
+        self.validate_for_request(request)?;
+        require_positive_ms("linked ECDSA presignature completed_at_ms", completed_at_ms)?;
+        if completed_at_ms >= self.expires_at_ms {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ExpiredLocalRequest,
+                "linked ECDSA presignature completed after request expiry",
+            ));
+        }
+        if presignature97.len() != 97 {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "linked ECDSA presign output must contain 97 bytes",
+            ));
+        }
+        let server_big_r33_b64u = encode_base64url_bytes_v1(&presignature97[..33]);
+        let server_presignature_id = request.request.request.client_presignature_id.clone();
+        let signing_worker_rerandomization_contribution32_b64u =
+            signing_worker_rerandomization_contribution32_b64u.into();
+        let record = CloudflareSigningWorkerEcdsaPresignatureRecordV1::new(
+            request.active_signing_worker.clone(),
+            server_presignature_id.clone(),
+            self.request_digest,
+            self.signing_digest,
+            server_big_r33_b64u.clone(),
+            signing_worker_rerandomization_contribution32_b64u.clone(),
+            encode_base64url_bytes_v1(&presignature97[33..65]),
+            encode_base64url_bytes_v1(&presignature97[65..97]),
+            completed_at_ms,
+            self.expires_at_ms,
+        )?;
+        let response = RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningPrepareResponseV1 {
+            scope: request.request.request.scope.clone(),
+            request_id: self.request_id.clone(),
+            request_digest: self.request_digest,
+            signing_digest: self.signing_digest,
+            server_presignature_id,
+            server_big_r33_b64u,
+            signing_worker_rerandomization_contribution32_b64u,
+            signature_scheme: RouterAbEcdsaDerivationSignatureSchemeV1::EcdsaSecp256k1RecoverableV1,
+            prepared_at_ms: completed_at_ms,
+            expires_at_ms: self.expires_at_ms,
+        };
+        CloudflareSigningWorkerLinkedDeviceEcdsaPreparedV1::new(response, record, request)
+    }
+}
+
+/// Materialized linked-device ECDSA finalize request.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareSigningWorkerMaterializedLinkedDeviceEcdsaFinalizeRequestV1 {
+    pub request: CloudflareSigningWorkerAdmittedLinkedDeviceEcdsaFinalizeRequestV1,
+    pub active_signing_worker: ActiveSigningWorkerStateV1,
+    pub material: CloudflareServerOutputMaterialRecordV1,
+    pub server_presignature: CloudflareSigningWorkerEcdsaPresignatureRecordV1,
+    pub signed_at_ms: u64,
+}
+
+impl CloudflareSigningWorkerMaterializedLinkedDeviceEcdsaFinalizeRequestV1 {
+    pub fn new(
+        request: CloudflareSigningWorkerAdmittedLinkedDeviceEcdsaFinalizeRequestV1,
+        active_signing_worker: ActiveSigningWorkerStateV1,
+        material: CloudflareServerOutputMaterialRecordV1,
+        server_presignature: CloudflareSigningWorkerEcdsaPresignatureRecordV1,
+        signed_at_ms: u64,
+    ) -> RouterAbProtocolResult<Self> {
+        let materialized = Self {
+            request,
+            active_signing_worker,
+            material,
+            server_presignature,
+            signed_at_ms,
+        };
+        materialized.validate()?;
+        Ok(materialized)
+    }
+
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.request.validate()?;
+        self.request.request.validate_at(self.signed_at_ms)?;
+        validate_cloudflare_linked_device_ecdsa_normal_signing_active_material_v1(
+            &self.request.request.scope,
+            &self.active_signing_worker,
+            &self.material,
+        )?;
+        self.server_presignature.validate_for_request(
+            &self.active_signing_worker,
+            &self.request.request.server_presignature_id,
+            self.request.request.prepare_request_digest()?,
+            self.request.request.signing_digest()?,
+            self.signed_at_ms,
+        )
     }
 }
 
@@ -1275,6 +2026,31 @@ where
     Ok(response)
 }
 
+/// Materializes and handles one Router-admitted linked-device ECDSA finalize request.
+pub fn handle_cloudflare_signing_worker_linked_device_ecdsa_finalize_private_request_v1<Handler>(
+    handler: &Handler,
+    now_unix_ms: u64,
+    request: CloudflareSigningWorkerAdmittedLinkedDeviceEcdsaFinalizeRequestV1,
+    active_signing_worker: ActiveSigningWorkerStateV1,
+    material: CloudflareServerOutputMaterialRecordV1,
+    server_presignature: CloudflareSigningWorkerEcdsaPresignatureRecordV1,
+) -> RouterAbProtocolResult<RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningResponseV1>
+where
+    Handler: CloudflareSigningWorkerLinkedDeviceEcdsaFinalizeHandlerV1,
+{
+    let materialized = CloudflareSigningWorkerMaterializedLinkedDeviceEcdsaFinalizeRequestV1::new(
+        request,
+        active_signing_worker,
+        material,
+        server_presignature,
+        now_unix_ms,
+    )?;
+    let finalize_request = materialized.request.request.clone();
+    let response = handler.handle_linked_device_ecdsa_finalize_request_v1(materialized)?;
+    response.validate_for_request(&finalize_request)?;
+    Ok(response)
+}
+
 /// SigningWorker-produced Router A/B ECDSA derivation presignature record plus public prepare response.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CloudflareSigningWorkerRouterAbEcdsaDerivationEvmDigestPreparedV1 {
@@ -1328,6 +2104,63 @@ impl CloudflareSigningWorkerRouterAbEcdsaDerivationEvmDigestPreparedV1 {
         Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
             "SigningWorker Router A/B ECDSA derivation prepared record does not match response",
+        ))
+    }
+}
+
+/// SigningWorker-produced linked-device ECDSA presignature material plus public prepare response.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareSigningWorkerLinkedDeviceEcdsaPreparedV1 {
+    /// Public response returned to the client through Router.
+    pub response: RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningPrepareResponseV1,
+    /// Private presignature record persisted by SigningWorker-private D1.
+    pub record: CloudflareSigningWorkerEcdsaPresignatureRecordV1,
+}
+
+impl CloudflareSigningWorkerLinkedDeviceEcdsaPreparedV1 {
+    /// Creates a validated linked-device ECDSA prepared bundle.
+    pub fn new(
+        response: RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningPrepareResponseV1,
+        record: CloudflareSigningWorkerEcdsaPresignatureRecordV1,
+        request: &CloudflareSigningWorkerMaterializedLinkedDeviceEcdsaPrepareRequestV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let prepared = Self { response, record };
+        prepared.validate_for_request(request)?;
+        Ok(prepared)
+    }
+
+    /// Validates the public response and private record bind to a materialized request.
+    pub fn validate_for_request(
+        &self,
+        request: &CloudflareSigningWorkerMaterializedLinkedDeviceEcdsaPrepareRequestV1,
+    ) -> RouterAbProtocolResult<()> {
+        request.validate()?;
+        self.response
+            .validate_for_request(&request.request.request)?;
+        self.record.validate()?;
+        let request_digest = request.request.request.request_digest()?;
+        let signing_digest = request.request.request.signing_digest()?;
+        if self.response.prepared_at_ms >= request.materialized_at_ms
+            && self.response.expires_at_ms == request.request.request.expires_at_ms
+            && self.record.active_signing_worker_state == request.active_signing_worker
+            && self.record.server_presignature_id == self.response.server_presignature_id
+            && self.record.request_digest == request_digest
+            && self.record.admitted_signing_digest == signing_digest
+            && self.record.server_big_r33_b64u == self.response.server_big_r33_b64u
+            && self
+                .record
+                .signing_worker_rerandomization_contribution32_b64u
+                == self
+                    .response
+                    .signing_worker_rerandomization_contribution32_b64u
+            && self.record.created_at_ms == self.response.prepared_at_ms
+            && self.record.expires_at_ms == request.request.request.expires_at_ms
+        {
+            return Ok(());
+        }
+        Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "SigningWorker linked-device ECDSA prepared record does not match response",
         ))
     }
 }
@@ -1627,6 +2460,77 @@ impl CloudflareSigningWorkerRouterAbEcdsaDerivationEvmDigestFinalizeHandlerV1
     }
 }
 
+impl CloudflareSigningWorkerLinkedDeviceEcdsaFinalizeHandlerV1
+    for CloudflareRoleSeparatedRouterAbEcdsaDerivationEvmDigestFinalizeHandlerV1
+{
+    fn handle_linked_device_ecdsa_finalize_request_v1(
+        &self,
+        request: CloudflareSigningWorkerMaterializedLinkedDeviceEcdsaFinalizeRequestV1,
+    ) -> RouterAbProtocolResult<RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningResponseV1> {
+        request.validate()?;
+        let finalize_request = &request.request.request;
+        let public_key33 = decode_base64url_fixed_33_v1(
+            "linked ECDSA threshold_public_key33_b64u",
+            &finalize_request.scope.threshold_public_key33_b64u,
+        )?;
+        let server_big_r33 = decode_base64url_fixed_33_v1(
+            "linked ECDSA server_big_r33_b64u",
+            &request.server_presignature.server_big_r33_b64u,
+        )?;
+        let server_k_share32 = decode_base64url_fixed_32_v1(
+            "linked ECDSA server_k_share32_b64u",
+            &request.server_presignature.server_k_share32_b64u,
+        )?;
+        let server_sigma_share32 = decode_base64url_fixed_32_v1(
+            "linked ECDSA server_sigma_share32_b64u",
+            &request.server_presignature.server_sigma_share32_b64u,
+        )?;
+        let signing_worker_rerandomization_contribution32 = decode_base64url_fixed_32_v1(
+            "linked ECDSA signing_worker_rerandomization_contribution32_b64u",
+            &request
+                .server_presignature
+                .signing_worker_rerandomization_contribution32_b64u,
+        )?;
+        let rerandomization_entropy32 = combine_rerandomization_contributions(
+            finalize_request.client_rerandomization_contribution32()?,
+            signing_worker_rerandomization_contribution32,
+        );
+        let client_signature_share32 = finalize_request.client_signature_share32()?;
+        let material = SigningWorkerPresignMaterial::from_bytes(
+            server_big_r33,
+            server_k_share32,
+            server_sigma_share32,
+        )
+        .map_err(map_cloudflare_online_ecdsa_error_v1)?;
+        let input = SigningWorkerOnlineInput::new(
+            public_key33,
+            server_big_r33,
+            *request
+                .server_presignature
+                .admitted_signing_digest
+                .as_bytes(),
+            rerandomization_entropy32,
+        )
+        .map_err(map_cloudflare_online_ecdsa_error_v1)?;
+        let committed = material
+            .reserve()
+            .commit(input)
+            .map_err(map_cloudflare_online_ecdsa_error_v1)?;
+        let signature65 = finalize_signing_worker_signature(committed, client_signature_share32)
+            .map_err(map_cloudflare_online_ecdsa_error_v1)?;
+        let response = RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningResponseV1 {
+            scope: finalize_request.scope.clone(),
+            request_id: finalize_request.request_id.clone(),
+            request_digest: finalize_request.request_digest()?,
+            signing_digest: finalize_request.signing_digest()?,
+            signature_scheme: RouterAbEcdsaDerivationSignatureSchemeV1::EcdsaSecp256k1RecoverableV1,
+            signature65_b64u: encode_base64url_bytes_v1(&signature65),
+        };
+        response.validate_for_request(finalize_request)?;
+        Ok(response)
+    }
+}
+
 fn decode_cloudflare_normal_signing_commitments_v1(
     commitments: &NormalSigningEd25519TwoPartyFrostCommitmentsV1,
 ) -> RouterAbProtocolResult<frost_ed25519::round1::SigningCommitments> {
@@ -1724,4 +2628,36 @@ fn map_cloudflare_online_ecdsa_error_v1(error: OnlineError) -> RouterAbProtocolE
             error
         ),
     )
+}
+
+#[cfg(test)]
+mod presign_expiry_tests {
+    use super::{validate_presign_session_expiry, MAX_ECDSA_PRESIGN_SESSION_TTL_MS};
+    use crate::RouterAbProtocolErrorCode;
+
+    #[test]
+    fn presign_expiry_accepts_the_server_limit() {
+        let now_ms = 1_900_000_000_000;
+        validate_presign_session_expiry(
+            "test expiry",
+            now_ms + MAX_ECDSA_PRESIGN_SESSION_TTL_MS,
+            now_ms,
+        )
+        .expect("maximum server TTL should be accepted");
+    }
+
+    #[test]
+    fn presign_expiry_rejects_caller_controlled_long_lived_sessions() {
+        let now_ms = 1_900_000_000_000;
+        let error = validate_presign_session_expiry(
+            "test expiry",
+            now_ms + MAX_ECDSA_PRESIGN_SESSION_TTL_MS + 1,
+            now_ms,
+        )
+        .expect_err("expiry beyond the server maximum must be rejected");
+        assert_eq!(
+            error.code(),
+            RouterAbProtocolErrorCode::MalformedWirePayload
+        );
+    }
 }

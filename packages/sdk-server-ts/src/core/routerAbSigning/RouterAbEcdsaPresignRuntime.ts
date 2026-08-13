@@ -7,6 +7,11 @@ import {
   RouterAbEcdsaDerivationPoolFillHandlers,
   type RouterAbEcdsaPresignSigningWorkerTransport,
 } from '../ThresholdService/routerAb/ecdsaDerivationPoolFillHandlers';
+import {
+  startRouterAbLinkedDeviceEcdsaPresignSession,
+  stepRouterAbLinkedDeviceEcdsaPresignSession,
+  type RouterAbEcdsaPresignSessionHttpResult,
+} from '../ThresholdService/routerAb/ecdsaDerivationPresignBridge';
 import type { RouterAbConfiguredSigningWorkerPrivateTransport } from './RouterAbNormalSigningRuntime';
 
 export type RouterAbEcdsaPresignRuntimeConfig = {
@@ -78,18 +83,20 @@ function resolveSigningWorkerTransport(
 
 export class RouterAbEcdsaPresignRuntime {
   private readonly handlers: RouterAbEcdsaDerivationPoolFillHandlers;
+  private readonly signingWorkerTransport: RouterAbEcdsaPresignSigningWorkerTransport;
 
   constructor(input: {
     readonly config: RouterAbEcdsaPresignRuntimeConfig;
     readonly signingWorkerTransport: RouterAbConfiguredSigningWorkerPrivateTransport;
     readonly ensureReady: () => Promise<void>;
   }) {
+    this.signingWorkerTransport = resolveSigningWorkerTransport(input.signingWorkerTransport);
     this.handlers = new RouterAbEcdsaDerivationPoolFillHandlers({
       nodeRole: input.config.nodeRole,
       participantIds2p: input.config.participantIds.participantIds2p,
       ensureReady: input.ensureReady,
       createPoolFillSessionId: createPresignSessionId,
-      signingWorkerTransport: resolveSigningWorkerTransport(input.signingWorkerTransport),
+      signingWorkerTransport: this.signingWorkerTransport,
     });
   }
 
@@ -107,5 +114,45 @@ export class RouterAbEcdsaPresignRuntime {
     input: RouterAbEcdsaPresignStepInput,
   ): Promise<RouterAbEcdsaPresignStepResult> {
     return await this.handlers.routerAbEcdsaDerivationPresignaturePoolFillStep(input);
+  }
+
+  async initializeLinkedDevicePresign(input: {
+    readonly request: Record<string, unknown>;
+    readonly materialSource: Record<string, unknown>;
+    readonly presignSessionId: string;
+    readonly expiresAtMs: number;
+  }): Promise<RouterAbEcdsaPresignSessionHttpResult> {
+    const transport = this.signingWorkerTransport;
+    return await startRouterAbLinkedDeviceEcdsaPresignSession({
+      signingWorkerBaseUrl: transport.signingWorkerBaseUrl,
+      request: input.request,
+      materialSource: input.materialSource,
+      presignSessionId: input.presignSessionId,
+      expiresAtMs: input.expiresAtMs,
+      auth: transport.auth,
+      fetchImpl: transport.fetchImpl,
+    });
+  }
+
+  async advanceLinkedDevicePresign(input: {
+    readonly request: Record<string, unknown>;
+    readonly materialSource: Record<string, unknown>;
+    readonly presignSessionId: string;
+    readonly requestedStage: 'triples' | 'presign';
+    readonly outgoingMessagesB64u: string[];
+    readonly expiresAtMs: number;
+  }): Promise<RouterAbEcdsaPresignSessionHttpResult> {
+    const transport = this.signingWorkerTransport;
+    return await stepRouterAbLinkedDeviceEcdsaPresignSession({
+      signingWorkerBaseUrl: transport.signingWorkerBaseUrl,
+      request: input.request,
+      materialSource: input.materialSource,
+      presignSessionId: input.presignSessionId,
+      requestedStage: input.requestedStage,
+      outgoingMessagesB64u: input.outgoingMessagesB64u,
+      expiresAtMs: input.expiresAtMs,
+      auth: transport.auth,
+      fetchImpl: transport.fetchImpl,
+    });
   }
 }

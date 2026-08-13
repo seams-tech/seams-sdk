@@ -17,16 +17,20 @@ use router_ab_core::{
 use router_ab_ed25519_yao::{
     build_product_activation_deriver_a_v1, build_product_activation_deriver_b_v1,
     build_product_export_deriver_a_v1, build_product_export_deriver_b_v1,
+    build_product_lane_deriver_a_v1, build_product_lane_deriver_b_v1,
     duplex::{
         run_activation_deriver_a, run_activation_deriver_b_open, run_export_deriver_a,
-        run_export_deriver_b_open,
+        run_export_deriver_b_open, run_lane_materialization_deriver_a,
+        run_lane_materialization_deriver_b_open,
     },
     open_ed25519_yao_activation_deriver_a_input_v1, open_ed25519_yao_activation_deriver_b_input_v1,
     open_ed25519_yao_export_deriver_a_input_v1, open_ed25519_yao_export_deriver_b_input_v1,
+    open_ed25519_yao_lane_deriver_a_input_v1, open_ed25519_yao_lane_deriver_b_input_v1,
     seal_ed25519_yao_activation_deriver_a_execution_v1,
     seal_ed25519_yao_activation_deriver_b_execution_v1,
     seal_ed25519_yao_export_deriver_a_execution_v1, seal_ed25519_yao_export_deriver_b_execution_v1,
-    Ed25519YaoRecipientPrivateKeyV1, Ed25519YaoRoleExecutionV1,
+    seal_ed25519_yao_lane_deriver_a_execution_v1, seal_ed25519_yao_lane_deriver_b_execution_v1,
+    AdapterError, Ed25519YaoRecipientPrivateKeyV1, Ed25519YaoRoleExecutionV1,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -83,6 +87,10 @@ struct RoleSpanEventV1 {
     outcome: &'static str,
     duration_ms: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
+    error_code: Option<RouterAbProtocolErrorCode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    adapter_code: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     trace_id: Option<String>,
 }
 
@@ -94,6 +102,89 @@ fn emit_role_span_v1(
     started_at_ms: u64,
     outcome: &'static str,
 ) {
+    emit_role_span_with_error_code_v1(
+        trace_id,
+        span,
+        role,
+        operation,
+        started_at_ms,
+        outcome,
+        None,
+        None,
+    );
+}
+
+fn emit_role_span_error_v1(
+    trace_id: RoleTraceContextV1,
+    span: &'static str,
+    role: &'static str,
+    operation: &'static str,
+    started_at_ms: u64,
+    error: &RouterAbProtocolError,
+) {
+    emit_role_span_with_error_code_v1(
+        trace_id,
+        span,
+        role,
+        operation,
+        started_at_ms,
+        "failure",
+        Some(error.code()),
+        None,
+    );
+}
+
+fn emit_role_adapter_error_v1(
+    trace_id: RoleTraceContextV1,
+    span: &'static str,
+    operation: &'static str,
+    started_at_ms: u64,
+    error: AdapterError,
+) {
+    emit_role_span_with_error_code_v1(
+        trace_id,
+        span,
+        "deriver_b",
+        operation,
+        started_at_ms,
+        "failure",
+        Some(RouterAbProtocolErrorCode::InvalidLifecycleState),
+        Some(adapter_error_code_v1(error)),
+    );
+}
+
+fn emit_role_stage_result_v1<T>(
+    trace_id: RoleTraceContextV1,
+    span: &'static str,
+    operation: &'static str,
+    started_at_ms: u64,
+    result: &RouterAbProtocolResult<T>,
+) {
+    match result {
+        Ok(_) => emit_role_span_v1(
+            trace_id,
+            span,
+            "deriver_b",
+            operation,
+            started_at_ms,
+            "success",
+        ),
+        Err(error) => {
+            emit_role_span_error_v1(trace_id, span, "deriver_b", operation, started_at_ms, error)
+        }
+    }
+}
+
+fn emit_role_span_with_error_code_v1(
+    trace_id: RoleTraceContextV1,
+    span: &'static str,
+    role: &'static str,
+    operation: &'static str,
+    started_at_ms: u64,
+    outcome: &'static str,
+    error_code: Option<RouterAbProtocolErrorCode>,
+    adapter_code: Option<&'static str>,
+) {
     let ended_at_ms = cloudflare_yao_now_unix_ms().unwrap_or(started_at_ms);
     let event = RoleSpanEventV1 {
         event: ROLE_SPAN_EVENT_V1,
@@ -102,6 +193,8 @@ fn emit_role_span_v1(
         operation,
         outcome,
         duration_ms: ended_at_ms.saturating_sub(started_at_ms),
+        error_code,
+        adapter_code,
         trace_id: trace_id.map(CloudflareTraceIdV1::as_hex),
     };
     if let Ok(serialized) = serde_json::to_string(&event) {
@@ -123,6 +216,7 @@ enum PairYaoSessionRecordV1 {
         root_metadata_digest: [u8; 32],
         expires_at_ms: u64,
         input: Box<Ed25519YaoEncryptedInputV1>,
+        work: crate::CloudflareEd25519YaoPairWorkV1,
         receipt: Box<Ed25519YaoRoleReadinessReceiptV1>,
     },
     Running {
@@ -132,6 +226,7 @@ enum PairYaoSessionRecordV1 {
         execution_id: [u8; 32],
         started_at_ms: u64,
         input: Box<Ed25519YaoEncryptedInputV1>,
+        work: crate::CloudflareEd25519YaoPairWorkV1,
     },
     Completed {
         pair_digest: [u8; 32],
@@ -196,6 +291,7 @@ fn completed_pair_record_if_running(
         execution_id,
         started_at_ms,
         input,
+        ..
     } = current
     else {
         return None;
@@ -363,6 +459,7 @@ impl CloudflareEd25519YaoPairPrepareRequestV1 {
         expected_kind: Ed25519YaoInputKindV1,
     ) -> RouterAbProtocolResult<([u8; 32], [u8; 32])> {
         self.pair_binding.validate()?;
+        validate_pair_work_v1(&self.work, &self.pair_binding, &self.input)?;
         validate_deriver_input(&self.input, role, expected_kind)?;
         let input_digest = ed25519_yao_encrypted_input_digest_v1(&self.input)?.bytes;
         let expected_digest = match role {
@@ -391,6 +488,7 @@ impl CloudflareEd25519YaoPairExecuteRequestV1 {
         let expected_kind = input_kind_for_circuit(self.pair_binding.binding().circuit_family());
         let (_, input_digest) = CloudflareEd25519YaoPairPrepareRequestV1 {
             pair_binding: self.pair_binding.clone(),
+            work: self.work.clone(),
             input: self.input.clone(),
         }
         .validate_for_role(Ed25519YaoDeriverRoleV1::DeriverA, expected_kind)?;
@@ -408,6 +506,45 @@ impl CloudflareEd25519YaoPairExecuteRequestV1 {
         }
         Ok(())
     }
+}
+
+fn validate_pair_work_v1(
+    work: &crate::CloudflareEd25519YaoPairWorkV1,
+    pair_binding: &Ed25519YaoInputPairBindingV1,
+    input: &Ed25519YaoEncryptedInputV1,
+) -> RouterAbProtocolResult<()> {
+    match work {
+        crate::CloudflareEd25519YaoPairWorkV1::Ceremony => {
+            if input.kind() == Ed25519YaoInputKindV1::LaneMaterialization {
+                return Err(invalid_lifecycle(
+                    "lane-materialization input requires an admitted lane job",
+                ));
+            }
+        }
+        crate::CloudflareEd25519YaoPairWorkV1::Lane { job } => {
+            job.validate()?;
+            if input.kind() != Ed25519YaoInputKindV1::LaneMaterialization
+                || input.operation() != job.yao_request_kind.operation()
+                || input.session() != job.session_v1()?
+                || input.stable_context_binding() != job.stable_context_binding_v1()?
+                || pair_binding.binding().operation != job.yao_request_kind.operation()
+                || pair_binding.binding().session_id.into_bytes() != job.session_v1()?
+                || pair_binding
+                    .binding()
+                    .stable_key_context_binding
+                    .into_bytes()
+                    != job.stable_context_binding_v1()?
+                || pair_binding.binding().material_activation() != &job.source.material_activation
+                || pair_binding.authorization_digest()
+                    != PublicDigest32::new(job.transcript_digest_v1()?)
+            {
+                return Err(invalid_lifecycle(
+                    "lane pair context does not match its admitted job",
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 impl CloudflareEd25519YaoPairStartRequestV1 {
@@ -443,6 +580,7 @@ impl CloudflareEd25519YaoPairLookupRequestV1 {
 enum DeriverAYaoSessionCommandV1 {
     PreparePair {
         pair_binding: Ed25519YaoInputPairBindingV1,
+        work: crate::CloudflareEd25519YaoPairWorkV1,
         input: Ed25519YaoEncryptedInputV1,
     },
     StartPair {
@@ -472,11 +610,13 @@ impl DeriverAYaoSessionCommandV1 {
         match self {
             Self::PreparePair {
                 pair_binding,
+                work,
                 input,
             } => {
                 let expected_kind = input_kind_for_circuit(pair_binding.binding().circuit_family());
                 CloudflareEd25519YaoPairPrepareRequestV1 {
                     pair_binding: pair_binding.clone(),
+                    work: work.clone(),
                     input: input.clone(),
                 }
                 .validate_for_role(Ed25519YaoDeriverRoleV1::DeriverA, expected_kind)?;
@@ -558,6 +698,7 @@ enum DeriverAYaoSessionResponseV1 {
 enum DeriverBYaoSessionCommandV1 {
     PreparePair {
         pair_binding: Box<Ed25519YaoInputPairBindingV1>,
+        work: crate::CloudflareEd25519YaoPairWorkV1,
         input: Box<Ed25519YaoEncryptedInputV1>,
     },
     BeginPair {
@@ -608,11 +749,13 @@ impl DeriverBYaoSessionCommandV1 {
         match self {
             Self::PreparePair {
                 pair_binding,
+                work,
                 input,
             } => {
                 let expected_kind = input_kind_for_circuit(pair_binding.binding().circuit_family());
                 CloudflareEd25519YaoPairPrepareRequestV1 {
                     pair_binding: *pair_binding.clone(),
+                    work: work.clone(),
                     input: *input.clone(),
                 }
                 .validate_for_role(Ed25519YaoDeriverRoleV1::DeriverB, expected_kind)?;
@@ -656,6 +799,7 @@ enum DeriverBYaoSessionResponseV1 {
         pair_digest: [u8; 32],
         root_metadata_digest: [u8; 32],
         input: Box<Ed25519YaoEncryptedInputV1>,
+        work: crate::CloudflareEd25519YaoPairWorkV1,
         receipt: Box<Ed25519YaoRoleReadinessReceiptV1>,
     },
     PairPreparedStatus {
@@ -671,6 +815,7 @@ enum DeriverBYaoSessionResponseV1 {
         pair_digest: [u8; 32],
         execution_id: Ed25519YaoExecutionIdV1,
         input: Box<Ed25519YaoEncryptedInputV1>,
+        work: crate::CloudflareEd25519YaoPairWorkV1,
         receipt: Box<Ed25519YaoRoleReadinessReceiptV1>,
         root_metadata_digest: [u8; 32],
     },
@@ -1104,6 +1249,7 @@ impl DeriverAYaoSessionD1V1 {
     ) -> worker::Result<Response> {
         let DeriverAYaoSessionCommandV1::PreparePair {
             pair_binding,
+            work,
             input,
         } = command
         else {
@@ -1111,6 +1257,7 @@ impl DeriverAYaoSessionD1V1 {
         };
         let request = CloudflareEd25519YaoPairPrepareRequestV1 {
             pair_binding,
+            work,
             input,
         };
         let expected_kind = input_kind_for_circuit(request.pair_binding.binding().circuit_family());
@@ -1129,9 +1276,11 @@ impl DeriverAYaoSessionD1V1 {
                     input_digest: existing_input,
                     expires_at_ms,
                     receipt,
+                    work,
                     ..
                 } if existing_pair == pair_digest
                     && existing_input == input_digest
+                    && work == request.work
                     && now_unix_ms < expires_at_ms =>
                 {
                     return Response::from_json(&*receipt);
@@ -1249,6 +1398,7 @@ impl DeriverAYaoSessionD1V1 {
             root_metadata_digest,
             expires_at_ms,
             input: Box::new(request.input),
+            work: request.work,
             receipt: Box::new(receipt.clone()),
         };
         let record_for_transaction = prepared_record.clone();
@@ -1335,6 +1485,7 @@ impl DeriverAYaoSessionD1V1 {
             root_metadata_digest,
             expires_at_ms,
             input,
+            work,
             receipt: stored_receipt,
         }) = storage
             .get::<PairYaoSessionRecordV1>(PAIR_SESSION_RECORD_STORAGE_KEY)
@@ -1371,6 +1522,7 @@ impl DeriverAYaoSessionD1V1 {
             execution_id: request.execution_id.into_bytes(),
             started_at_ms,
             input,
+            work,
         };
         storage
             .transaction(move |transaction| async move {
@@ -1522,8 +1674,9 @@ impl DeriverBYaoSessionD1V1 {
         match command {
             DeriverBYaoSessionCommandV1::PreparePair {
                 pair_binding,
+                work,
                 input,
-            } => self.handle_prepare_pair(*pair_binding, *input).await,
+            } => self.handle_prepare_pair(*pair_binding, work, *input).await,
             DeriverBYaoSessionCommandV1::BeginPair {
                 session,
                 pair_digest,
@@ -1551,10 +1704,12 @@ impl DeriverBYaoSessionD1V1 {
     async fn handle_prepare_pair(
         &self,
         pair_binding: Ed25519YaoInputPairBindingV1,
+        work: crate::CloudflareEd25519YaoPairWorkV1,
         input: Ed25519YaoEncryptedInputV1,
     ) -> worker::Result<Response> {
         let request = CloudflareEd25519YaoPairPrepareRequestV1 {
             pair_binding,
+            work,
             input,
         };
         let expected_kind = input_kind_for_circuit(request.pair_binding.binding().circuit_family());
@@ -1574,9 +1729,11 @@ impl DeriverBYaoSessionD1V1 {
                     expires_at_ms,
                     root_metadata_digest,
                     input,
+                    work,
                     receipt,
                 } if stored_pair == pair_digest
                     && stored_input == input_digest
+                    && work == request.work
                     && now_unix_ms < expires_at_ms =>
                 {
                     return Response::from_json(&DeriverBYaoSessionResponseV1::PairPrepared {
@@ -1584,6 +1741,7 @@ impl DeriverBYaoSessionD1V1 {
                         pair_digest: stored_pair,
                         root_metadata_digest,
                         input,
+                        work,
                         receipt,
                     });
                 }
@@ -1653,9 +1811,11 @@ impl DeriverBYaoSessionD1V1 {
                     expires_at_ms,
                     root_metadata_digest,
                     input,
+                    work,
                     receipt,
                 } if stored_pair == pair_digest
                     && stored_input == input_digest
+                    && work == request.work
                     && prepared_at_ms < expires_at_ms =>
                 {
                     return Response::from_json(&DeriverBYaoSessionResponseV1::PairPrepared {
@@ -1663,6 +1823,7 @@ impl DeriverBYaoSessionD1V1 {
                         pair_digest: stored_pair,
                         root_metadata_digest,
                         input,
+                        work,
                         receipt,
                     });
                 }
@@ -1696,6 +1857,7 @@ impl DeriverBYaoSessionD1V1 {
             root_metadata_digest,
             expires_at_ms,
             input: Box::new(input.clone()),
+            work: request.work.clone(),
             receipt: Box::new(receipt.clone()),
         };
         let record_for_transaction = prepared_record.clone();
@@ -1739,6 +1901,7 @@ impl DeriverBYaoSessionD1V1 {
             pair_digest,
             root_metadata_digest,
             input: Box::new(input),
+            work: request.work,
             receipt: Box::new(receipt),
         })
     }
@@ -1779,6 +1942,7 @@ impl DeriverBYaoSessionD1V1 {
             root_metadata_digest,
             expires_at_ms,
             input,
+            work,
             receipt,
         } = record
         else {
@@ -1807,6 +1971,7 @@ impl DeriverBYaoSessionD1V1 {
         }
         let started_at_ms = now_unix_ms;
         let response_input = input.clone();
+        let response_work = work.clone();
         let response_receipt = receipt.clone();
         let running_record = PairYaoSessionRecordV1::Running {
             pair_digest,
@@ -1815,6 +1980,7 @@ impl DeriverBYaoSessionD1V1 {
             execution_id: execution_id.into_bytes(),
             started_at_ms,
             input,
+            work,
         };
         storage
             .transaction(move |transaction| async move {
@@ -1869,6 +2035,7 @@ impl DeriverBYaoSessionD1V1 {
             pair_digest,
             execution_id,
             input: response_input,
+            work: response_work,
             receipt: response_receipt,
             root_metadata_digest,
         })
@@ -2209,6 +2376,7 @@ pub async fn handle_cloudflare_ed25519_yao_deriver_a_execute_pair_v1(
     let pair_execution = DeriverAPairExecutionContextV1 {
         expected_root_metadata_digest: request.local_receipt.root_metadata_digest().bytes,
         pair_binding: &pair_binding,
+        work: request.work,
         pair_digest,
         execution_id,
         peer_receipt: &request.peer_receipt,
@@ -2307,6 +2475,7 @@ pub async fn handle_cloudflare_ed25519_yao_deriver_a_burn_pair_v1(
 struct DeriverAPairExecutionContextV1<'a> {
     expected_root_metadata_digest: [u8; 32],
     pair_binding: &'a Ed25519YaoInputPairBindingV1,
+    work: crate::CloudflareEd25519YaoPairWorkV1,
     pair_digest: [u8; 32],
     execution_id: Ed25519YaoExecutionIdV1,
     peer_receipt: &'a Ed25519YaoRoleReadinessReceiptV1,
@@ -2467,6 +2636,83 @@ async fn execute_deriver_a_role(
                 completion.transport.peer_sealed_completion,
             )
         }
+        Ed25519YaoInputKindV1::LaneMaterialization => {
+            let crate::CloudflareEd25519YaoPairWorkV1::Lane { job: expected_job } =
+                &pair_execution.work
+            else {
+                return Err(invalid_lifecycle(
+                    "Deriver A lane input is missing its admitted job",
+                ));
+            };
+            let role_request =
+                open_ed25519_yao_lane_deriver_a_input_v1(&input, expected_job, &private_key)?;
+            let lifecycle = role_request.binding.lifecycle.clone();
+            let (root_with_digest, socket, acceptance) = load_deriver_a_pair_root_before_connect(
+                env,
+                runtime,
+                &lifecycle,
+                trace_id,
+                websocket_binding,
+                &pair_execution,
+            )
+            .await?;
+            let (root, root_metadata_digest) = root_with_digest;
+            validate_expected_root_metadata_digest(
+                pair_execution.expected_root_metadata_digest,
+                root_metadata_digest,
+            )?;
+            confirm_deriver_a_pair_start(
+                env,
+                pair_execution.pair_binding.clone(),
+                pair_execution.execution_id,
+                acceptance,
+                pair_execution.local_receipt.clone(),
+                pair_execution.peer_receipt.clone(),
+                trace_id,
+            )
+            .await?;
+            let transport = CloudflareEd25519YaoWebSocketTransportV1::deriver_a(&socket, session)
+                .map_err(map_websocket_error)?;
+            let (binding, job, role) = build_product_lane_deriver_a_v1(
+                root,
+                role_request,
+                &mut CloudflareHpkeGetrandomRngV1,
+            )
+            .map_err(map_adapter)?;
+            if &binding != pair_execution.pair_binding.binding()
+                || router_ab_core::PublicDigest32::new(job.transcript_digest_v1()?)
+                    != pair_execution.pair_binding.authorization_digest()
+            {
+                return Err(invalid_lifecycle(
+                    "Deriver A lane input does not match the Router pair binding",
+                ));
+            }
+            let protocol_started_at_ms = role_span_started_at_ms();
+            let completion_result =
+                with_yao_ceremony_timeout(run_lane_materialization_deriver_a(role, transport))
+                    .await;
+            emit_role_span_v1(
+                trace_id,
+                "deriver_a.yao_protocol",
+                "deriver_a",
+                "lane_materialization",
+                protocol_started_at_ms,
+                if completion_result.is_ok() {
+                    "success"
+                } else {
+                    "failure"
+                },
+            );
+            let completion = completion_result?;
+            (
+                Ed25519YaoRoleExecutionV1::Lane(seal_ed25519_yao_lane_deriver_a_execution_v1(
+                    &mut CloudflareHpkeGetrandomRngV1,
+                    job,
+                    &completion.role,
+                )?),
+                completion.transport.peer_sealed_completion,
+            )
+        }
     };
     let peer_sealed_completion = peer_sealed_completion.ok_or_else(|| {
         invalid_lifecycle("Deriver B did not return its sealed execution over the pair channel")
@@ -2549,6 +2795,7 @@ pub async fn handle_cloudflare_ed25519_yao_deriver_b_prepare_pair_v1(
         env,
         DeriverBYaoSessionCommandV1::PreparePair {
             pair_binding: Box::new(request.pair_binding),
+            work: request.work,
             input: Box::new(request.input),
         },
         trace_id,
@@ -2807,6 +3054,7 @@ async fn handle_pair_bound_deriver_b_websocket(
     let DeriverBYaoSessionResponseV1::PairStarted {
         execution_id,
         input,
+        work,
         receipt,
         root_metadata_digest,
         ..
@@ -2877,16 +3125,27 @@ async fn handle_pair_bound_deriver_b_websocket(
             trace_id,
             root_metadata_digest,
             pair_digest,
+            work,
         )
         .await;
-        emit_role_span_v1(
-            trace_id,
-            "deriver_b.role_execution",
-            "deriver_b",
-            "yao",
-            role_started_at_ms,
-            if result.is_ok() { "success" } else { "failure" },
-        );
+        match &result {
+            Ok(_) => emit_role_span_v1(
+                trace_id,
+                "deriver_b.role_execution",
+                "deriver_b",
+                "yao",
+                role_started_at_ms,
+                "success",
+            ),
+            Err(error) => emit_role_span_error_v1(
+                trace_id,
+                "deriver_b.role_execution",
+                "deriver_b",
+                "yao",
+                role_started_at_ms,
+                error,
+            ),
+        }
         if result.is_err() {
             let _ignored = execute_deriver_b_session_command(
                 &env,
@@ -2911,12 +3170,31 @@ async fn execute_deriver_b_role(
     trace_id: RoleTraceContextV1,
     expected_root_metadata_digest: [u8; 32],
     pair_digest: [u8; 32],
+    work: crate::CloudflareEd25519YaoPairWorkV1,
 ) -> RouterAbProtocolResult<()> {
-    let private_key =
-        load_deriver_input_private_key(env, &runtime.envelope_decrypt_key().current.binding_name)?;
+    let private_key_started_at_ms = role_span_started_at_ms();
+    let private_key_result =
+        load_deriver_input_private_key(env, &runtime.envelope_decrypt_key().current.binding_name);
+    emit_role_stage_result_v1(
+        trace_id,
+        "deriver_b.input_private_key",
+        "yao",
+        private_key_started_at_ms,
+        &private_key_result,
+    );
+    let private_key = private_key_result?;
     let session = input.session();
-    let transport = CloudflareEd25519YaoWebSocketTransportV1::deriver_b(&socket, session)
-        .map_err(map_websocket_error)?;
+    let transport_started_at_ms = role_span_started_at_ms();
+    let transport_result = CloudflareEd25519YaoWebSocketTransportV1::deriver_b(&socket, session)
+        .map_err(map_websocket_error);
+    emit_role_stage_result_v1(
+        trace_id,
+        "deriver_b.transport",
+        "yao",
+        transport_started_at_ms,
+        &transport_result,
+    );
+    let transport = transport_result?;
     let (execution, transport) = match input.kind() {
         Ed25519YaoInputKindV1::Activation => {
             let role_request =
@@ -3003,9 +3281,118 @@ async fn execute_deriver_b_role(
                 completion.transport,
             )
         }
+        Ed25519YaoInputKindV1::LaneMaterialization => {
+            let crate::CloudflareEd25519YaoPairWorkV1::Lane { job: expected_job } = &work else {
+                return Err(invalid_lifecycle(
+                    "Deriver B lane input is missing its admitted job",
+                ));
+            };
+            let input_open_started_at_ms = role_span_started_at_ms();
+            let role_request_result =
+                open_ed25519_yao_lane_deriver_b_input_v1(&input, expected_job, &private_key);
+            emit_role_stage_result_v1(
+                trace_id,
+                "deriver_b.input_open",
+                "lane_materialization",
+                input_open_started_at_ms,
+                &role_request_result,
+            );
+            let role_request = role_request_result?;
+            let lifecycle = role_request.binding.lifecycle.clone();
+            let (root, root_metadata_digest) =
+                load_deriver_b_yao_root_with_metadata_digest(env, runtime, &lifecycle, trace_id)
+                    .await?;
+            validate_expected_root_metadata_digest(
+                expected_root_metadata_digest,
+                root_metadata_digest,
+            )?;
+            let role_build_started_at_ms = role_span_started_at_ms();
+            let role_build_result = build_product_lane_deriver_b_v1(
+                root,
+                role_request,
+                &mut CloudflareHpkeGetrandomRngV1,
+            );
+            match &role_build_result {
+                Ok(_) => emit_role_span_v1(
+                    trace_id,
+                    "deriver_b.role_build",
+                    "deriver_b",
+                    "lane_materialization",
+                    role_build_started_at_ms,
+                    "success",
+                ),
+                Err(error) => emit_role_adapter_error_v1(
+                    trace_id,
+                    "deriver_b.role_build",
+                    "lane_materialization",
+                    role_build_started_at_ms,
+                    *error,
+                ),
+            }
+            let role_build_result = role_build_result.map_err(map_adapter);
+            let (binding, job, role) = role_build_result?;
+            let session_check_result = if binding.session_id.into_bytes() == session {
+                Ok(())
+            } else {
+                Err(invalid_lifecycle(
+                    "Deriver B lane input does not match the pair session",
+                ))
+            };
+            emit_role_stage_result_v1(
+                trace_id,
+                "deriver_b.session_check",
+                "lane_materialization",
+                role_build_started_at_ms,
+                &session_check_result,
+            );
+            session_check_result?;
+            let protocol_started_at_ms = role_span_started_at_ms();
+            let completion_result =
+                with_yao_ceremony_timeout(run_lane_materialization_deriver_b_open(role, transport))
+                    .await;
+            emit_role_span_v1(
+                trace_id,
+                "deriver_b.yao_protocol",
+                "deriver_b",
+                "lane_materialization",
+                protocol_started_at_ms,
+                if completion_result.is_ok() {
+                    "success"
+                } else {
+                    "failure"
+                },
+            );
+            let completion = completion_result?;
+            let seal_started_at_ms = role_span_started_at_ms();
+            let sealed_result = seal_ed25519_yao_lane_deriver_b_execution_v1(
+                &mut CloudflareHpkeGetrandomRngV1,
+                job,
+                &completion.role,
+            );
+            emit_role_stage_result_v1(
+                trace_id,
+                "deriver_b.output_seal",
+                "lane_materialization",
+                seal_started_at_ms,
+                &sealed_result,
+            );
+            (
+                Ed25519YaoRoleExecutionV1::Lane(sealed_result?),
+                completion.transport,
+            )
+        }
     };
+    let serialization_started_at_ms = role_span_started_at_ms();
     let serialized_execution = serde_json::to_vec(&execution)
         .map_err(|_| invalid_lifecycle("Deriver B sealed execution could not be serialized"))?;
+    emit_role_span_v1(
+        trace_id,
+        "deriver_b.output_serialization",
+        "deriver_b",
+        "yao",
+        serialization_started_at_ms,
+        "success",
+    );
     execute_deriver_b_session_command(
         env,
         DeriverBYaoSessionCommandV1::CompletePair {
@@ -3090,6 +3477,7 @@ async fn execute_deriver_a_pair_prepare(
 ) -> RouterAbProtocolResult<Ed25519YaoRoleReadinessReceiptV1> {
     let command = DeriverAYaoSessionCommandV1::PreparePair {
         pair_binding: request.pair_binding,
+        work: request.work,
         input: request.input,
     };
     let mut response = execute_deriver_a_pair_command(env, command, trace_id).await?;
@@ -3372,6 +3760,9 @@ fn circuit_for_input(input: &Ed25519YaoEncryptedInputV1) -> CloudflareEd25519Yao
     match input.kind() {
         Ed25519YaoInputKindV1::Activation => CloudflareEd25519YaoCircuitV1::Activation,
         Ed25519YaoInputKindV1::Export => CloudflareEd25519YaoCircuitV1::Export,
+        Ed25519YaoInputKindV1::LaneMaterialization => {
+            CloudflareEd25519YaoCircuitV1::LaneMaterialization
+        }
     }
 }
 
@@ -3379,6 +3770,9 @@ fn input_kind_for_circuit(family: Ed25519YaoCircuitFamilyV1) -> Ed25519YaoInputK
     match family {
         Ed25519YaoCircuitFamilyV1::Activation => Ed25519YaoInputKindV1::Activation,
         Ed25519YaoCircuitFamilyV1::Export => Ed25519YaoInputKindV1::Export,
+        Ed25519YaoCircuitFamilyV1::LaneMaterialization => {
+            Ed25519YaoInputKindV1::LaneMaterialization
+        }
     }
 }
 
@@ -3402,6 +3796,16 @@ where
 
 fn map_adapter(error: router_ab_ed25519_yao::AdapterError) -> RouterAbProtocolError {
     invalid_lifecycle(format!("Ed25519 Yao role construction failed: {error}"))
+}
+
+fn adapter_error_code_v1(error: AdapterError) -> &'static str {
+    match error {
+        AdapterError::InvalidDerivationContext => "invalid_derivation_context",
+        AdapterError::CircuitFamilyMismatch => "circuit_family_mismatch",
+        AdapterError::RoleProtocol => "role_protocol",
+        AdapterError::LifecycleContributionMismatch => "lifecycle_contribution_mismatch",
+        AdapterError::ServerContributionDerivation => "server_contribution_derivation",
+    }
 }
 
 async fn with_yao_ceremony_timeout<T, E, F>(future: F) -> RouterAbProtocolResult<T>
@@ -3466,6 +3870,8 @@ fn yao_input_digest(input: &Ed25519YaoEncryptedInputV1) -> [u8; 32] {
         Ed25519YaoOperationV1::Recovery => 2,
         Ed25519YaoOperationV1::Refresh => 3,
         Ed25519YaoOperationV1::Export => 4,
+        Ed25519YaoOperationV1::LaneProvisioning => 5,
+        Ed25519YaoOperationV1::LaneRefresh => 6,
     }]);
     hasher.update(input.session());
     hasher.update(input.stable_context_binding());
@@ -3732,6 +4138,7 @@ mod tests {
             execution_id,
             started_at_ms: 100,
             input: Box::new(input),
+            work: crate::CloudflareEd25519YaoPairWorkV1::Ceremony,
         };
         let completed = completed_pair_record_if_running(
             &running,

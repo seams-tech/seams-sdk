@@ -54,6 +54,8 @@ const requiredSecretVarsByProfile = Object.freeze({
     'ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK',
     'ACCOUNT_ID_DERIVATION_SECRET',
     'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
+    'LINKED_DEVICE_OPERATOR_RECOVERY_SECRET',
+    'LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET',
     'SPONSORED_EVM_EXECUTORS_JSON',
     'STRIPE_API_SK',
   ]),
@@ -79,6 +81,8 @@ const requiredVarsByProfile = Object.freeze({
     'ROUTER_AB_CEREMONY_JWT_KEY_ID',
     'ROUTER_AB_CEREMONY_JWT_ISSUER',
     'ROUTER_AB_CEREMONY_JWT_AUDIENCE',
+    'LINKED_DEVICE_WEBAUTHN_RP_ID',
+    'LINKED_DEVICE_WEBAUTHN_ORIGIN',
     'SPONSORED_EXECUTION_REAL_PRICING_JSON',
     'CONSOLE_BASE_URL',
   ]),
@@ -102,11 +106,10 @@ const forbiddenPlaintextVars = Object.freeze([
   'CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U',
   'ACCOUNT_ID_DERIVATION_SECRET',
   'ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK',
+  'LINKED_DEVICE_OPERATOR_RECOVERY_SECRET',
+  'LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET',
 ]);
-const forbiddenConsoleProfileTokens = Object.freeze([
-  'SIGNER_DB',
-  'THRESHOLD_STORE',
-]);
+const forbiddenConsoleProfileTokens = Object.freeze(['SIGNER_DB', 'THRESHOLD_STORE']);
 
 export function checkD1StagingReadiness(input = {}) {
   const profile = normalizeProfile(input.profile);

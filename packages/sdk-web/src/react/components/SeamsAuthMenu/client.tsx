@@ -205,7 +205,6 @@ export const SeamsAuthMenuClient: React.FC<SeamsAuthMenuProps> = ({
       data-scan-device={controller.showScanDevice}
       data-otp-prompt={controller.otpPrompt ? 'true' : 'false'}
       data-registration-prompt={controller.registrationPrompt ? 'true' : 'false'}
-      data-post-recovery-rotation-prompt={controller.postRecoveryRotationPrompt ? 'true' : 'false'}
       style={rootStyle}
     >
       <ContentSwitcher
@@ -234,10 +233,6 @@ export const SeamsAuthMenuClient: React.FC<SeamsAuthMenuProps> = ({
                 controller.otpPrompt.onBack();
                 return;
               }
-              if (controller.postRecoveryRotationPrompt) {
-                controller.postRecoveryRotationPrompt.onDismiss();
-                return;
-              }
               if (controller.showScanDevice) {
                 controller.closeLinkDeviceView('user');
                 return;
@@ -248,8 +243,7 @@ export const SeamsAuthMenuClient: React.FC<SeamsAuthMenuProps> = ({
               controller.waiting ||
               controller.showScanDevice ||
               controller.registrationPrompt ||
-              controller.otpPrompt ||
-              controller.postRecoveryRotationPrompt
+              controller.otpPrompt
                 ? ' is-visible'
                 : ''
             }`}
@@ -320,52 +314,6 @@ export const SeamsAuthMenuClient: React.FC<SeamsAuthMenuProps> = ({
               {controller.registrationPrompt.submitting
                 ? 'Creating...'
                 : controller.registrationPrompt.submitLabel}
-            </button>
-          </div>
-        ) : controller.postRecoveryRotationPrompt ? (
-          <div className="w3a-otp-prompt" aria-live="polite">
-            <div className="w3a-otp-prompt-copy">
-              <div className="w3a-otp-title">Rotate recovery codes</div>
-              <p className="w3a-otp-description">
-                One recovery code was used. Rotate now to get back to a full set.
-              </p>
-              <div
-                className="w3a-otp-account"
-                title={controller.postRecoveryRotationPrompt.walletId}
-              >
-                <span className="w3a-otp-account-label">Active codes</span>
-                <span className="w3a-otp-account-value">
-                  {controller.postRecoveryRotationPrompt.activeRecoveryCodeCount} /{' '}
-                  {controller.postRecoveryRotationPrompt.expectedRecoveryCodeCount}
-                </span>
-              </div>
-            </div>
-            {controller.postRecoveryRotationPrompt.error ? (
-              <p className="w3a-otp-error" role="alert">
-                {controller.postRecoveryRotationPrompt.error}
-              </p>
-            ) : (
-              <p className="w3a-otp-helper">
-                New codes are stored locally and can be downloaded from Recovery Codes.
-              </p>
-            )}
-            <button
-              type="button"
-              className="w3a-auth-method-btn w3a-auth-method-btn-primary"
-              onClick={controller.postRecoveryRotationPrompt.onRotate}
-              disabled={controller.postRecoveryRotationPrompt.rotating}
-            >
-              {controller.postRecoveryRotationPrompt.rotating
-                ? 'Rotating...'
-                : 'Rotate recovery codes'}
-            </button>
-            <button
-              type="button"
-              className="w3a-otp-resend"
-              onClick={controller.postRecoveryRotationPrompt.onDismiss}
-              disabled={controller.postRecoveryRotationPrompt.rotating}
-            >
-              Later
             </button>
           </div>
         ) : controller.otpPrompt ? (

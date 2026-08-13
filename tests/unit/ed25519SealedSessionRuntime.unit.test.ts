@@ -36,9 +36,7 @@ const LANE = buildEd25519PasskeySigningLane({
   },
   walletSessionId: AUTHORIZATION.walletSessionId,
   quotaId: AUTHORIZATION.quotaId,
-  thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
-    RECORD.thresholdSessionIds.ed25519,
-  ),
+  thresholdSessionId: SigningSessionIds.thresholdEd25519Session(RECORD.thresholdSessionIds.ed25519),
   storageSource: 'login',
 });
 
@@ -115,20 +113,14 @@ test('keeps missing and conflicting sealed Ed25519 sessions distinct', async () 
 
 test('resolves wallet-scoped Ed25519 material across factor stores', async () => {
   const walletId = toWalletId(RECORD.walletId);
-  const resolution =
-    await resolveExactEd25519SealedSessionRuntimeForWalletWithResolver(
-      walletId,
-      {
-        listExactSealedSessionsForWallet: async ({ filter }) =>
-          filter.authMethod === 'passkey' ? [RECORD] : [],
-      },
-    );
+  const resolution = await resolveExactEd25519SealedSessionRuntimeForWalletWithResolver(walletId, {
+    listExactSealedSessionsForWallet: async ({ filter }) =>
+      filter.authMethod === 'passkey' ? [RECORD] : [],
+  });
 
   expect(resolution.kind).toBe('resolved');
   if (resolution.kind !== 'resolved') return;
-  expect(resolution.runtime.thresholdSessionId).toBe(
-    RECORD.thresholdSessionIds.ed25519,
-  );
+  expect(resolution.runtime.thresholdSessionId).toBe(RECORD.thresholdSessionIds.ed25519);
 });
 
 test('reports wallet-scoped Ed25519 conflicts and corruption explicitly', async () => {
@@ -158,26 +150,23 @@ test('selects an exact Ed25519 wallet subject when a wallet has multiple signers
     nearEd25519SigningKeyId: 'ed25519-sealed-runtime-sibling-key',
     thresholdSessionId: 'ed25519-sealed-runtime-sibling-session',
   });
-  const resolution =
-    await resolveExactEd25519SealedSessionRuntimeForWalletSubjectWithResolver(
-      {
-        walletId: toWalletId(RECORD.walletId),
-        nearAccountId: toAccountId(RECORD.ed25519Restore.nearAccountId),
-        nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(
-          RECORD.ed25519Restore.nearEd25519SigningKeyId,
-        ),
-      },
-      {
-        listExactSealedSessionsForWallet: async ({ filter }) =>
-          filter.authMethod === 'passkey' ? [RECORD, sibling] : [],
-      },
-    );
+  const resolution = await resolveExactEd25519SealedSessionRuntimeForWalletSubjectWithResolver(
+    {
+      walletId: toWalletId(RECORD.walletId),
+      nearAccountId: toAccountId(RECORD.ed25519Restore.nearAccountId),
+      nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(
+        RECORD.ed25519Restore.nearEd25519SigningKeyId,
+      ),
+    },
+    {
+      listExactSealedSessionsForWallet: async ({ filter }) =>
+        filter.authMethod === 'passkey' ? [RECORD, sibling] : [],
+    },
+  );
 
   expect(resolution.kind).toBe('resolved');
   if (resolution.kind !== 'resolved') return;
-  expect(resolution.runtime.nearAccountId).toBe(
-    RECORD.ed25519Restore.nearAccountId,
-  );
+  expect(resolution.runtime.nearAccountId).toBe(RECORD.ed25519Restore.nearAccountId);
 });
 
 test('selects the current Ed25519 runtime by material activation across stale records', async () => {
@@ -219,9 +208,7 @@ test('selects the current Ed25519 runtime by material activation across stale re
 
   expect(resolution.kind).toBe('resolved');
   if (resolution.kind !== 'resolved') return;
-  expect(resolution.runtime.thresholdSessionId).toBe(
-    currentRecord.thresholdSessionIds.ed25519,
-  );
+  expect(resolution.runtime.thresholdSessionId).toBe(currentRecord.thresholdSessionIds.ed25519);
   expect(resolution.runtime.sealedRecord.ed25519Restore.materialActivation).toEqual(
     currentActivation,
   );

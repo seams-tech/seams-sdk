@@ -317,9 +317,8 @@ test.describe('Router A/B ECDSA derivation presign bridge', () => {
 
   test('requires the active Worker receipt to name material activation explicitly', () => {
     const validReceipt = receipt(request(), true);
-    const parsed = parseCloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutReceiptV1(
-      validReceipt,
-    );
+    const parsed =
+      parseCloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutReceiptV1(validReceipt);
     expect(parsed.active_signing_worker_state.material_activation).toEqual(materialActivation);
 
     const activationIdOnlyState = {

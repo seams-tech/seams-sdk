@@ -2,7 +2,6 @@
 
 /* Import AccountMenuButton styles */
 @import './components/AccountMenuButton/ExportKeysSection.css';
-@import './components/AccountMenuButton/LinkedDevicesModal.css';
 @import './components/AccountMenuButton/RecoveryCodesModal.css';
 @import './components/AccountMenuButton/MenuItem.css';
 @import './components/AccountMenuButton/ProfileDropdown.css';

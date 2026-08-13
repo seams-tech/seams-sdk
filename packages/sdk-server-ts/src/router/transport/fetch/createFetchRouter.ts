@@ -5,6 +5,17 @@ import { handleHealth, handleReady } from './routes/health';
 import { handleRecoverEmail } from './routes/recoverEmail';
 import { handleWalletRegistration } from './routes/walletRegistration';
 import {
+  handlePasskeyCustody,
+  handleWalletCustodyCredentialsList,
+  handleWalletCustodyCredentialLabel,
+  handleWalletRecoveryBackupAcknowledge,
+  handleWalletRecoveryRotate,
+  handleWalletRecoveryRead,
+  handleWalletRecoveryStatus,
+  handleWalletRecoveryFinalize,
+  handleWalletRecoveryPrepare,
+} from './routes/passkeyCustody';
+import {
   handleSessionState,
   handleSessionExchange,
   handleReusableWalletSessionStatus,
@@ -15,19 +26,13 @@ import {
   handleWalletEmailOtpRegistrationSeal,
   handleWalletEmailOtpRegistrationFinalize,
   handleWalletEmailOtpLoginChallenge,
-  handleWalletEmailOtpDeviceRecoveryChallenge,
+  handleWalletEmailOtpRecoveryBootstrapChallenge,
+  handleWalletEmailOtpRecoveryBootstrapVerify,
   handleWalletEmailOtpSigningSessionChallenge,
   handleWalletEmailOtpDevCleanupGoogleRegistration,
   handleWalletEmailOtpDevOtpOutbox,
-  handleWalletEmailOtpUnseal,
-  handleWalletEmailOtpSigningSessionUnseal,
+  handleWalletEmailOtpFactorRelease,
   handleWalletEmailOtpLoginVerify,
-  handleWalletEmailOtpLoginVerifyAndUnseal,
-  handleWalletEmailOtpRecoveryKeyAttemptFailed,
-  handleWalletEmailOtpRecoveryKeyConsume,
-  handleWalletEmailOtpRecoveryKeyRotate,
-  handleWalletEmailOtpRecoveryKeyStatus,
-  handleWalletEmailOtpRecoveryWrappedEscrows,
   handleWalletEmailOtpSigningSessionVerify,
   handleWalletState,
   handleWalletUnlockChallenge,
@@ -36,10 +41,22 @@ import {
 import { handleSyncAccount } from './routes/syncAccount';
 import { handleThresholdEd25519 } from './routes/thresholdEd25519';
 import { handleThresholdEcdsa } from './routes/thresholdEcdsa';
+import { handleOwnerWalletExecutionLanePreflight } from './routes/walletExecutionLanePreflight';
 import { handleWebAuthnAuthenticators } from './routes/webauthnAuthenticators';
 import { handleAuth } from './routes/auth';
 import { handleNearPublicKeys } from './routes/nearPublicKeys';
 import { handleWellKnown } from './routes/wellKnown';
+import { handleDeviceLinking } from './routes/deviceLinking';
+import {
+  handleDeviceManagement,
+  LINKED_DEVICE_MANAGEMENT_BASE_V1,
+} from './routes/deviceManagement';
+import {
+  handleDeviceLinkingGatewayCompletion,
+  LINKED_DEVICE_GATEWAY_COMPLETION_BASE_V1,
+} from './routes/deviceLinkingGateway';
+import { handleDeviceLinkingOwnerAuthorization } from './routes/deviceLinkingOwnerAuthorization';
+import { handleDeviceLinkingLaneGateway } from './routes/deviceLinkingLaneGateway';
 import { validateRouterApiRorOptions } from '../../framework/ror/provider';
 import { handleSigningSessionSealRoutes } from '../../../threshold/session/signingSessionSeal/transport/fetch';
 import { DEFAULT_SESSION_COOKIE_NAME } from '../../framework/routerApi';
@@ -99,9 +116,57 @@ export function createFetchRouter(
   const handlers: Array<(c: FetchRouterApiContext) => Promise<Response | null>> = [
     handleWellKnown,
     handleWalletRegistration,
+    async (context: FetchRouterApiContext) => {
+      if (!context.pathname.startsWith(LINKED_DEVICE_GATEWAY_COMPLETION_BASE_V1)) return null;
+      const service = context.service.deviceLinkingGateway;
+      if (!service) {
+        return json(
+          {
+            ok: false,
+            code: 'not_supported',
+            message: 'Linked-device Gateway completion is not configured',
+          },
+          { status: 501 },
+        );
+      }
+      return await handleDeviceLinkingGatewayCompletion(context, service);
+    },
+    async (context: FetchRouterApiContext) =>
+      await handleDeviceLinkingOwnerAuthorization(
+        context,
+        context.service.deviceLinkingOwnerAuthorization,
+      ),
+    async (context: FetchRouterApiContext) =>
+      await handleDeviceLinkingLaneGateway(context, context.service.deviceLinkingLaneGateway),
+    handleDeviceLinking,
+    async (context: FetchRouterApiContext) => {
+      if (!context.pathname.startsWith(LINKED_DEVICE_MANAGEMENT_BASE_V1)) return null;
+      const service = context.service.deviceManagement;
+      if (!service) {
+        return json(
+          {
+            ok: false,
+            code: 'not_supported',
+            message: 'Linked-device management is not configured',
+          },
+          { status: 501 },
+        );
+      }
+      return await handleDeviceManagement(context, service);
+    },
+    handlePasskeyCustody,
+    handleWalletCustodyCredentialsList,
+    handleWalletCustodyCredentialLabel,
+    handleWalletRecoveryPrepare,
+    handleWalletRecoveryFinalize,
+    handleWalletRecoveryBackupAcknowledge,
+    handleWalletRecoveryRotate,
+    handleWalletRecoveryRead,
+    handleWalletRecoveryStatus,
     handleAuth,
     handleSyncAccount,
     ...(emailRecoveryPrepareRoutesEnabled ? [handleEmailRecoveryPrepare] : []),
+    handleOwnerWalletExecutionLanePreflight,
     handleThresholdEd25519,
     handleThresholdEcdsa,
     async (c: FetchRouterApiContext) =>
@@ -126,18 +191,12 @@ export function createFetchRouter(
     handleWalletEmailOtpRegistrationSeal,
     handleWalletEmailOtpRegistrationFinalize,
     handleWalletEmailOtpLoginChallenge,
-    handleWalletEmailOtpDeviceRecoveryChallenge,
+    handleWalletEmailOtpRecoveryBootstrapChallenge,
+    handleWalletEmailOtpRecoveryBootstrapVerify,
     handleWalletEmailOtpSigningSessionChallenge,
     handleWalletEmailOtpLoginVerify,
-    handleWalletEmailOtpLoginVerifyAndUnseal,
-    handleWalletEmailOtpRecoveryWrappedEscrows,
-    handleWalletEmailOtpRecoveryKeyStatus,
-    handleWalletEmailOtpRecoveryKeyRotate,
-    handleWalletEmailOtpRecoveryKeyAttemptFailed,
-    handleWalletEmailOtpRecoveryKeyConsume,
     handleWalletEmailOtpSigningSessionVerify,
-    handleWalletEmailOtpUnseal,
-    handleWalletEmailOtpSigningSessionUnseal,
+    handleWalletEmailOtpFactorRelease,
     handleWalletEmailOtpDevCleanupGoogleRegistration,
     handleWalletEmailOtpDevOtpOutbox,
     handleWalletState,

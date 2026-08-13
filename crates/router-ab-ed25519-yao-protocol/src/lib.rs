@@ -12,8 +12,8 @@ use core::fmt;
 
 use router_ab_core::{
     Ed25519YaoCeremonyBindingV1, Ed25519YaoDeriverRoleV1, Ed25519YaoInputKindV1,
-    Ed25519YaoOperationV1, Ed25519YaoPackageKindV1, Ed25519YaoRefreshBindingV1,
-    RouterAbEd25519YaoApplicationBindingFactsV1,
+    Ed25519YaoLaneJobV1, Ed25519YaoOperationV1, Ed25519YaoPackageKindV1,
+    Ed25519YaoRefreshBindingV1, RouterAbEd25519YaoApplicationBindingFactsV1,
 };
 use serde::{Deserialize, Serialize};
 use signer_core::ed25519_yao_derivation::{
@@ -24,9 +24,14 @@ use signer_core::ed25519_yao_derivation::{
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 pub use recipient::{
-    combine_client_activation_packages, combine_export_packages, ActivationDeriverAClientPackage,
-    ActivationDeriverBClientPackage, ClientBaseScalar, ExportDeriverAClientPackage,
-    ExportDeriverBClientPackage, ExportedSeed32, RecipientPackageError,
+    combine_client_activation_packages, combine_export_packages, combine_lane_holder_packages_v1,
+    combine_lane_signing_worker_packages_v1, encode_lane_scalar_share_package_v1,
+    lane_materialization_circuit_digest_v1, lane_materialization_schedule_digest_v1,
+    ActivationDeriverAClientPackage, ActivationDeriverBClientPackage, ClientBaseScalar,
+    ExportDeriverAClientPackage, ExportDeriverBClientPackage, ExportedSeed32,
+    LaneDeriverAHolderPackage, LaneDeriverASigningWorkerPackage, LaneDeriverBHolderPackage,
+    LaneDeriverBSigningWorkerPackage, LaneHolderScalar, LaneSigningWorkerScalar,
+    RecipientPackageError,
 };
 
 /// HPKE info for Client-to-Deriver role-input encryption.
@@ -35,6 +40,12 @@ pub const ED25519_YAO_INPUT_HPKE_INFO_V1: &[u8] =
 /// HPKE info for Deriver-to-recipient package encryption.
 pub const ED25519_YAO_RECIPIENT_PACKAGE_HPKE_INFO_V1: &[u8] =
     b"seams/router-ab/ed25519-yao/recipient-package/hpke/v1";
+/// Distinct HPKE info for lane-materialization role inputs.
+pub const ED25519_YAO_LANE_INPUT_HPKE_INFO_V1: &[u8] =
+    b"seams/router-ab/ed25519-yao/lane-materialization/deriver-input/hpke/v1";
+/// Distinct HPKE info for lane-materialization recipient packages.
+pub const ED25519_YAO_LANE_RECIPIENT_PACKAGE_HPKE_INFO_V1: &[u8] =
+    b"seams/router-ab/ed25519-yao/lane-materialization/recipient-package/hpke/v1";
 
 /// Builds the canonical associated data for one opaque Deriver input.
 pub fn ed25519_yao_input_aad_v1(
@@ -53,6 +64,8 @@ pub fn ed25519_yao_input_aad_v1(
         Ed25519YaoOperationV1::Recovery => 2,
         Ed25519YaoOperationV1::Refresh => 3,
         Ed25519YaoOperationV1::Export => 4,
+        Ed25519YaoOperationV1::LaneProvisioning => 5,
+        Ed25519YaoOperationV1::LaneRefresh => 6,
     });
     aad.extend_from_slice(&session);
     aad.extend_from_slice(&stable_context_binding);
@@ -72,6 +85,46 @@ pub fn ed25519_yao_recipient_package_aad_v1(
     aad.push(deriver.wire_tag());
     aad.extend_from_slice(&session);
     aad.extend_from_slice(&transcript);
+    aad
+}
+
+/// Builds lane-specific associated data for one opaque Deriver input.
+pub fn ed25519_yao_lane_input_aad_v1(
+    deriver: Ed25519YaoDeriverRoleV1,
+    operation: Ed25519YaoOperationV1,
+    session: [u8; 32],
+    stable_context_binding: [u8; 32],
+    job_digest: [u8; 32],
+) -> Vec<u8> {
+    let mut aad = Vec::with_capacity(128);
+    aad.extend_from_slice(ED25519_YAO_LANE_INPUT_HPKE_INFO_V1);
+    aad.push(deriver.wire_tag());
+    aad.push(match operation {
+        Ed25519YaoOperationV1::LaneProvisioning => 1,
+        Ed25519YaoOperationV1::LaneRefresh => 2,
+        _ => 0,
+    });
+    aad.extend_from_slice(&session);
+    aad.extend_from_slice(&stable_context_binding);
+    aad.extend_from_slice(&job_digest);
+    aad
+}
+
+/// Builds lane-specific associated data for one recipient package.
+pub fn ed25519_yao_lane_recipient_package_aad_v1(
+    kind: Ed25519YaoPackageKindV1,
+    deriver: Ed25519YaoDeriverRoleV1,
+    session: [u8; 32],
+    transcript: [u8; 32],
+    target_lane_id_digest: [u8; 32],
+) -> Vec<u8> {
+    let mut aad = Vec::with_capacity(160);
+    aad.extend_from_slice(ED25519_YAO_LANE_RECIPIENT_PACKAGE_HPKE_INFO_V1);
+    aad.push(kind.wire_tag());
+    aad.push(deriver.wire_tag());
+    aad.extend_from_slice(&session);
+    aad.extend_from_slice(&transcript);
+    aad.extend_from_slice(&target_lane_id_digest);
     aad
 }
 
@@ -168,6 +221,50 @@ macro_rules! define_refresh_role_request {
 
 define_refresh_role_request!(LocalEd25519YaoRefreshDeriverARequestV1);
 define_refresh_role_request!(LocalEd25519YaoRefreshDeriverBRequestV1);
+
+/// Recipient public keys for the disjoint lane-materialization family.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LocalEd25519YaoLaneRecipientsV1 {
+    /// Target holder HPKE public key.
+    pub holder_public_key: [u8; 32],
+    /// Target SigningWorker HPKE public key.
+    pub signing_worker_public_key: [u8; 32],
+}
+
+macro_rules! define_lane_role_request {
+    ($name:ident) => {
+        #[doc = "One lane-materialization role input opened only by its Deriver."]
+        #[derive(Debug, Serialize, Deserialize)]
+        #[serde(deny_unknown_fields)]
+        pub struct $name {
+            /// Router-admitted ceremony binding.
+            pub binding: Ed25519YaoCeremonyBindingV1,
+            /// Complete lane job pinned by Router admission.
+            pub job: Ed25519YaoLaneJobV1,
+            /// Canonical application-binding facts.
+            pub application_binding: RouterAbEd25519YaoApplicationBindingFactsV1,
+            /// Canonical ascending participant identifiers.
+            pub participant_ids: [u16; 2],
+            /// Client contribution for this Deriver role.
+            pub client_contribution: LocalEd25519YaoClientContributionV1,
+            /// Target recipient public keys.
+            pub recipients: LocalEd25519YaoLaneRecipientsV1,
+        }
+    };
+}
+
+define_lane_role_request!(LocalEd25519YaoLaneDeriverARequestV1);
+define_lane_role_request!(LocalEd25519YaoLaneDeriverBRequestV1);
+
+/// Lane provisioning role input alias retained as a distinct semantic type.
+pub type LocalEd25519YaoLaneProvisioningDeriverARequestV1 = LocalEd25519YaoLaneDeriverARequestV1;
+/// Lane provisioning role input alias retained as a distinct semantic type.
+pub type LocalEd25519YaoLaneProvisioningDeriverBRequestV1 = LocalEd25519YaoLaneDeriverBRequestV1;
+/// Lane refresh role input alias retained as a distinct semantic type.
+pub type LocalEd25519YaoLaneRefreshDeriverARequestV1 = LocalEd25519YaoLaneDeriverARequestV1;
+/// Lane refresh role input alias retained as a distinct semantic type.
+pub type LocalEd25519YaoLaneRefreshDeriverBRequestV1 = LocalEd25519YaoLaneDeriverBRequestV1;
 
 /// Stable application-binding construction failure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

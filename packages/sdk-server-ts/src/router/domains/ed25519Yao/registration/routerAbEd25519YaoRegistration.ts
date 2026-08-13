@@ -28,9 +28,10 @@ import type {
 
 type RouterAbEd25519YaoRegistrationAdmissionReceiptV1 =
   RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
-type RouterAbEd25519YaoRegistrationExecuteRequestV1 =
+export type RouterAbEd25519YaoRegistrationExecuteRequestV1 =
   RouterAbEd25519YaoActivationExecuteRequestV1<'registration'>;
-type RouterAbEd25519YaoRegistrationResultV1 = RouterAbEd25519YaoActivationResultV1<'registration'>;
+export type RouterAbEd25519YaoRegistrationResultV1 =
+  RouterAbEd25519YaoActivationResultV1<'registration'>;
 
 export type RouterAbEd25519YaoRegistrationFailureCode =
   | 'invalid_backend_response'
@@ -92,6 +93,9 @@ export interface RouterAbEd25519YaoRegistrationService {
     request: RouterAbEd25519YaoRegistrationExecuteRequestV1,
     traceContext?: RouterAbTraceContextV1,
   ): Promise<RouterAbEd25519YaoRegistrationServiceResult<RouterAbEd25519YaoRegistrationResultV1>>;
+  replayActivated(
+    request: RouterAbEd25519YaoRegistrationExecuteRequestV1,
+  ): RouterAbEd25519YaoRegistrationServiceResult<RouterAbEd25519YaoRegistrationResultV1>;
 }
 
 export type RouterAbEd25519YaoRegistrationAdmissionClaimV1 = {
@@ -703,6 +707,32 @@ export class InMemoryRouterAbEd25519YaoRegistrationService
         return this.commitExecute({ request, claim: preparation.claim, outcome });
       }
     }
+  }
+
+  replayActivated(
+    request: RouterAbEd25519YaoRegistrationExecuteRequestV1,
+  ): RouterAbEd25519YaoRegistrationServiceResult<RouterAbEd25519YaoRegistrationResultV1> {
+    const state = this.states.get(executeSessionKey(request));
+    if (!state || state.kind !== 'activated') {
+      return {
+        ok: false,
+        status: 404,
+        code: 'unknown_registration',
+        message: 'activated registration was not found',
+      };
+    }
+    if (
+      !routerAbEd25519YaoExecutionMatchesAdmissionV1(request, state.admissionReceipt) ||
+      state.executeFingerprint !== canonicalWireFingerprint(request)
+    ) {
+      return {
+        ok: false,
+        status: 409,
+        code: 'binding_mismatch',
+        message: 'cold unlock execution does not exactly reproduce the activated registration',
+      };
+    }
+    return { ok: true, status: 200, value: state.result };
   }
 
   prepareExecute(

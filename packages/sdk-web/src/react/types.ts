@@ -36,8 +36,8 @@ import type {
   RegistrationResult,
   SigningSessionStatus,
 } from '../core/types/seams';
-import type { DeviceLinkingQRData, StartDevice2LinkingFlowArgs } from '../core/types/linkDevice';
-import type { AccessKeyList } from '../core/rpcClients/near/NearClient';
+import type { StartDevice2LinkingFlowArgs } from '../core/types/linkDevice';
+import type { QrLinkedDeviceSessionPayloadV4 } from '@shared/device-linking';
 import type {
   NearAccountRef,
   WalletSessionRef,
@@ -223,11 +223,11 @@ export interface SeamsContextType {
 
   // Device linking functions
   startDevice2LinkingFlow: (args?: StartDevice2LinkingFlowArgs) => Promise<{
-    qrData: DeviceLinkingQRData;
+    qrData: QrLinkedDeviceSessionPayloadV4;
     qrCodeDataURL: string;
   }>;
 
-  stopDevice2LinkingFlow: () => Promise<void>;
+  cancelDeviceLinking: () => Promise<void>;
 
   // Login State
   loginState: LoginState;
@@ -248,8 +248,7 @@ export interface SeamsContextType {
   setConfirmationConfig: (config: Partial<ConfirmationConfig>) => void;
   getConfirmationConfig: () => ConfirmationConfig;
 
-  // Account management functions
-  viewAccessKeyList: DevicesCapability['viewAccessKeyList'];
+  // Linked-device management is exposed through the typed devices capability.
 
   // Theme capabilities (controlled by host app)
   themeCapabilities: {

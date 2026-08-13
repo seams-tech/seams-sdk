@@ -126,7 +126,9 @@ function projectAccessLevel(
   assignments: DashboardProjectAccessAssignment[],
   projectId: string,
 ): DashboardProjectAccessLevel | 'none' {
-  return assignments.find((assignment) => assignment.projectId === projectId)?.accessLevel ?? 'none';
+  return (
+    assignments.find((assignment) => assignment.projectId === projectId)?.accessLevel ?? 'none'
+  );
 }
 
 function permissionLabel(permission: DashboardOrganizationAdminPermission): string {
@@ -179,7 +181,11 @@ function membershipMatchesQuery(
     membership.role,
     membership.kind,
     roleSummary(membership),
-  ].some((value) => String(value ?? '').toLowerCase().includes(query));
+  ].some((value) =>
+    String(value ?? '')
+      .toLowerCase()
+      .includes(query),
+  );
 }
 
 function roleFromSelect(value: string): DashboardOrganizationRole {
@@ -226,10 +232,7 @@ function GrantEditor(props: GrantEditorProps): React.JSX.Element {
           </p>
           <div className="dashboard-team-members-permission-flags">
             {DASHBOARD_ORGANIZATION_ADMIN_PERMISSIONS.map((permission) => (
-              <label
-                className="dashboard-team-members-permission-flag__toggle"
-                key={permission}
-              >
+              <label className="dashboard-team-members-permission-flag__toggle" key={permission}>
                 <input
                   type="checkbox"
                   checked={adminGrant.adminPermissions.includes(permission)}
@@ -311,7 +314,8 @@ export function TeamMembersPage(): React.JSX.Element {
   const role = session.claims?.role;
   const adminPermissions = session.claims?.adminPermissions ?? [];
   const isOwner = role === 'OWNER';
-  const canManageMembers = isOwner || (role === 'ADMIN' && adminPermissions.includes('members.manage'));
+  const canManageMembers =
+    isOwner || (role === 'ADMIN' && adminPermissions.includes('members.manage'));
   const canManageProjects =
     isOwner || (role === 'ADMIN' && adminPermissions.includes('projects.manage'));
   const canOpenTeamPage = canManageMembers || canManageProjects;
@@ -480,11 +484,7 @@ export function TeamMembersPage(): React.JSX.Element {
       action: 'suspend' | 'reactivate' | 'remove',
     ) => {
       const pastTense =
-        action === 'suspend'
-          ? 'suspended'
-          : action === 'reactivate'
-            ? 'reactivated'
-            : 'removed';
+        action === 'suspend' ? 'suspended' : action === 'reactivate' ? 'reactivated' : 'removed';
       if (
         action === 'remove' &&
         !window.confirm(`Remove ${membership.email} from this organization?`)
@@ -536,7 +536,11 @@ export function TeamMembersPage(): React.JSX.Element {
 
   const inviteModal =
     modal === 'invite' ? (
-      <DashboardInlineModal isOpen ariaLabel="Invite organization member" onRequestClose={closeModal}>
+      <DashboardInlineModal
+        isOpen
+        ariaLabel="Invite organization member"
+        onRequestClose={closeModal}
+      >
         <h2>Invite member</h2>
         <form className="dashboard-view-grid" onSubmit={submitInvitation}>
           <label className="dashboard-form-field">
@@ -598,8 +602,7 @@ export function TeamMembersPage(): React.JSX.Element {
             projects={projects}
             allowPrivilegedRoles={isOwner}
             disabled={
-              busyId === editingMembership.id ||
-              editingMembership.userId === session.claims?.userId
+              busyId === editingMembership.id || editingMembership.userId === session.claims?.userId
             }
             onChange={setEditingGrant}
           />
@@ -637,14 +640,17 @@ export function TeamMembersPage(): React.JSX.Element {
     ) : null;
 
   return (
-    <div className="dashboard-view" aria-label="Organization team management page">
-      <section className="dashboard-view__section">
+    <div
+      className="dashboard-view dashboard-team-members-view"
+      aria-label="Organization team management page"
+    >
+      <section className="dashboard-team-members-view__intro">
         <div className="dashboard-section-toolbar dashboard-team-members-toolbar">
           <div className="dashboard-section-toolbar__copy">
             <h2>Team</h2>
             <p className="dashboard-pagination-note">
-              Owners have full access. Administrators use four organization permissions, and
-              members receive viewer or editor access per project.
+              Owners have full access. Administrators use four organization permissions, and members
+              receive viewer or editor access per project.
             </p>
           </div>
           <button
@@ -676,7 +682,7 @@ export function TeamMembersPage(): React.JSX.Element {
         </DashboardTableState>
       ) : (
         <>
-          <section className="dashboard-view__section">
+          <section className="dashboard-team-members-view__members">
             <label className="dashboard-search-control dashboard-search-control--compact">
               <span className="dashboard-search-icon" aria-hidden="true" />
               <input
@@ -687,169 +693,169 @@ export function TeamMembersPage(): React.JSX.Element {
                 onChange={(event) => setQuery(event.target.value)}
               />
             </label>
+            <DashboardTable
+              ariaLabel="Organization memberships"
+              className="dashboard-team-members-table"
+              columns={MEMBERSHIP_COLUMNS}
+              pagination={pagination.pagination}
+            >
+              <DashboardTableHeader className="dashboard-team-members-table__row">
+                <DashboardTableHeaderCell>Member</DashboardTableHeaderCell>
+                <DashboardTableHeaderCell>Role</DashboardTableHeaderCell>
+                <DashboardTableHeaderCell>Access</DashboardTableHeaderCell>
+                <DashboardTableHeaderCell>Status</DashboardTableHeaderCell>
+                <DashboardTableHeaderCell>Actions</DashboardTableHeaderCell>
+              </DashboardTableHeader>
+              {loading || session.loading ? (
+                <DashboardTableState>Loading memberships…</DashboardTableState>
+              ) : errorMessage ? (
+                <DashboardTableState>{errorMessage}</DashboardTableState>
+              ) : pagination.rows.length === 0 ? (
+                <DashboardTableState>No memberships matched.</DashboardTableState>
+              ) : (
+                pagination.rows.map((membership) => {
+                  const self = membership.userId === session.claims?.userId;
+                  const owner = membership.role === 'OWNER';
+                  const canEditTarget =
+                    !self &&
+                    (isOwner ||
+                      (membership.role === 'MEMBER' && (canManageMembers || canManageProjects)));
+                  return (
+                    <DashboardTableRow
+                      className="dashboard-team-members-table__row"
+                      key={membership.id}
+                    >
+                      <DashboardTableCell className="dashboard-team-members-table__member">
+                        <span className="dashboard-team-members-table__member-title">
+                          {membership.displayName || membership.email}
+                        </span>
+                        <span className="dashboard-team-members-table__member-subtitle">
+                          {membership.email}
+                        </span>
+                      </DashboardTableCell>
+                      <DashboardTableCell>
+                        <DashboardTableBadge>{membership.role}</DashboardTableBadge>
+                      </DashboardTableCell>
+                      <DashboardTableCell title={roleSummary(membership)}>
+                        {roleSummary(membership)}
+                      </DashboardTableCell>
+                      <DashboardTableCell>{membership.kind}</DashboardTableCell>
+                      <DashboardTableCell>
+                        <DashboardTableActionGroup>
+                          <DashboardTableActionButton
+                            onClick={() => openEditModal(membership)}
+                            disabled={!canEditTarget || membership.kind === 'removed'}
+                          >
+                            Edit
+                          </DashboardTableActionButton>
+                          <DashboardTableActionMenu
+                            ariaLabel={`More actions for ${membership.email}`}
+                            items={[
+                              membership.kind === 'suspended'
+                                ? {
+                                    label: 'Reactivate',
+                                    onSelect: () =>
+                                      mutateMembershipLifecycle(membership, 'reactivate'),
+                                    disabled: !canManageMembers || busyId === membership.id,
+                                  }
+                                : {
+                                    label: 'Suspend',
+                                    onSelect: () =>
+                                      mutateMembershipLifecycle(membership, 'suspend'),
+                                    disabled:
+                                      !canManageMembers ||
+                                      owner ||
+                                      self ||
+                                      membership.kind !== 'active' ||
+                                      busyId === membership.id,
+                                  },
+                              {
+                                label: 'Remove',
+                                onSelect: () => mutateMembershipLifecycle(membership, 'remove'),
+                                tone: 'danger',
+                                disabled:
+                                  !canManageMembers ||
+                                  owner ||
+                                  self ||
+                                  membership.kind === 'removed' ||
+                                  busyId === membership.id,
+                              },
+                            ]}
+                          />
+                        </DashboardTableActionGroup>
+                      </DashboardTableCell>
+                    </DashboardTableRow>
+                  );
+                })
+              )}
+            </DashboardTable>
           </section>
 
-          <DashboardTable
-            ariaLabel="Organization memberships"
-            className="dashboard-team-members-table"
-            columns={MEMBERSHIP_COLUMNS}
-            pagination={pagination.pagination}
-          >
-            <DashboardTableHeader className="dashboard-team-members-table__row">
-              <DashboardTableHeaderCell>Member</DashboardTableHeaderCell>
-              <DashboardTableHeaderCell>Role</DashboardTableHeaderCell>
-              <DashboardTableHeaderCell>Access</DashboardTableHeaderCell>
-              <DashboardTableHeaderCell>Status</DashboardTableHeaderCell>
-              <DashboardTableHeaderCell>Actions</DashboardTableHeaderCell>
-            </DashboardTableHeader>
-            {loading || session.loading ? (
-              <DashboardTableState>Loading memberships…</DashboardTableState>
-            ) : errorMessage ? (
-              <DashboardTableState>{errorMessage}</DashboardTableState>
-            ) : pagination.rows.length === 0 ? (
-              <DashboardTableState>No memberships matched.</DashboardTableState>
-            ) : (
-              pagination.rows.map((membership) => {
-                const self = membership.userId === session.claims?.userId;
-                const owner = membership.role === 'OWNER';
-                const canEditTarget =
-                  !self &&
-                  (isOwner ||
-                    (membership.role === 'MEMBER' &&
-                      (canManageMembers || canManageProjects)));
-                return (
+          <section className="dashboard-team-members-view__invitations">
+            <div className="dashboard-team-members-view__section-heading">
+              <h2>Pending invitations</h2>
+              <p className="dashboard-pagination-note">
+                Invitations expire after seven days and create membership only after acceptance.
+              </p>
+            </div>
+            <DashboardTable
+              ariaLabel="Pending organization invitations"
+              className="dashboard-team-members-table"
+              columns={INVITATION_COLUMNS}
+            >
+              <DashboardTableHeader className="dashboard-team-members-table__row">
+                <DashboardTableHeaderCell>Email</DashboardTableHeaderCell>
+                <DashboardTableHeaderCell>Role</DashboardTableHeaderCell>
+                <DashboardTableHeaderCell>Access</DashboardTableHeaderCell>
+                <DashboardTableHeaderCell>Expires</DashboardTableHeaderCell>
+                <DashboardTableHeaderCell>Actions</DashboardTableHeaderCell>
+              </DashboardTableHeader>
+              {loading ? (
+                <DashboardTableState>Loading invitations…</DashboardTableState>
+              ) : invitations.length === 0 ? (
+                <DashboardTableState>No pending invitations.</DashboardTableState>
+              ) : (
+                invitations.map((invitation) => (
                   <DashboardTableRow
                     className="dashboard-team-members-table__row"
-                    key={membership.id}
+                    key={invitation.id}
                   >
-                    <DashboardTableCell className="dashboard-team-members-table__member">
-                      <span className="dashboard-team-members-table__member-title">
-                        {membership.displayName || membership.email}
-                      </span>
-                      <span className="dashboard-team-members-table__member-subtitle">
-                        {membership.email}
-                      </span>
+                    <DashboardTableCell>{invitation.email}</DashboardTableCell>
+                    <DashboardTableCell>
+                      <DashboardTableBadge>{invitation.role}</DashboardTableBadge>
+                    </DashboardTableCell>
+                    <DashboardTableCell title={invitationSummary(invitation)}>
+                      {invitationSummary(invitation)}
                     </DashboardTableCell>
                     <DashboardTableCell>
-                      <DashboardTableBadge>{membership.role}</DashboardTableBadge>
+                      {formatDashboardTimestamp(invitation.expiresAt || '', '-')}
                     </DashboardTableCell>
-                    <DashboardTableCell title={roleSummary(membership)}>
-                      {roleSummary(membership)}
-                    </DashboardTableCell>
-                    <DashboardTableCell>{membership.kind}</DashboardTableCell>
                     <DashboardTableCell>
                       <DashboardTableActionGroup>
                         <DashboardTableActionButton
-                          onClick={() => openEditModal(membership)}
-                          disabled={!canEditTarget || membership.kind === 'removed'}
+                          onClick={() => mutateInvitation(invitation, 'resend')}
+                          disabled={!canManageMembers || busyId === invitation.id}
                         >
-                          Edit
+                          Resend
                         </DashboardTableActionButton>
                         <DashboardTableActionMenu
-                          ariaLabel={`More actions for ${membership.email}`}
+                          ariaLabel={`More actions for invitation ${invitation.email}`}
                           items={[
-                            membership.kind === 'suspended'
-                              ? {
-                                  label: 'Reactivate',
-                                  onSelect: () =>
-                                    mutateMembershipLifecycle(membership, 'reactivate'),
-                                  disabled: !canManageMembers || busyId === membership.id,
-                                }
-                              : {
-                                  label: 'Suspend',
-                                  onSelect: () =>
-                                    mutateMembershipLifecycle(membership, 'suspend'),
-                                  disabled:
-                                    !canManageMembers ||
-                                    owner ||
-                                    self ||
-                                    membership.kind !== 'active' ||
-                                    busyId === membership.id,
-                                },
                             {
-                              label: 'Remove',
-                              onSelect: () => mutateMembershipLifecycle(membership, 'remove'),
+                              label: 'Revoke',
+                              onSelect: () => mutateInvitation(invitation, 'revoke'),
                               tone: 'danger',
-                              disabled:
-                                !canManageMembers ||
-                                owner ||
-                                self ||
-                                membership.kind === 'removed' ||
-                                busyId === membership.id,
+                              disabled: !canManageMembers || busyId === invitation.id,
                             },
                           ]}
                         />
                       </DashboardTableActionGroup>
                     </DashboardTableCell>
                   </DashboardTableRow>
-                );
-              })
-            )}
-          </DashboardTable>
-
-          <section className="dashboard-view__section">
-            <h2>Pending invitations</h2>
-            <p className="dashboard-pagination-note">
-              Invitations expire after seven days and create membership only after acceptance.
-            </p>
+                ))
+              )}
+            </DashboardTable>
           </section>
-          <DashboardTable
-            ariaLabel="Pending organization invitations"
-            className="dashboard-team-members-table"
-            columns={INVITATION_COLUMNS}
-          >
-            <DashboardTableHeader className="dashboard-team-members-table__row">
-              <DashboardTableHeaderCell>Email</DashboardTableHeaderCell>
-              <DashboardTableHeaderCell>Role</DashboardTableHeaderCell>
-              <DashboardTableHeaderCell>Access</DashboardTableHeaderCell>
-              <DashboardTableHeaderCell>Expires</DashboardTableHeaderCell>
-              <DashboardTableHeaderCell>Actions</DashboardTableHeaderCell>
-            </DashboardTableHeader>
-            {loading ? (
-              <DashboardTableState>Loading invitations…</DashboardTableState>
-            ) : invitations.length === 0 ? (
-              <DashboardTableState>No pending invitations.</DashboardTableState>
-            ) : (
-              invitations.map((invitation) => (
-                <DashboardTableRow
-                  className="dashboard-team-members-table__row"
-                  key={invitation.id}
-                >
-                  <DashboardTableCell>{invitation.email}</DashboardTableCell>
-                  <DashboardTableCell>
-                    <DashboardTableBadge>{invitation.role}</DashboardTableBadge>
-                  </DashboardTableCell>
-                  <DashboardTableCell title={invitationSummary(invitation)}>
-                    {invitationSummary(invitation)}
-                  </DashboardTableCell>
-                  <DashboardTableCell>
-                    {formatDashboardTimestamp(invitation.expiresAt || '', '-')}
-                  </DashboardTableCell>
-                  <DashboardTableCell>
-                    <DashboardTableActionGroup>
-                      <DashboardTableActionButton
-                        onClick={() => mutateInvitation(invitation, 'resend')}
-                        disabled={!canManageMembers || busyId === invitation.id}
-                      >
-                        Resend
-                      </DashboardTableActionButton>
-                      <DashboardTableActionMenu
-                        ariaLabel={`More actions for invitation ${invitation.email}`}
-                        items={[
-                          {
-                            label: 'Revoke',
-                            onSelect: () => mutateInvitation(invitation, 'revoke'),
-                            tone: 'danger',
-                            disabled: !canManageMembers || busyId === invitation.id,
-                          },
-                        ]}
-                      />
-                    </DashboardTableActionGroup>
-                  </DashboardTableCell>
-                </DashboardTableRow>
-              ))
-            )}
-          </DashboardTable>
         </>
       )}
       {inviteModal}

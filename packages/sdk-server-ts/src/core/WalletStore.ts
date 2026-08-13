@@ -6,12 +6,18 @@ import type {
 } from './types';
 import type { WalletRegistrationEcdsaWalletKey, WalletId } from './registrationContracts';
 import {
+  ecdsaClientRootPublicKey33B64uFromString,
   derivationClientSharePublicKey33B64uFromString,
   parseSdkEcdsaDerivationThresholdKeyId,
+  type EcdsaClientRootPublicKey33B64u,
 } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
-import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import {
+  normalizeRuntimePolicyScope,
+  type RuntimePolicyScope,
+} from '@shared/threshold/signingRootScope';
 import type {
   RouterAbEd25519YaoActivationResultV1,
+  RouterAbEd25519YaoActivationAdmissionReceiptV1,
   RouterAbEd25519YaoBytes32V1,
   RouterAbEd25519YaoRecoveryAdmissionRequestV1,
   RouterAbEd25519YaoRegistrationAdmissionRequestV1,
@@ -23,14 +29,12 @@ import {
 import {
   parseRouterAbEcdsaDerivationActivationRefreshResponseV1,
   parseRouterAbEcdsaDerivationActivationRefreshRequestV1,
-  parseRouterAbEcdsaDerivationRecoveryRequestV1,
-  parseRouterAbEcdsaStrictForwardedRegistrationResponseV1,
   parseRouterAbEcdsaDerivationPublicCapabilityV1,
+  parseRouterAbEcdsaRegistrationActivationReceiptV1,
   type RouterAbEcdsaDerivationActivationRefreshForwardedResponseV1,
   type RouterAbEcdsaDerivationActivationRefreshRequestV1,
-  type RouterAbEcdsaDerivationRecoveryRequestV1,
   type RouterAbEcdsaDerivationPublicCapabilityV1,
-  type RouterAbEcdsaStrictForwardedRegistrationResponseV1,
+  type RouterAbEcdsaRegistrationActivationReceiptV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import { THRESHOLD_DO_OBJECT_NAME_DEFAULT, THRESHOLD_PREFIX_DEFAULT } from './defaultConfigsServer';
@@ -66,6 +70,7 @@ export type WalletEd25519YaoActiveCapabilityRecord =
       readonly activeCapabilityBinding: RouterAbEd25519YaoBytes32V1;
       readonly nearAccountId: string;
       readonly admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+      readonly admissionReceipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
       readonly activationResult: RouterAbEd25519YaoActivationResultV1<'registration'>;
       readonly runtimePolicyScope: RuntimePolicyScope;
     }
@@ -95,6 +100,7 @@ export type WalletEd25519SignerRecord = {
   signingRootVersion: string;
   runtimePolicyScope: RuntimePolicyScope;
   activeYaoCapability: WalletEd25519YaoActiveCapabilityRecord;
+  custodyKeyManifestDigestB64u: string;
   createdAtMs: number;
   updatedAtMs: number;
 };
@@ -114,6 +120,10 @@ export type WalletEcdsaSignerRecord = {
   chainTargetKey: string;
   chainTarget: ThresholdEcdsaChainTarget;
   walletKey: WalletEcdsaSignerKey;
+  activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+  runtimePolicyScope: RuntimePolicyScope;
+  custodyKeyManifestDigestB64u: string;
+  custodyClientRootPublicKey33B64u: EcdsaClientRootPublicKey33B64u;
   createdAtMs: number;
   updatedAtMs: number;
 };
@@ -131,20 +141,14 @@ type WalletEcdsaPostRegistrationProofRecordBase = {
 };
 
 export type WalletEcdsaPendingSessionActivationRecord =
-  | (WalletEcdsaPostRegistrationProofRecordBase & {
-      operation: 'recovery';
-      request: RouterAbEcdsaDerivationRecoveryRequestV1;
-      response: RouterAbEcdsaStrictForwardedRegistrationResponseV1;
-    })
-  | (WalletEcdsaPostRegistrationProofRecordBase & {
-      operation: 'refresh';
-      request: RouterAbEcdsaDerivationActivationRefreshRequestV1;
-      response: RouterAbEcdsaDerivationActivationRefreshForwardedResponseV1;
-    });
+  WalletEcdsaPostRegistrationProofRecordBase & {
+    operation: 'refresh';
+    request: RouterAbEcdsaDerivationActivationRefreshRequestV1;
+    response: RouterAbEcdsaDerivationActivationRefreshForwardedResponseV1;
+  };
 
 export type WalletEcdsaPostRegistrationPublicRequest =
-  | RouterAbEcdsaDerivationRecoveryRequestV1
-  | RouterAbEcdsaDerivationActivationRefreshRequestV1;
+  RouterAbEcdsaDerivationActivationRefreshRequestV1;
 
 export interface WalletStore {
   getWallet(input: { walletId: WalletId }): Promise<WalletRecord | null>;
@@ -165,23 +169,12 @@ export interface WalletStore {
     walletId: WalletId;
     request: WalletEcdsaPostRegistrationPublicRequest;
   }): Promise<WalletEcdsaSignerRecord | null>;
+  listEcdsaSignersForWallet(input: {
+    walletId: WalletId;
+  }): Promise<readonly WalletEcdsaSignerRecord[]>;
   putEcdsaPendingSessionActivation(
     record: WalletEcdsaPendingSessionActivationRecord,
   ): Promise<void>;
-  takeEcdsaPendingSessionActivationPair(input: {
-    walletId: WalletId;
-    recovery: { readonly lifecycleId: string; readonly requestId: string };
-    refresh: { readonly lifecycleId: string; readonly requestId: string };
-  }): Promise<{
-    readonly recovery: Extract<
-      WalletEcdsaPendingSessionActivationRecord,
-      { readonly operation: 'recovery' }
-    >;
-    readonly refresh: Extract<
-      WalletEcdsaPendingSessionActivationRecord,
-      { readonly operation: 'refresh' }
-    >;
-  } | null>;
   putSubject(record: WalletRecord): Promise<void>;
   putSigner(record: WalletSignerRecord): Promise<void>;
   putSigners(records: readonly WalletSignerRecord[]): Promise<void>;
@@ -216,24 +209,13 @@ export function parseWalletEcdsaPendingSessionActivationRecord(
       createdAtMs,
       expiresAtMs,
     } as const;
-    switch (raw.operation) {
-      case 'recovery':
-        return {
-          ...base,
-          operation: 'recovery',
-          request: parseRouterAbEcdsaDerivationRecoveryRequestV1(raw.request),
-          response: parseRouterAbEcdsaStrictForwardedRegistrationResponseV1(raw.response),
-        };
-      case 'refresh':
-        return {
-          ...base,
-          operation: 'refresh',
-          request: parseRouterAbEcdsaDerivationActivationRefreshRequestV1(raw.request),
-          response: parseForwardedEcdsaRefreshResponse(raw.response),
-        };
-      default:
-        return null;
-    }
+    if (raw.operation !== 'refresh') return null;
+    return {
+      ...base,
+      operation: 'refresh',
+      request: parseRouterAbEcdsaDerivationActivationRefreshRequestV1(raw.request),
+      response: parseForwardedEcdsaRefreshResponse(raw.response),
+    };
   } catch {
     return null;
   }
@@ -342,6 +324,19 @@ export function parseWalletEcdsaSignerRecord(raw: unknown): WalletEcdsaSignerRec
   const chainTarget = thresholdEcdsaChainTargetFromValue(raw.chainTarget);
   const walletKeyRaw = isObject(raw.walletKey) ? raw.walletKey : null;
   const walletKey = walletKeyRaw ? parseWalletEcdsaSignerKey(walletKeyRaw) : null;
+  let activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+  let runtimePolicyScope: RuntimePolicyScope;
+  let custodyClientRootPublicKey33B64u: EcdsaClientRootPublicKey33B64u;
+  try {
+    activationReceipt = parseRouterAbEcdsaRegistrationActivationReceiptV1(raw.activationReceipt);
+    runtimePolicyScope = normalizeRuntimePolicyScope(raw.runtimePolicyScope);
+    custodyClientRootPublicKey33B64u = ecdsaClientRootPublicKey33B64uFromString(
+      String(raw.custodyClientRootPublicKey33B64u ?? ''),
+    );
+  } catch {
+    return null;
+  }
+  const custodyKeyManifestDigestB64u = toOptionalTrimmedString(raw.custodyKeyManifestDigestB64u);
   const createdAtMs = normalizeTimestampMs(raw.createdAtMs);
   const updatedAtMs = normalizeTimestampMs(raw.updatedAtMs);
   if (
@@ -350,6 +345,7 @@ export function parseWalletEcdsaSignerRecord(raw: unknown): WalletEcdsaSignerRec
     !chainTargetKey ||
     !chainTarget ||
     !walletKey ||
+    !custodyKeyManifestDigestB64u ||
     createdAtMs === null ||
     updatedAtMs === null ||
     walletKey.walletId !== walletId.value ||
@@ -365,6 +361,10 @@ export function parseWalletEcdsaSignerRecord(raw: unknown): WalletEcdsaSignerRec
     chainTargetKey,
     chainTarget,
     walletKey,
+    activationReceipt,
+    runtimePolicyScope,
+    custodyKeyManifestDigestB64u,
+    custodyClientRootPublicKey33B64u,
     createdAtMs,
     updatedAtMs,
   };
@@ -578,6 +578,15 @@ class InMemoryWalletStore implements WalletStore {
     return matches[0] ?? null;
   }
 
+  async listEcdsaSignersForWallet(input: {
+    walletId: WalletId;
+  }): Promise<readonly WalletEcdsaSignerRecord[]> {
+    return [...this.signers.values()].filter(
+      (record): record is WalletEcdsaSignerRecord =>
+        record.version === 'wallet_signer_ecdsa_v1' && record.walletId === input.walletId,
+    );
+  }
+
   private readonly pendingEcdsaActivations = new Map<
     string,
     WalletEcdsaPendingSessionActivationRecord
@@ -590,38 +599,6 @@ class InMemoryWalletStore implements WalletStore {
       `${record.walletId}:${record.lifecycleId}:${record.requestId}`,
       record,
     );
-  }
-
-  async takeEcdsaPendingSessionActivationPair(input: {
-    walletId: WalletId;
-    recovery: { readonly lifecycleId: string; readonly requestId: string };
-    refresh: { readonly lifecycleId: string; readonly requestId: string };
-  }): Promise<{
-    readonly recovery: Extract<
-      WalletEcdsaPendingSessionActivationRecord,
-      { readonly operation: 'recovery' }
-    >;
-    readonly refresh: Extract<
-      WalletEcdsaPendingSessionActivationRecord,
-      { readonly operation: 'refresh' }
-    >;
-  } | null> {
-    const recoveryKey = `${input.walletId}:${input.recovery.lifecycleId}:${input.recovery.requestId}`;
-    const refreshKey = `${input.walletId}:${input.refresh.lifecycleId}:${input.refresh.requestId}`;
-    const recovery = this.pendingEcdsaActivations.get(recoveryKey);
-    const refresh = this.pendingEcdsaActivations.get(refreshKey);
-    const now = Date.now();
-    if (
-      recovery?.operation !== 'recovery' ||
-      refresh?.operation !== 'refresh' ||
-      recovery.expiresAtMs <= now ||
-      refresh.expiresAtMs <= now
-    ) {
-      return null;
-    }
-    this.pendingEcdsaActivations.delete(recoveryKey);
-    this.pendingEcdsaActivations.delete(refreshKey);
-    return { recovery, refresh };
   }
 
   async putSubject(record: WalletRecord): Promise<void> {
@@ -789,6 +766,32 @@ class CloudflareDurableObjectWalletStore implements WalletStore {
       : null;
   }
 
+  async listEcdsaSignersForWallet(input: {
+    walletId: WalletId;
+  }): Promise<readonly WalletEcdsaSignerRecord[]> {
+    const response = await this.stub.fetch('https://threshold-store.invalid/', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        op: 'get',
+        key: this.key('signer', `${input.walletId}:ecdsa-list`),
+      }),
+    });
+    if (!response.ok) return [];
+    const current = (await response.json().catch(() => null)) as { value?: unknown } | null;
+    if (current?.value === undefined || current.value === null) return [];
+    if (!Array.isArray(current.value)) throw new Error('Wallet ECDSA signer list is invalid');
+    const signers: WalletEcdsaSignerRecord[] = [];
+    for (const raw of current.value) {
+      const signer = parseWalletEcdsaSignerRecord(raw);
+      if (!signer || signer.walletId !== input.walletId) {
+        throw new Error('Wallet ECDSA signer list contains an invalid record');
+      }
+      signers.push(signer);
+    }
+    return signers;
+  }
+
   async putEcdsaPendingSessionActivation(
     record: WalletEcdsaPendingSessionActivationRecord,
   ): Promise<void> {
@@ -799,54 +802,6 @@ class CloudflareDurableObjectWalletStore implements WalletStore {
       ),
       record,
     );
-  }
-
-  async takeEcdsaPendingSessionActivationPair(input: {
-    walletId: WalletId;
-    recovery: { readonly lifecycleId: string; readonly requestId: string };
-    refresh: { readonly lifecycleId: string; readonly requestId: string };
-  }): Promise<{
-    readonly recovery: Extract<
-      WalletEcdsaPendingSessionActivationRecord,
-      { readonly operation: 'recovery' }
-    >;
-    readonly refresh: Extract<
-      WalletEcdsaPendingSessionActivationRecord,
-      { readonly operation: 'refresh' }
-    >;
-  } | null> {
-    const response = await this.stub.fetch('https://threshold-store.invalid/', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        op: 'walletTakeEcdsaPendingSessionActivationPair',
-        recoveryKey: this.key(
-          'ecdsa-session-activation',
-          `${input.walletId}:${input.recovery.lifecycleId}:${input.recovery.requestId}`,
-        ),
-        refreshKey: this.key(
-          'ecdsa-session-activation',
-          `${input.walletId}:${input.refresh.lifecycleId}:${input.refresh.requestId}`,
-        ),
-      }),
-    });
-    if (!response.ok) return null;
-    const current: unknown = await response.json().catch(() => null);
-    if (!isObject(current) || current.ok !== true || !isObject(current.value)) {
-      return null;
-    }
-    const recovery = parseWalletEcdsaPendingSessionActivationRecord(current.value.recovery);
-    const refresh = parseWalletEcdsaPendingSessionActivationRecord(current.value.refresh);
-    const now = Date.now();
-    if (
-      recovery?.operation !== 'recovery' ||
-      refresh?.operation !== 'refresh' ||
-      recovery.expiresAtMs <= now ||
-      refresh.expiresAtMs <= now
-    ) {
-      return null;
-    }
-    return { recovery, refresh };
   }
 
   async putSigner(record: WalletSignerRecord): Promise<void> {
@@ -883,6 +838,9 @@ class CloudflareDurableObjectWalletStore implements WalletStore {
         ),
         record,
       );
+      const current = await this.listEcdsaSignersForWallet({ walletId: record.walletId });
+      const next = current.filter((signer) => signer.chainTargetKey !== record.chainTargetKey);
+      await this.put(this.key('signer', `${record.walletId}:ecdsa-list`), [...next, record]);
     }
   }
 

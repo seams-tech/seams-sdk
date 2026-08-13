@@ -4,7 +4,7 @@ use core::fmt;
 
 use curve25519_dalek::scalar::Scalar;
 use sha2::{Digest, Sha256};
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::{CircuitDigest32, ScheduleDigest32};
 
@@ -14,6 +14,7 @@ const MESSAGE_VERSION: u8 = 1;
 const MESSAGE_HEADER_BYTES: usize = 156;
 const ACTIVATION_FAMILY_TAG: u8 = 0x93;
 const EXPORT_FAMILY_TAG: u8 = 0x94;
+const LANE_MATERIALIZATION_FAMILY_TAG: u8 = 0x95;
 const A_DIRECT_INPUT_LABELS_KIND: u8 = 1;
 const B_OUTPUT_DECODE_BITS_KIND: u8 = 2;
 const A_SELECTED_OUTPUT_LABELS_KIND: u8 = 3;
@@ -35,11 +36,21 @@ const EXPORT_SCHEDULE_DIGEST: [u8; 32] = [
     0x66, 0xdd, 0xc2, 0x0f, 0x84, 0x07, 0xe3, 0x69, 0xb7, 0x4f, 0x2a, 0x21, 0x02, 0x87, 0xd2, 0x13,
     0x1e, 0x78, 0xc7, 0x52, 0x5f, 0x47, 0xfc, 0x82, 0x9c, 0x57, 0xf6, 0x41, 0x8b, 0x0d, 0x97, 0xd0,
 ];
+const LANE_MATERIALIZATION_CIRCUIT_DIGEST: [u8; 32] = [
+    0xb8, 0x2d, 0x95, 0x99, 0x1e, 0x0d, 0x3f, 0x91, 0xf2, 0xd3, 0x10, 0x09, 0xcb, 0x15, 0x58, 0xf7,
+    0x3a, 0xbd, 0x1d, 0x0a, 0x66, 0x7f, 0xec, 0x99, 0xe0, 0x2d, 0xdb, 0x75, 0x1f, 0x65, 0x2d, 0x06,
+];
+const LANE_MATERIALIZATION_SCHEDULE_DIGEST: [u8; 32] = [
+    0x3b, 0xba, 0xe3, 0x84, 0x3b, 0xab, 0x64, 0x4b, 0x3b, 0x7e, 0x7e, 0xd6, 0xdd, 0x37, 0x9b, 0x6b,
+    0x40, 0xb7, 0xc3, 0x21, 0x33, 0xc5, 0x09, 0x4e, 0x4b, 0x1f, 0xc4, 0xe9, 0x66, 0xfd, 0x57, 0xd4,
+];
 
 pub(super) const ACTIVATION_INPUT_BITS_PER_ROLE: usize = 6 * 256;
 pub(super) const EXPORT_INPUT_BITS_PER_ROLE: usize = 3 * 256;
 pub(super) const ACTIVATION_OUTPUT_BITS_PER_ROLE: usize = 2 * 256;
 pub(super) const EXPORT_OUTPUT_BITS_PER_ROLE: usize = 256;
+pub(super) const LANE_MATERIALIZATION_INPUT_BITS_PER_ROLE: usize = 7 * 256;
+pub(super) const LANE_MATERIALIZATION_OUTPUT_BITS_PER_ROLE: usize = 2 * 256;
 
 const ACTIVATION_ROLE_INPUT_BYTES: usize = ACTIVATION_INPUT_BITS_PER_ROLE / 8;
 const EXPORT_ROLE_INPUT_BYTES: usize = EXPORT_INPUT_BITS_PER_ROLE / 8;
@@ -51,6 +62,15 @@ const ACTIVATION_B_OUTPUT_DECODE_BYTES: usize = ACTIVATION_OUTPUT_BITS_PER_ROLE 
 const EXPORT_B_OUTPUT_DECODE_BYTES: usize = EXPORT_OUTPUT_BITS_PER_ROLE / 8;
 const ACTIVATION_A_SELECTED_OUTPUT_BYTES: usize = ACTIVATION_OUTPUT_BITS_PER_ROLE * LABEL_BYTES;
 const EXPORT_A_SELECTED_OUTPUT_BYTES: usize = EXPORT_OUTPUT_BITS_PER_ROLE * LABEL_BYTES;
+const LANE_MATERIALIZATION_ROLE_INPUT_BYTES: usize = LANE_MATERIALIZATION_INPUT_BITS_PER_ROLE / 8;
+const LANE_MATERIALIZATION_A_DIRECT_LABEL_BYTES: usize =
+    LANE_MATERIALIZATION_INPUT_BITS_PER_ROLE * LABEL_BYTES;
+const LANE_MATERIALIZATION_B_OT_PAIR_BYTES: usize =
+    LANE_MATERIALIZATION_INPUT_BITS_PER_ROLE * 2 * LABEL_BYTES;
+const LANE_MATERIALIZATION_B_OUTPUT_DECODE_BYTES: usize =
+    LANE_MATERIALIZATION_OUTPUT_BITS_PER_ROLE / 8;
+const LANE_MATERIALIZATION_A_SELECTED_OUTPUT_BYTES: usize =
+    LANE_MATERIALIZATION_OUTPUT_BITS_PER_ROLE * LABEL_BYTES;
 
 const SCALAR_ORDER_LE: [u8; 32] = [
     0xed, 0xd3, 0xf5, 0x5c, 0x1a, 0x63, 0x12, 0x58, 0xd6, 0x9c, 0xf7, 0xa2, 0xde, 0xf9, 0xde, 0x14,
@@ -274,6 +294,13 @@ define_family_binding!(
     EXPORT_CIRCUIT_DIGEST,
     EXPORT_SCHEDULE_DIGEST
 );
+define_family_binding!(
+    LaneSessionBinding,
+    LaneMessageContext,
+    LANE_MATERIALIZATION_FAMILY_TAG,
+    LANE_MATERIALIZATION_CIRCUIT_DIGEST,
+    LANE_MATERIALIZATION_SCHEDULE_DIGEST
+);
 
 #[derive(Zeroize, ZeroizeOnDrop)]
 struct SecretField32([u8; 32]);
@@ -357,6 +384,8 @@ define_scalar_field!(DeriverAClientScalarOutputCoin);
 define_scalar_field!(DeriverASigningWorkerScalarOutputCoin);
 define_scalar_field!(DeriverBClientScalarOutputCoin);
 define_scalar_field!(DeriverBSigningWorkerScalarOutputCoin);
+define_scalar_field!(LaneDeriverAOffsetShare);
+define_scalar_field!(LaneDeriverBOffsetShare);
 
 fn random_scalar_field() -> Result<SecretField32, RoleBoundaryError> {
     let mut wide = [0_u8; 64];
@@ -466,6 +495,64 @@ macro_rules! define_activation_role_shares {
 
 define_activation_role_shares!(DecodedDeriverAActivationShares);
 define_activation_role_shares!(DecodedDeriverBActivationShares);
+
+#[derive(Zeroize, ZeroizeOnDrop)]
+struct LaneHolderShare(SecretField32);
+
+#[derive(Zeroize, ZeroizeOnDrop)]
+struct LaneSigningWorkerShare(SecretField32);
+
+fn parse_lane_output(
+    decoded: &[u8],
+) -> Result<(LaneHolderShare, LaneSigningWorkerShare), RoleBoundaryError> {
+    if decoded.len() != LANE_MATERIALIZATION_OUTPUT_BITS_PER_ROLE / 8 {
+        return Err(RoleBoundaryError::DecodedOutputLength);
+    }
+    let mut holder_bytes = Zeroizing::new([0_u8; 32]);
+    let mut worker_bytes = Zeroizing::new([0_u8; 32]);
+    holder_bytes.copy_from_slice(&decoded[..32]);
+    worker_bytes.copy_from_slice(&decoded[32..]);
+    let holder = parse_canonical_scalar(*holder_bytes).map(LaneHolderShare)?;
+    let worker = parse_canonical_scalar(*worker_bytes).map(LaneSigningWorkerShare)?;
+    Ok((holder, worker))
+}
+
+macro_rules! define_lane_role_shares {
+    ($name:ident) => {
+        #[derive(Zeroize, ZeroizeOnDrop)]
+        pub(super) struct $name {
+            holder: LaneHolderShare,
+            signing_worker: LaneSigningWorkerShare,
+        }
+
+        impl $name {
+            pub(super) fn from_decoded_output(decoded: &[u8]) -> Result<Self, RoleBoundaryError> {
+                let (holder, signing_worker) = parse_lane_output(decoded)?;
+                Ok(Self {
+                    holder,
+                    signing_worker,
+                })
+            }
+
+            pub(super) const fn holder_share_bytes(&self) -> &[u8; 32] {
+                self.holder.0.as_bytes()
+            }
+
+            pub(super) const fn signing_worker_share_bytes(&self) -> &[u8; 32] {
+                self.signing_worker.0.as_bytes()
+            }
+        }
+
+        impl fmt::Debug for $name {
+            fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str(concat!(stringify!($name), "([REDACTED])"))
+            }
+        }
+    };
+}
+
+define_lane_role_shares!(DecodedDeriverALaneShares);
+define_lane_role_shares!(DecodedDeriverBLaneShares);
 
 macro_rules! define_export_role_share {
     ($name:ident) => {
@@ -644,6 +731,102 @@ impl ExportDeriverBInputs {
     }
 }
 
+#[derive(Zeroize, ZeroizeOnDrop)]
+pub(super) struct LaneDeriverAInputs {
+    y_client: DeriverAClientY,
+    y_server: DeriverAServerY,
+    tau_client: DeriverAClientTau,
+    tau_server: DeriverAServerTau,
+    holder_coin: DeriverAClientScalarOutputCoin,
+    signing_worker_coin: DeriverASigningWorkerScalarOutputCoin,
+    offset_share: LaneDeriverAOffsetShare,
+}
+
+impl LaneDeriverAInputs {
+    pub(super) const fn new(
+        y_client: DeriverAClientY,
+        y_server: DeriverAServerY,
+        tau_client: DeriverAClientTau,
+        tau_server: DeriverAServerTau,
+        holder_coin: DeriverAClientScalarOutputCoin,
+        signing_worker_coin: DeriverASigningWorkerScalarOutputCoin,
+        offset_share: LaneDeriverAOffsetShare,
+    ) -> Self {
+        Self {
+            y_client,
+            y_server,
+            tau_client,
+            tau_server,
+            holder_coin,
+            signing_worker_coin,
+            offset_share,
+        }
+    }
+
+    fn into_role_bytes(self) -> SecretRoleInputBytes {
+        encode_role_fields(
+            LANE_MATERIALIZATION_INPUT_BITS_PER_ROLE / 8,
+            [
+                &self.y_client.0,
+                &self.y_server.0,
+                &self.tau_client.0,
+                &self.tau_server.0,
+                &self.holder_coin.0,
+                &self.signing_worker_coin.0,
+                &self.offset_share.0,
+            ],
+        )
+    }
+}
+
+#[derive(Zeroize, ZeroizeOnDrop)]
+pub(super) struct LaneDeriverBInputs {
+    y_client: DeriverBClientY,
+    y_server: DeriverBServerY,
+    tau_client: DeriverBClientTau,
+    tau_server: DeriverBServerTau,
+    holder_coin: DeriverBClientScalarOutputCoin,
+    signing_worker_coin: DeriverBSigningWorkerScalarOutputCoin,
+    offset_share: LaneDeriverBOffsetShare,
+}
+
+impl LaneDeriverBInputs {
+    pub(super) const fn new(
+        y_client: DeriverBClientY,
+        y_server: DeriverBServerY,
+        tau_client: DeriverBClientTau,
+        tau_server: DeriverBServerTau,
+        holder_coin: DeriverBClientScalarOutputCoin,
+        signing_worker_coin: DeriverBSigningWorkerScalarOutputCoin,
+        offset_share: LaneDeriverBOffsetShare,
+    ) -> Self {
+        Self {
+            y_client,
+            y_server,
+            tau_client,
+            tau_server,
+            holder_coin,
+            signing_worker_coin,
+            offset_share,
+        }
+    }
+
+    fn into_role_bytes(self) -> SecretRoleInputBytes {
+        encode_role_fields(
+            LANE_MATERIALIZATION_INPUT_BITS_PER_ROLE / 8,
+            [
+                &self.y_client.0,
+                &self.y_server.0,
+                &self.tau_client.0,
+                &self.tau_server.0,
+                &self.holder_coin.0,
+                &self.signing_worker_coin.0,
+                &self.offset_share.0,
+            ],
+        )
+    }
+}
+
 fn encode_role_fields<const FIELD_COUNT: usize>(
     capacity: usize,
     fields: [&SecretField32; FIELD_COUNT],
@@ -723,6 +906,18 @@ impl MessageContext for ActivationMessageContext {
 
 impl MessageContext for ExportMessageContext {
     const FAMILY_TAG: u8 = EXPORT_FAMILY_TAG;
+
+    fn core(self) -> SessionBindingCore {
+        self.core()
+    }
+
+    fn predecessor(self) -> TranscriptDigest32 {
+        self.predecessor()
+    }
+}
+
+impl MessageContext for LaneMessageContext {
+    const FAMILY_TAG: u8 = LANE_MATERIALIZATION_FAMILY_TAG;
 
     fn core(self) -> SessionBindingCore {
         self.core()
@@ -913,6 +1108,27 @@ define_message_type!(
     EXPORT_OUTPUT_BITS_PER_ROLE,
     EXPORT_A_SELECTED_OUTPUT_BYTES
 );
+define_message_type!(
+    LaneMaterializationADirectInputLabels,
+    LaneMessageContext,
+    A_DIRECT_INPUT_LABELS_KIND,
+    LANE_MATERIALIZATION_INPUT_BITS_PER_ROLE,
+    LANE_MATERIALIZATION_A_DIRECT_LABEL_BYTES
+);
+define_message_type!(
+    LaneMaterializationBOutputDecodeBits,
+    LaneMessageContext,
+    B_OUTPUT_DECODE_BITS_KIND,
+    LANE_MATERIALIZATION_OUTPUT_BITS_PER_ROLE,
+    LANE_MATERIALIZATION_B_OUTPUT_DECODE_BYTES
+);
+define_message_type!(
+    LaneMaterializationASelectedOutputLabels,
+    LaneMessageContext,
+    A_SELECTED_OUTPUT_LABELS_KIND,
+    LANE_MATERIALIZATION_OUTPUT_BITS_PER_ROLE,
+    LANE_MATERIALIZATION_A_SELECTED_OUTPUT_BYTES
+);
 
 macro_rules! define_bound_secret_payload {
     ($name:ident, $binding:ident, $payload_bytes:expr) => {
@@ -969,6 +1185,11 @@ define_bound_secret_payload!(
     ExportSessionBinding,
     EXPORT_A_DIRECT_LABEL_BYTES
 );
+define_bound_secret_payload!(
+    LaneMaterializationBOtSenderPairs,
+    LaneSessionBinding,
+    LANE_MATERIALIZATION_B_OT_PAIR_BYTES
+);
 
 pub(super) struct ActivationBOtChoices {
     binding: ActivationSessionBinding,
@@ -1009,6 +1230,27 @@ impl ExportBOtChoices {
 impl fmt::Debug for ExportBOtChoices {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str("ExportBOtChoices([REDACTED])")
+    }
+}
+
+pub(super) struct LaneBOtChoices {
+    binding: LaneSessionBinding,
+    choices: SecretRoleInputBytes,
+}
+
+impl LaneBOtChoices {
+    pub(super) const fn binding(&self) -> LaneSessionBinding {
+        self.binding
+    }
+
+    pub(super) fn bitpacked_lsb0(&self) -> &[u8] {
+        self.choices.as_slice()
+    }
+}
+
+impl fmt::Debug for LaneBOtChoices {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("LaneBOtChoices([REDACTED])")
     }
 }
 
@@ -1076,6 +1318,61 @@ impl ActivationDeriverBStart {
 pub(super) struct ExportDeriverAStart {
     binding: ExportSessionBinding,
     inputs: ExportDeriverAInputs,
+}
+
+pub(super) struct LaneDeriverAStart {
+    binding: LaneSessionBinding,
+    inputs: LaneDeriverAInputs,
+}
+
+impl LaneDeriverAStart {
+    pub(super) const fn new(binding: LaneSessionBinding, inputs: LaneDeriverAInputs) -> Self {
+        Self { binding, inputs }
+    }
+
+    pub(super) const fn binding(&self) -> LaneSessionBinding {
+        self.binding
+    }
+
+    pub(super) fn into_garbler_input(self) -> LaneDeriverAGarblerInput {
+        LaneDeriverAGarblerInput {
+            binding: self.binding,
+            inputs: self.inputs.into_role_bytes(),
+        }
+    }
+}
+
+pub(super) struct LaneDeriverAGarblerInput {
+    binding: LaneSessionBinding,
+    inputs: SecretRoleInputBytes,
+}
+
+impl LaneDeriverAGarblerInput {
+    pub(super) const fn binding(&self) -> LaneSessionBinding {
+        self.binding
+    }
+
+    pub(super) fn bitpacked_lsb0(&self) -> &[u8] {
+        self.inputs.as_slice()
+    }
+}
+
+pub(super) struct LaneDeriverBStart {
+    binding: LaneSessionBinding,
+    inputs: LaneDeriverBInputs,
+}
+
+impl LaneDeriverBStart {
+    pub(super) const fn new(binding: LaneSessionBinding, inputs: LaneDeriverBInputs) -> Self {
+        Self { binding, inputs }
+    }
+
+    pub(super) fn into_ot_choices(self) -> LaneBOtChoices {
+        LaneBOtChoices {
+            binding: self.binding,
+            choices: self.inputs.into_role_bytes(),
+        }
+    }
 }
 
 impl ExportDeriverAStart {

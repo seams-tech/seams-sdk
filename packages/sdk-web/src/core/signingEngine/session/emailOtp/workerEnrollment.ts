@@ -4,15 +4,9 @@ import {
   WALLET_EMAIL_OTP_UNLOCK_OPERATION,
   type WalletEmailOtpChannel,
 } from '@shared/utils/emailOtpDomain';
-import {
-  buildEmailOtpRecoveryCodeSet,
-  type EmailOtpRecoveryCodeSet,
-} from '@shared/utils/emailOtpRecoveryKey';
 import { requireTrimmedString, toOptionalTrimmedNonEmptyString } from '@shared/utils/validation';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type {
-  EmailOtpEd25519YaoFactorRequest,
-  EmailOtpEd25519YaoFactorResult,
   EmailOtpWalletRegistrationEcdsaPrepareHandleRequest,
   EmailOtpWalletRegistrationEcdsaPrepareHandlePayload,
   EmailOtpWalletRegistrationEcdsaPrepareHandleResult,
@@ -28,7 +22,6 @@ import {
   type EmailOtpRouteFamily,
 } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 import type { EmailOtpEnrollmentResult } from './publicTypes';
-import type { EmailOtpRecoveryCodeRotationMaterial } from './publicTypes';
 import { zeroizeBytes } from './zeroize';
 
 type JsonObject = Record<string, unknown>;
@@ -40,44 +33,12 @@ function requireObjectJson(value: unknown, label: string): JsonObject {
   return value as JsonObject;
 }
 
-function requireFiniteTimestampMs(value: unknown, label: string): number {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new Error(`${label} must be a positive timestamp`);
-  }
-  return Math.floor(parsed);
-}
-
-function parseEmailOtpRecoveryCodeMaterial(value: unknown): {
-  recoveryKeys: EmailOtpRecoveryCodeSet;
-  recoveryCodesIssuedAtMs: number;
-} {
-  const response = requireObjectJson(value, 'Email OTP recovery-code material');
-  return {
-    recoveryKeys: buildEmailOtpRecoveryCodeSet(
-      Array.isArray(response.recoveryKeys) ? response.recoveryKeys.map(String) : [],
-    ),
-    recoveryCodesIssuedAtMs: requireFiniteTimestampMs(
-      response.recoveryCodesIssuedAtMs,
-      'recoveryCodesIssuedAtMs',
-    ),
-  };
-}
-
 function readString(value: unknown, label: string): string {
   return requireTrimmedString(value, label);
 }
 
 function readOptionalString(value: unknown): string | undefined {
   return toOptionalTrimmedNonEmptyString(value);
-}
-
-function readNonNegativeInteger(value: unknown, label: string): number {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed < 0) {
-    throw new Error(`${label} must be a non-negative integer`);
-  }
-  return Math.floor(parsed);
 }
 
 function toArrayBufferCopy(bytes: Uint8Array): ArrayBuffer {
@@ -126,20 +87,17 @@ function buildWorkerEmailOtpRoutePlan(args: {
 
 function parseEmailOtpEnrollmentResult(value: unknown): EmailOtpEnrollmentResult {
   const response = requireObjectJson(value, 'Email OTP enrollment result');
-  const recoveryCodeMaterial = parseEmailOtpRecoveryCodeMaterial(response);
   return {
-    thresholdEcdsaClientVerifyingShareB64u: readString(
-      response.thresholdEcdsaClientVerifyingShareB64u,
-      'thresholdEcdsaClientVerifyingShareB64u',
-    ),
-    recoveryKeys: recoveryCodeMaterial.recoveryKeys,
-    recoveryCodesIssuedAtMs: recoveryCodeMaterial.recoveryCodesIssuedAtMs,
     challengeId: readString(response.challengeId, 'challengeId'),
     otpChannel: EMAIL_OTP_CHANNEL,
     enrollmentId: readString(response.enrollmentId, 'enrollmentId'),
     enrollmentSealKeyVersion: readString(
       response.enrollmentSealKeyVersion,
       'enrollmentSealKeyVersion',
+    ),
+    serverSealedFactorCiphertextB64u: readString(
+      response.serverSealedFactorCiphertextB64u,
+      'serverSealedFactorCiphertextB64u',
     ),
     clientUnlockPublicKeyB64u: readString(
       response.clientUnlockPublicKeyB64u,
@@ -153,31 +111,31 @@ function parseEmailOtpWalletRegistrationEcdsaPrepareHandle(
   value: unknown,
 ): EmailOtpWalletRegistrationEcdsaPrepareHandlePayload {
   const response = requireObjectJson(value, 'Email OTP registration ECDSA handle');
-  const kind = readString(response.kind, 'clientRootShareHandle.handle.kind');
+  const kind = readString(response.kind, 'emailOtpSessionHandle.handle.kind');
   if (kind !== 'email_otp_worker_session_handle_v1') {
     throw new Error(`Unsupported Email OTP worker handle kind: ${kind}`);
   }
-  const action = readString(response.action, 'clientRootShareHandle.handle.action');
+  const action = readString(response.action, 'emailOtpSessionHandle.handle.action');
   if (action !== 'wallet_registration_ecdsa_prepare') {
     throw new Error(`Unsupported Email OTP worker handle action: ${action}`);
   }
-  const operation = readString(response.operation, 'clientRootShareHandle.handle.operation');
+  const operation = readString(response.operation, 'emailOtpSessionHandle.handle.operation');
   if (operation !== 'registration') {
     throw new Error('Email OTP registration ECDSA handle requires registration operation');
   }
-  const keyScope = readString(response.keyScope, 'clientRootShareHandle.handle.keyScope');
+  const keyScope = readString(response.keyScope, 'emailOtpSessionHandle.handle.keyScope');
   if (keyScope !== 'evm-family') {
     throw new Error('Email OTP registration ECDSA handle requires evm-family keyScope');
   }
   return {
     kind: 'email_otp_worker_session_handle_v1',
-    sessionId: readString(response.sessionId, 'clientRootShareHandle.handle.sessionId'),
-    walletId: readString(response.walletId, 'clientRootShareHandle.handle.walletId'),
+    sessionId: readString(response.sessionId, 'emailOtpSessionHandle.handle.sessionId'),
+    walletId: readString(response.walletId, 'emailOtpSessionHandle.handle.walletId'),
     evmFamilySigningKeySlotId: readString(
       response.evmFamilySigningKeySlotId,
-      'clientRootShareHandle.handle.evmFamilySigningKeySlotId',
+      'emailOtpSessionHandle.handle.evmFamilySigningKeySlotId',
     ),
-    authSubjectId: readString(response.authSubjectId, 'clientRootShareHandle.handle.authSubjectId'),
+    authSubjectId: readString(response.authSubjectId, 'emailOtpSessionHandle.handle.authSubjectId'),
     action: 'wallet_registration_ecdsa_prepare',
     operation: 'registration',
     keyScope: 'evm-family',
@@ -199,7 +157,7 @@ function parseEmailOtpWalletRegistrationEcdsaPrepareHandleResult(
   value: unknown,
 ): EmailOtpWalletRegistrationEcdsaPrepareHandleResult {
   const response = requireObjectJson(value, 'Email OTP registration ECDSA handle result');
-  const kind = readString(response.kind, 'clientRootShareHandle.kind');
+  const kind = readString(response.kind, 'emailOtpSessionHandle.kind');
   switch (kind) {
     case 'available':
       if (!Array.isArray(response.handles) || response.handles.length === 0) {
@@ -227,38 +185,6 @@ function parseEmailOtpWalletRegistrationEcdsaPrepareHandleResult(
     default:
       throw new Error(`Unsupported Email OTP registration ECDSA handle result kind: ${kind}`);
   }
-}
-
-function parseEmailOtpRecoveryCodeRotationMaterial(
-  value: unknown,
-): EmailOtpRecoveryCodeRotationMaterial {
-  const response = requireObjectJson(value, 'Email OTP recovery-code rotation result');
-  const recoveryCodeMaterial = parseEmailOtpRecoveryCodeMaterial(response);
-  return {
-    walletId: readString(response.walletId, 'walletId'),
-    userId: readString(response.userId, 'userId'),
-    providerUserId: readString(response.authSubjectId, 'authSubjectId'),
-    enrollmentId: readString(response.enrollmentId, 'enrollmentId'),
-    enrollmentVersion: readString(response.enrollmentVersion, 'enrollmentVersion'),
-    enrollmentSealKeyVersion: readString(
-      response.enrollmentSealKeyVersion,
-      'enrollmentSealKeyVersion',
-    ),
-    recoveryKeys: recoveryCodeMaterial.recoveryKeys,
-    recoveryCodesIssuedAtMs: recoveryCodeMaterial.recoveryCodesIssuedAtMs,
-    activeRecoveryCodeCount: readNonNegativeInteger(
-      response.activeRecoveryCodeCount,
-      'activeRecoveryCodeCount',
-    ),
-    revokedRecoveryCodeCount: readNonNegativeInteger(
-      response.revokedRecoveryCodeCount,
-      'revokedRecoveryCodeCount',
-    ),
-    totalRecoveryCodeCount: readNonNegativeInteger(
-      response.totalRecoveryCodeCount,
-      'totalRecoveryCodeCount',
-    ),
-  };
 }
 
 export async function enrollEmailOtpWallet(args: {
@@ -319,25 +245,20 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
   appSessionJwt?: string;
   otpChannel?: WalletEmailOtpChannel;
   clientSecret32?: Uint8Array;
-  ecdsaClientRootHandle: EmailOtpWalletRegistrationEcdsaPrepareHandleRequest;
-  ed25519YaoFactor: EmailOtpEd25519YaoFactorRequest;
+  ecdsaSessionHandle: EmailOtpWalletRegistrationEcdsaPrepareHandleRequest;
 }): Promise<{
-  thresholdEcdsaClientVerifyingShareB64u: string;
-  recoveryKeys: EmailOtpRecoveryCodeSet;
-  recoveryCodesIssuedAtMs: number;
   otpChannel: WalletEmailOtpChannel;
   enrollmentId: string;
   enrollmentSealKeyVersion: string;
+  serverSealedFactorCiphertextB64u: string;
   clientUnlockPublicKeyB64u: string;
   unlockKeyVersion: string;
-  clientRootShareHandle: EmailOtpWalletRegistrationEcdsaPrepareHandleResult;
-  ed25519YaoFactor: EmailOtpEd25519YaoFactorResult;
+  emailOtpSessionHandle: EmailOtpWalletRegistrationEcdsaPrepareHandleResult;
   emailOtpEnrollment: {
-    recoveryWrappedEnrollmentEscrows: unknown[];
     enrollmentSealKeyVersion: string;
+    serverSealedFactorCiphertextB64u: string;
     clientUnlockPublicKeyB64u: string;
     unlockKeyVersion: string;
-    thresholdEcdsaClientVerifyingShareB64u: string;
   };
 }> {
   const workerCtx = requireWorkerCtx(args.workerCtx);
@@ -360,52 +281,21 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
             appSessionJwt: args.appSessionJwt,
           }),
           otpChannel: args.otpChannel || EMAIL_OTP_CHANNEL,
-          ecdsaClientRootHandle: args.ecdsaClientRootHandle,
-          ed25519YaoFactor: args.ed25519YaoFactor,
+          ecdsaSessionHandle: args.ecdsaSessionHandle,
           ...(workerClientSecret32
             ? { clientSecret32: toArrayBufferCopy(workerClientSecret32) }
             : {}),
         },
       },
     });
-    const recoveryCodeMaterial = parseEmailOtpRecoveryCodeMaterial(result);
     return {
       ...result,
-      recoveryKeys: recoveryCodeMaterial.recoveryKeys,
-      recoveryCodesIssuedAtMs: recoveryCodeMaterial.recoveryCodesIssuedAtMs,
-      clientRootShareHandle: parseEmailOtpWalletRegistrationEcdsaPrepareHandleResult(
-        result.clientRootShareHandle,
+      emailOtpSessionHandle: parseEmailOtpWalletRegistrationEcdsaPrepareHandleResult(
+        result.emailOtpSessionHandle,
       ),
       emailOtpEnrollment: result.emailOtpEnrollment,
     };
   } finally {
     zeroizeBytes(workerClientSecret32);
   }
-}
-
-export async function rotateEmailOtpRecoveryCodesWithWorker(args: {
-  relayUrl: string;
-  walletId: string;
-  userId: string;
-  workerCtx: WorkerOperationContext;
-  appSessionJwt?: string;
-}): Promise<EmailOtpRecoveryCodeRotationMaterial> {
-  const workerCtx = requireWorkerCtx(args.workerCtx);
-  return parseEmailOtpRecoveryCodeRotationMaterial(
-    await workerCtx.requestWorkerOperation({
-      kind: 'emailOtp',
-      request: {
-        type: 'rotateEmailOtpRecoveryCodes',
-        payload: {
-          relayUrl: readString(args.relayUrl, 'relayUrl'),
-          walletId: readString(args.walletId, 'walletId'),
-          userId: readString(args.userId, 'userId'),
-          routePlan: buildWorkerEmailOtpRoutePlan({
-            routeFamily: 'login',
-            appSessionJwt: args.appSessionJwt,
-          }),
-        },
-      },
-    }),
-  );
 }

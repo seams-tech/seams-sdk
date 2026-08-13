@@ -4,16 +4,12 @@ import type {
   EcdsaDerivationRelayerPublicKey33B64u,
 } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import type {
-  BuildEcdsaRoleLocalExportArtifactCommand as RawBuildEcdsaRoleLocalExportArtifactCommand,
-  BuildEcdsaRoleLocalExportArtifactOutput as RawBuildEcdsaRoleLocalExportArtifactOutput,
   FinalizeEcdsaClientBootstrapCommand as RawFinalizeEcdsaClientBootstrapCommand,
   FinalizeEcdsaClientBootstrapOutput as RawFinalizeEcdsaClientBootstrapOutput,
   PrepareEcdsaClientBootstrapCommand as RawPrepareEcdsaClientBootstrapCommand,
   PrepareEcdsaClientBootstrapOutput as RawPrepareEcdsaClientBootstrapOutput,
 } from './generated/signerCoreCommands';
 import type {
-  BuildEcdsaRoleLocalExportArtifactInput,
-  BuildEcdsaRoleLocalExportArtifactOutput,
   EcdsaRoleLocalPublicFacts,
   EcdsaRoleLocalPendingStateBlob,
   EcdsaRoleLocalReadyStateBlob,
@@ -27,10 +23,6 @@ export type GeneratedPrepareEcdsaClientBootstrapCommand = RawPrepareEcdsaClientB
 export type GeneratedPrepareEcdsaClientBootstrapOutput = RawPrepareEcdsaClientBootstrapOutput;
 export type GeneratedFinalizeEcdsaClientBootstrapCommand = RawFinalizeEcdsaClientBootstrapCommand;
 export type GeneratedFinalizeEcdsaClientBootstrapOutput = RawFinalizeEcdsaClientBootstrapOutput;
-export type GeneratedBuildEcdsaRoleLocalExportArtifactCommand =
-  RawBuildEcdsaRoleLocalExportArtifactCommand;
-export type GeneratedBuildEcdsaRoleLocalExportArtifactOutput =
-  RawBuildEcdsaRoleLocalExportArtifactOutput;
 
 function requireBase64UrlBytes(value: string, field: string, byteLength: number): string {
   const normalized = String(value || '').trim();
@@ -95,9 +87,7 @@ function parsePendingStateBlob(
 }
 
 function parseReadyStateBlob(
-  input:
-    | RawFinalizeEcdsaClientBootstrapOutput['stateBlob']
-    | RawBuildEcdsaRoleLocalExportArtifactCommand['stateBlob'],
+  input: RawFinalizeEcdsaClientBootstrapOutput['stateBlob'],
 ): EcdsaRoleLocalReadyStateBlob {
   if (
     input.kind !== 'ecdsa_role_local_state_blob_v1' ||
@@ -211,62 +201,5 @@ export function parseGeneratedFinalizeEcdsaClientBootstrapOutput(
       ),
       ethereumAddress: parseEthereumAddress(input.publicFacts.ethereumAddress),
     },
-  };
-}
-
-function generatedExportPublicFacts(
-  publicFacts: EcdsaRoleLocalPublicFacts,
-): RawBuildEcdsaRoleLocalExportArtifactCommand['publicFacts'] {
-  return {
-    applicationBindingDigestB64u: requireBase64UrlBytes(
-      publicFacts.applicationBindingDigestB64u,
-      'publicFacts.applicationBindingDigestB64u',
-      32,
-    ),
-    clientParticipantId: publicFacts.clientParticipantId,
-    relayerParticipantId: publicFacts.relayerParticipantId,
-    participantIds: [...publicFacts.participantIds],
-    contextBinding32B64u: requireBase64UrlBytes(
-      publicFacts.contextBinding32B64u,
-      'publicFacts.contextBinding32B64u',
-      32,
-    ),
-    derivationClientSharePublicKey33B64u: parseDerivationClientSharePublicKey33B64u(
-      publicFacts.derivationClientSharePublicKey33B64u,
-    ),
-    relayerPublicKey33B64u: parseRelayerEcdsaDerivationPublicKey33B64u(
-      publicFacts.relayerPublicKey33B64u,
-    ),
-    groupPublicKey33B64u: parsePublicKey33B64u(
-      publicFacts.groupPublicKey33B64u,
-      'publicFacts.groupPublicKey33B64u',
-    ),
-    ethereumAddress: parseEthereumAddress(publicFacts.ethereumAddress),
-  };
-}
-
-export function toGeneratedBuildEcdsaRoleLocalExportArtifactCommand(
-  input: BuildEcdsaRoleLocalExportArtifactInput,
-): GeneratedBuildEcdsaRoleLocalExportArtifactCommand {
-  return {
-    kind: input.kind,
-    algorithm: input.algorithm,
-    stateBlob: parseReadyStateBlob(input.stateBlob),
-    publicFacts: generatedExportPublicFacts(input.publicFacts),
-    serverExportShare32B64u: requireBase64UrlBytes(
-      input.serverExportShare32B64u,
-      'serverExportShare32B64u',
-      32,
-    ),
-  };
-}
-
-export function parseGeneratedBuildEcdsaRoleLocalExportArtifactOutput(
-  input: GeneratedBuildEcdsaRoleLocalExportArtifactOutput,
-): BuildEcdsaRoleLocalExportArtifactOutput {
-  return {
-    publicKeyHex: parseHexBytes(input.publicKeyHex, 'publicKeyHex', 33),
-    privateKeyHex: parseHexBytes(input.privateKeyHex, 'privateKeyHex', 32),
-    ethereumAddress: parseEthereumAddress(input.ethereumAddress),
   };
 }

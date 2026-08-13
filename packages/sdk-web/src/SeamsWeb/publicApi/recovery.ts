@@ -1,13 +1,15 @@
 import { EmailRecoveryDomain } from '@/SeamsWeb/operations/recovery/emailRecovery';
-import type {
-  EmailRecoveryWebContext,
-  RecoveryCapability,
-} from '@/SeamsWeb/signingSurface/types';
+import type { EmailRecoveryWebContext, RecoveryCapability } from '@/SeamsWeb/signingSurface/types';
 import type { WalletIframeCoordinator } from '@/SeamsWeb/walletIframe/coordinator';
 
 export type RecoveryCapabilityDomainMethods = {
-  getEmailOtpRecoveryCodeStatus: RecoveryCapability['getEmailOtpRecoveryCodeStatus'];
-  rotateEmailOtpRecoveryCodes: RecoveryCapability['rotateEmailOtpRecoveryCodes'];
+  getWalletRecoveryCodeStatus: RecoveryCapability['getWalletRecoveryCodeStatus'];
+  acknowledgeWalletRecoveryCodeBackup: RecoveryCapability['acknowledgeWalletRecoveryCodeBackup'];
+  rotateWalletRecoveryCodes: RecoveryCapability['rotateWalletRecoveryCodes'];
+  requestWalletRecoveryBootstrapChallenge: RecoveryCapability['requestWalletRecoveryBootstrapChallenge'];
+  verifyWalletRecoveryBootstrap: RecoveryCapability['verifyWalletRecoveryBootstrap'];
+  prepareWalletRecoveryWithBootstrap: RecoveryCapability['prepareWalletRecoveryWithBootstrap'];
+  completeWalletRecovery: RecoveryCapability['completeWalletRecovery'];
 };
 
 export function createRecoveryCapability(deps: {
@@ -23,7 +25,12 @@ export function createRecoveryCapability(deps: {
     getRecoveryEmails: async (walletId) => await emailRecovery.getRecoveryEmails(walletId),
     setRecoveryEmails: async (args) => await emailRecovery.setRecoveryEmails(args),
     syncAccount: async (args) => await emailRecovery.syncAccount(args),
-    getEmailOtpRecoveryCodeStatus: deps.domain.getEmailOtpRecoveryCodeStatus,
-    rotateEmailOtpRecoveryCodes: deps.domain.rotateEmailOtpRecoveryCodes,
+    getWalletRecoveryCodeStatus: deps.domain.getWalletRecoveryCodeStatus,
+    acknowledgeWalletRecoveryCodeBackup: deps.domain.acknowledgeWalletRecoveryCodeBackup,
+    rotateWalletRecoveryCodes: deps.domain.rotateWalletRecoveryCodes,
+    requestWalletRecoveryBootstrapChallenge: deps.domain.requestWalletRecoveryBootstrapChallenge,
+    verifyWalletRecoveryBootstrap: deps.domain.verifyWalletRecoveryBootstrap,
+    prepareWalletRecoveryWithBootstrap: deps.domain.prepareWalletRecoveryWithBootstrap,
+    completeWalletRecovery: deps.domain.completeWalletRecovery,
   } satisfies RecoveryCapability;
 }

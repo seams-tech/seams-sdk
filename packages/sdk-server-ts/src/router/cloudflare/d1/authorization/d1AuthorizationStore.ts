@@ -7,6 +7,9 @@ import {
   parseCapabilityOperationId,
   parseCapabilityOperationRef,
   parseDeviceId,
+  parseLinkedDeviceWalletSessionAuthorizationId,
+  buildLinkedDeviceWalletSessionAuthorizationRef,
+  parseMpcWalletSigningQuotaId,
   parsePrincipalId,
   parseReusableWalletSessionMintId,
   parseSeamsSessionId,
@@ -31,14 +34,16 @@ import type {
   ReusableWalletSessionStatus,
   VerifiedAuthorizationEvidenceSet,
   WalletSessionId,
+  LinkedDeviceWalletSessionAuthorization,
+  LinkedDeviceWalletSessionStatus,
 } from '../../../../authorization/domain';
 import {
   buildActiveAuthorizationSession,
   buildActiveWalletSessionQuota,
   buildWalletSessionAuthorization,
+  parseLinkedDeviceWalletSessionAuthorization,
   computeAuthorizedOperationResultDigest,
   parseAuthorizedOperationReplayResponse,
-  parseMpcWalletSigningQuotaId,
   parseSessionOrigin,
 } from '../../../../authorization/domain';
 import { buildAuthorizedOperation } from '../../../../authorization/domain';
@@ -54,18 +59,29 @@ import type {
   AuthorizationGrantPort,
   AuthorizationSessionPort,
   EcdsaMaterialActivationScope,
+  LinkedDeviceMaterialActivationScopeV1,
+  AuthorizedOperationMaterialScope,
   IssuedReusableWalletSession,
+  IssuedLinkedDeviceWalletSession,
 } from '../../../../authorization/service';
 import type { D1WalletStoreScope } from '../../../../core/d1WalletStore';
 import { d1ChangedRows, type D1Row } from '../../../../storage/d1Sql';
 import type { D1DatabaseLike, D1ResultLike } from '../../../../storage/tenantRoute';
 import {
   parseAppSessionVersion,
+  parseLinkedDeviceEnrollmentId,
+  parseLinkedDeviceId,
   parseProviderSubject,
   parseWebAuthnCredentialIdB64u,
 } from '@shared/utils/domainIds';
 import { parseWalletId } from '@shared/utils/domainIds';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import { CloudflareD1LaneLifecycleStore } from '../signingLanes/d1LaneLifecycleStore';
+import type { LaneLifecycleStore } from '../../../../core/signingLanes/LaneLifecycleStore';
+import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
+import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
+import { computeLaneEnrollmentManifestDigestV1 } from '@shared/signing-lanes/rotationDigests';
+import { parseLaneEnrollmentId } from '@shared/signing-lanes';
 
 export type D1AuthorizationStoreOptions = {
   readonly database: D1DatabaseLike;
@@ -127,6 +143,21 @@ type HostedWalletExchangeRow = {
   readonly expires_at_ms?: unknown;
 };
 
+type LinkedDeviceAuthorizationPersistenceRows = {
+  readonly authorization: LinkedDeviceWalletSessionAuthorization;
+  readonly lifecycleKind: 'active' | 'revoked';
+  readonly issuedAtMs: number;
+  readonly expiresAtMs: number;
+  readonly revokedAtMs: number | null;
+  readonly quotaTenantId: TenantId;
+  readonly quotaPrincipalId: LinkedDeviceWalletSessionAuthorization['principalId'];
+  readonly quotaWalletSessionId: WalletSessionId;
+  readonly quotaId: ActiveWalletSessionQuota['quotaId'];
+  readonly remainingUses: number;
+  readonly quotaLifecycleKind: 'active' | 'exhausted' | 'revoked';
+  readonly quotaExpiresAtMs: number;
+};
+
 export class CloudflareD1AuthorizationStore
   implements
     AuthorizationSessionPort,
@@ -137,6 +168,10 @@ export class CloudflareD1AuthorizationStore
   private readonly database: D1DatabaseLike;
   private readonly namespace: string;
   private readonly walletSignerScope: D1WalletStoreScope;
+  private readonly laneLifecycle: Pick<
+    LaneLifecycleStore,
+    'getEnrollment' | 'getProtocol' | 'listEnrollmentProductEpochs'
+  >;
 
   constructor(options: D1AuthorizationStoreOptions) {
     this.database = options.database;
@@ -153,6 +188,10 @@ export class CloudflareD1AuthorizationStore
       ),
       envId: requireOpaqueString(options.walletSignerScope.envId, 'walletSignerScope.envId'),
     };
+    this.laneLifecycle = new CloudflareD1LaneLifecycleStore({
+      database: this.database,
+      scope: this.walletSignerScope,
+    });
   }
 
   async putActiveSession(session: ActiveAuthorizationSession): Promise<void> {
@@ -771,7 +810,11 @@ export class CloudflareD1AuthorizationStore
       parseWalletSessionId,
       'quota.walletSessionId',
     );
-    const quotaId = requireParsed(row.quota_quota_id, parseMpcWalletSigningQuotaId, 'quota.quotaId');
+    const quotaId = requireParsed(
+      row.quota_quota_id,
+      parseMpcWalletSigningQuotaId,
+      'quota.quotaId',
+    );
     const quotaRemainingUses = requirePositiveInteger(
       row.quota_remaining_uses,
       'quota.remainingUses',
@@ -820,6 +863,402 @@ export class CloudflareD1AuthorizationStore
     return { session, quota };
   }
 
+  async putLinkedDeviceWalletSessionAuthorization(input: {
+    readonly authorization: LinkedDeviceWalletSessionAuthorization;
+    readonly quota: ActiveWalletSessionQuota;
+  }): Promise<void> {
+    requireExactLinkedDeviceWalletSessionQuota(input);
+    const authorization = parseLinkedDeviceWalletSessionAuthorization(input.authorization);
+    if (authorization.principalId !== input.quota.principalId) {
+      throw new Error('linked-device authorization and quota principal identities differ');
+    }
+    await this.requireActiveLinkedDeviceEnrollment(authorization);
+
+    const existing = await this.readLinkedDeviceAuthorizationRows({
+      tenantId: authorization.tenantId,
+      authorizationId: authorization.authorizationGrantRef.authorizationId,
+    });
+    if (existing) {
+      if (linkedDeviceAuthorizationReadbackMatches(existing, input)) return;
+      throw new Error('linked-device Wallet Session authorization replay does not match');
+    }
+
+    const scope = this.walletSignerScope;
+    const authStatement = this.database
+      .prepare(
+        `INSERT INTO linked_device_wallet_session_authorizations (
+           namespace, org_id, project_id, env_id, tenant_id, authorization_id,
+           principal_id, wallet_id, enrollment_id, device_id, wallet_session_id,
+           quota_id, key_manifest_digest_b64u, permission_json, revocation_epoch,
+           lifecycle_kind, issued_at_ms, expires_at_ms, revoked_at_ms
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, NULL)`,
+      )
+      .bind(
+        scope.namespace,
+        scope.orgId,
+        scope.projectId,
+        scope.envId,
+        authorization.tenantId,
+        authorization.authorizationGrantRef.authorizationId,
+        authorization.principalId,
+        authorization.walletId,
+        authorization.enrollmentId,
+        authorization.deviceId,
+        authorization.walletSessionId,
+        authorization.quotaId,
+        authorization.keyManifestDigestB64u,
+        JSON.stringify(authorization.permission),
+        authorization.revocationEpoch,
+        requirePositiveInteger(authorization.issuedAtMs, 'linked authorization.issuedAtMs'),
+        requirePositiveInteger(authorization.expiresAtMs, 'linked authorization.expiresAtMs'),
+      );
+    const quotaStatement = this.database
+      .prepare(
+        `INSERT INTO linked_device_wallet_session_quotas (
+           namespace, org_id, project_id, env_id, tenant_id, quota_id,
+           authorization_id, wallet_session_id, principal_id, remaining_uses,
+           lifecycle_kind, expires_at_ms
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
+      )
+      .bind(
+        scope.namespace,
+        scope.orgId,
+        scope.projectId,
+        scope.envId,
+        input.quota.tenantId,
+        input.quota.quotaId,
+        authorization.authorizationGrantRef.authorizationId,
+        input.quota.walletSessionId,
+        input.quota.principalId,
+        requirePositiveInteger(input.quota.remainingUses, 'linked quota.remainingUses'),
+        requirePositiveInteger(input.quota.expiresAtMs, 'linked quota.expiresAtMs'),
+      );
+    const results = await this.database.batch<D1ResultLike>([authStatement, quotaStatement]);
+    if (results.length !== 2)
+      throw new Error('linked authorization transaction returned incomplete results');
+    const authResult = results[0];
+    const quotaResult = results[1];
+    if (!authResult || !quotaResult) {
+      throw new Error('linked authorization transaction returned incomplete results');
+    }
+    const authInserted = d1ChangedRows(authResult) === 1;
+    const quotaInserted = d1ChangedRows(quotaResult) === 1;
+    if (authInserted !== quotaInserted) {
+      throw new Error('linked authorization transaction persisted an incomplete identity');
+    }
+    const readback = await this.readLinkedDeviceAuthorizationRows({
+      tenantId: authorization.tenantId,
+      authorizationId: authorization.authorizationGrantRef.authorizationId,
+    });
+    if (!readback || !linkedDeviceAuthorizationReadbackMatches(readback, input)) {
+      throw new Error('linked-device Wallet Session authorization could not be read back');
+    }
+  }
+
+  async readLinkedDeviceWalletSessionAuthorization(input: {
+    readonly tenantId: TenantId;
+    readonly deviceId: LinkedDeviceWalletSessionAuthorization['deviceId'];
+    readonly authorizationId: LinkedDeviceWalletSessionAuthorization['authorizationGrantRef']['authorizationId'];
+    readonly walletSessionId: WalletSessionId;
+    readonly quotaId: ActiveWalletSessionQuota['quotaId'];
+    readonly nowMs: number;
+  }): Promise<IssuedLinkedDeviceWalletSession | null> {
+    const rows = await this.readLinkedDeviceAuthorizationRows({
+      tenantId: input.tenantId,
+      authorizationId: input.authorizationId,
+    });
+    if (!rows) return null;
+    const authorization = rows.authorization;
+    if (
+      authorization.deviceId !== input.deviceId ||
+      authorization.walletSessionId !== input.walletSessionId ||
+      authorization.quotaId !== input.quotaId
+    ) {
+      throw new Error(
+        'linked-device Wallet Session authorization identity does not match the request',
+      );
+    }
+    const nowMs = requirePositiveInteger(input.nowMs, 'linked authorization read time');
+    if (rows.lifecycleKind !== 'active' || rows.quotaLifecycleKind !== 'active') {
+      throw new Error('linked-device Wallet Session authorization is no longer active');
+    }
+    if (rows.expiresAtMs <= nowMs) {
+      throw new Error('linked-device Wallet Session authorization has expired');
+    }
+    const quota = buildActiveWalletSessionQuota({
+      tenantId: rows.quotaTenantId,
+      principalId: rows.quotaPrincipalId,
+      walletSessionId: rows.quotaWalletSessionId,
+      quotaId: rows.quotaId,
+      remainingUses: rows.remainingUses,
+      expiresAtMs: rows.quotaExpiresAtMs,
+    });
+    return { authorization, quota };
+  }
+
+  async getLinkedDeviceWalletSessionStatus(input: {
+    readonly tenantId: TenantId;
+    readonly principalId: LinkedDeviceWalletSessionAuthorization['principalId'];
+    readonly deviceId: LinkedDeviceWalletSessionAuthorization['deviceId'];
+    readonly authorizationId: LinkedDeviceWalletSessionAuthorization['authorizationGrantRef']['authorizationId'];
+    readonly walletSessionId: WalletSessionId;
+    readonly quotaId: ActiveWalletSessionQuota['quotaId'];
+    readonly nowMs: number;
+  }): Promise<LinkedDeviceWalletSessionStatus> {
+    const rows = await this.readLinkedDeviceAuthorizationRows({
+      tenantId: input.tenantId,
+      authorizationId: input.authorizationId,
+    });
+    const missing = {
+      kind: 'missing' as const,
+      tenantId: input.tenantId,
+      principalId: input.principalId,
+      deviceId: input.deviceId,
+      authorizationId: input.authorizationId,
+      walletSessionId: input.walletSessionId,
+      quotaId: input.quotaId,
+    };
+    if (!rows) return missing;
+    const authorization = rows.authorization;
+    const identityMatches =
+      authorization.principalId === input.principalId &&
+      authorization.deviceId === input.deviceId &&
+      authorization.walletSessionId === input.walletSessionId &&
+      authorization.quotaId === input.quotaId;
+    if (!identityMatches || rows.quotaPrincipalId !== authorization.principalId) {
+      return { ...missing, kind: 'invalid' };
+    }
+    const identity = {
+      tenantId: authorization.tenantId,
+      principalId: authorization.principalId,
+      deviceId: authorization.deviceId,
+      authorizationId: authorization.authorizationGrantRef.authorizationId,
+      walletId: authorization.walletId,
+      enrollmentId: authorization.enrollmentId,
+      walletSessionId: authorization.walletSessionId,
+      quotaId: authorization.quotaId,
+      keyManifestDigestB64u: authorization.keyManifestDigestB64u,
+      revocationEpoch: authorization.revocationEpoch,
+    };
+    if (rows.lifecycleKind === 'revoked' || rows.quotaLifecycleKind === 'revoked') {
+      return {
+        ...identity,
+        kind: 'revoked',
+        revokedAtMs: rows.revokedAtMs ?? rows.issuedAtMs,
+        expiresAtMs: rows.expiresAtMs,
+      };
+    }
+    const nowMs = requirePositiveInteger(input.nowMs, 'linked authorization status time');
+    if (rows.expiresAtMs <= nowMs || rows.quotaExpiresAtMs <= nowMs) {
+      return { ...identity, kind: 'expired', expiresAtMs: rows.expiresAtMs };
+    }
+    if (rows.remainingUses === 0 || rows.quotaLifecycleKind === 'exhausted') {
+      return { ...identity, kind: 'exhausted', remainingUses: 0, expiresAtMs: rows.expiresAtMs };
+    }
+    if (rows.lifecycleKind !== 'active' || rows.quotaLifecycleKind !== 'active') {
+      return { ...missing, kind: 'invalid' };
+    }
+    return {
+      ...identity,
+      kind: 'active',
+      remainingUses: rows.remainingUses,
+      expiresAtMs: rows.expiresAtMs,
+    };
+  }
+
+  async renewLinkedDeviceWalletSessionAuthorization(input: {
+    readonly tenantId: TenantId;
+    readonly principalId: LinkedDeviceWalletSessionAuthorization['principalId'];
+    readonly deviceId: LinkedDeviceWalletSessionAuthorization['deviceId'];
+    readonly enrollmentId: LinkedDeviceWalletSessionAuthorization['enrollmentId'];
+    readonly authorizationId: LinkedDeviceWalletSessionAuthorization['authorizationGrantRef']['authorizationId'];
+    readonly walletSessionId: WalletSessionId;
+    readonly quotaId: ActiveWalletSessionQuota['quotaId'];
+    readonly revocationEpoch: number;
+    readonly issuedAtMs: number;
+    readonly expiresAtMs: number;
+    readonly remainingUses: number;
+  }): Promise<void> {
+    const issuedAtMs = requirePositiveInteger(input.issuedAtMs, 'linked renewal issuedAtMs');
+    const expiresAtMs = requirePositiveInteger(input.expiresAtMs, 'linked renewal expiresAtMs');
+    const remainingUses = requirePositiveInteger(input.remainingUses, 'linked renewal remainingUses');
+    if (expiresAtMs <= issuedAtMs) throw new Error('linked renewal expiry is invalid');
+    if (!Number.isSafeInteger(input.revocationEpoch) || input.revocationEpoch < 0) {
+      throw new Error('linked renewal revocationEpoch is invalid');
+    }
+    const scope = this.walletSignerScope;
+    const authorizationStatement = this.database
+      .prepare(
+        `UPDATE linked_device_wallet_session_authorizations
+            SET issued_at_ms = ?, expires_at_ms = ?
+          WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+            AND tenant_id = ? AND authorization_id = ?
+            AND principal_id = ? AND device_id = ? AND enrollment_id = ?
+            AND wallet_session_id = ? AND quota_id = ?
+            AND revocation_epoch = ? AND lifecycle_kind = 'active'
+            AND EXISTS (
+              SELECT 1 FROM lane_enrollments AS enrollment
+               WHERE enrollment.namespace = linked_device_wallet_session_authorizations.namespace
+                 AND enrollment.org_id = linked_device_wallet_session_authorizations.org_id
+                 AND enrollment.project_id = linked_device_wallet_session_authorizations.project_id
+                 AND enrollment.env_id = linked_device_wallet_session_authorizations.env_id
+                 AND enrollment.enrollment_id = linked_device_wallet_session_authorizations.enrollment_id
+                 AND enrollment.enrollment_id = ?
+                 AND enrollment.wallet_id = linked_device_wallet_session_authorizations.wallet_id
+                 AND json_extract(enrollment.lifecycle_json, '$.state') = 'active'
+                 AND json_extract(enrollment.lifecycle_json, '$.manifestDigestB64u') = linked_device_wallet_session_authorizations.key_manifest_digest_b64u
+            )`,
+      )
+      .bind(
+        issuedAtMs,
+        expiresAtMs,
+        scope.namespace,
+        scope.orgId,
+        scope.projectId,
+        scope.envId,
+        input.tenantId,
+        input.authorizationId,
+        input.principalId,
+        input.deviceId,
+        input.enrollmentId,
+        input.walletSessionId,
+        input.quotaId,
+        input.revocationEpoch,
+        input.enrollmentId,
+      );
+    const quotaStatement = this.database
+      .prepare(
+        `UPDATE linked_device_wallet_session_quotas
+            SET remaining_uses = ?, lifecycle_kind = 'active', expires_at_ms = ?
+          WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+            AND tenant_id = ? AND authorization_id = ?
+            AND quota_id = ? AND wallet_session_id = ? AND principal_id = ?
+            AND lifecycle_kind IN ('active', 'exhausted')
+            AND EXISTS (
+              SELECT 1
+                FROM linked_device_wallet_session_authorizations AS authorization
+                JOIN lane_enrollments AS enrollment
+                  ON enrollment.namespace = authorization.namespace
+                 AND enrollment.org_id = authorization.org_id
+                 AND enrollment.project_id = authorization.project_id
+                 AND enrollment.env_id = authorization.env_id
+                 AND enrollment.enrollment_id = authorization.enrollment_id
+                 AND enrollment.wallet_id = authorization.wallet_id
+                 AND json_extract(enrollment.lifecycle_json, '$.state') = 'active'
+                 AND json_extract(enrollment.lifecycle_json, '$.manifestDigestB64u') = authorization.key_manifest_digest_b64u
+               WHERE authorization.namespace = linked_device_wallet_session_quotas.namespace
+                 AND authorization.org_id = linked_device_wallet_session_quotas.org_id
+                 AND authorization.project_id = linked_device_wallet_session_quotas.project_id
+                 AND authorization.env_id = linked_device_wallet_session_quotas.env_id
+                 AND authorization.tenant_id = linked_device_wallet_session_quotas.tenant_id
+                 AND authorization.authorization_id = linked_device_wallet_session_quotas.authorization_id
+                 AND authorization.enrollment_id = ?
+                 AND authorization.revocation_epoch = ?
+                 AND authorization.lifecycle_kind = 'active'
+            )`,
+      )
+      .bind(
+        remainingUses,
+        expiresAtMs,
+        scope.namespace,
+        scope.orgId,
+        scope.projectId,
+        scope.envId,
+        input.tenantId,
+        input.authorizationId,
+        input.quotaId,
+        input.walletSessionId,
+        input.principalId,
+        input.enrollmentId,
+        input.revocationEpoch,
+      );
+    const results = await this.database.batch<D1ResultLike>([
+      authorizationStatement,
+      quotaStatement,
+    ]);
+    if (results.length !== 2 || !results[0] || !results[1]) {
+      throw new Error('linked authorization renewal transaction returned incomplete results');
+    }
+    if (d1ChangedRows(results[0]) === 1 && d1ChangedRows(results[1]) === 1) return;
+    const status = await this.getLinkedDeviceWalletSessionStatus({
+      tenantId: input.tenantId,
+      principalId: input.principalId,
+      deviceId: input.deviceId,
+      authorizationId: input.authorizationId,
+      walletSessionId: input.walletSessionId,
+      quotaId: input.quotaId,
+      nowMs: issuedAtMs,
+    });
+    if (status.kind === 'revoked') throw new Error('linked-device Wallet Session authorization is revoked');
+    throw new Error('linked-device Wallet Session authorization could not be renewed');
+  }
+
+  async revokeLinkedDeviceWalletSession(input: {
+    readonly tenantId: TenantId;
+    readonly principalId: LinkedDeviceWalletSessionAuthorization['principalId'];
+    readonly deviceId: LinkedDeviceWalletSessionAuthorization['deviceId'];
+    readonly authorizationId: LinkedDeviceWalletSessionAuthorization['authorizationGrantRef']['authorizationId'];
+    readonly walletSessionId: WalletSessionId;
+    readonly quotaId: ActiveWalletSessionQuota['quotaId'];
+    readonly nowMs: number;
+  }): Promise<void> {
+    const nowMs = requirePositiveInteger(input.nowMs, 'linked authorization revocation time');
+    const authorizationStatement = this.database
+      .prepare(
+        `UPDATE linked_device_wallet_session_authorizations
+            SET lifecycle_kind = 'revoked', revoked_at_ms = ?
+          WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+            AND tenant_id = ? AND authorization_id = ?
+            AND principal_id = ? AND device_id = ? AND wallet_session_id = ?
+            AND quota_id = ? AND lifecycle_kind = 'active'`,
+      )
+      .bind(
+        nowMs,
+        this.walletSignerScope.namespace,
+        this.walletSignerScope.orgId,
+        this.walletSignerScope.projectId,
+        this.walletSignerScope.envId,
+        input.tenantId,
+        input.authorizationId,
+        input.principalId,
+        input.deviceId,
+        input.walletSessionId,
+        input.quotaId,
+      );
+    const quotaStatement = this.database
+      .prepare(
+        `UPDATE linked_device_wallet_session_quotas
+            SET remaining_uses = 0, lifecycle_kind = 'revoked'
+          WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+            AND tenant_id = ? AND authorization_id = ?
+            AND quota_id = ? AND wallet_session_id = ?
+            AND principal_id = ? AND lifecycle_kind != 'revoked'`,
+      )
+      .bind(
+        this.walletSignerScope.namespace,
+        this.walletSignerScope.orgId,
+        this.walletSignerScope.projectId,
+        this.walletSignerScope.envId,
+        input.tenantId,
+        input.authorizationId,
+        input.quotaId,
+        input.walletSessionId,
+        input.principalId,
+      );
+    const results = await this.database.batch<D1ResultLike>([
+      authorizationStatement,
+      quotaStatement,
+    ]);
+    if (results.length !== 2 || !results[0] || !results[1]) {
+      throw new Error('linked authorization revocation transaction returned incomplete results');
+    }
+    const changed = d1ChangedRows(results[0]);
+    if (changed === 1) return;
+    const status = await this.getLinkedDeviceWalletSessionStatus(input);
+    if (status.kind === 'revoked') return;
+    throw new Error('linked-device Wallet Session authorization could not be revoked');
+  }
+
   async readAuthorizedOperation(input: {
     readonly tenantId: TenantId;
     readonly operationFingerprintDigest: CapabilityOperationFingerprintDigest;
@@ -850,7 +1289,7 @@ export class CloudflareD1AuthorizationStore
 
   async admitAuthorizedOperation(input: {
     readonly operation: AuthorizedOperationInput;
-    readonly material?: EcdsaMaterialActivationScope;
+    readonly material?: AuthorizedOperationMaterialScope;
   }): Promise<
     | { readonly kind: 'claimed'; readonly operation: AuthorizedOperation }
     | { readonly kind: 'replayed'; readonly operation: AuthorizedOperation }
@@ -867,8 +1306,32 @@ export class CloudflareD1AuthorizationStore
     const requiresEcdsaMaterial =
       operation.operation.operation.capabilityKind === CAPABILITY_KINDS.evmEcdsaMpcSigning;
     if (requiresEcdsaMaterial && !input.material) return { kind: 'material_mismatch' };
-    if (
+    const linkedGrant =
+      operation.authorization.kind === 'authorization_grant' &&
+      operation.authorization.authorizationGrantRef.kind ===
+        'linked_device_wallet_session_authorization_v1';
+    if (linkedGrant !== (input.material?.kind === 'linked_device_lane')) {
+      return { kind: 'material_mismatch' };
+    }
+    if (input.material?.kind === 'linked_device_lane') {
+      if (
+        operation.operation.operation.capabilityKind !== CAPABILITY_KINDS.nearEd25519MpcSigning &&
+        operation.operation.operation.capabilityKind !== CAPABILITY_KINDS.evmEcdsaMpcSigning
+      ) {
+        return { kind: 'material_mismatch' };
+      }
+      if (
+        operation.operation.operation.operationKind === 'near.export_key' ||
+        operation.operation.operation.operationKind === 'evm.export_key'
+      ) {
+        return { kind: 'authorization_grant_rejected' };
+      }
+      if (!(await this.isActiveLinkedDeviceMaterial(input.material))) {
+        return { kind: 'material_mismatch' };
+      }
+    } else if (
       input.material &&
+      input.material.kind === 'ecdsa_material_activation' &&
       (operation.operation.operation.capabilityKind !== CAPABILITY_KINDS.evmEcdsaMpcSigning ||
         input.material.runtimePolicyScope.orgId !== operation.tenantId ||
         input.material.materialActivation.capability !== operation.operation.capabilityId ||
@@ -885,6 +1348,7 @@ export class CloudflareD1AuthorizationStore
         existing: existing.row,
         incoming: operation,
         material: input.material,
+        linkedScope: linkedMaterialScope(input.material, this.walletSignerScope),
       });
       if (replayMismatch) return replayMismatch;
       if (existing.operation.lifecycle === 'completed') {
@@ -918,41 +1382,72 @@ export class CloudflareD1AuthorizationStore
         source.kind === 'verified_step_up' ? source.evidenceSetDigest : null,
         quota.kind === 'consume_reusable_wallet_session' ? quota.quotaId : null,
         quota.kind,
+        source.kind === 'authorization_grant' ? source.authorizationGrantRef.kind : null,
         requirePositiveInteger(input.operation.claimedAtMs, 'operation.claimedAtMs'),
         materialActivationId,
+        input.material?.materialActivation.capability ?? null,
+        input.material?.materialActivation.material_owner ?? null,
+        input.material?.materialActivation.key_binding ?? null,
+        input.material?.materialActivation.lifecycle_binding ?? null,
+        input.material?.materialActivation.signing_worker ?? null,
+        input.material?.kind === 'linked_device_lane' ? input.material.walletId : null,
+        input.material?.kind === 'linked_device_lane' ? input.material.enrollmentId : null,
+        input.material?.kind === 'linked_device_lane' ? input.material.deviceId : null,
+        input.material?.kind === 'linked_device_lane' ? input.material.walletKeyId : null,
+        input.material?.kind === 'linked_device_lane' ? input.material.laneId : null,
+        input.material?.kind === 'linked_device_lane' ? input.material.laneShareEpoch : null,
+        input.material?.kind === 'linked_device_lane' ? input.material.revocationEpoch : null,
+        input.material?.kind === 'linked_device_lane' ? this.walletSignerScope.orgId : null,
+        input.material?.kind === 'linked_device_lane' ? this.walletSignerScope.projectId : null,
+        input.material?.kind === 'linked_device_lane' ? this.walletSignerScope.envId : null,
       ] as const;
-      const statement = input.material
-        ? this.database
-            .prepare(
-              `INSERT INTO authorized_operations (
+      const statement =
+        input.material?.kind === 'ecdsa_material_activation'
+          ? this.database
+              .prepare(
+                `INSERT INTO authorized_operations (
                 namespace, tenant_id, authorized_operation_id, audit_event_id,
                 principal_id, capability_id, capability_kind, operation_kind, operation_id,
                 operation_fingerprint_digest, lane_digest, intent_digest, display_digest,
                 authorization_source_kind, authorization_id, evidence_set_digest,
-                quota_id, quota_kind, lifecycle_kind, result_kind,
+                quota_id, quota_kind, authorization_grant_kind, lifecycle_kind, result_kind,
                 result_digest, result_status, result_content_type, result_body_text,
                 claimed_at_ms, completed_at_ms,
-                material_activation_id
-              ) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                        'claimed', 'pending', NULL, NULL, NULL, NULL, ?, NULL, ?
+                material_activation_id, material_activation_capability,
+                material_activation_owner, material_activation_key_binding,
+                material_activation_lifecycle_binding, material_activation_signing_worker,
+                linked_wallet_id, linked_enrollment_id, linked_device_id,
+                linked_wallet_key_id, linked_lane_id, linked_lane_share_epoch,
+                linked_revocation_epoch, linked_scope_org_id, linked_scope_project_id,
+                linked_scope_env_id
+              ) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                        'claimed', 'pending', NULL, NULL, NULL, NULL, ?, NULL, ?,
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                  WHERE ${ECDSA_SIGNER_MATCH}`,
-            )
-            .bind(...values, ...ecdsaSignerMatchBindings(this.walletSignerScope, input.material))
-        : this.database
-            .prepare(
-              `INSERT INTO authorized_operations (
+              )
+              .bind(...values, ...ecdsaSignerMatchBindings(this.walletSignerScope, input.material))
+          : this.database
+              .prepare(
+                `INSERT INTO authorized_operations (
                 namespace, tenant_id, authorized_operation_id, audit_event_id,
                 principal_id, capability_id, capability_kind, operation_kind, operation_id,
                 operation_fingerprint_digest, lane_digest, intent_digest, display_digest,
                 authorization_source_kind, authorization_id, evidence_set_digest,
-                quota_id, quota_kind, lifecycle_kind, result_kind,
+                quota_id, quota_kind, authorization_grant_kind, lifecycle_kind, result_kind,
                 result_digest, result_status, result_content_type, result_body_text,
                 claimed_at_ms, completed_at_ms,
-                material_activation_id
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                        'claimed', 'pending', NULL, NULL, NULL, NULL, ?, NULL, ?)`,
-            )
-            .bind(...values);
+                material_activation_id, material_activation_capability,
+                material_activation_owner, material_activation_key_binding,
+                material_activation_lifecycle_binding, material_activation_signing_worker,
+                linked_wallet_id, linked_enrollment_id, linked_device_id,
+                linked_wallet_key_id, linked_lane_id, linked_lane_share_epoch,
+                linked_revocation_epoch, linked_scope_org_id, linked_scope_project_id,
+                linked_scope_env_id
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                        'claimed', 'pending', NULL, NULL, NULL, NULL, ?, NULL, ?,
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              )
+              .bind(...values);
       const result = await statement.run();
       if (input.material && d1ChangedRows(result) === 0) return { kind: 'material_mismatch' };
     } catch (error: unknown) {
@@ -965,6 +1460,7 @@ export class CloudflareD1AuthorizationStore
           existing: raced.row,
           incoming: operation,
           material: input.material,
+          linkedScope: linkedMaterialScope(input.material, this.walletSignerScope),
         });
         if (replayMismatch) return replayMismatch;
         if (raced.operation.lifecycle === 'completed') {
@@ -986,9 +1482,172 @@ export class CloudflareD1AuthorizationStore
     if (!committed) throw new Error('authorized operation admission could not be read back');
     return { kind: 'claimed', operation: committed.operation };
   }
+
+  private async requireActiveLinkedDeviceEnrollment(
+    authorization: LinkedDeviceWalletSessionAuthorization,
+  ): Promise<void> {
+    const enrollmentId = requireDomainId(
+      authorization.enrollmentId,
+      parseLaneEnrollmentId,
+      'linked authorization.enrollmentId',
+    );
+    const enrollment = await this.laneLifecycle.getEnrollment(enrollmentId);
+    if (!enrollment || enrollment.value.lifecycle.state !== 'active') {
+      throw new Error('linked-device enrollment is not active');
+    }
+    if (String(enrollment.value.manifest.walletId) !== String(authorization.walletId)) {
+      throw new Error('linked-device authorization wallet differs from enrollment');
+    }
+    const manifestDigest = await computeLaneEnrollmentManifestDigestV1(enrollment.value.manifest);
+    if (manifestDigest !== authorization.keyManifestDigestB64u) {
+      throw new Error('linked-device authorization manifest digest differs from enrollment');
+    }
+  }
+
+  private async isActiveLinkedDeviceMaterial(
+    material: LinkedDeviceMaterialActivationScopeV1,
+  ): Promise<boolean> {
+    try {
+      const enrollmentId = requireDomainId(
+        material.enrollmentId,
+        parseLaneEnrollmentId,
+        'linked material.enrollmentId',
+      );
+      const enrollment = await this.laneLifecycle.getEnrollment(enrollmentId);
+      if (!enrollment || enrollment.value.lifecycle.state !== 'active') return false;
+      if (String(enrollment.value.manifest.walletId) !== String(material.walletId)) return false;
+      const products = await this.laneLifecycle.listEnrollmentProductEpochs(enrollmentId);
+      const activation = routerAbMpcMaterialActivationRefFromWire(material.materialActivation);
+      const product = products.find(
+        (candidate) =>
+          candidate.state === 'active' &&
+          candidate.laneKind === 'linked_device' &&
+          String(candidate.walletId) === String(material.walletId) &&
+          String(candidate.walletKeyId) === String(material.walletKeyId) &&
+          String(candidate.laneId) === String(material.laneId) &&
+          String(candidate.laneShareEpoch) === String(material.laneShareEpoch) &&
+          candidate.revocationEpoch === material.revocationEpoch &&
+          mpcMaterialActivationRefsEqual(candidate.materialActivation, activation),
+      );
+      if (!product) return false;
+      const protocol = await this.laneLifecycle.getProtocol(product.operationId);
+      if (!protocol || protocol.value.lifecycle.state !== 'active') return false;
+      return (
+        String(protocol.value.job.enrollmentId) === String(material.enrollmentId) &&
+        String(protocol.value.job.walletId) === String(material.walletId) &&
+        String(protocol.value.job.walletKeyId) === String(material.walletKeyId) &&
+        String(protocol.value.job.target.laneId) === String(material.laneId) &&
+        String(protocol.value.job.target.laneShareEpoch) === String(material.laneShareEpoch) &&
+        String(protocol.value.job.targetMaterialActivationId) ===
+          String(material.materialActivation.activation_id)
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  private async readLinkedDeviceAuthorizationRows(input: {
+    readonly tenantId: TenantId;
+    readonly authorizationId: LinkedDeviceWalletSessionAuthorization['authorizationGrantRef']['authorizationId'];
+  }): Promise<LinkedDeviceAuthorizationPersistenceRows | null> {
+    const row = await this.database
+      .prepare(
+        `SELECT
+           authorization.tenant_id AS authorization_tenant_id,
+           authorization.authorization_id AS authorization_id,
+           authorization.principal_id AS authorization_principal_id,
+           authorization.wallet_id AS authorization_wallet_id,
+           authorization.enrollment_id AS authorization_enrollment_id,
+           authorization.device_id AS authorization_device_id,
+           authorization.wallet_session_id AS authorization_wallet_session_id,
+           authorization.quota_id AS authorization_quota_id,
+           authorization.key_manifest_digest_b64u AS authorization_key_manifest_digest_b64u,
+           authorization.permission_json AS authorization_permission_json,
+           authorization.revocation_epoch AS authorization_revocation_epoch,
+           authorization.lifecycle_kind AS authorization_lifecycle_kind,
+           authorization.issued_at_ms AS authorization_issued_at_ms,
+           authorization.expires_at_ms AS authorization_expires_at_ms,
+           authorization.revoked_at_ms AS authorization_revoked_at_ms,
+           quota.tenant_id AS quota_tenant_id,
+           quota.principal_id AS quota_principal_id,
+           quota.wallet_session_id AS quota_wallet_session_id,
+           quota.quota_id AS quota_quota_id,
+           quota.remaining_uses AS quota_remaining_uses,
+           quota.lifecycle_kind AS quota_lifecycle_kind,
+           quota.expires_at_ms AS quota_expires_at_ms
+         FROM linked_device_wallet_session_authorizations AS authorization
+         LEFT JOIN linked_device_wallet_session_quotas AS quota
+           ON quota.namespace = authorization.namespace
+          AND quota.org_id = authorization.org_id
+          AND quota.project_id = authorization.project_id
+          AND quota.env_id = authorization.env_id
+          AND quota.tenant_id = authorization.tenant_id
+          AND quota.authorization_id = authorization.authorization_id
+          AND quota.quota_id = authorization.quota_id
+         WHERE authorization.namespace = ?
+           AND authorization.org_id = ?
+           AND authorization.project_id = ?
+           AND authorization.env_id = ?
+           AND authorization.tenant_id = ?
+           AND authorization.authorization_id = ?
+         LIMIT 1`,
+      )
+      .bind(
+        this.walletSignerScope.namespace,
+        this.walletSignerScope.orgId,
+        this.walletSignerScope.projectId,
+        this.walletSignerScope.envId,
+        input.tenantId,
+        input.authorizationId,
+      )
+      .first<D1Row>();
+    return row ? parseLinkedDeviceAuthorizationPersistenceRows(row) : null;
+  }
+
   private async isAuthorizedOperationSourceActive(row: D1Row, nowMs: number): Promise<boolean> {
     const sourceKind = requireString(row.authorization_source_kind, 'operation.authorization.kind');
     if (sourceKind === 'authorization_grant') {
+      if (row.authorization_grant_kind === 'linked_device_wallet_session_authorization_v1') {
+        const linked = await this.database
+          .prepare(
+            `SELECT 1 AS active
+               FROM linked_device_wallet_session_authorizations AS authorization
+               JOIN linked_device_wallet_session_quotas AS quota
+                 ON quota.namespace = authorization.namespace
+                AND quota.org_id = authorization.org_id
+                AND quota.project_id = authorization.project_id
+                AND quota.env_id = authorization.env_id
+                AND quota.tenant_id = authorization.tenant_id
+                AND quota.authorization_id = authorization.authorization_id
+                AND quota.quota_id = authorization.quota_id
+              WHERE authorization.namespace = ?
+                AND authorization.org_id = ?
+                AND authorization.project_id = ?
+                AND authorization.env_id = ?
+                AND authorization.tenant_id = ?
+                AND authorization.authorization_id = ?
+                AND authorization.principal_id = ?
+                AND authorization.lifecycle_kind = 'active'
+                AND authorization.expires_at_ms > ?
+                AND quota.lifecycle_kind = 'active'
+                AND quota.remaining_uses > 0
+                AND quota.expires_at_ms > ?
+              LIMIT 1`,
+          )
+          .bind(
+            this.walletSignerScope.namespace,
+            this.walletSignerScope.orgId,
+            this.walletSignerScope.projectId,
+            this.walletSignerScope.envId,
+            requireString(row.tenant_id, 'operation.tenantId'),
+            requireString(row.authorization_id, 'operation.authorizationId'),
+            requireString(row.principal_id, 'operation.principalId'),
+            requirePositiveInteger(nowMs, 'operation replay time'),
+            requirePositiveInteger(nowMs, 'operation replay time'),
+          )
+          .first<D1Row>();
+        return linked !== null;
+      }
       const session = await this.database
         .prepare(
           `SELECT 1 AS active
@@ -1189,6 +1848,15 @@ type AuthorizedOperationReplayMismatch =
   | { readonly kind: 'verified_step_up_rejected' }
   | { readonly kind: 'material_mismatch' };
 
+function linkedMaterialScope(
+  material: AuthorizedOperationMaterialScope | undefined,
+  scope: D1WalletStoreScope,
+): { readonly orgId: string; readonly projectId: string; readonly envId: string } | undefined {
+  return material?.kind === 'linked_device_lane'
+    ? { orgId: scope.orgId, projectId: scope.projectId, envId: scope.envId }
+    : undefined;
+}
+
 function classifyAuthorizedOperationAdmissionError(
   error: unknown,
 ):
@@ -1203,6 +1871,9 @@ function classifyAuthorizedOperationAdmissionError(
   if (message.includes('authorization_wallet_session_rejected')) {
     return { kind: 'authorization_grant_rejected' };
   }
+  if (message.includes('authorization_linked_device_rejected')) {
+    return { kind: 'authorization_grant_rejected' };
+  }
   if (message.includes('authorization_evidence_claim_rejected')) {
     return { kind: 'verified_step_up_rejected' };
   }
@@ -1212,7 +1883,12 @@ function classifyAuthorizedOperationAdmissionError(
 function authorizedOperationReplayMismatch(input: {
   readonly existing: D1Row;
   readonly incoming: AuthorizedOperation;
-  readonly material?: EcdsaMaterialActivationScope;
+  readonly material?: AuthorizedOperationMaterialScope;
+  readonly linkedScope?: {
+    readonly orgId: string;
+    readonly projectId: string;
+    readonly envId: string;
+  };
 }): AuthorizedOperationReplayMismatch | null {
   const sourceKind = requireString(
     input.existing.authorization_source_kind,
@@ -1222,6 +1898,10 @@ function authorizedOperationReplayMismatch(input: {
     return authorizationSourceRejected(input.incoming.authorization);
   }
   if (input.incoming.authorization.kind === 'authorization_grant') {
+    const expectedGrantKind = input.incoming.authorization.authorizationGrantRef.kind;
+    if (input.existing.authorization_grant_kind !== expectedGrantKind) {
+      return { kind: 'authorization_grant_rejected' };
+    }
     if (
       input.existing.authorization_id !==
       input.incoming.authorization.authorizationGrantRef.authorizationId
@@ -1252,6 +1932,28 @@ function authorizedOperationReplayMismatch(input: {
   const incomingMaterialActivationId = input.material?.materialActivation.activation_id ?? null;
   if (existingMaterialActivationId !== incomingMaterialActivationId) {
     return { kind: 'material_mismatch' };
+  }
+  if (input.material?.kind === 'linked_device_lane') {
+    if (
+      !input.linkedScope ||
+      input.existing.linked_scope_org_id !== input.linkedScope.orgId ||
+      input.existing.linked_scope_project_id !== input.linkedScope.projectId ||
+      input.existing.linked_scope_env_id !== input.linkedScope.envId
+    ) {
+      return { kind: 'authorization_grant_rejected' };
+    }
+    const linkedFields: readonly [unknown, unknown][] = [
+      [input.existing.linked_wallet_id, input.material.walletId],
+      [input.existing.linked_enrollment_id, input.material.enrollmentId],
+      [input.existing.linked_device_id, input.material.deviceId],
+      [input.existing.linked_wallet_key_id, input.material.walletKeyId],
+      [input.existing.linked_lane_id, input.material.laneId],
+      [input.existing.linked_lane_share_epoch, input.material.laneShareEpoch],
+      [input.existing.linked_revocation_epoch, input.material.revocationEpoch],
+    ];
+    if (linkedFields.some(([existing, incoming]) => String(existing) !== String(incoming))) {
+      return { kind: 'material_mismatch' };
+    }
   }
   return null;
 }
@@ -1293,8 +1995,14 @@ function activeAuthorizationSessionReplayMatches(
     expected.deviceId === persisted.deviceId &&
     expected.appSessionVersion === persisted.appSessionVersion &&
     expected.assurance === persisted.assurance &&
-    JSON.stringify({ kind: expected.authSource.kind, ...authSourcePayload(expected.authSource) }) ===
-      JSON.stringify({ kind: persisted.authSource.kind, ...authSourcePayload(persisted.authSource) }) &&
+    JSON.stringify({
+      kind: expected.authSource.kind,
+      ...authSourcePayload(expected.authSource),
+    }) ===
+      JSON.stringify({
+        kind: persisted.authSource.kind,
+        ...authSourcePayload(persisted.authSource),
+      }) &&
     JSON.stringify({ kind: expected.audience.kind, ...audiencePayload(expected.audience) }) ===
       JSON.stringify({ kind: persisted.audience.kind, ...audiencePayload(persisted.audience) })
   );
@@ -1429,11 +2137,24 @@ async function parseAuthorizedOperationRow(row: D1Row): Promise<AuthorizedOperat
     if (row.evidence_set_digest != null) {
       throw new Error('operation.authorization grant row cannot contain evidenceSetDigest');
     }
+    const grantKind =
+      row.authorization_grant_kind === 'linked_device_wallet_session_authorization_v1'
+        ? 'linked_device_wallet_session_authorization_v1'
+        : row.authorization_grant_kind === 'wallet_session_authorization'
+          ? 'wallet_session_authorization'
+          : (() => {
+              throw new Error('operation.authorization grant kind is invalid');
+            })();
+    if (grantKind === 'linked_device_wallet_session_authorization_v1') {
+      requireString(row.linked_scope_org_id, 'operation.linkedScope.orgId');
+      requireString(row.linked_scope_project_id, 'operation.linkedScope.projectId');
+      requireString(row.linked_scope_env_id, 'operation.linkedScope.envId');
+    }
     authorization = {
       kind: 'authorization_grant',
       authorizationGrantRef: requireParsed(
         {
-          kind: 'wallet_session_authorization',
+          kind: grantKind,
           authorizationId: row.authorization_id,
         },
         parseAuthorizationGrantRef,
@@ -1506,9 +2227,7 @@ async function parseAuthorizedOperationRow(row: D1Row): Promise<AuthorizedOperat
     contentType: requiredText(row.result_content_type, 'operation.response.contentType'),
     bodyText: requiredText(row.result_body_text, 'operation.response.bodyText'),
   });
-  const resultDigest = parseDigestB64u(
-    requireString(row.result_digest, 'operation.resultDigest'),
-  );
+  const resultDigest = parseDigestB64u(requireString(row.result_digest, 'operation.resultDigest'));
   const expectedResultDigest = await computeAuthorizedOperationResultDigest(response);
   if (expectedResultDigest !== resultDigest) {
     throw new Error('operation.resultDigest does not match replay response');
@@ -1601,6 +2320,199 @@ function requireOneChangedRow(
   }
 }
 
+function parseLinkedDeviceAuthorizationPersistenceRows(
+  row: D1Row,
+): LinkedDeviceAuthorizationPersistenceRows {
+  const tenantId = requireParsed(
+    row.authorization_tenant_id,
+    parseTenantId,
+    'linked authorization.tenantId',
+  );
+  const authorizationId = requireParsed(
+    row.authorization_id,
+    parseLinkedDeviceWalletSessionAuthorizationId,
+    'linked authorization.authorizationId',
+  );
+  const permission = parseJsonRecord(
+    row.authorization_permission_json,
+    'linked authorization.permission',
+  );
+  const authorization = parseLinkedDeviceWalletSessionAuthorization({
+    kind: 'linked_device_wallet_session_authorization_v1',
+    tenantId,
+    principalId: requireParsed(
+      row.authorization_principal_id,
+      parsePrincipalId,
+      'linked authorization.principalId',
+    ),
+    authorizationGrantRef: buildLinkedDeviceWalletSessionAuthorizationRef(authorizationId),
+    walletId: requireDomainId(
+      row.authorization_wallet_id,
+      parseWalletId,
+      'linked authorization.walletId',
+    ),
+    enrollmentId: requireDomainId(
+      row.authorization_enrollment_id,
+      parseLinkedDeviceEnrollmentId,
+      'linked authorization.enrollmentId',
+    ),
+    deviceId: requireDomainId(
+      row.authorization_device_id,
+      parseLinkedDeviceId,
+      'linked authorization.deviceId',
+    ),
+    walletSessionId: requireParsed(
+      row.authorization_wallet_session_id,
+      parseWalletSessionId,
+      'linked authorization.walletSessionId',
+    ),
+    quotaId: requireParsed(
+      row.authorization_quota_id,
+      parseMpcWalletSigningQuotaId,
+      'linked authorization.quotaId',
+    ),
+    keyManifestDigestB64u: parseDigestB64u(
+      requireString(
+        row.authorization_key_manifest_digest_b64u,
+        'linked authorization.keyManifestDigestB64u',
+      ),
+    ),
+    permission,
+    revocationEpoch: requireNonnegativeInteger(
+      row.authorization_revocation_epoch,
+      'linked authorization.revocationEpoch',
+    ),
+    issuedAtMs: requirePositiveInteger(
+      row.authorization_issued_at_ms,
+      'linked authorization.issuedAtMs',
+    ),
+    expiresAtMs: requirePositiveInteger(
+      row.authorization_expires_at_ms,
+      'linked authorization.expiresAtMs',
+    ),
+  });
+  const lifecycleKind = requireLinkedAuthorizationLifecycleKind(row.authorization_lifecycle_kind);
+  const quotaTenantId = requireParsed(row.quota_tenant_id, parseTenantId, 'linked quota.tenantId');
+  const quotaPrincipalId = requireParsed(
+    row.quota_principal_id,
+    parsePrincipalId,
+    'linked quota.principalId',
+  );
+  const quotaWalletSessionId = requireParsed(
+    row.quota_wallet_session_id,
+    parseWalletSessionId,
+    'linked quota.walletSessionId',
+  );
+  const quotaId = requireParsed(
+    row.quota_quota_id,
+    parseMpcWalletSigningQuotaId,
+    'linked quota.quotaId',
+  );
+  const remainingUses = requireNonnegativeInteger(
+    row.quota_remaining_uses,
+    'linked quota.remainingUses',
+  );
+  const quotaLifecycleKind = requireLinkedQuotaLifecycleKind(row.quota_lifecycle_kind);
+  const quotaExpiresAtMs = requirePositiveInteger(
+    row.quota_expires_at_ms,
+    'linked quota.expiresAtMs',
+  );
+  if (
+    authorization.tenantId !== quotaTenantId ||
+    authorization.principalId !== quotaPrincipalId ||
+    authorization.walletSessionId !== quotaWalletSessionId ||
+    authorization.quotaId !== quotaId ||
+    authorization.expiresAtMs !== quotaExpiresAtMs
+  ) {
+    throw new Error('linked authorization and quota rows do not share one exact identity');
+  }
+  return {
+    authorization,
+    lifecycleKind,
+    issuedAtMs: authorization.issuedAtMs,
+    expiresAtMs: authorization.expiresAtMs,
+    revokedAtMs:
+      row.authorization_revoked_at_ms == null
+        ? null
+        : requirePositiveInteger(
+            row.authorization_revoked_at_ms,
+            'linked authorization.revokedAtMs',
+          ),
+    quotaTenantId,
+    quotaPrincipalId,
+    quotaWalletSessionId,
+    quotaId,
+    remainingUses,
+    quotaLifecycleKind,
+    quotaExpiresAtMs,
+  };
+}
+
+function requireLinkedAuthorizationLifecycleKind(value: unknown): 'active' | 'revoked' {
+  if (value === 'active' || value === 'revoked') return value;
+  throw new Error('linked authorization lifecycle kind is invalid');
+}
+
+function requireLinkedQuotaLifecycleKind(value: unknown): 'active' | 'exhausted' | 'revoked' {
+  if (value === 'active' || value === 'exhausted' || value === 'revoked') return value;
+  throw new Error('linked quota lifecycle kind is invalid');
+}
+
+function requireNonnegativeInteger(value: unknown, label: string): number {
+  const parsed = integerColumn(value, label);
+  if (parsed < 0) throw new Error(`${label} must be nonnegative`);
+  return parsed;
+}
+
+function requireExactLinkedDeviceWalletSessionQuota(input: {
+  readonly authorization: LinkedDeviceWalletSessionAuthorization;
+  readonly quota: ActiveWalletSessionQuota;
+}): void {
+  if (
+    input.authorization.tenantId !== input.quota.tenantId ||
+    input.authorization.principalId !== input.quota.principalId ||
+    input.authorization.walletSessionId !== input.quota.walletSessionId ||
+    input.authorization.quotaId !== input.quota.quotaId ||
+    input.authorization.expiresAtMs !== input.quota.expiresAtMs
+  ) {
+    throw new Error('linked-device authorization and quota must have one exact identity');
+  }
+}
+
+function linkedDeviceAuthorizationReadbackMatches(
+  rows: LinkedDeviceAuthorizationPersistenceRows,
+  input: {
+    readonly authorization: LinkedDeviceWalletSessionAuthorization;
+    readonly quota: ActiveWalletSessionQuota;
+  },
+): boolean {
+  return (
+    rows.authorization.tenantId === input.authorization.tenantId &&
+    rows.authorization.principalId === input.authorization.principalId &&
+    rows.authorization.authorizationGrantRef.authorizationId ===
+      input.authorization.authorizationGrantRef.authorizationId &&
+    rows.authorization.walletId === input.authorization.walletId &&
+    rows.authorization.enrollmentId === input.authorization.enrollmentId &&
+    rows.authorization.deviceId === input.authorization.deviceId &&
+    rows.authorization.walletSessionId === input.authorization.walletSessionId &&
+    rows.authorization.quotaId === input.authorization.quotaId &&
+    rows.authorization.keyManifestDigestB64u === input.authorization.keyManifestDigestB64u &&
+    JSON.stringify(rows.authorization.permission) ===
+      JSON.stringify(input.authorization.permission) &&
+    rows.authorization.revocationEpoch === input.authorization.revocationEpoch &&
+    rows.authorization.issuedAtMs === input.authorization.issuedAtMs &&
+    rows.authorization.expiresAtMs === input.authorization.expiresAtMs &&
+    rows.lifecycleKind === 'active' &&
+    rows.quotaTenantId === input.quota.tenantId &&
+    rows.quotaPrincipalId === input.quota.principalId &&
+    rows.quotaWalletSessionId === input.quota.walletSessionId &&
+    rows.quotaId === input.quota.quotaId &&
+    rows.remainingUses === input.quota.remainingUses &&
+    rows.quotaLifecycleKind === 'active' &&
+    rows.quotaExpiresAtMs === input.quota.expiresAtMs
+  );
+}
+
 function requireExactReusableWalletSessionQuota(input: {
   readonly session: WalletSessionAuthorization;
   readonly quota: ActiveWalletSessionQuota;
@@ -1672,14 +2584,8 @@ function reusableWalletSessionReplayReadbackMatches(
   ) {
     return false;
   }
-  const sessionCreatedAtMs = requirePositiveInteger(
-    session.created_at_ms,
-    'session.createdAtMs',
-  );
-  const sessionExpiresAtMs = requirePositiveInteger(
-    session.expires_at_ms,
-    'session.expiresAtMs',
-  );
+  const sessionCreatedAtMs = requirePositiveInteger(session.created_at_ms, 'session.createdAtMs');
+  const sessionExpiresAtMs = requirePositiveInteger(session.expires_at_ms, 'session.expiresAtMs');
   const quotaExpiresAtMs = requirePositiveInteger(quota.expires_at_ms, 'quota.expiresAtMs');
   return sessionExpiresAtMs > sessionCreatedAtMs && quotaExpiresAtMs === sessionExpiresAtMs;
 }

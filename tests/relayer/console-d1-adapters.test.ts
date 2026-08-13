@@ -32,7 +32,6 @@ import {
   D1EmailOtpAuthStateStore,
   D1EmailOtpChallengeStore,
   D1EmailOtpGrantStore,
-  D1EmailOtpRecoveryWrappedEnrollmentEscrowStore,
   D1EmailOtpRegistrationAttemptStore,
   D1EmailOtpUnlockChallengeStore,
   D1EmailOtpWalletEnrollmentStore,
@@ -54,7 +53,6 @@ import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,
   createTemporaryD1Database,
-  d1MigrationFileBasenames,
   listD1MigrationFiles,
   readTableColumnNames,
 } from '../helpers/sqliteD1';
@@ -160,7 +158,6 @@ import {
   buildD1EmailOtpChallengeRecord,
   buildD1EmailOtpGrantRecord,
   buildD1EmailOtpWalletEnrollmentRecord,
-  buildD1EmailOtpEscrowRecord,
   buildD1EmailOtpRegistrationAttemptRecord,
   D1_MIGRATION_TARGETS,
   type SqliteJsonRow,
@@ -651,7 +648,7 @@ test.describe('D1 migration smoke', () => {
             orgId: 'org-d1-email-otp-schema',
             challengeId: 'email-otp-challenge-raw-schema',
             otpChannel: 'email_otp',
-            action: 'wallet_email_otp_unseal',
+            action: 'wallet_email_otp_factor_release',
             issuedAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
             expiresAtMs: Date.parse('2026-06-27T00:10:00.000Z'),
           }),
@@ -916,54 +913,6 @@ test.describe('D1 migration smoke', () => {
         .prepare('SELECT COUNT(*) AS record_count FROM webhook_endpoints')
         .first<{ record_count?: unknown }>();
       expect(Number(row?.record_count || 0)).toBe(1);
-    } finally {
-      cleanupTemporaryD1Database(temp.tempDir);
-    }
-  });
-
-  test('d1-console webhook constraint migration preserves existing endpoint categories', async () => {
-    const temp = createTemporaryD1Database();
-    try {
-      const migrationFiles = listD1MigrationFiles('d1-console');
-      const migrationNames = d1MigrationFileBasenames(migrationFiles);
-      const constraintMigrationIndex = migrationNames.indexOf(
-        '0018_console_constraint_hardening.sql',
-      );
-      expect(constraintMigrationIndex).toBeGreaterThan(0);
-
-      await applyD1MigrationFiles(temp.database, migrationFiles.slice(0, constraintMigrationIndex));
-      await insertRawD1WebhookEndpointRecord(
-        temp.database,
-        buildRawD1WebhookEndpointInsertInput({}),
-      );
-      await insertRawD1WebhookEndpointCategoryRecord(
-        temp.database,
-        buildRawD1WebhookEndpointCategoryInsertInput({}),
-      );
-
-      await applyD1MigrationFiles(
-        temp.database,
-        migrationFiles.slice(constraintMigrationIndex, constraintMigrationIndex + 1),
-      );
-
-      const row = await temp.database
-        .prepare(
-          `SELECT COUNT(*) AS category_count
-             FROM webhook_endpoint_categories
-            WHERE namespace = ?
-              AND org_id = ?
-              AND endpoint_id = ?
-              AND category = ?`,
-        )
-        .bind('d1-contracts', 'org-d1-webhook-schema', 'wh_raw_webhook_schema', 'wallet')
-        .first<{ category_count?: unknown }>();
-      expect(Number(row?.category_count || 0)).toBe(1);
-      await expectRawD1WebhookEndpointCategoryInsertRejected(
-        temp.database,
-        buildRawD1WebhookEndpointCategoryInsertInput({
-          category: 'unsupported',
-        }),
-      );
     } finally {
       cleanupTemporaryD1Database(temp.tempDir);
     }
@@ -4587,8 +4536,6 @@ test.describe('D1 adapter contracts', () => {
       const otherEnvGrantStore = new D1EmailOtpGrantStore(otherEnvScope);
       const enrollmentStore = new D1EmailOtpWalletEnrollmentStore(scope);
       const otherEnvEnrollmentStore = new D1EmailOtpWalletEnrollmentStore(otherEnvScope);
-      const escrowStore = new D1EmailOtpRecoveryWrappedEnrollmentEscrowStore(scope);
-      const otherEnvEscrowStore = new D1EmailOtpRecoveryWrappedEnrollmentEscrowStore(otherEnvScope);
       const authStateStore = new D1EmailOtpAuthStateStore(scope);
       const otherEnvAuthStateStore = new D1EmailOtpAuthStateStore(otherEnvScope);
       const unlockChallengeStore = new D1EmailOtpUnlockChallengeStore(scope);
@@ -4674,39 +4621,6 @@ test.describe('D1 adapter contracts', () => {
         }),
       ).resolves.toMatchObject({ walletId: 'wallet-d1-email-otp' });
       await expect(otherEnvEnrollmentStore.get('wallet-d1-email-otp')).resolves.toBeNull();
-
-      const activeEscrow = buildD1EmailOtpEscrowRecord({
-        recoveryKeyId: 'recovery-key-active',
-        recoveryKeyStatus: 'active',
-        updatedAtMs: Date.parse('2026-06-27T10:02:00.000Z'),
-      });
-      const consumedEscrow = buildD1EmailOtpEscrowRecord({
-        recoveryKeyId: 'recovery-key-consumed',
-        recoveryKeyStatus: 'consumed',
-        updatedAtMs: Date.parse('2026-06-27T10:03:00.000Z'),
-      });
-      await escrowStore.putMany([activeEscrow, consumedEscrow]);
-      await expect(
-        escrowStore.get({
-          walletId: 'wallet-d1-email-otp',
-          recoveryKeyId: 'recovery-key-active',
-        }),
-      ).resolves.toMatchObject({ recoveryKeyStatus: 'active' });
-      await expect(escrowStore.listActiveByWallet('wallet-d1-email-otp')).resolves.toHaveLength(1);
-      await expect(escrowStore.listByWallet('wallet-d1-email-otp')).resolves.toHaveLength(2);
-      await expect(otherEnvEscrowStore.listByWallet('wallet-d1-email-otp')).resolves.toHaveLength(
-        0,
-      );
-      await escrowStore.del({
-        walletId: 'wallet-d1-email-otp',
-        recoveryKeyId: 'recovery-key-active',
-      });
-      await expect(
-        escrowStore.get({
-          walletId: 'wallet-d1-email-otp',
-          recoveryKeyId: 'recovery-key-active',
-        }),
-      ).resolves.toBeNull();
 
       await authStateStore.put({
         version: 'email_otp_auth_state_v1',

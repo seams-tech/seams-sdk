@@ -3,6 +3,7 @@ import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import type { RegistrationCredentialConfirmationPayload } from '../../workerManager/validation';
 import type { WebAuthnAllowCredential } from '../../webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import type { RegistrationSessionDeps } from '../../interfaces/operationDeps';
+import type { WalletAddAuthMethodRegistrationOptions } from '@/core/rpcClients/relayer/walletRegistration';
 
 export async function requestRegistrationSessionCredentialConfirmation(
   deps: RegistrationSessionDeps,
@@ -13,6 +14,7 @@ export async function requestRegistrationSessionCredentialConfirmation(
     confirmerText?: { title?: string; body?: string };
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
     challengeB64u?: string;
+    registrationOptions?: WalletAddAuthMethodRegistrationOptions;
   },
 ): Promise<RegistrationCredentialConfirmationPayload> {
   return await deps.touchConfirm.requestRegistrationCredentialConfirmation({
@@ -22,6 +24,7 @@ export async function requestRegistrationSessionCredentialConfirmation(
     confirmerText: params.confirmerText,
     confirmationConfigOverride: params.confirmationConfigOverride,
     challengeB64u: params.challengeB64u,
+    registrationOptions: params.registrationOptions,
   });
 }
 

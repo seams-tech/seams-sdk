@@ -5,6 +5,7 @@ import {
 } from '../../packages/shared-ts/src/utils/registrationIntent';
 import {
   parseRouterAbEd25519YaoRegistrationActivationResultV1,
+  parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1,
   parseRouterAbEd25519YaoRegistrationAdmissionRequestV1,
 } from '../../packages/shared-ts/src/utils/routerAbEd25519Yao';
 import type { WalletEd25519YaoActiveCapabilityRecord } from '../../packages/sdk-server-ts/src/core/WalletStore';
@@ -53,11 +54,22 @@ export function buildEd25519YaoCapabilityFixture(input: {
   readonly lifecycleId?: string;
   /** Overrides the derived signer-set id, for the same reason. */
   readonly signerSetId?: string;
+  /**
+   * Overrides the synthetic material activation ref. Also for the same reason,
+   * and load-bearing past admission: finalize compares the activation the
+   * runtime returns against the ceremony's stored branch, so a fixture serving
+   * a real ceremony must carry that ceremony's own ref rather than ids it
+   * invented from the lifecycle id.
+   */
+  readonly materialActivation?: Record<string, unknown>;
 }): Ed25519YaoCapabilityFixture {
+  /* Derived, never overridable: the capability builder checks this against the
+     runtime policy scope, so a separate override could only ever desync them. */
   const signingRootId = `${input.runtimePolicyScope.projectId}:${input.runtimePolicyScope.envId}`;
   const lifecycleId = input.lifecycleId ?? `registration-fixture-${input.seed}`;
-  const signerSetId = input.signerSetId ?? String(registrationNearEd25519BranchKey(input.signerSlot));
-  const materialActivation = {
+  const signerSetId =
+    input.signerSetId ?? String(registrationNearEd25519BranchKey(input.signerSlot));
+  const materialActivation = input.materialActivation ?? {
     kind: 'mpc_material_activation_ref' as const,
     activation_id: `${lifecycleId}-activation`,
     capability: `${lifecycleId}-capability`,
@@ -103,18 +115,19 @@ export function buildEd25519YaoCapabilityFixture(input: {
     material_activation: materialActivation,
   };
   const registeredPublicKey = fixtureBytes(input.seed + 2);
+  const admissionReceipt = parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1({
+    binding,
+    keyset: {
+      deriver_a_input_public_key: fixtureBytes(input.seed + 8),
+      deriver_b_input_public_key: fixtureBytes(input.seed + 9),
+      signing_worker_recipient_public_key: fixtureBytes(input.seed + 10),
+    },
+  });
+  if (!admissionReceipt.ok) throw new Error(admissionReceipt.message);
   const activationResult = parseRouterAbEd25519YaoRegistrationActivationResultV1({
     binding,
-    deriver_a_client_package: activationClientPackageFixture(
-      session,
-      'deriver_a',
-      input.seed + 3,
-    ),
-    deriver_b_client_package: activationClientPackageFixture(
-      session,
-      'deriver_b',
-      input.seed + 3,
-    ),
+    deriver_a_client_package: activationClientPackageFixture(session, 'deriver_a', input.seed + 3),
+    deriver_b_client_package: activationClientPackageFixture(session, 'deriver_b', input.seed + 3),
     public_receipt: {
       transcript: fixtureBytes(input.seed + 3),
       registered_public_key: registeredPublicKey,
@@ -131,6 +144,7 @@ export function buildEd25519YaoCapabilityFixture(input: {
     activeCapabilityBinding: session,
     nearAccountId: input.nearAccountId,
     registrationAdmissionRequest: admissionRequest.value,
+    registrationAdmissionReceipt: admissionReceipt.value,
     registrationResult: activationResult.value,
     runtimePolicyScope: input.runtimePolicyScope,
   });

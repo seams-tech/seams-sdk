@@ -4,8 +4,10 @@ import {
 } from '@/core/runtime/createSigningRuntime';
 import type { SigningRuntime, SigningRuntimeConfig } from '@/core/runtime/runtime.types';
 import { createBrowserPlatformRuntime } from '@/core/platform';
+import type { BrowserRuntimePorts } from '@/core/platform';
 import { IndexedDBManager } from '@/core/indexedDB';
 import type { SignerWorkerManagerContext } from '@/core/signingEngine/workerManager/SignerWorkerManager';
+import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import { toSigningRuntimeConfig } from './runtimeConfig';
 import type { RegistrationAccountLifecycleDeps } from '@/core/signingEngine/interfaces/operationDeps';
@@ -24,15 +26,19 @@ export type CreateBrowserSigningRuntimeArgs = {
   getEvmFamilySigningDeps: () => TempoSigningDeps;
 };
 
-export function createBrowserSigningRuntime(
-  args: CreateBrowserSigningRuntimeArgs,
-): SigningRuntime {
+export function createBrowserHostPlatformRuntime(
+  workerCtx: WorkerOperationContext,
+): BrowserRuntimePorts {
+  return createBrowserPlatformRuntime({
+    indexedDB: IndexedDBManager,
+    workerCtx,
+  });
+}
+
+export function createBrowserSigningRuntime(args: CreateBrowserSigningRuntimeArgs): SigningRuntime {
   const state = createSigningRuntimeStatePorts();
   const config: SigningRuntimeConfig = toSigningRuntimeConfig(args.config);
-  const runtimePorts = createBrowserPlatformRuntime({
-    indexedDB: IndexedDBManager,
-    workerCtx: args.workerCtx,
-  });
+  const runtimePorts = createBrowserHostPlatformRuntime(args.workerCtx);
 
   return createSigningRuntime({
     runtimePorts,

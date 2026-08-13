@@ -29,6 +29,9 @@ export type Ed25519YaoActiveClientLookupScopeV1 = {
 export type Ed25519YaoActiveClientRegistryPort = {
   activate(material: NearEd25519YaoOperationMaterial): Promise<Ed25519YaoActiveClientIdentityV1>;
   resolve(identity: Ed25519YaoActiveClientIdentityV1): NearEd25519YaoOperationMaterial | null;
+  resolveExact(
+    identity: Ed25519YaoActiveClientIdentityV1,
+  ): NearEd25519YaoOperationMaterial | null;
   resolveForWalletAccount(
     scope: Ed25519YaoActiveClientLookupScopeV1,
   ): NearEd25519YaoOperationMaterial | null;
@@ -155,7 +158,6 @@ export class Ed25519YaoActiveClientRegistry implements Ed25519YaoActiveClientReg
     const identity = materialIdentity(material);
     const key = identityKey(identity);
     const lifecycleGeneration = this.lifecycleGeneration;
-    const replacedEntries: Array<[string, ActiveClientEntryV1]> = [];
     for (const entry of this.entries.values()) {
       if (
         entry.material.activeClient === material.activeClient &&
@@ -164,17 +166,8 @@ export class Ed25519YaoActiveClientRegistry implements Ed25519YaoActiveClientReg
         throw new Error('Ed25519 Yao active Client state is already bound to another identity');
       }
     }
-    for (const [candidateKey, entry] of this.entries) {
-      if (
-        candidateKey !== key &&
-        String(entry.identity.walletId) === String(identity.walletId) &&
-        String(entry.identity.nearAccountId) === String(identity.nearAccountId)
-      ) {
-        replacedEntries.push([candidateKey, entry]);
-      }
-    }
     const current = this.entries.get(key);
-    if (!current && this.entries.size - replacedEntries.length >= MAX_ACTIVE_ED25519_YAO_CLIENTS) {
+    if (!current && this.entries.size >= MAX_ACTIVE_ED25519_YAO_CLIENTS) {
       throw new Error('Ed25519 Yao active Client registry capacity is exhausted');
     }
     await this.publicReferences.upsert({
@@ -193,10 +186,6 @@ export class Ed25519YaoActiveClientRegistry implements Ed25519YaoActiveClientReg
       await this.publicReferences.removeLane(identity);
       throw new Error('Ed25519 Yao active Client activation was interrupted');
     }
-    for (const [candidateKey, entry] of replacedEntries) {
-      this.entries.delete(candidateKey);
-      entry.material.activeClient.dispose();
-    }
     if (current && current.material.activeClient !== material.activeClient) {
       current.material.activeClient.dispose();
     }
@@ -213,6 +202,12 @@ export class Ed25519YaoActiveClientRegistry implements Ed25519YaoActiveClientReg
       return null;
     }
     return entry.material;
+  }
+
+  resolveExact(
+    identity: Ed25519YaoActiveClientIdentityV1,
+  ): NearEd25519YaoOperationMaterial | null {
+    return this.resolve(identity);
   }
 
   resolveForWalletAccount(

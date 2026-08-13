@@ -73,8 +73,9 @@ import type {
   RouterAbEd25519YaoOperationStepUpGrantCommandV1,
   RouterAbEd25519YaoSessionRouteCommandV1,
 } from '../../../domains/ed25519Yao/session/routerAbEd25519YaoWalletSession';
-import { proxyNormalSigningRequestToMpcRouter } from './normalSigningRouterProxy';
-import { parseEmailOtpChallengeId } from '@shared/utils/domainIds';
+import { proxyOwnerLaneAdmittedNormalSigningRequest } from './normalSigningRouterProxy';
+import { handleLinkedDeviceEd25519NormalSigning } from './linkedDeviceNormalSigning';
+import { parseEmailOtpChallengeId, parseWalletId } from '@shared/utils/domainIds';
 import {
   EMAIL_OTP_CHANNEL,
   WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
@@ -84,25 +85,20 @@ import {
   emailOtpStatusCode,
   hashEmailOtpAppSessionClaims,
 } from '../../../domains/emailOtp/emailOtpSessionRouteHelpers';
+import { sealEmailOtpFactorSecretForWorker } from '../../../domains/emailOtp/emailOtpRouteHandlers';
 import type {
   RouterAbEd25519YaoOperationStepUpMaterialRecoveryRequest,
   RouterAbEd25519YaoOperationStepUpMaterialRecoveryResponse,
 } from '../../../domains/ed25519Yao/session/routerAbEd25519YaoWalletSession';
-
-type Ed25519ReusableAuthorizedOperationReceipt = {
-  readonly kind: 'reusable_wallet_session_authorized_operation_v1';
-  readonly authorized_operation_id: string;
-  readonly operation_id: string;
-  readonly capability_kind: 'near_ed25519_mpc_signing';
-  readonly operation_kind:
-    | 'near.sign_transaction'
-    | 'near.sign_delegate_action'
-    | 'near.sign_nep413_message';
-  readonly lane_digest_b64u: string;
-  readonly intent_digest_b64u: string;
-  readonly display_digest_b64u: string;
-  readonly operation_fingerprint_digest: string;
-};
+import type { RouterApiEmailOtpRouteService } from '../../../framework/authServicePort';
+import {
+  parseEd25519ReusableAuthorizedOperationReceipt,
+  requireAuthorizedOperationReceiptString,
+  requireEd25519OperationKind,
+  requireExactAuthorizedOperationReceiptFields,
+  type Ed25519OperationKind,
+  type Ed25519ReusableAuthorizedOperationReceipt,
+} from '../../../domains/signingOperations/ed25519AuthorizedOperationReceipt';
 
 type Ed25519VerifiedStepUpAuthorizedOperationReceipt = {
   readonly kind: 'verified_step_up_authorized_operation_v1';
@@ -120,8 +116,6 @@ type Ed25519VerifiedStepUpAuthorizedOperationReceipt = {
   readonly display_digest_b64u: string;
   readonly operation_fingerprint_digest: string;
 };
-
-type Ed25519OperationKind = Ed25519ReusableAuthorizedOperationReceipt['operation_kind'];
 
 type Ed25519AuthorizedOperationAdmission =
   | {
@@ -256,47 +250,66 @@ function buildRouterAbEd25519AuthorizedOperationWire(
   }
 }
 
-function requireReceiptString(record: Record<string, unknown>, name: string): string {
-  const field = typeof record[name] === 'string' ? record[name].trim() : '';
-  if (!field) throw new Error(`authorized_operation.${name} is required`);
-  return field;
-}
+type EmailOtpFactorReleaseEnrollment = {
+  readonly enrollmentId: string;
+  readonly enrollmentSealKeyVersion: string;
+  readonly serverSealedFactorCiphertextB64u: string;
+};
 
-function requireEd25519OperationKind(value: unknown): Ed25519OperationKind {
-  if (
-    value !== 'near.sign_transaction' &&
-    value !== 'near.sign_delegate_action' &&
-    value !== 'near.sign_nep413_message'
-  ) {
-    throw new Error('authorized_operation.operation_kind is invalid');
-  }
-  return value;
-}
+type EmailOtpFactorReleaseRequest = {
+  readonly enrollment: EmailOtpFactorReleaseEnrollment;
+  readonly workerEphemeralPublicKey65B64u: string;
+};
 
-function requireExactAuthorizedOperationFields(
-  record: Record<string, unknown>,
-  branchFields: readonly string[] = [],
-): void {
-  const expected = [
-    'capability_kind',
-    'display_digest_b64u',
-    'intent_digest_b64u',
-    'kind',
-    'lane_digest_b64u',
-    'operation_fingerprint_digest',
-    'operation_id',
-    'operation_kind',
-    'authorized_operation_id',
-    ...branchFields,
-  ];
-  expected.sort();
-  const actual = Object.keys(record).sort();
+type EmailOtpFactorReleaseResponse = Extract<
+  RouterAbEd25519YaoOperationStepUpMaterialRecoveryResponse,
+  { readonly kind: 'email_otp_factor_release_v1' }
+>;
+
+async function releaseEmailOtpFactorForWorker(input: {
+  readonly emailOtp: Pick<RouterApiEmailOtpRouteService, 'removeEmailOtpServerSeal'>;
+  readonly request: EmailOtpFactorReleaseRequest;
+  readonly walletId: string;
+  readonly challengeId: string;
+}): Promise<
+  | { readonly ok: true; readonly recovery: EmailOtpFactorReleaseResponse }
+  | { readonly ok: false; readonly code: string; readonly message: string }
+> {
+  const unsealed = await input.emailOtp.removeEmailOtpServerSeal({
+    wrappedCiphertext: input.request.enrollment.serverSealedFactorCiphertextB64u,
+  });
+  if (!unsealed.ok) return unsealed;
   if (
-    actual.length !== expected.length ||
-    actual.some((field, index) => field !== expected[index])
+    unsealed.enrollmentSealKeyVersion !==
+    input.request.enrollment.enrollmentSealKeyVersion
   ) {
-    throw new Error('authorized_operation has invalid fields');
+    return {
+      ok: false,
+      code: 'scope_mismatch',
+      message: 'Email OTP factor release seal key version changed',
+    };
   }
+  const sealed = await sealEmailOtpFactorSecretForWorker({
+    factorSecret32B64u: unsealed.ciphertext,
+    workerEphemeralPublicKey65B64u: input.request.workerEphemeralPublicKey65B64u,
+    walletId: input.walletId,
+    enrollmentId: input.request.enrollment.enrollmentId,
+    enrollmentSealKeyVersion: input.request.enrollment.enrollmentSealKeyVersion,
+    challengeId: input.challengeId,
+  });
+  if (!sealed.ok) return sealed;
+  return {
+    ok: true,
+    recovery: {
+      kind: 'email_otp_factor_release_v1',
+      challengeId: input.challengeId,
+      enrollmentId: input.request.enrollment.enrollmentId,
+      enrollmentSealKeyVersion: input.request.enrollment.enrollmentSealKeyVersion,
+      serverEphemeralPublicKey65B64u: sealed.serverEphemeralPublicKey65B64u,
+      nonce12B64u: sealed.nonce12B64u,
+      ciphertextB64u: sealed.ciphertextB64u,
+    },
+  };
 }
 
 type PasskeyEd25519AuthorizationResult =
@@ -520,40 +533,6 @@ function digestWireB64u(value: unknown, label: string): string {
   return base64UrlEncode(Uint8Array.from(bytes));
 }
 
-function parseEd25519ReusableAuthorizedOperationReceipt(
-  value: unknown,
-): Ed25519ReusableAuthorizedOperationReceipt {
-  const record = isPlainObject(value) ? value : null;
-  if (!record || record.kind !== 'reusable_wallet_session_authorized_operation_v1') {
-    throw new Error('Ed25519 reusable Wallet Session authorized operation is required');
-  }
-  requireExactAuthorizedOperationFields(record);
-  const capabilityKind = requireReceiptString(record, 'capability_kind');
-  if (capabilityKind !== 'near_ed25519_mpc_signing') {
-    throw new Error('authorized_operation.capability_kind is invalid');
-  }
-  const operationKind = requireEd25519OperationKind(requireReceiptString(record, 'operation_kind'));
-  const laneDigest = requireReceiptString(record, 'lane_digest_b64u');
-  const intentDigest = requireReceiptString(record, 'intent_digest_b64u');
-  const displayDigest = requireReceiptString(record, 'display_digest_b64u');
-  parseDigestB64u(laneDigest);
-  parseDigestB64u(intentDigest);
-  parseDigestB64u(displayDigest);
-  const fingerprint = requireReceiptString(record, 'operation_fingerprint_digest');
-  parseCapabilityOperationFingerprintDigest(fingerprint);
-  return {
-    kind: 'reusable_wallet_session_authorized_operation_v1',
-    authorized_operation_id: requireReceiptString(record, 'authorized_operation_id'),
-    operation_id: requireReceiptString(record, 'operation_id'),
-    capability_kind: 'near_ed25519_mpc_signing',
-    operation_kind: operationKind,
-    lane_digest_b64u: laneDigest,
-    intent_digest_b64u: intentDigest,
-    display_digest_b64u: displayDigest,
-    operation_fingerprint_digest: fingerprint,
-  };
-}
-
 function parseEd25519VerifiedStepUpAuthorizedOperationReceipt(
   value: unknown,
 ): Ed25519VerifiedStepUpAuthorizedOperationReceipt {
@@ -561,31 +540,42 @@ function parseEd25519VerifiedStepUpAuthorizedOperationReceipt(
   if (!record || record.kind !== 'verified_step_up_authorized_operation_v1') {
     throw new Error('Ed25519 verified step-up authorized operation is required');
   }
-  requireExactAuthorizedOperationFields(record, [
+  requireExactAuthorizedOperationReceiptFields(record, [
     'authorization_session_id',
     'evidence_set_digest',
   ]);
-  const capabilityKind = requireReceiptString(record, 'capability_kind');
+  const capabilityKind = requireAuthorizedOperationReceiptString(record, 'capability_kind');
   if (capabilityKind !== 'near_ed25519_mpc_signing') {
     throw new Error('authorized_operation.capability_kind is invalid');
   }
-  const operationKind = requireEd25519OperationKind(requireReceiptString(record, 'operation_kind'));
-  const evidenceSetDigest = requireReceiptString(record, 'evidence_set_digest');
+  const operationKind = requireEd25519OperationKind(
+    requireAuthorizedOperationReceiptString(record, 'operation_kind'),
+  );
+  const evidenceSetDigest = requireAuthorizedOperationReceiptString(record, 'evidence_set_digest');
   parseDigestB64u(evidenceSetDigest);
-  const laneDigest = requireReceiptString(record, 'lane_digest_b64u');
-  const intentDigest = requireReceiptString(record, 'intent_digest_b64u');
-  const displayDigest = requireReceiptString(record, 'display_digest_b64u');
+  const laneDigest = requireAuthorizedOperationReceiptString(record, 'lane_digest_b64u');
+  const intentDigest = requireAuthorizedOperationReceiptString(record, 'intent_digest_b64u');
+  const displayDigest = requireAuthorizedOperationReceiptString(record, 'display_digest_b64u');
   parseDigestB64u(laneDigest);
   parseDigestB64u(intentDigest);
   parseDigestB64u(displayDigest);
-  const fingerprint = requireReceiptString(record, 'operation_fingerprint_digest');
+  const fingerprint = requireAuthorizedOperationReceiptString(
+    record,
+    'operation_fingerprint_digest',
+  );
   parseCapabilityOperationFingerprintDigest(fingerprint);
   return {
     kind: 'verified_step_up_authorized_operation_v1',
-    authorization_session_id: requireReceiptString(record, 'authorization_session_id'),
+    authorization_session_id: requireAuthorizedOperationReceiptString(
+      record,
+      'authorization_session_id',
+    ),
     evidence_set_digest: evidenceSetDigest,
-    authorized_operation_id: requireReceiptString(record, 'authorized_operation_id'),
-    operation_id: requireReceiptString(record, 'operation_id'),
+    authorized_operation_id: requireAuthorizedOperationReceiptString(
+      record,
+      'authorized_operation_id',
+    ),
+    operation_id: requireAuthorizedOperationReceiptString(record, 'operation_id'),
     capability_kind: 'near_ed25519_mpc_signing',
     operation_kind: operationKind,
     lane_digest_b64u: laneDigest,
@@ -970,9 +960,7 @@ async function validateEd25519ReusableAuthorizedOperation(input: {
       ctx: input.ctx,
       operation: operationResult,
     });
-    return revalidated.ok
-      ? { ok: true, receipt, operation: revalidated.operation }
-      : revalidated;
+    return revalidated.ok ? { ok: true, receipt, operation: revalidated.operation } : revalidated;
   } catch (error: unknown) {
     return {
       ok: false,
@@ -1115,9 +1103,7 @@ async function validateEd25519VerifiedStepUpAuthorizedOperation(input: {
       ctx: input.ctx,
       operation: operationResult,
     });
-    return revalidated.ok
-      ? { ok: true, receipt, operation: revalidated.operation }
-      : revalidated;
+    return revalidated.ok ? { ok: true, receipt, operation: revalidated.operation } : revalidated;
   } catch (error: unknown) {
     return {
       ok: false,
@@ -1160,9 +1146,7 @@ export function replayCompletedEd25519Operation(operation: AuthorizedOperation):
  * operation must never fall back to the live upstream response after the
  * completion write, since that would make retries non-idempotent.
  */
-export function requireCompletedEd25519OperationResponse(
-  operation: AuthorizedOperation,
-): Response {
+export function requireCompletedEd25519OperationResponse(operation: AuthorizedOperation): Response {
   const replay = replayCompletedEd25519Operation(operation);
   if (!replay) throw new Error('Ed25519 operation completion readback is not completed');
   return replay;
@@ -1243,55 +1227,6 @@ export function isRouterAbEd25519OperationInProgressResponse(input: {
     input.bodyText.includes('ReplayedLocalRequest:') &&
     input.bodyText.includes('SigningWorker normal-signing effect is already in progress')
   );
-}
-
-type Ed25519OperationStepUpMaterialRecoveryResult =
-  | {
-      readonly ok: true;
-      readonly recovery: RouterAbEd25519YaoOperationStepUpMaterialRecoveryResponse;
-    }
-  | {
-      readonly ok: false;
-      readonly code: string;
-      readonly message: string;
-    };
-
-export async function recoverEd25519OperationStepUpMaterial(input: {
-  readonly request: RouterAbEd25519YaoOperationStepUpMaterialRecoveryRequest;
-  readonly removeEmailOtpServerSeal: (input: { readonly wrappedCiphertext: string }) => Promise<
-    | {
-        readonly ok: true;
-        readonly ciphertext: string;
-        readonly enrollmentSealKeyVersion: string;
-      }
-    | { readonly ok: false; readonly code: string; readonly message: string }
-  >;
-}): Promise<Ed25519OperationStepUpMaterialRecoveryResult> {
-  switch (input.request.kind) {
-    case 'not_requested':
-      return { ok: true, recovery: { kind: 'not_requested' } };
-    case 'email_otp_local_material_v1': {
-      const unsealed = await input.removeEmailOtpServerSeal({
-        wrappedCiphertext: input.request.wrappedCiphertext,
-      });
-      if (!unsealed.ok) return unsealed;
-      if (unsealed.enrollmentSealKeyVersion !== input.request.enrollmentSealKeyVersion) {
-        return {
-          ok: false,
-          code: 'scope_mismatch',
-          message: 'Email OTP operation step-up enrollment seal key version changed',
-        };
-      }
-      return {
-        ok: true,
-        recovery: {
-          kind: 'email_otp_local_material_v1',
-          ciphertext: unsealed.ciphertext,
-          enrollmentSealKeyVersion: unsealed.enrollmentSealKeyVersion,
-        },
-      };
-    }
-  }
 }
 
 async function issueEd25519OperationStepUpGrant(input: {
@@ -1432,7 +1367,11 @@ async function issueEd25519OperationStepUpGrant(input: {
     parseAuthorizationEvidenceSetId(`evidence-set:${requestId}`),
   );
   let factor: VerifiedAuthorizationFactorResult;
-  let materialRecovery: RouterAbEd25519YaoOperationStepUpMaterialRecoveryResponse;
+  let materialRecovery: RouterAbEd25519YaoOperationStepUpMaterialRecoveryResponse = {
+    kind: 'not_requested',
+  };
+  let pendingFactorRelease: EmailOtpFactorReleaseRequest | null = null;
+  let factorReleaseChallengeId: string | null = null;
   switch (proof.kind) {
     case 'passkey': {
       if (
@@ -1518,6 +1457,26 @@ async function issueEd25519OperationStepUpGrant(input: {
       if (!verified.ok) {
         return json(verified, { status: verified.code === 'invalid_body' ? 400 : 401 });
       }
+      if (input.request.materialRecovery.kind === 'email_otp_factor_release_v1') {
+        const enrollment = await input.ctx.service.emailOtp.readActiveEmailOtpEnrollment({
+          walletId: authenticated.session.walletId,
+          orgId: authenticated.session.tenantId,
+          providerUserId: proof.providerSubjectId,
+        });
+        if (!enrollment.ok) {
+          return json(enrollment, { status: emailOtpStatusCode(enrollment.code) });
+        }
+        pendingFactorRelease = {
+          enrollment: {
+            enrollmentId: enrollment.enrollment.enrollmentId,
+            enrollmentSealKeyVersion: enrollment.enrollment.enrollmentSealKeyVersion,
+            serverSealedFactorCiphertextB64u:
+              enrollment.enrollment.serverSealedFactorCiphertextB64u,
+          },
+          workerEphemeralPublicKey65B64u:
+            input.request.materialRecovery.workerEphemeralPublicKey65B64u,
+        };
+      }
       const consumed = await input.ctx.service.emailOtp.consumeEmailOtpGrant({
         subject: {
           kind: 'authorization_session',
@@ -1531,23 +1490,7 @@ async function issueEd25519OperationStepUpGrant(input: {
       if (!consumed.ok) {
         return json(consumed, { status: consumed.code === 'invalid_body' ? 400 : 401 });
       }
-      const recoveredMaterial = await recoverEd25519OperationStepUpMaterial({
-        request: input.request.materialRecovery,
-        removeEmailOtpServerSeal: input.ctx.service.emailOtp.removeEmailOtpServerSeal.bind(
-          input.ctx.service.emailOtp,
-        ),
-      });
-      if (!recoveredMaterial.ok) {
-        return json(
-          {
-            ok: false,
-            code: recoveredMaterial.code,
-            message: recoveredMaterial.message,
-          },
-          { status: emailOtpStatusCode(recoveredMaterial.code) },
-        );
-      }
-      materialRecovery = recoveredMaterial.recovery;
+      factorReleaseChallengeId = consumed.challengeId;
       factor = buildVerifiedEmailOtpFactorResult({
         tenantId: authenticated.session.tenantId,
         principalId: authenticated.session.principalId,
@@ -1630,6 +1573,45 @@ async function issueEd25519OperationStepUpGrant(input: {
         { status: 409 },
       );
   }
+  if (pendingFactorRelease) {
+    if (!factorReleaseChallengeId) {
+      throw new Error('Email OTP factor release challenge is missing after grant consumption');
+    }
+    const currentEnrollment = await input.ctx.service.emailOtp.readActiveEmailOtpEnrollment({
+      walletId: authenticated.session.walletId,
+      orgId: authenticated.session.tenantId,
+      providerUserId: proof.kind === 'email_otp' ? proof.providerSubjectId : undefined,
+    });
+    if (!currentEnrollment.ok) {
+      return json(currentEnrollment, { status: emailOtpStatusCode(currentEnrollment.code) });
+    }
+    if (
+      currentEnrollment.enrollment.enrollmentId !== pendingFactorRelease.enrollment.enrollmentId ||
+      currentEnrollment.enrollment.enrollmentSealKeyVersion !==
+        pendingFactorRelease.enrollment.enrollmentSealKeyVersion ||
+      currentEnrollment.enrollment.serverSealedFactorCiphertextB64u !==
+        pendingFactorRelease.enrollment.serverSealedFactorCiphertextB64u
+    ) {
+      return json(
+        {
+          ok: false,
+          code: 'scope_mismatch',
+          message: 'Email OTP enrollment changed before factor release',
+        },
+        { status: 409 },
+      );
+    }
+    const released = await releaseEmailOtpFactorForWorker({
+      emailOtp: input.ctx.service.emailOtp,
+      request: pendingFactorRelease,
+      walletId: authenticated.session.walletId,
+      challengeId: factorReleaseChallengeId,
+    });
+    if (!released.ok) {
+      return json(released, { status: emailOtpStatusCode(released.code) });
+    }
+    materialRecovery = released.recovery;
+  }
   return json(
     {
       ok: true,
@@ -1643,6 +1625,48 @@ async function issueEd25519OperationStepUpGrant(input: {
     },
     { status: 200 },
   );
+}
+
+type AcceptedEd25519NormalSigningAuthorization = Extract<
+  Awaited<ReturnType<typeof authorizeRouterAbEd25519NormalSigningRoute>>,
+  { readonly ok: true }
+>;
+
+async function proxyEd25519OwnerLaneExecution(input: {
+  readonly ctx: FetchRouterApiContext;
+  readonly body: Record<string, unknown>;
+  readonly authorization: AcceptedEd25519NormalSigningAuthorization;
+  readonly authorizedOperation: AuthorizedOperation;
+}): Promise<Response> {
+  const scope = parseRouterAbEd25519OperationStepUpScope(input.body.scope);
+  const walletId = parseWalletId(scope.account_id);
+  if (!walletId.ok) {
+    return json(
+      { ok: false, code: 'invalid_body', message: 'Ed25519 signing wallet is invalid' },
+      { status: 400 },
+    );
+  }
+  const laneAuthorization =
+    input.authorization.kind === 'operation_step_up'
+      ? {
+          kind: 'authority_ref' as const,
+          authorityRef: input.authorization.session.walletAuthAuthorityRef,
+          authSource: input.authorization.session.authSource,
+        }
+      : {
+          kind: 'wallet_auth_method' as const,
+          walletAuthMethodId: input.authorization.validated.walletSessionAuth.authority.bindingId,
+        };
+  return await proxyOwnerLaneAdmittedNormalSigningRequest({
+    request: input.ctx.request,
+    proxy: input.ctx.opts.routerAbNormalSigningRouterProxy,
+    body: input.body,
+    authorizedOperation: input.authorizedOperation,
+    walletId: walletId.value,
+    expectedMaterialActivation: scope.material_activation,
+    authorization: laneAuthorization,
+    walletRegistration: input.ctx.service.walletRegistration,
+  });
 }
 
 async function handleRouterAbEd25519NormalSigningRoute(input: {
@@ -1677,9 +1701,10 @@ async function handleRouterAbEd25519NormalSigningRoute(input: {
         operation: authorization.operation,
       });
       if (execution.kind !== 'execute') return execution.response;
-      const upstream = await proxyNormalSigningRequestToMpcRouter({
-        request: input.ctx.request,
-        proxy: input.ctx.opts.routerAbNormalSigningRouterProxy,
+      const upstream = await proxyEd25519OwnerLaneExecution({
+        ctx: input.ctx,
+        authorization,
+        authorizedOperation: execution.operation,
         body: {
           ...input.body,
           authorized_operation: buildRouterAbEd25519AuthorizedOperationWire({
@@ -1747,9 +1772,10 @@ async function handleRouterAbEd25519NormalSigningRoute(input: {
     if (!validatedAuthorization.ok) return validatedAuthorization.response;
     const replay = replayCompletedEd25519Operation(validatedAuthorization.operation);
     if (replay) return replay;
-    const upstream = await proxyNormalSigningRequestToMpcRouter({
-      request: input.ctx.request,
-      proxy: input.ctx.opts.routerAbNormalSigningRouterProxy,
+    const upstream = await proxyEd25519OwnerLaneExecution({
+      ctx: input.ctx,
+      authorization,
+      authorizedOperation: validatedAuthorization.operation,
       body: {
         ...input.body,
         authorized_operation: buildRouterAbEd25519AuthorizedOperationWire({
@@ -1805,9 +1831,10 @@ async function handleRouterAbEd25519NormalSigningRoute(input: {
     if (authorized.admission.kind !== 'claimed') {
       throw new Error('Ed25519 prepare execution claim changed');
     }
-    const upstream = await proxyNormalSigningRequestToMpcRouter({
-      request: input.ctx.request,
-      proxy: input.ctx.opts.routerAbNormalSigningRouterProxy,
+    const upstream = await proxyEd25519OwnerLaneExecution({
+      ctx: input.ctx,
+      authorization,
+      authorizedOperation: execution.operation,
       body: {
         ...input.body,
         authorized_operation: buildRouterAbEd25519AuthorizedOperationWire({
@@ -1867,9 +1894,10 @@ async function handleRouterAbEd25519NormalSigningRoute(input: {
   if (!validatedAuthorization.ok) return validatedAuthorization.response;
   const replay = replayCompletedEd25519Operation(validatedAuthorization.operation);
   if (replay) return replay;
-  const upstream = await proxyNormalSigningRequestToMpcRouter({
-    request: input.ctx.request,
-    proxy: input.ctx.opts.routerAbNormalSigningRouterProxy,
+  const upstream = await proxyEd25519OwnerLaneExecution({
+    ctx: input.ctx,
+    authorization,
+    authorizedOperation: validatedAuthorization.operation,
     body: {
       ...input.body,
       authorized_operation: buildRouterAbEd25519AuthorizedOperationWire({
@@ -1907,9 +1935,7 @@ async function handleRouterAbEd25519NormalSigningRoute(input: {
   return requireCompletedEd25519OperationResponse(completed);
 }
 
-export async function handleThresholdEd25519(
-  ctx: FetchRouterApiContext,
-): Promise<Response | null> {
+export async function handleThresholdEd25519(ctx: FetchRouterApiContext): Promise<Response | null> {
   if (ctx.method === 'GET' && ctx.pathname === ROUTER_AB_ED25519_HEALTH_PATH) {
     if (!ctx.opts.routerAbNormalSigningRouterProxy) {
       const body = {
@@ -1942,6 +1968,14 @@ export async function handleThresholdEd25519(
 
   switch (pathname) {
     case ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH:
+      {
+        const linked = await handleLinkedDeviceEd25519NormalSigning({
+          ctx,
+          body,
+          phase: 'prepare',
+        });
+        if (linked) return linked;
+      }
       return handleRouterAbEd25519NormalSigningRoute({
         ctx,
         body,
@@ -1949,6 +1983,14 @@ export async function handleThresholdEd25519(
       });
 
     case ROUTER_AB_ED25519_NORMAL_SIGNING_PATH:
+      {
+        const linked = await handleLinkedDeviceEd25519NormalSigning({
+          ctx,
+          body,
+          phase: 'finalize',
+        });
+        if (linked) return linked;
+      }
       return handleRouterAbEd25519NormalSigningRoute({
         ctx,
         body,

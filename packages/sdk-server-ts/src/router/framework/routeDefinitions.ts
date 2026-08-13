@@ -14,7 +14,6 @@ import {
   ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PREPARE_PATH,
   ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_INIT_PATH,
   ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_STEP_PATH,
-  ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PATH,
   ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH,
   ROUTER_AB_ECDSA_DERIVATION_SESSION_ACTIVATION_PATH,
 } from '@shared/utils/routerAbEcdsaDerivation';
@@ -83,7 +82,9 @@ const ROUTER_API_AUTH_PROVIDER_SERVICES = [
   'webAuthn',
   'identity',
 ] as const satisfies readonly CoreRouteServiceKey[];
-const ROUTER_API_SYNC_ACCOUNT_SERVICES = ['webAuthn'] as const satisfies readonly CoreRouteServiceKey[];
+const ROUTER_API_SYNC_ACCOUNT_SERVICES = [
+  'webAuthn',
+] as const satisfies readonly CoreRouteServiceKey[];
 const ROUTER_API_ED25519_WALLET_SESSION_SERVICES = [
   'walletRegistration',
   'webAuthn',
@@ -127,6 +128,9 @@ const ROUTER_API_SESSION_EXCHANGE_SERVICES = [
 const ROUTER_API_SESSION_VERSION_SERVICES = [
   'sessionVersions',
   'session',
+] as const satisfies readonly CoreRouteServiceKey[];
+const ROUTER_API_PASSKEY_CUSTODY_SERVICES = [
+  'passkeyCustody',
 ] as const satisfies readonly CoreRouteServiceKey[];
 const ROUTER_API_WALLET_UNLOCK_SERVICES = [
   'walletUnlock',
@@ -503,6 +507,20 @@ export function createRouterApiRouteDefinitions(
         `${ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH}/`,
       ],
     ),
+    sessionPrincipalRoute(
+      'wallet_custody_credentials_list',
+      'GET',
+      '/wallets/:walletId/custody/credentials',
+      'List wallet passkey credentials and descriptive activity history',
+      ROUTER_API_PASSKEY_CUSTODY_SERVICES,
+    ),
+    sessionPrincipalRoute(
+      'wallet_custody_credential_label',
+      'POST',
+      '/wallets/:walletId/custody/credentials/label',
+      'Rename one wallet passkey credential without changing custody',
+      ROUTER_API_PASSKEY_CUSTODY_SERVICES,
+    ),
     apiCredentialRoute(
       'wallet_registration_setup',
       'POST',
@@ -546,6 +564,73 @@ export function createRouterApiRouteDefinitions(
       },
       ROUTER_API_WALLET_REGISTRATION_SESSION_SERVICES,
       { kind: 'event', action: 'wallet_created' },
+    ),
+    sessionPrincipalRoute(
+      'wallet_recovery_status',
+      'GET',
+      '/wallets/:walletId/recovery/status',
+      'Report how many recovery codes remain and whether the owner saved them',
+      ROUTER_API_PASSKEY_CUSTODY_SERVICES,
+    ),
+    sessionPrincipalRoute(
+      'wallet_recovery_codes_rotate',
+      'POST',
+      '/wallets/recovery/rotate',
+      'Replace a wallet recovery code set with freshly wrapped codes',
+      ROUTER_API_PASSKEY_CUSTODY_SERVICES,
+    ),
+    sessionPrincipalRoute(
+      'wallet_recovery_codes_read',
+      'POST',
+      '/wallets/recovery/read',
+      'Read the opaque wallet recovery envelope set for client-side rotation',
+      ROUTER_API_PASSKEY_CUSTODY_SERVICES,
+    ),
+    sessionPrincipalRoute(
+      'wallet_recovery_backup_acknowledge',
+      'POST',
+      '/wallets/recovery/acknowledge-backup',
+      'Record that the owner saved their recovery codes',
+      ROUTER_API_PASSKEY_CUSTODY_SERVICES,
+    ),
+    publicRoute(
+      'wallet_recovery_finalize',
+      'POST',
+      '/wallets/recovery/finalize',
+      'Finalize an admitted wallet recovery and install its replacement credential',
+      {
+        plane: 'public',
+        proof: 'recovery_proof',
+        rationale:
+          'Continues one Refactor 90 admitted recovery operation. The Gateway verifies the complete activation result and consumes the reserved code with the replacement envelope commit.',
+      },
+      ROUTER_API_PASSKEY_CUSTODY_SERVICES,
+    ),
+    publicRoute(
+      'wallet_recovery_prepare',
+      'POST',
+      '/wallets/recovery/prepare',
+      'Authorize wallet recovery, reserve one code, and return its wrapped custody payload',
+      {
+        plane: 'public',
+        proof: 'recovery_proof',
+        rationale:
+          'Fresh Email OTP evidence is admitted through Refactor 90. The recovery code remains a custody unwrap factor and is held until final activation commits.',
+      },
+      ROUTER_API_PASSKEY_CUSTODY_SERVICES,
+    ),
+    publicRoute(
+      'passkey_custody_envelope_retrieve',
+      'POST',
+      '/wallets/custody/envelope',
+      'Retrieve a wallet custody envelope for a device that has none locally',
+      {
+        plane: 'public',
+        proof: 'webauthn',
+        rationale:
+          'The WebAuthn assertion is the gate: the response is ciphertext the server cannot open, and the KEK derives from a PRF result that never leaves the browser.',
+      },
+      ROUTER_API_PASSKEY_CUSTODY_SERVICES,
     ),
     publicRoute(
       'wallet_registration_near_provisioning',
@@ -795,14 +880,6 @@ export function createRouterApiRouteDefinitions(
       ROUTER_API_ECDSA_STRICT_LIFECYCLE_SERVICES,
     ),
     capabilityGrantRoute(
-      'router_ab_ecdsa_derivation_recovery',
-      'POST',
-      ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PATH,
-      'Recover Router A/B ECDSA derivation material',
-      'ecdsa',
-      ROUTER_API_ECDSA_STRICT_LIFECYCLE_SERVICES,
-    ),
-    capabilityGrantRoute(
       'router_ab_ecdsa_derivation_refresh',
       'POST',
       ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH,
@@ -960,59 +1037,10 @@ export function createRouterApiRouteDefinitions(
       ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
     sessionPrincipalRoute(
-      'wallet_email_otp_recovery_challenge',
-      'POST',
-      '/wallet/email-otp/recovery-challenge',
-      'Create Email OTP recovery challenge for restoring device-local enrollment escrow',
-      ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
-    ),
-    sessionPrincipalRoute(
       'wallet_email_otp_login_verify',
       'POST',
       '/wallet/email-otp/login/verify',
       'Verify Email OTP login challenge for the current app session',
-      ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
-    ),
-    sessionPrincipalRoute(
-      'wallet_email_otp_login_verify_and_unseal',
-      'POST',
-      '/wallet/email-otp/login/verify-and-unseal',
-      'Verify Email OTP login challenge and remove the server seal in one request',
-      ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
-    ),
-    sessionPrincipalRoute(
-      'wallet_email_otp_recovery_wrapped_escrows',
-      'POST',
-      '/wallet/email-otp/recovery-wrapped-escrows',
-      'Verify recovery challenge and return recovery-wrapped Email OTP enrollment escrows',
-      ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
-    ),
-    sessionPrincipalRoute(
-      'wallet_email_otp_recovery_key_consume',
-      'POST',
-      '/wallet/email-otp/recovery-key/consume',
-      'Mark an Email OTP recovery key consumed after device-local enrollment escrow restore',
-      ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
-    ),
-    sessionPrincipalRoute(
-      'wallet_email_otp_recovery_key_status',
-      'POST',
-      '/wallet/email-otp/recovery-key/status',
-      'Read non-secret Email OTP recovery-code backup status metadata',
-      ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
-    ),
-    sessionPrincipalRoute(
-      'wallet_email_otp_recovery_key_rotate',
-      'POST',
-      '/wallet/email-otp/recovery-key/rotate',
-      'Replace active Email OTP recovery codes after fresh account authentication',
-      ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
-    ),
-    sessionPrincipalRoute(
-      'wallet_email_otp_recovery_key_attempt_failed',
-      'POST',
-      '/wallet/email-otp/recovery-key/attempt-failed',
-      'Record a failed Email OTP recovery-key unwrap attempt for server-side rate limiting',
       ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
     sessionPrincipalRoute(
@@ -1023,17 +1051,10 @@ export function createRouterApiRouteDefinitions(
       ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
     sessionPrincipalRoute(
-      'wallet_email_otp_unseal',
+      'wallet_email_otp_factor_release',
       'POST',
-      '/wallet/email-otp/unseal',
-      'Remove the server Shamir seal after Email OTP authorization',
-      ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
-    ),
-    sessionPrincipalRoute(
-      'wallet_email_otp_signing_session_unseal',
-      'POST',
-      '/wallet/email-otp/signing-session/unseal',
-      'Remove the server Shamir seal after signing-session Email OTP authorization',
+      '/wallet/email-otp/factor-release',
+      'Release the enrolled Email OTP factor to an authorized signing worker',
       ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
     ),
     publicRoute(

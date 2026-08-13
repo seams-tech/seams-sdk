@@ -6,16 +6,16 @@ import type { RouterAbNormalSigningRuntime } from '../../../core/routerAbSigning
 import type { ThresholdEd25519AuthorityScope } from '../../../core/types';
 import { postRouterAbInternalServiceJson } from '../../../core/ThresholdService/routerAb/internalServiceHttp';
 import type {
-  RouterAbEcdsaDerivationWalletSessionClaims,
-  RouterAbEd25519WalletSessionClaims,
+  RouterAbEcdsaDerivationOwnerWalletSessionClaims,
+  RouterAbEd25519OwnerWalletSessionClaims,
 } from '../../../core/ThresholdService/validation';
 import {
   parseAppSessionClaims,
   thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
 } from '../../../core/ThresholdService/validation';
 import type {
-  VerifiedEcdsaWalletSessionAuth,
-  VerifiedEd25519WalletSessionAuth,
+  VerifiedOwnerEcdsaWalletSessionAuth,
+  VerifiedOwnerEd25519WalletSessionAuth,
 } from '../../auth/verifiedWalletSessionAuth';
 import {
   validateRouterAbEcdsaDerivationWalletSessionInputs,
@@ -50,6 +50,9 @@ import type {
   RouterApiAuthorizationSessionService,
   RouterApiWalletRegistrationService,
 } from '../../framework/authServicePort';
+import type { WalletExecutionLaneAuthSource } from '../../../core/signingLanes/WalletExecutionLaneProjection';
+import type { SigningWorkerLaneMaterialIdentityV1 } from '../../../core/signingLanes/signingWorkerLaneMaterialIdentity';
+import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import {
   buildEvmEcdsaMpcOperationRef,
   buildNearEd25519MpcOperationRef,
@@ -104,6 +107,128 @@ export function routerAbEcdsaAtomicAuthorizationConfigured(
 ): boolean {
   const runtime = authorizedOperations as unknown as Record<string, unknown>;
   return typeof runtime.admitAuthorizedOperation === 'function';
+}
+
+type RouterAbAcceptedAuthorizedOperationBindingV1 =
+  | {
+      readonly kind: 'reusable_wallet_session';
+      readonly walletSessionId: string;
+      readonly quotaId: string;
+    }
+  | {
+      readonly kind: 'operation_step_up';
+      readonly authorizationSessionId: string;
+      readonly orgId: string;
+      readonly projectId: string;
+      readonly environment: string;
+      readonly subjectId: string;
+    };
+
+export function buildRouterAbEd25519AcceptedAuthorizedOperationV1(input: {
+  readonly operation: AuthorizedOperation;
+  readonly binding: RouterAbAcceptedAuthorizedOperationBindingV1;
+}) {
+  const operation = input.operation;
+  const operationRef = operation.operation.operation;
+  if (operationRef.capabilityKind !== 'near_ed25519_mpc_signing') {
+    throw new Error('Ed25519 authorized operation capability is invalid');
+  }
+  if (operationRef.operationKind === 'near.export_key') {
+    throw new Error('Ed25519 export cannot use normal-signing admission');
+  }
+  return buildRouterAbAcceptedAuthorizedOperationV1({
+    operation,
+    operationKind: operationRef.operationKind,
+    capabilityKind: 'near_ed25519_mpc_signing',
+    binding: input.binding,
+  });
+}
+
+export function buildRouterAbEcdsaAcceptedAuthorizedOperationV1(input: {
+  readonly operation: AuthorizedOperation;
+  readonly binding: RouterAbAcceptedAuthorizedOperationBindingV1;
+}) {
+  const operation = input.operation;
+  const operationRef = operation.operation.operation;
+  if (
+    operationRef.capabilityKind !== 'evm_ecdsa_mpc_signing' ||
+    operationRef.operationKind !== 'evm.sign_transaction'
+  ) {
+    throw new Error('ECDSA authorized operation capability or operation kind is invalid');
+  }
+  return buildRouterAbAcceptedAuthorizedOperationV1({
+    operation,
+    operationKind: 'evm.sign_transaction',
+    capabilityKind: 'evm_ecdsa_mpc_signing',
+    binding: input.binding,
+  });
+}
+
+function buildRouterAbAcceptedAuthorizedOperationV1(input: {
+  readonly operation: AuthorizedOperation;
+  readonly capabilityKind: 'near_ed25519_mpc_signing' | 'evm_ecdsa_mpc_signing';
+  readonly operationKind:
+    | 'near.sign_transaction'
+    | 'near.sign_delegate_action'
+    | 'near.sign_nep413_message'
+    | 'evm.sign_transaction';
+  readonly binding: RouterAbAcceptedAuthorizedOperationBindingV1;
+}) {
+  const operation = input.operation;
+  const commonAuthorizedOperation = {
+    authorized_operation_id: operation.authorizedOperationId,
+    operation_id: operation.operation.operationId,
+    capability_kind: input.capabilityKind,
+    operation_kind: input.operationKind,
+    lane_digest_b64u: operation.operation.digests.laneDigest,
+    intent_digest_b64u: operation.operation.digests.intentDigest,
+    display_digest_b64u: operation.operation.digests.displayDigest,
+    operation_fingerprint_digest: operation.operationFingerprintDigest,
+  };
+  switch (input.binding.kind) {
+    case 'reusable_wallet_session':
+      if (
+        operation.authorization.kind !== 'authorization_grant' ||
+        operation.quota.kind !== 'consume_reusable_wallet_session'
+      ) {
+        throw new Error('Reusable Wallet Session authorized operation is invalid');
+      }
+      return {
+        binding: {
+          kind: 'reusable_wallet_session' as const,
+          authorization_id: operation.authorization.authorizationGrantRef.authorizationId,
+          wallet_session_id: input.binding.walletSessionId,
+          quota_id: input.binding.quotaId,
+        },
+        authorized_operation: {
+          kind: 'reusable_wallet_session_authorized_operation_v1' as const,
+          ...commonAuthorizedOperation,
+        },
+      };
+    case 'operation_step_up':
+      if (
+        operation.authorization.kind !== 'verified_step_up' ||
+        operation.quota.kind !== 'quota_neutral'
+      ) {
+        throw new Error('Verified step-up authorized operation is invalid');
+      }
+      return {
+        binding: {
+          kind: 'operation_step_up' as const,
+          authorization_session_id: input.binding.authorizationSessionId,
+          org_id: input.binding.orgId,
+          project_id: input.binding.projectId,
+          environment: input.binding.environment,
+          subject_id: input.binding.subjectId,
+        },
+        authorized_operation: {
+          kind: 'verified_step_up_authorized_operation_v1' as const,
+          authorization_session_id: input.binding.authorizationSessionId,
+          evidence_set_digest: operation.authorization.evidenceSetDigest,
+          ...commonAuthorizedOperation,
+        },
+      };
+  }
 }
 
 const PRIVATE_ED25519_SIGNING_PREPARE_PATH = '/router-ab/signing-worker/sign/prepare';
@@ -367,16 +492,16 @@ export type RouterAbNormalSigningAdmissionEvaluationInput =
       adapter: RouterAbNormalSigningAdmissionAdapter | null | undefined;
       curve: 'ed25519';
       phase: 'prepare' | 'finalize';
-      claims: RouterAbEd25519WalletSessionClaims;
-      walletSessionAuth: VerifiedEd25519WalletSessionAuth;
+      claims: RouterAbEd25519OwnerWalletSessionClaims;
+      walletSessionAuth: VerifiedOwnerEd25519WalletSessionAuth;
       admission: AcceptedRouteAdmission;
     }
   | {
       adapter: RouterAbNormalSigningAdmissionAdapter | null | undefined;
       curve: 'ecdsa';
       phase: 'prepare' | 'finalize';
-      claims: RouterAbEcdsaDerivationWalletSessionClaims;
-      walletSessionAuth: VerifiedEcdsaWalletSessionAuth;
+      claims: RouterAbEcdsaDerivationOwnerWalletSessionClaims;
+      walletSessionAuth: VerifiedOwnerEcdsaWalletSessionAuth;
       admission: AcceptedEcdsaRouteAdmission;
     };
 
@@ -474,12 +599,14 @@ type RouterAbOperationStepUpAppSession = {
   readonly sessionId: SeamsSessionId;
   readonly walletId: string;
   readonly runtimePolicyScope: RuntimePolicyScope;
+  readonly walletAuthAuthorityRef: WalletAuthAuthorityRef;
+  readonly authSource: WalletExecutionLaneAuthSource;
 };
 
 type RouterAbEd25519PrivateSigningAuthorization =
   | {
       readonly kind: 'reusable_wallet_session';
-      readonly claims: RouterAbEd25519WalletSessionClaims;
+      readonly claims: RouterAbEd25519OwnerWalletSessionClaims;
     }
   | {
       readonly kind: 'operation_step_up';
@@ -489,7 +616,7 @@ type RouterAbEd25519PrivateSigningAuthorization =
 type RouterAbEcdsaPrivateSigningAuthorization =
   | {
       readonly kind: 'reusable_wallet_session';
-      readonly claims: RouterAbEcdsaDerivationWalletSessionClaims;
+      readonly claims: RouterAbEcdsaDerivationOwnerWalletSessionClaims;
     }
   | {
       readonly kind: 'operation_step_up';
@@ -630,6 +757,7 @@ type RouterAbEd25519PrivatePrepareSigningWorkerBody = {
   readonly expires_at_ms: number;
   readonly admission_candidate: RouterAbNormalSigningPrepareAdmissionCandidateV2;
   readonly trusted_admission: RouterAbNormalSigningTrustedAdmissionV1;
+  readonly material_source: RouterAbNormalSigningMaterialSourceV1;
 };
 
 type RouterAbEd25519PrivateFinalizeSigningWorkerBody = {
@@ -637,6 +765,7 @@ type RouterAbEd25519PrivateFinalizeSigningWorkerBody = {
   readonly admission_candidate: RouterAbNormalSigningFinalizeAdmissionCandidateV2;
   readonly trusted_admission: RouterAbNormalSigningTrustedAdmissionV1;
   readonly effect_claim: RouterAbNormalSigningEffectClaimV1;
+  readonly material_source: RouterAbNormalSigningMaterialSourceV1;
 };
 
 export type RouterAbEd25519PrivateSigningWorkerBody =
@@ -646,16 +775,69 @@ export type RouterAbEd25519PrivateSigningWorkerBody =
 type RouterAbEcdsaDerivationPrivatePrepareSigningWorkerBody = {
   request: RouterAbEcdsaDerivationEvmDigestSigningRequestV1Wire;
   trusted_admission: RouterAbNormalSigningTrustedAdmissionV1;
+  material_source: RouterAbNormalSigningMaterialSourceV1;
 };
 
 type RouterAbEcdsaDerivationPrivateFinalizeSigningWorkerBody = {
   request: RouterAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestV1Wire;
   trusted_admission: RouterAbNormalSigningTrustedAdmissionV1;
+  material_source: RouterAbNormalSigningMaterialSourceV1;
 };
 
 export type RouterAbEcdsaDerivationPrivateSigningWorkerBody =
   | RouterAbEcdsaDerivationPrivatePrepareSigningWorkerBody
   | RouterAbEcdsaDerivationPrivateFinalizeSigningWorkerBody;
+
+export type RouterAbNormalSigningMaterialSourceV1 =
+  | {
+      readonly kind: 'registration_activation';
+      readonly lookup: {
+        readonly account_id: string;
+        readonly material_activation_id: string;
+        readonly signing_worker_id: string;
+      };
+      readonly group_public_key?: never;
+    }
+  | {
+      readonly kind: 'rotatable_lane';
+      readonly lookup: {
+        readonly identity: SigningWorkerLaneMaterialIdentityV1;
+        readonly admittedLaneIdentityDigestB64u: string;
+      };
+      readonly group_public_key: string;
+    };
+
+function registrationMaterialSourceV1(input: {
+  readonly accountId: string;
+  readonly materialActivationId: string;
+  readonly signingWorkerId: string;
+}): RouterAbNormalSigningMaterialSourceV1 {
+  return {
+    kind: 'registration_activation',
+    lookup: {
+      account_id: input.accountId,
+      material_activation_id: input.materialActivationId,
+      signing_worker_id: input.signingWorkerId,
+    },
+  };
+}
+
+export function routerAbNormalSigningMaterialSourceFromActiveLaneV1(input: {
+  readonly identity: SigningWorkerLaneMaterialIdentityV1;
+  readonly admittedLaneIdentityDigestB64u: string;
+  readonly groupPublicKey: string;
+}): RouterAbNormalSigningMaterialSourceV1 {
+  const groupPublicKey = input.groupPublicKey.trim();
+  if (groupPublicKey.length === 0) throw new Error('active lane group public key is required');
+  return {
+    kind: 'rotatable_lane',
+    lookup: {
+      identity: input.identity,
+      admittedLaneIdentityDigestB64u: input.admittedLaneIdentityDigestB64u,
+    },
+    group_public_key: groupPublicKey,
+  };
+}
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -888,7 +1070,9 @@ function requireMpcMaterialActivationId(value: unknown): MpcMaterialActivationId
   return parsed.value;
 }
 
-function requirePrivateSigningScope(value: unknown): RouterAbEd25519NormalSigningScopeV2 {
+export function parseRouterAbEd25519NormalSigningScopeV2(
+  value: unknown,
+): RouterAbEd25519NormalSigningScopeV2 {
   const scope = requirePrivateSigningRecord(value, 'scope');
   requirePrivateSigningExactFields(
     scope,
@@ -1130,6 +1314,17 @@ async function privateSigningAdmissionMaterial(input: {
   return { intentDigest, signingPayloadDigest, admittedSigningDigest };
 }
 
+export async function computeRouterAbEd25519NormalSigningAdmissionMaterial(input: {
+  readonly intent: unknown;
+  readonly signingPayload: unknown;
+}): Promise<{
+  readonly intentDigest: RouterAbPublicDigest32V1Wire;
+  readonly signingPayloadDigest: RouterAbPublicDigest32V1Wire;
+  readonly admittedSigningDigest: RouterAbPublicDigest32V1Wire;
+}> {
+  return await privateSigningAdmissionMaterial(input);
+}
+
 async function privateSigningRound1BindingDigest(input: {
   readonly scope: RouterAbEd25519NormalSigningScopeV2;
   readonly expiresAtMs: number;
@@ -1277,6 +1472,7 @@ type RouterAbEd25519PrivateSigningWorkerBuildInput =
       readonly body: Record<string, unknown>;
       readonly authorization: RouterAbEd25519PrivateSigningAuthorization;
       readonly headers: Record<string, string | string[] | undefined>;
+      readonly materialSource?: RouterAbNormalSigningMaterialSourceV1;
       readonly effectClaim?: never;
     }
   | {
@@ -1285,12 +1481,13 @@ type RouterAbEd25519PrivateSigningWorkerBuildInput =
       readonly authorization: RouterAbEd25519PrivateSigningAuthorization;
       readonly headers: Record<string, string | string[] | undefined>;
       readonly effectClaim: RouterAbNormalSigningEffectClaimV1;
+      readonly materialSource?: RouterAbNormalSigningMaterialSourceV1;
     };
 
 export async function buildRouterAbEd25519PrivateSigningWorkerBody(
   input: RouterAbEd25519PrivateSigningWorkerBuildInput,
 ): Promise<RouterAbEd25519PrivateSigningWorkerBody> {
-  const scope = requirePrivateSigningScope(input.body.scope);
+  const scope = parseRouterAbEd25519NormalSigningScopeV2(input.body.scope);
   const signingContext = privateSigningAuthorizationContext(scope, input.authorization);
   const trustedSourceDigest = await privateSigningTrustedSourceDigest(input.headers);
   if (input.phase === 'finalize') {
@@ -1356,6 +1553,13 @@ export async function buildRouterAbEd25519PrivateSigningWorkerBody(
         trustedSourceDigest,
       }),
       effect_claim: input.effectClaim,
+      material_source:
+        input.materialSource ??
+        registrationMaterialSourceV1({
+          accountId: scope.account_id,
+          materialActivationId: scope.material_activation.activation_id,
+          signingWorkerId: scope.signing_worker_id,
+        }),
     };
   }
 
@@ -1412,6 +1616,13 @@ export async function buildRouterAbEd25519PrivateSigningWorkerBody(
       expires_at_ms: expiresAtMs,
     },
     trusted_admission: trustedAdmission,
+    material_source:
+      input.materialSource ??
+      registrationMaterialSourceV1({
+        accountId: scope.account_id,
+        materialActivationId: scope.material_activation.activation_id,
+        signingWorkerId: scope.signing_worker_id,
+      }),
   };
 }
 
@@ -1420,6 +1631,7 @@ export async function buildRouterAbEcdsaDerivationPrivateSigningWorkerBody(input
   body: Record<string, unknown>;
   authorization: RouterAbEcdsaPrivateSigningAuthorization;
   headers: Record<string, string | string[] | undefined>;
+  materialSource?: RouterAbNormalSigningMaterialSourceV1;
 }): Promise<RouterAbEcdsaDerivationPrivateSigningWorkerBody> {
   const runtimePolicyScope =
     input.authorization.kind === 'reusable_wallet_session'
@@ -1457,6 +1669,13 @@ export async function buildRouterAbEcdsaDerivationPrivateSigningWorkerBody(input
         intentDigest: requestDigest,
         trustedSourceDigest,
       }),
+      material_source:
+        input.materialSource ??
+        registrationMaterialSourceV1({
+          accountId: request.scope.wallet_id,
+          materialActivationId: request.scope.material_activation.activation_id,
+          signingWorkerId: request.scope.signing_worker.server_id,
+        }),
     };
   }
   const request = parseRouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1(input.body);
@@ -1479,6 +1698,13 @@ export async function buildRouterAbEcdsaDerivationPrivateSigningWorkerBody(input
       intentDigest: requestDigest,
       trustedSourceDigest,
     }),
+    material_source:
+      input.materialSource ??
+      registrationMaterialSourceV1({
+        accountId: request.scope.wallet_id,
+        materialActivationId: request.scope.material_activation.activation_id,
+        signingWorkerId: request.scope.signing_worker.server_id,
+      }),
   };
 }
 
@@ -1621,9 +1847,8 @@ async function handleRouterAbEd25519OperationStepUpRoute(input: {
       operation: operation.operation,
       digests: { laneDigest, intentDigest, displayDigest },
     });
-    const operationFingerprintDigest = await computeCapabilityOperationFingerprintDigest(
-      operationEnvelope,
-    );
+    const operationFingerprintDigest =
+      await computeCapabilityOperationFingerprintDigest(operationEnvelope);
     const existing = await authenticated.authorizedOperations.readAuthorizedOperation({
       tenantId: authenticated.session.tenantId,
       operationFingerprintDigest,
@@ -1821,6 +2046,8 @@ export async function authenticateRouterAbOperationStepUpAppSessionIdentity(inpu
       sessionId: sessionId.value,
       walletId: claims.walletId,
       runtimePolicyScope: claims.runtimePolicyScope,
+      walletAuthAuthorityRef: claims.walletAuthAuthorityRef,
+      authSource: activeSession.authSource,
     },
     activeSession,
     authorityRef: claims.walletAuthAuthorityRef,
@@ -1868,7 +2095,7 @@ export async function authenticateRouterAbEcdsaOperationStepUpAppSession(input: 
 export function parseRouterAbEd25519OperationStepUpScope(
   value: unknown,
 ): RouterAbEd25519NormalSigningScopeV2 {
-  return requirePrivateSigningScope(value);
+  return parseRouterAbEd25519NormalSigningScopeV2(value);
 }
 
 export function parseRouterAbOperationStepUpOperation(value: unknown):
@@ -1964,7 +2191,7 @@ export async function authorizeRouterAbEd25519NormalSigningRoute(input: {
 
   let scope: RouterAbEd25519NormalSigningScopeV2;
   try {
-    scope = requirePrivateSigningScope(input.body.scope);
+    scope = parseRouterAbEd25519NormalSigningScopeV2(input.body.scope);
   } catch {
     return {
       ok: false,
@@ -2087,13 +2314,13 @@ function errorMessage(error: unknown): string {
 }
 
 export function validateRouterAbEd25519NormalSigningRequestScope(input: {
-  claims: RouterAbEd25519WalletSessionClaims;
-  walletSessionAuth: VerifiedEd25519WalletSessionAuth;
+  claims: RouterAbEd25519OwnerWalletSessionClaims;
+  walletSessionAuth: VerifiedOwnerEd25519WalletSessionAuth;
   body: Record<string, unknown>;
 }): RouterAbNormalSigningRouteAdmission {
   let scope: RouterAbEd25519NormalSigningScopeV2;
   try {
-    scope = requirePrivateSigningScope(input.body.scope);
+    scope = parseRouterAbEd25519NormalSigningScopeV2(input.body.scope);
   } catch {
     return {
       ok: false,
@@ -2165,8 +2392,8 @@ export function validateRouterAbEd25519NormalSigningRequestScope(input: {
 }
 
 export function validateRouterAbEcdsaDerivationNormalSigningPrepareRequest(input: {
-  claims: RouterAbEcdsaDerivationWalletSessionClaims;
-  walletSessionAuth: VerifiedEcdsaWalletSessionAuth;
+  claims: RouterAbEcdsaDerivationOwnerWalletSessionClaims;
+  walletSessionAuth: VerifiedOwnerEcdsaWalletSessionAuth;
   body: Record<string, unknown>;
 }): RouterAbEcdsaNormalSigningRouteAdmission {
   const normalSigning = input.claims.routerAbEcdsaDerivationNormalSigning;
@@ -2275,8 +2502,8 @@ export async function resolveFreshRouterAbEcdsaMaterialActivation(input: {
 }
 
 export function validateRouterAbEcdsaDerivationNormalSigningFinalizeRequest(input: {
-  claims: RouterAbEcdsaDerivationWalletSessionClaims;
-  walletSessionAuth: VerifiedEcdsaWalletSessionAuth;
+  claims: RouterAbEcdsaDerivationOwnerWalletSessionClaims;
+  walletSessionAuth: VerifiedOwnerEcdsaWalletSessionAuth;
   body: Record<string, unknown>;
 }): RouterAbEcdsaNormalSigningRouteAdmission {
   const normalSigning = input.claims.routerAbEcdsaDerivationNormalSigning;
@@ -2351,15 +2578,15 @@ export function validateRouterAbEcdsaDerivationNormalSigningFinalizeRequest(inpu
 export async function admitRouterAbEcdsaReusableWalletSessionOperation(input: {
   request: RouterAbEcdsaOperationStepUpRequest;
   materialActivation: RouterAbMpcMaterialActivationRefWire;
-  claims: RouterAbEcdsaDerivationWalletSessionClaims;
+  claims: RouterAbEcdsaDerivationOwnerWalletSessionClaims;
   authorizedOperations: Pick<
     RouterApiAuthorizedOperationService,
     'tenantId' | 'admitAuthorizedOperation'
   >;
-  authorizationSessions: Pick<
-    RouterApiAuthorizationSessionService,
-    'tenantId' | 'readActiveSession'
-  > | null | undefined;
+  authorizationSessions:
+    | Pick<RouterApiAuthorizationSessionService, 'tenantId' | 'readActiveSession'>
+    | null
+    | undefined;
   resolveEcdsaMaterialActivation: RouterApiWalletRegistrationService['resolveEcdsaMaterialActivation'];
 }): Promise<
   | {

@@ -15,51 +15,19 @@ const sourceRoots = [
 
 const recoveryKeysAllowedSourceFiles = new Set([
   'packages/sdk-web/src/SeamsWeb/googleEmailOtpWalletAuth.typecheck.ts',
-  'packages/sdk-web/src/SeamsWeb/operations/authMethods/emailOtp/challenge.ts',
-  'packages/sdk-web/src/SeamsWeb/operations/authMethods/emailOtp/prewarmedRegistrationMaterial.ts',
   'packages/sdk-web/src/SeamsWeb/operations/authMethods/emailOtp/registrationOffer.ts',
-  'packages/sdk-web/src/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup.ts',
-  'packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts',
-  'packages/sdk-web/src/SeamsWeb/publicNamespaceApi.typecheck.ts',
-  'packages/sdk-web/src/SeamsWeb/publicApi/types.ts',
   'packages/sdk-web/src/SeamsWeb/walletIframe/client/router.ts',
-  'packages/sdk-web/src/SeamsWeb/walletIframe/host/handlers/emailOtp.ts',
-  'packages/sdk-web/src/core/indexedDB/seamsWalletDB/emailOtpDeviceEnrollmentEscrows.ts',
-  'packages/sdk-web/src/core/indexedDB/seamsWalletDB/emailOtpRecoveryCodeBackups.ts',
-  'packages/sdk-web/src/core/signingEngine/session/emailOtp/publicTypes.ts',
-  'packages/sdk-web/src/core/signingEngine/session/emailOtp/publicTypes.typecheck.ts',
-  'packages/sdk-web/src/core/signingEngine/session/emailOtp/workerEnrollment.ts',
-  'packages/sdk-web/src/core/signingEngine/workerManager/workerTypes.ts',
-  'packages/sdk-web/src/core/signingEngine/workerManager/workerTypes.typecheck.ts',
-  'packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp.worker.ts',
-  'packages/sdk-web/src/react/components/AccountMenuButton/RecoveryCodesModal.tsx',
-  'packages/sdk-web/src/react/components/AccountMenuButton/RecoveryCodesModalState.ts',
-  'packages/sdk-server-ts/src/core/EmailOtpRecords.ts',
-  'packages/sdk-server-ts/src/core/EmailOtpStores.ts',
-  'packages/sdk-server-ts/src/router/domains/emailOtp/emailOtpRouteHandlers.ts',
-  'packages/sdk-server-ts/src/router/domains/walletRegistration/walletRegistrationRoutes.ts',
 ]);
 
-const retainedBackupRecordAllowedSourceFiles = new Set([
-  'packages/sdk-web/src/core/indexedDB/seamsWalletDB/emailOtpRecoveryCodeBackups.ts',
-  'packages/sdk-web/src/react/components/AccountMenuButton/RecoveryCodesModal.tsx',
-  'packages/sdk-web/src/react/components/AccountMenuButton/RecoveryCodesModalState.ts',
-]);
+const retainedBackupRecordAllowedSourceFiles = new Set();
 
-const recoveryBackupSecretKindAllowedSourceFiles = new Set([
-  'packages/sdk-web/src/core/indexedDB/seamsWalletDB/emailOtpRecoveryCodeBackups.ts',
-]);
+const recoveryBackupSecretKindAllowedSourceFiles = new Set();
 
 const recoveryCodeCastAllowedSourceFiles = new Set([
   'packages/shared-ts/src/utils/emailOtpRecoveryKey.ts',
 ]);
 
-const recoveryCodeBackupRepositoryAllowedSourceFiles = new Set([
-  'packages/sdk-web/src/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup.ts',
-  'packages/sdk-web/src/SeamsWeb/walletIframe/host/handlers/emailOtp.ts',
-  'packages/sdk-web/src/react/components/AccountMenuButton/RecoveryCodesModal.tsx',
-  'packages/sdk-web/src/react/components/AccountMenuButton/RecoveryCodesModalState.ts',
-]);
+const recoveryCodeBackupRepositoryAllowedSourceFiles = new Set();
 
 function absolutePath(relativePath) {
   return path.join(repoRoot, relativePath);
@@ -171,10 +139,7 @@ function collectRecoveryCodeCastViolations(sourceFiles) {
 
 function collectBackupRepositoryViolations(sourceFiles) {
   return filesContaining(sourceFiles, /\bemailOtpRecoveryCodeBackupRepository\b/)
-    .filter((relativePath) => (
-      relativePath !== 'packages/sdk-web/src/core/indexedDB/seamsWalletDB/emailOtpRecoveryCodeBackups.ts' &&
-      !recoveryCodeBackupRepositoryAllowedSourceFiles.has(relativePath)
-    ))
+    .filter((relativePath) => !recoveryCodeBackupRepositoryAllowedSourceFiles.has(relativePath))
     .map((relativePath) => `${relativePath}: recovery-code backup repository outside wallet-owned UI/backup operations`);
 }
 

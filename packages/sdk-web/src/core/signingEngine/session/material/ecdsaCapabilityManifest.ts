@@ -1,12 +1,6 @@
 import {
-  buildMpcMaterialActivationRef,
   mpcMaterialActivationRefsEqual,
-  parseMpcKeyBindingRef,
-  parseMpcLifecycleBindingRef,
-  parseMpcSigningWorkerRef,
   type CapabilityInstanceRef,
-  type DomainIdParseResult,
-  type MpcMaterialActivationId,
   type MpcMaterialActivationRef,
   type MpcMaterialOwnerRef,
 } from '@shared/utils/domainIds';
@@ -18,7 +12,10 @@ import {
   type RouterAbEcdsaDerivationNormalSigningStateV1,
   type RouterAbEcdsaRegistrationActivationReceiptV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
-import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
+import {
+  routerAbMpcMaterialActivationRefFromWire,
+  routerAbMpcMaterialActivationRefToWire,
+} from '@shared/utils/routerAbNormalSigningIdentity';
 import type {
   SigningRootId,
   SigningRootVersion,
@@ -299,6 +296,7 @@ export type EncryptedEcdsaPendingCandidate = EncryptedEcdsaPendingCandidateProof
   EncryptedEcdsaPendingCandidateExclusions;
 
 type EcdsaActivationBindingExclusions = {
+  readonly activationId?: never;
   readonly encryptedPending?: never;
   readonly registeredPublicFacts?: never;
   readonly lifecycleId?: never;
@@ -313,7 +311,6 @@ class EcdsaActivationBindingProof extends EcdsaCapabilityManifestProof {
   readonly kind = 'ecdsa_activation_binding';
   readonly targetManifest: EcdsaManifestIdentity;
   readonly signer: PreparedEvmFamilySigner;
-  readonly activationId: MpcMaterialActivationId;
   readonly roleLocalBinding: EcdsaRoleLocalMaterialBinding;
   readonly bindingDigest: EcdsaRoleLocalBindingDigest;
   readonly durableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
@@ -321,7 +318,6 @@ class EcdsaActivationBindingProof extends EcdsaCapabilityManifestProof {
   constructor(fields: {
     readonly targetManifest: EcdsaManifestIdentity;
     readonly signer: PreparedEvmFamilySigner;
-    readonly activationId: MpcMaterialActivationId;
     readonly roleLocalBinding: EcdsaRoleLocalMaterialBinding;
     readonly bindingDigest: EcdsaRoleLocalBindingDigest;
     readonly durableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
@@ -329,7 +325,6 @@ class EcdsaActivationBindingProof extends EcdsaCapabilityManifestProof {
     super();
     this.targetManifest = fields.targetManifest;
     this.signer = fields.signer;
-    this.activationId = fields.activationId;
     this.roleLocalBinding = fields.roleLocalBinding;
     this.bindingDigest = fields.bindingDigest;
     this.durableMaterialRef = fields.durableMaterialRef;
@@ -764,7 +759,6 @@ export function buildEcdsaActivationBinding(
   input: {
     readonly targetManifest: EcdsaManifestIdentity;
     readonly signer: PreparedEvmFamilySigner;
-    readonly activationId: MpcMaterialActivationId;
     readonly roleLocalBinding: EcdsaRoleLocalMaterialBinding;
     readonly bindingDigest: EcdsaRoleLocalBindingDigest;
     readonly durableMaterialRef: EcdsaRoleLocalDurableMaterialRef;
@@ -926,10 +920,7 @@ export function buildDurableEcdsaMaterialBinding(input: {
     receipt: receipt.protocolReceipt,
   });
   return new DurableEcdsaMaterialBindingProof({
-    materialActivation: materialActivationFromCommit(
-      input.activationBinding,
-      receipt.protocolReceipt,
-    ),
+    materialActivation: materialActivationFromCommit(receipt.protocolReceipt),
     routerAbEcdsaDerivationNormalSigning: input.routerAbEcdsaDerivationNormalSigning,
     roleLocalPublicFacts: input.roleLocalPublicFacts,
     roleLocalBinding: input.activationBinding.roleLocalBinding,
@@ -1133,18 +1124,15 @@ function assertProtocolReceiptMatchesActivationBinding(
 ): void {
   const publicIdentity = receipt.ecdsa_activation.public_identity;
   const materialActivation = receipt.ecdsa_activation.material_activation;
-  const expectedMaterialActivation = materialActivationFromCommit(activationBinding, receipt);
+  materialActivationFromCommit(receipt);
   if (
     publicIdentity.context_binding_b64u !== String(activationBinding.bindingDigest) ||
     publicIdentity.derivation_client_share_public_key33_b64u !==
       String(activationBinding.roleLocalBinding.clientVerifyingPublicKey33B64u) ||
-    materialActivation.activation_id !== String(expectedMaterialActivation.activationId) ||
-    materialActivation.capability !== String(expectedMaterialActivation.capability) ||
-    materialActivation.material_owner !== String(expectedMaterialActivation.materialOwner) ||
-    materialActivation.key_binding !== String(expectedMaterialActivation.keyBinding) ||
-    materialActivation.lifecycle_binding !==
-      String(expectedMaterialActivation.lifecycleBinding) ||
-    materialActivation.signing_worker !== String(expectedMaterialActivation.signingWorker)
+    materialActivation.material_owner !== String(activationBinding.signer.materialOwner) ||
+    materialActivation.key_binding !== String(activationBinding.bindingDigest) ||
+    materialActivation.lifecycle_binding !== receipt.lifecycle_id ||
+    materialActivation.signing_worker !== receipt.ecdsa_activation.signing_worker.server_id
   ) {
     throw new Error('ECDSA activation receipt does not match the prepared material binding');
   }
@@ -1178,25 +1166,12 @@ function activationDigestFromProtocolReceipt(
   return parseEcdsaActivationDigest(receipt.ecdsa_activation.activation_digest_b64u);
 }
 
-function unwrapDomainId<T>(result: DomainIdParseResult<T>): T {
-  if (!result.ok) throw new Error(result.error.message);
-  return result.value;
-}
-
 function materialActivationFromCommit(
-  activationBinding: EcdsaActivationBinding,
   receipt: RouterAbEcdsaRegistrationActivationReceiptV1,
 ): MpcMaterialActivationRef {
-  return buildMpcMaterialActivationRef({
-    activationId: activationBinding.activationId,
-    capability: activationBinding.signer.capability,
-    materialOwner: activationBinding.signer.materialOwner,
-    keyBinding: unwrapDomainId(parseMpcKeyBindingRef(activationBinding.bindingDigest)),
-    lifecycleBinding: unwrapDomainId(parseMpcLifecycleBindingRef(receipt.lifecycle_id)),
-    signingWorker: unwrapDomainId(
-      parseMpcSigningWorkerRef(receipt.ecdsa_activation.signing_worker.server_id),
-    ),
-  });
+  return routerAbMpcMaterialActivationRefFromWire(
+    receipt.ecdsa_activation.material_activation,
+  );
 }
 
 function assertRegisteredPublicFactsMatchBinding(
@@ -1238,10 +1213,7 @@ function assertDurableMaterialMatchesActivation(
   serverActivation: EcdsaServerActivationCommit,
 ): void {
   const receipt = serverActivation.serverActivationReceipt;
-  const committedMaterialActivation = materialActivationFromCommit(
-    activationBinding,
-    receipt.protocolReceipt,
-  );
+  const committedMaterialActivation = materialActivationFromCommit(receipt.protocolReceipt);
   if (
     !mpcMaterialActivationRefsEqual(
       durableMaterial.materialActivation,
@@ -1276,10 +1248,7 @@ function assertNormalSigningMatchesActivation(input: {
 }): void {
   const scope = input.normalSigning.scope;
   const facts = input.roleLocalPublicFacts;
-  const expectedMaterialActivation = materialActivationFromCommit(
-    input.activationBinding,
-    input.receipt,
-  );
+  const expectedMaterialActivation = materialActivationFromCommit(input.receipt);
   const expectedMaterialActivationWire = routerAbMpcMaterialActivationRefToWire({
     kind: expectedMaterialActivation.kind,
     activationId: expectedMaterialActivation.activationId,

@@ -1,20 +1,20 @@
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
+use router_ab_ecdsa_client_protocol::{
+    sign_ecdsa_wallet_recovery_material_possession_proof_v1, EcdsaClientMaterialPossessionProofV1,
+    EcdsaWalletRecoveryMaterialPossessionChallengeV1,
+};
+
 use crate::error::{CoreResult, SignerCoreError};
-use hkdf::Hkdf;
 use router_ab_ecdsa_derivation::{
     compose_public_identity_from_public_keys, derive_client_share, encode_context,
     reconstruct_export_key, ClientRoleShare, RouterAbEcdsaDerivationError,
     RouterAbEcdsaDerivationErrorCode, RouterAbEcdsaDerivationStableKeyContext,
 };
-use sha2::Sha256;
 
 const PENDING_BLOB_MAGIC: &[u8; 8] = b"RAEDP2\0\0";
 const READY_BLOB_MAGIC: &[u8; 8] = b"RAEDR2\0\0";
 const ROUTER_AB_ECDSA_DERIVATION_CLIENT_PARTICIPANT_ID: u32 = 1;
-const PASSKEY_THRESHOLD_ECDSA_CLIENT_ROOT_INFO_V1: &[u8] =
-    b"seams/passkey/threshold-ecdsa-client-root/v1";
-const PASSKEY_THRESHOLD_ECDSA_CLIENT_ROOT_SALT_V1: [u8; 32] = [0u8; 32];
 
 #[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
 pub struct EcdsaRoleLocalPendingStateBlob {
@@ -100,14 +100,14 @@ pub struct EcdsaRoleLocalExportPublicFacts {
 }
 
 #[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
-pub struct BuildEcdsaRoleLocalExportArtifactCommand {
+pub struct EcdsaRoleLocalExportReconstructionInput {
     pub ready_state_blob: EcdsaRoleLocalReadyStateBlob,
     pub public_facts: EcdsaRoleLocalExportPublicFacts,
     pub server_export_share32: [u8; 32],
 }
 
 #[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
-pub struct BuildEcdsaRoleLocalExportArtifactOutput {
+pub struct EcdsaRoleLocalExportArtifact {
     pub public_key33: [u8; 33],
     pub private_key32: [u8; 32],
     pub ethereum_address20: [u8; 20],
@@ -173,21 +173,6 @@ pub fn prepare_ecdsa_client_bootstrap(
     })
 }
 
-pub fn derive_passkey_threshold_ecdsa_client_root_share32_from_prf_first(
-    prf_first32: &[u8; 32],
-) -> CoreResult<[u8; 32]> {
-    let hkdf = Hkdf::<Sha256>::new(
-        Some(&PASSKEY_THRESHOLD_ECDSA_CLIENT_ROOT_SALT_V1),
-        prf_first32,
-    );
-    let mut out = [0u8; 32];
-    hkdf.expand(PASSKEY_THRESHOLD_ECDSA_CLIENT_ROOT_INFO_V1, &mut out)
-        .map_err(|_| {
-            SignerCoreError::hkdf_error("failed to derive passkey threshold ECDSA client root")
-        })?;
-    Ok(out)
-}
-
 pub fn finalize_ecdsa_client_bootstrap(
     input: FinalizeEcdsaClientBootstrapCommand,
 ) -> CoreResult<FinalizeEcdsaClientBootstrapOutput> {
@@ -250,9 +235,34 @@ pub fn extract_client_signing_share32_from_ready_state_blob(
     Ok(parse_ready_state(&ready_state_blob.state_blob)?.x_client32)
 }
 
-pub fn build_ecdsa_role_local_export_artifact(
-    mut input: BuildEcdsaRoleLocalExportArtifactCommand,
-) -> CoreResult<BuildEcdsaRoleLocalExportArtifactOutput> {
+/// Signs a no-refresh wallet-recovery challenge from an opened role-local
+/// ready-state blob without returning the client scalar.
+pub fn sign_wallet_recovery_material_possession_proof(
+    ready_state_blob: &EcdsaRoleLocalReadyStateBlob,
+    challenge: &EcdsaWalletRecoveryMaterialPossessionChallengeV1,
+    aux_rand32: &[u8; 32],
+) -> CoreResult<EcdsaClientMaterialPossessionProofV1> {
+    let ready_state = parse_ready_state(&ready_state_blob.state_blob)?;
+    sign_ecdsa_wallet_recovery_material_possession_proof_v1(
+        challenge,
+        &ready_state.x_client32,
+        aux_rand32,
+    )
+    .map_err(|error| match error {
+        router_ab_ecdsa_client_protocol::EcdsaClientMaterialPossessionError::InvalidShape => {
+            SignerCoreError::invalid_input("wallet-recovery possession challenge is invalid")
+        }
+        router_ab_ecdsa_client_protocol::EcdsaClientMaterialPossessionError::InvalidProof => {
+            SignerCoreError::crypto_error(
+                "wallet-recovery possession scalar does not match the active client public key",
+            )
+        }
+    })
+}
+
+pub fn reconstruct_ecdsa_role_local_export(
+    mut input: EcdsaRoleLocalExportReconstructionInput,
+) -> CoreResult<EcdsaRoleLocalExportArtifact> {
     let ready_state = parse_ready_state(&input.ready_state_blob.state_blob)?;
     validate_ready_state_against_export_public_facts(&ready_state, &input.public_facts)?;
 
@@ -293,7 +303,7 @@ pub fn build_ecdsa_role_local_export_artifact(
     input.server_export_share32.zeroize();
     let private_key32 = private_key32_result.map_err(map_router_ab_ecdsa_derivation_error)?;
 
-    Ok(BuildEcdsaRoleLocalExportArtifactOutput {
+    Ok(EcdsaRoleLocalExportArtifact {
         public_key33: identity.threshold_public_key33,
         private_key32,
         ethereum_address20: identity.threshold_ethereum_address20,
@@ -717,7 +727,7 @@ mod tests {
         .expect("finalize");
 
         let artifact =
-            build_ecdsa_role_local_export_artifact(BuildEcdsaRoleLocalExportArtifactCommand {
+            reconstruct_ecdsa_role_local_export(EcdsaRoleLocalExportReconstructionInput {
                 ready_state_blob: finalized.ready_state_blob,
                 public_facts: EcdsaRoleLocalExportPublicFacts {
                     context: context(),
@@ -773,7 +783,7 @@ mod tests {
         wrong_public_key[1] ^= 0x01;
 
         let result =
-            build_ecdsa_role_local_export_artifact(BuildEcdsaRoleLocalExportArtifactCommand {
+            reconstruct_ecdsa_role_local_export(EcdsaRoleLocalExportReconstructionInput {
                 ready_state_blob: finalized.ready_state_blob,
                 public_facts: EcdsaRoleLocalExportPublicFacts {
                     context: context(),

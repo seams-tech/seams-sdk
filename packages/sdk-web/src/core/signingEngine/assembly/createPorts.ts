@@ -10,7 +10,6 @@ import {
 } from './ports/registration';
 import { Ed25519YaoActiveClientRegistry } from '../threshold/ed25519/yaoActiveClientRegistry';
 import {
-  createGetOrCreateActiveThresholdEcdsaSessionId,
   createManagerConveniencePortsFactory,
   createWorkerResourceWarmupDepsFactory,
   resolveNearRpcUrl,
@@ -35,7 +34,6 @@ export function createSigningEnginePorts(args: CreateSigningEnginePortsArgs): Si
     createArgs: args,
     getEmailOtpWarmSessionStatus,
   });
-  const getOrCreateActiveThresholdEcdsaSessionId = createGetOrCreateActiveThresholdEcdsaSessionId();
   const getWorkerResourceWarmupDeps = createWorkerResourceWarmupDepsFactory(args, {
     warmupStore: args.stores.warmup.store,
   });
@@ -65,7 +63,6 @@ export function createSigningEnginePorts(args: CreateSigningEnginePortsArgs): Si
     walletSessionActivationDeps: createWalletSessionActivationDeps({
       createArgs: args,
       credentialStore: args.stores.recoveryAndDeviceLinking.credentialStore,
-      getOrCreateActiveThresholdEcdsaSessionId,
     }),
     signingSessionCoordinator,
     getWorkerResourceWarmupDeps,

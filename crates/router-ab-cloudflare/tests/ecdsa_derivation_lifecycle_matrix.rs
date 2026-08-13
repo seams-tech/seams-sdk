@@ -42,7 +42,6 @@ fn strict_router_ab_ecdsa_derivation_lifecycle_matrix_has_exact_owners() {
             ],
             forbidden: &[
                 "execute_cloudflare_router_ab_ecdsa_derivation_deriver_export_service_call_v1",
-                "execute_cloudflare_router_ab_ecdsa_derivation_deriver_recovery_service_call_v1",
                 "execute_cloudflare_router_ab_ecdsa_derivation_deriver_activation_refresh_service_call_v1",
             ],
         },
@@ -54,20 +53,6 @@ fn strict_router_ab_ecdsa_derivation_lifecycle_matrix_has_exact_owners() {
                 "execute_cloudflare_router_ab_ecdsa_derivation_deriver_export_service_call_v1",
                 "execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_export_preflight_service_call_v1",
                 "CloudflareRouterAbEcdsaDerivationExportAdmissionResponseV1::forwarded",
-            ],
-            forbidden: &[
-                "execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_service_call_v1",
-                "execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_refresh_service_call_v1",
-                "execute_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_prepare_service_call_v1",
-            ],
-        },
-        LifecycleRouteExpectation {
-            name: "recovery",
-            handler:
-                "handle_cloudflare_router_ab_ecdsa_derivation_recovery_authenticated_public_request_v1",
-            required: &[
-                "execute_cloudflare_router_ab_ecdsa_derivation_deriver_recovery_service_call_v1",
-                "CloudflareRouterAbEcdsaDerivationRecoveryAdmissionResponseV1::forwarded",
             ],
             forbidden: &[
                 "execute_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_service_call_v1",
@@ -99,7 +84,6 @@ fn strict_router_ab_ecdsa_derivation_lifecycle_matrix_has_exact_owners() {
             forbidden: &[
                 "execute_cloudflare_router_ab_ecdsa_derivation_deriver_registration_service_call_v1",
                 "execute_cloudflare_router_ab_ecdsa_derivation_deriver_export_service_call_v1",
-                "execute_cloudflare_router_ab_ecdsa_derivation_deriver_recovery_service_call_v1",
                 "execute_cloudflare_router_ab_ecdsa_derivation_deriver_activation_refresh_service_call_v1",
             ],
         },
@@ -113,7 +97,6 @@ fn strict_router_ab_ecdsa_derivation_lifecycle_matrix_has_exact_owners() {
             forbidden: &[
                 "execute_cloudflare_router_ab_ecdsa_derivation_deriver_registration_service_call_v1",
                 "execute_cloudflare_router_ab_ecdsa_derivation_deriver_export_service_call_v1",
-                "execute_cloudflare_router_ab_ecdsa_derivation_deriver_recovery_service_call_v1",
                 "execute_cloudflare_router_ab_ecdsa_derivation_deriver_activation_refresh_service_call_v1",
             ],
         },
@@ -129,7 +112,6 @@ fn strict_router_ab_ecdsa_derivation_lifecycle_matrix_has_exact_owners() {
             forbidden: &[
                 "execute_cloudflare_router_ab_ecdsa_derivation_deriver_registration_service_call_v1",
                 "execute_cloudflare_router_ab_ecdsa_derivation_deriver_export_service_call_v1",
-                "execute_cloudflare_router_ab_ecdsa_derivation_deriver_recovery_service_call_v1",
                 "execute_cloudflare_router_ab_ecdsa_derivation_deriver_activation_refresh_service_call_v1",
             ],
         },

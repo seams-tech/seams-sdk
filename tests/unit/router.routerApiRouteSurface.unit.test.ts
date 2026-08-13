@@ -18,6 +18,7 @@ import {
   parseRouterAbPublicKeysetV2,
   ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
 } from '@shared/utils/routerAbPublicKeyset';
+import { LINKED_DEVICE_REQUEST_PROOF_HEADER_V1 } from '@shared/device-linking';
 import { ROUTER_AB_TRACE_ID_HEADER_V1 } from '@shared/utils/routerAbTraceContext';
 import { callCf, makeCfCtx } from '../relayer/helpers';
 
@@ -410,7 +411,7 @@ test.describe('Router API route surface wiring', () => {
     }
   });
 
-  test('fetch registration preflight allows the trace correlation header', async () => {
+  test('fetch preflight allows trace and linked-device proof headers', async () => {
     const origin = 'https://sign.seams.sh';
     const handler = createFetchRouter(
       makeRouterApiServiceBagFixture(),
@@ -423,7 +424,8 @@ test.describe('Router API route surface wiring', () => {
       path: '/wallets/register/setup',
       origin,
       headers: {
-        'Access-Control-Request-Headers': `content-type,${ROUTER_AB_TRACE_ID_HEADER_V1}`,
+        'Access-Control-Request-Headers':
+          `content-type,${ROUTER_AB_TRACE_ID_HEADER_V1},${LINKED_DEVICE_REQUEST_PROOF_HEADER_V1}`,
         'Access-Control-Request-Method': 'POST',
       },
     });
@@ -436,6 +438,7 @@ test.describe('Router API route surface wiring', () => {
         .map((header) => header.trim().toLowerCase()),
     );
     expect(allowedHeaders.has(ROUTER_AB_TRACE_ID_HEADER_V1)).toBe(true);
+    expect(allowedHeaders.has(LINKED_DEVICE_REQUEST_PROOF_HEADER_V1)).toBe(true);
   });
 
   test('route extensions are surfaced and mounted by supported transport', async () => {

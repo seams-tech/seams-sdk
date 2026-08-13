@@ -56,7 +56,7 @@
   cursor: pointer;
 }
 
-/* Cap the list height so many signers scroll instead of stretching the menu */
+/* Cap the list height so many linked devices scroll instead of stretching the menu */
 .w3a-linked-devices-list {
   display: flex;
   flex-direction: column;
@@ -67,40 +67,64 @@
 
 .w3a-linked-devices-row {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
   padding: 8px 10px;
   border-radius: var(--w3a-shape-item, 8px);
 }
 
-.w3a-linked-devices-slot {
-  flex: 0 0 auto;
-  font-size: 13px;
-  font-weight: 600;
+.w3a-linked-devices-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
   color: var(--w3a-colors-textPrimary);
-  white-space: nowrap;
-}
-
-.w3a-linked-devices-active {
-  flex: 0 0 auto;
-  padding: 1px 7px;
-  border: 1px solid var(--w3a-colors-borderPrimary);
-  border-radius: 9999px;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--w3a-colors-textSecondary);
-}
-
-/* "Chrome on macOS · iCloud Keychain" — truncates before it can widen the menu */
-.w3a-linked-devices-device {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-align: right;
   font-size: 12px;
+}
+
+.w3a-linked-devices-heading span,
+.w3a-linked-devices-meta,
+.w3a-linked-devices-revoke-consequence {
   color: var(--w3a-colors-textSecondary);
+  font-size: 11px;
+}
+
+.w3a-linked-devices-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.w3a-linked-devices-revoke-consequence {
+  line-height: 1.35;
+}
+
+.w3a-linked-devices-live-status {
+  min-height: 1px;
+  color: var(--w3a-colors-textSecondary);
+  font-size: 11px;
+}
+
+.w3a-linked-devices-revoke {
+  min-height: 32px;
+  border: 1px solid var(--w3a-colors-borderPrimary);
+  border-radius: var(--w3a-shape-item, 8px);
+  background: transparent;
+  color: var(--w3a-colors-textPrimary);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 10px;
+}
+
+.w3a-linked-devices-revoke:focus-visible,
+.w3a-linked-devices-retry:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.w3a-linked-devices-revoke:disabled {
+  cursor: default;
+  opacity: 0.6;
 }

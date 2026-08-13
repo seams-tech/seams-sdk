@@ -15,6 +15,8 @@ import {
   type WebAuthnPromptCancellation,
 } from './webauthnPromptCoordinator';
 import { secureRandomBase36 } from '@shared/utils/secureRandomId';
+import type { WalletRecoveryRegistrationOptions } from '@/core/rpcClients/relayer/walletRecoveryPrepare';
+import type { WalletAddAuthMethodRegistrationOptions } from '@/core/rpcClients/relayer/walletRegistration';
 
 function isRegistrableSuffix(host: string, cand: string): boolean {
   if (!host || !cand) return false;
@@ -54,17 +56,44 @@ export type RegistrationCredentialPrompt =
       requestId?: never;
     };
 
-export interface RegisterCredentialsArgs {
+type RegisterCredentialsArgsCommon = {
   walletId: string;
-  challengeB64u: string;
-  signerSlot?: number;
   intendedUserName: string;
   prompt: RegistrationCredentialPrompt;
-}
+};
+
+export type RegisterCredentialsArgs = RegisterCredentialsArgsCommon &
+  (
+    | {
+        kind: 'wallet_registration';
+        challengeB64u: string;
+        signerSlot?: number;
+        recoveryRegistration?: never;
+      }
+    | {
+        kind: 'wallet_recovery';
+        recoveryRegistration: WalletRecoveryRegistrationOptions;
+        challengeB64u?: never;
+        signerSlot?: never;
+      }
+    | {
+        kind: 'wallet_add_auth_method';
+        registration: WalletAddAuthMethodRegistrationOptions;
+        challengeB64u?: never;
+        signerSlot?: never;
+      }
+  );
 
 type ExpectedPasskeyRegistrationUser = {
   walletId: WalletId;
 };
+
+function requireWalletRegistrationChallenge(args: RegisterCredentialsArgs): string {
+  if (args.kind !== 'wallet_registration') {
+    throw new Error('Wallet registration challenge is unavailable');
+  }
+  return args.challengeB64u;
+}
 
 function requireExpectedPasskeyRegistrationUser(input: {
   walletId: string;
@@ -249,54 +278,93 @@ export class TouchIdPrompt {
     }
   }
 
-  private async executeRegistrationCredential({
-    walletId,
-    challengeB64u,
-    signerSlot,
-    intendedUserName,
-    prompt,
-  }: RegisterCredentialsArgs): Promise<PublicKeyCredential> {
+  private async executeRegistrationCredential(
+    args: RegisterCredentialsArgs,
+  ): Promise<PublicKeyCredential> {
     // New controller per create() call
     this.abortController = new AbortController();
     this.removePageAbortHandlers = attachPageAbortHandlers(this.abortController);
     this.removeExternalAbortListener = attachExternalAbortSignal(
       this.abortController,
-      prompt.cancellation,
+      args.prompt.cancellation,
     );
     // Single source of truth for rpId: use getRpId().
-    const rpId = this.getRpId();
-    const expectedUser = requireExpectedPasskeyRegistrationUser({ walletId, intendedUserName });
-    const publicKey: PublicKeyCredentialCreationOptions = {
-      challenge: decodeChallengeB64u(challengeB64u) as BufferSource,
-      rp: {
-        name: 'WebAuthn Passkey',
-        id: rpId,
-      },
-      user: {
-        id: new TextEncoder().encode(generateSignerSlotUserId(walletId, signerSlot)),
-        name: expectedUser.walletId,
-        displayName: expectedUser.walletId,
-      },
-      pubKeyCredParams: [
-        { alg: -7, type: 'public-key' },
-        { alg: -257, type: 'public-key' },
-      ],
-      authenticatorSelection: {
-        residentKey: 'required',
-        userVerification: 'preferred',
-      },
-      timeout: 60000,
-      attestation: 'none',
-      extensions: {
-        prf: {
-          eval: {
-            // Fixed, versioned salts. Account-scoping happens at the HKDF derivation layer.
-            first: getPrfFirstSaltV1() as BufferSource,
-            second: getPrfSecondSaltV1() as BufferSource,
+    const configuredRpId = this.getRpId();
+    const expectedUser = requireExpectedPasskeyRegistrationUser({
+      walletId: args.walletId,
+      intendedUserName: args.intendedUserName,
+    });
+    const recoveryRegistration = args.kind === 'wallet_recovery' ? args.recoveryRegistration : null;
+    const addAuthMethodRegistration =
+      args.kind === 'wallet_add_auth_method' ? args.registration : null;
+    const serverRegistration = recoveryRegistration ?? addAuthMethodRegistration;
+    const rpId = serverRegistration?.rpId ?? configuredRpId;
+    if (serverRegistration && rpId !== configuredRpId) {
+      throw new Error('Wallet recovery RP ID does not match the wallet origin');
+    }
+    const publicKey: PublicKeyCredentialCreationOptions = serverRegistration
+      ? {
+          challenge: decodeChallengeB64u(serverRegistration.challengeB64u) as BufferSource,
+          rp: { name: 'Seams Wallet', id: rpId },
+          user: {
+            id: base64UrlDecode(serverRegistration.user.idB64u) as BufferSource,
+            name: serverRegistration.user.name,
+            displayName: serverRegistration.user.displayName,
           },
-        },
-      },
-    };
+          pubKeyCredParams: serverRegistration.pubKeyCredParams.map((parameter) => ({
+            ...parameter,
+          })),
+          authenticatorSelection: { ...serverRegistration.authenticatorSelection },
+          timeout: serverRegistration.timeoutMs,
+          attestation: serverRegistration.attestation,
+          extensions: {
+            prf: {
+              eval: {
+                first: base64UrlDecode(
+                  serverRegistration.extensions.prf.eval.firstB64u,
+                ) as BufferSource,
+                second: base64UrlDecode(
+                  serverRegistration.extensions.prf.eval.secondB64u,
+                ) as BufferSource,
+              },
+            },
+          },
+          excludeCredentials: serverRegistration.excludeCredentials.map((descriptor) => ({
+            type: descriptor.type,
+            id: base64UrlDecode(descriptor.id) as BufferSource,
+          })),
+        }
+      : {
+          challenge: decodeChallengeB64u(requireWalletRegistrationChallenge(args)) as BufferSource,
+          rp: {
+            name: 'WebAuthn Passkey',
+            id: rpId,
+          },
+          user: {
+            id: new TextEncoder().encode(generateSignerSlotUserId(args.walletId, args.signerSlot)),
+            name: expectedUser.walletId,
+            displayName: expectedUser.walletId,
+          },
+          pubKeyCredParams: [
+            { alg: -7, type: 'public-key' },
+            { alg: -257, type: 'public-key' },
+          ],
+          authenticatorSelection: {
+            residentKey: 'required',
+            userVerification: 'preferred',
+          },
+          timeout: 60000,
+          attestation: 'none',
+          extensions: {
+            prf: {
+              eval: {
+                // Fixed, versioned salts. Account-scoping happens at the HKDF derivation layer.
+                first: getPrfFirstSaltV1() as BufferSource,
+                second: getPrfSecondSaltV1() as BufferSource,
+              },
+            },
+          },
+        };
     try {
       const result = await executeWebAuthnWithParentFallbacksSafari('create', publicKey, {
         rpId,

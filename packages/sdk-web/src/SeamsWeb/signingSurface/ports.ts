@@ -1,4 +1,5 @@
 import type { NonceCoordinator } from '@/core/signingEngine/nonce/NonceCoordinator';
+import type { UiConfirmSurfaceMeasurementBinding } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type {
   NearProvisioningState,
   NearProvisioningWriteV1,
@@ -40,7 +41,7 @@ import type { TempoSigningRequest } from '@/core/signingEngine/chains/tempo/temp
 import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
 import type { TempoSignedResult } from '@/core/signingEngine/chains/tempo/tempoAdapter';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
-import type { ProductEd25519YaoCapabilityActivationPortV1 } from '@/core/signingEngine/flows/registration/services/ed25519YaoRegistration';
+import type { NearEd25519YaoOperationMaterial } from '@/core/signingEngine/interfaces/near';
 import type { Ed25519YaoActiveClientIdentityV1 } from '@/core/signingEngine/threshold/ed25519/yaoActiveClientRegistry';
 import type {
   Ed25519YaoPublicCapabilityLaneReferenceV1,
@@ -48,6 +49,8 @@ import type {
 } from '@/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
 import type { AccountId } from '@/core/types/accountIds';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import type { ImportWalletCustodyEcdsaContinuityInput } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
+import type { EcdsaRoleLocalPersistedMaterialRef } from '@/core/signingEngine/session/keyMaterialBrands';
 import type {
   ClientAuthenticatorData,
   ClientUserData,
@@ -102,13 +105,32 @@ import type { EcdsaBootstrapRequest } from '@/core/signingEngine/session/passkey
 import type { ConnectEd25519SessionArgs } from '@/core/signingEngine/session/passkey/public';
 import type { HydrateWarmSigningSessionInput } from '@/core/signingEngine/session/passkey/warmSessionHydration';
 import type { EmailOtpBootstrapRecovery } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/bootstrapRecovery';
-import type { LoginWithEmailOtpEd25519YaoCapabilityInternalArgs } from '@/core/signingEngine/session/emailOtp/ed25519YaoLogin';
-import type { PreparedColdEmailOtpEd25519YaoRecoveryV1 } from '@/core/signingEngine/session/emailOtp/ed25519YaoCapabilityRecovery';
+import type { LoginWithEmailOtpWalletCustodyEd25519Args } from '@/core/signingEngine/walletCustody/ed25519Login';
 import type { EmailOtpEd25519YaoRecoveryBootstrapV1 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
-import type { EmailOtpEd25519YaoPendingFactorHandle } from '@/core/signingEngine/session/emailOtp/ed25519YaoRootVault';
+import type { RouterAbEd25519YaoRegistrationAdmissionRequestV1 } from '@shared/utils/routerAbEd25519Yao';
+import type { RouterAbTraceContextV1 } from '@shared/utils/routerAbTraceContext';
+import type {
+  WalletCustodyCeremonyCommitPayload,
+  WalletCustodyEvmFamilyPublicFacts,
+} from '@shared/passkey-custody';
+import type {
+  PreparedWalletRecovery,
+  WalletRecoveryRegistrationOptions,
+} from '@/core/rpcClients/relayer/walletRecoveryPrepare';
+import type { WalletAddAuthMethodRegistrationOptions } from '@/core/rpcClients/relayer/walletRegistration';
+import type { WalletRecoveryReplacementCredential } from '@/core/signingEngine/walletCustody/walletRecoveryCredential';
+import type { RecoveredWalletCustodyManifestV1 } from '@/core/signingEngine/walletCustody/walletRecoveryManifest';
+import type { WebAuthnCredentialIdB64u } from '@shared/utils/domainIds';
+import type {
+  LoadedWalletCustodyEd25519MaterialV1,
+  LoadWalletCustodyEd25519MaterialResultV1,
+  WalletCustodyEd25519MaterialBindingV1,
+  WalletCustodySealedEd25519MaterialV1,
+} from '@/core/signingEngine/walletCustody/ed25519SeedMaterial';
+import type { WalletCustodyCacheEnvelopeV1 } from '@/core/signingEngine/walletCustody/openCustodyCache';
 import type { EmailOtpAppSessionBinding } from '@/core/signingEngine/session/emailOtp/appSessionJwtCache';
-import type { EmailOtpEd25519YaoPublicationInput } from '@/core/signingEngine/session/emailOtp/ed25519YaoPublication';
+import type { WalletCustodyEd25519Projection } from '@/core/signingEngine/walletCustody/ed25519Projection';
 import type {
   EnrollEmailOtpInternalArgs,
   EnrollEmailOtpInternalResult,
@@ -116,8 +138,6 @@ import type {
   LoginWithEmailOtpEcdsaCapabilityInternalResult,
   PrepareEmailOtpRegistrationEnrollmentMaterialInternalArgs,
   PrepareEmailOtpRegistrationEnrollmentMaterialInternalResult,
-  RotateEmailOtpRecoveryCodesInternalArgs,
-  RotateEmailOtpRecoveryCodesInternalResult,
 } from '@/core/signingEngine/flows/signEvmFamily/emailOtpPublic';
 import type { WebAuthnAllowCredential } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import type { RegistrationCredentialConfirmationPayload } from '@/core/signingEngine/workerManager/validation';
@@ -185,6 +205,10 @@ export interface WalletIframeWarmupSurface {
   warmCriticalResources(
     accountContext?: WorkerResourceWarmupAccountContext,
   ): Promise<WorkerResourceWarmupDiagnostics>;
+}
+
+export interface WalletIframeSurfaceMeasurementSurface {
+  getWalletIframeSurfaceMeasurementBinding(): UiConfirmSurfaceMeasurementBinding;
 }
 
 export interface RegistrationResourceWarmupSurface {
@@ -322,7 +346,218 @@ export interface EcdsaRegistrationSurface {
   ): Promise<StoreWalletEcdsaSignerRecordsResult>;
 }
 
-export type Ed25519YaoRegistrationActivationSurface = ProductEd25519YaoCapabilityActivationPortV1;
+export interface Ed25519YaoCapabilityActivationSurface {
+  activateVerifiedNearEd25519YaoMaterial(
+    material: NearEd25519YaoOperationMaterial,
+  ): Promise<Ed25519YaoActiveClientIdentityV1>;
+}
+
+/**
+ * Running one wallet custody key set from the registration flow.
+ *
+ * A port rather than direct worker access, for the same reason every other
+ * signing operation is one: the operations layer never holds a worker handle.
+ * It matters more here — a run's seed lives in the ceremony worker's wasm state
+ * across three steps, so the flow that starts a run must not be able to route
+ * one of its steps somewhere else.
+ *
+ * The result deliberately splits what leaves the device from what stays on it.
+ * `commitPayload` is the wire projection; `localMaterial` is the continuity
+ * cache and never crosses.
+ */
+export interface WalletCustodyCeremonySurface {
+  createWalletRecoveryReplacementCredential(args: {
+    walletId: string;
+    registration: WalletRecoveryRegistrationOptions;
+  }): Promise<WalletRecoveryReplacementCredential>;
+
+  recoverWalletCustodyManifest(args: {
+    walletId: string;
+    prepared: PreparedWalletRecovery;
+    custodyJson: string;
+    recoveryCodeBytes: Uint8Array;
+    replacementCredentialIdB64u: WebAuthnCredentialIdB64u;
+    replacementFactorSecret: ArrayBuffer;
+    relayUrl: string;
+  }): Promise<RecoveredWalletCustodyManifestV1>;
+
+  establishWalletCustodyNearEd25519KeySet(args: {
+    walletId: string;
+    factorJson: string;
+    factorSecret: ArrayBuffer;
+    nearEd25519SigningKeyId: string;
+    registrationCeremonyId: string;
+    admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+    admissionReceipt: unknown;
+    participantIds: readonly [number, number];
+    routerOrigin: string;
+    /** The signed setup: the Router authorizes the execute round against it. */
+    authorization: string;
+    traceContext?: RouterAbTraceContextV1;
+  }): Promise<EstablishedWalletCustodyNearEd25519KeySetV1>;
+
+  joinWalletCustodyNearEd25519KeySet(args: {
+    custodyJson: string;
+    factorSecret: ArrayBuffer;
+    nearEd25519SigningKeyId: string;
+    registrationCeremonyId: string;
+    admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+    admissionReceipt: unknown;
+    participantIds: readonly [number, number];
+    routerOrigin: string;
+    authorization: string;
+    traceContext?: RouterAbTraceContextV1;
+  }): Promise<JoinedWalletCustodyNearEd25519KeySetV1>;
+
+  rejoinWalletCustodyNearEd25519KeySet(args: {
+    walletId: string;
+    custodyJson: string;
+    factorSecret: ArrayBuffer;
+    nearEd25519SigningKeyId: string;
+    registrationCeremonyId: string;
+    admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+    admissionReceipt: unknown;
+    participantIds: readonly [number, number];
+    registeredPublicKeyB64u: string;
+    routerOrigin: string;
+    walletSessionJwt: string;
+  }): Promise<JoinedWalletCustodyNearEd25519KeySetV1>;
+
+  activateEmailOtpEd25519RegistrationMaterialInternal(args: {
+    walletSession: WalletSessionRef;
+    providerSubject: string;
+    emailHashHex: string;
+    signerSlot: number;
+    expectedOperationalPublicKey: string;
+    expectedThresholdSessionId: string;
+    bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
+    material: LoadedWalletCustodyEd25519MaterialV1;
+    envelope: WalletCustodyCacheEnvelopeV1;
+    factorSecret32: ArrayBuffer;
+  }): Promise<NearEd25519SignerBinding>;
+
+  establishWalletCustodyEvmFamilyKeySet(args: {
+    walletId: string;
+    factorJson: string;
+    factorSecret: ArrayBuffer;
+    evmFamilySigningKeySlotId: string;
+    applicationBindingDigestB64u: string;
+    confirmRecoveryCodesBackedUp: (recoveryCodes: readonly string[]) => Promise<void>;
+    runRelayerRound: (bootstrap: {
+      contextBinding32B64u: string;
+      clientSharePublicKey33B64u: string;
+      clientShareRetryCounter: number;
+      preActivationCommitPayload: WalletCustodyCeremonyCommitPayload;
+    }) => Promise<string>;
+  }): Promise<EstablishedWalletCustodyEvmFamilyKeySetV1>;
+
+  joinWalletCustodyEvmFamilyKeySet(args: {
+    walletId: string;
+    custodyJson: string;
+    factorSecret: ArrayBuffer;
+    evmFamilySigningKeySlotId: string;
+    applicationBindingDigestB64u: string;
+    runRelayerRound: (bootstrap: {
+      contextBinding32B64u: string;
+      clientSharePublicKey33B64u: string;
+      clientShareRetryCounter: number;
+      preActivationCommitPayload: WalletCustodyCeremonyCommitPayload;
+    }) => Promise<string>;
+  }): Promise<JoinedWalletCustodyEvmFamilyKeySetV1>;
+
+  rejoinWalletCustodyEvmFamilyKeySet(args: {
+    walletId: string;
+    custodyJson: string;
+    factorSecret: ArrayBuffer;
+    evmFamilySigningKeySlotId: string;
+    applicationBindingDigestB64u: string;
+    registeredClientRootPublicKey33B64u: string;
+    relayerPublicIdentityJson: string;
+  }): Promise<RejoinedWalletCustodyEvmFamilyKeySetV1>;
+
+  restoreWalletCustodyEcdsaContinuity(
+    args: Omit<ImportWalletCustodyEcdsaContinuityInput, 'store'>,
+  ): Promise<{
+    readonly materialActivation: MpcMaterialActivationRef;
+    readonly materialRef: EcdsaRoleLocalPersistedMaterialRef;
+  }>;
+
+  /**
+   * Persists the wallet-scoped continuity cache the ceremony sealed.
+   *
+   * Separate from establishing it because the record can only be written once
+   * the wallet profile exists, which registration creates between the two.
+   */
+  persistWalletCustodyEd25519Material(args: {
+    binding: WalletCustodyEd25519MaterialBindingV1;
+    sealed: WalletCustodySealedEd25519MaterialV1;
+  }): Promise<void>;
+
+  loadWalletCustodyEd25519Material(args: {
+    nearAccountId: string;
+    signerSlot: number;
+    expectedRegisteredPublicKeyB64u: string;
+  }): Promise<LoadWalletCustodyEd25519MaterialResultV1>;
+
+  deleteWalletCustodyEd25519Material(args: {
+    nearAccountId: string;
+    signerSlot: number;
+  }): Promise<void>;
+}
+
+/**
+ * What one established NEAR key set hands back to the registration flow.
+ *
+ * `recoveryCodes` are the only copy: the wraps are one-way, so a caller that
+ * discards them has issued ten codes nobody can ever produce.
+ */
+export type EstablishedWalletCustodyNearEd25519KeySetV1 = {
+  readonly recoveryCodes: readonly string[];
+  readonly commitPayload: WalletCustodyCeremonyCommitPayload;
+  readonly activationReference: {
+    readonly kind: 'router_ab_ed25519_yao_activation_reference_v1';
+    readonly lifecycle_id: string;
+    readonly session_id: readonly number[];
+  };
+  /** Rebuilt from the Router's receipt; every identity on it is the Router's. */
+  readonly metadata: RouterAbEd25519YaoActiveClientMetadataV1;
+  /** The same-device cache. Stays on the device by construction. */
+  readonly localMaterial: {
+    readonly b64u: string;
+    readonly nonceB64u: string;
+    readonly applicationBindingDigestB64u: string;
+  };
+};
+
+export type JoinedWalletCustodyNearEd25519KeySetV1 = Omit<
+  EstablishedWalletCustodyNearEd25519KeySetV1,
+  'recoveryCodes'
+>;
+
+export type EstablishedWalletCustodyEvmFamilyKeySetV1 = {
+  readonly recoveryCodes: readonly string[];
+  readonly commitPayload: WalletCustodyCeremonyCommitPayload;
+  readonly clientBootstrap: {
+    readonly contextBinding32B64u: string;
+    readonly derivationClientSharePublicKey33B64u: string;
+    readonly clientShareRetryCounter: number;
+    readonly participantId: 1;
+  };
+  readonly localMaterial: {
+    readonly readyStateBlobB64u: string;
+    readonly publicFacts: WalletCustodyEvmFamilyPublicFacts;
+  };
+};
+
+export type RejoinedWalletCustodyEvmFamilyKeySetV1 = {
+  readonly readyStateBlobB64u: string;
+  readonly publicFacts: WalletCustodyEvmFamilyPublicFacts;
+};
+
+export type JoinedWalletCustodyEvmFamilyKeySetV1 = Omit<
+  EstablishedWalletCustodyEvmFamilyKeySetV1,
+  'recoveryCodes'
+>;
 
 export interface Ed25519MaterialOwnerQueueSurface {
   withExactEd25519MaterialOwner<T>(args: {
@@ -359,6 +594,10 @@ export interface WalletAuthenticationSurface {
   setWalletAuthenticated(
     state: Extract<WalletAuthenticationState, { kind: 'authenticated' }>,
   ): void;
+  setLinkedDeviceWalletSession(
+    state: Extract<WalletAuthenticationState, { kind: 'linked_device_session' }>,
+  ): void;
+  clearLinkedDeviceWalletSession(walletId: WalletId): void;
   clearWalletAuthentication(): void;
 }
 
@@ -377,7 +616,10 @@ export type WalletSessionReadSurface = RuntimeStartupSurface &
   WarmSessionStatusSurface &
   Pick<
     WalletAuthenticationSurface,
-    'readWalletAuthenticationState' | 'restoreWalletAuthenticationState'
+    | 'readWalletAuthenticationState'
+    | 'restoreWalletAuthenticationState'
+    | 'setLinkedDeviceWalletSession'
+    | 'clearLinkedDeviceWalletSession'
   > &
   Pick<
     SigningSessionSurface,
@@ -387,14 +629,17 @@ export type WalletSessionReadSurface = RuntimeStartupSurface &
 export type LoginUnlockSigningSurface = WalletSessionReadSurface &
   UserAccountLookupSurface &
   LoginWarmSigningSurface &
-  Ed25519YaoRegistrationActivationSurface &
+  Ed25519YaoCapabilityActivationSurface &
   Ed25519MaterialOwnerQueueSurface &
-  Pick<RegistrationAccountSurface, 'upsertEd25519YaoPublicCapabilityLaneReference'> &
-  EcdsaLoginSessionSurface &
   Pick<
-    SigningSessionSurface,
-    'hydrateSigningSession' | 'persistSigningSessionSealForThresholdSession'
+    WalletCustodyCeremonySurface,
+    | 'loadWalletCustodyEd25519Material'
+    | 'rejoinWalletCustodyNearEd25519KeySet'
+    | 'rejoinWalletCustodyEvmFamilyKeySet'
+    | 'restoreWalletCustodyEcdsaContinuity'
+    | 'persistWalletCustodyEd25519Material'
   > &
+  EcdsaLoginSessionSurface &
   PasskeyLoginAssertionSurface &
   Pick<EcdsaSessionControlSurface, 'clearVolatileWarmSigningMaterial'> &
   Pick<UserProfileStoreSurface, 'setLastUser'> &
@@ -427,13 +672,10 @@ export type LocalLoginStateSurface = WalletSessionReadSurface &
   >;
 
 export type AccountSyncSigningSurface = LocalLoginStateSurface &
-  Ed25519YaoRegistrationActivationSurface &
+  Ed25519YaoCapabilityActivationSurface &
+  WalletCustodyCeremonySurface &
   Ed25519MaterialOwnerQueueSurface &
   Pick<EcdsaSessionControlSurface, 'clearVolatileWarmSigningMaterial'> &
-  Pick<
-    SigningSessionSurface,
-    'hydrateSigningSession' | 'persistSigningSessionSealForThresholdSession'
-  > &
   RpIdSurface &
   PasskeyLoginAssertionSurface &
   Pick<
@@ -454,6 +696,7 @@ export interface WebAuthnRegistrationConfirmationSurface {
     confirmerText?: { title?: string; body?: string };
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
     challengeB64u?: string;
+    registrationOptions?: WalletAddAuthMethodRegistrationOptions;
   }): Promise<RegistrationCredentialConfirmationPayload>;
   startPreparedPasskeyRegistrationCredential(args: {
     walletId: string;
@@ -479,27 +722,22 @@ export interface PasskeyLoginAssertionSurface {
 export interface EmailOtpSigningSessionSurface {
   rememberEmailOtpAppSessionBinding(binding: EmailOtpAppSessionBinding): void;
   rememberEmailOtpAppSessionJwt(walletId: WalletId, appSessionJwt: string): void;
-  persistEmailOtpEd25519YaoCapabilityForRefreshInternal(
-    input: EmailOtpEd25519YaoPublicationInput,
-  ): Promise<void>;
-  prepareEmailOtpEd25519YaoLoginRecoveryInternal(args: {
+  resolveEmailOtpEd25519CustodyProjectionInternal(args: {
     walletSession: WalletSessionRef;
-    remainingUses: number;
+  }): Promise<WalletCustodyEd25519Projection | null>;
+  activateEmailOtpEd25519CustodyCapabilityInternal(args: {
+    walletSession: WalletSessionRef;
+    providerSubject: string;
     emailHashHex: string;
-  }): Promise<PreparedColdEmailOtpEd25519YaoRecoveryV1 | null>;
-  activateEmailOtpEd25519YaoUnlockedRecoveryInternal(args: {
-    prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
-    bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
-    pendingFactorHandle: EmailOtpEd25519YaoPendingFactorHandle;
-  }): Promise<NearEd25519SignerBinding>;
-  activateEmailOtpEd25519YaoLocalCapabilityInternal(args: {
-    prepared: PreparedColdEmailOtpEd25519YaoRecoveryV1;
+    signerSlot: number;
+    expectedOperationalPublicKey: string;
+    expectedThresholdSessionId: string;
     bootstrap: EmailOtpEd25519YaoRecoveryBootstrapV1;
     activeClientHandle: string;
     metadata: RouterAbEd25519YaoActiveClientMetadataV1;
   }): Promise<NearEd25519SignerBinding>;
-  loginWithEmailOtpEd25519YaoCapabilityInternal(
-    args: LoginWithEmailOtpEd25519YaoCapabilityInternalArgs,
+  loginWithEmailOtpWalletCustodyEd25519Internal(
+    args: LoginWithEmailOtpWalletCustodyEd25519Args,
   ): Promise<NearEd25519SignerBinding>;
   loginWithEmailOtpEcdsaCapabilityInternal(
     args: LoginWithEmailOtpEcdsaCapabilityInternalArgs,
@@ -529,9 +767,6 @@ export interface EmailOtpSigningSessionSurface {
     relayUrl: string;
   }): Promise<string>;
   enrollEmailOtpInternal(args: EnrollEmailOtpInternalArgs): Promise<EnrollEmailOtpInternalResult>;
-  rotateEmailOtpRecoveryCodesInternal(
-    args: RotateEmailOtpRecoveryCodesInternalArgs,
-  ): Promise<RotateEmailOtpRecoveryCodesInternalResult>;
 }
 
 export interface KeyExportSigningSurface {
@@ -550,7 +785,9 @@ export interface EmailOtpRegistrationEnrollmentSurface {
 }
 
 export type RegistrationSigningSurface = RpIdSurface &
-  Ed25519YaoRegistrationActivationSurface &
+  WalletIframeSurfaceMeasurementSurface &
+  Ed25519YaoCapabilityActivationSurface &
+  WalletCustodyCeremonySurface &
   Pick<WalletIframeWarmupSurface, 'warmCriticalResources'> &
   RegistrationResourceWarmupSurface &
   Pick<
@@ -563,7 +800,7 @@ export type RegistrationSigningSurface = RpIdSurface &
   > &
   Pick<
     EmailOtpSigningSessionSurface,
-    'rememberEmailOtpAppSessionBinding' | 'persistEmailOtpEd25519YaoCapabilityForRefreshInternal'
+    'rememberEmailOtpAppSessionBinding' | 'resolveEmailOtpAppSessionJwt'
   > &
   SignerWorkerContextSurface &
   PasskeyLoginAssertionSurface &
@@ -617,7 +854,7 @@ export type LocalLoginStateWebContext = SeamsWebBaseContext<LocalLoginStateSurfa
 export type AccountSyncWebContext = SeamsWebBaseContext<AccountSyncSigningSurface>;
 
 export type EmailRecoverySigningSurface = AccountSyncSigningSurface &
-  Ed25519YaoRegistrationActivationSurface &
+  Ed25519YaoCapabilityActivationSurface &
   WebAuthnRegistrationConfirmationSurface &
   Pick<RegistrationAccountSurface, 'storeWalletEd25519RecoveryRegistrationData'> &
   Pick<EcdsaRegistrationSurface, 'storeWalletEcdsaRecoverySignerRecords'>;

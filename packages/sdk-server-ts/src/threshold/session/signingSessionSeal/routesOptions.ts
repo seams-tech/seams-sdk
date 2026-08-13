@@ -93,7 +93,7 @@ function parseCurveBoundThresholdLookup(args: {
   const thresholdSessionId = String(args.thresholdSessionId || '').trim();
   if (!thresholdSessionId) return null;
   const ecdsaClaims = parseRouterAbEcdsaDerivationWalletSessionClaims(args.claims);
-  if (ecdsaClaims) {
+  if (ecdsaClaims?.authorizationKind === 'owner_wallet_session') {
     return ecdsaClaims.thresholdSessionId === thresholdSessionId
       ? {
           curve: 'ecdsa',
@@ -103,7 +103,7 @@ function parseCurveBoundThresholdLookup(args: {
       : null;
   }
   const ed25519Claims = parseRouterAbEd25519WalletSessionClaims(args.claims);
-  if (ed25519Claims) {
+  if (ed25519Claims?.authorizationKind === 'owner_wallet_session') {
     return ed25519Claims.thresholdSessionId === thresholdSessionId
       ? {
           curve: 'ed25519',

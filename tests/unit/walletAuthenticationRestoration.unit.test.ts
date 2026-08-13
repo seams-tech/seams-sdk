@@ -43,8 +43,7 @@ function createRestorationTestSurface(
     getCurrentWalletId: () => undefined,
   };
   fields.emailOtpSessions = {
-    resolveAppSessionJwtForWallet:
-      options.resolveAppSessionJwtForWallet ?? noCachedEmailOtpJwt,
+    resolveAppSessionJwtForWallet: options.resolveAppSessionJwtForWallet ?? noCachedEmailOtpJwt,
   };
   return surface;
 }
@@ -149,10 +148,10 @@ function hostedWalletSessionExchangeResponse(args: {
     },
     expiresAtMs: Date.now() + 60 * 60 * 1000,
   };
-  return new Response(
-    JSON.stringify({ ok: true, session, jwt: args.appSessionJwt }),
-    { status: 200, headers: { 'content-type': 'application/json' } },
-  );
+  return new Response(JSON.stringify({ ok: true, session, jwt: args.appSessionJwt }), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  });
 }
 
 async function seedHostedOidcSession(args: {

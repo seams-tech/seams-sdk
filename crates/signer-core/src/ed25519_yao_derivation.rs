@@ -27,25 +27,6 @@ pub const ED25519_YAO_CONTRIBUTION_KDF_EXPAND_INFO_DOMAIN_V1: &[u8] =
     b"seams/router-ab/ed25519-yao/contribution-kdf/hkdf-sha256/expand/v1";
 pub const ED25519_YAO_CONTRIBUTION_KDF_EXPAND_INFO_LEN_V1: usize =
     ED25519_YAO_CONTRIBUTION_KDF_EXPAND_INFO_DOMAIN_V1.len() + 1 + 1 + 1 + 1 + 32;
-/// HKDF extract salt for deriving the Yao Client root from passkey PRF.first.
-pub const ED25519_YAO_PASSKEY_CLIENT_ROOT_KDF_EXTRACT_SALT_V1: &[u8] =
-    b"seams/router-ab/ed25519-yao/client-root/passkey-prf-first/hkdf-sha256/extract/v1";
-/// HKDF expand domain for the passkey-derived Yao Client root.
-pub const ED25519_YAO_PASSKEY_CLIENT_ROOT_KDF_EXPAND_INFO_DOMAIN_V1: &[u8] =
-    b"seams/router-ab/ed25519-yao/client-root/passkey-prf-first/hkdf-sha256/expand/v1";
-/// Exact passkey Client-root HKDF expand-info length.
-pub const ED25519_YAO_PASSKEY_CLIENT_ROOT_KDF_EXPAND_INFO_LEN_V1: usize =
-    ED25519_YAO_PASSKEY_CLIENT_ROOT_KDF_EXPAND_INFO_DOMAIN_V1.len() + 32;
-/// HKDF extract salt for deriving the Yao Client root from an Email OTP factor secret.
-pub const ED25519_YAO_EMAIL_OTP_CLIENT_ROOT_KDF_EXTRACT_SALT_V1: &[u8] =
-    b"seams/router-ab/ed25519-yao/client-root/email-otp-factor/hkdf-sha256/extract/v1";
-/// HKDF expand domain for the Email OTP-derived Yao Client root.
-pub const ED25519_YAO_EMAIL_OTP_CLIENT_ROOT_KDF_EXPAND_INFO_DOMAIN_V1: &[u8] =
-    b"seams/router-ab/ed25519-yao/client-root/email-otp-factor/hkdf-sha256/expand/v1";
-/// Exact Email OTP Client-root HKDF expand-info length.
-pub const ED25519_YAO_EMAIL_OTP_CLIENT_ROOT_KDF_EXPAND_INFO_LEN_V1: usize =
-    ED25519_YAO_EMAIL_OTP_CLIENT_ROOT_KDF_EXPAND_INFO_DOMAIN_V1.len() + 32;
-
 const ROLE_A_TAG: u8 = 0x01;
 const ROLE_B_TAG: u8 = 0x02;
 const CLIENT_SOURCE_TAG: u8 = 0x01;
@@ -280,49 +261,6 @@ macro_rules! define_root {
 define_root!(Ed25519YaoClientDerivationRootV1);
 define_root!(Ed25519YaoDeriverADerivationRootV1);
 define_root!(Ed25519YaoDeriverBDerivationRootV1);
-
-/// Derives the stable Client root from wallet-origin passkey PRF.first material.
-pub fn derive_ed25519_yao_client_root_from_passkey_prf_first_v1(
-    passkey_prf_first: &[u8; 32],
-    application_binding_digest: &[u8; 32],
-) -> CoreResult<Ed25519YaoClientDerivationRootV1> {
-    let hkdf = Hkdf::<Sha256>::new(
-        Some(ED25519_YAO_PASSKEY_CLIENT_ROOT_KDF_EXTRACT_SALT_V1),
-        passkey_prf_first,
-    );
-    let mut info = [0_u8; ED25519_YAO_PASSKEY_CLIENT_ROOT_KDF_EXPAND_INFO_LEN_V1];
-    let domain_end = ED25519_YAO_PASSKEY_CLIENT_ROOT_KDF_EXPAND_INFO_DOMAIN_V1.len();
-    info[..domain_end].copy_from_slice(ED25519_YAO_PASSKEY_CLIENT_ROOT_KDF_EXPAND_INFO_DOMAIN_V1);
-    info[domain_end..].copy_from_slice(application_binding_digest);
-    let mut root = Zeroizing::new([0_u8; 32]);
-    hkdf.expand(&info, &mut *root)
-        .map_err(|_| SignerCoreError::hkdf_error("Ed25519 Yao passkey Client root HKDF failed"))?;
-    Ok(Ed25519YaoClientDerivationRootV1::from_secret_bytes(
-        core::mem::take(&mut *root),
-    ))
-}
-
-/// Derives the stable Client root from the Email OTP enrollment factor secret.
-pub fn derive_ed25519_yao_client_root_from_email_otp_factor_v1(
-    email_otp_factor: &[u8; 32],
-    application_binding_digest: &[u8; 32],
-) -> CoreResult<Ed25519YaoClientDerivationRootV1> {
-    let hkdf = Hkdf::<Sha256>::new(
-        Some(ED25519_YAO_EMAIL_OTP_CLIENT_ROOT_KDF_EXTRACT_SALT_V1),
-        email_otp_factor,
-    );
-    let mut info = [0_u8; ED25519_YAO_EMAIL_OTP_CLIENT_ROOT_KDF_EXPAND_INFO_LEN_V1];
-    let domain_end = ED25519_YAO_EMAIL_OTP_CLIENT_ROOT_KDF_EXPAND_INFO_DOMAIN_V1.len();
-    info[..domain_end].copy_from_slice(ED25519_YAO_EMAIL_OTP_CLIENT_ROOT_KDF_EXPAND_INFO_DOMAIN_V1);
-    info[domain_end..].copy_from_slice(application_binding_digest);
-    let mut root = Zeroizing::new([0_u8; 32]);
-    hkdf.expand(&info, &mut *root).map_err(|_| {
-        SignerCoreError::hkdf_error("Ed25519 Yao Email OTP Client root HKDF failed")
-    })?;
-    Ok(Ed25519YaoClientDerivationRootV1::from_secret_bytes(
-        core::mem::take(&mut *root),
-    ))
-}
 
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct Ed25519YaoYContributionV1([u8; 32]);
@@ -596,53 +534,4 @@ fn contribution_expand_info(
     info[domain_end + 3] = output_tag;
     info[domain_end + 4..].copy_from_slice(context_binding);
     info
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{
-        derive_ed25519_yao_client_root_from_email_otp_factor_v1,
-        derive_ed25519_yao_client_root_from_passkey_prf_first_v1,
-    };
-
-    #[test]
-    fn passkey_client_root_kdf_matches_independent_hkdf_vector() {
-        let root =
-            derive_ed25519_yao_client_root_from_passkey_prf_first_v1(&[0x42; 32], &[0x24; 32])
-                .expect("passkey Client root");
-        assert_eq!(
-            root.as_bytes(),
-            &[
-                0x3f, 0x3d, 0x66, 0x0e, 0x32, 0x43, 0xcc, 0x35, 0x53, 0x19, 0x08, 0x28, 0x52, 0xe9,
-                0xa8, 0xa4, 0xa0, 0x44, 0xa5, 0x02, 0xd8, 0xba, 0x3b, 0x82, 0x1c, 0x73, 0x4c, 0x17,
-                0xc5, 0xa5, 0xbf, 0x11,
-            ]
-        );
-    }
-
-    #[test]
-    fn passkey_client_root_kdf_binds_application_digest() {
-        let first =
-            derive_ed25519_yao_client_root_from_passkey_prf_first_v1(&[0x42; 32], &[0x24; 32])
-                .expect("first root");
-        let second =
-            derive_ed25519_yao_client_root_from_passkey_prf_first_v1(&[0x42; 32], &[0x25; 32])
-                .expect("second root");
-        assert_ne!(first.as_bytes(), second.as_bytes());
-    }
-
-    #[test]
-    fn email_otp_client_root_kdf_binds_application_digest_and_factor_domain() {
-        let first =
-            derive_ed25519_yao_client_root_from_email_otp_factor_v1(&[0x42; 32], &[0x24; 32])
-                .expect("first Email OTP root");
-        let second =
-            derive_ed25519_yao_client_root_from_email_otp_factor_v1(&[0x42; 32], &[0x25; 32])
-                .expect("second Email OTP root");
-        let passkey =
-            derive_ed25519_yao_client_root_from_passkey_prf_first_v1(&[0x42; 32], &[0x24; 32])
-                .expect("passkey root");
-        assert_ne!(first.as_bytes(), second.as_bytes());
-        assert_ne!(first.as_bytes(), passkey.as_bytes());
-    }
 }

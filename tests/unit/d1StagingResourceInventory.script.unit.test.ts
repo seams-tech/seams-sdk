@@ -72,10 +72,14 @@ function resourceCommandRunner(command: string): D1StagingCommandResult {
 }
 
 function failingResourceCommandRunner(command: string): D1StagingCommandResult {
-  return d1StagingJsonCommandResult(command, { command, ok: false }, {
-    status: 1,
-    stderr: 'remote inventory failed',
-  });
+  return d1StagingJsonCommandResult(
+    command,
+    { command, ok: false },
+    {
+      status: 1,
+      stderr: 'remote inventory failed',
+    },
+  );
 }
 
 function emptyJsonResourceCommandRunner(command: string): D1StagingCommandResult {
@@ -161,7 +165,7 @@ test('D1 staging resource inventory rejects empty remote JSON metadata', async (
 
 test('D1 staging resource inventory rejects configs that fail the readiness gate', async () => {
   const module = await resourceInventoryModule;
-  expect(() =>
-    module.buildD1StagingResourceInventoryPlan(misScopedResourceInventoryInput),
-  ).toThrow(/console staging config must not reference SIGNER_DB/);
+  expect(() => module.buildD1StagingResourceInventoryPlan(misScopedResourceInventoryInput)).toThrow(
+    /console staging config must not reference SIGNER_DB/,
+  );
 });

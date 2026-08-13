@@ -841,7 +841,7 @@ function parseWalletAuthMethodRow(value: unknown): LocalWalletAuthMethodRecord |
 
 function parseAuthenticatorRow(value: unknown): ProfileAuthenticatorRecord | null {
   const row = parseWalletAuthMethodStorageRow(value);
-  if (!row || row.kind !== 'passkey') return null;
+  if (!row || row.kind !== 'passkey' || row.status !== 'active') return null;
   return row.authenticator;
 }
 

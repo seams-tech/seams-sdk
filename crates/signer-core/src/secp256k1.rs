@@ -3,6 +3,7 @@ use k256::ecdsa::{RecoveryId, Signature, SigningKey, VerifyingKey};
 use k256::elliptic_curve::bigint::U512;
 use k256::elliptic_curve::ops::Reduce;
 use k256::elliptic_curve::sec1::ToEncodedPoint;
+use k256::schnorr::{Signature as Bip340Signature, VerifyingKey as Bip340VerifyingKey};
 use k256::{FieldBytes, NonZeroScalar, ProjectivePoint, PublicKey, SecretKey, WideBytes};
 use sha2::Sha256;
 use sha3::{Digest, Keccak256};
@@ -260,10 +261,51 @@ pub fn verify_secp256k1_recoverable_signature_against_public_key_33(
     Ok(recovered_bytes.as_bytes().to_vec())
 }
 
+/// Verifies a canonical BIP340 signature over a prehashed digest against a
+/// compressed SEC1 public key. The SEC1 prefix is validated before BIP340's
+/// x-only verification so the challenge remains bound to the exact parity.
+pub fn verify_secp256k1_bip340_signature_against_public_key_33(
+    digest32: &[u8],
+    signature64: &[u8],
+    public_key33: &[u8],
+) -> CoreResult<()> {
+    if digest32.len() != 32 {
+        return Err(SignerCoreError::invalid_length("digest32 must be 32 bytes"));
+    }
+    if signature64.len() != 64 {
+        return Err(SignerCoreError::invalid_length(
+            "signature64 must be 64 bytes",
+        ));
+    }
+    if public_key33.len() != 33 {
+        return Err(SignerCoreError::invalid_length(
+            "public_key33 must be 33 bytes",
+        ));
+    }
+    let expected_public_key = PublicKey::from_sec1_bytes(public_key33)
+        .map_err(|_| SignerCoreError::decode_error("invalid compressed secp256k1 public key"))?;
+    let expected_public_key_bytes = expected_public_key.to_encoded_point(true);
+    if expected_public_key_bytes.as_bytes() != public_key33 {
+        return Err(SignerCoreError::decode_error(
+            "compressed secp256k1 public key must use canonical SEC1 encoding",
+        ));
+    }
+    let verifying_key = Bip340VerifyingKey::from_bytes(&public_key33[1..])
+        .map_err(|_| SignerCoreError::decode_error("invalid BIP340 x-only public key"))?;
+    let signature = Bip340Signature::try_from(signature64)
+        .map_err(|_| SignerCoreError::decode_error("invalid BIP340 signature"))?;
+    verifying_key
+        .verify_raw(digest32, &signature)
+        .map_err(|_| SignerCoreError::crypto_error("BIP340 signature verification failed"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use k256::ecdsa::{Signature, VerifyingKey};
+    use k256::elliptic_curve::sec1::ToEncodedPoint;
+    use k256::schnorr::SigningKey as Bip340SigningKey;
+    use k256::SecretKey;
 
     #[test]
     fn add_secp256k1_public_keys_matches_scalar_sum() {
@@ -358,6 +400,40 @@ mod tests {
         )
         .expect("verify");
         assert_eq!(verified, public_key33);
+    }
+
+    #[test]
+    fn verify_bip340_signature_against_public_key_33_roundtrips() {
+        let mut secret32 = [0u8; 32];
+        secret32[31] = 7;
+        let public_key33: [u8; 33] = SecretKey::from_slice(&secret32)
+            .expect("secret key")
+            .public_key()
+            .to_encoded_point(true)
+            .as_bytes()
+            .try_into()
+            .expect("compressed public key");
+        let digest32 = [0x42; 32];
+        let signature = Bip340SigningKey::from_bytes(&secret32)
+            .expect("BIP340 signing key")
+            .sign_prehash_with_aux_rand(&digest32, &[0x5a; 32])
+            .expect("BIP340 signature");
+
+        verify_secp256k1_bip340_signature_against_public_key_33(
+            &digest32,
+            &signature.to_bytes(),
+            &public_key33,
+        )
+        .expect("BIP340 signature verifies");
+
+        let mut wrong_digest = digest32;
+        wrong_digest[0] ^= 1;
+        assert!(verify_secp256k1_bip340_signature_against_public_key_33(
+            &wrong_digest,
+            &signature.to_bytes(),
+            &public_key33,
+        )
+        .is_err());
     }
 
     #[test]

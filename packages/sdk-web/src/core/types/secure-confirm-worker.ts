@@ -14,6 +14,7 @@ import type {
   SealedSigningSessionEd25519RestoreMetadata,
 } from '@shared/utils/signingSessionSeal';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 
 type WarmSessionSealTransportCommon = {
   walletId?: string;
@@ -179,6 +180,7 @@ export type RouterAbEd25519YaoExportWorkerPayloadV1 = ExportPrivateKeysWithUiWor
     credentialIdB64u: string;
     materialActivation: MpcMaterialActivationRef;
   };
+  walletCustodyEnvelope: PasskeyCustodyEnvelopeRecord;
   capability: {
     scope: RouterAbEd25519YaoLifecycleScopeV1;
     applicationBinding: RouterAbEd25519YaoApplicationBindingFactsV1;

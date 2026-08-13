@@ -41,7 +41,7 @@ export type EmailOtpExistingChallengeVerifyInput =
       readonly operation: EmailOtpLoginChallengeOperation;
     })
   | (EmailOtpExistingChallengeVerifyBaseInput & {
-      readonly action: typeof WALLET_EMAIL_OTP_ACTIONS.deviceRecovery;
+      readonly action: typeof WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap;
       readonly operation: typeof WALLET_EMAIL_OTP_UNLOCK_OPERATION;
     });
 
@@ -106,7 +106,7 @@ export type EmailOtpRegistrationChallengeVerifyResult =
       resetAtMs?: number;
     };
 
-type ActiveEmailOtpEnrollmentResult =
+export type ActiveEmailOtpEnrollmentResult =
   | { readonly ok: true; readonly enrollment: EmailOtpWalletEnrollmentRecord }
   | { readonly ok: false; readonly code: string; readonly message: string };
 
@@ -186,6 +186,14 @@ export class CloudflareD1EmailOtpChallengeVerifier {
     this.emailOtpEnrollments = input.emailOtpEnrollments;
     this.emailOtpRateLimits = input.emailOtpRateLimits;
     this.lockoutTtlMs = input.lockoutTtlMs;
+  }
+
+  async readActiveEnrollmentForWallet(input: {
+    readonly walletId: string;
+    readonly orgId: string;
+    readonly providerUserId: string;
+  }): Promise<ActiveEmailOtpEnrollmentResult> {
+    return await this.readActiveEnrollment(input);
   }
 
   async verifyExisting(

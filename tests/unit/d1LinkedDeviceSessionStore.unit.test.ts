@@ -1,0 +1,479 @@
+import { expect, test } from '@playwright/test';
+import {
+  parseLinkedDeviceEnrollmentId,
+  parseLinkedDeviceId,
+  parseLinkDeviceSessionId,
+} from '@shared/signing-lanes';
+import { buildLinkedDeviceEnrollmentReceiptV1 } from '@shared/device-linking/parsers';
+import { parseWalletId } from '@shared/utils/domainIds';
+import { base64UrlEncode } from '@shared/utils/base64';
+import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
+import { LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1 } from '@shared/device-linking/requestProof';
+import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
+import {
+  D1LinkedDeviceSessionStoreV1,
+  type D1LinkedDeviceSessionScopeV1,
+} from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceSessionStore';
+import {
+  LinkedDeviceSessionServiceV1,
+  parseLinkedDeviceSessionRecordV1,
+  type LinkedDeviceAggregateActivationVerifierV1,
+  type LinkedDeviceOwnerAuthorizationPortV1,
+} from '../../packages/sdk-server-ts/src/core/deviceLinking/linkedDeviceSession';
+import {
+  applyD1MigrationFiles,
+  cleanupTemporaryD1Database,
+  createTemporaryD1Database,
+  listD1MigrationFiles,
+  type TemporaryD1Database,
+} from '../helpers/sqliteD1';
+
+const scope: D1LinkedDeviceSessionScopeV1 = {
+  namespace: 'signer',
+  orgId: 'org_test',
+  projectId: 'project_test',
+  envId: 'env_test',
+};
+
+const nowMs = 1_800_000_000_000;
+
+const aggregateActivationVerifier = {
+  verifyAggregateActivationV1: async () => ({ kind: 'verified' as const }),
+} satisfies LinkedDeviceAggregateActivationVerifierV1;
+
+let temporary: TemporaryD1Database | undefined;
+
+test.afterEach(() => {
+  if (temporary) cleanupTemporaryD1Database(temporary.tempDir);
+  temporary = undefined;
+});
+
+test('claims exactly once, replays the exact claim, and never writes identity before claim', async () => {
+  temporary = createTemporaryD1Database();
+  await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+  const store = new D1LinkedDeviceSessionStoreV1({ database: temporary.database, scope });
+  const auth = ownerAuth();
+  const service = new LinkedDeviceSessionServiceV1({
+    store,
+    authorization: auth,
+    aggregateActivationVerifier,
+  });
+  const payload = qrPayload('session-one');
+
+  const created = await service.createUnclaimedSessionV1({ payload, nowMs });
+  expect(created.outcome).toBe('applied');
+  if (created.outcome !== 'applied') throw new Error('expected create');
+  expect(created.record.state.state).toBe('displaying_qr');
+  expect('walletId' in created.record.state).toBe(false);
+
+  const claimed = await service.claimSessionV1({ payload, nowMs: nowMs + 1 });
+  expect(claimed.outcome).toBe('applied');
+  if (claimed.outcome !== 'applied') throw new Error('expected claim');
+  expect(claimed.record.state.state).toBe('claimed_by_owner');
+
+  const replayed = await service.claimSessionV1({ payload, nowMs: nowMs + 1 });
+  expect(replayed.outcome).toBe('replayed');
+  if (replayed.outcome !== 'replayed') throw new Error('expected replay');
+  expect(replayed.record.revision).toBe(claimed.record.revision);
+});
+
+test('expires an unclaimed session through the read projection and preserves terminal state', async () => {
+  temporary = createTemporaryD1Database();
+  await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+  const store = new D1LinkedDeviceSessionStoreV1({ database: temporary.database, scope });
+  const service = new LinkedDeviceSessionServiceV1({
+    store,
+    authorization: ownerAuth(),
+    aggregateActivationVerifier,
+  });
+  const payload = { ...qrPayload('session-two'), expiresAtMs: nowMs + 5 };
+  await service.createUnclaimedSessionV1({ payload, nowMs });
+
+  const expired = await service.getSessionV1({
+    linkSessionId: payload.linkSessionId,
+    nowMs: nowMs + 6,
+  });
+  expect(expired?.state.state).toBe('expired_unclaimed');
+  expect(expired?.state).not.toHaveProperty('walletId');
+});
+
+test('accepts QR issuance within clock skew and rejects a larger future offset', async () => {
+  temporary = createTemporaryD1Database();
+  await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+  const store = new D1LinkedDeviceSessionStoreV1({ database: temporary.database, scope });
+  const service = new LinkedDeviceSessionServiceV1({
+    store,
+    authorization: ownerAuth(),
+    aggregateActivationVerifier,
+  });
+  const withinSkew = {
+    ...qrPayload('session-future-within-skew'),
+    issuedAtMs: nowMs + LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1,
+    expiresAtMs: nowMs + LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1 + 60_000,
+  };
+  await expect(
+    service.createUnclaimedSessionV1({ payload: withinSkew, nowMs }),
+  ).resolves.toMatchObject({
+    outcome: 'applied',
+  });
+
+  const outsideSkew = {
+    ...qrPayload('session-future-outside-skew'),
+    issuedAtMs: nowMs + LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1 + 1,
+    expiresAtMs: nowMs + LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1 + 60_001,
+  };
+  await expect(
+    service.createUnclaimedSessionV1({ payload: outsideSkew, nowMs }),
+  ).resolves.toMatchObject({
+    outcome: 'invalid_input',
+    message: 'link session issuedAtMs is in the future',
+  });
+});
+
+test('records owner approval exactly once, rejects a conflicting transcript, and cancels provisioning before commit', async () => {
+  temporary = createTemporaryD1Database();
+  await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+  const fixture = buildR103DeviceLinkFixture();
+  const store = new D1LinkedDeviceSessionStoreV1({ database: temporary.database, scope });
+  const service = new LinkedDeviceSessionServiceV1({
+    store,
+    authorization: ownerAuthForFixture(),
+    aggregateActivationVerifier,
+  });
+  const created = await service.createUnclaimedSessionV1({
+    payload: fixture.payload,
+    nowMs: 3_000,
+  });
+  expect(created.outcome).toBe('applied');
+  const claimed = await service.claimSessionV1({ payload: fixture.payload, nowMs: 3_001 });
+  expect(claimed.outcome).toBe('applied');
+  const approval = { ...fixture.approval, expiresAtMs: 8_000 };
+  const approved = await service.recordOwnerApprovalV1({ approval, nowMs: 3_002 });
+  expect(approved.outcome).toBe('applied');
+  if (approved.outcome !== 'applied') throw new Error('expected approval');
+  const replayed = await service.recordOwnerApprovalV1({ approval, nowMs: 3_002 });
+  expect(replayed.outcome).toBe('replayed');
+  const conflicting = await service.recordOwnerApprovalV1({
+    approval: { ...approval, approvedAtMs: 2_001 },
+    nowMs: 3_002,
+  });
+  expect(conflicting.outcome).toBe('conflict');
+  const provisioning = await service.recordTargetCredentialV1({
+    linkSessionId: fixture.payload.linkSessionId,
+    expectedRevision: approved.record.revision,
+    keyManifestDigestB64u: fixture.receipt.manifestDigestB64u,
+    nowMs: 3_003,
+  });
+  expect(provisioning.outcome).toBe('applied');
+  if (provisioning.outcome !== 'applied') throw new Error('expected provisioning');
+  const cancelled = await service.cancelSessionV1({
+    linkSessionId: fixture.payload.linkSessionId,
+    expectedRevision: provisioning.record.revision,
+    nowMs: 3_004,
+  });
+  expect(cancelled.outcome).toBe('applied');
+  if (cancelled.outcome !== 'applied') throw new Error('expected cancellation');
+  expect(cancelled.record.state.state).toBe('cancelled_claimed_precommit');
+  const cancelReplay = await service.cancelSessionV1({
+    linkSessionId: fixture.payload.linkSessionId,
+    expectedRevision: cancelled.record.revision,
+    nowMs: 3_004,
+  });
+  expect(cancelReplay.outcome).toBe('replayed');
+});
+
+test('keeps committed sessions resumable after cancellation and expiry, then replays activation', async () => {
+  temporary = createTemporaryD1Database();
+  await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+  const fixture = buildR103DeviceLinkFixture();
+  const store = new D1LinkedDeviceSessionStoreV1({ database: temporary.database, scope });
+  const service = new LinkedDeviceSessionServiceV1({
+    store,
+    authorization: ownerAuthForFixture(),
+    aggregateActivationVerifier,
+  });
+  await service.createUnclaimedSessionV1({ payload: fixture.payload, nowMs: 3_000 });
+  await service.claimSessionV1({ payload: fixture.payload, nowMs: 3_001 });
+  const approval = { ...fixture.approval, expiresAtMs: 8_000 };
+  const approved = await service.recordOwnerApprovalV1({ approval, nowMs: 3_002 });
+  expect(approved.outcome).toBe('applied');
+  if (approved.outcome !== 'applied') throw new Error('expected approval');
+  const provisioning = await service.recordTargetCredentialV1({
+    linkSessionId: fixture.payload.linkSessionId,
+    expectedRevision: approved.record.revision,
+    keyManifestDigestB64u: fixture.receipt.manifestDigestB64u,
+    nowMs: 3_003,
+  });
+  expect(provisioning.outcome).toBe('applied');
+  if (provisioning.outcome !== 'applied') throw new Error('expected provisioning');
+  const committed = await service.markCommittedCompletionRequiredV1({
+    linkSessionId: fixture.payload.linkSessionId,
+    expectedRevision: provisioning.record.revision,
+    transcriptSetDigestB64u: fixture.approval.policyDigestB64u,
+    nowMs: 3_004,
+  });
+  expect(committed.outcome).toBe('applied');
+  if (committed.outcome !== 'applied') throw new Error('expected committed state');
+  const committedReplay = await service.markCommittedCompletionRequiredV1({
+    linkSessionId: fixture.payload.linkSessionId,
+    expectedRevision: committed.record.revision,
+    transcriptSetDigestB64u: fixture.approval.policyDigestB64u,
+    nowMs: 3_004,
+  });
+  expect(committedReplay.outcome).toBe('replayed');
+  const postcommitCancel = await service.cancelSessionV1({
+    linkSessionId: fixture.payload.linkSessionId,
+    expectedRevision: committed.record.revision,
+    nowMs: 3_005,
+  });
+  expect(postcommitCancel.outcome).toBe('invalid_state');
+  const postcommitExpiry = await service.getSessionV1({
+    linkSessionId: fixture.payload.linkSessionId,
+    nowMs: 9_001,
+  });
+  expect(postcommitExpiry?.state.state).toBe('committed_completion_required');
+  const activated = await service.recordAggregateActivationV1({
+    linkSessionId: fixture.payload.linkSessionId,
+    expectedRevision: committed.record.revision,
+    receipt: fixture.receipt,
+    nowMs: 3_006,
+  });
+  expect(activated.outcome).toBe('applied');
+  if (activated.outcome !== 'applied') throw new Error('expected activation');
+  const activationReplay = await service.recordAggregateActivationV1({
+    linkSessionId: fixture.payload.linkSessionId,
+    expectedRevision: activated.record.revision,
+    receipt: fixture.receipt,
+    nowMs: 3_006,
+  });
+  expect(activationReplay.outcome).toBe('replayed');
+});
+
+test('rejects aggregate activation unless the approved manifest and child set match exactly', async () => {
+  temporary = createTemporaryD1Database();
+  await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+  const fixture = buildR103DeviceLinkFixture();
+  const store = new D1LinkedDeviceSessionStoreV1({ database: temporary.database, scope });
+  const service = new LinkedDeviceSessionServiceV1({
+    store,
+    authorization: ownerAuthForFixture(),
+    aggregateActivationVerifier,
+  });
+  await service.createUnclaimedSessionV1({ payload: fixture.payload, nowMs: 3_000 });
+  await service.claimSessionV1({ payload: fixture.payload, nowMs: 3_001 });
+  const approval = { ...fixture.approval, expiresAtMs: 8_000 };
+  const approved = await service.recordOwnerApprovalV1({ approval, nowMs: 3_002 });
+  expect(approved.outcome).toBe('applied');
+  if (approved.outcome !== 'applied') throw new Error('expected approval');
+  const provisioning = await service.recordTargetCredentialV1({
+    linkSessionId: fixture.payload.linkSessionId,
+    expectedRevision: approved.record.revision,
+    keyManifestDigestB64u: fixture.receipt.manifestDigestB64u,
+    nowMs: 3_003,
+  });
+  expect(provisioning.outcome).toBe('applied');
+  if (provisioning.outcome !== 'applied') throw new Error('expected provisioning');
+  const committed = await service.markCommittedCompletionRequiredV1({
+    linkSessionId: fixture.payload.linkSessionId,
+    expectedRevision: provisioning.record.revision,
+    transcriptSetDigestB64u: fixture.receipt.aggregateReceiptDigestB64u,
+    nowMs: 3_004,
+  });
+  expect(committed.outcome).toBe('applied');
+  if (committed.outcome !== 'applied') throw new Error('expected committed state');
+
+  const differentManifestDigest = parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(9)));
+  const wrongManifest = buildLinkedDeviceEnrollmentReceiptV1({
+    enrollmentId: fixture.receipt.enrollmentId,
+    walletId: fixture.receipt.walletId,
+    deviceId: fixture.receipt.deviceId,
+    manifestDigestB64u: differentManifestDigest,
+    aggregateReceiptDigestB64u: fixture.receipt.aggregateReceiptDigestB64u,
+    orderedChildReceipts: fixture.receipt.orderedChildReceipts,
+    activatedAtMs: fixture.receipt.activatedAtMs,
+  });
+  const manifestResult = await service.recordAggregateActivationV1({
+    linkSessionId: fixture.payload.linkSessionId,
+    expectedRevision: committed.record.revision,
+    receipt: wrongManifest,
+    nowMs: 3_004,
+  });
+  expect(manifestResult).toEqual({
+    outcome: 'invalid_input',
+    message: 'aggregate receipt manifest digest differs from the approved manifest',
+  });
+
+  const child = fixture.receipt.orderedChildReceipts[0];
+  if (!child) throw new Error('fixture child receipt is missing');
+  const wrongFamily = buildLinkedDeviceEnrollmentReceiptV1({
+    enrollmentId: fixture.receipt.enrollmentId,
+    walletId: fixture.receipt.walletId,
+    deviceId: fixture.receipt.deviceId,
+    manifestDigestB64u: fixture.receipt.manifestDigestB64u,
+    aggregateReceiptDigestB64u: fixture.receipt.aggregateReceiptDigestB64u,
+    orderedChildReceipts: [
+      {
+        ...child,
+        keyFamily: 'ecdsa_secp256k1',
+      },
+    ],
+    activatedAtMs: fixture.receipt.activatedAtMs,
+  });
+  const familyResult = await service.recordAggregateActivationV1({
+    linkSessionId: fixture.payload.linkSessionId,
+    expectedRevision: committed.record.revision,
+    receipt: wrongFamily,
+    nowMs: 3_004,
+  });
+  expect(familyResult).toEqual({
+    outcome: 'invalid_input',
+    message: 'aggregate receipt child differs from the approved manifest',
+  });
+
+  const duplicateChildren = buildLinkedDeviceEnrollmentReceiptV1({
+    enrollmentId: fixture.receipt.enrollmentId,
+    walletId: fixture.receipt.walletId,
+    deviceId: fixture.receipt.deviceId,
+    manifestDigestB64u: fixture.receipt.manifestDigestB64u,
+    aggregateReceiptDigestB64u: fixture.receipt.aggregateReceiptDigestB64u,
+    orderedChildReceipts: [child, child],
+    activatedAtMs: fixture.receipt.activatedAtMs,
+  });
+  const duplicateResult = await service.recordAggregateActivationV1({
+    linkSessionId: fixture.payload.linkSessionId,
+    expectedRevision: committed.record.revision,
+    receipt: duplicateChildren,
+    nowMs: 3_004,
+  });
+  expect(duplicateResult).toEqual({
+    outcome: 'invalid_input',
+    message: 'aggregate receipt contains duplicate child coverage',
+  });
+
+  const persisted = await store.getSessionV1(fixture.payload.linkSessionId);
+  expect(persisted?.state.state).toBe('committed_completion_required');
+});
+
+test('rejects tampered durable record and transcript rows', async () => {
+  temporary = createTemporaryD1Database();
+  await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+  const fixture = buildR103DeviceLinkFixture();
+  const store = new D1LinkedDeviceSessionStoreV1({ database: temporary.database, scope });
+  const service = new LinkedDeviceSessionServiceV1({
+    store,
+    authorization: ownerAuthForFixture(),
+    aggregateActivationVerifier,
+  });
+  await service.createUnclaimedSessionV1({ payload: fixture.payload, nowMs: 3_000 });
+  const claimed = await service.claimSessionV1({ payload: fixture.payload, nowMs: 3_001 });
+  expect(claimed.outcome).toBe('applied');
+  if (claimed.outcome !== 'applied') throw new Error('expected claim');
+  await temporary.database
+    .prepare(
+      `UPDATE linked_device_sessions
+          SET record_json = ?
+        WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ? AND link_session_id = ?`,
+    )
+    .bind(
+      JSON.stringify(tamperClaimDeviceId(claimed.record)),
+      scope.namespace,
+      scope.orgId,
+      scope.projectId,
+      scope.envId,
+      String(fixture.payload.linkSessionId),
+    )
+    .run();
+  await expect(store.getSessionV1(fixture.payload.linkSessionId)).rejects.toThrow();
+  await temporary.database
+    .prepare(
+      `UPDATE linked_device_sessions
+          SET record_json = ?
+        WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ? AND link_session_id = ?`,
+    )
+    .bind(
+      JSON.stringify(claimed.record),
+      scope.namespace,
+      scope.orgId,
+      scope.projectId,
+      scope.envId,
+      String(fixture.payload.linkSessionId),
+    )
+    .run();
+  await temporary.database
+    .prepare(
+      `UPDATE linked_device_session_transcripts
+          SET transcript_json = ?
+        WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ? AND link_session_id = ?`,
+    )
+    .bind(
+      JSON.stringify({}),
+      scope.namespace,
+      scope.orgId,
+      scope.projectId,
+      scope.envId,
+      String(fixture.payload.linkSessionId),
+    )
+    .run();
+  await expect(store.getSessionV1(fixture.payload.linkSessionId)).rejects.toThrow();
+});
+
+function qrPayload(session: string) {
+  const linkSessionId = parseLinkDeviceSessionId(session).value;
+  return {
+    version: 'v4' as const,
+    purpose: 'linked_device_lane_creation' as const,
+    linkSessionId,
+    linkPublicKeyB64u: 'AQ',
+    devicePublicKeyB64u: 'Ag',
+    requestedPermission: {
+      kind: 'owner_equivalent_signing' as const,
+      administrationScope: 'signing_only' as const,
+      localUserPresence: 'required' as const,
+    },
+    issuedAtMs: nowMs - 10,
+    expiresAtMs: nowMs + 60_000,
+  };
+}
+
+function ownerAuth(): LinkedDeviceOwnerAuthorizationPortV1 {
+  return {
+    authorizeOwnerClaimV1: async () => ({
+      kind: 'authorized' as const,
+      identity: {
+        walletId: parseWalletId('wallet-owner').value,
+        enrollmentId: parseLinkedDeviceEnrollmentId('enrollment-one').value,
+        deviceId: parseLinkedDeviceId('device-one').value,
+        claimExpiresAtMs: nowMs + 30_000,
+      },
+    }),
+    authorizeOwnerApprovalV1: async () => ({ kind: 'authorized' as const }),
+  };
+}
+
+function ownerAuthForFixture(): LinkedDeviceOwnerAuthorizationPortV1 {
+  return {
+    authorizeOwnerClaimV1: async () => ({
+      kind: 'authorized' as const,
+      identity: {
+        walletId: parseWalletId('wallet:r103').value,
+        enrollmentId: parseLinkedDeviceEnrollmentId('enrollment:r103').value,
+        deviceId: parseLinkedDeviceId('device:r103').value,
+        claimExpiresAtMs: 9_000,
+      },
+    }),
+    authorizeOwnerApprovalV1: async () => ({ kind: 'authorized' as const }),
+  };
+}
+
+function tamperClaimDeviceId(record: unknown): unknown {
+  const copied = JSON.parse(JSON.stringify(record)) as Record<string, unknown>;
+  const transcript = copied.claimTranscript;
+  if (!isRecord(transcript) || !isRecord(transcript.value))
+    throw new Error('claim transcript is unavailable');
+  transcript.value = { ...transcript.value, deviceId: 'device:tampered' };
+  return copied;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}

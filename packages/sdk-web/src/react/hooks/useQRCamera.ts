@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { getOptimalCameraFacingMode } from '@/utils/deviceDetection';
-import type { DeviceLinkingQRData } from '@/core/types/linkDevice';
+import type { QrLinkedDeviceSessionPayloadV4 } from '@shared/device-linking';
 import { ScanQRCodeFlow, enumerateVideoDevices, detectFrontCamera } from '@/utils/qrScanner';
 
 /**
@@ -33,7 +33,7 @@ export enum QRScanMode {
 }
 
 export interface UseQRCameraOptions {
-  onQRDetected?: (qrData: DeviceLinkingQRData) => void;
+  onQRDetected?: (qrData: QrLinkedDeviceSessionPayloadV4) => void;
   onError?: (error: Error) => void;
   isOpen?: boolean;
   cameraId?: string;
@@ -96,11 +96,12 @@ export const useQRCamera = (options: UseQRCameraOptions): UseQRCameraReturn => {
       },
       {
         onQRDetected: (qrData) => {
-          const sessionId = String(qrData.sessionId || '').trim();
+          const sessionId = String(qrData.linkSessionId).trim();
           console.log('useQRCamera: Valid QR data detected -', {
             sessionId,
-            accountId: qrData.accountId,
-            timestamp: new Date(qrData.timestamp || 0).toISOString(),
+            purpose: qrData.purpose,
+            issuedAt: new Date(qrData.issuedAtMs).toISOString(),
+            expiresAt: new Date(qrData.expiresAtMs).toISOString(),
           });
           setIsProcessing(false);
           setIsScanning(false);

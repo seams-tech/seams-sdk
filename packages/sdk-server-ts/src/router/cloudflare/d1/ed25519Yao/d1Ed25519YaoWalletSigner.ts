@@ -30,6 +30,7 @@ export function buildYaoEd25519WalletSignerRecord(input: {
   readonly signingRootVersion: string;
   readonly runtimePolicyScope: RuntimePolicyScope;
   readonly activeYaoCapability: WalletEd25519YaoActiveCapabilityRecord;
+  readonly custodyKeyManifestDigestB64u: string;
   readonly now: number;
 }): WalletEd25519SignerRecord {
   return {
@@ -52,6 +53,7 @@ export function buildYaoEd25519WalletSignerRecord(input: {
     signingRootVersion: input.signingRootVersion,
     runtimePolicyScope: input.runtimePolicyScope,
     activeYaoCapability: input.activeYaoCapability,
+    custodyKeyManifestDigestB64u: input.custodyKeyManifestDigestB64u,
     createdAtMs: input.now,
     updatedAtMs: input.now,
   };
@@ -80,6 +82,7 @@ export function replaceYaoEd25519WalletSignerActiveCapability(input: {
     signingRootVersion: signer.signingRootVersion,
     runtimePolicyScope: signer.runtimePolicyScope,
     activeYaoCapability: input.activeYaoCapability,
+    custodyKeyManifestDigestB64u: signer.custodyKeyManifestDigestB64u,
     createdAtMs: signer.createdAtMs,
     updatedAtMs: input.now,
   };

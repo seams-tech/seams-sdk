@@ -209,6 +209,28 @@ test.describe('wallet runtime postconditions', () => {
     });
   });
 
+  test('accepts an authorized public Email OTP lane with its issued session budget', async () => {
+    const lanes = availableLanes('email-otp-public-unlock');
+    const ed25519 = lanes.lanes.ed25519.near;
+    if (ed25519.state === 'missing') throw new Error('expected concrete Ed25519 lane');
+    ed25519.source = 'public_capability_reference';
+    lanes.candidates.ed25519.near = [ed25519];
+
+    const inventory = await assertWalletRuntimePostconditions({
+      source: 'wallet_unlock',
+      walletId: WALLET_ID,
+      authMethod: 'email_otp',
+      requiredTargets: [{ curve: 'ed25519' }],
+      readPersistedAvailableSigningLanes: async () => lanes,
+    });
+
+    expect(inventory.ed25519).toMatchObject({
+      authMethod: 'email_otp',
+      remainingSignatureUses: 3,
+      material: { kind: 'public_capability_reference' },
+    });
+  });
+
   test('rejects auth-method route mismatches before reporting unlock success', async () => {
     const result = await readWalletRuntimePostconditions({
       source: 'wallet_unlock',

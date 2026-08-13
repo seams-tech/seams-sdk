@@ -6,32 +6,62 @@ description = "Client-only registration boundary for Router A/B Ed25519 Yao"
 license = "Apache-2.0"
 publish = false
 
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["-Oz"]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+
 [lib]
 name = "router_ab_ed25519_yao_client"
 path = "src/lib.rs"
 crate-type = ["rlib", "cdylib"]
 
+[features]
+default = ["wasm-bindings"]
+# The `#[wasm_bindgen]` surface in `wasm.rs`. On by default so the standalone
+# wasm-pack build of this crate is unchanged. A cdylib that links this crate as
+# an rlib inherits every `#[wasm_bindgen]` export it can see, so a module that
+# wants only the Rust API — `wasm/wallet_custody_ceremony` — turns this off
+# rather than re-exporting PRF registration and Ed25519 seed export from a
+# boundary that has no business offering them.
+wasm-bindings = []
+
 [dependencies]
+base64ct = { version = "1.6", features = ["alloc"] }
 chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
 curve25519-dalek = { version = "=4.1.3", features = ["zeroize"] }
 frost-ed25519 = { version = "2.2", default-features = false, features = ["serialization", "std"] }
+hex = "0.4"
 hkdf = "0.12"
 hpke-ng = "0.1.0"
+k256 = "0.13"
 rand_chacha = "0.9"
 rand_core = "0.9"
+presign-rand-core = { package = "rand_core", version = "0.6", features = ["getrandom"] }
 router-ab-core = { path = "../router-ab-core" }
+router-ab-ecdsa-client-protocol = { path = "../router-ab-ecdsa-client-protocol", features = ["hpke"] }
+router-ab-ecdsa-presign = { path = "../router-ab-ecdsa-presign" }
+router-ab-ecdsa-online = { path = "../router-ab-ecdsa-online" }
+router-ab-ecdsa-wire = { path = "../router-ab-ecdsa-wire" }
 router-ab-ed25519-yao-protocol = { path = "../router-ab-ed25519-yao-protocol" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"
-signer-core = { path = "../signer-core", features = ["ed25519-yao-derivation", "near-threshold-ed25519"] }
+signer-core = { path = "../signer-core", features = ["ed25519-yao-derivation", "near-threshold-ed25519", "passkey-custody"] }
 subtle = { version = "=2.6.1", default-features = false }
 zeroize = { version = "1.8", features = ["zeroize_derive"] }
 
 [dev-dependencies]
+signer-core = { path = "../signer-core", features = ["ed25519-yao-derivation", "near-threshold-ed25519", "passkey-custody"] }
 router-ab-dev = { path = "../router-ab-dev" }
 router-ab-ed25519-yao = { path = "../router-ab-ed25519-yao" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.2.17", features = ["js"] }
+js-sys = "0.3"
+serde-wasm-bindgen = "0.6"
 wasm-bindgen = "0.2"

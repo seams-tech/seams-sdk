@@ -81,10 +81,12 @@ function emailOtpWalletSession(value: { walletId?: string } = {}): WalletSession
   };
 }
 
-function submitSuccess(value: {
-  walletId?: string;
-  mode?: 'login' | 'register';
-} = {}): GoogleEmailOtpWalletAuthSubmitSuccess {
+function submitSuccess(
+  value: {
+    walletId?: string;
+    mode?: 'login' | 'register';
+  } = {},
+): GoogleEmailOtpWalletAuthSubmitSuccess {
   return {
     walletId: walletId(value.walletId ?? 'alice.testnet'),
     mode: value.mode ?? 'login',
@@ -92,9 +94,11 @@ function submitSuccess(value: {
   };
 }
 
-function registrationCompleted(value: {
-  walletId?: string;
-} = {}): GoogleEmailOtpWalletAuthRegistrationCompleted {
+function registrationCompleted(
+  value: {
+    walletId?: string;
+  } = {},
+): GoogleEmailOtpWalletAuthRegistrationCompleted {
   const resolvedWalletId = walletId(value.walletId ?? 'alice.testnet');
   return {
     walletId: resolvedWalletId,
@@ -116,7 +120,9 @@ function registrationCompleted(value: {
   };
 }
 
-function makeLoginFlow(overrides?: Partial<GoogleEmailOtpWalletAuthLoginFlow>): GoogleEmailOtpWalletAuthLoginFlow {
+function makeLoginFlow(
+  overrides?: Partial<GoogleEmailOtpWalletAuthLoginFlow>,
+): GoogleEmailOtpWalletAuthLoginFlow {
   return {
     kind: 'google_email_otp_wallet_auth_flow_v1',
     state: 'challenge_sent',
@@ -482,18 +488,18 @@ test.describe('Google Email OTP wallet iframe flow handles', () => {
       requestId: 'submit-invalid',
       payload,
     });
-    expect(
-      (posted.at(-1) as { payload: { result: { ok: boolean } } }).payload.result.ok,
-    ).toBe(false);
+    expect((posted.at(-1) as { payload: { result: { ok: boolean } } }).payload.result.ok).toBe(
+      false,
+    );
 
     await handlers.PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_SUBMIT?.({
       type: 'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_SUBMIT',
       requestId: 'submit-retry',
       payload: { ...payload, otpCode: '123456' },
     });
-    expect(
-      (posted.at(-1) as { payload: { result: { ok: boolean } } }).payload.result.ok,
-    ).toBe(true);
+    expect((posted.at(-1) as { payload: { result: { ok: boolean } } }).payload.result.ok).toBe(
+      true,
+    );
   });
 
   test('burns a registration handle after successful completion', async () => {
@@ -628,18 +634,18 @@ test.describe('Google Email OTP wallet iframe flow handles', () => {
       requestId: 'reroll-failed',
       payload,
     });
-    expect(
-      (posted.at(-1) as { payload: { result: { ok: boolean } } }).payload.result.ok,
-    ).toBe(false);
+    expect((posted.at(-1) as { payload: { result: { ok: boolean } } }).payload.result.ok).toBe(
+      false,
+    );
 
     await handlers.PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_COMPLETE_REGISTRATION?.({
       type: 'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_COMPLETE_REGISTRATION',
       requestId: 'complete-after-failed-reroll',
       payload,
     });
-    expect(
-      (posted.at(-1) as { payload: { result: { ok: boolean } } }).payload.result.ok,
-    ).toBe(true);
+    expect((posted.at(-1) as { payload: { result: { ok: boolean } } }).payload.result.ok).toBe(
+      true,
+    );
   });
 
   test('cancels registration flow when handle expires', async () => {

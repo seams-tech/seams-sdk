@@ -1,6 +1,6 @@
 import { useRef, useCallback } from 'react';
 import { useSeams } from '../context';
-import { type DeviceLinkingQRData } from '@/core/types/linkDevice';
+import type { QrLinkedDeviceSessionPayloadV4 } from '@shared/device-linking';
 import type { LinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
 import { QRScanMode } from '@/react/hooks/useQRCamera';
 
@@ -8,16 +8,15 @@ export interface UseDeviceLinkingOptions {
   onError?: (error: Error) => void;
   onClose?: () => void;
   onEvent?: (event: LinkDeviceFlowEvent) => void;
-  fundingAmount?: string;
 }
 
 export interface UseDeviceLinkingReturn {
-  linkDevice: (qrData: DeviceLinkingQRData, source: QRScanMode) => Promise<void>;
+  linkDevice: (qrData: QrLinkedDeviceSessionPayloadV4, source: QRScanMode) => Promise<void>;
 }
 
 export const useDeviceLinking = (options: UseDeviceLinkingOptions): UseDeviceLinkingReturn => {
   const { seams } = useSeams();
-  const { onError, onClose, onEvent, fundingAmount = '0.05' } = options;
+  const { onError, onClose, onEvent } = options;
 
   const callbacksRef = useRef({
     onError,
@@ -32,11 +31,10 @@ export const useDeviceLinking = (options: UseDeviceLinkingOptions): UseDeviceLin
   };
 
   const linkDevice = useCallback(
-    async (qrData: DeviceLinkingQRData, _source: QRScanMode) => {
+    async (qrData: QrLinkedDeviceSessionPayloadV4, _source: QRScanMode) => {
       const { onError, onClose, onEvent } = callbacksRef.current;
       try {
-        await seams.devices.linkDeviceWithScannedQRData(qrData, {
-          fundingAmount,
+        await seams.devices.scanAndLinkDevice(qrData, {
           onEvent,
         });
       } catch (linkingError: unknown) {
@@ -44,7 +42,7 @@ export const useDeviceLinking = (options: UseDeviceLinkingOptions): UseDeviceLin
         onClose?.();
       }
     },
-    [fundingAmount, seams],
+    [seams],
   );
 
   return {

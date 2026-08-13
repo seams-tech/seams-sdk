@@ -11,8 +11,7 @@ const consoleRestoreDatabaseName = 'seams-console-staging-nrt-restore-drill-2026
 const signerRestoreDatabaseName = 'seams-signer-staging-nrt-restore-drill-20260628t000000z';
 const consoleIntegrityCommand = `integrity console ${consoleRestoreDatabaseName} PRAGMA integrity_check`;
 const signerIntegrityCommand = `integrity signer ${signerRestoreDatabaseName} PRAGMA integrity_check`;
-const signerIntegrityCommandWithConsoleDatabase =
-  `integrity signer ${consoleRestoreDatabaseName} PRAGMA integrity_check`;
+const signerIntegrityCommandWithConsoleDatabase = `integrity signer ${consoleRestoreDatabaseName} PRAGMA integrity_check`;
 
 type EvidenceModule = {
   readonly verifyD1StagingEvidence: (input: Record<string, string>) => {
@@ -49,9 +48,7 @@ type EvidenceMutationCase = {
   readonly expectedError: RegExp;
 };
 
-const evidenceModule = loadD1StagingScriptModule<EvidenceModule>(
-  'd1-staging-evidence-verify.mjs',
-);
+const evidenceModule = loadD1StagingScriptModule<EvidenceModule>('d1-staging-evidence-verify.mjs');
 
 async function passingEvidenceFixture(): Promise<PassingEvidenceFixture> {
   const module = await evidenceModule;
@@ -205,11 +202,7 @@ function appendManifestRecords(
   patchManifest(manifestPath, patch);
 }
 
-function removeManifestRecordById(
-  manifestPath: string,
-  fieldName: string,
-  id: string,
-): void {
+function removeManifestRecordById(manifestPath: string, fieldName: string, id: string): void {
   const manifest = readManifest(manifestPath);
   patchManifest(manifestPath, {
     [fieldName]: removeManifestRecordForId(manifest, fieldName, id),
@@ -271,9 +264,7 @@ function passingManifests(dir: string): PassingEvidenceManifests {
       gatewayConfigPath,
       resources: {
         consoleWorker: {
-          d1Databases: [
-            { binding: 'CONSOLE_DB', databaseId: 'd1-console-id' },
-          ],
+          d1Databases: [{ binding: 'CONSOLE_DB', databaseId: 'd1-console-id' }],
           durableObjects: [],
         },
         gatewayWorker: {
@@ -289,7 +280,10 @@ function passingManifests(dir: string): PassingEvidenceManifests {
         { id: 'console_d1_info', command: 'resource console d1 info' },
         { id: 'signer_d1_info', command: 'resource signer d1 info' },
         { id: 'console_worker_deployment_status', command: 'resource console deployments status' },
-        { id: 'router_api_worker_deployment_status', command: 'resource Gateway deployments status' },
+        {
+          id: 'router_api_worker_deployment_status',
+          command: 'resource Gateway deployments status',
+        },
       ],
       checks: [
         {
@@ -334,12 +328,32 @@ function passingManifests(dir: string): PassingEvidenceManifests {
         { target: 'signer', action: 'list_after', command: 'migration signer list after' },
       ],
       executed: [
-        { target: 'console', action: 'list_before', status: 0, command: 'migration console list before' },
+        {
+          target: 'console',
+          action: 'list_before',
+          status: 0,
+          command: 'migration console list before',
+        },
         { target: 'console', action: 'apply', status: 0, command: 'migration console apply' },
-        { target: 'console', action: 'list_after', status: 0, command: 'migration console list after' },
-        { target: 'signer', action: 'list_before', status: 0, command: 'migration signer list before' },
+        {
+          target: 'console',
+          action: 'list_after',
+          status: 0,
+          command: 'migration console list after',
+        },
+        {
+          target: 'signer',
+          action: 'list_before',
+          status: 0,
+          command: 'migration signer list before',
+        },
         { target: 'signer', action: 'apply', status: 0, command: 'migration signer apply' },
-        { target: 'signer', action: 'list_after', status: 0, command: 'migration signer list after' },
+        {
+          target: 'signer',
+          action: 'list_after',
+          status: 0,
+          command: 'migration signer list after',
+        },
       ],
     }),
     bookmarkBeforeFixtureImport: writeManifest(dir, 'bookmark-before-fixture-import', {
@@ -453,9 +467,24 @@ function passingManifests(dir: string): PassingEvidenceManifests {
         },
       ],
       checks: [
-        { id: 'console_readyz', ok: true, status: 200, url: 'https://console.staging.example/console/readyz' },
-        { id: 'router_api_readyz', ok: true, status: 200, url: 'https://gateway.staging.example/readyz' },
-        { id: 'router_api_healthz', ok: true, status: 200, url: 'https://gateway.staging.example/healthz' },
+        {
+          id: 'console_readyz',
+          ok: true,
+          status: 200,
+          url: 'https://console.staging.example/console/readyz',
+        },
+        {
+          id: 'router_api_readyz',
+          ok: true,
+          status: 200,
+          url: 'https://gateway.staging.example/readyz',
+        },
+        {
+          id: 'router_api_healthz',
+          ok: true,
+          status: 200,
+          url: 'https://gateway.staging.example/healthz',
+        },
         {
           id: 'signer_custody_ed25519_healthz',
           ok: true,
@@ -678,18 +707,28 @@ const evidenceMutationCases: readonly EvidenceMutationCase[] = [
   },
   {
     name: 'D1 staging evidence verifier rejects reconciliation mismatch rows',
-    mutate: (m) => patchManifest(m.reconciliation, { executed: [{ id: 'billing_account_balance_mismatch', status: 0, rowCount: 1 }] }),
+    mutate: (m) =>
+      patchManifest(m.reconciliation, {
+        executed: [{ id: 'billing_account_balance_mismatch', status: 0, rowCount: 1 }],
+      }),
     expectedError: /d1_reconciliation: billing_account_balance_mismatch returned 1 mismatch rows/,
   },
   {
     name: 'D1 staging evidence verifier rejects incomplete resource inventory evidence',
-    mutate: (m) => patchManifest(m.resources, { checks: [{ id: 'console_d1_info', status: 0, json: { uuid: 'd1-console-id' } }] }),
+    mutate: (m) =>
+      patchManifest(m.resources, {
+        checks: [{ id: 'console_d1_info', status: 0, json: { uuid: 'd1-console-id' } }],
+      }),
     expectedError: /resource_inventory: missing signer_d1_info evidence in checks/,
   },
   {
     name: 'D1 staging evidence verifier rejects substituted resource inventory commands',
-    mutate: (m) => patchManifestRecordById(m.resources, 'checks', 'signer_d1_info', { command: 'resource signer d1 info against another database' }),
-    expectedError: /resource_inventory: executed\[signer_d1_info\]\.command does not match planned command/,
+    mutate: (m) =>
+      patchManifestRecordById(m.resources, 'checks', 'signer_d1_info', {
+        command: 'resource signer d1 info against another database',
+      }),
+    expectedError:
+      /resource_inventory: executed\[signer_d1_info\]\.command does not match planned command/,
   },
   {
     name: 'D1 staging evidence verifier rejects missing planned resource inventory commands',
@@ -698,112 +737,151 @@ const evidenceMutationCases: readonly EvidenceMutationCase[] = [
   },
   {
     name: 'D1 staging evidence verifier rejects missing D1 binding IDs in resource inventory',
-    mutate: (m) => patchManifest(m.resources, {
-      resources: {
-        gatewayWorker: {
-          d1Databases: [
-            { binding: 'CONSOLE_DB', databaseId: 'd1-console-id' },
-            { binding: 'SIGNER_DB', databaseId: 'd1-signer-id' },
-          ],
-          stagingVars: {
-            namespace: 'tenant-route-staging',
-            orgId: 'org_staging',
-            projectId: 'project_staging',
-            envId: 'env_staging',
+    mutate: (m) =>
+      patchManifest(m.resources, {
+        resources: {
+          gatewayWorker: {
+            d1Databases: [
+              { binding: 'CONSOLE_DB', databaseId: 'd1-console-id' },
+              { binding: 'SIGNER_DB', databaseId: 'd1-signer-id' },
+            ],
+            stagingVars: {
+              namespace: 'tenant-route-staging',
+              orgId: 'org_staging',
+              projectId: 'project_staging',
+              envId: 'env_staging',
+            },
           },
         },
-      },
-    }),
+      }),
     expectedError: /resource_inventory: resources\.consoleWorker must be present/,
   },
   {
     name: 'D1 staging evidence verifier rejects signer D1 bindings on the console Worker',
-    mutate: (m) => patchResourceWorker(m.resources, 'consoleWorker', {
-      d1Databases: [
-        { binding: 'CONSOLE_DB', databaseId: 'd1-console-id' },
-        { binding: 'SIGNER_DB', databaseId: 'd1-signer-id' },
-      ],
-    }),
-    expectedError: /resource_inventory: resources\.consoleWorker\.d1Databases must not include signer-only binding SIGNER_DB/,
+    mutate: (m) =>
+      patchResourceWorker(m.resources, 'consoleWorker', {
+        d1Databases: [
+          { binding: 'CONSOLE_DB', databaseId: 'd1-console-id' },
+          { binding: 'SIGNER_DB', databaseId: 'd1-signer-id' },
+        ],
+      }),
+    expectedError:
+      /resource_inventory: resources\.consoleWorker\.d1Databases must not include signer-only binding SIGNER_DB/,
   },
   {
     name: 'D1 staging evidence verifier rejects a retired Gateway runtime binding',
     mutate: (m) =>
       patchResourceWorker(m.resources, 'gatewayWorker', {
-        durableObjects: [{ name: 'ROUTER_API_RUNTIME', className: 'RouterApiRuntimeDurableObject' }],
+        durableObjects: [
+          { name: 'ROUTER_API_RUNTIME', className: 'RouterApiRuntimeDurableObject' },
+        ],
       }),
     expectedError:
       /resource_inventory: resources\.gatewayWorker\.durableObjects includes unexpected binding ROUTER_API_RUNTIME/,
   },
   {
     name: 'D1 staging evidence verifier rejects mismatched remote D1 database evidence',
-    mutate: (m) => patchManifest(m.resources, {
-      checks: [
-        { id: 'console_d1_info', status: 0, json: { uuid: 'other-console-d1-id' } },
-        { id: 'signer_d1_info', status: 0, json: { uuid: 'd1-signer-id' } },
-        { id: 'console_worker_deployment_status', status: 0, json: { id: 'console-worker' } },
-        { id: 'router_api_worker_deployment_status', status: 0, json: { id: 'gateway-worker' } },
-      ],
-    }),
-    expectedError: /checks\.console_d1_info\.json database id other-console-d1-id must match CONSOLE_DB d1-console-id/,
+    mutate: (m) =>
+      patchManifest(m.resources, {
+        checks: [
+          { id: 'console_d1_info', status: 0, json: { uuid: 'other-console-d1-id' } },
+          { id: 'signer_d1_info', status: 0, json: { uuid: 'd1-signer-id' } },
+          { id: 'console_worker_deployment_status', status: 0, json: { id: 'console-worker' } },
+          { id: 'router_api_worker_deployment_status', status: 0, json: { id: 'gateway-worker' } },
+        ],
+      }),
+    expectedError:
+      /checks\.console_d1_info\.json database id other-console-d1-id must match CONSOLE_DB d1-console-id/,
   },
   {
     name: 'D1 staging evidence verifier rejects Gateway config pointed at a different console D1',
-    mutate: (m) => patchResourceWorker(m.resources, 'gatewayWorker', {
-      d1Databases: [
-        { binding: 'CONSOLE_DB', databaseId: 'other-console-d1-id' },
-        { binding: 'SIGNER_DB', databaseId: 'd1-signer-id' },
-      ],
-    }),
-    expectedError: /gatewayWorker CONSOLE_DB databaseId other-console-d1-id must match consoleWorker CONSOLE_DB d1-console-id/,
+    mutate: (m) =>
+      patchResourceWorker(m.resources, 'gatewayWorker', {
+        d1Databases: [
+          { binding: 'CONSOLE_DB', databaseId: 'other-console-d1-id' },
+          { binding: 'SIGNER_DB', databaseId: 'd1-signer-id' },
+        ],
+      }),
+    expectedError:
+      /gatewayWorker CONSOLE_DB databaseId other-console-d1-id must match consoleWorker CONSOLE_DB d1-console-id/,
   },
   {
     name: 'D1 staging evidence verifier rejects incomplete migration evidence',
-    mutate: (m) => patchManifest(m.migrations, {
-      executed: [
-        { target: 'console', action: 'list_before', status: 0 },
-        { target: 'console', action: 'apply', status: 0 },
-        { target: 'console', action: 'list_after', status: 0 },
-      ],
-    }),
+    mutate: (m) =>
+      patchManifest(m.migrations, {
+        executed: [
+          { target: 'console', action: 'list_before', status: 0 },
+          { target: 'console', action: 'apply', status: 0 },
+          { target: 'console', action: 'list_after', status: 0 },
+        ],
+      }),
     expectedError: /remote_d1_migrations: missing signer:apply evidence in executed/,
   },
   {
     name: 'D1 staging evidence verifier rejects substituted remote commands',
-    mutate: (m) => patchManifestRecordByField(m.migrations, 'executed', 'command', 'migration console apply', { command: 'migration console apply against the wrong database' }),
+    mutate: (m) =>
+      patchManifestRecordByField(m.migrations, 'executed', 'command', 'migration console apply', {
+        command: 'migration console apply against the wrong database',
+      }),
     expectedError: /remote_d1_migrations: executed\[1\]\.command does not match planned command/,
   },
   {
     name: 'D1 staging evidence verifier rejects duplicate migration target-action evidence',
-    mutate: (m) => appendManifestRecords(m.migrations, {
-      commands: { target: 'signer', action: 'apply', command: 'migration signer apply again' },
-      executed: { target: 'signer', action: 'apply', status: 0, command: 'migration signer apply again' },
-    }),
+    mutate: (m) =>
+      appendManifestRecords(m.migrations, {
+        commands: { target: 'signer', action: 'apply', command: 'migration signer apply again' },
+        executed: {
+          target: 'signer',
+          action: 'apply',
+          status: 0,
+          command: 'migration signer apply again',
+        },
+      }),
     expectedError: /remote_d1_migrations: executed\.signer:apply is duplicated/,
   },
   {
     name: 'D1 staging evidence verifier rejects one-sided fixture import evidence',
-    mutate: (m) => patchManifest(m.fixtureImport, {
-      fixtures: [{ logicalName: 'console' }],
-      commands: ['import console', 'import signer'],
-      executed: [{ command: 'import console', status: 0 }],
-    }),
+    mutate: (m) =>
+      patchManifest(m.fixtureImport, {
+        fixtures: [{ logicalName: 'console' }],
+        commands: ['import console', 'import signer'],
+        executed: [{ command: 'import console', status: 0 }],
+      }),
     expectedError: /fixture_import: missing signer evidence in fixtures/,
   },
   {
     name: 'D1 staging evidence verifier rejects incomplete Time Travel bookmark evidence',
-    mutate: (m) => patchManifest(m.bookmarkBeforeFixtureImport, { bookmarkEvidence: [{ logicalName: 'console' }] }),
+    mutate: (m) =>
+      patchManifest(m.bookmarkBeforeFixtureImport, {
+        bookmarkEvidence: [{ logicalName: 'console' }],
+      }),
     expectedError: /time_travel_before_fixture_import: missing signer evidence in bookmarkEvidence/,
   },
   {
     name: 'D1 staging evidence verifier rejects Time Travel bookmark path mismatches',
-    mutate: (m) => patchManifestRecordByField(m.bookmarkBeforeFixtureImport, 'bookmarkEvidence', 'logicalName', 'console', { path: 'bookmarks/other-console-bookmark.json' }),
-    expectedError: /time_travel_before_fixture_import: bookmarkEvidence\.console\.path is bookmarks\/other-console-bookmark\.json, expected bookmarks\/console-before-fixture-import\.json/,
+    mutate: (m) =>
+      patchManifestRecordByField(
+        m.bookmarkBeforeFixtureImport,
+        'bookmarkEvidence',
+        'logicalName',
+        'console',
+        { path: 'bookmarks/other-console-bookmark.json' },
+      ),
+    expectedError:
+      /time_travel_before_fixture_import: bookmarkEvidence\.console\.path is bookmarks\/other-console-bookmark\.json, expected bookmarks\/console-before-fixture-import\.json/,
   },
   {
     name: 'D1 staging evidence verifier rejects Time Travel evidence without bookmark JSON',
-    mutate: (m) => patchManifestRecordByField(m.bookmarkBeforeFixtureImport, 'bookmarkEvidence', 'logicalName', 'signer', { json: { bookmark: '<placeholder>' } }),
-    expectedError: /time_travel_before_fixture_import: bookmarkEvidence\.signer\.json must include a bookmark/,
+    mutate: (m) =>
+      patchManifestRecordByField(
+        m.bookmarkBeforeFixtureImport,
+        'bookmarkEvidence',
+        'logicalName',
+        'signer',
+        { json: { bookmark: '<placeholder>' } },
+      ),
+    expectedError:
+      /time_travel_before_fixture_import: bookmarkEvidence\.signer\.json must include a bookmark/,
   },
   {
     name: 'D1 staging evidence verifier rejects incomplete smoke evidence',
@@ -817,25 +895,42 @@ const evidenceMutationCases: readonly EvidenceMutationCase[] = [
   },
   {
     name: 'D1 staging evidence verifier rejects smoke responses for unplanned URLs',
-    mutate: (m) => patchManifestRecordById(m.smoke, 'endpoints', 'router_api_readyz', { url: 'https://gateway.staging.example/other-readyz' }),
-    expectedError: /staging_smoke: checks\.router_api_readyz\.url does not match planned endpoints\.router_api_readyz\.url/,
+    mutate: (m) =>
+      patchManifestRecordById(m.smoke, 'endpoints', 'router_api_readyz', {
+        url: 'https://gateway.staging.example/other-readyz',
+      }),
+    expectedError:
+      /staging_smoke: checks\.router_api_readyz\.url does not match planned endpoints\.router_api_readyz\.url/,
   },
   {
     name: 'D1 staging evidence verifier rejects duplicate smoke response IDs',
-    mutate: (m) => appendManifestRecords(m.smoke, {
-      checks: { id: 'router_api_readyz', ok: true, status: 200, url: 'https://gateway.staging.example/readyz' },
-    }),
+    mutate: (m) =>
+      appendManifestRecords(m.smoke, {
+        checks: {
+          id: 'router_api_readyz',
+          ok: true,
+          status: 200,
+          url: 'https://gateway.staging.example/readyz',
+        },
+      }),
     expectedError: /staging_smoke: checks\.router_api_readyz is duplicated/,
   },
   {
     name: 'D1 staging evidence verifier rejects HTTP smoke evidence URLs',
-    mutate: (m) => patchManifestRecordById(m.smoke, 'checks', 'console_readyz', { url: 'http://console.staging.example/console/readyz' }),
+    mutate: (m) =>
+      patchManifestRecordById(m.smoke, 'checks', 'console_readyz', {
+        url: 'http://console.staging.example/console/readyz',
+      }),
     expectedError: /staging_smoke: checks.console_readyz.url must be an HTTPS URL/,
   },
   {
     name: 'D1 staging evidence verifier rejects shared console and Gateway smoke origins',
-    mutate: (m) => patchManifestRecordsById(m.smoke, ['endpoints', 'checks'], 'console_readyz', { url: 'https://gateway.staging.example/console/readyz' }),
-    expectedError: /staging_smoke: console_readyz and router_api_readyz must use distinct Worker origins/,
+    mutate: (m) =>
+      patchManifestRecordsById(m.smoke, ['endpoints', 'checks'], 'console_readyz', {
+        url: 'https://gateway.staging.example/console/readyz',
+      }),
+    expectedError:
+      /staging_smoke: console_readyz and router_api_readyz must use distinct Worker origins/,
   },
   {
     name: 'D1 staging evidence verifier rejects wrong smoke status codes',
@@ -844,54 +939,92 @@ const evidenceMutationCases: readonly EvidenceMutationCase[] = [
   },
   {
     name: 'D1 staging evidence verifier rejects smoke evidence on wrong endpoint paths',
-    mutate: (m) => patchManifestRecordById(m.smoke, 'checks', 'router_api_readyz', { url: 'https://gateway.staging.example/not-readyz' }),
-    expectedError: /staging_smoke: checks\.router_api_readyz\.url uses path \/not-readyz, expected \/readyz/,
+    mutate: (m) =>
+      patchManifestRecordById(m.smoke, 'checks', 'router_api_readyz', {
+        url: 'https://gateway.staging.example/not-readyz',
+      }),
+    expectedError:
+      /staging_smoke: checks\.router_api_readyz\.url uses path \/not-readyz, expected \/readyz/,
   },
   {
     name: 'D1 staging evidence verifier rejects incomplete signer custody evidence',
-    mutate: (m) => patchManifest(m.signerCustody, { results: [{ id: 'ecdsa_export_share_success', ok: true }] }),
+    mutate: (m) =>
+      patchManifest(m.signerCustody, { results: [{ id: 'ecdsa_export_share_success', ok: true }] }),
     expectedError: /signer_custody: missing signer_custody_ed25519_healthz evidence/,
   },
   {
     name: 'D1 staging evidence verifier rejects signer custody responses for unplanned URLs',
-    mutate: (m) => patchManifestRecordById(m.signerCustody, 'checks', 'ecdsa_export_share_success', { url: 'https://gateway.staging.example/router-ab/ecdsa-derivation/export/other-share' }),
-    expectedError: /signer_custody: results\.ecdsa_export_share_success\.url does not match planned plannedChecks\.ecdsa_export_share_success\.url/,
+    mutate: (m) =>
+      patchManifestRecordById(m.signerCustody, 'checks', 'ecdsa_export_share_success', {
+        url: 'https://gateway.staging.example/router-ab/ecdsa-derivation/export/other-share',
+      }),
+    expectedError:
+      /signer_custody: results\.ecdsa_export_share_success\.url does not match planned plannedChecks\.ecdsa_export_share_success\.url/,
   },
   {
     name: 'D1 staging evidence verifier rejects HTTP signer custody evidence URLs',
-    mutate: (m) => patchManifestRecordById(m.signerCustody, 'results', 'ecdsa_export_share_success', { url: 'http://gateway.staging.example/router-ab/ecdsa-derivation/export/share' }),
+    mutate: (m) =>
+      patchManifestRecordById(m.signerCustody, 'results', 'ecdsa_export_share_success', {
+        url: 'http://gateway.staging.example/router-ab/ecdsa-derivation/export/share',
+      }),
     expectedError: /signer_custody: results.ecdsa_export_share_success.url must be an HTTPS URL/,
   },
   {
     name: 'D1 staging evidence verifier rejects signer custody from a different Gateway origin',
-    mutate: (m) => patchManifestRecordById(m.signerCustody, 'results', 'signer_custody_ed25519_healthz', { url: 'https://other-gateway.staging.example/router-ab/ed25519/healthz' }),
-    expectedError: /signer_custody: results\.signer_custody_ed25519_healthz\.url uses https:\/\/other-gateway\.staging\.example, expected https:\/\/gateway\.staging\.example from staging_smoke router_api_readyz/,
+    mutate: (m) =>
+      patchManifestRecordById(m.signerCustody, 'results', 'signer_custody_ed25519_healthz', {
+        url: 'https://other-gateway.staging.example/router-ab/ed25519/healthz',
+      }),
+    expectedError:
+      /signer_custody: results\.signer_custody_ed25519_healthz\.url uses https:\/\/other-gateway\.staging\.example, expected https:\/\/gateway\.staging\.example from staging_smoke router_api_readyz/,
   },
   {
     name: 'D1 staging evidence verifier rejects wrong signer custody status codes',
-    mutate: (m) => patchManifestRecordById(m.signerCustody, 'results', 'ecdsa_export_share_success', { status: 202 }),
-    expectedError: /signer_custody: results\.ecdsa_export_share_success\.status is 202, expected 200/,
+    mutate: (m) =>
+      patchManifestRecordById(m.signerCustody, 'results', 'ecdsa_export_share_success', {
+        status: 202,
+      }),
+    expectedError:
+      /signer_custody: results\.ecdsa_export_share_success\.status is 202, expected 200/,
   },
   {
     name: 'D1 staging evidence verifier rejects signer custody evidence on wrong endpoint paths',
-    mutate: (m) => patchManifestRecordById(m.signerCustody, 'results', 'ecdsa_export_share_success', { url: 'https://gateway.staging.example/router-ab/ecdsa-derivation/export/share?debug=true' }),
-    expectedError: /signer_custody: results\.ecdsa_export_share_success\.url uses path \/router-ab\/ecdsa-derivation\/export\/share\?debug=true, expected \/router-ab\/ecdsa-derivation\/export\/share/,
+    mutate: (m) =>
+      patchManifestRecordById(m.signerCustody, 'results', 'ecdsa_export_share_success', {
+        url: 'https://gateway.staging.example/router-ab/ecdsa-derivation/export/share?debug=true',
+      }),
+    expectedError:
+      /signer_custody: results\.ecdsa_export_share_success\.url uses path \/router-ab\/ecdsa-derivation\/export\/share\?debug=true, expected \/router-ab\/ecdsa-derivation\/export\/share/,
   },
   {
     name: 'D1 staging evidence verifier rejects unredacted signer custody response secrets',
-    mutate: (m) => patchManifestRecordById(m.signerCustody, 'results', 'ecdsa_export_share_success', { body: { ok: true, value: { server_export_share_32_b64u: 'raw-server-share' } } }),
-    expectedError: /signer_custody: results\.ecdsa_export_share_success\.body\.value\.server_export_share_32_b64u must be redacted/,
+    mutate: (m) =>
+      patchManifestRecordById(m.signerCustody, 'results', 'ecdsa_export_share_success', {
+        body: { ok: true, value: { server_export_share_32_b64u: 'raw-server-share' } },
+      }),
+    expectedError:
+      /signer_custody: results\.ecdsa_export_share_success\.body\.value\.server_export_share_32_b64u must be redacted/,
   },
   {
     name: 'D1 staging evidence verifier rejects incomplete reconciliation evidence',
-    mutate: (m) => patchManifest(m.reconciliation, { executed: [{ id: 'billing_account_balance_mismatch', status: 0, rowCount: 0 }] }),
-    expectedError: /d1_reconciliation: missing prepaid_reservation_summary_mismatch evidence in executed/,
+    mutate: (m) =>
+      patchManifest(m.reconciliation, {
+        executed: [{ id: 'billing_account_balance_mismatch', status: 0, rowCount: 0 }],
+      }),
+    expectedError:
+      /d1_reconciliation: missing prepaid_reservation_summary_mismatch evidence in executed/,
   },
   {
     name: 'D1 staging evidence verifier rejects duplicate reconciliation executed IDs',
-    mutate: (m) => appendManifestRecords(m.reconciliation, {
-      executed: { id: 'billing_account_balance_mismatch', command: 'reconcile billing account balance', status: 0, rowCount: 0 },
-    }),
+    mutate: (m) =>
+      appendManifestRecords(m.reconciliation, {
+        executed: {
+          id: 'billing_account_balance_mismatch',
+          command: 'reconcile billing account balance',
+          status: 0,
+          rowCount: 0,
+        },
+      }),
     expectedError: /d1_reconciliation: executed\.billing_account_balance_mismatch is duplicated/,
   },
   {
@@ -901,46 +1034,84 @@ const evidenceMutationCases: readonly EvidenceMutationCase[] = [
   },
   {
     name: 'D1 staging evidence verifier rejects R2 artifacts without hash metadata',
-    mutate: (m) => patchManifestRecordByField(m.r2RestoreDrill, 'artifactEvidence', 'path', 'console.sql', { bytes: 0, sha256: 'not-a-sha256' }),
-    expectedError: /r2_restore_drill: artifactEvidence\.console\.sql\.bytes must be greater than zero/,
+    mutate: (m) =>
+      patchManifestRecordByField(m.r2RestoreDrill, 'artifactEvidence', 'path', 'console.sql', {
+        bytes: 0,
+        sha256: 'not-a-sha256',
+      }),
+    expectedError:
+      /r2_restore_drill: artifactEvidence\.console\.sql\.bytes must be greater than zero/,
   },
   {
     name: 'D1 staging evidence verifier rejects duplicate R2 artifact evidence paths',
-    mutate: (m) => appendManifestRecords(m.r2RestoreDrill, {
-      artifactEvidence: { path: 'console.sql', bytes: 12, sha256: 'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd' },
-    }),
+    mutate: (m) =>
+      appendManifestRecords(m.r2RestoreDrill, {
+        artifactEvidence: {
+          path: 'console.sql',
+          bytes: 12,
+          sha256: 'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd',
+        },
+      }),
     expectedError: /r2_restore_drill: artifactEvidence\.console\.sql is duplicated/,
   },
   {
     name: 'D1 staging evidence verifier rejects R2 restore hash mismatches',
-    mutate: (m) => patchManifestRecordByField(m.r2RestoreDrill, 'artifactEvidence', 'path', 'signer-restore.sql', {
-      sha256: 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
-    }),
-    expectedError: /r2_restore_drill: signer restore artifact hash c{64} must match export artifact hash b{64}/,
+    mutate: (m) =>
+      patchManifestRecordByField(
+        m.r2RestoreDrill,
+        'artifactEvidence',
+        'path',
+        'signer-restore.sql',
+        {
+          sha256: 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+        },
+      ),
+    expectedError:
+      /r2_restore_drill: signer restore artifact hash c{64} must match export artifact hash b{64}/,
   },
   {
     name: 'D1 staging evidence verifier rejects failed R2 restore integrity checks',
-    mutate: (m) => patchManifestRecordByField(m.r2RestoreDrill, 'executed', 'command', signerIntegrityCommand, {
-      stdout: JSON.stringify([{ results: [{ integrity_check: 'row 12 missing from index' }] }]),
-    }),
-    expectedError: /r2_restore_drill: executed\[11\]\.integrity_check is row 12 missing from index, expected ok/,
+    mutate: (m) =>
+      patchManifestRecordByField(m.r2RestoreDrill, 'executed', 'command', signerIntegrityCommand, {
+        stdout: JSON.stringify([{ results: [{ integrity_check: 'row 12 missing from index' }] }]),
+      }),
+    expectedError:
+      /r2_restore_drill: executed\[11\]\.integrity_check is row 12 missing from index, expected ok/,
   },
   {
     name: 'D1 staging evidence verifier rejects R2 integrity checks that miss the signer restore database',
     mutate: (m) => {
-      patchManifestStringValue(m.r2RestoreDrill, 'commands', signerIntegrityCommand, signerIntegrityCommandWithConsoleDatabase);
-      patchManifestRecordByField(m.r2RestoreDrill, 'executed', 'command', signerIntegrityCommand, { command: signerIntegrityCommandWithConsoleDatabase });
+      patchManifestStringValue(
+        m.r2RestoreDrill,
+        'commands',
+        signerIntegrityCommand,
+        signerIntegrityCommandWithConsoleDatabase,
+      );
+      patchManifestRecordByField(m.r2RestoreDrill, 'executed', 'command', signerIntegrityCommand, {
+        command: signerIntegrityCommandWithConsoleDatabase,
+      });
     },
     expectedError: /r2_restore_drill: missing signer restore integrity-check command evidence/,
   },
   {
     name: 'D1 staging evidence verifier rejects mixed Gateway config paths',
-    mutate: (m) => patchManifest(m.fixtureImport, { gatewayConfigPath: 'packages/console-server-ts/wrangler.other-gateway.toml' }),
+    mutate: (m) =>
+      patchManifest(m.fixtureImport, {
+        gatewayConfigPath: 'packages/console-server-ts/wrangler.other-gateway.toml',
+      }),
     expectedError: /gatewayConfigPath mismatch/,
   },
   {
     name: 'D1 staging evidence verifier rejects mixed tenant evidence',
-    mutate: (m) => patchManifest(m.reconciliation, { tenant: { namespace: 'tenant-route-staging', orgId: 'org_other', projectId: 'project_staging', envId: 'env_staging' } }),
+    mutate: (m) =>
+      patchManifest(m.reconciliation, {
+        tenant: {
+          namespace: 'tenant-route-staging',
+          orgId: 'org_other',
+          projectId: 'project_staging',
+          envId: 'env_staging',
+        },
+      }),
     expectedError: /tenant orgId mismatch/,
   },
   {

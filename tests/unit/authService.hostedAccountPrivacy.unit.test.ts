@@ -35,8 +35,8 @@ async function seedNonHostedEmailOtpMapping(
     walletId: string;
   },
 ): Promise<void> {
-  const identity = (service as any).getIdentityStore();
-  const enrollmentStore = (service as any).getEmailOtpWalletEnrollmentStore();
+  const identity = (service as any).stores.getIdentityStore();
+  const enrollmentStore = (service as any).stores.getEmailOtpWalletEnrollmentStore();
   await identity.linkSubjectToUserId({
     userId: input.walletId,
     subject: `wallet:${input.providerSubject}`,
@@ -148,7 +148,7 @@ test.describe('hosted Google Email OTP account privacy', () => {
 
   test('registration discards non-HMAC-readable resumable attempts before allocating an HMAC-readable wallet', async () => {
     const service = makeService();
-    const attemptStore = (service as any).getEmailOtpRegistrationAttemptStore();
+    const attemptStore = (service as any).stores.getEmailOtpRegistrationAttemptStore();
     const providerSubject = 'google:subject-non-hmac-attempt';
     await attemptStore.put({
       version: 'google_email_otp_registration_attempt_v1',
@@ -200,7 +200,7 @@ test.describe('hosted Google Email OTP account privacy', () => {
 
   test('registration offer restart retires the current attempt and allocates a different HMAC-readable wallet', async () => {
     const service = makeService();
-    const attemptStore = (service as any).getEmailOtpRegistrationAttemptStore();
+    const attemptStore = (service as any).stores.getEmailOtpRegistrationAttemptStore();
     const providerSubject = 'google:subject-reroll';
 
     const first = await service.resolveGoogleEmailOtpSession({
@@ -261,8 +261,8 @@ test.describe('hosted Google Email OTP account privacy', () => {
     expect(first.ok).toBe(true);
     if (!first.ok || first.mode !== 'register_started') return;
 
-    const identity = (service as any).getIdentityStore();
-    const enrollmentStore = (service as any).getEmailOtpWalletEnrollmentStore();
+    const identity = (service as any).stores.getIdentityStore();
+    const enrollmentStore = (service as any).stores.getEmailOtpWalletEnrollmentStore();
     await identity.linkSubjectToUserId({
       userId: first.walletId,
       subject: `wallet:${providerSubject}`,
@@ -314,7 +314,9 @@ test.describe('hosted Google Email OTP account privacy', () => {
     expect(restarted.walletId).not.toBe(first.walletId);
     expect(restarted.walletId).toMatch(/^[a-z]+-[a-z]+-[a-z0-9]{10}\.relayer\.testnet$/);
     await expect(
-      (service as any).getEmailOtpRegistrationAttemptStore().get(restarted.registrationAttemptId),
+      (service as any).stores
+        .getEmailOtpRegistrationAttemptStore()
+        .get(restarted.registrationAttemptId),
     ).resolves.toMatchObject({
       walletId: restarted.walletId,
       walletIdDerivationNonce: expect.any(String),
@@ -335,7 +337,7 @@ test.describe('hosted Google Email OTP account privacy', () => {
     });
     expect(challenge.ok).toBe(true);
     if (!challenge.ok) return;
-    const challengeRecord = await (service as any)
+    const challengeRecord = await (service as any).stores
       .getEmailOtpChallengeStore()
       .get(challenge.challenge.challengeId);
     expect(challengeRecord).toMatchObject({
@@ -394,7 +396,7 @@ test.describe('hosted Google Email OTP account privacy', () => {
       action: WALLET_EMAIL_OTP_ACTIONS.login,
       operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
     });
-    const challengeRecord = await (service as any)
+    const challengeRecord = await (service as any).stores
       .getEmailOtpChallengeStore()
       .get(challenge.challenge.challengeId);
 
@@ -446,7 +448,7 @@ test.describe('hosted Google Email OTP account privacy', () => {
     });
     expect(challenge.ok).toBe(true);
     if (!challenge.ok) return;
-    const challengeRecord = await (service as any)
+    const challengeRecord = await (service as any).stores
       .getEmailOtpChallengeStore()
       .get(challenge.challenge.challengeId);
 
@@ -496,7 +498,7 @@ test.describe('hosted Google Email OTP account privacy', () => {
     });
     expect(challenge.ok).toBe(true);
     if (!challenge.ok) return;
-    const challengeRecord = await (service as any)
+    const challengeRecord = await (service as any).stores
       .getEmailOtpChallengeStore()
       .get(challenge.challenge.challengeId);
 
@@ -540,7 +542,7 @@ test.describe('hosted Google Email OTP account privacy', () => {
     });
     expect(challenge.ok).toBe(true);
     if (!challenge.ok) return;
-    const challengeRecord = await (service as any)
+    const challengeRecord = await (service as any).stores
       .getEmailOtpChallengeStore()
       .get(challenge.challenge.challengeId);
 
@@ -584,7 +586,7 @@ test.describe('hosted Google Email OTP account privacy', () => {
     });
     expect(challenge.ok).toBe(true);
     if (!challenge.ok) return;
-    const challengeRecord = await (service as any)
+    const challengeRecord = await (service as any).stores
       .getEmailOtpChallengeStore()
       .get(challenge.challenge.challengeId);
 
@@ -627,7 +629,7 @@ test.describe('hosted Google Email OTP account privacy', () => {
 
   test('Email OTP enrollment rejects expired Google registration attempts at proof boundary', async () => {
     const service = makeService();
-    const attemptStore = (service as any).getEmailOtpRegistrationAttemptStore();
+    const attemptStore = (service as any).stores.getEmailOtpRegistrationAttemptStore();
     const providerSubject = 'google:subject-expired-registration-attempt';
     const walletId = 'expired-attempt-wallet.w3a-relayer.testnet';
     const registrationAttemptId = 'expired-registration-attempt';
@@ -670,7 +672,7 @@ test.describe('hosted Google Email OTP account privacy', () => {
 
   test('Email OTP enrollment rejects Google registration attempt wallet drift', async () => {
     const service = makeService();
-    const attemptStore = (service as any).getEmailOtpRegistrationAttemptStore();
+    const attemptStore = (service as any).stores.getEmailOtpRegistrationAttemptStore();
     const providerSubject = 'google:subject-wallet-drift-registration-attempt';
     const registrationAttemptId = 'wallet-drift-registration-attempt';
     await attemptStore.put({
@@ -728,7 +730,7 @@ test.describe('hosted Google Email OTP account privacy', () => {
     });
     expect(challenge.ok).toBe(true);
     if (!challenge.ok) return;
-    const challengeRecord = await (service as any)
+    const challengeRecord = await (service as any).stores
       .getEmailOtpChallengeStore()
       .get(challenge.challenge.challengeId);
 
@@ -772,7 +774,7 @@ test.describe('hosted Google Email OTP account privacy', () => {
     });
     expect(challenge.ok).toBe(true);
     if (!challenge.ok) return;
-    const challengeRecord = await (service as any)
+    const challengeRecord = await (service as any).stores
       .getEmailOtpChallengeStore()
       .get(challenge.challenge.challengeId);
 
@@ -816,7 +818,7 @@ test.describe('hosted Google Email OTP account privacy', () => {
     });
     expect(challenge.ok).toBe(true);
     if (!challenge.ok) return;
-    const challengeRecord = await (service as any)
+    const challengeRecord = await (service as any).stores
       .getEmailOtpChallengeStore()
       .get(challenge.challenge.challengeId);
 

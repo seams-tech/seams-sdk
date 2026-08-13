@@ -42,7 +42,7 @@ fn repository_root() -> PathBuf {
         .to_path_buf()
 }
 
-fn production_manifests(root: &Path) -> [(PathBuf, bool); 7] {
+fn production_manifests(root: &Path) -> [(PathBuf, bool); 5] {
     [
         (root.join("crates/router-ab-ecdsa-wire/Cargo.toml"), false),
         (root.join("crates/router-ab-ecdsa-pool/Cargo.toml"), false),
@@ -52,28 +52,18 @@ fn production_manifests(root: &Path) -> [(PathBuf, bool); 7] {
         ),
         (root.join("crates/router-ab-ecdsa-online/Cargo.toml"), false),
         (
-            root.join("wasm/router_ab_ecdsa_online_client/Cargo.toml"),
-            true,
-        ),
-        (
-            root.join("wasm/router_ab_ecdsa_presign_client/Cargo.toml"),
-            true,
-        ),
-        (
             root.join("wasm/router_ab_ecdsa_signing_worker/Cargo.toml"),
             true,
         ),
     ]
 }
 
-fn production_source_roots(root: &Path) -> [PathBuf; 7] {
+fn production_source_roots(root: &Path) -> [PathBuf; 5] {
     [
         root.join("crates/router-ab-ecdsa-wire/src"),
         root.join("crates/router-ab-ecdsa-pool/src"),
         root.join("crates/router-ab-ecdsa-presign/src"),
         root.join("crates/router-ab-ecdsa-online/src"),
-        root.join("wasm/router_ab_ecdsa_online_client/src"),
-        root.join("wasm/router_ab_ecdsa_presign_client/src"),
         root.join("wasm/router_ab_ecdsa_signing_worker/src"),
     ]
 }
@@ -143,6 +133,22 @@ fn purpose_built_production_graphs_exclude_generic_threshold_and_unrelated_crypt
                 manifest.display()
             );
         }
+    }
+}
+
+#[test]
+fn retired_standalone_ecdsa_client_wasm_adapters_are_absent() {
+    let root = repository_root();
+    for relative_path in [
+        "wasm/router_ab_ecdsa_online_client/Cargo.toml",
+        "wasm/router_ab_ecdsa_online_client/src/lib.rs",
+        "wasm/router_ab_ecdsa_presign_client/Cargo.toml",
+        "wasm/router_ab_ecdsa_presign_client/src/lib.rs",
+    ] {
+        assert!(
+            !root.join(relative_path).exists(),
+            "retired standalone ECDSA Wasm adapter remains: {relative_path}"
+        );
     }
 }
 

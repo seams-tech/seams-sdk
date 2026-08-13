@@ -21,8 +21,7 @@ const IMPORT_PATHS = {
   touchConfirmManager: '/_test-sdk/esm/core/signingEngine/uiConfirm/UiConfirmManager.js',
   passkeyMpcSessionManager:
     '/_test-sdk/esm/core/signingEngine/uiConfirm/PasskeyMpcSessionManager.js',
-  passkeyMpcExportManager:
-    '/_test-sdk/esm/core/signingEngine/uiConfirm/PasskeyMpcExportManager.js',
+  passkeyMpcExportManager: '/_test-sdk/esm/core/signingEngine/uiConfirm/PasskeyMpcExportManager.js',
   sealedSessionStore: '/_test-sdk/esm/core/signingEngine/session/persistence/sealedSessionStore.js',
   activeEcdsaCapabilityRuntime:
     '/_test-sdk/esm/core/signingEngine/session/material/activeEcdsaCapabilityRuntime.js',
@@ -76,6 +75,7 @@ function routerAbEcdsaWalletSessionJwt(args: {
 }): string {
   return unsignedJwt({
     kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
+    authorizationKind: 'owner_wallet_session',
     sub: args.walletId,
     walletId: args.walletId,
     keyHandle: args.keyHandle,
@@ -92,6 +92,7 @@ function thresholdEd25519SessionJwt(args: {
 }): string {
   return unsignedJwt({
     kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+    authorizationKind: 'owner_wallet_session',
     sub: args.walletId,
     walletId: args.walletId,
     nearAccountId: args.nearAccountId,
@@ -1424,11 +1425,7 @@ test.describe('UserConfirm worker router', () => {
         const workerA = makeWorker(listenersA, postedA);
         const workerB = makeWorker(listenersB, postedB);
 
-        const emitMessage = (
-          manager: unknown,
-          worker: Worker,
-          data: unknown,
-        ) => {
+        const emitMessage = (manager: unknown, worker: Worker, data: unknown) => {
           (manager as any).handleWorkerMessage({
             data,
             currentTarget: worker,

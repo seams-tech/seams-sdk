@@ -10,6 +10,19 @@ import {
   PASSKEY_PRF_FIRST_SALT_V1 as PRF_FIRST_SALT_V1,
   PASSKEY_PRF_SECOND_SALT_V1 as PRF_SECOND_SALT_V1,
 } from '@shared/utils/signingSessionSeal';
+import { redactCredentialExtensionOutputs } from './credentialExtensions';
+
+export function redactedPasskeyRegistrationCredential(
+  credential: WebAuthnRegistrationCredential,
+): WebAuthnRegistrationCredential {
+  const webauthnRegistration = redactCredentialExtensionOutputs<WebAuthnRegistrationCredential>(
+    normalizeRegistrationCredential(credential),
+  );
+  if (!Array.isArray(webauthnRegistration.response.transports)) {
+    webauthnRegistration.response.transports = [];
+  }
+  return webauthnRegistration;
+}
 
 /**
  * Serialize PublicKeyCredential for both authentication and registration for WASM worker

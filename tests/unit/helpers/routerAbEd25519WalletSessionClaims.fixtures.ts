@@ -29,6 +29,7 @@ export function buildRouterAbEd25519WalletSessionClaimsFixture(
 ): RouterAbEd25519WalletSessionClaims {
   const claims = parseRouterAbEd25519WalletSessionClaims({
     kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+    authorizationKind: 'owner_wallet_session',
     sub: input.walletId,
     walletId: input.walletId,
     nearAccountId: input.nearAccountId,

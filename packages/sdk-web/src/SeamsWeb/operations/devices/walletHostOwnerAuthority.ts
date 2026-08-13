@@ -1,0 +1,338 @@
+import type { HttpTransport } from '@/core/platform/http';
+import {
+  walletSessionJwtForCurve,
+  type ActiveWalletSessionAuthorizationProjection,
+  type WalletSessionAuthorizationRepository,
+} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import type { WalletAuthenticationState } from '@/core/types/seams';
+import type {
+  DeviceLinkingOwnerAuthorizationPortV1,
+  LinkSessionAuthenticationV1,
+} from './deviceLinkingPorts';
+import type {
+  LinkedDeviceOwnerAuthorizationRequestV1,
+  LinkedDeviceOwnerSourceLaneV1,
+} from '@shared/device-linking';
+import { parseLinkedDeviceOwnerAuthorizationRequestV1 } from '@shared/device-linking/parsers';
+import type { LinkSessionOwnerAuthenticatedRequestPortV1 } from './deviceLinkingOwnerTransport';
+import {
+  parseLinkedDeviceEnrollmentKeyBindingV1,
+  parseLinkedDeviceOwnerAuthorizationSourceV1,
+  parseLinkedDeviceProtocolVersionV1,
+} from '@shared/device-linking/parsers';
+import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
+import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
+import { parseLaneOperationId, parseLaneOperationIdempotencyKey } from '@shared/signing-lanes/ids';
+
+const OWNER_AUTHORIZATION_PATH = '/wallet/device-linking/v1/owner-authorization';
+
+export type WalletHostManagementRequestV1 = {
+  request(input: {
+    readonly walletId: WalletId;
+    readonly method: 'GET' | 'POST';
+    readonly canonicalPath: string;
+    readonly body?: unknown;
+  }): Promise<{ readonly status: number; readonly body: unknown }>;
+};
+
+export type WalletHostOwnerSourceLaneHintsReaderV1 = (input: {
+  readonly projection: ActiveWalletSessionAuthorizationProjection;
+}) => Promise<readonly [LinkedDeviceOwnerSourceLaneV1, ...LinkedDeviceOwnerSourceLaneV1[]]>;
+
+export type WalletHostOwnerAuthoritiesV1 = {
+  readonly ownerAuthorization: DeviceLinkingOwnerAuthorizationPortV1;
+  readonly ownerRequest: LinkSessionOwnerAuthenticatedRequestPortV1;
+  readonly managementRequest: WalletHostManagementRequestV1;
+};
+
+export function createWalletHostOwnerAuthoritiesV1(input: {
+  readonly http: HttpTransport;
+  readonly relayerUrl: string;
+  readonly walletSessions: Pick<
+    WalletSessionAuthorizationRepository,
+    'read' | 'readActiveForWallet'
+  >;
+  readonly readWalletAuthenticationState: () => WalletAuthenticationState;
+  readonly readOwnerSourceLaneHintsV1: WalletHostOwnerSourceLaneHintsReaderV1;
+}): WalletHostOwnerAuthoritiesV1 {
+  const context = normalizeContext(input);
+  return {
+    ownerAuthorization: {
+      authenticateOwnerForLinkingV1: async (request) =>
+        await authorizeOwnerForLinkingV1(context, request),
+    },
+    ownerRequest: {
+      requestOwnerV1: async (request) => await requestAsAuthorizedOwnerV1(context, request),
+    },
+    managementRequest: {
+      request: async (request) => await requestManagementAsOwnerV1(context, request),
+    },
+  };
+}
+
+type WalletHostOwnerAuthorityContextV1 = {
+  readonly http: HttpTransport;
+  readonly baseUrl: string;
+  readonly walletSessions: Pick<
+    WalletSessionAuthorizationRepository,
+    'read' | 'readActiveForWallet'
+  >;
+  readonly readWalletAuthenticationState: () => WalletAuthenticationState;
+  readonly readOwnerSourceLaneHintsV1: WalletHostOwnerSourceLaneHintsReaderV1;
+};
+
+function normalizeContext(input: {
+  readonly http: HttpTransport;
+  readonly relayerUrl: string;
+  readonly walletSessions: Pick<
+    WalletSessionAuthorizationRepository,
+    'read' | 'readActiveForWallet'
+  >;
+  readonly readWalletAuthenticationState: () => WalletAuthenticationState;
+  readonly readOwnerSourceLaneHintsV1: WalletHostOwnerSourceLaneHintsReaderV1;
+}): WalletHostOwnerAuthorityContextV1 {
+  const baseUrl = String(input.relayerUrl || '')
+    .trim()
+    .replace(/\/+$/, '');
+  if (!baseUrl) throw new Error('Wallet-host device linking requires a Router URL');
+  return { ...input, baseUrl };
+}
+
+async function authorizeOwnerForLinkingV1(
+  context: WalletHostOwnerAuthorityContextV1,
+  input: Parameters<DeviceLinkingOwnerAuthorizationPortV1['authenticateOwnerForLinkingV1']>[0],
+): ReturnType<DeviceLinkingOwnerAuthorizationPortV1['authenticateOwnerForLinkingV1']> {
+  const state = context.readWalletAuthenticationState();
+  if (state.kind !== 'authenticated') {
+    throw new Error('Device linking requires an authenticated owner wallet');
+  }
+  const projection = await requireActiveWalletSessionForWalletV1(context, state.walletId);
+  const orderedOwnerSourceLaneHints = await context.readOwnerSourceLaneHintsV1({
+    projection,
+  });
+  const body: LinkedDeviceOwnerAuthorizationRequestV1 =
+    parseLinkedDeviceOwnerAuthorizationRequestV1({
+      payload: input.payload,
+      requestedAtMs: input.requestedAtMs,
+      orderedOwnerSourceLaneHints,
+    });
+  const response = await requestWithProjectionV1(context, projection, {
+    method: 'POST',
+    canonicalPath: OWNER_AUTHORIZATION_PATH,
+    body,
+  });
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(ownerRequestFailureMessage(response));
+  }
+  return parseOwnerAuthorizationResponseV1(response.body, projection);
+}
+
+async function requestAsAuthorizedOwnerV1(
+  context: WalletHostOwnerAuthorityContextV1,
+  input: Parameters<LinkSessionOwnerAuthenticatedRequestPortV1['requestOwnerV1']>[0],
+): ReturnType<LinkSessionOwnerAuthenticatedRequestPortV1['requestOwnerV1']> {
+  if (input.authentication.source.kind !== 'wallet_session') {
+    throw new Error('Wallet-host device linking requires a reusable owner Wallet Session');
+  }
+  const read = await context.walletSessions.read(input.authentication.source.walletSessionId);
+  if (read.kind !== 'found' || read.projection.status !== 'active') {
+    throw new Error('Owner Wallet Session is unavailable');
+  }
+  const projection = read.projection;
+  if (
+    projection.authorizationId !== input.authentication.source.authorizationId ||
+    projection.expiresAtMs <= Date.now()
+  ) {
+    throw new Error('Owner Wallet Session identity is invalid or expired');
+  }
+  return await requestWithProjectionV1(context, projection, input);
+}
+
+async function requestManagementAsOwnerV1(
+  context: WalletHostOwnerAuthorityContextV1,
+  input: Parameters<WalletHostManagementRequestV1['request']>[0],
+): ReturnType<WalletHostManagementRequestV1['request']> {
+  const projection = await requireActiveWalletSessionForWalletV1(context, input.walletId);
+  return await requestWithProjectionV1(context, projection, input);
+}
+
+async function requireActiveWalletSessionForWalletV1(
+  context: WalletHostOwnerAuthorityContextV1,
+  walletId: WalletId,
+): Promise<ActiveWalletSessionAuthorizationProjection> {
+  const read = await context.walletSessions.readActiveForWallet(walletId);
+  if (
+    read.kind !== 'found' ||
+    read.projection.status !== 'active' ||
+    read.projection.expiresAtMs <= Date.now()
+  ) {
+    throw new Error('An active owner Wallet Session is required');
+  }
+  return read.projection;
+}
+
+async function requestWithProjectionV1(
+  context: WalletHostOwnerAuthorityContextV1,
+  projection: ActiveWalletSessionAuthorizationProjection,
+  input: {
+    readonly method: 'GET' | 'POST';
+    readonly canonicalPath: string;
+    readonly body?: unknown;
+  },
+): Promise<{ readonly status: number; readonly body: unknown }> {
+  const jwt = preferredOwnerWalletSessionJwt(projection);
+  const response = await context.http.request({
+    method: input.method,
+    url: `${context.baseUrl}${input.canonicalPath}`,
+    headers: { authorization: `Bearer ${jwt}` },
+    ...(input.body === undefined ? {} : { body: input.body }),
+  });
+  if (!response.ok) throw new Error(`Owner Router request failed: ${response.message}`);
+  return response.value;
+}
+
+function preferredOwnerWalletSessionJwt(
+  projection: ActiveWalletSessionAuthorizationProjection,
+): string {
+  const ed25519 = walletSessionJwtForCurve(projection, 'ed25519');
+  if (ed25519) return ed25519;
+  const ecdsa = walletSessionJwtForCurve(projection, 'ecdsa');
+  if (ecdsa) return ecdsa;
+  throw new Error('Owner Wallet Session has no supported signing token');
+}
+
+function parseOwnerAuthorizationResponseV1(
+  raw: unknown,
+  projection: ActiveWalletSessionAuthorizationProjection,
+): Awaited<ReturnType<DeviceLinkingOwnerAuthorizationPortV1['authenticateOwnerForLinkingV1']>> {
+  const record = exactRecord(raw, [
+    'authentication',
+    'walletId',
+    'ownerAuthorization',
+    'policyDigestB64u',
+    'operationId',
+    'idempotencyKey',
+    'orderedKeyBindings',
+    'protocolVersions',
+    'expiresAtMs',
+  ]);
+  const authenticationRecord = exactRecord(record.authentication, [
+    'kind',
+    'source',
+    'proofDigestB64u',
+  ]);
+  if (authenticationRecord.kind !== 'link_session_authenticated_request_v1') {
+    throw new Error('Owner authorization authentication kind is invalid');
+  }
+  const source = parseLinkedDeviceOwnerAuthorizationSourceV1(authenticationRecord.source);
+  const ownerAuthorization = parseLinkedDeviceOwnerAuthorizationSourceV1(record.ownerAuthorization);
+  assertWalletSessionSourceMatchesProjection(source, projection);
+  assertSameOwnerAuthorization(source, ownerAuthorization);
+  const authentication: LinkSessionAuthenticationV1 = {
+    kind: 'link_session_authenticated_request_v1',
+    source,
+    proofDigestB64u: parseDigestB64u(String(authenticationRecord.proofDigestB64u)),
+  };
+  const walletId = parseWalletId(String(record.walletId));
+  if (!walletId.ok || walletId.value !== projection.walletId) {
+    throw new Error('Owner authorization wallet identity changed');
+  }
+  const orderedKeyBindings = parseNonEmptyArray(
+    record.orderedKeyBindings,
+    parseLinkedDeviceEnrollmentKeyBindingV1,
+    'orderedKeyBindings',
+  );
+  const protocolVersions = parseNonEmptyArray(
+    record.protocolVersions,
+    parseLinkedDeviceProtocolVersionV1,
+    'protocolVersions',
+  );
+  const operationId = parseLaneOperationId(record.operationId);
+  if (!operationId.ok) throw new Error(operationId.error.message);
+  const idempotencyKey = parseLaneOperationIdempotencyKey(record.idempotencyKey);
+  if (!idempotencyKey.ok) throw new Error(idempotencyKey.error.message);
+  return {
+    authentication,
+    walletId: walletId.value,
+    ownerAuthorization,
+    policyDigestB64u: parseDigestB64u(String(record.policyDigestB64u)),
+    operationId: operationId.value,
+    idempotencyKey: idempotencyKey.value,
+    orderedKeyBindings,
+    protocolVersions,
+    expiresAtMs: positiveSafeInteger(record.expiresAtMs, 'expiresAtMs'),
+  };
+}
+
+function parseNonEmptyArray<T>(
+  raw: unknown,
+  parse: (entry: unknown, label: string) => T,
+  label: string,
+): readonly [T, ...T[]] {
+  if (!Array.isArray(raw) || raw.length === 0) throw new Error(`${label} must be non-empty`);
+  const values = raw.map((entry, index) => parse(entry, `${label}[${index}]`));
+  const first = values[0];
+  if (first === undefined) throw new Error(`${label} must be non-empty`);
+  return [first, ...values.slice(1)];
+}
+
+function assertWalletSessionSourceMatchesProjection(
+  source: ReturnType<typeof parseLinkedDeviceOwnerAuthorizationSourceV1>,
+  projection: ActiveWalletSessionAuthorizationProjection,
+): void {
+  if (
+    source.kind !== 'wallet_session' ||
+    source.walletSessionId !== projection.walletSessionId ||
+    source.authorizationId !== projection.authorizationId
+  ) {
+    throw new Error('Owner authorization Wallet Session identity changed');
+  }
+}
+
+function assertSameOwnerAuthorization(
+  left: ReturnType<typeof parseLinkedDeviceOwnerAuthorizationSourceV1>,
+  right: ReturnType<typeof parseLinkedDeviceOwnerAuthorizationSourceV1>,
+): void {
+  if (
+    left.kind !== 'wallet_session' ||
+    right.kind !== 'wallet_session' ||
+    left.walletSessionId !== right.walletSessionId ||
+    left.authorizationId !== right.authorizationId
+  ) {
+    throw new Error('Owner authorization source changed');
+  }
+}
+
+function exactRecord(raw: unknown, fields: readonly string[]): Record<string, unknown> {
+  if (!isRecord(raw)) {
+    throw new Error('Owner authorization response must be an object');
+  }
+  const record = raw;
+  const expected = new Set(fields);
+  const actual = Object.keys(record);
+  if (actual.length !== expected.size || actual.some((field) => !expected.has(field))) {
+    throw new Error('Owner authorization response has unexpected fields');
+  }
+  return record;
+}
+
+function ownerRequestFailureMessage(response: {
+  readonly status: number;
+  readonly body: unknown;
+}): string {
+  if (isRecord(response.body) && typeof response.body.message === 'string') {
+    return `Owner authorization failed: ${response.body.message}`;
+  }
+  return `Owner authorization failed with HTTP ${response.status}`;
+}
+
+function positiveSafeInteger(raw: unknown, label: string): number {
+  if (!Number.isSafeInteger(raw) || Number(raw) <= 0) {
+    throw new Error(`${label} must be a positive safe integer`);
+  }
+  return Number(raw);
+}
+
+function isRecord(raw: unknown): raw is Record<string, unknown> {
+  return raw !== null && typeof raw === 'object' && !Array.isArray(raw);
+}

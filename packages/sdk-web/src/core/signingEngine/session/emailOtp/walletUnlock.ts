@@ -6,15 +6,18 @@ import type {
   EmailOtpEcdsaSessionBootstrapHandleBinding,
   EmailOtpEcdsaSessionBootstrapHandlePayload,
   EmailOtpWorkerProgressEvent,
+  EmailOtpWalletCustodyEd25519MaterialRequest,
   EmailOtpWalletUnlockMaterialRequest,
+  EmailOtpEcdsaCustodyRestoreV1,
 } from '@/core/signingEngine/workerManager/workerTypes';
+import type { LoadedWalletCustodyEd25519MaterialV1 } from '../../walletCustody/ed25519SeedMaterial';
 import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '../../threshold/ed25519/yaoClient';
 import type { EmailOtpRoutePlan } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
 import { ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1 } from '@shared/utils/routerAbEd25519Yao';
 import type {
-  RouterAbEcdsaPostRegistrationSessionActivationRequestV1,
+  RouterAbEcdsaPostRegistrationSessionActivationPolicyV1,
   RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 
@@ -30,11 +33,12 @@ export type EmailOtpWalletUnlockRecovery = {
 export type EmailOtpWalletUnlockResult = {
   kind: 'ecdsa';
   recovery: EmailOtpWalletUnlockRecovery;
-  clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
+  emailOtpSessionHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
 } & (
   | {
       operation: 'wallet_unlock';
       ecdsaSession: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+      ecdsaCustody: EmailOtpEcdsaCustodyRestoreV1;
     }
   | {
       operation: Exclude<
@@ -47,9 +51,8 @@ export type EmailOtpWalletUnlockResult = {
 
 export type EmailOtpEd25519YaoUnlockResult =
   | {
-      kind: 'ed25519_yao_recovery';
+      kind: 'wallet_custody_cache_absent';
       recovery: EmailOtpWalletUnlockRecovery;
-      pendingFactorHandle: import('./ed25519YaoRootVault').EmailOtpEd25519YaoPendingFactorHandle;
       ed25519YaoRecovery: EmailOtpEd25519YaoRecoveryBootstrapV1;
     }
   | {
@@ -58,6 +61,7 @@ export type EmailOtpEd25519YaoUnlockResult =
       activeClientHandle: string;
       metadata: RouterAbEd25519YaoActiveClientMetadataV1;
       ed25519YaoCapability: EmailOtpEd25519YaoRecoveryBootstrapV1;
+      walletCustodyEd25519Material?: LoadedWalletCustodyEd25519MaterialV1;
     };
 
 export type EmailOtpWalletUnlockCapabilityResults = {
@@ -118,42 +122,42 @@ export async function unlockEmailOtpWallet(
     runtimePolicyScope: ThresholdRuntimePolicyScope;
   } & (
       | {
-          ecdsaClientRootHandleBinding: Extract<
+          ecdsaSessionHandleBinding: Extract<
             EmailOtpWalletUnlockMaterialRequest,
-            { kind: 'ecdsa'; ecdsaSessionActivation: unknown }
-          >['ecdsaClientRootHandleBinding'];
-          ecdsaSessionActivation: RouterAbEcdsaPostRegistrationSessionActivationRequestV1;
+            { kind: 'ecdsa'; ecdsaSessionPolicy: unknown }
+          >['ecdsaSessionHandleBinding'];
+          ecdsaSessionPolicy: RouterAbEcdsaPostRegistrationSessionActivationPolicyV1;
           walletSessionAuthorization: EmailOtpEcdsaWalletUnlockAuthorization;
         }
       | {
-          ecdsaClientRootHandleBinding: Extract<
+          ecdsaSessionHandleBinding: Extract<
             EmailOtpWalletUnlockMaterialRequest,
-            { kind: 'ecdsa'; ecdsaSessionActivation?: never }
-          >['ecdsaClientRootHandleBinding'];
-          ecdsaSessionActivation?: never;
+            { kind: 'ecdsa'; ecdsaSessionPolicy?: never }
+          >['ecdsaSessionHandleBinding'];
+          ecdsaSessionPolicy?: never;
         }
     ),
 ): Promise<EmailOtpWalletUnlockResult> {
   const result = await requestEmailOtpWalletUnlock({
     base: args,
-    material: args.ecdsaSessionActivation
+    material: args.ecdsaSessionPolicy
       ? {
           kind: 'ecdsa',
-          ecdsaClientRootHandleBinding: args.ecdsaClientRootHandleBinding,
+          ecdsaSessionHandleBinding: args.ecdsaSessionHandleBinding,
           runtimePolicyScope: args.runtimePolicyScope,
-          ecdsaSessionActivation: args.ecdsaSessionActivation,
+          ecdsaSessionPolicy: args.ecdsaSessionPolicy,
           walletSessionAuthorization: args.walletSessionAuthorization,
         }
       : {
           kind: 'ecdsa',
-          ecdsaClientRootHandleBinding: args.ecdsaClientRootHandleBinding,
+          ecdsaSessionHandleBinding: args.ecdsaSessionHandleBinding,
           runtimePolicyScope: args.runtimePolicyScope,
         },
   });
   if (result.kind !== 'ecdsa') {
     throw new Error('Email OTP wallet unlock returned the wrong material branch');
   }
-  if (args.ecdsaSessionActivation) {
+  if (args.ecdsaSessionPolicy) {
     if (result.operation !== 'wallet_unlock') {
       throw new Error('Email OTP wallet unlock returned a non-unlock ECDSA result');
     }
@@ -161,18 +165,19 @@ export async function unlockEmailOtpWallet(
       kind: 'ecdsa',
       operation: 'wallet_unlock',
       recovery: result.recovery,
-      clientRootShareHandle: result.clientRootShareHandle,
+      emailOtpSessionHandle: result.emailOtpSessionHandle,
       ecdsaSession: result.ecdsaSession,
+      ecdsaCustody: result.ecdsaCustody,
     };
   }
-  if (result.operation !== args.ecdsaClientRootHandleBinding.operation) {
+  if (result.operation !== args.ecdsaSessionHandleBinding.operation) {
     throw new Error('Email OTP ECDSA result operation does not match its request');
   }
   return {
     kind: 'ecdsa',
     operation: result.operation,
     recovery: result.recovery,
-    clientRootShareHandle: result.clientRootShareHandle,
+    emailOtpSessionHandle: result.emailOtpSessionHandle,
   };
 }
 
@@ -185,6 +190,7 @@ export async function unlockEmailOtpEd25519YaoCapability(
     nearAccountId: string;
     expectedOperationalPublicKey: string;
     expectedThresholdSessionId: string;
+    walletCustodyEd25519Material: EmailOtpWalletCustodyEd25519MaterialRequest;
   },
 ): Promise<EmailOtpEd25519YaoUnlockResult> {
   const result = await requestEmailOtpWalletUnlock({
@@ -195,6 +201,7 @@ export async function unlockEmailOtpEd25519YaoCapability(
       nearAccountId: args.nearAccountId,
       expectedOperationalPublicKey: args.expectedOperationalPublicKey,
       expectedThresholdSessionId: args.expectedThresholdSessionId,
+      walletCustodyEd25519Material: args.walletCustodyEd25519Material,
       ed25519YaoRecovery: {
         kind: ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1,
         signerSlot: args.signerSlot,
@@ -210,25 +217,27 @@ export async function unlockEmailOtpEd25519YaoCapability(
       activeClientHandle: result.activeClientHandle,
       metadata: result.metadata,
       ed25519YaoCapability: result.ed25519YaoCapability,
+      ...(result.walletCustodyEd25519Material
+        ? { walletCustodyEd25519Material: result.walletCustodyEd25519Material }
+        : {}),
     };
   }
-  if (result.kind !== 'ed25519_yao_recovery') {
+  if (result.kind !== 'wallet_custody_cache_absent') {
     throw new Error('Email OTP Ed25519 Yao unlock returned the wrong material branch');
   }
   return {
-    kind: 'ed25519_yao_recovery',
+    kind: 'wallet_custody_cache_absent',
     recovery: result.recovery,
-    pendingFactorHandle: result.pendingFactorHandle,
     ed25519YaoRecovery: result.ed25519YaoRecovery,
   };
 }
 
 export async function unlockEmailOtpWalletCapabilities(
   args: EmailOtpWalletUnlockBaseArgs & {
-    ecdsaClientRootHandleBinding: Extract<
+    ecdsaSessionHandleBinding: Extract<
       EmailOtpWalletUnlockMaterialRequest,
       { kind: 'wallet_unlock_capabilities' }
-    >['ecdsa']['clientRootHandleBinding'];
+    >['ecdsa']['sessionHandleBinding'];
     runtimePolicyScope: ThresholdRuntimePolicyScope;
     providerSubject: string;
     signerSlot: number;
@@ -236,7 +245,8 @@ export async function unlockEmailOtpWalletCapabilities(
     nearAccountId: string;
     expectedOperationalPublicKey: string;
     expectedThresholdSessionId: string;
-    ecdsaSessionActivation: RouterAbEcdsaPostRegistrationSessionActivationRequestV1;
+    walletCustodyEd25519Material: EmailOtpWalletCustodyEd25519MaterialRequest;
+    ecdsaSessionPolicy: RouterAbEcdsaPostRegistrationSessionActivationPolicyV1;
   },
 ): Promise<EmailOtpWalletUnlockCapabilityResults> {
   const result = await requestEmailOtpWalletUnlock({
@@ -244,15 +254,16 @@ export async function unlockEmailOtpWalletCapabilities(
     material: {
       kind: 'wallet_unlock_capabilities',
       ecdsa: {
-        clientRootHandleBinding: args.ecdsaClientRootHandleBinding,
+        sessionHandleBinding: args.ecdsaSessionHandleBinding,
         runtimePolicyScope: args.runtimePolicyScope,
-        sessionActivation: args.ecdsaSessionActivation,
+        sessionPolicy: args.ecdsaSessionPolicy,
       },
       ed25519Yao: {
         providerSubject: args.providerSubject,
         nearAccountId: args.nearAccountId,
         expectedOperationalPublicKey: args.expectedOperationalPublicKey,
         expectedThresholdSessionId: args.expectedThresholdSessionId,
+        walletCustodyEd25519Material: args.walletCustodyEd25519Material,
         recovery: {
           kind: ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1,
           signerSlot: args.signerSlot,
@@ -272,15 +283,15 @@ export async function unlockEmailOtpWalletCapabilities(
       kind: 'ecdsa',
       operation: 'wallet_unlock',
       recovery: result.recovery,
-      clientRootShareHandle: result.ecdsa.clientRootShareHandle,
+      emailOtpSessionHandle: result.ecdsa.emailOtpSessionHandle,
       ecdsaSession: result.ecdsa.session,
+      ecdsaCustody: result.ecdsa.custody,
     },
     ed25519Yao:
-      result.ed25519Yao.kind === 'recovery'
+      result.ed25519Yao.kind === 'wallet_custody_cache_absent'
         ? {
-            kind: 'ed25519_yao_recovery',
+            kind: 'wallet_custody_cache_absent',
             recovery: result.recovery,
-            pendingFactorHandle: result.ed25519Yao.pendingFactorHandle,
             ed25519YaoRecovery: result.ed25519Yao.bootstrap,
           }
         : {

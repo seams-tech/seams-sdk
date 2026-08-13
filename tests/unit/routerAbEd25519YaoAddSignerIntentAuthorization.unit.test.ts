@@ -32,6 +32,18 @@ function webAuthnRpId(value: string) {
   return parsed.value;
 }
 
+function materialActivation() {
+  return {
+    kind: 'mpc_material_activation_ref' as const,
+    activation_id: 'add-signer-material-activation-1',
+    capability: 'add-signer-capability-1',
+    material_owner: String(WALLET_ID),
+    key_binding: 'add-signer-key-1',
+    lifecycle_binding: 'wallet-add-signer-ceremony-1',
+    signing_worker: 'signing-worker-1',
+  };
+}
+
 function addSignerIntent(input?: {
   readonly keyPurpose?: string;
   readonly participantIds?: readonly [number, number];
@@ -81,6 +93,7 @@ async function admissionRequest(
       threshold_session_id: 'wallet-add-signer-ceremony-1',
       signer_set_id: registrationNearEd25519BranchKey(selection.signerSlot),
       signing_worker_id: 'signing-worker-1',
+      material_activation: materialActivation(),
     },
     application_binding: {
       wallet_id: String(intent.walletId),

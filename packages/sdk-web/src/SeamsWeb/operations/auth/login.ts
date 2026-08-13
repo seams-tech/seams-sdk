@@ -63,8 +63,15 @@ import {
   walletAuthAuthorityRef,
   type EmailOtpProvider,
   type PasskeyWalletAuthAuthority,
+  type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import { IndexedDBManager } from '@/core/indexedDB';
+import {
+  linkedDeviceExecutionEvidence,
+  resolveUniqueActiveLinkedDeviceExecutionBundleV1,
+} from '@/core/indexedDB/seamsWalletDB/linkedDeviceExecutionEvidenceStore';
+import { linkedDeviceWalletSessions } from '@/core/indexedDB/seamsWalletDB/linkedDeviceWalletSessionStore';
+import type { ActiveLinkedDeviceExecutionBundleV1 } from '@/core/signingEngine/session/lanes/linkedDeviceExecutionBundle';
 import {
   walletSessionAuthorizations,
   type ActiveWalletSessionAuthorizationProjection,
@@ -82,9 +89,12 @@ import type {
 } from '@/core/accountData/near/nearAccountData.types';
 import {
   exchangeSession,
+  type PasskeySessionEcdsaCustodyContinuityV1,
+  type PasskeySessionCustodyUnlockV1,
   type SessionExchangeInput,
   type SessionExchangeRuntimeScope,
 } from '@/core/rpcClients/near/rpcCalls';
+import { rememberPasskeyCustodySessionEnvelope } from '@/core/signingEngine/session/passkey/passkeyCustodySessionCache';
 import {
   fetchWalletEcdsaKeyFactsInventoryWithAppSession,
   fetchWalletEcdsaKeyFactsInventoryWithWebAuthn,
@@ -104,7 +114,10 @@ import {
   STALE_ECDSA_KEY_IDENTITY_ERROR_CODE,
   type ThresholdEcdsaSessionBootstrapResult,
 } from '@/core/signingEngine/threshold/ecdsa/activation';
-import { buildStrictEcdsaPostRegistrationSessionActivationRequest } from '@/core/signingEngine/threshold/ecdsa/postRegistrationSessionActivation';
+import type {
+  RouterAbEcdsaPostRegistrationSessionActivationPolicyV1,
+  RouterAbEcdsaRegistrationActivationReceiptV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import {
   type EmailOtpEd25519SessionPolicyAuthority,
   type Ed25519SessionPolicyAuthority,
@@ -136,12 +149,12 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   RouterAbEcdsaDerivationPublicCapabilityV1,
-  RouterAbEcdsaPostRegistrationSessionActivationRequestV1,
   RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   buildEvmFamilyEcdsaSessionLanePolicy,
+  deriveEvmFamilySigningKeySlotId,
   evmFamilyEcdsaWalletKeyToIdentity,
   resolveThresholdEcdsaKeyIdFromRecord,
   resolveThresholdSigningRootBindingFromRuntimePolicyScope,
@@ -196,28 +209,22 @@ import {
   passkeyCredentialIdB64uFromAuthentication,
   passkeyPrfFirstB64uFromCredential,
 } from '@/SeamsWeb/operations/authMethods/passkey/ecdsaBootstrap';
-import {
-  hydratePasskeyEd25519YaoLocalMaterialV1,
-  readPasskeyEd25519YaoLocalMaterialLocatorV1,
-  type PasskeyEd25519YaoLocalMaterialLocatorV1,
-} from '@/core/signingEngine/session/passkey/ed25519YaoLocalMaterial';
-import {
-  buildPasskeyEd25519RestoreMetadata,
-  persistPasskeyEd25519YaoSessionForRefresh,
-} from '@/core/signingEngine/session/passkey/ed25519YaoSealedSession';
-import { passkeyEd25519YaoLaneReferenceFromRecovery } from '@/core/signingEngine/flows/recovery/passkeyEd25519YaoRecovery';
-import {
-  rebindRouterAbEd25519WalletSessionStateFromExactRuntime,
-  type ResolvedRouterAbEd25519WalletSessionState,
-} from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
 import type {
   MintedEd25519WalletSessionAuthority,
   ProvisionWarmEd25519CapabilitySuccessResult,
 } from '@/core/signingEngine/session/warmCapabilities/types';
+import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
+import { base58Encode } from '@shared/utils/base58';
 import {
-  resolveExactEd25519SealedSessionRuntimeForWalletSubjectAndActivation,
-  type ExactEd25519SealedSessionRuntime,
-} from '@/core/signingEngine/session/warmCapabilities/ed25519SealedSessionRuntime';
+  openWalletCustodyEd25519ActiveClientV1,
+  walletCustodyCacheEnvelopeFromRecordV1,
+  type WalletCustodyActivationFactsV1,
+} from '@/core/signingEngine/walletCustody/openCustodyCache';
+import { joinCustodyWireFromEnvelopeRecord } from '@/core/signingEngine/walletCustody/joinCustodyWire';
+import {
+  WALLET_CUSTODY_ED25519_MATERIAL_KEY_KIND,
+  type WalletCustodyEd25519MaterialBindingV1,
+} from '@/core/signingEngine/walletCustody/ed25519SeedMaterial';
 import { reconcileCanonicalEcdsaActivationWasm } from '@/core/signingEngine/threshold/crypto/ecdsaDerivationClientWasm';
 import {
   resolveWalletUnlockSubjectSet,
@@ -665,7 +672,7 @@ type LoginWarmupPasskeyCredentialPlan =
       kind: 'no_passkey_credential_required';
     }
   | {
-      kind: 'local_ed25519_material_locator';
+      kind: 'wallet_custody';
     }
   | {
       kind: 'local_unlock_passkey_assertion_after_ecdsa_context';
@@ -715,6 +722,10 @@ type LoginWarmupRuntimeScopeBootstrapState =
       runtimeScopeBootstrap?: never;
     };
 
+type ActivePasskeySessionCustodyUnlockV1 = Omit<PasskeySessionCustodyUnlockV1, 'ed25519'> & {
+  readonly ed25519: Extract<PasskeySessionCustodyUnlockV1['ed25519'], { kind: 'active' }>;
+};
+
 type LoginWarmupEd25519MintPlan =
   | {
       kind: 'not_requested';
@@ -732,9 +743,8 @@ type LoginWarmupEd25519MintPlan =
       authorization?: never;
     }
   | {
-      kind: 'local_material';
-      stableServerScope: PasskeyEd25519YaoLocalMaterialLocatorV1['stableServerScope'];
-      materialActivation: PasskeyEd25519YaoLocalMaterialLocatorV1['materialActivation'];
+      kind: 'wallet_custody';
+      custody: ActivePasskeySessionCustodyUnlockV1;
       thresholdSessionId?: never;
       authorization?: never;
     };
@@ -974,10 +984,10 @@ function resolveLoginWarmEd25519ProvisioningIdentity(args: {
   switch (args.mintPlan.kind) {
     case 'not_requested':
       throw new Error('[login] threshold Ed25519 mint plan is missing');
-    case 'local_material':
+    case 'wallet_custody':
       return {
         kind: 'fresh_ed25519_provisioning' as const,
-        materialActivation: args.mintPlan.materialActivation,
+        materialActivation: args.mintPlan.custody.ed25519.capability.materialActivation,
       };
     case 'fresh':
       throw new Error(
@@ -1017,19 +1027,19 @@ type LoginEd25519ProvisionScope = {
   relayerKeyId: string;
   participantIds: readonly number[];
   runtimePolicyScope: ThresholdRuntimePolicyScope | null;
-  routerAbNormalSigning: PasskeyEd25519YaoLocalMaterialLocatorV1['stableServerScope']['routerAbNormalSigning'];
+  routerAbNormalSigning: ReturnType<typeof createRouterAbNormalSigningPolicy>;
 };
 
 function resolveLoginEd25519ProvisionScope(args: {
   mintPlan: LoginWarmupEd25519MintPlan;
   fallback: LoginEd25519ProvisionScope;
 }): LoginEd25519ProvisionScope {
-  if (args.mintPlan.kind !== 'local_material') return args.fallback;
+  if (args.mintPlan.kind !== 'wallet_custody') return args.fallback;
   return {
-    relayerKeyId: args.mintPlan.stableServerScope.relayerKeyId,
-    participantIds: args.mintPlan.stableServerScope.participantIds,
-    runtimePolicyScope: args.mintPlan.stableServerScope.runtimePolicyScope,
-    routerAbNormalSigning: args.mintPlan.stableServerScope.routerAbNormalSigning,
+    relayerKeyId: args.mintPlan.custody.ed25519.relayerKeyId,
+    participantIds: args.mintPlan.custody.ed25519.participantIds,
+    runtimePolicyScope: args.mintPlan.custody.ed25519.capability.runtimePolicyScope,
+    routerAbNormalSigning: args.fallback.routerAbNormalSigning,
   };
 }
 
@@ -1051,7 +1061,7 @@ function resolveLoginWarmupPasskeyCredentialPlan(args: {
   warmupPlan: ThresholdLoginWarmupPlan;
 }): LoginWarmupPasskeyCredentialPlan {
   if (args.warmupPlan.signersToWarm.includes('ed25519') && args.requiresLocalPasskeyUnlock) {
-    return { kind: 'local_ed25519_material_locator' };
+    return { kind: 'wallet_custody' };
   }
   if (args.hasLoginCredential) return { kind: 'existing_passkey_credential' };
   switch (args.routeAuthorization.kind) {
@@ -1777,6 +1787,7 @@ async function unlockInternal(
       null;
     let completedPasskeyExchangeEcdsaActivation: CompletedPasskeyExchangeEcdsaActivation | null =
       null;
+    let completedPasskeySessionCustody: PasskeySessionCustodyUnlockV1 | null = null;
     const session = options?.session;
     const wantsServerSession = session !== undefined;
     let localWarmupRouteAuthorization = resolveLoginWarmupRouteAuthorization({
@@ -1918,30 +1929,22 @@ async function unlockInternal(
         case 'app_session_authorized_warmup':
         case 'no_passkey_credential_required':
           break;
-        case 'local_ed25519_material_locator': {
+        case 'wallet_custody': {
           if (warmupInput.ed25519SessionAuthority.kind !== 'passkey') {
-            throw new Error('[login] local Ed25519 material requires passkey wallet authority');
+            throw new Error('[login] wallet custody requires passkey wallet authority');
           }
-          const exactNearWalletBinding = requireNearLoginWalletBinding(walletIdentity);
-          const credentialIdB64u = String(
-            warmupInput.ed25519SessionAuthority.authority.authority.factor.credentialIdB64u,
-          ).trim();
-          const localMaterial = await readPasskeyEd25519YaoLocalMaterialLocatorV1({
-            store: IndexedDBManager,
-            walletId: String(exactNearWalletBinding.walletId),
-            nearAccountId: String(exactNearWalletBinding.nearAccountId),
-            nearEd25519SigningKeyId: String(exactNearWalletBinding.nearEd25519SigningKeyId),
-            signerSlot: warmupInput.signerSlot,
-            rpId: warmupInput.rpId,
-            credentialIdB64u,
-          });
-          if (localMaterial.kind === 'unavailable') {
+          if (
+            !completedPasskeySessionCustody ||
+            completedPasskeySessionCustody.ed25519.kind !== 'active'
+          ) {
             throw createThresholdEd25519DeviceLinkRequiredError();
           }
           ed25519MintPlan = {
-            kind: 'local_material',
-            stableServerScope: localMaterial.locator.stableServerScope,
-            materialActivation: localMaterial.locator.materialActivation,
+            kind: 'wallet_custody',
+            custody: {
+              ...completedPasskeySessionCustody,
+              ed25519: completedPasskeySessionCustody.ed25519,
+            },
           };
           break;
         }
@@ -2167,6 +2170,11 @@ async function unlockInternal(
           });
           loginCredential = completedExchange.credential;
           completedPasskeyExchangeEcdsaActivation = completedExchange.activation;
+          completedPasskeySessionCustody = completedExchange.custody;
+          rememberPasskeySessionCustodyForExport({
+            walletId: String(walletIdentity.walletId),
+            exchange: completedExchange,
+          });
           exchanged = completedExchange.result;
         }
         if (!exchanged.success) {
@@ -2288,16 +2296,22 @@ async function unlockInternal(
     if (
       requireThresholdWarmup &&
       localUnlockAuthMethod === SIGNER_AUTH_METHODS.passkey &&
-      walletUnlockSelection.mode === 'ecdsa_only'
+      (walletUnlockSelection.mode === 'ecdsa_only' ||
+        walletIdentity.kind === 'near_ed25519_capable_wallet')
     ) {
-      const preparedActivation = await preparePasskeyExchangeEcdsaActivation({
-        context,
-        walletIdentity,
-        selection: walletUnlockSelection,
-        ttlMs: signingSessionPolicy.ttlMs,
-        remainingUses: requireLoginUnlockSessionUses(signingSessionPolicy.unlockRemainingUses),
-      });
-      if (preparedActivation) {
+      const preparedActivation =
+        walletUnlockSelection.mode === 'ecdsa_only'
+          ? await preparePasskeyExchangeEcdsaActivation({
+              context,
+              walletIdentity,
+              selection: walletUnlockSelection,
+              ttlMs: signingSessionPolicy.ttlMs,
+              remainingUses: requireLoginUnlockSessionUses(
+                signingSessionPolicy.unlockRemainingUses,
+              ),
+            })
+          : null;
+      if (preparedActivation || walletIdentity.kind === 'near_ed25519_capable_wallet') {
         const relayUrl = String(context.configs.network.relayer.url || '').trim();
         const rpId = String(signingEngine.getRpId() || '').trim();
         if (!relayUrl || !rpId) {
@@ -2325,6 +2339,11 @@ async function unlockInternal(
         });
         loginCredential = completedExchange.credential;
         completedPasskeyExchangeEcdsaActivation = completedExchange.activation;
+        completedPasskeySessionCustody = completedExchange.custody;
+        rememberPasskeySessionCustodyForExport({
+          walletId: String(walletIdentity.walletId),
+          exchange: completedExchange,
+        });
         didPerformPasskeySessionExchange = true;
         emitUnlockEvent(onEvent, unlockSubjectId, {
           phase: UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_SUCCEEDED,
@@ -2527,18 +2546,107 @@ type ConfiguredThresholdEcdsaPublicationTarget = ReturnType<
 
 type PreparedPasskeyExchangeEcdsaActivation = {
   readonly targetKey: string;
-  readonly request: RouterAbEcdsaPostRegistrationSessionActivationRequestV1;
+  readonly policy: RouterAbEcdsaPostRegistrationSessionActivationPolicyV1;
+  readonly requiresCustodyRejoin: boolean;
 };
 
 type CompletedPasskeyExchangeEcdsaActivation = PreparedPasskeyExchangeEcdsaActivation & {
   readonly response: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+  readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+  readonly continuity: PasskeySessionEcdsaCustodyContinuityV1;
 };
 
 type CompletedPasskeySessionExchange = {
   readonly credential: WebAuthnAuthenticationCredential;
   readonly activation: CompletedPasskeyExchangeEcdsaActivation | null;
+  readonly custody: PasskeySessionCustodyUnlockV1;
   readonly result: Awaited<ReturnType<typeof exchangeSession>>;
 };
+
+function sameCanonicalEcdsaValue(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function assertPasskeyEcdsaExchangeContinuity(args: {
+  readonly walletId: string;
+  readonly prepared: PreparedPasskeyExchangeEcdsaActivation;
+  readonly response: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+  readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+  readonly continuity: PasskeySessionEcdsaCustodyContinuityV1;
+}): void {
+  const first = args.continuity.signers[0];
+  if (!first) throw new Error('Passkey ECDSA custody continuity is empty');
+  const capability = first.walletKey.publicCapability;
+  const receipt = first.activationReceipt;
+  const activation = receipt.ecdsa_activation;
+  const normalScope = args.response.normal_signing.scope;
+  if (
+    first.walletKey.walletId !== args.walletId ||
+    first.walletKey.keyHandle !== args.prepared.policy.key_handle ||
+    thresholdEcdsaChainTargetKey(first.chainTarget) !== args.prepared.targetKey ||
+    args.response.session.threshold_session_id !==
+      args.prepared.policy.session_policy.threshold_session_id ||
+    !sameCanonicalEcdsaValue(
+      first.runtimePolicyScope,
+      args.prepared.policy.session_policy.runtime_policy_scope,
+    ) ||
+    !sameCanonicalEcdsaValue(args.response.public_capability, capability) ||
+    !sameCanonicalEcdsaValue(args.activationReceipt, receipt) ||
+    !sameCanonicalEcdsaValue(capability.context, activation.context) ||
+    !sameCanonicalEcdsaValue(capability.public_identity, activation.public_identity) ||
+    !sameCanonicalEcdsaValue(capability.material_activation, activation.material_activation) ||
+    !sameCanonicalEcdsaValue(capability.signer_set.selected_server, activation.signing_worker) ||
+    capability.activation_epoch !== activation.activation_epoch ||
+    !sameCanonicalEcdsaValue(normalScope.context, activation.context) ||
+    !sameCanonicalEcdsaValue(normalScope.public_identity, activation.public_identity) ||
+    !sameCanonicalEcdsaValue(normalScope.material_activation, activation.material_activation) ||
+    !sameCanonicalEcdsaValue(normalScope.signing_worker, activation.signing_worker) ||
+    normalScope.activation_epoch !== activation.activation_epoch ||
+    normalScope.wallet_id !== args.walletId ||
+    normalScope.ecdsa_threshold_key_id !== first.walletKey.ecdsaThresholdKeyId ||
+    normalScope.signing_root_id !== first.walletKey.signingRootId ||
+    normalScope.signing_root_version !== first.walletKey.signingRootVersion
+  ) {
+    throw new Error('Passkey ECDSA session activation changed custody continuity');
+  }
+}
+
+function assertRejoinedPasskeyEcdsaPublicFacts(args: {
+  readonly publicFacts: Awaited<
+    ReturnType<LoginUnlockSigningSurface['rejoinWalletCustodyEvmFamilyKeySet']>
+  >['publicFacts'];
+  readonly signer: PasskeySessionEcdsaCustodyContinuityV1['signers'][number];
+}): void {
+  const identity = args.signer.walletKey.publicCapability.public_identity;
+  if (
+    args.publicFacts.contextBinding32B64u !== identity.context_binding_b64u ||
+    args.publicFacts.derivationClientSharePublicKey33B64u !==
+      identity.derivation_client_share_public_key33_b64u ||
+    args.publicFacts.relayerPublicKey33B64u !== identity.server_public_key33_b64u ||
+    args.publicFacts.groupPublicKey33B64u !== identity.threshold_public_key33_b64u ||
+    args.publicFacts.ethereumAddress !==
+      ethereumAddressFromEcdsaIdentityB64u(identity.ethereum_address20_b64u) ||
+    args.publicFacts.clientShareRetryCounter !== identity.client_share_retry_counter ||
+    args.publicFacts.relayerShareRetryCounter !== identity.server_share_retry_counter
+  ) {
+    throw new Error('Passkey ECDSA custody rejoin changed registered public identity');
+  }
+}
+
+function rememberPasskeySessionCustodyForExport(args: {
+  readonly walletId: string;
+  readonly exchange: CompletedPasskeySessionExchange;
+}): void {
+  const credentialIdB64u = String(
+    args.exchange.credential.rawId || args.exchange.credential.id || '',
+  ).trim();
+  if (!credentialIdB64u) throw new Error('[login] passkey assertion credential id is missing');
+  rememberPasskeyCustodySessionEnvelope({
+    walletId: args.walletId,
+    credentialIdB64u,
+    envelope: args.exchange.custody.envelope,
+  });
+}
 
 async function preparePasskeyExchangeEcdsaActivation(args: {
   context: LoginWebContext;
@@ -2564,18 +2672,13 @@ async function preparePasskeyExchangeEcdsaActivation(args: {
   );
   const targetKey = thresholdEcdsaChainTargetKey(target.chainTarget);
   const targetEcdsaKey = context.ecdsaKeys.find((candidate) => candidate.targetKey === targetKey);
-  if (!targetEcdsaKey?.key || !targetEcdsaKey.existingRoleLocalMaterial) {
+  if (!targetEcdsaKey) {
     throw createThresholdEcdsaDeviceLinkRequiredError(targetKey);
   }
   const runtimePolicyScope = context.runtimePolicyScope;
   if (!runtimePolicyScope) {
     throw new Error('[login] passkey exchange ECDSA activation requires runtime policy scope');
   }
-  const publicCapability = await resolvePersistedEcdsaPublicCapabilityForLogin({
-    walletId: args.walletIdentity.walletId,
-    chainTarget: target.chainTarget,
-    targetEcdsaKey,
-  });
   const thresholdSessionId = requireThresholdLoginEcdsaSessionId(
     createThresholdLoginWarmSessionId('threshold-ecdsa-login'),
   );
@@ -2584,14 +2687,18 @@ async function preparePasskeyExchangeEcdsaActivation(args: {
   );
   return {
     targetKey,
-    request: buildStrictEcdsaPostRegistrationSessionActivationRequest({
-      publicCapability,
-      thresholdSessionId,
-      walletSessionMintId,
-      ttlMs: args.ttlMs,
-      remainingUses: args.remainingUses,
-      runtimePolicyScope,
-    }),
+    requiresCustodyRejoin: !targetEcdsaKey.existingRoleLocalMaterial,
+    policy: {
+      kind: 'router_ab_ecdsa_post_registration_session_activation_policy_v1',
+      key_handle: targetEcdsaKey.keyHandle,
+      session_policy: {
+        threshold_session_id: thresholdSessionId,
+        wallet_session_mint_id: walletSessionMintId,
+        ttl_ms: args.ttlMs,
+        remaining_uses: args.remainingUses,
+        runtime_policy_scope: runtimePolicyScope,
+      },
+    },
   };
 }
 
@@ -2660,9 +2767,10 @@ async function completePasskeySessionExchange(args: {
     ? {
         type: 'passkey_assertion',
         challengeId,
+        walletId: String(args.walletIdentity.walletId),
         webauthn_authentication: credential,
         ...(expectedOrigin ? { expected_origin: expectedOrigin } : {}),
-        ecdsaSessionActivation: args.activation.request,
+        ecdsaSessionPolicy: args.activation.policy,
       }
     : {
         type: 'passkey_assertion',
@@ -2685,15 +2793,66 @@ async function completePasskeySessionExchange(args: {
   if (!result.success) {
     throw new Error(result.error || 'Passkey session exchange failed');
   }
-  if (args.activation && !result.ecdsaSession) {
+  if (!result.walletCustody) {
+    throw new Error('Passkey session exchange omitted wallet custody continuity');
+  }
+  if (
+    args.activation &&
+    (!result.ecdsaSession || !result.ecdsaActivationReceipt || !result.ecdsaCustody)
+  ) {
     throw new Error('Passkey session exchange omitted the requested ECDSA activation');
+  }
+  if (
+    args.activation &&
+    result.ecdsaSession &&
+    result.ecdsaActivationReceipt &&
+    result.ecdsaCustody
+  ) {
+    assertPasskeyEcdsaExchangeContinuity({
+      walletId: String(args.walletIdentity.walletId),
+      prepared: args.activation,
+      response: result.ecdsaSession,
+      activationReceipt: result.ecdsaActivationReceipt,
+      continuity: result.ecdsaCustody,
+    });
+  }
+  if (args.activation?.requiresCustodyRejoin) {
+    if (!('ecdsaCustody' in result) || !result.ecdsaCustody) {
+      throw new Error('Passkey ECDSA custody rejoin requires server continuity');
+    }
+    const passkeyPrfFirstB64u = passkeyPrfFirstB64uFromCredential(credential);
+    if (!passkeyPrfFirstB64u) {
+      throw new Error('Passkey ECDSA custody rejoin requires WebAuthn PRF.first');
+    }
+    const credentialIdB64u = passkeyCredentialIdB64uFromAuthentication(credential);
+    const authority = await walletAuthAuthorityRef({
+      authority: buildPasskeyWalletAuthAuthority({
+        walletId: String(args.walletIdentity.walletId),
+        rpId: args.rpId,
+        credentialIdB64u,
+      }),
+    });
+    await restorePasskeyEcdsaCustodyLogin({
+      signingEngine: args.context.signingEngine,
+      walletId: String(args.walletIdentity.walletId),
+      custody: result.walletCustody,
+      continuity: result.ecdsaCustody,
+      authority,
+      passkeyPrfFirstB64u,
+    });
   }
   return {
     credential,
     activation:
       args.activation && result.ecdsaSession
-        ? { ...args.activation, response: result.ecdsaSession }
+        ? {
+            ...args.activation,
+            response: result.ecdsaSession,
+            activationReceipt: result.ecdsaActivationReceipt,
+            continuity: result.ecdsaCustody,
+          }
         : null,
+    custody: result.walletCustody,
     result,
   };
 }
@@ -2797,7 +2956,6 @@ type ThresholdLoginWarmEd25519State = {
   expiresAtMs: number;
   remainingUses: number;
   runtimePolicyScope: ThresholdRuntimePolicyScope | null;
-  ecdsaDerivationPasskeyPrfFirstB64u: string;
 };
 
 type ThresholdLoginWarmSharedState = {
@@ -2857,8 +3015,6 @@ async function stageMintedLoginEd25519WalletSessionAuthority(
   context.sharedState.ed25519.expiresAtMs = minted.expiresAtMs;
   context.sharedState.ed25519.remainingUses = minted.remainingUses;
   context.sharedState.ed25519.runtimePolicyScope = minted.runtimePolicyScope;
-  context.sharedState.ed25519.ecdsaDerivationPasskeyPrfFirstB64u =
-    minted.ecdsaDerivationPasskeyPrfFirstB64u;
   if (context.ecdsaContextResolution.kind === 'resolve_after_ed25519') {
     context.sharedState.activeCanonicalEcdsaContext =
       await context.ecdsaContextResolution.resolveAfterEd25519(context.sharedState.ed25519);
@@ -2922,7 +3078,6 @@ function publicCapabilityFromThresholdEcdsaBootstrap(
     case 'role_local_durable_sealed_ref':
     case 'role_local_durable_public_anchor':
       return backendBinding.publicFacts.publicCapability;
-    case 'email_otp_worker_handle':
     case 'role_local_ready_state_blob':
       return backendBinding.ecdsaRoleLocalReadyRecord.publicFacts.publicCapability;
     case 'metadata_only':
@@ -3158,25 +3313,6 @@ async function bootstrapLoginEcdsaSession(args: {
   }
 }
 
-function resolveThresholdLoginWarmEcdsaPrfFirstB64u(args: {
-  ed25519State: ThresholdLoginWarmEd25519State;
-  credentialState: LoginWarmupCredentialState;
-}): string {
-  if (args.credentialState.kind === 'available') {
-    const prfFirstB64u = passkeyPrfFirstB64uFromCredential(args.credentialState.credential);
-    if (prfFirstB64u) return prfFirstB64u;
-  }
-  const fromEd25519Session = String(
-    args.ed25519State.ecdsaDerivationPasskeyPrfFirstB64u || '',
-  ).trim();
-  if (fromEd25519Session) {
-    return fromEd25519Session;
-  }
-  throw new Error(
-    '[login] threshold ECDSA warm-up requires passkey PRF.first or primed Ed25519 session material',
-  );
-}
-
 function buildLoginEd25519WalletSessionMintAuthorization(args: {
   routeAuthorization: LoginWarmupRouteAuthorization;
   credentialState: LoginWarmupCredentialState;
@@ -3209,117 +3345,274 @@ function buildLoginEd25519WalletSessionMintAuthorization(args: {
   }
 }
 
-type PasskeyEd25519LoginHydrationInput = {
+type PasskeyEd25519CustodyLoginInput = {
   signingEngine: LoginUnlockSigningSurface;
-  runtime: ExactEd25519SealedSessionRuntime;
-  walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
-  walletId: string;
-  nearAccountId: AccountId;
+  custody: ActivePasskeySessionCustodyUnlockV1;
+  walletBinding: ResolvedLoginWalletBinding;
   signerSlot: number;
-  rpId: string;
-  credentialIdB64u: string;
   passkeyPrfFirstB64u: string;
-  expectedMaterialActivation: PasskeyEd25519YaoLocalMaterialLocatorV1['materialActivation'];
+  walletSessionJwt: string;
+  thresholdSessionId: string;
+  routerAbNormalSigning: ReturnType<typeof createRouterAbNormalSigningPolicy>;
+  relayerUrl: string;
 };
 
-async function hydrateAndActivatePasskeyEd25519LoginMaterial(
-  input: PasskeyEd25519LoginHydrationInput,
-): Promise<void> {
-  const current = await readPasskeyEd25519YaoLocalMaterialLocatorV1({
-    store: IndexedDBManager,
-    walletId: input.walletId,
-    nearAccountId: input.nearAccountId,
-    nearEd25519SigningKeyId: String(
-      input.walletSessionState.signingLane.identity.signer.nearEd25519SigningKeyId,
+function walletCustodyLoginActivationFacts(
+  custody: ActivePasskeySessionCustodyUnlockV1,
+  thresholdSessionId: string,
+): WalletCustodyActivationFactsV1 {
+  const capability = custody.ed25519.capability;
+  const continuity = capability.registrationContinuity;
+  if (continuity.kind !== 'registration') {
+    throw new Error('[login] wallet custody requires registration continuity');
+  }
+  return {
+    materialActivation: capability.materialActivation,
+    lifecycleId: capability.lifecycle.lifecycleId,
+    signingRootVersion: capability.lifecycle.rootShareEpoch,
+    signingRootId: capability.applicationBinding.signing_root_id,
+    signerSetId: capability.lifecycle.signerSetId,
+    thresholdSessionId,
+    activationTranscriptB64u: base64UrlEncode(Uint8Array.from(continuity.activationTranscript)),
+    activationCapabilityBindingB64u: base64UrlEncode(
+      Uint8Array.from(capability.activeCapabilityBinding),
     ),
-    signerSlot: input.signerSlot,
-    rpId: input.rpId,
-    credentialIdB64u: input.credentialIdB64u,
-  });
+  };
+}
+
+function assertWalletCustodyLoginIdentity(input: PasskeyEd25519CustodyLoginInput): void {
+  const ed25519 = input.custody.ed25519;
+  const capability = ed25519.capability;
   if (
-    current.kind !== 'available' ||
-    !mpcMaterialActivationRefsEqual(
-      current.locator.materialActivation,
-      input.expectedMaterialActivation,
-    )
+    ed25519.nearAccountId !== String(input.walletBinding.nearAccountId) ||
+    ed25519.nearEd25519SigningKeyId !== String(input.walletBinding.nearEd25519SigningKeyId) ||
+    ed25519.signerSlot !== input.signerSlot ||
+    capability.applicationBinding.wallet_id !== String(input.walletBinding.walletId) ||
+    capability.applicationBinding.near_ed25519_signing_key_id !==
+      String(input.walletBinding.nearEd25519SigningKeyId) ||
+    capability.applicationBinding.key_creation_signer_slot !== input.signerSlot ||
+    capability.nearAccountId !== input.walletBinding.nearAccountId ||
+    capability.lifecycle.accountId !== String(input.walletBinding.walletId) ||
+    capability.lifecycle.signingWorkerId !== ed25519.relayerKeyId
   ) {
-    throw new Error('[login] local Ed25519 material activation was superseded before hydration');
+    throw new Error('[login] wallet custody identity does not match the selected signing lane');
   }
-  const hydrated = await hydratePasskeyEd25519YaoLocalMaterialV1({
-    store: IndexedDBManager,
-    walletSessionState: input.walletSessionState,
-    rpId: input.rpId,
-    credentialIdB64u: input.credentialIdB64u,
-    publicLocator: {
-      kind: 'available',
-      walletId: input.walletId,
-      nearAccountId: String(input.nearAccountId),
-      signerSlot: input.signerSlot,
-      materialActivation: input.expectedMaterialActivation,
-    },
-    unlockSource: {
-      kind: 'available',
-      passkeyPrfFirstB64u: input.passkeyPrfFirstB64u,
-    },
-    liveMaterial: null,
+}
+
+async function openAndActivatePasskeyEd25519CustodyLogin(
+  input: PasskeyEd25519CustodyLoginInput,
+): Promise<void> {
+  assertWalletCustodyLoginIdentity(input);
+  const capability = input.custody.ed25519.capability;
+  const cached = await input.signingEngine.loadWalletCustodyEd25519Material({
+    nearAccountId: String(input.walletBinding.nearAccountId),
+    signerSlot: input.signerSlot,
+    expectedRegisteredPublicKeyB64u: base64UrlEncode(
+      Uint8Array.from(capability.registeredPublicKey),
+    ),
   });
-  if (hydrated.kind === 'blocked') {
-    throw new Error(`[login] local threshold Ed25519 hydration blocked: ${hydrated.plan.reason}`);
+  const thresholdSessionId = parseThresholdEd25519SessionId(input.thresholdSessionId);
+  if (!thresholdSessionId.ok) {
+    throw new Error('[login] wallet custody returned an invalid threshold session identity');
   }
-  if (hydrated.kind === 'live') {
-    throw new Error('[login] cleared Ed25519 runtime unexpectedly remained live');
-  }
+  const activation = walletCustodyLoginActivationFacts(input.custody, thresholdSessionId.value);
+  const envelope = walletCustodyCacheEnvelopeFromRecordV1(input.custody.envelope);
+  let activeClient: Awaited<ReturnType<typeof openWalletCustodyEd25519ActiveClientV1>> | null =
+    null;
+  let rejoinSecret: Uint8Array | null = null;
+  let openSecret: Uint8Array | null = null;
   try {
-    if (input.runtime.factor.kind !== 'passkey') {
-      throw new Error('[login] local Ed25519 material requires a passkey sealed runtime');
+    if (cached.kind === 'found') {
+      openSecret = base64UrlDecode(input.passkeyPrfFirstB64u);
+      activeClient = await openWalletCustodyEd25519ActiveClientV1({
+        material: cached.material,
+        activation,
+        envelope,
+        ownedFactorSecret: openSecret,
+      });
+    } else {
+      const continuity = capability.registrationContinuity;
+      if (continuity.kind !== 'registration') {
+        throw new Error('[login] wallet custody cold rejoin requires registration continuity');
+      }
+      const custodyWire = joinCustodyWireFromEnvelopeRecord(input.custody.envelope);
+      if (!custodyWire.ok) throw new Error(custodyWire.reason);
+      rejoinSecret = base64UrlDecode(input.passkeyPrfFirstB64u);
+      openSecret = base64UrlDecode(input.passkeyPrfFirstB64u);
+      const rejoined = await input.signingEngine.rejoinWalletCustodyNearEd25519KeySet({
+        walletId: String(input.walletBinding.walletId),
+        custodyJson: custodyWire.custodyJson,
+        factorSecret: rejoinSecret.buffer,
+        nearEd25519SigningKeyId: String(input.walletBinding.nearEd25519SigningKeyId),
+        registrationCeremonyId: continuity.admissionRequest.scope.lifecycle_id,
+        admissionRequest: continuity.admissionRequest,
+        admissionReceipt: continuity.admissionReceipt,
+        participantIds: capability.participantIds,
+        registeredPublicKeyB64u: base64UrlEncode(Uint8Array.from(capability.registeredPublicKey)),
+        routerOrigin: new URL(input.relayerUrl).origin,
+        walletSessionJwt: input.walletSessionJwt,
+      });
+      const materialBinding: WalletCustodyEd25519MaterialBindingV1 = {
+        kind: WALLET_CUSTODY_ED25519_MATERIAL_KEY_KIND,
+        applicationBindingDigestB64u: rejoined.localMaterial.applicationBindingDigestB64u,
+        registeredPublicKeyB64u: base64UrlEncode(rejoined.metadata.registeredPublicKey),
+        participantIds: rejoined.metadata.participantIds,
+        stateEpoch: String(rejoined.metadata.stateEpoch),
+        walletId: String(input.walletBinding.walletId),
+        nearAccountId: String(input.walletBinding.nearAccountId),
+        nearEd25519SigningKeyId: String(input.walletBinding.nearEd25519SigningKeyId),
+        signerSlot: input.signerSlot,
+        signingWorkerId: input.custody.ed25519.relayerKeyId,
+        signingWorkerVerifyingShareB64u: base64UrlEncode(
+          rejoined.metadata.signingWorkerVerifyingShare,
+        ),
+      };
+      const sealed = {
+        ciphertextB64u: rejoined.localMaterial.b64u,
+        nonceB64u: rejoined.localMaterial.nonceB64u,
+      };
+      await input.signingEngine.persistWalletCustodyEd25519Material({
+        binding: materialBinding,
+        sealed,
+      });
+      activeClient = await openWalletCustodyEd25519ActiveClientV1({
+        material: { binding: materialBinding, sealed },
+        activation,
+        envelope,
+        ownedFactorSecret: openSecret,
+      });
     }
-    await persistPasskeyEd25519YaoSessionForRefresh({
-      persistence: input.signingEngine,
-      session: input.walletSessionState,
-      prfFirstB64u: input.passkeyPrfFirstB64u,
-      ed25519Restore: buildPasskeyEd25519RestoreMetadata({
-        rpId: input.runtime.factor.rpId,
-        nearAccountId: input.runtime.nearAccountId,
-        nearEd25519SigningKeyId: input.runtime.nearEd25519SigningKeyId,
-        relayerKeyId: input.runtime.relayerKeyId,
-        participantIds: input.runtime.participantIds,
-        runtimePolicyScope: input.runtime.runtimePolicyScope,
-        signerSlot: input.runtime.signerSlot,
-        routerAbNormalSigning: input.runtime.routerAbNormalSigning,
-        credentialIdB64u: input.runtime.factor.credentialIdB64u,
-        materialActivation: input.expectedMaterialActivation,
-      }),
-      materialActivation: input.expectedMaterialActivation,
-    });
+    if (!activeClient) throw new Error('[login] wallet custody produced no active client');
     const activated = await input.signingEngine.activateVerifiedNearEd25519YaoMaterial({
-      activeClient: hydrated.activeClient,
+      activeClient,
       facts: {
-        thresholdSessionId: input.walletSessionState.thresholdSessionId,
-        signer: input.walletSessionState.signingLane.identity.signer,
-        signingRootId: input.walletSessionState.signingRootId,
-        signingRootVersion: input.walletSessionState.signingRootVersion,
-        routerAbNormalSigning: input.walletSessionState.routerAbNormalSigning,
-        runtimePolicyScope: input.walletSessionState.runtimePolicyScope,
-        relayerUrl: input.walletSessionState.relayerUrl,
+        thresholdSessionId: thresholdSessionId.value,
+        signer: nearEd25519SignerBindingFromBoundaryFields({
+          walletId: input.walletBinding.walletId,
+          nearAccountId: input.walletBinding.nearAccountId,
+          nearEd25519SigningKeyId: input.walletBinding.nearEd25519SigningKeyId,
+          signerSlot: input.signerSlot,
+        }),
+        signingRootId: capability.applicationBinding.signing_root_id,
+        signingRootVersion: capability.lifecycle.rootShareEpoch,
+        routerAbNormalSigning: input.routerAbNormalSigning,
+        runtimePolicyScope: capability.runtimePolicyScope,
+        relayerUrl: input.relayerUrl,
       },
     });
     if (
-      !mpcMaterialActivationRefsEqual(
-        activated.materialActivation,
-        input.expectedMaterialActivation,
-      )
+      !mpcMaterialActivationRefsEqual(activated.materialActivation, capability.materialActivation)
     ) {
-      throw new Error('[login] local Ed25519 activation changed during hydration');
+      throw new Error('[login] wallet custody activation changed during unlock');
     }
-    await input.signingEngine.upsertEd25519YaoPublicCapabilityLaneReference(
-      passkeyEd25519YaoLaneReferenceFromRecovery({
-        walletSessionState: input.walletSessionState,
-        materialActivation: activated.materialActivation,
-      }),
-    );
   } catch (error) {
-    hydrated.activeClient.dispose();
+    activeClient?.dispose();
     throw error;
+  } finally {
+    rejoinSecret?.fill(0);
+    openSecret?.fill(0);
+  }
+}
+
+function ethereumAddressFromEcdsaIdentityB64u(value: string): `0x${string}` {
+  const bytes = base64UrlDecode(value);
+  if (bytes.length !== 20) throw new Error('[login] ECDSA custody address is invalid');
+  let hex = '0x';
+  for (const byte of bytes) hex += byte.toString(16).padStart(2, '0');
+  return hex as `0x${string}`;
+}
+
+function nonEmptyEcdsaCustodyChainTargets(
+  signers: readonly PasskeySessionEcdsaCustodyContinuityV1['signers'][number][],
+): readonly [
+  PasskeySessionEcdsaCustodyContinuityV1['signers'][number]['chainTarget'],
+  ...PasskeySessionEcdsaCustodyContinuityV1['signers'][number]['chainTarget'][],
+] {
+  const [first, ...rest] = signers;
+  if (!first) throw new Error('[login] passkey ECDSA custody continuity is empty');
+  return [first.chainTarget, ...rest.map((signer) => signer.chainTarget)];
+}
+
+async function restorePasskeyEcdsaCustodyLogin(input: {
+  readonly signingEngine: LoginUnlockSigningSurface;
+  readonly walletId: string;
+  readonly custody: PasskeySessionCustodyUnlockV1;
+  readonly continuity: PasskeySessionEcdsaCustodyContinuityV1;
+  readonly authority: WalletAuthAuthorityRef;
+  readonly passkeyPrfFirstB64u: string;
+}): Promise<void> {
+  const first = input.continuity.signers[0];
+  if (!first) throw new Error('[login] passkey ECDSA custody continuity is empty');
+  if (first.walletKey.walletId !== input.walletId) {
+    throw new Error('[login] passkey ECDSA custody continuity changed wallet identity');
+  }
+  for (const signer of input.continuity.signers) {
+    if (
+      signer.walletKey.walletId !== first.walletKey.walletId ||
+      signer.walletKey.keyHandle !== first.walletKey.keyHandle ||
+      signer.walletKey.ecdsaThresholdKeyId !== first.walletKey.ecdsaThresholdKeyId ||
+      signer.walletKey.signingRootId !== first.walletKey.signingRootId ||
+      signer.walletKey.signingRootVersion !== first.walletKey.signingRootVersion ||
+      signer.walletKey.relayerKeyId !== first.walletKey.relayerKeyId ||
+      JSON.stringify(signer.walletKey.publicCapability) !==
+        JSON.stringify(first.walletKey.publicCapability) ||
+      JSON.stringify(signer.activationReceipt) !== JSON.stringify(first.activationReceipt) ||
+      JSON.stringify(signer.runtimePolicyScope) !== JSON.stringify(first.runtimePolicyScope)
+    ) {
+      throw new Error('[login] passkey ECDSA custody continuity conflicts across targets');
+    }
+  }
+  const custodyWire = joinCustodyWireFromEnvelopeRecord(input.custody.envelope);
+  if (!custodyWire.ok) throw new Error(custodyWire.reason);
+  const factorSecret = base64UrlDecode(input.passkeyPrfFirstB64u);
+  try {
+    const rejoined = await input.signingEngine.rejoinWalletCustodyEvmFamilyKeySet({
+      walletId: input.walletId,
+      custodyJson: custodyWire.custodyJson,
+      factorSecret: factorSecret.buffer,
+      evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
+        walletId: input.walletId,
+        signingRootId: first.walletKey.signingRootId,
+        signingRootVersion: first.walletKey.signingRootVersion,
+      }),
+      applicationBindingDigestB64u:
+        first.walletKey.publicCapability.context.application_binding_digest_b64u,
+      registeredClientRootPublicKey33B64u: first.walletKey.derivationClientSharePublicKey33B64u,
+      relayerPublicIdentityJson: JSON.stringify({
+        relayerKeyId: first.walletKey.relayerKeyId,
+        relayerPublicKey33B64u:
+          first.activationReceipt.ecdsa_activation.public_identity.server_public_key33_b64u,
+        groupPublicKey33B64u:
+          first.activationReceipt.ecdsa_activation.public_identity.threshold_public_key33_b64u,
+        ethereumAddress: ethereumAddressFromEcdsaIdentityB64u(
+          first.activationReceipt.ecdsa_activation.public_identity.ethereum_address20_b64u,
+        ),
+        relayerShareRetryCounter:
+          first.activationReceipt.ecdsa_activation.public_identity.server_share_retry_counter,
+      }),
+    });
+    assertRejoinedPasskeyEcdsaPublicFacts({
+      publicFacts: rejoined.publicFacts,
+      signer: first,
+    });
+    await input.signingEngine.restoreWalletCustodyEcdsaContinuity({
+      authority: input.authority,
+      chainTargets: nonEmptyEcdsaCustodyChainTargets(input.continuity.signers),
+      walletId: first.walletKey.walletId,
+      keyHandle: first.walletKey.keyHandle,
+      ecdsaThresholdKeyId: first.walletKey.ecdsaThresholdKeyId,
+      signingRootId: first.walletKey.signingRootId,
+      signingRootVersion: first.walletKey.signingRootVersion,
+      relayerKeyId: first.walletKey.relayerKeyId,
+      participantIds: first.walletKey.participantIds,
+      publicCapability: first.walletKey.publicCapability,
+      activationReceipt: first.activationReceipt,
+      runtimePolicyScope: first.runtimePolicyScope,
+      readyStateBlobB64u: rejoined.readyStateBlobB64u,
+      publicFacts: rejoined.publicFacts,
+    });
+  } finally {
+    factorSecret.fill(0);
   }
 }
 
@@ -3369,7 +3662,6 @@ async function primeThresholdLoginWarmSigners(args: {
       expiresAtMs: 0,
       remainingUses: 0,
       runtimePolicyScope: null,
-      ecdsaDerivationPasskeyPrfFirstB64u: '',
     },
   };
   const authorityDeferred =
@@ -3382,7 +3674,7 @@ async function primeThresholdLoginWarmSigners(args: {
       : null;
   const ecdsaThresholdSessionState: ThresholdLoginWarmEcdsaThresholdSessionState = {
     generatedThresholdSessionId:
-      args.passkeyExchangeEcdsaActivation?.request.session_policy.threshold_session_id || '',
+      args.passkeyExchangeEcdsaActivation?.policy.session_policy.threshold_session_id || '',
   };
   const unlockRemainingUses = args.unlockRemainingUses;
   const ecdsaBootstraps: ThresholdEcdsaSessionBootstrapResult[] = [];
@@ -3522,61 +3814,32 @@ async function primeThresholdLoginWarmSigners(args: {
         );
         ed25519AuthorizationPersistenceDeferred?.resolve(undefined);
 
-        const connectedEcdsaDerivationPasskeyPrfFirstB64u = String(
-          connected.ecdsaDerivationPasskeyPrfFirstB64u || '',
-        ).trim();
-        if (signersToWarm.includes('ecdsa') && !connectedEcdsaDerivationPasskeyPrfFirstB64u) {
-          throw new Error(
-            '[login] threshold ECDSA warm-up missing passkey PRF.first from the primed Ed25519 session',
-          );
-        }
-        if (args.ed25519MintPlan.kind === 'local_material') {
+        if (args.ed25519MintPlan.kind === 'wallet_custody') {
           if (ed25519SessionAuthority.kind !== 'passkey') {
-            throw new Error('[login] local Ed25519 material requires passkey authority');
+            throw new Error('[login] wallet custody requires passkey authority');
           }
           const expectedMaterialActivation = requireLoginPasskeyMaterialActivation(
             ed25519ProvisioningIdentity,
           );
-          const passkeyPrfFirstB64u =
-            connectedEcdsaDerivationPasskeyPrfFirstB64u ||
-            (credential ? passkeyPrfFirstB64uFromCredential(credential) : '');
+          const passkeyPrfFirstB64u = credential
+            ? passkeyPrfFirstB64uFromCredential(credential)
+            : '';
           if (!passkeyPrfFirstB64u) {
-            throw new Error('[login] local Ed25519 material requires WebAuthn PRF.first');
+            throw new Error('[login] wallet custody requires WebAuthn PRF.first');
           }
-          const runtimeResolution =
-            await resolveExactEd25519SealedSessionRuntimeForWalletSubjectAndActivation({
-              walletId: walletBinding.walletId,
-              nearAccountId: walletBinding.nearAccountId,
-              nearEd25519SigningKeyId: walletBinding.nearEd25519SigningKeyId,
-              materialActivation: expectedMaterialActivation,
-              authMethod: SIGNER_AUTH_METHODS.passkey,
-            });
-          if (runtimeResolution.kind !== 'resolved') {
-            throw new Error('[login] local Ed25519 material requires its exact sealed runtime');
-          }
-          const activeEd25519Authorization = sharedState.activeEd25519Authorization;
-          if (!activeEd25519Authorization) {
-            throw new Error('[login] local Ed25519 material requires active wallet authority');
-          }
-          const walletSessionState = await rebindRouterAbEd25519WalletSessionStateFromExactRuntime({
-            runtime: runtimeResolution.runtime,
-            authorization: activeEd25519Authorization,
-            nowMs: Date.now(),
-          });
           await args.signingEngine.withExactEd25519MaterialOwner({
             materialActivation: expectedMaterialActivation,
             nearAccountId: walletBinding.nearAccountId,
-            task: hydrateAndActivatePasskeyEd25519LoginMaterial.bind(undefined, {
+            task: openAndActivatePasskeyEd25519CustodyLogin.bind(undefined, {
               signingEngine: args.signingEngine,
-              runtime: runtimeResolution.runtime,
-              walletSessionState,
-              walletId: String(walletBinding.walletId),
-              nearAccountId: walletBinding.nearAccountId,
+              custody: args.ed25519MintPlan.custody,
+              walletBinding,
               signerSlot: args.signerSlot,
-              rpId: args.signingEngine.getRpId(),
-              credentialIdB64u: localPasskeyCredentialIdB64u,
               passkeyPrfFirstB64u,
-              expectedMaterialActivation,
+              walletSessionJwt: connectedJwt,
+              thresholdSessionId: connectedThresholdSessionId,
+              routerAbNormalSigning: provisionScope.routerAbNormalSigning,
+              relayerUrl: args.relayerUrl,
             }),
           });
         }
@@ -3649,11 +3912,10 @@ async function primeThresholdLoginWarmSigners(args: {
         ): void => {
           if (ecdsaAuthorizedEd25519Mint) return;
           const thresholdEcdsaSessionJwt = String(bootstrap.session.jwt || '').trim();
-          const passkeyPrfFirstB64u =
-            String(bootstrap.passkeyPrfFirstB64u || '').trim() ||
-            (credential ? passkeyPrfFirstB64uFromCredential(credential) : '');
+          const passkeyPrfFirstB64u = credential
+            ? passkeyPrfFirstB64uFromCredential(credential)
+            : '';
           const passkeyCredentialIdB64u =
-            String(bootstrap.passkeyCredentialIdB64u || '').trim() ||
             passkeyCredentialIdB64uFromAuthentication(credential || undefined) ||
             localPasskeyCredentialIdB64u;
           if (!thresholdEcdsaSessionJwt || !passkeyPrfFirstB64u || !passkeyCredentialIdB64u) {
@@ -3735,40 +3997,10 @@ async function primeThresholdLoginWarmSigners(args: {
               thresholdEcdsaChainTargetKey(target.chainTarget),
             );
           }
-          const bootstrappedPasskeyPrfFirstB64u = String(
-            ecdsaAuthorizedEd25519Mint?.passkeyPrfFirstB64u || '',
-          ).trim();
-          const hasPasskeyPrfSource = Boolean(
-            String(sharedState.ed25519.ecdsaDerivationPasskeyPrfFirstB64u || '').trim() ||
-            credential,
-          );
-          const passkeyPrfFirstB64u = bootstrappedPasskeyPrfFirstB64u
-            ? bootstrappedPasskeyPrfFirstB64u
-            : hasPasskeyPrfSource
-              ? resolveThresholdLoginWarmEcdsaPrfFirstB64u({
-                  ed25519State: sharedState.ed25519,
-                  credentialState: args.credentialState,
-                })
-              : '';
-          const currentBootstrapIdentity = passkeyPrfFirstB64u
-            ? resolveCurrentBootstrapIdentity()
-            : null;
-          const passkeyCredentialIdB64u = String(
-            passkeyCredentialIdB64uFromAuthentication(credential || undefined) ||
-              ecdsaAuthorizedEd25519Mint?.passkeyCredentialIdB64u ||
-              targetEcdsaKey.passkeyCredentialIdB64u ||
-              localPasskeyCredentialIdB64u ||
-              '',
-          ).trim();
-          const reconnectRouteAuth = isWalletSessionReconnectEcdsaRouteAuth(
-            currentBootstrapIdentity?.routeAuth,
-          )
-            ? currentBootstrapIdentity.routeAuth
-            : null;
+          if (!localPasskeyCredentialIdB64u) {
+            throw new Error('[login] ECDSA role-local activation requires passkey identity');
+          }
           if (preauthorizedActivation) {
-            if (!passkeyPrfFirstB64u || !passkeyCredentialIdB64u) {
-              throw new Error('[login] preauthorized ECDSA activation requires local PRF material');
-            }
             if (matchingExchangeActivation) consumedPasskeyExchangeActivation = true;
             return await bootstrapLoginEcdsaSession({
               signingEngine: args.signingEngine,
@@ -3782,85 +4014,24 @@ async function primeThresholdLoginWarmSigners(args: {
                 lanePolicy,
                 publicCapability,
                 existingRoleLocalMaterial,
-                passkeyPrfFirstB64u,
-                passkeyCredentialIdB64u,
+                passkeyCredentialIdB64u: localPasskeyCredentialIdB64u,
                 sessionActivation: preauthorizedActivation,
                 beforeAuthorizationPersistence,
               },
             });
           }
-          if (reconnectRouteAuth && passkeyPrfFirstB64u && passkeyCredentialIdB64u) {
-            return await bootstrapLoginEcdsaSession({
-              signingEngine: args.signingEngine,
-              runtimeScopeBootstrapState: args.runtimeScopeBootstrapState,
-              request: {
-                kind: 'wallet_session_reconnect_ecdsa_bootstrap',
-                source: 'login',
-                relayerUrl: args.relayerUrl,
-                keyHandle: toEvmFamilyEcdsaKeyHandle(targetEcdsaKey.keyHandle),
-                key: targetEcdsaKey.key,
-                lanePolicy,
-                publicCapability,
-                existingRoleLocalMaterial,
-                passkeyPrfFirstB64u,
-                passkeyCredentialIdB64u,
-                routeAuth: reconnectRouteAuth,
-                beforeAuthorizationPersistence,
-              },
-            });
-          }
-          const passkeyBootstrapProof =
-            passkeyPrfFirstB64u && credential
-              ? {
-                  passkeyPrfFirstB64u: passkeyPrfFirstB64u,
-                  webauthnAuthentication: credential,
-                }
-              : null;
-          if (passkeyBootstrapProof) {
-            const routeAuth = currentBootstrapIdentity?.routeAuth;
-            if (isWalletSessionReconnectEcdsaRouteAuth(routeAuth)) {
-              return await bootstrapLoginEcdsaSession({
-                signingEngine: args.signingEngine,
-                runtimeScopeBootstrapState: args.runtimeScopeBootstrapState,
-                request: {
-                  kind: 'passkey_fresh_ecdsa_bootstrap',
-                  source: 'login',
-                  relayerUrl: args.relayerUrl,
-                  keyHandle: toEvmFamilyEcdsaKeyHandle(targetEcdsaKey.keyHandle),
-                  key: targetEcdsaKey.key,
-                  lanePolicy,
-                  publicCapability,
-                  existingRoleLocalMaterial,
-                  routeAuth,
-                  passkeyPrfFirstB64u: passkeyBootstrapProof.passkeyPrfFirstB64u,
-                  webauthnAuthentication: passkeyBootstrapProof.webauthnAuthentication,
-                  beforeAuthorizationPersistence,
-                },
-              });
-            }
-            return await bootstrapLoginEcdsaSession({
-              signingEngine: args.signingEngine,
-              runtimeScopeBootstrapState: args.runtimeScopeBootstrapState,
-              request: {
-                kind: 'passkey_fresh_ecdsa_bootstrap',
-                source: 'login',
-                relayerUrl: args.relayerUrl,
-                keyHandle: toEvmFamilyEcdsaKeyHandle(targetEcdsaKey.keyHandle),
-                key: targetEcdsaKey.key,
-                lanePolicy,
-                publicCapability,
-                existingRoleLocalMaterial,
-                passkeyPrfFirstB64u: passkeyBootstrapProof.passkeyPrfFirstB64u,
-                webauthnAuthentication: passkeyBootstrapProof.webauthnAuthentication,
-                beforeAuthorizationPersistence,
-              },
-            });
+          const currentBootstrapIdentity = resolveCurrentBootstrapIdentity();
+          const reconnectRouteAuth = currentBootstrapIdentity.routeAuth;
+          if (!isWalletSessionReconnectEcdsaRouteAuth(reconnectRouteAuth)) {
+            throw new Error(
+              '[login] ECDSA role-local activation requires a verified Wallet Session',
+            );
           }
           return await bootstrapLoginEcdsaSession({
             signingEngine: args.signingEngine,
             runtimeScopeBootstrapState: args.runtimeScopeBootstrapState,
             request: {
-              kind: 'passkey_fresh_ecdsa_bootstrap',
+              kind: 'wallet_session_reconnect_ecdsa_bootstrap',
               source: 'login',
               relayerUrl: args.relayerUrl,
               keyHandle: toEvmFamilyEcdsaKeyHandle(targetEcdsaKey.keyHandle),
@@ -3868,6 +4039,8 @@ async function primeThresholdLoginWarmSigners(args: {
               lanePolicy,
               publicCapability,
               existingRoleLocalMaterial,
+              passkeyCredentialIdB64u: localPasskeyCredentialIdB64u,
+              routeAuth: reconnectRouteAuth,
               beforeAuthorizationPersistence,
             },
           });
@@ -3932,7 +4105,24 @@ export async function getWalletSession(
   const currentAuthentication = context.signingEngine.readWalletAuthenticationState();
   const requestedWalletId =
     walletId ??
-    (currentAuthentication.kind === 'authenticated' ? currentAuthentication.walletId : undefined);
+    (currentAuthentication.kind !== 'signed_out' ? currentAuthentication.walletId : undefined);
+  if (
+    currentAuthentication.kind === 'signed_out' ||
+    currentAuthentication.kind === 'linked_device_session'
+  ) {
+    const linkedDeviceSession = await readActiveLinkedDeviceWalletSession(
+      context,
+      requestedWalletId,
+    );
+    if (linkedDeviceSession) return linkedDeviceSession;
+    if (
+      currentAuthentication.kind === 'linked_device_session' &&
+      requestedWalletId === currentAuthentication.walletId
+    ) {
+      context.signingEngine.clearLinkedDeviceWalletSession(currentAuthentication.walletId);
+      return buildAnonymousWalletSession();
+    }
+  }
   let readResolution = await resolveWalletCapabilitySubjectResolution(requestedWalletId);
   let didReconcileEcdsaActivation = false;
   if (readResolution.kind === 'no_session_request') return buildAnonymousWalletSession();
@@ -4030,6 +4220,96 @@ export async function getWalletSession(
   };
 }
 
+async function readActiveLinkedDeviceWalletSession(
+  context: WalletSessionWebContext,
+  requestedWalletId?: WalletId | string,
+): Promise<WalletSession | null> {
+  const result = await resolveUniqueActiveLinkedDeviceExecutionBundleV1({
+    ...(requestedWalletId ? { walletId: String(requestedWalletId) } : {}),
+    nowMs: Date.now(),
+    evidenceRepository: linkedDeviceExecutionEvidence,
+    walletSessionRepository: linkedDeviceWalletSessions,
+  });
+  if (result.kind !== 'found') return null;
+  try {
+    return await buildActiveLinkedDeviceWalletSession(context, result.bundle);
+  } catch (error) {
+    console.warn(
+      '[WalletSession] linked-device session projection is invalid',
+      error instanceof Error ? error.message : String(error),
+    );
+    return null;
+  }
+}
+
+function isActiveLinkedDeviceEd25519Execution(
+  execution: ActiveLinkedDeviceExecutionBundleV1['orderedExecutions'][number],
+): execution is Extract<
+  ActiveLinkedDeviceExecutionBundleV1['orderedExecutions'][number],
+  { kind: 'active_linked_device_ed25519_execution_v1' }
+> {
+  return execution.kind === 'active_linked_device_ed25519_execution_v1';
+}
+
+function isActiveLinkedDeviceEcdsaExecution(
+  execution: ActiveLinkedDeviceExecutionBundleV1['orderedExecutions'][number],
+): execution is Extract<
+  ActiveLinkedDeviceExecutionBundleV1['orderedExecutions'][number],
+  { kind: 'active_linked_device_ecdsa_execution_v1' }
+> {
+  return execution.kind === 'active_linked_device_ecdsa_execution_v1';
+}
+
+async function buildActiveLinkedDeviceWalletSession(
+  context: WalletSessionWebContext,
+  bundle: ActiveLinkedDeviceExecutionBundleV1,
+): Promise<WalletSession> {
+  const ed25519Executions = bundle.orderedExecutions.filter(isActiveLinkedDeviceEd25519Execution);
+  const ecdsaExecutions = bundle.orderedExecutions.filter(isActiveLinkedDeviceEcdsaExecution);
+  if (ed25519Executions.length > 1 || ecdsaExecutions.length > 1) {
+    throw new Error('linked-device session contains ambiguous wallet keys');
+  }
+  const ed25519Execution = ed25519Executions[0];
+  const ecdsaExecution = ecdsaExecutions[0];
+  if (Boolean(ed25519Execution) !== Boolean(bundle.nearAccountId)) {
+    throw new Error('linked-device NEAR account identity does not match its Ed25519 wallet key');
+  }
+  const nearAccountId = bundle.nearAccountId ? toAccountId(bundle.nearAccountId) : null;
+  const baseIdentity = await resolveWalletSessionAppIdentityForWallet(context, bundle.walletId);
+  const nearOperationalPublicKey = ed25519Execution
+    ? `ed25519:${base58Encode(base64UrlDecode(ed25519Execution.walletKey.registeredPublicKeyB64u))}`
+    : null;
+  context.signingEngine.setLinkedDeviceWalletSession({
+    kind: 'linked_device_session',
+    walletId: bundle.walletId,
+  });
+  return {
+    appIdentity: {
+      ...baseIdentity,
+      nearAccountId,
+      nearOperationalPublicKey,
+      userData: null,
+      authMethods: [],
+      thresholdEcdsaEthereumAddress: ecdsaExecution?.walletKey.evmAddress ?? null,
+      thresholdEcdsaPublicKeyB64u: ecdsaExecution?.walletKey.thresholdPublicKey33B64u ?? null,
+    },
+    authentication: {
+      kind: 'linked_device_session',
+      walletId: bundle.walletId,
+    },
+    reusableWalletSession: {
+      kind: 'linked_device_active',
+      walletId: bundle.walletId,
+      authorizationId: bundle.authorizationId,
+      walletSessionId: bundle.walletSessionId,
+      authMethod: 'linked_device',
+      expiresAtMs: bundle.expiresAtMs,
+    },
+    capabilityProjection: { kind: 'not_requested' },
+    nonceDiagnostics: readWalletSessionNonceDiagnostics(context, nearAccountId),
+  };
+}
+
 async function buildCapabilityUnresolvableWalletSession(args: {
   readonly context: WalletSessionWebContext;
   readonly walletId: WalletId;
@@ -4060,7 +4340,7 @@ function walletAuthenticationForWallet(
   walletId: WalletId,
 ): WalletAuthenticationState {
   if (
-    authentication.kind === 'authenticated' &&
+    authentication.kind !== 'signed_out' &&
     String(authentication.walletId) === String(walletId)
   ) {
     return authentication;

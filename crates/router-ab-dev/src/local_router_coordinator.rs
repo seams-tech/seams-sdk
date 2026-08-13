@@ -71,10 +71,12 @@ impl LocalRouterEd25519YaoCoordinatorV1 {
         let pair = request.pair_binding.clone();
         let prepare_a = CloudflareEd25519YaoPairPrepareRequestV1 {
             pair_binding: pair.clone(),
+            work: request.work.clone(),
             input: request.deriver_a_input.clone(),
         };
         let prepare_b = CloudflareEd25519YaoPairPrepareRequestV1 {
             pair_binding: pair.clone(),
+            work: request.work.clone(),
             input: request.deriver_b_input.clone(),
         };
         let (receipt_a, receipt_b) = match self.prepare_pair(config, prepare_a, prepare_b) {
@@ -114,6 +116,7 @@ impl LocalRouterEd25519YaoCoordinatorV1 {
                 &config.internal_service_auth,
                 &CloudflareEd25519YaoPairExecuteRequestV1 {
                     pair_binding: pair.clone(),
+                    work: request.work.clone(),
                     input: request.deriver_a_input.clone(),
                     local_receipt: receipt_a,
                     peer_receipt: receipt_b,
@@ -334,7 +337,12 @@ impl LocalRouterEd25519YaoCoordinatorV1 {
                     Ed25519YaoOperationV1::Recovery => {
                         RouterEd25519YaoExecuteSuccessV1::recovery(result)?
                     }
-                    _ => unreachable!("activation branch excludes export"),
+                    Ed25519YaoOperationV1::Refresh
+                    | Ed25519YaoOperationV1::Export
+                    | Ed25519YaoOperationV1::LaneProvisioning
+                    | Ed25519YaoOperationV1::LaneRefresh => {
+                        unreachable!("activation branch excludes non-activation operations")
+                    }
                 };
                 Ok(RouterEd25519YaoExecuteResultV1::succeeded(success))
             }
@@ -358,6 +366,9 @@ impl LocalRouterEd25519YaoCoordinatorV1 {
             Ed25519YaoOperationV1::Refresh => Err(coordinator_error(
                 "Refresh is not an admitted Yao operation",
             )),
+            Ed25519YaoOperationV1::LaneProvisioning | Ed25519YaoOperationV1::LaneRefresh => Err(
+                coordinator_error("legacy local Router HTTP cannot durably commit lane material"),
+            ),
         }
     }
 }
@@ -481,7 +492,16 @@ fn validate_execution(
             "role execution identity does not match the admitted pair",
         ));
     }
-    if execution_binding(execution) != &request.binding {
+    let binding_matches = match execution {
+        Ed25519YaoRoleExecutionV1::Activation(value) => value.binding == request.binding,
+        Ed25519YaoRoleExecutionV1::Export(value) => value.binding == request.binding,
+        Ed25519YaoRoleExecutionV1::Lane(value) => {
+            value.job.yao_request_kind.operation() == request.binding.operation
+                && value.session == request.binding.session_id.into_bytes()
+                && value.job.source.material_activation == *request.binding.material_activation()
+        }
+    };
+    if !binding_matches {
         return Err(coordinator_error(
             "role execution binding does not match the admitted ceremony",
         ));
@@ -497,6 +517,9 @@ fn activation_execution(
         Ed25519YaoRoleExecutionV1::Export(_) => {
             Err(coordinator_error("activation execution was not returned"))
         }
+        Ed25519YaoRoleExecutionV1::Lane(_) => {
+            Err(coordinator_error("activation execution was not returned"))
+        }
     }
 }
 
@@ -506,6 +529,9 @@ fn export_execution(
     match execution {
         Ed25519YaoRoleExecutionV1::Export(value) => Ok(value),
         Ed25519YaoRoleExecutionV1::Activation(_) => {
+            Err(coordinator_error("export execution was not returned"))
+        }
+        Ed25519YaoRoleExecutionV1::Lane(_) => {
             Err(coordinator_error("export execution was not returned"))
         }
     }
@@ -579,19 +605,11 @@ fn activation_public_receipt(
     )
 }
 
-fn execution_binding(
-    execution: &Ed25519YaoRoleExecutionV1,
-) -> &router_ab_core::Ed25519YaoCeremonyBindingV1 {
-    match execution {
-        Ed25519YaoRoleExecutionV1::Activation(value) => &value.binding,
-        Ed25519YaoRoleExecutionV1::Export(value) => &value.binding,
-    }
-}
-
 fn execution_transcript(execution: &Ed25519YaoRoleExecutionV1) -> [u8; 32] {
     match execution {
         Ed25519YaoRoleExecutionV1::Activation(value) => value.transcript,
         Ed25519YaoRoleExecutionV1::Export(value) => value.transcript,
+        Ed25519YaoRoleExecutionV1::Lane(value) => value.transcript,
     }
 }
 

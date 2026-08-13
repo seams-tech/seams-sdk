@@ -37,7 +37,7 @@ import {
 import type { RouterApiWebAuthnService } from '../../../framework/authServicePort';
 import {
   parseRouterAbEd25519WalletSessionClaims,
-  type RouterAbEd25519WalletSessionClaims,
+  type RouterAbEd25519OwnerWalletSessionClaims,
 } from '../../../../core/ThresholdService/validation';
 import { headersToRecord, json, readJson } from '../../../framework/http';
 import { createRouterApiModule, type RouterApiModule } from '../../../framework/modules';
@@ -1130,7 +1130,7 @@ function authorizationFailure(
 }
 
 function serverDerivedExportAuthorizationIdentity(
-  claims: RouterAbEd25519WalletSessionClaims,
+  claims: RouterAbEd25519OwnerWalletSessionClaims,
 ): ServerDerivedExportAuthorizationIdentity | null {
   const thresholdSessionId = parseThresholdEd25519SessionId(claims.thresholdSessionId);
   if (!thresholdSessionId.ok) return null;
@@ -1141,7 +1141,7 @@ function serverDerivedExportAuthorizationIdentity(
 }
 
 function claimsMatchExportAdmission(
-  claims: RouterAbEd25519WalletSessionClaims,
+  claims: RouterAbEd25519OwnerWalletSessionClaims,
   input: ExportAdmissionAuthorizationInput,
   authorizationIdentity: ServerDerivedExportAuthorizationIdentity,
 ): boolean {
@@ -1226,7 +1226,7 @@ function exportAuthorizationDigestAuthority(
 }
 
 function authorizeExportExecution(
-  claims: RouterAbEd25519WalletSessionClaims,
+  claims: RouterAbEd25519OwnerWalletSessionClaims,
   input: ExportExecutionAuthorizationInput,
   authorizationIdentity: ServerDerivedExportAuthorizationIdentity,
 ): RouterAbEd25519YaoExportAuthorizationResult {
@@ -1321,7 +1321,7 @@ function authorizeEmailOtpExportAdmission(args: {
 }
 
 async function authorizeExportAdmissionFactor(args: {
-  readonly claims: RouterAbEd25519WalletSessionClaims;
+  readonly claims: RouterAbEd25519OwnerWalletSessionClaims;
   readonly input: ExportAdmissionAuthorizationInput;
   readonly confirmationDigest: readonly number[];
   readonly webAuthn: Pick<RouterApiWebAuthnService, 'verifyWebAuthnAuthenticationLite'>;
@@ -1369,7 +1369,7 @@ async function authorizeExportAdmissionFactor(args: {
 }
 
 async function authorizeExportAdmission(args: {
-  readonly claims: RouterAbEd25519WalletSessionClaims;
+  readonly claims: RouterAbEd25519OwnerWalletSessionClaims;
   readonly authorizationIdentity: ServerDerivedExportAuthorizationIdentity;
   readonly input: ExportAdmissionAuthorizationInput;
   readonly webAuthn: Pick<RouterApiWebAuthnService, 'verifyWebAuthnAuthenticationLite'>;
@@ -1430,7 +1430,7 @@ async function authorizeExportAdmission(args: {
 type ResolvedWalletSessionAuthorization =
   | {
       readonly ok: true;
-      readonly claims: RouterAbEd25519WalletSessionClaims;
+      readonly claims: RouterAbEd25519OwnerWalletSessionClaims;
       readonly authorizationIdentity: ServerDerivedExportAuthorizationIdentity;
     }
   | Extract<RouterAbEd25519YaoExportAuthorizationResult, { readonly ok: false }>;
@@ -1457,22 +1457,22 @@ async function resolveWalletSessionAuthorization(
       message: walletSessionFailureMessage(code),
     });
   }
-  const claims = parseRouterAbEd25519WalletSessionClaims(parsedSession.claims);
-  if (!claims) {
+  const parsedClaims = parseRouterAbEd25519WalletSessionClaims(parsedSession.claims);
+  if (!parsedClaims || parsedClaims.authorizationKind !== 'owner_wallet_session') {
     return authorizationFailure({
       status: walletSessionFailureStatus('wallet_session_claims_invalid'),
       code: 'wallet_session_claims_invalid',
       message: walletSessionFailureMessage('wallet_session_claims_invalid'),
     });
   }
-  if (claims.thresholdExpiresAtMs <= Date.now()) {
+  if (parsedClaims.thresholdExpiresAtMs <= Date.now()) {
     return authorizationFailure({
       status: walletSessionFailureStatus('wallet_session_expired'),
       code: 'wallet_session_expired',
       message: walletSessionFailureMessage('wallet_session_expired'),
     });
   }
-  const authorizationIdentity = serverDerivedExportAuthorizationIdentity(claims);
+  const authorizationIdentity = serverDerivedExportAuthorizationIdentity(parsedClaims);
   if (!authorizationIdentity) {
     return authorizationFailure({
       status: walletSessionFailureStatus('wallet_session_claims_invalid'),
@@ -1480,7 +1480,7 @@ async function resolveWalletSessionAuthorization(
       message: walletSessionFailureMessage('wallet_session_claims_invalid'),
     });
   }
-  return { ok: true, claims, authorizationIdentity };
+  return { ok: true, claims: parsedClaims, authorizationIdentity };
 }
 
 export class RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter implements RouterAbEd25519YaoExportAuthorizationAdapter {
@@ -1518,7 +1518,9 @@ export class RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter implement
     request: Request,
   ): Promise<RouterAbEd25519YaoExportAuthorizationIdentityResolutionResult> {
     const resolved = await resolveWalletSessionAuthorization(this.session, request);
-    return resolved.ok ? { ok: true, authorizationIdentity: resolved.authorizationIdentity } : resolved;
+    return resolved.ok
+      ? { ok: true, authorizationIdentity: resolved.authorizationIdentity }
+      : resolved;
   }
 }
 
@@ -1683,10 +1685,7 @@ export function parseRouterAbEd25519YaoExportExecuteEnvelopeV1(
     return { ok: false, message: 'export execute envelope must be an object' };
   }
   const keys = Object.keys(value);
-  if (
-    keys.length !== 1 ||
-    !Object.hasOwn(value, 'protocol')
-  ) {
+  if (keys.length !== 1 || !Object.hasOwn(value, 'protocol')) {
     return {
       ok: false,
       message: 'export execute envelope requires protocol',

@@ -6,11 +6,7 @@ use zeroize::Zeroize;
 type HmacSha256 = Hmac<Sha256>;
 
 const HKDF_SHA256_LENGTH: usize = 32;
-const EMAIL_OTP_THRESHOLD_ROOT_SALT_V1: &str = "seams/email-otp/root/v1";
-const EMAIL_OTP_ECDSA_CLIENT_SHARE_SALT_V1: &str =
-    "seams/email-otp/threshold-client-share/v1";
-const EMAIL_OTP_UNLOCK_AUTH_SALT_V1: &str = "seams/email-otp/unlock-auth/v1";
-const EMAIL_OTP_ECDSA_DERIVATION_PATH_V1: &str = "evm-signing";
+const EMAIL_OTP_UNLOCK_AUTH_SALT_V2: &str = "seams/email-otp/unlock-auth/v2";
 
 fn js_error(message: impl Into<String>) -> JsValue {
     JsValue::from_str(&message.into())
@@ -59,7 +55,11 @@ fn hmac_sha256(key: &[u8], data: &[u8]) -> Result<[u8; HKDF_SHA256_LENGTH], JsVa
 
 fn hkdf_sha256(ikm: &[u8], salt: &[u8], info: &[u8]) -> Result<Vec<u8>, JsValue> {
     let zero_salt = [0u8; HKDF_SHA256_LENGTH];
-    let salt = if salt.is_empty() { &zero_salt[..] } else { salt };
+    let salt = if salt.is_empty() {
+        &zero_salt[..]
+    } else {
+        salt
+    };
     let mut prk = hmac_sha256(salt, ikm)?;
     let mut previous = [0u8; HKDF_SHA256_LENGTH];
     let mut block_input = Vec::with_capacity(info.len() + 1);
@@ -77,61 +77,9 @@ fn hkdf_sha256(ikm: &[u8], salt: &[u8], info: &[u8]) -> Result<Vec<u8>, JsValue>
     result.map(|_| out)
 }
 
-fn derive_threshold_root_from_secret32(
-    client_secret32: &[u8],
-    wallet_id: &str,
-) -> Result<Vec<u8>, JsValue> {
-    require_secret32(client_secret32)?;
-    let wallet_id = wallet_id.trim();
-    let mut info = encode_email_otp_tuple(&[wallet_id.as_bytes()])?;
-    let result = hkdf_sha256(
-        client_secret32,
-        EMAIL_OTP_THRESHOLD_ROOT_SALT_V1.as_bytes(),
-        &info,
-    );
-    info.zeroize();
-    result
-}
-
 #[wasm_bindgen]
 pub fn init_email_otp_runtime() {
     // Reserved for future logger/metrics initialization.
-}
-
-#[wasm_bindgen]
-pub fn derive_email_otp_threshold_root_from_secret32(
-    mut client_secret32: Vec<u8>,
-    wallet_id: String,
-) -> Result<Vec<u8>, JsValue> {
-    let result = derive_threshold_root_from_secret32(&client_secret32, &wallet_id);
-    client_secret32.zeroize();
-    result
-}
-
-#[wasm_bindgen]
-pub fn derive_email_otp_ecdsa_client_root_share32_from_secret32(
-    mut client_secret32: Vec<u8>,
-    wallet_id: String,
-    user_id: String,
-    derivation_path: Option<String>,
-) -> Result<Vec<u8>, JsValue> {
-    require_secret32(&client_secret32)?;
-    let mut threshold_root = derive_threshold_root_from_secret32(&client_secret32, &wallet_id)?;
-    client_secret32.zeroize();
-    let user_id = user_id.trim();
-    let derivation_path = derivation_path
-        .as_deref()
-        .unwrap_or(EMAIL_OTP_ECDSA_DERIVATION_PATH_V1)
-        .trim();
-    let mut info = encode_email_otp_tuple(&[user_id.as_bytes(), derivation_path.as_bytes()])?;
-    let result = hkdf_sha256(
-        &threshold_root,
-        EMAIL_OTP_ECDSA_CLIENT_SHARE_SALT_V1.as_bytes(),
-        &info,
-    );
-    info.zeroize();
-    threshold_root.zeroize();
-    result
 }
 
 #[wasm_bindgen]
@@ -140,16 +88,14 @@ pub fn derive_email_otp_unlock_auth_seed_from_secret32(
     wallet_id: String,
 ) -> Result<Vec<u8>, JsValue> {
     require_secret32(&client_secret32)?;
-    let mut threshold_root = derive_threshold_root_from_secret32(&client_secret32, &wallet_id)?;
-    client_secret32.zeroize();
     let wallet_id = wallet_id.trim();
     let mut info = encode_email_otp_tuple(&[wallet_id.as_bytes()])?;
     let result = hkdf_sha256(
-        &threshold_root,
-        EMAIL_OTP_UNLOCK_AUTH_SALT_V1.as_bytes(),
+        &client_secret32,
+        EMAIL_OTP_UNLOCK_AUTH_SALT_V2.as_bytes(),
         &info,
     );
+    client_secret32.zeroize();
     info.zeroize();
-    threshold_root.zeroize();
     result
 }
