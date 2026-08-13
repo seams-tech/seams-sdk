@@ -866,13 +866,77 @@
 .dashboard-workspace-switcher__label {
   min-width: 0;
   flex: 1;
+  display: block;
+  height: 1.25rem;
   text-align: left;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: 0.95rem;
   font-weight: 600;
+  line-height: 1.25rem;
   transition: opacity var(--dashboard-motion-fast) ease;
+}
+
+.dashboard-workspace-switcher__ticker {
+  display: flex;
+  flex-direction: column;
+  height: 2.5rem;
+}
+
+.dashboard-workspace-switcher__ticker-row {
+  flex: 0 0 1.25rem;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.dashboard-workspace-switcher__ticker-row--environment {
+  color: var(--rail-icon, var(--dashboard-ink-soft));
+}
+
+.dashboard-workspace-switcher__marquee-track {
+  display: inline-flex;
+  min-width: max-content;
+  gap: 24px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .dashboard-workspace-switcher__ticker {
+    animation: dashboard-workspace-scope-cycle 8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+
+  .dashboard-workspace-switcher__ticker-row--project.is-overflowing
+    .dashboard-workspace-switcher__marquee-track {
+    animation: dashboard-workspace-project-marquee 8s linear infinite;
+  }
+}
+
+@keyframes dashboard-workspace-scope-cycle {
+  0%,
+  70% {
+    transform: translateY(0);
+  }
+  75%,
+  95% {
+    transform: translateY(-1.25rem);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+
+@keyframes dashboard-workspace-project-marquee {
+  0%,
+  5% {
+    transform: translateX(0);
+  }
+  70%,
+  75% {
+    transform: translateX(calc(-50% - 12px));
+  }
+  75.01%,
+  100% {
+    transform: translateX(0);
+  }
 }
 
 .dashboard-workspace-switcher__caret {
@@ -1086,49 +1150,90 @@
   color: var(--dashboard-accent);
 }
 
-/* Context card docked at the sidebar bottom (project + environment), styled
-   like the reference app's bottom card: white, bordered, rounded-2xl. */
-.dashboard-sidebar-context-card {
-  margin-top: auto;
-  display: grid;
-  gap: 10px;
-  padding: 14px;
-  border: 1px solid #e8e8e6;
-  border-radius: 16px;
-  background: #ffffff;
-  box-shadow: 0 1px 2px rgba(20, 20, 20, 0.04);
+.dashboard-workspace-menu__project + .dashboard-workspace-menu__project {
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 1px solid var(--dashboard-border);
 }
 
-.dashboard-sidebar-context-card__field {
-  display: grid;
-  gap: 4px;
-}
-
-.dashboard-sidebar-context-card__field > span {
-  font-size: 0.78rem;
-  font-weight: 500;
-  color: var(--dashboard-ink-soft);
-}
-
-.dashboard-sidebar-context-card__field .dashboard-input {
-  min-height: 34px;
-  font-size: 0.88rem;
-  background: var(--dashboard-surface);
-}
-
-.dashboard-sidebar-context-card__id {
+.dashboard-workspace-menu__project-heading {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 6px;
+  gap: 11px;
+  min-width: 0;
+  padding: 6px 9px 4px;
+  color: var(--rail-ink, var(--dashboard-ink));
+  font-size: 0.92rem;
+  font-weight: 600;
 }
 
-.dashboard-sidebar-context-card__id code {
-  font-size: 0.76rem;
-  color: var(--dashboard-ink-soft);
+.dashboard-workspace-menu__project-heading > span:last-child {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.dashboard-workspace-menu__environments {
+  display: grid;
+  gap: 2px;
+  margin-left: 45px;
+}
+
+.dashboard-workspace-menu__environment {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--rail-icon, var(--dashboard-ink-soft));
+  font: inherit;
+  font-size: 0.86rem;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.dashboard-workspace-menu__environment:hover,
+.dashboard-workspace-menu__environment:focus-visible,
+.dashboard-workspace-menu__environment.is-active {
+  background: var(--rail-active, var(--dashboard-active));
+  color: var(--rail-ink, var(--dashboard-ink));
+}
+
+.dashboard-workspace-menu__environment.is-disabled {
+  opacity: 0.48;
+  cursor: default;
+}
+
+.dashboard-workspace-menu__environment.is-disabled:hover,
+.dashboard-workspace-menu__environment.is-disabled:focus-visible {
+  background: transparent;
+}
+
+.dashboard-workspace-menu__environment-dot {
+  width: 7px;
+  height: 7px;
+  border: 1.5px solid currentColor;
+  border-radius: 9999px;
+}
+
+.dashboard-workspace-menu__environment.is-active .dashboard-workspace-menu__environment-dot {
+  border-color: var(--dashboard-accent);
+  background: var(--dashboard-accent);
+}
+
+.dashboard-workspace-menu__empty {
+  margin: 0;
+  padding: 6px 9px 8px;
+  color: var(--rail-muted, var(--dashboard-ink-soft));
+  font-size: 0.8rem;
 }
 
 .dashboard-sidebar-group {
@@ -5703,10 +5808,6 @@ select.dashboard-input {
   opacity: 0;
 }
 
-.dashboard-shell--sidebar-collapsed .dashboard-sidebar-context-card {
-  display: none;
-}
-
 /* Collapsed rail: the switcher cards shrink around their left-anchored
    avatar — never `justify-content: center`, which would snap the avatar to
    the middle of the still-wide card at animation start and make it zip right,
@@ -6412,6 +6513,32 @@ select.dashboard-input {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .dashboard-workspace-switcher__label {
+    height: auto;
+    overflow: visible;
+    line-height: 1.05rem;
+  }
+
+  .dashboard-workspace-switcher__ticker {
+    height: auto;
+    gap: 2px;
+    transform: none;
+  }
+
+  .dashboard-workspace-switcher__ticker-row {
+    flex-basis: auto;
+    text-overflow: ellipsis;
+  }
+
+  .dashboard-workspace-switcher__ticker-row--environment {
+    font-size: 0.78rem;
+    font-weight: 500;
+  }
+
+  .dashboard-workspace-switcher__marquee-track > span + span {
+    display: none;
+  }
+
   .dashboard-shell,
   .dashboard-topbar,
   .dashboard-sidebar,
