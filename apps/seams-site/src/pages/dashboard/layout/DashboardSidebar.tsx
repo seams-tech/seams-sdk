@@ -1,5 +1,4 @@
 import React from 'react';
-import CopyButton from '@/components/CopyButton';
 import SeamsWordmark from '@/components/icons/SeamsWordmark';
 import type {
   DashboardProduct,
@@ -16,10 +15,16 @@ type LinkPropsFactory = (to: string) => {
   onClick: (event: React.MouseEvent<HTMLAnchorElement>) => void;
 };
 
+export type SidebarProjectGroup = {
+  project: TopbarOption;
+  environments: TopbarOption[];
+};
+
 export type SidebarWorkspaceProps = {
-  projectOptions: TopbarOption[];
+  projectGroups: SidebarProjectGroup[];
   projectValue: string;
-  onSelectProject: (value: string) => void;
+  environmentValue: string;
+  onSelectEnvironment: (projectValue: string, environmentValue: string) => void;
   organizationOptions: TopbarOption[];
   organizationValue: string;
   onSelectOrganization: (value: string) => void;
@@ -29,12 +34,6 @@ export type SidebarProductProps = {
   products: DashboardProduct[];
   currentId: DashboardProductId;
   onSelect: (id: DashboardProductId) => void;
-};
-
-export type SidebarContextCardProps = {
-  environmentOptions: TopbarOption[];
-  environmentValue: string;
-  onSelectEnvironment: (value: string) => void;
 };
 
 type DashboardSidebarProps = {
@@ -48,7 +47,6 @@ type DashboardSidebarProps = {
   linkProps: LinkPropsFactory;
   product?: SidebarProductProps;
   workspace?: SidebarWorkspaceProps;
-  contextCard?: SidebarContextCardProps;
   homeProps?: {
     href: string;
     onClick: (event: React.MouseEvent<HTMLAnchorElement>) => void;
@@ -76,6 +74,66 @@ function useDismissablePopup(
       document.removeEventListener('keydown', onKeyDown);
     };
   }, [open, rootRef, setOpen]);
+}
+
+function useTextOverflow(value: string): {
+  viewportRef: React.RefObject<HTMLSpanElement | null>;
+  textRef: React.RefObject<HTMLSpanElement | null>;
+  overflowing: boolean;
+} {
+  const viewportRef = React.useRef<HTMLSpanElement | null>(null);
+  const textRef = React.useRef<HTMLSpanElement | null>(null);
+  const [overflowing, setOverflowing] = React.useState(false);
+
+  React.useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    const text = textRef.current;
+    if (!viewport || !text) return;
+    const update = () => {
+      setOverflowing(text.getBoundingClientRect().width > viewport.clientWidth + 1);
+    };
+    update();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(update);
+    observer.observe(viewport);
+    observer.observe(text);
+    return () => observer.disconnect();
+  }, [value]);
+
+  return { viewportRef, textRef, overflowing };
+}
+
+function WorkspaceSwitcherLabel({
+  projectLabel,
+  environmentLabel,
+}: {
+  projectLabel: string;
+  environmentLabel: string;
+}): React.JSX.Element {
+  const { viewportRef, textRef, overflowing } = useTextOverflow(projectLabel);
+  return (
+    <>
+      <span className="dashboard-workspace-switcher__label" aria-hidden="true">
+        <span className="dashboard-workspace-switcher__ticker">
+          <span
+            ref={viewportRef}
+            className={`dashboard-workspace-switcher__ticker-row dashboard-workspace-switcher__ticker-row--project${overflowing ? ' is-overflowing' : ''}`}
+          >
+            <span className="dashboard-workspace-switcher__marquee-track">
+              <span ref={textRef}>{projectLabel}</span>
+              {overflowing ? <span>{projectLabel}</span> : null}
+            </span>
+          </span>
+          <span className="dashboard-workspace-switcher__ticker-row dashboard-workspace-switcher__ticker-row--environment">
+            {environmentLabel}
+          </span>
+        </span>
+      </span>
+      <span className="dashboard-visually-hidden">
+        {projectLabel}, {environmentLabel}
+      </span>
+    </>
+  );
 }
 
 /* The rail scrolls (overflow-y: auto), which would clip an absolutely
@@ -163,9 +221,7 @@ function RailMenuRow({
       {avatar}
       <span className="dashboard-rail-menu__item-text">
         <span className="dashboard-rail-menu__item-name">{name}</span>
-        {description ? (
-          <span className="dashboard-rail-menu__item-desc">{description}</span>
-        ) : null}
+        {description ? <span className="dashboard-rail-menu__item-desc">{description}</span> : null}
       </span>
       {soon ? (
         <span className="dashboard-rail-menu__soon">Soon</span>
@@ -189,14 +245,12 @@ function RailMenuRow({
   );
 }
 
-/* Workspace card below the product switcher, reference-app style: letter
-   avatar + the selected project's name (real console records, not a mock),
-   opening a menu of projects. An organization section appears only when the
-   account can actually switch between organizations. */
+/* The workspace switcher treats a project/environment pair as one scope. */
 function SidebarWorkspaceSwitcher({
-  projectOptions,
+  projectGroups,
   projectValue,
-  onSelectProject,
+  environmentValue,
+  onSelectEnvironment,
   organizationOptions,
   organizationValue,
   onSelectOrganization,
@@ -206,8 +260,11 @@ function SidebarWorkspaceSwitcher({
   useDismissablePopup(open, setOpen, rootRef);
   const menuStyle = useRailMenuPosition(open, rootRef);
 
-  const currentProject =
-    projectOptions.find((option) => option.value === projectValue) || projectOptions[0] || null;
+  const currentProjectGroup =
+    projectGroups.find((group) => group.project.value === projectValue) || projectGroups[0] || null;
+  const currentProject = currentProjectGroup?.project || null;
+  const currentEnvironment =
+    currentProjectGroup?.environments.find((option) => option.value === environmentValue) || null;
   const currentOrganization =
     organizationOptions.find((option) => option.value === organizationValue) ||
     organizationOptions[0] ||
@@ -215,9 +272,10 @@ function SidebarWorkspaceSwitcher({
   /* Projects are the working scope; the organization label is only a fallback
      for accounts that have not created a project yet. */
   const currentLabel = currentProject?.label || currentOrganization?.label || 'Workspace';
+  const currentEnvironmentLabel = currentEnvironment?.label || environmentValue || 'No environment';
   const initial = (currentLabel.trim().charAt(0) || 'W').toUpperCase();
   const showOrganizations = organizationOptions.length > 1;
-  const showSectionTitles = showOrganizations && projectOptions.length > 0;
+  const showSectionTitles = showOrganizations && projectGroups.length > 0;
 
   const letterAvatar = (label: string) => (
     <span
@@ -235,12 +293,16 @@ function SidebarWorkspaceSwitcher({
         className="dashboard-workspace-switcher__trigger"
         aria-haspopup="menu"
         aria-expanded={open}
+        aria-label={`${currentLabel}, ${currentEnvironmentLabel}`}
         onClick={() => setOpen((current) => !current)}
       >
         <span className="dashboard-workspace-switcher__avatar" aria-hidden="true">
           {initial}
         </span>
-        <span className="dashboard-workspace-switcher__label">{currentLabel}</span>
+        <WorkspaceSwitcherLabel
+          projectLabel={currentLabel}
+          environmentLabel={currentEnvironmentLabel}
+        />
         <RailCaret className="dashboard-workspace-switcher__caret" />
       </button>
       {open ? (
@@ -253,20 +315,68 @@ function SidebarWorkspaceSwitcher({
           {showSectionTitles ? (
             <p className="dashboard-rail-menu__section-title">Projects</p>
           ) : null}
-          {projectOptions.map((option) => (
-            <RailMenuRow
-              key={option.value}
-              active={option.value === currentProject?.value}
-              disabled={option.disabled === true}
-              avatar={letterAvatar(option.label)}
-              name={option.label}
-              onSelect={() => {
-                setOpen(false);
-                onSelectProject(option.value);
-              }}
-            />
+          {projectGroups.map((group) => (
+            <div
+              key={group.project.value}
+              className="dashboard-workspace-menu__project"
+              role="group"
+              aria-label={group.project.label}
+            >
+              <div className="dashboard-workspace-menu__project-heading">
+                {letterAvatar(group.project.label)}
+                <span>{group.project.label}</span>
+              </div>
+              <div className="dashboard-workspace-menu__environments">
+                {group.environments.map((environment) => {
+                  const active =
+                    group.project.value === currentProject?.value &&
+                    environment.value === environmentValue;
+                  const disabled = group.project.disabled === true || environment.disabled === true;
+                  return (
+                    <button
+                      key={environment.value}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={active}
+                      aria-disabled={disabled || undefined}
+                      className={`dashboard-workspace-menu__environment${active ? ' is-active' : ''}${disabled ? ' is-disabled' : ''}`}
+                      onClick={() => {
+                        if (disabled) return;
+                        setOpen(false);
+                        onSelectEnvironment(group.project.value, environment.value);
+                      }}
+                    >
+                      <span
+                        className="dashboard-workspace-menu__environment-dot"
+                        aria-hidden="true"
+                      />
+                      <span>{environment.label}</span>
+                      {active ? (
+                        <svg
+                          className="dashboard-rail-menu__check"
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2.4"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M20 6 9 17l-5-5" />
+                        </svg>
+                      ) : null}
+                    </button>
+                  );
+                })}
+                {group.environments.length === 0 ? (
+                  <p className="dashboard-workspace-menu__empty">No environments</p>
+                ) : null}
+              </div>
+            </div>
           ))}
-          {projectOptions.length === 0 && !showOrganizations ? (
+          {projectGroups.length === 0 && !showOrganizations ? (
             <p className="dashboard-rail-menu__empty">No projects yet</p>
           ) : null}
           {showOrganizations ? (
@@ -368,7 +478,6 @@ export function DashboardSidebar({
   linkProps,
   product,
   workspace,
-  contextCard,
   homeProps,
 }: DashboardSidebarProps): React.JSX.Element {
   return (
@@ -395,9 +504,7 @@ export function DashboardSidebar({
         <section className="dashboard-sidebar-group" key={group.key}>
           {/* First section is header-less, reference-app style; the rest get
               static muted labels (no collapse affordance). */}
-          {groupIndex > 0 ? (
-            <p className="dashboard-sidebar-group__title">{group.label}</p>
-          ) : null}
+          {groupIndex > 0 ? <p className="dashboard-sidebar-group__title">{group.label}</p> : null}
           <ul className="dashboard-nav-list">
             {group.items.map((item) => {
               const ItemIcon = item.icon;
@@ -431,35 +538,6 @@ export function DashboardSidebar({
           </ul>
         </section>
       ))}
-      {contextCard ? (
-        <div className="dashboard-sidebar-context-card" aria-label="Workspace context">
-          <label className="dashboard-sidebar-context-card__field">
-            <span>Environment</span>
-            <select
-              className="dashboard-input"
-              value={contextCard.environmentValue}
-              onChange={(event) => contextCard.onSelectEnvironment(event.target.value)}
-            >
-              {contextCard.environmentOptions.map((option) => (
-                <option key={option.value} value={option.value} disabled={option.disabled}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          {contextCard.environmentValue ? (
-            <div className="dashboard-sidebar-context-card__id">
-              <code>{contextCard.environmentValue}</code>
-              <CopyButton
-                text={contextCard.environmentValue}
-                ariaLabel="Copy environment id"
-                className="dashboard-context-copy"
-                size={14}
-              />
-            </div>
-          ) : null}
-        </div>
-      ) : null}
     </aside>
   );
 }

@@ -1,5 +1,5 @@
 import React from 'react';
-import DashboardSidebar from './layout/DashboardSidebar';
+import DashboardSidebar, { type SidebarProjectGroup } from './layout/DashboardSidebar';
 import DashboardTopbar from './layout/DashboardTopbar';
 import {
   DASHBOARD_ACCOUNT_SETTINGS_ACCOUNT_OPTION,
@@ -26,7 +26,11 @@ import {
   useDashboardConsoleSession,
 } from './consoleSession';
 import { DashboardSelectedContextProvider } from './selectedContext';
-import { listDashboardEnvironments, listDashboardProjects } from './consoleContextApi';
+import {
+  listDashboardEnvironments,
+  listDashboardProjects,
+  type DashboardConsoleEnvironment,
+} from './consoleContextApi';
 import {
   getDashboardOnboardingState,
   isDashboardConsoleApiErrorCode,
@@ -103,6 +107,47 @@ function buildFallbackOptions(value: string, label?: string | null): TopbarOptio
   ];
 }
 
+function buildProjectEnvironmentOptions(input: {
+  environments: DashboardConsoleEnvironment[];
+  projectId: string;
+  billingReady: boolean;
+  fallbackOptions: TopbarOption[];
+}): TopbarOption[] {
+  const visibleEnvironments = input.environments
+    .filter((environment) => {
+      if (environment.projectId !== input.projectId) return false;
+      const status = environment.status.trim().toUpperCase();
+      if (status === 'ARCHIVED') return false;
+      return status === 'ACTIVE' || environment.key.trim().toLowerCase() === 'prod';
+    })
+    .sort((left, right) => {
+      const leftDisabled = left.status.trim().toUpperCase() !== 'ACTIVE';
+      const rightDisabled = right.status.trim().toUpperCase() !== 'ACTIVE';
+      if (leftDisabled === rightDisabled) return left.name.localeCompare(right.name);
+      return leftDisabled ? 1 : -1;
+    });
+  const hasProductionEnvironment = visibleEnvironments.some(
+    (environment) => environment.key.trim().toLowerCase() === 'prod',
+  );
+  return dedupeOptions([
+    ...visibleEnvironments.map((environment) => ({
+      value: environment.id,
+      label: environment.name || environment.id,
+      disabled: environment.status.trim().toUpperCase() !== 'ACTIVE',
+    })),
+    ...(!input.billingReady && !hasProductionEnvironment
+      ? [
+          {
+            value: `${LOCKED_PRODUCTION_OPTION_PREFIX}${input.projectId}`,
+            label: 'Production',
+            disabled: true,
+          },
+        ]
+      : []),
+    ...input.fallbackOptions,
+  ]);
+}
+
 function findPreferredOrganizationSummary(input: {
   organizations: DashboardAccountOrganization[];
   currentOrgId: string;
@@ -177,7 +222,11 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
   const [organizationOptions, setOrganizationOptions] = React.useState<TopbarOption[]>([]);
   const [projectOptions, setProjectOptions] = React.useState<TopbarOption[]>([]);
   const [selectedProjectId, setSelectedProjectId] = React.useState<string>(persistedProjectId);
-  const [environmentOptions, setEnvironmentOptions] = React.useState<TopbarOption[]>([]);
+  const [environmentRows, setEnvironmentRows] = React.useState<DashboardConsoleEnvironment[]>([]);
+  const pendingEnvironmentSelectionRef = React.useRef<{
+    projectId: string;
+    environmentId: string;
+  } | null>(null);
   const organizationRecoveryAttemptRef = React.useRef<string>('');
   const onboardingComplete = onboardingState
     ? onboardingState.onboardingComplete === undefined
@@ -298,7 +347,7 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
       setOrganizationOptions([]);
       setProjectOptions([]);
       setSelectedProjectId(persistedProjectId);
-      setEnvironmentOptions([]);
+      setEnvironmentRows([]);
       return;
     }
     if (!currentOrgId) {
@@ -307,7 +356,7 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
       setOnboardingGateEnabled(true);
       setSelectedProjectId('');
       setProjectOptions([]);
-      setEnvironmentOptions([]);
+      setEnvironmentRows([]);
       return;
     }
 
@@ -571,126 +620,59 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
 
   React.useEffect(() => {
     const claims = consoleSession.claims;
-    if (!claims) {
-      setEnvironmentOptions([]);
-      return;
-    }
-    const projectId = String(selectedProjectId || '').trim();
-    if (!projectId) {
-      setEnvironmentOptions([]);
-      return;
-    }
-    if (!currentOrgId) {
-      setEnvironmentOptions(
-        dedupeOptions(
-          currentOrganizationProjectId === projectId
-            ? buildFallbackOptions(
-                currentOrganizationEnvironmentId,
-                currentOrganizationEnvironmentLabel,
-              )
-            : [],
-        ),
-      );
+    if (!claims || !currentOrgId) {
+      setEnvironmentRows([]);
       return;
     }
     let cancelled = false;
-    setEnvironmentOptions([]);
-    listDashboardEnvironments({ projectId })
+    listDashboardEnvironments()
       .then((environments) => {
         if (cancelled) return;
-        const visibleEnvironmentRows = environments
-          .filter((entry) => {
-            const status = String(entry.status || '')
-              .trim()
-              .toUpperCase();
-            if (status === 'ARCHIVED') return false;
-            if (status === 'ACTIVE') return true;
-            return (
-              String(entry.key || '')
-                .trim()
-                .toLowerCase() === 'prod'
-            );
-          })
-          .sort((left, right) => {
-            const leftDisabled =
-              String(left.status || '')
-                .trim()
-                .toUpperCase() !== 'ACTIVE';
-            const rightDisabled =
-              String(right.status || '')
-                .trim()
-                .toUpperCase() !== 'ACTIVE';
-            if (leftDisabled === rightDisabled) return 0;
-            return leftDisabled ? 1 : -1;
-          });
-        const hasProductionEnvironment = visibleEnvironmentRows.some(
-          (entry) =>
-            String(entry.key || '')
-              .trim()
-              .toLowerCase() === 'prod',
-        );
-        const nextEnvironmentOptions = dedupeOptions([
-          ...visibleEnvironmentRows.map((entry) => ({
-            value: entry.id,
-            label: entry.name || entry.id,
-            disabled:
-              String(entry.status || '')
-                .trim()
-                .toUpperCase() !== 'ACTIVE',
-          })),
-          ...(!billingReady && !hasProductionEnvironment
-            ? [
-                {
-                  value: `${LOCKED_PRODUCTION_OPTION_PREFIX}${projectId}`,
-                  label: 'Production',
-                  disabled: true,
-                },
-              ]
-            : []),
-          ...(currentOrganizationProjectId === projectId
-            ? buildFallbackOptions(
-                currentOrganizationEnvironmentId,
-                currentOrganizationEnvironmentLabel,
-              )
-            : []),
-          ...(scopedOnboardingSelectedProjectId === projectId
-            ? buildFallbackOptions(scopedOnboardingSelectedEnvironmentId)
-            : []),
-        ]);
-        setEnvironmentOptions(nextEnvironmentOptions);
+        setEnvironmentRows(environments);
       })
       .catch(() => {
         if (cancelled) return;
-        setEnvironmentOptions(
-          dedupeOptions([
-            ...buildFallbackOptions(scopedPersistedEnvironmentId),
-            ...(currentOrganizationProjectId === projectId
-              ? buildFallbackOptions(
-                  currentOrganizationEnvironmentId,
-                  currentOrganizationEnvironmentLabel,
-                )
-              : []),
-            ...(scopedOnboardingSelectedProjectId === projectId
-              ? buildFallbackOptions(scopedOnboardingSelectedEnvironmentId)
-              : []),
-          ]),
-        );
+        setEnvironmentRows([]);
       });
     return () => {
       cancelled = true;
     };
-  }, [
-    consoleSession.claims,
-    currentOrgId,
-    scopedOnboardingSelectedEnvironmentId,
-    scopedOnboardingSelectedProjectId,
-    currentOrganizationEnvironmentId,
-    currentOrganizationEnvironmentLabel,
-    currentOrganizationProjectId,
-    scopedPersistedEnvironmentId,
-    selectedProjectId,
-    billingReady,
-  ]);
+  }, [consoleSession.claims, currentOrgId]);
+
+  const environmentOptions = React.useMemo(
+    () =>
+      buildProjectEnvironmentOptions({
+        environments: environmentRows,
+        projectId: selectedProjectId,
+        billingReady,
+        fallbackOptions: dedupeOptions([
+          ...(scopedPersistedProjectId === selectedProjectId
+            ? buildFallbackOptions(scopedPersistedEnvironmentId)
+            : []),
+          ...(currentOrganizationProjectId === selectedProjectId
+            ? buildFallbackOptions(
+                currentOrganizationEnvironmentId,
+                currentOrganizationEnvironmentLabel,
+              )
+            : []),
+          ...(scopedOnboardingSelectedProjectId === selectedProjectId
+            ? buildFallbackOptions(scopedOnboardingSelectedEnvironmentId)
+            : []),
+        ]),
+      }),
+    [
+      billingReady,
+      currentOrganizationEnvironmentId,
+      currentOrganizationEnvironmentLabel,
+      currentOrganizationProjectId,
+      environmentRows,
+      scopedOnboardingSelectedEnvironmentId,
+      scopedOnboardingSelectedProjectId,
+      scopedPersistedEnvironmentId,
+      scopedPersistedProjectId,
+      selectedProjectId,
+    ],
+  );
 
   const dropdownOptions = React.useMemo<Record<TopbarMenuKey, TopbarOption[]>>(
     () => ({
@@ -740,6 +722,44 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
       organizationOptions,
       projectOptions,
       selectedProjectId,
+    ],
+  );
+
+  const workspaceProjectGroups = React.useMemo<SidebarProjectGroup[]>(
+    () =>
+      dropdownOptions.project.map((project) => ({
+        project,
+        environments: buildProjectEnvironmentOptions({
+          environments: environmentRows,
+          projectId: project.value,
+          billingReady,
+          fallbackOptions: dedupeOptions([
+            ...(scopedPersistedProjectId === project.value
+              ? buildFallbackOptions(scopedPersistedEnvironmentId)
+              : []),
+            ...(currentOrganizationProjectId === project.value
+              ? buildFallbackOptions(
+                  currentOrganizationEnvironmentId,
+                  currentOrganizationEnvironmentLabel,
+                )
+              : []),
+            ...(scopedOnboardingSelectedProjectId === project.value
+              ? buildFallbackOptions(scopedOnboardingSelectedEnvironmentId)
+              : []),
+          ]),
+        }),
+      })),
+    [
+      billingReady,
+      currentOrganizationEnvironmentId,
+      currentOrganizationEnvironmentLabel,
+      currentOrganizationProjectId,
+      dropdownOptions.project,
+      environmentRows,
+      scopedOnboardingSelectedEnvironmentId,
+      scopedOnboardingSelectedProjectId,
+      scopedPersistedEnvironmentId,
+      scopedPersistedProjectId,
     ],
   );
 
@@ -917,6 +937,29 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
     ],
   );
 
+  const onSelectWorkspaceEnvironment = React.useCallback(
+    (projectId: string, environmentId: string) => {
+      if (projectId === selectedContext.project) {
+        onSelectContext('environment', environmentId);
+        return;
+      }
+      pendingEnvironmentSelectionRef.current = { projectId, environmentId };
+      onSelectContext('project', projectId);
+    },
+    [onSelectContext, selectedContext.project],
+  );
+
+  React.useEffect(() => {
+    const pending = pendingEnvironmentSelectionRef.current;
+    if (!pending || pending.projectId !== selectedContext.project) return;
+    const environment = dropdownOptions.environment.find(
+      (option) => option.value === pending.environmentId && option.disabled !== true,
+    );
+    if (!environment) return;
+    pendingEnvironmentSelectionRef.current = null;
+    onSelectContextRaw('environment', environment.value);
+  }, [dropdownOptions.environment, onSelectContextRaw, selectedContext.project]);
+
   React.useEffect(() => {
     if (!consoleSession.claims) return;
     if (onboardingGateEnabled && onboardingLoading) return;
@@ -1068,17 +1111,13 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
           onSelect: setSelectedProductId,
         }}
         workspace={{
-          projectOptions: dropdownOptions.project,
+          projectGroups: workspaceProjectGroups,
           projectValue: selectedContext.project,
-          onSelectProject: (value) => onSelectContext('project', value),
+          environmentValue: selectedContext.environment,
+          onSelectEnvironment: onSelectWorkspaceEnvironment,
           organizationOptions: dropdownOptions.organization,
           organizationValue: selectedContext.organization,
           onSelectOrganization: (value) => onSelectContext('organization', value),
-        }}
-        contextCard={{
-          environmentOptions: dropdownOptions.environment,
-          environmentValue: selectedContext.environment,
-          onSelectEnvironment: (value) => onSelectContext('environment', value),
         }}
       />
 
