@@ -1120,9 +1120,10 @@ function DashboardPageInner({ pathname = '/dashboard' }: DashboardPageProps): Re
 }
 
 export function DashboardPage(props: DashboardPageProps): React.JSX.Element {
+  const { selectedNetwork } = useFrontendRuntime();
   return (
     <DashboardConsoleSessionProvider>
-      <DashboardPageInner {...props} />
+      <DashboardPageInner key={selectedNetwork} {...props} />
     </DashboardConsoleSessionProvider>
   );
 }

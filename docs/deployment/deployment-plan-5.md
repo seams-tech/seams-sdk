@@ -605,10 +605,12 @@ records, API keys, policies, billing usage, and audit history.
 
 Do not use a domain-wide `.seams.sh` authentication cookie. Host-only API
 cookies preserve isolation between `api.seams.sh` and `test.api.seams.sh`.
-Network switching may establish a separate console session on the selected API
-through the existing login flow or a future explicitly designed session
-exchange. The first implementation may require authentication once per
-production network.
+Network switching keeps the authenticated console shell mounted while the
+network-scoped dashboard data and SDK runtime are replaced in place. It must
+not reload the page or redirect to the login route. Each selected API still
+uses its own host-only cookie; a missing lane session is reported within that
+lane without clearing the current console-shell session. Authentication may be
+established once per production network.
 
 The two wallet origins also create distinct WebAuthn RP IDs and browser storage
 partitions:
