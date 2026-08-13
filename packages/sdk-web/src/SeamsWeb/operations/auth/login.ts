@@ -95,6 +95,7 @@ import {
   type SessionExchangeRuntimeScope,
 } from '@/core/rpcClients/near/rpcCalls';
 import { rememberPasskeyCustodySessionEnvelope } from '@/core/signingEngine/session/passkey/passkeyCustodySessionCache';
+import { persistPasskeyEd25519YaoSignerMaterialV1 } from '@/core/signingEngine/session/passkey/ed25519YaoLocalMaterial';
 import {
   fetchWalletEcdsaKeyFactsInventoryWithAppSession,
   fetchWalletEcdsaKeyFactsInventoryWithWebAuthn,
@@ -2171,7 +2172,7 @@ async function unlockInternal(
           loginCredential = completedExchange.credential;
           completedPasskeyExchangeEcdsaActivation = completedExchange.activation;
           completedPasskeySessionCustody = completedExchange.custody;
-          rememberPasskeySessionCustodyForExport({
+          await rememberPasskeySessionCustodyForExport({
             walletId: String(walletIdentity.walletId),
             exchange: completedExchange,
           });
@@ -2340,7 +2341,7 @@ async function unlockInternal(
         loginCredential = completedExchange.credential;
         completedPasskeyExchangeEcdsaActivation = completedExchange.activation;
         completedPasskeySessionCustody = completedExchange.custody;
-        rememberPasskeySessionCustodyForExport({
+        await rememberPasskeySessionCustodyForExport({
           walletId: String(walletIdentity.walletId),
           exchange: completedExchange,
         });
@@ -2633,15 +2634,15 @@ function assertRejoinedPasskeyEcdsaPublicFacts(args: {
   }
 }
 
-function rememberPasskeySessionCustodyForExport(args: {
+async function rememberPasskeySessionCustodyForExport(args: {
   readonly walletId: string;
   readonly exchange: CompletedPasskeySessionExchange;
-}): void {
+}): Promise<void> {
   const credentialIdB64u = String(
     args.exchange.credential.rawId || args.exchange.credential.id || '',
   ).trim();
   if (!credentialIdB64u) throw new Error('[login] passkey assertion credential id is missing');
-  rememberPasskeyCustodySessionEnvelope({
+  await rememberPasskeyCustodySessionEnvelope({
     walletId: args.walletId,
     credentialIdB64u,
     envelope: args.exchange.custody.envelope,
@@ -3483,6 +3484,33 @@ async function openAndActivatePasskeyEd25519CustodyLogin(
       });
     }
     if (!activeClient) throw new Error('[login] wallet custody produced no active client');
+    const envelopeFactor = input.custody.envelope.factor;
+    if (envelopeFactor.kind !== 'passkey') {
+      throw new Error('[login] wallet custody returned a different factor authority');
+    }
+    await persistPasskeyEd25519YaoSignerMaterialV1({
+      store: IndexedDBManager,
+      activeClient,
+      identity: {
+        walletId: String(input.walletBinding.walletId),
+        nearAccountId: String(input.walletBinding.nearAccountId),
+        nearEd25519SigningKeyId: String(input.walletBinding.nearEd25519SigningKeyId),
+        thresholdSessionId: thresholdSessionId.value,
+        signerSlot: input.signerSlot,
+        rpId: envelopeFactor.rpId,
+        credentialIdB64u: envelopeFactor.credentialIdB64u,
+        signingRootId: capability.applicationBinding.signing_root_id,
+        signingRootVersion: capability.lifecycle.rootShareEpoch,
+        signingWorkerId: input.custody.ed25519.relayerKeyId,
+      },
+      stableServerScope: {
+        relayerKeyId: input.custody.ed25519.relayerKeyId,
+        participantIds: input.custody.ed25519.participantIds,
+        runtimePolicyScope: capability.runtimePolicyScope,
+        routerAbNormalSigning: input.routerAbNormalSigning,
+      },
+      passkeyPrfFirstB64u: input.passkeyPrfFirstB64u,
+    });
     const activated = await input.signingEngine.activateVerifiedNearEd25519YaoMaterial({
       activeClient,
       facts: {

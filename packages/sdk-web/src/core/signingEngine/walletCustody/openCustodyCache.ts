@@ -5,6 +5,7 @@ import {
   RouterAbEd25519YaoClientV1,
   type RouterAbEd25519YaoActiveClientV1,
   type RouterAbEd25519YaoActiveClientMetadataV1,
+  type RouterAbEd25519YaoSealableActiveClientV1,
 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
 import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
@@ -118,7 +119,7 @@ export async function openWalletCustodyEd25519ActiveClientV1(input: {
   readonly envelope: WalletCustodyCacheEnvelopeV1;
   /** `PRF.first`, or the Email OTP factor key. Zeroed by the callee. */
   readonly ownedFactorSecret: Uint8Array;
-}): Promise<RouterAbEd25519YaoActiveClientV1> {
+}): Promise<RouterAbEd25519YaoSealableActiveClientV1> {
   const metadata = walletCustodyActiveClientMetadataV1({
     material: input.material,
     activation: input.activation,

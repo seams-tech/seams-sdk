@@ -213,12 +213,7 @@ function parseSyncEcdsaChainTarget(value: unknown): ThresholdEcdsaChainTarget {
 }
 
 function parseSyncEcdsaParticipantIds(value: unknown): readonly [number, number] {
-  if (
-    !Array.isArray(value) ||
-    value.length !== 2 ||
-    value[0] !== 1 ||
-    value[1] !== 2
-  ) {
+  if (!Array.isArray(value) || value.length !== 2 || value[0] !== 1 || value[1] !== 2) {
     throw new Error('sync-account ECDSA participant ids are invalid');
   }
   return [1, 2];
@@ -460,9 +455,7 @@ function walletCustodyActivationFacts(
     signingRootId: parsed.capability.applicationBinding.signing_root_id,
     signerSetId: parsed.capability.lifecycle.signerSetId,
     thresholdSessionId: parsed.capability.lifecycle.thresholdSessionId,
-    activationTranscriptB64u: base64UrlEncode(
-      Uint8Array.from(continuity.activationTranscript),
-    ),
+    activationTranscriptB64u: base64UrlEncode(Uint8Array.from(continuity.activationTranscript)),
     activationCapabilityBindingB64u: base64UrlEncode(
       Uint8Array.from(parsed.capability.activeCapabilityBinding),
     ),
@@ -518,9 +511,7 @@ async function recoverAndCommitPasskeyEd25519Unlock(
   let openSecret: Uint8Array | null = null;
   let activeClient: PasskeyEd25519YaoRecoveryResultV1['activeClient'] | null = null;
   try {
-    const envelope = walletCustodyCacheEnvelopeFromRecordV1(
-      input.parsed.walletCustody.envelope,
-    );
+    const envelope = walletCustodyCacheEnvelopeFromRecordV1(input.parsed.walletCustody.envelope);
     const activation = walletCustodyActivationFacts(input.parsed);
     const cached = await openOrRejoinWalletCustodyEd25519V1({
       loadCachedMaterial: loadExpectedWalletCustodyEd25519Material.bind(undefined, {
@@ -575,6 +566,9 @@ async function recoverAndCommitPasskeyEd25519Unlock(
         envelope,
         ownedFactorSecret: openSecret,
       });
+    }
+    if (!activeClient) {
+      throw new Error('Wallet custody recovery produced no active Ed25519 client');
     }
     const walletSessionState = buildRecoveredWalletSessionState({
       parsed: input.parsed,
@@ -698,8 +692,7 @@ async function restoreWalletCustodyEcdsaContinuity(input: {
       }),
       applicationBindingDigestB64u:
         walletKey.publicCapability.context.application_binding_digest_b64u,
-      registeredClientRootPublicKey33B64u:
-        walletKey.derivationClientSharePublicKey33B64u,
+      registeredClientRootPublicKey33B64u: walletKey.derivationClientSharePublicKey33B64u,
       relayerPublicIdentityJson: JSON.stringify({
         relayerKeyId: walletKey.relayerKeyId,
         relayerPublicKey33B64u: identity.server_public_key33_b64u,
@@ -985,8 +978,9 @@ async function syncAccountInternal(
         context.signingEngine.rejoinWalletCustodyEvmFamilyKeySet.bind(context.signingEngine),
       restoreWalletCustodyEcdsaContinuity:
         context.signingEngine.restoreWalletCustodyEcdsaContinuity.bind(context.signingEngine),
-      loadWalletCustodyEd25519Material:
-        context.signingEngine.loadWalletCustodyEd25519Material.bind(context.signingEngine),
+      loadWalletCustodyEd25519Material: context.signingEngine.loadWalletCustodyEd25519Material.bind(
+        context.signingEngine,
+      ),
       persistWalletCustodyEd25519Material:
         context.signingEngine.persistWalletCustodyEd25519Material.bind(context.signingEngine),
       prepareLocalProfile: prepareSyncedPasskeyLocalProfile.bind(undefined, context),

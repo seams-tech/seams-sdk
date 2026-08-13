@@ -109,6 +109,7 @@ export function nearEd25519YaoRuntimeRef(
 
 function blockedNearHydration(
   input: {
+    readonly publicLocator: NearEd25519YaoPublicLocatorObservationV1;
     readonly sealed: NearEd25519YaoSealedMaterialObservationV1;
     readonly runtime: NearEd25519YaoRuntimeObservationV1;
   },
@@ -119,7 +120,9 @@ function blockedNearHydration(
       ? input.sealed.materialActivation.capability
       : input.runtime.kind === 'live'
         ? input.runtime.materialActivation.capability
-        : null;
+        : input.publicLocator.kind === 'available'
+          ? input.publicLocator.materialActivation.capability
+          : null;
   return capability
     ? buildBlockedMpcCapabilityHydrationPlan({ capability, reason })
     : buildBlockedMpcCapabilityHydrationPlan({
@@ -163,10 +166,7 @@ export function resolveNearEd25519YaoCapabilityHydrationV1(
   switch (input.runtime.kind) {
     case 'live':
       if (
-        !mpcMaterialActivationRefsEqual(
-          publicMaterialActivation,
-          input.runtime.materialActivation,
-        )
+        !mpcMaterialActivationRefsEqual(publicMaterialActivation, input.runtime.materialActivation)
       ) {
         return blockedNearHydration(input, 'binding_mismatch');
       }

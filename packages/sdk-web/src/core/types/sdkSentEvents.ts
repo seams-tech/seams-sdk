@@ -844,6 +844,14 @@ export type WalletRecoveryCodeBackupHandlerV1 = (
   request: WalletRecoveryCodeBackupRequestV1,
 ) => Promise<WalletRecoveryCodeBackupAcknowledgementV1> | WalletRecoveryCodeBackupAcknowledgementV1;
 
+export type WalletRecoveryCodeBackupDuringRegistrationV1 =
+  | { readonly kind: 'defer_to_account_menu' }
+  | { readonly kind: 'show_builtin_dialog' }
+  | {
+      readonly kind: 'custom_handler';
+      readonly handler: WalletRecoveryCodeBackupHandlerV1;
+    };
+
 //////////////////////////////////
 /// Hooks Options
 //////////////////////////////////
@@ -854,11 +862,10 @@ export interface RegistrationHooksOptions {
   onError?: (error: Error) => void;
   afterCall?: AfterCall<RegistrationResult>;
   /**
-   * Receives the wallet-scoped recovery codes before custody is committed.
-   * Resolve after the person either saves the set or explicitly defers backup.
-   * When omitted, the SDK presents its built-in backup dialog with both choices.
+   * Controls recovery-code backup during registration. Omission defers backup
+   * to Recovery Codes in the account menu without opening a dialog.
    */
-  backupWalletRecoveryCodes?: WalletRecoveryCodeBackupHandlerV1;
+  recoveryCodeBackup?: WalletRecoveryCodeBackupDuringRegistrationV1;
   /** Optional sink for sanitized Refactor 93 registration timing spans. */
   onTimingSpan?: RegistrationTimingSpanCallbackV1;
   // Signer provisioning options used during registration.

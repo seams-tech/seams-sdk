@@ -890,7 +890,7 @@ export class RouterAbEd25519YaoClientV1 {
    */
   openCustodyCache(
     input: RouterAbEd25519YaoOpenCustodyCacheInputV1,
-  ): RouterAbEd25519YaoActiveClientV1 {
+  ): RouterAbEd25519YaoSealableActiveClientV1 {
     return openVerifiedCustodyCacheActiveClient(input);
   }
 

@@ -1,6 +1,9 @@
 import { fundImplicitNearAccountForTesting } from '@/core/rpcClients/relayer/walletRegistration';
 import type { TransactionContext } from '@/core/types/rpc';
-import type { NearEd25519StepUpAuthorization } from '../../interfaces/near';
+import type {
+  NearEd25519FundingSession,
+  NearEd25519StepUpAuthorization,
+} from '../../interfaces/near';
 import type { NearSigningRuntimeDeps } from '../../interfaces/runtime';
 import type { NonceLeaseRef } from '../../interfaces/nonceLease';
 import type { NearImplicitAccountFundingResult } from '../../interfaces/implicitAccountFunding';
@@ -67,14 +70,25 @@ function delayAccessKeyPoll(delayMs = ACCESS_KEY_POLL_DELAY_MS): Promise<void> {
   });
 }
 
-function requireWalletSessionJwt(state: ResolvedRouterAbEd25519WalletSessionState): string {
-  const walletSessionJwt = String(state.walletSessionAuth.walletSessionJwt || '').trim();
+function requireWalletSessionJwt(state: NearEd25519FundingSession): string {
+  const walletSessionJwt = String(state.walletSessionJwt || '').trim();
   if (!walletSessionJwt) {
     throw new Error(
       '[SigningEngine][near] authenticated Wallet Session JWT is required for funding',
     );
   }
   return walletSessionJwt;
+}
+
+function fundingSessionFromWalletSessionState(
+  state: ResolvedRouterAbEd25519WalletSessionState,
+): NearEd25519FundingSession {
+  return {
+    kind: 'near_ed25519_funding_session',
+    signer: state.signingLane.identity.signer,
+    thresholdSessionId: state.thresholdSessionId,
+    walletSessionJwt: state.walletSessionAuth.walletSessionJwt,
+  };
 }
 
 /**
@@ -124,14 +138,13 @@ function assertNeverFundingAuthorization(value: never): never {
 
 function assertFundingRequestMatchesAuthenticatedState(args: {
   request: NearFundingRequest;
-  walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
+  fundingSession: NearEd25519FundingSession;
   nearPublicKeyStr: string;
   signingOperation: FingerprintedSigningOperationContext;
   signatureUses: number;
 }): void {
-  const lane = args.walletSessionState.signingLane;
-  const walletId = String(lane.identity.signer.account.wallet.walletId);
-  const nearAccountId = String(lane.identity.signer.account.nearAccountId);
+  const walletId = String(args.fundingSession.signer.account.wallet.walletId);
+  const nearAccountId = String(args.fundingSession.signer.account.nearAccountId);
   const requestOperation = args.request.operation;
   if (
     String(args.request.subject.walletId) !== walletId ||
@@ -156,24 +169,22 @@ function assertFundingRequestMatchesAuthenticatedState(args: {
   if (args.request.signatureUses !== args.signatureUses) {
     throw new Error('[SigningEngine][near] funding request signature use count mismatch');
   }
-  if (
-    String(args.walletSessionState.thresholdSessionId) !== String(lane.identity.thresholdSessionId)
-  ) {
+  if (String(args.fundingSession.thresholdSessionId).trim().length === 0) {
     throw new Error('[SigningEngine][near] funding authority threshold session mismatch');
   }
 }
 
 function createNearWalletSessionFundingAuthority(args: {
   request: NearFundingRequest;
-  walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
+  fundingSession: NearEd25519FundingSession;
   provenance: NearWalletSessionFundingAuthority['provenance'];
 }): NearWalletSessionFundingAuthority {
   return {
     kind: 'near_wallet_session_funding_authority',
     provenance: args.provenance,
     request: args.request,
-    thresholdSessionId: args.walletSessionState.signingLane.identity.thresholdSessionId,
-    walletSessionJwt: requireWalletSessionJwt(args.walletSessionState),
+    thresholdSessionId: args.fundingSession.thresholdSessionId,
+    walletSessionJwt: requireWalletSessionJwt(args.fundingSession),
     [nearFundingAuthorityBrand]: true,
   };
 }
@@ -261,14 +272,14 @@ export async function resolveConfirmedNearTransactionContext(args: {
     case 'funding_required': {
       assertFundingRequestMatchesAuthenticatedState({
         request: args.confirmation.readiness.request,
-        walletSessionState: args.walletSessionState,
+        fundingSession: fundingSessionFromWalletSessionState(args.walletSessionState),
         nearPublicKeyStr: args.nearPublicKeyStr,
         signingOperation: args.signingOperation,
         signatureUses: args.signatureUses,
       });
       const authority = createNearWalletSessionFundingAuthority({
         request: args.confirmation.readiness.request,
-        walletSessionState: args.walletSessionState,
+        fundingSession: fundingSessionFromWalletSessionState(args.walletSessionState),
         provenance: fundingAuthorityProvenance(args.authorization),
       });
       const funded = await fundAndReserveNearContext({ ctx: args.ctx, authority });
@@ -310,21 +321,21 @@ export async function fundNearImplicitAccountForOperationStepUp(args: {
   request: NearFundingRequest;
   ctx: NearSigningRuntimeDeps;
   nearPublicKeyStr: string;
-  walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
+  fundingSession: NearEd25519FundingSession;
   method: NearOperationStepUpFundingMethod;
   signingOperation: FingerprintedSigningOperationContext;
   signatureUses: number;
 }): Promise<NearImplicitAccountFundingResult> {
   assertFundingRequestMatchesAuthenticatedState({
     request: args.request,
-    walletSessionState: args.walletSessionState,
+    fundingSession: args.fundingSession,
     nearPublicKeyStr: args.nearPublicKeyStr,
     signingOperation: args.signingOperation,
     signatureUses: args.signatureUses,
   });
   const authority = createNearWalletSessionFundingAuthority({
     request: args.request,
-    walletSessionState: args.walletSessionState,
+    fundingSession: args.fundingSession,
     provenance: operationStepUpFundingProvenance(args.method),
   });
   const funded = await fundAndReserveNearContext({ ctx: args.ctx, authority });
