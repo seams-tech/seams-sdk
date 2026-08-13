@@ -3,7 +3,10 @@ import type {
   PasskeyWalletAuthAuthority,
   WalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
-import { isEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import {
+  isEmailOtpWalletAuthAuthority,
+  isPasskeyWalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
 import {
   assertMatchingVerifiedEcdsaPublicFacts,
   deriveEvmFamilyKeyFingerprintFromPublicFacts,
@@ -130,14 +133,14 @@ export function isConcreteEcdsaExportLane(
 ): lane is ConcreteAvailableEcdsaSigningLane & {
   source: 'canonical_capability';
 } & (
-  | {
-      authorization: ActiveEvmFamilyWalletSessionAuthorization;
-    }
-  | {
-      authorization?: never;
-      auth: ConcreteAvailableEcdsaSigningLane['auth'];
-    }
-) {
+    | {
+        authorization: ActiveEvmFamilyWalletSessionAuthorization;
+      }
+    | {
+        authorization?: never;
+        auth: ConcreteAvailableEcdsaSigningLane['auth'];
+      }
+  ) {
   if (
     !lane ||
     lane.curve !== 'ecdsa' ||
@@ -182,8 +185,8 @@ export function resolveCanonicalEmailOtpEcdsaExportMaterialForLane(args: {
   const signer = capability.manifest.signer;
   if (
     signer.walletId !== exportLane.key.walletId ||
-    !signer.scope.targetMemberships.some(
-      (target) => thresholdEcdsaChainTargetsEqual(target, exportLane.chainTarget),
+    !signer.scope.targetMemberships.some((target) =>
+      thresholdEcdsaChainTargetsEqual(target, exportLane.chainTarget),
     )
   ) {
     throw new Error('[SigningEngine][ecdsa-export] Email OTP capability target mismatch');
@@ -212,7 +215,8 @@ export function resolveCanonicalEmailOtpEcdsaExportMaterialForLane(args: {
     materialFacts.walletId !== signer.walletId ||
     String(materialFacts.keyHandle) !== String(exportLane.publicFacts.keyHandle) ||
     String(materialFacts.groupPublicKey33B64u) !== String(exportLane.publicFacts.publicKeyB64u) ||
-    String(materialFacts.ethereumAddress) !== String(exportLane.publicFacts.thresholdOwnerAddress) ||
+    String(materialFacts.ethereumAddress) !==
+      String(exportLane.publicFacts.thresholdOwnerAddress) ||
     materialFacts.participantIds.length !== exportLane.publicFacts.participantIds.length ||
     materialFacts.participantIds.some(
       (participantId, index) => participantId !== exportLane.publicFacts.participantIds[index],
@@ -243,6 +247,77 @@ export function resolveCanonicalEmailOtpEcdsaExportMaterialForLane(args: {
       kind: 'fresh_operation_authorization_required',
       authority: capability.authority,
     },
+  };
+}
+
+export function resolveCanonicalPasskeyEcdsaExportMaterialForLane(args: {
+  deps: EcdsaExportSessionStoreDeps;
+  exportLane: ExactEcdsaExportLane;
+}): FreshPasskeyEcdsaExportMaterial {
+  const { exportLane } = args;
+  const capability = exportLane.capability;
+  if (!isPasskeyWalletAuthAuthority(capability.authority)) {
+    throw new Error('[SigningEngine][ecdsa-export] passkey capability authority mismatch');
+  }
+  const signer = capability.manifest.signer;
+  if (
+    signer.walletId !== exportLane.key.walletId ||
+    !signer.scope.targetMemberships.some((target) =>
+      thresholdEcdsaChainTargetsEqual(target, exportLane.chainTarget),
+    )
+  ) {
+    throw new Error('[SigningEngine][ecdsa-export] passkey capability target mismatch');
+  }
+  if (
+    exportLane.laneIdentity.auth.kind !== 'passkey' ||
+    exportLane.laneIdentity.auth.credentialIdB64u !== capability.authority.factor.credentialIdB64u
+  ) {
+    throw new Error('[SigningEngine][ecdsa-export] passkey capability auth mismatch');
+  }
+  if (
+    !mpcMaterialActivationRefsEqual(
+      capability.manifest.activation.materialActivation,
+      exportLane.laneIdentity.signer.materialActivation,
+    )
+  ) {
+    throw new Error('[SigningEngine][ecdsa-export] passkey material activation mismatch');
+  }
+  assertMatchingVerifiedEcdsaPublicFacts({
+    expected: exportLane.publicFacts,
+    actual: signer.registeredPublicFacts,
+    context: 'canonical passkey export lane',
+  });
+  const materialFacts = capability.material.publicFacts;
+  if (
+    materialFacts.walletId !== signer.walletId ||
+    String(materialFacts.keyHandle) !== String(exportLane.publicFacts.keyHandle) ||
+    String(materialFacts.groupPublicKey33B64u) !== String(exportLane.publicFacts.publicKeyB64u) ||
+    String(materialFacts.ethereumAddress) !==
+      String(exportLane.publicFacts.thresholdOwnerAddress) ||
+    materialFacts.participantIds.length !== exportLane.publicFacts.participantIds.length ||
+    materialFacts.participantIds.some(
+      (participantId, index) => participantId !== exportLane.publicFacts.participantIds[index],
+    )
+  ) {
+    throw new Error('[SigningEngine][ecdsa-export] canonical passkey export material mismatch');
+  }
+  const durable = capability.manifest.durableMaterial;
+  const runtimePolicyScope = durable.runtimePolicyScope;
+  const relayerUrl = String(args.deps.relayerUrl).trim().replace(/\/+$/g, '');
+  if (!runtimePolicyScope) {
+    throw new Error('[SigningEngine][ecdsa-export] passkey runtime policy scope is missing');
+  }
+  if (!relayerUrl) {
+    throw new Error('[SigningEngine][ecdsa-export] passkey export relayer URL is missing');
+  }
+  return {
+    kind: 'fresh_passkey_needs_authorization',
+    chainTarget: exportLane.chainTarget,
+    publicFacts: exportLane.publicFacts,
+    runtimePolicyScope,
+    publicCapability: durable.roleLocalPublicFacts.publicCapability,
+    existingRoleLocalMaterial: capability.material,
+    relayerUrl,
   };
 }
 
@@ -334,6 +409,9 @@ export async function resolveEcdsaExportMaterialForLane(
     walletId: exportLane.key.walletId,
     chainTarget: exportLane.chainTarget,
   });
+  if (resolution.kind === 'blocked' && resolution.reason === 'missing_material') {
+    return resolveCanonicalPasskeyEcdsaExportMaterialForLane({ deps, exportLane });
+  }
   if (resolution.kind !== 'resolved') {
     throw new Error(
       `[SigningEngine][ecdsa-export] passkey capability runtime unavailable: ${resolution.reason}`,

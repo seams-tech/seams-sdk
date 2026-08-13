@@ -26,6 +26,7 @@ import {
   authorizationRequiredCanonicalEcdsaAvailableLane,
   canonicalEcdsaAvailableLane,
 } from './helpers/availableSigningLanes.fixtures';
+import { resolveCanonicalPasskeyEcdsaExportMaterialForLane } from '@/core/signingEngine/flows/recovery/ecdsaExportMaterial';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 import { availableLaneEd25519Authorization } from './helpers/availableSigningLanes.fixtures';
 
@@ -429,6 +430,22 @@ test.describe('ECDSA export lane selection', () => {
       material: { kind: 'sealed_worker_material' },
     });
     expect(resolved).not.toHaveProperty('authorization');
+
+    const material = resolveCanonicalPasskeyEcdsaExportMaterialForLane({
+      deps: {
+        exportArtifactsByLane: new Map(),
+        relayerUrl: 'https://relay.example.test',
+      },
+      exportLane: resolved,
+    });
+    expect(material).toMatchObject({
+      kind: 'fresh_passkey_needs_authorization',
+      chainTarget: EVM_TARGET,
+      existingRoleLocalMaterial: {
+        materialActivation: lane.capability.manifest.activation.materialActivation,
+      },
+      relayerUrl: 'https://relay.example.test',
+    });
   });
 
   test('selects ready Email OTP ECDSA export lanes after registration without restore', async () => {
