@@ -189,16 +189,13 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
   }
 
   private _rpIdText(): string {
-    return String(this.securityContext?.rpId || '').trim() || 'loading...';
+    return String(this.securityContext?.rpId || '').trim();
   }
 
   private _isSecurityDetailsLoading(): boolean {
-    if (this.loading) return true;
-    const chainId = String(this.model?.chainId || '').trim();
-    if (chainId) return false;
-    const blockHeight = String(this.securityContext?.blockHeight || '').trim();
+    if (this._securityDetailsText()) return false;
     const submittingTransaction = isNearSigningProgressNotice(String(this.body || ''));
-    return submittingTransaction && !blockHeight;
+    return this.loading || submittingTransaction;
   }
 
   private _isEmailOtpMode(): boolean {
@@ -643,6 +640,7 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
 
     const securityDetailsText = this._securityDetailsText();
     const securityDetailsLoading = this._isSecurityDetailsLoading();
+    const rpIdText = this._rpIdText();
     return html`
       ${this._isStandaloneSurface()
         ? html`<div class="standalone-surface-backdrop" @click=${this._handleBackdropClick}></div>`
@@ -698,16 +696,18 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
                         <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
                         <path d="M7 11V7a5 5 0 0 1 10 0v4" />
                       </svg>
-                      ${this.loading
-                        ? html`
-                            <span class="loading-ellipsis" aria-hidden="true">
-                              <span class="loading-ellipsis__dot">.</span>
-                              <span class="loading-ellipsis__dot">.</span>
-                              <span class="loading-ellipsis__dot">.</span>
-                            </span>
-                            <span class="sr-only" role="status">Loading website</span>
-                          `
-                        : html`<span class="domain-text">${this._rpIdText()}</span>`}
+                      <span role="status">
+                        ${rpIdText
+                          ? html`<span class="domain-text">${rpIdText}</span>`
+                          : html`
+                              <span class="loading-ellipsis" aria-hidden="true">
+                                <span class="loading-ellipsis__dot">.</span>
+                                <span class="loading-ellipsis__dot">.</span>
+                                <span class="loading-ellipsis__dot">.</span>
+                              </span>
+                              <span class="sr-only">Loading website</span>
+                            `}
+                      </span>
                     </div>
                     <span class="security-details">
                       <svg
@@ -727,16 +727,18 @@ export class ModalTxConfirmElement extends LitElementWithProps implements Confir
                         <path d="m3.3 7 8.7 5 8.7-5" />
                         <path d="M12 22V12" />
                       </svg>
-                      ${securityDetailsLoading
-                        ? html`
-                            <span class="loading-ellipsis" aria-hidden="true">
-                              <span class="loading-ellipsis__dot">.</span>
-                              <span class="loading-ellipsis__dot">.</span>
-                              <span class="loading-ellipsis__dot">.</span>
-                            </span>
-                            <span class="sr-only" role="status">Loading chain details</span>
-                          `
-                        : html`${securityDetailsText || 'block'}`}
+                      <span role="status">
+                        ${securityDetailsLoading
+                          ? html`
+                              <span class="loading-ellipsis" aria-hidden="true">
+                                <span class="loading-ellipsis__dot">.</span>
+                                <span class="loading-ellipsis__dot">.</span>
+                                <span class="loading-ellipsis__dot">.</span>
+                              </span>
+                              <span class="sr-only">Loading chain details</span>
+                            `
+                          : html`${securityDetailsText || 'block'}`}
+                      </span>
                     </span>
                   </div>
                 </div>

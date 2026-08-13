@@ -42,7 +42,7 @@ function DashboardWindow(): React.JSX.Element {
     <div className="h2-window" role="img" aria-label="Seams merchant dashboard overview">
       <div className="h2-window__side">
         <div className="h2-window__brand">
-          <SeamsWordmark height={14} theme="light" />
+          <SeamsWordmark height={14} />
         </div>
         <div className="h2-window__navitem is-active">
           <Home aria-hidden /> Home

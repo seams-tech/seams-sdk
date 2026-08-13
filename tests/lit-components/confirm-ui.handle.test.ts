@@ -1557,9 +1557,12 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           document.querySelector('.rpid-wrapper')?.textContent || '',
         );
         const initialLoadingEllipses = document.querySelectorAll('.loading-ellipsis').length;
-        const initialEllipsisAnimation = getComputedStyle(
-          document.querySelector('.loading-ellipsis__dot') as HTMLElement,
-        ).animationName;
+        const initialChainIcon = document.querySelector('.block-height-icon') as HTMLElement | null;
+        const initialChainIconStyle = initialChainIcon ? getComputedStyle(initialChainIcon) : null;
+        const initialChainIconVisible =
+          !!initialChainIcon &&
+          initialChainIconStyle?.display !== 'none' &&
+          initialChainIconStyle?.visibility !== 'hidden';
         const initialModalHeight = handle.element.getBoundingClientRect().height;
 
         handle.update({
@@ -1595,7 +1598,7 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           initialOperationOpen: initialOperation?.open === true,
           initialMetadataText,
           initialLoadingEllipses,
-          initialEllipsisAnimation,
+          initialChainIconVisible,
           preservedOperation: initialOperation === hydratedOperation,
           hasHydratedOperation: !!hydratedOperation,
           hydratedMetadataText,
@@ -1612,10 +1615,10 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
 
     expect(result.hasInitialTree).toBe(true);
     expect(result.initialOperationOpen).toBe(true);
-    expect(result.initialMetadataText).not.toContain('staging.sign.seams.sh');
-    expect(result.initialMetadataText).not.toContain('EVM | ChainID: 42431');
-    expect(result.initialLoadingEllipses).toBe(2);
-    expect(result.initialEllipsisAnimation).toBe('loading-ellipsis-pulse');
+    expect(result.initialMetadataText).toContain('staging.sign.seams.sh');
+    expect(result.initialMetadataText).toContain('EVM | ChainID: 42431');
+    expect(result.initialLoadingEllipses).toBe(0);
+    expect(result.initialChainIconVisible).toBe(true);
     expect(result.preservedOperation).toBe(true);
     expect(result.hasHydratedOperation).toBe(true);
     expect(result.hydratedMetadataText).toContain('staging.sign.seams.sh');
