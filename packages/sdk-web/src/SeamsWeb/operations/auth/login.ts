@@ -3359,6 +3359,7 @@ type PasskeyEd25519CustodyLoginInput = {
 
 function walletCustodyLoginActivationFacts(
   custody: ActivePasskeySessionCustodyUnlockV1,
+  thresholdSessionId: string,
 ): WalletCustodyActivationFactsV1 {
   const capability = custody.ed25519.capability;
   const continuity = capability.registrationContinuity;
@@ -3371,7 +3372,7 @@ function walletCustodyLoginActivationFacts(
     signingRootVersion: capability.lifecycle.rootShareEpoch,
     signingRootId: capability.applicationBinding.signing_root_id,
     signerSetId: capability.lifecycle.signerSetId,
-    thresholdSessionId: capability.lifecycle.thresholdSessionId,
+    thresholdSessionId,
     activationTranscriptB64u: base64UrlEncode(Uint8Array.from(continuity.activationTranscript)),
     activationCapabilityBindingB64u: base64UrlEncode(
       Uint8Array.from(capability.activeCapabilityBinding),
@@ -3410,7 +3411,11 @@ async function openAndActivatePasskeyEd25519CustodyLogin(
       Uint8Array.from(capability.registeredPublicKey),
     ),
   });
-  const activation = walletCustodyLoginActivationFacts(input.custody);
+  const thresholdSessionId = parseThresholdEd25519SessionId(input.thresholdSessionId);
+  if (!thresholdSessionId.ok) {
+    throw new Error('[login] wallet custody returned an invalid threshold session identity');
+  }
+  const activation = walletCustodyLoginActivationFacts(input.custody, thresholdSessionId.value);
   const envelope = walletCustodyCacheEnvelopeFromRecordV1(input.custody.envelope);
   let activeClient: Awaited<ReturnType<typeof openWalletCustodyEd25519ActiveClientV1>> | null =
     null;
@@ -3478,10 +3483,6 @@ async function openAndActivatePasskeyEd25519CustodyLogin(
       });
     }
     if (!activeClient) throw new Error('[login] wallet custody produced no active client');
-    const thresholdSessionId = parseThresholdEd25519SessionId(input.thresholdSessionId);
-    if (!thresholdSessionId.ok) {
-      throw new Error('[login] wallet custody returned an invalid threshold session identity');
-    }
     const activated = await input.signingEngine.activateVerifiedNearEd25519YaoMaterial({
       activeClient,
       facts: {

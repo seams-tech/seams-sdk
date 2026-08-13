@@ -101,7 +101,14 @@ export async function fundTempoTestnetAddress(params: {
     params: [params.address.toLowerCase()],
     ...(params.timeoutMs != null ? { timeoutMs: params.timeoutMs } : {}),
   });
-  return normalizeTempoFaucetTxHashes(result);
+  const transactionHashes = normalizeTempoFaucetTxHashes(result);
+  for (const transactionHash of transactionHashes) {
+    await client.waitForTransactionReceipt({
+      txHash: transactionHash,
+      ...(params.timeoutMs != null ? { timeoutMs: params.timeoutMs } : {}),
+    });
+  }
+  return transactionHashes;
 }
 
 export function decodeStringResultData(rawHex: string): string {

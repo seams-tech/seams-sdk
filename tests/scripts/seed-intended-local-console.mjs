@@ -103,8 +103,6 @@ function resolveSeedConfig(localEnv) {
     orgId: parseLocalConsoleOrganizationId(
       firstNonEmptyString([
         process.env.SEAMS_LOCAL_CONSOLE_ORG_ID,
-        process.env.SEAMS_INTENDED_CONSOLE_ORG_ID,
-        localEnv.SEAMS_INTENDED_CONSOLE_ORG_ID,
         localEnv.SEAMS_LOCAL_CONSOLE_ORG_ID,
         resolveLocalConsoleOrganizationId({ localEnvRoot: repoRoot }),
       ]),

@@ -30,6 +30,7 @@ import {
   resolveSponsoredEvmWorkerExecutionAdapter,
 } from '@seams-internal/console-server/sponsorship/evmWorkerExecutionAdapter';
 import { resolveSponsoredExecutionPricingFromEnv } from '@seams-internal/console-server/sponsorship/pricing';
+import { createDefaultBillingProviderAdapters } from '@seams-internal/console-server/billing/providers';
 import { createStripeBillingProviderAdaptersFromEnv } from '@seams-internal/console-server/billing/stripeProvider';
 import { CONSOLE_ORGANIZATION_ID_PATTERN } from '@seams-internal/console-shared/organizationIdentity';
 import {
@@ -202,6 +203,8 @@ const DEFAULT_LOCAL_LINKED_DEVICE_OPERATOR_RECOVERY_SECRET =
 const DEFAULT_LOCAL_LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET =
   'dev-linked-device-target-descriptor-hmac-secret-v1-32-bytes';
 const DEFAULT_LOCAL_ROUTER_AB_ROUTER_URL = 'http://127.0.0.1:9090';
+// Local D1 handlers are rebuilt per request, so synthetic provider state must outlive one handler.
+const LOCAL_SYNTHETIC_BILLING_PROVIDERS = createDefaultBillingProviderAdapters();
 const LOCAL_ROUTER_AB_CEREMONY_JWKS_PATH = '/.well-known/router-ab-ceremony-jwks.json';
 const LOCAL_INTENDED_YAO_FAULT_HEADER_V1 = 'x-seams-intended-yao-fault-v1';
 const LOCAL_INTENDED_YAO_FAULT_TOKEN_HEADER_V1 = 'x-seams-intended-yao-fault-token-v1';
@@ -210,6 +213,10 @@ const ROUTER_AB_YAO_REPLAY_HEADER_V1 = 'x-seams-yao-replay';
 const ROUTER_AB_YAO_EXECUTE_PATH_V1 = '/router-ab/router/ed25519-yao/execute';
 const LOCAL_INTENDED_YAO_FAULT_TOKEN_PATTERN_V1 =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
+function localBillingProviderAdapters(env: LocalD1DevEnv) {
+  return createStripeBillingProviderAdaptersFromEnv(env) ?? LOCAL_SYNTHETIC_BILLING_PROVIDERS;
+}
 
 type LocalIntendedYaoFaultModeV1 = 'drop_router_response_once' | 'return_terminal_burned_once';
 
@@ -954,6 +961,7 @@ function createLocalReadyCheck(env: LocalD1DevEnv): () => Promise<void> {
 
 async function createLocalConsoleHandler(env: LocalD1DevEnv): Promise<FetchHandler> {
   const sponsoredEvmCallConfig = await resolveSponsoredEvmCallConfigFromWorkerEnv(env);
+  const billingProviders = localBillingProviderAdapters(env);
   const bundle = await createCloudflareD1ConsoleServiceBundle({
     bindings: {
       consoleDatabase: env.CONSOLE_DB,
@@ -966,7 +974,7 @@ async function createLocalConsoleHandler(env: LocalD1DevEnv): Promise<FetchHandl
       ensureSchema: false,
       sponsoredEvmCallConfig,
       sponsorshipPricing: resolveSponsoredExecutionPricingFromEnv(env),
-      billingProviders: createStripeBillingProviderAdaptersFromEnv(env),
+      billingProviders,
       billingEmailConsoleBaseUrl: String(env.CONSOLE_BASE_URL || '').trim() || 'https://localhost',
     },
   });
@@ -990,6 +998,7 @@ async function createLocalRouterApiHandler(
 ): Promise<FetchHandler> {
   const sponsoredEvmCallConfig = await resolveSponsoredEvmCallConfigFromWorkerEnv(env);
   const routerAbPublicKeyset = localRouterAbPublicKeyset(env);
+  const billingProviders = localBillingProviderAdapters(env);
   const bundle = await createCloudflareD1ConsoleServiceBundle({
     bindings: {
       consoleDatabase: env.CONSOLE_DB,
@@ -1003,7 +1012,7 @@ async function createLocalRouterApiHandler(
       sponsoredEvmCallConfig,
       resolveSponsoredEvmExecutionAdapter: resolveSponsoredEvmWorkerExecutionAdapter,
       sponsorshipPricing: resolveSponsoredExecutionPricingFromEnv(env),
-      billingProviders: createStripeBillingProviderAdaptersFromEnv(env),
+      billingProviders,
     },
   });
   const sessionCookieName = localRouterApiSessionCookieName(env);
@@ -1279,9 +1288,8 @@ async function localLinkedDeviceTargetSigningWorker(env: LocalD1DevEnv) {
     throw new Error(parsedHpkePublicKeyB64u.error.message);
   }
   const hpkePublicKeyDigestB64u = base64UrlEncode(await sha256Bytes(hpkePublicKey));
-  const parsedHpkePublicKeyDigestB64u = parseSigningWorkerRecipientKeyDigestB64u(
-    hpkePublicKeyDigestB64u,
-  );
+  const parsedHpkePublicKeyDigestB64u =
+    parseSigningWorkerRecipientKeyDigestB64u(hpkePublicKeyDigestB64u);
   if (!parsedHpkePublicKeyDigestB64u.ok) {
     throw new Error(parsedHpkePublicKeyDigestB64u.error.message);
   }

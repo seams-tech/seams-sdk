@@ -39,6 +39,7 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
   onClose,
 }) => {
   const { seams } = useSeams();
+  const recovery = React.useMemo(() => seams.recovery, [seams]);
   const [loadState, setLoadState] = React.useState<RecoveryCodesLoadState>({ kind: 'idle' });
   const [backupState, setBackupState] = React.useState<
     { kind: 'idle' } | { kind: 'working' } | { kind: 'error'; message: string }
@@ -55,7 +56,7 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
     loadStatusSeq.current = requestSeq;
     setLoadState({ kind: 'loading' });
     try {
-      const status = await seams.recovery.getWalletRecoveryCodeStatus({ walletId });
+      const status = await recovery.getWalletRecoveryCodeStatus({ walletId });
       if (loadStatusSeq.current === requestSeq) {
         setLoadState({ kind: 'loaded', status });
       }
@@ -67,7 +68,7 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
         });
       }
     }
-  }, [seams.recovery, walletId]);
+  }, [recovery, walletId]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -95,7 +96,7 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
     if (backupState.kind === 'working') return;
     setBackupState({ kind: 'working' });
     try {
-      const result = await seams.recovery.acknowledgeWalletRecoveryCodeBackup({ walletId });
+      const result = await recovery.acknowledgeWalletRecoveryCodeBackup({ walletId });
       switch (result.kind) {
         case 'acknowledged':
           setBackupState({ kind: 'idle' });
@@ -113,7 +114,7 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
         message: error instanceof Error ? error.message : 'Could not complete recovery-code backup',
       });
     }
-  }, [backupState.kind, loadRecoveryCodeStatus, seams.recovery, walletId]);
+  }, [backupState.kind, loadRecoveryCodeStatus, recovery, walletId]);
 
   if (!isOpen) return null;
   const status = loadState.kind === 'loaded' ? loadState.status : null;
