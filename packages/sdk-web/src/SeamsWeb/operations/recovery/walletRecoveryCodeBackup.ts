@@ -73,12 +73,16 @@ class WalletRecoveryCodeBackupDialog {
   }
 
   private build(): void {
+    const iframeSurface = this.measurementBinding.kind === 'wallet_iframe';
+    const dialogWidth = iframeSurface
+      ? 'width:min(44rem,100%);max-width:100%'
+      : 'width:min(44rem,calc(100vw - 1.5rem))';
     this.dialog.setAttribute('aria-labelledby', 'w3a-wallet-recovery-backup-title');
     this.dialog.setAttribute('aria-describedby', 'w3a-wallet-recovery-backup-description');
     this.dialog.setAttribute('data-w3a-wallet-recovery-backup-dialog', '');
     this.dialog.className = 'w3a-host-themed-dialog';
     this.dialog.style.cssText = [
-      'width:min(44rem,calc(100vw - 1.5rem))',
+      dialogWidth,
       'max-height:calc(100vh - 1.5rem)',
       'overflow:auto',
       'box-sizing:border-box',

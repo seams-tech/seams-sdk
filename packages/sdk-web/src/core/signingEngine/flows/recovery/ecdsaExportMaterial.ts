@@ -111,6 +111,9 @@ export type FreshPasskeyEcdsaExportMaterial = {
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
   existingRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
+  normalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
+  relayerKeyId: string;
+  participantIds: readonly [number, number];
   relayerUrl: string;
 };
 
@@ -317,6 +320,9 @@ export function resolveCanonicalPasskeyEcdsaExportMaterialForLane(args: {
     runtimePolicyScope,
     publicCapability: durable.roleLocalPublicFacts.publicCapability,
     existingRoleLocalMaterial: capability.material,
+    normalSigning: durable.routerAbEcdsaDerivationNormalSigning,
+    relayerKeyId: String(durable.roleLocalBinding.relayerKeyId),
+    participantIds: exactEcdsaParticipantIds(durable.roleLocalBinding.participantIds),
     relayerUrl,
   };
 }
@@ -451,6 +457,9 @@ export async function resolveEcdsaExportMaterialForLane(
       materialActivation: resolution.manifest.durableMaterial.materialActivation,
       publicFacts: resolution.manifest.durableMaterial.roleLocalPublicFacts,
     }),
+    normalSigning: resolution.runtime.normalSigning,
+    relayerKeyId: resolution.runtime.relayerKeyId,
+    participantIds: resolution.runtime.participantIds,
     relayerUrl: resolution.runtime.relayerUrl,
   };
 }

@@ -10,6 +10,9 @@
   display: flex;
   justify-content: center;
   align-items: center;
+  padding: 12px;
+  box-sizing: border-box;
+  overflow: auto;
   animation: w3a-recovery-codes-backdrop-opacity 32ms ease-in;
 }
 
@@ -25,9 +28,10 @@
   );
   display: flex;
   flex-direction: column;
-  width: min(460px, calc(100vw - 24px));
-  min-width: 320px;
-  max-height: calc(100vh - 24px);
+  width: min(460px, 100%);
+  max-width: 100%;
+  min-width: 0;
+  max-height: 100%;
   overflow: auto;
   padding: 1.25rem;
   border: 1px solid var(--w3a-colors-borderPrimary);

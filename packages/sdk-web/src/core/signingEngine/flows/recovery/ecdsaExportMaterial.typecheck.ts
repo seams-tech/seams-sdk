@@ -71,6 +71,9 @@ const freshPasskeyExportMaterial: FreshPasskeyEcdsaExportMaterial = {
   runtimePolicyScope,
   publicCapability,
   existingRoleLocalMaterial,
+  normalSigning,
+  relayerKeyId,
+  participantIds,
   relayerUrl,
 };
 
@@ -82,6 +85,9 @@ const freshPasskeyExportWithoutRelayer: FreshPasskeyEcdsaExportMaterial = {
   runtimePolicyScope,
   publicCapability,
   existingRoleLocalMaterial,
+  normalSigning,
+  relayerKeyId,
+  participantIds,
 };
 void freshPasskeyExportWithoutRelayer;
 
