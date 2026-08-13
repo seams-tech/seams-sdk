@@ -23,10 +23,7 @@ import {
 } from '../../components/DashboardTable';
 import { DashboardInlineModal } from '../../components/DashboardInlineModal';
 import { listDashboardEnvironments, listDashboardProjects } from '../../consoleContextApi';
-import {
-  canDashboardEditProject,
-  useDashboardConsoleSession,
-} from '../../consoleSession';
+import { canDashboardEditProject, useDashboardConsoleSession } from '../../consoleSession';
 import { useSessionDraft } from '../../drafts/useSessionDraft';
 import type { DashboardDraftIdentity } from '../../drafts/sessionDraftStore';
 import { useDashboardSelectedContext } from '../../selectedContext';
@@ -314,9 +311,7 @@ function splitNearMethodsInput(value: string): string[] {
     .split(/[\n,]+/)
     .map((entry) => normalizeString(entry))
     .filter(Boolean);
-  return Array.from(
-    new Map(parts.map((entry) => [entry.toLowerCase(), entry])).values(),
-  );
+  return Array.from(new Map(parts.map((entry) => [entry.toLowerCase(), entry])).values());
 }
 
 function joinNearMethods(methods: readonly string[]): string {
@@ -690,11 +685,11 @@ function buildAllowedCalls(
         out.set(
           `${target.chainId}:${contractAddress.toLowerCase()}:${functionSignature.toLowerCase()}`,
           {
-          chainId: target.chainId,
-          to: contractAddress,
-          functionSignature,
-          maxGasLimit,
-          maxValueWei,
+            chainId: target.chainId,
+            to: contractAddress,
+            functionSignature,
+            maxGasLimit,
+            maxValueWei,
           },
         );
       }
@@ -931,7 +926,9 @@ function formatAllowedRuleSummary(policy: DashboardGasSponsorshipPolicy): string
   return `${contractCount} contract${contractCount === 1 ? '' : 's'} / ${functionCount} function${functionCount === 1 ? '' : 's'}`;
 }
 
-function formatNetworkClassLabel(networkClass: DashboardGasSponsorshipPolicy['networkClass']): string {
+function formatNetworkClassLabel(
+  networkClass: DashboardGasSponsorshipPolicy['networkClass'],
+): string {
   if (networkClass === 'MAINNET') return 'Mainnet';
   if (networkClass === 'TESTNET') return 'Testnet';
   return 'Any network';
@@ -939,9 +936,10 @@ function formatNetworkClassLabel(networkClass: DashboardGasSponsorshipPolicy['ne
 
 function formatRuleSummary(policy: DashboardGasSponsorshipPolicy): string {
   if (policy.kind === 'near_delegate') {
-    return [formatNetworkClassLabel(policy.networkClass), policy.enabled ? 'enabled' : 'disabled'].join(
-      ' / ',
-    );
+    return [
+      formatNetworkClassLabel(policy.networkClass),
+      policy.enabled ? 'enabled' : 'disabled',
+    ].join(' / ');
   }
   return [
     formatSelectedTargetLabels(resolveSelectedTargetIdsFromPolicy(policy)),
@@ -1092,9 +1090,9 @@ export function GasSponsorshipPage(): React.JSX.Element {
     setForm((current) => {
       const selectedChainNames = new Set(
         current.ruleKind === 'near_delegate'
-          ? [getNearSpendCapTargetForNetwork(selectedEnvironmentNetworkClass)?.chainName || ''].filter(
-              Boolean,
-            )
+          ? [
+              getNearSpendCapTargetForNetwork(selectedEnvironmentNetworkClass)?.chainName || '',
+            ].filter(Boolean)
           : uniqueGasTargetIds(current.selectedTargets)
               .map((targetId) => GAS_CHAIN_TARGETS_BY_ID.get(targetId)?.chainName || '')
               .filter(Boolean),
@@ -1427,11 +1425,7 @@ export function GasSponsorshipPage(): React.JSX.Element {
   );
 
   const updateContractFunction = React.useCallback(
-    (
-      ruleId: string,
-      functionId: string,
-      patch: Partial<Omit<GasContractFunctionDraft, 'id'>>,
-    ) => {
+    (ruleId: string, functionId: string, patch: Partial<Omit<GasContractFunctionDraft, 'id'>>) => {
       setForm((current) => ({
         ...current,
         contractCallRules: current.contractCallRules.map((entry) =>
@@ -1472,10 +1466,7 @@ export function GasSponsorshipPage(): React.JSX.Element {
   );
 
   const updateDelegateActionRule = React.useCallback(
-    (
-      ruleId: string,
-      patch: Partial<Omit<GasNearDelegateActionDraft, 'id'>>,
-    ) => {
+    (ruleId: string, patch: Partial<Omit<GasNearDelegateActionDraft, 'id'>>) => {
       setForm((current) => ({
         ...current,
         delegateActionRules: current.delegateActionRules.map((entry) =>
@@ -1693,7 +1684,10 @@ export function GasSponsorshipPage(): React.JSX.Element {
   }, [billingOverview]);
 
   return (
-    <div className="dashboard-view" aria-label="Gas sponsorship page">
+    <div
+      className="dashboard-view dashboard-gas-sponsorship-view"
+      aria-label="Gas sponsorship page"
+    >
       {mutationNotice || mutationError ? (
         <section className="dashboard-view__section" aria-label="Gas sponsorship summary">
           {mutationNotice ? <p className="dashboard-pagination-note">{mutationNotice}</p> : null}
@@ -1715,7 +1709,10 @@ export function GasSponsorshipPage(): React.JSX.Element {
         </section>
       ) : (
         <>
-          <section className="dashboard-view__section" aria-label="Gas sponsorship balance readiness">
+          <section
+            className="dashboard-view__section dashboard-gas-sponsorship-view__readiness"
+            aria-label="Gas sponsorship balance readiness"
+          >
             <h2>Sponsorship balance readiness</h2>
             <p>
               Policy configuration and prepaid balance are separate controls. Even with enabled
@@ -1763,7 +1760,7 @@ export function GasSponsorshipPage(): React.JSX.Element {
           </section>
 
           <section
-            className="dashboard-view__section dashboard-view__section--plain"
+            className="dashboard-view__section dashboard-view__section--plain dashboard-gas-sponsorship-view__policies"
             aria-label="Gas sponsorship policies"
           >
             <div className="dashboard-section-toolbar">
@@ -1800,67 +1797,67 @@ export function GasSponsorshipPage(): React.JSX.Element {
                   const enabled = isGasSponsorshipPolicyEnabled(policy);
                   return (
                     <DashboardTableRow
-                    className={`dashboard-gas-sponsorship-table__row${
-                      enabled ? '' : ' dashboard-gas-sponsorship-table__row--disabled'
-                    }`}
-                    key={policy.id}
-                  >
-                    <DashboardTableCell title={policy.id}>
-                      <span className="dashboard-gas-sponsorship-table__policy-cell">
-                        <strong className="dashboard-data-table__summary">
-                          {policy.name || policy.id}
-                        </strong>
-                        <span
-                          className={`dashboard-data-table__badge ${
-                            enabled
-                              ? 'dashboard-data-table__badge--success'
-                              : 'dashboard-data-table__badge--neutral'
-                          }`}
-                        >
-                          {enabled ? 'Enabled' : 'Disabled'}
+                      className={`dashboard-gas-sponsorship-table__row${
+                        enabled ? '' : ' dashboard-gas-sponsorship-table__row--disabled'
+                      }`}
+                      key={policy.id}
+                    >
+                      <DashboardTableCell title={policy.id}>
+                        <span className="dashboard-gas-sponsorship-table__policy-cell">
+                          <strong className="dashboard-data-table__summary">
+                            {policy.name || policy.id}
+                          </strong>
+                          <span
+                            className={`dashboard-data-table__badge ${
+                              enabled
+                                ? 'dashboard-data-table__badge--success'
+                                : 'dashboard-data-table__badge--neutral'
+                            }`}
+                          >
+                            {enabled ? 'Enabled' : 'Disabled'}
+                          </span>
                         </span>
-                      </span>
-                    </DashboardTableCell>
-                    <DashboardTableCell title={formatRuleSummary(policy)}>
-                      {formatRuleSummary(policy)}
-                    </DashboardTableCell>
-                    <DashboardTableCell title={formatSpendCapSummary(policy)}>
-                      {formatSpendCapSummary(policy)}
-                    </DashboardTableCell>
-                    <DashboardTableCell title={formatAllowedRuleSummary(policy)}>
-                      {formatAllowedRuleSummary(policy)}
-                    </DashboardTableCell>
-                    <DashboardTableCell truncate>
-                      {formatTimestamp(policy.updatedAt)}
-                    </DashboardTableCell>
-                    <DashboardTableCell className="dashboard-gas-sponsorship-table__actions-cell">
-                      <DashboardTableActionGroup>
-                        <DashboardTableActionButton
-                          onClick={() => onViewPolicy(policy)}
-                          disabled={mutating}
-                        >
-                          View
-                        </DashboardTableActionButton>
-                        <DashboardTableActionButton
-                          onClick={() => onEditPolicy(policy)}
-                          disabled={mutating}
-                        >
-                          Edit
-                        </DashboardTableActionButton>
-                        <DashboardTableActionButton
-                          onClick={() => onToggleEnabled(policy)}
-                          disabled={!canMutatePolicy || mutating}
-                        >
-                          {enabled ? 'Disable' : 'Enable'}
-                        </DashboardTableActionButton>
-                        <DashboardTableActionButton
-                          onClick={() => onDeletePolicy(policy)}
-                          disabled={!canMutatePolicy || mutating}
-                        >
-                          Delete
-                        </DashboardTableActionButton>
-                      </DashboardTableActionGroup>
-                    </DashboardTableCell>
+                      </DashboardTableCell>
+                      <DashboardTableCell title={formatRuleSummary(policy)}>
+                        {formatRuleSummary(policy)}
+                      </DashboardTableCell>
+                      <DashboardTableCell title={formatSpendCapSummary(policy)}>
+                        {formatSpendCapSummary(policy)}
+                      </DashboardTableCell>
+                      <DashboardTableCell title={formatAllowedRuleSummary(policy)}>
+                        {formatAllowedRuleSummary(policy)}
+                      </DashboardTableCell>
+                      <DashboardTableCell truncate>
+                        {formatTimestamp(policy.updatedAt)}
+                      </DashboardTableCell>
+                      <DashboardTableCell className="dashboard-gas-sponsorship-table__actions-cell">
+                        <DashboardTableActionGroup>
+                          <DashboardTableActionButton
+                            onClick={() => onViewPolicy(policy)}
+                            disabled={mutating}
+                          >
+                            View
+                          </DashboardTableActionButton>
+                          <DashboardTableActionButton
+                            onClick={() => onEditPolicy(policy)}
+                            disabled={mutating}
+                          >
+                            Edit
+                          </DashboardTableActionButton>
+                          <DashboardTableActionButton
+                            onClick={() => onToggleEnabled(policy)}
+                            disabled={!canMutatePolicy || mutating}
+                          >
+                            {enabled ? 'Disable' : 'Enable'}
+                          </DashboardTableActionButton>
+                          <DashboardTableActionButton
+                            onClick={() => onDeletePolicy(policy)}
+                            disabled={!canMutatePolicy || mutating}
+                          >
+                            Delete
+                          </DashboardTableActionButton>
+                        </DashboardTableActionGroup>
+                      </DashboardTableCell>
                     </DashboardTableRow>
                   );
                 })
@@ -1918,7 +1915,9 @@ export function GasSponsorshipPage(): React.JSX.Element {
                       </strong>
                     </div>
                     <div className="dashboard-gas-coverage__stat">
-                      <span>{selectedPolicy.kind === 'near_delegate' ? 'Delegate actions' : 'Rules'}</span>
+                      <span>
+                        {selectedPolicy.kind === 'near_delegate' ? 'Delegate actions' : 'Rules'}
+                      </span>
                       <strong>{formatAllowedRuleSummary(selectedPolicy)}</strong>
                     </div>
                     <div className="dashboard-gas-coverage__stat">
@@ -2114,9 +2113,7 @@ export function GasSponsorshipPage(): React.JSX.Element {
                             spendCapPeriod: event.target.value as GasSpendCapPeriod,
                           }))
                         }
-                        disabled={
-                          mutating || form.spendCapMode === 'NONE'
-                        }
+                        disabled={mutating || form.spendCapMode === 'NONE'}
                       >
                         {GAS_SPEND_CAP_PERIODS.map((period) => (
                           <option key={period} value={period}>
@@ -2133,9 +2130,7 @@ export function GasSponsorshipPage(): React.JSX.Element {
                           aria-pressed={form.spendCapMode === 'NONE'}
                           className={[
                             'dashboard-policy-segment',
-                            form.spendCapMode === 'NONE'
-                              ? 'dashboard-policy-segment--active'
-                              : '',
+                            form.spendCapMode === 'NONE' ? 'dashboard-policy-segment--active' : '',
                           ]
                             .filter(Boolean)
                             .join(' ')}
@@ -2196,131 +2191,131 @@ export function GasSponsorshipPage(): React.JSX.Element {
                     {form.ruleKind === 'evm_call' ? (
                       <div className="dashboard-form-field dashboard-form-field--full">
                         <div className="dashboard-gas-target-matrix">
-                        <div className="dashboard-gas-target-matrix__header">
-                          <span>Chain</span>
-                          <span>{activeChainColumnLabel}</span>
-                          <span>Spend cap</span>
-                        </div>
-                        {GAS_CHAIN_MATRIX_ROWS.map((row) => (
-                          <div className="dashboard-gas-target-matrix__row" key={row.chainName}>
-                            <div className="dashboard-gas-target-matrix__chain">
-                              {row.chainName}
-                            </div>
-                            {(() => {
-                              const target = getGasChainTargetForNetwork(
-                                row,
-                                selectedEnvironmentNetworkClass,
-                              );
-                              if (!target) {
+                          <div className="dashboard-gas-target-matrix__header">
+                            <span>Chain</span>
+                            <span>{activeChainColumnLabel}</span>
+                            <span>Spend cap</span>
+                          </div>
+                          {GAS_CHAIN_MATRIX_ROWS.map((row) => (
+                            <div className="dashboard-gas-target-matrix__row" key={row.chainName}>
+                              <div className="dashboard-gas-target-matrix__chain">
+                                {row.chainName}
+                              </div>
+                              {(() => {
+                                const target = getGasChainTargetForNetwork(
+                                  row,
+                                  selectedEnvironmentNetworkClass,
+                                );
+                                if (!target) {
+                                  return (
+                                    <>
+                                      <span className="dashboard-gas-target-matrix__cell">
+                                        <span className="dashboard-gas-target-pill dashboard-gas-target-pill--unavailable">
+                                          N/A
+                                        </span>
+                                      </span>
+                                      <span className="dashboard-gas-target-matrix__cap">
+                                        <span className="dashboard-gas-target-cap__empty">-</span>
+                                      </span>
+                                    </>
+                                  );
+                                }
+                                const pressed = selectedTargetIds.includes(target.id);
                                 return (
                                   <>
                                     <span className="dashboard-gas-target-matrix__cell">
-                                      <span className="dashboard-gas-target-pill dashboard-gas-target-pill--unavailable">
-                                        N/A
+                                      <span
+                                        className="dashboard-gas-target-toggle"
+                                        role="group"
+                                        aria-label={target.chainLabel}
+                                      >
+                                        <button
+                                          type="button"
+                                          aria-pressed={pressed}
+                                          className={[
+                                            'dashboard-gas-target-toggle__option',
+                                            pressed
+                                              ? 'dashboard-gas-target-toggle__option--active'
+                                              : '',
+                                          ]
+                                            .filter(Boolean)
+                                            .join(' ')}
+                                          onClick={() => onSetTargetEnabled(target.id, true)}
+                                          disabled={mutating}
+                                        >
+                                          On
+                                        </button>
+                                        <button
+                                          type="button"
+                                          aria-pressed={!pressed}
+                                          className={[
+                                            'dashboard-gas-target-toggle__option',
+                                            !pressed
+                                              ? 'dashboard-gas-target-toggle__option--active'
+                                              : '',
+                                          ]
+                                            .filter(Boolean)
+                                            .join(' ')}
+                                          onClick={() => onSetTargetEnabled(target.id, false)}
+                                          disabled={mutating}
+                                        >
+                                          Off
+                                        </button>
                                       </span>
                                     </span>
                                     <span className="dashboard-gas-target-matrix__cap">
-                                      <span className="dashboard-gas-target-cap__empty">-</span>
+                                      {form.spendCapMode === 'NONE' ? (
+                                        <span className="dashboard-gas-target-cap__empty">
+                                          No cap
+                                        </span>
+                                      ) : !pressed ? (
+                                        <span className="dashboard-gas-target-cap__empty">
+                                          Turn on chain
+                                        </span>
+                                      ) : (
+                                        <span className="dashboard-gas-target-cap__input">
+                                          <input
+                                            className="dashboard-input"
+                                            aria-label={`${target.chainLabel} spend cap`}
+                                            inputMode="decimal"
+                                            value={
+                                              form.spendCapAmountByChainName[target.chainName] || ''
+                                            }
+                                            onChange={(event) =>
+                                              setForm((current) => ({
+                                                ...current,
+                                                spendCapAmountByChainName: {
+                                                  ...current.spendCapAmountByChainName,
+                                                  [target.chainName]: event.target.value,
+                                                },
+                                              }))
+                                            }
+                                            onBlur={(event) =>
+                                              setForm((current) => ({
+                                                ...current,
+                                                spendCapAmountByChainName: {
+                                                  ...current.spendCapAmountByChainName,
+                                                  [target.chainName]: normalizeSpendCapAmountInput(
+                                                    event.target.value,
+                                                    target.spendCapDisplayDecimals,
+                                                  ),
+                                                },
+                                              }))
+                                            }
+                                            placeholder="0.00"
+                                            disabled={mutating}
+                                          />
+                                          <span className="dashboard-gas-target-cap__unit">
+                                            {target.spendCapCurrencyCode}
+                                          </span>
+                                        </span>
+                                      )}
                                     </span>
                                   </>
                                 );
-                              }
-                              const pressed = selectedTargetIds.includes(target.id);
-                              return (
-                                <>
-                                  <span className="dashboard-gas-target-matrix__cell">
-                                    <span
-                                      className="dashboard-gas-target-toggle"
-                                      role="group"
-                                      aria-label={target.chainLabel}
-                                    >
-                                      <button
-                                        type="button"
-                                        aria-pressed={pressed}
-                                        className={[
-                                          'dashboard-gas-target-toggle__option',
-                                          pressed
-                                            ? 'dashboard-gas-target-toggle__option--active'
-                                            : '',
-                                        ]
-                                          .filter(Boolean)
-                                          .join(' ')}
-                                        onClick={() => onSetTargetEnabled(target.id, true)}
-                                        disabled={mutating}
-                                      >
-                                        On
-                                      </button>
-                                      <button
-                                        type="button"
-                                        aria-pressed={!pressed}
-                                        className={[
-                                          'dashboard-gas-target-toggle__option',
-                                          !pressed
-                                            ? 'dashboard-gas-target-toggle__option--active'
-                                            : '',
-                                        ]
-                                          .filter(Boolean)
-                                          .join(' ')}
-                                        onClick={() => onSetTargetEnabled(target.id, false)}
-                                        disabled={mutating}
-                                      >
-                                        Off
-                                      </button>
-                                    </span>
-                                  </span>
-                                  <span className="dashboard-gas-target-matrix__cap">
-                                    {form.spendCapMode === 'NONE' ? (
-                                      <span className="dashboard-gas-target-cap__empty">
-                                        No cap
-                                      </span>
-                                    ) : !pressed ? (
-                                      <span className="dashboard-gas-target-cap__empty">
-                                        Turn on chain
-                                      </span>
-                                    ) : (
-                                      <span className="dashboard-gas-target-cap__input">
-                                        <input
-                                          className="dashboard-input"
-                                          aria-label={`${target.chainLabel} spend cap`}
-                                          inputMode="decimal"
-                                          value={
-                                            form.spendCapAmountByChainName[target.chainName] || ''
-                                          }
-                                          onChange={(event) =>
-                                            setForm((current) => ({
-                                              ...current,
-                                              spendCapAmountByChainName: {
-                                                ...current.spendCapAmountByChainName,
-                                                [target.chainName]: event.target.value,
-                                              },
-                                            }))
-                                          }
-                                          onBlur={(event) =>
-                                            setForm((current) => ({
-                                              ...current,
-                                              spendCapAmountByChainName: {
-                                                ...current.spendCapAmountByChainName,
-                                                [target.chainName]: normalizeSpendCapAmountInput(
-                                                  event.target.value,
-                                                  target.spendCapDisplayDecimals,
-                                                ),
-                                              },
-                                            }))
-                                          }
-                                          placeholder="0.00"
-                                          disabled={mutating}
-                                        />
-                                        <span className="dashboard-gas-target-cap__unit">
-                                          {target.spendCapCurrencyCode}
-                                        </span>
-                                      </span>
-                                    )}
-                                  </span>
-                                </>
-                              );
-                            })()}
-                          </div>
-                        ))}
+                              })()}
+                            </div>
+                          ))}
                         </div>
                         <div className="dashboard-gas-target-bulk">
                           <button
@@ -2342,13 +2337,13 @@ export function GasSponsorshipPage(): React.JSX.Element {
                     ) : (
                       <div className="dashboard-form-field dashboard-form-field--full">
                         <p className="dashboard-pagination-note">
-                          NEAR delegate sponsorship follows the selected environment network:
-                          {' '}
+                          NEAR delegate sponsorship follows the selected environment network:{' '}
                           {formatNetworkClassLabel(selectedEnvironmentNetworkClass)}.
                         </p>
                         {(() => {
-                          const nearTarget =
-                            getNearSpendCapTargetForNetwork(selectedEnvironmentNetworkClass);
+                          const nearTarget = getNearSpendCapTargetForNetwork(
+                            selectedEnvironmentNetworkClass,
+                          );
                           if (!nearTarget) return null;
                           return (
                             <div className="dashboard-gas-target-matrix">
@@ -2374,8 +2369,7 @@ export function GasSponsorshipPage(): React.JSX.Element {
                                         aria-label={`${nearTarget.chainLabel} spend cap`}
                                         inputMode="decimal"
                                         value={
-                                          form.spendCapAmountByChainName[nearTarget.chainName] ||
-                                          ''
+                                          form.spendCapAmountByChainName[nearTarget.chainName] || ''
                                         }
                                         onChange={(event) =>
                                           setForm((current) => ({
@@ -2556,7 +2550,10 @@ export function GasSponsorshipPage(): React.JSX.Element {
                           </label>
                           <div className="dashboard-uri-list-editor__rows">
                             {rule.functions.map((functionEntry, index) => (
-                              <div key={functionEntry.id} className="dashboard-uri-list-editor__row">
+                              <div
+                                key={functionEntry.id}
+                                className="dashboard-uri-list-editor__row"
+                              >
                                 <label className="dashboard-form-field dashboard-uri-list-editor__field">
                                   <span className={index === 0 ? '' : 'dashboard-visually-hidden'}>
                                     Function signature
@@ -2611,7 +2608,9 @@ export function GasSponsorshipPage(): React.JSX.Element {
                                   <button
                                     type="button"
                                     className="dashboard-pagination-button dashboard-pagination-button--secondary"
-                                    onClick={() => removeContractFunction(rule.id, functionEntry.id)}
+                                    onClick={() =>
+                                      removeContractFunction(rule.id, functionEntry.id)
+                                    }
                                     disabled={mutating}
                                   >
                                     Remove
