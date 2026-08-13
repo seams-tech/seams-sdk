@@ -117,6 +117,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
 }) => {
   // Get values from context if not provided as props
   const { loginState, seams, lock } = useSeams();
+  const recovery = useMemo(() => seams.recovery, [seams]);
 
   // Use props if provided, otherwise fall back to context
   const accountName =
@@ -506,6 +507,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
             walletId={walletId!}
             isOpen={showRecoveryCodes}
             onClose={() => setShowRecoveryCodes(false)}
+            recovery={recovery}
           />,
           portalHost!,
         )}
