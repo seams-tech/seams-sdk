@@ -24,11 +24,10 @@ test('persisted production mainnet is the initial dashboard network without a bo
   ).toEqual({
     activeNetwork: 'mainnet',
     persistedNetwork: 'mainnet',
-    reload: false,
   });
 });
 
-test('a console network change persists and reloads once', () => {
+test('a console network change persists without reloading the session shell', () => {
   const changed = resolveFrontendRuntimeTransition({
     currentActiveNetwork: 'testnet',
     requestedNetwork: 'mainnet',
@@ -39,7 +38,6 @@ test('a console network change persists and reloads once', () => {
   expect(changed).toEqual({
     activeNetwork: 'mainnet',
     persistedNetwork: 'mainnet',
-    reload: true,
   });
 
   expect(
@@ -48,8 +46,8 @@ test('a console network change persists and reloads once', () => {
       requestedNetwork: changed.activeNetwork,
       persistedNetwork: changed.persistedNetwork,
       source: 'console',
-    }).reload,
-  ).toBe(false);
+    }),
+  ).toEqual(changed);
 });
 
 test('public testnet activation leaves the persisted console preference unchanged', () => {
@@ -63,6 +61,5 @@ test('public testnet activation leaves the persisted console preference unchange
   ).toEqual({
     activeNetwork: 'testnet',
     persistedNetwork: 'mainnet',
-    reload: false,
   });
 });

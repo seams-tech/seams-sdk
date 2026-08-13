@@ -3,7 +3,6 @@ export type FrontendNetwork = 'testnet' | 'mainnet';
 export type FrontendRuntimeTransition = {
   activeNetwork: FrontendNetwork;
   persistedNetwork: FrontendNetwork;
-  reload: boolean;
 };
 
 type FrontendRuntimeTransitionInput = {
@@ -44,7 +43,6 @@ export function resolveFrontendRuntimeTransition({
     return {
       activeNetwork: requestedNetwork,
       persistedNetwork,
-      reload: false,
     };
   }
 
@@ -52,6 +50,5 @@ export function resolveFrontendRuntimeTransition({
   return {
     activeNetwork: requestedNetwork,
     persistedNetwork: changed ? requestedNetwork : persistedNetwork,
-    reload: changed,
   };
 }
