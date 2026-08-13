@@ -282,6 +282,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     );
     const confirmationConfig = normalizeConfirmationConfig({ ...storedConfig, ...override });
     if (confirmationConfig.kind === 'silent') return;
+    const rpId = String(this.context.touchIdPrompt.getRpId() || '').trim();
 
     const generation = this.transactionPreparationModalState.generation + 1;
     this.transactionPreparationModalState = { kind: 'opening', generation };
@@ -289,6 +290,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       ctx: this.getContext(),
       summary: { title: 'Confirm transaction' },
       model: params.model,
+      securityContext: rpId ? { rpId } : undefined,
       loading: true,
       theme: this.context.getTheme?.() ?? 'dark',
       uiMode: confirmationConfig.uiMode,
