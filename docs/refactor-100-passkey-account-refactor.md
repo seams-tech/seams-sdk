@@ -2,7 +2,7 @@
 
 Date created: June 15, 2026
 
-Last reconciled: August 12, 2026 (implementation checklist audit)
+Last reconciled: August 13, 2026 (local runtime repair audit)
 
 Status: active design plan. Same-device passkey Ed25519 sealing and rehydration,
 durable ECDSA material identity, and the current Email OTP wallet lifecycle have
@@ -660,9 +660,15 @@ passkey addition, and credential list/rename/revoke have direct and iframe
 orchestration. Email OTP's separate device-escrow recovery system and the
 factor-derived Ed25519 root APIs are deleted.
 
-Runtime verification is intentionally pending. The linked-lane integration
-boxes are complete, while the broader manual verification matrix and the
-remaining three checklist items must complete before merging.
+Runtime verification is still pending. The August 13 local contract run proved
+fresh passkey registration, NEAR readiness, cold unlock, and Ed25519 export.
+It then exposed a passkey ECDSA export regression: canonical durable material
+was selected correctly, but the export flow re-entered a deleted sealed-runtime
+path. The flow now carries the canonical operation runtime through fresh
+authorization and preserves the before/after material-activation checks. Its
+focused type and lane-selection gates pass; the full lifecycle contract still
+needs one clean rerun. Local implicit-account funding also requires an explicit
+funded NEAR testnet relayer key in `packages/console-server-ts/.dev.vars`.
 
 **Cold unlock (2026-08-09).** Every piece now exists, is tested, and is
 reachable from JavaScript: the store has a DI site and a service-bag port, the
