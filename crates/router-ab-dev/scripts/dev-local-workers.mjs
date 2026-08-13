@@ -205,6 +205,9 @@ const labelColors = {
   'signing-worker': '\x1b[35m',
 };
 const resetColor = '\x1b[0m';
+const boldColor = '\x1b[1m';
+const brightGreenColor = '\x1b[92m';
+const dimColor = '\x1b[2m';
 
 try {
   if (options.help) {
@@ -240,6 +243,7 @@ try {
   startProductionWorkers();
   await waitForProductionWorkers();
   await ensureGateway();
+  printProductionReadySummary();
   if (displayMode === 'multiplex') {
     enterDashboard();
     captureInput();
@@ -818,6 +822,41 @@ async function waitForProductionWorkers() {
   const keysetUrl = `${strictRuntime.mpcRouterUrl}/.well-known/router-ab/keyset`;
   await waitForUrlStatus(keysetUrl, 90_000);
   appendLine(workerPanes[0], 'production topology ready');
+}
+
+function printProductionReadySummary() {
+  const rows = [
+    ['Gateway', gatewayBaseUrl],
+    ['Gateway HTTPS', gatewayPublicUrl],
+  ];
+  for (const endpoint of productionWorkerEndpoints) {
+    rows.push([endpoint.label ?? endpoint.role, endpoint.url]);
+  }
+
+  if (displayMode === 'multiplex') {
+    appendLine(gatewayPane, `ROUTER FULLY OPERATIONAL — ${rows.length}/${rows.length} ready`);
+    for (const [label, url] of rows) {
+      appendLine(gatewayPane, `READY ${label.padEnd(16)} ${url}`);
+    }
+    return;
+  }
+
+  const useColor = process.stdout.isTTY && !process.env.NO_COLOR;
+  const green = useColor ? brightGreenColor : '';
+  const bold = useColor ? boldColor : '';
+  const dim = useColor ? dimColor : '';
+  const reset = useColor ? resetColor : '';
+  const rule = '━'.repeat(72);
+  const output = ['', `${green}${bold}${rule}${reset}`];
+  output.push(
+    `${green}${bold}  ✓ ROUTER FULLY OPERATIONAL${reset}  ${green}${rows.length}/${rows.length} services ready${reset}`,
+  );
+  output.push(`${green}${bold}${rule}${reset}`);
+  for (const [label, url] of rows) {
+    output.push(`${green}  ✓ READY${reset}  ${bold}${label.padEnd(16)}${reset} ${dim}${url}${reset}`);
+  }
+  output.push(`${green}${bold}${rule}${reset}`, '');
+  process.stdout.write(`${output.join('\n')}\n`);
 }
 
 async function assertProductionWorkerPortsAvailable() {
