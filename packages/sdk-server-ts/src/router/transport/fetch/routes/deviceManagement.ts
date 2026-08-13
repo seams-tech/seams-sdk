@@ -16,11 +16,16 @@ import type {
   DeviceLinkingOwnerRequestInputV1,
   DeviceLinkingRequestBindingV1,
 } from './deviceLinking';
-import type { LinkedDeviceManagementServiceV1 } from '../../../../core/deviceLinking/linkedDeviceManagement';
+import {
+  LinkedDeviceListCursorError,
+  MAX_LINKED_DEVICE_LIST_LIMIT_V1,
+  type LinkedDeviceManagementServiceV1,
+} from '../../../../core/deviceLinking/linkedDeviceManagement';
 import type { FetchRouterApiContext } from '../createFetchRouter';
 import { json } from '../../../framework/http';
 
 export const LINKED_DEVICE_MANAGEMENT_BASE_V1 = '/wallet/device-linking/v1/devices';
+export const LINKED_DEVICE_MANAGEMENT_MAX_PAGE_SIZE_V1 = MAX_LINKED_DEVICE_LIST_LIMIT_V1;
 
 export type DeviceManagementRouteServiceV1 = {
   readonly management: Pick<
@@ -44,7 +49,7 @@ export async function handleDeviceManagement(
     if (action.kind === 'list') return await handleList(ctx, service, nowMs);
     return await handleRevoke(ctx, service, nowMs);
   } catch (error: unknown) {
-    if (error instanceof DeviceManagementInputError) {
+    if (error instanceof DeviceManagementInputError || error instanceof LinkedDeviceListCursorError) {
       return json({ ok: false, kind: 'invalid_input', message: error.message }, { status: 400 });
     }
     return json(
@@ -82,7 +87,7 @@ async function handleList(
     nowMs,
   );
   if ('kind' in result) return unauthorizedResponse();
-  return json({ ok: true, devices: result.devices }, { status: 200 });
+  return json({ ok: true, devices: result.devices, nextCursor: result.nextCursor }, { status: 200 });
 }
 
 async function handleRevoke(
@@ -136,22 +141,38 @@ async function authenticateOwner(
 
 function parseListQuery(search: URLSearchParams): LinkedDeviceListRequestV1 {
   const keys = [...search.keys()].sort();
-  if (keys.length !== 1 || keys[0] !== 'walletId') {
-    throw new Error('linked-device list query must contain only walletId');
+  if (keys.length !== 3 || keys[0] !== 'cursor' || keys[1] !== 'limit' || keys[2] !== 'walletId') {
+    throw new Error('linked-device list query must contain walletId, limit, and cursor');
   }
   const walletId = search.get('walletId');
-  if (!walletId) throw new Error('walletId is required');
-  return parseLinkedDeviceListRequestV1({
+  const rawLimit = search.get('limit');
+  const rawCursor = search.get('cursor');
+  if (walletId === null || rawLimit === null || rawCursor === null) {
+    throw new Error('walletId, limit, and cursor are required');
+  }
+  const request = parseLinkedDeviceListRequestV1({
     kind: 'linked_device_list_request_v1',
     walletId,
+    limit: Number(rawLimit),
+    cursor: rawCursor === '' ? null : rawCursor,
   });
+  if (request.limit > LINKED_DEVICE_MANAGEMENT_MAX_PAGE_SIZE_V1) {
+    throw new Error(
+      `linked-device list limit must be at most ${LINKED_DEVICE_MANAGEMENT_MAX_PAGE_SIZE_V1}`,
+    );
+  }
+  return request;
 }
 
 function canonicalListPath(
   pathname: string,
   request: LinkedDeviceListRequestV1,
 ): string {
-  const search = new URLSearchParams([['walletId', String(request.walletId)]]);
+  const search = new URLSearchParams([
+    ['walletId', String(request.walletId)],
+    ['limit', String(request.limit)],
+    ['cursor', request.cursor ?? ''],
+  ]);
   return `${pathname}?${search.toString()}`;
 }
 

@@ -5,7 +5,7 @@ import {
   computeLinkedDeviceSessionClaimDigestV1,
 } from '@shared/device-linking/digests';
 import type { D1DatabaseLike, D1PreparedStatementLike } from '../../../../storage/tenantRoute';
-import { d1ChangedRows } from '../../../../storage/d1Sql';
+import { d1ChangedRows, queryD1All, type D1Row } from '../../../../storage/d1Sql';
 import {
   parseD1LinkedDeviceSessionTranscriptRowV1,
   parseD1LinkedDeviceSessionRowV1,
@@ -22,11 +22,14 @@ import {
   parseLinkedDeviceSessionRecordV1,
   type LinkedDeviceSessionMutationResultV1,
   type LinkedDeviceSessionRecordV1,
+  type LinkedDeviceSessionListCursorV1,
+  type LinkedDeviceSessionListPageV1,
   type LinkedDeviceSessionStoreV1,
   type LinkedDeviceMutationResultWithReceiptV1,
   type LinkedDeviceRecoveryContinuationV1,
 } from '../../../../core/deviceLinking/linkedDeviceSession';
-import type { LinkDeviceSessionId } from '@shared/signing-lanes/ids';
+import { parseLinkDeviceSessionId, type LinkDeviceSessionId } from '@shared/signing-lanes/ids';
+import type { WalletId } from '@shared/utils/domainIds';
 
 export type D1LinkedDeviceSessionScopeV1 = {
   readonly namespace: string;
@@ -119,6 +122,91 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
     const parsed = parseD1LinkedDeviceSessionRowV1(row);
     await this.verifyImmutableTranscripts(parsed.record);
     return parsed.record;
+  }
+
+  async listSessionsForWalletV1(
+    input: {
+      readonly walletId: WalletId;
+      readonly limit: number;
+      readonly cursor: LinkedDeviceSessionListCursorV1 | null;
+    },
+  ): Promise<LinkedDeviceSessionListPageV1> {
+    if (!Number.isSafeInteger(input.limit) || input.limit < 1) {
+      throw new Error('linked-device session list limit is invalid');
+    }
+    const cursorClause = input.cursor
+      ? `
+          AND (
+            updated_at_ms < ?6
+            OR (updated_at_ms = ?6 AND link_session_id > ?7)
+          )`
+      : '';
+    const limitParameter = input.cursor ? '?8' : '?6';
+    const rows = await queryD1All(
+      this.database,
+      `SELECT link_session_id, link_public_key_b64u, device_public_key_b64u,
+              state, record_json, revision, expires_at_ms, claim_expires_at_ms,
+              claim_digest_b64u, approval_digest_b64u, created_at_ms, updated_at_ms
+         FROM ${SESSION_TABLE}
+        WHERE namespace = ?1 AND org_id = ?2 AND project_id = ?3 AND env_id = ?4
+          AND json_extract(record_json, '$.approvalTranscript.value.walletId') = ?5
+          ${cursorClause}
+        ORDER BY updated_at_ms DESC, link_session_id ASC
+        LIMIT ${limitParameter}`,
+      [
+        ...scopeValues(this.scope),
+        String(input.walletId),
+        ...(input.cursor ? [input.cursor.updatedAtMs, String(input.cursor.linkSessionId)] : []),
+        input.limit + 1,
+      ],
+    );
+    if (rows.length === 0) return { records: [], nextCursor: null };
+    const sessionIds = rows.map((row) => requiredSessionId(row.link_session_id));
+    const transcripts = await queryD1All(
+      this.database,
+      `SELECT transcript.link_session_id, transcript.transcript_kind,
+              transcript.digest_b64u, transcript.transcript_json, transcript.created_at_ms
+         FROM ${TRANSCRIPT_TABLE} AS transcript
+         JOIN ${SESSION_TABLE} AS session
+           ON session.namespace = transcript.namespace
+          AND session.org_id = transcript.org_id
+          AND session.project_id = transcript.project_id
+          AND session.env_id = transcript.env_id
+          AND session.link_session_id = transcript.link_session_id
+        WHERE transcript.namespace = ?1 AND transcript.org_id = ?2
+          AND transcript.project_id = ?3 AND transcript.env_id = ?4
+          AND transcript.link_session_id IN (${sessionIds
+            .map((_, index) => `?${index + 5}`)
+            .join(', ')})
+        ORDER BY transcript.link_session_id ASC, transcript.transcript_kind ASC`,
+      [...scopeValues(this.scope), ...sessionIds],
+    );
+    const transcriptBySession = new Map<string, D1Row[]>();
+    for (const row of transcripts) {
+      const sessionId = requiredSessionId(row.link_session_id);
+      const existing = transcriptBySession.get(sessionId);
+      if (existing) existing.push(row);
+      else transcriptBySession.set(sessionId, [row]);
+    }
+    const records: LinkedDeviceSessionRecordV1[] = [];
+    for (const row of rows) {
+      const parsed = parseD1LinkedDeviceSessionRowV1(row);
+      await this.verifyImmutableTranscriptsForRows(
+        parsed.record,
+        transcriptBySession.get(String(parsed.record.linkSessionId)) ?? [],
+      );
+      records.push(parsed.record);
+    }
+    const boundary = rows.length > input.limit ? rows[input.limit - 1] : undefined;
+    return {
+      records: records.slice(0, input.limit),
+      nextCursor: boundary
+        ? {
+            updatedAtMs: requiredTimestamp(boundary.updated_at_ms, 'updated_at_ms'),
+            linkSessionId: requiredLinkSessionId(boundary.link_session_id),
+          }
+        : null,
+    };
   }
 
   async claimSessionV1(input: {
@@ -498,6 +586,18 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
         transcript_json?: unknown;
         created_at_ms?: unknown;
       }>();
+    await this.verifyImmutableTranscriptsForRows(record, rows.results ?? []);
+  }
+
+  private async verifyImmutableTranscriptsForRows(
+    record: LinkedDeviceSessionRecordV1,
+    rows: readonly {
+      readonly transcript_kind?: unknown;
+      readonly digest_b64u?: unknown;
+      readonly transcript_json?: unknown;
+      readonly created_at_ms?: unknown;
+    }[],
+  ): Promise<void> {
     const expected = new Map<string, { readonly digestB64u: string; readonly json: string }>();
     if (record.claimTranscript) {
       const digest = await computeLinkedDeviceSessionClaimDigestV1(record.claimTranscript.value);
@@ -518,7 +618,7 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
       });
     }
     const actual = new Map<string, { readonly digestB64u: string; readonly json: string }>();
-    for (const row of rows.results || []) {
+    for (const row of rows) {
       const parsed = parseD1LinkedDeviceSessionTranscriptRowV1(row);
       const kind = parsed.kind;
       const digest = parsed.digestB64u;
@@ -558,6 +658,25 @@ function requiredScope(value: string, field: string): string {
 
 function scopeValues(scope: D1LinkedDeviceSessionScopeV1): readonly string[] {
   return [scope.namespace, scope.orgId, scope.projectId, scope.envId];
+}
+
+function requiredSessionId(raw: unknown): string {
+  const parsed = parseLinkDeviceSessionId(raw);
+  if (!parsed.ok) throw new Error('linked-device session id is invalid');
+  return String(parsed.value);
+}
+
+function requiredLinkSessionId(raw: unknown): LinkDeviceSessionId {
+  const parsed = parseLinkDeviceSessionId(raw);
+  if (!parsed.ok) throw new Error('linked-device session id is invalid');
+  return parsed.value;
+}
+
+function requiredTimestamp(raw: unknown, field: string): number {
+  if (!Number.isSafeInteger(raw) || Number(raw) < 0) {
+    throw new Error(`${field} is invalid`);
+  }
+  return Number(raw);
 }
 
 function sessionColumnValues(record: LinkedDeviceSessionRecordV1): readonly unknown[] {

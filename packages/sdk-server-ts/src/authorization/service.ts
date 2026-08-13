@@ -72,6 +72,18 @@ import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { CapabilityOperationFingerprintDigest } from '@shared/authorization/operationFingerprint';
+import {
+  isLinkedDeviceWalletSessionRenewalCapabilityV1,
+  type LinkedDeviceWalletSessionRenewalCapabilityV1,
+} from '../router/domains/signingOperations/walletExecutionAdmission';
+import {
+  computeLinkedDeviceWalletSessionRenewalIntentDigestV1,
+  linkedDeviceWalletSessionRenewalAuthorizedOperationIdV1,
+} from '@shared/device-linking/digests';
+import {
+  DEFAULT_WALLET_SESSION_REMAINING_USES,
+  DEFAULT_WALLET_SESSION_TTL_MS,
+} from '@shared/threshold/sessionPolicy';
 
 export interface AuthorizationSessionPort {
   putActiveSession(session: ActiveAuthorizationSession): Promise<void>;
@@ -134,6 +146,19 @@ export interface AuthorizationGrantPort {
     readonly quotaId: MpcWalletSigningQuotaId;
     readonly nowMs: number;
   }): Promise<LinkedDeviceWalletSessionStatus>;
+  renewLinkedDeviceWalletSessionAuthorization(input: {
+    readonly tenantId: TenantId;
+    readonly principalId: PrincipalId;
+    readonly deviceId: LinkedDeviceId;
+    readonly enrollmentId: LinkedDeviceEnrollmentId;
+    readonly authorizationId: LinkedDeviceWalletSessionAuthorizationId;
+    readonly walletSessionId: WalletSessionId;
+    readonly quotaId: MpcWalletSigningQuotaId;
+    readonly revocationEpoch: number;
+    readonly issuedAtMs: number;
+    readonly expiresAtMs: number;
+    readonly remainingUses: number;
+  }): Promise<void>;
   revokeLinkedDeviceWalletSession(input: {
     readonly tenantId: TenantId;
     readonly principalId: PrincipalId;
@@ -244,6 +269,18 @@ export type LinkedDeviceWalletSessionIdentityV1 = {
   readonly authorizationId: LinkedDeviceWalletSessionAuthorizationId;
   readonly walletSessionId: WalletSessionId;
   readonly quotaId: MpcWalletSigningQuotaId;
+};
+
+export type RenewLinkedDeviceWalletSessionInputV1 = {
+  readonly tenantId: TenantId;
+  readonly deviceId: LinkedDeviceId;
+  readonly enrollmentId: LinkedDeviceEnrollmentId;
+  readonly authorizationId: LinkedDeviceWalletSessionAuthorizationId;
+  readonly walletSessionId: WalletSessionId;
+  readonly quotaId: MpcWalletSigningQuotaId;
+  readonly revocationEpoch: number;
+  readonly renewedAtMs: number;
+  readonly renewal: LinkedDeviceWalletSessionRenewalCapabilityV1;
 };
 
 export class AuthorizationService {
@@ -521,6 +558,119 @@ export class AuthorizationService {
     return await this.ports.grants.readLinkedDeviceWalletSessionAuthorization(input);
   }
 
+  async renewLinkedDeviceWalletSession(
+    input: RenewLinkedDeviceWalletSessionInputV1,
+  ): Promise<IssuedLinkedDeviceWalletSession> {
+    if (!isLinkedDeviceWalletSessionRenewalCapabilityV1(input.renewal)) {
+      throw new Error('linked-device Wallet Session renewal capability is invalid');
+    }
+    const renewal = input.renewal;
+    if (
+      renewal.tenantId !== input.tenantId ||
+      renewal.deviceId !== input.deviceId ||
+      renewal.enrollmentId !== input.enrollmentId ||
+      renewal.authorizationId !== input.authorizationId ||
+      renewal.walletSessionId !== input.walletSessionId ||
+      renewal.quotaId !== input.quotaId ||
+      renewal.revocationEpoch < 0 ||
+      !Number.isSafeInteger(renewal.revocationEpoch)
+    ) {
+      throw new Error('linked-device Wallet Session renewal capability binding differs');
+    }
+    const expectedIntentDigest = await computeLinkedDeviceWalletSessionRenewalIntentDigestV1({
+      authorizationId: input.authorizationId,
+      walletSessionId: input.walletSessionId,
+      quotaId: input.quotaId,
+      deviceId: input.deviceId,
+      enrollmentId: input.enrollmentId,
+    });
+    if (
+      renewal.authorizedOperationId !== linkedDeviceWalletSessionRenewalAuthorizedOperationIdV1() ||
+      renewal.intentDigestB64u !== expectedIntentDigest
+    ) {
+      throw new Error('linked-device Wallet Session renewal intent differs');
+    }
+    if (
+      !Number.isSafeInteger(input.renewedAtMs) ||
+      input.renewedAtMs <= 0 ||
+      !Number.isSafeInteger(renewal.verifiedAtMs) ||
+      renewal.verifiedAtMs > input.renewedAtMs
+    ) {
+      throw new Error('linked-device Wallet Session renewal time is invalid');
+    }
+    const status = await this.getLinkedDeviceWalletSessionStatus({
+      tenantId: input.tenantId,
+      deviceId: input.deviceId,
+      authorizationId: input.authorizationId,
+      walletSessionId: input.walletSessionId,
+      quotaId: input.quotaId,
+      nowMs: input.renewedAtMs,
+    });
+    switch (status.kind) {
+      case 'active':
+      case 'exhausted':
+      case 'expired':
+        if (
+          status.deviceId !== input.deviceId ||
+          status.enrollmentId !== input.enrollmentId ||
+          status.authorizationId !== input.authorizationId ||
+          status.walletSessionId !== input.walletSessionId ||
+          status.quotaId !== input.quotaId ||
+          status.revocationEpoch !== renewal.revocationEpoch
+        ) {
+          throw new Error('linked-device Wallet Session renewal status binding differs');
+        }
+        break;
+      case 'missing':
+      case 'invalid':
+        throw new Error('linked-device Wallet Session authorization is unavailable');
+      case 'revoked':
+        throw new Error('linked-device Wallet Session authorization is revoked');
+      default:
+        return assertNeverLinkedDeviceWalletSessionStatus(status);
+    }
+    const expiresAtMs = input.renewedAtMs + DEFAULT_WALLET_SESSION_TTL_MS;
+    if (!Number.isSafeInteger(expiresAtMs) || expiresAtMs <= input.renewedAtMs) {
+      throw new Error('linked-device Wallet Session renewal expiry is invalid');
+    }
+    const principalId = buildLinkedDevicePrincipalId(input.deviceId);
+    await this.ports.grants.renewLinkedDeviceWalletSessionAuthorization({
+      tenantId: input.tenantId,
+      principalId,
+      deviceId: input.deviceId,
+      enrollmentId: input.enrollmentId,
+      authorizationId: input.authorizationId,
+      walletSessionId: input.walletSessionId,
+      quotaId: input.quotaId,
+      revocationEpoch: renewal.revocationEpoch,
+      issuedAtMs: input.renewedAtMs,
+      expiresAtMs,
+      remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
+    });
+    const persisted = await this.readLinkedDeviceWalletSessionAuthorization({
+      tenantId: input.tenantId,
+      deviceId: input.deviceId,
+      authorizationId: input.authorizationId,
+      walletSessionId: input.walletSessionId,
+      quotaId: input.quotaId,
+      nowMs: input.renewedAtMs,
+    });
+    if (!persisted) {
+      throw new Error('linked-device Wallet Session renewal was not persisted');
+    }
+    if (
+      persisted.authorization.tenantId !== input.tenantId ||
+      persisted.authorization.enrollmentId !== input.enrollmentId ||
+      persisted.authorization.issuedAtMs !== input.renewedAtMs ||
+      persisted.authorization.expiresAtMs !== expiresAtMs ||
+      persisted.quota.remainingUses !== DEFAULT_WALLET_SESSION_REMAINING_USES ||
+      persisted.quota.expiresAtMs !== expiresAtMs
+    ) {
+      throw new Error('linked-device Wallet Session renewal readback differs');
+    }
+    return persisted;
+  }
+
   async revokeLinkedDeviceWalletSession(input: {
     readonly tenantId: TenantId;
     readonly deviceId: LinkedDeviceId;
@@ -546,6 +696,10 @@ export class AuthorizationService {
   ): AuthorizationEvidenceRequirementEvaluation {
     return this.ports.policy.evaluateEvidenceRequirement(requirement, evidenceSet);
   }
+}
+
+function assertNeverLinkedDeviceWalletSessionStatus(value: never): never {
+  throw new Error(`unknown linked-device Wallet Session status: ${String(value)}`);
 }
 
 async function deriveReusableWalletSessionId(

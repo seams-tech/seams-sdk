@@ -253,7 +253,6 @@ BEGIN
            AND product.lane_id = NEW.linked_lane_id
            AND product.lane_share_epoch = NEW.linked_lane_share_epoch
            AND product.target_material_activation_id = NEW.material_activation_id
-           AND product.revocation_epoch = grant_record.revocation_epoch
            AND product.revocation_epoch = NEW.linked_revocation_epoch
            AND product.state = 'active'
            AND product.lane_kind = 'linked_device'
@@ -299,7 +298,6 @@ BEGIN
            AND grant_record.wallet_id = NEW.linked_wallet_id
            AND grant_record.enrollment_id = NEW.linked_enrollment_id
            AND grant_record.device_id = NEW.linked_device_id
-           AND grant_record.revocation_epoch = NEW.linked_revocation_epoch
            AND grant_record.lifecycle_kind = 'active'
            AND grant_record.expires_at_ms > NEW.claimed_at_ms
            AND json_extract(grant_record.permission_json, '$.kind') = 'owner_equivalent_signing'

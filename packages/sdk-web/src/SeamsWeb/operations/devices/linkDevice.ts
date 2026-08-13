@@ -1,4 +1,3 @@
-import QRCode from 'qrcode';
 import type { DeviceLinkingWebContext } from '@/SeamsWeb/signingSurface/types';
 import type {
   DeviceLinkingSession,
@@ -107,6 +106,23 @@ class LinkDeviceFlowSupersededError extends Error {
   }
 }
 
+async function generateQrCodeDataUrlV1(payload: string): Promise<string> {
+  let qrcode: typeof import('qrcode');
+  try {
+    qrcode = await import('qrcode');
+  } catch {
+    throw new DeviceLinkingError(
+      'Device-link QR generation requires the optional qrcode package',
+      DeviceLinkingErrorCode.UNSUPPORTED,
+      'generation',
+    );
+  }
+  return await qrcode.toDataURL(payload, {
+    errorCorrectionLevel: 'M',
+    margin: 2,
+  });
+}
+
 export class LinkDeviceFlow {
   private readonly options: StartDevice2LinkingFlowArgs;
   private readonly ports: Device2LinkingFlowPortsV1;
@@ -127,7 +143,6 @@ export class LinkDeviceFlow {
   private readonly handledStates = new Set<LinkedDeviceSessionState['state']>();
 
   constructor(
-    _context: unknown,
     options: StartDevice2LinkingFlowArgs = {},
     ports: Device2LinkingFlowPortsV1,
   ) {
@@ -196,10 +211,7 @@ export class LinkDeviceFlow {
         throw new LinkDeviceFlowSupersededError();
       }
       this.subscription = subscription;
-      const qrCodeDataURL = await QRCode.toDataURL(JSON.stringify(qrData), {
-        errorCorrectionLevel: 'M',
-        margin: 2,
-      });
+      const qrCodeDataURL = await generateQrCodeDataUrlV1(JSON.stringify(qrData));
       this.assertCurrentRun(runEpoch);
       const result = { qrData, qrCodeDataURL } satisfies StartDevice2LinkingFlowResults;
       this.emit({
@@ -753,7 +765,7 @@ export class LinkDeviceFlow {
         (binding, index) =>
           delivery.orderedTokens[index]?.walletKeyId !== binding.walletKeyId ||
           delivery.orderedTokens[index]?.keyFamily !== binding.keyFamily ||
-          delivery.revocationEpoch !== binding.sourceRevocationEpoch,
+          delivery.orderedTokens[index]?.revocationEpoch !== binding.sourceRevocationEpoch,
       ) ||
       (receipt !== null &&
         (delivery.keyManifestDigestB64u !== receipt.manifestDigestB64u ||
@@ -925,9 +937,17 @@ export class DeviceLinkingDomain {
     args: StartDevice2LinkingFlowArgs = {},
   ): Promise<StartDevice2LinkingFlowResults> {
     if (this.deps.kind === 'direct' && !this.deps.walletIframe.shouldUseWalletIframe()) {
-      const flow = new LinkDeviceFlow(this.deps.getContext(), args, this.deps.ports);
+      if (this.activeDeviceLinkFlow) {
+        throw new Error('Device-link QR flow is already running');
+      }
+      const flow = new LinkDeviceFlow(args, this.deps.ports);
       this.activeDeviceLinkFlow = flow;
-      return await flow.generateQR();
+      try {
+        return await flow.generateQR();
+      } catch (error: unknown) {
+        if (this.activeDeviceLinkFlow === flow) this.activeDeviceLinkFlow = null;
+        throw error;
+      }
     }
     const router = await this.deps.walletIframe.requireRouter();
     return await router.startDevice2LinkingFlow(args);

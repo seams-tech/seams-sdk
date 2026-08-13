@@ -108,6 +108,30 @@ pub enum CloudflareSigningWorkerEcdsaPresignRequestedStageV1 {
     Presign,
 }
 
+const MAX_ECDSA_PRESIGN_SESSION_TTL_MS: u64 = 15 * 60 * 1_000;
+
+fn validate_presign_session_expiry(
+    field: &str,
+    expires_at_ms: u64,
+    now_unix_ms: u64,
+) -> RouterAbProtocolResult<()> {
+    require_positive_ms(field, expires_at_ms)?;
+    require_positive_ms("ECDSA presign session now_unix_ms", now_unix_ms)?;
+    if expires_at_ms <= now_unix_ms {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ExpiredLocalRequest,
+            "ECDSA presign session request expired",
+        ));
+    }
+    if expires_at_ms.saturating_sub(now_unix_ms) > MAX_ECDSA_PRESIGN_SESSION_TTL_MS {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            "ECDSA presign session expiry exceeds the server maximum",
+        ));
+    }
+    Ok(())
+}
+
 /// Private request to create a SigningWorker-owned ECDSA presign session.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -121,14 +145,11 @@ impl CloudflareSigningWorkerEcdsaPresignSessionInitRequestV1 {
     pub fn validate_at(&self, now_unix_ms: u64) -> RouterAbProtocolResult<()> {
         self.scope.validate()?;
         require_non_empty("presign_session_id", &self.presign_session_id)?;
-        require_positive_ms("ECDSA presign session expires_at_ms", self.expires_at_ms)?;
-        require_positive_ms("ECDSA presign session now_unix_ms", now_unix_ms)?;
-        if self.expires_at_ms <= now_unix_ms {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::ExpiredLocalRequest,
-                "ECDSA presign session request expired",
-            ));
-        }
+        validate_presign_session_expiry(
+            "ECDSA presign session expires_at_ms",
+            self.expires_at_ms,
+            now_unix_ms,
+        )?;
         Ok(())
     }
 }
@@ -148,14 +169,11 @@ impl CloudflareSigningWorkerEcdsaPresignSessionStepRequestV1 {
     pub fn validate_at(&self, now_unix_ms: u64) -> RouterAbProtocolResult<()> {
         self.scope.validate()?;
         require_non_empty("presign_session_id", &self.presign_session_id)?;
-        require_positive_ms("ECDSA presign session expires_at_ms", self.expires_at_ms)?;
-        require_positive_ms("ECDSA presign session now_unix_ms", now_unix_ms)?;
-        if self.expires_at_ms <= now_unix_ms {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::ExpiredLocalRequest,
-                "ECDSA presign session request expired",
-            ));
-        }
+        validate_presign_session_expiry(
+            "ECDSA presign session expires_at_ms",
+            self.expires_at_ms,
+            now_unix_ms,
+        )?;
         for message in &self.outgoing_messages_b64u {
             let decoded = decode_base64url_bytes_v1("ECDSA presign message", message)?;
             require_non_empty_vec("ECDSA presign message", &decoded)?;
@@ -182,11 +200,11 @@ impl CloudflareSigningWorkerLinkedDeviceEcdsaPresignSessionInitRequestV1 {
         self.material_source
             .validate_for_linked_ecdsa_scope(&self.request.scope)?;
         require_non_empty("linked ECDSA presign session id", &self.presign_session_id)?;
-        require_positive_ms(
+        validate_presign_session_expiry(
             "linked ECDSA presign session expires_at_ms",
             self.expires_at_ms,
+            now_unix_ms,
         )?;
-        require_positive_ms("linked ECDSA presign session now_unix_ms", now_unix_ms)?;
         if self.expires_at_ms != self.request.expires_at_ms {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::ExpiredLocalRequest,
@@ -216,11 +234,11 @@ impl CloudflareSigningWorkerLinkedDeviceEcdsaPresignSessionStepRequestV1 {
         self.material_source
             .validate_for_linked_ecdsa_scope(&self.request.scope)?;
         require_non_empty("linked ECDSA presign session id", &self.presign_session_id)?;
-        require_positive_ms(
+        validate_presign_session_expiry(
             "linked ECDSA presign session expires_at_ms",
             self.expires_at_ms,
+            now_unix_ms,
         )?;
-        require_positive_ms("linked ECDSA presign session now_unix_ms", now_unix_ms)?;
         if self.expires_at_ms != self.request.expires_at_ms {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::ExpiredLocalRequest,
@@ -2610,4 +2628,36 @@ fn map_cloudflare_online_ecdsa_error_v1(error: OnlineError) -> RouterAbProtocolE
             error
         ),
     )
+}
+
+#[cfg(test)]
+mod presign_expiry_tests {
+    use super::{validate_presign_session_expiry, MAX_ECDSA_PRESIGN_SESSION_TTL_MS};
+    use crate::RouterAbProtocolErrorCode;
+
+    #[test]
+    fn presign_expiry_accepts_the_server_limit() {
+        let now_ms = 1_900_000_000_000;
+        validate_presign_session_expiry(
+            "test expiry",
+            now_ms + MAX_ECDSA_PRESIGN_SESSION_TTL_MS,
+            now_ms,
+        )
+        .expect("maximum server TTL should be accepted");
+    }
+
+    #[test]
+    fn presign_expiry_rejects_caller_controlled_long_lived_sessions() {
+        let now_ms = 1_900_000_000_000;
+        let error = validate_presign_session_expiry(
+            "test expiry",
+            now_ms + MAX_ECDSA_PRESIGN_SESSION_TTL_MS + 1,
+            now_ms,
+        )
+        .expect_err("expiry beyond the server maximum must be rejected");
+        assert_eq!(
+            error.code(),
+            RouterAbProtocolErrorCode::MalformedWirePayload
+        );
+    }
 }

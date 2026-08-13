@@ -30,7 +30,10 @@ import {
   type MpcMaterialActivationRef,
   type WalletId,
 } from '@shared/utils/domainIds';
-import { computeLinkedDevicePublicKeyDigestV1 } from '@shared/device-linking/requestProof';
+import {
+  computeLinkedDevicePublicKeyDigestV1,
+  LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1,
+} from '@shared/device-linking/requestProof';
 import type {
   AuthorizationEvidenceSetId,
   WalletSessionAuthorizationId,
@@ -64,6 +67,16 @@ import { parseOwnerLaneParticipantContinuityV1 } from '@shared/signing-lanes/own
 import type { SigningLaneKind } from '@shared/signing-lanes/records';
 
 type LinkedDeviceClaimV1 = LinkedDeviceSessionClaimV1;
+
+export type LinkedDeviceSessionListCursorV1 = {
+  readonly updatedAtMs: number;
+  readonly linkSessionId: LinkDeviceSessionId;
+};
+
+export type LinkedDeviceSessionListPageV1 = {
+  readonly records: readonly LinkedDeviceSessionRecordV1[];
+  readonly nextCursor: LinkedDeviceSessionListCursorV1 | null;
+};
 
 export type {
   LinkedDeviceSessionState,
@@ -260,6 +273,11 @@ export type LinkedDeviceSessionStoreV1 = {
     record: LinkedDeviceSessionRecordV1,
   ): Promise<LinkedDeviceSessionMutationResultV1>;
   getSessionV1(linkSessionId: LinkDeviceSessionId): Promise<LinkedDeviceSessionRecordV1 | null>;
+  listSessionsForWalletV1(input: {
+    readonly walletId: WalletId;
+    readonly limit: number;
+    readonly cursor: LinkedDeviceSessionListCursorV1 | null;
+  }): Promise<LinkedDeviceSessionListPageV1>;
   claimSessionV1(input: {
     readonly linkSessionId: LinkDeviceSessionId;
     readonly expectedRevision: number;
@@ -874,6 +892,41 @@ export class LinkedDeviceSessionServiceV1 {
     return 'record' in expired ? expired.record : existing;
   }
 
+  async listSessionsForWalletV1(input: {
+    readonly walletId: WalletId;
+    readonly nowMs: number;
+    readonly limit: number;
+    readonly cursor: LinkedDeviceSessionListCursorV1 | null;
+  }): Promise<LinkedDeviceSessionListPageV1> {
+    const page = await this.store.listSessionsForWalletV1({
+      walletId: input.walletId,
+      limit: input.limit,
+      cursor: input.cursor,
+    });
+    const projected: LinkedDeviceSessionRecordV1[] = [];
+    for (const record of page.records) {
+      const expiryMs = sessionExpiryMsV1(record);
+      if (input.nowMs < expiryMs || isTerminalState(record.state)) {
+        projected.push(record);
+        continue;
+      }
+      const expired = await this.expireSessionV1({
+        linkSessionId: record.linkSessionId,
+        expectedRevision: record.revision,
+        nowMs: input.nowMs,
+      });
+      projected.push(
+        expired.outcome === 'applied' ||
+          expired.outcome === 'replayed' ||
+          expired.outcome === 'expired' ||
+          expired.outcome === 'invalid_state'
+          ? expired.record
+          : record,
+      );
+    }
+    return { records: projected, nextCursor: page.nextCursor };
+  }
+
   private async requireSession(
     linkSessionId: LinkDeviceSessionId,
   ): Promise<LinkedDeviceSessionRecordV1> {
@@ -918,7 +971,9 @@ export function buildUnclaimedSessionRecordV1(
 ): LinkedDeviceSessionRecordV1 {
   const parsedPayload = parseQrLinkedDeviceSessionPayloadV1(payload);
   requireTimestamp(nowMs, 'nowMs');
-  if (parsedPayload.issuedAtMs > nowMs) throw new Error('link session issuedAtMs is in the future');
+  if (parsedPayload.issuedAtMs - nowMs > LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1) {
+    throw new Error('link session issuedAtMs is in the future');
+  }
   return {
     version: 'linked_device_session_v1',
     linkSessionId: parsedPayload.linkSessionId,

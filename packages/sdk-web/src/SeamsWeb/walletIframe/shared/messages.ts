@@ -1347,6 +1347,8 @@ export interface PMHasPasskeyPayload {
 
 export interface PMListLinkedDevicesPayload {
   walletId: string;
+  limit: number;
+  cursor: string | null;
 }
 
 export interface PMRevokeLinkedDevicePayload {

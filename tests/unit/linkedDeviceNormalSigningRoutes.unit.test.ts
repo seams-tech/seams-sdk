@@ -312,6 +312,7 @@ function configuredService(input: {
   readonly completeAuthorizedOperation?: (
     operation: AuthorizedOperation,
   ) => Promise<AuthorizedOperation>;
+  readonly verifyLocalPresence?: () => Promise<{ readonly kind: 'verified'; readonly verifiedAtMs: number }>;
 }) {
   return {
     authorizedOperations: {
@@ -330,7 +331,7 @@ function configuredService(input: {
       }),
     },
     linkedDeviceLocalPresence: {
-      verify: async () => ({ kind: 'verified', verifiedAtMs: Date.now() }),
+      verify: input.verifyLocalPresence ?? (async () => ({ kind: 'verified', verifiedAtMs: Date.now() })),
     },
   };
 }
@@ -617,10 +618,11 @@ test('rejects linked signing when the inner scope substitutes material identity'
   expect(admissionCalls).toBe(0);
 });
 
-test('rejects a local-presence assertion whose signed challenge does not bind the intent', async () => {
+test('does not reverify the local-presence assertion during Ed25519 finalize', async () => {
   const nowMs = Date.now();
   const fixture = await linkedEd25519FinalizeFixture(nowMs);
   let admissionCalls = 0;
+  let verifierCalls = 0;
   const result = await handleLinkedDeviceEd25519NormalSigning({
     ctx: context(
       sessionWithClaims(linkedClaims(fixture.expiresAtMs + 1_000)),
@@ -630,19 +632,18 @@ test('rejects a local-presence assertion whose signed challenge does not bind th
           admissionCalls += 1;
           return { kind: 'claimed' };
         },
+        verifyLocalPresence: async () => {
+          verifierCalls += 1;
+          return { kind: 'verified', verifiedAtMs: Date.now() };
+        },
       }),
     ),
-    body: {
-      ...fixture.body,
-      localPresenceAssertion: {
-        ...fixture.body.localPresenceAssertion,
-        challengeDigestB64u: digest(12),
-      },
-    },
+    body: fixture.body,
     phase: 'finalize',
   });
 
-  expect(result?.status).toBe(403);
-  expect(await result?.json()).toMatchObject({ code: 'local_presence_required' });
+  expect(result?.status).toBe(409);
+  expect(await result?.json()).toMatchObject({ code: 'authorized_operation_missing' });
   expect(admissionCalls).toBe(0);
+  expect(verifierCalls).toBe(0);
 });

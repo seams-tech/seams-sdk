@@ -39,6 +39,24 @@ import type {
 
 export const LINKED_DEVICE_SESSION_HTTP_BASE_PATH_V1 = '/wallet/device-linking/v1/sessions';
 
+const LINKED_DEVICE_POLL_MAX_DELAY_MS = 4_000;
+
+/** Keep long-lived session polling responsive without creating a tight request loop. */
+export function nextLinkedDevicePollingDelayMsV1(
+  baseDelayMs: number,
+  attempt: number,
+): number {
+  const boundedBaseDelayMs = Math.min(baseDelayMs, LINKED_DEVICE_POLL_MAX_DELAY_MS);
+  const boundedAttempt = Math.min(Math.max(attempt, 0), 5);
+  const exponentialDelayMs = Math.min(
+    LINKED_DEVICE_POLL_MAX_DELAY_MS,
+    boundedBaseDelayMs * 2 ** boundedAttempt,
+  );
+  const jitterWindowMs = Math.max(1, Math.min(boundedBaseDelayMs, exponentialDelayMs / 4));
+  const jitterMs = Math.floor(Math.random() * jitterWindowMs);
+  return Math.min(LINKED_DEVICE_POLL_MAX_DELAY_MS, exponentialDelayMs + jitterMs);
+}
+
 export type DeviceLinkingAuthenticatedSessionTransportOptionsV1 = {
   readonly http: HttpTransport;
   readonly relayerUrl: string;
@@ -313,12 +331,14 @@ async function createPollingSubscriptionV1(input: {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let lastRevision: number | null = null;
   let firstPoll = true;
+  let retryAttempt = 0;
   const poll = async (): Promise<void> => {
     if (closed) return;
     try {
       const session = await requestSessionV1({ ...input });
       if (lastRevision === null || session.revision !== lastRevision) {
         lastRevision = session.revision;
+        retryAttempt = 0;
         input.onEvent(
           parseLinkedDeviceSessionTransportEventV1({
             kind: 'linked_device_session_event_v1',
@@ -327,12 +347,26 @@ async function createPollingSubscriptionV1(input: {
             emittedAtMs: session.updatedAtMs,
           }),
         );
+      } else {
+        retryAttempt += 1;
       }
     } catch (error: unknown) {
-      if (firstPoll) throw error;
+      if (firstPoll) {
+        closed = true;
+        throw error;
+      }
+      retryAttempt += 1;
     } finally {
       firstPoll = false;
-      if (!closed) timer = setTimeout(() => void poll(), input.options.pollIntervalMs);
+      if (!closed) {
+        timer = setTimeout(
+          () => void poll(),
+          nextLinkedDevicePollingDelayMsV1(
+            input.options.pollIntervalMs,
+            Math.max(0, retryAttempt - 1),
+          ),
+        );
+      }
     }
   };
   await poll();

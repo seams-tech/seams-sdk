@@ -192,6 +192,7 @@ test.describe('D1 linked-device authorization', () => {
         walletKeyId: ecdsaProduct.walletKeyId,
         laneId: ecdsaProduct.laneId,
         laneShareEpoch: ecdsaProduct.laneShareEpoch,
+        laneRevocationEpoch: ecdsaProduct.revocationEpoch,
         materialActivation: ecdsaProduct.materialActivation,
       });
       if (ecdsaProjection.kind !== 'projected') {
@@ -219,6 +220,7 @@ test.describe('D1 linked-device authorization', () => {
         walletKeyId: ed25519Product.walletKeyId,
         laneId: ed25519Product.laneId,
         laneShareEpoch: ed25519Product.laneShareEpoch,
+        laneRevocationEpoch: ed25519Product.revocationEpoch,
         materialActivation: ed25519Product.materialActivation,
       });
       expect(ed25519Projection.kind).toBe('projected');
@@ -249,6 +251,7 @@ test.describe('D1 linked-device authorization', () => {
           walletKeyId: ecdsaProduct.walletKeyId,
           laneId: ecdsaProduct.laneId,
           laneShareEpoch: ecdsaProduct.laneShareEpoch,
+          laneRevocationEpoch: ecdsaProduct.revocationEpoch,
           materialActivation: ecdsaProduct.materialActivation,
         }),
       ).resolves.toEqual({ kind: 'refused', reason: 'linked_execution_unavailable' });
@@ -283,6 +286,7 @@ test.describe('D1 linked-device authorization', () => {
           walletKeyId: ecdsaProduct.walletKeyId,
           laneId: ecdsaProduct.laneId,
           laneShareEpoch: ecdsaProduct.laneShareEpoch,
+          laneRevocationEpoch: ecdsaProduct.revocationEpoch,
           materialActivation: ecdsaProduct.materialActivation,
         }),
       ).resolves.toEqual({ kind: 'refused', reason: 'lane_inactive' });
@@ -457,7 +461,7 @@ test.describe('D1 linked-device authorization', () => {
     }
   });
 
-  test('issues an exact linked authorization, consumes its quota, and revokes atomically', async () => {
+  test('allows a parent fence epoch above the selected product epoch', async () => {
     const temporary = createTemporaryD1Database();
     try {
       await applyD1MigrationFiles(temporary.database, signerMigrations);
@@ -502,7 +506,10 @@ test.describe('D1 linked-device authorization', () => {
           administrationScope: 'signing_only',
           localUserPresence: 'required',
         },
-        revocationEpoch: 0,
+        // Simulate the enrollment fence being refreshed by a different
+        // child lane. The claimed material below must still use the exact
+        // product epoch (zero).
+        revocationEpoch: 1,
         remainingUses: 2,
         issuedAtMs: 5_001,
         expiresAtMs: 90_000,
@@ -518,7 +525,7 @@ test.describe('D1 linked-device authorization', () => {
           enrollmentId,
           keyManifestDigestB64u: manifestDigest,
           permission: issued.authorization.permission,
-          revocationEpoch: 0,
+          revocationEpoch: 1,
           remainingUses: 2,
           issuedAtMs: 5_001,
           expiresAtMs: 90_000,
@@ -529,6 +536,16 @@ test.describe('D1 linked-device authorization', () => {
       )[0];
       if (!product || product.state !== 'active')
         throw new Error('active fixture product is missing');
+      await expect(
+        temporary.database
+          .prepare(
+            `SELECT revocation_epoch
+               FROM linked_device_wallet_session_authorizations
+              WHERE tenant_id = ? AND authorization_id = ?`,
+          )
+          .bind(tenantId, authorizationId)
+          .first<{ readonly revocation_epoch?: unknown }>(),
+      ).resolves.toMatchObject({ revocation_epoch: 1 });
       const operation = buildCapabilityOperationEnvelope({
         tenantId,
         principalId: issued.authorization.principalId,

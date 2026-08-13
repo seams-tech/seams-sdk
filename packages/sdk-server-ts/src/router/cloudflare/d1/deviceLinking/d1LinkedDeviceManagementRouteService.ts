@@ -18,7 +18,7 @@ import type { DeviceLinkingRouteServiceV1 } from '../../../../router/transport/f
 export type D1LinkedDeviceManagementRouteServiceOptionsV1 = {
   readonly database: D1DatabaseLike;
   readonly scope: D1LinkedDeviceSessionScopeV1;
-  readonly sessionService: Pick<LinkedDeviceSessionServiceV1, 'getSessionV1'>;
+  readonly sessionService: Pick<LinkedDeviceSessionServiceV1, 'getSessionV1' | 'listSessionsForWalletV1'>;
   readonly metadata: D1LinkedDeviceManagementMetadataPortV1;
   readonly preparation: LinkedDeviceRevocationPreparationPortV1;
   readonly aggregateRevocation: LinkedDeviceAggregateRevocationPortV1;

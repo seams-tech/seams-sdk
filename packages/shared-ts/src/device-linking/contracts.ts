@@ -655,10 +655,13 @@ export type LinkedDeviceSummaryV1 = {
 export type LinkedDeviceListRequestV1 = {
   readonly kind: 'linked_device_list_request_v1';
   readonly walletId: WalletId;
+  readonly limit: number;
+  readonly cursor: string | null;
 };
 
 export type LinkedDeviceListResultV1 = {
   readonly devices: readonly LinkedDeviceSummaryV1[];
+  readonly nextCursor: string | null;
 };
 
 export type LinkedDeviceRevokeRequestV1 = {
@@ -687,6 +690,8 @@ type LinkedDeviceWalletSessionTokenBaseV1 = {
   readonly kind: 'linked_device_wallet_session_token_v1';
   readonly walletKeyId: WalletKeyId;
   readonly walletSessionJwt: string;
+  /** Revocation epoch of this exact target lane. */
+  readonly revocationEpoch: number;
 };
 
 export type LinkedDeviceWalletSessionEd25519TokenV1 =

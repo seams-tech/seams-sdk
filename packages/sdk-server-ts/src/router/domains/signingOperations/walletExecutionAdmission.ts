@@ -154,6 +154,108 @@ export type LinkedDeviceLocalPresenceEvidenceV1 =
       readonly challengeDigestB64u: DigestB64u;
     };
 
+const linkedDeviceLocalPresenceCapabilityBrand = Symbol('linked-device-local-presence-capability');
+
+/**
+ * The first operation request carries verified WebAuthn evidence. Once that
+ * claim is durable, continuation requests use the claim itself as the local
+ * presence capability and never replay the assertion.
+ */
+export type LinkedDeviceLocalPresenceAuthorizationV1 =
+  | { readonly kind: 'verified_assertion'; readonly evidence: LinkedDeviceLocalPresenceEvidenceV1 }
+  | {
+      readonly kind: 'admitted_operation';
+      readonly operation: ClaimedAuthorizedOperation;
+      readonly [linkedDeviceLocalPresenceCapabilityBrand]: true;
+    };
+
+export function buildLinkedDeviceLocalPresenceCapabilityV1(
+  operation: ClaimedAuthorizedOperation,
+): LinkedDeviceLocalPresenceAuthorizationV1 {
+  if (operation.lifecycle !== 'claimed') {
+    throw new Error('linked-device local presence capability requires a claimed operation');
+  }
+  return {
+    kind: 'admitted_operation',
+    operation,
+    [linkedDeviceLocalPresenceCapabilityBrand]: true,
+  };
+}
+
+const linkedDeviceWalletSessionRenewalCapabilityBrand = Symbol(
+  'linked-device-wallet-session-renewal-capability',
+);
+
+export type LinkedDeviceWalletSessionRenewalCapabilityV1 = {
+  readonly kind: 'linked_device_wallet_session_renewal_capability_v1';
+  readonly tenantId: TenantId;
+  readonly deviceId: LinkedDeviceId;
+  readonly enrollmentId: LinkedDeviceEnrollmentId;
+  readonly authorizationId: LinkedDeviceWalletSessionAuthorizationId;
+  readonly walletSessionId: WalletSessionId;
+  readonly quotaId: MpcWalletSigningQuotaId;
+  readonly revocationEpoch: number;
+  readonly authorizedOperationId: AuthorizedOperationId;
+  readonly intentDigestB64u: DigestB64u;
+  readonly verifiedAtMs: number;
+  readonly assertionDigestB64u: DigestB64u;
+  readonly [linkedDeviceWalletSessionRenewalCapabilityBrand]: true;
+};
+
+export function buildLinkedDeviceWalletSessionRenewalCapabilityV1(input: {
+  readonly evidence: LinkedDeviceLocalPresenceEvidenceV1;
+  readonly tenantId: TenantId;
+  readonly deviceId: LinkedDeviceId;
+  readonly enrollmentId: LinkedDeviceEnrollmentId;
+  readonly authorizationId: LinkedDeviceWalletSessionAuthorizationId;
+  readonly walletSessionId: WalletSessionId;
+  readonly quotaId: MpcWalletSigningQuotaId;
+  readonly revocationEpoch: number;
+  readonly authorizedOperationId: AuthorizedOperationId;
+  readonly intentDigestB64u: DigestB64u;
+}): LinkedDeviceWalletSessionRenewalCapabilityV1 {
+  const evidence = input.evidence;
+  if (
+    evidence.kind !== 'linked_device_local_presence_evidence_v1' ||
+    evidence.authorizedOperationId !== input.authorizedOperationId ||
+    evidence.deviceId !== input.deviceId ||
+    evidence.enrollmentId !== input.enrollmentId ||
+    evidence.intentDigestB64u !== input.intentDigestB64u ||
+    !('assertionDigestB64u' in evidence)
+  ) {
+    throw new Error('linked-device Wallet Session renewal evidence binding differs');
+  }
+  const assertionDigestB64u = evidence.assertionDigestB64u;
+  if (!assertionDigestB64u) {
+    throw new Error('linked-device Wallet Session renewal assertion evidence is missing');
+  }
+  return {
+    kind: 'linked_device_wallet_session_renewal_capability_v1',
+    tenantId: input.tenantId,
+    deviceId: input.deviceId,
+    enrollmentId: input.enrollmentId,
+    authorizationId: input.authorizationId,
+    walletSessionId: input.walletSessionId,
+    quotaId: input.quotaId,
+    revocationEpoch: input.revocationEpoch,
+    authorizedOperationId: input.authorizedOperationId,
+    intentDigestB64u: input.intentDigestB64u,
+    verifiedAtMs: evidence.verifiedAtMs,
+    assertionDigestB64u,
+    [linkedDeviceWalletSessionRenewalCapabilityBrand]: true,
+  };
+}
+
+export function isLinkedDeviceWalletSessionRenewalCapabilityV1(
+  value: unknown,
+): value is LinkedDeviceWalletSessionRenewalCapabilityV1 {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  return (
+    Reflect.get(value, 'kind') === 'linked_device_wallet_session_renewal_capability_v1' &&
+    Reflect.get(value, linkedDeviceWalletSessionRenewalCapabilityBrand) === true
+  );
+}
+
 type ActiveLinkedDeviceExecutionProjectionCommonV1 = {
   readonly kind: 'active_linked_device_execution_projection_v1';
   readonly authorization: LinkedDeviceWalletSessionAuthorizationV1;
@@ -203,6 +305,8 @@ export interface LinkedDeviceExecutionAdmissionResolverV1 {
     readonly laneId: SigningLaneId;
     readonly laneShareEpoch: LaneShareEpoch;
     readonly materialActivation: MpcMaterialActivationRef;
+    /** Epoch claimed by the selected lane JWT, distinct from the enrollment fence. */
+    readonly laneRevocationEpoch: number;
     readonly authorizationId: LinkedDeviceWalletSessionAuthorizationId;
     readonly authorizedOperationId: AuthorizedOperationId;
   }): Promise<LinkedDeviceExecutionProjectionResult>;
@@ -310,7 +414,7 @@ export async function prepareOwnerWalletExecution(input: {
 export async function prepareLinkedDeviceWalletExecution(input: {
   readonly authorizedOperation: AuthorizedOperation;
   readonly evidence: LinkedDeviceWalletExecutionEvidenceV1;
-  readonly localPresence: LinkedDeviceLocalPresenceEvidenceV1;
+  readonly localPresence: LinkedDeviceLocalPresenceAuthorizationV1;
 }): Promise<LinkedDeviceWalletExecutionAdmissionResult> {
   const operation = input.authorizedOperation;
   if (operation.lifecycle !== 'claimed') return linkedRefused('operation_not_claimed');
@@ -373,7 +477,6 @@ export async function prepareLinkedDeviceWalletExecution(input: {
     product.walletId !== grant.walletId ||
     product.laneKind !== 'linked_device' ||
     product.aggregateManifestDigestB64u !== grant.keyManifestDigestB64u ||
-    product.revocationEpoch !== grant.revocationEpoch ||
     product.walletKeyId !== walletKey.walletKeyId ||
     product.laneId !== lane.laneId ||
     String(product.enrollmentId) !== String(grant.enrollmentId) ||
@@ -392,9 +495,7 @@ export async function prepareLinkedDeviceWalletExecution(input: {
     return linkedRefused('linked_device_mismatch');
   }
   if (
-    enrollment.revocationEpoch !== grant.revocationEpoch ||
-    enrollment.revocationEpoch !== product.revocationEpoch ||
-    enrollment.revocationEpoch !== lane.lifecycle.revocationEpoch
+    enrollment.revocationEpoch !== grant.revocationEpoch
   ) {
     return linkedRefused('revocation_epoch_mismatch');
   }
@@ -491,11 +592,23 @@ function linkedGrantRef(operation: ClaimedAuthorizedOperation):
 function validateLinkedDeviceLocalPresence(input: {
   readonly operation: ClaimedAuthorizedOperation;
   readonly enrollment: ActiveLinkedDeviceEnrollmentExecutionRecordV1;
-  readonly localPresence: LinkedDeviceLocalPresenceEvidenceV1;
+  readonly localPresence: LinkedDeviceLocalPresenceAuthorizationV1;
 }):
   | Extract<LinkedDeviceWalletExecutionAdmissionResult, { readonly kind: 'refused' }>['reason']
   | null {
-  const presence = input.localPresence;
+  if (input.localPresence.kind === 'admitted_operation') {
+    if (
+      input.localPresence[linkedDeviceLocalPresenceCapabilityBrand] !== true ||
+      input.localPresence.operation.authorizedOperationId !== input.operation.authorizedOperationId ||
+      input.localPresence.operation.operationFingerprintDigest !==
+        input.operation.operationFingerprintDigest ||
+      input.localPresence.operation.lifecycle !== 'claimed'
+    ) {
+      return 'local_presence_mismatch';
+    }
+    return null;
+  }
+  const presence = input.localPresence.evidence;
   if (presence.kind !== 'linked_device_local_presence_evidence_v1') {
     return 'local_presence_missing';
   }

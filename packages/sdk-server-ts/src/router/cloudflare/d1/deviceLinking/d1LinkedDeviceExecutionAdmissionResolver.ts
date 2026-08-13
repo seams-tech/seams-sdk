@@ -197,7 +197,7 @@ export class D1LinkedDeviceExecutionAdmissionResolverV1 implements LinkedDeviceE
     if (authorization.expiresAtMs <= this.nowV1() || quota.expiresAtMs <= this.nowV1()) {
       return refused('authorization_expired');
     }
-    if (authorization.revocationEpoch !== product.revocationEpoch) {
+    if (input.laneRevocationEpoch !== product.revocationEpoch) {
       return refused('revocation_epoch_mismatch');
     }
     if (
@@ -251,7 +251,9 @@ export class D1LinkedDeviceExecutionAdmissionResolverV1 implements LinkedDeviceE
       deviceId: input.deviceId,
       keyManifestDigestB64u: manifestDigest,
       credentialIdB64u: credentialId,
-      revocationEpoch: product.revocationEpoch,
+      // The authorization epoch fences the parent enrollment. The lane and
+      // product retain their exact child epoch below.
+      revocationEpoch: authorization.revocationEpoch,
       lifecycle: { state: 'active', activatedAtMs: product.activatedAtMs },
     };
     const commonProjection = {

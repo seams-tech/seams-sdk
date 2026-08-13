@@ -116,6 +116,32 @@ async function collectRawSealedRecordEntriesByThresholdSessionIdFromStore(
 }
 
 export class SigningSessionSealsRepository {
+  async getRawSealedRecordEntry(primaryKey: string): Promise<StoredRawSealedRecordEntry | null> {
+    const db = await getSigningSessionSealsDb();
+    if (!db) return null;
+    const tx = db.transaction(SIGNING_SESSION_SEALS_STORE_NAME, 'readonly');
+    const value = await requestToPromise(
+      tx.objectStore(SIGNING_SESSION_SEALS_STORE_NAME).get(primaryKey),
+    );
+    await transactionDone(tx).catch(() => undefined);
+    return value === undefined ? null : { primaryKey, value };
+  }
+
+  async collectRawSealedRecordEntriesByEnrollmentId(
+    enrollmentId: string,
+  ): Promise<StoredRawSealedRecordEntry[]> {
+    const db = await getSigningSessionSealsDb();
+    if (!db) return [];
+    const tx = db.transaction(SIGNING_SESSION_SEALS_STORE_NAME, 'readonly');
+    const store = tx.objectStore(SIGNING_SESSION_SEALS_STORE_NAME);
+    const entries = await collectIndexedRawSealedRecordEntries(
+      store.index(SEAMS_WALLET_INDEXES.enrollmentId),
+      enrollmentId,
+    );
+    await transactionDone(tx).catch(() => undefined);
+    return entries;
+  }
+
   async collectAllRawSealedRecordEntries(): Promise<StoredRawSealedRecordEntry[]> {
     const db = await getSigningSessionSealsDb();
     if (!db) return [];

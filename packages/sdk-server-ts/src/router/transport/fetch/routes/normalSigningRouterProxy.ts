@@ -7,7 +7,7 @@ import {
   prepareOwnerWalletExecution,
   type ActiveLinkedDeviceExecutionProjectionV1,
   type LinkedDeviceExecutionAdmissionResolverV1,
-  type LinkedDeviceLocalPresenceEvidenceV1,
+  type LinkedDeviceLocalPresenceAuthorizationV1,
 } from '../../../domains/signingOperations/walletExecutionAdmission';
 import type { RouterAbNormalSigningMaterialSourceV1 } from '../../../domains/signingOperations/routerAbPrivateSigningWorker';
 import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
@@ -165,7 +165,8 @@ export async function proxyLinkedDeviceLaneAdmittedNormalSigningRequest(input: {
   readonly laneId: SigningLaneId;
   readonly laneShareEpoch: LaneShareEpoch;
   readonly expectedMaterialActivation: RouterAbMpcMaterialActivationRefWire;
-  readonly localPresence: LinkedDeviceLocalPresenceEvidenceV1;
+  readonly laneRevocationEpoch: number;
+  readonly localPresence: LinkedDeviceLocalPresenceAuthorizationV1;
   readonly linkedDeviceExecution: LinkedDeviceExecutionAdmissionResolverV1;
   readonly targetPath?: string;
 }): Promise<Response> {
@@ -202,6 +203,7 @@ export async function proxyLinkedDeviceLaneAdmittedNormalSigningRequest(input: {
       walletKeyId: input.walletKeyId,
       laneId: input.laneId,
       laneShareEpoch: input.laneShareEpoch,
+      laneRevocationEpoch: input.laneRevocationEpoch,
       materialActivation: expectedMaterialActivation,
       authorizationId,
       authorizedOperationId: input.authorizedOperation.authorizedOperationId,

@@ -188,4 +188,122 @@ test.describe('R103 authenticated linked-device browser transport', () => {
       `/wallet/device-linking/v1/sessions/${fixture.payload.linkSessionId}/wallet-session`,
     );
   });
+
+  test('does not schedule an orphan poll after bootstrap failure', async () => {
+    const fixture = buildR103DeviceLinkFixture();
+    let requests = 0;
+    const http: HttpTransport = {
+      kind: 'http_transport',
+      async request() {
+        requests += 1;
+        return { ok: false, message: 'bootstrap unavailable' };
+      },
+    };
+    const keyMaterial: DeviceLinkingKeyMaterialPortV1 = {
+      async createBootstrapKeyMaterialV1() {
+        throw new Error('bootstrap is outside this transport test');
+      },
+      async prepareTargetHolderRegistrationsV1() {
+        throw new Error('target holder preparation is outside this transport test');
+      },
+      async openAndSealTargetHolderDeliveryV1() {
+        throw new Error('holder delivery is outside this transport test');
+      },
+      async discardKeyMaterialV1() {},
+      async signDeviceSessionRequestV1() {
+        return { signatureB64u: base64UrlEncode(new Uint8Array(64).fill(9)) };
+      },
+    };
+    const transport = createDeviceLinkingAuthenticatedSessionTransportV1({
+      http,
+      relayerUrl: 'https://relay.example.test',
+      keyMaterial,
+      keyMaterialHandle: {
+        kind: 'device_linking_key_material_handle_v1',
+        handleId: 'worker-slot-r103',
+      },
+      devicePublicKeyB64u: fixture.payload.devicePublicKeyB64u,
+      nowMs: () => 2_000,
+      pollIntervalMs: 5,
+    });
+
+    await expect(
+      transport.subscribeSessionV1({
+        linkSessionId: fixture.payload.linkSessionId,
+        onEvent: () => undefined,
+      }),
+    ).rejects.toThrow('bootstrap unavailable');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(requests).toBe(1);
+  });
+
+  test('single-flights session polls and retries transient failures with backoff', async () => {
+    const fixture = buildR103DeviceLinkFixture();
+    let requests = 0;
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const http: HttpTransport = {
+      async request() {
+        const requestNumber = requests++;
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, requestNumber === 0 ? 10 : 0));
+        inFlight -= 1;
+        if (requestNumber === 1) return { ok: false, message: 'temporary outage' };
+        const revision = requestNumber >= 2 ? 2 : 1;
+        return {
+          ok: true,
+          value: {
+            status: 200,
+            body: {
+              ...responseBody(fixture),
+              session: {
+                ...responseBody(fixture).session,
+                revision,
+                updatedAtMs: responseBody(fixture).session.updatedAtMs + revision,
+              },
+            },
+          },
+        };
+      },
+    };
+    const keyMaterial: DeviceLinkingKeyMaterialPortV1 = {
+      async createBootstrapKeyMaterialV1() {
+        throw new Error('bootstrap is outside this transport test');
+      },
+      async prepareTargetHolderRegistrationsV1() {
+        throw new Error('target holder preparation is outside this transport test');
+      },
+      async openAndSealTargetHolderDeliveryV1() {
+        throw new Error('holder delivery is outside this transport test');
+      },
+      async discardKeyMaterialV1() {},
+      async signDeviceSessionRequestV1() {
+        return { signatureB64u: base64UrlEncode(new Uint8Array(64).fill(9)) };
+      },
+    };
+    const transport = createDeviceLinkingAuthenticatedSessionTransportV1({
+      http,
+      relayerUrl: 'https://relay.example.test',
+      keyMaterial,
+      keyMaterialHandle: {
+        kind: 'device_linking_key_material_handle_v1',
+        handleId: 'worker-slot-r103',
+      },
+      devicePublicKeyB64u: fixture.payload.devicePublicKeyB64u,
+      nowMs: () => 2_000,
+      pollIntervalMs: 1,
+    });
+    const events: number[] = [];
+    const subscription = await transport.subscribeSessionV1({
+      linkSessionId: fixture.payload.linkSessionId,
+      onEvent: (event) => events.push(event.state.state === 'displaying_qr' ? 1 : 2),
+    });
+    await expect.poll(() => events.length, { timeout: 1_000 }).toBe(2);
+    await subscription.close();
+
+    expect(requests).toBeGreaterThanOrEqual(3);
+    expect(maxInFlight).toBe(1);
+    expect(events).toHaveLength(2);
+  });
 });

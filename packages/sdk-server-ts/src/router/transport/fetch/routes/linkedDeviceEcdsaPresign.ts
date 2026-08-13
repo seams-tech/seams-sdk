@@ -9,8 +9,10 @@ import {
   verifyLinkedDeviceLocalPresenceForOperation,
 } from '../../../domains/signingOperations/linkedDeviceNormalSigning';
 import {
+  buildLinkedDeviceLocalPresenceCapabilityV1,
   prepareLinkedDeviceWalletExecution,
   type LinkedDeviceExecutionAdmissionResolverV1,
+  type LinkedDeviceLocalPresenceAuthorizationV1,
 } from '../../../domains/signingOperations/walletExecutionAdmission';
 import {
   buildCapabilityOperationEnvelope,
@@ -124,24 +126,7 @@ export async function handleLinkedDeviceEcdsaPresign(
       expiresAtMs: operation.expiresAtMs,
       walletSessionExpiresAtMs: authenticated.claims.expiresAtMs,
     });
-    const localPresence = await verifyLinkedDeviceLocalPresenceForOperation({
-      assertion: raw.localPresenceAssertion,
-      verifier: localPresenceVerifier,
-      authorizedOperationId: operation.authorizedOperationId,
-      deviceId: authenticated.claims.deviceId,
-      enrollmentId: authenticated.claims.enrollmentId,
-      intentDigestB64u: operation.digests.intentDigest,
-    });
-    if (localPresence.kind === 'refused') {
-      return json(
-        {
-          ok: false,
-          code: 'local_presence_required',
-          message: `Linked-device local presence was refused: ${localPresence.reason}`,
-        },
-        { status: 403 },
-      );
-    }
+    let localPresenceAuthorization: LinkedDeviceLocalPresenceAuthorizationV1 | null = null;
 
     const admissionInput = buildAdmissionInput({
       authenticated,
@@ -152,6 +137,28 @@ export async function handleLinkedDeviceEcdsaPresign(
     });
     let authorizedOperation: AuthorizedOperation;
     if (phase === 'init') {
+      const localPresence = await verifyLinkedDeviceLocalPresenceForOperation({
+        assertion: raw.localPresenceAssertion,
+        verifier: localPresenceVerifier,
+        authorizedOperationId: operation.authorizedOperationId,
+        deviceId: authenticated.claims.deviceId,
+        enrollmentId: authenticated.claims.enrollmentId,
+        intentDigestB64u: operation.digests.intentDigest,
+      });
+      if (localPresence.kind === 'refused') {
+        return json(
+          {
+            ok: false,
+            code: 'local_presence_required',
+            message: `Linked-device local presence was refused: ${localPresence.reason}`,
+          },
+          { status: 403 },
+        );
+      }
+      localPresenceAuthorization = {
+        kind: 'verified_assertion',
+        evidence: localPresence.evidence,
+      };
       const admission = await admitLinkedDeviceAuthorizedOperation(admissionInput);
       switch (admission.kind) {
         case 'authorization_grant_rejected':
@@ -200,6 +207,7 @@ export async function handleLinkedDeviceEcdsaPresign(
       if (authorizedOperation.lifecycle === 'completed') {
         return replayAuthorizedOperation(authorizedOperation);
       }
+      localPresenceAuthorization = buildLinkedDeviceLocalPresenceCapabilityV1(authorizedOperation);
     }
 
     const projection = await resolveLinkedProjection({
@@ -230,13 +238,16 @@ export async function handleLinkedDeviceEcdsaPresign(
     if (String(projection.projection.product.operationId) !== String(operation.scope.operationId)) {
       throw new Error('active linked ECDSA lane operation changed after operation admission');
     }
+    if (!localPresenceAuthorization) {
+      throw new Error('linked ECDSA presign admission has no local-presence authorization');
+    }
     const prepared = await prepareLinkedDeviceWalletExecution({
       authorizedOperation,
       evidence: {
         ...projection.projection,
         expectedMaterialActivation: operation.materialActivationValue,
       },
-      localPresence: localPresence.evidence,
+      localPresence: localPresenceAuthorization,
     });
     if (prepared.kind === 'refused') {
       return json(
@@ -509,6 +520,7 @@ async function resolveLinkedProjection(input: {
     walletKeyId: input.envelope.walletKeyId,
     laneId: input.envelope.laneId,
     laneShareEpoch: input.envelope.laneShareEpoch,
+    laneRevocationEpoch: input.authenticated.claims.revocationEpoch,
     materialActivation: input.envelope.materialActivationValue,
     authorizationId: authorization.authorizationGrantRef.authorizationId,
     authorizedOperationId: input.authorizedOperation.authorizedOperationId,

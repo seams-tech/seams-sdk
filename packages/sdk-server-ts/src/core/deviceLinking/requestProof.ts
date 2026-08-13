@@ -5,6 +5,7 @@ import {
   computeLinkedDevicePublicKeyDigestV1,
   computeLinkedDeviceRequestProofDigestV1,
   encodeLinkedDeviceRequestProofV1,
+  LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1,
   LINKED_DEVICE_REQUEST_PROOF_HEADER_V1,
   LINKED_DEVICE_REQUEST_PROOF_MAX_TTL_MS_V1,
   LINKED_DEVICE_REQUEST_PROOF_NONCE_BYTES_V1,
@@ -17,6 +18,7 @@ export {
   computeLinkedDevicePublicKeyDigestV1,
   computeLinkedDeviceRequestProofDigestV1,
   encodeLinkedDeviceRequestProofV1,
+  LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1,
   LINKED_DEVICE_REQUEST_PROOF_HEADER_V1,
   LINKED_DEVICE_REQUEST_PROOF_MAX_TTL_MS_V1,
   type LinkedDeviceRequestProofV1,
@@ -224,7 +226,10 @@ function validateRequestProofBindingV1(input: LinkedDeviceRequestProofVerificati
   ) {
     throw new Error('request proof device identity digest does not match');
   }
-  if (!Number.isSafeInteger(input.nowMs) || input.nowMs < input.proof.issuedAtMs) {
+  if (
+    !Number.isSafeInteger(input.nowMs) ||
+    input.proof.issuedAtMs - input.nowMs > LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1
+  ) {
     throw new Error('request proof is not yet valid');
   }
   if (input.nowMs >= input.proof.expiresAtMs) throw new Error('request proof is expired');

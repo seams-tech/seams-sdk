@@ -1,6 +1,9 @@
 import { expect, test } from '@playwright/test';
-import { LinkDeviceFlow } from '@/SeamsWeb/operations/devices/linkDevice';
-import { scanAndLinkDevice } from '@/SeamsWeb/operations/devices/scanDevice';
+import { DeviceLinkingDomain, LinkDeviceFlow } from '@/SeamsWeb/operations/devices/linkDevice';
+import {
+  scanAndLinkDevice,
+  validateQrLinkedDeviceSessionPayloadV4,
+} from '@/SeamsWeb/operations/devices/scanDevice';
 import type {
   DeviceLinkingAuthenticatedTransportPortV1,
   LinkedDeviceApprovalResultV1,
@@ -44,6 +47,7 @@ import {
 import { parseWebAuthnCredentialIdB64u } from '../../packages/shared-ts/src/utils/domainIds';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { computeLaneEnrollmentManifestDigestV1 } from '../../packages/shared-ts/src/signing-lanes/rotationDigests';
+import { LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1 } from '../../packages/shared-ts/src/device-linking/requestProof';
 
 function createPorts(
   calls: string[],
@@ -56,6 +60,7 @@ function createPorts(
     readonly targetReady: LinkedDeviceTargetReadyR102InputV1;
     readonly onSubmission: (submission: LinkedDeviceProvisioningDeliveriesSubmissionV1) => void;
   },
+  approvalSubscriptionResults?: readonly LinkedDeviceApprovalResultV1[],
 ): DeviceLinkingFlowPortsV1 {
   const fixture = buildR103DeviceLinkFixture();
   const now = Date.now();
@@ -247,10 +252,9 @@ function createPorts(
     },
     async subscribeApprovalV1(input) {
       calls.push('subscribe-approval');
-      const subscribedResult = approvalResult?.(state);
-      input.onResult(
-        subscribedResult ?? {
-          outcome: 'active',
+      const subscribedResults = approvalSubscriptionResults ?? [
+        approvalResult?.(state) ?? {
+          outcome: 'active' as const,
           state: buildActiveLinkedDeviceSessionState({
             linkSessionId: payload.linkSessionId,
             walletId: fixture.approval.walletId,
@@ -260,7 +264,27 @@ function createPorts(
           manifestDigestB64u: fixture.receipt.manifestDigestB64u,
           receipt: fixture.receipt,
         },
-      );
+      ];
+      for (const subscribedResult of subscribedResults) input.onResult(subscribedResult);
+      if (
+        !approvalSubscriptionResults &&
+        sourceHandoff &&
+        subscribedResults[0]?.outcome === 'pending'
+      ) {
+        setTimeout(() => {
+          input.onResult({
+            outcome: 'active',
+            state: buildActiveLinkedDeviceSessionState({
+              linkSessionId: payload.linkSessionId,
+              walletId: fixture.approval.walletId,
+              enrollmentId: fixture.approval.enrollmentId,
+              activatedAtMs: now,
+            }),
+            manifestDigestB64u: fixture.receipt.manifestDigestB64u,
+            receipt: fixture.receipt,
+          });
+        }, 0);
+      }
       return { close: () => undefined };
     },
     createAuthenticatedSessionTransportV1() {
@@ -381,6 +405,33 @@ function createPorts(
 }
 
 test.describe('linked-device browser orchestration', () => {
+  test('rejects a second direct Device 2 flow while the first remains owned', async () => {
+    const calls: string[] = [];
+    const domain = new DeviceLinkingDomain({
+      kind: 'direct',
+      getContext: () => {
+        throw new Error('Device 2 QR generation does not use the signing context');
+      },
+      walletIframe: {
+        shouldUseWalletIframe: () => false,
+        requireRouter: async () => {
+          throw new Error('wallet iframe is disabled');
+        },
+      },
+      ports: createPorts(calls),
+    });
+
+    const first = domain.startDevice2LinkingFlow();
+    await expect(domain.startDevice2LinkingFlow()).rejects.toThrow(
+      'Device-link QR flow is already running',
+    );
+    await first;
+    await domain.cancelDeviceLinking();
+    expect(calls.filter((call) => call === 'keygen')).toHaveLength(1);
+    expect(calls.filter((call) => call === 'close')).toHaveLength(1);
+    expect(calls.filter((call) => call === 'key-discard')).toHaveLength(1);
+  });
+
   test('Device 2 generates public-only QR material before registering the session', async () => {
     const calls: string[] = [];
     const events: string[] = [];
@@ -389,7 +440,6 @@ test.describe('linked-device browser orchestration', () => {
       transportBound = true;
     });
     const flow = new LinkDeviceFlow(
-      undefined,
       {
         options: { onEvent: (event) => events.push(event.status) },
       },
@@ -408,7 +458,7 @@ test.describe('linked-device browser orchestration', () => {
   test('Device 2 routes cancellation through the bound authenticated transport', async () => {
     const calls: string[] = [];
     const ports = createPorts(calls);
-    const flow = new LinkDeviceFlow(undefined, {}, ports);
+    const flow = new LinkDeviceFlow({}, ports);
 
     await flow.generateQR();
     await flow.cancel();
@@ -468,10 +518,32 @@ test.describe('linked-device browser orchestration', () => {
       enrollmentId: fixture.approval.enrollmentId,
       credentialDeadlineMs: Date.now() + 30_000,
     });
-    const ports = createPorts(calls, undefined, undefined, () => ({
-      outcome: 'pending',
-      state: pendingState,
-    }));
+    const ports = createPorts(
+      calls,
+      undefined,
+      undefined,
+      () => ({
+        outcome: 'pending',
+        state: pendingState,
+      }),
+      undefined,
+      undefined,
+      undefined,
+      [
+        { outcome: 'replayed', replay: { state: 'pending', session: pendingState } },
+        {
+          outcome: 'active',
+          state: buildActiveLinkedDeviceSessionState({
+            linkSessionId: fixture.approval.linkSessionId,
+            walletId: fixture.approval.walletId,
+            enrollmentId: fixture.approval.enrollmentId,
+            activatedAtMs: Date.now(),
+          }),
+          manifestDigestB64u: fixture.receipt.manifestDigestB64u,
+          receipt: fixture.receipt,
+        },
+      ],
+    );
     const qrData = buildQrLinkedDeviceSessionPayloadV4({
       linkSessionId: fixture.payload.linkSessionId,
       linkPublicKeyB64u: fixture.payload.linkPublicKeyB64u,
@@ -483,13 +555,7 @@ test.describe('linked-device browser orchestration', () => {
     const result = await scanAndLinkDevice(undefined, qrData, {}, ports);
 
     expect(result.success).toBe(true);
-    expect(calls).toEqual([
-      'authenticate',
-      'claim',
-      'approve',
-      'subscribe-approval',
-      'get-approval-owner',
-    ]);
+    expect(calls).toEqual(['authenticate', 'claim', 'approve', 'subscribe-approval']);
   });
 
   test('Device 1 prepares and persists exact R102 deliveries once the target is ready', async () => {
@@ -593,7 +659,7 @@ test.describe('linked-device browser orchestration', () => {
         acknowledgement = value;
       },
     );
-    const flow = new LinkDeviceFlow(undefined, {}, ports);
+    const flow = new LinkDeviceFlow({}, ports);
     const generated = await flow.generateQR();
     const active = await buildR103ActiveExecutionFixture({
       linkSessionId: String(generated.qrData.linkSessionId),
@@ -681,7 +747,7 @@ test.describe('linked-device browser orchestration', () => {
         aggregateAcknowledgement = value;
       },
     );
-    const flow = new LinkDeviceFlow(undefined, {}, ports);
+    const flow = new LinkDeviceFlow({}, ports);
     const generated = await flow.generateQR();
     if (!authenticatedTransport) throw new Error('authenticated transport was not bound');
     Object.assign(authenticatedTransport, {
@@ -765,7 +831,7 @@ test.describe('linked-device browser orchestration', () => {
       const ports = createPorts(calls, undefined, undefined, undefined, (handler) => {
         emitSessionEvent = handler;
       });
-      const flow = new LinkDeviceFlow(undefined, {}, ports);
+      const flow = new LinkDeviceFlow({}, ports);
       const generated = await flow.generateQR();
       const terminalState =
         terminalKind === 'expired'
@@ -807,7 +873,7 @@ test.describe('linked-device browser orchestration', () => {
         if (discardAttempts === 1) throw new Error('worker unavailable');
       },
     });
-    const flow = new LinkDeviceFlow(undefined, {}, ports);
+    const flow = new LinkDeviceFlow({}, ports);
 
     await flow.generateQR();
     await expect(flow.cancel()).rejects.toThrow('worker unavailable');
@@ -834,7 +900,7 @@ test.describe('linked-device browser orchestration', () => {
         return await createKeyMaterial();
       },
     });
-    const flow = new LinkDeviceFlow(undefined, {}, ports);
+    const flow = new LinkDeviceFlow({}, ports);
 
     const generation = flow.generateQR();
     await expect.poll(() => calls).toContain('keygen-delayed');
@@ -857,5 +923,38 @@ test.describe('linked-device browser orchestration', () => {
       }),
     ).toThrow();
     expect(DeviceLinkingErrorCode.UNSUPPORTED).toBe('UNSUPPORTED');
+  });
+
+  test('uses the shared QR clock-skew boundary and keeps expiry strict', () => {
+    const originalNow = Date.now;
+    const now = 1_800_000_000_000;
+    Date.now = () => now;
+    try {
+      const fixture = buildR103DeviceLinkFixture();
+      const accepted = buildQrLinkedDeviceSessionPayloadV4({
+        ...fixture.payload,
+        issuedAtMs: now + LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1,
+        expiresAtMs: now + LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1 + 60_000,
+      });
+      expect(validateQrLinkedDeviceSessionPayloadV4(accepted)).toEqual(accepted);
+
+      const rejectedFuture = buildQrLinkedDeviceSessionPayloadV4({
+        ...fixture.payload,
+        issuedAtMs: now + LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1 + 1,
+        expiresAtMs: now + LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1 + 60_001,
+      });
+      expect(() => validateQrLinkedDeviceSessionPayloadV4(rejectedFuture)).toThrow(
+        'QR payload was issued in the future',
+      );
+
+      const expiredAtNow = buildQrLinkedDeviceSessionPayloadV4({
+        ...fixture.payload,
+        issuedAtMs: now - 60_000,
+        expiresAtMs: now,
+      });
+      expect(() => validateQrLinkedDeviceSessionPayloadV4(expiredAtNow)).toThrow('QR code expired');
+    } finally {
+      Date.now = originalNow;
+    }
   });
 });

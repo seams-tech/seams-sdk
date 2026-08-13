@@ -1,6 +1,9 @@
 import { expect, test } from '@playwright/test';
 import {
   computeLinkedDevicePublicKeyDigestV1,
+  encodeLinkedDeviceRequestProofV1,
+  LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1,
+  LINKED_DEVICE_REQUEST_PROOF_MAX_TTL_MS_V1,
   LinkedDeviceRequestProofVerifierV1,
   type LinkedDeviceRequestProofNonceStoreV1,
   type LinkedDeviceRequestProofV1,
@@ -95,7 +98,9 @@ test('rejects expired proofs before consuming their nonce and verifies public-cr
   const createResult = await verifier.verifyPublicCreateV1({
     proof: createProof,
     devicePublicKeyB64u: base64UrlEncode(publicKey),
-    devicePublicKeyDigestB64u: await computeLinkedDevicePublicKeyDigestV1(base64UrlEncode(publicKey)),
+    devicePublicKeyDigestB64u: await computeLinkedDevicePublicKeyDigestV1(
+      base64UrlEncode(publicKey),
+    ),
     linkSessionId,
     method: 'POST',
     canonicalPath: '/wallet/device-linking/v1/sessions',
@@ -103,6 +108,71 @@ test('rejects expired proofs before consuming their nonce and verifies public-cr
     nowMs,
   });
   expect(createResult.kind).toBe('authorized');
+});
+
+test('accepts bounded future issuance and rejects larger clock skew', async () => {
+  const futureFixture = await buildSignedDeviceRequestProofFixtureV1({
+    linkSessionId,
+    canonicalPath: '/wallet/device-linking/v1/sessions',
+    bodyText: '{"ok":true}',
+    issuedAtMs: nowMs + LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1,
+    expiresAtMs:
+      nowMs + LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1 + LINKED_DEVICE_REQUEST_PROOF_MAX_TTL_MS_V1,
+    nonceByte: 5,
+  });
+  const verifier = new LinkedDeviceRequestProofVerifierV1({ nonceStore: memoryNonceStore() });
+  await expect(
+    verifier.verifyV1(verificationInput(futureFixture.proof, futureFixture.publicKey)),
+  ).resolves.toEqual({
+    kind: 'authorized',
+    proofDigestB64u: expect.any(String),
+  });
+
+  const tooFutureFixture = await buildSignedDeviceRequestProofFixtureV1({
+    linkSessionId,
+    canonicalPath: '/wallet/device-linking/v1/sessions',
+    bodyText: '{"ok":true}',
+    issuedAtMs: nowMs + LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1 + 1,
+    expiresAtMs:
+      nowMs +
+      LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1 +
+      1 +
+      LINKED_DEVICE_REQUEST_PROOF_MAX_TTL_MS_V1,
+    nonceByte: 6,
+  });
+  const tooFutureStore = memoryNonceStore();
+  const tooFutureVerifier = new LinkedDeviceRequestProofVerifierV1({ nonceStore: tooFutureStore });
+  await expect(
+    tooFutureVerifier.verifyV1(
+      verificationInput(tooFutureFixture.proof, tooFutureFixture.publicKey),
+    ),
+  ).resolves.toMatchObject({ kind: 'denied', code: 'expired' });
+  expect(tooFutureStore.consumed).toHaveLength(0);
+});
+
+test('keeps the request-proof lifetime capped at one minute', async () => {
+  const fixture = await buildSignedDeviceRequestProofFixtureV1({
+    linkSessionId,
+    canonicalPath: '/wallet/device-linking/v1/sessions',
+    bodyText: '{"ok":true}',
+    issuedAtMs: nowMs - 1,
+    expiresAtMs: nowMs - 1 + LINKED_DEVICE_REQUEST_PROOF_MAX_TTL_MS_V1,
+    nonceByte: 7,
+  });
+  const verifier = new LinkedDeviceRequestProofVerifierV1({ nonceStore: memoryNonceStore() });
+  await expect(
+    verifier.verifyV1(verificationInput(fixture.proof, fixture.publicKey)),
+  ).resolves.toEqual({
+    kind: 'authorized',
+    proofDigestB64u: expect.any(String),
+  });
+
+  expect(() =>
+    encodeLinkedDeviceRequestProofV1({
+      ...fixture.proof,
+      expiresAtMs: fixture.proof.expiresAtMs + 1,
+    }),
+  ).toThrow('request proof lifetime exceeds the maximum');
 });
 
 function verificationInput(
@@ -121,7 +191,9 @@ function verificationInput(
   };
 }
 
-function memoryNonceStore(): LinkedDeviceRequestProofNonceStoreV1 & { readonly consumed: string[] } {
+function memoryNonceStore(): LinkedDeviceRequestProofNonceStoreV1 & {
+  readonly consumed: string[];
+} {
   const seen = new Set<string>();
   const consumed: string[] = [];
   return {

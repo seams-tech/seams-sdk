@@ -8,6 +8,7 @@ import { buildLinkedDeviceEnrollmentReceiptV1 } from '@shared/device-linking/par
 import { parseWalletId } from '@shared/utils/domainIds';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
+import { LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1 } from '@shared/device-linking/requestProof';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
 import {
   D1LinkedDeviceSessionStoreV1,
@@ -96,6 +97,39 @@ test('expires an unclaimed session through the read projection and preserves ter
   expect(expired?.state).not.toHaveProperty('walletId');
 });
 
+test('accepts QR issuance within clock skew and rejects a larger future offset', async () => {
+  temporary = createTemporaryD1Database();
+  await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+  const store = new D1LinkedDeviceSessionStoreV1({ database: temporary.database, scope });
+  const service = new LinkedDeviceSessionServiceV1({
+    store,
+    authorization: ownerAuth(),
+    aggregateActivationVerifier,
+  });
+  const withinSkew = {
+    ...qrPayload('session-future-within-skew'),
+    issuedAtMs: nowMs + LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1,
+    expiresAtMs: nowMs + LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1 + 60_000,
+  };
+  await expect(
+    service.createUnclaimedSessionV1({ payload: withinSkew, nowMs }),
+  ).resolves.toMatchObject({
+    outcome: 'applied',
+  });
+
+  const outsideSkew = {
+    ...qrPayload('session-future-outside-skew'),
+    issuedAtMs: nowMs + LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1 + 1,
+    expiresAtMs: nowMs + LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1 + 60_001,
+  };
+  await expect(
+    service.createUnclaimedSessionV1({ payload: outsideSkew, nowMs }),
+  ).resolves.toMatchObject({
+    outcome: 'invalid_input',
+    message: 'link session issuedAtMs is in the future',
+  });
+});
+
 test('records owner approval exactly once, rejects a conflicting transcript, and cancels provisioning before commit', async () => {
   temporary = createTemporaryD1Database();
   await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
@@ -106,7 +140,10 @@ test('records owner approval exactly once, rejects a conflicting transcript, and
     authorization: ownerAuthForFixture(),
     aggregateActivationVerifier,
   });
-  const created = await service.createUnclaimedSessionV1({ payload: fixture.payload, nowMs: 3_000 });
+  const created = await service.createUnclaimedSessionV1({
+    payload: fixture.payload,
+    nowMs: 3_000,
+  });
   expect(created.outcome).toBe('applied');
   const claimed = await service.claimSessionV1({ payload: fixture.payload, nowMs: 3_001 });
   expect(claimed.outcome).toBe('applied');
@@ -245,9 +282,7 @@ test('rejects aggregate activation unless the approved manifest and child set ma
   expect(committed.outcome).toBe('applied');
   if (committed.outcome !== 'applied') throw new Error('expected committed state');
 
-  const differentManifestDigest = parseDigestB64u(
-    base64UrlEncode(new Uint8Array(32).fill(9)),
-  );
+  const differentManifestDigest = parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(9)));
   const wrongManifest = buildLinkedDeviceEnrollmentReceiptV1({
     enrollmentId: fixture.receipt.enrollmentId,
     walletId: fixture.receipt.walletId,
@@ -433,7 +468,8 @@ function ownerAuthForFixture(): LinkedDeviceOwnerAuthorizationPortV1 {
 function tamperClaimDeviceId(record: unknown): unknown {
   const copied = JSON.parse(JSON.stringify(record)) as Record<string, unknown>;
   const transcript = copied.claimTranscript;
-  if (!isRecord(transcript) || !isRecord(transcript.value)) throw new Error('claim transcript is unavailable');
+  if (!isRecord(transcript) || !isRecord(transcript.value))
+    throw new Error('claim transcript is unavailable');
   transcript.value = { ...transcript.value, deviceId: 'device:tampered' };
   return copied;
 }

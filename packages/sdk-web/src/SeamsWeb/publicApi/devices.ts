@@ -30,7 +30,11 @@ export type {
 } from '@shared/device-linking';
 
 export type LinkedDeviceManagementPortV1 = {
-  listLinkedDevices(input: { readonly walletId: WalletId }): Promise<LinkedDeviceListResultV1>;
+  listLinkedDevices(input: {
+    readonly walletId: WalletId;
+    readonly limit: number;
+    readonly cursor: string | null;
+  }): Promise<LinkedDeviceListResultV1>;
   revokeLinkedDevice(input: {
     readonly walletId: WalletId;
     readonly deviceId: LinkedDeviceId;
@@ -54,9 +58,9 @@ export function createWalletIframeLinkedDeviceManagementPortV1(deps: {
   readonly walletIframe: Pick<WalletIframeCoordinator, 'requireRouter'>;
 }): LinkedDeviceManagementPortV1 {
   return {
-    listLinkedDevices: async ({ walletId }) => {
+    listLinkedDevices: async ({ walletId, limit, cursor }) => {
       const router = await deps.walletIframe.requireRouter(walletId);
-      return await router.listLinkedDevices({ walletId: String(walletId) });
+      return await router.listLinkedDevices({ walletId: String(walletId), limit, cursor });
     },
     revokeLinkedDevice: async ({ walletId, deviceId, requestedAtMs }) => {
       const router = await deps.walletIframe.requireRouter(walletId);
@@ -96,9 +100,13 @@ export function createDevicesCapability(deps: {
       const request = parseLinkedDeviceListRequestV1({
         kind: 'linked_device_list_request_v1',
         walletId: parseWalletIdForPublicCall(args.walletId),
+        limit: args.limit,
+        cursor: args.cursor,
       });
       const result = await deps.domain.linkedDeviceManagement.listLinkedDevices({
         walletId: request.walletId,
+        limit: request.limit,
+        cursor: request.cursor,
       });
       return parseLinkedDeviceListResultV1(result);
     },

@@ -582,7 +582,11 @@ export class SeamsWebIframe {
       },
       listLinkedDevices: async (args) => {
         await this.requireRouterReady();
-        return await this.router.listLinkedDevices({ walletId: args.walletId });
+        return await this.router.listLinkedDevices({
+          walletId: args.walletId,
+          limit: args.limit,
+          cursor: args.cursor,
+        });
       },
       revokeLinkedDevice: async (args) => {
         await this.requireRouterReady();

@@ -247,9 +247,7 @@ test('signs one linked Ed25519 operation with exact presence and holder cleanup'
     fixture.bundle.enrollmentId,
   );
   expect(transport.prepareRequest?.intent.kind).toBe('nep413_v1');
-  expect(transport.finalizeRequest?.localPresenceAssertion).toEqual(
-    transport.prepareRequest?.localPresenceAssertion,
-  );
+  expect(transport.finalizeRequest).not.toHaveProperty('localPresenceAssertion');
 });
 
 test('rejects a Wallet Session delivery from another linked device before presence', async () => {

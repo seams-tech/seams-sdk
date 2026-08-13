@@ -42,6 +42,20 @@ export type ActiveLinkedDeviceWalletSessionResolutionV1 =
     }
   | { readonly kind: 'unavailable' };
 
+export type LinkedDeviceWalletSessionRenewalTargetV1 = {
+  readonly tenantId: TenantId;
+  readonly deviceId: IssueLinkedDeviceWalletSessionInput['deviceId'];
+  readonly enrollmentId: IssueLinkedDeviceWalletSessionInput['enrollmentId'];
+  readonly authorizationId: Awaited<
+    ReturnType<typeof deriveLinkedDeviceWalletSessionIdentityV1>
+  >['authorizationId'];
+  readonly walletSessionId: Awaited<
+    ReturnType<typeof deriveLinkedDeviceWalletSessionIdentityV1>
+  >['walletSessionId'];
+  readonly quotaId: Awaited<ReturnType<typeof deriveLinkedDeviceWalletSessionIdentityV1>>['quotaId'];
+  readonly revocationEpoch: number;
+};
+
 export class D1LinkedDeviceWalletSessionIssuerV1 {
   constructor(private readonly options: D1LinkedDeviceWalletSessionIssuerOptionsV1) {}
 
@@ -72,6 +86,45 @@ export class D1LinkedDeviceWalletSessionIssuerV1 {
         return;
       case 'invalid':
         throw new Error('linked-device Wallet Session persisted identity is invalid');
+      default:
+        return assertNeverLinkedDeviceWalletSessionStatus(status);
+    }
+  }
+
+  async resolveRenewalTargetV1(input: {
+    readonly session: ActiveLinkedDeviceSessionRecordV1;
+    readonly requestedAtMs: number;
+  }): Promise<
+    | { readonly kind: 'available'; readonly target: LinkedDeviceWalletSessionRenewalTargetV1 }
+    | { readonly kind: 'unavailable' }
+  > {
+    const issueInput = await this.buildIssueInputV1(input);
+    const identity = await deriveLinkedDeviceWalletSessionIdentityV1(issueInput);
+    const status = await this.options.authorizationService.getLinkedDeviceWalletSessionStatus({
+      tenantId: issueInput.tenantId,
+      deviceId: issueInput.deviceId,
+      ...identity,
+      nowMs: input.requestedAtMs,
+    });
+    switch (status.kind) {
+      case 'active':
+      case 'exhausted':
+      case 'expired':
+        requireExistingAuthorizationMatches(status, issueInput);
+        return {
+          kind: 'available',
+          target: {
+            tenantId: issueInput.tenantId,
+            deviceId: issueInput.deviceId,
+            enrollmentId: issueInput.enrollmentId,
+            ...identity,
+            revocationEpoch: status.revocationEpoch,
+          },
+        };
+      case 'missing':
+      case 'invalid':
+      case 'revoked':
+        return { kind: 'unavailable' };
       default:
         return assertNeverLinkedDeviceWalletSessionStatus(status);
     }
@@ -252,7 +305,11 @@ function requireActiveProductCoverage(
     }
     productsByOperation.set(operationId, product);
   }
-  let revocationEpoch: number | null = null;
+  // The grant carries an enrollment fence. Child lanes retain their own
+  // revocation epochs, so the fence is the max active child epoch rather than
+  // an equality requirement across independently refreshed lanes.
+  let revocationEpoch = 0;
+  let activeProductCount = 0;
   for (let index = 0; index < manifest.orderedChildren.length; index += 1) {
     const manifestChild = manifest.orderedChildren[index];
     const binding = approval.orderedKeyBindings[index];
@@ -288,12 +345,10 @@ function requireActiveProductCoverage(
     ) {
       throw new Error(`linked-device Wallet Session product ${index} is invalid`);
     }
-    if (revocationEpoch === null) revocationEpoch = product.revocationEpoch;
-    else if (revocationEpoch !== product.revocationEpoch) {
-      throw new Error('linked-device Wallet Session products have different revocation epochs');
-    }
+    activeProductCount += 1;
+    revocationEpoch = Math.max(revocationEpoch, product.revocationEpoch);
   }
-  if (revocationEpoch === null) {
+  if (activeProductCount === 0) {
     throw new Error('linked-device Wallet Session has no active products');
   }
   return revocationEpoch;

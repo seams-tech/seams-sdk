@@ -29,7 +29,7 @@ export const LinkedDevicesSection: React.FC<LinkedDevicesSectionProps> = ({
     setIsLoading(true);
     setError(null);
     try {
-      const result = await seams.devices.listLinkedDevices({ walletId });
+      const result = await seams.devices.listLinkedDevices({ walletId, limit: 50, cursor: null });
       setDevices(result.devices);
       loadedForRef.current = walletId;
     } catch (cause: unknown) {

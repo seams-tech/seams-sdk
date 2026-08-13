@@ -13,7 +13,10 @@ import type { LaneAggregateRevocationRequestV1 } from '../signingLanes/LaneAggre
 import type {
   LinkedDeviceOwnerAuthorizationContextV1,
   LinkedDeviceSessionRecordV1,
+  LinkedDeviceSessionListCursorV1,
 } from './linkedDeviceSession';
+import { parseLinkDeviceSessionId } from '@shared/signing-lanes/ids';
+import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import type { LinkedDeviceEnrollmentId, LinkedDeviceId } from '@shared/signing-lanes/ids';
 import type { WalletId } from '@shared/utils/domainIds';
 import type {
@@ -32,6 +35,12 @@ export type LinkedDeviceManagementTargetV1 = {
   readonly products: readonly LaneProductEpochRecordV1[];
 };
 
+export class LinkedDeviceListCursorError extends Error {
+  readonly kind = 'linked_device_list_cursor_error_v1';
+}
+
+export const MAX_LINKED_DEVICE_LIST_LIMIT_V1 = 50;
+
 /**
  * Owner Wallet Session authentication has already verified the bearer token at
  * the HTTP boundary. Management receives that exact context so it can bind
@@ -43,7 +52,11 @@ export type LinkedDeviceManagementOwnerV1 = Pick<
 >;
 
 export type LinkedDeviceManagementProjectionPortV1 = {
-  listLinkedDevicesV1(walletId: WalletId): Promise<readonly LinkedDeviceSummaryV1[]>;
+  listLinkedDevicesV1(input: {
+    readonly walletId: WalletId;
+    readonly limit: number;
+    readonly cursor: LinkedDeviceSessionListCursorV1 | null;
+  }): Promise<LinkedDeviceListResultV1>;
   getLinkedDeviceV1(input: {
     readonly walletId: WalletId;
     readonly deviceId: LinkedDeviceId;
@@ -132,8 +145,18 @@ export class LinkedDeviceManagementServiceV1 {
     if (!ownerAuthorizesWalletV1(owner, request.walletId, requestedAtMs)) {
       return { kind: 'unauthorized' };
     }
-    const devices = await this.options.projection.listLinkedDevicesV1(request.walletId);
-    return { devices };
+    if (
+      !Number.isSafeInteger(request.limit) ||
+      request.limit < 1 ||
+      request.limit > MAX_LINKED_DEVICE_LIST_LIMIT_V1
+    ) {
+      throw new Error('linked-device list limit is invalid');
+    }
+    return await this.options.projection.listLinkedDevicesV1({
+      walletId: request.walletId,
+      limit: request.limit,
+      cursor: decodeLinkedDeviceListCursorV1(request.cursor),
+    });
   }
 
   async revokeLinkedDeviceV1(
@@ -193,6 +216,69 @@ export class LinkedDeviceManagementServiceV1 {
       aggregateReceiptDigestB64u,
     };
   }
+}
+
+export function encodeLinkedDeviceListCursorV1(
+  cursor: LinkedDeviceSessionListCursorV1,
+): string {
+  if (!Number.isSafeInteger(cursor.updatedAtMs) || cursor.updatedAtMs < 0) {
+    throw new LinkedDeviceListCursorError('linked-device list cursor timestamp is invalid');
+  }
+  const sessionId = parseLinkDeviceSessionId(String(cursor.linkSessionId));
+  if (!sessionId.ok) {
+    throw new LinkedDeviceListCursorError('linked-device list cursor session id is invalid');
+  }
+  const encoded = base64UrlEncode(
+    new TextEncoder().encode(
+      JSON.stringify({ updatedAtMs: cursor.updatedAtMs, linkSessionId: String(sessionId.value) }),
+    ),
+  );
+  return encoded;
+}
+
+export function decodeLinkedDeviceListCursorV1(
+  raw: string | null,
+): LinkedDeviceSessionListCursorV1 | null {
+  if (raw === null) return null;
+  try {
+    const decoded = new TextDecoder().decode(base64UrlDecode(raw));
+    const record: unknown = JSON.parse(decoded);
+    if (!isLinkedDeviceListCursorRecordV1(record)) {
+      throw new Error('invalid cursor shape');
+    }
+    if (
+      typeof record.updatedAtMs !== 'number' ||
+      !Number.isSafeInteger(record.updatedAtMs) ||
+      record.updatedAtMs < 0
+    ) {
+      throw new Error('invalid cursor timestamp');
+    }
+    const sessionId = parseLinkDeviceSessionId(record.linkSessionId);
+    if (!sessionId.ok) throw new Error('invalid cursor session id');
+    const cursor = {
+      updatedAtMs: record.updatedAtMs,
+      linkSessionId: sessionId.value,
+    } satisfies LinkedDeviceSessionListCursorV1;
+    if (encodeLinkedDeviceListCursorV1(cursor) !== raw) {
+      throw new Error('non-canonical cursor');
+    }
+    return cursor;
+  } catch {
+    throw new LinkedDeviceListCursorError('linked-device list cursor is invalid');
+  }
+}
+
+function isLinkedDeviceListCursorRecordV1(
+  raw: unknown,
+): raw is { readonly updatedAtMs: unknown; readonly linkSessionId: unknown } {
+  return (
+    typeof raw === 'object' &&
+    raw !== null &&
+    !Array.isArray(raw) &&
+    Object.keys(raw).sort().join(',') === 'linkSessionId,updatedAtMs' &&
+    'updatedAtMs' in raw &&
+    'linkSessionId' in raw
+  );
 }
 
 function ownerAuthorizesWalletV1(

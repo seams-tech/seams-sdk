@@ -370,6 +370,7 @@ export function buildR103LinkedWalletSessionDeliveryFixture(
         walletKeyId: binding.walletKeyId,
         keyFamily: binding.keyFamily,
         walletSessionJwt,
+        revocationEpoch: binding.sourceRevocationEpoch,
       },
     ],
   });

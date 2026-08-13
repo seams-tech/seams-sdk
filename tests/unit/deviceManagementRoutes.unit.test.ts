@@ -9,7 +9,7 @@ const walletId = parseWalletId('wallet:r103').value;
 const otherWalletId = parseWalletId('wallet:other').value;
 
 test('binds a linked-device list authorization to its canonical wallet query', async () => {
-  const signedPath = `${LINKED_DEVICE_MANAGEMENT_BASE_V1}?walletId=${encodeURIComponent(String(walletId))}`;
+  const signedPath = `${LINKED_DEVICE_MANAGEMENT_BASE_V1}?walletId=${encodeURIComponent(String(walletId))}&limit=10&cursor=`;
   let authenticatedPath: string | undefined;
   const service = managementRouteService({
     authenticateOwnerRequestV1: async ({ pathname, bodyDigestB64u }) => {
@@ -18,15 +18,19 @@ test('binds a linked-device list authorization to its canonical wallet query', a
         kind: 'authorized' as const,
         body: null,
         binding: requestBinding('GET', signedPath, bodyDigestB64u),
+        owner: { walletId, expiresAtMs: 11_000 },
       };
     },
   });
 
-  const response = await invoke(service, `?walletId=${encodeURIComponent(String(otherWalletId))}`);
+  const response = await invoke(
+    service,
+    `?walletId=${encodeURIComponent(String(otherWalletId))}&limit=10&cursor=`,
+  );
 
   expect(response.status).toBe(400);
   expect(authenticatedPath).toBe(
-    `${LINKED_DEVICE_MANAGEMENT_BASE_V1}?walletId=${encodeURIComponent(String(otherWalletId))}`,
+    `${LINKED_DEVICE_MANAGEMENT_BASE_V1}?walletId=${encodeURIComponent(String(otherWalletId))}&limit=10&cursor=`,
   );
 });
 
@@ -39,16 +43,39 @@ test('passes the canonical wallet query to owner authentication', async () => {
         kind: 'authorized' as const,
         body: null,
         binding: requestBinding('GET', pathname, bodyDigestB64u),
+        owner: { walletId, expiresAtMs: 11_000 },
       };
     },
   });
 
-  const response = await invoke(service, `?walletId=${encodeURIComponent(String(walletId))}`);
+  const response = await invoke(
+    service,
+    `?walletId=${encodeURIComponent(String(walletId))}&limit=10&cursor=`,
+  );
 
   expect(response.status).toBe(200);
   expect(authenticatedPath).toBe(
-    `${LINKED_DEVICE_MANAGEMENT_BASE_V1}?walletId=${encodeURIComponent(String(walletId))}`,
+    `${LINKED_DEVICE_MANAGEMENT_BASE_V1}?walletId=${encodeURIComponent(String(walletId))}&limit=10&cursor=`,
   );
+  expect(await response.json()).toEqual({ ok: true, devices: [], nextCursor: null });
+});
+
+test('rejects a list page larger than the server-owned maximum', async () => {
+  let authenticated = false;
+  const service = managementRouteService({
+    authenticateOwnerRequestV1: async () => {
+      authenticated = true;
+      throw new Error('authentication should not run');
+    },
+  });
+
+  const response = await invoke(
+    service,
+    `?walletId=${encodeURIComponent(String(walletId))}&limit=51&cursor=`,
+  );
+
+  expect(response.status).toBe(400);
+  expect(authenticated).toBe(false);
 });
 
 function managementRouteService(
@@ -58,7 +85,7 @@ function managementRouteService(
     ...overrides,
     nowV1: () => 10_000,
     management: {
-      listLinkedDevicesV1: async () => ({ devices: [] }),
+      listLinkedDevicesV1: async () => ({ devices: [], nextCursor: null }),
       revokeLinkedDeviceV1: async () => ({ kind: 'not_found' as const }),
     },
   };

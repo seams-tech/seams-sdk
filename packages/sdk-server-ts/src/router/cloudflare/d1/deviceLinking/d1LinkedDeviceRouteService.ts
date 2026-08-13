@@ -29,6 +29,13 @@ import type {
   DeviceLinkingOwnerSourceHandoffProviderV1,
   DeviceLinkingRouteServiceV1,
 } from '../../../../router/transport/fetch/routes/deviceLinking';
+import type { LinkedDeviceLocalPresenceVerifierPortV1 } from '../../../auth/linkedDeviceLocalPresenceVerifier';
+import { verifyLinkedDeviceLocalPresenceForOperation } from '../../../domains/signingOperations/linkedDeviceNormalSigning';
+import { buildLinkedDeviceWalletSessionRenewalCapabilityV1 } from '../../../domains/signingOperations/walletExecutionAdmission';
+import {
+  computeLinkedDeviceWalletSessionRenewalIntentDigestV1,
+  linkedDeviceWalletSessionRenewalAuthorizedOperationIdV1,
+} from '@shared/device-linking/digests';
 
 export type D1LinkedDeviceRouteServiceOptionsV1 = {
   readonly database: D1DatabaseLike;
@@ -39,7 +46,9 @@ export type D1LinkedDeviceRouteServiceOptionsV1 = {
     | 'getLinkedDeviceWalletSessionStatus'
     | 'issueLinkedDeviceWalletSession'
     | 'readLinkedDeviceWalletSessionAuthorization'
+    | 'renewLinkedDeviceWalletSession'
   >;
+  readonly linkedDeviceLocalPresence: LinkedDeviceLocalPresenceVerifierPortV1;
   readonly ownerAuthorization: LinkedDeviceOwnerAuthorizationPortV1;
   readonly authenticateOwnerRequestV1: (
     input: DeviceLinkingOwnerRequestInputV1,
@@ -98,6 +107,58 @@ export function createD1LinkedDeviceRouteServiceV1(
   );
   const readWalletSessionAuthorizationV1: DeviceLinkingRouteServiceV1['readWalletSessionAuthorizationV1'] =
     async (input) => await walletSessionIssuer.resolveActiveForSessionV1(input);
+  const renewWalletSessionAuthorizationV1: DeviceLinkingRouteServiceV1['renewWalletSessionAuthorizationV1'] =
+    async (input) => {
+      const target = await walletSessionIssuer.resolveRenewalTargetV1({
+        session: input.session,
+        requestedAtMs: input.requestedAtMs,
+      });
+      if (target.kind === 'unavailable') return target;
+      const authorizedOperationId = linkedDeviceWalletSessionRenewalAuthorizedOperationIdV1();
+      const intentDigestB64u = await computeLinkedDeviceWalletSessionRenewalIntentDigestV1({
+        authorizationId: target.target.authorizationId,
+        walletSessionId: target.target.walletSessionId,
+        quotaId: target.target.quotaId,
+        deviceId: target.target.deviceId,
+        enrollmentId: target.target.enrollmentId,
+      });
+      const presence = await verifyLinkedDeviceLocalPresenceForOperation({
+        assertion: input.localPresenceAssertion,
+        verifier: options.linkedDeviceLocalPresence,
+        authorizedOperationId,
+        deviceId: target.target.deviceId,
+        enrollmentId: target.target.enrollmentId,
+        intentDigestB64u,
+        nowMs: () => input.requestedAtMs,
+      });
+      if (presence.kind === 'refused') {
+        return { kind: 'local_presence_refused', reason: presence.reason };
+      }
+      const renewal = buildLinkedDeviceWalletSessionRenewalCapabilityV1({
+        evidence: presence.evidence,
+        tenantId: target.target.tenantId,
+        deviceId: target.target.deviceId,
+        enrollmentId: target.target.enrollmentId,
+        authorizationId: target.target.authorizationId,
+        walletSessionId: target.target.walletSessionId,
+        quotaId: target.target.quotaId,
+        revocationEpoch: target.target.revocationEpoch,
+        authorizedOperationId,
+        intentDigestB64u,
+      });
+      const authorization = await options.authorizationService.renewLinkedDeviceWalletSession({
+        tenantId: target.target.tenantId,
+        deviceId: target.target.deviceId,
+        enrollmentId: target.target.enrollmentId,
+        authorizationId: target.target.authorizationId,
+        walletSessionId: target.target.walletSessionId,
+        quotaId: target.target.quotaId,
+        revocationEpoch: target.target.revocationEpoch,
+        renewedAtMs: input.requestedAtMs,
+        renewal,
+      });
+      return { kind: 'active', authorization };
+    };
   const routeSessionService: DeviceLinkingRouteServiceV1['sessionService'] = {
     createUnclaimedSessionV1: sessionService.createUnclaimedSessionV1.bind(sessionService),
     claimSessionV1: sessionService.claimSessionV1.bind(sessionService),
@@ -111,6 +172,7 @@ export function createD1LinkedDeviceRouteServiceV1(
       typeof input === 'string'
         ? await sessionStore.getSessionV1(input)
         : await sessionService.getSessionV1(input),
+    listSessionsForWalletV1: sessionService.listSessionsForWalletV1.bind(sessionService),
   };
   return {
     sessionService: routeSessionService,
@@ -152,6 +214,7 @@ export function createD1LinkedDeviceRouteServiceV1(
     targetCredential: options.targetCredential,
     acknowledgeReceiptV1,
     readWalletSessionAuthorizationV1,
+    renewWalletSessionAuthorizationV1,
     resolveNearAccountIdForEd25519WalletKeyV1:
       resolveNearAccountIdForEd25519WalletKeyV1.bind(undefined, walletStore),
     retryCommittedDeliveryV1: completion.retry.retryCommittedDeliveryV1.bind(completion.retry),
