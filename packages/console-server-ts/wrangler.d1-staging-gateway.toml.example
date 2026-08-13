@@ -46,6 +46,7 @@ ROUTER_AB_ECDSA_REGISTRATION_TOPOLOGY_JSON = '{"routerId":"router-ab-mpc-router-
 DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY = "x25519:<deriver-a-input-public-key>"
 DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY = "x25519:<deriver-b-input-public-key>"
 SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY = "x25519:<signing-worker-output-public-key>"
+SIGNING_WORKER_SERVER_OUTPUT_HPKE_KEY_EPOCH = "epoch-1"
 RELAYER_ACCOUNT_ID = "seams-relayer-staging.testnet"
 RELAYER_PUBLIC_KEY = "ed25519:<staging-relayer-public-key>"
 NEAR_RPC_URL = "https://test.rpc.fastnear.com"
