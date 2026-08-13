@@ -207,7 +207,6 @@ const labelColors = {
 const resetColor = '\x1b[0m';
 const boldColor = '\x1b[1m';
 const brightGreenColor = '\x1b[92m';
-const dimColor = '\x1b[2m';
 
 try {
   if (options.help) {
@@ -826,11 +825,12 @@ async function waitForProductionWorkers() {
 
 function printProductionReadySummary() {
   const rows = [
-    ['Gateway', gatewayBaseUrl],
-    ['Gateway HTTPS', gatewayPublicUrl],
+    ['Gateway', gatewayBaseUrl, labelColors.gateway],
+    ['Gateway HTTPS', gatewayPublicUrl, labelColors.gateway],
   ];
   for (const endpoint of productionWorkerEndpoints) {
-    rows.push([endpoint.label ?? endpoint.role, endpoint.url]);
+    const label = endpoint.label ?? endpoint.role;
+    rows.push([label, endpoint.url, labelColors[label] ?? '']);
   }
 
   if (displayMode === 'multiplex') {
@@ -844,16 +844,18 @@ function printProductionReadySummary() {
   const useColor = process.stdout.isTTY && !process.env.NO_COLOR;
   const green = useColor ? brightGreenColor : '';
   const bold = useColor ? boldColor : '';
-  const dim = useColor ? dimColor : '';
   const reset = useColor ? resetColor : '';
-  const rule = '━'.repeat(72);
+  const rule = '━'.repeat(56);
   const output = ['', `${green}${bold}${rule}${reset}`];
   output.push(
     `${green}${bold}  ✓ ROUTER FULLY OPERATIONAL${reset}  ${green}${rows.length}/${rows.length} services ready${reset}`,
   );
   output.push(`${green}${bold}${rule}${reset}`);
-  for (const [label, url] of rows) {
-    output.push(`${green}  ✓ READY${reset}  ${bold}${label.padEnd(16)}${reset} ${dim}${url}${reset}`);
+  for (const [label, url, serviceColor] of rows) {
+    const color = useColor ? serviceColor : '';
+    output.push(
+      `${green}  ✓ READY${reset}  ${color}${bold}${label.padEnd(16)}${reset} ${color}${url}${reset}`,
+    );
   }
   output.push(`${green}${bold}${rule}${reset}`, '');
   process.stdout.write(`${output.join('\n')}\n`);
