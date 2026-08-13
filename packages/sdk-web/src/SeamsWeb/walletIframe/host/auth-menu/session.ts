@@ -152,6 +152,9 @@ type StartDeviceLinking = (
 type CancelDeviceLinking = () => Promise<void>;
 
 const AUTH_MENU_TAG = 'seams-auth-menu-surface';
+const AUTH_MENU_PASSKEY_PREPARATION_TIMEOUT_MS = 20_000;
+const AUTH_MENU_PASSKEY_PREPARATION_TIMEOUT_MESSAGE =
+  'Passkey preparation timed out. Retry to continue.';
 
 function ensureAuthMenuSurfaceDefinition(): void {
   if (customElements.get(AUTH_MENU_TAG)) return;
@@ -348,7 +351,7 @@ export class AuthMenuSession {
   private prepared: HostedPasskeyMenuPrepared | null = null;
   private preparePasskey: PreparePasskey | null = null;
   private registrationPreparation: PrepareRegistration | null = null;
-  private registrationCancellation: AbortController | null = null;
+  private preparationCancellation: AbortController | null = null;
   private googleCancellation: AbortController | null = null;
   private beginGoogleEmailOtp: BeginGoogleEmailOtp;
   private readonly startDeviceLinking: StartDeviceLinking;
@@ -361,6 +364,7 @@ export class AuthMenuSession {
   private preparationGeneration = 0;
   private googleGeneration = 0;
   private deviceLinkGeneration = 0;
+  private preparationDeadlineTimer: ReturnType<typeof setTimeout> | null = null;
   private preparationExpiryTimer: ReturnType<typeof setTimeout> | null = null;
   private lastReportedError: string | null = null;
 
@@ -542,7 +546,7 @@ export class AuthMenuSession {
     this.clearPreparationExpiryTimer();
     const generation = ++this.preparationGeneration;
     const cancellationController = new AbortController();
-    this.registrationCancellation = cancellationController;
+    this.preparationCancellation = cancellationController;
     const cancellation = {
       kind: 'abort_signal' as const,
       signal: cancellationController.signal,
@@ -555,6 +559,7 @@ export class AuthMenuSession {
       },
     };
     this.updateElement();
+    this.schedulePreparationDeadline(generation, cancellationController);
     const preparation = Promise.resolve().then(() =>
       registrationPreparation
         ? registrationPreparation(this.registrationValue(), cancellation)
@@ -566,6 +571,7 @@ export class AuthMenuSession {
           cancelHostedPasskeyMenuPreparation(prepared);
           return;
         }
+        this.clearPreparationDeadlineTimer();
         this.prepared = prepared;
         this.stateValue = {
           kind: 'ready',
@@ -581,6 +587,7 @@ export class AuthMenuSession {
       (error: unknown) => {
         if (generation !== this.preparationGeneration || this.stateValue.kind === 'complete')
           return;
+        this.clearPreparationDeadlineTimer();
         this.stateValue = {
           kind: 'preparing',
           viewModel: {
@@ -602,10 +609,11 @@ export class AuthMenuSession {
       this.deviceLinkGeneration += 1;
       void this.cancelDeviceLinking().catch(() => {});
     }
+    this.clearPreparationDeadlineTimer();
     this.clearPreparationExpiryTimer();
     this.preparationGeneration += 1;
-    this.registrationCancellation?.abort();
-    this.registrationCancellation = null;
+    this.preparationCancellation?.abort();
+    this.preparationCancellation = null;
     this.googleGeneration += 1;
     this.googleCancellation?.abort();
     this.googleCancellation = null;
@@ -636,6 +644,53 @@ export class AuthMenuSession {
     if (this.preparationExpiryTimer === null) return;
     clearTimeout(this.preparationExpiryTimer);
     this.preparationExpiryTimer = null;
+  }
+
+  private clearPreparationDeadlineTimer(): void {
+    if (this.preparationDeadlineTimer === null) return;
+    clearTimeout(this.preparationDeadlineTimer);
+    this.preparationDeadlineTimer = null;
+  }
+
+  private schedulePreparationDeadline(
+    generation: number,
+    cancellation: AbortController,
+  ): void {
+    this.clearPreparationDeadlineTimer();
+    this.preparationDeadlineTimer = setTimeout(
+      this.expirePasskeyPreparation.bind(this, generation, cancellation),
+      AUTH_MENU_PASSKEY_PREPARATION_TIMEOUT_MS,
+    );
+  }
+
+  private expirePasskeyPreparation(generation: number, cancellation: AbortController): void {
+    const state = this.stateValue;
+    if (
+      generation !== this.preparationGeneration ||
+      cancellation !== this.preparationCancellation ||
+      state.kind !== 'preparing' ||
+      state.viewModel.kind !== 'passkey' ||
+      state.viewModel.status.kind !== 'idle' ||
+      state.viewModel.status.interaction !== 'arming'
+    ) {
+      return;
+    }
+    this.clearPreparationDeadlineTimer();
+    this.preparationGeneration += 1;
+    this.preparationCancellation = null;
+    cancellation.abort();
+    this.stateValue = {
+      kind: 'preparing',
+      viewModel: {
+        ...state.viewModel,
+        status: {
+          kind: 'recoverable',
+          reason: 'error',
+          message: AUTH_MENU_PASSKEY_PREPARATION_TIMEOUT_MESSAGE,
+        },
+      },
+    };
+    this.updateElement();
   }
 
   private schedulePreparationExpiry(prepared: HostedPasskeyMenuPrepared): void {
@@ -749,7 +804,6 @@ export class AuthMenuSession {
           },
         };
         this.updateElement();
-        this.startPasskeyPreparation();
       },
     );
   }
@@ -825,7 +879,6 @@ export class AuthMenuSession {
           },
         };
         this.updateElement();
-        this.startPasskeyPreparation();
         return true;
       }
       default:

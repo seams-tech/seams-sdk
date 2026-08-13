@@ -11,6 +11,7 @@ export {
   createSeamsTestWalletDbName,
 } from './schemaNames';
 export { upgradeSeamsWalletDBSchema } from './seamsWalletDB/schema';
+export type { SeamsWalletDBConfig } from './seamsWalletDB/schema';
 export { SeamsWalletDBManager } from './seamsWalletDB/manager';
 export { SeamsWalletRepositories } from './seamsWalletDB/repositories';
 export {

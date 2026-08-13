@@ -218,16 +218,6 @@ async function readResponseText(response: Response): Promise<string> {
   }
 }
 
-function logWalletRegistrationRouteProgress(
-  stage: string,
-  details?: Record<string, unknown>,
-): void {
-  console.info('[wallet-registration][route] progress', {
-    stage,
-    ...(details || {}),
-  });
-}
-
 function walletRegistrationPostMaxAttempts(path: string): number {
   return path === WALLET_REGISTRATION_PREPARE_PATH ? 2 : 1;
 }
@@ -261,11 +251,6 @@ async function postJson<TResponse>(args: {
   const startedAt = Date.now();
   const requestBody = JSON.stringify(args.body);
   const maxAttempts = walletRegistrationPostMaxAttempts(args.path);
-  if (args.path === WALLET_REGISTRATION_FINALIZE_PATH) {
-    logWalletRegistrationRouteProgress('finalize_fetch_started', {
-      requestBytes: utf8Bytes(requestBody),
-    });
-  }
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const response = await fetch(
       `${normalizeRelayerBaseUrl(args.relayerUrl, { trim: false })}${args.path}`,
@@ -275,13 +260,6 @@ async function postJson<TResponse>(args: {
         bodyJson: requestBody,
       }),
     );
-    if (args.path === WALLET_REGISTRATION_FINALIZE_PATH) {
-      logWalletRegistrationRouteProgress('finalize_fetch_headers_received', {
-        status: response.status,
-        ok: response.ok,
-        durationMs: Date.now() - startedAt,
-      });
-    }
     if (args.onServerTiming) {
       try {
         args.onServerTiming(response.headers.get('Server-Timing'));
@@ -290,12 +268,6 @@ async function postJson<TResponse>(args: {
       }
     }
     const responseText = await readResponseText(response);
-    if (args.path === WALLET_REGISTRATION_FINALIZE_PATH) {
-      logWalletRegistrationRouteProgress('finalize_fetch_body_read', {
-        responseBytes: utf8Bytes(responseText),
-        durationMs: Date.now() - startedAt,
-      });
-    }
     const data = parseJsonText(responseText);
     if (registrationBenchmarkDiagnosticsEnabled()) {
       console.info(REGISTRATION_ROUTE_PAYLOAD_DIAGNOSTICS_LABEL, {
@@ -317,11 +289,6 @@ async function postJson<TResponse>(args: {
         attempt,
       })
     ) {
-      logWalletRegistrationRouteProgress('prepare_worker_restart_retry', {
-        status: response.status,
-        responseBytes: utf8Bytes(responseText),
-        durationMs: Date.now() - startedAt,
-      });
       continue;
     }
     if (!response.ok || data.ok === false) {
