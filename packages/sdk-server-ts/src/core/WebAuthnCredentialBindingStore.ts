@@ -230,8 +230,7 @@ export const WEBAUTHN_CREDENTIAL_BINDING_STORE_D1_SCHEMA_SQL = Object.freeze([
       rp_id TEXT NOT NULL,
       credential_id_b64u TEXT NOT NULL,
       user_id TEXT NOT NULL,
-      -- Nullable until the wallet's Ed25519 Yao ceremony settles; kept in sync
-      -- with migration 0016_signer_webauthn_optional_ed25519.sql.
+      -- Nullable until the wallet's Ed25519 Yao ceremony settles.
       signer_slot INTEGER,
       record_json TEXT NOT NULL,
       created_at_ms INTEGER NOT NULL,
