@@ -34,8 +34,11 @@ import {
 } from './d1LinkedDeviceSessionStore';
 
 const SOURCE_HANDOFF_TABLE = 'linked_device_source_handoffs';
-const PREPARED_DELIVERY_WAIT_ATTEMPTS = 200;
-const PREPARED_DELIVERY_WAIT_MS = 25;
+const PREPARED_DELIVERY_WAIT_MAX_READS = 9;
+const PREPARED_DELIVERY_WAIT_TIMEOUT_MS = 5_000;
+const PREPARED_DELIVERY_WAIT_INITIAL_MS = 25;
+const PREPARED_DELIVERY_WAIT_MAX_DELAY_MS = 2_500;
+const PREPARED_DELIVERY_WAIT_JITTER_RATIO = 0.2;
 
 type SourceHandoffRowV1 = {
   readonly enrollment_id?: unknown;
@@ -78,13 +81,23 @@ export class D1LinkedDeviceSourceHandoffProviderV1
   private readonly database: D1DatabaseLike;
   private readonly scope: D1LinkedDeviceSessionScopeV1;
   private readonly sessionStore: D1LinkedDeviceSessionStoreV1;
+  private readonly nowMs: () => number;
+  private readonly random: () => number;
+  private readonly waitForPreparedDeliveries: (delayMs: number) => Promise<void>;
 
   constructor(input: {
     readonly database: D1DatabaseLike;
     readonly scope: D1LinkedDeviceSessionScopeV1;
+    readonly nowMs?: () => number;
+    readonly random?: () => number;
+    readonly waitForPreparedDeliveriesV1?: (delayMs: number) => Promise<void>;
   }) {
     this.database = input.database;
     this.scope = normalizeScope(input.scope);
+    this.nowMs = input.nowMs ?? currentTimeMsV1;
+    this.random = input.random ?? randomUnitIntervalV1;
+    this.waitForPreparedDeliveries =
+      input.waitForPreparedDeliveriesV1 ?? waitForPreparedDeliveriesV1;
     this.sessionStore = new D1LinkedDeviceSessionStoreV1({
       database: this.database,
       scope: this.scope,
@@ -281,13 +294,25 @@ export class D1LinkedDeviceSourceHandoffProviderV1
     readonly approval: LinkedDeviceApprovalV1;
     readonly requestedAtMs: number;
   }): Promise<LinkedDeviceProvisioningDeliveriesV1> {
+    const deadlineAtMs = this.nowMs() + PREPARED_DELIVERY_WAIT_TIMEOUT_MS;
     let persisted = await this.readV1(input.session.linkSessionId);
     for (
       let attempt = 0;
-      !persisted?.deliveries && attempt < PREPARED_DELIVERY_WAIT_ATTEMPTS;
+      !persisted?.deliveries && attempt < PREPARED_DELIVERY_WAIT_MAX_READS - 1;
       attempt += 1
     ) {
-      await waitForPreparedDeliveriesV1(PREPARED_DELIVERY_WAIT_MS);
+      const remainingMs = deadlineAtMs - this.nowMs();
+      if (remainingMs <= 0) break;
+      const baseDelayMs = Math.min(
+        PREPARED_DELIVERY_WAIT_MAX_DELAY_MS,
+        PREPARED_DELIVERY_WAIT_INITIAL_MS * 2 ** attempt,
+      );
+      const delayMs = Math.min(
+        remainingMs,
+        jitterPreparedDeliveryWaitMsV1(baseDelayMs, this.random()),
+      );
+      if (delayMs <= 0) break;
+      await this.waitForPreparedDeliveries(delayMs);
       persisted = await this.readV1(input.session.linkSessionId);
     }
     if (!persisted?.deliveries) {
@@ -691,6 +716,20 @@ async function targetReadyDigestV1(
 
 async function waitForPreparedDeliveriesV1(delayMs: number): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+}
+
+function currentTimeMsV1(): number {
+  return Date.now();
+}
+
+function randomUnitIntervalV1(): number {
+  return Math.random();
+}
+
+function jitterPreparedDeliveryWaitMsV1(baseDelayMs: number, randomValue: number): number {
+  const boundedRandomValue = Math.min(1, Math.max(0, randomValue));
+  const jitter = (boundedRandomValue * 2 - 1) * PREPARED_DELIVERY_WAIT_JITTER_RATIO;
+  return Math.max(1, Math.round(baseDelayMs * (1 + jitter)));
 }
 
 function scopeValues(
