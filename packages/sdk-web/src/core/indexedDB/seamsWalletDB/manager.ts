@@ -18,6 +18,22 @@ export type SeamsWalletTransactionContext = {
 const INDEXED_DB_BLOCKED_OPEN_TIMEOUT_MS = 3_000;
 const INDEXED_DB_OPEN_TIMEOUT_MS = 8_000;
 const INDEXED_DB_TRANSACTION_TIMEOUT_MS = 8_000;
+const RETIRED_VERSIONED_WALLET_DB_NAME = 'seams_wallet_v17';
+
+function warnRetiredWalletDbDeletionBlocked(): void {
+  console.warn('[SeamsWalletDBManager] Retired versioned wallet database deletion is blocked.');
+}
+
+function warnRetiredWalletDbDeletionFailed(): void {
+  console.warn('[SeamsWalletDBManager] Retired versioned wallet database deletion failed.');
+}
+
+function deleteRetiredVersionedWalletDatabase(): void {
+  if (typeof indexedDB === 'undefined') return;
+  const request = indexedDB.deleteDatabase(RETIRED_VERSIONED_WALLET_DB_NAME);
+  request.onblocked = warnRetiredWalletDbDeletionBlocked;
+  request.onerror = warnRetiredWalletDbDeletionFailed;
+}
 
 function seamsWalletDbOpenBlockedError(dbName: string): Error {
   return new Error(
@@ -101,6 +117,7 @@ export class SeamsWalletDBManager {
       throw new Error('[SeamsWalletDBManager] IndexedDB is disabled in this environment.');
     }
     if (!this.dbPromise) {
+      deleteRetiredVersionedWalletDatabase();
       const dbName = this.config.dbName;
       const dbVersion = this.config.dbVersion;
       let blockedTimer: ReturnType<typeof setTimeout> | null = null;

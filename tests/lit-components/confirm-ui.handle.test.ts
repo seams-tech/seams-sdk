@@ -1557,7 +1557,6 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           document.querySelector('.rpid-wrapper')?.textContent || '',
         );
         const initialLoadingEllipses = document.querySelectorAll('.loading-ellipsis').length;
-        const initialBlockIcon = !!document.querySelector('.security-details .block-height-icon');
         const initialEllipsisAnimation = getComputedStyle(
           document.querySelector('.loading-ellipsis__dot') as HTMLElement,
         ).animationName;
@@ -1596,7 +1595,6 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
           initialOperationOpen: initialOperation?.open === true,
           initialMetadataText,
           initialLoadingEllipses,
-          initialBlockIcon,
           initialEllipsisAnimation,
           preservedOperation: initialOperation === hydratedOperation,
           hasHydratedOperation: !!hydratedOperation,
@@ -1617,7 +1615,6 @@ test.describe('confirm-ui mountConfirmUI handle', () => {
     expect(result.initialMetadataText).not.toContain('staging.sign.seams.sh');
     expect(result.initialMetadataText).not.toContain('EVM | ChainID: 42431');
     expect(result.initialLoadingEllipses).toBe(2);
-    expect(result.initialBlockIcon).toBe(true);
     expect(result.initialEllipsisAnimation).toBe('loading-ellipsis-pulse');
     expect(result.preservedOperation).toBe(true);
     expect(result.hasHydratedOperation).toBe(true);

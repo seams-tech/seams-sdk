@@ -65,8 +65,10 @@ type DropdownTriggerConfig = {
 type DropdownFocusTarget = 'first' | 'last';
 const DASHBOARD_AUTH_OPEN_EVENT = 'seams:dashboard-auth-open';
 
-const productsDropdownPane: DropdownPane = {
-  id: 'products',
+/* The 'documentation' pane id historically maps to the "Products" trigger and
+   vice versa; ids are kept stable so aria wiring and pane ordering don't churn. */
+const documentationDropdownPane: DropdownPane = {
+  id: 'documentation',
   label: 'Products',
   kicker: 'Products',
   rows: [
@@ -98,8 +100,8 @@ const productsDropdownPane: DropdownPane = {
   footerLinks: [{ label: 'Plan pricing', to: '/pricing/' }],
 };
 
-const documentationDropdownPane: DropdownPane = {
-  id: 'documentation',
+const productsDropdownPane: DropdownPane = {
+  id: 'products',
   label: 'Documentation',
   kicker: 'Documentation',
   rows: [
@@ -207,7 +209,7 @@ const dropdownPanes: DropdownPane[] = [
 /* Visual left-to-right order of the dropdown triggers in the bar; drives which
    side inactive panes park on so a menu switch slides content in from the
    direction of travel (restores the pre-refresh pane slide). */
-const DROPDOWN_VISUAL_ORDER: DropdownId[] = ['products', 'documentation', 'pricing', 'about'];
+const DROPDOWN_VISUAL_ORDER: DropdownId[] = ['documentation', 'products', 'pricing', 'about'];
 
 function paneOrderIndex(id: DropdownId): number {
   return DROPDOWN_VISUAL_ORDER.indexOf(id);
@@ -221,11 +223,11 @@ function paneVisualClass(paneId: DropdownId, activeId: DropdownId | null): strin
 
 const primaryDropdownTriggers: DropdownTriggerConfig[] = [
   {
-    id: 'products',
+    id: 'documentation',
     label: 'Products',
   },
   {
-    id: 'documentation',
+    id: 'products',
     label: 'Documentation',
   },
 ];
@@ -252,11 +254,16 @@ function getMenuItems(panel: HTMLDivElement | null, id: DropdownId | null): HTML
 }
 
 export type NavbarStaticProps = {
+  /** 'auto' follows the site theme; 'light' pins the light-page skin (used by /home2). */
+  appearance?: 'auto' | 'light';
   /** Compact keeps the inset shell when a page supplies its own navbar treatment. */
   layout?: 'page' | 'compact';
 };
 
-export function NavbarStatic({ layout = 'page' }: NavbarStaticProps = {}): React.JSX.Element {
+export function NavbarStatic({
+  appearance = 'auto',
+  layout = 'page',
+}: NavbarStaticProps = {}): React.JSX.Element {
   const OPEN_DELAY_MS = 0;
   const CLOSE_DELAY_MS = 120;
   const SCROLL_THRESHOLD_PX = 8;
@@ -696,7 +703,9 @@ export function NavbarStatic({ layout = 'page' }: NavbarStaticProps = {}): React
   return (
     <nav
       ref={rootRef}
-      className={`navbar-static${layout === 'compact' ? ' navbar-static--compact' : ''}`}
+      className={`navbar-static${appearance === 'light' ? ' navbar-static--light' : ''}${
+        layout === 'compact' ? ' navbar-static--compact' : ''
+      }`}
       aria-label="Primary"
     >
       <div className={`navbar-static__shell${hasScrolled ? ' is-scrolled' : ''}`}>
@@ -707,7 +716,11 @@ export function NavbarStatic({ layout = 'page' }: NavbarStaticProps = {}): React
             onClick={homeProps.onClick}
             aria-label="Seams home"
           >
-            <SeamsWordmark className="navbar-static__brand-wordmark" height={20} />
+            <SeamsWordmark
+              className="navbar-static__brand-wordmark"
+              height={17}
+              theme={appearance === 'light' ? 'light' : undefined}
+            />
           </a>
         </div>
 
@@ -810,7 +823,7 @@ export function NavbarStatic({ layout = 'page' }: NavbarStaticProps = {}): React
         <div className={`navbar-static__mobile-submenu${isMobileProductsOpen ? ' is-open' : ''}`}>
           <section className="navbar-static__mobile-section">
             <h3 className="navbar-static__mobile-section-title">Products</h3>
-            {productsDropdownPane.rows.map((row) => {
+            {documentationDropdownPane.rows.map((row) => {
               const rowProps = getNavLinkProps(row.to);
               return (
                 <a
@@ -849,7 +862,7 @@ export function NavbarStatic({ layout = 'page' }: NavbarStaticProps = {}): React
         >
           <section className="navbar-static__mobile-section">
             <h3 className="navbar-static__mobile-section-title">Documentation</h3>
-            {documentationDropdownPane.rows.map((row) => {
+            {productsDropdownPane.rows.map((row) => {
               const rowProps = getNavLinkProps(row.to);
               return (
                 <a

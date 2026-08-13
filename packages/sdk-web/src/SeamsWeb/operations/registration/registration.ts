@@ -836,11 +836,10 @@ export async function prepareHostedPasskeyRegistration(
     if (signerSlot !== expectedSignerSlot) {
       throw new Error('Hosted passkey registration signer slot changed during preparation');
     }
-    const warmup = await awaitHostedPasskeyRegistrationStage({
-      operation: setup.registrationWarmup,
-      cancellation: args.cancellation,
+    observeRegistrationWarmup({
+      recorder,
+      warmup: setup.registrationWarmup,
     });
-    if (warmup.kind === 'failed') throw warmup.error;
     if (Date.now() >= expiresAtMs) {
       throw new Error('Hosted passkey registration preparation expired before reservation');
     }
@@ -983,13 +982,6 @@ export async function registerPreparedHostedPasskeyRegistration(args: {
     state.removeExternalCancellationListener = null;
     webAuthnPromptCoordinator.releaseReservation(args.prepared.reservation);
   }
-}
-
-function logRegistrationProgress(stage: string, details?: Record<string, unknown>): void {
-  console.info('[Registration] progress', {
-    stage,
-    ...(details || {}),
-  });
 }
 
 /**
@@ -2805,10 +2797,6 @@ async function registerEcdsaOrMixedWallet(
         throw new Error('Finalized Email OTP app session belongs to a different provider');
       }
     }
-    logRegistrationProgress('finalize_response_received', {
-      walletId: finalized.walletId,
-      ecdsaWalletKeyCount: finalized.ecdsa.walletKeys.length,
-    });
     registrationTiming.captureRouteDiagnostics(finalized.registrationDiagnostics);
     const walletKeys = finalized.ecdsa.walletKeys;
     if (walletKeys.length === 0) {

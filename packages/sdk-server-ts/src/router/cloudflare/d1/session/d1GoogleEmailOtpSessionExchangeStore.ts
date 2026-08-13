@@ -137,9 +137,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function containsAsciiControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 0x1f || code === 0x7f) return true;
+  }
+  return false;
+}
+
 function requiredString(value: unknown, field: string, maxLength = 512): string {
   const normalized = toOptionalTrimmedString(value);
-  if (!normalized || normalized.length > maxLength || /[\u0000-\u001f\u007f]/u.test(normalized)) {
+  if (!normalized || normalized.length > maxLength || containsAsciiControlCharacter(normalized)) {
     throw new Error(`Stored ${field} is invalid`);
   }
   return normalized;
@@ -291,7 +299,7 @@ function changedRows(result: D1ResultLike<unknown>): number {
 
 function normalizeKey(value: unknown, field: string, maxLength = 512): string {
   const normalized = toOptionalTrimmedString(value);
-  if (!normalized || normalized.length > maxLength || /[\u0000-\u001f\u007f]/u.test(normalized)) {
+  if (!normalized || normalized.length > maxLength || containsAsciiControlCharacter(normalized)) {
     throw new Error(`${field} is required`);
   }
   return normalized;
