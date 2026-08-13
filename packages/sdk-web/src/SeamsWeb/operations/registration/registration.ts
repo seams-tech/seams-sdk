@@ -2200,11 +2200,10 @@ export async function prepareHostedPasskeyRegistration(
     if (signerSlot !== expectedSignerSlot) {
       throw new Error('Hosted passkey registration signer slot changed during preparation');
     }
-    const warmup = await awaitHostedPasskeyRegistrationStage({
-      operation: setup.registrationWarmup,
-      cancellation: args.cancellation,
+    observeRegistrationWarmup({
+      recorder,
+      warmup: setup.registrationWarmup,
     });
-    if (warmup.kind === 'failed') throw warmup.error;
     if (Date.now() >= expiresAtMs) {
       throw new Error('Hosted passkey registration preparation expired before reservation');
     }
