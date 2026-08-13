@@ -1958,14 +1958,17 @@ export class SeamsWeb {
       if (acknowledgement.kind !== 'wallet_recovery_codes_backed_up_v1') {
         throw new Error('Pending wallet recovery-code backup was not completed');
       }
-      await pendingWalletRecoveryCodeBackupRepository.delete(args.walletId);
     }
     const appSessionJwt = this.requireActiveWalletAppSessionJwt(relayUrl, args.walletId);
-    return await acknowledgeWalletRecoveryBackup({
+    const result = await acknowledgeWalletRecoveryBackup({
       relayUrl,
       walletId: args.walletId,
       sessionToken: appSessionJwt,
     });
+    if (pending && result.kind === 'acknowledged') {
+      await pendingWalletRecoveryCodeBackupRepository.delete(args.walletId);
+    }
+    return result;
   }
 
   private async rotateWalletRecoveryCodesDomain(
