@@ -938,10 +938,10 @@ function compareEd25519DuplicateLanePriority(
   left: AvailableEd25519SigningLane,
   right: AvailableEd25519SigningLane,
 ): number {
-  const sourceDelta = availableLaneSourcePriority(left) - availableLaneSourcePriority(right);
-  if (sourceDelta) return sourceDelta;
   const stateDelta = availableLaneStatePriority(left) - availableLaneStatePriority(right);
   if (stateDelta) return stateDelta;
+  const sourceDelta = availableLaneSourcePriority(left) - availableLaneSourcePriority(right);
+  if (sourceDelta) return sourceDelta;
   return availableLaneUpdatedAtMs(left) - availableLaneUpdatedAtMs(right);
 }
 
@@ -1616,7 +1616,8 @@ function suppressPublicEd25519CandidatesWithDurablePolicy(
         (lane): lane is ConcreteAvailableEd25519SigningLane =>
           isConcreteAvailableSigningLane(lane) &&
           lane.curve === 'ed25519' &&
-          lane.source === 'durable_sealed_record',
+          lane.source === 'durable_sealed_record' &&
+          (lane.state === 'ready' || lane.state === 'restorable'),
       )
       .map(ed25519LaneGroupKey)
       .filter((key): key is Ed25519LaneGroupKey => key !== null)
