@@ -6,9 +6,7 @@ Last reconciled: August 13, 2026
 
 Status: Planned
 
-Implementation starts after Refactors 100–103 are implemented and green. The
-rough delivery estimate is two working days with four agents. It is an estimate,
-not a reason to add scheduling or coordination machinery.
+Implementation starts after Refactors 100–103 are implemented and green.
 
 ## Outcome
 
