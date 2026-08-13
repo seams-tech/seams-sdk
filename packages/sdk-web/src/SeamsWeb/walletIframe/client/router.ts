@@ -3522,14 +3522,24 @@ export class WalletIframeRouter {
     return !!res?.result;
   }
 
-  async listLinkedDevices(payload: { walletId: string }): Promise<LinkedDeviceListResultV1> {
+  async listLinkedDevices(payload: {
+    walletId: string;
+    limit: number;
+    cursor: string | null;
+  }): Promise<LinkedDeviceListResultV1> {
     const request = parseLinkedDeviceListRequestV1({
       kind: 'linked_device_list_request_v1',
       walletId: payload.walletId,
+      limit: payload.limit,
+      cursor: payload.cursor,
     });
     const res = await this.post<unknown>({
       type: 'PM_LIST_LINKED_DEVICES',
-      payload: { walletId: String(request.walletId) },
+      payload: {
+        walletId: String(request.walletId),
+        limit: request.limit,
+        cursor: request.cursor,
+      },
     });
     return parseLinkedDeviceListResultV1(res.result);
   }

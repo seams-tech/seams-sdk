@@ -463,9 +463,9 @@ export function createDeviceLinkingKeyMaterialPortV1(
     readonly timeoutMs?: number;
   } = {},
 ): DeviceLinkingWorkerKeyMaterialPortV1 {
-  const endpoint = args.endpoint ?? createDefaultEndpoint();
   const timeoutMs = normalizeTimeout(args.timeoutMs);
   const pending = new Map<string, PendingRequestV1>();
+  let endpoint: DeviceLinkingWorkerEndpointV1 | null = args.endpoint ?? null;
   let closed = false;
 
   const onMessage = (event: MessageEvent): void => {
@@ -486,31 +486,52 @@ export function createDeviceLinkingKeyMaterialPortV1(
       request.reject(error);
     }
   };
-  endpoint.addEventListener('message', onMessage);
-  endpoint.addEventListener('error', onError);
-  if (!args.endpoint) {
+  const bindEndpoint = (nextEndpoint: DeviceLinkingWorkerEndpointV1): void => {
+    nextEndpoint.addEventListener('message', onMessage);
+    nextEndpoint.addEventListener('error', onError);
+    if (args.endpoint) return;
     const presignPort = getWorkerTransport().createLinkedHolderPresignAuthorityPortV1();
-    endpoint.postMessage(
+    nextEndpoint.postMessage(
       {
         kind: EcdsaClientWorkerControlKind.AttachLinkedHolderToPresign,
         port: presignPort,
       },
       [presignPort],
     );
+  };
+
+  if (args.endpoint) {
+    bindEndpoint(args.endpoint);
+    endpoint = args.endpoint;
   }
+
+  const ensureEndpoint = (): DeviceLinkingWorkerEndpointV1 => {
+    if (endpoint) return endpoint;
+    const created = createDefaultEndpoint();
+    try {
+      bindEndpoint(created);
+      endpoint = created;
+      return created;
+    } catch (error) {
+      created.terminate();
+      throw error;
+    }
+  };
 
   const close = (): void => {
     if (closed) return;
     closed = true;
-    endpoint.removeEventListener('message', onMessage);
-    endpoint.removeEventListener('error', onError);
+    const currentEndpoint = endpoint;
+    currentEndpoint?.removeEventListener('message', onMessage);
+    currentEndpoint?.removeEventListener('error', onError);
     const error = new Error('device-linking worker transport is closed');
     for (const [id, request] of pending) {
       clearTimeout(request.timeoutId);
       pending.delete(id);
       request.reject(error);
     }
-    endpoint.terminate();
+    currentEndpoint?.terminate();
+    endpoint = null;
   };
 
   const request = (
@@ -518,6 +539,12 @@ export function createDeviceLinkingKeyMaterialPortV1(
     transfer?: Transferable[],
   ): Promise<unknown> => {
     if (closed) return Promise.reject(new Error('device-linking worker transport is closed'));
+    let activeEndpoint: DeviceLinkingWorkerEndpointV1;
+    try {
+      activeEndpoint = ensureEndpoint();
+    } catch (error) {
+      return Promise.reject(workerError(error));
+    }
     const id = requestId();
     return new Promise<unknown>((resolve, reject) => {
       const timeoutId = setTimeout(() => {
@@ -526,7 +553,7 @@ export function createDeviceLinkingKeyMaterialPortV1(
       }, timeoutMs);
       pending.set(id, { resolve, reject, timeoutId });
       try {
-        endpoint.postMessage({ id, request: input }, transfer);
+        activeEndpoint.postMessage({ id, request: input }, transfer);
       } catch (error) {
         clearTimeout(timeoutId);
         pending.delete(id);

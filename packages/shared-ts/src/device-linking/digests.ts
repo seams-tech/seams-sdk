@@ -12,7 +12,13 @@ import type {
   LinkedDeviceTargetPreparationChildV1,
   LinkedDeviceTargetPreparationV1,
 } from './contracts';
-import type { AuthorizedOperationId } from '../authorization/capabilityKinds';
+import {
+  parseAuthorizedOperationId,
+  type AuthorizedOperationId,
+  type LinkedDeviceWalletSessionAuthorizationId,
+  type MpcWalletSigningQuotaId,
+  type WalletSessionId,
+} from '../authorization/capabilityKinds';
 import type { LinkedDeviceEnrollmentId, LinkedDeviceId } from '../signing-lanes/ids';
 import type { WebAuthnCredentialIdB64u } from '../utils/domainIds';
 import { ownerLaneParticipantContinuityCanonicalBytesV1 } from '../signing-lanes/ownerContinuity';
@@ -21,6 +27,7 @@ const CLAIM_DOMAIN = 'seams/linked-device/session-claim/v1';
 const APPROVAL_DOMAIN = 'seams/linked-device/owner-approval/v1';
 const TARGET_PREPARATION_DOMAIN = 'seams/linked-device/target-preparation/v1';
 const LOCAL_PRESENCE_DOMAIN = 'seams/linked-device/local-presence/v1';
+const WALLET_SESSION_RENEWAL_DOMAIN = 'seams/linked-device/wallet-session-renewal/v1';
 const TEXT_ENCODER = new TextEncoder();
 
 export async function computeLinkedDeviceProvisioningDeliveriesDigestV1(
@@ -274,6 +281,35 @@ export async function computeLinkedDeviceLocalPresenceChallengeDigestV1(
 ): Promise<DigestB64u> {
   return parseDigestB64u(
     base64UrlEncode(await sha256Bytes(encodeLinkedDeviceLocalPresenceChallengeV1(value))),
+  );
+}
+
+export function linkedDeviceWalletSessionRenewalAuthorizedOperationIdV1(): AuthorizedOperationId {
+  const parsed = parseAuthorizedOperationId('linked-device-wallet-session-renewal-v1');
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
+export async function computeLinkedDeviceWalletSessionRenewalIntentDigestV1(input: {
+  readonly authorizationId: LinkedDeviceWalletSessionAuthorizationId;
+  readonly walletSessionId: WalletSessionId;
+  readonly quotaId: MpcWalletSigningQuotaId;
+  readonly deviceId: LinkedDeviceId;
+  readonly enrollmentId: LinkedDeviceEnrollmentId;
+}): Promise<DigestB64u> {
+  return parseDigestB64u(
+    base64UrlEncode(
+      await sha256BytesUtf8(
+        [
+          WALLET_SESSION_RENEWAL_DOMAIN,
+          String(input.authorizationId),
+          String(input.walletSessionId),
+          String(input.quotaId),
+          String(input.deviceId),
+          String(input.enrollmentId),
+        ].join('\u0000'),
+      ),
+    ),
   );
 }
 

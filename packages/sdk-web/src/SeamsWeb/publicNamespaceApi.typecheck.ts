@@ -136,7 +136,11 @@ void seams.recovery.getWalletRecoveryCodeStatus({ walletId: 'frost-vermillion-k7
 void seams.recovery.acknowledgeWalletRecoveryCodeBackup({ walletId: 'frost-vermillion-k7p9m2' });
 
 void seams.devices.cancelDeviceLinking();
-void seams.devices.listLinkedDevices({ walletId: 'frost-vermillion-k7p9m2' });
+void seams.devices.listLinkedDevices({
+  walletId: 'frost-vermillion-k7p9m2',
+  limit: 50,
+  cursor: null,
+});
 void seams.devices.revokeLinkedDevice({
   walletId: 'frost-vermillion-k7p9m2',
   deviceId: 'device-1',

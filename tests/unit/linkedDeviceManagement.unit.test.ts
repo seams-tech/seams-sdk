@@ -43,8 +43,10 @@ test('lists wallet-scoped linked devices only after owner authorization', async 
   const target = await buildManagementTarget();
   const service = new LinkedDeviceManagementServiceV1({
     projection: {
-      listLinkedDevicesV1: async (walletId) =>
-        walletId === target.summary.walletId ? [target.summary] : [],
+      listLinkedDevicesV1: async ({ walletId }) =>
+        walletId === target.summary.walletId
+          ? { devices: [target.summary], nextCursor: null }
+          : { devices: [], nextCursor: null },
       getLinkedDeviceV1: async () => target,
     },
     preparation: neverPreparation(),
@@ -54,11 +56,16 @@ test('lists wallet-scoped linked devices only after owner authorization', async 
   });
 
   const result = await service.listLinkedDevicesV1(
-    { kind: 'linked_device_list_request_v1', walletId: target.summary.walletId },
+    {
+      kind: 'linked_device_list_request_v1',
+      walletId: target.summary.walletId,
+      limit: 10,
+      cursor: null,
+    },
     ownerForWallet(target.summary.walletId),
     4_000,
   );
-  expect(result).toEqual({ devices: [target.summary] });
+  expect(result).toEqual({ devices: [target.summary], nextCursor: null });
 });
 
 test('refuses a public revoke plan whose lane command does not bind the requested wallet', async () => {
@@ -94,7 +101,7 @@ test('refuses a public revoke plan whose lane command does not bind the requeste
   let aggregateCalls = 0;
   const service = new LinkedDeviceManagementServiceV1({
     projection: {
-      listLinkedDevicesV1: async () => [target.summary],
+      listLinkedDevicesV1: async () => ({ devices: [target.summary], nextCursor: null }),
       getLinkedDeviceV1: async () => target,
     },
     preparation: {
@@ -182,7 +189,7 @@ test('fences every linked Wallet Session before retiring child lanes', async () 
   });
   const service = new LinkedDeviceManagementServiceV1({
     projection: {
-      listLinkedDevicesV1: async () => [target.summary],
+      listLinkedDevicesV1: async () => ({ devices: [target.summary], nextCursor: null }),
       getLinkedDeviceV1: async () => target,
     },
     preparation: {

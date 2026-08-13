@@ -262,9 +262,13 @@ test('management composition uses the authenticated owner context', async () => 
   const service = createCloudflareD1LinkedDeviceManagementCompositionV1({
     database: temporary.database,
     scope,
-    sessionService: { getSessionV1: async () => null },
+    sessionService: {
+      getSessionV1: async () => null,
+      listSessionsForWalletV1: async () => ({ records: [], nextCursor: null }),
+    },
     metadata: {
       readLinkedDeviceMetadataV1: async () => ({ label: 'Device', platform: 'test' }),
+      readLinkedDeviceMetadataBatchV1: async () => new Map(),
     },
     preparation: {
       prepareLinkedDeviceRevocationV1: async () => ({ kind: 'conflict' as const }),
@@ -289,9 +293,14 @@ test('management composition uses the authenticated owner context', async () => 
     }),
   });
   const result = await service.management.listLinkedDevicesV1(
-    { kind: 'linked_device_list_request_v1', walletId: fixture.approval.walletId },
+    {
+      kind: 'linked_device_list_request_v1',
+      walletId: fixture.approval.walletId,
+      limit: 10,
+      cursor: null,
+    },
     { walletId: fixture.approval.walletId, expiresAtMs: 3_000 },
     2_000,
   );
-  expect(result).toEqual({ devices: [] });
+  expect(result).toEqual({ devices: [], nextCursor: null });
 });

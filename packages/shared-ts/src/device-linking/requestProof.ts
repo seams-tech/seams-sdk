@@ -7,6 +7,7 @@ import type { LinkDevicePublicKeyB64u } from './contracts';
 export const LINKED_DEVICE_REQUEST_PROOF_DOMAIN_V1 = 'seams/linked-device/request-proof/v1';
 export const LINKED_DEVICE_REQUEST_PROOF_HEADER_V1 = 'x-seams-linked-device-proof-v1';
 export const LINKED_DEVICE_REQUEST_PROOF_MAX_TTL_MS_V1 = 60_000;
+export const LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1 = 60_000;
 export const LINKED_DEVICE_REQUEST_PROOF_NONCE_BYTES_V1 = 32;
 export const LINKED_DEVICE_REQUEST_PROOF_SIGNATURE_BYTES_V1 = 64;
 export const LINK_DEVICE_PUBLIC_KEY_BYTES_V1 = 32;

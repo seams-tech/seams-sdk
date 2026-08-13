@@ -143,7 +143,7 @@ test.describe('R103 shared linked-device contracts', () => {
     });
     const approvalDigest = await computeLinkedDeviceApprovalDigestV1(fixture.approval);
     expect(claimDigest).toBe('FgZvqK0Fekq89xChB3UoQBKz0nlTcbBvkxXAa6v6_EA');
-    expect(approvalDigest).toBe('ibcErM2M3FJ-1VBJ2YH35qnTwaOAnUjqKKT8CLc4kjc');
+    expect(approvalDigest).toBe('bHlUJYZw2MvCe50tNFocxCy4KPlHKGzEXZuEqkXWiZQ');
   });
 
   test('rejects dormant QR permissions, unknown fields, non-canonical keys, and invalid expiry', () => {

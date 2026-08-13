@@ -49,7 +49,7 @@ test.describe('R101 wallet execution admission', () => {
         ...fixture.projection,
         expectedMaterialActivation: fixture.projection.materialActivation,
       },
-      localPresence: fixture.localPresence,
+      localPresence: { kind: 'verified_assertion', evidence: fixture.localPresence },
     });
 
     expect(result).toMatchObject({
@@ -82,7 +82,7 @@ test.describe('R101 wallet execution admission', () => {
         },
         expectedMaterialActivation: fixture.projection.materialActivation,
       },
-      localPresence: fixture.localPresence,
+      localPresence: { kind: 'verified_assertion', evidence: fixture.localPresence },
     });
 
     expect(result).toEqual({ kind: 'refused', reason: 'authorization_grant_mismatch' });
@@ -97,7 +97,7 @@ test.describe('R101 wallet execution admission', () => {
         enrollment: { ...fixture.projection.enrollment, revocationEpoch: 1 },
         expectedMaterialActivation: fixture.projection.materialActivation,
       },
-      localPresence: fixture.localPresence,
+      localPresence: { kind: 'verified_assertion', evidence: fixture.localPresence },
     });
 
     expect(result).toEqual({ kind: 'refused', reason: 'revocation_epoch_mismatch' });
@@ -112,8 +112,11 @@ test.describe('R101 wallet execution admission', () => {
         expectedMaterialActivation: fixture.projection.materialActivation,
       },
       localPresence: {
-        ...fixture.localPresence,
-        intentDigestB64u: parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(10))),
+        kind: 'verified_assertion',
+        evidence: {
+          ...fixture.localPresence,
+          intentDigestB64u: parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(10))),
+        },
       },
     });
 
@@ -140,7 +143,7 @@ test.describe('R101 wallet execution admission', () => {
         },
         expectedMaterialActivation: fixture.projection.materialActivation,
       },
-      localPresence: fixture.localPresence,
+      localPresence: { kind: 'verified_assertion', evidence: fixture.localPresence },
     });
 
     expect(result).toEqual({ kind: 'refused', reason: 'material_activation_mismatch' });
@@ -235,10 +238,11 @@ test.describe('R101 wallet execution admission', () => {
       walletKeyId: fixture.projection.lane.walletKeyId,
       laneId: fixture.projection.lane.laneId,
       laneShareEpoch: fixture.projection.lane.laneShareEpoch,
+      laneRevocationEpoch: fixture.projection.lane.lifecycle.revocationEpoch,
       expectedMaterialActivation: routerAbMpcMaterialActivationRefToWire(
         fixture.projection.materialActivation,
       ),
-      localPresence: fixture.localPresence,
+      localPresence: { kind: 'verified_assertion', evidence: fixture.localPresence },
       linkedDeviceExecution: {
         resolveActiveLinkedDeviceExecutionV1: async () => ({
           kind: 'projected' as const,
@@ -276,10 +280,11 @@ test.describe('R101 wallet execution admission', () => {
       walletKeyId: fixture.projection.lane.walletKeyId,
       laneId: fixture.projection.lane.laneId,
       laneShareEpoch: fixture.projection.lane.laneShareEpoch,
+      laneRevocationEpoch: fixture.projection.lane.lifecycle.revocationEpoch,
       expectedMaterialActivation: routerAbMpcMaterialActivationRefToWire(
         fixture.projection.materialActivation,
       ),
-      localPresence: fixture.localPresence,
+      localPresence: { kind: 'verified_assertion', evidence: fixture.localPresence },
       linkedDeviceExecution: {
         resolveActiveLinkedDeviceExecutionV1: async () => ({
           kind: 'projected' as const,

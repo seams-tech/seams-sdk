@@ -1,5 +1,5 @@
 export const SEAMS_WALLET_DB_NAME = 'seams_wallet' as const;
-export const SEAMS_WALLET_DB_VERSION = 17 as const;
+export const SEAMS_WALLET_DB_VERSION = 18 as const;
 
 export const SEAMS_WALLET_STORES = {
   appState: 'app_state',
@@ -284,6 +284,7 @@ export const SEAMS_WALLET_SCHEMA_MANIFEST = [
         keyPath: 'threshold_session_id',
         unique: false,
       },
+      { name: SEAMS_WALLET_INDEXES.enrollmentId, keyPath: 'enrollmentId', unique: false },
       { name: SEAMS_WALLET_INDEXES.keyHandle, keyPath: 'key_handle', unique: false },
       { name: SEAMS_WALLET_INDEXES.chainTargetKey, keyPath: 'chain_target_key', unique: false },
       {

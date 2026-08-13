@@ -1066,6 +1066,133 @@ export class CloudflareD1AuthorizationStore
     };
   }
 
+  async renewLinkedDeviceWalletSessionAuthorization(input: {
+    readonly tenantId: TenantId;
+    readonly principalId: LinkedDeviceWalletSessionAuthorization['principalId'];
+    readonly deviceId: LinkedDeviceWalletSessionAuthorization['deviceId'];
+    readonly enrollmentId: LinkedDeviceWalletSessionAuthorization['enrollmentId'];
+    readonly authorizationId: LinkedDeviceWalletSessionAuthorization['authorizationGrantRef']['authorizationId'];
+    readonly walletSessionId: WalletSessionId;
+    readonly quotaId: ActiveWalletSessionQuota['quotaId'];
+    readonly revocationEpoch: number;
+    readonly issuedAtMs: number;
+    readonly expiresAtMs: number;
+    readonly remainingUses: number;
+  }): Promise<void> {
+    const issuedAtMs = requirePositiveInteger(input.issuedAtMs, 'linked renewal issuedAtMs');
+    const expiresAtMs = requirePositiveInteger(input.expiresAtMs, 'linked renewal expiresAtMs');
+    const remainingUses = requirePositiveInteger(input.remainingUses, 'linked renewal remainingUses');
+    if (expiresAtMs <= issuedAtMs) throw new Error('linked renewal expiry is invalid');
+    if (!Number.isSafeInteger(input.revocationEpoch) || input.revocationEpoch < 0) {
+      throw new Error('linked renewal revocationEpoch is invalid');
+    }
+    const scope = this.walletSignerScope;
+    const authorizationStatement = this.database
+      .prepare(
+        `UPDATE linked_device_wallet_session_authorizations
+            SET issued_at_ms = ?, expires_at_ms = ?
+          WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+            AND tenant_id = ? AND authorization_id = ?
+            AND principal_id = ? AND device_id = ? AND enrollment_id = ?
+            AND wallet_session_id = ? AND quota_id = ?
+            AND revocation_epoch = ? AND lifecycle_kind = 'active'
+            AND EXISTS (
+              SELECT 1 FROM lane_enrollments AS enrollment
+               WHERE enrollment.namespace = linked_device_wallet_session_authorizations.namespace
+                 AND enrollment.org_id = linked_device_wallet_session_authorizations.org_id
+                 AND enrollment.project_id = linked_device_wallet_session_authorizations.project_id
+                 AND enrollment.env_id = linked_device_wallet_session_authorizations.env_id
+                 AND enrollment.enrollment_id = linked_device_wallet_session_authorizations.enrollment_id
+                 AND enrollment.enrollment_id = ?
+                 AND enrollment.wallet_id = linked_device_wallet_session_authorizations.wallet_id
+                 AND json_extract(enrollment.lifecycle_json, '$.state') = 'active'
+                 AND json_extract(enrollment.lifecycle_json, '$.manifestDigestB64u') = linked_device_wallet_session_authorizations.key_manifest_digest_b64u
+            )`,
+      )
+      .bind(
+        issuedAtMs,
+        expiresAtMs,
+        scope.namespace,
+        scope.orgId,
+        scope.projectId,
+        scope.envId,
+        input.tenantId,
+        input.authorizationId,
+        input.principalId,
+        input.deviceId,
+        input.enrollmentId,
+        input.walletSessionId,
+        input.quotaId,
+        input.revocationEpoch,
+        input.enrollmentId,
+      );
+    const quotaStatement = this.database
+      .prepare(
+        `UPDATE linked_device_wallet_session_quotas
+            SET remaining_uses = ?, lifecycle_kind = 'active', expires_at_ms = ?
+          WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+            AND tenant_id = ? AND authorization_id = ?
+            AND quota_id = ? AND wallet_session_id = ? AND principal_id = ?
+            AND lifecycle_kind IN ('active', 'exhausted')
+            AND EXISTS (
+              SELECT 1
+                FROM linked_device_wallet_session_authorizations AS authorization
+                JOIN lane_enrollments AS enrollment
+                  ON enrollment.namespace = authorization.namespace
+                 AND enrollment.org_id = authorization.org_id
+                 AND enrollment.project_id = authorization.project_id
+                 AND enrollment.env_id = authorization.env_id
+                 AND enrollment.enrollment_id = authorization.enrollment_id
+                 AND enrollment.wallet_id = authorization.wallet_id
+                 AND json_extract(enrollment.lifecycle_json, '$.state') = 'active'
+                 AND json_extract(enrollment.lifecycle_json, '$.manifestDigestB64u') = authorization.key_manifest_digest_b64u
+               WHERE authorization.namespace = linked_device_wallet_session_quotas.namespace
+                 AND authorization.org_id = linked_device_wallet_session_quotas.org_id
+                 AND authorization.project_id = linked_device_wallet_session_quotas.project_id
+                 AND authorization.env_id = linked_device_wallet_session_quotas.env_id
+                 AND authorization.tenant_id = linked_device_wallet_session_quotas.tenant_id
+                 AND authorization.authorization_id = linked_device_wallet_session_quotas.authorization_id
+                 AND authorization.enrollment_id = ?
+                 AND authorization.revocation_epoch = ?
+                 AND authorization.lifecycle_kind = 'active'
+            )`,
+      )
+      .bind(
+        remainingUses,
+        expiresAtMs,
+        scope.namespace,
+        scope.orgId,
+        scope.projectId,
+        scope.envId,
+        input.tenantId,
+        input.authorizationId,
+        input.quotaId,
+        input.walletSessionId,
+        input.principalId,
+        input.enrollmentId,
+        input.revocationEpoch,
+      );
+    const results = await this.database.batch<D1ResultLike>([
+      authorizationStatement,
+      quotaStatement,
+    ]);
+    if (results.length !== 2 || !results[0] || !results[1]) {
+      throw new Error('linked authorization renewal transaction returned incomplete results');
+    }
+    if (d1ChangedRows(results[0]) === 1 && d1ChangedRows(results[1]) === 1) return;
+    const status = await this.getLinkedDeviceWalletSessionStatus({
+      tenantId: input.tenantId,
+      principalId: input.principalId,
+      deviceId: input.deviceId,
+      authorizationId: input.authorizationId,
+      walletSessionId: input.walletSessionId,
+      quotaId: input.quotaId,
+      nowMs: issuedAtMs,
+    });
+    if (status.kind === 'revoked') throw new Error('linked-device Wallet Session authorization is revoked');
+    throw new Error('linked-device Wallet Session authorization could not be renewed');
+  }
+
   async revokeLinkedDeviceWalletSession(input: {
     readonly tenantId: TenantId;
     readonly principalId: LinkedDeviceWalletSessionAuthorization['principalId'];

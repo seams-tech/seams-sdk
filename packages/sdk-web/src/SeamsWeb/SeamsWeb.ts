@@ -737,6 +737,7 @@ export class SeamsWeb {
   private appearance: AppearanceConfig;
   theme: ThemeMode;
   private readonly walletIframe: WalletIframeCoordinator;
+  private readonly walletHostDeviceLinkingDisposer: (() => void) | null;
   private readonly lifecycleEventSource: SeamsWebLifecycleEventSource;
   readonly recovery: RecoveryCapability;
   readonly devices: DevicesCapability;
@@ -834,6 +835,7 @@ export class SeamsWeb {
               walletIframe: this.walletIframe,
             }),
           };
+    this.walletHostDeviceLinkingDisposer = walletHostComposition?.dispose ?? null;
     this.lifecycleEventSource = resolveSeamsWebLifecycleEventSource({
       mode: resolveSeamsWebRuntimeMode(internalOptions),
       signingEngine: this.signingEngine,
@@ -1012,6 +1014,7 @@ export class SeamsWeb {
   }
 
   dispose(): void {
+    this.walletHostDeviceLinkingDisposer?.();
     this.walletIframe.dispose();
     this.signingEngine.dispose();
   }

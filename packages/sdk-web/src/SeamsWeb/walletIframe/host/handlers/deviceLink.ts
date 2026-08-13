@@ -59,8 +59,14 @@ export function createDeviceLinkWalletIframeHandlers(deps: HandlerDeps): Handler
       const request = parseLinkedDeviceListRequestV1({
         kind: 'linked_device_list_request_v1',
         walletId: payload.walletId,
+        limit: payload.limit,
+        cursor: payload.cursor,
       });
-      const result = await pm.devices.listLinkedDevices({ walletId: String(request.walletId) });
+      const result = await pm.devices.listLinkedDevices({
+        walletId: String(request.walletId),
+        limit: request.limit,
+        cursor: request.cursor,
+      });
       respondOkResult(deps, req.requestId, parseLinkedDeviceListResultV1(result));
     },
 

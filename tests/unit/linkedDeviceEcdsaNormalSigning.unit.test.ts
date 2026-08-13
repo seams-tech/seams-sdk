@@ -117,10 +117,14 @@ async function fixture() {
 test('claims before holder open, completes linked presign, finalizes once, and discards holder', async () => {
   const value = await fixture();
   const events: string[] = [];
+  let presignInitRequest: unknown;
+  let presignStepRequest: unknown;
+  let finalizeRequest: unknown;
   const credentialIdB64u =
     value.bundle.targetCredentialRegistration.webauthnRegistration.credentialIdB64u;
   const transport: LinkedDeviceEcdsaNormalSigningTransportV1 = {
     presignInit: async ({ request }) => {
+      presignInitRequest = request;
       events.push('presign-init');
       return {
         kind: 'continue',
@@ -132,6 +136,7 @@ test('claims before holder open, completes linked presign, finalizes once, and d
       };
     },
     presignStep: async ({ request }) => {
+      presignStepRequest = request;
       events.push('presign-step');
       return {
         kind: 'complete',
@@ -145,6 +150,7 @@ test('claims before holder open, completes linked presign, finalizes once, and d
       };
     },
     finalize: async ({ request }) => {
+      finalizeRequest = request;
       events.push('finalize');
       return {
         scope: request.scope,
@@ -314,6 +320,9 @@ test('claims before holder open, completes linked presign, finalizes once, and d
     transport,
   });
   expect(result.signature65).toHaveLength(65);
+  expect(presignInitRequest).toHaveProperty('localPresenceAssertion');
+  expect(presignStepRequest).not.toHaveProperty('localPresenceAssertion');
+  expect(finalizeRequest).not.toHaveProperty('localPresenceAssertion');
   expect(events).toEqual([
     'webauthn',
     'presign-init',

@@ -95,19 +95,23 @@ export type LinkedDeviceEcdsaFinalizeRequestWireV1 = Omit<
   readonly client_rerandomization_contribution32_b64u: string;
 };
 
-type LinkedDeviceEcdsaBoundaryV1 = {
+type LinkedDeviceEcdsaInitialBoundaryV1 = {
   readonly linkedDeviceExecution: LinkedDeviceExecutionEnvelopeV1;
   readonly localPresenceAssertion: LinkedDeviceLocalPresenceAssertionV1;
 };
 
+type LinkedDeviceEcdsaContinuationBoundaryV1 = {
+  readonly linkedDeviceExecution: LinkedDeviceExecutionEnvelopeV1;
+};
+
 type LinkedDeviceEcdsaPresignInitBodyV1 = LinkedDeviceEcdsaPrepareRequestWireV1 &
-  LinkedDeviceEcdsaBoundaryV1 & {
+  LinkedDeviceEcdsaInitialBoundaryV1 & {
     readonly lane_operation_id: string;
     readonly presign_session_id?: string;
   };
 
 type LinkedDeviceEcdsaPresignStepBodyV1 = LinkedDeviceEcdsaPrepareRequestWireV1 &
-  LinkedDeviceEcdsaBoundaryV1 & {
+  LinkedDeviceEcdsaContinuationBoundaryV1 & {
     readonly lane_operation_id: string;
     readonly presign_session_id: string;
     readonly requested_stage: 'triples' | 'presign';
@@ -163,7 +167,8 @@ export type LinkedDeviceEcdsaNormalSigningTransportV1 = {
   readonly finalize: (input: {
     readonly relayServerUrl: string;
     readonly credential: RouterAbEd25519NormalSigningCredential;
-    readonly request: LinkedDeviceEcdsaFinalizeRequestWireV1 & LinkedDeviceEcdsaBoundaryV1;
+    readonly request: LinkedDeviceEcdsaFinalizeRequestWireV1 &
+      LinkedDeviceEcdsaContinuationBoundaryV1;
   }) => Promise<LinkedDeviceEcdsaSigningResponseV1>;
 };
 
@@ -254,7 +259,6 @@ export function buildLinkedDeviceEcdsaScopeV1(input: {
     child.job.keyFamily !== 'ecdsa_secp256k1' ||
     child.lane.laneKind !== 'linked_device' ||
     child.lane.lifecycle.state !== 'active' ||
-    child.lane.lifecycle.revocationEpoch !== bundle.revocationEpoch ||
     child.job.walletId !== bundle.walletId ||
     String(child.job.enrollmentId) !== String(bundle.enrollmentId) ||
     child.job.target.laneId !== child.laneId ||
@@ -271,7 +275,7 @@ export function buildLinkedDeviceEcdsaScopeV1(input: {
     operationId: child.job.operationId,
     laneId: child.job.target.laneId,
     laneShareEpoch: child.job.target.laneShareEpoch,
-    revocationEpoch: bundle.revocationEpoch,
+    revocationEpoch: child.lane.lifecycle.revocationEpoch,
     targetMaterialActivationId: child.job.targetMaterialActivationId,
     materialActivation: child.materialActivation,
     targetCapability: child.job.targetCapability,
@@ -321,6 +325,18 @@ function operationDigestsToWire(
     lane_digest_b64u: digests.laneDigest,
     intent_digest_b64u: digests.intentDigest,
     display_digest_b64u: digests.displayDigest,
+  };
+}
+
+function stripLocalPresenceAssertion(
+  request: LinkedDeviceEcdsaPresignInitBodyV1,
+): LinkedDeviceEcdsaPresignStepBodyV1 {
+  const { localPresenceAssertion: _localPresenceAssertion, ...continuation } = request;
+  return {
+    ...continuation,
+    presign_session_id: request.presign_session_id ?? '',
+    requested_stage: 'triples',
+    outgoing_messages_b64u: [],
   };
 }
 
@@ -666,7 +682,8 @@ export async function executeLinkedDeviceEcdsaNormalSigningV1(
     input.walletSession.delivery.deviceId !== input.bundle.deviceId ||
     input.walletSession.delivery.walletSessionId !== input.bundle.walletSessionId ||
     input.walletSession.token.walletKeyId !== input.child.walletKeyId ||
-    input.walletSession.token.keyFamily !== 'ecdsa_secp256k1'
+    input.walletSession.token.keyFamily !== 'ecdsa_secp256k1' ||
+    input.walletSession.token.revocationEpoch !== input.child.lane.lifecycle.revocationEpoch
   ) {
     throw new Error('linked ECDSA Wallet Session token does not match execution bundle');
   }
@@ -756,6 +773,7 @@ export async function executeLinkedDeviceEcdsaNormalSigningV1(
     handle: presenceAndHolder.holderMaterial,
     holderMaterial: input.holderMaterial,
   });
+  const continuationCoreRequest = stripLocalPresenceAssertion(coreRequest);
   const poolIdentity = buildPoolIdentity(scope, input.child, requestId);
   let sessionId: string | null = null;
   let localHandle: string | null = null;
@@ -804,7 +822,7 @@ export async function executeLinkedDeviceEcdsaNormalSigningV1(
           relayServerUrl: input.relayServerUrl,
           credential,
           request: {
-            ...coreRequest,
+            ...continuationCoreRequest,
             presign_session_id: sessionId,
             requested_stage: resolveExchangeStage({ clientStage, serverStage }),
             outgoing_messages_b64u: pendingClientOutgoing.map(base64UrlEncode),
@@ -891,7 +909,8 @@ export async function executeLinkedDeviceEcdsaNormalSigningV1(
     if (clientSignatureShare32.length !== 32) {
       throw new Error('linked ECDSA client signature share must contain exactly 32 bytes');
     }
-    const finalizeRequest: LinkedDeviceEcdsaFinalizeRequestWireV1 & LinkedDeviceEcdsaBoundaryV1 = {
+    const finalizeRequest: LinkedDeviceEcdsaFinalizeRequestWireV1 &
+      LinkedDeviceEcdsaContinuationBoundaryV1 = {
       scope: scopeWire,
       request_id: requestId,
       operation_id: operationId,
@@ -904,7 +923,6 @@ export async function executeLinkedDeviceEcdsaNormalSigningV1(
       client_signature_share32_b64u: base64UrlEncode(clientSignatureShare32),
       client_rerandomization_contribution32_b64u: base64UrlEncode(contribution32),
       linkedDeviceExecution: envelope,
-      localPresenceAssertion: presenceAndHolder.localPresenceAssertion,
     };
     const signingResponse = await transport.finalize({
       relayServerUrl: input.relayServerUrl,

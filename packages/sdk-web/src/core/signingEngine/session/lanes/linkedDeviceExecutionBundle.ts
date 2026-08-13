@@ -371,7 +371,7 @@ export async function buildActiveLinkedDeviceExecutionBundleFromEvidenceV1(input
       assertChildIdentity({
         deliveryChild,
         token,
-        walletSessionRevocationEpoch: walletSession.revocationEpoch,
+        tokenRevocationEpoch: token.revocationEpoch,
       });
       return await buildActiveExecutionChild({
         deviceId: approval.deviceId,
@@ -380,7 +380,7 @@ export async function buildActiveLinkedDeviceExecutionBundleFromEvidenceV1(input
         deliveryChild,
         receiptChild,
         token,
-        revocationEpoch: walletSession.revocationEpoch,
+        revocationEpoch: token.revocationEpoch,
       });
     }),
   );
@@ -579,13 +579,13 @@ function assertChildIdentity(input: {
   readonly token: ReturnType<
     typeof parseLinkedDeviceWalletSessionDeliveryV1
   >['orderedTokens'][number];
-  readonly walletSessionRevocationEpoch: number;
+  readonly tokenRevocationEpoch: number;
 }): void {
   const job = input.deliveryChild.job;
   if (
     input.token.walletKeyId !== job.walletKeyId ||
     input.token.keyFamily !== job.keyFamily ||
-    input.walletSessionRevocationEpoch !== job.source.revocationEpoch
+    input.tokenRevocationEpoch !== job.source.revocationEpoch
   ) {
     throw new Error('linked-device active execution authorization does not match child');
   }

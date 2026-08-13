@@ -255,17 +255,14 @@ export class LaneSealedHolderMaterialRepository implements LaneSealedHolderMater
     const key = storeKey(input);
     const volatile = this.volatileRecords.get(key);
     if (volatile) return volatile;
-    const entries = await this.seals.collectAllRawSealedRecordEntries();
-    for (const entry of entries) {
-      if (String(entry.primaryKey) !== key) continue;
-      const parsed = parseLaneSealedHolderRecordV1(entry.value);
-      if (!lookupMatches(parsed, input)) {
-        throw new Error('lane sealed holder record key does not match its content');
-      }
-      this.volatileRecords.set(key, parsed);
-      return parsed;
+    const entry = await this.seals.getRawSealedRecordEntry(key);
+    if (!entry) return null;
+    const parsed = parseLaneSealedHolderRecordV1(entry.value);
+    if (!lookupMatches(parsed, input)) {
+      throw new Error('lane sealed holder record key does not match its content');
     }
-    return null;
+    this.volatileRecords.set(key, parsed);
+    return parsed;
   }
 
   async listForEnrollmentV1(input: {
@@ -276,7 +273,7 @@ export class LaneSealedHolderMaterialRepository implements LaneSealedHolderMater
     for (const [key, record] of this.volatileRecords) {
       if (record.enrollmentId === enrollmentId) records.set(key, record);
     }
-    const entries = await this.seals.collectAllRawSealedRecordEntries();
+    const entries = await this.seals.collectRawSealedRecordEntriesByEnrollmentId(enrollmentId);
     for (const entry of entries) {
       if (!isRecord(entry.value) || entry.value.kind !== 'lane_sealed_holder_record_v1') {
         continue;

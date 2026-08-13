@@ -171,6 +171,7 @@ const LINKED_WALLET_SESSION_TOKEN_FIELDS = [
   'walletKeyId',
   'keyFamily',
   'walletSessionJwt',
+  'revocationEpoch',
 ] as const;
 const LINKED_WALLET_SESSION_JWT_FIELDS = [
   'kind',
@@ -406,8 +407,8 @@ const LINKED_DEVICE_SUMMARY_FIELDS = [
   'lastActivityAtMs',
   'revocationEpoch',
 ] as const;
-const LINKED_DEVICE_LIST_REQUEST_FIELDS = ['kind', 'walletId'] as const;
-const LINKED_DEVICE_LIST_RESULT_FIELDS = ['devices'] as const;
+const LINKED_DEVICE_LIST_REQUEST_FIELDS = ['kind', 'walletId', 'limit', 'cursor'] as const;
+const LINKED_DEVICE_LIST_RESULT_FIELDS = ['devices', 'nextCursor'] as const;
 const LINKED_DEVICE_REVOKE_REQUEST_FIELDS = [
   'kind',
   'walletId',
@@ -580,6 +581,17 @@ function parseNonNegativeSafeInteger(raw: unknown, label: string): number {
   return Number(raw);
 }
 
+function parsePositiveSafeInteger(raw: unknown, label: string): number {
+  const value = parseNonNegativeSafeInteger(raw, label);
+  if (value < 1) throw new Error(`${label} must be a positive safe integer`);
+  return value;
+}
+
+function parseNullableCursor(raw: unknown, label: string): string | null {
+  if (raw === null) return null;
+  return parseNonEmptyToken(raw, label);
+}
+
 function assertExpiryAfterIssued(issuedAtMs: number, expiresAtMs: number, label: string): void {
   if (expiresAtMs <= issuedAtMs) throw new Error(`${label}.expiresAtMs must be after issuedAtMs`);
 }
@@ -725,29 +737,42 @@ export function parseLinkedDeviceListRequestV1(raw: unknown): LinkedDeviceListRe
   return {
     kind: 'linked_device_list_request_v1',
     walletId: parseWallet(record.walletId, 'LinkedDeviceListRequestV1.walletId'),
+    limit: parsePositiveSafeInteger(record.limit, 'LinkedDeviceListRequestV1.limit'),
+    cursor: parseNullableCursor(record.cursor, 'LinkedDeviceListRequestV1.cursor'),
   };
 }
 
 export function buildLinkedDeviceListRequestV1(args: {
   readonly walletId: WalletId;
+  readonly limit: number;
+  readonly cursor: string | null;
 }): LinkedDeviceListRequestV1 {
-  return {
+  return parseLinkedDeviceListRequestV1({
     kind: 'linked_device_list_request_v1',
-    walletId: parseWallet(args.walletId, 'LinkedDeviceListRequestV1.walletId'),
-  };
+    walletId: args.walletId,
+    limit: args.limit,
+    cursor: args.cursor,
+  });
 }
 
 export function parseLinkedDeviceListResultV1(raw: unknown): LinkedDeviceListResultV1 {
   const record = exactRecord(raw, LINKED_DEVICE_LIST_RESULT_FIELDS, 'LinkedDeviceListResultV1');
   if (!Array.isArray(record.devices))
     throw new Error('LinkedDeviceListResultV1.devices is invalid');
-  return { devices: record.devices.map(parseLinkedDeviceSummaryV1) };
+  return {
+    devices: record.devices.map(parseLinkedDeviceSummaryV1),
+    nextCursor: parseNullableCursor(record.nextCursor, 'LinkedDeviceListResultV1.nextCursor'),
+  };
 }
 
 export function buildLinkedDeviceListResultV1(args: {
   readonly devices: readonly LinkedDeviceSummaryV1[];
+  readonly nextCursor: string | null;
 }): LinkedDeviceListResultV1 {
-  return parseLinkedDeviceListResultV1({ devices: args.devices });
+  return parseLinkedDeviceListResultV1({
+    devices: args.devices,
+    nextCursor: args.nextCursor,
+  });
 }
 
 export function parseLinkedDeviceRevokeRequestV1(raw: unknown): LinkedDeviceRevokeRequestV1 {
@@ -956,7 +981,6 @@ function parseLinkedDeviceWalletSessionTokenV1(
     readonly quotaId: LinkedDeviceWalletSessionDeliveryV1['quotaId'];
     readonly keyManifestDigestB64u: LinkedDeviceWalletSessionDeliveryV1['keyManifestDigestB64u'];
     readonly permission: LinkedDeviceWalletSessionDeliveryV1['permission'];
-    readonly revocationEpoch: number;
     readonly issuedAtMs: number;
     readonly expiresAtMs: number;
   },
@@ -972,6 +996,10 @@ function parseLinkedDeviceWalletSessionTokenV1(
     throw new Error(`${label}.keyFamily is invalid`);
   }
   const keyFamily = record.keyFamily;
+  const revocationEpoch = parseNonNegativeSafeInteger(
+    record.revocationEpoch,
+    `${label}.revocationEpoch`,
+  );
   const walletSessionJwt = parseNonEmptyToken(record.walletSessionJwt, `${label}.walletSessionJwt`);
   const jwtSegments = walletSessionJwt.split('.');
   if (
@@ -1000,7 +1028,7 @@ function parseLinkedDeviceWalletSessionTokenV1(
     claims.walletSessionId !== expected.walletSessionId ||
     claims.quotaId !== expected.quotaId ||
     claims.keyManifestDigestB64u !== expected.keyManifestDigestB64u ||
-    claims.revocationEpoch !== expected.revocationEpoch ||
+    claims.revocationEpoch !== revocationEpoch ||
     claims.issuedAtMs !== expected.issuedAtMs ||
     claims.expiresAtMs !== expected.expiresAtMs ||
     claims.iat !== Math.floor(expected.issuedAtMs / 1_000) ||
@@ -1021,6 +1049,7 @@ function parseLinkedDeviceWalletSessionTokenV1(
     walletKeyId,
     keyFamily,
     walletSessionJwt,
+    revocationEpoch,
   };
 }
 

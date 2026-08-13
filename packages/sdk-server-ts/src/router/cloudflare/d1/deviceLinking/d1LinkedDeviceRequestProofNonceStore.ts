@@ -7,6 +7,7 @@ import type { LinkedDeviceRequestProofNonceStoreV1 } from '../../../../core/devi
 import type { D1LinkedDeviceSessionScopeV1 } from './d1LinkedDeviceSessionStore';
 
 const NONCE_TABLE = 'linked_device_request_proof_nonces';
+const NONCE_EXPIRY_CLEANUP_BATCH_LIMIT_V1 = 64;
 
 type D1LinkedDeviceRequestProofNonceRowV1 = {
   readonly link_session_id?: unknown;
@@ -56,6 +57,8 @@ export class D1LinkedDeviceRequestProofNonceStoreV1 implements LinkedDeviceReque
       expiresAtMs: input.expiresAtMs,
       consumedAtMs: input.consumedAtMs,
     });
+    // Every proof request gets one bounded cleanup pass; no unbounded maintenance query runs.
+    await this.pruneExpiredNoncesV1(normalized.consumedAtMs);
     try {
       const result = await this.database
         .prepare(
@@ -85,6 +88,28 @@ export class D1LinkedDeviceRequestProofNonceStoreV1 implements LinkedDeviceReque
       );
       if (!existing) throw error;
       return { outcome: 'already_used' };
+    }
+  }
+
+  private async pruneExpiredNoncesV1(nowMs: number): Promise<void> {
+    try {
+      await this.database
+        .prepare(
+          `WITH expired AS (
+             SELECT rowid
+               FROM ${NONCE_TABLE}
+              WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+                AND expires_at_ms <= ?
+              ORDER BY expires_at_ms ASC, link_session_id ASC, request_nonce_b64u ASC
+              LIMIT ?
+           )
+           DELETE FROM ${NONCE_TABLE}
+            WHERE rowid IN (SELECT rowid FROM expired)`,
+        )
+        .bind(...scopeValues(this.scope), nowMs, NONCE_EXPIRY_CLEANUP_BATCH_LIMIT_V1)
+        .run();
+    } catch {
+      // Expiry pruning is opportunistic; request-proof insertion remains authoritative.
     }
   }
 

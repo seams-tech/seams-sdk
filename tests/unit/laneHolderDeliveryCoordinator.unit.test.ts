@@ -11,8 +11,14 @@ import type {
   LaneProtocolCasResultV1,
 } from '../../packages/shared-ts/src/signing-lanes/rotation';
 import type { LaneSealedHolderRecordV1 } from '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
-import { LaneSealedHolderMaterialRepository } from '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
-import { SigningSessionSealsRepository } from '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/signingSessionSeals';
+import {
+  LaneSealedHolderMaterialRepository,
+  laneSealedHolderStoreKeyV1,
+} from '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
+import {
+  SigningSessionSealsRepository,
+  type StoredRawSealedRecordEntry,
+} from '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/signingSessionSeals';
 import { parseLaneHolderPackageWireV1 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
 import { parseLaneHolderRecipientHandleV1 } from '../../packages/shared-ts/src/utils/domainIds';
 import {
@@ -58,6 +64,33 @@ function unsupported(): Promise<never> {
 class UnavailableSigningSessionSealsRepository extends SigningSessionSealsRepository {
   override async putSealedRecord(): Promise<boolean> {
     return false;
+  }
+}
+
+class IndexedSigningSessionSealsRepository extends SigningSessionSealsRepository {
+  exactReads = 0;
+  enrollmentReads = 0;
+
+  constructor(private readonly entry: StoredRawSealedRecordEntry) {
+    super();
+  }
+
+  override async getRawSealedRecordEntry(
+    primaryKey: string,
+  ): Promise<StoredRawSealedRecordEntry | null> {
+    this.exactReads += 1;
+    return primaryKey === this.entry.primaryKey ? this.entry : null;
+  }
+
+  override async collectRawSealedRecordEntriesByEnrollmentId(): Promise<
+    StoredRawSealedRecordEntry[]
+  > {
+    this.enrollmentReads += 1;
+    return [this.entry];
+  }
+
+  override async collectAllRawSealedRecordEntries(): Promise<StoredRawSealedRecordEntry[]> {
+    throw new Error('lane holder lookups must not scan the seals store');
   }
 }
 
@@ -202,6 +235,33 @@ test.describe('R102 holder delivery worker boundary', () => {
     expect(holderDeliveries).toEqual([1]);
 
     if (!replayRepository.record) throw new Error('expected sealed holder material fixture');
+    const persistedStoreKey = laneSealedHolderStoreKeyV1({
+      operationId: replayRepository.record.operationId,
+      enrollmentId: replayRepository.record.enrollmentId,
+      targetLaneId: replayRepository.record.laneId,
+      targetLaneShareEpoch: replayRepository.record.laneShareEpoch,
+      targetMaterialActivationId: replayRepository.record.targetMaterialActivationId,
+    });
+    const indexedSeals = new IndexedSigningSessionSealsRepository({
+      primaryKey: persistedStoreKey,
+      value: { store_key: persistedStoreKey, ...replayRepository.record },
+    });
+    const indexedRepository = new LaneSealedHolderMaterialRepository(indexedSeals);
+    const exact = await indexedRepository.get({
+      operationId: replayRepository.record.operationId,
+      enrollmentId: replayRepository.record.enrollmentId,
+      targetLaneId: replayRepository.record.laneId,
+      targetLaneShareEpoch: replayRepository.record.laneShareEpoch,
+      targetMaterialActivationId: replayRepository.record.targetMaterialActivationId,
+    });
+    expect(exact).toEqual(replayRepository.record);
+    expect(indexedSeals.exactReads).toBe(1);
+    const enrollmentRecords = await indexedRepository.listForEnrollmentV1({
+      enrollmentId: replayRepository.record.enrollmentId,
+    });
+    expect(enrollmentRecords).toEqual([replayRepository.record]);
+    expect(indexedSeals.enrollmentReads).toBe(1);
+
     const durableRepository = new LaneSealedHolderMaterialRepository(
       new UnavailableSigningSessionSealsRepository(),
     );

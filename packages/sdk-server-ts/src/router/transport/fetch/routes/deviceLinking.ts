@@ -273,7 +273,9 @@ export type DeviceLinkingRouteServiceV1 = {
     | 'bindRecoveryContinuationV1'
     | 'cancelSessionV1'
     | 'getSessionV1'
-  >;
+  > & {
+    readonly listSessionsForWalletV1: LinkedDeviceSessionServiceV1['listSessionsForWalletV1'];
+  };
   readonly nowV1: () => number;
   verifyPublicSessionProofV1(input: {
     readonly payload: QrLinkedDeviceSessionPayloadV4;
@@ -328,6 +330,21 @@ export type DeviceLinkingRouteServiceV1 = {
       }
     | { readonly kind: 'unavailable' }
   >;
+  renewWalletSessionAuthorizationV1(input: {
+    readonly session: Extract<
+      LinkedDeviceSessionRecordV1,
+      { readonly state: { readonly state: 'active' } }
+    >;
+    readonly requestedAtMs: number;
+    readonly localPresenceAssertion: unknown;
+  }): Promise<
+    | {
+        readonly kind: 'active';
+        readonly authorization: IssuedLinkedDeviceWalletSession;
+      }
+    | { readonly kind: 'unavailable' }
+    | { readonly kind: 'local_presence_refused'; readonly reason: string }
+  >;
   resolveNearAccountIdForEd25519WalletKeyV1(input: {
     readonly walletId: LinkedDeviceApprovalV1['walletId'];
     readonly walletKeyId: LinkedDeviceApprovalV1['orderedKeyBindings'][number]['walletKeyId'];
@@ -377,6 +394,8 @@ export async function handleDeviceLinking(ctx: FetchRouterApiContext): Promise<R
       return await handleReceipt(ctx, service, action.linkSessionId, nowMs);
     if (action.kind === 'wallet-session')
       return await handleWalletSession(ctx, service, action.linkSessionId, nowMs);
+    if (action.kind === 'wallet-session-renew')
+      return await handleWalletSessionRenewal(ctx, service, action.linkSessionId, nowMs);
     if (action.kind === 'retry')
       return await handleRetry(ctx, service, action.linkSessionId, nowMs);
     if (action.kind === 'operator-recovery')
@@ -899,10 +918,80 @@ async function handleWalletSession(
     );
   }
   assertIssuedAuthorizationMatchesSession(resolution.authorization, session, nowMs);
-  const signed = await signLinkedDeviceWalletSessionTokens({
-    sessionAdapter: ctx.opts.session,
-    authorization: resolution.authorization,
+  return await respondWithLinkedDeviceWalletSessionDelivery({
+    ctx,
+    service,
+    session,
     approval,
+    authorization: resolution.authorization,
+    nowMs,
+  });
+}
+
+async function handleWalletSessionRenewal(
+  ctx: FetchRouterApiContext,
+  service: DeviceLinkingRouteServiceV1,
+  rawLinkSessionId: string,
+  nowMs: number,
+): Promise<Response> {
+  const authenticated = await authenticateDeviceForSession(ctx, service, rawLinkSessionId, nowMs);
+  if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
+  if (authenticated.kind === 'not_found') return notFoundResponse();
+  if (ctx.method !== 'POST') return methodNotAllowedResponse();
+  if (!isActiveLinkedDeviceSessionRecord(authenticated.session)) {
+    return invalidStateResponse(authenticated.session);
+  }
+  const request = parseBoundary(() => parseWalletSessionRenewalRequest(authenticated.body));
+  const session = authenticated.session;
+  const approval = session.approvalTranscript.value;
+  assertApprovalMatchesPersistedSession(session, approval);
+  const renewal = await service.renewWalletSessionAuthorizationV1({
+    session,
+    requestedAtMs: nowMs,
+    localPresenceAssertion: request.localPresenceAssertion,
+  });
+  if (renewal.kind === 'unavailable') {
+    return json(
+      {
+        ok: false,
+        code: 'authorization_unavailable',
+        message: 'Linked-device Wallet Session authorization is unavailable',
+      },
+      { status: 409 },
+    );
+  }
+  if (renewal.kind === 'local_presence_refused') {
+    return json(
+      { ok: false, code: 'local_presence_required', message: renewal.reason },
+      { status: 403 },
+    );
+  }
+  assertIssuedAuthorizationMatchesSession(renewal.authorization, session, nowMs);
+  return await respondWithLinkedDeviceWalletSessionDelivery({
+    ctx,
+    service,
+    session,
+    approval,
+    authorization: renewal.authorization,
+    nowMs,
+  });
+}
+
+async function respondWithLinkedDeviceWalletSessionDelivery(input: {
+  readonly ctx: FetchRouterApiContext;
+  readonly service: DeviceLinkingRouteServiceV1;
+  readonly session: Extract<
+    LinkedDeviceSessionRecordV1,
+    { readonly state: { readonly state: 'active' } }
+  >;
+  readonly approval: LinkedDeviceApprovalV1;
+  readonly authorization: IssuedLinkedDeviceWalletSession;
+  readonly nowMs: number;
+}): Promise<Response> {
+  const signed = await signLinkedDeviceWalletSessionTokens({
+    sessionAdapter: input.ctx.opts.session,
+    authorization: input.authorization,
+    approval: input.approval,
   });
   if (signed.kind === 'failed') {
     return json(
@@ -910,14 +999,14 @@ async function handleWalletSession(
       { status: signed.status },
     );
   }
-  const authorization = resolution.authorization.authorization;
+  const authorization = input.authorization.authorization;
   let ed25519Token: Extract<LinkedDeviceWalletSessionTokenV1, { keyFamily: 'ed25519' }> | null =
     null;
   for (const token of signed.orderedTokens) {
     if (token.keyFamily === 'ed25519') ed25519Token = token;
   }
   const nearAccountId = ed25519Token
-    ? await service.resolveNearAccountIdForEd25519WalletKeyV1({
+    ? await input.service.resolveNearAccountIdForEd25519WalletKeyV1({
         walletId: authorization.walletId,
         walletKeyId: ed25519Token.walletKeyId,
       })
@@ -998,6 +1087,9 @@ async function signLinkedDeviceWalletSessionTokens(input: {
       sessionInfo: {
         ...sessionInfoBase,
         walletKeyId: binding.walletKeyId,
+        // JWT admission is lane-scoped. The authorization record's epoch is
+        // the enrollment fence and may be higher than this child epoch.
+        revocationEpoch: binding.sourceRevocationEpoch,
       },
       requireJwtErrorMessage: 'Linked-device Wallet Session JWT is required',
       invalidPayloadErrorMessage: 'Linked-device Wallet Session claims are invalid',
@@ -1023,6 +1115,7 @@ async function signLinkedDeviceWalletSessionTokens(input: {
       walletKeyId: binding.walletKeyId,
       keyFamily: binding.keyFamily,
       walletSessionJwt: signed.jwt,
+      revocationEpoch: binding.sourceRevocationEpoch,
     });
   }
   const [first, ...remaining] = orderedTokens;
@@ -1353,6 +1446,7 @@ function parseRoutePath(pathname: string):
         | 'credential'
         | 'receipt'
         | 'wallet-session'
+        | 'wallet-session-renew'
         | 'retry'
         | 'operator-recovery'
         | 'cancel';
@@ -1378,6 +1472,7 @@ function parseRoutePath(pathname: string):
     parts[1] !== 'credential' &&
     parts[1] !== 'receipt' &&
     parts[1] !== 'wallet-session' &&
+    parts[1] !== 'wallet-session-renew' &&
     parts[1] !== 'retry' &&
     parts[1] !== 'operator-recovery' &&
     parts[1] !== 'cancel'
@@ -1575,6 +1670,12 @@ function parseRetryRequest(
   if (request.kind !== 'linked_device_session_retry_committed_delivery_request_v1')
     throw new Error('retry request kind is invalid');
   return request;
+}
+
+function parseWalletSessionRenewalRequest(raw: unknown): { readonly localPresenceAssertion: unknown } {
+  const record = requireRecord(raw, 'linked-device Wallet Session renewal request');
+  requireExactKeys(record, ['localPresenceAssertion']);
+  return { localPresenceAssertion: record.localPresenceAssertion };
 }
 
 type DeviceLinkingOperatorRecoveryRequestV1 = {

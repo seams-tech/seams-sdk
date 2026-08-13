@@ -5,6 +5,7 @@ import type { LaneSealedHolderMaterialRepositoryV1 } from '@/core/indexedDB/seam
 import type { LinkedDeviceWalletSessionRepositoryV1 } from '@/core/indexedDB/seamsWalletDB/linkedDeviceWalletSessionStore';
 import type { LinkedDeviceExecutionEvidenceRepositoryV1 } from '@/core/indexedDB/seamsWalletDB/linkedDeviceExecutionEvidenceStore';
 import {
+  parseLinkedDeviceListRequestV1,
   parseLinkedDeviceListResultV1,
   parseLinkedDeviceRevokeRequestV1,
   parseLinkedDeviceRevokeResultV1,
@@ -57,16 +58,19 @@ export type WalletHostCompositionDependenciesV1 = {
 export type WalletHostCompositionV1 = {
   readonly linkedDeviceManagement: LinkedDeviceManagementPortV1;
   readonly deviceLinkingPorts: DeviceLinkingFlowPortsAssemblyV1;
+  readonly dispose: () => void;
 };
 
 export function createWalletHostCompositionV1(
   args: WalletHostCompositionDependenciesV1,
 ): WalletHostCompositionV1 {
+  const deviceLinkingPorts = createDeviceLinkingFlowPortsV1(args);
   return {
     linkedDeviceManagement: createWalletHostLinkedDeviceManagementPortV1({
       request: args.managementRequest,
     }),
-    deviceLinkingPorts: createDeviceLinkingFlowPortsV1(args),
+    deviceLinkingPorts,
+    dispose: deviceLinkingPorts.dispose,
   };
 }
 
@@ -74,14 +78,22 @@ function createWalletHostLinkedDeviceManagementPortV1(args: {
   readonly request: WalletHostManagementRequestV1;
 }): LinkedDeviceManagementPortV1 {
   return {
-    listLinkedDevices: async ({ walletId }) => {
+    listLinkedDevices: async ({ walletId, limit, cursor }) => {
+      const request = parseLinkedDeviceListRequestV1({
+        kind: 'linked_device_list_request_v1',
+        walletId,
+        limit,
+        cursor,
+      });
       const path = `${LINKED_DEVICE_MANAGEMENT_HTTP_BASE_PATH_V1}?walletId=${encodeURIComponent(
-        String(walletId),
+        String(request.walletId),
+      )}&limit=${encodeURIComponent(String(request.limit))}&cursor=${encodeURIComponent(
+        request.cursor ?? '',
       )}`;
       const response = await args.request.request({
         method: 'GET',
         canonicalPath: path,
-        walletId,
+        walletId: request.walletId,
       });
       assertManagementSuccess(response, 'list linked devices');
       return parseLinkedDeviceListResultV1(stripOkField(response.body));

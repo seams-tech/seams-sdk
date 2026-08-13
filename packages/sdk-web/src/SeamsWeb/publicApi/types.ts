@@ -964,7 +964,11 @@ export interface DevicesCapability {
     options: ScanAndLinkDeviceOptionsDevice1,
   ): Promise<LinkDeviceResult>;
 
-  listLinkedDevices(args: { walletId: string }): Promise<LinkedDeviceListResultV1>;
+  listLinkedDevices(args: {
+    walletId: string;
+    limit: number;
+    cursor: string | null;
+  }): Promise<LinkedDeviceListResultV1>;
 
   revokeLinkedDevice(args: {
     walletId: string;

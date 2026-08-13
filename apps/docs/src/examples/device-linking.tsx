@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
 import { QRScanMode, useDeviceLinking, useSeams } from '@seams/sdk/react';
-import type { DeviceLinkingQRData, LinkDeviceFlowEvent } from '@seams/sdk';
+import type { LinkDeviceFlowEvent, QrLinkedDeviceSessionPayloadV4 } from '@seams/sdk';
 
 function logLinkEvent(event: LinkDeviceFlowEvent): void {
   console.log(event.phase, event.status, event.message);
 }
 
 export function NewDeviceLinkCode() {
-  const { startDevice2LinkingFlow, stopDevice2LinkingFlow } = useSeams();
+  const { startDevice2LinkingFlow, cancelDeviceLinking } = useSeams();
   const [qrCodeDataURL, setQrCodeDataURL] = useState<string | null>(null);
 
   const onStart = async (): Promise<void> => {
@@ -17,9 +17,9 @@ export function NewDeviceLinkCode() {
 
   useEffect(() => {
     return () => {
-      void stopDevice2LinkingFlow();
+      void cancelDeviceLinking();
     };
-  }, [stopDevice2LinkingFlow]);
+  }, [cancelDeviceLinking]);
 
   return (
     <>
@@ -29,7 +29,7 @@ export function NewDeviceLinkCode() {
   );
 }
 
-export function ApproveLinkedDevice(props: { qrData: DeviceLinkingQRData }) {
+export function ApproveLinkedDevice(props: { qrData: QrLinkedDeviceSessionPayloadV4 }) {
   const { linkDevice } = useDeviceLinking({
     onEvent: logLinkEvent,
     onError: (error) => console.error('Device link failed', error),

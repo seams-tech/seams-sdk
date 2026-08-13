@@ -25,8 +25,8 @@ import type {
 import { errorMessage } from '@shared/utils/errors';
 import { computeLaneEnrollmentManifestDigestV1 } from '@shared/signing-lanes/rotationDigests';
 import { alphabetizeStringify } from '@shared/utils/digests';
-
-const QR_CLOCK_SKEW_MS = 60 * 1000;
+import { nextLinkedDevicePollingDelayMsV1 } from './deviceLinkingHttpTransport';
+import { LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1 } from '@shared/device-linking/requestProof';
 
 type EmitLinkDeviceEventInput = Omit<CreateLinkDeviceFlowEventInput, 'flowId' | 'accountId'> & {
   readonly accountId?: string;
@@ -114,7 +114,7 @@ export function validateQrLinkedDeviceSessionPayloadV4(
     throw createInvalidQrError(errorMessage(error) || 'Invalid linked-device QR payload');
   }
   const now = Date.now();
-  if (parsed.issuedAtMs > now + QR_CLOCK_SKEW_MS) {
+  if (parsed.issuedAtMs > now + LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1) {
     throw createInvalidQrError('QR payload was issued in the future');
   }
   if (parsed.expiresAtMs <= now) {
@@ -275,6 +275,7 @@ async function awaitActiveApprovalResult(input: {
   if (immediate) return immediate;
   let latestResult: LinkedDeviceApprovalResultV1 | null = input.result;
   let sourceHandoffComplete = false;
+  let pollAttempt = 0;
   const onApprovalResult = (result: LinkedDeviceApprovalResultV1): void => {
     latestResult = result;
   };
@@ -286,19 +287,18 @@ async function awaitActiveApprovalResult(input: {
       onResult: onApprovalResult,
     });
     while (Date.now() < input.expiresAtMs) {
-      const observed =
-        latestResult ??
-        (await input.transport.getApprovalV1({
-          linkSessionId: input.linkSessionId,
-          authentication: input.authentication,
-        }));
+      const observed = latestResult;
       latestResult = null;
-      const active = activeApprovalFromResult(observed);
-      if (active) return active;
-      if (!sourceHandoffComplete) {
-        sourceHandoffComplete = await preparePendingSourceHandoffV1(input, observed);
+      if (observed) {
+        pollAttempt = 0;
+        const active = activeApprovalFromResult(observed);
+        if (active) return active;
+        if (!sourceHandoffComplete) {
+          sourceHandoffComplete = await preparePendingSourceHandoffV1(input, observed);
+        }
       }
-      await waitForApprovalPollV1();
+      await waitForApprovalPollV1(pollAttempt);
+      pollAttempt += 1;
     }
     throw approvalWaitExpired();
   } finally {
@@ -347,11 +347,7 @@ async function preparePendingSourceHandoffV1(
 
 function pendingApprovalStateV1(
   result: LinkedDeviceApprovalResultV1,
-):
-  | 'awaiting_target_passkey'
-  | 'provisioning'
-  | 'committed_completion_required'
-  | null {
+): 'awaiting_target_passkey' | 'provisioning' | 'committed_completion_required' | null {
   if (result.outcome === 'pending') return result.state.state;
   if (result.outcome === 'replayed' && result.replay.state === 'pending') {
     return result.replay.session.state;
@@ -359,12 +355,12 @@ function pendingApprovalStateV1(
   return null;
 }
 
-function resolveApprovalPollV1(resolve: () => void): void {
-  setTimeout(resolve, 250);
+function resolveApprovalPollV1(resolve: () => void, attempt: number): void {
+  setTimeout(resolve, nextLinkedDevicePollingDelayMsV1(250, attempt));
 }
 
-async function waitForApprovalPollV1(): Promise<void> {
-  await new Promise<void>(resolveApprovalPollV1);
+async function waitForApprovalPollV1(attempt: number): Promise<void> {
+  await new Promise<void>((resolve) => resolveApprovalPollV1(resolve, attempt));
 }
 
 function approvalWaitExpired(): DeviceLinkingError {

@@ -1,10 +1,9 @@
 import type {
   LinkedDeviceId,
   LinkedDeviceEnrollmentId,
-  LinkDeviceSessionId,
   LaneEnrollmentId,
 } from '@shared/signing-lanes/ids';
-import { parseLaneEnrollmentId, parseLinkDeviceSessionId } from '@shared/signing-lanes/ids';
+import { parseLaneEnrollmentId } from '@shared/signing-lanes/ids';
 import { computeLaneEnrollmentManifestDigestV1 } from '@shared/signing-lanes/rotationDigests';
 import type { LaneEnrollmentManifestV1, LaneProductEpochRecordV1 } from '@shared/signing-lanes';
 import type { WalletId } from '@shared/utils/domainIds';
@@ -15,16 +14,25 @@ import type {
   LinkedDeviceManagementProjectionPortV1,
   LinkedDeviceManagementTargetV1,
 } from '../../../../core/deviceLinking/linkedDeviceManagement';
-import type { LinkedDeviceSummaryV1 } from '@shared/device-linking/contracts';
+import { encodeLinkedDeviceListCursorV1 } from '../../../../core/deviceLinking/linkedDeviceManagement';
+import type {
+  LinkedDeviceListResultV1,
+  LinkedDeviceSummaryV1,
+} from '@shared/device-linking/contracts';
 import { parseLinkedDeviceTargetCredentialRegistrationV1 } from '@shared/device-linking/parsers';
-import type { LinkedDeviceSessionRecordV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
+import type {
+  LinkedDeviceSessionRecordV1,
+  LinkedDeviceSessionListCursorV1,
+  LinkedDeviceSessionListPageV1,
+} from '../../../../core/deviceLinking/linkedDeviceSession';
 import type { D1LinkedDeviceSessionScopeV1 } from './d1LinkedDeviceSessionStore';
 import type { LinkedDeviceSessionServiceV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
-import { CloudflareD1LaneLifecycleStore } from '../signingLanes/d1LaneLifecycleStore';
-import type { CloudflareD1LaneScopeV1 } from '../signingLanes/d1LaneRecords';
 import type { LaneEnrollmentAdmissionRecord } from '../../../../core/signingLanes/LaneLifecycleStore';
+import {
+  parseEnrollmentRow,
+  parseProductEpochRow,
+} from '../signingLanes/d1LaneRecords';
 
-const SESSION_TABLE = 'linked_device_sessions';
 const ENROLLMENT_TABLE = 'lane_enrollments';
 const TARGET_CREDENTIAL_TABLE = 'linked_device_target_credentials';
 const AUTHORIZATION_AUDIT_TABLE = 'authorized_operation_audit_events';
@@ -40,6 +48,13 @@ export type D1LinkedDeviceManagementMetadataPortV1 = {
     readonly enrollmentId: LinkedDeviceEnrollmentId;
     readonly deviceId: LinkedDeviceId;
   }): Promise<D1LinkedDeviceManagementMetadataV1 | null>;
+  readonly readLinkedDeviceMetadataBatchV1: (
+    input: ReadonlyArray<{
+      readonly walletId: WalletId;
+      readonly enrollmentId: LinkedDeviceEnrollmentId;
+      readonly deviceId: LinkedDeviceId;
+    }>,
+  ) => Promise<ReadonlyMap<string, D1LinkedDeviceManagementMetadataV1>>;
 };
 
 export class D1LinkedDeviceTargetCredentialMetadataSourceV1 implements D1LinkedDeviceManagementMetadataPortV1 {
@@ -84,6 +99,47 @@ export class D1LinkedDeviceTargetCredentialMetadataSourceV1 implements D1LinkedD
     }
     return metadataFromRegistration(registration.webauthnRegistration);
   }
+
+  async readLinkedDeviceMetadataBatchV1(
+    inputs: ReadonlyArray<{
+      readonly walletId: WalletId;
+      readonly enrollmentId: LinkedDeviceEnrollmentId;
+      readonly deviceId: LinkedDeviceId;
+    }>,
+  ): Promise<ReadonlyMap<string, D1LinkedDeviceManagementMetadataV1>> {
+    if (inputs.length === 0) return new Map();
+    const keySet = new Set(inputs.map(metadataKey));
+    const rows = await queryD1All(
+      this.input.database,
+      `SELECT wallet_id, enrollment_id, device_id, registration_json
+         FROM ${TARGET_CREDENTIAL_TABLE}
+        WHERE namespace = ?1 AND org_id = ?2 AND project_id = ?3 AND env_id = ?4
+          AND state = 'registered'
+          AND wallet_id IN (${inputs.map((_, index) => `?${index + 5}`).join(', ')})`,
+      [...scopeValues(normalizeScope(this.input.scope)), ...inputs.map((item) => String(item.walletId))],
+    );
+    const result = new Map<string, D1LinkedDeviceManagementMetadataV1>();
+    for (const row of rows) {
+      const walletId = requiredString(field(row, 'wallet_id'), 'wallet_id');
+      const enrollmentId = requiredString(field(row, 'enrollment_id'), 'enrollment_id');
+      const deviceId = requiredString(field(row, 'device_id'), 'device_id');
+      const key = `${walletId}\u0000${enrollmentId}\u0000${deviceId}`;
+      if (!keySet.has(key)) continue;
+      const registration = parseLinkedDeviceTargetCredentialRegistrationV1(
+        JSON.parse(requiredString(field(row, 'registration_json'), 'registration_json')),
+      );
+      if (
+        String(registration.walletId) !== walletId ||
+        String(registration.enrollmentId) !== enrollmentId ||
+        String(registration.deviceId) !== deviceId ||
+        result.has(key)
+      ) {
+        throw new Error('linked-device target credential metadata identity changed');
+      }
+      result.set(key, metadataFromRegistration(registration.webauthnRegistration));
+    }
+    return result;
+  }
 }
 
 export class D1LinkedDeviceSigningActivitySourceV1 {
@@ -127,23 +183,71 @@ export class D1LinkedDeviceSigningActivitySourceV1 {
     if (timestamp === null || timestamp === undefined) return null;
     return requiredTimestamp(timestamp, 'linked-device signing last activity');
   }
+
+  async readLastSigningActivityBatchV1(
+    inputs: ReadonlyArray<{
+      readonly walletId: WalletId;
+      readonly enrollmentId: LinkedDeviceEnrollmentId;
+      readonly deviceId: LinkedDeviceId;
+    }>,
+  ): Promise<ReadonlyMap<string, number>> {
+    if (inputs.length === 0) return new Map();
+    const rows = await queryD1All(
+      this.input.database,
+      `SELECT linked_wallet_id, linked_enrollment_id, linked_device_id,
+              MAX(COALESCE(completed_at_ms, claimed_at_ms)) AS last_activity_at_ms
+         FROM ${AUTHORIZATION_AUDIT_TABLE}
+        WHERE namespace = ?1 AND linked_scope_org_id = ?2
+          AND linked_scope_project_id = ?3 AND linked_scope_env_id = ?4
+          AND authorization_grant_kind = 'linked_device_wallet_session_authorization_v1'
+          AND linked_wallet_id IN (${inputs.map((_, index) => `?${index + 5}`).join(', ')})
+        GROUP BY linked_wallet_id, linked_enrollment_id, linked_device_id`,
+      [...scopeValues(this.scope), ...inputs.map((item) => String(item.walletId))],
+    );
+    const result = new Map<string, number>();
+    for (const row of rows) {
+      const timestamp = field(row, 'last_activity_at_ms');
+      if (timestamp === null || timestamp === undefined) continue;
+      result.set(
+        `${requiredString(field(row, 'linked_wallet_id'), 'linked_wallet_id')}\u0000${requiredString(field(row, 'linked_enrollment_id'), 'linked_enrollment_id')}\u0000${requiredString(field(row, 'linked_device_id'), 'linked_device_id')}`,
+        requiredTimestamp(timestamp, 'linked-device signing last activity'),
+      );
+    }
+    return result;
+  }
 }
 
 export type D1LinkedDeviceManagementStoreOptionsV1 = {
   readonly database: D1DatabaseLike;
   readonly scope: D1LinkedDeviceSessionScopeV1;
-  readonly sessionService: Pick<LinkedDeviceSessionServiceV1, 'getSessionV1'>;
+  readonly sessionService: Pick<LinkedDeviceSessionServiceV1, 'getSessionV1' | 'listSessionsForWalletV1'>;
   readonly nowV1: () => number;
   readonly metadata: D1LinkedDeviceManagementMetadataPortV1;
+};
+
+type ManagementProjectionContextV1 = {
+  readonly enrollments: ReadonlyMap<string, {
+    readonly admission: LaneEnrollmentAdmissionRecord;
+    readonly manifestDigestB64u: string;
+    readonly updatedAtMs: number;
+  }>;
+  readonly products: ReadonlyMap<string, readonly LaneProductEpochRecordV1[]>;
+  readonly metadata: ReadonlyMap<string, D1LinkedDeviceManagementMetadataV1>;
+  readonly signingActivity: ReadonlyMap<string, number>;
+};
+
+type LinkedDeviceManagementIdentityV1 = {
+  readonly walletId: WalletId;
+  readonly enrollmentId: LinkedDeviceEnrollmentId;
+  readonly deviceId: LinkedDeviceId;
 };
 
 export class D1LinkedDeviceManagementStoreV1 implements LinkedDeviceManagementProjectionPortV1 {
   private readonly database: D1DatabaseLike;
   private readonly scope: D1LinkedDeviceSessionScopeV1;
-  private readonly sessionService: Pick<LinkedDeviceSessionServiceV1, 'getSessionV1'>;
+  private readonly sessionService: Pick<LinkedDeviceSessionServiceV1, 'getSessionV1' | 'listSessionsForWalletV1'>;
   private readonly nowV1: () => number;
   private readonly metadata: D1LinkedDeviceManagementMetadataPortV1;
-  private readonly lanes: CloudflareD1LaneLifecycleStore;
   private readonly signingActivity: D1LinkedDeviceSigningActivitySourceV1;
 
   constructor(options: D1LinkedDeviceManagementStoreOptionsV1) {
@@ -152,40 +256,49 @@ export class D1LinkedDeviceManagementStoreV1 implements LinkedDeviceManagementPr
     this.sessionService = options.sessionService;
     this.nowV1 = options.nowV1;
     this.metadata = options.metadata;
-    const laneScope: CloudflareD1LaneScopeV1 = {
-      namespace: this.scope.namespace,
-      orgId: this.scope.orgId,
-      projectId: this.scope.projectId,
-      envId: this.scope.envId,
-    };
-    this.lanes = new CloudflareD1LaneLifecycleStore({
-      database: this.database,
-      scope: laneScope,
-    });
     this.signingActivity = new D1LinkedDeviceSigningActivitySourceV1({
       database: this.database,
       scope: this.scope,
     });
   }
 
-  async listLinkedDevicesV1(walletId: WalletId): Promise<readonly LinkedDeviceSummaryV1[]> {
-    const sessions = await this.readClaimedSessionsV1();
+  async listLinkedDevicesV1(input: {
+    readonly walletId: WalletId;
+    readonly limit: number;
+    readonly cursor: LinkedDeviceSessionListCursorV1 | null;
+  }): Promise<LinkedDeviceListResultV1> {
+    const sessions = await this.readClaimedSessionsV1({
+      walletId: input.walletId,
+      deviceId: undefined,
+      limit: input.limit,
+      cursor: input.cursor,
+    });
+    const context = await this.buildProjectionContextV1(sessions.records);
     const summaries: LinkedDeviceSummaryV1[] = [];
-    for (const session of sessions) {
-      const target = await this.projectSessionV1(session);
-      if (!target || target.summary.walletId !== walletId) continue;
+    for (const session of sessions.records) {
+      const target = await this.projectSessionV1(session, context);
+      if (!target || target.summary.walletId !== input.walletId) continue;
       summaries.push(target.summary);
     }
-    return summaries.sort(compareSummaries);
+    return {
+      devices: summaries,
+      nextCursor: sessions.nextCursor
+        ? encodeLinkedDeviceListCursorV1(sessions.nextCursor)
+        : null,
+    };
   }
 
   async getLinkedDeviceV1(input: {
     readonly walletId: WalletId;
     readonly deviceId: LinkedDeviceId;
   }): Promise<LinkedDeviceManagementTargetV1 | null> {
-    const sessions = await this.readClaimedSessionsV1();
-    for (const session of sessions) {
-      const target = await this.projectSessionV1(session);
+    const sessions = await this.readClaimedSessionsV1({
+      walletId: input.walletId,
+      deviceId: input.deviceId,
+    });
+    const context = await this.buildProjectionContextV1(sessions.records);
+    for (const session of sessions.records) {
+      const target = await this.projectSessionV1(session, context);
       if (
         target &&
         target.summary.walletId === input.walletId &&
@@ -197,30 +310,44 @@ export class D1LinkedDeviceManagementStoreV1 implements LinkedDeviceManagementPr
     return null;
   }
 
-  private async readClaimedSessionsV1(): Promise<readonly LinkedDeviceSessionRecordV1[]> {
-    const rows = await queryD1All(
-      this.database,
-      `SELECT link_session_id
-         FROM ${SESSION_TABLE}
-        WHERE namespace = ?1 AND org_id = ?2 AND project_id = ?3 AND env_id = ?4
-        ORDER BY updated_at_ms DESC, link_session_id ASC`,
-      scopeValues(this.scope),
-    );
-    const records: LinkedDeviceSessionRecordV1[] = [];
-    for (const row of rows) {
-      const sessionId = parseRequiredSessionId(field(row, 'link_session_id'));
-      const session = await this.sessionService.getSessionV1({
-        linkSessionId: sessionId,
+  private async readClaimedSessionsV1(
+    input:
+      | {
+          readonly walletId: WalletId;
+          readonly deviceId: undefined;
+          readonly limit: number;
+          readonly cursor: LinkedDeviceSessionListCursorV1 | null;
+        }
+      | {
+          readonly walletId: WalletId;
+          readonly deviceId: LinkedDeviceId;
+        },
+  ): Promise<LinkedDeviceSessionListPageV1> {
+    if (input.deviceId === undefined) {
+      return await this.sessionService.listSessionsForWalletV1({
+        walletId: input.walletId,
         nowMs: this.nowV1(),
+        limit: input.limit,
+        cursor: input.cursor,
       });
-      if (!session || !session.claimTranscript || !session.approvalTranscript) continue;
-      records.push(session);
     }
-    return records;
+    const sessions = await this.sessionService.listSessionsForWalletV1({
+      walletId: input.walletId,
+      nowMs: this.nowV1(),
+      limit: Number.MAX_SAFE_INTEGER - 1,
+      cursor: null,
+    });
+    return {
+      records: sessions.records.filter(
+        (session) => session.claimTranscript?.value.deviceId === input.deviceId,
+      ),
+      nextCursor: sessions.nextCursor,
+    };
   }
 
   private async projectSessionV1(
     session: LinkedDeviceSessionRecordV1,
+    context: ManagementProjectionContextV1,
   ): Promise<LinkedDeviceManagementTargetV1 | null> {
     const claim = session.claimTranscript?.value;
     const approval = session.approvalTranscript?.value;
@@ -234,33 +361,36 @@ export class D1LinkedDeviceManagementStoreV1 implements LinkedDeviceManagementPr
       throw new Error('linked-device session transcripts disagree on identity');
     }
     const laneEnrollmentId = parseRequiredLaneEnrollmentId(claim.enrollmentId);
-    const enrollment = await this.lanes.getEnrollment(laneEnrollmentId);
-    if (!enrollment) return null;
+    const enrollmentContext = context.enrollments.get(String(laneEnrollmentId));
+    if (!enrollmentContext) return null;
+    const enrollment = enrollmentContext.admission;
     const manifestDigest = parseDigestB64u(
       await computeLaneEnrollmentManifestDigestV1(enrollment.value.manifest),
     );
-    await this.assertEnrollmentColumnsV1(laneEnrollmentId, manifestDigest, enrollment);
+    if (enrollmentContext.manifestDigestB64u !== manifestDigest) {
+      throw new Error('lane enrollment manifest digest does not match its columns');
+    }
     assertManifestMatchesIdentity(
       enrollment.value.manifest,
       claim.walletId,
       laneEnrollmentId,
       claim.enrollmentId,
     );
-    const products = await this.lanes.listEnrollmentProductEpochs(laneEnrollmentId);
+    const products = context.products.get(String(laneEnrollmentId)) ?? [];
     assertProductsMatchManifest(products, enrollment.value.manifest);
-    const metadata = await this.metadata.readLinkedDeviceMetadataV1({
+    const metadata = context.metadata.get(metadataKey({
       walletId: claim.walletId,
       enrollmentId: claim.enrollmentId,
       deviceId: claim.deviceId,
-    });
+    })) ?? null;
     if (!metadata) return null;
     const normalizedMetadata = parseMetadata(metadata);
-    const enrollmentUpdatedAtMs = await this.readEnrollmentUpdatedAtMsV1(laneEnrollmentId);
-    const signingActivityAtMs = await this.signingActivity.readLastSigningActivityAtMsV1({
+    const enrollmentUpdatedAtMs = enrollmentContext.updatedAtMs;
+    const signingActivityAtMs = context.signingActivity.get(metadataKey({
       walletId: claim.walletId,
       enrollmentId: claim.enrollmentId,
       deviceId: claim.deviceId,
-    });
+    })) ?? null;
     const lastActivityAtMs = Math.max(
       session.updatedAtMs,
       enrollmentUpdatedAtMs,
@@ -289,42 +419,61 @@ export class D1LinkedDeviceManagementStoreV1 implements LinkedDeviceManagementPr
     return { summary, session, enrollment, products };
   }
 
-  private async assertEnrollmentColumnsV1(
-    enrollmentId: LaneEnrollmentId,
-    manifestDigestB64u: DigestB64u,
-    enrollment: LaneEnrollmentAdmissionRecord,
-  ): Promise<void> {
-    const row = await queryD1One(
+  private async buildProjectionContextV1(
+    sessions: readonly LinkedDeviceSessionRecordV1[],
+  ): Promise<ManagementProjectionContextV1> {
+    const identities = uniqueSessionIdentities(sessions);
+    if (identities.length === 0) {
+      return { enrollments: new Map(), products: new Map(), metadata: new Map(), signingActivity: new Map() };
+    }
+    const enrollmentIds = [...new Set(identities.map((identity) => String(identity.enrollmentId)))];
+    const enrollmentRows = await queryD1All(
       this.database,
-      `SELECT manifest_digest_b64u
+      `SELECT enrollment_id, wallet_id, manifest_digest_b64u, manifest_json,
+              lifecycle_json, version, command_digest_b64u, created_at_ms, updated_at_ms
          FROM ${ENROLLMENT_TABLE}
         WHERE namespace = ?1 AND org_id = ?2 AND project_id = ?3 AND env_id = ?4
-          AND enrollment_id = ?5`,
-      [...scopeValues(this.scope), String(enrollmentId)],
+          AND enrollment_id IN (${enrollmentIds.map((_, index) => `?${index + 5}`).join(', ')})`,
+      [...scopeValues(this.scope), ...enrollmentIds],
     );
-    const stored = requiredString(
-      field(row, 'manifest_digest_b64u'),
-      'lane enrollment manifest_digest_b64u',
-    );
-    if (
-      stored !== manifestDigestB64u ||
-      String(enrollment.value.manifest.enrollmentId) !== String(enrollmentId)
-    ) {
-      throw new Error('lane enrollment manifest digest does not match its columns');
+    const enrollments = new Map<string, {
+      readonly admission: LaneEnrollmentAdmissionRecord;
+      readonly manifestDigestB64u: string;
+      readonly updatedAtMs: number;
+    }>();
+    for (const row of enrollmentRows) {
+      const parsed = parseEnrollmentRow(row);
+      enrollments.set(parsed.enrollmentId, {
+        admission: {
+          version: parsed.version,
+          commandDigestB64u: parsed.commandDigestB64u,
+          value: { manifest: parsed.manifest, lifecycle: parsed.lifecycle },
+        },
+        manifestDigestB64u: parsed.manifestDigestB64u,
+        updatedAtMs: parsed.updatedAtMs,
+      });
     }
+    const productRows = await queryD1All(
+      this.database,
+      `SELECT enrollment_id, product_json
+         FROM lane_product_epochs
+        WHERE namespace = ?1 AND org_id = ?2 AND project_id = ?3 AND env_id = ?4
+          AND enrollment_id IN (${enrollmentIds.map((_, index) => `?${index + 5}`).join(', ')})`,
+      [...scopeValues(this.scope), ...enrollmentIds],
+    );
+    const products = new Map<string, LaneProductEpochRecordV1[]>();
+    for (const row of productRows) {
+      const enrollmentId = requiredString(field(row, 'enrollment_id'), 'enrollment_id');
+      const product = parseProductEpochRow(row);
+      const existing = products.get(enrollmentId);
+      if (existing) existing.push(product);
+      else products.set(enrollmentId, [product]);
+    }
+    const metadata = await this.metadata.readLinkedDeviceMetadataBatchV1(identities);
+    const signingActivity = await this.signingActivity.readLastSigningActivityBatchV1(identities);
+    return { enrollments, products, metadata, signingActivity };
   }
 
-  private async readEnrollmentUpdatedAtMsV1(enrollmentId: LaneEnrollmentId): Promise<number> {
-    const row = await queryD1One(
-      this.database,
-      `SELECT updated_at_ms
-         FROM ${ENROLLMENT_TABLE}
-        WHERE namespace = ?1 AND org_id = ?2 AND project_id = ?3 AND env_id = ?4
-          AND enrollment_id = ?5`,
-      [...scopeValues(this.scope), String(enrollmentId)],
-    );
-    return requiredTimestamp(field(row, 'updated_at_ms'), 'lane enrollment updated_at_ms');
-  }
 }
 
 function normalizeScope(scope: D1LinkedDeviceSessionScopeV1): D1LinkedDeviceSessionScopeV1 {
@@ -336,6 +485,28 @@ function normalizeScope(scope: D1LinkedDeviceSessionScopeV1): D1LinkedDeviceSess
   };
 }
 
+function metadataKey(input: LinkedDeviceManagementIdentityV1): string {
+  return `${String(input.walletId)}\u0000${String(input.enrollmentId)}\u0000${String(input.deviceId)}`;
+}
+
+function uniqueSessionIdentities(
+  sessions: readonly LinkedDeviceSessionRecordV1[],
+): readonly LinkedDeviceManagementIdentityV1[] {
+  const identities = new Map<string, LinkedDeviceManagementIdentityV1>();
+  for (const session of sessions) {
+    const claim = session.claimTranscript?.value;
+    const approval = session.approvalTranscript?.value;
+    if (!claim || !approval) continue;
+    const identity = {
+      walletId: claim.walletId,
+      enrollmentId: claim.enrollmentId,
+      deviceId: claim.deviceId,
+    } satisfies LinkedDeviceManagementIdentityV1;
+    identities.set(metadataKey(identity), identity);
+  }
+  return [...identities.values()];
+}
+
 function requiredScopeString(value: string, field: string): string {
   if (typeof value !== 'string' || !value.trim() || value.trim() !== value) {
     throw new Error(`linked-device management ${field} is invalid`);
@@ -345,12 +516,6 @@ function requiredScopeString(value: string, field: string): string {
 
 function scopeValues(scope: D1LinkedDeviceSessionScopeV1): readonly string[] {
   return [scope.namespace, scope.orgId, scope.projectId, scope.envId];
-}
-
-function parseRequiredSessionId(raw: unknown): LinkDeviceSessionId {
-  const parsed = parseLinkDeviceSessionId(raw);
-  if (!parsed.ok) throw new Error('linked-device management session id is invalid');
-  return parsed.value;
 }
 
 function parseRequiredLaneEnrollmentId(raw: string): LaneEnrollmentId {
@@ -490,9 +655,4 @@ function productActivityAtMs(product: LaneProductEpochRecordV1): number {
     case 'revoked':
       return Math.max(product.createdAtMs, product.revokedAtMs);
   }
-}
-
-function compareSummaries(left: LinkedDeviceSummaryV1, right: LinkedDeviceSummaryV1): number {
-  if (left.createdAtMs !== right.createdAtMs) return left.createdAtMs - right.createdAtMs;
-  return String(left.deviceId).localeCompare(String(right.deviceId));
 }

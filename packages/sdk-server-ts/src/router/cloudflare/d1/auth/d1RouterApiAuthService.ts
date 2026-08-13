@@ -359,6 +359,7 @@ function createD1LinkedDeviceComposition(input: {
     | 'getLinkedDeviceWalletSessionStatus'
     | 'issueLinkedDeviceWalletSession'
     | 'readLinkedDeviceWalletSessionAuthorization'
+    | 'renewLinkedDeviceWalletSession'
     | 'revokeLinkedDeviceWalletSession'
   >;
 }): D1LinkedDeviceCompositionAssembly {
@@ -484,6 +485,7 @@ function createD1LinkedDeviceComposition(input: {
       authorizationService: input.authorizationService,
       ownerAuthorization: ownerAuthorizationProvider.ownerAuthorization,
       authenticateOwnerRequestV1: ownerRequestAuthenticator,
+      linkedDeviceLocalPresence,
       targetCredential,
       operatorRecovery: new D1LinkedDeviceOperatorRecoveryProviderV1(
         config.session.operatorRecovery,

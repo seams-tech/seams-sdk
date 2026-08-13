@@ -104,7 +104,6 @@ export type LinkedDeviceEd25519NormalSigningPrepareRequestV1 =
 export type LinkedDeviceEd25519NormalSigningFinalizeRequestV1 =
   RouterAbNormalSigningFinalizeRequestV2Wire & {
     readonly linkedDeviceExecution: LinkedDeviceExecutionEnvelopeV1;
-    readonly localPresenceAssertion: LinkedDeviceLocalPresenceAssertionV1;
   };
 
 export type LinkedDeviceEd25519NormalSigningTransportV1 = {
@@ -247,6 +246,7 @@ function assertWalletSessionMatchesChild(
     !tokenIsDelivered ||
     token.keyFamily !== 'ed25519' ||
     token.walletKeyId !== child.walletKeyId ||
+    token.revocationEpoch !== child.lane.lifecycle.revocationEpoch ||
     !requireNonEmpty(token.walletSessionJwt, 'linked-device Wallet Session JWT')
   ) {
     throw new Error('linked-device Wallet Session token does not match the Ed25519 child');
@@ -447,7 +447,6 @@ export async function executeLinkedDeviceEd25519NormalSigningV1(
     const linkedFinalizeRequest: LinkedDeviceEd25519NormalSigningFinalizeRequestV1 = {
       ...finalizeRequest,
       linkedDeviceExecution: envelope,
-      localPresenceAssertion: presenceAndHolder.localPresenceAssertion,
     };
     const signingResponse = await transport.finalize({
       relayServerUrl: input.relayServerUrl,

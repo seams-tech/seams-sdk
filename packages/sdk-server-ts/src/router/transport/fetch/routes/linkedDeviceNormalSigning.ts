@@ -21,6 +21,7 @@ import {
   proxyLinkedDeviceLaneAdmittedNormalSigningRequest,
   ROUTER_AB_ECDSA_DERIVATION_LINKED_DEVICE_SIGN_PATH,
 } from './normalSigningRouterProxy';
+import { buildLinkedDeviceLocalPresenceCapabilityV1 } from '../../../domains/signingOperations/walletExecutionAdmission';
 import {
   buildEvmEcdsaMpcOperationRef,
   buildNearEd25519MpcOperationRef,
@@ -48,7 +49,7 @@ import {
 } from '@shared/utils/routerAbNormalSigningIdentity';
 import type {
   LinkedDeviceExecutionAdmissionResolverV1,
-  LinkedDeviceLocalPresenceEvidenceV1,
+  LinkedDeviceLocalPresenceAuthorizationV1,
 } from '../../../domains/signingOperations/walletExecutionAdmission';
 import { parseEd25519ReusableAuthorizedOperationReceipt } from '../../../domains/signingOperations/ed25519AuthorizedOperationReceipt';
 
@@ -165,23 +166,30 @@ async function handleLinkedDeviceNormalSigning(
       walletSessionExpiresAtMs: input.authenticated.claims.expiresAtMs,
       nowMs: Date.now(),
     });
-    const localPresence = await verifyLinkedDeviceLocalPresenceForOperation({
-      assertion: input.body.localPresenceAssertion,
-      verifier: localPresenceVerifier,
-      authorizedOperationId: operation.authorizedOperationId,
-      deviceId: input.authenticated.claims.deviceId,
-      enrollmentId: input.authenticated.claims.enrollmentId,
-      intentDigestB64u: operation.digests.intentDigest,
-    });
-    if (localPresence.kind === 'refused') {
-      return json(
-        {
-          ok: false,
-          code: 'local_presence_required',
-          message: `Linked-device local presence was refused: ${localPresence.reason}`,
-        },
-        { status: 403 },
-      );
+    let localPresenceAuthorization: LinkedDeviceLocalPresenceAuthorizationV1 | null = null;
+    if (input.phase === 'prepare') {
+      const localPresence = await verifyLinkedDeviceLocalPresenceForOperation({
+        assertion: input.body.localPresenceAssertion,
+        verifier: localPresenceVerifier,
+        authorizedOperationId: operation.authorizedOperationId,
+        deviceId: input.authenticated.claims.deviceId,
+        enrollmentId: input.authenticated.claims.enrollmentId,
+        intentDigestB64u: operation.digests.intentDigest,
+      });
+      if (localPresence.kind === 'refused') {
+        return json(
+          {
+            ok: false,
+            code: 'local_presence_required',
+            message: `Linked-device local presence was refused: ${localPresence.reason}`,
+          },
+          { status: 403 },
+        );
+      }
+      localPresenceAuthorization = {
+        kind: 'verified_assertion',
+        evidence: localPresence.evidence,
+      };
     }
 
     const admissionInput = {
@@ -245,9 +253,12 @@ async function handleLinkedDeviceNormalSigning(
             ...input,
             operation: admission.operation,
             envelope,
-            localPresence: localPresence.evidence,
+            localPresence: buildLinkedDeviceLocalPresenceCapabilityV1(
+              requireClaimedOperation(admission.operation),
+            ),
             walletSessionId: input.authenticated.claims.walletSessionId,
             quotaId: input.authenticated.claims.quotaId,
+            laneRevocationEpoch: input.authenticated.claims.revocationEpoch,
             linkedDeviceExecution,
             body: stripLinkedDeviceNormalSigningBoundaryFields(input.body),
           });
@@ -267,9 +278,12 @@ async function handleLinkedDeviceNormalSigning(
           ...input,
           operation: admission.operation,
           envelope,
-          localPresence: localPresence.evidence,
+          localPresence:
+            localPresenceAuthorization ??
+            buildLinkedDeviceLocalPresenceCapabilityV1(requireClaimedOperation(admission.operation)),
           walletSessionId: input.authenticated.claims.walletSessionId,
           quotaId: input.authenticated.claims.quotaId,
+          laneRevocationEpoch: input.authenticated.claims.revocationEpoch,
           linkedDeviceExecution,
           body: stripLinkedDeviceNormalSigningBoundaryFields(input.body),
         });
@@ -293,7 +307,7 @@ async function executeLinkedDeviceSigning(input: {
   readonly curve: 'ed25519' | 'ecdsa';
   readonly operation: AuthorizedOperation;
   readonly envelope: ReturnType<typeof parseLinkedDeviceExecutionEnvelopeV1>;
-  readonly localPresence: LinkedDeviceLocalPresenceEvidenceV1;
+  readonly localPresence: LinkedDeviceLocalPresenceAuthorizationV1;
   readonly walletSessionId: Extract<
     Awaited<ReturnType<typeof parseLinkedDeviceWalletSessionForCurve>>,
     { readonly kind: 'linked_device' }
@@ -302,6 +316,7 @@ async function executeLinkedDeviceSigning(input: {
     Awaited<ReturnType<typeof parseLinkedDeviceWalletSessionForCurve>>,
     { readonly kind: 'linked_device' }
   >['claims']['quotaId'];
+  readonly laneRevocationEpoch: number;
   readonly linkedDeviceExecution: LinkedDeviceExecutionAdmissionResolverV1;
 }): Promise<Response> {
   const acceptedAuthorizedOperation =
@@ -338,6 +353,7 @@ async function executeLinkedDeviceSigning(input: {
       walletKeyId: input.envelope.walletKeyId,
       laneId: input.envelope.laneId,
       laneShareEpoch: input.envelope.laneShareEpoch,
+      laneRevocationEpoch: input.laneRevocationEpoch,
       walletSessionId: input.walletSessionId,
       quotaId: input.quotaId,
       expectedMaterialActivation: input.envelope.materialActivation,
@@ -753,4 +769,13 @@ function replayAuthorizedOperation(operation: AuthorizedOperation): Response {
     status: operation.response.status,
     headers: { 'content-type': operation.response.contentType },
   });
+}
+
+function requireClaimedOperation(
+  operation: AuthorizedOperation,
+): Extract<AuthorizedOperation, { readonly lifecycle: 'claimed' }> {
+  if (operation.lifecycle !== 'claimed') {
+    throw new Error('linked signing continuation requires a claimed operation');
+  }
+  return operation;
 }

@@ -17,13 +17,14 @@ lane authorization and curve execution, operator-recovery authentication, and
 management-side local-state invalidation. Deployment proof still requires the
 configured production topology and credentials.
 
-Implementation checklist: 18/21 complete (85.7%). The remaining readiness
+Core implementation checklist: 18/21 complete (85.7%). The remaining readiness
 dependencies are Refactor 100's live custody verification and Refactor 101's
 broad integration gate. Target metadata enrichment, linked Wallet Session host
 projection, and the normal NEAR/Tempo dispatch integrations are implemented.
 The env-gated two-device live E2E contains exact linked-route assertions, but
 its final local rerun stopped at a disabled owner-registration control before
-the linking flow began. Post-v1 refresh and compromise cleanup remain deferred.
+the linking flow began. Post-v1 refresh, compromise cleanup, and the separately
+tracked Wasm-size follow-up in Phase 5 remain deferred.
 
 ## Scope And Dependencies
 
@@ -571,6 +572,153 @@ material activation remain intact.
       original link session. The route binds a fresh Device 2 continuation key,
       and the D1 composition constructs a separate constant-time operator
       authenticator rather than reusing Router internal-service credentials.
+
+### Phase 5: Wasm Size Attribution And Opaque ECDSA Authority
+
+This follow-up first establishes whether Refactor 103 increased the SDK's
+unique shipped and flow-delivered Wasm bytes. A larger shared artifact alone is
+insufficient evidence because commit `1691bb036` removed the separate ECDSA
+presign and online Wasm artifacts while moving their work into custody-owning
+modules. The comparison must account for the removed artifacts and must use the
+same build toolchain for both revisions.
+
+#### Matched-Build Evidence
+
+The pre-consolidation revision is `a256452b30682da993d323eefb4a9e5f25f67d1c`,
+the parent of candidate `1691bb0369dd22e6492821430459ea33733b301c`.
+Both revisions were built twice from clean detached worktrees with their own
+checked-in lock files. Repeated builds produced identical SHA-256 digests.
+
+The matched environment used Rust 1.97.1, wasm-pack 0.13.1, wasm-opt 117,
+Node 26.4.0, pnpm 11.11.0, and Bun 1.2.18 on `aarch64-apple-darwin`.
+Both ECDSA derivation builds enabled `simd128`; every artifact used its
+checked-in release profile and wasm-opt configuration.
+
+| Unique affected Wasm | Baseline raw | Candidate raw | Delta raw | Baseline gzip | Candidate gzip | Delta gzip |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Ed25519 Yao client | 1,210,795 | 979,566 | -231,229 | 433,487 | 383,404 | -50,083 |
+| ECDSA derivation client | 610,161 | 700,917 | +90,756 | 245,876 | 285,620 | +39,744 |
+| ECDSA presign client | 172,129 | removed | -172,129 | 73,064 | removed | -73,064 |
+| ECDSA online client | 68,774 | removed | -68,774 | 31,585 | removed | -31,585 |
+| **Unique affected set** | **2,061,859** | **1,680,483** | **-381,376** | **784,012** | **669,024** | **-114,988** |
+
+| Unique affected Wasm | Baseline Brotli | Candidate Brotli | Delta Brotli |
+| --- | ---: | ---: | ---: |
+| Ed25519 Yao client | 311,801 | 298,141 | -13,660 |
+| ECDSA derivation client | 198,286 | 231,161 | +32,875 |
+| ECDSA presign client | 60,378 | removed | -60,378 |
+| ECDSA online client | 26,382 | removed | -26,382 |
+| **Unique affected set** | **596,847** | **529,302** | **-67,545** |
+
+The repeat-build SHA-256 digests are:
+
+```text
+baseline ed25519  e9cd4ef26adeeb0ee20c15d2cd7b7dadddd51c1ef2408b3bb182d5cef6066252
+baseline derive   e2998204b3d1f29cd0ff52a192f2bf9a021398dd9d94efcb8701b9531e5a0ba9
+baseline presign  5268424757bd28d712181b0415fb4df1ac2beedac7b509597eacd8f2185ec2ca
+baseline online   eb4e19caf637977dec0b0f5c7faff5b8aea2e12f866b65263c9ec36b7e9ed770
+candidate ed25519 417e953b400dce6907e975d2bafbb76be9d04579f397d3a365ade5599e34157f
+candidate derive  26379fd9f6b7ceaf3aacaa807f13efd28ca8ab2492f88dc2bd66e17ae147005a
+```
+
+Refactor 103's consolidation therefore reduced this matched SDK Wasm set by
+18.5% raw, 14.7% gzip, and 11.3% Brotli. It did not add 423 KB to the SDK. The
+ECDSA derivation client grew by about 91 KB raw and 40 KB gzip, so
+stage-specific ECDSA loading still requires a cold-cache flow trace.
+
+The current post-fix worktree measures 1,679,417 raw, 668,687 gzip, and 529,229
+Brotli bytes for the two remaining modules. Those worktree values are
+informational until the fixes are committed and rebuilt from a clean revision.
+
+The recorded Ed25519 Yao budget is not a reproducible historical baseline in
+this environment: the clean pre-consolidation artifact is 1,210,795 raw and
+433,487 gzip against its checked-in 556,435 raw and 223,677 gzip budget. The
+budget failure is real, while its attribution to Refactor 103 is false under
+the matched build. Phase 5 reconciles this stale gate and measures actual flow
+cost before authorizing an architectural split.
+
+#### Phase 5A: Reproducible Baseline And Attribution Gate
+
+- [x] Build the baseline and candidate from separate clean worktrees. Use each
+      revision's checked-in lock files and the same recorded toolchain, target,
+      release profile, and environment.
+- [x] Build each revision twice. Require byte-identical Wasm SHA-256 digests
+      between repeats before comparing sizes.
+- [x] Record raw, gzip level 9, Brotli quality 11, and SHA-256 for every
+      affected Wasm artifact in the matched release builds.
+- [x] Compare the unique affected Wasm set by content hash. Count the baseline
+      Ed25519 Yao client, ECDSA derivation client, ECDSA presign client, and
+      ECDSA online client. Count the candidate modules that replace them.
+      Copies emitted under multiple SDK paths count once.
+- [ ] Measure cold-cache transferred Wasm bytes for an Ed25519-only owner flow
+      and an owner ECDSA signing flow on both revisions. Record the new linked
+      Ed25519 and linked ECDSA flow footprints on the candidate, because the
+      baseline has no equivalent production path. Record requested asset URLs
+      and compressed transfer bytes.
+- [x] Publish a table containing baseline, candidate, absolute delta, and
+      percentage delta for each artifact, the unique shipped set, and every
+      completed measurement.
+
+Use the repository production path for both revisions:
+
+```bash
+WASM_SDK_BUILD_MODE=prod pnpm -C packages/sdk-web run build:wasm
+pnpm build:sdk-prod
+pnpm -C packages/sdk-web run size:lite -- --json
+```
+
+The conclusion uses precise terms:
+
+- a **shared-artifact regression** exists when a candidate shared Wasm artifact
+  is larger than the matching baseline artifact;
+- **net SDK bloat** exists when the candidate's unique affected Wasm set is
+  larger than the baseline set;
+- a **flow regression** exists when a candidate cold-cache flow transfers more
+  compressed Wasm than the matching baseline flow.
+
+If only the shared file grows while the unique shipped set shrinks or remains
+constant, classify the change as artifact consolidation rather than net SDK
+bloat. A recorded-budget failure remains a release signal, but the budget is
+updated only after the historical measurement is reproduced or shown to be
+unreproducible under the recorded toolchain.
+
+#### Phase 5B: Dedicated Opaque ECDSA Authority
+
+Enter this implementation phase only when the remaining Phase 5A network trace
+confirms a material flow regression that cannot be fixed through loading or
+build configuration. The matched unique-artifact evidence alone does not
+justify this refactor.
+
+- [ ] Introduce one lazily loaded ECDSA authority Wasm module that owns client
+      presign and online state for both owner and linked-device ECDSA lanes.
+- [ ] Remove ECDSA presign, online, wire, k256, and presign RNG dependencies
+      from the Ed25519 Yao client artifact. Keep the ECDSA derivation artifact
+      focused on derivation, custody ceremony, and explicit export.
+- [ ] Initialize the authority from exact sealed custody input inside its
+      owning worker. Raw roots, additive shares, `kShare`, `sigmaShare`, and
+      export-capable intermediate shares never enter JavaScript or cross Wasm
+      instances.
+- [ ] Keep completed presign material inside the authority. JavaScript receives
+      only public protocol messages, public `R`, expiry, and an opaque one-use
+      handle; final signature-share computation returns through that handle.
+- [ ] Route ordinary ECDSA and linked-device ECDSA operations through the same
+      authority loader. Ed25519-only registration, signing, Email OTP signing,
+      and export paths must not fetch the authority artifact.
+- [ ] Delete the superseded embedded presign/online exports, dependency paths,
+      worker messages, loaders, build entries, fixtures, and source-guard
+      exceptions after cutover.
+- [ ] Preserve exact group-key, lane, enrollment, expiry, abort, worker-reset,
+      and one-use bindings. Add behavioral tests for each owner form and both
+      linked key families.
+- [ ] Re-run Phase 5A. The shared Ed25519 artifact and the derivation artifact
+      must return to their measured pre-regression sizes or document a smaller
+      independently attributable delta. Give the dedicated authority its own
+      measured raw, gzip, and Brotli budget.
+
+Phase 5 is complete only when the before/after evidence is reproducible, the
+secret boundary remains opaque, unrelated Ed25519 flows avoid the ECDSA
+authority download, and the production size check enforces budgets for every
+resulting artifact.
 
 ## Validation
 

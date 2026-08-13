@@ -35,6 +35,7 @@ export type {
 
 export type DeviceLinkingFlowPortsAssemblyV1 = DeviceLinkingFlowPortsV1 & {
   readonly sourcePreparation: Device1SourcePreparationPortV1;
+  readonly dispose: () => void;
 };
 
 export type DeviceLinkingFlowPortsAssemblyOptionsV1 = {
@@ -163,5 +164,6 @@ export function createDeviceLinkingFlowPortsV1(
     },
     executionEvidence: args.executionEvidenceRepository,
     sourcePreparation,
+    dispose: keyMaterial.close,
   };
 }
