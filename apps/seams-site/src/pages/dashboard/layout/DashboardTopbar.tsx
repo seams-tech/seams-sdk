@@ -163,7 +163,12 @@ export function DashboardTopbar({
   const searchEnabled = searchItems.length > 0 && Boolean(onNavigate);
   const networkToggle =
     availableNetworks.length > 1 && onSelectNetwork ? (
-      <div className="dashboard-network-toggle" role="group" aria-label="Network">
+      <div
+        className={`dashboard-network-toggle dashboard-network-toggle--${network}`}
+        role="group"
+        aria-label="Network"
+      >
+        <span className="dashboard-network-toggle__indicator" aria-hidden="true" />
         {availableNetworks.map((candidate) => (
           <button
             key={candidate}
