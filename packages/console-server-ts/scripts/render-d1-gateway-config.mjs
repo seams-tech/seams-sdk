@@ -167,8 +167,6 @@ function buildWorkerVars(deployment, walletOrigin, emailOtpDelivery, docsOrigin)
     DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY: deployment.routerAb.deriverAInputPublicKey,
     DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY: deployment.routerAb.deriverBInputPublicKey,
     SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: deployment.routerAb.signingWorkerOutputPublicKey,
-    SIGNING_WORKER_SERVER_OUTPUT_HPKE_KEY_EPOCH:
-      deployment.routerAb.publicKeyset.signing_worker_server_output_hpke.key_epoch,
     ENABLE_IMPLICIT_NEAR_ACCOUNT_TEST_FUNDING: String(implicitNearTestFunding),
     RELAY_SESSION_ISSUER: deployment.session.issuer,
     RELAY_SESSION_AUDIENCE: DEFAULT_RELAY_SESSION_AUDIENCE,
