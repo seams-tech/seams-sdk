@@ -639,6 +639,7 @@ test.describe('linked-device browser orchestration', () => {
         linkSessionId: generated.qrData.linkSessionId,
         walletId: fixture.approval.walletId,
         enrollmentId: fixture.approval.enrollmentId,
+        keyManifestDigestB64u: fixture.receipt.manifestDigestB64u,
         transcriptSetDigestB64u: fixture.receipt.manifestDigestB64u,
       }),
       emittedAtMs: Date.now(),

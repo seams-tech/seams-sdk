@@ -102,7 +102,7 @@ type LinkedDeviceSessionApprovedRecordV1 = LinkedDeviceSessionRecordBaseV1 & {
   readonly state: Extract<
     LinkedDeviceSessionState,
     {
-      readonly state: 'awaiting_target_passkey' | 'provisioning' | 'awaiting_aggregate_receipt';
+      readonly state: 'awaiting_target_passkey' | 'provisioning';
     }
   >;
   readonly claimTranscript: LinkedDeviceClaimTranscriptV1;
@@ -586,10 +586,7 @@ export class LinkedDeviceSessionServiceV1 {
       ) {
         return { outcome: 'replayed', record: existing };
       }
-      if (
-        existing.state.state !== 'provisioning' &&
-        existing.state.state !== 'awaiting_aggregate_receipt'
-      ) {
+      if (existing.state.state !== 'provisioning') {
         return invalidStateResult(existing);
       }
       const nextState = committedCompletionRequiredStateV1(existing, digestB64u);
@@ -745,7 +742,7 @@ export class LinkedDeviceSessionServiceV1 {
       ) {
         return { outcome: 'replayed', record: existing };
       }
-      if (existing.state.state !== 'awaiting_aggregate_receipt') {
+      if (existing.state.state !== 'committed_completion_required') {
         return invalidStateResult(existing);
       }
       if (
@@ -1107,10 +1104,7 @@ function committedCompletionRequiredStateV1(
   record: LinkedDeviceSessionRecordV1,
   transcriptSetDigestB64u: DigestB64u,
 ): Extract<LinkedDeviceSessionState, { readonly state: 'committed_completion_required' }> {
-  if (
-    record.state.state !== 'provisioning' &&
-    record.state.state !== 'awaiting_aggregate_receipt'
-  ) {
+  if (record.state.state !== 'provisioning') {
     throw new Error('link session has no committed provisioning output');
   }
   return {
@@ -1118,8 +1112,26 @@ function committedCompletionRequiredStateV1(
     linkSessionId: record.linkSessionId,
     walletId: record.state.walletId,
     enrollmentId: record.state.enrollmentId,
+    keyManifestDigestB64u: record.state.keyManifestDigestB64u,
     transcriptSetDigestB64u,
   };
+}
+
+export function buildCommittedCompletionRequiredLinkedDeviceSessionRecordV1(input: {
+  readonly record: LinkedDeviceSessionRecordV1;
+  readonly transcriptSetDigestB64u: DigestB64u;
+  readonly committedAtMs: number;
+}): LinkedDeviceSessionRecordV1 {
+  const transcriptSetDigestB64u = requireDigest(
+    input.transcriptSetDigestB64u,
+    'transcriptSetDigestB64u',
+  );
+  const committedAtMs = requireTimestamp(input.committedAtMs, 'committedAtMs');
+  return replaceSessionRecordV1(input.record, {
+    state: committedCompletionRequiredStateV1(input.record, transcriptSetDigestB64u),
+    revision: input.record.revision + 1,
+    updatedAtMs: Math.max(input.record.updatedAtMs, committedAtMs),
+  });
 }
 
 function cancellationStateV1(
@@ -1131,6 +1143,7 @@ function cancellationStateV1(
       return { state: 'cancelled_unclaimed', linkSessionId: record.linkSessionId, cancelledAtMs };
     case 'claimed_by_owner':
     case 'awaiting_target_passkey':
+    case 'provisioning':
       return {
         state: 'cancelled_claimed_precommit',
         linkSessionId: record.linkSessionId,
@@ -1138,8 +1151,6 @@ function cancellationStateV1(
         enrollmentId: record.state.enrollmentId,
         cancelledAtMs,
       };
-    case 'provisioning':
-    case 'awaiting_aggregate_receipt':
     case 'cancelled_unclaimed':
     case 'cancelled_claimed_precommit':
     case 'expired_unclaimed':
@@ -1162,7 +1173,6 @@ function expiryStateV1(
     case 'claimed_by_owner':
     case 'awaiting_target_passkey':
     case 'provisioning':
-    case 'awaiting_aggregate_receipt':
       return {
         state: 'expired_claimed',
         linkSessionId: record.linkSessionId,
@@ -1191,7 +1201,6 @@ function sessionExpiryMsV1(record: LinkedDeviceSessionRecordV1): number {
     case 'awaiting_target_passkey':
       return record.state.credentialDeadlineMs;
     case 'provisioning':
-    case 'awaiting_aggregate_receipt':
       return record.qrPayload.expiresAtMs;
     case 'active':
     case 'expired_unclaimed':
@@ -1218,7 +1227,6 @@ function isTerminalState(state: LinkedDeviceSessionState): boolean {
     case 'claimed_by_owner':
     case 'awaiting_target_passkey':
     case 'provisioning':
-    case 'awaiting_aggregate_receipt':
       return false;
     default:
       return assertNeverSessionState(state);
@@ -1309,7 +1317,6 @@ function buildSessionRecordV1(input: {
       return { ...base, state: input.state, claimTranscript: input.claimTranscript };
     case 'awaiting_target_passkey':
     case 'provisioning':
-    case 'awaiting_aggregate_receipt':
       if (!input.claimTranscript || !input.approvalTranscript || input.aggregateReceipt) {
         throw new Error('approved session transcript facts are invalid');
       }
@@ -1912,7 +1919,6 @@ function parseSessionStateV1(raw: unknown): LinkedDeviceSessionState {
         ),
       };
     case 'provisioning':
-    case 'awaiting_aggregate_receipt':
       requireExactKeys(record, [
         'state',
         'linkSessionId',
@@ -2015,6 +2021,7 @@ function parseSessionStateV1(raw: unknown): LinkedDeviceSessionState {
         'linkSessionId',
         'walletId',
         'enrollmentId',
+        'keyManifestDigestB64u',
         'transcriptSetDigestB64u',
       ]);
       return {
@@ -2025,6 +2032,10 @@ function parseSessionStateV1(raw: unknown): LinkedDeviceSessionState {
           record.enrollmentId,
           parseLinkedDeviceEnrollmentId,
           'state.enrollmentId',
+        ),
+        keyManifestDigestB64u: requireDigest(
+          record.keyManifestDigestB64u,
+          'state.keyManifestDigestB64u',
         ),
         transcriptSetDigestB64u: requireDigest(
           record.transcriptSetDigestB64u,
@@ -2045,7 +2056,6 @@ function parseSessionStateKind(raw: unknown): LinkedDeviceSessionStateKind {
     case 'claimed_by_owner':
     case 'awaiting_target_passkey':
     case 'provisioning':
-    case 'awaiting_aggregate_receipt':
     case 'active':
     case 'expired_unclaimed':
     case 'expired_claimed':
@@ -2075,7 +2085,6 @@ function validateRecordTranscriptState(
   if (
     (state.state === 'awaiting_target_passkey' ||
       state.state === 'provisioning' ||
-      state.state === 'awaiting_aggregate_receipt' ||
       state.state === 'active' ||
       state.state === 'committed_completion_required') &&
     !approvalTranscript
@@ -2120,8 +2129,8 @@ function validateAggregateReceiptMatchesApproval(
   record: LinkedDeviceSessionRecordV1,
   receipt: LinkedDeviceEnrollmentReceiptV1,
 ): void {
-  if (record.state.state !== 'awaiting_aggregate_receipt') {
-    throw new Error('aggregate receipt validation requires an awaiting session');
+  if (record.state.state !== 'committed_completion_required') {
+    throw new Error('aggregate receipt validation requires a committed session');
   }
   const approval = record.approvalTranscript?.value;
   if (!approval) throw new Error('aggregate receipt session is missing owner approval');

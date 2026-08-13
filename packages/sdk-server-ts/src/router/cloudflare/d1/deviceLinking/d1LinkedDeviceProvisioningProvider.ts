@@ -14,7 +14,10 @@ import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimiti
 import type { LinkedDeviceSessionRecordV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
 import type { D1DatabaseLike } from '../../../../storage/tenantRoute';
 import type { DeviceLinkingProvisioningProviderV1 } from '../../../transport/fetch/routes/deviceLinking';
-import type { D1LinkedDeviceSessionScopeV1 } from './d1LinkedDeviceSessionStore';
+import {
+  D1LinkedDeviceSessionStoreV1,
+  type D1LinkedDeviceSessionScopeV1,
+} from './d1LinkedDeviceSessionStore';
 
 type ProvisioningRowV1 = {
   readonly enrollment_id?: unknown;
@@ -54,13 +57,20 @@ const PROVISIONING_TABLE = 'linked_device_provisioning_records';
 
 /** Durable replay boundary around the exact R102 protocol/activation coordinator. */
 export class D1LinkedDeviceProvisioningProviderV1 implements DeviceLinkingProvisioningProviderV1 {
+  private readonly sessionStore: D1LinkedDeviceSessionStoreV1;
+
   constructor(
     private readonly input: {
       readonly database: D1DatabaseLike;
       readonly scope: D1LinkedDeviceSessionScopeV1;
       readonly execution: LinkedDeviceR102ProvisioningExecutionPortV1;
     },
-  ) {}
+  ) {
+    this.sessionStore = new D1LinkedDeviceSessionStoreV1({
+      database: input.database,
+      scope: input.scope,
+    });
+  }
 
   async provisionLinkedDeviceV1(input: {
     readonly command: LinkedDeviceProvisioningCommandV1;
@@ -68,16 +78,27 @@ export class D1LinkedDeviceProvisioningProviderV1 implements DeviceLinkingProvis
     readonly approval: LinkedDeviceApprovalV1;
     readonly requestedAtMs: number;
   }): Promise<LinkedDeviceProvisioningDeliveriesV1> {
-    const persisted = await this.readV1(input.session.linkSessionId);
+    let session = await this.sessionStore.reconcileCommittedProvisioningOutputV1({
+      record: input.session,
+      nowMs: input.requestedAtMs,
+    });
+    const persisted = await this.readV1(session.linkSessionId);
     if (persisted) {
-      assertPersistedIdentity(persisted, input.session, input.approval);
+      assertPersistedIdentity(persisted, session, input.approval);
       return persisted.deliveries;
     }
-    const manifestDigestB64u = requireSessionManifestDigest(input.session);
+    const manifestDigestB64u = requireSessionManifestDigest(session);
     const deliveries = parseLinkedDeviceProvisioningDeliveriesV1(
-      await this.input.execution.prepareProvisioningDeliveriesV1(input),
+      await this.input.execution.prepareProvisioningDeliveriesV1({ ...input, session }),
     );
-    assertDeliveriesIdentity(deliveries, input.session, input.approval);
+    session = await this.sessionStore.reconcileCommittedProvisioningOutputV1({
+      record: session,
+      nowMs: input.requestedAtMs,
+    });
+    if (session.state.state !== 'committed_completion_required') {
+      throw new Error('linked-device prepared deliveries did not commit their parent session');
+    }
+    assertDeliveriesIdentity(deliveries, session, input.approval);
     await this.input.database
       .prepare(
         `INSERT OR IGNORE INTO ${PROVISIONING_TABLE} (
@@ -88,7 +109,7 @@ export class D1LinkedDeviceProvisioningProviderV1 implements DeviceLinkingProvis
       )
       .bind(
         ...scopeValues(this.input.scope),
-        String(input.session.linkSessionId),
+        String(session.linkSessionId),
         String(input.approval.enrollmentId),
         String(input.approval.walletId),
         String(input.approval.deviceId),
@@ -98,9 +119,9 @@ export class D1LinkedDeviceProvisioningProviderV1 implements DeviceLinkingProvis
         input.requestedAtMs,
       )
       .run();
-    const stored = await this.readV1(input.session.linkSessionId);
+    const stored = await this.readV1(session.linkSessionId);
     if (!stored) throw new Error('linked-device provisioning deliveries did not persist');
-    assertPersistedIdentity(stored, input.session, input.approval);
+    assertPersistedIdentity(stored, session, input.approval);
     if (alphabetizeStringify(stored.deliveries) !== alphabetizeStringify(deliveries)) {
       throw new Error('linked-device provisioning deliveries conflict with durable replay');
     }
@@ -113,13 +134,18 @@ export class D1LinkedDeviceProvisioningProviderV1 implements DeviceLinkingProvis
     readonly approval: LinkedDeviceApprovalV1;
     readonly requestedAtMs: number;
   }): Promise<LinkedDeviceEnrollmentReceiptV1> {
-    const persisted = await this.readV1(input.session.linkSessionId);
+    const session = await this.sessionStore.reconcileCommittedProvisioningOutputV1({
+      record: input.session,
+      nowMs: input.requestedAtMs,
+    });
+    const persisted = await this.readV1(session.linkSessionId);
     if (!persisted) throw new Error('linked-device provisioning deliveries are missing');
-    assertPersistedIdentity(persisted, input.session, input.approval);
+    assertPersistedIdentity(persisted, session, input.approval);
     if (persisted.receipt) return persisted.receipt;
     const receipt = parseLinkedDeviceEnrollmentReceiptV1(
       await this.input.execution.recordHolderDeliveriesAndActivateV1({
         ...input,
+        session,
         deliveries: persisted.deliveries,
       }),
     );
@@ -136,11 +162,11 @@ export class D1LinkedDeviceProvisioningProviderV1 implements DeviceLinkingProvis
         JSON.stringify(receipt),
         input.requestedAtMs,
         ...scopeValues(this.input.scope),
-        String(input.session.linkSessionId),
+        String(session.linkSessionId),
         persisted.manifestDigestB64u,
       )
       .run();
-    const stored = await this.readV1(input.session.linkSessionId);
+    const stored = await this.readV1(session.linkSessionId);
     if (!stored?.receipt) throw new Error('linked-device aggregate receipt did not persist');
     assertReceiptIdentity(stored.receipt, stored, input.approval);
     if (alphabetizeStringify(stored.receipt) !== alphabetizeStringify(receipt)) {
@@ -181,7 +207,7 @@ export class D1LinkedDeviceProvisioningProviderV1 implements DeviceLinkingProvis
 function requireSessionManifestDigest(session: LinkedDeviceSessionRecordV1): DigestB64u {
   switch (session.state.state) {
     case 'provisioning':
-    case 'awaiting_aggregate_receipt':
+    case 'committed_completion_required':
       return parseDigestB64u(session.state.keyManifestDigestB64u);
     default:
       throw new Error('linked-device session has no admitted R102 manifest digest');
@@ -203,7 +229,7 @@ function assertPersistedIdentity(
   assertDeliveriesIdentity(persisted.deliveries, session, approval);
   if (
     (session.state.state === 'provisioning' ||
-      session.state.state === 'awaiting_aggregate_receipt') &&
+      session.state.state === 'committed_completion_required') &&
     persisted.manifestDigestB64u !== session.state.keyManifestDigestB64u
   ) {
     throw new Error('linked-device provisioning manifest digest changed');

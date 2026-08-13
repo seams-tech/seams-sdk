@@ -30,7 +30,7 @@ use router_ab_ed25519_yao::{
     seal_ed25519_yao_activation_deriver_b_execution_v1,
     seal_ed25519_yao_export_deriver_a_execution_v1, seal_ed25519_yao_export_deriver_b_execution_v1,
     seal_ed25519_yao_lane_deriver_a_execution_v1, seal_ed25519_yao_lane_deriver_b_execution_v1,
-    Ed25519YaoRecipientPrivateKeyV1, Ed25519YaoRoleExecutionV1,
+    AdapterError, Ed25519YaoRecipientPrivateKeyV1, Ed25519YaoRoleExecutionV1,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -89,6 +89,8 @@ struct RoleSpanEventV1 {
     #[serde(skip_serializing_if = "Option::is_none")]
     error_code: Option<RouterAbProtocolErrorCode>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    adapter_code: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     trace_id: Option<String>,
 }
 
@@ -107,6 +109,7 @@ fn emit_role_span_v1(
         operation,
         started_at_ms,
         outcome,
+        None,
         None,
     );
 }
@@ -127,6 +130,26 @@ fn emit_role_span_error_v1(
         started_at_ms,
         "failure",
         Some(error.code()),
+        None,
+    );
+}
+
+fn emit_role_adapter_error_v1(
+    trace_id: RoleTraceContextV1,
+    span: &'static str,
+    operation: &'static str,
+    started_at_ms: u64,
+    error: AdapterError,
+) {
+    emit_role_span_with_error_code_v1(
+        trace_id,
+        span,
+        "deriver_b",
+        operation,
+        started_at_ms,
+        "failure",
+        Some(RouterAbProtocolErrorCode::InvalidLifecycleState),
+        Some(adapter_error_code_v1(error)),
     );
 }
 
@@ -146,14 +169,9 @@ fn emit_role_stage_result_v1<T>(
             started_at_ms,
             "success",
         ),
-        Err(error) => emit_role_span_error_v1(
-            trace_id,
-            span,
-            "deriver_b",
-            operation,
-            started_at_ms,
-            error,
-        ),
+        Err(error) => {
+            emit_role_span_error_v1(trace_id, span, "deriver_b", operation, started_at_ms, error)
+        }
     }
 }
 
@@ -165,6 +183,7 @@ fn emit_role_span_with_error_code_v1(
     started_at_ms: u64,
     outcome: &'static str,
     error_code: Option<RouterAbProtocolErrorCode>,
+    adapter_code: Option<&'static str>,
 ) {
     let ended_at_ms = cloudflare_yao_now_unix_ms().unwrap_or(started_at_ms);
     let event = RoleSpanEventV1 {
@@ -175,6 +194,7 @@ fn emit_role_span_with_error_code_v1(
         outcome,
         duration_ms: ended_at_ms.saturating_sub(started_at_ms),
         error_code,
+        adapter_code,
         trace_id: trace_id.map(CloudflareTraceIdV1::as_hex),
     };
     if let Ok(serialized) = serde_json::to_string(&event) {
@@ -3291,15 +3311,25 @@ async fn execute_deriver_b_role(
                 root,
                 role_request,
                 &mut CloudflareHpkeGetrandomRngV1,
-            )
-            .map_err(map_adapter);
-            emit_role_stage_result_v1(
-                trace_id,
-                "deriver_b.role_build",
-                "lane_materialization",
-                role_build_started_at_ms,
-                &role_build_result,
             );
+            match &role_build_result {
+                Ok(_) => emit_role_span_v1(
+                    trace_id,
+                    "deriver_b.role_build",
+                    "deriver_b",
+                    "lane_materialization",
+                    role_build_started_at_ms,
+                    "success",
+                ),
+                Err(error) => emit_role_adapter_error_v1(
+                    trace_id,
+                    "deriver_b.role_build",
+                    "lane_materialization",
+                    role_build_started_at_ms,
+                    *error,
+                ),
+            }
+            let role_build_result = role_build_result.map_err(map_adapter);
             let (binding, job, role) = role_build_result?;
             let session_check_result = if binding.session_id.into_bytes() == session {
                 Ok(())
@@ -3333,18 +3363,36 @@ async fn execute_deriver_b_role(
                 },
             );
             let completion = completion_result?;
+            let seal_started_at_ms = role_span_started_at_ms();
+            let sealed_result = seal_ed25519_yao_lane_deriver_b_execution_v1(
+                &mut CloudflareHpkeGetrandomRngV1,
+                job,
+                &completion.role,
+            );
+            emit_role_stage_result_v1(
+                trace_id,
+                "deriver_b.output_seal",
+                "lane_materialization",
+                seal_started_at_ms,
+                &sealed_result,
+            );
             (
-                Ed25519YaoRoleExecutionV1::Lane(seal_ed25519_yao_lane_deriver_b_execution_v1(
-                    &mut CloudflareHpkeGetrandomRngV1,
-                    job,
-                    &completion.role,
-                )?),
+                Ed25519YaoRoleExecutionV1::Lane(sealed_result?),
                 completion.transport,
             )
         }
     };
+    let serialization_started_at_ms = role_span_started_at_ms();
     let serialized_execution = serde_json::to_vec(&execution)
         .map_err(|_| invalid_lifecycle("Deriver B sealed execution could not be serialized"))?;
+    emit_role_span_v1(
+        trace_id,
+        "deriver_b.output_serialization",
+        "deriver_b",
+        "yao",
+        serialization_started_at_ms,
+        "success",
+    );
     execute_deriver_b_session_command(
         env,
         DeriverBYaoSessionCommandV1::CompletePair {
@@ -3748,6 +3796,16 @@ where
 
 fn map_adapter(error: router_ab_ed25519_yao::AdapterError) -> RouterAbProtocolError {
     invalid_lifecycle(format!("Ed25519 Yao role construction failed: {error}"))
+}
+
+fn adapter_error_code_v1(error: AdapterError) -> &'static str {
+    match error {
+        AdapterError::InvalidDerivationContext => "invalid_derivation_context",
+        AdapterError::CircuitFamilyMismatch => "circuit_family_mismatch",
+        AdapterError::RoleProtocol => "role_protocol",
+        AdapterError::LifecycleContributionMismatch => "lifecycle_contribution_mismatch",
+        AdapterError::ServerContributionDerivation => "server_contribution_derivation",
+    }
 }
 
 async fn with_yao_ceremony_timeout<T, E, F>(future: F) -> RouterAbProtocolResult<T>

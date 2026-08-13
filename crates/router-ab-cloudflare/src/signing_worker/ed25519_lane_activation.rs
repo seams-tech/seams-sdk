@@ -8,8 +8,8 @@
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use router_ab_core::{
     Ed25519YaoDeriverRoleV1, Ed25519YaoEncryptedPackageV1, Ed25519YaoLaneProtocolCommittedV1,
-    Ed25519YaoPackageKindV1, MpcMaterialActivationRefV1, RouterAbProtocolError,
-    RouterAbProtocolErrorCode, RouterAbProtocolResult,
+    Ed25519YaoPackageKindV1, MpcMaterialActivationRefKindV1, MpcMaterialActivationRefV1,
+    RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult,
 };
 use router_ab_ed25519_yao::{
     ed25519_yao_lane_target_id_digest_v1, open_ed25519_yao_lane_recipient_package_v1,
@@ -45,6 +45,7 @@ const ED25519_ACTIVE_SERVER_MATERIAL_KIND_V1: &str = "ed25519_yao_lane_active_se
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CloudflareSigningWorkerEd25519LaneActivateRequestV1 {
     pub identity: CloudflareSigningWorkerLaneMaterialIdentityV1,
+    #[serde(with = "MpcMaterialActivationRefWireV1")]
     pub target_material_activation: MpcMaterialActivationRefV1,
     pub holder_delivery_receipt: CloudflareSigningWorkerEd25519LaneHolderDeliveryReceiptV1,
 }
@@ -94,11 +95,28 @@ pub struct CloudflareEd25519LaneServerActivationReceiptV1 {
     pub enrollment_id: String,
     pub target_lane_id: String,
     pub target_lane_share_epoch: String,
+    #[serde(with = "MpcMaterialActivationRefWireV1")]
     pub target_material_activation: MpcMaterialActivationRefV1,
     pub signing_worker_participant_binding_digest_b64u: String,
     pub server_ciphertext_digest_set_b64u: String,
     pub transcript_hash_b64u: String,
     pub activated_at_ms: u64,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(
+    remote = "MpcMaterialActivationRefV1",
+    rename_all = "camelCase",
+    deny_unknown_fields
+)]
+struct MpcMaterialActivationRefWireV1 {
+    kind: MpcMaterialActivationRefKindV1,
+    activation_id: String,
+    capability: String,
+    material_owner: String,
+    key_binding: String,
+    lifecycle_binding: String,
+    signing_worker: String,
 }
 
 /// Private scalar artifact retained by the generic lane material journal.

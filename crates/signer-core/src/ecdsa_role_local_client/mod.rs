@@ -1,11 +1,11 @@
 pub mod command;
 
 pub use command::{
-    build_ecdsa_role_local_export_artifact, extract_client_signing_share32_from_ready_state_blob,
+    extract_client_signing_share32_from_ready_state_blob, reconstruct_ecdsa_role_local_export,
     finalize_ecdsa_client_bootstrap, prepare_ecdsa_client_bootstrap,
-    sign_wallet_recovery_material_possession_proof, BuildEcdsaRoleLocalExportArtifactCommand,
-    BuildEcdsaRoleLocalExportArtifactOutput, EcdsaClientBootstrapFacts,
-    EcdsaRoleLocalExportPublicFacts, EcdsaRoleLocalPendingStateBlob,
+    sign_wallet_recovery_material_possession_proof, EcdsaClientBootstrapFacts,
+    EcdsaRoleLocalExportArtifact, EcdsaRoleLocalExportPublicFacts,
+    EcdsaRoleLocalExportReconstructionInput, EcdsaRoleLocalPendingStateBlob,
     EcdsaRoleLocalPreparePublicFacts, EcdsaRoleLocalPublicFacts, EcdsaRoleLocalReadyStateBlob,
     FinalizeEcdsaClientBootstrapCommand, FinalizeEcdsaClientBootstrapOutput,
     PrepareEcdsaClientBootstrapCommand, PrepareEcdsaClientBootstrapOutput,

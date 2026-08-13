@@ -240,13 +240,24 @@ async function postAuthenticatedJsonWithReplayV1(input: {
   }
   const text = await response.text();
   if (!response.ok) {
-    throw new Error(`lane worker ${input.path} returned HTTP ${response.status}`);
+    const detail = boundedLaneWorkerErrorBodyV1(text);
+    throw new Error(
+      `lane worker ${input.path} returned HTTP ${response.status}${detail ? `: ${detail}` : ''}`,
+    );
   }
   try {
     return text.length === 0 ? null : JSON.parse(text);
   } catch {
     throw new Error(`lane worker ${input.path} returned invalid JSON`);
   }
+}
+
+const LANE_WORKER_ERROR_BODY_LIMIT_V1 = 512;
+
+function boundedLaneWorkerErrorBodyV1(body: string): string {
+  const normalized = body.trim().replace(/\s+/g, ' ');
+  if (normalized.length <= LANE_WORKER_ERROR_BODY_LIMIT_V1) return normalized;
+  return `${normalized.slice(0, LANE_WORKER_ERROR_BODY_LIMIT_V1 - 1)}…`;
 }
 
 async function fetchInternal(

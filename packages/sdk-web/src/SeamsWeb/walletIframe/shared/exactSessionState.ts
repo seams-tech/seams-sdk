@@ -25,10 +25,14 @@ import type {
 import type { WalletSessionId } from '@/core/types/sdkSentEvents';
 import { parseCapabilityInstanceRef, parseWalletId, type WalletId } from '@shared/utils/domainIds';
 import {
+  parseLinkedDeviceWalletSessionAuthorizationId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-import type { WalletSessionAuthorizationId } from '@shared/authorization/capabilityKinds';
+import type {
+  LinkedDeviceWalletSessionAuthorizationId,
+  WalletSessionAuthorizationId,
+} from '@shared/authorization/capabilityKinds';
 import { parseNearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
 import { parseSignerSlot } from '@shared/utils/signerSlot';
 import { isWalletAuthMethod, type WalletAuthMethod } from '@shared/utils/signerDomain';
@@ -38,19 +42,27 @@ import {
 } from '@shared/utils/walletCapabilityBindings';
 import { parseWalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 
-export type WalletIframeExactSessionIdentity = {
+type WalletIframeExactSessionIdentityBase = {
   readonly walletId: WalletId;
-  readonly authorizationId: WalletSessionAuthorizationId;
   readonly walletSessionId: WalletSessionId;
-  readonly authMethod: WalletAuthMethod;
   readonly expiresAtMs: number;
 };
+
+export type WalletIframeExactSessionIdentity =
+  | (WalletIframeExactSessionIdentityBase & {
+      readonly authorizationId: WalletSessionAuthorizationId;
+      readonly authMethod: WalletAuthMethod;
+    })
+  | (WalletIframeExactSessionIdentityBase & {
+      readonly authorizationId: LinkedDeviceWalletSessionAuthorizationId;
+      readonly authMethod: 'linked_device';
+    });
 
 export type WalletIframeExactSessionIdentityInput = {
   readonly walletId: string;
   readonly authorizationId: string;
   readonly walletSessionId: string;
-  readonly authMethod: WalletAuthMethod;
+  readonly authMethod: WalletAuthMethod | 'linked_device';
   readonly expiresAtMs: number;
 };
 
@@ -157,6 +169,11 @@ export function exactSessionStateFromWalletSession(
   const reusableWalletSession = session.reusableWalletSession;
   switch (reusableWalletSession.kind) {
     case 'active': {
+      const identity = exactIdentity(walletId, reusableWalletSession);
+      if (identity === null) return unavailableSession(walletId, 'invalid');
+      return { kind: 'active_session', status: 'active', ...identity };
+    }
+    case 'linked_device_active': {
       const identity = exactIdentity(walletId, reusableWalletSession);
       if (identity === null) return unavailableSession(walletId, 'invalid');
       return { kind: 'active_session', status: 'active', ...identity };
@@ -285,6 +302,11 @@ function parseWalletAuthenticationState(value: unknown): WalletAuthenticationSta
         walletId: requireWalletId(record.walletId),
         authMethod: record.authMethod,
       };
+    case 'linked_device_session':
+      return {
+        kind: 'linked_device_session',
+        walletId: requireWalletId(record.walletId),
+      };
     default:
       throw new Error('Wallet Session authentication kind is invalid');
   }
@@ -379,6 +401,24 @@ function parseReusableWalletSession(value: unknown): ReusableWalletSessionState 
         ...parseReusableWalletSessionIdentityWithExpiry(record),
         remainingUses: requirePositiveSafeInteger(record.remainingUses, 'remainingUses'),
       };
+    case 'linked_device_active': {
+      if (record.authMethod !== 'linked_device') {
+        throw new Error('Linked-device Wallet Session auth method is invalid');
+      }
+      const authorizationId = parseLinkedDeviceWalletSessionAuthorizationId(record.authorizationId);
+      const walletSessionId = parseWalletSessionId(record.walletSessionId);
+      if (!authorizationId.ok) throw new Error('Linked-device authorization ID is invalid');
+      if (!walletSessionId.ok) throw new Error('Linked-device Wallet Session ID is invalid');
+      assertDistinctAuthorizationIdentity(authorizationId.value, walletSessionId.value);
+      return {
+        kind: 'linked_device_active',
+        walletId: requireWalletId(record.walletId),
+        authorizationId: authorizationId.value,
+        walletSessionId: walletSessionId.value,
+        authMethod: 'linked_device',
+        expiresAtMs: requirePositiveSafeInteger(record.expiresAtMs, 'expiresAtMs'),
+      };
+    }
     case 'exhausted':
       if (record.remainingUses !== 0) {
         throw new Error('Exhausted Wallet Session remainingUses must be zero');
@@ -1131,7 +1171,7 @@ function requireNonEmptyCapabilities(
 }
 
 function walletSessionCanonicalWalletId(session: WalletSession): WalletId | null {
-  if (session.authentication.kind === 'authenticated') {
+  if (session.authentication.kind !== 'signed_out') {
     return session.authentication.walletId;
   }
   switch (session.appIdentity.kind) {
@@ -1143,6 +1183,7 @@ function walletSessionCanonicalWalletId(session: WalletSession): WalletId | null
   }
   switch (session.reusableWalletSession.kind) {
     case 'active':
+    case 'linked_device_active':
     case 'exhausted':
     case 'expired':
     case 'superseded':
@@ -1161,7 +1202,7 @@ function walletSessionCanonicalWalletId(session: WalletSession): WalletId | null
 
 function walletSessionWalletIdsAgree(session: WalletSession, walletId: WalletId): boolean {
   if (
-    session.authentication.kind === 'authenticated' &&
+    session.authentication.kind !== 'signed_out' &&
     session.authentication.walletId !== walletId
   ) {
     return false;
@@ -1273,12 +1314,29 @@ function requireNonNegativeSafeInteger(value: unknown, label: string): number {
 
 function exactIdentity(
   walletId: WalletId,
-  session: Extract<WalletSession['reusableWalletSession'], { kind: 'active' | 'expired' }>,
+  session: Extract<
+    WalletSession['reusableWalletSession'],
+    { kind: 'active' | 'expired' | 'linked_device_active' }
+  >,
 ): WalletIframeExactSessionIdentity | null {
   const walletSessionId = parseWalletSessionId(session.walletSessionId);
-  if (!walletSessionId.ok || !isWalletAuthMethod(session.authMethod)) return null;
+  if (
+    !walletSessionId.ok ||
+    (session.authMethod !== 'linked_device' && !isWalletAuthMethod(session.authMethod))
+  ) {
+    return null;
+  }
   if (!isPositiveSafeInteger(session.expiresAtMs)) return null;
   if (String(session.authorizationId) === String(walletSessionId.value)) return null;
+  if (session.kind === 'linked_device_active') {
+    return {
+      walletId,
+      authorizationId: session.authorizationId,
+      walletSessionId: walletSessionId.value,
+      authMethod: 'linked_device',
+      expiresAtMs: session.expiresAtMs,
+    };
+  }
   return {
     walletId,
     authorizationId: session.authorizationId,
@@ -1300,16 +1358,29 @@ export function exactSessionIdentitiesMatch(
 }
 
 function parseIdentity(value: Record<string, unknown>): WalletIframeExactSessionIdentity {
-  const authorizationId = parseWalletSessionAuthorizationId(value.authorizationId);
   const walletSessionId = parseWalletSessionId(value.walletSessionId);
-  if (!authorizationId.ok) throw new Error('Wallet iframe authorizationId is invalid');
   if (!walletSessionId.ok) throw new Error('Wallet iframe walletSessionId is invalid');
-  assertDistinctAuthorizationIdentity(authorizationId.value, walletSessionId.value);
-  if (!isWalletAuthMethod(value.authMethod)) throw new Error('Wallet iframe authMethod is invalid');
   if (!isPositiveSafeInteger(value.expiresAtMs))
     throw new Error('Wallet iframe expiresAtMs is invalid');
+  const walletId = requireWalletId(value.walletId);
+  if (value.authMethod === 'linked_device') {
+    const authorizationId = parseLinkedDeviceWalletSessionAuthorizationId(value.authorizationId);
+    if (!authorizationId.ok) throw new Error('Wallet iframe authorizationId is invalid');
+    assertDistinctAuthorizationIdentity(authorizationId.value, walletSessionId.value);
+    return {
+      walletId,
+      authorizationId: authorizationId.value,
+      walletSessionId: walletSessionId.value,
+      authMethod: 'linked_device',
+      expiresAtMs: value.expiresAtMs,
+    };
+  }
+  const authorizationId = parseWalletSessionAuthorizationId(value.authorizationId);
+  if (!authorizationId.ok) throw new Error('Wallet iframe authorizationId is invalid');
+  if (!isWalletAuthMethod(value.authMethod)) throw new Error('Wallet iframe authMethod is invalid');
+  assertDistinctAuthorizationIdentity(authorizationId.value, walletSessionId.value);
   return {
-    walletId: requireWalletId(value.walletId),
+    walletId,
     authorizationId: authorizationId.value,
     walletSessionId: walletSessionId.value,
     authMethod: value.authMethod,
@@ -1318,7 +1389,7 @@ function parseIdentity(value: Record<string, unknown>): WalletIframeExactSession
 }
 
 function assertDistinctAuthorizationIdentity(
-  authorizationId: WalletSessionAuthorizationId,
+  authorizationId: WalletSessionAuthorizationId | LinkedDeviceWalletSessionAuthorizationId,
   walletSessionId: WalletSessionId,
 ): void {
   if (String(authorizationId) === String(walletSessionId)) {

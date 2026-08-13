@@ -51,8 +51,6 @@ import {
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import type {
-  BuildEcdsaRoleLocalExportArtifactCommand as GeneratedBuildEcdsaRoleLocalExportArtifactCommand,
-  BuildEcdsaRoleLocalExportArtifactOutput as GeneratedBuildEcdsaRoleLocalExportArtifactOutput,
   EcdsaRoleLocalReadyStateBlob as GeneratedEcdsaRoleLocalReadyStateBlob,
   FinalizeEcdsaClientBootstrapCommand as GeneratedFinalizeEcdsaClientBootstrapCommand,
   FinalizeEcdsaClientBootstrapOutput as GeneratedFinalizeEcdsaClientBootstrapOutput,
@@ -434,29 +432,6 @@ export async function verifyRouterAbEcdsaPostRegistrationProofsWasm(input: {
   return response.payload;
 }
 
-export async function buildEcdsaRoleLocalExportArtifactCommandWasm(input: {
-  command: GeneratedBuildEcdsaRoleLocalExportArtifactCommand;
-  workerCtx: WorkerOperationContext;
-}): Promise<GeneratedBuildEcdsaRoleLocalExportArtifactOutput> {
-  const response = await requestEcdsaDerivationRoleLocalMaterialOperation({
-    workerCtx: input.workerCtx,
-    request: {
-      type: EcdsaDerivationClientCustomRequestType.BuildThresholdEcdsaDerivationRoleLocalExportArtifact,
-      timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
-      payload: input.command,
-    },
-  });
-
-  if (
-    response.type !==
-    EcdsaDerivationClientCustomResponseType.BuildThresholdEcdsaDerivationRoleLocalExportArtifactSuccess
-  ) {
-    throw new Error('BuildThresholdEcdsaDerivationRoleLocalExportArtifact failed');
-  }
-
-  return response.payload as GeneratedBuildEcdsaRoleLocalExportArtifactOutput;
-}
-
 export async function storeEcdsaRoleLocalSigningMaterialWasm(input: {
   materialHandle: string;
   bindingDigest: string;
@@ -664,51 +639,6 @@ export async function thresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandl
     throw new Error('ECDSA role-local presign returned a different authority');
   }
   return asEcdsaDerivationPresignProgress(response.payload.progress);
-}
-
-export async function thresholdEcdsaEmailOtpPresignSessionInitWasm(input: {
-  thresholdSessionId: string;
-  sessionId: string;
-  groupPublicKey33: Uint8Array;
-  materialExpiresAtMs: number;
-  poolIdentity: EcdsaClientPresignPoolIdentity;
-  workerCtx: WorkerOperationContext;
-}): Promise<{
-  progress: EcdsaDerivationClientThresholdEcdsaPresignProgress;
-  remainingUses: number;
-  expiresAtMs: number;
-}> {
-  const groupPublicKey33 = input.groupPublicKey33.slice();
-  const response = await requestEcdsaPresignOperation({
-    workerCtx: input.workerCtx,
-    request: {
-      type: EcdsaPresignClientRequestType.SessionInit,
-      timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
-      payload: {
-        authority: {
-          kind: 'email_otp_worker_session',
-          thresholdSessionId: input.thresholdSessionId,
-        },
-        sessionId: input.sessionId,
-        groupPublicKey33: groupPublicKey33.buffer,
-        materialExpiresAtMs: input.materialExpiresAtMs,
-        poolIdentity: input.poolIdentity,
-      },
-      transfer: [groupPublicKey33.buffer],
-    },
-  });
-  if (response.type !== EcdsaPresignClientResponseType.SessionInitSuccess) {
-    throw new Error('Email OTP ECDSA presign initialization failed');
-  }
-  const authority = response.payload.authority;
-  if (authority.kind !== 'email_otp_worker_session') {
-    throw new Error('Email OTP ECDSA presign returned a different authority');
-  }
-  return {
-    progress: asEcdsaDerivationPresignProgress(response.payload.progress),
-    remainingUses: authority.remainingUses,
-    expiresAtMs: authority.expiresAtMs,
-  };
 }
 
 export async function thresholdEcdsaLinkedHolderPresignSessionInitWasm(input: {

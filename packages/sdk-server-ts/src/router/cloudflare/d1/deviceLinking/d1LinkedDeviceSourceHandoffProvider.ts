@@ -16,7 +16,10 @@ import type {
   LinkedDeviceTargetReadyR102InputV1,
 } from '@shared/device-linking/contracts';
 import { computeLaneEnrollmentManifestDigestV1 } from '@shared/signing-lanes/rotationDigests';
-import { computeLinkedDeviceTargetPreparationDigestV1 } from '@shared/device-linking/digests';
+import {
+  computeLinkedDeviceProvisioningDeliveriesDigestV1,
+  computeLinkedDeviceTargetPreparationDigestV1,
+} from '@shared/device-linking/digests';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import { base64UrlEncode } from '@shared/utils/base64';
@@ -25,7 +28,10 @@ import type { D1DatabaseLike } from '../../../../storage/tenantRoute';
 import type { LinkedDeviceSessionRecordV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
 import type { DeviceLinkingOwnerSourceHandoffProviderV1 } from '../../../transport/fetch/routes/deviceLinking';
 import type { LinkedDeviceR102SourcePreparationPortV1 } from './linkedDeviceR102ProvisioningExecution';
-import type { D1LinkedDeviceSessionScopeV1 } from './d1LinkedDeviceSessionStore';
+import {
+  D1LinkedDeviceSessionStoreV1,
+  type D1LinkedDeviceSessionScopeV1,
+} from './d1LinkedDeviceSessionStore';
 
 const SOURCE_HANDOFF_TABLE = 'linked_device_source_handoffs';
 const PREPARED_DELIVERY_WAIT_ATTEMPTS = 200;
@@ -71,6 +77,7 @@ export class D1LinkedDeviceSourceHandoffProviderV1
 {
   private readonly database: D1DatabaseLike;
   private readonly scope: D1LinkedDeviceSessionScopeV1;
+  private readonly sessionStore: D1LinkedDeviceSessionStoreV1;
 
   constructor(input: {
     readonly database: D1DatabaseLike;
@@ -78,6 +85,10 @@ export class D1LinkedDeviceSourceHandoffProviderV1
   }) {
     this.database = input.database;
     this.scope = normalizeScope(input.scope);
+    this.sessionStore = new D1LinkedDeviceSessionStoreV1({
+      database: this.database,
+      scope: this.scope,
+    });
   }
 
   async getTargetReadyV1(input: {
@@ -214,7 +225,9 @@ export class D1LinkedDeviceSourceHandoffProviderV1
       throw new Error('prepared deliveries manifest digest differs from target-ready input');
     }
     assertDeliveriesMatchTargetReady(submission.deliveries, persisted.targetReady);
-    const deliveriesDigestB64u = await deliveriesDigestV1(submission.deliveries);
+    const deliveriesDigestB64u = await computeLinkedDeviceProvisioningDeliveriesDigestV1(
+      submission.deliveries,
+    );
     if (persisted.deliveries) {
       if (
         persisted.deliveriesDigestB64u !== deliveriesDigestB64u ||
@@ -222,6 +235,7 @@ export class D1LinkedDeviceSourceHandoffProviderV1
       ) {
         throw new Error('prepared deliveries conflict with durable replay');
       }
+      await this.reconcileCommittedSessionV1(input.session, input.requestedAtMs);
       return submissionWithDeliveries(persisted, input.approval);
     }
     await this.database
@@ -257,6 +271,7 @@ export class D1LinkedDeviceSourceHandoffProviderV1
     ) {
       throw new Error('prepared deliveries conflict with durable replay');
     }
+    await this.reconcileCommittedSessionV1(input.session, input.requestedAtMs);
     return submissionWithDeliveries(stored, input.approval);
   }
 
@@ -292,7 +307,18 @@ export class D1LinkedDeviceSourceHandoffProviderV1
     ) {
       throw new Error('linked-device provisioning command differs from source handoff');
     }
+    await this.reconcileCommittedSessionV1(input.session, input.requestedAtMs);
     return persisted.deliveries;
+  }
+
+  private async reconcileCommittedSessionV1(
+    session: LinkedDeviceSessionRecordV1,
+    requestedAtMs: number,
+  ): Promise<void> {
+    await this.sessionStore.reconcileCommittedProvisioningOutputV1({
+      record: session,
+      nowMs: requestedAtMs,
+    });
   }
 
   private async readV1(linkSessionId: string): Promise<PersistedSourceHandoffV1 | null> {
@@ -337,7 +363,9 @@ export class D1LinkedDeviceSourceHandoffProviderV1
     }
     if (
       deliveries &&
-      (!deliveriesDigestB64u || (await deliveriesDigestV1(deliveries)) !== deliveriesDigestB64u)
+      (!deliveriesDigestB64u ||
+        (await computeLinkedDeviceProvisioningDeliveriesDigestV1(deliveries)) !==
+          deliveriesDigestB64u)
     ) {
       throw new Error('linked-device prepared deliveries digest does not match its JSON');
     }
@@ -433,7 +461,7 @@ function assertPersistedIdentity(
   }
   if (
     (session.state.state === 'provisioning' ||
-      session.state.state === 'awaiting_aggregate_receipt') &&
+      session.state.state === 'committed_completion_required') &&
     persisted.manifestDigestB64u !== session.state.keyManifestDigestB64u
   ) {
     throw new Error('linked-device source handoff manifest digest changed');
@@ -604,7 +632,7 @@ function assertManifestDigestMatchesSession(
 ): void {
   if (
     (session.state.state === 'provisioning' ||
-      session.state.state === 'awaiting_aggregate_receipt') &&
+      session.state.state === 'committed_completion_required') &&
     session.state.keyManifestDigestB64u !== manifestDigestB64u
   ) {
     throw new Error('R102 target-ready manifest differs from the persisted session manifest');
@@ -659,12 +687,6 @@ async function targetReadyDigestV1(
   targetReady: LinkedDeviceTargetReadyR102InputV1,
 ): Promise<DigestB64u> {
   return parseDigestB64u(base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(targetReady))));
-}
-
-async function deliveriesDigestV1(
-  deliveries: LinkedDeviceProvisioningDeliveriesV1,
-): Promise<DigestB64u> {
-  return parseDigestB64u(base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(deliveries))));
 }
 
 async function waitForPreparedDeliveriesV1(delayMs: number): Promise<void> {

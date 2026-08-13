@@ -7,11 +7,12 @@ use hpke_ng::{DhKemX25519HkdfSha256, Kem};
 use k256::{elliptic_curve::sec1::ToEncodedPoint, ProjectivePoint, PublicKey, SecretKey};
 use router_ab_core::{
     Ed25519YaoDeriverRoleV1, Ed25519YaoEncryptedPackageV1, Ed25519YaoLaneJobV1,
-    Ed25519YaoPackageKindV1,
+    Ed25519YaoPackageKindV1, MpcMaterialActivationRefV1,
 };
 use router_ab_ecdsa_client_protocol::{
     ecdsa_lane_public_identity_relation_digest_v1, open_ecdsa_lane_payload_v1,
     EcdsaAdditiveLaneJobV1, EcdsaLaneEncryptedPayloadV1, EcdsaLaneTargetOperationV1,
+    EcdsaMaterialActivationRefV1,
 };
 use router_ab_ed25519_yao_protocol::{
     combine_lane_holder_packages_v1, ed25519_yao_lane_recipient_package_aad_v1,
@@ -453,7 +454,7 @@ struct LaneProtocolCommitReceiptWireV1 {
     source_lane_id: String,
     source_lane_share_epoch: String,
     source_revocation_epoch: u64,
-    source_material_activation: serde_json::Value,
+    source_material_activation: LaneMaterialActivationWireV1,
     target_lane_id: String,
     target_lane_share_epoch: String,
     target_material_activation_id: String,
@@ -467,6 +468,40 @@ struct LaneProtocolCommitReceiptWireV1 {
     server_recipient_key_digest_b64u: String,
     transcript_hash_b64u: String,
     committed_at_ms: u64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct LaneMaterialActivationWireV1 {
+    kind: String,
+    activation_id: String,
+    capability: String,
+    material_owner: String,
+    key_binding: String,
+    lifecycle_binding: String,
+    signing_worker: String,
+}
+
+impl LaneMaterialActivationWireV1 {
+    fn matches_ed25519(&self, activation: &MpcMaterialActivationRefV1) -> bool {
+        self.kind == "mpc_material_activation_ref"
+            && self.activation_id == activation.activation_id
+            && self.capability == activation.capability
+            && self.material_owner == activation.material_owner
+            && self.key_binding == activation.key_binding
+            && self.lifecycle_binding == activation.lifecycle_binding
+            && self.signing_worker == activation.signing_worker
+    }
+
+    fn matches_ecdsa(&self, activation: &EcdsaMaterialActivationRefV1) -> bool {
+        self.kind == "mpc_material_activation_ref"
+            && self.activation_id == activation.activation_id
+            && self.capability == activation.capability
+            && self.material_owner == activation.material_owner
+            && self.key_binding == activation.key_binding
+            && self.lifecycle_binding == activation.lifecycle_binding
+            && self.signing_worker == activation.signing_worker
+    }
 }
 
 #[derive(Deserialize)]
@@ -775,8 +810,6 @@ fn validate_ed_receipt(
     job: &Ed25519YaoLaneJobV1,
     receipt: &LaneProtocolCommitReceiptWireV1,
 ) -> Result<(), LaneHolderError> {
-    let source_activation = serde_json::to_value(&job.source.material_activation())
-        .map_err(|_| LaneHolderError::InvalidShape)?;
     let valid = receipt.operation_id == job.operation_id
         && receipt.enrollment_id == job.enrollment_id
         && receipt.wallet_id == job.wallet_id
@@ -784,7 +817,9 @@ fn validate_ed_receipt(
         && receipt.source_lane_id == job.source.lane_id()
         && receipt.source_lane_share_epoch == job.source.lane_share_epoch()
         && receipt.source_revocation_epoch == job.source.revocation_epoch()
-        && receipt.source_material_activation == source_activation
+        && receipt
+            .source_material_activation
+            .matches_ed25519(job.source.material_activation())
         && receipt.target_lane_id == job.target_lane_id()
         && receipt.target_lane_share_epoch == job.target_lane_share_epoch()
         && receipt.target_material_activation_id == job.target_material_activation_id
@@ -807,8 +842,6 @@ fn validate_ecdsa_receipt(
     job: &EcdsaAdditiveLaneJobV1,
     receipt: &LaneProtocolCommitReceiptWireV1,
 ) -> Result<(), LaneHolderError> {
-    let source_activation = serde_json::to_value(&job.source.material_activation())
-        .map_err(|_| LaneHolderError::InvalidShape)?;
     let valid = receipt.operation_id == job.operation_id
         && receipt.enrollment_id == job.enrollment_id
         && receipt.wallet_id == job.wallet_id
@@ -816,7 +849,9 @@ fn validate_ecdsa_receipt(
         && receipt.source_lane_id == job.source.lane_id()
         && receipt.source_lane_share_epoch == job.source.lane_share_epoch()
         && receipt.source_revocation_epoch == job.source.revocation_epoch()
-        && receipt.source_material_activation == source_activation
+        && receipt
+            .source_material_activation
+            .matches_ecdsa(job.source.material_activation())
         && receipt.target_lane_id == ecdsa_target_lane_id(job)
         && receipt.target_lane_share_epoch == ecdsa_target_lane_share_epoch(job)
         && receipt.target_material_activation_id == job.target_material_activation_id

@@ -314,6 +314,7 @@ dependencies = [
  "der 0.7.10",
  "digest 0.10.7",
  "elliptic-curve 0.13.8",
+ "rfc6979",
  "signature",
 ]
 
@@ -785,6 +786,9 @@ name = "rand_core"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
+dependencies = [
+ "getrandom 0.2.17",
+]
 
 [[package]]
 name = "rand_core"
@@ -800,6 +804,16 @@ name = "rand_core"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69"
+
+[[package]]
+name = "rfc6979"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8dd2a808d456c4a54e300a23e9f5a67e122c3024119acbfd73e3bf664491cb2"
+dependencies = [
+ "hmac 0.12.1",
+ "subtle",
+]
 
 [[package]]
 name = "router-ab-ecdsa-client-protocol"
@@ -831,14 +845,48 @@ dependencies = [
 ]
 
 [[package]]
+name = "router-ab-ecdsa-online"
+version = "0.1.0"
+dependencies = [
+ "hkdf 0.12.4",
+ "k256",
+ "sha3 0.10.9",
+ "subtle",
+ "zeroize",
+]
+
+[[package]]
+name = "router-ab-ecdsa-presign"
+version = "0.1.0"
+dependencies = [
+ "k256",
+ "rand_core 0.6.4",
+ "router-ab-ecdsa-wire",
+ "sha2 0.10.9",
+ "subtle",
+ "zeroize",
+]
+
+[[package]]
+name = "router-ab-ecdsa-wire"
+version = "0.1.0"
+dependencies = [
+ "zeroize",
+]
+
+[[package]]
 name = "router_ab_ecdsa_client"
 version = "0.1.0"
 dependencies = [
  "base64ct",
  "getrandom 0.2.17",
  "js-sys",
+ "rand_core 0.6.4",
  "router-ab-ecdsa-client-protocol",
  "router-ab-ecdsa-derivation",
+ "router-ab-ecdsa-online",
+ "router-ab-ecdsa-presign",
+ "router-ab-ecdsa-wire",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",

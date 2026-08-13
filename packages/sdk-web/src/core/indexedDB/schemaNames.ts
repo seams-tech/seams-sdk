@@ -1,5 +1,5 @@
 export const SEAMS_WALLET_DB_NAME = 'seams_wallet' as const;
-export const SEAMS_WALLET_DB_VERSION = 16 as const;
+export const SEAMS_WALLET_DB_VERSION = 17 as const;
 
 export const SEAMS_WALLET_STORES = {
   appState: 'app_state',
@@ -23,8 +23,6 @@ export const SEAMS_WALLET_STORES = {
   ecdsaRoleLocalMaterial: 'ecdsa_role_local_material',
   ecdsaActivationCommitJournals: 'ecdsa_activation_commit_journals',
   ecdsaMaterialSealingKeys: 'ecdsa_material_sealing_keys',
-  ecdsaPresignSealingKeys: 'ecdsa_presign_sealing_keys',
-  ecdsaPresignRecords: 'ecdsa_presign_records',
 } as const;
 
 export const SEAMS_WALLET_INDEXES = {
@@ -391,16 +389,6 @@ export const SEAMS_WALLET_SCHEMA_MANIFEST = [
   {
     store: SEAMS_WALLET_STORES.ecdsaMaterialSealingKeys,
     keyPath: 'key_id',
-    indexes: [],
-  },
-  {
-    store: SEAMS_WALLET_STORES.ecdsaPresignSealingKeys,
-    keyPath: 'id',
-    indexes: [],
-  },
-  {
-    store: SEAMS_WALLET_STORES.ecdsaPresignRecords,
-    keyPath: 'materialHandle',
     indexes: [],
   },
 ] as const satisfies readonly SeamsWalletStoreDefinition[];

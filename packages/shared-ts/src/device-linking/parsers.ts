@@ -76,6 +76,7 @@ import {
   ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
 } from '../utils/sessionTokens';
 import { parseUnixMs, requireRecord, rejectUnknownFields } from '../passkey-custody/primitives';
+import { parseNearAccountId } from '../utils/near';
 import {
   assertNeverLinkedDeviceSessionState,
   type LinkedDeviceApprovalV1,
@@ -160,6 +161,10 @@ const LINKED_WALLET_SESSION_DELIVERY_FIELDS = [
   'issuedAtMs',
   'expiresAtMs',
   'orderedTokens',
+] as const;
+const LINKED_WALLET_SESSION_DELIVERY_WITH_NEAR_FIELDS = [
+  ...LINKED_WALLET_SESSION_DELIVERY_FIELDS,
+  'nearAccountId',
 ] as const;
 const LINKED_WALLET_SESSION_TOKEN_FIELDS = [
   'kind',
@@ -428,13 +433,6 @@ const SESSION_STATE_FIELDS = {
     'credentialDeadlineMs',
   ],
   provisioning: ['state', 'linkSessionId', 'walletId', 'enrollmentId', 'keyManifestDigestB64u'],
-  awaiting_aggregate_receipt: [
-    'state',
-    'linkSessionId',
-    'walletId',
-    'enrollmentId',
-    'keyManifestDigestB64u',
-  ],
   active: ['state', 'linkSessionId', 'walletId', 'enrollmentId', 'activatedAtMs'],
   expired_unclaimed: ['state', 'linkSessionId', 'expiredAtMs'],
   expired_claimed: ['state', 'linkSessionId', 'walletId', 'enrollmentId', 'expiredAtMs'],
@@ -451,6 +449,7 @@ const SESSION_STATE_FIELDS = {
     'linkSessionId',
     'walletId',
     'enrollmentId',
+    'keyManifestDigestB64u',
     'transcriptSetDigestB64u',
   ],
 } as const;
@@ -833,9 +832,13 @@ export function buildLinkedDeviceRevokeResultV1(
 export function parseLinkedDeviceWalletSessionDeliveryV1(
   raw: unknown,
 ): LinkedDeviceWalletSessionDeliveryV1 {
+  const initial = requireRecord(raw, 'LinkedDeviceWalletSessionDeliveryV1');
+  const hasNearAccountId = Object.prototype.hasOwnProperty.call(initial, 'nearAccountId');
   const record = exactRecord(
-    raw,
-    LINKED_WALLET_SESSION_DELIVERY_FIELDS,
+    initial,
+    hasNearAccountId
+      ? LINKED_WALLET_SESSION_DELIVERY_WITH_NEAR_FIELDS
+      : LINKED_WALLET_SESSION_DELIVERY_FIELDS,
     'LinkedDeviceWalletSessionDeliveryV1',
   );
   if (record.kind !== 'linked_device_wallet_session_delivery_v1') {
@@ -850,7 +853,7 @@ export function parseLinkedDeviceWalletSessionDeliveryV1(
     'LinkedDeviceWalletSessionDeliveryV1.expiresAtMs',
   );
   assertExpiryAfterIssued(issuedAtMs, expiresAtMs, 'LinkedDeviceWalletSessionDeliveryV1');
-  const identity: Omit<LinkedDeviceWalletSessionDeliveryV1, 'kind' | 'orderedTokens'> = {
+  const identity = {
     tenantId: parseId(
       parseTenantId,
       record.tenantId,
@@ -904,25 +907,59 @@ export function parseLinkedDeviceWalletSessionDeliveryV1(
     seenWalletKeys.add(parsed.walletKeyId);
     return parsed;
   });
-  return {
-    kind: 'linked_device_wallet_session_delivery_v1',
+  const exactTokens = nonEmptyTuple(
+    orderedTokens,
+    'LinkedDeviceWalletSessionDeliveryV1.orderedTokens',
+  );
+  const ed25519Tokens = exactTokens.filter((token) => token.keyFamily === 'ed25519');
+  const ecdsaTokens = exactTokens.filter((token) => token.keyFamily === 'ecdsa_secp256k1');
+  if (ed25519Tokens.length > 1 || ecdsaTokens.length > 1) {
+    throw new Error('LinkedDeviceWalletSessionDeliveryV1 contains duplicate key families');
+  }
+  const base = {
+    kind: 'linked_device_wallet_session_delivery_v1' as const,
     ...identity,
-    orderedTokens: nonEmptyTuple(
-      orderedTokens,
-      'LinkedDeviceWalletSessionDeliveryV1.orderedTokens',
-    ),
   };
+  const ed25519 = ed25519Tokens[0];
+  const ecdsa = ecdsaTokens[0];
+  if (!ed25519) {
+    if (hasNearAccountId || !ecdsa || exactTokens.length !== 1) {
+      throw new Error('LinkedDeviceWalletSessionDeliveryV1 NEAR identity is invalid');
+    }
+    return { ...base, orderedTokens: [ecdsa] };
+  }
+  const nearAccountId = parseNearAccountId(record.nearAccountId);
+  if (!nearAccountId.ok) {
+    throw new Error('LinkedDeviceWalletSessionDeliveryV1.nearAccountId is invalid');
+  }
+  if (!ecdsa) return { ...base, nearAccountId: nearAccountId.value, orderedTokens: [ed25519] };
+  return exactTokens[0]?.keyFamily === 'ed25519'
+    ? { ...base, nearAccountId: nearAccountId.value, orderedTokens: [ed25519, ecdsa] }
+    : { ...base, nearAccountId: nearAccountId.value, orderedTokens: [ecdsa, ed25519] };
 }
 
 export function buildLinkedDeviceWalletSessionDeliveryV1(
-  value: LinkedDeviceWalletSessionDeliveryV1,
+  value: unknown,
 ): LinkedDeviceWalletSessionDeliveryV1 {
   return parseLinkedDeviceWalletSessionDeliveryV1(value);
 }
 
 function parseLinkedDeviceWalletSessionTokenV1(
   raw: unknown,
-  expected: Omit<LinkedDeviceWalletSessionDeliveryV1, 'kind' | 'orderedTokens'>,
+  expected: {
+    readonly tenantId: LinkedDeviceWalletSessionDeliveryV1['tenantId'];
+    readonly walletId: LinkedDeviceWalletSessionDeliveryV1['walletId'];
+    readonly enrollmentId: LinkedDeviceWalletSessionDeliveryV1['enrollmentId'];
+    readonly deviceId: LinkedDeviceWalletSessionDeliveryV1['deviceId'];
+    readonly authorizationId: LinkedDeviceWalletSessionDeliveryV1['authorizationId'];
+    readonly walletSessionId: LinkedDeviceWalletSessionDeliveryV1['walletSessionId'];
+    readonly quotaId: LinkedDeviceWalletSessionDeliveryV1['quotaId'];
+    readonly keyManifestDigestB64u: LinkedDeviceWalletSessionDeliveryV1['keyManifestDigestB64u'];
+    readonly permission: LinkedDeviceWalletSessionDeliveryV1['permission'];
+    readonly revocationEpoch: number;
+    readonly issuedAtMs: number;
+    readonly expiresAtMs: number;
+  },
   index: number,
 ): LinkedDeviceWalletSessionTokenV1 {
   const label = `LinkedDeviceWalletSessionDeliveryV1.orderedTokens[${index}]`;
@@ -1194,7 +1231,6 @@ function parseStateRecord(record: UnknownRecord): LinkedDeviceSessionState {
         ),
       };
     case 'provisioning':
-    case 'awaiting_aggregate_receipt':
       return {
         state,
         linkSessionId,
@@ -1247,6 +1283,10 @@ function parseStateRecord(record: UnknownRecord): LinkedDeviceSessionState {
         linkSessionId,
         walletId: parseWallet(exact.walletId, `${state}.walletId`),
         enrollmentId: parseEnrollmentId(exact.enrollmentId, `${state}.enrollmentId`),
+        keyManifestDigestB64u: parseDigest(
+          exact.keyManifestDigestB64u,
+          `${state}.keyManifestDigestB64u`,
+        ),
         transcriptSetDigestB64u: parseDigest(
           exact.transcriptSetDigestB64u,
           `${state}.transcriptSetDigestB64u`,
@@ -1280,14 +1320,12 @@ function isPendingApprovalState(state: LinkedDeviceSessionState): state is Extra
     readonly state:
       | 'awaiting_target_passkey'
       | 'provisioning'
-      | 'awaiting_aggregate_receipt'
       | 'committed_completion_required';
   }
 > {
   return (
     state.state === 'awaiting_target_passkey' ||
     state.state === 'provisioning' ||
-    state.state === 'awaiting_aggregate_receipt' ||
     state.state === 'committed_completion_required'
   );
 }
@@ -2900,21 +2938,6 @@ export function buildProvisioningLinkedDeviceSessionState(args: {
   });
 }
 
-export function buildAwaitingAggregateReceiptLinkedDeviceSessionState(args: {
-  readonly linkSessionId: LinkDeviceSessionId;
-  readonly walletId: WalletId;
-  readonly enrollmentId: LinkedDeviceEnrollmentId;
-  readonly keyManifestDigestB64u: DigestB64u;
-}): Extract<LinkedDeviceSessionState, { readonly state: 'awaiting_aggregate_receipt' }> {
-  return buildState({
-    state: 'awaiting_aggregate_receipt',
-    linkSessionId: args.linkSessionId,
-    walletId: args.walletId,
-    enrollmentId: args.enrollmentId,
-    keyManifestDigestB64u: args.keyManifestDigestB64u,
-  });
-}
-
 export function buildActiveLinkedDeviceSessionState(args: {
   readonly linkSessionId: LinkDeviceSessionId;
   readonly walletId: WalletId;
@@ -2986,6 +3009,7 @@ export function buildCommittedCompletionRequiredLinkedDeviceSessionState(args: {
   readonly linkSessionId: LinkDeviceSessionId;
   readonly walletId: WalletId;
   readonly enrollmentId: LinkedDeviceEnrollmentId;
+  readonly keyManifestDigestB64u: DigestB64u;
   readonly transcriptSetDigestB64u: DigestB64u;
 }): Extract<LinkedDeviceSessionState, { readonly state: 'committed_completion_required' }> {
   return buildState({
@@ -2993,6 +3017,7 @@ export function buildCommittedCompletionRequiredLinkedDeviceSessionState(args: {
     linkSessionId: args.linkSessionId,
     walletId: args.walletId,
     enrollmentId: args.enrollmentId,
+    keyManifestDigestB64u: args.keyManifestDigestB64u,
     transcriptSetDigestB64u: args.transcriptSetDigestB64u,
   });
 }

@@ -37,19 +37,19 @@ const EXPORT_SCHEDULE_DIGEST: [u8; 32] = [
     0x1e, 0x78, 0xc7, 0x52, 0x5f, 0x47, 0xfc, 0x82, 0x9c, 0x57, 0xf6, 0x41, 0x8b, 0x0d, 0x97, 0xd0,
 ];
 const LANE_MATERIALIZATION_CIRCUIT_DIGEST: [u8; 32] = [
-    0xba, 0x88, 0xdc, 0xab, 0x5c, 0x70, 0xa3, 0x08, 0xd6, 0xe5, 0x00, 0xb6, 0x66, 0x44, 0x24, 0xd1,
-    0xa7, 0xaf, 0x26, 0x68, 0xa2, 0x1d, 0x87, 0x49, 0x87, 0x8d, 0x42, 0xb5, 0x2a, 0x48, 0x69, 0x19,
+    0xb8, 0x2d, 0x95, 0x99, 0x1e, 0x0d, 0x3f, 0x91, 0xf2, 0xd3, 0x10, 0x09, 0xcb, 0x15, 0x58, 0xf7,
+    0x3a, 0xbd, 0x1d, 0x0a, 0x66, 0x7f, 0xec, 0x99, 0xe0, 0x2d, 0xdb, 0x75, 0x1f, 0x65, 0x2d, 0x06,
 ];
 const LANE_MATERIALIZATION_SCHEDULE_DIGEST: [u8; 32] = [
-    0xa4, 0xed, 0x46, 0x17, 0x49, 0x3e, 0x0a, 0xd7, 0xed, 0x46, 0x86, 0x5d, 0x4a, 0xa8, 0x66, 0xd1,
-    0x9e, 0x00, 0xae, 0xb0, 0xd7, 0xb9, 0x55, 0x5f, 0x36, 0x02, 0xfa, 0x00, 0x7b, 0xa3, 0xab, 0xaa,
+    0x3b, 0xba, 0xe3, 0x84, 0x3b, 0xab, 0x64, 0x4b, 0x3b, 0x7e, 0x7e, 0xd6, 0xdd, 0x37, 0x9b, 0x6b,
+    0x40, 0xb7, 0xc3, 0x21, 0x33, 0xc5, 0x09, 0x4e, 0x4b, 0x1f, 0xc4, 0xe9, 0x66, 0xfd, 0x57, 0xd4,
 ];
 
 pub(super) const ACTIVATION_INPUT_BITS_PER_ROLE: usize = 6 * 256;
 pub(super) const EXPORT_INPUT_BITS_PER_ROLE: usize = 3 * 256;
 pub(super) const ACTIVATION_OUTPUT_BITS_PER_ROLE: usize = 2 * 256;
 pub(super) const EXPORT_OUTPUT_BITS_PER_ROLE: usize = 256;
-pub(super) const LANE_MATERIALIZATION_INPUT_BITS_PER_ROLE: usize = 3 * 256;
+pub(super) const LANE_MATERIALIZATION_INPUT_BITS_PER_ROLE: usize = 7 * 256;
 pub(super) const LANE_MATERIALIZATION_OUTPUT_BITS_PER_ROLE: usize = 2 * 256;
 
 const ACTIVATION_ROLE_INPUT_BYTES: usize = ACTIVATION_INPUT_BITS_PER_ROLE / 8;
@@ -384,11 +384,7 @@ define_scalar_field!(DeriverAClientScalarOutputCoin);
 define_scalar_field!(DeriverASigningWorkerScalarOutputCoin);
 define_scalar_field!(DeriverBClientScalarOutputCoin);
 define_scalar_field!(DeriverBSigningWorkerScalarOutputCoin);
-define_scalar_field!(LaneDeriverAHolderShare);
-define_scalar_field!(LaneDeriverASigningWorkerShare);
 define_scalar_field!(LaneDeriverAOffsetShare);
-define_scalar_field!(LaneDeriverBHolderShare);
-define_scalar_field!(LaneDeriverBSigningWorkerShare);
 define_scalar_field!(LaneDeriverBOffsetShare);
 
 fn random_scalar_field() -> Result<SecretField32, RoleBoundaryError> {
@@ -737,20 +733,32 @@ impl ExportDeriverBInputs {
 
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub(super) struct LaneDeriverAInputs {
-    source_holder_share: LaneDeriverAHolderShare,
-    source_signing_worker_share: LaneDeriverASigningWorkerShare,
+    y_client: DeriverAClientY,
+    y_server: DeriverAServerY,
+    tau_client: DeriverAClientTau,
+    tau_server: DeriverAServerTau,
+    holder_coin: DeriverAClientScalarOutputCoin,
+    signing_worker_coin: DeriverASigningWorkerScalarOutputCoin,
     offset_share: LaneDeriverAOffsetShare,
 }
 
 impl LaneDeriverAInputs {
     pub(super) const fn new(
-        source_holder_share: LaneDeriverAHolderShare,
-        source_signing_worker_share: LaneDeriverASigningWorkerShare,
+        y_client: DeriverAClientY,
+        y_server: DeriverAServerY,
+        tau_client: DeriverAClientTau,
+        tau_server: DeriverAServerTau,
+        holder_coin: DeriverAClientScalarOutputCoin,
+        signing_worker_coin: DeriverASigningWorkerScalarOutputCoin,
         offset_share: LaneDeriverAOffsetShare,
     ) -> Self {
         Self {
-            source_holder_share,
-            source_signing_worker_share,
+            y_client,
+            y_server,
+            tau_client,
+            tau_server,
+            holder_coin,
+            signing_worker_coin,
             offset_share,
         }
     }
@@ -759,8 +767,12 @@ impl LaneDeriverAInputs {
         encode_role_fields(
             LANE_MATERIALIZATION_INPUT_BITS_PER_ROLE / 8,
             [
-                &self.source_holder_share.0,
-                &self.source_signing_worker_share.0,
+                &self.y_client.0,
+                &self.y_server.0,
+                &self.tau_client.0,
+                &self.tau_server.0,
+                &self.holder_coin.0,
+                &self.signing_worker_coin.0,
                 &self.offset_share.0,
             ],
         )
@@ -769,20 +781,32 @@ impl LaneDeriverAInputs {
 
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub(super) struct LaneDeriverBInputs {
-    source_holder_share: LaneDeriverBHolderShare,
-    source_signing_worker_share: LaneDeriverBSigningWorkerShare,
+    y_client: DeriverBClientY,
+    y_server: DeriverBServerY,
+    tau_client: DeriverBClientTau,
+    tau_server: DeriverBServerTau,
+    holder_coin: DeriverBClientScalarOutputCoin,
+    signing_worker_coin: DeriverBSigningWorkerScalarOutputCoin,
     offset_share: LaneDeriverBOffsetShare,
 }
 
 impl LaneDeriverBInputs {
     pub(super) const fn new(
-        source_holder_share: LaneDeriverBHolderShare,
-        source_signing_worker_share: LaneDeriverBSigningWorkerShare,
+        y_client: DeriverBClientY,
+        y_server: DeriverBServerY,
+        tau_client: DeriverBClientTau,
+        tau_server: DeriverBServerTau,
+        holder_coin: DeriverBClientScalarOutputCoin,
+        signing_worker_coin: DeriverBSigningWorkerScalarOutputCoin,
         offset_share: LaneDeriverBOffsetShare,
     ) -> Self {
         Self {
-            source_holder_share,
-            source_signing_worker_share,
+            y_client,
+            y_server,
+            tau_client,
+            tau_server,
+            holder_coin,
+            signing_worker_coin,
             offset_share,
         }
     }
@@ -791,8 +815,12 @@ impl LaneDeriverBInputs {
         encode_role_fields(
             LANE_MATERIALIZATION_INPUT_BITS_PER_ROLE / 8,
             [
-                &self.source_holder_share.0,
-                &self.source_signing_worker_share.0,
+                &self.y_client.0,
+                &self.y_server.0,
+                &self.tau_client.0,
+                &self.tau_server.0,
+                &self.holder_coin.0,
+                &self.signing_worker_coin.0,
                 &self.offset_share.0,
             ],
         )

@@ -337,6 +337,10 @@ pub struct PresignOutput {
 }
 
 impl PresignOutput {
+    pub fn big_r_bytes(&self) -> CompressedPointBytes {
+        point_bytes(self.big_r)
+    }
+
     pub fn into_parts(self) -> (CompressedPointBytes, ScalarBytes, ScalarBytes) {
         (
             point_bytes(self.big_r),

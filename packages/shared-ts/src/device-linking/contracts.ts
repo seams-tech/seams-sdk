@@ -45,6 +45,7 @@ import type {
   EcdsaCapabilityManifestId,
   EcdsaCapabilityManifestRevision,
 } from '../utils/ecdsaCapabilityActivation';
+import type { NearAccountId } from '../utils/near';
 
 /** Public key bytes carried by the link session, encoded as canonical base64url. */
 export type LinkDevicePublicKeyB64u = string & {
@@ -159,13 +160,6 @@ export type LinkedDeviceSessionState =
       readonly keyManifestDigestB64u: DigestB64u;
     }
   | {
-      readonly state: 'awaiting_aggregate_receipt';
-      readonly linkSessionId: LinkDeviceSessionId;
-      readonly walletId: WalletId;
-      readonly enrollmentId: LinkedDeviceEnrollmentId;
-      readonly keyManifestDigestB64u: DigestB64u;
-    }
-  | {
       readonly state: 'active';
       readonly linkSessionId: LinkDeviceSessionId;
       readonly walletId: WalletId;
@@ -205,6 +199,7 @@ export type LinkedDeviceSessionState =
       readonly linkSessionId: LinkDeviceSessionId;
       readonly walletId: WalletId;
       readonly enrollmentId: LinkedDeviceEnrollmentId;
+      readonly keyManifestDigestB64u: DigestB64u;
       readonly transcriptSetDigestB64u: DigestB64u;
     };
 
@@ -611,7 +606,6 @@ type LinkedDevicePendingSessionStateV1 = Extract<
     readonly state:
       | 'awaiting_target_passkey'
       | 'provisioning'
-      | 'awaiting_aggregate_receipt'
       | 'committed_completion_required';
   }
 >;
@@ -689,15 +683,27 @@ export type LinkedDeviceManagementRequestV1 =
   | LinkedDeviceListRequestV1
   | LinkedDeviceRevokeRequestV1;
 
-export type LinkedDeviceWalletSessionTokenV1 = {
+type LinkedDeviceWalletSessionTokenBaseV1 = {
   readonly kind: 'linked_device_wallet_session_token_v1';
   readonly walletKeyId: WalletKeyId;
-  readonly keyFamily: 'ed25519' | 'ecdsa_secp256k1';
   readonly walletSessionJwt: string;
 };
 
+export type LinkedDeviceWalletSessionEd25519TokenV1 =
+  LinkedDeviceWalletSessionTokenBaseV1 & {
+    readonly keyFamily: 'ed25519';
+  };
+
+export type LinkedDeviceWalletSessionEcdsaTokenV1 = LinkedDeviceWalletSessionTokenBaseV1 & {
+  readonly keyFamily: 'ecdsa_secp256k1';
+};
+
+export type LinkedDeviceWalletSessionTokenV1 =
+  | LinkedDeviceWalletSessionEd25519TokenV1
+  | LinkedDeviceWalletSessionEcdsaTokenV1;
+
 /** Device2-only response from the authenticated post-activation boundary. */
-export type LinkedDeviceWalletSessionDeliveryV1 = {
+type LinkedDeviceWalletSessionDeliveryBaseV1 = {
   readonly kind: 'linked_device_wallet_session_delivery_v1';
   readonly tenantId: TenantId;
   readonly walletId: WalletId;
@@ -711,11 +717,26 @@ export type LinkedDeviceWalletSessionDeliveryV1 = {
   readonly revocationEpoch: number;
   readonly issuedAtMs: number;
   readonly expiresAtMs: number;
-  readonly orderedTokens: readonly [
-    LinkedDeviceWalletSessionTokenV1,
-    ...LinkedDeviceWalletSessionTokenV1[],
-  ];
 };
+
+export type LinkedDeviceWalletSessionDeliveryV1 =
+  | (LinkedDeviceWalletSessionDeliveryBaseV1 & {
+      readonly nearAccountId: NearAccountId;
+      readonly orderedTokens:
+        | readonly [LinkedDeviceWalletSessionEd25519TokenV1]
+        | readonly [
+            LinkedDeviceWalletSessionEd25519TokenV1,
+            LinkedDeviceWalletSessionEcdsaTokenV1,
+          ]
+        | readonly [
+            LinkedDeviceWalletSessionEcdsaTokenV1,
+            LinkedDeviceWalletSessionEd25519TokenV1,
+          ];
+    })
+  | (LinkedDeviceWalletSessionDeliveryBaseV1 & {
+      readonly nearAccountId?: never;
+      readonly orderedTokens: readonly [LinkedDeviceWalletSessionEcdsaTokenV1];
+    });
 
 export function assertNeverLinkedDeviceSessionState(value: never): never {
   throw new Error(`[LinkedDeviceSessionState] unsupported state: ${String(value)}`);

@@ -36,6 +36,8 @@ const OBSOLETE_STORE_NAMES = [
   'email_otp_escrows',
   'ecdsa_role_local_sealing_keys',
   'ecdsa_role_local_active_material',
+  'ecdsa_presign_sealing_keys',
+  'ecdsa_presign_records',
 ] as const;
 
 function keyPathForIndexedDB(keyPath: string | readonly string[]): string | string[] {

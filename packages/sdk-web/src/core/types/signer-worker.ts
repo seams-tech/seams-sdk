@@ -7,8 +7,6 @@ import type { StripFree } from './index.js';
 import type { TransactionContext } from './rpc.js';
 import type { ActionArgsWasm } from './actions.js';
 import type {
-  BuildEcdsaRoleLocalExportArtifactCommand as GeneratedBuildEcdsaRoleLocalExportArtifactCommand,
-  BuildEcdsaRoleLocalExportArtifactOutput as GeneratedBuildEcdsaRoleLocalExportArtifactOutput,
   FinalizeEcdsaClientBootstrapCommand as GeneratedFinalizeEcdsaClientBootstrapCommand,
   FinalizeEcdsaClientBootstrapOutput as GeneratedFinalizeEcdsaClientBootstrapOutput,
   PrepareEcdsaClientBootstrapCommand as GeneratedPrepareEcdsaClientBootstrapCommand,
@@ -174,10 +172,6 @@ export type WasmFinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapRequest 
   GeneratedFinalizeEcdsaClientBootstrapCommand;
 export type WasmFinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapResult =
   GeneratedFinalizeEcdsaClientBootstrapOutput;
-export type WasmBuildThresholdEcdsaDerivationRoleLocalExportArtifactRequest =
-  GeneratedBuildEcdsaRoleLocalExportArtifactCommand;
-export type WasmBuildThresholdEcdsaDerivationRoleLocalExportArtifactResult =
-  GeneratedBuildEcdsaRoleLocalExportArtifactOutput;
 export interface WasmSignTransactionsWithActionsRequest {
   rpcCall: RpcCallPayload;
   sessionId: string;

@@ -40,6 +40,28 @@ export interface LaneAggregateChildRevocationPortV1 {
 export class LaneAggregateRevocationApplicationService {
   constructor(private readonly options: LaneAggregateRevocationApplicationServiceOptionsV1) {}
 
+  /**
+   * Establish the enrollment lifecycle fence before management revokes any
+   * child authorization. The full aggregate path calls the same durable fence
+   * again, so retries remain idempotent.
+   */
+  async fenceLaneEnrollmentV1(
+    input: LaneAggregateRevocationRequestV1['command'],
+  ): Promise<{ readonly kind: 'applied' | 'replayed' | 'conflict' }> {
+    const command = parseRevokeLaneEnrollmentV1(input);
+    const admission = await this.options.lifecycleStore.getEnrollment(command.enrollmentId);
+    if (!admission) return { kind: 'conflict' };
+    const manifestDigest = await computeLaneEnrollmentManifestDigestV1(admission.value.manifest);
+    if (
+      admission.value.manifest.walletId !== command.walletId ||
+      manifestDigest !== command.manifestDigestB64u
+    ) {
+      return { kind: 'conflict' };
+    }
+    const fenced = await this.options.lifecycleStore.fenceEnrollmentRevocation(command);
+    return fenced.outcome === 'conflict' ? { kind: 'conflict' } : { kind: fenced.outcome };
+  }
+
   async revokeLaneEnrollmentV1(
     input: LaneAggregateRevocationRequestV1,
   ): Promise<LaneEnrollmentRevocationResultV1> {

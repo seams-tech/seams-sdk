@@ -128,7 +128,7 @@ test.describe('device-linking key worker', () => {
               signingShareFreed += 1;
             },
           }),
-          ecdsa_additive_share32: () => {
+          create_ecdsa_presign_session: () => {
             throw new Error('ECDSA material is outside this Ed25519 test');
           },
           destroy: () => {
@@ -402,10 +402,10 @@ test.describe('device-linking key worker', () => {
     await installed.close();
   });
 
-  test('transfers an exact linked ECDSA holder share only over the presign worker channel', async () => {
+  test('runs linked-holder ECDSA presign behind an opaque worker capability', async () => {
     const scope = new FakeWorkerScope();
-    const additiveShare = new Uint8Array(32).fill(37);
-    let additiveShareReads = 0;
+    let presignSessionCreates = 0;
+    let presignSessionFrees = 0;
     const installed = installDeviceLinkingKeyWorkerV1(scope, {
       createRecipient() {
         throw new Error('recipient creation is outside this ECDSA reopen test');
@@ -419,9 +419,27 @@ test.describe('device-linking key worker', () => {
           create_ed25519_signing_share: () => {
             throw new Error('Ed25519 signing is outside this ECDSA test');
           },
-          ecdsa_additive_share32: () => {
-            additiveShareReads += 1;
-            return additiveShare.slice();
+          create_ecdsa_presign_session: () => {
+            presignSessionCreates += 1;
+            return {
+              stage: () => 'triples',
+              poll: () => ({
+                stage: 'triples',
+                event: 'none',
+                outgoing: [new Uint8Array([7, 8, 9])],
+              }),
+              message: () => undefined,
+              start_presign: () => undefined,
+              presignature_big_r_33: () => {
+                throw new Error('presign is not complete');
+              },
+              compute_signature_share: () => {
+                throw new Error('presign is not complete');
+              },
+              free: () => {
+                presignSessionFrees += 1;
+              },
+            };
           },
           destroy: () => undefined,
           free: () => undefined,
@@ -465,9 +483,13 @@ test.describe('device-linking key worker', () => {
     const groupPublicKey33 = base64UrlDecode(job.thresholdPublicKey33B64u);
     channel.port2.postMessage(
       {
-        kind: 'linked_holder_ecdsa_additive_share_request_v1',
-        requestId: 'linked-share-1',
-        holderHandleId,
+        kind: 'opaque_ecdsa_presign_session_init_v1',
+        requestId: 'linked-presign-1',
+        sessionId: 'linked-presign-session-1',
+        authority: {
+          kind: 'linked_holder_signing_material',
+          holderHandleId,
+        },
         poolIdentity: {
           poolKey: 'linked-holder-pool',
           materialActivationId: materialActivation.activationId,
@@ -481,20 +503,25 @@ test.describe('device-linking key worker', () => {
           protocolId: 'seams/router-ab-ecdsa-presign/fixed-2of2/v1',
         },
         groupPublicKey33: groupPublicKey33.buffer,
+        materialExpiresAtMs: Date.now() + 60_000,
       },
       [groupPublicKey33.buffer],
     );
-    const transferred = await response;
-    expect(transferred).toMatchObject({
-      kind: 'linked_holder_ecdsa_additive_share_result_v1',
-      requestId: 'linked-share-1',
+    const progress = await response;
+    expect(progress).toMatchObject({
+      kind: 'opaque_ecdsa_presign_authority_result_v1',
+      requestId: 'linked-presign-1',
       ok: true,
+      result: {
+        kind: 'progress',
+        progress: { stage: 'triples', event: 'none' },
+      },
     });
-    expect(new Uint8Array(transferred.additiveShare32 as ArrayBuffer)).toEqual(additiveShare);
-    expect(additiveShareReads).toBe(1);
+    expect(presignSessionCreates).toBe(1);
     expect(scope.responses).toHaveLength(1);
     channel.port2.close();
     await installed.close();
+    expect(presignSessionFrees).toBe(1);
   });
 
   test('zeroizes rejected PRF input and awaits in-flight cleanup before closing', async () => {

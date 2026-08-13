@@ -13,21 +13,15 @@ import {
 
 const CANONICAL_NAME_PATTERN = /^seams_[a-z0-9]+(?:_[a-z0-9]+)*$/;
 const SNAKE_CASE_PATTERN = /^[a-z0-9]+(?:_[a-z0-9]+)*$/;
-const ECDSA_MATERIAL_STORE_SOURCES = [
-  new URL(
-    '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/ecdsaPresignMaterialStore.ts',
-    import.meta.url,
-  ),
-  new URL(
-    '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore.ts',
-    import.meta.url,
-  ),
-] as const;
+const ECDSA_CAPABILITY_STORE_SOURCE = new URL(
+  '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore.ts',
+  import.meta.url,
+);
 
 test.describe('IndexedDB consolidation', () => {
   test('canonical wallet schema names use one Seams-prefixed DB and unprefixed snake_case stores', () => {
     expect(SEAMS_WALLET_DB_NAME).toBe('seams_wallet');
-    expect(SEAMS_WALLET_DB_VERSION).toBe(16);
+    expect(SEAMS_WALLET_DB_VERSION).toBe(17);
     expect(Object.values(SEAMS_WALLET_STORES).every((name) => !name.startsWith('seams_'))).toBe(
       true,
     );
@@ -64,14 +58,12 @@ test.describe('IndexedDB consolidation', () => {
     }
   });
 
-  test('ECDSA material stores use the canonical wallet database manager', () => {
-    for (const sourceUrl of ECDSA_MATERIAL_STORE_SOURCES) {
-      const source = readFileSync(sourceUrl, 'utf8');
-      expect(source).toContain('seamsWalletDB');
-      expect(source).not.toContain('indexedDB.open(');
-      expect(source).not.toContain('seams_router_ab_ecdsa_role_local_session_v1');
-      expect(source).not.toContain('seams_router_ab_ecdsa_presign_material_v2');
-    }
+  test('ECDSA capability manifest store uses the canonical wallet database manager', () => {
+    const source = readFileSync(ECDSA_CAPABILITY_STORE_SOURCE, 'utf8');
+    expect(source).toContain('seamsWalletDB');
+    expect(source).not.toContain('indexedDB.open(');
+    expect(source).not.toContain('seams_router_ab_ecdsa_role_local_session_v1');
+    expect(source).not.toContain('seams_router_ab_ecdsa_presign_material_v2');
   });
 
   test('opening seams_wallet deletes obsolete standalone ECDSA databases', async ({ page }) => {

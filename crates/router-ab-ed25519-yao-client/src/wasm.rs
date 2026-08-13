@@ -1,7 +1,19 @@
+use js_sys::{Array, Object, Reflect, Uint8Array};
+use presign_rand_core::OsRng;
 use router_ab_core::{
     Ed25519YaoCeremonyBindingV1, Ed25519YaoLaneJobV1, RouterAbEd25519YaoApplicationBindingFactsV1,
     RouterAbEd25519YaoExportAdmissionReceiptV1, RouterAbEd25519YaoExportResultV1,
 };
+use router_ab_ecdsa_online::{
+    combine_rerandomization_contributions, compute_client_signature_share, ClientPresignMaterial,
+    OnlineClientInput,
+};
+use router_ab_ecdsa_presign::session::{
+    derive_presign_pair_context, ClientPresignSession as FixedClientPresignSession,
+    PresignSessionError, PresignSessionProgress,
+};
+use router_ab_ecdsa_presign::{AdditiveKeyShare, PresignOutput};
+use router_ab_ecdsa_wire::{CompressedPointBytes, ScalarBytes};
 use serde::de::DeserializeOwned;
 use wasm_bindgen::prelude::*;
 use zeroize::{Zeroize, Zeroizing};
@@ -210,17 +222,188 @@ impl WasmLaneHolderSigningMaterialV1 {
         )
     }
 
-    /// Copies the ECDSA additive share for immediate transfer to the dedicated
-    /// Device 2 presign worker. This method is only called inside the holder
-    /// worker; the returned buffer must never cross the UI-thread boundary.
-    pub fn ecdsa_additive_share32(&self) -> Result<Vec<u8>, JsValue> {
-        Ok(self.inner.ecdsa_material().map_err(js_error)?.to_vec())
+    /// Starts presigning inside the holder WASM without releasing its scalar.
+    pub fn create_ecdsa_presign_session(
+        &self,
+        group_public_key33: &[u8],
+        presign_session_id: &str,
+    ) -> Result<WasmLaneHolderEcdsaPresignSessionV1, JsValue> {
+        let signing_share32 = self.inner.ecdsa_material().map_err(js_error)?;
+        Ok(WasmLaneHolderEcdsaPresignSessionV1 {
+            inner: new_ecdsa_presign_session(
+                signing_share32,
+                group_public_key33,
+                presign_session_id,
+            )?,
+            completed: None,
+        })
     }
 
     /// Immediately destroys retained holder material.
     pub fn destroy(&mut self) {
         self.inner.destroy();
     }
+}
+
+#[wasm_bindgen]
+/// One opaque ECDSA presign session bound to a lane holder share.
+pub struct WasmLaneHolderEcdsaPresignSessionV1 {
+    inner: FixedClientPresignSession,
+    completed: Option<PresignOutput>,
+}
+
+#[wasm_bindgen]
+impl WasmLaneHolderEcdsaPresignSessionV1 {
+    /// Returns the public protocol stage.
+    pub fn stage(&self) -> String {
+        self.inner.stage().as_str().to_owned()
+    }
+
+    /// Returns queued public protocol messages and progress.
+    pub fn poll(&mut self) -> Result<JsValue, JsValue> {
+        ecdsa_presign_progress_to_js(self.inner.poll())
+    }
+
+    /// Consumes one public message from the SigningWorker.
+    pub fn message(&mut self, message: &[u8]) -> Result<(), JsValue> {
+        self.inner
+            .message(message, &mut OsRng)
+            .map_err(js_ecdsa_presign_error)
+    }
+
+    /// Advances a completed triples session into presigning.
+    pub fn start_presign(&mut self) -> Result<(), JsValue> {
+        self.inner.start_presign().map_err(js_ecdsa_presign_error)
+    }
+
+    /// Returns only the public presignature commitment.
+    pub fn presignature_big_r_33(&mut self) -> Result<Vec<u8>, JsValue> {
+        if self.completed.is_none() {
+            self.completed = Some(
+                self.inner
+                    .take_presignature()
+                    .map_err(js_ecdsa_presign_error)?,
+            );
+        }
+        Ok(self
+            .completed
+            .as_ref()
+            .expect("completed presignature was just installed")
+            .big_r_bytes()
+            .as_bytes()
+            .to_vec())
+    }
+
+    /// Consumes the retained presignature and computes its public online share.
+    #[allow(clippy::too_many_arguments)]
+    pub fn compute_signature_share(
+        &mut self,
+        group_public_key33: &[u8],
+        expected_presign_big_r33: &[u8],
+        digest32: &[u8],
+        client_rerandomization_contribution32: &[u8],
+        signing_worker_rerandomization_contribution32: &[u8],
+    ) -> Result<Vec<u8>, JsValue> {
+        let output = self
+            .completed
+            .take()
+            .ok_or_else(|| JsValue::from_str("presignature is unavailable"))?;
+        compute_ecdsa_online_share(
+            output,
+            group_public_key33,
+            expected_presign_big_r33,
+            digest32,
+            client_rerandomization_contribution32,
+            signing_worker_rerandomization_contribution32,
+        )
+    }
+}
+
+fn compute_ecdsa_online_share(
+    output: PresignOutput,
+    group_public_key33: &[u8],
+    expected_presign_big_r33: &[u8],
+    digest32: &[u8],
+    client_rerandomization_contribution32: &[u8],
+    signing_worker_rerandomization_contribution32: &[u8],
+) -> Result<Vec<u8>, JsValue> {
+    let (big_r33, k_share32, sigma_share32) = output.into_parts();
+    let material = ClientPresignMaterial::from_bytes(
+        *big_r33.as_bytes(),
+        k_share32.into_bytes(),
+        sigma_share32.into_bytes(),
+    )
+    .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    let entropy32 = combine_rerandomization_contributions(
+        parse_32(
+            client_rerandomization_contribution32,
+            "client rerandomization contribution",
+        )?,
+        parse_32(
+            signing_worker_rerandomization_contribution32,
+            "signing worker rerandomization contribution",
+        )?,
+    );
+    let input = OnlineClientInput::new(
+        group_public_key33
+            .try_into()
+            .map_err(|_| JsValue::from_str("group public key must contain 33 bytes"))?,
+        expected_presign_big_r33
+            .try_into()
+            .map_err(|_| JsValue::from_str("expected presign R must contain 33 bytes"))?,
+        parse_32(digest32, "signing digest")?,
+        entropy32,
+    )
+    .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    compute_client_signature_share(
+        material
+            .reserve()
+            .commit(input)
+            .map_err(|error| JsValue::from_str(&error.to_string()))?,
+    )
+    .map(|share| share.to_vec())
+    .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+
+fn new_ecdsa_presign_session(
+    signing_share32: &[u8; 32],
+    group_public_key33: &[u8],
+    presign_session_id: &str,
+) -> Result<FixedClientPresignSession, JsValue> {
+    let group_public_key33: [u8; 33] = group_public_key33
+        .try_into()
+        .map_err(|_| JsValue::from_str("group public key must contain 33 bytes"))?;
+    let wallet_public_key = CompressedPointBytes::new(group_public_key33);
+    let context = derive_presign_pair_context(wallet_public_key, presign_session_id)
+        .map_err(js_ecdsa_presign_error)?;
+    let key_share = AdditiveKeyShare::from_bytes(ScalarBytes::new(*signing_share32))
+        .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    FixedClientPresignSession::new(context, key_share, wallet_public_key, &mut OsRng)
+        .map_err(js_ecdsa_presign_error)
+}
+
+fn ecdsa_presign_progress_to_js(progress: PresignSessionProgress) -> Result<JsValue, JsValue> {
+    let output = Object::new();
+    Reflect::set(
+        &output,
+        &JsValue::from_str("stage"),
+        &JsValue::from_str(progress.stage.as_str()),
+    )?;
+    Reflect::set(
+        &output,
+        &JsValue::from_str("event"),
+        &JsValue::from_str(progress.event.as_str()),
+    )?;
+    let outgoing = Array::new();
+    for message in progress.outgoing {
+        outgoing.push(&Uint8Array::from(message.as_slice()));
+    }
+    Reflect::set(&output, &JsValue::from_str("outgoing"), &outgoing)?;
+    Ok(output.into())
+}
+
+fn js_ecdsa_presign_error(error: PresignSessionError) -> JsValue {
+    JsValue::from_str(&error.to_string())
 }
 
 /// One-use explicit export session opened from the wallet custody envelope.

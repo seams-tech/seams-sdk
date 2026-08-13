@@ -273,6 +273,7 @@ test('reconciles committed delivery from refetched children and durable records 
     linkSessionId: fixture.approval.linkSessionId,
     walletId: fixture.approval.walletId,
     enrollmentId: fixture.approval.enrollmentId,
+    keyManifestDigestB64u: fixture.receipt.manifestDigestB64u,
     transcriptSetDigestB64u: fixture.receipt.manifestDigestB64u,
   });
   const acknowledgements: LinkedDeviceHolderDeliveryAcknowledgementV1[] = [];
@@ -369,6 +370,7 @@ test('refuses committed recovery when a durable child is missing or substituted'
     linkSessionId: fixture.approval.linkSessionId,
     walletId: fixture.approval.walletId,
     enrollmentId: fixture.approval.enrollmentId,
+    keyManifestDigestB64u: fixture.receipt.manifestDigestB64u,
     transcriptSetDigestB64u: fixture.receipt.manifestDigestB64u,
   });
   await expect(

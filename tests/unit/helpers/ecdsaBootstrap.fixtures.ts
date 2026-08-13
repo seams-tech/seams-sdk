@@ -414,7 +414,6 @@ export function thresholdEcdsaBootstrapPublicFactsFixture(
     case 'role_local_durable_sealed_ref':
     case 'role_local_durable_public_anchor':
       return binding.publicFacts;
-    case 'email_otp_worker_handle':
     case 'role_local_ready_state_blob':
       return binding.ecdsaRoleLocalReadyRecord.publicFacts;
     case 'metadata_only':

@@ -142,7 +142,6 @@ function workerProvisionedReadyRecordForPersistence(
   binding: ThresholdEcdsaBackendBinding,
 ): ThresholdEcdsaBackendBinding['ecdsaRoleLocalReadyRecord'] | null {
   switch (binding.materialKind) {
-    case 'email_otp_worker_handle':
     case 'role_local_ready_state_blob':
       return binding.ecdsaRoleLocalReadyRecord;
     case 'role_local_worker_handle':

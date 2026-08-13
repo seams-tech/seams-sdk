@@ -35,7 +35,7 @@ export type ActiveLinkedDeviceExecutionBundleReadResultV1 =
       readonly bundle: ActiveLinkedDeviceExecutionBundleV1;
     }
   | {
-      readonly kind: 'missing' | 'expired' | 'corrupt' | 'persistence_unavailable';
+      readonly kind: 'missing' | 'expired' | 'corrupt' | 'ambiguous' | 'persistence_unavailable';
       readonly bundle?: never;
     };
 
@@ -180,6 +180,40 @@ export async function resolveActiveLinkedDeviceExecutionBundleV1(input: {
   ]);
   if (evidenceResult.kind !== 'found') return evidenceResult;
   if (walletSessionResult.kind !== 'found') return walletSessionResult;
+  try {
+    return {
+      kind: 'found',
+      bundle: await buildActiveLinkedDeviceExecutionBundleFromEvidenceV1({
+        evidence: evidenceResult.evidence,
+        walletSessionDelivery: walletSessionResult.delivery,
+      }),
+    };
+  } catch {
+    return { kind: 'corrupt' };
+  }
+}
+
+export async function resolveUniqueActiveLinkedDeviceExecutionBundleV1(input: {
+  readonly walletId?: string;
+  readonly nowMs: number;
+  readonly evidenceRepository: Pick<
+    LinkedDeviceExecutionEvidenceRepositoryV1,
+    'readForEnrollmentV1'
+  >;
+  readonly walletSessionRepository: Pick<
+    LinkedDeviceWalletSessionRepositoryV1,
+    'readUniqueActiveForWalletV1'
+  >;
+}): Promise<ActiveLinkedDeviceExecutionBundleReadResultV1> {
+  const walletSessionResult = await input.walletSessionRepository.readUniqueActiveForWalletV1({
+    ...(input.walletId ? { walletId: input.walletId } : {}),
+    nowMs: input.nowMs,
+  });
+  if (walletSessionResult.kind !== 'found') return walletSessionResult;
+  const evidenceResult = await input.evidenceRepository.readForEnrollmentV1(
+    walletSessionResult.delivery.enrollmentId,
+  );
+  if (evidenceResult.kind !== 'found') return evidenceResult;
   try {
     return {
       kind: 'found',

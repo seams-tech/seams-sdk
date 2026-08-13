@@ -81,7 +81,6 @@ function phaseForState(state: LinkedDeviceSessionState): LinkDeviceEventPhase {
     case 'claimed_by_owner':
     case 'awaiting_target_passkey':
     case 'provisioning':
-    case 'awaiting_aggregate_receipt':
     case 'active':
     case 'expired_claimed':
     case 'cancelled_claimed_precommit':
@@ -303,7 +302,6 @@ export class LinkDeviceFlow {
           case 'committed_completion_required':
             // Once protocol commitment exists, cancellation is completion recovery.
             break;
-          case 'awaiting_aggregate_receipt':
           case 'active':
           case 'expired_unclaimed':
           case 'expired_claimed':
@@ -387,9 +385,9 @@ export class LinkDeviceFlow {
         await this.createTargetCredential(event.state, runEpoch);
         return;
       case 'provisioning':
-      case 'awaiting_aggregate_receipt':
         return;
       case 'committed_completion_required':
+        if (this.handledStates.has('awaiting_target_passkey')) return;
         await this.resumeCommittedDelivery(event.state, runEpoch);
         return;
       case 'active':

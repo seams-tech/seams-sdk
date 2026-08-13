@@ -995,11 +995,6 @@ impl RouterAbEd25519YaoLaneResultV1 {
         self.job.validate()?;
         let session = self.job.session_v1()?;
         let transcript = decode_digest32("transcript_hash_b64u", &self.transcript_hash_b64u)?;
-        if self.job.transcript_digest_v1()? != transcript {
-            return Err(invalid_lane(
-                "lane result transcript does not match the job",
-            ));
-        }
         let expected = [
             (
                 &self.deriver_a_holder_package,
@@ -1453,7 +1448,7 @@ fn push_u64(out: &mut Vec<u8>, value: u64) {
 mod tests {
     use super::*;
 
-    const DIGEST: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const DIGEST: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaY";
 
     fn activation(id: &str) -> MpcMaterialActivationRefV1 {
         MpcMaterialActivationRefV1::new(
@@ -1584,7 +1579,7 @@ mod tests {
     #[test]
     fn creation_requires_owner_source_and_refresh_preserves_lane_kind() {
         let mut linked_source = create_job();
-        linked_source.source = match linked_source.source.source_kind {
+        linked_source.source = match linked_source.source.source_kind.clone() {
             Ed25519YaoLaneSourceKindV1::OwnerRegistration {
                 owner_participant_continuity,
             } => Ed25519YaoLaneSourceV1 {
@@ -1652,6 +1647,77 @@ mod tests {
                 .expect("substituted transcript"),
             digest
         );
+    }
+
+    #[test]
+    fn lane_result_accepts_the_terminal_protocol_transcript() {
+        let job = create_job();
+        let session = job.session_v1().expect("lane session");
+        let transcript = [0x7a; 32];
+        assert_ne!(
+            transcript,
+            job.transcript_digest_v1().expect("job transcript")
+        );
+        let package = |kind, deriver, marker| {
+            Ed25519YaoEncryptedPackageV1::new(
+                kind,
+                deriver,
+                session,
+                transcript,
+                [marker; 32],
+                vec![marker; 16],
+            )
+            .expect("lane package")
+        };
+        let a_holder = package(
+            crate::Ed25519YaoPackageKindV1::LaneHolder,
+            Ed25519YaoDeriverRoleV1::DeriverA,
+            1,
+        );
+        let b_holder = package(
+            crate::Ed25519YaoPackageKindV1::LaneHolder,
+            Ed25519YaoDeriverRoleV1::DeriverB,
+            2,
+        );
+        let a_worker = package(
+            crate::Ed25519YaoPackageKindV1::LaneSigningWorker,
+            Ed25519YaoDeriverRoleV1::DeriverA,
+            3,
+        );
+        let b_worker = package(
+            crate::Ed25519YaoPackageKindV1::LaneSigningWorker,
+            Ed25519YaoDeriverRoleV1::DeriverB,
+            4,
+        );
+        let encode = |bytes: [u8; 32]| Base64UrlUnpadded::encode_string(&bytes);
+        let result = RouterAbEd25519YaoLaneResultV1 {
+            transcript_hash_b64u: encode(transcript),
+            public_identity_digest_b64u: DIGEST.to_owned(),
+            target_holder_public_commitment_b64u: DIGEST.to_owned(),
+            target_server_public_commitment_b64u: DIGEST.to_owned(),
+            target_holder_ciphertext_digest_set_b64u: encode(lane_ciphertext_digest_set(
+                b"holder", &a_holder, &b_holder,
+            )),
+            target_server_ciphertext_digest_set_b64u: encode(lane_ciphertext_digest_set(
+                b"signing-worker",
+                &a_worker,
+                &b_worker,
+            )),
+            holder_recipient_key_digest_b64u: job.target_holder.hpke_public_key_digest_b64u.clone(),
+            server_recipient_key_digest_b64u: job
+                .target_signing_worker
+                .hpke_public_key_digest_b64u
+                .clone(),
+            job,
+            deriver_a_holder_package: a_holder,
+            deriver_b_holder_package: b_holder,
+            deriver_a_signing_worker_package: a_worker,
+            deriver_b_signing_worker_package: b_worker,
+            committed_at_ms: 1,
+        };
+        result
+            .validate()
+            .expect("terminal protocol transcript is the package transcript");
     }
 }
 

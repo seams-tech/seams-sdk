@@ -48,6 +48,7 @@ export function createLinkedDeviceR102ProvisioningExecutionV1(input: {
       }
       const aggregateChildren = [];
       const linkedChildren = [];
+      let activatedAtMs = request.requestedAtMs;
       for (let index = 0; index < request.deliveries.orderedChildren.length; index += 1) {
         const delivery = request.deliveries.orderedChildren[index];
         const holderReceipt = request.acknowledgement.orderedHolderDeliveryReceipts[index];
@@ -74,6 +75,10 @@ export function createLinkedDeviceR102ProvisioningExecutionV1(input: {
         if (lifecycle.state !== 'ready_for_parent_visibility' && lifecycle.state !== 'active') {
           throw new Error('R102 server activation did not become ready for visibility');
         }
+        activatedAtMs = Math.max(
+          activatedAtMs,
+          lifecycle.state === 'active' ? lifecycle.activatedAtMs : lifecycle.serverActivatedAtMs,
+        );
         const pendingProduct = await input.products.getProductEpoch({
           walletId: delivery.job.walletId,
           walletKeyId: delivery.job.walletKeyId,
@@ -114,7 +119,7 @@ export function createLinkedDeviceR102ProvisioningExecutionV1(input: {
         manifestDigestB64u,
         orderedChildReceipts: [firstAggregate, ...aggregateChildren.slice(1)],
         orderedPredecessorRetirements: [],
-        activatedAtMs: request.requestedAtMs,
+        activatedAtMs,
       });
       if (committed.outcome === 'conflict') {
         throw new Error('R102 linked-device aggregate activation conflicted');
@@ -144,7 +149,7 @@ export function createLinkedDeviceR102ProvisioningExecutionV1(input: {
             materialActivation,
             receiptDigestB64u: parseDigestB64u(lifecycle.serverActivationReceiptDigestB64u),
             transcriptHashB64u: parseDigestB64u(lifecycle.transcriptHashB64u),
-            deliveredAtMs: request.requestedAtMs,
+            deliveredAtMs: committed.receipt.activatedAtMs,
           });
         },
       );
@@ -189,10 +194,7 @@ async function activateServerMaterialV1(input: {
 }
 
 function sessionManifestDigest(session: LinkedDeviceSessionRecordV1): string {
-  if (
-    session.state.state !== 'provisioning' &&
-    session.state.state !== 'awaiting_aggregate_receipt'
-  ) {
+  if (session.state.state !== 'committed_completion_required') {
     throw new Error('linked-device session has no R102 manifest for first activation');
   }
   return session.state.keyManifestDigestB64u;

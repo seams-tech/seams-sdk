@@ -178,22 +178,6 @@ export type ResolvedEvmFamilyEcdsaKey<
   rpId?: never;
 };
 
-export type EmailOtpWorkerShareHandle = {
-  kind: 'email_otp_worker_session';
-  thresholdSessionId: ThresholdEcdsaSessionId;
-  laneIdentity: {
-    kind: 'email_otp_worker_share_lane_identity';
-    keyHandle: EvmFamilyEcdsaKeyHandle;
-    chainTarget: ThresholdEcdsaChainTarget;
-    thresholdSessionId: ThresholdEcdsaSessionId;
-  };
-};
-
-export type ThresholdEcdsaEmailOtpWorkerShare = {
-  kind: 'email_otp_worker_share';
-  handle: EmailOtpWorkerShareHandle;
-};
-
 export type ThresholdEcdsaRoleLocalWorkerMaterial =
   | {
       kind: 'worker_loaded';
@@ -214,9 +198,7 @@ export type ThresholdEcdsaRoleLocalWorkerShare = {
   material: ThresholdEcdsaRoleLocalWorkerMaterial;
 };
 
-export type ThresholdEcdsaSignerClientShare =
-  | ThresholdEcdsaEmailOtpWorkerShare
-  | ThresholdEcdsaRoleLocalWorkerShare;
+export type ThresholdEcdsaSignerClientShare = ThresholdEcdsaRoleLocalWorkerShare;
 
 export type HydratedEcdsaSignerTransport = {
   readonly kind: 'threshold_ecdsa_signer_transport';

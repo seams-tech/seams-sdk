@@ -100,14 +100,14 @@ pub struct EcdsaRoleLocalExportPublicFacts {
 }
 
 #[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
-pub struct BuildEcdsaRoleLocalExportArtifactCommand {
+pub struct EcdsaRoleLocalExportReconstructionInput {
     pub ready_state_blob: EcdsaRoleLocalReadyStateBlob,
     pub public_facts: EcdsaRoleLocalExportPublicFacts,
     pub server_export_share32: [u8; 32],
 }
 
 #[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
-pub struct BuildEcdsaRoleLocalExportArtifactOutput {
+pub struct EcdsaRoleLocalExportArtifact {
     pub public_key33: [u8; 33],
     pub private_key32: [u8; 32],
     pub ethereum_address20: [u8; 20],
@@ -260,9 +260,9 @@ pub fn sign_wallet_recovery_material_possession_proof(
     })
 }
 
-pub fn build_ecdsa_role_local_export_artifact(
-    mut input: BuildEcdsaRoleLocalExportArtifactCommand,
-) -> CoreResult<BuildEcdsaRoleLocalExportArtifactOutput> {
+pub fn reconstruct_ecdsa_role_local_export(
+    mut input: EcdsaRoleLocalExportReconstructionInput,
+) -> CoreResult<EcdsaRoleLocalExportArtifact> {
     let ready_state = parse_ready_state(&input.ready_state_blob.state_blob)?;
     validate_ready_state_against_export_public_facts(&ready_state, &input.public_facts)?;
 
@@ -303,7 +303,7 @@ pub fn build_ecdsa_role_local_export_artifact(
     input.server_export_share32.zeroize();
     let private_key32 = private_key32_result.map_err(map_router_ab_ecdsa_derivation_error)?;
 
-    Ok(BuildEcdsaRoleLocalExportArtifactOutput {
+    Ok(EcdsaRoleLocalExportArtifact {
         public_key33: identity.threshold_public_key33,
         private_key32,
         ethereum_address20: identity.threshold_ethereum_address20,
@@ -727,7 +727,7 @@ mod tests {
         .expect("finalize");
 
         let artifact =
-            build_ecdsa_role_local_export_artifact(BuildEcdsaRoleLocalExportArtifactCommand {
+            reconstruct_ecdsa_role_local_export(EcdsaRoleLocalExportReconstructionInput {
                 ready_state_blob: finalized.ready_state_blob,
                 public_facts: EcdsaRoleLocalExportPublicFacts {
                     context: context(),
@@ -783,7 +783,7 @@ mod tests {
         wrong_public_key[1] ^= 0x01;
 
         let result =
-            build_ecdsa_role_local_export_artifact(BuildEcdsaRoleLocalExportArtifactCommand {
+            reconstruct_ecdsa_role_local_export(EcdsaRoleLocalExportReconstructionInput {
                 ready_state_blob: finalized.ready_state_blob,
                 public_facts: EcdsaRoleLocalExportPublicFacts {
                     context: context(),

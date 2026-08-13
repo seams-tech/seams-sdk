@@ -23,6 +23,7 @@ import type {
 } from '@shared/authorization/capabilityKinds';
 import type { TenantId } from '@shared/authorization/capabilityKinds';
 import type { LaneEnrollmentRevocationResultV1 } from '@shared/signing-lanes';
+import type { RevokeLaneEnrollmentV1 } from '@shared/signing-lanes';
 
 export type LinkedDeviceManagementTargetV1 = {
   readonly summary: LinkedDeviceSummaryV1;
@@ -81,6 +82,10 @@ export type LinkedDeviceRevocationPreparationPortV1 = {
 };
 
 export type LinkedDeviceAggregateRevocationPortV1 = {
+  /** Persist the enrollment fence before revoking any child authorization. */
+  fenceLaneEnrollmentV1(
+    input: RevokeLaneEnrollmentV1,
+  ): Promise<{ readonly kind: 'applied' | 'replayed' | 'conflict' }>;
   revokeLaneEnrollmentV1(
     input: LaneAggregateRevocationRequestV1,
   ): Promise<LaneEnrollmentRevocationResultV1>;
@@ -150,6 +155,11 @@ export class LinkedDeviceManagementServiceV1 {
     });
     if (prepared.kind === 'not_found' || prepared.kind === 'conflict') return prepared;
     assertRevocationPlanMatchesRequest(prepared.plan, request);
+
+    const fence = await this.options.aggregateRevocation.fenceLaneEnrollmentV1(
+      prepared.plan.aggregate.command,
+    );
+    if (fence.kind === 'conflict') return { kind: 'conflict' };
 
     for (const target of prepared.plan.walletSessions) {
       const walletSession =

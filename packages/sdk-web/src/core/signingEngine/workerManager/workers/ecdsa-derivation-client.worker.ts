@@ -1,8 +1,7 @@
 import { type WorkerResponseDiagnostics } from '@/core/types/signer-worker';
 import initEcdsaDerivationClient, {
-  build_ecdsa_role_local_export_artifact_v1,
+  EcdsaRoleLocalPresignSessionV1,
   finalize_ecdsa_client_bootstrap_v1,
-  open_ecdsa_role_local_signing_share_v1,
   prepare_ecdsa_client_bootstrap_v1,
   sign_ecdsa_wallet_recovery_material_possession_proof_v1,
   EcdsaLaneHolderSessionV1,
@@ -43,8 +42,6 @@ import {
   type CloseRouterAbEcdsaPostRegistrationCeremonyResultV1,
   type CreateRouterAbEcdsaPostRegistrationCeremonyRequestV1,
   type CreateRouterAbEcdsaPostRegistrationCeremonyResultV1,
-  type EcdsaDerivationAdditiveShareRequest,
-  type EcdsaDerivationAdditiveShareResponse,
   type FinalizeRouterAbEcdsaExplicitExportRequestV1,
   type FinalizeRouterAbEcdsaExplicitExportResultV1,
   projectRouterAbEcdsaExplicitExportRequestForWasmV1,
@@ -56,6 +53,8 @@ import {
   type SignWalletRecoveryEcdsaMaterialPossessionProofResultV1,
   parsePrepareEcdsaAdditiveLaneHolderRequestV1,
   type PrepareEcdsaAdditiveLaneHolderResultV1,
+  type OpaqueEcdsaPresignAuthorityRequestV1,
+  type OpaqueEcdsaPresignAuthorityResponseV1,
 } from '../ecdsaClientWorkerChannels';
 import {
   prepareEcdsaLaneHolderInWorkerV1,
@@ -92,7 +91,6 @@ import {
   type RouterAbEcdsaDerivationPublicCapabilityV1,
   type RouterAbEcdsaVerifiedClientActivationFactsV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
-import type { RouterAbEcdsaSigningWorkerExportShareEnvelopeV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { WasmPrepareThresholdEcdsaDerivationRoleLocalClientBootstrapResult } from '@/core/types/signer-worker';
 import {
   parseEcdsaRoleLocalBindingDigest,
@@ -124,6 +122,8 @@ import {
 } from '../../routerAb/ecdsaDerivation/registrationPendingFinalization';
 import { resolveEcdsaCapabilityHydration } from '../../session/material/ecdsaCapabilityHydration';
 import type { MpcCapabilityHydrationBlockedReason } from '../../session/material/mpcCapabilityHydration';
+import { OpaqueEcdsaPresignAuthorityV1 } from './opaqueEcdsaPresignAuthority';
+import { parseEcdsaClientPresignPoolIdentity } from '../ecdsaPresignPoolIdentity';
 
 const ecdsaDerivationClientWasmUrl = resolveWasmUrl(
   'router_ab_ecdsa_client_bg.wasm',
@@ -132,6 +132,7 @@ const ecdsaDerivationClientWasmUrl = resolveWasmUrl(
 let ecdsaDerivationClientInitPromise: Promise<void> | null = null;
 let messageQueue: Promise<void> = Promise.resolve();
 let presignPort: MessagePort | null = null;
+const opaquePresignAuthority = new OpaqueEcdsaPresignAuthorityV1();
 const DIAGNOSTIC_BREAKDOWN_MAX_DEPTH = 2;
 const DIAGNOSTIC_BREAKDOWN_MAX_FIELDS = 64;
 type StoredEcdsaRoleLocalSigningMaterial = {
@@ -1071,20 +1072,6 @@ function projectMaterialActivationForEcdsaClientProtocol(
   };
 }
 
-function projectExportEnvelopeForEcdsaClientProtocol(
-  envelope: RouterAbEcdsaSigningWorkerExportShareEnvelopeV1,
-) {
-  return {
-    ...envelope,
-    binding: {
-      ...envelope.binding,
-      material_activation: projectMaterialActivationForEcdsaClientProtocol(
-        envelope.binding.material_activation,
-      ),
-    },
-  };
-}
-
 async function finalizeRouterAbEcdsaExplicitExport(
   request: FinalizeRouterAbEcdsaExplicitExportRequestV1,
 ): Promise<FinalizeRouterAbEcdsaExplicitExportResultV1> {
@@ -1118,15 +1105,6 @@ async function finalizeRouterAbEcdsaExplicitExport(
       recipient_public_key: active.request.client_ephemeral_public_key,
       expires_at_ms: active.request.expires_at_ms,
     };
-    const openedShare = requireRecordPayload(
-      JSON.parse(
-        active.ceremony.open_signing_worker_export_share(
-          JSON.stringify(projectExportEnvelopeForEcdsaClientProtocol(request.signingWorkerExport)),
-          JSON.stringify(exportBinding),
-        ),
-      ),
-    );
-    requireExactKeys(openedShare, ['serverExportShare32B64u'], 'SigningWorker ECDSA export share');
     const materialHandle = request.roleLocalMaterial.materialHandle;
     const bindingDigest = request.roleLocalMaterial.bindingDigest;
     const restored = await restoreEcdsaRoleLocalSigningMaterialForRequest(
@@ -1144,19 +1122,20 @@ async function finalizeRouterAbEcdsaExplicitExport(
     }
     const artifact = requireRecordPayload(
       JSON.parse(
-        build_ecdsa_role_local_export_artifact_v1(
+        active.ceremony.finalize_explicit_export(
           JSON.stringify({
-            kind: 'build_ecdsa_role_local_export_artifact_v1',
-            algorithm: 'router_ab_ecdsa_derivation_secp256k1_role_local_v1',
-            stateBlob: {
-              kind: 'ecdsa_role_local_state_blob_v1',
-              curve: 'secp256k1',
-              encoding: 'base64url',
-              producer: 'signer_core',
-              stateBlobB64u: stored.stateBlobB64u,
+            signingWorkerExport: request.signingWorkerExport,
+            expectedBinding: exportBinding,
+            stateBlobB64u: stored.stateBlobB64u,
+            publicFacts: {
+              applicationBindingDigestB64u: request.publicFacts.applicationBindingDigestB64u,
+              contextBinding32B64u: request.publicFacts.contextBinding32B64u,
+              derivationClientSharePublicKey33B64u:
+                request.publicFacts.derivationClientSharePublicKey33B64u,
+              relayerPublicKey33B64u: request.publicFacts.relayerPublicKey33B64u,
+              groupPublicKey33B64u: request.publicFacts.groupPublicKey33B64u,
+              ethereumAddress: request.publicFacts.ethereumAddress,
             },
-            publicFacts: request.publicFacts,
-            serverExportShare32B64u: readNonEmptyString(openedShare, 'serverExportShare32B64u'),
           }),
         ),
       ),
@@ -1331,10 +1310,10 @@ function prepareEcdsaAdditiveLaneHolder(raw: unknown): PrepareEcdsaAdditiveLaneH
   });
 }
 
-function openEcdsaRoleLocalAdditiveShareFromHandle(payload: unknown): unknown {
-  const record = requireRecordPayload(payload);
-  const materialHandle = readNonEmptyString(record, 'materialHandle');
-  const expectedBindingDigest = readNonEmptyString(record, 'expectedBindingDigest');
+function requireEcdsaRoleLocalPresignMaterial(
+  materialHandle: string,
+  expectedBindingDigest: string,
+): StoredEcdsaRoleLocalSigningMaterial {
   const stored = ecdsaRoleLocalSigningMaterialStore.get(materialHandle);
   if (!stored) {
     throw new Error('ECDSA role-local signing material handle is not loaded in this worker');
@@ -1342,21 +1321,7 @@ function openEcdsaRoleLocalAdditiveShareFromHandle(payload: unknown): unknown {
   if (stored.bindingDigest !== expectedBindingDigest) {
     throw new Error('ECDSA role-local signing material binding mismatch');
   }
-  return open_ecdsa_role_local_signing_share_v1({
-    stateBlobB64u: stored.stateBlobB64u,
-  });
-}
-
-function openEcdsaRoleLocalAdditiveShare32FromHandle(payload: unknown): Uint8Array {
-  const result = openEcdsaRoleLocalAdditiveShareFromHandle(payload) as {
-    signingShare32B64u?: unknown;
-  };
-  const additiveShare32 = base64UrlDecode(String(result.signingShare32B64u || '').trim());
-  if (additiveShare32.length !== 32) {
-    zeroizeBytes(additiveShare32);
-    throw new Error('ECDSA role-local signing material must decode to 32 bytes');
-  }
-  return additiveShare32;
+  return stored;
 }
 
 async function restoreEcdsaRoleLocalSigningMaterialForRequest(
@@ -1705,7 +1670,6 @@ async function initializeEcdsaDerivationOperationWasm(
     case EcdsaDerivationClientCustomRequestType.FinalizeRouterAbEcdsaRegistrationActivation:
     case EcdsaDerivationClientCustomRequestType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap:
     case EcdsaDerivationClientCustomRequestType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap:
-    case EcdsaDerivationClientCustomRequestType.BuildThresholdEcdsaDerivationRoleLocalExportArtifact:
     case EcdsaDerivationClientCustomRequestType.SignWalletRecoveryEcdsaMaterialPossessionProof:
     case EcdsaDerivationClientCustomRequestType.PrepareEcdsaAdditiveLaneHolder:
       await initializeEcdsaDerivationClientWasm();
@@ -1831,11 +1795,6 @@ async function executeEcdsaDerivationRequest(
         type: EcdsaDerivationClientCustomResponseType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapSuccess,
         payload: JSON.parse(finalize_ecdsa_client_bootstrap_v1(JSON.stringify(payload))),
       };
-    case EcdsaDerivationClientCustomRequestType.BuildThresholdEcdsaDerivationRoleLocalExportArtifact:
-      return {
-        type: EcdsaDerivationClientCustomResponseType.BuildThresholdEcdsaDerivationRoleLocalExportArtifactSuccess,
-        payload: JSON.parse(build_ecdsa_role_local_export_artifact_v1(JSON.stringify(payload))),
-      };
     case EcdsaDerivationClientCustomRequestType.PrepareEcdsaAdditiveLaneHolder:
       return {
         type: EcdsaDerivationClientCustomResponseType.PrepareEcdsaAdditiveLaneHolderSuccess,
@@ -1865,7 +1824,6 @@ function parseEcdsaDerivationOperationType(value: unknown): EcdsaDerivationWorke
     case EcdsaDerivationClientCustomRequestType.SignWalletRecoveryEcdsaMaterialPossessionProof:
     case EcdsaDerivationClientCustomRequestType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap:
     case EcdsaDerivationClientCustomRequestType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap:
-    case EcdsaDerivationClientCustomRequestType.BuildThresholdEcdsaDerivationRoleLocalExportArtifact:
     case EcdsaDerivationClientCustomRequestType.PrepareEcdsaAdditiveLaneHolder:
       return value;
     default:
@@ -1968,10 +1926,35 @@ type EcdsaDerivationClientWorkerRpcRequest = {
   payload: unknown;
 };
 
-function sendAdditiveShareFailure(requestId: string, error: unknown): void {
+type RoleLocalOpaquePresignRequestV1 =
+  | Extract<
+      OpaqueEcdsaPresignAuthorityRequestV1,
+      {
+        readonly kind: 'opaque_ecdsa_presign_session_init_v1';
+        readonly authority: { readonly kind: 'role_local_derivation_handle' };
+      }
+    >
+  | Extract<
+      OpaqueEcdsaPresignAuthorityRequestV1,
+      { readonly kind: 'opaque_ecdsa_presign_session_step_v1' }
+    >
+  | Extract<
+      OpaqueEcdsaPresignAuthorityRequestV1,
+      { readonly kind: 'opaque_ecdsa_presign_session_abort_v1' }
+    >
+  | Extract<
+      OpaqueEcdsaPresignAuthorityRequestV1,
+      { readonly kind: 'opaque_ecdsa_online_compute_v1' }
+    >
+  | Extract<
+      OpaqueEcdsaPresignAuthorityRequestV1,
+      { readonly kind: 'opaque_ecdsa_presign_material_destroy_v1' }
+    >;
+
+function sendOpaquePresignFailure(requestId: string, error: unknown): void {
   if (!presignPort) return;
-  const response: EcdsaDerivationAdditiveShareResponse = {
-    kind: 'ecdsa_derivation_additive_share_result_v1',
+  const response: OpaqueEcdsaPresignAuthorityResponseV1 = {
+    kind: 'opaque_ecdsa_presign_authority_result_v1',
     requestId,
     ok: false,
     error: safeErrorMessage(error),
@@ -1979,57 +1962,209 @@ function sendAdditiveShareFailure(requestId: string, error: unknown): void {
   presignPort.postMessage(response);
 }
 
-async function handleAdditiveShareRequest(
-  event: MessageEvent<EcdsaDerivationAdditiveShareRequest>,
-): Promise<void> {
+async function handleOpaquePresignRequest(event: MessageEvent<unknown>): Promise<void> {
   if (!presignPort) return;
-  const request = event.data;
-  if (request.kind !== 'ecdsa_derivation_additive_share_request_v1') return;
+  let requestId = '';
   try {
+    const request = parseRoleLocalOpaquePresignRequest(event.data);
+    requestId = request.requestId;
     await initializeEcdsaDerivationClientWasm();
-    let expectedBindingDigest: string;
-    switch (request.material.kind) {
-      case 'persisted': {
-        const materialRef = parseEcdsaRoleLocalPersistedMaterialRef(request.material.materialRef);
-        const restored = await restoreEcdsaRoleLocalSigningMaterialForRequest(materialRef);
-        if (!restored.ok) {
-          throw new Error(`ECDSA role-local active session hydration failed: ${restored.reason}`);
+    let result: Extract<OpaqueEcdsaPresignAuthorityResponseV1, { readonly ok: true }>['result'];
+    switch (request.kind) {
+      case 'opaque_ecdsa_presign_session_init_v1': {
+        let expectedBindingDigest: string;
+        switch (request.authority.material.kind) {
+          case 'persisted': {
+            const materialRef = request.authority.material.materialRef;
+            const restored = await restoreEcdsaRoleLocalSigningMaterialForRequest(materialRef);
+            if (!restored.ok) {
+              throw new Error(
+                `ECDSA role-local active session hydration failed: ${restored.reason}`,
+              );
+            }
+            expectedBindingDigest = materialRef.bindingDigest;
+            break;
+          }
+          case 'runtime_loaded':
+            expectedBindingDigest = request.authority.material.expectedBindingDigest;
+            break;
         }
-        expectedBindingDigest = materialRef.bindingDigest;
+        const stored = requireEcdsaRoleLocalPresignMaterial(
+          request.authority.materialHandle,
+          expectedBindingDigest,
+        );
+        const session = new EcdsaRoleLocalPresignSessionV1(
+          stored.stateBlobB64u,
+          new Uint8Array(request.groupPublicKey33),
+          request.sessionId,
+        );
+        const progress = await opaquePresignAuthority.initialize({
+          sessionId: request.sessionId,
+          session,
+          groupPublicKey33: new Uint8Array(request.groupPublicKey33),
+          expiresAtMs: request.materialExpiresAtMs,
+          poolIdentity: request.poolIdentity,
+        });
+        result = { kind: 'progress', progress };
         break;
       }
-      case 'runtime_loaded':
-        expectedBindingDigest = request.material.expectedBindingDigest;
+      case 'opaque_ecdsa_presign_session_step_v1':
+        result = {
+          kind: 'progress',
+          progress: await opaquePresignAuthority.step(request),
+        };
+        break;
+      case 'opaque_ecdsa_presign_session_abort_v1':
+        result = {
+          kind: 'aborted',
+          sessionId: (await opaquePresignAuthority.abort(request.sessionId)).sessionId,
+        };
+        break;
+      case 'opaque_ecdsa_online_compute_v1': {
+        const signatureShare32 = await opaquePresignAuthority.computeSignatureShare(request);
+        result = { kind: 'online_share', signatureShare32 };
+        break;
+      }
+      case 'opaque_ecdsa_presign_material_destroy_v1':
+        await opaquePresignAuthority.destroyMaterial(request.materialHandle);
+        result = { kind: 'material_destroyed', materialHandle: request.materialHandle };
         break;
     }
-    const additiveShare32 = openEcdsaRoleLocalAdditiveShare32FromHandle({
-      materialHandle: request.materialHandle,
-      expectedBindingDigest,
-    });
-    const shareBuffer = additiveShare32.buffer;
-    const response: EcdsaDerivationAdditiveShareResponse = {
-      kind: 'ecdsa_derivation_additive_share_result_v1',
+    const response: OpaqueEcdsaPresignAuthorityResponseV1 = {
+      kind: 'opaque_ecdsa_presign_authority_result_v1',
       requestId: request.requestId,
       ok: true,
-      additiveShare32: shareBuffer,
+      result,
     };
-    presignPort.postMessage(response, [shareBuffer]);
+    presignPort.postMessage(response);
   } catch (error: unknown) {
-    sendAdditiveShareFailure(request.requestId, error);
+    if (requestId) sendOpaquePresignFailure(requestId, error);
   }
 }
 
-function enqueueAdditiveShareRequest(
-  event: MessageEvent<EcdsaDerivationAdditiveShareRequest>,
-): void {
-  void handleAdditiveShareRequest(event);
+function parseRoleLocalOpaquePresignRequest(value: unknown): RoleLocalOpaquePresignRequestV1 {
+  const record = requireRecordPayload(value);
+  const requestId = readNonEmptyString(record, 'requestId');
+  switch (record.kind) {
+    case 'opaque_ecdsa_presign_session_init_v1': {
+      const authority = requireRecordPayload(record.authority);
+      if (authority.kind !== 'role_local_derivation_handle') {
+        throw new Error('ECDSA derivation worker requires a role-local presign authority');
+      }
+      const material = requireRecordPayload(authority.material);
+      const parsedMaterial =
+        material.kind === 'persisted'
+          ? {
+              kind: 'persisted' as const,
+              materialRef: parseEcdsaRoleLocalPersistedMaterialRef(material.materialRef),
+            }
+          : material.kind === 'runtime_loaded'
+            ? {
+                kind: 'runtime_loaded' as const,
+                expectedBindingDigest: readNonEmptyString(material, 'expectedBindingDigest'),
+              }
+            : null;
+      if (!parsedMaterial) throw new Error('ECDSA role-local presign material kind is invalid');
+      if (!(record.groupPublicKey33 instanceof ArrayBuffer)) {
+        throw new Error('ECDSA role-local presign group public key must be an ArrayBuffer');
+      }
+      const materialExpiresAtMs = Number(record.materialExpiresAtMs);
+      if (!Number.isSafeInteger(materialExpiresAtMs) || materialExpiresAtMs <= Date.now()) {
+        throw new Error('ECDSA role-local presign material expiry must be in the future');
+      }
+      return {
+        kind: record.kind,
+        requestId,
+        sessionId: readNonEmptyString(record, 'sessionId'),
+        authority: {
+          kind: authority.kind,
+          materialHandle: readNonEmptyString(authority, 'materialHandle'),
+          material: parsedMaterial,
+        },
+        poolIdentity: parseEcdsaClientPresignPoolIdentity(record.poolIdentity),
+        groupPublicKey33: record.groupPublicKey33,
+        materialExpiresAtMs,
+      };
+    }
+    case 'opaque_ecdsa_presign_session_step_v1': {
+      if (record.stage !== 'triples' && record.stage !== 'presign') {
+        throw new Error('ECDSA role-local presign stage is invalid');
+      }
+      if (
+        !Array.isArray(record.incomingMessages) ||
+        !record.incomingMessages.every(isArrayBuffer)
+      ) {
+        throw new Error('ECDSA role-local presign messages must be ArrayBuffers');
+      }
+      return {
+        kind: record.kind,
+        requestId,
+        sessionId: readNonEmptyString(record, 'sessionId'),
+        stage: record.stage,
+        incomingMessages: record.incomingMessages,
+      };
+    }
+    case 'opaque_ecdsa_presign_session_abort_v1':
+      return {
+        kind: record.kind,
+        requestId,
+        sessionId: readNonEmptyString(record, 'sessionId'),
+      };
+    case 'opaque_ecdsa_online_compute_v1':
+      return {
+        kind: record.kind,
+        requestId,
+        materialHandle: readNonEmptyString(record, 'materialHandle'),
+        groupPublicKey33: requireArrayBufferLength(record.groupPublicKey33, 33, 'groupPublicKey33'),
+        expectedPresignBigR33: requireArrayBufferLength(
+          record.expectedPresignBigR33,
+          33,
+          'expectedPresignBigR33',
+        ),
+        digest32: requireArrayBufferLength(record.digest32, 32, 'digest32'),
+        clientRerandomizationContribution32: requireArrayBufferLength(
+          record.clientRerandomizationContribution32,
+          32,
+          'clientRerandomizationContribution32',
+        ),
+        signingWorkerRerandomizationContribution32: requireArrayBufferLength(
+          record.signingWorkerRerandomizationContribution32,
+          32,
+          'signingWorkerRerandomizationContribution32',
+        ),
+      };
+    case 'opaque_ecdsa_presign_material_destroy_v1':
+      return {
+        kind: record.kind,
+        requestId,
+        materialHandle: readNonEmptyString(record, 'materialHandle'),
+      };
+    default:
+      throw new Error('ECDSA role-local presign request kind is invalid');
+  }
+}
+
+function requireArrayBufferLength(value: unknown, length: number, label: string): ArrayBuffer {
+  if (!(value instanceof ArrayBuffer) || value.byteLength !== length) {
+    throw new Error(`${label} must be a ${length}-byte ArrayBuffer`);
+  }
+  return value;
+}
+
+function isArrayBuffer(value: unknown): value is ArrayBuffer {
+  return value instanceof ArrayBuffer;
+}
+
+function enqueueOpaquePresignRequest(event: MessageEvent<unknown>): void {
+  void handleOpaquePresignRequest(event);
 }
 
 function attachPresignChannel(value: unknown): boolean {
   if (!isAttachEcdsaDerivationToPresignPort(value)) return false;
   presignPort?.close();
+  opaquePresignAuthority.close();
   presignPort = value.port;
-  presignPort.onmessage = enqueueAdditiveShareRequest;
+  presignPort.onmessage = enqueueOpaquePresignRequest;
   presignPort.start();
   return true;
 }

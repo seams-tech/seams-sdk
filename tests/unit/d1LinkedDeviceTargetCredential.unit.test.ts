@@ -84,6 +84,10 @@ test('persists verified attestation and exact public child records before provis
 
   let verificationCount = 0;
   let commitCount = 0;
+  const sourceHandoff = new D1LinkedDeviceSourceHandoffProviderV1({
+    database: temporary.database,
+    scope,
+  });
   const provider = new D1LinkedDeviceTargetCredentialProviderV1({
     database: temporary.database,
     scope,
@@ -107,10 +111,7 @@ test('persists verified attestation and exact public child records before provis
         };
       },
     },
-    sourceHandoff: new D1LinkedDeviceSourceHandoffProviderV1({
-      database: temporary.database,
-      scope,
-    }),
+    sourceHandoff,
   });
   const preparation = await provider.getTargetPreparationV1({
     session: approvalResult.record,
@@ -204,7 +205,21 @@ test('persists verified attestation and exact public child records before provis
     keyManifestDigestB64u,
   });
 
-  const provisioningFixture = buildR103ProvisioningFixture(fixture);
+  const provisioningFixture = buildR103ProvisioningFixture(approvedFixture);
+  await sourceHandoff.submitPreparedProvisioningDeliveriesV1({
+    submission: {
+      kind: 'linked_device_provisioning_deliveries_submission_v1',
+      linkSessionId: approval.linkSessionId,
+      walletId: approval.walletId,
+      enrollmentId: approval.enrollmentId,
+      deviceId: approval.deviceId,
+      manifestDigestB64u: keyManifestDigestB64u,
+      deliveries: provisioningFixture.deliveries,
+    },
+    session: transitioned.record,
+    approval,
+    requestedAtMs: 3_005,
+  });
   const delivery = provisioningFixture.deliveries.orderedChildren[0];
   const activeProduct = await buildR102ActiveProductEpoch(delivery.job);
   let prepareCount = 0;

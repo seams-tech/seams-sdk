@@ -1,8 +1,8 @@
 //! Isolated local lane-materialization role adapter.
 //!
-//! The public runtime surface accepts one Deriver's additive source shares and
-//! one fresh offset share.  It never receives or combines the other Deriver's
-//! shares.  A production Yao evaluator must provide these values from the
+//! The public runtime surface accepts one Deriver's source contributions and
+//! one fresh offset share. It never receives or combines the other Deriver's
+//! shares. A production Yao evaluator must provide these values from the
 //! distinct `lane_materialization` circuit and returns a role-isolated
 //! streaming state machine.
 
@@ -17,7 +17,7 @@ use crate::{
 /// Failure while constructing one Deriver's lane role.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LaneMaterializationError {
-    /// The role-local source or offset share is not a canonical scalar.
+    /// A role-local canonical scalar is malformed.
     NonCanonicalScalar,
     /// The lane job is malformed.
     InvalidJob,
@@ -34,26 +34,34 @@ impl core::fmt::Display for LaneMaterializationError {
 
 impl std::error::Error for LaneMaterializationError {}
 
-/// Deriver A's role-local lane source shares.
+/// Deriver A's role-local lane contributions.
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct Ed25519YaoLaneDeriverAContributionV1 {
-    /// Source holder share owned by Deriver A.
-    pub source_holder_share: [u8; 32],
-    /// Source SigningWorker share owned by Deriver A.
-    pub source_signing_worker_share: [u8; 32],
+    /// Raw Client KDF y contribution for Deriver A.
+    pub y_client: [u8; 32],
+    /// Raw server KDF y contribution for Deriver A.
+    pub y_server: [u8; 32],
+    /// Canonical Client KDF tau contribution for Deriver A.
+    pub tau_client: [u8; 32],
+    /// Canonical server KDF tau contribution for Deriver A.
+    pub tau_server: [u8; 32],
     /// Fresh lane offset share produced for Deriver A.
-    pub offset_share: [u8; 32],
+    pub offset: [u8; 32],
 }
 
-/// Deriver B's role-local lane source shares.
+/// Deriver B's role-local lane contributions.
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct Ed25519YaoLaneDeriverBContributionV1 {
-    /// Source holder share owned by Deriver B.
-    pub source_holder_share: [u8; 32],
-    /// Source SigningWorker share owned by Deriver B.
-    pub source_signing_worker_share: [u8; 32],
+    /// Raw Client KDF y contribution for Deriver B.
+    pub y_client: [u8; 32],
+    /// Raw server KDF y contribution for Deriver B.
+    pub y_server: [u8; 32],
+    /// Canonical Client KDF tau contribution for Deriver B.
+    pub tau_client: [u8; 32],
+    /// Canonical server KDF tau contribution for Deriver B.
+    pub tau_server: [u8; 32],
     /// Fresh lane offset share produced for Deriver B.
-    pub offset_share: [u8; 32],
+    pub offset: [u8; 32],
 }
 
 /// Builds the selected streaming-Yao Deriver A lane role from A-owned shares.
@@ -72,9 +80,11 @@ pub fn build_lane_materialization_deriver_a(
         .session_v1()
         .map_err(|_| LaneMaterializationError::InvalidJob)?;
     let inputs = YaoLaneDeriverAInputs::new(
-        contribution.source_holder_share,
-        contribution.source_signing_worker_share,
-        contribution.offset_share,
+        contribution.y_client,
+        contribution.y_server,
+        contribution.tau_client,
+        contribution.tau_server,
+        contribution.offset,
     )
     .map_err(|_| LaneMaterializationError::NonCanonicalScalar)?;
     LaneMaterializationDeriverA::with_inputs(session, inputs)
@@ -92,9 +102,11 @@ pub fn build_lane_materialization_deriver_b(
         .session_v1()
         .map_err(|_| LaneMaterializationError::InvalidJob)?;
     let inputs = YaoLaneDeriverBInputs::new(
-        contribution.source_holder_share,
-        contribution.source_signing_worker_share,
-        contribution.offset_share,
+        contribution.y_client,
+        contribution.y_server,
+        contribution.tau_client,
+        contribution.tau_server,
+        contribution.offset,
     )
     .map_err(|_| LaneMaterializationError::NonCanonicalScalar)?;
     LaneMaterializationDeriverB::with_inputs(session, inputs)

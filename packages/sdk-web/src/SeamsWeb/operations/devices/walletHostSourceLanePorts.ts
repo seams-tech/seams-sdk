@@ -158,7 +158,13 @@ function requireSuccess(
   operation: string,
 ): void {
   if (response.status < 200 || response.status >= 300) {
-    throw new Error(`Wallet-host failed to ${operation}: HTTP ${response.status}`);
+    const message =
+      isRecord(response.body) && typeof response.body.message === 'string'
+        ? response.body.message.trim().slice(0, 512)
+        : '';
+    throw new Error(
+      `Wallet-host failed to ${operation}: HTTP ${response.status}${message ? `: ${message}` : ''}`,
+    );
   }
 }
 

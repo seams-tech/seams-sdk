@@ -67,6 +67,12 @@ import {
 } from '@shared/utils/walletAuthAuthority';
 import { IndexedDBManager } from '@/core/indexedDB';
 import {
+  linkedDeviceExecutionEvidence,
+  resolveUniqueActiveLinkedDeviceExecutionBundleV1,
+} from '@/core/indexedDB/seamsWalletDB/linkedDeviceExecutionEvidenceStore';
+import { linkedDeviceWalletSessions } from '@/core/indexedDB/seamsWalletDB/linkedDeviceWalletSessionStore';
+import type { ActiveLinkedDeviceExecutionBundleV1 } from '@/core/signingEngine/session/lanes/linkedDeviceExecutionBundle';
+import {
   walletSessionAuthorizations,
   type ActiveWalletSessionAuthorizationProjection,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
@@ -208,6 +214,7 @@ import type {
   ProvisionWarmEd25519CapabilitySuccessResult,
 } from '@/core/signingEngine/session/warmCapabilities/types';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
+import { base58Encode } from '@shared/utils/base58';
 import {
   openWalletCustodyEd25519ActiveClientV1,
   walletCustodyCacheEnvelopeFromRecordV1,
@@ -3071,7 +3078,6 @@ function publicCapabilityFromThresholdEcdsaBootstrap(
     case 'role_local_durable_sealed_ref':
     case 'role_local_durable_public_anchor':
       return backendBinding.publicFacts.publicCapability;
-    case 'email_otp_worker_handle':
     case 'role_local_ready_state_blob':
       return backendBinding.ecdsaRoleLocalReadyRecord.publicFacts.publicCapability;
     case 'metadata_only':
@@ -4098,7 +4104,24 @@ export async function getWalletSession(
   const currentAuthentication = context.signingEngine.readWalletAuthenticationState();
   const requestedWalletId =
     walletId ??
-    (currentAuthentication.kind === 'authenticated' ? currentAuthentication.walletId : undefined);
+    (currentAuthentication.kind !== 'signed_out' ? currentAuthentication.walletId : undefined);
+  if (
+    currentAuthentication.kind === 'signed_out' ||
+    currentAuthentication.kind === 'linked_device_session'
+  ) {
+    const linkedDeviceSession = await readActiveLinkedDeviceWalletSession(
+      context,
+      requestedWalletId,
+    );
+    if (linkedDeviceSession) return linkedDeviceSession;
+    if (
+      currentAuthentication.kind === 'linked_device_session' &&
+      requestedWalletId === currentAuthentication.walletId
+    ) {
+      context.signingEngine.clearLinkedDeviceWalletSession(currentAuthentication.walletId);
+      return buildAnonymousWalletSession();
+    }
+  }
   let readResolution = await resolveWalletCapabilitySubjectResolution(requestedWalletId);
   let didReconcileEcdsaActivation = false;
   if (readResolution.kind === 'no_session_request') return buildAnonymousWalletSession();
@@ -4196,6 +4219,96 @@ export async function getWalletSession(
   };
 }
 
+async function readActiveLinkedDeviceWalletSession(
+  context: WalletSessionWebContext,
+  requestedWalletId?: WalletId | string,
+): Promise<WalletSession | null> {
+  const result = await resolveUniqueActiveLinkedDeviceExecutionBundleV1({
+    ...(requestedWalletId ? { walletId: String(requestedWalletId) } : {}),
+    nowMs: Date.now(),
+    evidenceRepository: linkedDeviceExecutionEvidence,
+    walletSessionRepository: linkedDeviceWalletSessions,
+  });
+  if (result.kind !== 'found') return null;
+  try {
+    return await buildActiveLinkedDeviceWalletSession(context, result.bundle);
+  } catch (error) {
+    console.warn(
+      '[WalletSession] linked-device session projection is invalid',
+      error instanceof Error ? error.message : String(error),
+    );
+    return null;
+  }
+}
+
+function isActiveLinkedDeviceEd25519Execution(
+  execution: ActiveLinkedDeviceExecutionBundleV1['orderedExecutions'][number],
+): execution is Extract<
+  ActiveLinkedDeviceExecutionBundleV1['orderedExecutions'][number],
+  { kind: 'active_linked_device_ed25519_execution_v1' }
+> {
+  return execution.kind === 'active_linked_device_ed25519_execution_v1';
+}
+
+function isActiveLinkedDeviceEcdsaExecution(
+  execution: ActiveLinkedDeviceExecutionBundleV1['orderedExecutions'][number],
+): execution is Extract<
+  ActiveLinkedDeviceExecutionBundleV1['orderedExecutions'][number],
+  { kind: 'active_linked_device_ecdsa_execution_v1' }
+> {
+  return execution.kind === 'active_linked_device_ecdsa_execution_v1';
+}
+
+async function buildActiveLinkedDeviceWalletSession(
+  context: WalletSessionWebContext,
+  bundle: ActiveLinkedDeviceExecutionBundleV1,
+): Promise<WalletSession> {
+  const ed25519Executions = bundle.orderedExecutions.filter(isActiveLinkedDeviceEd25519Execution);
+  const ecdsaExecutions = bundle.orderedExecutions.filter(isActiveLinkedDeviceEcdsaExecution);
+  if (ed25519Executions.length > 1 || ecdsaExecutions.length > 1) {
+    throw new Error('linked-device session contains ambiguous wallet keys');
+  }
+  const ed25519Execution = ed25519Executions[0];
+  const ecdsaExecution = ecdsaExecutions[0];
+  if (Boolean(ed25519Execution) !== Boolean(bundle.nearAccountId)) {
+    throw new Error('linked-device NEAR account identity does not match its Ed25519 wallet key');
+  }
+  const nearAccountId = bundle.nearAccountId ? toAccountId(bundle.nearAccountId) : null;
+  const baseIdentity = await resolveWalletSessionAppIdentityForWallet(context, bundle.walletId);
+  const nearOperationalPublicKey = ed25519Execution
+    ? `ed25519:${base58Encode(base64UrlDecode(ed25519Execution.walletKey.registeredPublicKeyB64u))}`
+    : null;
+  context.signingEngine.setLinkedDeviceWalletSession({
+    kind: 'linked_device_session',
+    walletId: bundle.walletId,
+  });
+  return {
+    appIdentity: {
+      ...baseIdentity,
+      nearAccountId,
+      nearOperationalPublicKey,
+      userData: null,
+      authMethods: [],
+      thresholdEcdsaEthereumAddress: ecdsaExecution?.walletKey.evmAddress ?? null,
+      thresholdEcdsaPublicKeyB64u: ecdsaExecution?.walletKey.thresholdPublicKey33B64u ?? null,
+    },
+    authentication: {
+      kind: 'linked_device_session',
+      walletId: bundle.walletId,
+    },
+    reusableWalletSession: {
+      kind: 'linked_device_active',
+      walletId: bundle.walletId,
+      authorizationId: bundle.authorizationId,
+      walletSessionId: bundle.walletSessionId,
+      authMethod: 'linked_device',
+      expiresAtMs: bundle.expiresAtMs,
+    },
+    capabilityProjection: { kind: 'not_requested' },
+    nonceDiagnostics: readWalletSessionNonceDiagnostics(context, nearAccountId),
+  };
+}
+
 async function buildCapabilityUnresolvableWalletSession(args: {
   readonly context: WalletSessionWebContext;
   readonly walletId: WalletId;
@@ -4226,7 +4339,7 @@ function walletAuthenticationForWallet(
   walletId: WalletId,
 ): WalletAuthenticationState {
   if (
-    authentication.kind === 'authenticated' &&
+    authentication.kind !== 'signed_out' &&
     String(authentication.walletId) === String(walletId)
   ) {
     return authentication;
