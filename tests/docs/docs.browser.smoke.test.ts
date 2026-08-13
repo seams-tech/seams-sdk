@@ -11,7 +11,7 @@ function readDocsAppearance(): { colorScheme: string; canvas: string; hasDarkCla
   const styles = getComputedStyle(document.documentElement);
   return {
     colorScheme: styles.colorScheme,
-    canvas: styles.getPropertyValue('--seams-canvas').trim(),
+    canvas: styles.getPropertyValue('--vp-c-bg').trim(),
     hasDarkClass: document.documentElement.classList.contains('dark'),
   };
 }
@@ -22,7 +22,7 @@ async function assertNoHorizontalOverflow(page: Page): Promise<void> {
   expect(metrics.documentWidth).toBeLessThanOrEqual(metrics.viewportWidth);
 }
 
-test('docs start path, search, Paper appearance, and responsive navigation stay operable', async ({
+test('docs start path, search, light appearance, and responsive navigation stay operable', async ({
   page,
 }) => {
   await page.goto('/');

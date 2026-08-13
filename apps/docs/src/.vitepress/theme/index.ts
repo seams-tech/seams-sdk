@@ -1,15 +1,7 @@
-import DefaultTheme from 'vitepress/theme-without-fonts';
+import DefaultTheme from 'vitepress/theme';
 import type { Theme } from 'vitepress';
 import type { Mermaid, MermaidConfig } from 'mermaid';
-import { h } from 'vue';
-import SeamsFooter from './SeamsFooter.vue';
 import './custom.css';
-
-import '@fontsource/hanken-grotesk/latin-400.css';
-import '@fontsource/hanken-grotesk/latin-500.css';
-import '@fontsource/hanken-grotesk/latin-600.css';
-import '@fontsource/hanken-grotesk/latin-700.css';
-import '@fontsource/hanken-grotesk/latin-400-italic.css';
 
 function createMermaidRenderer() {
   let mermaidRef: Mermaid | null = null;
@@ -36,7 +28,7 @@ function createMermaidRenderer() {
     clusterBkg: '#f8f8f7',
     clusterBorder: '#d6d1cb',
     edgeLabelBackground: '#ffffff',
-    fontFamily: "'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif",
+    fontFamily: "'Inter', ui-sans-serif, system-ui, sans-serif",
   });
 
   const configure = async () => {
@@ -113,11 +105,14 @@ function createMermaidRenderer() {
     const details = document.createElement('details');
     const summary = document.createElement('summary');
     summary.textContent = 'View diagram source';
+    const sourceBlock = document.createElement('div');
+    sourceBlock.className = 'language-mermaid';
     const pre = document.createElement('pre');
     const code = document.createElement('code');
     code.textContent = source;
     pre.appendChild(code);
-    details.append(summary, pre);
+    sourceBlock.appendChild(pre);
+    details.append(summary, sourceBlock);
     figure.append(container, caption, details);
     return figure;
   };
@@ -154,10 +149,6 @@ function createMermaidRenderer() {
 
 const theme: Theme = {
   ...DefaultTheme,
-  Layout: () =>
-    h(DefaultTheme.Layout, null, {
-      'layout-bottom': () => h(SeamsFooter),
-    }),
   enhanceApp: async (ctx) => {
     await DefaultTheme.enhanceApp?.(ctx);
     if (import.meta.env.SSR || typeof window === 'undefined') return;
