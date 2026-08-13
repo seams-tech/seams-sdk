@@ -341,6 +341,13 @@ function HomeHeroCurrent(): React.JSX.Element {
               Contact sales
             </a>
           </div>
+          <img
+            className="h2-hero-simple__art"
+            src="/illustrations/robot-arm-wireframe.png"
+            alt=""
+            aria-hidden="true"
+            draggable="false"
+          />
         </div>
       </header>
 
