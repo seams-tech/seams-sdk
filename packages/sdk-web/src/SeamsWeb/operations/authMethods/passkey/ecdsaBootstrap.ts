@@ -1,12 +1,5 @@
-import type {
-  WebAuthnAuthenticationCredential,
-  WebAuthnRegistrationCredential,
-} from '@/core/types';
-import { normalizeRegistrationCredential } from '@/core/signingEngine/webauthnAuth/credentials/helpers';
-import {
-  getPrfFirstB64uFromCredential,
-  redactCredentialExtensionOutputs,
-} from '@/core/signingEngine/threshold/crypto/webauthn';
+import type { WebAuthnAuthenticationCredential } from '@/core/types';
+import { getPrfFirstB64uFromCredential } from '@/core/signingEngine/threshold/crypto/webauthn';
 
 export function passkeyPrfFirstB64uFromCredential(credential: unknown): string {
   return String(getPrfFirstB64uFromCredential(credential) || '').trim();
@@ -24,16 +17,4 @@ export function passkeyCredentialIdB64uFromAuthentication(
   credential: WebAuthnAuthenticationCredential | undefined,
 ): string {
   return String(credential?.rawId || credential?.id || '').trim();
-}
-
-export function redactedPasskeyRegistrationCredential(
-  credential: WebAuthnRegistrationCredential,
-): WebAuthnRegistrationCredential {
-  const webauthnRegistration = redactCredentialExtensionOutputs<WebAuthnRegistrationCredential>(
-    normalizeRegistrationCredential(credential),
-  );
-  if (!Array.isArray(webauthnRegistration.response.transports)) {
-    webauthnRegistration.response.transports = [];
-  }
-  return webauthnRegistration;
 }

@@ -1,5 +1,8 @@
 import { expect, test } from '@playwright/test';
-import { normalizeWalletAuthMethod, walletAuthMethodId } from '@server/core/d1WalletAuthMethodStore';
+import {
+  normalizeWalletAuthMethod,
+  walletAuthMethodId,
+} from '@server/core/d1WalletAuthMethodStore';
 import {
   buildEmailOtpWalletAuthMethodBinding,
   buildPasskeyAuthScope,

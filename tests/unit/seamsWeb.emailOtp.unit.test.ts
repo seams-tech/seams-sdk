@@ -2,19 +2,13 @@ import { expect, test } from '@playwright/test';
 import {
   EmailOtpRouteError,
   exchangeGoogleEmailOtpSession,
-  requestEmailOtpDeviceRecoveryChallenge,
   requestEmailOtpChallenge,
   requestEmailOtpEnrollmentChallenge,
   verifyEmailOtpCode,
 } from '@/SeamsWeb/operations/authMethods/emailOtp/challenge';
 import { parseEmailOtpChallengeDelivery } from '@/core/signingEngine/session/emailOtp/challengeDelivery';
-import {
-  removeEmailOtpDeviceEnrollmentEscrowFromDevice,
-  restoreEmailOtpDeviceEnrollmentEscrow,
-} from '@/SeamsWeb/operations/authMethods/emailOtp/deviceEscrow';
 import { collectEmailOtpRegistrationAuthority } from '@/SeamsWeb/operations/authMethods/emailOtp/registrationAuthority';
 import { enrollEmailOtpWallet } from '@/core/signingEngine/session/emailOtp/workerEnrollment';
-import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal';
 
 function jwtWithPayload(payload: Record<string, unknown>): string {
   const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url');
@@ -197,15 +191,6 @@ test.describe('SeamsWeb Email OTP runtime', () => {
           },
         );
       }
-      if (url.endsWith('/wallet/email-otp/recovery-challenge')) {
-        return new Response(
-          JSON.stringify({ ok: true, challenge: { challengeId: 'recovery-1' } }),
-          {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          },
-        );
-      }
       if (url.endsWith('/wallet/email-otp/login/verify')) {
         return new Response(
           JSON.stringify({
@@ -271,13 +256,6 @@ test.describe('SeamsWeb Email OTP runtime', () => {
       emailHint: 'a***@example.test',
     });
     await expect(
-      requestEmailOtpDeviceRecoveryChallenge({
-        relayUrl: 'https://relay.example',
-        walletId: 'alice.testnet',
-        fetchImpl,
-      }),
-    ).resolves.toEqual({ challengeId: 'recovery-1', otpChannel: 'email_otp' });
-    await expect(
       verifyEmailOtpCode({
         relayUrl: 'https://relay.example',
         walletId: 'alice.testnet',
@@ -316,11 +294,10 @@ test.describe('SeamsWeb Email OTP runtime', () => {
     expect(fetchCalls.map((call) => call.url)).toEqual([
       'https://relay.example/wallet/email-otp/login/challenge',
       'https://relay.example/wallet/email-otp/registration/challenge',
-      'https://relay.example/wallet/email-otp/recovery-challenge',
       'https://relay.example/wallet/email-otp/login/verify',
       'https://relay.example/session/exchange',
     ]);
-    expect(fetchCalls[4]?.body).toMatchObject({
+    expect(fetchCalls[3]?.body).toEqual({
       session_kind: 'cookie',
       projectEnvironmentId: 'env_test',
       exchange: {
@@ -330,16 +307,12 @@ test.describe('SeamsWeb Email OTP runtime', () => {
         token: 'google-id-token-1',
       },
     });
-    expect(
-      (fetchCalls[4]?.body.exchange as Record<string, unknown>).idempotencyKey,
-    ).toBeUndefined();
   });
 
   test('Google Email OTP session exchange preserves registration offer metadata', async () => {
     const fetchImpl: typeof fetch = async (input, init) => {
       expect(String(input)).toBe('https://relay.example/session/exchange');
-      const body = JSON.parse(String(init?.body || '{}')) as Record<string, any>;
-      expect(body).toMatchObject({
+      expect(JSON.parse(String(init?.body || '{}'))).toEqual({
         session_kind: 'jwt',
         projectEnvironmentId: 'env_test',
         exchange: {
@@ -349,7 +322,6 @@ test.describe('SeamsWeb Email OTP runtime', () => {
           token: 'google-id-token-1',
         },
       });
-      expect(body.exchange.idempotencyKey).toBeUndefined();
       return new Response(
         JSON.stringify({
           ok: true,
@@ -468,57 +440,6 @@ test.describe('SeamsWeb Email OTP runtime', () => {
         },
       },
     });
-  });
-
-  test('Google Email OTP unlock retries one transient storage reset with the same operation key', async () => {
-    const idempotencyKeys: string[] = [];
-    let attempts = 0;
-    const fetchImpl: typeof fetch = async (_input, init) => {
-      attempts += 1;
-      const body = JSON.parse(String(init?.body || '{}')) as {
-        exchange: { idempotencyKey: string };
-      };
-      idempotencyKeys.push(body.exchange.idempotencyKey);
-      if (attempts === 1) {
-        return new Response(
-          JSON.stringify({
-            ok: false,
-            code: 'storage_temporarily_unavailable',
-            message: 'Session exchange storage is temporarily unavailable',
-            retryAfterMs: 250,
-          }),
-          { status: 503, headers: { 'Content-Type': 'application/json' } },
-        );
-      }
-      return new Response(
-        JSON.stringify({
-          ok: true,
-          jwt: 'app-session-jwt-1',
-          session: {
-            userId: 'google:subject-1',
-            walletId: 'alice.testnet',
-            googleEmailOtpResolution: { mode: 'existing_wallet' },
-          },
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      );
-    };
-
-    await expect(
-      exchangeGoogleEmailOtpSession({
-        relayUrl: 'https://relay.example',
-        idToken: 'google-id-token-1',
-        accountMode: 'login',
-        sessionKind: 'jwt',
-        projectEnvironmentId: 'env_test',
-        fetchImpl,
-      }),
-    ).resolves.toMatchObject({
-      jwt: 'app-session-jwt-1',
-      session: { walletId: 'alice.testnet' },
-    });
-    expect(attempts).toBe(2);
-    expect(idempotencyKeys[0]).toBe(idempotencyKeys[1]);
   });
 
   test('Email OTP registration authority adapter builds a digest-bound proof', async () => {
@@ -702,9 +623,9 @@ test.describe('SeamsWeb Email OTP runtime', () => {
       relayUrl: 'https://relay.example',
       walletId: 'alice.testnet',
       userId: 'alice.testnet',
+      groupId: 'email-otp-group',
       challengeId: 'enroll-1',
       otpCode: '123456',
-      groupId: SIGNING_SESSION_SEAL_GROUP_ID,
       appSessionJwt: 'app-session-jwt',
       clientSecret32,
       workerCtx: {
@@ -716,24 +637,11 @@ test.describe('SeamsWeb Email OTP runtime', () => {
             Array.from(clientSecret32),
           );
           return {
-            thresholdEcdsaClientVerifyingShareB64u: 'threshold-verifier-b64u',
-            recoveryKeys: [
-              '0123-4567-89AB-CDEF-GHJK-MNPQ-RSTV-WXYZ',
-              '1123-4567-89AB-CDEF-GHJK-MNPQ-RSTV-WXYZ',
-              '2123-4567-89AB-CDEF-GHJK-MNPQ-RSTV-WXYZ',
-              '3123-4567-89AB-CDEF-GHJK-MNPQ-RSTV-WXYZ',
-              '4123-4567-89AB-CDEF-GHJK-MNPQ-RSTV-WXYZ',
-              '5123-4567-89AB-CDEF-GHJK-MNPQ-RSTV-WXYZ',
-              '6123-4567-89AB-CDEF-GHJK-MNPQ-RSTV-WXYZ',
-              '7123-4567-89AB-CDEF-GHJK-MNPQ-RSTV-WXYZ',
-              '8123-4567-89AB-CDEF-GHJK-MNPQ-RSTV-WXYZ',
-              '9123-4567-89AB-CDEF-GHJK-MNPQ-RSTV-WXYZ',
-            ],
-            recoveryCodesIssuedAtMs: 1_700_000_000_000,
             challengeId: 'enroll-1',
             otpChannel: 'email_otp',
             enrollmentId: 'email-otp-device-enrollment-v1:alice.testnet:alice.testnet',
             enrollmentSealKeyVersion: 'email-otp-kv-1',
+            serverSealedFactorCiphertextB64u: 'server-sealed-factor-ciphertext',
             clientUnlockPublicKeyB64u: 'unlock-public-key-b64u',
             unlockKeyVersion: 'email-otp-unlock-v1',
           };
@@ -742,7 +650,6 @@ test.describe('SeamsWeb Email OTP runtime', () => {
     });
 
     expect(result.challengeId).toBe('enroll-1');
-    expect(result.thresholdEcdsaClientVerifyingShareB64u).toBe('threshold-verifier-b64u');
     expect(workerCalls).toHaveLength(1);
     expect(workerCalls[0]).toMatchObject({
       kind: 'emailOtp',
@@ -751,9 +658,9 @@ test.describe('SeamsWeb Email OTP runtime', () => {
         relayUrl: 'https://relay.example',
         walletId: 'alice.testnet',
         userId: 'alice.testnet',
+        groupId: 'email-otp-group',
         challengeId: 'enroll-1',
         otpCode: '123456',
-        groupId: SIGNING_SESSION_SEAL_GROUP_ID,
         routePlan: {
           routeFamily: 'registration',
           authLane: { kind: 'app_session', jwt: 'app-session-jwt' },
@@ -764,98 +671,4 @@ test.describe('SeamsWeb Email OTP runtime', () => {
     });
   });
 
-  test('Email OTP recovery restore dispatches recovery key handling through the dedicated worker', async () => {
-    const workerCalls: Array<{ kind: string; type: string; payload: Record<string, unknown> }> = [];
-    const result = await restoreEmailOtpDeviceEnrollmentEscrow({
-      relayUrl: 'https://relay.example',
-      walletId: 'alice.testnet',
-      userId: 'google:alice',
-      challengeId: 'recovery-1',
-      otpCode: '123456',
-      recoveryKey: 'J7KD-9VQF-2MHT-R6ZX-NP4C-8Y12-ABCD-EFGH',
-      groupId: SIGNING_SESSION_SEAL_GROUP_ID,
-      appSessionJwt: 'app-session-jwt',
-      workerCtx: {
-        requestWorkerOperation: async ({ kind, request }: any) => {
-          workerCalls.push({ kind, type: request.type, payload: request.payload });
-          expect(request.type).toBe('restoreEmailOtpDeviceEnrollmentEscrow');
-          return {
-            walletId: 'alice.testnet',
-            userId: 'google:alice',
-            authSubjectId: 'google:alice',
-            enrollmentId: 'email-otp-device-enrollment-v1:alice.testnet:google:alice',
-            enrollmentVersion: '1',
-            enrollmentSealKeyVersion: 'seal-v1',
-            signingRootId: 'email_otp_default_signing_root',
-            signingRootVersion: 'default',
-            recoveryKeyId: 'recovery-key-1',
-            activeRecoveryWrappedEnrollmentEscrowCount: 9,
-          };
-        },
-      },
-    });
-
-    expect(result.recoveryKeyId).toBe('recovery-key-1');
-    expect(result.providerUserId).toBe('google:alice');
-    expect('authSubjectId' in result).toBe(false);
-    expect(result.activeRecoveryWrappedEnrollmentEscrowCount).toBe(9);
-    expect(workerCalls).toHaveLength(1);
-    expect(workerCalls[0]).toMatchObject({
-      kind: 'emailOtp',
-      type: 'restoreEmailOtpDeviceEnrollmentEscrow',
-      payload: {
-        relayUrl: 'https://relay.example',
-        walletId: 'alice.testnet',
-        userId: 'google:alice',
-        challengeId: 'recovery-1',
-        otpCode: '123456',
-        recoveryKey: 'J7KD-9VQF-2MHT-R6ZX-NP4C-8Y12-ABCD-EFGH',
-        groupId: SIGNING_SESSION_SEAL_GROUP_ID,
-        routePlan: {
-          routeFamily: 'login',
-          authLane: { kind: 'app_session', jwt: 'app-session-jwt' },
-          operation: 'wallet_unlock',
-        },
-        otpChannel: 'email_otp',
-      },
-    });
-  });
-
-  test('Email OTP device escrow removal dispatches only the explicit remove-device worker action', async () => {
-    const workerCalls: Array<{ kind: string; type: string; payload: Record<string, unknown> }> = [];
-    const result = await removeEmailOtpDeviceEnrollmentEscrowFromDevice({
-      walletId: 'alice.testnet',
-      userId: 'google:alice',
-      workerCtx: {
-        requestWorkerOperation: async ({ kind, request }: any) => {
-          workerCalls.push({ kind, type: request.type, payload: request.payload });
-          expect(request.type).toBe('removeEmailOtpDeviceEnrollmentEscrowFromDevice');
-          return {
-            walletId: 'alice.testnet',
-            authSubjectId: 'google:alice',
-            enrollmentId: 'email-otp-device-enrollment-v1:alice.testnet:google:alice',
-            removed: true,
-          };
-        },
-      },
-    });
-
-    expect(result).toMatchObject({
-      walletId: 'alice.testnet',
-      providerUserId: 'google:alice',
-      enrollmentId: 'email-otp-device-enrollment-v1:alice.testnet:google:alice',
-      removed: true,
-    });
-    expect('authSubjectId' in result).toBe(false);
-    expect(workerCalls).toEqual([
-      {
-        kind: 'emailOtp',
-        type: 'removeEmailOtpDeviceEnrollmentEscrowFromDevice',
-        payload: {
-          walletId: 'alice.testnet',
-          userId: 'google:alice',
-        },
-      },
-    ]);
-  });
 });

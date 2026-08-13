@@ -155,9 +155,8 @@ fn router_ab_ecdsa_derivation_finalize_consumes_before_fallible_signing_work() {
     for required in [
         "CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PATH",
         "CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestFinalizeRequestV1",
-        "CloudflareActiveSigningWorkerStateLookupV1::from_router_ab_ecdsa_derivation_normal_signing_scope",
-        "active_signing_worker_state_get_request",
-        "signing_worker_output_material_get_request",
+        "load_cloudflare_signing_worker_ecdsa_normal_signing_material_v1",
+        "parsed.material_source",
         "CloudflareSigningWorkerEcdsaPoolCommandV1::Consume",
         "expected_revision: 1",
         "execute_cloudflare_signing_worker_ecdsa_pool_mutation_v1",
@@ -173,18 +172,15 @@ fn router_ab_ecdsa_derivation_finalize_consumes_before_fallible_signing_work() {
     let consume = body
         .find("CloudflareSigningWorkerEcdsaPoolCommandV1::Consume")
         .expect("Router A/B ECDSA derivation finalize must consume presignature");
-    let state_lookup = body
-        .find("active_signing_worker_state_get_request")
-        .expect("Router A/B ECDSA derivation finalize must load active state");
-    let material_lookup = body
-        .find("signing_worker_output_material_get_request")
-        .expect("Router A/B ECDSA derivation finalize must load material");
+    let lane_material = body
+        .find("load_cloudflare_signing_worker_ecdsa_normal_signing_material_v1")
+        .expect("Router A/B ECDSA derivation finalize must load lane material");
     let handler = body
         .find("handle_cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_finalize_private_request_v1")
         .expect("Router A/B ECDSA derivation finalize must invoke materialized handler");
     assert!(
-        consume < state_lookup && state_lookup < material_lookup && material_lookup < handler,
-        "Router A/B ECDSA derivation finalize must consume before all later state, material, and signing work"
+        lane_material < consume && consume < handler,
+        "Router A/B ECDSA derivation finalize must reject stale lanes before pool consume and signing"
     );
     let terminal_commit = body
         .find("CloudflareSigningWorkerTerminalResponseCommitV1::Committed")
@@ -223,7 +219,8 @@ fn router_ab_ecdsa_derivation_prepare_persists_exact_reservation_before_response
     for required in [
         "CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PREPARE_PATH",
         "CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestSigningRequestV1",
-        "CloudflareActiveSigningWorkerStateLookupV1::from_router_ab_ecdsa_derivation_normal_signing_scope",
+        "load_cloudflare_signing_worker_ecdsa_normal_signing_material_v1",
+        "parsed.material_source",
         "cloudflare_random_bytes_v1(32)",
         "CloudflareSigningWorkerEcdsaPoolCommandV1::Reserve",
         "expected_revision: 0",
@@ -285,9 +282,8 @@ fn router_ab_ecdsa_derivation_presignature_pool_put_private_fetch_derives_active
         "CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_PUT_PATH",
         "CloudflareSigningWorkerRouterAbEcdsaDerivationPresignaturePoolPutRequestV1",
         "parsed.validate_at(now_unix_ms)",
-        "CloudflareActiveSigningWorkerStateLookupV1::from_router_ab_ecdsa_derivation_normal_signing_scope",
-        "active_signing_worker_state_get_request",
-        "signing_worker_output_material_get_request",
+        "load_cloudflare_signing_worker_ecdsa_normal_signing_material_v1",
+        "parsed.material_source",
         "parsed.to_pool_record(",
         "&active_material",
         "CloudflareSigningWorkerEcdsaPoolCommandV1::PutAvailable",

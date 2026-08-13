@@ -8,7 +8,6 @@ import { errorMessage } from '@shared/utils/errors';
 import {
   finalizeEcdsaClientBootstrapCommandWasm,
   prepareEcdsaClientBootstrapCommandWasm,
-  buildEcdsaRoleLocalExportArtifactCommandWasm,
   closeRouterAbEcdsaRegistrationCeremonyWasm,
   createRouterAbEcdsaRegistrationCeremonyWasm,
   finalizeRouterAbEcdsaRegistrationActivationWasm,
@@ -39,9 +38,7 @@ import {
 } from '../../signingEngine/session/keyMaterialBrands';
 import {
   parseGeneratedFinalizeEcdsaClientBootstrapOutput,
-  parseGeneratedBuildEcdsaRoleLocalExportArtifactOutput,
   parseGeneratedPrepareEcdsaClientBootstrapOutput,
-  toGeneratedBuildEcdsaRoleLocalExportArtifactCommand,
   toGeneratedFinalizeEcdsaClientBootstrapCommand,
   toGeneratedPrepareEcdsaClientBootstrapCommand,
 } from '../signerCoreCommandAdapters';
@@ -49,8 +46,6 @@ import type {
   AuthenticatorOperation,
   AuthenticatorResult,
   AuthenticatorPort,
-  BuildEcdsaRoleLocalExportArtifactErrorCode,
-  BuildEcdsaRoleLocalExportArtifactOutput,
   ClockPort,
   CleanupMalformedEcdsaRoleLocalRecordResult,
   DurableRecordStore,
@@ -241,23 +236,6 @@ function mapFinalizeEcdsaCommandError(
     return signerCryptoCommandFailure('public_identity_mismatch', message);
   }
   return signerCryptoCommandFailure('invalid_pending_state', message);
-}
-
-function mapBuildEcdsaRoleLocalExportCommandError(
-  error: unknown,
-): SignerCryptoCommandFailure<BuildEcdsaRoleLocalExportArtifactErrorCode> {
-  const message = errorMessage(error);
-  if (
-    /public facts|public key|public identity|ethereum address|context binding|context/i.test(
-      message,
-    )
-  ) {
-    return signerCryptoCommandFailure('invalid_public_identity', message);
-  }
-  if (/ready state|state blob|stateBlob|blob magic|trailing bytes|decode/i.test(message)) {
-    return signerCryptoCommandFailure('invalid_ready_state', message);
-  }
-  return signerCryptoCommandFailure('crypto_failure', message);
 }
 
 function parseRelayerPublicIdentity(input: unknown): BrowserRelayerPublicIdentity {
@@ -746,47 +724,6 @@ function createBrowserSignerCryptoPort(
         return (
           mapSignerCryptoInvocationError(error) ||
           signerCryptoCommandFailure('crypto_failure', errorMessage(error))
-        );
-      }
-    },
-    async buildEcdsaRoleLocalExportArtifact(
-      input,
-    ): Promise<
-      SignerCryptoResult<
-        BuildEcdsaRoleLocalExportArtifactOutput,
-        BuildEcdsaRoleLocalExportArtifactErrorCode
-      >
-    > {
-      if (
-        input.stateBlob.kind !== 'ecdsa_role_local_state_blob_v1' ||
-        input.stateBlob.curve !== 'secp256k1' ||
-        input.stateBlob.encoding !== 'base64url' ||
-        input.stateBlob.producer !== 'signer_core'
-      ) {
-        return signerCryptoCommandFailure(
-          'invalid_ready_state',
-          'ECDSA role-local ready blob envelope is invalid',
-        );
-      }
-      if (!workerCtx) {
-        return signerCryptoInvocationFailure(
-          'unavailable',
-          'ECDSA role-local export worker context is unavailable',
-        );
-      }
-      try {
-        const generatedCommand = toGeneratedBuildEcdsaRoleLocalExportArtifactCommand(input);
-        const generatedOutput = await buildEcdsaRoleLocalExportArtifactCommandWasm({
-          command: generatedCommand,
-          workerCtx,
-        });
-        return {
-          ok: true,
-          value: parseGeneratedBuildEcdsaRoleLocalExportArtifactOutput(generatedOutput),
-        };
-      } catch (error) {
-        return (
-          mapSignerCryptoInvocationError(error) || mapBuildEcdsaRoleLocalExportCommandError(error)
         );
       }
     },

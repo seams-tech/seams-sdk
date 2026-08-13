@@ -244,7 +244,6 @@ test.describe('local D1 Ed25519 Yao request reconstruction', () => {
         path: ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1,
         body: {
           protocol: executeRequest,
-          authorizationIdentity: existing.exportAdmission.authorizationIdentity,
         },
         grant: existing.token,
       });
@@ -261,7 +260,6 @@ test.describe('local D1 Ed25519 Yao request reconstruction', () => {
         path: ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1,
         body: {
           protocol: executeRequest,
-          authorizationIdentity: existing.exportAdmission.authorizationIdentity,
         },
         grant: existing.token,
       });
@@ -274,7 +272,6 @@ test.describe('local D1 Ed25519 Yao request reconstruction', () => {
         path: ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1,
         body: {
           protocol: exportExecuteFromAdmission(admissionBody, 41),
-          authorizationIdentity: existing.exportAdmission.authorizationIdentity,
         },
         grant: existing.token,
       });

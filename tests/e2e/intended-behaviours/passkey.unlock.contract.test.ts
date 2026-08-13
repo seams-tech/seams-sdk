@@ -44,3 +44,20 @@ test(
   'page refresh hydrates warm signing, one-use step-up, and key export',
   verifyPasskeyPageRefreshHydration,
 );
+
+async function verifyPasskeyColdSyncFromEmptyStorage({
+  harness,
+}: {
+  harness: IntendedBehaviourHarness;
+}): Promise<void> {
+  await harness.registerPasskeyWallet();
+  await harness.awaitNearReady();
+  await harness.syncPasskeyWalletFromEmptyStorage();
+  await harness.signNearTransaction('post_unlock');
+  await harness.signTempoAndArcEvmConcurrently('post_unlock');
+}
+
+test(
+  'synced passkey cold unlock restores mixed-wallet signing from empty browser storage',
+  verifyPasskeyColdSyncFromEmptyStorage,
+);

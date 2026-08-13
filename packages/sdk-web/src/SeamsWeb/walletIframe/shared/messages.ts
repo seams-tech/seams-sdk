@@ -3,7 +3,7 @@ import type { WalletUIRegistry } from '../host/lit-ui/iframe-lit-element-registr
 import type { BootstrapThresholdEcdsaSessionArgs } from '@/SeamsWeb/signingSurface/types';
 import { SignedTransaction } from '@/core/rpcClients/near/NearClient';
 import { ActionArgs, TransactionInput } from '@/core/types';
-import { type DeviceLinkingQRData } from '@/core/types/linkDevice';
+import type { QrLinkedDeviceSessionPayloadV4 } from '@shared/device-linking';
 import type { DelegateActionInput } from '@/core/types/delegate';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type { TempoSigningRequest } from '@/core/signingEngine/chains/tempo/tempoSigning.types';
@@ -35,7 +35,9 @@ import type {
   GoogleEmailOtpWalletAuthResolvedMode,
   GoogleEmailOtpWalletAuthRequestedMode,
   GoogleEmailOtpWalletAuthSubmitSuccess,
+  AddPasskeyAuthorization,
   ResolveExactKeyExportLaneInput,
+  WalletRecoveryRotationAuthorization,
 } from '@/SeamsWeb/publicApi/types';
 import type {
   AddSignerSelection,
@@ -831,6 +833,7 @@ export type ParentToChildType =
   // SeamsWeb API surface
   | 'PM_REGISTER_WALLET'
   | 'PM_ADD_WALLET_SIGNER'
+  | 'PM_ADD_PASSKEY'
   | 'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION'
   | 'PM_UNLOCK'
   | 'PM_LOCK'
@@ -851,9 +854,13 @@ export type ParentToChildType =
   | 'PM_ENROLL_EMAIL_OTP'
   | 'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY'
   | 'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION'
-  | 'PM_GET_EMAIL_OTP_RECOVERY_CODE_STATUS'
-  | 'PM_SHOW_EMAIL_OTP_RECOVERY_CODES'
-  | 'PM_ROTATE_EMAIL_OTP_RECOVERY_CODES'
+  | 'PM_GET_WALLET_RECOVERY_CODE_STATUS'
+  | 'PM_ACKNOWLEDGE_WALLET_RECOVERY_CODE_BACKUP'
+  | 'PM_ROTATE_WALLET_RECOVERY_CODES'
+  | 'PM_REQUEST_WALLET_RECOVERY_BOOTSTRAP_CHALLENGE'
+  | 'PM_VERIFY_WALLET_RECOVERY_BOOTSTRAP'
+  | 'PM_PREPARE_WALLET_RECOVERY_WITH_BOOTSTRAP'
+  | 'PM_COMPLETE_WALLET_RECOVERY'
   | 'PM_GET_RECOVERY_EMAILS'
   | 'PM_SET_RECOVERY_EMAILS'
   | 'PM_SIGN_TX_WITH_ACTIONS'
@@ -878,11 +885,11 @@ export type ParentToChildType =
   | 'PM_SET_CONFIRMATION_CONFIG'
   | 'PM_GET_CONFIRMATION_CONFIG'
   | 'PM_HAS_PASSKEY'
-  | 'PM_VIEW_ACCESS_KEYS'
-  | 'PM_DELETE_DEVICE_KEY'
-  | 'PM_LINK_DEVICE_WITH_SCANNED_QR_DATA'
+  | 'PM_LIST_LINKED_DEVICES'
+  | 'PM_REVOKE_LINKED_DEVICE'
+  | 'PM_SCAN_AND_LINK_DEVICE'
   | 'PM_START_DEVICE2_LINKING_FLOW'
-  | 'PM_STOP_DEVICE2_LINKING_FLOW'
+  | 'PM_CANCEL_DEVICE_LINKING'
   | 'PM_SYNC_ACCOUNT_FLOW';
 
 export type ChildToParentType =
@@ -967,6 +974,14 @@ export interface PMAddWalletSignerPayload {
   walletId: WalletId | string;
   rpId: string;
   signerSelection: AddSignerSelection;
+  confirmationConfig?: Partial<ConfirmationConfig>;
+  options?: Record<string, unknown>;
+}
+
+export interface PMAddPasskeyPayload {
+  walletId: WalletId | string;
+  rpId: string;
+  authorization: AddPasskeyAuthorization;
   confirmationConfig?: Partial<ConfirmationConfig>;
   options?: Record<string, unknown>;
 }
@@ -1254,18 +1269,41 @@ export interface PMEnrollEmailOtpPayload {
   appSessionJwt?: never;
 }
 
-export interface PMGetEmailOtpRecoveryCodeStatusPayload {
+export interface PMWalletRecoverySessionPayload {
   walletId: string;
+}
+
+export interface PMRotateWalletRecoveryCodesPayload extends PMWalletRecoverySessionPayload {
+  authorization: WalletRecoveryRotationAuthorization;
+}
+
+export interface PMRequestWalletRecoveryBootstrapChallengePayload {
+  walletId: string;
+  orgId: string;
   relayUrl?: string;
 }
 
-export interface PMShowEmailOtpRecoveryCodesPayload {
+export interface PMVerifyWalletRecoveryBootstrapPayload {
   walletId: string;
+  orgId: string;
+  challengeId: string;
+  otpCode: string;
   relayUrl?: string;
 }
 
-export interface PMRotateEmailOtpRecoveryCodesPayload {
+export interface PMPrepareWalletRecoveryWithBootstrapPayload {
   walletId: string;
+  orgId: string;
+  challengeId: string;
+  recoveryBootstrapGrant: string;
+  replacedCredentialIdB64u: string;
+  recoveryCode: string;
+  relayUrl?: string;
+}
+
+export interface PMCompleteWalletRecoveryPayload {
+  walletId: string;
+  recoveryOperationId: string;
   relayUrl?: string;
 }
 
@@ -1307,18 +1345,16 @@ export interface PMHasPasskeyPayload {
   walletId: string;
 }
 
-export interface PMViewAccessKeysPayload {
+export interface PMListLinkedDevicesPayload {
   walletId: string;
-  nearAccountId: string;
+  limit: number;
+  cursor: string | null;
 }
 
-export interface PMDeleteDeviceKeyPayload {
+export interface PMRevokeLinkedDevicePayload {
   walletId: string;
-  nearAccountId: string;
-  publicKeyToDelete: string;
-  options: {
-    [key: string]: unknown;
-  };
+  deviceId: string;
+  requestedAtMs: number;
 }
 
 export interface PMGetRecoveryEmailsPayload {
@@ -1378,6 +1414,7 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_REDEEM_HOSTED_WALLET_SEAMS_SESSION', PMRedeemHostedWalletSeamsSessionPayload>
   | RpcEnvelope<'PM_REGISTER_WALLET', PMRegisterWalletPayload>
   | RpcEnvelope<'PM_ADD_WALLET_SIGNER', PMAddWalletSignerPayload>
+  | RpcEnvelope<'PM_ADD_PASSKEY', PMAddPasskeyPayload>
   | RpcEnvelope<'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION', BootstrapThresholdEcdsaSessionArgs>
   | RpcEnvelope<'PM_UNLOCK', PMUnlockPayload>
   | RpcEnvelope<'PM_LOCK'>
@@ -1407,9 +1444,19 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_ENROLL_EMAIL_OTP', PMEnrollEmailOtpPayload>
   | RpcEnvelope<'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY', PMEmailOtpEcdsaCapabilityPayload>
   | RpcEnvelope<'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION', PMRefreshEmailOtpSigningSessionPayload>
-  | RpcEnvelope<'PM_GET_EMAIL_OTP_RECOVERY_CODE_STATUS', PMGetEmailOtpRecoveryCodeStatusPayload>
-  | RpcEnvelope<'PM_SHOW_EMAIL_OTP_RECOVERY_CODES', PMShowEmailOtpRecoveryCodesPayload>
-  | RpcEnvelope<'PM_ROTATE_EMAIL_OTP_RECOVERY_CODES', PMRotateEmailOtpRecoveryCodesPayload>
+  | RpcEnvelope<'PM_GET_WALLET_RECOVERY_CODE_STATUS', PMWalletRecoverySessionPayload>
+  | RpcEnvelope<'PM_ACKNOWLEDGE_WALLET_RECOVERY_CODE_BACKUP', PMWalletRecoverySessionPayload>
+  | RpcEnvelope<'PM_ROTATE_WALLET_RECOVERY_CODES', PMRotateWalletRecoveryCodesPayload>
+  | RpcEnvelope<
+      'PM_REQUEST_WALLET_RECOVERY_BOOTSTRAP_CHALLENGE',
+      PMRequestWalletRecoveryBootstrapChallengePayload
+    >
+  | RpcEnvelope<'PM_VERIFY_WALLET_RECOVERY_BOOTSTRAP', PMVerifyWalletRecoveryBootstrapPayload>
+  | RpcEnvelope<
+      'PM_PREPARE_WALLET_RECOVERY_WITH_BOOTSTRAP',
+      PMPrepareWalletRecoveryWithBootstrapPayload
+    >
+  | RpcEnvelope<'PM_COMPLETE_WALLET_RECOVERY', PMCompleteWalletRecoveryPayload>
   | RpcEnvelope<'PM_GET_RECOVERY_EMAILS', PMGetRecoveryEmailsPayload>
   | RpcEnvelope<'PM_SET_RECOVERY_EMAILS', PMSetRecoveryEmailsPayload>
   | RpcEnvelope<'PM_SIGN_TX_WITH_ACTIONS', PMSignTxPayload>
@@ -1440,13 +1487,12 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_SET_CONFIRMATION_CONFIG', PMSetConfirmationConfigPayload>
   | RpcEnvelope<'PM_GET_CONFIRMATION_CONFIG'>
   | RpcEnvelope<'PM_HAS_PASSKEY', PMHasPasskeyPayload>
-  | RpcEnvelope<'PM_VIEW_ACCESS_KEYS', PMViewAccessKeysPayload>
-  | RpcEnvelope<'PM_DELETE_DEVICE_KEY', PMDeleteDeviceKeyPayload>
+  | RpcEnvelope<'PM_LIST_LINKED_DEVICES', PMListLinkedDevicesPayload>
+  | RpcEnvelope<'PM_REVOKE_LINKED_DEVICE', PMRevokeLinkedDevicePayload>
   | RpcEnvelope<
-      'PM_LINK_DEVICE_WITH_SCANNED_QR_DATA',
+      'PM_SCAN_AND_LINK_DEVICE',
       {
-        qrData: DeviceLinkingQRData;
-        fundingAmount: string;
+        qrData: QrLinkedDeviceSessionPayloadV4;
         options?: {
           confirmationConfig?: Partial<ConfirmationConfig>;
           confirmerText?: { title?: string; body?: string };
@@ -1458,14 +1504,13 @@ export type ParentToChildEnvelope =
       {
         ui?: 'modal' | 'inline';
         cameraId?: string;
-        signerSlot?: number;
         options?: {
           confirmationConfig?: Partial<ConfirmationConfig>;
           confirmerText?: { title?: string; body?: string };
         };
       }
     >
-  | RpcEnvelope<'PM_STOP_DEVICE2_LINKING_FLOW'>
+  | RpcEnvelope<'PM_CANCEL_DEVICE_LINKING'>
   | RpcEnvelope<'PM_SYNC_ACCOUNT_FLOW', { walletId?: string }>;
 
 export type ChildToParentEnvelope =

@@ -52,6 +52,11 @@ export type AppSessionVersion = DomainId<'AppSessionVersion'>;
 // must not be used as a wallet, NEAR account, or signing-key identity.
 export type WebAuthnRpId = DomainId<'WebAuthnRpId'>;
 export type WebAuthnCredentialIdB64u = DomainId<'WebAuthnCredentialIdB64u'>;
+
+// One passkey-sealed custody envelope. This locates ciphertext for a credential
+// and must never be used as a wallet, credential, lane, material-activation, or
+// authorization identity.
+export type PasskeyEnvelopeId = DomainId<'PasskeyEnvelopeId'>;
 export type WalletAuthMethodId = DomainId<'WalletAuthMethodId'>;
 export type WalletAuthorityBindingDigest = DomainId<'WalletAuthorityBindingDigest'>;
 export type AppSessionJwt = DomainId<'AppSessionJwt'>;
@@ -142,8 +147,15 @@ export type LinkedDeviceId = DomainId<'LinkedDeviceId'>;
 // Delegated mandate policy identity.
 export type MandatePolicyId = DomainId<'MandatePolicyId'>;
 
-// Rotation or lane-creation operation identity.
-export type RotationOperationId = DomainId<'RotationOperationId'>;
+// Immutable identities for one rotatable signing-lane protocol operation and
+// its aggregate enrollment.
+export type LaneOperationId = DomainId<'LaneOperationId'>;
+export type LaneEnrollmentId = DomainId<'LaneEnrollmentId'>;
+export type LaneOperationIdempotencyKey = DomainId<'LaneOperationIdempotencyKey'>;
+export type LinkedDeviceEnrollmentId = DomainId<'LinkedDeviceEnrollmentId'>;
+export type Ed25519YaoSuiteId = DomainId<'Ed25519YaoSuiteId'>;
+export type EcdsaRelayerKeyId = DomainId<'EcdsaRelayerKeyId'>;
+export type LaneHolderRecipientHandleV1 = DomainId<'LaneHolderRecipientHandleV1'>;
 
 // Canonical delegated intent digest.
 export type DelegatedIntentDigest = DomainId<'DelegatedIntentDigest'>;
@@ -309,6 +321,10 @@ export function parseWebAuthnCredentialIdB64u(
   raw: unknown,
 ): DomainIdParseResult<WebAuthnCredentialIdB64u> {
   return parseDomainId(raw, 'credentialIdB64u');
+}
+
+export function parsePasskeyEnvelopeId(raw: unknown): DomainIdParseResult<PasskeyEnvelopeId> {
+  return parseDomainId(raw, 'passkeyEnvelopeId');
 }
 
 export function parseWalletAuthMethodId(raw: unknown): DomainIdParseResult<WalletAuthMethodId> {
@@ -548,8 +564,38 @@ export function parseMandatePolicyId(raw: unknown): DomainIdParseResult<MandateP
   return parseDomainId(raw, 'mandatePolicyId');
 }
 
-export function parseRotationOperationId(raw: unknown): DomainIdParseResult<RotationOperationId> {
-  return parseDomainId(raw, 'rotationOperationId');
+export function parseLaneOperationId(raw: unknown): DomainIdParseResult<LaneOperationId> {
+  return parseDomainId(raw, 'laneOperationId');
+}
+
+export function parseLaneEnrollmentId(raw: unknown): DomainIdParseResult<LaneEnrollmentId> {
+  return parseDomainId(raw, 'laneEnrollmentId');
+}
+
+export function parseLaneOperationIdempotencyKey(
+  raw: unknown,
+): DomainIdParseResult<LaneOperationIdempotencyKey> {
+  return parseDomainId(raw, 'laneOperationIdempotencyKey');
+}
+
+export function parseLinkedDeviceEnrollmentId(
+  raw: unknown,
+): DomainIdParseResult<LinkedDeviceEnrollmentId> {
+  return parseDomainId(raw, 'linkedDeviceEnrollmentId');
+}
+
+export function parseEd25519YaoSuiteId(raw: unknown): DomainIdParseResult<Ed25519YaoSuiteId> {
+  return parseDomainId(raw, 'ed25519YaoSuiteId');
+}
+
+export function parseEcdsaRelayerKeyId(raw: unknown): DomainIdParseResult<EcdsaRelayerKeyId> {
+  return parseDomainId(raw, 'ecdsaRelayerKeyId');
+}
+
+export function parseLaneHolderRecipientHandleV1(
+  raw: unknown,
+): DomainIdParseResult<LaneHolderRecipientHandleV1> {
+  return parseDomainId(raw, 'laneHolderRecipientHandle');
 }
 
 export function parseDelegatedIntentDigest(

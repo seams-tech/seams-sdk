@@ -26,6 +26,7 @@ import type {
 } from '@shared/utils/registrationIntent';
 import type { WalletAuthMethodBinding } from '@shared/utils/walletCapabilityBindings';
 import type {
+  LinkedDeviceWalletSessionAuthorizationId,
   WalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
@@ -383,6 +384,11 @@ export type WalletAuthenticationState =
       readonly kind: 'authenticated';
       readonly walletId: WalletId;
       readonly authMethod: WalletAuthMethod;
+    }
+  | {
+      readonly kind: 'linked_device_session';
+      readonly walletId: WalletId;
+      readonly authMethod?: never;
     };
 
 export type ReusableWalletSessionState =
@@ -405,6 +411,17 @@ export type ReusableWalletSessionState =
       readonly authMethod: WalletAuthMethod;
       readonly remainingUses: number;
       readonly expiresAtMs: number;
+      readonly detectedAtMs?: never;
+      readonly reason?: never;
+    }
+  | {
+      readonly kind: 'linked_device_active';
+      readonly walletId: WalletId;
+      readonly authorizationId: LinkedDeviceWalletSessionAuthorizationId;
+      readonly walletSessionId: WalletSessionId;
+      readonly authMethod: 'linked_device';
+      readonly expiresAtMs: number;
+      readonly remainingUses?: never;
       readonly detectedAtMs?: never;
       readonly reason?: never;
     }

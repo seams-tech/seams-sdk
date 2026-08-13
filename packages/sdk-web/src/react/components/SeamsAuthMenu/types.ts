@@ -36,7 +36,7 @@ export type SeamsAuthMenuOtpPrompt = {
   onSubmit: (
     otpCode: string,
     context?: { recoveryKey?: string },
-  ) => void | Promise<unknown> | SeamsAuthMenuOtpSubmitResult;
+  ) => void | Promise<unknown>;
   onRerollAccount?: () =>
     | Promise<
         | {
@@ -70,11 +70,6 @@ export type SeamsAuthMenuOtpPrompt = {
     | void;
   onCancel?: () => void | Promise<void>;
   resendDebounceMs?: number;
-};
-
-export type SeamsAuthMenuOtpSubmitResult = {
-  walletId?: string;
-  activeRecoveryWrappedEnrollmentEscrowCount?: number;
 };
 
 export type SeamsAuthMenuRegistrationPrompt = {

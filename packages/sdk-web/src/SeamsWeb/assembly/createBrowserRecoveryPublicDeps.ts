@@ -83,6 +83,8 @@ export function createBrowserRecoveryPublicDeps(args: {
   getSigningSessionCoordinator: () => SigningSessionCoordinator;
   getTheme: () => ThemeMode;
   readActiveWalletSessionAuthorization: PersistedAvailableSigningLanesDeps['readActiveWalletSessionAuthorization'];
+  ed25519YaoPublicCapabilityLanes: PersistedAvailableSigningLanesDeps['ed25519YaoPublicCapabilityLanes'];
+  isEd25519YaoPublicCapabilityActive: PersistedAvailableSigningLanesDeps['isEd25519YaoPublicCapabilityActive'];
   listEcdsaSigningCapabilitiesForWallet: PersistedAvailableSigningLanesDeps['listEcdsaSigningCapabilitiesForWallet'];
 }): RecoveryPublicDeps {
   const readCanonicalWalletSessionStatus = createCanonicalWalletSessionStatusReader({
@@ -109,6 +111,8 @@ export function createBrowserRecoveryPublicDeps(args: {
     ecdsaSessions: args.warmSigning.ecdsaSessions,
     relayerUrl: String(args.seamsWebConfigs.network.relayer?.url || '').trim(),
     readActiveWalletSessionAuthorization: args.readActiveWalletSessionAuthorization,
+    ed25519YaoPublicCapabilityLanes: args.ed25519YaoPublicCapabilityLanes,
+    isEd25519YaoPublicCapabilityActive: args.isEd25519YaoPublicCapabilityActive,
     listEcdsaSigningCapabilitiesForWallet: args.listEcdsaSigningCapabilitiesForWallet,
     touchConfirm: args.touchConfirm,
     passkeyMpcSession: args.passkeyMpcSession,
@@ -116,8 +120,7 @@ export function createBrowserRecoveryPublicDeps(args: {
     emailOtpSessions: {
       readWarmSessionStatusOnly: (target) =>
         args.emailOtpSessions.readWarmSessionStatusOnly(target),
-      requestExportChallenge: (request) =>
-        args.emailOtpSessions.requestExportChallenge(request),
+      requestExportChallenge: (request) => args.emailOtpSessions.requestExportChallenge(request),
       exportEcdsaKeyWithDurableAuthorization: (request) =>
         args.emailOtpSessions.exportEcdsaKeyWithDurableAuthorization(request),
       exportEd25519YaoSeedWithFreshEmailOtpLane: (request) =>
@@ -128,14 +131,8 @@ export function createBrowserRecoveryPublicDeps(args: {
         {
           queueByWallet: args.thresholdEcdsaBootstrapQueueByWallet,
           activationDeps: args.getWalletSessionActivationDeps(),
-          sealPersistence: args.passkeyMpcSession,
           persistEcdsaRoleLocalReadyRecord:
             args.runtimePorts.storage.persistEcdsaRoleLocalReadyRecord,
-          resolveSealTransport: ({ lane, authorization }) =>
-            args.warmSigning.capabilityReader.resolveEcdsaSealTransportForLane({
-              lane,
-              authorization,
-            }),
         },
         provisionArgs,
       ),
@@ -144,13 +141,11 @@ export function createBrowserRecoveryPublicDeps(args: {
       args.emailOtpSessions,
       String(args.seamsWebConfigs.network.relayer?.url || '').trim(),
     ),
-    getWalletSessionStatus: (statusArgs) =>
-      readCanonicalWalletSessionStatus(statusArgs),
+    getWalletSessionStatus: (statusArgs) => readCanonicalWalletSessionStatus(statusArgs),
     resolvePasskeyEd25519YaoExportContext: args.resolvePasskeyEd25519YaoExportContext,
     resolveEmailOtpEd25519YaoExportContext: args.resolveEmailOtpEd25519YaoExportContext,
     sessionLifecycle: {
-      readAuthorization: async (request) =>
-        await readClientWalletSessionAuthorization(request),
+      readAuthorization: async (request) => await readClientWalletSessionAuthorization(request),
       invalidateExpiredAuthorization: async (request) => {
         const result = await args.getSigningSessionCoordinator().invalidateExpiredWalletSession({
           state: request.state,

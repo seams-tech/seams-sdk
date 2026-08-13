@@ -250,7 +250,8 @@ test.describe('wallet iframe auth handlers', () => {
     const deps = createDeps({
       currentWalletId: walletId,
       posted,
-      onGetWalletSession: (requestedWalletId) => loggedInWalletSession(requestedWalletId || walletId),
+      onGetWalletSession: (requestedWalletId) =>
+        loggedInWalletSession(requestedWalletId || walletId),
       onUnlock: async () => ({
         success: true,
         kind: 'near_wallet_unlocked',
@@ -277,7 +278,9 @@ test.describe('wallet iframe auth handlers', () => {
       expect(activeHostedWalletAppSessionJwt('https://relay.example.test')).toBeUndefined();
 
       await handlers.PM_LOCK!({ type: 'PM_LOCK', requestId: 'lock-local' });
-      expect(activeWalletOriginAppSessionJwt('https://relay.example.test', walletId)).toBeUndefined();
+      expect(
+        activeWalletOriginAppSessionJwt('https://relay.example.test', walletId),
+      ).toBeUndefined();
     } finally {
       clearWalletOriginAppSession();
       if (originalWindow === undefined) Reflect.deleteProperty(globalThis, 'window');
@@ -351,7 +354,8 @@ test.describe('wallet iframe auth handlers', () => {
       clearWalletOriginAppSession();
       if (originalWindow === undefined) Reflect.deleteProperty(globalThis, 'window');
       else Reflect.set(globalThis, 'window', originalWindow);
-      if (originalSessionStorage === undefined) Reflect.deleteProperty(globalThis, 'sessionStorage');
+      if (originalSessionStorage === undefined)
+        Reflect.deleteProperty(globalThis, 'sessionStorage');
       else Reflect.set(globalThis, 'sessionStorage', originalSessionStorage);
     }
   });
@@ -365,7 +369,8 @@ test.describe('wallet iframe auth handlers', () => {
     const deps = createDeps({
       currentWalletId: walletId,
       posted,
-      onGetWalletSession: (requestedWalletId) => loggedInWalletSession(requestedWalletId || walletId),
+      onGetWalletSession: (requestedWalletId) =>
+        loggedInWalletSession(requestedWalletId || walletId),
       onUnlock: async () => {
         unlockCount += 1;
         return {

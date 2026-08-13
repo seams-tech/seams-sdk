@@ -155,7 +155,7 @@ The classifications in this table are bounded to the isolated Rust checkpoint.
 | Canonical numeric wire registry, bounded encoding, and strict decoder | Full | `src/codec.rs`: fixed header and role/round registry, exact per-round widths, 49,228-byte ceiling, role-specific decode functions, and canonical field constructors |
 | Encoded new/new semantic replay | Full | `src/codec.rs`: `every_fixed_round_round_trips_and_drives_new_new` encodes and decodes every peer message before advancing |
 | Parser mutation and fuzz corpus | Full | Every frame is tested under every strict truncation, trailing bytes, header mutations, oversized length declarations, sampled body mutations, and a 4,096-case seeded mutation sweep |
-| Production Client and SigningWorker Wasm adapters use this driver | Full | `wasm/router_ab_ecdsa_presign_client` and `wasm/router_ab_ecdsa_signing_worker`; the cross-Wasm distributed suite completes all rounds |
+| Production role-local and SigningWorker Wasm adapters use this driver | Full | `wasm/router_ab_ecdsa_client` and `wasm/router_ab_ecdsa_signing_worker`; the cross-Wasm distributed suite completes all rounds |
 | Persistence-backed exactly-once consumption | Full | `router-ab-ecdsa-pool` defines the contract; the encrypted IndexedDB Client store and atomic SigningWorker lifecycle reducer implement forward-only reserve, commit, terminal deletion, recovery, and retirement |
 
 ## Frozen deterministic vector

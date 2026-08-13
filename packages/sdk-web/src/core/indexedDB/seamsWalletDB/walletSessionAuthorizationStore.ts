@@ -278,7 +278,10 @@ function parseWalletSessionAuthorizationTokenValue(
   value: unknown,
 ): { walletSessionJwt: WalletSessionAuthorizationJwt } | null {
   if (!isRecord(value)) return null;
-  if (Object.keys(value).length !== 1 || !Object.prototype.hasOwnProperty.call(value, 'walletSessionJwt')) {
+  if (
+    Object.keys(value).length !== 1 ||
+    !Object.prototype.hasOwnProperty.call(value, 'walletSessionJwt')
+  ) {
     return null;
   }
   const walletSessionJwt = parseWalletSessionAuthorizationJwt(value.walletSessionJwt);
@@ -309,6 +312,7 @@ function parseWalletSessionAuthorizationToken(
     claims.quotaId !== identity.quotaId ||
     !seamsSessionMatches ||
     claims.expiresAtMs < identity.expiresAtMs ||
+    payload?.authorizationKind !== 'owner_wallet_session' ||
     payload?.kind !== expectedKind
   ) {
     return null;
@@ -431,10 +435,13 @@ export function parseWalletSessionAuthorizationProjection(
   switch (raw.status) {
     case 'active': {
       if (!hasExactFields(raw, ACTIVE_FIELDS)) return null;
-      const walletSessionTokens = parseWalletSessionAuthorizationTokenBundle(raw.walletSessionTokens, {
-        recordVersion: WALLET_SESSION_AUTHORIZATION_RECORD_VERSION,
-        ...identity,
-      });
+      const walletSessionTokens = parseWalletSessionAuthorizationTokenBundle(
+        raw.walletSessionTokens,
+        {
+          recordVersion: WALLET_SESSION_AUTHORIZATION_RECORD_VERSION,
+          ...identity,
+        },
+      );
       if (!walletSessionTokens) return null;
       return {
         recordVersion: WALLET_SESSION_AUTHORIZATION_RECORD_VERSION,
@@ -630,7 +637,9 @@ export class WalletSessionAuthorizationRepository {
       const current = active[0];
       if (current && !walletSessionAuthorizationIdentityMatches(current, incoming)) {
         tx.abort();
-        throw new Error('Wallet Session authorization identity does not match the active projection');
+        throw new Error(
+          'Wallet Session authorization identity does not match the active projection',
+        );
       }
       const merged = current
         ? buildActiveWalletSessionAuthorizationProjection({

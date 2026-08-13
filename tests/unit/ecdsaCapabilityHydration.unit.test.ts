@@ -8,7 +8,10 @@ import {
   type DomainIdParseResult,
 } from '@shared/utils/domainIds';
 import { parseCorrelationId } from '@shared/utils/canonicalPrimitives';
-import { ecdsaCapabilityHydrationLookupFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
+import {
+  ecdsaCapabilityActivationLookupFixture,
+  ecdsaCapabilityHydrationLookupFixture,
+} from './helpers/ecdsaCapabilityManifest.fixtures';
 
 function unwrap<T>(result: DomainIdParseResult<T>): T {
   if (!result.ok) throw new Error(result.error.message);
@@ -62,6 +65,34 @@ test('normalizes exact active ECDSA material into live and rehydration plans', (
     capability: fixture.active.manifest.signer.capability,
     materialOwner: fixture.active.manifest.signer.materialOwner,
     materialActivation: fixture.active.manifest.activation.materialActivation,
+  });
+});
+
+test('rehydrates Router-minted material capability through its client manifest', () => {
+  const active = ecdsaCapabilityActivationLookupFixture({
+    materialActivationCapability: 'router-minted-ecdsa-material-capability',
+  });
+  expect(active.manifest.signer.capability).not.toBe(
+    active.manifest.activation.materialActivation.capability,
+  );
+  expect(resolveAbsentEcdsaHydration(active)).toMatchObject({
+    kind: 'rehydrate_material_activation',
+    capability: active.manifest.activation.materialActivation.capability,
+    materialActivation: active.manifest.activation.materialActivation,
+  });
+  expect(
+    resolveEcdsaCapabilityHydration({
+      lookup: active,
+      runtime: {
+        kind: 'live',
+        runtime: unwrap(parseMpcCapabilityRuntimeRef('ecdsa-router-material-runtime-fixture')),
+        materialActivation: active.manifest.activation.materialActivation,
+      },
+    }),
+  ).toMatchObject({
+    kind: 'use_live_runtime',
+    capability: active.manifest.activation.materialActivation.capability,
+    materialActivation: active.manifest.activation.materialActivation,
   });
 });
 

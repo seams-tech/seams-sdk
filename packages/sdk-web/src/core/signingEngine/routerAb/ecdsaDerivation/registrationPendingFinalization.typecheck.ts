@@ -1,4 +1,3 @@
-import type { EcdsaRoleLocalPendingStateBlob } from '@/core/platform/types';
 import type {
   RouterAbEcdsaRegistrationRequestFactsV1,
   RouterAbEcdsaRegistrationRequestV1,
@@ -6,20 +5,18 @@ import type {
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
-  buildRouterAbEcdsaRegistrationPendingFinalizationV1,
+  buildWalletCustodyRouterAbEcdsaRegistrationPendingFinalizationV1,
   decodeRouterAbEcdsaRegistrationPendingFinalizationV1,
   encodeRouterAbEcdsaRegistrationPendingFinalizationV1,
   type RouterAbEcdsaRegistrationPendingFinalizationV1,
 } from './registrationPendingFinalization';
 
-declare const pendingStateBlob: EcdsaRoleLocalPendingStateBlob;
 declare const registrationFacts: RouterAbEcdsaRegistrationRequestFactsV1;
 declare const registrationRequest: RouterAbEcdsaRegistrationRequestV1;
 declare const clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
 declare const runtimePolicyScope: RuntimePolicyScope;
 
-const valid = buildRouterAbEcdsaRegistrationPendingFinalizationV1({
-  pendingStateBlob,
+const valid = buildWalletCustodyRouterAbEcdsaRegistrationPendingFinalizationV1({
   runtimePolicyScope,
   registrationFacts,
   registrationRequest,
@@ -30,15 +27,7 @@ const decoded: RouterAbEcdsaRegistrationPendingFinalizationV1 =
   decodeRouterAbEcdsaRegistrationPendingFinalizationV1(encoded);
 void decoded;
 
-// @ts-expect-error pending finalization requires the worker-owned pending state.
-buildRouterAbEcdsaRegistrationPendingFinalizationV1({
-  registrationFacts,
-  registrationRequest,
-  clientActivation,
-});
-
-buildRouterAbEcdsaRegistrationPendingFinalizationV1({
-  pendingStateBlob,
+buildWalletCustodyRouterAbEcdsaRegistrationPendingFinalizationV1({
   runtimePolicyScope,
   registrationFacts,
   registrationRequest,
@@ -47,8 +36,7 @@ buildRouterAbEcdsaRegistrationPendingFinalizationV1({
   registrationCeremonyId: 'legacy-ceremony-alias',
 });
 
-buildRouterAbEcdsaRegistrationPendingFinalizationV1({
-  pendingStateBlob,
+buildWalletCustodyRouterAbEcdsaRegistrationPendingFinalizationV1({
   runtimePolicyScope,
   registrationFacts,
   registrationRequest,

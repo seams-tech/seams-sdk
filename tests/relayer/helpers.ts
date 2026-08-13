@@ -1,7 +1,6 @@
 import type { Server } from 'node:http';
 import http from 'node:http';
 import type { Buffer } from 'node:buffer';
-import { createHash } from 'node:crypto';
 import expressImport from 'express';
 import type {
   ConsoleAuthAdapter,
@@ -9,15 +8,6 @@ import type {
   SessionAdapter,
 } from '@server/router/express-adaptor';
 import type { CfEnv, CfExecutionContext } from '@server/router/cloudflare-adaptor';
-import { base64UrlEncode } from '@shared/utils/encoders';
-import {
-  EMAIL_OTP_RECOVERY_KEY_COUNT,
-  EMAIL_OTP_RECOVERY_WRAP_ALG,
-  EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
-  EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
-  buildEmailOtpRecoveryWrapBinding,
-  encodeEmailOtpRecoveryWrappedEnrollmentAad,
-} from '@shared/utils/emailOtpRecoveryKey';
 
 type ExpressMiddleware = (req: unknown, res: unknown, next: (err?: unknown) => void) => unknown;
 type ExpressAppLike = ((req: unknown, res: unknown) => unknown) & {
@@ -192,97 +182,6 @@ export function makeGoogleEmailOtpRegistrationOffer(input: {
     selectedCandidateId: candidateId,
     candidates: [{ candidateId, walletId: input.walletId }] as const,
   };
-}
-
-export function makeEmailOtpRecoveryWrappedEnrollmentEscrows(input: {
-  walletId: string;
-  userId: string;
-  authSubjectId?: string;
-  enrollmentSealKeyVersion: string;
-  nowMs?: number;
-}) {
-  const nowMs = input.nowMs ?? Date.now();
-  const authSubjectId = input.authSubjectId || input.userId;
-  return Array.from({ length: EMAIL_OTP_RECOVERY_KEY_COUNT }, (_, index) => {
-    const metadata = {
-      walletId: input.walletId,
-      userId: input.userId,
-      authSubjectId,
-      authMethod: 'google_sso_email_otp' as const,
-      enrollmentId: `email-otp-device-enrollment-v1:${input.walletId}:${authSubjectId}`,
-      enrollmentVersion: '1',
-      enrollmentSealKeyVersion: input.enrollmentSealKeyVersion,
-      signingRootId: 'email_otp_default_signing_root',
-      signingRootVersion: 'default',
-      recoveryKeyId: `recovery-key-${index + 1}`,
-    };
-    return {
-      version: 'email_otp_recovery_wrapped_enrollment_escrow_v1',
-      alg: EMAIL_OTP_RECOVERY_WRAP_ALG,
-      secretKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
-      escrowKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
-      ...metadata,
-      recoveryKeyStatus: 'active',
-      nonceB64u: base64UrlEncode(Uint8Array.from(Array.from({ length: 12 }, (_, i) => i + index))),
-      wrappedDeviceEnrollmentEscrowB64u: base64UrlEncode(
-        Uint8Array.from(Array.from({ length: 48 }, (_, i) => i + index + 1)),
-      ),
-      aadHashB64u: base64UrlEncode(
-        createHash('sha256')
-          .update(
-            encodeEmailOtpRecoveryWrappedEnrollmentAad(buildEmailOtpRecoveryWrapBinding(metadata)),
-          )
-          .digest(),
-      ),
-      issuedAtMs: nowMs,
-      updatedAtMs: nowMs,
-    };
-  });
-}
-
-export function makeEmailOtpRecoveryRotationEscrowInputs(input: {
-  walletId: string;
-  userId: string;
-  authSubjectId?: string;
-  enrollmentSealKeyVersion: string;
-  nowMs?: number;
-}): Array<{
-  recoveryKeyId: string;
-  nonceB64u: string;
-  wrappedDeviceEnrollmentEscrowB64u: string;
-  aadHashB64u: string;
-}> {
-  return makeEmailOtpRecoveryWrappedEnrollmentEscrows(input).map((record, index) => {
-    const recoveryKeyId = `rotated-recovery-key-${index + 1}`;
-    const metadata = {
-      walletId: record.walletId,
-      userId: record.userId,
-      authSubjectId: record.authSubjectId,
-      authMethod: record.authMethod,
-      enrollmentId: record.enrollmentId,
-      enrollmentVersion: record.enrollmentVersion,
-      enrollmentSealKeyVersion: record.enrollmentSealKeyVersion,
-      signingRootId: record.signingRootId,
-      signingRootVersion: record.signingRootVersion,
-      recoveryKeyId,
-    };
-    return {
-      recoveryKeyId,
-      nonceB64u: base64UrlEncode(
-        Uint8Array.from(Array.from({ length: 12 }, (_, offset) => offset + index + 32)),
-      ),
-      wrappedDeviceEnrollmentEscrowB64u: base64UrlEncode(
-        Uint8Array.from(Array.from({ length: 48 }, (_, offset) => offset + index + 64)),
-      ),
-      aadHashB64u: base64UrlEncode(
-        createHash('sha256')
-          .update(
-            encodeEmailOtpRecoveryWrappedEnrollmentAad(buildEmailOtpRecoveryWrapBinding(metadata)),
-          )
-          .digest(),
-      ),
-    };
-  });
 }
 
 export function makeSessionAdapter(overrides: Partial<SessionAdapter> = {}): SessionAdapter {

@@ -11,9 +11,7 @@ const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const sdkRoot = path.resolve(scriptDirectory, '../..');
 const repoRoot = path.resolve(sdkRoot, '../..');
 const iterations = 9;
-const reportOutputPath = process.argv[2]
-  ? path.resolve(process.cwd(), process.argv[2])
-  : null;
+const reportOutputPath = process.argv[2] ? path.resolve(process.cwd(), process.argv[2]) : null;
 
 const workerBundles = [
   {
@@ -24,26 +22,22 @@ const workerBundles = [
   {
     id: 'ecdsaDerivationClient',
     path: 'packages/sdk-web/dist/workers/ecdsa-derivation-client.worker.js',
-    ownedWasmArtifacts: ['router_ab_ecdsa_derivation_client_bg.wasm'],
+    ownedWasmArtifacts: ['router_ab_ecdsa_client_bg.wasm'],
   },
   {
     id: 'ecdsaPresignClient',
     path: 'packages/sdk-web/dist/workers/ecdsa-presign-client.worker.js',
-    ownedWasmArtifacts: ['router_ab_ecdsa_presign_client_bg.wasm'],
+    ownedWasmArtifacts: [],
   },
   {
     id: 'ecdsaOnlineClient',
     path: 'packages/sdk-web/dist/workers/ecdsa-online-client.worker.js',
-    ownedWasmArtifacts: ['router_ab_ecdsa_online_client_bg.wasm'],
+    ownedWasmArtifacts: [],
   },
   {
     id: 'emailOtp',
     path: 'packages/sdk-web/dist/workers/email-otp.worker.js',
-    ownedWasmArtifacts: [
-      'email_otp_runtime_bg.wasm',
-      'router_ab_ecdsa_derivation_client_bg.wasm',
-      'router_ab_ed25519_yao_client_bg.wasm',
-    ],
+    ownedWasmArtifacts: ['email_otp_runtime_bg.wasm', 'router_ab_ed25519_yao_client_bg.wasm'],
   },
 ];
 
@@ -57,24 +51,10 @@ const targets = [
   },
   {
     id: 'ecdsaDerivationClient',
-    packageDirectory: 'wasm/router_ab_ecdsa_derivation_client/pkg',
-    moduleName: 'router_ab_ecdsa_derivation_client',
+    packageDirectory: 'wasm/router_ab_ecdsa_client/pkg',
+    moduleName: 'router_ab_ecdsa_client',
     wasmBudget: { raw: 630_000, gzip: 250_000 },
     firstOperation: 'client_ceremony_public_key',
-  },
-  {
-    id: 'ecdsaPresignClient',
-    packageDirectory: 'wasm/router_ab_ecdsa_presign_client/pkg',
-    moduleName: 'router_ab_ecdsa_presign_client',
-    wasmBudget: null,
-    firstOperation: 'fixed_client_session_init',
-  },
-  {
-    id: 'ecdsaOnlineClient',
-    packageDirectory: 'wasm/router_ab_ecdsa_online_client/pkg',
-    moduleName: 'router_ab_ecdsa_online_client',
-    wasmBudget: null,
-    firstOperation: 'online_client_init_marker',
   },
 ];
 
@@ -87,7 +67,7 @@ const operationLazyProfiles = [
   {
     operation: 'ecdsa_registration_recovery_refresh_export',
     workerBundles: ['ecdsaDerivationClient', 'emailOtp'],
-    requiredArtifacts: ['router_ab_ecdsa_derivation_client_bg.wasm'],
+    requiredArtifacts: ['router_ab_ecdsa_client_bg.wasm'],
   },
   {
     operation: 'ed25519_normal_signing',
@@ -97,20 +77,12 @@ const operationLazyProfiles = [
   {
     operation: 'ecdsa_normal_signing_role_local',
     workerBundles: ['ecdsaDerivationClient', 'ecdsaPresignClient', 'ecdsaOnlineClient'],
-    requiredArtifacts: [
-      'router_ab_ecdsa_derivation_client_bg.wasm',
-      'router_ab_ecdsa_presign_client_bg.wasm',
-      'router_ab_ecdsa_online_client_bg.wasm',
-    ],
+    requiredArtifacts: ['router_ab_ecdsa_client_bg.wasm'],
   },
   {
     operation: 'ecdsa_normal_signing_email_otp',
-    workerBundles: ['emailOtp', 'ecdsaPresignClient', 'ecdsaOnlineClient'],
-    requiredArtifacts: [
-      'email_otp_runtime_bg.wasm',
-      'router_ab_ecdsa_presign_client_bg.wasm',
-      'router_ab_ecdsa_online_client_bg.wasm',
-    ],
+    workerBundles: ['emailOtp', 'ecdsaDerivationClient', 'ecdsaPresignClient', 'ecdsaOnlineClient'],
+    requiredArtifacts: ['email_otp_runtime_bg.wasm', 'router_ab_ecdsa_client_bg.wasm'],
   },
 ];
 
@@ -200,29 +172,6 @@ function firstOperation(target, importedModule) {
       });
       return { kind: target.firstOperation, latency };
     }
-    case 'fixed_client_session_init': {
-      importedModule.init_router_ab_ecdsa_presign_client();
-      const additiveShare32 = new Uint8Array(32);
-      additiveShare32[31] = 1;
-      const groupPublicKey33 = Uint8Array.from(
-        Buffer.from('0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798', 'hex'),
-      );
-      const latency = measureSync(() => {
-        const session = new importedModule.ClientPresignSession(
-          additiveShare32,
-          groupPublicKey33,
-          'artifact-evidence-session-v1',
-        );
-        session.free();
-      });
-      additiveShare32.fill(0);
-      groupPublicKey33.fill(0);
-      return { kind: target.firstOperation, latency };
-    }
-    case 'online_client_init_marker': {
-      const latency = measureSync(() => importedModule.init_router_ab_ecdsa_online_client());
-      return { kind: target.firstOperation, latency };
-    }
     default:
       throw new Error(`Unknown first operation: ${target.firstOperation}`);
   }
@@ -270,7 +219,10 @@ async function measureTarget(target) {
       },
       sourceMaps: directoryFiles(target.packageDirectory)
         .filter((relativePath) => relativePath.endsWith('.map'))
-        .map((relativePath) => ({ path: relativePath, ...compressedSizes(readBytes(relativePath)) })),
+        .map((relativePath) => ({
+          path: relativePath,
+          ...compressedSizes(readBytes(relativePath)),
+        })),
       packageRawBytes: directoryRawBytes(target.packageDirectory),
     },
     runtime: {

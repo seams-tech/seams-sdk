@@ -31,11 +31,6 @@ export type ThresholdEcdsaCanonicalExportArtifact = {
 
 export type { EcdsaThresholdKeyId };
 
-export type ThresholdEcdsaClientAdditiveShareHandle = {
-  kind: 'email_otp_worker_session';
-  thresholdSessionId: string;
-};
-
 export type ThresholdEcdsaDerivationRoleLocalClientState = {
   kind: 'role_local_ready';
   artifactKind: 'ecdsa-derivation-role-local-client-state';
@@ -53,24 +48,11 @@ export type ThresholdEcdsaBackendBindingCommon = {
   clientVerifyingShareB64u: string;
 };
 
-export type ThresholdEcdsaEmailOtpWorkerBackendBinding = ThresholdEcdsaBackendBindingCommon & {
-  materialKind: 'email_otp_worker_handle';
-  /**
-   * Opaque handle for Email OTP-derived signing material owned by the Email OTP worker.
-   * The handle is not secret material; callers must ask the worker for a one-time byte handoff.
-   */
-  clientAdditiveShareHandle: ThresholdEcdsaClientAdditiveShareHandle;
-  ecdsaRoleLocalReadyRecord: EcdsaRoleLocalReadyRecord;
-  stateBlob?: never;
-  ecdsaDerivationRoleLocalClientState?: never;
-};
-
 export type ThresholdEcdsaRoleLocalReadyStateBlobBackendBinding =
   ThresholdEcdsaBackendBindingCommon & {
     materialKind: 'role_local_ready_state_blob';
     stateBlob: EcdsaRoleLocalReadyStateBlob;
     ecdsaRoleLocalReadyRecord: EcdsaRoleLocalReadyRecord;
-    clientAdditiveShareHandle?: never;
     ecdsaDerivationRoleLocalClientState?: never;
   };
 
@@ -83,7 +65,6 @@ export type ThresholdEcdsaRoleLocalWorkerHandleBackendBinding =
     authMethod: EcdsaRoleLocalAuthMethod;
     ecdsaRoleLocalReadyRecord?: never;
     stateBlob?: never;
-    clientAdditiveShareHandle?: never;
     ecdsaDerivationRoleLocalClientState?: never;
   };
 
@@ -94,7 +75,6 @@ export type ThresholdEcdsaRoleLocalDurablePublicAnchorBackendBinding =
     roleLocalMaterialHandle?: never;
     ecdsaRoleLocalReadyRecord?: never;
     stateBlob?: never;
-    clientAdditiveShareHandle?: never;
     ecdsaDerivationRoleLocalClientState?: never;
   };
 
@@ -106,20 +86,17 @@ export type ThresholdEcdsaRoleLocalDurableSealedBackendBinding =
     roleLocalMaterialHandle?: never;
     ecdsaRoleLocalReadyRecord?: never;
     stateBlob?: never;
-    clientAdditiveShareHandle?: never;
     ecdsaDerivationRoleLocalClientState?: never;
   };
 
 export type ThresholdEcdsaMetadataOnlyBackendBinding = ThresholdEcdsaBackendBindingCommon & {
   materialKind: 'metadata_only';
   stateBlob?: never;
-  clientAdditiveShareHandle?: never;
   ecdsaRoleLocalReadyRecord?: never;
   ecdsaDerivationRoleLocalClientState?: never;
 };
 
 export type ThresholdEcdsaBackendBinding =
-  | ThresholdEcdsaEmailOtpWorkerBackendBinding
   | ThresholdEcdsaRoleLocalWorkerHandleBackendBinding
   | ThresholdEcdsaRoleLocalDurableSealedBackendBinding
   | ThresholdEcdsaRoleLocalDurablePublicAnchorBackendBinding

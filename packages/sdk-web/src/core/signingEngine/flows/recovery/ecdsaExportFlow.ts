@@ -4,7 +4,6 @@ import type { VerifiedEcdsaPublicFacts } from '../../session/identity/evmFamilyE
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import {
   thresholdEcdsaChainTargetKey,
-  toWalletId,
   walletSessionRefFromSession,
   type ThresholdEcdsaChainTarget,
   type WalletId,
@@ -45,7 +44,6 @@ import {
   emitKeyExportEvent,
   type KeyExportEventCallback,
 } from './keyExportFlow';
-import { resolveActiveEcdsaCapabilityRuntime } from '../../session/material/activeEcdsaCapabilityRuntime';
 import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 import { resolveThresholdEcdsaSigningQueueKey } from '../../threshold/ecdsa/signingQueue';
 import {
@@ -276,17 +274,18 @@ async function prepareAndShowEcdsaExportArtifact(
             );
           }
         } else {
-          const current = await resolveActiveEcdsaCapabilityRuntime({
-            walletId: args.exportLane.key.walletId,
-            chainTarget: args.exportLane.chainTarget,
-          });
-          if (current.kind !== 'resolved') {
-            throw new Error(
-              `[SigningEngine][ecdsa-export] prepared material was superseded: ${current.reason}`,
-            );
+          const current = await resolveEcdsaExportMaterialForLane(
+            deps.sessionStore,
+            args.exportLane,
+          );
+          if (current.kind !== 'fresh_passkey_needs_authorization') {
+            throw new Error('[SigningEngine][ecdsa-export] prepared export authority changed');
           }
           if (
-            !mpcMaterialActivationRefsEqual(current.runtime.materialActivation, materialActivation)
+            !mpcMaterialActivationRefsEqual(
+              current.existingRoleLocalMaterial.materialActivation,
+              materialActivation,
+            )
           ) {
             throw new Error(
               '[SigningEngine][ecdsa-export] prepared material activation was superseded',
@@ -394,51 +393,29 @@ async function prepareExplicitEcdsaExportOperation(args: {
   readonly chainTarget: ThresholdEcdsaChainTarget;
   readonly requestId: string;
   readonly persistedMaterial: PersistedEcdsaRoleLocalMaterial;
+  readonly operationRuntime: EcdsaExportOperationRuntime;
 }): Promise<PreparedEcdsaOperationStepUp> {
-  const resolved = await resolveActiveEcdsaCapabilityRuntime({
-    walletId: toWalletId(args.walletId),
-    chainTarget: args.chainTarget,
-  });
-  if (resolved.kind !== 'resolved') {
-    throw new Error(
-      `[SigningEngine][ecdsa-export] canonical runtime unavailable: ${resolved.reason}`,
-    );
-  }
-  if (
-    !mpcMaterialActivationRefsEqual(
-      resolved.runtime.materialActivation,
-      args.persistedMaterial.materialActivation,
-    )
-  ) {
-    throw new Error('[SigningEngine][ecdsa-export] export material activation mismatch');
-  }
   return await prepareExplicitEcdsaExportOperationWithRuntime({
-    ...args,
-    operationRuntime: {
-      normalSigning: resolved.runtime.normalSigning,
-      relayerKeyId: resolved.runtime.relayerKeyId,
-      participantIds: resolved.runtime.participantIds,
-    },
+    walletId: args.walletId,
+    chainTarget: args.chainTarget,
+    requestId: args.requestId,
+    persistedMaterial: args.persistedMaterial,
+    operationRuntime: args.operationRuntime,
   });
 }
 
 async function assertEcdsaExportMaterialStillActive(args: {
-  readonly walletId: string;
-  readonly chainTarget: ThresholdEcdsaChainTarget;
+  readonly deps: EcdsaExportFlowDeps;
+  readonly exportLane: ExactEcdsaExportLane;
   readonly expectedMaterialActivation: PersistedEcdsaRoleLocalMaterial['materialActivation'];
 }): Promise<void> {
-  const resolved = await resolveActiveEcdsaCapabilityRuntime({
-    walletId: toWalletId(args.walletId),
-    chainTarget: args.chainTarget,
-  });
-  if (resolved.kind !== 'resolved') {
-    throw new Error(
-      `[SigningEngine][ecdsa-export] active material unavailable after authorization: ${resolved.reason}`,
-    );
+  const current = await resolveEcdsaExportMaterialForLane(args.deps.sessionStore, args.exportLane);
+  if (current.kind !== 'fresh_passkey_needs_authorization') {
+    throw new Error('[SigningEngine][ecdsa-export] passkey export authority changed');
   }
   if (
     !mpcMaterialActivationRefsEqual(
-      resolved.runtime.materialActivation,
+      current.existingRoleLocalMaterial.materialActivation,
       args.expectedMaterialActivation,
     )
   ) {
@@ -613,6 +590,7 @@ async function prepareFreshPasskeyEcdsaExportMaterial(
     chainTarget: args.exportLane.chainTarget,
     requestId,
     persistedMaterial: args.material.existingRoleLocalMaterial,
+    operationRuntime: args.material,
   });
   const exportCredential = await requestThresholdEcdsaExportAuthorization(
     { touchConfirm: deps.touchConfirm, theme: deps.theme },
@@ -626,8 +604,8 @@ async function prepareFreshPasskeyEcdsaExportMaterial(
     },
   );
   await assertEcdsaExportMaterialStillActive({
-    walletId: args.walletId,
-    chainTarget: args.exportLane.chainTarget,
+    deps,
+    exportLane: args.exportLane,
     expectedMaterialActivation: args.material.existingRoleLocalMaterial.materialActivation,
   });
   const sessionAuth = await resolvePasskeyEcdsaExportRouteAuth({

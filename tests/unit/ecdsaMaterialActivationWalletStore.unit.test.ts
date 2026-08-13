@@ -4,6 +4,7 @@ import { normalizeLogger } from '../../packages/sdk-server-ts/src/core/logger';
 import type { FetchRouterApiContext } from '../../packages/sdk-server-ts/src/router/transport/fetch/fetchRouter.types';
 import { handleThresholdEcdsa } from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/thresholdEcdsa';
 import { buildVerifiedFactorEvidenceSet } from '../../packages/sdk-server-ts/src/authorization/factorEvidence';
+import { buildAuthorizedOperation } from '../../packages/sdk-server-ts/src/authorization/domain';
 import { parseWalletId } from '../../packages/shared-ts/src/utils/domainIds';
 import {
   parseRouterAbMpcMaterialActivationRef,
@@ -16,7 +17,7 @@ import {
   buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1,
   ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PATH,
   ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PREPARE_PATH,
-  ROUTER_AB_ECDSA_DERIVATION_OPERATION_STEP_UP_GRANT_PATH,
+  ROUTER_AB_ECDSA_DERIVATION_OPERATION_STEP_UP_PATH,
   ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_INIT_PATH,
   ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_STEP_PATH,
   type RouterAbEcdsaDerivationNormalSigningScopeV1,
@@ -75,7 +76,7 @@ type RouteSideEffects = {
   proofVerifications: number;
   otpConsumptions: number;
   evidenceWrites: number;
-  grantWrites: number;
+  admissions: number;
   claims: number;
   audits: number;
   quotaWrites: number;
@@ -87,7 +88,7 @@ function emptyRouteSideEffects(): RouteSideEffects {
     proofVerifications: 0,
     otpConsumptions: 0,
     evidenceWrites: 0,
-    grantWrites: 0,
+    admissions: 0,
     claims: 0,
     audits: 0,
     quotaWrites: 0,
@@ -121,7 +122,7 @@ async function stepUpRouteFixture(input: {
   const capability = input.signer.walletKey.publicCapability;
   const materialResolutionQueue = [...(input.materialResolutionQueue ?? [])];
   const requestBody = {
-    kind: 'router_ab_ecdsa_operation_step_up_grant_v1',
+    kind: 'router_ab_ecdsa_operation_step_up_v1',
     operation: {
       wallet_id: walletId,
       operation_kind: 'evm.sign_transaction',
@@ -168,7 +169,7 @@ async function stepUpRouteFixture(input: {
     },
   };
   const request = new Request(
-    `https://app.example.test${ROUTER_AB_ECDSA_DERIVATION_OPERATION_STEP_UP_GRANT_PATH}`,
+    `https://app.example.test${ROUTER_AB_ECDSA_DERIVATION_OPERATION_STEP_UP_PATH}`,
     {
       method: 'POST',
       headers: { 'content-type': 'application/json', origin: 'https://app.example.test' },
@@ -194,7 +195,7 @@ async function stepUpRouteFixture(input: {
   return {
     request,
     url: new URL(request.url),
-    pathname: ROUTER_AB_ECDSA_DERIVATION_OPERATION_STEP_UP_GRANT_PATH,
+    pathname: ROUTER_AB_ECDSA_DERIVATION_OPERATION_STEP_UP_PATH,
     method: 'POST',
     logger: normalizeLogger(),
     service: {
@@ -240,26 +241,19 @@ async function stepUpRouteFixture(input: {
           input.sideEffects.evidenceWrites += 1;
           return buildVerifiedFactorEvidenceSet(evidenceInput);
         },
-        async issueGrant() {
-          input.sideEffects.grantWrites += 1;
-        },
-        async putEcdsaEvidenceAndGrant({ evidenceSet, material }) {
-          if (
-            material.walletId !== input.signer.walletId ||
-            !sameRouterAbMpcMaterialActivationRef(
-              material.materialActivation,
-              capability.material_activation,
-            )
-          ) {
-            return { kind: 'material_mismatch' as const };
-          }
+        async recordVerifiedSessionEvidenceSet() {
           input.sideEffects.evidenceWrites += 1;
-          input.sideEffects.grantWrites += 1;
-          void evidenceSet;
-          return { kind: 'committed' as const };
+          throw new Error('session evidence must not be recorded for a step-up proof');
         },
-        async claimEcdsaOperation({ material }) {
+        async readAuthorizedOperation() {
+          return null;
+        },
+        /* Refactor 90's single atomic admission: material validation and the
+           claim are one step, so a material the wallet no longer names is
+           refused here rather than after a separate grant write. */
+        async admitAuthorizedOperation({ operation, material }) {
           if (
+            !material ||
             material.walletId !== input.signer.walletId ||
             !sameRouterAbMpcMaterialActivationRef(
               material.materialActivation,
@@ -268,44 +262,14 @@ async function stepUpRouteFixture(input: {
           ) {
             return { kind: 'material_mismatch' as const };
           }
-          input.sideEffects.claims += 1;
-          return { kind: 'grant_mismatch' as const };
-        },
-        async claimEcdsaOperationStepUpFromGrant({ material }) {
-          if (
-            material.walletId !== input.signer.walletId ||
-            !sameRouterAbMpcMaterialActivationRef(
-              material.materialActivation,
-              capability.material_activation,
-            )
-          ) {
-            return { kind: 'material_mismatch' as const };
-          }
-          input.sideEffects.claims += 1;
-          return { kind: 'grant_mismatch' as const };
-        },
-        async claimEcdsaReusableWalletSessionOperation({ material }) {
-          if (
-            material.walletId !== input.signer.walletId ||
-            !sameRouterAbMpcMaterialActivationRef(
-              material.materialActivation,
-              capability.material_activation,
-            )
-          ) {
-            return {
-              claim: null,
-              result: { kind: 'material_mismatch' as const },
-            };
-          }
-          input.sideEffects.claims += 1;
+          input.sideEffects.admissions += 1;
           return {
-            claim: null,
-            result: { kind: 'grant_mismatch' as const },
+            kind: 'claimed' as const,
+            operation: await buildAuthorizedOperation(operation),
           };
         },
-        async claimOperationStepUpFromGrant() {
-          input.sideEffects.claims += 1;
-          throw new Error('claim must not run while issuing a step-up grant');
+        async completeAuthorizedOperation() {
+          throw new Error('an admitted step-up operation must not complete on this route');
         },
       },
       webAuthn: {
@@ -454,7 +418,7 @@ test('operation step-up rejects hostile signer runtime facts before side effects
   }
 });
 
-test('operation step-up issues one grant for the exact canonical material ref', async () => {
+test('operation step-up admits one authorized operation for the exact canonical material ref', async () => {
   const walletId = fixtureWalletId();
   const signer = createWalletEcdsaSignerRecord({ walletId, now: 1_900_000_000_000 });
   const sideEffects = emptyRouteSideEffects();
@@ -469,14 +433,14 @@ test('operation step-up issues one grant for the exact canonical material ref', 
   expect(response?.status).toBe(200);
   expect(sideEffects.proofVerifications).toBe(1);
   expect(sideEffects.evidenceWrites).toBe(1);
-  expect(sideEffects.grantWrites).toBe(1);
+  expect(sideEffects.admissions).toBe(1);
   expect(sideEffects.otpConsumptions).toBe(0);
   expect(sideEffects.claims).toBe(0);
   expect(sideEffects.audits).toBe(0);
   expect(sideEffects.quotaWrites).toBe(0);
 });
 
-test('operation step-up rejects a material replacement before proof, evidence, or grant writes', async () => {
+test('operation step-up rejects a material replacement before proof, evidence, or admission', async () => {
   const walletId = fixtureWalletId();
   const signer = createWalletEcdsaSignerRecord({ walletId, now: 1_900_000_000_000 });
   const canonicalActivation = signer.walletKey.publicCapability.material_activation;
@@ -495,7 +459,7 @@ test('operation step-up rejects a material replacement before proof, evidence, o
   expect(sideEffects.proofVerifications).toBe(0);
   expect(sideEffects.otpConsumptions).toBe(0);
   expect(sideEffects.evidenceWrites).toBe(0);
-  expect(sideEffects.grantWrites).toBe(0);
+  expect(sideEffects.admissions).toBe(0);
   expect(sideEffects.claims).toBe(0);
   expect(sideEffects.audits).toBe(0);
   expect(sideEffects.quotaWrites).toBe(0);
@@ -506,10 +470,7 @@ test('operation step-up prepare and finalize reject superseded material before c
   const walletId = fixtureWalletId();
   const signer = createWalletEcdsaSignerRecord({ walletId, now: 1_900_000_000_000 });
   const canonicalActivation = signer.walletKey.publicCapability.material_activation;
-  const supersededActivation = corruptMaterialActivation(
-    canonicalActivation,
-    'activation_id',
-  );
+  const supersededActivation = corruptMaterialActivation(canonicalActivation, 'activation_id');
   const capability = signer.walletKey.publicCapability;
   const nowMs = Date.now();
   const scope = {
@@ -525,7 +486,6 @@ test('operation step-up prepare and finalize reject superseded material before c
   };
   const authorization = {
     kind: 'operation_step_up' as const,
-    grant_id: 'operation-step-up-grant-superseded',
   };
   const prepare = buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1({
     scope,
@@ -618,7 +578,6 @@ test('operation step-up rejects material replaced during policy evaluation', asy
     },
     authorization: {
       kind: 'operation_step_up',
-      grant_id: 'operation-step-up-policy-race-grant',
     },
     materialActivation: canonicalActivation,
     clientPresignatureId: 'client-presignature-policy-race',
@@ -717,7 +676,7 @@ test('pool-fill rejects hostile material refs before claims or runtime calls', a
     );
     const authorization =
       testCase.authorizationKind === 'operation_step_up'
-        ? { kind: 'operation_step_up' as const, grant_id: 'pool-fill-step-up-grant' }
+        ? { kind: 'operation_step_up' as const }
         : { kind: 'reusable_wallet_session' as const, wallet_session_id: 'wallet-session-pool' };
     const body =
       testCase.pathname === ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_INIT_PATH
@@ -807,7 +766,6 @@ test('operation step-up pool fill rejects a material replacement before claim or
     },
     authorization: {
       kind: 'operation_step_up' as const,
-      grant_id: 'pool-fill-step-up-grant',
     },
     operation,
   };

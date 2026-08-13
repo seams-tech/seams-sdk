@@ -12,8 +12,15 @@ import {
   buildRehydrateMaterialActivationHydrationPlan,
   buildUseLiveRuntimeHydrationPlan,
   type MpcCapabilityHydrationPlan,
+  type RestorableMpcMaterialRef,
 } from './mpcCapabilityHydration';
 import { buildRestorableMpcMaterialRefInternal } from './restorableMpcMaterialRef.internal';
+
+export function buildRestorableMpcMaterialRefForHydration(
+  durableMaterialRef: string,
+): RestorableMpcMaterialRef {
+  return buildRestorableMpcMaterialRefInternal(durableMaterialRef);
+}
 
 export type EcdsaCapabilityRuntimeObservation =
   | {
@@ -89,7 +96,6 @@ function activePlanFromLookup(input: {
       materialActivation,
       input.lookup.material.binding.materialActivation,
     ) ||
-    input.lookup.manifest.signer.capability !== materialActivation.capability ||
     input.lookup.manifest.signer.materialOwner !== materialActivation.materialOwner
   ) {
     return buildBlockedMpcCapabilityHydrationPlan({

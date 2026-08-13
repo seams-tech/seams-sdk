@@ -52,9 +52,6 @@ test.describe('Email OTP auth lane route planning', () => {
     expect(plan.authLane).toEqual({ kind: 'cookie' });
     expect(authLaneToRouteAuth(plan.authLane)).toBeUndefined();
     expect(emailOtpRoutePath(plan, 'verify')).toBe('/wallet/email-otp/login/verify');
-    expect(emailOtpRoutePath(plan, 'verifyAndUnseal')).toBe(
-      '/wallet/email-otp/login/verify-and-unseal',
-    );
   });
 
   test('plans signing-session routes from restored threshold-session auth', () => {

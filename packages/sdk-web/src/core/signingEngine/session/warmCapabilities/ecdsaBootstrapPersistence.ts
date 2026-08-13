@@ -41,7 +41,6 @@ function roleLocalMaterialRefFromBootstrap(
       return binding.roleLocalMaterialRef;
     case 'role_local_durable_sealed_ref':
       return binding.roleLocalMaterialRef;
-    case 'email_otp_worker_handle':
     case 'role_local_durable_public_anchor':
     case 'role_local_ready_state_blob':
     case 'metadata_only':

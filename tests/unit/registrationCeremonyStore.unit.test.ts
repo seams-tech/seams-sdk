@@ -3,10 +3,7 @@ import {
   createRegistrationCeremonyStore,
   type StoredWalletAddSignerCeremony,
 } from '@server/core/RegistrationCeremonyStore';
-import {
-  walletIdFromString,
-  type AddSignerIntentV1,
-} from '@shared/utils/registrationIntent';
+import { walletIdFromString, type AddSignerIntentV1 } from '@shared/utils/registrationIntent';
 
 const WALLET_ID = walletIdFromString('wallet_registration_store');
 

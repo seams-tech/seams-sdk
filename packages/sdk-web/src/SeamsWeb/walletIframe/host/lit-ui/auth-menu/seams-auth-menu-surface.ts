@@ -216,6 +216,10 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
     accountMenuOpen: { state: true },
   } as const;
 
+  /* Typed with `!` rather than `declare`: both erase without emitting a class
+     field that would shadow the accessors `static properties` installs, but
+     the test runner's bundled Babel rejects a `declare` field outright, which
+     makes this module unimportable from a unit test. */
   viewModel!: AuthMenuViewModel;
   private accountMenuOpen!: boolean;
 

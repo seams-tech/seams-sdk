@@ -30,6 +30,7 @@ export type RuntimePostconditionTarget =
 export type RuntimeLaneMaterial =
   | { kind: 'durable_sealed_record'; sourceChainTarget?: never }
   | { kind: 'runtime_session_record'; sourceChainTarget?: never }
+  | { kind: 'public_capability_reference'; sourceChainTarget?: never }
   | { kind: 'canonical_capability'; sourceChainTarget?: never };
 
 export type RuntimePostconditionLaneState = 'ready' | 'restorable';
@@ -127,7 +128,8 @@ function ed25519MaterialForTransactionReadyLane(
 ): RuntimeLaneMaterial | null {
   if (
     lane.candidate.source === 'durable_sealed_record' ||
-    lane.candidate.source === 'runtime_session_record'
+    lane.candidate.source === 'runtime_session_record' ||
+    lane.candidate.source === 'public_capability_reference'
   ) {
     return { kind: lane.candidate.source };
   }

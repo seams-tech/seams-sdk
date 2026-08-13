@@ -35,40 +35,15 @@ const validEmailOtpStepUpWithoutMaterialRecovery = {
 } satisfies Ed25519OperationStepUpAuthorizationRequest;
 void validEmailOtpStepUpWithoutMaterialRecovery;
 
-const validEmailOtpStepUpWithLocalMaterialRecovery = {
-  ...stepUpRequestBase,
-  proof: emailOtpStepUpProof,
-  materialRecovery: {
-    kind: 'email_otp_local_material_v1',
-    wrappedCiphertext: 'wrapped-ciphertext',
-    enrollmentSealKeyVersion: 'enrollment-seal-key-version',
-  },
-} satisfies Ed25519OperationStepUpAuthorizationRequest;
-void validEmailOtpStepUpWithLocalMaterialRecovery;
-
-// @ts-expect-error Passkey operation step-up cannot request Email OTP local-material recovery.
 const invalidPasskeyStepUpWithLocalMaterialRecovery: Ed25519OperationStepUpAuthorizationRequest = {
   ...stepUpRequestBase,
   proof: passkeyStepUpProof,
   materialRecovery: {
+    // @ts-expect-error Device-local Email OTP material recovery is retired.
     kind: 'email_otp_local_material_v1',
-    wrappedCiphertext: 'wrapped-ciphertext',
-    enrollmentSealKeyVersion: 'enrollment-seal-key-version',
   },
 };
 void invalidPasskeyStepUpWithLocalMaterialRecovery;
-
-const invalidEmailOtpStepUpWithIncompleteLocalMaterialRecovery: Ed25519OperationStepUpAuthorizationRequest =
-  {
-    ...stepUpRequestBase,
-    proof: emailOtpStepUpProof,
-    // @ts-expect-error Email OTP local-material recovery requires its enrollment seal key version.
-    materialRecovery: {
-      kind: 'email_otp_local_material_v1',
-      wrappedCiphertext: 'wrapped-ciphertext',
-    },
-  };
-void invalidEmailOtpStepUpWithIncompleteLocalMaterialRecovery;
 
 const validAppSessionJwtAuth = {
   kind: 'app_session_jwt',

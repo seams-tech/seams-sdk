@@ -35,7 +35,7 @@ export type ConnectEd25519SessionResult =
       remainingUses: number;
       routerAbNormalSigning: RouterAbEd25519NormalSigningState;
       jwt: string;
-      ecdsaDerivationPasskeyPrfFirstB64u: string;
+      passkeyPrfFirstB64u: string;
       runtimePolicyScope: ThresholdRuntimePolicyScope;
       code?: never;
       message?: never;
@@ -52,7 +52,7 @@ export type ConnectEd25519SessionResult =
       runtimePolicyScope?: never;
       routerAbNormalSigning?: never;
       jwt?: never;
-      ecdsaDerivationPasskeyPrfFirstB64u?: never;
+      passkeyPrfFirstB64u?: never;
     };
 
 function assertNeverWalletAuthFactorKind(kind: never): never {
@@ -207,6 +207,6 @@ export async function connectEd25519Session(args: {
     runtimePolicyScope: mintedRuntimePolicyScope,
     routerAbNormalSigning: args.routerAbNormalSigning,
     jwt,
-    ecdsaDerivationPasskeyPrfFirstB64u: prfFirstB64u,
+    passkeyPrfFirstB64u: prfFirstB64u,
   };
 }

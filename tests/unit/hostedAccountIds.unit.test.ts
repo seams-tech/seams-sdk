@@ -31,14 +31,20 @@ test.describe('hosted account ID derivation', () => {
 
   test('binds generated account IDs to project, env, provider, and collision counter', async () => {
     const base = await deriveHostedNearAccountId(BASE_INPUT);
-    const differentProject = await deriveHostedNearAccountId({ ...BASE_INPUT, projectId: 'proj_other' });
+    const differentProject = await deriveHostedNearAccountId({
+      ...BASE_INPUT,
+      projectId: 'proj_other',
+    });
     const differentEnv = await deriveHostedNearAccountId({ ...BASE_INPUT, envId: 'prod' });
-    const differentProvider = await deriveHostedNearAccountId({ ...BASE_INPUT, authProvider: 'oidc' });
+    const differentProvider = await deriveHostedNearAccountId({
+      ...BASE_INPUT,
+      authProvider: 'oidc',
+    });
     const collisionRetry = await deriveHostedNearAccountId({ ...BASE_INPUT, collisionCounter: 1 });
 
-    expect(new Set([base, differentProject, differentEnv, differentProvider, collisionRetry]).size).toBe(
-      5,
-    );
+    expect(
+      new Set([base, differentProject, differentEnv, differentProvider, collisionRetry]).size,
+    ).toBe(5);
   });
 
   test('uses a derivation nonce to randomize readable account slugs per registration attempt', async () => {

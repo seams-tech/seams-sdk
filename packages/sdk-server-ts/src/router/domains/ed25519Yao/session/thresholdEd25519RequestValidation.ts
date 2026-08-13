@@ -44,8 +44,7 @@ const OPERATION_STEP_UP_EMAIL_OTP_PROOF_KEYS = [
 const OPERATION_STEP_UP_NO_MATERIAL_RECOVERY_KEYS = ['kind'] as const;
 const OPERATION_STEP_UP_EMAIL_OTP_MATERIAL_RECOVERY_KEYS = [
   'kind',
-  'wrappedCiphertext',
-  'enrollmentSealKeyVersion',
+  'worker_ephemeral_public_key_65_b64u',
 ] as const;
 import {
   findUnexpectedRouteKey,
@@ -347,8 +346,7 @@ export function parseThresholdEd25519OperationStepUpGrantRequest(
       if (!challengeId.ok) return challengeId;
       const otpCode = requiredStringField(proof, 'otp_code');
       if (!otpCode.ok) return otpCode;
-      let parsedMaterialRecovery:
-        RouterAbEd25519YaoOperationStepUpGrantCommandV1['materialRecovery'];
+      let parsedMaterialRecovery: RouterAbEd25519YaoOperationStepUpGrantCommandV1['materialRecovery'];
       switch (materialRecovery.kind) {
         case 'not_requested': {
           const unsupportedMaterialRecoveryKey = findUnexpectedRouteKey(
@@ -363,7 +361,7 @@ export function parseThresholdEd25519OperationStepUpGrantRequest(
           parsedMaterialRecovery = { kind: 'not_requested' };
           break;
         }
-        case 'email_otp_local_material_v1': {
+        case 'email_otp_factor_release_v1': {
           const unsupportedMaterialRecoveryKey = findUnexpectedRouteKey(
             materialRecovery,
             OPERATION_STEP_UP_EMAIL_OTP_MATERIAL_RECOVERY_KEYS,
@@ -373,17 +371,14 @@ export function parseThresholdEd25519OperationStepUpGrantRequest(
               `Unsupported Email OTP operation step-up material recovery field: ${unsupportedMaterialRecoveryKey}`,
             );
           }
-          const wrappedCiphertext = requiredStringField(materialRecovery, 'wrappedCiphertext');
-          if (!wrappedCiphertext.ok) return wrappedCiphertext;
-          const enrollmentSealKeyVersion = requiredStringField(
+          const workerEphemeralPublicKey65B64u = requiredStringField(
             materialRecovery,
-            'enrollmentSealKeyVersion',
+            'worker_ephemeral_public_key_65_b64u',
           );
-          if (!enrollmentSealKeyVersion.ok) return enrollmentSealKeyVersion;
+          if (!workerEphemeralPublicKey65B64u.ok) return workerEphemeralPublicKey65B64u;
           parsedMaterialRecovery = {
-            kind: 'email_otp_local_material_v1',
-            wrappedCiphertext: wrappedCiphertext.request,
-            enrollmentSealKeyVersion: enrollmentSealKeyVersion.request,
+            kind: 'email_otp_factor_release_v1',
+            workerEphemeralPublicKey65B64u: workerEphemeralPublicKey65B64u.request,
           };
           break;
         }

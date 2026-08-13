@@ -1,22 +1,16 @@
 import type {
-  BuildEcdsaRoleLocalExportArtifactCommand as RawBuildEcdsaRoleLocalExportArtifactCommand,
-  BuildEcdsaRoleLocalExportArtifactOutput as RawBuildEcdsaRoleLocalExportArtifactOutput,
   FinalizeEcdsaClientBootstrapCommand as RawFinalizeEcdsaClientBootstrapCommand,
   FinalizeEcdsaClientBootstrapOutput as RawFinalizeEcdsaClientBootstrapOutput,
   PrepareEcdsaClientBootstrapCommand as RawPrepareEcdsaClientBootstrapCommand,
   PrepareEcdsaClientBootstrapOutput as RawPrepareEcdsaClientBootstrapOutput,
 } from './generated/signerCoreCommands';
 import {
-  parseGeneratedBuildEcdsaRoleLocalExportArtifactOutput,
   parseGeneratedFinalizeEcdsaClientBootstrapOutput,
   parseGeneratedPrepareEcdsaClientBootstrapOutput,
-  toGeneratedBuildEcdsaRoleLocalExportArtifactCommand,
   toGeneratedFinalizeEcdsaClientBootstrapCommand,
   toGeneratedPrepareEcdsaClientBootstrapCommand,
 } from './signerCoreCommandAdapters';
 import type {
-  BuildEcdsaRoleLocalExportArtifactInput,
-  BuildEcdsaRoleLocalExportArtifactOutput,
   FinalizeEcdsaClientBootstrapInput,
   FinalizeEcdsaClientBootstrapOutput,
   PrepareEcdsaClientBootstrapInput,
@@ -135,30 +129,6 @@ type _FinalizeOutputNoMissingTopLevel = AssertNever<
     StringKeys<FinalizeEcdsaClientBootstrapOutput>
   >
 >;
-type _ExportInputNoExtraTopLevel = AssertNever<
-  Exclude<
-    StringKeys<BuildEcdsaRoleLocalExportArtifactInput>,
-    StringKeys<RawBuildEcdsaRoleLocalExportArtifactCommand>
-  >
->;
-type _ExportInputNoMissingTopLevel = AssertNever<
-  Exclude<
-    StringKeys<RawBuildEcdsaRoleLocalExportArtifactCommand>,
-    StringKeys<BuildEcdsaRoleLocalExportArtifactInput>
-  >
->;
-type _ExportOutputNoExtraTopLevel = AssertNever<
-  Exclude<
-    StringKeys<BuildEcdsaRoleLocalExportArtifactOutput>,
-    StringKeys<RawBuildEcdsaRoleLocalExportArtifactOutput>
-  >
->;
-type _ExportOutputNoMissingTopLevel = AssertNever<
-  Exclude<
-    StringKeys<RawBuildEcdsaRoleLocalExportArtifactOutput>,
-    StringKeys<BuildEcdsaRoleLocalExportArtifactOutput>
-  >
->;
 
 expectNoExtraKeys<
   // @ts-expect-error generated command fields must be represented by the wrapper shape.
@@ -180,8 +150,6 @@ declare const prepareInput: PrepareEcdsaClientBootstrapInput;
 declare const prepareOutput: RawPrepareEcdsaClientBootstrapOutput;
 declare const finalizeInput: FinalizeEcdsaClientBootstrapInput;
 declare const finalizeOutput: RawFinalizeEcdsaClientBootstrapOutput;
-declare const exportInput: BuildEcdsaRoleLocalExportArtifactInput;
-declare const exportOutput: RawBuildEcdsaRoleLocalExportArtifactOutput;
 
 toGeneratedPrepareEcdsaClientBootstrapCommand(
   prepareInput,
@@ -195,9 +163,3 @@ toGeneratedFinalizeEcdsaClientBootstrapCommand(
 parseGeneratedFinalizeEcdsaClientBootstrapOutput(
   finalizeOutput,
 ) satisfies FinalizeEcdsaClientBootstrapOutput;
-toGeneratedBuildEcdsaRoleLocalExportArtifactCommand(
-  exportInput,
-) satisfies RawBuildEcdsaRoleLocalExportArtifactCommand;
-parseGeneratedBuildEcdsaRoleLocalExportArtifactOutput(
-  exportOutput,
-) satisfies BuildEcdsaRoleLocalExportArtifactOutput;

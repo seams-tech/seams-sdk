@@ -1,5 +1,8 @@
+use base64ct::{Base64UrlUnpadded, Encoding};
+use curve25519_dalek::scalar::Scalar;
+use rand_core_09::{CryptoRng, RngCore};
 use router_ab_core::{
-    Ed25519YaoCeremonyBindingV1, Ed25519YaoRefreshBindingV1,
+    Ed25519YaoCeremonyBindingV1, Ed25519YaoLaneJobV1, Ed25519YaoRefreshBindingV1,
     RouterAbEd25519YaoApplicationBindingFactsV1,
 };
 use signer_core::ed25519_yao_derivation::{
@@ -12,13 +15,17 @@ use signer_core::ed25519_yao_derivation::{
 
 use crate::{
     build_activation_deriver_a, build_activation_deriver_b, build_export_deriver_a,
-    build_export_deriver_b, stable_key_derivation_context_v1, ActivationDeriverA,
+    build_export_deriver_b, build_lane_materialization_deriver_a,
+    build_lane_materialization_deriver_b, stable_key_derivation_context_v1, ActivationDeriverA,
     ActivationDeriverAContribution, ActivationDeriverB, ActivationDeriverBContribution,
-    AdapterError, ExportDeriverA, ExportDeriverAContribution, ExportDeriverB,
-    ExportDeriverBContribution, LocalEd25519YaoActivationDeriverARequestV1,
-    LocalEd25519YaoActivationDeriverBRequestV1, LocalEd25519YaoClientContributionV1,
-    LocalEd25519YaoExportDeriverARequestV1, LocalEd25519YaoExportDeriverBRequestV1,
-    LocalEd25519YaoRefreshDeriverARequestV1, LocalEd25519YaoRefreshDeriverBRequestV1,
+    AdapterError, Ed25519YaoLaneDeriverAContributionV1, Ed25519YaoLaneDeriverBContributionV1,
+    ExportDeriverA, ExportDeriverAContribution, ExportDeriverB, ExportDeriverBContribution,
+    LaneMaterializationDeriverA, LaneMaterializationDeriverB,
+    LocalEd25519YaoActivationDeriverARequestV1, LocalEd25519YaoActivationDeriverBRequestV1,
+    LocalEd25519YaoClientContributionV1, LocalEd25519YaoExportDeriverARequestV1,
+    LocalEd25519YaoExportDeriverBRequestV1, LocalEd25519YaoLaneDeriverARequestV1,
+    LocalEd25519YaoLaneDeriverBRequestV1, LocalEd25519YaoRefreshDeriverARequestV1,
+    LocalEd25519YaoRefreshDeriverBRequestV1,
 };
 
 /// Derives Deriver A's deterministic role-local server contribution.
@@ -99,6 +106,141 @@ pub fn build_product_export_deriver_b_v1(
         request.participant_ids,
     )?;
     build_product_export_deriver_b_with_server_v1(request, server)
+}
+
+/// Builds the selected lane-materialization Deriver A from A-only stable roots.
+pub fn build_product_lane_deriver_a_v1<R>(
+    root: [u8; 32],
+    request: LocalEd25519YaoLaneDeriverARequestV1,
+    rng: &mut R,
+) -> Result<
+    (
+        Ed25519YaoCeremonyBindingV1,
+        Ed25519YaoLaneJobV1,
+        LaneMaterializationDeriverA,
+    ),
+    AdapterError,
+>
+where
+    R: CryptoRng + RngCore,
+{
+    let server = derive_ed25519_yao_deriver_a_server_contribution_from_root_v1(
+        root,
+        &request.application_binding,
+        request.participant_ids,
+    )?;
+    let recipients = request.recipients;
+    let job = request.job;
+    let (binding, _context, client) = validate_a_request(
+        request.binding,
+        request.application_binding,
+        request.participant_ids,
+        request.client_contribution,
+    )?;
+    validate_lane_product_binding(&binding, &job, &recipients)?;
+    let (client_y, client_tau) = client.into_parts();
+    let (server_y, server_tau) = server.into_parts();
+    let role = build_lane_materialization_deriver_a(
+        &job,
+        Ed25519YaoLaneDeriverAContributionV1 {
+            y_client: client_y.into_bytes(),
+            y_server: server_y.into_bytes(),
+            tau_client: client_tau.into_bytes(),
+            tau_server: server_tau.into_bytes(),
+            offset: random_scalar_v1(rng),
+        },
+    )
+    .map_err(|_| AdapterError::RoleProtocol)?;
+    Ok((binding, job, role))
+}
+
+/// Builds the selected lane-materialization Deriver B from B-only stable roots.
+pub fn build_product_lane_deriver_b_v1<R>(
+    root: [u8; 32],
+    request: LocalEd25519YaoLaneDeriverBRequestV1,
+    rng: &mut R,
+) -> Result<
+    (
+        Ed25519YaoCeremonyBindingV1,
+        Ed25519YaoLaneJobV1,
+        LaneMaterializationDeriverB,
+    ),
+    AdapterError,
+>
+where
+    R: CryptoRng + RngCore,
+{
+    let server = derive_ed25519_yao_deriver_b_server_contribution_from_root_v1(
+        root,
+        &request.application_binding,
+        request.participant_ids,
+    )?;
+    let recipients = request.recipients;
+    let job = request.job;
+    let (binding, _context, client) = validate_b_request(
+        request.binding,
+        request.application_binding,
+        request.participant_ids,
+        request.client_contribution,
+    )?;
+    validate_lane_product_binding(&binding, &job, &recipients)?;
+    let (client_y, client_tau) = client.into_parts();
+    let (server_y, server_tau) = server.into_parts();
+    let role = build_lane_materialization_deriver_b(
+        &job,
+        Ed25519YaoLaneDeriverBContributionV1 {
+            y_client: client_y.into_bytes(),
+            y_server: server_y.into_bytes(),
+            tau_client: client_tau.into_bytes(),
+            tau_server: server_tau.into_bytes(),
+            offset: random_scalar_v1(rng),
+        },
+    )
+    .map_err(|_| AdapterError::RoleProtocol)?;
+    Ok((binding, job, role))
+}
+
+fn validate_lane_product_binding(
+    binding: &Ed25519YaoCeremonyBindingV1,
+    job: &Ed25519YaoLaneJobV1,
+    recipients: &crate::LocalEd25519YaoLaneRecipientsV1,
+) -> Result<(), AdapterError> {
+    job.validate()
+        .map_err(|_| AdapterError::InvalidDerivationContext)?;
+    if binding.operation != job.yao_request_kind.operation()
+        || binding.session_id.into_bytes()
+            != job
+                .session_v1()
+                .map_err(|_| AdapterError::InvalidDerivationContext)?
+        || binding.stable_key_context_binding.into_bytes()
+            != job
+                .stable_context_binding_v1()
+                .map_err(|_| AdapterError::InvalidDerivationContext)?
+        || binding.material_activation() != job.source.material_activation()
+        || recipients.holder_public_key
+            != decode_lane_recipient_key_v1(&job.target_holder.hpke_public_key_b64u)?
+        || recipients.signing_worker_public_key
+            != decode_lane_recipient_key_v1(&job.target_signing_worker.hpke_public_key_b64u)?
+    {
+        return Err(AdapterError::InvalidDerivationContext);
+    }
+    Ok(())
+}
+
+fn decode_lane_recipient_key_v1(encoded: &str) -> Result<[u8; 32], AdapterError> {
+    let mut decoded = [0_u8; 32];
+    Base64UrlUnpadded::decode(encoded, &mut decoded)
+        .map_err(|_| AdapterError::InvalidDerivationContext)?;
+    Ok(decoded)
+}
+
+fn random_scalar_v1<R>(rng: &mut R) -> [u8; 32]
+where
+    R: CryptoRng + RngCore,
+{
+    let mut wide = [0_u8; 64];
+    rng.fill_bytes(&mut wide);
+    Scalar::from_bytes_mod_order_wide(&wide).to_bytes()
 }
 
 /// Builds one activation Deriver A role from already selected effective state.

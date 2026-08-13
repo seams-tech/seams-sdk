@@ -9776,11 +9776,44 @@ test.describe('dashboard console config page api wiring', () => {
       quickActions.getByRole('heading', { name: 'What would you like to do?' }),
     ).toHaveCSS('text-align', 'center');
     const quickActionsBounds = await quickActions.boundingBox();
+    const primaryActionsBounds = await quickActions
+      .locator('.dashboard-hero__primary')
+      .boundingBox();
+    const primaryActionsTitleBounds = await quickActions
+      .getByRole('heading', { name: 'What would you like to do?' })
+      .boundingBox();
     const actionCardsBounds = await quickActions.locator('.dashboard-hero__cards').boundingBox();
-    if (!quickActionsBounds || !actionCardsBounds) {
+    const sponsorshipPromo = quickActions.getByRole('link', { name: /Sponsor gas for your users/ });
+    const sponsorshipPromoBounds = await sponsorshipPromo.boundingBox();
+    const statusGrid = quickActions.locator('.dashboard-hero__status-grid');
+    const statusGridBounds = await statusGrid.boundingBox();
+    if (
+      !quickActionsBounds ||
+      !primaryActionsBounds ||
+      !primaryActionsTitleBounds ||
+      !actionCardsBounds ||
+      !sponsorshipPromoBounds ||
+      !statusGridBounds
+    ) {
       throw new Error('Quick action layout bounds were unavailable');
     }
-    expect(actionCardsBounds.width).toBeLessThanOrEqual(1120);
+    const primaryActionsContentCenter =
+      (primaryActionsTitleBounds.y + statusGridBounds.y + statusGridBounds.height) / 2;
+    const primaryActionsContainerCenter = primaryActionsBounds.y + primaryActionsBounds.height / 2;
+    const primaryActionsUpwardOffset = primaryActionsContainerCenter - primaryActionsContentCenter;
+    expect(primaryActionsUpwardOffset).toBeGreaterThanOrEqual(24);
+    expect(primaryActionsUpwardOffset).toBeLessThanOrEqual(64);
+    await expect(
+      quickActions
+        .locator('.dashboard-hero__primary')
+        .getByRole('link', { name: /Sponsor gas for your users/ }),
+    ).toHaveCount(1);
+    await expect(statusGrid.locator(':scope > section')).toHaveCount(2);
+    expect(actionCardsBounds.width).toBeLessThanOrEqual(960);
+    expect(Math.abs(sponsorshipPromoBounds.width - actionCardsBounds.width)).toBeLessThan(2);
+    expect(Math.abs(sponsorshipPromoBounds.x - actionCardsBounds.x)).toBeLessThan(2);
+    expect(Math.abs(statusGridBounds.width - actionCardsBounds.width)).toBeLessThan(2);
+    expect(Math.abs(statusGridBounds.x - actionCardsBounds.x)).toBeLessThan(2);
     expect(
       Math.abs(
         actionCardsBounds.x +
@@ -9846,7 +9879,7 @@ test.describe('dashboard console config page api wiring', () => {
     await expect(page.locator('section[aria-label="Audit export queue summary"]')).toHaveCount(0);
     const overview = page.locator('[aria-label="Ops cockpit page"]');
     const queueGroup = page.locator('[aria-label="Ops cockpit queues"]');
-    await expect(queueGroup.locator('.dashboard-ops-cockpit-panel')).toHaveCount(2);
+    await expect(queueGroup.locator('.dashboard-ops-cockpit-panel')).toHaveCount(1);
     const overviewBounds = await overview.boundingBox();
     const queueGroupBounds = await queueGroup.boundingBox();
     if (!overviewBounds || !queueGroupBounds) {

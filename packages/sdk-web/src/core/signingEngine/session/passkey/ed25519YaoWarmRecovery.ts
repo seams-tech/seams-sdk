@@ -1,4 +1,5 @@
 import type { CurrentEd25519SealedSessionRecord } from '@/core/signingEngine/session/persistence/sealedSessionStore';
+import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import { readExactEd25519SealedSession } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import { ed25519DurableMaterialLocator } from '../sealedRecovery/materialActivationKey';
 import { parseSigningSessionSealKeyVersion } from '@/core/signingEngine/session/keyMaterialBrands';
@@ -47,6 +48,9 @@ import {
   type ThresholdEd25519SessionId,
   type WalletId,
 } from '@shared/utils/domainIds';
+import {
+  readPasskeyCustodySessionEnvelope,
+} from './passkeyCustodySessionCache';
 
 export type PasskeyEd25519RecordRuntimePorts = {
   readonly readExactEd25519SealedSession: typeof readExactEd25519SealedSession;
@@ -68,7 +72,8 @@ export type PasskeyEd25519YaoWarmRecoveryUnavailableReason =
   | 'sealed_session_missing'
   | 'sealed_session_expired'
   | 'sealed_session_exhausted'
-  | 'wallet_session_expired';
+  | 'wallet_session_expired'
+  | 'wallet_custody_envelope_missing';
 
 export type PasskeyEd25519YaoExportContextV1 = {
   readonly kind: 'passkey_ed25519_yao_export_context_v1';
@@ -76,6 +81,7 @@ export type PasskeyEd25519YaoExportContextV1 = {
   readonly authorization: ActiveWalletSessionAuthorizationProjection;
   readonly relayerUrl: string;
   readonly rpId: string;
+  readonly walletCustodyEnvelope: PasskeyCustodyEnvelopeRecord;
 };
 
 export type PasskeyEd25519YaoExportContextResolutionV1 =
@@ -535,6 +541,16 @@ export async function resolvePasskeyEd25519YaoExportContextWithRuntimeV1(
     authorization,
     response: bootstrap.response,
   });
+  const walletCustodyEnvelope = readPasskeyCustodySessionEnvelope({
+    walletId: String(descriptor.walletId),
+    credentialIdB64u: descriptor.credentialIdB64u,
+  });
+  if (!walletCustodyEnvelope) {
+    return {
+      kind: 'capability_recovery_required',
+      reason: 'wallet_custody_envelope_missing',
+    };
+  }
   return {
     kind: 'ready',
     context: {
@@ -553,6 +569,7 @@ export async function resolvePasskeyEd25519YaoExportContextWithRuntimeV1(
       authorization,
       relayerUrl: input.relayerUrl,
       rpId: exactRecord.record.ed25519Restore.rpId,
+      walletCustodyEnvelope,
     },
   };
 }

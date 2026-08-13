@@ -103,19 +103,6 @@ impl StrictDeriverRuntimeV1 {
         }
     }
 
-    fn recovery_private_path(&self) -> &'static str {
-        match self {
-            #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
-            Self::DeriverA(_) => {
-                CLOUDFLARE_DERIVER_A_ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PRIVATE_REQUEST_PATH
-            }
-            #[cfg(feature = "strict-worker-deriver-b-entrypoint")]
-            Self::DeriverB(_) => {
-                CLOUDFLARE_DERIVER_B_ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PRIVATE_REQUEST_PATH
-            }
-        }
-    }
-
     fn refresh_private_path(&self) -> &'static str {
         match self {
             #[cfg(feature = "strict-worker-deriver-a-entrypoint")]
@@ -178,12 +165,11 @@ impl StrictDeriverRuntimeV1 {
 
     fn route_error_message(&self) -> String {
         format!(
-            "{} strict Worker route must be served at {}, {}, {}, {}, or {}",
+            "{} strict Worker route must be served at {}, {}, {}, or {}",
             self.label(),
             self.bootstrap_private_path(),
             self.registration_private_path(),
             self.export_private_path(),
-            self.recovery_private_path(),
             self.refresh_private_path()
         )
     }
@@ -372,47 +358,6 @@ async fn handle_strict_deriver_fetch_v1(
             worker_role,
             &preloaded.host,
             export_request,
-            runtime.envelope_decrypt_key(),
-            runtime.peer_signing_key(),
-            &preloaded.root_share_metadata,
-            now_unix_ms,
-        )
-        .await
-        {
-            Ok(response) => Response::from_json(&response),
-            Err(err) => cloudflare_protocol_error_response_v1(err),
-        };
-    }
-
-    if path == runtime.recovery_private_path() {
-        let recovery_request: CloudflareRouterAbEcdsaDerivationDeriverRecoveryPrivateRequestV1 =
-            match parse_strict_deriver_json_v1(
-                &mut request,
-                format!("Router A/B strict {label} Router A/B ECDSA derivation recovery"),
-            )
-            .await?
-            {
-                Ok(parsed) => parsed,
-                Err(response) => return Ok(response),
-            };
-        if let Err(err) = recovery_request.validate_for_worker_role(worker_role) {
-            return cloudflare_protocol_error_response_v1(err);
-        }
-        let preloaded = match preload_strict_deriver_request_v1(
-            &env,
-            &runtime,
-            &recovery_request.signer_bootstrap,
-        )
-        .await
-        {
-            Ok(loaded) => loaded,
-            Err(err) => return cloudflare_protocol_error_response_v1(err),
-        };
-        return match decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_recovery_signer_private_request_v1(
-            &env,
-            worker_role,
-            &preloaded.host,
-            recovery_request,
             runtime.envelope_decrypt_key(),
             runtime.peer_signing_key(),
             &preloaded.root_share_metadata,

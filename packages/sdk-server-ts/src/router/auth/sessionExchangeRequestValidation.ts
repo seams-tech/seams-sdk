@@ -15,15 +15,15 @@ import {
   type SessionOrigin,
 } from '../../authorization/domain';
 import {
-  parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1,
-  type RouterAbEcdsaPostRegistrationSessionActivationRequestV1,
+  parseRouterAbEcdsaPostRegistrationSessionActivationPolicyV1,
+  type RouterAbEcdsaPostRegistrationSessionActivationPolicyV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 
 export type PasskeySessionExchangeEcdsaActivation =
   | { kind: 'no_ecdsa_activation' }
   | {
       kind: 'activate_first_ecdsa_wallet_session';
-      request: RouterAbEcdsaPostRegistrationSessionActivationRequestV1;
+      policy: RouterAbEcdsaPostRegistrationSessionActivationPolicyV1;
     };
 
 export type SessionExchangeRouteCommand =
@@ -41,8 +41,22 @@ export type SessionExchangeRouteCommand =
       kind: 'passkey_assertion';
       sessionKind: 'jwt' | 'cookie';
       challengeId: string;
+      walletId?: never;
       webauthnAuthentication: WebAuthnAuthenticationCredential;
-      ecdsaActivation: PasskeySessionExchangeEcdsaActivation;
+      ecdsaActivation: { kind: 'no_ecdsa_activation' };
+      expectedOrigin?: string;
+      projectEnvironmentId?: string;
+    }
+  | {
+      kind: 'passkey_assertion';
+      sessionKind: 'jwt' | 'cookie';
+      challengeId: string;
+      walletId: string;
+      webauthnAuthentication: WebAuthnAuthenticationCredential;
+      ecdsaActivation: Extract<
+        PasskeySessionExchangeEcdsaActivation,
+        { kind: 'activate_first_ecdsa_wallet_session' }
+      >;
       expectedOrigin?: string;
       projectEnvironmentId?: string;
     }
@@ -97,7 +111,8 @@ const PASSKEY_EXCHANGE_KEYS = [
   'challengeId',
   'webauthn_authentication',
   'expected_origin',
-  'ecdsa_session_activation',
+  'wallet_id',
+  'ecdsa_session_policy',
 ] as const;
 const HOSTED_WALLET_EXCHANGE_KEYS = ['type', 'wallet_origin'] as const;
 const HOSTED_WALLET_REDEEM_KEYS = ['type', 'exchange_code', 'nonce'] as const;
@@ -334,6 +349,7 @@ export function parseSessionExchangeRouteCommand(raw: unknown): SessionExchangeR
       sessionKind,
     );
   }
+  const walletId = toOptionalTrimmedString(exchange.wallet_id) || undefined;
   const webauthnAuthentication = parseWebAuthnAuthenticationCredential(
     exchange.webauthn_authentication,
   );
@@ -348,12 +364,19 @@ export function parseSessionExchangeRouteCommand(raw: unknown): SessionExchangeR
   let ecdsaActivation: PasskeySessionExchangeEcdsaActivation = {
     kind: 'no_ecdsa_activation',
   };
-  if (exchange.ecdsa_session_activation !== undefined) {
+  if (exchange.ecdsa_session_policy !== undefined) {
+    if (!walletId) {
+      return invalidSessionExchangeBody(
+        'exchange.wallet_id is required with ECDSA policy',
+        exchangeType,
+        sessionKind,
+      );
+    }
     try {
       ecdsaActivation = {
         kind: 'activate_first_ecdsa_wallet_session',
-        request: parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1(
-          exchange.ecdsa_session_activation,
+        policy: parseRouterAbEcdsaPostRegistrationSessionActivationPolicyV1(
+          exchange.ecdsa_session_policy,
         ),
       };
     } catch (error: unknown) {
@@ -363,6 +386,33 @@ export function parseSessionExchangeRouteCommand(raw: unknown): SessionExchangeR
         sessionKind,
       );
     }
+  } else if (walletId) {
+    return invalidSessionExchangeBody(
+      'exchange.wallet_id requires an ECDSA policy',
+      exchangeType,
+      sessionKind,
+    );
+  }
+  if (ecdsaActivation.kind === 'no_ecdsa_activation') {
+    return {
+      ok: true,
+      command: {
+        kind: 'passkey_assertion',
+        sessionKind,
+        challengeId,
+        webauthnAuthentication,
+        ecdsaActivation,
+        ...(expectedOrigin ? { expectedOrigin } : {}),
+        ...(projectEnvironmentId ? { projectEnvironmentId } : {}),
+      },
+    };
+  }
+  if (!walletId) {
+    return invalidSessionExchangeBody(
+      'exchange.wallet_id is required with ECDSA policy',
+      exchangeType,
+      sessionKind,
+    );
   }
   return {
     ok: true,
@@ -370,6 +420,7 @@ export function parseSessionExchangeRouteCommand(raw: unknown): SessionExchangeR
       kind: 'passkey_assertion',
       sessionKind,
       challengeId,
+      walletId,
       webauthnAuthentication,
       ecdsaActivation,
       ...(expectedOrigin ? { expectedOrigin } : {}),

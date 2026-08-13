@@ -37,16 +37,20 @@ const ROUTER_AB_ECDSA_DERIVATION_REGISTRATION_REQUEST_VERSION_V1: &[u8] =
     b"router-ab-ecdsa-derivation/registration-request/v1";
 const ROUTER_AB_ECDSA_DERIVATION_EXPORT_REQUEST_VERSION_V1: &[u8] =
     b"router-ab-ecdsa-derivation/export-request/v1";
-const ROUTER_AB_ECDSA_DERIVATION_RECOVERY_REQUEST_VERSION_V1: &[u8] =
-    b"router-ab-ecdsa-derivation/recovery-request/v1";
 const ROUTER_AB_ECDSA_DERIVATION_REFRESH_REQUEST_VERSION_V1: &[u8] =
     b"router-ab-ecdsa-derivation/refresh-request/v1";
 const ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_SCOPE_VERSION_V1: &[u8] =
     b"router-ab-ecdsa-derivation/normal-signing-scope/v1";
+const ROUTER_AB_ECDSA_DERIVATION_LINKED_DEVICE_NORMAL_SIGNING_SCOPE_VERSION_V1: &[u8] =
+    b"router-ab-ecdsa-derivation/linked-device-normal-signing-scope/v1";
 const ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_REQUEST_VERSION_V1: &[u8] =
     b"router-ab-ecdsa-derivation/normal-signing-request/v1";
 const ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_FINALIZE_REQUEST_VERSION_V1: &[u8] =
     b"router-ab-ecdsa-derivation/normal-signing-finalize-request/v1";
+const ROUTER_AB_ECDSA_DERIVATION_LINKED_SIGNING_REQUEST_VERSION_V1: &[u8] =
+    b"router-ab-ecdsa-derivation/linked-device-signing-request/v1";
+const ROUTER_AB_ECDSA_DERIVATION_LINKED_SIGNING_FINALIZE_REQUEST_VERSION_V1: &[u8] =
+    b"router-ab-ecdsa-derivation/linked-device-signing-finalize-request/v1";
 const ROUTER_AB_ECDSA_DERIVATION_CLIENT_RERANDOMIZATION_COMMITMENT_DOMAIN_V1: &[u8] =
     b"router-ab-ecdsa-derivation/client-rerandomization-commitment/v1";
 const ROUTER_AB_ECDSA_DERIVATION_DERIVER_ENVELOPE_PLAINTEXT_VERSION_V1: &[u8] =
@@ -60,8 +64,6 @@ pub enum RouterAbEcdsaDerivationRequestKindV1 {
     RegistrationBootstrap,
     /// Explicit user-authorized key export.
     ExplicitKeyExport,
-    /// Recovery ceremony for an existing Router A/B ECDSA derivation identity.
-    Recovery,
     /// SigningWorker activation refresh after Deriver A/B root rotation.
     Refresh,
     /// Normal ECDSA signing through an active SigningWorker state.
@@ -94,7 +96,6 @@ impl RouterAbEcdsaDerivationRequestKindV1 {
         match self {
             Self::RegistrationBootstrap => "registration_bootstrap",
             Self::ExplicitKeyExport => "explicit_key_export",
-            Self::Recovery => "recovery",
             Self::Refresh => "refresh",
             Self::NormalSigning => "normal_signing",
         }
@@ -129,8 +130,6 @@ pub enum RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1 {
     RegistrationBootstrap(RouterAbEcdsaDerivationDeriverRegistrationEnvelopePlaintextV1),
     /// Explicit export material for the client export runtime.
     ExplicitKeyExport(RouterAbEcdsaDerivationDeriverExportEnvelopePlaintextV1),
-    /// Recovery material for the client recovery runtime.
-    Recovery(RouterAbEcdsaDerivationDeriverRecoveryEnvelopePlaintextV1),
     /// Refresh material for the next SigningWorker activation epoch.
     Refresh(RouterAbEcdsaDerivationDeriverRefreshEnvelopePlaintextV1),
 }
@@ -202,35 +201,6 @@ impl RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1 {
         Ok(Self::ExplicitKeyExport(plaintext))
     }
 
-    /// Builds recovery plaintext for one Deriver envelope.
-    pub fn recovery_for_request(
-        request: &RouterAbEcdsaDerivationRecoveryRequestV1,
-        recipient_role: Role,
-        aad_digest: PublicDigest32,
-    ) -> RouterAbProtocolResult<Self> {
-        request.validate()?;
-        let plaintext = RouterAbEcdsaDerivationDeriverRecoveryEnvelopePlaintextV1 {
-            common: RouterAbEcdsaDerivationDeriverEnvelopeCommonV1::from_parts(
-                request.context.clone(),
-                request.lifecycle.clone(),
-                request.signer_set.clone(),
-                recipient_role,
-                request.router_id.clone(),
-                request.client_id.clone(),
-                request.client_ephemeral_public_key.clone(),
-                request.request_header_digest()?,
-                aad_digest,
-                request.expires_at_ms,
-            )?,
-            output_kind: RouterAbEcdsaDerivationOutputKindV1::ClientExport,
-            public_identity: request.public_identity.clone(),
-            recovery_authorization_digest_b64u: request.recovery_authorization_digest_b64u.clone(),
-            recovery_nonce: request.recovery_nonce.clone(),
-        };
-        plaintext.validate()?;
-        Ok(Self::Recovery(plaintext))
-    }
-
     /// Builds activation-refresh plaintext for one Deriver envelope.
     pub fn refresh_for_request(
         request: &RouterAbEcdsaDerivationActivationRefreshRequestV1,
@@ -270,7 +240,6 @@ impl RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1 {
                 RouterAbEcdsaDerivationRequestKindV1::RegistrationBootstrap
             }
             Self::ExplicitKeyExport(_) => RouterAbEcdsaDerivationRequestKindV1::ExplicitKeyExport,
-            Self::Recovery(_) => RouterAbEcdsaDerivationRequestKindV1::Recovery,
             Self::Refresh(_) => RouterAbEcdsaDerivationRequestKindV1::Refresh,
         }
     }
@@ -280,7 +249,6 @@ impl RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1 {
         match self {
             Self::RegistrationBootstrap(plaintext) => plaintext.output_kind,
             Self::ExplicitKeyExport(plaintext) => plaintext.output_kind,
-            Self::Recovery(plaintext) => plaintext.output_kind,
             Self::Refresh(plaintext) => plaintext.output_kind,
         }
     }
@@ -290,7 +258,6 @@ impl RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1 {
         match self {
             Self::RegistrationBootstrap(plaintext) => &plaintext.common,
             Self::ExplicitKeyExport(plaintext) => &plaintext.common,
-            Self::Recovery(plaintext) => &plaintext.common,
             Self::Refresh(plaintext) => &plaintext.common,
         }
     }
@@ -300,7 +267,6 @@ impl RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1 {
         match self {
             Self::RegistrationBootstrap(plaintext) => plaintext.validate(),
             Self::ExplicitKeyExport(plaintext) => plaintext.validate(),
-            Self::Recovery(plaintext) => plaintext.validate(),
             Self::Refresh(plaintext) => plaintext.validate(),
         }
     }
@@ -355,19 +321,6 @@ impl RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1 {
                     plaintext.export_authorization_digest_b64u.as_bytes(),
                 );
                 push_len32(&mut out, plaintext.export_nonce.as_bytes());
-            }
-            Self::Recovery(plaintext) => {
-                push_len32(
-                    &mut out,
-                    &plaintext
-                        .public_identity
-                        .canonical_public_identity_bytes()?,
-                );
-                push_len32(
-                    &mut out,
-                    plaintext.recovery_authorization_digest_b64u.as_bytes(),
-                );
-                push_len32(&mut out, plaintext.recovery_nonce.as_bytes());
             }
             Self::Refresh(plaintext) => {
                 push_len32(
@@ -560,45 +513,6 @@ impl RouterAbEcdsaDerivationDeriverExportEnvelopePlaintextV1 {
     }
 }
 
-/// Recovery Deriver plaintext.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RouterAbEcdsaDerivationDeriverRecoveryEnvelopePlaintextV1 {
-    /// Shared public Deriver envelope metadata.
-    pub common: RouterAbEcdsaDerivationDeriverEnvelopeCommonV1,
-    /// Recovery must produce client-recipient recovery/export material.
-    pub output_kind: RouterAbEcdsaDerivationOutputKindV1,
-    /// Public identity being recovered.
-    pub public_identity: RouterAbEcdsaDerivationPublicIdentityV1,
-    /// User-confirmed recovery authorization digest encoded as unpadded base64url.
-    pub recovery_authorization_digest_b64u: String,
-    /// Request-scoped recovery replay nonce.
-    pub recovery_nonce: String,
-}
-
-impl RouterAbEcdsaDerivationDeriverRecoveryEnvelopePlaintextV1 {
-    /// Validates recovery Deriver plaintext.
-    pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        self.common
-            .validate_for_work_kind(ExpensiveWorkKindV1::Recovery)?;
-        require_output_kind(
-            "recovery_deriver_plaintext.output_kind",
-            self.output_kind,
-            RouterAbEcdsaDerivationOutputKindV1::ClientExport,
-        )?;
-        self.public_identity
-            .validate_for_context(&self.common.context)?;
-        decode_base64url_fixed_32(
-            "recovery_deriver_plaintext.recovery_authorization_digest_b64u",
-            &self.recovery_authorization_digest_b64u,
-        )?;
-        require_ascii_non_empty(
-            "recovery_deriver_plaintext.recovery_nonce",
-            &self.recovery_nonce,
-        )
-    }
-}
-
 /// Activation-refresh Deriver plaintext.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -683,7 +597,7 @@ pub enum RouterAbEcdsaDerivationSignatureSchemeV1 {
     EcdsaSecp256k1RecoverableV1,
 }
 
-/// Router A/B ECDSA derivation stable context bound into registration, export, recovery, and refresh.
+/// Router A/B ECDSA derivation stable context bound into registration, export, and refresh.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RouterAbEcdsaDerivationStableKeyContextV1 {
@@ -1360,171 +1274,6 @@ impl RouterAbEcdsaDerivationExplicitExportRequestV1 {
     }
 }
 
-/// Client-facing typed Router A/B ECDSA derivation recovery request.
-///
-/// Recovery uses the same primitive derivation class as export, but its
-/// transcript domain, authorization digest, nonce, and envelope labels remain
-/// recovery-specific.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RouterAbEcdsaDerivationRecoveryRequestV1 {
-    /// Stable Router A/B ECDSA derivation context.
-    pub context: RouterAbEcdsaDerivationStableKeyContextV1,
-    /// Router lifecycle scope for the A/B recovery ceremony.
-    pub lifecycle: LifecycleScopeV1,
-    /// Public identity being recovered.
-    pub public_identity: RouterAbEcdsaDerivationPublicIdentityV1,
-    /// Router A/B signer set selected for this request.
-    pub signer_set: SignerSetV1,
-    /// Router identity bound into the A/B transcript.
-    pub router_id: String,
-    /// Client identity bound into the A/B transcript.
-    pub client_id: String,
-    /// Client ephemeral public key used for recovery-output encryption.
-    pub client_ephemeral_public_key: String,
-    /// User-confirmed recovery authorization digest encoded as unpadded base64url.
-    pub recovery_authorization_digest_b64u: String,
-    /// Request-scoped recovery replay nonce.
-    pub recovery_nonce: String,
-    /// Request expiry in Unix milliseconds.
-    pub expires_at_ms: u64,
-    /// Deriver A encrypted Router A/B ECDSA derivation recovery envelope.
-    pub deriver_a_recovery_envelope: RoleEncryptedEnvelopeV1,
-    /// Deriver B encrypted Router A/B ECDSA derivation recovery envelope.
-    pub deriver_b_recovery_envelope: RoleEncryptedEnvelopeV1,
-}
-
-impl RouterAbEcdsaDerivationRecoveryRequestV1 {
-    /// Validates the request without consulting clock state.
-    pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        self.context.validate()?;
-        self.lifecycle.validate()?;
-        validate_lifecycle_work_kind(
-            "recovery.lifecycle",
-            &self.lifecycle,
-            ExpensiveWorkKindV1::Recovery,
-        )?;
-        self.public_identity.validate_for_context(&self.context)?;
-        self.signer_set.validate()?;
-        require_ascii_non_empty("recovery.router_id", &self.router_id)?;
-        require_ascii_non_empty("recovery.client_id", &self.client_id)?;
-        require_ascii_non_empty(
-            "recovery.client_ephemeral_public_key",
-            &self.client_ephemeral_public_key,
-        )?;
-        validate_lifecycle_for_context("recovery.lifecycle", &self.lifecycle, &self.context)?;
-        decode_base64url_fixed_32(
-            "recovery.recovery_authorization_digest_b64u",
-            &self.recovery_authorization_digest_b64u,
-        )?;
-        require_ascii_non_empty("recovery.recovery_nonce", &self.recovery_nonce)?;
-        require_positive_ms("recovery.expires_at_ms", self.expires_at_ms)?;
-        self.deriver_a_recovery_envelope.validate()?;
-        self.deriver_b_recovery_envelope.validate()?;
-        require_envelope_role(
-            "recovery.deriver_a_recovery_envelope",
-            &self.deriver_a_recovery_envelope,
-            Role::SignerA,
-        )?;
-        require_envelope_role(
-            "recovery.deriver_b_recovery_envelope",
-            &self.deriver_b_recovery_envelope,
-            Role::SignerB,
-        )?;
-        Ok(())
-    }
-
-    /// Validates the request against Router time.
-    pub fn validate_at(&self, now_unix_ms: u64) -> RouterAbProtocolResult<()> {
-        self.validate()?;
-        if now_unix_ms >= self.expires_at_ms {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::ExpiredLocalRequest,
-                "Router A/B ECDSA derivation recovery request expired",
-            ));
-        }
-        Ok(())
-    }
-
-    /// Returns canonical recovery header bytes before role envelopes are sealed.
-    pub fn canonical_request_header_bytes(&self) -> RouterAbProtocolResult<Vec<u8>> {
-        self.validate()?;
-        let mut out = Vec::new();
-        push_len32(
-            &mut out,
-            ROUTER_AB_ECDSA_DERIVATION_RECOVERY_REQUEST_VERSION_V1,
-        );
-        push_len32(&mut out, &self.context.canonical_context_bytes()?);
-        push_lifecycle_scope(&mut out, &self.lifecycle);
-        push_len32(
-            &mut out,
-            &self.public_identity.canonical_public_identity_bytes()?,
-        );
-        push_signer_set(&mut out, &self.signer_set);
-        push_len32(&mut out, self.router_id.as_bytes());
-        push_len32(&mut out, self.client_id.as_bytes());
-        push_len32(&mut out, self.client_ephemeral_public_key.as_bytes());
-        push_len32(&mut out, self.recovery_authorization_digest_b64u.as_bytes());
-        push_len32(&mut out, self.recovery_nonce.as_bytes());
-        push_u64(&mut out, self.expires_at_ms);
-        Ok(out)
-    }
-
-    /// Returns the pre-envelope recovery header digest used by HPKE AAD and plaintext.
-    pub fn request_header_digest(&self) -> RouterAbProtocolResult<PublicDigest32> {
-        Ok(public_digest(&self.canonical_request_header_bytes()?))
-    }
-
-    /// Returns canonical recovery request bytes including sealed role envelopes.
-    pub fn canonical_request_bytes(&self) -> RouterAbProtocolResult<Vec<u8>> {
-        let mut out = self.canonical_request_header_bytes()?;
-        push_digest(
-            &mut out,
-            role_encrypted_envelope_digest_v1(&self.deriver_a_recovery_envelope)?,
-        );
-        push_digest(
-            &mut out,
-            role_encrypted_envelope_digest_v1(&self.deriver_b_recovery_envelope)?,
-        );
-        Ok(out)
-    }
-
-    /// Returns the recovery request digest.
-    pub fn request_digest(&self) -> RouterAbProtocolResult<PublicDigest32> {
-        Ok(public_digest(&self.canonical_request_bytes()?))
-    }
-
-    /// Converts this typed request into the shared Router A/B proof-bundle transport.
-    pub fn to_threshold_prf_request(&self) -> RouterAbProtocolResult<EcdsaThresholdPrfRequestV1> {
-        self.validate()?;
-        let context = EcdsaThresholdPrfRequestContextV1::new(
-            self.recovery_nonce.clone(),
-            self.expires_at_ms,
-            self.lifecycle.clone(),
-            self.signer_set.clone(),
-            ROUTER_AB_ECDSA_DERIVATION_KEY_SCOPE_V1.to_owned(),
-            self.public_identity.threshold_public_key33_b64u.clone(),
-            self.router_id.clone(),
-            self.client_id.clone(),
-            self.client_ephemeral_public_key.clone(),
-        )?;
-        EcdsaThresholdPrfRequestV1::new(
-            self.recovery_nonce.clone(),
-            self.expires_at_ms,
-            self.lifecycle.clone(),
-            self.signer_set.clone(),
-            ROUTER_AB_ECDSA_DERIVATION_KEY_SCOPE_V1.to_owned(),
-            self.public_identity.threshold_public_key33_b64u.clone(),
-            self.router_id.clone(),
-            self.client_id.clone(),
-            self.client_ephemeral_public_key.clone(),
-            context.derivation_transcript_digest()?,
-            self.deriver_a_recovery_envelope.clone(),
-            self.deriver_b_recovery_envelope.clone(),
-        )
-    }
-}
-
 /// Client-facing typed Router A/B ECDSA derivation SigningWorker activation-refresh request.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1839,6 +1588,656 @@ impl RouterAbEcdsaDerivationNormalSigningScopeV1 {
     pub fn scope_digest(&self) -> RouterAbProtocolResult<PublicDigest32> {
         Ok(public_digest(&self.canonical_scope_bytes()?))
     }
+}
+
+/// Wire discriminator for a linked-device ECDSA normal-signing scope.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LinkedDeviceEcdsaNormalSigningScopeKindV1 {
+    /// The lane-native linked-device scope branch.
+    LinkedDeviceEcdsaNormalSigningScopeV1,
+}
+
+impl LinkedDeviceEcdsaNormalSigningScopeKindV1 {
+    /// Returns the exact shared TypeScript wire discriminator.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::LinkedDeviceEcdsaNormalSigningScopeV1 => {
+                "linked_device_ecdsa_normal_signing_scope_v1"
+            }
+        }
+    }
+}
+
+/// Key-family discriminator for a linked-device ECDSA scope.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LinkedDeviceEcdsaKeyFamilyV1 {
+    /// Compressed secp256k1 threshold key.
+    EcdsaSecp256k1,
+}
+
+impl LinkedDeviceEcdsaKeyFamilyV1 {
+    /// Returns the exact shared TypeScript wire discriminator.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::EcdsaSecp256k1 => "ecdsa_secp256k1",
+        }
+    }
+}
+
+/// Lane-kind discriminator for a linked-device scope.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LinkedDeviceEcdsaLaneKindV1 {
+    /// A lane held by a linked physical/browser device.
+    LinkedDevice,
+}
+
+impl LinkedDeviceEcdsaLaneKindV1 {
+    /// Returns the exact shared TypeScript wire discriminator.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::LinkedDevice => "linked_device",
+        }
+    }
+}
+
+/// Chain target bound to one target ECDSA threshold session.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum EcdsaTargetChainTargetV1 {
+    /// EIP-155 EVM chain.
+    Evm {
+        /// EIP-155 namespace marker.
+        namespace: String,
+        /// Numeric chain id.
+        chain_id: u64,
+        /// Product network slug.
+        network_slug: String,
+    },
+    /// Tempo chain.
+    Tempo {
+        /// Numeric chain id.
+        chain_id: u64,
+        /// Product network slug.
+        network_slug: String,
+    },
+}
+
+impl EcdsaTargetChainTargetV1 {
+    fn validate(&self, field: &str) -> RouterAbProtocolResult<()> {
+        match self {
+            Self::Evm {
+                namespace,
+                chain_id: _,
+                network_slug,
+            } => {
+                if namespace != "eip155" {
+                    return Err(RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::MalformedWirePayload,
+                        format!("{field}.namespace must be eip155"),
+                    ));
+                }
+                require_linked_text(&format!("{field}.networkSlug"), network_slug)
+            }
+            Self::Tempo {
+                chain_id: _,
+                network_slug,
+            } => require_linked_text(&format!("{field}.networkSlug"), network_slug),
+        }
+    }
+
+    fn push_canonical(&self, out: &mut Vec<u8>) -> RouterAbProtocolResult<()> {
+        match self {
+            Self::Evm {
+                namespace,
+                chain_id,
+                network_slug,
+            } => {
+                push_len32(out, b"evm");
+                push_len32(out, namespace.as_bytes());
+                push_u64(out, *chain_id);
+                push_len32(out, network_slug.as_bytes());
+            }
+            Self::Tempo {
+                chain_id,
+                network_slug,
+            } => {
+                push_len32(out, b"tempo");
+                push_u64(out, *chain_id);
+                push_len32(out, network_slug.as_bytes());
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Exact target threshold-session binding carried by a linked ECDSA scope.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EcdsaTargetThresholdSessionBindingV1 {
+    /// Chain selected by this target threshold session.
+    pub chain_target: EcdsaTargetChainTargetV1,
+    /// Durable threshold session identity.
+    pub threshold_session_id: String,
+    /// Participant binding digest for the target session.
+    pub participant_binding_digest_b64u: String,
+}
+
+impl EcdsaTargetThresholdSessionBindingV1 {
+    fn validate(&self, index: usize) -> RouterAbProtocolResult<()> {
+        let field = format!("targetCapability.orderedThresholdSessions[{index}]");
+        self.chain_target
+            .validate(&format!("{field}.chainTarget"))?;
+        require_linked_text(
+            &format!("{field}.thresholdSessionId"),
+            &self.threshold_session_id,
+        )?;
+        decode_canonical_base64url_fixed_32(
+            &format!("{field}.participantBindingDigestB64u"),
+            &self.participant_binding_digest_b64u,
+        )?;
+        Ok(())
+    }
+
+    fn push_canonical(&self, out: &mut Vec<u8>) -> RouterAbProtocolResult<()> {
+        self.chain_target.push_canonical(out)?;
+        push_len32(out, self.threshold_session_id.as_bytes());
+        push_len32(out, self.participant_binding_digest_b64u.as_bytes());
+        Ok(())
+    }
+}
+
+/// Exact target capability manifest and ordered threshold sessions.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EcdsaTargetCapabilityBindingV1 {
+    /// Capability manifest identity.
+    pub manifest_id: String,
+    /// Positive manifest revision.
+    pub manifest_revision: u64,
+    /// ECDSA threshold key identity.
+    pub ecdsa_threshold_key_id: String,
+    /// Non-empty ordered target threshold sessions.
+    pub ordered_threshold_sessions: Vec<EcdsaTargetThresholdSessionBindingV1>,
+}
+
+impl EcdsaTargetCapabilityBindingV1 {
+    fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_linked_text("targetCapability.manifestId", &self.manifest_id)?;
+        if self.manifest_revision == 0 {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "targetCapability.manifestRevision must be positive",
+            ));
+        }
+        require_linked_text(
+            "targetCapability.ecdsaThresholdKeyId",
+            &self.ecdsa_threshold_key_id,
+        )?;
+        if self.ordered_threshold_sessions.is_empty() {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "targetCapability.orderedThresholdSessions must be non-empty",
+            ));
+        }
+        for (index, session) in self.ordered_threshold_sessions.iter().enumerate() {
+            session.validate(index)?;
+        }
+        Ok(())
+    }
+
+    fn push_canonical(&self, out: &mut Vec<u8>) -> RouterAbProtocolResult<()> {
+        self.validate()?;
+        push_len32(out, self.manifest_id.as_bytes());
+        push_u64(out, self.manifest_revision);
+        push_len32(out, self.ecdsa_threshold_key_id.as_bytes());
+        push_u32(out, self.ordered_threshold_sessions.len() as u32);
+        for session in &self.ordered_threshold_sessions {
+            session.push_canonical(out)?;
+        }
+        Ok(())
+    }
+}
+
+/// Input to the linked-device scope builder. The discriminators are supplied by
+/// the builder and cannot be replaced by callers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkedDeviceEcdsaNormalSigningScopeInputV1 {
+    /// Wallet identity.
+    pub wallet_id: String,
+    /// Stable wallet-key identity.
+    pub wallet_key_id: String,
+    /// Aggregate linked-device enrollment identity.
+    pub enrollment_id: String,
+    /// Lane operation identity.
+    pub operation_id: String,
+    /// Target linked-device lane identity.
+    pub lane_id: String,
+    /// Target lane share epoch.
+    pub lane_share_epoch: String,
+    /// Aggregate enrollment revocation epoch.
+    pub revocation_epoch: u64,
+    /// Fresh target material activation identity.
+    pub target_material_activation_id: String,
+    /// Exact activated target material reference.
+    pub material_activation: MpcMaterialActivationRefV1,
+    /// Exact target capability/session binding.
+    pub target_capability: EcdsaTargetCapabilityBindingV1,
+    /// Threshold compressed secp256k1 public key.
+    pub threshold_public_key33_b64u: String,
+    /// Canonical EVM address.
+    pub evm_address: String,
+    /// Digest of the target public identity.
+    pub public_identity_digest_b64u: String,
+    /// Target holder public commitment.
+    pub target_holder_public_commitment_b64u: String,
+    /// Target SigningWorker public commitment.
+    pub target_server_public_commitment_b64u: String,
+    /// Target holder participant identity.
+    pub holder_participant_id: String,
+    /// Target SigningWorker participant identity.
+    pub signing_worker_participant_id: String,
+    /// Target holder participant binding digest.
+    pub holder_participant_binding_digest_b64u: String,
+    /// Target SigningWorker participant binding digest.
+    pub signing_worker_participant_binding_digest_b64u: String,
+    /// Target holder recipient-key digest.
+    pub holder_recipient_key_digest_b64u: String,
+    /// Target server recipient-key digest.
+    pub server_recipient_key_digest_b64u: String,
+    /// Target SigningWorker recipient-key identity.
+    pub signing_worker_recipient_key_id: String,
+    /// Target SigningWorker HPKE public key.
+    pub signing_worker_hpke_public_key_b64u: String,
+    /// Complete lane-protocol transcript digest.
+    pub transcript_hash_b64u: String,
+    /// Protocol commit receipt digest.
+    pub protocol_commit_receipt_digest_b64u: String,
+}
+
+/// Lane-native ECDSA normal-signing scope for a linked device.
+///
+/// This branch carries activated target-lane identity only. Owner derivation
+/// roots, owner context/public-identity bags, and runtime authorization policy
+/// are deliberately absent from the type and rejected by the exact wire
+/// parser through `deny_unknown_fields`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RouterAbEcdsaDerivationLinkedDeviceNormalSigningScopeV1 {
+    /// Exact linked-device scope discriminator.
+    pub kind: LinkedDeviceEcdsaNormalSigningScopeKindV1,
+    /// Exact ECDSA key-family discriminator.
+    pub key_family: LinkedDeviceEcdsaKeyFamilyV1,
+    /// Exact linked-device lane discriminator.
+    pub lane_kind: LinkedDeviceEcdsaLaneKindV1,
+    /// Wallet identity.
+    pub wallet_id: String,
+    /// Stable wallet-key identity.
+    pub wallet_key_id: String,
+    /// Aggregate linked-device enrollment identity.
+    pub enrollment_id: String,
+    /// Lane operation identity.
+    pub operation_id: String,
+    /// Target linked-device lane identity.
+    pub lane_id: String,
+    /// Target lane share epoch.
+    pub lane_share_epoch: String,
+    /// Aggregate enrollment revocation epoch.
+    pub revocation_epoch: u64,
+    /// Fresh target material activation identity.
+    pub target_material_activation_id: String,
+    /// Exact activated target material reference.
+    #[serde(with = "linked_device_material_activation_serde")]
+    pub material_activation: MpcMaterialActivationRefV1,
+    /// Exact target capability/session binding.
+    pub target_capability: EcdsaTargetCapabilityBindingV1,
+    /// Threshold compressed secp256k1 public key.
+    pub threshold_public_key33_b64u: String,
+    /// Canonical EVM address.
+    pub evm_address: String,
+    /// Digest of the target public identity.
+    pub public_identity_digest_b64u: String,
+    /// Target holder public commitment.
+    pub target_holder_public_commitment_b64u: String,
+    /// Target SigningWorker public commitment.
+    pub target_server_public_commitment_b64u: String,
+    /// Target holder participant identity.
+    pub holder_participant_id: String,
+    /// Target SigningWorker participant identity.
+    pub signing_worker_participant_id: String,
+    /// Target holder participant binding digest.
+    pub holder_participant_binding_digest_b64u: String,
+    /// Target SigningWorker participant binding digest.
+    pub signing_worker_participant_binding_digest_b64u: String,
+    /// Target holder recipient-key digest.
+    pub holder_recipient_key_digest_b64u: String,
+    /// Target server recipient-key digest.
+    pub server_recipient_key_digest_b64u: String,
+    /// Target SigningWorker recipient-key identity.
+    pub signing_worker_recipient_key_id: String,
+    /// Target SigningWorker HPKE public key.
+    pub signing_worker_hpke_public_key_b64u: String,
+    /// Complete lane-protocol transcript digest.
+    pub transcript_hash_b64u: String,
+    /// Protocol commit receipt digest.
+    pub protocol_commit_receipt_digest_b64u: String,
+}
+
+impl RouterAbEcdsaDerivationLinkedDeviceNormalSigningScopeV1 {
+    /// Builds and validates the lane-native linked-device scope.
+    pub fn new(input: LinkedDeviceEcdsaNormalSigningScopeInputV1) -> RouterAbProtocolResult<Self> {
+        let scope = Self {
+            kind: LinkedDeviceEcdsaNormalSigningScopeKindV1::LinkedDeviceEcdsaNormalSigningScopeV1,
+            key_family: LinkedDeviceEcdsaKeyFamilyV1::EcdsaSecp256k1,
+            lane_kind: LinkedDeviceEcdsaLaneKindV1::LinkedDevice,
+            wallet_id: input.wallet_id,
+            wallet_key_id: input.wallet_key_id,
+            enrollment_id: input.enrollment_id,
+            operation_id: input.operation_id,
+            lane_id: input.lane_id,
+            lane_share_epoch: input.lane_share_epoch,
+            revocation_epoch: input.revocation_epoch,
+            target_material_activation_id: input.target_material_activation_id,
+            material_activation: input.material_activation,
+            target_capability: input.target_capability,
+            threshold_public_key33_b64u: input.threshold_public_key33_b64u,
+            evm_address: input.evm_address,
+            public_identity_digest_b64u: input.public_identity_digest_b64u,
+            target_holder_public_commitment_b64u: input.target_holder_public_commitment_b64u,
+            target_server_public_commitment_b64u: input.target_server_public_commitment_b64u,
+            holder_participant_id: input.holder_participant_id,
+            signing_worker_participant_id: input.signing_worker_participant_id,
+            holder_participant_binding_digest_b64u: input.holder_participant_binding_digest_b64u,
+            signing_worker_participant_binding_digest_b64u: input
+                .signing_worker_participant_binding_digest_b64u,
+            holder_recipient_key_digest_b64u: input.holder_recipient_key_digest_b64u,
+            server_recipient_key_digest_b64u: input.server_recipient_key_digest_b64u,
+            signing_worker_recipient_key_id: input.signing_worker_recipient_key_id,
+            signing_worker_hpke_public_key_b64u: input.signing_worker_hpke_public_key_b64u,
+            transcript_hash_b64u: input.transcript_hash_b64u,
+            protocol_commit_receipt_digest_b64u: input.protocol_commit_receipt_digest_b64u,
+        };
+        scope.validate()?;
+        Ok(scope)
+    }
+
+    /// Validates exact linked-device discriminators and all public bindings.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_linked_text("linkedEcdsaScope.walletId", &self.wallet_id)?;
+        require_linked_text("linkedEcdsaScope.walletKeyId", &self.wallet_key_id)?;
+        require_linked_text("linkedEcdsaScope.enrollmentId", &self.enrollment_id)?;
+        require_linked_text("linkedEcdsaScope.operationId", &self.operation_id)?;
+        require_linked_text("linkedEcdsaScope.laneId", &self.lane_id)?;
+        require_linked_text("linkedEcdsaScope.laneShareEpoch", &self.lane_share_epoch)?;
+        if self.revocation_epoch > JS_SAFE_INTEGER_MAX {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "linkedEcdsaScope.revocationEpoch must be a non-negative safe integer",
+            ));
+        }
+        require_linked_text(
+            "linkedEcdsaScope.targetMaterialActivationId",
+            &self.target_material_activation_id,
+        )?;
+        self.material_activation.validate()?;
+        if self.material_activation.activation_id != self.target_material_activation_id {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "linked ECDSA scope activation id does not match material activation",
+            ));
+        }
+        if self.material_activation.signing_worker != self.signing_worker_participant_id {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "linked ECDSA scope SigningWorker does not match material activation",
+            ));
+        }
+        self.target_capability.validate()?;
+        decode_secp256k1_public_key33_b64u(
+            "linkedEcdsaScope.thresholdPublicKey33B64u",
+            &self.threshold_public_key33_b64u,
+        )?;
+        validate_evm_address("linkedEcdsaScope.evmAddress", &self.evm_address)?;
+        for (field, value) in [
+            (
+                "linkedEcdsaScope.publicIdentityDigestB64u",
+                &self.public_identity_digest_b64u,
+            ),
+            (
+                "linkedEcdsaScope.holderParticipantBindingDigestB64u",
+                &self.holder_participant_binding_digest_b64u,
+            ),
+            (
+                "linkedEcdsaScope.signingWorkerParticipantBindingDigestB64u",
+                &self.signing_worker_participant_binding_digest_b64u,
+            ),
+            (
+                "linkedEcdsaScope.holderRecipientKeyDigestB64u",
+                &self.holder_recipient_key_digest_b64u,
+            ),
+            (
+                "linkedEcdsaScope.serverRecipientKeyDigestB64u",
+                &self.server_recipient_key_digest_b64u,
+            ),
+            (
+                "linkedEcdsaScope.transcriptHashB64u",
+                &self.transcript_hash_b64u,
+            ),
+            (
+                "linkedEcdsaScope.protocolCommitReceiptDigestB64u",
+                &self.protocol_commit_receipt_digest_b64u,
+            ),
+        ] {
+            decode_canonical_base64url_fixed_32(field, value)?;
+        }
+        decode_secp256k1_public_key33_b64u(
+            "linkedEcdsaScope.targetHolderPublicCommitmentB64u",
+            &self.target_holder_public_commitment_b64u,
+        )?;
+        decode_secp256k1_public_key33_b64u(
+            "linkedEcdsaScope.targetServerPublicCommitmentB64u",
+            &self.target_server_public_commitment_b64u,
+        )?;
+        require_visible_text(
+            "linkedEcdsaScope.holderParticipantId",
+            &self.holder_participant_id,
+        )?;
+        require_visible_text(
+            "linkedEcdsaScope.signingWorkerParticipantId",
+            &self.signing_worker_participant_id,
+        )?;
+        require_visible_text(
+            "linkedEcdsaScope.signingWorkerRecipientKeyId",
+            &self.signing_worker_recipient_key_id,
+        )?;
+        decode_canonical_base64url_fixed_32(
+            "linkedEcdsaScope.signingWorkerHpkePublicKeyB64u",
+            &self.signing_worker_hpke_public_key_b64u,
+        )?;
+        Ok(())
+    }
+
+    /// Returns canonical linked-device scope bytes for worker binding.
+    pub fn canonical_scope_bytes(&self) -> RouterAbProtocolResult<Vec<u8>> {
+        self.validate()?;
+        let mut out = Vec::new();
+        push_len32(
+            &mut out,
+            ROUTER_AB_ECDSA_DERIVATION_LINKED_DEVICE_NORMAL_SIGNING_SCOPE_VERSION_V1,
+        );
+        push_len32(&mut out, self.kind.kind_bytes());
+        push_len32(&mut out, self.key_family.as_str().as_bytes());
+        push_len32(&mut out, self.lane_kind.as_str().as_bytes());
+        push_len32(&mut out, self.wallet_id.as_bytes());
+        push_len32(&mut out, self.wallet_key_id.as_bytes());
+        push_len32(&mut out, self.enrollment_id.as_bytes());
+        push_len32(&mut out, self.operation_id.as_bytes());
+        push_len32(&mut out, self.lane_id.as_bytes());
+        push_len32(&mut out, self.lane_share_epoch.as_bytes());
+        push_u64(&mut out, self.revocation_epoch);
+        push_len32(&mut out, self.target_material_activation_id.as_bytes());
+        push_linked_device_material_activation(&mut out, &self.material_activation)?;
+        self.target_capability.push_canonical(&mut out)?;
+        push_len32(&mut out, self.threshold_public_key33_b64u.as_bytes());
+        push_len32(&mut out, self.evm_address.as_bytes());
+        push_len32(&mut out, self.public_identity_digest_b64u.as_bytes());
+        push_len32(
+            &mut out,
+            self.target_holder_public_commitment_b64u.as_bytes(),
+        );
+        push_len32(
+            &mut out,
+            self.target_server_public_commitment_b64u.as_bytes(),
+        );
+        push_len32(&mut out, self.holder_participant_id.as_bytes());
+        push_len32(&mut out, self.signing_worker_participant_id.as_bytes());
+        push_len32(
+            &mut out,
+            self.holder_participant_binding_digest_b64u.as_bytes(),
+        );
+        push_len32(
+            &mut out,
+            self.signing_worker_participant_binding_digest_b64u
+                .as_bytes(),
+        );
+        push_len32(&mut out, self.holder_recipient_key_digest_b64u.as_bytes());
+        push_len32(&mut out, self.server_recipient_key_digest_b64u.as_bytes());
+        push_len32(&mut out, self.signing_worker_recipient_key_id.as_bytes());
+        push_len32(
+            &mut out,
+            self.signing_worker_hpke_public_key_b64u.as_bytes(),
+        );
+        push_len32(&mut out, self.transcript_hash_b64u.as_bytes());
+        push_len32(
+            &mut out,
+            self.protocol_commit_receipt_digest_b64u.as_bytes(),
+        );
+        Ok(out)
+    }
+
+    /// Returns the canonical digest bound to the linked-device scope.
+    pub fn scope_digest(&self) -> RouterAbProtocolResult<PublicDigest32> {
+        Ok(public_digest(&self.canonical_scope_bytes()?))
+    }
+
+    /// Returns the exact target material activation id.
+    pub fn material_activation_id(&self) -> RouterAbProtocolResult<String> {
+        self.validate()?;
+        Ok(self.target_material_activation_id.clone())
+    }
+}
+
+impl LinkedDeviceEcdsaNormalSigningScopeKindV1 {
+    fn kind_bytes(self) -> &'static [u8] {
+        self.as_str().as_bytes()
+    }
+}
+
+const JS_SAFE_INTEGER_MAX: u64 = 9_007_199_254_740_991;
+
+/// Parses and validates the exact linked-device ECDSA scope JSON boundary.
+pub fn parse_router_ab_ecdsa_derivation_linked_device_normal_signing_scope_v1_json(
+    bytes: &[u8],
+) -> RouterAbProtocolResult<RouterAbEcdsaDerivationLinkedDeviceNormalSigningScopeV1> {
+    let scope = parse_boundary_json::<RouterAbEcdsaDerivationLinkedDeviceNormalSigningScopeV1>(
+        "Router A/B linked-device ECDSA normal signing scope",
+        bytes,
+    )?;
+    scope.validate()?;
+    Ok(scope)
+}
+
+mod linked_device_material_activation_serde {
+    use super::{MpcMaterialActivationRefV1, RouterAbProtocolError};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct Wire {
+        kind: String,
+        activation_id: String,
+        capability: String,
+        material_owner: String,
+        key_binding: String,
+        lifecycle_binding: String,
+        signing_worker: String,
+    }
+
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct WireRef<'a> {
+        kind: &'static str,
+        activation_id: &'a str,
+        capability: &'a str,
+        material_owner: &'a str,
+        key_binding: &'a str,
+        lifecycle_binding: &'a str,
+        signing_worker: &'a str,
+    }
+
+    pub(super) fn serialize<S>(
+        value: &MpcMaterialActivationRefV1,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        WireRef {
+            kind: "mpc_material_activation_ref",
+            activation_id: &value.activation_id,
+            capability: &value.capability,
+            material_owner: &value.material_owner,
+            key_binding: &value.key_binding,
+            lifecycle_binding: &value.lifecycle_binding,
+            signing_worker: &value.signing_worker,
+        }
+        .serialize(serializer)
+    }
+
+    pub(super) fn deserialize<'de, D>(
+        deserializer: D,
+    ) -> Result<MpcMaterialActivationRefV1, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = Wire::deserialize(deserializer)?;
+        if wire.kind != "mpc_material_activation_ref" {
+            return Err(serde::de::Error::custom(
+                "materialActivation.kind is invalid",
+            ));
+        }
+        MpcMaterialActivationRefV1::new(
+            wire.activation_id,
+            wire.capability,
+            wire.material_owner,
+            wire.key_binding,
+            wire.lifecycle_binding,
+            wire.signing_worker,
+        )
+        .map_err(|error: RouterAbProtocolError| serde::de::Error::custom(error.message()))
+    }
+}
+
+fn push_linked_device_material_activation(
+    out: &mut Vec<u8>,
+    material_activation: &MpcMaterialActivationRefV1,
+) -> RouterAbProtocolResult<()> {
+    material_activation.validate()?;
+    push_len32(out, b"mpc_material_activation_ref");
+    push_len32(out, material_activation.activation_id.as_bytes());
+    push_len32(out, material_activation.capability.as_bytes());
+    push_len32(out, material_activation.material_owner.as_bytes());
+    push_len32(out, material_activation.key_binding.as_bytes());
+    push_len32(out, material_activation.lifecycle_binding.as_bytes());
+    push_len32(out, material_activation.signing_worker.as_bytes());
+    Ok(())
 }
 
 fn validate_ecdsa_normal_signing_material_activation(
@@ -2385,6 +2784,318 @@ impl RouterAbEcdsaDerivationEvmDigestSigningResponseV1 {
     }
 }
 
+/// Linked-device ECDSA prepare request using an authoritative lane-native scope.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningRequestV1 {
+    pub scope: RouterAbEcdsaDerivationLinkedDeviceNormalSigningScopeV1,
+    pub request_id: String,
+    pub operation_id: String,
+    pub operation_digests: RouterAbEcdsaDerivationOperationDigestsV1,
+    pub authorization: NormalSigningAuthorizationV1,
+    pub material_activation: MpcMaterialActivationRefV1,
+    pub client_presignature_id: String,
+    pub expires_at_ms: u64,
+    pub signing_digest_b64u: String,
+    pub client_rerandomization_commitment32_b64u: String,
+}
+
+impl RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningRequestV1 {
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.scope.validate()?;
+        require_ascii_non_empty("linked_ecdsa_signing.request_id", &self.request_id)?;
+        require_ascii_non_empty("linked_ecdsa_signing.operation_id", &self.operation_id)?;
+        self.operation_digests.validate()?;
+        if !matches!(
+            self.authorization,
+            NormalSigningAuthorizationV1::ReusableWalletSession { .. }
+        ) {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "linked ECDSA signing requires reusable Wallet Session authorization",
+            ));
+        }
+        self.authorization.validate()?;
+        if self.material_activation != self.scope.material_activation {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "linked ECDSA signing material activation does not match lane scope",
+            ));
+        }
+        require_ascii_non_empty(
+            "linked_ecdsa_signing.client_presignature_id",
+            &self.client_presignature_id,
+        )?;
+        require_positive_ms("linked_ecdsa_signing.expires_at_ms", self.expires_at_ms)?;
+        self.signing_digest()?;
+        if self.operation_digests.intent_digest_b64u != self.signing_digest_b64u {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "linked ECDSA intent digest does not match signing digest",
+            ));
+        }
+        self.client_rerandomization_commitment32()?;
+        Ok(())
+    }
+
+    pub fn validate_at(&self, now_unix_ms: u64) -> RouterAbProtocolResult<()> {
+        self.validate()?;
+        if now_unix_ms >= self.expires_at_ms {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ExpiredLocalRequest,
+                "linked ECDSA signing request expired",
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn signing_digest(&self) -> RouterAbProtocolResult<PublicDigest32> {
+        Ok(PublicDigest32::new(decode_base64url_fixed_32(
+            "linked_ecdsa_signing.signing_digest_b64u",
+            &self.signing_digest_b64u,
+        )?))
+    }
+
+    pub fn client_rerandomization_commitment32(&self) -> RouterAbProtocolResult<[u8; 32]> {
+        decode_base64url_fixed_32(
+            "linked_ecdsa_signing.client_rerandomization_commitment32_b64u",
+            &self.client_rerandomization_commitment32_b64u,
+        )
+    }
+
+    pub fn canonical_request_bytes(&self) -> RouterAbProtocolResult<Vec<u8>> {
+        self.validate()?;
+        let mut out = Vec::new();
+        push_len32(
+            &mut out,
+            ROUTER_AB_ECDSA_DERIVATION_LINKED_SIGNING_REQUEST_VERSION_V1,
+        );
+        push_len32(&mut out, &self.scope.canonical_scope_bytes()?);
+        push_len32(&mut out, self.request_id.as_bytes());
+        push_len32(&mut out, self.operation_id.as_bytes());
+        self.operation_digests.push_canonical(&mut out)?;
+        push_normal_signing_authorization(&mut out, &self.authorization)?;
+        push_mpc_material_activation_ref(&mut out, &self.material_activation)?;
+        push_len32(&mut out, self.client_presignature_id.as_bytes());
+        push_u64(&mut out, self.expires_at_ms);
+        push_digest(&mut out, self.signing_digest()?);
+        push_len32(&mut out, &self.client_rerandomization_commitment32()?);
+        Ok(out)
+    }
+
+    pub fn request_digest(&self) -> RouterAbProtocolResult<PublicDigest32> {
+        Ok(public_digest(&self.canonical_request_bytes()?))
+    }
+}
+
+/// Linked-device ECDSA finalize request using the same authoritative lane scope.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningFinalizeRequestV1 {
+    pub scope: RouterAbEcdsaDerivationLinkedDeviceNormalSigningScopeV1,
+    pub request_id: String,
+    pub operation_id: String,
+    pub operation_digests: RouterAbEcdsaDerivationOperationDigestsV1,
+    pub authorization: NormalSigningAuthorizationV1,
+    pub material_activation: MpcMaterialActivationRefV1,
+    pub expires_at_ms: u64,
+    pub signing_digest_b64u: String,
+    pub server_presignature_id: String,
+    pub client_signature_share32_b64u: String,
+    pub client_rerandomization_contribution32_b64u: String,
+}
+
+impl RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningFinalizeRequestV1 {
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.prepare_request()?.validate()?;
+        require_ascii_non_empty(
+            "linked_ecdsa_finalize.server_presignature_id",
+            &self.server_presignature_id,
+        )?;
+        self.client_signature_share32()?;
+        self.client_rerandomization_contribution32()?;
+        Ok(())
+    }
+
+    pub fn validate_at(&self, now_unix_ms: u64) -> RouterAbProtocolResult<()> {
+        self.validate()?;
+        if now_unix_ms >= self.expires_at_ms {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ExpiredLocalRequest,
+                "linked ECDSA finalize request expired",
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn prepare_request(
+        &self,
+    ) -> RouterAbProtocolResult<RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningRequestV1> {
+        Ok(
+            RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningRequestV1 {
+                scope: self.scope.clone(),
+                request_id: self.request_id.clone(),
+                operation_id: self.operation_id.clone(),
+                operation_digests: self.operation_digests.clone(),
+                authorization: self.authorization.clone(),
+                material_activation: self.material_activation.clone(),
+                client_presignature_id: self.server_presignature_id.clone(),
+                expires_at_ms: self.expires_at_ms,
+                signing_digest_b64u: self.signing_digest_b64u.clone(),
+                client_rerandomization_commitment32_b64u: Base64UrlUnpadded::encode_string(
+                    &router_ab_ecdsa_rerandomization_client_commitment_v1(
+                        self.client_rerandomization_contribution32()?,
+                    ),
+                ),
+            },
+        )
+    }
+
+    pub fn prepare_request_digest(&self) -> RouterAbProtocolResult<PublicDigest32> {
+        self.prepare_request()?.request_digest()
+    }
+
+    pub fn signing_digest(&self) -> RouterAbProtocolResult<PublicDigest32> {
+        Ok(PublicDigest32::new(decode_base64url_fixed_32(
+            "linked_ecdsa_finalize.signing_digest_b64u",
+            &self.signing_digest_b64u,
+        )?))
+    }
+
+    pub fn client_signature_share32(&self) -> RouterAbProtocolResult<[u8; 32]> {
+        decode_base64url_fixed_32(
+            "linked_ecdsa_finalize.client_signature_share32_b64u",
+            &self.client_signature_share32_b64u,
+        )
+    }
+
+    pub fn client_rerandomization_contribution32(&self) -> RouterAbProtocolResult<[u8; 32]> {
+        decode_base64url_fixed_32(
+            "linked_ecdsa_finalize.client_rerandomization_contribution32_b64u",
+            &self.client_rerandomization_contribution32_b64u,
+        )
+    }
+
+    pub fn canonical_request_bytes(&self) -> RouterAbProtocolResult<Vec<u8>> {
+        self.validate()?;
+        let mut out = Vec::new();
+        push_len32(
+            &mut out,
+            ROUTER_AB_ECDSA_DERIVATION_LINKED_SIGNING_FINALIZE_REQUEST_VERSION_V1,
+        );
+        push_len32(&mut out, &self.scope.canonical_scope_bytes()?);
+        push_len32(&mut out, self.request_id.as_bytes());
+        push_len32(&mut out, self.operation_id.as_bytes());
+        self.operation_digests.push_canonical(&mut out)?;
+        push_normal_signing_authorization(&mut out, &self.authorization)?;
+        push_mpc_material_activation_ref(&mut out, &self.material_activation)?;
+        push_u64(&mut out, self.expires_at_ms);
+        push_digest(&mut out, self.signing_digest()?);
+        push_len32(&mut out, self.server_presignature_id.as_bytes());
+        push_len32(&mut out, &self.client_signature_share32()?);
+        push_len32(&mut out, &self.client_rerandomization_contribution32()?);
+        Ok(out)
+    }
+
+    pub fn request_digest(&self) -> RouterAbProtocolResult<PublicDigest32> {
+        Ok(public_digest(&self.canonical_request_bytes()?))
+    }
+}
+
+/// Public linked-device ECDSA prepare response.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningPrepareResponseV1 {
+    pub scope: RouterAbEcdsaDerivationLinkedDeviceNormalSigningScopeV1,
+    pub request_id: String,
+    pub request_digest: PublicDigest32,
+    pub signing_digest: PublicDigest32,
+    pub server_presignature_id: String,
+    pub server_big_r33_b64u: String,
+    pub signing_worker_rerandomization_contribution32_b64u: String,
+    pub signature_scheme: RouterAbEcdsaDerivationSignatureSchemeV1,
+    pub prepared_at_ms: u64,
+    pub expires_at_ms: u64,
+}
+
+impl RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningPrepareResponseV1 {
+    pub fn validate_for_request(
+        &self,
+        request: &RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningRequestV1,
+    ) -> RouterAbProtocolResult<()> {
+        request.validate()?;
+        self.scope.validate()?;
+        require_ascii_non_empty("linked_ecdsa_prepare.request_id", &self.request_id)?;
+        require_ascii_non_empty(
+            "linked_ecdsa_prepare.server_presignature_id",
+            &self.server_presignature_id,
+        )?;
+        decode_secp256k1_public_key33_b64u(
+            "linked_ecdsa_prepare.server_big_r33_b64u",
+            &self.server_big_r33_b64u,
+        )?;
+        decode_base64url_fixed_32(
+            "linked_ecdsa_prepare.signing_worker_rerandomization_contribution32_b64u",
+            &self.signing_worker_rerandomization_contribution32_b64u,
+        )?;
+        if self.scope == request.scope
+            && self.request_id == request.request_id
+            && self.server_presignature_id == request.client_presignature_id
+            && self.request_digest == request.request_digest()?
+            && self.signing_digest == request.signing_digest()?
+            && self.signature_scheme
+                == RouterAbEcdsaDerivationSignatureSchemeV1::EcdsaSecp256k1RecoverableV1
+            && self.prepared_at_ms < self.expires_at_ms
+            && self.expires_at_ms == request.expires_at_ms
+        {
+            return Ok(());
+        }
+        Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLifecycleState,
+            "linked ECDSA prepare response does not match request",
+        ))
+    }
+}
+
+/// Public linked-device ECDSA final response.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningResponseV1 {
+    pub scope: RouterAbEcdsaDerivationLinkedDeviceNormalSigningScopeV1,
+    pub request_id: String,
+    pub request_digest: PublicDigest32,
+    pub signing_digest: PublicDigest32,
+    pub signature_scheme: RouterAbEcdsaDerivationSignatureSchemeV1,
+    pub signature65_b64u: String,
+}
+
+impl RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningResponseV1 {
+    pub fn validate_for_request(
+        &self,
+        request: &RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningFinalizeRequestV1,
+    ) -> RouterAbProtocolResult<()> {
+        request.validate()?;
+        self.scope.validate()?;
+        decode_base64url_fixed_65(
+            "linked_ecdsa_response.signature65_b64u",
+            &self.signature65_b64u,
+        )?;
+        if self.scope == request.scope
+            && self.request_id == request.request_id
+            && self.request_digest == request.request_digest()?
+            && self.signing_digest == request.signing_digest()?
+            && self.signature_scheme
+                == RouterAbEcdsaDerivationSignatureSchemeV1::EcdsaSecp256k1RecoverableV1
+        {
+            return Ok(());
+        }
+        Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLifecycleState,
+            "linked ECDSA response does not match request",
+        ))
+    }
+}
+
 /// Parses and validates a raw JSON Router A/B ECDSA derivation registration/bootstrap request.
 pub fn parse_router_ab_ecdsa_derivation_registration_bootstrap_request_v1_json(
     bytes: &[u8],
@@ -2415,18 +3126,6 @@ pub fn parse_router_ab_ecdsa_derivation_explicit_export_request_v1_json(
 ) -> RouterAbProtocolResult<RouterAbEcdsaDerivationExplicitExportRequestV1> {
     let request = parse_boundary_json::<RouterAbEcdsaDerivationExplicitExportRequestV1>(
         "Router A/B ECDSA derivation explicit export request",
-        bytes,
-    )?;
-    request.validate()?;
-    Ok(request)
-}
-
-/// Parses and validates a raw JSON Router A/B ECDSA derivation recovery request.
-pub fn parse_router_ab_ecdsa_derivation_recovery_request_v1_json(
-    bytes: &[u8],
-) -> RouterAbProtocolResult<RouterAbEcdsaDerivationRecoveryRequestV1> {
-    let request = parse_boundary_json::<RouterAbEcdsaDerivationRecoveryRequestV1>(
-        "Router A/B ECDSA derivation recovery request",
         bytes,
     )?;
     request.validate()?;
@@ -2641,6 +3340,59 @@ fn push_u32(out: &mut Vec<u8>, value: u32) {
 
 fn push_u64(out: &mut Vec<u8>, value: u64) {
     out.extend_from_slice(&value.to_be_bytes());
+}
+
+fn require_linked_text(field: &str, value: &str) -> RouterAbProtocolResult<()> {
+    if value.is_empty() {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::EmptyField,
+            format!("{field} is required"),
+        ));
+    }
+    if value != value.trim()
+        || value
+            .chars()
+            .any(|character| character.is_whitespace() || character.is_control())
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!("{field} must contain visible non-whitespace text"),
+        ));
+    }
+    Ok(())
+}
+
+fn require_visible_text(field: &str, value: &str) -> RouterAbProtocolResult<()> {
+    require_linked_text(field, value)
+}
+
+fn validate_evm_address(field: &str, value: &str) -> RouterAbProtocolResult<()> {
+    let bytes = value.as_bytes();
+    if bytes.len() != 42
+        || bytes[0] != b'0'
+        || bytes[1] != b'x'
+        || !bytes[2..].iter().all(u8::is_ascii_hexdigit)
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!("{field} must be a 20-byte hexadecimal EVM address"),
+        ));
+    }
+    Ok(())
+}
+
+fn decode_canonical_base64url_fixed_32(
+    field: &str,
+    value: &str,
+) -> RouterAbProtocolResult<[u8; 32]> {
+    let bytes = decode_base64url_fixed_32(field, value)?;
+    if Base64UrlUnpadded::encode_string(&bytes) != value {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!("{field} must be canonical unpadded base64url"),
+        ));
+    }
+    Ok(bytes)
 }
 
 fn require_ascii_non_empty(field: &str, value: &str) -> RouterAbProtocolResult<()> {

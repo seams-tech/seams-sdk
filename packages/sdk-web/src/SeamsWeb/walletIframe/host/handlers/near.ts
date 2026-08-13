@@ -7,6 +7,7 @@ import type {
   SignNEP413HooksOptions,
   SignTransactionHooksOptions,
 } from '@/core/types/sdkSentEvents';
+import type { AddPasskeyHooksOptions } from '@/SeamsWeb/operations/authMethods/passkey/addPasskey';
 import {
   type PMExecuteActionPayload,
   type PMFundImplicitNearAccountForTestingPayload,
@@ -113,11 +114,9 @@ function walletOriginRegistrationAuthMethod(
             proofKind: 'google_sso_registration',
             email: authMethod.email,
             appSessionJwt,
-            googleEmailOtpRegistrationAttemptId:
-              authMethod.googleEmailOtpRegistrationAttemptId,
+            googleEmailOtpRegistrationAttemptId: authMethod.googleEmailOtpRegistrationAttemptId,
             googleEmailOtpRegistrationOfferId: authMethod.googleEmailOtpRegistrationOfferId,
-            googleEmailOtpRegistrationCandidateId:
-              authMethod.googleEmailOtpRegistrationCandidateId,
+            googleEmailOtpRegistrationCandidateId: authMethod.googleEmailOtpRegistrationCandidateId,
           };
         default:
           return assertNeverRegistrationAuthMethod(authMethod);
@@ -169,6 +168,28 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
         walletId: payload.walletId,
         rpId: payload.rpId,
         signerSelection: payload.signerSelection,
+        options: {
+          ...hooksOptions,
+          ...(payload.confirmationConfig ? { confirmationConfig: payload.confirmationConfig } : {}),
+        },
+      });
+      if (deps.respondIfCancelled(req.requestId)) return;
+      respondOkResult(deps, req.requestId, result);
+    },
+
+    PM_ADD_PASSKEY: async (req: Req<'PM_ADD_PASSKEY'>) => {
+      const pm = deps.getSeamsWeb();
+      const payload = req.payload!;
+      if (deps.respondIfCancelled(req.requestId)) return;
+      const hooksOptions = withProgress(
+        deps,
+        req.requestId,
+        payload.options || {},
+      ) as AddPasskeyHooksOptions;
+      const result = await pm.registration.addPasskey({
+        walletId: payload.walletId,
+        rpId: payload.rpId,
+        authorization: payload.authorization,
         options: {
           ...hooksOptions,
           ...(payload.confirmationConfig ? { confirmationConfig: payload.confirmationConfig } : {}),

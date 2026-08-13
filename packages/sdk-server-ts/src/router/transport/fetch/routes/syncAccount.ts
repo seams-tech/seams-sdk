@@ -17,6 +17,10 @@ import {
   DEFAULT_WALLET_SESSION_REMAINING_USES,
   DEFAULT_WALLET_SESSION_TTL_MS,
 } from '@shared/threshold/sessionPolicy';
+import { parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1 } from '@shared/utils/routerAbEd25519Yao';
+import { validateRouterAbEd25519WalletSessionTokenInputs } from '../../../auth/commonRouterUtils';
+import { parseWebAuthnCredentialIdB64u, parseWebAuthnRpId } from '@shared/utils/domainIds';
+import { isPlainObject } from '@shared/utils/validation';
 
 function syncAccountResponseStatus(result: { ok: boolean; verified?: boolean; code?: string }) {
   if (result.ok && result.verified) return 200;
@@ -34,6 +38,56 @@ function syncAccountResponseStatus(result: { ok: boolean; verified?: boolean; co
 
 export async function handleSyncAccount(ctx: FetchRouterApiContext): Promise<Response | null> {
   if (ctx.method !== 'POST') return null;
+
+  if (ctx.pathname === '/sync-account/rejoin') {
+    const body = await readJson(ctx.request);
+    const authorized = await validateRouterAbEd25519WalletSessionTokenInputs({
+      body,
+      headers: Object.fromEntries(ctx.request.headers.entries()),
+      session: ctx.opts.session,
+    });
+    if (!authorized.ok) {
+      return json(
+        { ok: false, code: authorized.code, message: authorized.message },
+        { status: authorized.code === 'wallet_session_expired' ? 401 : 403 },
+      );
+    }
+    const executeRequest = parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1(
+      isPlainObject(body) ? body.executeRequest : null,
+    );
+    if (!executeRequest.ok) {
+      return json(
+        { ok: false, code: 'invalid_body', message: executeRequest.message },
+        { status: 400 },
+      );
+    }
+    const yaoRuntime = ctx.opts.routerAbEd25519YaoProduct;
+    if (!yaoRuntime) {
+      return json(
+        { ok: false, code: 'internal', message: 'Ed25519 Yao product is not configured' },
+        { status: 500 },
+      );
+    }
+    const lifecycle = executeRequest.value.binding.lifecycle;
+    const claims = authorized.claims;
+    if (
+      lifecycle.account_id !== claims.walletId ||
+      lifecycle.session_id !== claims.thresholdSessionId ||
+      lifecycle.selected_server_id !== claims.relayerKeyId
+    ) {
+      return json(
+        { ok: false, code: 'wallet_session_mismatch', message: 'Cold unlock identity changed' },
+        { status: 403 },
+      );
+    }
+    const replayed = await yaoRuntime.replayActivatedRegistration(executeRequest.value);
+    return replayed.ok
+      ? json({ ok: true, value: replayed.value }, { status: 200 })
+      : json(
+          { ok: false, code: replayed.code, message: replayed.message },
+          { status: replayed.status },
+        );
+  }
 
   if (ctx.pathname === '/sync-account/options') {
     const body = await readJson(ctx.request);
@@ -177,6 +231,42 @@ export async function handleSyncAccount(ctx: FetchRouterApiContext): Promise<Res
           { status: 500 },
         );
       }
+      const rpId = parseWebAuthnRpId(walletBinding.rpId);
+      const credentialId = parseWebAuthnCredentialIdB64u(credentialIdB64u);
+      if (!rpId.ok || !credentialId.ok) {
+        return json(
+          { ok: false, code: 'internal', message: 'Verified passkey custody identity is invalid' },
+          { status: 500 },
+        );
+      }
+      const custodyEnvelope = await ctx.service.passkeyCustody.readVerifiedFactorCustody({
+        walletId: walletIdFromString(walletId),
+        factor: {
+          kind: 'passkey',
+          rpId: rpId.value,
+          credentialIdB64u: credentialId.value,
+        },
+      });
+      if (custodyEnvelope.kind !== 'active') {
+        const manifestUnavailable = custodyEnvelope.kind === 'manifest_unavailable';
+        return json(
+          {
+            ok: false,
+            code: manifestUnavailable
+              ? 'custody_manifest_unavailable'
+              : `custody_envelope_${custodyEnvelope.kind}`,
+            message: manifestUnavailable
+              ? 'Wallet custody key manifest is unavailable'
+              : 'Verified passkey has no unique active wallet custody envelope',
+          },
+          {
+            status: manifestUnavailable ? 503 : custodyEnvelope.kind === 'conflict' ? 409 : 404,
+          },
+        );
+      }
+      const ecdsaSigners = await ctx.service.walletRegistration.listWalletEcdsaCustodyContinuity({
+        walletId,
+      });
       responseBody = {
         ...result,
         thresholdEd25519: {
@@ -187,6 +277,20 @@ export async function handleSyncAccount(ctx: FetchRouterApiContext): Promise<Res
           kind: 'router_ab_ed25519_yao_sync_recovery_v1',
           authorityRef,
           capability: capability.capability,
+        },
+        walletCustody: {
+          kind: 'wallet_custody_sync_bootstrap_v1',
+          envelope: custodyEnvelope.envelope,
+          storeVersion: custodyEnvelope.storeVersion,
+        },
+        ecdsaCustody: {
+          kind: 'wallet_custody_ecdsa_sync_continuity_v1',
+          signers: ecdsaSigners.map((signer) => ({
+            chainTarget: signer.chainTarget,
+            walletKey: signer.walletKey,
+            activationReceipt: signer.activationReceipt,
+            runtimePolicyScope: signer.runtimePolicyScope,
+          })),
         },
       };
     }

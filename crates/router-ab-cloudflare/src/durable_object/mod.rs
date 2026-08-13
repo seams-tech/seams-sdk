@@ -24,32 +24,58 @@ mod worker_storage;
 #[cfg(feature = "workers-rs")]
 use ecdsa_presign_live_session::{
     handle_cloudflare_signing_worker_ecdsa_presign_session_do_fetch_v1,
+    handle_cloudflare_signing_worker_linked_ecdsa_presign_session_do_fetch_v1,
     CloudflareSigningWorkerEcdsaPresignLiveSessionsV1,
+    CloudflareSigningWorkerLinkedDeviceEcdsaCompletedPresignatureRecordsV1,
+    CloudflareSigningWorkerLinkedDeviceEcdsaPresignLiveSessionsV1,
 };
 #[cfg(feature = "workers-rs")]
 pub(crate) use ecdsa_presign_live_session::{
     CloudflareSigningWorkerEcdsaPresignSessionDoInitRequestV1,
     CloudflareSigningWorkerEcdsaPresignSessionDoProgressV1,
+    CloudflareSigningWorkerLinkedDeviceEcdsaPresignSessionDoInitRequestV1,
+    CloudflareSigningWorkerLinkedDeviceEcdsaPresignSessionDoProgressV1,
+    CloudflareSigningWorkerLinkedDeviceEcdsaPresignatureDoConsumeRequestV1,
+    CloudflareSigningWorkerLinkedDeviceEcdsaPresignatureDoConsumeResponseV1,
 };
 #[cfg(feature = "workers-rs")]
 pub(crate) use worker_storage::execute_cloudflare_durable_object_custom_json_call_v1;
 
-/// Ephemeral SigningWorker ECDSA presign rendezvous.
+/// SigningWorker ECDSA presign rendezvous with durable terminal records.
 #[cfg(feature = "workers-rs")]
 #[worker::durable_object(fetch)]
 pub struct RouterAbSigningWorkerPresignSessionDurableObject {
+    storage: worker::Storage,
     ecdsa_presign_sessions: CloudflareSigningWorkerEcdsaPresignLiveSessionsV1,
+    linked_ecdsa_presign_sessions: CloudflareSigningWorkerLinkedDeviceEcdsaPresignLiveSessionsV1,
+    linked_ecdsa_presignature_records:
+        CloudflareSigningWorkerLinkedDeviceEcdsaCompletedPresignatureRecordsV1,
 }
 
 #[cfg(feature = "workers-rs")]
 impl worker::DurableObject for RouterAbSigningWorkerPresignSessionDurableObject {
-    fn new(_state: worker::State, _env: worker::Env) -> Self {
+    fn new(state: worker::State, _env: worker::Env) -> Self {
         Self {
+            storage: state.storage(),
             ecdsa_presign_sessions: Default::default(),
+            linked_ecdsa_presign_sessions: Default::default(),
+            linked_ecdsa_presignature_records: Default::default(),
         }
     }
 
     async fn fetch(&self, request: worker::Request) -> worker::Result<worker::Response> {
+        let path = request.path();
+        if path.starts_with("/router-ab/internal/signing-worker/linked-ecdsa-presign-session/")
+            || path == crate::CLOUDFLARE_SIGNING_WORKER_LINKED_ECDSA_PRESIGNATURE_DO_CONSUME_PATH
+        {
+            return handle_cloudflare_signing_worker_linked_ecdsa_presign_session_do_fetch_v1(
+                request,
+                &self.linked_ecdsa_presign_sessions,
+                &self.linked_ecdsa_presignature_records,
+                &self.storage,
+            )
+            .await;
+        }
         handle_cloudflare_signing_worker_ecdsa_presign_session_do_fetch_v1(
             request,
             &self.ecdsa_presign_sessions,

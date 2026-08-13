@@ -355,7 +355,6 @@ function appSessionJwtWithRuntimePolicyScope(
   })}.sig`;
 }
 
-
 function signingRootFromRuntimePolicyScope(
   runtimePolicyScope:
     | { projectId?: unknown; envId?: unknown; signingRootVersion?: unknown }
@@ -413,6 +412,7 @@ function thresholdEcdsaSessionJwt(args: {
     });
   return `${jsonB64u({ alg: 'none', typ: 'JWT' })}.${jsonB64u({
     kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
+    authorizationKind: 'owner_wallet_session',
     sub: args.walletId,
     walletId: args.walletId,
     keyScope: 'evm-family',

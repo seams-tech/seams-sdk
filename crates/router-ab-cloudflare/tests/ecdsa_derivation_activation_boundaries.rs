@@ -344,13 +344,11 @@ fn router_ab_ecdsa_derivation_cloudflare_boundaries_do_not_reconstruct_canonical
     for function_name in [
         "handle_cloudflare_router_ab_ecdsa_derivation_registration_bootstrap_authenticated_public_request_v1",
         "handle_cloudflare_router_ab_ecdsa_derivation_explicit_export_authenticated_public_request_v1",
-        "handle_cloudflare_router_ab_ecdsa_derivation_recovery_authenticated_public_request_v1",
         "handle_cloudflare_router_ab_ecdsa_derivation_activation_refresh_authenticated_public_request_v1",
         "handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_prepare_authenticated_public_request_v1",
         "handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_finalize_authenticated_public_request_v1",
         "decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_registration_signer_private_request_v1",
         "decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_export_signer_private_request_v1",
-        "decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_recovery_signer_private_request_v1",
         "decrypt_and_handle_cloudflare_router_ab_ecdsa_derivation_activation_refresh_signer_private_request_v1",
         "handle_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_fetch_v1",
         "handle_cloudflare_router_ab_ecdsa_derivation_signing_worker_activation_refresh_fetch_v1",
@@ -381,7 +379,6 @@ fn router_ab_ecdsa_derivation_cloudflare_boundaries_do_not_reconstruct_canonical
         "pub struct CloudflareRouterAbEcdsaDerivationSigningWorkerActivationReceiptV1",
         "pub enum CloudflareRouterAbEcdsaDerivationRegistrationAdmissionResponseV1",
         "pub enum CloudflareRouterAbEcdsaDerivationExportAdmissionResponseV1",
-        "pub enum CloudflareRouterAbEcdsaDerivationRecoveryAdmissionResponseV1",
         "pub enum CloudflareRouterAbEcdsaDerivationActivationRefreshAdmissionResponseV1",
     ] {
         let block = extract_braced_block_after_marker(&lib_rs, marker);

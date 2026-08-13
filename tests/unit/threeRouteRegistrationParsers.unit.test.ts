@@ -142,9 +142,8 @@ test('respond rejects an Ed25519-only plan carrying ECDSA proof bundles', async 
 });
 
 test('respond accepts an Ed25519-only plan with only deferred NEAR work', async () => {
-  const { buildFixtureRespondEd25519DeferredWork } = await import(
-    '../helpers/ed25519YaoAdmissionFixtures'
-  );
+  const { buildFixtureRespondEd25519DeferredWork } =
+    await import('../helpers/ed25519YaoAdmissionFixtures');
   const result = await withStubbedFetch(
     {
       ok: true,

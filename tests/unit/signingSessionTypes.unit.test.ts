@@ -19,5 +19,4 @@ test.describe('signing session shared types', () => {
       '[SigningSession] thresholdEcdsaSessionId is required',
     );
   });
-
 });

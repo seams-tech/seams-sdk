@@ -84,9 +84,15 @@ test('D1 staging migration plan records migration hashes and noninteractive appl
     action: 'list_before',
     databaseName: 'seams-console-staging-nrt',
   });
-  expect(plan.commands[1].command).toContain('CI=true pnpm --dir packages/console-server-ts exec wrangler');
-  expect(plan.commands[1].command).toContain('d1 migrations apply seams-console-staging-nrt --remote');
-  expect(plan.commands[4].command).toContain('d1 migrations apply seams-signer-staging-nrt --remote');
+  expect(plan.commands[1].command).toContain(
+    'CI=true pnpm --dir packages/console-server-ts exec wrangler',
+  );
+  expect(plan.commands[1].command).toContain(
+    'd1 migrations apply seams-console-staging-nrt --remote',
+  );
+  expect(plan.commands[4].command).toContain(
+    'd1 migrations apply seams-signer-staging-nrt --remote',
+  );
 });
 
 test('D1 staging migration dry-run writes a manifest without executing commands', async () => {
@@ -128,12 +134,14 @@ test('D1 staging migration rejects failed remote migration commands', async () =
       mode: 'remote',
       commandRunner: failedCommandRunner,
     }),
-  ).toThrow(/Command failed: pnpm --dir packages\/console-server-ts exec wrangler d1 migrations list/);
+  ).toThrow(
+    /Command failed: pnpm --dir packages\/console-server-ts exec wrangler d1 migrations list/,
+  );
 });
 
 test('D1 staging migration rejects configs that fail the staging readiness gate', async () => {
   const module = await migrationModule;
-  expect(() =>
-    module.buildD1StagingMigrationPlan(misScopedMigrationInput),
-  ).toThrow(/console staging config must not reference SIGNER_DB/);
+  expect(() => module.buildD1StagingMigrationPlan(misScopedMigrationInput)).toThrow(
+    /console staging config must not reference SIGNER_DB/,
+  );
 });

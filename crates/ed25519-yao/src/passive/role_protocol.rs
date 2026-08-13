@@ -10,33 +10,42 @@ use core::marker::PhantomData;
 use zeroize::{Zeroize, Zeroizing};
 
 use super::ot::{
-    ActivationOtFamily, BaseChoices, BaseOffer, ExportOtFamily, ExtensionMatrix, MaskedPayloads,
-    OtError, OtFamily, ReceiverAwaitBaseChoices, ReceiverAwaitMaskedPayloads, ReceiverChoices,
-    ReceiverStart, SenderAwaitExtension, SenderPayloads, SenderStart,
+    ActivationOtFamily, BaseChoices, BaseOffer, ExportOtFamily, ExtensionMatrix,
+    LaneMaterializationOtFamily, MaskedPayloads, OtError, OtFamily, ReceiverAwaitBaseChoices,
+    ReceiverAwaitMaskedPayloads, ReceiverChoices, ReceiverStart, SenderAwaitExtension,
+    SenderPayloads, SenderStart,
 };
 use super::packages::{EncodedRecipientPackage, RecipientPackageError};
 #[cfg(any(feature = "phase9-role-benchmark", feature = "local-protocol"))]
 use super::packages::{ACTIVATION_PACKAGE_BYTES, EXPORT_PACKAGE_BYTES};
 use super::phase4::{
     activation_ot_session, activation_transcript_start, advance_transcript, evaluator_inputs,
-    export_ot_session, export_transcript_start, prepare_labels, protocol_domain,
-    Phase4CeremonyError, PreparedLabels,
+    export_ot_session, export_transcript_start, lane_materialization_ot_session,
+    lane_materialization_transcript_start, prepare_labels, protocol_domain, Phase4CeremonyError,
+    PreparedLabels,
 };
 use super::role_protocol_support::{
     complete_activation_deriver_a, complete_activation_deriver_b, complete_export_deriver_a,
-    complete_export_deriver_b, CompletedDeriverAActivation, CompletedDeriverAExport,
-    CompletedDeriverBActivation, CompletedDeriverBExport, ACTIVATION_DIRECT_MESSAGE_BYTES,
-    ACTIVATION_RETURNED_MESSAGE_BYTES, ACTIVATION_TRANSLATION_MESSAGE_BYTES,
-    EXPORT_DIRECT_MESSAGE_BYTES, EXPORT_RETURNED_MESSAGE_BYTES, EXPORT_TRANSLATION_MESSAGE_BYTES,
+    complete_export_deriver_b, complete_lane_deriver_a, complete_lane_deriver_b,
+    CompletedDeriverAActivation, CompletedDeriverAExport, CompletedDeriverALane,
+    CompletedDeriverBActivation, CompletedDeriverBExport, CompletedDeriverBLane,
+    ACTIVATION_DIRECT_MESSAGE_BYTES, ACTIVATION_RETURNED_MESSAGE_BYTES,
+    ACTIVATION_TRANSLATION_MESSAGE_BYTES, EXPORT_DIRECT_MESSAGE_BYTES,
+    EXPORT_RETURNED_MESSAGE_BYTES, EXPORT_TRANSLATION_MESSAGE_BYTES,
+    LANE_MATERIALIZATION_DIRECT_MESSAGE_BYTES, LANE_MATERIALIZATION_RETURNED_MESSAGE_BYTES,
+    LANE_MATERIALIZATION_TRANSLATION_MESSAGE_BYTES,
 };
 use super::roles::{
     ActivationADirectInputLabels, ActivationASelectedOutputLabels, ActivationBOutputDecodeBits,
     ActivationDeriverAStart, ActivationDeriverBStart, DecodedDeriverAActivationShares,
-    DecodedDeriverAExportSeedShare, DecodedDeriverBActivationShares,
-    DecodedDeriverBExportSeedShare, ExportADirectInputLabels, ExportASelectedOutputLabels,
-    ExportBOutputDecodeBits, ExportDeriverAStart, ExportDeriverBStart, RoleBoundaryError,
-    SecretPayload, TranscriptDigest32, ACTIVATION_INPUT_BITS_PER_ROLE,
+    DecodedDeriverAExportSeedShare, DecodedDeriverALaneShares, DecodedDeriverBActivationShares,
+    DecodedDeriverBExportSeedShare, DecodedDeriverBLaneShares, ExportADirectInputLabels,
+    ExportASelectedOutputLabels, ExportBOutputDecodeBits, ExportDeriverAStart, ExportDeriverBStart,
+    LaneDeriverAStart, LaneDeriverBStart, LaneMaterializationADirectInputLabels,
+    LaneMaterializationASelectedOutputLabels, LaneMaterializationBOutputDecodeBits,
+    RoleBoundaryError, SecretPayload, TranscriptDigest32, ACTIVATION_INPUT_BITS_PER_ROLE,
     ACTIVATION_OUTPUT_BITS_PER_ROLE, EXPORT_INPUT_BITS_PER_ROLE, EXPORT_OUTPUT_BITS_PER_ROLE,
+    LANE_MATERIALIZATION_INPUT_BITS_PER_ROLE, LANE_MATERIALIZATION_OUTPUT_BITS_PER_ROLE,
 };
 use super::runtime::{
     CircuitRunError, EvaluatorOutputTranslation, EvaluatorOwnedOutputLabels, ReturnedOutputDecoder,
@@ -46,13 +55,14 @@ use super::runtime::{
 use super::stream::STREAM_MANIFEST_BYTES;
 use super::stream::{
     ActivationStream, ExactTableStreamReceipt, ExportStream, FixedChunkProfile, FixedStreamFamily,
-    PassiveStreamManifest, StreamWireError, TableFrameDecoder, TableFrameEncoder,
-    TABLE_FRAME_HEADER_BYTES,
+    LaneMaterializationStream, PassiveStreamManifest, StreamWireError, TableFrameDecoder,
+    TableFrameEncoder, TABLE_FRAME_HEADER_BYTES,
 };
 use super::stream_runtime::{
     activation_evaluator_machine, activation_garbler_machine, export_evaluator_machine,
-    export_garbler_machine, EvaluatorAdvance, EvaluatorBodyComplete, EvaluatorNeedsFrame,
-    GarblerAdvance, GarblerMachine, StreamRuntimeError,
+    export_garbler_machine, lane_materialization_evaluator_machine,
+    lane_materialization_garbler_machine, EvaluatorAdvance, EvaluatorBodyComplete,
+    EvaluatorNeedsFrame, GarblerAdvance, GarblerMachine, StreamRuntimeError,
 };
 use super::{Evaluator, EvaluatorWire, Garbler, GarblerWire, GlobalDelta};
 
@@ -535,6 +545,174 @@ impl ProtocolFamily for ExportStream {
         share: Self::BShare,
     ) -> Result<Self::BCompleted, RecipientPackageError> {
         Ok(complete_export_deriver_b(binding, transcript, share))
+    }
+}
+
+impl sealed::Sealed for LaneMaterializationStream {}
+
+impl ProtocolFamily for LaneMaterializationStream {
+    type Ot = LaneMaterializationOtFamily;
+    type AStart = LaneDeriverAStart;
+    type BStart = LaneDeriverBStart;
+    type AShare = DecodedDeriverALaneShares;
+    type BShare = DecodedDeriverBLaneShares;
+    type ACompleted = CompletedDeriverALane;
+    type BCompleted = CompletedDeriverBLane;
+
+    const INPUT_BITS_PER_ROLE: usize = LANE_MATERIALIZATION_INPUT_BITS_PER_ROLE;
+    const OUTPUT_BITS_PER_ROLE: usize = LANE_MATERIALIZATION_OUTPUT_BITS_PER_ROLE;
+    const DIRECT_MESSAGE_BYTES: usize = LANE_MATERIALIZATION_DIRECT_MESSAGE_BYTES;
+    const TRANSLATION_MESSAGE_BYTES: usize = LANE_MATERIALIZATION_TRANSLATION_MESSAGE_BYTES;
+    const RETURNED_MESSAGE_BYTES: usize = LANE_MATERIALIZATION_RETURNED_MESSAGE_BYTES;
+
+    fn transcript_start(binding: Self::Binding) -> Result<TranscriptDigest32, Phase4CeremonyError> {
+        lane_materialization_transcript_start(binding)
+    }
+
+    fn ot_session(binding: Self::Binding) -> Result<super::ot::OtSessionId, Phase4CeremonyError> {
+        lane_materialization_ot_session(binding)
+    }
+
+    fn gate_domain(binding: Self::Binding) -> u64 {
+        binding.gate_domain()
+    }
+
+    #[cfg(any(feature = "phase9-role-benchmark", feature = "local-protocol"))]
+    fn session(binding: Self::Binding) -> [u8; 32] {
+        *binding.session_bytes()
+    }
+
+    fn a_binding(start: &Self::AStart) -> Self::Binding {
+        start.binding()
+    }
+
+    fn prepare_a(
+        start: Self::AStart,
+        garbler: &Garbler,
+    ) -> Result<(Self::Binding, PreparedLabels), Phase4CeremonyError> {
+        let input = start.into_garbler_input();
+        let binding = input.binding();
+        let labels = prepare_labels(garbler, input.bitpacked_lsb0(), Self::INPUT_BITS_PER_ROLE)?;
+        Ok((binding, labels))
+    }
+
+    fn prepare_b(
+        start: Self::BStart,
+    ) -> Result<(Self::Binding, ReceiverChoices<Self::Ot>), RoleProtocolError> {
+        let choices = start.into_ot_choices();
+        let binding = choices.binding();
+        let encoded = choices.bitpacked_lsb0().to_vec();
+        Ok((binding, ReceiverChoices::from_packed_bytes(encoded)?))
+    }
+
+    fn encode_direct(
+        binding: Self::Binding,
+        transcript: TranscriptDigest32,
+        payload: &[u8],
+    ) -> Result<Vec<u8>, RoleBoundaryError> {
+        let message = LaneMaterializationADirectInputLabels::from_secret_payload(
+            binding.bind_transcript(transcript),
+            payload,
+        )?;
+        Ok(message.encode().as_slice().to_vec())
+    }
+
+    fn decode_direct(
+        binding: Self::Binding,
+        transcript: TranscriptDigest32,
+        encoded: &[u8],
+    ) -> Result<SecretPayload, RoleBoundaryError> {
+        Ok(LaneMaterializationADirectInputLabels::decode(
+            binding.bind_transcript(transcript),
+            encoded,
+        )?
+        .into_secret_payload())
+    }
+
+    fn encode_translation(
+        binding: Self::Binding,
+        transcript: TranscriptDigest32,
+        payload: &[u8],
+    ) -> Result<Vec<u8>, RoleBoundaryError> {
+        let message = LaneMaterializationBOutputDecodeBits::from_secret_payload(
+            binding.bind_transcript(transcript),
+            payload,
+        )?;
+        Ok(message.encode().as_slice().to_vec())
+    }
+
+    fn decode_translation(
+        binding: Self::Binding,
+        transcript: TranscriptDigest32,
+        encoded: &[u8],
+    ) -> Result<SecretPayload, RoleBoundaryError> {
+        Ok(LaneMaterializationBOutputDecodeBits::decode(
+            binding.bind_transcript(transcript),
+            encoded,
+        )?
+        .into_secret_payload())
+    }
+
+    fn encode_returned(
+        binding: Self::Binding,
+        transcript: TranscriptDigest32,
+        payload: &[u8],
+    ) -> Result<Vec<u8>, RoleBoundaryError> {
+        let message = LaneMaterializationASelectedOutputLabels::from_secret_payload(
+            binding.bind_transcript(transcript),
+            payload,
+        )?;
+        Ok(message.encode().as_slice().to_vec())
+    }
+
+    fn decode_returned(
+        binding: Self::Binding,
+        transcript: TranscriptDigest32,
+        encoded: &[u8],
+    ) -> Result<SecretPayload, RoleBoundaryError> {
+        Ok(LaneMaterializationASelectedOutputLabels::decode(
+            binding.bind_transcript(transcript),
+            encoded,
+        )?
+        .into_secret_payload())
+    }
+
+    fn garbler_machine<C: FixedChunkProfile>(
+        garbler: Garbler,
+        inputs: Vec<GarblerWire>,
+    ) -> Result<GarblerMachine<Self, C>, StreamRuntimeError> {
+        lane_materialization_garbler_machine::<C>(garbler, inputs, Self::OUTPUT_BITS_PER_ROLE)
+    }
+
+    fn evaluator_machine<C: FixedChunkProfile>(
+        evaluator: Evaluator,
+        inputs: Vec<EvaluatorWire>,
+    ) -> Result<super::stream_runtime::EvaluatorMachine<Self, C>, StreamRuntimeError> {
+        lane_materialization_evaluator_machine::<C>(evaluator, inputs, Self::OUTPUT_BITS_PER_ROLE)
+    }
+
+    fn decode_a_share(decoded: &[u8]) -> Result<Self::AShare, RoleBoundaryError> {
+        DecodedDeriverALaneShares::from_decoded_output(decoded)
+    }
+
+    fn decode_b_share(decoded: &[u8]) -> Result<Self::BShare, RoleBoundaryError> {
+        DecodedDeriverBLaneShares::from_decoded_output(decoded)
+    }
+
+    fn complete_a(
+        binding: Self::Binding,
+        transcript: TranscriptDigest32,
+        share: Self::AShare,
+    ) -> Result<Self::ACompleted, RecipientPackageError> {
+        complete_lane_deriver_a(binding, transcript, share)
+    }
+
+    fn complete_b(
+        binding: Self::Binding,
+        transcript: TranscriptDigest32,
+        share: Self::BShare,
+    ) -> Result<Self::BCompleted, RecipientPackageError> {
+        complete_lane_deriver_b(binding, transcript, share)
     }
 }
 
@@ -1286,6 +1464,24 @@ impl CompletedRoleA<ExportStream> {
     }
 }
 
+impl CompletedRoleA<LaneMaterializationStream> {
+    pub(super) fn holder_commitment(&self) -> [u8; 32] {
+        self.role.holder_commitment()
+    }
+
+    pub(super) fn signing_worker_commitment(&self) -> [u8; 32] {
+        self.role.signing_worker_commitment()
+    }
+
+    pub(super) fn encode_holder_package(&self) -> EncodedRecipientPackage {
+        self.role.encode_holder_package()
+    }
+
+    pub(super) fn encode_signing_worker_package(&self) -> EncodedRecipientPackage {
+        self.role.encode_signing_worker_package()
+    }
+}
+
 pub(super) struct DeriverBStartState<F, C>
 where
     F: ProtocolFamily,
@@ -1687,6 +1883,24 @@ impl CompletedRoleB<ExportStream> {
     }
 }
 
+impl CompletedRoleB<LaneMaterializationStream> {
+    pub(super) fn holder_commitment(&self) -> [u8; 32] {
+        self.role.holder_commitment()
+    }
+
+    pub(super) fn signing_worker_commitment(&self) -> [u8; 32] {
+        self.role.signing_worker_commitment()
+    }
+
+    pub(super) fn encode_holder_package(&self) -> EncodedRecipientPackage {
+        self.role.encode_holder_package()
+    }
+
+    pub(super) fn encode_signing_worker_package(&self) -> EncodedRecipientPackage {
+        self.role.encode_signing_worker_package()
+    }
+}
+
 #[cfg(any(feature = "phase9-role-benchmark", feature = "local-protocol"))]
 #[doc(hidden)]
 pub mod benchmark {
@@ -1703,6 +1917,7 @@ pub mod benchmark {
     use crate::passive::role_protocol_support::{
         activation_deriver_a_fixture_start, activation_deriver_b_fixture_start,
         export_deriver_a_fixture_start, export_deriver_b_fixture_start,
+        lane_deriver_a_fixture_start, lane_deriver_b_fixture_start,
     };
     #[cfg(feature = "local-protocol")]
     use crate::passive::roles::{
@@ -1713,7 +1928,10 @@ pub mod benchmark {
         DeriverBClientScalarOutputCoin, DeriverBClientTau, DeriverBClientY, DeriverBSeedOutputCoin,
         DeriverBServerTau, DeriverBServerY, DeriverBSigningWorkerScalarOutputCoin,
         ExportDeriverAInputs as PrivateExportDeriverAInputs,
-        ExportDeriverBInputs as PrivateExportDeriverBInputs, ExportSessionBinding, SessionId,
+        ExportDeriverBInputs as PrivateExportDeriverBInputs, ExportSessionBinding,
+        LaneDeriverAInputs as PrivateLaneDeriverAInputs, LaneDeriverAOffsetShare,
+        LaneDeriverAStart, LaneDeriverBInputs as PrivateLaneDeriverBInputs,
+        LaneDeriverBOffsetShare, LaneDeriverBStart, LaneSessionBinding, SessionId,
     };
     use crate::passive::stream::Chunk128KiB;
     #[cfg(feature = "phase9-role-benchmark")]
@@ -2373,6 +2591,23 @@ pub mod benchmark {
     );
     define_recipient_package!(ExportDeriverAClientPackage, EXPORT_PACKAGE_BYTES);
     define_recipient_package!(ExportDeriverBClientPackage, EXPORT_PACKAGE_BYTES);
+    const LANE_MATERIALIZATION_PACKAGE_BYTES: usize = 152 + 64;
+    define_recipient_package!(
+        LaneDeriverAHolderPackage,
+        LANE_MATERIALIZATION_PACKAGE_BYTES
+    );
+    define_recipient_package!(
+        LaneDeriverASigningWorkerPackage,
+        LANE_MATERIALIZATION_PACKAGE_BYTES
+    );
+    define_recipient_package!(
+        LaneDeriverBHolderPackage,
+        LANE_MATERIALIZATION_PACKAGE_BYTES
+    );
+    define_recipient_package!(
+        LaneDeriverBSigningWorkerPackage,
+        LANE_MATERIALIZATION_PACKAGE_BYTES
+    );
 
     #[cfg(feature = "local-protocol")]
     pub struct ClientBaseScalar(Zeroizing<[u8; 32]>);
@@ -2684,6 +2919,48 @@ pub mod benchmark {
         };
     }
 
+    macro_rules! define_lane_completion {
+        ($name:ident, $role:ty, $holder_package:ident, $worker_package:ident) => {
+            pub struct $name {
+                inner: $role,
+            }
+
+            impl $name {
+                pub fn final_transcript(&self) -> [u8; 32] {
+                    *self.inner.final_transcript().as_bytes()
+                }
+
+                pub fn stream_metrics(&self) -> StreamMetrics {
+                    self.inner.stream_metrics().into()
+                }
+
+                pub fn wire_byte_ledger(&self) -> WireByteLedger {
+                    WireByteLedger::for_family::<LaneMaterializationStream>(
+                        self.inner.stream_metrics(),
+                    )
+                }
+
+                pub fn holder_commitment(&self) -> [u8; 32] {
+                    self.inner.holder_commitment()
+                }
+
+                pub fn signing_worker_commitment(&self) -> [u8; 32] {
+                    self.inner.signing_worker_commitment()
+                }
+
+                pub fn holder_package(&self) -> $holder_package {
+                    $holder_package(recipient_package_bytes(self.inner.encode_holder_package()))
+                }
+
+                pub fn signing_worker_package(&self) -> $worker_package {
+                    $worker_package(recipient_package_bytes(
+                        self.inner.encode_signing_worker_package(),
+                    ))
+                }
+            }
+        };
+    }
+
     define_activation_completion!(
         ActivationDeriverACompletion,
         CompletedRoleA<ActivationStream>,
@@ -2705,6 +2982,18 @@ pub mod benchmark {
         ExportDeriverBCompletion,
         CompletedRoleB<ExportStream>,
         ExportDeriverBClientPackage
+    );
+    define_lane_completion!(
+        LaneDeriverACompletion,
+        CompletedRoleA<LaneMaterializationStream>,
+        LaneDeriverAHolderPackage,
+        LaneDeriverASigningWorkerPackage
+    );
+    define_lane_completion!(
+        LaneDeriverBCompletion,
+        CompletedRoleB<LaneMaterializationStream>,
+        LaneDeriverBHolderPackage,
+        LaneDeriverBSigningWorkerPackage
     );
 
     enum DeriverAState<F, C>
@@ -3306,6 +3595,76 @@ pub mod benchmark {
     }
 
     #[cfg(feature = "local-protocol")]
+    pub struct LaneDeriverAInputs {
+        inner: PrivateLaneDeriverAInputs,
+    }
+
+    #[cfg(feature = "local-protocol")]
+    impl LaneDeriverAInputs {
+        pub fn new(
+            y_client: [u8; 32],
+            y_server: [u8; 32],
+            tau_client: [u8; 32],
+            tau_server: [u8; 32],
+            offset: [u8; 32],
+        ) -> Result<Self, BenchmarkRoleError> {
+            Ok(Self {
+                inner: PrivateLaneDeriverAInputs::new(
+                    DeriverAClientY::from_secret_bytes(y_client),
+                    DeriverAServerY::from_secret_bytes(y_server),
+                    DeriverAClientTau::from_canonical_secret_bytes(tau_client)?,
+                    DeriverAServerTau::from_canonical_secret_bytes(tau_server)?,
+                    DeriverAClientScalarOutputCoin::random_os()?,
+                    DeriverASigningWorkerScalarOutputCoin::random_os()?,
+                    LaneDeriverAOffsetShare::from_canonical_secret_bytes(offset)?,
+                ),
+            })
+        }
+    }
+
+    #[cfg(feature = "local-protocol")]
+    impl fmt::Debug for LaneDeriverAInputs {
+        fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("LaneDeriverAInputs([REDACTED])")
+        }
+    }
+
+    #[cfg(feature = "local-protocol")]
+    pub struct LaneDeriverBInputs {
+        inner: PrivateLaneDeriverBInputs,
+    }
+
+    #[cfg(feature = "local-protocol")]
+    impl LaneDeriverBInputs {
+        pub fn new(
+            y_client: [u8; 32],
+            y_server: [u8; 32],
+            tau_client: [u8; 32],
+            tau_server: [u8; 32],
+            offset: [u8; 32],
+        ) -> Result<Self, BenchmarkRoleError> {
+            Ok(Self {
+                inner: PrivateLaneDeriverBInputs::new(
+                    DeriverBClientY::from_secret_bytes(y_client),
+                    DeriverBServerY::from_secret_bytes(y_server),
+                    DeriverBClientTau::from_canonical_secret_bytes(tau_client)?,
+                    DeriverBServerTau::from_canonical_secret_bytes(tau_server)?,
+                    DeriverBClientScalarOutputCoin::random_os()?,
+                    DeriverBSigningWorkerScalarOutputCoin::random_os()?,
+                    LaneDeriverBOffsetShare::from_canonical_secret_bytes(offset)?,
+                ),
+            })
+        }
+    }
+
+    #[cfg(feature = "local-protocol")]
+    impl fmt::Debug for LaneDeriverBInputs {
+        fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("LaneDeriverBInputs([REDACTED])")
+        }
+    }
+
+    #[cfg(feature = "local-protocol")]
     fn activation_a_start_from_inputs(
         session: [u8; 32],
         inputs: ActivationDeriverAInputs,
@@ -3339,6 +3698,24 @@ pub mod benchmark {
     ) -> Result<ExportDeriverBStart, BenchmarkRoleError> {
         let binding = ExportSessionBinding::new(SessionId::new(session)?);
         Ok(ExportDeriverBStart::new(binding, inputs.inner))
+    }
+
+    #[cfg(feature = "local-protocol")]
+    fn lane_a_start_from_inputs(
+        session: [u8; 32],
+        inputs: LaneDeriverAInputs,
+    ) -> Result<LaneDeriverAStart, BenchmarkRoleError> {
+        let binding = LaneSessionBinding::new(SessionId::new(session)?);
+        Ok(LaneDeriverAStart::new(binding, inputs.inner))
+    }
+
+    #[cfg(feature = "local-protocol")]
+    fn lane_b_start_from_inputs(
+        session: [u8; 32],
+        inputs: LaneDeriverBInputs,
+    ) -> Result<LaneDeriverBStart, BenchmarkRoleError> {
+        let binding = LaneSessionBinding::new(SessionId::new(session)?);
+        Ok(LaneDeriverBStart::new(binding, inputs.inner))
     }
 
     macro_rules! define_activation_profile {
@@ -3521,6 +3898,96 @@ pub mod benchmark {
         };
     }
 
+    macro_rules! define_lane_profile {
+        ($a:ident, $b:ident, $chunk:ty) => {
+            pub struct $a {
+                inner: DeriverA<LaneMaterializationStream, $chunk>,
+            }
+
+            impl $a {
+                #[cfg(feature = "phase9-role-benchmark")]
+                pub fn new(session: [u8; 32]) -> Result<Self, BenchmarkRoleError> {
+                    Ok(Self {
+                        inner: DeriverA::new(lane_deriver_a_fixture_start(session)?),
+                    })
+                }
+
+                #[cfg(feature = "local-protocol")]
+                pub fn with_inputs(
+                    session: [u8; 32],
+                    inputs: LaneDeriverAInputs,
+                ) -> Result<Self, BenchmarkRoleError> {
+                    Ok(Self {
+                        inner: DeriverA::new(lane_a_start_from_inputs(session, inputs)?),
+                    })
+                }
+
+                pub fn handle(
+                    self,
+                    event: RelayEvent,
+                ) -> Result<RelayStep<Self, LaneDeriverACompletion>, BenchmarkRoleError> {
+                    Ok(match self.inner.handle(event)? {
+                        InternalStep::Continue(inner) => RelayStep::Continue(Self { inner }),
+                        InternalStep::Send(inner, message) => RelayStep::Send {
+                            role: Self { inner },
+                            message,
+                        },
+                        InternalStep::Complete(inner) => {
+                            RelayStep::Complete(LaneDeriverACompletion { inner })
+                        }
+                    })
+                }
+
+                pub fn instruction(&self) -> Result<RelayInstruction, BenchmarkRoleError> {
+                    self.inner.instruction()
+                }
+            }
+
+            pub struct $b {
+                inner: DeriverB<LaneMaterializationStream, $chunk>,
+            }
+
+            impl $b {
+                #[cfg(feature = "phase9-role-benchmark")]
+                pub fn new(session: [u8; 32]) -> Result<Self, BenchmarkRoleError> {
+                    Ok(Self {
+                        inner: DeriverB::new(lane_deriver_b_fixture_start(session)?),
+                    })
+                }
+
+                #[cfg(feature = "local-protocol")]
+                pub fn with_inputs(
+                    session: [u8; 32],
+                    inputs: LaneDeriverBInputs,
+                ) -> Result<Self, BenchmarkRoleError> {
+                    Ok(Self {
+                        inner: DeriverB::new(lane_b_start_from_inputs(session, inputs)?),
+                    })
+                }
+
+                pub fn handle(
+                    self,
+                    event: RelayEvent,
+                ) -> Result<RelayStep<Self, LaneDeriverBCompletion>, BenchmarkRoleError> {
+                    Ok(match self.inner.handle(event)? {
+                        InternalStep::Continue(inner) => RelayStep::Continue(Self { inner }),
+                        InternalStep::Send(inner, message) => RelayStep::Send {
+                            role: Self { inner },
+                            message,
+                        },
+                        InternalStep::Complete(inner) => {
+                            RelayStep::Complete(LaneDeriverBCompletion { inner })
+                        }
+                    })
+                }
+
+                pub fn instruction(&self) -> Result<RelayInstruction, BenchmarkRoleError> {
+                    self.inner.instruction()
+                }
+            }
+        };
+    }
+
     #[cfg(feature = "phase9-role-benchmark")]
     define_activation_profile!(Activation64KiBDeriverA, Activation64KiBDeriverB, Chunk64KiB);
     define_activation_profile!(
@@ -3537,6 +4004,11 @@ pub mod benchmark {
     #[cfg(feature = "phase9-role-benchmark")]
     define_export_profile!(Export64KiBDeriverA, Export64KiBDeriverB, Chunk64KiB);
     define_export_profile!(Export128KiBDeriverA, Export128KiBDeriverB, Chunk128KiB);
+    define_lane_profile!(
+        LaneMaterialization128KiBDeriverA,
+        LaneMaterialization128KiBDeriverB,
+        Chunk128KiB
+    );
     #[cfg(feature = "phase9-role-benchmark")]
     define_export_profile!(Export256KiBDeriverA, Export256KiBDeriverB, Chunk256KiB);
 
@@ -3861,6 +4333,15 @@ mod tests {
         )
     }
 
+    fn lane_starts(session_marker: u8) -> (LaneDeriverAStart, LaneDeriverBStart) {
+        (
+            super::super::role_protocol_support::lane_deriver_a_fixture_start([session_marker; 32])
+                .expect("A lane fixture"),
+            super::super::role_protocol_support::lane_deriver_b_fixture_start([session_marker; 32])
+                .expect("B lane fixture"),
+        )
+    }
+
     fn assert_activation<C: FixedChunkProfile>(session_marker: u8) {
         let (a_start, b_start) = activation_starts(session_marker);
         let (a, b) = run_roles::<ActivationStream, C>(a_start, b_start).expect("role relay");
@@ -3917,6 +4398,36 @@ mod tests {
             ),
             super::super::role_protocol_support::FIXTURE_SEED
         );
+    }
+
+    #[test]
+    fn lane_materialization_runs_through_selected_stream_schedule_with_role_bound_outputs() {
+        let (a_start, b_start) = lane_starts(0x71);
+        let (a, b) = run_roles::<LaneMaterializationStream, Chunk128KiB>(a_start, b_start)
+            .expect("lane role relay");
+        assert_eq!(a.final_transcript(), b.final_transcript());
+        assert_stream_metrics::<LaneMaterializationStream, Chunk128KiB>(a.stream_metrics(), true);
+        assert_stream_metrics::<LaneMaterializationStream, Chunk128KiB>(b.stream_metrics(), false);
+        let a_holder = a.encode_holder_package();
+        let a_worker = a.encode_signing_worker_package();
+        let b_holder = b.encode_holder_package();
+        let b_worker = b.encode_signing_worker_package();
+        assert_eq!(a_holder.as_slice().len(), 216);
+        assert_eq!(a_worker.as_slice().len(), 216);
+        assert_eq!(b_holder.as_slice().len(), 216);
+        assert_eq!(b_worker.as_slice().len(), 216);
+        assert_eq!(
+            &a_holder.as_slice()[112..144],
+            a.final_transcript().as_bytes()
+        );
+        assert_eq!(
+            &b_worker.as_slice()[112..144],
+            b.final_transcript().as_bytes()
+        );
+        assert_eq!(a_holder.as_slice()[9], 0x95);
+        assert_eq!(a_worker.as_slice()[11], 0x05);
+        assert_eq!(b_holder.as_slice()[10], 0xb2);
+        assert_eq!(b_worker.as_slice()[12], 0x32);
     }
 
     fn assert_stream_metrics<F, C>(metrics: RoleStreamMetrics, is_garbler: bool)

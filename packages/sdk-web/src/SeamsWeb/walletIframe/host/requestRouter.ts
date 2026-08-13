@@ -12,6 +12,7 @@ export type BootWalletRequestType = 'PING' | 'PM_SET_CONFIG' | 'PM_CANCEL';
 export type NearWalletRequestType =
   | 'PM_REGISTER_WALLET'
   | 'PM_ADD_WALLET_SIGNER'
+  | 'PM_ADD_PASSKEY'
   | 'PM_GET_NEAR_PROVISIONING_STATE'
   | 'PM_PREFETCH_BLOCKHEIGHT'
   | 'PM_SIGN_TX_WITH_ACTIONS'
@@ -55,9 +56,13 @@ export type EmailOtpWalletRequestType =
   | 'PM_ENROLL_EMAIL_OTP'
   | 'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY'
   | 'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION'
-  | 'PM_GET_EMAIL_OTP_RECOVERY_CODE_STATUS'
-  | 'PM_SHOW_EMAIL_OTP_RECOVERY_CODES'
-  | 'PM_ROTATE_EMAIL_OTP_RECOVERY_CODES';
+  | 'PM_GET_WALLET_RECOVERY_CODE_STATUS'
+  | 'PM_ACKNOWLEDGE_WALLET_RECOVERY_CODE_BACKUP'
+  | 'PM_ROTATE_WALLET_RECOVERY_CODES'
+  | 'PM_REQUEST_WALLET_RECOVERY_BOOTSTRAP_CHALLENGE'
+  | 'PM_VERIFY_WALLET_RECOVERY_BOOTSTRAP'
+  | 'PM_PREPARE_WALLET_RECOVERY_WITH_BOOTSTRAP'
+  | 'PM_COMPLETE_WALLET_RECOVERY';
 export type RecoveryWalletRequestType =
   | 'PM_GET_RECOVERY_EMAILS'
   | 'PM_SET_RECOVERY_EMAILS'
@@ -65,11 +70,11 @@ export type RecoveryWalletRequestType =
 export type ExportWalletRequestType = 'PM_RESOLVE_EXACT_KEY_EXPORT_LANE' | 'PM_EXPORT_KEYPAIR_UI';
 export type DeviceLinkWalletRequestType =
   | 'PM_HAS_PASSKEY'
-  | 'PM_VIEW_ACCESS_KEYS'
-  | 'PM_DELETE_DEVICE_KEY'
-  | 'PM_LINK_DEVICE_WITH_SCANNED_QR_DATA'
+  | 'PM_LIST_LINKED_DEVICES'
+  | 'PM_REVOKE_LINKED_DEVICE'
+  | 'PM_SCAN_AND_LINK_DEVICE'
   | 'PM_START_DEVICE2_LINKING_FLOW'
-  | 'PM_STOP_DEVICE2_LINKING_FLOW'
+  | 'PM_CANCEL_DEVICE_LINKING'
   | 'PM_SYNC_ACCOUNT_FLOW';
 export type PreferencesWalletRequestType =
   | 'PM_GET_RECOVERY_EMAILS'
@@ -151,6 +156,7 @@ export function routeWalletHostRequest(request: ParentToChildEnvelope): WalletHo
 
     case 'PM_REGISTER_WALLET':
     case 'PM_ADD_WALLET_SIGNER':
+    case 'PM_ADD_PASSKEY':
     case 'PM_GET_NEAR_PROVISIONING_STATE':
     case 'PM_PREFETCH_BLOCKHEIGHT':
     case 'PM_SIGN_TX_WITH_ACTIONS':
@@ -239,9 +245,13 @@ export function routeWalletHostRequest(request: ParentToChildEnvelope): WalletHo
     case 'PM_ENROLL_EMAIL_OTP':
     case 'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY':
     case 'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION':
-    case 'PM_GET_EMAIL_OTP_RECOVERY_CODE_STATUS':
-    case 'PM_SHOW_EMAIL_OTP_RECOVERY_CODES':
-    case 'PM_ROTATE_EMAIL_OTP_RECOVERY_CODES':
+    case 'PM_GET_WALLET_RECOVERY_CODE_STATUS':
+    case 'PM_ACKNOWLEDGE_WALLET_RECOVERY_CODE_BACKUP':
+    case 'PM_ROTATE_WALLET_RECOVERY_CODES':
+    case 'PM_REQUEST_WALLET_RECOVERY_BOOTSTRAP_CHALLENGE':
+    case 'PM_VERIFY_WALLET_RECOVERY_BOOTSTRAP':
+    case 'PM_PREPARE_WALLET_RECOVERY_WITH_BOOTSTRAP':
+    case 'PM_COMPLETE_WALLET_RECOVERY':
       return { kind: 'email_otp', type: request.type, request };
 
     case 'PM_GET_RECOVERY_EMAILS':
@@ -254,11 +264,11 @@ export function routeWalletHostRequest(request: ParentToChildEnvelope): WalletHo
       return { kind: 'export', type: request.type, request };
 
     case 'PM_HAS_PASSKEY':
-    case 'PM_VIEW_ACCESS_KEYS':
-    case 'PM_DELETE_DEVICE_KEY':
-    case 'PM_LINK_DEVICE_WITH_SCANNED_QR_DATA':
+    case 'PM_LIST_LINKED_DEVICES':
+    case 'PM_REVOKE_LINKED_DEVICE':
+    case 'PM_SCAN_AND_LINK_DEVICE':
     case 'PM_START_DEVICE2_LINKING_FLOW':
-    case 'PM_STOP_DEVICE2_LINKING_FLOW':
+    case 'PM_CANCEL_DEVICE_LINKING':
       return { kind: 'device_link', type: request.type, request };
 
     case 'PM_SET_CONFIRM_BEHAVIOR':

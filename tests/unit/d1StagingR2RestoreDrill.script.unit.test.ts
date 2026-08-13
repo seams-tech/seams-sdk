@@ -105,7 +105,9 @@ test('D1 staging R2 restore drill builds timestamped export, R2, restore, and in
   expect(plan.commands[2]).toContain(
     'wrangler r2 object put seams-staging-backups/refactor-82/20260628T000000Z/seams-console-staging-nrt.sql',
   );
-  expect(plan.commands[8]).toContain('d1 execute seams-console-staging-nrt-restore-drill-20260628t000000z');
+  expect(plan.commands[8]).toContain(
+    'd1 execute seams-console-staging-nrt-restore-drill-20260628t000000z',
+  );
   expect(plan.commands[10]).toContain('PRAGMA integrity_check;');
   expect(plan.artifacts.consoleRestoreDatabaseName).toBe(
     'seams-console-staging-nrt-restore-drill-20260628t000000z',

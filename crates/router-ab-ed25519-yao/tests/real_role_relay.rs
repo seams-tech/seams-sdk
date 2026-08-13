@@ -5,7 +5,8 @@ use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 
 use router_ab_core::{
     Ed25519YaoCeremonyBindingV1, Ed25519YaoOperationV1, Ed25519YaoSessionIdV1,
-    Ed25519YaoStableKeyContextBindingV1, ExpensiveWorkKindV1, LifecycleScopeV1, RootShareEpoch,
+    Ed25519YaoStableKeyContextBindingV1, ExpensiveWorkKindV1, LifecycleScopeV1,
+    MpcMaterialActivationRefV1, RootShareEpoch,
 };
 use router_ab_ed25519_yao::recipient::{
     client::{combine_client_activation_packages, combine_export_packages},
@@ -70,6 +71,15 @@ fn binding(
         Ed25519YaoStableKeyContextBindingV1::new(decode_hex_32(
             "b5601ad156882b545a2e4a4a694e87c7982842d37a4c666645302604b2720655",
         )),
+        MpcMaterialActivationRefV1::new(
+            "activation-1",
+            "capability-1",
+            "account-1",
+            "key-1",
+            "local-lifecycle-1",
+            "signing-worker-1",
+        )
+        .expect("material activation"),
     )
     .expect("binding")
 }

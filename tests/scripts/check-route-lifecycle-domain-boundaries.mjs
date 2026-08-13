@@ -464,7 +464,9 @@ check('route/lifecycle boundary threshold and session exchange routes parse comm
   );
   expect(cloudflareExchange).toContain('parseSessionExchangeRouteCommand');
   expect(cloudflareExchange).toContain('const command = parsedExchange.command;');
-  expect(cloudflareExchange).toContain("if (command.kind === 'oidc_jwt')");
+  expect(cloudflareExchange).toContain(
+    "if (command.kind === 'oidc_jwt' || command.kind === 'github_oauth_code')",
+  );
   expect(cloudflareExchange).not.toContain('const exchange =');
   expect(cloudflareExchange).not.toContain('exchange as any');
   expect(cloudflareExchange).not.toContain('exchange.token');

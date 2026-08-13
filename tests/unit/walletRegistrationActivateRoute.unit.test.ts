@@ -4,7 +4,6 @@ import { secp256k1PrivateKey32ToPublicKey33 } from '../../packages/sdk-server-ts
 import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import { implicitNearAccountProvisioning } from '../../packages/shared-ts/src/utils/registrationIntent';
-import { parseRouterAbMpcMaterialActivationRef } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
 import {
   buildFixtureRouterAbEcdsaStrictRegistrationRequest,
@@ -13,9 +12,10 @@ import {
   SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort,
 } from '../helpers/routerAbSigningRuntimeTestUtils';
 import { createActivatedFinalizeYaoRuntimeFixture } from './helpers/d1WalletRegistrationFinalizeConvergence.fixtures';
+import { CloudflareD1WalletCustodyCommitStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
+import { buildWalletCustodyCommitPayloadFixture } from './helpers/passkeyCustodyEnvelope.fixtures';
 import {
   applySignerMigrations,
-  makeRecoveryWrappedEnrollmentEscrows,
   createWebAuthnRegistrationCredential,
   RecordingDurableObjectNamespace,
   requireParsedDomainId,
@@ -165,15 +165,6 @@ async function respondedCeremony(database: unknown, strictRegistration: unknown)
     ecdsa: {
       activationCorrelationId: setup.registrationCeremonyId,
       activationRequestDigestB64u: base64UrlEncode(new Uint8Array(32)),
-      materialActivation: parseRouterAbMpcMaterialActivationRef({
-        kind: 'mpc_material_activation_ref',
-        activation_id: `activation-${setup.registrationCeremonyId}`,
-        capability: `capability-${setup.registrationCeremonyId}`,
-        material_owner: setup.walletId,
-        key_binding: `key-${setup.registrationCeremonyId}`,
-        lifecycle_binding: setup.registrationCeremonyId,
-        signing_worker: setup.ecdsa.strictRegistration.lifecycle.selected_server_id,
-      }),
       clientActivation: fixtureRouterAbEcdsaActivationFacts(),
     },
     verifier: signer,
@@ -222,8 +213,10 @@ test('an identical activate retry returns the stored terminal bytes without repe
   try {
     await applySignerMigrations(database);
     const strictRegistration = new CountingStrictRegistrationPort();
-    const { service, activateRequest, thresholdStore } =
-      await respondedCeremony(database, strictRegistration);
+    const { service, activateRequest, thresholdStore } = await respondedCeremony(
+      database,
+      strictRegistration,
+    );
 
     const first = await service.walletRegistration.activateWalletRegistration(
       activateRequest as never,
@@ -438,7 +431,11 @@ test('Ed25519-only setup skips ECDSA preparation entirely', async () => {
  * one runtime serve a freshly generated ceremony — which is what makes a real
  * Ed25519-only path testable rather than only its error branches.
  */
-function derivingYaoRuntime(capture?: { registrationBearerToken: string | null }) {
+function derivingYaoRuntime(capture?: {
+  registrationBearerToken: string | null;
+  /** The session the deferred leg must present to claim the Yao result. */
+  activationSessionId?: readonly number[] | null;
+}) {
   let delegate: Awaited<ReturnType<typeof createActivatedFinalizeYaoRuntimeFixture>> | null = null;
   const runtime = {
     kind: 'router_ab_ed25519_yao_product_registration_runtime_v1' as const,
@@ -453,6 +450,7 @@ function derivingYaoRuntime(capture?: { registrationBearerToken: string | null }
       delegate = await createActivatedFinalizeYaoRuntimeFixture({
         admissionRequest: input.admissionRequest,
       });
+      if (capture) capture.activationSessionId = delegate.activationResult.binding.session_id;
       return { ok: true as const, value: delegate.admissionReceipt };
     },
     async consumeActivated(request: never) {
@@ -541,16 +539,18 @@ test('Ed25519-only registers end to end: pending wallet now, signer when Yao res
       minter: signer,
     };
     /* Yao has not resolved. Activate must still return a wallet. */
-    const activated =
-      await service.walletRegistration.activateWalletRegistration(activateRequest as never);
+    const activated = await service.walletRegistration.activateWalletRegistration(
+      activateRequest as never,
+    );
     if (!activated.ok) throw new Error(`activate: ${activated.code}: ${activated.message}`);
     expect(activated.nearProvisioning).toEqual({ status: 'near_pending' });
     expect('ecdsa' in activated).toBe(false);
     expect('resolvedAccount' in activated).toBe(false);
 
     /* Exact replay returns the same pending terminal. */
-    const replayed =
-      await service.walletRegistration.activateWalletRegistration(activateRequest as never);
+    const replayed = await service.walletRegistration.activateWalletRegistration(
+      activateRequest as never,
+    );
     expect(replayed).toEqual(activated);
   } finally {
     cleanupTemporaryD1Database(tempDir);
@@ -648,31 +648,15 @@ test('Email OTP + Ed25519-only: enrollment persists with the pending wallet, bef
     if (!responded.ok) throw new Error(`respond: ${responded.code}: ${responded.message}`);
     expect(responded.ed25519).toMatchObject({ status: 'deferred' });
 
-    const recoveryCodesIssuedAtMs = Date.now();
     const activateRequest = {
       registrationCeremonyId: setup.registrationCeremonyId,
       signedSetup: setup.signedSetup,
       idempotencyKey: 'ed25519-otp-activate',
       planKind: 'near_ed25519',
       emailOtpEnrollment: {
-        recoveryWrappedEnrollmentEscrows: makeRecoveryWrappedEnrollmentEscrows({
-          walletId: setup.walletId,
-          userId: providerSubject,
-          enrollmentId: `enrollment-${setup.walletId}`,
-          enrollmentSealKeyVersion: 'seal-v1',
-          issuedAtMs: recoveryCodesIssuedAtMs,
-        }),
         enrollmentSealKeyVersion: 'seal-v1',
         clientUnlockPublicKeyB64u: unlockPublicKeyB64u,
         unlockKeyVersion: 'unlock-v1',
-        thresholdEcdsaClientVerifyingShareB64u: unlockPublicKeyB64u,
-      },
-      emailOtpBackupAck: {
-        kind: 'email_otp_recovery_code_backup_ack_v1',
-        recoveryCodesIssuedAtMs,
-        backupActionKind: 'download',
-        acknowledgedAtMs: Date.now(),
-        idempotencyKey: 'ed25519-otp-backup-ack',
       },
       session: signer,
       verifier: signer,
@@ -681,8 +665,9 @@ test('Email OTP + Ed25519-only: enrollment persists with the pending wallet, bef
 
     /* Yao is unresolved. The wallet must still be created, with its
        recovery-critical enrollment committed in the same transaction. */
-    const activated =
-      await service.walletRegistration.activateWalletRegistration(activateRequest as never);
+    const activated = await service.walletRegistration.activateWalletRegistration(
+      activateRequest as never,
+    );
     if (!activated.ok) throw new Error(`activate: ${activated.code}: ${activated.message}`);
     expect(activated.nearProvisioning).toEqual({ status: 'near_pending' });
     expect('ecdsa' in activated).toBe(false);
@@ -702,9 +687,192 @@ test('Email OTP + Ed25519-only: enrollment persists with the pending wallet, bef
     expect(Number(signerRows?.count || 0)).toBe(0);
 
     /* Exact pending replay. */
-    const replayed =
-      await service.walletRegistration.activateWalletRegistration(activateRequest as never);
+    const replayed = await service.walletRegistration.activateWalletRegistration(
+      activateRequest as never,
+    );
     expect(replayed).toEqual(activated);
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+/**
+ * Refactor 100. The wallet custody commit rides the registration leg rather
+ * than a route of its own: what may establish custody for a wallet is exactly
+ * what may create that wallet, and a separate endpoint would be a second,
+ * weaker way in.
+ *
+ * These pin where that commit actually happens, which is the thing easiest to
+ * get wrong — an Ed25519-only wallet has no key set at activate, so wiring the
+ * commit there alone would silently never fire for it.
+ */
+
+test('an activate carrying a custody payload commits it under the registered wallet', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const { service, setup, activateRequest } = await respondedCeremony(
+      database,
+      new CountingStrictRegistrationPort(),
+    );
+
+    const activated = await service.walletRegistration.activateWalletRegistration({
+      ...activateRequest,
+      walletCustodyCommit: buildWalletCustodyCommitPayloadFixture({ walletId: setup.walletId }),
+    } as never);
+    if (!activated.ok) throw new Error(`activate: ${activated.code}: ${activated.message}`);
+
+    expect(activated.walletCustody).toEqual({ status: 'committed' });
+
+    /* The response is not the evidence — the stored recovery set is. A wallet
+       whose codes never landed is a wallet nobody can recover. */
+    const custodyStore = new CloudflareD1WalletCustodyCommitStore({
+      database: database as never,
+      scope: SCOPE,
+    });
+    const recoverySet = await custodyStore.readRecoveryEnvelopeSet(setup.walletId as never);
+    expect(recoverySet?.record.manifestKekWraps).toHaveLength(10);
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('a custody payload naming another wallet is refused without failing activation', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const { service, setup, activateRequest } = await respondedCeremony(
+      database,
+      new CountingStrictRegistrationPort(),
+    );
+
+    const activated = await service.walletRegistration.activateWalletRegistration({
+      ...activateRequest,
+      walletCustodyCommit: buildWalletCustodyCommitPayloadFixture({ walletId: 'mallory.testnet' }),
+    } as never);
+
+    /* Activation never fails because of custody: the wallet is already
+       committed when the payload is admitted, and the seed exists only in the
+       client's worker, so an error response would leave the client with a
+       registered wallet and no instruction it can read. */
+    if (!activated.ok) throw new Error(`activate: ${activated.code}: ${activated.message}`);
+    expect(activated.walletCustody?.status).toBe('rejected');
+
+    const custodyStore = new CloudflareD1WalletCustodyCommitStore({
+      database: database as never,
+      scope: SCOPE,
+    });
+    expect(await custodyStore.readRecoveryEnvelopeSet(setup.walletId as never)).toBeNull();
+    expect(await custodyStore.readRecoveryEnvelopeSet('mallory.testnet' as never)).toBeNull();
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('an Ed25519-only wallet establishes custody on the deferred NEAR leg, not at activate', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const routerAbSigningRuntimes = createRouterAbSigningRuntimesForUnitTests({
+      config: { ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'signing-worker-ed25519' },
+    });
+    const signer = fakeGatewaySigner();
+    const yaoCapture = {
+      registrationBearerToken: null as string | null,
+      activationSessionId: null as readonly number[] | null,
+    };
+    const service = createCloudflareD1RouterApiAuthService({
+      database: database as never,
+      ...ED_SCOPE,
+      routerAbSigningRuntimes: routerAbSigningRuntimes.runtimes,
+      ed25519YaoProductRegistration: derivingYaoRuntime(yaoCapture),
+      ecdsaStrictRegistration: new CountingStrictRegistrationPort(),
+      thresholdStore: {
+        kind: 'cloudflare-do',
+        namespace: new RecordingDurableObjectNamespace(),
+        THRESHOLD_PREFIX: 'registration-ed25519-custody',
+        ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'signing-worker-ed25519',
+      },
+    } as never);
+    const rpId = requireParsedDomainId(parseWebAuthnRpId('example.com'));
+
+    const setup = await service.walletRegistration.setupWalletRegistration({
+      request: { signerSelection: ED25519_ONLY_PLAN, authMethod: { kind: 'passkey', rpId } },
+      orgId: ED_SCOPE.orgId,
+      expectedOrigin: 'https://app.example.com',
+      signer,
+      signingRootId: `${ED_SCOPE.projectId}:${ED_SCOPE.envId}`,
+      signingRootVersion: 'root-ed25519-v1',
+    } as never);
+    if (!setup.ok) throw new Error(`setup: ${setup.code}: ${setup.message}`);
+
+    const responded = await service.walletRegistration.respondWalletRegistration({
+      registrationCeremonyId: setup.registrationCeremonyId,
+      signedSetup: setup.signedSetup,
+      planKind: 'near_ed25519',
+      authority: {
+        kind: 'passkey',
+        webauthnRegistration: await createWebAuthnRegistrationCredential({
+          rpId,
+          challengeB64u: setup.registrationIntentDigestB64u,
+          origin: 'https://app.example.com',
+        }),
+      },
+      verifier: signer,
+      minter: signer,
+    } as never);
+    if (!responded.ok) throw new Error(`respond: ${responded.code}: ${responded.message}`);
+
+    /* Activate returns `near_pending`: the Yao computation has not resolved, so
+       this wallet has no key set to seal custody against yet. */
+    const activated = await service.walletRegistration.activateWalletRegistration({
+      registrationCeremonyId: setup.registrationCeremonyId,
+      signedSetup: setup.signedSetup,
+      idempotencyKey: 'ed25519-custody-activate',
+      planKind: 'near_ed25519',
+      session: signer,
+      verifier: signer,
+      minter: signer,
+    } as never);
+    if (!activated.ok) throw new Error(`activate: ${activated.code}: ${activated.message}`);
+    expect(activated.nearProvisioning).toEqual({ status: 'near_pending' });
+    expect(activated.walletCustody).toBeUndefined();
+
+    const custodyStore = new CloudflareD1WalletCustodyCommitStore({
+      database: database as never,
+      scope: ED_SCOPE,
+    });
+    expect(await custodyStore.readRecoveryEnvelopeSet(setup.walletId as never)).toBeNull();
+
+    /* The deferred leg. This is the first point at which an Ed25519-only
+       wallet has a key set at all, so it is where its custody is established —
+       a commit wired only into activate would never fire for this wallet. */
+    const provisioned = await service.walletRegistration.completeWalletRegistrationNearProvisioning(
+      {
+        registrationCeremonyId: setup.registrationCeremonyId,
+        signedSetup: setup.signedSetup,
+        idempotencyKey: 'ed25519-custody-provisioning',
+        ed25519: {
+          activationReference: {
+            lifecycle_id: setup.registrationCeremonyId,
+            session_id: yaoCapture.activationSessionId,
+          },
+        },
+        walletCustodyCommit: buildWalletCustodyCommitPayloadFixture({
+          walletId: setup.walletId,
+          keySet: 'near_ed25519_v1',
+        }),
+        verifier: signer,
+        session: signer,
+      } as never,
+    );
+    if (!provisioned.ok) {
+      throw new Error(`near provisioning: ${provisioned.code}: ${provisioned.message}`);
+    }
+
+    expect(provisioned.walletCustody).toEqual({ status: 'committed' });
+    const recoverySet = await custodyStore.readRecoveryEnvelopeSet(setup.walletId as never);
+    expect(recoverySet?.record.manifestKekWraps).toHaveLength(10);
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }

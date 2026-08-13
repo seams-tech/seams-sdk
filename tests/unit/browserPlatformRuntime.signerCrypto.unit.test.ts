@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { parseWalletKeyId } from '@shared/utils/domainIds';
 import {
+  buildWebAuthnPrfFirstSecretSource,
   createBrowserPlatformRuntime,
   parseEmailOtpWorkerIssuedSessionHandle,
 } from '@/core/platform';
@@ -10,6 +11,11 @@ import {
   toWalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import { buildThresholdPrfXClientBaseSecretSource } from '@/core/platform/secretSources';
+import {
+  EcdsaDerivationClientCustomRequestType,
+  EcdsaDerivationClientCustomResponseType,
+} from '@/core/signingEngine/workerManager/workerTypes';
 import {
   toEcdsaDerivationSigningRootId,
   toEcdsaDerivationSigningRootVersion,
@@ -18,7 +24,6 @@ import {
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import { SignerWorkerOperationError } from '@/core/signingEngine/workerManager/workerTypes';
 import {
-  WorkerRequestType,
   WorkerResponseType,
   type WasmFinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapRequest,
   type WasmPrepareThresholdEcdsaDerivationRoleLocalClientBootstrapRequest,
@@ -26,7 +31,6 @@ import {
 import {
   buildFido2HmacSecretSource,
   buildSecureEnclaveWrappedSecretSource,
-  buildWebAuthnPrfFirstSecretSource,
   type EcdsaRoleLocalPendingStateBlob,
   type PrepareEcdsaClientBootstrapInput,
   type RequiredPrfAuthenticatorSuccess,
@@ -97,7 +101,11 @@ const prepareInput: PrepareEcdsaClientBootstrapInput = {
     relayerParticipantId: 2,
     participantIds: [1, 2],
   },
-  secretSource: buildWebAuthnPrfFirstSecretSource(requiredPrfSuccess),
+  /* ECDSA bootstrap takes exactly one secret source: the threshold PRF
+     x-client base. The PRF credential is consumed upstream of this port. */
+  secretSource: buildThresholdPrfXClientBaseSecretSource({
+    xClientBaseB64u: 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc',
+  }),
 };
 
 function pendingBlob(): EcdsaRoleLocalPendingStateBlob {
@@ -114,7 +122,7 @@ function finalizeFailureWorkerCtx(message: string): WorkerOperationContext {
   return {
     async requestWorkerOperation({ request }) {
       expect(request.type).toBe(
-        WorkerRequestType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap,
+        EcdsaDerivationClientCustomRequestType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap,
       );
       throw new SignerWorkerOperationError({
         code: 'SIGNER_CRYPTO_ERROR',
@@ -134,42 +142,6 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
       prfFirstB64u: requiredPrfSuccess.prf.prfFirstB64u,
       rpId: requiredPrfSuccess.rpId,
       credentialIdB64u: requiredPrfSuccess.credentialIdB64u,
-    });
-  });
-
-  test('rejects unsupported future secret-source branches at browser dispatch', async () => {
-    const runtime = createBrowserPlatformRuntime({
-      workerCtx: {
-        async requestWorkerOperation() {
-          throw new Error('worker must not be called for unsupported secret sources');
-        },
-      },
-    });
-
-    const secureEnclaveResult = await runtime.signerCrypto.prepareEcdsaClientBootstrap({
-      ...prepareInput,
-      secretSource: buildSecureEnclaveWrappedSecretSource({
-        keyId: 'secure-key',
-        accessGroup: 'group',
-      }),
-    });
-    expect(secureEnclaveResult).toMatchObject({
-      ok: false,
-      failure: 'command',
-      code: 'unsupported_secret_source',
-    });
-
-    const fido2Result = await runtime.signerCrypto.prepareEcdsaClientBootstrap({
-      ...prepareInput,
-      secretSource: buildFido2HmacSecretSource({
-        credentialIdB64u: 'credential',
-        rpId: toRpId('localhost'),
-      }),
-    });
-    expect(fido2Result).toMatchObject({
-      ok: false,
-      failure: 'command',
-      code: 'unsupported_secret_source',
     });
   });
 
@@ -294,7 +266,8 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
       async requestWorkerOperation({ kind, request }) {
         expect(kind).toBe('ecdsaDerivationClient');
         if (
-          request.type === WorkerRequestType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap
+          request.type ===
+          EcdsaDerivationClientCustomRequestType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap
         ) {
           const payload =
             request.payload as WasmPrepareThresholdEcdsaDerivationRoleLocalClientBootstrapRequest;
@@ -311,14 +284,12 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
               participantIds: [1, 2],
             },
             secretSource: {
-              kind: 'webauthn_prf_first',
-              prfFirstB64u: requiredPrfSuccess.prf.prfFirstB64u,
-              rpId: 'localhost',
-              credentialIdB64u: 'credential',
+              kind: 'threshold_prf_x_client_base',
+              xClientBaseB64u: prepareInput.secretSource.xClientBaseB64u,
             },
           });
           return {
-            type: WorkerResponseType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrapSuccess,
+            type: EcdsaDerivationClientCustomResponseType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrapSuccess,
             payload: {
               pendingStateBlob: {
                 kind: 'ecdsa_role_local_pending_state_blob_v1',
@@ -341,7 +312,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
           } as any;
         }
         expect(request.type).toBe(
-          WorkerRequestType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap,
+          EcdsaDerivationClientCustomRequestType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap,
         );
         const payload =
           request.payload as WasmFinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapRequest;
@@ -360,10 +331,11 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
             relayerPublicKey33B64u: publicKeyB,
             groupPublicKey33B64u: publicKeyC,
             ethereumAddress: '0x0000000000000000000000000000000000000001',
+            relayerShareRetryCounter: 0,
           },
         });
         return {
-          type: WorkerResponseType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapSuccess,
+          type: EcdsaDerivationClientCustomResponseType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapSuccess,
           payload: {
             stateBlob: {
               kind: 'ecdsa_role_local_state_blob_v1',
@@ -412,6 +384,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
         relayerPublicKey33B64u: publicKeyB as EcdsaDerivationRelayerPublicKey33B64u,
         groupPublicKey33B64u: publicKeyC,
         ethereumAddress: '0x0000000000000000000000000000000000000001',
+        relayerShareRetryCounter: 0,
       },
     });
     expect(finalized).toMatchObject({
@@ -453,6 +426,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
         relayerPublicKey33B64u: publicKeyB as EcdsaDerivationRelayerPublicKey33B64u,
         groupPublicKey33B64u: publicKeyC,
         ethereumAddress: '0x0000000000000000000000000000000000000001',
+        relayerShareRetryCounter: 0,
       },
     });
     expect(result).toMatchObject({
@@ -474,6 +448,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
         relayerPublicKey33B64u: publicKeyB as EcdsaDerivationRelayerPublicKey33B64u,
         groupPublicKey33B64u: publicKeyC,
         ethereumAddress: '0x0000000000000000000000000000000000000001',
+        relayerShareRetryCounter: 0,
       },
     });
     expect(result).toMatchObject({
@@ -495,6 +470,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
         relayerPublicKey33B64u: publicKeyB as EcdsaDerivationRelayerPublicKey33B64u,
         groupPublicKey33B64u: publicKeyC,
         ethereumAddress: '0x0000000000000000000000000000000000000001',
+        relayerShareRetryCounter: 0,
       },
     });
     expect(result).toMatchObject({
@@ -520,6 +496,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
         relayerPublicKey33B64u: publicKeyB as EcdsaDerivationRelayerPublicKey33B64u,
         groupPublicKey33B64u: publicKeyC,
         ethereumAddress: '0x0000000000000000000000000000000000000001',
+        relayerShareRetryCounter: 0,
       },
     });
     expect(result).toMatchObject({
@@ -543,6 +520,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
         relayerPublicKey33B64u: publicKeyA as EcdsaDerivationRelayerPublicKey33B64u,
         groupPublicKey33B64u: publicKeyC,
         ethereumAddress: '0x0000000000000000000000000000000000000001',
+        relayerShareRetryCounter: 0,
       },
     });
     expect(result).toMatchObject({

@@ -67,6 +67,7 @@ async function walletSessionFixture(
     authority,
     sessionInfo: {
       sessionKind: 'jwt',
+      authorizationKind: 'owner_wallet_session',
       walletId: WALLET_ID,
       nearAccountId: WALLET_ID,
       nearEd25519SigningKeyId: 'near-ed25519-signing-key-seal-authorization',
@@ -95,10 +96,7 @@ async function walletSessionFixture(
   return session;
 }
 
-async function authorize(input: {
-  thresholdExpiresAtMs: number;
-  thresholdSessionId?: string;
-}) {
+async function authorize(input: { thresholdExpiresAtMs: number; thresholdSessionId?: string }) {
   const session = await walletSessionFixture(input.thresholdExpiresAtMs);
   const options = createSigningSessionSealRoutesOptions({
     cipher: successfulCipher(),

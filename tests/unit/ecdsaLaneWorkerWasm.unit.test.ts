@@ -1,0 +1,223 @@
+import { expect, test } from '@playwright/test';
+import type { EcdsaAdditiveLaneJobV1 } from '../../packages/shared-ts/src/signing-lanes/rotation';
+import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
+import {
+  createEcdsaLaneDerivationWorkerWasmV1,
+  parseEcdsaAdditiveLaneHolderPreparationV1,
+} from '../../packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaLaneWasm';
+import type { WorkerOperationContext } from '../../packages/sdk-web/src/core/signingEngine/workerManager/executeWorkerOperation';
+import {
+  EcdsaDerivationClientCustomRequestType,
+  EcdsaDerivationClientCustomResponseType,
+} from '../../packages/sdk-web/src/core/signingEngine/workerManager/workerTypes';
+import { parsePrepareEcdsaAdditiveLaneHolderRequestV1 } from '../../packages/sdk-web/src/core/signingEngine/workerManager/ecdsaClientWorkerChannels';
+import {
+  prepareEcdsaLaneHolderInWorkerV1,
+  resolveExactEcdsaLaneSourceMaterialV1,
+  type EcdsaLaneHolderSessionFactoryV1,
+  type EcdsaLaneHolderSessionPortV1,
+} from '../../packages/sdk-web/src/core/signingEngine/workerManager/workers/ecdsaLaneHolderWorkerRuntime';
+import { buildR102EcdsaLaneJob } from './helpers/r102LaneGateway.fixtures';
+
+const DIGEST_B64U = base64UrlEncode(new Uint8Array(32));
+const SECP256K1_GENERATOR_B64U = base64UrlEncode(
+  Uint8Array.from(
+    Buffer.from('0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798', 'hex'),
+  ),
+);
+
+function ecdsaJob(): EcdsaAdditiveLaneJobV1 {
+  const job = buildR102EcdsaLaneJob('derivation-worker');
+  if (job.keyFamily !== 'ecdsa_secp256k1') {
+    throw new Error('R102 ECDSA lane fixture changed key family');
+  }
+  return job;
+}
+
+function holderPreparation(): unknown {
+  return {
+    kind: 'ecdsa_additive_lane_holder_preparation_v1',
+    holderRound: {
+      kind: 'ecdsa_additive_lane_holder_round_v1',
+      preambleHashB64u: DIGEST_B64U,
+      targetHolderPublicCommitment33B64u: SECP256K1_GENERATOR_B64U,
+      encryptedDeltaCiphertextDigestB64u: DIGEST_B64U,
+      sealedTargetHolderMaterialDigestB64u: DIGEST_B64U,
+      holderAttestationB64u: 'holder-attestation-r102',
+      holderCommittedAtMs: 2_000,
+    },
+    holderPackage: {
+      kind: 'ecdsa_additive_lane_holder_package_v1',
+      ecdsaEncryptedMaterialEnvelopeJson: '{"ecdsa":"holder"}',
+    },
+    encryptedDeltaPackageJson: '{"ecdsa":"delta"}',
+  };
+}
+
+function laneRequest(job: EcdsaAdditiveLaneJobV1) {
+  return parsePrepareEcdsaAdditiveLaneHolderRequestV1({
+    kind: 'prepare_ecdsa_additive_lane_holder_v1',
+    job,
+    holderCommittedAtMs: 2_000,
+  });
+}
+
+class RecordingLaneHolderSession implements EcdsaLaneHolderSessionPortV1 {
+  constructor(private readonly owner: RecordingLaneHolderSessionFactory) {}
+
+  prepare(): string {
+    if (this.owner.prepareError) throw this.owner.prepareError;
+    return JSON.stringify(this.owner.prepareResult);
+  }
+
+  free(): void {
+    this.owner.freeCalls += 1;
+  }
+}
+
+class RecordingLaneHolderSessionFactory implements EcdsaLaneHolderSessionFactoryV1 {
+  readonly openedStateBlobs: string[] = [];
+  freeCalls = 0;
+
+  constructor(
+    readonly prepareResult: unknown,
+    readonly prepareError: Error | null = null,
+  ) {}
+
+  create(stateBlobB64u: string): EcdsaLaneHolderSessionPortV1 {
+    this.openedStateBlobs.push(stateBlobB64u);
+    return new RecordingLaneHolderSession(this);
+  }
+}
+
+function recordingWorkerContext(args: {
+  readonly calls: unknown[];
+  readonly payload: unknown;
+}): WorkerOperationContext {
+  return {
+    async requestWorkerOperation(call) {
+      args.calls.push(call);
+      return {
+        type: EcdsaDerivationClientCustomResponseType.PrepareEcdsaAdditiveLaneHolderSuccess,
+        payload: args.payload,
+      } as never;
+    },
+  };
+}
+
+test.describe('ECDSA lane derivation-worker WASM port', () => {
+  test('sends only the exact public lane job and holder commitment time', async () => {
+    const calls: unknown[] = [];
+    const job = ecdsaJob();
+    const port = createEcdsaLaneDerivationWorkerWasmV1({
+      workerCtx: recordingWorkerContext({ calls, payload: holderPreparation() }),
+      nowMs: () => 2_000,
+    });
+
+    const result = await port.prepareEcdsaAdditiveLaneHolderRoundV1(job);
+
+    expect(result.kind).toBe('ecdsa_additive_lane_holder_preparation_v1');
+    expect(calls).toEqual([
+      {
+        kind: 'ecdsaDerivationClient',
+        request: {
+          type: EcdsaDerivationClientCustomRequestType.PrepareEcdsaAdditiveLaneHolder,
+          payload: {
+            kind: 'prepare_ecdsa_additive_lane_holder_v1',
+            job,
+            holderCommittedAtMs: 2_000,
+          },
+          timeoutMs: 20_000,
+        },
+      },
+    ]);
+  });
+
+  test('rejects secret-bearing request and response extensions', async () => {
+    const job = ecdsaJob();
+    expect(() =>
+      parsePrepareEcdsaAdditiveLaneHolderRequestV1({
+        kind: 'prepare_ecdsa_additive_lane_holder_v1',
+        job,
+        holderCommittedAtMs: 2_000,
+        stateBlobB64u: 'forbidden-secret',
+      }),
+    ).toThrow('invalid fields');
+
+    expect(() =>
+      parseEcdsaAdditiveLaneHolderPreparationV1({
+        ...holderPreparation(),
+        sourceShare32B64u: 'forbidden-secret',
+      }),
+    ).toThrow('sourceShare32B64u is not allowed');
+  });
+
+  test('rejects wrong and ambiguous source material activations', () => {
+    const request = laneRequest(ecdsaJob());
+    const wrongJob = buildR102EcdsaLaneJob('wrong-source-activation');
+
+    expect(() =>
+      resolveExactEcdsaLaneSourceMaterialV1(request, [
+        {
+          materialActivation: wrongJob.source.materialActivation,
+          stateBlobB64u: 'wrong-state',
+        },
+      ]),
+    ).toThrow('not loaded for the exact activation');
+
+    expect(() =>
+      resolveExactEcdsaLaneSourceMaterialV1(request, [
+        {
+          materialActivation: request.job.source.materialActivation,
+          stateBlobB64u: 'first-state',
+        },
+        {
+          materialActivation: request.job.source.materialActivation,
+          stateBlobB64u: 'duplicate-state',
+        },
+      ]),
+    ).toThrow('resolves to multiple loaded materials');
+  });
+
+  test('frees the one-use WASM session after success and failure', () => {
+    const request = laneRequest(ecdsaJob());
+    const candidates = [
+      {
+        materialActivation: request.job.source.materialActivation,
+        stateBlobB64u: 'worker-local-ready-state',
+      },
+    ];
+    const successFactory = new RecordingLaneHolderSessionFactory(holderPreparation());
+    const result = prepareEcdsaLaneHolderInWorkerV1({
+      request,
+      candidates,
+      sessionFactory: successFactory,
+    });
+    expect(result.kind).toBe('ecdsa_additive_lane_holder_preparation_v1');
+    expect(successFactory.openedStateBlobs).toEqual(['worker-local-ready-state']);
+    expect(successFactory.freeCalls).toBe(1);
+
+    const failureFactory = new RecordingLaneHolderSessionFactory(
+      holderPreparation(),
+      new Error('WASM preparation failed'),
+    );
+    expect(() =>
+      prepareEcdsaLaneHolderInWorkerV1({
+        request,
+        candidates,
+        sessionFactory: failureFactory,
+      }),
+    ).toThrow('WASM preparation failed');
+    expect(failureFactory.freeCalls).toBe(1);
+  });
+
+  test('rejects numeric strings at the worker request boundary', () => {
+    expect(() =>
+      parsePrepareEcdsaAdditiveLaneHolderRequestV1({
+        kind: 'prepare_ecdsa_additive_lane_holder_v1',
+        job: ecdsaJob(),
+        holderCommittedAtMs: '2000',
+      }),
+    ).toThrow('holderCommittedAtMs is invalid');
+  });
+});

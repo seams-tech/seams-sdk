@@ -390,7 +390,6 @@ export async function resolveD1AddSignerExistingAuth(input: {
     }
     return { ok: true, auth: { kind: 'app_session' } };
   }
-
   const authorization = await resolveD1WebAuthnExistingWalletAuth({
     credential: input.auth.credential,
     rpId: input.auth.rpId,
@@ -450,6 +449,13 @@ export async function resolveD1AddAuthMethodExistingAuth(input: {
       };
     }
     return { ok: true, auth: { kind: 'app_session' } };
+  }
+  if (input.auth.kind === 'email_otp') {
+    return {
+      ok: false,
+      code: 'unsupported',
+      message: 'Email OTP add-auth authorization requires the wallet auth service boundary',
+    };
   }
 
   const authorization = await resolveD1WebAuthnExistingWalletAuth({

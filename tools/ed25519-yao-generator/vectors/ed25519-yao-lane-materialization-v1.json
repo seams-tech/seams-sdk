@@ -1,0 +1,41 @@
+{
+  "schema": "ed25519_yao_lane_materialization_vector_v1",
+  "circuitId": "ed25519_yao_lane_materialization_v1",
+  "inputSchema": "seams/router-ab/ed25519-yao/lane_materialization/input/v1",
+  "outputSchema": "seams/router-ab/ed25519-yao/lane_materialization/output/v1",
+  "circuitDigestHex": "b82d95991e0d3f91f2d31009cb1558f73abd1d0a667fec99e02ddb751f652d06",
+  "scheduleDigestHex": "3bbae3843bab644b3b7e7ed6dd379b6b40b7c32133c5094e4b1fc4e966fd57d4",
+  "cases": [
+    {
+      "name": "activation_base_offset_relation",
+      "source": "stable_y_tau_contributions",
+      "privateOutputSharing": "joint_role_coins",
+      "offset": "joint_role_lambda",
+      "expectedRelation": "2*X_holder-X_worker=A_pub"
+    },
+    {
+      "name": "recipient_substitution",
+      "expectedOutcome": "reject_lane_package_recipient_mismatch"
+    },
+    {
+      "name": "package_substitution",
+      "expectedOutcome": "reject_lane_package_commitment_mismatch"
+    },
+    {
+      "name": "lane_substitution",
+      "expectedOutcome": "reject_target_lane_binding_mismatch"
+    },
+    {
+      "name": "epoch_substitution",
+      "expectedOutcome": "reject_target_epoch_or_prior_activation_mismatch"
+    },
+    {
+      "name": "activation_substitution",
+      "expectedOutcome": "reject_source_material_activation_mismatch"
+    },
+    {
+      "name": "replay",
+      "expectedOutcome": "redeliver_exact_committed_ciphertexts_only"
+    }
+  ]
+}

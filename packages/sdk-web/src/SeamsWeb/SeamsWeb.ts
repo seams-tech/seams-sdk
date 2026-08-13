@@ -7,11 +7,8 @@ import {
   registerWallet as registerWalletWithUnifiedCeremony,
   WALLET_IFRAME_TRANSPORT_TIMING_LABEL,
 } from '@/SeamsWeb/operations/registration/registration';
-import {
-  MinimalNearClient,
-  type NearClient,
-  type AccessKeyList,
-} from '@/core/rpcClients/near/NearClient';
+import { addPasskeyWalletAuthMethod } from '@/SeamsWeb/operations/authMethods/passkey/addPasskey';
+import { MinimalNearClient, type NearClient } from '@/core/rpcClients/near/NearClient';
 import type {
   ActionResult,
   GetRecentUnlocksResult,
@@ -49,7 +46,9 @@ import { readNearProvisioningState } from '@/core/signingEngine/flows/registrati
 import { cloneAuthenticatorOptions } from '@/core/types/authenticatorOptions';
 import { toAccountId } from '@/core/types/accountIds';
 import { IndexedDBManager } from '@/core/indexedDB';
-import { ActionType } from '@/core/types/actions';
+import { laneSealedHolderMaterialRepository } from '@/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
+import { linkedDeviceExecutionEvidence } from '@/core/indexedDB/seamsWalletDB/linkedDeviceExecutionEvidenceStore';
+import { linkedDeviceWalletSessions } from '@/core/indexedDB/seamsWalletDB/linkedDeviceWalletSessionStore';
 import type {
   HostedAuthMenuExternalAuthRequest,
   HostedAuthMenuDemoEmailOtpDelivery,
@@ -81,18 +80,28 @@ import {
 } from '@/SeamsWeb/walletIframe/shared/exactSessionState';
 import { resolveBrowserWorkerWarmupPolicy } from './assembly/browserWorkerWarmupPolicy';
 import { configureBrowserIndexedDB } from './assembly/configureBrowserIndexedDB';
-import { createBrowserSigningRuntime } from './assembly/createBrowserSigningRuntime';
+import {
+  createBrowserHostPlatformRuntime,
+  createBrowserSigningRuntime,
+} from './assembly/createBrowserSigningRuntime';
 import { createBrowserSigningStores } from './assembly/createBrowserSigningStores';
 import { initializeBrowserSigningRuntime } from './assembly/initializeBrowserSigningRuntime';
 import {
   getWalletSessionDomain,
   type WalletAuthDomainDeps,
 } from '@/SeamsWeb/operations/auth/walletAuth';
-import { createPublicApi, type WalletIframeControlCapability } from './publicApi';
+import {
+  createPublicApi,
+  createWalletIframeLinkedDeviceManagementPortV1,
+  type LinkedDeviceManagementPortV1,
+  type WalletIframeControlCapability,
+} from './publicApi';
+import { createWalletHostCompositionV1 } from './operations/devices/walletHostComposition';
+import type { WalletHostCompositionDependenciesV1 } from './operations/devices/walletHostComposition';
+import { createLinkedDeviceLocalStateInvalidationPortV1 } from './operations/devices/linkedDeviceLocalStateInvalidation';
 import type {
   AuthCapability,
   DevicesCapability,
-  EmailOtpBackedUpEnrollmentResult,
   EmailOtpChallengeResult,
   EmailOtpEcdsaCapabilityArgs,
   EmailOtpEcdsaCapabilityResult,
@@ -107,6 +116,7 @@ import type {
   TempoSignerCapability,
 } from '@/SeamsWeb/signingSurface/types';
 import type { RouterAbEcdsaDerivationLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
+import { activeWalletOrHostedAppSessionJwt } from '@/SeamsWeb/walletIframe/host/hostedWalletSeamsSession';
 import type { UiConfirmSurfaceMeasurementBinding } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type {
   EnrollEmailOtpInternalResult,
@@ -124,6 +134,7 @@ import {
   type WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { TempoChainTarget } from '@/core/platform/types';
+import type { LinkedDeviceWalletSessionDeliveryV1 } from '@shared/device-linking';
 import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import {
@@ -139,27 +150,32 @@ import {
   type WalletRuntimeInventory,
 } from '@/core/signingEngine/session/postconditions/runtimePostconditions';
 import { configuredEmailOtpEcdsaSnapshotChainTargets } from '@/core/signingEngine/session/emailOtp/persistedSnapshot';
-import type { LoginWithEmailOtpEd25519YaoCapabilityInternalArgs } from '@/core/signingEngine/session/emailOtp/ed25519YaoLogin';
+import type { LoginWithEmailOtpWalletCustodyEd25519Args } from '@/core/signingEngine/walletCustody/ed25519Login';
 import type { EmailOtpWorkerProgressEvent } from '@/core/signingEngine/workerManager/workerTypes';
 import {
   exchangeGoogleEmailOtpSession,
   requestEmailOtpChallenge,
   requestEmailOtpEnrollmentChallenge,
 } from '@/SeamsWeb/operations/authMethods/emailOtp/challenge';
+import { WalletRecoveryCoordinator } from '@/SeamsWeb/operations/recovery/walletRecovery';
+import { rotateWalletRecoveryCodes } from '@/SeamsWeb/operations/recovery/walletRecoveryRotation';
+import { showWalletRecoveryCodeBackupUi } from '@/SeamsWeb/operations/recovery/walletRecoveryCodeBackup';
+import { pendingWalletRecoveryCodeBackupRepository } from '@/core/indexedDB/seamsWalletDB/pendingWalletRecoveryCodeBackup';
 import { beginGoogleEmailOtpWalletAuth } from '@/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow';
-import { EmailOtpDeviceRecoveryRequiredError } from '@/SeamsWeb/operations/authMethods/emailOtp/errors';
+import { decodeJwtPayloadRecord } from '@shared/utils/sessionTokens';
 import {
-  getEmailOtpRecoveryCodeStatus,
-  storeRotatedEmailOtpRecoveryCodes,
-} from '@/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup';
+  acknowledgeWalletRecoveryBackup,
+  readWalletRecoveryCodeStatus,
+} from '@/core/rpcClients/relayer/walletRecoveryRotate';
+import {
+  requestWalletRecoveryBootstrapChallenge,
+  verifyWalletRecoveryBootstrap,
+} from '@/core/rpcClients/relayer/walletRecoveryBootstrap';
 import {
   activateEmailOtpWalletAfterUnlock,
   type EmailOtpWalletPostUnlockActivation,
 } from '@/SeamsWeb/operations/authMethods/emailOtp/walletActivation';
-import {
-  walletIdFromString,
-  type RegistrationSignerSetSelection,
-} from '@shared/utils/registrationIntent';
+import type { RegistrationSignerSetSelection } from '@shared/utils/registrationIntent';
 import {
   nearAccountBindingFromRaw,
   type NearAccountBinding,
@@ -171,10 +187,9 @@ import {
 } from '@/SeamsWeb/operations/registration/registrationSignerSet';
 import { createServerAllocatedWalletId } from '@shared/utils/registrationIntent';
 import { isObject } from '@shared/utils/validation';
-import { DEFAULT_UNLOCK_REMAINING_USES } from '@/core/signingEngine/threshold/sessionPolicy';
 
-type EmailOtpEd25519YaoLoginDomainArgs = Omit<
-  LoginWithEmailOtpEd25519YaoCapabilityInternalArgs,
+type EmailOtpWalletCustodyEd25519LoginDomainArgs = Omit<
+  LoginWithEmailOtpWalletCustodyEd25519Args,
   'emailHashHex'
 >;
 
@@ -634,6 +649,13 @@ function resolveRuntimeAppearance(
 }
 
 type SeamsWebRuntimeMode = 'application' | 'wallet_host';
+export type SeamsWebInternalOptions =
+  | {
+      readonly kind: 'application';
+    }
+  | {
+      readonly kind: 'wallet_host';
+    };
 
 type SeamsWebLifecycleEventSource =
   | {
@@ -646,9 +668,9 @@ type SeamsWebLifecycleEventSource =
     };
 
 function resolveSeamsWebRuntimeMode(
-  internalOptions: { allowDirectWalletMode?: 'wallet_host' } | undefined,
+  internalOptions: SeamsWebInternalOptions | undefined,
 ): SeamsWebRuntimeMode {
-  if (internalOptions?.allowDirectWalletMode === 'wallet_host') return 'wallet_host';
+  if (internalOptions?.kind === 'wallet_host') return 'wallet_host';
   return 'application';
 }
 
@@ -687,6 +709,29 @@ function deliverNearProvisioningStateChanged(
  * Main SeamsWeb class that provides framework-agnostic passkey operations
  * with flexible event-based callbacks for custom UX implementation
  */
+type WalletHostLinkedDeviceSessionRepository =
+  WalletHostCompositionDependenciesV1['walletSessionRepository'];
+
+class ProjectingLinkedDeviceWalletSessionRepository
+  implements WalletHostLinkedDeviceSessionRepository
+{
+  constructor(
+    private readonly repository: WalletHostLinkedDeviceSessionRepository,
+    private readonly userPreferences: Pick<
+      ReturnType<BrowserSigningSurface['getUserPreferences']>,
+      'projectCurrentWallet'
+    >,
+  ) {}
+
+  async putExactActiveDeliveryV1(
+    delivery: LinkedDeviceWalletSessionDeliveryV1,
+  ): Promise<LinkedDeviceWalletSessionDeliveryV1> {
+    const persisted = await this.repository.putExactActiveDeliveryV1(delivery);
+    this.userPreferences.projectCurrentWallet(persisted.walletId);
+    return persisted;
+  }
+}
+
 export class SeamsWeb {
   private readonly signingEngine: SeamsWebSigningSurface;
   private readonly nearClient: NearClient;
@@ -694,6 +739,7 @@ export class SeamsWeb {
   private appearance: AppearanceConfig;
   theme: ThemeMode;
   private readonly walletIframe: WalletIframeCoordinator;
+  private readonly walletHostDeviceLinkingDisposer: (() => void) | null;
   private readonly lifecycleEventSource: SeamsWebLifecycleEventSource;
   readonly recovery: RecoveryCapability;
   readonly devices: DevicesCapability;
@@ -706,23 +752,22 @@ export class SeamsWeb {
   readonly evm: EvmSignerCapability;
   private readonly walletIframeControls: WalletIframeControlCapability;
   private emailOtpUnlockPrewarmRecord: EmailOtpUnlockPrewarmRecord = { kind: 'none' };
+  private readonly walletRecoveryCoordinator = new WalletRecoveryCoordinator();
 
   constructor(
     configs: SeamsConfigsInput,
     nearClient?: NearClient,
-    internalOptions?: { allowDirectWalletMode?: 'wallet_host' },
+    internalOptions?: SeamsWebInternalOptions,
   ) {
     this.configs = buildConfigsFromEnv(configs, {
-      ...(internalOptions?.allowDirectWalletMode === 'wallet_host'
-        ? { allowDirectWalletMode: 'wallet_host' }
-        : {}),
+      ...(internalOptions?.kind === 'wallet_host' ? { allowDirectWalletMode: 'wallet_host' } : {}),
     });
     configureBrowserIndexedDB(this.configs);
     // Use provided client or create default one
     this.nearClient =
       nearClient || new MinimalNearClient(resolvePrimaryNearRpcUrl(this.configs.network.chains));
     const browserSigningStores = createBrowserSigningStores(IndexedDBManager);
-    this.signingEngine = new BrowserSigningSurface(this.configs, this.nearClient, {
+    const browserSigningSurface = new BrowserSigningSurface(this.configs, this.nearClient, {
       managerStores: browserSigningStores.managerStores,
       signingEngineStores: browserSigningStores.signingEngineStores,
       sealedSigningSessionStore: browserSigningStores.sealedSigningSessionStore,
@@ -732,6 +777,14 @@ export class SeamsWeb {
       initializeRuntime: initializeBrowserSigningRuntime,
       workerWarmupPolicy: resolveBrowserWorkerWarmupPolicy(this.configs),
     });
+    this.signingEngine = browserSigningSurface;
+    const walletHostPlatformRuntime =
+      internalOptions?.kind === 'wallet_host'
+        ? createBrowserHostPlatformRuntime(browserSigningSurface.getSignerWorkerContext())
+        : null;
+    if (walletHostPlatformRuntime) {
+      browserSigningSurface.configureLinkedDeviceSigning(walletHostPlatformRuntime.authenticator);
+    }
 
     this.appearance = this.configs.ui.appearance;
     this.theme = this.appearance.theme.mode;
@@ -739,6 +792,11 @@ export class SeamsWeb {
       this.signingEngine.setAppearance(this.appearance);
     } catch {}
     const userPreferences = this.signingEngine.getUserPreferences();
+    const projectedLinkedDeviceWalletSessions =
+      new ProjectingLinkedDeviceWalletSessionRepository(
+        linkedDeviceWalletSessions,
+        userPreferences,
+      );
 
     this.walletIframe = new WalletIframeCoordinator({
       configs: this.configs,
@@ -746,6 +804,40 @@ export class SeamsWeb {
       userPreferences: userPreferences,
       getAppearance: () => this.appearance,
     });
+    let walletHostComposition: ReturnType<typeof createWalletHostCompositionV1> | null = null;
+    if (internalOptions?.kind === 'wallet_host') {
+      if (!walletHostPlatformRuntime) {
+        throw new Error('Wallet host platform runtime is unavailable');
+      }
+      walletHostComposition = createWalletHostCompositionV1(
+        browserSigningSurface.createWalletHostCompositionDependenciesV1({
+          http: walletHostPlatformRuntime.http,
+          authenticator: walletHostPlatformRuntime.authenticator,
+          repository: laneSealedHolderMaterialRepository,
+          walletSessionRepository: projectedLinkedDeviceWalletSessions,
+          executionEvidenceRepository: linkedDeviceExecutionEvidence,
+        }),
+      );
+    }
+    const deviceDomain =
+      internalOptions?.kind === 'wallet_host' && walletHostComposition
+        ? {
+            kind: 'direct' as const,
+            linkedDeviceManagement: walletHostComposition.linkedDeviceManagement,
+            deviceLinkingPorts: walletHostComposition.deviceLinkingPorts,
+            localStateInvalidation: createLinkedDeviceLocalStateInvalidationPortV1({
+              holderRepository: laneSealedHolderMaterialRepository,
+              walletSessionRepository: linkedDeviceWalletSessions,
+              executionEvidenceRepository: linkedDeviceExecutionEvidence,
+            }),
+          }
+        : {
+            kind: 'iframe' as const,
+            linkedDeviceManagement: createWalletIframeLinkedDeviceManagementPortV1({
+              walletIframe: this.walletIframe,
+            }),
+          };
+    this.walletHostDeviceLinkingDisposer = walletHostComposition?.dispose ?? null;
     this.lifecycleEventSource = resolveSeamsWebLifecycleEventSource({
       mode: resolveSeamsWebRuntimeMode(internalOptions),
       signingEngine: this.signingEngine,
@@ -780,6 +872,7 @@ export class SeamsWeb {
             deliverNearProvisioningStateChanged.bind(null, listener),
           ),
         addWalletSigner: async (args) => await this.registerWalletSignerDomain(args),
+        addPasskey: async (args) => await this.addPasskeyDomain(args),
         registerWallet: async (args) => await this.registerWalletDomain(args),
         registerPasskey: async (options) => await this.registerPasskeyDomain(options),
         requestEmailOtpEnrollmentChallenge: async (args) =>
@@ -787,14 +880,21 @@ export class SeamsWeb {
         enrollEmailOtp: async (args) => await this.enrollEmailOtpDomain(args),
       },
       recovery: {
-        getEmailOtpRecoveryCodeStatus: async (args) =>
-          await this.getEmailOtpRecoveryCodeStatusDomain(args),
-        rotateEmailOtpRecoveryCodes: async (args) =>
-          await this.rotateEmailOtpRecoveryCodesDomain(args),
+        getWalletRecoveryCodeStatus: async (args) =>
+          await this.getWalletRecoveryCodeStatusDomain(args),
+        acknowledgeWalletRecoveryCodeBackup: async (args) =>
+          await this.acknowledgeWalletRecoveryCodeBackupDomain(args),
+        rotateWalletRecoveryCodes: async (args) => await this.rotateWalletRecoveryCodesDomain(args),
+        requestWalletRecoveryBootstrapChallenge: async (args) =>
+          await this.requestWalletRecoveryBootstrapChallengeDomain(args),
+        verifyWalletRecoveryBootstrap: async (args) =>
+          await this.verifyWalletRecoveryBootstrapDomain(args),
+        prepareWalletRecoveryWithBootstrap: async (args) =>
+          await this.prepareWalletRecoveryWithBootstrapDomain(args),
+        completeWalletRecovery: async (args) => await this.completeWalletRecoveryDomain(args),
       },
       devices: {
-        viewAccessKeyList: async (args) => await this.viewAccessKeyListDomain(args),
-        deleteDeviceKey: async (args) => await this.deleteDeviceKeyDomain(args),
+        ...deviceDomain,
       },
       keys: {
         resolveExactKeyExportLane: async (input) =>
@@ -916,6 +1016,7 @@ export class SeamsWeb {
   }
 
   dispose(): void {
+    this.walletHostDeviceLinkingDisposer?.();
     this.walletIframe.dispose();
     this.signingEngine.dispose();
   }
@@ -1021,23 +1122,6 @@ export class SeamsWeb {
     }
   }
 
-  /**
-   */
-  private async viewAccessKeyListDomain(args: {
-    walletSession: WalletSessionRef;
-    nearAccount: NearAccountRef;
-  }): Promise<AccessKeyList> {
-    const accountId = String(args.nearAccount.accountId);
-    if (this.walletIframe.shouldUseWalletIframe()) {
-      const router = await this.walletIframe.requireRouter(args.walletSession.walletId);
-      return await router.viewAccessKeyList({
-        walletId: args.walletSession.walletId,
-        nearAccountId: accountId,
-      });
-    }
-    return this.nearClient.viewAccessKeyList(accountId);
-  }
-
   private emitWalletIframeTransportTimingSummary(input: {
     operation: 'registerWallet' | 'registerPasskey';
     walletId: string | null;
@@ -1134,6 +1218,31 @@ export class SeamsWeb {
       rpId: args.rpId,
       signerSelection: args.signerSelection,
       options: args.options || {},
+    });
+  }
+
+  private async addPasskeyDomain(
+    args: Parameters<RegistrationCapability['addPasskey']>[0],
+  ): Promise<Awaited<ReturnType<RegistrationCapability['addPasskey']>>> {
+    if (this.walletIframe.shouldUseWalletIframe()) {
+      try {
+        const router = await this.walletIframe.requireRouter(String(args.walletId || ''));
+        const result = await router.addPasskey(args);
+        await args.options?.afterCall?.(true, result);
+        return result;
+      } catch (error: unknown) {
+        const normalized = toError(error);
+        await args.options?.onError?.(normalized);
+        await args.options?.afterCall?.(false);
+        throw normalized;
+      }
+    }
+    return await addPasskeyWalletAuthMethod({
+      context: this.getContext(),
+      walletId: args.walletId,
+      rpId: args.rpId,
+      authorization: args.authorization,
+      options: args.options,
     });
   }
 
@@ -1697,7 +1806,7 @@ export class SeamsWeb {
     appSessionJwt?: string;
     clientSecret32?: Uint8Array;
     onEvent?: (event: RegistrationFlowEvent) => void;
-  }): Promise<EnrollEmailOtpInternalResult | EmailOtpBackedUpEnrollmentResult> {
+  }): Promise<EnrollEmailOtpInternalResult> {
     const flowId = this.emailOtpRegistrationFlowId(args.walletId, args.challengeId);
     this.emitEmailOtpRegistrationEvent(args.onEvent, {
       flowId,
@@ -1805,144 +1914,201 @@ export class SeamsWeb {
     }
   }
 
-  private async getEmailOtpRecoveryCodeStatusDomain(args: {
-    walletId: string;
-    relayUrl?: string;
-    appSessionJwt?: string;
-  }) {
-    const relayUrl = String(args.relayUrl || this.configs.network.relayer.url || '').trim();
+  private async getWalletRecoveryCodeStatusDomain(args: { walletId: string }) {
+    const relayUrl = String(this.configs.network.relayer.url || '').trim();
     if (this.walletIframe.shouldUseWalletIframe()) {
       const router = await this.walletIframe.requireRouter(args.walletId);
-      return await router.getEmailOtpRecoveryCodeStatus({
+      return await router.getWalletRecoveryCodeStatus({
         walletId: args.walletId,
-        relayUrl,
-        ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
       });
     }
-    const appSessionJwt = await this.resolveEmailOtpRecoveryCodeAppSessionJwt({
-      walletId: args.walletId,
-      relayUrl,
-      appSessionJwt: args.appSessionJwt,
-    });
-    return await getEmailOtpRecoveryCodeStatus({
+    const appSessionJwt = this.requireActiveWalletAppSessionJwt(relayUrl, args.walletId);
+    const status = await readWalletRecoveryCodeStatus({
       relayUrl,
       walletId: args.walletId,
-      ...(appSessionJwt ? { appSessionJwt } : {}),
+      sessionToken: appSessionJwt,
     });
+    return status.kind === 'ready'
+      ? {
+          ...status,
+          pendingLocalBackup: await pendingWalletRecoveryCodeBackupRepository.has(args.walletId),
+        }
+      : status;
   }
 
-  async showEmailOtpRecoveryCodesForAccountMenu(args: { walletId: string }) {
-    return await this.showEmailOtpRecoveryCodesDomain({
-      walletId: args.walletId,
-    });
-  }
-
-  private async showEmailOtpRecoveryCodesDomain(args: {
-    walletId: string;
-    relayUrl?: string;
-    appSessionJwt?: string;
-  }) {
-    const relayUrl = String(args.relayUrl || this.configs.network.relayer.url || '').trim();
+  private async acknowledgeWalletRecoveryCodeBackupDomain(args: { walletId: string }) {
+    const relayUrl = String(this.configs.network.relayer.url || '').trim();
     if (this.walletIframe.shouldUseWalletIframe()) {
       const router = await this.walletIframe.requireRouter(args.walletId);
-      return await router.showEmailOtpRecoveryCodes({
+      return await router.acknowledgeWalletRecoveryCodeBackup({
         walletId: args.walletId,
-        relayUrl,
-        ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
       });
     }
-    const status = await this.getEmailOtpRecoveryCodeStatusDomain(args);
-    return { status, displayedStoredCodes: false };
-  }
-
-  private async rotateEmailOtpRecoveryCodesDomain(args: {
-    walletId: string;
-    relayUrl?: string;
-    appSessionJwt?: string;
-  }) {
-    const relayUrl = String(args.relayUrl || this.configs.network.relayer.url || '').trim();
-    if (this.walletIframe.shouldUseWalletIframe()) {
-      const router = await this.walletIframe.requireRouter(args.walletId);
-      return await router.rotateEmailOtpRecoveryCodes({
-        walletId: args.walletId,
-        relayUrl,
-        ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
-      });
-    }
-    const appSessionJwt = await this.resolveEmailOtpRecoveryCodeAppSessionJwt({
-      walletId: args.walletId,
-      relayUrl,
-      appSessionJwt: args.appSessionJwt,
-    });
-    const rotation = await this.signingEngine.rotateEmailOtpRecoveryCodesInternal({
-      walletId: toWalletId(args.walletId),
-      relayUrl,
-      ...(appSessionJwt ? { appSessionJwt } : {}),
-    });
-    const recoveryCodeBackup = await storeRotatedEmailOtpRecoveryCodes({
-      walletId: args.walletId,
-      rotation,
-      storageScope: 'host_origin_indexeddb',
-    });
-    const status = await this.getEmailOtpRecoveryCodeStatusDomain({
-      walletId: args.walletId,
-      relayUrl,
-      ...(appSessionJwt ? { appSessionJwt } : {}),
-    });
-    return { status, recoveryCodeBackup };
-  }
-
-  private async resolveEmailOtpRecoveryCodeAppSessionJwt(args: {
-    walletId: string;
-    relayUrl: string;
-    appSessionJwt?: string;
-  }): Promise<string> {
-    const providedJwt = String(args.appSessionJwt || '').trim();
-    if (providedJwt) return providedJwt;
-    const walletId = toWalletId(args.walletId);
-    const session = await getWalletSessionDomain(this.getWalletAuthDeps(), walletId);
-    const walletSessionUserId =
-      session.appIdentity.kind === 'resolved' ? String(session.appIdentity.walletId).trim() : '';
-    if (walletSessionUserId !== String(walletId)) {
-      throw new Error(
-        '[SeamsWeb] recovery-code app-session resolution requires a wallet-bound session',
+    const pending = await pendingWalletRecoveryCodeBackupRepository.read(args.walletId);
+    if (pending) {
+      const acknowledgement = await showWalletRecoveryCodeBackupUi(
+        {
+          kind: 'wallet_recovery_code_backup_request_v1',
+          walletId: pending.walletId,
+          recoveryCodes: pending.recoveryCodes,
+          continuation: 'pending_backup_must_finish',
+        },
+        this.signingEngine.getWalletIframeSurfaceMeasurementBinding(),
       );
+      if (acknowledgement.kind !== 'wallet_recovery_codes_backed_up_v1') {
+        throw new Error('Pending wallet recovery-code backup was not completed');
+      }
+      await pendingWalletRecoveryCodeBackupRepository.delete(args.walletId);
     }
-    return await this.signingEngine.resolveEmailOtpAppSessionJwt({
-      walletSession: walletSessionRefFromSession({
-        walletId,
-        walletSessionUserId,
-      }),
-      relayUrl: args.relayUrl,
+    const appSessionJwt = this.requireActiveWalletAppSessionJwt(relayUrl, args.walletId);
+    return await acknowledgeWalletRecoveryBackup({
+      relayUrl,
+      walletId: args.walletId,
+      sessionToken: appSessionJwt,
     });
   }
 
-  private async requireEmailOtpWalletAuthMethodEmailHashHex(walletId: WalletId): Promise<string> {
-    const normalizedWalletId = String(walletId || '').trim();
-    if (!normalizedWalletId) {
-      throw new Error('[SeamsWeb][email-otp] walletId is required for auth-method binding');
+  private async rotateWalletRecoveryCodesDomain(
+    args: Parameters<RecoveryCapability['rotateWalletRecoveryCodes']>[0],
+  ) {
+    const relayUrl = String(this.configs.network.relayer.url || '').trim();
+    if (this.walletIframe.shouldUseWalletIframe()) {
+      const router = await this.walletIframe.requireRouter(args.walletId);
+      return await router.rotateWalletRecoveryCodes(args);
     }
-    const authMethods = await IndexedDBManager.listWalletAuthMethodsForWallet(normalizedWalletId);
-    const matches = authMethods.filter(
-      (record) => record.kind === 'email_otp' && record.status === 'active',
-    );
-    if (matches.length !== 1) {
-      throw new EmailOtpDeviceRecoveryRequiredError();
+    const appSessionJwt = this.requireActiveWalletAppSessionJwt(relayUrl, args.walletId);
+    return await rotateWalletRecoveryCodes({
+      context: this.getContext(),
+      relayUrl,
+      walletId: args.walletId,
+      sessionToken: appSessionJwt,
+      authorization: args.authorization,
+    });
+  }
+
+  private async requestWalletRecoveryBootstrapChallengeDomain(args: {
+    walletId: string;
+    orgId: string;
+    relayUrl?: string;
+  }) {
+    const relayUrl = String(args.relayUrl || this.configs.network.relayer.url || '').trim();
+    if (this.walletIframe.shouldUseWalletIframe()) {
+      const router = await this.walletIframe.requireRouter(args.walletId);
+      return await router.requestWalletRecoveryBootstrapChallenge({
+        walletId: args.walletId,
+        orgId: args.orgId,
+        relayUrl,
+      });
     }
-    const emailHashHex = String(matches[0].emailHashHex || '').trim();
-    if (!emailHashHex) {
-      throw new EmailOtpDeviceRecoveryRequiredError();
+    return await requestWalletRecoveryBootstrapChallenge({
+      relayUrl,
+      walletId: args.walletId,
+      orgId: args.orgId,
+    });
+  }
+
+  private async verifyWalletRecoveryBootstrapDomain(args: {
+    walletId: string;
+    orgId: string;
+    challengeId: string;
+    otpCode: string;
+    relayUrl?: string;
+  }) {
+    const relayUrl = String(args.relayUrl || this.configs.network.relayer.url || '').trim();
+    if (this.walletIframe.shouldUseWalletIframe()) {
+      const router = await this.walletIframe.requireRouter(args.walletId);
+      return await router.verifyWalletRecoveryBootstrap({
+        walletId: args.walletId,
+        orgId: args.orgId,
+        challengeId: args.challengeId,
+        otpCode: args.otpCode,
+        relayUrl,
+      });
     }
-    return emailHashHex;
+    return await verifyWalletRecoveryBootstrap({
+      relayUrl,
+      walletId: args.walletId,
+      orgId: args.orgId,
+      challengeId: args.challengeId,
+      otpCode: args.otpCode,
+    });
+  }
+
+  private async prepareWalletRecoveryWithBootstrapDomain(args: {
+    walletId: string;
+    orgId: string;
+    challengeId: string;
+    recoveryBootstrapGrant: string;
+    replacedCredentialIdB64u: string;
+    recoveryCode: string;
+    relayUrl?: string;
+  }) {
+    const relayUrl = String(args.relayUrl || this.configs.network.relayer.url || '').trim();
+    if (this.walletIframe.shouldUseWalletIframe()) {
+      const router = await this.walletIframe.requireRouter(args.walletId);
+      return await router.prepareWalletRecoveryWithBootstrap({
+        walletId: args.walletId,
+        orgId: args.orgId,
+        challengeId: args.challengeId,
+        recoveryBootstrapGrant: args.recoveryBootstrapGrant,
+        replacedCredentialIdB64u: args.replacedCredentialIdB64u,
+        recoveryCode: args.recoveryCode,
+        relayUrl,
+      });
+    }
+    return await this.walletRecoveryCoordinator.prepareWithBootstrap({
+      walletId: args.walletId,
+      orgId: args.orgId,
+      relayUrl,
+      challengeId: args.challengeId,
+      recoveryBootstrapGrant: args.recoveryBootstrapGrant,
+      recoveryCode: args.recoveryCode,
+      replacedCredentialIdB64u: args.replacedCredentialIdB64u,
+    });
+  }
+
+  private async completeWalletRecoveryDomain(args: {
+    walletId: string;
+    recoveryOperationId: string;
+    relayUrl?: string;
+    appSessionJwt?: string;
+  }) {
+    const relayUrl = String(args.relayUrl || this.configs.network.relayer.url || '').trim();
+    if (this.walletIframe.shouldUseWalletIframe()) {
+      const router = await this.walletIframe.requireRouter(args.walletId);
+      return await router.completeWalletRecovery({
+        walletId: args.walletId,
+        recoveryOperationId: args.recoveryOperationId,
+        relayUrl,
+        ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
+      });
+    }
+    return await this.walletRecoveryCoordinator.complete({
+      context: {
+        signingEngine: this.signingEngine,
+        nearClient: this.nearClient,
+        configs: this.configs,
+        theme: this.theme,
+      },
+      recoveryOperationId: args.recoveryOperationId,
+      walletId: args.walletId,
+      relayUrl,
+    });
+  }
+
+  private requireActiveWalletAppSessionJwt(relayUrl: string, walletId: string): string {
+    const appSessionJwt = activeWalletOrHostedAppSessionJwt(relayUrl, walletId);
+    if (!appSessionJwt) {
+      throw new Error('[SeamsWeb] an active wallet-bound session is required');
+    }
+    return appSessionJwt;
   }
 
   private async loginWithEmailOtpEd25519YaoCapabilityDomain(
-    args: EmailOtpEd25519YaoLoginDomainArgs,
+    args: EmailOtpWalletCustodyEd25519LoginDomainArgs,
   ): Promise<void> {
-    const emailHashHex = await this.requireEmailOtpWalletAuthMethodEmailHashHex(
-      args.walletSession.walletId,
-    );
-    const signer = await this.signingEngine.loginWithEmailOtpEd25519YaoCapabilityInternal({
+    const emailHashHex = await this.emailOtpEmailHashHex(args.appSessionJwt);
+    const signer = await this.signingEngine.loginWithEmailOtpWalletCustodyEd25519Internal({
       ...args,
       emailHashHex,
     });
@@ -1955,8 +2121,9 @@ export class SeamsWeb {
     );
   }
 
-  private async emailOtpEmailHashHex(email: string | undefined): Promise<string> {
-    const normalizedEmail = String(email || '')
+  private async emailOtpEmailHashHex(appSessionJwt: string): Promise<string> {
+    const claims = decodeJwtPayloadRecord(appSessionJwt);
+    const normalizedEmail = String(claims?.email || '')
       .trim()
       .toLowerCase();
     if (!normalizedEmail) {
@@ -2055,39 +2222,32 @@ export class SeamsWeb {
         this.emitEmailOtpUnlockEvent(args.onEvent, input);
       };
       let timingStartedAtMs = nowMs();
-      const emailHashHex = await this.requireEmailOtpWalletAuthMethodEmailHashHex(walletId);
+      const relayUrl = String(args.relayUrl || this.configs.network.relayer.url).trim();
+      const appSessionJwt =
+        args.appSessionJwt || this.requireActiveWalletAppSessionJwt(relayUrl, String(walletId));
+      const emailHashHex = await this.emailOtpEmailHashHex(appSessionJwt);
       recordEmailOtpUnlockTiming(unlockTiming.timings, 'emailHashLookupMs', timingStartedAtMs);
       timingStartedAtMs = nowMs();
-      const preparedEd25519YaoRecovery =
-        await this.signingEngine.prepareEmailOtpEd25519YaoLoginRecoveryInternal({
+      const ed25519CustodyProjection =
+        await this.signingEngine.resolveEmailOtpEd25519CustodyProjectionInternal({
           walletSession: args.walletSession,
-          emailHashHex,
-          remainingUses: Math.min(
-            Math.max(
-              1,
-              Math.floor(
-                Number(this.configs.signing.sessionDefaults?.remainingUses) ||
-                  DEFAULT_UNLOCK_REMAINING_USES,
-              ),
-            ),
-            DEFAULT_UNLOCK_REMAINING_USES,
-          ),
         });
       const result = await this.signingEngine.loginWithEmailOtpEcdsaCapabilityInternal({
         ...args,
         chainTarget,
         emailHashHex,
-        ...(preparedEd25519YaoRecovery
+        ...(ed25519CustodyProjection
           ? {
-              runtimePolicyScope: preparedEd25519YaoRecovery.runtimePolicyScope,
+              runtimePolicyScope: ed25519CustodyProjection.identity.runtimePolicyScope,
               ed25519YaoRecovery: {
                 kind: 'requested' as const,
-                providerSubject: preparedEd25519YaoRecovery.providerSubject,
-                signerSlot: preparedEd25519YaoRecovery.signerSlot,
-                nearAccountId: String(preparedEd25519YaoRecovery.identity.nearAccountId),
-                expectedOperationalPublicKey:
-                  preparedEd25519YaoRecovery.expectedOperationalPublicKey,
-                expectedThresholdSessionId: preparedEd25519YaoRecovery.thresholdSessionId,
+                providerSubject: ed25519CustodyProjection.providerSubject,
+                signerSlot: ed25519CustodyProjection.user.signerSlot,
+                nearAccountId: String(ed25519CustodyProjection.identity.nearAccountId),
+                expectedOperationalPublicKey: ed25519CustodyProjection.user.operationalPublicKey,
+                expectedThresholdSessionId: String(
+                  ed25519CustodyProjection.identity.thresholdSessionId,
+                ),
               },
             }
           : { ed25519YaoRecovery: { kind: 'not_requested' as const } }),
@@ -2096,26 +2256,27 @@ export class SeamsWeb {
         onProgress: markWorkerProgress,
       });
       let walletActivation: EmailOtpWalletPostUnlockActivation;
-      if (preparedEd25519YaoRecovery) {
+      if (ed25519CustodyProjection) {
         let recoveredEd25519Signer: NearEd25519SignerBinding;
         switch (result.ed25519YaoRecovery.kind) {
-          case 'unlocked':
-            recoveredEd25519Signer =
-              await this.signingEngine.activateEmailOtpEd25519YaoUnlockedRecoveryInternal({
-                prepared: preparedEd25519YaoRecovery,
-                bootstrap: result.ed25519YaoRecovery.bootstrap,
-                pendingFactorHandle: result.ed25519YaoRecovery.pendingFactorHandle,
-              });
-            break;
           case 'capability':
             recoveredEd25519Signer =
-              await this.signingEngine.activateEmailOtpEd25519YaoLocalCapabilityInternal({
-                prepared: preparedEd25519YaoRecovery,
+              await this.signingEngine.activateEmailOtpEd25519CustodyCapabilityInternal({
+                walletSession: args.walletSession,
+                providerSubject: ed25519CustodyProjection.providerSubject,
+                emailHashHex,
+                signerSlot: ed25519CustodyProjection.user.signerSlot,
+                expectedOperationalPublicKey: ed25519CustodyProjection.user.operationalPublicKey,
+                expectedThresholdSessionId: String(
+                  ed25519CustodyProjection.identity.thresholdSessionId,
+                ),
                 bootstrap: result.ed25519YaoRecovery.bootstrap,
                 activeClientHandle: result.ed25519YaoRecovery.activeClientHandle,
                 metadata: result.ed25519YaoRecovery.metadata,
               });
             break;
+          case 'cache_absent':
+            throw new Error('Email OTP Ed25519 custody rejoin did not return active material');
           case 'not_requested':
             throw new Error('Email OTP capability unlock omitted Ed25519 Yao session material');
           default:
@@ -2178,7 +2339,7 @@ export class SeamsWeb {
         walletId,
         authMethod: 'email_otp',
         requiredTargets: [
-          ...(preparedEd25519YaoRecovery ? [{ curve: 'ed25519' as const }] : []),
+          ...(ed25519CustodyProjection ? [{ curve: 'ed25519' as const }] : []),
           ...configuredEmailOtpEcdsaSnapshotChainTargets(this.configs).map((target) => ({
             curve: 'ecdsa' as const,
             chainTarget: target,
@@ -2440,42 +2601,5 @@ export class SeamsWeb {
     }
 
     await this.signingEngine.exportKeypairWithUI(resolvedInput);
-  }
-
-  /**
-   * Delete a device key from an account
-   */
-  private async deleteDeviceKeyDomain(
-    args: Parameters<DevicesCapability['deleteDeviceKey']>[0],
-  ): Promise<ActionResult> {
-    const accountId = String(args.nearAccount.accountId);
-    // Validate that we're not deleting the last key
-    const keysView = await this.viewAccessKeyListDomain({
-      walletSession: args.walletSession,
-      nearAccount: args.nearAccount,
-    });
-    if (keysView.keys.length <= 1) {
-      throw new Error('Cannot delete the last access key from an account');
-    }
-
-    // Find the key to delete
-    const keyToDelete = keysView.keys.find(
-      (k: { public_key: string }) => k.public_key === args.publicKeyToDelete,
-    );
-    if (!keyToDelete) {
-      throw new Error(`Access key ${args.publicKeyToDelete} not found on account ${accountId}`);
-    }
-
-    // Use NEAR signer executeAction with DeleteKey action
-    return this.near.executeAction({
-      walletSession: args.walletSession,
-      nearAccount: args.nearAccount,
-      receiverId: accountId,
-      actionArgs: {
-        type: ActionType.DeleteKey,
-        publicKey: args.publicKeyToDelete,
-      },
-      options: args.options,
-    });
   }
 }

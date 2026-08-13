@@ -21,20 +21,19 @@ function nearTx(actions: TransactionInputWasm['actions']): TransactionInputWasm 
 
 test.describe('signing signature-use accounting', () => {
   test('counts one NEAR transaction with multiple actions as one signature use', () => {
-    const oneTransactionWithMultipleActions =
-      nearTx([
-        {
-          action_type: ActionType.FunctionCall,
-          method_name: 'setGreeting',
-          args: '{}',
-          gas: '30000000000000',
-          deposit: '0',
-        },
-        {
-          action_type: ActionType.Transfer,
-          deposit: '1',
-        },
-      ]);
+    const oneTransactionWithMultipleActions = nearTx([
+      {
+        action_type: ActionType.FunctionCall,
+        method_name: 'setGreeting',
+        args: '{}',
+        gas: '30000000000000',
+        deposit: '0',
+      },
+      {
+        action_type: ActionType.Transfer,
+        deposit: '1',
+      },
+    ]);
 
     expect(requiredNearTransactionSignatureUses(oneTransactionWithMultipleActions)).toBe(1);
   });

@@ -149,7 +149,7 @@ type PrepareLoginPasskey = (
 type StartDeviceLinking = (
   onEvent: (event: LinkDeviceFlowEvent) => void,
 ) => Promise<StartDevice2LinkingFlowResults>;
-type StopDeviceLinking = () => Promise<void>;
+type CancelDeviceLinking = () => Promise<void>;
 
 const AUTH_MENU_TAG = 'seams-auth-menu-surface';
 const AUTH_MENU_PASSKEY_PREPARATION_TIMEOUT_MS = 20_000;
@@ -355,7 +355,7 @@ export class AuthMenuSession {
   private googleCancellation: AbortController | null = null;
   private beginGoogleEmailOtp: BeginGoogleEmailOtp;
   private readonly startDeviceLinking: StartDeviceLinking;
-  private readonly stopDeviceLinking: StopDeviceLinking;
+  private readonly cancelDeviceLinking: CancelDeviceLinking;
   private loginPreparation: PrepareLoginPasskey | null = null;
   private loginAccountOptions: readonly AuthMenuAccountOption[] = [];
   private selectedLoginWalletId: string | null = null;
@@ -375,7 +375,7 @@ export class AuthMenuSession {
     hostname: string;
     beginGoogleEmailOtp: BeginGoogleEmailOtp;
     startDeviceLinking: StartDeviceLinking;
-    stopDeviceLinking: StopDeviceLinking;
+    cancelDeviceLinking: CancelDeviceLinking;
     sendToParent: (message: ChildToParentEnvelope) => void;
   }) {
     this.identity = {
@@ -385,7 +385,7 @@ export class AuthMenuSession {
     this.request = args.request;
     this.beginGoogleEmailOtp = args.beginGoogleEmailOtp;
     this.startDeviceLinking = args.startDeviceLinking;
-    this.stopDeviceLinking = args.stopDeviceLinking;
+    this.cancelDeviceLinking = args.cancelDeviceLinking;
     this.sendToParent = args.sendToParent;
     this.stateValue = {
       kind: 'preparing',
@@ -607,7 +607,7 @@ export class AuthMenuSession {
   private invalidatePreparation(): void {
     if (this.stateValue.kind === 'link_device') {
       this.deviceLinkGeneration += 1;
-      void this.stopDeviceLinking().catch(() => {});
+      void this.cancelDeviceLinking().catch(() => {});
     }
     this.clearPreparationDeadlineTimer();
     this.clearPreparationExpiryTimer();
@@ -1170,7 +1170,7 @@ export class AuthMenuSession {
     const state = this.stateValue;
     if (state.kind !== 'link_device') return;
     this.deviceLinkGeneration += 1;
-    void this.stopDeviceLinking().catch(() => {});
+    void this.cancelDeviceLinking().catch(() => {});
     this.stateValue = state.returnState;
     this.updateElement();
     this.startPasskeyPreparation();

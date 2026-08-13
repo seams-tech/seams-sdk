@@ -1,20 +1,24 @@
 import type { WebAuthnAuthenticationCredential } from '../../types/webauthn';
-import type { RouterAbEcdsaPostRegistrationSessionActivationRequestV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { RouterAbEcdsaPostRegistrationSessionActivationPolicyV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type { PasskeySessionExchangeInputWithEcdsaActivation } from './rpcCalls';
 import { exchangeSession } from './rpcCalls';
 
 declare const credential: WebAuthnAuthenticationCredential;
-declare const activationRequest: RouterAbEcdsaPostRegistrationSessionActivationRequestV1;
+declare const activationPolicy: RouterAbEcdsaPostRegistrationSessionActivationPolicyV1;
+
+const activatedInput: PasskeySessionExchangeInputWithEcdsaActivation = {
+  type: 'passkey_assertion',
+  challengeId: 'challenge-1',
+  webauthn_authentication: credential,
+  ecdsaSessionPolicy: activationPolicy,
+  walletId: 'wallet.testnet',
+};
 
 const activatedExchange = exchangeSession(
   'https://relay.example',
   '/session/exchange',
   'jwt',
-  {
-    type: 'passkey_assertion',
-    challengeId: 'challenge-1',
-    webauthn_authentication: credential,
-    ecdsaSessionActivation: activationRequest,
-  },
+  activatedInput,
   { kind: 'unscoped' },
 );
 
@@ -23,16 +27,3 @@ void activatedExchange.then((result) => {
     result.ecdsaSession.session.wallet_session_jwt satisfies string;
   }
 });
-
-void exchangeSession(
-  'https://relay.example',
-  '/session/exchange',
-  'jwt',
-  // @ts-expect-error OIDC exchange cannot activate an ECDSA Wallet Session.
-  {
-    type: 'oidc_jwt',
-    token: 'oidc-token',
-    ecdsaSessionActivation: activationRequest,
-  },
-  { kind: 'unscoped' },
-);

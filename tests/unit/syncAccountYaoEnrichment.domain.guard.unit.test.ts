@@ -41,6 +41,7 @@ import {
 } from '../helpers/sqliteD1';
 import { FixtureRouterAbEcdsaStrictRegistrationPort } from '../helpers/routerAbSigningRuntimeTestUtils';
 import { StaticWalletSessionAdapter } from './helpers/routerAbEd25519YaoRegistrationBridge.fixtures';
+import { passkeyCustodyEnvelope } from './helpers/passkeyCustodyEnvelope.fixtures';
 
 const WALLET_ID = 'wallet-sync-1';
 const NEAR_ACCOUNT_ID = 'wallet-sync-1.testnet';
@@ -71,6 +72,15 @@ function activeCapabilityFixture(
 ): RouterAbEd25519YaoActiveCapabilityDescriptorV1 {
   return {
     kind: 'router_ab_ed25519_yao_active_capability_v1',
+    materialActivation: {
+      kind: 'mpc_material_activation_ref',
+      activation_id: 'sync-account-material-activation-1',
+      capability: 'sync-account-capability-1',
+      material_owner: WALLET_ID,
+      key_binding: 'sync-account-key-1',
+      lifecycle_binding: 'sync-account-lifecycle-1',
+      signing_worker: SIGNING_WORKER_ID,
+    },
     activeCapabilityBinding: bytes32(41),
     registeredPublicKey: bytes32(42),
     nearAccountId,
@@ -96,6 +106,7 @@ function activeCapabilityFixture(
       signingWorkerId: SIGNING_WORKER_ID,
     },
     stateEpoch: 2,
+    registrationContinuity: { kind: 'recovery' },
   };
 }
 
@@ -185,6 +196,10 @@ class ThrowingUnexpectedSessionAdapter implements SessionAdapter {
     throw new Error('sync-account Yao enrichment must use the product runtime session');
   }
 
+  async verifyJwt(): Promise<{ readonly valid: false }> {
+    return { valid: false };
+  }
+
   async parse(): Promise<{ ok: false; reason: 'missing' }> {
     throw new Error('session parsing is outside sync-account Yao enrichment');
   }
@@ -227,6 +242,12 @@ class RecordingYaoProductRuntime implements RouterAbEd25519YaoProductRegistratio
     _input: Parameters<RouterAbEd25519YaoProductRegistrationRuntimeV1['consumeActivated']>[0],
   ): ReturnType<RouterAbEd25519YaoProductRegistrationRuntimeV1['consumeActivated']> {
     throw new Error('registration activation is outside sync-account enrichment');
+  }
+
+  replayActivatedRegistration(): ReturnType<
+    RouterAbEd25519YaoProductRegistrationRuntimeV1['replayActivatedRegistration']
+  > {
+    throw new Error('registration replay is outside sync-account enrichment');
   }
 
   installRegistrationFinalizeCapability(
@@ -282,10 +303,32 @@ function replaceWebAuthnService(
     sessionVersions: service.sessionVersions,
     sessionExchanges: service.sessionExchanges,
     authorizationSessions: service.authorizationSessions,
+    authorizedOperations: service.authorizedOperations,
     thresholdRuntime: service.thresholdRuntime,
     nearFunding: service.nearFunding,
     recovery: service.recovery,
     router: service.router,
+    passkeyCustody: {
+      ...service.passkeyCustody,
+      readVerifiedFactorCustody: async () => ({
+        kind: 'active',
+        envelope: passkeyCustodyEnvelope({
+          walletId: WALLET_ID,
+          factor: {
+            kind: 'passkey',
+            rpId: RP_ID,
+            credentialIdB64u: CREDENTIAL_ID,
+            kekVersion: 'passkey_prf_kek_hkdf_sha256_v1',
+          },
+        }),
+        storeVersion: 'sync-custody-store-version-1',
+        keyManifest: {
+          version: 'wallet_custody_unlock_key_manifest_v1',
+          walletId: walletIdFromString(WALLET_ID),
+          entries: [],
+        },
+      }),
+    },
   };
 }
 
@@ -345,10 +388,7 @@ function createBaseService(
 async function syncAccountEnrichesFromActiveYaoCapability(): Promise<void> {
   const temporary = createTemporaryD1Database();
   try {
-    await applyD1MigrationFiles(
-      temporary.database,
-      listD1MigrationFiles('d1-signer'),
-    );
+    await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
     const baseService = createBaseService(temporary.database);
     const webAuthn = new RecordingSyncAccountWebAuthnService(
       baseService.webAuthn,

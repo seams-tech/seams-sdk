@@ -26,9 +26,6 @@ pub const CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_ADD_SIGNER_PUBLIC_REQUEST_PATH: 
 /// Public Router endpoint for Router A/B ECDSA derivation Router A/B explicit export.
 pub const CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PUBLIC_REQUEST_PATH: &str =
     "/router-ab/ecdsa-derivation/export";
-/// Public Router endpoint for Router A/B ECDSA derivation recovery.
-pub const CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PUBLIC_REQUEST_PATH: &str =
-    "/router-ab/ecdsa-derivation/recover";
 /// Public Router endpoint for Router A/B ECDSA derivation activation refresh.
 pub const CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_REFRESH_PUBLIC_REQUEST_PATH: &str =
     "/router-ab/ecdsa-derivation/refresh";
@@ -38,12 +35,18 @@ pub const CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PREPARE_PUBLIC_REQUEST_P
 /// Public Router endpoint for finalizing Router A/B ECDSA derivation normal signing.
 pub const CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PUBLIC_REQUEST_PATH: &str =
     "/router-ab/ecdsa-derivation/sign";
+/// Private Router endpoint for an admitted linked-device ECDSA finalize request.
+pub const CLOUDFLARE_ROUTER_AB_ECDSA_DERIVATION_LINKED_SIGNING_PRIVATE_REQUEST_PATH: &str =
+    "/router-ab/ecdsa-derivation/linked-device/sign";
 /// Private Router endpoint for one admitted Ed25519 Yao ceremony execution.
 pub const CLOUDFLARE_ROUTER_ED25519_YAO_EXECUTE_PRIVATE_REQUEST_PATH: &str =
     "/router-ab/router/ed25519-yao/execute";
 /// Private Router endpoint for promoting a verified recovery result.
 pub const CLOUDFLARE_ROUTER_ED25519_YAO_RECOVERY_PROMOTE_PRIVATE_REQUEST_PATH: &str =
     "/router-ab/router/ed25519-yao/recovery/promote";
+/// Authenticated internal Router endpoint for an admitted Ed25519 lane ceremony.
+pub const CLOUDFLARE_ROUTER_ED25519_YAO_LANE_EXECUTE_PRIVATE_REQUEST_PATH: &str =
+    "/router-ab/internal/ed25519-yao/lane/execute";
 
 /// Returns the exact configured browser Origin allowed for normal-signing CORS.
 pub fn cloudflare_router_normal_signing_cors_allowed_origin_v1(
@@ -79,12 +82,6 @@ pub const CLOUDFLARE_DERIVER_A_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PRIVATE_REQUEST
 /// Private Deriver B service-binding endpoint for Router A/B ECDSA derivation explicit export.
 pub const CLOUDFLARE_DERIVER_B_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PRIVATE_REQUEST_PATH: &str =
     "/router-ab/deriver-b/ecdsa-derivation/export";
-/// Private Deriver A service-binding endpoint for Router A/B ECDSA derivation recovery.
-pub const CLOUDFLARE_DERIVER_A_ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PRIVATE_REQUEST_PATH: &str =
-    "/router-ab/deriver-a/ecdsa-derivation/recover";
-/// Private Deriver B service-binding endpoint for Router A/B ECDSA derivation recovery.
-pub const CLOUDFLARE_DERIVER_B_ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PRIVATE_REQUEST_PATH: &str =
-    "/router-ab/deriver-b/ecdsa-derivation/recover";
 /// Private Deriver A service-binding endpoint for Router A/B ECDSA derivation activation refresh.
 pub const CLOUDFLARE_DERIVER_A_ROUTER_AB_ECDSA_DERIVATION_REFRESH_PRIVATE_REQUEST_PATH: &str =
     "/router-ab/deriver-a/ecdsa-derivation/refresh";
@@ -119,14 +116,51 @@ pub const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_SESS
 /// Private SigningWorker endpoint for advancing an ECDSA presign session.
 pub const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_SESSION_STEP_PATH:
     &str = "/router-ab/signing-worker/ecdsa-derivation/presignature-session/step";
+/// Private SigningWorker endpoint for starting one linked-device ECDSA presign session.
+pub const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_LINKED_PRESIGNATURE_SESSION_INIT_PATH:
+    &str = "/router-ab/signing-worker/ecdsa-derivation/linked-device/presignature-session/init";
+/// Private SigningWorker endpoint for advancing one linked-device ECDSA presign session.
+pub const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_LINKED_PRESIGNATURE_SESSION_STEP_PATH:
+    &str = "/router-ab/signing-worker/ecdsa-derivation/linked-device/presignature-session/step";
+/// Private SigningWorker endpoint for finalizing one linked-device ECDSA request.
+pub const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_LINKED_SIGNING_PATH: &str =
+    "/router-ab/signing-worker/ecdsa-derivation/linked-device/sign";
 /// SigningWorker-output Durable Object endpoint for starting a live ECDSA presign session.
 pub const CLOUDFLARE_SIGNING_WORKER_ECDSA_PRESIGN_SESSION_DO_INIT_PATH: &str =
     "/router-ab/internal/signing-worker/ecdsa-presign-session/init";
 /// SigningWorker-output Durable Object endpoint for advancing a live ECDSA presign session.
 pub const CLOUDFLARE_SIGNING_WORKER_ECDSA_PRESIGN_SESSION_DO_STEP_PATH: &str =
     "/router-ab/internal/signing-worker/ecdsa-presign-session/step";
+/// SigningWorker-output Durable Object endpoint for starting a linked-device ECDSA presign session.
+pub const CLOUDFLARE_SIGNING_WORKER_LINKED_ECDSA_PRESIGN_SESSION_DO_INIT_PATH: &str =
+    "/router-ab/internal/signing-worker/linked-ecdsa-presign-session/init";
+/// SigningWorker-output Durable Object endpoint for advancing a linked-device ECDSA presign session.
+pub const CLOUDFLARE_SIGNING_WORKER_LINKED_ECDSA_PRESIGN_SESSION_DO_STEP_PATH: &str =
+    "/router-ab/internal/signing-worker/linked-ecdsa-presign-session/step";
+/// SigningWorker-output Durable Object endpoint for consuming one completed linked-device
+/// ECDSA presignature record.
+pub const CLOUDFLARE_SIGNING_WORKER_LINKED_ECDSA_PRESIGNATURE_DO_CONSUME_PATH: &str =
+    "/router-ab/internal/signing-worker/linked-ecdsa-presignature/consume";
 /// Private SigningWorker endpoint for normal signing.
 pub const CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_PATH: &str = "/router-ab/signing-worker/sign";
+/// Authenticated private SigningWorker lane-material reducer endpoint.
+pub const CLOUDFLARE_SIGNING_WORKER_LANE_MATERIAL_COMMAND_PATH: &str =
+    "/router-ab/internal/signing-worker/lane-material/command";
+/// Authenticated private SigningWorker endpoint for ECDSA lane execution.
+pub const CLOUDFLARE_SIGNING_WORKER_ECDSA_LANE_EXECUTE_PATH: &str =
+    "/router-ab/internal/signing-worker/ecdsa-additive-lane/execute";
+/// Authenticated private SigningWorker endpoint for ECDSA lane activation.
+pub const CLOUDFLARE_SIGNING_WORKER_ECDSA_LANE_ACTIVATE_PATH: &str =
+    "/router-ab/internal/signing-worker/ecdsa-additive-lane/activate";
+/// Authenticated private SigningWorker endpoint for Ed25519 Yao lane activation.
+pub const CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_LANE_ACTIVATE_PATH: &str =
+    "/router-ab/internal/signing-worker/ed25519-yao-lane/activate";
+/// Authenticated private SigningWorker endpoint for exact Ed25519 Yao lane retirement.
+pub const CLOUDFLARE_SIGNING_WORKER_ED25519_YAO_LANE_RETIRE_PATH: &str =
+    "/router-ab/internal/signing-worker/ed25519-yao-lane/retire";
+/// Authenticated private SigningWorker endpoint for exact ECDSA lane retirement.
+pub const CLOUDFLARE_SIGNING_WORKER_ECDSA_LANE_RETIRE_PATH: &str =
+    "/router-ab/internal/signing-worker/ecdsa-additive-lane/retire";
 /// Private SigningWorker endpoint for normal-signing round-1 prepare.
 pub const CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_ROUND1_PREPARE_PATH: &str =
     "/router-ab/signing-worker/sign/prepare";
@@ -156,16 +190,6 @@ const CLOUDFLARE_DERIVER_A_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PRIVATE_REQUEST_URL
 const CLOUDFLARE_DERIVER_B_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PRIVATE_REQUEST_URL: &str = concat!(
     "https://router-ab-deriver-b.internal",
     "/router-ab/deriver-b/ecdsa-derivation/export"
-);
-#[cfg(feature = "workers-rs")]
-const CLOUDFLARE_DERIVER_A_ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PRIVATE_REQUEST_URL: &str = concat!(
-    "https://router-ab-deriver-a.internal",
-    "/router-ab/deriver-a/ecdsa-derivation/recover"
-);
-#[cfg(feature = "workers-rs")]
-const CLOUDFLARE_DERIVER_B_ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PRIVATE_REQUEST_URL: &str = concat!(
-    "https://router-ab-deriver-b.internal",
-    "/router-ab/deriver-b/ecdsa-derivation/recover"
 );
 #[cfg(feature = "workers-rs")]
 const CLOUDFLARE_DERIVER_A_ROUTER_AB_ECDSA_DERIVATION_REFRESH_PRIVATE_REQUEST_URL: &str = concat!(
@@ -227,6 +251,11 @@ const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_SIGNING_URL: &str = c
     "https://router-ab-signing-worker.internal",
     "/router-ab/signing-worker/ecdsa-derivation/sign"
 );
+#[cfg(feature = "workers-rs")]
+const CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_LINKED_SIGNING_URL: &str = concat!(
+    "https://router-ab-signing-worker.internal",
+    "/router-ab/signing-worker/ecdsa-derivation/linked-device/sign"
+);
 
 #[cfg(feature = "workers-rs")]
 fn cloudflare_deriver_peer_url(
@@ -285,18 +314,6 @@ pub(crate) fn cloudflare_router_ab_ecdsa_derivation_deriver_export_service_url(
         CLOUDFLARE_DERIVER_A_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PRIVATE_REQUEST_URL,
         CLOUDFLARE_DERIVER_B_ROUTER_AB_ECDSA_DERIVATION_EXPORT_PRIVATE_REQUEST_URL,
         "Router A/B ECDSA derivation export can forward Deriver work only to signer peers",
-    )
-}
-
-#[cfg(feature = "workers-rs")]
-pub(crate) fn cloudflare_router_ab_ecdsa_derivation_deriver_recovery_service_url(
-    peer: &CloudflarePeerBindingV1,
-) -> RouterAbProtocolResult<&'static str> {
-    cloudflare_deriver_peer_url(
-        peer,
-        CLOUDFLARE_DERIVER_A_ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PRIVATE_REQUEST_URL,
-        CLOUDFLARE_DERIVER_B_ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PRIVATE_REQUEST_URL,
-        "Router A/B ECDSA derivation recovery can forward Deriver work only to signer peers",
     )
 }
 
@@ -409,5 +426,16 @@ pub(crate) fn cloudflare_signing_worker_router_ab_ecdsa_derivation_evm_digest_fi
         peer,
         CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_SIGNING_URL,
         "Router A/B ECDSA derivation finalize can target only SigningWorker",
+    )
+}
+
+#[cfg(feature = "workers-rs")]
+pub(crate) fn cloudflare_signing_worker_linked_device_ecdsa_finalize_service_url(
+    peer: &CloudflarePeerBindingV1,
+) -> RouterAbProtocolResult<&'static str> {
+    cloudflare_signing_worker_url(
+        peer,
+        CLOUDFLARE_SIGNING_WORKER_ROUTER_AB_ECDSA_DERIVATION_LINKED_SIGNING_URL,
+        "linked ECDSA finalize can target only SigningWorker",
     )
 }

@@ -17,9 +17,7 @@ const passkeyAuth = {
   credentialIdB64u: 'credential-ed25519-step-up',
 };
 const nearAccountId = toAccountId('ed25519-step-up-status.testnet');
-const nearEd25519SigningKeyId = nearEd25519SigningKeyIdFromString(
-  'scope-ed25519-step-up-status',
-);
+const nearEd25519SigningKeyId = nearEd25519SigningKeyIdFromString('scope-ed25519-step-up-status');
 
 function makeNearPasskeyLane() {
   return buildNearTransactionSigningLane({

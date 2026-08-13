@@ -16,6 +16,7 @@ import {
   parseWalletAuthorityBindingDigest,
 } from '@shared/utils/domainIds';
 import {
+  parseLinkedDeviceWalletSessionAuthorizationId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
   type WalletSessionAuthorizationId,
@@ -104,6 +105,36 @@ export function activeWalletSessionFixture(
       walletSessionId: fixtureWalletSessionId(input.walletSessionId),
       authMethod: input.authMethod ?? 'passkey',
       remainingUses: input.remainingUses ?? 3,
+      expiresAtMs: input.expiresAtMs ?? Date.now() + 60_000,
+    },
+    capabilityProjection: { kind: 'not_requested' },
+    nonceDiagnostics: null,
+  };
+}
+
+export function activeLinkedDeviceWalletSessionFixture(
+  input: Omit<ReusableWalletSessionFixtureInput, 'authMethod'> = {},
+): WalletSession {
+  const appIdentity = resolvedWalletSessionAppIdentityFixture({
+    ...input,
+    authMethods: [],
+  });
+  const authorizationId = parseLinkedDeviceWalletSessionAuthorizationId(
+    input.authorizationId ?? 'linked-device-wallet-session-authorization-fixture',
+  );
+  if (!authorizationId.ok) throw new Error(authorizationId.error.message);
+  return {
+    appIdentity,
+    authentication: {
+      kind: 'linked_device_session',
+      walletId: appIdentity.walletId,
+    },
+    reusableWalletSession: {
+      kind: 'linked_device_active',
+      walletId: appIdentity.walletId,
+      authorizationId: authorizationId.value,
+      walletSessionId: fixtureWalletSessionId(input.walletSessionId),
+      authMethod: 'linked_device',
       expiresAtMs: input.expiresAtMs ?? Date.now() + 60_000,
     },
     capabilityProjection: { kind: 'not_requested' },

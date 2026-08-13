@@ -20,7 +20,6 @@ import { walletSessionJwtForCurve } from '@/core/indexedDB/seamsWalletDB/walletS
 import type { EmailOtpEcdsaSealedRecoveryRecord } from '@/core/signingEngine/session/sealedRecovery/recoveryRecord';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import {
-  requestBindEmailOtpEcdsaWarmSessionFromWorkerHandle,
   requestRehydrateEmailOtpEcdsaWarmSessionMaterial,
 } from './workerRequests';
 import { parseSigningSessionSealKeyVersion } from '../keyMaterialBrands';
@@ -376,7 +375,7 @@ async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecordInQueue
     throw new Error('Email OTP sealed refresh requires runtime policy scope');
   }
   const emailOtpWorkerSessionHandle = parseEmailOtpWorkerIssuedSessionHandle(
-    restored.clientRootShareHandle,
+    restored.emailOtpSessionHandle,
   );
   const bootstrap = await args.provisionThresholdEcdsaSession(
     buildEmailOtpRecoveredKeyActivation({
@@ -395,16 +394,6 @@ async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecordInQueue
       },
     }),
   );
-  const bound = await requestBindEmailOtpEcdsaWarmSessionFromWorkerHandle({
-    workerCtx,
-    clientRootShareHandle: restored.clientRootShareHandle,
-    thresholdSessionId: bootstrap.session.thresholdSessionId,
-    remainingUses: bootstrap.session.remainingUses,
-    expiresAtMs: bootstrap.session.expiresAtMs,
-  });
-  if (!bound.ok) {
-    throw new Error(bound.message || bound.code || 'Email OTP sealed refresh binding failed');
-  }
   const currentBeforeCommit: ActiveEcdsaCapabilityRuntimeResolution =
     await args.resolveCurrentEcdsaCapabilityRuntime({
       walletId: toWalletId(sealedRecord.walletId),

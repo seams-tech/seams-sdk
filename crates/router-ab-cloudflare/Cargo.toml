@@ -42,6 +42,7 @@ router-ab-ecdsa-pool = { path = "../router-ab-ecdsa-pool" }
 router-ab-ecdsa-presign = { path = "../router-ab-ecdsa-presign" }
 router-ab-ecdsa-wire = { path = "../router-ab-ecdsa-wire" }
 router-ab-ed25519-yao = { path = "../router-ab-ed25519-yao" }
+router-ab-ed25519-yao-protocol = { path = "../router-ab-ed25519-yao-protocol" }
 ed25519-dalek = { version = "2.1", default-features = false }
 frost-ed25519 = { version = "2.2", default-features = false, features = ["serialization", "std"] }
 futures = "0.3"

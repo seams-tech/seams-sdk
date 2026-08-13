@@ -1,5 +1,9 @@
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
-import { derivationClientSharePublicKey33B64uFromString } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
+import {
+  ecdsaClientRootPublicKey33B64uFromString,
+  derivationClientSharePublicKey33B64uFromString,
+  type EcdsaClientRootPublicKey33B64u,
+} from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import type { WALLET_AUTH_METHODS } from '@shared/utils/signerDomain';
 import {
   addAuthMethodIntentGrantFromString,
@@ -57,7 +61,6 @@ function requireEvmFamilySigningKeySlotId(value: unknown) {
 }
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
-import { parseRouterAbMpcMaterialActivationRef } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
   parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1,
   parseRouterAbEd25519YaoRegistrationActivationResultV1,
@@ -73,8 +76,13 @@ import {
   parseRouterAbEcdsaStrictForwardedRegistrationResponseV1,
   parseRouterAbEcdsaVerifiedClientActivationFactsV1,
   type RouterAbEcdsaDerivationPublicCapabilityV1,
+  type RouterAbEcdsaRegistrationActivationReceiptV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import { parseStoredRouterAbEcdsaPendingActivationV1 } from '../../../domains/ecdsa/routerAbEcdsaStrictRegistration';
+import {
+  parsePasskeyCustodyEnvelopeRecord,
+  type PasskeyCustodyEnvelopeRecord,
+} from '@shared/passkey-custody';
 import { registrationPreparationIdFromString } from '../../../../core/registrationContracts';
 import type {
   EcdsaDerivationClientBootstrapRequest,
@@ -91,8 +99,12 @@ import type {
   WalletEd25519YaoSignerPublicResult,
   WalletRegistrationEd25519YaoPublicResult,
   WalletAddSignerFinalizeResponse,
+  WalletAddAuthMethodRegistrationOptions,
 } from '../../../../core/registrationContracts';
-import { parseWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import {
+  parseWalletAuthAuthority,
+  parseWalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
 import {
   parseThresholdEd25519AuthorityScope,
   thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
@@ -1022,7 +1034,7 @@ function parseD1StoredEvmFamilyEcdsaPreparedBranch(
   record: Record<string, unknown>,
 ): StoredWalletRegistrationEvmFamilyEcdsaPreparedBranch | null {
   const branchKey = parseD1RegistrationSignerBranchKey(record.branchKey);
-  const prepared = parseD1StoredEcdsaRegistrationBase(record);
+  const prepared = parseD1StoredEcdsaRegistrationBranchBase(record);
   if (!branchKey || !prepared) return null;
   return {
     kind: 'evm_family_ecdsa_prepared',
@@ -1039,7 +1051,7 @@ function parseD1StoredEvmFamilyEcdsaResponseClaimedBranch(
   record: Record<string, unknown>,
 ): StoredWalletRegistrationEvmFamilyEcdsaResponseClaimedBranch | null {
   const branchKey = parseD1RegistrationSignerBranchKey(record.branchKey);
-  const prepared = parseD1StoredEcdsaRegistrationBase(record);
+  const prepared = parseD1StoredEcdsaRegistrationBranchBase(record);
   if (!branchKey || !prepared) return null;
   try {
     return {
@@ -1061,7 +1073,7 @@ function parseD1StoredEvmFamilyEcdsaPendingActivationBranch(
   record: Record<string, unknown>,
 ): StoredWalletRegistrationEvmFamilyEcdsaPendingActivationBranch | null {
   const branchKey = parseD1RegistrationSignerBranchKey(record.branchKey);
-  const prepared = parseD1StoredEcdsaRegistrationBase(record);
+  const prepared = parseD1StoredEcdsaRegistrationBranchBase(record);
   if (!branchKey || !prepared) return null;
   try {
     return {
@@ -1087,7 +1099,7 @@ function parseD1StoredEvmFamilyEcdsaActivationClaimedBranch(
   record: Record<string, unknown>,
 ): StoredWalletRegistrationEvmFamilyEcdsaActivationClaimedBranch | null {
   const branchKey = parseD1RegistrationSignerBranchKey(record.branchKey);
-  const prepared = parseD1StoredEcdsaRegistrationBase(record);
+  const prepared = parseD1StoredEcdsaRegistrationBranchBase(record);
   if (!branchKey || !prepared) return null;
   try {
     return {
@@ -1105,7 +1117,6 @@ function parseD1StoredEvmFamilyEcdsaActivationClaimedBranch(
       ),
       publicFacts: parseRouterAbEcdsaVerifiedClientActivationFactsV1(record.publicFacts),
       activationRequestDigestB64u: parseDigestB64u(record.activationRequestDigestB64u),
-      materialActivation: parseRouterAbMpcMaterialActivationRef(record.materialActivation),
       /* Empty on rows written before ownership existed; owner checks treat
          empty as never-matching, so legacy claims deny adoption rather than
          allowing it. */
@@ -1120,7 +1131,7 @@ function parseD1StoredEvmFamilyEcdsaActivatedBranch(
   record: Record<string, unknown>,
 ): StoredWalletRegistrationEvmFamilyEcdsaActivatedBranch | null {
   const branchKey = parseD1RegistrationSignerBranchKey(record.branchKey);
-  const prepared = parseD1StoredEcdsaRegistrationBase(record);
+  const prepared = parseD1StoredEcdsaRegistrationBranchBase(record);
   const bootstrap = parseD1EcdsaDerivationServerBootstrapResponse(record.bootstrap);
   if (!branchKey || !prepared || !bootstrap) return null;
   try {
@@ -1148,7 +1159,7 @@ function parseD1StoredEvmFamilyEcdsaFinalizedBranch(
   record: Record<string, unknown>,
 ): StoredWalletRegistrationEvmFamilyEcdsaFinalizedBranch | null {
   const branchKey = parseD1RegistrationSignerBranchKey(record.branchKey);
-  const prepared = parseD1StoredEcdsaRegistrationBase(record);
+  const prepared = parseD1StoredEcdsaRegistrationBranchBase(record);
   const bootstrap = parseD1EcdsaDerivationServerBootstrapResponse(record.bootstrap);
   const finalizedAtMs = safeInteger(record.finalizedAtMs);
   if (!branchKey || !prepared || !bootstrap || finalizedAtMs === null) return null;
@@ -1183,25 +1194,20 @@ function parseD1RegistrationSignerBranchKey(raw: unknown): RegistrationSignerBra
   }
 }
 
-function parseD1StoredEcdsaRegistrationBase(record: Record<string, unknown>): {
+type D1StoredEcdsaRegistrationBase = {
   readonly derivationKind: 'evm_family_ecdsa_keygen';
   readonly chainTargets: readonly [ThresholdEcdsaChainTarget, ...ThresholdEcdsaChainTarget[]];
   readonly prepare: WalletRegistrationEcdsaPrepareContext;
   readonly strictRegistration: WalletRegistrationEcdsaPreparePayload['strictRegistration'];
-  readonly strictRegistrationBindingJson: string;
-} | null {
+};
+
+function parseD1StoredEcdsaRegistrationBase(
+  record: Record<string, unknown>,
+): D1StoredEcdsaRegistrationBase | null {
   const derivationKind = toOptionalTrimmedString(record.derivationKind);
   const chainTargets = parseD1ThresholdEcdsaChainTargets(record.chainTargets);
   const prepare = parseD1WalletRegistrationEcdsaPrepare(record.prepare);
-  const strictRegistrationBindingJson = toOptionalTrimmedString(
-    record.strictRegistrationBindingJson,
-  );
-  if (
-    derivationKind !== 'evm_family_ecdsa_keygen' ||
-    !chainTargets ||
-    !prepare ||
-    !strictRegistrationBindingJson
-  ) {
+  if (derivationKind !== 'evm_family_ecdsa_keygen' || !chainTargets || !prepare) {
     return null;
   }
   try {
@@ -1210,11 +1216,29 @@ function parseD1StoredEcdsaRegistrationBase(record: Record<string, unknown>): {
       chainTargets,
       prepare,
       strictRegistration: parseRouterAbEcdsaRegistrationRequestFactsV1(record.strictRegistration),
-      strictRegistrationBindingJson,
     };
   } catch {
     return null;
   }
+}
+
+/**
+ * Registration branch rows additionally persist the strict-registration
+ * binding JSON: branch convergence compares it byte-for-byte, so a branch row
+ * without one is unusable. Add-signer rows never carry the field — their
+ * replay check matches the request against the stored facts instead — so the
+ * shared base above must not demand it: doing so made every stored ECDSA
+ * add-signer ceremony unreadable, surfacing as `not_found` mid-ceremony.
+ */
+function parseD1StoredEcdsaRegistrationBranchBase(
+  record: Record<string, unknown>,
+): (D1StoredEcdsaRegistrationBase & { readonly strictRegistrationBindingJson: string }) | null {
+  const prepared = parseD1StoredEcdsaRegistrationBase(record);
+  const strictRegistrationBindingJson = toOptionalTrimmedString(
+    record.strictRegistrationBindingJson,
+  );
+  if (!prepared || !strictRegistrationBindingJson) return null;
+  return { ...prepared, strictRegistrationBindingJson };
 }
 
 export function parseD1StoredAddSignerIntent(raw: unknown): StoredAddSignerIntent | null {
@@ -1382,6 +1406,9 @@ function parseD1StoredWalletAddSignerSignerState(
   if (kind === 'ecdsa_add_signer_pending_activation') {
     return parseD1StoredEcdsaAddSignerPendingActivation(record);
   }
+  if (kind === 'ecdsa_add_signer_activation_claimed') {
+    return parseD1StoredEcdsaAddSignerActivationClaimed(record);
+  }
   if (kind === 'ecdsa_add_signer_activated') {
     return parseD1StoredEcdsaAddSignerActivated(record);
   }
@@ -1443,14 +1470,28 @@ export function parseD1WalletAddSignerFinalizeRequest(
   const idempotencyKey = toOptionalTrimmedString(record?.idempotencyKey);
   if (!record || !addSignerCeremonyId || !idempotencyKey) return null;
   if (record.kind === 'near_ed25519') {
+    const custodyKeySet = toRecordValue(record.custodyKeySet);
     const activationReference = toRecordValue(record.activationReference);
     const lifecycleId = toOptionalTrimmedString(activationReference?.lifecycleId);
     const sessionId = parseD1Bytes32(activationReference?.sessionId);
-    if (!lifecycleId || !sessionId) return null;
+    if (custodyKeySet?.kind !== 'near_ed25519_v1' || !lifecycleId || !sessionId) return null;
+    let keyManifestDigestB64u;
+    try {
+      keyManifestDigestB64u = parseDigestB64u(custodyKeySet.keyManifestDigestB64u);
+    } catch {
+      return null;
+    }
+    const registeredPublicKeyB64u = toOptionalTrimmedString(custodyKeySet.registeredPublicKeyB64u);
+    if (!registeredPublicKeyB64u) return null;
     return {
       kind: 'near_ed25519',
       addSignerCeremonyId,
       idempotencyKey,
+      custodyKeySet: {
+        kind: 'near_ed25519_v1',
+        keyManifestDigestB64u,
+        registeredPublicKeyB64u,
+      },
       activationReference: { lifecycleId, sessionId },
     };
   }
@@ -1462,11 +1503,27 @@ export function parseD1WalletAddSignerFinalizeRequest(
     return null;
   }
   const expectedKeyHandle = toOptionalTrimmedString(record.expectedKeyHandles[0]);
-  if (!expectedKeyHandle) return null;
+  const custodyKeySet = toRecordValue(record.custodyKeySet);
+  if (!expectedKeyHandle || custodyKeySet?.kind !== 'evm_family_ecdsa_v1') return null;
+  let keyManifestDigestB64u;
+  let clientRootPublicKey33B64u;
+  try {
+    keyManifestDigestB64u = parseDigestB64u(custodyKeySet.keyManifestDigestB64u);
+    clientRootPublicKey33B64u = ecdsaClientRootPublicKey33B64uFromString(
+      String(custodyKeySet.clientRootPublicKey33B64u ?? ''),
+    );
+  } catch {
+    return null;
+  }
   return {
     kind: 'evm_family_ecdsa',
     addSignerCeremonyId,
     idempotencyKey,
+    custodyKeySet: {
+      kind: 'evm_family_ecdsa_v1',
+      keyManifestDigestB64u,
+      clientRootPublicKey33B64u,
+    },
     expectedKeyHandles: [expectedKeyHandle],
   };
 }
@@ -1528,6 +1585,34 @@ function parseD1StoredEcdsaAddSignerPendingActivation(
   }
 }
 
+function parseD1StoredEcdsaAddSignerActivationClaimed(
+  record: Record<string, unknown>,
+): Extract<
+  StoredWalletAddSignerCeremony['signerState'],
+  { kind: 'ecdsa_add_signer_activation_claimed' }
+> | null {
+  const prepared = parseD1StoredEcdsaRegistrationBase(record);
+  if (!prepared) return null;
+  try {
+    return {
+      kind: 'ecdsa_add_signer_activation_claimed',
+      derivationKind: prepared.derivationKind,
+      chainTargets: prepared.chainTargets,
+      prepare: prepared.prepare,
+      strictRegistration: prepared.strictRegistration,
+      registrationRequest: parseRouterAbEcdsaRegistrationRequestV1(record.registrationRequest),
+      pendingActivation: parseStoredRouterAbEcdsaPendingActivationV1(record.pendingActivation),
+      publicResponse: parseRouterAbEcdsaStrictForwardedRegistrationResponseV1(
+        record.publicResponse,
+      ),
+      publicFacts: parseRouterAbEcdsaVerifiedClientActivationFactsV1(record.publicFacts),
+      activationRequestDigestB64u: parseDigestB64u(record.activationRequestDigestB64u),
+    };
+  } catch {
+    return null;
+  }
+}
+
 function parseD1StoredEcdsaAddSignerActivated(
   record: Record<string, unknown>,
 ): Extract<
@@ -1546,6 +1631,7 @@ function parseD1StoredEcdsaAddSignerActivated(
       strictRegistration: prepared.strictRegistration,
       registrationRequest: parseRouterAbEcdsaRegistrationRequestV1(record.registrationRequest),
       publicFacts: parseRouterAbEcdsaVerifiedClientActivationFactsV1(record.publicFacts),
+      activationRequestDigestB64u: parseDigestB64u(record.activationRequestDigestB64u),
       activation: parseRouterAbEcdsaRegistrationActivationReceiptV1(record.activation),
       publicCapability: parseRouterAbEcdsaDerivationPublicCapabilityV1(record.publicCapability),
       bootstrap,
@@ -1671,10 +1757,9 @@ export function parseD1EcdsaDerivationServerBootstrapResponse(
   const expiresAtMs = safeInteger(record.expiresAtMs);
   const expiresAt = toOptionalTrimmedString(record.expiresAt);
   const remainingUses = safeInteger(record.remainingUses);
-  const routerAbEcdsaDerivationNormalSigning =
-    parseRouterAbEcdsaDerivationNormalSigningStateV1(
-      record.routerAbEcdsaDerivationNormalSigning,
-    );
+  const routerAbEcdsaDerivationNormalSigning = parseRouterAbEcdsaDerivationNormalSigningStateV1(
+    record.routerAbEcdsaDerivationNormalSigning,
+  );
   if (
     !walletId ||
     !evmFamilySigningKeySlotId ||
@@ -1697,8 +1782,8 @@ export function parseD1EcdsaDerivationServerBootstrapResponse(
     !activationEpoch ||
     expiresAtMs === null ||
     !expiresAt ||
-    remainingUses === null
-    || !routerAbEcdsaDerivationNormalSigning
+    remainingUses === null ||
+    !routerAbEcdsaDerivationNormalSigning
   ) {
     return null;
   }
@@ -2207,6 +2292,10 @@ export function buildD1WalletRecord(input: {
 export function buildD1WalletEcdsaSignerRecords(input: {
   readonly walletId: WalletId;
   readonly walletKeys: readonly WalletRegistrationEcdsaWalletKey[];
+  readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+  readonly runtimePolicyScope: RuntimePolicyScope;
+  readonly custodyKeyManifestDigestB64u: string;
+  readonly custodyClientRootPublicKey33B64u: EcdsaClientRootPublicKey33B64u;
   readonly now: number;
 }): WalletEcdsaSignerRecord[] {
   const records: WalletEcdsaSignerRecord[] = [];
@@ -2215,6 +2304,10 @@ export function buildD1WalletEcdsaSignerRecords(input: {
       buildWalletEcdsaSignerRecord({
         walletId: input.walletId,
         walletKey,
+        activationReceipt: input.activationReceipt,
+        runtimePolicyScope: input.runtimePolicyScope,
+        custodyKeyManifestDigestB64u: input.custodyKeyManifestDigestB64u,
+        custodyClientRootPublicKey33B64u: input.custodyClientRootPublicKey33B64u,
         createdAtMs: input.now,
         updatedAtMs: input.now,
       }),
@@ -2256,6 +2349,110 @@ export function parseD1StoredAddAuthMethodIntent(raw: unknown): StoredAddAuthMet
   };
 }
 
+function parseD1WalletAddAuthMethodRegistrationOptions(
+  raw: unknown,
+): WalletAddAuthMethodRegistrationOptions | null {
+  const record = toRecordValue(raw);
+  if (!record || record.kind !== 'webauthn_add_auth_method_registration_v1') return null;
+  const challengeId = toOptionalTrimmedString(record.challengeId);
+  const challengeB64u = toOptionalTrimmedString(record.challengeB64u);
+  const rpId = toOptionalTrimmedString(record.rpId);
+  const user = toRecordValue(record.user);
+  const userIdB64u = toOptionalTrimmedString(user?.idB64u);
+  const userName = toOptionalTrimmedString(user?.name);
+  const userDisplayName = toOptionalTrimmedString(user?.displayName);
+  const parameters = Array.isArray(record.pubKeyCredParams) ? record.pubKeyCredParams : null;
+  const firstParameter = toRecordValue(parameters?.[0]);
+  const secondParameter = toRecordValue(parameters?.[1]);
+  const selection = toRecordValue(record.authenticatorSelection);
+  const extensions = toRecordValue(record.extensions);
+  const prf = toRecordValue(extensions?.prf);
+  const evalRecord = toRecordValue(prf?.eval);
+  const excludeCredentials = Array.isArray(record.excludeCredentials)
+    ? record.excludeCredentials
+        .map((entry) => {
+          const descriptor = toRecordValue(entry);
+          const id = toOptionalTrimmedString(descriptor?.id);
+          return descriptor?.type === 'public-key' && id
+            ? ({ type: 'public-key' as const, id } as const)
+            : null;
+        })
+        .filter((entry): entry is { readonly type: 'public-key'; readonly id: string } => !!entry)
+    : null;
+  const timeoutMs = safeInteger(record.timeoutMs);
+  if (
+    !challengeId ||
+    !challengeB64u ||
+    !rpId ||
+    !userIdB64u ||
+    !userName ||
+    !userDisplayName ||
+    !parameters ||
+    parameters.length !== 2 ||
+    firstParameter?.type !== 'public-key' ||
+    Number(firstParameter.alg) !== -7 ||
+    secondParameter?.type !== 'public-key' ||
+    Number(secondParameter.alg) !== -257 ||
+    selection?.residentKey !== 'required' ||
+    selection?.userVerification !== 'preferred' ||
+    timeoutMs === null ||
+    timeoutMs <= 0 ||
+    record.attestation !== 'none' ||
+    !toOptionalTrimmedString(evalRecord?.firstB64u) ||
+    !toOptionalTrimmedString(evalRecord?.secondB64u) ||
+    !excludeCredentials
+  ) {
+    return null;
+  }
+  return {
+    kind: 'webauthn_add_auth_method_registration_v1',
+    challengeId,
+    challengeB64u,
+    rpId,
+    user: { idB64u: userIdB64u, name: userName, displayName: userDisplayName },
+    pubKeyCredParams: [
+      { type: 'public-key', alg: -7 },
+      { type: 'public-key', alg: -257 },
+    ],
+    authenticatorSelection: { residentKey: 'required', userVerification: 'preferred' },
+    timeoutMs,
+    attestation: 'none',
+    extensions: {
+      prf: {
+        eval: {
+          firstB64u: toOptionalTrimmedString(evalRecord?.firstB64u) || '',
+          secondB64u: toOptionalTrimmedString(evalRecord?.secondB64u) || '',
+        },
+      },
+    },
+    excludeCredentials,
+  };
+}
+
+function d1AddAuthMethodCustodyFactorMatches(
+  auth: StoredWalletAddAuthMethodCeremony['auth'],
+  custodyEnvelope: PasskeyCustodyEnvelopeRecord,
+): boolean {
+  switch (auth.kind) {
+    case 'webauthn_assertion':
+      return (
+        custodyEnvelope.factor.kind === 'passkey' &&
+        custodyEnvelope.factor.rpId === auth.rpId &&
+        custodyEnvelope.factor.credentialIdB64u === auth.credentialIdB64u
+      );
+    case 'email_otp':
+      return (
+        custodyEnvelope.factor.kind === 'email_otp' &&
+        custodyEnvelope.factor.enrollmentId === auth.enrollmentId &&
+        custodyEnvelope.factor.enrollmentSealKeyVersion === auth.enrollmentSealKeyVersion
+      );
+    case 'app_session':
+      return false;
+    default:
+      return unreachableAddAuthMethodInput(auth);
+  }
+}
+
 export function parseD1StoredWalletAddAuthMethodCeremony(
   raw: unknown,
 ): StoredWalletAddAuthMethodCeremony | null {
@@ -2267,19 +2464,61 @@ export function parseD1StoredWalletAddAuthMethodCeremony(
   const orgId = toOptionalTrimmedString(record.orgId);
   const expiresAtMs = safeInteger(record.expiresAtMs);
   const auth = parseD1StoredAddAuthMethodAuth(record.auth);
-  const authority = parseD1RegistrationAuthority(record.authority);
   if (
     !addAuthMethodCeremonyId ||
     !intent ||
     !digestB64u ||
     !orgId ||
     expiresAtMs === null ||
-    !auth ||
-    !authority
+    !auth
+  ) {
+    return null;
+  }
+  if (record.kind === 'email_otp') {
+    const authority = parseD1RegistrationAuthority(record.authority);
+    if (!authority || authority.kind !== 'email_otp') return null;
+    return {
+      kind: 'email_otp',
+      addAuthMethodCeremonyId,
+      intent,
+      digestB64u,
+      orgId,
+      ...(toOptionalTrimmedString(record.expectedOrigin)
+        ? { expectedOrigin: toOptionalTrimmedString(record.expectedOrigin) }
+        : {}),
+      expiresAtMs,
+      auth,
+      authority,
+    };
+  }
+  if (record.kind !== 'passkey') return null;
+  const passkeyRegistration = toRecordValue(record.passkeyRegistration);
+  const rpId = parseWebAuthnRpId(passkeyRegistration?.rpId);
+  const challengeB64u = toOptionalTrimmedString(passkeyRegistration?.challengeB64u);
+  const options = parseD1WalletAddAuthMethodRegistrationOptions(passkeyRegistration?.options);
+  let custodyEnvelope: PasskeyCustodyEnvelopeRecord;
+  try {
+    custodyEnvelope = parsePasskeyCustodyEnvelopeRecord(record.custodyEnvelope);
+  } catch {
+    return null;
+  }
+  const custodyFactorMatchesAuth = d1AddAuthMethodCustodyFactorMatches(auth, custodyEnvelope);
+  if (
+    !rpId.ok ||
+    !challengeB64u ||
+    !options ||
+    options.rpId !== rpId.value ||
+    options.challengeB64u !== challengeB64u ||
+    intent.authMethod.kind !== 'passkey' ||
+    intent.authMethod.rpId !== rpId.value ||
+    custodyEnvelope.walletId !== intent.walletId ||
+    !custodyFactorMatchesAuth ||
+    custodyEnvelope.lifecycle.state !== 'active'
   ) {
     return null;
   }
   return {
+    kind: 'passkey',
     addAuthMethodCeremonyId,
     intent,
     digestB64u,
@@ -2289,7 +2528,8 @@ export function parseD1StoredWalletAddAuthMethodCeremony(
       : {}),
     expiresAtMs,
     auth,
-    authority,
+    passkeyRegistration: { rpId: rpId.value, challengeB64u, options },
+    custodyEnvelope,
   };
 }
 
@@ -2342,6 +2582,21 @@ function parseD1StoredAddAuthMethodAuth(
   const record = toRecordValue(raw);
   const kind = toOptionalTrimmedString(record?.kind);
   if (kind === 'app_session') return { kind: 'app_session' };
+  if (kind === 'email_otp') {
+    const providerUserId = toOptionalTrimmedString(record?.providerUserId);
+    const enrollmentId = toOptionalTrimmedString(record?.enrollmentId);
+    const enrollmentSealKeyVersion = toOptionalTrimmedString(record?.enrollmentSealKeyVersion);
+    const authorityRef = parseWalletAuthAuthorityRef(record?.authorityRef);
+    return providerUserId && enrollmentId && enrollmentSealKeyVersion && authorityRef
+      ? {
+          kind: 'email_otp',
+          providerUserId,
+          enrollmentId,
+          enrollmentSealKeyVersion,
+          authorityRef,
+        }
+      : null;
+  }
   if (kind === 'webauthn_assertion') {
     const rpId = toOptionalTrimmedString(record?.rpId);
     const credentialIdB64u = toOptionalTrimmedString(record?.credentialIdB64u);

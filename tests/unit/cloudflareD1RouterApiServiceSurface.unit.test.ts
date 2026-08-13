@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
+import { normalizeLogger } from '../../packages/sdk-server-ts/src/core/logger';
 import {
   parseOrgId,
   parseProviderSubject,
@@ -29,6 +30,7 @@ import {
   insertEmailOtpRecoveryEscrow,
   insertEmailOtpGrant,
 } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
+import { UnusedSessionAdapter } from './helpers/routerAbEd25519YaoRegistrationBridge.fixtures';
 
 test('Cloudflare D1 Router API auth service reads signer metadata with tenant scope', async () => {
   const { database, tempDir } = createTemporaryD1Database();
@@ -732,6 +734,86 @@ test('Cloudflare D1 Router API auth service has no Gateway-owned signing runtime
       relayerPublicKey: 'relay-public-key',
     });
     expect(withoutThreshold.thresholdRuntime.getRouterAbEcdsaPresignRuntime()).toBeNull();
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('Cloudflare D1 R103 composition exposes linked admission and local presence ports', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    const rpId = requireParsedDomainId(parseWebAuthnRpId('example.test'));
+    const service = createCloudflareD1RouterApiAuthService({
+      database,
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+      linkedDevice: {
+        execution: {
+          nowV1: () => 5_000,
+          rpId,
+          expectedOrigin: 'https://example.test',
+          logger: normalizeLogger(),
+        },
+      },
+    });
+
+    expect(service.linkedDeviceExecution).toBeDefined();
+    expect(service.linkedDeviceLocalPresence).toBeDefined();
+    expect(service.deviceLinking).toBeUndefined();
+    expect(service.deviceManagement).toBeUndefined();
+    expect(service.deviceLinkingGateway).toBeUndefined();
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
+
+test('Cloudflare D1 R103 composition owns lane activation and aggregate revocation wiring', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    const rpId = requireParsedDomainId(parseWebAuthnRpId('example.test'));
+    const inertLaneBinding = {
+      fetch: async () => new Response(null, { status: 503 }),
+    };
+    const inertEd25519YaoKeyset = {
+      deriver_a_input_public_key: new Array<number>(32).fill(0),
+      deriver_b_input_public_key: new Array<number>(32).fill(0),
+      signing_worker_recipient_public_key: new Array<number>(32).fill(0),
+    };
+    const service = createCloudflareD1RouterApiAuthService({
+      database,
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+      linkedDevice: {
+        execution: {
+          nowV1: () => 5_000,
+          rpId,
+          expectedOrigin: 'https://example.test',
+          logger: normalizeLogger(),
+        },
+        session: {
+          session: new UnusedSessionAdapter(),
+          laneRuntime: {
+            router: inertLaneBinding,
+            signingWorker: inertLaneBinding,
+            internalServiceAuth: 'test-internal-service-auth',
+            ed25519YaoKeyset: inertEd25519YaoKeyset,
+          },
+          operatorRecovery: {
+            operatorSecret: 'operator-recovery-test-secret',
+          },
+        },
+        management: {},
+      },
+    });
+
+    expect(service.deviceLinking).toBeDefined();
+    expect(service.deviceManagement).toBeDefined();
+    expect(service.deviceLinkingOwnerAuthorization).toBeDefined();
+    expect(service.deviceLinkingLaneGateway).toBeDefined();
   } finally {
     cleanupTemporaryD1Database(tempDir);
   }

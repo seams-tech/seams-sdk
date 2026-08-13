@@ -27,12 +27,14 @@ function resolvedRuntime() {
   return { manifest, walletId, runtime: resolution.runtime, record };
 }
 
-function prefillDeps(overrides: {
-  getWarmThresholdEcdsaSessionStatus?: Parameters<
-    typeof scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill
-  >[0]['getWarmThresholdEcdsaSessionStatus'];
-  poolEnabled?: boolean;
-} = {}) {
+function prefillDeps(
+  overrides: {
+    getWarmThresholdEcdsaSessionStatus?: Parameters<
+      typeof scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill
+    >[0]['getWarmThresholdEcdsaSessionStatus'];
+    poolEnabled?: boolean;
+  } = {},
+) {
   const materialSourceCalls: number[] = [];
   return {
     materialSourceCalls,

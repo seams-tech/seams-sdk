@@ -65,6 +65,7 @@ export type RegistrationCapabilityDomainMethods = {
   getNearProvisioningState: RegistrationCapability['getNearProvisioningState'];
   onNearProvisioningStateChanged: RegistrationCapability['onNearProvisioningStateChanged'];
   addWalletSigner: RegistrationCapability['addWalletSigner'];
+  addPasskey: RegistrationCapability['addPasskey'];
   registerWallet: RegistrationCapability['registerWallet'];
   registerPasskey: RegistrationCapability['registerPasskey'];
   requestEmailOtpEnrollmentChallenge: RegistrationCapability['requestEmailOtpEnrollmentChallenge'];
@@ -182,6 +183,7 @@ export function createPublicApi(deps: {
       getNearProvisioningState: deps.registration.getNearProvisioningState,
       onNearProvisioningStateChanged: deps.registration.onNearProvisioningStateChanged,
       addWalletSigner: deps.registration.addWalletSigner,
+      addPasskey: deps.registration.addPasskey,
       registerWallet: deps.registration.registerWallet,
       registerWithEmailOtp: deps.registration.registerWallet,
       registerPasskey: deps.registration.registerPasskey,

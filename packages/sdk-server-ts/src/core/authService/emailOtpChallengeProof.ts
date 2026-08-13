@@ -28,7 +28,6 @@ import type {
   EmailOtpChallengeAction,
   EmailOtpChallengeOperation,
   EmailOtpChallengeRecord,
-  EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
   EmailOtpWalletEnrollmentRecord,
 } from '../EmailOtpStores';
 
@@ -39,42 +38,8 @@ function assertNever(value: never): never {
 export type EmailOtpRegistrationEnrollmentPersistence = {
   previousProviderWalletId?: string;
   enrollment: EmailOtpWalletEnrollmentRecord;
-  recoveryWrappedEnrollmentEscrows: readonly EmailOtpRecoveryWrappedEnrollmentEscrowRecord[];
   authState: EmailOtpAuthStateRecord;
 };
-
-export type EmailOtpRecoveryChallengeEscrow = Omit<
-  EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
-  | 'recoveryKeyId'
-  | 'recoveryKeyStatus'
-  | 'issuedAtMs'
-  | 'updatedAtMs'
-  | 'consumedAtMs'
-  | 'revokedAtMs'
->;
-
-export function redactEmailOtpRecoveryChallengeEscrow(
-  record: EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
-): EmailOtpRecoveryChallengeEscrow {
-  return {
-    version: record.version,
-    alg: record.alg,
-    secretKind: record.secretKind,
-    escrowKind: record.escrowKind,
-    walletId: record.walletId,
-    userId: record.userId,
-    authSubjectId: record.authSubjectId,
-    authMethod: record.authMethod,
-    enrollmentId: record.enrollmentId,
-    enrollmentVersion: record.enrollmentVersion,
-    enrollmentSealKeyVersion: record.enrollmentSealKeyVersion,
-    signingRootId: record.signingRootId,
-    signingRootVersion: record.signingRootVersion,
-    nonceB64u: record.nonceB64u,
-    wrappedDeviceEnrollmentEscrowB64u: record.wrappedDeviceEnrollmentEscrowB64u,
-    aadHashB64u: record.aadHashB64u,
-  };
-}
 
 export type EmailOtpRegistrationChallengePurpose =
   | {
@@ -148,9 +113,6 @@ export type EmailOtpChallengeVerificationIntent =
     }
   | {
       kind: 'export_key';
-    }
-  | {
-      kind: 'device_recovery';
     };
 
 export type EmailOtpStoredChallengePurpose =
@@ -173,11 +135,6 @@ export type EmailOtpStoredChallengePurpose =
       kind: 'export_key';
       action: typeof WALLET_EMAIL_OTP_ACTIONS.login;
       operation: typeof WALLET_EMAIL_OTP_EXPORT_OPERATION;
-    }
-  | {
-      kind: 'device_recovery';
-      action: typeof WALLET_EMAIL_OTP_ACTIONS.deviceRecovery;
-      operation: typeof WALLET_EMAIL_OTP_UNLOCK_OPERATION;
     };
 
 export type EmailOtpChallengeBindingMismatchCode =
@@ -206,7 +163,7 @@ export type VerifiedEmailOtpChallengeCodeSuccess =
       registrationChallengeProof: VerifiedEmailOtpRegistrationChallengeProof;
     })
   | (VerifiedEmailOtpChallengeCodeSuccessBase & {
-      intent: 'wallet_unlock' | 'transaction_sign' | 'export_key' | 'device_recovery';
+      intent: 'wallet_unlock' | 'transaction_sign' | 'export_key';
       registrationChallengeProof?: never;
     });
 
@@ -235,9 +192,6 @@ export function emailOtpChallengeVerificationIntentFromRequest(input: {
       binding: input.registrationChallengeProof,
       allowWalletReroll: input.allowRegistrationChallengeReroll === true,
     };
-  }
-  if (input.expectedAction === WALLET_EMAIL_OTP_ACTIONS.deviceRecovery) {
-    return { kind: 'device_recovery' };
   }
   const operation = input.expectedOperation || WALLET_EMAIL_OTP_UNLOCK_OPERATION;
   if (operation === WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION) {
@@ -276,12 +230,6 @@ export function expectedEmailOtpStoredChallengePurpose(
         kind: 'export_key',
         action: WALLET_EMAIL_OTP_ACTIONS.login,
         operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
-      };
-    case 'device_recovery':
-      return {
-        kind: 'device_recovery',
-        action: WALLET_EMAIL_OTP_ACTIONS.deviceRecovery,
-        operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
       };
   }
   return assertNever(intent);
@@ -322,16 +270,6 @@ export function readEmailOtpStoredChallengePurpose(
         operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
       };
     }
-  }
-  if (
-    record.action === WALLET_EMAIL_OTP_ACTIONS.deviceRecovery &&
-    record.operation === WALLET_EMAIL_OTP_UNLOCK_OPERATION
-  ) {
-    return {
-      kind: 'device_recovery',
-      action: WALLET_EMAIL_OTP_ACTIONS.deviceRecovery,
-      operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
-    };
   }
   return null;
 }

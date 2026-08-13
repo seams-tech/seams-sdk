@@ -60,6 +60,14 @@ import type {
   RouterAbEd25519YaoProductRegistrationPartitionedStateV1,
 } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
 import type {
+  RouterAbEd25519YaoActivationConsumptionRequestV1,
+  RouterAbEd25519YaoActivationConsumptionResultV1,
+} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/registration/routerAbEd25519YaoRegistration';
+import type {
+  RouterAbEd25519YaoRegistrationExecutionClaimResultV1,
+  RouterAbEd25519YaoRegistrationExecutionCommitResultV1,
+} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
+import type {
   RouterAbEd25519YaoActiveCapabilityLookupV1,
   RouterAbEd25519YaoActiveCapabilityLookupResultV1,
   RouterAbEd25519YaoActiveCapabilityResolverV1,
@@ -251,9 +259,9 @@ function exportBinding(request: RouterAbEd25519YaoExportAdmissionRequestV1) {
         selected_server_id: request.scope.signing_worker_id,
       },
       operation: 'export' as const,
-        session_id: bytes(request.authorization.nonce[0] ?? 71),
-        stable_key_context_binding: bytes(72),
-        material_activation: request.scope.material_activation,
+      session_id: bytes(request.authorization.nonce[0] ?? 71),
+      stable_key_context_binding: bytes(72),
+      material_activation: request.scope.material_activation,
     },
     registered_public_key: request.registered_public_key,
     state_epoch: request.state_epoch,
@@ -436,6 +444,7 @@ class ActiveCapabilityFixture implements RouterAbEd25519YaoActiveCapabilityResol
           signingWorkerId: SIGNING_WORKER_ID,
         },
         stateEpoch: this.substitution === 'epoch' ? 8 : 7,
+        registrationContinuity: { kind: 'recovery' },
       },
     };
   }
@@ -450,6 +459,10 @@ class SessionFixture implements SessionAdapter {
 
   async signJwt(): Promise<string> {
     throw new Error('signJwt is outside the export authorization test boundary');
+  }
+
+  async verifyJwt(): Promise<{ readonly valid: false }> {
+    return { valid: false };
   }
 
   async parse(): Promise<
@@ -493,15 +506,13 @@ class WebAuthnFixture {
 class AuthorizationFixture implements RouterAbEd25519YaoExportAuthorizationAdapter {
   readonly inputs: RouterAbEd25519YaoExportAuthorizationInput[] = [];
 
-  authorize(
-    input: RouterAbEd25519YaoExportAuthorizationInput,
-  ) {
+  authorize(input: RouterAbEd25519YaoExportAuthorizationInput) {
     this.inputs.push(input);
-    return { ok: true, authorizationIdentity: exportAuthorizationIdentity() };
+    return { ok: true as const, authorizationIdentity: exportAuthorizationIdentity() };
   }
 
   resolveAuthorizationIdentity() {
-    return { ok: true, authorizationIdentity: exportAuthorizationIdentity() };
+    return { ok: true as const, authorizationIdentity: exportAuthorizationIdentity() };
   }
 }
 
@@ -510,18 +521,16 @@ class RequestScopedAuthorizationFixture implements RouterAbEd25519YaoExportAutho
 
   constructor(private readonly throwOnAdmission = false) {}
 
-  authorize(
-    input: RouterAbEd25519YaoExportAuthorizationInput,
-  ) {
+  authorize(input: RouterAbEd25519YaoExportAuthorizationInput) {
     this.calls += 1;
     if (this.throwOnAdmission && input.kind === 'admit') {
       throw new Error('WebAuthn counter update outcome was lost');
     }
-    return { ok: true, authorizationIdentity: exportAuthorizationIdentity() };
+    return { ok: true as const, authorizationIdentity: exportAuthorizationIdentity() };
   }
 
   resolveAuthorizationIdentity() {
-    return { ok: true, authorizationIdentity: exportAuthorizationIdentity() };
+    return { ok: true as const, authorizationIdentity: exportAuthorizationIdentity() };
   }
 }
 
@@ -572,6 +581,7 @@ class RequestScopedStateStore implements RouterAbEd25519YaoProductRegistrationPa
   private state = createRouterAbEd25519YaoProductRegistrationStateV1();
   private sharedVersion: string | null = null;
   private ceremonyVersion: string | null = null;
+  private executionVersion: string | null = null;
   private commitSequence = 0;
 
   constructor(private readonly conflictAtCommit: number | null = null) {}
@@ -587,6 +597,8 @@ class RequestScopedStateStore implements RouterAbEd25519YaoProductRegistrationPa
       sharedState: structuredClone(partition.shared),
       sharedVersion: this.sharedVersion,
       ceremonyVersion: this.ceremonyVersion,
+      execution: null,
+      executionVersion: this.executionVersion,
     };
   }
 
@@ -610,7 +622,26 @@ class RequestScopedStateStore implements RouterAbEd25519YaoProductRegistrationPa
       kind: 'stored',
       sharedVersion: this.sharedVersion,
       ceremonyVersion: this.ceremonyVersion,
+      executionVersion: this.executionVersion,
     };
+  }
+
+  async claimRegistrationExecution(
+    _input: Parameters<RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1['claimRegistrationExecution']>[0],
+  ): Promise<RouterAbEd25519YaoRegistrationExecutionClaimResultV1> {
+    throw new Error('registration execution is outside the export test boundary');
+  }
+
+  async commitRegistrationExecution(
+    _input: Parameters<RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1['commitRegistrationExecution']>[0],
+  ): Promise<RouterAbEd25519YaoRegistrationExecutionCommitResultV1> {
+    throw new Error('registration execution is outside the export test boundary');
+  }
+
+  async consumeRegistrationExecution(
+    _input: RouterAbEd25519YaoActivationConsumptionRequestV1,
+  ): Promise<RouterAbEd25519YaoActivationConsumptionResultV1> {
+    throw new Error('registration execution is outside the export test boundary');
   }
 
   async sharedState(
@@ -630,6 +661,7 @@ function claimsForAuthorityWithThresholdSession(
 ): SessionClaims {
   return {
     kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+    authorizationKind: 'owner_wallet_session',
     sub: WALLET_ID,
     walletId: WALLET_ID,
     nearAccountId: NEAR_ACCOUNT_ID,
@@ -686,6 +718,7 @@ function namedAccountClaimsForCapability(
   });
   return {
     kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+    authorizationKind: 'owner_wallet_session',
     sub: walletId,
     walletId,
     nearAccountId: capability.nearAccountId,
@@ -810,9 +843,7 @@ function jsonAdmissionEnvelopeRequest(
   });
 }
 
-function jsonExecutionEnvelopeRequest(
-  body: RouterAbEd25519YaoExportExecuteRequestV1,
-): Request {
+function jsonExecutionEnvelopeRequest(body: RouterAbEd25519YaoExportExecuteRequestV1): Request {
   return new Request(`${ORIGIN}${ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1}`, {
     method: 'POST',
     headers: {
@@ -1239,7 +1270,10 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
         new ActiveCapabilityFixture(substitution),
       );
 
-      expect(await service.admitExport(request, exportAuthorizationIdentity()), substitution).toMatchObject({
+      expect(
+        await service.admitExport(request, exportAuthorizationIdentity()),
+        substitution,
+      ).toMatchObject({
         ok: false,
         status: 409,
         code: 'active_identity_mismatch',
@@ -1275,7 +1309,10 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
         new ActiveCapabilityFixture(),
       );
 
-      expect(await service.admitExport(request, exportAuthorizationIdentity()), substitution).toMatchObject({
+      expect(
+        await service.admitExport(request, exportAuthorizationIdentity()),
+        substitution,
+      ).toMatchObject({
         ok: false,
         status: 502,
         code: 'invalid_backend_response',
@@ -1332,7 +1369,9 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
       failingBackend,
       new ActiveCapabilityFixture(),
     );
-    expect((await failingService.admitExport(failureRequest, exportAuthorizationIdentity())).ok).toBe(true);
+    expect(
+      (await failingService.admitExport(failureRequest, exportAuthorizationIdentity())).ok,
+    ).toBe(true);
     const failureExecute = executeFixture(failureRequest);
     expect(
       await failingService.executeExport(failureExecute, exportAuthorizationIdentity()),
@@ -1370,9 +1409,13 @@ test.describe('Router A/B Ed25519 Yao export server boundary', () => {
     );
 
     expect((await service.admitExport(first, exportAuthorizationIdentity())).ok).toBe(true);
-    expect((await service.executeExport(executeFixture(first), exportAuthorizationIdentity())).ok).toBe(true);
+    expect(
+      (await service.executeExport(executeFixture(first), exportAuthorizationIdentity())).ok,
+    ).toBe(true);
     expect((await service.admitExport(second, exportAuthorizationIdentity())).ok).toBe(true);
-    expect((await service.executeExport(executeFixture(second), exportAuthorizationIdentity())).ok).toBe(true);
+    expect(
+      (await service.executeExport(executeFixture(second), exportAuthorizationIdentity())).ok,
+    ).toBe(true);
     expect((await service.admitExport(second, exportAuthorizationIdentity())).ok).toBe(true);
     expect(backend.admitCalls).toBe(2);
     expect(backend.executeCalls).toBe(2);

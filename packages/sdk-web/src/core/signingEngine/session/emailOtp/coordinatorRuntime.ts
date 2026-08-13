@@ -79,13 +79,14 @@ export class EmailOtpWalletSessionRuntime {
       commitEvmFamilyThresholdEcdsaSessions: deps.commitEvmFamilyThresholdEcdsaSessions,
       listActiveEcdsaCapabilityManifestsForWallet: deps.listActiveEcdsaCapabilityManifestsForWallet,
       writeExactSealedSession: deps.writeExactSealedSession,
-      readExactEd25519SealedSession: deps.readExactEd25519SealedSession,
       readExactSealedSession: deps.readExactSealedSession,
       clearEcdsaRestoreCaches: () => this.clearEcdsaRestoreCaches(),
     });
     this.ecdsaLifecycleRuntime = new EmailOtpEcdsaLifecycleRuntime({
       configs: deps.configs,
       getSignerWorkerContext: deps.getSignerWorkerContext,
+      loadWalletCustodyEd25519Material: deps.loadWalletCustodyEd25519Material,
+      restoreWalletCustodyEcdsaContinuity: deps.restoreWalletCustodyEcdsaContinuity,
       provisionThresholdEcdsaSession: deps.provisionThresholdEcdsaSession,
       provisionEmailOtpEcdsaExplicitExportSession: deps.provisionEmailOtpEcdsaExplicitExportSession,
       runtimeConfig: this.runtimeConfig,
@@ -97,6 +98,7 @@ export class EmailOtpWalletSessionRuntime {
       getSignerWorkerContext: deps.getSignerWorkerContext,
       requireRelayUrl: () => this.runtimeConfig.requireRelayUrl(),
       requireSigningSessionSealGroupId: () => this.runtimeConfig.requireSigningSessionSealGroupId(),
+      resolveAppSessionJwtForWallet: (request) => this.resolveAppSessionJwtForWallet(request),
       prepareEcdsaExportCapability: (request) =>
         this.ecdsaLifecycleRuntime.prepareEcdsaExportCapability(request),
     });
@@ -140,12 +142,6 @@ export class EmailOtpWalletSessionRuntime {
       sealedRefreshPolicy: this.sealedRefreshPolicy,
       sealedRestoreOrchestrator: this.sealedRestoreOrchestrator,
     });
-  }
-
-  async persistEd25519YaoCapabilityForRefresh(
-    args: Parameters<EmailOtpSealedSessionRegistry['persistEd25519YaoCapabilityForRefresh']>[0],
-  ): Promise<void> {
-    await this.sealedSessionRegistry.persistEd25519YaoCapabilityForRefresh(args);
   }
 
   async persistEcdsaSessionForRefresh(

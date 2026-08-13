@@ -1,52 +1,38 @@
 import {
   WasmActivatedClientV1,
-  WasmClientRecoverySessionV1,
-  WasmClientRegistrationSessionV1,
-  WasmEmailOtpClientExportSessionV1,
-  WasmEmailOtpClientRecoverySessionV1,
-  WasmEmailOtpClientRegistrationSessionV1,
-  WasmPasskeyClientExportSessionV1,
+  WasmCustodyEnvelopeExportSessionV1,
+  openWalletCustodyEd25519MaterialV1,
   default as initializeYaoClientWasm,
   type InitInput,
 } from '../../../../../../../crates/router-ab-ed25519-yao-client/pkg/router_ab_ed25519_yao_client.js';
 import {
-  ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
-  ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1,
   ROUTER_AB_ED25519_YAO_RECOVERY_ACTIVATE_PATH_V1,
   ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1,
   ROUTER_AB_ED25519_YAO_RECOVERY_EXECUTE_PATH_V1,
   ROUTER_AB_ED25519_YAO_RECOVERY_STATUS_PATH_V1,
   ROUTER_AB_ED25519_YAO_EXPORT_ADMISSION_PATH_V1,
   ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1,
-  parseRouterAbEd25519YaoRecoveryActivationAdmissionReceiptV1,
-  parseRouterAbEd25519YaoRecoveryActivationExecuteRequestV1,
-  parseRouterAbEd25519YaoRecoveryActivationReceiptV1,
-  parseRouterAbEd25519YaoRecoveryActivationResultV1,
-  parseRouterAbEd25519YaoRecoveryStatusV1,
-  parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1,
-  parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1,
-  parseRouterAbEd25519YaoRegistrationActivationResultV1,
+  ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
+  ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1,
   parseRouterAbEd25519YaoExportAdmissionReceiptV1,
   parseRouterAbEd25519YaoExportExecuteRequestV1,
   parseRouterAbEd25519YaoExportResultV1,
   type RouterAbEd25519YaoApplicationBindingFactsV1,
-  type RouterAbEd25519YaoActivationAdmissionReceiptV1,
-  type RouterAbEd25519YaoActivationExecuteRequestV1,
-  type RouterAbEd25519YaoActivationPublicReceiptV1,
-  type RouterAbEd25519YaoActivationResultV1,
   type RouterAbEd25519YaoBytes32V1,
+  type RouterAbEd25519YaoActivationExecuteRequestV1,
   type RouterAbEd25519YaoRecoveryActivationRequestV1,
-  type RouterAbEd25519YaoRecoveryActivationReceiptV1,
   type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
   type RouterAbEd25519YaoRecoveryStatusRequestV1,
-  type RouterAbEd25519YaoRecoveryStatusV1,
   type RouterAbEd25519YaoRegistrationAdmissionRequestV1,
   type RouterAbEd25519YaoExportAdmissionRequestV1,
   type RouterAbEd25519YaoExportAdmissionReceiptV1,
   type RouterAbEd25519YaoExportExecuteRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
-import { parseMpcMaterialActivationRef, type MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import {
+  parseMpcMaterialActivationRef,
+  type MpcMaterialActivationRef,
+} from '@shared/utils/domainIds';
 import { sameRouterAbMpcMaterialActivationRef } from '@shared/utils/routerAbNormalSigningIdentity';
 import { redactCredentialExtensionOutputs } from '@/core/signingEngine/webauthnAuth/credentials/credentialExtensions';
 import {
@@ -56,13 +42,7 @@ import {
   type RouterAbTraceContextV1,
 } from '@shared/utils/routerAbTraceContext';
 
-type RegistrationAdmissionReceiptV1 =
-  RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
-type RegistrationExecuteRequestV1 = RouterAbEd25519YaoActivationExecuteRequestV1<'registration'>;
-type RegistrationWireResultV1 = RouterAbEd25519YaoActivationResultV1<'registration'>;
-type RecoveryAdmissionReceiptV1 = RouterAbEd25519YaoActivationAdmissionReceiptV1<'recovery'>;
 type RecoveryExecuteRequestV1 = RouterAbEd25519YaoActivationExecuteRequestV1<'recovery'>;
-type RecoveryWireResultV1 = RouterAbEd25519YaoActivationResultV1<'recovery'>;
 
 export const ROUTER_AB_ED25519_YAO_ACTIVE_CLIENT_KIND_V1 =
   'router_ab_ed25519_yao_active_client_v1' as const;
@@ -87,21 +67,21 @@ export type RouterAbEd25519YaoRegistrationTransportResultV1 =
     }
   | RouterAbEd25519YaoRegistrationTransportFailureV1;
 
-export type RouterAbEd25519YaoRegistrationTransportRequestV1 =
+export type RouterAbEd25519YaoRegistrationAdmissionTransportRequestV1 =
   | {
-      kind: 'admit';
-      path: typeof ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1;
-      body: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+      readonly kind: 'admit';
+      readonly path: typeof ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1;
+      readonly body: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
     }
   | {
-      kind: 'execute';
-      path: typeof ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1;
-      body: RegistrationExecuteRequestV1;
+      readonly kind: 'execute';
+      readonly path: typeof ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1;
+      readonly body: RouterAbEd25519YaoActivationExecuteRequestV1<'registration'>;
     };
 
-export interface RouterAbEd25519YaoRegistrationTransportV1 {
+export interface RouterAbEd25519YaoRegistrationAdmissionTransportV1 {
   send(
-    request: RouterAbEd25519YaoRegistrationTransportRequestV1,
+    request: RouterAbEd25519YaoRegistrationAdmissionTransportRequestV1,
   ): Promise<RouterAbEd25519YaoRegistrationTransportResultV1>;
 }
 
@@ -247,22 +227,31 @@ export type RouterAbEd25519YaoImportLocalMaterialInputV1 = {
   metadata: RouterAbEd25519YaoActiveClientMetadataV1;
 };
 
-export type RouterAbEd25519YaoEmailOtpSealedLocalMaterialV1 = {
-  kind: 'router_ab_ed25519_yao_email_otp_sealed_local_material_v1';
-  nonce: Uint8Array;
-  ciphertext: Uint8Array;
-};
-
-export type RouterAbEd25519YaoSealEmailOtpLocalMaterialInputV1 = {
-  ownedEnrollmentSecret32: Uint8Array;
-  binding: Uint8Array;
-  nonce: Uint8Array;
-};
-
-export type RouterAbEd25519YaoImportEmailOtpLocalMaterialInputV1 = {
-  ownedEnrollmentSecret32: Uint8Array;
-  binding: Uint8Array;
-  sealed: RouterAbEd25519YaoEmailOtpSealedLocalMaterialV1;
+/**
+ * Opening the wallet's continuity cache with any enrolled factor.
+ *
+ * Carries no `binding`, unlike the per-factor inputs above. The seal binding
+ * is rebuilt inside wasm from the record's own fields, because it is both
+ * HKDF input and AEAD associated data — a caller that assembled it even
+ * slightly differently would hold a record that never opens, and the failure
+ * would read as a bad factor rather than a bad binding.
+ *
+ * The factor secret is whatever opened the custody envelope: `PRF.first`, or
+ * the Email OTP factor key. Which one is immaterial here, and that is the
+ * point of sealing the cache under the custody seed.
+ */
+export type RouterAbEd25519YaoOpenCustodyCacheInputV1 = {
+  ownedFactorSecret: Uint8Array;
+  /** The custody envelope, as stored, and its sealed seed. */
+  envelope: {
+    bindingJson: string;
+    nonce: Uint8Array;
+    ciphertext: Uint8Array;
+    aadHash: Uint8Array;
+    ciphertextDigest: Uint8Array;
+  };
+  applicationBindingDigest: Uint8Array;
+  sealed: RouterAbEd25519YaoSealedLocalMaterialV1;
   metadata: RouterAbEd25519YaoActiveClientMetadataV1;
 };
 
@@ -277,36 +266,6 @@ export type RouterAbEd25519YaoClientSigningShareV1 = {
   clientVerifyingShare: Uint8Array;
   clientSignatureShareB64u: string;
 };
-
-export type RouterAbEd25519YaoRegistrationResultV1 =
-  | {
-      ok: true;
-      activeClient: RouterAbEd25519YaoSealableActiveClientV1;
-      /** Raw Router `Server-Timing` for the execute call. Diagnostics only. */
-      routerServerTiming?: string;
-      /** Client-observed Yao sub-steps in ms. Diagnostics only. */
-      clientTimings?: { admissionMs: number; sessionCreateMs: number };
-    }
-  | RouterAbEd25519YaoRegistrationFailureV1;
-
-export type RouterAbEd25519YaoRecoveryResultV1 =
-  | {
-      ok: true;
-      activeClient: RouterAbEd25519YaoSealableActiveClientV1;
-      activation: RouterAbEd25519YaoRecoveryActivationReceiptV1;
-    }
-  | RouterAbEd25519YaoRegistrationFailureV1;
-
-export type RouterAbEd25519YaoPreparedRecoveryInputV1 = {
-  request: RouterAbEd25519YaoRecoveryAdmissionRequestV1;
-  factor: RouterAbEd25519YaoClientRootFactorV1;
-  transport: RouterAbEd25519YaoRecoveryTransportV1;
-  entropy: RouterAbEd25519YaoActivationEntropyV1;
-};
-
-export type RouterAbEd25519YaoRecoveryStatusResultV1 =
-  | { ok: true; status: RouterAbEd25519YaoRecoveryStatusV1 }
-  | RouterAbEd25519YaoRegistrationTransportFailureV1;
 
 export type RouterAbEd25519YaoHttpTransportConfigV1 = {
   routerOrigin: string;
@@ -341,9 +300,6 @@ export interface RouterAbEd25519YaoSealableActiveClientV1 extends RouterAbEd2551
   sealLocalMaterial(
     input: RouterAbEd25519YaoSealLocalMaterialInputV1,
   ): RouterAbEd25519YaoSealedLocalMaterialV1;
-  sealEmailOtpLocalMaterial(
-    input: RouterAbEd25519YaoSealEmailOtpLocalMaterialInputV1,
-  ): RouterAbEd25519YaoEmailOtpSealedLocalMaterialV1;
 }
 
 const ACTIVE_CLIENT_CONSTRUCTION = Symbol('router-ab-ed25519-yao-active-client-construction');
@@ -368,150 +324,34 @@ function requireBytes12(value: Uint8Array, label: string): Uint8Array {
   return value;
 }
 
-export type RouterAbEd25519YaoClientRootFactorV1 =
-  | {
-      kind: 'passkey_prf_first';
-      ownedSecret32: Uint8Array;
-    }
-  | {
-      kind: 'email_otp_factor';
-      ownedSecret32: Uint8Array;
-    };
-
-type PasskeyClientRootFactorV1 = Extract<
-  RouterAbEd25519YaoClientRootFactorV1,
-  { kind: 'passkey_prf_first' }
->;
-
-type EmailOtpClientRootFactorV1 = Extract<
-  RouterAbEd25519YaoClientRootFactorV1,
-  { kind: 'email_otp_factor' }
->;
-
 export type RouterAbEd25519YaoExportSeedInputV1 = {
   request: RouterAbEd25519YaoExportAdmissionRequestV1;
   transport: RouterAbEd25519YaoExportTransportV1;
-} & (
-  | {
-      factor: PasskeyClientRootFactorV1;
-      authorization: Extract<RouterAbEd25519YaoExportFreshAuthorizationV1, { kind: 'passkey' }>;
-    }
-  | {
-      factor: EmailOtpClientRootFactorV1;
-      authorization: Extract<
-        RouterAbEd25519YaoExportFreshAuthorizationV1,
-        { kind: 'email_otp_factor' }
-      >;
-    }
-);
+  custodyEnvelope: {
+    factorSecret: Uint8Array;
+    bindingJson: string;
+    nonce: Uint8Array;
+    ciphertext: Uint8Array;
+    aadHash: Uint8Array;
+    ciphertextDigest: Uint8Array;
+  };
+  authorization: RouterAbEd25519YaoExportFreshAuthorizationV1;
+};
 
-type FactorSecretConsumptionResultV1 =
-  | { ok: true; value: Uint8Array }
-  | RouterAbEd25519YaoRegistrationFailureV1;
-
-function consumeOwnedFactorSecret(
-  factor: RouterAbEd25519YaoClientRootFactorV1,
-): FactorSecretConsumptionResultV1 {
-  const owned = factor.ownedSecret32;
-  try {
-    const label = factor.kind === 'passkey_prf_first' ? 'passkey PRF.first' : 'Email OTP factor';
-    return { ok: true, value: requireBytes32(owned.slice(), label) };
-  } catch (error) {
-    return {
-      ok: false,
-      code: 'invalid_factor_secret',
-      status: 0,
-      message: error instanceof Error ? error.message : String(error),
-    };
-  } finally {
-    owned.fill(0);
-  }
-}
-
-function reownConsumedFactorSecret(
-  kind: RouterAbEd25519YaoClientRootFactorV1['kind'],
-  ownedSecret32: Uint8Array,
-): RouterAbEd25519YaoClientRootFactorV1 {
-  switch (kind) {
-    case 'passkey_prf_first':
-      return { kind, ownedSecret32 };
-    case 'email_otp_factor':
-      return { kind, ownedSecret32 };
-  }
-}
-
-type WasmRegistrationSessionV1 =
-  | WasmClientRegistrationSessionV1
-  | WasmEmailOtpClientRegistrationSessionV1;
-
-type WasmRecoverySessionV1 = WasmClientRecoverySessionV1 | WasmEmailOtpClientRecoverySessionV1;
-
-type WasmExportSessionV1 = WasmPasskeyClientExportSessionV1 | WasmEmailOtpClientExportSessionV1;
-
-function createRegistrationSession(args: {
-  admission: unknown;
-  applicationBinding: RouterAbEd25519YaoApplicationBindingFactsV1;
-  participantIds: readonly [number, number];
-  factor: RouterAbEd25519YaoClientRootFactorV1['kind'];
-  secret32: Uint8Array;
-  entropy: RouterAbEd25519YaoActivationEntropyV1;
-}): WasmRegistrationSessionV1 {
-  const common = [
-    JSON.stringify(args.admission),
-    JSON.stringify(args.applicationBinding),
-    args.participantIds[0],
-    args.participantIds[1],
-    args.secret32,
-    args.entropy.recipientKeyMaterial,
-    args.entropy.deriverASealSeed,
-    args.entropy.deriverBSealSeed,
-  ] as const;
-  switch (args.factor) {
-    case 'passkey_prf_first':
-      return new WasmClientRegistrationSessionV1(...common);
-    case 'email_otp_factor':
-      return new WasmEmailOtpClientRegistrationSessionV1(...common);
-    default:
-      return assertNever(args.factor);
-  }
-}
-
-function createRecoverySession(args: {
-  admission: unknown;
-  applicationBinding: RouterAbEd25519YaoApplicationBindingFactsV1;
-  participantIds: readonly [number, number];
-  factor: RouterAbEd25519YaoClientRootFactorV1['kind'];
-  secret32: Uint8Array;
-  registeredPublicKey: Uint8Array;
-  entropy: RouterAbEd25519YaoActivationEntropyV1;
-}): WasmRecoverySessionV1 {
-  const common = [
-    JSON.stringify(args.admission),
-    JSON.stringify(args.applicationBinding),
-    args.participantIds[0],
-    args.participantIds[1],
-    args.secret32,
-    args.registeredPublicKey,
-    args.entropy.recipientKeyMaterial,
-    args.entropy.deriverASealSeed,
-    args.entropy.deriverBSealSeed,
-  ] as const;
-  switch (args.factor) {
-    case 'passkey_prf_first':
-      return new WasmClientRecoverySessionV1(...common);
-    case 'email_otp_factor':
-      return new WasmEmailOtpClientRecoverySessionV1(...common);
-    default:
-      return assertNever(args.factor);
-  }
-}
+type WasmExportSessionV1 = WasmCustodyEnvelopeExportSessionV1;
 
 function createExportSession(args: {
   admission: unknown;
   applicationBinding: RouterAbEd25519YaoApplicationBindingFactsV1;
   participantIds: readonly [number, number];
-  factor: RouterAbEd25519YaoClientRootFactorV1['kind'];
-  secret32: Uint8Array;
+  custodyEnvelope: {
+    factorSecret: Uint8Array;
+    bindingJson: string;
+    nonce: Uint8Array;
+    ciphertext: Uint8Array;
+    aadHash: Uint8Array;
+    ciphertextDigest: Uint8Array;
+  };
   entropy: RouterAbEd25519YaoActivationEntropyV1;
 }): WasmExportSessionV1 {
   const common = [
@@ -519,19 +359,17 @@ function createExportSession(args: {
     JSON.stringify(args.applicationBinding),
     args.participantIds[0],
     args.participantIds[1],
-    args.secret32,
+    args.custodyEnvelope.factorSecret,
+    args.custodyEnvelope.bindingJson,
+    args.custodyEnvelope.nonce,
+    args.custodyEnvelope.ciphertext,
+    args.custodyEnvelope.aadHash,
+    args.custodyEnvelope.ciphertextDigest,
     args.entropy.recipientKeyMaterial,
     args.entropy.deriverASealSeed,
     args.entropy.deriverBSealSeed,
   ] as const;
-  switch (args.factor) {
-    case 'passkey_prf_first':
-      return new WasmPasskeyClientExportSessionV1(...common);
-    case 'email_otp_factor':
-      return new WasmEmailOtpClientExportSessionV1(...common);
-    default:
-      return assertNever(args.factor);
-  }
+  return new WasmCustodyEnvelopeExportSessionV1(...common);
 }
 
 export type RouterAbEd25519YaoActivationEntropyV1 = {
@@ -572,23 +410,6 @@ function assertNever(value: never): never {
   throw new Error(`Unhandled Ed25519 Yao Client lifecycle: ${String(value)}`);
 }
 
-type RecoveryContinuationV1 =
-  | {
-      stage: 'admitted';
-      admission: RecoveryAdmissionReceiptV1;
-    }
-  | {
-      stage: 'executed';
-      admission: RecoveryAdmissionReceiptV1;
-      executionResult: RecoveryWireResultV1;
-    }
-  | {
-      stage: 'promoted';
-      admission: RecoveryAdmissionReceiptV1;
-      executionResult: RecoveryWireResultV1;
-      activation: RouterAbEd25519YaoRecoveryActivationReceiptV1;
-    };
-
 function requireActiveRegistration(
   lifecycle: RouterAbEd25519YaoActiveClientLifecycleV1,
 ): WasmActivatedClientV1 {
@@ -600,51 +421,6 @@ function requireActiveRegistration(
     default:
       return assertNever(lifecycle);
   }
-}
-
-function sealWasmEmailOtpLocalMaterial(input: {
-  activated: WasmActivatedClientV1;
-  ownedEnrollmentSecret32: Uint8Array;
-  binding: Uint8Array;
-  nonce: Uint8Array;
-}): Uint8Array {
-  const method: unknown = Reflect.get(input.activated, 'seal_email_otp_local_material');
-  if (typeof method !== 'function') {
-    throw new Error('Bundled Ed25519 Yao WASM does not support Email OTP local material sealing');
-  }
-  const output: unknown = Reflect.apply(method, input.activated, [
-    input.ownedEnrollmentSecret32,
-    input.binding,
-    input.nonce,
-  ]);
-  if (!(output instanceof Uint8Array)) {
-    throw new Error('Ed25519 Yao WASM returned invalid Email OTP sealed material');
-  }
-  return output;
-}
-
-function importWasmEmailOtpLocalMaterial(
-  input: RouterAbEd25519YaoImportEmailOtpLocalMaterialInputV1,
-): WasmActivatedClientV1 {
-  const method: unknown = Reflect.get(WasmActivatedClientV1, 'import_email_otp_local_material');
-  if (typeof method !== 'function') {
-    throw new Error('Bundled Ed25519 Yao WASM does not support Email OTP local material import');
-  }
-  const output: unknown = Reflect.apply(method, WasmActivatedClientV1, [
-    requireBytes32(input.ownedEnrollmentSecret32, 'Email OTP enrollment secret'),
-    input.binding,
-    requireBytes12(input.sealed.nonce, 'Email OTP local material nonce'),
-    input.sealed.ciphertext,
-    input.metadata.registeredPublicKey,
-    input.metadata.stateEpoch,
-    input.metadata.participantIds[0],
-    input.metadata.participantIds[1],
-    input.metadata.signingWorkerVerifyingShare,
-  ]);
-  if (!(output instanceof WasmActivatedClientV1)) {
-    throw new Error('Ed25519 Yao WASM returned invalid Email OTP active Client material');
-  }
-  return output;
 }
 
 function randomNonzeroBytes32(): Uint8Array {
@@ -671,158 +447,6 @@ function parseCommitmentsJson(value: string): Readonly<{ hiding: string; binding
   return { hiding: record.hiding, binding: record.binding };
 }
 
-function publicReceiptMetadata(
-  receipt: RouterAbEd25519YaoActivationPublicReceiptV1,
-): Pick<
-  RouterAbEd25519YaoActiveClientMetadataV1,
-  'signingWorkerVerifyingShare' | 'transcript' | 'materialActivation'
-> {
-  const wire = receipt.material_activation;
-  const materialActivation = parseMpcMaterialActivationRef({
-    kind: wire.kind,
-    activationId: wire.activation_id,
-    capability: wire.capability,
-    materialOwner: wire.material_owner,
-    keyBinding: wire.key_binding,
-    lifecycleBinding: wire.lifecycle_binding,
-    signingWorker: wire.signing_worker,
-  });
-  if (!materialActivation.ok) {
-    throw new Error(`Invalid activation material reference: ${materialActivation.error.message}`);
-  }
-  return {
-    signingWorkerVerifyingShare: Uint8Array.from(receipt.signing_worker_verifying_share),
-    transcript: Uint8Array.from(receipt.transcript),
-    materialActivation: materialActivation.value,
-  };
-}
-
-function recoveryActivationMatches(
-  request: RouterAbEd25519YaoRecoveryAdmissionRequestV1,
-  result: RecoveryWireResultV1,
-  activation: RouterAbEd25519YaoRecoveryActivationReceiptV1,
-): boolean {
-  return (
-    JSON.stringify(activation.binding) === JSON.stringify(result.binding) &&
-    JSON.stringify(activation.public_receipt) === JSON.stringify(result.public_receipt) &&
-    sameRouterAbMpcMaterialActivationRef(
-      result.binding.material_activation,
-      request.scope.material_activation,
-    ) &&
-    equalBytes(activation.active_capability_binding, request.replacement_capability_binding) &&
-    equalBytes(activation.retired_capability_binding, request.active_capability_binding) &&
-    equalBytes(activation.public_receipt.registered_public_key, request.registered_public_key)
-  );
-}
-
-function activationAdmissionMatchesScope(
-  scope: RouterAbEd25519YaoRegistrationAdmissionRequestV1['scope'],
-  receipt: RouterAbEd25519YaoActivationAdmissionReceiptV1,
-): boolean {
-  const lifecycle = receipt.binding.lifecycle;
-  return (
-    lifecycle.lifecycle_id === scope.lifecycle_id &&
-    lifecycle.root_share_epoch === scope.root_share_epoch &&
-    lifecycle.account_id === scope.account_id &&
-    lifecycle.session_id === scope.threshold_session_id &&
-    lifecycle.signer_set_id === scope.signer_set_id &&
-    lifecycle.selected_server_id === scope.signing_worker_id &&
-    sameRouterAbMpcMaterialActivationRef(
-      receipt.binding.material_activation,
-      scope.material_activation,
-    )
-  );
-}
-
-function recoveryContinuationFromStatus(
-  request: RouterAbEd25519YaoRecoveryAdmissionRequestV1,
-  status: RouterAbEd25519YaoRecoveryStatusV1,
-): { ok: true; value: RecoveryContinuationV1 } | RouterAbEd25519YaoRegistrationTransportFailureV1 {
-  if (status.lifecycle_id !== request.scope.lifecycle_id) {
-    return {
-      ok: false,
-      code: 'invalid_router_response',
-      status: 0,
-      message: 'Router recovery status does not match the requested lifecycle',
-    };
-  }
-  switch (status.stage) {
-    case 'missing':
-      return {
-        ok: false,
-        code: 'router_rejected',
-        status: 409,
-        message: 'Router recovery admission is unavailable',
-      };
-    case 'admitted':
-      if (!activationAdmissionMatchesScope(request.scope, status.admission_receipt)) {
-        break;
-      }
-      return {
-        ok: true,
-        value: { stage: 'admitted', admission: status.admission_receipt },
-      };
-    case 'executed':
-      if (!activationAdmissionMatchesScope(request.scope, status.admission_receipt)) {
-        break;
-      }
-      return {
-        ok: true,
-        value: {
-          stage: 'executed',
-          admission: status.admission_receipt,
-          executionResult: status.execution_result,
-        },
-      };
-    case 'promoted':
-      if (!activationAdmissionMatchesScope(request.scope, status.admission_receipt)) {
-        break;
-      }
-      return {
-        ok: true,
-        value: {
-          stage: 'promoted',
-          admission: status.admission_receipt,
-          executionResult: status.execution_result,
-          activation: status.activation_receipt,
-        },
-      };
-    default:
-      return assertNever(status);
-  }
-  return {
-    ok: false,
-    code: 'invalid_router_response',
-    status: 0,
-    message: 'Router recovery admission does not match the requested lifecycle scope',
-  };
-}
-
-export async function readRouterAbEd25519YaoRecoveryStatusV1(input: {
-  request: RouterAbEd25519YaoRecoveryAdmissionRequestV1;
-  transport: RouterAbEd25519YaoRecoveryTransportV1;
-}): Promise<RouterAbEd25519YaoRecoveryStatusResultV1> {
-  const response = await input.transport.send({
-    kind: 'recovery_status',
-    path: ROUTER_AB_ED25519_YAO_RECOVERY_STATUS_PATH_V1,
-    body: {
-      kind: 'router_ab_ed25519_yao_recovery_status_request_v1',
-      admission: input.request,
-    },
-  });
-  if (!response.ok) return response;
-  const parsed = parseRouterAbEd25519YaoRecoveryStatusV1(response.value);
-  if (!parsed.ok) {
-    return {
-      ok: false,
-      code: 'invalid_router_response',
-      status: 0,
-      message: parsed.message,
-    };
-  }
-  return { ok: true, status: parsed.value };
-}
-
 function exportAdmissionMatchesRequest(
   request: RouterAbEd25519YaoExportAdmissionRequestV1,
   receipt: RouterAbEd25519YaoExportAdmissionReceiptV1,
@@ -844,146 +468,6 @@ function exportAdmissionMatchesRequest(
     equalBytes(receipt.binding.runtime_policy_binding, request.runtime_policy_binding) &&
     equalBytes(receipt.binding.authorization_digest, request.authorization.authorization_digest)
   );
-}
-
-async function continuePreparedRecovery(args: {
-  request: RouterAbEd25519YaoRecoveryAdmissionRequestV1;
-  factorKind: RouterAbEd25519YaoClientRootFactorV1['kind'];
-  factorSecret32: Uint8Array;
-  entropy: RouterAbEd25519YaoActivationEntropyV1;
-  continuation: RecoveryContinuationV1;
-  transport: RouterAbEd25519YaoRecoveryTransportV1;
-}): Promise<RouterAbEd25519YaoRecoveryResultV1> {
-  let session: WasmClientRecoverySessionV1;
-  try {
-    session = createRecoverySession({
-      admission: args.continuation.admission,
-      applicationBinding: args.request.application_binding,
-      participantIds: args.request.participant_ids,
-      factor: args.factorKind,
-      secret32: args.factorSecret32,
-      registeredPublicKey: Uint8Array.from(args.request.registered_public_key),
-      entropy: args.entropy,
-    });
-  } catch (error) {
-    return {
-      ok: false,
-      code: 'invalid_client_result',
-      status: 0,
-      message: error instanceof Error ? error.message : String(error),
-    };
-  } finally {
-    args.factorSecret32.fill(0);
-    zeroizeRouterAbEd25519YaoActivationEntropyV1(args.entropy);
-  }
-
-  try {
-    let result: RecoveryWireResultV1;
-    switch (args.continuation.stage) {
-      case 'admitted': {
-        const executeRequest = parseRouterAbEd25519YaoRecoveryActivationExecuteRequestV1(
-          JSON.parse(session.execute_request_json()),
-        );
-        if (!executeRequest.ok) {
-          return {
-            ok: false,
-            code: 'invalid_client_result',
-            status: 0,
-            message: executeRequest.message,
-          };
-        }
-        const executeResponse = await args.transport.send({
-          kind: 'recovery_execute',
-          path: ROUTER_AB_ED25519_YAO_RECOVERY_EXECUTE_PATH_V1,
-          body: executeRequest.value,
-        });
-        if (!executeResponse.ok) return executeResponse;
-        const parsedResult = parseRouterAbEd25519YaoRecoveryActivationResultV1(
-          executeResponse.value,
-        );
-        if (!parsedResult.ok) {
-          return {
-            ok: false,
-            code: 'invalid_router_response',
-            status: 0,
-            message: parsedResult.message,
-          };
-        }
-        result = parsedResult.value;
-        break;
-      }
-      case 'executed':
-      case 'promoted':
-        result = args.continuation.executionResult;
-        break;
-      default:
-        return assertNever(args.continuation);
-    }
-
-    const activated = session.complete(JSON.stringify(result));
-    try {
-      let activation: RouterAbEd25519YaoRecoveryActivationReceiptV1;
-      if (args.continuation.stage === 'promoted') {
-        activation = args.continuation.activation;
-      } else {
-        const activationResponse = await args.transport.send({
-          kind: 'recovery_activate',
-          path: ROUTER_AB_ED25519_YAO_RECOVERY_ACTIVATE_PATH_V1,
-          body: {
-            binding: result.binding,
-            public_receipt: result.public_receipt,
-          },
-        });
-        if (!activationResponse.ok) {
-          activated.free();
-          return activationResponse;
-        }
-        const parsedActivation = parseRouterAbEd25519YaoRecoveryActivationReceiptV1(
-          activationResponse.value,
-        );
-        if (!parsedActivation.ok) {
-          activated.free();
-          return {
-            ok: false,
-            code: 'invalid_router_response',
-            status: 0,
-            message: parsedActivation.message,
-          };
-        }
-        activation = parsedActivation.value;
-      }
-      if (!recoveryActivationMatches(args.request, result, activation)) {
-        activated.free();
-        return {
-          ok: false,
-          code: 'invalid_router_response',
-          status: 0,
-          message: 'Router recovery activation does not match the verified result',
-        };
-      }
-      const activeClient = createVerifiedActiveClient({
-        activated,
-        scope: args.request.scope,
-        applicationBinding: args.request.application_binding,
-        participantIds: args.request.participant_ids,
-        result,
-        activeCapabilityBinding: activation.active_capability_binding,
-      });
-      return { ok: true, activeClient, activation };
-    } catch (error) {
-      activated.free();
-      throw error;
-    }
-  } catch (error) {
-    return {
-      ok: false,
-      code: 'invalid_client_result',
-      status: 0,
-      message: error instanceof Error ? error.message : String(error),
-    };
-  } finally {
-    session.free();
-  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1119,7 +603,7 @@ function serializePerformanceServerTiming(value: unknown): string | null {
 
 export class RouterAbEd25519YaoHttpActivationTransportV1
   implements
-    RouterAbEd25519YaoRegistrationTransportV1,
+    RouterAbEd25519YaoRegistrationAdmissionTransportV1,
     RouterAbEd25519YaoRecoveryTransportV1,
     RouterAbEd25519YaoExportTransportV1
 {
@@ -1135,7 +619,7 @@ export class RouterAbEd25519YaoHttpActivationTransportV1
 
   async send(
     request:
-      | RouterAbEd25519YaoRegistrationTransportRequestV1
+      | RouterAbEd25519YaoRegistrationAdmissionTransportRequestV1
       | RouterAbEd25519YaoRecoveryTransportRequestV1
       | RouterAbEd25519YaoExportTransportRequestV1,
   ): Promise<RouterAbEd25519YaoRegistrationTransportResultV1> {
@@ -1221,30 +705,6 @@ export class WasmRouterAbEd25519YaoActiveClientV1 implements RouterAbEd25519YaoS
       };
     } finally {
       input.ownedPasskeyPrfFirst.fill(0);
-    }
-  }
-
-  sealEmailOtpLocalMaterial(
-    input: RouterAbEd25519YaoSealEmailOtpLocalMaterialInputV1,
-  ): RouterAbEd25519YaoEmailOtpSealedLocalMaterialV1 {
-    const activated = requireActiveRegistration(this.lifecycle);
-    try {
-      const nonce = requireBytes12(input.nonce, 'Email OTP local material nonce');
-      return {
-        kind: 'router_ab_ed25519_yao_email_otp_sealed_local_material_v1',
-        nonce: nonce.slice(),
-        ciphertext: sealWasmEmailOtpLocalMaterial({
-          activated,
-          ownedEnrollmentSecret32: requireBytes32(
-            input.ownedEnrollmentSecret32,
-            'Email OTP enrollment secret',
-          ),
-          binding: input.binding,
-          nonce,
-        }),
-      };
-    } finally {
-      input.ownedEnrollmentSecret32.fill(0);
     }
   }
 
@@ -1337,33 +797,6 @@ export class WasmRouterAbEd25519YaoActiveClientV1 implements RouterAbEd25519YaoS
   }
 }
 
-function createVerifiedActiveClient(input: {
-  activated: WasmActivatedClientV1;
-  scope: RouterAbEd25519YaoRegistrationAdmissionRequestV1['scope'];
-  applicationBinding: RouterAbEd25519YaoApplicationBindingFactsV1;
-  participantIds: readonly [number, number];
-  result: RegistrationWireResultV1 | RecoveryWireResultV1;
-  activeCapabilityBinding: RouterAbEd25519YaoBytes32V1;
-}): WasmRouterAbEd25519YaoActiveClientV1 {
-  const receipt = publicReceiptMetadata(input.result.public_receipt);
-  return new WasmRouterAbEd25519YaoActiveClientV1({
-    [ACTIVE_CLIENT_CONSTRUCTION]: true,
-    metadata: {
-      kind: ROUTER_AB_ED25519_YAO_ACTIVE_CLIENT_KIND_V1,
-      scope: input.scope,
-      applicationBinding: input.applicationBinding,
-      participantIds: input.participantIds,
-      registeredPublicKey: input.activated.registered_public_key(),
-      signingWorkerVerifyingShare: receipt.signingWorkerVerifyingShare,
-      stateEpoch: input.activated.state_epoch(),
-      transcript: receipt.transcript,
-      activeCapabilityBinding: [...input.activeCapabilityBinding],
-      materialActivation: receipt.materialActivation,
-    },
-    activated: input.activated,
-  });
-}
-
 function importVerifiedActiveClient(
   input: RouterAbEd25519YaoImportLocalMaterialInputV1,
 ): WasmRouterAbEd25519YaoActiveClientV1 {
@@ -1393,12 +826,27 @@ function importVerifiedActiveClient(
   }
 }
 
-function importVerifiedEmailOtpActiveClient(
-  input: RouterAbEd25519YaoImportEmailOtpLocalMaterialInputV1,
+function openVerifiedCustodyCacheActiveClient(
+  input: RouterAbEd25519YaoOpenCustodyCacheInputV1,
 ): WasmRouterAbEd25519YaoActiveClientV1 {
   let activated: WasmActivatedClientV1 | null = null;
   try {
-    activated = importWasmEmailOtpLocalMaterial(input);
+    activated = openWalletCustodyEd25519MaterialV1(
+      input.ownedFactorSecret,
+      input.envelope.bindingJson,
+      input.envelope.nonce,
+      input.envelope.ciphertext,
+      input.envelope.aadHash,
+      input.envelope.ciphertextDigest,
+      input.applicationBindingDigest,
+      input.metadata.registeredPublicKey,
+      input.metadata.stateEpoch,
+      input.metadata.participantIds[0],
+      input.metadata.participantIds[1],
+      input.metadata.signingWorkerVerifyingShare,
+      input.sealed.nonce,
+      input.sealed.ciphertext,
+    );
     return new WasmRouterAbEd25519YaoActiveClientV1({
       [ACTIVE_CLIENT_CONSTRUCTION]: true,
       metadata: input.metadata,
@@ -1408,7 +856,10 @@ function importVerifiedEmailOtpActiveClient(
     activated?.free();
     throw error;
   } finally {
-    input.ownedEnrollmentSecret32.fill(0);
+    /* Zeroed on every path, like the per-factor importers. The factor secret
+       opened the custody envelope moments ago; leaving it in a live buffer
+       would outlast the one call it was needed for. */
+    input.ownedFactorSecret.fill(0);
   }
 }
 
@@ -1433,261 +884,19 @@ export class RouterAbEd25519YaoClientV1 {
     return importVerifiedActiveClient(input);
   }
 
-  importEmailOtpLocalMaterial(
-    input: RouterAbEd25519YaoImportEmailOtpLocalMaterialInputV1,
+  /**
+   * Opens the wallet continuity cache with any factor that opens its custody
+   * envelope — the read side cold and warm unlock share.
+   */
+  openCustodyCache(
+    input: RouterAbEd25519YaoOpenCustodyCacheInputV1,
   ): RouterAbEd25519YaoActiveClientV1 {
-    return importVerifiedEmailOtpActiveClient(input);
-  }
-
-  async register(args: {
-    request: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
-    factor: RouterAbEd25519YaoClientRootFactorV1;
-    transport: RouterAbEd25519YaoRegistrationTransportV1;
-  }): Promise<RouterAbEd25519YaoRegistrationResultV1> {
-    const factorKind = args.factor.kind;
-    const consumedFactor = consumeOwnedFactorSecret(args.factor);
-    if (!consumedFactor.ok) return consumedFactor;
-    const factorSecret32 = consumedFactor.value;
-    const admissionResponse = await args.transport.send({
-      kind: 'admit',
-      path: ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
-      body: args.request,
-    });
-    if (!admissionResponse.ok) {
-      factorSecret32.fill(0);
-      return admissionResponse;
-    }
-    const admission = parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1(
-      admissionResponse.value,
-    );
-    if (!admission.ok) {
-      factorSecret32.fill(0);
-      return { ok: false, code: 'invalid_router_response', status: 0, message: admission.message };
-    }
-    return await this.registerAdmitted({
-      request: args.request,
-      admissionReceipt: admission.value,
-      factor: reownConsumedFactorSecret(factorKind, factorSecret32),
-      transport: args.transport,
-    });
-  }
-
-  async registerAdmitted(args: {
-    request: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
-    admissionReceipt: RegistrationAdmissionReceiptV1;
-    factor: RouterAbEd25519YaoClientRootFactorV1;
-    transport: RouterAbEd25519YaoRegistrationTransportV1;
-  }): Promise<RouterAbEd25519YaoRegistrationResultV1> {
-    const factorKind = args.factor.kind;
-    const consumedFactor = consumeOwnedFactorSecret(args.factor);
-    if (!consumedFactor.ok) return consumedFactor;
-    const factorSecret32 = consumedFactor.value;
-    const admissionStartedAt = performance.now();
-    const admission = parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1(
-      args.admissionReceipt,
-    );
-    if (!admission.ok) {
-      factorSecret32.fill(0);
-      return { ok: false, code: 'invalid_router_response', status: 0, message: admission.message };
-    }
-    if (!activationAdmissionMatchesScope(args.request.scope, admission.value)) {
-      factorSecret32.fill(0);
-      return {
-        ok: false,
-        code: 'invalid_router_response',
-        status: 0,
-        message: 'Router admission receipt does not match the requested lifecycle scope',
-      };
-    }
-
-    const admissionMs = performance.now() - admissionStartedAt;
-    const entropy = createRouterAbEd25519YaoActivationEntropyV1();
-    const sessionCreateStartedAt = performance.now();
-    let session: WasmClientRegistrationSessionV1;
-    try {
-      session = createRegistrationSession({
-        admission: admission.value,
-        applicationBinding: args.request.application_binding,
-        participantIds: args.request.participant_ids,
-        factor: factorKind,
-        secret32: factorSecret32,
-        entropy,
-      });
-    } catch (error) {
-      return {
-        ok: false,
-        code: 'invalid_client_result',
-        status: 0,
-        message: error instanceof Error ? error.message : String(error),
-      };
-    } finally {
-      factorSecret32.fill(0);
-      zeroizeRouterAbEd25519YaoActivationEntropyV1(entropy);
-    }
-    const sessionCreateMs = performance.now() - sessionCreateStartedAt;
-
-    try {
-      const executeRequest = parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1(
-        JSON.parse(session.execute_request_json()),
-      );
-      if (!executeRequest.ok) {
-        return {
-          ok: false,
-          code: 'invalid_client_result',
-          status: 0,
-          message: executeRequest.message,
-        };
-      }
-      const executeResponse = await args.transport.send({
-        kind: 'execute',
-        path: ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1,
-        body: executeRequest.value,
-      });
-      if (!executeResponse.ok) return executeResponse;
-      const result = parseRouterAbEd25519YaoRegistrationActivationResultV1(executeResponse.value);
-      if (!result.ok) {
-        return { ok: false, code: 'invalid_router_response', status: 0, message: result.message };
-      }
-      const activated = session.complete(JSON.stringify(result.value));
-      try {
-        const activeClient = createVerifiedActiveClient({
-          activated,
-          scope: args.request.scope,
-          applicationBinding: args.request.application_binding,
-          participantIds: args.request.participant_ids,
-          result: result.value,
-          activeCapabilityBinding: result.value.binding.session_id,
-        });
-        return {
-          ok: true,
-          activeClient,
-          ...(executeResponse.serverTiming
-            ? { routerServerTiming: executeResponse.serverTiming }
-            : {}),
-          clientTimings: {
-            admissionMs: Math.max(0, admissionMs),
-            sessionCreateMs: Math.max(0, sessionCreateMs),
-          },
-        };
-      } catch (error) {
-        activated.free();
-        throw error;
-      }
-    } catch (error) {
-      return {
-        ok: false,
-        code: 'invalid_client_result',
-        status: 0,
-        message: error instanceof Error ? error.message : String(error),
-      };
-    } finally {
-      session.free();
-    }
-  }
-
-  async recover(args: {
-    request: RouterAbEd25519YaoRecoveryAdmissionRequestV1;
-    factor: RouterAbEd25519YaoClientRootFactorV1;
-    transport: RouterAbEd25519YaoRecoveryTransportV1;
-  }): Promise<RouterAbEd25519YaoRecoveryResultV1> {
-    return this.recoverPrepared({
-      ...args,
-      entropy: createRouterAbEd25519YaoActivationEntropyV1(),
-    });
-  }
-
-  async recoverPrepared(
-    args: RouterAbEd25519YaoPreparedRecoveryInputV1,
-  ): Promise<RouterAbEd25519YaoRecoveryResultV1> {
-    const factorKind = args.factor.kind;
-    const consumedFactor = consumeOwnedFactorSecret(args.factor);
-    if (!consumedFactor.ok) {
-      zeroizeRouterAbEd25519YaoActivationEntropyV1(args.entropy);
-      return consumedFactor;
-    }
-    const factorSecret32 = consumedFactor.value;
-
-    const admissionResponse = await args.transport.send({
-      kind: 'recovery_admit',
-      path: ROUTER_AB_ED25519_YAO_RECOVERY_ADMISSION_PATH_V1,
-      body: args.request,
-    });
-    if (!admissionResponse.ok) {
-      factorSecret32.fill(0);
-      zeroizeRouterAbEd25519YaoActivationEntropyV1(args.entropy);
-      return admissionResponse;
-    }
-    const admission = parseRouterAbEd25519YaoRecoveryActivationAdmissionReceiptV1(
-      admissionResponse.value,
-    );
-    if (!admission.ok) {
-      factorSecret32.fill(0);
-      zeroizeRouterAbEd25519YaoActivationEntropyV1(args.entropy);
-      return { ok: false, code: 'invalid_router_response', status: 0, message: admission.message };
-    }
-    if (!activationAdmissionMatchesScope(args.request.scope, admission.value)) {
-      factorSecret32.fill(0);
-      zeroizeRouterAbEd25519YaoActivationEntropyV1(args.entropy);
-      return {
-        ok: false,
-        code: 'invalid_router_response',
-        status: 0,
-        message: 'Router recovery admission does not match the requested lifecycle scope',
-      };
-    }
-
-    return continuePreparedRecovery({
-      request: args.request,
-      factorKind,
-      factorSecret32,
-      entropy: args.entropy,
-      continuation: { stage: 'admitted', admission: admission.value },
-      transport: args.transport,
-    });
-  }
-
-  async resumePreparedRecovery(
-    args: RouterAbEd25519YaoPreparedRecoveryInputV1,
-  ): Promise<RouterAbEd25519YaoRecoveryResultV1> {
-    const factorKind = args.factor.kind;
-    const consumedFactor = consumeOwnedFactorSecret(args.factor);
-    if (!consumedFactor.ok) {
-      zeroizeRouterAbEd25519YaoActivationEntropyV1(args.entropy);
-      return consumedFactor;
-    }
-    const factorSecret32 = consumedFactor.value;
-    const status = await readRouterAbEd25519YaoRecoveryStatusV1({
-      request: args.request,
-      transport: args.transport,
-    });
-    if (!status.ok) {
-      factorSecret32.fill(0);
-      zeroizeRouterAbEd25519YaoActivationEntropyV1(args.entropy);
-      return status;
-    }
-    const continuation = recoveryContinuationFromStatus(args.request, status.status);
-    if (!continuation.ok) {
-      factorSecret32.fill(0);
-      zeroizeRouterAbEd25519YaoActivationEntropyV1(args.entropy);
-      return continuation;
-    }
-    return continuePreparedRecovery({
-      request: args.request,
-      factorKind,
-      factorSecret32,
-      entropy: args.entropy,
-      continuation: continuation.value,
-      transport: args.transport,
-    });
+    return openVerifiedCustodyCacheActiveClient(input);
   }
 
   async exportSeed(
     args: RouterAbEd25519YaoExportSeedInputV1,
   ): Promise<RouterAbEd25519YaoExportResultClientV1> {
-    const factorKind = args.factor.kind;
-    const consumedFactor = consumeOwnedFactorSecret(args.factor);
-    if (!consumedFactor.ok) return consumedFactor;
-    const factorSecret32 = consumedFactor.value;
     const admissionResponse = await args.transport.send({
       kind: 'export_admit',
       path: ROUTER_AB_ED25519_YAO_EXPORT_ADMISSION_PATH_V1,
@@ -1697,16 +906,13 @@ export class RouterAbEd25519YaoClientV1 {
       }),
     });
     if (!admissionResponse.ok) {
-      factorSecret32.fill(0);
       return admissionResponse;
     }
     const admission = parseRouterAbEd25519YaoExportAdmissionReceiptV1(admissionResponse.value);
     if (!admission.ok) {
-      factorSecret32.fill(0);
       return { ok: false, code: 'invalid_router_response', status: 0, message: admission.message };
     }
     if (!exportAdmissionMatchesRequest(args.request, admission.value)) {
-      factorSecret32.fill(0);
       return {
         ok: false,
         code: 'invalid_router_response',
@@ -1722,8 +928,7 @@ export class RouterAbEd25519YaoClientV1 {
         admission: admission.value,
         applicationBinding: args.request.application_binding,
         participantIds: args.request.participant_ids,
-        factor: factorKind,
-        secret32: factorSecret32,
+        custodyEnvelope: args.custodyEnvelope,
         entropy,
       });
     } catch (error) {
@@ -1734,7 +939,7 @@ export class RouterAbEd25519YaoClientV1 {
         message: error instanceof Error ? error.message : String(error),
       };
     } finally {
-      factorSecret32.fill(0);
+      args.custodyEnvelope.factorSecret.fill(0);
       zeroizeRouterAbEd25519YaoActivationEntropyV1(entropy);
     }
 

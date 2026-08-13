@@ -667,7 +667,6 @@ export type MintedEd25519WalletSessionAuthority = {
   remainingUses: number;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   jwt: string;
-  ecdsaDerivationPasskeyPrfFirstB64u: string;
 };
 
 export type ProvisionWarmEd25519CapabilitySuccessResult = {
@@ -679,7 +678,6 @@ export type ProvisionWarmEd25519CapabilitySuccessResult = {
   remainingUses: number;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   jwt: string;
-  ecdsaDerivationPasskeyPrfFirstB64u?: string;
 };
 
 export type ProvisionWarmEd25519CapabilityFailureResult = {

@@ -16,9 +16,7 @@ import type {
   RouterAbEcdsaRegistrationRequestV1,
 } from '../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
 import { parseWalletId } from '../../packages/shared-ts/src/utils/domainIds';
-import {
-  requireParsedDomainId,
-} from './helpers/cloudflareD1RouterApiAuthService.fixtures';
+import { requireParsedDomainId } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
 
 const tempoTarget: ThresholdEcdsaChainTarget = {
   kind: 'tempo',
@@ -165,5 +163,4 @@ test.describe('D1 EVM-family ECDSA registration prepare', () => {
       message: 'ECDSA registration requires participant pair [1, 2]',
     });
   });
-
 });

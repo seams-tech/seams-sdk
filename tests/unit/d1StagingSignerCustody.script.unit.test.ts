@@ -95,7 +95,10 @@ function requestAuthorization(init?: RequestInit): string {
   return String((headers as Record<string, string> | undefined)?.authorization || '');
 }
 
-async function signerCustodyFetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
+async function signerCustodyFetch(
+  input: string | URL | Request,
+  init?: RequestInit,
+): Promise<Response> {
   const url = d1StagingRequestUrl(input);
   if (url === `${D1_STAGING_GATEWAY_ORIGIN}/router-ab/ed25519/healthz`) {
     return d1StagingJsonResponse({ ok: true, configured: true }, 200);

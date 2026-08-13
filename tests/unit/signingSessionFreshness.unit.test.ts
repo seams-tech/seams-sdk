@@ -17,9 +17,7 @@ import {
   buildEcdsaEmailOtpSigningLane,
   buildNearTransactionSigningLane,
 } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/lanes';
-import {
-  SigningSessionIds,
-} from '../../packages/sdk-web/src/core/signingEngine/session/operationState/types';
+import { SigningSessionIds } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/types';
 import {
   assertFreshnessMatchesLane,
   buildFreshStepUpRequired,
@@ -86,10 +84,7 @@ function makeEcdsaLane(args?: { thresholdSessionId?: string }) {
   const key = makeEcdsaKey();
   return buildEcdsaEmailOtpSigningLane({
     key,
-    materialActivation: buildMpcMaterialActivationRefFixture(
-      'freshness-ecdsa',
-      key.walletId,
-    ),
+    materialActivation: buildMpcMaterialActivationRefFixture('freshness-ecdsa', key.walletId),
     keyHandle: toEvmFamilyEcdsaKeyHandle('tempo:4242:ecdsa-threshold-key'),
     walletId: key.walletId,
     auth: EMAIL_OTP_AUTH,
@@ -165,7 +160,6 @@ test.describe('step-up freshness identity', () => {
       }),
     ).toThrow('[StepUpFreshness] freshness does not match exact lane identity');
   });
-
 
   test('builds satisfied and required freshness from trusted budget status', () => {
     const lane = makeNearLane();
@@ -249,5 +243,4 @@ test.describe('step-up freshness identity', () => {
       projection: { kind: 'unavailable', reason: 'restored_record_has_no_projection' },
     });
   });
-
 });

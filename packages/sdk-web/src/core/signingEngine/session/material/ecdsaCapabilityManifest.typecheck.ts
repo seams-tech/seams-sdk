@@ -153,7 +153,6 @@ const targetManifest = buildEcdsaManifestIdentity({
 const activationBinding = buildEcdsaActivationBinding({
   targetManifest,
   signer: preparedSigner,
-  activationId,
   roleLocalBinding,
   bindingDigest,
   durableMaterialRef,
@@ -230,7 +229,6 @@ const replacementTarget = buildEcdsaManifestIdentity({
 const replacementActivationBinding = buildEcdsaActivationBinding({
   targetManifest: replacementTarget,
   signer: preparedSigner,
-  activationId,
   roleLocalBinding,
   bindingDigest,
   durableMaterialRef,
@@ -298,7 +296,6 @@ buildEncryptedEcdsaPendingCandidate({
 buildEcdsaActivationBinding({
   targetManifest,
   signer: preparedSigner,
-  activationId,
   roleLocalBinding,
   bindingDigest,
 });
@@ -307,9 +304,18 @@ buildEcdsaActivationBinding({
 buildEcdsaActivationBinding({
   targetManifest,
   signer: preparedSigner,
-  activationId,
   roleLocalBinding,
   durableMaterialRef,
+});
+
+buildEcdsaActivationBinding({
+  targetManifest,
+  signer: preparedSigner,
+  roleLocalBinding,
+  bindingDigest,
+  durableMaterialRef,
+  // @ts-expect-error The Router mints material activation identity after preparation.
+  activationId: 'browser-owned-activation-id',
 });
 
 // @ts-expect-error Prepared candidates require a nominal activation binding.

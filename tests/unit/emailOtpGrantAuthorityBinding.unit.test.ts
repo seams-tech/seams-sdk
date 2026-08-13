@@ -1,8 +1,5 @@
 import { expect, test } from '@playwright/test';
-import {
-  EMAIL_OTP_CHANNEL,
-  WALLET_EMAIL_OTP_ACTIONS,
-} from '@shared/utils/emailOtpDomain';
+import { EMAIL_OTP_CHANNEL, WALLET_EMAIL_OTP_ACTIONS } from '@shared/utils/emailOtpDomain';
 import { createEmailOtpGrantStore } from '@server/core/EmailOtpStores';
 import { consumeEmailOtpGrantWithStore } from '@server/core/authService/emailOtpGrant';
 

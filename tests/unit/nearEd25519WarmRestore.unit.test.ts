@@ -1,7 +1,5 @@
 import { expect, test } from '@playwright/test';
-import {
-  ensurePasskeyEd25519WarmSessionForSigning,
-} from '@/SeamsWeb/signingSurface/BrowserSigningSurface';
+import { ensurePasskeyEd25519WarmSessionForSigning } from '@/SeamsWeb/signingSurface/BrowserSigningSurface';
 import type { PasskeyMpcSessionPort } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import { parseExactEd25519SealedSessionRuntime } from '@/core/signingEngine/session/warmCapabilities/ed25519SealedSessionRuntime';
 import { rebindRouterAbEd25519WalletSessionStateFromExactRuntime } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
@@ -56,32 +54,31 @@ test('restores the passkey Ed25519 warm session after a refreshed worker loses i
           expiresAtMs: runtime.expiresAtMs,
         };
   };
-  const rehydrateWarmSessionMaterial: PasskeyMpcSessionPort['rehydrateWarmSessionMaterial'] = async (
-    input,
-  ) => {
-    operations.push('rehydrate');
-    expect(input.thresholdSessionId).toBe(walletSessionState.thresholdSessionId);
-    expect(input.sealedSecretB64u).toBe(record.sealedSecretB64u);
-    expect(input.transport).toMatchObject({
-      curve: 'ed25519',
-      authMethod: 'passkey',
-      walletId: record.walletId,
-      relayerUrl: record.relayerUrl,
-      walletSessionJwt,
-      ed25519Restore: {
-        nearAccountId: record.ed25519Restore.nearAccountId,
-        nearEd25519SigningKeyId: record.ed25519Restore.nearEd25519SigningKeyId,
-        signerSlot: record.ed25519Restore.signerSlot,
-        credentialIdB64u: record.ed25519Restore.credentialIdB64u,
-        materialActivation: record.ed25519Restore.materialActivation,
-      },
-    });
-    return {
-      ok: true,
-      remainingUses: 2,
-      expiresAtMs: runtime.expiresAtMs,
+  const rehydrateWarmSessionMaterial: PasskeyMpcSessionPort['rehydrateWarmSessionMaterial'] =
+    async (input) => {
+      operations.push('rehydrate');
+      expect(input.thresholdSessionId).toBe(walletSessionState.thresholdSessionId);
+      expect(input.sealedSecretB64u).toBe(record.sealedSecretB64u);
+      expect(input.transport).toMatchObject({
+        curve: 'ed25519',
+        authMethod: 'passkey',
+        walletId: record.walletId,
+        relayerUrl: record.relayerUrl,
+        walletSessionJwt,
+        ed25519Restore: {
+          nearAccountId: record.ed25519Restore.nearAccountId,
+          nearEd25519SigningKeyId: record.ed25519Restore.nearEd25519SigningKeyId,
+          signerSlot: record.ed25519Restore.signerSlot,
+          credentialIdB64u: record.ed25519Restore.credentialIdB64u,
+          materialActivation: record.ed25519Restore.materialActivation,
+        },
+      });
+      return {
+        ok: true,
+        remainingUses: 2,
+        expiresAtMs: runtime.expiresAtMs,
+      };
     };
-  };
 
   const result = await ensurePasskeyEd25519WarmSessionForSigning({
     claimWarmSessionMaterial,

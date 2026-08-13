@@ -48,9 +48,30 @@ function stubSigningEngine(
       registrationRequestDigestB64u: FIXTURE_DIGEST32_B64U,
     }),
     verifyRouterAbEcdsaRegistrationClientProofs: async () => ({
-      publicFacts: activation.clientActivation,
-      clientBootstrap: {},
+      bootstrapOwner: 'wallet_custody',
+      applicationBindingDigestB64u: activation.clientActivation.contextBinding32B64u,
+      registrationRequestDigestB64u: activation.clientActivation.registrationRequestDigestB64u,
+      proofTranscriptDigestB64u: activation.clientActivation.proofTranscriptDigestB64u,
     }),
+    establishWalletCustodyEvmFamilyKeySet: async (args: {
+      confirmRecoveryCodesBackedUp: (codes: readonly string[]) => Promise<void>;
+      runRelayerRound: (bootstrap: unknown) => Promise<string>;
+    }) => {
+      await args.confirmRecoveryCodesBackedUp(
+        Array.from({ length: 10 }, (_, index) => `code-${index}`),
+      );
+      return await args.runRelayerRound({
+        contextBinding32B64u: activation.clientActivation.contextBinding32B64u,
+        clientSharePublicKey33B64u:
+          activation.clientActivation.derivationClientSharePublicKey33B64u,
+        clientShareRetryCounter: activation.clientActivation.clientShareRetryCounter,
+        preActivationCommitPayload: {
+          walletId: 'alice.testnet',
+          keySet: 'evm_family_ecdsa_v1',
+          keyManifestDigestB64u: FIXTURE_DIGEST32_B64U,
+        },
+      });
+    },
     persistInitialCanonicalEcdsaActivation: async () => ({
       ok: true,
       journalId: activation.input.journalId,
@@ -86,11 +107,17 @@ async function ceremonyArgs(overrides: Record<string, unknown> = {}) {
       strictRegistration: {},
     },
     materialAuthority: activation.input.authority,
-    authority: { kind: 'passkey', webauthnRegistration: {} },
+    authority: {
+      kind: 'passkey',
+      webauthnRegistration: {},
+      walletCustodyFactorJson: '{}',
+      walletCustodyFactorSecret: new ArrayBuffer(32),
+    },
     idempotencyKey: 'idem-1',
-    resolveActivateEmailOtp: async () => ({ enrollment: null, backupAck: null }),
+    resolveActivateEmailOtp: async () => ({ enrollment: null, walletCustodyFactorJson: null }),
     registrationTiming: null,
-    onDeferredNearWork: () => {},
+    confirmRecoveryCodesBackedUp: async () => undefined,
+    startDeferredNearCustody: async () => ({}),
     ...overrides,
   } as never;
 }
@@ -122,59 +149,61 @@ const MIXED_RESPOND = {
   ed25519: buildFixtureRespondEd25519DeferredWork({ lifecycleId: 'wrc_test' }),
 };
 
-test('a mixed plan hands off deferred NEAR work before activate is called', async () => {
-  /* If the handoff happened after activate, Yao would be serialized behind the
-     rest of registration — the exact coupling this refactor removes. */
+test('a mixed plan starts the NEAR custody join before activate is called', async () => {
   const routes = stubbedRoutes({ respond: MIXED_RESPOND, activate: { ok: false } });
-  const callsAtHandoff: string[] = [];
+  const callsAtStart: string[] = [];
   try {
     await runEcdsaEnabledThreeRouteRegistrationCeremony(
       await ceremonyArgs({
-        onDeferredNearWork: () => callsAtHandoff.push(...routes.calls),
-      }),
-    ).catch(() => undefined);
-  } finally {
-    routes.restore();
-  }
-  /* Respond had returned; activate had not yet been called. */
-  expect(callsAtHandoff).toEqual(['respond']);
-  expect(routes.calls).toContain('activate');
-});
-
-test('the ceremony never awaits the deferred NEAR work it hands off', async () => {
-  /* The callback receives a handle, not a promise the ceremony waits on: work
-     that never completes must not stop activate from being called. */
-  const routes = stubbedRoutes({ respond: MIXED_RESPOND, activate: { ok: false } });
-  try {
-    await runEcdsaEnabledThreeRouteRegistrationCeremony(
-      await ceremonyArgs({
-        onDeferredNearWork: () => {
-          void new Promise<void>(() => {});
+        startDeferredNearCustody: () => {
+          callsAtStart.push(...routes.calls);
+          return Promise.resolve({});
         },
       }),
     ).catch(() => undefined);
   } finally {
     routes.restore();
   }
+  expect(callsAtStart).toEqual(['respond']);
   expect(routes.calls).toContain('activate');
 });
 
-test('a mixed plan carries the deferred work through to the caller', async () => {
-  /* The handed-off work is what starts Yao, so it must arrive intact and
-     marked deferred — never as something already in progress. */
+test('the ceremony never awaits the deferred NEAR custody join', async () => {
   const routes = stubbedRoutes({ respond: MIXED_RESPOND, activate: { ok: false } });
-  let handed: unknown = null;
   try {
     await runEcdsaEnabledThreeRouteRegistrationCeremony(
-      await ceremonyArgs({ onDeferredNearWork: (work: unknown) => (handed = work) }),
+      await ceremonyArgs({
+        startDeferredNearCustody: () => new Promise(() => {}),
+      }),
     ).catch(() => undefined);
   } finally {
     routes.restore();
   }
-  expect(handed).toMatchObject({ status: 'deferred' });
+  expect(routes.calls).toContain('activate');
 });
 
-test('an ECDSA-only plan hands off no deferred NEAR work', async () => {
+test('a mixed plan starts NEAR with its deferred admission and established envelope', async () => {
+  const routes = stubbedRoutes({ respond: MIXED_RESPOND, activate: { ok: false } });
+  let started: unknown = null;
+  try {
+    await runEcdsaEnabledThreeRouteRegistrationCeremony(
+      await ceremonyArgs({
+        startDeferredNearCustody: (input: unknown) => {
+          started = input;
+          return Promise.resolve({});
+        },
+      }),
+    ).catch(() => undefined);
+  } finally {
+    routes.restore();
+  }
+  expect(started).toMatchObject({
+    deferredNear: { status: 'deferred' },
+    establishedEvmCustodyCommit: { keySet: 'evm_family_ecdsa_v1' },
+  });
+});
+
+test('an ECDSA-only plan starts no deferred NEAR custody work', async () => {
   /* ECDSA-only registration must not create NEAR provisioning state at all. */
   const routes = stubbedRoutes({
     respond: {
@@ -188,7 +217,12 @@ test('an ECDSA-only plan hands off no deferred NEAR work', async () => {
   let handoffs = 0;
   try {
     await runEcdsaEnabledThreeRouteRegistrationCeremony(
-      await ceremonyArgs({ onDeferredNearWork: () => (handoffs += 1) }),
+      await ceremonyArgs({
+        startDeferredNearCustody: () => {
+          handoffs += 1;
+          return Promise.resolve({});
+        },
+      }),
     ).catch(() => undefined);
   } finally {
     routes.restore();
@@ -239,9 +273,10 @@ test('the ceremony consumes the collected authority and never asks for another',
     };
   }
   try {
-    await runEcdsaEnabledThreeRouteRegistrationCeremony(
-      { ...args, context: { signingEngine: engine } } as never,
-    ).catch(() => undefined);
+    await runEcdsaEnabledThreeRouteRegistrationCeremony({
+      ...args,
+      context: { signingEngine: engine },
+    } as never).catch(() => undefined);
   } finally {
     routes.restore();
   }

@@ -4,6 +4,7 @@ export * from './core/SessionService';
 export * from './core/ThresholdService/evmCryptoWasm';
 export * from './core/d1WalletStore';
 export * from './core/logger';
+export * from './core/signingLanes/LaneLifecycleApplicationService';
 export * from './core/routerAbSigning/RouterAbEcdsaPresignRuntime';
 export * from './core/types';
 export * from './delegateAction';
@@ -26,11 +27,42 @@ export type {
   FetchRouterHandler,
   FetchRouterRuntime,
 } from './router/transport/fetch/fetchRouter.types';
+export {
+  LINKED_DEVICE_OWNER_AUTHORIZATION_PATH_V1,
+  authenticateDeviceLinkingOwnerWalletSessionRequestV1,
+  createDeviceLinkingOwnerRequestAuthenticatorV1,
+  type DeviceLinkingOwnerAuthorizationAuthenticationV1,
+  type DeviceLinkingOwnerAuthorizationResponseV1,
+  type DeviceLinkingOwnerAuthorizationRouteServiceV1,
+  type DeviceLinkingOwnerWalletSessionContextV1,
+} from './router/transport/fetch/routes/deviceLinkingOwnerAuthorization';
+export {
+  LINKED_DEVICE_GATEWAY_LANE_BASE_V1,
+  LINKED_DEVICE_GATEWAY_LANE_PATHS_V1,
+  type DeviceLinkingLaneGatewayPortV1,
+  type DeviceLinkingLaneGatewayRequestV1,
+  type DeviceLinkingLaneGatewayResponseV1,
+  type DeviceLinkingLaneGatewayRouteServiceV1,
+  type DeviceLinkingLaneProtocolCommitRequestV1,
+  type DeviceLinkingLaneProtocolCommitResultV1,
+  type DeviceLinkingLaneCeremonyBindingRequestV1,
+  type DeviceLinkingLaneCeremonyBindingResponseV1,
+} from './router/transport/fetch/routes/deviceLinkingLaneGateway';
+export type {
+  DeviceLinkingAuthDeniedV1,
+  DeviceLinkingOperatorRecoveryProviderV1,
+  DeviceLinkingRouteServiceV1,
+} from './router/transport/fetch/routes/deviceLinking';
 export * from './router/cloudflare/runtime/createCloudflareRouter';
 export * from './router/cloudflare/d1/ed25519Yao/d1Ed25519YaoCapabilityPersistence';
 export * from './router/cloudflare/d1/oidc/d1OidcBoundary';
 export * from './router/cloudflare/d1/auth/d1RouterApiAuthConfig';
 export * from './router/cloudflare/d1/auth/d1RouterApiAuthService';
+export * from './router/cloudflare/d1/signingLanes';
+export * from './router/cloudflare/d1/deviceLinking';
+export * from './router/cloudflare/signingLanes/cloudflareLaneCurveExecution';
+export * from './router/cloudflare/signingLanes/cloudflareLaneProtocolCommitter';
+export * from './router/cloudflare/signingLanes/linkedDeviceEd25519CeremonyBinding';
 export * from './router/cloudflare/d1/webauthn/d1WebAuthnAuthService';
 export * from './router/cloudflare/d1/webauthn/d1WebAuthnStore';
 export * from './router/cloudflare/durableObjects/thresholdStore';
@@ -105,8 +137,17 @@ export {
   parseWalletId,
   parseWebAuthnRpId,
   type OrgId,
+  type WebAuthnRpId,
 } from '@shared/utils/domainIds';
 export { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
+export { sha256Bytes } from '@shared/utils/digests';
+export { buildSigningWorkerParticipantRecordWithDigestV1 } from '@shared/signing-lanes/participantDigest';
+export {
+  parseHpkePublicKeyB64u,
+  parseSigningWorkerParticipantId,
+  parseSigningWorkerRecipientKeyDigestB64u,
+  parseSigningWorkerRecipientKeyId,
+} from '@shared/signing-lanes/participants';
 export { keccak256Bytes } from '@shared/utils/keccak';
 export {
   normalizeBoundedPositiveInteger,

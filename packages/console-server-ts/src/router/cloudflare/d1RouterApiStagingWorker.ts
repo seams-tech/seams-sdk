@@ -31,6 +31,7 @@ import type {
 } from '@seams/sdk-server/cloud-host';
 import {
   createRouterAbEd25519YaoHttpRegistrationBackendFromEnv,
+  parseRouterAbEd25519YaoActivationKeysetFromEnvV1,
   type RouterAbEd25519YaoGatewaySpanV1,
 } from '@seams/sdk-server/cloud-host';
 import { type RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '@seams/sdk-server/cloud-host';
@@ -60,6 +61,7 @@ import {
   type RouterAbPublicKeysetV2,
 } from '@seams/sdk-server/cloud-host';
 import { parseWalletId } from '@seams/sdk-server/cloud-host';
+import { normalizeLogger, parseWebAuthnRpId } from '@seams/sdk-server/cloud-host';
 import {
   createRouterAbServiceBindingFetch,
   ROUTER_AB_MPC_ROUTER_ORIGIN,
@@ -71,6 +73,16 @@ import { createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V
 import { RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter } from '@seams/sdk-server/cloud-host';
 import { RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter } from '@seams/sdk-server/cloud-host';
 import { createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1 } from '@seams/sdk-server/cloud-host';
+import { createD1LinkedDeviceTargetDeploymentDescriptorRuntimeV1 } from '@seams/sdk-server/cloud-host';
+import {
+  base64UrlEncode,
+  sha256Bytes,
+  buildSigningWorkerParticipantRecordWithDigestV1,
+  parseHpkePublicKeyB64u,
+  parseSigningWorkerParticipantId,
+  parseSigningWorkerRecipientKeyDigestB64u,
+  parseSigningWorkerRecipientKeyId,
+} from '@seams/sdk-server/cloud-host';
 import { handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1 } from '@seams/sdk-server/cloud-host';
 import { handleRouterAbEd25519YaoExportRequestScopedCloudflareV1 } from '@seams/sdk-server/cloud-host';
 import {
@@ -127,6 +139,10 @@ interface CloudflareD1RouterApiStagingEnv
   readonly ROUTER_AB_CEREMONY_JWT_KEY_ID?: string;
   readonly ROUTER_AB_ECDSA_REGISTRATION_TOPOLOGY_JSON?: string;
   readonly ROUTER_AB_PUBLIC_KEYSET_JSON?: string;
+  readonly LINKED_DEVICE_WEBAUTHN_RP_ID?: string;
+  readonly LINKED_DEVICE_WEBAUTHN_ORIGIN?: string;
+  readonly LINKED_DEVICE_OPERATOR_RECOVERY_SECRET?: string;
+  readonly LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET?: string;
   readonly DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY?: string;
   readonly DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY?: string;
   readonly SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY?: string;
@@ -152,8 +168,6 @@ interface CloudflareD1RouterApiStagingEnv
   readonly EMAIL_OTP_GRANT_RATE_LIMIT_WINDOW_MS?: string;
   readonly EMAIL_OTP_MAX_ATTEMPTS?: string;
   readonly EMAIL_OTP_LOCKOUT_TTL_MS?: string;
-  readonly EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_MAX?: string;
-  readonly EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_WINDOW_MS?: string;
   readonly EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_MAX?: string;
   readonly EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS?: string;
   readonly SPONSORED_EVM_EXECUTORS_JSON?: string;
@@ -215,6 +229,24 @@ const RELAY_SIGNER_READY_TABLES = Object.freeze([
   'router_ab_normal_signing_admission_records',
   'registration_ceremony_records',
   'registration_ceremony_cas_guard',
+  'lane_enrollments',
+  'lane_protocol_operations',
+  'lane_product_epochs',
+  'lane_receipts',
+  'lane_effect_journal',
+  'lane_locks',
+  'lane_cas_guard',
+  'linked_device_wallet_session_authorizations',
+  'linked_device_wallet_session_quotas',
+  'linked_device_sessions',
+  'linked_device_session_transcripts',
+  'linked_device_request_proof_nonces',
+  'linked_device_target_credentials',
+  'linked_device_target_commit_reservations',
+  'linked_device_provisioning_records',
+  'linked_device_source_handoffs',
+  'linked_device_owner_planning_snapshots',
+  'linked_device_target_deployment_descriptors',
 ]);
 
 const ROUTER_AB_CEREMONY_JWKS_PATH = '/.well-known/router-ab-ceremony-jwks.json';
@@ -348,14 +380,6 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     emailOtpGrantRateLimitWindowMs: readEnvString(env, 'EMAIL_OTP_GRANT_RATE_LIMIT_WINDOW_MS'),
     emailOtpMaxAttempts: readEnvString(env, 'EMAIL_OTP_MAX_ATTEMPTS'),
     emailOtpLockoutTtlMs: readEnvString(env, 'EMAIL_OTP_LOCKOUT_TTL_MS'),
-    emailOtpRecoveryKeyAttemptRateLimitMax: readEnvString(
-      env,
-      'EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_MAX',
-    ),
-    emailOtpRecoveryKeyAttemptRateLimitWindowMs: readEnvString(
-      env,
-      'EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_WINDOW_MS',
-    ),
     emailOtpGoogleRegistrationAttemptRateLimitMax: readEnvString(
       env,
       'EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_MAX',
@@ -367,6 +391,7 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     routerAbEcdsaPresignRuntime: createStagingEcdsaPresignRuntime(env),
     ed25519YaoProductRegistration: yaoRuntime,
     ecdsaStrictRegistration,
+    linkedDevice: await stagingLinkedDeviceComposition(env, session),
   });
   const routerApiHandler = createCloudflareRouter(service, {
     ...bundle.routerApiRouterOptions,
@@ -411,6 +436,141 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     billingStripeWebhookSigningSecret: readEnvString(env, 'STRIPE_WEBHOOK_SECRET'),
   });
   return dispatchHostedGatewayRequest.bind(null, consoleHandler, routerApiHandler);
+}
+
+function stagingLinkedDeviceExecution(env: CloudflareD1RouterApiStagingEnv) {
+  const rpId = parseWebAuthnRpId(requireEnvString(env, 'LINKED_DEVICE_WEBAUTHN_RP_ID'));
+  if (!rpId.ok) throw new Error(rpId.error.message);
+  return {
+    nowV1: Date.now,
+    rpId: rpId.value,
+    expectedOrigin: requireEnvString(env, 'LINKED_DEVICE_WEBAUTHN_ORIGIN'),
+    logger: normalizeLogger(),
+  };
+}
+
+async function stagingLinkedDeviceComposition(
+  env: CloudflareD1RouterApiStagingEnv,
+  session: SessionAdapter,
+) {
+  const internalServiceAuth = requireEnvString(env, 'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET');
+  const scope = stagingTenantScope(env);
+  const operatorRecoverySecret = stagingLinkedDeviceOperatorRecoverySecret(
+    env,
+    internalServiceAuth,
+  );
+  const descriptorHmacSecret = requireEnvString(env, 'LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET');
+  if (
+    descriptorHmacSecret === internalServiceAuth ||
+    descriptorHmacSecret === operatorRecoverySecret
+  ) {
+    throw new Error(
+      'LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET must differ from Router internal auth and operator recovery',
+    );
+  }
+  const targetRuntime = await createD1LinkedDeviceTargetDeploymentDescriptorRuntimeV1({
+    database: env.SIGNER_DB,
+    scope,
+    targetSigningWorker: await stagingLinkedDeviceTargetSigningWorker(env),
+    descriptorHmacSecret,
+    ed25519: {
+      yaoSuiteId: 'ed25519-yao-suite:A',
+      circuitDigestB64u: 'uojcq1xwowjW5QC2ZkQk0aevJmiiHYdJh41CtSpIaRk',
+    },
+  });
+  return {
+    execution: stagingLinkedDeviceExecution(env),
+    session: {
+      session,
+      laneRuntime: {
+        router: env.MPC_ROUTER,
+        signingWorker: env.SIGNING_WORKER,
+        internalServiceAuth,
+        ed25519YaoKeyset: parseRouterAbEd25519YaoActivationKeysetFromEnvV1({
+          DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY: requireEnvString(
+            env,
+            'DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY',
+          ),
+          DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY: requireEnvString(
+            env,
+            'DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY',
+          ),
+          SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: requireEnvString(
+            env,
+            'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY',
+          ),
+        }),
+      },
+      operatorRecovery: {
+        operatorSecret: operatorRecoverySecret,
+      },
+      targetDeploymentDescriptorProvider: targetRuntime.provider,
+    },
+    management: {},
+  };
+}
+
+async function stagingLinkedDeviceTargetSigningWorker(env: CloudflareD1RouterApiStagingEnv) {
+  const participantId = requireEnvString(env, 'SIGNING_WORKER_ID');
+  const keyset = parseRouterAbEd25519YaoActivationKeysetFromEnvV1({
+    DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY: requireEnvString(
+      env,
+      'DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY',
+    ),
+    DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY: requireEnvString(
+      env,
+      'DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY',
+    ),
+    SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: requireEnvString(
+      env,
+      'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY',
+    ),
+  });
+  const hpkePublicKey = new Uint8Array(keyset.signing_worker_recipient_public_key);
+  const hpkePublicKeyB64u = base64UrlEncode(hpkePublicKey);
+  const parsedParticipantId = parseSigningWorkerParticipantId(participantId);
+  if (!parsedParticipantId.ok) throw new Error(parsedParticipantId.error.message);
+  const recipientKeyId = requireEnvString(env, 'SIGNING_WORKER_SERVER_OUTPUT_HPKE_KEY_EPOCH');
+  const parsedRecipientKeyId = parseSigningWorkerRecipientKeyId(recipientKeyId);
+  if (!parsedRecipientKeyId.ok) throw new Error(parsedRecipientKeyId.error.message);
+  const parsedHpkePublicKeyB64u = parseHpkePublicKeyB64u(hpkePublicKeyB64u);
+  if (!parsedHpkePublicKeyB64u.ok) {
+    throw new Error(parsedHpkePublicKeyB64u.error.message);
+  }
+  const hpkePublicKeyDigestB64u = base64UrlEncode(await sha256Bytes(hpkePublicKey));
+  const parsedHpkePublicKeyDigestB64u = parseSigningWorkerRecipientKeyDigestB64u(
+    hpkePublicKeyDigestB64u,
+  );
+  if (!parsedHpkePublicKeyDigestB64u.ok) {
+    throw new Error(parsedHpkePublicKeyDigestB64u.error.message);
+  }
+  const participant = await buildSigningWorkerParticipantRecordWithDigestV1({
+    participantId: parsedParticipantId.value,
+    recipient: {
+      kind: 'signing_worker_recipient_identity_v1',
+      recipientKeyId: parsedRecipientKeyId.value,
+      hpkePublicKeyB64u: parsedHpkePublicKeyB64u.value,
+      hpkePublicKeyDigestB64u: parsedHpkePublicKeyDigestB64u.value,
+    },
+  });
+  return {
+    participantId: participant.participantId,
+    participantBindingDigestB64u: participant.participantBindingDigestB64u,
+    recipientKeyId: participant.recipientKeyId,
+    hpkePublicKeyB64u: participant.hpkePublicKeyB64u,
+    hpkePublicKeyDigestB64u: participant.hpkePublicKeyDigestB64u,
+  };
+}
+
+function stagingLinkedDeviceOperatorRecoverySecret(
+  env: CloudflareD1RouterApiStagingEnv,
+  internalServiceAuth: string,
+): string {
+  const secret = requireEnvString(env, 'LINKED_DEVICE_OPERATOR_RECOVERY_SECRET');
+  if (secret === internalServiceAuth) {
+    throw new Error('LINKED_DEVICE_OPERATOR_RECOVERY_SECRET must differ from Router internal auth');
+  }
+  return secret;
 }
 
 export async function dispatchHostedGatewayRequest(

@@ -263,7 +263,9 @@ test.describe('available signing lane curve isolation', () => {
     });
   });
 
-  test('does not advertise an Email OTP public-only lane without a sealed runtime', async ({ page }) => {
+  test('does not advertise an Email OTP public-only lane without a sealed runtime', async ({
+    page,
+  }) => {
     const record = buildEmailOtpEd25519SealedSessionRecordFixture({
       expiresAtMs: Date.now() + 60_000,
       remainingUses: 9,

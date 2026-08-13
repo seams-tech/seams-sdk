@@ -32,6 +32,12 @@ export function createBrowserStepUpRuntime(args: {
   getEnginePorts: () => SigningEnginePorts;
   thresholdEcdsaBootstrapQueueByWallet: Map<string, Promise<void>>;
   thresholdEcdsaSigningQueueByKey: ThresholdEcdsaSigningQueueByKey;
+  loadWalletCustodyEd25519Material: Parameters<
+    typeof createStepUpRuntime
+  >[0]['loadWalletCustodyEd25519Material'];
+  restoreWalletCustodyEcdsaContinuity: Parameters<
+    typeof createStepUpRuntime
+  >[0]['restoreWalletCustodyEcdsaContinuity'];
   getWarmSigning: () => WarmSigningPorts;
   ensureSealedRefreshStartupParity: () => Promise<void>;
   listActiveEcdsaCapabilityManifestsForWallet: (
@@ -55,22 +61,17 @@ export function createBrowserStepUpRuntime(args: {
         {
           queueByWallet: args.thresholdEcdsaBootstrapQueueByWallet,
           activationDeps: args.getEnginePorts().walletSessionActivationDeps,
-          sealPersistence: args.passkeyMpcSession,
           persistEcdsaRoleLocalReadyRecord:
             args.runtimePorts.storage.persistEcdsaRoleLocalReadyRecord,
-          resolveSealTransport: ({ lane, authorization }) =>
-            args.getWarmSigning().capabilityReader.resolveEcdsaSealTransportForLane({
-              lane,
-              authorization,
-            }),
         },
         request,
       ),
     thresholdEcdsaBootstrapQueueByWallet: args.thresholdEcdsaBootstrapQueueByWallet,
     thresholdEcdsaSigningQueueByKey: args.thresholdEcdsaSigningQueueByKey,
+    loadWalletCustodyEd25519Material: args.loadWalletCustodyEd25519Material,
+    restoreWalletCustodyEcdsaContinuity: args.restoreWalletCustodyEcdsaContinuity,
     persistEcdsaRoleLocalReadyRecord: args.runtimePorts.storage.persistEcdsaRoleLocalReadyRecord,
-    listActiveEcdsaCapabilityManifestsForWallet:
-      args.listActiveEcdsaCapabilityManifestsForWallet,
+    listActiveEcdsaCapabilityManifestsForWallet: args.listActiveEcdsaCapabilityManifestsForWallet,
     ensureSealedRefreshStartupParity: args.ensureSealedRefreshStartupParity,
   });
 }

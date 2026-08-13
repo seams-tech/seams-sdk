@@ -5,15 +5,12 @@ import type { CreateSigningEnginePortsArgs } from './shared';
 export function createWalletSessionActivationDeps(args: {
   createArgs: CreateSigningEnginePortsArgs;
   credentialStore: WalletSessionActivationDeps['credentialStore'];
-  getOrCreateActiveThresholdEcdsaSessionId: WalletSessionActivationDeps['getOrCreateActiveThresholdEcdsaSessionId'];
 }): WalletSessionActivationDeps {
   return {
     credentialStore: args.credentialStore,
     touchIdPrompt: args.createArgs.touchIdPrompt,
-    touchConfirm: args.createArgs.passkeyMpcSession,
     getSignerWorkerContext: () => args.createArgs.signerWorkerManager.getContext(),
     routerAbNormalSigning: args.createArgs.seamsWebConfigs.signing.routerAb.normalSigning,
-    getOrCreateActiveThresholdEcdsaSessionId: args.getOrCreateActiveThresholdEcdsaSessionId,
     defaultRelayerUrl: args.createArgs.seamsWebConfigs.network.relayer?.url || '',
     persistThresholdEcdsaBootstrapForWalletTarget:
       args.createArgs.persistThresholdEcdsaBootstrapForWalletTarget,

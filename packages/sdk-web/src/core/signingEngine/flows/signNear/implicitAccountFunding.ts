@@ -3,14 +3,14 @@ import type { TransactionContext } from '@/core/types/rpc';
 import type { NearEd25519StepUpAuthorization } from '../../interfaces/near';
 import type { NearSigningRuntimeDeps } from '../../interfaces/runtime';
 import type { NonceLeaseRef } from '../../interfaces/nonceLease';
-import type { NonceLease } from '../../nonce/nonceTypes';
 import type { NearImplicitAccountFundingResult } from '../../interfaces/implicitAccountFunding';
-import { nonceLeaseToRef } from '../../nonce/NonceCoordinator';
-import { buildNearNonceLane } from '../../nonce/nearNonceLaneIdentity';
-import type {
-  NearFundingRequest,
-  NearTransactionReadiness,
-} from '../../nonce/nearTransactionReadiness';
+import {
+  buildNearNonceLane,
+  nonceLeaseToRef,
+  type NearFundingRequest,
+  type NearTransactionReadiness,
+  type NonceLease,
+} from '../../nonce/NonceCoordinator';
 import type {
   SigningOperationContext,
   SigningOperationFingerprint,
@@ -83,7 +83,10 @@ function requireWalletSessionJwt(state: ResolvedRouterAbEd25519WalletSessionStat
  * step-up assertion — before the proof is assembled — so it names its
  * provenance from the method rather than from a finished authorization.
  */
-export type NearOperationStepUpFundingMethod = 'passkey' | 'email_otp';
+export type NearOperationStepUpFundingMethod = Exclude<
+  NearEd25519StepUpAuthorization['kind'],
+  'warm_session'
+>;
 
 function fundingAuthorityProvenance(
   authorization: NearEd25519StepUpAuthorization,

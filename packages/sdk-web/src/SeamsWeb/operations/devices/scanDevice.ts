@@ -1,169 +1,372 @@
-import type { DeviceLinkingWebContext } from '@/SeamsWeb/signingSurface/types';
-import type {
-  DeviceLinkingQRData,
-  LinkDeviceResult,
-  ScanAndLinkDeviceOptionsDevice1,
-} from '@/core/types/linkDevice';
+import type { LinkDeviceResult, ScanAndLinkDeviceOptionsDevice1 } from '@/core/types/linkDevice';
 import { DeviceLinkingError, DeviceLinkingErrorCode } from '@/core/types/linkDevice';
+import {
+  buildLinkedDeviceApprovalV1,
+  buildLinkedDeviceSessionClaimRequestV1,
+  parseLinkedDeviceProvisioningDeliveriesSubmissionV1,
+  parseQrLinkedDeviceSessionPayloadV4,
+} from '@shared/device-linking';
+import type {
+  LinkedDeviceOwnerAuthorizationSourceV1,
+  QrLinkedDeviceSessionPayloadV4,
+} from '@shared/device-linking';
 import {
   createLinkDeviceFlowEvent,
   LinkDeviceEventPhase,
   type CreateLinkDeviceFlowEventInput,
 } from '@/core/types/sdkSentEvents';
-import { validateNearAccountId } from '@shared/utils/validation';
-
-const LINK_DEVICE_REFACTOR_84_MESSAGE =
-  'Linked-device lane creation is disabled until refactor 84 lands';
-const LINK_DEVICE_QR_MAX_AGE_MS = 15 * 60 * 1000;
+import type {
+  Device1LinkingFlowPortsV1,
+  Device1TargetReadySourceInputV1,
+  LinkedDeviceApprovalResultV1,
+  LinkSessionOwnerTransportPortV1,
+  LinkSessionSubscriptionV1,
+} from './deviceLinkingPorts';
+import { errorMessage } from '@shared/utils/errors';
+import { computeLaneEnrollmentManifestDigestV1 } from '@shared/signing-lanes/rotationDigests';
+import { alphabetizeStringify } from '@shared/utils/digests';
+import { nextLinkedDevicePollingDelayMsV1 } from './deviceLinkingHttpTransport';
+import { LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1 } from '@shared/device-linking/requestProof';
 
 type EmitLinkDeviceEventInput = Omit<CreateLinkDeviceFlowEventInput, 'flowId' | 'accountId'> & {
-  accountId?: string;
+  readonly accountId?: string;
 };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object');
+function createFlowId(qrData: QrLinkedDeviceSessionPayloadV4 | null): string {
+  return qrData ? String(qrData.linkSessionId) : 'link-device-scan';
 }
 
 function createInvalidQrError(message: string): DeviceLinkingError {
   return new DeviceLinkingError(message, DeviceLinkingErrorCode.INVALID_QR_DATA, 'authorization');
 }
 
-function createUnsupportedScannerError(): DeviceLinkingError {
-  return new DeviceLinkingError(
-    LINK_DEVICE_REFACTOR_84_MESSAGE,
-    DeviceLinkingErrorCode.UNSUPPORTED,
-    'authorization',
-  );
+function notifyError(callback: ((error: Error) => void) | undefined, error: Error): void {
+  try {
+    callback?.(error);
+  } catch {
+    // Consumer callback failures do not replace the domain error.
+  }
 }
 
-function flowIdForQrData(qrData: DeviceLinkingQRData): string {
-  const sessionId = String(qrData?.sessionId || '').trim();
-  return sessionId || 'link-device-scan:refactor-84-stub';
-}
-
-function emitScannerLinkDeviceEvent(
+function emitScannerEvent(
   onEvent: ScanAndLinkDeviceOptionsDevice1['onEvent'] | undefined,
-  qrData: DeviceLinkingQRData,
+  qrData: QrLinkedDeviceSessionPayloadV4 | null,
   event: EmitLinkDeviceEventInput,
 ): void {
   onEvent?.(
     createLinkDeviceFlowEvent({
-      flowId: flowIdForQrData(qrData),
-      ...(event.accountId ? { accountId: event.accountId } : {}),
+      flowId: createFlowId(qrData),
       ...event,
-      data: {
-        role: 'scanner',
-        ...(event.data || {}),
-      },
+      data: { role: 'scanner', ...(event.data ?? {}) },
     }),
   );
 }
 
-function notifyScannerError(
-  onError: ScanAndLinkDeviceOptionsDevice1['onError'] | undefined,
-  error: Error,
+function assertAuthorizationSourcesMatch(
+  left: LinkedDeviceOwnerAuthorizationSourceV1,
+  right: LinkedDeviceOwnerAuthorizationSourceV1,
 ): void {
-  try {
-    onError?.(error);
-  } catch {
-    // Callback failures must not replace the link-device stub error.
+  if (left.kind !== right.kind)
+    throw new Error('owner authorization selected more than one source');
+  switch (left.kind) {
+    case 'wallet_session':
+      if (
+        right.kind !== 'wallet_session' ||
+        left.walletSessionId !== right.walletSessionId ||
+        left.authorizationId !== right.authorizationId
+      ) {
+        throw new Error('wallet-session authorization source changed during linking');
+      }
+      return;
+    case 'step_up':
+      if (right.kind !== 'step_up' || left.evidenceSetId !== right.evidenceSetId) {
+        throw new Error('step-up authorization source changed during linking');
+      }
+      return;
+    default: {
+      const exhaustive: never = left;
+      throw new Error(`unsupported owner authorization source: ${String(exhaustive)}`);
+    }
   }
 }
 
-function emitScannerFailure(args: {
-  onEvent: ScanAndLinkDeviceOptionsDevice1['onEvent'] | undefined;
-  qrData: DeviceLinkingQRData;
-  error: DeviceLinkingError;
-  retryable: boolean;
-}): void {
-  emitScannerLinkDeviceEvent(args.onEvent, args.qrData, {
-    phase: LinkDeviceEventPhase.FAILED,
-    status: 'failed',
-    message: args.error.message,
-    interaction: {
-      kind: 'qr_scan',
-      overlay: 'none',
-    },
-    error: {
-      code: args.error.code,
-      message: args.error.message,
-      retryable: args.retryable,
-    },
-  });
+function classifyFailure(error: unknown): DeviceLinkingError {
+  if (error instanceof DeviceLinkingError) return error;
+  const message = errorMessage(error) || 'Device linking failed';
+  if (/expired|expiry/i.test(message)) {
+    return new DeviceLinkingError(message, DeviceLinkingErrorCode.SESSION_EXPIRED, 'authorization');
+  }
+  return new DeviceLinkingError(
+    message,
+    DeviceLinkingErrorCode.REGISTRATION_FAILED,
+    'registration',
+  );
 }
 
-export async function linkDeviceWithScannedQRData(
-  _context: DeviceLinkingWebContext,
-  qrData: DeviceLinkingQRData,
-  options: ScanAndLinkDeviceOptionsDevice1,
-): Promise<LinkDeviceResult> {
-  const onEvent = options?.onEvent;
-  const onError = options?.onError;
-
-  emitScannerLinkDeviceEvent(onEvent, qrData, {
-    phase: LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED,
-    status: 'running',
-    interaction: {
-      kind: 'qr_scan',
-      overlay: 'none',
-    },
-  });
-
+/** Strictly parse the only QR payload accepted by this browser. */
+export function validateQrLinkedDeviceSessionPayloadV4(
+  raw: unknown,
+): QrLinkedDeviceSessionPayloadV4 {
+  let parsed: QrLinkedDeviceSessionPayloadV4;
   try {
-    validateDeviceLinkingQRData(qrData);
+    parsed = parseQrLinkedDeviceSessionPayloadV4(raw);
   } catch (error: unknown) {
-    const deviceLinkingError =
-      error instanceof DeviceLinkingError ? error : createInvalidQrError(String(error || ''));
-    emitScannerFailure({
-      onEvent,
-      qrData,
-      error: deviceLinkingError,
-      retryable: true,
-    });
-    notifyScannerError(onError, deviceLinkingError);
-    throw deviceLinkingError;
+    throw createInvalidQrError(errorMessage(error) || 'Invalid linked-device QR payload');
   }
-
-  const error = createUnsupportedScannerError();
-  emitScannerFailure({
-    onEvent,
-    qrData,
-    error,
-    retryable: false,
-  });
-  notifyScannerError(onError, error);
-  throw error;
-}
-
-export function validateDeviceLinkingQRData(qrData: DeviceLinkingQRData): void {
-  if (!isRecord(qrData)) {
-    throw createInvalidQrError('QR data must be an object');
+  const now = Date.now();
+  if (parsed.issuedAtMs > now + LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1) {
+    throw createInvalidQrError('QR payload was issued in the future');
   }
-
-  const sessionId = String(qrData.sessionId || '').trim();
-  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/.test(sessionId)) {
-    throw createInvalidQrError('Invalid sessionId');
-  }
-
-  const version = String(qrData.version || '').trim();
-  if (!version) {
-    throw createInvalidQrError('Missing version');
-  }
-
-  const timestamp = Number(qrData.timestamp);
-  if (!Number.isFinite(timestamp) || timestamp <= 0) {
-    throw createInvalidQrError('Missing timestamp');
-  }
-
-  if (Date.now() - timestamp > LINK_DEVICE_QR_MAX_AGE_MS) {
+  if (parsed.expiresAtMs <= now) {
     throw new DeviceLinkingError(
       'QR code expired',
       DeviceLinkingErrorCode.SESSION_EXPIRED,
       'authorization',
     );
   }
+  return parsed;
+}
 
-  if (qrData.accountId) {
-    validateNearAccountId(qrData.accountId);
+export async function scanAndLinkDevice(
+  _context: unknown,
+  qrData: QrLinkedDeviceSessionPayloadV4,
+  options: ScanAndLinkDeviceOptionsDevice1,
+  ports: Device1LinkingFlowPortsV1,
+): Promise<LinkDeviceResult> {
+  let parsedQrData: QrLinkedDeviceSessionPayloadV4 | null = null;
+  emitScannerEvent(options.onEvent, parsedQrData, {
+    phase: LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED,
+    status: 'started',
+    message: 'Scanning QR code',
+    interaction: { kind: 'qr_scan', overlay: 'none' },
+  });
+
+  try {
+    parsedQrData = validateQrLinkedDeviceSessionPayloadV4(qrData);
+    const now = Date.now();
+    const owner = await ports.ownerAuthorization.authenticateOwnerForLinkingV1({
+      payload: parsedQrData,
+      requestedAtMs: now,
+    });
+    assertAuthorizationSourcesMatch(owner.ownerAuthorization, owner.authentication.source);
+    const claim = await ports.transport.claimSessionV1({
+      request: buildLinkedDeviceSessionClaimRequestV1(parsedQrData),
+      authentication: owner.authentication,
+    });
+    if (
+      claim.linkSessionId !== parsedQrData.linkSessionId ||
+      claim.devicePublicKeyB64u !== parsedQrData.devicePublicKeyB64u ||
+      claim.walletId !== owner.walletId
+    ) {
+      throw new Error('linked-device claim does not match the scanned QR payload');
+    }
+    const approvedAtMs = Date.now();
+    const approval = buildLinkedDeviceApprovalV1({
+      linkSessionId: claim.linkSessionId,
+      walletId: claim.walletId,
+      enrollmentId: claim.enrollmentId,
+      deviceId: claim.deviceId,
+      linkPublicKeyB64u: parsedQrData.linkPublicKeyB64u,
+      devicePublicKeyB64u: claim.devicePublicKeyB64u,
+      permission: parsedQrData.requestedPermission,
+      ownerAuthorization: owner.ownerAuthorization,
+      policyDigestB64u: owner.policyDigestB64u,
+      operationId: owner.operationId,
+      idempotencyKey: owner.idempotencyKey,
+      orderedKeyBindings: owner.orderedKeyBindings,
+      protocolVersions: owner.protocolVersions,
+      approvedAtMs,
+      expiresAtMs: Math.min(owner.expiresAtMs, claim.claimExpiresAtMs),
+    });
+    const recorded = await ports.transport.recordOwnerApprovalV1({
+      approval,
+      authentication: owner.authentication,
+    });
+    const activeApproval = await awaitActiveApprovalResult({
+      result: recorded,
+      transport: ports.transport,
+      linkSessionId: claim.linkSessionId,
+      authentication: owner.authentication,
+      expiresAtMs: Math.min(owner.expiresAtMs, claim.claimExpiresAtMs),
+      walletId: claim.walletId,
+      enrollmentId: claim.enrollmentId,
+      deviceId: claim.deviceId,
+      sourcePreparation: ports.sourcePreparation,
+    });
+    const result: LinkDeviceResult = {
+      success: true,
+      walletId: claim.walletId,
+      enrollmentId: claim.enrollmentId,
+      deviceId: claim.deviceId,
+      manifestDigestB64u: activeApproval.manifestDigestB64u,
+      receipt: activeApproval.receipt,
+    };
+    emitScannerEvent(options.onEvent, parsedQrData, {
+      phase: LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED,
+      status: 'succeeded',
+      message: 'Device link approved',
+      interaction: { kind: 'qr_scan', overlay: 'none' },
+    });
+    await options.afterCall?.(true, result);
+    return result;
+  } catch (error: unknown) {
+    const failure = classifyFailure(error);
+    emitScannerEvent(options.onEvent, parsedQrData, {
+      phase: LinkDeviceEventPhase.FAILED,
+      status: 'failed',
+      message: failure.message,
+      interaction: { kind: 'qr_scan', overlay: 'none' },
+      error: {
+        code: failure.code,
+        message: failure.message,
+        retryable: failure.code !== DeviceLinkingErrorCode.SESSION_EXPIRED,
+      },
+    });
+    notifyError(options.onError, failure);
+    await options.afterCall?.(false, undefined, failure);
+    throw failure;
   }
+}
+
+type ActiveApprovalResult = Extract<LinkedDeviceApprovalResultV1, { readonly outcome: 'active' }>;
+
+function activeApprovalFromResult(
+  result: LinkedDeviceApprovalResultV1,
+): ActiveApprovalResult | null {
+  switch (result.outcome) {
+    case 'active':
+      return {
+        ...result,
+        manifestDigestB64u: result.receipt.manifestDigestB64u,
+      };
+    case 'pending':
+      return null;
+    case 'replayed':
+      if (result.replay.state === 'active') {
+        return {
+          outcome: 'active',
+          state: result.replay.session,
+          manifestDigestB64u: result.replay.receipt.manifestDigestB64u,
+          receipt: result.replay.receipt,
+        };
+      }
+      return null;
+    default: {
+      const exhaustive: never = result;
+      throw new Error(`unsupported approval result: ${String(exhaustive)}`);
+    }
+  }
+}
+
+async function awaitActiveApprovalResult(input: {
+  readonly result: LinkedDeviceApprovalResultV1;
+  readonly transport: LinkSessionOwnerTransportPortV1;
+  readonly linkSessionId: QrLinkedDeviceSessionPayloadV4['linkSessionId'];
+  readonly authentication: Parameters<
+    LinkSessionOwnerTransportPortV1['getApprovalV1']
+  >[0]['authentication'];
+  readonly expiresAtMs: number;
+  readonly walletId: Device1TargetReadySourceInputV1['walletId'];
+  readonly enrollmentId: Device1TargetReadySourceInputV1['enrollmentId'];
+  readonly deviceId: Device1TargetReadySourceInputV1['deviceId'];
+  readonly sourcePreparation: Device1LinkingFlowPortsV1['sourcePreparation'];
+}): Promise<ActiveApprovalResult> {
+  const immediate = activeApprovalFromResult(input.result);
+  if (immediate) return immediate;
+  let latestResult: LinkedDeviceApprovalResultV1 | null = input.result;
+  let sourceHandoffComplete = false;
+  let pollAttempt = 0;
+  const onApprovalResult = (result: LinkedDeviceApprovalResultV1): void => {
+    latestResult = result;
+  };
+  let subscription: LinkSessionSubscriptionV1 | null = null;
+  try {
+    subscription = await input.transport.subscribeApprovalV1({
+      linkSessionId: input.linkSessionId,
+      authentication: input.authentication,
+      onResult: onApprovalResult,
+    });
+    while (Date.now() < input.expiresAtMs) {
+      const observed = latestResult;
+      latestResult = null;
+      if (observed) {
+        pollAttempt = 0;
+        const active = activeApprovalFromResult(observed);
+        if (active) return active;
+        if (!sourceHandoffComplete) {
+          sourceHandoffComplete = await preparePendingSourceHandoffV1(input, observed);
+        }
+      }
+      await waitForApprovalPollV1(pollAttempt);
+      pollAttempt += 1;
+    }
+    throw approvalWaitExpired();
+  } finally {
+    await subscription?.close();
+  }
+}
+
+async function preparePendingSourceHandoffV1(
+  input: Parameters<typeof awaitActiveApprovalResult>[0],
+  result: LinkedDeviceApprovalResultV1,
+): Promise<boolean> {
+  const state = pendingApprovalStateV1(result);
+  if (!state || state === 'awaiting_target_passkey') return false;
+  const targetReady = await input.transport.getTargetReadyV1({
+    linkSessionId: input.linkSessionId,
+    authentication: input.authentication,
+  });
+  if (!targetReady) return false;
+  if (
+    targetReady.linkSessionId !== input.linkSessionId ||
+    targetReady.walletId !== input.walletId ||
+    targetReady.enrollmentId !== input.enrollmentId ||
+    targetReady.deviceId !== input.deviceId
+  ) {
+    throw new Error('R102 target-ready input differs from the approved linked-device session');
+  }
+  const deliveries = await input.sourcePreparation.prepareTargetReadyDeliveriesV1(targetReady);
+  const submission = parseLinkedDeviceProvisioningDeliveriesSubmissionV1({
+    kind: 'linked_device_provisioning_deliveries_submission_v1',
+    linkSessionId: targetReady.linkSessionId,
+    walletId: targetReady.walletId,
+    enrollmentId: targetReady.enrollmentId,
+    deviceId: targetReady.deviceId,
+    manifestDigestB64u: await computeLaneEnrollmentManifestDigestV1(targetReady.manifest),
+    deliveries,
+  });
+  const persisted = await input.transport.submitPreparedProvisioningDeliveriesV1({
+    submission,
+    authentication: input.authentication,
+  });
+  if (alphabetizeStringify(persisted) !== alphabetizeStringify(submission)) {
+    throw new Error('persisted R102 deliveries differ from the prepared source handoff');
+  }
+  return true;
+}
+
+function pendingApprovalStateV1(
+  result: LinkedDeviceApprovalResultV1,
+): 'awaiting_target_passkey' | 'provisioning' | 'committed_completion_required' | null {
+  if (result.outcome === 'pending') return result.state.state;
+  if (result.outcome === 'replayed' && result.replay.state === 'pending') {
+    return result.replay.session.state;
+  }
+  return null;
+}
+
+function resolveApprovalPollV1(resolve: () => void, attempt: number): void {
+  setTimeout(resolve, nextLinkedDevicePollingDelayMsV1(250, attempt));
+}
+
+async function waitForApprovalPollV1(attempt: number): Promise<void> {
+  await new Promise<void>((resolve) => resolveApprovalPollV1(resolve, attempt));
+}
+
+function approvalWaitExpired(): DeviceLinkingError {
+  return new DeviceLinkingError(
+    'Device-link approval expired before target provisioning completed',
+    DeviceLinkingErrorCode.SESSION_EXPIRED,
+    'registration',
+  );
 }

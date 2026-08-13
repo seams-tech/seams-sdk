@@ -1,14 +1,17 @@
 export type {
-  ActiveLaneRevocationState,
+  ActiveSigningLaneReference,
   BreakGlassSigningLaneRecord,
-  DelegatedAgentSigningLaneRecord,
+  DelegatedExecutionSigningLaneRecord,
+  Ed25519WalletKeyRecord,
+  EvmFamilyWalletKeyRecord,
   LinkedDeviceSigningLaneRecord,
   OwnerEmailOtpSigningLaneRecord,
   OwnerPasskeySigningLaneRecord,
   RecoverySigningLaneRecord,
-  RevokedLaneRevocationState,
   SigningLaneRecord,
   SigningLaneReference,
+  SigningLaneLifecycle,
+  WalletKeyLifecycle,
   WalletKeyRecord,
 } from '@shared/signing-lanes';
 

@@ -1,4 +1,5 @@
 {
+	admin off
 	auto_https disable_redirects
 	log {
 		level ERROR
@@ -97,7 +98,7 @@ localhost:9444 {
 	header @router_allowed_origin Access-Control-Allow-Origin {http.request.header.Origin}
 	header @router_allowed_origin Access-Control-Allow-Credentials true
 	header @router_allowed_origin Access-Control-Allow-Methods "GET,POST,PUT,PATCH,DELETE,OPTIONS"
-	header @router_allowed_origin Access-Control-Allow-Headers "Content-Type,Authorization,X-Seams-Trace-Id,X-Seams-Environment-Id,X-Environment-Id,X-Console-Org-Id,X-Console-User-Id,X-Console-Roles,X-Console-Project-Id,X-Console-Environment-Id"
+	header @router_allowed_origin Access-Control-Allow-Headers "Content-Type,Authorization,X-Seams-Linked-Device-Proof-V1,X-Seams-Trace-Id,X-Seams-Environment-Id,X-Environment-Id,X-Console-Org-Id,X-Console-User-Id,X-Console-Roles,X-Console-Project-Id,X-Console-Environment-Id"
 	header @router_allowed_origin Vary Origin
 	respond @router_preflight 204
 	reverse_proxy 127.0.0.1:9090 {

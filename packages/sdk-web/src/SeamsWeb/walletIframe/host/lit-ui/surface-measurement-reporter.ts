@@ -12,6 +12,12 @@ type SurfaceMeasurementReporterOptions =
       readonly postMeasurement: (measurement: WalletIframeSurfaceMeasurement) => void;
     }
   | {
+      readonly kind: 'request_scroll_surface';
+      readonly element: HTMLElement;
+      readonly requestId: WalletIframeRequestId;
+      readonly postMeasurement: (measurement: WalletIframeSurfaceMeasurement) => void;
+    }
+  | {
       readonly kind: 'auth_menu_surface';
       readonly element: HTMLElement;
       readonly requestId: WalletIframeRequestId;
@@ -44,6 +50,20 @@ function sizeFromEntryOrElement(
   return sizeFromRect(entry?.contentRect ?? element.getBoundingClientRect());
 }
 
+function sizeForReporter(
+  options: SurfaceMeasurementReporterOptions,
+  entry: ResizeObserverEntry | null,
+): SurfaceSize | null {
+  if (options.kind === 'request_scroll_surface') {
+    const rect = options.element.getBoundingClientRect();
+    return sizeFromRect({
+      width: Math.max(options.element.scrollWidth, rect.width),
+      height: Math.max(options.element.scrollHeight, rect.height),
+    });
+  }
+  return sizeFromEntryOrElement(options.element, entry);
+}
+
 function measurementForSize(
   options: SurfaceMeasurementReporterOptions,
   sequence: number,
@@ -51,6 +71,7 @@ function measurementForSize(
 ): WalletIframeSurfaceMeasurement {
   switch (options.kind) {
     case 'request_surface':
+    case 'request_scroll_surface':
       return {
         kind: 'measured_v1',
         requestId: options.requestId,
@@ -136,7 +157,7 @@ class SurfaceMeasurementReporter implements WalletIframeSurfaceMeasurementReport
 
   private reportLatestSize(): void {
     if (this.disconnected) return;
-    const size = sizeFromEntryOrElement(this.options.element, this.latestEntry);
+    const size = sizeForReporter(this.options, this.latestEntry);
     this.latestEntry = null;
     if (!size || this.sameSize(size)) return;
     this.lastSize = size;

@@ -23,9 +23,7 @@ import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef
 
 const walletId = toWalletId('cedar-zenith-pghgtw');
 const nearAccountId = toAccountId('cedar-zenith-pghgtw.testnet');
-const nearEd25519SigningKeyId = nearEd25519SigningKeyIdFromString(
-  'ed25519ks_cedar-zenith-pghgtw',
-);
+const nearEd25519SigningKeyId = nearEd25519SigningKeyIdFromString('ed25519ks_cedar-zenith-pghgtw');
 const auth = {
   kind: 'passkey',
   rpId: toRpId('localhost'),
@@ -87,9 +85,7 @@ function ed25519Lane(input: {
   };
 }
 
-function availableSigningLanes(
-  near: AvailableEd25519SigningLane[],
-): AvailableSigningLanes {
+function availableSigningLanes(near: AvailableEd25519SigningLane[]): AvailableSigningLanes {
   return {
     walletId,
     generation: 1,

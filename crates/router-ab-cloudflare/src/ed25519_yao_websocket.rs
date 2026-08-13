@@ -32,6 +32,8 @@ pub enum CloudflareEd25519YaoCircuitV1 {
     Activation,
     /// Explicit Ed25519 seed export circuit.
     Export,
+    /// Recipient-isolated lane-materialization circuit.
+    LaneMaterialization,
 }
 
 impl CloudflareEd25519YaoCircuitV1 {
@@ -39,6 +41,7 @@ impl CloudflareEd25519YaoCircuitV1 {
         match self {
             Self::Activation => "activation",
             Self::Export => "export",
+            Self::LaneMaterialization => "lane-materialization",
         }
     }
 
@@ -46,6 +49,7 @@ impl CloudflareEd25519YaoCircuitV1 {
         match value {
             "activation" => Ok(Self::Activation),
             "export" => Ok(Self::Export),
+            "lane-materialization" => Ok(Self::LaneMaterialization),
             _ => Err(CloudflareEd25519YaoWebSocketErrorV1::InvalidProtocol),
         }
     }

@@ -54,7 +54,7 @@ test('rejects a substituted material activation receipt', () => {
       ...receipt.ecdsa_activation,
       material_activation: {
         ...receipt.ecdsa_activation.material_activation,
-        activation_id: 'substituted-material-activation',
+        key_binding: 'substituted-material-key-binding',
       },
     },
   };

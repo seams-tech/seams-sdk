@@ -156,7 +156,7 @@ enum ClientState {
     },
     Round10(Box<ClientRound10State>),
     Round11(Box<ClientRound11State>),
-    Done(Option<Vec<u8>>),
+    Done(Option<PresignOutput>),
     Poisoned,
 }
 
@@ -239,6 +239,10 @@ impl ClientPresignSession {
     }
 
     pub fn take_presignature_97(&mut self) -> Result<Vec<u8>, PresignSessionError> {
+        self.take_presignature().map(output_bytes)
+    }
+
+    pub fn take_presignature(&mut self) -> Result<PresignOutput, PresignSessionError> {
         match &mut self.state {
             ClientState::Done(output) => {
                 output.take().ok_or(PresignSessionError::OutputUnavailable)
@@ -341,7 +345,7 @@ fn advance_client(
         ClientState::Round11(state) => {
             let output = (*state).receive(decode_signing_worker_round11(encoded)?)?;
             Ok((
-                ClientState::Done(Some(output_bytes(output))),
+                ClientState::Done(Some(output)),
                 None,
                 PresignSessionEvent::PresignDone,
             ))

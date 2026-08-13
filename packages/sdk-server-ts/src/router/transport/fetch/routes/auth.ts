@@ -170,7 +170,7 @@ export async function handleAuth(ctx: FetchRouterApiContext): Promise<Response |
     stepUp: AuthPasskeyStepUpRequest;
   }): Promise<{ ok: true } | { ok: false; response: Response }> {
     const result = await ctx.service.webAuthn.verifyWebAuthnLogin(input.stepUp);
-    if (!result.ok || !result.verified || !result.userId) {
+    if (!result.ok) {
       return {
         ok: false,
         response: json(result, { status: result.code === 'internal' ? 500 : 400 }),

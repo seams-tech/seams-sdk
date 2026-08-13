@@ -15,16 +15,27 @@ import type {
   EcdsaRoleLocalWorkerHandle,
 } from '@/core/signingEngine/session/keyMaterialBrands';
 import type { EcdsaRoleLocalPublicFacts } from '@/core/platform';
+import type { EcdsaRoleLocalReadyStateBlob } from '@/core/platform';
 import type { EcdsaClientPresignPoolIdentity } from './ecdsaPresignPoolIdentity';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { RouterAbNormalSigningAuthorizationWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import type {
+  WalletRecoveryEcdsaPossessionChallengeV1,
+  WalletRecoveryEcdsaPossessionProofV1,
+} from '@shared/wallet-recovery/walletRecoveryEcdsaPossession';
+import type {
+  EcdsaAdditiveLaneHolderPreparationV1,
+  EcdsaAdditiveLaneJobV1,
+} from '@shared/signing-lanes/rotation';
+import { parseRotatableSigningLaneJobV1 } from '@shared/signing-lanes/rotationParsers';
 
 export const EcdsaClientWorkerControlKind = {
   AttachDerivationToPresign: 'attach_ecdsa_derivation_to_presign_v1',
-  AttachEmailOtpToPresign: 'attach_email_otp_to_ecdsa_presign_v1',
+  AttachLinkedHolderToPresign: 'attach_linked_holder_to_ecdsa_presign_v1',
+  AttachPresignToOnline: 'attach_ecdsa_presign_to_online_v1',
 } as const;
 
 export type AttachEcdsaDerivationToPresignPort = {
@@ -32,42 +43,127 @@ export type AttachEcdsaDerivationToPresignPort = {
   readonly port: MessagePort;
 };
 
-export type AttachEmailOtpToPresignPort = {
-  readonly kind: typeof EcdsaClientWorkerControlKind.AttachEmailOtpToPresign;
+export type AttachLinkedHolderToPresignPort = {
+  readonly kind: typeof EcdsaClientWorkerControlKind.AttachLinkedHolderToPresign;
   readonly port: MessagePort;
 };
 
-export type EcdsaDerivationAdditiveShareRequest = {
-  readonly kind: 'ecdsa_derivation_additive_share_request_v1';
-  readonly requestId: string;
-  readonly materialHandle: string;
-  readonly poolIdentity: EcdsaClientPresignPoolIdentity;
-  readonly material:
-    | {
-        readonly kind: 'persisted';
-        readonly materialRef: EcdsaRoleLocalPersistedMaterialRef;
-        readonly expectedBindingDigest?: never;
-      }
-    | {
-        readonly kind: 'runtime_loaded';
-        readonly expectedBindingDigest: string;
-        readonly materialRef?: never;
-      };
+export type AttachPresignToOnlinePort = {
+  readonly kind: typeof EcdsaClientWorkerControlKind.AttachPresignToOnline;
+  readonly port: MessagePort;
 };
 
-export type EcdsaDerivationAdditiveShareResponse =
+type OpaqueEcdsaPresignRequestBaseV1 = {
+  readonly requestId: string;
+};
+
+type OpaqueEcdsaPresignSessionRequestBaseV1 = OpaqueEcdsaPresignRequestBaseV1 & {
+  readonly sessionId: string;
+};
+
+type OpaqueEcdsaPresignSessionInitBaseV1 = OpaqueEcdsaPresignSessionRequestBaseV1 & {
+  readonly kind: 'opaque_ecdsa_presign_session_init_v1';
+  readonly poolIdentity: EcdsaClientPresignPoolIdentity;
+  readonly groupPublicKey33: ArrayBuffer;
+  readonly materialExpiresAtMs: number;
+};
+
+export type OpaqueEcdsaPresignAuthorityRequestV1 =
+  | (OpaqueEcdsaPresignSessionInitBaseV1 & {
+      readonly authority: {
+        readonly kind: 'role_local_derivation_handle';
+        readonly materialHandle: string;
+        readonly material:
+          | {
+              readonly kind: 'persisted';
+              readonly materialRef: EcdsaRoleLocalPersistedMaterialRef;
+              readonly expectedBindingDigest?: never;
+            }
+          | {
+              readonly kind: 'runtime_loaded';
+              readonly expectedBindingDigest: string;
+              readonly materialRef?: never;
+            };
+        readonly holderHandleId?: never;
+      };
+    })
+  | (OpaqueEcdsaPresignSessionInitBaseV1 & {
+      readonly authority: {
+        readonly kind: 'linked_holder_signing_material';
+        readonly holderHandleId: string;
+        readonly materialHandle?: never;
+        readonly material?: never;
+      };
+    })
+  | (OpaqueEcdsaPresignSessionRequestBaseV1 & {
+      readonly kind: 'opaque_ecdsa_presign_session_step_v1';
+      readonly stage: 'triples' | 'presign';
+      readonly incomingMessages: readonly ArrayBuffer[];
+    })
+  | (OpaqueEcdsaPresignSessionRequestBaseV1 & {
+      readonly kind: 'opaque_ecdsa_presign_session_abort_v1';
+    })
+  | (OpaqueEcdsaPresignRequestBaseV1 & {
+      readonly kind: 'opaque_ecdsa_online_compute_v1';
+      readonly materialHandle: string;
+      readonly groupPublicKey33: ArrayBuffer;
+      readonly expectedPresignBigR33: ArrayBuffer;
+      readonly digest32: ArrayBuffer;
+      readonly clientRerandomizationContribution32: ArrayBuffer;
+      readonly signingWorkerRerandomizationContribution32: ArrayBuffer;
+    })
+  | (OpaqueEcdsaPresignRequestBaseV1 & {
+      readonly kind: 'opaque_ecdsa_presign_material_destroy_v1';
+      readonly materialHandle: string;
+    });
+
+export type OpaqueEcdsaPresignAuthorityResponseV1 =
   | {
-      readonly kind: 'ecdsa_derivation_additive_share_result_v1';
+      readonly kind: 'opaque_ecdsa_presign_authority_result_v1';
       readonly requestId: string;
       readonly ok: true;
-      readonly additiveShare32: ArrayBuffer;
+      readonly result:
+        | {
+            readonly kind: 'progress';
+            readonly progress: {
+              readonly stage: 'triples' | 'triples_done' | 'presign' | 'done';
+              readonly event: 'none' | 'triples_done' | 'presign_done';
+              readonly outgoingMessages: ArrayBuffer[];
+              readonly presignatureHandle?: string;
+              readonly presignatureBigR33?: ArrayBuffer;
+            };
+          }
+        | {
+            readonly kind: 'metered_progress';
+            readonly progress: {
+              readonly stage: 'triples' | 'triples_done' | 'presign' | 'done';
+              readonly event: 'none' | 'triples_done' | 'presign_done';
+              readonly outgoingMessages: ArrayBuffer[];
+              readonly presignatureHandle?: string;
+              readonly presignatureBigR33?: ArrayBuffer;
+            };
+            readonly remainingUses: number;
+            readonly expiresAtMs: number;
+          }
+        | {
+            readonly kind: 'aborted';
+            readonly sessionId: string;
+          }
+        | {
+            readonly kind: 'online_share';
+            readonly signatureShare32: ArrayBuffer;
+          }
+        | {
+            readonly kind: 'material_destroyed';
+            readonly materialHandle: string;
+          };
       readonly error?: never;
     }
   | {
-      readonly kind: 'ecdsa_derivation_additive_share_result_v1';
+      readonly kind: 'opaque_ecdsa_presign_authority_result_v1';
       readonly requestId: string;
       readonly ok: false;
-      readonly additiveShare32?: never;
+      readonly result?: never;
       readonly error: string;
     };
 
@@ -94,31 +190,63 @@ export type RehydrateEcdsaRoleLocalSigningMaterialResultV1 =
       readonly materialRef?: never;
     };
 
-export type EmailOtpEcdsaSigningShareRequest = {
-  readonly kind: 'email_otp_ecdsa_signing_share_request_v1';
-  readonly requestId: string;
-  readonly thresholdSessionId: string;
+export type SignWalletRecoveryEcdsaMaterialPossessionProofRequestV1 = {
+  readonly kind: 'sign_wallet_recovery_ecdsa_material_possession_proof_v1';
+  readonly challenge: WalletRecoveryEcdsaPossessionChallengeV1;
+  readonly stateBlob: EcdsaRoleLocalReadyStateBlob;
 };
 
-export type EmailOtpEcdsaSigningShareResponse =
-  | {
-      readonly kind: 'email_otp_ecdsa_signing_share_result_v1';
-      readonly requestId: string;
-      readonly ok: true;
-      readonly additiveShare32: ArrayBuffer;
-      readonly remainingUses: number;
-      readonly expiresAtMs: number;
-      readonly error?: never;
-    }
-  | {
-      readonly kind: 'email_otp_ecdsa_signing_share_result_v1';
-      readonly requestId: string;
-      readonly ok: false;
-      readonly additiveShare32?: never;
-      readonly remainingUses?: never;
-      readonly expiresAtMs?: never;
-      readonly error: string;
-    };
+export type SignWalletRecoveryEcdsaMaterialPossessionProofResultV1 = {
+  readonly kind: 'ecdsa_wallet_recovery_material_possession_proof_v1';
+  readonly proof: WalletRecoveryEcdsaPossessionProofV1;
+  readonly challengeDigestB64u: DigestB64u;
+  readonly derivationClientSharePublicKey33B64u: string;
+};
+
+export type PrepareEcdsaAdditiveLaneHolderRequestV1 = {
+  readonly kind: 'prepare_ecdsa_additive_lane_holder_v1';
+  readonly job: EcdsaAdditiveLaneJobV1;
+  readonly holderCommittedAtMs: number;
+};
+
+export type PrepareEcdsaAdditiveLaneHolderResultV1 = EcdsaAdditiveLaneHolderPreparationV1;
+
+export function parsePrepareEcdsaAdditiveLaneHolderRequestV1(
+  raw: unknown,
+): PrepareEcdsaAdditiveLaneHolderRequestV1 {
+  if (!isObject(raw) || Array.isArray(raw)) {
+    throw new Error('ECDSA lane holder request must be an object');
+  }
+  const fields = Object.keys(raw);
+  if (
+    fields.length !== 3 ||
+    !fields.includes('kind') ||
+    !fields.includes('job') ||
+    !fields.includes('holderCommittedAtMs')
+  ) {
+    throw new Error('ECDSA lane holder request has invalid fields');
+  }
+  if (raw.kind !== 'prepare_ecdsa_additive_lane_holder_v1') {
+    throw new Error('ECDSA lane holder request kind is invalid');
+  }
+  const job = parseRotatableSigningLaneJobV1(raw.job, 'ecdsaLaneHolderRequest.job');
+  if (job.keyFamily !== 'ecdsa_secp256k1') {
+    throw new Error('ECDSA lane holder request requires an ECDSA lane job');
+  }
+  const holderCommittedAtMs = raw.holderCommittedAtMs;
+  if (
+    typeof holderCommittedAtMs !== 'number' ||
+    !Number.isSafeInteger(holderCommittedAtMs) ||
+    holderCommittedAtMs < 0
+  ) {
+    throw new Error('ECDSA lane holder request holderCommittedAtMs is invalid');
+  }
+  return {
+    kind: 'prepare_ecdsa_additive_lane_holder_v1',
+    job,
+    holderCommittedAtMs,
+  };
+}
 
 type RouterAbEcdsaExplicitExportRequestFactsBaseV1 = Omit<
   RouterAbEcdsaDerivationExplicitExportProtocolRequestV1,
@@ -160,13 +288,15 @@ type RouterAbEcdsaReusableExplicitExportRequestWasmInputV1 =
     readonly authorization_id?: never;
   };
 
-type RouterAbEcdsaOperationStepUpExplicitExportRequestWasmInputV1 =
-  Omit<RouterAbEcdsaExplicitExportRequestFactsBaseV1, 'authorization'> & {
-    readonly authorization: {
-      readonly kind: 'operation_step_up';
-      readonly authorization_id: DigestB64u;
-    };
+type RouterAbEcdsaOperationStepUpExplicitExportRequestWasmInputV1 = Omit<
+  RouterAbEcdsaExplicitExportRequestFactsBaseV1,
+  'authorization'
+> & {
+  readonly authorization: {
+    readonly kind: 'operation_step_up';
+    readonly authorization_id: DigestB64u;
   };
+};
 
 export type RouterAbEcdsaExplicitExportRequestWasmInputV1 =
   | RouterAbEcdsaReusableExplicitExportRequestWasmInputV1
@@ -181,11 +311,7 @@ function isOperationStepUpExplicitExportFacts(
 function projectReusableExplicitExportRequestForWasm(
   request: RouterAbEcdsaReusableExplicitExportRequestFactsV1,
 ): RouterAbEcdsaReusableExplicitExportRequestWasmInputV1 {
-  const {
-    operation: _operation,
-    authorization_id: _authorizationId,
-    ...wasmInput
-  } = request;
+  const { operation: _operation, authorization_id: _authorizationId, ...wasmInput } = request;
   return wasmInput;
 }
 
@@ -273,6 +399,7 @@ export type CreateRouterAbEcdsaPostRegistrationCeremonyResultV1 =
       readonly kind: 'router_ab_ecdsa_activation_refresh_ceremony_created_v1';
       readonly ceremonyId: string;
       readonly request: RouterAbEcdsaDerivationActivationRefreshRequestV1;
+      readonly requestDigestB64u: string;
     };
 
 export type FinalizeRouterAbEcdsaExplicitExportRequestV1 = {
@@ -297,6 +424,17 @@ export type FinalizeRouterAbEcdsaExplicitExportResultV1 = {
   readonly ethereumAddress: string;
   readonly stateBlob?: never;
   readonly output32B64u?: never;
+};
+
+export type VerifyRouterAbEcdsaPostRegistrationProofsRequestV1 = {
+  readonly kind: 'verify_router_ab_ecdsa_post_registration_proofs_v1';
+  readonly ceremonyId: string;
+  readonly clientProofFinalization: RouterAbEcdsaClientProofFinalizationV1;
+};
+
+export type VerifyRouterAbEcdsaPostRegistrationProofsResultV1 = {
+  readonly kind: 'router_ab_ecdsa_activation_refresh_proofs_verified_v1';
+  readonly ceremonyId: string;
 };
 
 export type CloseRouterAbEcdsaPostRegistrationCeremonyRequestV1 = {
@@ -329,12 +467,20 @@ export function isAttachEcdsaDerivationToPresignPort(
   );
 }
 
-export function isAttachEmailOtpToPresignPort(
+export function isAttachLinkedHolderToPresignPort(
   value: unknown,
-): value is AttachEmailOtpToPresignPort {
+): value is AttachLinkedHolderToPresignPort {
   const parsed = parseWorkerChannelControl(value);
   return (
-    parsed?.kind === EcdsaClientWorkerControlKind.AttachEmailOtpToPresign &&
+    parsed?.kind === EcdsaClientWorkerControlKind.AttachLinkedHolderToPresign &&
+    parsed.port instanceof MessagePort
+  );
+}
+
+export function isAttachPresignToOnlinePort(value: unknown): value is AttachPresignToOnlinePort {
+  const parsed = parseWorkerChannelControl(value);
+  return (
+    parsed?.kind === EcdsaClientWorkerControlKind.AttachPresignToOnline &&
     parsed.port instanceof MessagePort
   );
 }

@@ -27,12 +27,22 @@ export function buildRouterAbEcdsaWalletSessionClaimsFixture(
 ): RouterAbEcdsaDerivationWalletSessionClaims {
   const claims = parseRouterAbEcdsaDerivationWalletSessionClaims({
     kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
+    authorizationKind: 'owner_wallet_session',
     sub: input.walletId,
     walletId: input.walletId,
     sid: input.authorizationSessionId ?? 'authorization-session-fixture',
     thresholdSessionId: input.thresholdSessionId ?? 'threshold-session-fixture',
     authorizationId: input.authorizationId ?? 'authorization-grant-ecdsa-fixture',
     authorizationSessionId: input.authorizationSessionId ?? 'authorization-session-fixture',
+    walletAuthAuthorityRef: {
+      kind: 'wallet_auth_authority_ref',
+      walletId: input.walletId,
+      authorityDigest: 'authority-digest-fixture',
+    },
+    authSource: {
+      kind: 'passkey',
+      credentialIdB64u: 'credential-fixture',
+    },
     walletSessionId: input.walletSessionId ?? 'wallet-session-fixture',
     quotaId: input.quotaId ?? 'wallet-quota-fixture',
     keyScope: 'evm-family',

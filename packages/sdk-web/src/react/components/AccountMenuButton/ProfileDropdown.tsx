@@ -43,7 +43,6 @@ export const ProfileDropdown = forwardRef<HTMLDivElement, ProfileDropdownWithRef
       exportLoadingChain = null,
       onExportChain,
       walletId,
-      nearAccountId,
       theme = 'dark',
       highlightedMenuItemId,
     },
@@ -107,7 +106,6 @@ export const ProfileDropdown = forwardRef<HTMLDivElement, ProfileDropdownWithRef
                 {isLinkedDevicesItem && (
                   <LinkedDevicesSection
                     walletId={walletId ?? null}
-                    nearAccountId={nearAccountId ?? null}
                     isOpen={linkedDevicesOpen}
                     style={{ ['--stagger-item-n' as any]: index }}
                   />

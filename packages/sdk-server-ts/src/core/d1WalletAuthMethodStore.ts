@@ -366,6 +366,61 @@ export function prepareD1WalletAuthMethodPutStatement(input: {
     );
 }
 
+/** Insert-only auth-method write used when a new factor and its envelope are
+ * committed together. A credential collision must abort the enclosing D1
+ * batch instead of updating an existing factor's identity. */
+export function prepareD1WalletAuthMethodInsertStatement(input: {
+  readonly database: D1DatabaseLike;
+  readonly scope: D1WalletAuthMethodStoreScope;
+  readonly record: WalletAuthMethodRecord;
+}): D1PreparedStatementLike {
+  const parsed = normalizeWalletAuthMethod(input.record);
+  if (!parsed) throw new Error('Invalid wallet auth method record');
+  const identity = bindWalletAuthMethodIdentity(parsed);
+  return input.database
+    .prepare(
+      `INSERT INTO wallet_auth_methods (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        wallet_id,
+        rp_id,
+        kind,
+        status,
+        wallet_auth_method_id,
+        auth_identifier_key,
+        credential_id_b64u,
+        credential_public_key_b64u,
+        email_hash_hex,
+        registration_authority_id,
+        record_json,
+        created_at_ms,
+        updated_at_ms
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .bind(
+      input.scope.namespace,
+      input.scope.orgId,
+      input.scope.projectId,
+      input.scope.envId,
+      parsed.walletId,
+      identity.rpId,
+      parsed.kind,
+      parsed.status,
+      walletAuthMethodId(parsed),
+      identity.authIdentifierKey,
+      identity.credentialIdB64u,
+      identity.credentialPublicKeyB64u,
+      identity.emailHashHex,
+      identity.registrationAuthorityId,
+      JSON.stringify(parsed),
+      parsed.createdAtMs,
+      parsed.updatedAtMs,
+    );
+}
+
 function assertNeverWalletAuthMethod(record: never): never {
   throw new Error(`Unexpected wallet auth method record: ${JSON.stringify(record)}`);
 }
@@ -402,6 +457,78 @@ export class D1WalletAuthMethodStore implements WalletAuthMethodStore {
       scope: this.scope,
       record,
     }).run();
+  }
+
+  /**
+   * Prepares the guarded auth-method mutation used when a passkey and its
+   * custody envelopes are revoked in one D1 batch. The CAS guard turns a
+   * missing or concurrently changed active row into a transaction failure;
+   * callers must append these statements to the custody-store mutation batch.
+   */
+  preparePasskeyRevocationStatements(
+    record: WalletAuthMethodRecord,
+  ): readonly D1PreparedStatementLike[] {
+    if (record.kind !== 'passkey' || record.status !== 'revoked') {
+      throw new Error('Passkey revocation statements require a revoked passkey record');
+    }
+    const parsed = normalizeWalletAuthMethod(record);
+    if (!parsed || parsed.kind !== 'passkey' || parsed.status !== 'revoked') {
+      throw new Error('Invalid revoked passkey auth method record');
+    }
+    const authMethodId = walletAuthMethodId(parsed);
+    const update = this.database
+      .prepare(
+        `UPDATE wallet_auth_methods
+            SET status = 'revoked',
+                record_json = ?6,
+                updated_at_ms = ?7
+          WHERE namespace = ?1
+            AND org_id = ?2
+            AND project_id = ?3
+            AND env_id = ?4
+            AND wallet_auth_method_id = ?5
+            AND kind = 'passkey'
+            AND status = 'active'`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        authMethodId,
+        JSON.stringify(parsed),
+        parsed.updatedAtMs,
+      );
+    const guard = this.database.prepare(`
+      INSERT INTO router_ab_yao_versioned_json_cas_guard (guard_id)
+      SELECT 1
+       WHERE changes() = 0
+    `);
+    return [update, guard];
+  }
+
+  /**
+   * Prepares the insert-only wallet auth-method mutation used by custody
+   * linking. The statement intentionally has no conflict handler; the unique
+   * credential index is part of the transaction's fail-closed boundary.
+   */
+  preparePasskeyRegistrationStatements(
+    record: WalletAuthMethodRecord,
+  ): readonly D1PreparedStatementLike[] {
+    if (record.kind !== 'passkey' || record.status !== 'active') {
+      throw new Error('Passkey registration statements require an active passkey record');
+    }
+    const insert = prepareD1WalletAuthMethodInsertStatement({
+      database: this.database,
+      scope: this.scope,
+      record,
+    });
+    const guard = this.database.prepare(`
+      INSERT INTO router_ab_yao_versioned_json_cas_guard (guard_id)
+      SELECT 1
+       WHERE changes() = 0
+    `);
+    return [insert, guard];
   }
 
   async getPasskey(input: {

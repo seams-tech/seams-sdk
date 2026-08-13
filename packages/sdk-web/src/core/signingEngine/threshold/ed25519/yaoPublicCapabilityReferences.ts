@@ -30,12 +30,25 @@ export type Ed25519YaoPublicCapabilityReferenceV1 = Ed25519YaoActiveClientIdenti
   runtimePolicyScope: ThresholdRuntimePolicyScope;
 };
 
+type Ed25519YaoPublicCapabilityLaneReferenceBaseV1 = Ed25519YaoPublicCapabilityReferenceV1 & {
+  nearEd25519SigningKeyId: ReturnType<typeof nearEd25519SigningKeyIdFromString>;
+  signerSlot: number;
+};
+
 export type Ed25519YaoPublicCapabilityLaneReferenceV1 =
-  Ed25519YaoPublicCapabilityReferenceV1 & {
-    auth: SigningLaneAuthBinding;
-    nearEd25519SigningKeyId: ReturnType<typeof nearEd25519SigningKeyIdFromString>;
-    signerSlot: number;
-  };
+  Ed25519YaoPublicCapabilityLaneReferenceBaseV1 &
+    (
+      | {
+          auth: Extract<SigningLaneAuthBinding, { kind: 'email_otp' }>;
+          remainingUses: number;
+          expiresAtMs: number;
+        }
+      | {
+          auth: Extract<SigningLaneAuthBinding, { kind: 'passkey' }>;
+          remainingUses?: never;
+          expiresAtMs?: never;
+        }
+    );
 
 export type Ed25519YaoPublicCapabilityReferencesV1 = {
   kind: typeof ED25519_YAO_PUBLIC_CAPABILITY_REFERENCES_KIND_V1;
@@ -113,6 +126,20 @@ function requireNonEmptyString(value: unknown, label: string): string {
   return value;
 }
 
+function requireNonNegativeInteger(value: unknown, label: string): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`${label} must be a non-negative integer`);
+  }
+  return value;
+}
+
+function requirePositiveInteger(value: unknown, label: string): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1) {
+    throw new Error(`${label} must be a positive integer`);
+  }
+  return value;
+}
+
 function parseSigningLaneAuth(value: unknown, label: string): SigningLaneAuthBinding {
   const record = requireRecord(value, label);
   const kind = requireNonEmptyString(record.kind, `${label}.kind`);
@@ -179,6 +206,7 @@ function parsePublicCapabilityLane(
   label: string,
 ): Ed25519YaoPublicCapabilityLaneReferenceV1 {
   const record = requireRecord(value, label);
+  const auth = parseSigningLaneAuth(record.auth, `${label}.auth`);
   requireExactKeys(
     record,
     [
@@ -190,6 +218,7 @@ function parsePublicCapabilityLane(
       'auth',
       'nearEd25519SigningKeyId',
       'signerSlot',
+      ...(auth.kind === 'email_otp' ? ['remainingUses', 'expiresAtMs'] : []),
     ],
     label,
   );
@@ -207,14 +236,27 @@ function parsePublicCapabilityLane(
   if (signerSlot === null) {
     throw new Error(`${label}.signerSlot is invalid`);
   }
-  return {
+  const common = {
     ...base,
-    auth: parseSigningLaneAuth(record.auth, `${label}.auth`),
     nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(
       requireNonEmptyString(record.nearEd25519SigningKeyId, `${label}.nearEd25519SigningKeyId`),
     ),
     signerSlot,
   };
+  switch (auth.kind) {
+    case 'email_otp':
+      return {
+        ...common,
+        auth,
+        remainingUses: requireNonNegativeInteger(record.remainingUses, `${label}.remainingUses`),
+        expiresAtMs: requirePositiveInteger(record.expiresAtMs, `${label}.expiresAtMs`),
+      };
+    case 'passkey':
+      return { ...common, auth };
+    default:
+      auth satisfies never;
+      throw new Error(`${label}.auth is invalid`);
+  }
 }
 
 export function parseEd25519YaoPublicCapabilityReferencesV1(

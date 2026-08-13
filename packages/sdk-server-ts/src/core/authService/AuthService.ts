@@ -62,6 +62,7 @@ import {
   type WebAuthnSyncAccountVerificationRequest,
   type WebAuthnSyncAccountVerificationResult,
   type WebAuthnSyncAccountOptionsResult,
+  type WebAuthnLoginVerificationResult,
 } from './webauthn';
 import { randomBase64Url, randomOpaqueId } from './bytes';
 import {
@@ -87,28 +88,12 @@ import {
 } from './emailOtpChallenges';
 import {
   createEmailOtpChallenge as createEmailOtpChallengeOperation,
-  createEmailOtpDeviceRecoveryChallenge as createEmailOtpDeviceRecoveryChallengeOperation,
   createEmailOtpEnrollmentChallenge as createEmailOtpEnrollmentChallengeOperation,
   verifyEmailOtpChallenge as verifyEmailOtpChallengeOperation,
-  verifyEmailOtpDeviceRecoveryChallenge as verifyEmailOtpDeviceRecoveryChallengeOperation,
   type EmailOtpChallengeOperationsInput,
 } from './emailOtpChallengeOperations';
 import { verifyEmailOtpChallengeCode as verifyEmailOtpChallengeCodeWithStores } from './emailOtpChallengeVerification';
 import { verifyEmailOtpEnrollment as verifyEmailOtpEnrollmentWithStores } from './emailOtpRegistrationEnrollment';
-import {
-  consumeEmailOtpRecoveryKey as consumeEmailOtpRecoveryKeyWithStores,
-  getEmailOtpRecoveryCodeStatus as getEmailOtpRecoveryCodeStatusWithStores,
-  recordEmailOtpRecoveryKeyAttemptFailure as recordEmailOtpRecoveryKeyAttemptFailureWithStores,
-  rotateEmailOtpRecoveryKeys as rotateEmailOtpRecoveryKeysWithStores,
-  type EmailOtpRecoveryCodeStatusRequest,
-  type EmailOtpRecoveryCodeStatusResult,
-  type EmailOtpRecoveryKeyAttemptFailureRequest,
-  type EmailOtpRecoveryKeyAttemptFailureResult,
-  type EmailOtpRecoveryKeyConsumeRequest,
-  type EmailOtpRecoveryKeyConsumeResult,
-  type EmailOtpRecoveryKeysRotateRequest,
-  type EmailOtpRecoveryKeysRotateResult,
-} from './emailOtpRecoveryKeys';
 import { EmailRecoveryAuthOperations } from './emailRecoveryAuthOperations';
 import {
   createEmailOtpUnlockChallenge as createEmailOtpUnlockChallengeWithStores,
@@ -122,7 +107,6 @@ import {
   parseRawEmailOtpRegistrationChallengeProofInput,
   readEmailOtpStoredChallengePurpose,
   type EmailOtpChallengeBindingMismatchCode,
-  type EmailOtpRecoveryChallengeEscrow,
   type EmailOtpRegistrationChallengeProof,
   type EmailOtpRegistrationChallengeProofInput,
   type EmailOtpRegistrationChallengeProofResult,
@@ -629,7 +613,6 @@ export class AuthService {
     challenge: { limit: number; windowMs: number };
     verify: { limit: number; windowMs: number };
     grant: { limit: number; windowMs: number };
-    recoveryKeyAttempt: { limit: number; windowMs: number };
     googleRegistrationAttempt: { limit: number; windowMs: number };
   } {
     return resolveEmailOtpRateLimitPoliciesFromSource({
@@ -639,7 +622,7 @@ export class AuthService {
   }
 
   private async consumeEmailOtpRateLimit(args: {
-    scope: 'challenge' | 'verify' | 'grant' | 'recoveryKeyAttempt' | 'googleRegistrationAttempt';
+    scope: 'challenge' | 'verify' | 'grant' | 'googleRegistrationAttempt';
     action?: string;
     userId?: string;
     walletId?: string;
@@ -680,7 +663,9 @@ export class AuthService {
     return createEmailOtpShamirCipherFromConfig({
       rootSecretB64u: this.readConfigValue('SIGNING_SESSION_SEAL_ROOT_SECRET_B64U'),
       currentKeyVersion: this.readConfigValue('SIGNING_SESSION_SEAL_CURRENT_KEY_VERSION'),
-      acceptedWarmKeyVersions: this.readConfigValue('SIGNING_SESSION_SEAL_ACCEPTED_WARM_KEY_VERSIONS')
+      acceptedWarmKeyVersions: this.readConfigValue(
+        'SIGNING_SESSION_SEAL_ACCEPTED_WARM_KEY_VERSIONS',
+      )
         .split(',')
         .map((value) => value.trim())
         .filter(Boolean),
@@ -985,18 +970,12 @@ export class AuthService {
     challenge_id?: unknown;
     webauthn_authentication?: unknown;
     expected_origin?: string;
-  }): Promise<{
-    ok: boolean;
-    verified?: boolean;
-    userId?: string;
-    rpId?: string;
-    code?: string;
-    message?: string;
-  }> {
+  }): Promise<WebAuthnLoginVerificationResult> {
     return await verifyWebAuthnLoginWithStores({
       request,
       loginChallengeStore: this.stores.getWebAuthnLoginChallengeStore(),
       authenticatorStore: this.stores.getWebAuthnAuthenticatorStore(),
+      credentialBindingStore: this.stores.getWebAuthnCredentialBindingStore(),
       identityStore: this.stores.getIdentityStore(),
       logger: this.logger,
     });
@@ -1036,6 +1015,10 @@ export class AuthService {
         verified: true;
         userId: string;
         walletId: string;
+        providerUserId: string;
+        orgId: string;
+        enrollmentId: string;
+        enrollmentSealKeyVersion: string;
         unlockKeyVersion: string;
       }
     | { ok: false; verified: false; code: string; message: string }
@@ -1109,9 +1092,6 @@ export class AuthService {
     return {
       createChallengeWithAction: this.createEmailOtpChallengeWithAction.bind(this),
       verifyChallengeCode: this.verifyEmailOtpChallengeCode.bind(this),
-      readActiveEnrollment: this.readActiveEmailOtpEnrollment.bind(this),
-      recoveryWrappedEnrollmentEscrowStore:
-        this.stores.getEmailOtpRecoveryWrappedEnrollmentEscrowStore(),
       grantStore: this.stores.getEmailOtpGrantStore(),
       resolveConfig: this.resolveEmailOtpConfig.bind(this),
     };
@@ -1194,44 +1174,6 @@ export class AuthService {
     );
   }
 
-  async createEmailOtpDeviceRecoveryChallenge(request: {
-    userId?: unknown;
-    walletId?: unknown;
-    orgId?: unknown;
-    email?: unknown;
-    otpChannel?: unknown;
-    sessionHash?: unknown;
-    appSessionVersion?: unknown;
-    clientIp?: unknown;
-  }): Promise<
-    | {
-        ok: true;
-        challenge: {
-          challengeId: string;
-          issuedAtMs: number;
-          expiresAtMs: number;
-          userId: string;
-          walletId: string;
-          orgId: string;
-          otpChannel: EmailOtpChannel;
-          sessionHash: string;
-          appSessionVersion: string;
-          action: typeof WALLET_EMAIL_OTP_ACTIONS.deviceRecovery;
-          operation: typeof WALLET_EMAIL_OTP_UNLOCK_OPERATION;
-        };
-        delivery: {
-          mode: 'email_provider' | 'log' | 'memory';
-          emailHint: string;
-        };
-      }
-    | { ok: false; code: string; message: string }
-  > {
-    return await createEmailOtpDeviceRecoveryChallengeOperation(
-      this.emailOtpChallengeOperationsInput(),
-      request,
-    );
-  }
-
   private async verifyEmailOtpChallengeCode(request: {
     challengeSubjectId?: unknown;
     walletId?: unknown;
@@ -1291,50 +1233,6 @@ export class AuthService {
     return await verifyEmailOtpChallengeOperation(this.emailOtpChallengeOperationsInput(), request);
   }
 
-  async verifyEmailOtpDeviceRecoveryChallenge(request: {
-    userId?: unknown;
-    walletId?: unknown;
-    orgId?: unknown;
-    challengeId?: unknown;
-    otpCode?: unknown;
-    otpChannel?: unknown;
-    sessionHash?: unknown;
-    appSessionVersion?: unknown;
-    clientIp?: unknown;
-  }): Promise<
-    | {
-        ok: true;
-        challengeId: string;
-        otpChannel: EmailOtpChannel;
-        recoveryConsumeGrant: string;
-        recoveryConsumeGrantExpiresAtMs: number;
-        recoveryWrappedEnrollmentEscrows: EmailOtpRecoveryChallengeEscrow[];
-        enrollment: {
-          walletId: string;
-          providerUserId: string;
-          orgId: string;
-          enrollmentId: string;
-          enrollmentVersion: string;
-          enrollmentSealKeyVersion: string;
-          signingRootId: string;
-          signingRootVersion: string;
-          recoveryWrappedEnrollmentEscrowCount: number;
-        };
-      }
-    | {
-        ok: false;
-        code: string;
-        message: string;
-        attemptsRemaining?: number;
-        lockedUntilMs?: number;
-      }
-  > {
-    return await verifyEmailOtpDeviceRecoveryChallengeOperation(
-      this.emailOtpChallengeOperationsInput(),
-      request,
-    );
-  }
-
   async verifyEmailOtpEnrollment(request: {
     /** Provider subject from the app-session JWT that requested the registration OTP. */
     providerSubject: unknown;
@@ -1348,11 +1246,10 @@ export class AuthService {
     /** Email asserted by the registration proof. It must match the challenged email. */
     proofEmail?: unknown;
     clientIp?: unknown;
-    recoveryWrappedEnrollmentEscrows?: unknown;
     enrollmentSealKeyVersion?: unknown;
+    serverSealedFactorCiphertextB64u?: unknown;
     clientUnlockPublicKeyB64u?: unknown;
     unlockKeyVersion?: unknown;
-    thresholdEcdsaClientVerifyingShareB64u?: unknown;
     googleEmailOtpRegistrationAttemptId?: unknown;
   }): Promise<
     | {
@@ -1379,8 +1276,6 @@ export class AuthService {
       walletStore: this.stores.getWalletStore(),
       walletEnrollmentStore: this.stores.getEmailOtpWalletEnrollmentStore(),
       authStateStore: this.stores.getEmailOtpAuthStateStore(),
-      recoveryWrappedEnrollmentEscrowStore:
-        this.stores.getEmailOtpRecoveryWrappedEnrollmentEscrowStore(),
       registrationAttemptStore: this.stores.getEmailOtpRegistrationAttemptStore(),
       identityStore: this.stores.getIdentityStore(),
       verifyChallengeCode: this.verifyEmailOtpChallengeCode.bind(this),
@@ -1438,63 +1333,6 @@ export class AuthService {
       consumeRateLimit: this.consumeEmailOtpRateLimit.bind(this),
       nowMs: Date.now(),
     });
-  }
-
-  async getEmailOtpRecoveryCodeStatus(
-    request: EmailOtpRecoveryCodeStatusRequest,
-  ): Promise<EmailOtpRecoveryCodeStatusResult> {
-    return await getEmailOtpRecoveryCodeStatusWithStores({
-      request,
-      recoveryWrappedEnrollmentEscrowStore:
-        this.stores.getEmailOtpRecoveryWrappedEnrollmentEscrowStore(),
-      readActiveEnrollment: this.readActiveEmailOtpEnrollment.bind(this),
-    });
-  }
-  async consumeEmailOtpRecoveryKey(
-    request: EmailOtpRecoveryKeyConsumeRequest,
-  ): Promise<EmailOtpRecoveryKeyConsumeResult> {
-    return await consumeEmailOtpRecoveryKeyWithStores({
-      request,
-      stores: this.emailOtpRecoveryKeysStores(),
-      ports: this.emailOtpRecoveryKeysPorts(),
-    });
-  }
-  async rotateEmailOtpRecoveryKeys(
-    request: EmailOtpRecoveryKeysRotateRequest,
-  ): Promise<EmailOtpRecoveryKeysRotateResult> {
-    return await rotateEmailOtpRecoveryKeysWithStores({
-      request,
-      store: this.stores.getEmailOtpRecoveryWrappedEnrollmentEscrowStore(),
-      readActiveEnrollment: this.readActiveEmailOtpEnrollment.bind(this),
-      readEnrollmentAuthState: this.readEmailOtpAuthStateForEnrollment.bind(this),
-      resolveConfig: this.resolveEmailOtpConfig.bind(this),
-    });
-  }
-  async recordEmailOtpRecoveryKeyAttemptFailure(
-    request: EmailOtpRecoveryKeyAttemptFailureRequest,
-  ): Promise<EmailOtpRecoveryKeyAttemptFailureResult> {
-    return await recordEmailOtpRecoveryKeyAttemptFailureWithStores({
-      request,
-      stores: this.emailOtpRecoveryKeysStores(),
-      ports: this.emailOtpRecoveryKeysPorts(),
-    });
-  }
-  private emailOtpRecoveryKeysStores() {
-    return {
-      grantStore: this.stores.getEmailOtpGrantStore(),
-      recoveryWrappedEnrollmentEscrowStore:
-        this.stores.getEmailOtpRecoveryWrappedEnrollmentEscrowStore(),
-    };
-  }
-
-  private emailOtpRecoveryKeysPorts() {
-    return {
-      readActiveEnrollment: this.readActiveEmailOtpEnrollment.bind(this),
-      readEnrollmentAuthState: this.readEmailOtpAuthStateForEnrollment.bind(this),
-      putEnrollmentAuthState: this.putEmailOtpAuthStateForEnrollment.bind(this),
-      consumeRateLimit: this.consumeEmailOtpRateLimit.bind(this),
-      resolveConfig: this.resolveEmailOtpConfig.bind(this),
-    };
   }
 
   async readEmailOtpOutboxEntry(request: {

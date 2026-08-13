@@ -24,6 +24,18 @@ export function buildReactLoggedInLoginStateFromSession(session: WalletSession):
   if (session.appIdentity.kind !== 'resolved') return null;
   const appIdentity = session.appIdentity;
   const authentication = session.authentication;
+  if (authentication.kind === 'linked_device_session') {
+    return {
+      isLoggedIn: true,
+      walletId: String(appIdentity.walletId),
+      nearAccountId: appIdentity.nearAccountId ? String(appIdentity.nearAccountId) : null,
+      nearPublicKey: appIdentity.nearOperationalPublicKey,
+      currentAuthMethod: buildNoCurrentWalletAuthMethod(),
+      authMethods: appIdentity.authMethods,
+      thresholdEcdsaEthereumAddress: appIdentity.thresholdEcdsaEthereumAddress,
+      thresholdEcdsaPublicKeyB64u: appIdentity.thresholdEcdsaPublicKeyB64u,
+    };
+  }
   if (authentication.kind !== 'authenticated') return null;
   const matchingAuthMethods = appIdentity.authMethods.filter(
     (binding) => binding.kind === authentication.authMethod,

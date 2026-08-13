@@ -70,13 +70,13 @@ test.describe('confirmation readiness registry', () => {
         const requestId = `ttl-${Date.now()}-${Math.random()}`;
         registry.registerConfirmationReadiness({
           requestId,
-        ttlMs: 50,
+          ttlMs: 50,
           readiness: {
             promise: Promise.resolve('ready'),
             body: 'Preparing signer',
           },
         });
-      await new Promise((resolve) => setTimeout(resolve, 250));
+        await new Promise((resolve) => setTimeout(resolve, 250));
         return registry.consumeConfirmationReadiness(requestId) == null;
       },
       { paths: IMPORT_PATHS },

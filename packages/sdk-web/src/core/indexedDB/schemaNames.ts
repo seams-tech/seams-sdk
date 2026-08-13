@@ -1,4 +1,5 @@
 export const SEAMS_WALLET_DB_NAME = 'seams_wallet' as const;
+export const SEAMS_WALLET_DB_VERSION = 18 as const;
 
 export const SEAMS_WALLET_STORES = {
   appState: 'app_state',
@@ -13,16 +14,15 @@ export const SEAMS_WALLET_STORES = {
   keyMaterial: 'key_material',
   signingSessionSeals: 'signing_session_seals',
   signingSessionRestoreLeases: 'signing_session_restore_leases',
-  emailOtpDeviceEnrollmentEscrows: 'email_otp_escrows',
-  emailOtpRecoveryCodeBackups: 'email_otp_pending_recovery_code_backups',
+  pendingWalletRecoveryCodeBackups: 'email_otp_pending_recovery_code_backups',
   walletSessionAuthorizations: 'wallet_session_authorizations',
+  linkedDeviceWalletSessions: 'linked_device_wallet_sessions',
+  linkedDeviceExecutionEvidence: 'linked_device_execution_evidence',
   ecdsaCapabilityManifests: 'ecdsa_capability_manifests',
   ecdsaCurrentCapabilityManifests: 'ecdsa_current_capability_manifests',
   ecdsaRoleLocalMaterial: 'ecdsa_role_local_material',
   ecdsaActivationCommitJournals: 'ecdsa_activation_commit_journals',
   ecdsaMaterialSealingKeys: 'ecdsa_material_sealing_keys',
-  ecdsaPresignSealingKeys: 'ecdsa_presign_sealing_keys',
-  ecdsaPresignRecords: 'ecdsa_presign_records',
 } as const;
 
 export const SEAMS_WALLET_INDEXES = {
@@ -284,6 +284,7 @@ export const SEAMS_WALLET_SCHEMA_MANIFEST = [
         keyPath: 'threshold_session_id',
         unique: false,
       },
+      { name: SEAMS_WALLET_INDEXES.enrollmentId, keyPath: 'enrollmentId', unique: false },
       { name: SEAMS_WALLET_INDEXES.keyHandle, keyPath: 'key_handle', unique: false },
       { name: SEAMS_WALLET_INDEXES.chainTargetKey, keyPath: 'chain_target_key', unique: false },
       {
@@ -309,27 +310,7 @@ export const SEAMS_WALLET_SCHEMA_MANIFEST = [
     ],
   },
   {
-    store: SEAMS_WALLET_STORES.emailOtpDeviceEnrollmentEscrows,
-    keyPath: ['wallet_id', 'auth_subject_id', 'enrollment_id'],
-    indexes: [
-      { name: SEAMS_WALLET_INDEXES.walletId, keyPath: 'wallet_id', unique: false },
-      { name: SEAMS_WALLET_INDEXES.authSubjectId, keyPath: 'auth_subject_id', unique: false },
-      { name: SEAMS_WALLET_INDEXES.enrollmentId, keyPath: 'enrollment_id', unique: false },
-      {
-        name: SEAMS_WALLET_INDEXES.walletIdAuthSubjectId,
-        keyPath: ['wallet_id', 'auth_subject_id'],
-        unique: false,
-      },
-      {
-        name: SEAMS_WALLET_INDEXES.walletIdAuthSubjectIdEnrollmentId,
-        keyPath: ['wallet_id', 'auth_subject_id', 'enrollment_id'],
-        unique: true,
-      },
-      { name: SEAMS_WALLET_INDEXES.signingRootId, keyPath: 'signing_root_id', unique: false },
-    ],
-  },
-  {
-    store: SEAMS_WALLET_STORES.emailOtpRecoveryCodeBackups,
+    store: SEAMS_WALLET_STORES.pendingWalletRecoveryCodeBackups,
     keyPath: ['wallet_id', 'enrollment_id'],
     indexes: [
       { name: SEAMS_WALLET_INDEXES.walletId, keyPath: 'wallet_id', unique: false },
@@ -355,6 +336,19 @@ export const SEAMS_WALLET_SCHEMA_MANIFEST = [
       { name: SEAMS_WALLET_INDEXES.status, keyPath: 'status', unique: false },
       { name: SEAMS_WALLET_INDEXES.expiresAtMs, keyPath: 'expires_at_ms', unique: false },
     ],
+  },
+  {
+    store: SEAMS_WALLET_STORES.linkedDeviceWalletSessions,
+    keyPath: 'enrollment_id',
+    indexes: [
+      { name: SEAMS_WALLET_INDEXES.walletId, keyPath: 'wallet_id', unique: false },
+      { name: SEAMS_WALLET_INDEXES.expiresAtMs, keyPath: 'expires_at_ms', unique: false },
+    ],
+  },
+  {
+    store: SEAMS_WALLET_STORES.linkedDeviceExecutionEvidence,
+    keyPath: 'enrollment_id',
+    indexes: [{ name: SEAMS_WALLET_INDEXES.walletId, keyPath: 'wallet_id', unique: false }],
   },
   {
     store: SEAMS_WALLET_STORES.ecdsaCapabilityManifests,
@@ -396,16 +390,6 @@ export const SEAMS_WALLET_SCHEMA_MANIFEST = [
   {
     store: SEAMS_WALLET_STORES.ecdsaMaterialSealingKeys,
     keyPath: 'key_id',
-    indexes: [],
-  },
-  {
-    store: SEAMS_WALLET_STORES.ecdsaPresignSealingKeys,
-    keyPath: 'id',
-    indexes: [],
-  },
-  {
-    store: SEAMS_WALLET_STORES.ecdsaPresignRecords,
-    keyPath: 'materialHandle',
     indexes: [],
   },
 ] as const satisfies readonly SeamsWalletStoreDefinition[];

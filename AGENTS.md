@@ -13,6 +13,37 @@ agent session. When working under `tests/`, also read `tests/AGENTS.md`.
   sources in `packages/*`.
 - Rust tests are per-crate under `crates/*/tests/`.
 
+## Custody vocabulary (each term names exactly one thing)
+
+`root` alone always names a secret derivation origin. The `Id`/`Version`/`Epoch`
+suffixes name metadata *about* one, never key material — do not read `signingRootId`
+as a key. A value whose name omits both is neither; check it before citing it in a
+security claim.
+
+- **wallet custody seed** — the one random secret per wallet. Every owner signing
+  root derives from it in parallel; no signing root derives from another.
+- **Ed25519 Yao Client root** / **ECDSA client root share** — the owner signing
+  roots, seed-derived.
+- **lane holder share** — per-lane material provisioned by Refactor 102, *not*
+  seed-derived and never in a recovery set.
+- **signingRootId / signingRootVersion** — identifiers inside the EVM-family key
+  slot id, serialized in D1 rows and wire ids. Renaming them breaks stored records.
+- **RootShareEpoch** — an epoch marker for durable ECDSA material.
+- **custody ceremony** — a flow that derives owner roots *and* verifies the key
+  manifest: registration and recovery re-establishment. These live in the
+  `wallet_custody_ceremony` wasm module, which links both protocol crates.
+  Adding a factor and unlocking are not ceremonies and stay in `near_signer`:
+  opening an envelope authenticates the seed against its key manifest, so a
+  reseal carries that claim forward without deriving anything.
+- **two proofs, never one** — `VerifiedWalletKeyManifestDigestV1` says a seed
+  was just proved to reproduce a key set (registration, recovery).
+  `WalletCustodySeedFromSealedEnvelopeV1` says a seed came from an envelope
+  authenticated to a wallet and manifest (factor addition). They are distinct
+  types on purpose; do not add a conversion between them.
+- **threshold** — the MPC protocol, never a KDF stage. A "threshold root" once
+  existed as an Email OTP KDF intermediate; the collision caused a misdiagnosed
+  vulnerability report, and the value has been deleted.
+
 ## Testing policy — read before "fixing" any failing test
 
 Suites are not equally trustworthy, and each owns different invariants. Authority map,
@@ -64,6 +95,9 @@ Decision rules — classify before fixing:
     `UPDATE_ROUTER_AB_NORMAL_SIGNING_VECTORS=1 cargo test -p router-ab-core --test normal_signing_vectors`
   - Ed25519-Yao vectors/goldens: `cargo yao-fv all` (individual checks: `just ed25519-yao-fv-*`)
   - Rust→TS type bindings: `pnpm generate:signer-core-types`
+  - Wallet-custody wire fixtures (Rust↔TS contract):
+    `UPDATE_WALLET_CUSTODY_WIRE_FIXTURES=1 cargo test --test wire_fixtures` in
+    `wasm/wallet_custody_ceremony` — regenerate only for an intended wire change on both sides
 - An intentional behaviour change updates the spec doc and its contract test in the same
   change set.
 - Complex domain-state records (session, auth/capability, signing, persistence) come

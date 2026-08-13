@@ -123,11 +123,13 @@ function createLocalSponsoredEvmExecutorsJson(): string {
 }
 
 function firstFakeD1Row<T>(query: string): T | null {
+  /* Counts must match the Worker's CONSOLE_READY_TABLES / SIGNER_READY_TABLES
+     lengths; readiness fails closed when a migration adds a required table. */
   if (query.includes('sqlite_master') && query.includes('runtime_snapshot_outbox')) {
-    return { table_count: 41 } as T;
+    return { table_count: 44 } as T;
   }
   if (query.includes('sqlite_master') && query.includes('email_otp_registration_attempts')) {
-    return { table_count: 21 } as T;
+    return { table_count: 26 } as T;
   }
   return null;
 }
@@ -175,35 +177,79 @@ function createAdmissionInput(): RouterAbNormalSigningAdmissionInput {
   };
 }
 
+/**
+ * The Router A/B material the local dev Worker requires to stand up at all,
+ * independent of what any one test exercises. Kept in one place because the
+ * Worker's required set grows: a test that spreads this keeps booting, a test
+ * that hand-lists a few keys silently stops.
+ */
+const LOCAL_D1_DEV_ROUTER_AB_ENV = {
+  ROUTER_AB_NORMAL_SIGNING_WORKER_ID: LOCAL_D1_WORKFLOW_SIGNING_WORKER_ID,
+  DERIVER_A_ENVELOPE_HPKE_KEY_EPOCH: 'epoch-1',
+  DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY: `x25519:${'11'.repeat(32)}`,
+  DERIVER_B_ENVELOPE_HPKE_KEY_EPOCH: 'epoch-1',
+  DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY: `x25519:${'22'.repeat(32)}`,
+  DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY: `x25519:${'33'.repeat(32)}`,
+  DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY: `x25519:${'44'.repeat(32)}`,
+  DERIVER_A_PEER_VERIFYING_KEY_HEX:
+    '5afa80b305e72e02615ed1f580144a40a42a71dfcac175809ceb5d79e740d015',
+  DERIVER_B_PEER_VERIFYING_KEY_HEX:
+    '0c700dd63695221e508f3164b528f190bed63a4437d38e882308f9a57acc1bc3',
+  SIGNING_WORKER_SERVER_OUTPUT_HPKE_KEY_EPOCH: 'epoch-1',
+  SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: `x25519:${'55'.repeat(32)}`,
+  ACCOUNT_ID_DERIVATION_SECRET: 'local-workflow-account-id-derivation-secret',
+  SEAMS_LOCAL_CONSOLE_ORG_ID: LOCAL_D1_WORKFLOW_ORG_ID,
+  ROUTER_AB_ECDSA_REGISTRATION_TOPOLOGY_JSON: JSON.stringify({
+    routerId: 'local-router',
+    signerSet: {
+      signer_set_id: 'signer-set-v1',
+      policy: 'all_2',
+      signer_a: { role: 'signer_a', signer_id: 'signer-a', key_epoch: 'epoch-1' },
+      signer_b: { role: 'signer_b', signer_id: 'signer-b', key_epoch: 'epoch-1' },
+      selected_server: {
+        server_id: LOCAL_D1_WORKFLOW_SIGNING_WORKER_ID,
+        key_epoch: 'epoch-1',
+        recipient_encryption_key: `x25519:${'66'.repeat(32)}`,
+      },
+    },
+    deriverRecipientKeys: {
+      deriver_a: {
+        role: 'signer_a',
+        key_epoch: 'epoch-1',
+        public_key: `x25519:${'11'.repeat(32)}`,
+      },
+      deriver_b: {
+        role: 'signer_b',
+        key_epoch: 'epoch-1',
+        public_key: `x25519:${'22'.repeat(32)}`,
+      },
+    },
+  }),
+  /* The Worker mints ceremony JWTs, so it needs a signing key exactly as the
+     deployed Worker does. A throwaway pair, but a real one — WebCrypto
+     rejects a placeholder that is not a curve point. */
+  ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK: JSON.stringify({
+    kty: 'OKP',
+    crv: 'Ed25519',
+    x: 'dZBo_spdvrGU19BMbbgt3_4I4QlqHoNzfr1zH3QqFyI',
+    d: 'iUlWL9uMjgvXkHHq9q0y-jfVnOEQ3nZLCObiP3tatqE',
+  }),
+} as const;
+
 function createLocalD1WorkflowEnv(input: {
   readonly consoleDatabase: D1DatabaseLike;
   readonly signerDatabase: D1DatabaseLike;
 }): LocalD1WorkflowEnv {
   return {
+    ...LOCAL_D1_DEV_ROUTER_AB_ENV,
     CONSOLE_DB: input.consoleDatabase,
     SIGNER_DB: input.signerDatabase,
     SEAMS_TENANT_STORAGE_NAMESPACE: 'seams-local-workflow-smoke',
     SEAMS_LOCAL_CONSOLE_USER_ID: 'local-workflow-user',
-    SEAMS_LOCAL_CONSOLE_ORG_ID: LOCAL_D1_WORKFLOW_ORG_ID,
     SEAMS_LOCAL_CONSOLE_PROJECT_ID: 'project-local-workflow',
     SEAMS_LOCAL_CONSOLE_ENVIRONMENT_ID: 'env-local-workflow',
     SEAMS_LOCAL_CONSOLE_ROLES:
       'owner,admin,platform_admin,billing_admin,ops,developer,security_admin',
-    ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'signing-worker.local',
-    DERIVER_A_ENVELOPE_HPKE_KEY_EPOCH: 'epoch-1',
-    DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY:
-      'x25519:1111111111111111111111111111111111111111111111111111111111111111',
-    DERIVER_B_ENVELOPE_HPKE_KEY_EPOCH: 'epoch-1',
-    DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY:
-      'x25519:2222222222222222222222222222222222222222222222222222222222222222',
-    DERIVER_A_PEER_VERIFYING_KEY_HEX:
-      '5afa80b305e72e02615ed1f580144a40a42a71dfcac175809ceb5d79e740d015',
-    DERIVER_B_PEER_VERIFYING_KEY_HEX:
-      '0c700dd63695221e508f3164b528f190bed63a4437d38e882308f9a57acc1bc3',
-    SIGNING_WORKER_SERVER_OUTPUT_HPKE_KEY_EPOCH: 'epoch-1',
-    SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY:
-      'x25519:3333333333333333333333333333333333333333333333333333333333333333',
-    ACCOUNT_ID_DERIVATION_SECRET: 'local-workflow-account-id-derivation-secret',
   };
 }
 
@@ -338,8 +384,8 @@ test('Cloudflare D1 service bundle wires signer-D1 normal-signing admission into
     const admission = bundle.routerApiRouterOptions.routerAbNormalSigningAdmission;
     const input = createAdmissionInput();
 
-    await expect(admission.evaluate(input)).resolves.toEqual({ ok: true });
-    await expect(admission.evaluate(input)).resolves.toEqual({ ok: true });
+    await expect(admission.evaluatePolicy(input)).resolves.toEqual({ ok: true });
+    await expect(admission.evaluatePolicy(input)).resolves.toEqual({ ok: true });
     expect(bundle.sponsorshipPricing).toBe(sponsorshipPricing);
     expect(bundle.routerApiRouterOptions).not.toHaveProperty('signedDelegate');
     expect(bundle.routerApiRouterOptions).not.toHaveProperty('sponsorship');
@@ -471,6 +517,7 @@ test('local D1 Worker ready smoke validates D1 tables and signer-D1 admission', 
   const response = await localD1DevWorker.fetch(
     new Request('http://127.0.0.1:8787/readyz'),
     {
+      ...LOCAL_D1_DEV_ROUTER_AB_ENV,
       CONSOLE_DB: database,
       SIGNER_DB: database,
       SEAMS_TENANT_STORAGE_NAMESPACE: 'seams-local-test',
@@ -484,8 +531,8 @@ test('local D1 Worker ready smoke validates D1 tables and signer-D1 admission', 
     backend: 'cloudflare_d1_do',
     namespace: 'seams-local-test',
     schemas: {
-      consoleTables: 41,
-      signerTables: 21,
+      consoleTables: 44,
+      signerTables: 26,
     },
     admission: {
       database: 'SIGNER_DB',
@@ -497,6 +544,7 @@ test('local D1 Worker ready smoke validates D1 tables and signer-D1 admission', 
 test('local D1 Worker routes smoke requests through the Router API handler', async () => {
   const database = new FakeD1Database();
   const env = {
+    ...LOCAL_D1_DEV_ROUTER_AB_ENV,
     CONSOLE_DB: database,
     SIGNER_DB: database,
     SEAMS_TENANT_STORAGE_NAMESPACE: 'seams-local-test',
@@ -597,6 +645,30 @@ test('local D1 Worker routes smoke requests through the Router API handler', asy
   });
 });
 
+test('local D1 Worker routes internal Gateway requests through the Router API handler', async () => {
+  const database = new FakeD1Database();
+  const response = await localD1DevWorker.fetch(
+    new Request('http://127.0.0.1:8787/internal/gateway/device-linking/v1/lanes/prepare', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    }),
+    {
+      ...LOCAL_D1_DEV_ROUTER_AB_ENV,
+      CONSOLE_DB: database,
+      SIGNER_DB: database,
+      SEAMS_TENANT_STORAGE_NAMESPACE: 'seams-local-test',
+    },
+    createFakeExecutionContext(),
+  );
+
+  expect(response.status).toBe(400);
+  await expect(response.json()).resolves.toMatchObject({
+    ok: false,
+    code: 'invalid_body',
+  });
+});
+
 test('local D1 Worker mounts direct sponsored EVM Router API route when local executor config is present', async () => {
   const database = new FakeD1Database();
   const response = await localD1DevWorker.fetch(
@@ -621,10 +693,25 @@ test('local D1 Worker mounts direct sponsored EVM Router API route when local ex
       }),
     }),
     {
+      ...LOCAL_D1_DEV_ROUTER_AB_ENV,
       CONSOLE_DB: database,
       SIGNER_DB: database,
       SEAMS_TENANT_STORAGE_NAMESPACE: 'seams-local-test',
       SPONSORED_EVM_EXECUTORS_JSON: createLocalSponsoredEvmExecutorsJson(),
+      /* An executor alone does not make the route serviceable: its handler
+         refuses with 503 when spend pricing is unconfigured, and does so
+         before authenticating. Without pricing this test would assert that
+         gate rather than the publishable-key requirement it is named for. */
+      SPONSORED_EXECUTION_STATIC_PRICING_JSON: JSON.stringify({
+        evm: {
+          '42431': {
+            estimateFeePerGas: '1000000000',
+            minorPerFeeUnitNumerator: '1',
+            minorPerFeeUnitDenominator: '1000000000000',
+            pricingVersion: 'static-evm-42431-v1',
+          },
+        },
+      }),
     },
     createFakeExecutionContext(),
   );
@@ -683,6 +770,7 @@ test('local D1 Worker runs a representative signer smoke through relay prefix', 
       }),
     }),
     {
+      ...LOCAL_D1_DEV_ROUTER_AB_ENV,
       CONSOLE_DB: database,
       SIGNER_DB: database,
       SEAMS_TENANT_STORAGE_NAMESPACE: 'seams-local-test',
@@ -710,6 +798,7 @@ test('local D1 Worker serves console routes through D1 console services', async 
       },
     }),
     {
+      ...LOCAL_D1_DEV_ROUTER_AB_ENV,
       CONSOLE_DB: database,
       SIGNER_DB: database,
       SEAMS_TENANT_STORAGE_NAMESPACE: 'seams-local-test',
@@ -733,6 +822,7 @@ test('local D1 Worker serves dashboard Google options at the root auth path', as
       body: '{}',
     }),
     {
+      ...LOCAL_D1_DEV_ROUTER_AB_ENV,
       CONSOLE_DB: database,
       SIGNER_DB: database,
       SEAMS_TENANT_STORAGE_NAMESPACE: 'seams-local-test',
@@ -752,6 +842,7 @@ test('local D1 Worker serves dashboard Google options at the root auth path', as
 test('local D1 Worker routes dashboard session exchange and state at root paths', async () => {
   const database = new FakeD1Database();
   const env = {
+    ...LOCAL_D1_DEV_ROUTER_AB_ENV,
     CONSOLE_DB: database,
     SIGNER_DB: database,
     SEAMS_TENANT_STORAGE_NAMESPACE: 'seams-local-test',
@@ -950,11 +1041,13 @@ test('local D1 Worker runs dashboard, signer, billing, and reconciliation smoke 
       backend: 'cloudflare_d1_do',
       namespace: 'seams-local-workflow-smoke',
       schemas: {
-        consoleTables: 41,
-        signerTables: 21,
+        consoleTables: 44,
+        signerTables: 26,
       },
+      /* Admission moved to private D1, so readiness names the database it
+         proved the policy against rather than a Durable Object binding. */
       admission: {
-        durableObject: 'configured',
+        database: 'SIGNER_DB',
         policy: 'allowed',
       },
     });

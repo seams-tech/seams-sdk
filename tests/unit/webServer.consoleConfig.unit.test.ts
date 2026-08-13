@@ -1,5 +1,8 @@
 import { expect, test } from '@playwright/test';
-import { resolveWebServerConsoleConfig, toOptionalSecret } from '../../apps/web-server/src/consoleConfig';
+import {
+  resolveWebServerConsoleConfig,
+  toOptionalSecret,
+} from '../../apps/web-server/src/consoleConfig';
 
 test.describe('web-server console config resolution', () => {
   test('ignores legacy Postgres console env because the Node runner is memory-only', async () => {

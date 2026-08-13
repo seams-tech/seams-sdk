@@ -32,7 +32,20 @@ type EvmFamilyTransactionExecutorDeps = EvmFamilyAccountMetadataDeps &
   EvmFamilyNonceLifecycleDeps &
   EvmFamilyNonceNetworkDeps;
 
-type EvmFamilySigningFlowArgs = object;
+type EvmFamilySigningFlowArgs = object & {
+  readonly authorization?: {
+    readonly kind: 'linked_device';
+    readonly confirmationAuthPlan: import('@/core/signingEngine/stepUpConfirmation/types').SigningAuthPlan & {
+      readonly kind: 'warmSession';
+    };
+    readonly sign: (input: {
+      readonly requestId: string;
+      readonly operationId: string;
+      readonly operationDigests: import('@shared/authorization/operationFingerprint').OperationDigestSet;
+      readonly signingDigest32: Uint8Array;
+    }) => Promise<Uint8Array>;
+  };
+};
 type EvmFamilyTransactionSigningRequest = EvmSigningRequest | TempoSigningRequest;
 type EvmFamilyTransactionSigningResult = EvmSignedResult | TempoSignedResult;
 type EvmFamilyUiConfirmSigner = (args: unknown) => Promise<EvmFamilyTransactionSigningResult>;
@@ -136,6 +149,7 @@ async function executeConfiguredEvmFamilyTransactionSigning<
   try {
     const result = await signWithUiConfirm({
       ...args.flowArgs,
+      authorization: args.flowArgs.authorization ?? { kind: 'owner' },
       request: args.request,
       onConfirmationDisplayed: args.onConfirmationDisplayed,
       thresholdEcdsaStepUp: args.thresholdEcdsaStepUp,

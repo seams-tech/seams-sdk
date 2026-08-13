@@ -1,7 +1,5 @@
 import type {
-  EmailOtpRecoveryCodeBackupAck,
-  GoogleEmailOtpRegistrationBackedUpEnrollmentResult,
-  GoogleEmailOtpRegistrationBackupActionKind,
+  GoogleEmailOtpRegistrationEnrollmentResult,
   GoogleEmailOtpRegistrationCandidate,
   GoogleEmailOtpRegistrationCandidateId,
   GoogleEmailOtpRegistrationFinalizeInput,
@@ -54,13 +52,6 @@ function requireTimestampMs(value: unknown, label: string): number {
   return value;
 }
 
-function requireNonNegativeInteger(value: unknown, label: string): number {
-  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
-    throw new Error(`${label} must be a non-negative integer`);
-  }
-  return value;
-}
-
 function rejectFields(
   record: Record<string, unknown>,
   fields: readonly string[],
@@ -94,19 +85,6 @@ function parseCandidate(value: unknown): GoogleEmailOtpRegistrationCandidate {
   };
 }
 
-function parseBackupActionKind(value: unknown): GoogleEmailOtpRegistrationBackupActionKind {
-  const kind = requireString(value, 'backupActionKind');
-  switch (kind) {
-    case 'download':
-    case 'copy':
-    case 'print':
-    case 'manual':
-      return kind;
-    default:
-      throw new Error(`Unsupported backupActionKind ${kind}`);
-  }
-}
-
 function parseEmailOtpChannel(value: unknown): typeof EMAIL_OTP_CHANNEL {
   if (value !== EMAIL_OTP_CHANNEL) {
     throw new Error(`emailOtpEnrollment.otpChannel must be ${EMAIL_OTP_CHANNEL}`);
@@ -114,44 +92,11 @@ function parseEmailOtpChannel(value: unknown): typeof EMAIL_OTP_CHANNEL {
   return EMAIL_OTP_CHANNEL;
 }
 
-function parseBackupAck(value: unknown): EmailOtpRecoveryCodeBackupAck {
-  const record = requireRecord(value, 'backupAck');
-  rejectFields(record, OTP_ONLY_FORBIDDEN_FIELDS, 'backupAck');
-  rejectFields(record, SECRET_MATERIAL_FIELDS, 'backupAck');
-  if (record.kind !== 'email_otp_recovery_code_backup_ack_v1') {
-    throw new Error('backupAck.kind must be email_otp_recovery_code_backup_ack_v1');
-  }
-  return {
-    kind: 'email_otp_recovery_code_backup_ack_v1',
-    offerId: parseOfferId(record.offerId),
-    candidateId: parseCandidateId(record.candidateId),
-    recoveryCodesIssuedAtMs: requireTimestampMs(
-      record.recoveryCodesIssuedAtMs,
-      'backupAck.recoveryCodesIssuedAtMs',
-    ),
-    backupActionKind: parseBackupActionKind(record.backupActionKind),
-    acknowledgedAtMs: requireTimestampMs(record.acknowledgedAtMs, 'backupAck.acknowledgedAtMs'),
-    idempotencyKey: parseFinalizeIdempotencyKey(record.idempotencyKey),
-  };
-}
-
-function parseBackedUpEnrollment(value: unknown): GoogleEmailOtpRegistrationBackedUpEnrollmentResult {
+function parseRegistrationEnrollment(value: unknown): GoogleEmailOtpRegistrationEnrollmentResult {
   const record = requireRecord(value, 'emailOtpEnrollment');
   rejectFields(record, OTP_ONLY_FORBIDDEN_FIELDS, 'emailOtpEnrollment');
   rejectFields(record, SECRET_MATERIAL_FIELDS, 'emailOtpEnrollment');
-  const recoveryCodeBackup = requireRecord(
-    record.recoveryCodeBackup,
-    'emailOtpEnrollment.recoveryCodeBackup',
-  );
   return {
-    thresholdEcdsaClientVerifyingShareB64u: requireString(
-      record.thresholdEcdsaClientVerifyingShareB64u,
-      'emailOtpEnrollment.thresholdEcdsaClientVerifyingShareB64u',
-    ),
-    recoveryCodesIssuedAtMs: requireTimestampMs(
-      record.recoveryCodesIssuedAtMs,
-      'emailOtpEnrollment.recoveryCodesIssuedAtMs',
-    ),
     registrationAuthorityId: requireString(
       record.registrationAuthorityId,
       'emailOtpEnrollment.registrationAuthorityId',
@@ -162,26 +107,15 @@ function parseBackedUpEnrollment(value: unknown): GoogleEmailOtpRegistrationBack
       record.enrollmentSealKeyVersion,
       'emailOtpEnrollment.enrollmentSealKeyVersion',
     ),
+    serverSealedFactorCiphertextB64u: requireString(
+      record.serverSealedFactorCiphertextB64u,
+      'emailOtpEnrollment.serverSealedFactorCiphertextB64u',
+    ),
     clientUnlockPublicKeyB64u: requireString(
       record.clientUnlockPublicKeyB64u,
       'emailOtpEnrollment.clientUnlockPublicKeyB64u',
     ),
     unlockKeyVersion: requireString(record.unlockKeyVersion, 'emailOtpEnrollment.unlockKeyVersion'),
-    recoveryCodeBackup: {
-      status: 'active',
-      walletId: requireString(recoveryCodeBackup.walletId, 'recoveryCodeBackup.walletId'),
-      enrollmentId: requireString(recoveryCodeBackup.enrollmentId, 'recoveryCodeBackup.enrollmentId'),
-      recoveryCodeCount: requireNonNegativeInteger(
-        recoveryCodeBackup.recoveryCodeCount,
-        'recoveryCodeBackup.recoveryCodeCount',
-      ),
-      issuedAtMs: requireTimestampMs(recoveryCodeBackup.issuedAtMs, 'recoveryCodeBackup.issuedAtMs'),
-      storedAtMs: requireTimestampMs(recoveryCodeBackup.storedAtMs, 'recoveryCodeBackup.storedAtMs'),
-      activeRecoveryCodeCountAtBackup: requireNonNegativeInteger(
-        recoveryCodeBackup.activeRecoveryCodeCountAtBackup,
-        'recoveryCodeBackup.activeRecoveryCodeCountAtBackup',
-      ),
-    },
   };
 }
 
@@ -227,7 +161,6 @@ export function parseGoogleEmailOtpRegistrationFinalizeInput(
     offerId: parseOfferId(record.offerId),
     candidateId: parseCandidateId(record.candidateId),
     idempotencyKey: parseFinalizeIdempotencyKey(record.idempotencyKey),
-    emailOtpEnrollment: parseBackedUpEnrollment(record.emailOtpEnrollment),
-    backupAck: parseBackupAck(record.backupAck),
+    emailOtpEnrollment: parseRegistrationEnrollment(record.emailOtpEnrollment),
   };
 }
