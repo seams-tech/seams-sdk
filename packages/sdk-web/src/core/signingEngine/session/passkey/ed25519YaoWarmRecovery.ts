@@ -48,9 +48,7 @@ import {
   type ThresholdEd25519SessionId,
   type WalletId,
 } from '@shared/utils/domainIds';
-import {
-  readPasskeyCustodySessionEnvelope,
-} from './passkeyCustodySessionCache';
+import { readPasskeyCustodySessionEnvelope } from './passkeyCustodySessionCache';
 
 export type PasskeyEd25519RecordRuntimePorts = {
   readonly readExactEd25519SealedSession: typeof readExactEd25519SealedSession;
@@ -300,7 +298,9 @@ async function fetchWarmRecoveryBootstrap(args: {
     claims.walletSessionId !== args.authorization.walletSessionId ||
     claims.quotaId !== args.authorization.quotaId
   ) {
-    throw new Error('[SigningEngine][near] active Wallet Session authorization does not match sealed material');
+    throw new Error(
+      '[SigningEngine][near] active Wallet Session authorization does not match sealed material',
+    );
   }
   const response = await args.fetch(
     `${new URL(args.relayerUrl).origin}${ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1}`,
@@ -541,7 +541,7 @@ export async function resolvePasskeyEd25519YaoExportContextWithRuntimeV1(
     authorization,
     response: bootstrap.response,
   });
-  const walletCustodyEnvelope = readPasskeyCustodySessionEnvelope({
+  const walletCustodyEnvelope = await readPasskeyCustodySessionEnvelope({
     walletId: String(descriptor.walletId),
     credentialIdB64u: descriptor.credentialIdB64u,
   });

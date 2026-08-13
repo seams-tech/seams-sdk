@@ -36,6 +36,7 @@ import {
 import type { ThresholdEcdsaCanonicalExportArtifact } from '@/core/signingEngine/interfaces/signing';
 import type {
   NearEmailOtpEd25519OperationStepUpCapabilityPreparation,
+  NearEd25519FundingSession,
   NearEd25519YaoOperationMaterialFacts,
   NearEd25519YaoPreparedMaterialBoundary,
   NearEd25519YaoOperationMaterial,
@@ -150,7 +151,10 @@ import {
   rebindRouterAbEd25519WalletSessionStateFromExactRuntime,
   type ResolvedRouterAbEd25519WalletSessionState,
 } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
-import { buildRouterAbEd25519SigningWalletSession } from '@/core/signingEngine/session/routerAbSigningWalletSession';
+import {
+  buildRouterAbEd25519SigningWalletSession,
+  parseRouterAbEd25519WalletSessionIdentityClaims,
+} from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import {
   hydratePasskeyEd25519YaoLocalMaterialV1,
   preparePasskeyEd25519YaoLocalMaterialRehydrationV1,
@@ -634,9 +638,7 @@ function runOwnerApprovalPollTimerV1(controller: OwnerApprovalPollingStateV1): v
   void runOwnerApprovalPollV1(controller);
 }
 
-async function pollOwnerApprovalResultV1(
-  controller: OwnerApprovalPollingStateV1,
-): Promise<void> {
+async function pollOwnerApprovalResultV1(controller: OwnerApprovalPollingStateV1): Promise<void> {
   let result: LinkedDeviceApprovalResultV1;
   try {
     result = await controller.getApproval(controller.input);
@@ -734,7 +736,8 @@ function createWalletHostOwnerApprovalTransportV1(
   const approvals = new Map<string, LinkedDeviceApprovalV1>();
   const ownerRequest: LinkSessionOwnerAuthenticatedRequestPortV1 = {
     requestOwnerV1: async (input) => {
-      const isApprovalRequest = input.method === 'POST' && input.canonicalPath.endsWith('/approval');
+      const isApprovalRequest =
+        input.method === 'POST' && input.canonicalPath.endsWith('/approval');
       const approval = isApprovalRequest ? parseLinkedDeviceApprovalV1(input.body) : null;
       const response = await request.requestOwnerV1(input);
       if (approval && response.status >= 200 && response.status < 300) {
@@ -764,7 +767,11 @@ function createWalletHostOwnerApprovalTransportV1(
       return parseLinkedDeviceApprovalResultV1(response.body);
     },
     subscribeApprovalV1: async (input) => {
-      return createOwnerApprovalPollingSubscriptionV1(input, approvalUpdates.getApprovalV1, approvals);
+      return createOwnerApprovalPollingSubscriptionV1(
+        input,
+        approvalUpdates.getApprovalV1,
+        approvals,
+      );
     },
   };
   return { request: ownerRequest, approvalUpdates };
@@ -3110,7 +3117,7 @@ export class BrowserSigningSurface {
       consume: false,
     });
     if (!claim.ok) throw new Error(`Wallet-host Ed25519 PRF is unavailable: ${claim.code}`);
-    const envelope = readPasskeyCustodySessionEnvelope({
+    const envelope = await readPasskeyCustodySessionEnvelope({
       walletId: String(runtime.walletId),
       credentialIdB64u: runtime.factor.credentialIdB64u,
     });
@@ -3708,6 +3715,7 @@ export class BrowserSigningSurface {
           this,
           context,
         ),
+        resolveFundingSession: this.resolveExactNearEd25519FundingSession.bind(this, context),
         preparePasskeyOperationStepUp:
           this.prepareExactNearEd25519YaoOperationStepUpAtBoundary.bind(this, context),
         prepareEmailOtpOperationStepUp:
@@ -3850,6 +3858,41 @@ export class BrowserSigningSurface {
       laneIdentity: args.laneIdentity,
     });
     return await walletSessionStateFromExactEd25519Runtime(runtime);
+  }
+
+  private async resolveExactNearEd25519FundingSession(
+    context: PreparedNearEd25519YaoMaterialContext,
+  ): Promise<NearEd25519FundingSession> {
+    const identity = nearEd25519MaterialIdentityFromBoundaryInput(context.input);
+    const authorizationRead = await walletSessionAuthorizations.readActiveForWallet(
+      identity.signer.account.wallet.walletId,
+    );
+    if (
+      authorizationRead.kind !== 'found' ||
+      authorizationRead.projection.authMethod !== identity.auth.kind
+    ) {
+      throw new Error('[SigningEngine][near] authenticated funding session is unavailable');
+    }
+    const walletSessionJwt = walletSessionJwtForCurve(authorizationRead.projection, 'ed25519');
+    if (!walletSessionJwt) {
+      throw new Error('[SigningEngine][near] authenticated funding JWT is unavailable');
+    }
+    const claims = parseRouterAbEd25519WalletSessionIdentityClaims(walletSessionJwt);
+    if (
+      !claims ||
+      claims.walletId !== String(identity.signer.account.wallet.walletId) ||
+      claims.nearAccountId !== String(identity.signer.account.nearAccountId) ||
+      claims.nearEd25519SigningKeyId !== String(identity.signer.nearEd25519SigningKeyId) ||
+      String(claims.thresholdSessionId) !== String(identity.thresholdSessionId)
+    ) {
+      throw new Error('[SigningEngine][near] funding session identity does not match');
+    }
+    return {
+      kind: 'near_ed25519_funding_session',
+      signer: identity.signer,
+      thresholdSessionId: identity.thresholdSessionId,
+      walletSessionJwt,
+    };
   }
 
   private async prepareExactNearEd25519YaoOperationStepUpAtBoundary(

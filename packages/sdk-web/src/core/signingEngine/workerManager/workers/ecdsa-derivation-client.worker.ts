@@ -85,6 +85,7 @@ import {
   parseRouterAbEcdsaDerivationExplicitExportProtocolRequestV1,
   type RouterAbEcdsaClientProofFinalizationV1,
   type RouterAbEcdsaDerivationNormalSigningStateV1,
+  type RouterAbEcdsaSigningWorkerExportShareEnvelopeV1,
   type RouterAbEcdsaRegistrationRequestFactsV1,
   type RouterAbEcdsaRegistrationRequestV1,
   type RouterAbEcdsaRegistrationActivationReceiptV1,
@@ -1072,6 +1073,40 @@ function projectMaterialActivationForEcdsaClientProtocol(
   };
 }
 
+function projectSigningWorkerExportForEcdsaClientProtocol(
+  envelope: RouterAbEcdsaSigningWorkerExportShareEnvelopeV1,
+) {
+  const binding = envelope.binding;
+  return {
+    version: envelope.version,
+    algorithm: envelope.algorithm,
+    binding: {
+      wallet_id: binding.wallet_id,
+      key_handle: binding.key_handle,
+      ecdsa_threshold_key_id: binding.ecdsa_threshold_key_id,
+      signing_root_id: binding.signing_root_id,
+      signing_root_version: binding.signing_root_version,
+      activation_epoch: binding.activation_epoch,
+      signing_worker_id: binding.signing_worker_id,
+      context_binding_b64u: binding.context_binding_b64u,
+      threshold_public_key33_b64u: binding.threshold_public_key33_b64u,
+      export_request_digest_b64u: binding.export_request_digest_b64u,
+      export_authorization_digest_b64u: binding.export_authorization_digest_b64u,
+      export_nonce: binding.export_nonce,
+      authorization_kind: binding.authorization_kind,
+      authorization_id: binding.authorization_id,
+      material_activation: projectMaterialActivationForEcdsaClientProtocol(
+        binding.material_activation,
+      ),
+      lifecycle_id: binding.lifecycle_id,
+      recipient_identity: binding.recipient_identity,
+      recipient_public_key: binding.recipient_public_key,
+      expires_at_ms: binding.expires_at_ms,
+    },
+    ciphertext_and_tag: envelope.ciphertext_and_tag,
+  };
+}
+
 async function finalizeRouterAbEcdsaExplicitExport(
   request: FinalizeRouterAbEcdsaExplicitExportRequestV1,
 ): Promise<FinalizeRouterAbEcdsaExplicitExportResultV1> {
@@ -1124,7 +1159,9 @@ async function finalizeRouterAbEcdsaExplicitExport(
       JSON.parse(
         active.ceremony.finalize_explicit_export(
           JSON.stringify({
-            signingWorkerExport: request.signingWorkerExport,
+            signingWorkerExport: projectSigningWorkerExportForEcdsaClientProtocol(
+              request.signingWorkerExport,
+            ),
             expectedBinding: exportBinding,
             stateBlobB64u: stored.stateBlobB64u,
             publicFacts: {

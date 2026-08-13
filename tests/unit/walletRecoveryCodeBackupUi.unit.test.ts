@@ -69,14 +69,20 @@ test('wallet recovery backup requires an explicit saved-codes acknowledgement', 
   await expect(dialog).toHaveCount(0);
 });
 
-test('wallet recovery backup starts on the acknowledgement and is keyboard completable', async ({
+test('wallet recovery backup starts at the top with reachable actions and is keyboard completable', async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 640, height: 600 });
   await openDialog(page);
+  const dialog = page.getByRole('dialog');
   const acknowledgement = page.getByRole('checkbox', {
     name: 'I saved these recovery codes somewhere private.',
   });
-  await expect(acknowledgement).toBeFocused();
+  await expect(dialog).toBeFocused();
+  await expect(dialog.getByRole('button', { name: 'Finish backup' })).toBeInViewport();
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Tab');
   await page.keyboard.press('Space');
   await page.keyboard.press('Tab');
   await page.keyboard.press('Tab');

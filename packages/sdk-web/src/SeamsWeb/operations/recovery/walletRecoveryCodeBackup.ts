@@ -68,7 +68,7 @@ class WalletRecoveryCodeBackupDialog {
     document.body.appendChild(this.dialog);
     this.measurementReporter = this.createMeasurementReporter();
     this.dialog.showModal();
-    this.acknowledgement.focus();
+    this.dialog.focus();
     return await this.result;
   }
 
@@ -80,6 +80,7 @@ class WalletRecoveryCodeBackupDialog {
     this.dialog.setAttribute('aria-labelledby', 'w3a-wallet-recovery-backup-title');
     this.dialog.setAttribute('aria-describedby', 'w3a-wallet-recovery-backup-description');
     this.dialog.setAttribute('data-w3a-wallet-recovery-backup-dialog', '');
+    this.dialog.tabIndex = -1;
     this.dialog.className = 'w3a-host-themed-dialog';
     this.dialog.style.cssText = [
       dialogWidth,
@@ -114,7 +115,7 @@ class WalletRecoveryCodeBackupDialog {
 
     const list = document.createElement('ol');
     list.style.cssText =
-      'display:grid;grid-template-columns:repeat(auto-fit,minmax(15rem,1fr));gap:.5rem;margin:0 0 1rem;padding:0;list-style:none';
+      'display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.5rem;margin:0 0 1rem;padding:0;list-style:none';
     for (const [index, code] of this.request.recoveryCodes.entries()) {
       const item = document.createElement('li');
       item.textContent = `${index + 1}. ${code}`;
@@ -154,7 +155,16 @@ class WalletRecoveryCodeBackupDialog {
     this.dialog.appendChild(this.status);
 
     const finalActions = document.createElement('div');
-    finalActions.style.cssText = 'display:flex;flex-wrap:wrap;justify-content:flex-end;gap:.5rem';
+    finalActions.style.cssText = [
+      'position:sticky',
+      'bottom:0',
+      'display:flex',
+      'flex-wrap:wrap',
+      'justify-content:flex-end',
+      'gap:.5rem',
+      'padding-top:.75rem',
+      'background:var(--w3a-colors-colorBackground,#fffaf3)',
+    ].join(';');
     if (this.request.continuation === 'registration_may_defer') {
       const deferButton = this.button('Back up later', this.defer.bind(this), false);
       deferButton.setAttribute('data-w3a-wallet-recovery-backup-close', '');

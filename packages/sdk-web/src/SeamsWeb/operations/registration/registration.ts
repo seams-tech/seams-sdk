@@ -14,7 +14,9 @@ import type {
   CreateRegistrationFlowEventInput,
   RegistrationFlowEvent,
   RegistrationHooksOptions,
-  WalletRecoveryCodeBackupHandlerV1,
+  WalletRecoveryCodeBackupAcknowledgementV1,
+  WalletRecoveryCodeBackupDuringRegistrationV1,
+  WalletRecoveryCodeBackupRequestV1,
   WalletFlowAuthMethod,
 } from '@/core/types/sdkSentEvents';
 import type {
@@ -179,6 +181,7 @@ import { joinCustodyWireFromEnvelopeRecord } from '@/core/signingEngine/walletCu
 import type { WalletCustodyCacheEnvelopeV1 } from '@/core/signingEngine/walletCustody/openCustodyCache';
 import { nearEd25519YaoMaterialActivationFromMetadata } from '@/core/signingEngine/session/material/nearEd25519YaoMaterialActivation';
 import { buildPasskeyEd25519RestoreMetadata } from '@/core/signingEngine/session/passkey/ed25519YaoSealedSession';
+import { persistPasskeyEd25519YaoSignerMaterialV1 } from '@/core/signingEngine/session/passkey/ed25519YaoLocalMaterial';
 import type { StoreWalletSignerFinalizeRollbackReceipt } from '@/core/indexedDB/seamsWalletDB/repositories';
 import { toAccountId } from '@/core/types/accountIds';
 import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
@@ -258,7 +261,7 @@ function requireWebAuthnRpId(value: string): WebAuthnRpId {
 async function confirmWalletRecoveryCodesBackedUp(
   context: RegistrationWebContext,
   walletId: string,
-  handler: WalletRecoveryCodeBackupHandlerV1 | undefined,
+  backup: WalletRecoveryCodeBackupDuringRegistrationV1 | undefined,
   recoveryCodes: readonly string[],
 ): Promise<void> {
   if (recoveryCodes.length !== 10 || new Set(recoveryCodes).size !== 10) {
@@ -270,12 +273,11 @@ async function confirmWalletRecoveryCodesBackedUp(
     recoveryCodes,
     continuation: 'registration_may_defer' as const,
   };
-  const acknowledgement = handler
-    ? await handler(request)
-    : await showWalletRecoveryCodeBackupUi(
-        request,
-        context.signingEngine.getWalletIframeSurfaceMeasurementBinding(),
-      );
+  const acknowledgement = await resolveRegistrationRecoveryCodeBackup({
+    backup,
+    context,
+    request,
+  });
   switch (acknowledgement?.kind) {
     case 'wallet_recovery_codes_backed_up_v1':
       return;
@@ -284,6 +286,27 @@ async function confirmWalletRecoveryCodesBackedUp(
       return;
     default:
       throw new Error('Wallet recovery-code backup result is invalid');
+  }
+}
+
+async function resolveRegistrationRecoveryCodeBackup(input: {
+  readonly backup: WalletRecoveryCodeBackupDuringRegistrationV1 | undefined;
+  readonly context: RegistrationWebContext;
+  readonly request: WalletRecoveryCodeBackupRequestV1;
+}): Promise<WalletRecoveryCodeBackupAcknowledgementV1> {
+  if (!input.backup) return { kind: 'wallet_recovery_code_backup_deferred_v1' };
+  switch (input.backup.kind) {
+    case 'defer_to_account_menu':
+      return { kind: 'wallet_recovery_code_backup_deferred_v1' };
+    case 'show_builtin_dialog':
+      return await showWalletRecoveryCodeBackupUi(
+        input.request,
+        input.context.signingEngine.getWalletIframeSurfaceMeasurementBinding(),
+      );
+    case 'custom_handler':
+      return await input.backup.handler(input.request);
+    default:
+      return assertNever(input.backup);
   }
 }
 
@@ -352,16 +375,16 @@ function passkeyCustodyEnvelopeFromRegistrationCommit(args: {
   });
 }
 
-function rememberPasskeyRegistrationCustodyEnvelope(args: {
+async function rememberPasskeyRegistrationCustodyEnvelope(args: {
   readonly commit: WalletCustodyCeremonyCommitPayload;
   readonly walletId: string;
   readonly activatedAtMs: number;
-}): void {
+}): Promise<void> {
   const envelope = passkeyCustodyEnvelopeFromRegistrationCommit(args);
   if (envelope.factor.kind !== 'passkey') {
     throw new Error('Passkey registration custody commit has a non-passkey factor');
   }
-  rememberPasskeyCustodySessionEnvelope({
+  await rememberPasskeyCustodySessionEnvelope({
     walletId: args.walletId,
     credentialIdB64u: envelope.factor.credentialIdB64u,
     envelope,
@@ -2397,6 +2420,9 @@ async function commitDeferredEd25519Registration(args: {
       });
       retainedFactorSecret32 = null;
     } else {
+      if (args.authMaterial.kind !== 'passkey') {
+        throw new Error('Deferred passkey registration has no Passkey authorization material');
+      }
       if (!retainedFactorSecret32) {
         throw new Error('Deferred passkey registration has no custody factor secret');
       }
@@ -2420,6 +2446,24 @@ async function commitDeferredEd25519Registration(args: {
           activation: activationFacts,
           envelope: nearCustody.envelope,
           ownedFactorSecret: new Uint8Array(retainedFactorSecret32),
+        });
+        await persistPasskeyEd25519YaoSignerMaterialV1({
+          store: IndexedDBManager,
+          activeClient,
+          identity: {
+            walletId: String(args.walletId),
+            nearAccountId: String(nearAccountId),
+            nearEd25519SigningKeyId: finalized.ed25519.nearEd25519SigningKeyId,
+            thresholdSessionId: materialFacts.identity.thresholdSessionId,
+            signerSlot: finalized.ed25519.signerSlot,
+            rpId: args.authMaterial.rpId,
+            credentialIdB64u: args.authMaterial.credentialIdB64u,
+            signingRootId: materialFacts.identity.signingRootId,
+            signingRootVersion: materialFacts.identity.signingRootVersion,
+            signingWorkerId: materialFacts.stableServerScope.routerAbNormalSigning.signingWorkerId,
+          },
+          stableServerScope: materialFacts.stableServerScope,
+          passkeyPrfFirstB64u: args.authMaterial.prfFirstB64u,
         });
         await args.context.signingEngine.activateVerifiedNearEd25519YaoMaterial({
           activeClient,
@@ -2448,7 +2492,7 @@ async function commitDeferredEd25519Registration(args: {
       retainedFactorSecret32 = null;
     }
     if (args.authMaterial.kind === 'passkey') {
-      rememberPasskeyRegistrationCustodyEnvelope({
+      await rememberPasskeyRegistrationCustodyEnvelope({
         commit: nearCustody.commitPayload,
         walletId: String(args.walletId),
         activatedAtMs: Date.now(),
@@ -2763,7 +2807,7 @@ async function registerEcdsaOrMixedWallet(
             undefined,
             context,
             String(walletId),
-            options.backupWalletRecoveryCodes,
+            options.recoveryCodeBackup,
           ),
           startDeferredNearCustody: startDeferredNearWalletCustody.bind(undefined, {
             context,
@@ -3143,7 +3187,7 @@ async function registerEmailOtpEd25519YaoWalletOnly(
     await confirmWalletRecoveryCodesBackedUp(
       context,
       String(walletId),
-      options.backupWalletRecoveryCodes,
+      options.recoveryCodeBackup,
       established.recoveryCodes,
     );
     const walletCustodyCommit = walletCustodyCommitPayloadWithRecoveryBackupAcknowledgement(
@@ -3507,7 +3551,7 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
     await confirmWalletRecoveryCodesBackedUp(
       context,
       String(intent.walletId),
-      options.backupWalletRecoveryCodes,
+      options.recoveryCodeBackup,
       established.recoveryCodes,
     );
     const walletCustodyCommit = walletCustodyCommitPayloadWithRecoveryBackupAcknowledgement(
@@ -3634,7 +3678,7 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
         nonceB64u: established.localMaterial.nonceB64u,
       },
     });
-    rememberPasskeyRegistrationCustodyEnvelope({
+    await rememberPasskeyRegistrationCustodyEnvelope({
       commit: established.commitPayload,
       walletId: String(finalized.walletId),
       activatedAtMs: Date.now(),
