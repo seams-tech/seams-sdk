@@ -35,3 +35,25 @@ Recovery depends on the configured auth method and recovery material:
 - Email OTP accounts use worker-owned Email OTP material and recovery-code
   backup policy;
 - delegated or organization flows use the policy and lane model.
+
+## Recovery example
+
+Recovery synchronization returns wallet and account identity only from its
+successful branch.
+
+::: details Runnable TypeScript example
+
+<<< ../../examples/recovery.ts
+
+:::
+
+## Export examples
+
+Export resolves the exact Ed25519 or ECDSA lane before the wallet-origin viewer
+discloses key material.
+
+::: details Runnable TypeScript examples
+
+<<< ../../examples/export-wallet.ts
+
+:::

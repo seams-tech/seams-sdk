@@ -47,9 +47,6 @@ importers:
 
   apps/docs:
     devDependencies:
-      '@fontsource/hanken-grotesk':
-        specifier: ^5.2.8
-        version: 5.2.8
       '@types/react':
         specifier: ^19.1.12
         version: 19.1.12

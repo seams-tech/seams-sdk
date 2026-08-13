@@ -20,3 +20,15 @@ Email OTP can:
 Secret-bearing Email OTP material belongs in the dedicated Email OTP worker or
 encrypted storage. App-origin code should not receive recovered Email OTP
 secrets or derived signing shares.
+
+## Start a login
+
+Exchange a Google ID token for a typed login flow, then submit the code entered
+by the user. The registration branch is handled separately because it carries
+its own wallet selection and recovery-code backup ceremony.
+
+::: details Runnable TypeScript example
+
+<<< ../../examples/email-otp.ts
+
+:::

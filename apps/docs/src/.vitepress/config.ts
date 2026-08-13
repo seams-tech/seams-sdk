@@ -227,6 +227,7 @@ export default defineConfig({
     ];
   },
   markdown: {
+    theme: 'github-light-high-contrast',
     languageAlias: {
       caddy: 'nginx',
     },
