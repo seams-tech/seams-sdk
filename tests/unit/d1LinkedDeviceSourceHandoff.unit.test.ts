@@ -31,6 +31,10 @@ import { LinkedDeviceSessionServiceV1 } from '../../packages/sdk-server-ts/src/c
 import { D1LinkedDeviceSessionStoreV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceSessionStore';
 import { D1LinkedDeviceSourceHandoffProviderV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceSourceHandoffProvider';
 import { D1LinkedDeviceProvisioningProviderV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceProvisioningProvider';
+import type {
+  D1DatabaseLike,
+  D1PreparedStatementLike,
+} from '../../packages/sdk-server-ts/src/storage/tenantRoute';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,
@@ -393,6 +397,30 @@ test('waits for deliveries submitted after provisioning preparation starts', asy
   await expect(preparing).resolves.toEqual(handoff.deliveries);
 });
 
+test('uses bounded source-handoff reads while waiting for delayed delivery', async () => {
+  const scenario = await createProvisioningHandoffScenario();
+  const database = new SourceHandoffReadCountingDatabase(temporaryDatabase());
+  const clock = new DelayedPreparedDeliveryClock(database, scenario.handoff, 100);
+  const provider = new D1LinkedDeviceSourceHandoffProviderV1({
+    database,
+    scope,
+    nowMs: clock.nowMs.bind(clock),
+    random: clock.random.bind(clock),
+    waitForPreparedDeliveriesV1: clock.waitForPreparedDeliveriesV1.bind(clock),
+  });
+
+  await expect(
+    provider.prepareProvisioningDeliveriesV1({
+      command: scenario.command,
+      session: scenario.provisioningSession,
+      approval: scenario.approval,
+      requestedAtMs: 3_011,
+    }),
+  ).resolves.toEqual(scenario.handoff.deliveries);
+  expect(database.sourceHandoffReads).toBe(5);
+  expect(clock.nowMs()).toBe(175);
+});
+
 async function createProvisioningHandoffScenario() {
   temporary = createTemporaryD1Database();
   await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
@@ -468,6 +496,55 @@ async function createProvisioningHandoffScenario() {
 }
 
 type ProvisioningHandoffScenario = Awaited<ReturnType<typeof createProvisioningHandoffScenario>>;
+
+class SourceHandoffReadCountingDatabase implements D1DatabaseLike {
+  private sourceHandoffReadCount = 0;
+
+  constructor(private readonly delegate: D1DatabaseLike) {}
+
+  get sourceHandoffReads(): number {
+    return this.sourceHandoffReadCount;
+  }
+
+  prepare(query: string): D1PreparedStatementLike {
+    if (query.includes('FROM linked_device_source_handoffs')) this.sourceHandoffReadCount += 1;
+    return this.delegate.prepare(query);
+  }
+
+  async batch<T = unknown>(statements: readonly D1PreparedStatementLike[]): Promise<readonly T[]> {
+    return this.delegate.batch<T>(statements);
+  }
+
+  async exec(query: string): Promise<unknown> {
+    return this.delegate.exec(query);
+  }
+}
+
+class DelayedPreparedDeliveryClock {
+  private currentTimeMs = 0;
+  private deliveriesPersisted = false;
+
+  constructor(
+    private readonly database: D1DatabaseLike,
+    private readonly handoff: Awaited<ReturnType<typeof buildSourceHandoffFixture>>,
+    private readonly deliveryPublishAtMs: number,
+  ) {}
+
+  nowMs(): number {
+    return this.currentTimeMs;
+  }
+
+  random(): number {
+    return 0.5;
+  }
+
+  async waitForPreparedDeliveriesV1(delayMs: number): Promise<void> {
+    this.currentTimeMs += delayMs;
+    if (this.deliveriesPersisted || this.currentTimeMs < this.deliveryPublishAtMs) return;
+    await persistPreparedDeliveriesCrashGap(this.database, this.handoff, this.currentTimeMs);
+    this.deliveriesPersisted = true;
+  }
+}
 
 class ScenarioProvisioningExecution {
   constructor(private readonly scenario: ProvisioningHandoffScenario) {}
