@@ -483,10 +483,12 @@ type LocalEcdsaStrictPorts = {
   readonly postRegistration: RouterAbEcdsaStrictPostRegistrationPort;
 };
 
-const localEcdsaStrictPortsByEnv = new WeakMap<LocalD1DevEnv, LocalEcdsaStrictPorts>();
+const localEcdsaStrictPortsByEnv = new WeakMap<LocalD1DevEnv, Map<string, LocalEcdsaStrictPorts>>();
 
-function localEcdsaStrictPorts(env: LocalD1DevEnv): LocalEcdsaStrictPorts {
-  const existing = localEcdsaStrictPortsByEnv.get(env);
+function localEcdsaStrictPorts(env: LocalD1DevEnv, orgId: string): LocalEcdsaStrictPorts {
+  const portsByOrg =
+    localEcdsaStrictPortsByEnv.get(env) ?? new Map<string, LocalEcdsaStrictPorts>();
+  const existing = portsByOrg.get(orgId);
   if (existing) return existing;
   const privateJwkSource = normalizeLocalString(env.ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK);
   const topologySource = normalizeLocalString(env.ROUTER_AB_ECDSA_REGISTRATION_TOPOLOGY_JSON);
@@ -506,7 +508,7 @@ function localEcdsaStrictPorts(env: LocalD1DevEnv): LocalEcdsaStrictPorts {
     router: env.MPC_ROUTER,
     tokenIssuer,
     tokenScope: {
-      orgId: localConsoleOrgId(env),
+      orgId,
       projectId: localConsoleProjectId(env),
       environment: localConsoleEnvironmentId(env),
     },
@@ -516,7 +518,8 @@ function localEcdsaStrictPorts(env: LocalD1DevEnv): LocalEcdsaStrictPorts {
     registration: createRouterAbEcdsaStrictRegistrationPort(config),
     postRegistration: createRouterAbEcdsaStrictPostRegistrationPort(config),
   };
-  localEcdsaStrictPortsByEnv.set(env, ports);
+  portsByOrg.set(orgId, ports);
+  localEcdsaStrictPortsByEnv.set(env, portsByOrg);
   return ports;
 }
 
@@ -897,6 +900,20 @@ function localConsoleOrgId(env: LocalD1DevEnv): string {
   return parseLocalConsoleOrganizationId(env.SEAMS_LOCAL_CONSOLE_ORG_ID);
 }
 
+async function resolveLocalRouterOrganizationId(env: LocalD1DevEnv): Promise<string> {
+  const environment = await env.CONSOLE_DB.prepare(
+    `SELECT org_id
+       FROM environments
+      WHERE namespace = ? AND id = ? AND status = 'ACTIVE'
+      LIMIT 1`,
+  )
+    .bind(localTenantStorageNamespace(env), localConsoleEnvironmentId(env))
+    .first<{ readonly org_id: unknown }>();
+  return environment
+    ? parseLocalConsoleOrganizationId(String(environment.org_id || ''))
+    : localConsoleOrgId(env);
+}
+
 function parseLocalConsoleOrganizationId(value: string): string {
   const organizationId = normalizeLocalString(value);
   if (!CONSOLE_ORGANIZATION_ID_PATTERN.test(organizationId)) {
@@ -996,6 +1013,7 @@ async function createLocalRouterApiHandler(
   env: LocalD1DevEnv,
   routerFetch: LocalEd25519YaoRouterFetchV1,
 ): Promise<FetchHandler> {
+  const orgId = await resolveLocalRouterOrganizationId(env);
   const sponsoredEvmCallConfig = await resolveSponsoredEvmCallConfigFromWorkerEnv(env);
   const routerAbPublicKeyset = localRouterAbPublicKeyset(env);
   const billingProviders = localBillingProviderAdapters(env);
@@ -1024,11 +1042,17 @@ async function createLocalRouterApiHandler(
       normalizeLocalString(env.ROUTER_AB_CEREMONY_JWT_ISSUER) || DEFAULT_LOCAL_ROUTER_AB_ROUTER_URL,
     audience: normalizeLocalString(env.ROUTER_AB_CEREMONY_JWT_AUDIENCE) || 'router-ab',
   });
-  const ed25519Yao = await createLocalEd25519YaoProductComposition(env, session, routerFetch);
-  const ecdsaStrictPorts = localEcdsaStrictPorts(env);
-  const linkedDevice = await localLinkedDeviceComposition(env, session);
+  const ed25519Yao = await createLocalEd25519YaoProductComposition(
+    env,
+    session,
+    routerFetch,
+    orgId,
+  );
+  const ecdsaStrictPorts = localEcdsaStrictPorts(env, orgId);
+  const linkedDevice = await localLinkedDeviceComposition(env, session, orgId);
   const routerApiService = createLocalD1RouterApiAuthService(
     env,
+    orgId,
     ed25519Yao,
     session,
     linkedDevice,
@@ -1167,6 +1191,7 @@ async function readyLocalEcdsaPresignRuntime(): Promise<void> {}
 
 function localD1RouterApiAuthServiceOptions(
   env: LocalD1DevEnv,
+  orgId: string,
   ed25519Yao: LocalEd25519YaoProductCompositionState = { kind: 'disabled' },
   session?: SessionAdapter,
   linkedDevice?: CloudflareD1LinkedDeviceCompositionOptionsV1,
@@ -1178,7 +1203,7 @@ function localD1RouterApiAuthServiceOptions(
   return {
     database: env.SIGNER_DB,
     namespace: localTenantStorageNamespace(env),
-    orgId: localConsoleOrgId(env),
+    orgId,
     projectId: localConsoleProjectId(env),
     envId: localConsoleEnvironmentId(env),
     relayerAccount: env.RELAYER_ACCOUNT_ID || env.SEAMS_LOCAL_RELAYER_ACCOUNT,
@@ -1209,7 +1234,7 @@ function localD1RouterApiAuthServiceOptions(
     emailOtpGoogleRegistrationAttemptRateLimitWindowMs:
       env.EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS,
     routerAbEcdsaPresignRuntime: createLocalEcdsaPresignRuntime(env),
-    ecdsaStrictRegistration: localEcdsaStrictPorts(env).registration,
+    ecdsaStrictRegistration: localEcdsaStrictPorts(env, orgId).registration,
     linkedDevice:
       linkedDevice ?? (session ? { execution: localLinkedDeviceExecution(env) } : undefined),
     ...(ed25519Yao.kind === 'enabled' ? { ed25519YaoProductRegistration: ed25519Yao.runtime } : {}),
@@ -1219,6 +1244,7 @@ function localD1RouterApiAuthServiceOptions(
 async function localLinkedDeviceComposition(
   env: LocalD1DevEnv,
   session: SessionAdapter | undefined,
+  orgId: string,
 ): Promise<CloudflareD1LinkedDeviceCompositionOptionsV1> {
   const execution = localLinkedDeviceExecution(env);
   if (!session) return { execution };
@@ -1237,7 +1263,7 @@ async function localLinkedDeviceComposition(
     database: env.SIGNER_DB,
     scope: {
       namespace: localTenantStorageNamespace(env),
-      orgId: localConsoleOrgId(env),
+      orgId,
       projectId: localConsoleProjectId(env),
       envId: localConsoleEnvironmentId(env),
     },
@@ -1382,13 +1408,14 @@ async function createLocalEd25519YaoProductComposition(
   env: LocalD1DevEnv,
   session: SessionAdapter,
   routerFetch: LocalEd25519YaoRouterFetchV1,
+  orgId: string,
 ): Promise<LocalEd25519YaoProductCompositionState> {
   const signingWorkerId =
     normalizeLocalString(env.SIGNING_WORKER_ID) ||
     normalizeLocalString(env.ROUTER_AB_NORMAL_SIGNING_WORKER_ID);
   const capabilityScope = {
     namespace: localTenantStorageNamespace(env),
-    orgId: localConsoleOrgId(env),
+    orgId,
     projectId: localConsoleProjectId(env),
     envId: localConsoleEnvironmentId(env),
   };
@@ -1465,19 +1492,20 @@ async function createLocalEd25519YaoProductComposition(
 
 function createLocalD1RouterApiAuthService(
   env: LocalD1DevEnv,
+  orgId: string,
   ed25519Yao: LocalEd25519YaoProductCompositionState = { kind: 'disabled' },
   session?: SessionAdapter,
   linkedDevice?: CloudflareD1LinkedDeviceCompositionOptionsV1,
 ) {
   return createCloudflareD1RouterApiAuthService({
-    ...localD1RouterApiAuthServiceOptions(env, ed25519Yao, session, linkedDevice),
+    ...localD1RouterApiAuthServiceOptions(env, orgId, ed25519Yao, session, linkedDevice),
     signerWasmModuleOrPath: loadCloudflareSignerWasmModule,
   });
 }
 
 function createLocalD1EmailRecoveryAuthService(env: LocalD1DevEnv) {
   return createCloudflareD1RouterApiEmailRecoveryAuthService(
-    localD1RouterApiAuthServiceOptions(env),
+    localD1RouterApiAuthServiceOptions(env, localConsoleOrgId(env)),
   );
 }
 
