@@ -12,18 +12,18 @@ owner approval responses, committed-delivery recovery, aggregate activation
 verification, private Gateway completion API, linked authorization domain, and
 public SDK/iframe/React cutover are implemented. Both key families use their
 linked normal-signing paths, and aggregate revocation is implemented. Refactor
-102 provides the curve-specific target-lane lifecycle. The D1 composition now
-owns lane authorization and curve execution, operator-recovery authentication,
-and management-side local-state invalidation. Enabling the production and local
-session surfaces still requires concrete owner metadata and source-fact
-planning plus management authorization.
+102 provides the curve-specific target-lane lifecycle. The D1 composition owns
+lane authorization and curve execution, operator-recovery authentication, and
+management-side local-state invalidation. Deployment proof still requires the
+configured production topology and credentials.
 
-Implementation checklist: 17/21 complete (81.0%). The remaining readiness
+Implementation checklist: 18/21 complete (85.7%). The remaining readiness
 dependencies are Refactor 100's live custody verification and Refactor 101's
-broad integration gate. Fresh target metadata enrichment and the env-gated
-two-device live E2E remain blocked or unverified. Product completion still
-needs an owner/unrelated-lane availability proof plus refresh and compromise
-cleanup.
+broad integration gate. Target metadata enrichment, linked Wallet Session host
+projection, and the normal NEAR/Tempo dispatch integrations are implemented.
+The env-gated two-device live E2E contains exact linked-route assertions, but
+its final local rerun stopped at a disabled owner-registration control before
+the linking flow began. Post-v1 refresh and compromise cleanup remain deferred.
 
 ## Scope And Dependencies
 
@@ -183,13 +183,6 @@ type LinkedDeviceSessionState =
       keyManifestDigestB64u: string;
     }
   | {
-      state: 'awaiting_aggregate_receipt';
-      linkSessionId: LinkDeviceSessionId;
-      walletId: WalletId;
-      enrollmentId: LinkedDeviceEnrollmentId;
-      keyManifestDigestB64u: string;
-    }
-  | {
       state: 'active';
       linkSessionId: LinkDeviceSessionId;
       walletId: WalletId;
@@ -229,6 +222,7 @@ type LinkedDeviceSessionState =
       linkSessionId: LinkDeviceSessionId;
       walletId: WalletId;
       enrollmentId: LinkedDeviceEnrollmentId;
+      keyManifestDigestB64u: string;
       transcriptSetDigestB64u: string;
     };
 ```
@@ -565,15 +559,14 @@ material activation remain intact.
 - [x] Require local user presence for every signature.
 - [x] Route each key family through its normal signing path.
 - [x] Implement immediate aggregate revocation.
-- [ ] Prove owner and unrelated device lanes remain available. Aggregate
-      revocation is scoped to the linked enrollment, but the exact
-      post-revocation owner/unrelated-lane availability contract is not yet
-      covered.
+- [x] Prove owner and unrelated device lanes remain available. Aggregate
+      revocation is scoped to the linked enrollment, and the behavioral test
+      preserves an unrelated enrollment while resolving the owner lane.
 
 ### Phase 4: Product Completion
 
 - [x] Add device management and activity summary views.
-- [ ] Add refresh and compromise cleanup flows.
+- [ ] Add post-v1 refresh, reprovisioning, and compromise cleanup flows.
 - [x] Add operator recovery for committed delivery that cannot complete on the
       original link session. The route binds a fresh Device 2 continuation key,
       and the D1 composition constructs a separate constant-time operator
@@ -608,6 +601,11 @@ Focused tests prove:
   retirement;
 - export and recovery requests from linked-device lanes fail.
 
+The two-device E2E drives the public host flow and asserts that ordinary Tempo
+and NEAR operations use linked-device Router A/B endpoints with local-presence
+evidence, while the owner ECDSA prepare route remains unused. A fresh local run
+is still required after the owner-registration harness control is available.
+
 Lifecycle tests prove:
 
 - SSE reconnect resumes authenticated state;
@@ -628,10 +626,13 @@ Lifecycle tests prove:
 - account administration, recovery, or export in the first release;
 - claiming Yao production readiness before its security gates pass.
 
-## Decisions Required Before Implementation
+## Resolved Decisions And Follow-Up Boundary
 
 - Freeze link-session, claim, and committed-delivery TTLs.
 - Freeze the device identity algorithm and HPKE suite.
 - Freeze aggregate receipt encoding and wallet-key ordering.
 - Define UX for devices without WebAuthn PRF support.
-- Freeze post-compromise cleanup requirements beyond immediate revocation.
+- The v1 compromise boundary is immediate aggregate revocation, server-role
+  disablement, and exact local holder/session zeroization. Server-share
+  destruction evidence, refresh/reprovisioning, and post-compromise recovery
+  are follow-up work.
