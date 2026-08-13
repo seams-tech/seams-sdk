@@ -284,7 +284,7 @@ async function fixture(): Promise<{
   const database = createTemporaryD1Database();
   await applyD1MigrationFiles(database.database, [
     path.resolve(
-      '../packages/sdk-server-ts/migrations/d1-signer/0036_signer_linked_device_owner_planning_snapshots.sql',
+      '../packages/sdk-server-ts/migrations/d1-signer/0001_signer_d1_initial.sql',
     ),
   ]);
   const registrations = new Map([

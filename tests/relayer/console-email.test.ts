@@ -141,29 +141,14 @@ function createTestCipher(): ConsoleInvitationSecretCipher {
 
 async function createConsoleEmailTestDatabase(): Promise<ConsoleEmailTestDatabase> {
   const temporary = createTemporaryD1Database();
-  await temporary.database.exec(
-    `CREATE TABLE organizations (
-      namespace TEXT NOT NULL,
-      id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      PRIMARY KEY (namespace, id)
-    );`,
-  );
-  const migrationFiles = listD1MigrationFiles('d1-console');
-  const emailMigrations: string[] = [];
-  for (const file of migrationFiles) {
-    if (
-      file.endsWith('/0022_console_email.sql') ||
-      file.endsWith('/0025_console_account_welcome_email.sql')
-    ) {
-      emailMigrations.push(file);
-    }
-  }
-  if (emailMigrations.length !== 2) throw new Error('Console email migrations are missing');
-  await applyD1MigrationFiles(temporary.database, emailMigrations);
+  await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-console'));
   await temporary.database
-    .prepare('INSERT INTO organizations (namespace, id, name) VALUES (?, ?, ?)')
-    .bind(NAMESPACE, ORG_ID, 'Email Test Org')
+    .prepare(
+      `INSERT INTO organizations
+         (namespace, id, name, slug, created_by_user_id, status, created_at_ms, updated_at_ms)
+       VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?)`,
+    )
+    .bind(NAMESPACE, ORG_ID, 'Email Test Org', 'email-test-org', 'email-test-user', 1, 1)
     .run();
   return temporary;
 }

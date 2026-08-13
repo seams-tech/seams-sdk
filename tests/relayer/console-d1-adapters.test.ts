@@ -53,7 +53,6 @@ import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,
   createTemporaryD1Database,
-  d1MigrationFileBasenames,
   listD1MigrationFiles,
   readTableColumnNames,
 } from '../helpers/sqliteD1';
@@ -914,54 +913,6 @@ test.describe('D1 migration smoke', () => {
         .prepare('SELECT COUNT(*) AS record_count FROM webhook_endpoints')
         .first<{ record_count?: unknown }>();
       expect(Number(row?.record_count || 0)).toBe(1);
-    } finally {
-      cleanupTemporaryD1Database(temp.tempDir);
-    }
-  });
-
-  test('d1-console webhook constraint migration preserves existing endpoint categories', async () => {
-    const temp = createTemporaryD1Database();
-    try {
-      const migrationFiles = listD1MigrationFiles('d1-console');
-      const migrationNames = d1MigrationFileBasenames(migrationFiles);
-      const constraintMigrationIndex = migrationNames.indexOf(
-        '0018_console_constraint_hardening.sql',
-      );
-      expect(constraintMigrationIndex).toBeGreaterThan(0);
-
-      await applyD1MigrationFiles(temp.database, migrationFiles.slice(0, constraintMigrationIndex));
-      await insertRawD1WebhookEndpointRecord(
-        temp.database,
-        buildRawD1WebhookEndpointInsertInput({}),
-      );
-      await insertRawD1WebhookEndpointCategoryRecord(
-        temp.database,
-        buildRawD1WebhookEndpointCategoryInsertInput({}),
-      );
-
-      await applyD1MigrationFiles(
-        temp.database,
-        migrationFiles.slice(constraintMigrationIndex, constraintMigrationIndex + 1),
-      );
-
-      const row = await temp.database
-        .prepare(
-          `SELECT COUNT(*) AS category_count
-             FROM webhook_endpoint_categories
-            WHERE namespace = ?
-              AND org_id = ?
-              AND endpoint_id = ?
-              AND category = ?`,
-        )
-        .bind('d1-contracts', 'org-d1-webhook-schema', 'wh_raw_webhook_schema', 'wallet')
-        .first<{ category_count?: unknown }>();
-      expect(Number(row?.category_count || 0)).toBe(1);
-      await expectRawD1WebhookEndpointCategoryInsertRejected(
-        temp.database,
-        buildRawD1WebhookEndpointCategoryInsertInput({
-          category: 'unsupported',
-        }),
-      );
     } finally {
       cleanupTemporaryD1Database(temp.tempDir);
     }

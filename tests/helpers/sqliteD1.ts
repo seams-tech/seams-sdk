@@ -123,14 +123,6 @@ export function listD1MigrationFiles(directoryName: D1MigrationDirectoryName): r
   return files;
 }
 
-export function d1MigrationFileBasenames(files: readonly string[]): readonly string[] {
-  const names: string[] = [];
-  for (const file of files) {
-    names.push(path.basename(file));
-  }
-  return names;
-}
-
 export async function applyD1MigrationFiles(
   database: D1DatabaseLike,
   files: readonly string[],
