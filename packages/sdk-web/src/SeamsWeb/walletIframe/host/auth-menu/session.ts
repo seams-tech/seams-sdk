@@ -804,7 +804,6 @@ export class AuthMenuSession {
           },
         };
         this.updateElement();
-        this.startPasskeyPreparation();
       },
     );
   }
@@ -880,7 +879,6 @@ export class AuthMenuSession {
           },
         };
         this.updateElement();
-        this.startPasskeyPreparation();
         return true;
       }
       default:

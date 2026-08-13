@@ -9,13 +9,8 @@ export {
   assertCanonicalIndexedDBName,
   createSeamsTestWalletDbName,
 } from './schemaNames';
-export {
-  PRODUCTION_SEAMS_WALLET_SCHEMA_VERSION,
-  applySeamsWalletDBSchemaUpgrade,
-  initializeSeamsWalletDBSchema,
-  resolveSeamsWalletSchemaPolicy,
-} from './seamsWalletDB/schema';
-export type { SeamsWalletDBConfig, SeamsWalletSchemaPolicy } from './seamsWalletDB/schema';
+export { SEAMS_WALLET_SCHEMA_VERSION } from './seamsWalletDB/schema';
+export type { SeamsWalletDBConfig } from './seamsWalletDB/schema';
 export { SeamsWalletDBManager } from './seamsWalletDB/manager';
 export { SeamsWalletRepositories } from './seamsWalletDB/repositories';
 export {

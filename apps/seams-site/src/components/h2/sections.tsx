@@ -19,7 +19,12 @@ import { EcosystemLattice } from '@/components/h2/EcosystemLattice';
 import { NETWORK_MARKS, NetworkMarkLockup } from '@/components/icons/NetworkMarks';
 import { useSiteRouter } from '@/app/router/useSiteRouter';
 import { useRevealOnIdle } from '@/shared/hooks/useRevealOnIdle';
-import { paperIframeAppearance, paperReactTokens } from '@/context/app-themes';
+import {
+  DEMO_THEME_PRESETS,
+  demoIframeAppearance,
+  demoReactTokens,
+  type DemoThemeId,
+} from '@/context/app-themes';
 import '@/styles/h2.css';
 
 /* Shared section library for the h2 marketing pages (/, /wallet, /ecommerce).
@@ -71,16 +76,20 @@ export function H2DemoHero({
   const { linkProps } = useSiteRouter();
   const { seams, loginState } = useSeams();
   const [demoPage, setDemoPage] = React.useState(0);
+  const [demoTheme, setDemoTheme] = React.useState<DemoThemeId>('paper');
+  // Corner shape is independent from the selected color palette.
   const [demoShape, setDemoShape] = React.useState<WalletShapeId>('square');
+  const activePreset =
+    DEMO_THEME_PRESETS.find((theme) => theme.id === demoTheme) ?? DEMO_THEME_PRESETS[0];
   const activeWalletId = loginState?.isLoggedIn ? loginState.walletId || '' : '';
   const startProps = linkProps('/docs/concepts/');
   const authProps = linkProps('/docs/concepts/auth-methods/');
 
   React.useEffect(() => {
     try {
-      seams.setAppearance(paperIframeAppearance(demoShape));
+      seams.setAppearance(demoIframeAppearance(activePreset, demoShape));
     } catch {}
-  }, [seams, demoShape, loginState?.isLoggedIn, activeWalletId]);
+  }, [seams, activePreset, demoShape, loginState?.isLoggedIn, activeWalletId]);
 
   // The Transactions / Account recovery screens need an unlocked wallet,
   // mirroring the carousel's own page gating.
@@ -129,8 +138,8 @@ export function H2DemoHero({
         <div className="h2-hero__demo">
           <p className="h2-demo-label">Live Demo</p>
           <Theme
-            theme="light"
-            tokens={paperReactTokens(demoShape)}
+            theme={activePreset.mode}
+            tokens={demoReactTokens(activePreset, demoShape)}
             tag="div"
             className="h2-demo-theme-root"
             style={{ display: 'contents' }}
@@ -151,6 +160,20 @@ export function H2DemoHero({
               )}
             </div>
           </Theme>
+          <div className="h2-themeswitch" role="group" aria-label="Preview theme">
+            {DEMO_THEME_PRESETS.map((theme) => (
+              <button
+                key={theme.id}
+                type="button"
+                className={`h2-themeswitch__btn${demoTheme === theme.id ? ' is-active' : ''}`}
+                aria-pressed={demoTheme === theme.id}
+                onClick={() => setDemoTheme(theme.id)}
+              >
+                <span className="h2-themeswitch__swatch" style={{ background: theme.swatch }} />
+                {theme.label}
+              </button>
+            ))}
+          </div>
           <div className="h2-shapeswitch" role="group" aria-label="Corner shape">
             <span className="h2-shapeswitch__label">Corners</span>
             {(
