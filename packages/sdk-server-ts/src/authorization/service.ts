@@ -1,5 +1,4 @@
 import type {
-  ActiveAuthorizationSession,
   ActiveWalletSessionQuota,
   AuthorizedOperation,
   AuthorizedOperationInput,
@@ -9,6 +8,7 @@ import type {
   HostedWalletSeamsSessionExchangeDelivery,
   HostedWalletSeamsSessionExchangeNonce,
   IssuedHostedWalletSeamsSessionExchange,
+  PersistedHostedWalletSeamsSessionExchangeResult,
   RedeemHostedWalletSeamsSessionExchangeInput,
   RedeemHostedWalletSeamsSessionExchangeResult,
   ReusableWalletSessionStatus,
@@ -17,6 +17,7 @@ import type {
   SessionOrigin,
   VerifiedAuthorizationEvidenceSet,
   WalletSessionAuthorization,
+  VerifiedOwnerProof,
 } from './domain';
 import {
   buildActiveWalletSessionQuota,
@@ -33,13 +34,11 @@ import {
   buildLinkedDeviceWalletSessionAuthorizationRef,
   parseHostedWalletSessionExchangeCodeId,
   parseLinkedDeviceWalletSessionAuthorizationId,
-  parseSeamsSessionId,
   parseWalletSessionAuthorizationId,
   type MpcWalletSigningQuotaId,
   type LinkedDeviceWalletSessionAuthorizationId,
   type PrincipalId,
   type ReusableWalletSessionMintId,
-  type SeamsSessionId,
   type TenantId,
   type WalletSessionAuthorizationId,
   type WalletSessionId,
@@ -49,10 +48,10 @@ import { sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import {
-  buildVerifiedFactorEvidenceSet,
-  buildVerifiedSessionEvidenceSet,
-  type VerifiedFactorEvidenceSetInput,
-  type VerifiedSessionEvidenceSetInput,
+  buildVerifiedWalletOperationFactorEvidenceSet,
+  buildVerifiedOwnerProof,
+  type VerifiedWalletOperationFactorEvidenceSetInput,
+  type VerifiedOwnerProofInput,
 } from './factorEvidence';
 import type {
   CapabilityPolicyPort,
@@ -86,12 +85,6 @@ import {
 } from '@shared/threshold/sessionPolicy';
 
 export interface AuthorizationSessionPort {
-  putActiveSession(session: ActiveAuthorizationSession): Promise<void>;
-  readActiveSession(input: {
-    readonly tenantId: TenantId;
-    readonly sessionId: SeamsSessionId;
-    readonly nowMs: number;
-  }): Promise<ActiveAuthorizationSession | null>;
   readReusableWalletSessionStatus(input: {
     readonly tenantId: TenantId;
     readonly principalId: PrincipalId;
@@ -104,15 +97,19 @@ export interface AuthorizationSessionPort {
   ): Promise<void>;
   redeemHostedWalletSeamsSessionExchange(
     input: RedeemHostedWalletSeamsSessionExchangeInput,
-  ): Promise<RedeemHostedWalletSeamsSessionExchangeResult>;
+  ): Promise<PersistedHostedWalletSeamsSessionExchangeResult>;
 }
 
 export interface AuthorizationEvidencePort {
   putVerifiedEvidenceSet(evidenceSet: VerifiedAuthorizationEvidenceSet): Promise<void>;
+  consumeVerifiedOwnerProof(
+    proof: VerifiedOwnerProof,
+    consumedAtMs: number,
+    consumptionScopeId: string,
+  ): Promise<boolean>;
 }
 
 export interface AuthorizationGrantPort {
-  putActiveWalletSessionQuota(quota: ActiveWalletSessionQuota): Promise<void>;
   putWalletSessionAuthorization(input: {
     readonly session: WalletSessionAuthorization;
     readonly quota: ActiveWalletSessionQuota;
@@ -125,6 +122,19 @@ export interface AuthorizationGrantPort {
     readonly mintId: ReusableWalletSessionMintId;
     readonly nowMs: number;
   }): Promise<IssuedReusableWalletSession | null>;
+  putOpaqueWalletSessionToken(input: {
+    readonly tokenHash: DigestB64u;
+    readonly curve: OpaqueWalletSessionCurve;
+    readonly bindingJson: string;
+    readonly tenantId: TenantId;
+    readonly walletSessionId: WalletSessionId;
+  }): Promise<void>;
+  readOpaqueWalletSessionToken(input: {
+    readonly tenantId: TenantId;
+    readonly tokenHash: DigestB64u;
+    readonly curve: OpaqueWalletSessionCurve;
+    readonly nowMs: number;
+  }): Promise<ResolvedOpaqueWalletSessionToken | null>;
   putLinkedDeviceWalletSessionAuthorization(input: {
     readonly authorization: LinkedDeviceWalletSessionAuthorization;
     readonly quota: ActiveWalletSessionQuota;
@@ -247,6 +257,32 @@ export type IssuedReusableWalletSession = {
   readonly quota: ActiveWalletSessionQuota;
 };
 
+export type OpaqueWalletSessionCurve = 'ecdsa' | 'ed25519';
+
+export type IssuedOpaqueWalletSessionToken = {
+  readonly kind: 'opaque_wallet_session_token';
+  readonly token: string;
+  readonly curve: OpaqueWalletSessionCurve;
+  readonly expiresAtMs: number;
+};
+
+export type ResolvedOpaqueWalletSessionToken = {
+  readonly kind: 'resolved_opaque_wallet_session_token';
+  readonly curve: OpaqueWalletSessionCurve;
+  readonly binding: unknown;
+  readonly authorization: {
+    readonly tenantId: TenantId;
+    readonly principalId: PrincipalId;
+    readonly walletId: WalletId;
+    readonly authorityDigest: DigestB64u;
+    readonly authorizationId: WalletSessionAuthorizationId;
+    readonly walletSessionId: WalletSessionId;
+    readonly quotaId: MpcWalletSigningQuotaId;
+    readonly expiresAtMs: number;
+  };
+  readonly quota: ActiveWalletSessionQuota;
+};
+
 export type IssuedLinkedDeviceWalletSession = {
   readonly authorization: LinkedDeviceWalletSessionAuthorization;
   readonly quota: ActiveWalletSessionQuota;
@@ -286,18 +322,6 @@ export type RenewLinkedDeviceWalletSessionInputV1 = {
 export class AuthorizationService {
   constructor(private readonly ports: AuthorizationServicePorts) {}
 
-  async recordActiveSession(session: ActiveAuthorizationSession): Promise<void> {
-    await this.ports.sessions.putActiveSession(session);
-  }
-
-  async readActiveSession(input: {
-    readonly tenantId: TenantId;
-    readonly sessionId: SeamsSessionId;
-    readonly nowMs: number;
-  }): Promise<ActiveAuthorizationSession | null> {
-    return await this.ports.sessions.readActiveSession(input);
-  }
-
   async readReusableWalletSessionStatus(input: {
     readonly tenantId: TenantId;
     readonly principalId: PrincipalId;
@@ -310,28 +334,13 @@ export class AuthorizationService {
 
   async mintHostedWalletSeamsSessionExchange(input: {
     readonly tenantId: TenantId;
-    readonly principalId: PrincipalId;
-    readonly sourceSessionId: SeamsSessionId;
+    readonly walletSessionId: WalletSessionId;
     readonly appOrigin: SessionOrigin;
     readonly walletOrigin: SessionOrigin;
     readonly issuedAtMs: number;
     readonly expiresAtMs: number;
   }): Promise<HostedWalletSeamsSessionExchangeDelivery> {
-    const source = await this.ports.sessions.readActiveSession({
-      tenantId: input.tenantId,
-      sessionId: input.sourceSessionId,
-      nowMs: input.issuedAtMs,
-    });
-    if (
-      !source ||
-      source.principalId !== input.principalId ||
-      source.audience.kind !== 'first_party_web' ||
-      source.audience.origin !== input.appOrigin
-    ) {
-      throw new Error('source authorization session is unavailable');
-    }
-    const expiresAtMs = Math.min(input.expiresAtMs, source.lifecycle.expiresAtMs);
-    if (!Number.isSafeInteger(input.issuedAtMs) || expiresAtMs <= input.issuedAtMs) {
+    if (!Number.isSafeInteger(input.issuedAtMs) || input.expiresAtMs <= input.issuedAtMs) {
       throw new Error('hosted-wallet Seams session exchange expiry must follow issuance');
     }
     const exchangeCode = parseHostedWalletSeamsSessionExchangeCode(
@@ -348,13 +357,13 @@ export class AuthorizationService {
       kind: 'issued_hosted_wallet_session_exchange',
       tenantId: input.tenantId,
       exchangeCodeId,
-      sourceSessionId: input.sourceSessionId,
+      walletSessionId: input.walletSessionId,
       codeHash: await digestOpaqueValue(exchangeCode),
       nonceDigest: await digestOpaqueValue(nonce),
       appOrigin: input.appOrigin,
       walletOrigin: input.walletOrigin,
       issuedAtMs: input.issuedAtMs,
-      expiresAtMs,
+      expiresAtMs: input.expiresAtMs,
     });
     return {
       kind: 'hosted_wallet_session_exchange_delivery',
@@ -362,47 +371,60 @@ export class AuthorizationService {
       nonce,
       appOrigin: input.appOrigin,
       walletOrigin: input.walletOrigin,
-      expiresAtMs,
+      expiresAtMs: input.expiresAtMs,
     };
   }
 
   async redeemHostedWalletSeamsSessionExchange(input: {
     readonly exchangeCode: HostedWalletSeamsSessionExchangeCode;
     readonly nonce: HostedWalletSeamsSessionExchangeNonce;
-    readonly walletOrigin: SessionOrigin;
+    readonly appOrigin: SessionOrigin;
+    readonly curve: OpaqueWalletSessionCurve;
+    readonly binding: Readonly<Record<string, unknown>>;
     readonly redeemedAtMs: number;
   }): Promise<RedeemHostedWalletSeamsSessionExchangeResult> {
-    const targetSessionId = parseRequired(
-      `ses_${secureRandomBase64Url(24, 'hosted-wallet Seams sessions')}`,
-      parseSeamsSessionId,
-    );
-    return await this.ports.sessions.redeemHostedWalletSeamsSessionExchange({
+    const bindingJson = JSON.stringify(input.binding);
+    if (!bindingJson || bindingJson === '{}') {
+      throw new Error('hosted-wallet exchange binding is required');
+    }
+    const walletSessionToken = `wst_${secureRandomBase64Url(
+      32,
+      'hosted-wallet exchanged Wallet Session tokens',
+    )}`;
+    const persisted = await this.ports.sessions.redeemHostedWalletSeamsSessionExchange({
       codeHash: await digestOpaqueValue(input.exchangeCode),
       nonceDigest: await digestOpaqueValue(input.nonce),
-      walletOrigin: input.walletOrigin,
-      targetSessionId,
+      appOrigin: input.appOrigin,
+      tokenHash: await digestOpaqueValue(walletSessionToken),
+      curve: input.curve,
+      bindingJson,
       redeemedAtMs: input.redeemedAtMs,
     });
+    if (persisted.kind !== 'redeemed') return persisted;
+    return {
+      kind: 'redeemed',
+      walletSessionId: persisted.walletSessionId,
+      walletSessionToken,
+      curve: persisted.curve,
+      expiresAtMs: persisted.expiresAtMs,
+    };
   }
 
-  async recordVerifiedFactorEvidenceSet(
-    input: VerifiedFactorEvidenceSetInput,
+  async recordVerifiedWalletOperationFactorEvidenceSet(
+    input: VerifiedWalletOperationFactorEvidenceSetInput,
   ): Promise<VerifiedAuthorizationEvidenceSet> {
-    const evidenceSet = await buildVerifiedFactorEvidenceSet(input);
+    const evidenceSet = await buildVerifiedWalletOperationFactorEvidenceSet(input);
     await this.ports.evidence.putVerifiedEvidenceSet(evidenceSet);
     return evidenceSet;
   }
 
-  async recordVerifiedSessionEvidenceSet(
-    input: VerifiedSessionEvidenceSetInput,
-  ): Promise<VerifiedAuthorizationEvidenceSet> {
-    const evidenceSet = await buildVerifiedSessionEvidenceSet(input);
-    await this.ports.evidence.putVerifiedEvidenceSet(evidenceSet);
-    return evidenceSet;
-  }
-
-  async recordWalletSessionQuota(quota: ActiveWalletSessionQuota): Promise<void> {
-    await this.ports.grants.putActiveWalletSessionQuota(quota);
+  async buildVerifiedOwnerProof(input: VerifiedOwnerProofInput): Promise<VerifiedOwnerProof> {
+    switch (input.purpose) {
+      case 'wallet_session':
+        return await buildVerifiedOwnerProof(input);
+      case 'operation':
+        return await buildVerifiedOwnerProof(input);
+    }
   }
 
   async readAuthorizedOperation(input: {
@@ -474,6 +496,71 @@ export class AuthorizationService {
     });
     if (!persisted) throw new Error('Issued Wallet Session authorization was not persisted');
     return persisted;
+  }
+
+  async issueOpaqueWalletSessionToken(input: {
+    readonly proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
+    readonly tenantId: TenantId;
+    readonly authorizationId: WalletSessionAuthorizationId;
+    readonly walletSessionId: WalletSessionId;
+    readonly quotaId: MpcWalletSigningQuotaId;
+    readonly expiresAtMs: number;
+    readonly consumedAtMs: number;
+    readonly curve: OpaqueWalletSessionCurve;
+    readonly binding: Readonly<Record<string, unknown>>;
+  }): Promise<IssuedOpaqueWalletSessionToken> {
+    if (input.proof.tenantId !== input.tenantId) {
+      throw new Error('owner proof does not match the opaque Wallet Session tenant');
+    }
+    const consumedAtMs = requirePositiveTimestamp(
+      input.consumedAtMs,
+      'owner proof consumption time',
+    );
+    if (
+      input.proof.verifiedAtMs > consumedAtMs ||
+      input.proof.expiresAtMs <= consumedAtMs ||
+      input.expiresAtMs <= consumedAtMs
+    ) {
+      throw new Error('owner proof or Wallet Session expiry is invalid');
+    }
+    const bindingJson = JSON.stringify(input.binding);
+    if (!bindingJson || bindingJson === '{}') {
+      throw new Error('opaque Wallet Session binding is required');
+    }
+    const consumed = await this.ports.evidence.consumeVerifiedOwnerProof(
+      input.proof,
+      consumedAtMs,
+      String(input.walletSessionId),
+    );
+    if (!consumed) throw new Error('owner proof has already been consumed');
+    const token = `wst_${secureRandomBase64Url(32, 'opaque Wallet Session tokens')}`;
+    await this.ports.grants.putOpaqueWalletSessionToken({
+      tokenHash: await digestOpaqueValue(token),
+      curve: input.curve,
+      bindingJson,
+      tenantId: input.tenantId,
+      walletSessionId: input.walletSessionId,
+    });
+    return {
+      kind: 'opaque_wallet_session_token',
+      token,
+      curve: input.curve,
+      expiresAtMs: input.expiresAtMs,
+    };
+  }
+
+  async resolveOpaqueWalletSessionToken(input: {
+    readonly tenantId: TenantId;
+    readonly token: string;
+    readonly curve: OpaqueWalletSessionCurve;
+    readonly nowMs: number;
+  }): Promise<ResolvedOpaqueWalletSessionToken | null> {
+    return await this.ports.grants.readOpaqueWalletSessionToken({
+      tenantId: input.tenantId,
+      tokenHash: await digestOpaqueValue(input.token),
+      curve: input.curve,
+      nowMs: input.nowMs,
+    });
   }
 
   async readWalletSessionAuthorizationByMint(input: {
@@ -781,4 +868,9 @@ function parseRequired<T>(
   const parsed = parser(value);
   if (!parsed.ok) throw new Error('generated authorization identifier was invalid');
   return parsed.value;
+}
+
+function requirePositiveTimestamp(value: number, label: string): number {
+  if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`${label} must be positive`);
+  return value;
 }

@@ -166,15 +166,27 @@ test('post-103 signer bridge upgrades the deployed baseline and stays fresh-sche
     }
 
     await applyD1MigrationFiles(fresh.database, listD1MigrationFiles('d1-signer'));
-    const bridgeTable = await fresh.database
-      .prepare(
-        `SELECT name
-           FROM sqlite_master
-          WHERE type = 'table'
-            AND name = 'linked_device_target_deployment_descriptors'`,
-      )
-      .first<{ readonly name: string }>();
-    expect(bridgeTable?.name).toBe('linked_device_target_deployment_descriptors');
+    const schemaRows = await fresh.database
+      .prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`)
+      .all<{ readonly name: string }>();
+    const tableNames = new Set(schemaRows.results.map((row) => row.name));
+    for (const table of [
+      'linked_device_target_deployment_descriptors',
+      'verified_wallet_operation_evidence_sets',
+      'verified_owner_proof_consumptions',
+      'opaque_wallet_session_tokens',
+      'hosted_wallet_session_exchange_codes',
+    ]) {
+      expect(tableNames.has(table), `${table} should exist`).toBe(true);
+    }
+    for (const table of [
+      'authorization_sessions',
+      'verified_grant_evidence_sets',
+      'ecdsa_authorization_atomic_guards',
+      'email_otp_recovery_wrapped_enrollment_escrows',
+    ]) {
+      expect(tableNames.has(table), `${table} should be removed`).toBe(false);
+    }
   } finally {
     cleanupTemporaryD1Database(deployed.tempDir);
     cleanupTemporaryD1Database(fresh.tempDir);

@@ -5,11 +5,9 @@ import {
   parseCapabilityId,
   parseCapabilityOperationId,
   parseAuthorizedOperationId,
-  parseDeviceId,
   parseAuthorizationEvidenceId,
   parseAuthorizationEvidenceSetId,
   parsePrincipalId,
-  parseSeamsSessionId,
   parseTenantId,
   parseVaultId,
   parseVaultItemId,
@@ -18,21 +16,18 @@ import {
 import { base64UrlEncode } from '../../../packages/shared-ts/src/utils/base64';
 import { parseDigestB64u } from '../../../packages/shared-ts/src/utils/canonicalPrimitives';
 import {
-  parseAppSessionVersion,
   parseWalletAuthorityBindingDigest,
   parseWalletId,
   parseWebAuthnCredentialIdB64u,
 } from '../../../packages/shared-ts/src/utils/domainIds';
 import { parseWalletAuthAuthorityRef } from '../../../packages/shared-ts/src/utils/walletAuthAuthority';
 import {
-  buildActiveAuthorizationSession,
   buildAuthorizedOperation,
   parseSessionOrigin,
-  type ActiveAuthorizationSession,
   type AuthorizedOperation,
 } from '../../../packages/sdk-server-ts/src/authorization/domain';
 import {
-  buildVerifiedPasskeyFactorResult,
+  buildVerifiedWalletOperationPasskeyFactorResult,
   type VerifiedAuthorizationEvidenceSet,
 } from '../../../packages/sdk-server-ts/src/authorization/factorEvidence';
 import { buildCapabilityOperationEnvelope } from '../../../packages/shared-ts/src/authorization/operationFingerprint';
@@ -59,27 +54,7 @@ export async function buildVaultProxyFixture() {
     vaultId,
     itemId,
     destination,
-    sourceSession: buildActiveAuthorizationSession({
-      tenantId,
-      principalId,
-      sessionId: parsed('session-vault-app', parseSeamsSessionId),
-      authSource: {
-        kind: 'passkey',
-        credentialIdB64u: parsedDomain('credential-vault-app', parseWebAuthnCredentialIdB64u),
-      },
-      deviceId: parsed('device-vault-browser', parseDeviceId),
-      audience: {
-        kind: 'first_party_web',
-        origin: parseSessionOrigin('https://app.example.test'),
-      },
-      appSessionVersion: parsedDomain('app-session-vault-1', parseAppSessionVersion),
-      assurance: 'session',
-      createdAtMs: VAULT_PROXY_FIXTURE_TIME_MS - 1_000,
-      lifecycle: {
-        kind: 'active',
-        expiresAtMs: VAULT_PROXY_FIXTURE_TIME_MS + 100_000,
-      },
-    }),
+    origin: parseSessionOrigin('https://app.example.test'),
     operation: await buildVaultProxyUseOperation({
       tenantId,
       principalId,
@@ -102,21 +77,22 @@ export async function buildVaultProxyFixture() {
 
 export function buildVaultProxyPasskeyFactor(input: {
   readonly fixture: Awaited<ReturnType<typeof buildVaultProxyFixture>>;
-  readonly session: ActiveAuthorizationSession;
 }) {
+  const walletId = parsedDomain('wallet-vault-passkey', parseWalletId);
   const authorityRef = parseWalletAuthAuthorityRef({
     kind: 'wallet_auth_authority_ref',
-    walletId: parsedDomain('wallet-vault-passkey', parseWalletId),
+    walletId,
     authorityDigest: parsedDomain(fixtureDigest(7), parseWalletAuthorityBindingDigest),
   });
   if (!authorityRef) throw new Error('vault Passkey authority ref fixture is invalid');
-  return buildVerifiedPasskeyFactorResult({
-    tenantId: input.session.tenantId,
-    principalId: input.session.principalId,
-    sessionId: input.session.sessionId,
-    deviceId: input.session.deviceId,
-    factorId: parsed('factor-vault-passkey', parseAuthFactorId),
+  return buildVerifiedWalletOperationPasskeyFactorResult({
+    tenantId: input.fixture.tenantId,
+    principalId: input.fixture.principalId,
+    walletId,
     authorityRef,
+    requestOrigin: input.fixture.origin,
+    audience: input.fixture.origin,
+    factorId: parsed('factor-vault-passkey', parseAuthFactorId),
     operation: input.fixture.operation,
     credentialIdB64u: parsedDomain('credential-vault-assertion', parseWebAuthnCredentialIdB64u),
     assertionDigest: fixtureDigest(8),

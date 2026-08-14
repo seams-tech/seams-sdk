@@ -92,7 +92,6 @@ import {
   buildRawD1EmailOtpChallengeInsertInput,
   buildRawD1EmailOtpGrantInsertInput,
   buildRawD1EmailOtpEnrollmentInsertInput,
-  buildRawD1EmailOtpRecoveryEscrowInsertInput,
   buildRawD1EmailOtpAuthStateInsertInput,
   buildRawD1EmailOtpUnlockChallengeInsertInput,
   buildRawD1EmailOtpRegistrationAttemptInsertInput,
@@ -117,7 +116,6 @@ import {
   insertRawD1EmailOtpChallengeRecord,
   insertRawD1EmailOtpGrantRecord,
   insertRawD1EmailOtpEnrollmentRecord,
-  insertRawD1EmailOtpRecoveryEscrowRecord,
   insertRawD1EmailOtpAuthStateRecord,
   insertRawD1EmailOtpUnlockChallengeRecord,
   insertRawD1EmailOtpRegistrationAttemptRecord,
@@ -125,7 +123,6 @@ import {
   expectRawD1EmailOtpChallengeInsertRejected,
   expectRawD1EmailOtpGrantInsertRejected,
   expectRawD1EmailOtpEnrollmentInsertRejected,
-  expectRawD1EmailOtpRecoveryEscrowInsertRejected,
   expectRawD1EmailOtpAuthStateInsertRejected,
   expectRawD1EmailOtpUnlockChallengeInsertRejected,
   expectRawD1EmailOtpRegistrationAttemptInsertRejected,
@@ -681,37 +678,6 @@ test.describe('D1 migration smoke', () => {
         buildRawD1EmailOtpEnrollmentInsertInput({}),
       );
 
-      await expectRawD1EmailOtpRecoveryEscrowInsertRejected(
-        temp.database,
-        buildRawD1EmailOtpRecoveryEscrowInsertInput({
-          recoveryKeyStatus: 'consumed',
-        }),
-      );
-      await expectRawD1EmailOtpRecoveryEscrowInsertRejected(
-        temp.database,
-        buildRawD1EmailOtpRecoveryEscrowInsertInput({
-          recordJson: JSON.stringify({
-            version: 'email_otp_recovery_wrapped_enrollment_escrow_v1',
-            alg: 'chacha20poly1305-hkdf-sha256-v1',
-            secretKind: 'email_otp_device_enrollment_escrow',
-            escrowKind: 'recovery_wrapped_enrollment_escrow',
-            walletId: 'wallet-raw-email-otp',
-            userId: 'google-subject-raw-email-otp',
-            authSubjectId: 'google-subject-raw-email-otp',
-            authMethod: 'google_sso_email_otp',
-            recoveryKeyId: 'recovery-key-raw-email-otp',
-            recoveryKeyStatus: 'active',
-            consumedAtMs: Date.parse('2026-06-27T00:00:01.000Z'),
-            issuedAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
-            updatedAtMs: Date.parse('2026-06-27T00:00:01.000Z'),
-          }),
-        }),
-      );
-      await insertRawD1EmailOtpRecoveryEscrowRecord(
-        temp.database,
-        buildRawD1EmailOtpRecoveryEscrowInsertInput({}),
-      );
-
       await expectRawD1EmailOtpAuthStateInsertRejected(
         temp.database,
         buildRawD1EmailOtpAuthStateInsertInput({
@@ -817,11 +783,6 @@ test.describe('D1 migration smoke', () => {
       const enrollmentRow = await temp.database
         .prepare('SELECT COUNT(*) AS record_count FROM email_otp_wallet_enrollments')
         .first<{ record_count?: unknown }>();
-      const escrowRow = await temp.database
-        .prepare(
-          'SELECT COUNT(*) AS record_count FROM email_otp_recovery_wrapped_enrollment_escrows',
-        )
-        .first<{ record_count?: unknown }>();
       const authStateRow = await temp.database
         .prepare('SELECT COUNT(*) AS record_count FROM email_otp_auth_states')
         .first<{ record_count?: unknown }>();
@@ -837,7 +798,6 @@ test.describe('D1 migration smoke', () => {
       expect(Number(challengeRow?.record_count || 0)).toBe(1);
       expect(Number(grantRow?.record_count || 0)).toBe(1);
       expect(Number(enrollmentRow?.record_count || 0)).toBe(1);
-      expect(Number(escrowRow?.record_count || 0)).toBe(1);
       expect(Number(authStateRow?.record_count || 0)).toBe(1);
       expect(Number(unlockChallengeRow?.record_count || 0)).toBe(1);
       expect(Number(registrationAttemptRow?.record_count || 0)).toBe(1);

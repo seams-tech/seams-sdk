@@ -17,7 +17,7 @@ import {
   resolveWalletRecoveryBootstrapAuthorizationContext,
   resolveWalletRecoveryAuthorizationToken,
 } from '../../../domains/passkeyCustody/walletRecoveryAuthorization';
-import { authenticateRouterAbOperationStepUpAppSessionIdentity } from '../../../domains/signingOperations/routerAbPrivateSigningWorker';
+import { authenticateRouterAbWalletOperationStepUpIdentity } from '../../../domains/signingOperations/routerAbPrivateSigningWorker';
 import type { AuthorizedOperation } from '../../../../authorization/domain';
 import { parsePasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
@@ -58,14 +58,13 @@ const RECOVERY_ROTATE_ROUTE_ID = 'wallet_recovery_codes_rotate';
 const RECOVERY_READ_ROUTE_ID = 'wallet_recovery_codes_read';
 const RECOVERY_STATUS_ROUTE_ID = 'wallet_recovery_status';
 
-function walletRecoveryAppSessionHeaders(ctx: FetchRouterApiContext): Record<string, string> {
+function walletRecoverySessionHeaders(ctx: FetchRouterApiContext): Record<string, string> {
   return Object.fromEntries(ctx.request.headers.entries());
 }
 
 async function authenticateWalletRecoveryAuthority(ctx: FetchRouterApiContext, walletId: string) {
-  return authenticateRouterAbOperationStepUpAppSessionIdentity({
-    headers: walletRecoveryAppSessionHeaders(ctx),
-    session: ctx.opts.session,
+  return authenticateRouterAbWalletOperationStepUpIdentity({
+    headers: walletRecoverySessionHeaders(ctx),
     walletId,
     materialOwner: walletId,
     authorizedOperations: ctx.service.authorizedOperations,
@@ -501,7 +500,6 @@ async function resolveBootstrapRecoveryAuthorization(
     grant: consumed,
     reservationId: input.reservationId,
     authorizedOperations: ctx.service.authorizedOperations,
-    authorizationSessions: ctx.service.authorizationSessions,
     requestOrigin: trimmed(ctx.request.headers.get('origin')),
     nowMs: Date.now(),
   });
@@ -625,7 +623,6 @@ export async function handleWalletRecoveryFinalize(
     reservationId,
     challengeId,
     authorizedOperations: ctx.service.authorizedOperations,
-    authorizationSessions: ctx.service.authorizationSessions,
     requestOrigin: expectedOrigin,
     nowMs: Date.now(),
   });

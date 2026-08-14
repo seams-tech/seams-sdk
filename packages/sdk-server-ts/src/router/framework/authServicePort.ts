@@ -160,7 +160,6 @@ import type {
   RouterAbEcdsaPostRegistrationSessionActivationRequestV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type {
-  ActiveAuthorizationSession,
   AuthorizedOperation,
   AuthorizedOperationInput,
   HostedWalletSeamsSessionExchangeCode,
@@ -170,18 +169,22 @@ import type {
   ReusableWalletSessionStatus,
   SessionOrigin,
   VerifiedAuthorizationEvidenceSet,
+  VerifiedOwnerProof,
 } from '../../authorization/domain';
 import type {
-  VerifiedFactorEvidenceSetInput,
-  VerifiedSessionEvidenceSetInput,
+  VerifiedWalletOperationFactorEvidenceSetInput,
+  VerifiedOwnerProofInput,
 } from '../../authorization/factorEvidence';
 import type {
   IssueReusableWalletSessionInput,
   IssuedReusableWalletSession,
+  IssuedOpaqueWalletSessionToken,
+  OpaqueWalletSessionCurve,
+  ResolvedOpaqueWalletSessionToken,
   EcdsaMaterialActivationScope,
   LinkedDeviceMaterialActivationScopeV1,
 } from '../../authorization/service';
-import type { PrincipalId, SeamsSessionId, TenantId } from '@shared/authorization/capabilityKinds';
+import type { PrincipalId, TenantId } from '@shared/authorization/capabilityKinds';
 
 export type EmailOtpChallengeDelivery =
   | {
@@ -219,8 +222,7 @@ type EmailOtpChallengeResponse = {
   readonly walletId: string;
   readonly orgId: string;
   readonly otpChannel: EmailOtpChannel;
-  readonly sessionHash: string;
-  readonly appSessionVersion: string;
+  readonly ownerProofBindingDigest: string;
   readonly action: WalletEmailOtpAction;
   readonly operation: EmailOtpChallengeOperation;
 };
@@ -231,8 +233,7 @@ type EmailOtpChallengeCreateInput = {
   readonly orgId?: unknown;
   readonly email?: unknown;
   readonly otpChannel?: unknown;
-  readonly sessionHash?: unknown;
-  readonly appSessionVersion?: unknown;
+  readonly ownerProofBindingDigest?: unknown;
   readonly clientIp?: unknown;
   readonly reuseActiveChallenge?: unknown;
   readonly operation?: unknown;
@@ -261,8 +262,7 @@ type EmailOtpChallengeVerifyInput = {
   readonly challengeId?: unknown;
   readonly otpCode?: unknown;
   readonly otpChannel?: unknown;
-  readonly sessionHash?: unknown;
-  readonly appSessionVersion?: unknown;
+  readonly ownerProofBindingDigest?: unknown;
   readonly clientIp?: unknown;
   readonly operation?: unknown;
 };
@@ -292,8 +292,7 @@ type EmailOtpEnrollmentVerifyInput = {
   readonly challengeId: unknown;
   readonly otpCode: unknown;
   readonly otpChannel: unknown;
-  readonly sessionHash: unknown;
-  readonly appSessionVersion: unknown;
+  readonly ownerProofBindingDigest: unknown;
   readonly proofEmail?: unknown;
   readonly clientIp?: unknown;
   readonly enrollmentSealKeyVersion?: unknown;
@@ -1226,6 +1225,16 @@ export interface RouterApiWalletAuthVerificationService {
 }
 
 export interface RouterApiWalletAuthMethodService {
+  verifyActivePasskeyAuthority(
+    authority: import('@shared/utils/walletAuthAuthority').PasskeyWalletAuthAuthority,
+  ): Promise<
+    { readonly ok: true } | { readonly ok: false; readonly code: string; readonly message: string }
+  >;
+  verifyActiveEmailOtpAuthority(
+    authority: EmailOtpWalletAuthAuthority,
+  ): Promise<
+    { readonly ok: true } | { readonly ok: false; readonly code: string; readonly message: string }
+  >;
   resolveActiveEmailOtpAuthorityForVerifiedSubject(input: {
     readonly walletId: string;
     readonly providerUserId: string;
@@ -1590,11 +1599,9 @@ export interface RouterApiServiceBag {
 
 export interface RouterApiAuthorizedOperationService {
   readonly tenantId: TenantId;
-  recordVerifiedFactorEvidenceSet(
-    input: VerifiedFactorEvidenceSetInput,
-  ): Promise<VerifiedAuthorizationEvidenceSet>;
-  recordVerifiedSessionEvidenceSet(
-    input: VerifiedSessionEvidenceSetInput,
+  buildVerifiedOwnerProof(input: VerifiedOwnerProofInput): Promise<VerifiedOwnerProof>;
+  recordVerifiedWalletOperationFactorEvidenceSet(
+    input: VerifiedWalletOperationFactorEvidenceSetInput,
   ): Promise<VerifiedAuthorizationEvidenceSet>;
   readAuthorizedOperation(input: {
     readonly tenantId: TenantId;
@@ -1625,15 +1632,26 @@ export interface RouterApiAuthorizedOperationService {
 
 export interface RouterApiAuthorizationSessionService {
   readonly tenantId: TenantId;
-  recordActiveSession(session: ActiveAuthorizationSession): Promise<void>;
   issueReusableWalletSession(
     input: IssueReusableWalletSessionInput,
   ): Promise<IssuedReusableWalletSession>;
-  readActiveSession(input: {
+  issueOpaqueWalletSessionToken(input: {
+    readonly proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
     readonly tenantId: TenantId;
-    readonly sessionId: SeamsSessionId;
+    readonly authorizationId: import('@shared/authorization/capabilityKinds').WalletSessionAuthorizationId;
+    readonly walletSessionId: import('@shared/authorization/capabilityKinds').WalletSessionId;
+    readonly quotaId: import('@shared/authorization/capabilityKinds').MpcWalletSigningQuotaId;
+    readonly expiresAtMs: number;
+    readonly consumedAtMs: number;
+    readonly curve: OpaqueWalletSessionCurve;
+    readonly binding: Readonly<Record<string, unknown>>;
+  }): Promise<IssuedOpaqueWalletSessionToken>;
+  resolveOpaqueWalletSessionToken(input: {
+    readonly tenantId: TenantId;
+    readonly token: string;
+    readonly curve: OpaqueWalletSessionCurve;
     readonly nowMs: number;
-  }): Promise<ActiveAuthorizationSession | null>;
+  }): Promise<ResolvedOpaqueWalletSessionToken | null>;
   readReusableWalletSessionStatus(input: {
     readonly tenantId: TenantId;
     readonly principalId: PrincipalId;
@@ -1643,8 +1661,7 @@ export interface RouterApiAuthorizationSessionService {
   }): Promise<ReusableWalletSessionStatus>;
   mintHostedWalletSeamsSessionExchange(input: {
     readonly tenantId: TenantId;
-    readonly principalId: PrincipalId;
-    readonly sourceSessionId: SeamsSessionId;
+    readonly walletSessionId: import('@shared/authorization/capabilityKinds').WalletSessionId;
     readonly appOrigin: SessionOrigin;
     readonly walletOrigin: SessionOrigin;
     readonly issuedAtMs: number;
@@ -1653,7 +1670,9 @@ export interface RouterApiAuthorizationSessionService {
   redeemHostedWalletSeamsSessionExchange(input: {
     readonly exchangeCode: HostedWalletSeamsSessionExchangeCode;
     readonly nonce: HostedWalletSeamsSessionExchangeNonce;
-    readonly walletOrigin: SessionOrigin;
+    readonly appOrigin: SessionOrigin;
+    readonly curve: OpaqueWalletSessionCurve;
+    readonly binding: Readonly<Record<string, unknown>>;
     readonly redeemedAtMs: number;
   }): Promise<RedeemHostedWalletSeamsSessionExchangeResult>;
 }

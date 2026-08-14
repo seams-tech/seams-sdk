@@ -27,7 +27,6 @@ import {
   readWalletAuthMethodRecord,
   insertEmailOtpEnrollment,
   insertEmailOtpAuthState,
-  insertEmailOtpRecoveryEscrow,
   insertEmailOtpGrant,
 } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
 import { UnusedSessionAdapter } from './helpers/routerAbEd25519YaoRegistrationBridge.fixtures';
@@ -54,30 +53,6 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
     await insertWebAuthn({ database, ...scope });
     await insertNearPublicKey({ database, ...scope });
     await insertEmailOtpEnrollment({ database, ...scope });
-    await insertEmailOtpRecoveryEscrow({
-      database,
-      ...scope,
-      recoveryKeyId: 'recovery-active',
-      recoveryKeyStatus: 'active',
-      issuedAtMs: 900,
-      updatedAtMs: 910,
-    });
-    await insertEmailOtpRecoveryEscrow({
-      database,
-      ...scope,
-      recoveryKeyId: 'recovery-consumed',
-      recoveryKeyStatus: 'consumed',
-      issuedAtMs: 880,
-      updatedAtMs: 920,
-    });
-    await insertEmailOtpRecoveryEscrow({
-      database,
-      ...scope,
-      recoveryKeyId: 'recovery-revoked',
-      recoveryKeyStatus: 'revoked',
-      issuedAtMs: 890,
-      updatedAtMs: 930,
-    });
     await insertEmailOtpGrant({
       database,
       ...scope,
@@ -252,50 +227,6 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       walletId: 'email-wallet.testnet',
       lastEmailOtpLoginAtMs: 800,
       lastStrongAuthAtMs: strongAuth.lastStrongAuthAtMs,
-    });
-    await expect(
-      service.emailOtp.getEmailOtpRecoveryCodeStatus({
-        subject: {
-          kind: 'provider_identity',
-          orgId: requireParsedDomainId(parseOrgId(scope.orgId)),
-          providerSubject: requireParsedDomainId(parseProviderSubject('google:not-enrolled')),
-          walletId: walletIdFromString('missing-email-wallet.testnet'),
-        },
-      }),
-    ).resolves.toEqual({
-      ok: true,
-      status: 'not_enrolled',
-      walletId: 'missing-email-wallet.testnet',
-      enrollmentId: '',
-      enrollmentSealKeyVersion: '',
-      expectedRecoveryCodeCount: 10,
-      activeRecoveryCodeCount: 0,
-      consumedRecoveryCodeCount: 0,
-      revokedRecoveryCodeCount: 0,
-      totalRecoveryCodeCount: 0,
-      issuedAtMs: null,
-    });
-    await expect(
-      service.emailOtp.getEmailOtpRecoveryCodeStatus({
-        subject: {
-          kind: 'provider_identity',
-          orgId: requireParsedDomainId(parseOrgId(scope.orgId)),
-          providerSubject: requireParsedDomainId(parseProviderSubject('google:email-user')),
-          walletId: walletIdFromString('email-wallet.testnet'),
-        },
-      }),
-    ).resolves.toEqual({
-      ok: true,
-      status: 'incomplete',
-      walletId: 'email-wallet.testnet',
-      enrollmentId: 'enrollment-a',
-      enrollmentSealKeyVersion: 'seal-v1',
-      expectedRecoveryCodeCount: 10,
-      activeRecoveryCodeCount: 1,
-      consumedRecoveryCodeCount: 1,
-      revokedRecoveryCodeCount: 1,
-      totalRecoveryCodeCount: 3,
-      issuedAtMs: 880,
     });
     await expect(
       service.emailOtp.consumeEmailOtpGrant({

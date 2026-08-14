@@ -5,12 +5,10 @@ import {
   parseCapabilityId,
   parseCapabilityOperationId,
   parseAuthorizedOperationId,
-  parseDeviceId,
   parseAuthorizationEvidenceId,
   parseAuthorizationEvidenceSetId,
   parseWalletSessionAuthorizationId,
   parsePrincipalId,
-  parseSeamsSessionId,
   parseTenantId,
   parseMpcWalletSigningQuotaId,
   parseWalletSessionId,
@@ -21,6 +19,7 @@ import {
   type AuthorizationAuditEventId,
   type AuthorizedOperationId,
   type MpcWalletSigningQuotaId,
+  type PrincipalId,
   type TenantId,
   type WalletSessionAuthorizationId,
   type CapabilityOperationRef,
@@ -34,9 +33,6 @@ import {
 import { base64UrlEncode } from '../../../packages/shared-ts/src/utils/base64';
 import { parseDigestB64u } from '../../../packages/shared-ts/src/utils/canonicalPrimitives';
 import {
-  parseAppSessionVersion,
-  parseEmailOtpChallengeId,
-  parseProviderSubject,
   parseWalletAuthorityBindingDigest,
   parseWalletId,
   parseWebAuthnCredentialIdB64u,
@@ -49,34 +45,34 @@ import {
   type WalletAuthAuthorityRef,
 } from '../../../packages/shared-ts/src/utils/walletAuthAuthority';
 import {
-  buildActiveAuthorizationSession,
   buildAuthorizedOperation,
   buildWalletSessionAuthorization,
   buildActiveWalletSessionQuota,
   parseSessionOrigin,
   computeAuthorizedOperationResultDigest,
   parseAuthorizedOperationReplayResponse,
-  type ActiveAuthorizationSession,
   type ActiveWalletSessionQuota,
   type WalletSessionAuthorization,
   type AuthorizedOperation,
   type AuthorizedOperationReplayResponse,
 } from '../../../packages/sdk-server-ts/src/authorization/domain';
 import {
-  buildVerifiedEmailOtpFactorResult,
-  buildVerifiedPasskeyFactorResult,
-  buildVerifiedSessionEvidenceSet,
-  type VerifiedEmailOtpFactorResult,
+  buildVerifiedWalletOperationPasskeyFactorResult,
+  buildVerifiedWalletOperationFactorEvidenceSet,
   type VerifiedAuthorizationEvidenceSet,
-  type VerifiedPasskeyFactorResult,
-  type VerifiedSessionEvidenceSetInput,
+  type VerifiedWalletOperationPasskeyFactorResult,
 } from '../../../packages/sdk-server-ts/src/authorization/factorEvidence';
 
 const FIXTURE_NOW_MS = 1_900_000_000_000;
 
 export type ReusableAuthorizationCoreFixture = {
-  readonly session: ActiveAuthorizationSession;
-  readonly sessionEvidenceInput: VerifiedSessionEvidenceSetInput;
+  readonly session: {
+    readonly tenantId: TenantId;
+    readonly principalId: PrincipalId;
+    readonly createdAtMs: number;
+    readonly expiresAtMs: number;
+    readonly origin: ReturnType<typeof parseSessionOrigin>;
+  };
   readonly evidenceSet: VerifiedAuthorizationEvidenceSet;
   readonly quota: ActiveWalletSessionQuota;
   readonly reusableWalletSession: WalletSessionAuthorization;
@@ -89,22 +85,21 @@ export type StepUpAuthorizationCoreFixture = Omit<
   'quota' | 'reusableWalletSession'
 >;
 
-export type PasskeyVerifiedFactorFixture = {
+export type WalletOperationPasskeyVerifiedFactorFixture = {
   readonly authorization: ReusableAuthorizationCoreFixture;
   readonly evidenceId: AuthorizationEvidenceId;
   readonly evidenceSetId: AuthorizationEvidenceSetId;
-  readonly factor: VerifiedPasskeyFactorResult;
+  readonly factor: VerifiedWalletOperationPasskeyFactorResult;
 };
 
-export type EmailOtpVerifiedFactorFixture = {
-  readonly authorization: ReusableAuthorizationCoreFixture;
-  readonly evidenceId: AuthorizationEvidenceId;
-  readonly evidenceSetId: AuthorizationEvidenceSetId;
-  readonly factor: VerifiedEmailOtpFactorResult;
-};
-
-export type PasskeyAuthorizationSessionFixture = {
-  readonly session: ActiveAuthorizationSession;
+export type PasskeyWalletSessionIssuanceFixture = {
+  readonly session: {
+    readonly tenantId: TenantId;
+    readonly principalId: PrincipalId;
+    readonly createdAtMs: number;
+    readonly expiresAtMs: number;
+    readonly origin: ReturnType<typeof parseSessionOrigin>;
+  };
   readonly authority: PasskeyWalletAuthAuthority;
   readonly authorityRef: WalletAuthAuthorityRef;
 };
@@ -137,8 +132,6 @@ export async function buildReusableAuthorizationCoreFixture(
   const operationKind = input.operationKind ?? 'evm.sign_transaction';
   const tenantId = parsed('tenant-authorization', parseTenantId);
   const principalId = parsed('principal-human', parsePrincipalId);
-  const sessionId = parsed('session-browser', parseSeamsSessionId);
-  const deviceId = parsed('device-browser', parseDeviceId);
   const capabilityId = parsed('capability-evm', parseCapabilityId);
   const evidenceSetId = parsed('evidence-set-1', parseAuthorizationEvidenceSetId);
   const walletSessionId = parsed('wallet-session-1', parseWalletSessionId);
@@ -181,36 +174,27 @@ export async function buildReusableAuthorizationCoreFixture(
           }),
         };
   const envelope = fixtureOperation.envelope;
-  const session = buildActiveAuthorizationSession({
+  const origin = parseSessionOrigin('https://app.example.test');
+  const factor = buildVerifiedWalletOperationPasskeyFactorResult({
     tenantId,
     principalId,
-    sessionId,
-    authSource: {
-      kind: 'oidc_provider',
-      providerId: 'google_oidc',
-      providerSubject: parsed('google-subject-1', parseProviderSubject),
-    },
-    deviceId,
-    audience: {
-      kind: 'first_party_web',
-      origin: parseSessionOrigin('https://app.example.test'),
-    },
-    appSessionVersion: parsed('app-session-version-1', parseAppSessionVersion),
-    assurance: 'session',
-    createdAtMs: FIXTURE_NOW_MS,
-    lifecycle: {
-      kind: 'active',
-      expiresAtMs: FIXTURE_NOW_MS + 100_000,
-    },
-  });
-  const sessionEvidenceInput = {
-    session,
+    walletId,
+    authorityRef: authority,
+    requestOrigin: origin,
+    audience: origin,
+    factorId: parsed('factor-wallet-operation', parseAuthFactorId),
     operation: envelope,
-    evidenceId: parsed('evidence-session-1', parseAuthorizationEvidenceId),
-    evidenceSetId,
+    credentialIdB64u: parsedDomain('credential-wallet-operation', parseWebAuthnCredentialIdB64u),
+    assertionDigest: fixtureDigest(7),
+    verifiedAtMs: FIXTURE_NOW_MS + 500,
     expiresAtMs: FIXTURE_NOW_MS + 90_000,
-  };
-  const evidenceSet = await buildVerifiedSessionEvidenceSet(sessionEvidenceInput);
+  });
+  const evidenceSet = await buildVerifiedWalletOperationFactorEvidenceSet({
+    operation: envelope,
+    evidenceId: parsed('evidence-wallet-operation-1', parseAuthorizationEvidenceId),
+    evidenceSetId,
+    factor,
+  });
   const authorizedOperation = await buildReusableFixtureAuthorizedOperation({
     tenantId,
     authorizedOperationId: parsed('authorized-operation-1', parseAuthorizedOperationId),
@@ -221,8 +205,13 @@ export async function buildReusableAuthorizationCoreFixture(
     claimedAtMs: FIXTURE_NOW_MS + 1_000,
   });
   return {
-    session,
-    sessionEvidenceInput,
+    session: {
+      tenantId,
+      principalId,
+      createdAtMs: FIXTURE_NOW_MS,
+      expiresAtMs: FIXTURE_NOW_MS + 100_000,
+      origin,
+    },
     evidenceSet,
     quota: buildActiveWalletSessionQuota({
       tenantId,
@@ -359,7 +348,6 @@ export async function buildStepUpAuthorizationCoreFixture(): Promise<StepUpAutho
   const operation = reusable.authorizedOperation.operation;
   return {
     session: reusable.session,
-    sessionEvidenceInput: reusable.sessionEvidenceInput,
     evidenceSet: reusable.evidenceSet,
     authorizedOperation: await buildAuthorizedOperation({
       tenantId: reusable.authorizedOperation.tenantId,
@@ -377,45 +365,46 @@ export async function buildStepUpAuthorizationCoreFixture(): Promise<StepUpAutho
   };
 }
 
-export async function buildPasskeyVerifiedFactorFixture(): Promise<PasskeyVerifiedFactorFixture> {
+export async function buildWalletOperationPasskeyVerifiedFactorFixture(): Promise<WalletOperationPasskeyVerifiedFactorFixture> {
   const authorization = await buildReusableAuthorizationCoreFixture();
+  const walletId = parsedDomain('wallet-passkey', parseWalletId);
   const authorityRef = parseWalletAuthAuthorityRef({
     kind: 'wallet_auth_authority_ref',
-    walletId: parsedDomain('wallet-passkey', parseWalletId),
-    authorityDigest: parsedDomain(fixtureDigest(7), parseWalletAuthorityBindingDigest),
+    walletId,
+    authorityDigest: parsedDomain(fixtureDigest(17), parseWalletAuthorityBindingDigest),
   });
-  if (!authorityRef) throw new Error('Passkey authority ref fixture is invalid');
+  if (!authorityRef) throw new Error('Wallet operation Passkey authority ref fixture is invalid');
+  const requestOrigin = parseSessionOrigin('https://app.example.test');
   return {
     authorization,
-    evidenceId: parsed('evidence-passkey-adapter', parseAuthorizationEvidenceId),
-    evidenceSetId: parsed('evidence-set-passkey-adapter', parseAuthorizationEvidenceSetId),
-    factor: buildVerifiedPasskeyFactorResult({
+    evidenceId: parsed('evidence-wallet-passkey', parseAuthorizationEvidenceId),
+    evidenceSetId: parsed('evidence-set-wallet-passkey', parseAuthorizationEvidenceSetId),
+    factor: buildVerifiedWalletOperationPasskeyFactorResult({
       tenantId: authorization.session.tenantId,
       principalId: authorization.session.principalId,
-      sessionId: authorization.session.sessionId,
-      deviceId: authorization.session.deviceId,
-      factorId: parsed('factor-passkey-adapter', parseAuthFactorId),
+      walletId,
       authorityRef,
+      requestOrigin,
+      audience: requestOrigin,
+      factorId: parsed('factor-wallet-passkey', parseAuthFactorId),
       operation: authorization.authorizedOperation.operation,
-      credentialIdB64u: parsedDomain('credential-passkey-adapter', parseWebAuthnCredentialIdB64u),
-      assertionDigest: fixtureDigest(8),
+      credentialIdB64u: parsedDomain('credential-wallet-passkey', parseWebAuthnCredentialIdB64u),
+      assertionDigest: fixtureDigest(18),
       verifiedAtMs: authorization.session.createdAtMs + 1_000,
       expiresAtMs: authorization.session.createdAtMs + 60_000,
     }),
   };
 }
 
-export async function buildPasskeyAuthorizationSessionFixture(input: {
+export async function buildPasskeyWalletSessionIssuanceFixture(input: {
   readonly tenantId: string;
   readonly principalId: string;
-  readonly sessionId: string;
-  readonly deviceId: string;
   readonly walletId: string;
   readonly credentialIdB64u: string;
   readonly rpId: string;
   readonly origin: string;
   readonly expiresAtMs: number;
-}): Promise<PasskeyAuthorizationSessionFixture> {
+}): Promise<PasskeyWalletSessionIssuanceFixture> {
   const authority = buildPasskeyWalletAuthAuthority({
     walletId: input.walletId,
     credentialIdB64u: input.credentialIdB64u,
@@ -424,55 +413,13 @@ export async function buildPasskeyAuthorizationSessionFixture(input: {
   return {
     authority,
     authorityRef: await walletAuthAuthorityRef({ authority }),
-    session: buildActiveAuthorizationSession({
+    session: {
       tenantId: parsed(input.tenantId, parseTenantId),
       principalId: parsed(input.principalId, parsePrincipalId),
-      sessionId: parsed(input.sessionId, parseSeamsSessionId),
-      authSource: {
-        kind: 'passkey',
-        credentialIdB64u: authority.factor.credentialIdB64u,
-      },
-      deviceId: parsed(input.deviceId, parseDeviceId),
-      audience: {
-        kind: 'first_party_web',
-        origin: parseSessionOrigin(input.origin),
-      },
-      appSessionVersion: parsed('app-session-version-1', parseAppSessionVersion),
-      assurance: 'session',
       createdAtMs: input.expiresAtMs - 60_000,
-      lifecycle: {
-        kind: 'active',
-        expiresAtMs: input.expiresAtMs,
-      },
-    }),
-  };
-}
-
-export async function buildEmailOtpVerifiedFactorFixture(): Promise<EmailOtpVerifiedFactorFixture> {
-  const authorization = await buildReusableAuthorizationCoreFixture();
-  const authorityRef = parseWalletAuthAuthorityRef({
-    kind: 'wallet_auth_authority_ref',
-    walletId: parsedDomain('wallet-email-otp', parseWalletId),
-    authorityDigest: parsedDomain(fixtureDigest(9), parseWalletAuthorityBindingDigest),
-  });
-  if (!authorityRef) throw new Error('Email OTP authority ref fixture is invalid');
-  return {
-    authorization,
-    evidenceId: parsed('evidence-email-otp-adapter', parseAuthorizationEvidenceId),
-    evidenceSetId: parsed('evidence-set-email-otp-adapter', parseAuthorizationEvidenceSetId),
-    factor: buildVerifiedEmailOtpFactorResult({
-      tenantId: authorization.session.tenantId,
-      principalId: authorization.session.principalId,
-      sessionId: authorization.session.sessionId,
-      deviceId: authorization.session.deviceId,
-      factorId: parsed('factor-email-otp-adapter', parseAuthFactorId),
-      authorityRef,
-      operation: authorization.authorizedOperation.operation,
-      challengeId: parsedDomain('challenge-email-otp-adapter', parseEmailOtpChallengeId),
-      verificationReceiptDigest: fixtureDigest(10),
-      verifiedAtMs: authorization.session.createdAtMs + 1_000,
-      expiresAtMs: authorization.session.createdAtMs + 60_000,
-    }),
+      expiresAtMs: input.expiresAtMs,
+      origin: parseSessionOrigin(input.origin),
+    },
   };
 }
 

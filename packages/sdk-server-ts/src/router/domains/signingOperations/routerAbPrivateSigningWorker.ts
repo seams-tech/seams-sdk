@@ -10,7 +10,8 @@ import type {
   RouterAbEd25519OwnerWalletSessionClaims,
 } from '../../../core/ThresholdService/validation';
 import {
-  parseAppSessionClaims,
+  parseRouterAbEcdsaDerivationWalletSessionClaims,
+  parseRouterAbEd25519WalletSessionClaims,
   thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
 } from '../../../core/ThresholdService/validation';
 import type {
@@ -22,6 +23,7 @@ import {
   validateRouterAbEd25519WalletSessionTokenInputs,
 } from '../../auth/commonRouterUtils';
 import { parseSessionKind, type SessionAdapter } from '../../framework/routerApi';
+import { extractBearerCredential } from '../../auth/routerApiKeyAuth';
 import {
   ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
   parseRouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
@@ -52,7 +54,10 @@ import type {
 } from '../../framework/authServicePort';
 import type { WalletExecutionLaneAuthSource } from '../../../core/signingLanes/WalletExecutionLaneProjection';
 import type { SigningWorkerLaneMaterialIdentityV1 } from '../../../core/signingLanes/signingWorkerLaneMaterialIdentity';
-import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import {
+  walletAuthAuthorityRef,
+  type WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
 import {
   buildEvmEcdsaMpcOperationRef,
   buildNearEd25519MpcOperationRef,
@@ -62,7 +67,6 @@ import {
   parseCapabilityId,
   parseCapabilityOperationId,
   parsePrincipalId,
-  parseSeamsSessionId,
   parseTenantId,
   type AuthorizationParseResult,
   type AuthorizationAuditEventId,
@@ -71,7 +75,6 @@ import {
   type CapabilityOperationId,
   type CapabilityOperationRef,
   type PrincipalId,
-  type SeamsSessionId,
   type TenantId,
 } from '@shared/authorization/capabilityKinds';
 import {
@@ -81,6 +84,7 @@ import {
 } from '@shared/authorization/operationFingerprint';
 import {
   authorizedOperationReplayBodyInit,
+  parseSessionOrigin,
   type AuthorizedOperation,
   type AuthorizedOperationInput,
   type AuthorizedOperationReplayResponse,
@@ -92,7 +96,9 @@ import {
 } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
   parseMpcMaterialActivationId,
+  parseProviderSubject,
   parseWalletId,
+  parseWebAuthnCredentialIdB64u,
   type MpcMaterialActivationId,
 } from '@shared/utils/domainIds';
 
@@ -400,7 +406,7 @@ export type RouterAbEd25519NormalSigningAuthorizationResult =
       readonly ok: true;
       readonly kind: 'operation_step_up';
       readonly phase: 'prepare';
-      readonly session: RouterAbOperationStepUpAppSession;
+      readonly session: RouterAbOperationStepUpWalletSession;
       readonly operation: AuthorizedOperation;
       readonly operationDigests: {
         readonly laneDigest: ReturnType<typeof parseDigestB64u>;
@@ -413,7 +419,7 @@ export type RouterAbEd25519NormalSigningAuthorizationResult =
       readonly ok: true;
       readonly kind: 'operation_step_up';
       readonly phase: 'finalize';
-      readonly session: RouterAbOperationStepUpAppSession;
+      readonly session: RouterAbOperationStepUpWalletSession;
     }
   | { readonly ok: false; readonly result: RouterAbJsonRouteResult };
 
@@ -429,7 +435,7 @@ export type RouterAbEcdsaNormalSigningAuthorizationResult =
       readonly kind: 'operation_step_up';
       readonly phase: 'prepare' | 'finalize';
       readonly operation: AuthorizedOperation;
-      readonly session: RouterAbOperationStepUpAppSession;
+      readonly session: RouterAbOperationStepUpWalletSession;
       readonly admissionKind: RouterAbEcdsaOperationAdmissionKind;
     }
   | { readonly ok: false; readonly result: RouterAbJsonRouteResult };
@@ -593,10 +599,10 @@ export type RouterAbEd25519NormalSigningScopeV2 = {
   readonly signing_worker_id: string;
 };
 
-type RouterAbOperationStepUpAppSession = {
+type RouterAbOperationStepUpWalletSession = {
   readonly tenantId: TenantId;
   readonly principalId: PrincipalId;
-  readonly sessionId: SeamsSessionId;
+  readonly sessionId: string;
   readonly walletId: string;
   readonly runtimePolicyScope: RuntimePolicyScope;
   readonly walletAuthAuthorityRef: WalletAuthAuthorityRef;
@@ -610,7 +616,7 @@ type RouterAbEd25519PrivateSigningAuthorization =
     }
   | {
       readonly kind: 'operation_step_up';
-      readonly session: RouterAbOperationStepUpAppSession;
+      readonly session: RouterAbOperationStepUpWalletSession;
     };
 
 type RouterAbEcdsaPrivateSigningAuthorization =
@@ -620,7 +626,7 @@ type RouterAbEcdsaPrivateSigningAuthorization =
     }
   | {
       readonly kind: 'operation_step_up';
-      readonly session: RouterAbOperationStepUpAppSession;
+      readonly session: RouterAbOperationStepUpWalletSession;
     };
 
 type RouterAbAuthenticatedSessionContextV1 =
@@ -1721,7 +1727,7 @@ async function handleRouterAbEd25519OperationStepUpRoute(input: {
   | RouterAbJsonRouteResult
   | {
       readonly phase: 'prepare';
-      readonly session: RouterAbOperationStepUpAppSession;
+      readonly session: RouterAbOperationStepUpWalletSession;
       readonly operation: AuthorizedOperation;
       readonly operationDigests: {
         readonly laneDigest: ReturnType<typeof parseDigestB64u>;
@@ -1732,13 +1738,13 @@ async function handleRouterAbEd25519OperationStepUpRoute(input: {
     }
   | {
       readonly phase: 'finalize';
-      readonly session: RouterAbOperationStepUpAppSession;
+      readonly session: RouterAbOperationStepUpWalletSession;
     }
 > {
   if (input.scope.authorization.kind !== 'operation_step_up') {
     return routerAbStepUpError(400, 'invalid_body', 'Operation step-up authority is required');
   }
-  const authenticated = await authenticateRouterAbOperationStepUpAppSession({
+  const authenticated = await authenticateRouterAbWalletOperationStepUp({
     headers: input.headers,
     session: input.session,
     scope: input.scope,
@@ -1774,11 +1780,7 @@ async function handleRouterAbEd25519OperationStepUpRoute(input: {
   }
 
   const expiresAtMs = Number(input.body.expires_at_ms);
-  if (
-    !Number.isSafeInteger(expiresAtMs) ||
-    expiresAtMs <= Date.now() ||
-    expiresAtMs > authenticated.expiresAtMs
-  ) {
+  if (!Number.isSafeInteger(expiresAtMs) || expiresAtMs <= Date.now()) {
     return routerAbStepUpError(
       408,
       'expired_request',
@@ -1912,30 +1914,29 @@ async function handleRouterAbEd25519OperationStepUpRoute(input: {
   return { phase: 'finalize', session: authenticated.session };
 }
 
-export async function authenticateRouterAbOperationStepUpAppSessionIdentity(input: {
+type RouterAbOperationStepUpIdentityInput = {
   readonly headers: Record<string, string | string[] | undefined>;
-  readonly session: SessionAdapter | null | undefined;
   readonly walletId: string;
   readonly materialOwner: string;
   readonly authorizedOperations: RouterApiAuthorizedOperationService | null | undefined;
   readonly authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
-}): Promise<
+};
+
+export async function authenticateRouterAbWalletOperationStepUpIdentity(
+  input: RouterAbOperationStepUpIdentityInput,
+): Promise<
   | {
       readonly ok: true;
       readonly authorizedOperations: RouterApiAuthorizedOperationService;
-      readonly session: RouterAbOperationStepUpAppSession;
-      readonly activeSession: NonNullable<
-        Awaited<ReturnType<RouterApiAuthorizationSessionService['readActiveSession']>>
-      >;
-      readonly authorityRef: NonNullable<
-        NonNullable<ReturnType<typeof parseAppSessionClaims>>['walletAuthAuthorityRef']
-      >;
+      readonly session: RouterAbOperationStepUpWalletSession;
+      readonly authorityRef: WalletAuthAuthorityRef;
       readonly rawClaims: Record<string, unknown>;
+      readonly requestOrigin: import('../../../authorization/domain').SessionOrigin;
       readonly expiresAtMs: number;
     }
   | { readonly ok: false; readonly error: RouterAbJsonRouteResult }
 > {
-  if (!input.session || !input.authorizedOperations || !input.authorizationSessions) {
+  if (!input.authorizationSessions || !input.authorizedOperations) {
     return {
       ok: false,
       error: routerAbStepUpError(
@@ -1945,127 +1946,171 @@ export async function authenticateRouterAbOperationStepUpAppSessionIdentity(inpu
       ),
     };
   }
-  let parsed: Awaited<ReturnType<SessionAdapter['parse']>>;
+  const token = extractBearerCredential(input.headers);
+  if (!token) {
+    return {
+      ok: false,
+      error: routerAbStepUpError(401, 'unauthorized', 'Wallet Session is required'),
+    };
+  }
+  let resolved:
+    | Awaited<ReturnType<RouterApiAuthorizationSessionService['resolveOpaqueWalletSessionToken']>>
+    | null;
   try {
-    parsed = await input.session.parse(input.headers);
+    const nowMs = Date.now();
+    const ecdsa = await input.authorizationSessions.resolveOpaqueWalletSessionToken({
+      tenantId: input.authorizationSessions.tenantId,
+      token,
+      curve: 'ecdsa',
+      nowMs,
+    });
+    resolved =
+      ecdsa ??
+      (await input.authorizationSessions.resolveOpaqueWalletSessionToken({
+        tenantId: input.authorizationSessions.tenantId,
+        token,
+        curve: 'ed25519',
+        nowMs,
+      }));
   } catch {
     return {
       ok: false,
-      error: routerAbStepUpError(401, 'unauthorized', 'App session is unavailable'),
+      error: routerAbStepUpError(503, 'wallet_session_unavailable', 'Wallet Session is unavailable'),
     };
   }
-  if (!parsed.ok) {
+  if (!resolved) {
     return {
       ok: false,
-      error: routerAbStepUpError(401, 'unauthorized', 'App session is invalid'),
+      error: routerAbStepUpError(401, 'unauthorized', 'Wallet Session is invalid'),
     };
   }
-  const claims = parseAppSessionClaims(parsed.claims);
-  const raw = isPlainObject(parsed.claims) ? parsed.claims : null;
+  const ecdsaClaims = parseRouterAbEcdsaDerivationWalletSessionClaims(resolved.binding);
+  const ed25519Claims = parseRouterAbEd25519WalletSessionClaims(resolved.binding);
+  const ecdsaOwner =
+    ecdsaClaims?.authorizationKind === 'owner_wallet_session' ? ecdsaClaims : null;
+  const ed25519Owner =
+    ed25519Claims?.authorizationKind === 'owner_wallet_session' ? ed25519Claims : null;
+  if (!ecdsaOwner && !ed25519Owner) {
+    return {
+      ok: false,
+      error: routerAbStepUpError(401, 'unauthorized', 'Wallet Session binding is invalid'),
+    };
+  }
+  const walletId = ecdsaOwner?.walletId ?? ed25519Owner?.walletId;
+  const runtimePolicyScope = ecdsaOwner?.runtimePolicyScope ?? ed25519Owner?.runtimePolicyScope;
+  if (!walletId || !runtimePolicyScope) {
+    return {
+      ok: false,
+      error: routerAbStepUpError(401, 'unauthorized', 'Wallet Session scope is invalid'),
+    };
+  }
+  const requestOriginRaw =
+    (Array.isArray(input.headers.origin) ? input.headers.origin[0] : input.headers.origin) || '';
+  let requestOrigin: import('../../../authorization/domain').SessionOrigin;
+  try {
+    requestOrigin = parseSessionOrigin(String(requestOriginRaw).trim());
+  } catch {
+    return {
+      ok: false,
+      error: routerAbStepUpError(401, 'unauthorized', 'Wallet Session origin is invalid'),
+    };
+  }
+  const authSource = ecdsaOwner
+    ? ecdsaOwner.authSource
+    : walletExecutionLaneAuthSourceFromAuthority(ed25519Owner!.authority);
+  if (!authSource) {
+    return {
+      ok: false,
+      error: routerAbStepUpError(401, 'unauthorized', 'Wallet Session authority is invalid'),
+    };
+  }
+  const authorityRef = ecdsaOwner
+    ? ecdsaOwner.walletAuthAuthorityRef
+    : await walletAuthAuthorityRef({ authority: ed25519Owner!.authority });
+  const tenantId = resolved.authorization.tenantId;
+  const principalId = resolved.authorization.principalId;
+  const sessionId =
+    ecdsaOwner?.sid ?? ed25519Owner?.sid ?? String(resolved.authorization.authorizationId);
   if (
-    !claims ||
-    !raw ||
-    !claims.walletId ||
-    !claims.runtimePolicyScope ||
-    !claims.walletAuthAuthorityRef
+    tenantId !== input.authorizedOperations.tenantId ||
+    runtimePolicyScope.orgId !== tenantId ||
+    walletId !== input.walletId ||
+    input.materialOwner !== walletId ||
+    resolved.authorization.expiresAtMs <= Date.now()
   ) {
     return {
       ok: false,
-      error: routerAbStepUpError(401, 'unauthorized', 'App session claims are invalid'),
-    };
-  }
-  const tenantId = parseTenantId(raw.tenantId);
-  const principalId = parsePrincipalId(claims.sub);
-  const sessionId = parseSeamsSessionId(raw.seamsSessionId);
-  if (!tenantId.ok || !principalId.ok || !sessionId.ok) {
-    return {
-      ok: false,
-      error: routerAbStepUpError(401, 'unauthorized', 'App session identity is invalid'),
-    };
-  }
-  const expiresAtMs = Number(claims.exp) * 1_000;
-  if (
-    tenantId.value !== input.authorizedOperations.tenantId ||
-    claims.runtimePolicyScope.orgId !== tenantId.value ||
-    claims.walletId !== input.walletId ||
-    input.materialOwner !== claims.walletId ||
-    !Number.isSafeInteger(expiresAtMs) ||
-    expiresAtMs <= Date.now()
-  ) {
-    return {
-      ok: false,
-      error: routerAbStepUpError(403, 'scope_mismatch', 'App session scope is invalid'),
-    };
-  }
-  const activeSession = await input.authorizationSessions.readActiveSession({
-    tenantId: tenantId.value,
-    sessionId: sessionId.value,
-    nowMs: Date.now(),
-  });
-  const originHeader = Array.isArray(input.headers.origin)
-    ? input.headers.origin[0]
-    : input.headers.origin;
-  const requestOrigin = String(originHeader || '').trim();
-  const audienceMatches =
-    activeSession?.audience.kind === 'first_party_web'
-      ? activeSession.audience.origin === requestOrigin
-      : activeSession?.audience.kind === 'hosted_wallet_iframe'
-        ? activeSession.audience.walletOrigin === requestOrigin
-        : false;
-  if (!activeSession) {
-    // A structurally valid app session JWT whose session no longer resolves is
-    // the normal end of a session's life, not a malformed credential: the row
-    // is clamped to the wallet-session quota it was minted alongside, so it can
-    // lapse well before the token's own exp. Name it with the shared
-    // wallet-session vocabulary — the client classifies this code and tells the
-    // user to authenticate again instead of surfacing a bare `unauthorized`.
-    return {
-      ok: false,
-      error: routerAbStepUpError(
-        401,
-        WALLET_SESSION_FAILURE_CODES.expired,
-        'Active app session is unavailable',
-      ),
-    };
-  }
-  // The session exists but belongs to someone else, or was minted for another
-  // origin. Neither is a lifecycle outcome the user can resolve by signing in
-  // again, so these keep the opaque code.
-  if (activeSession.principalId !== principalId.value || !audienceMatches) {
-    return {
-      ok: false,
-      error: routerAbStepUpError(401, 'unauthorized', 'Active app session is unavailable'),
+      error: routerAbStepUpError(403, 'scope_mismatch', 'Wallet Session scope is invalid'),
     };
   }
   return {
     ok: true,
     authorizedOperations: input.authorizedOperations,
     session: {
-      tenantId: tenantId.value,
-      principalId: principalId.value,
-      sessionId: sessionId.value,
-      walletId: claims.walletId,
-      runtimePolicyScope: claims.runtimePolicyScope,
-      walletAuthAuthorityRef: claims.walletAuthAuthorityRef,
-      authSource: activeSession.authSource,
+      tenantId,
+      principalId,
+      sessionId,
+      walletId,
+      runtimePolicyScope,
+      walletAuthAuthorityRef: authorityRef,
+      authSource,
     },
-    activeSession,
-    authorityRef: claims.walletAuthAuthorityRef,
-    rawClaims: raw,
-    expiresAtMs,
+    authorityRef,
+    rawClaims: isPlainObject(resolved.binding) ? resolved.binding : {},
+    requestOrigin,
+    expiresAtMs: resolved.authorization.expiresAtMs,
   };
 }
 
-export async function authenticateRouterAbOperationStepUpAppSession(input: {
+function walletExecutionLaneAuthSourceFromAuthority(
+  authority: RouterAbEd25519OwnerWalletSessionClaims['authority'],
+): WalletExecutionLaneAuthSource | null {
+  if (authority.factor.kind === 'passkey') {
+    return {
+      kind: 'passkey',
+      credentialIdB64u: authority.factor.credentialIdB64u,
+    };
+  }
+  const providerSubject = parseProviderSubject(authority.factor.providerUserId);
+  return providerSubject.ok
+    ? {
+        kind: 'oidc_provider',
+        providerId: authority.factor.provider === 'google' ? 'google_oidc' : 'oidc',
+        providerSubject: providerSubject.value,
+      }
+    : null;
+}
+
+function parseRouterAbStepUpRequestOrigin(
+  rawAudience: unknown,
+  headers: Record<string, string | string[] | undefined>,
+): import('../../../authorization/domain').SessionOrigin | null {
+  if (!isPlainObject(rawAudience)) return null;
+  const originHeader = Array.isArray(headers.origin) ? headers.origin[0] : headers.origin;
+  const requestOrigin = String(originHeader || '').trim();
+  const expectedOrigin =
+    rawAudience.kind === 'first_party_web'
+      ? String(rawAudience.origin || '').trim()
+      : rawAudience.kind === 'hosted_wallet_iframe'
+        ? String(rawAudience.walletOrigin || '').trim()
+        : '';
+  if (!requestOrigin || requestOrigin !== expectedOrigin) return null;
+  try {
+    return parseSessionOrigin(requestOrigin);
+  } catch {
+    return null;
+  }
+}
+
+export async function authenticateRouterAbWalletOperationStepUp(input: {
   readonly headers: Record<string, string | string[] | undefined>;
   readonly session: SessionAdapter | null | undefined;
   readonly scope: RouterAbEd25519NormalSigningScopeV2;
   readonly authorizedOperations: RouterApiAuthorizedOperationService | null | undefined;
   readonly authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
-}): ReturnType<typeof authenticateRouterAbOperationStepUpAppSessionIdentity> {
-  return authenticateRouterAbOperationStepUpAppSessionIdentity({
+}): ReturnType<typeof authenticateRouterAbWalletOperationStepUpIdentity> {
+  return authenticateRouterAbWalletOperationStepUpIdentity({
     headers: input.headers,
-    session: input.session,
     walletId: input.scope.account_id,
     materialOwner: input.scope.material_activation.material_owner,
     authorizedOperations: input.authorizedOperations,
@@ -2073,7 +2118,7 @@ export async function authenticateRouterAbOperationStepUpAppSession(input: {
   });
 }
 
-export async function authenticateRouterAbEcdsaOperationStepUpAppSession(input: {
+export async function authenticateRouterAbEcdsaOperationStepUp(input: {
   readonly headers: Record<string, string | string[] | undefined>;
   readonly session: SessionAdapter | null | undefined;
   readonly request:
@@ -2081,10 +2126,9 @@ export async function authenticateRouterAbEcdsaOperationStepUpAppSession(input: 
     | RouterAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestV1Wire;
   readonly authorizedOperations: RouterApiAuthorizedOperationService | null | undefined;
   readonly authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
-}): ReturnType<typeof authenticateRouterAbOperationStepUpAppSessionIdentity> {
-  return authenticateRouterAbOperationStepUpAppSessionIdentity({
+}): ReturnType<typeof authenticateRouterAbWalletOperationStepUpIdentity> {
+  return authenticateRouterAbWalletOperationStepUpIdentity({
     headers: input.headers,
-    session: input.session,
     walletId: input.request.scope.wallet_id,
     materialOwner: input.request.material_activation.material_owner,
     authorizedOperations: input.authorizedOperations,
@@ -2224,7 +2268,7 @@ export async function authorizeRouterAbEd25519NormalSigningRoute(input: {
   const validated = await validateRouterAbEd25519WalletSessionTokenInputs({
     body: input.rawBody,
     headers: input.headers,
-    session: input.session,
+    authorizationSessions: input.authorizationSessions,
   });
   if (!validated.ok) {
     return {
@@ -2583,10 +2627,6 @@ export async function admitRouterAbEcdsaReusableWalletSessionOperation(input: {
     RouterApiAuthorizedOperationService,
     'tenantId' | 'admitAuthorizedOperation'
   >;
-  authorizationSessions:
-    | Pick<RouterApiAuthorizationSessionService, 'tenantId' | 'readActiveSession'>
-    | null
-    | undefined;
   resolveEcdsaMaterialActivation: RouterApiWalletRegistrationService['resolveEcdsaMaterialActivation'];
 }): Promise<
   | {
@@ -2615,16 +2655,6 @@ export async function admitRouterAbEcdsaReusableWalletSessionOperation(input: {
       ),
     };
   }
-  if (!input.authorizationSessions) {
-    return {
-      ok: false,
-      error: routerAbStepUpError(
-        501,
-        'not_configured',
-        'Reusable Wallet Session authorization is not configured',
-      ),
-    };
-  }
   const nowMs = Date.now();
   try {
     const runtimePolicyScope = input.claims.runtimePolicyScope;
@@ -2632,31 +2662,9 @@ export async function admitRouterAbEcdsaReusableWalletSessionOperation(input: {
       throw new Error('ECDSA operation runtime policy scope is required');
     }
     const tenantId = requireAuthorizationValue(parseTenantId(runtimePolicyScope.orgId));
-    const authorizationTenantId = input.authorizationSessions.tenantId;
-    if (authorizationTenantId !== input.authorizedOperations.tenantId) {
-      return {
-        ok: false,
-        error: routerAbStepUpError(
-          501,
-          'not_configured',
-          'ECDSA authorization services are configured for different tenants',
-        ),
-      };
-    }
-    const activeSession = await input.authorizationSessions.readActiveSession({
-      tenantId: authorizationTenantId,
-      sessionId: input.claims.authorizationSessionId,
-      nowMs,
-    });
-    if (!activeSession) {
-      return {
-        ok: false,
-        error: routerAbWalletSessionError(WALLET_SESSION_FAILURE_CODES.expired),
-      };
-    }
-    const principalId = activeSession.principalId;
+    const principalId = routerAbEcdsaWalletSessionPrincipalId(input.claims);
     if (
-      tenantId !== authorizationTenantId ||
+      tenantId !== input.authorizedOperations.tenantId ||
       input.request.authorization.wallet_session_id !== input.claims.walletSessionId
     ) {
       return {
@@ -2767,6 +2775,16 @@ export async function admitRouterAbEcdsaReusableWalletSessionOperation(input: {
   }
 }
 
+function routerAbEcdsaWalletSessionPrincipalId(
+  claims: RouterAbEcdsaDerivationOwnerWalletSessionClaims,
+): PrincipalId {
+  return requireAuthorizationValue(
+    parsePrincipalId(
+      claims.authSource.kind === 'passkey' ? claims.walletId : claims.authSource.providerSubject,
+    ),
+  );
+}
+
 function routerAbReusableWalletSessionClaimFailure(
   result: Awaited<ReturnType<RouterApiAuthorizedOperationService['admitAuthorizedOperation']>>,
 ): RouterAbJsonRouteResult | null {
@@ -2823,8 +2841,7 @@ function parseRouterAbEcdsaOperationStepUpRequest(input: {
 
 function validateRouterAbEcdsaOperationStepUpIdentity(input: {
   readonly request: RouterAbEcdsaOperationStepUpRequest;
-  readonly session: RouterAbOperationStepUpAppSession;
-  readonly sessionExpiresAtMs: number;
+  readonly session: RouterAbOperationStepUpWalletSession;
 }): RouterAbJsonRouteResult | null {
   const request = input.request;
   if (
@@ -2850,13 +2867,6 @@ function validateRouterAbEcdsaOperationStepUpIdentity(input: {
       'Router A/B ECDSA operation step-up request is expired',
     );
   }
-  if (request.expires_at_ms > input.sessionExpiresAtMs) {
-    return routerAbStepUpError(
-      403,
-      'scope_mismatch',
-      'ECDSA operation step-up exceeds the app session lifetime',
-    );
-  }
   return null;
 }
 
@@ -2869,7 +2879,7 @@ export async function claimRouterAbEcdsaOperationStepUp(input: {
   readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
   readonly keyHandle: string;
   readonly authenticated: Extract<
-    Awaited<ReturnType<typeof authenticateRouterAbEcdsaOperationStepUpAppSession>>,
+    Awaited<ReturnType<typeof authenticateRouterAbEcdsaOperationStepUp>>,
     { readonly ok: true }
   >;
 }): Promise<RouterAbJsonRouteResult | RouterAbEcdsaOperationAdmission | null> {
@@ -2986,7 +2996,7 @@ async function handleRouterAbEcdsaOperationStepUpRoute(input: {
   | RouterAbJsonRouteResult
   | {
       readonly operation: AuthorizedOperation;
-      readonly session: RouterAbOperationStepUpAppSession;
+  readonly session: RouterAbOperationStepUpWalletSession;
       readonly admissionKind: RouterAbEcdsaOperationAdmissionKind;
     }
 > {
@@ -2999,7 +3009,7 @@ async function handleRouterAbEcdsaOperationStepUpRoute(input: {
   if (request.authorization.kind !== 'operation_step_up') {
     return routerAbStepUpError(400, 'invalid_body', 'Operation step-up authority is required');
   }
-  const authenticated = await authenticateRouterAbEcdsaOperationStepUpAppSession({
+  const authenticated = await authenticateRouterAbEcdsaOperationStepUp({
     headers: input.headers,
     session: input.session,
     request,
@@ -3010,7 +3020,6 @@ async function handleRouterAbEcdsaOperationStepUpRoute(input: {
   const identityFailure = validateRouterAbEcdsaOperationStepUpIdentity({
     request,
     session: authenticated.session,
-    sessionExpiresAtMs: authenticated.expiresAtMs,
   });
   if (identityFailure) return identityFailure;
   const activeMaterial = await input.resolveEcdsaMaterialActivation({
@@ -3170,7 +3179,7 @@ export async function authorizeRouterAbEcdsaDerivationNormalSigningRoute(input: 
   const validated = await validateRouterAbEcdsaDerivationWalletSessionInputs({
     body: input.rawBody,
     headers: input.headers,
-    session: input.session,
+    authorizationSessions: input.authorizationSessions,
   });
   if (!validated.ok) {
     return {
@@ -3318,7 +3327,6 @@ export async function handleRouterAbEcdsaDerivationNormalSigningRouteCore(input:
     materialActivation: admission.materialActivation,
     claims: validated.claims,
     authorizedOperations: input.authorizedOperations,
-    authorizationSessions: input.authorizationSessions,
     resolveEcdsaMaterialActivation: input.resolveEcdsaMaterialActivation,
   });
   if (!claimed.ok) return claimed.error;

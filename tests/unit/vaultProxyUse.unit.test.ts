@@ -8,7 +8,6 @@ import {
   type VaultProxySecretRef,
   type VaultProxySecretStore,
 } from '../../packages/sdk-server-ts/src/authorization/vaultProxyUse';
-import { parseSessionOrigin } from '../../packages/sdk-server-ts/src/authorization/domain';
 import { CloudflareD1AuthorizationStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/authorization/d1AuthorizationStore';
 import { CloudflareD1VaultProxyStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/authorization/d1VaultProxyStore';
 import { coerceRouterLogger } from '../../packages/sdk-server-ts/src/router/framework/logger';
@@ -49,30 +48,11 @@ test('routes one persisted vault secret through a direct Passkey step-up operati
       audit: authorizationStore,
     });
     const fixture = await buildVaultProxyFixture();
-    await authorization.recordActiveSession(fixture.sourceSession);
-    const exchange = await authorization.mintHostedWalletSeamsSessionExchange({
-      tenantId: fixture.tenantId,
-      principalId: fixture.principalId,
-      sourceSessionId: fixture.sourceSession.sessionId,
-      appOrigin: fixture.sourceSession.audience.origin,
-      walletOrigin: parseSessionOrigin('https://wallet.example.test'),
-      issuedAtMs: VAULT_PROXY_FIXTURE_TIME_MS,
-      expiresAtMs: VAULT_PROXY_FIXTURE_TIME_MS + 50_000,
-    });
-    const redeemed = await authorization.redeemHostedWalletSeamsSessionExchange({
-      exchangeCode: exchange.exchangeCode,
-      nonce: exchange.nonce,
-      walletOrigin: exchange.walletOrigin,
-      redeemedAtMs: VAULT_PROXY_FIXTURE_TIME_MS + 10,
-    });
-    if (redeemed.kind !== 'redeemed') throw new Error(`session exchange failed: ${redeemed.kind}`);
-
-    const evidenceSet = await authorization.recordVerifiedFactorEvidenceSet({
-      session: redeemed.session,
+    const evidenceSet = await authorization.recordVerifiedWalletOperationFactorEvidenceSet({
       operation: fixture.operation,
       evidenceId: fixture.evidenceId,
       evidenceSetId: fixture.evidenceSetId,
-      factor: buildVaultProxyPasskeyFactor({ fixture, session: redeemed.session }),
+      factor: buildVaultProxyPasskeyFactor({ fixture }),
     });
     expect(
       authorization.evaluateEvidenceRequirement(fixture.evidenceRequirement, evidenceSet),

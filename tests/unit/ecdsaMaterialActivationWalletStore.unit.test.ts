@@ -3,7 +3,7 @@ import { createWalletStore } from '../../packages/sdk-server-ts/src/core/WalletS
 import { normalizeLogger } from '../../packages/sdk-server-ts/src/core/logger';
 import type { FetchRouterApiContext } from '../../packages/sdk-server-ts/src/router/transport/fetch/fetchRouter.types';
 import { handleThresholdEcdsa } from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/thresholdEcdsa';
-import { buildVerifiedFactorEvidenceSet } from '../../packages/sdk-server-ts/src/authorization/factorEvidence';
+import { buildVerifiedWalletOperationFactorEvidenceSet } from '../../packages/sdk-server-ts/src/authorization/factorEvidence';
 import { buildAuthorizedOperation } from '../../packages/sdk-server-ts/src/authorization/domain';
 import { parseWalletId } from '../../packages/shared-ts/src/utils/domainIds';
 import {
@@ -23,7 +23,7 @@ import {
   type RouterAbEcdsaDerivationNormalSigningScopeV1,
   type RouterAbEcdsaOperationStepUpPreparationV1Wire,
 } from '../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
-import { buildPasskeyAuthorizationSessionFixture } from './helpers/authorizationCore.fixtures';
+import { buildPasskeyWalletSessionIssuanceFixture } from './helpers/authorizationCore.fixtures';
 import { createWalletEcdsaSignerRecord } from './helpers/walletRegistrationSigner.fixtures';
 import { buildRouterAbEcdsaWalletSessionClaimsFixture } from './helpers/routerAbEcdsaWalletSessionClaims.fixtures';
 
@@ -108,11 +108,9 @@ async function stepUpRouteFixture(input: {
 }): Promise<FetchRouterApiContext> {
   const nowMs = Date.now();
   const walletId = String(input.signer.walletId);
-  const sessionFixture = await buildPasskeyAuthorizationSessionFixture({
+  const sessionFixture = await buildPasskeyWalletSessionIssuanceFixture({
     tenantId: 'tenant-material-activation',
     principalId: 'principal-material-activation',
-    sessionId: 'session-material-activation',
-    deviceId: 'device-material-activation',
     walletId,
     credentialIdB64u: 'credential-material-activation',
     rpId: 'app.example.test',
@@ -172,26 +170,38 @@ async function stepUpRouteFixture(input: {
     `https://app.example.test${ROUTER_AB_ECDSA_DERIVATION_OPERATION_STEP_UP_PATH}`,
     {
       method: 'POST',
-      headers: { 'content-type': 'application/json', origin: 'https://app.example.test' },
+      headers: {
+        authorization: 'Bearer opaque-wallet-session',
+        'content-type': 'application/json',
+        origin: 'https://app.example.test',
+      },
       body: JSON.stringify(requestBody),
     },
   );
-  const rawClaims = {
-    kind: 'app_session_v1',
-    sub: 'principal-material-activation',
-    appSessionVersion: 'app-session-version-1',
-    seamsSessionId: 'session-material-activation',
-    walletId,
-    walletAuthAuthorityRef: sessionFixture.authorityRef,
-    runtimePolicyScope: {
+  const runtimePolicyScope = {
       orgId: 'tenant-material-activation',
       projectId: 'project-material-activation',
       envId: 'env-material-activation',
       signingRootVersion: input.signer.walletKey.signingRootVersion,
-    },
-    tenantId: 'tenant-material-activation',
-    exp: Math.floor((nowMs + 50_000) / 1_000),
   };
+  const rawClaims = buildRouterAbEcdsaWalletSessionClaimsFixture({
+    walletId,
+    keyHandle: input.signer.walletKey.keyHandle,
+    relayerKeyId: input.signer.walletKey.relayerKeyId,
+    participantIds: input.signer.walletKey.participantIds,
+    thresholdExpiresAtMs: nowMs + 50_000,
+    runtimePolicyScope,
+    normalSigningScope: requestBody.operation.normal_signing_scope,
+    authorizationId: 'authorization-material-activation',
+    authorizationSessionId: 'wallet-session-material-activation',
+    walletSessionId: 'wallet-session-material-activation',
+    quotaId: 'quota-material-activation',
+    walletAuthAuthorityRef: sessionFixture.authorityRef,
+    authSource: {
+      kind: 'passkey',
+      credentialIdB64u: sessionFixture.authority.factor.credentialIdB64u,
+    },
+  });
   return {
     request,
     url: new URL(request.url),
@@ -229,21 +239,46 @@ async function stepUpRouteFixture(input: {
               };
         },
       },
+      walletAuthMethods: {
+        async verifyActivePasskeyAuthority() {
+          return { ok: true as const };
+        },
+      },
       authorizationSessions: {
         tenantId: sessionFixture.session.tenantId,
-        async readActiveSession() {
-          return sessionFixture.session;
+        async resolveOpaqueWalletSessionToken() {
+          return {
+            kind: 'resolved_opaque_wallet_session_token' as const,
+            curve: 'ecdsa' as const,
+            binding: rawClaims,
+            authorization: {
+              tenantId: sessionFixture.session.tenantId,
+              principalId: sessionFixture.session.principalId,
+              walletId: input.signer.walletId,
+              authorityDigest: sessionFixture.authorityRef.authorityDigest,
+              authorizationId: 'authorization-material-activation',
+              walletSessionId: 'wallet-session-material-activation',
+              quotaId: 'quota-material-activation',
+              expiresAtMs: nowMs + 50_000,
+            },
+            quota: {
+              kind: 'active_wallet_session_quota' as const,
+              tenantId: sessionFixture.session.tenantId,
+              principalId: sessionFixture.session.principalId,
+              walletSessionId: 'wallet-session-material-activation',
+              quotaId: 'quota-material-activation',
+              lifecycle: 'active' as const,
+              remainingUses: 3,
+              expiresAtMs: nowMs + 50_000,
+            },
+          };
         },
       },
       authorizedOperations: {
         tenantId: sessionFixture.session.tenantId,
-        async recordVerifiedFactorEvidenceSet(evidenceInput) {
+        async recordVerifiedWalletOperationFactorEvidenceSet(evidenceInput) {
           input.sideEffects.evidenceWrites += 1;
-          return buildVerifiedFactorEvidenceSet(evidenceInput);
-        },
-        async recordVerifiedSessionEvidenceSet() {
-          input.sideEffects.evidenceWrites += 1;
-          throw new Error('session evidence must not be recorded for a step-up proof');
+          return buildVerifiedWalletOperationFactorEvidenceSet(evidenceInput);
         },
         async readAuthorizedOperation() {
           return null;
@@ -374,7 +409,11 @@ test('operation step-up rejects a key handle outside the canonical signer', asyn
   };
   ctx.request = new Request(ctx.request.url, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', origin: 'https://app.example.test' },
+      headers: {
+        authorization: 'Bearer opaque-wallet-session',
+        'content-type': 'application/json',
+        origin: 'https://app.example.test',
+      },
     body: JSON.stringify({
       ...body,
       operation: { ...body.operation, key_handle: 'hostile-key-handle' },
@@ -405,7 +444,11 @@ test('operation step-up rejects hostile signer runtime facts before side effects
     };
     ctx.request = new Request(ctx.request.url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', origin: 'https://app.example.test' },
+      headers: {
+        authorization: 'Bearer opaque-wallet-session',
+        'content-type': 'application/json',
+        origin: 'https://app.example.test',
+      },
       body: JSON.stringify({
         ...body,
         operation: { ...body.operation, ...operationOverride },
@@ -529,7 +572,11 @@ test('operation step-up prepare and finalize reject superseded material before c
     });
     ctx.request = new Request(`https://app.example.test${pathname}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', origin: 'https://app.example.test' },
+      headers: {
+        authorization: 'Bearer opaque-wallet-session',
+        'content-type': 'application/json',
+        origin: 'https://app.example.test',
+      },
       body: JSON.stringify(body),
     });
     ctx.url = new URL(ctx.request.url);
@@ -596,7 +643,11 @@ test('operation step-up rejects material replaced during policy evaluation', asy
     `https://app.example.test${ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PREPARE_PATH}`,
     {
       method: 'POST',
-      headers: { 'content-type': 'application/json', origin: 'https://app.example.test' },
+      headers: {
+        authorization: 'Bearer opaque-wallet-session',
+        'content-type': 'application/json',
+        origin: 'https://app.example.test',
+      },
       body: JSON.stringify(request),
     },
   );
@@ -728,7 +779,11 @@ test('pool-fill rejects hostile material refs before claims or runtime calls', a
     }
     ctx.request = new Request(`https://app.example.test${testCase.pathname}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', origin: 'https://app.example.test' },
+      headers: {
+        authorization: 'Bearer opaque-wallet-session',
+        'content-type': 'application/json',
+        origin: 'https://app.example.test',
+      },
       body: JSON.stringify(body),
     });
     ctx.url = new URL(ctx.request.url);
@@ -773,7 +828,11 @@ test('operation step-up pool fill rejects a material replacement before claim or
     `https://app.example.test${ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_INIT_PATH}`,
     {
       method: 'POST',
-      headers: { 'content-type': 'application/json', origin: 'https://app.example.test' },
+      headers: {
+        authorization: 'Bearer opaque-wallet-session',
+        'content-type': 'application/json',
+        origin: 'https://app.example.test',
+      },
       body: JSON.stringify(body),
     },
   );
