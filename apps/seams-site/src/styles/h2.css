@@ -61,11 +61,13 @@
   box-sizing: border-box;
 }
 
-/* SDK-rendered demo surfaces keep the retired page zoom: the SDK sizes its
-   own internals in px, and the marketing layout is tuned for that 0.9
-   rendering (grep-gate allowlist: this rule and .h2-heroscene__shell) */
+/* SDK-rendered demo surfaces keep the retired 0.9 scale. A transform gives
+   Safari reliable client rects for positioning the document-level auth menu;
+   the negative margin preserves the scaled block's layout footprint. */
 .h2-sdk-zoom {
-  zoom: 0.9;
+  transform: scale(0.9);
+  transform-origin: center;
+  margin-block: -26.6px;
 }
 
 .h2-page--wallet {
@@ -1080,7 +1082,7 @@ body:has(.h2-page) {
    scale frees (card is ~518px tall, 10% per side), since transforms don't
    shrink the layout box */
 .h2-heroscene__shell {
-  /* SDK skeleton card: keep the retired page zoom (see .h2-sdk-zoom) */
+  /* This inert skeleton never anchors a document-level SDK surface. */
   zoom: 0.9;
   pointer-events: none;
   filter: drop-shadow(0 22px 40px rgba(15, 23, 42, 0.14));

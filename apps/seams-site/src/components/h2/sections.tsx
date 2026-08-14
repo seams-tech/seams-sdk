@@ -144,7 +144,7 @@ export function H2DemoHero({
             className="h2-demo-theme-root"
             style={{ display: 'contents' }}
           >
-            {/* SDK card renders in its own px; scoped zoom keeps the designed
+            {/* SDK card renders in its own px; scoped scaling keeps the designed
                 hero proportion now that the page-level zoom is gone */}
             <div className="h2-sdk-zoom">
               {show ? (
