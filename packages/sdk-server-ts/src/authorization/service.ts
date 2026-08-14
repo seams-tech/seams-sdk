@@ -35,13 +35,16 @@ import {
   parseHostedWalletSessionExchangeCodeId,
   parseLinkedDeviceWalletSessionAuthorizationId,
   parseWalletSessionAuthorizationId,
+  parseSeamsSessionId,
   type MpcWalletSigningQuotaId,
+  type AuthorizedOperationId,
   type LinkedDeviceWalletSessionAuthorizationId,
   type PrincipalId,
   type ReusableWalletSessionMintId,
   type TenantId,
   type WalletSessionAuthorizationId,
   type WalletSessionId,
+  type SeamsSessionId,
 } from '@shared/authorization/capabilityKinds';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import { sha256BytesUtf8 } from '@shared/utils/digests';
@@ -67,9 +70,32 @@ import type {
   WalletKeyId,
 } from '@shared/utils/domainIds';
 import type { LaneShareEpoch, SigningLaneId } from '@shared/signing-lanes';
-import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import type { ThresholdEd25519AuthorityScope } from '../core/types';
+import type { RouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
+import type { RouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
+import { parseRouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type {
+  WalletAuthAuthority,
+  WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
+import {
+  parseWalletAuthAuthority,
+  parseWalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
+import type {
+  ProviderSubject,
+  WebAuthnCredentialIdB64u,
+} from '@shared/utils/domainIds';
+import {
+  parseProviderSubject,
+  parseWalletId,
+  parseWebAuthnCredentialIdB64u,
+} from '@shared/utils/domainIds';
+import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import { thresholdEd25519AuthorityScopeFromWalletAuthAuthority } from '../core/ThresholdService/validation';
 import type { CapabilityOperationFingerprintDigest } from '@shared/authorization/operationFingerprint';
 import {
   isLinkedDeviceWalletSessionRenewalCapabilityV1,
@@ -125,7 +151,7 @@ export interface AuthorizationGrantPort {
   putOpaqueWalletSessionToken(input: {
     readonly tokenHash: DigestB64u;
     readonly curve: OpaqueWalletSessionCurve;
-    readonly bindingJson: string;
+    readonly binding: OpaqueOwnerWalletSessionBinding;
     readonly tenantId: TenantId;
     readonly walletSessionId: WalletSessionId;
   }): Promise<void>;
@@ -181,6 +207,10 @@ export interface AuthorizationGrantPort {
 }
 
 export interface AuthorizedOperationPort {
+  readAuthorizedOperationById(input: {
+    readonly tenantId: TenantId;
+    readonly authorizedOperationId: AuthorizedOperationId;
+  }): Promise<AuthorizedOperation | null>;
   readAuthorizedOperation(input: {
     readonly tenantId: TenantId;
     readonly operationFingerprintDigest: CapabilityOperationFingerprintDigest;
@@ -259,6 +289,244 @@ export type IssuedReusableWalletSession = {
 
 export type OpaqueWalletSessionCurve = 'ecdsa' | 'ed25519';
 
+/** Trusted, curve-local data retained for an opaque owner Wallet Session. */
+export type OpaqueOwnerWalletSessionBinding =
+  | {
+      readonly kind: 'opaque_owner_wallet_session_binding_v1';
+      readonly authorizationKind: 'owner_wallet_session';
+      readonly curve: 'ed25519';
+      readonly walletId: WalletId;
+      readonly thresholdSessionId: string;
+      readonly authorizationId: WalletSessionAuthorizationId;
+      readonly walletSessionId: WalletSessionId;
+      readonly quotaId: MpcWalletSigningQuotaId;
+      readonly relayerKeyId: string;
+      readonly participantIds: readonly number[];
+      readonly thresholdExpiresAtMs: number;
+      readonly iat: number;
+      readonly exp: number;
+      readonly sub: string;
+      readonly subjectId: string;
+      readonly sid?: string;
+      readonly seamsSessionId?: string;
+      readonly nearAccountId: string;
+      readonly nearEd25519SigningKeyId: string;
+      readonly authority: WalletAuthAuthority;
+      readonly authorityScope: ThresholdEd25519AuthorityScope;
+      readonly runtimePolicyScope: RuntimePolicyScope;
+      readonly routerAbNormalSigning: RouterAbEd25519NormalSigningState;
+    }
+  | {
+      readonly kind: 'opaque_owner_wallet_session_binding_v1';
+      readonly authorizationKind: 'owner_wallet_session';
+      readonly curve: 'ecdsa';
+      readonly walletId: WalletId;
+      readonly thresholdSessionId: string;
+      readonly authorizationId: WalletSessionAuthorizationId;
+      readonly authorizationSessionId: string;
+      readonly walletSessionId: WalletSessionId;
+      readonly quotaId: MpcWalletSigningQuotaId;
+      readonly relayerKeyId: string;
+      readonly participantIds: readonly number[];
+      readonly thresholdExpiresAtMs: number;
+      readonly iat: number;
+      readonly exp: number;
+      readonly keyScope: 'evm-family';
+      readonly sub: string;
+      readonly subjectId: string;
+      readonly sid: SeamsSessionId;
+      readonly keyHandle: string;
+      readonly walletAuthAuthorityRef: WalletAuthAuthorityRef;
+      readonly authSource:
+        | { readonly kind: 'passkey'; readonly credentialIdB64u: WebAuthnCredentialIdB64u }
+        | {
+            readonly kind: 'oidc_provider';
+            readonly providerId: 'google_oidc' | 'oidc';
+            readonly providerSubject: ProviderSubject;
+          };
+      readonly runtimePolicyScope?: RuntimePolicyScope;
+      readonly routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
+    };
+
+function opaqueBindingObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function opaqueBindingString(value: unknown): string | null {
+  const text = typeof value === 'string' ? value.trim() : '';
+  return text || null;
+}
+
+function parseOpaqueBindingBase(value: Record<string, unknown>): {
+  walletId: WalletId;
+  thresholdSessionId: string;
+  authorizationId: WalletSessionAuthorizationId;
+  walletSessionId: WalletSessionId;
+  quotaId: MpcWalletSigningQuotaId;
+  relayerKeyId: string;
+  participantIds: readonly number[];
+  thresholdExpiresAtMs: number;
+  subjectId: string;
+} | null {
+  const walletId = parseWalletId(value.walletId);
+  const authorizationId = parseWalletSessionAuthorizationId(value.authorizationId);
+  const walletSessionId = parseWalletSessionId(value.walletSessionId);
+  const quotaId = parseMpcWalletSigningQuotaId(value.quotaId);
+  const thresholdSessionId = opaqueBindingString(value.thresholdSessionId);
+  const relayerKeyId = opaqueBindingString(value.relayerKeyId);
+  const subjectId = opaqueBindingString(value.subjectId);
+  const thresholdExpiresAtMs = value.thresholdExpiresAtMs;
+  const participantIds = value.participantIds;
+  if (
+    !walletId.ok ||
+    !authorizationId.ok ||
+    !walletSessionId.ok ||
+    !quotaId.ok ||
+    !thresholdSessionId ||
+    !relayerKeyId ||
+    !subjectId ||
+    typeof thresholdExpiresAtMs !== 'number' ||
+    !Number.isSafeInteger(thresholdExpiresAtMs) ||
+    thresholdExpiresAtMs <= 0 ||
+    !Array.isArray(participantIds) ||
+    participantIds.length < 2 ||
+    participantIds.some((id) => !Number.isSafeInteger(id) || id < 0)
+  ) {
+    return null;
+  }
+  return {
+    walletId: walletId.value,
+    thresholdSessionId,
+    authorizationId: authorizationId.value,
+    walletSessionId: walletSessionId.value,
+    quotaId: quotaId.value,
+    relayerKeyId,
+    participantIds: [...participantIds] as number[],
+    thresholdExpiresAtMs,
+    subjectId,
+  };
+}
+
+type OpaqueEcdsaAuthSource =
+  | { readonly kind: 'passkey'; readonly credentialIdB64u: WebAuthnCredentialIdB64u }
+  | {
+      readonly kind: 'oidc_provider';
+      readonly providerId: 'google_oidc' | 'oidc';
+      readonly providerSubject: ProviderSubject;
+    };
+
+function parseOpaqueEcdsaAuthSource(value: unknown): OpaqueEcdsaAuthSource | null {
+  const record = opaqueBindingObject(value);
+  if (!record) return null;
+  if (record.kind === 'passkey') {
+    const credentialId = parseWebAuthnCredentialIdB64u(record.credentialIdB64u);
+    return credentialId.ok ? { kind: 'passkey', credentialIdB64u: credentialId.value } : null;
+  }
+  if (
+    record.kind !== 'oidc_provider' ||
+    (record.providerId !== 'google_oidc' && record.providerId !== 'oidc')
+  ) {
+    return null;
+  }
+  const providerSubject = parseProviderSubject(record.providerSubject);
+  return providerSubject.ok
+    ? { kind: 'oidc_provider', providerId: record.providerId, providerSubject: providerSubject.value }
+    : null;
+}
+
+/** Converts persisted JSON into the only owner admission shape core code accepts. */
+export function parseOpaqueOwnerWalletSessionBinding(
+  value: unknown,
+): OpaqueOwnerWalletSessionBinding | null {
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+  const record = opaqueBindingObject(value);
+  if (
+    !record ||
+    record.kind !== 'opaque_owner_wallet_session_binding_v1' ||
+    record.authorizationKind !== 'owner_wallet_session'
+  ) {
+    return null;
+  }
+  const base = parseOpaqueBindingBase(record);
+  if (!base || record.curve !== 'ed25519' && record.curve !== 'ecdsa') return null;
+  try {
+    if (record.curve === 'ed25519') {
+      const authority = parseWalletAuthAuthority(record.authority);
+      const nearAccountId = opaqueBindingString(record.nearAccountId);
+      const nearEd25519SigningKeyId = opaqueBindingString(record.nearEd25519SigningKeyId);
+      const runtimePolicyScope = opaqueBindingObject(record.runtimePolicyScope);
+      const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
+        record.routerAbNormalSigning,
+      );
+      if (!authority || !nearAccountId || !nearEd25519SigningKeyId || !runtimePolicyScope || !routerAbNormalSigning) {
+        return null;
+      }
+      const seamsSessionId = record.seamsSessionId === undefined ? undefined : parseSeamsSessionId(record.seamsSessionId);
+      if (record.seamsSessionId !== undefined && (!seamsSessionId || !seamsSessionId.ok)) return null;
+      return {
+        kind: 'opaque_owner_wallet_session_binding_v1',
+        authorizationKind: 'owner_wallet_session',
+        curve: 'ed25519',
+        ...base,
+        sub: base.subjectId,
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(base.thresholdExpiresAtMs / 1000),
+        ...(seamsSessionId && seamsSessionId.ok ? { seamsSessionId: seamsSessionId.value } : {}),
+        nearAccountId,
+        nearEd25519SigningKeyId,
+        authority,
+        authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(authority),
+        runtimePolicyScope: normalizeRuntimePolicyScope(runtimePolicyScope),
+        routerAbNormalSigning,
+      };
+    }
+    const authorizationSessionIdRaw = opaqueBindingString(record.authorizationSessionId);
+    const authorizationSessionId = authorizationSessionIdRaw
+      ? parseSeamsSessionId(authorizationSessionIdRaw)
+      : null;
+    const keyHandle = opaqueBindingString(record.keyHandle);
+    const walletAuthAuthorityRef = parseWalletAuthAuthorityRef(record.walletAuthAuthorityRef);
+    const authSource = parseOpaqueEcdsaAuthSource(record.authSource);
+    const normalSigning = parseRouterAbEcdsaDerivationNormalSigningStateV1(
+      record.routerAbEcdsaDerivationNormalSigning,
+    );
+    if (!authorizationSessionId?.ok || !keyHandle || !walletAuthAuthorityRef || !authSource || !normalSigning) {
+      return null;
+    }
+    const runtimePolicyScope =
+      record.runtimePolicyScope === undefined
+        ? undefined
+        : normalizeRuntimePolicyScope(opaqueBindingObject(record.runtimePolicyScope) || {});
+    return {
+      kind: 'opaque_owner_wallet_session_binding_v1',
+      authorizationKind: 'owner_wallet_session',
+      curve: 'ecdsa',
+      ...base,
+      sub: base.subjectId,
+      iat: Math.floor(Date.now() / 1000),
+      exp: Math.floor(base.thresholdExpiresAtMs / 1000),
+      keyScope: 'evm-family',
+      authorizationSessionId: authorizationSessionId.value,
+      sid: authorizationSessionId.value,
+      keyHandle,
+      walletAuthAuthorityRef,
+      authSource,
+      ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+      routerAbEcdsaDerivationNormalSigning: normalSigning,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export type IssuedOpaqueWalletSessionToken = {
   readonly kind: 'opaque_wallet_session_token';
   readonly token: string;
@@ -269,7 +537,7 @@ export type IssuedOpaqueWalletSessionToken = {
 export type ResolvedOpaqueWalletSessionToken = {
   readonly kind: 'resolved_opaque_wallet_session_token';
   readonly curve: OpaqueWalletSessionCurve;
-  readonly binding: unknown;
+  readonly binding: OpaqueOwnerWalletSessionBinding;
   readonly authorization: {
     readonly tenantId: TenantId;
     readonly principalId: PrincipalId;
@@ -280,7 +548,6 @@ export type ResolvedOpaqueWalletSessionToken = {
     readonly quotaId: MpcWalletSigningQuotaId;
     readonly expiresAtMs: number;
   };
-  readonly quota: ActiveWalletSessionQuota;
 };
 
 export type IssuedLinkedDeviceWalletSession = {
@@ -337,11 +604,17 @@ export class AuthorizationService {
     readonly walletSessionId: WalletSessionId;
     readonly appOrigin: SessionOrigin;
     readonly walletOrigin: SessionOrigin;
+    readonly curve: OpaqueWalletSessionCurve;
+    readonly binding: Readonly<Record<string, unknown>>;
     readonly issuedAtMs: number;
     readonly expiresAtMs: number;
   }): Promise<HostedWalletSeamsSessionExchangeDelivery> {
     if (!Number.isSafeInteger(input.issuedAtMs) || input.expiresAtMs <= input.issuedAtMs) {
       throw new Error('hosted-wallet Seams session exchange expiry must follow issuance');
+    }
+    const bindingJson = JSON.stringify(input.binding);
+    if (!bindingJson || bindingJson === '{}') {
+      throw new Error('hosted-wallet exchange binding is required');
     }
     const exchangeCode = parseHostedWalletSeamsSessionExchangeCode(
       secureRandomBase64Url(32, 'hosted-wallet Seams session exchange codes'),
@@ -362,6 +635,8 @@ export class AuthorizationService {
       nonceDigest: await digestOpaqueValue(nonce),
       appOrigin: input.appOrigin,
       walletOrigin: input.walletOrigin,
+      curve: input.curve,
+      bindingJson,
       issuedAtMs: input.issuedAtMs,
       expiresAtMs: input.expiresAtMs,
     });
@@ -379,14 +654,10 @@ export class AuthorizationService {
     readonly exchangeCode: HostedWalletSeamsSessionExchangeCode;
     readonly nonce: HostedWalletSeamsSessionExchangeNonce;
     readonly appOrigin: SessionOrigin;
+    readonly walletOrigin: SessionOrigin;
     readonly curve: OpaqueWalletSessionCurve;
-    readonly binding: Readonly<Record<string, unknown>>;
     readonly redeemedAtMs: number;
   }): Promise<RedeemHostedWalletSeamsSessionExchangeResult> {
-    const bindingJson = JSON.stringify(input.binding);
-    if (!bindingJson || bindingJson === '{}') {
-      throw new Error('hosted-wallet exchange binding is required');
-    }
     const walletSessionToken = `wst_${secureRandomBase64Url(
       32,
       'hosted-wallet exchanged Wallet Session tokens',
@@ -395,9 +666,9 @@ export class AuthorizationService {
       codeHash: await digestOpaqueValue(input.exchangeCode),
       nonceDigest: await digestOpaqueValue(input.nonce),
       appOrigin: input.appOrigin,
+      walletOrigin: input.walletOrigin,
       tokenHash: await digestOpaqueValue(walletSessionToken),
       curve: input.curve,
-      bindingJson,
       redeemedAtMs: input.redeemedAtMs,
     });
     if (persisted.kind !== 'redeemed') return persisted;
@@ -419,12 +690,7 @@ export class AuthorizationService {
   }
 
   async buildVerifiedOwnerProof(input: VerifiedOwnerProofInput): Promise<VerifiedOwnerProof> {
-    switch (input.purpose) {
-      case 'wallet_session':
-        return await buildVerifiedOwnerProof(input);
-      case 'operation':
-        return await buildVerifiedOwnerProof(input);
-    }
+    return await buildVerifiedOwnerProof(input);
   }
 
   async readAuthorizedOperation(input: {
@@ -432,6 +698,13 @@ export class AuthorizationService {
     readonly operationFingerprintDigest: CapabilityOperationFingerprintDigest;
   }): Promise<AuthorizedOperation | null> {
     return await this.ports.authorizedOperations.readAuthorizedOperation(input);
+  }
+
+  async readAuthorizedOperationById(input: {
+    readonly tenantId: TenantId;
+    readonly authorizedOperationId: AuthorizedOperationId;
+  }): Promise<AuthorizedOperation | null> {
+    return await this.ports.authorizedOperations.readAuthorizedOperationById(input);
   }
 
   async admitAuthorizedOperation(input: {
@@ -507,7 +780,7 @@ export class AuthorizationService {
     readonly expiresAtMs: number;
     readonly consumedAtMs: number;
     readonly curve: OpaqueWalletSessionCurve;
-    readonly binding: Readonly<Record<string, unknown>>;
+    readonly binding: OpaqueOwnerWalletSessionBinding;
   }): Promise<IssuedOpaqueWalletSessionToken> {
     if (input.proof.tenantId !== input.tenantId) {
       throw new Error('owner proof does not match the opaque Wallet Session tenant');
@@ -537,7 +810,7 @@ export class AuthorizationService {
     await this.ports.grants.putOpaqueWalletSessionToken({
       tokenHash: await digestOpaqueValue(token),
       curve: input.curve,
-      bindingJson,
+      binding: input.binding,
       tenantId: input.tenantId,
       walletSessionId: input.walletSessionId,
     });

@@ -129,7 +129,6 @@ import type {
   WalletCustodySealedEd25519MaterialV1,
 } from '@/core/signingEngine/walletCustody/ed25519SeedMaterial';
 import type { WalletCustodyCacheEnvelopeV1 } from '@/core/signingEngine/walletCustody/openCustodyCache';
-import type { EmailOtpAppSessionBinding } from '@/core/signingEngine/session/emailOtp/appSessionJwtCache';
 import type { WalletCustodyEd25519Projection } from '@/core/signingEngine/walletCustody/ed25519Projection';
 import type {
   EnrollEmailOtpInternalArgs,
@@ -220,10 +219,6 @@ export interface RegistrationResourceWarmupSurface {
 export interface RuntimeStartupSurface {
   assertSealedRefreshStartupParity(): Promise<void>;
 }
-
-export type WalletAuthenticationRestoreAuth =
-  | { readonly kind: 'cookie' }
-  | { readonly kind: 'caller_app_session_jwt'; readonly appSessionJwt: string };
 
 export interface SigningEngineLifecycleEventSurface {
   onSdkLifecycleEvent(listener: SdkLifecycleEventListener): () => void;
@@ -420,7 +415,7 @@ export interface WalletCustodyCeremonySurface {
     participantIds: readonly [number, number];
     registeredPublicKeyB64u: string;
     routerOrigin: string;
-    walletSessionJwt: string;
+    walletSessionToken: string;
   }): Promise<JoinedWalletCustodyNearEd25519KeySetV1>;
 
   activateEmailOtpEd25519RegistrationMaterialInternal(args: {
@@ -584,13 +579,6 @@ export interface SigningSessionSurface {
 
 export interface WalletAuthenticationSurface {
   readWalletAuthenticationState(): WalletAuthenticationState;
-  restoreWalletAuthenticationState(
-    walletId: WalletId | string | undefined,
-    auth: WalletAuthenticationRestoreAuth,
-  ): Promise<WalletAuthenticationState>;
-  restoreWalletAuthenticationStateFromHostSession(
-    walletId: WalletId | string | undefined,
-  ): Promise<WalletAuthenticationState>;
   setWalletAuthenticated(
     state: Extract<WalletAuthenticationState, { kind: 'authenticated' }>,
   ): void;
@@ -617,7 +605,6 @@ export type WalletSessionReadSurface = RuntimeStartupSurface &
   Pick<
     WalletAuthenticationSurface,
     | 'readWalletAuthenticationState'
-    | 'restoreWalletAuthenticationState'
     | 'setLinkedDeviceWalletSession'
     | 'clearLinkedDeviceWalletSession'
   > &
@@ -720,8 +707,6 @@ export interface PasskeyLoginAssertionSurface {
 }
 
 export interface EmailOtpSigningSessionSurface {
-  rememberEmailOtpAppSessionBinding(binding: EmailOtpAppSessionBinding): void;
-  rememberEmailOtpAppSessionJwt(walletId: WalletId, appSessionJwt: string): void;
   resolveEmailOtpEd25519CustodyProjectionInternal(args: {
     walletSession: WalletSessionRef;
   }): Promise<WalletCustodyEd25519Projection | null>;
@@ -762,10 +747,6 @@ export interface EmailOtpSigningSessionSurface {
       ...ActiveWalletSessionAuthorizationProjection[],
     ];
   }>;
-  resolveEmailOtpAppSessionJwt(args: {
-    walletSession: WalletSessionRef;
-    relayUrl: string;
-  }): Promise<string>;
   enrollEmailOtpInternal(args: EnrollEmailOtpInternalArgs): Promise<EnrollEmailOtpInternalResult>;
 }
 
@@ -797,10 +778,6 @@ export type RegistrationSigningSurface = RpIdSurface &
   Pick<
     EmailOtpRegistrationEnrollmentSurface,
     'prepareEmailOtpRegistrationEnrollmentMaterialInternal'
-  > &
-  Pick<
-    EmailOtpSigningSessionSurface,
-    'rememberEmailOtpAppSessionBinding' | 'resolveEmailOtpAppSessionJwt'
   > &
   SignerWorkerContextSurface &
   PasskeyLoginAssertionSurface &

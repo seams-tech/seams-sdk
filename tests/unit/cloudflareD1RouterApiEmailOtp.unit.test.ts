@@ -254,7 +254,7 @@ test('Cloudflare D1 Router API auth service starts, reuses, and restarts Google 
       email: 'Alice@Example.Test',
       accountMode: 'register',
       runtimePolicyScope,
-      appSessionUserId: 'google:register-user',
+      providerUserId: 'google:register-user',
       clientIp: '203.0.113.10',
     });
     expect(rateLimit).toEqual({ ok: true });
@@ -392,7 +392,7 @@ test('Cloudflare D1 Router API auth service rate-limits Google Email OTP registr
       email: 'rate@example.test',
       accountMode: 'register',
       runtimePolicyScope,
-      appSessionUserId: 'google:rate-user',
+      providerUserId: 'google:rate-user',
       clientIp: '203.0.113.20',
     });
     expect(first).toEqual({ ok: true });
@@ -402,7 +402,7 @@ test('Cloudflare D1 Router API auth service rate-limits Google Email OTP registr
       email: 'rate@example.test',
       accountMode: 'register',
       runtimePolicyScope,
-      appSessionUserId: 'google:rate-user',
+      providerUserId: 'google:rate-user',
       clientIp: '203.0.113.20',
     });
     expect(second.ok).toBe(false);

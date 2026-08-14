@@ -28,8 +28,7 @@ export type EmailOtpChallengeStoreContext = {
   walletId: string;
   orgId: string;
   otpChannel: EmailOtpChannel;
-  sessionHash: string;
-  appSessionVersion: string;
+  ownerProofBindingDigest: string;
   action: EmailOtpChallengeAction;
   operation: EmailOtpChallengeOperation;
   nowMs: number;
@@ -54,8 +53,7 @@ export type CreateEmailOtpChallengeWithActionRequest = {
   orgId?: unknown;
   email?: unknown;
   otpChannel?: unknown;
-  sessionHash?: unknown;
-  appSessionVersion?: unknown;
+  ownerProofBindingDigest?: unknown;
   clientIp?: unknown;
   operation?: unknown;
   reuseActiveChallenge?: unknown;
@@ -70,8 +68,7 @@ export type CreatedEmailOtpChallenge = {
   walletId: string;
   orgId: string;
   otpChannel: EmailOtpChannel;
-  sessionHash: string;
-  appSessionVersion: string;
+  ownerProofBindingDigest: string;
   action: EmailOtpChallengeAction;
   operation: EmailOtpChallengeOperation;
 };
@@ -160,8 +157,7 @@ function createdEmailOtpChallengeFromRecord(input: {
   challengeSubjectId: string;
   walletId: string;
   orgId: string;
-  sessionHash: string;
-  appSessionVersion: string;
+  ownerProofBindingDigest: string;
   action: EmailOtpChallengeAction;
   operation: EmailOtpChallengeOperation;
 }): CreatedEmailOtpChallenge {
@@ -173,8 +169,7 @@ function createdEmailOtpChallengeFromRecord(input: {
     walletId: input.walletId,
     orgId: input.orgId,
     otpChannel: EMAIL_OTP_CHANNEL,
-    sessionHash: input.sessionHash,
-    appSessionVersion: input.appSessionVersion,
+    ownerProofBindingDigest: input.ownerProofBindingDigest,
     action: input.action,
     operation: input.operation,
   };
@@ -188,8 +183,7 @@ function emailOtpChallengeContextInput(
     walletId: context.walletId,
     orgId: context.orgId,
     otpChannel: context.otpChannel,
-    sessionHash: context.sessionHash,
-    appSessionVersion: context.appSessionVersion,
+    ownerProofBindingDigest: context.ownerProofBindingDigest,
     action: context.action,
     operation: context.operation,
     nowMs: context.nowMs,
@@ -228,8 +222,7 @@ export async function createEmailOtpChallengeWithAction(
     const orgId = toOptionalTrimmedString(request.orgId) || '';
     const email = toOptionalTrimmedString(request.email)?.toLowerCase() || '';
     const otpChannel = toOptionalTrimmedString(request.otpChannel);
-    const sessionHash = toOptionalTrimmedString(request.sessionHash);
-    const appSessionVersion = toOptionalTrimmedString(request.appSessionVersion);
+    const ownerProofBindingDigest = toOptionalTrimmedString(request.ownerProofBindingDigest);
     const clientIp = toOptionalTrimmedString(request.clientIp) || undefined;
     const reuseActiveChallenge = request.reuseActiveChallenge === true;
     const action = request.action;
@@ -250,9 +243,8 @@ export async function createEmailOtpChallengeWithAction(
         message: 'otpChannel must be email_otp',
       };
     }
-    if (!sessionHash) return { ok: false, code: 'invalid_body', message: 'Missing sessionHash' };
-    if (!appSessionVersion) {
-      return { ok: false, code: 'invalid_body', message: 'Missing appSessionVersion' };
+    if (!ownerProofBindingDigest) {
+      return { ok: false, code: 'invalid_body', message: 'Missing ownerProofBindingDigest' };
     }
 
     const activeEnrollment =
@@ -272,7 +264,7 @@ export async function createEmailOtpChallengeWithAction(
       return {
         ok: false,
         code: 'recovery_email_missing',
-        message: 'Current app session does not include a recovery email',
+        message: 'Authenticated identity does not include a recovery email',
       };
     }
     if (existingAuthState?.otpLockedUntilMs && existingAuthState.otpLockedUntilMs > Date.now()) {
@@ -296,8 +288,7 @@ export async function createEmailOtpChallengeWithAction(
         walletId,
         orgId,
         otpChannel: EMAIL_OTP_CHANNEL,
-        sessionHash,
-        appSessionVersion,
+        ownerProofBindingDigest,
         action,
         operation,
         nowMs: issuedAtMs,
@@ -310,8 +301,7 @@ export async function createEmailOtpChallengeWithAction(
             challengeSubjectId,
             walletId,
             orgId,
-            sessionHash,
-            appSessionVersion,
+            ownerProofBindingDigest,
             action,
             operation,
           }),
@@ -353,8 +343,7 @@ export async function createEmailOtpChallengeWithAction(
         walletId,
         orgId,
         otpChannel: EMAIL_OTP_CHANNEL,
-        sessionHash,
-        appSessionVersion,
+        ownerProofBindingDigest,
         action,
         operation,
         nowMs: issuedAtMs,
@@ -371,8 +360,7 @@ export async function createEmailOtpChallengeWithAction(
       otpChannel: EMAIL_OTP_CHANNEL,
       email: challengeEmail,
       otpCode,
-      sessionHash,
-      appSessionVersion,
+      ownerProofBindingDigest,
       action,
       operation,
       createdAtMs: issuedAtMs,
@@ -417,8 +405,7 @@ export async function createEmailOtpChallengeWithAction(
         walletId,
         orgId,
         otpChannel: EMAIL_OTP_CHANNEL,
-        sessionHash,
-        appSessionVersion,
+        ownerProofBindingDigest,
         action,
         operation,
       },

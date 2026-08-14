@@ -19,7 +19,6 @@ import type {
   EmailOtpChallengeResult,
   EmailOtpEcdsaCapabilityArgs,
   EmailOtpEcdsaCapabilityResult,
-  GoogleEmailOtpSessionExchangeResult,
   GoogleEmailOtpRegistrationCandidate,
   GoogleEmailOtpRegistrationOffer,
   GoogleEmailOtpWalletAuthEcdsaTargets,
@@ -39,6 +38,7 @@ import type {
 import type {
   DemoEmailOtpCodeResponse,
   EmailOtpChallengeDelivery,
+  GoogleEmailOtpProviderResolution,
 } from '@/core/signingEngine/session/emailOtp/publicTypes';
 import { walletIdFromString, type WalletId } from '@shared/utils/registrationIntent';
 import { parseGoogleEmailOtpRegistrationOffer } from './registrationOffer';
@@ -62,30 +62,21 @@ type GoogleLoginEmailOtpEd25519YaoCapabilityArgs = {
   challengeId: string;
   otpCode: string;
   remainingUses: number;
-  appSessionJwt: string;
 };
 
-type GoogleEmailOtpSessionExchangeRequest<
+type GoogleEmailOtpProviderResolutionRequest<
   TMode extends GoogleEmailOtpWalletAuthRequestedMode = GoogleEmailOtpWalletAuthRequestedMode,
 > = {
   idToken: string;
   accountMode: TMode;
   relayUrl: string | undefined;
-  sessionKind: 'jwt' | 'cookie' | undefined;
-  onEvent: ((event: RegistrationFlowEvent | UnlockFlowEvent) => void) | undefined;
 };
 
 type GoogleSessionState = {
   idToken: string;
-  appSessionJwt?: string;
   walletId: WalletId;
   offer?: GoogleEmailOtpRegistrationOffer;
-  loginChallenge?: ActiveChallenge;
-  loginChallengeRateLimit?: {
-    retryAfterMs?: number;
-    resetAtMs?: number;
-  };
-  walletSessionUserId: string;
+  providerSubject: string;
   emailHint: string;
   requestedMode: GoogleEmailOtpWalletAuthRequestedMode;
   mode: GoogleEmailOtpWalletAuthResolvedMode;
@@ -95,13 +86,12 @@ type GoogleSessionState = {
 
 export type GoogleEmailOtpWalletAuthDeps = {
   configs: SeamsConfigsReadonly;
-  exchangeGoogleEmailOtpSession(
-    args: GoogleEmailOtpSessionExchangeRequest,
-  ): Promise<GoogleEmailOtpSessionExchangeResult>;
+  resolveGoogleEmailOtpProvider(
+    args: GoogleEmailOtpProviderResolutionRequest,
+  ): Promise<GoogleEmailOtpProviderResolution>;
   requestEmailOtpChallenge(args: {
     walletId: string;
     relayUrl?: string;
-    appSessionJwt?: string;
     onEvent?: (event: UnlockFlowEvent) => void;
   }): Promise<EmailOtpChallengeResult>;
   prewarmEmailOtpYao(): Promise<void>;
@@ -112,7 +102,6 @@ export type GoogleEmailOtpWalletAuthDeps = {
   loginWithEmailOtpEd25519YaoCapability(
     args: GoogleLoginEmailOtpEd25519YaoCapabilityArgs,
   ): Promise<void>;
-  rememberEmailOtpAppSessionJwt(args: { walletId: WalletId; appSessionJwt: string }): void;
   getWalletSession(walletId: string): Promise<WalletSession>;
 };
 
@@ -185,26 +174,26 @@ function classifyRegistrationError(error: unknown): GoogleEmailOtpWalletAuthFail
   return 'registration_failed';
 }
 
-function requireWalletId(exchange: GoogleEmailOtpSessionExchangeResult): WalletId {
-  const walletId = String(exchange.session?.walletId || '').trim();
+function requireWalletId(resolution: GoogleEmailOtpProviderResolution): WalletId {
+  const walletId = String(resolution.walletId || '').trim();
   if (!walletId) {
-    throw new Error('Google session exchange did not return a wallet id');
+    throw new Error('Google verification did not return a wallet id');
   }
   return walletIdFromString(walletId);
 }
 
-function requireWalletSessionUserId(exchange: GoogleEmailOtpSessionExchangeResult): string {
-  const userId = String(exchange.session?.userId || '').trim();
-  if (!userId) {
-    throw new Error('Google session exchange did not return a wallet session user id');
+function requireProviderSubject(resolution: GoogleEmailOtpProviderResolution): string {
+  const providerSubject = String(resolution.providerSubject || '').trim();
+  if (!providerSubject) {
+    throw new Error('Google verification did not return a provider subject');
   }
-  return userId;
+  return providerSubject;
 }
 
-function requireEmail(exchange: GoogleEmailOtpSessionExchangeResult): string {
-  const email = String(exchange.session?.email || '').trim();
+function requireEmail(resolution: GoogleEmailOtpProviderResolution): string {
+  const email = String(resolution.email || '').trim();
   if (!email) {
-    throw new Error('Google session exchange did not return an email address');
+    throw new Error('Google verification did not return an email address');
   }
   return email;
 }
@@ -272,66 +261,58 @@ function googleAccountRegistrationRequiredMessage(): string {
   return "Account doesn't exist. Create your account to continue.";
 }
 
-function classifyGoogleEmailOtpExchangeError(error: unknown): GoogleEmailOtpWalletAuthFailureCode {
+function classifyGoogleEmailOtpVerificationError(
+  error: unknown,
+): GoogleEmailOtpWalletAuthFailureCode {
   if (!error || typeof error !== 'object' || !('code' in error)) {
-    return 'google_exchange_failed';
+    return 'google_verification_failed';
   }
   const code = Reflect.get(error, 'code');
   return code === 'stale_identity_mapping'
     ? 'google_account_registration_required'
-    : 'google_exchange_failed';
+    : 'google_verification_failed';
 }
 
-function googleEmailOtpSessionExchangeRequest<TMode extends GoogleEmailOtpWalletAuthRequestedMode>(
+function googleEmailOtpProviderResolutionRequest<
+  TMode extends GoogleEmailOtpWalletAuthRequestedMode,
+>(
   input: GoogleEmailOtpWalletAuthStartInput,
   accountMode: TMode,
-): GoogleEmailOtpSessionExchangeRequest<TMode> {
+): GoogleEmailOtpProviderResolutionRequest<TMode> {
   return {
     idToken: input.idToken,
     accountMode,
     relayUrl: input.relayUrl,
-    sessionKind: input.sessionKind,
-    onEvent: input.onEvent,
   };
 }
 
-async function exchangeGoogleEmailOtpSessionForAuthFlow(args: {
+async function resolveGoogleEmailOtpProviderForAuthFlow(args: {
   deps: GoogleEmailOtpWalletAuthDeps;
   input: GoogleEmailOtpWalletAuthStartInput;
-}): Promise<GoogleEmailOtpSessionExchangeResult> {
-  try {
-    const loginOrRegistrationRequest = googleEmailOtpSessionExchangeRequest(
-      args.input,
-      args.input.mode,
-    );
-    return await args.deps.exchangeGoogleEmailOtpSession(loginOrRegistrationRequest);
-  } catch (error: unknown) {
-    if (args.input.mode !== 'login' || !isMissingGoogleEmailOtpEnrollment(error)) throw error;
-    const registrationRequest = googleEmailOtpSessionExchangeRequest(args.input, 'register');
-    return await args.deps.exchangeGoogleEmailOtpSession(registrationRequest);
-  }
+}): Promise<GoogleEmailOtpProviderResolution> {
+  return await args.deps.resolveGoogleEmailOtpProvider(
+    googleEmailOtpProviderResolutionRequest(args.input, args.input.mode),
+  );
 }
 
 function resolveSessionState(input: {
   idToken: string;
   requestedMode: GoogleEmailOtpWalletAuthRequestedMode;
-  exchange: GoogleEmailOtpSessionExchangeResult;
+  resolution: GoogleEmailOtpProviderResolution;
 }): GoogleSessionState {
-  const walletId = requireWalletId(input.exchange);
-  const emailHint = requireEmail(input.exchange);
-  const resolution = input.exchange.session.googleEmailOtpResolution;
+  const walletId = requireWalletId(input.resolution);
+  const emailHint = requireEmail(input.resolution);
+  const resolution = input.resolution;
   const mode = resolveGoogleEmailOtpAuthMode({
     requestedMode: input.requestedMode,
     resolutionMode: resolution?.mode,
   });
   const offer =
-    mode === 'register'
+    resolution.mode === 'register_started'
       ? parseGoogleEmailOtpRegistrationOffer({
           kind: 'google_email_otp_registration_offer_v1',
           offerId: resolution?.offer?.offerId,
-          expiresAtMs: requireRegistrationExpiresAtMs(
-            resolution?.expiresAtMs ?? resolution?.expiresAt,
-          ),
+          expiresAtMs: requireRegistrationExpiresAtMs(resolution.expiresAtMs),
           emailHint,
           candidates: resolution?.offer?.candidates,
           selectedCandidateId: resolution?.offer?.selectedCandidateId,
@@ -340,42 +321,19 @@ function resolveSessionState(input: {
   const resolvedWalletId = offer
     ? selectedGoogleEmailOtpRegistrationCandidate(offer).walletId
     : walletId;
-  const loginChallengeRaw = mode === 'login' ? resolution?.loginChallenge : undefined;
-  const loginChallenge =
-    loginChallengeRaw && loginChallengeRaw.delivery !== 'rate_limited'
-      ? {
-          challengeId: loginChallengeRaw.challengeId,
-          emailHint: loginChallengeRaw.delivery.emailHint,
-          delivery: loginChallengeRaw.delivery,
-        }
-      : undefined;
-  const loginChallengeRateLimit =
-    loginChallengeRaw?.delivery === 'rate_limited'
-      ? {
-          ...(typeof loginChallengeRaw.retryAfterMs === 'number'
-            ? { retryAfterMs: loginChallengeRaw.retryAfterMs }
-            : {}),
-          ...(typeof loginChallengeRaw.resetAtMs === 'number'
-            ? { resetAtMs: loginChallengeRaw.resetAtMs }
-            : {}),
-        }
-      : undefined;
   return {
     idToken: input.idToken,
     walletId: resolvedWalletId,
     ...(offer ? { offer } : {}),
-    ...(loginChallenge ? { loginChallenge } : {}),
-    ...(loginChallengeRateLimit ? { loginChallengeRateLimit } : {}),
-    walletSessionUserId: requireWalletSessionUserId(input.exchange),
+    providerSubject: requireProviderSubject(input.resolution),
     emailHint,
     requestedMode: input.requestedMode,
     mode,
     expiresAtMs:
-      mode === 'register'
-        ? requireRegistrationExpiresAtMs(resolution?.expiresAtMs ?? resolution?.expiresAt)
-        : parseOptionalExpiresAtMs(resolution?.expiresAtMs ?? resolution?.expiresAt),
-    ...(input.exchange.jwt ? { appSessionJwt: input.exchange.jwt } : {}),
-    ...(resolution?.registrationAttemptId
+      resolution.mode === 'register_started'
+        ? requireRegistrationExpiresAtMs(resolution.expiresAtMs)
+        : parseOptionalExpiresAtMs(undefined),
+    ...(resolution.mode === 'register_started'
       ? { registrationAttemptId: resolution.registrationAttemptId }
       : {}),
   };
@@ -413,7 +371,6 @@ async function requestLoginChallenge(args: {
   const result = await args.deps.requestEmailOtpChallenge({
     walletId: args.state.walletId,
     ...(args.relayUrl ? { relayUrl: args.relayUrl } : {}),
-    ...(args.state.appSessionJwt ? { appSessionJwt: args.state.appSessionJwt } : {}),
     ...(args.onEvent ? { onEvent: args.onEvent as (event: UnlockFlowEvent) => void } : {}),
   });
   return {
@@ -486,21 +443,15 @@ async function loginWithConfiguredTargets(args: {
 }): Promise<void> {
   const walletSession = walletSessionRefFromSession({
     walletId: args.state.walletId,
-    userId: args.state.walletSessionUserId,
+    userId: args.state.providerSubject,
   });
   const [primaryTarget] = args.targets;
   if (!primaryTarget) {
-    const appSessionJwt = googleEmailOtpAppSessionJwt(args.state, 'login');
     await args.deps.loginWithEmailOtpEd25519YaoCapability({
       walletSession,
       challengeId: args.challenge.challengeId,
       otpCode: args.otpCode,
       remainingUses: resolveGoogleEmailOtpEd25519RemainingUses(args.deps.configs),
-      appSessionJwt,
-    });
-    args.deps.rememberEmailOtpAppSessionJwt({
-      walletId: args.state.walletId,
-      appSessionJwt,
     });
     return;
   }
@@ -510,7 +461,6 @@ async function loginWithConfiguredTargets(args: {
     emailOtpAuthorityEmail: args.challenge.emailHint,
     otpCode: args.otpCode,
     ...(args.input.relayUrl ? { relayUrl: args.input.relayUrl } : {}),
-    ...(args.state.appSessionJwt ? { appSessionJwt: args.state.appSessionJwt } : {}),
     ...(args.input.emailOtpAuthPolicy ? { emailOtpAuthPolicy: args.input.emailOtpAuthPolicy } : {}),
     ...(args.input.onEvent
       ? { onEvent: args.input.onEvent as (event: UnlockFlowEvent) => void }
@@ -582,17 +532,17 @@ export async function beginGoogleEmailOtpWalletAuth(
 ): Promise<GoogleEmailOtpWalletAuthResult<GoogleEmailOtpWalletAuthFlow>> {
   let sessionState: GoogleSessionState;
   try {
-    const exchange = await exchangeGoogleEmailOtpSessionForAuthFlow({
+    const resolution = await resolveGoogleEmailOtpProviderForAuthFlow({
       deps,
       input,
     });
     sessionState = resolveSessionState({
       idToken: input.idToken,
       requestedMode: input.mode,
-      exchange,
+      resolution,
     });
   } catch (error: unknown) {
-    return fail(classifyGoogleEmailOtpExchangeError(error), error);
+    return fail(classifyGoogleEmailOtpVerificationError(error), error);
   }
 
   if (sessionState.mode === 'register') {
@@ -606,23 +556,12 @@ export async function beginGoogleEmailOtpWalletAuth(
   }
 
   try {
-    if (sessionState.loginChallengeRateLimit) {
-      const error = new Error('Email OTP challenge is rate limited') as Error & {
-        retryAfterMs?: number;
-      };
-      if (typeof sessionState.loginChallengeRateLimit.retryAfterMs === 'number') {
-        error.retryAfterMs = sessionState.loginChallengeRateLimit.retryAfterMs;
-      }
-      return fail('email_otp_rate_limited', error);
-    }
-    const challenge =
-      sessionState.loginChallenge ||
-      (await requestLoginChallenge({
-        deps,
-        state: sessionState,
-        ...(input.relayUrl ? { relayUrl: input.relayUrl } : {}),
-        ...(input.onEvent ? { onEvent: input.onEvent } : {}),
-      }));
+    const challenge = await requestLoginChallenge({
+      deps,
+      state: sessionState,
+      ...(input.relayUrl ? { relayUrl: input.relayUrl } : {}),
+      ...(input.onEvent ? { onEvent: input.onEvent } : {}),
+    });
     return ok(createGoogleEmailOtpWalletLoginFlow(deps, { state: sessionState, challenge, input }));
   } catch (error: unknown) {
     if (isMissingGoogleEmailOtpEnrollment(error)) {
@@ -662,17 +601,6 @@ function relayerUrlFromInput(args: {
   return String(args.input.relayUrl || args.deps.configs.network.relayer?.url || '').trim();
 }
 
-function googleEmailOtpAppSessionJwt(
-  state: GoogleSessionState,
-  purpose: 'registration' | 'login',
-): string {
-  const appSessionJwt = String(state.appSessionJwt || '').trim();
-  if (!appSessionJwt) {
-    throw new Error(`Google Email OTP ${purpose} requires an app session token`);
-  }
-  return appSessionJwt;
-}
-
 function createGoogleEmailOtpWalletRegistrationFlow(
   deps: GoogleEmailOtpWalletAuthDeps,
   args: {
@@ -697,13 +625,12 @@ function createGoogleEmailOtpWalletRegistrationFlow(
   const registrationOptions = requiredTargets.length
     ? eventOptions
     : registrationOptionsForNoEcdsa({ options: eventOptions });
-  const appSessionJwt = googleEmailOtpAppSessionJwt(args.state, 'registration');
   const selectedWalletId = selectedGoogleEmailOtpRegistrationCandidate(offer).walletId;
   const registrationAuthMethod = {
     kind: 'email_otp',
     proofKind: 'google_sso_registration',
     email: args.state.emailHint,
-    appSessionJwt,
+    providerSubject: args.state.providerSubject,
     googleEmailOtpRegistrationAttemptId: registrationAttemptId,
     googleEmailOtpRegistrationOfferId: offer.offerId,
     googleEmailOtpRegistrationCandidateId: offer.selectedCandidateId,
@@ -760,7 +687,7 @@ function createGoogleEmailOtpWalletRegistrationFlow(
         liveness.ensureActive();
         if (!args.state.offer) {
           return fail(
-            'google_exchange_failed',
+            'google_verification_failed',
             new Error('Google Email OTP registration offer is missing wallet candidates'),
           );
         }
@@ -770,7 +697,7 @@ function createGoogleEmailOtpWalletRegistrationFlow(
         });
         if (!nextCandidate) {
           return fail(
-            'google_exchange_failed',
+            'google_verification_failed',
             new Error('Google Email OTP registration offer has no alternate wallet candidate'),
           );
         }
@@ -790,7 +717,7 @@ function createGoogleEmailOtpWalletRegistrationFlow(
           }),
         );
       } catch (error: unknown) {
-        return fail('google_exchange_failed', error);
+        return fail('google_verification_failed', error);
       }
     },
     cancel: async (): Promise<void> => {

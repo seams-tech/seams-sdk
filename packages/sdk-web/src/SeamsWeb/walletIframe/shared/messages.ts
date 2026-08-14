@@ -20,6 +20,7 @@ import type {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EmailOtpAuthPolicy, SeamsConfigsInput } from '@/core/types/seams';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
+import type { WalletCustodyAdminOperation } from '@shared/authorization/walletCustodyOperation';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type {
   RegistrationTimingSpanV1,
@@ -844,7 +845,6 @@ export type ParentToChildType =
   | 'PM_REQUEST_EMAIL_OTP_CHALLENGE'
   | 'PM_REQUEST_EMAIL_OTP_ENROLLMENT_CHALLENGE'
   | 'PM_REQUEST_EMAIL_OTP_SIGNING_SESSION_CHALLENGE'
-  | 'PM_EXCHANGE_GOOGLE_EMAIL_OTP_SESSION'
   | 'PM_BEGIN_GOOGLE_EMAIL_OTP_WALLET_AUTH'
   | 'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_RESEND'
   | 'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_REROLL_WALLET_ID'
@@ -857,6 +857,7 @@ export type ParentToChildType =
   | 'PM_GET_WALLET_RECOVERY_CODE_STATUS'
   | 'PM_ACKNOWLEDGE_WALLET_RECOVERY_CODE_BACKUP'
   | 'PM_ROTATE_WALLET_RECOVERY_CODES'
+  | 'PM_REQUEST_WALLET_CUSTODY_EMAIL_OTP_CHALLENGE'
   | 'PM_REQUEST_WALLET_RECOVERY_BOOTSTRAP_CHALLENGE'
   | 'PM_VERIFY_WALLET_RECOVERY_BOOTSTRAP'
   | 'PM_PREPARE_WALLET_RECOVERY_WITH_BOOTSTRAP'
@@ -940,21 +941,24 @@ export interface PMCancelPayload {
 export interface PMRedeemHostedWalletSeamsSessionPayload {
   exchangeCode: string;
   nonce: string;
+  curve: 'ecdsa' | 'ed25519';
+  appOrigin: string;
+  walletOrigin: string;
   relayUrl: string;
 }
 
 type PMEmailOtpChallengeRegistrationAuthMethod = Omit<
   Extract<EmailOtpRegistrationAuthMethodInput, { proofKind: 'otp_challenge' }>,
-  'appSessionJwt'
+  'walletSessionToken'
 > & {
-  appSessionJwt?: never;
+  walletSessionToken?: never;
 };
 
 type PMGoogleSsoRegistrationAuthMethod = Omit<
   Extract<EmailOtpRegistrationAuthMethodInput, { proofKind: 'google_sso_registration' }>,
-  'appSessionJwt'
+  'walletSessionToken'
 > & {
-  appSessionJwt?: never;
+  walletSessionToken?: never;
 };
 
 export type PMRegistrationAuthMethodInput =
@@ -990,7 +994,6 @@ export type PMGoogleEmailOtpWalletAuthStartPayload = {
   idToken: string;
   mode: GoogleEmailOtpWalletAuthRequestedMode;
   relayUrl?: string;
-  sessionKind?: 'jwt' | 'cookie';
   ecdsaTargets?: GoogleEmailOtpWalletAuthEcdsaTargets;
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   diagnostics: {
@@ -1253,24 +1256,25 @@ export interface PMEmailOtpSigningSessionChallengePayload {
   chainTarget: ThresholdEcdsaChainTarget;
 }
 
-export interface PMExchangeGoogleEmailOtpSessionPayload {
-  idToken: string;
-  accountMode: 'register' | 'login';
-  relayUrl?: string;
-  sessionKind?: 'jwt' | 'cookie';
-}
-
 export interface PMEnrollEmailOtpPayload {
   walletId: string;
   otpCode: string;
   relayUrl?: string;
   challengeId?: string;
   groupId?: string;
-  appSessionJwt?: never;
+  walletSessionToken?: never;
 }
 
 export interface PMWalletRecoverySessionPayload {
   walletId: string;
+}
+
+export interface PMRequestWalletCustodyEmailOtpChallengePayload {
+  walletId: string;
+  providerSubjectId: string;
+  operation: WalletCustodyAdminOperation;
+  payload: Record<string, unknown>;
+  requestOrigin?: string;
 }
 
 export interface PMRotateWalletRecoveryCodesPayload extends PMWalletRecoverySessionPayload {
@@ -1316,7 +1320,7 @@ export interface PMEmailOtpEcdsaCapabilityPayload {
   challengeId?: string;
   otpCode: string;
   groupId?: string;
-  appSessionJwt?: never;
+  walletSessionToken?: never;
   registrationAttemptId?: string;
   emailOtpAuthorityEmail?: string;
 }
@@ -1428,7 +1432,6 @@ export type ParentToChildEnvelope =
       'PM_REQUEST_EMAIL_OTP_SIGNING_SESSION_CHALLENGE',
       PMEmailOtpSigningSessionChallengePayload
     >
-  | RpcEnvelope<'PM_EXCHANGE_GOOGLE_EMAIL_OTP_SESSION', PMExchangeGoogleEmailOtpSessionPayload>
   | RpcEnvelope<'PM_BEGIN_GOOGLE_EMAIL_OTP_WALLET_AUTH', PMGoogleEmailOtpWalletAuthStartPayload>
   | RpcEnvelope<'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_RESEND', PMGoogleEmailOtpWalletAuthHandlePayload>
   | RpcEnvelope<
@@ -1447,6 +1450,10 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_GET_WALLET_RECOVERY_CODE_STATUS', PMWalletRecoverySessionPayload>
   | RpcEnvelope<'PM_ACKNOWLEDGE_WALLET_RECOVERY_CODE_BACKUP', PMWalletRecoverySessionPayload>
   | RpcEnvelope<'PM_ROTATE_WALLET_RECOVERY_CODES', PMRotateWalletRecoveryCodesPayload>
+  | RpcEnvelope<
+      'PM_REQUEST_WALLET_CUSTODY_EMAIL_OTP_CHALLENGE',
+      PMRequestWalletCustodyEmailOtpChallengePayload
+    >
   | RpcEnvelope<
       'PM_REQUEST_WALLET_RECOVERY_BOOTSTRAP_CHALLENGE',
       PMRequestWalletRecoveryBootstrapChallengePayload

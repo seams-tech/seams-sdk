@@ -33,20 +33,6 @@ declare const emailOtpInactiveMaterialPublicRestore: Extract<
 void currentEd25519Record;
 void currentEcdsaRecord;
 
-const invalidInactiveRestoreWithWalletSessionJwt: EcdsaInactiveMaterialPublicRestore = {
-  ...ecdsaInactiveMaterialPublicRestore,
-  // @ts-expect-error inactive material contains no Wallet Session bearer.
-  walletSessionJwt: 'secret-wallet-session-jwt',
-};
-void invalidInactiveRestoreWithWalletSessionJwt;
-
-const invalidInactiveRestoreWithSessionKind: EcdsaInactiveMaterialPublicRestore = {
-  ...ecdsaInactiveMaterialPublicRestore,
-  // @ts-expect-error inactive material contains no session-auth lifecycle state.
-  sessionKind: 'jwt',
-};
-void invalidInactiveRestoreWithSessionKind;
-
 const invalidInactiveMaterialWithThresholdSession: EcdsaInactiveSealedMaterialRecord = {
   ...inactiveEcdsaMaterial,
   // @ts-expect-error inactive material is keyed by exact activation, not session ids.

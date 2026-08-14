@@ -102,19 +102,14 @@ export class CloudflareD1EmailOtpChallengeService {
     if (!enrollment || enrollment.orgId !== orgId) {
       return { ok: false, code: 'recovery_unavailable', message: 'wallet recovery is unavailable' };
     }
-    const sessionHash = secureRandomBase64Url(24, 'wallet recovery bootstrap binding');
-    const appSessionVersion = `wallet-recovery-bootstrap:${secureRandomBase64Url(
-      12,
-      'wallet recovery bootstrap version',
-    )}`;
+    const ownerProofBindingDigest = secureRandomBase64Url(32, 'wallet recovery bootstrap binding');
     const result = await this.issuer.create({
       userId: enrollment.providerUserId,
       walletId,
       orgId,
       email: enrollment.verifiedEmail,
       otpChannel: EMAIL_OTP_CHANNEL,
-      sessionHash,
-      appSessionVersion,
+      ownerProofBindingDigest,
       clientIp: input.clientIp,
       requestOrigin: input.requestOrigin,
       action: WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap,
@@ -152,8 +147,7 @@ export class CloudflareD1EmailOtpChallengeService {
       challengeId,
       otpCode: input.otpCode,
       otpChannel: EMAIL_OTP_CHANNEL,
-      sessionHash: challenge.sessionHash,
-      appSessionVersion: challenge.appSessionVersion,
+      ownerProofBindingDigest: challenge.ownerProofBindingDigest,
       clientIp: input.clientIp,
       action: WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap,
       operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
@@ -172,8 +166,7 @@ export class CloudflareD1EmailOtpChallengeService {
         walletId: verified.walletId,
         orgId: verified.orgId,
         challengeId: verified.challengeId,
-        sessionHash: verified.sessionHash,
-        appSessionVersion: verified.appSessionVersion,
+        ownerProofBindingDigest: verified.ownerProofBindingDigest,
         action: WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap,
         issuedAtMs,
         expiresAtMs: recoveryBootstrapGrantExpiresAtMs,
@@ -198,8 +191,7 @@ export class CloudflareD1EmailOtpChallengeService {
       orgId: input.orgId,
       email: input.email,
       otpChannel: input.otpChannel,
-      sessionHash: input.sessionHash,
-      appSessionVersion: input.appSessionVersion,
+      ownerProofBindingDigest: input.ownerProofBindingDigest,
       clientIp: input.clientIp,
       reuseActiveChallenge: input.reuseActiveChallenge,
       requestOrigin: input.requestOrigin,
@@ -217,8 +209,7 @@ export class CloudflareD1EmailOtpChallengeService {
         walletId: result.challenge.walletId,
         orgId: result.challenge.orgId,
         otpChannel: result.challenge.otpChannel,
-        sessionHash: result.challenge.sessionHash,
-        appSessionVersion: result.challenge.appSessionVersion,
+        ownerProofBindingDigest: result.challenge.ownerProofBindingDigest,
         action: WALLET_EMAIL_OTP_ACTIONS.login,
         operation,
       },
@@ -235,8 +226,7 @@ export class CloudflareD1EmailOtpChallengeService {
       orgId: input.orgId,
       email: input.email,
       otpChannel: input.otpChannel,
-      sessionHash: input.sessionHash,
-      appSessionVersion: input.appSessionVersion,
+      ownerProofBindingDigest: input.ownerProofBindingDigest,
       clientIp: input.clientIp,
       requestOrigin: input.requestOrigin,
       action: WALLET_EMAIL_OTP_ACTIONS.registration,
@@ -253,8 +243,7 @@ export class CloudflareD1EmailOtpChallengeService {
         walletId: result.challenge.walletId,
         orgId: result.challenge.orgId,
         otpChannel: result.challenge.otpChannel,
-        sessionHash: result.challenge.sessionHash,
-        appSessionVersion: result.challenge.appSessionVersion,
+        ownerProofBindingDigest: result.challenge.ownerProofBindingDigest,
         action: WALLET_EMAIL_OTP_ACTIONS.registration,
         operation: WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
       },
@@ -270,7 +259,6 @@ export class CloudflareD1EmailOtpChallengeService {
       const walletId = toOptionalTrimmedString(input.walletId);
       const orgId = toOptionalTrimmedString(input.orgId);
       const challengeId = toOptionalTrimmedString(input.challengeId);
-      const appSessionVersion = toOptionalTrimmedString(input.appSessionVersion);
       const registrationAttemptId = toOptionalTrimmedString(
         input.googleEmailOtpRegistrationAttemptId,
       );
@@ -302,13 +290,6 @@ export class CloudflareD1EmailOtpChallengeService {
           message: 'Email OTP registration requires challengeId',
         };
       }
-      if (!appSessionVersion) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'Email OTP registration requires appSessionVersion',
-        };
-      }
 
       const proofEmail = await this.resolveRegistrationProofEmail({
         explicitProofEmail: input.proofEmail,
@@ -325,8 +306,7 @@ export class CloudflareD1EmailOtpChallengeService {
         challengeId,
         otpCode: input.otpCode,
         otpChannel: input.otpChannel,
-        sessionHash: input.sessionHash,
-        appSessionVersion,
+        ownerProofBindingDigest: input.ownerProofBindingDigest,
         proofEmail: proofEmail.email,
         clientIp: input.clientIp,
       });
@@ -377,8 +357,7 @@ export class CloudflareD1EmailOtpChallengeService {
       challengeId: input.challengeId,
       otpCode: input.otpCode,
       otpChannel: input.otpChannel,
-      sessionHash: input.sessionHash,
-      appSessionVersion: input.appSessionVersion,
+      ownerProofBindingDigest: input.ownerProofBindingDigest,
       clientIp: input.clientIp,
       action: WALLET_EMAIL_OTP_ACTIONS.login,
       operation,
@@ -395,8 +374,7 @@ export class CloudflareD1EmailOtpChallengeService {
         walletId: verified.walletId,
         orgId: verified.orgId,
         challengeId: verified.challengeId,
-        sessionHash: verified.sessionHash,
-        appSessionVersion: verified.appSessionVersion,
+        ownerProofBindingDigest: verified.ownerProofBindingDigest,
         action: WALLET_EMAIL_OTP_ACTIONS.unseal,
         issuedAtMs,
         expiresAtMs: grantExpiresAtMs,
@@ -422,8 +400,7 @@ export class CloudflareD1EmailOtpChallengeService {
       challengeId: input.challengeId,
       otpCode: input.otpCode,
       otpChannel: input.otpChannel,
-      sessionHash: input.sessionHash,
-      appSessionVersion: input.appSessionVersion,
+      ownerProofBindingDigest: input.ownerProofBindingDigest,
       clientIp: input.clientIp,
       action: WALLET_EMAIL_OTP_ACTIONS.login,
       operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
@@ -440,8 +417,7 @@ export class CloudflareD1EmailOtpChallengeService {
         walletId: verified.walletId,
         orgId: verified.orgId,
         challengeId: verified.challengeId,
-        sessionHash: verified.sessionHash,
-        appSessionVersion: verified.appSessionVersion,
+        ownerProofBindingDigest: verified.ownerProofBindingDigest,
         action: WALLET_EMAIL_OTP_ACTIONS.unseal,
         issuedAtMs,
         expiresAtMs: grantExpiresAtMs,

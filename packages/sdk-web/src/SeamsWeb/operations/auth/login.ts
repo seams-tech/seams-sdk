@@ -55,13 +55,13 @@ import {
 import {
   parseReusableWalletSessionMintId,
   type MpcWalletSigningQuotaId,
+  type WalletSessionAuthorizationId,
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-import { decodeJwtPayloadRecord, walletSessionJwtAuth } from '@shared/utils/sessionTokens';
+import { requireOpaqueWalletSessionToken } from '@shared/utils/sessionTokens';
 import {
   buildPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
-  type EmailOtpProvider,
   type PasskeyWalletAuthAuthority,
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
@@ -88,16 +88,14 @@ import type {
   ThresholdEd25519KeyMaterial,
 } from '@/core/accountData/near/nearAccountData.types';
 import {
-  exchangeSession,
+  verifyPasskeyWalletUnlock,
   type PasskeySessionEcdsaCustodyContinuityV1,
   type PasskeySessionCustodyUnlockV1,
-  type SessionExchangeInput,
-  type SessionExchangeRuntimeScope,
 } from '@/core/rpcClients/near/rpcCalls';
 import { rememberPasskeyCustodySessionEnvelope } from '@/core/signingEngine/session/passkey/passkeyCustodySessionCache';
 import { persistPasskeyEd25519YaoSignerMaterialV1 } from '@/core/signingEngine/session/passkey/ed25519YaoLocalMaterial';
 import {
-  fetchWalletEcdsaKeyFactsInventoryWithAppSession,
+  fetchWalletEcdsaKeyFactsInventoryWithOpaqueWalletSession,
   fetchWalletEcdsaKeyFactsInventoryWithWebAuthn,
   type WalletEcdsaKeyFactsInventoryResponse,
   type WalletEcdsaKeyFactsInventoryTarget,
@@ -107,10 +105,9 @@ import type {
   ProfileAuthenticatorRecord,
 } from '@/core/indexedDB/passkeyClientDB.types';
 import type { EcdsaBootstrapRequest } from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
-import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
+import type { OpaqueWalletSessionAuth } from '@shared/utils/sessionTokens';
 import { parseSignerSlot } from '@/core/signingEngine/webauthnAuth/device/signerSlot';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/session/identity/laneIdentity';
-import { buildEmailOtpAuthContextForWalletAuthMethod } from '@/core/signingEngine/session/identity/laneIdentity';
 import {
   STALE_ECDSA_KEY_IDENTITY_ERROR_CODE,
   type ThresholdEcdsaSessionBootstrapResult,
@@ -235,10 +232,6 @@ import {
   type WalletUnlockSubjectSet,
 } from './walletUnlockSubject';
 import { resolveEcdsaActivationJournalSelectors } from './walletUnlockEcdsaSubject';
-import {
-  emailOtpAppSessionBindingFromJwt,
-  emailOtpProviderFromAppSessionJwt,
-} from '@/core/signingEngine/session/emailOtp/appSessionJwtCache';
 
 type EmitUnlockEventInput = Omit<CreateUnlockFlowEventInput, 'accountId' | 'flowId'>;
 
@@ -640,9 +633,9 @@ type LoginUnlockAccountPhase = {
 
 type LoginEcdsaKeyFactsInventoryAuthority =
   | {
-      kind: 'app_session';
-      appSessionJwt: string;
-      policyExpiresAtMs: number;
+      kind: 'opaque_wallet_session';
+      curve: 'ecdsa_secp256k1';
+      walletSessionToken: string;
     }
   | {
       kind: 'webauthn';
@@ -667,9 +660,6 @@ type LoginWarmupPasskeyCredentialPlan =
       kind: 'existing_passkey_credential';
     }
   | {
-      kind: 'app_session_authorized_warmup';
-    }
-  | {
       kind: 'no_passkey_credential_required';
     }
   | {
@@ -679,22 +669,9 @@ type LoginWarmupPasskeyCredentialPlan =
       kind: 'local_unlock_passkey_assertion_after_ecdsa_context';
     };
 
-type LoginWarmupRouteAuthorization =
-  | {
-      kind: 'none';
-      appSessionJwt: '';
-      useAppSessionCookie: false;
-    }
-  | {
-      kind: 'app_session_jwt';
-      appSessionJwt: string;
-      useAppSessionCookie: false;
-    }
-  | {
-      kind: 'app_session_cookie';
-      appSessionJwt: '';
-      useAppSessionCookie: true;
-    };
+type LoginWarmupRouteAuthorization = {
+  kind: 'none';
+};
 
 type LoginWarmupCredentialState =
   | {
@@ -782,20 +759,13 @@ function resolveLoginEcdsaKeyFactsInventoryAuthority(args: {
 }): LoginEcdsaKeyFactsInventoryAuthority | null {
   if (!args.request) return null;
   switch (args.request.mode) {
-    case 'app_session': {
-      const appSessionJwt = String(
-        args.request.appSessionJwt ||
-          (args.routeAuthorization.kind === 'app_session_jwt'
-            ? args.routeAuthorization.appSessionJwt
-            : ''),
-      ).trim();
-      if (!appSessionJwt) return null;
-      const requestedTtlMs = Math.floor(Number(args.request.policyTtlMs) || 0);
-      const policyTtlMs = requestedTtlMs > 0 ? requestedTtlMs : 60_000;
+    case 'opaque_wallet_session': {
+      const walletSessionToken = args.request.walletSessionToken.trim();
+      if (!walletSessionToken) return null;
       return {
-        kind: 'app_session',
-        appSessionJwt,
-        policyExpiresAtMs: Date.now() + policyTtlMs,
+        kind: 'opaque_wallet_session',
+        curve: args.request.curve,
+        walletSessionToken,
       };
     }
     case 'webauthn':
@@ -804,45 +774,8 @@ function resolveLoginEcdsaKeyFactsInventoryAuthority(args: {
   return null;
 }
 
-function resolveLoginWarmupRouteAuthorization(args: {
-  appSessionJwt: string;
-  useAppSessionCookie: boolean;
-}): LoginWarmupRouteAuthorization {
-  const appSessionJwt = args.appSessionJwt.trim();
-  if (appSessionJwt) {
-    return {
-      kind: 'app_session_jwt',
-      appSessionJwt,
-      useAppSessionCookie: false,
-    };
-  }
-  if (args.useAppSessionCookie) {
-    return {
-      kind: 'app_session_cookie',
-      appSessionJwt: '',
-      useAppSessionCookie: true,
-    };
-  }
-  return {
-    kind: 'none',
-    appSessionJwt: '',
-    useAppSessionCookie: false,
-  };
-}
-
-function emailOtpIdentityFromLoginAppSession(args: {
-  routeAuthorization: Extract<LoginWarmupRouteAuthorization, { kind: 'app_session_jwt' }>;
-  walletId: WalletId;
-}): { provider: EmailOtpProvider; providerUserId: string } {
-  const binding = emailOtpAppSessionBindingFromJwt({
-    walletId: args.walletId,
-    appSessionJwt: args.routeAuthorization.appSessionJwt,
-  });
-  const provider = emailOtpProviderFromAppSessionJwt(args.routeAuthorization.appSessionJwt);
-  return {
-    provider,
-    providerUserId: binding.providerSubject,
-  };
+function resolveLoginWarmupRouteAuthorization(): LoginWarmupRouteAuthorization {
+  return { kind: 'none' };
 }
 
 function loginPasskeyCredentialIdB64u(args: {
@@ -872,12 +805,10 @@ function buildLoginPasskeyWalletAuthAuthority(args: {
 function resolveLoginEd25519SessionAuthority(args: {
   wantsEd25519Warmup: boolean;
   authMethod: WalletAuthMethod;
-  authMethodBinding: WalletAuthMethodBinding | null;
   walletId: WalletId;
   rpId: string;
   passkeyCredentialIdB64u: string;
   routeAuthorization: LoginWarmupRouteAuthorization;
-  emailOtpAuthPolicy: ThresholdEcdsaEmailOtpAuthContext['policy'];
 }): LoginWarmupEd25519SessionAuthority {
   if (!args.wantsEd25519Warmup) return { kind: 'not_requested' };
   if (args.authMethod === SIGNER_AUTH_METHODS.passkey) {
@@ -893,31 +824,7 @@ function resolveLoginEd25519SessionAuthority(args: {
     };
   }
   if (args.authMethod === SIGNER_AUTH_METHODS.emailOtp) {
-    if (args.routeAuthorization.kind !== 'app_session_jwt') {
-      throw new Error('[login] Email OTP Ed25519 warm-up requires app-session JWT authority');
-    }
-    if (!args.authMethodBinding || args.authMethodBinding.kind !== 'email_otp') {
-      throw new Error('[login] Email OTP Ed25519 warm-up requires wallet auth-method binding');
-    }
-    const emailOtpIdentity = emailOtpIdentityFromLoginAppSession({
-      routeAuthorization: args.routeAuthorization,
-      walletId: args.walletId,
-    });
-    const emailOtpAuthContext = buildEmailOtpAuthContextForWalletAuthMethod({
-      policy: args.emailOtpAuthPolicy,
-      walletId: args.walletId,
-      emailHashHex: args.authMethodBinding.emailHashHex,
-      retention: 'session',
-      reason: 'login',
-      provider: emailOtpIdentity.provider,
-      providerUserId: emailOtpIdentity.providerUserId,
-    });
-    return {
-      kind: 'email_otp',
-      authority: { kind: 'wallet_auth_authority', authority: emailOtpAuthContext.authority },
-      source: 'email_otp',
-      emailOtpAuthContext,
-    };
+    throw new Error('[login] Email OTP warm-up requires its proof-bound unlock flow');
   }
   throw new Error(`[login] unsupported wallet auth method for Ed25519 warm-up: ${args.authMethod}`);
 }
@@ -1065,15 +972,7 @@ function resolveLoginWarmupPasskeyCredentialPlan(args: {
     return { kind: 'wallet_custody' };
   }
   if (args.hasLoginCredential) return { kind: 'existing_passkey_credential' };
-  switch (args.routeAuthorization.kind) {
-    case 'app_session_jwt':
-    case 'app_session_cookie':
-      return { kind: 'app_session_authorized_warmup' };
-    case 'none':
-      break;
-    default:
-      return assertNeverLoginState(args.routeAuthorization);
-  }
+  args.routeAuthorization.kind satisfies 'none';
   if (args.requiresLocalPasskeyUnlock) {
     return { kind: 'local_unlock_passkey_assertion_after_ecdsa_context' };
   }
@@ -1266,7 +1165,6 @@ function resolveThresholdLoginWarmupPhaseInput(
     ed25519SessionAuthority: resolveLoginEd25519SessionAuthority({
       wantsEd25519Warmup,
       authMethod: args.authMethod,
-      authMethodBinding: args.authMethodBinding,
       walletId: args.subjectSet.walletId,
       rpId,
       passkeyCredentialIdB64u: loginPasskeyCredentialIdB64u({
@@ -1274,7 +1172,6 @@ function resolveThresholdLoginWarmupPhaseInput(
         signerSlot: args.signerSlot,
       }),
       routeAuthorization: args.routeAuthorization,
-      emailOtpAuthPolicy: args.context.configs.signing.emailOtp.authPolicy,
     }),
     keyFactsInventoryAuthority: resolveLoginEcdsaKeyFactsInventoryAuthority({
       request: args.keyFactsInventoryRequest,
@@ -1546,7 +1443,6 @@ async function readLoginUnlockAccountPhase(args: {
 function buildSuccessfulLoginResult(args: {
   identity: ResolvedLoginWalletIdentity;
   accountSubject: LoginUnlockAccountSubject;
-  jwt: string;
 }): Extract<LoginResult, { success: true }> {
   switch (args.identity.kind) {
     case 'near_ed25519_capable_wallet':
@@ -1560,7 +1456,6 @@ function buildSuccessfulLoginResult(args: {
         loggedInNearAccountId: String(args.identity.nearAccountId),
         operationalPublicKey: args.accountSubject.operationalPublicKey,
         nearAccountId: args.identity.nearAccountId,
-        ...(args.jwt ? { jwt: args.jwt } : {}),
       };
     case 'evm_family_ecdsa_only_wallet':
       if (args.accountSubject.kind !== 'ecdsa_wallet_only') {
@@ -1570,7 +1465,6 @@ function buildSuccessfulLoginResult(args: {
         success: true,
         kind: 'ecdsa_wallet_unlocked',
         walletId: args.identity.walletId,
-        ...(args.jwt ? { jwt: args.jwt } : {}),
       };
   }
   return assertNeverLoginState(args.identity);
@@ -1581,7 +1475,7 @@ function buildSuccessfulLoginResult(args: {
  *
  * Responsibilities:
  * - Select the active account + signer slot (last-user pointer).
- * - Optionally mint a Router API app session (JWT/cookie) via session exchange.
+ * - Optionally warm owner signing sessions from the verified unlock proof.
  *
  * Note: signing flows still perform their own UserConfirm/WebAuthn prompting as needed.
  */
@@ -1686,7 +1580,7 @@ async function unlockInternal(
       requiresLocalPasskeyUnlock,
     } = accountPhase;
 
-    // Shared prompt wrapper used by local unlock, app-session exchange, and inventory repair.
+    // Shared prompt wrapper used by local unlock, owner-proof verification, and inventory repair.
     const collectLocalPasskeyCredentialForChallenge = async (args: {
       challengeB64u: string;
       saveAsLoginCredential: boolean;
@@ -1784,17 +1678,10 @@ async function unlockInternal(
             baseSignerSlot,
           ).catch(() => null)
         : Promise.resolve(null);
-    let preparedPasskeyExchangeEcdsaActivation: PreparedPasskeyExchangeEcdsaActivation | null =
-      null;
     let completedPasskeyExchangeEcdsaActivation: CompletedPasskeyExchangeEcdsaActivation | null =
       null;
     let completedPasskeySessionCustody: PasskeySessionCustodyUnlockV1 | null = null;
-    const session = options?.session;
-    const wantsServerSession = session !== undefined;
-    let localWarmupRouteAuthorization = resolveLoginWarmupRouteAuthorization({
-      appSessionJwt: '',
-      useAppSessionCookie: false,
-    });
+    let localWarmupRouteAuthorization = resolveLoginWarmupRouteAuthorization();
 
     // Warmup callers use this after side effects to turn a missing session into a clear error.
     const requireActiveWarmSession = (
@@ -1927,7 +1814,6 @@ async function unlockInternal(
             };
       switch (warmupPasskeyCredentialPlan.kind) {
         case 'existing_passkey_credential':
-        case 'app_session_authorized_warmup':
         case 'no_passkey_credential_required':
           break;
         case 'wallet_custody': {
@@ -2100,179 +1986,6 @@ async function unlockInternal(
         });
     };
 
-    // Server-session flow: exchange OIDC/passkey proof, optionally warm lanes, then return.
-    if (wantsServerSession) {
-      const relayUrl = (session?.relayUrl || context.configs.network.relayer.url).trim();
-      if (!relayUrl) {
-        throw new Error('Missing relayUrl for session-style login');
-      }
-
-      const exchange = session?.exchange;
-      if (exchange?.type === 'oidc_jwt' || exchange?.type === 'passkey_assertion') {
-        const exchangeRoute = (session?.route || '/session/exchange').trim();
-        const exchangePath = exchangeRoute.startsWith('/') ? exchangeRoute : `/${exchangeRoute}`;
-        let exchanged: Awaited<ReturnType<typeof exchangeSession>>;
-
-        // Build the exact proof the Router API expects for this exchange mode.
-        if (exchange.type === 'oidc_jwt') {
-          // OIDC exchange uses the caller-provided token directly.
-          const exchangeInput: SessionExchangeInput = {
-            type: 'oidc_jwt',
-            token: exchange.token,
-          };
-          emitUnlockEvent(onEvent, unlockSubjectId, {
-            phase: UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_STARTED,
-            status: 'running',
-          });
-          exchanged = await exchangeSession(
-            relayUrl,
-            exchangePath,
-            session.kind,
-            exchangeInput,
-            resolveSessionExchangeRuntimeScope(context),
-          );
-        } else {
-          const rpId = String(signingEngine.getRpId() || '').trim();
-          if (!rpId) {
-            throw new Error('Missing rpId for passkey_assertion session exchange');
-          }
-
-          preparedPasskeyExchangeEcdsaActivation =
-            requireThresholdWarmup && walletUnlockSelection.mode === 'ecdsa_only'
-              ? await preparePasskeyExchangeEcdsaActivation({
-                  context,
-                  walletIdentity,
-                  selection: walletUnlockSelection,
-                  ttlMs: signingSessionPolicy.ttlMs,
-                  remainingUses: requireLoginUnlockSessionUses(
-                    signingSessionPolicy.unlockRemainingUses,
-                  ),
-                })
-              : null;
-          const completedExchange = await completePasskeySessionExchange({
-            context,
-            walletIdentity,
-            unlockSubjectId,
-            onEvent,
-            authenticators,
-            signerSlot: baseSignerSlot,
-            relayUrl,
-            exchangePath,
-            sessionKind: session.kind,
-            rpId,
-            expectedOrigin: exchange.expectedOrigin ?? exchange.expected_origin,
-            activation: preparedPasskeyExchangeEcdsaActivation,
-            collectCredentialForChallenge: async (challenge) =>
-              await collectLocalPasskeyCredentialForChallenge({
-                challengeB64u: challenge.challengeB64u,
-                saveAsLoginCredential: true,
-                credentialIds: challenge.credentialIds,
-              }),
-          });
-          loginCredential = completedExchange.credential;
-          completedPasskeyExchangeEcdsaActivation = completedExchange.activation;
-          completedPasskeySessionCustody = completedExchange.custody;
-          await rememberPasskeySessionCustodyForExport({
-            walletId: String(walletIdentity.walletId),
-            exchange: completedExchange,
-          });
-          exchanged = completedExchange.result;
-        }
-        if (!exchanged.success) {
-          throw new Error(exchanged.error || 'Session exchange failed');
-        }
-
-        emitUnlockEvent(onEvent, unlockSubjectId, {
-          phase: UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_SUCCEEDED,
-          status: 'succeeded',
-          authMethod: loginCredential ? 'passkey' : undefined,
-        });
-
-        // App-session auth can authorize warmup and key-facts inventory in the same unlock.
-        if (requireThresholdWarmup) {
-          const authMethodBinding = await readThresholdWarmupAuthMethodBinding({
-            walletId: walletIdentity.walletId,
-            authMethod: localUnlockAuthMethod,
-          });
-          const warmupPhase = await warmThresholdSigningSessions(
-            resolveThresholdLoginWarmupPhaseInput({
-              context,
-              signerSlot: baseSignerSlot,
-              authenticators,
-              selection: walletUnlockSelection,
-              subjectSet: walletIdentity.subjectSet,
-              authMethod: localUnlockAuthMethod,
-              authMethodBinding,
-              keyFactsInventoryRequest: options?.ecdsaKeyFactsInventory,
-              routeAuthorization: resolveLoginWarmupRouteAuthorization({
-                appSessionJwt: String(exchanged.jwt || ''),
-                useAppSessionCookie: session.kind === 'cookie' && !!loginCredential,
-              }),
-            }),
-          );
-          signingSession = warmupPhase.signingSession;
-          await assertPasskeyUnlockRuntimePostconditions({
-            context,
-            walletIdentity,
-            signersWarmed: warmupPhase.signersWarmed,
-          });
-        }
-
-        // Account state is part of login durability. Nonce cleanup is lane-locked and
-        // best-effort, so it can continue after the wallet becomes usable.
-        await persistSuccessfulLoginState(baseSignerSlot);
-        void recoverNonceLanesAfterUnlock();
-
-        emitUnlockEvent(onEvent, unlockSubjectId, {
-          phase: UnlockEventPhase.STEP_06_SESSION_READY,
-          status: 'succeeded',
-          authMethod: loginCredential ? 'passkey' : undefined,
-        });
-
-        // Shape the public result once all optional warmup requirements have passed.
-        const loginResult = buildSuccessfulLoginResult({
-          identity: walletIdentity,
-          accountSubject,
-          jwt: String(exchanged.jwt || '').trim(),
-        });
-
-        const enrichedLoginResult: LoginAndCreateSessionResult = requireThresholdWarmup
-          ? {
-              ...loginResult,
-              ...requireThresholdWarmLoginBundle('login'),
-            }
-          : {
-              ...loginResult,
-              ...(signingSession ? { signingSession } : {}),
-            };
-        return await finalizeLoginSuccess({
-          context,
-          authMethod: localUnlockAuthMethod,
-          unlockSubjectId,
-          loginResult: enrichedLoginResult,
-          onEvent,
-          afterCall,
-        });
-      }
-
-      // Session login needs a supported exchange shape for app-session issuance.
-      const requestedRouteRaw = (session?.route || '').trim();
-      const requestedRoute = requestedRouteRaw
-        ? requestedRouteRaw.startsWith('/')
-          ? requestedRouteRaw
-          : `/${requestedRouteRaw}`
-        : '';
-      if (!exchange && (!requestedRoute || requestedRoute === '/session/exchange')) {
-        throw new Error(
-          'session.exchange is required when session.route targets /session/exchange',
-        );
-      }
-      if (!exchange) {
-        throw new Error('session.exchange is required for server session issuance');
-      }
-      throw new Error('session.exchange.type must be one of: oidc_jwt, passkey_assertion');
-    }
-
     // Avoid a duplicate prompt when threshold warmup will collect the assertion itself.
     const noServerSessionPasskeyCredentialPlan = resolveLoginNoServerSessionPasskeyCredentialPlan({
       requiresLocalPasskeyUnlock,
@@ -2291,9 +2004,8 @@ async function unlockInternal(
         return assertNeverLoginState(noServerSessionPasskeyCredentialPlan);
     }
 
-    // ECDSA-only unlock consumes exchange activation directly. Combined unlock mints
+    // ECDSA-only unlock consumes proof-bound activation directly. Combined unlock mints
     // its shared authority during Ed25519-first warm-up and avoids duplicate activation.
-    let didPerformPasskeySessionExchange = false;
     if (
       requireThresholdWarmup &&
       localUnlockAuthMethod === SIGNER_AUTH_METHODS.passkey &&
@@ -2318,7 +2030,7 @@ async function unlockInternal(
         if (!relayUrl || !rpId) {
           throw new Error('[login] passkey ECDSA activation requires relayer URL and rpId');
         }
-        const completedExchange = await completePasskeySessionExchange({
+        const completedUnlock = await completePasskeyWalletUnlock({
           context,
           walletIdentity,
           unlockSubjectId,
@@ -2326,8 +2038,6 @@ async function unlockInternal(
           authenticators,
           signerSlot: baseSignerSlot,
           relayUrl,
-          exchangePath: '/session/exchange',
-          sessionKind: 'jwt',
           rpId,
           expectedOrigin: undefined,
           activation: preparedActivation,
@@ -2338,33 +2048,15 @@ async function unlockInternal(
               credentialIds: challenge.credentialIds,
             }),
         });
-        loginCredential = completedExchange.credential;
-        completedPasskeyExchangeEcdsaActivation = completedExchange.activation;
-        completedPasskeySessionCustody = completedExchange.custody;
+        loginCredential = completedUnlock.credential;
+        completedPasskeyExchangeEcdsaActivation = completedUnlock.activation;
+        completedPasskeySessionCustody = completedUnlock.custody;
         await rememberPasskeySessionCustodyForExport({
           walletId: String(walletIdentity.walletId),
-          exchange: completedExchange,
+          unlock: completedUnlock,
         });
-        didPerformPasskeySessionExchange = true;
-        emitUnlockEvent(onEvent, unlockSubjectId, {
-          phase: UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_SUCCEEDED,
-          status: 'succeeded',
-          authMethod: 'passkey',
-        });
-        if (completedExchange.result.success && completedExchange.result.jwt) {
-          localWarmupRouteAuthorization = resolveLoginWarmupRouteAuthorization({
-            appSessionJwt: completedExchange.result.jwt,
-            useAppSessionCookie: false,
-          });
-        }
+        localWarmupRouteAuthorization = resolveLoginWarmupRouteAuthorization();
       }
-    }
-
-    if (!didPerformPasskeySessionExchange) {
-      emitUnlockEvent(onEvent, unlockSubjectId, {
-        phase: UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_SKIPPED,
-        status: 'skipped',
-      });
     }
 
     // Warm threshold sessions with the authorization established above.
@@ -2401,7 +2093,6 @@ async function unlockInternal(
     const baseLoginResult = buildSuccessfulLoginResult({
       identity: walletIdentity,
       accountSubject,
-      jwt: '',
     });
     const loginResult: LoginAndCreateSessionResult = requireThresholdWarmup
       ? {
@@ -2557,11 +2248,11 @@ type CompletedPasskeyExchangeEcdsaActivation = PreparedPasskeyExchangeEcdsaActiv
   readonly continuity: PasskeySessionEcdsaCustodyContinuityV1;
 };
 
-type CompletedPasskeySessionExchange = {
+type CompletedPasskeyWalletUnlock = {
   readonly credential: WebAuthnAuthenticationCredential;
   readonly activation: CompletedPasskeyExchangeEcdsaActivation | null;
   readonly custody: PasskeySessionCustodyUnlockV1;
-  readonly result: Awaited<ReturnType<typeof exchangeSession>>;
+  readonly result: Awaited<ReturnType<typeof verifyPasskeyWalletUnlock>>;
 };
 
 function sameCanonicalEcdsaValue(left: unknown, right: unknown): boolean {
@@ -2636,16 +2327,16 @@ function assertRejoinedPasskeyEcdsaPublicFacts(args: {
 
 async function rememberPasskeySessionCustodyForExport(args: {
   readonly walletId: string;
-  readonly exchange: CompletedPasskeySessionExchange;
+  readonly unlock: CompletedPasskeyWalletUnlock;
 }): Promise<void> {
   const credentialIdB64u = String(
-    args.exchange.credential.rawId || args.exchange.credential.id || '',
+    args.unlock.credential.rawId || args.unlock.credential.id || '',
   ).trim();
   if (!credentialIdB64u) throw new Error('[login] passkey assertion credential id is missing');
   await rememberPasskeyCustodySessionEnvelope({
     walletId: args.walletId,
     credentialIdB64u,
-    envelope: args.exchange.custody.envelope,
+    envelope: args.unlock.custody.envelope,
   });
 }
 
@@ -2678,7 +2369,7 @@ async function preparePasskeyExchangeEcdsaActivation(args: {
   }
   const runtimePolicyScope = context.runtimePolicyScope;
   if (!runtimePolicyScope) {
-    throw new Error('[login] passkey exchange ECDSA activation requires runtime policy scope');
+    throw new Error('[login] passkey ECDSA activation requires runtime policy scope');
   }
   const thresholdSessionId = requireThresholdLoginEcdsaSessionId(
     createThresholdLoginWarmSessionId('threshold-ecdsa-login'),
@@ -2703,7 +2394,7 @@ async function preparePasskeyExchangeEcdsaActivation(args: {
   };
 }
 
-async function completePasskeySessionExchange(args: {
+async function completePasskeyWalletUnlock(args: {
   context: LoginWebContext;
   walletIdentity: ResolvedLoginWalletIdentity;
   unlockSubjectId: string;
@@ -2711,8 +2402,6 @@ async function completePasskeySessionExchange(args: {
   authenticators: readonly LoginPasskeyAuthenticator[];
   signerSlot: number;
   relayUrl: string;
-  exchangePath: string;
-  sessionKind: 'jwt' | 'cookie';
   rpId: string;
   activation: PreparedPasskeyExchangeEcdsaActivation | null;
   expectedOrigin?: string;
@@ -2720,7 +2409,7 @@ async function completePasskeySessionExchange(args: {
     challengeB64u: string;
     credentialIds: readonly string[];
   }) => Promise<WebAuthnAuthenticationCredential>;
-}): Promise<CompletedPasskeySessionExchange> {
+}): Promise<CompletedPasskeyWalletUnlock> {
   emitUnlockEvent(args.onEvent, args.unlockSubjectId, {
     phase: UnlockEventPhase.STEP_03_PASSKEY_CHALLENGE_STARTED,
     status: 'running',
@@ -2764,44 +2453,33 @@ async function completePasskeySessionExchange(args: {
   const expectedOrigin = String(
     args.expectedOrigin ?? (typeof window !== 'undefined' ? window.location.origin : ''),
   ).trim();
-  const exchangeInput: SessionExchangeInput = args.activation
-    ? {
+  const unlockInput = args.activation
+    ? ({
         type: 'passkey_assertion',
         challengeId,
         walletId: String(args.walletIdentity.walletId),
         webauthn_authentication: credential,
         ...(expectedOrigin ? { expected_origin: expectedOrigin } : {}),
         ecdsaSessionPolicy: args.activation.policy,
-      }
-    : {
+      } satisfies import('@/core/rpcClients/near/rpcCalls').PasskeyWalletUnlockInput)
+    : ({
         type: 'passkey_assertion',
         challengeId,
         webauthn_authentication: credential,
         ...(expectedOrigin ? { expected_origin: expectedOrigin } : {}),
-      };
-  emitUnlockEvent(args.onEvent, args.unlockSubjectId, {
-    phase: UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_STARTED,
-    status: 'running',
-    authMethod: 'passkey',
-  });
-  const result = await exchangeSession(
-    args.relayUrl,
-    args.exchangePath,
-    args.sessionKind,
-    exchangeInput,
-    resolveSessionExchangeRuntimeScope(args.context),
-  );
+      } satisfies import('@/core/rpcClients/near/rpcCalls').PasskeyWalletUnlockInput);
+  const result = await verifyPasskeyWalletUnlock(args.relayUrl, unlockInput);
   if (!result.success) {
-    throw new Error(result.error || 'Passkey session exchange failed');
+    throw new Error(result.error || 'Passkey wallet unlock failed');
   }
   if (!result.walletCustody) {
-    throw new Error('Passkey session exchange omitted wallet custody continuity');
+    throw new Error('Passkey wallet unlock omitted wallet custody continuity');
   }
   if (
     args.activation &&
     (!result.ecdsaSession || !result.ecdsaActivationReceipt || !result.ecdsaCustody)
   ) {
-    throw new Error('Passkey session exchange omitted the requested ECDSA activation');
+    throw new Error('Passkey wallet unlock omitted the requested ECDSA activation');
   }
   if (
     args.activation &&
@@ -2819,7 +2497,7 @@ async function completePasskeySessionExchange(args: {
   }
   if (args.activation?.requiresCustodyRejoin) {
     if (!('ecdsaCustody' in result) || !result.ecdsaCustody) {
-      throw new Error('Passkey ECDSA custody rejoin requires server continuity');
+      throw new Error('Passkey wallet unlock omitted ECDSA custody rejoin continuity');
     }
     const passkeyPrfFirstB64u = passkeyPrfFirstB64uFromCredential(credential);
     if (!passkeyPrfFirstB64u) {
@@ -2951,9 +2629,10 @@ type ThresholdLoginWarmupTaskOutcome =
 
 type ThresholdLoginWarmEd25519State = {
   thresholdSessionId: string;
+  authorizationId: WalletSessionAuthorizationId | null;
   walletSessionId: WalletSessionId | null;
   quotaId: MpcWalletSigningQuotaId | null;
-  jwt: string;
+  walletSessionToken: string;
   expiresAtMs: number;
   remainingUses: number;
   runtimePolicyScope: ThresholdRuntimePolicyScope | null;
@@ -3010,9 +2689,10 @@ async function stageMintedLoginEd25519WalletSessionAuthority(
   minted: MintedEd25519WalletSessionAuthority,
 ): Promise<void> {
   context.sharedState.ed25519.thresholdSessionId = String(minted.thresholdSessionId);
+  context.sharedState.ed25519.authorizationId = minted.authorizationId;
   context.sharedState.ed25519.walletSessionId = minted.walletSessionId;
   context.sharedState.ed25519.quotaId = minted.quotaId;
-  context.sharedState.ed25519.jwt = minted.jwt;
+  context.sharedState.ed25519.walletSessionToken = minted.walletSessionToken;
   context.sharedState.ed25519.expiresAtMs = minted.expiresAtMs;
   context.sharedState.ed25519.remainingUses = minted.remainingUses;
   context.sharedState.ed25519.runtimePolicyScope = minted.runtimePolicyScope;
@@ -3047,13 +2727,13 @@ function createActiveLoginSigningSessionStatus(args: {
 }
 
 type ThresholdLoginWarmEcdsaBootstrapIdentity = {
-  routeAuth?: Extract<AppOrWalletSessionAuth, { kind: 'wallet_session' }>;
+  routeAuth?: OpaqueWalletSessionAuth;
 };
 
 function isWalletSessionReconnectEcdsaRouteAuth(
-  auth: AppOrWalletSessionAuth | undefined,
-): auth is Extract<AppOrWalletSessionAuth, { kind: 'wallet_session' }> {
-  return auth?.kind === 'wallet_session';
+  auth: OpaqueWalletSessionAuth | undefined,
+): auth is OpaqueWalletSessionAuth {
+  return auth?.kind === 'opaque_wallet_session';
 }
 
 type ThresholdLoginWarmupResult = {
@@ -3112,7 +2792,7 @@ function preauthorizedEcdsaActivationFromBootstrap(
       quota_id: session.quotaId,
       expires_at_ms: session.expiresAtMs,
       remaining_uses: session.remainingUses,
-      wallet_session_jwt: session.jwt,
+      wallet_session_token: session.walletSessionToken,
     },
     normal_signing: normalSigning,
   };
@@ -3260,16 +2940,7 @@ function resolveThresholdLoginWarmEcdsaBootstrapIdentity(args: {
   credentialState: LoginWarmupCredentialState;
   routeAuthorization: LoginWarmupRouteAuthorization;
 }): ThresholdLoginWarmEcdsaBootstrapIdentity {
-  switch (args.routeAuthorization.kind) {
-    case 'app_session_jwt':
-      return {};
-    case 'app_session_cookie':
-      throw new Error('[login] threshold ECDSA warm-up requires bearer route authorization');
-    case 'none':
-      break;
-    default:
-      return assertNeverLoginState(args.routeAuthorization);
-  }
+  args.routeAuthorization.kind satisfies 'none';
   if (args.credentialState.kind === 'available') {
     return {};
   }
@@ -3319,31 +2990,14 @@ function buildLoginEd25519WalletSessionMintAuthorization(args: {
   credentialState: LoginWarmupCredentialState;
   rpId: string;
 }): Ed25519WalletSessionMintAuthorization | undefined {
-  switch (args.routeAuthorization.kind) {
-    case 'app_session_jwt':
-      if (args.credentialState.kind !== 'available') return undefined;
-      return {
-        kind: 'app_session_jwt',
-        appSessionJwt: args.routeAuthorization.appSessionJwt,
-        localSecretSource: buildThresholdEd25519WebAuthnPrfSecretSource({
-          credential: args.credentialState.credential,
-          rpId: args.rpId,
-        }),
-      };
-    case 'app_session_cookie':
-      if (args.credentialState.kind !== 'available') return undefined;
-      return {
-        kind: 'app_session_cookie',
-        localSecretSource: buildThresholdEd25519WebAuthnPrfSecretSource({
-          credential: args.credentialState.credential,
-          rpId: args.rpId,
-        }),
-      };
-    case 'none':
-      return undefined;
-    default:
-      return assertNeverLoginState(args.routeAuthorization);
-  }
+  if (args.credentialState.kind !== 'available') return undefined;
+  return {
+    kind: 'threshold_session_policy_webauthn',
+    policySecretSource: buildThresholdEd25519WebAuthnPrfSecretSource({
+      credential: args.credentialState.credential,
+      rpId: args.rpId,
+    }),
+  };
 }
 
 type PasskeyEd25519CustodyLoginInput = {
@@ -3352,7 +3006,7 @@ type PasskeyEd25519CustodyLoginInput = {
   walletBinding: ResolvedLoginWalletBinding;
   signerSlot: number;
   passkeyPrfFirstB64u: string;
-  walletSessionJwt: string;
+  walletSessionToken: string;
   thresholdSessionId: string;
   routerAbNormalSigning: ReturnType<typeof createRouterAbNormalSigningPolicy>;
   relayerUrl: string;
@@ -3451,7 +3105,7 @@ async function openAndActivatePasskeyEd25519CustodyLogin(
         participantIds: capability.participantIds,
         registeredPublicKeyB64u: base64UrlEncode(Uint8Array.from(capability.registeredPublicKey)),
         routerOrigin: new URL(input.relayerUrl).origin,
-        walletSessionJwt: input.walletSessionJwt,
+        walletSessionToken: input.walletSessionToken,
       });
       const materialBinding: WalletCustodyEd25519MaterialBindingV1 = {
         kind: WALLET_CUSTODY_ED25519_MATERIAL_KEY_KIND,
@@ -3684,9 +3338,10 @@ async function primeThresholdLoginWarmSigners(args: {
     activeEd25519Authorization: null,
     ed25519: {
       thresholdSessionId: '',
+      authorizationId: null,
       walletSessionId: null,
       quotaId: null,
-      jwt: '',
+      walletSessionToken: '',
       expiresAtMs: 0,
       remainingUses: 0,
       runtimePolicyScope: null,
@@ -3757,7 +3412,7 @@ async function primeThresholdLoginWarmSigners(args: {
           routerAbNormalSigning: provisionScope.routerAbNormalSigning,
           runtimeScopeBootstrap: runtimeScopeBootstrap || undefined,
           participantIds: provisionScope.participantIds,
-          sessionKind: 'jwt' as const,
+          sessionKind: 'opaque' as const,
           ttlMs: args.ttlMs,
           remainingUses: unlockRemainingUses,
           onWalletSessionAuthorityReady: stageMintedLoginEd25519WalletSessionAuthority.bind(
@@ -3820,15 +3475,18 @@ async function primeThresholdLoginWarmSigners(args: {
           throw new Error('[login] threshold Ed25519 warm-up did not return a thresholdSessionId');
         }
 
-        const connectedJwt = String(connected.jwt || '').trim();
-        if (!connectedJwt) {
-          throw new Error('[login] threshold Ed25519 warm-up did not return a JWT session token');
+        const connectedWalletSessionToken = String(connected.walletSessionToken || '').trim();
+        if (!connectedWalletSessionToken) {
+          throw new Error(
+            '[login] threshold Ed25519 warm-up did not return a Wallet Session token',
+          );
         }
 
         sharedState.activeEd25519Authorization = await persistActiveWalletSessionAuthorizationCurve(
           walletSessionAuthorizations,
           {
             walletId: walletBinding.walletId,
+            authorizationId: connected.authorizationId,
             walletSessionId: connected.walletSessionId,
             quotaId: connected.quotaId,
             expiresAtMs: connected.expiresAtMs,
@@ -3836,7 +3494,8 @@ async function primeThresholdLoginWarmSigners(args: {
               authority: ed25519SessionAuthority.authority.authority,
             }),
             authMethod: args.authMethod,
-            walletSessionJwt: connectedJwt,
+            walletSessionToken: connectedWalletSessionToken,
+            thresholdSessionId: connectedThresholdSessionId,
             curve: 'ed25519',
           },
         );
@@ -3864,7 +3523,7 @@ async function primeThresholdLoginWarmSigners(args: {
               walletBinding,
               signerSlot: args.signerSlot,
               passkeyPrfFirstB64u,
-              walletSessionJwt: connectedJwt,
+              walletSessionToken: connectedWalletSessionToken,
               thresholdSessionId: connectedThresholdSessionId,
               routerAbNormalSigning: provisionScope.routerAbNormalSigning,
               relayerUrl: args.relayerUrl,
@@ -3939,18 +3598,20 @@ async function primeThresholdLoginWarmSigners(args: {
           bootstrap: ThresholdEcdsaSessionBootstrapResult,
         ): void => {
           if (ecdsaAuthorizedEd25519Mint) return;
-          const thresholdEcdsaSessionJwt = String(bootstrap.session.jwt || '').trim();
+          const thresholdEcdsaSessionToken = String(
+            bootstrap.session.walletSessionToken || '',
+          ).trim();
           const passkeyPrfFirstB64u = credential
             ? passkeyPrfFirstB64uFromCredential(credential)
             : '';
           const passkeyCredentialIdB64u =
             passkeyCredentialIdB64uFromAuthentication(credential || undefined) ||
             localPasskeyCredentialIdB64u;
-          if (!thresholdEcdsaSessionJwt || !passkeyPrfFirstB64u || !passkeyCredentialIdB64u) {
+          if (!thresholdEcdsaSessionToken || !passkeyPrfFirstB64u || !passkeyCredentialIdB64u) {
             return;
           }
           ecdsaAuthorizedEd25519Mint = {
-            thresholdEcdsaSessionJwt,
+            thresholdEcdsaSessionJwt: thresholdEcdsaSessionToken,
             passkeyPrfFirstB64u,
             passkeyCredentialIdB64u,
             walletSessionId: bootstrap.session.walletSessionId,
@@ -3958,15 +3619,25 @@ async function primeThresholdLoginWarmSigners(args: {
           };
         };
         const resolveCurrentBootstrapIdentity = (): ThresholdLoginWarmEcdsaBootstrapIdentity => {
-          if (sharedState.ed25519.jwt) {
-            return { routeAuth: walletSessionJwtAuth(sharedState.ed25519.jwt) };
+          if (sharedState.ed25519.walletSessionToken) {
+            return {
+              routeAuth: {
+                kind: 'opaque_wallet_session',
+                walletSessionToken: requireOpaqueWalletSessionToken(
+                  sharedState.ed25519.walletSessionToken,
+                ),
+              },
+            };
           }
-          const thresholdEcdsaSessionJwt = String(
+          const thresholdEcdsaSessionToken = String(
             ecdsaAuthorizedEd25519Mint?.thresholdEcdsaSessionJwt || '',
           ).trim();
-          if (thresholdEcdsaSessionJwt) {
+          if (thresholdEcdsaSessionToken) {
             return {
-              routeAuth: { kind: 'wallet_session', jwt: thresholdEcdsaSessionJwt },
+              routeAuth: {
+                kind: 'opaque_wallet_session',
+                walletSessionToken: requireOpaqueWalletSessionToken(thresholdEcdsaSessionToken),
+              },
             };
           }
           if (bootstrapIdentity) return bootstrapIdentity;
@@ -4014,7 +3685,6 @@ async function primeThresholdLoginWarmSigners(args: {
           const lanePolicy = buildEvmFamilyEcdsaSessionLanePolicy({
             chainTarget: target.chainTarget,
             thresholdSessionId,
-            thresholdSessionKind: 'jwt',
             ttlMs: args.ttlMs,
             remainingUses: unlockRemainingUses,
             runtimePolicyScope,
@@ -4712,20 +4382,14 @@ async function resolveWalletEcdsaKeyFactsInventoryForLogin(args: {
   if (!relayerUrl || !rpId) {
     throw new Error('[login] threshold ECDSA key-facts inventory requires relayerUrl and rpId');
   }
-  if (args.authority?.kind === 'app_session') {
-    return await fetchWalletEcdsaKeyFactsInventoryWithAppSession({
+  if (args.authority?.kind === 'opaque_wallet_session') {
+    return await fetchWalletEcdsaKeyFactsInventoryWithOpaqueWalletSession({
       relayerUrl,
       walletId: args.walletId,
       rpId,
-      appSessionJwt: args.authority.appSessionJwt,
+      curve: args.authority.curve,
+      walletSessionToken: args.authority.walletSessionToken,
       keyTargets: args.keyTargets,
-      policy: {
-        permission: 'ecdsa_key_facts_inventory',
-        walletId: args.walletId,
-        chainTargets: args.keyTargets.map((target) => target.chainTarget),
-        expiresAtMs: args.authority.policyExpiresAtMs,
-      },
-      ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
     });
   }
   return await resolveWalletEcdsaKeyFactsInventoryWithWebAuthn({
@@ -5240,18 +4904,6 @@ async function resolveCanonicalThresholdEcdsaWarmSessionContext(
     source: 'profile continuity',
   });
   return canonicalContext;
-}
-
-function resolveSessionExchangeRuntimeScope(
-  context: Pick<LoginWebContext, 'configs'>,
-): SessionExchangeRuntimeScope {
-  const bootstrap = resolveManagedRuntimeScopeBootstrap(context.configs);
-  if (!bootstrap) return { kind: 'unscoped' };
-  return {
-    kind: 'managed',
-    projectEnvironmentId: bootstrap.projectEnvironmentId,
-    publishableKey: bootstrap.publishableKey,
-  };
 }
 
 async function resolveProfileContinuityThresholdEcdsaPublicKeyB64u(

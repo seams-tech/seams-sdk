@@ -78,7 +78,6 @@ const mixedAuthoritySpread = {
     otpCode: '123456',
     otpChannel: 'email_otp' as const,
     registrationIntentDigestB64u: 'digest',
-    appSessionVersion: 'v1',
   },
 };
 
@@ -116,18 +115,6 @@ const rawAddAuthMethodIntentBody = {
   },
 };
 
-// @ts-expect-error Email OTP proofs must identify the provider subject that owns the OTP.
-const invalidEmailOtpRegistrationProof: EmailOtpRegistrationProof = {
-  version: 'email_otp_registration_proof_v1',
-  email: 'alice@example.test',
-  challengeId: 'challenge-1',
-  otpCode: '123456',
-  otpChannel: 'email_otp',
-  registrationIntentDigestB64u: 'digest',
-  appSessionVersion: 'v1',
-};
-void invalidEmailOtpRegistrationProof;
-
 const invalidRegistrationStart: WalletRegistrationStartRequest = {
   registrationIntentGrant: registrationIntentGrantFromString('rig_1'),
   registrationIntentDigestB64u: 'digest',
@@ -143,13 +130,8 @@ const invalidAddAuthMethodStart: WalletAddAuthMethodStartRequest = {
   addAuthMethodIntentDigestB64u: 'digest',
   intent: addAuthMethodIntent,
   auth: {
-    kind: 'app_session',
-    policy: {
-      permission: 'wallet_auth_method_provision',
-      walletId: walletIdFromString('wallet_alice'),
-      authMethod: { kind: 'passkey', rpId: webAuthnRpId },
-      expiresAtMs: 1,
-    },
+    // @ts-expect-error authorization kinds are restricted to active factors.
+    kind: 'invalid_authorization',
   },
   // @ts-expect-error add-auth-method start authority must stay branch-specific after broad spreads.
   authority: passkeyAuthoritySpread,

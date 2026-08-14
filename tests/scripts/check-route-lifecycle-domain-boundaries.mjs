@@ -368,18 +368,14 @@ check('route/lifecycle boundary threshold ECDSA key-identity inventory has one w
   );
 
   expect(walletRegistrationSource).toContain('handleRouterApiWalletEcdsaKeyFactsInventory');
-  expect(walletRegistrationSource).toContain("permission: 'ecdsa_key_facts_inventory'");
 });
 
-check('route/lifecycle boundary threshold and session exchange routes parse commands before services', () => {
+check('route/lifecycle boundary threshold routes parse commands before services', () => {
   const ed25519Parser = readRepoSource(
     'packages/sdk-server-ts/src/router/domains/ed25519Yao/session/thresholdEd25519RequestValidation.ts',
   );
   const ecdsaParser = readRepoSource(
     'packages/sdk-server-ts/src/router/domains/ecdsa/thresholdEcdsaRequestValidation.ts',
-  );
-  const sessionExchangeParser = readRepoSource(
-    'packages/sdk-server-ts/src/router/auth/sessionExchangeRequestValidation.ts',
   );
   const routeValidation = readRepoSource(
     'packages/sdk-server-ts/src/router/framework/routeRequestValidation.ts',
@@ -394,23 +390,10 @@ check('route/lifecycle boundary threshold and session exchange routes parse comm
   const cloudflareEcdsa = readRepoSource(
     'packages/sdk-server-ts/src/router/transport/fetch/routes/thresholdEcdsa.ts',
   );
-  const cloudflareSessions = readRepoSource(
-    'packages/sdk-server-ts/src/router/transport/fetch/routes/sessions.ts',
-  );
 
   expect(ed25519Parser).toContain('parseThresholdEd25519SessionRouteRequest');
   expect(ecdsaParser).toContain('parseRouterAbEcdsaDerivationPoolFillInitRouteRequest');
   expect(ecdsaParser).toContain('parseRouterAbEcdsaDerivationPoolFillStepRouteRequest');
-  expect(sessionExchangeParser).toContain('export function parseSessionExchangeRouteCommand');
-  expect(sessionExchangeParser).toContain("import { parseSessionKind } from '../framework/routerApi'");
-  expect(sessionExchangeParser).toContain(
-    "import { parseOidcAccountMode } from '../domains/emailOtp/emailOtpSessionRouteHelpers'",
-  );
-  expect(sessionExchangeParser).not.toContain('function unexpectedKey');
-  expect(sessionExchangeParser).not.toContain('function normalizedString');
-  expect(sessionExchangeParser).not.toContain('function parseSessionKind');
-  expect(sessionExchangeParser).not.toContain('function parseAccountMode');
-  expect(sessionExchangeParser).not.toContain('function parseWebAuthnAuthenticationCredential');
   expect(routeValidation).toContain('export function parseWebAuthnAuthenticationCredential');
 
   expect(ed25519Parser).not.toContain('appSessionClaims');
@@ -457,22 +440,6 @@ check('route/lifecycle boundary threshold and session exchange routes parse comm
   expect(cloudflarePoolFill).not.toContain('request: reqBody');
   expect(cloudflarePoolFill).not.toContain('body: req.body');
 
-  const cloudflareExchange = sourceRange(
-    cloudflareSessions,
-    'export async function handleSessionExchange',
-    'export async function handleSessionRevoke',
-  );
-  expect(cloudflareExchange).toContain('parseSessionExchangeRouteCommand');
-  expect(cloudflareExchange).toContain('const command = parsedExchange.command;');
-  expect(cloudflareExchange).toContain(
-    "if (command.kind === 'oidc_jwt' || command.kind === 'github_oauth_code')",
-  );
-  expect(cloudflareExchange).not.toContain('const exchange =');
-  expect(cloudflareExchange).not.toContain('exchange as any');
-  expect(cloudflareExchange).not.toContain('exchange.token');
-  expect(cloudflareExchange).not.toContain('exchange.webauthn_authentication');
-  expect(cloudflareExchange).not.toContain('verifyGoogleLogin({ idToken: (exchange');
-  expect(cloudflareExchange).not.toContain('verifyOidcJwtExchange({ token: (exchange');
 });
 
 console.log('[check-route-lifecycle-domain-boundaries] passed');

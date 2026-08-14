@@ -15,6 +15,7 @@ import type {
 } from '../identity/evmFamilyEcdsaIdentity';
 import type { PersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocalMaterialResolver';
 import type { EcdsaBootstrapRequest } from './ecdsaBootstrap';
+import { requireOpaqueWalletSessionToken } from '@shared/utils/sessionTokens';
 
 declare const walletId: WalletId;
 declare const subjectId: WalletId;
@@ -58,8 +59,8 @@ const validPasskeyFreshBootstrap = {
   source: 'login',
   passkeyCredentialIdB64u,
   routeAuth: {
-    kind: 'wallet_session',
-    jwt: 'threshold-session-jwt',
+    kind: 'opaque_wallet_session',
+    walletSessionToken: requireOpaqueWalletSessionToken('threshold-session-token'),
   },
 } satisfies EcdsaBootstrapRequest;
 void validPasskeyFreshBootstrap;
@@ -102,8 +103,8 @@ const invalidPasskeyPreauthorizedBootstrapWithRouteAuth: EcdsaBootstrapRequest =
   sessionActivation,
   routeAuth: {
     // @ts-expect-error Preauthorized bootstrap cannot trigger another route authorization.
-    kind: 'wallet_session',
-    jwt: 'threshold-session-jwt',
+    kind: 'opaque_wallet_session',
+    walletSessionToken: requireOpaqueWalletSessionToken('threshold-session-token'),
   },
 };
 void invalidPasskeyPreauthorizedBootstrapWithRouteAuth;
@@ -126,8 +127,8 @@ const validWalletSessionReconnectBootstrap = {
   existingRoleLocalMaterial,
   passkeyCredentialIdB64u,
   routeAuth: {
-    kind: 'wallet_session',
-    jwt: 'threshold-session-jwt',
+    kind: 'opaque_wallet_session',
+    walletSessionToken: requireOpaqueWalletSessionToken('threshold-session-token'),
   },
 } satisfies EcdsaBootstrapRequest;
 void validWalletSessionReconnectBootstrap;

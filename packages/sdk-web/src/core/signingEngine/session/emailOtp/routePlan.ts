@@ -1,6 +1,7 @@
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
+import type { WalletSessionRouteAuth } from '@shared/utils/sessionTokens';
+import { requireOpaqueWalletSessionToken } from '@shared/utils/sessionTokens';
 import type {
   WalletEmailOtpExportOperation,
   WalletEmailOtpLoginOperation,
@@ -12,7 +13,6 @@ import {
 } from '@shared/utils/emailOtpDomain';
 import {
   buildEmailOtpRoutePlan,
-  routeFamilyForAuthLane,
   type EmailOtpAuthLane,
   type EmailOtpRoutePlan,
   type EmailOtpSigningSessionAuthLane,
@@ -58,24 +58,16 @@ export function throwEmailOtpSigningSessionAuthStateError(
   throw new EmailOtpSigningSessionAuthStateError(failure);
 }
 
-export type EmailOtpAppSessionRouteAuth = {
-  kind: 'app_session';
-  jwt: string;
-  curve?: never;
-  thresholdSessionId?: never;
-  chainTarget?: never;
-};
-
 export type EmailOtpThresholdEd25519RouteAuth = {
   kind: 'threshold_ed25519_session';
-  jwt: string;
+  walletSessionToken: string;
   curve: 'ed25519';
   chainTarget?: never;
 };
 
 export type EmailOtpThresholdEcdsaRouteAuth = {
   kind: 'threshold_ecdsa_session';
-  jwt: string;
+  walletSessionToken: string;
   curve: 'ecdsa';
   // Session-scoped runtime state only. Operation authority is attached later.
   thresholdSessionId: string;
@@ -83,7 +75,6 @@ export type EmailOtpThresholdEcdsaRouteAuth = {
 };
 
 export type EmailOtpEcdsaBootstrapRouteAuth =
-  | EmailOtpAppSessionRouteAuth
   | EmailOtpThresholdEcdsaRouteAuth;
 
 export type EmailOtpEcdsaBootstrapAuthorization =
@@ -102,20 +93,17 @@ function assertNever(value: never): never {
 
 export function buildFreshEmailOtpRoutePlan(args: {
   freshRouteFamily: 'login' | 'registration';
-  authLane: EmailOtpAuthLane;
   operation?: WalletEmailOtpLoginOperation;
 }): EmailOtpRoutePlan {
-  const operation =
-    args.freshRouteFamily === 'registration'
-      ? WALLET_EMAIL_OTP_REGISTRATION_OPERATION
-      : (args.operation ?? WALLET_EMAIL_OTP_UNLOCK_OPERATION);
+  if (args.freshRouteFamily === 'registration') {
+    return buildEmailOtpRoutePlan({
+      routeFamily: 'registration',
+      operation: WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
+    });
+  }
   return buildEmailOtpRoutePlan({
-    routeFamily: routeFamilyForAuthLane({
-      authLane: args.authLane,
-      freshRouteFamily: args.freshRouteFamily,
-    }),
-    authLane: args.authLane,
-    operation,
+    routeFamily: 'login',
+    operation: args.operation ?? WALLET_EMAIL_OTP_UNLOCK_OPERATION,
   });
 }
 
@@ -146,16 +134,10 @@ export function buildEmailOtpSigningSessionRoutePlan(args: {
 export function emailOtpEcdsaBootstrapRouteAuthFromAuthLane(
   authLane: EmailOtpAuthLane,
 ): EmailOtpEcdsaBootstrapRouteAuth | undefined {
-  if (authLane.kind === 'app_session') {
-    return {
-      kind: 'app_session',
-      jwt: authLane.jwt,
-    };
-  }
   if (authLane.kind === 'signing_session' && authLane.curve === 'ecdsa') {
     return {
       kind: 'threshold_ecdsa_session',
-      jwt: authLane.jwt,
+      walletSessionToken: authLane.walletSessionToken,
       curve: 'ecdsa',
       thresholdSessionId: authLane.thresholdSessionId,
       chainTarget: authLane.chainTarget,
@@ -167,17 +149,15 @@ export function emailOtpEcdsaBootstrapRouteAuthFromAuthLane(
 export function emailOtpEcdsaBootstrapRouteAuthFromRoutePlan(
   routePlan: EmailOtpRoutePlan,
 ): EmailOtpEcdsaBootstrapRouteAuth | undefined {
+  if (routePlan.routeFamily !== 'signing_session') return undefined;
   return emailOtpEcdsaBootstrapRouteAuthFromAuthLane(routePlan.authLane);
 }
 
 export function emailOtpEcdsaBootstrapRouteAuthToTransport(
   auth: EmailOtpEcdsaBootstrapRouteAuth,
-): AppOrWalletSessionAuth {
-  switch (auth.kind) {
-    case 'app_session':
-      return { kind: 'app_session', jwt: auth.jwt };
-    case 'threshold_ecdsa_session':
-      return { kind: 'wallet_session', jwt: auth.jwt };
-  }
-  return assertNever(auth);
+): WalletSessionRouteAuth {
+  return {
+    kind: 'opaque_wallet_session',
+    walletSessionToken: requireOpaqueWalletSessionToken(auth.walletSessionToken),
+  };
 }

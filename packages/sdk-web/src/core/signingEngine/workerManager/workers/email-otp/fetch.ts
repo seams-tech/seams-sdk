@@ -1,6 +1,9 @@
 import { errorMessage } from '@shared/utils/errors';
 import { joinNormalizedUrl } from '@shared/utils/normalize';
-import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
+import type { WalletSessionRouteAuth } from '@shared/utils/sessionTokens';
+
+type EmailOtpSessionAuth =
+  WalletSessionRouteAuth;
 
 export type EmailOtpWorkerJson = Record<string, unknown>;
 
@@ -12,11 +15,10 @@ function requireObjectJson(value: unknown, label: string): EmailOtpWorkerJson {
 }
 
 function buildSessionHeaders(args: {
-  appSessionJwt?: string;
-  sessionAuth?: AppOrWalletSessionAuth;
+  sessionAuth?: EmailOtpSessionAuth;
 }): HeadersInit {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const token = String(args.sessionAuth?.jwt || args.appSessionJwt || '').trim();
+  const token = String(args.sessionAuth?.walletSessionToken || '').trim();
   if (token) headers.Authorization = `Bearer ${token}`;
   return headers;
 }
@@ -25,15 +27,14 @@ export async function postEmailOtpJson(args: {
   relayUrl: string;
   route: string;
   body: EmailOtpWorkerJson;
-  appSessionJwt?: string;
-  sessionAuth?: AppOrWalletSessionAuth;
+  sessionAuth?: EmailOtpSessionAuth;
 }): Promise<EmailOtpWorkerJson> {
   const url = joinNormalizedUrl(args.relayUrl, args.route);
   try {
     const response = await fetch(url, {
       method: 'POST',
-      headers: buildSessionHeaders({ appSessionJwt: args.appSessionJwt, sessionAuth: args.sessionAuth }),
-      credentials: args.appSessionJwt || args.sessionAuth ? 'omit' : 'include',
+      headers: buildSessionHeaders({ sessionAuth: args.sessionAuth }),
+      credentials: args.sessionAuth ? 'omit' : 'include',
       body: JSON.stringify(args.body),
     });
     const text = await response.text();

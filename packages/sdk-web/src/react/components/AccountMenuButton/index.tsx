@@ -148,6 +148,9 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
   // Read current theme from Theme context (falls back to system preference)
   const { theme } = useTheme();
   const canShowRecoveryCodes = loginState.isLoggedIn && Boolean(walletId);
+  const handleQrCodeScanned = useCallback(() => {
+    setShowQRScanner(false);
+  }, []);
 
   useEffect(() => {
     if (!canShowRecoveryCodes) {
@@ -487,6 +490,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
           <QRCodeScanner
             key="profile-qr-scanner"
             isOpen={showQRScanner}
+            onQRCodeScanned={handleQrCodeScanned}
             onError={(error) => {
               deviceLinkingScannerParams?.onError?.(error);
               setShowQRScanner(false);

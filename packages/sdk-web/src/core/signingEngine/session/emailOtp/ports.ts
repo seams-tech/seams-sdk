@@ -37,7 +37,6 @@ export type EmailOtpCoordinatorRuntimePorts = {
   readActiveWalletSessionAuthorization: (
     walletId: WalletId,
   ) => Promise<WalletSessionAuthorizationReadResult<ActiveWalletSessionAuthorizationProjection>>;
-  refreshAppSessionJwt?: (args: { relayUrl: string }) => Promise<string>;
 };
 
 export type EmailOtpEcdsaSessionPorts = {

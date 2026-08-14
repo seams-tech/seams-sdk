@@ -3,9 +3,6 @@ import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/nearAc
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { RouterAbEd25519NormalSigningState } from '@/core/signingEngine/threshold/ed25519/routerAbNormalSigningState';
 import type { ResolvedRouterAbEd25519WalletSessionState } from './routerAbEd25519WalletSessionState';
-import {
-  parseRouterAbEd25519WalletSessionIdentityClaims,
-} from '@/core/signingEngine/session/routerAbSigningWalletSession';
 
 export type RouterAbEd25519NormalSigningReadyState = {
   kind: 'router_ab_ed25519_normal_signing_ready_state_v1';
@@ -83,17 +80,6 @@ export function requireRouterAbEd25519NormalSigningReadyState(args: {
     state.signingLane.identity.signer.account.wallet.walletId,
     'state.signingLane.identity.signer.account.wallet.walletId',
   );
-  const walletSessionClaims = parseRouterAbEd25519WalletSessionIdentityClaims(
-    signingWalletSession.auth.walletSessionJwt,
-  );
-  if (!walletSessionClaims) {
-    throw new Error('Router A/B Ed25519 normal-signing ready state Wallet Session claims are invalid');
-  }
-  requireEqual(walletSessionClaims.walletId, walletId, 'walletId');
-  requireEqual(walletSessionClaims.nearAccountId, nearAccountId, 'nearAccountId');
-  requireEqual(walletSessionClaims.thresholdSessionId, thresholdSessionId, 'claims thresholdSessionId');
-  requireEqual(walletSessionClaims.walletSessionId, walletSessionId, 'claims walletSessionId');
-  requireEqual(walletSessionClaims.quotaId, quotaId, 'claims quotaId');
   requireEqual(
     requireNonEmpty(args.thresholdKeyMaterial.nearAccountId, 'thresholdKeyMaterial.nearAccountId'),
     nearAccountId,
@@ -102,9 +88,9 @@ export function requireRouterAbEd25519NormalSigningReadyState(args: {
 
   const routerAbState = signingWalletSession.routerAbNormalSigning;
   const runtimePolicyScope = signingWalletSession.runtimePolicyScope;
-  const walletSessionJwt = requireNonEmpty(
-    signingWalletSession.auth.walletSessionJwt,
-    'Wallet Session bearer JWT',
+  const walletSessionToken = requireNonEmpty(
+    signingWalletSession.auth.walletSessionToken,
+    'Wallet Session bearer token',
   );
   const signingRootId = requireNonEmpty(state.signingRootId, 'state.signingRootId');
   const signingRootVersion = requireNonEmpty(
@@ -154,8 +140,8 @@ export function requireRouterAbEd25519NormalSigningReadyState(args: {
     expiresAtMs,
     runtimePolicyScope,
     credential: {
-      kind: 'wallet_session_jwt',
-      walletSessionJwt,
+      kind: 'wallet_session_opaque',
+      walletSessionToken,
     },
   };
 }

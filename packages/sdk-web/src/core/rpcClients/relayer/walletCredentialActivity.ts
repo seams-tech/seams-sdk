@@ -13,6 +13,7 @@ import {
 } from '@shared/utils/domainIds';
 import { parseUnixMs, requireRecord } from '@shared/passkey-custody/primitives';
 import { normalizeRelayerBaseUrl } from './relayerHttp';
+import type { WalletCustodyFactorProof } from './walletRecoveryRotate';
 
 const CREDENTIALS_LIST_PATH = '/wallets/:walletId/custody/credentials';
 const CREDENTIAL_LABEL_PATH = '/wallets/:walletId/custody/credentials/label';
@@ -37,19 +38,23 @@ export type WalletCredentialRenameResult =
 export async function listWalletCredentialActivity(args: {
   readonly relayUrl: string;
   readonly walletId: string;
-  readonly sessionToken?: string;
+  readonly factorProof: WalletCustodyFactorProof;
   readonly fetchImpl?: typeof fetch;
 }): Promise<WalletCredentialActivityListResult> {
   const url = `${normalizeRelayerBaseUrl(args.relayUrl)}${CREDENTIALS_LIST_PATH.replace(
     ':walletId',
     encodeURIComponent(args.walletId),
   )}`;
-  const headers: Record<string, string> = { Accept: 'application/json' };
-  if (args.sessionToken) headers.Authorization = `Bearer ${args.sessionToken}`;
+  const headers: Record<string, string> = { Accept: 'application/json', 'Content-Type': 'application/json' };
   const doFetch = args.fetchImpl || fetch;
   let response: Response;
   try {
-    response = await doFetch(url, { method: 'GET', credentials: 'include', headers });
+    response = await doFetch(url, {
+      method: 'POST',
+      credentials: 'include',
+      headers,
+      body: JSON.stringify({ factorProof: args.factorProof }),
+    });
   } catch (error: unknown) {
     return {
       kind: 'transport_failed',
@@ -82,7 +87,7 @@ export async function renameWalletCredential(args: {
   readonly walletId: string;
   readonly envelopeId: string;
   readonly label?: string;
-  readonly sessionToken?: string;
+  readonly factorProof: WalletCustodyFactorProof;
   readonly fetchImpl?: typeof fetch;
 }): Promise<WalletCredentialRenameResult> {
   const url = `${normalizeRelayerBaseUrl(args.relayUrl)}${CREDENTIAL_LABEL_PATH.replace(
@@ -90,7 +95,6 @@ export async function renameWalletCredential(args: {
     encodeURIComponent(args.walletId),
   )}`;
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (args.sessionToken) headers.Authorization = `Bearer ${args.sessionToken}`;
   const doFetch = args.fetchImpl || fetch;
   let response: Response;
   try {
@@ -100,6 +104,7 @@ export async function renameWalletCredential(args: {
       headers,
       body: JSON.stringify({
         envelopeId: args.envelopeId,
+        factorProof: args.factorProof,
         ...(args.label === undefined ? {} : { label: args.label }),
       }),
     });

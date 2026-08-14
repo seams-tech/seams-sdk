@@ -8,6 +8,7 @@ export type {
   CreateSigningSessionSealServiceOptions,
   SigningSessionSealApplyServerSealRequest,
   SigningSessionSealAuthContext,
+  SigningSessionSealCipherAuthContext,
   SigningSessionSealAuditSink,
   SigningSessionSealAuditEvent,
   SigningSessionSealAuthorizeInput,
@@ -28,8 +29,6 @@ export type {
   SigningSessionSealRoutesOptions,
   SigningSessionSealService,
   SigningSessionSealServiceIdempotencyOptions,
-  SigningSessionSealSessionAdapter,
-  SigningSessionSealSessionClaims,
   SigningSessionSealStartupCapabilities,
   SigningSessionSealThresholdSessionRecord,
 } from './signingSessionSeal.types';

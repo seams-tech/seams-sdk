@@ -63,8 +63,8 @@ import type { FetchRouterApiContext } from '../createFetchRouter';
 import { json, readJson } from '../../../framework/http';
 import type { SessionAdapter } from '../../../framework/routerApi';
 import {
-  signRouterAbEcdsaDerivationWalletSessionJwt,
-  signRouterAbEd25519WalletSessionJwt,
+  signRouterAbEcdsaDerivationLinkedDeviceWalletSessionJwt,
+  signRouterAbEd25519LinkedDeviceWalletSessionJwt,
   type RouterAbEd25519LinkedDeviceWalletSessionJwtSigningInput,
 } from '../../../auth/commonRouterUtils';
 
@@ -1129,9 +1129,9 @@ async function signLinkedDeviceWalletSessionTokenForFamily(
 ) {
   switch (keyFamily) {
     case 'ed25519':
-      return await signRouterAbEd25519WalletSessionJwt(input);
+      return await signRouterAbEd25519LinkedDeviceWalletSessionJwt(input);
     case 'ecdsa_secp256k1':
-      return await signRouterAbEcdsaDerivationWalletSessionJwt(input);
+      return await signRouterAbEcdsaDerivationLinkedDeviceWalletSessionJwt(input);
     default:
       return assertNever(keyFamily);
   }

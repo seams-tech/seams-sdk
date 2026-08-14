@@ -309,6 +309,8 @@ function prepareD1LocalRouterConfig() {
     repoRoot,
     localEnvRoot: root,
     outputConfigPath: d1LocalWranglerConfigPath,
+    localConsoleProjectId: process.env.SEAMS_LOCAL_CONSOLE_PROJECT_ID,
+    localConsoleEnvironmentId: process.env.SEAMS_LOCAL_CONSOLE_ENVIRONMENT_ID,
   });
 }
 
@@ -851,8 +853,8 @@ function seedLocalConsoleIdentity() {
 
 function canonicalGatewayD1SchemaDigest() {
   const migrationDirectories = [
-    join(root, 'packages', 'console-server-ts', 'migrations', 'd1-console'),
-    join(root, 'packages', 'sdk-server-ts', 'migrations', 'd1-signer'),
+    join(repoRoot, 'packages', 'console-server-ts', 'migrations', 'd1-console'),
+    join(repoRoot, 'packages', 'sdk-server-ts', 'migrations', 'd1-signer'),
   ];
   const migrationPaths = [];
   for (const directory of migrationDirectories) {
@@ -862,7 +864,7 @@ function canonicalGatewayD1SchemaDigest() {
   }
   const hash = createHash('sha256');
   for (const path of migrationPaths) {
-    hash.update(relative(root, path));
+    hash.update(relative(repoRoot, path));
     hash.update('\0');
     hash.update(readFileSync(path));
     hash.update('\0');

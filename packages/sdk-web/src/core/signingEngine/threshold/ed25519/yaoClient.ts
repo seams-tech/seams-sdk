@@ -145,6 +145,8 @@ export type RouterAbEd25519YaoExportFreshAuthorizationV1 =
   | {
       kind: 'email_otp_factor';
       providerSubjectId: string;
+      challengeId: string;
+      otpCode: string;
       webauthnAuthentication?: never;
     };
 
@@ -176,6 +178,8 @@ export function buildRouterAbEd25519YaoExportAdmissionBodyV1(args: {
         authorization: {
           kind: 'email_otp_factor',
           providerSubjectId: args.authorization.providerSubjectId,
+          challengeId: args.authorization.challengeId,
+          otpCode: args.authorization.otpCode,
         },
       };
   }
@@ -269,14 +273,14 @@ export type RouterAbEd25519YaoClientSigningShareV1 = {
 
 export type RouterAbEd25519YaoHttpTransportConfigV1 = {
   routerOrigin: string;
-  authorization: string;
+  authorization?: string;
   fetch: typeof fetch;
   traceContext?: RouterAbTraceContextV1;
 };
 
 type ParsedHttpTransportConfigV1 = {
   routerOrigin: string;
-  authorization: string;
+  authorization?: string;
   fetch: typeof fetch;
   traceContext: RouterAbTraceContextV1;
 };
@@ -516,13 +520,14 @@ function parseHttpTransportConfig(
     throw new Error('Router origin must be an HTTP origin without a path');
   }
   if (origin.search || origin.hash) throw new Error('Router origin must not contain query or hash');
-  if (typeof config.authorization !== 'string' || config.authorization.length === 0) {
-    throw new Error('Router authorization is required');
-  }
+  const authorization =
+    typeof config.authorization === 'string' && config.authorization.length > 0
+      ? config.authorization
+      : undefined;
   if (typeof config.fetch !== 'function') throw new Error('Router fetch is required');
   return {
     routerOrigin: origin.origin,
-    authorization: config.authorization,
+    ...(authorization ? { authorization } : {}),
     fetch: config.fetch,
     traceContext: resolveHttpTraceContext(config.traceContext),
   };
@@ -625,16 +630,19 @@ export class RouterAbEd25519YaoHttpActivationTransportV1
   ): Promise<RouterAbEd25519YaoRegistrationTransportResultV1> {
     let response: Response;
     try {
+      const isExportRequest = request.kind === 'export_admit' || request.kind === 'export_execute';
+      const authorization = isExportRequest ? undefined : this.config.authorization;
       response = await this.config.fetch.call(
         globalThis,
         new URL(request.path, this.config.routerOrigin),
         {
           method: 'POST',
           headers: {
-            authorization: this.config.authorization,
+            ...(authorization ? { authorization } : {}),
             'content-type': 'application/json',
             [ROUTER_AB_TRACE_ID_HEADER_V1]: this.config.traceContext.value,
           },
+          credentials: authorization ? 'omit' : 'include',
           body: JSON.stringify(request.body),
         },
       );

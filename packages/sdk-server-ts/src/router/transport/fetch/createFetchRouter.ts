@@ -6,6 +6,7 @@ import { handleRecoverEmail } from './routes/recoverEmail';
 import { handleWalletRegistration } from './routes/walletRegistration';
 import {
   handlePasskeyCustody,
+  handleWalletCustodyEmailOtpChallenge,
   handleWalletCustodyCredentialsList,
   handleWalletCustodyCredentialLabel,
   handleWalletRecoveryBackupAcknowledge,
@@ -16,25 +17,16 @@ import {
   handleWalletRecoveryPrepare,
 } from './routes/passkeyCustody';
 import {
-  handleSessionState,
-  handleSessionExchange,
   handleReusableWalletSessionStatus,
-  handleSessionRefresh,
-  handleSessionRevoke,
-  handleWalletLock,
-  handleWalletEmailOtpRegistrationChallenge,
-  handleWalletEmailOtpRegistrationSeal,
-  handleWalletEmailOtpRegistrationFinalize,
-  handleWalletEmailOtpLoginChallenge,
   handleWalletEmailOtpRecoveryBootstrapChallenge,
   handleWalletEmailOtpRecoveryBootstrapVerify,
-  handleWalletEmailOtpSigningSessionChallenge,
-  handleWalletEmailOtpDevCleanupGoogleRegistration,
-  handleWalletEmailOtpDevOtpOutbox,
+  handleWalletEmailOtpChallenge,
   handleWalletEmailOtpFactorRelease,
-  handleWalletEmailOtpLoginVerify,
-  handleWalletEmailOtpSigningSessionVerify,
-  handleWalletState,
+  handleWalletEmailOtpDevCleanupGoogleRegistration,
+  handleWalletEmailOtpDevOutbox,
+  handleWalletEmailOtpRegistrationSeal,
+  handleHostedWalletSessionExchangeIssue,
+  handleHostedWalletSessionExchangeRedeem,
   handleWalletUnlockChallenge,
   handleWalletUnlockVerify,
 } from './routes/sessions';
@@ -59,6 +51,14 @@ import { handleDeviceLinkingOwnerAuthorization } from './routes/deviceLinkingOwn
 import { handleDeviceLinkingLaneGateway } from './routes/deviceLinkingLaneGateway';
 import { validateRouterApiRorOptions } from '../../framework/ror/provider';
 import { handleSigningSessionSealRoutes } from '../../../threshold/session/signingSessionSeal/transport/fetch';
+import type {
+  SigningSessionSealAuthorizeInput,
+  SigningSessionSealAuthorizeResult,
+  SigningSessionSealThresholdSessionRecord,
+} from '../../../threshold/session/signingSessionSeal/signingSessionSeal.types';
+import { parseEcdsaKeyHandle } from '../../../core/keyMaterialBrands';
+import { extractBearerCredential } from '../../auth/routerApiKeyAuth';
+import { resolveOpaqueOwnerWalletSessionAdmission } from '../../auth/commonRouterUtils';
 import { DEFAULT_SESSION_COOKIE_NAME } from '../../framework/routerApi';
 import {
   attachRouterApiRouteSurface,
@@ -72,7 +72,10 @@ import {
   getRouterApiRouteExtensionsForTransport,
 } from '../../framework/routeExtensions';
 import { resolveRouterApiModuleRouteExtensions } from '../../framework/modules';
-import type { RouterApiServiceBag } from '../../framework/authServicePort';
+import type {
+  RouterApiAuthorizationSessionService,
+  RouterApiServiceBag,
+} from '../../framework/authServicePort';
 import type { RouterApiOptions } from '../../framework/routerApi';
 import type {
   FetchRouterApiContext,
@@ -85,6 +88,99 @@ export type {
   FetchRouterHandler,
   FetchRouterRuntime,
 } from './fetchRouter.types';
+
+function signingSessionSealRecordFromAdmission(
+  admission: NonNullable<
+    Awaited<ReturnType<typeof resolveOpaqueOwnerWalletSessionAdmission>>
+  >,
+): SigningSessionSealThresholdSessionRecord {
+  switch (admission.curve) {
+    case 'ecdsa':
+      return {
+        curve: 'ecdsa',
+        thresholdSessionId: admission.claims.thresholdSessionId,
+        userId: admission.claims.walletId,
+        expiresAtMs: admission.claims.thresholdExpiresAtMs,
+        relayerKeyId: admission.claims.relayerKeyId,
+        participantIds: admission.claims.participantIds,
+        keyHandle: parseEcdsaKeyHandle(admission.claims.keyHandle),
+      };
+    case 'ed25519':
+      return {
+        curve: 'ed25519',
+        thresholdSessionId: admission.claims.thresholdSessionId,
+        userId: admission.claims.walletId,
+        expiresAtMs: admission.claims.thresholdExpiresAtMs,
+        relayerKeyId: admission.claims.relayerKeyId,
+        participantIds: admission.claims.participantIds,
+        authorityScope: admission.claims.authorityScope,
+      };
+  }
+}
+
+async function authorizeSigningSessionSealWithOpaqueWalletSession(
+  authorizationSessions: RouterApiAuthorizationSessionService | null | undefined,
+  input: SigningSessionSealAuthorizeInput,
+): Promise<SigningSessionSealAuthorizeResult> {
+  if (!authorizationSessions) {
+    return {
+      ok: false,
+      code: 'sessions_disabled',
+      message: 'Opaque Wallet Sessions are not configured',
+      status: 501,
+    };
+  }
+  const token = extractBearerCredential(input.headers);
+  if (!token) {
+    return {
+      ok: false,
+      code: 'wallet_session_missing',
+      message: 'Wallet Session is missing',
+      status: 401,
+    };
+  }
+  for (const curve of ['ecdsa', 'ed25519'] as const) {
+    const admission = await resolveOpaqueOwnerWalletSessionAdmission({
+      authorizationSessions,
+      token,
+      curve,
+      nowMs: Date.now(),
+    });
+    if (!admission) continue;
+    const thresholdSession = signingSessionSealRecordFromAdmission(admission);
+    if (thresholdSession.thresholdSessionId !== input.thresholdSessionId) {
+      return {
+        ok: false,
+        code: 'wallet_session_scope_mismatch',
+        message: 'Wallet Session does not match the requested threshold session',
+        status: 403,
+      };
+    }
+    return { ok: true, auth: { userId: thresholdSession.userId, thresholdSession } };
+  }
+  return {
+    ok: false,
+    code: 'wallet_session_unavailable',
+    message: 'Wallet Session is unavailable',
+    status: 401,
+  };
+}
+
+async function handleOpaqueWalletSigningSessionSeal(
+  context: FetchRouterApiContext,
+): Promise<Response | null> {
+  return await handleSigningSessionSealRoutes({
+    request: context.request,
+    pathname: context.pathname,
+    method: context.method,
+    logger: context.logger,
+    authorize: authorizeSigningSessionSealWithOpaqueWalletSession.bind(
+      undefined,
+      context.service.authorizationSessions,
+    ),
+    options: context.opts.signingSessionSeal,
+  });
+}
 
 export function createFetchRouter(
   service: RouterApiServiceBag,
@@ -108,7 +204,7 @@ export function createFetchRouter(
 
   const logger = coerceRouterLogger(effectiveOpts.logger);
   const routeSurface = resolveRouterApiRouteSurface(effectiveOpts, { transport: 'fetch' });
-  const { mePath, routeDefinitions } = routeSurface;
+  const { routeDefinitions } = routeSurface;
   const emailRecoveryPrepareRoutesEnabled = isEmailRecoveryPrepareRoutesEnabled(effectiveOpts);
   const recoverEmailRouteEnabled = isRecoverEmailRouteEnabled(effectiveOpts);
   const fetchRouteExtensions = getRouterApiRouteExtensionsForTransport(routeExtensions, 'fetch');
@@ -155,6 +251,7 @@ export function createFetchRouter(
       return await handleDeviceManagement(context, service);
     },
     handlePasskeyCustody,
+    handleWalletCustodyEmailOtpChallenge,
     handleWalletCustodyCredentialsList,
     handleWalletCustodyCredentialLabel,
     handleWalletRecoveryPrepare,
@@ -169,38 +266,21 @@ export function createFetchRouter(
     handleOwnerWalletExecutionLanePreflight,
     handleThresholdEd25519,
     handleThresholdEcdsa,
-    async (c: FetchRouterApiContext) =>
-      await handleSigningSessionSealRoutes({
-        request: c.request,
-        pathname: c.pathname,
-        method: c.method,
-        logger: c.logger,
-        session: c.opts.session,
-        options: c.opts.signingSessionSeal,
-      }),
+    handleOpaqueWalletSigningSessionSeal,
     handleWebAuthnAuthenticators,
     handleNearPublicKeys,
-    handleSessionState,
-    handleSessionExchange,
-    handleSessionRevoke,
     handleReusableWalletSessionStatus,
-    handleSessionRefresh,
+    handleHostedWalletSessionExchangeIssue,
+    handleHostedWalletSessionExchangeRedeem,
     handleWalletUnlockChallenge,
     handleWalletUnlockVerify,
-    handleWalletEmailOtpRegistrationChallenge,
-    handleWalletEmailOtpRegistrationSeal,
-    handleWalletEmailOtpRegistrationFinalize,
-    handleWalletEmailOtpLoginChallenge,
+    handleWalletEmailOtpChallenge,
+    handleWalletEmailOtpFactorRelease,
     handleWalletEmailOtpRecoveryBootstrapChallenge,
     handleWalletEmailOtpRecoveryBootstrapVerify,
-    handleWalletEmailOtpSigningSessionChallenge,
-    handleWalletEmailOtpLoginVerify,
-    handleWalletEmailOtpSigningSessionVerify,
-    handleWalletEmailOtpFactorRelease,
     handleWalletEmailOtpDevCleanupGoogleRegistration,
-    handleWalletEmailOtpDevOtpOutbox,
-    handleWalletState,
-    handleWalletLock,
+    handleWalletEmailOtpRegistrationSeal,
+    handleWalletEmailOtpDevOutbox,
     ...fetchRouteExtensions.map((extension) => {
       const extensionRoutes = getRouterApiRouteExtensionRoutes(extension, 'fetch');
       return async (c: FetchRouterApiContext): Promise<Response | null> => {
@@ -241,7 +321,6 @@ export function createFetchRouter(
       service,
       opts: effectiveOpts,
       logger,
-      mePath,
       routeDefinitions,
     };
 

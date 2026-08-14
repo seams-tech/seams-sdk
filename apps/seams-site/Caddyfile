@@ -109,13 +109,11 @@ localhost:9444 {
 		header_down -Vary
 	}
 	handle_errors {
-		@router_optional_probe path /session/state /auth/google/options /.well-known/webauthn /.well-known/webauthn/
-		@router_session_state path /session/state
+		@router_optional_probe path /auth/google/options /.well-known/webauthn /.well-known/webauthn/
 		@router_google_options path /auth/google/options
 		@router_well_known_webauthn path /.well-known/webauthn /.well-known/webauthn/
 		header @router_optional_probe Content-Type "application/json; charset=utf-8"
 		header @router_optional_probe Cache-Control "no-store"
-		respond @router_session_state `{"authenticated":false,"routerAvailable":false}` 200
 		respond @router_google_options `{"ok":true,"configured":false,"routerAvailable":false,"message":"Router API server is unavailable"}` 200
 		respond @router_well_known_webauthn `{"origins":[],"capabilities":{"signingSessionSeal":{"mode":"none"}},"routerAvailable":false}` 200
 	}

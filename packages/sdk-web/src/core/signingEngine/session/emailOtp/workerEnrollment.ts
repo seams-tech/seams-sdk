@@ -17,8 +17,6 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   buildEmailOtpRoutePlan,
-  requireEmailOtpAuthLane,
-  resolveEmailOtpAuthLane,
   type EmailOtpRouteFamily,
 } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 import type { EmailOtpEnrollmentResult } from './publicTypes';
@@ -66,22 +64,16 @@ function cloneFixed32Bytes(value: Uint8Array, label: string): Uint8Array {
 
 function buildWorkerEmailOtpRoutePlan(args: {
   routeFamily: Extract<EmailOtpRouteFamily, 'login' | 'registration'>;
-  appSessionJwt?: string;
 }) {
-  const appSessionJwt = readOptionalString(args.appSessionJwt);
+  if (args.routeFamily === 'registration') {
+    return buildEmailOtpRoutePlan({
+      routeFamily: 'registration',
+      operation: WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
+    });
+  }
   return buildEmailOtpRoutePlan({
-    routeFamily: args.routeFamily,
-    authLane: requireEmailOtpAuthLane(
-      resolveEmailOtpAuthLane({
-        sessionKind: appSessionJwt ? 'jwt' : 'cookie',
-        ...(appSessionJwt ? { appSessionJwt } : {}),
-      }),
-      'worker route plan',
-    ),
-    operation:
-      args.routeFamily === 'registration'
-        ? WALLET_EMAIL_OTP_REGISTRATION_OPERATION
-        : WALLET_EMAIL_OTP_UNLOCK_OPERATION,
+    routeFamily: 'login',
+    operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
   });
 }
 
@@ -195,7 +187,6 @@ export async function enrollEmailOtpWallet(args: {
   otpCode: string;
   groupId: string;
   workerCtx: WorkerOperationContext;
-  appSessionJwt?: string;
   otpChannel?: WalletEmailOtpChannel;
   clientSecret32?: Uint8Array;
 }): Promise<EmailOtpEnrollmentResult> {
@@ -221,7 +212,6 @@ export async function enrollEmailOtpWallet(args: {
             groupId: readString(args.groupId, 'groupId'),
             routePlan: buildWorkerEmailOtpRoutePlan({
               routeFamily: 'registration',
-              appSessionJwt: args.appSessionJwt,
             }),
             otpChannel: args.otpChannel || EMAIL_OTP_CHANNEL,
             ...(workerClientSecret32
@@ -242,7 +232,6 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
   userId: string;
   groupId: string;
   workerCtx: WorkerOperationContext;
-  appSessionJwt?: string;
   otpChannel?: WalletEmailOtpChannel;
   clientSecret32?: Uint8Array;
   ecdsaSessionHandle: EmailOtpWalletRegistrationEcdsaPrepareHandleRequest;
@@ -278,7 +267,6 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
           groupId: readString(args.groupId, 'groupId'),
           routePlan: buildWorkerEmailOtpRoutePlan({
             routeFamily: 'registration',
-            appSessionJwt: args.appSessionJwt,
           }),
           otpChannel: args.otpChannel || EMAIL_OTP_CHANNEL,
           ecdsaSessionHandle: args.ecdsaSessionHandle,

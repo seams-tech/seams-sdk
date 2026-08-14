@@ -18,7 +18,6 @@ import type {
 import type {
   EmailOtpChallengeDelivery,
   EmailOtpEnrollmentResult,
-  GoogleEmailOtpSessionExchangeResult,
   DemoEmailOtpCodeResponse,
 } from '@/core/signingEngine/session/emailOtp/publicTypes';
 import type { ProvisionWarmEd25519CapabilityResult } from '@/core/signingEngine/session/warmCapabilities/types';
@@ -89,6 +88,7 @@ import type {
 import type {
   WalletRecoveryBackupAcknowledgementResult,
   WalletRecoveryCodeStatusResult,
+  WalletCustodyEmailOtpChallengeResult,
 } from '@/core/rpcClients/relayer/walletRecoveryRotate';
 import type { WalletRecoveryRotationAuthorization } from '@/SeamsWeb/operations/recovery/walletRecoveryRotation';
 import type { WalletRecoveryRotationOutcome } from '@/core/signingEngine/walletCustody/walletRecoveryRotation';
@@ -106,6 +106,7 @@ export type {
 export type {
   WalletRecoveryBackupAcknowledgementResult,
   WalletRecoveryCodeStatusResult,
+  WalletCustodyEmailOtpChallengeResult,
 } from '@/core/rpcClients/relayer/walletRecoveryRotate';
 export type { WalletRecoveryRotationAuthorization } from '@/SeamsWeb/operations/recovery/walletRecoveryRotation';
 export type { WalletRecoveryRotationOutcome } from '@/core/signingEngine/walletCustody/walletRecoveryRotation';
@@ -208,7 +209,6 @@ type PublicThresholdEcdsaSessionKeyRef = Omit<
   | 'signingRootId'
   | 'signingRootVersion'
   | 'ecdsaDerivationExportArtifact'
-  | 'walletSessionJwt'
 >;
 
 export type PublicThresholdEcdsaSessionBootstrapResult = Omit<
@@ -472,7 +472,6 @@ export type BootstrapThresholdEcdsaSessionArgs = {
   source?: 'login' | 'registration' | 'manual-bootstrap' | 'email_otp';
   ecdsaThresholdKeyId?: never;
   participantIds?: never;
-  sessionKind?: never;
   sessionIdentity?: never;
   routeAuth?: never;
   webauthnAuthentication?: never;
@@ -486,10 +485,9 @@ export type EmailOtpChallengeResult = {
   delivery: EmailOtpChallengeDelivery;
   emailHint?: string;
   expiresAtMs?: number;
-  appSessionVersion?: string;
 };
 
-export type { EmailOtpEnrollmentResult, GoogleEmailOtpSessionExchangeResult };
+export type { EmailOtpEnrollmentResult };
 
 export type GoogleEmailOtpRegistrationEnrollmentResult = Omit<
   EmailOtpEnrollmentResult,
@@ -511,7 +509,6 @@ export type EmailOtpEcdsaCapabilityArgs = {
   challengeId?: string;
   otpCode: string;
   groupId?: string;
-  appSessionJwt?: string;
   registrationAttemptId?: string;
   emailOtpAuthorityEmail?: string;
   onEvent?: (event: UnlockFlowEvent) => void;
@@ -596,7 +593,7 @@ export type GoogleEmailOtpWalletAuthEcdsaTargets =
     };
 
 export type GoogleEmailOtpWalletAuthFailureCode =
-  | 'google_exchange_failed'
+  | 'google_verification_failed'
   | 'google_account_registration_required'
   | 'email_otp_challenge_failed'
   | 'email_otp_invalid_code'
@@ -687,13 +684,11 @@ export type GoogleEmailOtpWalletAuthStartInput = {
   idToken: string;
   mode: GoogleEmailOtpWalletAuthRequestedMode;
   relayUrl?: string;
-  sessionKind?: 'jwt' | 'cookie';
   ecdsaTargets?: GoogleEmailOtpWalletAuthEcdsaTargets;
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   onDemoOtp?: (response: DemoEmailOtpCodeResponse) => void;
   onEvent?: (event: RegistrationFlowEvent | UnlockFlowEvent) => void;
 };
-
 export interface AuthCapability {
   unlock(walletId: string, options?: LoginHooksOptions): Promise<LoginAndCreateSessionResult>;
   lock(): Promise<void>;
@@ -711,7 +706,6 @@ export interface AuthCapability {
   requestEmailOtpChallenge(args: {
     walletId: string;
     relayUrl?: string;
-    appSessionJwt?: string;
     operation?: WalletEmailOtpLoginOperation;
     onEvent?: (event: UnlockFlowEvent) => void;
   }): Promise<EmailOtpChallengeResult>;
@@ -729,13 +723,6 @@ export interface AuthCapability {
     remainingUses?: number;
     onEvent?: (event: UnlockFlowEvent) => void;
   }): Promise<EmailOtpEcdsaCapabilityResult>;
-  exchangeGoogleEmailOtpSession(args: {
-    idToken: string;
-    accountMode: 'register' | 'login';
-    relayUrl?: string;
-    sessionKind?: 'jwt' | 'cookie';
-    onEvent?: (event: RegistrationFlowEvent | UnlockFlowEvent) => void;
-  }): Promise<GoogleEmailOtpSessionExchangeResult>;
   loginWithEmailOtpEcdsaCapability(
     args: EmailOtpEcdsaCapabilityArgs,
   ): Promise<EmailOtpEcdsaCapabilityResult>;
@@ -779,7 +766,6 @@ export interface RegistrationCapability {
   requestEmailOtpEnrollmentChallenge(args: {
     walletId: string;
     relayUrl?: string;
-    appSessionJwt?: string;
     onEvent?: (event: RegistrationFlowEvent) => void;
   }): Promise<EmailOtpChallengeResult>;
   enrollEmailOtp(args: {
@@ -788,7 +774,6 @@ export interface RegistrationCapability {
     relayUrl?: string;
     challengeId?: string;
     groupId?: string;
-    appSessionJwt?: string;
     clientSecret32?: Uint8Array;
     onEvent?: (event: RegistrationFlowEvent) => void;
   }): Promise<EmailOtpEnrollmentResult>;
@@ -915,6 +900,14 @@ export interface RecoveryCapability {
     walletId: string;
   }): Promise<WalletRecoveryBackupAcknowledgementResult>;
 
+  requestWalletCustodyEmailOtpChallenge(args: {
+    walletId: string;
+    providerSubjectId: string;
+    operation: 'credentials_list' | 'credential_label' | 'recovery_acknowledge' | 'recovery_rotate' | 'recovery_read';
+    payload: Record<string, unknown>;
+    requestOrigin?: string;
+  }): Promise<WalletCustodyEmailOtpChallengeResult>;
+
   rotateWalletRecoveryCodes(args: {
     walletId: string;
     authorization: WalletRecoveryRotationAuthorization;
@@ -948,7 +941,6 @@ export interface RecoveryCapability {
     walletId: string;
     recoveryOperationId: string;
     relayUrl?: string;
-    appSessionJwt?: string;
   }): Promise<CompleteWalletRecoveryResult>;
 }
 

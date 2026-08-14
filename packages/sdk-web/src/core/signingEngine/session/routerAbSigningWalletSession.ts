@@ -2,29 +2,23 @@ import type { RouterAbWalletSessionCredential } from '@/core/rpcClients/relayer/
 import type { RouterAbEd25519NormalSigningState } from '../threshold/ed25519/routerAbNormalSigningState';
 import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
-import {
-  ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-  decodeJwtPayloadRecord,
-  isWalletSessionJwt,
-} from '@shared/utils/sessionTokens';
+import { requireOpaqueWalletSessionToken } from '@shared/utils/sessionTokens';
 import {
   parseThresholdEd25519SessionId,
   type ThresholdEd25519SessionId,
 } from '@shared/utils/domainIds';
 import {
   parseMpcWalletSigningQuotaId,
+  parseWalletSessionAuthorizationId,
   parseWalletSessionId,
   type MpcWalletSigningQuotaId,
+  type WalletSessionAuthorizationId,
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-export {
-  parseWalletSessionAuthorizationIdentityClaims,
-  type WalletSessionAuthorizationIdentityClaims,
-} from './identity/walletSessionAuthorizationJwt';
 
 export type RouterAbSigningWalletSessionAuth = {
-  kind: 'wallet_session_jwt';
-  walletSessionJwt: string;
+  kind: 'wallet_session_opaque';
+  walletSessionToken: string;
   credential: RouterAbWalletSessionCredential;
 };
 
@@ -32,6 +26,7 @@ export type RouterAbEd25519SigningWalletSession = {
   curve: 'ed25519';
   auth: RouterAbSigningWalletSessionAuth;
   walletSessionId: WalletSessionId;
+  authorizationId: WalletSessionAuthorizationId;
   quotaId: MpcWalletSigningQuotaId;
   thresholdSessionId: ThresholdEd25519SessionId;
   remainingUses: number;
@@ -46,7 +41,7 @@ export type RouterAbSigningWalletSessionParseFailureReason =
   | 'missing_record'
   | 'cookie_session'
   | 'missing_session_identity'
-  | 'missing_wallet_session_jwt'
+  | 'missing_wallet_session_token'
   | 'missing_quota_id'
   | 'missing_threshold_session_id'
   | 'missing_signing_root'
@@ -88,56 +83,16 @@ function inactiveSigningSessionState(args: {
   return null;
 }
 
-function buildWalletSessionJwtAuth(jwtRaw: unknown): RouterAbSigningWalletSessionAuth | null {
-  const walletSessionJwt = nonEmptyString(jwtRaw);
-  if (!walletSessionJwt) return null;
+function buildWalletSessionOpaqueAuth(tokenRaw: unknown): RouterAbSigningWalletSessionAuth | null {
+  const walletSessionToken = nonEmptyString(tokenRaw);
+  if (!walletSessionToken) return null;
   return {
-    kind: 'wallet_session_jwt',
-    walletSessionJwt,
+    kind: 'wallet_session_opaque',
+    walletSessionToken,
     credential: {
-      kind: 'wallet_session_jwt',
-      walletSessionJwt,
+      kind: 'wallet_session_opaque',
+      walletSessionToken,
     },
-  };
-}
-
-export type RouterAbEd25519WalletSessionIdentityClaims = {
-  walletId: string;
-  nearAccountId: string;
-  nearEd25519SigningKeyId: string;
-  walletSessionId: WalletSessionId;
-  quotaId: MpcWalletSigningQuotaId;
-  thresholdSessionId: ThresholdEd25519SessionId;
-};
-
-export function parseRouterAbEd25519WalletSessionIdentityClaims(
-  walletSessionJwt: string,
-): RouterAbEd25519WalletSessionIdentityClaims | null {
-  const payload = decodeJwtPayloadRecord(walletSessionJwt);
-  if (payload?.kind !== ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND) return null;
-  const walletId = nonEmptyString(payload.walletId);
-  const nearAccountId = nonEmptyString(payload.nearAccountId);
-  const nearEd25519SigningKeyId = nonEmptyString(payload.nearEd25519SigningKeyId);
-  const walletSessionId = parseWalletSessionId(payload.walletSessionId);
-  const quotaId = parseMpcWalletSigningQuotaId(payload.quotaId);
-  const thresholdSessionId = parseThresholdEd25519SessionId(payload.thresholdSessionId);
-  if (
-    !walletId ||
-    !nearAccountId ||
-    !nearEd25519SigningKeyId ||
-    !walletSessionId.ok ||
-    !quotaId.ok ||
-    !thresholdSessionId.ok
-  ) {
-    return null;
-  }
-  return {
-    walletId,
-    nearAccountId,
-    nearEd25519SigningKeyId,
-    walletSessionId: walletSessionId.value,
-    quotaId: quotaId.value,
-    thresholdSessionId: thresholdSessionId.value,
   };
 }
 
@@ -146,6 +101,7 @@ export type BuildRouterAbEd25519SigningWalletSessionInput = {
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
   walletSessionId: string;
+  authorizationId: string;
   quotaId: string;
   thresholdSessionId: string;
   remainingUses: number;
@@ -154,36 +110,35 @@ export type BuildRouterAbEd25519SigningWalletSessionInput = {
   signingRootId: string;
   signingRootVersion: string;
   routerAbNormalSigning: RouterAbEd25519NormalSigningState;
-  walletSessionJwt: string;
+  walletSessionToken: string;
   nowMs: number;
 };
 
 export function buildRouterAbEd25519SigningWalletSession(
   input: BuildRouterAbEd25519SigningWalletSessionInput,
 ): RouterAbSigningWalletSessionResult<RouterAbEd25519SigningWalletSession> {
-  const auth = buildWalletSessionJwtAuth(input.walletSessionJwt);
-  if (!auth) return { ok: false, reason: 'missing_wallet_session_jwt' };
+  let walletSessionToken: string;
+  try {
+    walletSessionToken = requireOpaqueWalletSessionToken(input.walletSessionToken);
+  } catch {
+    return { ok: false, reason: 'missing_wallet_session_token' };
+  }
+  const auth = buildWalletSessionOpaqueAuth(walletSessionToken);
+  if (!auth) return { ok: false, reason: 'missing_wallet_session_token' };
   const walletId = nonEmptyString(input.walletId);
   const nearAccountId = nonEmptyString(input.nearAccountId);
   const nearEd25519SigningKeyId = nonEmptyString(input.nearEd25519SigningKeyId);
+  if (!walletId || !nearAccountId || !nearEd25519SigningKeyId) {
+    return { ok: false, reason: 'wallet_binding_mismatch' };
+  }
   const walletSessionId = parseWalletSessionId(input.walletSessionId);
+  const authorizationId = parseWalletSessionAuthorizationId(input.authorizationId);
   const quotaId = parseMpcWalletSigningQuotaId(input.quotaId);
   const thresholdSessionId = parseThresholdEd25519SessionId(input.thresholdSessionId);
   if (!walletSessionId.ok) return { ok: false, reason: 'missing_session_identity' };
+  if (!authorizationId.ok) return { ok: false, reason: 'missing_session_identity' };
   if (!quotaId.ok) return { ok: false, reason: 'missing_quota_id' };
   if (!thresholdSessionId.ok) return { ok: false, reason: 'missing_threshold_session_id' };
-  const claims = parseRouterAbEd25519WalletSessionIdentityClaims(auth.walletSessionJwt);
-  if (
-    !claims ||
-    claims.walletId !== walletId ||
-    claims.nearAccountId !== nearAccountId ||
-    claims.nearEd25519SigningKeyId !== nearEd25519SigningKeyId ||
-    claims.walletSessionId !== walletSessionId.value ||
-    claims.quotaId !== quotaId.value ||
-    claims.thresholdSessionId !== thresholdSessionId.value
-  ) {
-    return { ok: false, reason: 'wallet_binding_mismatch' };
-  }
   const operationNowMs = normalizeActiveSessionNowMs(input.nowMs);
   const remainingUses = positiveInteger(input.remainingUses);
   const expiresAtMs = positiveInteger(input.expiresAtMs);
@@ -221,6 +176,7 @@ export function buildRouterAbEd25519SigningWalletSession(
       curve: 'ed25519',
       auth,
       walletSessionId: walletSessionId.value,
+      authorizationId: authorizationId.value,
       quotaId: quotaId.value,
       thresholdSessionId: thresholdSessionId.value,
       remainingUses,

@@ -1,6 +1,7 @@
 import type { AccountId } from '@/core/types/accountIds';
 import type {
   MpcWalletSigningQuotaId,
+  WalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import type { ThresholdEcdsaDerivationRouteAuth } from '@/core/rpcClients/relayer/thresholdEcdsa';
@@ -26,7 +27,6 @@ import type {
   Ed25519SessionPolicyAuthority,
   PasskeyEd25519SessionPolicyAuthority,
   ThresholdRuntimePolicyScope,
-  ThresholdSessionKind,
 } from '../../threshold/sessionPolicy';
 import type { Ed25519WalletSessionMintAuthorization } from '../../threshold/ed25519/walletSession';
 import type { RouterAbEd25519NormalSigningState } from '../../threshold/ed25519/routerAbNormalSigningState';
@@ -43,7 +43,7 @@ import type {
   ExactEd25519SigningLaneIdentity,
 } from '../identity/exactSigningLaneIdentity';
 import {
-  walletSessionJwtForCurve,
+  walletSessionTokenForCurve,
   type ActiveWalletSessionAuthorizationProjection,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { ExactEd25519SealedSessionRuntime } from './ed25519SealedSessionRuntime';
@@ -339,11 +339,11 @@ type WarmSessionPresentCapabilityState = Exclude<
 
 function expectedPresentCapabilityState(args: {
   capability: WarmSessionPresentCapabilityState;
-  hasWalletSessionJwt: boolean;
+  hasWalletSessionToken: boolean;
   emailOtpSingleUseConsumed: boolean;
 }): WarmSessionEd25519CapabilityState['state'] | WarmSessionEcdsaCapabilityState['state'] {
   const { capability } = args;
-  if (!capability.auth || !args.hasWalletSessionJwt) {
+  if (!capability.auth || !args.hasWalletSessionToken) {
     return capability.capability === 'ed25519' ? 'authorization_required' : 'auth_missing';
   }
   if (args.emailOtpSingleUseConsumed) return 'prf_missing';
@@ -463,10 +463,10 @@ function assertEd25519CapabilityStateInvariant(args: {
     }
   }
 
-  const hasWalletSessionJwt = Boolean(auth && walletSessionJwtForCurve(auth, 'ed25519'));
+  const hasWalletSessionToken = Boolean(auth && walletSessionTokenForCurve(auth, 'ed25519'));
   const expectedState = expectedPresentCapabilityState({
     capability,
-    hasWalletSessionJwt,
+    hasWalletSessionToken,
     emailOtpSingleUseConsumed: false,
   });
   if (capability.state !== expectedState) {
@@ -605,7 +605,7 @@ type ProvisionWarmEd25519CapabilityBaseArgs = {
     publishableKey: string;
   };
   participantIds: readonly number[];
-  sessionKind: 'jwt';
+  sessionKind: 'opaque';
   relayerUrl?: string;
   ttlMs?: number;
   remainingUses?: number;
@@ -662,22 +662,24 @@ export type MintedEd25519WalletSessionAuthority = {
   kind: 'minted_ed25519_wallet_session_authority';
   thresholdSessionId: ThresholdEd25519SessionId;
   walletSessionId: WalletSessionId;
+  authorizationId: WalletSessionAuthorizationId;
   quotaId: MpcWalletSigningQuotaId;
   expiresAtMs: number;
   remainingUses: number;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
-  jwt: string;
+  walletSessionToken: string;
 };
 
 export type ProvisionWarmEd25519CapabilitySuccessResult = {
   ok: true;
   thresholdSessionId: ThresholdEd25519SessionId;
   walletSessionId: WalletSessionId;
+  authorizationId: WalletSessionAuthorizationId;
   quotaId: MpcWalletSigningQuotaId;
   expiresAtMs: number;
   remainingUses: number;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
-  jwt: string;
+  walletSessionToken: string;
 };
 
 export type ProvisionWarmEd25519CapabilityFailureResult = {

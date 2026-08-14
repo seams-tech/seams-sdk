@@ -5,8 +5,8 @@ import {
   type RouterAbEd25519LinkedDeviceWalletSessionClaims,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/validation';
 import {
-  signRouterAbEd25519WalletSessionJwt,
-  signRouterAbEcdsaDerivationWalletSessionJwt,
+  signRouterAbEd25519LinkedDeviceWalletSessionJwt,
+  signRouterAbEcdsaDerivationLinkedDeviceWalletSessionJwt,
 } from '../../packages/sdk-server-ts/src/router/auth/commonRouterUtils';
 import type { SessionAdapter } from '../../packages/sdk-server-ts/src/router/framework/routerApi';
 import { buildVerifiedEd25519WalletSessionAuth } from '../../packages/sdk-server-ts/src/router/auth/verifiedWalletSessionAuth';
@@ -162,14 +162,14 @@ test.describe('R103 linked-device Wallet Session claims', () => {
       quotaId: 'wallet-quota:linked',
       expiresAtMs: 1_000,
     };
-    const ed25519 = await signRouterAbEd25519WalletSessionJwt({
+    const ed25519 = await signRouterAbEd25519LinkedDeviceWalletSessionJwt({
       session,
       userId: 'wallet:1',
       requireJwtErrorMessage: 'jwt required',
       invalidPayloadErrorMessage: 'invalid payload',
       sessionInfo: linkedSessionInfo,
     });
-    const ecdsa = await signRouterAbEcdsaDerivationWalletSessionJwt({
+    const ecdsa = await signRouterAbEcdsaDerivationLinkedDeviceWalletSessionJwt({
       session,
       userId: 'wallet:1',
       requireJwtErrorMessage: 'jwt required',

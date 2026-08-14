@@ -30,14 +30,14 @@ import {
 import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
   walletSessionAuthorizations,
-  walletSessionJwtForCurve,
+  walletSessionTokenForCurve,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 
 export type RouterAbEcdsaDerivationLoginPresignaturePrefillSkippedReason =
   | 'pool_disabled'
   | 'pool_already_warm'
   | 'missing_threshold_session_id'
-  | 'missing_wallet_session_jwt'
+  | 'missing_wallet_session_token'
   | 'invalid_session_record'
   | 'warm_session_not_active'
   | 'warm_session_expiry_unavailable'
@@ -64,7 +64,7 @@ export type RouterAbEcdsaDerivationLoginPresignaturePrefillResult =
   | {
       status: 'skipped';
       reason:
-        | 'missing_wallet_session_jwt'
+        | 'missing_wallet_session_token'
         | 'warm_session_not_active'
         | 'warm_session_expiry_unavailable'
         | 'missing_router_ab_ecdsa_derivation_state';
@@ -148,16 +148,16 @@ export async function scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(
     if (authorizationRead.kind !== 'found') {
       return {
         status: 'skipped',
-        reason: 'missing_wallet_session_jwt',
+        reason: 'missing_wallet_session_token',
         thresholdSessionId,
       };
     }
     const authorization = authorizationRead.projection;
-    const walletSessionJwt = walletSessionJwtForCurve(authorization, 'ecdsa');
-    if (!walletSessionJwt) {
+    const walletSessionToken = walletSessionTokenForCurve(authorization, 'ecdsa');
+    if (!walletSessionToken) {
       return {
         status: 'skipped',
-        reason: 'missing_wallet_session_jwt',
+        reason: 'missing_wallet_session_token',
         thresholdSessionId,
       };
     }
@@ -251,7 +251,7 @@ export async function scheduleRouterAbEcdsaDerivationLoginPresignaturePrefill(
       thresholdEcdsaPublicKeyB64u: runtime.thresholdEcdsaPublicKeyB64u,
       relayerVerifyingShareB64u:
         runtime.normalSigning.scope.public_identity.server_public_key33_b64u,
-      credential: { kind: 'wallet_session_jwt', walletSessionJwt },
+      credential: { kind: 'wallet_session_opaque', walletSessionToken },
       authorization: {
         kind: 'reusable_wallet_session',
         wallet_session_id: authorization.walletSessionId,

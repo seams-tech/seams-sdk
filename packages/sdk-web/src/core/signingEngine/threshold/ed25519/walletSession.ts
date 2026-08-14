@@ -14,7 +14,7 @@ import {
 } from '@/core/platform/types';
 import { toRpId } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type {
-  RouterAbEd25519NormalSigningCredential,
+  RouterAbOwnerNormalSigningCredential,
   RouterAbNormalSigningPrepareRequestV2Wire,
 } from '@/core/rpcClients/relayer/routerAbNormalSigning';
 import {
@@ -29,8 +29,10 @@ import {
 } from '@shared/utils/domainIds';
 import {
   parseMpcWalletSigningQuotaId,
+  parseWalletSessionAuthorizationId,
   parseWalletSessionId,
   type MpcWalletSigningQuotaId,
+  type WalletSessionAuthorizationId,
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 
@@ -47,43 +49,15 @@ export type ThresholdEd25519WebAuthnPrfSecretSource = {
   prfFirstB64u?: never;
 };
 
-export type Ed25519WalletSessionMintAuthorization =
-  | {
-      kind: 'app_session_jwt';
-      appSessionJwt: string;
-      localSecretSource: ThresholdEd25519WebAuthnPrfSecretSource;
-      priorWalletSessionJwt?: never;
-      thresholdEcdsaSessionJwt?: never;
-      policySecretSource?: never;
-      useAppSessionCookie?: never;
-      webauthnAuthentication?: never;
-      localPrfCredential?: never;
-      localPrfFirstB64u?: never;
-    }
-  | {
-      kind: 'app_session_cookie';
-      localSecretSource: ThresholdEd25519WebAuthnPrfSecretSource;
-      appSessionJwt?: never;
-      priorWalletSessionJwt?: never;
-      thresholdEcdsaSessionJwt?: never;
-      policySecretSource?: never;
-      useAppSessionCookie?: never;
-      webauthnAuthentication?: never;
-      localPrfCredential?: never;
-      localPrfFirstB64u?: never;
-    }
-  | {
-      kind: 'threshold_session_policy_webauthn';
-      policySecretSource: ThresholdEd25519WebAuthnPrfSecretSource;
-      appSessionJwt?: never;
-      priorWalletSessionJwt?: never;
-      thresholdEcdsaSessionJwt?: never;
-      localSecretSource?: never;
-      useAppSessionCookie?: never;
-      localPrfCredential?: never;
-      webauthnAuthentication?: never;
-      localPrfFirstB64u?: never;
-    };
+export type Ed25519WalletSessionMintAuthorization = {
+  kind: 'threshold_session_policy_webauthn';
+  policySecretSource: ThresholdEd25519WebAuthnPrfSecretSource;
+  thresholdEcdsaSessionJwt?: never;
+  localSecretSource?: never;
+  localPrfCredential?: never;
+  webauthnAuthentication?: never;
+  localPrfFirstB64u?: never;
+};
 
 function requireNonEmptyEd25519SecretSourceString(value: unknown, field: string): string {
   const normalized = String(value ?? '').trim();
@@ -133,32 +107,21 @@ export function buildThresholdEd25519WebAuthnPrfSecretSource(args: {
 export function localPrfFirstForEd25519WalletSessionMintAuthorization(
   auth: Ed25519WalletSessionMintAuthorization,
 ): string {
-  switch (auth.kind) {
-    case 'app_session_jwt':
-    case 'app_session_cookie':
-      return auth.localSecretSource.secretSource.prfFirstB64u;
-    case 'threshold_session_policy_webauthn':
-      return auth.policySecretSource.secretSource.prfFirstB64u;
-    default: {
-      const exhaustive: never = auth;
-      return exhaustive;
-    }
-  }
+  return auth.policySecretSource.secretSource.prfFirstB64u;
 }
 
 /**
  * Ed25519 Wallet Session mint.
  *
  * `threshold_session_policy_webauthn` sends a WebAuthn assertion whose challenge
- * is the `sessionPolicyDigest32`. App-session branches authorize the route with
- * the app session; the local PRF credential stays in wallet origin.
+ * is the `sessionPolicyDigest32`. The local PRF credential stays in wallet origin.
  *
  * Notes:
  * - PRF outputs must never be sent to the Router API; they should be used only in wallet origin.
  */
 export async function mintEd25519WalletSession(args: {
   relayerUrl: string;
-  sessionKind: 'jwt';
+  sessionKind: 'opaque';
   relayerKeyId: string;
   sessionPolicy: Ed25519SessionPolicy;
   auth: Ed25519WalletSessionMintAuthorization;
@@ -167,12 +130,13 @@ export async function mintEd25519WalletSession(args: {
 }): Promise<{
   ok: boolean;
   thresholdSessionId?: ThresholdEd25519SessionId;
+  authorizationId?: WalletSessionAuthorizationId;
   walletSessionId?: WalletSessionId;
   quotaId?: MpcWalletSigningQuotaId;
   expiresAtMs?: number;
   remainingUses?: number;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
-  jwt?: string;
+  walletSessionToken?: string;
   code?: string;
   message?: string;
 }> {
@@ -193,20 +157,20 @@ export async function mintEd25519WalletSession(args: {
     };
   }
 
-  const webauthn_authentication =
-    args.auth.kind === 'threshold_session_policy_webauthn'
-      ? redactCredentialExtensionOutputs(args.auth.policySecretSource.credential)
-      : undefined;
+  const webauthn_authentication = redactCredentialExtensionOutputs(
+    args.auth.policySecretSource.credential,
+  );
 
   type Ed25519WalletSessionMintResponseBody = Partial<{
     ok: boolean;
     thresholdSessionId: string;
     walletSessionId: string;
+    authorizationId: string;
     quotaId: string;
     expiresAt: string;
     remainingUses: number;
     runtimePolicyScope: ThresholdRuntimePolicyScope;
-    jwt: string;
+    walletSessionToken: string;
     code: string;
     message: string;
   }>;
@@ -215,15 +179,9 @@ export async function mintEd25519WalletSession(args: {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   try {
     const url = `${relayerUrl}${ROUTER_AB_ED25519_WALLET_SESSION_PATH}`;
-    const appSessionJwt =
-      args.auth.kind === 'app_session_jwt'
-        ? String(args.auth.appSessionJwt || '').trim() || undefined
-        : undefined;
-    const useAppSessionCookie = args.auth.kind === 'app_session_cookie';
     const publishableKey = String(args.publishableKey || '').trim() || undefined;
-    const bearerToken = appSessionJwt || publishableKey;
-    const usesPublishableKeyBearer = Boolean(publishableKey && !appSessionJwt);
-    const projectEnvironmentId = usesPublishableKeyBearer
+    const bearerToken = publishableKey;
+    const projectEnvironmentId = publishableKey
       ? String(args.projectEnvironmentId || '').trim() || undefined
       : undefined;
     timeoutId = setTimeout(
@@ -237,7 +195,7 @@ export async function mintEd25519WalletSession(args: {
         'Content-Type': 'application/json',
         ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
       },
-      credentials: useAppSessionCookie ? 'include' : 'omit',
+      credentials: 'omit',
       signal: controller.signal,
       body: JSON.stringify({
         sessionKind: args.sessionKind,
@@ -279,8 +237,9 @@ export async function mintEd25519WalletSession(args: {
       };
     }
     const walletSessionId = parseWalletSessionId(data.walletSessionId);
+    const authorizationId = parseWalletSessionAuthorizationId(data.authorizationId);
     const quotaId = parseMpcWalletSigningQuotaId(data.quotaId);
-    if (!walletSessionId.ok || !quotaId.ok) {
+    if (!walletSessionId.ok || !authorizationId.ok || !quotaId.ok) {
       return {
         ok: false,
         code: 'invalid_response',
@@ -291,11 +250,12 @@ export async function mintEd25519WalletSession(args: {
       ok: data.ok === true,
       ...(thresholdSessionId?.ok ? { thresholdSessionId: thresholdSessionId.value } : {}),
       walletSessionId: walletSessionId.value,
+      authorizationId: authorizationId.value,
       quotaId: quotaId.value,
       expiresAtMs,
       remainingUses: data.remainingUses,
       ...(data.runtimePolicyScope ? { runtimePolicyScope: data.runtimePolicyScope } : {}),
-      jwt: data.jwt,
+    walletSessionToken: data.walletSessionToken,
       ...(data.code ? { code: data.code } : {}),
       ...(data.message ? { message: data.message } : {}),
     };
@@ -375,10 +335,7 @@ type Ed25519OperationStepUpAuthorizationRequestBase = {
   credential: Ed25519OperationStepUpCredential;
 };
 
-export type Ed25519OperationStepUpCredential = Exclude<
-  RouterAbEd25519NormalSigningCredential,
-  { kind: 'wallet_session_jwt' }
->;
+export type Ed25519OperationStepUpCredential = RouterAbOwnerNormalSigningCredential;
 
 export type Ed25519OperationStepUpAuthorizationRequest =
   Ed25519OperationStepUpAuthorizationRequestBase &
@@ -638,15 +595,15 @@ export async function issueEd25519OperationStepUpAuthorization(
   const relayerUrl = stripTrailingSlashes(toTrimmedString(args.relayerUrl));
   if (!relayerUrl) throw new Error('[threshold-ed25519] operation step-up relayerUrl is required');
   const materialRecovery = buildEd25519OperationStepUpMaterialRecoveryRequest(args);
-  const requestInit = buildRelayerJsonPostRequestInit({
-    ...(args.credential.kind === 'app_session_jwt'
+  const bearer =
+    args.credential.kind === 'wallet_session_opaque'
       ? {
-          headers: buildBearerAuthorizationHeader({
-            token: args.credential.appSessionJwt,
-            missingMessage: 'appSessionJwt is required',
-          }),
+          token: args.credential.walletSessionToken,
+          missingMessage: 'walletSessionToken is required',
         }
-      : {}),
+      : null;
+  const requestInit = buildRelayerJsonPostRequestInit({
+    ...(bearer ? { headers: buildBearerAuthorizationHeader(bearer) } : {}),
     body: {
       kind: 'router_ab_ed25519_yao_operation_step_up_grant_v1',
       normalSigningRequest: args.normalSigningRequest,
@@ -664,7 +621,6 @@ export async function issueEd25519OperationStepUpAuthorization(
   });
   const response = await fetch(`${relayerUrl}${ROUTER_AB_ED25519_WALLET_SESSION_PATH}`, {
     ...requestInit,
-    ...(args.credential.kind === 'app_session_cookie' ? { credentials: 'include' } : {}),
   });
   const body: unknown = await response.json().catch(() => ({}));
   if (!response.ok) {

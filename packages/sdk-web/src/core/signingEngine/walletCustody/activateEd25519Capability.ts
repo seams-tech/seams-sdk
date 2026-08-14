@@ -15,7 +15,6 @@ import {
 } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
 import {
   buildRouterAbEd25519SigningWalletSession,
-  parseRouterAbEd25519WalletSessionIdentityClaims,
 } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import type {
   Ed25519YaoActiveClientIdentityV1,
@@ -76,15 +75,13 @@ function assertBootstrapIdentity(args: {
 }): void {
   const session = args.bootstrap.session;
   const capability = args.bootstrap.capability;
-  const claims = parseRouterAbEd25519WalletSessionIdentityClaims(session.walletSessionJwt);
   if (
-    !claims ||
-    claims.walletId !== String(session.walletId) ||
-    claims.nearAccountId !== session.nearAccountId ||
-    claims.nearEd25519SigningKeyId !== session.nearEd25519SigningKeyId ||
-    claims.walletSessionId !== session.walletSessionId ||
-    claims.quotaId !== session.quotaId ||
-    claims.thresholdSessionId !== session.thresholdSessionId
+    session.sessionKind !== 'opaque' ||
+    !session.walletSessionToken ||
+    !session.walletId ||
+    !session.walletSessionId ||
+    !session.quotaId ||
+    !session.thresholdSessionId
   ) {
     throw new Error('Wallet custody Ed25519 bootstrap Wallet Session binding is invalid');
   }
@@ -135,14 +132,13 @@ async function buildWalletSessionState(args: {
       providerUserId: providerSubject,
     }).authority,
   });
-  const claims = parseRouterAbEd25519WalletSessionIdentityClaims(session.walletSessionJwt);
-  if (!claims) throw new Error('Wallet custody Ed25519 Wallet Session claims are invalid');
   const signingWalletSession = buildRouterAbEd25519SigningWalletSession({
     walletId: String(session.walletId),
     nearAccountId: session.nearAccountId,
     nearEd25519SigningKeyId: session.nearEd25519SigningKeyId,
-    walletSessionId: claims.walletSessionId,
-    quotaId: claims.quotaId,
+    walletSessionId: session.walletSessionId,
+    authorizationId: session.authorizationId,
+    quotaId: session.quotaId,
     thresholdSessionId: session.thresholdSessionId,
     remainingUses: session.remainingUses,
     expiresAtMs: session.expiresAtMs,
@@ -150,7 +146,7 @@ async function buildWalletSessionState(args: {
     signingRootId: session.signingRootId,
     signingRootVersion: session.signingRootVersion,
     routerAbNormalSigning: session.routerAbNormalSigning,
-    walletSessionJwt: session.walletSessionJwt,
+    walletSessionToken: session.walletSessionToken,
     nowMs: Date.now(),
   });
   if (!signingWalletSession.ok) {

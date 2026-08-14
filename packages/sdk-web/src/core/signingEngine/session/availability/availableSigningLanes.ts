@@ -51,13 +51,9 @@ import type {
   CanonicalEvmFamilyEcdsaSigningCapability,
 } from '../material/ecdsaSigningCapability';
 import {
-  walletSessionJwtForCurve,
+  walletSessionTokenForCurve,
   type ActiveWalletSessionAuthorizationProjection,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
-import {
-  parseRouterAbEd25519WalletSessionIdentityClaims,
-  parseWalletSessionAuthorizationIdentityClaims,
-} from '../routerAbSigningWalletSession';
 import { SigningSessionIds } from '../operationState/types';
 import type { Ed25519YaoPublicCapabilityLaneReferenceV1 } from '../../threshold/ed25519/yaoPublicCapabilityReferences';
 
@@ -307,28 +303,16 @@ function recordToEd25519Lane(
       : remainingUses === 0
         ? 'exhausted'
         : 'restorable';
-  const walletSessionJwt = activeAuthorization
-    ? walletSessionJwtForCurve(activeAuthorization, 'ed25519')
-    : null;
-  const claims = walletSessionJwt
-    ? parseWalletSessionAuthorizationIdentityClaims(walletSessionJwt)
-    : null;
-  const ed25519Claims = walletSessionJwt
-    ? parseRouterAbEd25519WalletSessionIdentityClaims(walletSessionJwt)
+  const walletSessionToken = activeAuthorization
+    ? walletSessionTokenForCurve(activeAuthorization, 'ed25519')
     : null;
   const authorization =
     activeAuthorization &&
-    claims &&
-    ed25519Claims &&
+    walletSessionToken &&
     String(activeAuthorization.walletId) === walletId &&
     activeAuthorization.authMethod === record.authMethod &&
-    claims.walletId === walletId &&
-    claims.authorizationId === activeAuthorization.authorizationId &&
-    claims.walletSessionId === activeAuthorization.walletSessionId &&
-    claims.quotaId === activeAuthorization.quotaId &&
-    ed25519Claims.nearAccountId === restore.nearAccountId &&
-    ed25519Claims.nearEd25519SigningKeyId === restore.nearEd25519SigningKeyId &&
-    ed25519Claims.thresholdSessionId === thresholdSessionId
+    activeAuthorization.walletSessionId.length > 0 &&
+    activeAuthorization.quotaId.length > 0
       ? activeAuthorization
       : null;
   try {
@@ -382,28 +366,16 @@ function publicCapabilityReferenceToEd25519Lane(
   const nearAccountId = String(reference.nearAccountId || '').trim();
   const thresholdSessionId = String(reference.thresholdSessionId || '').trim();
   if (!walletId || !nearAccountId || !thresholdSessionId) return null;
-  const walletSessionJwt = activeAuthorization
-    ? walletSessionJwtForCurve(activeAuthorization, 'ed25519')
-    : null;
-  const claims = walletSessionJwt
-    ? parseWalletSessionAuthorizationIdentityClaims(walletSessionJwt)
-    : null;
-  const ed25519Claims = walletSessionJwt
-    ? parseRouterAbEd25519WalletSessionIdentityClaims(walletSessionJwt)
+  const walletSessionToken = activeAuthorization
+    ? walletSessionTokenForCurve(activeAuthorization, 'ed25519')
     : null;
   const authorization =
     activeAuthorization &&
-    claims &&
-    ed25519Claims &&
+    walletSessionToken &&
     String(activeAuthorization.walletId) === walletId &&
     activeAuthorization.authMethod === reference.auth.kind &&
-    claims.walletId === walletId &&
-    claims.authorizationId === activeAuthorization.authorizationId &&
-    claims.walletSessionId === activeAuthorization.walletSessionId &&
-    claims.quotaId === activeAuthorization.quotaId &&
-    ed25519Claims.nearAccountId === nearAccountId &&
-    ed25519Claims.nearEd25519SigningKeyId === String(reference.nearEd25519SigningKeyId) &&
-    ed25519Claims.thresholdSessionId === thresholdSessionId
+    activeAuthorization.walletSessionId.length > 0 &&
+    activeAuthorization.quotaId.length > 0
       ? activeAuthorization
       : null;
   try {

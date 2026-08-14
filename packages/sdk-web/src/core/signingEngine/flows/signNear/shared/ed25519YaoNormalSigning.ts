@@ -103,11 +103,6 @@ async function nearOperationStepUpCredential(args: {
     relayerUrl: args.relayerUrl,
     proof: args.proof,
   });
-  if (credential.kind === 'wallet_session_jwt') {
-    throw new Error(
-      '[SigningEngine][near] operation step-up requires an app-session credential',
-    );
-  }
   return credential;
 }
 

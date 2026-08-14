@@ -5,6 +5,6 @@ export type LoginWithEmailOtpWalletCustodyEd25519Args = {
   challengeId: string;
   otpCode: string;
   remainingUses: number;
-  appSessionJwt: string;
+  emailOtpAuthorityEmail: string;
   emailHashHex: string;
 };

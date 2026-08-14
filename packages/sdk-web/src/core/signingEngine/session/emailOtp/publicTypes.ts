@@ -1,4 +1,3 @@
-import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
 
 export type EmailOtpChallengeDeliveryStatus = 'sent' | 'reused';
@@ -41,40 +40,25 @@ export type EmailOtpEnrollmentResult = {
   unlockKeyVersion: string;
 };
 
-export type GoogleEmailOtpSessionExchangeResult = {
-  jwt?: string;
-  session: {
-    userId: string;
-    walletId: string;
-    email?: string;
-    name?: string;
-    googleEmailOtpResolution?: {
-      mode: 'existing_wallet' | 'register_started';
-      registrationAttemptId?: string;
-      expiresAt?: string;
-      expiresAtMs?: number;
-      loginChallenge?:
-        | {
-            delivery: EmailOtpChallengeDelivery;
-            challengeId: string;
-            emailHint?: string;
-            expiresAt?: string;
-            expiresAtMs?: number;
-          }
-        | {
-            delivery: 'rate_limited';
-            retryAfterMs?: number;
-            resetAtMs?: number;
-          };
-      offer?: {
-        offerId: string;
-        selectedCandidateId: string;
-        candidates: readonly [
-          { candidateId: string; walletId: string },
-          ...{ candidateId: string; walletId: string }[],
-        ];
-      };
-    };
-    runtimePolicyScope?: ThresholdRuntimePolicyScope;
+export type GoogleEmailOtpProviderResolution = {
+  mode: 'existing_wallet';
+  walletId: string;
+  providerSubject: string;
+  email?: string;
+  hasEmailOtpEnrollment: true;
+} | {
+  mode: 'register_started';
+  walletId: string;
+  providerSubject: string;
+  email: string;
+  registrationAttemptId: string;
+  expiresAtMs: number;
+  offer: {
+    offerId: string;
+    selectedCandidateId: string;
+    candidates: readonly [
+      { candidateId: string; walletId: string },
+      ...{ candidateId: string; walletId: string }[],
+    ];
   };
 };

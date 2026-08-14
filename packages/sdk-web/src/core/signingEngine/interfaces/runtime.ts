@@ -11,7 +11,7 @@ import type { TouchIdPrompt } from '../stepUpConfirmation/passkeyPrompt/touchIdP
 import type { UserPreferencesManager } from '../session/userPreferences';
 import type { ThemeMode, SeamsChainConfig } from '../../types/seams';
 import type { WalletId } from './ecdsaChainTarget';
-import type { RouterAbEd25519NormalSigningCredential } from '../../rpcClients/relayer/routerAbNormalSigning';
+import type { RouterAbOwnerNormalSigningCredential } from '../../rpcClients/relayer/routerAbNormalSigning';
 import type {
   SignerWorkerKind,
   SignerWorkerOperationRequest,
@@ -35,7 +35,7 @@ export interface NearSigningRuntimeDeps {
     walletId: WalletId;
     relayerUrl: string;
     proof: Ed25519OperationStepUpProof;
-  }) => Promise<RouterAbEd25519NormalSigningCredential>;
+  }) => Promise<RouterAbOwnerNormalSigningCredential>;
   touchIdPrompt: TouchIdPrompt;
   nearClient: NearClient;
   nearKeyMaterialStore: NearSigningKeyMaterialStorePort;

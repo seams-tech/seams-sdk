@@ -15,6 +15,7 @@ import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/ro
 import { compactImplicitNearAccountId } from '@shared/utils/near';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { sha256HexUtf8 } from '@shared/utils/digests';
+import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { WebAuthnRegistrationCredential } from '@/core/types';
@@ -111,6 +112,7 @@ export type StoreWalletEmailOtpEd25519RegistrationInput = Omit<
 > & {
   email: string;
   registrationAuthorityId: string;
+  authority: EmailOtpWalletAuthAuthority;
 };
 
 /**
@@ -172,6 +174,7 @@ export type StoreWalletEcdsaRegistrationInput = StoreWalletEcdsaSignerRecordsInp
 export type StoreWalletEmailOtpEcdsaRegistrationInput = StoreWalletEcdsaSignerRecordsInput & {
   email: string;
   registrationAuthorityId: string;
+  authority: EmailOtpWalletAuthAuthority;
 };
 
 export type StoredWalletEcdsaSignerRecord = {
@@ -809,6 +812,7 @@ async function emailOtpAuthMethod(args: {
   walletId: WalletId;
   email: string;
   registrationAuthorityId: string;
+  authority: EmailOtpWalletAuthAuthority;
 }): Promise<LocalWalletAuthMethodRecord> {
   const walletId = String(args.walletId || '').trim();
   const email = String(args.email || '')
@@ -820,6 +824,13 @@ async function emailOtpAuthMethod(args: {
       'SeamsWalletDB: Email OTP auth method requires walletId, email, and registrationAuthorityId',
     );
   }
+  const emailHashHex = await sha256HexUtf8(email);
+  if (
+    String(args.authority.walletId) !== walletId ||
+    args.authority.verifier.emailHashHex !== emailHashHex
+  ) {
+    throw new Error('SeamsWalletDB: Email OTP auth method authority does not match wallet or email');
+  }
   const nowMs = Date.now();
   return {
     version: 'wallet_auth_method_v1',
@@ -827,8 +838,9 @@ async function emailOtpAuthMethod(args: {
     status: 'active',
     localStatus: 'synced',
     walletId: args.walletId,
-    emailHashHex: await sha256HexUtf8(email),
+    emailHashHex,
     registrationAuthorityId,
+    authority: args.authority,
     createdAtMs: nowMs,
     updatedAtMs: nowMs,
   };
@@ -1354,6 +1366,7 @@ async function storeWalletEmailOtpEd25519RegistrationDataWithComposition(
       walletId: args.walletId,
       email: args.email,
       registrationAuthorityId: args.registrationAuthorityId,
+      authority: args.authority,
     }),
     authenticators: [],
     signerActivations,
@@ -1892,6 +1905,7 @@ export async function storeWalletEmailOtpEcdsaRegistrationData(
       walletId: args.walletId,
       email: args.email,
       registrationAuthorityId: args.registrationAuthorityId,
+      authority: args.authority,
     }),
     authenticators: [],
     signerActivations: preparedEcdsa.signerActivations.map((activation) => activation.input),

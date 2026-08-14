@@ -177,12 +177,6 @@ export class AuthMenuController {
     const result = await this.deps.getSeamsWeb().auth.beginGoogleEmailOtpWalletAuth({
       idToken: args.idToken,
       mode: args.mode,
-      // The wallet host is a third-party context, so a cookie session is not
-      // usable here. Without an explicit 'jwt' the session exchange returns no
-      // JWT, the flow's state carries no appSessionJwt, and the ECDSA login
-      // reaches resolveEmailOtpAuthLane with nothing to authenticate with —
-      // surfacing as "Email OTP ECDSA login requires route auth".
-      sessionKind: 'jwt',
     });
     if (!result.ok) throw new Error(result.error.message);
     const flow = result.value;

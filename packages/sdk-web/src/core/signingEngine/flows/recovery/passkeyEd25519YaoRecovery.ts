@@ -3,7 +3,6 @@ import type { Ed25519YaoPublicCapabilityLaneReferenceV1 } from '@/core/signingEn
 import { buildPasskeyRouterAbEd25519WalletSessionState } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
 import {
   buildRouterAbEd25519SigningWalletSession,
-  parseRouterAbEd25519WalletSessionIdentityClaims,
 } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toRpId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
@@ -34,6 +33,7 @@ import {
 } from '@shared/utils/walletAuthAuthority';
 import {
   parseMpcWalletSigningQuotaId,
+  parseWalletSessionAuthorizationId,
   parseWalletSessionId,
   type MpcWalletSigningQuotaId,
   type WalletSessionId,
@@ -156,7 +156,7 @@ function parseRecoverySession(
     readonly nearEd25519SigningKeyId: string;
   },
 ): ParsedYaoRecoverySessionV1 {
-  if (raw.sessionKind !== 'jwt') throw new Error('Yao recovery session must use JWT');
+  if (raw.sessionKind !== 'opaque') throw new Error('Yao recovery session must use opaque token');
   if (
     requireString(raw.walletId, 'session.walletId') !== identity.walletId ||
     requireString(raw.nearAccountId, 'session.nearAccountId') !== identity.nearAccountId ||
@@ -170,13 +170,16 @@ function parseRecoverySession(
   const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(raw.routerAbNormalSigning);
   if (!routerAbNormalSigning) throw new Error('Yao recovery session signing state is invalid');
   const walletSessionId = parseWalletSessionId(raw.walletSessionId);
+  const authorizationId = parseWalletSessionAuthorizationId(raw.authorizationId);
   const quotaId = parseMpcWalletSigningQuotaId(raw.quotaId);
-  if (!walletSessionId.ok || !quotaId.ok) {
+  if (!walletSessionId.ok || !authorizationId.ok || !quotaId.ok) {
     throw new Error('Yao recovery Wallet Session identity is invalid');
   }
   return {
-    walletSessionJwt: requireString(raw.walletSessionJwt, 'session.walletSessionJwt'),
+    sessionKind: 'opaque',
+    walletSessionToken: requireString(raw.walletSessionToken, 'session.walletSessionToken'),
     thresholdSessionId: requireString(raw.thresholdSessionId, 'session.thresholdSessionId'),
+    authorizationId: authorizationId.value,
     walletSessionId: walletSessionId.value,
     quotaId: quotaId.value,
     expiresAtMs: requirePositiveInteger(raw.expiresAtMs, 'session.expiresAtMs'),
@@ -316,15 +319,14 @@ export function buildRecoveredWalletSessionState(input: {
 }): NearResolvedEd25519SigningSessionState {
   const parsed = input.parsed;
   const session = parsed.session;
-  const claims = parseRouterAbEd25519WalletSessionIdentityClaims(session.walletSessionJwt);
-  if (!claims) throw new Error('recovered Yao Wallet Session claims are invalid');
   const signingRoot = signingRootScopeFromRuntimePolicyScope(session.runtimePolicyScope);
   const signingWalletSession = buildRouterAbEd25519SigningWalletSession({
     walletId: String(parsed.walletId),
     nearAccountId: String(parsed.nearAccountId),
     nearEd25519SigningKeyId: parsed.nearEd25519SigningKeyId,
-    walletSessionId: claims.walletSessionId,
-    quotaId: claims.quotaId,
+    walletSessionId: session.walletSessionId,
+    authorizationId: session.authorizationId,
+    quotaId: session.quotaId,
     thresholdSessionId: session.thresholdSessionId,
     remainingUses: session.remainingUses,
     expiresAtMs: session.expiresAtMs,
@@ -332,7 +334,7 @@ export function buildRecoveredWalletSessionState(input: {
     signingRootId: signingRoot.signingRootId,
     signingRootVersion: String(signingRoot.signingRootVersion || ''),
     routerAbNormalSigning: session.routerAbNormalSigning,
-    walletSessionJwt: session.walletSessionJwt,
+    walletSessionToken: session.walletSessionToken,
     nowMs: Math.min(Date.now(), session.expiresAtMs - 1),
   });
   if (!signingWalletSession.ok) {

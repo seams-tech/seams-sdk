@@ -29,14 +29,14 @@
       ]
     },
     {
-      "id": "export_provider_user_mismatch_after_app_session_refresh",
+      "id": "export_provider_user_mismatch_after_owner_proof",
       "contractFiles": [
         "passkey.registration.contract.test.ts",
         "passkey.unlock.contract.test.ts",
         "email-otp.registration.contract.test.ts",
         "email-otp.unlock.contract.test.ts"
       ],
-      "seededRegression": "Refresh the app session with a provider-user binding that does not match the wallet's export authority.",
+      "seededRegression": "Verify an export owner proof whose provider-user binding does not match the wallet's export authority.",
       "expectedFailureOracle": "fresh Email OTP export authorization",
       "phase3bProof": {
         "status": "detected",

@@ -22,8 +22,10 @@ E2E enforcement plan: [Refactor 88: Intended Behaviour E2E Contract](./refactor-
 | `capabilityGrantId`  | Exact one-operation authority bound to an operation, capability, and material activation.                                             |
 | `thresholdSessionId` | Cryptographic signing-session id for Ed25519 or ECDSA material.                                                                      |
 | `chainTarget`        | Concrete ECDSA signing target, such as Tempo testnet or Arc EVM testnet.                                                             |
-| `warm session`       | Short-lived reusable signing session created by registration, unlock, or step-up auth.                                             |
+| `warm session`       | Short-lived reusable signing session created by registration or unlock.                                                            |
 | `step-up auth`       | Same-method fresh authorization scoped to one privileged operation.                                                                  |
+| `owner proof`        | Server-internal passkey or Email OTP verification result consumed once to mint a Wallet Session or authorize one exact operation.   |
+| `opaque token`       | Random Wallet Session bearer whose identity, budget, expiry, and revocation state are resolved by the server.                       |
 
 ## Global Invariants
 
@@ -37,6 +39,8 @@ E2E enforcement plan: [Refactor 88: Intended Behaviour E2E Contract](./refactor-
 - Transaction signing uses warm-session budget. It should not ask for step-up
   while a valid warm session has enough signature uses for the requested
   operation.
+- Step-up authorizes one exact operation. It does not create, renew, or add
+  budget to a reusable Wallet Session.
 - Key export always requires fresh operation-specific authorization. A normal
   transaction-signing warm session is not sufficient authority for export.
 - ECDSA lanes are target-specific. Tempo and Arc/EVM may share key facts and
@@ -45,6 +49,10 @@ E2E enforcement plan: [Refactor 88: Intended Behaviour E2E Contract](./refactor-
 - Page refresh must not create new authority by itself. It may rehydrate valid
   persisted/sealed session state. If rehydration fails or a session is expired
   or exhausted, the next operation must use normal unlock or step-up auth.
+- Application authentication is outside the wallet SDK. An application token,
+  cookie, user id, or provider session never proves wallet ownership.
+- Owner Wallet Session tokens are opaque. Client code must not decode identity,
+  budget, expiry, authority, or signing claims from them.
 
 ## Hosted Auth Menu Entry Point
 
@@ -58,9 +66,11 @@ CTA belong to the wallet origin.
   that wallet-origin activation.
 - Registration uses the configured account-input policy and completes through the
   same prepared surface; it does not open a second registration-confirmation modal.
-- An external provider broker may return only typed evidence. The wallet host
-  owns provider validation, OTP state, registration continuation, and unlock
-  continuation.
+- The wallet host owns passkey and Email OTP validation, OTP state,
+  registration continuation, and unlock continuation.
+- A hosted-wallet handoff is single-use and bound to the application and wallet
+  origins. The outer application never receives the wallet host's opaque Wallet
+  Session token.
 - The adapter emits exactly one terminal `HostedAuthMenuOutcome` for the session.
   Unmounting or closing cancels only that session and leaves direct
   `registerWallet()`, `addWalletSigner()`, and `unlock()` confirmation surfaces
@@ -103,7 +113,7 @@ Expected behaviour:
 - The user may reroll the wallet name without sending another OTP code.
 - The final wallet id may differ from the wallet id shown when the OTP was sent.
 - The OTP remains valid for registration reroll only when the provider subject,
-  challenged email, challenge id, org, app-session version, and allowed
+  challenged email, challenge id, org, owner-proof binding, and allowed
   registration purpose match.
 - Registration stores the Email OTP auth method and binds it to the final
   wallet id.
@@ -124,7 +134,7 @@ Failure behaviour:
 
 - A wallet-unlock OTP challenge must not satisfy registration verification
   unless the request carries an explicit registration reroll proof whose
-  provider subject, challenged email, challenge id, org, and app-session version
+  provider subject, challenged email, challenge id, org, and owner-proof binding
   match.
 - A registration OTP challenge must not satisfy wallet-unlock verification.
 - Reroll must fail with a precise challenge/proof mismatch code when the
@@ -137,8 +147,8 @@ Expected behaviour:
 - Refreshing before registration finalize may restore UI progress from durable
   registration attempt state when available.
 - Refreshing must not send a second OTP solely because the wallet name changed.
-- Refreshing must not finalize registration without the same required proof and
-  app-session context.
+- Refreshing must not finalize registration without the same required
+  operation-bound owner proof.
 - After completed registration, a refresh follows the session-refresh behaviour
   below.
 
@@ -218,6 +228,8 @@ Expected behaviour:
   curve and chain target.
 - If the selected warm session has enough signature uses, signing proceeds
   without another prompt.
+- The server resolves the opaque Wallet Session and chooses reusable admission,
+  same-method step-up, or hard denial.
 - NEAR action batching consumes one signature use per NEAR transaction, not one
   use per action.
 - Multiple independent transactions in one signing request consume one
@@ -243,6 +255,8 @@ Expected behaviour:
   curve and chain target.
 - If the selected warm session has enough signature uses, signing proceeds
   without another OTP.
+- The server resolves the opaque Wallet Session and chooses reusable admission,
+  same-method step-up, or hard denial.
 - NEAR action batching consumes one signature use per NEAR transaction, not one
   use per action.
 - Multiple independent transactions in one signing request consume one
@@ -284,10 +298,10 @@ Expected behaviour:
 - Step-up uses the selected wallet's passkey auth method.
 - If the credential id is known, WebAuthn should request that credential
   directly.
-- Step-up is operation-specific. It mints enough signature uses for the approved
+- Step-up is operation-specific and claims one quota-neutral authorized
   operation.
-- Step-up returns a new exact concrete lane with fresh session ids or refreshed
-  budget identity.
+- Step-up preserves the existing key, lane, material activation, Wallet
+  Session, and budget identity.
 - Step-up for NEAR must not refresh ECDSA-only lanes unless the approved
   operation requires them.
 - Step-up for Tempo/EVM must be exact to the requested ECDSA chain target.
@@ -302,11 +316,11 @@ Failure behaviour:
 Expected behaviour:
 
 - Step-up sends an operation-specific Email OTP challenge.
-- Verifying the OTP mints enough signature uses for the approved operation.
-- Step-up returns a new exact concrete Email OTP lane with fresh session ids or
-  refreshed budget identity.
-- Step-up for NEAR must hydrate the selected Ed25519 lane.
-- Step-up for Tempo/EVM must hydrate the selected ECDSA lane and exact chain
+- Verifying the OTP claims one quota-neutral authorized operation.
+- Step-up preserves the existing key, lane, material activation, Wallet
+  Session, and budget identity.
+- Step-up for NEAR must authorize the selected Ed25519 lane.
+- Step-up for Tempo/EVM must authorize the selected ECDSA lane and exact chain
   target.
 - Step-up should show one OTP prompt per approved operation.
 

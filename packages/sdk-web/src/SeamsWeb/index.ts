@@ -39,7 +39,6 @@ export type {
   EmailOtpEcdsaCapabilityResult,
   EmailOtpEnrollmentResult,
   ExportKeypairWithUIInput,
-  GoogleEmailOtpSessionExchangeResult,
   GoogleEmailOtpRegistrationEnrollmentResult,
   GoogleEmailOtpRegistrationCandidate,
   GoogleEmailOtpRegistrationCandidateId,

@@ -38,8 +38,9 @@ import {
 import { RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter } from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecoveryWalletSessionAuthorization';
 import {
   InMemoryRouterAbEd25519YaoExportService,
-  RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter,
   type RouterAbEd25519YaoExportBackend,
+  type RouterAbEd25519YaoExportAuthorizationAdapter,
+  type RouterAbEd25519YaoExportAuthorizationInput,
 } from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/export/routerAbEd25519YaoExport';
 import type { RouterAbEcdsaStrictRegistrationPort } from '../../../packages/sdk-server-ts/src/router/domains/ecdsa/routerAbEcdsaStrictRegistration';
 import {
@@ -855,6 +856,38 @@ export async function createActivatedFinalizeYaoRuntimeFixture(overrides?: {
     recoveryService,
     state.export,
   );
+  const exportAuthorization: RouterAbEd25519YaoExportAuthorizationAdapter = {
+    async authorize(input: RouterAbEd25519YaoExportAuthorizationInput) {
+      const rawSessionId =
+        input.kind === 'admit'
+          ? input.body.scope.threshold_session_id
+          : input.body.binding.ceremony.lifecycle.session_id;
+      const thresholdSessionId = parseThresholdEd25519SessionId(rawSessionId);
+      if (!thresholdSessionId.ok) {
+        return {
+          ok: false as const,
+          status: 403 as const,
+          code: 'invalid_body',
+          message: thresholdSessionId.error.message,
+        };
+      }
+      return { ok: true as const, authorizationIdentity: { thresholdSessionId: thresholdSessionId.value } };
+    },
+    async resolveAuthorizationIdentity() {
+      const thresholdSessionId = parseThresholdEd25519SessionId(
+        admissionRequest.scope.threshold_session_id,
+      );
+      if (!thresholdSessionId.ok) {
+        return {
+          ok: false as const,
+          status: 403 as const,
+          code: 'invalid_body',
+          message: thresholdSessionId.error.message,
+        };
+      }
+      return { ok: true as const, authorizationIdentity: { thresholdSessionId: thresholdSessionId.value } };
+    },
+  };
   const composition = createRouterAbEd25519YaoProductRegistrationCompositionFromPortsV1({
     signingWorkerId: SIGNING_WORKER_ID,
     registrationService: registration,
@@ -865,11 +898,7 @@ export async function createActivatedFinalizeYaoRuntimeFixture(overrides?: {
     capabilities: recoveryService,
     recoveryAuthorization: new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(session),
     exportService,
-    exportAuthorization: new RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter(session, {
-      async verifyWebAuthnAuthenticationLite(): Promise<never> {
-        throw new Error('WebAuthn export is outside the finalize convergence fixture');
-      },
-    }),
+    exportAuthorization,
     session,
   });
   return {

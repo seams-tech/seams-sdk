@@ -1,13 +1,8 @@
 import type { IdentityStore, LinkIdentityResult, UnlinkIdentityResult } from '../IdentityStore';
 import {
-  getOrCreateAppSessionVersionWithStore,
   linkIdentityWithStore,
   listIdentitiesWithStore,
-  rotateAppSessionVersionWithStore,
   unlinkIdentityWithStore,
-  validateAppSessionVersionWithStore,
-  type AppSessionVersionMutationResult,
-  type AppSessionVersionValidationResult,
   type ListIdentitiesResult,
 } from './identity';
 
@@ -42,30 +37,4 @@ export class IdentityOperations {
     });
   }
 
-  async getOrCreateAppSessionVersion(input: {
-    userId: string;
-  }): Promise<AppSessionVersionMutationResult> {
-    return await getOrCreateAppSessionVersionWithStore({
-      store: this.store,
-      userId: input.userId,
-    });
-  }
-
-  async rotateAppSessionVersion(input: { userId: string }): Promise<AppSessionVersionMutationResult> {
-    return await rotateAppSessionVersionWithStore({
-      store: this.store,
-      userId: input.userId,
-    });
-  }
-
-  async validateAppSessionVersion(input: {
-    userId: string;
-    appSessionVersion: string;
-  }): Promise<AppSessionVersionValidationResult> {
-    return await validateAppSessionVersionWithStore({
-      store: this.store,
-      userId: input.userId,
-      appSessionVersion: input.appSessionVersion,
-    });
-  }
 }

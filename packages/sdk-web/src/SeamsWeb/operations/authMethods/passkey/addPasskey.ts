@@ -27,9 +27,6 @@ import {
 import { redactCredentialExtensionOutputs } from '@/core/signingEngine/webauthnAuth/credentials/credentialExtensions';
 import { linkWalletPasskeyCustody } from '@/core/signingEngine/walletCustody/passkeyLink';
 import type { WalletCustodyCeremonyTransportPort } from '@/core/signingEngine/walletCustody/ceremonyStepRunner';
-import { buildEmailOtpRoutePlan } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
-import { WALLET_EMAIL_OTP_UNLOCK_OPERATION } from '@shared/utils/emailOtpDomain';
-import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal';
 export type AddPasskeyAuthorization =
   | { readonly kind: 'existing_passkey' }
   | { readonly kind: 'email_otp'; readonly challengeId: string; readonly otpCode: string };
@@ -164,131 +161,6 @@ function walletCustodyWorkerTransport(
   };
 }
 
-async function addPasskeyWithEmailOtpAuthorization(args: {
-  readonly context: RegistrationWebContext;
-  readonly walletId: WalletId;
-  readonly rpId: WebAuthnRpId;
-  readonly authorization: Extract<AddPasskeyAuthorization, { kind: 'email_otp' }>;
-  readonly intentResponse: Awaited<ReturnType<typeof createWalletAddAuthMethodIntent>>;
-  readonly defaultSignerSlot: number;
-  readonly options?: AddPasskeyHooksOptions;
-}): Promise<AddPasskeyResult> {
-  const relayerUrl = String(args.context.configs.network.relayer.url || '').trim();
-  const appSessionJwt = await args.context.signingEngine.resolveEmailOtpAppSessionJwt({
-    walletSession: {
-      walletId: args.walletId,
-      walletSessionUserId: String(args.walletId),
-    },
-    relayUrl: relayerUrl,
-  });
-  const worker = args.context.signingEngine.getSignerWorkerContext();
-  const routePlan = buildEmailOtpRoutePlan({
-    routeFamily: 'login',
-    authLane: { kind: 'app_session', jwt: appSessionJwt },
-    operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
-  });
-  const prepared = await worker.requestWorkerOperation({
-    kind: 'emailOtp',
-    request: {
-      type: 'prepareEmailOtpPasskeyCustodyLink',
-      timeoutMs: 60_000,
-      payload: {
-        relayUrl: relayerUrl,
-        walletId: String(args.walletId),
-        userId: String(args.walletId),
-        groupId: SIGNING_SESSION_SEAL_GROUP_ID,
-        routePlan,
-        verification: {
-          kind: 'otp',
-          challengeId: args.authorization.challengeId,
-          otpCode: args.authorization.otpCode,
-        },
-      },
-    },
-  });
-  let continuationActive = true;
-  try {
-    const started = await startWalletAddAuthMethod({
-      relayerUrl,
-      walletId: args.walletId,
-      addAuthMethodIntentGrant: args.intentResponse.addAuthMethodIntentGrant,
-      addAuthMethodIntentDigestB64u: args.intentResponse.addAuthMethodIntentDigestB64u,
-      intent: args.intentResponse.intent,
-      auth: { kind: 'email_otp', appSessionJwt },
-      authority: { kind: 'passkey' },
-    });
-    if (!started.custodyEnvelope || !started.registration) {
-      throw new Error(
-        'Email OTP add-passkey start omitted custody envelope or registration options',
-      );
-    }
-    if (
-      started.custodyEnvelope.walletId !== args.walletId ||
-      started.custodyEnvelope.envelopeId !== prepared.envelopeId ||
-      started.custodyEnvelope.envelopeRevision !== prepared.envelopeRevision ||
-      started.custodyEnvelope.factor.kind !== 'email_otp' ||
-      started.custodyEnvelope.factor.enrollmentId !== prepared.enrollmentId ||
-      started.custodyEnvelope.factor.enrollmentSealKeyVersion !== prepared.enrollmentSealKeyVersion
-    ) {
-      throw new Error('Email OTP add-passkey source custody envelope changed');
-    }
-    const confirmation = await args.context.signingEngine.requestRegistrationCredentialConfirmation(
-      {
-        walletId: String(args.walletId),
-        signerSlot: args.defaultSignerSlot,
-        confirmerText: args.options?.confirmerText,
-        confirmationConfigOverride: args.options?.confirmationConfig,
-        registrationOptions: started.registration,
-      },
-    );
-    if (!confirmation.confirmed) {
-      throw new Error('Wallet add-passkey registration was cancelled');
-    }
-    const linked = await worker.requestWorkerOperation({
-      kind: 'emailOtp',
-      request: {
-        type: 'completeEmailOtpPasskeyCustodyLink',
-        timeoutMs: 30_000,
-        payload: {
-          pendingHandleId: prepared.pendingHandleId,
-          existingEnvelope: started.custodyEnvelope,
-          registration: {
-            kind: started.registration.kind,
-            rpId: started.registration.rpId,
-          },
-          registrationCredential: confirmation.credential,
-        },
-      },
-    });
-    continuationActive = false;
-    const finalized = await finalizeWalletAddAuthMethod({
-      relayerUrl,
-      walletId: args.walletId,
-      addAuthMethodCeremonyId: started.addAuthMethodCeremonyId,
-      webauthnRegistration: linked.registrationCredential,
-      custodyEnvelope: linked.custodyEnvelope,
-    });
-    return await persistAddedPasskey({
-      walletId: args.walletId,
-      rpId: args.rpId,
-      finalized,
-    });
-  } finally {
-    if (continuationActive) {
-      await worker
-        .requestWorkerOperation({
-          kind: 'emailOtp',
-          request: {
-            type: 'discardEmailOtpPasskeyCustodyLink',
-            timeoutMs: 5_000,
-            payload: { pendingHandleId: prepared.pendingHandleId },
-          },
-        })
-        .catch(() => undefined);
-    }
-  }
-}
-
 async function addPasskeyWalletAuthMethodInternal(args: {
   readonly context: RegistrationWebContext;
   readonly walletId: WalletId;
@@ -339,15 +211,7 @@ async function addPasskeyWalletAuthMethodInternal(args: {
     throw new Error('Wallet add-passkey requires an initialized wallet profile');
   }
   if (args.authorization.kind === 'email_otp') {
-    return await addPasskeyWithEmailOtpAuthorization({
-      context: args.context,
-      walletId: args.walletId,
-      rpId: args.rpId,
-      authorization: args.authorization,
-      intentResponse,
-      defaultSignerSlot: profile.defaultSignerSlot,
-      options: args.options,
-    });
+    throw new Error('Wallet add-passkey requires a fresh passkey owner proof');
   }
   const authenticators = await IndexedDBManager.listProfileAuthenticators(String(args.walletId));
   const allowCredentials = requireExistingPasskeyCredentials(authenticators);

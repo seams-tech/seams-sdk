@@ -28,7 +28,6 @@ export type {
   WalletIframeExactSessionIdentity,
   WalletIframeExactSessionState,
 } from './SeamsWeb/walletIframe/shared/exactSessionState';
-export type { WalletAuthenticationRestoreAuth } from './SeamsWeb/signingSurface/ports';
 
 export * from './config';
 export { PASSKEY_MANAGER_DEFAULT_CONFIGS } from './core/config/defaultConfigs';

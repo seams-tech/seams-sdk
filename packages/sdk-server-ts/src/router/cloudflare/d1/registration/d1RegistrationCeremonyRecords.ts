@@ -40,7 +40,6 @@ import {
   unknownWebAuthnAuthenticatorDeviceInfo,
 } from '@shared/utils/webauthnDeviceInfo';
 import {
-  parseAppSessionVersion,
   parseChallengeSubjectId,
   parseEmailOtpChallengeId,
   parseOrgId,
@@ -166,15 +165,8 @@ type D1WalletRegistrationFinalizeSuccess = Extract<
   WalletRegistrationFinalizeResponse,
   { ok: true }
 >;
-type D1WalletRegistrationFinalizeEmailOtpSuccess = Extract<
-  D1WalletRegistrationFinalizeSuccess,
-  { authMethod: { kind: 'email_otp' } }
-> & {
-  readonly appSessionJwt: string;
-};
 type D1WalletRegistrationFinalizeReplaySuccess =
-  | Exclude<D1WalletRegistrationFinalizeSuccess, { authMethod: { kind: 'email_otp' } }>
-  | D1WalletRegistrationFinalizeEmailOtpSuccess;
+  D1WalletRegistrationFinalizeSuccess;
 type D1WalletRegistrationFinalizeEcdsaPayload = {
   readonly walletKeys: WalletRegistrationEcdsaWalletKey[];
 };
@@ -528,10 +520,6 @@ export function parseD1WalletRegistrationFinalizeReplayResponse(
   if (authMethod.kind === 'email_otp' && rpId) {
     return null;
   }
-  const appSessionJwt = toOptionalTrimmedString(record.appSessionJwt);
-  if (record.appSessionJwt !== undefined && !appSessionJwt) {
-    return null;
-  }
   const ecdsa = parseD1WalletRegistrationFinalizeEcdsa(record.ecdsa);
   if (record.kind === 'evm_family_ecdsa') {
     if (!ecdsa) {
@@ -557,8 +545,7 @@ export function parseD1WalletRegistrationFinalizeReplayResponse(
       authMethod,
       ecdsa,
     } as const;
-    if (!appSessionJwt) return null;
-    return { ...response, appSessionJwt };
+    return response;
   }
   /* Refactor 94 Phase 4+5: finalize commits one signer branch per call, so a
      replayed Ed25519 response never carries ECDSA work. */
@@ -618,8 +605,7 @@ export function parseD1WalletRegistrationFinalizeReplayResponse(
     resolvedAccount,
     ed25519,
   } as const;
-  if (!appSessionJwt) return null;
-  return { ...response, appSessionJwt };
+  return response;
 }
 
 function parseWalletRegistrationRouteTimingName(
@@ -680,9 +666,6 @@ export function parseD1WalletRegistrationFinalizeTerminalResponse(
   }
   const success = parseD1WalletRegistrationFinalizeReplayResponse(record);
   if (!success) return null;
-  if (success.authMethod.kind === 'email_otp') {
-    if (!('appSessionJwt' in success) || !success.appSessionJwt) return null;
-  }
   if (record.registrationDiagnostics === undefined) return success;
   const registrationDiagnostics = parseWalletRegistrationRouteDiagnostics(
     record.registrationDiagnostics,
@@ -1342,7 +1325,6 @@ export function parseD1StoredAddSignerAuth(
 ): StoredWalletAddSignerCeremony['auth'] | null {
   const record = toRecordValue(raw);
   const kind = toOptionalTrimmedString(record?.kind);
-  if (kind === 'app_session') return { kind: 'app_session' };
   if (kind === 'webauthn_assertion') {
     const rpId = toOptionalTrimmedString(record?.rpId);
     const credentialIdB64u = toOptionalTrimmedString(record?.credentialIdB64u);
@@ -2446,8 +2428,6 @@ function d1AddAuthMethodCustodyFactorMatches(
         custodyEnvelope.factor.enrollmentId === auth.enrollmentId &&
         custodyEnvelope.factor.enrollmentSealKeyVersion === auth.enrollmentSealKeyVersion
       );
-    case 'app_session':
-      return false;
     default:
       return unreachableAddAuthMethodInput(auth);
   }
@@ -2581,7 +2561,6 @@ function parseD1StoredAddAuthMethodAuth(
 ): StoredWalletAddAuthMethodCeremony['auth'] | null {
   const record = toRecordValue(raw);
   const kind = toOptionalTrimmedString(record?.kind);
-  if (kind === 'app_session') return { kind: 'app_session' };
   if (kind === 'email_otp') {
     const providerUserId = toOptionalTrimmedString(record?.providerUserId);
     const enrollmentId = toOptionalTrimmedString(record?.enrollmentId);
@@ -2666,7 +2645,7 @@ function parseD1EmailOtpRegistrationAuthority(
   const originalWalletId = parseWalletIdForIntent(record.originalWalletId);
   const finalWalletId = parseWalletIdForIntent(record.finalWalletId);
   const orgId = parseOrgId(record.orgId);
-  const appSessionVersion = parseAppSessionVersion(record.appSessionVersion);
+  const ownerProofBindingDigest = toOptionalTrimmedString(record.ownerProofBindingDigest);
   const challengePurpose = toOptionalTrimmedString(record.challengePurpose);
   const registrationIntentDigestB64u = toOptionalTrimmedString(record.registrationIntentDigestB64u);
   if (
@@ -2680,7 +2659,7 @@ function parseD1EmailOtpRegistrationAuthority(
     !originalWalletId ||
     !finalWalletId ||
     !orgId.ok ||
-    !appSessionVersion.ok ||
+    !ownerProofBindingDigest ||
     (challengePurpose !== 'registration' && challengePurpose !== 'registration_reroll') ||
     !registrationIntentDigestB64u
   ) {
@@ -2699,7 +2678,7 @@ function parseD1EmailOtpRegistrationAuthority(
     originalWalletId,
     finalWalletId,
     orgId: orgId.value,
-    appSessionVersion: appSessionVersion.value,
+    ownerProofBindingDigest,
     challengePurpose,
     registrationIntentDigestB64u,
   };
@@ -2724,7 +2703,7 @@ function parseD1GoogleSsoEmailOtpRegistrationAuthority(
   const registrationAuthorityId = toOptionalTrimmedString(record.registrationAuthorityId);
   const finalWalletId = parseWalletIdForIntent(record.finalWalletId);
   const orgId = parseOrgId(record.orgId);
-  const appSessionVersion = parseAppSessionVersion(record.appSessionVersion);
+  const ownerProofBindingDigest = toOptionalTrimmedString(record.ownerProofBindingDigest);
   const registrationIntentDigestB64u = toOptionalTrimmedString(record.registrationIntentDigestB64u);
   if (
     !walletId ||
@@ -2737,7 +2716,7 @@ function parseD1GoogleSsoEmailOtpRegistrationAuthority(
     !registrationAuthorityId ||
     !finalWalletId ||
     !orgId.ok ||
-    !appSessionVersion.ok ||
+    !ownerProofBindingDigest ||
     !registrationIntentDigestB64u
   ) {
     return null;
@@ -2755,7 +2734,7 @@ function parseD1GoogleSsoEmailOtpRegistrationAuthority(
     registrationAuthorityId,
     finalWalletId,
     orgId: orgId.value,
-    appSessionVersion: appSessionVersion.value,
+    ownerProofBindingDigest,
     registrationIntentDigestB64u,
   };
 }

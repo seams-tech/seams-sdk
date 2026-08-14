@@ -22,7 +22,6 @@ verification, and policy checks live under `session/sealedRecovery/*`.
 ## Entrypoints
 
 - `EmailOtpWalletSessionCoordinator.ts`
-- `appSessionJwtCache.ts`
 - `ecdsaRecovery.ts`
 - `ecdsaBootstrapCommit.ts`
 - `exportRecovery.ts`

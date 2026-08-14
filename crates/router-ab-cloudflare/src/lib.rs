@@ -5431,6 +5431,21 @@ pub enum CloudflareRouterEd25519AcceptedCapabilityBindingV1 {
         wallet_session_id: String,
         quota_id: String,
     },
+    /// Wallet Session admission resolved by the trusted Gateway.
+    GatewayOwnerWalletSession {
+        subject_id: String,
+        account_id: String,
+        authorization_session_id: String,
+        authorization_id: String,
+        wallet_session_id: String,
+        quota_id: String,
+        threshold_session_id: String,
+        org_id: String,
+        project_id: String,
+        environment: String,
+        signing_worker_id: String,
+        expires_at_ms: u64,
+    },
     OperationStepUp {
         authorization_session_id: String,
         org_id: String,
@@ -5458,6 +5473,25 @@ impl CloudflareRouterEd25519AcceptedAuthorizedOperationV1 {
         match (&self.binding, &self.authorized_operation) {
             (
                 CloudflareRouterEd25519AcceptedCapabilityBindingV1::ReusableWalletSession {
+                    authorization_id,
+                    wallet_session_id,
+                    ..
+                },
+                CloudflareRouterEd25519AuthorizedOperationV1::ReusableWalletSessionAuthorizedOperationV1 {
+                    authorized_operation_id,
+                    operation_id,
+                    operation_fingerprint_digest,
+                    ..
+                },
+            ) => Ok(CloudflareSigningWorkerAuthorizedOperationIdentityV1::ReusableWalletSession {
+                authorization_id: authorization_id.clone(),
+                wallet_session_id: wallet_session_id.clone(),
+                authorized_operation_id: authorized_operation_id.clone(),
+                operation_id: operation_id.clone(),
+                operation_fingerprint_digest: operation_fingerprint_digest.clone(),
+            }),
+            (
+                CloudflareRouterEd25519AcceptedCapabilityBindingV1::GatewayOwnerWalletSession {
                     authorization_id,
                     wallet_session_id,
                     ..
@@ -5505,6 +5539,10 @@ impl CloudflareRouterEd25519AcceptedAuthorizedOperationV1 {
             CloudflareRouterEd25519AcceptedCapabilityBindingV1::ReusableWalletSession {
                 authorization_id,
                 ..
+            }
+            | CloudflareRouterEd25519AcceptedCapabilityBindingV1::GatewayOwnerWalletSession {
+                authorization_id,
+                ..
             } => Ok(authorization_id),
             CloudflareRouterEd25519AcceptedCapabilityBindingV1::OperationStepUp { .. } => {
                 Err(RouterAbProtocolError::new(
@@ -5538,6 +5576,54 @@ impl CloudflareRouterEd25519AcceptedAuthorizedOperationV1 {
                     return Err(RouterAbProtocolError::new(
                         RouterAbProtocolErrorCode::InvalidGateDecision,
                         "accepted Ed25519 authorization, Wallet Session, and quota ids must be pairwise distinct",
+                    ));
+                }
+                Ok(())
+            }
+            (
+                CloudflareRouterEd25519AcceptedCapabilityBindingV1::GatewayOwnerWalletSession {
+                    subject_id,
+                    account_id,
+                    authorization_session_id,
+                    authorization_id,
+                    wallet_session_id,
+                    quota_id,
+                    threshold_session_id,
+                    org_id,
+                    project_id,
+                    environment,
+                    signing_worker_id,
+                    expires_at_ms,
+                },
+                CloudflareRouterEd25519AuthorizedOperationV1::ReusableWalletSessionAuthorizedOperationV1 {
+                    ..
+                },
+            ) => {
+                require_non_empty("accepted Ed25519 Gateway subject_id", subject_id)?;
+                require_non_empty("accepted Ed25519 Gateway account_id", account_id)?;
+                require_non_empty(
+                    "accepted Ed25519 Gateway authorization_session_id",
+                    authorization_session_id,
+                )?;
+                require_non_empty("accepted Ed25519 Gateway authorization_id", authorization_id)?;
+                require_non_empty("accepted Ed25519 Gateway wallet_session_id", wallet_session_id)?;
+                require_non_empty("accepted Ed25519 Gateway quota_id", quota_id)?;
+                require_non_empty(
+                    "accepted Ed25519 Gateway threshold_session_id",
+                    threshold_session_id,
+                )?;
+                require_non_empty("accepted Ed25519 Gateway org_id", org_id)?;
+                require_non_empty("accepted Ed25519 Gateway project_id", project_id)?;
+                require_non_empty("accepted Ed25519 Gateway environment", environment)?;
+                require_non_empty("accepted Ed25519 Gateway signing_worker_id", signing_worker_id)?;
+                require_positive_ms("accepted Ed25519 Gateway expires_at_ms", *expires_at_ms)?;
+                if authorization_id == wallet_session_id
+                    || authorization_id == quota_id
+                    || wallet_session_id == quota_id
+                {
+                    return Err(RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::InvalidGateDecision,
+                        "accepted Ed25519 Gateway authorization ids must be pairwise distinct",
                     ));
                 }
                 Ok(())
@@ -5593,6 +5679,22 @@ impl CloudflareRouterEd25519AcceptedAuthorizedOperationV1 {
                     ));
                 }
             }
+            CloudflareRouterEd25519AcceptedCapabilityBindingV1::GatewayOwnerWalletSession {
+                authorization_id,
+                wallet_session_id,
+                quota_id,
+                ..
+            } => {
+                if wallet_session.authorization_id != *authorization_id
+                    || wallet_session.wallet_session_id != *wallet_session_id
+                    || wallet_session.quota_id != *quota_id
+                {
+                    return Err(RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::InvalidGateDecision,
+                        "accepted Ed25519 Gateway binding does not match Wallet Session",
+                    ));
+                }
+            }
             CloudflareRouterEd25519AcceptedCapabilityBindingV1::OperationStepUp {
                 authorization_session_id,
                 ..
@@ -5606,6 +5708,52 @@ impl CloudflareRouterEd25519AcceptedAuthorizedOperationV1 {
         }
         Ok(())
     }
+
+    #[cfg(feature = "workers-rs")]
+    fn gateway_owner_wallet_session_credential(
+        &self,
+        trusted_source_digest: PublicDigest32,
+    ) -> RouterAbProtocolResult<CloudflareRouterWalletSessionCredentialV1> {
+        self.validate()?;
+        let CloudflareRouterEd25519AcceptedCapabilityBindingV1::GatewayOwnerWalletSession {
+            subject_id,
+            account_id,
+            authorization_session_id,
+            authorization_id,
+            wallet_session_id,
+            quota_id,
+            threshold_session_id,
+            org_id,
+            project_id,
+            environment,
+            signing_worker_id,
+            expires_at_ms,
+        } = &self.binding
+        else {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "Ed25519 Gateway owner Wallet Session admission is required",
+            ));
+        };
+        let wallet_session = CloudflareRouterVerifiedWalletSessionV1::new(
+            subject_id.clone(),
+            account_id.clone(),
+            authorization_session_id.clone(),
+            authorization_id.clone(),
+            wallet_session_id.clone(),
+            quota_id.clone(),
+            threshold_session_id.clone(),
+            org_id.clone(),
+            project_id.clone(),
+            environment.clone(),
+            "near-ed25519",
+            signing_worker_id.clone(),
+            trusted_source_digest,
+            *expires_at_ms,
+        )?;
+        CloudflareRouterWalletSessionCredentialV1::gateway_owner(wallet_session)
+    }
+
 }
 
 /// Capability domain admitted by the Ed25519 reusable-session route.
@@ -5891,6 +6039,21 @@ pub enum CloudflareRouterEcdsaAcceptedCapabilityBindingV1 {
         wallet_session_id: String,
         quota_id: String,
     },
+    /// Wallet Session admission resolved by the trusted Gateway.
+    GatewayOwnerWalletSession {
+        subject_id: String,
+        account_id: String,
+        authorization_session_id: String,
+        authorization_id: String,
+        wallet_session_id: String,
+        quota_id: String,
+        threshold_session_id: String,
+        org_id: String,
+        project_id: String,
+        environment: String,
+        signing_worker_id: String,
+        expires_at_ms: u64,
+    },
     OperationStepUp {
         authorization_session_id: String,
         org_id: String,
@@ -6002,6 +6165,25 @@ impl CloudflareRouterEcdsaAcceptedAuthorizedOperationV1 {
                 operation_fingerprint_digest: operation_fingerprint_digest.clone(),
             }),
             (
+                CloudflareRouterEcdsaAcceptedCapabilityBindingV1::GatewayOwnerWalletSession {
+                    authorization_id,
+                    wallet_session_id,
+                    ..
+                },
+                CloudflareRouterEcdsaAuthorizedOperationV1::ReusableWalletSessionAuthorizedOperationV1 {
+                    authorized_operation_id,
+                    operation_id,
+                    operation_fingerprint_digest,
+                    ..
+                },
+            ) => Ok(CloudflareSigningWorkerAuthorizedOperationIdentityV1::ReusableWalletSession {
+                authorization_id: authorization_id.clone(),
+                wallet_session_id: wallet_session_id.clone(),
+                authorized_operation_id: authorized_operation_id.clone(),
+                operation_id: operation_id.clone(),
+                operation_fingerprint_digest: operation_fingerprint_digest.clone(),
+            }),
+            (
                 CloudflareRouterEcdsaAcceptedCapabilityBindingV1::OperationStepUp {
                     authorization_session_id,
                     ..
@@ -6028,6 +6210,10 @@ impl CloudflareRouterEcdsaAcceptedAuthorizedOperationV1 {
     fn reusable_authorization_id(&self) -> RouterAbProtocolResult<&str> {
         match &self.binding {
             CloudflareRouterEcdsaAcceptedCapabilityBindingV1::ReusableWalletSession {
+                authorization_id,
+                ..
+            }
+            | CloudflareRouterEcdsaAcceptedCapabilityBindingV1::GatewayOwnerWalletSession {
                 authorization_id,
                 ..
             } => Ok(authorization_id),
@@ -6063,6 +6249,54 @@ impl CloudflareRouterEcdsaAcceptedAuthorizedOperationV1 {
                     return Err(RouterAbProtocolError::new(
                         RouterAbProtocolErrorCode::InvalidGateDecision,
                         "accepted ECDSA authorization, Wallet Session, and quota ids must be pairwise distinct",
+                    ));
+                }
+                Ok(())
+            }
+            (
+                CloudflareRouterEcdsaAcceptedCapabilityBindingV1::GatewayOwnerWalletSession {
+                    subject_id,
+                    account_id,
+                    authorization_session_id,
+                    authorization_id,
+                    wallet_session_id,
+                    quota_id,
+                    threshold_session_id,
+                    org_id,
+                    project_id,
+                    environment,
+                    signing_worker_id,
+                    expires_at_ms,
+                },
+                CloudflareRouterEcdsaAuthorizedOperationV1::ReusableWalletSessionAuthorizedOperationV1 {
+                    ..
+                },
+            ) => {
+                require_non_empty("accepted ECDSA Gateway subject_id", subject_id)?;
+                require_non_empty("accepted ECDSA Gateway account_id", account_id)?;
+                require_non_empty(
+                    "accepted ECDSA Gateway authorization_session_id",
+                    authorization_session_id,
+                )?;
+                require_non_empty("accepted ECDSA Gateway authorization_id", authorization_id)?;
+                require_non_empty("accepted ECDSA Gateway wallet_session_id", wallet_session_id)?;
+                require_non_empty("accepted ECDSA Gateway quota_id", quota_id)?;
+                require_non_empty(
+                    "accepted ECDSA Gateway threshold_session_id",
+                    threshold_session_id,
+                )?;
+                require_non_empty("accepted ECDSA Gateway org_id", org_id)?;
+                require_non_empty("accepted ECDSA Gateway project_id", project_id)?;
+                require_non_empty("accepted ECDSA Gateway environment", environment)?;
+                require_non_empty("accepted ECDSA Gateway signing_worker_id", signing_worker_id)?;
+                require_positive_ms("accepted ECDSA Gateway expires_at_ms", *expires_at_ms)?;
+                if authorization_id == wallet_session_id
+                    || authorization_id == quota_id
+                    || wallet_session_id == quota_id
+                {
+                    return Err(RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::InvalidGateDecision,
+                        "accepted ECDSA Gateway authorization ids must be pairwise distinct",
                     ));
                 }
                 Ok(())
@@ -6118,6 +6352,22 @@ impl CloudflareRouterEcdsaAcceptedAuthorizedOperationV1 {
                     ));
                 }
             }
+            CloudflareRouterEcdsaAcceptedCapabilityBindingV1::GatewayOwnerWalletSession {
+                authorization_id,
+                wallet_session_id,
+                quota_id,
+                ..
+            } => {
+                if wallet_session.authorization_id != *authorization_id
+                    || wallet_session.wallet_session_id != *wallet_session_id
+                    || wallet_session.quota_id != *quota_id
+                {
+                    return Err(RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::InvalidGateDecision,
+                        "accepted ECDSA Gateway binding does not match Wallet Session",
+                    ));
+                }
+            }
             CloudflareRouterEcdsaAcceptedCapabilityBindingV1::OperationStepUp {
                 authorization_session_id,
                 ..
@@ -6130,6 +6380,50 @@ impl CloudflareRouterEcdsaAcceptedAuthorizedOperationV1 {
             CloudflareRouterEcdsaAcceptedCapabilityBindingV1::OperationStepUp { .. } => {}
         }
         Ok(())
+    }
+
+    fn gateway_owner_wallet_session_credential(
+        &self,
+        trusted_source_digest: PublicDigest32,
+    ) -> RouterAbProtocolResult<CloudflareRouterWalletSessionCredentialV1> {
+        self.validate()?;
+        let CloudflareRouterEcdsaAcceptedCapabilityBindingV1::GatewayOwnerWalletSession {
+            subject_id,
+            account_id,
+            authorization_session_id,
+            authorization_id,
+            wallet_session_id,
+            quota_id,
+            threshold_session_id,
+            org_id,
+            project_id,
+            environment,
+            signing_worker_id,
+            expires_at_ms,
+        } = &self.binding
+        else {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "ECDSA Gateway owner Wallet Session admission is required",
+            ));
+        };
+        let wallet_session = CloudflareRouterVerifiedWalletSessionV1::new(
+            subject_id.clone(),
+            account_id.clone(),
+            authorization_session_id.clone(),
+            authorization_id.clone(),
+            wallet_session_id.clone(),
+            quota_id.clone(),
+            threshold_session_id.clone(),
+            org_id.clone(),
+            project_id.clone(),
+            environment.clone(),
+            "evm-family",
+            signing_worker_id.clone(),
+            trusted_source_digest,
+            *expires_at_ms,
+        )?;
+        CloudflareRouterWalletSessionCredentialV1::gateway_owner(wallet_session)
     }
 }
 
@@ -6622,6 +6916,11 @@ pub fn parse_cloudflare_router_authorized_ed25519_finalize_request_v2_json(
     ) {
         (
             CloudflareRouterEd25519AcceptedCapabilityBindingV1::ReusableWalletSession {
+                authorization_id,
+                wallet_session_id,
+                ..
+            }
+            | CloudflareRouterEd25519AcceptedCapabilityBindingV1::GatewayOwnerWalletSession {
                 authorization_id,
                 wallet_session_id,
                 ..
@@ -13637,6 +13936,51 @@ mod tests {
         .expect("hpke recipient output opens");
 
         assert_eq!(decrypted, plaintext.as_bytes());
+    }
+
+    #[cfg(feature = "workers-rs")]
+    #[test]
+    fn gateway_owner_wallet_session_projection_validates_without_jwt_parsing() {
+        let trusted_source_digest = digest(0x41);
+        let operation = CloudflareRouterEcdsaAcceptedAuthorizedOperationV1 {
+            binding: CloudflareRouterEcdsaAcceptedCapabilityBindingV1::GatewayOwnerWalletSession {
+                subject_id: "wallet:1".to_owned(),
+                account_id: "wallet:1".to_owned(),
+                authorization_session_id: "wallet-session:1".to_owned(),
+                authorization_id: "authorization:1".to_owned(),
+                wallet_session_id: "wallet-session:2".to_owned(),
+                quota_id: "quota:1".to_owned(),
+                threshold_session_id: "threshold-session:1".to_owned(),
+                org_id: "org:1".to_owned(),
+                project_id: "project:1".to_owned(),
+                environment: "production".to_owned(),
+                signing_worker_id: "signing-worker:1".to_owned(),
+                expires_at_ms: 2_000,
+            },
+            authorized_operation: CloudflareRouterEcdsaAuthorizedOperationV1::ReusableWalletSessionAuthorizedOperationV1 {
+                authorized_operation_id: "ecdsa-authorized-operation:1".to_owned(),
+                operation_id: "operation:1".to_owned(),
+                capability_kind: CloudflareRouterEcdsaCapabilityKindV1::EvmEcdsaMpcSigning,
+                operation_kind: CloudflareRouterEcdsaOperationKindV1::SignTransaction,
+                lane_digest_b64u: encode_base64url_bytes_v1(digest(0x01).as_bytes()),
+                intent_digest_b64u: encode_base64url_bytes_v1(digest(0x02).as_bytes()),
+                display_digest_b64u: encode_base64url_bytes_v1(digest(0x03).as_bytes()),
+                operation_fingerprint_digest: encode_base64url_bytes_v1(digest(0x04).as_bytes()),
+            },
+        };
+        let credential = operation
+            .gateway_owner_wallet_session_credential(trusted_source_digest)
+            .expect("Gateway owner projection validates");
+        let CloudflareRouterWalletSessionCredentialV1::GatewayOwner { wallet_session } =
+            credential
+        else {
+            panic!("Gateway owner projection must not become a bearer credential");
+        };
+        assert_eq!(wallet_session.trusted_source_digest, trusted_source_digest);
+        assert_eq!(wallet_session.authorization_level, "evm-family");
+        assert!(operation
+            .gateway_owner_wallet_session_credential(digest(0x42))
+            .is_ok());
     }
 
     #[test]

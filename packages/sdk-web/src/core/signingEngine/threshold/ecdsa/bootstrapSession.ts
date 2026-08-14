@@ -51,7 +51,10 @@ type BootstrapEcdsaExactSessionArgsBase = BootstrapEcdsaSessionBaseArgs & {
 type BootstrapEcdsaExactSessionArgs = BootstrapEcdsaExactSessionArgsBase &
   (
     | {
-        bootstrapAuth: Extract<ThresholdEcdsaDerivationRouteAuth, { kind: 'wallet_session' }>;
+        bootstrapAuth: Extract<
+          ThresholdEcdsaDerivationRouteAuth,
+          { kind: 'opaque_wallet_session' }
+        >;
         sessionActivation?: never;
       }
     | {
@@ -91,7 +94,7 @@ type BootstrapEcdsaSessionSuccessCommon = {
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   signingRootId: string;
   signingRootVersion: string;
-  jwt: string;
+  walletSessionToken: string;
   roleLocalActivation: ExistingEcdsaRoleLocalActivation;
   routerAbEcdsaDerivationNormalSigning: Awaited<
     ReturnType<typeof activateStrictEcdsaPostRegistrationSession>
@@ -171,7 +174,7 @@ async function bootstrapStrictExistingEcdsaSession(
     runtimePolicyScope,
     signingRootId: String(args.key.signingRootId),
     signingRootVersion: String(args.key.signingRootVersion),
-    jwt: strict.sessionActivation.session.wallet_session_jwt,
+    walletSessionToken: strict.sessionActivation.session.wallet_session_token,
     roleLocalActivation: strict.roleLocalActivation,
     routerAbEcdsaDerivationNormalSigning: strict.sessionActivation.normal_signing,
   };

@@ -1,227 +1,49 @@
 # Server Package
 
-AuthService provides the server-side pieces for account creation and WebAuthn verification. Session handling is optional and pluggable: pass a SessionService into the routers when sessions are required. The SDK itself does not bundle a JWT library.
+`AuthService` and the Router API implement wallet registration, built-in owner
+verification, opaque Wallet Sessions, signing admission, and recovery. Wallet
+application authentication is intentionally outside this package.
 
-## Quick Start (Express)
+## Authorization model
 
-```ts
-import express from 'express';
-import cors from 'cors';
-import { AuthService, SessionService } from '@seams/sdk-server';
-import { createRouterApiRouter } from '@seams/sdk-server/router/express';
-import jwt from 'jsonwebtoken';
+- Passkey and Email OTP verifiers create a server-internal
+  `VerifiedOwnerProof`.
+- Registration and unlock may consume that proof to mint an opaque, D1-backed
+  Wallet Session token.
+- Signing routes resolve the token into trusted curve-specific admission,
+  consume server-authoritative budget, and never decode claims supplied by the
+  client.
+- Fresh step-up and export proofs authorize one exact operation without
+  renewing a reusable Wallet Session.
+- Linked-device signing keeps its separate JWT, local-presence, permission,
+  quota, and revocation boundary.
+- Console authentication uses its independent `console_session_v1` boundary in
+  the console server package.
 
-const service = new AuthService({
-  relayerAccount: process.env.RELAYER_ACCOUNT_ID!,
-  relayerPrivateKey: process.env.RELAYER_PRIVATE_KEY!,
-  nearRpcUrl: process.env.NEAR_RPC_URL || 'https://rpc.testnet.near.org',
-  networkId: process.env.NETWORK_ID || 'testnet',
-});
+## Primary wallet routes
 
-const rorRpId = process.env.ROR_RP_ID || 'wallet.example.localhost';
-const rorOrigins = [process.env.EXPECTED_ORIGIN!, process.env.EXPECTED_WALLET_ORIGIN!].filter(
-  Boolean,
-);
+- `POST /wallets/register/setup`
+- `POST /wallets/register/respond`
+- `POST /wallets/register/activate`
+- `POST /wallets/register/near-provisioning`
+- `POST /wallet/unlock/challenge`
+- `POST /wallet/unlock/verify`
+- `POST /wallet/session/exchange/issue`
+- `POST /wallet/session/exchange/redeem`
+- `POST /router-ab/ecdsa-derivation/sign/prepare`
+- `POST /router-ab/ed25519/sign/prepare`
+- `GET /healthz`
+- `GET /readyz`
+- `GET /.well-known/webauthn`
 
-const session = new SessionService({
-  jwt: {
-    signToken: ({ payload }) => {
-      // If payload.exp is supplied (e.g., Wallet Session JWTs), do not override it with `expiresIn`.
-      const hasExp =
-        typeof (payload as any).exp === 'number' && Number.isFinite((payload as any).exp);
-      return jwt.sign(payload as any, process.env.JWT_SECRET || 'dev-insecure', {
-        algorithm: 'HS256',
-        issuer: process.env.JWT_ISSUER || 'router-api',
-        audience: process.env.JWT_AUDIENCE || 'app',
-        ...(hasExp ? {} : { expiresIn: Number(process.env.JWT_EXPIRES_SEC || 24 * 60 * 60) }),
-      });
-    },
-    verifyToken: async (token: string) => {
-      try {
-        const payload = jwt.verify(token, process.env.JWT_SECRET || 'dev-insecure') as any;
-        return { valid: true, payload };
-      } catch {
-        return { valid: false };
-      }
-    },
-  },
-  // Minimal cookie config (defaults to HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=24h)
-  cookie: { name: 'seams-jwt' },
-});
+The hosted-wallet exchange routes deliver one opaque Wallet Session token
+through a short-lived, origin-bound, single-use capability. They do not create
+an application session, and the outer application never receives the token.
 
-const app = express();
-app.use(express.json());
-app.use(
-  cors({
-    origin: [process.env.EXPECTED_ORIGIN!, process.env.EXPECTED_WALLET_ORIGIN!].filter(Boolean),
-    credentials: true,
-  }),
-);
-app.use(
-  '/',
-  createRouterApiRouter(service, {
-    healthz: true,
-    readyz: true,
-    session,
-    ror: {
-      rpId: rorRpId,
-      provider: {
-        getAllowedOrigins: async (input) => (input.rpId === rorRpId ? rorOrigins : []),
-      },
-    },
-  }),
-);
-app.listen(3000);
-```
+## PRF Session Seal Module
 
-## Quick Start (Cloudflare Workers)
-
-```ts
-import { AuthService, SessionService } from '@seams/sdk-server';
-import { createCloudflareRouter } from '@seams/sdk-server/router/cloudflare';
-import signerWasm from '@seams/sdk-server/wasm/signer';
-import jwt from 'jsonwebtoken';
-
-const service = new AuthService({
-  relayerAccount: env.RELAYER_ACCOUNT_ID,
-  relayerPrivateKey: env.RELAYER_PRIVATE_KEY,
-  nearRpcUrl: env.NEAR_RPC_URL,
-  networkId: env.NETWORK_ID || 'testnet',
-  signerWasm: { moduleOrPath: signerWasm },
-});
-
-const session = new SessionService({
-  jwt: {
-    signToken: ({ payload }) =>
-      jwt.sign(payload as any, env.JWT_SECRET || 'dev-insecure', { algorithm: 'HS256' }),
-    verifyToken: async (token: string) => {
-      try {
-        return { valid: true, payload: jwt.verify(token, env.JWT_SECRET || 'dev-insecure') };
-      } catch {
-        return { valid: false };
-      }
-    },
-  },
-  cookie: { name: 'seams-jwt' },
-});
-
-export default {
-  async fetch(request: Request, env: any, ctx: any) {
-    const rorRpId = env.ROR_RP_ID || new URL(env.EXPECTED_WALLET_ORIGIN).hostname;
-    const rorOrigins = [env.EXPECTED_ORIGIN, env.EXPECTED_WALLET_ORIGIN].filter(Boolean);
-    const router = createCloudflareRouter(service, {
-      healthz: true,
-      readyz: true,
-      corsOrigins: [env.EXPECTED_ORIGIN, env.EXPECTED_WALLET_ORIGIN].filter(Boolean),
-      session,
-      ror: {
-        rpId: rorRpId,
-        provider: {
-          getAllowedOrigins: async (input) => (input.rpId === rorRpId ? rorOrigins : []),
-        },
-      },
-    });
-    return router(request, env, ctx);
-  },
-};
-```
-
-## Routes exposed by the routers
-
-- POST `/wallets/register/setup` — allocate the registration ceremony and prepare ECDSA work.
-- POST `/wallets/register/respond` — verify the registration proof and complete the derivation response.
-- POST `/wallets/register/activate` — activate and persist the wallet.
-- POST `/wallets/register/near-provisioning` — complete asynchronous NEAR signer provisioning.
-- POST `/auth/passkey/options` — mint a server-side WebAuthn login challenge (replay-protected). Body:
-  - `{ user_id, rp_id, ttl_ms? }` → returns `{ challengeId, challengeB64u, expiresAtMs }`
-- POST `/auth/passkey/verify` — WebAuthn verification only (contract-free). Body:
-  - `{ challengeId, webauthn_authentication }`
-  - The Router API verifies signatures using its private authenticator store and persists counters.
-  - App-session issuance is handled by `POST /session/exchange` (OIDC/JWT exchange contract).
-- POST `/recover-email` — email-based account recovery (TEE/DKIM flow)
-- GET `/healthz` — basic server health + feature configuration hints (optional, enabled via router config)
-- GET `/readyz` — readiness check (optional, enabled via router config)
-- GET `/session/state` — returns `{ authenticated, claims? }` based on Authorization: Bearer or cookie
-- POST `/session/revoke` — rotates app-session version and clears session cookie
-- GET `/.well-known/webauthn` — Related Origin Requests manifest (wallet-scoped credentials) + sealed-refresh capabilities payload
-- POST `/wallet-session/seal/apply-server-seal` — optional signing-session sealed-refresh route
-- POST `/wallet-session/seal/remove-server-seal` — optional signing-session sealed-refresh route
-
-## Sessions
-
-You have two integration styles:
-
-1. Provide a SessionService
-
-- Supply `signToken` and `verifyToken` using your preferred JWT library (e.g., jsonwebtoken).
-- Optionally provide cookie hooks to customize headers if using cookie mode.
-
-Cookie hooks (optional)
-
-```ts
-const session = new SessionService({
-  jwt: {
-    /* signToken/verifyToken as above */
-  },
-  cookie: {
-    name: 'seams-jwt',
-    // Customize Set-Cookie attributes (e.g., cross-site):
-    buildSetHeader: (token) =>
-      [
-        `seams-jwt=${token}`,
-        'Path=/',
-        'HttpOnly',
-        'Secure',
-        'SameSite=None',
-        'Domain=.example.localhost',
-        'Max-Age=86400',
-      ].join('; '),
-    buildClearHeader: () =>
-      [
-        'seams-jwt=',
-        'Path=/',
-        'HttpOnly',
-        'Secure',
-        'SameSite=None',
-        'Domain=.example.localhost',
-        'Max-Age=0',
-        'Expires=Thu, 01 Jan 1970 00:00:00 GMT',
-      ].join('; '),
-    // Optional: custom extraction from headers (Bearer or Cookie)
-    extractToken: (headers, cookieName) => {
-      const auth = (headers['authorization'] || headers['Authorization']) as string | undefined;
-      if (auth && /^Bearer\s+/.test(auth)) return auth.replace(/^Bearer\s+/i, '').trim();
-      const cookie = (headers['cookie'] || headers['Cookie']) as string | undefined;
-      if (!cookie) return null;
-      for (const part of cookie.split(';')) {
-        const [k, v] = part.split('=');
-        if (k && k.trim() === cookieName) return (v || '').trim();
-      }
-      return null;
-    },
-  },
-});
-```
-
-For cookies, configure CORS with explicit origins and `credentials: true`.
-
-Default behavior
-
-- No session is minted by default. The client must opt-in by calling `unlock(..., { session: { kind: 'jwt' | 'cookie', relayUrl?, route? }})`.
-- On the server, sessions are only active when the router options include a SessionService.
-
-Configurable session endpoints
-
-- Express adaptor: `createRouterApiRouter(service, { session, sessionRoutes })` (defaults to `/session/state`).
-- Cloudflare adaptor: `createCloudflareRouter(service, { session, sessionRoutes, corsOrigins })` (same defaults).
-
-Cloudflare CORS note
-
-- The Cloudflare router will only set `Access-Control-Allow-Credentials: true` when echoing a specific Origin. If `corsOrigins` is `'*'`, credentials are not advertised (as required by Fetch/CORS rules). Use explicit origins when using cookie sessions.
-
-## PRF Session Seal Module (optional)
-
-`signingSessionSeal` routes are opt-in and can be composed with helper builders:
+`signingSessionSeal` is optional and preserves sealed signing refresh material.
+It does not authorize wallet ownership.
 
 ```ts
 import { createRouterApiRouter } from '@seams/sdk-server/router/express';
@@ -234,19 +56,15 @@ const signingSessionSeal = createSigningSessionSealOptions({
 });
 
 app.use('/', createRouterApiRouter(service, {
-  session,
   threshold,
   signingSessionSeal,
 }));
 ```
 
-Notes:
+Store the random 32-byte root secret in a secrets manager. Retain accepted old
+key versions only until their sealed records expire.
 
-- Store the random 32-byte root secret in a secrets manager. Key versions and the fixed protocol group are public deployment configuration.
-- Do not log raw ciphertexts; audit helpers intentionally avoid ciphertext fields.
-- Retain old key versions in `acceptedWarmKeyVersions` until their warm records have expired.
-
-## Config (required)
+## Required runtime configuration
 
 ```bash
 RELAYER_ACCOUNT_ID=relayer.testnet
@@ -254,17 +72,4 @@ RELAYER_PRIVATE_KEY=ed25519:...
 ROR_RP_ID=wallet.example.localhost
 NEAR_RPC_URL=https://rpc.testnet.near.org
 NETWORK_ID=testnet
-```
-
-Optional session vars (examples use these):
-
-```bash
-JWT_SECRET=change-me
-JWT_ISSUER=router-api
-JWT_AUDIENCE=your-app
-JWT_EXPIRES_SEC=86400
-SESSION_COOKIE_NAME=seams-jwt
-
-# Optional: override session route paths
-# Session routes are configured in code via router options.
 ```

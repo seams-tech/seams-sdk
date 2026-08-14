@@ -99,7 +99,6 @@ function createSelfHostedContext(input: {
     service: input.service,
     opts: input.opts,
     logger: input.logger,
-    mePath: '/me',
     routeDefinitions: [],
   };
 }

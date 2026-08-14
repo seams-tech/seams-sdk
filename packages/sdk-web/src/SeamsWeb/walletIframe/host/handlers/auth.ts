@@ -11,12 +11,13 @@ import {
 import {
   pmUnlockPayloadToLoginHooksOptions,
   requirePMUnlockPayload,
+  type PMUnlockLoginHooksOptions,
 } from '../../shared/unlockOptions';
 import type { PMGetExactWalletSessionStatePayload } from '../../shared/messages';
 import {
-  activeWalletOrHostedAppSessionJwt,
-  clearWalletOriginAppSession,
-  rememberWalletOriginAppSession,
+  activeWalletSessionToken,
+  clearHostedWalletSessions,
+  hostedWalletSessionCurveFromBoundary,
 } from '../hostedWalletSeamsSession';
 import { createHostedAuthMenuHandlers } from './authMenu';
 
@@ -39,39 +40,33 @@ function assertUnlockPayloadHasNoParentBearer(payload: unknown): void {
     !Array.isArray(inventoryOption.value)
       ? (inventoryOption.value as Record<string, unknown>)
       : null;
-  if (inventory && Object.prototype.hasOwnProperty.call(inventory, 'appSessionJwt')) {
-    throw new Error('wallet iframe unlock requests must not carry appSessionJwt');
+  if (inventory && Object.prototype.hasOwnProperty.call(inventory, 'walletSessionToken')) {
+    throw new Error('wallet iframe unlock requests must not carry walletSessionToken');
   }
 }
 
 function walletOriginUnlockOptions(
-  options: LoginHooksOptions,
+  options: PMUnlockLoginHooksOptions,
   relayUrl: string,
-  walletId: string,
 ): LoginHooksOptions {
-  const optionsWithSession = options.session
-    ? options
-    : {
-        ...options,
-        session: {
-          kind: 'jwt' as const,
-          exchange: { type: 'passkey_assertion' as const },
-        },
-      };
-  const inventory = optionsWithSession.ecdsaKeyFactsInventory;
-  if (!inventory || inventory.mode === 'webauthn') return optionsWithSession;
-  const appSessionJwt = activeWalletOrHostedAppSessionJwt(
-    optionsWithSession.session?.relayUrl || relayUrl,
-    walletId,
+  const inventory = options.ecdsaKeyFactsInventory;
+  const { ecdsaKeyFactsInventory: _inventory, ...optionsWithoutInventory } = options;
+  if (!inventory) return optionsWithoutInventory;
+  if (inventory.mode === 'webauthn') {
+    return { ...optionsWithoutInventory, ecdsaKeyFactsInventory: inventory };
+  }
+  const walletSessionToken = activeWalletSessionToken(
+    hostedWalletSessionCurveFromBoundary(inventory.curve),
+    relayUrl,
   );
-  if (!appSessionJwt) {
-    throw new Error('hosted-wallet Seams Session is required for app-session ECDSA inventory');
+  if (!walletSessionToken) {
+    throw new Error('Hosted-wallet Wallet Session is required for opaque key-facts lookup');
   }
   return {
-    ...optionsWithSession,
+    ...optionsWithoutInventory,
     ecdsaKeyFactsInventory: {
       ...inventory,
-      appSessionJwt,
+      walletSessionToken,
     },
   };
 }
@@ -100,9 +95,6 @@ async function resolveExactWalletSessionState(
       if (!walletId) throw new Error('Wallet iframe exact session walletId is invalid');
       break;
   }
-  if (payload.authenticationRead === 'restore') {
-    await pm.restoreWalletAuthenticationStateFromHostSession(walletId);
-  }
   const session = await pm.auth.getWalletSession(walletId);
   return exactSessionStateFromWalletSession(session);
 }
@@ -115,36 +107,24 @@ export function createAuthWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       assertUnlockPayloadHasNoParentBearer(req.payload);
       const payload = requirePMUnlockPayload(req.payload);
       const requestedOptions = pmUnlockPayloadToLoginHooksOptions(payload);
-      const localPasskeyUnlock = requestedOptions.session === undefined;
       const options = walletOriginUnlockOptions(
         requestedOptions,
         pm.configs.network.relayer.url,
-        payload.walletId,
       );
-      const passkeySessionUnlock =
-        localPasskeyUnlock || requestedOptions.session?.exchange?.type === 'passkey_assertion';
       if (deps.respondIfCancelled(req.requestId)) return;
       const result = await pm.auth.unlock(
         payload.walletId,
         withProgress(deps, req.requestId, options) as LoginHooksOptions,
       );
       if (deps.respondIfCancelled(req.requestId)) return;
-      if (result.success && passkeySessionUnlock && result.jwt) {
-        rememberWalletOriginAppSession({
-          appSessionJwt: result.jwt,
-          relayUrl: pm.configs.network.relayer.url,
-          walletId: result.walletId,
-        });
-      } else if (!result.success && localPasskeyUnlock) {
-        clearWalletOriginAppSession();
-      }
+      if (!result.success) clearHostedWalletSessions();
       respondOkResult(deps, req.requestId, result);
     },
 
     PM_LOCK: async (req: Req<'PM_LOCK'>) => {
       const pm = deps.getSeamsWeb();
       await pm.auth.lock();
-      clearWalletOriginAppSession();
+      clearHostedWalletSessions();
       respondOk(deps, req.requestId);
     },
 
@@ -163,7 +143,7 @@ export function createAuthWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
         return;
       }
       await pm.auth.lock();
-      clearWalletOriginAppSession();
+      clearHostedWalletSessions();
       respondOkResult(deps, req.requestId, { kind: 'locked', identity: expected });
     },
 

@@ -4,22 +4,18 @@
  * This file centralizes helper calls made to the NEAR RPC (account existence checks,
  * access key polling, tx context fetch, etc).
  *
- * App session minting in SDK login flows is exchange-first (`POST /session/exchange`)
- * for BYO auth integration.
+ * Wallet unlock verification and NEAR RPC helpers share this transport module.
  */
 
 import type { NearClient } from './NearClient';
 import type { AccountId } from '../../types/accountIds';
 import type { WebAuthnAuthenticationCredential } from '../../types/webauthn';
-import type { ManagedRuntimeScopeBootstrap } from '../../config/managedRuntimeScope';
 import type { ThresholdEcdsaChainTarget } from '../../platform';
 
 import { TransactionContext } from '../../types/rpc';
 import { errorMessage } from '@shared/utils/errors';
 import {
   joinNormalizedUrl,
-  normalizeJwtCookieSessionKind,
-  stripTrailingSlashes,
 } from '@shared/utils/normalize';
 import { ensureEd25519Prefix, isObject, requireTrimmedString } from '@shared/utils/validation';
 import { redactCredentialExtensionOutputs } from '../../signingEngine/webauthnAuth/credentials/credentialExtensions';
@@ -235,36 +231,28 @@ export async function checkNearAccountExistsBestEffort(
   return false;
 }
 
-export type OidcSessionExchangeInput = {
-  type: 'oidc_jwt';
-  token: string;
-  ecdsaSessionPolicy?: never;
-};
-
-type PasskeySessionExchangeInputCore = {
+type PasskeyWalletUnlockInputCore = {
   type: 'passkey_assertion';
   challengeId: string;
   webauthn_authentication: WebAuthnAuthenticationCredential;
   expected_origin?: string;
 };
 
-export type PasskeySessionExchangeInputWithoutEcdsaActivation = PasskeySessionExchangeInputCore & {
+export type PasskeyWalletUnlockInputWithoutEcdsaActivation = PasskeyWalletUnlockInputCore & {
   ecdsaSessionPolicy?: never;
 };
 
-export type PasskeySessionExchangeInputWithEcdsaActivation = PasskeySessionExchangeInputCore & {
+export type PasskeyWalletUnlockInputWithEcdsaActivation = PasskeyWalletUnlockInputCore & {
   walletId: string;
   ecdsaSessionPolicy: RouterAbEcdsaPostRegistrationSessionActivationPolicyV1;
 };
 
-export type SessionExchangeInput =
-  | OidcSessionExchangeInput
-  | PasskeySessionExchangeInputWithoutEcdsaActivation
-  | PasskeySessionExchangeInputWithEcdsaActivation;
+export type PasskeyWalletUnlockInput =
+  | PasskeyWalletUnlockInputWithoutEcdsaActivation
+  | PasskeyWalletUnlockInputWithEcdsaActivation;
 
-type SessionExchangeFailure = {
+type WalletUnlockFailure = {
   success: false;
-  jwt?: never;
   sessionUserId?: never;
   sessionExpiresAt?: never;
   ecdsaSession?: never;
@@ -272,9 +260,8 @@ type SessionExchangeFailure = {
   error: string;
 };
 
-type SessionExchangeSuccessCore = {
+type WalletUnlockSuccessCore = {
   success: true;
-  jwt?: string;
   sessionUserId?: string;
   sessionExpiresAt?: string;
   error?: never;
@@ -321,103 +308,40 @@ export type PasskeySessionEcdsaCustodyContinuityV1 = {
   readonly signers: readonly PasskeySessionEcdsaCustodySignerV1[];
 };
 
-export type SessionExchangeSuccessWithoutEcdsaActivation = SessionExchangeSuccessCore & {
+export type WalletUnlockSuccessWithoutEcdsaActivation = WalletUnlockSuccessCore & {
   ecdsaSession?: never;
   walletCustody?: never;
 };
 
-export type SessionExchangeSuccessWithEcdsaActivation = SessionExchangeSuccessCore & {
+export type WalletUnlockSuccessWithEcdsaActivation = WalletUnlockSuccessCore & {
   ecdsaSession: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
   ecdsaActivationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
   ecdsaCustody: PasskeySessionEcdsaCustodyContinuityV1;
   walletCustody: PasskeySessionCustodyUnlockV1;
 };
 
-export type PasskeySessionExchangeSuccessWithoutEcdsaActivation = SessionExchangeSuccessCore & {
+export type PasskeyWalletUnlockSuccessWithoutEcdsaActivation = WalletUnlockSuccessCore & {
   ecdsaSession?: never;
   walletCustody: PasskeySessionCustodyUnlockV1;
 };
 
-export type SessionExchangeResult =
-  | SessionExchangeFailure
-  | SessionExchangeSuccessWithoutEcdsaActivation
-  | PasskeySessionExchangeSuccessWithoutEcdsaActivation
-  | SessionExchangeSuccessWithEcdsaActivation;
+export type WalletUnlockResult =
+  | WalletUnlockFailure
+  | WalletUnlockSuccessWithoutEcdsaActivation
+  | PasskeyWalletUnlockSuccessWithoutEcdsaActivation
+  | WalletUnlockSuccessWithEcdsaActivation;
 
-export type SessionExchangeResultFor<Input extends SessionExchangeInput> =
-  Input extends PasskeySessionExchangeInputWithEcdsaActivation
-    ? SessionExchangeFailure | SessionExchangeSuccessWithEcdsaActivation
-    : Input extends PasskeySessionExchangeInputWithoutEcdsaActivation
-      ? SessionExchangeFailure | PasskeySessionExchangeSuccessWithoutEcdsaActivation
-      : SessionExchangeFailure | SessionExchangeSuccessWithoutEcdsaActivation;
+export type WalletUnlockResultFor<Input extends PasskeyWalletUnlockInput> =
+  Input extends PasskeyWalletUnlockInputWithEcdsaActivation
+    ? WalletUnlockFailure | WalletUnlockSuccessWithEcdsaActivation
+    : WalletUnlockFailure | PasskeyWalletUnlockSuccessWithoutEcdsaActivation;
 
-export type SessionExchangeRuntimeScope =
-  | {
-      kind: 'unscoped';
-    }
-  | ({
-      kind: 'managed';
-    } & ManagedRuntimeScopeBootstrap);
-
-type SessionExchangeRequestBody =
-  | {
-      sessionKind: 'jwt' | 'cookie';
-      exchange: Record<string, unknown>;
-    }
-  | {
-      sessionKind: 'jwt' | 'cookie';
-      exchange: Record<string, unknown>;
-      projectEnvironmentId: string;
-    };
-
-type SessionExchangeRequestTransport = {
-  headers: Record<string, string>;
-  body: SessionExchangeRequestBody;
-};
-
-function buildSessionExchangeRequestTransport(
-  sessionKind: 'jwt' | 'cookie',
-  exchange: Record<string, unknown>,
-  runtimeScope: SessionExchangeRuntimeScope,
-): SessionExchangeRequestTransport {
-  switch (runtimeScope.kind) {
-    case 'unscoped':
-      return {
-        headers: { 'Content-Type': 'application/json' },
-        body: { sessionKind, exchange },
-      };
-    case 'managed': {
-      const projectEnvironmentId = requireTrimmedString(
-        runtimeScope.projectEnvironmentId,
-        'runtimeScope.projectEnvironmentId',
-      );
-      const publishableKey = requireTrimmedString(
-        runtimeScope.publishableKey,
-        'runtimeScope.publishableKey',
-      );
-      return {
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${publishableKey}`,
-        },
-        body: { sessionKind, exchange, projectEnvironmentId },
-      };
-    }
-    default:
-      return assertNeverSessionExchangeRuntimeScope(runtimeScope);
-  }
-}
-
-function assertNeverSessionExchangeRuntimeScope(value: never): never {
-  throw new Error(`Unsupported session exchange runtime scope: ${JSON.stringify(value)}`);
-}
-
-function parsePasskeySessionCustodyUnlockV1(raw: unknown): PasskeySessionCustodyUnlockV1 {
+function parsePasskeyWalletCustodyUnlockV1(raw: unknown): PasskeySessionCustodyUnlockV1 {
   if (!isObject(raw) || raw.kind !== 'wallet_custody_passkey_login_v1') {
-    throw new Error('Passkey session exchange returned invalid wallet custody unlock data');
+    throw new Error('Passkey wallet unlock returned invalid custody data');
   }
   if (!isObject(raw.ed25519)) {
-    throw new Error('Passkey session exchange omitted Ed25519 custody continuity');
+    throw new Error('Passkey wallet unlock omitted Ed25519 custody continuity');
   }
   if (raw.ed25519.kind === 'absent') {
     return {
@@ -428,7 +352,7 @@ function parsePasskeySessionCustodyUnlockV1(raw: unknown): PasskeySessionCustody
     };
   }
   if (raw.ed25519.kind !== 'active') {
-    throw new Error('Passkey session exchange returned invalid Ed25519 custody state');
+    throw new Error('Passkey wallet unlock returned invalid Ed25519 custody state');
   }
   const signerSlot = Number(raw.ed25519.signerSlot);
   const participantIds = raw.ed25519.participantIds;
@@ -440,7 +364,7 @@ function parsePasskeySessionCustodyUnlockV1(raw: unknown): PasskeySessionCustody
     !participantIds.every((value) => Number.isSafeInteger(value) && Number(value) > 0) ||
     participantIds[0] === participantIds[1]
   ) {
-    throw new Error('Passkey session exchange returned invalid Ed25519 signer identity');
+    throw new Error('Passkey wallet unlock returned invalid Ed25519 signer identity');
   }
   return {
     kind: 'wallet_custody_passkey_login_v1',
@@ -491,15 +415,15 @@ function parsePasskeySessionEcdsaCustodyContinuity(
   raw: unknown,
 ): PasskeySessionEcdsaCustodyContinuityV1 {
   if (!isObject(raw) || raw.kind !== 'wallet_custody_ecdsa_sync_continuity_v1') {
-    throw new Error('Session exchange returned invalid ECDSA custody continuity');
+    throw new Error('Passkey wallet unlock returned invalid ECDSA custody continuity');
   }
   if (!Array.isArray(raw.signers)) {
-    throw new Error('Session exchange returned invalid ECDSA custody signers');
+    throw new Error('Passkey wallet unlock returned invalid ECDSA custody signers');
   }
   const signers: PasskeySessionEcdsaCustodySignerV1[] = [];
   for (const value of raw.signers) {
     if (!isObject(value) || !isObject(value.walletKey)) {
-      throw new Error('Session exchange returned invalid ECDSA custody signer');
+      throw new Error('Passkey wallet unlock returned invalid ECDSA custody signer');
     }
     const walletKey = value.walletKey;
     const participantIds = walletKey.participantIds;
@@ -509,7 +433,7 @@ function parsePasskeySessionEcdsaCustodyContinuity(
       participantIds[0] !== 1 ||
       participantIds[1] !== 2
     ) {
-      throw new Error('Session exchange returned invalid ECDSA custody participants');
+      throw new Error('Passkey wallet unlock returned invalid ECDSA custody participants');
     }
     signers.push({
       chainTarget: parseSessionEcdsaChainTarget(value.chainTarget),
@@ -549,88 +473,41 @@ function parsePasskeySessionEcdsaCustodyContinuity(
       runtimePolicyScope: normalizeRuntimePolicyScope(value.runtimePolicyScope),
     });
   }
-  if (signers.length === 0) throw new Error('Session exchange omitted ECDSA custody signers');
+  if (signers.length === 0) throw new Error('Passkey wallet unlock omitted ECDSA custody signers');
   return { kind: 'wallet_custody_ecdsa_sync_continuity_v1', signers };
 }
 
-export function exchangeSession<Input extends SessionExchangeInput>(
+export function verifyPasskeyWalletUnlock<Input extends PasskeyWalletUnlockInput>(
   relayServerUrl: string,
-  routePath: string,
-  sessionKind: 'jwt' | 'cookie',
   input: Input,
-  runtimeScope: SessionExchangeRuntimeScope,
-): Promise<SessionExchangeResultFor<Input>>;
-export async function exchangeSession(
+): Promise<WalletUnlockResultFor<Input>>;
+export async function verifyPasskeyWalletUnlock(
   relayServerUrl: string,
-  routePath: string,
-  sessionKind: 'jwt' | 'cookie',
-  input: SessionExchangeInput,
-  runtimeScope: SessionExchangeRuntimeScope,
-): Promise<SessionExchangeResult> {
+  input: PasskeyWalletUnlockInput,
+): Promise<WalletUnlockResult> {
   try {
-    const exchangeType = String(input?.type || '')
-      .trim()
-      .toLowerCase();
-    let exchangeBody: Record<string, unknown>;
-
-    if (exchangeType === 'oidc_jwt') {
-      const token = String((input as { token?: unknown }).token || '').trim();
-      if (!token) throw new Error('Missing exchange token');
-      exchangeBody = {
-        type: 'oidc_jwt',
-        token,
-      };
-    } else if (exchangeType === 'passkey_assertion') {
-      const challengeId = String((input as { challengeId?: unknown }).challengeId || '').trim();
-      if (!challengeId) throw new Error('Missing passkey challengeId');
-
-      const webauthnAuthentication = (input as { webauthn_authentication?: unknown })
-        .webauthn_authentication;
-      if (!webauthnAuthentication || typeof webauthnAuthentication !== 'object') {
-        throw new Error('Missing webauthn_authentication');
-      }
-
-      const expectedOrigin = String(
-        (input as { expected_origin?: unknown }).expected_origin || '',
-      ).trim();
-
-      exchangeBody = {
-        type: 'passkey_assertion',
-        challengeId,
-        ...('walletId' in input && input.walletId ? { wallet_id: input.walletId } : {}),
-        webauthn_authentication: redactCredentialExtensionOutputs(
-          webauthnAuthentication as WebAuthnAuthenticationCredential,
-        ),
-        ...(expectedOrigin ? { expected_origin: expectedOrigin } : {}),
-        ...(input.ecdsaSessionPolicy
-          ? {
-              ecdsa_session_policy: parseRouterAbEcdsaPostRegistrationSessionActivationPolicyV1(
-                input.ecdsaSessionPolicy,
-              ),
-            }
-          : {}),
-      };
-    } else {
-      throw new Error('Unsupported exchange.type');
+    if (input.type !== 'passkey_assertion') {
+      throw new Error('Passkey wallet unlock requires a passkey assertion');
     }
-
-    const normalizedRoutePath = String(routePath || '').trim();
-    const path = normalizedRoutePath
-      ? normalizedRoutePath.startsWith('/')
-        ? normalizedRoutePath
-        : `/${normalizedRoutePath}`
-      : '/';
-    const url = joinNormalizedUrl(relayServerUrl, path);
-    const requestTransport = buildSessionExchangeRequestTransport(
-      sessionKind,
-      exchangeBody,
-      runtimeScope,
-    );
+    const challengeId = requireTrimmedString(input.challengeId, 'challengeId');
+    const webauthnAuthentication = input.webauthn_authentication;
+    const expectedOrigin = String(input.expected_origin || '').trim();
+    const body: Record<string, unknown> = {
+      unlockBackend: 'passkey',
+      challengeId,
+      ...('walletId' in input && input.walletId ? { walletId: input.walletId } : {}),
+      webauthn_authentication: redactCredentialExtensionOutputs(webauthnAuthentication),
+      ...(expectedOrigin ? { expected_origin: expectedOrigin } : {}),
+      ...(input.ecdsaSessionPolicy
+        ? { ecdsaSessionPolicy: parseRouterAbEcdsaPostRegistrationSessionActivationPolicyV1(input.ecdsaSessionPolicy) }
+        : {}),
+    };
+    const url = joinNormalizedUrl(relayServerUrl, '/wallet/unlock/verify');
     const response = await fetch(url, {
       method: 'POST',
-      headers: requestTransport.headers,
-      credentials: sessionKind === 'cookie' ? 'include' : 'omit',
-      body: JSON.stringify(requestTransport.body),
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'omit',
+      body: JSON.stringify(body),
     });
 
     const dataJson: unknown = await response.json().catch(() => ({}));
@@ -644,53 +521,38 @@ export async function exchangeSession(
     if (data.ok !== true) {
       return {
         success: false,
-        error: typeof data.message === 'string' ? data.message : 'Session exchange failed',
+        error: typeof data.message === 'string' ? data.message : 'Wallet unlock verification failed',
       };
     }
-
-    const sessionObj = isObject(data.session) ? data.session : null;
-    const sessionUserId =
-      sessionObj && typeof sessionObj.userId === 'string' ? String(sessionObj.userId) : undefined;
-    const sessionExpiresAt =
-      sessionObj && typeof sessionObj.expiresAt === 'string'
-        ? String(sessionObj.expiresAt)
-        : undefined;
-    const jwt = typeof data.jwt === 'string' ? data.jwt : undefined;
     const requestedEcdsaActivation =
       input.type === 'passkey_assertion' && input.ecdsaSessionPolicy !== undefined;
-    const walletCustody =
-      input.type === 'passkey_assertion'
-        ? parsePasskeySessionCustodyUnlockV1(data.walletCustody)
-        : undefined;
+    const walletCustody = parsePasskeyWalletCustodyUnlockV1(data.walletCustody);
     let ecdsaSession: RouterAbEcdsaPostRegistrationSessionActivationResponseV1 | undefined;
     let ecdsaActivationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1 | undefined;
     let ecdsaCustody: PasskeySessionEcdsaCustodyContinuityV1 | undefined;
     if (requestedEcdsaActivation) {
       if (data.ecdsaSession === undefined) {
-        throw new Error('Session exchange omitted the requested ECDSA Wallet Session activation');
+        throw new Error('Wallet unlock omitted the requested ECDSA Wallet Session activation');
       }
       ecdsaSession = parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1(
         data.ecdsaSession,
       );
       if (data.ecdsaActivationReceipt === undefined || data.ecdsaCustody === undefined) {
-        throw new Error('Session exchange omitted ECDSA custody continuity');
+        throw new Error('Wallet unlock omitted ECDSA custody continuity');
       }
       ecdsaActivationReceipt = parseRouterAbEcdsaRegistrationActivationReceiptV1(
         data.ecdsaActivationReceipt,
       );
       ecdsaCustody = parsePasskeySessionEcdsaCustodyContinuity(data.ecdsaCustody);
       if (!walletCustody) {
-        throw new Error('Session exchange omitted wallet custody for ECDSA activation');
+        throw new Error('Wallet unlock omitted wallet custody for ECDSA activation');
       }
     } else if (data.ecdsaSession !== undefined) {
-      throw new Error('Session exchange returned an unrequested ECDSA Wallet Session activation');
+      throw new Error('Wallet unlock returned an unrequested ECDSA Wallet Session activation');
     }
     if (ecdsaSession && ecdsaActivationReceipt && ecdsaCustody && walletCustody) {
       return {
         success: true,
-        ...(sessionUserId ? { sessionUserId } : {}),
-        ...(sessionExpiresAt ? { sessionExpiresAt } : {}),
-        ...(jwt ? { jwt } : {}),
         ecdsaSession,
         ecdsaActivationReceipt,
         ecdsaCustody,
@@ -700,20 +562,15 @@ export async function exchangeSession(
     if (walletCustody) {
       return {
         success: true,
-        ...(sessionUserId ? { sessionUserId } : {}),
-        ...(sessionExpiresAt ? { sessionExpiresAt } : {}),
-        ...(jwt ? { jwt } : {}),
         walletCustody,
       };
     }
     return {
       success: true,
-      ...(sessionUserId ? { sessionUserId } : {}),
-      ...(sessionExpiresAt ? { sessionExpiresAt } : {}),
-      ...(jwt ? { jwt } : {}),
+      walletCustody,
     };
   } catch (error: unknown) {
-    return { success: false, error: errorMessage(error) || 'Failed to exchange session token' };
+    return { success: false, error: errorMessage(error) || 'Failed to verify wallet unlock' };
   }
 }
 

@@ -37,7 +37,7 @@ import type {
   CanonicalEvmFamilyEcdsaSigningCapability,
 } from '../../session/material/ecdsaSigningCapability';
 import { authorizeEvmFamilyEcdsaSigningCapability } from '../../session/material/ecdsaSigningCapability';
-import { walletSessionJwtForCurve } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { walletSessionTokenForCurve } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 
 export async function hydrateEcdsaRoleLocalMaterialForSigning(args: {
   persistedMaterial: PersistedEcdsaRoleLocalMaterial;
@@ -264,8 +264,8 @@ export function attachReusableEcdsaWalletSessionAuthorization(args: {
       'Reusable Wallet Session authorization wallet does not match hydrated material',
     );
   }
-  const walletSessionJwt = walletSessionJwtForCurve(projection, 'ecdsa');
-  if (!walletSessionJwt) {
+  const walletSessionToken = walletSessionTokenForCurve(projection, 'ecdsa');
+  if (!walletSessionToken) {
     throw new Error('Reusable Wallet Session authorization is unavailable');
   }
   return buildReadySecp256k1SigningMaterial({
@@ -276,8 +276,8 @@ export function attachReusableEcdsaWalletSessionAuthorization(args: {
       wallet_session_id: projection.walletSessionId,
     },
     credential: {
-      kind: 'reusable_wallet_session_jwt',
-      walletSessionJwt,
+      kind: 'reusable_wallet_session',
+      walletSessionToken,
     },
     expiresAtMs: authorized.authorization.status.expiresAtMs,
     singleUseEmailOtpSession: false,

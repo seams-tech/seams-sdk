@@ -37,6 +37,7 @@ import {
   requireRuntimePolicyScope,
 } from './d1GoogleEmailOtpRegistrationRecords';
 import { parseD1BoundaryWalletId, parseD1BoundaryWalletIdResult } from '../auth/d1RouterApiAuthBoundary';
+import { hashEmailOtpOperationBinding } from '../../../domains/emailOtp/emailOtpSessionRouteHelpers';
 
 type ResolveGoogleEmailOtpSessionInput =
   Parameters<RouterApiIdentityService['resolveGoogleEmailOtpSession']>[0];
@@ -111,10 +112,6 @@ export class CloudflareD1GoogleEmailOtpSessionResolver {
     }
     const email = toOptionalTrimmedString(input.email)?.toLowerCase() || '';
     const runtimePolicyScope = requireRuntimePolicyScope(input.runtimePolicyScope);
-    const appSessionVersion = toOptionalTrimmedString(input.appSessionVersion);
-    if (accountMode === 'register' && !appSessionVersion) {
-      throw new Error('Google Email OTP registration requires appSessionVersion');
-    }
     const restartRegistrationOffer = isTrueFlag(input.restartRegistrationOffer);
     const identitySubject = `wallet:${providerSubject.value}`;
     const linkedWalletId = parseD1BoundaryWalletId(
@@ -137,7 +134,14 @@ export class CloudflareD1GoogleEmailOtpSessionResolver {
       providerSubject: providerSubject.value,
       email,
       orgId: runtimePolicyScope.orgId,
-      appSessionVersion: appSessionVersion || '',
+      ownerProofBindingDigest: await hashEmailOtpOperationBinding({
+        walletId: '',
+        providerUserId: providerSubject.value,
+        orgId: runtimePolicyScope.orgId,
+        operation: 'registration',
+        requestOrigin: null,
+        audience: null,
+      }),
       runtimePolicyScope,
       restartRegistrationOffer,
       identitySubject,
@@ -257,7 +261,7 @@ export class CloudflareD1GoogleEmailOtpSessionResolver {
       action: restartOffer
         ? 'google_email_otp_registration_offer_restart'
         : 'google_email_otp_registration_create',
-      userId: toOptionalTrimmedString(input.appSessionUserId),
+      userId: toOptionalTrimmedString(input.providerUserId),
       providerSubject: providerSubject.value,
       orgId: orgId.value,
       clientIp: toOptionalTrimmedString(input.clientIp),
@@ -342,9 +346,9 @@ export class CloudflareD1GoogleEmailOtpSessionResolver {
   ): Promise<ValidateGoogleEmailOtpRegistrationCandidateWalletResult> {
     const registrationAttemptId = toOptionalTrimmedString(input.registrationAttemptId);
     const walletId = parseD1BoundaryWalletIdResult(input.walletId);
-    const appSessionVersion = toOptionalTrimmedString(input.appSessionVersion);
     const providerSubject = parseGoogleProviderSubject(input.providerSubject);
-    if (!registrationAttemptId || !walletId.ok || !appSessionVersion || !providerSubject.ok) {
+    const ownerProofBindingDigest = toOptionalTrimmedString(input.ownerProofBindingDigest);
+    if (!registrationAttemptId || !walletId.ok || !providerSubject.ok || !ownerProofBindingDigest) {
       return {
         ok: false,
         code: 'invalid_body',
@@ -379,11 +383,11 @@ export class CloudflareD1GoogleEmailOtpSessionResolver {
         message: 'Email OTP registration attempt does not match the provider subject',
       };
     }
-    if (attempt.appSessionVersion !== appSessionVersion) {
+    if (attempt.ownerProofBindingDigest !== ownerProofBindingDigest) {
       return {
         ok: false,
-        code: 'app_session_version_mismatch',
-        message: 'Google Email OTP registration attempt does not match the app session',
+        code: 'owner_proof_binding_mismatch',
+        message: 'Google Email OTP registration attempt does not match the owner proof binding',
       };
     }
     if (attempt.state !== 'started' && attempt.state !== 'key_finalized') {
@@ -468,7 +472,7 @@ export class CloudflareD1GoogleEmailOtpSessionResolver {
     readonly providerSubject: string;
     readonly email: string;
     readonly orgId: string;
-    readonly appSessionVersion: string;
+    readonly ownerProofBindingDigest: string;
     readonly runtimePolicyScope: RuntimePolicyScope;
     readonly restartRegistrationOffer: boolean;
     readonly identitySubject: string;
@@ -512,21 +516,21 @@ export class CloudflareD1GoogleEmailOtpSessionResolver {
     }
 
     const nowMs = Date.now();
-    await this.registrationAttempts.abandonStartedExceptAppSession({
+    await this.registrationAttempts.abandonStartedExceptBinding({
       providerSubject: input.providerSubject,
       email: input.email,
       orgId: input.orgId,
-      appSessionVersion: input.appSessionVersion,
+      ownerProofBindingDigest: input.ownerProofBindingDigest,
       runtimePolicyScope: input.runtimePolicyScope,
       nowMs,
-      failureCode: 'app_session_version_replaced',
+      failureCode: 'owner_proof_binding_replaced',
     });
 
     const startedAttempt = await this.registrationAttempts.findStarted({
       providerSubject: input.providerSubject,
       email: input.email,
       orgId: input.orgId,
-      appSessionVersion: input.appSessionVersion,
+      ownerProofBindingDigest: input.ownerProofBindingDigest,
       runtimePolicyScope: input.runtimePolicyScope,
     });
     if (startedAttempt) {
@@ -559,7 +563,7 @@ export class CloudflareD1GoogleEmailOtpSessionResolver {
     readonly providerSubject: string;
     readonly email: string;
     readonly orgId: string;
-    readonly appSessionVersion: string;
+    readonly ownerProofBindingDigest: string;
     readonly runtimePolicyScope: RuntimePolicyScope;
     readonly identitySubject: string;
   }): Promise<ResolveGoogleEmailOtpSessionResult> {
@@ -617,7 +621,7 @@ export class CloudflareD1GoogleEmailOtpSessionResolver {
       offerId: secureRandomBase64Url(18, 'google email otp offer ids'),
       offerCandidates: nonEmptyOfferCandidates,
       selectedCandidateId: selectedCandidate.candidateId,
-      appSessionVersion: input.appSessionVersion,
+      ownerProofBindingDigest: input.ownerProofBindingDigest,
       authProvider,
       walletIdDerivationNonce,
       collisionCounter: selectedCandidate.collisionCounter,

@@ -518,9 +518,6 @@ export function parseEcdsaDerivationClientBootstrapRequest(
   const clientShareRetryCounter = raw.clientShareRetryCounter;
   const ttlMs = raw.ttlMs;
   const remainingUses = raw.remainingUses;
-  const sessionKindRaw = toOptionalString(raw.sessionKind);
-  const sessionKind: 'jwt' | null | undefined =
-    sessionKindRaw === 'jwt' ? 'jwt' : sessionKindRaw ? null : undefined;
   const participantIds = normalizeThresholdEd25519ParticipantIds(raw.participantIds);
   const runtimePolicyScopeRaw = (raw as { runtimePolicyScope?: unknown }).runtimePolicyScope;
   const runtimePolicyScope =
@@ -543,7 +540,6 @@ export function parseEcdsaDerivationClientBootstrapRequest(
     !derivationClientSharePublicKey33B64u ||
     !contextBinding32B64u ||
     !requestId ||
-    sessionKind === null ||
     !sessionId ||
     !isNonNegativeInteger(clientShareRetryCounter) ||
     !isPositiveIntegerAtMost(ttlMs, MAX_WALLET_SESSION_TTL_MS) ||
@@ -582,7 +578,6 @@ export function parseEcdsaDerivationClientBootstrapRequest(
     ttlMs,
     remainingUses,
     participantIds,
-    sessionKind,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
   };
   if (clientRootProof) return { ...base, clientRootProof };
@@ -1442,7 +1437,7 @@ function parseEd25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessio
     const runtimePolicyScope = parseRuntimePolicyScope(runtimePolicyScopeRaw);
     if (!runtimePolicyScope) {
       console.warn(
-        '[threshold-ecdsa-e2e] app session runtimePolicyScope parse failed',
+        '[threshold-ecdsa-e2e] wallet session runtimePolicyScope parse failed',
         runtimePolicyScopeRaw,
       );
       return null;
@@ -1657,126 +1652,6 @@ export function parseRouterAbEd25519WalletSessionClaims(
     return parseRouterAbEd25519LinkedDeviceWalletSessionClaims(raw);
   }
   return null;
-}
-
-export type AppSessionClaims = {
-  sub: string;
-  kind: 'app_session_v1';
-  appSessionVersion: string;
-  seamsSessionId?: SeamsSessionId;
-  walletId?: string;
-  walletAuthAuthorityRef?: WalletAuthAuthorityRef;
-  googleEmailOtpRegistrationAttemptId?: string;
-  googleEmailOtpResolutionMode?: 'existing_wallet' | 'register_started';
-  runtimePolicyScope?: RuntimePolicyScope;
-  iat?: number;
-  exp?: number;
-  nbf?: number;
-};
-
-export function parseAppSessionClaims(raw: unknown): AppSessionClaims | null {
-  if (!isObject(raw)) return null;
-  const kind = toOptionalString(raw.kind);
-  if (kind !== 'app_session_v1') return null;
-  const sub = toOptionalString(raw.sub);
-  const appSessionVersion = toOptionalString(raw.appSessionVersion);
-  if (!sub || !appSessionVersion) return null;
-  const out: AppSessionClaims = {
-    sub,
-    kind,
-    appSessionVersion,
-  };
-  const seamsSessionIdRaw = (raw as { seamsSessionId?: unknown }).seamsSessionId;
-  if (seamsSessionIdRaw !== undefined) {
-    const seamsSessionId = parseSeamsSessionId(seamsSessionIdRaw);
-    if (!seamsSessionId.ok) return null;
-    out.seamsSessionId = seamsSessionId.value;
-  }
-  const walletId = toOptionalString((raw as { walletId?: unknown }).walletId);
-  if (walletId) out.walletId = walletId;
-  const walletAuthAuthorityRefRaw = (raw as { walletAuthAuthorityRef?: unknown })
-    .walletAuthAuthorityRef;
-  if (walletAuthAuthorityRefRaw !== undefined) {
-    const walletAuthAuthorityRef = parseWalletAuthAuthorityRef(walletAuthAuthorityRefRaw);
-    if (!walletAuthAuthorityRef) return null;
-    out.walletAuthAuthorityRef = walletAuthAuthorityRef;
-  }
-  const googleEmailOtpRegistrationAttemptId = toOptionalString(
-    (raw as { googleEmailOtpRegistrationAttemptId?: unknown }).googleEmailOtpRegistrationAttemptId,
-  );
-  if (googleEmailOtpRegistrationAttemptId) {
-    out.googleEmailOtpRegistrationAttemptId = googleEmailOtpRegistrationAttemptId;
-  }
-  const googleEmailOtpResolutionModeRaw = (raw as { googleEmailOtpResolutionMode?: unknown })
-    .googleEmailOtpResolutionMode;
-  const googleEmailOtpResolutionMode =
-    googleEmailOtpResolutionModeRaw === undefined
-      ? ''
-      : toOptionalString(googleEmailOtpResolutionModeRaw);
-  if (googleEmailOtpResolutionMode) {
-    if (
-      googleEmailOtpResolutionMode !== 'existing_wallet' &&
-      googleEmailOtpResolutionMode !== 'register_started'
-    ) {
-      return null;
-    }
-    out.googleEmailOtpResolutionMode = googleEmailOtpResolutionMode;
-  } else if (googleEmailOtpResolutionModeRaw !== undefined) {
-    return null;
-  }
-  const runtimePolicyScopeRaw = (raw as { runtimePolicyScope?: unknown }).runtimePolicyScope;
-  if (runtimePolicyScopeRaw !== undefined) {
-    const runtimePolicyScope = parseRuntimePolicyScope(runtimePolicyScopeRaw);
-    if (!runtimePolicyScope) return null;
-    out.runtimePolicyScope = runtimePolicyScope;
-  }
-
-  const iat = (raw as { iat?: unknown }).iat;
-  if (iat !== undefined) {
-    const v = Number(iat);
-    if (!Number.isFinite(v)) return null;
-    out.iat = v;
-  }
-
-  const exp = (raw as { exp?: unknown }).exp;
-  if (exp !== undefined) {
-    const v = Number(exp);
-    if (!Number.isFinite(v)) return null;
-    out.exp = v;
-  }
-
-  const nbf = (raw as { nbf?: unknown }).nbf;
-  if (nbf !== undefined) {
-    const v = Number(nbf);
-    if (!Number.isFinite(v)) return null;
-    out.nbf = v;
-  }
-
-  return out;
-}
-
-export function resolveAppSessionProviderUserIdForWalletScope(
-  claims: AppSessionClaims | null | undefined,
-  requestedWalletId: unknown,
-): string | undefined {
-  if (!claims) return undefined;
-  const subject = toOptionalString(claims.sub);
-  const walletId = toOptionalString(requestedWalletId);
-  if (!subject || !walletId || subject === walletId) return undefined;
-  return subject;
-}
-
-export function resolveAppSessionWalletIdForWalletScope(
-  claims: AppSessionClaims | null | undefined,
-  requestedWalletIdRaw: unknown,
-): string | undefined {
-  if (!claims) return undefined;
-  const explicitWalletId = toOptionalString(claims.walletId);
-  if (explicitWalletId) return explicitWalletId;
-  const subject = toOptionalString(claims.sub);
-  const requestedWalletId = toOptionalString(requestedWalletIdRaw);
-  if (subject && requestedWalletId && subject === requestedWalletId) return subject;
-  return undefined;
 }
 
 type EcdsaWalletSessionClaimKind = typeof ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND;

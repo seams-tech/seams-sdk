@@ -1,7 +1,6 @@
 import { base64UrlEncode } from './encoders';
 import { alphabetizeStringify, sha256BytesUtf8 } from './digests';
 import {
-  parseAppSessionJwt,
   parseEmailOtpChallengeId,
   parseEmailOtpProviderUserId,
   parseVerifiedEmailAddress,
@@ -10,7 +9,6 @@ import {
   parseWalletId,
   parseWebAuthnCredentialIdB64u,
   parseWebAuthnRpId,
-  type AppSessionJwt,
   type EmailOtpChallengeId,
   type EmailOtpProviderUserId,
   type VerifiedEmailAddress,
@@ -163,14 +161,12 @@ export type AuthMethodProof =
       kind: 'email_otp_challenge';
       challengeId: EmailOtpChallengeId;
       otpCode: string;
-      appSessionJwt: AppSessionJwt;
     }
   | {
       kind: 'google_sso_registration';
       registrationAttemptId: string;
       registrationOfferId: string;
       registrationCandidateId: string;
-      appSessionJwt: AppSessionJwt;
     };
 
 export type AuthBoundaryProof = {
@@ -301,7 +297,7 @@ export type RegistrationWalletCandidate = {
 export type ActiveWalletSession = {
   kind: 'active_wallet_session';
   authority: WalletAuthAuthority;
-  walletSessionJwt: string;
+  walletSessionToken: string;
 };
 
 function parseEmailOtpProvider(raw: unknown): EmailOtpProvider | null {
@@ -619,8 +615,4 @@ export async function walletAuthAuthorityRef(args: {
       authority: args.authority,
     }),
   };
-}
-
-export function parseAppSessionJwtForProof(raw: unknown): AppSessionJwt {
-  return requireParsed(parseAppSessionJwt(raw), 'appSessionJwt is required');
 }

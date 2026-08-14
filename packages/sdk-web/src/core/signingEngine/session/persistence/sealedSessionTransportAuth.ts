@@ -6,7 +6,7 @@ export type EcdsaSealTransportAuthMaterial = {
   walletId: string;
   chainTarget: ThresholdEcdsaChainTarget;
   relayerUrl: string;
-  walletSessionJwt?: string;
+  walletSessionToken?: string;
   signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
   groupId?: string;
 };

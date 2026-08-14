@@ -52,7 +52,6 @@ const key = buildBaseEvmFamilyEcdsaKeyIdentity({
 const lanePolicy = buildEvmFamilyEcdsaSessionLanePolicy({
   chainTarget: evmTarget,
   thresholdSessionId: 'threshold-session-1',
-  thresholdSessionKind: 'jwt',
   ttlMs: 60_000,
   remainingUses: 1,
   runtimePolicyScope,
@@ -62,7 +61,6 @@ const lanePolicy = buildEvmFamilyEcdsaSessionLanePolicy({
 buildEvmFamilyEcdsaSessionLanePolicy({
   chainTarget: evmTarget,
   thresholdSessionId: 'threshold-session-1',
-  thresholdSessionKind: 'jwt',
   ttlMs: 60_000,
   remainingUses: 1,
 });
@@ -325,7 +323,7 @@ declare const hydratedSignerMaterial: HydratedEcdsaSignerMaterial;
 const invalidHydratedMaterialWithCredential = {
   ...hydratedSignerMaterial,
   // @ts-expect-error hydrated material cannot carry an authorization credential.
-  credential: { kind: 'wallet_session_jwt', walletSessionJwt: 'wallet-session-jwt' },
+  credential: { kind: 'wallet_session_opaque', walletSessionToken: 'wallet-session-token' },
 } satisfies HydratedEcdsaSignerMaterial;
 void invalidHydratedMaterialWithCredential;
 

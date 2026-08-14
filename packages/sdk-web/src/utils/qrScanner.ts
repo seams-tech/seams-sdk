@@ -1,4 +1,7 @@
-import type { QrLinkedDeviceSessionPayloadV4 } from '@shared/device-linking';
+import {
+  parseQrLinkedDeviceSessionTextV4,
+  type QrLinkedDeviceSessionPayloadV4,
+} from '@shared/device-linking';
 import { DeviceLinkingError, DeviceLinkingErrorCode } from '../core/types/linkDevice';
 import { validateQrLinkedDeviceSessionPayloadV4 } from '../SeamsWeb/operations/devices/scanDevice';
 import type { LinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
@@ -297,20 +300,7 @@ export class ScanQRCodeFlow {
   }
 
   private parseAndValidateQRData(qrData: string): QrLinkedDeviceSessionPayloadV4 {
-    let parsedData: unknown;
-    try {
-      parsedData = JSON.parse(qrData);
-    } catch {
-      if (qrData.startsWith('http')) {
-        throw new Error('QR code contains a URL, not device linking data');
-      }
-      if (qrData.includes('ed25519:')) {
-        throw new Error('QR code contains a NEAR key, not device linking data');
-      }
-      throw new Error('Invalid QR code format - expected JSON device linking data');
-    }
-
-    return validateQrLinkedDeviceSessionPayloadV4(parsedData);
+    return parseAndValidateQRData(qrData);
   }
 
   private handleSuccess(qrData: QrLinkedDeviceSessionPayloadV4): void {
@@ -466,20 +456,13 @@ async function scanQRFromImageData(imageData: ImageData): Promise<string | null>
 }
 
 function parseAndValidateQRData(qrData: string): QrLinkedDeviceSessionPayloadV4 {
-  let parsedData: unknown;
-  try {
-    parsedData = JSON.parse(qrData);
-  } catch {
-    if (qrData.startsWith('http')) {
-      throw new Error('QR code contains a URL, not device linking data');
-    }
-    if (qrData.includes('ed25519:')) {
-      throw new Error('QR code contains a NEAR key, not device linking data');
-    }
-    throw new Error('Invalid QR code format - expected JSON device linking data');
+  if (qrData.startsWith('http')) {
+    throw new Error('QR code contains a URL, not device linking data');
   }
-
-  return validateQrLinkedDeviceSessionPayloadV4(parsedData);
+  if (qrData.includes('ed25519:')) {
+    throw new Error('QR code contains a NEAR key, not device linking data');
+  }
+  return validateQrLinkedDeviceSessionPayloadV4(parseQrLinkedDeviceSessionTextV4(qrData));
 }
 
 function createQRError(message: string): DeviceLinkingError {

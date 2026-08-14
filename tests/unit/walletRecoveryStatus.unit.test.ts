@@ -5,15 +5,7 @@ import {
   findRouteDefinitionById,
 } from '../../packages/sdk-server-ts/src/router/framework/routeDefinitions';
 
-/**
- * Recovery status, and why it may count when the spend route may not.
- *
- * The difference is authentication, and it is the thing most likely to be
- * "simplified" later by someone noticing two recovery routes with different
- * planes. Counting how many of ten codes remain is an enumeration oracle for
- * a stranger and the entire point of a settings screen for the owner — so the
- * plane is asserted here, not just the payload.
- */
+/** Recovery status is a narrow Origin-bound public read. */
 
 const routeDefinitions = createRouterApiRouteDefinitions();
 
@@ -22,7 +14,10 @@ function context(pathname: string, service: unknown) {
     routeDefinitions,
     method: 'GET',
     pathname,
-    request: new Request(`https://relay.localhost${pathname}`, { method: 'GET' }),
+    request: new Request(`https://relay.localhost${pathname}`, {
+      method: 'GET',
+      headers: { Origin: 'https://wallet.localhost' },
+    }),
     service,
     logger: { error: () => {}, warn: () => {}, info: () => {}, debug: () => {} },
     opts: {},
@@ -40,10 +35,10 @@ function serviceReturning(result: unknown, seen: string[] = []) {
   };
 }
 
-test('status is credential-gated while admitted recovery uses the public transport plane', () => {
+test('status uses the public transport plane while recovery preparation remains public', () => {
   const status = findRouteDefinitionById(routeDefinitions, 'wallet_recovery_status');
   const prepare = findRouteDefinitionById(routeDefinitions, 'wallet_recovery_prepare');
-  expect(status?.auth.plane).toBe('api_credentials');
+  expect(status?.auth.plane).toBe('public');
   expect(prepare?.auth.plane).toBe('public');
 });
 
@@ -58,6 +53,7 @@ test('status reports counts and the outstanding backup', async () => {
           activeCodeCount: 7,
           totalCodeCount: 10,
           issuedAtMs: 1_000,
+          storeVersion: '4',
           backupOutstanding: true,
         },
         seen,
@@ -72,6 +68,7 @@ test('status reports counts and the outstanding backup', async () => {
   // three, and a rotation changes which the user is looking at.
   expect(body.activeCodeCount).toBe(7);
   expect(body.totalCodeCount).toBe(10);
+  expect(body.storeVersion).toBe('4');
   expect(body.backupOutstanding).toBe(true);
 });
 
@@ -84,6 +81,7 @@ test('status never returns which codes remain', async () => {
         activeCodeCount: 7,
         totalCodeCount: 10,
         issuedAtMs: 1_000,
+        storeVersion: '4',
         backupOutstanding: false,
       }),
     ),

@@ -347,8 +347,7 @@ export function parseEmailOtpChallengeRecord(input: unknown): EmailOtpChallengeR
   const otpChannel = toOptionalTrimmedString(record.otpChannel);
   const email = toOptionalTrimmedString(record.email)?.toLowerCase() || '';
   const otpCode = toOptionalTrimmedString(record.otpCode);
-  const sessionHash = toOptionalTrimmedString(record.sessionHash);
-  const appSessionVersion = toOptionalTrimmedString(record.appSessionVersion);
+  const ownerProofBindingDigest = toOptionalTrimmedString(record.ownerProofBindingDigest);
   const action = parseEmailOtpChallengeAction(record.action);
   const operation = parseEmailOtpChallengeOperation(record.operation);
   const createdAtMs = positiveSafeInteger(record.createdAtMs);
@@ -362,8 +361,7 @@ export function parseEmailOtpChallengeRecord(input: unknown): EmailOtpChallengeR
     !walletId ||
     !email ||
     !otpCode ||
-    !sessionHash ||
-    !appSessionVersion ||
+    !ownerProofBindingDigest ||
     !action ||
     !operation ||
     !emailOtpChallengePurposeIsValid({ action, operation }) ||
@@ -385,8 +383,7 @@ export function parseEmailOtpChallengeRecord(input: unknown): EmailOtpChallengeR
     otpChannel: EMAIL_OTP_CHANNEL,
     email,
     otpCode,
-    sessionHash,
-    appSessionVersion,
+    ownerProofBindingDigest,
     action,
     operation,
     createdAtMs,
@@ -525,8 +522,7 @@ export function emailOtpChallengeContextValues(input: {
   readonly challengeSubjectId: string;
   readonly walletId: string;
   readonly orgId: string;
-  readonly sessionHash: string;
-  readonly appSessionVersion: string;
+  readonly ownerProofBindingDigest: string;
   readonly action: EmailOtpChallengeIssueAction;
   readonly operation: EmailOtpChallengeOperation;
 }): readonly unknown[] {
@@ -535,8 +531,7 @@ export function emailOtpChallengeContextValues(input: {
     input.walletId,
     input.orgId,
     EMAIL_OTP_CHANNEL,
-    input.sessionHash,
-    input.appSessionVersion,
+    input.ownerProofBindingDigest,
     input.action,
     input.operation,
   ];
@@ -549,8 +544,7 @@ export function emailOtpChallengeRecord(input: {
   readonly orgId: string;
   readonly email: string;
   readonly otpCode: string;
-  readonly sessionHash: string;
-  readonly appSessionVersion: string;
+  readonly ownerProofBindingDigest: string;
   readonly action: EmailOtpChallengeIssueAction;
   readonly operation: EmailOtpChallengeOperation;
   readonly createdAtMs: number;
@@ -566,8 +560,7 @@ export function emailOtpChallengeRecord(input: {
     otpChannel: EMAIL_OTP_CHANNEL,
     email: input.email,
     otpCode: input.otpCode,
-    sessionHash: input.sessionHash,
-    appSessionVersion: input.appSessionVersion,
+    ownerProofBindingDigest: input.ownerProofBindingDigest,
     action: input.action,
     operation: input.operation,
     createdAtMs: input.createdAtMs,
@@ -590,8 +583,7 @@ export function emailOtpChallengeWithAttemptCount(
     otpChannel: EMAIL_OTP_CHANNEL,
     email: record.email,
     otpCode: record.otpCode,
-    sessionHash: record.sessionHash,
-    appSessionVersion: record.appSessionVersion,
+    ownerProofBindingDigest: record.ownerProofBindingDigest,
     action: record.action,
     operation: record.operation,
     createdAtMs: record.createdAtMs,
@@ -606,8 +598,7 @@ export function emailOtpChallengeBindingMismatchCode(input: {
   readonly userId: string;
   readonly walletId: string;
   readonly orgId: string;
-  readonly sessionHash: string;
-  readonly appSessionVersion: string;
+  readonly ownerProofBindingDigest: string;
   readonly action: EmailOtpChallengeIssueAction;
   readonly operation: EmailOtpChallengeOperation;
 }): string | null {
@@ -617,8 +608,7 @@ export function emailOtpChallengeBindingMismatchCode(input: {
   if (String(input.record.orgId || '') !== input.orgId) return 'challenge_org_mismatch';
   if (input.record.action !== input.action) return 'challenge_purpose_mismatch';
   if (input.record.operation !== input.operation) return 'challenge_purpose_mismatch';
-  if (input.record.sessionHash !== input.sessionHash) return 'challenge_session_mismatch';
-  if (input.record.appSessionVersion !== input.appSessionVersion) {
+  if (input.record.ownerProofBindingDigest !== input.ownerProofBindingDigest) {
     return 'challenge_session_mismatch';
   }
   return null;
@@ -629,8 +619,7 @@ export function emailOtpRegistrationChallengeBindingMismatchCode(input: {
   readonly providerSubject: string;
   readonly walletId: string;
   readonly orgId: string;
-  readonly sessionHash: string;
-  readonly appSessionVersion: string;
+  readonly ownerProofBindingDigest: string;
   readonly proofEmail: string;
 }): string | null {
   if (input.record.otpChannel !== EMAIL_OTP_CHANNEL) return 'challenge_channel_mismatch';
@@ -648,8 +637,7 @@ export function emailOtpRegistrationChallengeBindingMismatchCode(input: {
     return 'challenge_purpose_mismatch';
   }
   if (input.record.walletId !== input.walletId) return 'challenge_wallet_mismatch';
-  if (input.record.sessionHash !== input.sessionHash) return 'challenge_session_mismatch';
-  if (input.record.appSessionVersion !== input.appSessionVersion) {
+  if (input.record.ownerProofBindingDigest !== input.ownerProofBindingDigest) {
     return 'challenge_session_mismatch';
   }
   return null;
@@ -673,8 +661,7 @@ export function emailOtpGrantRecord(input: {
   readonly walletId: string;
   readonly orgId: string;
   readonly challengeId: string;
-  readonly sessionHash: string;
-  readonly appSessionVersion: string;
+  readonly ownerProofBindingDigest: string;
   readonly action: EmailOtpGrantAction;
   readonly issuedAtMs: number;
   readonly expiresAtMs: number;
@@ -687,8 +674,7 @@ export function emailOtpGrantRecord(input: {
     orgId: input.orgId,
     challengeId: input.challengeId,
     otpChannel: EMAIL_OTP_CHANNEL,
-    sessionHash: input.sessionHash,
-    appSessionVersion: input.appSessionVersion,
+    ownerProofBindingDigest: input.ownerProofBindingDigest,
     action: input.action,
     issuedAtMs: input.issuedAtMs,
     expiresAtMs: input.expiresAtMs,
@@ -726,8 +712,7 @@ export function parseEmailOtpGrantRecord(input: unknown): EmailOtpGrantRecord | 
   const orgId = toOptionalTrimmedString(record.orgId);
   const challengeId = toOptionalTrimmedString(record.challengeId);
   const otpChannel = toOptionalTrimmedString(record.otpChannel);
-  const sessionHash = toOptionalTrimmedString(record.sessionHash);
-  const appSessionVersion = toOptionalTrimmedString(record.appSessionVersion);
+  const ownerProofBindingDigest = toOptionalTrimmedString(record.ownerProofBindingDigest);
   const action = toOptionalTrimmedString(record.action);
   const issuedAtMs = positiveSafeInteger(record.issuedAtMs);
   const expiresAtMs = positiveSafeInteger(record.expiresAtMs);
@@ -738,8 +723,7 @@ export function parseEmailOtpGrantRecord(input: unknown): EmailOtpGrantRecord | 
     !walletId ||
     !challengeId ||
     otpChannel !== EMAIL_OTP_CHANNEL ||
-    !sessionHash ||
-    !appSessionVersion ||
+    !ownerProofBindingDigest ||
     !action ||
     !issuedAtMs ||
     !expiresAtMs ||
@@ -761,8 +745,7 @@ export function parseEmailOtpGrantRecord(input: unknown): EmailOtpGrantRecord | 
     ...(orgId ? { orgId } : {}),
     challengeId,
     otpChannel: EMAIL_OTP_CHANNEL,
-    sessionHash,
-    appSessionVersion,
+    ownerProofBindingDigest,
     action,
     issuedAtMs,
     expiresAtMs,

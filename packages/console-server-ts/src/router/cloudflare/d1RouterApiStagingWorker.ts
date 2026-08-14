@@ -8,7 +8,6 @@ import { requireStripeBillingProviderAdaptersFromEnv } from '@seams-internal/con
 import { createCloudflareRouter } from '@seams/sdk-server/cloud-host';
 import { withCors } from '@seams/sdk-server/cloud-host';
 import { createCloudflareConsoleRouter } from './createCloudflareConsoleRouter';
-import { createAppSessionConsoleAuthAdapter } from '../consoleAppSessionAuth';
 import {
   createCloudflareD1ConsoleServiceBundle,
   createCloudflareD1RouterApiRouteExtensions,
@@ -19,10 +18,6 @@ import { loadCloudflareSignerWasmModule } from './d1SignerWasm';
 import { createSigningSessionSealOptions } from '@seams/sdk-server/cloud-host';
 import { RouterAbEcdsaPresignRuntime } from '@seams/sdk-server/cloud-host';
 import type { SigningSessionSealRoutesOptions } from '@seams/sdk-server/cloud-host';
-import type {
-  CloudflareD1OidcExchangeConfig,
-  CloudflareD1OidcExchangeIssuerConfig,
-} from '@seams/sdk-server/cloud-host';
 import type {
   CfExecutionContext,
   CfScheduledEvent,
@@ -38,8 +33,6 @@ import { type RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '@seams/sdk-
 import type { SessionAdapter } from '@seams/sdk-server/cloud-host';
 import { D1WalletStore } from '@seams/sdk-server/cloud-host';
 import { CloudflareD1RouterAbEd25519YaoCapabilityPersistence } from '@seams/sdk-server/cloud-host';
-import { CloudflareD1WebAuthnAuthService } from '@seams/sdk-server/cloud-host';
-import { CloudflareD1WebAuthnStore } from '@seams/sdk-server/cloud-host';
 import {
   createRouterAbEcdsaEd25519CeremonyTokenIssuer,
   createRouterAbEcdsaStrictPostRegistrationPort,
@@ -51,6 +44,8 @@ import {
 } from '@seams/sdk-server/cloud-host';
 import {
   createEd25519SessionAdapter,
+  createConsoleSessionAuthAdapter,
+  createHmacSessionAdapterFromEnv,
   readCsvList,
   readEnvString,
   requireEnvString,
@@ -71,7 +66,7 @@ import {
 import { handleRouterAbEd25519YaoRegistrationRequestScopedCloudflareV1 } from '@seams/sdk-server/cloud-host';
 import { createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1 } from '@seams/sdk-server/cloud-host';
 import { RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter } from '@seams/sdk-server/cloud-host';
-import { RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter } from '@seams/sdk-server/cloud-host';
+import { RouterAbEd25519YaoExportOwnerProofAuthorizationAdapter } from '@seams/sdk-server/cloud-host';
 import { createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1 } from '@seams/sdk-server/cloud-host';
 import { createD1LinkedDeviceTargetDeploymentDescriptorRuntimeV1 } from '@seams/sdk-server/cloud-host';
 import {
@@ -127,7 +122,6 @@ interface CloudflareD1RouterApiStagingEnv
   readonly GITHUB_OAUTH_CLIENT_ID?: string;
   readonly GITHUB_OAUTH_CLIENT_SECRET?: string;
   readonly GITHUB_OAUTH_CALLBACK_URL?: string;
-  readonly SEAMS_OIDC_EXCHANGE_JSON?: string;
   readonly ACCOUNT_ID_DERIVATION_SECRET?: string;
   readonly ROUTER_AB_NORMAL_SIGNING_WORKER_ID?: string;
   readonly SIGNING_WORKER_ID?: string;
@@ -217,7 +211,6 @@ const RELAY_CONSOLE_READY_TABLES = Object.freeze([
 const RELAY_SIGNER_READY_TABLES = Object.freeze([
   'wallets',
   'wallet_auth_methods',
-  'app_session_versions',
   'reusable_wallet_sessions',
   'opaque_wallet_session_tokens',
   'verified_wallet_operation_evidence_sets',
@@ -286,56 +279,30 @@ function stagingTenantScope(env: CloudflareD1RouterApiStagingEnv): RouterApiTena
   };
 }
 
-async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Promise<FetchHandler> {
-  const scope = stagingTenantScope(env);
-  const sponsoredEvmCallConfig = await resolveSponsoredEvmCallConfigFromWorkerEnv(env);
-  const bundle = await createCloudflareD1ConsoleServiceBundle({
-    bindings: {
-      consoleDatabase: env.CONSOLE_DB,
-      signerMetadataDatabase: env.SIGNER_DB,
-    },
-    route: {
-      namespace: scope.namespace,
-    },
-    adapters: {
-      ensureSchema: false,
-      billingProviders: requireStripeBillingProviderAdaptersFromEnv(env),
-      billingEmailConsoleBaseUrl: requireEnvString(env, 'CONSOLE_BASE_URL'),
-      ...(readEnvString(env, 'CONSOLE_DOCS_BASE_URL')
-        ? {
-            onboardingEmail: {
-              consoleBaseUrl: requireEnvString(env, 'CONSOLE_BASE_URL'),
-              docsBaseUrl: requireEnvString(env, 'CONSOLE_DOCS_BASE_URL'),
-            },
-          }
-        : {}),
-      sponsoredEvmCallConfig,
-      resolveSponsoredEvmExecutionAdapter: resolveSponsoredEvmWorkerExecutionAdapter,
-      sponsorshipPricing: resolveSponsoredExecutionPricingFromEnv(env),
-    },
-  });
-  const session = stagingSessionAdapter(env);
-  const yaoRuntime = createStagingYaoRequestScopedRuntime(env, session);
+async function createStagingRouterApiAuthComposition(
+  env: CloudflareD1RouterApiStagingEnv,
+  scope: RouterApiTenantScope,
+  session: SessionAdapter,
+  yaoRuntime: RouterAbEd25519YaoProductRegistrationRuntimeV1,
+) {
   const ecdsaCeremonyTokenIssuer = createStagingEcdsaCeremonyTokenIssuer(env);
+  const topology = requireStagingEcdsaRegistrationTopology(env);
+  const tokenScope = {
+    orgId: scope.orgId,
+    projectId: scope.projectId,
+    environment: scope.envId,
+  };
   const ecdsaStrictRegistration = createRouterAbEcdsaStrictRegistrationPort({
     router: env.MPC_ROUTER,
     tokenIssuer: ecdsaCeremonyTokenIssuer,
-    tokenScope: {
-      orgId: scope.orgId,
-      projectId: scope.projectId,
-      environment: scope.envId,
-    },
-    topology: requireStagingEcdsaRegistrationTopology(env),
+    tokenScope,
+    topology,
   });
   const ecdsaStrictPostRegistration = createRouterAbEcdsaStrictPostRegistrationPort({
     router: env.MPC_ROUTER,
     tokenIssuer: ecdsaCeremonyTokenIssuer,
-    tokenScope: {
-      orgId: scope.orgId,
-      projectId: scope.projectId,
-      environment: scope.envId,
-    },
-    topology: requireStagingEcdsaRegistrationTopology(env),
+    tokenScope,
+    topology,
   });
   const service = createCloudflareD1RouterApiAuthService({
     database: env.SIGNER_DB,
@@ -355,7 +322,6 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     ),
     googleOidcClientId: readEnvString(env, 'GOOGLE_OIDC_CLIENT_ID'),
     githubOAuth: stagingGithubOAuthConfig(env),
-    oidcExchange: stagingOidcExchangeConfig(env),
     accountIdDerivationSecret: requireEnvString(env, 'ACCOUNT_ID_DERIVATION_SECRET'),
     emailOtpServerSeal: stagingEmailOtpServerSealConfig(env),
     emailOtpDeliveryMode: readEnvString(env, 'EMAIL_OTP_DELIVERY_MODE'),
@@ -388,6 +354,45 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     ecdsaStrictRegistration,
     linkedDevice: await stagingLinkedDeviceComposition(env, session),
   });
+  return { service, ecdsaStrictPostRegistration };
+}
+
+async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Promise<FetchHandler> {
+  const scope = stagingTenantScope(env);
+  const sponsoredEvmCallConfig = await resolveSponsoredEvmCallConfigFromWorkerEnv(env);
+  const bundle = await createCloudflareD1ConsoleServiceBundle({
+    bindings: {
+      consoleDatabase: env.CONSOLE_DB,
+      signerMetadataDatabase: env.SIGNER_DB,
+    },
+    route: {
+      namespace: scope.namespace,
+    },
+    adapters: {
+      ensureSchema: false,
+      billingProviders: requireStripeBillingProviderAdaptersFromEnv(env),
+      billingEmailConsoleBaseUrl: requireEnvString(env, 'CONSOLE_BASE_URL'),
+      ...(readEnvString(env, 'CONSOLE_DOCS_BASE_URL')
+        ? {
+            onboardingEmail: {
+              consoleBaseUrl: requireEnvString(env, 'CONSOLE_BASE_URL'),
+              docsBaseUrl: requireEnvString(env, 'CONSOLE_DOCS_BASE_URL'),
+            },
+          }
+        : {}),
+      sponsoredEvmCallConfig,
+      resolveSponsoredEvmExecutionAdapter: resolveSponsoredEvmWorkerExecutionAdapter,
+      sponsorshipPricing: resolveSponsoredExecutionPricingFromEnv(env),
+    },
+  });
+  const session = stagingSessionAdapter(env);
+  const yaoRuntime = createStagingYaoRequestScopedRuntime(env);
+  const { service, ecdsaStrictPostRegistration } = await createStagingRouterApiAuthComposition(
+    env,
+    scope,
+    session,
+    yaoRuntime,
+  );
   const routerApiHandler = createCloudflareRouter(service, {
     ...bundle.routerApiRouterOptions,
     routeExtensions: createCloudflareD1RouterApiRouteExtensions(bundle, service),
@@ -406,20 +411,19 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     signingSessionSeal: stagingSigningSessionSealOptions(env),
     routerAbEd25519YaoProduct: yaoRuntime,
   });
-  const consoleAuth = createAppSessionConsoleAuthAdapter({
-    session,
-    authService: service.sessionVersions,
+  const consoleAuth = createConsoleSessionAuthAdapter({
+    session: createHmacSessionAdapterFromEnv({
+      env,
+      secretName: 'CONSOLE_SESSION_HMAC_SECRET',
+      cookieName: readEnvString(env, 'CONSOLE_SESSION_COOKIE_NAME'),
+      issuer: readEnvString(env, 'CONSOLE_SESSION_ISSUER'),
+      audience: readEnvString(env, 'CONSOLE_SESSION_AUDIENCE'),
+    }),
     organizationAccess: bundle.organizationAccess,
     defaultOrgId: scope.orgId,
     defaultProjectId: scope.projectId,
     defaultEnvironmentId: scope.envId,
-    initialOwnerEmail: readEnvString(env, 'CONSOLE_INITIAL_OWNER_EMAIL'),
     platformSupportEmails: readEnvString(env, 'CONSOLE_PLATFORM_SUPPORT_EMAILS'),
-    provisioning: {
-      orgProjectEnv: bundle.orgProjectEnv,
-      audit: bundle.audit,
-      logger: console,
-    },
   });
   const consoleHandler = createCloudflareConsoleRouter({
     ...bundle.consoleRouterOptions,
@@ -749,24 +753,6 @@ function stagingEmailOtpServerSealConfig(
   };
 }
 
-function stagingOidcExchangeConfig(
-  env: CloudflareD1RouterApiStagingEnv,
-): CloudflareD1OidcExchangeConfig | undefined {
-  const source = readEnvString(env, 'SEAMS_OIDC_EXCHANGE_JSON');
-  if (!source) return undefined;
-  const parsed = parseJsonObject(source);
-  if (!parsed) throw new Error('SEAMS_OIDC_EXCHANGE_JSON must be a JSON object');
-  const issuers = parseOidcExchangeIssuers(parsed.issuers);
-  if (issuers.length === 0) {
-    throw new Error('SEAMS_OIDC_EXCHANGE_JSON must define at least one OIDC issuer');
-  }
-  const clockSkewSec = parseOptionalClockSkewSec(parsed.clockSkewSec);
-  return {
-    issuers,
-    ...(clockSkewSec === undefined ? {} : { clockSkewSec }),
-  };
-}
-
 function stagingGithubOAuthConfig(env: CloudflareD1RouterApiStagingEnv) {
   const clientId = readEnvString(env, 'GITHUB_OAUTH_CLIENT_ID');
   const clientSecret = readEnvString(env, 'GITHUB_OAUTH_CLIENT_SECRET');
@@ -778,50 +764,6 @@ function stagingGithubOAuthConfig(env: CloudflareD1RouterApiStagingEnv) {
     );
   }
   return { clientId, clientSecret, callbackUrl };
-}
-
-function parseOptionalClockSkewSec(input: unknown): string | number | undefined {
-  if (typeof input === 'number' && Number.isFinite(input)) return input;
-  const value = normalizeString(input);
-  return value || undefined;
-}
-
-function parseOidcExchangeIssuers(input: unknown): CloudflareD1OidcExchangeIssuerConfig[] {
-  if (!Array.isArray(input)) return [];
-  const issuers: CloudflareD1OidcExchangeIssuerConfig[] = [];
-  for (const raw of input) {
-    const issuer = parseOidcExchangeIssuer(raw);
-    if (issuer) issuers.push(issuer);
-  }
-  return issuers;
-}
-
-function parseOidcExchangeIssuer(input: unknown): CloudflareD1OidcExchangeIssuerConfig | null {
-  if (!isRecord(input)) return null;
-  const issuer = normalizeString(input.issuer);
-  const jwksUrl = normalizeString(input.jwksUrl);
-  const audiences = parseStringArray(input.audiences);
-  const subjectPrefix = normalizeString(input.subjectPrefix);
-  if (!issuer || !jwksUrl || audiences.length === 0) return null;
-  return {
-    issuer,
-    jwksUrl,
-    audiences,
-    ...(subjectPrefix ? { subjectPrefix } : {}),
-  };
-}
-
-function parseStringArray(input: unknown): string[] {
-  if (!Array.isArray(input)) return [];
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const raw of input) {
-    const value = normalizeString(raw);
-    if (!value || seen.has(value)) continue;
-    out.push(value);
-    seen.add(value);
-  }
-  return out;
 }
 
 function parseJsonObject(text: string): Record<string, unknown> | null {
@@ -1009,10 +951,21 @@ async function handlePartitionedD1Operation(
       });
     case 'export_admission':
     case 'export_execute':
+      {
+      const scope = stagingTenantScope(env);
+      const session = stagingSessionAdapter(env);
+      const yaoRuntime = createStagingYaoRequestScopedRuntime(env);
+      const { service } = await createStagingRouterApiAuthComposition(
+        env,
+        scope,
+        session,
+        yaoRuntime,
+      );
       return await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1({
         request,
-        ...createStagingExportRequestScopedDependencies(env),
+        ...createStagingExportRequestScopedDependencies(env, service),
       });
+      }
   }
 }
 
@@ -1041,11 +994,9 @@ async function loadStagingPersistedActiveCapability(
 
 function createStagingYaoRequestScopedRuntime(
   env: CloudflareD1RouterApiStagingEnv,
-  session: SessionAdapter,
 ): RouterAbEd25519YaoProductRegistrationRuntimeV1 {
   return createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1({
     signingWorkerId: requireEnvString(env, 'SIGNING_WORKER_ID'),
-    session,
     store: createStagingYaoPartitionedStateStore(env),
     registrationBackend: createStagingEd25519YaoBackend(env),
     loadPersistedActiveCapability: loadStagingPersistedActiveCapability.bind(undefined, env),
@@ -1083,42 +1034,34 @@ export function createStagingRecoveryRequestScopedDependencies(
       walletStore: stagingWalletStore(env),
       ensureSchema: false,
     }),
-    capabilities: createStagingYaoRequestScopedRuntime(env, session),
+    capabilities: createStagingYaoRequestScopedRuntime(env),
   };
 }
 
 /**
- * Builds the export request-scoped dependencies from the environment alone. The
- * capability resolver comes from the request-scoped runtime, so export reads the
- * same partitioned state it will eventually be cut over to.
+ * Builds export request-scoped state while reusing the request's authoritative
+ * Router API factor and owner-proof services.
  */
 export function createStagingExportRequestScopedDependencies(
   env: CloudflareD1RouterApiStagingEnv,
+  service: ReturnType<typeof createCloudflareD1RouterApiAuthService>,
 ): {
   readonly store: ReturnType<typeof createStagingYaoPartitionedStateStore>;
   readonly backend: ReturnType<typeof createStagingEd25519YaoBackend>;
-  readonly authorization: RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter;
+  readonly authorization: RouterAbEd25519YaoExportOwnerProofAuthorizationAdapter;
   readonly capabilities: RouterAbEd25519YaoProductRegistrationRuntimeV1;
 } {
-  const scope = stagingTenantScope(env);
-  const session = stagingSessionAdapter(env);
   const store = createStagingYaoPartitionedStateStore(env);
   return {
     store,
     backend: createStagingEd25519YaoBackend(env),
-    authorization: new RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter(
-      session,
-      new CloudflareD1WebAuthnAuthService({
-        webAuthnStore: new CloudflareD1WebAuthnStore({
-          database: env.SIGNER_DB,
-          namespace: scope.namespace,
-          orgId: scope.orgId,
-          projectId: scope.projectId,
-          envId: scope.envId,
-        }),
-      }),
+    authorization: new RouterAbEd25519YaoExportOwnerProofAuthorizationAdapter(
+      service.webAuthn,
+      service.emailOtp,
+      service.walletAuthMethods,
+      service.authorizedOperations,
     ),
-    capabilities: createStagingYaoRequestScopedRuntime(env, session),
+    capabilities: createStagingYaoRequestScopedRuntime(env),
   };
 }
 

@@ -13,10 +13,12 @@ import type { WalletRegistrationEd25519YaoBootstrapSession } from '../../../../c
 import type { RouterAbEd25519YaoActiveCapabilityDescriptorV1 } from '../recovery/routerAbEd25519YaoRecovery';
 import type {
   MpcWalletSigningQuotaId,
+  WalletSessionAuthorizationId,
   SeamsSessionId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import type { ThresholdEd25519SessionId } from '@shared/utils/domainIds';
+import type { VerifiedOwnerProof } from '../../../../authorization/factorEvidence';
 
 export type RouterAbEd25519YaoSessionPolicyV1 = {
   readonly version: 'threshold_session_v1';
@@ -36,16 +38,11 @@ export type RouterAbEd25519YaoSessionRouteCommandV1 = {
   readonly relayerKeyId: string;
   readonly sessionPolicy: RouterAbEd25519YaoSessionPolicyV1;
   readonly projectEnvironmentId?: string;
-  readonly routeAuth:
-    | {
-        readonly kind: 'passkey';
-        readonly webauthnAuthentication: WebAuthnAuthenticationCredential;
-      }
-    | {
-        readonly kind: 'signed_session';
-        readonly webauthnAuthentication?: never;
-      };
-  readonly sessionKind: 'jwt';
+  readonly routeAuth: {
+    readonly kind: 'passkey';
+    readonly webauthnAuthentication: WebAuthnAuthenticationCredential;
+  };
+  readonly sessionKind: 'opaque';
 };
 
 export type RouterAbEd25519YaoOperationStepUpMaterialRecoveryRequest =
@@ -111,6 +108,7 @@ export type RouterAbEd25519YaoBudgetRefreshAuthorizationV1 =
   | {
       readonly kind: 'verified_passkey_assertion_router_ab_ed25519_yao_budget_refresh_v1';
       readonly authority: PasskeyWalletAuthAuthority;
+      readonly proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
       readonly authorityRef?: never;
       readonly runtimePolicyScope?: never;
       readonly currentSession?: never;
@@ -120,20 +118,9 @@ export type RouterAbEd25519YaoBudgetRefreshAuthorizationV1 =
       readonly verifiedOrgId?: never;
     }
   | {
-      readonly kind: 'verified_passkey_app_session_router_ab_ed25519_yao_budget_refresh_v1';
-      readonly authority: PasskeyWalletAuthAuthority;
-      readonly authorityRef: WalletAuthAuthorityRef;
-      readonly runtimePolicyScope: RuntimePolicyScope;
-      readonly seamsSessionId: SeamsSessionId;
-      readonly currentSession?: never;
-      readonly signerSlot?: never;
-      readonly verifiedChallengeId?: never;
-      readonly verifiedProviderUserId?: never;
-      readonly verifiedOrgId?: never;
-    }
-  | {
       readonly kind: 'verified_email_otp_router_ab_ed25519_yao_budget_refresh_v1';
       readonly authority: EmailOtpWalletAuthAuthority;
+      readonly proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
       readonly currentSession: RouterAbEd25519WalletSessionClaims;
       readonly signerSlot: number;
       readonly verifiedChallengeId: string;
@@ -157,6 +144,7 @@ export type RouterAbEd25519YaoBudgetRefreshResponseV1 =
         typeof thresholdEd25519AuthorityScopeFromWalletAuthAuthority
       >;
       readonly thresholdSessionId: string;
+      readonly authorizationId: WalletSessionAuthorizationId;
       readonly walletSessionId: WalletSessionId;
       readonly quotaId: MpcWalletSigningQuotaId;
       readonly expiresAtMs: number;
@@ -165,18 +153,18 @@ export type RouterAbEd25519YaoBudgetRefreshResponseV1 =
       readonly remainingUses: number;
       readonly runtimePolicyScope: RuntimePolicyScope;
       readonly routerAbNormalSigning: RouterAbEd25519NormalSigningState;
-      readonly jwt: string;
+      readonly walletSessionToken: string;
     }
   | { readonly ok: false; readonly code: string; readonly message: string };
 
 export type RouterAbEd25519YaoVerifiedWalletUnlockRequestV1 = {
   readonly walletId: string;
   readonly orgId: string;
-  readonly seamsSessionId: SeamsSessionId;
   readonly signerSlot: number;
   readonly remainingUses: number;
   readonly verifiedChallengeId: string;
   readonly verifiedProviderUserId: string;
+  readonly proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
 };
 
 export type RouterAbEd25519YaoVerifiedWalletUnlockResponseV1 =

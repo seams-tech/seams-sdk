@@ -622,14 +622,13 @@ function parseSignerIdentity(value, expectedRole, expectedId, path) {
 
 function parseOptionalConfig(value) {
   const optional = requireObject(value, 'optional');
-  requireExactKeys(optional, ['nearRelayer', 'googleOidcClientId', 'oidcExchange'], 'optional');
+  requireExactKeys(optional, ['nearRelayer', 'googleOidcClientId'], 'optional');
   return {
     nearRelayer: parseNearRelayer(optional.nearRelayer),
     googleOidcClientId: parseNullableString(
       optional.googleOidcClientId,
       'optional.googleOidcClientId',
     ),
-    oidcExchange: parseNullableObject(optional.oidcExchange, 'optional.oidcExchange'),
   };
 }
 

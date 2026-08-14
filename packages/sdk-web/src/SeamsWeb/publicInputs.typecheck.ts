@@ -182,8 +182,8 @@ const validNearEmailOtpRegistrationInput: Parameters<
     kind: 'email_otp',
     proofKind: 'otp_challenge',
     email: 'alice@example.test',
+    providerSubject: 'email:alice@example.test',
     otpCode: '123456',
-    appSessionJwt: 'email-otp-app-session-jwt',
   },
 };
 void validNearEmailOtpRegistrationInput;
@@ -218,8 +218,8 @@ const validEvmEmailOtpRegistrationInput: Parameters<EvmSignerCapability['registe
     kind: 'email_otp',
     proofKind: 'otp_challenge',
     email: 'alice@example.test',
+    providerSubject: 'email:alice@example.test',
     otpCode: '123456',
-    appSessionJwt: 'email-otp-app-session-jwt',
   },
 };
 void validEvmEmailOtpRegistrationInput;
@@ -266,8 +266,8 @@ void registrationCapability.registerWithEmailOtp({
     kind: 'email_otp',
     proofKind: 'otp_challenge',
     email: 'alice@example.test',
+    providerSubject: 'email:alice@example.test',
     otpCode: '123456',
-    appSessionJwt: 'email-otp-app-session-jwt',
   },
 });
 
@@ -307,8 +307,8 @@ void registrationCapability.registerWithEmailOtp({
     kind: 'email_otp',
     proofKind: 'otp_challenge',
     email: 'alice@example.test',
+    providerSubject: 'email:alice@example.test',
     otpCode: '123456',
-    appSessionJwt: 'email-otp-app-session-jwt',
   },
   signerSelection: {
     // @ts-expect-error Public Email OTP registration accepts signer-set requests, not legacy modes.
@@ -418,11 +418,6 @@ const invalidPublicBootstrapExportArtifact =
   // @ts-expect-error Public bootstrap keyRef hides internal export artifact identity.
   publicEcdsaBootstrapResult.thresholdEcdsaKeyRef.ecdsaDerivationExportArtifact;
 void invalidPublicBootstrapExportArtifact;
-const invalidPublicBootstrapWalletSessionJwt =
-  // @ts-expect-error Public bootstrap keyRef hides internal Wallet Session bearer auth.
-  publicEcdsaBootstrapResult.thresholdEcdsaKeyRef.walletSessionJwt;
-void invalidPublicBootstrapWalletSessionJwt;
-
 type PublicKeyExportInput = Parameters<KeyExportCapability['exportKeypairWithUI']>[0];
 
 const validEcdsaExportInput: PublicKeyExportInput = {

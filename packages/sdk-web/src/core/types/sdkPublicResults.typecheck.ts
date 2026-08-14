@@ -64,14 +64,6 @@ const invalidEcdsaLoginSuccess: LoginResult = {
 };
 void invalidEcdsaLoginSuccess;
 
-// @ts-expect-error login failure cannot carry a success-only JWT.
-const invalidLoginFailure: LoginResult = {
-  success: false,
-  error: 'Login failed',
-  jwt: 'jwt',
-};
-void invalidLoginFailure;
-
 const actionSuccess: ActionResult = {
   success: true,
   transactionId: 'txid',

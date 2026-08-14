@@ -16,7 +16,7 @@ import type {
   ActiveWalletSessionAuthorizationProjection,
   WalletSessionAuthorizationReadResult,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
-import { walletSessionJwtForCurve } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { walletSessionTokenForCurve } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { EmailOtpEcdsaSealedRecoveryRecord } from '@/core/signingEngine/session/sealedRecovery/recoveryRecord';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import {
@@ -29,6 +29,7 @@ import {
 } from '@shared/utils/walletAuthAuthority';
 import { buildEcdsaRoleLocalPublicFacts } from '../persistence/ecdsaRoleLocalRecords';
 import { buildPersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocalMaterialResolver';
+import { requireOpaqueWalletSessionToken } from '@shared/utils/sessionTokens';
 import {
   buildEvmFamilyEcdsaWalletKey,
   type EvmFamilyEcdsaWalletKey,
@@ -311,8 +312,8 @@ async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecordInQueue
     sealedRecord,
     authorization,
   });
-  const walletSessionJwt = walletSessionJwtForCurve(restoreSource.authorization, 'ecdsa');
-  if (!walletSessionJwt) {
+  const walletSessionToken = walletSessionTokenForCurve(restoreSource.authorization, 'ecdsa');
+  if (!walletSessionToken) {
     throw new Error(
       'Email OTP sealed refresh requires an active ECDSA Wallet Session authorization',
     );
@@ -353,7 +354,7 @@ async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecordInQueue
     expiresAtMs: sealedRecord.expiresAtMs,
     transport: {
       relayerUrl: restoreSource.relayerUrl,
-      walletSessionJwt,
+      walletSessionToken,
       signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(
         restoreSource.signingSessionSealKeyVersion,
       ),
@@ -389,8 +390,8 @@ async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecordInQueue
       emailOtpAuthContext: restoreSource.emailOtpAuthContext,
       emailOtpWorkerSessionHandle,
       routeAuth: {
-        kind: 'wallet_session',
-        jwt: walletSessionJwt,
+        kind: 'opaque_wallet_session',
+        walletSessionToken: requireOpaqueWalletSessionToken(walletSessionToken),
       },
     }),
   );

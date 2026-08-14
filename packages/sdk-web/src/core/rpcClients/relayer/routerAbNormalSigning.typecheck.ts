@@ -1,8 +1,6 @@
 import type {
   RouterAbNormalSigningFinalizeRequestV2Wire,
   RouterAbNormalSigningPrepareRequestV2Wire,
-  RouterAbEd25519NormalSigningCredential,
-  RouterAbWalletSessionCredential,
 } from './routerAbNormalSigning';
 import type {
   RouterAbEcdsaDerivationEvmDigestSigningFinalizeCoreRequestV1Wire,
@@ -269,50 +267,3 @@ void ecdsaFinalizeCoreRequest;
 const ecdsaFinalizeRequest =
   ecdsaFinalizeCoreRequest satisfies RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1Wire;
 void ecdsaFinalizeRequest;
-
-const jwtCredential = {
-  kind: 'wallet_session_jwt' as const,
-  walletSessionJwt: 'wallet-session-jwt',
-} satisfies RouterAbWalletSessionCredential;
-void jwtCredential;
-
-const cookieCredential: RouterAbWalletSessionCredential = {
-  // @ts-expect-error Router A/B normal-signing credentials are bearer-only.
-  kind: 'cookie',
-  walletSessionJwt: 'wallet-session-jwt',
-};
-void cookieCredential;
-
-// @ts-expect-error JWT Wallet Session credentials require walletSessionJwt.
-const missingWalletSessionJwt: RouterAbWalletSessionCredential = {
-  kind: 'wallet_session_jwt',
-};
-void missingWalletSessionJwt;
-
-const mixedWalletCredential: RouterAbWalletSessionCredential = {
-  kind: 'wallet_session_jwt',
-  walletSessionJwt: 'jwt',
-  // @ts-expect-error Router A/B normal-signing credentials reject cookie flags.
-  useWalletSessionCookie: true,
-};
-void mixedWalletCredential;
-
-const appSessionCredential = {
-  kind: 'app_session_jwt' as const,
-  appSessionJwt: 'app-session-jwt',
-} satisfies RouterAbEd25519NormalSigningCredential;
-void appSessionCredential;
-
-// @ts-expect-error App-session credentials cannot carry Wallet Session JWTs.
-const mixedBearerDomains: RouterAbEd25519NormalSigningCredential = {
-  kind: 'app_session_jwt',
-  appSessionJwt: 'app-session-jwt',
-  walletSessionJwt: 'wallet-session-jwt',
-};
-void mixedBearerDomains;
-
-// @ts-expect-error App-session bearer credentials require appSessionJwt.
-const missingAppSessionJwt: RouterAbEd25519NormalSigningCredential = {
-  kind: 'app_session_jwt',
-};
-void missingAppSessionJwt;

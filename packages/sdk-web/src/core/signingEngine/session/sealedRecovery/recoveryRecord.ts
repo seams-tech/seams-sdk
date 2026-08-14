@@ -42,7 +42,6 @@ type RawEcdsaRestoreMetadata = {
   emailHashHex?: unknown;
   authority?: unknown;
   emailOtpAuthority?: unknown;
-  walletSessionJwt?: unknown;
   sessionKind?: unknown;
   keyHandle?: unknown;
   ecdsaThresholdKeyId?: unknown;
@@ -403,7 +402,7 @@ export function normalizeSealedRecoveryRecord(
   const clientVerifyingShareB64u = normalizeNonEmptyString(restore?.clientVerifyingShareB64u);
   const passkeyClientVerifyingShareB64u =
     raw.authMethod === 'passkey' ? clientVerifyingShareB64u : null;
-  if (restore?.sessionKind != null || restore?.walletSessionJwt != null) {
+  if (restore?.sessionKind != null) {
     return reject(raw, 'invalid_identity');
   }
   if (hasRawSigningRootBinding(raw)) {

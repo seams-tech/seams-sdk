@@ -743,23 +743,6 @@ export class CloudflareD1WalletAddSignerService {
           if (run.value.kind === 'd1_wallet_add_signer_start_rejected_v1') {
             return run.value.response;
           }
-          if (run.value.response.authorizationKind === 'app_session') {
-            if (run.value.response.kind !== 'evm_family_ecdsa') {
-              return {
-                ok: false,
-                code: 'invalid_state',
-                message: 'app-session add-signer authorization branch is invalid',
-              };
-            }
-            return {
-              ok: true,
-              addSignerCeremonyId: run.value.response.addSignerCeremonyId,
-              intent: run.value.response.intent,
-              authorizationKind: 'app_session',
-              kind: 'evm_family_ecdsa',
-              ecdsa: run.value.response.ecdsa,
-            };
-          }
           if (!isWalletAddSignerStartWebAuthnCoreSuccess(run.value.response)) {
             return {
               ok: false,

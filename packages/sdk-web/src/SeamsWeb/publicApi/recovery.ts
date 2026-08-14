@@ -5,6 +5,7 @@ import type { WalletIframeCoordinator } from '@/SeamsWeb/walletIframe/coordinato
 export type RecoveryCapabilityDomainMethods = {
   getWalletRecoveryCodeStatus: RecoveryCapability['getWalletRecoveryCodeStatus'];
   acknowledgeWalletRecoveryCodeBackup: RecoveryCapability['acknowledgeWalletRecoveryCodeBackup'];
+  requestWalletCustodyEmailOtpChallenge: RecoveryCapability['requestWalletCustodyEmailOtpChallenge'];
   rotateWalletRecoveryCodes: RecoveryCapability['rotateWalletRecoveryCodes'];
   requestWalletRecoveryBootstrapChallenge: RecoveryCapability['requestWalletRecoveryBootstrapChallenge'];
   verifyWalletRecoveryBootstrap: RecoveryCapability['verifyWalletRecoveryBootstrap'];
@@ -27,6 +28,7 @@ export function createRecoveryCapability(deps: {
     syncAccount: async (args) => await emailRecovery.syncAccount(args),
     getWalletRecoveryCodeStatus: deps.domain.getWalletRecoveryCodeStatus,
     acknowledgeWalletRecoveryCodeBackup: deps.domain.acknowledgeWalletRecoveryCodeBackup,
+    requestWalletCustodyEmailOtpChallenge: deps.domain.requestWalletCustodyEmailOtpChallenge,
     rotateWalletRecoveryCodes: deps.domain.rotateWalletRecoveryCodes,
     requestWalletRecoveryBootstrapChallenge: deps.domain.requestWalletRecoveryBootstrapChallenge,
     verifyWalletRecoveryBootstrap: deps.domain.verifyWalletRecoveryBootstrap,

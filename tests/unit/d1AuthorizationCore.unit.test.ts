@@ -875,6 +875,8 @@ test.describe('D1 authorization core', () => {
         walletSessionId: walletSession.session.walletSessionId,
         appOrigin: fixture.session.origin,
         walletOrigin,
+        curve: 'ecdsa',
+        binding: { walletId: fixture.authority.walletId },
         issuedAtMs,
         expiresAtMs: fixture.session.expiresAtMs,
       });
@@ -892,8 +894,8 @@ test.describe('D1 authorization core', () => {
           exchangeCode: delivery.exchangeCode,
           nonce: parseHostedWalletSeamsSessionExchangeNonce('incorrect-nonce'),
           appOrigin: fixture.session.origin,
+          walletOrigin,
           curve: 'ecdsa',
-          binding: { walletId: fixture.authority.walletId },
           redeemedAtMs: issuedAtMs + 1,
         }),
       ).resolves.toEqual({ kind: 'nonce_mismatch' });
@@ -902,8 +904,8 @@ test.describe('D1 authorization core', () => {
           exchangeCode: delivery.exchangeCode,
           nonce: delivery.nonce,
           appOrigin: fixture.session.origin,
+          walletOrigin,
           curve: 'ecdsa',
-          binding: { walletId: fixture.authority.walletId },
           redeemedAtMs: issuedAtMs + 2,
         }),
       ).resolves.toMatchObject({
@@ -913,13 +915,55 @@ test.describe('D1 authorization core', () => {
         curve: 'ecdsa',
       });
       await expect(rowCount(temporary.database, 'opaque_wallet_session_tokens')).resolves.toBe(1);
+      const ed25519Delivery = await service.mintHostedWalletSeamsSessionExchange({
+        tenantId: fixture.session.tenantId,
+        walletSessionId: walletSession.session.walletSessionId,
+        appOrigin: fixture.session.origin,
+        walletOrigin,
+        curve: 'ed25519',
+        binding: { walletId: fixture.authority.walletId },
+        issuedAtMs: issuedAtMs + 4,
+        expiresAtMs: fixture.session.expiresAtMs,
+      });
+      await expect(
+        service.redeemHostedWalletSeamsSessionExchange({
+          exchangeCode: ed25519Delivery.exchangeCode,
+          nonce: ed25519Delivery.nonce,
+          appOrigin: fixture.session.origin,
+          walletOrigin,
+          curve: 'ed25519',
+          redeemedAtMs: issuedAtMs + 5,
+        }),
+      ).resolves.toMatchObject({ kind: 'redeemed', curve: 'ed25519' });
+      await expect(rowCount(temporary.database, 'opaque_wallet_session_tokens')).resolves.toBe(2);
+      const replacementDelivery = await service.mintHostedWalletSeamsSessionExchange({
+        tenantId: fixture.session.tenantId,
+        walletSessionId: walletSession.session.walletSessionId,
+        appOrigin: fixture.session.origin,
+        walletOrigin,
+        curve: 'ecdsa',
+        binding: { walletId: fixture.authority.walletId },
+        issuedAtMs: issuedAtMs + 6,
+        expiresAtMs: fixture.session.expiresAtMs,
+      });
+      await expect(
+        service.redeemHostedWalletSeamsSessionExchange({
+          exchangeCode: replacementDelivery.exchangeCode,
+          nonce: replacementDelivery.nonce,
+          appOrigin: fixture.session.origin,
+          walletOrigin,
+          curve: 'ecdsa',
+          redeemedAtMs: issuedAtMs + 7,
+        }),
+      ).resolves.toMatchObject({ kind: 'redeemed', curve: 'ecdsa' });
+      await expect(rowCount(temporary.database, 'opaque_wallet_session_tokens')).resolves.toBe(2);
       await expect(
         service.redeemHostedWalletSeamsSessionExchange({
           exchangeCode: delivery.exchangeCode,
           nonce: delivery.nonce,
           appOrigin: fixture.session.origin,
+          walletOrigin,
           curve: 'ecdsa',
-          binding: { walletId: fixture.authority.walletId },
           redeemedAtMs: issuedAtMs + 3,
         }),
       ).resolves.toEqual({ kind: 'already_consumed' });

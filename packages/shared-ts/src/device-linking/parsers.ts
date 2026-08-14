@@ -72,9 +72,10 @@ import { parseOwnerLaneParticipantContinuityV1 } from '../signing-lanes/ownerCon
 import { base64UrlDecode, base64UrlEncode } from '../utils/base64';
 import {
   decodeJwtPayloadRecord,
-  ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
-  ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
 } from '../utils/sessionTokens';
+const ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND =
+  'router_ab_ecdsa_derivation_wallet_session_v1';
+const ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND = 'router_ab_ed25519_wallet_session_v1';
 import { parseUnixMs, requireRecord, rejectUnknownFields } from '../passkey-custody/primitives';
 import { parseNearAccountId } from '../utils/near';
 import {
@@ -133,6 +134,7 @@ const QR_FIELDS = [
   'issuedAtMs',
   'expiresAtMs',
 ] as const;
+const COMPACT_QR_FIELDS = ['v', 's', 'l', 'd', 'i', 'e'] as const;
 const OWNER_AUTHORIZATION_REQUEST_FIELDS = [
   'payload',
   'requestedAtMs',
@@ -1119,6 +1121,41 @@ export function parseQrLinkedDeviceSessionPayloadV4(raw: unknown): QrLinkedDevic
   return parseQrPayloadRecord(exactRecord(raw, QR_FIELDS, 'QrLinkedDeviceSessionPayloadV4'));
 }
 
+export function serializeQrLinkedDeviceSessionPayloadV4(
+  payload: QrLinkedDeviceSessionPayloadV4,
+): string {
+  const parsed = parseQrLinkedDeviceSessionPayloadV4(payload);
+  return JSON.stringify({
+    v: 4,
+    s: parsed.linkSessionId,
+    l: parsed.linkPublicKeyB64u,
+    d: parsed.devicePublicKeyB64u,
+    i: parsed.issuedAtMs,
+    e: parsed.expiresAtMs,
+  });
+}
+
+export function parseQrLinkedDeviceSessionTextV4(raw: string): QrLinkedDeviceSessionPayloadV4 {
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(raw);
+  } catch {
+    throw new Error('Linked-device QR payload is not valid JSON');
+  }
+  const compact = exactRecord(decoded, COMPACT_QR_FIELDS, 'LinkedDeviceQrV4');
+  if (compact.v !== 4) throw new Error('LinkedDeviceQrV4.v is invalid');
+  return parseQrLinkedDeviceSessionPayloadV4({
+    version: 'v4',
+    purpose: 'linked_device_lane_creation',
+    linkSessionId: compact.s,
+    linkPublicKeyB64u: compact.l,
+    devicePublicKeyB64u: compact.d,
+    requestedPermission: buildQrLinkedDevicePermissionRequest(),
+    issuedAtMs: compact.i,
+    expiresAtMs: compact.e,
+  });
+}
+
 export function parseLinkedDeviceOwnerAuthorizationRequestV1(
   raw: unknown,
 ): LinkedDeviceOwnerAuthorizationRequestV1 {
@@ -1346,10 +1383,7 @@ function isUnclaimedSessionState(
 function isPendingApprovalState(state: LinkedDeviceSessionState): state is Extract<
   LinkedDeviceSessionState,
   {
-    readonly state:
-      | 'awaiting_target_passkey'
-      | 'provisioning'
-      | 'committed_completion_required';
+    readonly state: 'awaiting_target_passkey' | 'provisioning' | 'committed_completion_required';
   }
 > {
   return (

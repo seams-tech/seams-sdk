@@ -53,7 +53,7 @@ export type {
   ActiveWalletSessionAuthorizationProjection,
   BuildActiveWalletSessionAuthorizationProjectionInput,
   RetiredWalletSessionAuthorizationProjection,
-  WalletSessionAuthorizationJwt,
+  WalletSessionAuthorizationToken,
   WalletSessionAuthorizationProjection,
   WalletSessionAuthorizationReadResult,
   WalletSessionAuthorizationRetirementReason,

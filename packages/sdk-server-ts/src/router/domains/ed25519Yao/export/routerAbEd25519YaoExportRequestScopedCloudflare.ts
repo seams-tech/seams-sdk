@@ -23,6 +23,7 @@ import {
   type RouterAbEd25519YaoExportAdmissionClaimV1,
   type RouterAbEd25519YaoExportAuthorizationAdapter,
   type RouterAbEd25519YaoExportAuthorizationClaimV1,
+  type RouterAbEd25519YaoExportEmailOtpFactorReleaseV1,
   type RouterAbEd25519YaoExportAuthorizationResult,
   type RouterAbEd25519YaoExportBackend,
   type RouterAbEd25519YaoExportBackendResult,
@@ -82,6 +83,7 @@ type AuthorizationRunResult =
   | {
       readonly ok: true;
       readonly authorizationIdentity: RouterAbEd25519YaoExportServerAuthorizationIdentityV1;
+      readonly factorRelease?: RouterAbEd25519YaoExportEmailOtpFactorReleaseV1;
     }
   | AuthorizationFailure;
 
@@ -93,6 +95,7 @@ class ExportAuthorizationRequestRun {
     | {
         readonly kind: 'authorized';
         readonly identity: RouterAbEd25519YaoExportServerAuthorizationIdentityV1;
+        readonly factorRelease?: RouterAbEd25519YaoExportEmailOtpFactorReleaseV1;
       } = { kind: 'pending' };
 
   constructor(
@@ -165,6 +168,11 @@ class ExportAuthorizationRequestRun {
       }
       if (!authorized.ok) return { kind: 'completed', value: authorized };
       identity = authorized.authorizationIdentity;
+      this.authorizationState = {
+        kind: 'authorized',
+        identity,
+        ...(authorized.factorRelease ? { factorRelease: authorized.factorRelease } : {}),
+      };
     }
     if (!identity) {
       return {
@@ -177,10 +185,9 @@ class ExportAuthorizationRequestRun {
         },
       };
     }
-    this.authorizationState = {
-      kind: 'authorized',
-      identity,
-    };
+    if (this.authorizationState.kind !== 'authorized') {
+      this.authorizationState = { kind: 'authorized', identity };
+    }
     const authorizationFingerprint = await authorizationFingerprintForIdentity(
       this.parsed,
       identity,
@@ -420,6 +427,15 @@ async function handleAdmissionRequest(
   const admission = await runAuthorization(context, parsed, expectedOrigin);
   if (!admission.ok) return exportResponse(admission);
   const result = await runAdmission(context, parsed.protocol, admission.authorizationIdentity);
+  if (result.ok) {
+    return json(
+      {
+        protocol: result.value,
+        ...(admission.factorRelease ? { factorRelease: admission.factorRelease } : {}),
+      },
+      { status: result.status },
+    );
+  }
   return exportResponse(result);
 }
 
@@ -486,7 +502,13 @@ async function runAuthorization(
   if (run.authorizationState.kind !== 'authorized') {
     return authorizationFailure(503, 'export_authorization_uncertain', 'Export authorization state is incomplete');
   }
-  return { ok: true, authorizationIdentity: run.authorizationState.identity };
+  return {
+    ok: true,
+    authorizationIdentity: run.authorizationState.identity,
+    ...(run.authorizationState.factorRelease
+      ? { factorRelease: run.authorizationState.factorRelease }
+      : {}),
+  };
 }
 
 async function persistAuthorizationUncertain(
@@ -683,8 +705,7 @@ function sameAuthorizationIdentity(
   right: RouterAbEd25519YaoExportServerAuthorizationIdentityV1,
 ): boolean {
   return (
-    left.thresholdSessionId === right.thresholdSessionId &&
-    left.walletSessionId === right.walletSessionId
+    left.thresholdSessionId === right.thresholdSessionId
   );
 }
 

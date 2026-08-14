@@ -1,4 +1,3 @@
-import { routerAbEcdsaExplicitExport } from '@/core/rpcClients/relayer/thresholdEcdsa';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import {
@@ -17,7 +16,6 @@ import type { RouterAbNormalSigningAuthorizationWire } from '@shared/utils/route
 import type { ThresholdEcdsaExplicitKeyExportBootstrapResult } from '../../session/passkey/ecdsaSessionProvision';
 import type {
   EcdsaExplicitExportOperationAuthorization,
-  EcdsaExplicitExportSessionAuth,
 } from '../../threshold/ecdsa/activation';
 import {
   ecdsaRoleLocalPersistedMaterialSource,
@@ -126,15 +124,7 @@ async function forwardExplicitEcdsaExport(args: {
   readonly relayerUrl: string;
   readonly request: RouterAbEcdsaDerivationExplicitExportRequestV1;
   readonly requestDigestB64u: string;
-  readonly sessionAuth: EcdsaExplicitExportSessionAuth;
 }) {
-  if (args.sessionAuth.kind === 'app_session') {
-    return await routerAbEcdsaExplicitExport(args.relayerUrl, {
-      request: args.request,
-      requestDigestB64u: args.requestDigestB64u,
-      auth: args.sessionAuth,
-    });
-  }
   const relayerUrl = String(args.relayerUrl || '').trim().replace(/\/+$/g, '');
   if (!relayerUrl) throw new Error('[SigningEngine][ecdsa-export] relayer URL is required');
   try {
@@ -142,7 +132,10 @@ async function forwardExplicitEcdsaExport(args: {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(args.request),
+      body: JSON.stringify({
+        request: args.request,
+        requestDigestB64u: args.requestDigestB64u,
+      }),
     });
     const body = await response.json().catch(() => null);
     if (!response.ok) {
@@ -398,7 +391,6 @@ async function executeEcdsaDerivationExport(
       relayerUrl: material.relayerUrl,
       request: created.request,
       requestDigestB64u: created.requestDigestB64u,
-      sessionAuth: material.operationAuthorization.sessionAuth,
     });
     if (!forwarded.ok) {
       throw new Error(

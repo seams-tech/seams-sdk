@@ -92,7 +92,7 @@ export class CloudflareD1EmailOtpServerSealRuntime {
         thresholdSessionId: operation.thresholdSessionId,
         ciphertext: wrappedCiphertext,
         keyVersion: shamir.keyVersion,
-        auth: { userId: 'email_otp', claims: {} },
+        auth: { userId: 'email_otp' },
       });
       if (!result.ok) return result;
       return {

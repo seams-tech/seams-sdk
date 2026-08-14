@@ -1,6 +1,7 @@
 import type { HandlerDeps, HandlerMap, Req } from './walletIframeHandler.types';
 import { respondOkResult, withProgress } from './shared';
 import { secureRandomId } from '@shared/utils/secureRandomId';
+import type { WalletCustodyAdminOperation } from '@shared/authorization/walletCustodyOperation';
 import type {
   GoogleEmailOtpWalletAuthFlow,
   GoogleEmailOtpWalletAuthRegistrationCompleted,
@@ -15,7 +16,6 @@ import type {
   PMGoogleEmailOtpWalletAuthWireResult,
 } from '../../shared/messages';
 import {
-  activeWalletOrHostedAppSessionJwt,
   canonicalRelayUrl,
   redeemHostedWalletSeamsSession,
 } from '../hostedWalletSeamsSession';
@@ -39,10 +39,10 @@ function readOptionalString(record: Record<string, unknown>, field: string): str
   return value || undefined;
 }
 
-function assertNoParentPostedAppSessionJwt(value: unknown): void {
+function assertNoParentPostedWalletSessionToken(value: unknown): void {
   const record = recordFromPayload(value);
-  if (Object.prototype.hasOwnProperty.call(record, 'appSessionJwt')) {
-    throw new Error('wallet iframe requests must not carry appSessionJwt');
+  if (Object.prototype.hasOwnProperty.call(record, 'walletSessionToken')) {
+    throw new Error('wallet iframe requests must not carry walletSessionToken');
   }
 }
 
@@ -205,11 +205,50 @@ function parseWalletRecoverySessionPayload(
   return { walletId: readRequiredString(record, 'walletId') };
 }
 
+function parseWalletCustodyEmailOtpChallengePayload(value: unknown): {
+  walletId: string;
+  providerSubjectId: string;
+  operation: WalletCustodyAdminOperation;
+  payload: Record<string, unknown>;
+  requestOrigin?: string;
+} {
+  const record = recordFromPayload(value);
+  const operation = readRequiredString(record, 'operation');
+  if (
+    operation !== 'credentials_list' &&
+    operation !== 'credential_label' &&
+    operation !== 'recovery_acknowledge' &&
+    operation !== 'recovery_rotate' &&
+    operation !== 'recovery_read'
+  ) {
+    throw new Error('Wallet custody Email OTP challenge operation is invalid');
+  }
+  const payload = recordFromPayload(record.payload);
+  if (Object.keys(payload).length === 0 && record.payload === undefined) {
+    throw new Error('Wallet custody Email OTP challenge payload is required');
+  }
+  return {
+    walletId: readRequiredString(record, 'walletId'),
+    providerSubjectId: readRequiredString(record, 'providerSubjectId'),
+    operation,
+    payload,
+    ...(readOptionalString(record, 'requestOrigin')
+      ? { requestOrigin: readOptionalString(record, 'requestOrigin') }
+      : {}),
+  };
+}
+
 function parseWalletRecoveryRotationPayload(value: unknown): {
   walletId: string;
   authorization:
     | { kind: 'existing_passkey' }
-    | { kind: 'email_otp'; challengeId: string; otpCode: string };
+    | {
+        kind: 'email_otp';
+        providerSubjectId: string;
+        challengeId: string;
+        challenge_digest: string;
+        otpCode: string;
+      };
 } {
   const record = recordFromPayload(value);
   const authorization = recordFromPayload(record.authorization);
@@ -224,7 +263,9 @@ function parseWalletRecoveryRotationPayload(value: unknown): {
       walletId: readRequiredString(record, 'walletId'),
       authorization: {
         kind: 'email_otp',
+        providerSubjectId: readRequiredString(authorization, 'providerSubjectId'),
         challengeId: readRequiredString(authorization, 'challengeId'),
+        challenge_digest: readRequiredString(authorization, 'challenge_digest'),
         otpCode: readRequiredString(authorization, 'otpCode'),
       },
     };
@@ -295,17 +336,13 @@ function parseCompleteWalletRecoveryPayload(
   walletId: string;
   recoveryOperationId: string;
   relayUrl?: string;
-  appSessionJwt?: string;
 } {
   const record = recordFromPayload(value);
   const relayUrl = requireWalletRelayUrl(readOptionalString(record, 'relayUrl'), expectedRelayUrl);
-  const walletId = readRequiredString(record, 'walletId');
-  const appSessionJwt = activeWalletOrHostedAppSessionJwt(relayUrl, walletId);
   return {
-    walletId,
+    walletId: readRequiredString(record, 'walletId'),
     recoveryOperationId: readRequiredString(record, 'recoveryOperationId'),
     relayUrl,
-    ...(appSessionJwt ? { appSessionJwt } : {}),
   };
 }
 
@@ -329,7 +366,6 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
     PM_REDEEM_HOSTED_WALLET_SEAMS_SESSION: async (
       req: Req<'PM_REDEEM_HOSTED_WALLET_SEAMS_SESSION'>,
     ) => {
-      const pm = deps.getSeamsWeb();
       const session = await redeemHostedWalletSeamsSession(
         req.payload,
         req.payload!.relayUrl,
@@ -341,17 +377,12 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
     },
 
     PM_REQUEST_EMAIL_OTP_CHALLENGE: async (req: Req<'PM_REQUEST_EMAIL_OTP_CHALLENGE'>) => {
-      assertNoParentPostedAppSessionJwt(req.payload);
+      assertNoParentPostedWalletSessionToken(req.payload);
       const pm = deps.getSeamsWeb();
       const { walletId, relayUrl, operation } = req.payload!;
-      const appSessionJwt = activeWalletOrHostedAppSessionJwt(
-        relayUrl || pm.configs.network.relayer.url,
-        walletId,
-      );
       const result = await pm.auth.requestEmailOtpChallenge({
         walletId,
         ...(relayUrl ? { relayUrl } : {}),
-        ...(appSessionJwt ? { appSessionJwt } : {}),
         ...(operation ? { operation } : {}),
       });
       respondOkResult(deps, req.requestId, result);
@@ -360,17 +391,12 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
     PM_REQUEST_EMAIL_OTP_ENROLLMENT_CHALLENGE: async (
       req: Req<'PM_REQUEST_EMAIL_OTP_ENROLLMENT_CHALLENGE'>,
     ) => {
-      assertNoParentPostedAppSessionJwt(req.payload);
+      assertNoParentPostedWalletSessionToken(req.payload);
       const pm = deps.getSeamsWeb();
       const { walletId, relayUrl } = req.payload!;
-      const appSessionJwt = activeWalletOrHostedAppSessionJwt(
-        relayUrl || pm.configs.network.relayer.url,
-        walletId,
-      );
       const result = await pm.registration.requestEmailOtpEnrollmentChallenge({
         walletId,
         ...(relayUrl ? { relayUrl } : {}),
-        ...(appSessionJwt ? { appSessionJwt } : {}),
       });
       respondOkResult(deps, req.requestId, result);
     },
@@ -380,14 +406,6 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
     ) => {
       const pm = deps.getSeamsWeb();
       const result = await pm.auth.requestEmailOtpSigningSessionChallenge(req.payload!);
-      respondOkResult(deps, req.requestId, result);
-    },
-
-    PM_EXCHANGE_GOOGLE_EMAIL_OTP_SESSION: async (
-      req: Req<'PM_EXCHANGE_GOOGLE_EMAIL_OTP_SESSION'>,
-    ) => {
-      const pm = deps.getSeamsWeb();
-      const result = await pm.auth.exchangeGoogleEmailOtpSession(req.payload!);
       respondOkResult(deps, req.requestId, result);
     },
 
@@ -476,22 +494,15 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
     },
 
     PM_ENROLL_EMAIL_OTP: async (req: Req<'PM_ENROLL_EMAIL_OTP'>) => {
-      assertNoParentPostedAppSessionJwt(req.payload);
+      assertNoParentPostedWalletSessionToken(req.payload);
       const pm = deps.getSeamsWeb();
       const rawPayload = recordFromPayload(req.payload);
       const walletId = String(rawPayload.walletId || '').trim();
       if (!walletId) {
         throw new Error('PM_ENROLL_EMAIL_OTP requires walletId');
       }
-      const appSessionJwt = activeWalletOrHostedAppSessionJwt(
-        typeof rawPayload.relayUrl === 'string'
-          ? rawPayload.relayUrl
-          : pm.configs.network.relayer.url,
-        walletId,
-      );
       const payload = withProgress(deps, req.requestId, {
         ...rawPayload,
-        ...(appSessionJwt ? { appSessionJwt } : {}),
       });
       const result = await pm.registration.enrollEmailOtp(
         payload as Parameters<typeof pm.registration.enrollEmailOtp>[0],
@@ -502,19 +513,14 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
     PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY: async (
       req: Req<'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY'>,
     ) => {
-      assertNoParentPostedAppSessionJwt(req.payload);
+      assertNoParentPostedWalletSessionToken(req.payload);
       const pm = deps.getSeamsWeb();
       const walletId = String(req.payload?.walletSession.walletId || '').trim();
       if (!walletId) {
         throw new Error('PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY requires walletId');
       }
-      const appSessionJwt = activeWalletOrHostedAppSessionJwt(
-        req.payload?.relayUrl || pm.configs.network.relayer.url,
-        walletId,
-      );
       const payload = withProgress(deps, req.requestId, {
         ...(req.payload || {}),
-        ...(appSessionJwt ? { appSessionJwt } : {}),
       });
       const result = await pm.auth.loginWithEmailOtpEcdsaCapability(
         payload as Parameters<typeof pm.auth.loginWithEmailOtpEcdsaCapability>[0],
@@ -525,7 +531,7 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
     PM_REFRESH_EMAIL_OTP_SIGNING_SESSION: async (
       req: Req<'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION'>,
     ) => {
-      assertNoParentPostedAppSessionJwt(req.payload);
+      assertNoParentPostedWalletSessionToken(req.payload);
       const pm = deps.getSeamsWeb();
       const payload = withProgress(deps, req.requestId, req.payload || {});
       const result = await pm.auth.refreshEmailOtpSigningSession(
@@ -537,7 +543,7 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
     PM_GET_WALLET_RECOVERY_CODE_STATUS: async (
       req: Req<'PM_GET_WALLET_RECOVERY_CODE_STATUS'>,
     ) => {
-      assertNoParentPostedAppSessionJwt(req.payload);
+      assertNoParentPostedWalletSessionToken(req.payload);
       const pm = deps.getSeamsWeb();
       const result = await pm.recovery.getWalletRecoveryCodeStatus(
         parseWalletRecoverySessionPayload(req.payload),
@@ -545,10 +551,21 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
       respondOkResult(deps, req.requestId, result);
     },
 
+    PM_REQUEST_WALLET_CUSTODY_EMAIL_OTP_CHALLENGE: async (
+      req: Req<'PM_REQUEST_WALLET_CUSTODY_EMAIL_OTP_CHALLENGE'>,
+    ) => {
+      assertNoParentPostedWalletSessionToken(req.payload);
+      const pm = deps.getSeamsWeb();
+      const result = await pm.recovery.requestWalletCustodyEmailOtpChallenge(
+        parseWalletCustodyEmailOtpChallengePayload(req.payload),
+      );
+      respondOkResult(deps, req.requestId, result);
+    },
+
     PM_ACKNOWLEDGE_WALLET_RECOVERY_CODE_BACKUP: async (
       req: Req<'PM_ACKNOWLEDGE_WALLET_RECOVERY_CODE_BACKUP'>,
     ) => {
-      assertNoParentPostedAppSessionJwt(req.payload);
+      assertNoParentPostedWalletSessionToken(req.payload);
       const pm = deps.getSeamsWeb();
       const result = await pm.recovery.acknowledgeWalletRecoveryCodeBackup(
         parseWalletRecoverySessionPayload(req.payload),
@@ -559,7 +576,7 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
     PM_ROTATE_WALLET_RECOVERY_CODES: async (
       req: Req<'PM_ROTATE_WALLET_RECOVERY_CODES'>,
     ) => {
-      assertNoParentPostedAppSessionJwt(req.payload);
+      assertNoParentPostedWalletSessionToken(req.payload);
       const pm = deps.getSeamsWeb();
       const result = await pm.recovery.rotateWalletRecoveryCodes(
         parseWalletRecoveryRotationPayload(req.payload),
@@ -570,7 +587,7 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
     PM_REQUEST_WALLET_RECOVERY_BOOTSTRAP_CHALLENGE: async (
       req: Req<'PM_REQUEST_WALLET_RECOVERY_BOOTSTRAP_CHALLENGE'>,
     ) => {
-      assertNoParentPostedAppSessionJwt(req.payload);
+      assertNoParentPostedWalletSessionToken(req.payload);
       const pm = deps.getSeamsWeb();
       const result = await pm.recovery.requestWalletRecoveryBootstrapChallenge(
         parseWalletRecoveryBootstrapChallengePayload(req.payload, pm.configs.network.relayer.url),
@@ -581,7 +598,7 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
     PM_VERIFY_WALLET_RECOVERY_BOOTSTRAP: async (
       req: Req<'PM_VERIFY_WALLET_RECOVERY_BOOTSTRAP'>,
     ) => {
-      assertNoParentPostedAppSessionJwt(req.payload);
+      assertNoParentPostedWalletSessionToken(req.payload);
       const pm = deps.getSeamsWeb();
       const result = await pm.recovery.verifyWalletRecoveryBootstrap(
         parseWalletRecoveryBootstrapVerifyPayload(req.payload, pm.configs.network.relayer.url),
@@ -592,7 +609,7 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
     PM_PREPARE_WALLET_RECOVERY_WITH_BOOTSTRAP: async (
       req: Req<'PM_PREPARE_WALLET_RECOVERY_WITH_BOOTSTRAP'>,
     ) => {
-      assertNoParentPostedAppSessionJwt(req.payload);
+      assertNoParentPostedWalletSessionToken(req.payload);
       const pm = deps.getSeamsWeb();
       const result = await pm.recovery.prepareWalletRecoveryWithBootstrap(
         parsePrepareWalletRecoveryWithBootstrapPayload(
@@ -604,7 +621,7 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
     },
 
     PM_COMPLETE_WALLET_RECOVERY: async (req: Req<'PM_COMPLETE_WALLET_RECOVERY'>) => {
-      assertNoParentPostedAppSessionJwt(req.payload);
+      assertNoParentPostedWalletSessionToken(req.payload);
       const pm = deps.getSeamsWeb();
       const result = await pm.recovery.completeWalletRecovery(
         parseCompleteWalletRecoveryPayload(req.payload, pm.configs.network.relayer.url),

@@ -1,5 +1,5 @@
 import {
-  walletSessionJwtForCurve,
+  walletSessionTokenForCurve,
   type ActiveWalletSessionAuthorizationProjection,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
@@ -29,13 +29,13 @@ export function createCanonicalWalletSessionStatusReader(
     if (!projection || !walletSessionStatusIdentityMatchesProjection(identity, projection)) {
       return null;
     }
-    const walletSessionJwt = walletSessionJwtForCurve(projection, 'ed25519');
-    if (!walletSessionJwt) return null;
+    const walletSessionToken = walletSessionTokenForCurve(projection, 'ed25519');
+    if (!walletSessionToken) return null;
     const relayerUrl = String(deps.relayerUrl || '').trim();
     if (!relayerUrl) return null;
     const status = await createRelayerReusableWalletSessionStatusPort({
       relayerUrl,
-      auth: { kind: 'wallet_session', jwt: walletSessionJwt },
+      auth: { kind: 'opaque_wallet_session', walletSessionToken },
     })
       .read(identity)
       .catch(() => null);

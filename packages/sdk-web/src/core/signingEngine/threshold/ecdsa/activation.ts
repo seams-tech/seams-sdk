@@ -53,11 +53,6 @@ import type {
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
-import {
-  requireAppSessionJwt,
-  type AppSessionJwtAuth,
-  type CookieSessionAuth,
-} from '@shared/utils/sessionTokens';
 import type { PersistedEcdsaRoleLocalMaterial } from '../../session/material/ecdsaRoleLocalMaterialResolver';
 
 export type ThresholdEcdsaEvmChainTarget = EvmEip155ChainTarget;
@@ -101,18 +96,15 @@ export type ThresholdEcdsaSessionBootstrapResult = {
     expiresAtMs: number;
     remainingUses: number;
     runtimePolicyScope: ThresholdRuntimePolicyScope;
-    jwt: string;
+    walletSessionToken: string;
     clientVerifyingShareB64u: string;
   };
 };
-
-export type EcdsaExplicitExportSessionAuth = AppSessionJwtAuth | CookieSessionAuth;
 
 type EcdsaExplicitExportOperationAuthorizationBase = {
   readonly kind: 'verified_step_up';
   readonly evidenceSetDigest: DigestB64u;
   readonly operation: RouterAbEcdsaOperationStepUpPreparationV1Wire;
-  readonly sessionAuth: EcdsaExplicitExportSessionAuth;
   readonly expiresAtMs: number;
   readonly quotaUse: 'none';
   readonly unseal: RouterAbEcdsaOperationStepUpUnsealV1Wire;
@@ -204,14 +196,13 @@ export type ActivateExplicitKeyExportEcdsaSessionRequest = {
 
 function requireStrictEcdsaRouteAuth(
   auth: ThresholdEcdsaDerivationRouteAuth | undefined,
-): Extract<ThresholdEcdsaDerivationRouteAuth, { kind: 'wallet_session' }> {
+): Extract<ThresholdEcdsaDerivationRouteAuth, { kind: 'opaque_wallet_session' }> {
   if (!auth) {
     throw new Error('Strict ECDSA session bootstrap requires Wallet Session authority');
   }
   switch (auth.kind) {
-    case 'wallet_session':
+    case 'opaque_wallet_session':
       return auth;
-    case 'app_session':
     case 'publishable_key':
       throw new Error('Strict ECDSA session bootstrap requires Wallet Session authority');
   }
@@ -329,10 +320,6 @@ async function activateEcdsaSessionByPurpose(
   const walletId = toWalletId(String(args.key.walletId));
   const chainTarget = args.lanePolicy.chainTarget;
   const requestedSessionId = String(args.lanePolicy.thresholdSessionId).trim();
-  const resolvedSessionKind = args.lanePolicy.thresholdSessionKind;
-  if (resolvedSessionKind !== 'jwt') {
-    throw new Error('Threshold ECDSA activation requires JWT Wallet Session state');
-  }
   if (deps.routerAbNormalSigning.mode !== 'enabled') {
     throw new Error('Router A/B ECDSA derivation normal signing must be enabled for activation');
   }
@@ -350,7 +337,6 @@ async function activateEcdsaSessionByPurpose(
     freshAuthRetrySideEffectState: 'not_applicable',
     hasRequestedEcdsaThresholdKeyId: true,
     requestedSessionId: requestedSessionId || null,
-    sessionKind: args.lanePolicy.thresholdSessionKind,
     authKind: args.walletSessionRouteAuth?.kind || 'none',
     passkeyCredentialBound: args.authKind === 'passkey',
   };
@@ -417,9 +403,9 @@ async function activateEcdsaSessionByPurpose(
   if (!thresholdSessionId) {
     throw new Error('threshold-ecdsa bootstrap returned empty thresholdSessionId');
   }
-  const walletSessionJwt = String(bootstrap.jwt || '').trim();
-  if (!walletSessionJwt) {
-    throw new Error('threshold-ecdsa bootstrap returned empty Wallet Session JWT');
+  const walletSessionToken = String(bootstrap.walletSessionToken || '').trim();
+  if (!walletSessionToken) {
+    throw new Error('threshold-ecdsa bootstrap returned empty Wallet Session token');
   }
   const expiresAtMs = Number(bootstrap.expiresAtMs);
   if (!Number.isFinite(expiresAtMs)) {
@@ -473,7 +459,7 @@ async function activateEcdsaSessionByPurpose(
     expiresAtMs,
     remainingUses,
     runtimePolicyScope: bootstrap.runtimePolicyScope,
-    jwt: walletSessionJwt,
+    walletSessionToken,
     clientVerifyingShareB64u,
   };
 
@@ -534,31 +520,14 @@ function normalizeEcdsaExplicitExportAuthorization(
     throw new Error('ECDSA explicit export operation authorization expiry is invalid');
   }
   const unseal = normalizeEcdsaExplicitExportUnseal(authorization.unseal);
-  switch (authorization.sessionAuth.kind) {
-    case 'app_session':
-      return {
-        kind: 'verified_step_up',
-        evidenceSetDigest,
-        operation,
-        sessionAuth: {
-          kind: 'app_session',
-          jwt: requireAppSessionJwt(authorization.sessionAuth.jwt),
-        },
-        expiresAtMs,
-        quotaUse: 'none',
-        unseal,
-      };
-    case 'cookie':
-      return {
-        kind: 'verified_step_up',
-        evidenceSetDigest,
-        operation,
-        sessionAuth: { kind: 'cookie' },
-        expiresAtMs,
-        quotaUse: 'none',
-        unseal,
-      };
-  }
+  return {
+    kind: 'verified_step_up',
+    evidenceSetDigest,
+    operation,
+    expiresAtMs,
+    quotaUse: 'none',
+    unseal,
+  };
 }
 
 function normalizeEcdsaExplicitExportUnseal(

@@ -23,23 +23,18 @@ import {
   type RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallResultV1,
 } from '../recovery/routerAbEd25519YaoRecovery';
 import {
-  mintRouterAbEd25519YaoWalletSessionV1,
   routerAbEd25519YaoPersistedCapabilityMatchesLookupV1,
   type RouterAbEd25519YaoProductRegistrationRuntimeV1,
   type RouterAbEd25519YaoProductRegistrationStateV1,
   type RouterAbEd25519YaoVerifiedRegistrationAdmissionResultV1,
-  type RouterAbEd25519YaoWalletSessionMintInputV1,
-  type RouterAbEd25519YaoWalletSessionMintResultV1,
 } from './routerAbEd25519YaoProductRegistration';
 import type {
   RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
   RouterAbEd25519YaoProductRegistrationPartitionedStateV1,
 } from './routerAbEd25519YaoProductRegistrationPartitionedStateStore';
-import type { SessionAdapter } from '../../../framework/routerApi';
 
 export type RouterAbEd25519YaoProductRegistrationRequestScopedRuntimeInputV1 = {
   readonly signingWorkerId: string;
-  readonly session: SessionAdapter;
   readonly store: RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1;
   readonly registrationBackend: RouterAbEd25519YaoRegistrationBackend;
   /** Loads one canonical signer record for an existing-wallet capability miss. */
@@ -162,16 +157,6 @@ class RouterAbEd25519YaoProductRegistrationRequestScopedRuntime implements Route
     }
     const refreshed = await this.input.store.load(SHARED_CAPABILITY_READ_LIFECYCLE_ID);
     return recoveryService(refreshed.state).resolveActiveCapability(input);
-  }
-
-  async mintWalletSession(
-    sessionInput: RouterAbEd25519YaoWalletSessionMintInputV1,
-  ): Promise<RouterAbEd25519YaoWalletSessionMintResultV1> {
-    return await mintRouterAbEd25519YaoWalletSessionV1({
-      session: this.input.session,
-      signingWorkerId: this.signingWorkerId,
-      sessionInput,
-    });
   }
 
   private async commitUntilReconciled<T>(

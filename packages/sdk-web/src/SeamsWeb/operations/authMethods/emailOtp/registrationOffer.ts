@@ -28,7 +28,6 @@ const OTP_ONLY_FORBIDDEN_FIELDS = [
 const SECRET_MATERIAL_FIELDS = [
   'recoveryKeys',
   'recoveryCodes',
-  'appSessionJwt',
   'bootstrap',
   'bootstrapMaterial',
   'clientSecret32',

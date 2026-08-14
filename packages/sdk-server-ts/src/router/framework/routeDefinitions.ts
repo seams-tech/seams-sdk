@@ -36,7 +36,6 @@ import {
   type RouteServiceKey,
 } from './routeExecutionContext';
 import type { RouteMeteringPolicy } from './routeMeteringPolicy';
-
 export interface RouteDefinition {
   id: string;
   surface: 'relay';
@@ -56,7 +55,6 @@ export interface RouterApiRouteDefinitionOptions {
   enableSigningSessionSeal?: boolean;
   enableReadyz?: boolean;
   signingSessionSealBasePath?: string;
-  sessionStatePath?: string;
 }
 
 const API_CREDENTIAL_TYPE_SET = new Set<string>(API_CREDENTIAL_TYPES);
@@ -70,7 +68,6 @@ const ROUTER_API_WALLET_REGISTRATION_SERVICES = [
   'walletRegistration',
   'walletAuthMethods',
   'thresholdRuntime',
-  'sessionVersions',
   'webAuthn',
   'nearFunding',
 ] as const satisfies readonly CoreRouteServiceKey[];
@@ -104,47 +101,38 @@ const ROUTER_API_NORMAL_SIGNING_PROXY_SERVICES = [
 const ROUTER_API_ECDSA_STRICT_LIFECYCLE_SERVICES = [
   'thresholdRuntime',
   'webAuthn',
-  'sessionVersions',
   'emailOtp',
   'session',
 ] as const satisfies readonly CoreRouteServiceKey[];
 const ROUTER_API_WEBAUTHN_AUTHENTICATOR_SERVICES = [
   'webAuthn',
-  'sessionVersions',
   'session',
 ] as const satisfies readonly CoreRouteServiceKey[];
 const ROUTER_API_NEAR_PUBLIC_KEY_SERVICES = [
   'nearFunding',
-  'sessionVersions',
-  'session',
-] as const satisfies readonly CoreRouteServiceKey[];
-const ROUTER_API_SESSION_EXCHANGE_SERVICES = [
-  'identity',
-  'emailOtp',
-  'webAuthn',
-  'sessionVersions',
-  'session',
-] as const satisfies readonly CoreRouteServiceKey[];
-const ROUTER_API_SESSION_VERSION_SERVICES = [
-  'sessionVersions',
   'session',
 ] as const satisfies readonly CoreRouteServiceKey[];
 const ROUTER_API_PASSKEY_CUSTODY_SERVICES = [
   'passkeyCustody',
+  'walletAuthMethods',
+  'webAuthn',
+  'emailOtp',
 ] as const satisfies readonly CoreRouteServiceKey[];
 const ROUTER_API_WALLET_UNLOCK_SERVICES = [
   'walletUnlock',
 ] as const satisfies readonly CoreRouteServiceKey[];
-const ROUTER_API_EMAIL_OTP_SESSION_SERVICES = [
-  'emailOtp',
+const ROUTER_API_HOSTED_SESSION_EXCHANGE_SERVICES = [
   'session',
 ] as const satisfies readonly CoreRouteServiceKey[];
 const ROUTER_API_EMAIL_OTP_PUBLIC_SERVICES = [
   'emailOtp',
 ] as const satisfies readonly CoreRouteServiceKey[];
+const ROUTER_API_EMAIL_OTP_CHALLENGE_SERVICES = [
+  'emailOtp',
+  'walletAuthMethods',
+] as const satisfies readonly CoreRouteServiceKey[];
 const ROUTER_API_AUTH_IDENTITY_SERVICES = [
   'identity',
-  'sessionVersions',
   'webAuthn',
   'emailOtp',
   'session',
@@ -449,9 +437,6 @@ function apiCredentialRoute(
 export function createRouterApiRouteDefinitions(
   options: RouterApiRouteDefinitionOptions = {},
 ): RouteDefinition[] {
-  const sessionStatePath = String(options.sessionStatePath || '').trim() || '/session/state';
-  const sessionStateAliases =
-    sessionStatePath === '/session/state' ? undefined : ['/session/state'];
   const signingSessionSealBasePath = resolveSigningSessionSealBasePath(
     options.signingSessionSealBasePath,
   );
@@ -507,18 +492,28 @@ export function createRouterApiRouteDefinitions(
         `${ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH}/`,
       ],
     ),
-    sessionPrincipalRoute(
+    publicRoute(
       'wallet_custody_credentials_list',
-      'GET',
+      'POST',
       '/wallets/:walletId/custody/credentials',
       'List wallet passkey credentials and descriptive activity history',
+      { plane: 'public', proof: 'webauthn', rationale: 'Fresh operation-bound owner proof is required.' },
       ROUTER_API_PASSKEY_CUSTODY_SERVICES,
     ),
-    sessionPrincipalRoute(
+    publicRoute(
+      'wallet_custody_email_otp_challenge',
+      'POST',
+      '/wallets/custody/email-otp/challenge',
+      'Issue one operation-bound Email OTP challenge for wallet custody administration',
+      { plane: 'public', rationale: 'The challenge is bound to the exact operation and Origin; verification supplies the fresh factor proof.' },
+      ROUTER_API_PASSKEY_CUSTODY_SERVICES,
+    ),
+    publicRoute(
       'wallet_custody_credential_label',
       'POST',
       '/wallets/:walletId/custody/credentials/label',
       'Rename one wallet passkey credential without changing custody',
+      { plane: 'public', proof: 'webauthn', rationale: 'Fresh operation-bound owner proof is required.' },
       ROUTER_API_PASSKEY_CUSTODY_SERVICES,
     ),
     apiCredentialRoute(
@@ -565,32 +560,36 @@ export function createRouterApiRouteDefinitions(
       ROUTER_API_WALLET_REGISTRATION_SESSION_SERVICES,
       { kind: 'event', action: 'wallet_created' },
     ),
-    sessionPrincipalRoute(
+    publicRoute(
       'wallet_recovery_status',
       'GET',
       '/wallets/:walletId/recovery/status',
       'Report how many recovery codes remain and whether the owner saved them',
+      { plane: 'public', proof: 'webauthn', rationale: 'Fresh operation-bound owner proof is required.' },
       ROUTER_API_PASSKEY_CUSTODY_SERVICES,
     ),
-    sessionPrincipalRoute(
+    publicRoute(
       'wallet_recovery_codes_rotate',
       'POST',
       '/wallets/recovery/rotate',
       'Replace a wallet recovery code set with freshly wrapped codes',
+      { plane: 'public', proof: 'webauthn', rationale: 'Fresh operation-bound owner proof is required.' },
       ROUTER_API_PASSKEY_CUSTODY_SERVICES,
     ),
-    sessionPrincipalRoute(
+    publicRoute(
       'wallet_recovery_codes_read',
       'POST',
       '/wallets/recovery/read',
       'Read the opaque wallet recovery envelope set for client-side rotation',
+      { plane: 'public', proof: 'webauthn', rationale: 'Fresh operation-bound owner proof is required.' },
       ROUTER_API_PASSKEY_CUSTODY_SERVICES,
     ),
-    sessionPrincipalRoute(
+    publicRoute(
       'wallet_recovery_backup_acknowledge',
       'POST',
       '/wallets/recovery/acknowledge-backup',
       'Record that the owner saved their recovery codes',
+      { plane: 'public', proof: 'webauthn', rationale: 'Fresh operation-bound owner proof is required.' },
       ROUTER_API_PASSKEY_CUSTODY_SERVICES,
     ),
     publicRoute(
@@ -672,7 +671,7 @@ export function createRouterApiRouteDefinitions(
         plane: 'public',
         proof: 'challenge_exchange',
         rationale:
-          'Add-signer start is authorized by a wallet WebAuthn assertion or app-session signer-provisioning policy.',
+          'Add-signer start is authorized by a wallet WebAuthn assertion or signer-provisioning policy.',
       },
       ROUTER_API_WALLET_REGISTRATION_SERVICES,
     ),
@@ -768,19 +767,29 @@ export function createRouterApiRouteDefinitions(
       ROUTER_API_WALLET_REGISTRATION_SERVICES,
       { kind: 'none' },
     ),
-    sessionPrincipalRoute(
+    publicRoute(
       'wallet_ecdsa_key_facts_inventory',
       'POST',
       '/wallets/:walletId/signers/ecdsa/key-facts/inventory',
       'Resolve wallet ECDSA key facts for explicit repair inventory',
-      ROUTER_API_WALLET_REGISTRATION_SESSION_SERVICES,
+      {
+        plane: 'public',
+        proof: 'challenge_exchange',
+        rationale: 'A WebAuthn assertion or opaque ECDSA Wallet Session authorizes inventory.',
+      },
+      ROUTER_API_WALLET_REGISTRATION_SERVICES,
     ),
-    sessionPrincipalRoute(
+    publicRoute(
       'wallet_near_implicit_account_fund',
       'POST',
       '/wallets/:walletId/near/implicit-account/fund',
       'Fund a wallet implicit NEAR account for local testing',
-      ROUTER_API_WALLET_REGISTRATION_SESSION_SERVICES,
+      {
+        plane: 'public',
+        proof: 'challenge_exchange',
+        rationale: 'An opaque Ed25519 Wallet Session authorizes local NEAR funding.',
+      },
+      ROUTER_API_WALLET_REGISTRATION_SERVICES,
     ),
     publicRoute(
       'auth_provider_action',
@@ -941,41 +950,6 @@ export function createRouterApiRouteDefinitions(
       'List NEAR public keys for current session',
       ROUTER_API_NEAR_PUBLIC_KEY_SERVICES,
     ),
-    sessionPrincipalRoute(
-      'session_state',
-      'GET',
-      sessionStatePath,
-      'Read current session state',
-      ['session'],
-      sessionStateAliases,
-    ),
-    publicRoute(
-      'session_exchange',
-      'POST',
-      '/session/exchange',
-      'Exchange external assertion for app session',
-      {
-        plane: 'public',
-        proof: 'challenge_exchange',
-        rationale:
-          'Session exchange is intentionally public because OIDC JWTs or passkey assertions are the gate.',
-      },
-      ROUTER_API_SESSION_EXCHANGE_SERVICES,
-    ),
-    sessionPrincipalRoute(
-      'session_revoke',
-      'POST',
-      '/session/revoke',
-      'Revoke current app session',
-      ROUTER_API_SESSION_VERSION_SERVICES,
-    ),
-    sessionPrincipalRoute(
-      'session_refresh',
-      'POST',
-      '/session/refresh',
-      'Refresh current app session',
-      ROUTER_API_SESSION_VERSION_SERVICES,
-    ),
     publicRoute(
       'wallet_unlock_challenge',
       'POST',
@@ -987,6 +961,30 @@ export function createRouterApiRouteDefinitions(
         rationale: 'Wallet unlock challenge issuance is intentionally public.',
       },
       ROUTER_API_WALLET_UNLOCK_SERVICES,
+    ),
+    publicRoute(
+      'wallet_session_exchange_issue',
+      'POST',
+      '/wallet/session/exchange/issue',
+      'Issue a one-time origin-bound hosted-wallet exchange delivery',
+      {
+        plane: 'public',
+        proof: 'challenge_exchange',
+        rationale: 'An opaque Wallet Session bearer and exact app origin bind the handoff.',
+      },
+      ROUTER_API_HOSTED_SESSION_EXCHANGE_SERVICES,
+    ),
+    publicRoute(
+      'wallet_session_exchange_redeem',
+      'POST',
+      '/wallet/session/exchange/redeem',
+      'Redeem a one-time origin-bound hosted-wallet exchange delivery',
+      {
+        plane: 'public',
+        proof: 'challenge_exchange',
+        rationale: 'The one-time code, nonce, and wallet origin bind the handoff.',
+      },
+      ROUTER_API_HOSTED_SESSION_EXCHANGE_SERVICES,
     ),
     publicRoute(
       'wallet_unlock_verify',
@@ -1001,61 +999,43 @@ export function createRouterApiRouteDefinitions(
       },
       ROUTER_API_WALLET_UNLOCK_SERVICES,
     ),
-    sessionPrincipalRoute(
-      'wallet_email_otp_registration_challenge',
+    publicRoute(
+      'wallet_email_otp_challenge',
       'POST',
-      '/wallet/email-otp/registration/challenge',
-      'Create Email OTP registration challenge for the current app session',
-      ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
+      '/wallet/email-otp/challenge',
+      'Create an operation-bound Email OTP challenge',
+      {
+        plane: 'public',
+        proof: 'challenge_exchange',
+        rationale: 'The server binds challenge delivery to the active wallet owner authority and request Origin.',
+      },
+      ROUTER_API_EMAIL_OTP_CHALLENGE_SERVICES,
     ),
-    sessionPrincipalRoute(
-      'wallet_email_otp_registration_seal',
-      'POST',
-      '/wallet/email-otp/registration/seal',
-      'Apply the Email OTP server seal for a new registration blob',
-      ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
-    ),
-    sessionPrincipalRoute(
-      'wallet_email_otp_registration_finalize',
-      'POST',
-      '/wallet/email-otp/registration/finalize',
-      'Finalize Email OTP registration challenge for the current app session',
-      ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
-    ),
-    sessionPrincipalRoute(
-      'wallet_email_otp_login_challenge',
-      'POST',
-      '/wallet/email-otp/login/challenge',
-      'Create Email OTP login challenge for the current app session',
-      ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
-    ),
-    sessionPrincipalRoute(
-      'wallet_email_otp_signing_session_challenge',
-      'POST',
-      '/wallet/email-otp/signing-session/challenge',
-      'Create Email OTP operation challenge for a restored signing session',
-      ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
-    ),
-    sessionPrincipalRoute(
-      'wallet_email_otp_login_verify',
-      'POST',
-      '/wallet/email-otp/login/verify',
-      'Verify Email OTP login challenge for the current app session',
-      ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
-    ),
-    sessionPrincipalRoute(
-      'wallet_email_otp_signing_session_verify',
-      'POST',
-      '/wallet/email-otp/signing-session/verify',
-      'Verify Email OTP operation challenge for a restored signing session',
-      ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
-    ),
-    sessionPrincipalRoute(
+    publicRoute(
       'wallet_email_otp_factor_release',
       'POST',
       '/wallet/email-otp/factor-release',
-      'Release the enrolled Email OTP factor to an authorized signing worker',
-      ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
+      'Consume an operation-bound Email OTP grant and release factor material to a worker',
+      {
+        plane: 'public',
+        proof: 'challenge_exchange',
+        rationale:
+          'The single-use Email OTP grant is bound to the active wallet owner identity and encrypted directly to the requesting worker.',
+      },
+      ROUTER_API_EMAIL_OTP_PUBLIC_SERVICES,
+    ),
+    publicRoute(
+      'wallet_email_otp_registration_seal',
+      'POST',
+      '/wallet/email-otp/registration/seal',
+      'Seal an Email OTP enrollment ciphertext with the server enrollment key',
+      {
+        plane: 'public',
+        proof: 'threshold_protocol_state',
+        rationale:
+          'The input and output are opaque ciphertext; wallet authority is verified when registration commits the enrollment.',
+      },
+      ROUTER_API_EMAIL_OTP_PUBLIC_SERVICES,
     ),
     publicRoute(
       'wallet_email_otp_dev_cleanup_google_registration',
@@ -1070,26 +1050,18 @@ export function createRouterApiRouteDefinitions(
       },
       ROUTER_API_EMAIL_OTP_PUBLIC_SERVICES,
     ),
-    sessionPrincipalRoute(
-      'wallet_email_otp_dev_otp_outbox',
-      'GET',
-      '/wallet/email-otp/dev/otp-outbox',
-      'Read local development Email OTP outbox entry for the current app session',
-      ROUTER_API_EMAIL_OTP_SESSION_SERVICES,
-    ),
-    sessionPrincipalRoute(
-      'wallet_state',
-      'GET',
-      '/wallet/state',
-      'Read wallet state',
-      ROUTER_API_SESSION_VERSION_SERVICES,
-    ),
-    sessionPrincipalRoute(
-      'wallet_lock',
+    publicRoute(
+      'wallet_email_otp_dev_outbox',
       'POST',
-      '/wallet/lock',
-      'Lock wallet',
-      ROUTER_API_SESSION_VERSION_SERVICES,
+      '/wallet/email-otp/dev/otp-outbox',
+      'Read an Email OTP from the local development outbox',
+      {
+        plane: 'public',
+        proof: 'signed_payload',
+        rationale:
+          'The development-only outbox verifies a Google id token and remains disabled unless explicitly configured.',
+      },
+      ROUTER_API_EMAIL_OTP_PUBLIC_SERVICES,
     ),
     sessionPrincipalRoute(
       'auth_identities',

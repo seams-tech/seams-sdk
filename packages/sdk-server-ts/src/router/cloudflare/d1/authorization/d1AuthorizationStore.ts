@@ -15,6 +15,7 @@ import {
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
   type AuthorizationParseResult,
+  type AuthorizedOperationId,
   type TenantId,
 } from '@shared/authorization/capabilityKinds';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
@@ -60,8 +61,10 @@ import type {
   IssuedReusableWalletSession,
   IssuedLinkedDeviceWalletSession,
   OpaqueWalletSessionCurve,
+  OpaqueOwnerWalletSessionBinding,
   ResolvedOpaqueWalletSessionToken,
 } from '../../../../authorization/service';
+import { parseOpaqueOwnerWalletSessionBinding } from '../../../../authorization/service';
 import type { D1WalletStoreScope } from '../../../../core/d1WalletStore';
 import { d1ChangedRows, type D1Row } from '../../../../storage/d1Sql';
 import type { D1DatabaseLike, D1ResultLike } from '../../../../storage/tenantRoute';
@@ -132,6 +135,9 @@ type HostedWalletExchangeRow = {
   readonly wallet_session_id?: unknown;
   readonly nonce_digest?: unknown;
   readonly app_origin?: unknown;
+  readonly wallet_origin?: unknown;
+  readonly curve?: unknown;
+  readonly binding_json?: unknown;
   readonly lifecycle_kind?: unknown;
   readonly expires_at_ms?: unknown;
 };
@@ -292,15 +298,15 @@ export class CloudflareD1AuthorizationStore
           nonce_digest,
           app_origin,
           wallet_origin,
+          curve,
+          binding_json,
           lifecycle_kind,
           issued_at_ms,
           expires_at_ms,
           token_hash,
-          curve,
-          binding_json,
           consumed_at_ms
         )
-        SELECT ?, ?, ?, ?, ?, ?, ?, ?, 'issued', ?, ?, NULL, NULL, NULL, NULL
+        SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'issued', ?, ?, NULL, NULL
           FROM reusable_wallet_sessions AS wallet_session
          WHERE wallet_session.namespace = ?
            AND wallet_session.tenant_id = ?
@@ -317,6 +323,8 @@ export class CloudflareD1AuthorizationStore
         exchange.nonceDigest,
         exchange.appOrigin,
         exchange.walletOrigin,
+        exchange.curve,
+        exchange.bindingJson,
         requirePositiveInteger(exchange.issuedAtMs, 'exchange.issuedAtMs'),
         requirePositiveInteger(exchange.expiresAtMs, 'exchange.expiresAtMs'),
         this.namespace,
@@ -335,18 +343,34 @@ export class CloudflareD1AuthorizationStore
     const rejected = classifyHostedWalletExchange(current, input);
     if (rejected) return rejected;
     try {
-      const update = await this.database
+      const revokeExistingToken = this.database
+        .prepare(
+          `DELETE FROM opaque_wallet_session_tokens
+            WHERE namespace = ?
+              AND tenant_id = (
+                SELECT tenant_id
+                  FROM hosted_wallet_session_exchange_codes
+                 WHERE namespace = ? AND code_hash = ?
+              )
+              AND wallet_session_id = (
+                SELECT wallet_session_id
+                  FROM hosted_wallet_session_exchange_codes
+                 WHERE namespace = ? AND code_hash = ?
+              )
+              AND curve = ?`,
+        )
+        .bind(this.namespace, this.namespace, input.codeHash, this.namespace, input.codeHash, input.curve);
+      const updateStatement = this.database
         .prepare(
           `UPDATE hosted_wallet_session_exchange_codes
               SET lifecycle_kind = 'consumed',
                   token_hash = ?,
-                  curve = ?,
-                  binding_json = ?,
                   consumed_at_ms = ?
             WHERE namespace = ?
               AND code_hash = ?
               AND nonce_digest = ?
               AND app_origin = ?
+              AND wallet_origin = ?
               AND lifecycle_kind = 'issued'
               AND expires_at_ms > ?
               AND EXISTS (
@@ -361,17 +385,17 @@ export class CloudflareD1AuthorizationStore
         )
         .bind(
           input.tokenHash,
-          input.curve,
-          input.bindingJson,
           requirePositiveInteger(input.redeemedAtMs, 'exchange.redeemedAtMs'),
           this.namespace,
           input.codeHash,
           input.nonceDigest,
           input.appOrigin,
+          input.walletOrigin,
           input.redeemedAtMs,
           input.redeemedAtMs,
-        )
-        .run();
+        );
+      const results = await this.database.batch([revokeExistingToken, updateStatement]);
+      const update = results[1] as D1ResultLike;
       if (d1ChangedRows(update) !== 1) {
         return (
           classifyHostedWalletExchange(
@@ -491,7 +515,14 @@ export class CloudflareD1AuthorizationStore
     if (d1ChangedRows(result) === 1) return true;
     const existing = await this.database
       .prepare(
-        `SELECT consumption_scope_id
+        `SELECT
+           purpose,
+           method,
+           principal_id,
+           wallet_id,
+           authority_digest,
+           replay_identity,
+           consumption_scope_id
            FROM verified_owner_proof_consumptions
           WHERE namespace = ?
             AND tenant_id = ?
@@ -499,8 +530,24 @@ export class CloudflareD1AuthorizationStore
             AND replay_identity = ?`,
       )
       .bind(this.namespace, proof.tenantId, proof.proofId, proof.replayIdentity)
-      .first<{ consumption_scope_id: string }>();
-    return existing?.consumption_scope_id === scopeId;
+      .first<{
+        purpose: string;
+        method: string;
+        principal_id: string;
+        wallet_id: string;
+        authority_digest: string;
+        replay_identity: string;
+        consumption_scope_id: string;
+      }>();
+    return (
+      existing?.purpose === proof.purpose &&
+      existing.method === proof.method &&
+      existing.principal_id === proof.principalId &&
+      existing.wallet_id === proof.walletId &&
+      existing.authority_digest === proof.authority.authorityDigest &&
+      existing.replay_identity === proof.replayIdentity &&
+      existing.consumption_scope_id === scopeId
+    );
   }
 
   async putWalletSessionAuthorization(input: {
@@ -813,11 +860,14 @@ export class CloudflareD1AuthorizationStore
   async putOpaqueWalletSessionToken(input: {
     readonly tokenHash: import('@shared/utils/canonicalPrimitives').DigestB64u;
     readonly curve: OpaqueWalletSessionCurve;
-    readonly bindingJson: string;
+    readonly binding: OpaqueOwnerWalletSessionBinding;
     readonly tenantId: TenantId;
     readonly walletSessionId: import('@shared/authorization/capabilityKinds').WalletSessionId;
   }): Promise<void> {
-    const binding = parseOpaqueBindingJson(input.bindingJson, 'opaque Wallet Session binding');
+    const bindingJson = JSON.stringify(input.binding);
+    if (!bindingJson || !parseOpaqueOwnerWalletSessionBinding(input.binding)) {
+      throw new Error('opaque Wallet Session binding is invalid');
+    }
     const result = await this.database
       .prepare(
         `INSERT INTO opaque_wallet_session_tokens (
@@ -841,7 +891,7 @@ export class CloudflareD1AuthorizationStore
         input.tokenHash,
         input.curve,
         input.walletSessionId,
-        input.bindingJson,
+        bindingJson,
         this.namespace,
         input.tenantId,
         input.walletSessionId,
@@ -905,7 +955,6 @@ export class CloudflareD1AuthorizationStore
     if (
       row.token_curve !== input.curve ||
       row.session_lifecycle_kind !== 'active' ||
-      row.quota_lifecycle_kind !== 'active' ||
       sessionExpiresAtMs <= nowMs ||
       quotaExpiresAtMs <= nowMs
     ) {
@@ -955,20 +1004,27 @@ export class CloudflareD1AuthorizationStore
       parseMpcWalletSigningQuotaId,
       'quota.quotaId',
     );
+    const quotaLifecycle = String(row.quota_lifecycle_kind || '');
+    const quotaRemainingUses = Number(row.quota_remaining_uses);
     if (
       tenantId !== input.tenantId ||
       quotaTenantId !== tenantId ||
       quotaPrincipalId !== principalId ||
       quotaWalletSessionId !== walletSessionId ||
       persistedQuotaId !== quotaId ||
-      quotaExpiresAtMs !== sessionExpiresAtMs
+      quotaExpiresAtMs !== sessionExpiresAtMs ||
+      !Number.isSafeInteger(quotaRemainingUses) ||
+      quotaRemainingUses < 0 ||
+      (quotaLifecycle !== 'active' && quotaLifecycle !== 'exhausted') ||
+      (quotaLifecycle === 'active' && quotaRemainingUses === 0) ||
+      (quotaLifecycle === 'exhausted' && quotaRemainingUses !== 0)
     ) {
       throw new Error('opaque Wallet Session persisted identity is inconsistent');
     }
-    const binding = parseOpaqueBindingJson(
+    const binding = parseOpaqueOwnerWalletSessionBinding(
       String(row.token_binding_json || ''),
-      'opaque Wallet Session binding',
     );
+    if (!binding) throw new Error('opaque Wallet Session binding is invalid');
     return {
       kind: 'resolved_opaque_wallet_session_token',
       curve: input.curve,
@@ -983,17 +1039,6 @@ export class CloudflareD1AuthorizationStore
         quotaId,
         expiresAtMs: sessionExpiresAtMs,
       },
-      quota: buildActiveWalletSessionQuota({
-        tenantId: quotaTenantId,
-        principalId: quotaPrincipalId,
-        walletSessionId: quotaWalletSessionId,
-        quotaId: persistedQuotaId,
-        remainingUses: requirePositiveInteger(
-          row.quota_remaining_uses,
-          'quota.remainingUses',
-        ),
-        expiresAtMs: quotaExpiresAtMs,
-      }),
     };
   }
 
@@ -1403,6 +1448,21 @@ export class CloudflareD1AuthorizationStore
   }): Promise<AuthorizedOperation | null> {
     const record = await this.readAuthorizedOperationRecord(input);
     return record?.operation ?? null;
+  }
+
+  async readAuthorizedOperationById(input: {
+    readonly tenantId: TenantId;
+    readonly authorizedOperationId: AuthorizedOperationId;
+  }): Promise<AuthorizedOperation | null> {
+    const row = await this.database
+      .prepare(
+        `SELECT * FROM authorized_operations
+          WHERE namespace = ? AND tenant_id = ? AND authorized_operation_id = ?
+          LIMIT 1`,
+      )
+      .bind(this.namespace, input.tenantId, input.authorizedOperationId)
+      .first<D1Row>();
+    return row ? await parseAuthorizedOperationRow(row) : null;
   }
 
   private async readAuthorizedOperationRecord(input: {
@@ -2109,6 +2169,8 @@ function classifyHostedWalletExchange(
   }
   if (row.nonce_digest !== input.nonceDigest) return { kind: 'nonce_mismatch' };
   if (row.app_origin !== input.appOrigin) return { kind: 'app_origin_mismatch' };
+  if (row.wallet_origin !== input.walletOrigin) return { kind: 'app_origin_mismatch' };
+  if (row.curve !== input.curve) return { kind: 'app_origin_mismatch' };
   return null;
 }
 

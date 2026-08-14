@@ -1,5 +1,3 @@
-import { isAppSessionJwt } from './sessionTokens';
-
 export type DomainId<TBrand extends string> = string & {
   readonly __domainIdBrand: TBrand;
 };
@@ -44,10 +42,6 @@ export type EmailOtpRegistrationAttemptId = DomainId<'EmailOtpRegistrationAttemp
 // stay separate from wallet ids and provider subjects.
 export type OrgId = DomainId<'OrgId'>;
 
-// App-session version string from the auth/session authority. OTP challenges
-// bind to it so old app sessions cannot consume new challenges.
-export type AppSessionVersion = DomainId<'AppSessionVersion'>;
-
 // WebAuthn relying-party id. This belongs to passkey/WebAuthn auth scope and
 // must not be used as a wallet, NEAR account, or signing-key identity.
 export type WebAuthnRpId = DomainId<'WebAuthnRpId'>;
@@ -59,8 +53,6 @@ export type WebAuthnCredentialIdB64u = DomainId<'WebAuthnCredentialIdB64u'>;
 export type PasskeyEnvelopeId = DomainId<'PasskeyEnvelopeId'>;
 export type WalletAuthMethodId = DomainId<'WalletAuthMethodId'>;
 export type WalletAuthorityBindingDigest = DomainId<'WalletAuthorityBindingDigest'>;
-export type AppSessionJwt = DomainId<'AppSessionJwt'>;
-
 // Opaque identities that keep MPC capability, material, runtime, and lifecycle
 // bindings independent from authorization and wallet-session identities.
 export type CapabilityInstanceRef = DomainId<'CapabilityInstanceRef'>;
@@ -298,10 +290,6 @@ export function parseOrgId(raw: unknown): DomainIdParseResult<OrgId> {
   return parseDomainId(raw, 'orgId');
 }
 
-export function parseAppSessionVersion(raw: unknown): DomainIdParseResult<AppSessionVersion> {
-  return parseDomainId(raw, 'appSessionVersion');
-}
-
 export function parseWebAuthnRpId(raw: unknown): DomainIdParseResult<WebAuthnRpId> {
   const parsed = parseDomainId<WebAuthnRpId>(raw, 'rpId');
   if (!parsed.ok) return parsed;
@@ -335,18 +323,6 @@ export function parseWalletAuthorityBindingDigest(
   raw: unknown,
 ): DomainIdParseResult<WalletAuthorityBindingDigest> {
   return parseDomainId(raw, 'walletAuthorityBindingDigest');
-}
-
-export function parseAppSessionJwt(raw: unknown): DomainIdParseResult<AppSessionJwt> {
-  const parsed = parseDomainId<AppSessionJwt>(raw, 'appSessionJwt');
-  if (!parsed.ok || isAppSessionJwt(parsed.value)) return parsed;
-  return {
-    ok: false,
-    error: {
-      code: 'invalid',
-      message: 'appSessionJwt must be an app_session_v1 JWT',
-    },
-  };
 }
 
 export function parseCapabilityInstanceRef(

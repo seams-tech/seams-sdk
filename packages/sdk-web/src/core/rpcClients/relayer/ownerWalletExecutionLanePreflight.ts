@@ -26,7 +26,7 @@ export type OwnerWalletExecutionLaneProjectionV1 = {
 
 export async function readOwnerWalletExecutionLaneProjectionV1(input: {
   readonly relayerUrl: string;
-  readonly walletSessionJwt: string;
+  readonly walletSessionToken: string;
   readonly curve: 'ed25519' | 'ecdsa_secp256k1';
   readonly expectedMaterialActivation: MpcMaterialActivationRef;
 }): Promise<OwnerWalletExecutionLaneProjectionV1> {
@@ -34,8 +34,8 @@ export async function readOwnerWalletExecutionLaneProjectionV1(input: {
     `${normalizeRelayerBaseUrl(input.relayerUrl)}${OWNER_WALLET_EXECUTION_LANE_PREFLIGHT_PATH}`,
     buildRelayerJsonPostRequestInit({
       headers: buildBearerAuthorizationHeader({
-        token: input.walletSessionJwt,
-        missingMessage: 'Owner execution-lane preflight requires a Wallet Session JWT',
+        token: input.walletSessionToken,
+        missingMessage: 'Owner execution-lane preflight requires a Wallet Session token',
       }),
       body: {
         curve: input.curve,

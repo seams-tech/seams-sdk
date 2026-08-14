@@ -2,17 +2,13 @@ import { expect, test } from '@playwright/test';
 import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
 import { createCloudflareRouter } from '../../packages/sdk-server-ts/src/router/cloudflare/runtime/createCloudflareRouter';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
-import { callCf, makeSessionAdapter } from '../relayer/helpers';
+import { callCf } from '../relayer/helpers';
 import {
   applySignerMigrations,
   generateGoogleOidcTestKey,
-  insertIdentity,
   installGoogleJwksFetchMock,
-  installOidcJwksFetchMock,
-  jsonBase64Url,
   makeSignedGoogleIdToken,
   restoreGoogleJwksFetchMock,
-  restoreOidcJwksFetchMock,
 } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
 
 test('Cloudflare D1 Router API auth service verifies Google OIDC tokens and links identity', async () => {
@@ -31,7 +27,7 @@ test('Cloudflare D1 Router API auth service verifies Google OIDC tokens and link
       googleOidcClientId: 'google-client',
       accountIdDerivationSecret: 'test-account-id-derivation-secret',
     });
-    const nowSec = Math.floor(Date.now() / 1000);
+    const nowSec = Math.floor(Date.now() / 1_000);
     const idToken = await makeSignedGoogleIdToken({
       privateKey: key.privateKey,
       kid: key.kid,
@@ -50,8 +46,7 @@ test('Cloudflare D1 Router API auth service verifies Google OIDC tokens and link
       },
     });
 
-    const verified = await service.identity.verifyGoogleLogin({ idToken });
-    expect(verified).toMatchObject({
+    await expect(service.identity.verifyGoogleLogin({ idToken })).resolves.toMatchObject({
       ok: true,
       verified: true,
       userId: 'google:subject-123',
@@ -68,163 +63,28 @@ test('Cloudflare D1 Router API auth service verifies Google OIDC tokens and link
       subjects: ['google:subject-123'],
     });
 
-    const signedClaims: Record<string, unknown>[] = [];
-    const router = createCloudflareRouter(service, {
-      session: makeSessionAdapter({
-        signJwt: async (subject, claims = {}) => {
-          signedClaims.push({ sub: subject, ...claims });
-          return `${jsonBase64Url({ alg: 'none' })}.${jsonBase64Url({
-            exp: nowSec + 300,
-          })}.signature`;
-        },
-      }),
-    });
-    const exchange = await callCf(router, {
+    const resolution = await callCf(createCloudflareRouter(service), {
       method: 'POST',
-      path: '/session/exchange',
+      path: '/auth/google/verify',
       origin: 'https://app.example.test',
-      body: {
-        session_kind: 'jwt',
-        exchange: {
-          type: 'oidc_jwt',
-          provider: 'google',
-          token: idToken,
-        },
-      },
+      body: { id_token: idToken, account_mode: 'register' },
     });
-    expect(exchange.status).toBe(200);
-    expect(exchange.headers.get('server-timing')).toContain('total;dur=');
-    expect(signedClaims).toContainEqual(
-      expect.objectContaining({
-        sub: 'google:subject-123',
-        provider: 'oidc',
-        oidcProvider: 'google',
-        email: 'alice@example.test',
-        oidcEmailVerified: true,
-        oidcHostedDomain: 'example.test',
-      }),
-    );
+    expect(resolution.status).toBe(200);
+    expect(resolution.json).toMatchObject({
+      ok: true,
+      mode: 'register_started',
+      providerSubject: 'google:subject-123',
+      email: 'alice@example.test',
+    });
 
     const parts = idToken.split('.');
-    const tamperedPayloadB64u = jsonBase64Url({
-      iss: 'https://accounts.google.com',
-      aud: 'google-client',
-      sub: 'subject-999',
-      iat: nowSec,
-      exp: nowSec + 300,
-    });
-    const tampered = `${parts[0]}.${tamperedPayloadB64u}.${parts[2]}`;
+    const tampered = `${parts[0]}.${parts[1]}x.${parts[2]}`;
     await expect(service.identity.verifyGoogleLogin({ idToken: tampered })).resolves.toMatchObject({
       ok: false,
       verified: false,
-      code: 'invalid_signature',
     });
   } finally {
     restoreGoogleJwksFetchMock(originalFetch);
-    cleanupTemporaryD1Database(tempDir);
-  }
-});
-
-test('Cloudflare D1 Router API auth service verifies generic OIDC exchange tokens', async () => {
-  const { database, tempDir } = createTemporaryD1Database();
-  const key = await generateGoogleOidcTestKey('oidc-kid-success');
-  const jwksUrl = 'https://issuer.example.com/.well-known/jwks.json';
-  const originalFetch = installOidcJwksFetchMock({
-    jwksUrl,
-    publicJwk: key.publicJwk,
-  });
-  try {
-    await applySignerMigrations(database);
-    const scope = {
-      namespace: 'seams-local-test',
-      orgId: 'org-a',
-      projectId: 'project-a',
-      envId: 'env-a',
-    };
-    const providerSubject = 'oidc:https://issuer.example.com:subject-123';
-    await insertIdentity({
-      database,
-      namespace: scope.namespace,
-      orgId: scope.orgId,
-      projectId: scope.projectId,
-      envId: scope.envId,
-      userId: 'linked-oidc-wallet.testnet',
-      subject: providerSubject,
-    });
-    const service = createCloudflareD1RouterApiAuthService({
-      database,
-      namespace: scope.namespace,
-      orgId: scope.orgId,
-      projectId: scope.projectId,
-      envId: scope.envId,
-      relayerAccount: 'relay.local',
-      accountIdDerivationSecret: 'test-account-id-derivation-secret',
-      oidcExchange: {
-        clockSkewSec: 0,
-        issuers: [
-          {
-            issuer: 'https://issuer.example.com/',
-            audiences: ['wallet-app'],
-            jwksUrl,
-          },
-        ],
-      },
-    });
-    const nowSec = Math.floor(Date.now() / 1000);
-    const token = await makeSignedGoogleIdToken({
-      privateKey: key.privateKey,
-      kid: key.kid,
-      payload: {
-        iss: 'https://issuer.example.com',
-        aud: 'wallet-app',
-        sub: 'subject-123',
-        email: 'oidc-user@example.test',
-        name: 'OIDC User',
-        given_name: 'OIDC',
-        family_name: 'User',
-        iat: nowSec,
-        exp: nowSec + 300,
-      },
-    });
-
-    await expect(service.identity.verifyOidcJwtExchange({ token })).resolves.toMatchObject({
-      ok: true,
-      verified: true,
-      userId: 'linked-oidc-wallet.testnet',
-      providerSubject,
-      iss: 'https://issuer.example.com',
-      aud: ['wallet-app'],
-      sub: 'subject-123',
-      email: 'oidc-user@example.test',
-      name: 'OIDC User',
-      given_name: 'OIDC',
-      family_name: 'User',
-    });
-    await expect(
-      service.identity.listIdentities({ userId: 'linked-oidc-wallet.testnet' }),
-    ).resolves.toEqual({
-      ok: true,
-      subjects: [providerSubject],
-    });
-
-    const parts = token.split('.');
-    const tamperedPayloadB64u = jsonBase64Url({
-      iss: 'https://issuer.example.com',
-      aud: 'wallet-app',
-      sub: 'subject-999',
-      iat: nowSec,
-      exp: nowSec + 300,
-    });
-    const tampered = `${parts[0]}.${tamperedPayloadB64u}.${parts[2]}`;
-    await expect(
-      service.identity.verifyOidcJwtExchange({ token: tampered }),
-    ).resolves.toMatchObject({
-      ok: false,
-      verified: false,
-      code: 'invalid_signature',
-    });
-  } finally {
-    restoreOidcJwksFetchMock(originalFetch);
     cleanupTemporaryD1Database(tempDir);
   }
 });

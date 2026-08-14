@@ -47,6 +47,11 @@ export async function proxyNormalSigningRequestToMpcRouter(input: {
 
   try {
     const headers = new Headers(input.request.headers);
+    // Owner Wallet Session bearer tokens are gateway-only credentials. The
+    // Router receives the validated owner admission in the operation body.
+    if (input.body && isGatewayOwnerWalletSessionAdmission(input.body)) {
+      headers.delete('authorization');
+    }
     headers.set(
       ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1,
       normalizeRouterAbInternalServiceAuthSecret(proxy.internalServiceAuthSecret),
@@ -77,6 +82,20 @@ export async function proxyNormalSigningRequestToMpcRouter(input: {
       { status: 502 },
     );
   }
+}
+
+function isGatewayOwnerWalletSessionAdmission(body: Record<string, unknown>): boolean {
+  const authorizedOperation = body.authorized_operation;
+  if (!isRecord(authorizedOperation)) return false;
+  return hasKind(authorizedOperation.binding, 'gateway_owner_wallet_session');
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function hasKind(value: unknown, expected: string): boolean {
+  return isRecord(value) && value.kind === expected;
 }
 
 export async function proxyOwnerLaneAdmittedNormalSigningRequest(input: {

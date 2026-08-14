@@ -246,7 +246,7 @@ void issuedHandle;
 
 type PresignStepPayload = EcdsaPresignClientSessionStepRequest;
 type EmailOtpEd25519YaoExportPayload =
-  EmailOtpWorkerOperationMap['exportEmailOtpEd25519YaoSeedWithAuthorization']['payload'];
+  EmailOtpWorkerOperationMap['exportEmailOtpEd25519YaoSeed']['payload'];
 type EmailOtpWalletUnlockPayload = EmailOtpWorkerOperationMap['loginWithEmailOtpWallet']['payload'];
 type EmailOtpEcdsaWalletUnlockMaterial = Extract<
   EmailOtpWalletUnlockPayload['material'],
@@ -528,7 +528,6 @@ emailOtpWalletUnlockPayloadWithoutRuntimeScope satisfies EmailOtpWalletUnlockPay
 
 const emailOtpEd25519YaoExportPayload: EmailOtpEd25519YaoExportPayload = {
   relayUrl: 'https://relay.example',
-  factorReleaseAppSessionJwt: 'app-session-jwt',
   challengeId: 'challenge-ed25519-export',
   otpCode: '123456',
   groupId: 'prime',
@@ -539,7 +538,6 @@ const emailOtpEd25519YaoExportPayload: EmailOtpEd25519YaoExportPayload = {
     nearEd25519SigningKeyId: 'near-key-1',
     signerSlot: 1,
   },
-  authorization: { walletSessionJwt: 'wallet-session-jwt' },
   material: {
     kind: 'active_capability',
     materialActivation,

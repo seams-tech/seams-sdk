@@ -153,7 +153,6 @@ export type CreateSigningEnginePortsArgs = {
   provisionThresholdEd25519Session: (
     args: ProvisionWarmEd25519CapabilityArgs,
   ) => Promise<ProvisionWarmEd25519CapabilityResult>;
-  resolveEcdsaOperationStepUpSessionAuth: EvmFamilySigningDeps['resolveEcdsaOperationStepUpSessionAuth'];
   restorePersistedSessionForSigning: (
     args: RestorePersistedSessionForSigningInput,
   ) => Promise<unknown>;

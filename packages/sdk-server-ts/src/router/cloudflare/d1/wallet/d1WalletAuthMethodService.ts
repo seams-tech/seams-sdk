@@ -1,5 +1,4 @@
 import {
-  parseAppSessionVersion,
   parseChallengeSubjectId,
   parseEmailOtpChallengeId,
   parseOrgId,
@@ -74,7 +73,6 @@ import {
   resolveD1AddAuthMethodExistingAuth,
   resolveD1AddSignerExistingAuth,
   revokedD1WalletAuthMethodRecord,
-  validateD1RevokeWalletAuthMethodPolicy,
   walletAuthAuthorityFromRegistrationAuthority,
   walletAuthMethodRecordFromRegistrationAuthority,
   type D1AddAuthMethodExistingAuthResolution,
@@ -186,8 +184,6 @@ function custodyFactorFromAddAuthMethodAuth(auth: StoredWalletAddAuthMethodCerem
         enrollmentId: auth.enrollmentId,
         enrollmentSealKeyVersion: auth.enrollmentSealKeyVersion,
       };
-    case 'app_session':
-      throw new Error('App-session authorization has no custody-opening factor');
     default:
       return unreachableRegistrationStartAuthority(auth);
   }
@@ -302,14 +298,6 @@ export class CloudflareD1WalletAuthMethodService {
             message: 'Passkey authority requires a passkey add-auth-method intent',
           };
         }
-        if (storedAuth.auth.kind === 'app_session') {
-          return {
-            ok: false,
-            code: 'unsupported',
-            message:
-              'Passkey custody linking requires an authenticated passkey or Email OTP factor',
-          };
-        }
         if (!storedExpectedOrigin) {
           return {
             ok: false,
@@ -333,7 +321,7 @@ export class CloudflareD1WalletAuthMethodService {
             return {
               ok: false,
               code: 'unauthorized',
-              message: 'Email OTP app-session authority does not match this wallet',
+              message: 'Email OTP authority does not match this wallet',
             };
           }
           const enrollment = await this.emailOtpChallengeVerifier.readActiveEnrollmentForWallet({
@@ -529,13 +517,6 @@ export class CloudflareD1WalletAuthMethodService {
             ok: false,
             code: 'invalid_body',
             message: 'custodyEnvelope is not bound to the verified passkey',
-          };
-        }
-        if (ceremony.auth.kind === 'app_session') {
-          return {
-            ok: false,
-            code: 'invalid_state',
-            message: 'Passkey add-auth-method ceremony has no custody-opening factor',
           };
         }
         const currentEnvelope = await this.passkeyCustodyEnvelopes.lookupEnvelopeForFactor({
@@ -962,14 +943,6 @@ export class CloudflareD1WalletAuthMethodService {
     try {
       const parsed = parseD1RevokeWalletAuthMethodInput(input);
       if (!parsed.ok) return parsed.result;
-      const policyError = validateD1RevokeWalletAuthMethodPolicy({
-        auth: parsed.auth,
-        walletId: parsed.walletId,
-        target: parsed.target,
-        nowMs: Date.now(),
-      });
-      if (policyError) return policyError;
-
       const walletAuthMethodStore = this.getWalletAuthMethodStore();
       const walletMethods = await walletAuthMethodStore.listForWallet({
         walletId: parsed.walletId,
@@ -1315,25 +1288,11 @@ export class CloudflareD1WalletAuthMethodService {
           message: 'Google Email OTP registration attempt expired',
         };
       }
-      if (attempt.providerSubject !== proof.providerSubject) {
-        return {
-          ok: false,
-          code: 'challenge_subject_mismatch',
-          message: 'Email OTP registration attempt does not match the provider subject',
-        };
-      }
       if (attempt.email.toLowerCase() !== proof.email) {
         return {
           ok: false,
           code: 'email_mismatch',
           message: 'Google Email OTP registration attempt email does not match the proof',
-        };
-      }
-      if (attempt.appSessionVersion !== proof.appSessionVersion) {
-        return {
-          ok: false,
-          code: 'app_session_version_mismatch',
-          message: 'Google Email OTP registration attempt does not match the app session',
         };
       }
       if (attempt.offerId !== proof.googleEmailOtpRegistrationOfferId) {
@@ -1376,11 +1335,10 @@ export class CloudflareD1WalletAuthMethodService {
           message: 'Google Email OTP registration attempt does not match runtime policy scope',
         };
       }
-      const providerSubject = parseProviderSubject(proof.providerSubject);
+      const providerSubject = parseProviderSubject(attempt.providerSubject);
       const finalWalletId = parseWalletIdForIntent(input.intent.walletId);
       const orgId = parseOrgId(input.orgId);
-      const appSessionVersion = parseAppSessionVersion(proof.appSessionVersion);
-      if (!providerSubject.ok || !finalWalletId || !orgId.ok || !appSessionVersion.ok) {
+      if (!providerSubject.ok || !finalWalletId || !orgId.ok) {
         return {
           ok: false,
           code: 'invalid_body',
@@ -1415,7 +1373,7 @@ export class CloudflareD1WalletAuthMethodService {
           registrationAuthorityId: attempt.attemptId,
           finalWalletId,
           orgId: orgId.value,
-          appSessionVersion: appSessionVersion.value,
+          ownerProofBindingDigest: input.expectedDigestB64u,
           registrationIntentDigestB64u: input.expectedDigestB64u,
         },
       };
@@ -1443,8 +1401,7 @@ export class CloudflareD1WalletAuthMethodService {
       challengeId: proof.challengeId,
       otpCode: proof.otpCode,
       otpChannel: proof.otpChannel,
-      sessionHash: input.expectedDigestB64u,
-      appSessionVersion: proof.appSessionVersion,
+      ownerProofBindingDigest: input.expectedDigestB64u,
       operationId: input.verificationOperationId,
       receiptExpiresAtMs: input.verificationReceiptExpiresAtMs,
     });
@@ -1473,13 +1430,11 @@ export class CloudflareD1WalletAuthMethodService {
     const challengeSubjectId = parseChallengeSubjectId(proof.providerSubject);
     const challengeId = parseEmailOtpChallengeId(proof.challengeId);
     const orgId = parseOrgId(input.orgId);
-    const appSessionVersion = parseAppSessionVersion(proof.appSessionVersion);
     if (
       !providerSubject.ok ||
       !challengeSubjectId.ok ||
       !challengeId.ok ||
-      !orgId.ok ||
-      !appSessionVersion.ok
+      !orgId.ok
     ) {
       return {
         ok: false,
@@ -1502,7 +1457,7 @@ export class CloudflareD1WalletAuthMethodService {
         originalWalletId: input.intent.walletId,
         finalWalletId: input.intent.walletId,
         orgId: orgId.value,
-        appSessionVersion: appSessionVersion.value,
+        ownerProofBindingDigest: input.expectedDigestB64u,
         challengePurpose: 'registration',
         registrationIntentDigestB64u: input.expectedDigestB64u,
       },
@@ -1558,8 +1513,7 @@ export class CloudflareD1WalletAuthMethodService {
       challengeId: proof.challengeId,
       otpCode: proof.otpCode,
       otpChannel: proof.otpChannel,
-      sessionHash: input.expectedDigestB64u,
-      appSessionVersion: proof.appSessionVersion,
+      ownerProofBindingDigest: input.expectedDigestB64u,
     });
     if (!verified.ok) return verified;
     const verifiedEmail = toOptionalTrimmedString(verified.email)?.toLowerCase();
@@ -1586,13 +1540,11 @@ export class CloudflareD1WalletAuthMethodService {
     const challengeSubjectId = parseChallengeSubjectId(proof.providerSubject);
     const challengeId = parseEmailOtpChallengeId(proof.challengeId);
     const orgId = parseOrgId(input.orgId);
-    const appSessionVersion = parseAppSessionVersion(proof.appSessionVersion);
     if (
       !providerSubject.ok ||
       !challengeSubjectId.ok ||
       !challengeId.ok ||
-      !orgId.ok ||
-      !appSessionVersion.ok
+      !orgId.ok
     ) {
       return {
         ok: false,
@@ -1615,7 +1567,7 @@ export class CloudflareD1WalletAuthMethodService {
         originalWalletId: input.intent.walletId,
         finalWalletId: input.intent.walletId,
         orgId: orgId.value,
-        appSessionVersion: appSessionVersion.value,
+        ownerProofBindingDigest: input.expectedDigestB64u,
         challengePurpose: 'registration',
         registrationIntentDigestB64u: input.expectedDigestB64u,
       },

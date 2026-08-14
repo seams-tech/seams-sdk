@@ -23,7 +23,6 @@ import type {
   WebAuthnUserHandle,
   EmailAddress,
   EmailOtpCode,
-  VerifiedAppSessionJwt,
   RestoreAttemptId,
   RestorePersistedSessionsInput,
   RestorePersistedSessionsTransition,
@@ -67,7 +66,6 @@ declare const emailAddress: EmailAddress;
 declare const emailOtpCode: EmailOtpCode;
 declare const emailOtpChallengeId: EmailOtpChallengeId;
 declare const emailOtpAuthSubjectId: EmailOtpAuthSubjectId;
-declare const appSession: VerifiedAppSessionJwt;
 declare const userHandle: WebAuthnUserHandle;
 declare const thresholdSessionId: ThresholdSessionId;
 declare const walletSessionId: WalletSessionId;
@@ -128,7 +126,6 @@ const emailOtpRegistrationWithPasskeyCreation = {
   email: emailAddress,
   challengeId: emailOtpChallengeId,
   otp: emailOtpCode,
-  appSession,
   credentialCreation: {
     kind: 'authenticator_create_request_v1',
     challengeB64u: 'challenge',
@@ -175,7 +172,6 @@ const emailOtpUnlockWithCredential = {
   kind: 'email_otp_unlock',
   challengeId: emailOtpChallengeId,
   otp: emailOtpCode,
-  appSession,
   credentialId: credentialIdB64u,
 };
 // @ts-expect-error Email OTP unlock cannot carry passkey credential state

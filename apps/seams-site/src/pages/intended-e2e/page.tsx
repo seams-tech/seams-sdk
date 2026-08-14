@@ -1177,7 +1177,6 @@ class IntendedPageController {
     const flowResult = await this.seams.auth.beginGoogleEmailOtpWalletAuth({
       idToken,
       mode: 'register',
-      sessionKind: 'jwt',
       ecdsaTargets: this.emailOtpEcdsaTargetProfile.sdkTargets,
       emailOtpAuthPolicy: 'session',
       onEvent: this.recordLifecycleEvent,
@@ -1214,7 +1213,6 @@ class IntendedPageController {
     const flowResult = await this.seams.auth.beginGoogleEmailOtpWalletAuth({
       idToken,
       mode: 'login',
-      sessionKind: 'jwt',
       ecdsaTargets: this.emailOtpEcdsaTargetProfile.sdkTargets,
       emailOtpAuthPolicy: 'session',
       onEvent: this.recordLifecycleEvent,
@@ -1252,30 +1250,19 @@ class IntendedPageController {
     const lookup = parseEmailOtpCodeLookup(input);
     const walletId = requireWalletIdString(input.walletId);
     const idToken = requireGoogleIdToken(this.googleIdToken);
-    const exchange = await this.seams.auth.exchangeGoogleEmailOtpSession({
-      idToken,
-      accountMode: 'login',
-      sessionKind: 'jwt',
-      onEvent: this.recordLifecycleEvent,
-    });
-    const exchangeWalletId = String(exchange.session.walletId || '').trim();
-    if (exchangeWalletId !== walletId) {
-      throw new Error(`Email OTP outbox app-session wallet mismatch: ${exchangeWalletId}`);
-    }
-    const appSessionJwt = String(exchange.jwt || '').trim();
-    if (!appSessionJwt) {
-      throw new Error('Email OTP dev outbox requires an app-session JWT');
-    }
     const url = emailOtpDevOutboxUrl({
       relayerUrl: requireRelayerUrl(this.seams.configs.network.relayer?.url),
-      walletId,
-      lookup,
     });
     const response = await fetch(url, {
-      method: 'GET',
+      method: 'POST',
       headers: {
-        Authorization: `Bearer ${appSessionJwt}`,
+        'content-type': 'application/json',
       },
+      body: JSON.stringify({
+        idToken,
+        walletId,
+        ...(lookup.kind === 'challenge' ? { challengeId: lookup.challengeId } : {}),
+      }),
     });
     const json = await response.json();
     const outbox = parseEmailOtpOutboxSuccess(json);
@@ -2332,20 +2319,8 @@ type EmailOtpCodeLookup =
 
 function emailOtpDevOutboxUrl(input: {
   relayerUrl: string;
-  walletId: string;
-  lookup: EmailOtpCodeLookup;
 }): string {
-  const url = new URL('/wallet/email-otp/dev/otp-outbox', input.relayerUrl);
-  url.searchParams.set('walletId', input.walletId);
-  switch (input.lookup.kind) {
-    case 'challenge':
-      url.searchParams.set('challengeId', input.lookup.challengeId);
-      return url.href;
-    case 'latest_for_wallet':
-      return url.href;
-    default:
-      return assertNever(input.lookup);
-  }
+  return new URL('/wallet/email-otp/dev/otp-outbox', input.relayerUrl).href;
 }
 
 function parseEmailOtpCodeLookup(input: IntendedEmailOtpCodeRequest): EmailOtpCodeLookup {

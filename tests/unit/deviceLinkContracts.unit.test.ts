@@ -26,7 +26,9 @@ import {
   parseLinkedDeviceWalletSessionDeliveryV1,
   parseLinkedDeviceOwnerAuthorizationRequestV1,
   parseLinkedDeviceOwnerSourceLaneV1,
+  parseQrLinkedDeviceSessionTextV4,
   parseQrLinkedDeviceSessionPayloadV4,
+  serializeQrLinkedDeviceSessionPayloadV4,
 } from '../../packages/shared-ts/src/device-linking';
 import type { HttpTransport } from '../../packages/sdk-web/src/core/platform/http';
 import { createWalletHostOwnerAuthoritiesV1 } from '../../packages/sdk-web/src/SeamsWeb/operations/devices/walletHostOwnerAuthority';
@@ -125,8 +127,11 @@ test.describe('R103 shared linked-device contracts', () => {
 
   test('round-trips QR, approval, transcript, and receipt projections through strict parsers', async () => {
     const fixture = buildR103DeviceLinkFixture();
+    const serializedQr = serializeQrLinkedDeviceSessionPayloadV4(fixture.payload);
 
     expect(parseQrLinkedDeviceSessionPayloadV4(fixture.payload)).toEqual(fixture.payload);
+    expect(parseQrLinkedDeviceSessionTextV4(serializedQr)).toEqual(fixture.payload);
+    expect(new TextEncoder().encode(serializedQr).byteLength).toBeLessThan(240);
     expect(parseLinkedDeviceApprovalV1(fixture.approval)).toEqual(fixture.approval);
     expect(parseLinkedDeviceEnrollmentTranscriptV1(fixture.transcript)).toEqual(fixture.transcript);
     expect(parseLinkedDeviceEnrollmentReceiptV1(fixture.receipt)).toEqual(fixture.receipt);

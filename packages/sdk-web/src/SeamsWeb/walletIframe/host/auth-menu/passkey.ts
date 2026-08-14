@@ -9,10 +9,7 @@ import type {
   SeamsWebBaseContext,
 } from '@/SeamsWeb/signingSurface/ports';
 import { unlockResolvedWalletSubjectSet } from '@/SeamsWeb/operations/auth/login';
-import {
-  clearWalletOriginAppSession,
-  rememberWalletOriginAppSession,
-} from '@/SeamsWeb/walletIframe/host/hostedWalletSeamsSession';
+import { clearHostedWalletSessions } from '@/SeamsWeb/walletIframe/host/hostedWalletSeamsSession';
 import {
   resolveWalletUnlockSubjectSet,
   type WalletUnlockSubjectSet,
@@ -289,17 +286,9 @@ export async function completeHostedPasskeyLogin(
     if (event.phase === UnlockEventPhase.CANCELLED) cancelledByUser = true;
   };
   try {
-    // Mirror the PM_UNLOCK handler end to end: this login runs inside the
-    // wallet host without passing through that handler. The handler both
-    // requests a JWT session exchange (without it the relayer mints no
-    // app-session JWT at all) and remembers the minted session — ECDSA export
-    // later resolves its route auth from what is remembered here.
     const callerOnEvent = state.loginOptions.onEvent;
     const loginOptions: LoginHooksOptions = {
       ...state.loginOptions,
-      ...(state.loginOptions.session
-        ? {}
-        : { session: { kind: 'jwt', exchange: { type: 'passkey_assertion' } } }),
       onEvent: (event) => {
         recordUnlockEvent(event);
         callerOnEvent?.(event);
@@ -310,17 +299,7 @@ export async function completeHostedPasskeyLogin(
       prepared.subjectSet,
       loginOptions,
     );
-    // A hosted login is always a local passkey unlock, so a failure clears any
-    // stale session just as the handler's local branch does.
-    if (result.success && result.jwt) {
-      rememberWalletOriginAppSession({
-        appSessionJwt: result.jwt,
-        relayUrl: state.context.configs.network.relayer.url,
-        walletId: result.walletId,
-      });
-    } else if (!result.success) {
-      clearWalletOriginAppSession();
-    }
+    if (!result.success) clearHostedWalletSessions();
     return { result, cancelledByUser };
   } finally {
     state.lifecycle = 'finished';

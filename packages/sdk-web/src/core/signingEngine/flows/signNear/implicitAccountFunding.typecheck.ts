@@ -27,7 +27,7 @@ const forgedFreshAuthority: FreshWalletSessionAuthority = {
   provenance: 'passkey_reauth',
   request,
   thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session'),
-  walletSessionJwt: 'forged-wallet-session-jwt',
+  walletSessionToken: 'forged-wallet-session-token',
 };
 
 void forgedFreshAuthority;

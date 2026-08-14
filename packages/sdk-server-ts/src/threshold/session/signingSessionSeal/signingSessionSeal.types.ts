@@ -1,28 +1,22 @@
 import type { SigningSessionSealProtocol } from '@shared/utils/signingSessionSeal';
 import type { NormalizedLogger } from '../../../core/logger';
 import type { ThresholdEd25519AuthorityScope } from '../../../core/types';
-import type { SessionParseResult } from '../../../core/sessionValidation';
 import type { EcdsaKeyHandle } from '../../../core/keyMaterialBrands';
 
 export type SigningSessionSealRouteHeaders = Record<string, string | string[] | undefined>;
 
-export type SigningSessionSealSessionClaims = Record<string, unknown>;
-
-export interface SigningSessionSealSessionAdapter {
-  parse(
-    headers: SigningSessionSealRouteHeaders,
-  ): Promise<SessionParseResult<SigningSessionSealSessionClaims>>;
-}
-
 export interface SigningSessionSealAuthContext {
   userId: string;
-  claims: SigningSessionSealSessionClaims;
+  thresholdSession: SigningSessionSealThresholdSessionRecord;
+}
+
+export interface SigningSessionSealCipherAuthContext {
+  userId: string;
 }
 
 export interface SigningSessionSealAuthorizeInput {
   headers: SigningSessionSealRouteHeaders;
-  session: SigningSessionSealSessionAdapter | null | undefined;
-  thresholdSessionId?: string;
+  thresholdSessionId: string;
 }
 
 export type SigningSessionSealAuthorizeResult =
@@ -145,7 +139,7 @@ export interface SigningSessionSealCipherOperationInput {
   ciphertext: string;
   keyVersion?: string;
   metadata?: Record<string, unknown>;
-  auth: SigningSessionSealAuthContext;
+  auth: SigningSessionSealCipherAuthContext;
 }
 
 export type SigningSessionSealCipherOperationResult =

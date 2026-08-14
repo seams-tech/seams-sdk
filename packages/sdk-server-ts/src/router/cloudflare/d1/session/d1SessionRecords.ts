@@ -7,14 +7,8 @@ import type { RecoverySessionRecord, RecoverySessionStatus } from '../../../../c
 import {
   isRecordValue,
   parseJsonObject,
-  positiveInteger,
   positiveSafeInteger,
 } from '../auth/d1RouterApiAuthBoundary';
-
-export type D1SessionRow = {
-  readonly session_version?: unknown;
-  readonly record_json?: unknown;
-};
 
 export type D1RecoverySessionRow = {
   readonly record_json?: unknown;
@@ -23,35 +17,6 @@ export type D1RecoverySessionRow = {
 export type D1RecoveryExecutionRow = {
   readonly record_json?: unknown;
 };
-
-export type AppSessionVersionRecord = {
-  readonly version: 'app_session_version_v1';
-  readonly userId: string;
-  readonly appSessionVersion: string;
-  readonly createdAtMs: number;
-  readonly updatedAtMs: number;
-};
-
-export function parseAppSessionCreatedAt(input: unknown, fallback: number): number {
-  const record = parseJsonObject(input);
-  const value = positiveInteger(record?.createdAtMs);
-  return value ?? fallback;
-}
-
-export function appSessionRecord(input: {
-  readonly userId: string;
-  readonly appSessionVersion: string;
-  readonly createdAtMs: number;
-  readonly updatedAtMs: number;
-}): AppSessionVersionRecord {
-  return {
-    version: 'app_session_version_v1',
-    userId: input.userId,
-    appSessionVersion: input.appSessionVersion,
-    createdAtMs: input.createdAtMs,
-    updatedAtMs: input.updatedAtMs,
-  };
-}
 
 export function normalizeAccountAddress(input: unknown): string {
   const value = toOptionalTrimmedString(input);

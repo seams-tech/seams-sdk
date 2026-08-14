@@ -160,11 +160,8 @@ import {
 } from './registrationThresholdHelpers';
 import {
   createGoogleJwksState,
-  createOidcJwksState,
   verifyGoogleLoginWithIdentityStore,
-  verifyOidcJwtExchangeWithIdentityStore,
   type GoogleLoginFacadeResult,
-  type OidcJwtExchangeFacadeResult,
 } from './oidcVerification';
 import {
   githubOAuthPublicConfig,
@@ -173,8 +170,6 @@ import {
   type GithubOAuthPublicConfig,
 } from './githubOAuth';
 import type {
-  AppSessionVersionMutationResult,
-  AppSessionVersionValidationResult,
   ListIdentitiesResult,
 } from './identity';
 import { isNodeEnvironment as isAuthServiceNodeEnvironment } from './wasm';
@@ -265,7 +260,6 @@ export class AuthService {
   private readonly emailOtpMemoryOutbox: EmailOtpMemoryOutbox = new Map();
   private registrationRuntimeWarmPromise: Promise<void> | null = null;
   private readonly googleJwksState = createGoogleJwksState();
-  private readonly oidcJwksState = createOidcJwksState();
 
   // DKIM/TEE email recovery logic (delegated to EmailRecoveryService)
   public readonly emailRecovery: EmailRecoveryService | null = null;
@@ -319,11 +313,6 @@ export class AuthService {
         : `• googleOidc: not configured`
     }
     • githubOAuth: ${this.config.githubOAuth ? 'configured' : 'not configured'}
-    ${
-      this.config.oidcExchange?.issuers?.length
-        ? `• oidcExchange: ${this.config.oidcExchange.issuers.length} issuer(s)`
-        : `• oidcExchange: not configured`
-    }
     `);
   }
 
@@ -387,7 +376,6 @@ export class AuthService {
     sub?: string;
     email?: string;
     accountMode?: unknown;
-    appSessionVersion?: string;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
     restartRegistrationOffer?: unknown;
   }): Promise<string> {
@@ -410,7 +398,7 @@ export class AuthService {
     accountMode?: unknown;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
     clientIp?: string;
-    appSessionUserId?: string;
+    providerUserId?: string;
     restartRegistrationOffer?: unknown;
   }): Promise<
     | { ok: true }
@@ -433,7 +421,6 @@ export class AuthService {
     sub?: string;
     email?: string | VerifiedGoogleEmail;
     accountMode?: unknown;
-    appSessionVersion?: string;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
     restartRegistrationOffer?: unknown;
   }): Promise<GoogleEmailOtpResolutionResult> {
@@ -456,7 +443,7 @@ export class AuthService {
   async validateGoogleEmailOtpRegistrationCandidateWallet(input: {
     registrationAttemptId: string;
     walletId: string;
-    appSessionVersion: string;
+    ownerProofBindingDigest: string;
     providerSubject: string;
   }): Promise<{ ok: true } | { ok: false; code: string; message: string }> {
     return await validateGoogleEmailOtpRegistrationCandidateWalletForAuthService({
@@ -512,10 +499,6 @@ export class AuthService {
       deps: this.googleEmailOtpOperationsInput(),
       request: input,
     });
-  }
-
-  isOidcExchangeConfigured(): boolean {
-    return Boolean(this.config.oidcExchange?.issuers?.length);
   }
 
   async warmRegistrationRuntime(): Promise<void> {
@@ -721,25 +704,6 @@ export class AuthService {
 
   async unlinkIdentity(input: { userId: string; subject: string }): Promise<UnlinkIdentityResult> {
     return await this.identityOperations().unlinkIdentity(input);
-  }
-
-  async getOrCreateAppSessionVersion(input: {
-    userId: string;
-  }): Promise<AppSessionVersionMutationResult> {
-    return await this.identityOperations().getOrCreateAppSessionVersion(input);
-  }
-
-  async rotateAppSessionVersion(input: {
-    userId: string;
-  }): Promise<AppSessionVersionMutationResult> {
-    return await this.identityOperations().rotateAppSessionVersion(input);
-  }
-
-  async validateAppSessionVersion(input: {
-    userId: string;
-    appSessionVersion: string;
-  }): Promise<AppSessionVersionValidationResult> {
-    return await this.identityOperations().validateAppSessionVersion(input);
   }
 
   async recordNearPublicKeyMetadata(input: {
@@ -1069,8 +1033,7 @@ export class AuthService {
     orgId?: unknown;
     email?: unknown;
     otpChannel?: unknown;
-    sessionHash?: unknown;
-    appSessionVersion?: unknown;
+    ownerProofBindingDigest?: unknown;
     clientIp?: unknown;
     operation?: unknown;
     reuseActiveChallenge?: unknown;
@@ -1103,8 +1066,7 @@ export class AuthService {
     orgId?: unknown;
     email?: unknown;
     otpChannel?: unknown;
-    sessionHash?: unknown;
-    appSessionVersion?: unknown;
+    ownerProofBindingDigest?: unknown;
     clientIp?: unknown;
     operation?: unknown;
     reuseActiveChallenge?: unknown;
@@ -1119,8 +1081,7 @@ export class AuthService {
           walletId: string;
           orgId: string;
           otpChannel: EmailOtpChannel;
-          sessionHash: string;
-          appSessionVersion: string;
+          ownerProofBindingDigest: string;
           action: typeof WALLET_EMAIL_OTP_ACTIONS.login;
           operation: EmailOtpLoginChallengeOperation;
         };
@@ -1141,8 +1102,7 @@ export class AuthService {
     orgId?: unknown;
     email?: unknown;
     otpChannel?: unknown;
-    sessionHash?: unknown;
-    appSessionVersion?: unknown;
+    ownerProofBindingDigest?: unknown;
     clientIp?: unknown;
     operation?: unknown;
   }): Promise<
@@ -1156,8 +1116,7 @@ export class AuthService {
           walletId: string;
           orgId: string;
           otpChannel: EmailOtpChannel;
-          sessionHash: string;
-          appSessionVersion: string;
+          ownerProofBindingDigest: string;
           action: typeof WALLET_EMAIL_OTP_ACTIONS.registration;
           operation: typeof WALLET_EMAIL_OTP_REGISTRATION_OPERATION;
         };
@@ -1181,8 +1140,7 @@ export class AuthService {
     challengeId?: unknown;
     otpCode?: unknown;
     otpChannel?: unknown;
-    sessionHash?: unknown;
-    appSessionVersion?: unknown;
+    ownerProofBindingDigest?: unknown;
     registrationChallengeProof?: EmailOtpRegistrationChallengeProof;
     allowRegistrationChallengeReroll?: boolean;
     clientIp?: unknown;
@@ -1210,8 +1168,7 @@ export class AuthService {
     challengeId?: unknown;
     otpCode?: unknown;
     otpChannel?: unknown;
-    sessionHash?: unknown;
-    appSessionVersion?: unknown;
+    ownerProofBindingDigest?: unknown;
     clientIp?: unknown;
     operation?: unknown;
   }): Promise<
@@ -1234,15 +1191,14 @@ export class AuthService {
   }
 
   async verifyEmailOtpEnrollment(request: {
-    /** Provider subject from the app-session JWT that requested the registration OTP. */
+    /** Provider subject that requested the registration OTP. */
     providerSubject: unknown;
     walletId: unknown;
     orgId: unknown;
     challengeId: unknown;
     otpCode: unknown;
     otpChannel: unknown;
-    sessionHash: unknown;
-    appSessionVersion: unknown;
+    ownerProofBindingDigest: unknown;
     /** Email asserted by the registration proof. It must match the challenged email. */
     proofEmail?: unknown;
     clientIp?: unknown;
@@ -1365,15 +1321,6 @@ export class AuthService {
       operation: 'apply-server-seal',
       request,
       shamir: this.createEmailOtpShamirCipher(),
-    });
-  }
-
-  async verifyOidcJwtExchange(request: { token?: unknown }): Promise<OidcJwtExchangeFacadeResult> {
-    return await verifyOidcJwtExchangeWithIdentityStore({
-      request,
-      config: this.config.oidcExchange,
-      jwksState: this.oidcJwksState,
-      identityStore: this.stores.getIdentityStore(),
     });
   }
 

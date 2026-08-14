@@ -56,7 +56,7 @@ function validThresholdEd25519SessionPolicy(): Record<string, unknown> {
 function validThresholdEd25519SessionBody(): Record<string, unknown> {
   return {
     relayerKeyId: 'ed25519:relayer',
-    sessionKind: 'jwt',
+    sessionKind: 'opaque',
     sessionPolicy: validThresholdEd25519SessionPolicy(),
     webauthn_authentication: validWebAuthnAuthentication(),
   };
@@ -297,22 +297,13 @@ function acceptsExactYaoBudgetRefreshBody(): void {
   if (!parsed.ok) throw new Error(parsed.body.message);
   expect(parsed.request).toMatchObject({
     relayerKeyId: 'ed25519:relayer',
-    sessionKind: 'jwt',
+    sessionKind: 'opaque',
     routeAuth: { kind: 'passkey' },
     sessionPolicy: {
       thresholdSessionId: 'tsess-route-validation',
       participantIds: [1, 2],
     },
   });
-}
-
-function acceptsSignedSessionAuthorizationWithoutBodyOwnedProof(): void {
-  const body = validThresholdEd25519SessionBody();
-  delete body.webauthn_authentication;
-  const parsed = parseThresholdEd25519SessionRouteRequest(body);
-  expect(parsed.ok).toBe(true);
-  if (!parsed.ok) throw new Error(parsed.body.message);
-  expect(parsed.request.routeAuth).toEqual({ kind: 'signed_session' });
 }
 
 function rejectsMalformedWebAuthnProof(): void {
@@ -324,10 +315,13 @@ function rejectsMalformedWebAuthnProof(): void {
   );
 }
 
-function rejectsMissingJwtSessionKind(): void {
+function rejectsNonOpaqueSessionKind(): void {
   const body = validThresholdEd25519SessionBody();
-  delete body.sessionKind;
-  expectInvalidBody(parseThresholdEd25519SessionRouteRequest(body), 'requires sessionKind=jwt');
+  body.sessionKind = 'jwt';
+  expectInvalidBody(
+    parseThresholdEd25519SessionRouteRequest(body),
+    'requires sessionKind=opaque',
+  );
 }
 
 function rejectsIncompleteYaoPolicy(): void {
@@ -402,10 +396,6 @@ test(
   acceptsExactYaoBudgetRefreshBody,
 );
 test(
-  'threshold-ed25519 session route accepts signed-session authorization without body-owned proof',
-  acceptsSignedSessionAuthorizationWithoutBodyOwnedProof,
-);
-test(
   'threshold-ed25519 session route rejects a malformed WebAuthn proof',
   rejectsMalformedWebAuthnProof,
 );
@@ -413,7 +403,7 @@ test(
   'threshold-ed25519 session route normalizes threshold-session identity once',
   normalizesThresholdSessionIdentityAtRouteBoundary,
 );
-test('threshold-ed25519 session route requires jwt session kind', rejectsMissingJwtSessionKind);
+test('threshold-ed25519 session route requires opaque session kind', rejectsNonOpaqueSessionKind);
 test(
   'threshold-ed25519 session route requires complete Yao policy identity',
   rejectsIncompleteYaoPolicy,

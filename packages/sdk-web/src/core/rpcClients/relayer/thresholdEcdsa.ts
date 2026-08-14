@@ -1,9 +1,8 @@
 import type { WebAuthnAuthenticationCredential } from '../../types/webauthn';
 import { errorMessage } from '@shared/utils/errors';
 import {
-  requireAppSessionJwt,
-  requireWalletSessionJwt,
-  type AppOrWalletSessionAuth,
+  requireOpaqueWalletSessionToken,
+  type WalletSessionRouteAuth,
 } from '@shared/utils/sessionTokens';
 import {
   parseRootShareEpoch,
@@ -223,7 +222,7 @@ type RawThresholdEcdsaDerivationRoleLocalRouteResponse<T> = {
 };
 
 export type ThresholdEcdsaDerivationRouteAuth =
-  | AppOrWalletSessionAuth
+  | WalletSessionRouteAuth
   | { kind: 'publishable_key'; token: string };
 
 function requireNonEmptyString(value: unknown, field: string): string {
@@ -409,8 +408,9 @@ export function parseThresholdEcdsaDerivationRoleLocalBootstrapValue(
 
 function resolveBearerToken(auth?: ThresholdEcdsaDerivationRouteAuth): string {
   if (!auth) return '';
-  if (auth.kind === 'app_session') return requireAppSessionJwt(auth.jwt);
-  if (auth.kind === 'wallet_session') return requireWalletSessionJwt(auth.jwt);
+  if (auth.kind === 'opaque_wallet_session') {
+    return requireOpaqueWalletSessionToken(auth.walletSessionToken);
+  }
   return String(auth.token || '').trim();
 }
 

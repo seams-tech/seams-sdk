@@ -41,7 +41,7 @@ import type { RouterAbEcdsaDerivationPoolFillInitKeySelector } from './poolFillR
 import {
   finalizeRouterAbEcdsaDerivationEvmDigestSigningV1,
   prepareRouterAbEcdsaDerivationEvmDigestSigningV1,
-  type RouterAbEd25519NormalSigningCredential,
+  type RouterAbOwnerNormalSigningCredential,
 } from '../../../rpcClients/relayer/routerAbNormalSigning';
 import {
   formatEcdsaKeyHandleForWire,
@@ -68,7 +68,7 @@ type RouterAbEcdsaDerivationClientPresignatureRefillInputBase = {
   clientSigningMaterial: RouterAbEcdsaDerivationClientSigningMaterialSource;
   thresholdEcdsaPublicKeyB64u?: string;
   relayerVerifyingShareB64u?: string;
-  credential: RouterAbEd25519NormalSigningCredential;
+  credential: RouterAbOwnerNormalSigningCredential;
   materialActivation: RouterAbMpcMaterialActivationRefWire;
   routerAbEcdsaDerivationPoolFill: RouterAbEcdsaDerivationPresignaturePoolFill;
   workerCtx: WorkerOperationContext;
@@ -724,7 +724,7 @@ type RouterAbEcdsaPresignHandshakeArgs = {
   clientSigningMaterial: RouterAbEcdsaDerivationClientSigningMaterialSource;
   groupPublicKey33: Uint8Array;
   materialActivation: RouterAbMpcMaterialActivationRefWire;
-  credential: RouterAbEd25519NormalSigningCredential;
+  credential: RouterAbOwnerNormalSigningCredential;
   requestTag?: string;
   routerAbEcdsaDerivationPoolFill: RouterAbEcdsaDerivationPresignaturePoolFill;
   workerCtx: WorkerOperationContext;
@@ -1066,7 +1066,7 @@ export async function signRouterAbEcdsaDerivationDigestWithPoolHit(args: {
   operationId: string;
   operationDigests: RouterAbEcdsaDerivationOperationDigestsV1Wire;
   materialActivation: RouterAbMpcMaterialActivationRefWire;
-  credential: RouterAbEd25519NormalSigningCredential;
+  credential: RouterAbOwnerNormalSigningCredential;
   signingDigest32: Uint8Array;
   clientSigningMaterial: RouterAbEcdsaDerivationClientSigningMaterialSource;
   expiresAtMs?: number;
@@ -1351,7 +1351,7 @@ export async function signRouterAbEcdsaDerivationDigestWithPool(args: {
   operationId: string;
   operationDigests: RouterAbEcdsaDerivationOperationDigestsV1Wire;
   materialActivation: RouterAbMpcMaterialActivationRefWire;
-  credential: RouterAbEd25519NormalSigningCredential;
+  credential: RouterAbOwnerNormalSigningCredential;
   keyHandle?: EcdsaKeyHandle;
   signingDigest32: Uint8Array;
   clientSigningMaterial: RouterAbEcdsaDerivationClientSigningMaterialSource;

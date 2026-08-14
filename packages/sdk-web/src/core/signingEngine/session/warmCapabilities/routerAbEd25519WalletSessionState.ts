@@ -7,16 +7,13 @@ import type {
 } from '@/core/signingEngine/interfaces/near';
 import {
   walletSessionAuthorizations,
-  walletSessionJwtForCurve,
+  walletSessionTokenForCurve,
   type ActiveWalletSessionAuthorizationProjection,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import { signingLaneAuthMethod } from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
 import {
   buildRouterAbEd25519SigningWalletSession,
-  parseRouterAbEd25519WalletSessionIdentityClaims,
-  parseWalletSessionAuthorizationIdentityClaims,
   type RouterAbEd25519SigningWalletSession,
-  type RouterAbEd25519WalletSessionIdentityClaims,
 } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { AccountId } from '@/core/types/accountIds';
@@ -78,9 +75,9 @@ export function buildEmailOtpRouterAbEd25519WalletSessionState(
   const thresholdSessionId = SigningSessionIds.thresholdEd25519Session(
     requireNonEmptyStateValue(input.signingWalletSession.thresholdSessionId, 'thresholdSessionId'),
   );
-  const walletSessionJwt = requireNonEmptyStateValue(
-    input.signingWalletSession.auth.walletSessionJwt,
-    'walletSessionJwt',
+  const walletSessionToken = requireNonEmptyStateValue(
+    input.signingWalletSession.auth.walletSessionToken,
+    'walletSessionToken',
   );
   const relayerUrl = requireNonEmptyStateValue(input.relayerUrl, 'relayerUrl');
   const providerSubjectId = requireNonEmptyStateValue(input.providerSubjectId, 'providerSubjectId');
@@ -90,8 +87,8 @@ export function buildEmailOtpRouterAbEd25519WalletSessionState(
     'remainingUses',
   );
   const walletSessionAuth = {
-    kind: 'wallet_session_jwt' as const,
-    walletSessionJwt,
+    kind: 'wallet_session_opaque' as const,
+    walletSessionToken,
   };
   return {
     walletSessionAuth,
@@ -130,17 +127,17 @@ export function buildPasskeyRouterAbEd25519WalletSessionState(
   const thresholdSessionId = SigningSessionIds.thresholdEd25519Session(
     requireNonEmptyStateValue(input.signingWalletSession.thresholdSessionId, 'thresholdSessionId'),
   );
-  const walletSessionJwt = requireNonEmptyStateValue(
-    input.signingWalletSession.auth.walletSessionJwt,
-    'walletSessionJwt',
+  const walletSessionToken = requireNonEmptyStateValue(
+    input.signingWalletSession.auth.walletSessionToken,
+    'walletSessionToken',
   );
   const relayerUrl = requireNonEmptyStateValue(input.relayerUrl, 'relayerUrl');
   const credentialIdB64u = requireNonEmptyStateValue(input.credentialIdB64u, 'credentialIdB64u');
   const signerSlot = requirePositiveStateInteger(input.signerSlot, 'signerSlot');
   return {
     walletSessionAuth: {
-      kind: 'wallet_session_jwt',
-      walletSessionJwt,
+      kind: 'wallet_session_opaque',
+      walletSessionToken,
     },
     walletSessionId: input.signingWalletSession.walletSessionId,
     quotaId: input.signingWalletSession.quotaId,
@@ -171,116 +168,6 @@ export function buildPasskeyRouterAbEd25519WalletSessionState(
   };
 }
 
-type BuildRouterAbEd25519WalletSessionStateFromRuntimeClaimsInput = {
-  runtime: ExactEd25519SealedSessionRuntime;
-  claims: RouterAbEd25519WalletSessionIdentityClaims;
-  walletSessionJwt: string;
-  authority: WalletAuthAuthorityRef;
-  thresholdSessionId: RouterAbEd25519WalletSessionIdentityClaims['thresholdSessionId'];
-  expiresAtMs: number;
-  nowMs: number;
-};
-
-function buildRouterAbEd25519WalletSessionStateFromRuntimeClaims(
-  input: BuildRouterAbEd25519WalletSessionStateFromRuntimeClaimsInput,
-): ResolvedRouterAbEd25519WalletSessionState {
-  const runtime = input.runtime;
-  const signingWalletSession = buildRouterAbEd25519SigningWalletSession({
-    walletId: runtime.walletId,
-    nearAccountId: runtime.nearAccountId,
-    nearEd25519SigningKeyId: runtime.nearEd25519SigningKeyId,
-    walletSessionId: input.claims.walletSessionId,
-    quotaId: input.claims.quotaId,
-    thresholdSessionId: input.thresholdSessionId,
-    remainingUses: runtime.remainingUses,
-    expiresAtMs: input.expiresAtMs,
-    runtimePolicyScope: runtime.runtimePolicyScope,
-    signingRootId: runtime.signingRootId,
-    signingRootVersion: runtime.signingRootVersion,
-    routerAbNormalSigning: runtime.routerAbNormalSigning,
-    walletSessionJwt: input.walletSessionJwt,
-    nowMs: input.nowMs,
-  });
-  if (!signingWalletSession.ok) {
-    throw new Error(`Ed25519 Wallet Session runtime is invalid: ${signingWalletSession.reason}`);
-  }
-  if (runtime.factor.kind === 'passkey' && runtime.auth.kind === 'passkey') {
-    return buildPasskeyRouterAbEd25519WalletSessionState({
-      walletId: runtime.walletId,
-      nearAccountId: runtime.nearAccountId,
-      nearEd25519SigningKeyId: runtime.nearEd25519SigningKeyId,
-      signerSlot: runtime.signerSlot,
-      rpId: runtime.factor.rpId,
-      credentialIdB64u: runtime.factor.credentialIdB64u,
-      relayerUrl: runtime.relayerUrl,
-      authority: input.authority,
-      signingWalletSession: signingWalletSession.value,
-    });
-  }
-  const signingLane =
-    runtime.factor.kind === 'email_otp' && runtime.auth.kind === 'email_otp'
-      ? buildNearTransactionSigningLane({
-          walletId: runtime.walletId,
-          nearAccountId: runtime.nearAccountId,
-          nearEd25519SigningKeyId: runtime.nearEd25519SigningKeyId,
-          signerSlot: runtime.signerSlot,
-          auth: runtime.auth,
-          walletSessionId: input.claims.walletSessionId,
-          quotaId: input.claims.quotaId,
-          thresholdSessionId: input.thresholdSessionId,
-          retention: 'session',
-          sessionOrigin: 'login',
-        })
-      : null;
-  if (!signingLane) {
-    throw new Error('Ed25519 sealed runtime factor and auth binding disagree');
-  }
-  return {
-    walletSessionAuth: signingWalletSession.value.auth,
-    walletSessionId: input.claims.walletSessionId,
-    quotaId: input.claims.quotaId,
-    thresholdSessionId: input.thresholdSessionId,
-    signingLane,
-    remainingUses: runtime.remainingUses,
-    signingRootId: runtime.signingRootId,
-    signingRootVersion: runtime.signingRootVersion,
-    routerAbNormalSigning: runtime.routerAbNormalSigning,
-    runtimePolicyScope: runtime.runtimePolicyScope,
-    relayerUrl: runtime.relayerUrl,
-    signingWalletSession: signingWalletSession.value,
-    authority: input.authority,
-  };
-}
-
-export function buildRouterAbEd25519WalletSessionStateFromExactRuntime(args: {
-  runtime: ExactEd25519SealedSessionRuntime;
-  walletSessionJwt: string;
-  authority: WalletAuthAuthorityRef;
-  nowMs: number;
-}): ResolvedRouterAbEd25519WalletSessionState {
-  const runtime = args.runtime;
-  const claims = parseRouterAbEd25519WalletSessionIdentityClaims(args.walletSessionJwt);
-  if (
-    !claims ||
-    claims.walletId !== runtime.walletId ||
-    claims.nearAccountId !== runtime.nearAccountId ||
-    claims.nearEd25519SigningKeyId !== runtime.nearEd25519SigningKeyId ||
-    claims.thresholdSessionId !== runtime.thresholdSessionId ||
-    args.authority.walletId !== runtime.walletId
-  ) {
-    throw new Error('Ed25519 Wallet Session authorization does not match sealed material');
-  }
-  return buildRouterAbEd25519WalletSessionStateFromRuntimeClaims({
-    runtime,
-    claims,
-    walletSessionJwt: args.walletSessionJwt,
-    authority: args.authority,
-    thresholdSessionId: runtime.thresholdSessionId,
-    expiresAtMs: runtime.expiresAtMs,
-    nowMs: args.nowMs,
-  });
-}
-
 function walletAuthAuthorityRefsMatch(
   left: WalletAuthAuthorityRef,
   right: WalletAuthAuthorityRef,
@@ -288,74 +175,69 @@ function walletAuthAuthorityRefsMatch(
   return left.walletId === right.walletId && left.authorityDigest === right.authorityDigest;
 }
 
-function validateEd25519RuntimeRebindAuthorization(args: {
-  runtime: ExactEd25519SealedSessionRuntime;
-  authorization: ActiveWalletSessionAuthorizationProjection;
-  walletSessionJwt: string | null;
-  claims: RouterAbEd25519WalletSessionIdentityClaims | null;
-  authorizationClaims: ReturnType<typeof parseWalletSessionAuthorizationIdentityClaims>;
-  expectedAuthority: WalletAuthAuthorityRef;
-  nowMs: number;
-}): {
-  claims: RouterAbEd25519WalletSessionIdentityClaims;
-  walletSessionJwt: string;
-  expiresAtMs: number;
-} {
-  const { runtime, authorization, claims, authorizationClaims, expectedAuthority } = args;
-  const expiresAtMs = Math.min(runtime.expiresAtMs, authorization.expiresAtMs);
-  if (
-    !args.walletSessionJwt ||
-    !claims ||
-    !authorizationClaims ||
-    authorization.walletId !== runtime.walletId ||
-    authorization.authMethod !== runtime.auth.kind ||
-    !walletAuthAuthorityRefsMatch(authorization.authority, expectedAuthority) ||
-    claims.walletId !== runtime.walletId ||
-    claims.nearAccountId !== runtime.nearAccountId ||
-    claims.nearEd25519SigningKeyId !== runtime.nearEd25519SigningKeyId ||
-    authorizationClaims.walletId !== runtime.walletId ||
-    authorizationClaims.authorizationId !== authorization.authorizationId ||
-    authorizationClaims.walletSessionId !== authorization.walletSessionId ||
-    authorizationClaims.quotaId !== authorization.quotaId ||
-    !Number.isSafeInteger(expiresAtMs) ||
-    expiresAtMs <= args.nowMs
-  ) {
-    throw new Error('Ed25519 Wallet Session authorization does not match sealed material');
-  }
-  return { claims, walletSessionJwt: args.walletSessionJwt, expiresAtMs };
-}
-
 export async function rebindRouterAbEd25519WalletSessionStateFromExactRuntime(args: {
   runtime: ExactEd25519SealedSessionRuntime;
   authorization: ActiveWalletSessionAuthorizationProjection;
   nowMs: number;
 }): Promise<ResolvedRouterAbEd25519WalletSessionState> {
-  const walletSessionJwt = walletSessionJwtForCurve(args.authorization, 'ed25519');
-  const claims = walletSessionJwt
-    ? parseRouterAbEd25519WalletSessionIdentityClaims(walletSessionJwt)
-    : null;
-  const authorizationClaims = walletSessionJwt
-    ? parseWalletSessionAuthorizationIdentityClaims(walletSessionJwt)
-    : null;
+  const walletSessionToken = walletSessionTokenForCurve(args.authorization, 'ed25519');
   const expectedAuthority = await ed25519SealedRuntimeAuthorityRef(args.runtime);
-  const validated = validateEd25519RuntimeRebindAuthorization({
-    runtime: args.runtime,
-    authorization: args.authorization,
-    walletSessionJwt,
-    claims,
-    authorizationClaims,
-    expectedAuthority,
+  const expiresAtMs = Math.min(args.runtime.expiresAtMs, args.authorization.expiresAtMs);
+  if (
+    !walletSessionToken ||
+    args.authorization.walletId !== args.runtime.walletId ||
+    args.authorization.authMethod !== args.runtime.auth.kind ||
+    !walletAuthAuthorityRefsMatch(args.authorization.authority, expectedAuthority) ||
+    expiresAtMs <= args.nowMs
+  ) {
+    throw new Error('Ed25519 Wallet Session authorization does not match sealed material');
+  }
+  const signingWalletSession = buildRouterAbEd25519SigningWalletSession({
+    walletId: args.runtime.walletId,
+    nearAccountId: args.runtime.nearAccountId,
+    nearEd25519SigningKeyId: args.runtime.nearEd25519SigningKeyId,
+    walletSessionId: args.authorization.walletSessionId,
+    authorizationId: args.authorization.authorizationId,
+    quotaId: args.authorization.quotaId,
+    thresholdSessionId: args.runtime.thresholdSessionId,
+    remainingUses: args.runtime.remainingUses,
+    expiresAtMs,
+    runtimePolicyScope: args.runtime.runtimePolicyScope,
+    signingRootId: args.runtime.signingRootId,
+    signingRootVersion: args.runtime.signingRootVersion,
+    routerAbNormalSigning: args.runtime.routerAbNormalSigning,
+    walletSessionToken,
     nowMs: args.nowMs,
   });
-  return buildRouterAbEd25519WalletSessionStateFromRuntimeClaims({
-    runtime: args.runtime,
-    claims: validated.claims,
-    walletSessionJwt: validated.walletSessionJwt,
-    authority: expectedAuthority,
-    thresholdSessionId: validated.claims.thresholdSessionId,
-    expiresAtMs: validated.expiresAtMs,
-    nowMs: args.nowMs,
-  });
+  if (!signingWalletSession.ok) {
+    throw new Error(`Ed25519 Wallet Session runtime is invalid: ${signingWalletSession.reason}`);
+  }
+  if (args.runtime.factor.kind === 'passkey' && args.runtime.auth.kind === 'passkey') {
+    return buildPasskeyRouterAbEd25519WalletSessionState({
+      walletId: args.runtime.walletId,
+      nearAccountId: args.runtime.nearAccountId,
+      nearEd25519SigningKeyId: args.runtime.nearEd25519SigningKeyId,
+      signerSlot: args.runtime.signerSlot,
+      rpId: args.runtime.factor.rpId,
+      credentialIdB64u: args.runtime.factor.credentialIdB64u,
+      relayerUrl: args.runtime.relayerUrl,
+      authority: expectedAuthority,
+      signingWalletSession: signingWalletSession.value,
+    });
+  }
+  if (args.runtime.factor.kind === 'email_otp' && args.runtime.auth.kind === 'email_otp') {
+    return buildEmailOtpRouterAbEd25519WalletSessionState({
+      walletId: args.runtime.walletId,
+      nearAccountId: args.runtime.nearAccountId,
+      nearEd25519SigningKeyId: args.runtime.nearEd25519SigningKeyId,
+      providerSubjectId: args.runtime.auth.providerSubjectId,
+      signerSlot: args.runtime.signerSlot,
+      relayerUrl: args.runtime.relayerUrl,
+      authority: expectedAuthority,
+      signingWalletSession: signingWalletSession.value,
+    });
+  }
+  throw new Error('Ed25519 sealed runtime factor and auth binding disagree');
 }
 
 export function nearEd25519YaoOperationMaterialFacts(
@@ -380,28 +262,18 @@ export function authorizeRouterAbEd25519WalletSessionState(args: {
   const state = args.state;
   const authorization = args.authorization;
   const walletId = state.signingLane.identity.signer.account.wallet.walletId;
-  const walletSessionJwt = walletSessionJwtForCurve(authorization, 'ed25519');
+  const walletSessionToken = walletSessionTokenForCurve(authorization, 'ed25519');
   const signer = state.signingLane.identity.signer;
-  const claims = walletSessionJwt
-    ? parseRouterAbEd25519WalletSessionIdentityClaims(walletSessionJwt)
-    : null;
   const effectiveExpiresAtMs = Math.min(
     state.signingWalletSession.expiresAtMs,
     authorization.expiresAtMs,
   );
   if (
-    !walletSessionJwt ||
-    !claims ||
+    !walletSessionToken ||
     authorization.walletId !== walletId ||
     authorization.authority.walletId !== walletId ||
     authorization.authority.authorityDigest !== state.authority.authorityDigest ||
     authorization.authMethod !== signingLaneAuthMethod(state.signingLane.auth) ||
-    claims.walletId !== String(walletId) ||
-    claims.nearAccountId !== String(signer.account.nearAccountId) ||
-    claims.nearEd25519SigningKeyId !== String(signer.nearEd25519SigningKeyId) ||
-    claims.thresholdSessionId !== String(state.thresholdSessionId) ||
-    claims.walletSessionId !== authorization.walletSessionId ||
-    claims.quotaId !== authorization.quotaId ||
     effectiveExpiresAtMs <= args.nowMs ||
     !Number.isSafeInteger(effectiveExpiresAtMs)
   ) {
@@ -412,6 +284,7 @@ export function authorizeRouterAbEd25519WalletSessionState(args: {
     nearAccountId: String(signer.account.nearAccountId),
     nearEd25519SigningKeyId: String(signer.nearEd25519SigningKeyId),
     walletSessionId: String(authorization.walletSessionId),
+    authorizationId: String(authorization.authorizationId),
     quotaId: String(authorization.quotaId),
     thresholdSessionId: String(state.thresholdSessionId),
     remainingUses: state.remainingUses,
@@ -420,7 +293,7 @@ export function authorizeRouterAbEd25519WalletSessionState(args: {
     signingRootId: state.signingRootId,
     signingRootVersion: state.signingRootVersion,
     routerAbNormalSigning: state.routerAbNormalSigning,
-    walletSessionJwt,
+    walletSessionToken,
     nowMs: args.nowMs,
   });
   if (!signingWalletSession.ok) return null;

@@ -1,9 +1,6 @@
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { buildRecoveryExecutionRecord } from '../../../../core/recoveryExecutionRecords';
-import type {
-  RouterApiRecoveryRouteService,
-  RouterApiSessionVersionService,
-} from '../../../framework/authServicePort';
+import type { RouterApiRecoveryRouteService } from '../../../framework/authServicePort';
 import {
   normalizeAccountAddress,
   parseRecoverySessionStatus,
@@ -25,21 +22,6 @@ type RecordRecoveryExecutionInput =
   Parameters<RouterApiRecoveryRouteService['recordRecoveryExecution']>[0];
 type RecordRecoveryExecutionResult = Awaited<
   ReturnType<RouterApiRecoveryRouteService['recordRecoveryExecution']>
->;
-type GetOrCreateAppSessionVersionInput =
-  Parameters<RouterApiSessionVersionService['getOrCreateAppSessionVersion']>[0];
-type GetOrCreateAppSessionVersionResult = Awaited<
-  ReturnType<RouterApiSessionVersionService['getOrCreateAppSessionVersion']>
->;
-type RotateAppSessionVersionInput =
-  Parameters<RouterApiSessionVersionService['rotateAppSessionVersion']>[0];
-type RotateAppSessionVersionResult = Awaited<
-  ReturnType<RouterApiSessionVersionService['rotateAppSessionVersion']>
->;
-type ValidateAppSessionVersionInput =
-  Parameters<RouterApiSessionVersionService['validateAppSessionVersion']>[0];
-type ValidateAppSessionVersionResult = Awaited<
-  ReturnType<RouterApiSessionVersionService['validateAppSessionVersion']>
 >;
 
 function errorMessage(error: unknown): string {
@@ -167,64 +149,4 @@ export class CloudflareD1SessionService {
     }
   }
 
-  async getOrCreateAppSessionVersion(
-    input: GetOrCreateAppSessionVersionInput,
-  ): Promise<GetOrCreateAppSessionVersionResult> {
-    try {
-      const userId = toOptionalTrimmedString(input.userId);
-      if (!userId) return { ok: false, code: 'invalid_args', message: 'Missing userId' };
-      return {
-        ok: true,
-        appSessionVersion: await this.sessionStore.getOrCreateAppSessionVersion(userId),
-      };
-    } catch (error: unknown) {
-      return {
-        ok: false,
-        code: 'internal',
-        message: errorMessage(error) || 'Failed to ensure app session version',
-      };
-    }
-  }
-
-  async rotateAppSessionVersion(
-    input: RotateAppSessionVersionInput,
-  ): Promise<RotateAppSessionVersionResult> {
-    try {
-      const userId = toOptionalTrimmedString(input.userId);
-      if (!userId) return { ok: false, code: 'invalid_args', message: 'Missing userId' };
-      return {
-        ok: true,
-        appSessionVersion: await this.sessionStore.rotateAppSessionVersion(userId),
-      };
-    } catch (error: unknown) {
-      return {
-        ok: false,
-        code: 'internal',
-        message: errorMessage(error) || 'Failed to rotate app session version',
-      };
-    }
-  }
-
-  async validateAppSessionVersion(
-    input: ValidateAppSessionVersionInput,
-  ): Promise<ValidateAppSessionVersionResult> {
-    try {
-      const userId = toOptionalTrimmedString(input.userId);
-      const appSession = toOptionalTrimmedString(input.appSessionVersion);
-      if (!userId || !appSession) {
-        return { ok: false, code: 'unauthorized', message: 'Invalid app session' };
-      }
-      const current = await this.sessionStore.readAppSessionVersion(userId);
-      if (!current || current !== appSession) {
-        return { ok: false, code: 'invalid_session_version', message: 'App session revoked' };
-      }
-      return { ok: true };
-    } catch (error: unknown) {
-      return {
-        ok: false,
-        code: 'internal',
-        message: errorMessage(error) || 'Failed to validate app session version',
-      };
-    }
-  }
 }

@@ -324,13 +324,8 @@ export async function createEvmFamilySigningFlowRuntime(args: {
             args.onAuthSideEffectStarted?.(
               authorization.kind === 'passkey' ? 'passkey_reauth' : 'email_otp_challenge',
             );
-            const sessionAuth = await args.deps.resolveEcdsaOperationStepUpSessionAuth({
-              walletSession: args.walletSession,
-              authMethod: authorization.kind,
-            });
             return await authorizeEvmFamilyEcdsaOperationStepUp({
               relayerUrl,
-              sessionAuth,
               authority: capability.authority,
               authorization,
               prepared,
