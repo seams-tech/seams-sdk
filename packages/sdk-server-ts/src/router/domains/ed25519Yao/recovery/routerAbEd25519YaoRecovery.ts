@@ -620,7 +620,7 @@ const ROUTER_AB_ED25519_YAO_RECOVERY_ROUTES = Object.freeze([
     auth: {
       plane: 'public',
       proof: 'threshold_protocol_state',
-      rationale: 'Warm recovery bootstrap requires an exact Ed25519 Wallet Session JWT.',
+      rationale: 'Warm recovery bootstrap requires an exact opaque Ed25519 Wallet Session token.',
     },
     metering: { kind: 'none' },
     requiredServices: [],

@@ -52,7 +52,10 @@ import type { ProviderSubject, WebAuthnCredentialIdB64u } from '@shared/utils/do
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
-import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import type {
+  AuthFactorIdentity,
+  WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
 import type { QrLinkedDevicePermissionRequest } from '@shared/device-linking/contracts';
 
 /** A server-only identity for one consumed owner authentication result. */
@@ -75,10 +78,12 @@ export type OwnerOperationBinding = {
   readonly displayDigest: DigestB64u;
 };
 
+export type VerifiedOwnerProofMethod = AuthFactorIdentity['kind'];
+
 export type VerifiedOwnerProofCommon = {
   readonly kind: 'verified_owner_proof_v1';
   readonly proofId: VerifiedOwnerProofId;
-  readonly method: 'passkey' | 'email_otp';
+  readonly method: VerifiedOwnerProofMethod;
   readonly authSource:
     | { readonly kind: 'passkey'; readonly credentialIdB64u: WebAuthnCredentialIdB64u }
     | {
@@ -120,6 +125,8 @@ export type IssuedHostedWalletSeamsSessionExchange = {
   readonly nonceDigest: DigestB64u;
   readonly appOrigin: SessionOrigin;
   readonly walletOrigin: SessionOrigin;
+  readonly curve: 'ecdsa' | 'ed25519';
+  readonly bindingJson: string;
   readonly issuedAtMs: number;
   readonly expiresAtMs: number;
 };
@@ -167,9 +174,9 @@ export type RedeemHostedWalletSeamsSessionExchangeInput = {
   readonly codeHash: DigestB64u;
   readonly nonceDigest: DigestB64u;
   readonly appOrigin: SessionOrigin;
+  readonly walletOrigin: SessionOrigin;
   readonly tokenHash: DigestB64u;
   readonly curve: 'ecdsa' | 'ed25519';
-  readonly bindingJson: string;
   readonly redeemedAtMs: number;
 };
 

@@ -585,8 +585,6 @@ async function postLinkedJson(
   };
   if (credential.kind === 'wallet_session_jwt') {
     headers.Authorization = `Bearer ${requireText(credential.walletSessionJwt, 'walletSessionJwt')}`;
-  } else if (credential.kind === 'app_session_jwt') {
-    headers.Authorization = `Bearer ${requireText(credential.appSessionJwt, 'appSessionJwt')}`;
   }
   const response = await fetch(`${baseUrl}${path}`, {
     method: 'POST',

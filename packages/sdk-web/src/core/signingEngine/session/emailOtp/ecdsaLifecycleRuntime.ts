@@ -1,5 +1,4 @@
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
-import type { WalletSessionRef } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type { EmailOtpRuntimeConfig } from './runtimeConfig';
 import type { EmailOtpEcdsaPublicationPorts } from './ecdsaPublication';
@@ -36,10 +35,6 @@ export class EmailOtpEcdsaLifecycleRuntime {
       ) => Promise<EmailOtpEcdsaExplicitExportBootstrapResult>;
       runtimeConfig: EmailOtpRuntimeConfig;
       resolveCurrentEcdsaCapabilityRuntime: EmailOtpWalletSessionCoordinatorDeps['resolveCurrentEcdsaCapabilityRuntime'];
-      rememberAppSessionJwt: (args: {
-        walletId: WalletSessionRef['walletId'];
-        appSessionJwt: string;
-      }) => void;
       publicationPorts: () => EmailOtpEcdsaPublicationPorts;
     },
   ) {}
@@ -68,7 +63,6 @@ export class EmailOtpEcdsaLifecycleRuntime {
       requireRelayUrl: () => this.ports.runtimeConfig.requireRelayUrl(),
       requireSigningSessionSealGroupId: () =>
         this.ports.runtimeConfig.requireSigningSessionSealGroupId(),
-      rememberAppSessionJwt: (request) => this.ports.rememberAppSessionJwt(request),
       publicationPorts: this.ports.publicationPorts(),
     });
   }
@@ -87,7 +81,6 @@ export class EmailOtpEcdsaLifecycleRuntime {
       requireRelayUrl: () => this.ports.runtimeConfig.requireRelayUrl(),
       requireSigningSessionSealGroupId: () =>
         this.ports.runtimeConfig.requireSigningSessionSealGroupId(),
-      rememberAppSessionJwt: (request) => this.ports.rememberAppSessionJwt(request),
       publicationPorts: this.ports.publicationPorts(),
     });
   }

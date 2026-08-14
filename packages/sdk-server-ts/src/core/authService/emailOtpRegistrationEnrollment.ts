@@ -62,8 +62,7 @@ export type VerifyEmailOtpEnrollmentRequest = {
   challengeId: unknown;
   otpCode: unknown;
   otpChannel: unknown;
-  sessionHash: unknown;
-  appSessionVersion: unknown;
+  ownerProofBindingDigest: unknown;
   proofEmail?: unknown;
   clientIp?: unknown;
   enrollmentSealKeyVersion?: unknown;
@@ -339,7 +338,7 @@ export async function resolveEmailOtpRegistrationChallengeProof(input: {
           challengeId: proofInput.challengeId,
           finalWalletId: proofInput.walletId,
           orgId: proofInput.orgId,
-          appSessionVersion: proofInput.appSessionVersion,
+          ownerProofBindingDigest: proofInput.ownerProofBindingDigest,
         },
       };
     }
@@ -354,7 +353,7 @@ export async function resolveEmailOtpRegistrationChallengeProof(input: {
           challengeId: proofInput.challengeId,
           finalWalletId: proofInput.finalWalletId,
           orgId: proofInput.orgId,
-          appSessionVersion: proofInput.appSessionVersion,
+          ownerProofBindingDigest: proofInput.ownerProofBindingDigest,
         },
       };
   }

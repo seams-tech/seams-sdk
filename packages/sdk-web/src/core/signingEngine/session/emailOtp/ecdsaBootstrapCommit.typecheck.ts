@@ -14,7 +14,7 @@ declare const authority: WalletAuthAuthorityRef;
 declare const ports: EmailOtpEcdsaSessionPorts;
 
 void bootstrap.session.runtimePolicyScope.projectId;
-void bootstrap.session.jwt.trim();
+void bootstrap.session.walletSessionToken.trim();
 void bootstrap.session.clientVerifyingShareB64u.trim();
 void bootstrap.thresholdEcdsaKeyRef.keyHandle.trim();
 void bootstrap.thresholdEcdsaKeyRef.participantIds.map(Number);

@@ -180,6 +180,7 @@ import type {
   IssuedReusableWalletSession,
   IssuedOpaqueWalletSessionToken,
   OpaqueWalletSessionCurve,
+  OpaqueOwnerWalletSessionBinding,
   ResolvedOpaqueWalletSessionToken,
   EcdsaMaterialActivationScope,
   LinkedDeviceMaterialActivationScopeV1,
@@ -543,7 +544,7 @@ export type RouterApiMethodTypes = {
       readonly accountMode?: unknown;
       readonly runtimePolicyScope?: ThresholdRuntimePolicyScope;
       readonly clientIp?: string;
-      readonly appSessionUserId?: string;
+      readonly providerUserId?: string;
       readonly restartRegistrationOffer?: unknown;
     };
     readonly result:
@@ -650,16 +651,6 @@ export type RouterApiMethodTypes = {
           readonly configured: true;
           readonly clientId: string;
           readonly callbackUrl: string;
-        };
-  };
-  getOrCreateAppSessionVersion: {
-    readonly input: { readonly userId: string };
-    readonly result:
-      | { readonly ok: true; readonly appSessionVersion: string }
-      | {
-          readonly ok: false;
-          readonly code: 'invalid_args' | 'internal';
-          readonly message: string;
         };
   };
   getRelayerAccount: {
@@ -838,7 +829,6 @@ export type RouterApiMethodTypes = {
       readonly sub?: string;
       readonly email?: string;
       readonly accountMode?: unknown;
-      readonly appSessionVersion?: string;
       readonly runtimePolicyScope?: ThresholdRuntimePolicyScope;
       readonly restartRegistrationOffer?: unknown;
     };
@@ -850,7 +840,6 @@ export type RouterApiMethodTypes = {
       readonly sub?: string;
       readonly email?: string;
       readonly accountMode?: unknown;
-      readonly appSessionVersion?: string;
       readonly runtimePolicyScope?: ThresholdRuntimePolicyScope;
       readonly restartRegistrationOffer?: unknown;
     };
@@ -859,16 +848,6 @@ export type RouterApiMethodTypes = {
   revokeWalletAuthMethod: {
     readonly input: RevokeWalletAuthMethodCommand;
     readonly result: WalletRevokeAuthMethodResponse;
-  };
-  rotateAppSessionVersion: {
-    readonly input: { readonly userId: string };
-    readonly result:
-      | { readonly ok: true; readonly appSessionVersion: string }
-      | {
-          readonly ok: false;
-          readonly code: 'invalid_args' | 'internal';
-          readonly message: string;
-        };
   };
   startWalletAddAuthMethod: {
     readonly input: StartWalletAddAuthMethodCommand;
@@ -893,16 +872,6 @@ export type RouterApiMethodTypes = {
       | {
           readonly ok: false;
           readonly code: 'invalid_args' | 'internal';
-          readonly message: string;
-        };
-  };
-  validateAppSessionVersion: {
-    readonly input: { readonly userId: string; readonly appSessionVersion: string };
-    readonly result:
-      | { readonly ok: true }
-      | {
-          readonly ok: false;
-          readonly code: 'invalid_session_version' | 'unauthorized' | 'internal';
           readonly message: string;
         };
   };
@@ -986,24 +955,6 @@ export type RouterApiMethodTypes = {
       readonly sub?: string;
       readonly email?: string;
       readonly name?: string;
-      readonly code?: string;
-      readonly message?: string;
-    };
-  };
-  verifyOidcJwtExchange: {
-    readonly input: { readonly token?: unknown };
-    readonly result: {
-      readonly ok: boolean;
-      readonly verified?: boolean;
-      readonly userId?: string;
-      readonly providerSubject?: string;
-      readonly iss?: string;
-      readonly aud?: string[];
-      readonly sub?: string;
-      readonly email?: string;
-      readonly name?: string;
-      readonly given_name?: string;
-      readonly family_name?: string;
       readonly code?: string;
       readonly message?: string;
     };
@@ -1096,7 +1047,7 @@ export type RouterApiMethodTypes = {
 export type GoogleEmailOtpRegistrationCandidateWalletValidationRequest = {
   readonly registrationAttemptId: string;
   readonly walletId: string;
-  readonly appSessionVersion: string;
+  readonly ownerProofBindingDigest: string;
   readonly providerSubject: string;
 };
 
@@ -1149,6 +1100,7 @@ export interface RouterApiWalletRegistrationService {
         readonly signerSlot: number;
         readonly signingWorkerId: string;
         readonly participantIds: readonly [number, number];
+        readonly runtimePolicyScope: ThresholdRuntimePolicyScope;
       }
     | { readonly ok: false; readonly code: 'not_found' | 'internal'; readonly message: string }
   >;
@@ -1162,6 +1114,7 @@ export interface RouterApiWalletRegistrationService {
         readonly keyHandle: string;
         readonly relayerKeyId: string;
         readonly participantIds: readonly [number, number];
+        readonly runtimePolicyScope: ThresholdRuntimePolicyScope;
       }
     | { readonly ok: false; readonly code: 'not_found' | 'internal'; readonly message: string }
   >;
@@ -1216,9 +1169,6 @@ export interface RouterApiWalletRegistrationService {
 }
 
 export interface RouterApiWalletAuthVerificationService {
-  validateAppSessionVersion(
-    input: RouterApiMethodTypes['validateAppSessionVersion']['input'],
-  ): Promise<RouterApiMethodTypes['validateAppSessionVersion']['result']>;
   verifyWebAuthnAuthenticationLite(
     input: RouterApiMethodTypes['verifyWebAuthnAuthenticationLite']['input'],
   ): Promise<RouterApiMethodTypes['verifyWebAuthnAuthenticationLite']['result']>;
@@ -1288,9 +1238,6 @@ export interface RouterApiWalletRegistrationRouteService
     RouterApiWalletRegistrationService,
     RouterApiWalletAuthMethodService,
     RouterApiWalletAuthVerificationService {
-  getOrCreateAppSessionVersion(
-    input: RouterApiMethodTypes['getOrCreateAppSessionVersion']['input'],
-  ): Promise<RouterApiMethodTypes['getOrCreateAppSessionVersion']['result']>;
   fundImplicitNearAccount(
     input: FundImplicitNearAccountRequest,
   ): Promise<FundImplicitNearAccountResult>;
@@ -1368,114 +1315,6 @@ export interface RouterApiEmailOtpRouteService extends RouterApiEmailOtpChalleng
   ): Promise<RouterApiMethodTypes['verifyGoogleLogin']['result']>;
 }
 
-export interface RouterApiSessionVersionService {
-  getOrCreateAppSessionVersion(
-    input: RouterApiMethodTypes['getOrCreateAppSessionVersion']['input'],
-  ): Promise<RouterApiMethodTypes['getOrCreateAppSessionVersion']['result']>;
-  rotateAppSessionVersion(
-    input: RouterApiMethodTypes['rotateAppSessionVersion']['input'],
-  ): Promise<RouterApiMethodTypes['rotateAppSessionVersion']['result']>;
-  validateAppSessionVersion(
-    input: RouterApiMethodTypes['validateAppSessionVersion']['input'],
-  ): Promise<RouterApiMethodTypes['validateAppSessionVersion']['result']>;
-}
-
-export type RouterApiSessionExchangePhase = 'claimed' | 'session_prepared' | 'completed';
-
-export type RouterApiSessionExchangeAccountMode = 'login';
-
-export type RouterApiSessionExchangePrepared = {
-  readonly seamsSessionId: string;
-  readonly deviceId: string;
-  readonly createdAtMs: number;
-};
-
-export type RouterApiSessionExchangeResponse = {
-  readonly status: number;
-  readonly bodyText: string;
-  readonly setCookie?: string;
-};
-
-type RouterApiSessionExchangeJournalBase = {
-  readonly kind: 'google_email_otp_session_exchange_journal_v1';
-  readonly idempotencyKey: string;
-  readonly requestFingerprint: string;
-  readonly accountMode: RouterApiSessionExchangeAccountMode;
-  readonly version: number;
-  readonly phaseData: Readonly<Record<string, unknown>>;
-  readonly prepared: RouterApiSessionExchangePrepared;
-  readonly createdAtMs: number;
-  readonly updatedAtMs: number;
-  readonly expiresAtMs: number;
-};
-
-export type RouterApiSessionExchangeJournal =
-  | (RouterApiSessionExchangeJournalBase & {
-      readonly lifecycle: 'in_progress';
-      readonly phase: Exclude<RouterApiSessionExchangePhase, 'completed'>;
-      readonly response?: never;
-    })
-  | (RouterApiSessionExchangeJournalBase & {
-      readonly lifecycle: 'completed';
-      readonly phase: 'completed';
-      readonly response: RouterApiSessionExchangeResponse;
-    });
-
-export type RouterApiCompletedSessionExchangeJournal = Extract<
-  RouterApiSessionExchangeJournal,
-  { readonly lifecycle: 'completed' }
->;
-
-export type RouterApiSessionExchangeClaimResult =
-  | { readonly kind: 'claimed'; readonly journal: RouterApiSessionExchangeJournal }
-  | { readonly kind: 'resume'; readonly journal: RouterApiSessionExchangeJournal }
-  | { readonly kind: 'replayed'; readonly journal: RouterApiCompletedSessionExchangeJournal }
-  | {
-      readonly kind: 'conflict';
-      readonly code: 'idempotency_conflict';
-      readonly journal: RouterApiSessionExchangeJournal;
-      readonly message: string;
-    }
-  | { readonly kind: 'uncertain'; readonly message: string };
-
-export type RouterApiSessionExchangeMutationResult =
-  | { readonly kind: 'stored'; readonly journal: RouterApiSessionExchangeJournal }
-  | { readonly kind: 'replayed'; readonly journal: RouterApiSessionExchangeJournal }
-  | {
-      readonly kind: 'conflict';
-      readonly code: 'version_conflict' | 'response_conflict' | 'request_conflict';
-      readonly journal?: RouterApiSessionExchangeJournal;
-      readonly message: string;
-    }
-  | {
-      readonly kind: 'in_progress';
-      readonly journal: RouterApiSessionExchangeJournal;
-      readonly retryAfterMs: number;
-    }
-  | { readonly kind: 'uncertain'; readonly message: string };
-
-export interface RouterApiSessionExchangeService {
-  claimGoogleEmailOtp(input: {
-    readonly idempotencyKey: string;
-    readonly requestFingerprint: string;
-    readonly accountMode: RouterApiSessionExchangeAccountMode;
-    readonly nowMs: number;
-  }): Promise<RouterApiSessionExchangeClaimResult>;
-  read(idempotencyKey: string): Promise<RouterApiSessionExchangeJournal | null>;
-  checkpoint(input: {
-    readonly key: string;
-    readonly expectedVersion: number;
-    readonly phase: Exclude<RouterApiSessionExchangePhase, 'claimed' | 'completed'>;
-    readonly data: Readonly<Record<string, unknown>>;
-  }): Promise<RouterApiSessionExchangeMutationResult>;
-  complete(input: {
-    readonly key: string;
-    readonly expectedVersion: number;
-    readonly response: RouterApiSessionExchangeResponse;
-    readonly expiresAtMs: number;
-  }): Promise<RouterApiSessionExchangeMutationResult>;
-}
-
 export interface RouterApiIdentityService {
   consumeGoogleEmailOtpRegistrationAttemptRateLimit(
     input: RouterApiMethodTypes['consumeGoogleEmailOtpRegistrationAttemptRateLimit']['input'],
@@ -1503,9 +1342,6 @@ export interface RouterApiIdentityService {
   verifyGithubOAuthCode(
     input: RouterApiMethodTypes['verifyGithubOAuthCode']['input'],
   ): Promise<RouterApiMethodTypes['verifyGithubOAuthCode']['result']>;
-  verifyOidcJwtExchange(
-    input: RouterApiMethodTypes['verifyOidcJwtExchange']['input'],
-  ): Promise<RouterApiMethodTypes['verifyOidcJwtExchange']['result']>;
 }
 
 export interface RouterApiWebAuthnService {
@@ -1565,8 +1401,6 @@ export interface RouterApiServiceBag {
   emailOtp: RouterApiEmailOtpRouteService;
   webAuthn: RouterApiWebAuthnService;
   identity: RouterApiIdentityService;
-  sessionVersions: RouterApiSessionVersionService;
-  sessionExchanges: RouterApiSessionExchangeService;
   authorizationSessions: RouterApiAuthorizationSessionService;
   authorizedOperations: RouterApiAuthorizedOperationService;
   thresholdRuntime: RouterAbSigningRuntimeService;
@@ -1603,6 +1437,10 @@ export interface RouterApiAuthorizedOperationService {
   recordVerifiedWalletOperationFactorEvidenceSet(
     input: VerifiedWalletOperationFactorEvidenceSetInput,
   ): Promise<VerifiedAuthorizationEvidenceSet>;
+  readAuthorizedOperationById(input: {
+    readonly tenantId: TenantId;
+    readonly authorizedOperationId: import('@shared/authorization/capabilityKinds').AuthorizedOperationId;
+  }): Promise<AuthorizedOperation | null>;
   readAuthorizedOperation(input: {
     readonly tenantId: TenantId;
     readonly operationFingerprintDigest: import('@shared/authorization/operationFingerprint').CapabilityOperationFingerprintDigest;
@@ -1644,7 +1482,7 @@ export interface RouterApiAuthorizationSessionService {
     readonly expiresAtMs: number;
     readonly consumedAtMs: number;
     readonly curve: OpaqueWalletSessionCurve;
-    readonly binding: Readonly<Record<string, unknown>>;
+    readonly binding: OpaqueOwnerWalletSessionBinding;
   }): Promise<IssuedOpaqueWalletSessionToken>;
   resolveOpaqueWalletSessionToken(input: {
     readonly tenantId: TenantId;
@@ -1664,6 +1502,8 @@ export interface RouterApiAuthorizationSessionService {
     readonly walletSessionId: import('@shared/authorization/capabilityKinds').WalletSessionId;
     readonly appOrigin: SessionOrigin;
     readonly walletOrigin: SessionOrigin;
+    readonly curve: OpaqueWalletSessionCurve;
+    readonly binding: Readonly<Record<string, unknown>>;
     readonly issuedAtMs: number;
     readonly expiresAtMs: number;
   }): Promise<HostedWalletSeamsSessionExchangeDelivery>;
@@ -1671,8 +1511,8 @@ export interface RouterApiAuthorizationSessionService {
     readonly exchangeCode: HostedWalletSeamsSessionExchangeCode;
     readonly nonce: HostedWalletSeamsSessionExchangeNonce;
     readonly appOrigin: SessionOrigin;
+    readonly walletOrigin: SessionOrigin;
     readonly curve: OpaqueWalletSessionCurve;
-    readonly binding: Readonly<Record<string, unknown>>;
     readonly redeemedAtMs: number;
   }): Promise<RedeemHostedWalletSeamsSessionExchangeResult>;
 }
@@ -1683,8 +1523,6 @@ export function routerApiWalletRegistrationRouteService(
   return {
     ...service.walletRegistration,
     ...service.walletAuthMethods,
-    getOrCreateAppSessionVersion: service.sessionVersions.getOrCreateAppSessionVersion,
-    validateAppSessionVersion: service.sessionVersions.validateAppSessionVersion,
     readActiveEmailOtpEnrollment: service.emailOtp.readActiveEmailOtpEnrollment,
     verifyWebAuthnAuthenticationLite: service.webAuthn.verifyWebAuthnAuthenticationLite,
     fundImplicitNearAccount: service.nearFunding.fundImplicitNearAccount,

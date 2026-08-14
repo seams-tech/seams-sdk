@@ -8,7 +8,6 @@ import type {
   WalletEmailOtpChannel,
   WalletEmailOtpLoginOperation,
 } from '@shared/utils/emailOtpDomain';
-import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   ThresholdEcdsaChainTarget,
@@ -29,7 +28,6 @@ import type {
   LoginEmailOtpEcdsaCapabilityArgs,
 } from '../../session/emailOtp/ecdsaLogin';
 import {
-  resolveEmailOtpAuthLane,
   type EmailOtpRoutePlan,
 } from '../../stepUpConfirmation/otpPrompt/authLane';
 import { buildFreshEmailOtpRoutePlan } from '../../session/emailOtp/routePlan';
@@ -45,12 +43,9 @@ export type LoginWithEmailOtpEcdsaCapabilityInternalArgs = {
   otpCode: string;
   operation?: WalletEmailOtpLoginOperation;
   groupId?: string;
-  appSessionJwt?: string;
-  routeAuth?: AppOrWalletSessionAuth;
   keyHandle?: string;
   participantIds?: number[];
   publicationChainTargets?: readonly ThresholdEcdsaChainTarget[];
-  sessionKind?: 'jwt';
   ttlMs?: number;
   remainingUses?: number;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -70,7 +65,6 @@ export type EnrollEmailOtpInternalArgs = {
   relayUrl?: string;
   challengeId?: string;
   groupId?: string;
-  appSessionJwt?: string;
   clientSecret32?: Uint8Array;
   otpChannel?: WalletEmailOtpChannel;
 };
@@ -82,7 +76,6 @@ type PrepareEmailOtpRegistrationEnrollmentMaterialInternalArgsBase = {
   userId: string;
   relayUrl?: string;
   groupId?: string;
-  appSessionJwt: string;
   otpChannel?: WalletEmailOtpChannel;
   clientSecret32?: Uint8Array;
 };
@@ -113,27 +106,13 @@ export type EmailOtpPublicDeps = {
 
 function buildEmailOtpEcdsaFreshRoutePlanFromBoundary(
   args: {
-    routeAuth?: AppOrWalletSessionAuth;
-    appSessionJwt?: string;
-    sessionKind?: 'jwt';
     chainTarget: ThresholdEcdsaChainTarget;
     operation?: WalletEmailOtpLoginOperation;
   },
   freshRouteFamily: 'login' | 'registration',
 ): EmailOtpRoutePlan {
-  const authLane = resolveEmailOtpAuthLane({
-    routeAuth: args.routeAuth,
-    appSessionJwt: args.appSessionJwt,
-    sessionKind: args.sessionKind || 'jwt',
-    curve: 'ecdsa',
-    chainTarget: args.chainTarget,
-  });
-  if (!authLane) {
-    throw new Error(`Email OTP ECDSA ${freshRouteFamily} requires route auth`);
-  }
   return buildFreshEmailOtpRoutePlan({
     freshRouteFamily,
-    authLane,
     operation: args.operation,
   });
 }
@@ -268,7 +247,6 @@ export async function enrollEmailOtpInternal(
     otpCode: args.otpCode,
     groupId,
     workerCtx: deps.getSignerWorkerContext(),
-    appSessionJwt: args.appSessionJwt,
     otpChannel: args.otpChannel,
     ...(args.clientSecret32 ? { clientSecret32: args.clientSecret32 } : {}),
   });
@@ -297,7 +275,6 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterialInternal(
     userId,
     groupId,
     workerCtx: deps.getSignerWorkerContext(),
-    appSessionJwt: args.appSessionJwt,
     otpChannel: args.otpChannel,
     ecdsaSessionHandle: { kind: 'not_requested' },
     ...(args.clientSecret32 ? { clientSecret32: args.clientSecret32 } : {}),

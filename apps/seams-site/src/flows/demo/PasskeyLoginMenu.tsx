@@ -411,11 +411,6 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
     }
 
     const result = await unlock(loginTarget, {
-      // The wallet and Gateway are cross-origin, so warm-up authorization must use a bearer JWT.
-      session: {
-        kind: 'jwt',
-        exchange: { type: 'passkey_assertion' },
-      },
       onEvent: (event: UnlockFlowEvent) => handleUnlockEvent(event, loginTarget),
     });
     if (result?.success) {
@@ -457,7 +452,6 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
         idToken,
         mode: args.mode === AuthMenuMode.Register ? 'register' : 'login',
         relayUrl: relayerBaseUrl,
-        sessionKind: 'jwt',
         emailOtpAuthPolicy: args.emailOtpAuthPolicy,
         onDemoOtp: showDemoEmailOtpToast,
         onEvent: handleGoogleEmailOtpEvent,

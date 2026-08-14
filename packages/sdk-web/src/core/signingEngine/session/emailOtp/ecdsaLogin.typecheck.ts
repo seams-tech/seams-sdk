@@ -37,19 +37,6 @@ const transactionStepUpWithoutRemainingUses: EmailOtpEcdsaTransactionStepUpInput
 };
 void transactionStepUpWithoutRemainingUses;
 
-const transactionStepUpWithRecordAuthLane: EmailOtpEcdsaTransactionStepUpInput = {
-  mode: 'transaction_step_up',
-  walletSession,
-  chainTarget,
-  challengeId: 'challenge-1',
-  otpCode: '123456',
-  committedLane,
-  remainingUses: 3,
-  // @ts-expect-error transaction step-up does not accept loose auth lanes.
-  authLane: { kind: 'cookie' },
-};
-void transactionStepUpWithRecordAuthLane;
-
 const transactionStepUpWithRouteAuth: EmailOtpEcdsaTransactionStepUpInput = {
   mode: 'transaction_step_up',
   walletSession,
@@ -179,44 +166,5 @@ const invalidCapabilityLoginWithoutRoutePlan: LoginEmailOtpEcdsaCapabilityArgs =
   providerIdentity: { kind: 'derive_from_route_auth' },
 };
 void invalidCapabilityLoginWithoutRoutePlan;
-
-const invalidCapabilityLoginWithRawAppSession: LoginEmailOtpEcdsaCapabilityArgs = {
-  walletSession,
-  chainTarget,
-  otpCode: '123456',
-  routePlan,
-  emailHashHex: 'email-hash',
-  ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
-  providerIdentity: { kind: 'derive_from_route_auth' },
-  // @ts-expect-error ECDSA login core must not accept raw app-session JWTs.
-  appSessionJwt: 'app-session-jwt',
-};
-void invalidCapabilityLoginWithRawAppSession;
-
-const invalidCapabilityLoginWithRawRouteAuth: LoginEmailOtpEcdsaCapabilityArgs = {
-  walletSession,
-  chainTarget,
-  otpCode: '123456',
-  routePlan,
-  emailHashHex: 'email-hash',
-  ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
-  providerIdentity: { kind: 'derive_from_route_auth' },
-  // @ts-expect-error ECDSA login core must not accept raw route auth.
-  routeAuth: { kind: 'app_session', jwt: 'app-session-jwt' },
-};
-void invalidCapabilityLoginWithRawRouteAuth;
-
-const invalidCapabilityLoginWithSessionKind: LoginEmailOtpEcdsaCapabilityArgs = {
-  walletSession,
-  chainTarget,
-  otpCode: '123456',
-  routePlan,
-  emailHashHex: 'email-hash',
-  ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
-  providerIdentity: { kind: 'derive_from_route_auth' },
-  // @ts-expect-error ECDSA login core receives session transport through routePlan.
-  sessionKind: 'jwt',
-};
-void invalidCapabilityLoginWithSessionKind;
 
 export {};

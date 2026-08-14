@@ -1,14 +1,4 @@
 import type { NormalizedLogger } from '../../../core/logger';
-import {
-  parseRouterAbEcdsaDerivationWalletSessionClaims,
-  parseRouterAbEd25519WalletSessionClaims,
-} from '../../../core/ThresholdService/validation';
-import {
-  walletSessionFailure,
-  walletSessionFailureStatus,
-  walletSessionParseFailure,
-} from '../../../router/auth/walletSessionFailure';
-import { WALLET_SESSION_FAILURE_CODES } from '@shared/utils/walletSessionFailure';
 import { createSigningSessionSealAuditLogger } from './observability/audit';
 import { composeSigningSessionSealGuards, createSigningSessionSealRateLimitGuard } from './guards';
 import { createSigningSessionSealService } from './service';
@@ -82,49 +72,6 @@ function buildGuard(
   return composeSigningSessionSealGuards(...nonNullGuards);
 }
 
-function parseCurveBoundThresholdLookup(args: {
-  claims: Record<string, unknown>;
-  thresholdSessionId: string;
-}): {
-  curve: 'ecdsa' | 'ed25519';
-  thresholdSessionId: string;
-  thresholdExpiresAtMs: number;
-} | null {
-  const thresholdSessionId = String(args.thresholdSessionId || '').trim();
-  if (!thresholdSessionId) return null;
-  const ecdsaClaims = parseRouterAbEcdsaDerivationWalletSessionClaims(args.claims);
-  if (ecdsaClaims?.authorizationKind === 'owner_wallet_session') {
-    return ecdsaClaims.thresholdSessionId === thresholdSessionId
-      ? {
-          curve: 'ecdsa',
-          thresholdSessionId,
-          thresholdExpiresAtMs: ecdsaClaims.thresholdExpiresAtMs,
-        }
-      : null;
-  }
-  const ed25519Claims = parseRouterAbEd25519WalletSessionClaims(args.claims);
-  if (ed25519Claims?.authorizationKind === 'owner_wallet_session') {
-    return ed25519Claims.thresholdSessionId === thresholdSessionId
-      ? {
-          curve: 'ed25519',
-          thresholdSessionId,
-          thresholdExpiresAtMs: ed25519Claims.thresholdExpiresAtMs,
-        }
-      : null;
-  }
-  return null;
-}
-
-function signingSessionSealAuthorizationFailure(
-  code: Parameters<typeof walletSessionFailure>[0],
-): SigningSessionSealAuthorizeResult {
-  const failure = walletSessionFailure(code);
-  return {
-    ...failure,
-    status: walletSessionFailureStatus(code),
-  };
-}
-
 export function createSigningSessionSealRoutesOptions(
   input: CreateSigningSessionSealRoutesOptionsInput,
 ): SigningSessionSealRoutesOptions {
@@ -155,54 +102,7 @@ export function createSigningSessionSealRoutesOptions(
   if (input.basePath) {
     options.basePath = input.basePath;
   }
-  if (input.authorize) {
-    options.authorize = input.authorize;
-  } else {
-    options.authorize = async ({ headers, session, thresholdSessionId }) => {
-      if (!session) {
-        return {
-          ok: false,
-          code: 'sessions_disabled',
-          message: 'Sessions are not configured for Signing-session seal routes',
-          status: 501,
-        };
-      }
-      const parsed = await session.parse(headers);
-      if (!parsed.ok) {
-        const failure = walletSessionParseFailure(parsed.reason);
-        return {
-          ...failure,
-          status: walletSessionFailureStatus(failure.code),
-        };
-      }
-      const claims =
-        parsed.claims && typeof parsed.claims === 'object' && !Array.isArray(parsed.claims)
-          ? (parsed.claims as Record<string, unknown>)
-          : {};
-      const userId = typeof claims.walletId === 'string' ? claims.walletId.trim() : '';
-      if (!userId) {
-        return signingSessionSealAuthorizationFailure(WALLET_SESSION_FAILURE_CODES.claimsInvalid);
-      }
-      const thresholdLookup = parseCurveBoundThresholdLookup({
-        claims,
-        thresholdSessionId: String(thresholdSessionId || '').trim(),
-      });
-      if (!thresholdLookup) {
-        return signingSessionSealAuthorizationFailure(WALLET_SESSION_FAILURE_CODES.scopeMismatch);
-      }
-
-      if (thresholdLookup.thresholdExpiresAtMs <= (input.nowMs || Date.now)()) {
-        return signingSessionSealAuthorizationFailure(WALLET_SESSION_FAILURE_CODES.expired);
-      }
-      return {
-        ok: true,
-        auth: {
-          userId,
-          claims,
-        },
-      };
-    };
-  }
+  if (input.authorize) options.authorize = input.authorize;
   if (input.capabilities) {
     options.capabilities = input.capabilities;
   }

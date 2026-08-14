@@ -801,7 +801,6 @@ export type LoginResult =
       loggedInNearAccountId: string;
       operationalPublicKey: string | null;
       nearAccountId: AccountId;
-      jwt?: string;
       error?: never;
     }
   | {
@@ -811,7 +810,6 @@ export type LoginResult =
       loggedInNearAccountId?: never;
       operationalPublicKey?: never;
       nearAccountId?: never;
-      jwt?: string;
       error?: never;
     }
   | {
@@ -822,7 +820,6 @@ export type LoginResult =
       loggedInNearAccountId?: never;
       operationalPublicKey?: never;
       nearAccountId?: never;
-      jwt?: never;
     };
 
 export interface SigningSessionStatus {

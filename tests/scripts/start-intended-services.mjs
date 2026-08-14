@@ -17,14 +17,15 @@ const appUrl = process.env.SEAMS_INTENDED_APP_URL || 'https://localhost';
 const routerUrl = process.env.SEAMS_INTENDED_ROUTER_URL || 'https://localhost:9444';
 const walletOrigin = process.env.SEAMS_INTENDED_WALLET_ORIGIN || 'https://localhost:8443';
 const projectEnvironmentId = process.env.SEAMS_INTENDED_PROJECT_ENVIRONMENT_ID || 'local-env';
+const projectEnvironmentKey = process.env.SEAMS_INTENDED_ENVIRONMENT_KEY || 'dev';
 const publishableKey = process.env.SEAMS_INTENDED_PUBLISHABLE_KEY || 'pk_local';
 const docsOrigin = process.env.SEAMS_INTENDED_DOCS_ORIGIN || 'https://docs.localhost';
-const d1LocalPersistPath =
-  process.env.SEAMS_INTENDED_D1_PERSIST_TO ||
-  path.join(tmpdir(), `${path.basename(repoRoot)}-intended-d1`);
 const routerAbLocalRoot =
   process.env.SEAMS_INTENDED_ROUTER_AB_ROOT ||
   path.join(tmpdir(), `${path.basename(repoRoot)}-intended-router-ab`);
+const d1LocalPersistPath =
+  process.env.SEAMS_INTENDED_D1_PERSIST_TO ||
+  path.join(routerAbLocalRoot, '.local', 'cloudflare-state', 'gateway');
 const d1LocalWranglerRuntimeDir =
   process.env.SEAMS_INTENDED_D1_WRANGLER_RUNTIME_DIR ||
   path.join(repoRoot, '.runtime', 'wrangler-d1-local');
@@ -329,6 +330,8 @@ function routerEnv() {
     SEAMS_D1_LOCAL_WRANGLER_CONFIG: d1LocalWranglerConfigPath,
     SEAMS_D1_LOCAL_WASM_AUTO_BUILD: '0',
     SEAMS_LOCAL_CONSOLE_ORG_ID: requireLocalConsoleOrganizationId(),
+    SEAMS_LOCAL_CONSOLE_PROJECT_ID: 'local-smoke-project',
+    SEAMS_LOCAL_CONSOLE_ENVIRONMENT_ID: projectEnvironmentKey,
   };
 }
 
@@ -337,6 +340,8 @@ function prepareD1LocalWranglerRuntimeConfig() {
     repoRoot,
     localEnvRoot: routerAbLocalRoot,
     outputConfigPath: d1LocalWranglerConfigPath,
+    localConsoleProjectId: 'local-smoke-project',
+    localConsoleEnvironmentId: projectEnvironmentKey,
   });
   d1LocalRuntimeConfig = runtime;
   localConsoleOrganizationId = runtime.localConsoleOrganizationId;
@@ -653,14 +658,13 @@ function isManagedProcessCommand(command) {
 }
 
 function isRouterDevWorkerCommand(command) {
-  return command.includes(
-    'crates/router-ab-dev/scripts/dev-local-workers.mjs --mode logs -- --fresh',
-  );
+  return command.includes('crates/router-ab-dev/scripts/dev-local-workers.mjs --mode logs');
 }
 
 function isWranglerD1Command(command) {
   return (
-    command.includes('wrangler dev --config wrangler.d1-local.toml') &&
+    command.includes('wrangler dev') &&
+    command.includes('wrangler.d1-local.toml') &&
     command.includes('--port 9090')
   );
 }

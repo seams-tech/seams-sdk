@@ -43,8 +43,7 @@ export type VerifyEmailOtpChallengeCodeRequest = {
   challengeId?: unknown;
   otpCode?: unknown;
   otpChannel?: unknown;
-  sessionHash?: unknown;
-  appSessionVersion?: unknown;
+  ownerProofBindingDigest?: unknown;
   registrationChallengeProof?: EmailOtpRegistrationChallengeProof;
   allowRegistrationChallengeReroll?: boolean;
   clientIp?: unknown;
@@ -93,8 +92,7 @@ export async function verifyEmailOtpChallengeCode(
       const challengeId = parseEmailOtpChallengeId(request.challengeId);
       const otpCode = toOptionalTrimmedString(request.otpCode);
       const otpChannel = toOptionalTrimmedString(request.otpChannel);
-      const sessionHash = toOptionalTrimmedString(request.sessionHash);
-      const appSessionVersion = toOptionalTrimmedString(request.appSessionVersion);
+      const ownerProofBindingDigest = toOptionalTrimmedString(request.ownerProofBindingDigest);
       const clientIp = toOptionalTrimmedString(request.clientIp) || undefined;
       const expectedAction = request.expectedAction;
       const expectedOperation = request.expectedOperation;
@@ -156,16 +154,6 @@ export async function verifyEmailOtpChallengeCode(
           message: 'Email OTP registration proof does not match orgId',
         };
       }
-      if (
-        request.registrationChallengeProof &&
-        request.registrationChallengeProof.appSessionVersion !== appSessionVersion
-      ) {
-        return {
-          ok: false,
-          code: 'challenge_session_mismatch',
-          message: 'Email OTP registration proof does not match appSessionVersion',
-        };
-      }
       if (!otpCode) return { ok: false, code: 'invalid_body', message: 'Missing otpCode' };
       if (otpChannel !== EMAIL_OTP_CHANNEL) {
         return {
@@ -174,9 +162,8 @@ export async function verifyEmailOtpChallengeCode(
           message: 'otpChannel must be email_otp',
         };
       }
-      if (!sessionHash) return { ok: false, code: 'invalid_body', message: 'Missing sessionHash' };
-      if (!appSessionVersion) {
-        return { ok: false, code: 'invalid_body', message: 'Missing appSessionVersion' };
+      if (!ownerProofBindingDigest) {
+        return { ok: false, code: 'invalid_body', message: 'Missing ownerProofBindingDigest' };
       }
       const rateLimit = await input.consumeRateLimit({
         scope: 'verify',
@@ -238,8 +225,7 @@ export async function verifyEmailOtpChallengeCode(
           walletId: walletId.value,
           orgId: orgId.value,
           otpChannel: EMAIL_OTP_CHANNEL,
-          sessionHash,
-          appSessionVersion,
+          ownerProofBindingDigest,
           action: expectedAction,
           operation: expectedPurpose.operation,
           otpCode,
@@ -296,7 +282,7 @@ export async function verifyEmailOtpChallengeCode(
         storedPurpose?.kind === 'wallet_unlock' &&
         !verificationIntent.allowWalletReroll;
       // Registration name rerolls change only the final wallet id; the OTP
-      // remains bound to the same provider subject, email, org, and app session.
+      // remains bound to the same provider subject, email, org, and authentication context.
       const subjectMismatch = registrationChallengeCanFollowReroll
         ? false
         : record.challengeSubjectId !== challengeSubjectId.value;
@@ -305,20 +291,16 @@ export async function verifyEmailOtpChallengeCode(
         : record.walletId !== walletId.value;
       const actionMismatch = registrationChallengeCanFollowReroll ? false : !purposeMatches;
       const operationMismatch = registrationChallengeCanFollowReroll ? false : !purposeMatches;
-      const sessionHashMismatch = registrationChallengeCanFollowReroll
+      const ownerProofBindingMismatch = registrationChallengeCanFollowReroll
         ? false
-        : record.sessionHash !== sessionHash;
-      const appSessionVersionMismatch = registrationChallengeCanFollowReroll
-        ? false
-        : record.appSessionVersion !== appSessionVersion;
+        : record.ownerProofBindingDigest !== ownerProofBindingDigest;
       const bindingMismatch =
         subjectMismatch ||
         walletMismatch ||
         record.otpChannel !== EMAIL_OTP_CHANNEL ||
         actionMismatch ||
         operationMismatch ||
-        sessionHashMismatch ||
-        appSessionVersionMismatch ||
+        ownerProofBindingMismatch ||
         String(record.orgId || '') !== String(orgId.value || '');
       if (bindingMismatch) {
         const mismatchCode: EmailOtpChallengeBindingMismatchCode =
@@ -336,7 +318,7 @@ export async function verifyEmailOtpChallengeCode(
                       ? 'challenge_purpose_mismatch'
                       : walletMismatch
                         ? 'challenge_wallet_mismatch'
-                        : sessionHashMismatch || appSessionVersionMismatch
+                        : ownerProofBindingMismatch
                           ? 'challenge_session_mismatch'
                           : 'challenge_org_mismatch';
         input.logger.warn('[email-otp] challenge binding mismatch during verification', {
@@ -356,8 +338,7 @@ export async function verifyEmailOtpChallengeCode(
           otpChannelMatches: record.otpChannel === EMAIL_OTP_CHANNEL,
           actionMatches: !actionMismatch,
           operationMatches: !operationMismatch,
-          sessionHashMatches: !sessionHashMismatch,
-          appSessionVersionMatches: !appSessionVersionMismatch,
+          ownerProofBindingMatches: !ownerProofBindingMismatch,
           orgMatches: String(record.orgId || '') === String(orgId.value || ''),
           recordWalletId: record.walletId,
           requestWalletId: walletId.value,
@@ -368,7 +349,7 @@ export async function verifyEmailOtpChallengeCode(
         return {
           ok: false,
           code: mismatchCode,
-          message: 'Email OTP challenge is not valid for the current app session',
+          message: 'Email OTP challenge is not valid for the current owner proof binding',
         };
       }
       if (registrationChallengeCanFollowReroll) {
@@ -384,8 +365,6 @@ export async function verifyEmailOtpChallengeCode(
           providerSubjectMatches:
             record.challengeSubjectId === verifiedRegistrationChallengeProof.challengeSubjectId,
           proofEmailMatches: registrationChallengeEmailMatches,
-          appSessionVersionMatches:
-            record.appSessionVersion === verifiedRegistrationChallengeProof.appSessionVersion,
           orgMatches:
             String(record.orgId || '') === String(verifiedRegistrationChallengeProof.orgId),
           purpose: verifiedRegistrationChallengeProof.purpose,
@@ -400,8 +379,7 @@ export async function verifyEmailOtpChallengeCode(
           walletId: walletId.value,
           orgId: orgId.value,
           otpChannel: EMAIL_OTP_CHANNEL,
-          sessionHash,
-          appSessionVersion,
+          ownerProofBindingDigest,
           action: expectedAction,
           operation: expectedOperation || record.operation,
           otpCode,

@@ -57,8 +57,6 @@ declare const unavailablePrfClaim: UnavailablePrfClaim;
 
 // @ts-expect-error material key references never carry session transport kind.
 keyRef.thresholdSessionKind;
-// @ts-expect-error material key references never carry Wallet Session bearer credentials.
-keyRef.walletSessionJwt;
 // @ts-expect-error material key references never carry an MPC session alias.
 keyRef.mpcSessionId;
 // @ts-expect-error material key references never carry threshold-session identity.

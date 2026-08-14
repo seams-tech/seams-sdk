@@ -104,6 +104,7 @@ export type {
   SigningSessionSealCipherAdapter,
   SigningSessionSealCipherOperationInput,
   SigningSessionSealCipherOperationResult,
+  SigningSessionSealCipherAuthContext,
   SigningSessionSealCurve,
   SigningSessionSealEcdsaThresholdSessionRecord,
   SigningSessionSealEd25519ThresholdSessionRecord,
@@ -120,8 +121,6 @@ export type {
   SigningSessionSealRoutesOptions,
   SigningSessionSealService,
   SigningSessionSealServiceIdempotencyOptions,
-  SigningSessionSealSessionAdapter,
-  SigningSessionSealSessionClaims,
   SigningSessionSealStartupCapabilities,
   SigningSessionSealThresholdSessionRecord,
 } from './threshold/session/signingSessionSeal/signingSessionSeal.types';

@@ -32,6 +32,13 @@ export type EmailOtpRouteChain = 'near' | EmailOtpEcdsaRouteChain;
 
 export type RequestEmailOtpChallengeArgs =
   | {
+      kind: 'wallet_login_challenge';
+      walletSession: WalletSessionRef;
+      chain: EmailOtpEcdsaRouteChain;
+      authLane?: never;
+      routeAuth?: never;
+    }
+  | {
       kind: 'wallet_session_challenge';
       walletSession: WalletSessionRef;
       chain: EmailOtpRouteChain;
@@ -47,23 +54,16 @@ export type RequestEmailOtpChallengeArgs =
       routeAuth?: never;
     }
   | {
-      kind: 'wallet_capability_step_up_challenge';
-      walletSession: WalletSessionRef;
-      chain: EmailOtpRouteChain;
-      appSessionJwt: string;
+      kind: 'wallet_export_challenge';
+      walletId: WalletId;
+      chain: 'near';
+      walletSession?: never;
       authLane?: never;
       routeAuth?: never;
-    };
+    }
+  ;
 
-export type RequestEmailOtpExportChallengeArgs =
-  | Exclude<RequestEmailOtpChallengeArgs, { kind: 'wallet_capability_step_up_challenge' }>
-  | {
-      kind: 'wallet_capability_export_challenge';
-      walletSession: WalletSessionRef;
-      chain: EmailOtpEcdsaRouteChain;
-      appSessionJwt: string;
-      authLane?: never;
-    };
+export type RequestEmailOtpExportChallengeArgs = RequestEmailOtpChallengeArgs;
 
 export type ExportEcdsaKeyWithDurableAuthorizationArgs = {
   walletSession: WalletSessionRef;
@@ -89,10 +89,6 @@ export class EmailOtpExportRecoveryRuntime {
       getSignerWorkerContext: () => WorkerOperationContext | null | undefined;
       requireRelayUrl: () => string;
       requireSigningSessionSealGroupId: () => string;
-      resolveAppSessionJwtForWallet: (args: {
-        walletId: WalletId;
-        relayUrl: string;
-      }) => Promise<string>;
       prepareEcdsaExportCapability: (
         args: PrepareEmailOtpEcdsaExportCapabilityArgs,
       ) => Promise<EmailOtpThresholdEcdsaExportPreparation>;
@@ -142,7 +138,6 @@ export class EmailOtpExportRecoveryRuntime {
         getSignerWorkerContext: this.ports.getSignerWorkerContext,
         requireRelayUrl: this.ports.requireRelayUrl,
         requireSigningSessionSealGroupId: this.ports.requireSigningSessionSealGroupId,
-        resolveAppSessionJwtForWallet: this.ports.resolveAppSessionJwtForWallet,
       },
       args,
     );

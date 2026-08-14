@@ -159,7 +159,6 @@ export {
   createIdentityStore,
   ensureIdentityStoreD1Schema,
   resolveIdentityStoreNamespace,
-  type AppSessionVersionRecord,
   type D1IdentityStoreOptions,
   type D1IdentityStoreSchemaOptions,
   type IdentityStore,

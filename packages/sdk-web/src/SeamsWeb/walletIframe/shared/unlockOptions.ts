@@ -2,8 +2,16 @@ import type { LoginHooksOptions } from '@/core/types/sdkSentEvents';
 import type {
   LoginUnlockRequest,
   LoginUnlockPayloadOption,
+  PMUnlockEcdsaKeyFactsInventory,
   PMUnlockPayload,
 } from '@/core/types/login.types';
+
+export type PMUnlockLoginHooksOptions = Omit<
+  LoginHooksOptions,
+  'ecdsaKeyFactsInventory'
+> & {
+  ecdsaKeyFactsInventory?: PMUnlockEcdsaKeyFactsInventory;
+};
 
 export function walletIframeUnlockRequestFromLoginHooks(args: {
   walletId: string;
@@ -31,25 +39,21 @@ export function buildPMUnlockPayload(request: LoginUnlockRequest): PMUnlockPaylo
         options: {
           kind: 'pm_unlock_options_v1',
           signerSlot: optionFromValue(request.options.signerSlot),
-          session: optionFromValue(request.options.session),
           signingSession: optionFromValue(request.options.signingSession),
           unlockSelection: optionFromValue(request.options.unlockSelection),
-          ecdsaKeyFactsInventory: optionFromValue(
-            walletIframeEcdsaKeyFactsInventory(request.options.ecdsaKeyFactsInventory),
+          ecdsaKeyFactsInventory: pmEcdsaKeyFactsInventoryOption(
+            request.options.ecdsaKeyFactsInventory,
           ),
         },
       };
   }
 }
 
-function walletIframeEcdsaKeyFactsInventory(
+function pmEcdsaKeyFactsInventoryOption(
   inventory: LoginHooksOptions['ecdsaKeyFactsInventory'],
-): LoginHooksOptions['ecdsaKeyFactsInventory'] {
-  if (!inventory || inventory.mode === 'webauthn') return inventory;
-  return {
-    mode: 'app_session',
-    ...(inventory.policyTtlMs === undefined ? {} : { policyTtlMs: inventory.policyTtlMs }),
-  };
+): LoginUnlockPayloadOption<PMUnlockEcdsaKeyFactsInventory> {
+  if (!inventory) return { kind: 'default' };
+  return { kind: 'value', value: inventory };
 }
 
 export function requirePMUnlockPayload(payload: PMUnlockPayload | undefined): PMUnlockPayload {
@@ -57,18 +61,30 @@ export function requirePMUnlockPayload(payload: PMUnlockPayload | undefined): PM
   return payload;
 }
 
-export function pmUnlockPayloadToLoginHooksOptions(payload: PMUnlockPayload): LoginHooksOptions {
+export function pmUnlockPayloadToLoginHooksOptions(
+  payload: PMUnlockPayload,
+): PMUnlockLoginHooksOptions {
   switch (payload.kind) {
     case 'default_options':
       return {};
     case 'custom_options':
       return {
         ...optionToObject('signerSlot', payload.options.signerSlot),
-        ...optionToObject('session', payload.options.session),
         ...optionToObject('signingSession', payload.options.signingSession),
         ...optionToObject('unlockSelection', payload.options.unlockSelection),
-        ...optionToObject('ecdsaKeyFactsInventory', payload.options.ecdsaKeyFactsInventory),
+        ...pmEcdsaKeyFactsInventoryFromPayload(payload.options.ecdsaKeyFactsInventory),
       };
+  }
+}
+
+function pmEcdsaKeyFactsInventoryFromPayload(
+  option: LoginUnlockPayloadOption<PMUnlockEcdsaKeyFactsInventory>,
+): Pick<PMUnlockLoginHooksOptions, 'ecdsaKeyFactsInventory'> | Record<string, never> {
+  switch (option.kind) {
+    case 'default':
+      return {};
+    case 'value':
+      return { ecdsaKeyFactsInventory: option.value };
   }
 }
 

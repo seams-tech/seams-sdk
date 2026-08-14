@@ -84,8 +84,8 @@ export async function ensureEcdsaPrfSealPersisted(args: {
             walletId,
             chainTarget: sealTransport.chainTarget,
             relayerUrl: sealTransport.relayerUrl,
-            ...(sealTransport.walletSessionJwt
-              ? { walletSessionJwt: sealTransport.walletSessionJwt }
+            ...(sealTransport.walletSessionToken
+              ? { walletSessionToken: sealTransport.walletSessionToken }
               : {}),
             ...(sealTransport.signingSessionSealKeyVersion
               ? { signingSessionSealKeyVersion: sealTransport.signingSessionSealKeyVersion }

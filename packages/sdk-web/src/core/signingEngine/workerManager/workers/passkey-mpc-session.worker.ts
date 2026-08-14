@@ -57,7 +57,7 @@ const PASSKEY_SERVER_SEALED_SECRET_CACHE_MAX_ENTRIES = 32;
 
 type SigningSessionSealTransport = {
   relayerUrl: string;
-  walletSessionJwt?: string;
+  walletSessionToken?: string;
   keyVersion?: string;
   serverSealedSecretCacheScope?: PasskeyServerSealedSecretCacheScope;
 };
@@ -285,7 +285,7 @@ function parseSigningSessionSealTransport(value: unknown): SigningSessionSealTra
   const transport = asRecord(value);
   if (!transport) return null;
   const relayerUrl = normalizeOptionalNonEmptyString(transport.relayerUrl);
-  const walletSessionJwt = normalizeOptionalNonEmptyString(transport.walletSessionJwt);
+  const walletSessionToken = normalizeOptionalNonEmptyString(transport.walletSessionToken);
   const keyVersion = normalizeOptionalNonEmptyString(transport.signingSessionSealKeyVersion);
   const serverSealedSecretCacheScope = parsePasskeyServerSealedSecretCacheScope(
     transport.serverSealedSecretCacheScope,
@@ -293,7 +293,7 @@ function parseSigningSessionSealTransport(value: unknown): SigningSessionSealTra
   if (!relayerUrl) return null;
   return {
     relayerUrl,
-    ...(walletSessionJwt ? { walletSessionJwt } : {}),
+    ...(walletSessionToken ? { walletSessionToken } : {}),
     ...(keyVersion ? { keyVersion } : {}),
     ...(serverSealedSecretCacheScope ? { serverSealedSecretCacheScope } : {}),
   };
@@ -395,14 +395,14 @@ async function callSigningSessionSealRoute(args: {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
-    const walletSessionJwt = normalizeOptionalNonEmptyString(args.transport.walletSessionJwt);
+    const walletSessionToken = normalizeOptionalNonEmptyString(args.transport.walletSessionToken);
     const keyVersion = normalizeOptionalNonEmptyString(args.keyVersion);
-    if (walletSessionJwt) {
-      headers.Authorization = `Bearer ${walletSessionJwt}`;
+    if (walletSessionToken) {
+      headers.Authorization = `Bearer ${walletSessionToken}`;
     }
     const response = await fetch(url, {
       method: 'POST',
-      credentials: walletSessionJwt ? 'omit' : 'include',
+      credentials: walletSessionToken ? 'omit' : 'include',
       headers,
       signal: controller.signal,
       body: JSON.stringify({

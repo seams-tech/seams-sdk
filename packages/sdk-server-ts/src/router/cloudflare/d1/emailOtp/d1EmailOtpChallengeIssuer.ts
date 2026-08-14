@@ -30,8 +30,7 @@ type EmailOtpChallengeIssueBaseInput = {
   readonly orgId?: unknown;
   readonly email?: unknown;
   readonly otpChannel?: unknown;
-  readonly sessionHash?: unknown;
-  readonly appSessionVersion?: unknown;
+  readonly ownerProofBindingDigest?: unknown;
   readonly clientIp?: unknown;
   readonly reuseActiveChallenge?: unknown;
   readonly requestOrigin?: unknown;
@@ -62,8 +61,7 @@ export type EmailOtpChallengeIssueResult =
         readonly walletId: string;
         readonly orgId: string;
         readonly otpChannel: typeof EMAIL_OTP_CHANNEL;
-        readonly sessionHash: string;
-        readonly appSessionVersion: string;
+        readonly ownerProofBindingDigest: string;
         readonly action: EmailOtpChallengeIssueAction;
         readonly operation: EmailOtpChallengeOperation;
       };
@@ -137,8 +135,7 @@ export class CloudflareD1EmailOtpChallengeIssuer {
       const orgId = toOptionalTrimmedString(input.orgId);
       const email = toOptionalTrimmedString(input.email)?.toLowerCase() || '';
       const otpChannel = toOptionalTrimmedString(input.otpChannel);
-      const sessionHash = toOptionalTrimmedString(input.sessionHash);
-      const appSessionVersion = toOptionalTrimmedString(input.appSessionVersion);
+      const ownerProofBindingDigest = toOptionalTrimmedString(input.ownerProofBindingDigest);
       const clientIp = toOptionalTrimmedString(input.clientIp);
       const action = input.action;
       const operation = input.operation;
@@ -148,9 +145,8 @@ export class CloudflareD1EmailOtpChallengeIssuer {
       if (otpChannel !== EMAIL_OTP_CHANNEL) {
         return { ok: false, code: 'invalid_body', message: 'otpChannel must be email_otp' };
       }
-      if (!sessionHash) return { ok: false, code: 'invalid_body', message: 'Missing sessionHash' };
-      if (!appSessionVersion) {
-        return { ok: false, code: 'invalid_body', message: 'Missing appSessionVersion' };
+      if (!ownerProofBindingDigest) {
+        return { ok: false, code: 'invalid_body', message: 'Missing ownerProofBindingDigest' };
       }
       if (!emailOtpChallengePurposeIsValid({ action, operation })) {
         return {
@@ -186,7 +182,7 @@ export class CloudflareD1EmailOtpChallengeIssuer {
         return {
           ok: false,
           code: 'recovery_email_missing',
-          message: 'Current app session does not include a recovery email',
+          message: 'Authenticated identity does not include a recovery email',
         };
       }
 
@@ -198,8 +194,7 @@ export class CloudflareD1EmailOtpChallengeIssuer {
           walletId,
           orgId,
           action,
-          sessionHash,
-          appSessionVersion,
+          ownerProofBindingDigest,
           operation,
           nowMs,
         });
@@ -219,8 +214,7 @@ export class CloudflareD1EmailOtpChallengeIssuer {
               walletId,
               orgId,
               otpChannel: EMAIL_OTP_CHANNEL,
-              sessionHash,
-              appSessionVersion,
+              ownerProofBindingDigest,
               action,
               operation,
             },
@@ -244,8 +238,7 @@ export class CloudflareD1EmailOtpChallengeIssuer {
         walletId,
         orgId,
         action,
-        sessionHash,
-        appSessionVersion,
+        ownerProofBindingDigest,
         operation,
         nowMs,
         maxActiveChallenges: this.config.maxActiveChallengesPerContext,
@@ -261,8 +254,7 @@ export class CloudflareD1EmailOtpChallengeIssuer {
         orgId,
         email: challengeEmail,
         otpCode,
-        sessionHash,
-        appSessionVersion,
+        ownerProofBindingDigest,
         action,
         operation,
         createdAtMs: nowMs,
@@ -289,8 +281,7 @@ export class CloudflareD1EmailOtpChallengeIssuer {
           walletId,
           orgId,
           otpChannel: EMAIL_OTP_CHANNEL,
-          sessionHash,
-          appSessionVersion,
+          ownerProofBindingDigest,
           action,
           operation,
         },

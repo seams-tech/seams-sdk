@@ -391,7 +391,7 @@ export type RouterAbEcdsaPostRegistrationSessionActivationResponseV1 = {
     quota_id: MpcWalletSigningQuotaId;
     expires_at_ms: number;
     remaining_uses: number;
-    wallet_session_jwt: string;
+    wallet_session_token: string;
   };
   normal_signing: RouterAbEcdsaDerivationNormalSigningStateV1;
 };
@@ -653,6 +653,45 @@ export type RouterAbEcdsaOperationStepUpPreparationV1Wire = {
   readonly participant_ids: readonly [number, number];
   readonly expires_at_ms: number;
 };
+
+export type RouterAbOwnerOperationAuthorizationDecisionV1Wire =
+  | {
+      readonly kind: 'authorized';
+      readonly operation: {
+        readonly kind: 'authorized_operation';
+        readonly operation_id: string;
+        readonly authorized_operation_id: string;
+        readonly operation_fingerprint_digest: string;
+      };
+      readonly source: {
+        readonly kind: 'reusable_wallet_session';
+        readonly wallet_session_id: string;
+        readonly quota_id: string;
+      };
+    }
+  | {
+      readonly kind: 'step_up_required';
+      readonly reason:
+        | 'wallet_session_missing'
+        | 'wallet_session_expired'
+        | 'wallet_session_exhausted'
+        | 'wallet_session_ended'
+        | 'wallet_session_superseded';
+      readonly step_up: RouterAbEcdsaOperationStepUpPreparationV1Wire;
+    }
+  | {
+      readonly kind: 'denied';
+      readonly denial: {
+        readonly code:
+          | 'invalid_identity'
+          | 'invalid_authority'
+          | 'invalid_operation'
+          | 'inactive_material'
+          | 'replayed_step_up'
+          | 'authorization_unavailable';
+        readonly message: string;
+      };
+    };
 
 export type RouterAbEcdsaOperationStepUpProofV1Wire =
   | {
@@ -2191,7 +2230,7 @@ export function parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1(
     'quota_id',
     'expires_at_ms',
     'remaining_uses',
-    'wallet_session_jwt',
+    'wallet_session_token',
   ]);
   const normalSigning = requireRouterAbEcdsaDerivationNormalSigningStateV1(record.normal_signing);
   if (
@@ -2231,9 +2270,9 @@ export function parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1(
         sessionRecord.remaining_uses,
         `${label}.session.remaining_uses`,
       ),
-      wallet_session_jwt: requireAsciiNonEmptyString(
-        sessionRecord.wallet_session_jwt,
-        `${label}.session.wallet_session_jwt`,
+      wallet_session_token: requireAsciiNonEmptyString(
+        sessionRecord.wallet_session_token,
+        `${label}.session.wallet_session_token`,
       ),
     },
     normal_signing: normalSigning,

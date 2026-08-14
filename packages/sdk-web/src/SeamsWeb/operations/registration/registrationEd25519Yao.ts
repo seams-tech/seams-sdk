@@ -190,6 +190,7 @@ export async function buildRegistrationEmailOtpEd25519SessionState(args: {
     nearAccountId: String(args.nearAccountId),
     nearEd25519SigningKeyId: String(args.nearEd25519SigningKeyId),
     walletSessionId: String(args.registrationEstablishedSession.walletSessionId),
+    authorizationId: String(args.registrationEstablishedSession.authorizationId),
     quotaId: String(args.registrationEstablishedSession.quotaId),
     thresholdSessionId: token.thresholdSessionId,
     remainingUses: args.registrationEstablishedSession.remainingUses,
@@ -198,7 +199,7 @@ export async function buildRegistrationEmailOtpEd25519SessionState(args: {
     signingRootId: signingRoot.signingRootId,
     signingRootVersion,
     routerAbNormalSigning: token.routerAbNormalSigning,
-    walletSessionJwt: token.walletSessionJwt,
+    walletSessionToken: token.walletSessionToken,
     nowMs: Date.now(),
   });
   if (!signingWalletSession.ok) {

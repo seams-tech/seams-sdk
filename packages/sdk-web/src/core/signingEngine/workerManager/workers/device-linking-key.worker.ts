@@ -1448,7 +1448,7 @@ async function handleLinkedHolderPresignRequest(event: MessageEvent<unknown>): P
         result = {
           kind: 'progress',
           progress: await linkedHolderOpaquePresignAuthority.initialize({
-            sessionId: request.sessionId,
+            presignSessionId: request.sessionId,
             session: createLinkedHolderEcdsaPresignSession(request),
             groupPublicKey33: new Uint8Array(request.groupPublicKey33),
             expiresAtMs: request.materialExpiresAtMs,
@@ -1459,7 +1459,11 @@ async function handleLinkedHolderPresignRequest(event: MessageEvent<unknown>): P
       case 'opaque_ecdsa_presign_session_step_v1':
         result = {
           kind: 'progress',
-          progress: await linkedHolderOpaquePresignAuthority.step(request),
+          progress: await linkedHolderOpaquePresignAuthority.step({
+            presignSessionId: request.sessionId,
+            stage: request.stage,
+            incomingMessages: request.incomingMessages,
+          }),
         };
         break;
       case 'opaque_ecdsa_presign_session_abort_v1':

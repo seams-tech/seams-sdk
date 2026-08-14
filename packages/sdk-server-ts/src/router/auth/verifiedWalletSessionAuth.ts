@@ -1,12 +1,11 @@
 import type {
   RouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims,
-  RouterAbEcdsaDerivationOwnerWalletSessionClaims,
   RouterAbEcdsaDerivationWalletSessionClaims,
   RouterAbEd25519LinkedDeviceWalletSessionClaims,
-  RouterAbEd25519OwnerWalletSessionClaims,
   RouterAbEd25519WalletSessionClaims,
   LinkedDeviceWalletSessionPermissionClaimsV1,
 } from '../../core/ThresholdService/validation';
+import type { OpaqueOwnerWalletSessionBinding } from '../../authorization/service';
 import type {
   WalletAuthAuthority,
   WalletAuthAuthorityRef,
@@ -75,7 +74,7 @@ type LinkedVerifiedWalletSessionBase = {
 export type VerifiedOwnerEcdsaWalletSessionAuth = OwnerVerifiedWalletSessionAuth & {
   curve: 'ecdsa';
   walletAuthAuthorityRef: WalletAuthAuthorityRef;
-  authSource: RouterAbEcdsaDerivationOwnerWalletSessionClaims['authSource'];
+  authSource: Extract<OpaqueOwnerWalletSessionBinding, { readonly curve: 'ecdsa' }>['authSource'];
   keyHandle: string;
   rpId?: never;
   ed25519RelayerKeyId?: never;
@@ -97,7 +96,7 @@ export type VerifiedEcdsaWalletSessionAuth =
 export type VerifiedOwnerEd25519WalletSessionAuth = OwnerVerifiedWalletSessionAuth & {
   curve: 'ed25519';
   authority: WalletAuthAuthority;
-  authorityScope: RouterAbEd25519OwnerWalletSessionClaims['authorityScope'];
+  authorityScope: Extract<OpaqueOwnerWalletSessionBinding, { readonly curve: 'ed25519' }>['authorityScope'];
   ed25519RelayerKeyId: string;
   rpId?: never;
   keyHandle?: never;
@@ -156,13 +155,15 @@ function buildVerifiedLinkedDeviceBase(
 }
 
 export function buildVerifiedEcdsaWalletSessionAuth(
-  claims: RouterAbEcdsaDerivationOwnerWalletSessionClaims,
+  claims: Extract<OpaqueOwnerWalletSessionBinding, { readonly curve: 'ecdsa' }>,
 ): VerifiedOwnerEcdsaWalletSessionAuth;
 export function buildVerifiedEcdsaWalletSessionAuth(
   claims: RouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims,
 ): VerifiedLinkedDeviceEcdsaWalletSessionAuth;
 export function buildVerifiedEcdsaWalletSessionAuth(
-  claims: RouterAbEcdsaDerivationWalletSessionClaims,
+  claims:
+    | Extract<OpaqueOwnerWalletSessionBinding, { readonly curve: 'ecdsa' }>
+    | RouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims,
 ): VerifiedEcdsaWalletSessionAuth {
   if (claims.authorizationKind === 'linked_device_wallet_session') {
     return {
@@ -190,13 +191,15 @@ export function buildVerifiedEcdsaWalletSessionAuth(
 }
 
 export function buildVerifiedEd25519WalletSessionAuth(
-  claims: RouterAbEd25519OwnerWalletSessionClaims,
+  claims: Extract<OpaqueOwnerWalletSessionBinding, { readonly curve: 'ed25519' }>,
 ): VerifiedOwnerEd25519WalletSessionAuth;
 export function buildVerifiedEd25519WalletSessionAuth(
   claims: RouterAbEd25519LinkedDeviceWalletSessionClaims,
 ): VerifiedLinkedDeviceEd25519WalletSessionAuth;
 export function buildVerifiedEd25519WalletSessionAuth(
-  claims: RouterAbEd25519WalletSessionClaims,
+  claims:
+    | Extract<OpaqueOwnerWalletSessionBinding, { readonly curve: 'ed25519' }>
+    | RouterAbEd25519LinkedDeviceWalletSessionClaims,
 ): VerifiedEd25519WalletSessionAuth {
   if (claims.authorizationKind === 'linked_device_wallet_session') {
     return {

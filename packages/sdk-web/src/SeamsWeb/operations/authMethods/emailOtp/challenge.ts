@@ -9,43 +9,22 @@ import {
 import { joinNormalizedUrl } from '@shared/utils/normalize';
 import { requireTrimmedString, toOptionalTrimmedNonEmptyString } from '@shared/utils/validation';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
-import {
-  normalizeThresholdRuntimePolicyScope,
-  type ThresholdRuntimePolicyScope,
-} from '@/core/signingEngine/threshold/sessionPolicy';
 import type {
   EmailOtpChallengeDelivery,
   EmailOtpEnrollmentResult,
-  GoogleEmailOtpSessionExchangeResult,
+  GoogleEmailOtpProviderResolution,
 } from '@/core/signingEngine/session/emailOtp/publicTypes';
 import {
   parseEmailOtpChallengeDelivery,
   parseEmailOtpProviderDelivery,
 } from '@/core/signingEngine/session/emailOtp/challengeDelivery';
-import {
-  buildEmailOtpRoutePlan,
-  requireEmailOtpAuthLane,
-  resolveEmailOtpAuthLane,
-  type EmailOtpRouteFamily,
-} from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
+import { buildEmailOtpRoutePlan, type EmailOtpRouteFamily } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 
 export type FetchLike = typeof fetch;
-export type {
-  EmailOtpEnrollmentResult,
-  GoogleEmailOtpSessionExchangeResult,
-  WalletEmailOtpChannel,
-};
+export type { EmailOtpEnrollmentResult, WalletEmailOtpChannel };
 export { EMAIL_OTP_CHANNEL };
 
 type JsonObject = Record<string, unknown>;
-type GoogleEmailOtpRegistrationOfferCandidateJson = {
-  candidateId: string;
-  walletId: string;
-};
-type NonEmptyGoogleEmailOtpRegistrationOfferCandidates = readonly [
-  GoogleEmailOtpRegistrationOfferCandidateJson,
-  ...GoogleEmailOtpRegistrationOfferCandidateJson[],
-];
 
 export class EmailOtpRouteError extends Error {
   readonly code?: string;
@@ -143,80 +122,26 @@ export function cloneFixed32Bytes(value: Uint8Array, label: string): Uint8Array 
   return Uint8Array.from(value);
 }
 
-function buildAuthHeaders(args: { appSessionJwt?: string; publishableKey?: string }): HeadersInit {
+function buildAuthHeaders(args: { publishableKey?: string }): HeadersInit {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const token = String(args.appSessionJwt || args.publishableKey || '').trim();
+  const token = String(args.publishableKey || '').trim();
   if (token) headers.Authorization = `Bearer ${token}`;
   return headers;
 }
 
-export function createGoogleEmailOtpSessionExchangeIdempotencyKey(): string {
-  const cryptoApi = globalThis.crypto;
-  if (cryptoApi && typeof cryptoApi.randomUUID === 'function') {
-    return `google-email-otp-session-exchange:${cryptoApi.randomUUID()}`;
-  }
-  if (!cryptoApi || typeof cryptoApi.getRandomValues !== 'function') {
-    throw new Error('Secure randomness is required for Google Email OTP session exchange');
-  }
-  const bytes = new Uint8Array(16);
-  cryptoApi.getRandomValues(bytes);
-  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
-  return `google-email-otp-session-exchange:${hex}`;
-}
-
-function isRetryableSessionExchangeStorageError(error: unknown): boolean {
-  return (
-    error instanceof EmailOtpRouteError &&
-    error.status === 503 &&
-    error.code === 'storage_temporarily_unavailable'
-  );
-}
-
-function scheduleStorageRetry(resolve: () => void): void {
-  globalThis.setTimeout(resolve, 250);
-}
-
-async function waitForStorageRetry(): Promise<void> {
-  await new Promise<void>(scheduleStorageRetry);
-}
-
-async function postGoogleEmailOtpSessionExchange(input: {
-  readonly url: string;
-  readonly body: JsonObject;
-  readonly publishableKey?: string;
-  readonly fetchImpl?: FetchLike;
-  readonly retryStorageFailure: boolean;
-}): Promise<JsonObject> {
-  try {
-    return await postJson(input);
-  } catch (error: unknown) {
-    if (!input.retryStorageFailure || !isRetryableSessionExchangeStorageError(error)) {
-      throw error;
-    }
-    await waitForStorageRetry();
-    return await postJson(input);
-  }
-}
-
 export function buildWorkerEmailOtpRoutePlan(args: {
   routeFamily: Extract<EmailOtpRouteFamily, 'login' | 'registration'>;
-  appSessionJwt?: string;
   operation?: WalletEmailOtpLoginOperation;
 }) {
-  const appSessionJwt = readOptionalString(args.appSessionJwt);
+  if (args.routeFamily === 'registration') {
+    return buildEmailOtpRoutePlan({
+      routeFamily: 'registration',
+      operation: WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
+    });
+  }
   return buildEmailOtpRoutePlan({
-    routeFamily: args.routeFamily,
-    authLane: requireEmailOtpAuthLane(
-      resolveEmailOtpAuthLane({
-        sessionKind: appSessionJwt ? 'jwt' : 'cookie',
-        ...(appSessionJwt ? { appSessionJwt } : {}),
-      }),
-      'worker route plan',
-    ),
-    operation:
-      args.routeFamily === 'registration'
-        ? WALLET_EMAIL_OTP_REGISTRATION_OPERATION
-        : (args.operation ?? WALLET_EMAIL_OTP_UNLOCK_OPERATION),
+    routeFamily: 'login',
+    operation: args.operation ?? WALLET_EMAIL_OTP_UNLOCK_OPERATION,
   });
 }
 
@@ -234,7 +159,6 @@ function requireEmailOtpChallengeAction(args: {
 export async function postJson(args: {
   url: string;
   body: JsonObject;
-  appSessionJwt?: string;
   publishableKey?: string;
   fetchImpl?: FetchLike;
 }): Promise<JsonObject> {
@@ -242,7 +166,6 @@ export async function postJson(args: {
   const response = await fetchImpl(args.url, {
     method: 'POST',
     headers: buildAuthHeaders({
-      appSessionJwt: args.appSessionJwt,
       publishableKey: args.publishableKey,
     }),
     credentials: 'include',
@@ -271,10 +194,96 @@ export async function postJson(args: {
   return objectJson;
 }
 
+export async function resolveGoogleEmailOtpProvider(args: {
+  relayUrl: string;
+  idToken: string;
+  accountMode: 'login' | 'register';
+  publishableKey: string;
+  fetchImpl?: FetchLike;
+}): Promise<GoogleEmailOtpProviderResolution> {
+  const response = await postJson({
+    url: joinNormalizedUrl(args.relayUrl, '/auth/google/verify'),
+    fetchImpl: args.fetchImpl,
+    publishableKey: readString(args.publishableKey, 'publishableKey'),
+    body: {
+      id_token: readString(args.idToken, 'idToken'),
+      account_mode: args.accountMode,
+    },
+  });
+  const mode = readString(response.mode, 'auth/google/verify mode');
+  const walletId = readString(response.walletId, 'auth/google/verify walletId');
+  const providerSubject = readString(
+    response.providerSubject,
+    'auth/google/verify providerSubject',
+  );
+  const email = readOptionalString(response.email);
+  if (mode === 'existing_wallet') {
+    if (response.hasEmailOtpEnrollment !== true) {
+      throw new Error('auth/google/verify existing wallet is missing Email OTP enrollment');
+    }
+    return {
+      mode,
+      walletId,
+      providerSubject,
+      ...(email ? { email } : {}),
+      hasEmailOtpEnrollment: true,
+    };
+  }
+  if (mode !== 'register_started') {
+    throw new Error(`auth/google/verify returned unsupported mode: ${mode}`);
+  }
+  if (!email) throw new Error('auth/google/verify registration is missing email');
+  const offer = requireObjectJson(response.offer, 'auth/google/verify offer');
+  const candidatesRaw = Array.isArray(offer.candidates) ? offer.candidates : [];
+  const candidates = candidatesRaw.map(parseGoogleEmailOtpProviderCandidate);
+  const firstCandidate = candidates[0];
+  if (!firstCandidate) throw new Error('auth/google/verify offer has no wallet candidates');
+  return {
+    mode,
+    walletId,
+    providerSubject,
+    email,
+    registrationAttemptId: readString(
+      response.registrationAttemptId,
+      'auth/google/verify registrationAttemptId',
+    ),
+    expiresAtMs: requireFutureTimestamp(
+      response.expiresAtMs,
+      'auth/google/verify expiresAtMs',
+    ),
+    offer: {
+      offerId: readString(offer.offerId, 'auth/google/verify offer.offerId'),
+      selectedCandidateId: readString(
+        offer.selectedCandidateId,
+        'auth/google/verify offer.selectedCandidateId',
+      ),
+      candidates: [firstCandidate, ...candidates.slice(1)],
+    },
+  };
+}
+
+function parseGoogleEmailOtpProviderCandidate(value: unknown): {
+  readonly candidateId: string;
+  readonly walletId: string;
+} {
+  const candidate = requireObjectJson(value, 'auth/google/verify offer candidate');
+  return {
+    candidateId: readString(candidate.candidateId, 'offer candidate candidateId'),
+    walletId: readString(candidate.walletId, 'offer candidate walletId'),
+  };
+}
+
+function requireFutureTimestamp(value: unknown, label: string): number {
+  const timestamp = Number(value);
+  if (!Number.isSafeInteger(timestamp) || timestamp <= Date.now()) {
+    throw new Error(`${label} must be a future timestamp`);
+  }
+  return timestamp;
+}
+
 export async function requestEmailOtpChallenge(args: {
   relayUrl: string;
   walletId: string;
-  appSessionJwt?: string;
   otpChannel?: WalletEmailOtpChannel;
   operation?: WalletEmailOtpLoginOperation;
   fetchImpl?: FetchLike;
@@ -285,7 +294,6 @@ export async function requestEmailOtpChallenge(args: {
   delivery: EmailOtpChallengeDelivery;
   emailHint?: string;
   expiresAtMs?: number;
-  appSessionVersion?: string;
 }> {
   if (!args.fetchImpl && args.workerCtx) {
     return await args.workerCtx.requestWorkerOperation({
@@ -297,7 +305,6 @@ export async function requestEmailOtpChallenge(args: {
           walletId: readString(args.walletId, 'walletId'),
           routePlan: buildWorkerEmailOtpRoutePlan({
             routeFamily: 'login',
-            appSessionJwt: args.appSessionJwt,
             operation: args.operation,
           }),
           ...(args.operation ? { operation: args.operation } : {}),
@@ -307,8 +314,7 @@ export async function requestEmailOtpChallenge(args: {
     });
   }
   const response = await postJson({
-    url: joinNormalizedUrl(args.relayUrl, '/wallet/email-otp/login/challenge'),
-    appSessionJwt: args.appSessionJwt,
+    url: joinNormalizedUrl(args.relayUrl, '/wallet/email-otp/challenge'),
     fetchImpl: args.fetchImpl,
     body: {
       walletId: readString(args.walletId, 'walletId'),
@@ -316,27 +322,25 @@ export async function requestEmailOtpChallenge(args: {
       ...(args.operation ? { operation: args.operation } : {}),
     },
   });
-  const challenge = requireObjectJson(response.challenge, 'wallet/email-otp/login/challenge');
+  const challenge = requireObjectJson(response.challenge, 'wallet/email-otp/challenge');
   requireEmailOtpChallengeAction({
     challenge,
     expectedAction: WALLET_EMAIL_OTP_ACTIONS.login,
-    context: 'wallet/email-otp/login/challenge',
+    context: 'wallet/email-otp/challenge',
   });
   const delivery = parseEmailOtpChallengeDelivery(
     response.delivery,
-    'wallet/email-otp/login/challenge delivery',
+    'wallet/email-otp/challenge delivery',
   );
   const expiresAtMs = Number(challenge.expiresAtMs);
-  const appSessionVersion = readOptionalString(challenge.appSessionVersion);
   const result: {
     challengeId: string;
     otpChannel: typeof EMAIL_OTP_CHANNEL;
     delivery: EmailOtpChallengeDelivery;
     emailHint?: string;
     expiresAtMs?: number;
-    appSessionVersion?: string;
   } = {
-    challengeId: readString(challenge.challengeId, 'wallet/email-otp/login/challenge challengeId'),
+    challengeId: readString(challenge.challengeId, 'wallet/email-otp/challenge challengeId'),
     otpChannel: EMAIL_OTP_CHANNEL,
     delivery,
     emailHint: delivery.emailHint,
@@ -344,16 +348,12 @@ export async function requestEmailOtpChallenge(args: {
   if (Number.isFinite(expiresAtMs)) {
     result.expiresAtMs = expiresAtMs;
   }
-  if (appSessionVersion) {
-    result.appSessionVersion = appSessionVersion;
-  }
   return result;
 }
 
 export async function requestEmailOtpEnrollmentChallenge(args: {
   relayUrl: string;
   walletId: string;
-  appSessionJwt?: string;
   otpChannel?: WalletEmailOtpChannel;
   fetchImpl?: FetchLike;
   workerCtx?: WorkerOperationContext;
@@ -363,7 +363,6 @@ export async function requestEmailOtpEnrollmentChallenge(args: {
   delivery: EmailOtpChallengeDelivery;
   emailHint?: string;
   expiresAtMs?: number;
-  appSessionVersion?: string;
 }> {
   if (!args.fetchImpl && args.workerCtx) {
     return await args.workerCtx.requestWorkerOperation({
@@ -375,7 +374,6 @@ export async function requestEmailOtpEnrollmentChallenge(args: {
           walletId: readString(args.walletId, 'walletId'),
           routePlan: buildWorkerEmailOtpRoutePlan({
             routeFamily: 'registration',
-            appSessionJwt: args.appSessionJwt,
           }),
           otpChannel: EMAIL_OTP_CHANNEL,
         },
@@ -384,7 +382,6 @@ export async function requestEmailOtpEnrollmentChallenge(args: {
   }
   const response = await postJson({
     url: joinNormalizedUrl(args.relayUrl, '/wallet/email-otp/registration/challenge'),
-    appSessionJwt: args.appSessionJwt,
     fetchImpl: args.fetchImpl,
     body: {
       walletId: readString(args.walletId, 'walletId'),
@@ -405,14 +402,12 @@ export async function requestEmailOtpEnrollmentChallenge(args: {
     'wallet/email-otp/registration/challenge delivery',
   );
   const expiresAtMs = Number(challenge.expiresAtMs);
-  const appSessionVersion = readOptionalString(challenge.appSessionVersion);
   const result: {
     challengeId: string;
     otpChannel: typeof EMAIL_OTP_CHANNEL;
     delivery: EmailOtpChallengeDelivery;
     emailHint?: string;
     expiresAtMs?: number;
-    appSessionVersion?: string;
   } = {
     challengeId: readString(
       challenge.challengeId,
@@ -425,9 +420,6 @@ export async function requestEmailOtpEnrollmentChallenge(args: {
   if (Number.isFinite(expiresAtMs)) {
     result.expiresAtMs = expiresAtMs;
   }
-  if (appSessionVersion) {
-    result.appSessionVersion = appSessionVersion;
-  }
   return result;
 }
 
@@ -436,7 +428,6 @@ export async function verifyEmailOtpCode(args: {
   walletId: string;
   challengeId: string;
   otpCode: string;
-  appSessionJwt?: string;
   otpChannel?: WalletEmailOtpChannel;
   fetchImpl?: FetchLike;
   workerCtx?: WorkerOperationContext;
@@ -457,7 +448,6 @@ export async function verifyEmailOtpCode(args: {
           otpCode: readString(args.otpCode, 'otpCode'),
           routePlan: buildWorkerEmailOtpRoutePlan({
             routeFamily: 'login',
-            appSessionJwt: args.appSessionJwt,
           }),
           otpChannel: EMAIL_OTP_CHANNEL,
         },
@@ -466,7 +456,6 @@ export async function verifyEmailOtpCode(args: {
   }
   const response = await postJson({
     url: joinNormalizedUrl(args.relayUrl, '/wallet/email-otp/login/verify'),
-    appSessionJwt: args.appSessionJwt,
     fetchImpl: args.fetchImpl,
     body: {
       walletId: readString(args.walletId, 'walletId'),
@@ -481,185 +470,5 @@ export async function verifyEmailOtpCode(args: {
     ...(readOptionalString(response.enrollmentSealKeyVersion)
       ? { enrollmentSealKeyVersion: readOptionalString(response.enrollmentSealKeyVersion) }
       : {}),
-  };
-}
-
-export async function exchangeGoogleEmailOtpSession(args: {
-  relayUrl: string;
-  idToken: string;
-  accountMode: 'register' | 'login';
-  sessionKind?: 'jwt' | 'cookie';
-  projectEnvironmentId?: string;
-  publishableKey?: string;
-  fetchImpl?: FetchLike;
-}): Promise<GoogleEmailOtpSessionExchangeResult> {
-  const sessionKind = args.sessionKind === 'jwt' ? 'jwt' : 'cookie';
-  const accountMode = args.accountMode === 'register' ? 'register' : 'login';
-  const projectEnvironmentId = String(args.projectEnvironmentId || '').trim();
-  const idempotencyKey =
-    accountMode === 'login' ? createGoogleEmailOtpSessionExchangeIdempotencyKey() : undefined;
-  const response = await postGoogleEmailOtpSessionExchange({
-    url: joinNormalizedUrl(args.relayUrl, '/session/exchange'),
-    fetchImpl: args.fetchImpl,
-    publishableKey: args.publishableKey,
-    retryStorageFailure: accountMode === 'login',
-    body: {
-      session_kind: sessionKind,
-      ...(projectEnvironmentId ? { projectEnvironmentId } : {}),
-      exchange: {
-        type: 'oidc_jwt',
-        provider: 'google',
-        account_mode: accountMode,
-        ...(idempotencyKey ? { idempotencyKey } : {}),
-        token: readString(args.idToken, 'idToken'),
-      },
-    },
-  });
-  const session = requireObjectJson(response.session, 'session/exchange session');
-  const userId = readString(session.userId, 'session/exchange session.userId');
-  const walletId = readString(session.walletId, 'session/exchange session.walletId');
-  const jwt = readOptionalString(response.jwt);
-  const email = readOptionalString(session.email);
-  const name = readOptionalString(session.name);
-  const googleEmailOtpResolutionRaw =
-    session.googleEmailOtpResolution &&
-    typeof session.googleEmailOtpResolution === 'object' &&
-    !Array.isArray(session.googleEmailOtpResolution)
-      ? (session.googleEmailOtpResolution as JsonObject)
-      : null;
-  const googleEmailOtpResolutionMode = readOptionalString(googleEmailOtpResolutionRaw?.mode);
-  const googleEmailOtpRegistrationAttemptId = readOptionalString(
-    googleEmailOtpResolutionRaw?.registrationAttemptId,
-  );
-  const googleEmailOtpResolutionExpiresAt = readOptionalString(
-    googleEmailOtpResolutionRaw?.expiresAt,
-  );
-  const googleEmailOtpResolutionExpiresAtMs = Number(googleEmailOtpResolutionRaw?.expiresAtMs);
-  const googleEmailOtpRegistrationOfferRaw =
-    googleEmailOtpResolutionRaw?.offer &&
-    typeof googleEmailOtpResolutionRaw.offer === 'object' &&
-    !Array.isArray(googleEmailOtpResolutionRaw.offer)
-      ? (googleEmailOtpResolutionRaw.offer as JsonObject)
-      : null;
-  const googleEmailOtpRegistrationOfferCandidates = Array.isArray(
-    googleEmailOtpRegistrationOfferRaw?.candidates,
-  )
-    ? googleEmailOtpRegistrationOfferRaw.candidates.map((candidateRaw, index) => {
-        const candidate = requireObjectJson(
-          candidateRaw,
-          `session/exchange registration offer candidate ${index}`,
-        );
-        return {
-          candidateId: readString(
-            candidate.candidateId,
-            `session/exchange registration offer candidate ${index}.candidateId`,
-          ),
-          walletId: readString(
-            candidate.walletId,
-            `session/exchange registration offer candidate ${index}.walletId`,
-          ),
-        };
-      })
-    : [];
-  const [firstGoogleEmailOtpRegistrationOfferCandidate, ...remainingGoogleEmailOtpRegistrationOfferCandidates] =
-    googleEmailOtpRegistrationOfferCandidates;
-  const googleEmailOtpRegistrationOffer =
-    googleEmailOtpRegistrationOfferRaw && firstGoogleEmailOtpRegistrationOfferCandidate
-      ? (() => {
-          const candidates: NonEmptyGoogleEmailOtpRegistrationOfferCandidates = [
-            firstGoogleEmailOtpRegistrationOfferCandidate,
-            ...remainingGoogleEmailOtpRegistrationOfferCandidates,
-          ];
-          return {
-            offerId: readString(
-              googleEmailOtpRegistrationOfferRaw.offerId,
-              'session/exchange registration offer.offerId',
-            ),
-            selectedCandidateId: readString(
-              googleEmailOtpRegistrationOfferRaw.selectedCandidateId,
-              'session/exchange registration offer.selectedCandidateId',
-            ),
-            candidates,
-          };
-        })()
-      : undefined;
-  const loginChallengeRaw =
-    googleEmailOtpResolutionRaw?.loginChallenge &&
-    typeof googleEmailOtpResolutionRaw.loginChallenge === 'object' &&
-    !Array.isArray(googleEmailOtpResolutionRaw.loginChallenge)
-      ? (googleEmailOtpResolutionRaw.loginChallenge as JsonObject)
-      : null;
-  const loginChallengeStatus = readOptionalString(loginChallengeRaw?.delivery);
-  const activeLoginChallengeDelivery =
-    loginChallengeStatus === 'sent' || loginChallengeStatus === 'reused'
-      ? loginChallengeRaw?.deliveryDetails === undefined
-        ? parseEmailOtpProviderDelivery({
-            status: loginChallengeStatus,
-            emailHint: loginChallengeRaw?.emailHint,
-            label: 'session/exchange loginChallenge.delivery',
-          })
-        : parseEmailOtpChallengeDelivery(
-            loginChallengeRaw.deliveryDetails,
-            'session/exchange loginChallenge.deliveryDetails',
-          )
-      : null;
-  const loginChallenge =
-    activeLoginChallengeDelivery
-      ? {
-          delivery: activeLoginChallengeDelivery,
-          challengeId: readString(
-            loginChallengeRaw?.challengeId,
-            'session/exchange loginChallenge.challengeId',
-          ),
-          emailHint: activeLoginChallengeDelivery.emailHint,
-          ...(readOptionalString(loginChallengeRaw?.expiresAt)
-            ? { expiresAt: readOptionalString(loginChallengeRaw?.expiresAt) }
-            : {}),
-          ...(Number.isFinite(Number(loginChallengeRaw?.expiresAtMs))
-            ? { expiresAtMs: Math.floor(Number(loginChallengeRaw?.expiresAtMs)) }
-            : {}),
-        }
-      : loginChallengeStatus === 'rate_limited'
-        ? {
-            delivery: 'rate_limited' as const,
-            ...(Number.isFinite(Number(loginChallengeRaw?.retryAfterMs))
-              ? { retryAfterMs: Math.floor(Number(loginChallengeRaw?.retryAfterMs)) }
-              : {}),
-            ...(Number.isFinite(Number(loginChallengeRaw?.resetAtMs))
-              ? { resetAtMs: Math.floor(Number(loginChallengeRaw?.resetAtMs)) }
-              : {}),
-          }
-        : undefined;
-  const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(session.runtimePolicyScope);
-  return {
-    ...(jwt ? { jwt } : {}),
-    session: {
-      userId,
-      walletId,
-      ...(email ? { email } : {}),
-      ...(name ? { name } : {}),
-      ...(googleEmailOtpResolutionMode === 'existing_wallet' ||
-      googleEmailOtpResolutionMode === 'register_started'
-        ? {
-            googleEmailOtpResolution: {
-              mode: googleEmailOtpResolutionMode,
-              ...(googleEmailOtpRegistrationAttemptId
-                ? { registrationAttemptId: googleEmailOtpRegistrationAttemptId }
-                : {}),
-              ...(googleEmailOtpResolutionExpiresAt
-                ? { expiresAt: googleEmailOtpResolutionExpiresAt }
-                : {}),
-              ...(Number.isFinite(googleEmailOtpResolutionExpiresAtMs)
-                ? { expiresAtMs: Math.floor(googleEmailOtpResolutionExpiresAtMs) }
-                : {}),
-              ...(googleEmailOtpRegistrationOffer
-                ? { offer: googleEmailOtpRegistrationOffer }
-                : {}),
-              ...(loginChallenge ? { loginChallenge } : {}),
-            },
-          }
-        : {}),
-      ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-    },
   };
 }

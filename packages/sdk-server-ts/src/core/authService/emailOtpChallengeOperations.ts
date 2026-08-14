@@ -38,8 +38,7 @@ export type CreateEmailOtpLoginChallengeRequest = {
   orgId?: unknown;
   email?: unknown;
   otpChannel?: unknown;
-  sessionHash?: unknown;
-  appSessionVersion?: unknown;
+  ownerProofBindingDigest?: unknown;
   clientIp?: unknown;
   operation?: unknown;
   reuseActiveChallenge?: unknown;
@@ -56,8 +55,7 @@ export type CreateEmailOtpLoginChallengeResult =
         walletId: string;
         orgId: string;
         otpChannel: EmailOtpChannel;
-        sessionHash: string;
-        appSessionVersion: string;
+        ownerProofBindingDigest: string;
         action: typeof WALLET_EMAIL_OTP_ACTIONS.login;
         operation: EmailOtpLoginChallengeOperation;
       };
@@ -75,8 +73,7 @@ export type CreateEmailOtpEnrollmentChallengeRequest = {
   orgId?: unknown;
   email?: unknown;
   otpChannel?: unknown;
-  sessionHash?: unknown;
-  appSessionVersion?: unknown;
+  ownerProofBindingDigest?: unknown;
   clientIp?: unknown;
   operation?: unknown;
 };
@@ -92,8 +89,7 @@ export type CreateEmailOtpEnrollmentChallengeResult =
         walletId: string;
         orgId: string;
         otpChannel: EmailOtpChannel;
-        sessionHash: string;
-        appSessionVersion: string;
+        ownerProofBindingDigest: string;
         action: typeof WALLET_EMAIL_OTP_ACTIONS.registration;
         operation: typeof WALLET_EMAIL_OTP_REGISTRATION_OPERATION;
       };
@@ -111,8 +107,7 @@ export type VerifyEmailOtpLoginChallengeRequest = {
   challengeId?: unknown;
   otpCode?: unknown;
   otpChannel?: unknown;
-  sessionHash?: unknown;
-  appSessionVersion?: unknown;
+  ownerProofBindingDigest?: unknown;
   clientIp?: unknown;
   operation?: unknown;
 };
@@ -167,8 +162,7 @@ export async function createEmailOtpChallenge(
     orgId: request.orgId,
     email: request.email,
     otpChannel: request.otpChannel,
-    sessionHash: request.sessionHash,
-    appSessionVersion: request.appSessionVersion,
+    ownerProofBindingDigest: request.ownerProofBindingDigest,
     clientIp: request.clientIp,
     operation: request.operation,
     reuseActiveChallenge: request.reuseActiveChallenge,
@@ -190,8 +184,7 @@ export async function createEmailOtpChallenge(
       walletId: result.challenge.walletId,
       orgId: result.challenge.orgId,
       otpChannel: result.challenge.otpChannel,
-      sessionHash: result.challenge.sessionHash,
-      appSessionVersion: result.challenge.appSessionVersion,
+      ownerProofBindingDigest: result.challenge.ownerProofBindingDigest,
       action: WALLET_EMAIL_OTP_ACTIONS.login,
       operation,
     },
@@ -209,8 +202,7 @@ export async function createEmailOtpEnrollmentChallenge(
     orgId: request.orgId,
     email: request.email,
     otpChannel: request.otpChannel,
-    sessionHash: request.sessionHash,
-    appSessionVersion: request.appSessionVersion,
+    ownerProofBindingDigest: request.ownerProofBindingDigest,
     clientIp: request.clientIp,
     operation: request.operation,
     action: WALLET_EMAIL_OTP_ACTIONS.registration,
@@ -226,8 +218,7 @@ export async function createEmailOtpEnrollmentChallenge(
       walletId: result.challenge.walletId,
       orgId: result.challenge.orgId,
       otpChannel: result.challenge.otpChannel,
-      sessionHash: result.challenge.sessionHash,
-      appSessionVersion: result.challenge.appSessionVersion,
+      ownerProofBindingDigest: result.challenge.ownerProofBindingDigest,
       action: WALLET_EMAIL_OTP_ACTIONS.registration,
       operation: WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
     },
@@ -247,8 +238,7 @@ export async function verifyEmailOtpChallenge(
     challengeId: request.challengeId,
     otpCode: request.otpCode,
     otpChannel: request.otpChannel,
-    sessionHash: request.sessionHash,
-    appSessionVersion: request.appSessionVersion,
+    ownerProofBindingDigest: request.ownerProofBindingDigest,
     clientIp: request.clientIp,
     expectedAction: WALLET_EMAIL_OTP_ACTIONS.login,
     expectedOperation,
@@ -267,8 +257,7 @@ export async function verifyEmailOtpChallenge(
     orgId: verified.orgId,
     challengeId: verified.challengeId,
     otpChannel: verified.otpChannel,
-    sessionHash: String(request.sessionHash || '').trim(),
-    appSessionVersion: String(request.appSessionVersion || '').trim(),
+    ownerProofBindingDigest: String(request.ownerProofBindingDigest || '').trim(),
     action: WALLET_EMAIL_OTP_ACTIONS.unseal,
     issuedAtMs,
     expiresAtMs: grantExpiresAtMs,

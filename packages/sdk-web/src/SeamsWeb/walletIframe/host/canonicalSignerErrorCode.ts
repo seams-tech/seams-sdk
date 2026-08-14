@@ -87,8 +87,7 @@ const CANONICAL_SIGNER_ERROR_MESSAGES: Record<CanonicalWalletSignerErrorCode, st
     'Fresh Email OTP verification is required before this operation can continue.',
   passkey_step_up_required:
     'Passkey authentication is required before this operation can continue.',
-  operation_blocked_by_policy:
-    'This operation is blocked by wallet policy.',
+  operation_blocked_by_policy: 'This operation is blocked by wallet policy.',
   nonce_conflict_retryable: 'Nonce conflict detected. Refresh nonce state and retry the request.',
   nonce_lane_blocked:
     'Nonce lane is blocked by unresolved in-flight transaction(s). Reconcile lane state and retry.',
@@ -142,7 +141,9 @@ function looksLikeUserCancellationMessage(message: string): boolean {
   );
 }
 
-export function resolveWalletBoundarySignerKind(requestType: unknown): WalletSignerBoundaryKind | null {
+export function resolveWalletBoundarySignerKind(
+  requestType: unknown,
+): WalletSignerBoundaryKind | null {
   if (!isWalletSignerBoundaryRequestType(requestType)) return null;
   if (THRESHOLD_ECDSA_REQUEST_TYPES.has(requestType)) return 'threshold-ecdsa';
   if (THRESHOLD_ED25519_REQUEST_TYPES.has(requestType)) return 'threshold-ed25519';
@@ -267,12 +268,6 @@ function inferCanonicalCodeFromMessage(args: {
     message.includes('fresh email otp') ||
     message.includes('verify email otp again') ||
     message.includes('requires fresh email otp verification') ||
-    (message.includes('email otp') &&
-      message.includes('/session/refresh') &&
-      (message.includes('401') ||
-        message.includes('403') ||
-        message.includes('unauthorized') ||
-        message.includes('forbidden'))) ||
     (message.includes('email otp') && message.includes('per_operation'))
   ) {
     return 'fresh_email_otp_required';

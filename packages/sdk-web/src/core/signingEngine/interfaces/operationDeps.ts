@@ -48,7 +48,6 @@ import type {
   CanonicalEvmFamilyEcdsaSigningCapability,
 } from '../session/material/ecdsaSigningCapability';
 import type { SignerAuthMethod } from '@shared/utils/signerDomain';
-import type { EcdsaOperationStepUpSessionAuth } from '../threshold/ecdsa/operationStepUp';
 
 export type EvmFamilyChain = 'tempo' | 'evm';
 
@@ -65,13 +64,6 @@ export type DurableEmailOtpEcdsaSigningSessionAuthorityResolver = {
     | EmailOtpEcdsaSigningSessionAuthority
     | null
     | Promise<EmailOtpEcdsaSigningSessionAuthority | null>;
-};
-
-export type EcdsaOperationStepUpSessionAuthResolver = {
-  resolveEcdsaOperationStepUpSessionAuth: (args: {
-    walletSession: WalletSessionRef;
-    authMethod: SignerAuthMethod;
-  }) => Promise<EcdsaOperationStepUpSessionAuth>;
 };
 
 /** Stable Ed25519 material identity used before a reusable Wallet Session exists. */
@@ -138,8 +130,7 @@ export type PasskeyEcdsaSigningLookupArgs = EcdsaSigningLookupArgs & {
   source: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
 };
 
-export type EvmFamilySigningDeps = DurableEmailOtpEcdsaSigningSessionAuthorityResolver &
-  EcdsaOperationStepUpSessionAuthResolver & {
+export type EvmFamilySigningDeps = DurableEmailOtpEcdsaSigningSessionAuthorityResolver & {
     resolveCanonicalEcdsaSigningCapability: (args: {
       walletId: WalletId;
       chainTarget: ThresholdEcdsaChainTarget;

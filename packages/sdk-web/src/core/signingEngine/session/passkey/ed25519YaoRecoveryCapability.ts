@@ -16,14 +16,18 @@ import { isPlainObject } from '@shared/utils/validation';
 import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
   parseMpcWalletSigningQuotaId,
+  parseWalletSessionAuthorizationId,
   parseWalletSessionId,
   type MpcWalletSigningQuotaId,
+  type WalletSessionAuthorizationId,
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 
 export type ParsedYaoRecoverySessionV1 = {
-  readonly walletSessionJwt: string;
+  readonly walletSessionToken: string;
+  readonly sessionKind: 'opaque';
   readonly thresholdSessionId: string;
+  readonly authorizationId: WalletSessionAuthorizationId;
   readonly walletSessionId: WalletSessionId;
   readonly quotaId: MpcWalletSigningQuotaId;
   readonly expiresAtMs: number;

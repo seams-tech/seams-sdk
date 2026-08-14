@@ -500,7 +500,6 @@ type SigningAuthEventSummary = {
   emailOtpVerifyStarted: boolean;
   emailOtpVerifySucceeded: boolean;
   emailOtpAuthenticationComplete: boolean;
-  emailOtpAppSessionExchangeSucceeded: boolean;
   thresholdReconnectStarted: boolean;
   thresholdReconnectSucceeded: boolean;
 };
@@ -545,7 +544,6 @@ const SIGNING_AUTH_EMAIL_OTP_CHALLENGE_SENT = 'signing.auth.email_otp.challenge.
 const SIGNING_AUTH_EMAIL_OTP_VERIFY_STARTED = 'signing.auth.email_otp.verify.started';
 const SIGNING_AUTH_EMAIL_OTP_VERIFY_SUCCEEDED = 'signing.auth.email_otp.verify.succeeded';
 const SIGNING_AUTHENTICATION_COMPLETE = 'signing.authentication.complete';
-const UNLOCK_APP_SESSION_EXCHANGE_SUCCEEDED = 'unlock.app_session.exchange.succeeded';
 const SIGNING_THRESHOLD_SESSION_RECONNECT_STARTED = 'signing.threshold_session.reconnect.started';
 const SIGNING_THRESHOLD_SESSION_RECONNECT_SUCCEEDED =
   'signing.threshold_session.reconnect.succeeded';
@@ -2396,7 +2394,6 @@ function summarizeSigningAuthEvents(snapshot: IntendedPageSnapshot): SigningAuth
   let emailOtpVerifyStarted = false;
   let emailOtpVerifySucceeded = false;
   let emailOtpAuthenticationComplete = false;
-  let emailOtpAppSessionExchangeSucceeded = false;
   let thresholdReconnectStarted = false;
   let thresholdReconnectSucceeded = false;
 
@@ -2446,10 +2443,6 @@ function summarizeSigningAuthEvents(snapshot: IntendedPageSnapshot): SigningAuth
       case SIGNING_AUTH_EMAIL_OTP_VERIFY_SUCCEEDED:
         emailOtpVerifySucceeded = true;
         break;
-      case UNLOCK_APP_SESSION_EXCHANGE_SUCCEEDED:
-        emailOtpAppSessionExchangeSucceeded =
-          emailOtpAppSessionExchangeSucceeded || eventAuthMethod(event.payload) === 'email_otp';
-        break;
       case SIGNING_THRESHOLD_SESSION_RECONNECT_STARTED:
         thresholdReconnectStarted = true;
         break;
@@ -2474,7 +2467,6 @@ function summarizeSigningAuthEvents(snapshot: IntendedPageSnapshot): SigningAuth
     emailOtpVerifyStarted,
     emailOtpVerifySucceeded,
     emailOtpAuthenticationComplete,
-    emailOtpAppSessionExchangeSucceeded,
     thresholdReconnectStarted,
     thresholdReconnectSucceeded,
   };
@@ -2515,7 +2507,6 @@ function signingAuthSummaryDetails(summary: SigningAuthEventSummary): string {
     emailOtpVerifyStarted: summary.emailOtpVerifyStarted,
     emailOtpVerifySucceeded: summary.emailOtpVerifySucceeded,
     emailOtpAuthenticationComplete: summary.emailOtpAuthenticationComplete,
-    emailOtpAppSessionExchangeSucceeded: summary.emailOtpAppSessionExchangeSucceeded,
     thresholdReconnectStarted: summary.thresholdReconnectStarted,
     thresholdReconnectSucceeded: summary.thresholdReconnectSucceeded,
   });
@@ -2579,8 +2570,7 @@ function assertEmailOtpStepUpSigningAuth(input: {
   const performedEmailOtpAuth =
     input.summary.emailOtpChallengeSent ||
     input.summary.emailOtpVerifySucceeded ||
-    input.summary.emailOtpAuthenticationComplete ||
-    input.summary.emailOtpAppSessionExchangeSucceeded;
+    input.summary.emailOtpAuthenticationComplete;
   if (!performedEmailOtpAuth) {
     throw new Error(
       `${input.label} at ${input.stage} did not perform Email OTP step-up; observed ${signingAuthSummaryDetails(input.summary)}`,
@@ -2667,8 +2657,7 @@ function hasAnyEmailOtpSigningEvent(summary: SigningAuthEventSummary): boolean {
     summary.emailOtpChallengeSent ||
     summary.emailOtpVerifyStarted ||
     summary.emailOtpVerifySucceeded ||
-    summary.emailOtpAuthenticationComplete ||
-    summary.emailOtpAppSessionExchangeSucceeded
+    summary.emailOtpAuthenticationComplete
   );
 }
 

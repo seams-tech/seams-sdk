@@ -4,7 +4,7 @@ import type {
   WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
-import type { SeamsSessionId } from '@shared/authorization/capabilityKinds';
+import type { VerifiedOwnerProof } from '../../../../authorization/factorEvidence';
 import type { RouterAbEd25519WalletSessionClaims } from '../../../../core/ThresholdService/validation';
 import type { WebAuthnAuthenticationCredential } from '../../../../core/types';
 import type {
@@ -17,7 +17,7 @@ declare const emailOtpAuthority: EmailOtpWalletAuthAuthority;
 declare const currentSession: RouterAbEd25519WalletSessionClaims;
 declare const authorityRef: WalletAuthAuthorityRef;
 declare const runtimePolicyScope: RuntimePolicyScope;
-declare const seamsSessionId: SeamsSessionId;
+declare const ownerProof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
 declare const webauthnAuthentication: WebAuthnAuthenticationCredential;
 
 function acceptBudgetRefreshAuthorization(
@@ -74,20 +74,14 @@ acceptOperationStepUpProof({
 acceptBudgetRefreshAuthorization({
   kind: 'verified_passkey_assertion_router_ab_ed25519_yao_budget_refresh_v1',
   authority: passkeyAuthority,
+  proof: ownerProof,
   verifiedChallengeId: 'challenge-id',
-});
-
-acceptBudgetRefreshAuthorization({
-  kind: 'verified_passkey_app_session_router_ab_ed25519_yao_budget_refresh_v1',
-  authority: passkeyAuthority,
-  authorityRef,
-  runtimePolicyScope,
-  seamsSessionId,
 });
 
 acceptBudgetRefreshAuthorization({
   kind: 'verified_email_otp_router_ab_ed25519_yao_budget_refresh_v1',
   authority: emailOtpAuthority,
+  proof: ownerProof,
   currentSession,
   signerSlot: 1,
   verifiedChallengeId: 'challenge-id',
@@ -99,6 +93,7 @@ acceptBudgetRefreshAuthorization({
 acceptBudgetRefreshAuthorization({
   kind: 'verified_passkey_assertion_router_ab_ed25519_yao_budget_refresh_v1',
   authority: passkeyAuthority,
+  proof: ownerProof,
   verifiedChallengeId: 'challenge-id',
   signerSlot: 1,
 });
@@ -107,20 +102,16 @@ acceptBudgetRefreshAuthorization({
 acceptBudgetRefreshAuthorization({
   kind: 'verified_passkey_assertion_router_ab_ed25519_yao_budget_refresh_v1',
   authority: passkeyAuthority,
+  proof: ownerProof,
   verifiedChallengeId: 'challenge-id',
   currentSession,
-});
-
-// @ts-expect-error Signed passkey authorization requires the exact authority reference and scope.
-acceptBudgetRefreshAuthorization({
-  kind: 'verified_passkey_app_session_router_ab_ed25519_yao_budget_refresh_v1',
-  authority: passkeyAuthority,
 });
 
 // @ts-expect-error Email OTP verification requires exact signer and proof identity.
 acceptBudgetRefreshAuthorization({
   kind: 'verified_email_otp_router_ab_ed25519_yao_budget_refresh_v1',
   authority: emailOtpAuthority,
+  proof: ownerProof,
   currentSession,
 });
 
@@ -128,6 +119,7 @@ acceptBudgetRefreshAuthorization({
 acceptBudgetRefreshAuthorization({
   kind: 'verified_email_otp_router_ab_ed25519_yao_budget_refresh_v1',
   authority: passkeyAuthority,
+  proof: ownerProof,
   currentSession,
   signerSlot: 1,
   verifiedChallengeId: 'challenge-id',

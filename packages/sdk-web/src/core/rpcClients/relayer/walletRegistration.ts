@@ -119,13 +119,7 @@ import {
   buildRelayerJsonPostRequestInit,
   normalizeRelayerBaseUrl,
 } from './relayerHttp';
-import {
-  decodeJwtPayloadRecord,
-  isWalletSessionJwt,
-  ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
-  ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-} from '@shared/utils/sessionTokens';
-import { parseWalletSessionAuthorizationIdentityClaims } from '@/core/signingEngine/session/identity/walletSessionAuthorizationJwt';
+import { requireOpaqueWalletSessionToken } from '@shared/utils/sessionTokens';
 import { parseThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
 import {
   registrationSignerSetRequestSelection,
@@ -366,12 +360,12 @@ export async function fundImplicitNearAccountForTesting(args: {
   walletId: WalletId | string;
   nearAccountId: string;
   nearPublicKeyStr: string;
-  walletSessionJwt: string;
+  walletSessionToken: string;
 }): Promise<FundImplicitNearAccountForTestingResponse> {
   const walletId = String(args.walletId || '').trim();
   const nearAccountId = String(args.nearAccountId || '').trim();
   const nearPublicKeyStr = String(args.nearPublicKeyStr || '').trim();
-  const walletSessionJwt = String(args.walletSessionJwt || '').trim();
+  const walletSessionToken = String(args.walletSessionToken || '').trim();
   if (!walletId) throw new Error('walletId is required for implicit NEAR account funding');
   if (!nearAccountId) {
     throw new Error('nearAccountId is required for implicit NEAR account funding');
@@ -379,15 +373,15 @@ export async function fundImplicitNearAccountForTesting(args: {
   if (!nearPublicKeyStr) {
     throw new Error('nearPublicKeyStr is required for implicit NEAR account funding');
   }
-  if (!walletSessionJwt) {
-    throw new Error('walletSessionJwt is required for implicit NEAR account funding');
+  if (!walletSessionToken) {
+    throw new Error('walletSessionToken is required for implicit NEAR account funding');
   }
   return await postJson<FundImplicitNearAccountForTestingResponse>({
     relayerUrl: args.relayerUrl,
     path: `/wallets/${encodeURIComponent(walletId)}/near/implicit-account/fund`,
     headers: buildBearerAuthorizationHeader({
-      token: walletSessionJwt,
-      missingMessage: 'walletSessionJwt is required for implicit NEAR account funding',
+      token: walletSessionToken,
+      missingMessage: 'walletSessionToken is required for implicit NEAR account funding',
     }),
     body: {
       nearAccountId,
@@ -622,13 +616,14 @@ export type WalletRegistrationEd25519YaoActivationReference = {
 };
 
 export type WalletRegistrationEd25519YaoBootstrapSession = {
-  sessionKind: 'jwt';
-  walletSessionJwt: string;
+  sessionKind: 'opaque';
+  walletSessionToken: string;
   walletId: WalletId;
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
   authorityScope: Ed25519AuthorityScope;
   thresholdSessionId: string;
+  authorizationId: WalletSessionAuthorizationId;
   walletSessionId: WalletSessionId;
   quotaId: MpcWalletSigningQuotaId;
   expiresAtMs: number;
@@ -677,11 +672,9 @@ export type WalletRegistrationFinalizeResponseAuthority =
   | {
       rpId: string;
       authMethod: Extract<WalletRegistrationFinalizeAuthMethod, { kind: 'passkey' }>;
-      appSessionJwt?: never;
     }
   | {
       authMethod: Extract<WalletRegistrationFinalizeAuthMethod, { kind: 'email_otp' }>;
-      appSessionJwt: string;
       rpId?: never;
     };
 
@@ -726,30 +719,6 @@ export type WalletRegistrationEmailOtpEnrollmentMaterial = {
   unlockKeyVersion: string;
 };
 
-export type AddSignerAppSessionPolicy = {
-  permission: 'wallet_signer_provision';
-  walletId: WalletId;
-  signerSelection: AddSignerIntentV1['signerSelection'];
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
-  expiresAtMs: number;
-};
-
-export type AddAuthMethodAppSessionPolicy = {
-  permission: 'wallet_auth_method_provision';
-  walletId: WalletId;
-  authMethod: AddAuthMethodInput;
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
-  expiresAtMs: number;
-};
-
-export type RevokeAuthMethodAppSessionPolicy = {
-  permission: 'wallet_auth_method_revoke';
-  walletId: WalletId;
-  target: WalletAuthMethodTarget;
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
-  expiresAtMs: number;
-};
-
 export type CreateAddAuthMethodIntentRequest = {
   walletId: WalletId;
   rpId: string;
@@ -778,18 +747,12 @@ export type CreateAddSignerIntentResponse = {
   expiresAtMs: number;
 };
 
-export type AddSignerAuth =
-  | {
-      kind: 'webauthn_assertion';
-      rpId: string;
-      credential: WebAuthnAuthenticationCredential;
-      expectedChallengeDigestB64u: string;
-    }
-  | {
-      kind: 'app_session';
-      appSessionJwt: string;
-      policy: AddSignerAppSessionPolicy;
-    };
+export type AddSignerAuth = {
+  kind: 'webauthn_assertion';
+  rpId: string;
+  credential: WebAuthnAuthenticationCredential;
+  expectedChallengeDigestB64u: string;
+};
 
 export type AddAuthMethodAuth =
   | {
@@ -799,14 +762,7 @@ export type AddAuthMethodAuth =
       expectedChallengeDigestB64u: string;
     }
   | {
-      /** Email OTP authorization is carried by the authenticated app session header. */
       kind: 'email_otp';
-      appSessionJwt: string;
-    }
-  | {
-      kind: 'app_session';
-      appSessionJwt: string;
-      policy: AddAuthMethodAppSessionPolicy;
     };
 
 export type WalletAddAuthMethodAuthority =
@@ -892,18 +848,12 @@ export type WalletAddAuthMethodFinalizeResponse =
       };
     };
 
-export type RevokeAuthMethodAuth =
-  | {
-      kind: 'webauthn_assertion';
-      rpId: WebAuthnRpId;
-      credential: WebAuthnAuthenticationCredential;
-      expectedChallengeDigestB64u: string;
-    }
-  | {
-      kind: 'app_session';
-      appSessionJwt: string;
-      policy: RevokeAuthMethodAppSessionPolicy;
-    };
+export type RevokeAuthMethodAuth = {
+  kind: 'webauthn_assertion';
+  rpId: WebAuthnRpId;
+  credential: WebAuthnAuthenticationCredential;
+  expectedChallengeDigestB64u: string;
+};
 
 export type WalletRevokeAuthMethodResponse =
   | {
@@ -947,12 +897,6 @@ export type WalletAddSignerStartResponse =
       ecdsa: WalletRegistrationEcdsaPreparePayload & {
         readonly custodyEnvelope: PasskeyCustodyEnvelopeRecord;
       };
-      ed25519?: never;
-    })
-  | (WalletAddSignerStartResponseBase & {
-      readonly authorizationKind: 'app_session';
-      kind: 'evm_family_ecdsa';
-      ecdsa: WalletRegistrationEcdsaPreparePayload;
       ed25519?: never;
     });
 
@@ -1169,15 +1113,12 @@ function parseWalletAddSignerEcdsaPrepareContext(
 function parseWalletAddSignerEcdsaPrepare(
   value: unknown,
   expectedIntent: AddSignerIntentV1,
-  authorizationKind: 'webauthn_assertion' | 'app_session',
 ): WalletRegistrationEcdsaPreparePayload {
   const responseName = 'Wallet add-signer ECDSA start';
   const record = requireResponseRecord({ responseName, field: 'ecdsa', value });
   assertExactResponseKeys(
     record,
-    authorizationKind === 'webauthn_assertion'
-      ? ['kind', 'chainTargets', 'prepare', 'strictRegistration', 'custodyEnvelope']
-      : ['kind', 'chainTargets', 'prepare', 'strictRegistration'],
+    ['kind', 'chainTargets', 'prepare', 'strictRegistration', 'custodyEnvelope'],
     responseName,
   );
   if (record.kind !== 'evm_family_ecdsa_keygen' || !Array.isArray(record.chainTargets)) {
@@ -1241,10 +1182,7 @@ export function parseWalletAddSignerStartResponse(args: {
     value: record.addSignerCeremonyId,
   });
   const intent = requireExactAddSignerIntent(record.intent, args.expectedIntent);
-  if (
-    record.authorizationKind !== 'webauthn_assertion' &&
-    record.authorizationKind !== 'app_session'
-  ) {
+  if (record.authorizationKind !== 'webauthn_assertion') {
     throw new Error(`${responseName} response has invalid authorization kind`);
   }
   switch (record.kind) {
@@ -1278,25 +1216,11 @@ export function parseWalletAddSignerStartResponse(args: {
         },
       };
     }
-    case 'evm_family_ecdsa':
+    case 'evm_family_ecdsa': {
       if (intent.signerSelection.mode !== 'ecdsa' || record.ed25519 !== undefined) {
         throw new Error(`${responseName} response substituted signer branch`);
       }
-      const ecdsa = parseWalletAddSignerEcdsaPrepare(
-        record.ecdsa,
-        intent,
-        record.authorizationKind,
-      );
-      if (record.authorizationKind === 'app_session') {
-        return {
-          ok: true,
-          addSignerCeremonyId,
-          intent,
-          authorizationKind: 'app_session',
-          kind: 'evm_family_ecdsa',
-          ecdsa,
-        };
-      }
+      const ecdsa = parseWalletAddSignerEcdsaPrepare(record.ecdsa, intent);
       const ecdsaRecord = requireResponseRecord({
         responseName,
         field: 'ecdsa',
@@ -1313,6 +1237,7 @@ export function parseWalletAddSignerStartResponse(args: {
           custodyEnvelope: parsePasskeyCustodyEnvelopeRecord(ecdsaRecord.custodyEnvelope),
         },
       };
+    }
     default:
       throw new Error(`${responseName} response has invalid kind`);
   }
@@ -1882,13 +1807,6 @@ export type WalletEcdsaKeyFactsInventoryTarget = {
   chainTarget: ThresholdEcdsaChainTarget;
 };
 
-export type WalletEcdsaKeyFactsInventoryAppSessionPolicy = {
-  permission: 'ecdsa_key_facts_inventory';
-  walletId: WalletId;
-  chainTargets: readonly ThresholdEcdsaChainTarget[];
-  expiresAtMs: number;
-};
-
 export type WalletEcdsaKeyFactsInventoryResponse = {
   ok: true;
   records: ThresholdEcdsaKeyIdentityInventoryEntry[];
@@ -2265,13 +2183,11 @@ type DistributiveOmit<T, K extends keyof any> = T extends unknown ? Omit<T, K> :
 
 export type WalletRegistrationActivateEd25519PendingV2 = DistributiveOmit<
   Extract<WalletRegistrationFinalizeResponse, { ok: true; kind: 'near_ed25519' }>,
-  'ed25519' | 'resolvedAccount' | 'accountProvisioning' | 'authorityScope' | 'appSessionJwt'
+  'ed25519' | 'resolvedAccount' | 'accountProvisioning' | 'authorityScope'
 > & {
   /* Required, not optional: a pending Ed25519-only wallet with no provisioning
      state would be indistinguishable from one that never needed NEAR. */
   nearProvisioning: { status: 'near_pending' };
-  /** Internal first-party passkey authority consumed before public return. */
-  appSessionJwt?: string;
   ed25519?: never;
   resolvedAccount?: never;
   accountProvisioning?: never;
@@ -2282,12 +2198,10 @@ export type WalletRegistrationActivateEd25519PendingV2 = DistributiveOmit<
 export type WalletRegistrationActivateResponseV2 =
   | (Omit<
       Extract<WalletRegistrationFinalizeResponse, { ok: true; kind: 'evm_family_ecdsa' }>,
-      'appSessionJwt'
+      never
     > & {
       ecdsa: ActivateTerminalEcdsaPayload;
       registrationEstablishedSession: RegistrationEstablishedSession;
-      /** Internal first-party passkey authority consumed before public return. */
-      appSessionJwt?: string;
       nearProvisioning?: { status: 'pending' };
     })
   | WalletRegistrationActivateEd25519PendingV2;
@@ -2445,7 +2359,8 @@ function parseRegistrationEstablishedEcdsaSession(
   assertExactResponseKeys(
     record,
     [
-      'walletSessionJwt',
+      'sessionKind',
+      'walletSessionToken',
       'thresholdSessionId',
       'keyHandle',
       'runtimePolicyScope',
@@ -2453,29 +2368,19 @@ function parseRegistrationEstablishedEcdsaSession(
     ],
     `${identity.responseName} ECDSA token`,
   );
-  const walletSessionJwt = requireResponseString({
-    responseName: identity.responseName,
-    field: 'tokens.ecdsa.walletSessionJwt',
-    value: record.walletSessionJwt,
-  });
-  const payload = decodeJwtPayloadRecord(walletSessionJwt);
-  const claims = parseWalletSessionAuthorizationIdentityClaims(walletSessionJwt);
-  if (
-    !isWalletSessionJwt(walletSessionJwt) ||
-    payload?.kind !== ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND ||
-    !claims ||
-    claims.walletId !== identity.walletId ||
-    claims.sessionBinding.kind !== 'seams_session' ||
-    claims.sessionBinding.seamsSessionId !== identity.seamsSessionId ||
-    claims.authorizationId !== identity.authorizationId ||
-    claims.walletSessionId !== identity.walletSessionId ||
-    claims.quotaId !== identity.quotaId ||
-    claims.expiresAtMs !== identity.expiresAtMs
-  ) {
-    throw new Error(`${identity.responseName} ECDSA token identity is invalid`);
+  if (record.sessionKind !== 'opaque') {
+    throw new Error(`${identity.responseName} ECDSA token session kind is invalid`);
   }
+  const walletSessionToken = requireOpaqueWalletSessionToken(
+    requireResponseString({
+      responseName: identity.responseName,
+      field: 'tokens.ecdsa.walletSessionToken',
+      value: record.walletSessionToken,
+    }),
+    'tokens.ecdsa.walletSessionToken',
+  );
   const thresholdSessionId = parseThresholdEcdsaSessionId(record.thresholdSessionId);
-  if (!thresholdSessionId.ok || payload.thresholdSessionId !== thresholdSessionId.value) {
+  if (!thresholdSessionId.ok) {
     throw new Error(`${identity.responseName} ECDSA threshold session is invalid`);
   }
   const keyHandle = parseThresholdEcdsaKeyHandle(
@@ -2493,7 +2398,8 @@ function parseRegistrationEstablishedEcdsaSession(
     record.routerAbEcdsaDerivationNormalSigning,
   );
   return {
-    walletSessionJwt,
+    sessionKind: 'opaque',
+    walletSessionToken,
     thresholdSessionId: thresholdSessionId.value,
     keyHandle,
     runtimePolicyScope,
@@ -2521,7 +2427,8 @@ function parseRegistrationEstablishedEd25519Session(
   assertExactResponseKeys(
     record,
     [
-      'walletSessionJwt',
+      'sessionKind',
+      'walletSessionToken',
       'thresholdSessionId',
       'nearAccountId',
       'nearEd25519SigningKeyId',
@@ -2530,29 +2437,19 @@ function parseRegistrationEstablishedEd25519Session(
     ],
     `${identity.responseName} Ed25519 token`,
   );
-  const walletSessionJwt = requireResponseString({
-    responseName: identity.responseName,
-    field: 'tokens.ed25519.walletSessionJwt',
-    value: record.walletSessionJwt,
-  });
-  const payload = decodeJwtPayloadRecord(walletSessionJwt);
-  const claims = parseWalletSessionAuthorizationIdentityClaims(walletSessionJwt);
-  if (
-    !isWalletSessionJwt(walletSessionJwt) ||
-    payload?.kind !== ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND ||
-    !claims ||
-    claims.walletId !== identity.walletId ||
-    claims.sessionBinding.kind !== 'seams_session' ||
-    claims.sessionBinding.seamsSessionId !== identity.seamsSessionId ||
-    claims.authorizationId !== identity.authorizationId ||
-    claims.walletSessionId !== identity.walletSessionId ||
-    claims.quotaId !== identity.quotaId ||
-    claims.expiresAtMs !== identity.expiresAtMs
-  ) {
-    throw new Error(`${identity.responseName} Ed25519 token identity is invalid`);
+  if (record.sessionKind !== 'opaque') {
+    throw new Error(`${identity.responseName} Ed25519 token session kind is invalid`);
   }
+  const walletSessionToken = requireOpaqueWalletSessionToken(
+    requireResponseString({
+      responseName: identity.responseName,
+      field: 'tokens.ed25519.walletSessionToken',
+      value: record.walletSessionToken,
+    }),
+    'tokens.ed25519.walletSessionToken',
+  );
   const thresholdSessionId = parseThresholdEd25519SessionId(record.thresholdSessionId);
-  if (!thresholdSessionId.ok || payload.thresholdSessionId !== thresholdSessionId.value) {
+  if (!thresholdSessionId.ok) {
     throw new Error(`${identity.responseName} Ed25519 threshold session is invalid`);
   }
   const nearAccountId = requireResponseString({
@@ -2587,7 +2484,8 @@ function parseRegistrationEstablishedEd25519Session(
     parsedNearAccountId = parsedNamedNearAccountId.value;
   }
   return {
-    walletSessionJwt,
+    sessionKind: 'opaque',
+    walletSessionToken,
     thresholdSessionId: thresholdSessionId.value,
     nearAccountId: parsedNearAccountId,
     nearEd25519SigningKeyId,
@@ -2615,7 +2513,6 @@ function parseWalletRegistrationActivateResponseV2(
   const {
     nearProvisioning,
     registrationEstablishedSession: rawEstablishedSession,
-    appSessionJwt: rawAppSessionJwt,
     ...terminal
   } = record;
   if (record.kind === 'near_ed25519') {
@@ -2644,7 +2541,6 @@ function parseWalletRegistrationActivateResponseV2(
         'registrationDiagnostics',
         'rpId',
         'authMethod',
-        'appSessionJwt',
         'walletCustody',
         'kind',
         'nearProvisioning',
@@ -2667,12 +2563,8 @@ function parseWalletRegistrationActivateResponseV2(
       field: 'authMethod',
       value: terminal.authMethod,
     });
-    const pendingAuthorityResponse =
-      authMethod.kind === 'email_otp' && rawAppSessionJwt !== undefined
-        ? { ...terminal, appSessionJwt: rawAppSessionJwt }
-        : terminal;
     const authorityBranch = parseWalletRegistrationFinalizeAuthorityBranch({
-      response: pendingAuthorityResponse,
+      response: terminal,
       walletId,
       authority,
     });
@@ -2680,18 +2572,7 @@ function parseWalletRegistrationActivateResponseV2(
       terminal.registrationDiagnostics === undefined
         ? undefined
         : parseWalletRegistrationFinalizeDiagnostics(terminal.registrationDiagnostics);
-    const appSessionJwt =
-      rawAppSessionJwt === undefined
-        ? undefined
-        : requireResponseString({
-            responseName,
-            field: 'appSessionJwt',
-            value: rawAppSessionJwt,
-          });
     if (authorityBranch.kind === 'passkey') {
-      if (!appSessionJwt) {
-        throw new Error(`${responseName} passkey activation is missing appSessionJwt`);
-      }
       return {
         ok: true,
         kind: 'near_ed25519',
@@ -2700,12 +2581,8 @@ function parseWalletRegistrationActivateResponseV2(
         ...(registrationDiagnostics ? { registrationDiagnostics } : {}),
         rpId: authorityBranch.rpId,
         authMethod: authorityBranch.authMethod,
-        appSessionJwt,
         nearProvisioning: { status: 'near_pending' },
       };
-    }
-    if (!appSessionJwt) {
-      throw new Error(`${responseName} Email OTP activation is missing appSessionJwt`);
     }
     return {
       ok: true,
@@ -2714,7 +2591,6 @@ function parseWalletRegistrationActivateResponseV2(
       authority,
       ...(registrationDiagnostics ? { registrationDiagnostics } : {}),
       authMethod: authorityBranch.authMethod,
-      appSessionJwt,
       /* An Ed25519-only wallet has no key set yet, so no custody run can have
          ridden this call — but the field is carried rather than dropped, so a
          Gateway that reports one is never silently ignored. */
@@ -2761,13 +2637,7 @@ function parseWalletRegistrationActivateResponseV2(
     field: 'authMethod',
     value: terminal.authMethod,
   });
-  const finalizeTerminal = {
-    ...terminal,
-    ...(authMethod.kind === 'email_otp' && rawAppSessionJwt !== undefined
-      ? { appSessionJwt: rawAppSessionJwt }
-      : {}),
-    ecdsa: terminalEcdsa,
-  };
+  const finalizeTerminal = { ...terminal, ecdsa: terminalEcdsa };
   const finalized = parseWalletRegistrationFinalizeResponse({
     value: finalizeTerminal,
     expectedKind: 'evm_family_ecdsa',
@@ -2779,20 +2649,6 @@ function parseWalletRegistrationActivateResponseV2(
     rawEstablishedSession,
     finalized.walletId,
   );
-  const appSessionJwt =
-    rawAppSessionJwt === undefined
-      ? undefined
-      : requireResponseString({
-          responseName,
-          field: 'appSessionJwt',
-          value: rawAppSessionJwt,
-        });
-  if (finalized.authMethod.kind === 'passkey' && !appSessionJwt) {
-    throw new Error(`${responseName} passkey activation is missing appSessionJwt`);
-  }
-  if (finalized.authMethod.kind === 'email_otp' && !appSessionJwt) {
-    throw new Error(`${responseName} Email OTP activation is missing appSessionJwt`);
-  }
   return {
     ...finalized,
     ecdsa: {
@@ -2801,7 +2657,6 @@ function parseWalletRegistrationActivateResponseV2(
       bootstrap: parseThresholdEcdsaDerivationRoleLocalBootstrapValue(bootstrap),
     },
     registrationEstablishedSession,
-    ...(appSessionJwt ? { appSessionJwt } : {}),
     ...(nearProvisioning === undefined ? {} : { nearProvisioning: { status: 'pending' as const } }),
   };
 }
@@ -2927,7 +2782,6 @@ function parseWalletRegistrationNearProvisioningResponseV2(
       'registrationDiagnostics',
       'rpId',
       'authMethod',
-      'appSessionJwt',
       'walletCustody',
       'kind',
       'accountProvisioning',
@@ -3147,12 +3001,10 @@ type ParsedWalletRegistrationFinalizeAuthorityBranch =
       kind: 'passkey';
       rpId: string;
       authMethod: Extract<WalletRegistrationFinalizeAuthMethod, { kind: 'passkey' }>;
-      appSessionJwt?: never;
     }
   | {
       kind: 'email_otp';
       authMethod: Extract<WalletRegistrationFinalizeAuthMethod, { kind: 'email_otp' }>;
-      appSessionJwt: string;
       rpId?: never;
     };
 
@@ -3177,10 +3029,7 @@ function parseWalletRegistrationFinalizeAuthorityBranch(args: {
         ['kind', 'credentialIdB64u', 'credentialPublicKeyB64u'],
         responseName,
       );
-      if (
-        !isPasskeyWalletAuthAuthority(args.authority) ||
-        args.response.appSessionJwt !== undefined
-      ) {
+      if (!isPasskeyWalletAuthAuthority(args.authority)) {
         throw new Error(`${responseName} response has inconsistent passkey authority`);
       }
       const rpId = requireResponseRpId(args.response.rpId, responseName);
@@ -3224,11 +3073,6 @@ function parseWalletRegistrationFinalizeAuthorityBranch(args: {
             value: authMethod.registrationAuthorityId,
           }),
         },
-        appSessionJwt: requireResponseString({
-          responseName,
-          field: 'appSessionJwt',
-          value: args.response.appSessionJwt,
-        }),
       };
     default:
       throw new Error(`${responseName} response has invalid authMethod`);
@@ -3432,7 +3276,6 @@ export function parseWalletRegistrationFinalizeResponse(args: {
       'registrationDiagnostics',
       'rpId',
       'authMethod',
-      'appSessionJwt',
       'walletCustody',
       'kind',
       'authorityScope',
@@ -3508,7 +3351,6 @@ export function parseWalletRegistrationFinalizeResponse(args: {
         ...(registrationDiagnostics ? { registrationDiagnostics } : {}),
         ...walletCustody,
         authMethod: authorityBranch.authMethod,
-        appSessionJwt: authorityBranch.appSessionJwt,
         kind: 'near_ed25519',
         authorityScope: near.authorityScope,
         accountProvisioning: near.accountProvisioning,
@@ -3549,7 +3391,6 @@ export function parseWalletRegistrationFinalizeResponse(args: {
         ...(registrationDiagnostics ? { registrationDiagnostics } : {}),
         ...walletCustody,
         authMethod: authorityBranch.authMethod,
-        appSessionJwt: authorityBranch.appSessionJwt,
         kind: 'evm_family_ecdsa',
         ecdsa,
       };
@@ -3557,14 +3398,6 @@ export function parseWalletRegistrationFinalizeResponse(args: {
     default:
       throw new Error(`${responseName} response has invalid kind`);
   }
-}
-
-function addSignerAuthHeaders(auth: AddSignerAuth): Record<string, string> | undefined {
-  if (auth.kind !== 'app_session') return undefined;
-  return buildBearerAuthorizationHeader({
-    token: auth.appSessionJwt,
-    missingMessage: 'appSessionJwt is required for app-session add-signer auth',
-  });
 }
 
 function addSignerAuthBody(auth: AddSignerAuth): unknown {
@@ -3576,26 +3409,7 @@ function addSignerAuthBody(auth: AddSignerAuth): unknown {
         credential: auth.credential,
         expectedChallengeDigestB64u: auth.expectedChallengeDigestB64u,
       };
-    case 'app_session':
-      return {
-        kind: 'app_session',
-        policy: auth.policy,
-      };
   }
-}
-
-function addAuthMethodAuthHeaders(auth: AddAuthMethodAuth): Record<string, string> | undefined {
-  if (auth.kind === 'email_otp') {
-    return buildBearerAuthorizationHeader({
-      token: auth.appSessionJwt,
-      missingMessage: 'appSessionJwt is required for Email OTP add-auth-method auth',
-    });
-  }
-  if (auth.kind !== 'app_session') return undefined;
-  return buildBearerAuthorizationHeader({
-    token: auth.appSessionJwt,
-    missingMessage: 'appSessionJwt is required for app-session add-auth-method auth',
-  });
 }
 
 function addAuthMethodAuthBody(auth: AddAuthMethodAuth): unknown {
@@ -3609,11 +3423,6 @@ function addAuthMethodAuthBody(auth: AddAuthMethodAuth): unknown {
       };
     case 'email_otp':
       return { kind: 'email_otp' };
-    case 'app_session':
-      return {
-        kind: 'app_session',
-        policy: auth.policy,
-      };
   }
 }
 
@@ -3628,16 +3437,6 @@ function addAuthMethodAuthorityBody(
   }
 }
 
-function revokeAuthMethodAuthHeaders(
-  auth: RevokeAuthMethodAuth,
-): Record<string, string> | undefined {
-  if (auth.kind !== 'app_session') return undefined;
-  return buildBearerAuthorizationHeader({
-    token: auth.appSessionJwt,
-    missingMessage: 'appSessionJwt is required for app-session auth-method revoke',
-  });
-}
-
 function revokeAuthMethodAuthBody(auth: RevokeAuthMethodAuth): unknown {
   switch (auth.kind) {
     case 'webauthn_assertion':
@@ -3646,11 +3445,6 @@ function revokeAuthMethodAuthBody(auth: RevokeAuthMethodAuth): unknown {
         rpId: auth.rpId,
         credential: auth.credential,
         expectedChallengeDigestB64u: auth.expectedChallengeDigestB64u,
-      };
-    case 'app_session':
-      return {
-        kind: 'app_session',
-        policy: auth.policy,
       };
   }
 }
@@ -3668,7 +3462,6 @@ export async function startWalletAddSigner(args: {
   const value = await postJson<unknown>({
     relayerUrl: args.relayerUrl,
     path: `/wallets/${encodeURIComponent(walletId)}/signers/start`,
-    headers: addSignerAuthHeaders(args.auth),
     body: {
       addSignerIntentGrant: args.addSignerIntentGrant,
       addSignerIntentDigestB64u: args.addSignerIntentDigestB64u,
@@ -3693,7 +3486,6 @@ export async function startWalletAddAuthMethod(args: {
   return await postJson<WalletAddAuthMethodStartResponse>({
     relayerUrl: args.relayerUrl,
     path: `/wallets/${encodeURIComponent(walletId)}/auth-methods/start`,
-    headers: addAuthMethodAuthHeaders(args.auth),
     body: {
       addAuthMethodIntentGrant: args.addAuthMethodIntentGrant,
       addAuthMethodIntentDigestB64u: args.addAuthMethodIntentDigestB64u,
@@ -3864,7 +3656,6 @@ export async function revokeWalletAuthMethod(args: {
   return await postJson<WalletRevokeAuthMethodResponse>({
     relayerUrl: args.relayerUrl,
     path: `/wallets/${encodeURIComponent(walletId)}/auth-methods/revoke`,
-    headers: revokeAuthMethodAuthHeaders(args.auth),
     body: {
       auth: revokeAuthMethodAuthBody(args.auth),
       target: args.target,
@@ -3872,44 +3663,40 @@ export async function revokeWalletAuthMethod(args: {
   });
 }
 
-export async function fetchWalletEcdsaKeyFactsInventoryWithAppSession(args: {
+export async function fetchWalletEcdsaKeyFactsInventoryWithOpaqueWalletSession(args: {
   relayerUrl: string;
   walletId: WalletId;
   rpId: string;
-  appSessionJwt: string;
+  curve: 'ecdsa_secp256k1';
+  walletSessionToken: string;
   keyTargets: readonly WalletEcdsaKeyFactsInventoryTarget[];
-  policy: WalletEcdsaKeyFactsInventoryAppSessionPolicy;
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
 }): Promise<WalletEcdsaKeyFactsInventoryResponse> {
   const walletId = String(args.walletId || '').trim();
   const rpId = String(args.rpId || '').trim();
-  const appSessionJwt = String(args.appSessionJwt || '').trim();
+  const walletSessionToken = String(args.walletSessionToken || '').trim();
   if (!walletId) {
     throw new Error('walletId is required for ECDSA key-facts inventory');
   }
   if (!rpId) {
     throw new Error('rpId is required for ECDSA key-facts inventory');
   }
-  if (!appSessionJwt) {
-    throw new Error('appSessionJwt is required for ECDSA key-facts inventory');
-  }
-  if (String(args.policy.walletId || '').trim() !== walletId) {
-    throw new Error('policy.walletId must match walletId for ECDSA key-facts inventory');
+  if (!walletSessionToken) {
+    throw new Error('walletSessionToken is required for ECDSA key-facts inventory');
   }
 
   const data = await postJson<Record<string, unknown>>({
     relayerUrl: args.relayerUrl,
     path: `/wallets/${encodeURIComponent(walletId)}/signers/ecdsa/key-facts/inventory`,
     headers: buildBearerAuthorizationHeader({
-      token: appSessionJwt,
-      missingMessage: 'appSessionJwt is required for ECDSA key-facts inventory',
+      token: walletSessionToken,
+      missingMessage: 'walletSessionToken is required for ECDSA key-facts inventory',
     }),
     body: {
       rpId,
       keyTargets: args.keyTargets,
       auth: {
-        kind: 'app_session',
-        policy: args.policy,
+        kind: 'opaque_wallet_session',
+        curve: args.curve,
       },
     },
   });

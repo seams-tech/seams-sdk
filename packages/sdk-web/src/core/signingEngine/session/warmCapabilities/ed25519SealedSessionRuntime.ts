@@ -21,13 +21,9 @@ import { toRpId } from '../identity/evmFamilyEcdsaIdentity';
 import type { SigningLaneAuthBinding } from '../identity/signingLaneAuthBinding';
 import { SigningSessionIds, type ThresholdEd25519SessionId } from '../operationState/types';
 import {
-  walletSessionJwtForCurve,
+  walletSessionTokenForCurve,
   type ActiveWalletSessionAuthorizationProjection,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
-import {
-  parseRouterAbEd25519WalletSessionIdentityClaims,
-  parseWalletSessionAuthorizationIdentityClaims,
-} from '../routerAbSigningWalletSession';
 import {
   mpcMaterialActivationRefsEqual,
   type MpcMaterialActivationRef,
@@ -287,22 +283,14 @@ export function ed25519AuthorizationIdentityMatchesRuntime(args: {
   runtime: ExactEd25519SealedSessionRuntime;
   authorization: ActiveWalletSessionAuthorizationProjection;
 }): boolean {
-  const walletSessionJwt = walletSessionJwtForCurve(args.authorization, 'ed25519');
-  if (!walletSessionJwt) return false;
-  const claims = parseWalletSessionAuthorizationIdentityClaims(walletSessionJwt);
-  const ed25519Claims = parseRouterAbEd25519WalletSessionIdentityClaims(walletSessionJwt);
+  const walletSessionToken = walletSessionTokenForCurve(args.authorization, 'ed25519');
+  if (!walletSessionToken) return false;
   return Boolean(
-    claims &&
-    ed25519Claims &&
     String(args.authorization.walletId) === String(args.runtime.walletId) &&
     args.authorization.authMethod === args.runtime.factor.kind &&
-    claims.walletId === args.runtime.walletId &&
-    claims.authorizationId === args.authorization.authorizationId &&
-    claims.walletSessionId === args.authorization.walletSessionId &&
-    claims.quotaId === args.authorization.quotaId &&
-    ed25519Claims.nearAccountId === args.runtime.nearAccountId &&
-    ed25519Claims.nearEd25519SigningKeyId === args.runtime.nearEd25519SigningKeyId &&
-    ed25519Claims.thresholdSessionId === args.runtime.thresholdSessionId,
+    args.authorization.authorizationId.length > 0 &&
+    args.authorization.walletSessionId.length > 0 &&
+    args.authorization.quotaId.length > 0,
   );
 }
 

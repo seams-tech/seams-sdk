@@ -325,9 +325,9 @@ export enum UnlockEventPhase {
   STEP_03_EMAIL_OTP_INPUT_REQUIRED = 'unlock.auth.email_otp.input.required',
   STEP_03_EMAIL_OTP_VERIFY_STARTED = 'unlock.auth.email_otp.verify.started',
   STEP_03_EMAIL_OTP_VERIFY_SUCCEEDED = 'unlock.auth.email_otp.verify.succeeded',
-  STEP_04_APP_SESSION_EXCHANGE_STARTED = 'unlock.app_session.exchange.started',
-  STEP_04_APP_SESSION_EXCHANGE_SUCCEEDED = 'unlock.app_session.exchange.succeeded',
-  STEP_04_APP_SESSION_EXCHANGE_SKIPPED = 'unlock.app_session.exchange.skipped',
+  STEP_04_WALLET_UNLOCK_EXCHANGE_STARTED = 'unlock.wallet.exchange.started',
+  STEP_04_WALLET_UNLOCK_EXCHANGE_SUCCEEDED = 'unlock.wallet.exchange.succeeded',
+  STEP_04_WALLET_UNLOCK_EXCHANGE_SKIPPED = 'unlock.wallet.exchange.skipped',
   STEP_05_SIGNING_SESSION_WARMUP_STARTED = 'unlock.signing_session.warmup.started',
   STEP_05_ED25519_SIGNING_SESSION_READY = 'unlock.signing_session.ed25519.ready',
   STEP_05_ECDSA_SIGNING_SESSION_READY = 'unlock.signing_session.ecdsa.ready',
@@ -486,9 +486,9 @@ export const WALLET_FLOW_EVENT_STEPS: Record<WalletFlowEventPhase, number> = {
   [UnlockEventPhase.STEP_03_EMAIL_OTP_INPUT_REQUIRED]: 3,
   [UnlockEventPhase.STEP_03_EMAIL_OTP_VERIFY_STARTED]: 3,
   [UnlockEventPhase.STEP_03_EMAIL_OTP_VERIFY_SUCCEEDED]: 3,
-  [UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_STARTED]: 4,
-  [UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_SUCCEEDED]: 4,
-  [UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_SKIPPED]: 4,
+  [UnlockEventPhase.STEP_04_WALLET_UNLOCK_EXCHANGE_STARTED]: 4,
+  [UnlockEventPhase.STEP_04_WALLET_UNLOCK_EXCHANGE_SUCCEEDED]: 4,
+  [UnlockEventPhase.STEP_04_WALLET_UNLOCK_EXCHANGE_SKIPPED]: 4,
   [UnlockEventPhase.STEP_05_SIGNING_SESSION_WARMUP_STARTED]: 5,
   [UnlockEventPhase.STEP_05_ED25519_SIGNING_SESSION_READY]: 5,
   [UnlockEventPhase.STEP_05_ECDSA_SIGNING_SESSION_READY]: 5,
@@ -614,9 +614,9 @@ export const WALLET_FLOW_EVENT_MESSAGES: Record<WalletFlowEventPhase, string> = 
   [UnlockEventPhase.STEP_03_EMAIL_OTP_INPUT_REQUIRED]: 'Enter the email code',
   [UnlockEventPhase.STEP_03_EMAIL_OTP_VERIFY_STARTED]: 'Verifying email code',
   [UnlockEventPhase.STEP_03_EMAIL_OTP_VERIFY_SUCCEEDED]: 'Email verified',
-  [UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_STARTED]: 'Creating app session',
-  [UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_SUCCEEDED]: 'App session ready',
-  [UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_SKIPPED]: 'App session skipped',
+  [UnlockEventPhase.STEP_04_WALLET_UNLOCK_EXCHANGE_STARTED]: 'Creating wallet session',
+  [UnlockEventPhase.STEP_04_WALLET_UNLOCK_EXCHANGE_SUCCEEDED]: 'Wallet session ready',
+  [UnlockEventPhase.STEP_04_WALLET_UNLOCK_EXCHANGE_SKIPPED]: 'Wallet session skipped',
   [UnlockEventPhase.STEP_05_SIGNING_SESSION_WARMUP_STARTED]: 'Preparing transaction signing',
   [UnlockEventPhase.STEP_05_ED25519_SIGNING_SESSION_READY]: 'NEAR signing authorization ready',
   [UnlockEventPhase.STEP_05_ECDSA_SIGNING_SESSION_READY]: 'EVM signing session ready',
@@ -905,9 +905,9 @@ export interface LoginHooksOptions {
       };
   ecdsaKeyFactsInventory?:
     | {
-        mode: 'app_session';
-        appSessionJwt?: string;
-        policyTtlMs?: number;
+        mode: 'opaque_wallet_session';
+        curve: 'ecdsa_secp256k1';
+        walletSessionToken: string;
       }
     | {
         mode: 'webauthn';
@@ -920,31 +920,6 @@ export interface LoginHooksOptions {
    * (WebAuthn) prompt.
    */
   signerSlot?: number;
-  // Optional: request a server session (JWT in body or HttpOnly cookie)
-  session?: {
-    // 'jwt' returns the token in the JSON body; 'cookie' sets HttpOnly cookie
-    kind: 'jwt' | 'cookie';
-    // Optional: override Router API URL; defaults to SeamsConfigsReadonly.network.relayer.url
-    relayUrl?: string;
-    // Optional: override route path.
-    // - defaults to '/session/exchange'
-    // - must target exchange-capable route when `session` is provided
-    route?: string;
-    // Required exchange input for `POST /session/exchange`.
-    exchange?:
-      | {
-          // BYO auth: external OIDC token -> Router API app session mint
-          type: 'oidc_jwt';
-          token: string;
-        }
-      | {
-          // One-step passkey unlock + app session mint.
-          // SDK obtains challenge + WebAuthn assertion before calling `/session/exchange`.
-          type: 'passkey_assertion';
-          expectedOrigin?: string;
-          expected_origin?: string;
-        };
-  };
   /**
    * Optional: override the warm signing session policy minted during login.
    * Defaults come from `SeamsConfigsReadonly.signing.sessionDefaults`.

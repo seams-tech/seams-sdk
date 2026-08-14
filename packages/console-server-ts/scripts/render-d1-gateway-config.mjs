@@ -218,7 +218,6 @@ function buildWorkerVars(deployment, walletOrigin, emailOtpDelivery, docsOrigin)
   }
   addNearRelayerVars(vars, deployment.optional.nearRelayer);
   addOptionalStringVar(vars, 'GOOGLE_OIDC_CLIENT_ID', deployment.optional.googleOidcClientId);
-  addOptionalObjectVar(vars, 'SEAMS_OIDC_EXCHANGE_JSON', deployment.optional.oidcExchange);
   return vars;
 }
 

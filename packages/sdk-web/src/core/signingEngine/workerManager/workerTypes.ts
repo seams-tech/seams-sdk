@@ -45,7 +45,6 @@ import type { EcdsaClientPresignPoolIdentity } from './ecdsaPresignPoolIdentity'
 import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 import type { WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
 import type { EmailOtpChallengeDelivery } from '../session/emailOtp/publicTypes';
-import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import type { EmailOtpRoutePlan } from '../stepUpConfirmation/otpPrompt/authLane';
 import type { EcdsaRoleLocalReadyStateBlob } from '@/core/platform';
 import type { EcdsaRoleLocalReadyRecord } from '@/core/platform/types';
@@ -183,11 +182,11 @@ export type EmailOtpEd25519YaoRecoveryBootstrapV1 = {
 export type EmailOtpEcdsaWalletUnlockAuthorization =
   | {
       readonly kind: 'verified_wallet_unlock';
-      readonly walletSessionJwt?: never;
+      readonly walletSessionToken?: never;
     }
   | {
       readonly kind: 'reuse_ed25519_wallet_session';
-      readonly walletSessionJwt: string;
+      readonly walletSessionToken: string;
     };
 
 export type EmailOtpEcdsaCustodySignerV1 = {
@@ -621,7 +620,6 @@ export interface EmailOtpWorkerOperationMap {
       delivery: EmailOtpChallengeDelivery;
       emailHint?: string;
       expiresAtMs?: number;
-      appSessionVersion?: string;
     };
   };
   requestEmailOtpEnrollmentChallenge: {
@@ -637,7 +635,6 @@ export interface EmailOtpWorkerOperationMap {
       delivery: EmailOtpChallengeDelivery;
       emailHint?: string;
       expiresAtMs?: number;
-      appSessionVersion?: string;
     };
   };
   enrollEmailOtpWallet: {
@@ -828,7 +825,7 @@ export interface EmailOtpWorkerOperationMap {
       target: EmailOtpWarmMaterialTarget;
       transport: {
         relayerUrl: string;
-        walletSessionJwt?: string;
+        walletSessionToken?: string;
         signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
         groupId?: string;
       };
@@ -860,7 +857,7 @@ export interface EmailOtpWorkerOperationMap {
       expiresAtMs: number;
       transport: {
         relayerUrl: string;
-        walletSessionJwt?: string;
+        walletSessionToken?: string;
         signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
         groupId?: string;
       };
@@ -912,10 +909,9 @@ export interface EmailOtpWorkerOperationMap {
       cleared: true;
     };
   };
-  exportEmailOtpEd25519YaoSeedWithAuthorization: {
+  exportEmailOtpEd25519YaoSeed: {
     payload: {
       relayUrl: string;
-      factorReleaseAppSessionJwt: string;
       challengeId: string;
       otpCode: string;
       groupId: string;
@@ -925,9 +921,6 @@ export interface EmailOtpWorkerOperationMap {
         nearAccountId: string;
         nearEd25519SigningKeyId: string;
         signerSlot: number;
-      };
-      authorization: {
-        walletSessionJwt: string;
       };
       material: EmailOtpEd25519YaoExportMaterialV1;
     };
@@ -1043,7 +1036,7 @@ export type EmailOtpWarmSessionOperationType =
   | 'rehydrateEmailOtpEd25519YaoOperationMaterial'
   | 'activateEmailOtpEd25519YaoRegistrationMaterial'
   | 'clearEmailOtpWarmSessionMaterial';
-export type EmailOtpExportOperationType = 'exportEmailOtpEd25519YaoSeedWithAuthorization';
+export type EmailOtpExportOperationType = 'exportEmailOtpEd25519YaoSeed';
 export type EmailOtpDomainOperationType =
   | EmailOtpChallengeOperationType
   | EmailOtpEnrollmentOperationType

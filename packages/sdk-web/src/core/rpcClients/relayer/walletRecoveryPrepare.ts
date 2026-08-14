@@ -258,9 +258,8 @@ export function buildWalletRecoveryCeremonyCustodyJson(args: {
 
 /**
  * Starts recovery from a fresh device after the one-purpose Email OTP
- * bootstrap grant has been verified. This request intentionally carries no
- * app-session bearer token; the grant is consumed and bound to the reservation
- * by the server.
+ * bootstrap grant has been verified. The grant is consumed and bound to the
+ * reservation by the server.
  */
 export async function prepareWalletRecoveryWithBootstrap(args: {
   readonly relayUrl: string;

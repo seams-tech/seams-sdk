@@ -1,20 +1,25 @@
 import {
   buildActiveWalletSessionAuthorizationProjection,
-  requireWalletSessionAuthorizationJwt,
   type ActiveWalletSessionAuthorizationProjection,
   type WalletSessionAuthorizationRepository,
   type WalletSessionAuthorizationTokenBundle,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type {
+  ThresholdEcdsaSessionId,
+  ThresholdEd25519SessionId,
+} from '@shared/utils/domainIds';
+import { parseThresholdEcdsaSessionId } from '@shared/utils/domainIds';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import type {
   MpcWalletSigningQuotaId,
-  SeamsSessionId,
+  WalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
+import { parseWalletSessionAuthorizationId } from '@shared/authorization/capabilityKinds';
 import type { WalletAuthMethod } from '@shared/utils/signerDomain';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
-import { parseWalletSessionAuthorizationIdentityClaims } from '../identity/walletSessionAuthorizationJwt';
+import { requireOpaqueWalletSessionToken } from '@shared/utils/sessionTokens';
 import type { RegistrationEstablishedSession } from '@shared/utils/registrationEstablishedSession';
 
 export type WalletSessionAuthorizationProjectionWriter = Pick<
@@ -24,22 +29,23 @@ export type WalletSessionAuthorizationProjectionWriter = Pick<
 
 type WalletSessionAuthorizationCurvePersistenceInputBase = {
   readonly walletId: WalletId;
+  readonly authorizationId: WalletSessionAuthorizationId;
   readonly walletSessionId: WalletSessionId;
   readonly quotaId: MpcWalletSigningQuotaId;
   readonly expiresAtMs: number;
   readonly authority: WalletAuthAuthorityRef;
   readonly authMethod: WalletAuthMethod;
-  readonly walletSessionJwt: string;
+  readonly walletSessionToken: string;
 };
 
 export type WalletSessionAuthorizationCurvePersistenceInput =
   | (WalletSessionAuthorizationCurvePersistenceInputBase & {
       readonly curve: 'ed25519';
-      readonly authorizationSessionId?: never;
+      readonly thresholdSessionId: ThresholdEd25519SessionId;
     })
   | (WalletSessionAuthorizationCurvePersistenceInputBase & {
       readonly curve: 'ecdsa';
-      readonly authorizationSessionId: SeamsSessionId;
+      readonly thresholdSessionId: ThresholdEcdsaSessionId;
     });
 
 function walletSessionAuthorizationIdentityMatches(
@@ -48,7 +54,6 @@ function walletSessionAuthorizationIdentityMatches(
 ): boolean {
   return (
     left.walletId === right.walletId &&
-    left.seamsSessionId === right.seamsSessionId &&
     left.authorizationId === right.authorizationId &&
     left.walletSessionId === right.walletSessionId &&
     left.quotaId === right.quotaId &&
@@ -60,42 +65,34 @@ function walletSessionAuthorizationIdentityMatches(
 }
 
 function curveTokenBundle(
-  curve: WalletSessionAuthorizationCurvePersistenceInput['curve'],
-  walletSessionJwt: ReturnType<typeof requireWalletSessionAuthorizationJwt>,
+  input: WalletSessionAuthorizationCurvePersistenceInput,
+  walletSessionToken: ReturnType<typeof requireOpaqueWalletSessionToken>,
 ): WalletSessionAuthorizationTokenBundle {
-  return curve === 'ed25519'
-    ? { kind: 'near_ed25519', ed25519: { walletSessionJwt } }
-    : { kind: 'evm_family_ecdsa', ecdsa: { walletSessionJwt } };
+  return input.curve === 'ed25519'
+    ? {
+        kind: 'near_ed25519',
+        ed25519: { walletSessionToken, thresholdSessionId: input.thresholdSessionId },
+      }
+    : {
+        kind: 'evm_family_ecdsa',
+        ecdsa: { walletSessionToken, thresholdSessionId: input.thresholdSessionId },
+      };
 }
 
 export async function persistActiveWalletSessionAuthorizationCurve(
   writer: WalletSessionAuthorizationProjectionWriter,
   args: WalletSessionAuthorizationCurvePersistenceInput,
 ): Promise<ActiveWalletSessionAuthorizationProjection> {
-  const claims = parseWalletSessionAuthorizationIdentityClaims(args.walletSessionJwt);
-  if (
-    !claims ||
-    claims.sessionBinding.kind !== 'seams_session' ||
-    claims.walletId !== args.walletId ||
-    claims.walletSessionId !== args.walletSessionId ||
-    claims.quotaId !== args.quotaId ||
-    claims.expiresAtMs < args.expiresAtMs ||
-    (args.curve === 'ecdsa' &&
-      (claims.sessionBinding.kind !== 'seams_session' ||
-        claims.sessionBinding.seamsSessionId !== args.authorizationSessionId))
-  ) {
-    throw new Error('Wallet Session JWT identity does not match the activated session');
-  }
+  const walletSessionToken = requireOpaqueWalletSessionToken(
+    args.walletSessionToken,
+    'walletSessionToken',
+  );
   const active = buildActiveWalletSessionAuthorizationProjection({
     walletId: args.walletId,
-    seamsSessionId: claims.sessionBinding.seamsSessionId,
-    authorizationId: claims.authorizationId,
+    authorizationId: args.authorizationId,
     walletSessionId: args.walletSessionId,
     quotaId: args.quotaId,
-    walletSessionTokens: curveTokenBundle(
-      args.curve,
-      requireWalletSessionAuthorizationJwt(args.walletSessionJwt),
-    ),
+    walletSessionTokens: curveTokenBundle(args, walletSessionToken),
     authMethod: args.authMethod,
     authority: args.authority,
     expiresAtMs: args.expiresAtMs,
@@ -132,32 +129,32 @@ function registrationSessionTokenBundle(
       return {
         kind: 'near_ed25519',
         ed25519: {
-          walletSessionJwt: requireWalletSessionAuthorizationJwt(
-            session.tokens.ed25519.walletSessionJwt,
+          walletSessionToken: requireOpaqueWalletSessionToken(
+            session.tokens.ed25519.walletSessionToken,
           ),
+          thresholdSessionId: session.tokens.ed25519.thresholdSessionId,
         },
       };
     case 'evm_family_ecdsa':
       return {
         kind: 'evm_family_ecdsa',
         ecdsa: {
-          walletSessionJwt: requireWalletSessionAuthorizationJwt(
-            session.tokens.ecdsa.walletSessionJwt,
+          walletSessionToken: requireOpaqueWalletSessionToken(
+            session.tokens.ecdsa.walletSessionToken,
           ),
+          thresholdSessionId: session.tokens.ecdsa.thresholdSessionId,
         },
       };
     case 'near_ed25519_and_evm_family_ecdsa':
       return {
         kind: 'near_ed25519_and_evm_family_ecdsa',
         ed25519: {
-          walletSessionJwt: requireWalletSessionAuthorizationJwt(
-            session.tokens.ed25519.walletSessionJwt,
-          ),
+          walletSessionToken: requireOpaqueWalletSessionToken(session.tokens.ed25519.walletSessionToken),
+          thresholdSessionId: session.tokens.ed25519.thresholdSessionId,
         },
         ecdsa: {
-          walletSessionJwt: requireWalletSessionAuthorizationJwt(
-            session.tokens.ecdsa.walletSessionJwt,
-          ),
+          walletSessionToken: requireOpaqueWalletSessionToken(session.tokens.ecdsa.walletSessionToken),
+          thresholdSessionId: session.tokens.ecdsa.thresholdSessionId,
         },
       };
     default:
@@ -179,7 +176,6 @@ export async function persistActiveWalletSessionAuthorizationFromRegistration(
 ): Promise<ActiveWalletSessionAuthorizationProjection> {
   const active = buildActiveWalletSessionAuthorizationProjection({
     walletId: args.session.walletId,
-    seamsSessionId: args.session.seamsSessionId,
     authorizationId: args.session.authorizationId,
     walletSessionId: args.session.walletSessionId,
     quotaId: args.session.quotaId,
@@ -201,15 +197,26 @@ export async function persistActiveWalletSessionAuthorizationFromEcdsaBootstrap(
   },
 ): Promise<ActiveWalletSessionAuthorizationProjection> {
   const session = args.bootstrap.session;
+  const authorizationId = parseWalletSessionAuthorizationId(
+    String(session.authorizationSessionId),
+  );
+  if (!authorizationId.ok) {
+    throw new Error('ECDSA bootstrap returned an invalid Wallet Session authorization id');
+  }
+  const thresholdSessionId = parseThresholdEcdsaSessionId(session.thresholdSessionId);
+  if (!thresholdSessionId.ok) {
+    throw new Error('ECDSA bootstrap returned an invalid threshold session id');
+  }
   return await persistActiveWalletSessionAuthorizationCurve(writer, {
     walletId: args.walletId,
     walletSessionId: session.walletSessionId,
     quotaId: session.quotaId,
-    authorizationSessionId: session.authorizationSessionId,
+    authorizationId: authorizationId.value,
     authMethod: args.authMethod,
     authority: args.authority,
     expiresAtMs: session.expiresAtMs,
-    walletSessionJwt: session.jwt,
+    walletSessionToken: session.walletSessionToken,
+    thresholdSessionId: thresholdSessionId.value,
     curve: 'ecdsa',
   });
 }

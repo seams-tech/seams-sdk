@@ -223,7 +223,7 @@ export async function handleOwnerWalletExecutionLanePreflight(
     const validated = await validateRouterAbEd25519WalletSessionTokenInputs({
       body: request,
       headers,
-      session: ctx.opts.session,
+      authorizationSessions: ctx.service.authorizationSessions,
     });
     if (!validated.ok) return validationFailure(validated);
     walletIdRaw = validated.claims.walletId;
@@ -235,7 +235,7 @@ export async function handleOwnerWalletExecutionLanePreflight(
     const validated = await validateRouterAbEcdsaDerivationWalletSessionInputs({
       body: request,
       headers,
-      session: ctx.opts.session,
+      authorizationSessions: ctx.service.authorizationSessions,
     });
     if (!validated.ok) return validationFailure(validated);
     walletIdRaw = validated.claims.walletId;

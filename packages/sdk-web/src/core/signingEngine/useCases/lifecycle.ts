@@ -233,8 +233,6 @@ export type WebAuthnUserHandle = string & { readonly __brand: 'WebAuthnUserHandl
 export type WebAuthnCredentialId = CredentialIdB64u;
 export type EmailAddress = string & { readonly __brand: 'EmailAddress' };
 export type EmailOtpCode = string & { readonly __brand: 'EmailOtpCode' };
-export type VerifiedAppSessionJwt = string & { readonly __brand: 'VerifiedAppSessionJwt' };
-
 export type RegisterWalletAuth =
   | {
       kind: 'passkey_registration';
@@ -242,14 +240,12 @@ export type RegisterWalletAuth =
       userHandle: WebAuthnUserHandle;
       email?: never;
       otp?: never;
-      appSession?: never;
     }
   | {
       kind: 'email_otp_registration';
       email: EmailAddress;
       challengeId: EmailOtpChallengeId;
       otp: EmailOtpCode;
-      appSession: VerifiedAppSessionJwt;
       credentialCreation?: never;
       userHandle?: never;
     };
@@ -351,13 +347,11 @@ export type UnlockWalletAuth =
       assertionRequest: AuthenticatorGetRequest;
       challengeId?: never;
       otp?: never;
-      appSession?: never;
     }
   | {
       kind: 'email_otp_unlock';
       challengeId: EmailOtpChallengeId;
       otp: EmailOtpCode;
-      appSession: VerifiedAppSessionJwt;
       credentialId?: never;
       assertionRequest?: never;
     };

@@ -38,7 +38,6 @@ import { exportEcdsaDerivationKey } from '../../flows/recovery/ecdsaDerivationEx
 import type { EmailOtpChallengeDelivery, EmailOtpTransactionSigningChallenge } from './publicTypes';
 import type { PersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocalMaterialResolver';
 import type { EcdsaExplicitExportOperationAuthorization } from '../../threshold/ecdsa/activation';
-import { walletSessionJwtForCurve } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import { disposeWalletCustodyEd25519ActiveClientV1 } from '../../walletCustody/ed25519ActiveClient';
 import type { EmailOtpEd25519YaoExportMaterialV1 } from '../../workerManager/workerTypes';
 
@@ -150,11 +149,17 @@ export async function requestTransactionSigningChallenge(
           nearAccountId: args.nearAccountId,
           routePlan,
         })
-      : await requestEmailOtpChallengeWithRoutePlan(ports, {
-          kind: 'wallet_session',
-          walletId: args.walletSession.walletId,
-          routePlan,
-        });
+      : args.kind === 'wallet_export_challenge'
+        ? await requestEmailOtpChallengeWithRoutePlan(ports, {
+            kind: 'wallet_session',
+            walletId: args.walletId,
+            routePlan,
+          })
+        : await requestEmailOtpChallengeWithRoutePlan(ports, {
+            kind: 'wallet_session',
+            walletId: args.walletSession.walletId,
+            routePlan,
+          });
   return challenge;
 }
 
@@ -163,10 +168,9 @@ function buildTransactionSigningChallengeRoutePlan(
   args: RequestEmailOtpChallengeArgs,
 ): EmailOtpRoutePlan {
   switch (args.kind) {
-    case 'wallet_capability_step_up_challenge':
+    case 'wallet_login_challenge':
       return buildEmailOtpRoutePlan({
         routeFamily: 'login',
-        authLane: { kind: 'app_session', jwt: args.appSessionJwt },
         operation: WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
       });
     case 'wallet_session_challenge':
@@ -178,6 +182,8 @@ function buildTransactionSigningChallengeRoutePlan(
         }),
         operation: WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
       });
+    case 'wallet_export_challenge':
+      throw new Error('Email OTP export challenge cannot authorize transaction signing');
   }
 }
 
@@ -194,7 +200,13 @@ export async function requestExportChallenge(
           nearAccountId: args.nearAccountId,
           routePlan,
         })
-      : await requestEmailOtpChallengeWithRoutePlan(ports, {
+      : args.kind === 'wallet_export_challenge'
+        ? await requestEmailOtpChallengeWithRoutePlan(ports, {
+            kind: 'wallet_session',
+            walletId: args.walletId,
+            routePlan,
+          })
+        : await requestEmailOtpChallengeWithRoutePlan(ports, {
           kind: 'wallet_session',
           walletId: args.walletSession.walletId,
           routePlan,
@@ -207,10 +219,9 @@ function buildExportChallengeRoutePlan(
   args: RequestEmailOtpExportChallengeArgs,
 ): EmailOtpRoutePlan {
   switch (args.kind) {
-    case 'wallet_capability_export_challenge':
+    case 'wallet_login_challenge':
       return buildEmailOtpRoutePlan({
         routeFamily: 'login',
-        authLane: { kind: 'app_session', jwt: args.appSessionJwt },
         operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
       });
     case 'wallet_session_challenge':
@@ -222,23 +233,19 @@ function buildExportChallengeRoutePlan(
         }),
         operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
       });
+    case 'wallet_export_challenge':
+      return buildEmailOtpRoutePlan({
+        routeFamily: 'login',
+        operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
+      });
   }
 }
 
 function buildEcdsaExportVerificationRoutePlan(
   authorization: EcdsaExplicitExportOperationAuthorization,
 ): EmailOtpRoutePlan {
-  if (authorization.sessionAuth.kind !== 'app_session') {
-    throw new Error(
-      'Email OTP ECDSA export requires the app-session authority used for its challenge',
-    );
-  }
   return buildEmailOtpRoutePlan({
     routeFamily: 'login',
-    authLane: {
-      kind: 'app_session',
-      jwt: authorization.sessionAuth.jwt,
-    },
     operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
   });
 }
@@ -266,12 +273,7 @@ export async function exportEd25519YaoSeedWithFreshEmailOtpLane(
   ports: Pick<
     EmailOtpWorkerPorts,
     'getSignerWorkerContext' | 'requireRelayUrl' | 'requireSigningSessionSealGroupId'
-  > & {
-    resolveAppSessionJwtForWallet: (args: {
-      walletId: WalletId;
-      relayUrl: string;
-    }) => Promise<string>;
-  },
+  >,
   args: {
     challengeId: string;
     otpCode: string;
@@ -284,24 +286,13 @@ export async function exportEd25519YaoSeedWithFreshEmailOtpLane(
   }
   const relayUrl = ports.requireRelayUrl();
   const walletId = args.exportContext.lane.signer.account.wallet.walletId;
-  const factorReleaseAppSessionJwt = await ports.resolveAppSessionJwtForWallet({
-    walletId,
-    relayUrl,
-  });
-  const walletSessionJwt = walletSessionJwtForCurve(args.exportContext.authorization, 'ed25519');
-  if (!walletSessionJwt) {
-    throw new Error(
-      '[SigningEngine][ed25519-export] active Wallet Session authorization is unavailable',
-    );
-  }
   const result = await workerCtx.requestWorkerOperation({
     kind: 'emailOtp',
     request: {
-      type: 'exportEmailOtpEd25519YaoSeedWithAuthorization',
+      type: 'exportEmailOtpEd25519YaoSeed',
       timeoutMs: 60_000,
       payload: {
         relayUrl,
-        factorReleaseAppSessionJwt,
         challengeId: args.challengeId,
         otpCode: args.otpCode,
         groupId: ports.requireSigningSessionSealGroupId(),
@@ -311,9 +302,6 @@ export async function exportEd25519YaoSeedWithFreshEmailOtpLane(
           nearAccountId: String(args.exportContext.lane.signer.account.nearAccountId),
           nearEd25519SigningKeyId: String(args.exportContext.lane.signer.nearEd25519SigningKeyId),
           signerSlot: args.exportContext.lane.signer.signerSlot,
-        },
-        authorization: {
-          walletSessionJwt,
         },
         material: emailOtpEd25519WorkerExportMaterial(args.exportContext),
       },

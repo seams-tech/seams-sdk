@@ -18,7 +18,7 @@ const stepUpRequestBase = {
   relayerUrl: 'https://relay.example.test',
   normalSigningRequest,
   displayDigest: 'display-digest',
-  credential: { kind: 'app_session_cookie' as const },
+  credential: { kind: 'operation_step_up' as const },
 };
 
 const validPasskeyStepUpWithoutMaterialRecovery = {
@@ -45,68 +45,26 @@ const invalidPasskeyStepUpWithLocalMaterialRecovery: Ed25519OperationStepUpAutho
 };
 void invalidPasskeyStepUpWithLocalMaterialRecovery;
 
-const validAppSessionJwtAuth = {
-  kind: 'app_session_jwt',
-  appSessionJwt: 'app-session-jwt',
-  localSecretSource: webauthnPrfSource,
-} satisfies Ed25519WalletSessionMintAuthorization;
-void validAppSessionJwtAuth;
-
-const validAppSessionCookieAuth = {
-  kind: 'app_session_cookie',
-  localSecretSource: webauthnPrfSource,
-} satisfies Ed25519WalletSessionMintAuthorization;
-void validAppSessionCookieAuth;
-
 const validThresholdPolicyWebAuthnAuth = {
   kind: 'threshold_session_policy_webauthn',
   policySecretSource: webauthnPrfSource,
 } satisfies Ed25519WalletSessionMintAuthorization;
 void validThresholdPolicyWebAuthnAuth;
 
-const invalidAppSessionJwtWithThresholdAssertion: Ed25519WalletSessionMintAuthorization = {
-  kind: 'app_session_jwt',
-  appSessionJwt: 'app-session-jwt',
-  localSecretSource: webauthnPrfSource,
-  // @ts-expect-error app-session JWT auth cannot carry a Wallet Session WebAuthn assertion.
-  webauthnAuthentication: credential,
-};
-void invalidAppSessionJwtWithThresholdAssertion;
-
-// @ts-expect-error app-session cookie auth cannot carry a JWT.
-const invalidAppSessionCookieWithJwt: Ed25519WalletSessionMintAuthorization = {
-  kind: 'app_session_cookie',
-  localSecretSource: webauthnPrfSource,
-  appSessionJwt: 'app-session-jwt',
-};
-void invalidAppSessionCookieWithJwt;
-
-// @ts-expect-error Wallet Session policy WebAuthn auth cannot carry app-session PRF material.
 const invalidThresholdPolicyWithLocalPrf: Ed25519WalletSessionMintAuthorization = {
   kind: 'threshold_session_policy_webauthn',
   policySecretSource: webauthnPrfSource,
+  // @ts-expect-error Wallet Session policy WebAuthn auth cannot carry local PRF material.
   localSecretSource: webauthnPrfSource,
 };
 void invalidThresholdPolicyWithLocalPrf;
-
-const invalidProvisionWithLooseAppSessionJwt = {
-  kind: 'fresh_ed25519_provisioning',
-  nearAccountId: 'alice.testnet',
-  relayerKeyId: 'ed25519:relayer',
-  participantIds: [1, 2],
-  sessionKind: 'jwt',
-  source: 'login',
-  // @ts-expect-error Ed25519 provisioning requires discriminated auth instead of loose appSessionJwt.
-  appSessionJwt: 'app-session-jwt',
-} satisfies ProvisionWarmEd25519CapabilityArgs;
-void invalidProvisionWithLooseAppSessionJwt;
 
 const invalidProvisionWithLooseLocalPrf = {
   kind: 'fresh_ed25519_provisioning',
   nearAccountId: 'alice.testnet',
   relayerKeyId: 'ed25519:relayer',
   participantIds: [1, 2],
-  sessionKind: 'jwt',
+  sessionKind: 'opaque',
   source: 'login',
   // @ts-expect-error Ed25519 provisioning requires discriminated auth instead of loose localPrfCredential.
   localPrfCredential: credential,

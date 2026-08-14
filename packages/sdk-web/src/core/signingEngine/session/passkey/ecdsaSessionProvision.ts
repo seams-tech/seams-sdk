@@ -45,7 +45,7 @@ import type {
   RouterAbEcdsaDerivationPublicCapabilityV1,
   RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
-import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
+import type { WalletSessionRouteAuth } from '@shared/utils/sessionTokens';
 
 export type ProvisionThresholdEcdsaSessionDeps = {
   queueByWallet: Map<string, Promise<void>>;
@@ -98,10 +98,10 @@ export type ThresholdEcdsaPasskeyActivationRequest = ThresholdEcdsaActivationReq
   kind: 'passkey_ecdsa_activation';
   purpose: 'transaction_signing';
   sessionIdentity: EcdsaSessionIdentity;
-  sessionKind: 'jwt';
+  sessionKind: 'opaque';
   requestId: string;
   webauthnAuthentication: WebAuthnAuthenticationCredential;
-  walletSessionRouteAuth: AppOrWalletSessionAuth;
+  walletSessionRouteAuth: WalletSessionRouteAuth;
   emailOtpAuthContext?: never;
 };
 
@@ -127,7 +127,7 @@ type ThresholdEcdsaEmailOtpActivationRequestBase = ThresholdEcdsaActivationReque
         thresholdSessionId: EcdsaSessionIdentity['thresholdSessionId'];
         materialActivation: PersistedEcdsaRoleLocalMaterial['materialActivation'];
       };
-  sessionKind: 'jwt';
+  sessionKind: 'opaque';
   emailOtpWorkerSessionHandle: EmailOtpEcdsaBootstrapWorkerHandle;
   emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
   passkeyPrfFirstB64u?: never;
@@ -137,7 +137,7 @@ type ThresholdEcdsaEmailOtpActivationRequestBase = ThresholdEcdsaActivationReque
 export type ThresholdEcdsaEmailOtpActivationRequest = ThresholdEcdsaEmailOtpActivationRequestBase &
   (
     | {
-        walletSessionRouteAuth: AppOrWalletSessionAuth;
+        walletSessionRouteAuth: WalletSessionRouteAuth;
         preauthorizedSessionActivation?: never;
       }
     | {
@@ -162,10 +162,10 @@ type BuildThresholdEcdsaActivationRequestCommon = ThresholdEcdsaActivationReques
 
 type BuildPasskeyEcdsaActivationArgs = BuildThresholdEcdsaActivationRequestCommon & {
   sessionIdentity: EcdsaSessionIdentity;
-  sessionKind: 'jwt';
+  sessionKind: 'opaque';
   requestId: string;
   webauthnAuthentication: WebAuthnAuthenticationCredential;
-  walletSessionRouteAuth: AppOrWalletSessionAuth;
+  walletSessionRouteAuth: WalletSessionRouteAuth;
   emailOtpAuthContext?: never;
 };
 
@@ -177,10 +177,10 @@ type BuildPasskeyEcdsaExportActivationArgs = Omit<
 type BuildEmailOtpSessionBootstrapEcdsaActivationArgs =
   BuildThresholdEcdsaActivationRequestCommon & {
     sessionIdentity: EcdsaSessionIdentity;
-    sessionKind: 'jwt';
+  sessionKind: 'opaque';
     emailOtpWorkerSessionHandle: EmailOtpEcdsaBootstrapWorkerHandle;
     emailOtpAuthContext: ThresholdEcdsaEmailOtpSessionAuthContext;
-    walletSessionRouteAuth: AppOrWalletSessionAuth;
+    walletSessionRouteAuth: WalletSessionRouteAuth;
     passkeyPrfFirstB64u?: never;
     webauthnAuthentication?: never;
   };
@@ -207,10 +207,10 @@ type BuildEmailOtpPreauthorizedSessionBootstrapEcdsaActivationArgs = Omit<
 type BuildEmailOtpPerOperationReauthEcdsaActivationArgs =
   BuildThresholdEcdsaActivationRequestCommon & {
     sessionIdentity: EcdsaSessionIdentity;
-    sessionKind: 'jwt';
+  sessionKind: 'opaque';
     emailOtpWorkerSessionHandle: EmailOtpEcdsaBootstrapWorkerHandle;
     emailOtpAuthContext: ThresholdEcdsaEmailOtpPendingSingleUseAuthContext;
-    walletSessionRouteAuth: AppOrWalletSessionAuth;
+  walletSessionRouteAuth: WalletSessionRouteAuth;
     passkeyPrfFirstB64u?: never;
     webauthnAuthentication?: never;
   };

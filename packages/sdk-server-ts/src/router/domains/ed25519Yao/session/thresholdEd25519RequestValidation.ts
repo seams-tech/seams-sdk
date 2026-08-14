@@ -211,9 +211,9 @@ export function parseThresholdEd25519SessionRouteRequest(
   raw: unknown,
 ): ThresholdEd25519RouteParseResult<RouterAbEd25519YaoSessionRouteCommandV1> {
   if (!isPlainObject(raw)) return invalidThresholdEd25519Body('Expected JSON object body');
-  if (raw.sessionKind !== 'jwt') {
+  if (raw.sessionKind !== 'opaque') {
     return invalidThresholdEd25519Body(
-      'Router A/B Ed25519 Wallet Session issuance requires sessionKind=jwt',
+      'Router A/B Ed25519 Wallet Session issuance requires sessionKind=opaque',
     );
   }
   const unsupported = findUnexpectedRouteKey(raw, SESSION_KEYS);
@@ -231,6 +231,9 @@ export function parseThresholdEd25519SessionRouteRequest(
   }
   const webauthnAuthentication = parseOptionalWebAuthnAuthentication(raw);
   if (!webauthnAuthentication.ok) return webauthnAuthentication;
+  if (!webauthnAuthentication.request) {
+    return invalidThresholdEd25519Body('WebAuthn authentication is required');
+  }
   const projectEnvironmentId = optionalStringField(raw, 'projectEnvironmentId');
   return {
     ok: true,
@@ -238,13 +241,11 @@ export function parseThresholdEd25519SessionRouteRequest(
       relayerKeyId: relayerKeyId.request,
       sessionPolicy: sessionPolicy.request,
       ...(projectEnvironmentId ? { projectEnvironmentId } : {}),
-      routeAuth: webauthnAuthentication.request
-        ? {
-            kind: 'passkey',
-            webauthnAuthentication: webauthnAuthentication.request,
-          }
-        : { kind: 'signed_session' },
-      sessionKind: 'jwt',
+      routeAuth: {
+        kind: 'passkey',
+        webauthnAuthentication: webauthnAuthentication.request,
+      },
+      sessionKind: 'opaque',
     },
   };
 }

@@ -21,11 +21,6 @@ import type { LinkedDeviceTargetDeploymentDescriptorProviderV1 } from '../device
 import type { RouterAbEd25519YaoActivationKeysetV1 } from '@shared/utils/routerAbEd25519Yao';
 import type { CloudflareLaneServiceBindingV1 } from '../../signingLanes/cloudflareLaneProtocolCommitter';
 import type { SessionAdapter } from '../../../framework/routerApi';
-import {
-  normalizeOidcExchangeConfig,
-  type CloudflareD1OidcExchangeConfig,
-  type NormalizedCloudflareD1OidcExchangeConfig,
-} from '../oidc/d1OidcBoundary';
 
 export type CloudflareD1EmailOtpDeliveryProviderInput = {
   readonly challengeId: string;
@@ -135,7 +130,6 @@ export interface CloudflareD1RouterApiAuthServiceOptions {
   readonly implicitNearAccountTestFundingEnabled?: boolean | string;
   readonly googleOidcClientId?: string;
   readonly githubOAuth?: CloudflareD1GithubOAuthConfig;
-  readonly oidcExchange?: CloudflareD1OidcExchangeConfig;
   readonly accountIdDerivationSecret?: string;
   readonly emailOtpServerSeal?: CloudflareD1EmailOtpServerSealConfig;
   readonly emailOtpDeliveryMode?: string;
@@ -222,7 +216,6 @@ export type NormalizedCloudflareD1RouterApiAuthServiceOptions = Omit<
   | 'accountInitialBalance'
   | 'implicitNearAccountTestFundingEnabled'
   | 'googleOidcClientId'
-  | 'oidcExchange'
   | 'accountIdDerivationSecret'
   | 'emailOtpServerSeal'
   | 'emailOtpDeliveryMode'
@@ -255,7 +248,6 @@ export type NormalizedCloudflareD1RouterApiAuthServiceOptions = Omit<
   readonly implicitNearAccountTestFundingEnabled: boolean;
   readonly googleOidcClientId?: string;
   readonly githubOAuth?: CloudflareD1GithubOAuthConfig;
-  readonly oidcExchange?: NormalizedCloudflareD1OidcExchangeConfig;
   readonly accountIdDerivationSecret?: string;
   readonly emailOtp: EmailOtpRuntimeConfig;
   readonly emailOtpServerSeal: EmailOtpServerSealRuntimeConfig;
@@ -327,7 +319,6 @@ export function normalizeD1RouterApiAuthOptions(
     ),
     googleOidcClientId: toOptionalTrimmedString(input.googleOidcClientId),
     githubOAuth,
-    oidcExchange: normalizeOidcExchangeConfig(input),
     accountIdDerivationSecret: toOptionalTrimmedString(input.accountIdDerivationSecret),
     emailOtp: normalizeEmailOtpConfig(input),
     emailOtpServerSeal: normalizeEmailOtpServerSealConfig(input),

@@ -27,7 +27,7 @@ const topLevelRegistrationMethods = [
 const authMethods = [
   'requestEmailOtpChallenge',
   'requestEmailOtpSigningSessionChallenge',
-  'exchangeGoogleEmailOtpSession',
+  'beginGoogleEmailOtpWalletAuth',
   'loginWithEmailOtpEcdsaCapability',
   'refreshEmailOtpSigningSession',
 ];

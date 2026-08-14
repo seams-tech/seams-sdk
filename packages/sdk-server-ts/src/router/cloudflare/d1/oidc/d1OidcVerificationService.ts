@@ -10,22 +10,13 @@ import {
 import type { GithubOAuthConfig } from '../../../../core/types';
 import {
   CloudflareD1OidcJwksCache,
-  parseOidcJwtExchangeUnverifiedClaims,
   parseRs256JwtForVerification,
   validateGoogleIdTokenClaims,
-  validateOidcJwtExchangeTemporalClaims,
   verifyRs256JwtSignature,
-  type NormalizedCloudflareD1OidcExchangeConfig,
 } from './d1OidcBoundary';
 
 type VerifyGoogleLoginInput = Parameters<RouterApiIdentityService['verifyGoogleLogin']>[0];
 type VerifyGoogleLoginResult = Awaited<ReturnType<RouterApiIdentityService['verifyGoogleLogin']>>;
-type VerifyOidcJwtExchangeInput = Parameters<
-  RouterApiIdentityService['verifyOidcJwtExchange']
->[0];
-type VerifyOidcJwtExchangeResult = Awaited<
-  ReturnType<RouterApiIdentityService['verifyOidcJwtExchange']>
->;
 type GoogleOidcPublicConfig = ReturnType<RouterApiIdentityService['getGoogleOidcPublicConfig']>;
 type GithubOAuthPublicConfig = ReturnType<RouterApiIdentityService['getGithubOAuthPublicConfig']>;
 
@@ -44,7 +35,6 @@ export class CloudflareD1OidcVerificationService {
   private readonly githubOAuth: GithubOAuthConfig | undefined;
   private readonly identityStore: IdentityStore;
   private readonly linkIdentity: OidcIdentityLinker;
-  private readonly oidcExchange: NormalizedCloudflareD1OidcExchangeConfig | undefined;
   private readonly oidcJwksCache = new CloudflareD1OidcJwksCache();
 
   constructor(input: {
@@ -52,13 +42,11 @@ export class CloudflareD1OidcVerificationService {
     readonly githubOAuth: GithubOAuthConfig | undefined;
     readonly identityStore: IdentityStore;
     readonly linkIdentity: OidcIdentityLinker;
-    readonly oidcExchange: NormalizedCloudflareD1OidcExchangeConfig | undefined;
   }) {
     this.googleOidcClientId = input.googleOidcClientId;
     this.githubOAuth = input.githubOAuth;
     this.identityStore = input.identityStore;
     this.linkIdentity = input.linkIdentity;
-    this.oidcExchange = input.oidcExchange;
   }
 
   getGoogleOidcPublicConfig(): GoogleOidcPublicConfig {
@@ -82,101 +70,6 @@ export class CloudflareD1OidcVerificationService {
       identityStore: this.identityStore,
     });
   }
-
-  async verifyOidcJwtExchange(
-    input: VerifyOidcJwtExchangeInput,
-  ): Promise<VerifyOidcJwtExchangeResult> {
-    try {
-      const oidcExchange = this.oidcExchange;
-      if (!oidcExchange || oidcExchange.issuers.length === 0) {
-        return {
-          ok: false,
-          verified: false,
-          code: 'not_configured',
-          message: 'OIDC exchange is not configured on this Worker',
-        };
-      }
-
-      const token = toOptionalTrimmedString(input.token);
-      if (!token) {
-        return {
-          ok: false,
-          verified: false,
-          code: 'invalid_body',
-          message: 'exchange.token is required',
-        };
-      }
-      const subtle = globalThis.crypto?.subtle;
-      if (!subtle) {
-        return {
-          ok: false,
-          verified: false,
-          code: 'unsupported',
-          message: 'WebCrypto (crypto.subtle) is unavailable in this runtime',
-        };
-      }
-
-      const parsed = parseRs256JwtForVerification({
-        token,
-        tokenLabel: 'exchange.token',
-      });
-      if (!parsed.ok) return parsed;
-      const jwt = parsed.jwt;
-      const payload = jwt.payload;
-
-      const claims = parseOidcJwtExchangeUnverifiedClaims({ payload, oidcExchange });
-      if (!claims.ok) return claims;
-
-      const jwks = await this.oidcJwksCache.getOidcJwksByUrl(claims.issuerConfig.jwksUrl);
-      const jwk = jwks.keysByKid.get(jwt.kid);
-      if (!jwk) {
-        return {
-          ok: false,
-          verified: false,
-          code: 'unknown_kid',
-          message: 'Unknown OIDC key id (kid)',
-        };
-      }
-
-      const signature = await verifyRs256JwtSignature({
-        subtle,
-        jwt,
-        jwk,
-        tokenLabel: 'exchange.token',
-        invalidSignatureMessage: 'Invalid exchange.token signature',
-      });
-      if (!signature.ok) return signature;
-
-      const temporalClaims = validateOidcJwtExchangeTemporalClaims({
-        payload,
-        clockSkewSec: oidcExchange.clockSkewSec,
-      });
-      if (!temporalClaims.ok) return temporalClaims;
-
-      const userId = await this.linkOidcIdentityIfPossible(claims.providerSubject);
-      return {
-        ok: true,
-        verified: true,
-        userId,
-        providerSubject: claims.providerSubject,
-        iss: claims.iss,
-        aud: claims.aud,
-        sub: claims.sub,
-        ...(claims.email ? { email: claims.email } : {}),
-        ...(claims.name ? { name: claims.name } : {}),
-        ...(claims.givenName ? { given_name: claims.givenName } : {}),
-        ...(claims.familyName ? { family_name: claims.familyName } : {}),
-      };
-    } catch (error: unknown) {
-      return {
-        ok: false,
-        verified: false,
-        code: 'internal',
-        message: errorMessage(error) || 'OIDC exchange verification failed',
-      };
-    }
-  }
-
   async verifyGoogleLogin(input: VerifyGoogleLoginInput): Promise<VerifyGoogleLoginResult> {
     try {
       const clientId = toOptionalTrimmedString(this.googleOidcClientId);
@@ -261,20 +154,6 @@ export class CloudflareD1OidcVerificationService {
         message: errorMessage(error) || 'Google OIDC verification failed',
       };
     }
-  }
-
-  private async linkOidcIdentityIfPossible(providerSubject: string): Promise<string> {
-    let userId = providerSubject;
-    try {
-      const linked = await this.identityStore.getUserIdBySubject(providerSubject);
-      if (linked) userId = linked;
-      await this.linkIdentity({
-        userId,
-        subject: providerSubject,
-        allowMoveIfSoleIdentity: false,
-      });
-    } catch {}
-    return userId;
   }
 
   private async linkGoogleIdentity(providerSubject: string): Promise<string> {

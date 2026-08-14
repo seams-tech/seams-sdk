@@ -333,8 +333,6 @@ export class SeamsWebIframe {
         await this.router.requestEmailOtpSigningSessionChallenge(args),
       refreshEmailOtpSigningSession: async (args) =>
         await this.router.refreshEmailOtpSigningSession(args),
-      exchangeGoogleEmailOtpSession: async (args) =>
-        await this.router.exchangeGoogleEmailOtpSession(args),
       loginWithEmailOtpEcdsaCapability: async (args) =>
         await this.router.loginWithEmailOtpEcdsaCapability(args),
       beginGoogleEmailOtpWalletAuth: async (args) =>
@@ -521,6 +519,8 @@ export class SeamsWebIframe {
         await this.router.acknowledgeWalletRecoveryCodeBackup({
           walletId: args.walletId,
         }),
+      requestWalletCustodyEmailOtpChallenge: async (args) =>
+        await this.router.requestWalletCustodyEmailOtpChallenge(args),
       rotateWalletRecoveryCodes: async (args) =>
         await this.router.rotateWalletRecoveryCodes({
           walletId: args.walletId,
@@ -555,7 +555,6 @@ export class SeamsWebIframe {
           walletId: args.walletId,
           recoveryOperationId: args.recoveryOperationId,
           relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
-          ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
         }),
     } satisfies RecoveryCapability;
     this.devices = {

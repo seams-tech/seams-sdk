@@ -6,15 +6,10 @@ import { type EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLa
 import type { ExactEcdsaSealedRuntime } from '../material/ecdsaSealedRuntime';
 import type { CanonicalEvmFamilyEcdsaSigningCapability } from '../material/ecdsaSigningCapability';
 import {
-  walletSessionJwtForCurve,
+  walletSessionThresholdSessionIdForCurve,
+  walletSessionTokenForCurve,
   type ActiveWalletSessionAuthorizationProjection,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
-import {
-  parseThresholdEcdsaSessionId,
-  type ThresholdEcdsaSessionId,
-} from '@shared/utils/domainIds';
-import { decodeJwtPayloadRecord } from '@shared/utils/sessionTokens';
-import { parseWalletSessionAuthorizationIdentityClaims } from '../identity/walletSessionAuthorizationJwt';
 import {
   thresholdEcdsaChainTargetsEqual,
   type ThresholdEcdsaChainTarget,
@@ -48,7 +43,7 @@ export type EmailOtpEcdsaSigningSessionAuthorityResolution =
     }
   | {
       kind: 'wallet_session_auth_unavailable';
-      reason: 'cookie_session' | 'missing_wallet_session_jwt';
+      reason: 'cookie_session' | 'missing_wallet_session_token';
       authority?: never;
     }
   | {
@@ -74,15 +69,15 @@ export function resolveEmailOtpEcdsaSigningSessionAuthorityFromRuntime(args: {
     // missing lane rather than inventing a store source for it.
     return { kind: 'record_missing' };
   }
-  const walletSessionJwt = walletSessionJwtForCurve(args.authorization, 'ecdsa');
-  if (!walletSessionJwt) {
-    return { kind: 'wallet_session_auth_unavailable', reason: 'missing_wallet_session_jwt' };
+  const walletSessionToken = walletSessionTokenForCurve(args.authorization, 'ecdsa');
+  if (!walletSessionToken) {
+    return { kind: 'wallet_session_auth_unavailable', reason: 'missing_wallet_session_token' };
   }
   const authority = buildEmailOtpEcdsaSigningSessionAuthority({
     authority: authBinding.emailOtpAuthority,
     authLane: {
       kind: 'signing_session',
-      jwt: walletSessionJwt,
+      walletSessionToken,
       thresholdSessionId: args.runtime.sealedRecord.thresholdSessionId,
       curve: 'ecdsa',
       chainTarget: args.runtime.chainTarget,
@@ -94,7 +89,7 @@ export function resolveEmailOtpEcdsaSigningSessionAuthorityFromRuntime(args: {
 
 /**
  * Registration establishes the canonical capability and a reusable Wallet
- * Session before any Email OTP sealed session exists. The Wallet Session JWT
+ * Session before any Email OTP sealed session exists. The Wallet Session token
  * carries the threshold-session identity needed by the signing-session route;
  * the capability carries the Email OTP authority. Keep this path separate from
  * sealed-runtime resolution so a missing sealed record cannot hide a usable
@@ -120,39 +115,26 @@ export function resolveEmailOtpEcdsaSigningSessionAuthorityFromCapability(args: 
   ) {
     return { kind: 'record_missing' };
   }
-  const walletSessionJwt = walletSessionJwtForCurve(args.authorization, 'ecdsa');
-  if (!walletSessionJwt) {
-    return { kind: 'wallet_session_auth_unavailable', reason: 'missing_wallet_session_jwt' };
+  const walletSessionToken = walletSessionTokenForCurve(args.authorization, 'ecdsa');
+  if (!walletSessionToken) {
+    return { kind: 'wallet_session_auth_unavailable', reason: 'missing_wallet_session_token' };
   }
-  const claims = parseWalletSessionAuthorizationIdentityClaims(walletSessionJwt);
-  if (
-    !claims ||
-    claims.walletId !== args.authorization.walletId ||
-    claims.walletSessionId !== args.authorization.walletSessionId ||
-    claims.quotaId !== args.authorization.quotaId
-  ) {
-    return { kind: 'missing_session_identity' };
-  }
-  const thresholdSessionId = thresholdEcdsaSessionIdFromWalletSessionJwt(walletSessionJwt);
+  const thresholdSessionId = walletSessionThresholdSessionIdForCurve(
+    args.authorization,
+    'ecdsa',
+  );
   if (!thresholdSessionId) return { kind: 'missing_session_identity' };
   const authority = buildEmailOtpEcdsaSigningSessionAuthority({
     authority: capabilityAuthority,
     authLane: {
       kind: 'signing_session',
-      jwt: walletSessionJwt,
+      walletSessionToken,
       thresholdSessionId,
       curve: 'ecdsa',
       chainTarget: args.chainTarget,
     },
   });
-  if (!authority) return { kind: 'authority_not_ecdsa_signing_session' };
-  return { kind: 'ready', authority };
-}
-
-function thresholdEcdsaSessionIdFromWalletSessionJwt(
-  walletSessionJwt: string,
-): ThresholdEcdsaSessionId | null {
-  const payload = decodeJwtPayloadRecord(walletSessionJwt);
-  const parsed = parseThresholdEcdsaSessionId(payload?.thresholdSessionId);
-  return parsed.ok ? parsed.value : null;
+  return authority
+    ? { kind: 'ready', authority }
+    : { kind: 'authority_not_ecdsa_signing_session' };
 }

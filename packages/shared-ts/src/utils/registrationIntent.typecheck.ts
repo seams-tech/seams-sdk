@@ -15,7 +15,6 @@ import {
   type WalletAuthMethodTarget,
 } from './registrationIntent';
 import {
-  parseAppSessionVersion,
   parseChallengeSubjectId,
   parseEmailOtpChallengeId,
   parseOrgId,
@@ -33,7 +32,6 @@ const providerSubject = unwrapDomainId(parseProviderSubject('google:alice'));
 const challengeSubjectId = unwrapDomainId(parseChallengeSubjectId('google:alice'));
 const emailOtpChallengeId = unwrapDomainId(parseEmailOtpChallengeId('challenge'));
 const orgId = unwrapDomainId(parseOrgId('org_test'));
-const appSessionVersion = unwrapDomainId(parseAppSessionVersion('app-session-v1'));
 const namedNearAccountId = unwrapDomainId(parseNamedNearAccountId('alice.testnet'));
 const webAuthnRpId = unwrapDomainId(parseWebAuthnRpId('wallet.example.test'));
 
@@ -52,8 +50,8 @@ const emailOtpAuthMethod = {
   kind: 'email_otp',
   proofKind: 'otp_challenge',
   email: 'alice@example.test',
+  providerSubject: 'google:alice',
   otpCode: '123456',
-  appSessionJwt: 'app-session.jwt',
   challengeId: 'challenge',
 } satisfies RegistrationAuthMethodInput;
 
@@ -61,7 +59,7 @@ const googleSsoRegistrationAuthMethod = {
   kind: 'email_otp',
   proofKind: 'google_sso_registration',
   email: 'alice@example.test',
-  appSessionJwt: 'app-session.jwt',
+  providerSubject: 'google:alice',
   googleEmailOtpRegistrationAttemptId: 'registration-attempt-1',
   googleEmailOtpRegistrationOfferId: 'registration-offer-1',
   googleEmailOtpRegistrationCandidateId: 'registration-candidate-1',
@@ -377,8 +375,8 @@ const emailOtpWithAuthenticatorOptions: RegistrationAuthMethodInput = {
   kind: 'email_otp',
   proofKind: 'otp_challenge',
   email: 'alice@example.test',
+  providerSubject: 'google:alice',
   otpCode: '123456',
-  appSessionJwt: 'app-session.jwt',
   authenticatorOptions: {},
 };
 void emailOtpWithAuthenticatorOptions;
@@ -388,25 +386,16 @@ const emailOtpMissingOtpCode: RegistrationAuthMethodInput = {
   kind: 'email_otp',
   proofKind: 'otp_challenge',
   email: 'alice@example.test',
-  appSessionJwt: 'app-session.jwt',
+  providerSubject: 'google:alice',
 };
 void emailOtpMissingOtpCode;
-
-// @ts-expect-error Email OTP registration auth requires app-session authority.
-const emailOtpMissingAppSession: RegistrationAuthMethodInput = {
-  kind: 'email_otp',
-  proofKind: 'otp_challenge',
-  email: 'alice@example.test',
-  otpCode: '123456',
-};
-void emailOtpMissingAppSession;
 
 // @ts-expect-error Google SSO registration auth requires an offer id.
 const googleSsoMissingOffer: RegistrationAuthMethodInput = {
   kind: 'email_otp',
   proofKind: 'google_sso_registration',
   email: 'alice@example.test',
-  appSessionJwt: 'app-session.jwt',
+  providerSubject: 'google:alice',
   googleEmailOtpRegistrationAttemptId: 'registration-attempt-1',
   googleEmailOtpRegistrationCandidateId: 'registration-candidate-1',
 };
@@ -417,7 +406,7 @@ const googleSsoMissingCandidate: RegistrationAuthMethodInput = {
   kind: 'email_otp',
   proofKind: 'google_sso_registration',
   email: 'alice@example.test',
-  appSessionJwt: 'app-session.jwt',
+  providerSubject: 'google:alice',
   googleEmailOtpRegistrationAttemptId: 'registration-attempt-1',
   googleEmailOtpRegistrationOfferId: 'registration-offer-1',
 };
@@ -449,7 +438,7 @@ void ({
   originalWalletId: walletIdFromString('wallet_alice_original'),
   finalWalletId: walletIdFromString('wallet_alice'),
   orgId,
-  appSessionVersion,
+  ownerProofBindingDigest: 'owner-proof-digest',
   challengePurpose: 'registration_reroll',
   registrationIntentDigestB64u: 'digest',
 } satisfies RegistrationAuthority);
@@ -467,7 +456,7 @@ const emailOtpAuthorityMissingChallengeSubject: RegistrationAuthority = {
   originalWalletId: walletIdFromString('wallet_alice_original'),
   finalWalletId: walletIdFromString('wallet_alice'),
   orgId,
-  appSessionVersion,
+  ownerProofBindingDigest: 'owner-proof-digest',
   challengePurpose: 'registration_reroll',
   registrationIntentDigestB64u: 'digest',
 };

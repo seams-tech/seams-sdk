@@ -19,6 +19,7 @@ import type {
 import type { RouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import type {
   MpcWalletSigningQuotaId,
+  WalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import type {
@@ -166,14 +167,6 @@ export type CreateAddAuthMethodIntentResponse =
       retryAfterMs?: number;
     };
 
-export type AddAuthMethodAppSessionPolicy = {
-  permission: 'wallet_auth_method_provision';
-  walletId: WalletId;
-  authMethod: AddAuthMethodInput;
-  runtimePolicyScope?: RuntimePolicyScope;
-  expiresAtMs: number;
-};
-
 export type AddAuthMethodExistingAuth =
   | {
       kind: 'webauthn_assertion';
@@ -182,16 +175,11 @@ export type AddAuthMethodExistingAuth =
       expectedChallengeDigestB64u: string;
     }
   | {
-      /** Verified by the wallet-unlock route and bound to the active app session. */
       kind: 'email_otp';
       providerUserId: string;
       enrollmentId: string;
       enrollmentSealKeyVersion: string;
       authorityRef: WalletAuthAuthorityRef;
-    }
-  | {
-      kind: 'app_session';
-      policy: AddAuthMethodAppSessionPolicy;
     };
 
 export type WalletRegistrationAuthorityInput =
@@ -344,14 +332,6 @@ export type WalletAddAuthMethodFinalizeResponse =
       message: string;
     };
 
-export type RevokeAuthMethodAppSessionPolicy = {
-  permission: 'wallet_auth_method_revoke';
-  walletId: WalletId;
-  target: WalletAuthMethodTarget;
-  runtimePolicyScope?: RuntimePolicyScope;
-  expiresAtMs: number;
-};
-
 export type RevokeAuthMethodExistingAuth =
   | {
       kind: 'webauthn_assertion';
@@ -359,10 +339,7 @@ export type RevokeAuthMethodExistingAuth =
       credential: WebAuthnAuthenticationCredential;
       expectedChallengeDigestB64u: string;
     }
-  | {
-      kind: 'app_session';
-      policy: RevokeAuthMethodAppSessionPolicy;
-    };
+;
 
 export type WalletRevokeAuthMethodRequest = {
   walletId: WalletId;
@@ -393,14 +370,6 @@ export type WalletRevokeAuthMethodResponse =
       message: string;
     };
 
-export type AddSignerAppSessionPolicy = {
-  permission: 'wallet_signer_provision';
-  walletId: WalletId;
-  signerSelection: AddSignerSelection;
-  runtimePolicyScope?: RuntimePolicyScope;
-  expiresAtMs: number;
-};
-
 export type AddSignerAuth =
   | {
       kind: 'webauthn_assertion';
@@ -408,10 +377,7 @@ export type AddSignerAuth =
       credential: WebAuthnAuthenticationCredential;
       expectedChallengeDigestB64u: string;
     }
-  | {
-      kind: 'app_session';
-      policy: AddSignerAppSessionPolicy;
-    };
+;
 
 export type WalletAddSignerStartRequest = {
   walletId: WalletId;
@@ -444,12 +410,6 @@ export type WalletAddSignerStartResponse =
               ed25519?: never;
             }
         ))
-      | {
-          readonly authorizationKind: 'app_session';
-          kind: 'evm_family_ecdsa';
-          ecdsa: WalletRegistrationEcdsaPreparePayload;
-          ed25519?: never;
-        }
     ))
   | {
       ok: false;
@@ -849,13 +809,14 @@ export type EmailOtpWalletRegistrationFinalizeAuthMethod = Extract<
 >;
 
 export type WalletRegistrationEd25519YaoBootstrapSession = {
-  sessionKind: 'jwt';
-  walletSessionJwt: string;
+  sessionKind: 'opaque';
+  walletSessionToken: string;
   walletId: WalletId;
   nearAccountId: string;
   nearEd25519SigningKeyId: string;
   authorityScope: ThresholdEd25519AuthorityScope;
   thresholdSessionId: string;
+  authorizationId: WalletSessionAuthorizationId;
   walletSessionId: WalletSessionId;
   quotaId: MpcWalletSigningQuotaId;
   expiresAtMs: number;
@@ -951,19 +912,7 @@ export type WalletRegistrationFinalizeResponse =
       retryAfterMs?: number;
     };
 
-type PasskeyWalletRegistrationFinalizeRouteAuth = Extract<
-  WalletRegistrationFinalizeResponseAuthMethod,
-  { authMethod: PasskeyWalletRegistrationFinalizeAuthMethod }
-> & { appSessionJwt?: never };
-
-type EmailOtpWalletRegistrationFinalizeRouteAuth = Extract<
-  WalletRegistrationFinalizeResponseAuthMethod,
-  { authMethod: EmailOtpWalletRegistrationFinalizeAuthMethod }
-> & { appSessionJwt: string };
-
-export type WalletRegistrationFinalizeRouteSuccess =
-  | WalletRegistrationFinalizeSuccessForAuth<PasskeyWalletRegistrationFinalizeRouteAuth>
-  | WalletRegistrationFinalizeSuccessForAuth<EmailOtpWalletRegistrationFinalizeRouteAuth>;
+export type WalletRegistrationFinalizeRouteSuccess = WalletRegistrationFinalizeSuccess;
 
 export type WalletRegistrationFinalizeRouteResponse =
   | WalletRegistrationFinalizeRouteSuccess

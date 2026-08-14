@@ -56,7 +56,6 @@ void authLink;
 
 const authUnlink: AuthUnlinkIdentityRequest = {
   subject: 'google:subject',
-  session_kind: 'jwt',
   stepUp: {
     challengeId: 'challenge',
     webauthn_authentication: {},
@@ -64,19 +63,6 @@ const authUnlink: AuthUnlinkIdentityRequest = {
   },
 };
 void authUnlink;
-
-const authUnlinkWithLegacySessionKind: AuthUnlinkIdentityRequest = {
-  subject: 'google:subject',
-  session_kind: 'jwt',
-  stepUp: {
-    challengeId: 'challenge',
-    webauthn_authentication: {},
-    expected_origin: 'https://example.localhost',
-  },
-  // @ts-expect-error Auth unlink route uses session_kind at the boundary.
-  sessionKind: 'jwt',
-};
-void authUnlinkWithLegacySessionKind;
 
 function assertNeverAuthProviderAction(route: never): never {
   throw new Error(String((route as { kind?: unknown })?.kind || 'unknown'));

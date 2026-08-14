@@ -7,10 +7,10 @@ import {
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { RouterAbNormalSigningAuthorizationWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import { fetchRouterAbEcdsaDerivationJson } from './httpRequest';
-import type { RouterAbEd25519NormalSigningCredential } from '../../../rpcClients/relayer/routerAbNormalSigning';
+import type { RouterAbOwnerNormalSigningCredential } from '../../../rpcClients/relayer/routerAbNormalSigning';
 
 type RouterAbEcdsaDerivationPoolFillAuth = {
-  credential: RouterAbEd25519NormalSigningCredential;
+  credential: RouterAbOwnerNormalSigningCredential;
 };
 
 export type RouterAbEcdsaDerivationPoolFillAuthorization =
@@ -47,32 +47,20 @@ function resolvePresignAuthHeaders(args: RouterAbEcdsaDerivationPoolFillAuth):
     } {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   switch (args.credential.kind) {
-    case 'wallet_session_jwt': {
-      const jwt = String(args.credential.walletSessionJwt || '').trim();
-      if (!jwt) {
+    case 'operation_step_up':
+      return { ok: true, headers, credentials: 'omit' };
+    case 'wallet_session_opaque': {
+      const walletSessionToken = String(args.credential.walletSessionToken || '').trim();
+      if (!walletSessionToken) {
         return {
           ok: false,
           code: 'invalid_args',
-          message: 'Missing session JWT for Router A/B ECDSA derivation presign pool fill',
+          message: 'Missing opaque Wallet Session token for Router A/B ECDSA derivation presign pool fill',
         };
       }
-      headers.Authorization = `Bearer ${jwt}`;
+      headers.Authorization = `Bearer ${walletSessionToken}`;
       return { ok: true, headers, credentials: 'omit' };
     }
-    case 'app_session_jwt': {
-      const jwt = String(args.credential.appSessionJwt || '').trim();
-      if (!jwt) {
-        return {
-          ok: false,
-          code: 'invalid_args',
-          message: 'Missing app session JWT for Router A/B ECDSA derivation presign pool fill',
-        };
-      }
-      headers.Authorization = `Bearer ${jwt}`;
-      return { ok: true, headers, credentials: 'omit' };
-    }
-    case 'app_session_cookie':
-      return { ok: true, headers, credentials: 'include' };
   }
 }
 
@@ -137,7 +125,7 @@ function resolveRouterAbEcdsaDerivationPoolFillInitKeySelector(args: {
 export type RouterAbEcdsaDerivationPoolFillInitBaseArgs = {
   relayerUrl: string;
   count?: number;
-  credential: RouterAbEd25519NormalSigningCredential;
+  credential: RouterAbOwnerNormalSigningCredential;
   requestTag?: string;
   requestTimeoutMs?: number;
 } & RouterAbEcdsaDerivationPoolFillInitKeySelector &
@@ -244,7 +232,7 @@ export type RouterAbEcdsaDerivationPoolFillStepArgs = {
   presignSessionId: string;
   stage: 'triples' | 'presign';
   outgoingMessagesB64u?: string[];
-  credential: RouterAbEd25519NormalSigningCredential;
+  credential: RouterAbOwnerNormalSigningCredential;
   requestTag?: string;
   requestTimeoutMs?: number;
 } & RouterAbEcdsaDerivationPoolFillAuthorization;

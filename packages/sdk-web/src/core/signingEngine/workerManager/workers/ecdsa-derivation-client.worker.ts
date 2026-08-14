@@ -2036,7 +2036,7 @@ async function handleOpaquePresignRequest(event: MessageEvent<unknown>): Promise
           request.sessionId,
         );
         const progress = await opaquePresignAuthority.initialize({
-          sessionId: request.sessionId,
+          presignSessionId: request.sessionId,
           session,
           groupPublicKey33: new Uint8Array(request.groupPublicKey33),
           expiresAtMs: request.materialExpiresAtMs,
@@ -2048,7 +2048,11 @@ async function handleOpaquePresignRequest(event: MessageEvent<unknown>): Promise
       case 'opaque_ecdsa_presign_session_step_v1':
         result = {
           kind: 'progress',
-          progress: await opaquePresignAuthority.step(request),
+          progress: await opaquePresignAuthority.step({
+            presignSessionId: request.sessionId,
+            stage: request.stage,
+            incomingMessages: request.incomingMessages,
+          }),
         };
         break;
       case 'opaque_ecdsa_presign_session_abort_v1':

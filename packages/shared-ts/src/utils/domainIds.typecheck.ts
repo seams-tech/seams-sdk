@@ -1,6 +1,5 @@
 import type {
   ChallengeSubjectId,
-  AppSessionVersion,
   AgentPrincipalId,
   CapabilityInstanceRef,
   DelegatedIdempotencyKey,
@@ -54,7 +53,6 @@ declare const googleProviderSubject: GoogleProviderSubject;
 declare const verifiedGoogleEmail: VerifiedGoogleEmail;
 declare const challengeSubjectId: ChallengeSubjectId;
 declare const orgId: OrgId;
-declare const appSessionVersion: AppSessionVersion;
 declare const emailOtpChallengeId: EmailOtpChallengeId;
 declare const registrationAttemptId: EmailOtpRegistrationAttemptId;
 declare const walletSessionId: WalletSessionId;
@@ -120,10 +118,6 @@ function acceptsEmailOtpRegistrationAttemptId(value: EmailOtpRegistrationAttempt
 }
 
 function acceptsOrgId(value: OrgId): void {
-  void value;
-}
-
-function acceptsAppSessionVersion(value: AppSessionVersion): void {
   void value;
 }
 
@@ -230,7 +224,6 @@ acceptsGoogleProviderSubject(googleProviderSubject);
 acceptsVerifiedGoogleEmail(verifiedGoogleEmail);
 acceptsChallengeSubjectId(challengeSubjectId);
 acceptsOrgId(orgId);
-acceptsAppSessionVersion(appSessionVersion);
 acceptsEmailOtpChallengeId(emailOtpChallengeId);
 acceptsEmailOtpRegistrationAttemptId(registrationAttemptId);
 acceptsWalletSessionId(walletSessionId);
@@ -304,9 +297,6 @@ acceptsChallengeSubjectId(emailOtpChallengeId);
 
 // @ts-expect-error Organization ids are not wallet ids.
 acceptsWalletId(orgId);
-
-// @ts-expect-error App-session versions are not organization ids.
-acceptsOrgId(appSessionVersion);
 
 // @ts-expect-error Registration attempt ids are not OTP challenge ids.
 acceptsEmailOtpChallengeId(registrationAttemptId);

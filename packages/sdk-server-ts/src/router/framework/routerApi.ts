@@ -6,7 +6,6 @@ import type { RouterApiRorOptions } from './ror/provider';
 import type { RouterApiModule } from './modules';
 import type { RouterApiRouteExtension } from './routeExtensions';
 import type { SigningSessionSealRoutesOptions } from '../../threshold/session/signingSessionSeal/signingSessionSeal.types';
-import { normalizeJwtCookieSessionKind } from '@shared/utils/normalize';
 import { WALLET_EMAIL_OTP_EXPORT_OPERATION } from '@shared/utils/emailOtpDomain';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { RouterAbPublicKeysetV2 } from '@shared/utils/routerAbPublicKeyset';
@@ -45,7 +44,6 @@ export type {
 // Minimal session adapter interface expected by the routers.
 export type SessionClaims = Record<string, unknown>;
 
-export type SessionKind = 'cookie' | 'jwt';
 export const DEFAULT_SESSION_COOKIE_NAME = 'seams-jwt';
 
 /**
@@ -89,15 +87,6 @@ function decodeJwtPayloadUtf8(payloadB64u: string): string | undefined {
   } catch {
     return undefined;
   }
-}
-
-export function parseSessionKind(body: unknown): SessionKind {
-  const v =
-    body && typeof body === 'object' && !Array.isArray(body)
-      ? (body as Record<string, unknown>)
-      : {};
-  const raw = v.sessionKind ?? v.session_kind;
-  return normalizeJwtCookieSessionKind(raw);
 }
 
 export interface SessionAdapter {
@@ -239,7 +228,7 @@ export interface RouterApiEmailOtpExportPolicyInput {
   orgId?: string;
   projectId?: string;
   environmentId?: string;
-  appSessionVersion: string;
+  ownerProofBindingDigest: string;
   challengeId?: string;
   sourceIp?: string;
 }
@@ -265,12 +254,10 @@ export interface RouterApiOptions {
    * Pass raw strings; the router normalizes/merges internally.
    */
   corsOrigins?: Array<string | undefined>;
-  // Optional: customize canonical app-session read route.
-  sessionRoutes?: { state?: string };
   // Optional: pluggable session adapter
   session?: SessionAdapter | null;
   /**
-   * App-session cookie name used for passive stale-session signal matching.
+   * Router session cookie name used for passive stale-session signal matching.
    * Defaults to `seams-jwt`.
    */
   sessionCookieName?: string;

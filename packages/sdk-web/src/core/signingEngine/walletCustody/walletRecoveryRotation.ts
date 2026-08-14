@@ -11,8 +11,9 @@ import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { joinCustodyWireFromEnvelopeRecord } from './joinCustodyWire';
 import {
-  readWalletRecoverySet,
+  readWalletRecoveryCodeStatus,
   rotateWalletRecoverySet,
+  type WalletCustodyFactorProof,
   type WalletRecoverySetRotateResult,
 } from '@/core/rpcClients/relayer/walletRecoveryRotate';
 
@@ -23,6 +24,11 @@ export type WalletRecoveryRotationWorker = {
     readonly recoveryCodesJson: string;
   }): Promise<WalletRecoverySetRotationWorkerResultV1>;
 };
+
+export type WalletRecoveryFactorProofFactory = (input: {
+  readonly operation: 'recovery_rotate';
+  readonly payload: Record<string, unknown>;
+}) => Promise<WalletCustodyFactorProof>;
 
 export type EmailOtpWalletRecoveryRotationWorker = {
   rotateRecoverySet(args: {
@@ -49,7 +55,7 @@ export type WalletRecoveryRotationOutcome =
 export async function rotateWalletRecoverySetWithActiveFactorV1(input: {
   readonly relayUrl: string;
   readonly walletId: string;
-  readonly sessionToken: string;
+  readonly factorProof: WalletRecoveryFactorProofFactory;
   readonly custodyEnvelope: PasskeyCustodyEnvelopeRecord;
   readonly factorSecret: ArrayBuffer;
   readonly worker: WalletRecoveryRotationWorker;
@@ -58,13 +64,16 @@ export async function rotateWalletRecoverySetWithActiveFactorV1(input: {
   let issued: IssuedWalletRecoveryCodes | null = issueWalletRecoveryCodes();
   const factorSecret = new Uint8Array(input.factorSecret.slice(0));
   try {
-    const current = await readWalletRecoverySet({
+    const current = await readWalletRecoveryCodeStatus({
       relayUrl: input.relayUrl,
       walletId: input.walletId,
-      sessionToken: input.sessionToken,
       ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
     });
-    if (current.kind !== 'ready') return current;
+    if (current.kind !== 'ready') {
+      return current.kind === 'unauthorized'
+        ? { kind: 'transport_failed', message: current.message }
+        : current;
+    }
 
     const custody = joinCustodyWireFromEnvelopeRecord(input.custodyEnvelope);
     if (!custody.ok) throw new Error(custody.reason);
@@ -82,7 +91,15 @@ export async function rotateWalletRecoverySetWithActiveFactorV1(input: {
     const rotated = await rotateWalletRecoverySet({
       relayUrl: input.relayUrl,
       walletId: input.walletId,
-      sessionToken: input.sessionToken,
+      factorProof: await input.factorProof({
+        operation: 'recovery_rotate',
+        payload: {
+          walletId: input.walletId,
+          expectedStoreVersion: current.storeVersion,
+          manifestKekWraps: replacement.manifestKekWraps,
+          entries: [replacement.entry],
+        },
+      }),
       expectedStoreVersion: current.storeVersion,
       replacement,
       ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
@@ -105,19 +122,22 @@ export async function rotateWalletRecoverySetWithActiveFactorV1(input: {
 export async function rotateWalletRecoverySetWithEmailOtpV1(input: {
   readonly relayUrl: string;
   readonly walletId: string;
-  readonly sessionToken: string;
+  readonly factorProof: WalletRecoveryFactorProofFactory;
   readonly worker: EmailOtpWalletRecoveryRotationWorker;
   readonly fetchImpl?: typeof fetch;
 }): Promise<WalletRecoveryRotationOutcome> {
   let issued: IssuedWalletRecoveryCodes | null = issueWalletRecoveryCodes();
   try {
-    const current = await readWalletRecoverySet({
+    const current = await readWalletRecoveryCodeStatus({
       relayUrl: input.relayUrl,
       walletId: input.walletId,
-      sessionToken: input.sessionToken,
       ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
     });
-    if (current.kind !== 'ready') return current;
+    if (current.kind !== 'ready') {
+      return current.kind === 'unauthorized'
+        ? { kind: 'transport_failed', message: current.message }
+        : current;
+    }
     const workerResult = await input.worker.rotateRecoverySet({
       recoveryCodesJson: JSON.stringify(
         issued.codeBytes.map((bytes) => ({ codeBytesB64u: base64UrlEncode(bytes) })),
@@ -130,7 +150,15 @@ export async function rotateWalletRecoverySetWithEmailOtpV1(input: {
     const rotated = await rotateWalletRecoverySet({
       relayUrl: input.relayUrl,
       walletId: input.walletId,
-      sessionToken: input.sessionToken,
+      factorProof: await input.factorProof({
+        operation: 'recovery_rotate',
+        payload: {
+          walletId: input.walletId,
+          expectedStoreVersion: current.storeVersion,
+          manifestKekWraps: replacement.manifestKekWraps,
+          entries: [replacement.entry],
+        },
+      }),
       expectedStoreVersion: current.storeVersion,
       replacement,
       ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),

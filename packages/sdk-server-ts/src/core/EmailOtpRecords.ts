@@ -94,8 +94,7 @@ export function parseCurrentEmailOtpChallengeRecord(raw: unknown): EmailOtpChall
   const otpChannel = toOptionalTrimmedString(obj.otpChannel);
   const email = toOptionalTrimmedString(obj.email);
   const otpCode = toOptionalTrimmedString(obj.otpCode);
-  const sessionHash = toOptionalTrimmedString(obj.sessionHash);
-  const appSessionVersion = toOptionalTrimmedString(obj.appSessionVersion);
+  const ownerProofBindingDigest = toOptionalTrimmedString(obj.ownerProofBindingDigest);
   const action = toOptionalTrimmedString(obj.action);
   const operationRaw = toOptionalTrimmedString(obj.operation);
   const createdAtMs = toPositiveSafeInt(obj.createdAtMs);
@@ -109,8 +108,7 @@ export function parseCurrentEmailOtpChallengeRecord(raw: unknown): EmailOtpChall
     !walletId ||
     !email ||
     !otpCode ||
-    !sessionHash ||
-    !appSessionVersion ||
+    !ownerProofBindingDigest ||
     !action ||
     !operationRaw ||
     !createdAtMs ||
@@ -144,8 +142,7 @@ export function parseCurrentEmailOtpChallengeRecord(raw: unknown): EmailOtpChall
     otpChannel: EMAIL_OTP_CHANNEL,
     email,
     otpCode,
-    sessionHash,
-    appSessionVersion,
+    ownerProofBindingDigest,
     action,
     operation,
     createdAtMs,
@@ -177,8 +174,7 @@ export function parseCurrentEmailOtpGrantRecord(raw: unknown): EmailOtpGrantReco
   const orgId = toOptionalTrimmedString(obj.orgId) || undefined;
   const challengeId = toOptionalTrimmedString(obj.challengeId);
   const otpChannel = toOptionalTrimmedString(obj.otpChannel);
-  const sessionHash = toOptionalTrimmedString(obj.sessionHash);
-  const appSessionVersion = toOptionalTrimmedString(obj.appSessionVersion);
+  const ownerProofBindingDigest = toOptionalTrimmedString(obj.ownerProofBindingDigest);
   const action = toOptionalTrimmedString(obj.action);
   const issuedAtMs = toPositiveSafeInt(obj.issuedAtMs);
   const expiresAtMs = toPositiveSafeInt(obj.expiresAtMs);
@@ -188,8 +184,7 @@ export function parseCurrentEmailOtpGrantRecord(raw: unknown): EmailOtpGrantReco
     !userId ||
     !walletId ||
     !challengeId ||
-    !sessionHash ||
-    !appSessionVersion ||
+    !ownerProofBindingDigest ||
     !action ||
     !issuedAtMs ||
     !expiresAtMs
@@ -211,8 +206,7 @@ export function parseCurrentEmailOtpGrantRecord(raw: unknown): EmailOtpGrantReco
     ...(orgId ? { orgId } : {}),
     challengeId,
     otpChannel: EMAIL_OTP_CHANNEL,
-    sessionHash,
-    appSessionVersion,
+    ownerProofBindingDigest,
     action,
     issuedAtMs,
     expiresAtMs,
@@ -292,7 +286,7 @@ export function parseCurrentGoogleEmailOtpRegistrationAttemptRecord(
   const offerId = toOptionalTrimmedString(obj.offerId);
   const offerCandidates = parseGoogleEmailOtpRegistrationOfferCandidates(obj.offerCandidates);
   const selectedCandidateId = toOptionalTrimmedString(obj.selectedCandidateId);
-  const appSessionVersion = toOptionalTrimmedString(obj.appSessionVersion);
+  const ownerProofBindingDigest = toOptionalTrimmedString(obj.ownerProofBindingDigest);
   const authProvider = toOptionalTrimmedString(obj.authProvider);
   const accountIdSlugVersion = toOptionalTrimmedString(obj.accountIdSlugVersion);
   const walletIdDerivationNonce = toOptionalTrimmedString(obj.walletIdDerivationNonce);
@@ -314,7 +308,7 @@ export function parseCurrentGoogleEmailOtpRegistrationAttemptRecord(
     !offerCandidates ||
     !selectedCandidateId ||
     !offerCandidates.some((candidate) => candidate.candidateId === selectedCandidateId) ||
-    !appSessionVersion ||
+    !ownerProofBindingDigest ||
     !authProvider ||
     accountIdSlugVersion !== 'hmac_readable_v1' ||
     !walletIdDerivationNonce ||
@@ -349,7 +343,7 @@ export function parseCurrentGoogleEmailOtpRegistrationAttemptRecord(
     offerId,
     offerCandidates,
     selectedCandidateId,
-    appSessionVersion,
+    ownerProofBindingDigest,
     authProvider,
     accountIdSlugVersion: 'hmac_readable_v1' as const,
     walletIdDerivationNonce,

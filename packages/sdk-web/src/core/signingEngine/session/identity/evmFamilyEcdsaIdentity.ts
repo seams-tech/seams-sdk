@@ -30,18 +30,12 @@ import {
   type ThresholdEcdsaChainTarget,
   type WalletId,
 } from '../../interfaces/ecdsaChainTarget';
-import {
-  SigningSessionIds,
-  type ThresholdEcdsaSessionId,
-} from '../operationState/types';
+import { SigningSessionIds, type ThresholdEcdsaSessionId } from '../operationState/types';
 import {
   type EcdsaRoleLocalPersistedMaterialRef,
   type EcdsaRoleLocalWorkerHandle,
 } from '../keyMaterialBrands';
-import type {
-  ThresholdRuntimePolicyScope,
-  ThresholdSessionKind,
-} from '../../threshold/sessionPolicy';
+import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 
 export type {
   EcdsaThresholdKeyId,
@@ -68,9 +62,6 @@ export type EmailOtpProviderId = string & {
 };
 export type BaseEcdsaSubjectId = WalletId & {
   readonly __baseEcdsaSubjectIdBrand: 'BaseEcdsaSubjectId';
-};
-export type VerifiedWalletSessionJwt = string & {
-  readonly __brand: 'VerifiedWalletSessionJwt';
 };
 export type EvmFamilyKeyScope = 'evm-family';
 export type EvmFamilyKeyFingerprint = string & {
@@ -226,7 +217,6 @@ export type HydratedEcdsaSignerMaterial = {
   readonly routerAbEcdsaDerivationNormalSigning: HydratedRouterAbEcdsaDerivationNormalSigning;
   readonly authorization?: never;
   readonly credential?: never;
-  readonly walletSessionJwt?: never;
 };
 
 export type EvmFamilyEcdsaKeyIdentity = {
@@ -246,7 +236,6 @@ export type EvmFamilyEcdsaKeyIdentity = {
 export type EvmFamilyEcdsaSessionLanePolicy = {
   chainTarget: ThresholdEcdsaChainTarget;
   thresholdSessionId: ThresholdEcdsaSessionId;
-  thresholdSessionKind: ThresholdSessionKind;
   ttlMs: number;
   remainingUses: number;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
@@ -313,13 +302,11 @@ export type BuildHydratedEcdsaSignerMaterialInput = {
   readonly routerAbEcdsaDerivationNormalSigning: HydratedRouterAbEcdsaDerivationNormalSigning;
   readonly authorization?: never;
   readonly credential?: never;
-  readonly walletSessionJwt?: never;
 };
 
 export type BuildEvmFamilyEcdsaSessionLanePolicyInput = {
   chainTarget: ThresholdEcdsaChainTarget;
   thresholdSessionId: unknown;
-  thresholdSessionKind: ThresholdSessionKind;
   ttlMs: unknown;
   remainingUses: unknown;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
@@ -709,7 +696,6 @@ export function buildEvmFamilyEcdsaSessionLanePolicy(
   return {
     chainTarget: input.chainTarget,
     thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(input.thresholdSessionId),
-    thresholdSessionKind: input.thresholdSessionKind,
     ttlMs,
     remainingUses,
     runtimePolicyScope: input.runtimePolicyScope,
@@ -730,7 +716,6 @@ export function buildEvmFamilyEcdsaRecoveredMaterialLanePolicy(
   return {
     chainTarget: input.chainTarget,
     thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(input.thresholdSessionId),
-    thresholdSessionKind: input.thresholdSessionKind,
     ttlMs,
     remainingUses,
     runtimePolicyScope: input.runtimePolicyScope,

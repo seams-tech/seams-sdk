@@ -34,7 +34,6 @@ import {
   walletIdFromString,
 } from '@shared/utils/registrationIntent';
 import {
-  parseAppSessionVersion,
   parseChallengeSubjectId,
   parseEmailOtpChallengeId,
   parseEmailOtpProviderUserId,
@@ -689,9 +688,6 @@ export type StoredWalletAddSignerCeremony = {
         kind: 'webauthn_assertion';
         rpId: string;
         credentialIdB64u: string;
-      }
-    | {
-        kind: 'app_session';
       };
   signerState: StoredWalletAddSignerSignerState;
 };
@@ -752,9 +748,6 @@ type StoredWalletAddAuthMethodCeremonyBase = {
         enrollmentId: string;
         enrollmentSealKeyVersion: string;
         authorityRef: WalletAuthAuthorityRef;
-      }
-    | {
-        kind: 'app_session';
       };
 };
 
@@ -1552,7 +1545,10 @@ function parseStoredRegistrationAuthority(value: unknown): StoredRegistrationAut
       const parsedProviderSubject = parseProviderSubject(providerSubject);
       const finalWalletId = parseWalletId(value.finalWalletId);
       const orgId = parseOrgId(value.orgId);
-      const appSessionVersion = parseAppSessionVersion(value.appSessionVersion);
+      const ownerProofBindingDigest =
+        typeof value.ownerProofBindingDigest === 'string' && value.ownerProofBindingDigest.trim()
+          ? value.ownerProofBindingDigest.trim()
+          : null;
       if (
         !providerSubject ||
         !email ||
@@ -1560,7 +1556,7 @@ function parseStoredRegistrationAuthority(value: unknown): StoredRegistrationAut
         !parsedProviderSubject.ok ||
         !finalWalletId.ok ||
         !orgId.ok ||
-        !appSessionVersion.ok
+        !ownerProofBindingDigest
       ) {
         return null;
       }
@@ -1599,7 +1595,7 @@ function parseStoredRegistrationAuthority(value: unknown): StoredRegistrationAut
           originalWalletId: originalWalletId.value,
           finalWalletId: finalWalletId.value,
           orgId: orgId.value,
-          appSessionVersion: appSessionVersion.value,
+          ownerProofBindingDigest,
           challengePurpose,
           registrationIntentDigestB64u,
         };
@@ -1644,7 +1640,7 @@ function parseStoredRegistrationAuthority(value: unknown): StoredRegistrationAut
           registrationAuthorityId: registrationAttemptId,
           finalWalletId: finalWalletId.value,
           orgId: orgId.value,
-          appSessionVersion: appSessionVersion.value,
+          ownerProofBindingDigest,
           registrationIntentDigestB64u,
         };
       }
@@ -1748,9 +1744,6 @@ function parseAddAuthMethodCeremonyAuth(
   value: unknown,
 ): StoredWalletAddAuthMethodCeremony['auth'] | null {
   if (!isRecord(value)) return null;
-  if (value.kind === 'app_session') {
-    return { kind: 'app_session' };
-  }
   if (value.kind === 'email_otp') {
     const providerUserId = trimString(value.providerUserId);
     const enrollmentId = trimString(value.enrollmentId);
@@ -1795,8 +1788,6 @@ function addAuthMethodCustodyFactorMatches(
         custodyEnvelope.factor.enrollmentId === auth.enrollmentId &&
         custodyEnvelope.factor.enrollmentSealKeyVersion === auth.enrollmentSealKeyVersion
       );
-    case 'app_session':
-      return false;
     default:
       return assertNever(auth);
   }

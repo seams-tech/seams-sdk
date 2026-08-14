@@ -39,6 +39,7 @@ import type {
   VerifiedOwnerProofFields,
   VerifiedAuthorizationEvidence,
   VerifiedOwnerProofId,
+  VerifiedOwnerProofMethod,
 } from './domain';
 import { parseSessionOrigin } from './domain';
 
@@ -247,7 +248,7 @@ class VerifiedOwnerWalletSessionProof {
   private readonly __proofBrand = true;
   readonly kind = 'verified_owner_proof_v1' as const;
   readonly proofId: VerifiedOwnerProofId;
-  readonly method: 'passkey' | 'email_otp';
+  readonly method: VerifiedOwnerProofMethod;
   readonly authSource: VerifiedOwnerProofFields['authSource'];
   readonly tenantId: TenantId;
   readonly principalId: PrincipalId;
@@ -282,7 +283,7 @@ class VerifiedOwnerOperationProof {
   private readonly __proofBrand = true;
   readonly kind = 'verified_owner_proof_v1' as const;
   readonly proofId: VerifiedOwnerProofId;
-  readonly method: 'passkey' | 'email_otp';
+  readonly method: VerifiedOwnerProofMethod;
   readonly authSource: VerifiedOwnerProofFields['authSource'];
   readonly tenantId: TenantId;
   readonly principalId: PrincipalId;
@@ -549,7 +550,7 @@ async function buildOwnerProofFields(input: VerifiedOwnerProofInput): Promise<Ve
 
 function ownerProofMethod(
   factor: VerifiedWalletSessionFactorResult | VerifiedWalletOperationFactorResult,
-): 'passkey' | 'email_otp' {
+): VerifiedOwnerProofMethod {
   switch (factor.kind) {
     case 'verified_wallet_session_passkey_factor':
     case 'verified_wallet_operation_passkey_factor':

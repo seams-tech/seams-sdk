@@ -1,18 +1,102 @@
-import {
-  buildBearerAuthorizationHeader,
-  buildRelayerJsonPostRequestInit,
-  normalizeRelayerBaseUrl,
-} from './relayerHttp';
+import { buildRelayerJsonPostRequestInit, normalizeRelayerBaseUrl } from './relayerHttp';
 import {
   parseWalletRecoveryEnvelopeSetRecord,
   type WalletRecoverySetRotationWireV1,
   type WalletRecoveryEnvelopeSetRecord,
 } from '@shared/wallet-recovery/walletRecoveryEnvelopeSet';
 import { parseWalletId } from '@shared/utils/domainIds';
+import type { WalletCustodyAdminOperation } from '@shared/authorization/walletCustodyOperation';
+import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 
 const WALLET_RECOVERY_READ_PATH = '/wallets/recovery/read';
 const WALLET_RECOVERY_ROTATE_PATH = '/wallets/recovery/rotate';
 const WALLET_RECOVERY_ACK_PATH = '/wallets/recovery/acknowledge-backup';
+const WALLET_CUSTODY_EMAIL_OTP_CHALLENGE_PATH = '/wallets/custody/email-otp/challenge';
+
+export type WalletCustodyFactorProof =
+  | {
+      readonly kind: 'passkey';
+      readonly walletId: string;
+      readonly rpId: string;
+      readonly credentialIdB64u: string;
+      readonly challenge_digest: string;
+      readonly webauthn_authentication: WebAuthnAuthenticationCredential;
+    }
+  | {
+      readonly kind: 'email_otp';
+      readonly provider_subject_id: string;
+      readonly challenge_id: string;
+      readonly otp_code: string;
+      readonly challenge_digest: string;
+    };
+
+export type WalletCustodyEmailOtpChallengeResult =
+  | {
+      readonly kind: 'ready';
+      readonly challengeId: string;
+      readonly challenge_digest: string;
+      readonly expiresAtMs: number;
+      readonly otpChannel: string;
+    }
+  | { readonly kind: 'rejected'; readonly message: string }
+  | { readonly kind: 'transport_failed'; readonly message: string };
+
+export async function requestWalletCustodyEmailOtpChallenge(args: {
+  readonly relayUrl: string;
+  readonly walletId: string;
+  readonly providerSubjectId: string;
+  readonly operation: WalletCustodyAdminOperation;
+  readonly payload: Record<string, unknown>;
+  readonly requestOrigin?: string;
+  readonly fetchImpl?: typeof fetch;
+}): Promise<WalletCustodyEmailOtpChallengeResult> {
+  let response: Response;
+  try {
+    response = await postWalletRecoveryRoute({
+      relayUrl: args.relayUrl,
+      path: WALLET_CUSTODY_EMAIL_OTP_CHALLENGE_PATH,
+      body: {
+        walletId: args.walletId,
+        providerSubjectId: args.providerSubjectId,
+        operation: args.operation,
+        payload: args.payload,
+        ...(args.requestOrigin ? { requestOrigin: args.requestOrigin } : {}),
+      },
+      fetchImpl: args.fetchImpl,
+    });
+  } catch (error: unknown) {
+    return {
+      kind: 'transport_failed',
+      message: error instanceof Error ? error.message : 'Email OTP challenge request failed',
+    };
+  }
+  const body = asRecord(await response.json().catch(() => ({})));
+  const message = typeof body.message === 'string' ? body.message : '';
+  if (response.status !== 200 || body.ok !== true) {
+    return {
+      kind: response.status >= 400 && response.status < 500 ? 'rejected' : 'transport_failed',
+      message: message || `Email OTP challenge failed (HTTP ${response.status})`,
+    };
+  }
+  const challengeId = typeof body.challengeId === 'string' ? body.challengeId.trim() : '';
+  const challengeDigest =
+    typeof body.challenge_digest === 'string' ? body.challenge_digest.trim() : '';
+  const expiresAtMs = Number(body.expiresAtMs);
+  const otpChannel = typeof body.otpChannel === 'string' ? body.otpChannel.trim() : '';
+  if (
+    !challengeId ||
+    !challengeDigest ||
+    !Number.isSafeInteger(expiresAtMs) ||
+    expiresAtMs <= 0 ||
+    !otpChannel
+  ) {
+    return {
+      kind: 'transport_failed',
+      message: 'Email OTP challenge returned an unusable payload',
+    };
+  }
+  return { kind: 'ready', challengeId, challenge_digest: challengeDigest, expiresAtMs, otpChannel };
+}
 
 export type WalletRecoveryCodeStatusResult =
   | {
@@ -21,6 +105,7 @@ export type WalletRecoveryCodeStatusResult =
       readonly activeCodeCount: number;
       readonly totalCodeCount: number;
       readonly issuedAtMs: number;
+      readonly storeVersion: string;
       readonly backupOutstanding: boolean;
       readonly pendingLocalBackup: boolean;
     }
@@ -31,7 +116,6 @@ export type WalletRecoveryCodeStatusResult =
 export async function readWalletRecoveryCodeStatus(args: {
   readonly relayUrl: string;
   readonly walletId: string;
-  readonly sessionToken: string;
   readonly fetchImpl?: typeof fetch;
 }): Promise<WalletRecoveryCodeStatusResult> {
   const url = `${normalizeRelayerBaseUrl(args.relayUrl)}/wallets/${encodeURIComponent(
@@ -45,10 +129,6 @@ export async function readWalletRecoveryCodeStatus(args: {
       credentials: 'include',
       headers: {
         Accept: 'application/json',
-        ...buildBearerAuthorizationHeader({
-          token: args.sessionToken,
-          missingMessage: 'wallet recovery status requires an app session',
-        }),
       },
     });
   } catch (error: unknown) {
@@ -74,6 +154,7 @@ export async function readWalletRecoveryCodeStatus(args: {
   const activeCodeCount = Number(body.activeCodeCount);
   const totalCodeCount = Number(body.totalCodeCount);
   const issuedAtMs = Number(body.issuedAtMs);
+  const storeVersion = typeof body.storeVersion === 'string' ? body.storeVersion.trim() : '';
   if (
     !Number.isSafeInteger(activeCodeCount) ||
     activeCodeCount < 0 ||
@@ -81,6 +162,7 @@ export async function readWalletRecoveryCodeStatus(args: {
     totalCodeCount < activeCodeCount ||
     !Number.isSafeInteger(issuedAtMs) ||
     issuedAtMs <= 0 ||
+    !storeVersion ||
     typeof body.backupOutstanding !== 'boolean'
   ) {
     return { kind: 'transport_failed', message: 'recovery status returned an unusable payload' };
@@ -91,6 +173,7 @@ export async function readWalletRecoveryCodeStatus(args: {
     activeCodeCount,
     totalCodeCount,
     issuedAtMs,
+    storeVersion,
     backupOutstanding: body.backupOutstanding,
     pendingLocalBackup: false,
   };
@@ -105,16 +188,15 @@ export type WalletRecoveryBackupAcknowledgementResult =
 export async function acknowledgeWalletRecoveryBackup(args: {
   readonly relayUrl: string;
   readonly walletId: string;
-  readonly sessionToken: string;
+  readonly factorProof: WalletCustodyFactorProof;
   readonly fetchImpl?: typeof fetch;
 }): Promise<WalletRecoveryBackupAcknowledgementResult> {
   let response: Response;
   try {
     response = await postWalletRecoveryRoute({
       relayUrl: args.relayUrl,
-      sessionToken: args.sessionToken,
       path: WALLET_RECOVERY_ACK_PATH,
-      body: { walletId: args.walletId },
+      body: { walletId: args.walletId, factorProof: args.factorProof },
       fetchImpl: args.fetchImpl,
     });
   } catch (error: unknown) {
@@ -159,13 +241,13 @@ export type WalletRecoverySetReadResult =
 export async function readWalletRecoverySet(args: {
   readonly relayUrl: string;
   readonly walletId: string;
-  readonly sessionToken: string;
+  readonly factorProof: WalletCustodyFactorProof;
   readonly fetchImpl?: typeof fetch;
 }): Promise<WalletRecoverySetReadResult> {
   return await requestWalletRecoverySet({
     ...args,
     path: WALLET_RECOVERY_READ_PATH,
-    body: { walletId: args.walletId },
+    body: { walletId: args.walletId, factorProof: args.factorProof },
   });
 }
 
@@ -179,20 +261,20 @@ export type WalletRecoverySetRotateResult =
 export async function rotateWalletRecoverySet(args: {
   readonly relayUrl: string;
   readonly walletId: string;
-  readonly sessionToken: string;
+  readonly factorProof: WalletCustodyFactorProof;
   readonly expectedStoreVersion: string;
   readonly replacement: WalletRecoverySetRotationWireV1;
   readonly fetchImpl?: typeof fetch;
 }): Promise<WalletRecoverySetRotateResult> {
   const response = await postWalletRecoveryRoute({
     relayUrl: args.relayUrl,
-    sessionToken: args.sessionToken,
     path: WALLET_RECOVERY_ROTATE_PATH,
     body: {
       walletId: args.walletId,
       expectedStoreVersion: args.expectedStoreVersion,
       manifestKekWraps: args.replacement.manifestKekWraps,
       entries: [args.replacement.entry],
+      factorProof: args.factorProof,
     },
     fetchImpl: args.fetchImpl,
   });
@@ -215,7 +297,7 @@ export async function rotateWalletRecoverySet(args: {
 async function requestWalletRecoverySet(args: {
   readonly relayUrl: string;
   readonly walletId: string;
-  readonly sessionToken: string;
+  readonly factorProof: WalletCustodyFactorProof;
   readonly path: string;
   readonly body: Record<string, unknown>;
   readonly fetchImpl?: typeof fetch;
@@ -251,7 +333,6 @@ async function requestWalletRecoverySet(args: {
 
 async function postWalletRecoveryRoute(args: {
   readonly relayUrl: string;
-  readonly sessionToken: string;
   readonly path: string;
   readonly body: Record<string, unknown>;
   readonly fetchImpl?: typeof fetch;
@@ -261,10 +342,7 @@ async function postWalletRecoveryRoute(args: {
   return await doFetch(
     url,
     buildRelayerJsonPostRequestInit({
-      headers: buildBearerAuthorizationHeader({
-        token: args.sessionToken,
-        missingMessage: 'wallet recovery rotation requires an app session',
-      }),
+      headers: { Accept: 'application/json' },
       body: args.body,
     }),
   );

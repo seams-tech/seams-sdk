@@ -17,10 +17,61 @@ import {
   resolveWalletRecoveryBootstrapAuthorizationContext,
   resolveWalletRecoveryAuthorizationToken,
 } from '../../../domains/passkeyCustody/walletRecoveryAuthorization';
-import { authenticateRouterAbWalletOperationStepUpIdentity } from '../../../domains/signingOperations/routerAbPrivateSigningWorker';
-import type { AuthorizedOperation } from '../../../../authorization/domain';
+import {
+  parseAuthorizationAuditEventId,
+  parseAuthorizationEvidenceId,
+  parseAuthorizationEvidenceSetId,
+  parseAuthorizedOperationId,
+  parseAuthFactorId,
+  parseCapabilityId,
+  parseCapabilityOperationId,
+  parsePrincipalId,
+  parseTenantId,
+  buildVaultOperationRef,
+} from '@shared/authorization/capabilityKinds';
+import {
+  buildCapabilityOperationEnvelope,
+  computeCapabilityOperationFingerprintDigest,
+} from '@shared/authorization/operationFingerprint';
+import {
+  computeWalletCustodyAdminChallengeDigest,
+  type WalletCustodyAdminOperation,
+} from '@shared/authorization/walletCustodyOperation';
+import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
+import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
+import { base64UrlEncode } from '@shared/utils/encoders';
+import {
+  buildPasskeyWalletAuthAuthority,
+  walletAuthAuthorityRef,
+  type PasskeyWalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
+import {
+  parseEmailOtpChallengeId,
+  parseOrgId,
+  parseProviderSubject,
+  parseWebAuthnCredentialIdB64u,
+  parseWebAuthnRpId,
+  parseWalletId,
+  type WalletId,
+} from '@shared/utils/domainIds';
+import type { WebAuthnAuthenticationCredential } from '../../../../core/types';
+import { parseWebAuthnAuthenticationCredential } from '../../../auth/webAuthnCredentialCodecs';
+import {
+  hashEmailOtpOperationBinding,
+  emailOtpStatusCode,
+} from '../../../domains/emailOtp/emailOtpSessionRouteHelpers';
+import {
+  buildVerifiedWalletOperationEmailOtpFactorResult,
+  buildVerifiedWalletOperationPasskeyFactorResult,
+  type VerifiedWalletOperationFactorResult,
+} from '../../../../authorization/factorEvidence';
+import {
+  parseSessionOrigin,
+  parseVerifiedOwnerProofId,
+  type AuthorizedOperation,
+} from '../../../../authorization/domain';
+import { EMAIL_OTP_CHANNEL, WALLET_EMAIL_OTP_UNLOCK_OPERATION } from '@shared/utils/emailOtpDomain';
 import { parsePasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
-import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
 import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import type {
   WalletRecoveryPreparationKeyManifestEntryV1,
@@ -57,19 +108,450 @@ const RECOVERY_ACK_ROUTE_ID = 'wallet_recovery_backup_acknowledge';
 const RECOVERY_ROTATE_ROUTE_ID = 'wallet_recovery_codes_rotate';
 const RECOVERY_READ_ROUTE_ID = 'wallet_recovery_codes_read';
 const RECOVERY_STATUS_ROUTE_ID = 'wallet_recovery_status';
+const EMAIL_OTP_CHALLENGE_ROUTE_ID = 'wallet_custody_email_otp_challenge';
 
-function walletRecoverySessionHeaders(ctx: FetchRouterApiContext): Record<string, string> {
-  return Object.fromEntries(ctx.request.headers.entries());
+type WalletCustodyOwnerProofWire =
+  | {
+      readonly kind: 'passkey';
+      readonly walletId: string;
+      readonly rpId: string;
+      readonly credentialIdB64u: string;
+      readonly challenge_digest: string;
+      readonly webauthn_authentication: WebAuthnAuthenticationCredential;
+    }
+  | {
+      readonly kind: 'email_otp';
+      readonly provider_subject_id: string;
+      readonly challenge_id: string;
+      readonly otp_code: string;
+      readonly challenge_digest: string;
+    };
+
+type WalletCustodyAuthorizationResult =
+  | { readonly ok: true; readonly operation: AuthorizedOperation }
+  | { readonly ok: false; readonly response: Response };
+
+const CUSTODY_OPERATION_CAPABILITY_ID = 'wallet-custody-admin';
+const CUSTODY_PROOF_TTL_MS = 60_000;
+
+function parseRequiredString(value: unknown, field: string): string {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error(`${field} is required`);
+  }
+  return value.trim();
 }
 
-async function authenticateWalletRecoveryAuthority(ctx: FetchRouterApiContext, walletId: string) {
-  return authenticateRouterAbWalletOperationStepUpIdentity({
-    headers: walletRecoverySessionHeaders(ctx),
-    walletId,
-    materialOwner: walletId,
-    authorizedOperations: ctx.service.authorizedOperations,
-    authorizationSessions: ctx.service.authorizationSessions,
+function requireExactObjectFields(
+  value: Record<string, unknown>,
+  fields: readonly string[],
+  label: string,
+): void {
+  const keys = Object.keys(value).sort();
+  const expected = [...fields].sort();
+  if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index])) {
+    throw new Error(`${label} contains unsupported fields`);
+  }
+}
+
+function parseCustodyOwnerProof(value: unknown): WalletCustodyOwnerProofWire {
+  if (!isObject(value)) throw new Error('factorProof is required');
+  const kind = trimmed(value.kind);
+  if (kind === 'passkey') {
+    requireExactObjectFields(
+      value,
+      [
+        'kind',
+        'walletId',
+        'rpId',
+        'credentialIdB64u',
+        'challenge_digest',
+        'webauthn_authentication',
+      ],
+      'factorProof',
+    );
+    const webauthnAuthentication = parseWebAuthnAuthenticationCredential(
+      value.webauthn_authentication,
+    );
+    if (!webauthnAuthentication) throw new Error('factorProof.webauthn_authentication is invalid');
+    return {
+      kind,
+      walletId: parseRequiredString(value.walletId, 'factorProof.walletId'),
+      rpId: parseRequiredString(value.rpId, 'factorProof.rpId'),
+      credentialIdB64u: parseRequiredString(value.credentialIdB64u, 'factorProof.credentialIdB64u'),
+      challenge_digest: parseRequiredString(value.challenge_digest, 'factorProof.challenge_digest'),
+      webauthn_authentication: webauthnAuthentication,
+    };
+  }
+  if (kind === 'email_otp') {
+    requireExactObjectFields(
+      value,
+      ['kind', 'provider_subject_id', 'challenge_id', 'otp_code', 'challenge_digest'],
+      'factorProof',
+    );
+    return {
+      kind,
+      provider_subject_id: parseRequiredString(
+        value.provider_subject_id,
+        'factorProof.provider_subject_id',
+      ),
+      challenge_id: parseRequiredString(value.challenge_id, 'factorProof.challenge_id'),
+      otp_code: parseRequiredString(value.otp_code, 'factorProof.otp_code'),
+      challenge_digest: parseRequiredString(value.challenge_digest, 'factorProof.challenge_digest'),
+    };
+  }
+  throw new Error('factorProof.kind must be passkey or email_otp');
+}
+
+function parseRequiredAuthorizationValue<T>(
+  parsed:
+    | { readonly ok: true; readonly value: T }
+    | { readonly ok: false; readonly error: { readonly message: string } },
+): T {
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
+async function custodyDigest(domain: string, value: Record<string, unknown>): Promise<DigestB64u> {
+  return parseDigestB64u(
+    base64UrlEncode(await sha256BytesUtf8(`${domain}|${alphabetizeStringify(value)}`)),
+  );
+}
+
+async function buildWalletCustodyOperation(input: {
+  readonly tenantId: string;
+  readonly principalId: string;
+  readonly walletId: string;
+  readonly operation: WalletCustodyAdminOperation;
+  readonly payload: Record<string, unknown>;
+  readonly requestOrigin: string;
+}): Promise<{
+  readonly operation: Awaited<ReturnType<typeof buildCapabilityOperationEnvelope>>;
+  readonly challengeDigest: DigestB64u;
+}> {
+  const tenantId = parseRequiredAuthorizationValue(parseTenantId(input.tenantId));
+  const principalId = parseRequiredAuthorizationValue(parsePrincipalId(input.principalId));
+  const capabilityId = parseRequiredAuthorizationValue(
+    parseCapabilityId(CUSTODY_OPERATION_CAPABILITY_ID),
+  );
+  const operationRef = buildVaultOperationRef('vault.reveal');
+  const laneDigest = await custodyDigest('seams:wallet-custody:lane:v1', {
+    capabilityId,
+    operation: input.operation,
+    operationRef,
   });
+  const challengeDigest = await computeWalletCustodyAdminChallengeDigest({
+    walletId: input.walletId,
+    operation: input.operation,
+    payload: input.payload,
+    requestOrigin: input.requestOrigin,
+  });
+  const intentDigest = challengeDigest;
+  const displayDigest = await custodyDigest('seams:wallet-custody:display:v1', {
+    walletId: input.walletId,
+    operation: input.operation,
+  });
+  const operationId = parseRequiredAuthorizationValue(
+    parseCapabilityOperationId(`wallet-custody:${input.operation}:${intentDigest}`),
+  );
+  return {
+    operation: buildCapabilityOperationEnvelope({
+      tenantId,
+      principalId,
+      capabilityId,
+      operationId,
+      operation: operationRef,
+      digests: { laneDigest, intentDigest, displayDigest },
+    }),
+    challengeDigest,
+  };
+}
+
+async function authorizeWalletCustodyOperation(input: {
+  readonly ctx: FetchRouterApiContext;
+  readonly walletId: string;
+  readonly operation: WalletCustodyAdminOperation;
+  readonly payload: Record<string, unknown>;
+  readonly factorProof: unknown;
+}): Promise<WalletCustodyAuthorizationResult> {
+  const requestOrigin = trimmed(input.ctx.request.headers.get('origin'));
+  if (!requestOrigin) {
+    return toCustodyAuthorizationFailure(400, 'invalid_origin', 'request Origin is required');
+  }
+  let origin: ReturnType<typeof parseSessionOrigin>;
+  let proof: WalletCustodyOwnerProofWire;
+  let walletId: WalletId;
+  try {
+    origin = parseSessionOrigin(requestOrigin);
+    walletId = parseRequiredAuthorizationValue(parseWalletId(input.walletId));
+    proof = parseCustodyOwnerProof(input.factorProof);
+  } catch (error: unknown) {
+    return toCustodyAuthorizationFailure(
+      400,
+      'invalid_owner_proof',
+      error instanceof Error ? error.message : 'owner proof is invalid',
+    );
+  }
+  if (proof.kind === 'passkey' && proof.walletId !== input.walletId) {
+    return toCustodyAuthorizationFailure(403, 'scope_mismatch', 'owner proof wallet differs');
+  }
+
+  let principalId: string;
+  let factor: VerifiedWalletOperationFactorResult;
+  let operation: Awaited<ReturnType<typeof buildCapabilityOperationEnvelope>>;
+  let challengeDigest: DigestB64u;
+  try {
+    principalId = proof.kind === 'passkey' ? input.walletId : proof.provider_subject_id;
+    const built = await buildWalletCustodyOperation({
+      tenantId: input.ctx.service.authorizedOperations.tenantId,
+      principalId,
+      walletId: input.walletId,
+      operation: input.operation,
+      payload: input.payload,
+      requestOrigin,
+    });
+    operation = built.operation;
+    challengeDigest = built.challengeDigest;
+  } catch (error: unknown) {
+    return toCustodyAuthorizationFailure(
+      400,
+      'invalid_owner_proof',
+      error instanceof Error ? error.message : 'owner proof binding is invalid',
+    );
+  }
+  const operationFingerprintDigest = await computeCapabilityOperationFingerprintDigest(operation);
+  const nowMs = Date.now();
+  if (proof.challenge_digest !== String(challengeDigest)) {
+    return toCustodyAuthorizationFailure(
+      403,
+      'scope_mismatch',
+      'factor proof challenge does not match the requested operation',
+    );
+  }
+
+  if (proof.kind === 'passkey') {
+    let authority: PasskeyWalletAuthAuthority;
+    try {
+      authority = buildPasskeyWalletAuthAuthority({
+        walletId,
+        rpId: proof.rpId,
+        credentialIdB64u: proof.credentialIdB64u,
+      });
+    } catch (error: unknown) {
+      return toCustodyAuthorizationFailure(
+        400,
+        'invalid_owner_proof',
+        error instanceof Error ? error.message : 'passkey authority is invalid',
+      );
+    }
+    const active =
+      await input.ctx.service.walletAuthMethods.verifyActivePasskeyAuthority(authority);
+    if (!active.ok) return toCustodyAuthorizationFailure(403, active.code, active.message);
+    const credential = parseWebAuthnAuthenticationCredential(proof.webauthn_authentication);
+    if (!credential) {
+      return toCustodyAuthorizationFailure(
+        400,
+        'invalid_owner_proof',
+        'passkey assertion is invalid',
+      );
+    }
+    const credentialId = String(credential.rawId || credential.id).trim();
+    if (credentialId !== authority.factor.credentialIdB64u) {
+      return toCustodyAuthorizationFailure(401, 'unauthorized', 'passkey credential changed');
+    }
+    const verified = await input.ctx.service.webAuthn.verifyWebAuthnAuthenticationLite({
+      userId: input.walletId,
+      rpId: authority.verifier.rpId,
+      expectedChallenge: challengeDigest,
+      expected_origin: requestOrigin,
+      webauthn_authentication: credential,
+    });
+    if (!verified.success || !verified.verified) {
+      return toCustodyAuthorizationFailure(
+        401,
+        verified.code || 'not_verified',
+        verified.message || 'WebAuthn authentication verification failed',
+      );
+    }
+    factor = buildVerifiedWalletOperationPasskeyFactorResult({
+      tenantId: operation.tenantId,
+      principalId: operation.principalId,
+      walletId,
+      authorityRef: await walletAuthAuthorityRef({ authority }),
+      requestOrigin: origin,
+      audience: origin,
+      factorId: parseRequiredAuthorizationValue(
+        parseAuthFactorId(`passkey:${authority.factor.credentialIdB64u}`),
+      ),
+      credentialIdB64u: parseRequiredAuthorizationValue(
+        parseWebAuthnCredentialIdB64u(authority.factor.credentialIdB64u),
+      ),
+      assertionDigest: await custodyDigest('seams:wallet-custody:assertion:v1', { credential }),
+      operation,
+      verifiedAtMs: nowMs,
+      expiresAtMs: nowMs + CUSTODY_PROOF_TTL_MS,
+    });
+  } else {
+    const providerSubject = parseRequiredAuthorizationValue(
+      parseProviderSubject(proof.provider_subject_id),
+    );
+    const orgId = parseRequiredAuthorizationValue(
+      parseOrgId(input.ctx.service.authorizedOperations.tenantId),
+    );
+    const active =
+      await input.ctx.service.walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject({
+        walletId: input.walletId,
+        providerUserId: proof.provider_subject_id,
+      });
+    if (!active.ok) return toCustodyAuthorizationFailure(403, active.code, active.message);
+    const activeAuthorityRef = await walletAuthAuthorityRef({ authority: active.authority });
+    const ownerProofBindingDigest = await hashEmailOtpOperationBinding({
+      walletId: input.walletId,
+      providerUserId: proof.provider_subject_id,
+      orgId,
+      operation: `wallet_custody:${input.operation}`,
+      requestOrigin,
+      audience: requestOrigin,
+      authorityRef: activeAuthorityRef,
+      operationFingerprintDigest: challengeDigest,
+    });
+    const verified = await input.ctx.service.emailOtp.verifyEmailOtpChallenge({
+      userId: proof.provider_subject_id,
+      walletId: input.walletId,
+      orgId,
+      challengeId: proof.challenge_id,
+      otpCode: proof.otp_code,
+      otpChannel: EMAIL_OTP_CHANNEL,
+      ownerProofBindingDigest,
+      operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
+    });
+    if (!verified.ok) {
+      return toCustodyAuthorizationFailure(
+        verified.code === 'invalid_body' ? 400 : 401,
+        verified.code,
+        verified.message,
+      );
+    }
+    const consumed = await input.ctx.service.emailOtp.consumeEmailOtpGrant({
+      subject: {
+        kind: 'provider_identity',
+        orgId,
+        providerSubject,
+        walletId,
+      },
+      loginGrant: verified.loginGrant,
+      otpChannel: EMAIL_OTP_CHANNEL,
+    });
+    if (!consumed.ok) {
+      return toCustodyAuthorizationFailure(
+        emailOtpStatusCode(consumed.code),
+        consumed.code,
+        consumed.message,
+      );
+    }
+    factor = buildVerifiedWalletOperationEmailOtpFactorResult({
+      tenantId: operation.tenantId,
+      principalId: operation.principalId,
+      walletId,
+      authorityRef: activeAuthorityRef,
+      requestOrigin: origin,
+      audience: origin,
+      factorId: parseRequiredAuthorizationValue(
+        parseAuthFactorId(
+          `email_otp:${active.authority.factor.provider}:${proof.provider_subject_id}`,
+        ),
+      ),
+      operation,
+      challengeId: parseRequiredAuthorizationValue(parseEmailOtpChallengeId(consumed.challengeId)),
+      verificationReceiptDigest: await custodyDigest('seams:wallet-custody:otp-receipt:v1', {
+        challengeId: consumed.challengeId,
+        operationFingerprintDigest,
+      }),
+      verifiedAtMs: nowMs,
+      expiresAtMs: Math.min(nowMs + CUSTODY_PROOF_TTL_MS, verified.grantExpiresAtMs),
+    });
+  }
+
+  const ownerProof = await input.ctx.service.authorizedOperations.buildVerifiedOwnerProof({
+    purpose: 'operation',
+    proofId: parseVerifiedOwnerProofId(`wallet-custody:${operation.operationId}`),
+    factor,
+  });
+  if (
+    ownerProof.purpose !== 'operation' ||
+    ownerProof.operation.operationFingerprintDigest !== operationFingerprintDigest
+  ) {
+    return toCustodyAuthorizationFailure(
+      403,
+      'owner_proof_rejected',
+      'owner proof binding is invalid',
+    );
+  }
+  const evidenceSet =
+    await input.ctx.service.authorizedOperations.recordVerifiedWalletOperationFactorEvidenceSet({
+      operation,
+      evidenceId: parseRequiredAuthorizationValue(
+        parseAuthorizationEvidenceId(`wallet-custody:evidence:${operation.operationId}`),
+      ),
+      evidenceSetId: parseRequiredAuthorizationValue(
+        parseAuthorizationEvidenceSetId(`wallet-custody:evidence-set:${operation.operationId}`),
+      ),
+      factor,
+    });
+  const admission = await input.ctx.service.authorizedOperations.admitAuthorizedOperation({
+    operation: {
+      tenantId: operation.tenantId,
+      authorizedOperationId: parseRequiredAuthorizationValue(
+        parseAuthorizedOperationId(`wallet-custody:authorized:${operation.operationId}`),
+      ),
+      auditEventId: parseRequiredAuthorizationValue(
+        parseAuthorizationAuditEventId(`wallet-custody:audit:${operation.operationId}`),
+      ),
+      operation,
+      authorization: { kind: 'verified_step_up', evidenceSetDigest: evidenceSet.evidenceSetDigest },
+      quota: { kind: 'quota_neutral' },
+      claimedAtMs: nowMs,
+    },
+  });
+  switch (admission.kind) {
+    case 'claimed':
+      return { ok: true, operation: admission.operation };
+    case 'replayed':
+    case 'operation_in_progress':
+      return { ok: false, response: authorizedOperationReplay(admission.operation) };
+    case 'authorization_grant_rejected':
+    case 'verified_step_up_rejected':
+    case 'wallet_session_quota_exhausted':
+    case 'material_mismatch':
+      return toCustodyAuthorizationFailure(403, 'owner_proof_rejected', 'owner proof was rejected');
+  }
+}
+
+function toCustodyAuthorizationFailure(
+  status: number,
+  code: string,
+  message: string,
+): WalletCustodyAuthorizationResult {
+  return {
+    ok: false,
+    response: toFetchRouteResponse({ status, body: { ok: false, code, message } }),
+  };
+}
+
+async function completeWalletCustodyOperation(
+  ctx: FetchRouterApiContext,
+  operation: AuthorizedOperation,
+  status: number,
+  body: Record<string, unknown>,
+  result: 'succeeded' | 'failed_before_side_effect' = 'succeeded',
+): Promise<Response> {
+  const bodyText = JSON.stringify(body);
+  await ctx.service.authorizedOperations.completeAuthorizedOperation({
+    operation,
+    result,
+    response: { status, contentType: 'application/json', bodyText },
+    completedAtMs: Date.now(),
+  });
+  return toFetchRouteResponse({ status, body });
 }
 
 type WalletRecoveryAuthorizedNearEntry = Extract<
@@ -134,7 +616,7 @@ export async function handlePasskeyCustody(ctx: FetchRouterApiContext): Promise<
   if (!route) throw new Error(`Missing route definition for ${ROUTE_ID}`);
   if (!matchesRouteDefinitionRequest(route, ctx.method, ctx.pathname)) return null;
 
-  const body = (await readJson(ctx.request)) as Record<string, unknown> | null;
+  const body = await readJsonObject(ctx.request);
   const request = parseWireRequest(body, ctx.request.headers.get('origin'));
   if (!request) {
     return toFetchRouteResponse({
@@ -151,6 +633,136 @@ export async function handlePasskeyCustody(ctx: FetchRouterApiContext): Promise<
   return toFetchRouteResponse(response);
 }
 
+function parseWalletCustodyEmailOtpChallengeRequest(
+  value: unknown,
+  actualOrigin: string,
+): {
+  readonly walletId: string;
+  readonly providerSubjectId: string;
+  readonly operation: WalletCustodyAdminOperation;
+  readonly payload: Record<string, unknown>;
+  readonly requestOrigin: string;
+} {
+  if (!isObject(value)) throw new Error('Email OTP custody challenge body must be an object');
+  const keys = Object.keys(value).sort();
+  const expected = ['operation', 'payload', 'providerSubjectId', 'requestOrigin', 'walletId'];
+  const required = ['operation', 'payload', 'providerSubjectId', 'walletId'];
+  const withoutOptional = keys.filter((key) => key !== 'requestOrigin');
+  if (
+    withoutOptional.length !== required.length ||
+    withoutOptional.some((key, index) => key !== required.slice().sort()[index]) ||
+    (keys.includes('requestOrigin') && keys.length !== expected.length)
+  ) {
+    throw new Error('Email OTP custody challenge body contains unsupported fields');
+  }
+  const walletId = parseRequiredAuthorizationValue(parseWalletId(value.walletId));
+  const providerSubjectId = parseRequiredAuthorizationValue(
+    parseProviderSubject(value.providerSubjectId),
+  );
+  const operation = value.operation;
+  if (
+    operation !== 'credentials_list' &&
+    operation !== 'credential_label' &&
+    operation !== 'recovery_acknowledge' &&
+    operation !== 'recovery_rotate' &&
+    operation !== 'recovery_read'
+  ) {
+    throw new Error('Email OTP custody challenge operation is invalid');
+  }
+  if (!isObject(value.payload)) throw new Error('Email OTP custody challenge payload is invalid');
+  if (value.requestOrigin !== undefined && value.requestOrigin !== actualOrigin) {
+    throw new Error('Email OTP custody challenge requestOrigin does not match Origin');
+  }
+  return {
+    walletId,
+    providerSubjectId,
+    operation,
+    payload: value.payload,
+    requestOrigin: actualOrigin,
+  };
+}
+
+/** Issues one operation-bound Email OTP challenge without exposing authority metadata. */
+export async function handleWalletCustodyEmailOtpChallenge(
+  ctx: FetchRouterApiContext,
+): Promise<Response | null> {
+  const route = findRouteDefinitionById(ctx.routeDefinitions, EMAIL_OTP_CHALLENGE_ROUTE_ID);
+  if (!route) throw new Error(`Missing route definition for ${EMAIL_OTP_CHALLENGE_ROUTE_ID}`);
+  if (!matchesRouteDefinitionRequest(route, ctx.method, ctx.pathname)) return null;
+  const originHeader = trimmed(ctx.request.headers.get('origin'));
+  let request: ReturnType<typeof parseWalletCustodyEmailOtpChallengeRequest>;
+  try {
+    const origin = parseSessionOrigin(originHeader);
+    request = parseWalletCustodyEmailOtpChallengeRequest(await readJson(ctx.request), origin);
+  } catch (error: unknown) {
+    return toFetchRouteResponse({
+      status: 400,
+      body: {
+        ok: false,
+        code: 'invalid_request',
+        message: error instanceof Error ? error.message : 'Email OTP custody challenge is invalid',
+      },
+    });
+  }
+
+  const active =
+    await ctx.service.walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject({
+      walletId: request.walletId,
+      providerUserId: request.providerSubjectId,
+    });
+  if (!active.ok) {
+    return toFetchRouteResponse({
+      status: 403,
+      body: { ok: false, code: active.code, message: active.message },
+    });
+  }
+  const authoritativeOrgId = parseRequiredAuthorizationValue(
+    parseOrgId(ctx.service.authorizedOperations.tenantId),
+  );
+  const challengeDigest = await computeWalletCustodyAdminChallengeDigest(request);
+  const ownerProofBindingDigest = await hashEmailOtpOperationBinding({
+    walletId: request.walletId,
+    providerUserId: request.providerSubjectId,
+    orgId: authoritativeOrgId,
+    operation: `wallet_custody:${request.operation}`,
+    requestOrigin: request.requestOrigin,
+    audience: request.requestOrigin,
+    authorityRef: await walletAuthAuthorityRef({ authority: active.authority }),
+    operationFingerprintDigest: challengeDigest,
+  });
+  const result = await ctx.service.emailOtp.createEmailOtpChallenge({
+    userId: request.providerSubjectId,
+    walletId: request.walletId,
+    orgId: authoritativeOrgId,
+    otpChannel: EMAIL_OTP_CHANNEL,
+    ownerProofBindingDigest,
+    reuseActiveChallenge: true,
+    requestOrigin: request.requestOrigin,
+    operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
+  });
+  if (!result.ok) {
+    return toFetchRouteResponse({
+      status: emailOtpStatusCode(result.code),
+      body: {
+        ok: false,
+        code: result.code,
+        message: result.message,
+        ...(result.retryAfterMs ? { retryAfterMs: result.retryAfterMs } : {}),
+      },
+    });
+  }
+  return toFetchRouteResponse({
+    status: 200,
+    body: {
+      ok: true,
+      challengeId: result.challenge.challengeId,
+      challenge_digest: challengeDigest,
+      expiresAtMs: result.challenge.expiresAtMs,
+      otpChannel: result.challenge.otpChannel,
+    },
+  });
+}
+
 /** Lists public passkey envelope identities with their sibling activity rows. */
 export async function handleWalletCustodyCredentialsList(
   ctx: FetchRouterApiContext,
@@ -165,13 +777,15 @@ export async function handleWalletCustodyCredentialsList(
       body: { ok: false, code: 'invalid_request', message: 'credential list needs a wallet' },
     });
   }
-  const authenticated = await authenticateWalletRecoveryAuthority(ctx, walletId);
-  if (!authenticated.ok) {
-    return toFetchRouteResponse({
-      status: authenticated.error.status,
-      body: authenticated.error.body,
-    });
-  }
+  const body = await readJsonObject(ctx.request);
+  const authorized = await authorizeWalletCustodyOperation({
+    ctx,
+    walletId,
+    operation: 'credentials_list',
+    payload: { walletId },
+    factorProof: body?.factorProof,
+  });
+  if (!authorized.ok) return authorized.response;
   const parsedWalletId = parseWalletId(walletId);
   if (!parsedWalletId.ok) {
     return toFetchRouteResponse({
@@ -182,7 +796,10 @@ export async function handleWalletCustodyCredentialsList(
   const result = await ctx.service.passkeyCustody.listWalletCredentials({
     walletId: parsedWalletId.value,
   });
-  return toFetchRouteResponse({ status: 200, body: { ok: true, credentials: result } });
+  return await completeWalletCustodyOperation(ctx, authorized.operation, 200, {
+    ok: true,
+    credentials: result,
+  });
 }
 
 /** Renames one passkey credential; the label is metadata and never AAD. */
@@ -193,7 +810,7 @@ export async function handleWalletCustodyCredentialLabel(
   if (!route) throw new Error(`Missing route definition for ${CREDENTIAL_LABEL_ROUTE_ID}`);
   if (!matchesRouteDefinitionRequest(route, ctx.method, ctx.pathname)) return null;
   const walletId = walletIdFromPath(route.path, ctx.pathname);
-  const body = (await readJson(ctx.request)) as Record<string, unknown> | null;
+  const body = await readJsonObject(ctx.request);
   const envelopeId = trimmed(body?.envelopeId);
   const label = body?.label;
   if (!walletId || !envelopeId || (label !== undefined && typeof label !== 'string')) {
@@ -206,13 +823,14 @@ export async function handleWalletCustodyCredentialLabel(
       },
     });
   }
-  const authenticated = await authenticateWalletRecoveryAuthority(ctx, walletId);
-  if (!authenticated.ok) {
-    return toFetchRouteResponse({
-      status: authenticated.error.status,
-      body: authenticated.error.body,
-    });
-  }
+  const authorized = await authorizeWalletCustodyOperation({
+    ctx,
+    walletId,
+    operation: 'credential_label',
+    payload: { walletId, envelopeId, ...(label === undefined ? {} : { label }) },
+    factorProof: body?.factorProof,
+  });
+  if (!authorized.ok) return authorized.response;
   const parsedWalletId = parseWalletId(walletId);
   if (!parsedWalletId.ok) {
     return toFetchRouteResponse({
@@ -227,38 +845,42 @@ export async function handleWalletCustodyCredentialLabel(
   });
   switch (result.kind) {
     case 'updated':
-      return toFetchRouteResponse({
-        status: 200,
-        body: { ok: true, credential: result.projection },
+      return await completeWalletCustodyOperation(ctx, authorized.operation, 200, {
+        ok: true,
+        credential: result.projection,
       });
     case 'missing':
-      return toFetchRouteResponse({
-        status: 404,
-        body: { ok: false, code: 'credential_not_found', message: 'credential not found' },
-      });
+      return await completeWalletCustodyOperation(
+        ctx,
+        authorized.operation,
+        404,
+        { ok: false, code: 'credential_not_found', message: 'credential not found' },
+        'failed_before_side_effect',
+      );
     case 'conflict':
-      return toFetchRouteResponse({
-        status: 409,
-        body: {
-          ok: false,
-          code: 'credential_activity_conflict',
-          message: 'credential changed; retry',
-        },
-      });
+      return await completeWalletCustodyOperation(
+        ctx,
+        authorized.operation,
+        409,
+        { ok: false, code: 'credential_activity_conflict', message: 'credential changed; retry' },
+        'failed_before_side_effect',
+      );
     case 'invalid_envelope_id':
-      return toFetchRouteResponse({
-        status: 400,
-        body: {
-          ok: false,
-          code: 'invalid_envelope_id',
-          message: 'credential envelope id is invalid',
-        },
-      });
+      return await completeWalletCustodyOperation(
+        ctx,
+        authorized.operation,
+        400,
+        { ok: false, code: 'invalid_envelope_id', message: 'credential envelope id is invalid' },
+        'failed_before_side_effect',
+      );
     case 'invalid_label':
-      return toFetchRouteResponse({
-        status: 400,
-        body: { ok: false, code: 'invalid_label', message: result.reason },
-      });
+      return await completeWalletCustodyOperation(
+        ctx,
+        authorized.operation,
+        400,
+        { ok: false, code: 'invalid_label', message: result.reason },
+        'failed_before_side_effect',
+      );
   }
 }
 
@@ -277,7 +899,7 @@ export async function handleWalletRecoveryPrepare(
   if (!route) throw new Error(`Missing route definition for ${RECOVERY_PREPARE_ROUTE_ID}`);
   if (!matchesRouteDefinitionRequest(route, ctx.method, ctx.pathname)) return null;
 
-  const body = (await readJson(ctx.request)) as Record<string, unknown> | null;
+  const body = await readJsonObject(ctx.request);
   const walletId = trimmed(body?.walletId);
   const recoveryCode = trimmed(body?.recoveryCode);
   const orgId = trimmed(body?.orgId);
@@ -361,7 +983,7 @@ export async function handleWalletRecoveryPrepare(
   });
 
   switch (result.kind) {
-    case 'prepared':
+    case 'prepared': {
       if (!ctx.opts.session) {
         return toFetchRouteResponse({
           status: 503,
@@ -420,6 +1042,7 @@ export async function handleWalletRecoveryPrepare(
           recoveryAuthorizationToken,
         },
       });
+    }
     case 'conflict':
       /* 409, and retryable: another attempt committed against the version this
          one read. The code may still be good. */
@@ -518,21 +1141,13 @@ function parseWireRequest(
   if (!body || typeof body !== 'object') return null;
 
   const challengeId = trimmed(body.challengeId);
-  const locator = body.locator;
-  const webauthnAuthentication = body.webauthnAuthentication;
-  if (!challengeId || !isObject(locator) || !isObject(webauthnAuthentication)) return null;
+  const locator = parseEnvelopeRetrievalLocator(body.locator);
+  const webauthnAuthentication = parseWebAuthnAuthenticationCredential(body.webauthnAuthentication);
+  if (!challengeId || !locator || !webauthnAuthentication) return null;
 
   /* Shape-checked here, content-checked below. This only establishes that an
      assertion was sent at all — whether it verifies is the retrieval's
      decision, and a transport that judged it would be a second gate. */
-  if (
-    !trimmed(webauthnAuthentication.id) ||
-    !trimmed(webauthnAuthentication.rawId) ||
-    !isObject(webauthnAuthentication.response)
-  ) {
-    return null;
-  }
-
   /* The header, with no body fallback (frozen 2026-08-09). The sibling
      WebAuthn service takes `expected_origin` from its caller because it is
      called by an app server; on a browser-reachable route a value the
@@ -548,14 +1163,47 @@ function parseWireRequest(
   return {
     challengeId,
     expectedOrigin,
-    locator: locator as PasskeyCustodyEnvelopeRetrievalWireRequest['locator'],
-    webauthnAuthentication:
-      webauthnAuthentication as unknown as PasskeyCustodyEnvelopeRetrievalWireRequest['webauthnAuthentication'],
+    locator,
+    webauthnAuthentication,
+  };
+}
+
+function parseEnvelopeRetrievalLocator(
+  value: unknown,
+): PasskeyCustodyEnvelopeRetrievalWireRequest['locator'] | null {
+  if (!isObject(value) || !isObject(value.factor)) return null;
+  try {
+    requireExactObjectFields(value, ['walletId', 'factor'], 'custody locator');
+    requireExactObjectFields(
+      value.factor,
+      ['kind', 'rpId', 'credentialIdB64u'],
+      'custody locator.factor',
+    );
+  } catch {
+    return null;
+  }
+  const walletId = parseWalletId(value.walletId);
+  const rpId = parseWebAuthnRpId(value.factor.rpId);
+  const credentialIdB64u = parseWebAuthnCredentialIdB64u(value.factor.credentialIdB64u);
+  if (!walletId.ok || !rpId.ok || !credentialIdB64u.ok) return null;
+  if (value.factor.kind !== 'passkey') return null;
+  return {
+    walletId: walletId.value,
+    factor: {
+      kind: 'passkey',
+      rpId: rpId.value,
+      credentialIdB64u: credentialIdB64u.value,
+    },
   };
 }
 
 function trimmed(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+async function readJsonObject(request: Request): Promise<Record<string, unknown> | null> {
+  const value = await readJson(request);
+  return isObject(value) ? value : null;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -940,7 +1588,7 @@ export async function handleWalletRecoveryBackupAcknowledge(
   if (!route) throw new Error(`Missing route definition for ${RECOVERY_ACK_ROUTE_ID}`);
   if (!matchesRouteDefinitionRequest(route, ctx.method, ctx.pathname)) return null;
 
-  const body = (await readJson(ctx.request)) as Record<string, unknown> | null;
+  const body = await readJsonObject(ctx.request);
   const walletId = trimmed(body?.walletId);
   if (!walletId) {
     return toFetchRouteResponse({
@@ -949,30 +1597,32 @@ export async function handleWalletRecoveryBackupAcknowledge(
     });
   }
 
-  const authenticated = await authenticateWalletRecoveryAuthority(ctx, walletId);
-  if (!authenticated.ok) {
-    return toFetchRouteResponse({
-      status: authenticated.error.status,
-      body: authenticated.error.body,
-    });
-  }
+  const authorized = await authorizeWalletCustodyOperation({
+    ctx,
+    walletId,
+    operation: 'recovery_acknowledge',
+    payload: { walletId },
+    factorProof: body?.factorProof,
+  });
+  if (!authorized.ok) return authorized.response;
 
   const result = await ctx.service.passkeyCustody.acknowledgeRecoveryBackup({ walletId });
   if (result.kind === 'no_recovery_set') {
-    return toFetchRouteResponse({
-      status: 404,
-      body: {
+    return await completeWalletCustodyOperation(
+      ctx,
+      authorized.operation,
+      404,
+      {
         ok: false,
         code: 'no_recovery_set',
         message: 'this wallet has no issued recovery codes to acknowledge',
       },
-    });
+      'failed_before_side_effect',
+    );
   }
-  return toFetchRouteResponse({
-    status: 200,
-    /* Echoes the issuance it covered, so a client can tell whether its own
-       view of "which codes" matches what the server just recorded. */
-    body: { ok: true, issuedAtMs: result.issuedAtMs },
+  return await completeWalletCustodyOperation(ctx, authorized.operation, 200, {
+    ok: true,
+    issuedAtMs: result.issuedAtMs,
   });
 }
 
@@ -992,7 +1642,7 @@ export async function handleWalletRecoveryRotate(
   if (!route) throw new Error(`Missing route definition for ${RECOVERY_ROTATE_ROUTE_ID}`);
   if (!matchesRouteDefinitionRequest(route, ctx.method, ctx.pathname)) return null;
 
-  const body = (await readJson(ctx.request)) as Record<string, unknown> | null;
+  const body = await readJsonObject(ctx.request);
   const walletId = trimmed(body?.walletId);
   const expectedStoreVersion = trimmed(body?.expectedStoreVersion);
   const manifestKekWraps = Array.isArray(body?.manifestKekWraps)
@@ -1017,14 +1667,6 @@ export async function handleWalletRecoveryRotate(
     });
   }
 
-  const authenticated = await authenticateWalletRecoveryAuthority(ctx, walletId);
-  if (!authenticated.ok) {
-    return toFetchRouteResponse({
-      status: authenticated.error.status,
-      body: authenticated.error.body,
-    });
-  }
-
   let replacement: ReturnType<typeof parseWalletRecoverySetRotationWireV1>;
   try {
     replacement = parseWalletRecoverySetRotationWireV1(
@@ -1042,6 +1684,15 @@ export async function handleWalletRecoveryRotate(
     });
   }
 
+  const authorized = await authorizeWalletCustodyOperation({
+    ctx,
+    walletId,
+    operation: 'recovery_rotate',
+    payload: { walletId, expectedStoreVersion, manifestKekWraps, entries },
+    factorProof: body?.factorProof,
+  });
+  if (!authorized.ok) return authorized.response;
+
   const result = await ctx.service.passkeyCustody.rotateRecoveryCodes({
     walletId,
     replacement,
@@ -1050,32 +1701,39 @@ export async function handleWalletRecoveryRotate(
 
   switch (result.kind) {
     case 'rotated':
-      return toFetchRouteResponse({
-        status: 200,
-        /* The new issuance timestamp, which is what re-arms the backup
-           prompt — a client that shows codes without it cannot tell whether
-           the user has acknowledged the set in front of them. */
-        body: { ok: true, issuedAtMs: result.issuedAtMs, storeVersion: result.storeVersion },
+      return await completeWalletCustodyOperation(ctx, authorized.operation, 200, {
+        ok: true,
+        issuedAtMs: result.issuedAtMs,
+        storeVersion: result.storeVersion,
       });
     case 'no_recovery_set':
-      return toFetchRouteResponse({
-        status: 404,
-        body: { ok: false, code: 'no_recovery_set', message: 'this wallet has no codes to rotate' },
-      });
+      return await completeWalletCustodyOperation(
+        ctx,
+        authorized.operation,
+        404,
+        { ok: false, code: 'no_recovery_set', message: 'this wallet has no codes to rotate' },
+        'failed_before_side_effect',
+      );
     case 'conflict':
-      return toFetchRouteResponse({
-        status: 409,
-        body: {
+      return await completeWalletCustodyOperation(
+        ctx,
+        authorized.operation,
+        409,
+        {
           ok: false,
           code: 'recovery_set_conflict',
           message: 'the recovery set changed during this rotation; try again',
         },
-      });
+        'failed_before_side_effect',
+      );
     case 'rejected':
-      return toFetchRouteResponse({
-        status: 400,
-        body: { ok: false, code: 'rotation_rejected', message: result.reason },
-      });
+      return await completeWalletCustodyOperation(
+        ctx,
+        authorized.operation,
+        400,
+        { ok: false, code: 'rotation_rejected', message: result.reason },
+        'failed_before_side_effect',
+      );
   }
 }
 
@@ -1085,7 +1743,7 @@ export async function handleWalletRecoveryRead(
   const route = findRouteDefinitionById(ctx.routeDefinitions, RECOVERY_READ_ROUTE_ID);
   if (!route) throw new Error(`Missing route definition for ${RECOVERY_READ_ROUTE_ID}`);
   if (!matchesRouteDefinitionRequest(route, ctx.method, ctx.pathname)) return null;
-  const body = (await readJson(ctx.request)) as Record<string, unknown> | null;
+  const body = await readJsonObject(ctx.request);
   const walletId = trimmed(body?.walletId);
   if (!walletId) {
     return toFetchRouteResponse({
@@ -1093,39 +1751,36 @@ export async function handleWalletRecoveryRead(
       body: { ok: false, code: 'invalid_request', message: 'a read needs a wallet' },
     });
   }
-  const authenticated = await authenticateWalletRecoveryAuthority(ctx, walletId);
-  if (!authenticated.ok) {
-    return toFetchRouteResponse({
-      status: authenticated.error.status,
-      body: authenticated.error.body,
-    });
-  }
+  const authorized = await authorizeWalletCustodyOperation({
+    ctx,
+    walletId,
+    operation: 'recovery_read',
+    payload: { walletId },
+    factorProof: body?.factorProof,
+  });
+  if (!authorized.ok) return authorized.response;
   const result = await ctx.service.passkeyCustody.readRecoverySet({ walletId });
   if (result.kind === 'no_recovery_set') {
-    return toFetchRouteResponse({
-      status: 404,
-      body: {
-        ok: false,
-        code: 'no_recovery_set',
-        message: 'this wallet has no issued recovery codes',
-      },
-    });
+    return await completeWalletCustodyOperation(
+      ctx,
+      authorized.operation,
+      404,
+      { ok: false, code: 'no_recovery_set', message: 'this wallet has no issued recovery codes' },
+      'failed_before_side_effect',
+    );
   }
-  return toFetchRouteResponse({
-    status: 200,
-    body: {
-      ok: true,
-      recoverySet: result.record,
-      storeVersion: result.storeVersion,
-    },
+  return await completeWalletCustodyOperation(ctx, authorized.operation, 200, {
+    ok: true,
+    recoverySet: result.record,
+    storeVersion: result.storeVersion,
   });
 }
 
 /**
  * Reporting recovery status to the wallet's owner.
  *
- * The wallet comes from the path and the active wallet-bound session proves
- * the caller may inspect it. Counting codes is an owner-only operation.
+ * The wallet comes from the path. Origin binding keeps this count endpoint
+ * scoped to browser callers without exposing recovery identifiers.
  *
  * Counts only, never identifiers. Which codes remain is not something even
  * the owner's browser needs, and a list would be one leak away from being
@@ -1145,11 +1800,13 @@ export async function handleWalletRecoveryStatus(
       body: { ok: false, code: 'invalid_request', message: 'status needs a wallet' },
     });
   }
-  const authenticated = await authenticateWalletRecoveryAuthority(ctx, walletId);
-  if (!authenticated.ok) {
+  const origin = trimmed(ctx.request.headers.get('origin'));
+  try {
+    parseSessionOrigin(origin);
+  } catch {
     return toFetchRouteResponse({
-      status: authenticated.error.status,
-      body: authenticated.error.body,
+      status: 400,
+      body: { ok: false, code: 'invalid_origin', message: 'request Origin is invalid' },
     });
   }
 
@@ -1167,6 +1824,7 @@ export async function handleWalletRecoveryStatus(
       activeCodeCount: result.activeCodeCount,
       totalCodeCount: result.totalCodeCount,
       issuedAtMs: result.issuedAtMs,
+      storeVersion: result.storeVersion,
       backupOutstanding: result.backupOutstanding,
     },
   });

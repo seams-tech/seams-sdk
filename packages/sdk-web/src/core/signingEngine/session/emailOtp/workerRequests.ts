@@ -12,7 +12,7 @@ type EmailOtpWorkerRequester = Pick<WorkerOperationContext, 'requestWorkerOperat
 
 export type EmailOtpWarmSessionTransport = {
   relayerUrl: string;
-  walletSessionJwt?: string;
+  walletSessionToken?: string;
   signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
   groupId?: string;
 };

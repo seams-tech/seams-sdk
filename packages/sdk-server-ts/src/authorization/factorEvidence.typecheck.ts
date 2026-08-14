@@ -16,7 +16,6 @@ type WalletPasskeyFactorInput = Parameters<
 type WalletFactorForbiddenKey =
   | 'sessionId'
   | 'deviceId'
-  | 'appSessionVersion'
   | 'walletSessionId'
   | 'quotaId';
 type WalletFactorsRejectSessionFields =

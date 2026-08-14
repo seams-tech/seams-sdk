@@ -1,25 +1,32 @@
-import type { WalletRegistrationAuthorityInput } from '../../../../core/registrationContracts';
+import type {
+  WalletRegistrationAuthorityInput,
+  WalletRegistrationFinalizeAuthMethod,
+} from '../../../../core/registrationContracts';
 import {
+  parseAuthFactorId,
   parsePrincipalId,
   parseReusableWalletSessionMintId,
   parseSeamsSessionId,
-  parseDeviceId,
   type PrincipalId,
   type ReusableWalletSessionMintId,
   type TenantId,
 } from '@shared/authorization/capabilityKinds';
+import { parseVerifiedOwnerProofId, parseSessionOrigin } from '../../../../authorization/domain';
 import {
-  buildActiveAuthorizationSession,
-  parseSessionOrigin,
-} from '../../../../authorization/domain';
+  buildVerifiedOwnerProof,
+  buildVerifiedWalletSessionEmailOtpFactorResult,
+  buildVerifiedWalletSessionPasskeyFactorResult,
+  type VerifiedOwnerProof,
+} from '../../../../authorization/factorEvidence';
 import type {
   AuthorizationService,
   IssuedReusableWalletSession,
 } from '../../../../authorization/service';
 import {
-  signRouterAbEd25519WalletSessionJwt,
-  signRouterAbEcdsaDerivationWalletSessionJwt,
+  issueRouterAbEd25519OpaqueWalletSessionToken,
+  issueRouterAbEcdsaDerivationOpaqueWalletSessionToken,
 } from '../../../auth/commonRouterUtils';
+import { mintRouterAbEd25519YaoWalletSessionV1 } from '../../../domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 import type { SessionAdapter } from '../../../framework/routerApi';
 import {
   computeRegistrationIntentDigestB64u,
@@ -55,10 +62,10 @@ import {
 import {
   parseThresholdEcdsaSessionId,
   parseThresholdEd25519SessionId,
-  parseAppSessionVersion,
+  parseEmailOtpChallengeId,
   parseProviderSubject,
+  parseWebAuthnCredentialIdB64u,
 } from '@shared/utils/domainIds';
-import { getSessionJwtExpiresAtMs } from '@shared/utils/sessionTokens';
 import type {
   RegistrationEstablishedEcdsaSession,
   RegistrationEstablishedEd25519Session,
@@ -217,8 +224,6 @@ import {
   isPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
   walletAuthAuthoritiesMatch,
-  type EmailOtpWalletAuthAuthority,
-  type PasskeyWalletAuthAuthority,
   type WalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
 import {
@@ -290,14 +295,11 @@ export type D1WalletRegistrationActivateSideEffectRecord =
 
 type WalletRegistrationNearProvisioningFinalizeResponse =
   | WalletRegistrationFinalizeResponse
-  | (Extract<
-      WalletRegistrationFinalizeSuccess,
-      { kind: 'near_ed25519'; authMethod: { kind: 'email_otp' } }
-    > & {
-      appSessionJwt: string;
+  | (Extract<WalletRegistrationFinalizeSuccess, { kind: 'near_ed25519' }> & {
+      registrationEstablishedSession: RegistrationEstablishedSession;
     });
 
-type RegistrationAppSessionContext = {
+type RegistrationOwnerProofContext = {
   readonly expectedOrigin: string;
   readonly runtimePolicyScope: RuntimePolicyScope;
   readonly expiresAtMs: number;
@@ -312,17 +314,12 @@ function isEmailOtpWalletRegistrationFinalizeSuccess(
   return value.ok && value.kind === 'near_ed25519' && value.authMethod.kind === 'email_otp';
 }
 
-function isEmailOtpWalletRegistrationNearProvisioningSuccess(
+function isWalletRegistrationNearProvisioningSuccess(
   value: WalletRegistrationNearProvisioningFinalizeResponse,
-): value is Extract<
-  WalletRegistrationFinalizeSuccess,
-  { kind: 'near_ed25519'; authMethod: { kind: 'email_otp' } }
-> & { appSessionJwt: string } {
-  return (
-    isEmailOtpWalletRegistrationFinalizeSuccess(value) &&
-    'appSessionJwt' in value &&
-    typeof value.appSessionJwt === 'string'
-  );
+): value is Extract<WalletRegistrationFinalizeSuccess, { kind: 'near_ed25519' }> & {
+  registrationEstablishedSession: RegistrationEstablishedSession;
+} {
+  return value.ok && value.kind === 'near_ed25519' && 'registrationEstablishedSession' in value;
 }
 
 function isPasskeyWalletRegistrationFinalizeSuccess(
@@ -380,6 +377,73 @@ function reusableWalletSessionPrincipalId(authority: WalletAuthAuthority): Princ
       ? String(authority.factor.providerUserId)
       : String(authority.walletId),
   );
+}
+
+async function buildRegistrationOwnerProof(input: {
+  readonly registrationCeremonyId: string;
+  readonly authMethod: WalletRegistrationFinalizeAuthMethod;
+  readonly authority: WalletAuthAuthority;
+  readonly tenantId: TenantId;
+  readonly expectedOrigin: string;
+  readonly expiresAtMs: number;
+}): Promise<Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>> {
+  const factorId = parseAuthFactorId(`registration:${input.registrationCeremonyId}`);
+  if (!factorId.ok) throw new Error(factorId.error.message);
+  const authorityRef = await walletAuthAuthorityRef({ authority: input.authority });
+  const principalId = reusableWalletSessionPrincipalId(input.authority);
+  const origin = parseSessionOrigin(input.expectedOrigin);
+  const verifiedAtMs = Date.now();
+  const evidenceDigest = parseDigestB64u(
+    base64UrlEncode(
+      await sha256BytesUtf8(
+        alphabetizeStringify({
+          kind: 'wallet_registration_owner_proof_v1',
+          registrationCeremonyId: input.registrationCeremonyId,
+          authMethod: input.authMethod,
+          authority: authorityRef,
+        }),
+      ),
+    ),
+  );
+  const common = {
+    tenantId: input.tenantId,
+    principalId,
+    walletId: input.authority.walletId,
+    authorityRef,
+    requestOrigin: origin,
+    audience: origin,
+    factorId: factorId.value,
+    verifiedAtMs,
+    expiresAtMs: input.expiresAtMs,
+  } as const;
+  if (input.authMethod.kind === 'passkey') {
+    const credentialId = parseWebAuthnCredentialIdB64u(input.authMethod.credentialIdB64u);
+    if (!credentialId.ok) throw new Error(credentialId.error.message);
+    return await buildVerifiedOwnerProof({
+      purpose: 'wallet_session',
+      proofId: parseVerifiedOwnerProofId(`registration:${input.registrationCeremonyId}`),
+      factor: buildVerifiedWalletSessionPasskeyFactorResult({
+        ...common,
+        credentialIdB64u: credentialId.value,
+        assertionDigest: evidenceDigest,
+      }),
+    });
+  }
+  return await buildVerifiedOwnerProof({
+    purpose: 'wallet_session',
+    proofId: parseVerifiedOwnerProofId(`registration:${input.registrationCeremonyId}`),
+    factor: buildVerifiedWalletSessionEmailOtpFactorResult({
+      ...common,
+      challengeId: requireEmailOtpChallengeId(input.authMethod.registrationAuthorityId),
+      verificationReceiptDigest: evidenceDigest,
+    }),
+  });
+}
+
+function requireEmailOtpChallengeId(value: string) {
+  const parsed = parseEmailOtpChallengeId(value);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
 }
 
 function walletSessionAuthSourceFromAuthority(
@@ -1098,12 +1162,6 @@ export function mergeRouterServerTiming(
 export class CloudflareD1WalletRegistrationService {
   private readonly authorizationService: AuthorizationService;
   private readonly authorizationTenantId: TenantId;
-  private readonly getOrCreateAppSessionVersion: (input: {
-    userId: string;
-  }) => Promise<
-    | { ok: true; appSessionVersion: string }
-    | { ok: false; code: 'invalid_args' | 'internal'; message: string }
-  >;
   private readonly createSponsoredNamedNearAccount: SponsoredNamedNearAccountCreator;
   private readonly emailOtpRegistrationEnrollmentFinalizer: CloudflareD1EmailOtpRegistrationEnrollmentFinalizer;
   private readonly getRegistrationCeremonyIntentStore: RegistrationCeremonyStoreProvider;
@@ -1122,12 +1180,6 @@ export class CloudflareD1WalletRegistrationService {
   constructor(input: {
     readonly authorizationService: AuthorizationService;
     readonly authorizationTenantId: TenantId;
-    readonly getOrCreateAppSessionVersion: (input: {
-      userId: string;
-    }) => Promise<
-      | { ok: true; appSessionVersion: string }
-      | { ok: false; code: 'invalid_args' | 'internal'; message: string }
-    >;
     readonly createSponsoredNamedNearAccount: SponsoredNamedNearAccountCreator;
     readonly emailOtpRegistrationEnrollmentFinalizer: CloudflareD1EmailOtpRegistrationEnrollmentFinalizer;
     readonly getRegistrationCeremonyIntentStore: RegistrationCeremonyStoreProvider;
@@ -1142,7 +1194,6 @@ export class CloudflareD1WalletRegistrationService {
   }) {
     this.authorizationService = input.authorizationService;
     this.authorizationTenantId = input.authorizationTenantId;
-    this.getOrCreateAppSessionVersion = input.getOrCreateAppSessionVersion;
     this.createSponsoredNamedNearAccount = input.createSponsoredNamedNearAccount;
     this.emailOtpRegistrationEnrollmentFinalizer = input.emailOtpRegistrationEnrollmentFinalizer;
     this.getRegistrationCeremonyIntentStore = input.getRegistrationCeremonyIntentStore;
@@ -1224,154 +1275,14 @@ export class CloudflareD1WalletRegistrationService {
     } as const;
   }
 
-  private async issueRegistrationPasskeyAppSession(input: {
-    readonly registrationCeremonyId: string;
-    readonly authority: PasskeyWalletAuthAuthority;
-    readonly expectedOrigin: string;
-    readonly runtimePolicyScope: RuntimePolicyScope;
-    readonly session: SessionAdapter;
-    readonly expiresAtMs: number;
-  }): Promise<string> {
-    const appSessionVersion = await this.getOrCreateAppSessionVersion({
-      userId: String(input.authority.walletId),
-    });
-    if (!appSessionVersion.ok) {
-      throw new Error(appSessionVersion.message);
-    }
-    const parsedAppSessionVersion = parseAppSessionVersion(appSessionVersion.appSessionVersion);
-    if (!parsedAppSessionVersion.ok) {
-      throw new Error(parsedAppSessionVersion.error.message);
-    }
-    const principalId = parsePrincipalId(String(input.authority.walletId));
-    if (!principalId.ok) throw new Error(principalId.error.message);
-    const sessionId = registrationEstablishedSeamsSessionId(input.registrationCeremonyId);
-    const deviceId = parseDeviceId(`dev_registration_${input.registrationCeremonyId}`);
-    if (!deviceId.ok) throw new Error(deviceId.error.message);
-    const origin = parseSessionOrigin(input.expectedOrigin);
-    const authorityRef = await walletAuthAuthorityRef({ authority: input.authority });
-    const jwt = await input.session.signJwt(String(input.authority.walletId), {
-      kind: 'app_session_v1',
-      appSessionVersion: parsedAppSessionVersion.value,
-      tenantId: String(this.authorizationTenantId),
-      seamsSessionId: String(sessionId),
-      deviceId: String(deviceId.value),
-      authSource: {
-        kind: 'passkey',
-        credentialIdB64u: String(input.authority.factor.credentialIdB64u),
-      },
-      sessionAudience: {
-        kind: 'first_party_web',
-        origin,
-      },
-      provider: 'passkey',
-      walletId: String(input.authority.walletId),
-      walletAuthAuthorityRef: authorityRef,
-      runtimePolicyScope: input.runtimePolicyScope,
-    });
-    const jwtExpiresAtMs = getSessionJwtExpiresAtMs(jwt);
-    if (jwtExpiresAtMs === null)
-      throw new Error('Registration passkey app session expiry is invalid');
-    const expiresAtMs = Math.min(input.expiresAtMs, jwtExpiresAtMs);
-    if (expiresAtMs <= Date.now()) throw new Error('Registration passkey app session is expired');
-    const activeSession = buildActiveAuthorizationSession({
-      tenantId: this.authorizationTenantId,
-      principalId: principalId.value,
-      sessionId,
-      authSource: {
-        kind: 'passkey',
-        credentialIdB64u: input.authority.factor.credentialIdB64u,
-      },
-      deviceId: deviceId.value,
-      audience: { kind: 'first_party_web', origin },
-      appSessionVersion: parsedAppSessionVersion.value,
-      assurance: 'session',
-      createdAtMs: Date.now(),
-      lifecycle: { kind: 'active', expiresAtMs },
-    });
-    await this.authorizationService.recordActiveSession(activeSession);
-    return jwt;
-  }
-
-  private async issueRegistrationEmailOtpAppSession(input: {
-    readonly registrationCeremonyId: string;
-    readonly authority: EmailOtpWalletAuthAuthority;
-    readonly expectedOrigin: string;
-    readonly runtimePolicyScope: RuntimePolicyScope;
-    readonly session: SessionAdapter;
-    readonly expiresAtMs: number;
-  }): Promise<string> {
-    const appSessionVersion = await this.getOrCreateAppSessionVersion({
-      userId: String(input.authority.factor.providerUserId),
-    });
-    if (!appSessionVersion.ok) {
-      throw new Error(appSessionVersion.message);
-    }
-    const parsedAppSessionVersion = parseAppSessionVersion(appSessionVersion.appSessionVersion);
-    if (!parsedAppSessionVersion.ok) {
-      throw new Error(parsedAppSessionVersion.error.message);
-    }
-    const principalId = parsePrincipalId(String(input.authority.factor.providerUserId));
-    if (!principalId.ok) throw new Error(principalId.error.message);
-    const providerSubject = parseProviderSubject(String(input.authority.factor.providerUserId));
-    if (!providerSubject.ok) throw new Error(providerSubject.error.message);
-    const sessionId = registrationEstablishedSeamsSessionId(input.registrationCeremonyId);
-    const deviceId = parseDeviceId(`dev_registration_${input.registrationCeremonyId}`);
-    if (!deviceId.ok) throw new Error(deviceId.error.message);
-    const origin = parseSessionOrigin(input.expectedOrigin);
-    const providerId: 'google_oidc' | 'oidc' =
-      input.authority.factor.provider === 'google' ? 'google_oidc' : 'oidc';
-    const authSource = {
-      kind: 'oidc_provider' as const,
-      providerId,
-      providerSubject: providerSubject.value,
-    };
-    const authorityRef = await walletAuthAuthorityRef({ authority: input.authority });
-    const jwt = await input.session.signJwt(String(input.authority.factor.providerUserId), {
-      kind: 'app_session_v1',
-      appSessionVersion: parsedAppSessionVersion.value,
-      tenantId: String(this.authorizationTenantId),
-      seamsSessionId: String(sessionId),
-      deviceId: String(deviceId.value),
-      authSource,
-      sessionAudience: {
-        kind: 'first_party_web',
-        origin,
-      },
-      provider: input.authority.factor.provider,
-      providerSubject: input.authority.factor.providerUserId,
-      walletId: String(input.authority.walletId),
-      walletAuthAuthorityRef: authorityRef,
-      runtimePolicyScope: input.runtimePolicyScope,
-    });
-    const jwtExpiresAtMs = getSessionJwtExpiresAtMs(jwt);
-    if (jwtExpiresAtMs === null)
-      throw new Error('Registration Email OTP app session expiry is invalid');
-    const expiresAtMs = Math.min(input.expiresAtMs, jwtExpiresAtMs);
-    if (expiresAtMs <= Date.now()) throw new Error('Registration Email OTP app session is expired');
-    const activeSession = buildActiveAuthorizationSession({
-      tenantId: this.authorizationTenantId,
-      principalId: principalId.value,
-      sessionId,
-      authSource,
-      deviceId: deviceId.value,
-      audience: { kind: 'first_party_web', origin },
-      appSessionVersion: parsedAppSessionVersion.value,
-      assurance: 'session',
-      createdAtMs: Date.now(),
-      lifecycle: { kind: 'active', expiresAtMs },
-    });
-    await this.authorizationService.recordActiveSession(activeSession);
-    return jwt;
-  }
-
   private async issueRegistrationEstablishedEcdsaSession(input: {
     readonly registrationCeremonyId: string;
     readonly authority: WalletAuthAuthority;
-    readonly session: SessionAdapter;
     readonly expiresAtMs: number;
     readonly remainingUses: number;
     readonly bootstrap: EcdsaDerivationServerBootstrapResponse;
     readonly runtimePolicyScope: RuntimePolicyScope;
+    readonly proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
   }): Promise<RegistrationEstablishedSession> {
     const reusableWalletSession = await this.issueRegistrationEstablishedGrant(input);
     const base = this.registrationEstablishedSessionBase(
@@ -1390,18 +1301,18 @@ export class CloudflareD1WalletRegistrationService {
     if (keyHandle !== bootstrap.keyHandle) {
       throw new Error('Registration ECDSA bootstrap key handle is inconsistent');
     }
-    const signed = await signRouterAbEcdsaDerivationWalletSessionJwt({
-      session: input.session,
+    const signed = await issueRouterAbEcdsaDerivationOpaqueWalletSessionToken({
+      opaqueWalletSessions: this.authorizationService,
+      tenantId: this.authorizationTenantId,
+      proof: input.proof,
       walletAuthAuthorityRef: await walletAuthAuthorityRef({ authority: input.authority }),
       authSource: walletSessionAuthSourceFromAuthority(input.authority),
       userId: bootstrap.walletId,
       relayerKeyId: bootstrap.relayerKeyId,
       fallbackParticipantIds: bootstrap.participantIds,
-      requireJwtErrorMessage:
-        'Registration-established ECDSA Wallet Session requires a JWT session',
       invalidPayloadErrorMessage: 'Registration-established ECDSA Wallet Session is invalid',
       sessionInfo: {
-        sessionKind: 'jwt',
+        sessionKind: 'opaque',
         authorizationKind: 'owner_wallet_session',
         thresholdSessionId: thresholdSessionId.value,
         authorizationId: base.authorizationId,
@@ -1429,13 +1340,17 @@ export class CloudflareD1WalletRegistrationService {
       },
     });
     if (!signed.ok) throw new Error(signed.message);
+    if (signed.authorizationKind !== 'owner_wallet_session') {
+      throw new Error('Registration ECDSA owner Wallet Session issuance failed');
+    }
     return {
       kind: 'registration_established_wallet_session_v1',
       ...base,
       tokens: {
         kind: 'evm_family_ecdsa',
         ecdsa: {
-          walletSessionJwt: signed.jwt,
+          sessionKind: 'opaque',
+          walletSessionToken: signed.token,
           thresholdSessionId: thresholdSessionId.value,
           keyHandle,
           runtimePolicyScope: input.runtimePolicyScope,
@@ -1448,10 +1363,10 @@ export class CloudflareD1WalletRegistrationService {
   private async issueOrReuseRegistrationEstablishedEd25519Session(input: {
     readonly registrationCeremonyId: string;
     readonly authority: WalletAuthAuthority;
-    readonly session: SessionAdapter;
     readonly expiresAtMs: number;
     readonly remainingUses: number;
     readonly publicResult: WalletRegistrationEd25519YaoPublicResult;
+    readonly proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
   }): Promise<RegistrationEstablishedSession> {
     const reusableWalletSession =
       (await this.readRegistrationEstablishedGrant(input)) ??
@@ -1464,17 +1379,17 @@ export class CloudflareD1WalletRegistrationService {
     const publicResult = input.publicResult;
     const thresholdSessionId = parseThresholdEd25519SessionId(publicResult.thresholdSessionId);
     if (!thresholdSessionId.ok) throw new Error(thresholdSessionId.error.message);
-    const signed = await signRouterAbEd25519WalletSessionJwt({
-      session: input.session,
+    const signed = await issueRouterAbEd25519OpaqueWalletSessionToken({
+      opaqueWalletSessions: this.authorizationService,
+      tenantId: this.authorizationTenantId,
+      proof: input.proof,
       userId: input.authority.walletId,
       relayerKeyId: publicResult.relayerKeyId,
       authority: input.authority,
       fallbackParticipantIds: publicResult.participantIds,
-      requireJwtErrorMessage:
-        'Registration-established Ed25519 Wallet Session requires a JWT session',
       invalidPayloadErrorMessage: 'Registration-established Ed25519 Wallet Session is invalid',
       sessionInfo: {
-        sessionKind: 'jwt',
+        sessionKind: 'opaque',
         authorizationKind: 'owner_wallet_session',
         seamsSessionId: base.seamsSessionId,
         walletId: input.authority.walletId,
@@ -1491,6 +1406,9 @@ export class CloudflareD1WalletRegistrationService {
       },
     });
     if (!signed.ok) throw new Error(signed.message);
+    if (signed.authorizationKind !== 'owner_wallet_session') {
+      throw new Error('Registration Ed25519 owner Wallet Session issuance failed');
+    }
     const nearAccount = parseImplicitNearAccountId(publicResult.nearAccountId);
     const namedNearAccount = parseNamedNearAccountId(publicResult.nearAccountId);
     const nearAccountId = nearAccount.ok
@@ -1505,7 +1423,8 @@ export class CloudflareD1WalletRegistrationService {
       tokens: {
         kind: 'near_ed25519',
         ed25519: {
-          walletSessionJwt: signed.jwt,
+          sessionKind: 'opaque',
+          walletSessionToken: signed.token,
           thresholdSessionId: thresholdSessionId.value,
           nearAccountId,
           nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(
@@ -1529,6 +1448,7 @@ export class CloudflareD1WalletRegistrationService {
         readonly signerSlot: number;
         readonly signingWorkerId: string;
         readonly participantIds: readonly [number, number];
+        readonly runtimePolicyScope: RuntimePolicyScope;
       }
     | { readonly ok: false; readonly code: 'not_found' | 'internal'; readonly message: string }
   > {
@@ -1587,6 +1507,7 @@ export class CloudflareD1WalletRegistrationService {
         signerSlot: signer.signerSlot,
         signingWorkerId: signer.signingWorkerId,
         participantIds: signer.participantIds,
+        runtimePolicyScope: active.capability.runtimePolicyScope,
       };
     } catch (error: unknown) {
       return {
@@ -1607,6 +1528,7 @@ export class CloudflareD1WalletRegistrationService {
         readonly keyHandle: string;
         readonly relayerKeyId: string;
         readonly participantIds: readonly [number, number];
+        readonly runtimePolicyScope: RuntimePolicyScope;
       }
     | { readonly ok: false; readonly code: 'not_found' | 'internal'; readonly message: string }
   > {
@@ -1628,6 +1550,7 @@ export class CloudflareD1WalletRegistrationService {
         keyHandle: signer.walletKey.keyHandle,
         relayerKeyId: signer.walletKey.relayerKeyId,
         participantIds: signer.walletKey.participantIds,
+        runtimePolicyScope: signer.runtimePolicyScope,
       };
     } catch (error: unknown) {
       return {
@@ -1828,29 +1751,6 @@ export class CloudflareD1WalletRegistrationService {
             };
           }
           break;
-        case 'verified_passkey_app_session_router_ab_ed25519_yao_budget_refresh_v1': {
-          if (!isPasskeyWalletAuthAuthority(authority)) {
-            return {
-              ok: false,
-              code: 'invalid_body',
-              message: 'Ed25519 Yao passkey app-session refresh requires passkey authority',
-            };
-          }
-          const expectedAuthorityRef = await walletAuthAuthorityRef({ authority });
-          if (
-            authorization.authorityRef.walletId !== expectedAuthorityRef.walletId ||
-            authorization.authorityRef.authorityDigest !== expectedAuthorityRef.authorityDigest ||
-            alphabetizeStringify(authorization.runtimePolicyScope) !==
-              alphabetizeStringify(runtimePolicyScope)
-          ) {
-            return {
-              ok: false,
-              code: 'scope_mismatch',
-              message: 'Ed25519 Yao passkey app-session authorization is out of scope',
-            };
-          }
-          break;
-        }
         case 'verified_email_otp_router_ab_ed25519_yao_budget_refresh_v1':
           if (
             !isEmailOtpWalletAuthAuthority(authority) ||
@@ -1954,11 +1854,7 @@ export class CloudflareD1WalletRegistrationService {
       const issuedAtMs = Date.now();
       const expiresAtMs = issuedAtMs + DEFAULT_WALLET_SESSION_TTL_MS;
       const remainingUses = Math.min(DEFAULT_WALLET_SESSION_REMAINING_USES, policy.remainingUses);
-      const mintId =
-        authorization.kind ===
-        'verified_passkey_app_session_router_ab_ed25519_yao_budget_refresh_v1'
-          ? await walletSessionPolicyMintId(policy)
-          : requireReusableWalletSessionMintId(authorization.verifiedChallengeId);
+      const mintId = requireReusableWalletSessionMintId(authorization.verifiedChallengeId);
       const reusableWalletSession = await this.authorizationService.issueReusableWalletSession({
         tenantId: this.authorizationTenantId,
         principalId: reusableWalletSessionPrincipalId(authority),
@@ -1969,23 +1865,25 @@ export class CloudflareD1WalletRegistrationService {
         issuedAtMs,
         expiresAtMs,
       });
-      const minted = await yaoRuntime.mintWalletSession({
-        kind: 'same_identity_budget_refresh_v1',
-        walletId: authority.walletId,
-        nearAccountId: policy.nearAccountId,
-        nearEd25519SigningKeyId: policy.nearEd25519SigningKeyId,
-        authority,
-        thresholdSessionId: policy.thresholdSessionId,
-        authorizationId: reusableWalletSession.session.authorizationId,
-        walletSessionId: reusableWalletSession.quota.walletSessionId,
-        quotaId: reusableWalletSession.quota.quotaId,
-        remainingUses,
-        participantIds: exactParticipantIds,
-        runtimePolicyScope,
-        ...(authorization.kind ===
-        'verified_passkey_app_session_router_ab_ed25519_yao_budget_refresh_v1'
-          ? { seamsSessionId: authorization.seamsSessionId }
-          : {}),
+      const minted = await mintRouterAbEd25519YaoWalletSessionV1({
+        opaqueWalletSessions: this.authorizationService,
+        tenantId: this.authorizationTenantId,
+        signingWorkerId: yaoRuntime.signingWorkerId,
+        sessionInput: {
+          kind: 'same_identity_budget_refresh_v1',
+          walletId: authority.walletId,
+          nearAccountId: policy.nearAccountId,
+          nearEd25519SigningKeyId: policy.nearEd25519SigningKeyId,
+          authority,
+          thresholdSessionId: policy.thresholdSessionId,
+          authorizationId: reusableWalletSession.session.authorizationId,
+          walletSessionId: reusableWalletSession.quota.walletSessionId,
+          quotaId: reusableWalletSession.quota.quotaId,
+          remainingUses,
+          participantIds: exactParticipantIds,
+          runtimePolicyScope,
+          proof: authorization.proof,
+        },
       });
       if (!minted.ok) return minted;
       const session = minted.session;
@@ -1996,6 +1894,7 @@ export class CloudflareD1WalletRegistrationService {
         nearEd25519SigningKeyId: session.nearEd25519SigningKeyId,
         authorityScope: session.authorityScope,
         thresholdSessionId: session.thresholdSessionId,
+        authorizationId: reusableWalletSession.session.authorizationId,
         walletSessionId: session.walletSessionId,
         quotaId: session.quotaId,
         expiresAtMs: session.expiresAtMs,
@@ -2004,7 +1903,7 @@ export class CloudflareD1WalletRegistrationService {
         remainingUses: session.remainingUses,
         runtimePolicyScope,
         routerAbNormalSigning,
-        jwt: session.walletSessionJwt,
+        walletSessionToken: session.walletSessionToken,
       };
     } catch (error: unknown) {
       return {
@@ -2023,7 +1922,6 @@ export class CloudflareD1WalletRegistrationService {
       const orgId = toOptionalTrimmedString(request.orgId);
       const providerUserId = toOptionalTrimmedString(request.verifiedProviderUserId);
       const verifiedChallengeId = toOptionalTrimmedString(request.verifiedChallengeId);
-      const seamsSessionId = parseSeamsSessionId(request.seamsSessionId);
       const signerSlot = Math.floor(Number(request.signerSlot));
       const remainingUses = Math.floor(Number(request.remainingUses));
       if (
@@ -2031,7 +1929,6 @@ export class CloudflareD1WalletRegistrationService {
         !orgId ||
         !providerUserId ||
         !verifiedChallengeId ||
-        !seamsSessionId.ok ||
         !Number.isSafeInteger(signerSlot) ||
         signerSlot < 1 ||
         !Number.isSafeInteger(remainingUses) ||
@@ -2146,21 +2043,26 @@ export class CloudflareD1WalletRegistrationService {
         issuedAtMs,
         expiresAtMs,
       });
-      const minted = await yaoRuntime.mintWalletSession({
-        kind: 'verified_app_session_wallet_unlock_v1',
-        walletId: walletIdFromString(walletId),
-        nearAccountId: signer.nearAccountId,
-        nearEd25519SigningKeyId: signer.nearEd25519SigningKeyId,
-        authority,
-        thresholdSessionId: descriptor.lifecycle.thresholdSessionId,
-        authorizationId: reusableWalletSession.session.authorizationId,
-        walletSessionId: reusableWalletSession.quota.walletSessionId,
-        quotaId: reusableWalletSession.quota.quotaId,
-        participantIds,
-        runtimePolicyScope: signer.runtimePolicyScope,
-        expiresAtMs,
-        remainingUses: reusableRemainingUses,
-        seamsSessionId: seamsSessionId.value,
+      const minted = await mintRouterAbEd25519YaoWalletSessionV1({
+        opaqueWalletSessions: this.authorizationService,
+        tenantId: this.authorizationTenantId,
+        signingWorkerId: yaoRuntime.signingWorkerId,
+        sessionInput: {
+          kind: 'verified_wallet_unlock_v1',
+          walletId: walletIdFromString(walletId),
+          nearAccountId: signer.nearAccountId,
+          nearEd25519SigningKeyId: signer.nearEd25519SigningKeyId,
+          authority,
+          thresholdSessionId: descriptor.lifecycle.thresholdSessionId,
+          authorizationId: reusableWalletSession.session.authorizationId,
+          walletSessionId: reusableWalletSession.quota.walletSessionId,
+          quotaId: reusableWalletSession.quota.quotaId,
+          participantIds,
+          runtimePolicyScope: signer.runtimePolicyScope,
+          expiresAtMs,
+          remainingUses: reusableRemainingUses,
+          proof: request.proof,
+        },
       });
       if (!minted.ok) return minted;
       const session = minted.session;
@@ -2641,9 +2543,9 @@ export class CloudflareD1WalletRegistrationService {
    * without going through the standalone finalize wrapper. The operation row
    * owns idempotency here, so the commit keeps no replay cache of its own.
    */
-  private async readRegistrationAppSessionContext(
+  private async readRegistrationOwnerProofContext(
     registrationCeremonyId: string,
-  ): Promise<RegistrationAppSessionContext | null> {
+  ): Promise<RegistrationOwnerProofContext | null> {
     const ceremony =
       await this.getRegistrationCeremonyIntentStore().getCeremony(registrationCeremonyId);
     if (!ceremony) return null;
@@ -2661,17 +2563,32 @@ export class CloudflareD1WalletRegistrationService {
     };
   }
 
+  private async registrationOwnerProof(input: {
+    readonly registrationCeremonyId: string;
+    readonly authMethod: WalletRegistrationFinalizeAuthMethod;
+    readonly authority: WalletAuthAuthority;
+  }): Promise<Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>> {
+    const context = await this.readRegistrationOwnerProofContext(input.registrationCeremonyId);
+    if (!context) throw new Error('Registration owner proof context is unavailable');
+    return await buildRegistrationOwnerProof({
+      ...input,
+      tenantId: this.authorizationTenantId,
+      expectedOrigin: context.expectedOrigin,
+      expiresAtMs: Math.min(context.expiresAtMs, Date.now() + DEFAULT_WALLET_SESSION_TTL_MS),
+    });
+  }
+
   private async commitDeferredEd25519Signer(args: {
     readonly input: WalletRegistrationNearProvisioningInput;
   }): Promise<WalletRegistrationNearProvisioningFinalizeResponse> {
     /* The ceremony is still present for a fresh side-effect execution. Keep
        this read inside the operation callback so an exact replay can return
        its stored response after finalize has tombstoned the ceremony. */
-    const appSessionContext = await this.readRegistrationAppSessionContext(
+    const ownerProofContext = await this.readRegistrationOwnerProofContext(
       args.input.registrationCeremonyId,
     );
-    if (!appSessionContext) {
-      throw new Error('Registration app session context is unavailable');
+    if (!ownerProofContext) {
+      throw new Error('Registration owner proof context is unavailable');
     }
     const committed = await this.executeWalletRegistrationFinalize({
       kind: 'near_ed25519',
@@ -2684,19 +2601,25 @@ export class CloudflareD1WalletRegistrationService {
     const finalized = committed.ok
       ? committed
       : throwIfRouterAbEd25519YaoRetryableSideEffectFailureV1(committed);
-    if (!isEmailOtpWalletRegistrationFinalizeSuccess(finalized)) return finalized;
-    if (!isEmailOtpWalletAuthAuthority(finalized.authority)) {
-      throw new Error('Email OTP registration returned a different authority');
-    }
-    const appSessionJwt = await this.issueRegistrationEmailOtpAppSession({
+    if (!finalized.ok || finalized.kind !== 'near_ed25519') return finalized;
+    const proof = await buildRegistrationOwnerProof({
       registrationCeremonyId: args.input.registrationCeremonyId,
+      authMethod: finalized.authMethod,
       authority: finalized.authority,
-      expectedOrigin: appSessionContext.expectedOrigin,
-      runtimePolicyScope: appSessionContext.runtimePolicyScope,
-      session: args.input.session,
-      expiresAtMs: appSessionContext.expiresAtMs,
+      tenantId: this.authorizationTenantId,
+      expectedOrigin: ownerProofContext.expectedOrigin,
+      expiresAtMs: ownerProofContext.expiresAtMs,
     });
-    return { ...finalized, appSessionJwt };
+    const registrationEstablishedSession =
+      await this.issueOrReuseRegistrationEstablishedEd25519Session({
+        registrationCeremonyId: args.input.registrationCeremonyId,
+        authority: finalized.authority,
+        expiresAtMs: Date.now() + DEFAULT_WALLET_SESSION_TTL_MS,
+        remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
+        publicResult: finalized.ed25519,
+        proof,
+      });
+    return { ...finalized, registrationEstablishedSession };
   }
 
   /**
@@ -2796,42 +2719,17 @@ export class CloudflareD1WalletRegistrationService {
           message: 'NEAR provisioning committed a different signer branch',
         };
       }
-      const registrationEstablishedSession =
-        await this.issueOrReuseRegistrationEstablishedEd25519Session({
-          registrationCeremonyId: input.registrationCeremonyId,
-          authority: committed.authority,
-          session: input.session,
-          expiresAtMs: Date.now() + DEFAULT_WALLET_SESSION_TTL_MS,
-          remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
-          publicResult: committed.ed25519,
-        });
-      if (committed.authMethod.kind === 'email_otp') {
-        if (!isEmailOtpWalletRegistrationNearProvisioningSuccess(committed)) {
-          return {
-            ok: false,
-            code: 'internal',
-            message: 'Email OTP registration is missing its app session',
-            nearProvisioning: { status: 'near_failed_retryable' },
-          };
-        }
-        return {
-          ...committed,
-          nearProvisioning: { status: 'near_ready' },
-          registrationEstablishedSession,
-        };
-      }
-      if (!isPasskeyWalletRegistrationFinalizeSuccess(committed)) {
+      if (!isWalletRegistrationNearProvisioningSuccess(committed)) {
         return {
           ok: false,
           code: 'internal',
-          message: 'NEAR provisioning committed an unsupported authority',
+          message: 'NEAR provisioning did not establish a Wallet Session',
           nearProvisioning: { status: 'near_failed_retryable' },
         };
       }
       return {
         ...committed,
         nearProvisioning: { status: 'near_ready' },
-        registrationEstablishedSession,
       };
     } catch (error: unknown) {
       return {
@@ -2855,7 +2753,6 @@ export class CloudflareD1WalletRegistrationService {
   private async commitEd25519PendingWallet(input: {
     readonly ceremony: StoredWalletRegistrationCeremony;
     readonly authority: StoredRegistrationAuthority;
-    readonly session: SessionAdapter;
     readonly enrollment: Pick<FinalizeWalletRegistrationInput, 'emailOtpEnrollment'>;
   }): Promise<WalletRegistrationActivateResponseV2> {
     const now = Date.now();
@@ -2917,17 +2814,6 @@ export class CloudflareD1WalletRegistrationService {
       authMethod,
       nearProvisioning: { status: 'near_pending' as const },
     };
-    const expectedOrigin = toOptionalTrimmedString(ceremony.expectedOrigin);
-    const runtimePolicyScope = registrationPreparedContextRuntimePolicyScope(
-      ceremony.preparedContext,
-    );
-    if (!expectedOrigin || !runtimePolicyScope) {
-      return {
-        ok: false,
-        code: 'invalid_state',
-        message: 'Registration is missing its session origin or runtime policy scope',
-      };
-    }
     if (authMethod.kind === 'passkey') {
       if (!isPasskeyWalletAuthAuthority(walletAuthAuthority)) {
         return {
@@ -2936,30 +2822,9 @@ export class CloudflareD1WalletRegistrationService {
           message: 'Passkey registration returned a different authority',
         };
       }
-      let appSessionJwt: string;
-      try {
-        /* The setup ceremony binds the origin before this activation request, so
-           this parse is the only accepted source for the first-party audience. */
-        const sessionOrigin = parseSessionOrigin(expectedOrigin);
-        appSessionJwt = await this.issueRegistrationPasskeyAppSession({
-          registrationCeremonyId: ceremony.registrationCeremonyId,
-          authority: walletAuthAuthority,
-          expectedOrigin: sessionOrigin,
-          runtimePolicyScope,
-          session: input.session,
-          expiresAtMs: ceremony.expiresAtMs,
-        });
-      } catch (error: unknown) {
-        return {
-          ok: false,
-          code: 'internal',
-          message: errorMessage(error) || 'Failed to issue the passkey app session',
-        };
-      }
       return {
         ...base,
         rpId: finalizePasskeyRpId(authority),
-        appSessionJwt,
       } as WalletRegistrationActivateResponseV2;
     }
     if (!isEmailOtpWalletAuthAuthority(walletAuthAuthority)) {
@@ -2969,23 +2834,7 @@ export class CloudflareD1WalletRegistrationService {
         message: 'Email OTP registration returned a different authority',
       };
     }
-    try {
-      const appSessionJwt = await this.issueRegistrationEmailOtpAppSession({
-        registrationCeremonyId: ceremony.registrationCeremonyId,
-        authority: walletAuthAuthority,
-        expectedOrigin,
-        runtimePolicyScope,
-        session: input.session,
-        expiresAtMs: ceremony.expiresAtMs,
-      });
-      return { ...base, appSessionJwt } as WalletRegistrationActivateResponseV2;
-    } catch (error: unknown) {
-      return {
-        ok: false,
-        code: 'internal',
-        message: errorMessage(error) || 'Failed to issue the Email OTP app session',
-      };
-    }
+    return base as WalletRegistrationActivateResponseV2;
   }
 
   /**
@@ -3333,7 +3182,6 @@ export class CloudflareD1WalletRegistrationService {
       return await this.commitEd25519PendingWallet({
         ceremony,
         authority: ceremonyAuthority,
-        session: context.input.session,
         enrollment: {
           ...(context.input.emailOtpEnrollment
             ? { emailOtpEnrollment: context.input.emailOtpEnrollment as never }
@@ -3412,72 +3260,16 @@ export class CloudflareD1WalletRegistrationService {
     const registrationEstablishedSession = await this.issueRegistrationEstablishedEcdsaSession({
       registrationCeremonyId: context.registrationCeremonyId,
       authority: commit.authority,
-      session: context.input.session,
       expiresAtMs: activated.ecdsa.bootstrap.expiresAtMs,
       remainingUses: activated.ecdsa.bootstrap.remainingUses,
       bootstrap: activated.ecdsa.bootstrap,
       runtimePolicyScope,
+      proof: await this.registrationOwnerProof({
+        registrationCeremonyId: context.registrationCeremonyId,
+        authMethod: commit.authMethod,
+        authority: commit.authority,
+      }),
     });
-    let appSessionJwt: string | undefined;
-    if (commit.authMethod.kind === 'passkey') {
-      if (!isPasskeyWalletAuthAuthority(commit.authority)) {
-        return {
-          ok: false,
-          code: 'internal',
-          message: 'Passkey registration returned a different authority',
-        };
-      }
-      const expectedOrigin = toOptionalTrimmedString(ceremony.expectedOrigin);
-      if (!expectedOrigin) {
-        return {
-          ok: false,
-          code: 'invalid_state',
-          message: 'Passkey registration is missing its session origin',
-        };
-      }
-      let sessionOrigin: string;
-      try {
-        sessionOrigin = parseSessionOrigin(expectedOrigin);
-      } catch (error: unknown) {
-        return {
-          ok: false,
-          code: 'invalid_state',
-          message: errorMessage(error) || 'Passkey registration session origin is invalid',
-        };
-      }
-      appSessionJwt = await this.issueRegistrationPasskeyAppSession({
-        registrationCeremonyId: context.registrationCeremonyId,
-        authority: commit.authority,
-        expectedOrigin: sessionOrigin,
-        runtimePolicyScope,
-        session: context.input.session,
-        expiresAtMs: registrationEstablishedSession.expiresAtMs,
-      });
-    } else {
-      if (!isEmailOtpWalletAuthAuthority(commit.authority)) {
-        return {
-          ok: false,
-          code: 'internal',
-          message: 'Email OTP registration returned a different authority',
-        };
-      }
-      const expectedOrigin = toOptionalTrimmedString(ceremony.expectedOrigin);
-      if (!expectedOrigin) {
-        return {
-          ok: false,
-          code: 'invalid_state',
-          message: 'Email OTP registration is missing its session origin',
-        };
-      }
-      appSessionJwt = await this.issueRegistrationEmailOtpAppSession({
-        registrationCeremonyId: context.registrationCeremonyId,
-        authority: commit.authority,
-        expectedOrigin,
-        runtimePolicyScope,
-        session: context.input.session,
-        expiresAtMs: registrationEstablishedSession.expiresAtMs,
-      });
-    }
     return {
       ok: true,
       kind: 'evm_family_ecdsa',
@@ -3494,7 +3286,6 @@ export class CloudflareD1WalletRegistrationService {
         bootstrap: activated.ecdsa.bootstrap,
       },
       registrationEstablishedSession,
-      ...(appSessionJwt ? { appSessionJwt } : {}),
     } as WalletRegistrationActivateResponseV2;
   }
 

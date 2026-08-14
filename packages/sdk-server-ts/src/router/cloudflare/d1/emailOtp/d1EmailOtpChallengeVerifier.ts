@@ -30,8 +30,7 @@ export type EmailOtpExistingChallengeVerifyBaseInput = {
   readonly challengeId?: unknown;
   readonly otpCode?: unknown;
   readonly otpChannel?: unknown;
-  readonly sessionHash?: unknown;
-  readonly appSessionVersion?: unknown;
+  readonly ownerProofBindingDigest?: unknown;
   readonly clientIp?: unknown;
 };
 
@@ -53,8 +52,7 @@ export type EmailOtpExistingChallengeVerifyResult =
       readonly walletId: string;
       readonly orgId: string;
       readonly otpChannel: typeof EMAIL_OTP_CHANNEL;
-      readonly sessionHash: string;
-      readonly appSessionVersion: string;
+      readonly ownerProofBindingDigest: string;
       readonly enrollment: EmailOtpWalletEnrollmentRecord;
     }
   | {
@@ -74,8 +72,7 @@ export type EmailOtpRegistrationChallengeVerifyInput = {
   readonly challengeId?: unknown;
   readonly otpCode?: unknown;
   readonly otpChannel?: unknown;
-  readonly sessionHash?: unknown;
-  readonly appSessionVersion?: unknown;
+  readonly ownerProofBindingDigest?: unknown;
   readonly proofEmail?: unknown;
   readonly clientIp?: unknown;
 };
@@ -137,8 +134,7 @@ async function emailOtpRegistrationVerificationFingerprint(input: {
   readonly orgId: string;
   readonly challengeId: string;
   readonly otpCode: string;
-  readonly sessionHash: string;
-  readonly appSessionVersion: string;
+  readonly ownerProofBindingDigest: string;
   readonly proofEmail: string;
 }): Promise<string> {
   return base64UrlEncode(
@@ -154,8 +150,7 @@ async function emailOtpRegistrationVerificationFingerprint(input: {
         challengeId: input.challengeId,
         otpCode: input.otpCode,
         otpChannel: EMAIL_OTP_CHANNEL,
-        sessionHash: input.sessionHash,
-        appSessionVersion: input.appSessionVersion,
+        ownerProofBindingDigest: input.ownerProofBindingDigest,
         proofEmail: input.proofEmail,
       }),
     ),
@@ -206,8 +201,7 @@ export class CloudflareD1EmailOtpChallengeVerifier {
       const challengeId = toOptionalTrimmedString(input.challengeId);
       const otpCode = toOptionalTrimmedString(input.otpCode);
       const otpChannel = toOptionalTrimmedString(input.otpChannel);
-      const sessionHash = toOptionalTrimmedString(input.sessionHash);
-      const appSessionVersion = toOptionalTrimmedString(input.appSessionVersion);
+      const ownerProofBindingDigest = toOptionalTrimmedString(input.ownerProofBindingDigest);
       const clientIp = toOptionalTrimmedString(input.clientIp);
       const action = input.action;
       const operation = input.operation;
@@ -221,9 +215,8 @@ export class CloudflareD1EmailOtpChallengeVerifier {
       if (otpChannel !== EMAIL_OTP_CHANNEL) {
         return { ok: false, code: 'invalid_body', message: 'otpChannel must be email_otp' };
       }
-      if (!sessionHash) return { ok: false, code: 'invalid_body', message: 'Missing sessionHash' };
-      if (!appSessionVersion) {
-        return { ok: false, code: 'invalid_body', message: 'Missing appSessionVersion' };
+      if (!ownerProofBindingDigest) {
+        return { ok: false, code: 'invalid_body', message: 'Missing ownerProofBindingDigest' };
       }
 
       const rateLimit = await this.emailOtpRateLimits.consume({
@@ -269,8 +262,7 @@ export class CloudflareD1EmailOtpChallengeVerifier {
         userId,
         walletId,
         orgId,
-        sessionHash,
-        appSessionVersion,
+        ownerProofBindingDigest,
         action,
         operation,
       });
@@ -278,7 +270,7 @@ export class CloudflareD1EmailOtpChallengeVerifier {
         return {
           ok: false,
           code: bindingMismatch,
-          message: 'Email OTP challenge is not valid for the current app session',
+          message: 'Email OTP challenge is not valid for the current owner proof binding',
         };
       }
 
@@ -304,8 +296,7 @@ export class CloudflareD1EmailOtpChallengeVerifier {
         walletId,
         orgId,
         otpChannel: EMAIL_OTP_CHANNEL,
-        sessionHash,
-        appSessionVersion,
+        ownerProofBindingDigest,
         enrollment: enrollment.enrollment,
       };
     } catch (error: unknown) {
@@ -356,13 +347,9 @@ export class CloudflareD1EmailOtpChallengeVerifier {
       const challengeId = toOptionalTrimmedString(input.challengeId);
       const otpCode = toOptionalTrimmedString(input.otpCode);
       const otpChannel = toOptionalTrimmedString(input.otpChannel);
-      const sessionHash = toOptionalTrimmedString(input.sessionHash);
-      const appSessionVersion = toOptionalTrimmedString(input.appSessionVersion);
+      const ownerProofBindingDigest = toOptionalTrimmedString(input.ownerProofBindingDigest);
       const proofEmail = toOptionalTrimmedString(input.proofEmail)?.toLowerCase() || '';
       const clientIp = toOptionalTrimmedString(input.clientIp);
-      if (!providerSubject) {
-        return { ok: false, code: 'invalid_body', message: 'Missing providerSubject' };
-      }
       if (!walletId) return { ok: false, code: 'invalid_body', message: 'Missing walletId' };
       if (!orgId) return { ok: false, code: 'invalid_body', message: 'Missing orgId' };
       if (!challengeId) {
@@ -372,9 +359,8 @@ export class CloudflareD1EmailOtpChallengeVerifier {
       if (otpChannel !== EMAIL_OTP_CHANNEL) {
         return { ok: false, code: 'invalid_body', message: 'otpChannel must be email_otp' };
       }
-      if (!sessionHash) return { ok: false, code: 'invalid_body', message: 'Missing sessionHash' };
-      if (!appSessionVersion) {
-        return { ok: false, code: 'invalid_body', message: 'Missing appSessionVersion' };
+      if (!ownerProofBindingDigest) {
+        return { ok: false, code: 'invalid_body', message: 'Missing ownerProofBindingDigest' };
       }
       if (!proofEmail) {
         return {
@@ -388,13 +374,12 @@ export class CloudflareD1EmailOtpChallengeVerifier {
         consumption.kind === 'resumable_registration_start'
           ? await emailOtpRegistrationVerificationFingerprint({
               operationId: consumption.operationId,
-              providerSubject,
+              providerSubject: providerSubject || walletId || '',
               walletId,
               orgId,
               challengeId,
               otpCode,
-              sessionHash,
-              appSessionVersion,
+              ownerProofBindingDigest,
               proofEmail,
             })
           : null;
@@ -430,7 +415,7 @@ export class CloudflareD1EmailOtpChallengeVerifier {
       const rateLimit = await this.emailOtpRateLimits.consume({
         scope: 'verify',
         action: WALLET_EMAIL_OTP_ACTIONS.registration,
-        userId: providerSubject,
+        userId: providerSubject || walletId,
         walletId,
         orgId,
         clientIp,
@@ -466,21 +451,21 @@ export class CloudflareD1EmailOtpChallengeVerifier {
         await this.emailOtpChallenges.delete(record.challengeId);
         return emailOtpChallengeInvalidOrExpired();
       }
+      const resolvedProviderSubject = providerSubject || record.challengeSubjectId;
 
       const bindingMismatch = emailOtpRegistrationChallengeBindingMismatchCode({
         record,
-        providerSubject,
+        providerSubject: resolvedProviderSubject,
         walletId,
         orgId,
-        sessionHash,
-        appSessionVersion,
+        ownerProofBindingDigest,
         proofEmail,
       });
       if (bindingMismatch) {
         return {
           ok: false,
           code: bindingMismatch,
-          message: 'Email OTP challenge is not valid for the current app session',
+          message: 'Email OTP challenge is not valid for the current owner proof binding',
         };
       }
 
@@ -540,7 +525,7 @@ export class CloudflareD1EmailOtpChallengeVerifier {
       return {
         ok: true,
         challengeId: consumed.challengeId,
-        challengeSubjectId: providerSubject,
+            challengeSubjectId: resolvedProviderSubject,
         walletId,
         orgId,
         email: consumed.email,

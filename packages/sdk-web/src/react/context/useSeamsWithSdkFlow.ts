@@ -274,6 +274,9 @@ export function useSeamsWithSdkFlow(args: {
             acknowledgeWalletRecoveryCodeBackup: (
               ...args: Parameters<RecoveryCapability['acknowledgeWalletRecoveryCodeBackup']>
             ) => recovery.acknowledgeWalletRecoveryCodeBackup(...args),
+            requestWalletCustodyEmailOtpChallenge: (
+              ...args: Parameters<RecoveryCapability['requestWalletCustodyEmailOtpChallenge']>
+            ) => recovery.requestWalletCustodyEmailOtpChallenge(...args),
             rotateWalletRecoveryCodes: (
               ...args: Parameters<RecoveryCapability['rotateWalletRecoveryCodes']>
             ) => recovery.rotateWalletRecoveryCodes(...args),

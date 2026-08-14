@@ -9,7 +9,6 @@ import type {
   RouterAbEcdsaVerifiedClientActivationFactsV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { WalletRegistrationAuthorityInput } from '../../../core/registrationContracts';
-import type { SessionAdapter } from '../../framework/routerApi';
 import type { ThresholdRuntimePolicyScope } from '../../../core/types';
 import type {
   WalletRegistrationSetupMinter,
@@ -75,8 +74,6 @@ export type WalletRegistrationActivateInput = {
   /** The custody ceremony's sealed output; the admission gate owns validation. */
   readonly walletCustodyCommit?: unknown;
   readonly verifier: WalletRegistrationSetupVerifier;
-  /** Signs the registration-established Router Wallet Session JWTs. */
-  readonly session: SessionAdapter;
 };
 
 export type WalletRegistrationNearProvisioningInput = {
@@ -93,6 +90,4 @@ export type WalletRegistrationNearProvisioningInput = {
    */
   readonly walletCustodyCommit?: unknown;
   readonly verifier: WalletRegistrationSetupVerifier;
-  /** Signs the registration-established Router Wallet Session JWTs. */
-  readonly session: SessionAdapter;
 };

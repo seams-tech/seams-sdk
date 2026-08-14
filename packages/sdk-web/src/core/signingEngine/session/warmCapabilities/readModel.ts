@@ -24,7 +24,7 @@ import {
 import type { ThresholdEcdsaEmailOtpAuthContext } from '../identity/laneIdentity';
 import type { ExactEd25519SealedSessionRuntime } from './ed25519SealedSessionRuntime';
 import {
-  walletSessionJwtForCurve,
+  walletSessionTokenForCurve,
   type ActiveWalletSessionAuthorizationProjection,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 
@@ -312,7 +312,7 @@ export function toSigningSessionStatus(args: {
 }
 
 /** Transport identity comes from the sealed runtime; the bearer proof comes from
- * the reusable Wallet Session. An Email-OTP-bound runtime has no standing
+ * the active Wallet Session. An Email-OTP-bound runtime has no standing
  * authorization of its own, so without a live Wallet Session there is nothing to
  * seal against and the transport is withheld rather than emitted unauthorized. */
 export function resolveEcdsaSealTransport(args: {
@@ -321,10 +321,10 @@ export function resolveEcdsaSealTransport(args: {
   signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
   groupId?: string;
 }): EcdsaSealTransportAuthMaterial | null {
-  const walletSessionJwt = args.auth
-    ? walletSessionJwtForCurve(args.auth.projection, 'ecdsa')
+  const walletSessionToken = args.auth
+    ? walletSessionTokenForCurve(args.auth.projection, 'ecdsa')
     : null;
-  if (!walletSessionJwt) return null;
+  if (!walletSessionToken) return null;
   const relayerUrl = String(args.runtime.relayerUrl || '').trim();
   if (!relayerUrl) return null;
   const groupId = String(args.groupId || '').trim();
@@ -333,7 +333,7 @@ export function resolveEcdsaSealTransport(args: {
     walletId: String(args.runtime.walletId),
     chainTarget: args.runtime.chainTarget,
     relayerUrl,
-    walletSessionJwt,
+    walletSessionToken,
     ...(args.signingSessionSealKeyVersion
       ? { signingSessionSealKeyVersion: args.signingSessionSealKeyVersion }
       : {}),

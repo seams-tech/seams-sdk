@@ -649,6 +649,11 @@ pub enum CloudflareRouterWalletSessionCredentialV1 {
         /// Parsed bearer authorization.
         authorization: CloudflareRouterBearerAuthorizationV1,
     },
+    /// Owner admission resolved by the trusted Gateway before proxying.
+    GatewayOwner {
+        /// Gateway-validated Wallet Session projection.
+        wallet_session: CloudflareRouterVerifiedWalletSessionV1,
+    },
 }
 
 impl CloudflareRouterWalletSessionCredentialV1 {
@@ -657,6 +662,15 @@ impl CloudflareRouterWalletSessionCredentialV1 {
         authorization: CloudflareRouterBearerAuthorizationV1,
     ) -> RouterAbProtocolResult<Self> {
         let credential = Self::Bearer { authorization };
+        credential.validate()?;
+        Ok(credential)
+    }
+
+    /// Creates a Wallet Session credential from a trusted Gateway projection.
+    pub fn gateway_owner(
+        wallet_session: CloudflareRouterVerifiedWalletSessionV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let credential = Self::GatewayOwner { wallet_session };
         credential.validate()?;
         Ok(credential)
     }
@@ -670,6 +684,7 @@ impl CloudflareRouterWalletSessionCredentialV1 {
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         match self {
             Self::Bearer { authorization } => authorization.validate(),
+            Self::GatewayOwner { wallet_session } => wallet_session.validate(),
         }
     }
 }
@@ -1371,7 +1386,20 @@ impl CloudflareRouterWalletSessionVerifierV1 for CloudflareRouterEd25519JwksJwtV
         verifier.validate()?;
         credential.validate()?;
         require_positive_ms("wallet session now_unix_ms", now_unix_ms)?;
-        let CloudflareRouterWalletSessionCredentialV1::Bearer { authorization } = credential;
+        let CloudflareRouterWalletSessionCredentialV1::Bearer { authorization } = credential else {
+            let CloudflareRouterWalletSessionCredentialV1::GatewayOwner { wallet_session } =
+                credential
+            else {
+                unreachable!("wallet session credential enum is exhaustive");
+            };
+            if wallet_session.trusted_source_digest != trusted_source_digest {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidGateDecision,
+                    "Gateway owner Wallet Session source binding does not match request",
+                ));
+            }
+            return wallet_session.validate_at(now_unix_ms).map(|()| wallet_session.clone());
+        };
         authorization.validate()?;
         let jwt = CloudflareRouterCompactJwtV1::parse(&authorization.token)?;
         if jwt.header.alg != "EdDSA" {

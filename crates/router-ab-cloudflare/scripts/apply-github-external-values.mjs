@@ -224,7 +224,6 @@ function validateExternalValues(values, component) {
     requirePositiveUnsignedInteger(initialBalanceYocto, 'RELAYER_INITIAL_BALANCE_YOCTO');
   }
   parseOptionalJsonObject(values, 'SPONSORED_EVM_EXECUTORS_JSON');
-  parseOptionalJsonObject(values, 'SEAMS_OIDC_EXCHANGE_JSON');
   const stripeSecretKey = readValue(values, 'STRIPE_API_SK');
   if (stripeSecretKey) {
     requireStripeSecretKey(stripeSecretKey);
@@ -441,7 +440,6 @@ function validateCheckedInGatewayConfiguration(config, values) {
     config.runtimeProfile.emailOtpDelivery.kind,
   );
   assertSuppliedValueMatches(values, 'GOOGLE_OIDC_CLIENT_ID', config.optional.googleOidcClientId);
-  assertSuppliedJsonMatches(values, 'SEAMS_OIDC_EXCHANGE_JSON', config.optional.oidcExchange);
   const walletOrigin = readValue(values, 'VITE_WALLET_ORIGIN');
   if (walletOrigin && !config.origins.allowedCors.includes(walletOrigin)) {
     throw new Error('VITE_WALLET_ORIGIN must be updated in deployment/targets.json first');

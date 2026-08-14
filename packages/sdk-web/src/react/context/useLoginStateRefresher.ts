@@ -25,11 +25,10 @@ function resolveExactReactLoginWalletId(
   return walletId || null;
 }
 
-async function restoreAndRefreshLocalLoginState(args: {
+async function refreshLocalLoginState(args: {
   seams: SeamsWeb;
   refreshLoginState: SeamsContextType['refreshLoginState'];
 }): Promise<void> {
-  await args.seams.restoreWalletAuthenticationState();
   await args.refreshLoginState();
 }
 
@@ -104,7 +103,7 @@ export function useLoginStateRefresher(args: {
 
   useEffect(() => {
     if (seams.configs.wallet.mode === 'iframe') return;
-    void restoreAndRefreshLocalLoginState({ seams, refreshLoginState });
+    void refreshLocalLoginState({ seams, refreshLoginState });
   }, [refreshLoginState, seams]);
 
   return refreshLoginState;

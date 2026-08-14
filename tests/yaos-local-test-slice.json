@@ -5,7 +5,6 @@
     "unit/demoNearFundingState.unit.test.ts",
     "unit/walletSessionNearIdentityProjection.unit.test.ts",
     "unit/routerAbEd25519YaoContracts.unit.test.ts",
-    "unit/routerAbEd25519YaoExport.server.unit.test.ts",
     "unit/routerAbEd25519YaoRegistrationIntentAuthorization.unit.test.ts",
     "unit/routerAbEd25519YaoAddSignerIntentAuthorization.unit.test.ts",
     "unit/thresholdEd25519.routeValidation.unit.test.ts",

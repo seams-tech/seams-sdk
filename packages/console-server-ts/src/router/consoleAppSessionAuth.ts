@@ -8,22 +8,7 @@ import type {
   ConsoleOrganizationAccessService,
 } from '../teamRbac';
 import type { SessionAdapter } from '@seams/sdk-server/cloud-host';
-import type {
-  ConsoleAuthAdapter,
-  ConsoleAuthClaims,
-  HeaderRecord,
-} from './consoleAuth';
-
-type AppSessionVersionValidationResult =
-  | { readonly ok: true }
-  | { readonly ok: false; readonly code?: string; readonly message?: string };
-
-interface AppSessionVersionValidator {
-  validateAppSessionVersion(input: {
-    readonly userId: string;
-    readonly appSessionVersion: string;
-  }): Promise<AppSessionVersionValidationResult>;
-}
+import type { ConsoleAuthAdapter, ConsoleAuthClaims, HeaderRecord } from './consoleAuth';
 
 export interface ConsoleSsoProvisioningOptions {
   readonly orgProjectEnv?: ConsoleOrgProjectEnvService | null;
@@ -33,7 +18,6 @@ export interface ConsoleSsoProvisioningOptions {
 
 export interface AppSessionConsoleAuthAdapterOptions {
   readonly session: SessionAdapter;
-  readonly authService: AppSessionVersionValidator;
   readonly organizationAccess: ConsoleOrganizationAccessService;
   readonly defaultOrgId?: string;
   readonly defaultProjectId?: string;
@@ -183,9 +167,7 @@ function matchesInitialOwnerEmail(input: {
   );
 }
 
-function readEnvironmentKeyCandidate(
-  environmentId: string,
-): 'dev' | 'staging' | 'prod' | null {
+function readEnvironmentKeyCandidate(environmentId: string): 'dev' | 'staging' | 'prod' | null {
   const candidate = normalizeString(environmentId).split(':').pop()?.toLowerCase();
   if (candidate === 'dev' || candidate === 'staging' || candidate === 'prod') {
     return candidate;
@@ -270,8 +252,7 @@ async function reconcileConsoleScopeClaims(input: {
   readonly environmentId: string;
 }): Promise<ReconciledConsoleScope> {
   if (!input.orgProjectEnv) {
-    const derivedOrganization =
-      !input.orgId && normalizeString(input.claims.provider) === 'oidc';
+    const derivedOrganization = !input.orgId && normalizeString(input.claims.provider) === 'oidc';
     return {
       orgId: derivedOrganization
         ? deriveConsoleSsoOrganizationId({ userId: input.userId, claims: input.claims })
@@ -341,9 +322,7 @@ async function reconcileConsoleScopeClaims(input: {
     ]);
     let projectId = input.projectId;
     let environmentId = input.environmentId;
-    const exactEnvironment = environments.find(
-      (environment) => environment.id === environmentId,
-    );
+    const exactEnvironment = environments.find((environment) => environment.id === environmentId);
     if (exactEnvironment) {
       projectId = exactEnvironment.projectId;
       environmentId = exactEnvironment.id;
@@ -355,12 +334,8 @@ async function reconcileConsoleScopeClaims(input: {
               (entry) => entry.projectId === projectId && entry.key === environmentKey,
             )
           : undefined) ??
-        (projectId
-          ? environments.find((entry) => entry.projectId === projectId)
-          : undefined) ??
-        (environmentKey
-          ? environments.find((entry) => entry.key === environmentKey)
-          : undefined) ??
+        (projectId ? environments.find((entry) => entry.projectId === projectId) : undefined) ??
+        (environmentKey ? environments.find((entry) => entry.key === environmentKey) : undefined) ??
         environments[0];
       if (environment) {
         projectId = environment.projectId;
@@ -485,7 +460,7 @@ async function restrictScopeToAuthorization(input: {
   if (!input.orgProjectEnv) {
     const projectId = assignedProjectIds.has(input.scope.projectId)
       ? input.scope.projectId
-      : assignments[0]?.projectId ?? '';
+      : (assignments[0]?.projectId ?? '');
     return {
       orgId: input.scope.orgId,
       projectId,
@@ -504,8 +479,7 @@ async function restrictScopeToAuthorization(input: {
   const accessibleProjects = projects.filter((project) => assignedProjectIds.has(project.id));
   const exactEnvironment = environments.find(
     (environment) =>
-      environment.id === input.scope.environmentId &&
-      assignedProjectIds.has(environment.projectId),
+      environment.id === input.scope.environmentId && assignedProjectIds.has(environment.projectId),
   );
   if (exactEnvironment) {
     return {
@@ -517,7 +491,7 @@ async function restrictScopeToAuthorization(input: {
   }
   const projectId = assignedProjectIds.has(input.scope.projectId)
     ? input.scope.projectId
-    : accessibleProjects[0]?.id ?? '';
+    : (accessibleProjects[0]?.id ?? '');
   const environmentId =
     environments.find((environment) => environment.projectId === projectId)?.id ?? '';
   return {
@@ -603,9 +577,7 @@ class AppSessionConsoleAuthAdapter implements ConsoleAuthAdapter {
       defaultProjectId: normalizeString(options.defaultProjectId),
       defaultEnvironmentId: normalizeString(options.defaultEnvironmentId),
       initialOwnerEmail: normalizeInitialOwnerEmail(options.initialOwnerEmail),
-      platformSupportEmails: normalizeConsoleEmailList(
-        options.platformSupportEmails ?? [],
-      ),
+      platformSupportEmails: normalizeConsoleEmailList(options.platformSupportEmails ?? []),
       orgProjectEnv: options.provisioning?.orgProjectEnv ?? null,
       audit: options.provisioning?.audit ?? null,
       logger: options.provisioning?.logger ?? console,
@@ -634,20 +606,6 @@ class AppSessionConsoleAuthAdapter implements ConsoleAuthAdapter {
         status: 401 as const,
       };
     }
-    const validation =
-      await this.#runtime.options.authService.validateAppSessionVersion({
-        userId,
-        appSessionVersion,
-      });
-    if (!validation.ok) {
-      return {
-        ok: false as const,
-        code: 'unauthorized' as const,
-        message: validation.message || 'Expired app session',
-        status: 401 as const,
-      };
-    }
-
     const profile = resolveConsoleIdentityProfile(userId, claims);
     const resolvedDefaultOrgId = await resolveDefaultConsoleOrgId({
       defaultOrgId: this.#runtime.defaultOrgId,
@@ -660,8 +618,7 @@ class AppSessionConsoleAuthAdapter implements ConsoleAuthAdapter {
       defaultOrgId: resolvedDefaultOrgId,
       orgId: normalizeString(claims.orgId) || resolvedDefaultOrgId,
       projectId: normalizeString(claims.projectId) || this.#runtime.defaultProjectId,
-      environmentId:
-        normalizeString(claims.environmentId) || this.#runtime.defaultEnvironmentId,
+      environmentId: normalizeString(claims.environmentId) || this.#runtime.defaultEnvironmentId,
     });
     if (!scope.orgId) {
       return {
@@ -690,11 +647,10 @@ class AppSessionConsoleAuthAdapter implements ConsoleAuthAdapter {
         logger: this.#runtime.logger,
       });
     }
-    const authorization =
-      await this.#runtime.options.organizationAccess.lookupAuthorization({
-        orgId: scope.orgId,
-        userId,
-      });
+    const authorization = await this.#runtime.options.organizationAccess.lookupAuthorization({
+      orgId: scope.orgId,
+      userId,
+    });
     if (!authorization || authorization.kind === 'denied') {
       return {
         ok: false as const,

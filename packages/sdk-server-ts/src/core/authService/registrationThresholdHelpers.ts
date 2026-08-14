@@ -14,7 +14,6 @@ import type {
 } from '../registrationContracts';
 import type { WebAuthnCredentialBindingStore } from '../WebAuthnCredentialBindingStore';
 import type { ThresholdEcdsaChainTarget } from '../thresholdEcdsaChainTarget';
-import { isObject } from './record';
 import {
   normalizeThresholdRuntimePolicyScope,
   thresholdRuntimePolicyScopesEqual,
@@ -25,36 +24,6 @@ function requireEvmFamilySigningKeySlotId(value: unknown) {
   const parsed = parseEvmFamilySigningKeySlotId(value);
   if (!parsed.ok) throw new Error(parsed.error.message);
   return parsed.value;
-}
-
-export type ThresholdEd25519RegistrationInput = {
-  keyVersion: string;
-  recoveryExportCapable?: boolean;
-  publicKey: string;
-  relayerKeyId: string;
-  sessionPolicy: Record<string, unknown> | null;
-  sessionKind: string;
-};
-
-export function parseThresholdEd25519RegistrationInput(
-  raw: unknown,
-): ThresholdEd25519RegistrationInput {
-  const body = isObject(raw) ? (raw as Record<string, unknown>) : null;
-  return {
-    keyVersion: String(body?.key_version || '').trim(),
-    recoveryExportCapable:
-      typeof body?.recovery_export_capable === 'boolean'
-        ? Boolean(body.recovery_export_capable)
-        : undefined,
-    publicKey: String(body?.public_key || '').trim(),
-    relayerKeyId: String(body?.relayer_key_id || '').trim(),
-    sessionPolicy: isObject(body?.session_policy)
-      ? (body!.session_policy as Record<string, unknown>)
-      : null,
-    sessionKind: String(body?.session_kind || '')
-      .trim()
-      .toLowerCase(),
-  };
 }
 
 export function buildFullAccessAddKeyAction(publicKey: string): ActionArgsWasm {

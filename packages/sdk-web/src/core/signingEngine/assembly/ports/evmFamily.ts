@@ -72,8 +72,6 @@ export function createEvmFamilySigningDeps(args: {
       }) || Promise.reject(new Error('Email OTP signing challenge is not configured')),
     resolveDurableEmailOtpEcdsaSigningSessionAuthority: async ({ lane }) =>
       await resolveDurableEmailOtpEcdsaAuthority({ lane, createArgs }),
-    resolveEcdsaOperationStepUpSessionAuth: (input) =>
-      createArgs.resolveEcdsaOperationStepUpSessionAuth(input),
     restorePersistedSessionForSigning: (restoreArgs) =>
       createArgs.restorePersistedSessionForSigning(restoreArgs),
     readAvailableSigningLanesForSigning: (snapshotArgs) =>

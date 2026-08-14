@@ -61,6 +61,7 @@ import type {
 } from '../../../../core/types';
 import { EmailRecoveryAuthOperations } from '../../../../core/authService/emailRecoveryAuthOperations';
 import type {
+  RouterApiIdentityService,
   RouterApiServiceBag,
   RouterApiWalletRegistrationService,
 } from '../../../framework/authServicePort';
@@ -88,7 +89,6 @@ import { CloudflareD1GoogleEmailOtpRegistrationAttemptStore } from '../emailOtp/
 import { CloudflareD1GoogleEmailOtpSessionResolver } from '../emailOtp/d1GoogleEmailOtpSessionResolver';
 import { CloudflareD1SessionStore } from '../session/d1SessionStore';
 import { CloudflareD1SessionService } from '../session/d1SessionService';
-import { CloudflareD1GoogleEmailOtpSessionExchangeStore } from '../session/d1GoogleEmailOtpSessionExchangeStore';
 import { CloudflareD1IdentityService } from '../identity/d1IdentityService';
 import { CloudflareD1OidcVerificationService } from '../oidc/d1OidcVerificationService';
 import { CloudflareD1WebAuthnAuthService } from '../webauthn/d1WebAuthnAuthService';
@@ -233,7 +233,6 @@ type CloudflareD1RouterApiAuthAssembly = {
   readonly identityService: CloudflareD1IdentityService;
   readonly oidcVerification: CloudflareD1OidcVerificationService;
   readonly sessionService: CloudflareD1SessionService;
-  readonly sessionExchanges: CloudflareD1GoogleEmailOtpSessionExchangeStore;
   readonly authorizationService: AuthorizationService;
   readonly googleEmailOtpSessions: CloudflareD1GoogleEmailOtpSessionResolver;
   readonly nearPublicKeys: CloudflareD1NearPublicKeyStore;
@@ -298,12 +297,7 @@ type D1WebAuthnRouteServiceAssembly = Pick<
 
 type D1IdentityRouteServiceAssembly = Pick<
   CloudflareD1RouterApiAuthAssembly,
-  'googleEmailOtpSessions' | 'identityService' | 'oidcVerification'
->;
-
-type D1SessionVersionRouteServiceAssembly = Pick<
-  CloudflareD1RouterApiAuthAssembly,
-  'sessionService'
+  'googleEmailOtpSessions' | 'identityService' | 'oidcVerification' | 'options'
 >;
 
 type D1AuthorizationSessionRouteServiceAssembly = Pick<
@@ -1577,7 +1571,6 @@ function createCloudflareD1RouterApiAuthAssembly(
   const linkIdentity = linkD1Identity.bind(undefined, identityStore);
   const sessionStore = new CloudflareD1SessionStore({ prepare });
   const sessionService = new CloudflareD1SessionService({ sessionStore });
-  const sessionExchanges = new CloudflareD1GoogleEmailOtpSessionExchangeStore({ prepare });
   const authorizationStore = new CloudflareD1AuthorizationStore({
     database: options.database,
     namespace: options.namespace,
@@ -1666,7 +1659,6 @@ function createCloudflareD1RouterApiAuthAssembly(
     githubOAuth: options.githubOAuth,
     identityStore,
     linkIdentity,
-    oidcExchange: options.oidcExchange,
   });
   const emailOtpRegistrationEnrollmentFinalizer =
     new CloudflareD1EmailOtpRegistrationEnrollmentFinalizer({
@@ -1790,7 +1782,6 @@ function createCloudflareD1RouterApiAuthAssembly(
     identityService,
     oidcVerification,
     sessionService,
-    sessionExchanges,
     authorizationService,
     googleEmailOtpSessions,
     nearPublicKeys,
@@ -2116,8 +2107,9 @@ function createD1IdentityRouteService(
     ),
     linkIdentity: assembly.identityService.linkIdentity.bind(assembly.identityService),
     listIdentities: assembly.identityService.listIdentities.bind(assembly.identityService),
-    resolveGoogleEmailOtpSession: assembly.googleEmailOtpSessions.resolve.bind(
-      assembly.googleEmailOtpSessions,
+    resolveGoogleEmailOtpSession: resolveConfiguredGoogleEmailOtpSession.bind(
+      undefined,
+      assembly,
     ),
     resolveOidcWalletId: assembly.identityService.resolveOidcWalletId.bind(
       assembly.identityService,
@@ -2127,26 +2119,22 @@ function createD1IdentityRouteService(
     verifyGithubOAuthCode: assembly.oidcVerification.verifyGithubOAuthCode.bind(
       assembly.oidcVerification,
     ),
-    verifyOidcJwtExchange: assembly.oidcVerification.verifyOidcJwtExchange.bind(
-      assembly.oidcVerification,
-    ),
   };
 }
 
-function createD1SessionVersionRouteService(
-  assembly: D1SessionVersionRouteServiceAssembly,
-): RouterApiServiceBag['sessionVersions'] {
-  return {
-    getOrCreateAppSessionVersion: assembly.sessionService.getOrCreateAppSessionVersion.bind(
-      assembly.sessionService,
-    ),
-    rotateAppSessionVersion: assembly.sessionService.rotateAppSessionVersion.bind(
-      assembly.sessionService,
-    ),
-    validateAppSessionVersion: assembly.sessionService.validateAppSessionVersion.bind(
-      assembly.sessionService,
-    ),
-  };
+function resolveConfiguredGoogleEmailOtpSession(
+  assembly: D1IdentityRouteServiceAssembly,
+  input: Parameters<RouterApiIdentityService['resolveGoogleEmailOtpSession']>[0],
+): ReturnType<RouterApiIdentityService['resolveGoogleEmailOtpSession']> {
+  return assembly.googleEmailOtpSessions.resolve({
+    ...input,
+    runtimePolicyScope: {
+      orgId: assembly.options.orgId,
+      projectId: assembly.options.projectId,
+      envId: assembly.options.envId,
+      signingRootVersion: 'default',
+    },
+  });
 }
 
 function createD1AuthorizationSessionRouteService(
@@ -2200,6 +2188,9 @@ function createD1AuthorizedOperationRouteService(
       assembly.authorizationService.recordVerifiedWalletOperationFactorEvidenceSet.bind(
         assembly.authorizationService,
       ),
+    readAuthorizedOperationById: assembly.authorizationService.readAuthorizedOperationById.bind(
+      assembly.authorizationService,
+    ),
     readAuthorizedOperation: assembly.authorizationService.readAuthorizedOperation.bind(
       assembly.authorizationService,
     ),
@@ -2273,8 +2264,6 @@ export function createCloudflareD1RouterApiAuthService(
     emailOtp: createD1EmailOtpRouteService(assembly),
     webAuthn: createD1WebAuthnRouteService(assembly),
     identity: createD1IdentityRouteService(assembly),
-    sessionVersions: createD1SessionVersionRouteService(assembly),
-    sessionExchanges: assembly.sessionExchanges,
     authorizationSessions: createD1AuthorizationSessionRouteService(assembly),
     authorizedOperations: createD1AuthorizedOperationRouteService(assembly),
     thresholdRuntime: createD1ThresholdRuntimeRouteService(assembly),

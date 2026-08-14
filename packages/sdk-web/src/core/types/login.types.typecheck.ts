@@ -3,17 +3,27 @@ import type { PMUnlockOptions, PMUnlockPayload } from './login.types';
 const validUnlockOptions = {
   kind: 'pm_unlock_options_v1',
   signerSlot: { kind: 'default' },
-  session: { kind: 'default' },
   signingSession: { kind: 'default' },
   unlockSelection: { kind: 'value', value: { mode: 'ecdsa_only', ecdsa: true } },
   ecdsaKeyFactsInventory: { kind: 'value', value: { mode: 'webauthn' } },
 } satisfies PMUnlockOptions;
 void validUnlockOptions;
 
+const validOpaqueUnlockOptions = {
+  kind: 'pm_unlock_options_v1',
+  signerSlot: { kind: 'default' },
+  signingSession: { kind: 'default' },
+  unlockSelection: { kind: 'value', value: { mode: 'ecdsa_only', ecdsa: true } },
+  ecdsaKeyFactsInventory: {
+    kind: 'value',
+    value: { mode: 'opaque_wallet_session', curve: 'ecdsa_secp256k1' },
+  },
+} satisfies PMUnlockOptions;
+void validOpaqueUnlockOptions;
+
 const unlockOptionsMissingInventory = {
   kind: 'pm_unlock_options_v1',
   signerSlot: { kind: 'default' },
-  session: { kind: 'default' },
   signingSession: { kind: 'default' },
   unlockSelection: { kind: 'default' },
 };

@@ -1,6 +1,6 @@
 import type { HttpTransport } from '@/core/platform/http';
 import {
-  walletSessionJwtForCurve,
+  walletSessionTokenForCurve,
   type ActiveWalletSessionAuthorizationProjection,
   type WalletSessionAuthorizationRepository,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
@@ -180,23 +180,23 @@ async function requestWithProjectionV1(
     readonly body?: unknown;
   },
 ): Promise<{ readonly status: number; readonly body: unknown }> {
-  const jwt = preferredOwnerWalletSessionJwt(projection);
+  const walletSessionToken = preferredOwnerWalletSessionToken(projection);
   const response = await context.http.request({
     method: input.method,
     url: `${context.baseUrl}${input.canonicalPath}`,
-    headers: { authorization: `Bearer ${jwt}` },
+    headers: { authorization: `Bearer ${walletSessionToken}` },
     ...(input.body === undefined ? {} : { body: input.body }),
   });
   if (!response.ok) throw new Error(`Owner Router request failed: ${response.message}`);
   return response.value;
 }
 
-function preferredOwnerWalletSessionJwt(
+function preferredOwnerWalletSessionToken(
   projection: ActiveWalletSessionAuthorizationProjection,
 ): string {
-  const ed25519 = walletSessionJwtForCurve(projection, 'ed25519');
+  const ed25519 = walletSessionTokenForCurve(projection, 'ed25519');
   if (ed25519) return ed25519;
-  const ecdsa = walletSessionJwtForCurve(projection, 'ecdsa');
+  const ecdsa = walletSessionTokenForCurve(projection, 'ecdsa');
   if (ecdsa) return ecdsa;
   throw new Error('Owner Wallet Session has no supported signing token');
 }

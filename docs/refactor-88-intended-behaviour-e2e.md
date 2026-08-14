@@ -894,7 +894,7 @@ Current live validation:
   `blocked_email_otp_token=0 blocked_product_identity=1 detected=3`.
   Targeted completion for
   `email_otp_reroll_bootstrap_token_request_mismatch` and
-  `export_provider_user_mismatch_after_app_session_refresh` passes and prints
+  `export_provider_user_mismatch_after_owner_proof` passes and prints
   both detected proof rows. Full completion remains blocked only by
   `cross_chain_ecdsa_material_reuse` pending target-specific Tempo and Arc/EVM
   ECDSA owner/public-key facts. The Refactor 88 guard suite passes 55/55,
@@ -1247,7 +1247,7 @@ Tracking:
   only at `after_step_up:near.sign` made both passkey intended contracts fail
   with the expected `post-step-up transaction failed` oracle; restoring the
   seed made the same 2-contract command pass 2/2 in 1.3m.
-- [x] Run `export_provider_user_mismatch_after_app_session_refresh` on a
+- [x] Run `export_provider_user_mismatch_after_owner_proof` on a
   scratch branch against the intended export paths. A local scratch mutation
   that let the Email OTP ECDSA export viewer complete without requesting the
   fresh export OTP made `email-otp.registration.contract.test.ts` fail with

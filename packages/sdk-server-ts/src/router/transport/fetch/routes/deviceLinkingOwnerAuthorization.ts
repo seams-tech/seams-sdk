@@ -32,7 +32,7 @@ import type {
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { sha256Bytes } from '@shared/utils/digests';
-import type { SessionAdapter } from '../../../framework/routerApi';
+import type { RouterApiAuthorizationSessionService } from '../../../framework/authServicePort';
 import type { FetchRouterApiContext } from '../createFetchRouter';
 import type {
   DeviceLinkingAuthDeniedV1,
@@ -126,7 +126,7 @@ export type DeviceLinkingOwnerAuthorizationRouteServiceV1 = {
  * verified Wallet Session expires and is bound to the exact request bytes.
  */
 export function createDeviceLinkingOwnerRequestAuthenticatorV1(input: {
-  readonly session: SessionAdapter;
+  readonly authorizationSessions: RouterApiAuthorizationSessionService;
   readonly nowV1?: () => number;
 }): (
   input: DeviceLinkingOwnerRequestInputV1,
@@ -135,7 +135,7 @@ export function createDeviceLinkingOwnerRequestAuthenticatorV1(input: {
   return async (requestInput) => {
     const authenticated = await authenticateDeviceLinkingOwnerWalletSessionRequestV1({
       ...requestInput,
-      session: input.session,
+      authorizationSessions: input.authorizationSessions,
       nowV1,
     });
     if (authenticated.kind === 'denied') return authenticated;
@@ -154,7 +154,7 @@ export async function authenticateDeviceLinkingOwnerWalletSessionRequestV1(input
   readonly pathname: string;
   readonly bodyDigestB64u: DigestB64u;
   readonly requestedAtMs: number;
-  readonly session: SessionAdapter | null | undefined;
+  readonly authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
   readonly nowV1?: () => number;
 }): Promise<DeviceLinkingOwnerRequestAuthenticationV1> {
   if (input.method !== 'GET' && input.method !== 'POST') {
@@ -170,7 +170,7 @@ export async function authenticateDeviceLinkingOwnerWalletSessionRequestV1(input
   const validated = await validateOwnerWalletSessionV1({
     body,
     headers,
-    session: input.session,
+    authorizationSessions: input.authorizationSessions,
     nowV1,
   });
   if (validated.kind === 'denied') return validated;
@@ -229,7 +229,7 @@ export async function handleDeviceLinkingOwnerAuthorization(
     pathname: ctx.pathname,
     bodyDigestB64u,
     requestedAtMs: body.requestedAtMs,
-    session: ctx.opts.session,
+    authorizationSessions: ctx.service.authorizationSessions,
     nowV1,
   });
   if (validated.kind === 'denied') return authDeniedResponse(validated);
@@ -268,13 +268,13 @@ type OwnerValidationResultV1 =
 async function validateOwnerWalletSessionV1(input: {
   readonly body: unknown;
   readonly headers: Record<string, string>;
-  readonly session: SessionAdapter | null | undefined;
+  readonly authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
   readonly nowV1: () => number;
 }): Promise<OwnerValidationResultV1> {
   const ed25519 = await validateRouterAbEd25519WalletSessionTokenInputs({
     body: input.body,
     headers: input.headers,
-    session: input.session,
+    authorizationSessions: input.authorizationSessions,
     nowMs: input.nowV1,
   });
   if (ed25519.ok) {
@@ -303,7 +303,7 @@ async function validateOwnerWalletSessionV1(input: {
   const ecdsa = await validateRouterAbEcdsaDerivationWalletSessionInputs({
     body: input.body,
     headers: input.headers,
-    session: input.session,
+    authorizationSessions: input.authorizationSessions,
     nowMs: input.nowV1,
   });
   if (ecdsa.ok) {

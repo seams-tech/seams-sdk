@@ -153,7 +153,6 @@ import {
 } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
 import {
   buildRouterAbEd25519SigningWalletSession,
-  parseRouterAbEd25519WalletSessionIdentityClaims,
 } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import {
   hydratePasskeyEd25519YaoLocalMaterialV1,
@@ -197,21 +196,19 @@ import {
 import { IndexedDBManager, walletSessionAuthorizations } from '@/core/indexedDB';
 import {
   mpcMaterialActivationRefsEqual,
-  parseAppSessionJwt,
   parseProviderSubject,
   parseWalletId,
   type MpcMaterialActivationRef,
   type ProviderSubject,
   type ThresholdEd25519SessionId,
 } from '@shared/utils/domainIds';
-import { decodeJwtPayloadRecord } from '@shared/utils/sessionTokens';
 import { sha256HexUtf8 } from '@shared/utils/digests';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { materialActivationKey } from '@/core/signingEngine/session/sealedRecovery/materialActivationKey';
 import { isPlainObject } from '@shared/utils/validation';
 import {
   retireWalletSessionAuthorizationProjection,
-  walletSessionJwtForCurve,
+  walletSessionTokenForCurve,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import { createRelayerReusableWalletSessionStatusPort } from '@/core/rpcClients/relayer/walletSessionAuthorizationStatus';
 import {
@@ -291,7 +288,7 @@ import type { SigningLaneAuthBinding } from '@/core/signingEngine/session/identi
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import type { EmailOtpEd25519YaoRecoveryBootstrapV1 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
-import type { RouterAbEd25519NormalSigningCredential } from '@/core/rpcClients/relayer/routerAbNormalSigning';
+import type { RouterAbOwnerNormalSigningCredential } from '@/core/rpcClients/relayer/routerAbNormalSigning';
 import {
   listExactSealedSessionsForWallet,
   readExactEd25519SealedSession,
@@ -303,18 +300,10 @@ import { parseSigningSessionSealKeyVersion } from '@/core/signingEngine/session/
 import { normalizeThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import { DEFAULT_UNLOCK_REMAINING_USES } from '@/core/signingEngine/threshold/sessionPolicy';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
-import { __isWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode';
-import { activeWalletOrHostedAppSessionJwt } from '@/SeamsWeb/walletIframe/host/hostedWalletSeamsSession';
 import {
   resolveWalletCustodyEd25519ExportContextV1,
   type ResolvedWalletCustodyEd25519ExportV1,
 } from '@/core/signingEngine/session/emailOtp/ed25519ExportContext';
-import {
-  emailOtpAppSessionBindingFromJwt,
-  emailOtpAppSessionSourceFromPayload,
-  type EmailOtpAppSessionBinding,
-  type EmailOtpAppSessionSource,
-} from '@/core/signingEngine/session/emailOtp/appSessionJwtCache';
 import {
   requestClearEmailOtpWarmSessionMaterial,
   requestRehydrateEmailOtpEd25519YaoOperationMaterial,
@@ -397,7 +386,6 @@ import {
 } from '../assembly/browserSigningSurfaceAssembly';
 import type { BrowserSigningSurfaceConstructorDeps } from '../assembly/browserSigningSurfacePorts';
 import type { SigningSessionLifecycleSubscription } from '@/core/signingEngine/session/SigningSessionCoordinator';
-import type { WalletAuthenticationRestoreAuth } from './ports';
 import { finalizeWalletRegistrationEcdsaSessions as finalizeWalletRegistrationEcdsaSessionsOperation } from '@/core/signingEngine/flows/registration/services/ecdsaRegistrationSessions';
 import type {
   WorkerResourceWarmupAccountContext,
@@ -851,11 +839,11 @@ export async function ensurePasskeyEd25519WarmSessionForSigning(args: {
   if (args.runtime.factor.kind !== 'passkey') {
     throw new Error('[SigningEngine][near] persisted Ed25519 credential is unavailable');
   }
-  const walletSessionJwt = String(
-    args.walletSessionState.walletSessionAuth.walletSessionJwt || '',
+  const walletSessionToken = String(
+    args.walletSessionState.walletSessionAuth.walletSessionToken || '',
   ).trim();
   const groupId = String(args.runtime.sealedRecord.groupId || '').trim();
-  if (!walletSessionJwt || !groupId) {
+  if (!walletSessionToken || !groupId) {
     return {
       ok: false,
       code: 'invalid_args',
@@ -884,7 +872,7 @@ export async function ensurePasskeyEd25519WarmSessionForSigning(args: {
       relayerUrl: args.runtime.relayerUrl,
       signingSessionSealKeyVersion: keyVersion,
       groupId,
-      walletSessionJwt,
+      walletSessionToken,
       ed25519Restore: buildPasskeyEd25519RestoreMetadata({
         rpId: args.runtime.factor.rpId,
         nearAccountId: args.runtime.nearAccountId,
@@ -1234,8 +1222,8 @@ function emailOtpWalletSessionStateFromPublicLane(args: {
   if (args.reference.auth.kind !== WALLET_AUTH_METHODS.emailOtp) {
     throw new Error('[SigningEngine][near] Email OTP public lane authority is required');
   }
-  const walletSessionJwt = walletSessionJwtForCurve(args.authorization, 'ed25519');
-  if (!walletSessionJwt) {
+  const walletSessionToken = walletSessionTokenForCurve(args.authorization, 'ed25519');
+  if (!walletSessionToken) {
     throw new Error('[SigningEngine][near] Email OTP Ed25519 Wallet Session JWT is unavailable');
   }
   const facts = args.material.facts;
@@ -1244,6 +1232,7 @@ function emailOtpWalletSessionStateFromPublicLane(args: {
     nearAccountId: String(args.reference.nearAccountId),
     nearEd25519SigningKeyId: String(args.reference.nearEd25519SigningKeyId),
     walletSessionId: args.authorization.walletSessionId,
+    authorizationId: args.authorization.authorizationId,
     quotaId: args.authorization.quotaId,
     thresholdSessionId: args.reference.thresholdSessionId,
     remainingUses: args.remainingUses,
@@ -1252,7 +1241,7 @@ function emailOtpWalletSessionStateFromPublicLane(args: {
     signingRootId: facts.signingRootId,
     signingRootVersion: facts.signingRootVersion,
     routerAbNormalSigning: facts.routerAbNormalSigning,
-    walletSessionJwt,
+    walletSessionToken,
     nowMs: Date.now(),
   });
   if (!signingWalletSession.ok) {
@@ -1431,9 +1420,9 @@ async function hydrateOwnerNearEd25519ExecutionLane(args: {
   sealedRuntime: ExactEd25519SealedSessionRuntime;
   material: NearEd25519YaoOperationMaterial;
 }): Promise<ActiveWalletExecutionLaneHydration> {
-  const walletSessionJwt = walletSessionJwtForCurve(args.authorization, 'ed25519');
-  if (!walletSessionJwt) {
-    throw new Error('Owner Ed25519 execution-lane preflight requires a Wallet Session JWT');
+  const walletSessionToken = walletSessionTokenForCurve(args.authorization, 'ed25519');
+  if (!walletSessionToken) {
+    throw new Error('Owner Ed25519 execution-lane preflight requires a Wallet Session token');
   }
   const metadata = args.material.activeClient.metadata();
   const materialActivation = nearEd25519YaoMaterialActivationFromMetadata(metadata);
@@ -1462,7 +1451,7 @@ async function hydrateOwnerNearEd25519ExecutionLane(args: {
   };
   const projection = await readOwnerWalletExecutionLaneProjectionV1({
     relayerUrl: exactMaterial.facts.relayerUrl,
-    walletSessionJwt,
+    walletSessionToken,
     curve: 'ed25519',
     expectedMaterialActivation: materialActivation,
   });
@@ -1572,299 +1561,18 @@ function assertNeverSdkLifecycleEventName(value: never): never {
   throw new Error(`Unsupported SDK lifecycle event: ${String(value)}`);
 }
 
-/**
- * BrowserSigningSurface owns browser signing assembly state and exposes the SeamsWeb signing surface.
- */
-type HostSelectedRestoreSource =
-  | { readonly kind: 'passkey' }
-  | { readonly kind: 'oidc_provider'; readonly providerSubject: ProviderSubject }
-  | { readonly kind: 'other' };
-
-type HostSelectedAppSessionRestoreAuth = {
-  readonly kind: 'host_selected_app_session_jwt';
-  readonly appSessionJwt: string;
-  readonly source: HostSelectedRestoreSource;
-};
-
-type AppSessionRestoreAuth = WalletAuthenticationRestoreAuth | HostSelectedAppSessionRestoreAuth;
-
-export type WalletAuthenticationRestoreExpectation =
-  | { readonly kind: 'derive_wallet' }
-  | { readonly kind: 'exact_wallet'; readonly walletId: WalletId };
-
-type AuthenticatedWalletAuthentication = Extract<
-  WalletAuthenticationState,
-  { kind: 'authenticated' }
->;
-
-type ValidatedWalletAuthenticationSource =
-  | { readonly kind: 'passkey' }
-  | { readonly kind: 'email_otp'; readonly providerSubject: ProviderSubject };
-
-type WalletAuthenticationRestoreFailure = Exclude<
-  WalletAuthenticationRestoreOutcome,
-  { readonly kind: 'authenticated' }
->;
-
-type WalletAuthenticationRestoreOutcomeWithSource =
-  | {
-      readonly kind: 'authenticated';
-      readonly state: AuthenticatedWalletAuthentication;
-      readonly source: ValidatedWalletAuthenticationSource;
-    }
-  | WalletAuthenticationRestoreFailure
-  | { readonly kind: 'source_mismatch' };
-
-type CachedEmailOtpWalletAuthenticationOutcome =
-  | WalletAuthenticationRestoreOutcomeWithSource
-  | { readonly kind: 'absent' };
-
-export type WalletAuthenticationRestoreOutcome =
-  | { readonly kind: 'authenticated'; readonly state: AuthenticatedWalletAuthentication }
-  | { readonly kind: 'rejected' }
-  | { readonly kind: 'uncorrelated' }
-  | { readonly kind: 'unavailable' };
-
-function normalizeWalletAuthenticationRestoreAuth(
-  auth: WalletAuthenticationRestoreAuth,
-): AppSessionRestoreAuth | null {
-  switch (auth.kind) {
-    case 'cookie':
-      return auth;
-    case 'caller_app_session_jwt': {
-      const parsedJwt = parseAppSessionJwt(auth.appSessionJwt);
-      return parsedJwt.ok ? { kind: auth.kind, appSessionJwt: parsedJwt.value } : null;
-    }
-  }
-}
-
-function hostSelectedRestoreAuthFromJwt(appSessionJwt: string): HostSelectedAppSessionRestoreAuth {
-  const claims = decodeJwtPayloadRecord(appSessionJwt);
-  const authSource = restoreClaimsRecord(claims?.authSource);
-  if (authSource?.kind === 'passkey') {
-    return {
-      kind: 'host_selected_app_session_jwt',
-      appSessionJwt,
-      source: { kind: 'passkey' },
-    };
-  }
-  if (authSource?.kind === 'oidc_provider') {
-    const providerId = authSource.providerId;
-    const providerSubject = parseProviderSubject(authSource.providerSubject);
-    if ((providerId === 'google_oidc' || providerId === 'oidc') && providerSubject.ok) {
-      return {
-        kind: 'host_selected_app_session_jwt',
-        appSessionJwt,
-        source: { kind: 'oidc_provider', providerSubject: providerSubject.value },
-      };
-    }
-  }
-  return {
-    kind: 'host_selected_app_session_jwt',
-    appSessionJwt,
-    source: { kind: 'other' },
-  };
-}
-
-function restoreClaimsRecord(value: unknown): Record<string, unknown> | null {
-  return isPlainObject(value) ? value : null;
-}
-
-function exactEmailOtpAppSessionSourceFromClaims(
-  claims: Record<string, unknown>,
-): EmailOtpAppSessionSource | null {
-  try {
-    return emailOtpAppSessionSourceFromPayload(claims);
-  } catch {
-    return null;
-  }
-}
-
-function authenticationFromValidatedSessionStateWithSource(
-  value: unknown,
-  expectation: WalletAuthenticationRestoreExpectation,
-): WalletAuthenticationRestoreOutcomeWithSource {
-  const response = restoreClaimsRecord(value);
-  if (response?.authenticated !== true) return { kind: 'rejected' };
-  const claims = restoreClaimsRecord(response.claims);
-  if (claims?.kind !== 'app_session_v1') return { kind: 'rejected' };
-  const provider = claims.provider;
-  const authSource = restoreClaimsRecord(claims.authSource);
-  let walletIdValue: unknown;
-  let authMethod: AuthenticatedWalletAuthentication['authMethod'];
-  let source: ValidatedWalletAuthenticationSource;
-  if (
-    provider === 'passkey' &&
-    authSource?.kind === 'passkey' &&
-    typeof authSource.credentialIdB64u === 'string' &&
-    authSource.credentialIdB64u.length > 0
-  ) {
-    walletIdValue = claims.walletId ?? claims.sub;
-    authMethod = WALLET_AUTH_METHODS.passkey;
-    source = { kind: 'passkey' };
-  } else if (
-    provider === undefined &&
-    authSource?.kind === 'passkey' &&
-    typeof authSource.credentialIdB64u === 'string' &&
-    authSource.credentialIdB64u.length > 0
-  ) {
-    walletIdValue = claims.sub;
-    authMethod = WALLET_AUTH_METHODS.passkey;
-    source = { kind: 'passkey' };
-  } else if (
-    provider === undefined &&
-    authSource?.kind === 'oidc_provider' &&
-    (authSource.providerId === 'google_oidc' || authSource.providerId === 'oidc') &&
-    parseProviderSubject(authSource.providerSubject).ok
-  ) {
-    return { kind: 'uncorrelated' };
-  } else {
-    const emailOtpSource = exactEmailOtpAppSessionSourceFromClaims(claims);
-    if (!emailOtpSource) return { kind: 'rejected' };
-    walletIdValue = claims.walletId;
-    authMethod = WALLET_AUTH_METHODS.emailOtp;
-    source = { kind: 'email_otp', providerSubject: emailOtpSource.providerSubject };
-  }
-  const walletId = parseWalletId(walletIdValue);
-  if (!walletId.ok) return { kind: 'uncorrelated' };
-  if (expectation.kind === 'exact_wallet' && walletId.value !== expectation.walletId) {
-    return { kind: 'uncorrelated' };
-  }
-  return {
-    kind: 'authenticated',
-    state: { kind: 'authenticated', walletId: walletId.value, authMethod },
-    source,
-  };
-}
-
-export function authenticationFromValidatedSessionState(
-  value: unknown,
-  expectation: WalletAuthenticationRestoreExpectation,
-): WalletAuthenticationRestoreOutcome {
-  const outcome = authenticationFromValidatedSessionStateWithSource(value, expectation);
-  if (outcome.kind === 'authenticated') {
-    return { kind: 'authenticated', state: outcome.state };
-  }
-  if (outcome.kind === 'source_mismatch') {
-    return { kind: 'rejected' };
-  }
-  return outcome;
-}
-
-async function readAuthoritativeWalletAuthentication(args: {
-  readonly relayerUrl: string;
-  readonly auth: AppSessionRestoreAuth;
-  readonly expectation: WalletAuthenticationRestoreExpectation;
-}): Promise<WalletAuthenticationRestoreOutcomeWithSource> {
-  const headers: HeadersInit = {};
-  if (args.auth.kind !== 'cookie') {
-    headers.Authorization = `Bearer ${args.auth.appSessionJwt}`;
-  }
-  try {
-    const response = await fetch(joinNormalizedUrl(args.relayerUrl, '/session/state'), {
-      method: 'GET',
-      headers,
-      credentials: args.auth.kind === 'cookie' ? 'include' : 'omit',
-    });
-    if (response.status === 401 || response.status === 403) return { kind: 'rejected' };
-    if (!response.ok) return { kind: 'unavailable' };
-    let body: unknown;
-    try {
-      body = await response.json();
-    } catch {
-      return { kind: 'unavailable' };
-    }
-    return authenticationFromValidatedSessionStateWithSource(body, args.expectation);
-  } catch {
-    return { kind: 'unavailable' };
-  }
-}
-
-async function readCachedEmailOtpWalletAuthentication(args: {
-  readonly emailOtpSessions: EmailOtpWalletSessionCoordinator;
-  readonly relayerUrl: string;
-  readonly walletId: WalletId;
-  readonly providerSubject: ProviderSubject | null;
-}): Promise<CachedEmailOtpWalletAuthenticationOutcome> {
-  let jwt: string;
-  try {
-    jwt = await args.emailOtpSessions.resolveAppSessionJwtForWallet({
-      walletId: args.walletId,
-      relayUrl: args.relayerUrl,
-    });
-  } catch {
-    return { kind: 'unavailable' };
-  }
-  const parsedJwt = parseAppSessionJwt(jwt);
-  if (!parsedJwt.ok) return { kind: 'absent' };
-  let binding: EmailOtpAppSessionBinding;
-  try {
-    binding = emailOtpAppSessionBindingFromJwt({
-      walletId: args.walletId,
-      appSessionJwt: parsedJwt.value,
-    });
-  } catch {
-    return { kind: 'absent' };
-  }
-  if (args.providerSubject !== null && binding.providerSubject !== args.providerSubject) {
-    return { kind: 'uncorrelated' };
-  }
-  const outcome = await readAuthoritativeWalletAuthentication({
-    relayerUrl: args.relayerUrl,
-    auth: { kind: 'caller_app_session_jwt', appSessionJwt: parsedJwt.value },
-    expectation: { kind: 'exact_wallet', walletId: args.walletId },
-  });
-  if (
-    outcome.kind === 'authenticated' &&
-    (outcome.state.authMethod !== WALLET_AUTH_METHODS.emailOtp ||
-      outcome.state.walletId !== args.walletId)
-  ) {
-    return { kind: 'rejected' };
-  }
-  return outcome;
-}
-
-function walletAuthenticationRestoreRequestKey(args: {
-  readonly expectedWalletId: WalletId | null;
-  readonly auth: AppSessionRestoreAuth;
-}): string {
-  const walletKey = args.expectedWalletId ? String(args.expectedWalletId) : 'no_wallet';
-  switch (args.auth.kind) {
-    case 'cookie':
-      return `${walletKey}:cookie`;
-    case 'caller_app_session_jwt':
-    case 'host_selected_app_session_jwt':
-      return `${walletKey}:${args.auth.kind}:${args.auth.appSessionJwt}`;
-  }
-}
-
-function hostSelectedRestoreResponseMatches(
-  auth: HostSelectedAppSessionRestoreAuth,
-  source: ValidatedWalletAuthenticationSource,
-): boolean {
-  switch (auth.source.kind) {
-    case 'passkey':
-      return source.kind === 'passkey';
-    case 'oidc_provider':
-      return source.kind === 'email_otp' && source.providerSubject === auth.source.providerSubject;
-    case 'other':
-      return false;
-  }
-}
-
-function resolveBrowserPasskeyOperationStepUpCredential(args: {
+async function resolveBrowserPasskeyOperationStepUpCredential(args: {
   walletId: WalletId;
-  relayerUrl: string;
-}): RouterAbEd25519NormalSigningCredential {
-  if (!__isWalletIframeHostMode()) return { kind: 'app_session_cookie' };
-  const appSessionJwt = activeWalletOrHostedAppSessionJwt(
-    String(args.relayerUrl || '').trim(),
-    String(args.walletId),
-  );
-  if (!appSessionJwt) {
-    throw new Error('Wallet iframe app session JWT is unavailable for NEAR step-up');
+}): Promise<RouterAbOwnerNormalSigningCredential> {
+  const read = await walletSessionAuthorizations.readActiveForWallet(args.walletId);
+  if (read.kind !== 'found') {
+    throw new Error('Wallet Session projection is unavailable for NEAR step-up');
   }
-  return { kind: 'app_session_jwt', appSessionJwt };
+  const walletSessionToken = walletSessionTokenForCurve(read.projection, 'ed25519');
+  if (!walletSessionToken) {
+    throw new Error('Wallet Session token is unavailable for NEAR step-up');
+  }
+  return { kind: 'wallet_session_opaque', walletSessionToken };
 }
 
 export class BrowserSigningSurface {
@@ -1911,11 +1619,6 @@ export class BrowserSigningSurface {
   private readonly signingSessionLifecycleSubscription: SigningSessionLifecycleSubscription;
   private readonly nearProvisioningUnsubscribe: () => void;
   private walletAuthenticationState: WalletAuthenticationState = { kind: 'signed_out' };
-  private readonly walletAuthenticationRestoreInFlight = new Map<
-    string,
-    Promise<WalletAuthenticationState>
-  >();
-  private walletAuthenticationRestorationBlocked = false;
   private walletAuthenticationRestoreGeneration = 0;
 
   readonly seamsWebConfigs: SeamsConfigsReadonly;
@@ -2167,20 +1870,25 @@ export class BrowserSigningSurface {
     walletId: WalletId;
     relayerUrl: string;
     proof: Ed25519OperationStepUpProof;
-  }): Promise<RouterAbEd25519NormalSigningCredential> {
+  }): Promise<RouterAbOwnerNormalSigningCredential> {
     switch (args.proof.kind) {
       case 'passkey':
-        return resolveBrowserPasskeyOperationStepUpCredential({
+        return await resolveBrowserPasskeyOperationStepUpCredential({
           walletId: args.walletId,
-          relayerUrl: args.relayerUrl,
         });
       case 'email_otp': {
-        const appSessionJwt = await this.emailOtpSessions.resolveAppSessionJwtForProviderSubject({
-          walletId: args.walletId,
-          providerSubject: args.proof.providerSubjectId,
-          relayUrl: args.relayerUrl,
-        });
-        return { kind: 'app_session_jwt', appSessionJwt };
+        const authorization = await walletSessionAuthorizations.readActiveForWallet(args.walletId);
+        if (authorization.kind !== 'found') {
+          throw new Error('[SigningEngine][near] Email OTP Wallet Session is unavailable');
+        }
+        const walletSessionToken = walletSessionTokenForCurve(
+          authorization.projection,
+          'ed25519',
+        );
+        if (!walletSessionToken) {
+          throw new Error('[SigningEngine][near] Email OTP Wallet Session token is unavailable');
+        }
+        return { kind: 'wallet_session_opaque', walletSessionToken };
       }
       default:
         args.proof satisfies never;
@@ -2393,7 +2101,7 @@ export class BrowserSigningSurface {
     participantIds: readonly [number, number];
     registeredPublicKeyB64u: string;
     routerOrigin: string;
-    walletSessionJwt: string;
+    walletSessionToken: string;
   }): Promise<JoinedWalletCustodyNearEd25519KeySetV1> {
     let activationResultJson: string | null = null;
     const rejoined = await rejoinNearEd25519CustodyV1({
@@ -2418,7 +2126,7 @@ export class BrowserSigningSurface {
           {
             method: 'POST',
             headers: {
-              authorization: `Bearer ${args.walletSessionJwt}`,
+              authorization: `Bearer ${args.walletSessionToken}`,
               'content-type': 'application/json',
             },
             body: JSON.stringify({ executeRequest: JSON.parse(yaoExecuteRequestJson) }),
@@ -2681,8 +2389,8 @@ export class BrowserSigningSurface {
     }
     const statusCurve =
       authorization.walletSessionTokens.kind === 'evm_family_ecdsa' ? 'ecdsa' : 'ed25519';
-    const walletSessionJwt = walletSessionJwtForCurve(authorization, statusCurve);
-    if (!walletSessionJwt) {
+    const walletSessionToken = walletSessionTokenForCurve(authorization, statusCurve);
+    if (!walletSessionToken) {
       return {
         kind: 'unavailable',
         walletId: exactWalletId,
@@ -2691,7 +2399,7 @@ export class BrowserSigningSurface {
     }
     const status = await createRelayerReusableWalletSessionStatusPort({
       relayerUrl,
-      auth: { kind: 'wallet_session', jwt: walletSessionJwt },
+      auth: { kind: 'opaque_wallet_session', walletSessionToken },
     })
       .read({
         walletSessionId: authorization.walletSessionId,
@@ -2792,171 +2500,6 @@ export class BrowserSigningSurface {
     return this.walletAuthenticationState;
   }
 
-  async restoreWalletAuthenticationState(
-    walletId: WalletId | string | undefined,
-    auth: WalletAuthenticationRestoreAuth,
-  ): Promise<WalletAuthenticationState> {
-    const normalizedAuth = normalizeWalletAuthenticationRestoreAuth(auth);
-    if (!normalizedAuth) {
-      this.walletAuthenticationRestoreGeneration += 1;
-      this.walletAuthenticationState = { kind: 'signed_out' };
-      return this.walletAuthenticationState;
-    }
-    return await this.restoreWalletAuthenticationStateWithAuth(walletId, normalizedAuth);
-  }
-
-  async restoreWalletAuthenticationStateFromHostSession(
-    walletId: WalletId | string | undefined,
-  ): Promise<WalletAuthenticationState> {
-    const relayerUrl = String(this.seamsWebConfigs.network.relayer?.url || '').trim();
-    const appSessionJwt = activeWalletOrHostedAppSessionJwt(
-      relayerUrl,
-      walletId === undefined ? undefined : String(walletId),
-    );
-    const auth: AppSessionRestoreAuth = appSessionJwt
-      ? hostSelectedRestoreAuthFromJwt(appSessionJwt)
-      : { kind: 'cookie' };
-    return await this.restoreWalletAuthenticationStateWithAuth(walletId, auth);
-  }
-
-  private async restoreWalletAuthenticationStateWithAuth(
-    walletId: WalletId | string | undefined,
-    auth: AppSessionRestoreAuth,
-  ): Promise<WalletAuthenticationState> {
-    if (walletId === undefined) {
-      await this.userPreferencesManager.initFromIndexedDB();
-      walletId = this.userPreferencesManager.getCurrentWalletId() ?? undefined;
-    }
-    const expectedWalletId = walletId == null ? null : parseWalletId(walletId);
-    if (expectedWalletId && !expectedWalletId.ok) return this.walletAuthenticationState;
-    if (this.walletAuthenticationRestorationBlocked) return this.walletAuthenticationState;
-    const expected = expectedWalletId?.ok ? expectedWalletId.value : null;
-    const expectation: WalletAuthenticationRestoreExpectation = expectedWalletId?.ok
-      ? { kind: 'exact_wallet', walletId: expectedWalletId.value }
-      : { kind: 'derive_wallet' };
-    const relayerUrl = String(this.seamsWebConfigs.network.relayer?.url || '').trim();
-    if (!relayerUrl) return this.walletAuthenticationState;
-    const restoreKey = walletAuthenticationRestoreRequestKey({
-      expectedWalletId: expected,
-      auth,
-    });
-    const currentRestore = this.walletAuthenticationRestoreInFlight.get(restoreKey);
-    if (currentRestore) return await currentRestore;
-    const restoreGeneration = ++this.walletAuthenticationRestoreGeneration;
-    const restorePromise = this.restoreWalletAuthenticationStateForGeneration({
-      relayerUrl,
-      auth,
-      expectation,
-      expectedWalletId: expected,
-      restoreGeneration,
-    });
-    this.walletAuthenticationRestoreInFlight.set(restoreKey, restorePromise);
-    try {
-      return await restorePromise;
-    } finally {
-      if (this.walletAuthenticationRestoreInFlight.get(restoreKey) === restorePromise) {
-        this.walletAuthenticationRestoreInFlight.delete(restoreKey);
-      }
-    }
-  }
-
-  private async restoreWalletAuthenticationStateForGeneration(args: {
-    readonly relayerUrl: string;
-    readonly auth: AppSessionRestoreAuth;
-    readonly expectation: WalletAuthenticationRestoreExpectation;
-    readonly expectedWalletId: WalletId | null;
-    readonly restoreGeneration: number;
-  }): Promise<WalletAuthenticationState> {
-    let authoritative = await readAuthoritativeWalletAuthentication({
-      relayerUrl: args.relayerUrl,
-      auth: args.auth,
-      expectation: args.expectation,
-    });
-    if (
-      authoritative.kind === 'authenticated' &&
-      args.auth.kind === 'host_selected_app_session_jwt' &&
-      !hostSelectedRestoreResponseMatches(args.auth, authoritative.source)
-    ) {
-      authoritative = { kind: 'source_mismatch' };
-    }
-    if (authoritative.kind === 'authenticated') {
-      if (args.restoreGeneration === this.walletAuthenticationRestoreGeneration) {
-        this.applyAuthenticatedWalletState(authoritative.state);
-      }
-      return this.walletAuthenticationState;
-    }
-
-    const cookieEmailOtpFallbackAllowed =
-      args.auth.kind === 'cookie' &&
-      (authoritative.kind === 'uncorrelated' ||
-        (authoritative.kind === 'rejected' &&
-          (this.walletAuthenticationState.kind === 'signed_out' ||
-            this.walletAuthenticationState.authMethod === 'email_otp')));
-    const hostSelectedEmailOtpFallbackAllowed =
-      args.auth.kind === 'host_selected_app_session_jwt' &&
-      args.auth.source.kind === 'oidc_provider' &&
-      (authoritative.kind === 'rejected' || authoritative.kind === 'uncorrelated');
-    const cachedEmailOtpProviderSubject = hostSelectedEmailOtpFallbackAllowed
-      ? args.auth.source.providerSubject
-      : null;
-    const shouldReadCachedEmailOtp =
-      args.expectedWalletId !== null &&
-      (cookieEmailOtpFallbackAllowed || hostSelectedEmailOtpFallbackAllowed);
-    if (shouldReadCachedEmailOtp) {
-      const cached = await readCachedEmailOtpWalletAuthentication({
-        emailOtpSessions: this.emailOtpSessions,
-        relayerUrl: args.relayerUrl,
-        walletId: args.expectedWalletId,
-        providerSubject: cachedEmailOtpProviderSubject,
-      });
-      if (cached.kind === 'authenticated') {
-        if (args.restoreGeneration === this.walletAuthenticationRestoreGeneration) {
-          this.applyAuthenticatedWalletState(cached.state);
-        }
-        return this.walletAuthenticationState;
-      }
-      if (cached.kind === 'unavailable') {
-        if (
-          authoritative.kind === 'rejected' &&
-          args.auth.kind === 'cookie' &&
-          this.walletAuthenticationState.kind === 'authenticated' &&
-          this.walletAuthenticationState.authMethod === WALLET_AUTH_METHODS.passkey
-        ) {
-          this.clearWalletAuthenticationFromRestoration(args);
-        }
-        return this.walletAuthenticationState;
-      }
-      if (cached.kind === 'rejected' || cached.kind === 'uncorrelated') {
-        this.clearWalletAuthenticationFromRestoration(args);
-        return this.walletAuthenticationState;
-      }
-    }
-
-    if (
-      authoritative.kind === 'rejected' ||
-      authoritative.kind === 'source_mismatch' ||
-      (authoritative.kind === 'uncorrelated' && args.auth.kind !== 'cookie')
-    ) {
-      this.clearWalletAuthenticationFromRestoration(args);
-    }
-    return this.walletAuthenticationState;
-  }
-
-  private clearWalletAuthenticationFromRestoration(args: {
-    readonly expectedWalletId: WalletId | null;
-    readonly restoreGeneration: number;
-  }): void {
-    if (args.restoreGeneration !== this.walletAuthenticationRestoreGeneration) return;
-    if (
-      args.expectedWalletId !== null &&
-      this.walletAuthenticationState.kind === 'authenticated' &&
-      this.walletAuthenticationState.walletId !== args.expectedWalletId
-    ) {
-      return;
-    }
-    this.walletAuthenticationState = { kind: 'signed_out' };
-  }
-
   /**
    * Every route that lands a wallet in the authenticated state goes through
    * here — passkey unlock, email OTP login, the hosted auth menu, and session
@@ -2979,7 +2522,6 @@ export class BrowserSigningSurface {
     state: Extract<WalletAuthenticationState, { kind: 'authenticated' }>,
   ): void {
     this.walletAuthenticationRestoreGeneration += 1;
-    this.walletAuthenticationRestorationBlocked = false;
     this.applyAuthenticatedWalletState(state);
   }
 
@@ -2987,7 +2529,6 @@ export class BrowserSigningSurface {
     state: Extract<WalletAuthenticationState, { kind: 'linked_device_session' }>,
   ): void {
     this.walletAuthenticationRestoreGeneration += 1;
-    this.walletAuthenticationRestorationBlocked = true;
     this.walletAuthenticationState = state;
     this.userPreferencesManager.setCurrentWallet(state.walletId);
   }
@@ -3005,7 +2546,6 @@ export class BrowserSigningSurface {
 
   clearWalletAuthentication(): void {
     this.walletAuthenticationRestoreGeneration += 1;
-    this.walletAuthenticationRestorationBlocked = true;
     this.walletAuthenticationState = { kind: 'signed_out' };
   }
 
@@ -3236,16 +2776,16 @@ export class BrowserSigningSurface {
     const candidates = ownerSourceLaneCandidates(available);
     const hintsByIdentity = new Map<string, LinkedDeviceOwnerSourceLaneV1>();
     for (const candidate of candidates) {
-      const walletSessionJwt = walletSessionJwtForCurve(
+      const walletSessionToken = walletSessionTokenForCurve(
         input.projection,
         candidate.curve === 'ecdsa_secp256k1' ? 'ecdsa' : 'ed25519',
       );
-      if (!walletSessionJwt) {
-        throw new Error(`Owner ${candidate.curve} source lane requires a Wallet Session JWT`);
+      if (!walletSessionToken) {
+        throw new Error(`Owner ${candidate.curve} source lane requires a Wallet Session token`);
       }
       const projection = await readOwnerWalletExecutionLaneProjectionV1({
         relayerUrl: String(this.seamsWebConfigs.network.relayer?.url || '').trim(),
-        walletSessionJwt,
+        walletSessionToken,
         curve: candidate.curve,
         expectedMaterialActivation: candidate.materialActivation,
       });
@@ -3873,17 +3413,13 @@ export class BrowserSigningSurface {
     ) {
       throw new Error('[SigningEngine][near] authenticated funding session is unavailable');
     }
-    const walletSessionJwt = walletSessionJwtForCurve(authorizationRead.projection, 'ed25519');
-    if (!walletSessionJwt) {
-      throw new Error('[SigningEngine][near] authenticated funding JWT is unavailable');
-    }
-    const claims = parseRouterAbEd25519WalletSessionIdentityClaims(walletSessionJwt);
+    const walletSessionToken = walletSessionTokenForCurve(authorizationRead.projection, 'ed25519');
     if (
-      !claims ||
-      claims.walletId !== String(identity.signer.account.wallet.walletId) ||
-      claims.nearAccountId !== String(identity.signer.account.nearAccountId) ||
-      claims.nearEd25519SigningKeyId !== String(identity.signer.nearEd25519SigningKeyId) ||
-      String(claims.thresholdSessionId) !== String(identity.thresholdSessionId)
+      !walletSessionToken ||
+      authorizationRead.projection.walletId !== identity.signer.account.wallet.walletId ||
+      authorizationRead.projection.authMethod !== identity.auth.kind ||
+      !authorizationRead.projection.walletSessionId ||
+      !authorizationRead.projection.quotaId
     ) {
       throw new Error('[SigningEngine][near] funding session identity does not match');
     }
@@ -3891,7 +3427,7 @@ export class BrowserSigningSurface {
       kind: 'near_ed25519_funding_session',
       signer: identity.signer,
       thresholdSessionId: identity.thresholdSessionId,
-      walletSessionJwt,
+      walletSessionToken,
     };
   }
 
@@ -4038,8 +3574,8 @@ export class BrowserSigningSurface {
       relayerUrl: context.facts.relayerUrl,
       proof: request.proof,
     });
-    if (credential.kind !== 'app_session_jwt') {
-      throw new Error('[SigningEngine][near] Email OTP recovery requires app-session auth');
+    if (credential.kind !== 'wallet_session_opaque') {
+      throw new Error('[SigningEngine][near] Email OTP recovery requires an opaque Wallet Session');
     }
     const recovered = await requestRehydrateEmailOtpEd25519YaoOperationMaterial({
       workerCtx: this.signerWorkerManager.getContext(),
@@ -5166,12 +4702,14 @@ export class BrowserSigningSurface {
         const state = activated.walletSessionState;
         await persistActiveWalletSessionAuthorizationCurve(walletSessionAuthorizations, {
           walletId: state.signingLane.identity.signer.account.wallet.walletId,
+          authorizationId: state.signingWalletSession.authorizationId,
           walletSessionId: state.walletSessionId,
           quotaId: state.quotaId,
           expiresAtMs: state.signingWalletSession.expiresAtMs,
           authority: state.authority,
           authMethod: WALLET_AUTH_METHODS.emailOtp,
-          walletSessionJwt: state.walletSessionAuth.walletSessionJwt,
+          walletSessionToken: state.walletSessionAuth.walletSessionToken,
+          thresholdSessionId: state.signingLane.identity.thresholdSessionId,
           curve: 'ed25519',
         });
         await this.upsertEd25519YaoPublicCapabilityLaneReference(
@@ -5202,8 +4740,19 @@ export class BrowserSigningSurface {
     if (!projection) {
       throw new Error('Email OTP wallet custody Ed25519 signer projection is unavailable');
     }
-    const authLane = resolveEmailOtpAuthLane({ appSessionJwt: args.appSessionJwt });
-    if (!authLane) throw new Error('Email OTP Ed25519 login requires app-session auth');
+    const authorization = await walletSessionAuthorizations.readActiveForWallet(
+      args.walletSession.walletId,
+    );
+    if (authorization.kind !== 'found') {
+      throw new Error('Email OTP Ed25519 login requires an active Wallet Session');
+    }
+    const walletSessionToken = walletSessionTokenForCurve(authorization.projection, 'ed25519');
+    if (!walletSessionToken) {
+      throw new Error('Email OTP Ed25519 login requires an opaque Wallet Session token');
+    }
+    const authLane = resolveEmailOtpAuthLane({
+      routeAuth: { kind: 'opaque_wallet_session', walletSessionToken },
+    });
     const unlock = await unlockEmailOtpEd25519YaoCapability({
       walletSession: args.walletSession,
       relayUrl: this.seamsWebConfigs.network.relayer?.url || '',
@@ -5211,7 +4760,6 @@ export class BrowserSigningSurface {
       verification: { kind: 'otp', challengeId: args.challengeId, otpCode: args.otpCode },
       routePlan: buildFreshEmailOtpRoutePlan({
         freshRouteFamily: 'login',
-        authLane,
         operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
       }),
       workerCtx: this.signerWorkerManager.getContext(),
@@ -5284,28 +4832,12 @@ export class BrowserSigningSurface {
     return await emailOtpPublic.refreshEmailOtpSigningSession(this.emailOtpPublicDeps, args);
   }
 
-  async resolveEmailOtpAppSessionJwt(args: {
-    walletSession: WalletSessionRef;
-    relayUrl: string;
-  }): Promise<string> {
-    return await this.emailOtpSessions.resolveAppSessionJwt(args);
-  }
-
-  rememberEmailOtpAppSessionBinding(binding: EmailOtpAppSessionBinding): void {
-    this.emailOtpSessions.rememberAppSessionBinding(binding);
-  }
-
-  rememberEmailOtpAppSessionJwt(walletId: WalletId, appSessionJwt: string): void {
-    this.emailOtpSessions.rememberAppSessionJwt({ walletId, appSessionJwt });
-  }
-
   async enrollEmailOtpInternal(args: {
     walletId: WalletId;
     otpCode: string;
     relayUrl?: string;
     challengeId?: string;
     groupId?: string;
-    appSessionJwt?: string;
     clientSecret32?: Uint8Array;
     otpChannel?: WalletEmailOtpChannel;
   }): Promise<Awaited<ReturnType<typeof emailOtpPublic.enrollEmailOtpInternal>>> {

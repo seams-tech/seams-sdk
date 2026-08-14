@@ -1,5 +1,4 @@
 import type { SigningSessionStatus } from '@/core/types/seams';
-import type { EmailOtpSessionRefreshResult } from '../emailOtp/appSessionJwtCache';
 import type { PositiveRemainingUses } from '../../threshold/sessionPolicy';
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
@@ -378,25 +377,6 @@ export function buildStepUpFreshnessFromRestoredSealedRecord(
       expiresAtMs > 0 && expiresAtMs <= (input.nowMs ?? Date.now())
         ? 'threshold_session_expired'
         : 'threshold_session_exhausted',
-  });
-}
-
-export function buildFreshStepUpRequiredFromEmailOtpRefreshRejection(
-  rejection: Extract<EmailOtpSessionRefreshResult, { kind: 'email_otp_refresh_rejected' }>,
-): FreshStepUpRequired {
-  return buildFreshStepUpRequired({
-    walletId: rejection.identity.walletId,
-    operationId: rejection.identity.operationId,
-    operationFingerprint: rejection.identity.operationFingerprint,
-    laneIdentity: rejection.identity.laneIdentity,
-    projection: { kind: 'unavailable', reason: 'email_otp_refresh_rejected' },
-    expiry: { kind: 'unavailable', reason: 'email_otp_refresh_rejected' },
-    provenance: {
-      kind: 'email_otp_refresh_boundary',
-      httpStatus: rejection.httpStatus,
-      observedAtMs: Date.now(),
-    },
-    reason: 'email_otp_refresh_rejected',
   });
 }
 

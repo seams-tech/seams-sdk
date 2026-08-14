@@ -1,5 +1,4 @@
 import { BrowserSigningSurface } from '@/SeamsWeb/signingSurface/BrowserSigningSurface';
-import type { WalletAuthenticationRestoreAuth } from '@/SeamsWeb/signingSurface/ports';
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
   addWalletSigner as addWalletSignerWithUnifiedCeremony,
@@ -116,7 +115,6 @@ import type {
   TempoSignerCapability,
 } from '@/SeamsWeb/signingSurface/types';
 import type { RouterAbEcdsaDerivationLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
-import { activeWalletOrHostedAppSessionJwt } from '@/SeamsWeb/walletIframe/host/hostedWalletSeamsSession';
 import type { UiConfirmSurfaceMeasurementBinding } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
 import type {
   EnrollEmailOtpInternalResult,
@@ -153,18 +151,24 @@ import { configuredEmailOtpEcdsaSnapshotChainTargets } from '@/core/signingEngin
 import type { LoginWithEmailOtpWalletCustodyEd25519Args } from '@/core/signingEngine/walletCustody/ed25519Login';
 import type { EmailOtpWorkerProgressEvent } from '@/core/signingEngine/workerManager/workerTypes';
 import {
-  exchangeGoogleEmailOtpSession,
   requestEmailOtpChallenge,
   requestEmailOtpEnrollmentChallenge,
+  resolveGoogleEmailOtpProvider,
 } from '@/SeamsWeb/operations/authMethods/emailOtp/challenge';
+import {
+  beginGoogleEmailOtpWalletAuth,
+  type GoogleEmailOtpWalletAuthDeps,
+} from '@/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow';
 import { WalletRecoveryCoordinator } from '@/SeamsWeb/operations/recovery/walletRecovery';
-import { rotateWalletRecoveryCodes } from '@/SeamsWeb/operations/recovery/walletRecoveryRotation';
+import {
+  buildWalletCustodyPasskeyFactorProof,
+  rotateWalletRecoveryCodes,
+} from '@/SeamsWeb/operations/recovery/walletRecoveryRotation';
 import { showWalletRecoveryCodeBackupUi } from '@/SeamsWeb/operations/recovery/walletRecoveryCodeBackup';
 import { pendingWalletRecoveryCodeBackupRepository } from '@/core/indexedDB/seamsWalletDB/pendingWalletRecoveryCodeBackup';
-import { beginGoogleEmailOtpWalletAuth } from '@/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow';
-import { decodeJwtPayloadRecord } from '@shared/utils/sessionTokens';
 import {
   acknowledgeWalletRecoveryBackup,
+  requestWalletCustodyEmailOtpChallenge,
   readWalletRecoveryCodeStatus,
 } from '@/core/rpcClients/relayer/walletRecoveryRotate';
 import {
@@ -219,7 +223,7 @@ type EmailOtpUnlockActivationPlan = {
 
 type EmailOtpUnlockTimingBucket =
   | 'emailOtpProofVerificationMs'
-  | 'appSessionExchangeMs'
+  | 'walletUnlockExchangeMs'
   | 'ecdsaMaterialRestoreMs'
   | 'signingSessionSealApplyMs'
   | 'warmCapabilityPersistenceMs'
@@ -308,7 +312,7 @@ function nowMs(): number {
 function createEmailOtpUnlockTimings(): Record<EmailOtpUnlockTimingBucket, number> {
   return {
     emailOtpProofVerificationMs: 0,
-    appSessionExchangeMs: 0,
+    walletUnlockExchangeMs: 0,
     ecdsaMaterialRestoreMs: 0,
     signingSessionSealApplyMs: 0,
     warmCapabilityPersistenceMs: 0,
@@ -712,9 +716,7 @@ function deliverNearProvisioningStateChanged(
 type WalletHostLinkedDeviceSessionRepository =
   WalletHostCompositionDependenciesV1['walletSessionRepository'];
 
-class ProjectingLinkedDeviceWalletSessionRepository
-  implements WalletHostLinkedDeviceSessionRepository
-{
+class ProjectingLinkedDeviceWalletSessionRepository implements WalletHostLinkedDeviceSessionRepository {
   constructor(
     private readonly repository: WalletHostLinkedDeviceSessionRepository,
     private readonly userPreferences: Pick<
@@ -792,11 +794,10 @@ export class SeamsWeb {
       this.signingEngine.setAppearance(this.appearance);
     } catch {}
     const userPreferences = this.signingEngine.getUserPreferences();
-    const projectedLinkedDeviceWalletSessions =
-      new ProjectingLinkedDeviceWalletSessionRepository(
-        linkedDeviceWalletSessions,
-        userPreferences,
-      );
+    const projectedLinkedDeviceWalletSessions = new ProjectingLinkedDeviceWalletSessionRepository(
+      linkedDeviceWalletSessions,
+      userPreferences,
+    );
 
     this.walletIframe = new WalletIframeCoordinator({
       configs: this.configs,
@@ -857,8 +858,6 @@ export class SeamsWeb {
           await this.requestEmailOtpSigningSessionChallengeDomain(args),
         refreshEmailOtpSigningSession: async (args) =>
           await this.refreshEmailOtpSigningSessionDomain(args),
-        exchangeGoogleEmailOtpSession: async (args) =>
-          await this.exchangeGoogleEmailOtpSessionDomain(args),
         loginWithEmailOtpEcdsaCapability: async (args) =>
           await this.loginWithEmailOtpEcdsaCapabilityDomain(args),
         beginGoogleEmailOtpWalletAuth: async (args) =>
@@ -884,6 +883,8 @@ export class SeamsWeb {
           await this.getWalletRecoveryCodeStatusDomain(args),
         acknowledgeWalletRecoveryCodeBackup: async (args) =>
           await this.acknowledgeWalletRecoveryCodeBackupDomain(args),
+        requestWalletCustodyEmailOtpChallenge: async (args) =>
+          await this.requestWalletCustodyEmailOtpChallengeDomain(args),
         rotateWalletRecoveryCodes: async (args) => await this.rotateWalletRecoveryCodesDomain(args),
         requestWalletRecoveryBootstrapChallenge: async (args) =>
           await this.requestWalletRecoveryBootstrapChallengeDomain(args),
@@ -914,17 +915,6 @@ export class SeamsWeb {
     this.evm = publicApi.evm;
 
     // UserConfirm worker initializes automatically in the constructor
-  }
-
-  async restoreWalletAuthenticationState(
-    walletId?: string,
-    auth: WalletAuthenticationRestoreAuth = { kind: 'cookie' },
-  ): Promise<void> {
-    await this.signingEngine.restoreWalletAuthenticationState(walletId, auth);
-  }
-
-  async restoreWalletAuthenticationStateFromHostSession(walletId?: string): Promise<void> {
-    await this.signingEngine.restoreWalletAuthenticationStateFromHostSession(walletId);
   }
 
   /**
@@ -1491,7 +1481,6 @@ export class SeamsWeb {
   private async requestEmailOtpChallengeDomain(args: {
     walletId: string;
     relayUrl?: string;
-    appSessionJwt?: string;
     operation?: WalletEmailOtpLoginOperation;
     onEvent?: (event: UnlockFlowEvent) => void;
   }): Promise<EmailOtpChallengeResult> {
@@ -1520,7 +1509,6 @@ export class SeamsWeb {
       const result = await requestEmailOtpChallenge({
         relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
         walletId: String(args.walletId || '').trim(),
-        ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
         ...(args.operation ? { operation: args.operation } : {}),
       });
       this.emitEmailOtpUnlockEvent(args.onEvent, {
@@ -1547,7 +1535,6 @@ export class SeamsWeb {
   private async requestEmailOtpEnrollmentChallengeDomain(args: {
     walletId: string;
     relayUrl?: string;
-    appSessionJwt?: string;
     onEvent?: (event: RegistrationFlowEvent) => void;
   }): Promise<EmailOtpChallengeResult> {
     const flowId = this.emailOtpRegistrationFlowId(args.walletId);
@@ -1575,7 +1562,6 @@ export class SeamsWeb {
       const result = await requestEmailOtpEnrollmentChallenge({
         relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
         walletId: String(args.walletId || '').trim(),
-        ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
       });
       this.emitEmailOtpRegistrationEvent(args.onEvent, {
         flowId: this.emailOtpRegistrationFlowId(args.walletId, result.challengeId),
@@ -1654,156 +1640,12 @@ export class SeamsWeb {
     }
   }
 
-  private async exchangeGoogleEmailOtpSessionDomain(args: {
-    idToken: string;
-    accountMode: 'register' | 'login';
-    relayUrl?: string;
-    sessionKind?: 'jwt' | 'cookie';
-    onEvent?: (event: RegistrationFlowEvent | UnlockFlowEvent) => void;
-  }): Promise<Awaited<ReturnType<typeof exchangeGoogleEmailOtpSession>>> {
-    const exchangeFlowId = `email-otp-${args.accountMode}:google-session`;
-    const exchangeStartedAtMs = nowMs();
-    if (args.accountMode === 'register') {
-      this.emitEmailOtpRegistrationEvent(args.onEvent, {
-        flowId: exchangeFlowId,
-        authMethod: 'email_otp',
-        phase: RegistrationEventPhase.STEP_03_SESSION_EXCHANGE_STARTED,
-        status: 'running',
-      });
-    } else {
-      this.emitEmailOtpUnlockEvent(args.onEvent, {
-        flowId: exchangeFlowId,
-        authMethod: 'email_otp',
-        phase: UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_STARTED,
-        status: 'running',
-      });
-    }
-    try {
-      if (this.walletIframe.shouldUseWalletIframe()) {
-        const router = await this.walletIframe.requireRouter();
-        const result = await router.exchangeGoogleEmailOtpSession(args);
-        const walletId = String(result.session?.walletId || '').trim();
-        if (args.accountMode === 'register') {
-          this.emitEmailOtpRegistrationEvent(args.onEvent, {
-            flowId: walletId ? this.emailOtpRegistrationFlowId(walletId) : exchangeFlowId,
-            ...(walletId ? { walletId } : {}),
-            authMethod: 'email_otp',
-            phase: RegistrationEventPhase.STEP_03_SESSION_EXCHANGE_SUCCEEDED,
-            status: 'succeeded',
-            data: {
-              googleEmailOtpResolution: result.session?.googleEmailOtpResolution,
-            },
-          });
-        } else {
-          this.emitEmailOtpUnlockEvent(args.onEvent, {
-            flowId: walletId ? this.emailOtpUnlockFlowId(walletId) : exchangeFlowId,
-            ...(walletId ? { walletId } : {}),
-            authMethod: 'email_otp',
-            phase: UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_SUCCEEDED,
-            status: 'succeeded',
-            data: {
-              appSessionExchangeMs: Math.max(0, Math.round(nowMs() - exchangeStartedAtMs)),
-            },
-          });
-        }
-        return result;
-      }
-      const managedRegistration =
-        this.configs.registration.mode === 'managed' ? this.configs.registration : null;
-      const result = await exchangeGoogleEmailOtpSession({
-        relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
-        idToken: args.idToken,
-        accountMode: args.accountMode,
-        ...(args.sessionKind ? { sessionKind: args.sessionKind } : {}),
-        ...(managedRegistration
-          ? {
-              projectEnvironmentId: managedRegistration.projectEnvironmentId,
-              publishableKey: managedRegistration.publishableKey,
-            }
-          : {}),
-      });
-      const walletId = String(result.session?.walletId || '').trim();
-      if (args.accountMode === 'register') {
-        this.emitEmailOtpRegistrationEvent(args.onEvent, {
-          flowId: walletId ? this.emailOtpRegistrationFlowId(walletId) : exchangeFlowId,
-          ...(walletId ? { walletId } : {}),
-          authMethod: 'email_otp',
-          phase: RegistrationEventPhase.STEP_03_SESSION_EXCHANGE_SUCCEEDED,
-          status: 'succeeded',
-          data: {
-            googleEmailOtpResolution: result.session?.googleEmailOtpResolution,
-          },
-        });
-      } else {
-        this.emitEmailOtpUnlockEvent(args.onEvent, {
-          flowId: walletId ? this.emailOtpUnlockFlowId(walletId) : exchangeFlowId,
-          ...(walletId ? { walletId } : {}),
-          authMethod: 'email_otp',
-          phase: UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_SUCCEEDED,
-          status: 'succeeded',
-          data: {
-            appSessionExchangeMs: Math.max(0, Math.round(nowMs() - exchangeStartedAtMs)),
-          },
-        });
-      }
-      return result;
-    } catch (error: unknown) {
-      const e = toError(error);
-      if (args.accountMode === 'register') {
-        this.emitEmailOtpRegistrationFailure(args.onEvent, {
-          flowId: exchangeFlowId,
-          authMethod: 'email_otp',
-          error: e,
-        });
-      } else {
-        this.emitEmailOtpUnlockFailure(args.onEvent, {
-          flowId: exchangeFlowId,
-          authMethod: 'email_otp',
-          error: e,
-        });
-      }
-      throw e;
-    }
-  }
-
-  private async beginGoogleEmailOtpWalletAuthDomain(
-    args: Parameters<AuthCapability['beginGoogleEmailOtpWalletAuth']>[0],
-  ): ReturnType<AuthCapability['beginGoogleEmailOtpWalletAuth']> {
-    if (this.walletIframe.shouldUseWalletIframe()) {
-      const router = await this.walletIframe.requireRouter();
-      return await router.beginGoogleEmailOtpWalletAuth(args);
-    }
-    return await beginGoogleEmailOtpWalletAuth(
-      {
-        configs: this.configs,
-        exchangeGoogleEmailOtpSession: async (exchangeArgs) =>
-          await this.exchangeGoogleEmailOtpSessionDomain(exchangeArgs),
-        requestEmailOtpChallenge: async (challengeArgs) =>
-          await this.requestEmailOtpChallengeDomain(challengeArgs),
-        prewarmEmailOtpYao: async () => {
-          await this.signingEngine.prewarmEmailOtpYao();
-        },
-        registerWallet: async (registerArgs) => await this.registerWalletDomain(registerArgs),
-        loginWithEmailOtpEcdsaCapability: async (loginArgs) =>
-          await this.loginWithEmailOtpEcdsaCapabilityDomain(loginArgs),
-        loginWithEmailOtpEd25519YaoCapability:
-          this.loginWithEmailOtpEd25519YaoCapabilityDomain.bind(this),
-        rememberEmailOtpAppSessionJwt: ({ walletId, appSessionJwt }) =>
-          this.signingEngine.rememberEmailOtpAppSessionJwt(walletId, appSessionJwt),
-        getWalletSession: async (walletId) =>
-          await getWalletSessionDomain(this.getWalletAuthDeps(), walletId),
-      },
-      args,
-    );
-  }
-
   private async enrollEmailOtpDomain(args: {
     walletId: string;
     otpCode: string;
     relayUrl?: string;
     challengeId?: string;
     groupId?: string;
-    appSessionJwt?: string;
     clientSecret32?: Uint8Array;
     onEvent?: (event: RegistrationFlowEvent) => void;
   }): Promise<EnrollEmailOtpInternalResult> {
@@ -1867,7 +1709,6 @@ export class SeamsWeb {
         ...(args.relayUrl ? { relayUrl: args.relayUrl } : {}),
         ...(args.challengeId ? { challengeId: args.challengeId } : {}),
         ...(args.groupId ? { groupId: args.groupId } : {}),
-        ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
         ...(args.clientSecret32 ? { clientSecret32: args.clientSecret32 } : {}),
       });
       this.emitEmailOtpRegistrationEvent(args.onEvent, {
@@ -1922,11 +1763,9 @@ export class SeamsWeb {
         walletId: args.walletId,
       });
     }
-    const appSessionJwt = this.requireActiveWalletAppSessionJwt(relayUrl, args.walletId);
     const status = await readWalletRecoveryCodeStatus({
       relayUrl,
       walletId: args.walletId,
-      sessionToken: appSessionJwt,
     });
     return status.kind === 'ready'
       ? {
@@ -1934,6 +1773,50 @@ export class SeamsWeb {
           pendingLocalBackup: await pendingWalletRecoveryCodeBackupRepository.has(args.walletId),
         }
       : status;
+  }
+
+  private async beginGoogleEmailOtpWalletAuthDomain(
+    args: Parameters<AuthCapability['beginGoogleEmailOtpWalletAuth']>[0],
+  ): ReturnType<AuthCapability['beginGoogleEmailOtpWalletAuth']> {
+    if (this.walletIframe.shouldUseWalletIframe()) {
+      const router = await this.walletIframe.requireRouter();
+      return await router.beginGoogleEmailOtpWalletAuth(args);
+    }
+    return await beginGoogleEmailOtpWalletAuth(
+      {
+        configs: this.configs,
+        resolveGoogleEmailOtpProvider: this.resolveGoogleEmailOtpProviderDomain.bind(this),
+        requestEmailOtpChallenge: this.requestEmailOtpChallengeDomain.bind(this),
+        prewarmEmailOtpYao: this.prewarmEmailOtpYaoDomain.bind(this),
+        registerWallet: this.registerWalletDomain.bind(this),
+        loginWithEmailOtpEcdsaCapability: this.loginWithEmailOtpEcdsaCapabilityDomain.bind(this),
+        loginWithEmailOtpEd25519YaoCapability:
+          this.loginWithEmailOtpEd25519YaoCapabilityDomain.bind(this),
+        getWalletSession: this.getGoogleEmailOtpWalletSessionDomain.bind(this),
+      },
+      args,
+    );
+  }
+
+  private async resolveGoogleEmailOtpProviderDomain(
+    args: Parameters<GoogleEmailOtpWalletAuthDeps['resolveGoogleEmailOtpProvider']>[0],
+  ): ReturnType<GoogleEmailOtpWalletAuthDeps['resolveGoogleEmailOtpProvider']> {
+    return await resolveGoogleEmailOtpProvider({
+      relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
+      idToken: args.idToken,
+      accountMode: args.accountMode,
+      publishableKey: this.configs.registration.publishableKey,
+    });
+  }
+
+  private async prewarmEmailOtpYaoDomain(): Promise<void> {
+    await this.signingEngine.prewarmEmailOtpYao();
+  }
+
+  private async getGoogleEmailOtpWalletSessionDomain(
+    walletId: string,
+  ): ReturnType<GoogleEmailOtpWalletAuthDeps['getWalletSession']> {
+    return await getWalletSessionDomain(this.getWalletAuthDeps(), walletId);
   }
 
   private async acknowledgeWalletRecoveryCodeBackupDomain(args: { walletId: string }) {
@@ -1959,16 +1842,28 @@ export class SeamsWeb {
         throw new Error('Pending wallet recovery-code backup was not completed');
       }
     }
-    const appSessionJwt = this.requireActiveWalletAppSessionJwt(relayUrl, args.walletId);
+    const factorProof = await buildWalletCustodyPasskeyFactorProof({
+      context: this.getContext(),
+      walletId: args.walletId,
+      operation: 'recovery_acknowledge',
+      payload: { walletId: args.walletId },
+    });
     const result = await acknowledgeWalletRecoveryBackup({
       relayUrl,
       walletId: args.walletId,
-      sessionToken: appSessionJwt,
+      factorProof,
     });
     if (pending && result.kind === 'acknowledged') {
       await pendingWalletRecoveryCodeBackupRepository.delete(args.walletId);
     }
     return result;
+  }
+
+  private async requestWalletCustodyEmailOtpChallengeDomain(
+    args: Parameters<RecoveryCapability['requestWalletCustodyEmailOtpChallenge']>[0],
+  ) {
+    const relayUrl = String(this.configs.network.relayer.url || '').trim();
+    return await requestWalletCustodyEmailOtpChallenge({ relayUrl, ...args });
   }
 
   private async rotateWalletRecoveryCodesDomain(
@@ -1979,12 +1874,10 @@ export class SeamsWeb {
       const router = await this.walletIframe.requireRouter(args.walletId);
       return await router.rotateWalletRecoveryCodes(args);
     }
-    const appSessionJwt = this.requireActiveWalletAppSessionJwt(relayUrl, args.walletId);
     return await rotateWalletRecoveryCodes({
       context: this.getContext(),
       relayUrl,
       walletId: args.walletId,
-      sessionToken: appSessionJwt,
       authorization: args.authorization,
     });
   }
@@ -2074,7 +1967,6 @@ export class SeamsWeb {
     walletId: string;
     recoveryOperationId: string;
     relayUrl?: string;
-    appSessionJwt?: string;
   }) {
     const relayUrl = String(args.relayUrl || this.configs.network.relayer.url || '').trim();
     if (this.walletIframe.shouldUseWalletIframe()) {
@@ -2083,7 +1975,6 @@ export class SeamsWeb {
         walletId: args.walletId,
         recoveryOperationId: args.recoveryOperationId,
         relayUrl,
-        ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
       });
     }
     return await this.walletRecoveryCoordinator.complete({
@@ -2099,18 +1990,10 @@ export class SeamsWeb {
     });
   }
 
-  private requireActiveWalletAppSessionJwt(relayUrl: string, walletId: string): string {
-    const appSessionJwt = activeWalletOrHostedAppSessionJwt(relayUrl, walletId);
-    if (!appSessionJwt) {
-      throw new Error('[SeamsWeb] an active wallet-bound session is required');
-    }
-    return appSessionJwt;
-  }
-
   private async loginWithEmailOtpEd25519YaoCapabilityDomain(
     args: EmailOtpWalletCustodyEd25519LoginDomainArgs,
   ): Promise<void> {
-    const emailHashHex = await this.emailOtpEmailHashHex(args.appSessionJwt);
+    const emailHashHex = await this.emailOtpEmailHashHex(args.emailOtpAuthorityEmail);
     const signer = await this.signingEngine.loginWithEmailOtpWalletCustodyEd25519Internal({
       ...args,
       emailHashHex,
@@ -2124,9 +2007,8 @@ export class SeamsWeb {
     );
   }
 
-  private async emailOtpEmailHashHex(appSessionJwt: string): Promise<string> {
-    const claims = decodeJwtPayloadRecord(appSessionJwt);
-    const normalizedEmail = String(claims?.email || '')
+  private async emailOtpEmailHashHex(email: string): Promise<string> {
+    const normalizedEmail = String(email || '')
       .trim()
       .toLowerCase();
     if (!normalizedEmail) {
@@ -2226,9 +2108,7 @@ export class SeamsWeb {
       };
       let timingStartedAtMs = nowMs();
       const relayUrl = String(args.relayUrl || this.configs.network.relayer.url).trim();
-      const appSessionJwt =
-        args.appSessionJwt || this.requireActiveWalletAppSessionJwt(relayUrl, String(walletId));
-      const emailHashHex = await this.emailOtpEmailHashHex(appSessionJwt);
+      const emailHashHex = await this.emailOtpEmailHashHex(args.emailOtpAuthorityEmail || '');
       recordEmailOtpUnlockTiming(unlockTiming.timings, 'emailHashLookupMs', timingStartedAtMs);
       timingStartedAtMs = nowMs();
       const ed25519CustodyProjection =

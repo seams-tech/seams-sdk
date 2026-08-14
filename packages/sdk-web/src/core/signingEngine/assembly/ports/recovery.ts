@@ -12,7 +12,7 @@ import type {
   RecoveryPublicDeps,
   RecoveryPublicEcdsaSessionStoreDeps,
 } from '../../flows/recovery/public';
-import type { EmailOtpWalletSessionExportAuthorizationDeps } from '../../flows/recovery/keyExportConfirmation';
+import type { EmailOtpExportAuthorizationDeps } from '../../flows/recovery/keyExportConfirmation';
 import type { CreateSigningEnginePortsArgs } from './shared';
 import type {
   EmailOtpEcdsaExportArtifact,
@@ -42,14 +42,13 @@ export function createRecoveryPublicDeps(args: {
     readWarmSessionStatusOnly: (
       target: EmailOtpWarmMaterialTarget,
     ) => Promise<WarmSessionStatusResult>;
-    requestExportChallenge: EmailOtpWalletSessionExportAuthorizationDeps['requestExportChallenge'];
+    requestExportChallenge: EmailOtpExportAuthorizationDeps['requestExportChallenge'];
     exportEcdsaKeyWithDurableAuthorization: (
       request: ExportEcdsaKeyWithDurableAuthorizationArgs,
     ) => Promise<EmailOtpEcdsaExportArtifact>;
     exportEd25519YaoSeedWithFreshEmailOtpLane: RecoveryPublicDeps['ed25519Yao']['emailOtp']['exportSeedWithFreshAuthorization'];
   };
   provisionPasskeyEcdsaExplicitExportSession: RecoveryPublicDeps['ecdsa']['provisionPasskeyEcdsaExplicitExportSession'];
-  resolvePasskeyEcdsaExportRouteAuth: RecoveryPublicDeps['ecdsa']['resolvePasskeyEcdsaExportRouteAuth'];
   getWalletSessionStatus: WalletSigningSessionStatusDeps['getAvailableStatus'];
   resolvePasskeyEd25519YaoExportContext: RecoveryPublicDeps['ed25519Yao']['resolvePasskeyExportContext'];
   resolveEmailOtpEd25519YaoExportContext: RecoveryPublicDeps['ed25519Yao']['emailOtp']['resolveExportContext'];
@@ -101,7 +100,7 @@ export function createRecoveryPublicDeps(args: {
       emailOtp: {
         requestExportChallenge: (
           request: Parameters<
-            EmailOtpWalletSessionExportAuthorizationDeps['requestExportChallenge']
+            EmailOtpExportAuthorizationDeps['requestExportChallenge']
           >[0],
         ) => args.emailOtpSessions.requestExportChallenge(request),
         exportEcdsaKeyWithDurableAuthorization: (request) =>
@@ -109,7 +108,6 @@ export function createRecoveryPublicDeps(args: {
       },
       provisionPasskeyEcdsaExplicitExportSession: (request) =>
         args.provisionPasskeyEcdsaExplicitExportSession(request),
-      resolvePasskeyEcdsaExportRouteAuth: args.resolvePasskeyEcdsaExportRouteAuth,
       getSignerWorkerContext: () => args.signerWorkerManager.getContext(),
       withThresholdEcdsaSigningQueue: args.withThresholdEcdsaSigningQueue,
     },

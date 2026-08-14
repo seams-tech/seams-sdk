@@ -19,6 +19,7 @@ import {
   buildLinkedDeviceTargetCredentialRegistrationV1,
   buildDisplayingQrLinkedDeviceSessionState,
   assertNeverLinkedDeviceSessionState,
+  serializeQrLinkedDeviceSessionPayloadV4,
 } from '@shared/device-linking';
 import { computeLinkedDeviceTargetPreparationDigestV1 } from '@shared/device-linking';
 import type {
@@ -142,10 +143,7 @@ export class LinkDeviceFlow {
   private aggregateReceipt: LinkedDeviceEnrollmentReceiptV1 | null = null;
   private readonly handledStates = new Set<LinkedDeviceSessionState['state']>();
 
-  constructor(
-    options: StartDevice2LinkingFlowArgs = {},
-    ports: Device2LinkingFlowPortsV1,
-  ) {
+  constructor(options: StartDevice2LinkingFlowArgs = {}, ports: Device2LinkingFlowPortsV1) {
     this.options = options;
     this.flowId = createFlowId();
     this.ports = ports;
@@ -211,7 +209,9 @@ export class LinkDeviceFlow {
         throw new LinkDeviceFlowSupersededError();
       }
       this.subscription = subscription;
-      const qrCodeDataURL = await generateQrCodeDataUrlV1(JSON.stringify(qrData));
+      const qrCodeDataURL = await generateQrCodeDataUrlV1(
+        serializeQrLinkedDeviceSessionPayloadV4(qrData),
+      );
       this.assertCurrentRun(runEpoch);
       const result = { qrData, qrCodeDataURL } satisfies StartDevice2LinkingFlowResults;
       this.emit({

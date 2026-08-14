@@ -19,7 +19,6 @@ export const ROUTE_SERVICE_KEYS = [
   'signingSessionSeal',
   'router',
   'session',
-  'sessionVersions',
   'signedDelegateAuth',
   'thresholdRuntime',
   'walletAuthMethods',

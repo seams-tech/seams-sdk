@@ -159,7 +159,6 @@ import { registrationFinalizeIdempotencyKeyFromString } from '@/SeamsWeb/publicA
 import { collectEmailOtpRegistrationAuthority } from '@/SeamsWeb/operations/authMethods/emailOtp/registrationAuthority';
 import type { PrepareEmailOtpRegistrationEnrollmentMaterialInternalResult as EmailOtpRegistrationEnrollmentMaterial } from '@/core/signingEngine/flows/signEvmFamily/emailOtpPublic';
 import { requirePasskeyPrfFirstB64u } from '@/SeamsWeb/operations/authMethods/passkey/ecdsaBootstrap';
-import { rememberWalletOriginAppSession } from '@/SeamsWeb/walletIframe/host/hostedWalletSeamsSession';
 import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
 import {
   buildEmailOtpAuthContextForWalletAuthMethod,
@@ -173,6 +172,7 @@ import {
   isEmailOtpWalletAuthAuthority,
   walletAuthAuthorityRef,
   type EmailOtpProvider,
+  type EmailOtpWalletAuthAuthority,
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import { parseCanonicalEcdsaServerActivationRequest } from '@shared/utils/ecdsaCapabilityActivation';
@@ -187,10 +187,6 @@ import { toAccountId } from '@/core/types/accountIds';
 import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { persistActiveWalletSessionAuthorizationFromRegistration } from '@/core/signingEngine/session/persistence/walletSessionAuthorizationProjection';
 import { deriveImplicitNearAccountIdFromEd25519PublicKey } from '@shared/utils/near';
-import {
-  emailOtpAppSessionBindingFromJwt,
-  type EmailOtpAppSessionBinding,
-} from '@/core/signingEngine/session/emailOtp/appSessionJwtCache';
 import {
   createRouterAbTraceContextV1,
   type RouterAbTraceContextV1,
@@ -408,8 +404,8 @@ function buildRegistrationEmailOtpEd25519RecoveryBootstrap(args: {
   return {
     kind: ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1,
     session: {
-      sessionKind: 'jwt',
-      walletSessionJwt: args.sessionState.signingWalletSession.auth.walletSessionJwt,
+      sessionKind: 'opaque',
+      walletSessionToken: args.sessionState.signingWalletSession.auth.walletSessionToken,
       walletId: args.walletId,
       nearAccountId: args.nearAccountId,
       nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
@@ -419,6 +415,7 @@ function buildRegistrationEmailOtpEd25519RecoveryBootstrap(args: {
         providerUserId: emailOtpAuthContextProviderUserId(args.authContext),
       },
       thresholdSessionId: thresholdSessionId.value,
+      authorizationId: args.sessionState.signingWalletSession.authorizationId,
       walletSessionId: args.sessionState.walletSessionId,
       quotaId: args.sessionState.quotaId,
       expiresAtMs: args.sessionState.signingWalletSession.expiresAtMs,
@@ -1074,7 +1071,6 @@ function startEmailOtpRegistrationEnrollmentMaterial(input: {
   relayerUrl: string;
   walletId: string;
   providerSubject: string;
-  appSessionJwt: string;
   clientSecret32: Uint8Array;
 }): Promise<EmailOtpRegistrationEnrollmentMaterial> {
   return input.recorder.measure('emailOtpEnrollmentMaterialMs', () =>
@@ -1084,7 +1080,6 @@ function startEmailOtpRegistrationEnrollmentMaterial(input: {
       relayerUrl: input.relayerUrl,
       walletId: input.walletId,
       providerSubject: input.providerSubject,
-      appSessionJwt: input.appSessionJwt,
       clientSecret32: input.clientSecret32,
     }),
   );
@@ -1104,7 +1099,6 @@ async function resolveEmailOtpRegistrationEnrollmentMaterial(input: {
   relayerUrl: string;
   walletId: string;
   providerSubject: string;
-  appSessionJwt: string;
   clientSecret32: Uint8Array;
 }): Promise<EmailOtpRegistrationEnrollmentMaterial> {
   if (input.authMethod.kind !== 'email_otp') {
@@ -1116,7 +1110,6 @@ async function resolveEmailOtpRegistrationEnrollmentMaterial(input: {
         relayUrl: input.relayerUrl,
         walletId: toWalletId(input.walletId),
         userId: input.providerSubject,
-        appSessionJwt: input.appSessionJwt,
         clientSecret32: input.clientSecret32,
       });
     assertEmailOtpRegistrationHasNoLegacyEcdsaRoot(material);
@@ -1260,6 +1253,7 @@ export type RegistrationPersistenceAuth =
       email: string;
       registrationAuthorityId: string;
       emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
+      authority: EmailOtpWalletAuthAuthority;
       rpId?: never;
       credential?: never;
       credentialPublicKeyB64u?: never;
@@ -1338,6 +1332,7 @@ async function buildRegistrationPersistenceAuth(args: {
           provider: args.finalized.authority.factor.provider,
           providerSubject,
         }),
+        authority: args.finalized.authority,
       };
     }
     default:
@@ -1864,13 +1859,6 @@ export async function runEcdsaEnabledThreeRouteRegistrationCeremony(args: {
       walletCustodyPublicFacts: established.localMaterial.publicFacts,
     });
 
-    if (activated.authMethod.kind === 'passkey') {
-      rememberPasskeyAppSessionForRegisteredWallet({
-        appSessionJwt: activated.appSessionJwt,
-        relayerUrl: args.relayerUrl,
-        walletId: activated.walletId,
-      });
-    }
     return {
       session: {
         chainTargets: [firstChainTarget, ...remainingChainTargets],
@@ -1926,10 +1914,7 @@ function finalizeResponseViewFromActivatedEcdsa(
   if (rpId !== undefined) {
     throw new Error('Email OTP activation returned a relying-party id');
   }
-  if (!activated.appSessionJwt) {
-    throw new Error('Email OTP activation is missing its app session');
-  }
-  return { ...base, authMethod, appSessionJwt: activated.appSessionJwt };
+  return { ...base, authMethod };
 }
 
 function buildRegistrationPersistencePlan(args: {
@@ -1986,6 +1971,7 @@ async function persistRegistrationEcdsaLocalRecords(args: {
     walletId: args.plan.walletId,
     email: args.plan.auth.email,
     registrationAuthorityId: args.plan.auth.registrationAuthorityId,
+    authority: args.plan.auth.authority,
     walletKeys: args.walletKeys,
   });
 }
@@ -2294,6 +2280,7 @@ async function commitDeferredEd25519Registration(args: {
         nearEd25519SigningKeyId: finalized.ed25519.nearEd25519SigningKeyId,
         email: auth.email,
         registrationAuthorityId: auth.registrationAuthorityId,
+        authority: auth.authority,
         signerSlot: finalized.ed25519.signerSlot,
         operationalPublicKey: clientPublicKey,
         relayerKeyId: finalized.ed25519.relayerKeyId,
@@ -2328,7 +2315,7 @@ async function commitDeferredEd25519Registration(args: {
           authMethod: 'passkey',
           walletId: String(args.walletId),
           relayerUrl: args.relayerUrl,
-          walletSessionJwt: registrationEd25519Session.walletSessionJwt,
+          walletSessionToken: registrationEd25519Session.walletSessionToken,
           ed25519Restore: buildPasskeyEd25519RestoreMetadata({
             rpId: args.authMaterial.rpId,
             nearAccountId: String(nearAccountId),
@@ -2636,7 +2623,6 @@ async function registerEcdsaOrMixedWallet(
     let emailOtpEmail = '';
     let emailOtpProviderSubject = '';
     let emailOtpProvider: EmailOtpProvider | null = null;
-    let emailOtpAppSessionBinding: EmailOtpAppSessionBinding | null = null;
     let emailOtpWalletCustodyFactorSecret: ArrayBuffer | null = null;
     let passkeyAuthority: RegistrationPasskeyAuthority | null = null;
     let startAuthority: RegistrationThreeRouteAuthority;
@@ -2705,7 +2691,6 @@ async function registerEcdsaOrMixedWallet(
           relayUrl: relayerUrl,
           walletId: String(walletId),
           registrationIntentDigestB64u: intentResponse.registrationIntentDigestB64u,
-          appSessionJwt: emailOtpAuthMethod.appSessionJwt,
         }),
       );
       emailOtpEnrollmentMaterial = startEmailOtpRegistrationEnrollmentMaterial({
@@ -2715,7 +2700,6 @@ async function registerEcdsaOrMixedWallet(
         relayerUrl,
         walletId: String(walletId),
         providerSubject: emailAuthority.providerSubject,
-        appSessionJwt: emailOtpAuthMethod.appSessionJwt,
         clientSecret32: emailOtpEnrollmentSecret,
       });
       emailOtpRegistrationAuthorityId = emailAuthority.registrationAuthorityId;
@@ -2844,13 +2828,6 @@ async function registerEcdsaOrMixedWallet(
       if (!isEmailOtpWalletRegistrationFinalizeResponse(finalized)) {
         throw new Error('Email OTP registration finalize returned a different auth method');
       }
-      emailOtpAppSessionBinding = emailOtpAppSessionBindingFromJwt({
-        walletId: finalized.walletId,
-        appSessionJwt: finalized.appSessionJwt,
-      });
-      if (emailOtpAppSessionBinding.providerSubject !== emailOtpProviderSubject) {
-        throw new Error('Finalized Email OTP app session belongs to a different provider');
-      }
     }
     registrationTiming.captureRouteDiagnostics(finalized.registrationDiagnostics);
     const walletKeys = finalized.ecdsa.walletKeys;
@@ -2977,12 +2954,6 @@ async function registerEcdsaOrMixedWallet(
               },
             ],
           };
-    if (emailOtpAppSessionBinding) {
-      rememberEmailOtpAppSessionForRegisteredWallet({
-        context,
-        binding: emailOtpAppSessionBinding,
-      });
-    }
     emitRegistrationEvent(onEvent, eventAccountId, {
       authMethod: args.authMethod.kind,
       phase: RegistrationEventPhase.STEP_08_STORAGE_PERSIST_SUCCEEDED,
@@ -3119,7 +3090,6 @@ async function registerEmailOtpEd25519YaoWalletOnly(
         relayUrl: relayerUrl,
         walletId: String(walletId),
         registrationIntentDigestB64u: setup.registrationIntentDigestB64u,
-        appSessionJwt: args.authMethod.appSessionJwt,
       }),
     );
     const emailOtpEnrollmentSecret = crypto.getRandomValues(new Uint8Array(32));
@@ -3131,7 +3101,6 @@ async function registerEmailOtpEd25519YaoWalletOnly(
       relayerUrl,
       walletId: String(walletId),
       providerSubject: emailAuthority.providerSubject,
-      appSessionJwt: args.authMethod.appSessionJwt,
       clientSecret32: emailOtpEnrollmentSecret,
     });
     emitRegistrationEvent(options.onEvent, eventAccountId, {
@@ -3245,13 +3214,6 @@ async function registerEmailOtpEd25519YaoWalletOnly(
       const status = finalized.walletCustody?.status ?? 'not_reported';
       throw new Error(`Wallet custody did not commit (${status})`);
     }
-    const finalizedEmailOtpAppSessionBinding = emailOtpAppSessionBindingFromJwt({
-      walletId: finalized.walletId,
-      appSessionJwt: finalized.appSessionJwt,
-    });
-    if (finalizedEmailOtpAppSessionBinding.providerSubject !== emailAuthority.providerSubject) {
-      throw new Error('Finalized Email OTP app session belongs to a different provider');
-    }
     if (finalized.ed25519.signerSlot !== args.ed25519Selection.signerSlot) {
       throw new Error('Ed25519 Yao finalize returned a different signer slot');
     }
@@ -3291,6 +3253,7 @@ async function registerEmailOtpEd25519YaoWalletOnly(
       nearEd25519SigningKeyId: finalized.ed25519.nearEd25519SigningKeyId,
       email: persistenceAuth.email,
       registrationAuthorityId: persistenceAuth.registrationAuthorityId,
+      authority: persistenceAuth.authority,
       signerSlot: finalized.ed25519.signerSlot,
       operationalPublicKey: clientPublicKey,
       relayerKeyId: finalized.ed25519.relayerKeyId,
@@ -3332,7 +3295,7 @@ async function registerEmailOtpEd25519YaoWalletOnly(
       materialActivation: nearEd25519YaoMaterialActivationFromMetadata(metadata),
       auth: {
         kind: 'email_otp',
-        providerSubjectId: finalizedEmailOtpAppSessionBinding.providerSubject,
+        providerSubjectId: emailAuthority.providerSubject,
       },
       nearEd25519SigningKeyId: parseNearEd25519SigningKeyId(
         finalized.ed25519.nearEd25519SigningKeyId,
@@ -3352,10 +3315,6 @@ async function registerEmailOtpEd25519YaoWalletOnly(
       }),
       authMethod: 'email_otp',
       session: finalized.registrationEstablishedSession,
-    });
-    rememberEmailOtpAppSessionForRegisteredWallet({
-      context,
-      binding: finalizedEmailOtpAppSessionBinding,
     });
     emitRegistrationEvent(options.onEvent, eventAccountId, {
       authMethod: 'email_otp',
@@ -3573,13 +3532,6 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
       activated.nearProvisioning?.status !== 'near_pending'
     ) {
       throw new Error('Ed25519-only activate did not return a wallet pending NEAR provisioning');
-    }
-    if (activated.authMethod.kind === 'passkey') {
-      rememberPasskeyAppSessionForRegisteredWallet({
-        appSessionJwt: activated.appSessionJwt,
-        relayerUrl,
-        walletId: activated.walletId,
-      });
     }
     const clientPublicKey = `ed25519:${base58Encode(established.metadata.registeredPublicKey)}`;
     /* Route 4 — its own idempotency key: a separate effect from activate's,
@@ -3859,29 +3811,6 @@ async function registerWalletInternal(
       : {}),
   });
   return result;
-}
-
-function rememberEmailOtpAppSessionForRegisteredWallet(args: {
-  context: RegistrationWebContext;
-  binding: EmailOtpAppSessionBinding;
-}): void {
-  args.context.signingEngine.rememberEmailOtpAppSessionBinding(args.binding);
-}
-
-function rememberPasskeyAppSessionForRegisteredWallet(args: {
-  appSessionJwt: string | undefined;
-  relayerUrl: string;
-  walletId: string;
-}): void {
-  if (typeof window === 'undefined') return;
-  if (!args.appSessionJwt) {
-    throw new Error('Passkey registration activate response is missing appSessionJwt');
-  }
-  rememberWalletOriginAppSession({
-    appSessionJwt: args.appSessionJwt,
-    relayUrl: args.relayerUrl,
-    walletId: args.walletId,
-  });
 }
 
 function commitSuccessfulWalletAuthentication(

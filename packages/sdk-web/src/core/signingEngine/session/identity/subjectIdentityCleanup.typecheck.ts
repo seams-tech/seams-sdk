@@ -17,10 +17,6 @@ import {
   type FreshStepUpRequired,
 } from '../operationState/stepUpFreshness';
 import {
-  emailOtpRefreshIdentity,
-  type EmailOtpRefreshIdentity,
-} from '../emailOtp/appSessionJwtCache';
-import {
   SigningOperationIntent,
   SigningSessionIds,
 } from '../operationState/types';
@@ -108,21 +104,3 @@ const invalidFreshness: FreshStepUpRequired = {
   subjectId: 'wallet.testnet',
 };
 void invalidFreshness;
-
-
-
-const refreshIdentity = emailOtpRefreshIdentity({
-  walletId,
-  walletSessionUserId: 'wallet.testnet',
-  operationId,
-  operationFingerprint,
-  laneIdentity,
-});
-void refreshIdentity;
-
-const invalidRefreshIdentity: EmailOtpRefreshIdentity = {
-  ...refreshIdentity,
-  // @ts-expect-error Email OTP refresh identity rejects subjectId.
-  subjectId: 'wallet.testnet',
-};
-void invalidRefreshIdentity;

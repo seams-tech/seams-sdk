@@ -15,7 +15,7 @@ import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNo
 import type { OperationDigestSet } from '@shared/authorization/operationFingerprint';
 import type { RouterAbNormalSigningAuthorizationWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { RouterAbEcdsaOperationStepUpPreparationV1Wire } from '@shared/utils/routerAbEcdsaDerivation';
-import type { RouterAbEd25519NormalSigningCredential } from '@/core/rpcClients/relayer/routerAbNormalSigning';
+import type { RouterAbOwnerNormalSigningCredential } from '@/core/rpcClients/relayer/routerAbNormalSigning';
 
 export type ReusableEcdsaSigningAuthorization = Extract<
   RouterAbNormalSigningAuthorizationWire,
@@ -27,21 +27,13 @@ type Secp256k1DigestSignRequest = Extract<SignRequest, { kind: 'digest' }> & {
 };
 
 export type ReusableEcdsaSigningCredential = {
-  readonly kind: 'reusable_wallet_session_jwt';
-  readonly walletSessionJwt: string;
-  readonly appSessionJwt?: never;
+  readonly kind: 'reusable_wallet_session';
+  readonly walletSessionToken: string;
 };
 
 export type OperationStepUpEcdsaSigningCredential =
   | {
-      readonly kind: 'app_session_jwt';
-      readonly appSessionJwt: string;
-      readonly walletSessionJwt?: never;
-    }
-  | {
-      readonly kind: 'app_session_cookie';
-      readonly appSessionJwt?: never;
-      readonly walletSessionJwt?: never;
+      readonly kind: 'operation_step_up';
     };
 
 type ReadySecp256k1SigningMaterialBase = {
@@ -125,8 +117,8 @@ export function buildReadySecp256k1SigningMaterial(
   } as const;
   switch (args.authorization.kind) {
     case 'reusable_wallet_session': {
-      if (args.credential.kind !== 'reusable_wallet_session_jwt') {
-        throw new Error('[multichain] reusable authorization requires a Wallet Session JWT');
+      if (args.credential.kind !== 'reusable_wallet_session') {
+        throw new Error('[multichain] reusable authorization requires an opaque Wallet Session');
       }
       return { ...base, authorization: args.authorization, credential: args.credential };
     }
@@ -158,14 +150,12 @@ function requireEvmSigningOperationId(operation: EvmFamilyThresholdEcdsaOperatio
 
 function routerAbTransportCredential(
   credential: ReusableEcdsaSigningCredential | OperationStepUpEcdsaSigningCredential,
-): RouterAbEd25519NormalSigningCredential {
+): RouterAbOwnerNormalSigningCredential {
   switch (credential.kind) {
-    case 'reusable_wallet_session_jwt':
-      return { kind: 'wallet_session_jwt', walletSessionJwt: credential.walletSessionJwt };
-    case 'app_session_jwt':
-      return { kind: 'app_session_jwt', appSessionJwt: credential.appSessionJwt };
-    case 'app_session_cookie':
-      return { kind: 'app_session_cookie' };
+    case 'reusable_wallet_session':
+      return { kind: 'wallet_session_opaque', walletSessionToken: credential.walletSessionToken };
+    case 'operation_step_up':
+      return { kind: 'operation_step_up' };
   }
   credential satisfies never;
   throw new Error('[multichain] unsupported ECDSA signing credential');
@@ -175,7 +165,7 @@ function scheduleRouterAbEcdsaDerivationSigningRefill(args: {
   trigger: RouterAbEcdsaDerivationSigningRefillTrigger;
   loadedMaterial: LoadedRouterAbEcdsaDerivationSigningMaterialSource;
   workerCtx: WorkerOperationContext;
-  credential: RouterAbEd25519NormalSigningCredential;
+  credential: RouterAbOwnerNormalSigningCredential;
   expiresAtMs: number;
   authorization: ReusableEcdsaSigningAuthorization;
 }): void {

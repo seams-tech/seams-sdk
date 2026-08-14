@@ -987,7 +987,6 @@ const deletedAuthServiceRouterApiHarnessPaths = [
 const allowedAuthServiceConstructorPaths = new Set([
   'apps/web-server/src/index.ts',
   'tests/relayer/email-otp.shamir3pass.test.ts',
-  'tests/relayer/oidc-exchange.authservice.test.ts',
   'tests/unit/authService.hostedAccountPrivacy.unit.test.ts',
 ]);
 const forbiddenD1RouterApiAuthFacadePatterns = [

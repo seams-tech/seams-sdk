@@ -4,6 +4,10 @@ import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 import { SIGNER_KINDS } from '@shared/utils/signerDomain';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
+import {
+  buildEmailOtpWalletAuthAuthority,
+  walletAuthAuthoritiesMatch,
+} from '@shared/utils/walletAuthAuthority';
 import type { KeyMaterialKind, KeyMaterialRecord } from '../keyMaterial.types';
 import {
   buildEnvelopeAAD,
@@ -601,6 +605,22 @@ function walletAuthMethodFields(record: LocalWalletAuthMethodRecord): WalletAuth
       throw new Error(
         '[SeamsWalletDB] Email OTP auth-method binding requires registrationAuthorityId',
       );
+    }
+    if (!record.authority) {
+      throw new Error('[SeamsWalletDB] Email OTP auth-method binding requires authority');
+    }
+    const authority = buildEmailOtpWalletAuthAuthority({
+      walletId: record.authority.walletId,
+      provider: record.authority.factor.provider,
+      providerUserId: record.authority.factor.providerUserId,
+      emailHashHex: record.authority.verifier.emailHashHex,
+    });
+    if (
+      authority.walletId !== record.walletId ||
+      authority.verifier.emailHashHex !== record.emailHashHex ||
+      !walletAuthAuthoritiesMatch(authority, record.authority)
+    ) {
+      throw new Error('[SeamsWalletDB] Email OTP auth-method authority binding is invalid');
     }
   }
   return {

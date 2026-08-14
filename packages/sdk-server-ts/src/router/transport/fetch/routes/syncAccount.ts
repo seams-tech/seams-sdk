@@ -12,6 +12,7 @@ import { walletIdFromString } from '@shared/utils/registrationIntent';
 import {
   parsePrincipalId,
   parseReusableWalletSessionMintId,
+  parseAuthFactorId,
 } from '@shared/authorization/capabilityKinds';
 import {
   DEFAULT_WALLET_SESSION_REMAINING_USES,
@@ -21,6 +22,12 @@ import { parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1 } from '@
 import { validateRouterAbEd25519WalletSessionTokenInputs } from '../../../auth/commonRouterUtils';
 import { parseWebAuthnCredentialIdB64u, parseWebAuthnRpId } from '@shared/utils/domainIds';
 import { isPlainObject } from '@shared/utils/validation';
+import { parseSessionOrigin, parseVerifiedOwnerProofId } from '../../../../authorization/domain';
+import { buildVerifiedWalletSessionPasskeyFactorResult } from '../../../../authorization/factorEvidence';
+import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
+import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
+import { base64UrlEncode } from '@shared/utils/encoders';
+import { mintRouterAbEd25519YaoWalletSessionV1 } from '../../../domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 
 function syncAccountResponseStatus(result: { ok: boolean; verified?: boolean; code?: string }) {
   if (result.ok && result.verified) return 200;
@@ -44,7 +51,7 @@ export async function handleSyncAccount(ctx: FetchRouterApiContext): Promise<Res
     const authorized = await validateRouterAbEd25519WalletSessionTokenInputs({
       body,
       headers: Object.fromEntries(ctx.request.headers.entries()),
-      session: ctx.opts.session,
+      authorizationSessions: ctx.service.authorizationSessions,
     });
     if (!authorized.ok) {
       return json(
@@ -199,6 +206,40 @@ export async function handleSyncAccount(ctx: FetchRouterApiContext): Promise<Res
       }
       const issuedAtMs = Date.now();
       const expiresAtMs = issuedAtMs + DEFAULT_WALLET_SESSION_TTL_MS;
+      const origin = parseSessionOrigin(parsed.request.expected_origin);
+      const factorId = parseAuthFactorId(`passkey:${credentialIdB64u}`);
+      const credentialId = parseWebAuthnCredentialIdB64u(credentialIdB64u);
+      if (!factorId.ok || !credentialId.ok) {
+        return json(
+          { ok: false, code: 'internal', message: 'Verified passkey factor identity is invalid' },
+          { status: 500 },
+        );
+      }
+      const proof = await ctx.service.authorizedOperations.buildVerifiedOwnerProof({
+        purpose: 'wallet_session',
+        proofId: parseVerifiedOwnerProofId(`sync-account:${parsed.request.challengeId}`),
+        factor: buildVerifiedWalletSessionPasskeyFactorResult({
+          tenantId: ctx.service.authorizationSessions.tenantId,
+          principalId: principalId.value,
+          walletId: walletIdFromString(walletId),
+          authorityRef,
+          requestOrigin: origin,
+          audience: origin,
+          factorId: factorId.value,
+          credentialIdB64u: credentialId.value,
+          assertionDigest: parseDigestB64u(
+            base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(parsed.request))),
+          ),
+          verifiedAtMs: issuedAtMs,
+          expiresAtMs,
+        }),
+      });
+      if (proof.purpose !== 'wallet_session') {
+        return json(
+          { ok: false, code: 'internal', message: 'Owner proof purpose is invalid' },
+          { status: 500 },
+        );
+      }
       const reusableWalletSession =
         await ctx.service.authorizationSessions.issueReusableWalletSession({
           tenantId: ctx.service.authorizationSessions.tenantId,
@@ -210,20 +251,26 @@ export async function handleSyncAccount(ctx: FetchRouterApiContext): Promise<Res
           issuedAtMs,
           expiresAtMs,
         });
-      const walletSession = await yaoRuntime.mintWalletSession({
-        kind: 'verified_wallet_unlock_v1',
-        walletId: walletIdFromString(walletId),
-        nearAccountId,
-        nearEd25519SigningKeyId,
-        authority,
-        thresholdSessionId: capability.capability.lifecycle.thresholdSessionId,
-        authorizationId: reusableWalletSession.session.authorizationId,
-        walletSessionId: reusableWalletSession.quota.walletSessionId,
-        quotaId: reusableWalletSession.quota.quotaId,
-        participantIds: [firstParticipantId, secondParticipantId],
-        runtimePolicyScope: capability.capability.runtimePolicyScope,
-        expiresAtMs,
-        remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
+      const walletSession = await mintRouterAbEd25519YaoWalletSessionV1({
+        opaqueWalletSessions: ctx.service.authorizationSessions,
+        tenantId: ctx.service.authorizationSessions.tenantId,
+        signingWorkerId: yaoRuntime.signingWorkerId,
+        sessionInput: {
+          kind: 'verified_wallet_unlock_v1',
+          proof,
+          walletId: walletIdFromString(walletId),
+          nearAccountId,
+          nearEd25519SigningKeyId,
+          authority,
+          thresholdSessionId: capability.capability.lifecycle.thresholdSessionId,
+          authorizationId: reusableWalletSession.session.authorizationId,
+          walletSessionId: reusableWalletSession.quota.walletSessionId,
+          quotaId: reusableWalletSession.quota.quotaId,
+          participantIds: [firstParticipantId, secondParticipantId],
+          runtimePolicyScope: capability.capability.runtimePolicyScope,
+          expiresAtMs,
+          remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
+        },
       });
       if (!walletSession.ok) {
         return json(
@@ -232,8 +279,7 @@ export async function handleSyncAccount(ctx: FetchRouterApiContext): Promise<Res
         );
       }
       const rpId = parseWebAuthnRpId(walletBinding.rpId);
-      const credentialId = parseWebAuthnCredentialIdB64u(credentialIdB64u);
-      if (!rpId.ok || !credentialId.ok) {
+      if (!rpId.ok) {
         return json(
           { ok: false, code: 'internal', message: 'Verified passkey custody identity is invalid' },
           { status: 500 },

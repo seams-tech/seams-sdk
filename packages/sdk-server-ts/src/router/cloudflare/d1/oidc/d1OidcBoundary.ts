@@ -5,23 +5,6 @@ import {
   toRecordValue,
 } from '../auth/d1RouterApiAuthBoundary';
 
-export type CloudflareD1OidcExchangeIssuerConfig = {
-  readonly issuer: string;
-  readonly audiences: readonly string[];
-  readonly jwksUrl: string;
-  readonly subjectPrefix?: string;
-};
-
-export type CloudflareD1OidcExchangeConfig = {
-  readonly issuers: readonly CloudflareD1OidcExchangeIssuerConfig[];
-  readonly clockSkewSec?: number | string;
-};
-
-export type NormalizedCloudflareD1OidcExchangeConfig = {
-  readonly issuers: readonly CloudflareD1OidcExchangeIssuerConfig[];
-  readonly clockSkewSec: number;
-};
-
 export type JsonWebKeyCache = {
   readonly keysByKid: Map<string, JsonWebKey>;
   readonly expiresAtMs: number;
@@ -58,60 +41,6 @@ export type GoogleIdTokenClaims = {
 };
 
 export type GoogleIdTokenClaimValidationResult = GoogleIdTokenClaims | JwtVerificationFailure;
-
-export type OidcJwtExchangeUnverifiedClaims = {
-  readonly ok: true;
-  readonly issuerConfig: CloudflareD1OidcExchangeIssuerConfig;
-  readonly iss: string;
-  readonly aud: string[];
-  readonly sub: string;
-  readonly providerSubject: string;
-  readonly email?: string;
-  readonly name?: string;
-  readonly givenName?: string;
-  readonly familyName?: string;
-};
-
-export type OidcJwtExchangeUnverifiedClaimResult =
-  | OidcJwtExchangeUnverifiedClaims
-  | JwtVerificationFailure;
-
-export type OidcJwtExchangeTemporalClaimValidationResult =
-  | { readonly ok: true }
-  | JwtVerificationFailure;
-
-export function normalizedOidcIssuer(input: unknown): string {
-  const value = toOptionalTrimmedString(input);
-  if (!value) return '';
-  return value.endsWith('/') ? value.slice(0, -1) : value;
-}
-
-export function normalizeOidcExchangeConfig(input: {
-  readonly oidcExchange?: CloudflareD1OidcExchangeConfig;
-}): NormalizedCloudflareD1OidcExchangeConfig | undefined {
-  const raw = input.oidcExchange;
-  if (!raw || !Array.isArray(raw.issuers)) return undefined;
-  const issuers: CloudflareD1OidcExchangeIssuerConfig[] = [];
-  for (const issuer of raw.issuers) {
-    const normalized = normalizeOidcExchangeIssuerConfig(issuer);
-    if (normalized) issuers.push(normalized);
-  }
-  if (issuers.length === 0) return undefined;
-  return {
-    issuers,
-    clockSkewSec: normalizeOidcExchangeClockSkewSec(raw.clockSkewSec),
-  };
-}
-
-export function oidcIssuerConfigForTokenIssuer(input: {
-  readonly issuers: readonly CloudflareD1OidcExchangeIssuerConfig[];
-  readonly issuer: string;
-}): CloudflareD1OidcExchangeIssuerConfig | null {
-  for (const candidate of input.issuers) {
-    if (normalizedOidcIssuer(candidate.issuer) === input.issuer) return candidate;
-  }
-  return null;
-}
 
 export function parseJwtAud(input: unknown): string[] {
   const values: string[] = [];
@@ -151,24 +80,9 @@ export function parseGoogleJwks(input: unknown): Map<string, JsonWebKey> | null 
   return keysByKid.size > 0 ? keysByKid : null;
 }
 
-export function parseOidcJwks(input: unknown): Map<string, JsonWebKey> | null {
-  const record = toRecordValue(input);
-  if (!record) return null;
-  const rawKeys = record.keys;
-  if (!Array.isArray(rawKeys)) return null;
-  const keysByKid = new Map<string, JsonWebKey>();
-  for (const rawKey of rawKeys) {
-    const key = oidcRs256JwkFromRaw(rawKey);
-    if (key) keysByKid.set(key.kid, key.jwk);
-  }
-  return keysByKid.size > 0 ? keysByKid : null;
-}
-
 export class CloudflareD1OidcJwksCache {
   private googleJwksCache: JsonWebKeyCache | null = null;
   private googleJwksFetchPromise: Promise<JsonWebKeyCache> | null = null;
-  private readonly oidcJwksCacheByUrl = new Map<string, JsonWebKeyCache>();
-  private readonly oidcJwksFetchPromiseByUrl = new Map<string, Promise<JsonWebKeyCache>>();
 
   async getGoogleJwks(): Promise<JsonWebKeyCache> {
     const nowMs = Date.now();
@@ -181,23 +95,6 @@ export class CloudflareD1OidcJwksCache {
       return await this.googleJwksFetchPromise;
     } finally {
       this.googleJwksFetchPromise = null;
-    }
-  }
-
-  async getOidcJwksByUrl(jwksUrl: string): Promise<JsonWebKeyCache> {
-    const url = toOptionalTrimmedString(jwksUrl);
-    if (!url) throw new Error('Missing OIDC JWKS URL');
-    const nowMs = Date.now();
-    const cached = this.oidcJwksCacheByUrl.get(url);
-    if (cached && nowMs < cached.expiresAtMs) return cached;
-    const inflight = this.oidcJwksFetchPromiseByUrl.get(url);
-    if (inflight) return await inflight;
-    const promise = this.fetchOidcJwks(url, nowMs);
-    this.oidcJwksFetchPromiseByUrl.set(url, promise);
-    try {
-      return await promise;
-    } finally {
-      this.oidcJwksFetchPromiseByUrl.delete(url);
     }
   }
 
@@ -224,26 +121,6 @@ export class CloudflareD1OidcJwksCache {
     return value;
   }
 
-  private async fetchOidcJwks(url: string, nowMs: number): Promise<JsonWebKeyCache> {
-    if (typeof fetch !== 'function') {
-      throw new Error('fetch is unavailable in this runtime');
-    }
-    const response = await fetch(url);
-    const text = await response.text();
-    if (!response.ok) {
-      throw new Error(`OIDC JWKS fetch failed (HTTP ${response.status}): ${text.slice(0, 200)}`);
-    }
-    const parsed = parseJwksResponseText({
-      text,
-      nonJsonMessage: 'OIDC JWKS returned non-JSON response',
-    });
-    const keysByKid = parseOidcJwks(parsed);
-    if (!keysByKid) throw new Error('OIDC JWKS returned no usable RSA keys');
-    const maxAgeSec = parseCacheControlMaxAgeSec(response.headers.get('cache-control')) || 60 * 60;
-    const value = { keysByKid, expiresAtMs: nowMs + maxAgeSec * 1_000 };
-    this.oidcJwksCacheByUrl.set(url, value);
-    return value;
-  }
 }
 
 export function parseRs256JwtForVerification(input: {
@@ -363,148 +240,6 @@ export function parseBooleanJwtClaim(input: unknown): boolean | undefined {
   return undefined;
 }
 
-export function parseOidcJwtExchangeUnverifiedClaims(input: {
-  readonly payload: Record<string, unknown>;
-  readonly oidcExchange: NormalizedCloudflareD1OidcExchangeConfig;
-}): OidcJwtExchangeUnverifiedClaimResult {
-  const payload = input.payload;
-  const iss = normalizedOidcIssuer(payload.iss);
-  if (!iss) {
-    return {
-      ok: false,
-      verified: false,
-      code: 'invalid_claims',
-      message: 'Missing exchange.token iss',
-    };
-  }
-  const issuerConfig = oidcIssuerConfigForTokenIssuer({
-    issuers: input.oidcExchange.issuers,
-    issuer: iss,
-  });
-  if (!issuerConfig) {
-    return {
-      ok: false,
-      verified: false,
-      code: 'invalid_issuer',
-      message: 'exchange.token issuer is not allowed',
-    };
-  }
-
-  const aud = parseJwtAud(payload.aud);
-  if (aud.length === 0) {
-    return {
-      ok: false,
-      verified: false,
-      code: 'invalid_claims',
-      message: 'Missing exchange.token aud',
-    };
-  }
-  if (
-    !oidcJwtExchangeAudienceAllowed({
-      tokenAudiences: aud,
-      allowedAudiences: issuerConfig.audiences,
-    })
-  ) {
-    return {
-      ok: false,
-      verified: false,
-      code: 'invalid_audience',
-      message: 'exchange.token audience mismatch',
-    };
-  }
-
-  const sub = toOptionalTrimmedString(payload.sub);
-  if (!sub) {
-    return {
-      ok: false,
-      verified: false,
-      code: 'invalid_claims',
-      message: 'Missing exchange.token sub',
-    };
-  }
-
-  const providerSubject = `${issuerConfig.subjectPrefix || `oidc:${iss}:`}${sub}`;
-  const email = toOptionalTrimmedString(payload.email);
-  const name = toOptionalTrimmedString(payload.name);
-  const givenName = toOptionalTrimmedString(payload.given_name);
-  const familyName = toOptionalTrimmedString(payload.family_name);
-  return {
-    ok: true,
-    issuerConfig,
-    iss,
-    aud,
-    sub,
-    providerSubject,
-    ...(email ? { email } : {}),
-    ...(name ? { name } : {}),
-    ...(givenName ? { givenName } : {}),
-    ...(familyName ? { familyName } : {}),
-  };
-}
-
-export function validateOidcJwtExchangeTemporalClaims(input: {
-  readonly payload: Record<string, unknown>;
-  readonly clockSkewSec: number;
-}): OidcJwtExchangeTemporalClaimValidationResult {
-  const payload = input.payload;
-  const nowSec = Math.floor(Date.now() / 1_000);
-  const exp = Number(payload.exp);
-  if (!Number.isFinite(exp) || exp <= 0) {
-    return {
-      ok: false,
-      verified: false,
-      code: 'invalid_claims',
-      message: 'Invalid exchange.token exp',
-    };
-  }
-  if (nowSec > exp + input.clockSkewSec) {
-    return {
-      ok: false,
-      verified: false,
-      code: 'expired',
-      message: 'exchange.token is expired',
-    };
-  }
-  if (payload.nbf !== undefined) {
-    const nbf = Number(payload.nbf);
-    if (!Number.isFinite(nbf)) {
-      return {
-        ok: false,
-        verified: false,
-        code: 'invalid_claims',
-        message: 'Invalid exchange.token nbf',
-      };
-    }
-    if (nowSec + input.clockSkewSec < nbf) {
-      return {
-        ok: false,
-        verified: false,
-        code: 'not_yet_valid',
-        message: 'exchange.token is not yet valid',
-      };
-    }
-  }
-  if (payload.iat !== undefined) {
-    const iat = Number(payload.iat);
-    if (!Number.isFinite(iat)) {
-      return {
-        ok: false,
-        verified: false,
-        code: 'invalid_claims',
-        message: 'Invalid exchange.token iat',
-      };
-    }
-    if (iat > nowSec + input.clockSkewSec) {
-      return {
-        ok: false,
-        verified: false,
-        code: 'not_yet_valid',
-        message: 'exchange.token issued-at is in the future',
-      };
-    }
-  }
-  return { ok: true };
-}
 
 export function validateGoogleIdTokenClaims(input: {
   readonly payload: Record<string, unknown>;
@@ -603,16 +338,6 @@ export function validateGoogleIdTokenClaims(input: {
   };
 }
 
-function oidcJwtExchangeAudienceAllowed(input: {
-  readonly tokenAudiences: readonly string[];
-  readonly allowedAudiences: readonly string[];
-}): boolean {
-  for (const audience of input.tokenAudiences) {
-    if (input.allowedAudiences.includes(audience)) return true;
-  }
-  return false;
-}
-
 function parseJwksResponseText(input: {
   readonly text: string;
   readonly nonJsonMessage: string;
@@ -624,24 +349,6 @@ function parseJwksResponseText(input: {
   }
 }
 
-function normalizeOidcExchangeIssuerConfig(
-  input: unknown,
-): CloudflareD1OidcExchangeIssuerConfig | null {
-  const record = toRecordValue(input);
-  if (!record) return null;
-  const issuer = normalizedOidcIssuer(record.issuer);
-  const jwksUrl = toOptionalTrimmedString(record.jwksUrl);
-  const audiences = normalizeOidcExchangeAudiences(record.audiences);
-  const subjectPrefix = toOptionalTrimmedString(record.subjectPrefix);
-  if (!issuer || !jwksUrl || audiences.length === 0) return null;
-  return {
-    issuer,
-    jwksUrl,
-    audiences,
-    ...(subjectPrefix ? { subjectPrefix } : {}),
-  };
-}
-
 function parseJwtSegmentJson(input: string | undefined): Record<string, unknown> | null {
   if (!input) return null;
   try {
@@ -651,26 +358,6 @@ function parseJwtSegmentJson(input: string | undefined): Record<string, unknown>
   } catch {
     return null;
   }
-}
-
-function normalizeOidcExchangeAudiences(input: unknown): string[] {
-  if (!Array.isArray(input)) return [];
-  const seen = new Set<string>();
-  const audiences: string[] = [];
-  for (const item of input) {
-    const value = toOptionalTrimmedString(item);
-    if (!value || seen.has(value)) continue;
-    seen.add(value);
-    audiences.push(value);
-  }
-  return audiences;
-}
-
-function normalizeOidcExchangeClockSkewSec(input: unknown): number {
-  if (input == null || input === '') return 60;
-  const value = typeof input === 'number' ? input : Number(input);
-  if (!Number.isFinite(value)) return 60;
-  return Math.max(0, Math.floor(value));
 }
 
 function googleRs256JwkFromRaw(
@@ -690,32 +377,6 @@ function googleRs256JwkFromRaw(
     jwk: {
       kty: 'RSA',
       use: 'sig',
-      alg: 'RS256',
-      n,
-      e,
-    },
-  };
-}
-
-function oidcRs256JwkFromRaw(
-  input: unknown,
-): { readonly kid: string; readonly jwk: JsonWebKey } | null {
-  const record = toRecordValue(input);
-  if (!record) return null;
-  const kid = toOptionalTrimmedString(record.kid);
-  const kty = toOptionalTrimmedString(record.kty);
-  const use = toOptionalTrimmedString(record.use);
-  const alg = toOptionalTrimmedString(record.alg);
-  const n = toOptionalTrimmedString(record.n);
-  const e = toOptionalTrimmedString(record.e);
-  if (!kid || kty !== 'RSA' || !n || !e) return null;
-  if (use && use !== 'sig') return null;
-  if (alg && alg !== 'RS256') return null;
-  return {
-    kid,
-    jwk: {
-      kty: 'RSA',
-      ...(use ? { use } : {}),
       alg: 'RS256',
       n,
       e,

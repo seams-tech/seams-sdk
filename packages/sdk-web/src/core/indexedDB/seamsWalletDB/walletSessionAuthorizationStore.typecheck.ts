@@ -1,24 +1,23 @@
 import type {
   MpcWalletSigningQuotaId,
-  SeamsSessionId,
   WalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-import type { WalletId } from '@shared/utils/domainIds';
+import type { ThresholdEcdsaSessionId, WalletId } from '@shared/utils/domainIds';
 import type { WalletAuthMethod } from '@shared/utils/signerDomain';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import type {
   ActiveWalletSessionAuthorizationProjection,
   RetiredWalletSessionAuthorizationProjection,
-  WalletSessionAuthorizationJwt,
+  WalletSessionAuthorizationToken,
 } from './walletSessionAuthorizationStore';
 
 declare const walletId: WalletId;
-declare const authorizationSessionId: SeamsSessionId;
 declare const authorizationId: WalletSessionAuthorizationId;
 declare const walletSessionId: WalletSessionId;
 declare const quotaId: MpcWalletSigningQuotaId;
-declare const walletSessionJwt: WalletSessionAuthorizationJwt;
+declare const walletSessionToken: WalletSessionAuthorizationToken;
+declare const thresholdSessionId: ThresholdEcdsaSessionId;
 declare const authMethod: WalletAuthMethod;
 declare const authority: WalletAuthAuthorityRef;
 
@@ -26,13 +25,12 @@ const active: ActiveWalletSessionAuthorizationProjection = {
   recordVersion: 'wallet_session_authorization_v2',
   status: 'active',
   walletId,
-  seamsSessionId: authorizationSessionId,
   authorizationId,
   walletSessionId,
   quotaId,
   walletSessionTokens: {
     kind: 'evm_family_ecdsa',
-    ecdsa: { walletSessionJwt },
+    ecdsa: { walletSessionToken, thresholdSessionId },
   },
   authMethod,
   authority,
@@ -43,7 +41,6 @@ const retired: RetiredWalletSessionAuthorizationProjection = {
   recordVersion: 'wallet_session_authorization_v2',
   status: 'retired',
   walletId,
-  seamsSessionId: authorizationSessionId,
   authorizationId,
   walletSessionId,
   quotaId,
@@ -59,7 +56,6 @@ const activeWithoutQuota: ActiveWalletSessionAuthorizationProjection = {
   recordVersion: 'wallet_session_authorization_v2',
   status: 'active',
   walletId,
-  seamsSessionId: authorizationSessionId,
   authorizationId,
   walletSessionId,
   authMethod,
@@ -67,18 +63,18 @@ const activeWithoutQuota: ActiveWalletSessionAuthorizationProjection = {
   expiresAtMs: 1_900_000_000_000,
 };
 
-const retiredWithJwt: RetiredWalletSessionAuthorizationProjection = {
+const retiredWithToken: RetiredWalletSessionAuthorizationProjection = {
   ...retired,
   // @ts-expect-error Retired authorization cannot retain bearer authority.
-  walletSessionJwt,
+  walletSessionToken,
 };
 
 const activeWithLegacySessionField: ActiveWalletSessionAuthorizationProjection = {
   ...active,
-  // @ts-expect-error App-session identity is named seamsSessionId in local projections.
+  // @ts-expect-error Legacy session identity fields are rejected by local projections.
   authorizationSessionId,
 };
 
 void active;
-void retiredWithJwt;
+void retiredWithToken;
 void activeWithLegacySessionField;

@@ -1,6 +1,7 @@
 import type {
   CloudflareD1PasskeyCustodyEnvelopeStore,
   PasskeyCustodyEnvelopeFactorLookupResult,
+  PasskeyCustodyEnvelopeLocator,
   WalletCustodyFactorRef,
   WalletCredentialActivityProjection,
 } from './d1PasskeyCustodyEnvelopeStore';
@@ -97,7 +98,11 @@ import {
  * stores, named by an opaque id.
  */
 export type PasskeyCustodyEnvelopeRetrievalWireRequest = {
-  readonly locator: PasskeyCustodyEnvelopeRetrievalRequest['locator'];
+  /** Wallet and verified passkey identify the envelope; the server resolves its opaque id. */
+  readonly locator: {
+    readonly walletId: PasskeyCustodyEnvelopeLocator['walletId'];
+    readonly factor: Extract<WalletCustodyFactorRef, { readonly kind: 'passkey' }>;
+  };
   /** Names the server-issued challenge; consumed once. */
   readonly challengeId: string;
   /**
@@ -241,6 +246,7 @@ export interface RouterApiPasskeyCustodyService {
         readonly activeCodeCount: number;
         readonly totalCodeCount: number;
         readonly issuedAtMs: number;
+        readonly storeVersion: string;
         readonly backupOutstanding: boolean;
       }
     | { readonly kind: 'no_recovery_set' }
@@ -378,9 +384,44 @@ export function createD1PasskeyCustodyRouteService(assembly: {
         };
       }
 
+      const projections = await assembly.passkeyCustodyEnvelopes.listWalletCredentialActivity(
+        request.locator.walletId,
+      );
+      const requestedFactor = request.locator.factor;
+      const matchingProjections = projections.filter((entry) => {
+        const factor = entry.index.factor;
+        return (
+          factor.kind === 'passkey' &&
+          requestedFactor.kind === 'passkey' &&
+          String(factor.rpId) === String(requestedFactor.rpId) &&
+          String(factor.credentialIdB64u) === String(requestedFactor.credentialIdB64u)
+        );
+      });
+      const projection =
+        matchingProjections.find((entry) => entry.index.lifecycle.state === 'active') ??
+        matchingProjections[0];
+      if (!projection || projection.index.factor.kind !== 'passkey') {
+        return {
+          status: 404,
+          body: {
+            ok: false,
+            code: 'envelope_missing',
+            message: 'no custody envelope for this wallet and credential',
+          },
+        };
+      }
+      const locator: PasskeyCustodyEnvelopeRetrievalRequest['locator'] = {
+        walletId: request.locator.walletId,
+        envelopeId: projection.index.envelopeId,
+        factor: {
+          kind: 'passkey',
+          rpId: projection.index.factor.rpId,
+          credentialIdB64u: projection.index.factor.credentialIdB64u,
+        },
+      };
       const response = await handlePasskeyCustodyEnvelopeRetrieval({
         request: {
-          locator: request.locator,
+          locator,
           /* From the issued challenge, never the request body. This is what
              makes the assertion evidence: the browser cannot choose the
              user, the relying party, or the bytes it signs over. */
@@ -398,7 +439,7 @@ export function createD1PasskeyCustodyRouteService(assembly: {
         await assembly.passkeyCustodyEnvelopes
           .recordWalletCredentialUse({
             walletId: request.locator.walletId,
-            envelopeId: request.locator.envelopeId,
+            envelopeId: locator.envelopeId,
             usedAtMs: (assembly.nowMs ?? Date.now)(),
           })
           .catch(() => undefined);
@@ -450,6 +491,7 @@ export function createD1PasskeyCustodyRouteService(assembly: {
            looking at. */
         totalCodeCount: stored.record.manifestKekWraps.length,
         issuedAtMs,
+        storeVersion: stored.storeVersion,
         backupOutstanding: walletRecoveryBackupIsOutstanding({
           setIssuedAtMs: issuedAtMs,
           acknowledgement,

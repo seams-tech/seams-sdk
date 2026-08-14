@@ -8,10 +8,8 @@ import {
   type ThresholdEcdsaChainTarget,
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { EcdsaExplicitExportSessionAuth } from '../../threshold/ecdsa/activation';
 import type { EcdsaExplicitExportOperationAuthorization } from '../../threshold/ecdsa/activation';
 import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
-import type { SignerAuthMethod } from '@shared/utils/signerDomain';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/uiConfirm.types';
 import {
@@ -32,7 +30,7 @@ import {
 } from '../../session/passkey/ecdsaSessionProvision';
 import { deriveEvmFamilySigningKeySlotId } from '../../session/identity/evmFamilyEcdsaIdentity';
 import {
-  type EmailOtpWalletSessionExportAuthorizationDeps,
+  type EmailOtpExportAuthorizationDeps,
   requestEmailOtpKeyExportAuthorization,
   requestThresholdEcdsaExportAuthorization,
   showThresholdEcdsaExportViewer,
@@ -49,10 +47,8 @@ import { resolveThresholdEcdsaSigningQueueKey } from '../../threshold/ecdsa/sign
 import {
   issueEcdsaOperationStepUpAuthorization,
   prepareEcdsaOperationStepUp,
-  type EcdsaOperationStepUpSessionAuth,
   type PreparedEcdsaOperationStepUp,
 } from '../../threshold/ecdsa/operationStepUp';
-import { parseAppSessionJwt } from '@shared/utils/domainIds';
 import {
   buildPasskeyWalletAuthAuthority,
   isEmailOtpWalletAuthAuthority,
@@ -77,7 +73,7 @@ export type EcdsaExportFlowDeps = {
   touchConfirm: Pick<UiConfirmRuntimeBridgePort, 'initialize' | 'requestUserConfirmation'>;
   theme?: ThemeMode;
   emailOtp: {
-    requestExportChallenge: EmailOtpWalletSessionExportAuthorizationDeps['requestExportChallenge'];
+    requestExportChallenge: EmailOtpExportAuthorizationDeps['requestExportChallenge'];
     exportEcdsaKeyWithDurableAuthorization: (args: {
       walletSession: ReturnType<typeof walletSessionRefFromSession>;
       chainTarget: ThresholdEcdsaChainTarget;
@@ -96,11 +92,6 @@ export type EcdsaExportFlowDeps = {
   provisionPasskeyEcdsaExplicitExportSession: (
     args: ThresholdEcdsaPasskeyExportActivationRequest,
   ) => Promise<ThresholdEcdsaExplicitKeyExportBootstrapResult>;
-  resolvePasskeyEcdsaExportRouteAuth: (
-    walletId: string,
-    chainTarget: ThresholdEcdsaChainTarget,
-    authMethod: SignerAuthMethod,
-  ) => Promise<EcdsaExplicitExportSessionAuth>;
   getSignerWorkerContext: () => WorkerOperationContext;
   withThresholdEcdsaSigningQueue: <T>(args: {
     queueKey: string;
@@ -115,18 +106,6 @@ type EcdsaExportOptions = {
   theme?: 'dark' | 'light';
 };
 
-async function resolvePasskeyEcdsaExportRouteAuth(args: {
-  deps: Pick<EcdsaExportFlowDeps, 'resolvePasskeyEcdsaExportRouteAuth'>;
-  walletId: string;
-  chainTarget: ThresholdEcdsaChainTarget;
-  authMethod: SignerAuthMethod;
-}): Promise<EcdsaExplicitExportSessionAuth> {
-  return await args.deps.resolvePasskeyEcdsaExportRouteAuth(
-    args.walletId,
-    args.chainTarget,
-    args.authMethod,
-  );
-}
 
 function emitEcdsaMaterialStarted(args: {
   flowId: string;
@@ -446,20 +425,6 @@ async function assertEmailOtpEcdsaExportMaterialStillActive(args: {
   }
 }
 
-function operationStepUpSessionAuth(
-  sessionAuth: EcdsaExplicitExportSessionAuth,
-): EcdsaOperationStepUpSessionAuth {
-  switch (sessionAuth.kind) {
-    case 'app_session': {
-      const parsed = parseAppSessionJwt(sessionAuth.jwt);
-      if (!parsed.ok) throw new Error(parsed.error.message);
-      return { kind: 'app_session_jwt', appSessionJwt: parsed.value };
-    }
-    case 'cookie':
-      return { kind: 'app_session_cookie' };
-  }
-}
-
 function passkeyExportProof(args: {
   readonly persistedMaterial: PersistedEcdsaRoleLocalMaterial;
   readonly authBinding: Extract<ExactEcdsaExportLane['laneIdentity']['auth'], { kind: 'passkey' }>;
@@ -510,13 +475,11 @@ function emailOtpExportProof(args: {
 
 async function issueExplicitEcdsaExportAuthorization(args: {
   readonly relayerUrl: string;
-  readonly sessionAuth: EcdsaExplicitExportSessionAuth;
   readonly prepared: PreparedEcdsaOperationStepUp;
   readonly proof: ReturnType<typeof passkeyExportProof> | ReturnType<typeof emailOtpExportProof>;
 }) {
   const authorization = await issueEcdsaOperationStepUpAuthorization({
     relayerUrl: args.relayerUrl,
-    sessionAuth: operationStepUpSessionAuth(args.sessionAuth),
     request: {
       kind: 'router_ab_ecdsa_operation_step_up_v1',
       operation: args.prepared.operation,
@@ -532,7 +495,6 @@ async function issueExplicitEcdsaExportAuthorization(args: {
     kind: 'verified_step_up' as const,
     evidenceSetDigest,
     operation: args.prepared.operation,
-    sessionAuth: args.sessionAuth,
     expiresAtMs: authorization.expires_at_ms,
     quotaUse: 'none' as const,
     unseal,
@@ -608,15 +570,8 @@ async function prepareFreshPasskeyEcdsaExportMaterial(
     exportLane: args.exportLane,
     expectedMaterialActivation: args.material.existingRoleLocalMaterial.materialActivation,
   });
-  const sessionAuth = await resolvePasskeyEcdsaExportRouteAuth({
-    deps,
-    walletId: args.walletId,
-    chainTarget: args.exportLane.chainTarget,
-    authMethod: 'passkey',
-  });
   const authorization = await issueExplicitEcdsaExportAuthorization({
     relayerUrl: args.material.relayerUrl,
-    sessionAuth,
     prepared,
     proof: passkeyExportProof({
       persistedMaterial: args.material.existingRoleLocalMaterial,
@@ -632,15 +587,6 @@ async function prepareFreshPasskeyEcdsaExportMaterial(
   return {
     exportActivation,
     credential: exportCredential.credential,
-  };
-}
-
-function emailOtpEcdsaExportChallengeAuthority(
-  sessionAuth: Extract<EcdsaExplicitExportSessionAuth, { kind: 'app_session' }>,
-) {
-  return {
-    kind: 'app_session' as const,
-    appSessionJwt: sessionAuth.jwt,
   };
 }
 
@@ -681,16 +627,6 @@ export async function exportThresholdEcdsaKeyWithFreshEmailOtpRouteAuth(
   },
 ): Promise<{ accountId: string; exportedSchemes: ExportedKeySchemes }> {
   const exportChain = ecdsaExportBoundaryChain(args.exportLane);
-  const sessionAuth = await resolvePasskeyEcdsaExportRouteAuth({
-    deps,
-    walletId: args.walletId,
-    chainTarget: args.exportLane.chainTarget,
-    authMethod: 'email_otp',
-  });
-  if (sessionAuth.kind !== 'app_session') {
-    throw new Error('[SigningEngine][ecdsa-export] Email OTP export requires an app session');
-  }
-  const challengeAuthority = emailOtpEcdsaExportChallengeAuthority(sessionAuth);
   const prepared = await prepareExplicitEcdsaExportOperationWithRuntime({
     walletId: args.walletId,
     chainTarget: args.exportLane.chainTarget,
@@ -712,7 +648,6 @@ export async function exportThresholdEcdsaKeyWithFreshEmailOtpRouteAuth(
       chain: exportChain,
       publicKey: String(args.material.publicFacts.publicKeyB64u),
       curve: 'ecdsa' satisfies WalletAuthCurve,
-      challengeAuthority,
       flowId: args.flowId,
       onEvent: args.onEvent,
     },
@@ -724,7 +659,6 @@ export async function exportThresholdEcdsaKeyWithFreshEmailOtpRouteAuth(
   });
   const explicitExportAuthorization = await issueExplicitEcdsaExportAuthorization({
     relayerUrl: args.material.relayerUrl,
-    sessionAuth,
     prepared,
     proof: emailOtpExportProof({
       authority: args.material.authorization.authority,

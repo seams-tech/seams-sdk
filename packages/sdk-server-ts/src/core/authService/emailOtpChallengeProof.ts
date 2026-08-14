@@ -7,14 +7,12 @@ import {
   WALLET_EMAIL_OTP_UNLOCK_OPERATION,
 } from '@shared/utils/emailOtpDomain';
 import {
-  parseAppSessionVersion,
   parseChallengeSubjectId,
   parseEmailOtpChallengeId,
   parseEmailOtpRegistrationAttemptId,
   parseOrgId,
   parseProviderSubject,
   parseWalletId,
-  type AppSessionVersion,
   type ChallengeSubjectId,
   type EmailOtpChallengeId,
   type EmailOtpRegistrationAttemptId,
@@ -63,7 +61,7 @@ export type EmailOtpRegistrationChallengeProof =
       challengeId: EmailOtpChallengeId;
       finalWalletId: WalletId;
       orgId: OrgId;
-      appSessionVersion: AppSessionVersion;
+      ownerProofBindingDigest: string;
     }
   | {
       kind: 'direct_proof_email';
@@ -74,7 +72,7 @@ export type EmailOtpRegistrationChallengeProof =
       challengeId: EmailOtpChallengeId;
       finalWalletId: WalletId;
       orgId: OrgId;
-      appSessionVersion: AppSessionVersion;
+      ownerProofBindingDigest: string;
     };
 
 export type VerifiedEmailOtpRegistrationChallengeProofShared = {
@@ -85,7 +83,7 @@ export type VerifiedEmailOtpRegistrationChallengeProofShared = {
   originalWalletId: WalletId;
   finalWalletId: WalletId;
   orgId: OrgId;
-  appSessionVersion: AppSessionVersion;
+  ownerProofBindingDigest: string;
   purpose: EmailOtpRegistrationChallengePurpose;
 };
 
@@ -319,7 +317,6 @@ export function buildVerifiedEmailOtpRegistrationChallengeProof(input: {
   if (String(input.proof.providerSubject) !== String(input.proof.challengeSubjectId)) return null;
   if (input.record.otpChannel !== EMAIL_OTP_CHANNEL) return null;
   if (String(input.record.orgId || '') !== input.proof.orgId) return null;
-  if (input.record.appSessionVersion !== input.proof.appSessionVersion) return null;
   const purpose = emailOtpRegistrationChallengePurposeForRecord({
     storedPurpose: input.storedPurpose,
     allowWalletReroll: input.allowWalletReroll,
@@ -342,7 +339,7 @@ export function buildVerifiedEmailOtpRegistrationChallengeProof(input: {
         originalWalletId: originalWalletId.value,
         finalWalletId: input.proof.finalWalletId,
         orgId: input.proof.orgId,
-        appSessionVersion: input.proof.appSessionVersion,
+        ownerProofBindingDigest: input.proof.ownerProofBindingDigest,
         purpose,
         registrationAttemptId: input.proof.registrationAttemptId,
       };
@@ -356,7 +353,7 @@ export function buildVerifiedEmailOtpRegistrationChallengeProof(input: {
         originalWalletId: originalWalletId.value,
         finalWalletId: input.proof.finalWalletId,
         orgId: input.proof.orgId,
-        appSessionVersion: input.proof.appSessionVersion,
+        ownerProofBindingDigest: input.proof.ownerProofBindingDigest,
         purpose,
       };
   }
@@ -374,7 +371,7 @@ export type EmailOtpRegistrationChallengeProofInput =
       challengeSubjectId: ChallengeSubjectId;
       walletId: WalletId;
       orgId: OrgId;
-      appSessionVersion: AppSessionVersion;
+      ownerProofBindingDigest: string;
       registrationAttemptId: EmailOtpRegistrationAttemptId;
       challengeId: EmailOtpChallengeId;
     }
@@ -384,7 +381,7 @@ export type EmailOtpRegistrationChallengeProofInput =
       challengeSubjectId: ChallengeSubjectId;
       finalWalletId: WalletId;
       orgId: OrgId;
-      appSessionVersion: AppSessionVersion;
+      ownerProofBindingDigest: string;
       proofEmail: string;
       challengeId: EmailOtpChallengeId;
     };
@@ -397,7 +394,7 @@ export function parseRawEmailOtpRegistrationChallengeProofInput(request: {
   providerSubject: unknown;
   walletId: unknown;
   orgId: unknown;
-  appSessionVersion: unknown;
+  ownerProofBindingDigest: unknown;
   challengeId: unknown;
   proofEmail?: unknown;
   googleEmailOtpRegistrationAttemptId?: unknown;
@@ -442,12 +439,12 @@ export function parseRawEmailOtpRegistrationChallengeProofInput(request: {
       message: 'Email OTP registration requires orgId',
     };
   }
-  const appSessionVersion = parseAppSessionVersion(request.appSessionVersion);
-  if (!appSessionVersion.ok) {
+  const ownerProofBindingDigest = toOptionalTrimmedString(request.ownerProofBindingDigest);
+  if (!ownerProofBindingDigest) {
     return {
       ok: false,
       code: 'invalid_body',
-      message: 'Email OTP registration requires appSessionVersion',
+      message: 'Email OTP registration requires ownerProofBindingDigest',
     };
   }
 
@@ -463,7 +460,7 @@ export function parseRawEmailOtpRegistrationChallengeProofInput(request: {
         challengeSubjectId: challengeSubjectId.value,
         walletId: finalWalletId.value,
         orgId: orgId.value,
-        appSessionVersion: appSessionVersion.value,
+        ownerProofBindingDigest,
         registrationAttemptId: registrationAttemptId.value,
         challengeId: challengeId.value,
       },
@@ -493,7 +490,7 @@ export function parseRawEmailOtpRegistrationChallengeProofInput(request: {
       challengeSubjectId: challengeSubjectId.value,
       finalWalletId: finalWalletId.value,
       orgId: orgId.value,
-      appSessionVersion: appSessionVersion.value,
+      ownerProofBindingDigest,
       proofEmail,
       challengeId: challengeId.value,
     },

@@ -89,9 +89,6 @@ void submitSuccess.walletId;
 void submitSuccess.mode;
 void submitSuccess.session;
 
-// @ts-expect-error app code cannot access app session JWT from submit success
-void submitSuccess.appSessionJwt;
-
 // @ts-expect-error app code cannot access recovery codes from submit success
 void submitSuccess.recoveryKeys;
 

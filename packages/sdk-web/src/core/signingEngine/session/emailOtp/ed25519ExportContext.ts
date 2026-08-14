@@ -9,13 +9,12 @@ import type {
 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { LoadedWalletCustodyEd25519MaterialV1 } from '@/core/signingEngine/walletCustody/ed25519SeedMaterial';
 import { parseEd25519YaoRecoveryCapabilityV1 } from '@/core/signingEngine/session/passkey/ed25519YaoRecoveryCapability';
-import { parseRouterAbEd25519WalletSessionIdentityClaims } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import type { ReusableWalletSessionState } from '@/core/types/seams';
 import type { AccountId } from '@/core/types/accountIds';
 import {
   type ActiveWalletSessionAuthorizationProjection,
   type WalletSessionAuthorizationReadResult,
-  walletSessionJwtForCurve,
+  walletSessionTokenForCurve,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
   mpcMaterialActivationRefsEqual,
@@ -129,35 +128,30 @@ async function readColdExportBootstrap(input: {
   ) {
     throw new Error('[SigningEngine][ed25519-export] reusable Wallet Session is unavailable');
   }
-  const walletSessionJwt = walletSessionJwtForCurve(input.authorization, 'ed25519');
-  const claims = walletSessionJwt
-    ? parseRouterAbEd25519WalletSessionIdentityClaims(walletSessionJwt)
-    : null;
+  const walletSessionToken = walletSessionTokenForCurve(input.authorization, 'ed25519');
   const signer = input.subject.signer;
   const binding = input.material.binding;
   if (
-    !walletSessionJwt ||
-    !claims ||
-    claims.walletId !== String(signer.account.wallet.walletId) ||
-    claims.nearAccountId !== String(signer.account.nearAccountId) ||
-    claims.nearEd25519SigningKeyId !== String(signer.nearEd25519SigningKeyId) ||
-    claims.thresholdSessionId !== input.subject.thresholdSessionId ||
-    claims.walletSessionId !== input.authorization.walletSessionId ||
-    claims.quotaId !== input.authorization.quotaId ||
-    binding.walletId !== claims.walletId ||
-    binding.nearAccountId !== claims.nearAccountId ||
-    binding.nearEd25519SigningKeyId !== claims.nearEd25519SigningKeyId ||
+    !walletSessionToken ||
+    input.authorization.walletId !== signer.account.wallet.walletId ||
+    input.authorization.authMethod !== 'email_otp' ||
+    !input.authorization.authorizationId ||
+    !input.authorization.walletSessionId ||
+    !input.authorization.quotaId ||
+    binding.walletId !== String(signer.account.wallet.walletId) ||
+    binding.nearAccountId !== String(signer.account.nearAccountId) ||
+    binding.nearEd25519SigningKeyId !== String(signer.nearEd25519SigningKeyId) ||
     binding.signerSlot !== signer.signerSlot
   ) {
     throw new Error('[SigningEngine][ed25519-export] sealed custody identity mismatch');
   }
   const request = parseRouterAbEd25519YaoWarmRecoveryBootstrapRequestV1({
     kind: 'router_ab_ed25519_yao_warm_recovery_bootstrap_request_v1',
-    walletId: claims.walletId,
-    nearAccountId: claims.nearAccountId,
-    nearEd25519SigningKeyId: claims.nearEd25519SigningKeyId,
+    walletId: String(signer.account.wallet.walletId),
+    nearAccountId: String(signer.account.nearAccountId),
+    nearEd25519SigningKeyId: String(signer.nearEd25519SigningKeyId),
     signerSlot: signer.signerSlot,
-    thresholdSessionId: claims.thresholdSessionId,
+    thresholdSessionId: input.subject.thresholdSessionId,
     signingWorkerId: binding.signingWorkerId,
     participantIds: binding.participantIds,
   });
@@ -166,7 +160,7 @@ async function readColdExportBootstrap(input: {
     `${new URL(input.relayerUrl).origin}${ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1}`,
     {
       method: 'POST',
-      headers: { Authorization: `Bearer ${walletSessionJwt}`, 'Content-Type': 'application/json' },
+      headers: { Authorization: `Bearer ${walletSessionToken}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(request.value),
     },
   );
@@ -233,10 +227,10 @@ async function readColdExportBootstrap(input: {
     !authority ||
     !signingRoot ||
     !routerAbNormalSigning ||
-    walletId !== claims.walletId ||
-    nearAccountId !== claims.nearAccountId ||
-    nearEd25519SigningKeyId !== claims.nearEd25519SigningKeyId ||
-    thresholdSessionId.value !== claims.thresholdSessionId ||
+    walletId !== String(signer.account.wallet.walletId) ||
+    nearAccountId !== String(signer.account.nearAccountId) ||
+    nearEd25519SigningKeyId !== String(signer.nearEd25519SigningKeyId) ||
+    thresholdSessionId.value !== input.subject.thresholdSessionId ||
     walletSessionId.value !== input.authorization.walletSessionId ||
     quotaId.value !== input.authorization.quotaId ||
     requirePositiveInteger(record.signerSlot, 'bootstrap.signerSlot') !== signer.signerSlot ||
@@ -255,8 +249,8 @@ async function readColdExportBootstrap(input: {
     bootstrap: {
       kind: 'router_ab_ed25519_yao_email_otp_recovery_v1',
       session: {
-        sessionKind: 'jwt',
-        walletSessionJwt,
+        sessionKind: 'opaque',
+        walletSessionToken,
         walletId: signer.account.wallet.walletId,
         nearAccountId,
         nearEd25519SigningKeyId,
@@ -266,6 +260,7 @@ async function readColdExportBootstrap(input: {
           providerUserId: authority.factor.providerUserId,
         },
         thresholdSessionId: thresholdSessionId.value,
+        authorizationId: input.authorization.authorizationId,
         walletSessionId: walletSessionId.value,
         quotaId: quotaId.value,
         expiresAtMs: Math.min(

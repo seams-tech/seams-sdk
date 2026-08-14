@@ -62,9 +62,8 @@ export type EmailOtpChallengeRecord = {
   /** Normalized email address that received the OTP code. */
   email: string;
   otpCode: string;
-  /** App-session binding hash for non-reroll flows. */
-  sessionHash: string;
-  appSessionVersion: string;
+  /** Exact wallet, owner, operation, origin, and audience binding digest. */
+  ownerProofBindingDigest: string;
   action: EmailOtpChallengeAction;
   operation: EmailOtpChallengeOperation;
   createdAtMs: number;
@@ -78,8 +77,7 @@ export type EmailOtpChallengeContextInput = {
   walletId: string;
   orgId?: string;
   otpChannel: EmailOtpChannel;
-  sessionHash: string;
-  appSessionVersion: string;
+  ownerProofBindingDigest: string;
   action: EmailOtpChallengeAction;
   operation: EmailOtpChallengeOperation;
   nowMs: number;
@@ -112,8 +110,7 @@ export type EmailOtpGrantRecord = {
   orgId?: string;
   challengeId: string;
   otpChannel: EmailOtpChannel;
-  sessionHash: string;
-  appSessionVersion: string;
+  ownerProofBindingDigest: string;
   action: EmailOtpGrantAction;
   issuedAtMs: number;
   expiresAtMs: number;
@@ -220,7 +217,7 @@ type GoogleEmailOtpRegistrationAttemptBaseRecord = {
   providerSubject: string;
   email: string;
   walletId: string;
-  appSessionVersion: string;
+  ownerProofBindingDigest: string;
   authProvider: string;
   accountIdSlugVersion: 'hmac_readable_v1';
   walletIdDerivationNonce: string;
@@ -305,18 +302,18 @@ export interface EmailOtpRegistrationAttemptStore {
     providerSubject: string;
     email: string;
     orgId: string;
-    appSessionVersion: string;
+    ownerProofBindingDigest: string;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
     nowMs: number;
   }): Promise<PendingGoogleEmailOtpRegistrationAttemptRecord | null>;
-  abandonStartedBySubjectEmailExceptAppSession(input: {
+  abandonStartedBySubjectEmailExceptBinding(input: {
     providerSubject: string;
     email: string;
     orgId: string;
-    appSessionVersion: string;
+    ownerProofBindingDigest: string;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
     nowMs: number;
-    failureCode: 'app_session_version_replaced';
+    failureCode: 'owner_proof_binding_replaced';
   }): Promise<number>;
   hasLiveStartedWalletAttempt(input: { walletId: string; nowMs: number }): Promise<boolean>;
   deleteExpired(nowMs: number): Promise<number>;
@@ -333,7 +330,7 @@ function registrationAttemptMatchesStartedScope(
     providerSubject: string;
     email: string;
     orgId: string;
-    appSessionVersion: string;
+    ownerProofBindingDigest: string;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
     nowMs: number;
   },
@@ -341,7 +338,7 @@ function registrationAttemptMatchesStartedScope(
   return (
     record.providerSubject === input.providerSubject &&
     record.email === input.email &&
-    record.appSessionVersion === input.appSessionVersion &&
+    record.ownerProofBindingDigest === input.ownerProofBindingDigest &&
     record.runtimePolicyScope?.orgId === input.orgId &&
     runtimePolicyScopeKey(record.runtimePolicyScope) ===
       runtimePolicyScopeKey(input.runtimePolicyScope) &&
@@ -356,7 +353,7 @@ function registrationAttemptMatchesReplacementScope(
     providerSubject: string;
     email: string;
     orgId: string;
-    appSessionVersion: string;
+    ownerProofBindingDigest: string;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
     nowMs: number;
   },
@@ -364,7 +361,7 @@ function registrationAttemptMatchesReplacementScope(
   return (
     record.providerSubject === input.providerSubject &&
     record.email === input.email &&
-    record.appSessionVersion !== input.appSessionVersion &&
+    record.ownerProofBindingDigest !== input.ownerProofBindingDigest &&
     record.runtimePolicyScope?.orgId === input.orgId &&
     runtimePolicyScopeKey(record.runtimePolicyScope) ===
       runtimePolicyScopeKey(input.runtimePolicyScope) &&
@@ -430,8 +427,7 @@ export const EMAIL_OTP_STORE_D1_SCHEMA_SQL = Object.freeze([
       wallet_id TEXT NOT NULL,
       record_org_id TEXT NOT NULL,
       otp_channel TEXT NOT NULL,
-      session_hash TEXT NOT NULL,
-      app_session_version TEXT NOT NULL,
+      owner_proof_binding_digest TEXT NOT NULL,
       action TEXT NOT NULL,
       operation TEXT NOT NULL,
       otp_code TEXT NOT NULL,
@@ -443,8 +439,7 @@ export const EMAIL_OTP_STORE_D1_SCHEMA_SQL = Object.freeze([
       CHECK (length(challenge_subject_id) > 0),
       CHECK (length(wallet_id) > 0),
       CHECK (otp_channel = 'email_otp'),
-      CHECK (length(session_hash) > 0),
-      CHECK (length(app_session_version) > 0),
+      CHECK (length(owner_proof_binding_digest) > 0),
       CHECK (length(action) > 0),
       CHECK (length(operation) > 0),
       CHECK (length(otp_code) > 0),
@@ -464,8 +459,7 @@ export const EMAIL_OTP_STORE_D1_SCHEMA_SQL = Object.freeze([
         wallet_id,
         record_org_id,
         otp_channel,
-        session_hash,
-        app_session_version,
+        owner_proof_binding_digest,
         action,
         operation,
         expires_at_ms
@@ -617,7 +611,7 @@ export const EMAIL_OTP_STORE_D1_SCHEMA_SQL = Object.freeze([
       email TEXT NOT NULL,
       wallet_id TEXT NOT NULL,
       state TEXT NOT NULL,
-      app_session_version TEXT NOT NULL,
+      owner_proof_binding_digest TEXT NOT NULL,
       runtime_org_id TEXT NOT NULL,
       runtime_policy_key TEXT NOT NULL,
       offer_wallet_ids_json TEXT NOT NULL,
@@ -631,7 +625,7 @@ export const EMAIL_OTP_STORE_D1_SCHEMA_SQL = Object.freeze([
       CHECK (length(email) > 0),
       CHECK (length(wallet_id) > 0),
       CHECK (state IN ('started', 'key_finalized', 'active', 'abandoned', 'failed', 'expired')),
-      CHECK (length(app_session_version) > 0),
+      CHECK (length(owner_proof_binding_digest) > 0),
       CHECK (json_valid(offer_wallet_ids_json)),
       CHECK (json_valid(record_json)),
       CHECK (created_at_ms > 0),
@@ -650,7 +644,7 @@ export const EMAIL_OTP_STORE_D1_SCHEMA_SQL = Object.freeze([
         email,
         state,
         expires_at_ms,
-        app_session_version,
+        owner_proof_binding_digest,
         runtime_org_id,
         runtime_policy_key,
         updated_at_ms
@@ -803,8 +797,7 @@ function parseChallengeRecord(raw: unknown): EmailOtpChallengeRecord | null {
   const otpChannel = toOptionalTrimmedString(obj.otpChannel);
   const email = toOptionalTrimmedString(obj.email);
   const otpCode = toOptionalTrimmedString(obj.otpCode);
-  const sessionHash = toOptionalTrimmedString(obj.sessionHash);
-  const appSessionVersion = toOptionalTrimmedString(obj.appSessionVersion);
+  const ownerProofBindingDigest = toOptionalTrimmedString(obj.ownerProofBindingDigest);
   const action = toOptionalTrimmedString(obj.action);
   const operationRaw = toOptionalTrimmedString(obj.operation);
   const createdAtMs = Number(obj.createdAtMs);
@@ -812,7 +805,7 @@ function parseChallengeRecord(raw: unknown): EmailOtpChallengeRecord | null {
   const attemptCount = Number(obj.attemptCount);
   const maxAttempts = Number(obj.maxAttempts);
   if (version !== 'email_otp_challenge_v1') return null;
-  if (!challengeId || !challengeSubjectId || !walletId || !email || !otpCode || !sessionHash)
+  if (!challengeId || !challengeSubjectId || !walletId || !email || !otpCode || !ownerProofBindingDigest)
     return null;
   if (otpChannel !== EMAIL_OTP_CHANNEL) return null;
   if (
@@ -827,7 +820,6 @@ function parseChallengeRecord(raw: unknown): EmailOtpChallengeRecord | null {
       : operationRaw === WALLET_EMAIL_OTP_REGISTRATION_OPERATION
         ? operationRaw
         : WALLET_EMAIL_OTP_UNLOCK_OPERATION;
-  if (!appSessionVersion) return null;
   if (!Number.isFinite(createdAtMs) || createdAtMs <= 0) return null;
   if (!Number.isFinite(expiresAtMs) || expiresAtMs <= 0) return null;
   if (!Number.isFinite(attemptCount) || attemptCount < 0) return null;
@@ -841,8 +833,7 @@ function parseChallengeRecord(raw: unknown): EmailOtpChallengeRecord | null {
     otpChannel: EMAIL_OTP_CHANNEL,
     email,
     otpCode,
-    sessionHash,
-    appSessionVersion,
+    ownerProofBindingDigest,
     action,
     operation,
     createdAtMs: Math.floor(createdAtMs),
@@ -862,8 +853,7 @@ function challengeContextMatches(
     record.walletId === input.walletId &&
     String(record.orgId || '') === String(input.orgId || '') &&
     record.otpChannel === input.otpChannel &&
-    record.sessionHash === input.sessionHash &&
-    record.appSessionVersion === input.appSessionVersion &&
+    record.ownerProofBindingDigest === input.ownerProofBindingDigest &&
     record.action === input.action &&
     record.operation === input.operation
   );
@@ -880,13 +870,12 @@ function parseGrantRecord(raw: unknown): EmailOtpGrantRecord | null {
   const orgId = toOptionalTrimmedString(obj.orgId) || undefined;
   const challengeId = toOptionalTrimmedString(obj.challengeId);
   const otpChannel = toOptionalTrimmedString(obj.otpChannel);
-  const sessionHash = toOptionalTrimmedString(obj.sessionHash);
-  const appSessionVersion = toOptionalTrimmedString(obj.appSessionVersion);
+  const ownerProofBindingDigest = toOptionalTrimmedString(obj.ownerProofBindingDigest);
   const action = toOptionalTrimmedString(obj.action);
   const issuedAtMs = Number(obj.issuedAtMs);
   const expiresAtMs = Number(obj.expiresAtMs);
   if (version !== 'email_otp_grant_v1') return null;
-  if (!grantToken || !userId || !walletId || !challengeId || !sessionHash || !appSessionVersion)
+  if (!grantToken || !userId || !walletId || !challengeId || !ownerProofBindingDigest)
     return null;
   if (otpChannel !== EMAIL_OTP_CHANNEL) return null;
   if (
@@ -905,8 +894,7 @@ function parseGrantRecord(raw: unknown): EmailOtpGrantRecord | null {
     ...(orgId ? { orgId } : {}),
     challengeId,
     otpChannel: EMAIL_OTP_CHANNEL,
-    sessionHash,
-    appSessionVersion,
+    ownerProofBindingDigest,
     action,
     issuedAtMs: Math.floor(issuedAtMs),
     expiresAtMs: Math.floor(expiresAtMs),
@@ -1104,7 +1092,7 @@ function parseRegistrationAttemptRecord(
   const offerId = toOptionalTrimmedString(obj.offerId);
   const offerCandidates = parseGoogleEmailOtpRegistrationOfferCandidates(obj.offerCandidates);
   const selectedCandidateId = toOptionalTrimmedString(obj.selectedCandidateId);
-  const appSessionVersion = toOptionalTrimmedString(obj.appSessionVersion);
+  const ownerProofBindingDigest = toOptionalTrimmedString(obj.ownerProofBindingDigest);
   const authProvider = toOptionalTrimmedString(obj.authProvider) || 'google_oidc';
   const accountIdSlugVersion =
     toOptionalTrimmedString(obj.accountIdSlugVersion) || 'hmac_readable_v1';
@@ -1127,7 +1115,7 @@ function parseRegistrationAttemptRecord(
     !offerCandidates ||
     !selectedCandidateId ||
     !offerCandidates.some((candidate) => candidate.candidateId === selectedCandidateId) ||
-    !appSessionVersion
+    !ownerProofBindingDigest
   ) {
     return null;
   }
@@ -1157,7 +1145,7 @@ function parseRegistrationAttemptRecord(
     offerId,
     offerCandidates,
     selectedCandidateId,
-    appSessionVersion,
+    ownerProofBindingDigest,
     authProvider,
     accountIdSlugVersion: 'hmac_readable_v1' as const,
     walletIdDerivationNonce,
@@ -1417,7 +1405,7 @@ class InMemoryEmailOtpRegistrationAttemptStore implements EmailOtpRegistrationAt
     providerSubject: string;
     email: string;
     orgId: string;
-    appSessionVersion: string;
+    ownerProofBindingDigest: string;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
     nowMs: number;
   }): Promise<PendingGoogleEmailOtpRegistrationAttemptRecord | null> {
@@ -1429,14 +1417,14 @@ class InMemoryEmailOtpRegistrationAttemptStore implements EmailOtpRegistrationAt
     return null;
   }
 
-  async abandonStartedBySubjectEmailExceptAppSession(input: {
+  async abandonStartedBySubjectEmailExceptBinding(input: {
     providerSubject: string;
     email: string;
     orgId: string;
-    appSessionVersion: string;
+    ownerProofBindingDigest: string;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
     nowMs: number;
-    failureCode: 'app_session_version_replaced';
+    failureCode: 'owner_proof_binding_replaced';
   }): Promise<number> {
     let abandoned = 0;
     for (const record of this.map.values()) {
@@ -1533,8 +1521,7 @@ export class D1EmailOtpChallengeStore
         wallet_id,
         record_org_id,
         otp_channel,
-        session_hash,
-        app_session_version,
+        owner_proof_binding_digest,
         action,
         operation,
         otp_code,
@@ -1542,15 +1529,14 @@ export class D1EmailOtpChallengeStore
         created_at_ms,
         expires_at_ms
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT (namespace, org_id, project_id, env_id, challenge_id)
       DO UPDATE SET
         challenge_subject_id = EXCLUDED.challenge_subject_id,
         wallet_id = EXCLUDED.wallet_id,
         record_org_id = EXCLUDED.record_org_id,
         otp_channel = EXCLUDED.otp_channel,
-        session_hash = EXCLUDED.session_hash,
-        app_session_version = EXCLUDED.app_session_version,
+        owner_proof_binding_digest = EXCLUDED.owner_proof_binding_digest,
         action = EXCLUDED.action,
         operation = EXCLUDED.operation,
         otp_code = EXCLUDED.otp_code,
@@ -1563,8 +1549,7 @@ export class D1EmailOtpChallengeStore
         parsed.walletId,
         parsed.orgId || '',
         parsed.otpChannel,
-        parsed.sessionHash,
-        parsed.appSessionVersion,
+        parsed.ownerProofBindingDigest,
         parsed.action,
         parsed.operation,
         parsed.otpCode,
@@ -1639,8 +1624,7 @@ export class D1EmailOtpChallengeStore
           AND wallet_id = ?
           AND record_org_id = ?
           AND otp_channel = ?
-          AND session_hash = ?
-          AND app_session_version = ?
+          AND owner_proof_binding_digest = ?
           AND action = ?
           AND operation = ?`,
       [
@@ -1649,8 +1633,7 @@ export class D1EmailOtpChallengeStore
         input.walletId,
         String(input.orgId || ''),
         input.otpChannel,
-        input.sessionHash,
-        input.appSessionVersion,
+        input.ownerProofBindingDigest,
         input.action,
         input.operation,
       ],
@@ -1674,8 +1657,7 @@ export class D1EmailOtpChallengeStore
           AND wallet_id = ?
           AND record_org_id = ?
           AND otp_channel = ?
-          AND session_hash = ?
-          AND app_session_version = ?
+          AND owner_proof_binding_digest = ?
           AND action = ?
           AND operation = ?
         ORDER BY expires_at_ms DESC, created_at_ms DESC
@@ -1686,8 +1668,7 @@ export class D1EmailOtpChallengeStore
         input.walletId,
         String(input.orgId || ''),
         input.otpChannel,
-        input.sessionHash,
-        input.appSessionVersion,
+        input.ownerProofBindingDigest,
         input.action,
         input.operation,
       ],
@@ -1719,8 +1700,7 @@ export class D1EmailOtpChallengeStore
            AND wallet_id = ?
            AND record_org_id = ?
            AND otp_channel = ?
-           AND session_hash = ?
-           AND app_session_version = ?
+           AND owner_proof_binding_digest = ?
            AND action = ?
            AND operation = ?
          ORDER BY created_at_ms ASC, expires_at_ms ASC
@@ -1739,8 +1719,7 @@ export class D1EmailOtpChallengeStore
         input.walletId,
         String(input.orgId || ''),
         input.otpChannel,
-        input.sessionHash,
-        input.appSessionVersion,
+        input.ownerProofBindingDigest,
         input.action,
         input.operation,
         this.scope.namespace,
@@ -1775,8 +1754,7 @@ export class D1EmailOtpChallengeStore
           AND wallet_id = ?
           AND record_org_id = ?
           AND otp_channel = ?
-          AND session_hash = ?
-          AND app_session_version = ?
+          AND owner_proof_binding_digest = ?
           AND action = ?
           AND operation = ?
           AND otp_code = ?
@@ -1788,8 +1766,7 @@ export class D1EmailOtpChallengeStore
         input.walletId,
         String(input.orgId || ''),
         input.otpChannel,
-        input.sessionHash,
-        input.appSessionVersion,
+        input.ownerProofBindingDigest,
         input.action,
         input.operation,
         input.otpCode,
@@ -2265,7 +2242,7 @@ export class D1EmailOtpRegistrationAttemptStore
         email,
         wallet_id,
         state,
-        app_session_version,
+        owner_proof_binding_digest,
         runtime_org_id,
         runtime_policy_key,
         offer_wallet_ids_json,
@@ -2281,7 +2258,7 @@ export class D1EmailOtpRegistrationAttemptStore
         email = EXCLUDED.email,
         wallet_id = EXCLUDED.wallet_id,
         state = EXCLUDED.state,
-        app_session_version = EXCLUDED.app_session_version,
+        owner_proof_binding_digest = EXCLUDED.owner_proof_binding_digest,
         runtime_org_id = EXCLUDED.runtime_org_id,
         runtime_policy_key = EXCLUDED.runtime_policy_key,
         offer_wallet_ids_json = EXCLUDED.offer_wallet_ids_json,
@@ -2295,7 +2272,7 @@ export class D1EmailOtpRegistrationAttemptStore
         parsed.email,
         parsed.walletId,
         parsed.state,
-        parsed.appSessionVersion,
+        parsed.ownerProofBindingDigest,
         parsed.runtimePolicyScope?.orgId || '',
         runtimePolicyScopeKey(parsed.runtimePolicyScope),
         JSON.stringify(parsed.offerCandidates.map((candidate) => candidate.walletId)),
@@ -2339,7 +2316,7 @@ export class D1EmailOtpRegistrationAttemptStore
     providerSubject: string;
     email: string;
     orgId: string;
-    appSessionVersion: string;
+    ownerProofBindingDigest: string;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
     nowMs: number;
   }): Promise<PendingGoogleEmailOtpRegistrationAttemptRecord | null> {
@@ -2355,7 +2332,7 @@ export class D1EmailOtpRegistrationAttemptStore
           AND email = ?
           AND state IN ('started', 'key_finalized')
           AND expires_at_ms > ?
-          AND app_session_version = ?
+          AND owner_proof_binding_digest = ?
           AND runtime_org_id = ?
           AND runtime_policy_key = ?
         ORDER BY updated_at_ms DESC
@@ -2364,7 +2341,7 @@ export class D1EmailOtpRegistrationAttemptStore
         input.providerSubject,
         input.email,
         input.nowMs,
-        input.appSessionVersion,
+        input.ownerProofBindingDigest,
         input.orgId,
         runtimePolicyScopeKey(input.runtimePolicyScope),
       ],
@@ -2382,14 +2359,14 @@ export class D1EmailOtpRegistrationAttemptStore
     return null;
   }
 
-  async abandonStartedBySubjectEmailExceptAppSession(input: {
+  async abandonStartedBySubjectEmailExceptBinding(input: {
     providerSubject: string;
     email: string;
     orgId: string;
-    appSessionVersion: string;
+    ownerProofBindingDigest: string;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
     nowMs: number;
-    failureCode: 'app_session_version_replaced';
+    failureCode: 'owner_proof_binding_replaced';
   }): Promise<number> {
     await this.ensureSchema();
     const result = await this.bindScope(

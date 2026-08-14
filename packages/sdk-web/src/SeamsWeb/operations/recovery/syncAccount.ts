@@ -22,7 +22,6 @@ import {
   type PasskeyEd25519YaoRecoveryResultV1,
   type ParsedPasskeyEd25519YaoSyncResponseV1,
 } from '@/core/signingEngine/flows/recovery/passkeyEd25519YaoRecovery';
-import { restoreLocalLoginState } from '@/SeamsWeb/operations/session/restoreLocalLoginState';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { errorMessage } from '@shared/utils/errors';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
@@ -540,7 +539,7 @@ async function recoverAndCommitPasskeyEd25519Unlock(
           Uint8Array.from(input.parsed.capability.registeredPublicKey),
         ),
         routerOrigin: new URL(input.relayerUrl).origin,
-        walletSessionJwt: input.parsed.session.walletSessionJwt,
+        walletSessionToken: input.parsed.session.walletSessionToken,
       });
       const materialBinding = walletCustodyMaterialBinding({
         parsed: input.parsed,
@@ -1018,13 +1017,6 @@ async function syncAccountInternal(
       signerSlot: verifiedBinding.signerSlot,
       nearClient: context.nearClient,
     });
-    const restored = await restoreLocalLoginState({
-      context,
-      walletId: verifiedBinding.walletId,
-      nearAccountId: verifiedBinding.nearAccountId,
-      nearEd25519SigningKeyId: verifiedBinding.nearEd25519SigningKeyId,
-      signerSlot: verifiedBinding.signerSlot,
-    });
     recoveryOwnership = { kind: 'committed' };
     emitSyncAccountEvent({
       onEvent: options?.onEvent,
@@ -1043,7 +1035,7 @@ async function syncAccountInternal(
       nearEd25519SigningKeyId: String(verifiedBinding.nearEd25519SigningKeyId),
       publicKey: recovery.parsed.operationalPublicKey,
       message: 'Account synced successfully',
-      loginState: { isLoggedIn: restored.isLoggedIn },
+      loginState: { isLoggedIn: true },
     };
   } catch (error: unknown) {
     let message = errorMessage(error) || 'syncAccount failed';

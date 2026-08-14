@@ -1,12 +1,12 @@
 import type { WebAuthnAuthenticationCredential } from '../../types/webauthn';
 import type { RouterAbEcdsaPostRegistrationSessionActivationPolicyV1 } from '@shared/utils/routerAbEcdsaDerivation';
-import type { PasskeySessionExchangeInputWithEcdsaActivation } from './rpcCalls';
-import { exchangeSession } from './rpcCalls';
+import type { PasskeyWalletUnlockInputWithEcdsaActivation } from './rpcCalls';
+import { verifyPasskeyWalletUnlock } from './rpcCalls';
 
 declare const credential: WebAuthnAuthenticationCredential;
 declare const activationPolicy: RouterAbEcdsaPostRegistrationSessionActivationPolicyV1;
 
-const activatedInput: PasskeySessionExchangeInputWithEcdsaActivation = {
+const activatedInput: PasskeyWalletUnlockInputWithEcdsaActivation = {
   type: 'passkey_assertion',
   challengeId: 'challenge-1',
   webauthn_authentication: credential,
@@ -14,16 +14,13 @@ const activatedInput: PasskeySessionExchangeInputWithEcdsaActivation = {
   walletId: 'wallet.testnet',
 };
 
-const activatedExchange = exchangeSession(
+const activatedUnlock = verifyPasskeyWalletUnlock(
   'https://relay.example',
-  '/session/exchange',
-  'jwt',
   activatedInput,
-  { kind: 'unscoped' },
 );
 
-void activatedExchange.then((result) => {
+void activatedUnlock.then((result) => {
   if (result.success) {
-    result.ecdsaSession.session.wallet_session_jwt satisfies string;
+    result.ecdsaSession.session.wallet_session_token satisfies string;
   }
 });

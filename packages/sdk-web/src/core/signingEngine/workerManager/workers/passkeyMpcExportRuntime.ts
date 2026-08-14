@@ -174,7 +174,7 @@ function parseEd25519YaoExportWorkerPayload(
     !viewerSessionId ||
     !exactLane ||
     !authorization ||
-    authorization.kind !== 'wallet_session' ||
+    authorization.kind !== 'opaque_wallet_session' ||
     !capability
   ) {
     return null;
@@ -183,7 +183,7 @@ function parseEd25519YaoExportWorkerPayload(
     exactLane.nearEd25519SigningKeyId,
   );
   const credentialIdB64u = normalizeOptionalNonEmptyString(exactLane.credentialIdB64u);
-  const walletSessionJwt = normalizeOptionalNonEmptyString(authorization.walletSessionJwt);
+  const walletSessionToken = normalizeOptionalNonEmptyString(authorization.walletSessionToken);
   const materialActivationResult = parseMpcMaterialActivationRef(exactLane.materialActivation);
   const capabilityMaterialActivationResult = parseMpcMaterialActivationRef(
     capability.materialActivation,
@@ -207,7 +207,7 @@ function parseEd25519YaoExportWorkerPayload(
   if (
     !nearEd25519SigningKeyId ||
     !credentialIdB64u ||
-    !walletSessionJwt ||
+    !walletSessionToken ||
     !materialActivationResult.ok ||
     !capabilityMaterialActivationResult.ok ||
     signerSlot == null ||
@@ -229,8 +229,8 @@ function parseEd25519YaoExportWorkerPayload(
     nearAccountId,
     relayerUrl,
     authorization: {
-      kind: 'wallet_session',
-      walletSessionJwt,
+      kind: 'opaque_wallet_session',
+      walletSessionToken,
     },
     flowId,
     viewerSessionId,
@@ -600,7 +600,7 @@ async function runEd25519YaoExportWithUi(
       authorization: { kind: 'passkey', webauthnAuthentication: credential },
       transport: new RouterAbEd25519YaoHttpActivationTransportV1({
         routerOrigin: new URL(payload.relayerUrl).origin,
-        authorization: `Bearer ${payload.authorization.walletSessionJwt}`,
+        authorization: `Bearer ${payload.authorization.walletSessionToken}`,
         fetch: globalThis.fetch.bind(globalThis),
       }),
     });

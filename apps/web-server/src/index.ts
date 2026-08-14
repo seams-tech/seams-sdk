@@ -1,11 +1,7 @@
 import express, { Express, type RequestHandler } from 'express';
 import { Buffer } from 'node:buffer';
 import type { IncomingMessage } from 'node:http';
-import {
-  AuthService,
-  requireEnvVar,
-  type ThresholdStoreConfigInput,
-} from '@seams/sdk-server';
+import { AuthService, requireEnvVar, type ThresholdStoreConfigInput } from '@seams/sdk-server';
 import {
   createInMemoryConsoleSponsorshipSpendCapService,
   createConsoleOrgProjectEnvServiceWithTempoOnboardingSponsorship,
@@ -252,11 +248,9 @@ async function seedDemoConsoleOrgAndMembers(input: {
   for (const member of seedMembers) {
     try {
       const issued = await input.organizationAccess.invite(seedCtx, member.invitation);
-      await input.organizationAccess.acceptInvitation(
-        member.account,
-        issued.invitation.id,
-        { token: issued.token },
-      );
+      await input.organizationAccess.acceptInvitation(member.account, issued.invitation.id, {
+        token: issued.token,
+      });
     } catch (error: unknown) {
       if (
         !hasConsoleErrorCode(error, 'membership_already_exists') &&
@@ -715,13 +709,6 @@ async function main() {
       env.SIGNING_SESSION_SEAL_ACCEPTED_WARM_KEY_VERSIONS,
   } as const satisfies ThresholdStoreConfigInput;
 
-  const googleClientIds = Array.from(
-    new Set<string>([
-      ...parseCsvValues(env.GOOGLE_OIDC_CLIENT_IDS),
-      ...parseCsvValues(env.GOOGLE_OIDC_CLIENT_ID),
-    ]),
-  );
-
   const authService = new AuthService({
     // new accounts with be created with this account: e.g. bob.{relayer-account-id}.near
     relayerAccount: requireEnvVar(env, 'RELAYER_ACCOUNT_ID'),
@@ -743,24 +730,6 @@ async function main() {
       GITHUB_OAUTH_CLIENT_SECRET: env.GITHUB_OAUTH_CLIENT_SECRET,
       GITHUB_OAUTH_CALLBACK_URL: env.GITHUB_OAUTH_CALLBACK_URL,
     },
-    oidcExchange: googleClientIds.length
-      ? {
-          issuers: [
-            {
-              issuer: 'https://accounts.google.com',
-              jwksUrl: 'https://www.googleapis.com/oauth2/v3/certs',
-              audiences: googleClientIds,
-              subjectPrefix: 'google:',
-            },
-            {
-              issuer: 'accounts.google.com',
-              jwksUrl: 'https://www.googleapis.com/oauth2/v3/certs',
-              audiences: googleClientIds,
-              subjectPrefix: 'google:',
-            },
-          ],
-        }
-      : undefined,
   });
 
   console.log('[web-server] warming registration runtime');
@@ -845,7 +814,6 @@ async function main() {
   });
   const consoleAuth = createAppSessionConsoleAuthAdapter({
     session: jwtSession,
-    authService,
     organizationAccess: consoleOrganizationAccess,
     ...(consoleDemoOrgId ? { defaultOrgId: consoleDemoOrgId } : {}),
     platformSupportEmails: env.CONSOLE_PLATFORM_SUPPORT_EMAILS,

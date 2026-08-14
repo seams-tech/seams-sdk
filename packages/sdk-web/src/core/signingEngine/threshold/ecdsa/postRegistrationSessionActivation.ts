@@ -37,7 +37,10 @@ export type ExistingEcdsaRoleLocalActivation = {
 
 export type ActivateStrictEcdsaPostRegistrationSessionInput = {
   readonly relayerUrl: string;
-  readonly routeAuth: Extract<ThresholdEcdsaDerivationRouteAuth, { kind: 'wallet_session' }>;
+  readonly routeAuth: Extract<
+    ThresholdEcdsaDerivationRouteAuth,
+    { kind: 'opaque_wallet_session' }
+  >;
   readonly workerCtx: WorkerOperationContext;
   readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
   readonly persistedRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;

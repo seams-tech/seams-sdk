@@ -57,7 +57,7 @@ type LinkedNormalSigningPhase = 'prepare' | 'finalize';
 
 /**
  * Handles the linked-device branch before the owner Wallet Session branch. A
- * null result means the JWT is an owner session (or no usable JWT) and lets
+ * null result means the credential is an owner session (or no usable credential) and lets
  * the existing route continue unchanged.
  */
 export async function handleLinkedDeviceEd25519NormalSigning(input: {

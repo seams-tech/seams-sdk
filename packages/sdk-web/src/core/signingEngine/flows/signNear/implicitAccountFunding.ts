@@ -43,7 +43,7 @@ type NearWalletSessionFundingAuthorityBase = Readonly<{
   kind: 'near_wallet_session_funding_authority';
   request: NearFundingRequest;
   thresholdSessionId: ThresholdEd25519SessionId;
-  walletSessionJwt: string;
+  walletSessionToken: string;
   readonly [nearFundingAuthorityBrand]: true;
 }>;
 
@@ -70,14 +70,14 @@ function delayAccessKeyPoll(delayMs = ACCESS_KEY_POLL_DELAY_MS): Promise<void> {
   });
 }
 
-function requireWalletSessionJwt(state: NearEd25519FundingSession): string {
-  const walletSessionJwt = String(state.walletSessionJwt || '').trim();
-  if (!walletSessionJwt) {
+function requireWalletSessionToken(state: NearEd25519FundingSession): string {
+  const walletSessionToken = String(state.walletSessionToken || '').trim();
+  if (!walletSessionToken) {
     throw new Error(
-      '[SigningEngine][near] authenticated Wallet Session JWT is required for funding',
+      '[SigningEngine][near] authenticated Wallet Session token is required for funding',
     );
   }
-  return walletSessionJwt;
+  return walletSessionToken;
 }
 
 function fundingSessionFromWalletSessionState(
@@ -87,7 +87,7 @@ function fundingSessionFromWalletSessionState(
     kind: 'near_ed25519_funding_session',
     signer: state.signingLane.identity.signer,
     thresholdSessionId: state.thresholdSessionId,
-    walletSessionJwt: state.walletSessionAuth.walletSessionJwt,
+    walletSessionToken: state.walletSessionAuth.walletSessionToken,
   };
 }
 
@@ -184,7 +184,7 @@ function createNearWalletSessionFundingAuthority(args: {
     provenance: args.provenance,
     request: args.request,
     thresholdSessionId: args.fundingSession.thresholdSessionId,
-    walletSessionJwt: requireWalletSessionJwt(args.fundingSession),
+    walletSessionToken: requireWalletSessionToken(args.fundingSession),
     [nearFundingAuthorityBrand]: true,
   };
 }
@@ -249,7 +249,7 @@ async function fundAndReserveNearContext(args: {
     walletId: String(request.subject.walletId),
     nearAccountId: String(request.subject.nearAccountId),
     nearPublicKeyStr: request.subject.nearPublicKeyStr,
-    walletSessionJwt: args.authority.walletSessionJwt,
+    walletSessionToken: args.authority.walletSessionToken,
   });
   if (!funded.ok) {
     throw new Error(funded.message || funded.code || 'Failed to fund implicit NEAR account');
