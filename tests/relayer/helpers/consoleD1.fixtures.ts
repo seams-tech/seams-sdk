@@ -314,18 +314,6 @@ export type RawD1EmailOtpEnrollmentInsertInput = {
   readonly createdAtMs: number;
   readonly updatedAtMs: number;
 };
-export type RawD1EmailOtpRecoveryEscrowInsertInput = {
-  readonly namespace: string;
-  readonly orgId: string;
-  readonly projectId: string;
-  readonly envId: string;
-  readonly walletId: string;
-  readonly recoveryKeyId: string;
-  readonly recoveryKeyStatus: string;
-  readonly recordJson: string;
-  readonly issuedAtMs: number;
-  readonly updatedAtMs: number;
-};
 export type RawD1EmailOtpAuthStateInsertInput = {
   readonly namespace: string;
   readonly orgId: string;
@@ -1261,7 +1249,7 @@ export function buildRawD1EmailOtpGrantInsertInput(
   const walletId = input.walletId ?? 'wallet-raw-email-otp';
   const recordOrgId = input.recordOrgId ?? 'org-d1-email-otp-schema';
   const challengeId = input.challengeId ?? 'email-otp-challenge-raw-schema';
-  const action = input.action ?? 'wallet_email_otp_factor_release';
+  const action = input.action ?? 'wallet_email_otp_unseal';
   return {
     namespace: input.namespace ?? 'd1-contracts',
     orgId: input.orgId ?? 'org-d1-email-otp-schema',
@@ -1333,51 +1321,6 @@ export function buildRawD1EmailOtpEnrollmentInsertInput(
         updatedAtMs,
       }),
     createdAtMs,
-    updatedAtMs,
-  };
-}
-
-export function buildRawD1EmailOtpRecoveryEscrowInsertInput(
-  input: Partial<RawD1EmailOtpRecoveryEscrowInsertInput>,
-): RawD1EmailOtpRecoveryEscrowInsertInput {
-  const issuedAtMs = input.issuedAtMs ?? Date.parse('2026-06-27T00:00:00.000Z');
-  const updatedAtMs = input.updatedAtMs ?? issuedAtMs + 1000;
-  const walletId = input.walletId ?? 'wallet-raw-email-otp';
-  const recoveryKeyId = input.recoveryKeyId ?? 'recovery-key-raw-email-otp';
-  const recoveryKeyStatus = input.recoveryKeyStatus ?? 'active';
-  return {
-    namespace: input.namespace ?? 'd1-contracts',
-    orgId: input.orgId ?? 'org-d1-email-otp-schema',
-    projectId: input.projectId ?? 'project-d1-email-otp-schema',
-    envId: input.envId ?? 'env-production',
-    walletId,
-    recoveryKeyId,
-    recoveryKeyStatus,
-    recordJson:
-      input.recordJson ??
-      JSON.stringify({
-        version: 'email_otp_recovery_wrapped_enrollment_escrow_v1',
-        alg: 'chacha20poly1305-hkdf-sha256-v1',
-        secretKind: 'email_otp_device_enrollment_escrow',
-        escrowKind: 'recovery_wrapped_enrollment_escrow',
-        walletId,
-        userId: 'google-subject-raw-email-otp',
-        authSubjectId: 'google-subject-raw-email-otp',
-        authMethod: 'google_sso_email_otp',
-        enrollmentId: 'enrollment-raw-email-otp',
-        enrollmentVersion: '1',
-        enrollmentSealKeyVersion: 'seal-v1',
-        signingRootId: 'signing-root-raw-email-otp',
-        signingRootVersion: '1',
-        recoveryKeyId,
-        recoveryKeyStatus,
-        nonceB64u: 'nonce-raw-email-otp',
-        wrappedDeviceEnrollmentEscrowB64u: 'wrapped-raw-email-otp',
-        aadHashB64u: 'hash-raw-email-otp',
-        issuedAtMs,
-        updatedAtMs,
-      }),
-    issuedAtMs,
     updatedAtMs,
   };
 }
@@ -2270,40 +2213,6 @@ export async function insertRawD1EmailOtpEnrollmentRecord(
     .run();
 }
 
-export async function insertRawD1EmailOtpRecoveryEscrowRecord(
-  database: D1DatabaseLike,
-  input: RawD1EmailOtpRecoveryEscrowInsertInput,
-): Promise<void> {
-  await database
-    .prepare(
-      `INSERT INTO email_otp_recovery_wrapped_enrollment_escrows (
-        namespace,
-        org_id,
-        project_id,
-        env_id,
-        wallet_id,
-        recovery_key_id,
-        recovery_key_status,
-        record_json,
-        issued_at_ms,
-        updated_at_ms
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .bind(
-      input.namespace,
-      input.orgId,
-      input.projectId,
-      input.envId,
-      input.walletId,
-      input.recoveryKeyId,
-      input.recoveryKeyStatus,
-      input.recordJson,
-      input.issuedAtMs,
-      input.updatedAtMs,
-    )
-    .run();
-}
-
 export async function insertRawD1EmailOtpAuthStateRecord(
   database: D1DatabaseLike,
   input: RawD1EmailOtpAuthStateInsertInput,
@@ -2475,15 +2384,6 @@ export async function expectRawD1EmailOtpEnrollmentInsertRejected(
   input: RawD1EmailOtpEnrollmentInsertInput,
 ): Promise<void> {
   await expect(insertRawD1EmailOtpEnrollmentRecord(database, input)).rejects.toThrow(
-    /CHECK constraint failed/,
-  );
-}
-
-export async function expectRawD1EmailOtpRecoveryEscrowInsertRejected(
-  database: D1DatabaseLike,
-  input: RawD1EmailOtpRecoveryEscrowInsertInput,
-): Promise<void> {
-  await expect(insertRawD1EmailOtpRecoveryEscrowRecord(database, input)).rejects.toThrow(
     /CHECK constraint failed/,
   );
 }
@@ -2831,7 +2731,7 @@ export function buildD1EmailOtpGrantRecord(input: {
     otpChannel: EMAIL_OTP_CHANNEL,
     sessionHash: 'session-hash-d1-email-otp',
     appSessionVersion: 'app-session-v1',
-    action: WALLET_EMAIL_OTP_ACTIONS.factorRelease,
+    action: WALLET_EMAIL_OTP_ACTIONS.unseal,
     issuedAtMs: input.issuedAtMs,
     expiresAtMs: input.expiresAtMs,
   };

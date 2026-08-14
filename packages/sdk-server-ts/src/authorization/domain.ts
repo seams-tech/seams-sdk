@@ -15,14 +15,12 @@ import type {
   AuthorizedOperationId,
   WalletSessionAuthorizationId,
   LinkedDeviceWalletSessionAuthorizationId,
-  DeviceId,
   AuthorizationEvidenceId,
   AuthorizationEvidenceKind,
   HostedWalletSessionExchangeCodeId,
   MpcWalletSigningQuotaId,
   PrincipalId,
   ReusableWalletSessionMintId,
-  SeamsSessionId,
   TenantId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
@@ -50,19 +48,15 @@ import {
   type LinkedDeviceId,
   type WalletId,
 } from '@shared/utils/domainIds';
-import {
-  parseAppSessionVersion,
-  parseProviderSubject,
-  parseWebAuthnCredentialIdB64u,
-  type AppSessionVersion,
-  type ProviderSubject,
-  type WebAuthnCredentialIdB64u,
-} from '@shared/utils/domainIds';
+import type { ProviderSubject, WebAuthnCredentialIdB64u } from '@shared/utils/domainIds';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import type { QrLinkedDevicePermissionRequest } from '@shared/device-linking/contracts';
+
+/** A server-only identity for one consumed owner authentication result. */
+export type VerifiedOwnerProofId = DomainId<'VerifiedOwnerProofId'>;
 
 export type HostedWalletSeamsSessionExchangeCode = DomainId<'HostedWalletSeamsSessionExchangeCode'>;
 export type HostedWalletSeamsSessionExchangeNonce =
@@ -73,46 +67,55 @@ export type {
   CapabilityOperationFingerprintDigest,
 } from '@shared/authorization/operationFingerprint';
 
-export type ActiveAuthorizationSession = {
-  readonly kind: 'active_authorization_session';
-  readonly tenantId: TenantId;
-  readonly principalId: PrincipalId;
-  readonly sessionId: SeamsSessionId;
+export type OwnerOperationBinding = {
+  readonly operationFingerprintDigest: CapabilityOperationFingerprintDigest;
+  readonly operation: CapabilityOperationRef;
+  readonly laneDigest: DigestB64u;
+  readonly intentDigest: DigestB64u;
+  readonly displayDigest: DigestB64u;
+};
+
+export type VerifiedOwnerProofCommon = {
+  readonly kind: 'verified_owner_proof_v1';
+  readonly proofId: VerifiedOwnerProofId;
+  readonly method: 'passkey' | 'email_otp';
   readonly authSource:
+    | { readonly kind: 'passkey'; readonly credentialIdB64u: WebAuthnCredentialIdB64u }
     | {
         readonly kind: 'oidc_provider';
         readonly providerId: 'google_oidc' | 'oidc';
         readonly providerSubject: ProviderSubject;
-      }
-    | {
-        readonly kind: 'passkey';
-        readonly credentialIdB64u: WebAuthnCredentialIdB64u;
       };
-  readonly deviceId: DeviceId;
-  readonly audience:
-    | {
-        readonly kind: 'first_party_web';
-        readonly origin: SessionOrigin;
-      }
-    | {
-        readonly kind: 'hosted_wallet_iframe';
-        readonly appOrigin: SessionOrigin;
-        readonly walletOrigin: SessionOrigin;
-      };
-  readonly appSessionVersion: AppSessionVersion;
-  readonly assurance: 'session' | 'step_up';
-  readonly createdAtMs: number;
-  readonly lifecycle: {
-    readonly kind: 'active';
-    readonly expiresAtMs: number;
-  };
+  readonly tenantId: TenantId;
+  readonly principalId: PrincipalId;
+  readonly walletId: WalletId;
+  readonly authority: WalletAuthAuthorityRef;
+  readonly origin: SessionOrigin;
+  readonly audience: SessionOrigin;
+  readonly replayIdentity: string;
+  readonly verifiedAtMs: number;
+  readonly expiresAtMs: number;
 };
+
+export type VerifiedOwnerProofFields = VerifiedOwnerProofCommon &
+  (
+    | {
+        readonly purpose: 'wallet_session';
+        readonly operation?: never;
+      }
+    | {
+        readonly purpose: 'operation';
+        readonly operation: OwnerOperationBinding;
+      }
+  );
+
+export type { VerifiedOwnerProof } from './factorEvidence';
 
 export type IssuedHostedWalletSeamsSessionExchange = {
   readonly kind: 'issued_hosted_wallet_session_exchange';
   readonly tenantId: TenantId;
   readonly exchangeCodeId: HostedWalletSessionExchangeCodeId;
-  readonly sourceSessionId: SeamsSessionId;
+  readonly walletSessionId: WalletSessionId;
   readonly codeHash: DigestB64u;
   readonly nonceDigest: DigestB64u;
   readonly appOrigin: SessionOrigin;
@@ -130,26 +133,43 @@ export type HostedWalletSeamsSessionExchangeDelivery = {
   readonly expiresAtMs: number;
 };
 
+export type HostedWalletSeamsSessionExchangeRejection = {
+  readonly kind:
+    | 'invalid_code'
+    | 'expired'
+    | 'already_consumed'
+    | 'nonce_mismatch'
+    | 'app_origin_mismatch'
+    | 'wallet_session_unavailable';
+};
+
+export type PersistedHostedWalletSeamsSessionExchangeResult =
+  | {
+      readonly kind: 'redeemed';
+      readonly tenantId: TenantId;
+      readonly walletSessionId: WalletSessionId;
+      readonly curve: 'ecdsa' | 'ed25519';
+      readonly expiresAtMs: number;
+    }
+  | HostedWalletSeamsSessionExchangeRejection;
+
 export type RedeemHostedWalletSeamsSessionExchangeResult =
   | {
       readonly kind: 'redeemed';
-      readonly session: ActiveAuthorizationSession;
+      readonly walletSessionId: WalletSessionId;
+      readonly walletSessionToken: string;
+      readonly curve: 'ecdsa' | 'ed25519';
+      readonly expiresAtMs: number;
     }
-  | {
-      readonly kind:
-        | 'invalid_code'
-        | 'expired'
-        | 'already_consumed'
-        | 'nonce_mismatch'
-        | 'wallet_origin_mismatch'
-        | 'source_session_unavailable';
-    };
+  | HostedWalletSeamsSessionExchangeRejection;
 
 export type RedeemHostedWalletSeamsSessionExchangeInput = {
   readonly codeHash: DigestB64u;
   readonly nonceDigest: DigestB64u;
-  readonly walletOrigin: SessionOrigin;
-  readonly targetSessionId: SeamsSessionId;
+  readonly appOrigin: SessionOrigin;
+  readonly tokenHash: DigestB64u;
+  readonly curve: 'ecdsa' | 'ed25519';
+  readonly bindingJson: string;
   readonly redeemedAtMs: number;
 };
 
@@ -222,6 +242,59 @@ export type OperationAuthorizationSource =
       readonly kind: 'verified_step_up';
       readonly authorizationGrantRef?: never;
       readonly evidenceSetDigest: DigestB64u;
+    };
+
+export type OwnerOperationStepUpReason =
+  | 'wallet_session_missing'
+  | 'wallet_session_expired'
+  | 'wallet_session_exhausted'
+  | 'wallet_session_ended'
+  | 'wallet_session_superseded';
+
+export type OwnerOperationAuthorizationDenial = {
+  readonly code:
+    | 'invalid_identity'
+    | 'invalid_authority'
+    | 'invalid_operation'
+    | 'inactive_material'
+    | 'replayed_step_up'
+    | 'authorization_unavailable';
+  readonly message: string;
+};
+
+export type OwnerOperationAuthorizationSource =
+  | {
+      readonly kind: 'authorization_grant';
+      readonly authorizationGrantRef: Extract<
+        AuthorizationGrantRef,
+        { readonly kind: 'wallet_session_authorization' }
+      >;
+      readonly evidenceSetDigest?: never;
+    }
+  | Extract<OperationAuthorizationSource, { readonly kind: 'verified_step_up' }>;
+
+export type OwnerOperationAuthorizationDecision<TStepUpPreparation> =
+  | {
+      readonly kind: 'authorized';
+      readonly operation: AuthorizedOperation & { readonly lifecycle: 'claimed' };
+      readonly source: OwnerOperationAuthorizationSource;
+      readonly stepUp?: never;
+      readonly denial?: never;
+    }
+  | {
+      readonly kind: 'step_up_required';
+      readonly reason: OwnerOperationStepUpReason;
+      readonly stepUp: TStepUpPreparation;
+      readonly operation?: never;
+      readonly source?: never;
+      readonly denial?: never;
+    }
+  | {
+      readonly kind: 'denied';
+      readonly denial: OwnerOperationAuthorizationDenial;
+      readonly operation?: never;
+      readonly source?: never;
+      readonly stepUp?: never;
     };
 
 type AuthorizedOperationLifecycle =
@@ -512,6 +585,10 @@ export function parseHostedWalletSeamsSessionExchangeCode(
   return parseAuthorizationDomainId(value, 'hostedWalletSessionExchangeCode');
 }
 
+export function parseVerifiedOwnerProofId(value: unknown): VerifiedOwnerProofId {
+  return parseAuthorizationDomainId(value, 'verifiedOwnerProofId');
+}
+
 export function parseHostedWalletSeamsSessionExchangeNonce(
   value: unknown,
 ): HostedWalletSeamsSessionExchangeNonce {
@@ -538,28 +615,6 @@ export function parseSessionOrigin(value: unknown): SessionOrigin {
     throw new Error('session origin must be a canonical HTTP origin');
   }
   return value as SessionOrigin;
-}
-
-export function buildActiveAuthorizationSession(
-  fields: Omit<ActiveAuthorizationSession, 'kind'>,
-): ActiveAuthorizationSession {
-  requireOrderedTimes(fields.createdAtMs, fields.lifecycle.expiresAtMs, 'authorization session');
-  requireAuthorizationSource(fields.authSource);
-  requireSessionAudience(fields.audience);
-  requireOpaqueVersion(fields.appSessionVersion);
-  return {
-    kind: 'active_authorization_session',
-    tenantId: fields.tenantId,
-    principalId: fields.principalId,
-    sessionId: fields.sessionId,
-    authSource: fields.authSource,
-    deviceId: fields.deviceId,
-    audience: fields.audience,
-    appSessionVersion: fields.appSessionVersion,
-    assurance: fields.assurance,
-    createdAtMs: fields.createdAtMs,
-    lifecycle: fields.lifecycle,
-  };
 }
 
 export function buildActiveWalletSessionQuota(
@@ -854,38 +909,6 @@ function requireOrderedTimes(createdAtMs: number, expiresAtMs: number, label: st
   }
 }
 
-function requireAuthorizationSource(source: ActiveAuthorizationSession['authSource']): void {
-  switch (source.kind) {
-    case 'oidc_provider':
-      requireDomainIdParse(
-        parseProviderSubject(source.providerSubject),
-        'authSource.providerSubject',
-      );
-      return;
-    case 'passkey':
-      requireDomainIdParse(
-        parseWebAuthnCredentialIdB64u(source.credentialIdB64u),
-        'authSource.credentialIdB64u',
-      );
-      return;
-  }
-}
-
-function requireSessionAudience(audience: ActiveAuthorizationSession['audience']): void {
-  switch (audience.kind) {
-    case 'first_party_web':
-      parseSessionOrigin(audience.origin);
-      return;
-    case 'hosted_wallet_iframe':
-      parseSessionOrigin(audience.appOrigin);
-      parseSessionOrigin(audience.walletOrigin);
-      return;
-  }
-}
-
-function requireOpaqueVersion(value: AppSessionVersion): void {
-  requireDomainIdParse(parseAppSessionVersion(value), 'appSessionVersion');
-}
 
 function requireDomainIdParse(
   result: { readonly ok: true } | { readonly ok: false; readonly error: { message: string } },

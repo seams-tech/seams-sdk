@@ -2,20 +2,16 @@ import {
   AUTHORIZATION_EVIDENCE_KINDS,
   isAuthorizationEvidenceKind,
   parseCapabilityOperationRef,
-  parseDeviceId,
   parseAuthorizationEvidenceId,
   parseAuthorizationEvidenceSetId,
   parsePrincipalId,
-  parseSeamsSessionId,
   parseTenantId,
   type AuthFactorId,
   type AuthorizationParseResult,
   type CapabilityOperationRef,
-  type DeviceId,
   type AuthorizationEvidenceId,
   type AuthorizationEvidenceSetId,
   type PrincipalId,
-  type SeamsSessionId,
   type TenantId,
 } from '@shared/authorization/capabilityKinds';
 import {
@@ -24,24 +20,38 @@ import {
 } from '@shared/authorization/operationFingerprint';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
-import type { EmailOtpChallengeId, WebAuthnCredentialIdB64u } from '@shared/utils/domainIds';
+import {
+  parseWalletId,
+  parseProviderSubject,
+  type EmailOtpChallengeId,
+  type WalletId,
+  type WebAuthnCredentialIdB64u,
+} from '@shared/utils/domainIds';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
-import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import {
+  parseWalletAuthAuthorityRef,
+  type WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
 import type {
-  ActiveAuthorizationSession,
+  OwnerOperationBinding,
+  SessionOrigin,
+  VerifiedOwnerProofFields,
   VerifiedAuthorizationEvidence,
+  VerifiedOwnerProofId,
 } from './domain';
+import { parseSessionOrigin } from './domain';
 
 const FACTOR_EVIDENCE_DIGEST_DOMAIN_V1 = 'seams:authorization:factor-evidence:v1';
-const SESSION_EVIDENCE_DIGEST_DOMAIN_V1 = 'seams:authorization:session-evidence:v1';
 const EVIDENCE_SET_DIGEST_DOMAIN_V1 = 'seams:authorization:evidence-set:v1';
 
-type VerifiedAuthorizationEvidenceSetFields = {
+type VerifiedWalletOperationEvidenceSetFields = {
   readonly tenantId: TenantId;
   readonly principalId: PrincipalId;
-  readonly sessionId: SeamsSessionId;
-  readonly deviceId: DeviceId;
+  readonly walletId: WalletId;
+  readonly authorityRef: WalletAuthAuthorityRef;
+  readonly requestOrigin: SessionOrigin;
+  readonly audience: SessionOrigin;
   readonly evidenceSetId: AuthorizationEvidenceSetId;
   readonly evidence: readonly [VerifiedAuthorizationEvidence, ...VerifiedAuthorizationEvidence[]];
   readonly evidenceSetDigest: DigestB64u;
@@ -49,16 +59,19 @@ type VerifiedAuthorizationEvidenceSetFields = {
   readonly laneDigest: DigestB64u;
   readonly intentDigest: DigestB64u;
   readonly displayDigest: DigestB64u;
-  readonly assurance: 'session' | 'step_up';
+  readonly assurance: 'step_up';
+  readonly verifiedAtMs: number;
   readonly expiresAtMs: number;
 };
 
-class VerifiedAuthorizationEvidenceSetProof {
-  readonly kind = 'verified_authorization_evidence_set' as const;
+class VerifiedWalletOperationEvidenceSetProof {
+  readonly kind = 'verified_wallet_operation_evidence_set' as const;
   readonly tenantId: TenantId;
   readonly principalId: PrincipalId;
-  readonly sessionId: SeamsSessionId;
-  readonly deviceId: DeviceId;
+  readonly walletId: WalletId;
+  readonly authorityRef: WalletAuthAuthorityRef;
+  readonly requestOrigin: SessionOrigin;
+  readonly audience: SessionOrigin;
   readonly evidenceSetId: AuthorizationEvidenceSetId;
   readonly evidence: readonly [VerifiedAuthorizationEvidence, ...VerifiedAuthorizationEvidence[]];
   readonly evidenceSetDigest: DigestB64u;
@@ -66,20 +79,23 @@ class VerifiedAuthorizationEvidenceSetProof {
   readonly laneDigest: DigestB64u;
   readonly intentDigest: DigestB64u;
   readonly displayDigest: DigestB64u;
-  readonly assurance: 'session' | 'step_up';
+  readonly assurance = 'step_up' as const;
+  readonly verifiedAtMs: number;
   readonly expiresAtMs: number;
 
   private retainVerifiedEvidenceProof(): true {
     return true;
   }
 
-  constructor(fields: VerifiedAuthorizationEvidenceSetFields) {
+  constructor(fields: VerifiedWalletOperationEvidenceSetFields) {
     void this.retainVerifiedEvidenceProof();
-    requireEvidenceSetFields(fields);
+    requireWalletOperationEvidenceSetFields(fields);
     this.tenantId = fields.tenantId;
     this.principalId = fields.principalId;
-    this.sessionId = fields.sessionId;
-    this.deviceId = fields.deviceId;
+    this.walletId = fields.walletId;
+    this.authorityRef = fields.authorityRef;
+    this.requestOrigin = fields.requestOrigin;
+    this.audience = fields.audience;
     this.evidenceSetId = fields.evidenceSetId;
     this.evidence = fields.evidence;
     this.evidenceSetDigest = fields.evidenceSetDigest;
@@ -87,70 +103,118 @@ class VerifiedAuthorizationEvidenceSetProof {
     this.laneDigest = fields.laneDigest;
     this.intentDigest = fields.intentDigest;
     this.displayDigest = fields.displayDigest;
-    this.assurance = fields.assurance;
+    this.verifiedAtMs = fields.verifiedAtMs;
     this.expiresAtMs = fields.expiresAtMs;
   }
 }
 
-export type VerifiedAuthorizationEvidenceSet = VerifiedAuthorizationEvidenceSetProof;
+export type VerifiedAuthorizationEvidenceSet = VerifiedWalletOperationEvidenceSetProof;
 
-type VerifiedFactorBinding = {
-  readonly tenantId: ActiveAuthorizationSession['tenantId'];
-  readonly principalId: ActiveAuthorizationSession['principalId'];
-  readonly sessionId: ActiveAuthorizationSession['sessionId'];
-  readonly deviceId: ActiveAuthorizationSession['deviceId'];
-  readonly factorId: AuthFactorId;
+type VerifiedWalletOperationFactorBinding = {
+  readonly tenantId: TenantId;
+  readonly principalId: PrincipalId;
+  readonly walletId: WalletId;
   readonly authorityRef: WalletAuthAuthorityRef;
+  readonly requestOrigin: SessionOrigin;
+  readonly audience: SessionOrigin;
+  readonly factorId: AuthFactorId;
   readonly operation: CapabilityOperationEnvelope;
   readonly verifiedAtMs: number;
   readonly expiresAtMs: number;
 };
 
-export type VerifiedPasskeyFactorResult = VerifiedFactorBinding & {
-  readonly kind: 'verified_passkey_factor';
+export type VerifiedWalletOperationPasskeyFactorResult = VerifiedWalletOperationFactorBinding & {
+  readonly kind: 'verified_wallet_operation_passkey_factor';
   readonly credentialIdB64u: WebAuthnCredentialIdB64u;
   readonly assertionDigest: DigestB64u;
 };
 
-export type VerifiedEmailOtpFactorResult = VerifiedFactorBinding & {
-  readonly kind: 'verified_email_otp_factor';
+export type VerifiedWalletOperationEmailOtpFactorResult = VerifiedWalletOperationFactorBinding & {
+  readonly kind: 'verified_wallet_operation_email_otp_factor';
   readonly challengeId: EmailOtpChallengeId;
   readonly verificationReceiptDigest: DigestB64u;
 };
 
-export type VerifiedAuthorizationFactorResult =
-  | VerifiedPasskeyFactorResult
-  | VerifiedEmailOtpFactorResult;
+export type VerifiedWalletOperationFactorResult =
+  | VerifiedWalletOperationPasskeyFactorResult
+  | VerifiedWalletOperationEmailOtpFactorResult;
 
-export type VerifiedFactorEvidenceSetInput = {
-  readonly session: ActiveAuthorizationSession;
-  readonly operation: CapabilityOperationEnvelope;
-  readonly evidenceId: AuthorizationEvidenceId;
-  readonly evidenceSetId: AuthorizationEvidenceSetId;
-  readonly factor: VerifiedAuthorizationFactorResult;
-};
-
-export type VerifiedSessionEvidenceSetInput = {
-  readonly session: ActiveAuthorizationSession;
-  readonly operation: CapabilityOperationEnvelope;
-  readonly evidenceId: AuthorizationEvidenceId;
-  readonly evidenceSetId: AuthorizationEvidenceSetId;
+type VerifiedWalletSessionFactorBinding = {
+  readonly tenantId: TenantId;
+  readonly principalId: PrincipalId;
+  readonly walletId: WalletId;
+  readonly authorityRef: WalletAuthAuthorityRef;
+  readonly requestOrigin: SessionOrigin;
+  readonly audience: SessionOrigin;
+  readonly factorId: AuthFactorId;
+  readonly verifiedAtMs: number;
   readonly expiresAtMs: number;
 };
 
-export function buildVerifiedPasskeyFactorResult(
-  fields: Omit<VerifiedPasskeyFactorResult, 'kind'>,
-): VerifiedPasskeyFactorResult {
+export type VerifiedWalletSessionPasskeyFactorResult =
+  VerifiedWalletSessionFactorBinding & {
+    readonly kind: 'verified_wallet_session_passkey_factor';
+    readonly credentialIdB64u: WebAuthnCredentialIdB64u;
+    readonly assertionDigest: DigestB64u;
+  };
+
+export type VerifiedWalletSessionEmailOtpFactorResult =
+  VerifiedWalletSessionFactorBinding & {
+    readonly kind: 'verified_wallet_session_email_otp_factor';
+    readonly challengeId: EmailOtpChallengeId;
+    readonly verificationReceiptDigest: DigestB64u;
+  };
+
+export type VerifiedWalletSessionFactorResult =
+  | VerifiedWalletSessionPasskeyFactorResult
+  | VerifiedWalletSessionEmailOtpFactorResult;
+
+export type VerifiedWalletOperationFactorEvidenceSetInput = {
+  readonly operation: CapabilityOperationEnvelope;
+  readonly evidenceId: AuthorizationEvidenceId;
+  readonly evidenceSetId: AuthorizationEvidenceSetId;
+  readonly factor: VerifiedWalletOperationFactorResult;
+};
+
+export type VerifiedOwnerProofInput =
+  | {
+      readonly purpose: 'wallet_session';
+      readonly proofId: VerifiedOwnerProofId;
+      readonly factor: VerifiedWalletSessionFactorResult;
+    }
+  | {
+      readonly purpose: 'operation';
+      readonly proofId: VerifiedOwnerProofId;
+      readonly factor: VerifiedWalletOperationFactorResult;
+    };
+
+export function buildVerifiedWalletOperationPasskeyFactorResult(
+  fields: Omit<VerifiedWalletOperationPasskeyFactorResult, 'kind'>,
+): VerifiedWalletOperationPasskeyFactorResult {
+  requireVerificationWindow(fields.verifiedAtMs, fields.expiresAtMs);
+  return { kind: 'verified_wallet_operation_passkey_factor', ...fields };
+}
+
+export function buildVerifiedWalletOperationEmailOtpFactorResult(
+  fields: Omit<VerifiedWalletOperationEmailOtpFactorResult, 'kind'>,
+): VerifiedWalletOperationEmailOtpFactorResult {
+  requireVerificationWindow(fields.verifiedAtMs, fields.expiresAtMs);
+  return { kind: 'verified_wallet_operation_email_otp_factor', ...fields };
+}
+
+export function buildVerifiedWalletSessionPasskeyFactorResult(
+  fields: Omit<VerifiedWalletSessionPasskeyFactorResult, 'kind'>,
+): VerifiedWalletSessionPasskeyFactorResult {
   requireVerificationWindow(fields.verifiedAtMs, fields.expiresAtMs);
   return {
-    kind: 'verified_passkey_factor',
+    kind: 'verified_wallet_session_passkey_factor',
     tenantId: fields.tenantId,
     principalId: fields.principalId,
-    sessionId: fields.sessionId,
-    deviceId: fields.deviceId,
-    factorId: fields.factorId,
+    walletId: fields.walletId,
     authorityRef: fields.authorityRef,
-    operation: fields.operation,
+    requestOrigin: fields.requestOrigin,
+    audience: fields.audience,
+    factorId: fields.factorId,
     credentialIdB64u: fields.credentialIdB64u,
     assertionDigest: fields.assertionDigest,
     verifiedAtMs: fields.verifiedAtMs,
@@ -158,19 +222,19 @@ export function buildVerifiedPasskeyFactorResult(
   };
 }
 
-export function buildVerifiedEmailOtpFactorResult(
-  fields: Omit<VerifiedEmailOtpFactorResult, 'kind'>,
-): VerifiedEmailOtpFactorResult {
+export function buildVerifiedWalletSessionEmailOtpFactorResult(
+  fields: Omit<VerifiedWalletSessionEmailOtpFactorResult, 'kind'>,
+): VerifiedWalletSessionEmailOtpFactorResult {
   requireVerificationWindow(fields.verifiedAtMs, fields.expiresAtMs);
   return {
-    kind: 'verified_email_otp_factor',
+    kind: 'verified_wallet_session_email_otp_factor',
     tenantId: fields.tenantId,
     principalId: fields.principalId,
-    sessionId: fields.sessionId,
-    deviceId: fields.deviceId,
-    factorId: fields.factorId,
+    walletId: fields.walletId,
     authorityRef: fields.authorityRef,
-    operation: fields.operation,
+    requestOrigin: fields.requestOrigin,
+    audience: fields.audience,
+    factorId: fields.factorId,
     challengeId: fields.challengeId,
     verificationReceiptDigest: fields.verificationReceiptDigest,
     verifiedAtMs: fields.verifiedAtMs,
@@ -178,100 +242,153 @@ export function buildVerifiedEmailOtpFactorResult(
   };
 }
 
-export async function buildVerifiedFactorEvidenceSet(
-  input: VerifiedFactorEvidenceSetInput,
-): Promise<VerifiedAuthorizationEvidenceSet> {
-  await requireExactFactorBinding(input);
-  const evidence = await buildFactorEvidence(input.evidenceId, input.factor);
-  return await buildVerifiedEvidenceSet({
-    session: input.session,
-    operation: input.operation,
-    evidenceSetId: input.evidenceSetId,
-    evidence,
-    assurance: 'step_up',
-    expiresAtMs: Math.min(input.factor.expiresAtMs, input.session.lifecycle.expiresAtMs),
-  });
-}
-
-export async function buildVerifiedSessionEvidenceSet(
-  input: VerifiedSessionEvidenceSetInput,
-): Promise<VerifiedAuthorizationEvidenceSet> {
-  requireOperationSessionMatch(input.session, input.operation);
-  if (
-    !Number.isSafeInteger(input.expiresAtMs) ||
-    input.expiresAtMs <= input.session.createdAtMs ||
-    input.expiresAtMs > input.session.lifecycle.expiresAtMs
-  ) {
-    throw new Error('session evidence expiry must be within the authorization session');
-  }
-  const operationFingerprintDigest = await computeCapabilityOperationFingerprintDigest(
-    input.operation,
-  );
-  const evidence: VerifiedAuthorizationEvidence = {
-    evidenceId: input.evidenceId,
-    evidenceKind: AUTHORIZATION_EVIDENCE_KINDS.seamsSession,
-    evidenceDigest: await digestCanonical(SESSION_EVIDENCE_DIGEST_DOMAIN_V1, {
-      tenantId: input.session.tenantId,
-      principalId: input.session.principalId,
-      sessionId: input.session.sessionId,
-      deviceId: input.session.deviceId,
-      operationFingerprintDigest,
-      assurance: input.session.assurance,
-      expiresAtMs: input.expiresAtMs,
-    }),
-  };
-  return await buildVerifiedEvidenceSet({
-    session: input.session,
-    operation: input.operation,
-    evidenceSetId: input.evidenceSetId,
-    evidence,
-    assurance: input.session.assurance,
-    expiresAtMs: input.expiresAtMs,
-  });
-}
-
-async function buildVerifiedEvidenceSet(input: {
-  readonly session: ActiveAuthorizationSession;
-  readonly operation: CapabilityOperationEnvelope;
-  readonly evidenceSetId: AuthorizationEvidenceSetId;
-  readonly evidence: VerifiedAuthorizationEvidence;
-  readonly assurance: VerifiedAuthorizationEvidenceSet['assurance'];
+/** Nominal server-only owner proofs; private constructors block browser forgery. */
+class VerifiedOwnerWalletSessionProof {
+  private readonly __proofBrand = true;
+  readonly kind = 'verified_owner_proof_v1' as const;
+  readonly proofId: VerifiedOwnerProofId;
+  readonly method: 'passkey' | 'email_otp';
+  readonly authSource: VerifiedOwnerProofFields['authSource'];
+  readonly tenantId: TenantId;
+  readonly principalId: PrincipalId;
+  readonly walletId: WalletId;
+  readonly authority: WalletAuthAuthorityRef;
+  readonly origin: SessionOrigin;
+  readonly audience: SessionOrigin;
+  readonly replayIdentity: string;
+  readonly verifiedAtMs: number;
   readonly expiresAtMs: number;
-}): Promise<VerifiedAuthorizationEvidenceSet> {
+  readonly purpose = 'wallet_session' as const;
+  readonly operation?: never;
+
+  constructor(fields: Extract<VerifiedOwnerProofFields, { readonly purpose: 'wallet_session' }>) {
+    requireOwnerProofFields(fields);
+    this.proofId = fields.proofId;
+    this.method = fields.method;
+    this.authSource = fields.authSource;
+    this.tenantId = fields.tenantId;
+    this.principalId = fields.principalId;
+    this.walletId = fields.walletId;
+    this.authority = fields.authority;
+    this.origin = fields.origin;
+    this.audience = fields.audience;
+    this.replayIdentity = fields.replayIdentity;
+    this.verifiedAtMs = fields.verifiedAtMs;
+    this.expiresAtMs = fields.expiresAtMs;
+  }
+}
+
+class VerifiedOwnerOperationProof {
+  private readonly __proofBrand = true;
+  readonly kind = 'verified_owner_proof_v1' as const;
+  readonly proofId: VerifiedOwnerProofId;
+  readonly method: 'passkey' | 'email_otp';
+  readonly authSource: VerifiedOwnerProofFields['authSource'];
+  readonly tenantId: TenantId;
+  readonly principalId: PrincipalId;
+  readonly walletId: WalletId;
+  readonly authority: WalletAuthAuthorityRef;
+  readonly origin: SessionOrigin;
+  readonly audience: SessionOrigin;
+  readonly replayIdentity: string;
+  readonly verifiedAtMs: number;
+  readonly expiresAtMs: number;
+  readonly purpose = 'operation' as const;
+  readonly operation: OwnerOperationBinding;
+
+  constructor(fields: Extract<VerifiedOwnerProofFields, { readonly purpose: 'operation' }>) {
+    requireOwnerProofFields(fields);
+    this.proofId = fields.proofId;
+    this.method = fields.method;
+    this.authSource = fields.authSource;
+    this.tenantId = fields.tenantId;
+    this.principalId = fields.principalId;
+    this.walletId = fields.walletId;
+    this.authority = fields.authority;
+    this.origin = fields.origin;
+    this.audience = fields.audience;
+    this.replayIdentity = fields.replayIdentity;
+    this.verifiedAtMs = fields.verifiedAtMs;
+    this.expiresAtMs = fields.expiresAtMs;
+    this.operation = fields.operation;
+  }
+}
+
+export type VerifiedOwnerProof =
+  | VerifiedOwnerWalletSessionProof
+  | VerifiedOwnerOperationProof;
+
+export function buildVerifiedOwnerProof(
+  input: Extract<VerifiedOwnerProofInput, { readonly purpose: 'wallet_session' }>,
+): Promise<VerifiedOwnerWalletSessionProof>;
+export function buildVerifiedOwnerProof(
+  input: Extract<VerifiedOwnerProofInput, { readonly purpose: 'operation' }>,
+): Promise<VerifiedOwnerOperationProof>;
+export function buildVerifiedOwnerProof(input: VerifiedOwnerProofInput): Promise<VerifiedOwnerProof>;
+export async function buildVerifiedOwnerProof(
+  input: VerifiedOwnerProofInput,
+): Promise<VerifiedOwnerProof> {
+  const fields = await buildOwnerProofFields(input);
+  switch (fields.purpose) {
+    case 'wallet_session':
+      return new VerifiedOwnerWalletSessionProof(fields);
+    case 'operation':
+      return new VerifiedOwnerOperationProof(fields);
+  }
+}
+
+export async function buildVerifiedWalletOperationFactorEvidenceSet(
+  input: VerifiedWalletOperationFactorEvidenceSetInput,
+): Promise<VerifiedAuthorizationEvidenceSet> {
+  await requireExactWalletOperationFactorBinding(input);
+  const evidence = await buildWalletOperationFactorEvidence(input.evidenceId, input.factor);
   const evidenceSetDigest = await digestCanonicalEvidenceSet({
-    tenantId: input.session.tenantId,
-    principalId: input.session.principalId,
-    sessionId: input.session.sessionId,
-    deviceId: input.session.deviceId,
+    tenantId: input.factor.tenantId,
+    principalId: input.factor.principalId,
+    walletId: input.factor.walletId,
+    authorityRef: input.factor.authorityRef,
+    requestOrigin: input.factor.requestOrigin,
+    audience: input.factor.audience,
     operationFingerprintDigest: await computeCapabilityOperationFingerprintDigest(input.operation),
-    evidence: input.evidence,
+    evidence,
   });
-  return new VerifiedAuthorizationEvidenceSetProof({
-    tenantId: input.session.tenantId,
-    principalId: input.session.principalId,
-    sessionId: input.session.sessionId,
-    deviceId: input.session.deviceId,
+  return new VerifiedWalletOperationEvidenceSetProof({
+    tenantId: input.factor.tenantId,
+    principalId: input.factor.principalId,
+    walletId: input.factor.walletId,
+    authorityRef: input.factor.authorityRef,
+    requestOrigin: input.factor.requestOrigin,
+    audience: input.factor.audience,
     evidenceSetId: input.evidenceSetId,
-    evidence: [input.evidence],
+    evidence: [evidence],
     evidenceSetDigest,
     operation: input.operation.operation,
     laneDigest: input.operation.digests.laneDigest,
     intentDigest: input.operation.digests.intentDigest,
     displayDigest: input.operation.digests.displayDigest,
-    assurance: input.assurance,
-    expiresAtMs: input.expiresAtMs,
+    assurance: 'step_up',
+    verifiedAtMs: input.factor.verifiedAtMs,
+    expiresAtMs: input.factor.expiresAtMs,
   });
 }
 
 export function parseVerifiedAuthorizationEvidenceSetFromPersistence(
   raw: unknown,
 ): VerifiedAuthorizationEvidenceSet {
+  return parseVerifiedWalletOperationEvidenceSetFromPersistence(raw);
+}
+
+function parseVerifiedWalletOperationEvidenceSetFromPersistence(
+  raw: unknown,
+): VerifiedAuthorizationEvidenceSet {
   const record = requireExactRecord(raw, [
     'kind',
     'tenantId',
     'principalId',
-    'sessionId',
-    'deviceId',
+    'walletId',
+    'authorityRef',
+    'requestOrigin',
+    'audience',
     'evidenceSetId',
     'evidence',
     'evidenceSetDigest',
@@ -280,117 +397,214 @@ export function parseVerifiedAuthorizationEvidenceSetFromPersistence(
     'intentDigest',
     'displayDigest',
     'assurance',
+    'verifiedAtMs',
     'expiresAtMs',
   ]);
-  if (record.kind !== 'verified_authorization_evidence_set') {
-    throw new Error('persisted evidence set kind is invalid');
+  if (record.kind !== 'verified_wallet_operation_evidence_set' || record.assurance !== 'step_up') {
+    throw new Error('persisted wallet operation evidence set kind is invalid');
   }
-  const evidence = parsePersistedEvidence(record.evidence);
-  const assurance = record.assurance;
-  if (assurance !== 'session' && assurance !== 'step_up') {
-    throw new Error('persisted evidence set assurance is invalid');
+  const authorityRef = parseWalletAuthAuthorityRef(record.authorityRef);
+  if (!authorityRef) {
+    throw new Error('persisted wallet operation evidence authority is invalid');
   }
-  return new VerifiedAuthorizationEvidenceSetProof({
+  const walletId = parseWalletId(record.walletId);
+  if (!walletId.ok) {
+    throw new Error('persisted wallet operation evidence wallet is invalid');
+  }
+  return new VerifiedWalletOperationEvidenceSetProof({
     tenantId: parseAuthorizationField(record.tenantId, parseTenantId, 'tenantId'),
     principalId: parseAuthorizationField(record.principalId, parsePrincipalId, 'principalId'),
-    sessionId: parseAuthorizationField(record.sessionId, parseSeamsSessionId, 'sessionId'),
-    deviceId: parseAuthorizationField(record.deviceId, parseDeviceId, 'deviceId'),
+    walletId: walletId.value,
+    authorityRef,
+    requestOrigin: parseSessionOrigin(record.requestOrigin),
+    audience: parseSessionOrigin(record.audience),
     evidenceSetId: parseAuthorizationField(
       record.evidenceSetId,
       parseAuthorizationEvidenceSetId,
       'evidenceSetId',
     ),
-    evidence,
+    evidence: parsePersistedEvidence(record.evidence),
     evidenceSetDigest: parsePersistenceDigest(record.evidenceSetDigest, 'evidenceSetDigest'),
     operation: parseAuthorizationField(record.operation, parseCapabilityOperationRef, 'operation'),
     laneDigest: parsePersistenceDigest(record.laneDigest, 'laneDigest'),
     intentDigest: parsePersistenceDigest(record.intentDigest, 'intentDigest'),
     displayDigest: parsePersistenceDigest(record.displayDigest, 'displayDigest'),
-    assurance,
+    assurance: 'step_up',
+    verifiedAtMs: requirePositiveSafeInteger(record.verifiedAtMs, 'verifiedAtMs'),
     expiresAtMs: requirePositiveSafeInteger(record.expiresAtMs, 'expiresAtMs'),
   });
 }
 
-async function requireExactFactorBinding(input: VerifiedFactorEvidenceSetInput): Promise<void> {
-  const session = input.session;
+async function requireExactWalletOperationFactorBinding(
+  input: VerifiedWalletOperationFactorEvidenceSetInput,
+): Promise<void> {
   const factor = input.factor;
   if (
-    factor.tenantId !== session.tenantId ||
-    factor.principalId !== session.principalId ||
-    factor.sessionId !== session.sessionId ||
-    factor.deviceId !== session.deviceId
+    factor.tenantId !== input.operation.tenantId ||
+    factor.principalId !== input.operation.principalId ||
+    factor.authorityRef.walletId !== factor.walletId
   ) {
-    throw new Error('verified factor does not match the authorization session');
+    throw new Error('verified factor does not match the wallet operation identity');
   }
-  requireOperationSessionMatch(session, input.operation);
   const verifiedFingerprint = await computeCapabilityOperationFingerprintDigest(factor.operation);
   const requestedFingerprint = await computeCapabilityOperationFingerprintDigest(input.operation);
   if (verifiedFingerprint !== requestedFingerprint) {
     throw new Error('verified factor does not match the capability operation');
   }
-  if (
-    factor.verifiedAtMs < session.createdAtMs ||
-    factor.verifiedAtMs >= session.lifecycle.expiresAtMs
-  ) {
-    throw new Error('verified factor is outside the authorization session lifecycle');
-  }
 }
 
-function requireOperationSessionMatch(
-  session: ActiveAuthorizationSession,
-  operation: CapabilityOperationEnvelope,
-): void {
-  if (operation.tenantId !== session.tenantId || operation.principalId !== session.principalId) {
-    throw new Error('capability operation does not match the authorization session');
-  }
-}
-
-async function buildFactorEvidence(
+async function buildWalletOperationFactorEvidence(
   evidenceId: AuthorizationEvidenceId,
-  factor: VerifiedAuthorizationFactorResult,
+  factor: VerifiedWalletOperationFactorResult,
 ): Promise<VerifiedAuthorizationEvidence> {
   const operationFingerprintDigest = await computeCapabilityOperationFingerprintDigest(
     factor.operation,
   );
+  const common = {
+    tenantId: factor.tenantId,
+    principalId: factor.principalId,
+    walletId: factor.walletId,
+    authorityRef: factor.authorityRef,
+    requestOrigin: factor.requestOrigin,
+    audience: factor.audience,
+    factorId: factor.factorId,
+    operationFingerprintDigest,
+    verifiedAtMs: factor.verifiedAtMs,
+    expiresAtMs: factor.expiresAtMs,
+  };
   switch (factor.kind) {
-    case 'verified_passkey_factor':
+    case 'verified_wallet_operation_passkey_factor':
       return {
         evidenceId,
         evidenceKind: AUTHORIZATION_EVIDENCE_KINDS.passkeyAssertion,
         evidenceDigest: await digestCanonicalEvidence({
           kind: factor.kind,
-          tenantId: factor.tenantId,
-          principalId: factor.principalId,
-          sessionId: factor.sessionId,
-          deviceId: factor.deviceId,
-          factorId: factor.factorId,
-          authorityRef: factor.authorityRef,
-          operationFingerprintDigest,
+          ...common,
           credentialIdB64u: factor.credentialIdB64u,
           assertionDigest: factor.assertionDigest,
-          verifiedAtMs: factor.verifiedAtMs,
-          expiresAtMs: factor.expiresAtMs,
         }),
       };
-    case 'verified_email_otp_factor':
+    case 'verified_wallet_operation_email_otp_factor':
       return {
         evidenceId,
         evidenceKind: AUTHORIZATION_EVIDENCE_KINDS.emailOtp,
         evidenceDigest: await digestCanonicalEvidence({
           kind: factor.kind,
-          tenantId: factor.tenantId,
-          principalId: factor.principalId,
-          sessionId: factor.sessionId,
-          deviceId: factor.deviceId,
-          factorId: factor.factorId,
-          authorityRef: factor.authorityRef,
-          operationFingerprintDigest,
+          ...common,
           challengeId: factor.challengeId,
           verificationReceiptDigest: factor.verificationReceiptDigest,
-          verifiedAtMs: factor.verifiedAtMs,
-          expiresAtMs: factor.expiresAtMs,
         }),
       };
+  }
+}
+
+async function buildOwnerProofFields(input: VerifiedOwnerProofInput): Promise<VerifiedOwnerProofFields> {
+  const factor = input.factor;
+  if (factor.authorityRef.walletId !== factor.walletId) {
+    throw new Error('owner factor authority must identify the exact wallet');
+  }
+  requireVerificationWindow(factor.verifiedAtMs, factor.expiresAtMs);
+  const common = {
+    kind: 'verified_owner_proof_v1' as const,
+    proofId: input.proofId,
+    method: ownerProofMethod(factor),
+    authSource: ownerProofAuthSource(factor),
+    tenantId: factor.tenantId,
+    principalId: factor.principalId,
+    walletId: factor.walletId,
+    authority: factor.authorityRef,
+    origin: factor.requestOrigin,
+    audience: factor.audience,
+    replayIdentity: ownerProofReplayIdentity(factor),
+    verifiedAtMs: factor.verifiedAtMs,
+    expiresAtMs: factor.expiresAtMs,
+  };
+  if (input.purpose === 'wallet_session') {
+    return { ...common, purpose: 'wallet_session' };
+  }
+  if (!('operation' in factor)) {
+    throw new Error('operation owner proof requires operation-bound factor evidence');
+  }
+  if (
+    factor.operation.tenantId !== factor.tenantId ||
+    factor.operation.principalId !== factor.principalId
+  ) {
+    throw new Error('operation owner factor identity does not match its operation');
+  }
+  const operationFingerprintDigest = await computeCapabilityOperationFingerprintDigest(
+    factor.operation,
+  );
+  return {
+    ...common,
+    purpose: 'operation',
+    operation: {
+      operationFingerprintDigest,
+      operation: factor.operation.operation,
+      laneDigest: factor.operation.digests.laneDigest,
+      intentDigest: factor.operation.digests.intentDigest,
+      displayDigest: factor.operation.digests.displayDigest,
+    },
+  };
+}
+
+function ownerProofMethod(
+  factor: VerifiedWalletSessionFactorResult | VerifiedWalletOperationFactorResult,
+): 'passkey' | 'email_otp' {
+  switch (factor.kind) {
+    case 'verified_wallet_session_passkey_factor':
+    case 'verified_wallet_operation_passkey_factor':
+      return 'passkey';
+    case 'verified_wallet_session_email_otp_factor':
+    case 'verified_wallet_operation_email_otp_factor':
+      return 'email_otp';
+  }
+}
+
+function ownerProofAuthSource(
+  factor: VerifiedWalletSessionFactorResult | VerifiedWalletOperationFactorResult,
+): VerifiedOwnerProofFields['authSource'] {
+  switch (factor.kind) {
+    case 'verified_wallet_session_passkey_factor':
+    case 'verified_wallet_operation_passkey_factor':
+      return { kind: 'passkey', credentialIdB64u: factor.credentialIdB64u };
+    case 'verified_wallet_session_email_otp_factor':
+    case 'verified_wallet_operation_email_otp_factor': {
+      const providerSubject = parseProviderSubject(factor.principalId);
+      if (!providerSubject.ok) throw new Error(providerSubject.error.message);
+      return {
+        kind: 'oidc_provider',
+        providerId: 'oidc',
+        providerSubject: providerSubject.value,
+      };
+    }
+  }
+}
+
+function ownerProofReplayIdentity(
+  factor: VerifiedWalletSessionFactorResult | VerifiedWalletOperationFactorResult,
+): string {
+  switch (factor.kind) {
+    case 'verified_wallet_session_passkey_factor':
+    case 'verified_wallet_operation_passkey_factor':
+      return `passkey:${String(factor.factorId)}:${String(factor.assertionDigest)}`;
+    case 'verified_wallet_session_email_otp_factor':
+    case 'verified_wallet_operation_email_otp_factor':
+      return `email_otp:${String(factor.factorId)}:${String(factor.challengeId)}:${String(factor.verificationReceiptDigest)}`;
+  }
+}
+
+function requireOwnerProofFields(fields: VerifiedOwnerProofFields): void {
+  if (fields.authority.walletId !== fields.walletId) {
+    throw new Error('owner proof authority must identify the exact wallet');
+  }
+  requireVerificationWindow(fields.verifiedAtMs, fields.expiresAtMs);
+  if (fields.replayIdentity.trim() !== fields.replayIdentity || fields.replayIdentity.length === 0) {
+    throw new Error('owner proof replay identity is invalid');
+  }
+  if (fields.purpose === 'operation') {
+    if (fields.operation.operationFingerprintDigest.length === 0) {
+      throw new Error('owner proof operation fingerprint is required');
+    }
   }
 }
 
@@ -422,15 +636,20 @@ async function digestCanonical(
   );
 }
 
-function requireEvidenceSetFields(fields: VerifiedAuthorizationEvidenceSetFields): void {
+function requireWalletOperationEvidenceSetFields(
+  fields: VerifiedWalletOperationEvidenceSetFields,
+): void {
+  if (fields.authorityRef.walletId !== fields.walletId) {
+    throw new Error('wallet operation evidence authority must identify the wallet');
+  }
   if (fields.evidence.length === 0) {
-    throw new Error('verified authorization evidence set requires evidence');
+    throw new Error('wallet operation evidence set requires evidence');
   }
   const evidenceIds = new Set(fields.evidence.map(evidenceIdFromEvidence));
   if (evidenceIds.size !== fields.evidence.length) {
-    throw new Error('verified authorization evidence set cannot repeat evidence');
+    throw new Error('wallet operation evidence set cannot repeat evidence');
   }
-  requirePositiveSafeInteger(fields.expiresAtMs, 'evidence set expiry');
+  requireVerificationWindow(fields.verifiedAtMs, fields.expiresAtMs);
 }
 
 function evidenceIdFromEvidence(evidence: VerifiedAuthorizationEvidence): AuthorizationEvidenceId {
@@ -507,4 +726,8 @@ function requireExactRecord(raw: unknown, fields: readonly string[]): Record<str
     }
   }
   return record;
+}
+
+function isRecordValue(raw: unknown): raw is Record<string, unknown> {
+  return raw !== null && typeof raw === 'object' && !Array.isArray(raw);
 }

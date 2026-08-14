@@ -1,29 +1,48 @@
-import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { AuthorizationService } from './service';
 import {
-  buildVerifiedEmailOtpFactorResult,
-  buildVerifiedPasskeyFactorResult,
+  buildVerifiedWalletOperationEmailOtpFactorResult,
+  buildVerifiedWalletOperationPasskeyFactorResult,
+  buildVerifiedOwnerProof,
+  buildVerifiedWalletSessionPasskeyFactorResult,
   type VerifiedAuthorizationEvidenceSet,
 } from './factorEvidence';
 
-type EmailOtpFactorInput = Parameters<typeof buildVerifiedEmailOtpFactorResult>[0];
-type PasskeyFactorInput = Parameters<typeof buildVerifiedPasskeyFactorResult>[0];
+type WalletEmailOtpFactorInput = Parameters<
+  typeof buildVerifiedWalletOperationEmailOtpFactorResult
+>[0];
+type WalletPasskeyFactorInput = Parameters<
+  typeof buildVerifiedWalletOperationPasskeyFactorResult
+>[0];
+type WalletFactorForbiddenKey =
+  | 'sessionId'
+  | 'deviceId'
+  | 'appSessionVersion'
+  | 'walletSessionId'
+  | 'quotaId';
+type WalletFactorsRejectSessionFields =
+  Extract<
+    keyof WalletEmailOtpFactorInput | keyof WalletPasskeyFactorInput,
+    WalletFactorForbiddenKey
+  > extends never
+    ? true
+    : false;
 
-declare const missingOtpReceipt: Omit<EmailOtpFactorInput, 'verificationReceiptDigest'>;
-declare const passkeyWithOtpReceipt: Omit<PasskeyFactorInput, 'assertionDigest'> & {
-  readonly verificationReceiptDigest: DigestB64u;
-};
 type StructuralEvidenceSet = {
   readonly [K in keyof VerifiedAuthorizationEvidenceSet]: VerifiedAuthorizationEvidenceSet[K];
 };
 declare const structuralEvidenceSet: StructuralEvidenceSet;
 declare const service: AuthorizationService;
-
-// @ts-expect-error verified Email OTP evidence requires a consumed verification receipt
-buildVerifiedEmailOtpFactorResult(missingOtpReceipt);
-
-// @ts-expect-error a Passkey assertion digest cannot be replaced by an OTP receipt
-buildVerifiedPasskeyFactorResult(passkeyWithOtpReceipt);
+const walletFactorsRejectSessionFields: WalletFactorsRejectSessionFields = true;
+type WalletSessionFactorInput = Parameters<
+  typeof buildVerifiedWalletSessionPasskeyFactorResult
+>[0];
+type WalletSessionFactorRejectsSessionFields = Extract<
+  keyof WalletSessionFactorInput,
+  WalletFactorForbiddenKey
+> extends never
+  ? true
+  : false;
+const walletSessionFactorRejectsSessionFields: WalletSessionFactorRejectsSessionFields = true;
 
 // @ts-expect-error verified evidence sets retain nominal post-verification proof
 const forgedEvidenceSet: VerifiedAuthorizationEvidenceSet = structuralEvidenceSet;
@@ -32,3 +51,13 @@ const forgedEvidenceSet: VerifiedAuthorizationEvidenceSet = structuralEvidenceSe
 service.recordVerifiedEvidenceSet(forgedEvidenceSet);
 
 void forgedEvidenceSet;
+void walletFactorsRejectSessionFields;
+void walletSessionFactorRejectsSessionFields;
+
+const forgedOwnerProofInput = {
+  purpose: 'wallet_session' as const,
+  proofId: 'proof',
+  factor: { kind: 'verified_wallet_session_passkey_factor' as const },
+};
+// @ts-expect-error owner proofs are created from verified factors, never browser-shaped fields.
+buildVerifiedOwnerProof(forgedOwnerProofInput);

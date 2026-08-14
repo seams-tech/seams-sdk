@@ -16,36 +16,18 @@ import {
   type CapabilityOperationEnvelope,
 } from '@shared/authorization/operationFingerprint';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
-import {
-  parseAppSessionVersion,
-  parseEmailOtpChallengeId,
-  parseProviderSubject,
-} from '@shared/utils/domainIds';
+import { parseEmailOtpChallengeId } from '@shared/utils/domainIds';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
-import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
-import { walletIdFromString } from '@shared/utils/registrationIntent';
 import type { RecoveryCodeReservationId } from '@shared/wallet-recovery/recoveryCodeReservation';
 import type { AuthorizedOperation } from '../../../authorization/domain';
-import {
-  buildActiveAuthorizationSession,
-  parseSessionOrigin,
-} from '../../../authorization/domain';
-import {
-  parseDeviceId,
-  parsePrincipalId,
-  parseSeamsSessionId,
-  parseTenantId,
-} from '@shared/authorization/capabilityKinds';
-import { buildVerifiedEmailOtpFactorResult } from '../../../authorization/factorEvidence';
+import { parseSessionOrigin, type SessionOrigin } from '../../../authorization/domain';
+import { parsePrincipalId, parseTenantId } from '@shared/authorization/capabilityKinds';
+import { buildVerifiedWalletOperationEmailOtpFactorResult } from '../../../authorization/factorEvidence';
 import type {
-  RouterApiAuthorizationSessionService,
   RouterApiAuthorizedOperationService,
-  RouterApiEmailOtpRouteService,
 } from '../../framework/authServicePort';
 import type { SessionAdapter } from '../../framework/routerApi';
-import { hashEmailOtpAppSessionClaims } from '../emailOtp/emailOtpSessionRouteHelpers';
-import { authenticateRouterAbOperationStepUpAppSessionIdentity } from '../signingOperations/routerAbPrivateSigningWorker';
 import {
   buildEmailOtpWalletAuthAuthority,
   parseWalletAuthAuthorityRef,
@@ -58,14 +40,14 @@ const RECOVERY_DISPLAY_DIGEST_DOMAIN_V1 = 'seams:wallet-recovery:display:v1';
 
 type WalletRecoveryAuthenticatedContext = {
   readonly authorizedOperations: RouterApiAuthorizedOperationService;
-  readonly activeSession: Awaited<
-    ReturnType<RouterApiAuthorizationSessionService['readActiveSession']>
-  > & {};
   readonly session: {
     readonly tenantId: Parameters<typeof buildWalletRecoveryOperation>[0]['tenantId'];
     readonly principalId: Parameters<typeof buildWalletRecoveryOperation>[0]['principalId'];
   };
-  readonly authorityRef: Parameters<typeof buildVerifiedEmailOtpFactorResult>[0]['authorityRef'];
+  readonly authorityRef: Parameters<
+    typeof buildVerifiedWalletOperationEmailOtpFactorResult
+  >[0]['authorityRef'];
+  readonly requestOrigin: SessionOrigin;
   readonly rawClaims: Record<string, unknown>;
   readonly expiresAtMs: number;
   readonly operation: CapabilityOperationEnvelope;
@@ -83,61 +65,7 @@ export type WalletRecoveryAuthorizationContextResult =
   | { readonly ok: true; readonly context: WalletRecoveryAuthenticatedContext }
   | WalletRecoveryAuthorizationFailure;
 
-export async function resolveWalletRecoveryAuthorizationContext(input: {
-  readonly headers: Record<string, string | string[] | undefined>;
-  readonly session: SessionAdapter | null | undefined;
-  readonly walletId: string;
-  readonly reservationId: RecoveryCodeReservationId;
-  readonly authorizedOperations: RouterApiAuthorizedOperationService | null | undefined;
-  readonly authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
-}): Promise<WalletRecoveryAuthorizationContextResult> {
-  const authenticated = await authenticateRouterAbOperationStepUpAppSessionIdentity({
-    headers: input.headers,
-    session: input.session,
-    walletId: input.walletId,
-    materialOwner: input.walletId,
-    authorizedOperations: input.authorizedOperations,
-    authorizationSessions: input.authorizationSessions,
-  });
-  if (!authenticated.ok) {
-    const body = recoveryErrorBody(authenticated.error.body);
-    return {
-      ok: false,
-      status: authenticated.error.status,
-      code: body.code,
-      message: body.message,
-    };
-  }
-  const operation = await buildWalletRecoveryOperation({
-    tenantId: authenticated.session.tenantId,
-    principalId: authenticated.session.principalId,
-    walletId: input.walletId,
-    reservationId: input.reservationId,
-  });
-  const existing = await authenticated.authorizedOperations.readAuthorizedOperation({
-    tenantId: authenticated.session.tenantId,
-    operationFingerprintDigest: await computeCapabilityOperationFingerprintDigest(operation),
-  });
-  return {
-    ok: true,
-    context: {
-      authorizedOperations: authenticated.authorizedOperations,
-      activeSession: authenticated.activeSession,
-      session: authenticated.session,
-      authorityRef: authenticated.authorityRef,
-      rawClaims: authenticated.rawClaims,
-      expiresAtMs: authenticated.expiresAtMs,
-      operation,
-      existing,
-    },
-  };
-}
-
-/**
- * Builds the recovery-only authorization session represented by a bootstrap
- * grant. This session is persisted solely as evidence for one recovery
- * operation; it has no app-session JWT and cannot authorize another capability.
- */
+/** Builds one operation-bound recovery authorization from a bootstrap grant. */
 export async function resolveWalletRecoveryBootstrapAuthorizationContext(input: {
   readonly grant: {
     readonly walletId: string;
@@ -148,11 +76,10 @@ export async function resolveWalletRecoveryBootstrapAuthorizationContext(input: 
   };
   readonly reservationId: RecoveryCodeReservationId;
   readonly authorizedOperations: RouterApiAuthorizedOperationService | null | undefined;
-  readonly authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
   readonly requestOrigin: string;
   readonly nowMs: number;
 }): Promise<WalletRecoveryAuthorizationContextResult> {
-  if (!input.authorizedOperations || !input.authorizationSessions) {
+  if (!input.authorizedOperations) {
     return {
       ok: false,
       status: 501,
@@ -170,20 +97,7 @@ export async function resolveWalletRecoveryBootstrapAuthorizationContext(input: 
   }
   const tenantId = parseTenantId(input.grant.orgId);
   const principalId = parsePrincipalId(`recovery-bootstrap:${input.grant.walletId}`);
-  const sessionId = parseSeamsSessionId(`recovery-bootstrap:${input.grant.challengeId}`);
-  const deviceId = parseDeviceId(`recovery-bootstrap:${input.grant.walletId}`);
-  const appSessionVersion = parseAppSessionVersion(
-    `recovery-bootstrap:${input.grant.challengeId}`,
-  );
-  const providerSubject = parseProviderSubject(input.grant.providerUserId);
-  if (
-    !tenantId.ok ||
-    !principalId.ok ||
-    !sessionId.ok ||
-    !deviceId.ok ||
-    !appSessionVersion.ok ||
-    !providerSubject.ok
-  ) {
+  if (!tenantId.ok || !principalId.ok) {
     return {
       ok: false,
       status: 401,
@@ -203,23 +117,6 @@ export async function resolveWalletRecoveryBootstrapAuthorizationContext(input: 
       message: 'wallet recovery requires a valid request Origin header',
     };
   }
-  const activeSession = buildActiveAuthorizationSession({
-    tenantId: tenantId.value,
-    principalId: principalId.value,
-    sessionId: sessionId.value,
-    authSource: {
-      kind: 'oidc_provider',
-      providerId: 'oidc',
-      providerSubject: providerSubject.value,
-    },
-    deviceId: deviceId.value,
-    audience: { kind: 'first_party_web', origin },
-    appSessionVersion: appSessionVersion.value,
-    assurance: 'step_up',
-    createdAtMs: input.nowMs,
-    lifecycle: { kind: 'active', expiresAtMs },
-  });
-  await input.authorizationSessions.recordActiveSession(activeSession);
   const authority = buildEmailOtpWalletAuthAuthority({
     walletId: input.grant.walletId,
     provider: 'email',
@@ -241,15 +138,14 @@ export async function resolveWalletRecoveryBootstrapAuthorizationContext(input: 
     ok: true,
     context: {
       authorizedOperations: input.authorizedOperations,
-      activeSession,
       session: { tenantId: tenantId.value, principalId: principalId.value },
       authorityRef,
+      requestOrigin: origin,
       rawClaims: {
         sub: principalId.value,
         tenantId: tenantId.value,
         walletId: input.grant.walletId,
         walletAuthAuthorityRef: authorityRef,
-        appSessionVersion: appSessionVersion.value,
       },
       expiresAtMs,
       operation,
@@ -268,11 +164,12 @@ export async function admitWalletRecoveryBootstrapGrant(input: {
   | WalletRecoveryAuthorizationFailure
 > {
   if (input.context.existing) return { ok: true, operation: input.context.existing };
-  const factor = buildVerifiedEmailOtpFactorResult({
+  const factor = buildVerifiedWalletOperationEmailOtpFactorResult({
     tenantId: input.context.session.tenantId,
     principalId: input.context.session.principalId,
-    sessionId: input.context.activeSession.sessionId,
-    deviceId: input.context.activeSession.deviceId,
+    walletId: input.context.authorityRef.walletId,
+    requestOrigin: input.context.requestOrigin,
+    audience: input.context.requestOrigin,
     factorId: authorizationValue(
       parseAuthFactorId(`email_otp:recovery-bootstrap:${input.reservationId}`),
     ),
@@ -286,17 +183,19 @@ export async function admitWalletRecoveryBootstrapGrant(input: {
     verifiedAtMs: input.nowMs,
     expiresAtMs: input.context.expiresAtMs,
   });
-  const evidenceSet = await input.context.authorizedOperations.recordVerifiedFactorEvidenceSet({
-    session: input.context.activeSession,
-    operation: input.context.operation,
-    evidenceId: authorizationValue(
-      parseAuthorizationEvidenceId(`wallet-recovery-bootstrap-evidence:${input.reservationId}`),
-    ),
-    evidenceSetId: authorizationValue(
-      parseAuthorizationEvidenceSetId(`wallet-recovery-bootstrap-evidence-set:${input.reservationId}`),
-    ),
-    factor,
-  });
+  const evidenceSet =
+    await input.context.authorizedOperations.recordVerifiedWalletOperationFactorEvidenceSet({
+      operation: input.context.operation,
+      evidenceId: authorizationValue(
+        parseAuthorizationEvidenceId(`wallet-recovery-bootstrap-evidence:${input.reservationId}`),
+      ),
+      evidenceSetId: authorizationValue(
+        parseAuthorizationEvidenceSetId(
+          `wallet-recovery-bootstrap-evidence-set:${input.reservationId}`,
+        ),
+      ),
+      factor,
+    });
   const admitted = await input.context.authorizedOperations.admitAuthorizedOperation({
     operation: {
       tenantId: input.context.session.tenantId,
@@ -338,10 +237,9 @@ export async function resolveWalletRecoveryAuthorizationToken(input: {
   readonly challengeId: string;
   readonly requestOrigin: string;
   readonly authorizedOperations: RouterApiAuthorizedOperationService | null | undefined;
-  readonly authorizationSessions: RouterApiAuthorizationSessionService | null | undefined;
   readonly nowMs: number;
 }): Promise<WalletRecoveryAuthorizationContextResult> {
-  if (!input.session || !input.authorizedOperations || !input.authorizationSessions) {
+  if (!input.session || !input.authorizedOperations) {
     return {
       ok: false,
       status: 501,
@@ -382,10 +280,6 @@ export async function resolveWalletRecoveryAuthorizationToken(input: {
   const challengeId = typeof claims.challengeId === 'string' ? claims.challengeId.trim() : '';
   const tenantId = parseTenantId(claims.tenantId);
   const principalId = parsePrincipalId(claims.principalId);
-  const sessionId = parseSeamsSessionId(`recovery-token:${reservationId}`);
-  const deviceId = parseDeviceId(`recovery-token:${walletId}`);
-  const appSessionVersion = parseAppSessionVersion(`recovery-token:${reservationId}`);
-  const providerSubject = parseProviderSubject(String(principalId.ok ? principalId.value : ''));
   const authorityRef = parseWalletAuthAuthorityRef(claims.authorityRef);
   const tokenOrigin = typeof claims.origin === 'string' ? claims.origin.trim() : '';
   const expiresAtMs = Number(claims.exp) * 1_000;
@@ -395,10 +289,6 @@ export async function resolveWalletRecoveryAuthorizationToken(input: {
     challengeId !== input.challengeId ||
     !tenantId.ok ||
     !principalId.ok ||
-    !sessionId.ok ||
-    !deviceId.ok ||
-    !appSessionVersion.ok ||
-    !providerSubject.ok ||
     !authorityRef ||
     authorityRef.walletId !== input.walletId ||
     (tokenOrigin && tokenOrigin !== input.requestOrigin) ||
@@ -423,23 +313,6 @@ export async function resolveWalletRecoveryAuthorizationToken(input: {
       message: 'wallet recovery requires a valid request Origin header',
     };
   }
-  const activeSession = buildActiveAuthorizationSession({
-    tenantId: tenantId.value,
-    principalId: principalId.value,
-    sessionId: sessionId.value,
-    authSource: {
-      kind: 'oidc_provider',
-      providerId: 'oidc',
-      providerSubject: providerSubject.value,
-    },
-    deviceId: deviceId.value,
-    audience: { kind: 'first_party_web', origin: audience },
-    appSessionVersion: appSessionVersion.value,
-    assurance: 'step_up',
-    createdAtMs: input.nowMs,
-    lifecycle: { kind: 'active', expiresAtMs },
-  });
-  await input.authorizationSessions.recordActiveSession(activeSession);
   const operation = await buildWalletRecoveryOperation({
     tenantId: tenantId.value,
     principalId: principalId.value,
@@ -462,131 +335,15 @@ export async function resolveWalletRecoveryAuthorizationToken(input: {
     ok: true,
     context: {
       authorizedOperations: input.authorizedOperations,
-      activeSession,
       session: { tenantId: tenantId.value, principalId: principalId.value },
       authorityRef,
+      requestOrigin: audience,
       rawClaims: claims,
       expiresAtMs,
       operation,
       existing,
     },
   };
-}
-
-export async function admitWalletRecoveryEmailOtp(input: {
-  readonly context: WalletRecoveryAuthenticatedContext;
-  readonly emailOtp: RouterApiEmailOtpRouteService;
-  readonly walletId: string;
-  readonly reservationId: RecoveryCodeReservationId;
-  readonly challengeId: string;
-  readonly otpCode: string;
-  readonly nowMs: number;
-}): Promise<
-  | { readonly ok: true; readonly operation: AuthorizedOperation }
-  | WalletRecoveryAuthorizationFailure
-> {
-  if (input.context.existing) {
-    return { ok: true, operation: input.context.existing };
-  }
-  const verified = await input.emailOtp.verifyEmailOtpWalletRecoveryChallenge({
-    userId: input.context.session.principalId,
-    walletId: input.walletId,
-    orgId: input.context.session.tenantId,
-    challengeId: input.challengeId,
-    otpCode: input.otpCode,
-    otpChannel: EMAIL_OTP_CHANNEL,
-    sessionHash: await hashEmailOtpAppSessionClaims(input.context.rawClaims),
-    appSessionVersion: input.context.activeSession.appSessionVersion,
-  });
-  if (!verified.ok) {
-    return {
-      ok: false,
-      status: verified.code === 'invalid_body' ? 400 : 401,
-      code: verified.code,
-      message: verified.message,
-    };
-  }
-  const consumed = await input.emailOtp.consumeEmailOtpGrant({
-    subject: {
-      kind: 'authorization_session',
-      tenantId: input.context.session.tenantId,
-      principalId: input.context.session.principalId,
-      walletId: walletIdFromString(input.walletId),
-    },
-    loginGrant: verified.loginGrant,
-    otpChannel: EMAIL_OTP_CHANNEL,
-  });
-  if (!consumed.ok) {
-    return {
-      ok: false,
-      status: consumed.code === 'invalid_body' ? 400 : 401,
-      code: consumed.code,
-      message: consumed.message,
-    };
-  }
-  const operationFingerprintDigest = await computeCapabilityOperationFingerprintDigest(
-    input.context.operation,
-  );
-  const factor = buildVerifiedEmailOtpFactorResult({
-    tenantId: input.context.session.tenantId,
-    principalId: input.context.session.principalId,
-    sessionId: input.context.activeSession.sessionId,
-    deviceId: input.context.activeSession.deviceId,
-    factorId: authorizationValue(
-      parseAuthFactorId(`email_otp:${input.context.session.principalId}`),
-    ),
-    authorityRef: input.context.authorityRef,
-    operation: input.context.operation,
-    challengeId: authorizationValue(parseEmailOtpChallengeId(consumed.challengeId)),
-    verificationReceiptDigest: await digest('seams:wallet-recovery:email-otp-receipt:v1', {
-      challengeId: consumed.challengeId,
-      operationFingerprintDigest,
-    }),
-    verifiedAtMs: input.nowMs,
-    expiresAtMs: Math.min(input.context.expiresAtMs, verified.grantExpiresAtMs),
-  });
-  const evidenceSet = await input.context.authorizedOperations.recordVerifiedFactorEvidenceSet({
-    session: input.context.activeSession,
-    operation: input.context.operation,
-    evidenceId: authorizationValue(
-      parseAuthorizationEvidenceId(`wallet-recovery-evidence:${input.reservationId}`),
-    ),
-    evidenceSetId: authorizationValue(
-      parseAuthorizationEvidenceSetId(`wallet-recovery-evidence-set:${input.reservationId}`),
-    ),
-    factor,
-  });
-  const admitted = await input.context.authorizedOperations.admitAuthorizedOperation({
-    operation: {
-      tenantId: input.context.session.tenantId,
-      authorizedOperationId: authorizationValue(
-        parseAuthorizedOperationId(`wallet-recovery:${input.reservationId}`),
-      ),
-      auditEventId: authorizationValue(
-        parseAuthorizationAuditEventId(`wallet-recovery-audit:${input.reservationId}`),
-      ),
-      operation: input.context.operation,
-      authorization: { kind: 'verified_step_up', evidenceSetDigest: evidenceSet.evidenceSetDigest },
-      quota: { kind: 'quota_neutral' },
-      claimedAtMs: input.nowMs,
-    },
-  });
-  switch (admitted.kind) {
-    case 'claimed':
-    case 'operation_in_progress':
-    case 'replayed':
-      return { ok: true, operation: admitted.operation };
-    case 'authorization_grant_rejected':
-    case 'verified_step_up_rejected':
-    case 'wallet_session_quota_exhausted':
-    case 'material_mismatch':
-      return {
-        ok: false,
-        status: 403,
-        code: 'recovery_authorization_rejected',
-        message: 'wallet recovery authorization was rejected',
-      };
-  }
 }
 
 export async function buildWalletRecoveryOperation(input: {
@@ -631,18 +388,4 @@ async function digest(domain: string, value: Record<string, unknown>) {
   return parseDigestB64u(
     base64UrlEncode(await sha256BytesUtf8(`${domain}|${alphabetizeStringify(value)}`)),
   );
-}
-
-function recoveryErrorBody(value: unknown): { readonly code: string; readonly message: string } {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return { code: 'unauthorized', message: 'wallet recovery authorization failed' };
-  }
-  const body = value as Record<string, unknown>;
-  return {
-    code: typeof body.code === 'string' ? body.code : 'unauthorized',
-    message:
-      typeof body.message === 'string'
-        ? body.message
-        : 'wallet recovery authorization failed',
-  };
 }

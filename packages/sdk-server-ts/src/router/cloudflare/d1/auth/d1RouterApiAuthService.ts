@@ -9,13 +9,6 @@ import type {
   RegistrationEstablishedSession,
 } from '@shared/utils/registrationEstablishedSession';
 import {
-  decodeJwtPayloadRecord,
-  getSessionJwtExpiresAtMs,
-  isWalletSessionJwt,
-  ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
-  ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-} from '@shared/utils/sessionTokens';
-import {
   parseMpcWalletSigningQuotaId,
   parseSeamsSessionId,
   parseWalletSessionAuthorizationId,
@@ -31,7 +24,6 @@ import { parseNearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
 import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import { parseThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
-import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type { WalletRegistrationActivateResponseV2 } from '../../../../core/threeRouteRegistrationContracts';
 import { D1WalletAuthMethodStore } from '../../../../core/d1WalletAuthMethodStore';
 import { D1WalletStore } from '../../../../core/d1WalletStore';
@@ -345,6 +337,7 @@ type D1LinkedDeviceCompositionAssembly = Pick<
 
 function createD1LinkedDeviceComposition(input: {
   readonly options: NormalizedCloudflareD1RouterApiAuthServiceOptions;
+  readonly authorizationSessions: RouterApiServiceBag['authorizationSessions'];
   readonly walletStore: D1WalletStore;
   readonly walletRegistration: Pick<
     RouterApiWalletRegistrationService,
@@ -430,7 +423,7 @@ function createD1LinkedDeviceComposition(input: {
       nowV1: config.execution.nowV1,
     });
     ownerRequestAuthenticator = createDeviceLinkingOwnerRequestAuthenticatorV1({
-      session: config.session.session,
+      authorizationSessions: input.authorizationSessions,
       nowV1: config.execution.nowV1,
     });
     ownerAuthorizationRoute = ownerAuthorizationProvider.ownerAuthorizationRoute;
@@ -887,79 +880,19 @@ function hasOnlyKeys(record: Record<string, unknown>, keys: readonly string[]): 
   return Object.keys(record).every((key) => allowed.has(key));
 }
 
-function parseRegistrationEstablishedJwt(
-  raw: unknown,
-  expectedKind: string,
-  expectedThresholdSessionId: string,
-  identity: RegistrationEstablishedSessionIdentity,
-): string | null {
-  if (typeof raw !== 'string' || !raw.trim() || !isWalletSessionJwt(raw)) return null;
-  const jwt = raw.trim();
-  const payload = decodeJwtPayloadRecord(jwt);
-  if (!payload || payload.kind !== expectedKind) return null;
-  const walletId = parseWalletId(payload.walletId);
-  const seamsSessionId = parseSeamsSessionId(payload.sid);
-  const authorizationId = parseWalletSessionAuthorizationId(payload.authorizationId);
-  const walletSessionId = parseWalletSessionId(payload.walletSessionId);
-  const quotaId = parseMpcWalletSigningQuotaId(payload.quotaId);
-  const thresholdSessionId =
-    expectedKind === ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND
-      ? parseThresholdEcdsaSessionId(payload.thresholdSessionId)
-      : parseThresholdEd25519SessionId(payload.thresholdSessionId);
-  if (
-    !walletId.ok ||
-    walletId.value !== identity.walletId ||
-    !authorizationId.ok ||
-    authorizationId.value !== identity.authorizationId ||
-    !walletSessionId.ok ||
-    walletSessionId.value !== identity.walletSessionId ||
-    !quotaId.ok ||
-    quotaId.value !== identity.quotaId ||
-    !thresholdSessionId.ok ||
-    thresholdSessionId.value !== expectedThresholdSessionId
-  ) {
-    return null;
-  }
-  if (expectedKind === ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND) {
-    const authorizationSessionId = parseSeamsSessionId(payload.authorizationSessionId);
-    if (
-      !authorizationSessionId.ok ||
-      authorizationSessionId.value !== identity.seamsSessionId ||
-      !seamsSessionId.ok ||
-      seamsSessionId.value !== identity.seamsSessionId
-    ) {
-      return null;
-    }
-  } else if (!seamsSessionId.ok || seamsSessionId.value !== identity.seamsSessionId) {
-    return null;
-  }
-  const thresholdExpiresAtMs = Number(payload.thresholdExpiresAtMs);
-  if (
-    !Number.isSafeInteger(thresholdExpiresAtMs) ||
-    thresholdExpiresAtMs !== identity.expiresAtMs
-  ) {
-    return null;
-  }
-  if (payload.exp !== undefined) {
-    const expMs = getSessionJwtExpiresAtMs(jwt);
-    if (expMs === null || expMs > identity.expiresAtMs || identity.expiresAtMs - expMs >= 1_000) {
-      return null;
-    }
-  }
-  if (new Set([identity.authorizationId, identity.walletSessionId, identity.quotaId]).size !== 3) {
-    return null;
-  }
-  return jwt;
+function parseOpaqueWalletSessionToken(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const token = raw.trim();
+  return token.startsWith('wst_') && token.length > 20 ? token : null;
 }
 
 function parseRegistrationEstablishedEcdsaToken(
   raw: unknown,
-  identity: RegistrationEstablishedSessionIdentity,
 ): RegistrationEstablishedEcdsaSession | null {
   if (
     !isRecordValue(raw) ||
     !hasOnlyKeys(raw, [
-      'walletSessionJwt',
+      'walletSessionToken',
       'thresholdSessionId',
       'keyHandle',
       'runtimePolicyScope',
@@ -971,13 +904,8 @@ function parseRegistrationEstablishedEcdsaToken(
   try {
     const thresholdSessionId = parseThresholdEcdsaSessionId(raw.thresholdSessionId);
     if (!thresholdSessionId.ok) return null;
-    const walletSessionJwt = parseRegistrationEstablishedJwt(
-      raw.walletSessionJwt,
-      ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
-      thresholdSessionId.value,
-      identity,
-    );
-    if (!walletSessionJwt) return null;
+    const walletSessionToken = parseOpaqueWalletSessionToken(raw.walletSessionToken);
+    if (!walletSessionToken) return null;
     const keyHandle = parseThresholdEcdsaKeyHandle(raw.keyHandle);
     const runtimePolicyScope = normalizeRuntimePolicyScope(raw.runtimePolicyScope);
     const routerAbEcdsaDerivationNormalSigning = parseRouterAbEcdsaDerivationNormalSigningStateV1(
@@ -985,7 +913,8 @@ function parseRegistrationEstablishedEcdsaToken(
     );
     if (!routerAbEcdsaDerivationNormalSigning) return null;
     return {
-      walletSessionJwt,
+      sessionKind: 'opaque',
+      walletSessionToken,
       thresholdSessionId: thresholdSessionId.value,
       keyHandle,
       runtimePolicyScope,
@@ -998,12 +927,11 @@ function parseRegistrationEstablishedEcdsaToken(
 
 function parseRegistrationEstablishedEd25519Token(
   raw: unknown,
-  identity: RegistrationEstablishedSessionIdentity,
 ): RegistrationEstablishedEd25519Session | null {
   if (
     !isRecordValue(raw) ||
     !hasOnlyKeys(raw, [
-      'walletSessionJwt',
+      'walletSessionToken',
       'thresholdSessionId',
       'nearAccountId',
       'nearEd25519SigningKeyId',
@@ -1016,13 +944,8 @@ function parseRegistrationEstablishedEd25519Token(
   try {
     const thresholdSessionId = parseThresholdEd25519SessionId(raw.thresholdSessionId);
     if (!thresholdSessionId.ok) return null;
-    const walletSessionJwt = parseRegistrationEstablishedJwt(
-      raw.walletSessionJwt,
-      ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-      thresholdSessionId.value,
-      identity,
-    );
-    if (!walletSessionJwt) return null;
+    const walletSessionToken = parseOpaqueWalletSessionToken(raw.walletSessionToken);
+    if (!walletSessionToken) return null;
     const implicitNearAccountId = parseImplicitNearAccountId(raw.nearAccountId);
     const namedNearAccountId = parseNamedNearAccountId(raw.nearAccountId);
     const nearAccountId = implicitNearAccountId.ok
@@ -1036,7 +959,8 @@ function parseRegistrationEstablishedEd25519Token(
     const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(raw.routerAbNormalSigning);
     if (!routerAbNormalSigning) return null;
     return {
-      walletSessionJwt,
+      sessionKind: 'opaque',
+      walletSessionToken,
       thresholdSessionId: thresholdSessionId.value,
       nearAccountId,
       nearEd25519SigningKeyId,
@@ -1113,7 +1037,7 @@ function parseRegistrationEstablishedSessionForD1(
     if (!hasOnlyKeys(raw.tokens, ['kind', 'ecdsa'])) {
       return null;
     }
-    const ecdsa = parseRegistrationEstablishedEcdsaToken(raw.tokens.ecdsa, identity);
+    const ecdsa = parseRegistrationEstablishedEcdsaToken(raw.tokens.ecdsa);
     if (!ecdsa) {
       return null;
     }
@@ -1122,7 +1046,7 @@ function parseRegistrationEstablishedSessionForD1(
     if (!hasOnlyKeys(raw.tokens, ['kind', 'ed25519'])) {
       return null;
     }
-    const ed25519 = parseRegistrationEstablishedEd25519Token(raw.tokens.ed25519, identity);
+    const ed25519 = parseRegistrationEstablishedEd25519Token(raw.tokens.ed25519);
     if (!ed25519) {
       return null;
     }
@@ -1131,8 +1055,8 @@ function parseRegistrationEstablishedSessionForD1(
     if (!hasOnlyKeys(raw.tokens, ['kind', 'ecdsa', 'ed25519'])) {
       return null;
     }
-    const ecdsa = parseRegistrationEstablishedEcdsaToken(raw.tokens.ecdsa, identity);
-    const ed25519 = parseRegistrationEstablishedEd25519Token(raw.tokens.ed25519, identity);
+    const ecdsa = parseRegistrationEstablishedEcdsaToken(raw.tokens.ecdsa);
+    const ed25519 = parseRegistrationEstablishedEd25519Token(raw.tokens.ed25519);
     if (!ecdsa || !ed25519) {
       return null;
     }
@@ -1184,13 +1108,6 @@ function parseD1WalletRegistrationActivateTerminalResponse(
   if (commit.kind !== 'evm_family_ecdsa' || !isRecordValue(raw)) {
     return null;
   }
-  const appSessionJwt = toOptionalTrimmedString(raw.appSessionJwt);
-  if (
-    (commit.authMethod.kind === 'passkey' || commit.authMethod.kind === 'email_otp') &&
-    !appSessionJwt
-  ) {
-    return null;
-  }
   const stored = isRecordValue(raw.ecdsa) ? raw.ecdsa : null;
   if (!stored || !isRecordValue(stored.bootstrap)) {
     return null;
@@ -1214,7 +1131,6 @@ function parseD1WalletRegistrationActivateTerminalResponse(
   }
   return {
     ...commit,
-    ...(appSessionJwt ? { appSessionJwt } : {}),
     registrationEstablishedSession,
     ecdsa: {
       ...commit.ecdsa,
@@ -1707,6 +1623,10 @@ function createCloudflareD1RouterApiAuthAssembly(
   };
   const linkedDeviceComposition = createD1LinkedDeviceComposition({
     options,
+    authorizationSessions: createD1AuthorizationSessionRouteService({
+      authorizationService,
+      options,
+    }),
     walletStore,
     walletRegistration: linkedDeviceWalletRegistrationProjection,
     authorization: authorizationStore,
@@ -1805,7 +1725,6 @@ function createCloudflareD1RouterApiAuthAssembly(
   const walletRegistrations = new CloudflareD1WalletRegistrationService({
     authorizationService,
     authorizationTenantId: authorizationTenantId.value,
-    getOrCreateAppSessionVersion: sessionService.getOrCreateAppSessionVersion.bind(sessionService),
     createSponsoredNamedNearAccount,
     emailOtpRegistrationEnrollmentFinalizer,
     getRegistrationCeremonyIntentStore,
@@ -2012,6 +1931,12 @@ function createD1WalletAuthMethodRouteService(
   assembly: D1WalletAuthMethodRouteServiceAssembly,
 ): RouterApiServiceBag['walletAuthMethods'] {
   return {
+    verifyActivePasskeyAuthority: assembly.walletAuthMethods.verifyActivePasskeyAuthority.bind(
+      assembly.walletAuthMethods,
+    ),
+    verifyActiveEmailOtpAuthority: assembly.walletAuthMethods.verifyActiveEmailOtpAuthority.bind(
+      assembly.walletAuthMethods,
+    ),
     resolveActiveEmailOtpAuthorityForVerifiedSubject:
       assembly.walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject.bind(
         assembly.walletAuthMethods,
@@ -2233,15 +2158,17 @@ function createD1AuthorizationSessionRouteService(
   }
   return {
     tenantId: tenantId.value,
-    recordActiveSession: assembly.authorizationService.recordActiveSession.bind(
-      assembly.authorizationService,
-    ),
     issueReusableWalletSession: assembly.authorizationService.issueReusableWalletSession.bind(
       assembly.authorizationService,
     ),
-    readActiveSession: assembly.authorizationService.readActiveSession.bind(
-      assembly.authorizationService,
-    ),
+    issueOpaqueWalletSessionToken:
+      assembly.authorizationService.issueOpaqueWalletSessionToken.bind(
+        assembly.authorizationService,
+      ),
+    resolveOpaqueWalletSessionToken:
+      assembly.authorizationService.resolveOpaqueWalletSessionToken.bind(
+        assembly.authorizationService,
+      ),
     readReusableWalletSessionStatus:
       assembly.authorizationService.readReusableWalletSessionStatus.bind(
         assembly.authorizationService,
@@ -2266,12 +2193,11 @@ function createD1AuthorizedOperationRouteService(
   }
   return {
     tenantId: tenantId.value,
-    recordVerifiedFactorEvidenceSet:
-      assembly.authorizationService.recordVerifiedFactorEvidenceSet.bind(
-        assembly.authorizationService,
-      ),
-    recordVerifiedSessionEvidenceSet:
-      assembly.authorizationService.recordVerifiedSessionEvidenceSet.bind(
+    buildVerifiedOwnerProof: assembly.authorizationService.buildVerifiedOwnerProof.bind(
+      assembly.authorizationService,
+    ),
+    recordVerifiedWalletOperationFactorEvidenceSet:
+      assembly.authorizationService.recordVerifiedWalletOperationFactorEvidenceSet.bind(
         assembly.authorizationService,
       ),
     readAuthorizedOperation: assembly.authorizationService.readAuthorizedOperation.bind(
