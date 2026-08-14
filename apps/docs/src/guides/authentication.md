@@ -5,28 +5,31 @@ description: Select passkey, email OTP, and step-up authentication flows while p
 
 # Authentication
 
-Use authentication to establish the person or device allowed to enter a wallet
-lifecycle. Signing still requires an exact wallet session and an authorized
-operation.
+Start with [Wallet setup and authentication](/examples/wallet-setup-and-authentication)
+to configure the provider, register a wallet, and unlock it. Use this guide to
+choose the factor and keep the resulting state explicit.
 
-## Choose a method
+## Choose a flow
 
-| Method                     | Best fit                                              | Important boundary                                                                      |
-| -------------------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| Passkey                    | Primary registration and unlock on supported browsers | The wallet origin and RP ID own credential scope.                                       |
-| Google plus email OTP      | Account discovery with a recoverable second factor    | The application acquires the Google token; the wallet flow owns OTP and recovery state. |
-| VoiceID or another step-up | Explicit high-risk operation policy                   | Treat it as an additional proof, with consent, fallback, and retention rules.           |
+- **Passkey** — primary registration and unlock on supported browsers. The
+  wallet origin and RP ID own the credential scope.
+- **Google plus email OTP** — account discovery with a recoverable second
+  factor. The application supplies the Google token; the wallet flow owns OTP
+  and recovery state.
+- **VoiceID or another step-up** — an additional proof for a high-risk
+  operation. Define consent, fallback, and retention rules before enabling it.
 
-Prefer the public `beginGoogleEmailOtpWalletAuth` flow for standard Google and
-email OTP integration. Use lower-level challenge and enrollment methods only
-when the application intentionally owns the extra UI and lifecycle branches.
+## Keep auth state explicit
 
-## Expected result
+- Preserve the same wallet identity when someone registers, unlocks, or adds
+  a factor.
+- Create an exact wallet session before signing. Authentication alone does not
+  authorize an operation.
+- Render cancellation, expiry, retryable delivery failure, and policy denial as
+  separate outcomes.
+- Keep passkeys, session tokens, and factor material out of application or agent
+  storage.
 
-A completed flow yields a stable wallet identity and the state required to
-create or restore a wallet session. Render cancellation, expiry, retryable
-delivery failure, and policy denial separately.
-
-Review [passkeys](/concepts/auth-methods/passkeys), [email
+Read [passkeys](/concepts/auth-methods/passkeys), [email
 OTP](/concepts/auth-methods/email-otp), and [auth planes](/concepts/auth-planes)
-for the underlying boundaries.
+for the boundaries behind each flow.

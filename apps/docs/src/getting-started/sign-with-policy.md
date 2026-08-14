@@ -1,80 +1,69 @@
 ---
 title: Sign with policy
-description: Sign a NEAR transaction or NEP-413 message with an exact wallet session, account reference, and typed intent.
+description: Unlock a wallet, then sign NEAR, NEP-413, or EVM-family requests with exact references.
 ---
 
 # Sign with policy
 
-Wallet signing starts with a typed intent. The intent is normalized, checked
-against policy, admitted through the correct auth planes, and executed through
-the selected signing lane.
+Unlock the wallet before signing. Each request supplies the exact wallet
+session plus the account or chain reference that should authorize it. The
+examples below use the React context for buttons and the `SeamsWeb` client for
+the signing calls.
 
-## Flow
+## Unlock the wallet
 
-```mermaid
-flowchart TD
-  Intent["Wallet intent<br/>transaction, message, or delegate action"] --> Digest["Canonical intent digest"]
-  Digest --> Proof["Wallet proof and auth method"]
-  Proof --> Session["Wallet Session"]
-  Session --> Quota["Wallet Session quota<br/>TTL and remaining uses"]
-  Quota --> Claim["Operation capability claim"]
-  Claim --> Router["Router policy, replay, and admission"]
-  Router --> SigningWorker["SigningWorker"]
-  SigningWorker --> Signature["Signature"]
-  Signature --> Audit["Audit trail"]
-```
-
-## Admission checks
-
-| Check                  | Purpose                                                        |
-| ---------------------- | -------------------------------------------------------------- |
-| Wallet Session         | Confirms the wallet-user operation is admitted.                |
-| Signing lane           | Selects the exact wallet capability for the operation.         |
-| Wallet Session quota   | Enforces TTL and remaining uses for reusable signing.          |
-| Capability claim       | Binds one operation to its exact capability and material.      |
-| Policy                 | Checks mandate, constraints, revocation state, and risk rules. |
-| Replay and idempotency | Prevents request reuse and ambiguous execution.                |
-
-Normal signing uses the signing shares produced during registration, refresh, or
-activation. Ed25519 Streaming Yao and ECDSA threshold-PRF derivation stay
-outside this normal-signing path.
-
-## Wallet examples
-
-- Sign a NEAR transaction.
-- Sign a NEP-413 message.
-- Sign a NEP-461 delegate action.
-- Sign an EVM transaction from the wallet's threshold ECDSA address.
-- Sign a typed payment or checkout intent.
-
-## Unlock before signing
-
-Unlock creates the wallet session used by the signing capabilities. Handle its
-NEAR and EVM-family success branches explicitly.
+Call `unlock` with the `walletId` returned during registration. The result has
+separate NEAR and EVM-family success branches; read `nearAccountId` only from
+the NEAR branch.
 
 <<< ../examples/unlock.ts
 
-## NEAR transaction example
+The returned wallet session is the authority for the signing examples. Unlock
+again when the session expires or runs out of uses.
+
+## NEAR transaction
+
+This example sends a `set_greeting` function call to a NEAR testnet account.
+Replace the receiver, action, and execution status with values from your app.
 
 <<< ../examples/near-signing.tsx
 
-## NEP-413 message example
+The example checks the React login state before it creates the account and
+session references. Keep that check next to your sign button so a locked wallet
+cannot start a request.
+
+## NEP-413 message
+
+Use `signNEP413Message` when an application needs a wallet signature for a
+structured off-chain message, such as a checkout quote.
 
 <<< ../examples/nep413-signing.ts
 
-## EVM-family transaction example
+The `recipient` and `state` values bind the message to the service and request
+that created it. Generate them from your application request rather than
+reusing the example values.
 
-Build the chain-specific transaction with your app's EVM utilities, then pass
-the typed request through Seams.
+## EVM-family transaction
+
+Build the transaction with your EVM utilities, then pass the typed request and
+an exact threshold-ECDSA chain target to Seams.
 
 <<< ../examples/evm-signing.ts
 
-## Expected result and recovery
+The example targets Tempo testnet and uses placeholder transaction values.
+Replace the chain, sender, recipient, fees, and data before sending a real
+transaction. A successful call returns the transaction hash.
 
-Successful results expose the signed or submitted operation identity for the
-selected chain. Treat cancellation and policy denial as final for the current
-request. Refresh an expired or depleted wallet session before retrying. When
-broadcast status is uncertain, reconcile the transaction or nonce lane before
-submitting another operation.
+## Handle cancellation and retries
 
-Read next: [Delegate Or Rotate](/getting-started/delegate-or-rotate).
+- Treat a cancelled prompt or policy denial as the result of the current
+  request and show a clear retry action.
+- Unlock again when the wallet session is expired or exhausted.
+- If broadcast status is uncertain, reconcile the transaction or nonce before
+  submitting another request.
+- Keep the `onEvent` callback attached while you build progress UI or audit
+  logs; each canonical example shows the same event shape.
+
+## Continue
+
+[Link a device, export a key, or recover a wallet account](/getting-started/delegate-or-rotate).

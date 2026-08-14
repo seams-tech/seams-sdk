@@ -1,62 +1,51 @@
 ---
 title: Create a wallet
-description: Register a Seams wallet with a passkey, handle every registration result branch, and wait for requested capabilities.
+description: Register a passkey wallet and handle ready, pending, and failed results.
 ---
 
 # Create a wallet
 
-Wallet creation registers a wallet key under a user-controlled auth method. The
-app receives public wallet identity; holder-side and server-side material stay
-inside their custody boundaries.
+Call `registerPasskey` from a user-initiated action. The SDK opens the passkey
+prompt, reports progress, and returns a discriminated result that tells you
+which capability is ready.
 
-## Flow
+## Register a passkey wallet
 
-```mermaid
-flowchart TD
-  App["App requests wallet creation"] --> Wallet["Wallet iframe"]
-  Wallet --> Auth["Auth method<br/>passkey, Email OTP, or configured factor"]
-  Auth --> Worker["Browser worker<br/>holder contribution"]
-  Worker --> Router["Router admission"]
-  Router --> A["Deriver A"]
-  Router --> B["Deriver B"]
-  A --> Output["Registration output"]
-  B --> Output
-  Output --> WalletRecord["Wallet-origin records"]
-```
-
-## What to decide
-
-| Decision        | Why it matters                                                                            |
-| --------------- | ----------------------------------------------------------------------------------------- |
-| Auth method     | Determines how the user creates, unlocks, or recovers holder-side authority.              |
-| Wallet target   | Selects the key family, public address shape, and signing lane shape.                     |
-| Recovery policy | Defines how the user regains access and which factors can authorize export.               |
-| Hosting model   | Determines whether Router A/B roles are hosted, self-hosted, or split across deployments. |
-
-## Passkey wallet example
-
-Use the React hook when you want to drive registration from your own UI.
+Use the hook when your product owns the registration button and result UI.
+Render `CreateWalletButton` inside the `SeamsWebProvider` from [Start
+here](/).
 
 <<< ../examples/registration.tsx
 
-`registerPasskey` takes an options object. It allocates the wallet identity and
-uses the configured NEAR provisioning policy; it does not accept an account id.
-The result is a discriminated union, so code should branch on `success` and
-`kind` before reading branch-specific capabilities or provisioning state.
+The example keeps the event callback small and handles every
+`RegistrationResult` branch with an exhaustive switch. Adapt the button and
+message copy to your app instead of reading branch-specific fields before the
+branch check.
 
-## Expected result
+## Read the result
 
-The app receives a wallet id and non-secret flow state. Ready capability
-branches carry their chain-specific public identity; a pending NEAR branch must
-reach its ready state before the app reads a NEAR account. Holder-side material
-stays in wallet-origin workers or encrypted wallet-origin records. Server-side
-material stays inside the Router A/B custody boundary.
+- `wallet_registered` means the wallet and its returned capabilities are ready.
+- `ecdsa_wallet_registered_near_pending` means the EVM-family capability is
+  ready while NEAR provisioning is pending or retryable.
+- `near_wallet_registered_pending` means NEAR provisioning still needs to
+  reach a ready state before you read a NEAR account.
+- `wallet_signer_added` means a signer was added to an existing wallet.
+- `success: false` contains the error text to show or log for the current
+  attempt.
 
-## Recoverable failures
+The returned `walletId` is the stable wallet identifier used by unlock and
+other wallet-scoped operations. Keep it with your application account record;
+never store passkey or holder secrets in application state.
 
-A cancelled passkey prompt ends the current registration attempt. A retryable
-NEAR provisioning branch preserves the wallet identity and can resume through
-the provisioning API. Authentication, origin, or publishable-key failures need
-configuration correction before retrying.
+## If registration stops
 
-Read next: [Sign With Policy](/getting-started/sign-with-policy).
+Passkey cancellation ends the current attempt. Let the person start a new
+attempt from the same button. A retryable NEAR provisioning result keeps the
+wallet identity, so query
+`seams.registration.getNearProvisioningState({ walletId })` before offering a
+retry instead of registering a second wallet. Origin, publishable-key, and
+authentication errors require configuration or account changes before retrying.
+
+## Continue
+
+[Unlock the wallet and sign an operation](/getting-started/sign-with-policy).

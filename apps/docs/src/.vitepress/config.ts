@@ -9,19 +9,43 @@ function pageUrl(page: string): string {
 
 const startHereSidebar: DefaultTheme.SidebarItem[] = [
   {
-    text: 'Start here',
+    text: 'Get started',
     items: [
       { text: 'Overview and install', link: '/' },
       { text: 'Create a wallet', link: '/getting-started/create-wallet' },
       { text: 'Sign with policy', link: '/getting-started/sign-with-policy' },
-      { text: 'Recovery and export', link: '/guides/recovery-export-and-rotation' },
-      { text: 'Delegate or rotate', link: '/getting-started/delegate-or-rotate' },
+      {
+        text: 'Devices, export, and recovery',
+        link: '/getting-started/delegate-or-rotate',
+      },
     ],
   },
   {
     text: 'Continue building',
     collapsed: true,
-    items: [{ text: 'Theming', link: '/getting-started/theming' }],
+    items: [
+      { text: 'Examples', link: '/examples/' },
+      { text: 'Theme wallet surfaces', link: '/getting-started/theming' },
+    ],
+  },
+];
+
+const examplesSidebar: DefaultTheme.SidebarItem[] = [
+  {
+    text: 'Examples',
+    items: [
+      { text: 'Overview', link: '/examples/' },
+      {
+        text: 'Wallet setup and authentication',
+        link: '/examples/wallet-setup-and-authentication',
+      },
+      { text: 'Signing', link: '/examples/signing' },
+      {
+        text: 'Advanced wallet operations',
+        link: '/examples/advanced-wallet-operations',
+      },
+      { text: 'UI customization', link: '/examples/ui-customization' },
+    ],
   },
 ];
 
@@ -242,12 +266,14 @@ export default defineConfig({
     outline: [2, 3],
     search: { provider: 'local' },
     nav: [
-      { text: 'Guides', link: '/guides/' },
+      { text: 'Get started', link: '/' },
+      { text: 'Examples', link: '/examples/' },
       { text: 'SDK reference', link: '/reference/' },
-      { text: 'Concepts and security', link: '/concepts/' },
       {
         text: 'More',
         items: [
+          { text: 'Guides', link: '/guides/' },
+          { text: 'Concepts and security', link: '/concepts/' },
           { text: 'Deploy and operate', link: '/deploy-and-operate/' },
           { text: 'Use cases', link: '/use-cases/' },
         ],
@@ -255,6 +281,7 @@ export default defineConfig({
     ],
     sidebar: {
       '/getting-started/': startHereSidebar,
+      '/examples/': examplesSidebar,
       '/guides/': guidesSidebar,
       '/reference/': referenceSidebar,
       '/concepts/advanced/': advancedConceptsSidebar,
