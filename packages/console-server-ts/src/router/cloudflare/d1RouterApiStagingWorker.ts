@@ -414,7 +414,7 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
   const consoleAuth = createConsoleSessionAuthAdapter({
     session: createHmacSessionAdapterFromEnv({
       env,
-      secretName: 'CONSOLE_SESSION_HMAC_SECRET',
+      secretName: 'RELAY_SESSION_HMAC_SECRET',
       cookieName: readEnvString(env, 'CONSOLE_SESSION_COOKIE_NAME'),
       issuer: readEnvString(env, 'CONSOLE_SESSION_ISSUER'),
       audience: readEnvString(env, 'CONSOLE_SESSION_AUDIENCE'),
