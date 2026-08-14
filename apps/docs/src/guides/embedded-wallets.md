@@ -5,26 +5,27 @@ description: Integrate the Seams wallet iframe while keeping credential, worker,
 
 # Embedded wallets
 
-An embedded Seams wallet renders within the product while its credential and
-signing runtime stays on a dedicated HTTPS origin.
+Start with [Wallet setup and authentication](/examples/wallet-setup-and-authentication)
+to see the provider configuration. An embedded wallet renders in your product
+while its credential and signing runtime stays on a dedicated HTTPS origin.
 
-## Prerequisites
+## Configure the boundary
 
-- a deployed wallet service and SDK assets at the wallet origin;
-- an allowed application origin;
-- matching RP ID, project environment, publishable key, and network identity;
-- a relayer or Router endpoint for the selected flows.
+- Deploy the wallet service and SDK assets at the wallet origin.
+- Allow the application origin and use a matching RP ID.
+- Set the project environment, publishable key, and network identity together.
+- Configure a relayer or Router endpoint for each selected flow.
+- Keep `iframeWallet.walletOrigin`, `walletServicePath`, and `sdkBasePath`
+  aligned with the deployed assets.
 
-Configure `iframeWallet.walletOrigin` and keep the wallet service and SDK paths
-aligned with the deployed assets. The application must not mirror those assets
-under its own origin.
+The application must not mirror wallet service or SDK assets under its own
+origin.
 
-## Verify the boundary
+## Check before launch
 
-Registration should open user presence inside the wallet-origin surface.
-Signing should preserve the same exact wallet identity through the session and
-account or chain reference. Reject unexpected message origins and stale iframe
-sessions.
-
-Continue with [hosted integration](/deploy-and-operate/hosted-integration) and
-[origin and iframe boundaries](/deploy-and-operate/security-boundaries).
+- Registration opens user presence inside the wallet-origin surface.
+- Signing preserves the exact wallet identity through the session and account or
+  chain reference.
+- Reject unexpected message origins and stale iframe sessions.
+- Review [hosted integration](/deploy-and-operate/hosted-integration) and
+  [security boundaries](/deploy-and-operate/security-boundaries) before launch.

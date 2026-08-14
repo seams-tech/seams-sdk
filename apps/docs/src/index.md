@@ -1,60 +1,52 @@
 ---
 title: Start here
-description: Install Seams, create an embedded wallet, sign a first operation, then add recovery or delegated authority.
+description: Install Seams, create a wallet, unlock it, and sign your first operation.
 ---
 
 # Start here
 
-Build the shortest working wallet path first: configure the isolated wallet
-origin, register a user-controlled wallet, and sign one policy-bound operation.
-Add recovery, delegation, and rotation after that path works end to end.
+Get a working wallet path running before you add recovery, linked devices, or
+delegated authority. You need a React app and a Seams project with a wallet
+origin, relayer URL, and managed-registration credentials.
 
-## Install
-
-Add the SDK to the application that owns the account experience.
+## 1. Install the SDK
 
 ```sh
 pnpm add @seams/sdk
 ```
 
-## Configure the wallet
+## 2. Mount the provider
 
-Wrap the application once with `SeamsWebProvider`. This complete example
-includes a minimal `WalletApp`; replace it with your product UI.
+Configure the isolated wallet origin once near the root of your app. The
+example reads deployment values from `import.meta.env`; use the same names in
+your own environment or replace them with your config loader.
 
 <<< ./examples/setup.tsx
 
-Keep the wallet service and SDK assets on the configured wallet origin. The
-application origin should not mirror those protected runtime routes.
+Render your wallet UI inside `SeamsWebProvider`. Keep the wallet service and SDK
+assets on the configured wallet origin.
 
-## Create and sign
+## 3. Create a wallet
 
-```text
-create wallet -> approve intent -> sign with policy -> audit
-```
+Render the button from the registration example inside the provider. A click
+opens the passkey prompt and logs progress and the branch-specific result.
 
-1. [Create a wallet](/getting-started/create-wallet) and handle every
-   registration result branch.
-2. [Sign with policy](/getting-started/sign-with-policy) using an exact wallet
-   session and account or chain reference.
-3. [Add recovery, export, or rotation](/guides/recovery-export-and-rotation)
-   when the product needs a controlled return or exit path.
-4. [Delegate or rotate](/getting-started/delegate-or-rotate) when another
-   device or agent needs independently revocable authority.
+<<< ./examples/registration.tsx
 
-## Choose the next section
+Read [Create a wallet](/getting-started/create-wallet) for the result branches
+and retry guidance.
 
-- [Guides](/guides/) cover authentication, embedded wallets, policies,
-  sessions, devices, delegation, recovery, and theming.
-- [SDK reference](/reference/) documents the supported public package
-  entrypoints and result unions.
-- [Concepts and security](/concepts/) explains custody, policy, sessions,
-  threshold signing, and Router A/B.
-- [Deploy and operate](/deploy-and-operate/) covers hosted integration,
-  security boundaries, production checks, observability, and troubleshooting.
-- [Use cases](/use-cases/) applies the same authority model to agents, access,
-  shipping, and embedded devices.
+## 4. Unlock and sign
 
-For production integration, review the [hosted wallet
-boundary](/deploy-and-operate/hosted-integration) and [production
-checklist](/deploy-and-operate/production-checklist) before launch.
+After registration, unlock the wallet with its `walletId`, then pass the exact
+wallet session and account or chain reference to a signing method.
+
+- [Unlock and sign a NEAR transaction](/getting-started/sign-with-policy#near-transaction)
+- [Sign a NEP-413 message](/getting-started/sign-with-policy#nep-413-message)
+- [Execute an EVM-family transaction](/getting-started/sign-with-policy#evm-family-transaction)
+
+## Add advanced capabilities
+
+Once the first signing path works, continue with [linked devices, key export,
+and recovery](/getting-started/delegate-or-rotate). For authentication choices,
+policies, and deployment boundaries, use the [guides](/guides/).

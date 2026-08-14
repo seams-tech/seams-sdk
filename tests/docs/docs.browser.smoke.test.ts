@@ -22,7 +22,7 @@ async function assertNoHorizontalOverflow(page: Page): Promise<void> {
   expect(metrics.documentWidth).toBeLessThanOrEqual(metrics.viewportWidth);
 }
 
-test('docs start path, search, light appearance, and responsive navigation stay operable', async ({
+test('docs onboarding, examples, search, appearance, and responsive navigation stay operable', async ({
   page,
 }) => {
   await page.goto('/');
@@ -37,6 +37,14 @@ test('docs start path, search, light appearance, and responsive navigation stay 
     .click();
   await expect(page).toHaveURL(/\/getting-started\/create-wallet$/);
   await expect(page.getByRole('heading', { name: 'Create a wallet', level: 1 })).toBeVisible();
+
+  await page
+    .getByRole('navigation', { name: 'Main Navigation' })
+    .getByRole('link', { name: 'Examples', exact: true })
+    .click();
+  await expect(page).toHaveURL(/\/examples\/$/);
+  await expect(page.getByRole('heading', { name: 'Examples', level: 1 })).toBeVisible();
+  await expect(page.locator('.vp-doc div[class*="language-"]').first()).toBeVisible();
 
   await page.getByRole('button', { name: 'Search' }).click();
   await page.getByPlaceholder('Search').fill('wallet sessions');
@@ -69,6 +77,6 @@ test('docs start path, search, light appearance, and responsive navigation stay 
   await mobileNavigation.click();
   await expect(mobileNavigation).toHaveAttribute('aria-expanded', 'true');
   await expect(
-    page.locator('#VPNavScreen').getByRole('link', { name: 'Guides', exact: true }),
+    page.locator('#VPNavScreen').getByRole('link', { name: 'Examples', exact: true }),
   ).toBeVisible();
 });
