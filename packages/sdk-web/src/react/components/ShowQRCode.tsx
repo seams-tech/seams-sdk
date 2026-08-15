@@ -95,48 +95,84 @@ export function ShowQRCode({ isOpen, onClose, onEvent, onError }: ShowQRCodeProp
 
   if (!isOpen) return null;
 
+  const ready = Boolean(deviceLinkingState.qrCodeDataURL);
+  const failed = !ready && !deviceLinkingState.isProcessing;
+
+  if (deviceLinkingState.mode === 'device2' && failed) {
+    return (
+      <div className="w3a-link-device-failure" onClick={(e) => e.stopPropagation()}>
+        <div className="w3a-link-device-failure-icon">
+          <LinkFailedIcon />
+        </div>
+        <h2 className="qr-title">Couldn&apos;t link device</h2>
+        <p className="w3a-link-device-failure-detail" role="alert">
+          {deviceLinkingState.lastMessage || 'Failed to generate QR code'}
+        </p>
+        <button type="button" className="w3a-link-device-btn" onClick={onClose}>
+          Close
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="qr-code-container" onClick={(e) => e.stopPropagation()}>
       <div className="qr-body">
         {deviceLinkingState.mode === 'device2' && (
           <div className="qr-code-section">
-            {deviceLinkingState.qrCodeDataURL ? (
-              <div className="qr-code-display">
+            {/* The plate keeps its box while the code is generated, so the copy
+                below never shifts once the image lands. */}
+            <div className="qr-code-display">
+              {ready ? (
                 <img
                   src={deviceLinkingState.qrCodeDataURL}
                   alt="Device Linking QR Code"
                   className="qr-code-image"
                 />
-              </div>
-            ) : (
-              <div className="qr-loading">
-                {deviceLinkingState.isProcessing ? (
-                  <p>Generating QR code...</p>
-                ) : (
-                  <>
-                    <p>{deviceLinkingState.lastMessage || 'Failed to generate QR code'}</p>
-                    <button type="button" onClick={onClose}>
-                      Close
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
+              ) : (
+                <div className="qr-code-placeholder">
+                  <span className="w3a-spinner" aria-hidden="true"></span>
+                </div>
+              )}
+            </div>
             <div className="qr-header">
               <h2 className="qr-title">Scan and Link Device</h2>
             </div>
-            {deviceLinkingState.qrCodeDataURL && (
-              <>
-                <div className="qr-instruction">Scan to backup your other device.</div>
-                <div className="qr-status">
-                  {deviceLinkingState.lastMessage || 'Waiting for device to scan'}
-                  <span className="animated-ellipsis"></span>
-                </div>
-              </>
-            )}
+            <div className="qr-instruction">
+              {ready
+                ? 'Scan to backup your other device.'
+                : 'Preparing a one-time code for your other device.'}
+            </div>
+            <div className="qr-status" role="status" aria-live="polite">
+              {ready
+                ? deviceLinkingState.lastMessage || 'Waiting for device to scan'
+                : 'Generating QR code'}
+              <span className="animated-ellipsis"></span>
+            </div>
           </div>
         )}
       </div>
     </div>
+  );
+}
+
+function LinkFailedIcon() {
+  return (
+    <svg
+      width="26"
+      height="26"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M9 17H7A5 5 0 0 1 7 7h2" />
+      <path d="M15 7h2a5 5 0 0 1 3.54 8.54" />
+      <path d="m2 2 20 20" />
+      <path d="M8 12h3" />
+    </svg>
   );
 }

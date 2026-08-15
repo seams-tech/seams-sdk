@@ -182,6 +182,27 @@ function approvedDeviceIcon(): TemplateResult {
   `;
 }
 
+function linkFailedIcon(): TemplateResult {
+  return html`
+    <svg
+      width="26"
+      height="26"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M9 17H7A5 5 0 0 1 7 7h2" />
+      <path d="M15 7h2a5 5 0 0 1 3.54 8.54" />
+      <path d="m2 2 20 20" />
+      <path d="M8 12h3" />
+    </svg>
+  `;
+}
+
 function mailIcon(): TemplateResult {
   return html`
     <svg
@@ -804,47 +825,66 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
     if (linkDevice.kind === 'passkey_required' || linkDevice.kind === 'creating_passkey') {
       return this.renderLinkDevicePasskeyConfirmation(linkDevice);
     }
+    if (linkDevice.kind === 'error') return this.renderLinkDeviceFailure(linkDevice);
+    // The code plate keeps its box while the QR is still being generated, so the
+    // title/instruction/status stack below it never shifts when the image lands —
+    // the placeholder simply dissolves into the code.
+    const ready = linkDevice.kind === 'ready';
     return html`
       <div class="w3a-scan-device-content">
         <div class="qr-code-container">
           <div class="qr-body">
             <div class="qr-code-section">
-              ${linkDevice.kind === 'ready'
-                ? html`
-                    <div class="qr-code-display">
+              <div class="qr-code-display">
+                ${ready
+                  ? html`
                       <img
                         src=${linkDevice.qrCodeDataURL}
                         alt="QR code to link this device"
                         class="qr-code-image"
                       />
-                    </div>
-                  `
-                : html`
-                    <div class="qr-loading">
-                      <p>
-                        ${linkDevice.kind === 'loading'
-                          ? 'Generating QR code...'
-                          : linkDevice.message}
-                      </p>
-                      ${linkDevice.kind === 'error'
-                        ? html`<button type="button" @click=${this.onBackClick}>Close</button>`
-                        : null}
-                    </div>
-                  `}
-              <div class="qr-header">
-                <h2 class="qr-title" id=${AUTH_MENU_TITLE_ID}>Scan and link device</h2>
+                    `
+                  : html`
+                      <div class="qr-code-placeholder">
+                        <span class="w3a-spinner" aria-hidden="true"></span>
+                      </div>
+                    `}
               </div>
-              ${linkDevice.kind === 'ready'
-                ? html`
-                    <div class="qr-instruction">Scan this code with your other device.</div>
-                    <div class="qr-status" role="status" aria-live="polite">
-                      ${linkDevice.message}<span class="animated-ellipsis"></span>
-                    </div>
-                  `
-                : null}
+              <div class="qr-header">
+                <h2 class="qr-title" id=${AUTH_MENU_TITLE_ID}>${viewModel.heading}</h2>
+              </div>
+              <div class="qr-instruction">
+                ${ready ? viewModel.subtitle : 'Preparing a one-time code for your other device.'}
+              </div>
+              <div class="qr-status" role="status" aria-live="polite">
+                ${ready ? linkDevice.message : 'Generating QR code'}<span
+                  class="animated-ellipsis"
+                ></span>
+              </div>
             </div>
           </div>
         </div>
+      </div>
+    `;
+  }
+
+  private renderLinkDeviceFailure(
+    linkDevice: Extract<AuthMenuLinkDeviceState, { kind: 'error' }>,
+  ): TemplateResult {
+    return html`
+      <div class="w3a-link-device-confirmation w3a-link-device-failure">
+        <div class="w3a-link-device-failure-icon">${linkFailedIcon()}</div>
+        <h2 class="qr-title" id=${AUTH_MENU_TITLE_ID}>Couldn't link device</h2>
+        <p class="w3a-link-device-failure-detail" role="alert">${linkDevice.message}</p>
+        <button
+          class="w3a-link-device-btn"
+          type="button"
+          data-auth-menu-primary
+          data-link-device-error-dismiss
+          @click=${this.onBackClick}
+        >
+          Close
+        </button>
       </div>
     `;
   }
