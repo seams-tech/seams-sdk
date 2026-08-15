@@ -998,6 +998,16 @@ export class IntendedBehaviourHarness {
     if (snapshot.events.length === 0) {
       throw new Error('Passkey unlock did not emit structured lifecycle events');
     }
+    const observedPaths = this.trace
+      .slice(traceStartIndex)
+      .map((entry) => routePathAtRouter(entry.url, this.config.routerUrl))
+      .filter((path): path is string => path !== null);
+    if (!observedPaths.includes('/wallet/unlock/verify')) {
+      throw new Error('Passkey unlock did not traverse /wallet/unlock/verify');
+    }
+    if (observedPaths.includes('/router-ab/wallet-session/ed25519')) {
+      throw new Error('Passkey unlock requested a second Ed25519 Wallet Session ceremony');
+    }
     this.assertNoRouterAbEd25519YaoRecoveryRoutes(traceStartIndex, {
       kind: 'passkey_unlock',
     });

@@ -10,14 +10,12 @@ const activatedInput: PasskeyWalletUnlockInputWithEcdsaActivation = {
   type: 'passkey_assertion',
   challengeId: 'challenge-1',
   webauthn_authentication: credential,
+  ed25519SessionRequest: { kind: 'not_requested' },
   ecdsaSessionPolicy: activationPolicy,
   walletId: 'wallet.testnet',
 };
 
-const activatedUnlock = verifyPasskeyWalletUnlock(
-  'https://relay.example',
-  activatedInput,
-);
+const activatedUnlock = verifyPasskeyWalletUnlock('https://relay.example', activatedInput);
 
 void activatedUnlock.then((result) => {
   if (result.success) {

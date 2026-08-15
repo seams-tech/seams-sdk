@@ -77,13 +77,19 @@ type WalletUnlockProvisionedCapabilityMaterialV1 = {
   readonly capability: RouterAbEd25519YaoActiveCapabilityDescriptorV1;
 };
 
-export type WalletUnlockProvisionedCapabilityV1 =
-  | (WalletUnlockProvisionedCapabilityMaterialV1 & {
-      readonly kind: typeof ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1;
-    });
+export type WalletUnlockProvisionedCapabilityV1 = WalletUnlockProvisionedCapabilityMaterialV1 & {
+  readonly kind: typeof ROUTER_AB_ED25519_YAO_EMAIL_OTP_RECOVERY_BOOTSTRAP_KIND_V1;
+};
 
 export type WalletUnlockCapabilityContext =
-  | { readonly kind: 'passkey_unlock' }
+  | {
+      readonly kind: 'passkey_unlock';
+      readonly provisionWalletSession: (
+        input: Parameters<
+          RouterApiWalletRegistrationService['provisionEd25519YaoWalletSession']
+        >[0],
+      ) => ReturnType<RouterApiWalletRegistrationService['provisionEd25519YaoWalletSession']>;
+    }
   | {
       readonly kind: 'email_otp';
       readonly request: WalletUnlockEmailOtpRequestedCapabilitiesRequestV1;
@@ -114,7 +120,9 @@ type WalletUnlockEd25519YaoRequestedContext = Extract<
 function isWalletUnlockEd25519YaoRequestedContext(
   context: WalletUnlockCapabilityContext,
 ): context is WalletUnlockEd25519YaoRequestedContext {
-  return context.kind === 'email_otp' && context.request.requestedCapabilities.kind === 'ed25519_yao';
+  return (
+    context.kind === 'email_otp' && context.request.requestedCapabilities.kind === 'ed25519_yao'
+  );
 }
 
 export type WalletUnlockEcdsaSessionContext =
@@ -401,8 +409,7 @@ function projectPasskeyCustody(
       capability.applicationBinding.wallet_id !== verifiedUnlock.userId ||
       capability.applicationBinding.near_ed25519_signing_key_id !==
         verifiedEd25519.nearEd25519SigningKeyId ||
-      capability.applicationBinding.key_creation_signer_slot !==
-        verifiedEd25519.signerSlot ||
+      capability.applicationBinding.key_creation_signer_slot !== verifiedEd25519.signerSlot ||
       capability.participantIds[0] !== verifiedEd25519.participantIds[0] ||
       capability.participantIds[1] !== verifiedEd25519.participantIds[1]
     ) {
@@ -507,7 +514,7 @@ function walletUnlockSessionFailureResponse(input: {
 async function provisionEmailOtpEd25519YaoCapability(input: {
   readonly context: WalletUnlockEd25519YaoRequestedContext;
   readonly verifiedUnlock: VerifiedEmailOtpUnlockResult;
-  readonly proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
+  readonly authorization: WalletUnlockOwnerAuthorization;
 }): Promise<WalletUnlockProvisionedCapabilityResult> {
   const request = input.context.request;
   if (
@@ -522,14 +529,16 @@ async function provisionEmailOtpEd25519YaoCapability(input: {
     throw new Error('Ed25519 Yao unlock requires its requested capability');
   }
 
-  const provisioned = await input.context.provisionWalletSession({
-    walletId: request.walletId,
-    orgId: request.orgId,
-    signerSlot: capabilities.signerSlot,
-    remainingUses: capabilities.remainingUses,
-    verifiedChallengeId: request.challengeId,
-    verifiedProviderUserId: input.verifiedUnlock.providerUserId,
-  }, input.proof);
+  const provisioned = await input.context.provisionWalletSession(
+    {
+      walletId: request.walletId,
+      signerSlot: capabilities.signerSlot,
+      remainingUses: capabilities.remainingUses,
+      verifiedChallengeId: request.challengeId,
+      authority: input.authorization.authority,
+    },
+    input.authorization.proof,
+  );
   if (!provisioned.ok) return walletUnlockSessionFailureResponse({ result: provisioned });
   return {
     ok: true,
@@ -538,6 +547,94 @@ async function provisionEmailOtpEd25519YaoCapability(input: {
       session: provisioned.session,
       capability: provisioned.capability,
     },
+  };
+}
+
+type PasskeyEd25519SessionRequest =
+  | { readonly kind: 'not_requested' }
+  | { readonly kind: 'requested'; readonly remainingUses: number };
+
+type PasskeyEd25519SessionProvisionResult =
+  | { readonly ok: true; readonly session: WalletRegistrationEd25519YaoBootstrapSession | null }
+  | { readonly ok: false; readonly response: WalletUnlockRouteResponse };
+
+function parsePasskeyEd25519SessionRequest(value: unknown): PasskeyEd25519SessionRequest {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('ed25519SessionRequest is required');
+  }
+  const request = value as Record<string, unknown>;
+  if (request.kind === 'not_requested') return { kind: 'not_requested' };
+  if (request.kind !== 'requested') {
+    throw new Error('ed25519SessionRequest.kind is invalid');
+  }
+  const remainingUses = Math.floor(Number(request.remainingUses));
+  if (!Number.isSafeInteger(remainingUses) || remainingUses < 1) {
+    throw new Error('ed25519SessionRequest.remainingUses is invalid');
+  }
+  return { kind: 'requested', remainingUses };
+}
+
+async function provisionPasskeyEd25519YaoSession(input: {
+  readonly context: Extract<WalletUnlockCapabilityContext, { readonly kind: 'passkey_unlock' }>;
+  readonly custody: WalletUnlockPasskeyCustodyProjectionV1;
+  readonly request: PasskeyEd25519SessionRequest;
+  readonly challengeId: string;
+  readonly walletId: string;
+  readonly authorization: WalletUnlockOwnerAuthorization;
+}): Promise<PasskeyEd25519SessionProvisionResult> {
+  if (input.request.kind === 'not_requested') return { ok: true, session: null };
+  if (input.custody.ed25519.kind !== 'active') {
+    return {
+      ok: false,
+      response: {
+        status: 409,
+        body: {
+          ok: false,
+          code: 'capability_unavailable',
+          message: 'Requested Ed25519 Wallet Session is unavailable',
+        },
+      },
+    };
+  }
+  const provisioned = await input.context.provisionWalletSession({
+    walletId: input.walletId,
+    signerSlot: input.custody.ed25519.signerSlot,
+    remainingUses: input.request.remainingUses,
+    verifiedChallengeId: input.challengeId,
+    authority: input.authorization.authority,
+    proof: input.authorization.proof,
+  });
+  if (!provisioned.ok) {
+    return {
+      ok: false,
+      response: {
+        status: thresholdEd25519StatusCode(provisioned),
+        body: provisioned,
+      },
+    };
+  }
+  return { ok: true, session: provisioned.session };
+}
+
+function projectPasskeyEd25519WalletSession(
+  session: WalletRegistrationEd25519YaoBootstrapSession | null,
+): Record<string, unknown> | null {
+  if (!session) return null;
+  return {
+    walletId: session.walletId,
+    nearAccountId: session.nearAccountId,
+    nearEd25519SigningKeyId: session.nearEd25519SigningKeyId,
+    relayerKeyId: session.routerAbNormalSigning.signingWorkerId,
+    participantIds: session.participantIds,
+    thresholdSessionId: session.thresholdSessionId,
+    authorizationId: session.authorizationId,
+    walletSessionId: session.walletSessionId,
+    quotaId: session.quotaId,
+    expiresAtMs: session.expiresAtMs,
+    remainingUses: session.remainingUses,
+    runtimePolicyScope: session.runtimePolicyScope,
+    routerAbNormalSigning: session.routerAbNormalSigning,
+    walletSessionToken: session.walletSessionToken,
   };
 }
 
@@ -588,7 +685,10 @@ async function verifyPasskeyWalletUnlock(input: {
   readonly origin: string | undefined;
   readonly service: RouterApiWalletUnlockService;
 }) {
-  if (!input.body.webauthn_authentication || typeof input.body.webauthn_authentication !== 'object') {
+  if (
+    !input.body.webauthn_authentication ||
+    typeof input.body.webauthn_authentication !== 'object'
+  ) {
     return {
       ok: false,
       verified: false,
@@ -664,6 +764,11 @@ type WalletUnlockEmailOtpAuthorityResolution =
 
 type WalletSessionOwnerProof = Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
 
+type WalletUnlockOwnerAuthorization = {
+  readonly authority: WalletAuthAuthority;
+  readonly proof: WalletSessionOwnerProof;
+};
+
 const WALLET_UNLOCK_PROOF_TTL_MS = 60_000;
 
 function requiredAuthorizationValue<T>(
@@ -676,9 +781,7 @@ function requiredAuthorizationValue<T>(
 }
 
 async function digestWalletUnlockValue(value: unknown): Promise<DigestB64u> {
-  return parseDigestB64u(
-    base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(value))),
-  );
+  return parseDigestB64u(base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(value))));
 }
 
 async function buildWalletUnlockOwnerProof(input: {
@@ -704,7 +807,7 @@ async function walletUnlockProofForPasskey(input: {
   readonly tenantId: TenantId;
   readonly buildVerifiedOwnerProof: RouterApiAuthorizedOperationService['buildVerifiedOwnerProof'];
   readonly challengeId: string;
-}): Promise<WalletSessionOwnerProof> {
+}): Promise<WalletUnlockOwnerAuthorization> {
   const origin = parseSessionOrigin(input.origin);
   const principalId = requiredAuthorizationValue(parsePrincipalId(input.userId));
   const walletId = requiredAuthorizationValue(parseWalletId(input.userId));
@@ -730,11 +833,14 @@ async function walletUnlockProofForPasskey(input: {
     verifiedAtMs,
     expiresAtMs: verifiedAtMs + WALLET_UNLOCK_PROOF_TTL_MS,
   });
-  return await buildWalletUnlockOwnerProof({
-    challengeId: `wallet-unlock:passkey:${input.challengeId}`,
-    factor,
-    buildVerifiedOwnerProof: input.buildVerifiedOwnerProof,
-  });
+  return {
+    authority,
+    proof: await buildWalletUnlockOwnerProof({
+      challengeId: `wallet-unlock:passkey:${input.challengeId}`,
+      factor,
+      buildVerifiedOwnerProof: input.buildVerifiedOwnerProof,
+    }),
+  };
 }
 
 async function walletUnlockProofForEmailOtp(input: {
@@ -743,10 +849,11 @@ async function walletUnlockProofForEmailOtp(input: {
   readonly origin: string | undefined;
   readonly tenantId: TenantId;
   readonly buildVerifiedOwnerProof: RouterApiAuthorizedOperationService['buildVerifiedOwnerProof'];
-  readonly resolveAuthority: (
-    input: { readonly walletId: string; readonly providerUserId: string },
-  ) => Promise<WalletUnlockEmailOtpAuthorityResolution>;
-}): Promise<WalletSessionOwnerProof> {
+  readonly resolveAuthority: (input: {
+    readonly walletId: string;
+    readonly providerUserId: string;
+  }) => Promise<WalletUnlockEmailOtpAuthorityResolution>;
+}): Promise<WalletUnlockOwnerAuthorization> {
   const origin = parseSessionOrigin(input.origin);
   const principalId = requiredAuthorizationValue(parsePrincipalId(input.result.providerUserId));
   const authorityResult = await input.resolveAuthority({
@@ -775,11 +882,14 @@ async function walletUnlockProofForEmailOtp(input: {
     verifiedAtMs,
     expiresAtMs: verifiedAtMs + WALLET_UNLOCK_PROOF_TTL_MS,
   });
-  return await buildWalletUnlockOwnerProof({
-    challengeId: `wallet-unlock:email_otp:${input.challengeId}`,
-    factor,
-    buildVerifiedOwnerProof: input.buildVerifiedOwnerProof,
-  });
+  return {
+    authority,
+    proof: await buildWalletUnlockOwnerProof({
+      challengeId: `wallet-unlock:email_otp:${input.challengeId}`,
+      factor,
+      buildVerifiedOwnerProof: input.buildVerifiedOwnerProof,
+    }),
+  };
 }
 
 export async function handleWalletUnlockVerifyRoute(input: {
@@ -806,9 +916,10 @@ export async function handleWalletUnlockVerifyRoute(input: {
   ecdsaSession: WalletUnlockEcdsaSessionContext;
   tenantId: TenantId;
   buildVerifiedOwnerProof: RouterApiAuthorizedOperationService['buildVerifiedOwnerProof'];
-  resolveEmailOtpAuthority: (
-    input: { readonly walletId: string; readonly providerUserId: string },
-  ) => Promise<WalletUnlockEmailOtpAuthorityResolution>;
+  resolveEmailOtpAuthority: (input: {
+    readonly walletId: string;
+    readonly providerUserId: string;
+  }) => Promise<WalletUnlockEmailOtpAuthorityResolution>;
 }): Promise<WalletUnlockRouteResponse> {
   if (!input.body || typeof input.body !== 'object' || Array.isArray(input.body)) {
     return {
@@ -837,6 +948,19 @@ export async function handleWalletUnlockVerifyRoute(input: {
       return {
         status: 400,
         body: { ok: false, code: 'invalid_body', message: 'Passkey unlock context is invalid' },
+      };
+    }
+    let ed25519SessionRequest: PasskeyEd25519SessionRequest;
+    try {
+      ed25519SessionRequest = parsePasskeyEd25519SessionRequest(body.ed25519SessionRequest);
+    } catch (error: unknown) {
+      return {
+        status: 400,
+        body: {
+          ok: false,
+          code: 'invalid_body',
+          message: error instanceof Error ? error.message : 'Ed25519 session request is invalid',
+        },
       };
     }
     const result = await verifyPasskeyWalletUnlock({
@@ -881,9 +1005,9 @@ export async function handleWalletUnlockVerifyRoute(input: {
         },
       };
     }
-    let proof: WalletSessionOwnerProof;
+    let authorization: WalletUnlockOwnerAuthorization;
     try {
-      proof = await walletUnlockProofForPasskey({
+      authorization = await walletUnlockProofForPasskey({
         userId,
         rpId: result.rpId,
         credentialIdB64u: result.credentialIdB64u,
@@ -903,10 +1027,25 @@ export async function handleWalletUnlockVerifyRoute(input: {
         },
       };
     }
+    const ed25519Session = await provisionPasskeyEd25519YaoSession({
+      context: input.capabilityContext,
+      custody: passkeyCustody,
+      request: ed25519SessionRequest,
+      challengeId,
+      walletId: userId,
+      authorization,
+    });
+    if (!ed25519Session.ok) return ed25519Session.response;
     const ecdsaSession = await provisionFirstEcdsaWalletSession({
       context: input.ecdsaSession,
       verifiedWalletId: userId,
-      authorization: { kind: 'verified_wallet_unlock', proof },
+      authorization: ed25519Session.session
+        ? {
+            kind: 'reuse_ed25519_wallet_session',
+            walletSessionToken: ed25519Session.session.walletSessionToken,
+            proof: authorization.proof,
+          }
+        : { kind: 'verified_wallet_unlock', proof: authorization.proof },
     });
     if (!ecdsaSession.ok) return ecdsaSession.response;
     await input.service.markEmailOtpStrongAuthSatisfied({ walletId: userId });
@@ -926,6 +1065,7 @@ export async function handleWalletUnlockVerifyRoute(input: {
         unlockBackend,
         userId,
         walletCustody: passkeyCustody,
+        ed25519Session: projectPasskeyEd25519WalletSession(ed25519Session.session),
         ...(ecdsaSession.activation ? { ecdsaSession: ecdsaSession.activation } : {}),
         ...(ecdsaSession.activationReceipt
           ? { ecdsaActivationReceipt: ecdsaSession.activationReceipt }
@@ -971,9 +1111,9 @@ export async function handleWalletUnlockVerifyRoute(input: {
   );
   if (!emailOtpCustody.ok) return emailOtpCustody.response;
 
-  let proof: WalletSessionOwnerProof;
+  let authorization: WalletUnlockOwnerAuthorization;
   try {
-    proof = await walletUnlockProofForEmailOtp({
+    authorization = await walletUnlockProofForEmailOtp({
       result,
       challengeId,
       origin: input.origin,
@@ -1001,7 +1141,7 @@ export async function handleWalletUnlockVerifyRoute(input: {
       verifiedWalletId: result.walletId,
       authorization: {
         kind: 'verified_wallet_unlock',
-        proof,
+        proof: authorization.proof,
       },
     });
     if (!ecdsaSession.ok) return ecdsaSession.response;
@@ -1038,7 +1178,7 @@ export async function handleWalletUnlockVerifyRoute(input: {
   const capabilityResult = await provisionEmailOtpEd25519YaoCapability({
     context: input.capabilityContext,
     verifiedUnlock: result,
-    proof,
+    authorization,
   });
   if (!capabilityResult.ok) return capabilityResult.response;
   const ecdsaSession = await provisionFirstEcdsaWalletSession({
@@ -1047,7 +1187,7 @@ export async function handleWalletUnlockVerifyRoute(input: {
     authorization: {
       kind: 'reuse_ed25519_wallet_session',
       walletSessionToken: capabilityResult.value.session.walletSessionToken,
-      proof,
+      proof: authorization.proof,
     },
   });
   if (!ecdsaSession.ok) return ecdsaSession.response;

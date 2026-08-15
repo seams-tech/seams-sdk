@@ -1947,15 +1947,11 @@ export class CloudflareD1WalletRegistrationService {
   ): Promise<RouterAbEd25519YaoVerifiedWalletUnlockResponseV1> {
     try {
       const walletId = toOptionalTrimmedString(request.walletId);
-      const orgId = toOptionalTrimmedString(request.orgId);
-      const providerUserId = toOptionalTrimmedString(request.verifiedProviderUserId);
       const verifiedChallengeId = toOptionalTrimmedString(request.verifiedChallengeId);
       const signerSlot = Math.floor(Number(request.signerSlot));
       const remainingUses = Math.floor(Number(request.remainingUses));
       if (
         !walletId ||
-        !orgId ||
-        !providerUserId ||
         !verifiedChallengeId ||
         !Number.isSafeInteger(signerSlot) ||
         signerSlot < 1 ||
@@ -1976,21 +1972,12 @@ export class CloudflareD1WalletRegistrationService {
           message: 'Verified Ed25519 Wallet Session provisioning is not configured',
         };
       }
-      const authorityResult =
-        await this.walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject({
-          walletId,
-          providerUserId,
-        });
-      if (!authorityResult.ok) return authorityResult;
-      const authority = authorityResult.authority;
-      if (
-        String(authority.walletId) !== walletId ||
-        String(authority.factor.providerUserId) !== providerUserId
-      ) {
+      const authority = request.authority;
+      if (String(authority.walletId) !== walletId) {
         return {
           ok: false,
           code: 'scope_mismatch',
-          message: 'Verified Email OTP subject does not match the wallet authority',
+          message: 'Verified owner proof does not match the wallet authority',
         };
       }
       const signer = await this.getWalletStore().getEd25519SignerBySlot({
@@ -2004,7 +1991,6 @@ export class CloudflareD1WalletRegistrationService {
         signer.walletId !== walletId ||
         signer.signerSlot !== signerSlot ||
         signer.signingWorkerId !== yaoRuntime.signingWorkerId ||
-        signer.runtimePolicyScope.orgId !== orgId ||
         firstParticipantId === undefined ||
         secondParticipantId === undefined
       ) {
