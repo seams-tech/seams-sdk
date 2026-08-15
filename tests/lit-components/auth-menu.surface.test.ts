@@ -173,7 +173,7 @@ test.describe('wallet-host Lit auth menu surface', () => {
       title: 'Scan and Link Device',
       instruction: 'Scan to backup your other device.',
       status: 'Waiting for device to scan',
-      imageAlt: 'Device Linking QR Code',
+      imageAlt: 'QR code to link this device',
       intents: [{ kind: 'back' }],
     });
   });

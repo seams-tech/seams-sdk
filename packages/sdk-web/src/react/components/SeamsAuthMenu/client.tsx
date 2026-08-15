@@ -255,8 +255,27 @@ export const SeamsAuthMenuClient: React.FC<SeamsAuthMenuProps> = ({
         showQRCodeElement={
           <React.Suspense
             fallback={
-              <div className="qr-loading">
-                <p>Loading QR…</p>
+              /* Mirrors ShowQRCode's generating state so the lazy-load gap and
+                 QR generation read as one continuous wait. */
+              <div className="qr-code-container">
+                <div className="qr-body">
+                  <div className="qr-code-section">
+                    <div className="qr-code-display">
+                      <div className="qr-code-placeholder">
+                        <span className="w3a-spinner" aria-hidden="true"></span>
+                      </div>
+                    </div>
+                    <div className="qr-header">
+                      <h2 className="qr-title">Scan and Link Device</h2>
+                    </div>
+                    <div className="qr-instruction">
+                      Preparing a one-time code for your other device.
+                    </div>
+                    <div className="qr-status" role="status" aria-live="polite">
+                      Generating QR code<span className="animated-ellipsis"></span>
+                    </div>
+                  </div>
+                </div>
               </div>
             }
           >
