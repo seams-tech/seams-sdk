@@ -156,11 +156,10 @@ export type RouterAbEd25519YaoBudgetRefreshResponseV1 =
 
 export type RouterAbEd25519YaoVerifiedWalletUnlockRequestV1 = {
   readonly walletId: string;
-  readonly orgId: string;
   readonly signerSlot: number;
   readonly remainingUses: number;
   readonly verifiedChallengeId: string;
-  readonly verifiedProviderUserId: string;
+  readonly authority: WalletAuthAuthority;
   readonly proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
 };
 

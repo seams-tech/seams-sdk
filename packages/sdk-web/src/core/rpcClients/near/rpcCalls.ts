@@ -14,9 +14,7 @@ import type { ThresholdEcdsaChainTarget } from '../../platform';
 
 import { TransactionContext } from '../../types/rpc';
 import { errorMessage } from '@shared/utils/errors';
-import {
-  joinNormalizedUrl,
-} from '@shared/utils/normalize';
+import { joinNormalizedUrl } from '@shared/utils/normalize';
 import { ensureEd25519Prefix, isObject, requireTrimmedString } from '@shared/utils/validation';
 import { redactCredentialExtensionOutputs } from '../../signingEngine/webauthnAuth/credentials/credentialExtensions';
 import {
@@ -41,6 +39,22 @@ import {
   parsePasskeyCustodyEnvelopeRecord,
   type PasskeyCustodyEnvelopeRecord,
 } from '@shared/passkey-custody';
+import {
+  parseMpcWalletSigningQuotaId,
+  parseWalletSessionAuthorizationId,
+  parseWalletSessionId,
+  type MpcWalletSigningQuotaId,
+  type WalletSessionAuthorizationId,
+  type WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+import {
+  parseThresholdEd25519SessionId,
+  type ThresholdEd25519SessionId,
+} from '@shared/utils/domainIds';
+import {
+  requireRouterAbEd25519NormalSigningState,
+  type RouterAbEd25519NormalSigningState,
+} from '@shared/utils/signingSessionSeal';
 
 export async function fetchNonceBlockHashAndHeight({
   nearClient,
@@ -235,6 +249,9 @@ type PasskeyWalletUnlockInputCore = {
   type: 'passkey_assertion';
   challengeId: string;
   webauthn_authentication: WebAuthnAuthenticationCredential;
+  ed25519SessionRequest:
+    | { readonly kind: 'not_requested' }
+    | { readonly kind: 'requested'; readonly remainingUses: number };
   expected_origin?: string;
 };
 
@@ -256,15 +273,34 @@ type WalletUnlockFailure = {
   sessionUserId?: never;
   sessionExpiresAt?: never;
   ecdsaSession?: never;
+  ed25519Session?: never;
   walletCustody?: never;
   error: string;
 };
 
 type WalletUnlockSuccessCore = {
   success: true;
+  ed25519Session: PasskeyWalletUnlockEd25519Session | null;
   sessionUserId?: string;
   sessionExpiresAt?: string;
   error?: never;
+};
+
+export type PasskeyWalletUnlockEd25519Session = {
+  readonly walletId: string;
+  readonly nearAccountId: string;
+  readonly nearEd25519SigningKeyId: string;
+  readonly relayerKeyId: string;
+  readonly participantIds: readonly [number, number];
+  readonly thresholdSessionId: ThresholdEd25519SessionId;
+  readonly authorizationId: WalletSessionAuthorizationId;
+  readonly walletSessionId: WalletSessionId;
+  readonly quotaId: MpcWalletSigningQuotaId;
+  readonly expiresAtMs: number;
+  readonly remainingUses: number;
+  readonly runtimePolicyScope: RuntimePolicyScope;
+  readonly routerAbNormalSigning: RouterAbEd25519NormalSigningState;
+  readonly walletSessionToken: string;
 };
 
 export type PasskeySessionCustodyUnlockV1 = {
@@ -477,6 +513,63 @@ function parsePasskeySessionEcdsaCustodyContinuity(
   return { kind: 'wallet_custody_ecdsa_sync_continuity_v1', signers };
 }
 
+function parsePasskeyWalletUnlockEd25519Session(
+  raw: unknown,
+): PasskeyWalletUnlockEd25519Session | null {
+  if (raw === null) return null;
+  if (!isObject(raw)) throw new Error('Wallet unlock returned invalid Ed25519 session data');
+  const thresholdSessionId = parseThresholdEd25519SessionId(raw.thresholdSessionId);
+  const authorizationId = parseWalletSessionAuthorizationId(raw.authorizationId);
+  const walletSessionId = parseWalletSessionId(raw.walletSessionId);
+  const quotaId = parseMpcWalletSigningQuotaId(raw.quotaId);
+  const expiresAtMs = Number(raw.expiresAtMs);
+  const remainingUses = Number(raw.remainingUses);
+  const runtimePolicyScope = normalizeRuntimePolicyScope(raw.runtimePolicyScope);
+  const routerAbNormalSigning = requireRouterAbEd25519NormalSigningState(raw.routerAbNormalSigning);
+  const participantIds = raw.participantIds;
+  const walletSessionToken = requireTrimmedString(
+    raw.walletSessionToken,
+    'ed25519Session.walletSessionToken',
+  );
+  if (
+    !thresholdSessionId.ok ||
+    !authorizationId.ok ||
+    !walletSessionId.ok ||
+    !quotaId.ok ||
+    !Number.isSafeInteger(expiresAtMs) ||
+    expiresAtMs <= Date.now() ||
+    !Number.isSafeInteger(remainingUses) ||
+    remainingUses < 1 ||
+    !Array.isArray(participantIds) ||
+    participantIds.length !== 2 ||
+    !participantIds.every(
+      (participantId) => Number.isSafeInteger(participantId) && participantId > 0,
+    ) ||
+    participantIds[0] === participantIds[1]
+  ) {
+    throw new Error('Wallet unlock returned invalid Ed25519 session lifecycle');
+  }
+  return {
+    walletId: requireTrimmedString(raw.walletId, 'ed25519Session.walletId'),
+    nearAccountId: requireTrimmedString(raw.nearAccountId, 'ed25519Session.nearAccountId'),
+    nearEd25519SigningKeyId: requireTrimmedString(
+      raw.nearEd25519SigningKeyId,
+      'ed25519Session.nearEd25519SigningKeyId',
+    ),
+    relayerKeyId: requireTrimmedString(raw.relayerKeyId, 'ed25519Session.relayerKeyId'),
+    participantIds: [Number(participantIds[0]), Number(participantIds[1])],
+    thresholdSessionId: thresholdSessionId.value,
+    authorizationId: authorizationId.value,
+    walletSessionId: walletSessionId.value,
+    quotaId: quotaId.value,
+    expiresAtMs,
+    remainingUses,
+    runtimePolicyScope,
+    routerAbNormalSigning,
+    walletSessionToken,
+  };
+}
+
 export function verifyPasskeyWalletUnlock<Input extends PasskeyWalletUnlockInput>(
   relayServerUrl: string,
   input: Input,
@@ -497,9 +590,14 @@ export async function verifyPasskeyWalletUnlock(
       challengeId,
       ...('walletId' in input && input.walletId ? { walletId: input.walletId } : {}),
       webauthn_authentication: redactCredentialExtensionOutputs(webauthnAuthentication),
+      ed25519SessionRequest: input.ed25519SessionRequest,
       ...(expectedOrigin ? { expected_origin: expectedOrigin } : {}),
       ...(input.ecdsaSessionPolicy
-        ? { ecdsaSessionPolicy: parseRouterAbEcdsaPostRegistrationSessionActivationPolicyV1(input.ecdsaSessionPolicy) }
+        ? {
+            ecdsaSessionPolicy: parseRouterAbEcdsaPostRegistrationSessionActivationPolicyV1(
+              input.ecdsaSessionPolicy,
+            ),
+          }
         : {}),
     };
     const url = joinNormalizedUrl(relayServerUrl, '/wallet/unlock/verify');
@@ -521,11 +619,19 @@ export async function verifyPasskeyWalletUnlock(
     if (data.ok !== true) {
       return {
         success: false,
-        error: typeof data.message === 'string' ? data.message : 'Wallet unlock verification failed',
+        error:
+          typeof data.message === 'string' ? data.message : 'Wallet unlock verification failed',
       };
     }
     const requestedEcdsaActivation =
       input.type === 'passkey_assertion' && input.ecdsaSessionPolicy !== undefined;
+    const ed25519Session = parsePasskeyWalletUnlockEd25519Session(data.ed25519Session);
+    if (input.ed25519SessionRequest.kind === 'requested' && !ed25519Session) {
+      throw new Error('Wallet unlock omitted the requested Ed25519 Wallet Session');
+    }
+    if (input.ed25519SessionRequest.kind === 'not_requested' && ed25519Session) {
+      throw new Error('Wallet unlock returned an unrequested Ed25519 Wallet Session');
+    }
     const walletCustody = parsePasskeyWalletCustodyUnlockV1(data.walletCustody);
     let ecdsaSession: RouterAbEcdsaPostRegistrationSessionActivationResponseV1 | undefined;
     let ecdsaActivationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1 | undefined;
@@ -556,17 +662,20 @@ export async function verifyPasskeyWalletUnlock(
         ecdsaSession,
         ecdsaActivationReceipt,
         ecdsaCustody,
+        ed25519Session,
         walletCustody,
       };
     }
     if (walletCustody) {
       return {
         success: true,
+        ed25519Session,
         walletCustody,
       };
     }
     return {
       success: true,
+      ed25519Session,
       walletCustody,
     };
   } catch (error: unknown) {

@@ -91,6 +91,7 @@ import {
   verifyPasskeyWalletUnlock,
   type PasskeySessionEcdsaCustodyContinuityV1,
   type PasskeySessionCustodyUnlockV1,
+  type PasskeyWalletUnlockEd25519Session,
 } from '@/core/rpcClients/near/rpcCalls';
 import { rememberPasskeyCustodySessionEnvelope } from '@/core/signingEngine/session/passkey/passkeyCustodySessionCache';
 import { persistPasskeyEd25519YaoSignerMaterialV1 } from '@/core/signingEngine/session/passkey/ed25519YaoLocalMaterial';
@@ -967,6 +968,56 @@ function resolveLoginEd25519ProvisionScope(args: {
   };
 }
 
+type PasskeyUnlockEd25519Connection = Extract<
+  Awaited<ReturnType<LoginUnlockSigningSurface['connectEd25519Session']>>,
+  { readonly ok: true }
+>;
+
+function passkeyUnlockEd25519Connection(args: {
+  readonly session: PasskeyWalletUnlockEd25519Session;
+  readonly walletBinding: ResolvedLoginWalletBinding;
+  readonly signerSlot: number;
+  readonly custody: ActivePasskeySessionCustodyUnlockV1;
+  readonly provisionScope: LoginEd25519ProvisionScope;
+  readonly credential: WebAuthnAuthenticationCredential | undefined;
+  readonly remainingUses: number;
+}): PasskeyUnlockEd25519Connection {
+  const session = args.session;
+  const custody = args.custody.ed25519;
+  const passkeyPrfFirstB64u = args.credential
+    ? passkeyPrfFirstB64uFromCredential(args.credential)
+    : '';
+  if (
+    session.walletId !== String(args.walletBinding.walletId) ||
+    session.nearAccountId !== String(args.walletBinding.nearAccountId) ||
+    session.nearEd25519SigningKeyId !== String(args.walletBinding.nearEd25519SigningKeyId) ||
+    custody.signerSlot !== args.signerSlot ||
+    session.relayerKeyId !== args.provisionScope.relayerKeyId ||
+    session.thresholdSessionId !== custody.capability.lifecycle.thresholdSessionId ||
+    session.remainingUses !== args.remainingUses ||
+    !sameCanonicalEcdsaValue(session.participantIds, args.provisionScope.participantIds) ||
+    !sameCanonicalEcdsaValue(session.runtimePolicyScope, args.provisionScope.runtimePolicyScope) ||
+    !sameCanonicalEcdsaValue(
+      session.routerAbNormalSigning,
+      args.provisionScope.routerAbNormalSigning,
+    ) ||
+    !passkeyPrfFirstB64u
+  ) {
+    throw new Error('[login] verified unlock returned an invalid Ed25519 Wallet Session');
+  }
+  return {
+    ok: true,
+    thresholdSessionId: session.thresholdSessionId,
+    authorizationId: session.authorizationId,
+    walletSessionId: session.walletSessionId,
+    quotaId: session.quotaId,
+    expiresAtMs: session.expiresAtMs,
+    remainingUses: session.remainingUses,
+    runtimePolicyScope: session.runtimePolicyScope,
+    walletSessionToken: session.walletSessionToken,
+  };
+}
+
 function resolveLoginNoServerSessionPasskeyCredentialPlan(args: {
   requiresLocalPasskeyUnlock: boolean;
   requireThresholdWarmup: boolean;
@@ -1694,6 +1745,7 @@ async function unlockInternal(
         : Promise.resolve(null);
     let completedPasskeyExchangeEcdsaActivation: CompletedPasskeyExchangeEcdsaActivation | null =
       null;
+    let completedPasskeyEd25519Session: PasskeyWalletUnlockEd25519Session | null = null;
     let completedPasskeySessionCustody: PasskeySessionCustodyUnlockV1 | null = null;
     let localWarmupRouteAuthorization = resolveLoginWarmupRouteAuthorization();
     let warmupPhase: ThresholdLoginWarmupPhaseResult | null = null;
@@ -1916,6 +1968,7 @@ async function unlockInternal(
         authMethod: localUnlockAuthMethod,
         routeAuthorization: warmupInput.routeAuthorization,
         passkeyExchangeEcdsaActivation: passkeyExchangeEcdsaActivationForWarmup,
+        passkeyUnlockEd25519Session: completedPasskeyEd25519Session,
       });
 
       // Successful provisioning has already sealed and activated the exact Ed25519 session.
@@ -2048,6 +2101,7 @@ async function unlockInternal(
           onEvent,
           authenticators,
           signerSlot: baseSignerSlot,
+          remainingUses: requireLoginUnlockSessionUses(signingSessionPolicy.unlockRemainingUses),
           relayUrl,
           rpId,
           expectedOrigin: undefined,
@@ -2061,6 +2115,7 @@ async function unlockInternal(
         });
         loginCredential = completedUnlock.credential;
         completedPasskeyExchangeEcdsaActivation = completedUnlock.activation;
+        completedPasskeyEd25519Session = completedUnlock.result.ed25519Session;
         completedPasskeySessionCustody = completedUnlock.custody;
         await rememberPasskeySessionCustodyForExport({
           walletId: String(walletIdentity.walletId),
@@ -2261,7 +2316,10 @@ type CompletedPasskeyWalletUnlock = {
   readonly credential: WebAuthnAuthenticationCredential;
   readonly activation: CompletedPasskeyExchangeEcdsaActivation | null;
   readonly custody: PasskeySessionCustodyUnlockV1;
-  readonly result: Awaited<ReturnType<typeof verifyPasskeyWalletUnlock>>;
+  readonly result: Extract<
+    Awaited<ReturnType<typeof verifyPasskeyWalletUnlock>>,
+    { readonly success: true }
+  >;
 };
 
 function sameCanonicalEcdsaValue(left: unknown, right: unknown): boolean {
@@ -2413,6 +2471,7 @@ async function completePasskeyWalletUnlock(args: {
   onEvent?: LoginHooksOptions['onEvent'];
   authenticators: readonly LoginPasskeyAuthenticator[];
   signerSlot: number;
+  remainingUses: number;
   relayUrl: string;
   rpId: string;
   activation: PreparedPasskeyExchangeEcdsaActivation | null;
@@ -2471,6 +2530,10 @@ async function completePasskeyWalletUnlock(args: {
         challengeId,
         walletId: String(args.walletIdentity.walletId),
         webauthn_authentication: credential,
+        ed25519SessionRequest:
+          args.walletIdentity.kind === 'near_ed25519_capable_wallet'
+            ? { kind: 'requested', remainingUses: args.remainingUses }
+            : { kind: 'not_requested' },
         ...(expectedOrigin ? { expected_origin: expectedOrigin } : {}),
         ecdsaSessionPolicy: args.activation.policy,
       } satisfies import('@/core/rpcClients/near/rpcCalls').PasskeyWalletUnlockInput)
@@ -2478,6 +2541,10 @@ async function completePasskeyWalletUnlock(args: {
         type: 'passkey_assertion',
         challengeId,
         webauthn_authentication: credential,
+        ed25519SessionRequest:
+          args.walletIdentity.kind === 'near_ed25519_capable_wallet'
+            ? { kind: 'requested', remainingUses: args.remainingUses }
+            : { kind: 'not_requested' },
         ...(expectedOrigin ? { expected_origin: expectedOrigin } : {}),
       } satisfies import('@/core/rpcClients/near/rpcCalls').PasskeyWalletUnlockInput);
   const result = await verifyPasskeyWalletUnlock(args.relayUrl, unlockInput);
@@ -2580,15 +2647,17 @@ type ThresholdLoginWarmupPlan = {
   ecdsaDependsOnEd25519: boolean;
 };
 
-type ThresholdLoginWarmupPhaseResult = {
-  kind: 'threshold_login_warmup_ready';
-  signingSession: ThresholdWarmLoginAndCreateSessionResult['signingSession'];
-  signersWarmed: readonly ThresholdLoginWarmSigner[];
-} | {
-  kind: 'threshold_login_ecdsa_only_warmup_ready';
-  signingSession?: never;
-  signersWarmed: readonly ['ecdsa'];
-};
+type ThresholdLoginWarmupPhaseResult =
+  | {
+      kind: 'threshold_login_warmup_ready';
+      signingSession: ThresholdWarmLoginAndCreateSessionResult['signingSession'];
+      signersWarmed: readonly ThresholdLoginWarmSigner[];
+    }
+  | {
+      kind: 'threshold_login_ecdsa_only_warmup_ready';
+      signingSession?: never;
+      signersWarmed: readonly ['ecdsa'];
+    };
 
 function resolveLoginThresholdEcdsaBootstrapKey(args: {
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
@@ -3319,6 +3388,7 @@ async function primeThresholdLoginWarmSigners(args: {
   authMethod: WalletAuthMethod;
   routeAuthorization: LoginWarmupRouteAuthorization;
   passkeyExchangeEcdsaActivation: CompletedPasskeyExchangeEcdsaActivation | null;
+  passkeyUnlockEd25519Session: PasskeyWalletUnlockEd25519Session | null;
 }): Promise<ThresholdLoginWarmupResult> {
   const signersToWarm = buildThresholdLoginWarmSignerSelection(args.signersToWarm);
   const credential =
@@ -3443,15 +3513,30 @@ async function primeThresholdLoginWarmSigners(args: {
             });
             break;
           case 'passkey':
-            connected = await args.signingEngine.connectEd25519Session({
-              ...commonEd25519ConnectArgs,
-              source: 'login',
-              authority: ed25519SessionAuthority.authority,
-              materialActivation: resolveLoginPasskeyMaterialActivation(
-                ed25519ProvisioningIdentity,
-                args.ed25519MintPlan,
-              ),
-            });
+            if (args.passkeyUnlockEd25519Session) {
+              if (args.ed25519MintPlan.kind !== 'wallet_custody') {
+                throw new Error('[login] verified unlock Ed25519 session requires wallet custody');
+              }
+              connected = passkeyUnlockEd25519Connection({
+                session: args.passkeyUnlockEd25519Session,
+                walletBinding,
+                signerSlot: args.signerSlot,
+                custody: args.ed25519MintPlan.custody,
+                provisionScope,
+                credential,
+                remainingUses: unlockRemainingUses,
+              });
+            } else {
+              connected = await args.signingEngine.connectEd25519Session({
+                ...commonEd25519ConnectArgs,
+                source: 'login',
+                authority: ed25519SessionAuthority.authority,
+                materialActivation: resolveLoginPasskeyMaterialActivation(
+                  ed25519ProvisioningIdentity,
+                  args.ed25519MintPlan,
+                ),
+              });
+            }
             break;
           default:
             return assertNeverLoginState(ed25519SessionAuthority);

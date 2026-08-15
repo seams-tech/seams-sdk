@@ -1026,7 +1026,11 @@ export async function handleWalletUnlockVerify(
             proof,
           }),
       }
-    : { kind: 'passkey_unlock' };
+    : {
+        kind: 'passkey_unlock',
+        provisionWalletSession: async (request) =>
+          await ctx.service.walletRegistration.provisionEd25519YaoWalletSession(request),
+      };
   const response = await handleWalletUnlockVerifyRoute({
     body,
     origin: String(ctx.request.headers.get('origin') || '').trim() || undefined,
