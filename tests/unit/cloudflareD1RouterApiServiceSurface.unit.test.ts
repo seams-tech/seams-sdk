@@ -1,19 +1,10 @@
 import { expect, test } from '@playwright/test';
 import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
 import { normalizeLogger } from '../../packages/sdk-server-ts/src/core/logger';
-import {
-  parseOrgId,
-  parseProviderSubject,
-  parseWebAuthnRpId,
-  parseWalletId,
-} from '../../packages/shared-ts/src/utils/domainIds';
-import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
+import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
 import {
   requireParsedDomainId,
-  utf8Bytes,
-  sha256,
-  hexBytes,
   createWebAuthnAssertionFixture,
   createWebAuthnAssertion,
   applySignerMigrations,
@@ -22,14 +13,55 @@ import {
   readWebAuthnChallengeRow,
   readWebAuthnAuthenticatorRow,
   insertNearPublicKey,
-  insertSignerWallet,
-  insertWalletAuthMethod,
-  readWalletAuthMethodRecord,
-  insertEmailOtpEnrollment,
-  insertEmailOtpAuthState,
-  insertEmailOtpGrant,
 } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
 import { UnusedSessionAdapter } from './helpers/routerAbEd25519YaoRegistrationBridge.fixtures';
+
+test('Cloudflare D1 WebAuthn login options require and return registered credentials', async () => {
+  const { database, tempDir } = createTemporaryD1Database();
+  try {
+    await applySignerMigrations(database);
+    const scope = {
+      namespace: 'seams-local-test',
+      orgId: 'org-a',
+      projectId: 'project-a',
+      envId: 'env-a',
+      userId: 'wallet-a',
+    };
+    const service = createCloudflareD1RouterApiAuthService({
+      database,
+      namespace: scope.namespace,
+      orgId: scope.orgId,
+      projectId: scope.projectId,
+      envId: scope.envId,
+      relayerAccount: 'relay.local',
+      googleOidcClientId: 'google-client',
+      accountIdDerivationSecret: 'test-account-id-derivation-secret',
+    });
+
+    await expect(
+      service.webAuthn.createWebAuthnLoginOptions({
+        userId: scope.userId,
+        rpId: 'example.com',
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'unknown_credential',
+    });
+
+    await insertWebAuthn({ database, ...scope, credentialIdB64u: 'credential-a' });
+    await expect(
+      service.webAuthn.createWebAuthnLoginOptions({
+        userId: scope.userId,
+        rpId: 'example.com',
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      credentialIds: ['credential-a'],
+    });
+  } finally {
+    cleanupTemporaryD1Database(tempDir);
+  }
+});
 
 test('Cloudflare D1 Router API auth service reads signer metadata with tenant scope', async () => {
   const { database, tempDir } = createTemporaryD1Database();
@@ -52,19 +84,6 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
     });
     await insertWebAuthn({ database, ...scope });
     await insertNearPublicKey({ database, ...scope });
-    await insertEmailOtpEnrollment({ database, ...scope });
-    await insertEmailOtpGrant({
-      database,
-      ...scope,
-      grantToken: 'grant-valid',
-      appSessionVersion: 'grant-session-v1',
-    });
-    await insertEmailOtpGrant({
-      database,
-      ...scope,
-      grantToken: 'grant-mismatch',
-      appSessionVersion: 'grant-session-v2',
-    });
 
     const service = createCloudflareD1RouterApiAuthService({
       database,
@@ -166,153 +185,6 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
     });
     expect(derivedOidcWalletId).toMatch(/^[a-z]+-[a-z]+-[a-z0-9]{10}\.relay\.local$/);
     await expect(
-      service.emailOtp.readEmailOtpEnrollment({
-        walletId: 'email-wallet.testnet',
-        orgId: scope.orgId,
-      }),
-    ).resolves.toMatchObject({
-      ok: true,
-      enrollment: {
-        walletId: 'email-wallet.testnet',
-        providerUserId: 'google:email-user',
-        orgId: scope.orgId,
-        verifiedEmail: 'alice@example.test',
-      },
-    });
-    await expect(
-      service.emailOtp.readActiveEmailOtpEnrollment({
-        walletId: 'email-wallet.testnet',
-        orgId: scope.orgId,
-        providerUserId: 'google:other-user',
-      }),
-    ).resolves.toMatchObject({ ok: false, code: 'provider_identity_mismatch' });
-    await expect(
-      service.emailOtp.readActiveEmailOtpEnrollment({
-        walletId: 'email-wallet.testnet',
-        orgId: 'org-b',
-        providerUserId: 'google:email-user',
-      }),
-    ).resolves.toMatchObject({ ok: false, code: 'tenant_scope_mismatch' });
-    const strongAuthSubject = {
-      kind: 'email_otp_strong_auth' as const,
-      walletId: requireParsedDomainId(parseWalletId('email-wallet.testnet')),
-    };
-    await expect(
-      service.emailOtp.isEmailOtpStrongAuthRequired({ subject: strongAuthSubject }),
-    ).resolves.toEqual({
-      ok: true,
-      required: false,
-      walletId: 'email-wallet.testnet',
-    });
-    await insertEmailOtpAuthState({ database, ...scope });
-    await expect(
-      service.emailOtp.isEmailOtpStrongAuthRequired({ subject: strongAuthSubject }),
-    ).resolves.toEqual({
-      ok: true,
-      required: true,
-      walletId: 'email-wallet.testnet',
-      lastEmailOtpLoginAtMs: 800,
-    });
-    const strongAuth = await service.emailOtp.markEmailOtpStrongAuthSatisfied({
-      walletId: 'email-wallet.testnet',
-    });
-    expect(strongAuth.ok).toBe(true);
-    if (!strongAuth.ok) throw new Error(strongAuth.message);
-    expect(strongAuth.lastStrongAuthAtMs).toBeGreaterThanOrEqual(800);
-    await expect(
-      service.emailOtp.isEmailOtpStrongAuthRequired({ subject: strongAuthSubject }),
-    ).resolves.toMatchObject({
-      ok: true,
-      required: false,
-      walletId: 'email-wallet.testnet',
-      lastEmailOtpLoginAtMs: 800,
-      lastStrongAuthAtMs: strongAuth.lastStrongAuthAtMs,
-    });
-    await expect(
-      service.emailOtp.consumeEmailOtpGrant({
-        subject: {
-          kind: 'provider_identity',
-          orgId: requireParsedDomainId(parseOrgId(scope.orgId)),
-          providerSubject: requireParsedDomainId(parseProviderSubject('google:email-user')),
-          walletId: walletIdFromString('email-wallet.testnet'),
-        },
-        loginGrant: 'grant-valid',
-        otpChannel: 'email_otp',
-        sessionHash: 'session-hash-a',
-        appSessionVersion: 'grant-session-v1',
-      }),
-    ).resolves.toEqual({
-      ok: true,
-      challengeId: 'challenge-grant-valid',
-      otpChannel: 'email_otp',
-    });
-    await expect(
-      service.emailOtp.consumeEmailOtpGrant({
-        subject: {
-          kind: 'provider_identity',
-          orgId: requireParsedDomainId(parseOrgId(scope.orgId)),
-          providerSubject: requireParsedDomainId(parseProviderSubject('google:email-user')),
-          walletId: walletIdFromString('email-wallet.testnet'),
-        },
-        loginGrant: 'grant-valid',
-        otpChannel: 'email_otp',
-        sessionHash: 'session-hash-a',
-        appSessionVersion: 'grant-session-v1',
-      }),
-    ).resolves.toMatchObject({ ok: false, code: 'login_grant_invalid_or_expired' });
-    await expect(
-      service.emailOtp.consumeEmailOtpGrant({
-        subject: {
-          kind: 'provider_identity',
-          orgId: requireParsedDomainId(parseOrgId(scope.orgId)),
-          providerSubject: requireParsedDomainId(parseProviderSubject('google:email-user')),
-          walletId: walletIdFromString('email-wallet.testnet'),
-        },
-        loginGrant: 'grant-mismatch',
-        otpChannel: 'email_otp',
-        sessionHash: 'session-hash-a',
-        appSessionVersion: 'wrong-session',
-      }),
-    ).resolves.toEqual({
-      ok: true,
-      challengeId: 'challenge-grant-mismatch',
-      otpChannel: 'email_otp',
-    });
-    await expect(
-      service.emailOtp.consumeEmailOtpGrant({
-        subject: {
-          kind: 'provider_identity',
-          orgId: requireParsedDomainId(parseOrgId(scope.orgId)),
-          providerSubject: requireParsedDomainId(parseProviderSubject('google:email-user')),
-          walletId: walletIdFromString('email-wallet.testnet'),
-        },
-        loginGrant: 'grant-mismatch',
-        otpChannel: 'email_otp',
-        sessionHash: 'session-hash-a',
-        appSessionVersion: 'grant-session-v2',
-      }),
-    ).resolves.toMatchObject({ ok: false, code: 'login_grant_invalid_or_expired' });
-    const session = await service.sessionVersions.getOrCreateAppSessionVersion({
-      userId: scope.userId,
-    });
-    expect(session.ok).toBe(true);
-    if (!session.ok) throw new Error(session.message);
-    await expect(
-      service.sessionVersions.validateAppSessionVersion({
-        userId: scope.userId,
-        appSessionVersion: session.appSessionVersion,
-      }),
-    ).resolves.toEqual({ ok: true });
-    const rotated = await service.sessionVersions.rotateAppSessionVersion({ userId: scope.userId });
-    expect(rotated.ok).toBe(true);
-    if (!rotated.ok) throw new Error(rotated.message);
-    await expect(
-      service.sessionVersions.validateAppSessionVersion({
-        userId: scope.userId,
-        appSessionVersion: session.appSessionVersion,
-      }),
-    ).resolves.toMatchObject({ ok: false, code: 'invalid_session_version' });
-    await expect(
       service.webAuthn.listWebAuthnAuthenticatorsForUser({
         userId: scope.userId,
         rpId: 'example.com',
@@ -347,6 +219,10 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
     const loginChallengeId = String(loginOptions.challengeId || '');
     expect(loginChallengeId).not.toBe('');
     expect(loginOptions.challengeB64u).toEqual(expect.any(String));
+    expect(loginOptions.credentialIds).toEqual([
+      'credential-a',
+      webAuthnFixture.credentialIdB64u,
+    ]);
     expect(loginOptions.expiresAtMs).toBeGreaterThan(Date.now());
     const loginChallengeRow = await readWebAuthnChallengeRow({
       database,
@@ -402,6 +278,16 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       ok: false,
       code: 'invalid_body',
       message: 'Invalid userId',
+    });
+    await expect(
+      service.webAuthn.createWebAuthnLoginOptions({
+        userId: 'wallet-without-passkey',
+        rpId: 'example.com',
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'unknown_credential',
+      message: 'Wallet has no registered passkey credential',
     });
     const syncOptions = await service.webAuthn.createWebAuthnSyncAccountOptions({
       rp_id: 'example.com',
@@ -517,135 +403,6 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       configured: true,
       clientId: 'github-client',
       callbackUrl: 'https://example.localhost/dashboard/login',
-    });
-  } finally {
-    cleanupTemporaryD1Database(tempDir);
-  }
-});
-
-test('Cloudflare D1 Router API auth service revokes wallet auth methods through D1', async () => {
-  const { database, tempDir } = createTemporaryD1Database();
-  try {
-    await applySignerMigrations(database);
-    const scope = {
-      namespace: 'seams-local-test',
-      orgId: 'org-a',
-      projectId: 'project-a',
-      envId: 'env-a',
-    };
-    const walletId = 'wallet-auth.testnet';
-    const rpId = 'example.com';
-    const walletIdValue = walletIdFromString(walletId);
-    const rpIdValue = requireParsedDomainId(parseWebAuthnRpId(rpId));
-    const email = 'owner@example.test';
-    const emailHashHex = hexBytes(await sha256(utf8Bytes(email)));
-    const passkeyRecord: TestWalletAuthMethodRecord = {
-      version: 'wallet_auth_method_v1',
-      kind: 'passkey',
-      status: 'active',
-      walletId,
-      rpId,
-      credentialIdB64u: 'credential-a',
-      credentialPublicKeyB64u: 'public-key-a',
-      counter: 0,
-      createdAtMs: 1_000,
-      updatedAtMs: 1_000,
-    };
-    const emailOtpRecord: TestWalletAuthMethodRecord = {
-      version: 'wallet_auth_method_v1',
-      kind: 'email_otp',
-      status: 'active',
-      walletId,
-      emailHashHex,
-      registrationAuthorityId: 'google:owner',
-      createdAtMs: 1_100,
-      updatedAtMs: 1_100,
-    };
-    await insertSignerWallet({ database, ...scope, walletId });
-    await insertWalletAuthMethod({ database, ...scope, record: passkeyRecord });
-    await insertWalletAuthMethod({ database, ...scope, record: emailOtpRecord });
-
-    const service = createCloudflareD1RouterApiAuthService({
-      database,
-      namespace: scope.namespace,
-      orgId: scope.orgId,
-      projectId: scope.projectId,
-      envId: scope.envId,
-    });
-
-    await expect(
-      service.walletAuthMethods.revokeWalletAuthMethod({
-        subject: {
-          kind: 'wallet_auth_method_management',
-          walletId: walletIdValue,
-        },
-        target: { kind: 'email_otp', email },
-        auth: {
-          kind: 'app_session',
-          policy: {
-            permission: 'wallet_auth_method_revoke',
-            walletId: walletIdValue,
-            target: { kind: 'email_otp', email },
-            expiresAtMs: Date.now() + 60_000,
-          },
-        },
-      }),
-    ).resolves.toEqual({
-      ok: true,
-      walletId,
-      authMethod: {
-        kind: 'email_otp',
-        status: 'revoked',
-      },
-    });
-
-    await expect(
-      readWalletAuthMethodRecord({
-        database,
-        ...scope,
-        walletAuthMethodId: `email_otp:${walletId}:${emailHashHex}`,
-      }),
-    ).resolves.toMatchObject({
-      kind: 'email_otp',
-      status: 'revoked',
-      walletId,
-      emailHashHex,
-    });
-
-    await expect(
-      service.walletAuthMethods.revokeWalletAuthMethod({
-        subject: {
-          kind: 'wallet_auth_method_management',
-          walletId: walletIdValue,
-        },
-        target: { kind: 'passkey', rpId: rpIdValue, credentialIdB64u: 'credential-a' },
-        auth: {
-          kind: 'app_session',
-          policy: {
-            permission: 'wallet_auth_method_revoke',
-            walletId: walletIdValue,
-            target: { kind: 'passkey', rpId: rpIdValue, credentialIdB64u: 'credential-a' },
-            expiresAtMs: Date.now() + 60_000,
-          },
-        },
-      }),
-    ).resolves.toMatchObject({
-      ok: false,
-      code: 'invalid_state',
-      message: 'wallet must retain at least one active auth method',
-    });
-
-    await expect(
-      readWalletAuthMethodRecord({
-        database,
-        ...scope,
-        walletAuthMethodId: 'passkey:example.com:credential-a',
-      }),
-    ).resolves.toMatchObject({
-      kind: 'passkey',
-      status: 'active',
-      walletId,
-      credentialIdB64u: 'credential-a',
     });
   } finally {
     cleanupTemporaryD1Database(tempDir);

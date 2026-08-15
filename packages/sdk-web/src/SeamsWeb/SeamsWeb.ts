@@ -1805,6 +1805,7 @@ export class SeamsWeb {
       relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
       idToken: args.idToken,
       accountMode: args.accountMode,
+      projectEnvironmentId: this.configs.registration.projectEnvironmentId,
       publishableKey: this.configs.registration.publishableKey,
     });
   }

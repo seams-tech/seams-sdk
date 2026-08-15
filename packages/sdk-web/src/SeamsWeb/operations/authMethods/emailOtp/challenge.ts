@@ -198,6 +198,7 @@ export async function resolveGoogleEmailOtpProvider(args: {
   relayUrl: string;
   idToken: string;
   accountMode: 'login' | 'register';
+  projectEnvironmentId: string;
   publishableKey: string;
   fetchImpl?: FetchLike;
 }): Promise<GoogleEmailOtpProviderResolution> {
@@ -208,6 +209,10 @@ export async function resolveGoogleEmailOtpProvider(args: {
     body: {
       id_token: readString(args.idToken, 'idToken'),
       account_mode: args.accountMode,
+      project_environment_id: readString(
+        args.projectEnvironmentId,
+        'projectEnvironmentId',
+      ),
     },
   });
   const mode = readString(response.mode, 'auth/google/verify mode');

@@ -600,6 +600,7 @@ export type RouterApiMethodTypes = {
       readonly ok: boolean;
       readonly challengeId?: string;
       readonly challengeB64u?: string;
+      readonly credentialIds?: string[];
       readonly expiresAtMs?: number;
       readonly code?: string;
       readonly message?: string;

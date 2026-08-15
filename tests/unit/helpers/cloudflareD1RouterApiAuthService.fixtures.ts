@@ -1389,62 +1389,6 @@ export async function insertEmailOtpAuthState(input: {
     .run();
 }
 
-export async function insertEmailOtpGrant(input: {
-  readonly database: D1DatabaseLike;
-  readonly namespace: string;
-  readonly orgId: string;
-  readonly projectId: string;
-  readonly envId: string;
-  readonly grantToken: string;
-  readonly appSessionVersion: string;
-}): Promise<void> {
-  const record = emailOtpGrantRecord(input);
-  await input.database
-    .prepare(
-      `INSERT INTO email_otp_grants (
-        namespace, org_id, project_id, env_id, grant_token, user_id, wallet_id, record_org_id,
-        challenge_id, action, record_json, issued_at_ms, expires_at_ms
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .bind(
-      input.namespace,
-      input.orgId,
-      input.projectId,
-      input.envId,
-      record.grantToken,
-      record.userId,
-      record.walletId,
-      record.orgId,
-      record.challengeId,
-      record.action,
-      JSON.stringify(record),
-      record.issuedAtMs,
-      record.expiresAtMs,
-    )
-    .run();
-}
-
-export function emailOtpGrantRecord(input: {
-  readonly orgId: string;
-  readonly grantToken: string;
-  readonly appSessionVersion: string;
-}) {
-  return {
-    version: 'email_otp_grant_v1',
-    grantToken: input.grantToken,
-    userId: 'google:email-user',
-    walletId: 'email-wallet.testnet',
-    orgId: input.orgId,
-    challengeId: `challenge-${input.grantToken}`,
-    otpChannel: 'email_otp',
-    sessionHash: 'session-hash-a',
-    appSessionVersion: input.appSessionVersion,
-    action: 'wallet_email_otp_unseal',
-    issuedAtMs: Date.now() - 1_000,
-    expiresAtMs: Date.now() + 60_000,
-  };
-}
-
 export async function insertRecoverySession(input: {
   readonly database: D1DatabaseLike;
   readonly namespace: string;

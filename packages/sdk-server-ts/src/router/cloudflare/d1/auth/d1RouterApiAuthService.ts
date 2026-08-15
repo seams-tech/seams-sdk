@@ -60,7 +60,6 @@ import type {
 } from '../../../../core/types';
 import { EmailRecoveryAuthOperations } from '../../../../core/authService/emailRecoveryAuthOperations';
 import type {
-  RouterApiIdentityService,
   RouterApiServiceBag,
   RouterApiWalletRegistrationService,
 } from '../../../framework/authServicePort';
@@ -2102,9 +2101,8 @@ function createD1IdentityRouteService(
     ),
     linkIdentity: assembly.identityService.linkIdentity.bind(assembly.identityService),
     listIdentities: assembly.identityService.listIdentities.bind(assembly.identityService),
-    resolveGoogleEmailOtpSession: resolveConfiguredGoogleEmailOtpSession.bind(
-      undefined,
-      assembly,
+    resolveGoogleEmailOtpSession: assembly.googleEmailOtpSessions.resolve.bind(
+      assembly.googleEmailOtpSessions,
     ),
     resolveOidcWalletId: assembly.identityService.resolveOidcWalletId.bind(
       assembly.identityService,
@@ -2115,21 +2113,6 @@ function createD1IdentityRouteService(
       assembly.oidcVerification,
     ),
   };
-}
-
-function resolveConfiguredGoogleEmailOtpSession(
-  assembly: D1IdentityRouteServiceAssembly,
-  input: Parameters<RouterApiIdentityService['resolveGoogleEmailOtpSession']>[0],
-): ReturnType<RouterApiIdentityService['resolveGoogleEmailOtpSession']> {
-  return assembly.googleEmailOtpSessions.resolve({
-    ...input,
-    runtimePolicyScope: {
-      orgId: assembly.options.orgId,
-      projectId: assembly.options.projectId,
-      envId: assembly.options.envId,
-      signingRootVersion: 'default',
-    },
-  });
 }
 
 function createD1AuthorizationSessionRouteService(

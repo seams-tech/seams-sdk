@@ -1,6 +1,7 @@
 import type { FetchRouterApiContext } from '../createFetchRouter';
 import { json, readJson } from '../../../framework/http';
 import { extractBearerCredential } from '../../../auth/routerApiKeyAuth';
+import { resolveThresholdRuntimePolicyScope } from '../../../auth/commonRouterUtils';
 import {
   parseAuthIdentityMutationRequest,
   parseAuthProviderActionPath,
@@ -211,6 +212,30 @@ export async function handleAuth(ctx: FetchRouterApiContext): Promise<Response |
     case 'google_verify': {
       const parsed = parseGoogleLoginVerifyRequest(await readJson(ctx.request));
       if (!parsed.ok) return json(parsed.body, { status: parsed.status });
+      const runtimePolicyScope = await resolveThresholdRuntimePolicyScope({
+        explicitScopeRaw: undefined,
+        projectEnvironmentIdRaw: parsed.request.projectEnvironmentId,
+        headers: ctx.request.headers,
+        origin,
+        publishableKeyAuth: ctx.opts.publishableKeyAuth,
+        orgProjectEnv: ctx.opts.orgProjectEnv,
+      });
+      if (!runtimePolicyScope.ok) {
+        return json(
+          { ok: false, code: runtimePolicyScope.code, message: runtimePolicyScope.message },
+          { status: runtimePolicyScope.status },
+        );
+      }
+      if (!runtimePolicyScope.scope) {
+        return json(
+          {
+            ok: false,
+            code: 'runtime_policy_scope_unavailable',
+            message: 'Google Email OTP requires an active managed runtime policy scope',
+          },
+          { status: 500 },
+        );
+      }
       const result = await ctx.service.identity.verifyGoogleLogin(parsed.request);
       if (!result.ok || !result.verified || !result.providerSubject) {
         return json(result, { status: result.code === 'internal' ? 500 : 400 });
@@ -219,6 +244,7 @@ export async function handleAuth(ctx: FetchRouterApiContext): Promise<Response |
         providerSubject: result.providerSubject,
         email: result.email,
         accountMode: parsed.request.accountMode,
+        runtimePolicyScope: runtimePolicyScope.scope,
       });
       return json(resolution, {
         status: resolution.ok ? 200 : resolution.code === 'wallet_id_collision' ? 409 : 400,
