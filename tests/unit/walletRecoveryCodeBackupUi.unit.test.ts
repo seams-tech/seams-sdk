@@ -61,7 +61,9 @@ test('wallet recovery backup completes only through the acknowledged close contr
       name: 'I saved these recovery codes somewhere private (will be deleted locally).',
     })
     .check();
-  await dialog.getByRole('button', { name: 'Back up later' }).click();
+  // Acknowledging relabels the single control to name what closing now does.
+  await expect(dialog.getByRole('button', { name: 'Back up later' })).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Finish backup' }).click();
   await expect(readResult(page)).resolves.toEqual({ kind: 'wallet_recovery_codes_backed_up_v1' });
   await expect(dialog).toHaveCount(0);
 });
@@ -108,7 +110,8 @@ test('account-menu recovery backup closes without completing until acknowledged'
       name: 'I saved these recovery codes somewhere private (will be deleted locally).',
     })
     .check();
-  await dialog.getByRole('button', { name: 'Close' }).click();
+  await expect(dialog.getByRole('button', { name: 'Close' })).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Finish backup' }).click();
   await expect(readResult(page)).resolves.toEqual({ kind: 'wallet_recovery_codes_backed_up_v1' });
 });
 
