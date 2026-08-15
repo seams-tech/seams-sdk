@@ -145,7 +145,7 @@ function parseRecordOrNull(raw: unknown): WalletCustodyCommitRecord | null {
   if (kind === 'wallet_recovery_envelope_set_v1') {
     return raw as WalletRecoveryEnvelopeSetRecord;
   }
-  if (kind === 'wallet_recovery_backup_ack_v1') {
+  if (kind === 'wallet_recovery_backup_acknowledgement_v1') {
     return raw as WalletRecoveryBackupAcknowledgementV1;
   }
   try {
