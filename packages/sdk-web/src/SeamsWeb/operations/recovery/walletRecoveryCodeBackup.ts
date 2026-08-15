@@ -74,17 +74,21 @@ class WalletRecoveryCodeBackupDialog {
 
   private build(): void {
     const iframeSurface = this.measurementBinding.kind === 'wallet_iframe';
-    const dialogWidth = iframeSurface
-      ? 'width:min(44rem,100%);max-width:100%'
-      : 'width:min(44rem,calc(100vw - 1.5rem))';
+    /* Inside the wallet iframe the host sizes the frame FROM this dialog's
+       measurement, so the dialog must own the whole frame: zero UA centering
+       margins and a max-height of exactly 100vh. Any slack (auto margins, the
+       standalone 1.5rem breathing room) becomes dead space around the card and
+       clips/scrolls it once the measured height feeds back into the frame. */
+    const dialogSizing = iframeSurface
+      ? 'width:100%;max-width:100%;margin:0;max-height:100vh'
+      : 'width:min(44rem,calc(100vw - 1.5rem));max-height:calc(100vh - 1.5rem)';
     this.dialog.setAttribute('aria-labelledby', 'w3a-wallet-recovery-backup-title');
     this.dialog.setAttribute('aria-describedby', 'w3a-wallet-recovery-backup-description');
     this.dialog.setAttribute('data-w3a-wallet-recovery-backup-dialog', '');
     this.dialog.tabIndex = -1;
     this.dialog.className = 'w3a-host-themed-dialog';
     this.dialog.style.cssText = [
-      dialogWidth,
-      'max-height:calc(100vh - 1.5rem)',
+      dialogSizing,
       'overflow:auto',
       'box-sizing:border-box',
       'border:1px solid var(--w3a-colors-borderPrimary,rgba(86,81,119,.22))',
@@ -100,7 +104,8 @@ class WalletRecoveryCodeBackupDialog {
     const title = document.createElement('h1');
     title.id = 'w3a-wallet-recovery-backup-title';
     title.textContent = 'Save your wallet recovery codes';
-    title.style.cssText = 'margin:0 0 .5rem;font-size:1.25rem;line-height:1.25;font-weight:600';
+    title.style.cssText =
+      'margin:0 0 .5rem;font-size:1.3125rem;line-height:1.25;font-weight:600;letter-spacing:-0.01em';
     this.dialog.appendChild(title);
 
     const description = document.createElement('p');
@@ -114,44 +119,72 @@ class WalletRecoveryCodeBackupDialog {
     this.dialog.appendChild(description);
 
     const list = document.createElement('ol');
+    /* auto-fit rather than a fixed two columns: on a narrow surface the grid
+       collapses to one column instead of wrapping every code to three lines. */
     list.style.cssText =
-      'display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.5rem;margin:0 0 1rem;padding:0;list-style:none';
+      'display:grid;grid-template-columns:repeat(auto-fit,minmax(14rem,1fr));gap:.5rem;margin:0 0 1rem;padding:0;list-style:none';
     for (const [index, code] of this.request.recoveryCodes.entries()) {
       const item = document.createElement('li');
-      item.textContent = `${index + 1}. ${code}`;
       item.style.cssText = [
+        'display:flex',
+        'gap:.5rem',
+        'align-items:baseline',
         'border-radius:.625rem',
         'background:var(--w3a-colors-surface2,#f4eadf)',
-        'padding:.625rem .75rem',
+        'padding:.5rem .625rem',
         'font-family:ui-monospace,SFMono-Regular,Menlo,monospace',
         'font-size:.8125rem',
-        'font-weight:700',
-        'line-height:1.25',
-        'overflow-wrap:anywhere',
+        'line-height:1.35',
       ].join(';');
+      const indexBadge = document.createElement('span');
+      indexBadge.textContent = String(index + 1);
+      indexBadge.style.cssText = [
+        'flex:0 0 2ch',
+        'text-align:right',
+        'font-weight:500',
+        'color:var(--w3a-colors-textSecondary,#565177)',
+        'user-select:none',
+      ].join(';');
+      const codeText = document.createElement('span');
+      codeText.textContent = code;
+      /* user-select:all — one click grabs the whole code, matching how people
+         actually lift these into a password manager. Wraps at the hyphens. */
+      codeText.style.cssText = [
+        'min-width:0',
+        'font-weight:700',
+        'overflow-wrap:anywhere',
+        'user-select:all',
+      ].join(';');
+      item.append(indexBadge, codeText);
       list.appendChild(item);
     }
     this.dialog.appendChild(list);
 
     const backupActions = document.createElement('div');
     backupActions.style.cssText = 'display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:1rem';
-    backupActions.appendChild(this.button('Download codes', this.download.bind(this), false));
-    backupActions.appendChild(this.button('Copy codes', this.copy.bind(this), false));
+    const downloadButton = this.button('Download codes', this.download.bind(this), false);
+    const copyButton = this.button('Copy codes', this.copy.bind(this), false);
+    downloadButton.style.flex = '1 1 auto';
+    copyButton.style.flex = '1 1 auto';
+    backupActions.append(downloadButton, copyButton);
     this.dialog.appendChild(backupActions);
 
     const acknowledgementLabel = document.createElement('label');
     acknowledgementLabel.style.cssText =
-      'display:flex;gap:.625rem;align-items:flex-start;margin-bottom:1rem;line-height:1.4;cursor:pointer';
+      'display:flex;gap:.625rem;align-items:flex-start;margin-bottom:.75rem;font-size:.9375rem;line-height:1.4;cursor:pointer';
     this.acknowledgement.type = 'checkbox';
     this.acknowledgement.setAttribute('data-w3a-wallet-recovery-backup-acknowledgement', '');
-    this.acknowledgement.style.cssText = 'width:1.25rem;height:1.25rem;margin:.05rem 0 0;flex:none';
+    this.acknowledgement.style.cssText =
+      'width:1.125rem;height:1.125rem;margin:.1rem 0 0;flex:none;accent-color:var(--w3a-colors-primary,#3b82f6)';
     acknowledgementLabel.appendChild(this.acknowledgement);
-    acknowledgementLabel.append('I saved these recovery codes somewhere private.');
+    acknowledgementLabel.append(
+      'I saved these recovery codes somewhere private (will be deleted locally).',
+    );
     this.dialog.appendChild(acknowledgementLabel);
 
     this.status.setAttribute('role', 'status');
     this.status.style.cssText =
-      'min-height:1.25rem;margin:0 0 .75rem;color:var(--w3a-colors-textSecondary,#565177);font-size:.8125rem';
+      'min-height:1rem;margin:0 0 .5rem;color:var(--w3a-colors-textSecondary,#565177);font-size:.8125rem';
     this.dialog.appendChild(this.status);
 
     const finalActions = document.createElement('div');
@@ -162,7 +195,7 @@ class WalletRecoveryCodeBackupDialog {
       'flex-wrap:wrap',
       'justify-content:flex-end',
       'gap:.5rem',
-      'padding-top:.75rem',
+      'padding-top:.5rem',
       'background:var(--w3a-colors-colorBackground,#fffaf3)',
     ].join(';');
     if (this.request.continuation === 'registration_may_defer') {
