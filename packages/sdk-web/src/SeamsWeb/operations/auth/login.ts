@@ -97,6 +97,12 @@ import {
 import { rememberPasskeyCustodySessionEnvelope } from '@/core/signingEngine/session/passkey/passkeyCustodySessionCache';
 import { persistPasskeyEd25519YaoSignerMaterialV1 } from '@/core/signingEngine/session/passkey/ed25519YaoLocalMaterial';
 import {
+  buildPasskeyEd25519RestoreMetadata,
+  persistPasskeyEd25519YaoSessionForRefresh,
+} from '@/core/signingEngine/session/passkey/ed25519YaoSealedSession';
+import { buildPasskeyRouterAbEd25519WalletSessionState } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
+import { buildRouterAbEd25519SigningWalletSession } from '@/core/signingEngine/session/routerAbSigningWalletSession';
+import {
   fetchWalletEcdsaKeyFactsInventoryWithOpaqueWalletSession,
   fetchWalletEcdsaKeyFactsInventoryWithWebAuthn,
   type WalletEcdsaKeyFactsInventoryResponse,
@@ -3115,8 +3121,8 @@ type PasskeyEd25519CustodyLoginInput = {
   walletBinding: ResolvedLoginWalletBinding;
   signerSlot: number;
   passkeyPrfFirstB64u: string;
-  walletSessionToken: string;
-  thresholdSessionId: string;
+  walletSession: ProvisionWarmEd25519CapabilitySuccessResult;
+  authority: WalletAuthAuthorityRef;
   routerAbNormalSigning: ReturnType<typeof createRouterAbNormalSigningPolicy>;
   relayerUrl: string;
 };
@@ -3175,7 +3181,7 @@ async function openAndActivatePasskeyEd25519CustodyLogin(
       Uint8Array.from(capability.registeredPublicKey),
     ),
   });
-  const thresholdSessionId = parseThresholdEd25519SessionId(input.thresholdSessionId);
+  const thresholdSessionId = parseThresholdEd25519SessionId(input.walletSession.thresholdSessionId);
   if (!thresholdSessionId.ok) {
     throw new Error('[login] wallet custody returned an invalid threshold session identity');
   }
@@ -3206,7 +3212,7 @@ async function openAndActivatePasskeyEd25519CustodyLogin(
         nearEd25519SigningKeyId: String(input.walletBinding.nearEd25519SigningKeyId),
         recoveryBasis: capability,
         routerOrigin: new URL(input.relayerUrl).origin,
-        walletSessionToken: input.walletSessionToken,
+        walletSessionToken: input.walletSession.walletSessionToken,
       });
       const materialBinding: WalletCustodyEd25519MaterialBindingV1 = {
         kind: WALLET_CUSTODY_ED25519_MATERIAL_KEY_KIND,
@@ -3244,6 +3250,9 @@ async function openAndActivatePasskeyEd25519CustodyLogin(
     );
     if (!recoveredThresholdSessionId.ok) {
       throw new Error('[login] wallet custody returned an invalid threshold session identity');
+    }
+    if (recoveredThresholdSessionId.value !== input.walletSession.thresholdSessionId) {
+      throw new Error('[login] wallet custody changed the threshold session identity');
     }
     const envelopeFactor = input.custody.envelope.factor;
     if (envelopeFactor.kind !== 'passkey') {
@@ -3294,6 +3303,57 @@ async function openAndActivatePasskeyEd25519CustodyLogin(
     ) {
       throw new Error('[login] wallet custody activation changed during unlock');
     }
+    const signingWalletSession = buildRouterAbEd25519SigningWalletSession({
+      walletId: String(input.walletBinding.walletId),
+      nearAccountId: String(input.walletBinding.nearAccountId),
+      nearEd25519SigningKeyId: String(input.walletBinding.nearEd25519SigningKeyId),
+      walletSessionId: input.walletSession.walletSessionId,
+      authorizationId: input.walletSession.authorizationId,
+      quotaId: input.walletSession.quotaId,
+      thresholdSessionId: recoveredThresholdSessionId.value,
+      remainingUses: input.walletSession.remainingUses,
+      expiresAtMs: input.walletSession.expiresAtMs,
+      runtimePolicyScope: input.walletSession.runtimePolicyScope,
+      signingRootId: capability.applicationBinding.signing_root_id,
+      signingRootVersion: capability.lifecycle.rootShareEpoch,
+      routerAbNormalSigning: input.routerAbNormalSigning,
+      walletSessionToken: input.walletSession.walletSessionToken,
+      nowMs: Math.min(Date.now(), input.walletSession.expiresAtMs - 1),
+    });
+    if (!signingWalletSession.ok) {
+      throw new Error(
+        `[login] wallet custody returned an unusable Ed25519 Wallet Session: ${signingWalletSession.reason}`,
+      );
+    }
+    const session = buildPasskeyRouterAbEd25519WalletSessionState({
+      walletId: input.walletBinding.walletId,
+      nearAccountId: input.walletBinding.nearAccountId,
+      nearEd25519SigningKeyId: input.walletBinding.nearEd25519SigningKeyId,
+      signerSlot: input.signerSlot,
+      rpId: toRpId(envelopeFactor.rpId),
+      credentialIdB64u: envelopeFactor.credentialIdB64u,
+      relayerUrl: input.relayerUrl,
+      authority: input.authority,
+      signingWalletSession: signingWalletSession.value,
+    });
+    await persistPasskeyEd25519YaoSessionForRefresh({
+      persistence: input.signingEngine,
+      session,
+      prfFirstB64u: input.passkeyPrfFirstB64u,
+      ed25519Restore: buildPasskeyEd25519RestoreMetadata({
+        rpId: envelopeFactor.rpId,
+        nearAccountId: String(input.walletBinding.nearAccountId),
+        nearEd25519SigningKeyId: String(input.walletBinding.nearEd25519SigningKeyId),
+        relayerKeyId: input.custody.ed25519.relayerKeyId,
+        participantIds: input.custody.ed25519.participantIds,
+        runtimePolicyScope: input.walletSession.runtimePolicyScope,
+        signerSlot: input.signerSlot,
+        routerAbNormalSigning: input.routerAbNormalSigning,
+        credentialIdB64u: envelopeFactor.credentialIdB64u,
+        materialActivation: activated.materialActivation,
+      }),
+      materialActivation: activated.materialActivation,
+    });
   } catch (error) {
     activeClient?.dispose();
     throw error;
@@ -3600,6 +3660,9 @@ async function primeThresholdLoginWarmSigners(args: {
           );
         }
 
+        const connectedAuthority = await walletAuthAuthorityRef({
+          authority: ed25519SessionAuthority.authority.authority,
+        });
         sharedState.activeEd25519Authorization = await persistActiveWalletSessionAuthorizationCurve(
           walletSessionAuthorizations,
           {
@@ -3608,9 +3671,7 @@ async function primeThresholdLoginWarmSigners(args: {
             walletSessionId: connected.walletSessionId,
             quotaId: connected.quotaId,
             expiresAtMs: connected.expiresAtMs,
-            authority: await walletAuthAuthorityRef({
-              authority: ed25519SessionAuthority.authority.authority,
-            }),
+            authority: connectedAuthority,
             authMethod: args.authMethod,
             walletSessionToken: connectedWalletSessionToken,
             thresholdSessionId: connectedThresholdSessionId,
@@ -3642,8 +3703,8 @@ async function primeThresholdLoginWarmSigners(args: {
               walletBinding,
               signerSlot: args.signerSlot,
               passkeyPrfFirstB64u,
-              walletSessionToken: connectedWalletSessionToken,
-              thresholdSessionId: connectedThresholdSessionId,
+              walletSession: connected,
+              authority: connectedAuthority,
               routerAbNormalSigning: provisionScope.routerAbNormalSigning,
               relayerUrl: args.relayerUrl,
             }),
