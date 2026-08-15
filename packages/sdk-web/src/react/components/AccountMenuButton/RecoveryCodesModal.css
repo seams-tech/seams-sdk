@@ -48,8 +48,10 @@
 
 .w3a-recovery-codes-modal-title {
   margin: 0;
-  font-size: 1.5rem;
-  font-weight: 700;
+  font-size: 1.3125rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
   color: var(--w3a-colors-textPrimary);
 }
 
@@ -154,14 +156,17 @@
 
 .w3a-recovery-codes-primary-action {
   min-height: 44px;
-  border: 1px solid var(--w3a-colors-borderPrimary);
+  border: 1px solid transparent;
   border-radius: 0.75rem;
   background: var(--w3a-colors-primary);
   color: var(--w3a-colors-buttonText);
   padding: 0.55rem 0.75rem;
   font-size: 0.95rem;
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
+  transition:
+    filter 140ms ease,
+    background-color 140ms ease;
 }
 
 .w3a-recovery-codes-secondary-action {
@@ -172,8 +177,9 @@
   color: var(--w3a-colors-textPrimary);
   padding: 0.55rem 0.75rem;
   font-size: 0.95rem;
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
+  transition: background-color 140ms ease;
 }
 
 .w3a-recovery-codes-primary-action:hover {
@@ -190,10 +196,22 @@
   opacity: 0.65;
 }
 
+/* Errors render as a tinted alert panel rather than bare red lines: raw
+   transport/status strings read as debugging output without a container. */
 .w3a-recovery-codes-inline-error {
+  padding: 0.6rem 0.75rem;
+  border: 1px solid color-mix(in srgb, oklch(0.58 0.18 25), transparent 75%);
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, oklch(0.58 0.18 25), transparent 93%);
+  color: oklch(0.52 0.17 25);
   font-size: 0.82rem;
   font-weight: 600;
-  color: oklch(0.58 0.18 25);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.theme-dark .w3a-recovery-codes-inline-error {
+  color: oklch(0.74 0.15 25);
 }
 
 @keyframes w3a-recovery-codes-backdrop-opacity {

@@ -62,7 +62,9 @@ test('wallet recovery backup requires an explicit saved-codes acknowledgement', 
   await expect(dialog).toBeVisible();
 
   await dialog
-    .getByRole('checkbox', { name: 'I saved these recovery codes somewhere private.' })
+    .getByRole('checkbox', {
+      name: 'I saved these recovery codes somewhere private (will be deleted locally).',
+    })
     .check();
   await dialog.getByRole('button', { name: 'Finish backup' }).click();
   await expect(readResult(page)).resolves.toEqual({ kind: 'wallet_recovery_codes_backed_up_v1' });
@@ -76,9 +78,10 @@ test('wallet recovery backup starts at the top with reachable actions and is key
   await openDialog(page);
   const dialog = page.getByRole('dialog');
   const acknowledgement = page.getByRole('checkbox', {
-    name: 'I saved these recovery codes somewhere private.',
+    name: 'I saved these recovery codes somewhere private (will be deleted locally).',
   });
   await expect(dialog).toBeFocused();
+  await expect(acknowledgement).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Finish backup' })).toBeInViewport();
   await page.keyboard.press('Tab');
   await page.keyboard.press('Tab');
@@ -108,7 +111,9 @@ test('account-menu recovery backup must be completed or closed', async ({ page }
     'Confirm that you saved the recovery codes before continuing.',
   );
   await dialog
-    .getByRole('checkbox', { name: 'I saved these recovery codes somewhere private.' })
+    .getByRole('checkbox', {
+      name: 'I saved these recovery codes somewhere private (will be deleted locally).',
+    })
     .check();
   await dialog.getByRole('button', { name: 'Finish backup' }).click();
   await expect(readResult(page)).resolves.toEqual({ kind: 'wallet_recovery_codes_backed_up_v1' });
