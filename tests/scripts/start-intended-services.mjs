@@ -85,7 +85,7 @@ async function main() {
   }
 
   installSignalHandlers();
-  await terminateManagedProcessLeaksBeforeStartup();
+  assertNoConflictingLocalProcesses();
   if (resetState) {
     resetLocalState();
   }
@@ -227,13 +227,13 @@ function removeAbsolutePath(absolutePath) {
   rmSync(absolutePath, { recursive: true, force: true });
 }
 
-async function terminateManagedProcessLeaksBeforeStartup() {
-  const leaks = collectManagedProcessLeaks();
-  if (leaks.length === 0) return;
-  console.log(`[intended-services] terminating ${leaks.length} stale managed processes`);
-  terminateManagedProcessLeaks('SIGTERM');
-  await delay(1_000);
-  terminateManagedProcessLeaks('SIGKILL');
+function assertNoConflictingLocalProcesses() {
+  const conflicts = collectManagedProcessLeaks();
+  if (conflicts.length === 0) return;
+  const processes = conflicts.map((entry) => `${entry.pid}: ${entry.command}`).join('\n');
+  throw new Error(
+    `local services are already running; stop them before starting the isolated intended-behaviour runtime:\n${processes}`,
+  );
 }
 
 function startSite() {
@@ -618,9 +618,6 @@ async function shutdown(exitCode) {
   for (const entry of [...managedChildren].reverse()) {
     forceStopChild(entry);
   }
-  terminateManagedProcessLeaks('SIGTERM');
-  await delay(1_000);
-  terminateManagedProcessLeaks('SIGKILL');
   process.exit(exitCode);
 }
 
@@ -650,12 +647,6 @@ function killChild(child, signal, killAsGroup) {
     child.kill(signal);
   } catch (error) {
     if (error?.code !== 'ESRCH') throw error;
-  }
-}
-
-function terminateManagedProcessLeaks(signal) {
-  for (const entry of collectManagedProcessLeaks()) {
-    killProcessId(entry.pid, signal);
   }
 }
 
@@ -727,14 +718,6 @@ function isDocsVitepressCommand(command) {
     command.includes('vitepress') &&
     command.includes('--port 5222')
   );
-}
-
-function killProcessId(pid, signal) {
-  try {
-    process.kill(pid, signal);
-  } catch (error) {
-    if (error?.code !== 'ESRCH') throw error;
-  }
 }
 
 function closeWebServerReadyServer() {
