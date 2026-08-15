@@ -82,6 +82,14 @@ class WalletRecoveryCodeBackupDialog {
     const dialogSizing = iframeSurface
       ? 'width:100%;max-width:100%;margin:0;max-height:100vh'
       : 'width:min(44rem,calc(100vw - 1.5rem));max-height:calc(100vh - 1.5rem)';
+    /* In the iframe the frame is a square rect hugging the rounded card, so
+       anything painted outside the card's radius — the UA ::backdrop tint, the
+       drop shadow — shows up as a dark pointed corner over the host's own
+       backdrop. The host dims the page; this surface must paint nothing
+       outside the card. */
+    const dialogShadow = iframeSurface
+      ? 'box-shadow:none'
+      : 'box-shadow:0 1.5rem 5rem rgba(0,0,0,.24)';
     this.dialog.setAttribute('aria-labelledby', 'w3a-wallet-recovery-backup-title');
     this.dialog.setAttribute('aria-describedby', 'w3a-wallet-recovery-backup-description');
     this.dialog.setAttribute('data-w3a-wallet-recovery-backup-dialog', '');
@@ -91,15 +99,28 @@ class WalletRecoveryCodeBackupDialog {
       dialogSizing,
       'overflow:auto',
       'box-sizing:border-box',
-      'border:1px solid var(--w3a-colors-borderPrimary,rgba(86,81,119,.22))',
+      /* border:none must stay explicit — the UA gives <dialog> a default
+         border. The card floats on a dimmed backdrop with its own shadow, and
+         in the iframe the frame hugs the card exactly, so a border reads as a
+         detached hairline once the scroller rubber-bands.
+         overscroll-behavior:none (not contain) suppresses that bounce: the
+         card can measure fractionally taller than the frame's whole-px height,
+         which leaves a sub-pixel scroll range for the bounce to act on. */
+      'border:none',
       'border-radius:1rem',
       'background:var(--w3a-colors-colorBackground,#fffaf3)',
       'color:var(--w3a-colors-textPrimary,#565177)',
-      'padding:1.25rem',
-      'box-shadow:0 1.5rem 5rem rgba(0,0,0,.24)',
+      'padding:1.75rem 1.25rem 1.25rem',
+      dialogShadow,
       'font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif',
-      'overscroll-behavior:contain',
+      'overscroll-behavior:none',
     ].join(';');
+    if (iframeSurface) {
+      const backdropStyle = document.createElement('style');
+      backdropStyle.textContent =
+        'dialog[data-w3a-wallet-recovery-backup-dialog]::backdrop{background:transparent}';
+      this.dialog.appendChild(backdropStyle);
+    }
 
     const title = document.createElement('h1');
     title.id = 'w3a-wallet-recovery-backup-title';
@@ -162,10 +183,12 @@ class WalletRecoveryCodeBackupDialog {
 
     const backupActions = document.createElement('div');
     backupActions.style.cssText = 'display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:1rem';
-    const downloadButton = this.button('Download codes', this.download.bind(this), false);
-    const copyButton = this.button('Copy codes', this.copy.bind(this), false);
-    downloadButton.style.flex = '1 1 auto';
-    copyButton.style.flex = '1 1 auto';
+    const downloadButton = this.button('Download codes', this.download.bind(this), true);
+    const copyButton = this.button('Copy codes', this.copy.bind(this), true);
+    /* flex-basis 0, not auto: both columns split the row evenly instead of
+       tracking their label widths. */
+    downloadButton.style.flex = '1 1 0';
+    copyButton.style.flex = '1 1 0';
     backupActions.append(downloadButton, copyButton);
     this.dialog.appendChild(backupActions);
 
