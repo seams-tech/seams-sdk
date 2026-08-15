@@ -89,6 +89,26 @@ test('wallet recovery backup starts at the top with reachable actions and is key
   await expect(readResult(page)).resolves.toEqual({ kind: 'wallet_recovery_codes_backed_up_v1' });
 });
 
+test('copying the codes crossfades the copy icon to a check', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await openDialog(page);
+  const dialog = page.locator('[data-w3a-wallet-recovery-backup-dialog]');
+  const copyButton = dialog.getByRole('button', { name: 'Copy codes' });
+  const copyIcon = copyButton.locator('.copy-icon');
+  await expect(copyIcon).toHaveCount(1);
+  await expect(copyButton).not.toHaveClass(/copied/);
+
+  await copyButton.click();
+  await expect(dialog.getByRole('status')).toHaveText('Recovery codes copied.');
+  await expect(copyButton).toHaveClass(/copied/);
+  // The check is what the animation reveals; the copy glyph fades out.
+  await expect(copyIcon.locator('.copy-icon-check')).toHaveCSS('opacity', '1');
+  await expect(copyIcon.locator('.copy-icon-copy')).toHaveCSS('opacity', '0');
+
+  // The flash is transient: the icon returns to its copy state on its own.
+  await expect(copyButton).not.toHaveClass(/copied/, { timeout: 5_000 });
+});
+
 test('wallet recovery backup can be deferred to the account menu', async ({ page }) => {
   await openDialog(page);
   await page.getByRole('button', { name: 'Back up later' }).click();

@@ -27,6 +27,119 @@ function backupText(request: WalletRecoveryCodeBackupRequestV1): string {
   return `${lines.join('\n')}\n`;
 }
 
+const COPY_ICON_SVG_ATTRS: ReadonlyArray<readonly [string, string]> = [
+  ['width', '16'],
+  ['height', '16'],
+  ['viewBox', '0 0 24 24'],
+  ['fill', 'none'],
+  ['stroke', 'currentColor'],
+];
+
+function copyIconSvg(paths: readonly string[], shapes: readonly string[] = []): SVGSVGElement {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  for (const [name, value] of COPY_ICON_SVG_ATTRS) svg.setAttribute(name, value);
+  for (const shape of shapes) {
+    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    for (const pair of shape.split(' ')) {
+      const [name, value] = pair.split('=');
+      rect.setAttribute(name, value);
+    }
+    svg.appendChild(rect);
+  }
+  for (const d of paths) {
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', d);
+    svg.appendChild(path);
+  }
+  return svg;
+}
+
+/**
+ * The `.copy-icon` check/copy crossfade from the export viewer, rebuilt in
+ * imperative DOM. Same class names and the same two glyphs, so the two copy
+ * affordances in the wallet read as one control — see
+ * `lit-components/css/export-viewer.css`.
+ */
+function buildCopyIcon(): HTMLSpanElement {
+  const icon = document.createElement('span');
+  icon.className = 'copy-icon';
+  icon.setAttribute('aria-hidden', 'true');
+
+  const check = document.createElement('span');
+  check.className = 'copy-icon-check';
+  check.appendChild(copyIconSvg(['M20 6 9 17l-5-5']));
+
+  const copy = document.createElement('span');
+  copy.className = 'copy-icon-copy';
+  copy.appendChild(
+    copyIconSvg(
+      ['M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2'],
+      ['width=14 height=14 x=8 y=8 rx=2 ry=2'],
+    ),
+  );
+
+  icon.append(check, copy);
+  return icon;
+}
+
+/* Scoped to this dialog so the animation works whether or not the export
+   viewer's stylesheet happens to be loaded in this document. */
+const COPY_ICON_STYLES = `
+[data-w3a-wallet-recovery-backup-dialog] .copy-icon {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  color: currentColor;
+}
+[data-w3a-wallet-recovery-backup-dialog] .copy-icon svg {
+  display: block;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+[data-w3a-wallet-recovery-backup-dialog] .copy-icon-check,
+[data-w3a-wallet-recovery-backup-dialog] .copy-icon-copy {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  transition:
+    transform 300ms ease-in-out,
+    opacity 300ms ease-in-out,
+    filter 300ms ease-in-out;
+}
+[data-w3a-wallet-recovery-backup-dialog] .copy-icon-check {
+  transform: scale(0.25);
+  opacity: 0;
+  filter: blur(2px);
+}
+[data-w3a-wallet-recovery-backup-dialog] .copy-icon-copy {
+  transform: scale(1);
+  opacity: 1;
+  filter: blur(0);
+}
+[data-w3a-wallet-recovery-backup-dialog] .copied .copy-icon {
+  color: var(--w3a-colors-success, #34d399);
+}
+[data-w3a-wallet-recovery-backup-dialog] .copied .copy-icon-check {
+  transform: scale(1);
+  opacity: 1;
+  filter: blur(0);
+}
+[data-w3a-wallet-recovery-backup-dialog] .copied .copy-icon-copy {
+  transform: scale(0.25);
+  opacity: 0;
+  filter: blur(2px);
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-w3a-wallet-recovery-backup-dialog] .copy-icon-check,
+  [data-w3a-wallet-recovery-backup-dialog] .copy-icon-copy {
+    transition-duration: 0.01ms;
+  }
+}
+`;
+
 function downloadBackup(request: WalletRecoveryCodeBackupRequestV1): void {
   const url = URL.createObjectURL(
     new Blob([backupText(request)], { type: 'text/plain;charset=utf-8' }),
@@ -52,6 +165,8 @@ class WalletRecoveryCodeBackupDialog {
   private rejectResult!: (error: Error) => void;
   private settled = false;
   private measurementReporter: WalletIframeSurfaceMeasurementReporter | null = null;
+  private copyButton: HTMLButtonElement | null = null;
+  private copiedResetTimer: number | null = null;
 
   constructor(
     private readonly request: WalletRecoveryCodeBackupRequestV1,
@@ -118,12 +233,11 @@ class WalletRecoveryCodeBackupDialog {
       'font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif',
       'overscroll-behavior:none',
     ].join(';');
-    if (iframeSurface) {
-      const backdropStyle = document.createElement('style');
-      backdropStyle.textContent =
-        'dialog[data-w3a-wallet-recovery-backup-dialog]::backdrop{background:transparent}';
-      this.dialog.appendChild(backdropStyle);
-    }
+    const dialogStyles = document.createElement('style');
+    dialogStyles.textContent = iframeSurface
+      ? `dialog[data-w3a-wallet-recovery-backup-dialog]::backdrop{background:transparent}${COPY_ICON_STYLES}`
+      : COPY_ICON_STYLES;
+    this.dialog.appendChild(dialogStyles);
 
     const title = document.createElement('h1');
     title.id = 'w3a-wallet-recovery-backup-title';
@@ -189,6 +303,12 @@ class WalletRecoveryCodeBackupDialog {
     backupActions.style.cssText = 'display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:1rem';
     const downloadButton = this.button('Download codes', this.download.bind(this), true);
     const copyButton = this.button('Copy codes', this.copy.bind(this), true);
+    // The icon crossfades to a check in place, so it leads the label and the
+    // button keeps its width through the transition.
+    copyButton.style.cssText +=
+      ';display:inline-flex;align-items:center;justify-content:center;gap:.5rem';
+    copyButton.prepend(buildCopyIcon());
+    this.copyButton = copyButton;
     /* flex-basis 0, not auto: both columns split the row evenly instead of
        tracking their label widths. */
     downloadButton.style.flex = '1 1 0';
@@ -275,9 +395,22 @@ class WalletRecoveryCodeBackupDialog {
     try {
       await navigator.clipboard.writeText(backupText(this.request));
       this.status.textContent = 'Recovery codes copied.';
+      this.flashCopied();
     } catch {
       this.status.textContent = 'Unable to copy the codes. Download them or try again.';
     }
+  }
+
+  /** Holds the check glyph long enough to read, then crossfades back. */
+  private flashCopied(): void {
+    const button = this.copyButton;
+    if (!button) return;
+    if (this.copiedResetTimer !== null) window.clearTimeout(this.copiedResetTimer);
+    button.classList.add('copied');
+    this.copiedResetTimer = window.setTimeout(() => {
+      this.copiedResetTimer = null;
+      button.classList.remove('copied');
+    }, 1800);
   }
 
   private closeAction(): void {
@@ -315,6 +448,10 @@ class WalletRecoveryCodeBackupDialog {
   }
 
   private close(): void {
+    if (this.copiedResetTimer !== null) {
+      window.clearTimeout(this.copiedResetTimer);
+      this.copiedResetTimer = null;
+    }
     this.measurementReporter?.disconnect();
     this.measurementReporter = null;
     this.dialog.close();
