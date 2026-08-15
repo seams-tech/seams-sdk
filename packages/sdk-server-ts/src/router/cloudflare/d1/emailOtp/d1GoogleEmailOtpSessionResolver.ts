@@ -119,12 +119,16 @@ export class CloudflareD1GoogleEmailOtpSessionResolver {
     );
 
     if (accountMode === 'login') {
-      return await this.resolveLoginSession({
+      const loginSession = await this.resolveLoginSession({
         providerSubject: providerSubject.value,
         email,
         orgId: runtimePolicyScope.orgId,
         linkedWalletId,
       });
+      if (loginSession) return loginSession;
+      if (!email) {
+        throw new Error('Verified Google email is required to register an Email OTP wallet');
+      }
     }
 
     if (!email) {
@@ -415,7 +419,7 @@ export class CloudflareD1GoogleEmailOtpSessionResolver {
     readonly email: string;
     readonly orgId: string;
     readonly linkedWalletId: string | null;
-  }): Promise<ResolveGoogleEmailOtpSessionResult> {
+  }): Promise<ResolveGoogleEmailOtpSessionResult | null> {
     if (input.linkedWalletId) {
       const enrollment = await this.readActiveEnrollment({
         walletId: input.linkedWalletId,
@@ -443,14 +447,13 @@ export class CloudflareD1GoogleEmailOtpSessionResolver {
     });
     if (!discovered) {
       if (input.linkedWalletId) {
-        const stale = googleEmailOtpStaleIdentityMapping({
+        return googleEmailOtpStaleIdentityMapping({
           providerSubject: input.providerSubject,
           linkedWalletId: input.linkedWalletId,
           ...(input.email ? { email: input.email } : {}),
         });
-        throw codedError(stale.code, stale.message);
       }
-      throw codedError('not_found', 'Email OTP enrollment not found');
+      return null;
     }
 
     const repaired = await this.repairWalletLink({

@@ -77,6 +77,21 @@ test('Cloudflare D1 Router API auth service verifies Google OIDC tokens and link
       email: 'alice@example.test',
     });
 
+    const loginWithoutEnrollment = await callCf(createCloudflareRouter(service), {
+      method: 'POST',
+      path: '/auth/google/verify',
+      origin: 'https://app.example.test',
+      body: { id_token: idToken, account_mode: 'login' },
+    });
+    expect(loginWithoutEnrollment.status).toBe(200);
+    expect(loginWithoutEnrollment.json).toMatchObject({
+      ok: true,
+      mode: 'register_started',
+      walletId: resolution.json.walletId,
+      providerSubject: 'google:subject-123',
+      email: 'alice@example.test',
+    });
+
     const parts = idToken.split('.');
     const tampered = `${parts[0]}.${parts[1]}x.${parts[2]}`;
     await expect(service.identity.verifyGoogleLogin({ idToken: tampered })).resolves.toMatchObject({
