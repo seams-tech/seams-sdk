@@ -10,7 +10,6 @@ import type {
 } from '@shared/utils/registrationEstablishedSession';
 import {
   parseMpcWalletSigningQuotaId,
-  parseSeamsSessionId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
@@ -866,7 +865,7 @@ function parseWalletRegistrationOperationPrepared(
 
 type RegistrationEstablishedSessionIdentity = Pick<
   RegistrationEstablishedSession,
-  'walletId' | 'seamsSessionId' | 'authorizationId' | 'walletSessionId' | 'quotaId' | 'expiresAtMs'
+  'walletId' | 'authorizationId' | 'walletSessionId' | 'quotaId' | 'expiresAtMs'
 >;
 
 function hasOnlyKeys(record: Record<string, unknown>, keys: readonly string[]): boolean {
@@ -975,7 +974,6 @@ function parseRegistrationEstablishedSessionForD1(
     !hasOnlyKeys(raw, [
       'kind',
       'walletId',
-      'seamsSessionId',
       'authorizationId',
       'walletSessionId',
       'quotaId',
@@ -990,14 +988,12 @@ function parseRegistrationEstablishedSessionForD1(
     return null;
   }
   const walletId = parseWalletId(raw.walletId);
-  const seamsSessionId = parseSeamsSessionId(raw.seamsSessionId);
   const authorizationId = parseWalletSessionAuthorizationId(raw.authorizationId);
   const walletSessionId = parseWalletSessionId(raw.walletSessionId);
   const quotaId = parseMpcWalletSigningQuotaId(raw.quotaId);
   if (
     !walletId.ok ||
     walletId.value !== expectedWalletId ||
-    !seamsSessionId.ok ||
     !authorizationId.ok ||
     !walletSessionId.ok ||
     !quotaId.ok ||
@@ -1017,7 +1013,6 @@ function parseRegistrationEstablishedSessionForD1(
   }
   const identity: RegistrationEstablishedSessionIdentity = {
     walletId: walletId.value,
-    seamsSessionId: seamsSessionId.value,
     authorizationId: authorizationId.value,
     walletSessionId: walletSessionId.value,
     quotaId: quotaId.value,

@@ -156,6 +156,22 @@ export type RouterAbEd25519YaoExportArtifactV1 = {
   privateKey: string;
 };
 
+export type RouterAbEd25519YaoExportEmailOtpFactorReleaseV1 = {
+  readonly kind: 'email_otp_login_grant';
+  readonly challengeId: string;
+  readonly loginGrant: string;
+  readonly expiresAtMs: number;
+};
+
+export type RouterAbEd25519YaoExportCustodyEnvelopeV1 = {
+  factorSecret: Uint8Array;
+  bindingJson: string;
+  nonce: Uint8Array;
+  ciphertext: Uint8Array;
+  aadHash: Uint8Array;
+  ciphertextDigest: Uint8Array;
+};
+
 export function buildRouterAbEd25519YaoExportAdmissionBodyV1(args: {
   protocol: RouterAbEd25519YaoExportAdmissionRequestV1;
   authorization: RouterAbEd25519YaoExportFreshAuthorizationV1;
@@ -328,19 +344,36 @@ function requireBytes12(value: Uint8Array, label: string): Uint8Array {
   return value;
 }
 
-export type RouterAbEd25519YaoExportSeedInputV1 = {
+type RouterAbEd25519YaoPasskeyExportSeedInputV1 = {
   request: RouterAbEd25519YaoExportAdmissionRequestV1;
   transport: RouterAbEd25519YaoExportTransportV1;
-  custodyEnvelope: {
-    factorSecret: Uint8Array;
-    bindingJson: string;
-    nonce: Uint8Array;
-    ciphertext: Uint8Array;
-    aadHash: Uint8Array;
-    ciphertextDigest: Uint8Array;
-  };
-  authorization: RouterAbEd25519YaoExportFreshAuthorizationV1;
+  authorization: Extract<RouterAbEd25519YaoExportFreshAuthorizationV1, { kind: 'passkey' }>;
+  custodyEnvelope: RouterAbEd25519YaoExportCustodyEnvelopeV1;
+  resolveCustodyEnvelope?: never;
 };
+
+type RouterAbEd25519YaoEmailOtpExportSeedInputV1 = {
+  request: RouterAbEd25519YaoExportAdmissionRequestV1;
+  transport: RouterAbEd25519YaoExportTransportV1;
+  authorization: Extract<
+    RouterAbEd25519YaoExportFreshAuthorizationV1,
+    { kind: 'email_otp_factor' }
+  >;
+  custodyEnvelope?: never;
+  resolveCustodyEnvelope: (
+    factorRelease: RouterAbEd25519YaoExportEmailOtpFactorReleaseV1,
+  ) => Promise<RouterAbEd25519YaoExportCustodyEnvelopeV1>;
+};
+
+export type RouterAbEd25519YaoExportSeedInputV1 =
+  | RouterAbEd25519YaoPasskeyExportSeedInputV1
+  | RouterAbEd25519YaoEmailOtpExportSeedInputV1;
+
+function isPasskeyExportSeedInput(
+  input: RouterAbEd25519YaoExportSeedInputV1,
+): input is RouterAbEd25519YaoPasskeyExportSeedInputV1 {
+  return input.authorization.kind === 'passkey';
+}
 
 type WasmExportSessionV1 = WasmCustodyEnvelopeExportSessionV1;
 
@@ -374,6 +407,34 @@ function createExportSession(args: {
     args.entropy.deriverBSealSeed,
   ] as const;
   return new WasmCustodyEnvelopeExportSessionV1(...common);
+}
+
+function parseExportEmailOtpFactorRelease(
+  value: unknown,
+): RouterAbEd25519YaoExportEmailOtpFactorReleaseV1 | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (
+    record.kind !== 'email_otp_login_grant' ||
+    typeof record.challengeId !== 'string' ||
+    record.challengeId.trim().length === 0 ||
+    typeof record.loginGrant !== 'string' ||
+    record.loginGrant.trim().length === 0 ||
+    typeof record.expiresAtMs !== 'number' ||
+    !Number.isSafeInteger(record.expiresAtMs) ||
+    record.expiresAtMs <= 0 ||
+    Object.keys(record).some(
+      (key) => !['kind', 'challengeId', 'loginGrant', 'expiresAtMs'].includes(key),
+    )
+  ) {
+    return null;
+  }
+  return {
+    kind: 'email_otp_login_grant',
+    challengeId: record.challengeId,
+    loginGrant: record.loginGrant,
+    expiresAtMs: record.expiresAtMs,
+  };
 }
 
 export type RouterAbEd25519YaoActivationEntropyV1 = {
@@ -916,7 +977,22 @@ export class RouterAbEd25519YaoClientV1 {
     if (!admissionResponse.ok) {
       return admissionResponse;
     }
-    const admission = parseRouterAbEd25519YaoExportAdmissionReceiptV1(admissionResponse.value);
+    if (
+      typeof admissionResponse.value !== 'object' ||
+      admissionResponse.value === null ||
+      Array.isArray(admissionResponse.value)
+    ) {
+      return {
+        ok: false,
+        code: 'invalid_router_response',
+        status: 0,
+        message: 'Router export admission response must be an object',
+      };
+    }
+    const admissionEnvelope = admissionResponse.value as Record<string, unknown>;
+    const admission = parseRouterAbEd25519YaoExportAdmissionReceiptV1(
+      admissionEnvelope.protocol,
+    );
     if (!admission.ok) {
       return { ok: false, code: 'invalid_router_response', status: 0, message: admission.message };
     }
@@ -929,6 +1005,39 @@ export class RouterAbEd25519YaoClientV1 {
       };
     }
 
+    let custodyEnvelope: RouterAbEd25519YaoExportCustodyEnvelopeV1;
+    if (isPasskeyExportSeedInput(args)) {
+      if (admissionEnvelope.factorRelease !== undefined) {
+        return {
+          ok: false,
+          code: 'invalid_router_response',
+          status: 0,
+          message: 'Passkey export admission returned an Email OTP factor release',
+        };
+      }
+      custodyEnvelope = args.custodyEnvelope;
+    } else {
+      const factorRelease = parseExportEmailOtpFactorRelease(admissionEnvelope.factorRelease);
+      if (!factorRelease || factorRelease.challengeId !== args.authorization.challengeId) {
+        return {
+          ok: false,
+          code: 'invalid_router_response',
+          status: 0,
+          message: 'Email OTP export admission did not return the matching factor release',
+        };
+      }
+      try {
+        custodyEnvelope = await args.resolveCustodyEnvelope(factorRelease);
+      } catch (error) {
+        return {
+          ok: false,
+          code: 'invalid_factor_secret',
+          status: 0,
+          message: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
+
     const entropy = createRouterAbEd25519YaoActivationEntropyV1();
     let session: WasmExportSessionV1;
     try {
@@ -936,7 +1045,7 @@ export class RouterAbEd25519YaoClientV1 {
         admission: admission.value,
         applicationBinding: args.request.application_binding,
         participantIds: args.request.participant_ids,
-        custodyEnvelope: args.custodyEnvelope,
+        custodyEnvelope,
         entropy,
       });
     } catch (error) {
@@ -947,7 +1056,7 @@ export class RouterAbEd25519YaoClientV1 {
         message: error instanceof Error ? error.message : String(error),
       };
     } finally {
-      args.custodyEnvelope.factorSecret.fill(0);
+      custodyEnvelope.factorSecret.fill(0);
       zeroizeRouterAbEd25519YaoActivationEntropyV1(entropy);
     }
 

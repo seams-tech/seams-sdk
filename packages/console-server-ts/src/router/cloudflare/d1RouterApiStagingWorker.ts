@@ -1027,7 +1027,19 @@ export function createStagingRecoveryRequestScopedDependencies(
   return {
     store,
     backend: createStagingEd25519YaoBackend(env),
-    authorization: new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(session),
+    authorization: new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(
+      session,
+      async () => {
+        const yaoRuntime = createStagingYaoRequestScopedRuntime(env);
+        const { service } = await createStagingRouterApiAuthComposition(
+          env,
+          scope,
+          session,
+          yaoRuntime,
+        );
+        return service.authorizationSessions;
+      },
+    ),
     capabilityPersistence: new CloudflareD1RouterAbEd25519YaoCapabilityPersistence({
       database: env.SIGNER_DB,
       scope,

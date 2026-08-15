@@ -31,10 +31,10 @@ export type ReusableEcdsaSigningCredential = {
   readonly walletSessionToken: string;
 };
 
-export type OperationStepUpEcdsaSigningCredential =
-  | {
-      readonly kind: 'operation_step_up';
-    };
+export type OperationStepUpEcdsaSigningCredential = {
+  readonly kind: 'operation_step_up';
+  readonly walletSessionToken: string;
+};
 
 type ReadySecp256k1SigningMaterialBase = {
   kind: 'ready_secp256k1_signing_material';
@@ -155,7 +155,10 @@ function routerAbTransportCredential(
     case 'reusable_wallet_session':
       return { kind: 'wallet_session_opaque', walletSessionToken: credential.walletSessionToken };
     case 'operation_step_up':
-      return { kind: 'operation_step_up' };
+      return {
+        kind: 'wallet_session_opaque',
+        walletSessionToken: credential.walletSessionToken,
+      };
   }
   credential satisfies never;
   throw new Error('[multichain] unsupported ECDSA signing credential');

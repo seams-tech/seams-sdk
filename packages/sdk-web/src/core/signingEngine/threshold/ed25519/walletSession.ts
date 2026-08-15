@@ -52,7 +52,6 @@ export type ThresholdEd25519WebAuthnPrfSecretSource = {
 export type Ed25519WalletSessionMintAuthorization = {
   kind: 'threshold_session_policy_webauthn';
   policySecretSource: ThresholdEd25519WebAuthnPrfSecretSource;
-  thresholdEcdsaSessionJwt?: never;
   localSecretSource?: never;
   localPrfCredential?: never;
   webauthnAuthentication?: never;
@@ -127,6 +126,7 @@ export async function mintEd25519WalletSession(args: {
   auth: Ed25519WalletSessionMintAuthorization;
   projectEnvironmentId?: string;
   publishableKey?: string;
+  existingWalletSessionToken?: string;
 }): Promise<{
   ok: boolean;
   thresholdSessionId?: ThresholdEd25519SessionId;
@@ -179,9 +179,10 @@ export async function mintEd25519WalletSession(args: {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   try {
     const url = `${relayerUrl}${ROUTER_AB_ED25519_WALLET_SESSION_PATH}`;
+    const existingWalletSessionToken = String(args.existingWalletSessionToken || '').trim();
     const publishableKey = String(args.publishableKey || '').trim() || undefined;
-    const bearerToken = publishableKey;
-    const projectEnvironmentId = publishableKey
+    const bearerToken = existingWalletSessionToken || publishableKey;
+    const projectEnvironmentId = !existingWalletSessionToken && publishableKey
       ? String(args.projectEnvironmentId || '').trim() || undefined
       : undefined;
     timeoutId = setTimeout(
@@ -202,6 +203,9 @@ export async function mintEd25519WalletSession(args: {
         relayerKeyId: args.relayerKeyId,
         sessionPolicy: args.sessionPolicy,
         ...(projectEnvironmentId ? { projectEnvironmentId } : {}),
+        walletSessionTarget: existingWalletSessionToken
+          ? { kind: 'reuse_ecdsa_wallet_session' }
+          : { kind: 'new_wallet_session' },
         ...(webauthn_authentication ? { webauthn_authentication } : {}),
       }),
     });

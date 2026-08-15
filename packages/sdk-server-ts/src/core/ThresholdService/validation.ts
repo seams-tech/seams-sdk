@@ -67,7 +67,6 @@ import type {
 import { registrationPreparationIdFromString } from '../registrationContracts';
 import {
   parseMpcWalletSigningQuotaId,
-  parseSeamsSessionId,
   parseTenantId,
   parseLinkedDeviceWalletSessionAuthorizationId,
   parseWalletSessionAuthorizationId,
@@ -75,7 +74,6 @@ import {
   type MpcWalletSigningQuotaId,
   type TenantId,
   type LinkedDeviceWalletSessionAuthorizationId,
-  type SeamsSessionId,
   type WalletSessionAuthorizationId,
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
@@ -1235,12 +1233,6 @@ export function parseRouterAbEcdsaDerivationPoolFillSessionRecord(
   };
 }
 
-type Ed25519WalletSessionClaimKind = typeof ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND;
-
-export type WalletSessionAuthorizationKind =
-  | 'owner_wallet_session'
-  | 'linked_device_wallet_session';
-
 export type LinkedDeviceWalletSessionPermissionClaimsV1 = {
   readonly kind: 'owner_equivalent_signing';
   readonly administrationScope: 'signing_only';
@@ -1269,44 +1261,6 @@ type LinkedDeviceWalletSessionClaimBase = {
   nbf?: number;
 };
 
-export type Ed25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessionClaimKind> = {
-  sub: string;
-  walletId: string;
-  nearAccountId: string;
-  nearEd25519SigningKeyId: string;
-  kind: Kind;
-  authorizationKind: 'owner_wallet_session';
-  sid?: SeamsSessionId;
-  thresholdSessionId: string;
-  authorizationId: WalletSessionAuthorizationId;
-  walletSessionId: WalletSessionId;
-  quotaId: MpcWalletSigningQuotaId;
-  relayerKeyId: string;
-  authority: WalletAuthAuthority;
-  authorityScope: ThresholdEd25519AuthorityScope;
-  runtimePolicyScope?: RuntimePolicyScope;
-  thresholdExpiresAtMs: number;
-  participantIds: number[];
-  iat?: number;
-  exp?: number;
-  nbf?: number;
-};
-
-export type RouterAbEd25519OwnerWalletSessionClaims = Ed25519WalletSessionClaimsForKind<
-  typeof ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND
-> & {
-  runtimePolicyScope: RuntimePolicyScope;
-  routerAbNormalSigning: RouterAbEd25519NormalSigningState;
-  readonly tenantId?: never;
-  readonly deviceId?: never;
-  readonly enrollmentId?: never;
-  readonly walletKeyId?: never;
-  readonly keyManifestDigestB64u?: never;
-  readonly revocationEpoch?: never;
-  readonly permission?: never;
-  readonly issuedAtMs?: never;
-};
-
 export type RouterAbEd25519LinkedDeviceWalletSessionClaims = LinkedDeviceWalletSessionClaimBase & {
   readonly kind: typeof ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND;
   readonly authorizationKind: 'linked_device_wallet_session';
@@ -1323,174 +1277,12 @@ export type RouterAbEd25519LinkedDeviceWalletSessionClaims = LinkedDeviceWalletS
   readonly routerAbNormalSigning?: never;
 };
 
-export type RouterAbEd25519WalletSessionClaims =
-  | RouterAbEd25519OwnerWalletSessionClaims
-  | RouterAbEd25519LinkedDeviceWalletSessionClaims;
-
-export function isRouterAbEd25519OwnerWalletSessionClaims(
-  claims: RouterAbEd25519WalletSessionClaims,
-): claims is RouterAbEd25519OwnerWalletSessionClaims {
-  return claims.authorizationKind === 'owner_wallet_session';
-}
-
 function parseRuntimePolicyScope(raw: unknown): RuntimePolicyScope | null {
   try {
     return normalizeRuntimePolicyScope(raw as Record<string, unknown>);
   } catch {
     return null;
   }
-}
-
-function parseEd25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessionClaimKind>(
-  raw: unknown,
-  expectedKind: Kind,
-): Ed25519WalletSessionClaimsForKind<Kind> | null {
-  if (!isObject(raw)) return null;
-  const kind = toOptionalString(raw.kind);
-  if (kind !== expectedKind) return null;
-  if (toOptionalString(raw.authorizationKind) !== 'owner_wallet_session') return null;
-  if (
-    hasForbiddenFields(raw, [
-      'tenantId',
-      'deviceId',
-      'enrollmentId',
-      'walletKeyId',
-      'keyManifestDigestB64u',
-      'revocationEpoch',
-      'permission',
-      'issuedAtMs',
-    ])
-  ) {
-    return null;
-  }
-  const sub = toOptionalString(raw.sub);
-  const walletId = toOptionalString((raw as { walletId?: unknown }).walletId);
-  const nearAccountId = toOptionalString((raw as { nearAccountId?: unknown }).nearAccountId);
-  const nearEd25519SigningKeyId = toOptionalString(
-    (raw as { nearEd25519SigningKeyId?: unknown }).nearEd25519SigningKeyId,
-  );
-  const sidRaw = (raw as { sid?: unknown }).sid;
-  const seamsSessionId =
-    sidRaw === undefined ? { ok: true as const, value: undefined } : parseSeamsSessionId(sidRaw);
-  const thresholdSessionId = toOptionalString(
-    (raw as { thresholdSessionId?: unknown }).thresholdSessionId,
-  );
-  const authorizationId = parseWalletSessionAuthorizationId(
-    (raw as { authorizationId?: unknown }).authorizationId,
-  );
-  const walletSessionId = parseWalletSessionId(
-    (raw as { walletSessionId?: unknown }).walletSessionId,
-  );
-  const quotaId = parseMpcWalletSigningQuotaId((raw as { quotaId?: unknown }).quotaId);
-  const relayerKeyId = toOptionalString(raw.relayerKeyId);
-  const authorityScope = parseThresholdEd25519AuthorityScope(
-    (raw as { authorityScope?: unknown }).authorityScope,
-  );
-  const authority = parseWalletAuthAuthority((raw as { authority?: unknown }).authority);
-  if (
-    !sub ||
-    !walletId ||
-    walletId !== sub ||
-    !nearAccountId ||
-    !nearEd25519SigningKeyId ||
-    !seamsSessionId.ok ||
-    !thresholdSessionId ||
-    !authorizationId.ok ||
-    !walletSessionId.ok ||
-    !quotaId.ok ||
-    !relayerKeyId ||
-    !authorityScope ||
-    !authority ||
-    authority.walletId !== walletId ||
-    !thresholdEd25519AuthorityScopesMatch(
-      thresholdEd25519AuthorityScopeFromWalletAuthAuthority(authority),
-      authorityScope,
-    )
-  )
-    return null;
-  const thresholdExpiresAtMs = (raw as { thresholdExpiresAtMs?: unknown }).thresholdExpiresAtMs;
-  if (!isValidNumber(thresholdExpiresAtMs)) return null;
-  const participantIds = normalizeThresholdEd25519ParticipantIds(
-    (raw as { participantIds?: unknown }).participantIds,
-  );
-  if (!participantIds || participantIds.length < 2) return null;
-  const out: Ed25519WalletSessionClaimsForKind<Kind> = {
-    sub,
-    walletId,
-    nearAccountId,
-    nearEd25519SigningKeyId,
-    kind: expectedKind,
-    authorizationKind: 'owner_wallet_session',
-    ...(seamsSessionId.value ? { sid: seamsSessionId.value } : {}),
-    thresholdSessionId,
-    authorizationId: authorizationId.value,
-    walletSessionId: walletSessionId.value,
-    quotaId: quotaId.value,
-    relayerKeyId,
-    authority,
-    authorityScope,
-    thresholdExpiresAtMs,
-    participantIds,
-  };
-  const runtimePolicyScopeRaw = (raw as { runtimePolicyScope?: unknown }).runtimePolicyScope;
-  if (runtimePolicyScopeRaw !== undefined) {
-    const runtimePolicyScope = parseRuntimePolicyScope(runtimePolicyScopeRaw);
-    if (!runtimePolicyScope) {
-      console.warn(
-        '[threshold-ecdsa-e2e] wallet session runtimePolicyScope parse failed',
-        runtimePolicyScopeRaw,
-      );
-      return null;
-    }
-    out.runtimePolicyScope = runtimePolicyScope;
-  }
-
-  const iat = (raw as { iat?: unknown }).iat;
-  if (iat !== undefined) {
-    const v = Number(iat);
-    if (!Number.isFinite(v)) return null;
-    out.iat = v;
-  }
-
-  const exp = (raw as { exp?: unknown }).exp;
-  if (exp !== undefined) {
-    const v = Number(exp);
-    if (!Number.isFinite(v)) return null;
-    out.exp = v;
-  }
-
-  const nbf = (raw as { nbf?: unknown }).nbf;
-  if (nbf !== undefined) {
-    const v = Number(nbf);
-    if (!Number.isFinite(v)) return null;
-    out.nbf = v;
-  }
-
-  return out;
-}
-
-function parseRouterAbEd25519OwnerWalletSessionClaims(
-  raw: unknown,
-): RouterAbEd25519OwnerWalletSessionClaims | null {
-  const claims = parseEd25519WalletSessionClaimsForKind(
-    raw,
-    ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-  );
-  if (!claims?.runtimePolicyScope) return null;
-  let routerAbNormalSigning: RouterAbEd25519NormalSigningState | null = null;
-  try {
-    routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
-      isObject(raw) ? raw.routerAbNormalSigning : undefined,
-    );
-  } catch {
-    return null;
-  }
-  if (!routerAbNormalSigning) return null;
-  return {
-    ...claims,
-    runtimePolicyScope: claims.runtimePolicyScope,
-    routerAbNormalSigning,
-  };
 }
 
 function parseLinkedDeviceWalletSessionPermissionClaims(
@@ -1520,7 +1312,7 @@ function parseLinkedDeviceWalletSessionPermissionClaims(
   };
 }
 
-function parseRouterAbEd25519LinkedDeviceWalletSessionClaims(
+export function parseRouterAbEd25519LinkedDeviceWalletSessionClaims(
   raw: unknown,
 ): RouterAbEd25519LinkedDeviceWalletSessionClaims | null {
   if (!isObject(raw)) return null;
@@ -1640,69 +1432,6 @@ function parseRouterAbEd25519LinkedDeviceWalletSessionClaims(
   return out;
 }
 
-export function parseRouterAbEd25519WalletSessionClaims(
-  raw: unknown,
-): RouterAbEd25519WalletSessionClaims | null {
-  if (!isObject(raw)) return null;
-  const authorizationKind = toOptionalString(raw.authorizationKind);
-  if (authorizationKind === 'owner_wallet_session') {
-    return parseRouterAbEd25519OwnerWalletSessionClaims(raw);
-  }
-  if (authorizationKind === 'linked_device_wallet_session') {
-    return parseRouterAbEd25519LinkedDeviceWalletSessionClaims(raw);
-  }
-  return null;
-}
-
-type EcdsaWalletSessionClaimKind = typeof ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND;
-
-export type EcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionClaimKind> = {
-  sub: string;
-  walletId: string;
-  kind: Kind;
-  authorizationKind: 'owner_wallet_session';
-  sid: SeamsSessionId;
-  thresholdSessionId: string;
-  authorizationId: WalletSessionAuthorizationId;
-  authorizationSessionId: SeamsSessionId;
-  walletAuthAuthorityRef: WalletAuthAuthorityRef;
-  authSource:
-    | {
-        readonly kind: 'passkey';
-        readonly credentialIdB64u: WebAuthnCredentialIdB64u;
-      }
-    | {
-        readonly kind: 'oidc_provider';
-        readonly providerId: 'google_oidc' | 'oidc';
-        readonly providerSubject: ProviderSubject;
-      };
-  walletSessionId: WalletSessionId;
-  quotaId: MpcWalletSigningQuotaId;
-  keyScope: 'evm-family';
-  keyHandle: string;
-  relayerKeyId: string;
-  runtimePolicyScope?: RuntimePolicyScope;
-  thresholdExpiresAtMs: number;
-  participantIds: number[];
-  iat?: number;
-  exp?: number;
-  nbf?: number;
-};
-
-export type RouterAbEcdsaDerivationOwnerWalletSessionClaims = EcdsaWalletSessionClaimsForKind<
-  typeof ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND
-> & {
-  routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
-  readonly tenantId?: never;
-  readonly deviceId?: never;
-  readonly enrollmentId?: never;
-  readonly walletKeyId?: never;
-  readonly keyManifestDigestB64u?: never;
-  readonly revocationEpoch?: never;
-  readonly permission?: never;
-  readonly issuedAtMs?: never;
-};
-
 export type RouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims =
   LinkedDeviceWalletSessionClaimBase & {
     readonly kind: typeof ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND;
@@ -1725,187 +1454,7 @@ export type RouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims =
     readonly keyHandle?: never;
   };
 
-export type RouterAbEcdsaDerivationWalletSessionClaims =
-  | RouterAbEcdsaDerivationOwnerWalletSessionClaims
-  | RouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims;
-
-export function isRouterAbEcdsaDerivationOwnerWalletSessionClaims(
-  claims: RouterAbEcdsaDerivationWalletSessionClaims,
-): claims is RouterAbEcdsaDerivationOwnerWalletSessionClaims {
-  return claims.authorizationKind === 'owner_wallet_session';
-}
-
-function parseEcdsaWalletSessionAuthSource(
-  raw: unknown,
-): EcdsaWalletSessionClaimsForKind<EcdsaWalletSessionClaimKind>['authSource'] | null {
-  if (!isObject(raw)) return null;
-  if (raw.kind === 'passkey') {
-    const credentialId = parseWebAuthnCredentialIdB64u(raw.credentialIdB64u);
-    return credentialId.ok ? { kind: 'passkey', credentialIdB64u: credentialId.value } : null;
-  }
-  if (raw.kind !== 'oidc_provider') return null;
-  if (raw.providerId !== 'google_oidc' && raw.providerId !== 'oidc') return null;
-  const providerSubject = parseProviderSubject(raw.providerSubject);
-  return providerSubject.ok
-    ? {
-        kind: 'oidc_provider',
-        providerId: raw.providerId,
-        providerSubject: providerSubject.value,
-      }
-    : null;
-}
-
-function parseEcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionClaimKind>(
-  raw: unknown,
-  expectedKind: Kind,
-): EcdsaWalletSessionClaimsForKind<Kind> | null {
-  if (!isObject(raw)) return null;
-  if ('evmFamilySigningKeySlotId' in raw) return null;
-  const kind = toOptionalString(raw.kind);
-  if (kind !== expectedKind) return null;
-  if (toOptionalString(raw.authorizationKind) !== 'owner_wallet_session') return null;
-  if (
-    hasForbiddenFields(raw, [
-      'tenantId',
-      'deviceId',
-      'enrollmentId',
-      'walletKeyId',
-      'keyManifestDigestB64u',
-      'revocationEpoch',
-      'permission',
-      'issuedAtMs',
-    ])
-  ) {
-    return null;
-  }
-  const sub = toOptionalString(raw.sub);
-  const walletId = toOptionalString((raw as { walletId?: unknown }).walletId);
-  const thresholdSessionId = toOptionalString(
-    (raw as { thresholdSessionId?: unknown }).thresholdSessionId,
-  );
-  const seamsSessionId = parseSeamsSessionId((raw as { sid?: unknown }).sid);
-  const authorizationId = parseWalletSessionAuthorizationId(
-    (raw as { authorizationId?: unknown }).authorizationId,
-  );
-  const authorizationSessionId = parseSeamsSessionId(
-    (raw as { authorizationSessionId?: unknown }).authorizationSessionId,
-  );
-  const walletAuthAuthorityRef = parseWalletAuthAuthorityRef(
-    (raw as { walletAuthAuthorityRef?: unknown }).walletAuthAuthorityRef,
-  );
-  const authSource = parseEcdsaWalletSessionAuthSource(
-    (raw as { authSource?: unknown }).authSource,
-  );
-  const walletSessionId = parseWalletSessionId(
-    (raw as { walletSessionId?: unknown }).walletSessionId,
-  );
-  const quotaId = parseMpcWalletSigningQuotaId((raw as { quotaId?: unknown }).quotaId);
-  const keyScope = toOptionalString((raw as { keyScope?: unknown }).keyScope);
-  const keyHandle = toOptionalString((raw as { keyHandle?: unknown }).keyHandle);
-  const relayerKeyId = toOptionalString(raw.relayerKeyId);
-  if (
-    !sub ||
-    !walletId ||
-    walletId !== sub ||
-    !seamsSessionId.ok ||
-    !thresholdSessionId ||
-    !authorizationId.ok ||
-    !authorizationSessionId.ok ||
-    !walletAuthAuthorityRef ||
-    walletAuthAuthorityRef.walletId !== walletId ||
-    !authSource ||
-    seamsSessionId.value !== authorizationSessionId.value ||
-    !walletSessionId.ok ||
-    !quotaId.ok ||
-    keyScope !== 'evm-family' ||
-    !keyHandle ||
-    !relayerKeyId
-  )
-    return null;
-  const thresholdExpiresAtMs = (raw as { thresholdExpiresAtMs?: unknown }).thresholdExpiresAtMs;
-  if (!isValidNumber(thresholdExpiresAtMs)) return null;
-  const participantIds = normalizeThresholdEd25519ParticipantIds(
-    (raw as { participantIds?: unknown }).participantIds,
-  );
-  if (!participantIds || participantIds.length < 2) return null;
-  const out: EcdsaWalletSessionClaimsForKind<Kind> = {
-    sub,
-    walletId,
-    kind: expectedKind,
-    authorizationKind: 'owner_wallet_session',
-    sid: seamsSessionId.value,
-    thresholdSessionId,
-    authorizationId: authorizationId.value,
-    authorizationSessionId: authorizationSessionId.value,
-    walletAuthAuthorityRef,
-    authSource,
-    walletSessionId: walletSessionId.value,
-    quotaId: quotaId.value,
-    keyScope,
-    keyHandle,
-    relayerKeyId,
-    thresholdExpiresAtMs,
-    participantIds,
-  };
-  const runtimePolicyScopeRaw = (raw as { runtimePolicyScope?: unknown }).runtimePolicyScope;
-  if (runtimePolicyScopeRaw !== undefined) {
-    const runtimePolicyScope = parseRuntimePolicyScope(runtimePolicyScopeRaw);
-    if (!runtimePolicyScope) return null;
-    out.runtimePolicyScope = runtimePolicyScope;
-  }
-
-  const iat = (raw as { iat?: unknown }).iat;
-  if (iat !== undefined) {
-    const v = Number(iat);
-    if (!Number.isFinite(v)) return null;
-    out.iat = v;
-  }
-
-  const exp = (raw as { exp?: unknown }).exp;
-  if (exp !== undefined) {
-    const v = Number(exp);
-    if (!Number.isFinite(v)) return null;
-    out.exp = v;
-  }
-
-  const nbf = (raw as { nbf?: unknown }).nbf;
-  if (nbf !== undefined) {
-    const v = Number(nbf);
-    if (!Number.isFinite(v)) return null;
-    out.nbf = v;
-  }
-
-  return out;
-}
-
-function parseRouterAbEcdsaDerivationOwnerWalletSessionClaims(
-  raw: unknown,
-): RouterAbEcdsaDerivationOwnerWalletSessionClaims | null {
-  const claims = parseEcdsaWalletSessionClaimsForKind(
-    raw,
-    ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
-  );
-  if (!claims || !isObject(raw)) return null;
-  const hasNormalSigning = raw.routerAbEcdsaDerivationNormalSigning !== undefined;
-  const hasIssuerBinding = raw.routerAbEcdsaDerivationIssuerBinding !== undefined;
-  if (!hasNormalSigning || hasIssuerBinding) return null;
-
-  let normalSigning: RouterAbEcdsaDerivationNormalSigningStateV1 | null = null;
-  try {
-    normalSigning = parseRouterAbEcdsaDerivationNormalSigningStateV1(
-      raw.routerAbEcdsaDerivationNormalSigning,
-    );
-  } catch {
-    return null;
-  }
-  if (!normalSigning) return null;
-  return {
-    ...claims,
-    routerAbEcdsaDerivationNormalSigning: normalSigning,
-  };
-}
-
-function parseRouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims(
+export function parseRouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims(
   raw: unknown,
 ): RouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims | null {
   if (!isObject(raw)) return null;
@@ -2025,20 +1574,6 @@ function parseRouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims(
     out.nbf = value;
   }
   return out;
-}
-
-export function parseRouterAbEcdsaDerivationWalletSessionClaims(
-  raw: unknown,
-): RouterAbEcdsaDerivationWalletSessionClaims | null {
-  if (!isObject(raw)) return null;
-  const authorizationKind = toOptionalString(raw.authorizationKind);
-  if (authorizationKind === 'owner_wallet_session') {
-    return parseRouterAbEcdsaDerivationOwnerWalletSessionClaims(raw);
-  }
-  if (authorizationKind === 'linked_device_wallet_session') {
-    return parseRouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims(raw);
-  }
-  return null;
 }
 
 export function normalizeByteArray32(input: unknown): Uint8Array | null {

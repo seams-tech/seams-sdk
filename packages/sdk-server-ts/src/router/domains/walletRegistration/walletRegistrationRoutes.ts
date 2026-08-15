@@ -2184,7 +2184,7 @@ export async function handleRouterApiWalletAddSignerStart(
     if (!admission || admission.curve !== 'ecdsa') {
       return routeError(401, 'unauthorized', 'Opaque ECDSA Wallet Session is unavailable');
     }
-    if (admission.claims.walletId !== walletId) {
+    if (admission.binding.walletId !== walletId) {
       return routeError(403, 'forbidden', 'Wallet session does not match walletId');
     }
   }
@@ -2458,7 +2458,7 @@ export async function handleRouterApiWalletEcdsaKeyFactsInventory(
       if (!admission || admission.curve !== 'ecdsa') {
         return routeError(401, 'unauthorized', 'Opaque ECDSA Wallet Session is unavailable');
       }
-      if (admission.claims.walletId !== walletId) {
+      if (admission.binding.walletId !== walletId) {
         return routeError(403, 'forbidden', 'Wallet session does not match walletId');
       }
       break;
@@ -2493,10 +2493,10 @@ export async function handleRouterApiWalletNearImplicitAccountFund(
   if (!admission || admission.curve !== 'ed25519') {
     return routeError(401, 'unauthorized', 'Opaque Ed25519 Wallet Session is unavailable');
   }
-  if (admission.claims.walletId !== parsedBody.value.walletId) {
+  if (admission.binding.walletId !== parsedBody.value.walletId) {
     return routeError(403, 'forbidden', 'Wallet session does not match walletId');
   }
-  if (admission.claims.nearAccountId !== parsedBody.value.nearAccountId) {
+  if (admission.binding.nearAccountId !== parsedBody.value.nearAccountId) {
     return routeError(403, 'forbidden', 'Wallet session does not match nearAccountId');
   }
 

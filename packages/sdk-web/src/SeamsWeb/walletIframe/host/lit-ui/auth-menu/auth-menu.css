@@ -1274,6 +1274,44 @@ seams-auth-menu-surface {
   width: 100%;
 }
 
+.w3a-link-device-confirmation {
+  min-height: 300px;
+  width: min(100%, 360px);
+  margin-inline: auto;
+  padding: 2rem 1rem 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  text-align: center;
+}
+
+.w3a-link-device-approved-icon {
+  width: 56px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--w3a-colors-textButton, #ffffff);
+  background: var(--w3a-colors-primary, #3b82f6);
+}
+
+.w3a-link-device-confirmation-copy {
+  max-width: 30ch;
+  margin: 0;
+  color: var(--w3a-colors-textSecondary, #64748b);
+  font-size: 1rem;
+  font-weight: 500;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+.w3a-link-device-confirmation .w3a-link-device-btn {
+  width: min(100%, 280px);
+  margin-top: 0.25rem;
+}
+
 /* Status message row */
 .w3a-status-row {
   position: absolute;

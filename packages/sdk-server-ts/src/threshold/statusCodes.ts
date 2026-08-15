@@ -35,6 +35,7 @@ export function thresholdStatusCode(result: ThresholdRouteResult): number {
     case 'wallet_session_missing':
     case 'wallet_session_signature_invalid':
     case 'wallet_session_claims_invalid':
+    case 'wallet_session_invalid':
     case 'wallet_session_expired':
       return 401;
     case 'wallet_session_scope_mismatch':

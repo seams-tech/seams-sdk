@@ -272,7 +272,7 @@ function emailOtpEd25519WorkerExportMaterial(
 export async function exportEd25519YaoSeedWithFreshEmailOtpLane(
   ports: Pick<
     EmailOtpWorkerPorts,
-    'getSignerWorkerContext' | 'requireRelayUrl' | 'requireSigningSessionSealGroupId'
+    'getSignerWorkerContext' | 'requireRelayUrl'
   >,
   args: {
     challengeId: string;
@@ -295,7 +295,6 @@ export async function exportEd25519YaoSeedWithFreshEmailOtpLane(
         relayUrl,
         challengeId: args.challengeId,
         otpCode: args.otpCode,
-        groupId: ports.requireSigningSessionSealGroupId(),
         lane: {
           walletId: String(walletId),
           providerSubjectId: args.exportContext.lane.auth.providerSubjectId,

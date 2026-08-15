@@ -18,7 +18,7 @@ import {
   type LinkedDeviceWalletSessionAuthorizationId,
   type WalletSessionAuthorizationId,
   type AuthorizedOperationId,
-  type SeamsSessionId,
+  type EcdsaAuthorizationSessionId,
 } from './capabilityKinds';
 
 const vaultOperation = buildVaultOperationRef(VAULT_OPERATION_KINDS.proxyUse);
@@ -72,7 +72,7 @@ buildAuthorizationEvidenceRequirement({ mode: 'all', evidenceKinds: [] });
 const unsupportedEvidence: AuthorizationEvidenceKind = 'mpc_signer_proof';
 void unsupportedEvidence;
 
-declare const seamsSessionId: SeamsSessionId;
+declare const ecdsaAuthorizationSessionId: EcdsaAuthorizationSessionId;
 declare const authorizationId: WalletSessionAuthorizationId;
 declare const linkedAuthorizationId: LinkedDeviceWalletSessionAuthorizationId;
 declare const authorizedOperationId: AuthorizedOperationId;
@@ -88,7 +88,7 @@ void linkedAuthorizationRef;
 const invalidLinkedAuthorizationId: LinkedDeviceWalletSessionAuthorizationId = authorizationId;
 void invalidLinkedAuthorizationId;
 // @ts-expect-error Session identity cannot substitute for reusable authorization identity.
-const invalidAuthorizationId: WalletSessionAuthorizationId = seamsSessionId;
+const invalidAuthorizationId: WalletSessionAuthorizationId = ecdsaAuthorizationSessionId;
 void invalidAuthorizationId;
 // @ts-expect-error Wallet authorization identity cannot substitute for operation identity.
 const invalidOperationId: AuthorizedOperationId = authorizationId;
@@ -96,5 +96,5 @@ void invalidOperationId;
 
 declare const factorId: AuthFactorId;
 // @ts-expect-error Factor and session identities are independent.
-const invalidSessionId: SeamsSessionId = factorId;
+const invalidSessionId: EcdsaAuthorizationSessionId = factorId;
 void invalidSessionId;

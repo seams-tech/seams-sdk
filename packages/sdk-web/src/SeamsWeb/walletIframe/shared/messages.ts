@@ -37,6 +37,7 @@ import type {
   GoogleEmailOtpWalletAuthRequestedMode,
   GoogleEmailOtpWalletAuthSubmitSuccess,
   AddPasskeyAuthorization,
+  EmailOtpEcdsaCapabilityArgs,
   ResolveExactKeyExportLaneInput,
   WalletRecoveryRotationAuthorization,
 } from '@/SeamsWeb/publicApi/types';
@@ -102,6 +103,11 @@ export type HostedAuthMenuRegistrationAccountInput =
 
 export type HostedAuthMenuExternalProvider = 'google';
 
+export type HostedAuthMenuLoginTarget =
+  | { readonly kind: 'discoverable' }
+  | { readonly kind: 'wallet'; readonly walletId: WalletId }
+  | { readonly kind: 'wallet_sync'; readonly walletId: WalletId };
+
 export type HostedAuthMenuModeCopy = {
   title: string;
   subtitle: string;
@@ -130,6 +136,7 @@ export type HostedAuthMenuOpenRequest = {
   kind: 'hosted_auth_menu_open_v1';
   authMenuSessionId: HostedAuthMenuSessionId;
   initialMode: HostedAuthMenuMode;
+  loginTarget: HostedAuthMenuLoginTarget;
   registrationAccountInput: HostedAuthMenuRegistrationAccountInput;
   showRegistrationInput: boolean;
   showProgress: boolean;
@@ -510,6 +517,7 @@ export function parseHostedAuthMenuOpenRequest(value: unknown): HostedAuthMenuOp
       'kind',
       'authMenuSessionId',
       'initialMode',
+      'loginTarget',
       'registrationAccountInput',
       'showRegistrationInput',
       'showProgress',
@@ -522,11 +530,29 @@ export function parseHostedAuthMenuOpenRequest(value: unknown): HostedAuthMenuOp
   }
   const authMenuSessionId = hostedAuthMenuSessionIdFromBoundary(record.authMenuSessionId);
   const initialMode = parseAuthMenuMode(record.initialMode);
+  const loginTargetRecord = recordFromBoundary(record.loginTarget);
+  const loginWalletId =
+    loginTargetRecord?.kind === 'wallet' || loginTargetRecord?.kind === 'wallet_sync'
+      ? parseWalletId(loginTargetRecord.walletId)
+      : null;
+  const loginTarget: HostedAuthMenuLoginTarget | null =
+    loginTargetRecord?.kind === 'discoverable' && hasOnlyKeys(loginTargetRecord, ['kind'])
+      ? { kind: 'discoverable' }
+      : loginTargetRecord?.kind === 'wallet' &&
+          hasOnlyKeys(loginTargetRecord, ['kind', 'walletId']) &&
+          loginWalletId?.ok
+        ? { kind: 'wallet', walletId: loginWalletId.value }
+        : loginTargetRecord?.kind === 'wallet_sync' &&
+            hasOnlyKeys(loginTargetRecord, ['kind', 'walletId']) &&
+            loginWalletId?.ok
+          ? { kind: 'wallet_sync', walletId: loginWalletId.value }
+        : null;
   const registrationAccountInput = parseRegistrationAccountInput(record.registrationAccountInput);
   const providers = parseExternalProviders(record.enabledExternalProviders);
   if (
     !authMenuSessionId ||
     !initialMode ||
+    !loginTarget ||
     !registrationAccountInput ||
     typeof record.showRegistrationInput !== 'boolean' ||
     typeof record.showProgress !== 'boolean' ||
@@ -539,6 +565,7 @@ export function parseHostedAuthMenuOpenRequest(value: unknown): HostedAuthMenuOp
     kind: 'hosted_auth_menu_open_v1',
     authMenuSessionId,
     initialMode,
+    loginTarget,
     registrationAccountInput,
     showRegistrationInput: record.showRegistrationInput,
     showProgress: record.showProgress,
@@ -550,6 +577,7 @@ export function parseHostedAuthMenuOpenRequest(value: unknown): HostedAuthMenuOp
 export function buildHostedAuthMenuOpenRequest(args: {
   authMenuSessionId: HostedAuthMenuSessionId;
   initialMode?: HostedAuthMenuMode;
+  loginTarget?: HostedAuthMenuLoginTarget;
   registrationAccountInput?: HostedAuthMenuRegistrationAccountInput;
   showRegistrationInput?: boolean;
   showProgress?: boolean;
@@ -565,6 +593,7 @@ export function buildHostedAuthMenuOpenRequest(args: {
     !hasOnlyKeys(argsRecord, [
       'authMenuSessionId',
       'initialMode',
+      'loginTarget',
       'registrationAccountInput',
       'showRegistrationInput',
       'showProgress',
@@ -581,6 +610,7 @@ export function buildHostedAuthMenuOpenRequest(args: {
     kind: 'hosted_auth_menu_open_v1',
     authMenuSessionId: parsedSessionId,
     initialMode: args.initialMode ?? 'login',
+    loginTarget: args.loginTarget ?? { kind: 'discoverable' },
     registrationAccountInput: args.registrationAccountInput ?? 'implicit_wallet',
     showRegistrationInput: args.showRegistrationInput ?? false,
     showProgress: args.showProgress ?? false,
@@ -1314,6 +1344,7 @@ export interface PMCompleteWalletRecoveryPayload {
 export interface PMEmailOtpEcdsaCapabilityPayload {
   walletSession: WalletSessionRef;
   chainTarget: ThresholdEcdsaChainTarget;
+  providerIdentity: EmailOtpEcdsaCapabilityArgs['providerIdentity'];
   publicationChainTargets?: readonly ThresholdEcdsaChainTarget[];
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   relayUrl?: string;

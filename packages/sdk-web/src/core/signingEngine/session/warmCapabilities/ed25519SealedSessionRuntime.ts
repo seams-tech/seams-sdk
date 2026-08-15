@@ -21,6 +21,7 @@ import { toRpId } from '../identity/evmFamilyEcdsaIdentity';
 import type { SigningLaneAuthBinding } from '../identity/signingLaneAuthBinding';
 import { SigningSessionIds, type ThresholdEd25519SessionId } from '../operationState/types';
 import {
+  walletSessionAuthorizationIdForCurve,
   walletSessionTokenForCurve,
   type ActiveWalletSessionAuthorizationProjection,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
@@ -284,11 +285,15 @@ export function ed25519AuthorizationIdentityMatchesRuntime(args: {
   authorization: ActiveWalletSessionAuthorizationProjection;
 }): boolean {
   const walletSessionToken = walletSessionTokenForCurve(args.authorization, 'ed25519');
+  const authorizationId = walletSessionAuthorizationIdForCurve(
+    args.authorization,
+    'ed25519',
+  );
   if (!walletSessionToken) return false;
   return Boolean(
     String(args.authorization.walletId) === String(args.runtime.walletId) &&
     args.authorization.authMethod === args.runtime.factor.kind &&
-    args.authorization.authorizationId.length > 0 &&
+    authorizationId !== null &&
     args.authorization.walletSessionId.length > 0 &&
     args.authorization.quotaId.length > 0,
   );

@@ -34,7 +34,7 @@ export type RequestEmailOtpChallengeArgs =
   | {
       kind: 'wallet_login_challenge';
       walletSession: WalletSessionRef;
-      chain: EmailOtpEcdsaRouteChain;
+      chain: EmailOtpRouteChain;
       authLane?: never;
       routeAuth?: never;
     }
@@ -137,7 +137,6 @@ export class EmailOtpExportRecoveryRuntime {
       {
         getSignerWorkerContext: this.ports.getSignerWorkerContext,
         requireRelayUrl: this.ports.requireRelayUrl,
-        requireSigningSessionSealGroupId: this.ports.requireSigningSessionSealGroupId,
       },
       args,
     );

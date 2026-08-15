@@ -794,6 +794,10 @@ function parseNullableClientUserData(
       record.operationalPublicKey,
       'userData.operationalPublicKey',
     ),
+    nearEd25519SigningKeyId: requireNonEmptyString(
+      record.nearEd25519SigningKeyId,
+      'userData.nearEd25519SigningKeyId',
+    ),
     passkeyCredential: {
       id: requireNonEmptyString(passkeyCredential.id, 'passkeyCredential.id'),
       rawId: requireNonEmptyString(passkeyCredential.rawId, 'passkeyCredential.rawId'),

@@ -16,6 +16,7 @@ export interface ClientUserData {
   lastLogin?: number;
   lastUpdated?: number;
   operationalPublicKey: string;
+  nearEd25519SigningKeyId: string;
   passkeyCredential: PasskeyCredentialRecord;
   authMethod?: WalletAuthMethod | null;
   preferences?: UserPreferences;

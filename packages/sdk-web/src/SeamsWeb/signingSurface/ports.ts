@@ -109,6 +109,7 @@ import type { LoginWithEmailOtpWalletCustodyEd25519Args } from '@/core/signingEn
 import type { EmailOtpEd25519YaoRecoveryBootstrapV1 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
 import type { RouterAbEd25519YaoRegistrationAdmissionRequestV1 } from '@shared/utils/routerAbEd25519Yao';
+import type { WalletSessionEd25519RecoveryBasisV1 } from '@/core/signingEngine/walletCustody/walletRecoveryEd25519';
 import type { RouterAbTraceContextV1 } from '@shared/utils/routerAbTraceContext';
 import type {
   WalletCustodyCeremonyCommitPayload,
@@ -409,11 +410,7 @@ export interface WalletCustodyCeremonySurface {
     custodyJson: string;
     factorSecret: ArrayBuffer;
     nearEd25519SigningKeyId: string;
-    registrationCeremonyId: string;
-    admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
-    admissionReceipt: unknown;
-    participantIds: readonly [number, number];
-    registeredPublicKeyB64u: string;
+    recoveryBasis: WalletSessionEd25519RecoveryBasisV1;
     routerOrigin: string;
     walletSessionToken: string;
   }): Promise<JoinedWalletCustodyNearEd25519KeySetV1>;
@@ -605,6 +602,7 @@ export type WalletSessionReadSurface = RuntimeStartupSurface &
   Pick<
     WalletAuthenticationSurface,
     | 'readWalletAuthenticationState'
+    | 'setWalletAuthenticated'
     | 'setLinkedDeviceWalletSession'
     | 'clearLinkedDeviceWalletSession'
   > &
@@ -662,6 +660,7 @@ export type AccountSyncSigningSurface = LocalLoginStateSurface &
   Ed25519YaoCapabilityActivationSurface &
   WalletCustodyCeremonySurface &
   Ed25519MaterialOwnerQueueSurface &
+  Pick<SigningSessionSurface, 'hydrateSigningSession'> &
   Pick<EcdsaSessionControlSurface, 'clearVolatileWarmSigningMaterial'> &
   RpIdSurface &
   PasskeyLoginAssertionSurface &

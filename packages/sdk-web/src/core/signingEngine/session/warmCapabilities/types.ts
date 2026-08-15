@@ -647,6 +647,7 @@ export type FreshWarmEd25519CapabilityProvisionArgs = ProvisionWarmEd25519Capabi
 export type ExactWarmEd25519CapabilityProvisionArgs = ProvisionWarmEd25519CapabilityCommonArgs & {
   kind: 'exact_ed25519_provisioning';
   laneIdentity: ExactEd25519SigningLaneIdentity;
+  existingWalletSessionToken: string;
   walletId?: never;
   nearAccountId?: never;
   nearEd25519SigningKeyId?: never;

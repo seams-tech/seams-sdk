@@ -180,6 +180,7 @@ export function atomicStoreRegistrationData(
     credential: WebAuthnRegistrationCredential;
     credentialPublicKeyB64u: string;
     operationalPublicKey: string;
+    nearEd25519SigningKeyId: string;
   },
 ): Promise<StoredRegistrationData> {
   return atomicStoreRegistrationDataValue(deps.accountLifecycle, args);

@@ -351,15 +351,8 @@ pub fn prepare_client_registration_with_root_v1(
     )
 }
 
-/// Prepares recovery from a Client root the caller already derived, preserving
-/// an existing registered public key.
-///
-/// The continuity seam for Refactor 100. A key set that already has a
-/// registration must re-run in this mode, never Establish: the protocol checks
-/// the reproduced public key against `expected_registered_public_key`, so a
-/// re-run either yields the identical key — a harmless no-op — or fails. That
-/// is what makes an induced re-registration unable to silently replace a key
-/// set with a new one.
+/// Prepares recovery from the same Client root while requiring the registered
+/// public key to remain unchanged.
 pub fn prepare_client_recovery_with_root_v1(
     admission: &RouterAbEd25519YaoActivationAdmissionReceiptV1,
     application: &RouterAbEd25519YaoApplicationBindingFactsV1,

@@ -1,4 +1,4 @@
-import { base64UrlDecode } from '@shared/utils/base64';
+import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import {
   ROUTER_AB_ED25519_YAO_ACTIVE_CLIENT_KIND_V1,
@@ -43,6 +43,23 @@ export type WalletCustodyActivationFactsV1 = {
   readonly activationTranscriptB64u: string;
   readonly activationCapabilityBindingB64u: string;
 };
+
+export function walletCustodyActivationFactsFromActiveClientMetadataV1(
+  metadata: RouterAbEd25519YaoActiveClientMetadataV1,
+): WalletCustodyActivationFactsV1 {
+  return {
+    materialActivation: metadata.materialActivation,
+    lifecycleId: metadata.scope.lifecycle_id,
+    signingRootVersion: metadata.scope.root_share_epoch,
+    signingRootId: metadata.applicationBinding.signing_root_id,
+    signerSetId: metadata.scope.signer_set_id,
+    thresholdSessionId: metadata.scope.threshold_session_id,
+    activationTranscriptB64u: base64UrlEncode(metadata.transcript),
+    activationCapabilityBindingB64u: base64UrlEncode(
+      Uint8Array.from(metadata.activeCapabilityBinding),
+    ),
+  };
+}
 
 export type WalletCustodyCacheEnvelopeV1 = {
   /** The custody envelope binding, as stored, serialized for the wasm side. */

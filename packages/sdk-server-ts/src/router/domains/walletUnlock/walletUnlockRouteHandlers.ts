@@ -90,7 +90,7 @@ export type WalletUnlockCapabilityContext =
       readonly provisionWalletSession: (
         input: Omit<
           Parameters<RouterApiWalletRegistrationService['provisionEd25519YaoWalletSession']>[0],
-          'seamsSessionId' | 'proof'
+          'proof'
         >,
         proof: WalletSessionOwnerProof,
       ) => ReturnType<RouterApiWalletRegistrationService['provisionEd25519YaoWalletSession']>;

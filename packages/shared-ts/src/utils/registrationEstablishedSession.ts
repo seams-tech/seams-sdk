@@ -1,6 +1,5 @@
 import type {
   MpcWalletSigningQuotaId,
-  SeamsSessionId,
   WalletSessionAuthorizationId,
   WalletSessionId,
 } from '../authorization/capabilityKinds';
@@ -59,7 +58,6 @@ export type RegistrationEstablishedSessionTokens =
 export type RegistrationEstablishedSession = {
   readonly kind: 'registration_established_wallet_session_v1';
   readonly walletId: WalletId;
-  readonly seamsSessionId: SeamsSessionId;
   readonly authorizationId: WalletSessionAuthorizationId;
   readonly walletSessionId: WalletSessionId;
   readonly quotaId: MpcWalletSigningQuotaId;

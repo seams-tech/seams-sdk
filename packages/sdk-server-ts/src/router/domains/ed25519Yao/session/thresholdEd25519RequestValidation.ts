@@ -69,6 +69,7 @@ const SESSION_KEYS = [
   'sessionPolicy',
   'projectEnvironmentId',
   'webauthn_authentication',
+  'walletSessionTarget',
   'sessionKind',
 ] as const;
 
@@ -85,6 +86,28 @@ const SESSION_POLICY_KEYS = [
   'ttlMs',
   'remainingUses',
 ] as const;
+
+function parseWalletSessionTarget(
+  raw: unknown,
+): ThresholdEd25519RouteParseResult<
+  RouterAbEd25519YaoSessionRouteCommandV1['walletSessionTarget']
+> {
+  if (!isPlainObject(raw)) {
+    return invalidThresholdEd25519Body('walletSessionTarget is required');
+  }
+  const unsupported = findUnexpectedRouteKey(raw, ['kind']);
+  if (unsupported) {
+    return invalidThresholdEd25519Body(`Unsupported walletSessionTarget field: ${unsupported}`);
+  }
+  switch (raw.kind) {
+    case 'new_wallet_session':
+      return { ok: true, request: { kind: 'new_wallet_session' } };
+    case 'reuse_ecdsa_wallet_session':
+      return { ok: true, request: { kind: 'reuse_ecdsa_wallet_session' } };
+    default:
+      return invalidThresholdEd25519Body('walletSessionTarget.kind is invalid');
+  }
+}
 
 function invalidThresholdEd25519Body(message: string): ThresholdEd25519RouteParseError {
   return { ok: false, body: { ok: false, code: 'invalid_body', message } };
@@ -235,6 +258,8 @@ export function parseThresholdEd25519SessionRouteRequest(
     return invalidThresholdEd25519Body('WebAuthn authentication is required');
   }
   const projectEnvironmentId = optionalStringField(raw, 'projectEnvironmentId');
+  const walletSessionTarget = parseWalletSessionTarget(raw.walletSessionTarget);
+  if (!walletSessionTarget.ok) return walletSessionTarget;
   return {
     ok: true,
     request: {
@@ -245,6 +270,7 @@ export function parseThresholdEd25519SessionRouteRequest(
         kind: 'passkey',
         webauthnAuthentication: webauthnAuthentication.request,
       },
+      walletSessionTarget: walletSessionTarget.request,
       sessionKind: 'opaque',
     },
   };

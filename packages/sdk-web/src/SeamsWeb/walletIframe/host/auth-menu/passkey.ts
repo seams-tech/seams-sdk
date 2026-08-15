@@ -229,7 +229,6 @@ function startCredential(
     authority = state.context.signingEngine.getAuthenticationCredentialsSerialized({
       ...args,
       includeSecondPrfOutput: false,
-      cancellation: prepared.cancellation,
     });
   } catch (error) {
     state.lifecycle = 'cancelled';

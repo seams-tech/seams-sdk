@@ -166,6 +166,9 @@ export async function provisionThresholdEd25519Session(
     ttlMs: args.ttlMs,
     remainingUses: args.remainingUses,
     workerCtx,
+    ...(args.kind === 'exact_ed25519_provisioning'
+      ? { existingWalletSessionToken: args.existingWalletSessionToken }
+      : {}),
   });
   if (!connected.ok) {
     return {

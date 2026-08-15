@@ -303,6 +303,8 @@ async function readNearUserData(
       : projection.profile.passkeyCredential?.id || passkeyCredentialRawId;
   const operationalPublicKey =
     typeof metadata.operationalPublicKey === 'string' ? metadata.operationalPublicKey : '';
+  const nearEd25519SigningKeyId = String(metadata.nearEd25519SigningKeyId || '').trim();
+  if (!nearEd25519SigningKeyId) return null;
 
   return {
     walletId,
@@ -318,6 +320,7 @@ async function readNearUserData(
     lastLogin: projection.profile.updatedAt,
     lastUpdated: projection.profile.updatedAt,
     operationalPublicKey,
+    nearEd25519SigningKeyId,
     passkeyCredential: {
       id: passkeyCredentialId,
       rawId: passkeyCredentialRawId,
@@ -371,6 +374,9 @@ export async function storeUserData(
       signerSource: SIGNER_SOURCES.passkeyRegistration,
       metadata: {
         ...(existingSigner?.metadata || {}),
+        walletId: String(profileId),
+        nearAccountId: String(nearAccountId),
+        nearEd25519SigningKeyId: userData.nearEd25519SigningKeyId,
         operationalPublicKey: userData.operationalPublicKey,
         passkeyCredentialId: userData.passkeyCredential?.id,
         passkeyCredentialRawId: userData.passkeyCredential?.rawId,
@@ -873,6 +879,7 @@ export async function atomicStoreRegistrationData(
     credential: WebAuthnRegistrationCredential;
     credentialPublicKeyB64u: string;
     operationalPublicKey: string;
+    nearEd25519SigningKeyId: string;
   },
 ): Promise<StoredRegistrationData> {
   const credentialId: string = args.credential.rawId;
@@ -887,6 +894,7 @@ export async function atomicStoreRegistrationData(
     nearAccountId: args.nearAccountId,
     signerSlot: 1,
     operationalPublicKey: args.operationalPublicKey,
+    nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
     lastUpdated: Date.now(),
     passkeyCredential: {
       id: args.credential.id,

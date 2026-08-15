@@ -10,6 +10,7 @@
 localhost {
 	tls internal
 	encode gzip
+	header Permissions-Policy "publickey-credentials-get=(self \"https://localhost:8443\"), publickey-credentials-create=(self \"https://localhost:8443\"), clipboard-read=(self \"https://localhost:8443\"), clipboard-write=(self \"https://localhost:8443\")"
 	@app_wallet_assets {
 		path /sdk/* /wallet-service /wallet-service/* /export-viewer /export-viewer/*
 	}

@@ -24,7 +24,7 @@ import type { RegistrationEstablishedSession } from '@shared/utils/registrationE
 
 export type WalletSessionAuthorizationProjectionWriter = Pick<
   WalletSessionAuthorizationRepository,
-  'createOrMergeExactActive' | 'replaceActive' | 'readActiveForWallet'
+  'createOrMergeExactActive' | 'upsertActiveWithCurveMerge'
 >;
 
 type WalletSessionAuthorizationCurvePersistenceInputBase = {
@@ -48,22 +48,6 @@ export type WalletSessionAuthorizationCurvePersistenceInput =
       readonly thresholdSessionId: ThresholdEcdsaSessionId;
     });
 
-function walletSessionAuthorizationIdentityMatches(
-  left: ActiveWalletSessionAuthorizationProjection,
-  right: ActiveWalletSessionAuthorizationProjection,
-): boolean {
-  return (
-    left.walletId === right.walletId &&
-    left.authorizationId === right.authorizationId &&
-    left.walletSessionId === right.walletSessionId &&
-    left.quotaId === right.quotaId &&
-    left.authMethod === right.authMethod &&
-    left.authority.kind === right.authority.kind &&
-    left.authority.walletId === right.authority.walletId &&
-    left.authority.authorityDigest === right.authority.authorityDigest
-  );
-}
-
 function curveTokenBundle(
   input: WalletSessionAuthorizationCurvePersistenceInput,
   walletSessionToken: ReturnType<typeof requireOpaqueWalletSessionToken>,
@@ -71,11 +55,19 @@ function curveTokenBundle(
   return input.curve === 'ed25519'
     ? {
         kind: 'near_ed25519',
-        ed25519: { walletSessionToken, thresholdSessionId: input.thresholdSessionId },
+        ed25519: {
+          authorizationId: input.authorizationId,
+          walletSessionToken,
+          thresholdSessionId: input.thresholdSessionId,
+        },
       }
     : {
         kind: 'evm_family_ecdsa',
-        ecdsa: { walletSessionToken, thresholdSessionId: input.thresholdSessionId },
+        ecdsa: {
+          authorizationId: input.authorizationId,
+          walletSessionToken,
+          thresholdSessionId: input.thresholdSessionId,
+        },
       };
 }
 
@@ -89,7 +81,6 @@ export async function persistActiveWalletSessionAuthorizationCurve(
   );
   const active = buildActiveWalletSessionAuthorizationProjection({
     walletId: args.walletId,
-    authorizationId: args.authorizationId,
     walletSessionId: args.walletSessionId,
     quotaId: args.quotaId,
     walletSessionTokens: curveTokenBundle(args, walletSessionToken),
@@ -97,28 +88,7 @@ export async function persistActiveWalletSessionAuthorizationCurve(
     authority: args.authority,
     expiresAtMs: args.expiresAtMs,
   });
-  const current = await writer.readActiveForWallet(args.walletId);
-  switch (current.kind) {
-    case 'missing':
-      await writer.replaceActive({ active, replacedAtMs: Date.now() });
-      return active;
-    case 'found':
-      if (walletSessionAuthorizationIdentityMatches(current.projection, active)) {
-        return writer.createOrMergeExactActive({ incoming: active, mergedAtMs: Date.now() });
-      }
-      await writer.replaceActive({ active, replacedAtMs: Date.now() });
-      return active;
-    case 'corrupt':
-      throw new Error('Stored Wallet Session authorization projection is corrupt');
-    case 'persistence_unavailable':
-      throw new Error('Wallet Session authorization projection persistence is unavailable');
-    default:
-      return assertNeverWalletSessionAuthorizationReadResult(current);
-  }
-}
-
-function assertNeverWalletSessionAuthorizationReadResult(value: never): never {
-  throw new Error(`Unknown Wallet Session authorization read result: ${String(value)}`);
+  return writer.upsertActiveWithCurveMerge({ incoming: active, writtenAtMs: Date.now() });
 }
 
 function registrationSessionTokenBundle(
@@ -129,6 +99,7 @@ function registrationSessionTokenBundle(
       return {
         kind: 'near_ed25519',
         ed25519: {
+          authorizationId: session.authorizationId,
           walletSessionToken: requireOpaqueWalletSessionToken(
             session.tokens.ed25519.walletSessionToken,
           ),
@@ -139,6 +110,7 @@ function registrationSessionTokenBundle(
       return {
         kind: 'evm_family_ecdsa',
         ecdsa: {
+          authorizationId: session.authorizationId,
           walletSessionToken: requireOpaqueWalletSessionToken(
             session.tokens.ecdsa.walletSessionToken,
           ),
@@ -149,10 +121,12 @@ function registrationSessionTokenBundle(
       return {
         kind: 'near_ed25519_and_evm_family_ecdsa',
         ed25519: {
+          authorizationId: session.authorizationId,
           walletSessionToken: requireOpaqueWalletSessionToken(session.tokens.ed25519.walletSessionToken),
           thresholdSessionId: session.tokens.ed25519.thresholdSessionId,
         },
         ecdsa: {
+          authorizationId: session.authorizationId,
           walletSessionToken: requireOpaqueWalletSessionToken(session.tokens.ecdsa.walletSessionToken),
           thresholdSessionId: session.tokens.ecdsa.thresholdSessionId,
         },
@@ -176,7 +150,6 @@ export async function persistActiveWalletSessionAuthorizationFromRegistration(
 ): Promise<ActiveWalletSessionAuthorizationProjection> {
   const active = buildActiveWalletSessionAuthorizationProjection({
     walletId: args.session.walletId,
-    authorizationId: args.session.authorizationId,
     walletSessionId: args.session.walletSessionId,
     quotaId: args.session.quotaId,
     walletSessionTokens: registrationSessionTokenBundle(args.session),

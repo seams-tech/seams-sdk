@@ -28,7 +28,7 @@ const d1LocalPersistPath =
   path.join(routerAbLocalRoot, '.local', 'cloudflare-state', 'gateway');
 const d1LocalWranglerRuntimeDir =
   process.env.SEAMS_INTENDED_D1_WRANGLER_RUNTIME_DIR ||
-  path.join(repoRoot, '.runtime', 'wrangler-d1-local');
+  path.join(routerAbLocalRoot, '.runtime', 'wrangler-d1-local');
 const d1LocalWranglerConfigPath =
   process.env.SEAMS_D1_LOCAL_WRANGLER_CONFIG ||
   path.join(d1LocalWranglerRuntimeDir, 'wrangler.d1-local.toml');
@@ -99,6 +99,7 @@ async function main() {
   assertD1LocalWasmArtifacts();
   clearTransientViteCaches();
   prepareD1LocalWranglerRuntimeConfig();
+  applyD1LocalMigrations();
 
   const router = startRouter();
   await waitForHttpOk(`${routerUrl}/healthz`, 'router healthz', 180_000);
@@ -349,6 +350,41 @@ function prepareD1LocalWranglerRuntimeConfig() {
   console.log(
     `[intended-services] prepared D1 local wrangler config at ${path.relative(repoRoot, d1LocalWranglerConfigPath)}`,
   );
+}
+
+function applyD1LocalMigrations() {
+  for (const databaseName of ['seams-console', 'seams-signer']) {
+    console.log(`[intended-services] applying ${databaseName} migrations`);
+    const result = spawnSync(
+      'pnpm',
+      [
+        '-C',
+        'packages/console-server-ts',
+        'exec',
+        'wrangler',
+        'd1',
+        'migrations',
+        'apply',
+        databaseName,
+        '--local',
+        '--persist-to',
+        d1LocalPersistPath,
+        '--config',
+        d1LocalWranglerConfigPath,
+      ],
+      {
+        cwd: repoRoot,
+        env: { ...process.env, CI: 'true' },
+        stdio: 'inherit',
+      },
+    );
+    if (result.error) {
+      throw new Error(`${databaseName} migrations failed to start: ${result.error.message}`);
+    }
+    if (result.status !== 0) {
+      throw new Error(`${databaseName} migrations exited with ${String(result.status ?? 'unknown')}`);
+    }
+  }
 }
 
 function requireD1LocalRuntimeConfig() {

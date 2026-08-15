@@ -9,6 +9,7 @@ import {
   isAuthMenuLoadingStatus,
   isAuthMenuReady,
   type AuthMenuIntent,
+  type AuthMenuLinkDeviceState,
   type AuthMenuLoginViewModel,
   type AuthMenuRegisterViewModel,
   type AuthMenuViewModel,
@@ -163,6 +164,24 @@ function linkDeviceIcon(): TemplateResult {
   `;
 }
 
+function approvedDeviceIcon(): TemplateResult {
+  return html`
+    <svg
+      width="28"
+      height="28"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2.25"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <path d="m5 12 4 4L19 6" />
+    </svg>
+  `;
+}
+
 function mailIcon(): TemplateResult {
   return html`
     <svg
@@ -230,6 +249,7 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
   private shouldFocusInitialControl = false;
   private contentResizeObserver: ResizeObserver | null = null;
   private contentHeightFrame: number | null = null;
+  private previousLinkDeviceStateKind: AuthMenuLinkDeviceState['kind'] | null = null;
 
   constructor() {
     super();
@@ -293,8 +313,20 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
   protected updated(changedProperties: Map<string | number | symbol, unknown>): void {
     super.updated(changedProperties);
     if (this.shouldFocusInitialControl) this.focusInitialControl();
+    this.focusLinkDevicePasskeyAction();
     this.observeContentSize();
     this.queueContentHeightSync();
+  }
+
+  private focusLinkDevicePasskeyAction(): void {
+    const currentKind =
+      this.viewModel.kind === 'link_device' ? this.viewModel.linkDevice.kind : null;
+    const shouldFocus =
+      currentKind === 'passkey_required' && this.previousLinkDeviceStateKind !== currentKind;
+    this.previousLinkDeviceStateKind = currentKind;
+    if (shouldFocus) {
+      this.querySelector<HTMLElement>('[data-link-device-passkey-action]')?.focus();
+    }
   }
 
   private observeContentSize(): void {
@@ -463,6 +495,10 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
 
   private onLinkDeviceOpen = (): void => {
     this.emitIntent({ kind: 'link_device_open' });
+  };
+
+  private onLinkDeviceCreatePasskey = (): void => {
+    this.emitIntent({ kind: 'link_device_create_passkey' });
   };
 
   private emitIntent(intent: AuthMenuIntent): void {
@@ -765,6 +801,9 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
     viewModel: Extract<AuthMenuViewModel, { kind: 'link_device' }>,
   ): TemplateResult {
     const linkDevice = viewModel.linkDevice;
+    if (linkDevice.kind === 'passkey_required' || linkDevice.kind === 'creating_passkey') {
+      return this.renderLinkDevicePasskeyConfirmation(linkDevice);
+    }
     return html`
       <div class="w3a-scan-device-content">
         <div class="qr-code-container">
@@ -775,7 +814,7 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
                     <div class="qr-code-display">
                       <img
                         src=${linkDevice.qrCodeDataURL}
-                        alt="Device Linking QR Code"
+                        alt="QR code to link this device"
                         class="qr-code-image"
                       />
                     </div>
@@ -793,12 +832,12 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
                     </div>
                   `}
               <div class="qr-header">
-                <h2 class="qr-title">Scan and Link Device</h2>
+                <h2 class="qr-title" id=${AUTH_MENU_TITLE_ID}>Scan and link device</h2>
               </div>
               ${linkDevice.kind === 'ready'
                 ? html`
-                    <div class="qr-instruction">Scan to backup your other device.</div>
-                    <div class="qr-status">
+                    <div class="qr-instruction">Scan this code with your other device.</div>
+                    <div class="qr-status" role="status" aria-live="polite">
                       ${linkDevice.message}<span class="animated-ellipsis"></span>
                     </div>
                   `
@@ -806,6 +845,36 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
             </div>
           </div>
         </div>
+      </div>
+    `;
+  }
+
+  private renderLinkDevicePasskeyConfirmation(
+    linkDevice: Extract<AuthMenuLinkDeviceState, { kind: 'passkey_required' | 'creating_passkey' }>,
+  ): TemplateResult {
+    const creating = linkDevice.kind === 'creating_passkey';
+    return html`
+      <div class="w3a-link-device-confirmation">
+        <div class="w3a-link-device-approved-icon">${approvedDeviceIcon()}</div>
+        <h2 class="qr-title" id=${AUTH_MENU_TITLE_ID}>
+          ${creating ? 'Finish on this device' : 'Device approved'}
+        </h2>
+        <p class="w3a-link-device-confirmation-copy" role="status" aria-live="polite">
+          ${creating
+            ? linkDevice.message
+            : 'Use Touch ID or your device screen lock to finish linking.'}
+        </p>
+        <button
+          class="w3a-link-device-btn w3a-link-device-btn-primary"
+          type="button"
+          data-auth-menu-primary
+          data-link-device-passkey-action
+          ?disabled=${creating}
+          @click=${this.onLinkDeviceCreatePasskey}
+        >
+          ${creating ? html`<span class="w3a-spinner" aria-hidden="true"></span>` : null}
+          ${creating ? 'Waiting for passkey' : 'Continue with passkey'}
+        </button>
       </div>
     `;
   }

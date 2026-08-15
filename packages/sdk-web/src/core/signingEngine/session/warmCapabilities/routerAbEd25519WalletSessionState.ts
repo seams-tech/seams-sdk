@@ -7,6 +7,7 @@ import type {
 } from '@/core/signingEngine/interfaces/near';
 import {
   walletSessionAuthorizations,
+  walletSessionAuthorizationIdForCurve,
   walletSessionTokenForCurve,
   type ActiveWalletSessionAuthorizationProjection,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
@@ -181,10 +182,15 @@ export async function rebindRouterAbEd25519WalletSessionStateFromExactRuntime(ar
   nowMs: number;
 }): Promise<ResolvedRouterAbEd25519WalletSessionState> {
   const walletSessionToken = walletSessionTokenForCurve(args.authorization, 'ed25519');
+  const authorizationId = walletSessionAuthorizationIdForCurve(
+    args.authorization,
+    'ed25519',
+  );
   const expectedAuthority = await ed25519SealedRuntimeAuthorityRef(args.runtime);
   const expiresAtMs = Math.min(args.runtime.expiresAtMs, args.authorization.expiresAtMs);
   if (
     !walletSessionToken ||
+    !authorizationId ||
     args.authorization.walletId !== args.runtime.walletId ||
     args.authorization.authMethod !== args.runtime.auth.kind ||
     !walletAuthAuthorityRefsMatch(args.authorization.authority, expectedAuthority) ||
@@ -197,7 +203,7 @@ export async function rebindRouterAbEd25519WalletSessionStateFromExactRuntime(ar
     nearAccountId: args.runtime.nearAccountId,
     nearEd25519SigningKeyId: args.runtime.nearEd25519SigningKeyId,
     walletSessionId: args.authorization.walletSessionId,
-    authorizationId: args.authorization.authorizationId,
+    authorizationId,
     quotaId: args.authorization.quotaId,
     thresholdSessionId: args.runtime.thresholdSessionId,
     remainingUses: args.runtime.remainingUses,
@@ -263,6 +269,7 @@ export function authorizeRouterAbEd25519WalletSessionState(args: {
   const authorization = args.authorization;
   const walletId = state.signingLane.identity.signer.account.wallet.walletId;
   const walletSessionToken = walletSessionTokenForCurve(authorization, 'ed25519');
+  const authorizationId = walletSessionAuthorizationIdForCurve(authorization, 'ed25519');
   const signer = state.signingLane.identity.signer;
   const effectiveExpiresAtMs = Math.min(
     state.signingWalletSession.expiresAtMs,
@@ -270,6 +277,7 @@ export function authorizeRouterAbEd25519WalletSessionState(args: {
   );
   if (
     !walletSessionToken ||
+    !authorizationId ||
     authorization.walletId !== walletId ||
     authorization.authority.walletId !== walletId ||
     authorization.authority.authorityDigest !== state.authority.authorityDigest ||
@@ -284,7 +292,7 @@ export function authorizeRouterAbEd25519WalletSessionState(args: {
     nearAccountId: String(signer.account.nearAccountId),
     nearEd25519SigningKeyId: String(signer.nearEd25519SigningKeyId),
     walletSessionId: String(authorization.walletSessionId),
-    authorizationId: String(authorization.authorizationId),
+    authorizationId: String(authorizationId),
     quotaId: String(authorization.quotaId),
     thresholdSessionId: String(state.thresholdSessionId),
     remainingUses: state.remainingUses,

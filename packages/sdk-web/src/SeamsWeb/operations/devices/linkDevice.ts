@@ -5,6 +5,7 @@ import type {
   ScanAndLinkDeviceOptionsDevice1,
   StartDevice2LinkingFlowArgs,
   StartDevice2LinkingFlowResults,
+  LinkedDeviceTargetPasskeyActivationV1,
 } from '@/core/types/linkDevice';
 import { DeviceLinkingError, DeviceLinkingErrorCode } from '@/core/types/linkDevice';
 import {
@@ -394,7 +395,7 @@ export class LinkDeviceFlow {
         });
         return;
       case 'awaiting_target_passkey':
-        await this.createTargetCredential(event.state, runEpoch);
+        await this.prepareTargetCredentialActivation(event, runEpoch);
         return;
       case 'provisioning':
         return;
@@ -439,10 +440,14 @@ export class LinkDeviceFlow {
     }
   }
 
-  private async createTargetCredential(
-    state: Extract<LinkedDeviceSessionState, { state: 'awaiting_target_passkey' }>,
+  private async prepareTargetCredentialActivation(
+    event: LinkedDeviceSessionTransportEventV1,
     runEpoch: number,
   ): Promise<void> {
+    if (event.state.state !== 'awaiting_target_passkey') {
+      throw new Error('target passkey activation requires an awaiting session');
+    }
+    const state = event.state;
     if (!this.keyMaterialHandle || !this.session)
       throw new Error('device-link key material is unavailable');
     const authenticatedTransport = this.requireAuthenticatedTransport();
@@ -453,6 +458,53 @@ export class LinkDeviceFlow {
     });
     this.assertCurrentRun(runEpoch);
     this.assertTargetPreparationMatchesSession({ preparation, state, deviceId });
+    const onTargetPasskeyRequired = this.options.options?.onTargetPasskeyRequired;
+    if (!onTargetPasskeyRequired) {
+      throw new DeviceLinkingError(
+        'Confirm passkey creation on Device 2 to continue linking',
+        DeviceLinkingErrorCode.UNSUPPORTED,
+        'registration',
+      );
+    }
+    const activation: LinkedDeviceTargetPasskeyActivationV1 = {
+      kind: 'linked_device_target_passkey_activation_v1',
+      createPasskey: this.activateTargetCredential.bind(this, {
+        event,
+        state,
+        runEpoch,
+        deviceId,
+        preparation,
+      }),
+    };
+    onTargetPasskeyRequired(activation);
+  }
+
+  private async activateTargetCredential(input: {
+    readonly event: LinkedDeviceSessionTransportEventV1;
+    readonly state: Extract<LinkedDeviceSessionState, { state: 'awaiting_target_passkey' }>;
+    readonly runEpoch: number;
+    readonly deviceId: import('@shared/signing-lanes/ids').LinkedDeviceId;
+    readonly preparation: LinkedDeviceTargetPreparationV1;
+  }): Promise<void> {
+    try {
+      await this.createTargetCredential(input);
+    } catch (error: unknown) {
+      await this.handleSessionTransportFailure(input.event, error);
+      throw error;
+    }
+  }
+
+  private async createTargetCredential(input: {
+    readonly state: Extract<LinkedDeviceSessionState, { state: 'awaiting_target_passkey' }>;
+    readonly runEpoch: number;
+    readonly deviceId: import('@shared/signing-lanes/ids').LinkedDeviceId;
+    readonly preparation: LinkedDeviceTargetPreparationV1;
+  }): Promise<void> {
+    const { state, runEpoch, deviceId, preparation } = input;
+    if (!this.keyMaterialHandle || !this.session)
+      throw new Error('device-link key material is unavailable');
+    const authenticatedTransport = this.requireAuthenticatedTransport();
+    // This is the first operation after the UI click so WebAuthn receives transient user activation.
     const credential = await this.ports.targetCredential.createTargetCredentialV1({
       preparation,
       keyMaterial: this.keyMaterialHandle,

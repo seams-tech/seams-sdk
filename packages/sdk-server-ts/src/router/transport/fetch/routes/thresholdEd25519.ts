@@ -7,7 +7,11 @@ import {
   ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH,
   ROUTER_AB_ED25519_WALLET_SESSION_PATH,
 } from '@shared/utils/signingSessionSeal';
-import { resolveThresholdRuntimePolicyScope } from '../../../auth/commonRouterUtils';
+import {
+  resolveOpaqueOwnerWalletSessionAdmission,
+  resolveThresholdRuntimePolicyScope,
+} from '../../../auth/commonRouterUtils';
+import { extractBearerCredential } from '../../../auth/routerApiKeyAuth';
 import { normalizeCorsOrigin } from '../../../../core/SessionService';
 import {
   authenticateRouterAbWalletOperationStepUpIdentity,
@@ -70,6 +74,7 @@ import {
 } from '../../../../authorization/factorEvidence';
 import { parseSessionOrigin, parseVerifiedOwnerProofId } from '../../../../authorization/domain';
 import type {
+  RouterAbEd25519YaoBudgetRefreshRequestV1,
   RouterAbEd25519YaoBudgetRefreshAuthorizationV1,
   RouterAbEd25519YaoOperationStepUpGrantCommandV1,
   RouterAbEd25519YaoSessionRouteCommandV1,
@@ -175,25 +180,25 @@ function buildEd25519GatewayOwnerWalletSessionBinding(
   if (authorization.kind !== 'reusable_wallet_session') {
     throw new Error('Ed25519 Gateway owner Wallet Session requires reusable authorization');
   }
-  const claims = authorization.validated.claims;
-  const runtimePolicyScope = claims.runtimePolicyScope;
+  const binding = authorization.validated.binding;
+  const runtimePolicyScope = binding.runtimePolicyScope;
   if (!runtimePolicyScope) {
     throw new Error('Ed25519 Wallet Session runtime policy scope is required');
   }
   return {
     kind: 'gateway_owner_wallet_session' as const,
-    subjectId: claims.sub,
-    accountId: claims.walletId,
-    authorizationSessionId: claims.sid ?? claims.walletSessionId,
-    authorizationId: claims.authorizationId,
-    walletSessionId: claims.walletSessionId,
-    quotaId: claims.quotaId,
-    thresholdSessionId: claims.thresholdSessionId,
+    subjectId: binding.subjectId,
+    accountId: binding.walletId,
+    authorizationSessionId: binding.walletSessionId,
+    authorizationId: binding.authorizationId,
+    walletSessionId: binding.walletSessionId,
+    quotaId: binding.quotaId,
+    thresholdSessionId: binding.thresholdSessionId,
     orgId: runtimePolicyScope.orgId,
     projectId: runtimePolicyScope.projectId,
     environment: runtimePolicyScope.envId,
-    signingWorkerId: claims.routerAbNormalSigning.signingWorkerId,
-    expiresAtMs: claims.thresholdExpiresAtMs,
+    signingWorkerId: binding.routerAbNormalSigning.signingWorkerId,
+    expiresAtMs: binding.thresholdExpiresAtMs,
   };
 }
 
@@ -436,6 +441,95 @@ type PasskeyEd25519AuthorizationResult =
     }
   | { ok: false; response: Response };
 
+type ReusedEcdsaWalletSessionResult =
+  | {
+      readonly ok: true;
+      readonly existingWalletSession: Extract<
+        RouterAbEd25519YaoBudgetRefreshRequestV1,
+        { readonly kind: 'router_ab_ed25519_yao_same_wallet_session_curve_mint_v1' }
+      >['existingWalletSession'];
+    }
+  | { readonly ok: false; readonly response: Response };
+
+async function resolveReusedEcdsaWalletSession(input: {
+  readonly ctx: FetchRouterApiContext;
+  readonly request: RouterAbEd25519YaoSessionRouteCommandV1;
+  readonly authority: PasskeyWalletAuthAuthority;
+}): Promise<ReusedEcdsaWalletSessionResult> {
+  const token = extractBearerCredential(input.ctx.request.headers);
+  if (!token) {
+    return {
+      ok: false,
+      response: json(
+        {
+          ok: false,
+          code: 'unauthorized',
+          message: 'Existing ECDSA Wallet Session authorization is required',
+        },
+        { status: 401 },
+      ),
+    };
+  }
+  const admission = await resolveOpaqueOwnerWalletSessionAdmission({
+    authorizationSessions: input.ctx.service.authorizationSessions,
+    token,
+    curve: 'ecdsa',
+    nowMs: Date.now(),
+  });
+  const authorityRef = await walletAuthAuthorityRef({ authority: input.authority });
+  if (
+    !admission ||
+    admission.binding.walletId !== input.authority.walletId ||
+    String(admission.resolved.authorization.authorityDigest) !==
+      String(authorityRef.authorityDigest) ||
+    alphabetizeStringify(admission.binding.runtimePolicyScope) !==
+      alphabetizeStringify(input.request.sessionPolicy.runtimePolicyScope)
+  ) {
+    return {
+      ok: false,
+      response: json(
+        {
+          ok: false,
+          code: 'scope_mismatch',
+          message: 'ECDSA Wallet Session does not match the requested Ed25519 signing lane',
+        },
+        { status: 403 },
+      ),
+    };
+  }
+  const authorization = admission.resolved.authorization;
+  const status = await input.ctx.service.authorizationSessions.readReusableWalletSessionStatus({
+    tenantId: authorization.tenantId,
+    principalId: authorization.principalId,
+    walletSessionId: authorization.walletSessionId,
+    quotaId: authorization.quotaId,
+    nowMs: Date.now(),
+  });
+  if (status.kind !== 'active') {
+    return {
+      ok: false,
+      response: json(
+        {
+          ok: false,
+          code: 'wallet_session_invalid',
+          message: 'Existing ECDSA Wallet Session is no longer active',
+        },
+        { status: 401 },
+      ),
+    };
+  }
+  return {
+    ok: true,
+    existingWalletSession: {
+      authorizationId: authorization.authorizationId,
+      walletSessionId: authorization.walletSessionId,
+      quotaId: authorization.quotaId,
+      expiresAtMs: status.expiresAtMs,
+      remainingUses: status.remainingUses,
+    },
+  };
+}
+
 async function validatePasskeyEd25519SessionAuthorization(input: {
   ctx: FetchRouterApiContext;
   request: RouterAbEd25519YaoSessionRouteCommandV1;
@@ -636,23 +730,23 @@ async function authorizeEd25519ReusableWalletSessionOperation(input: {
       body: input.body,
       authorization: {
         kind: 'reusable_wallet_session',
-        claims: input.authorization.validated.claims,
+        binding: input.authorization.validated.binding,
       },
       headers: Object.fromEntries(input.ctx.request.headers.entries()),
     });
     if (!('admission_candidate' in privateBody)) {
       throw new Error('Ed25519 normal-signing prepare admission is required');
     }
-    const claims = input.authorization.validated.claims;
+    const binding = input.authorization.validated.binding;
     const nowMs = Date.now();
-    const tenantId = requireAuthorizationValue(parseTenantId(claims.runtimePolicyScope.orgId));
+    const tenantId = requireAuthorizationValue(parseTenantId(binding.runtimePolicyScope.orgId));
     const principalId = requireAuthorizationValue(
-      parsePrincipalId(reusableWalletSessionPrincipalSubject(claims.authority)),
+      parsePrincipalId(reusableWalletSessionPrincipalSubject(binding.authority)),
     );
     if (
       tenantId !== input.ctx.service.authorizedOperations.tenantId ||
       tenantId !== input.ctx.service.authorizationSessions.tenantId ||
-      scope.authorization.wallet_session_id !== claims.walletSessionId
+      scope.authorization.wallet_session_id !== binding.walletSessionId
     ) {
       return {
         ok: false,
@@ -693,9 +787,9 @@ async function authorizeEd25519ReusableWalletSessionOperation(input: {
         operation: envelope,
         authorization: {
           kind: 'authorization_grant',
-          authorizationGrantRef: buildAuthorizationGrantRef(claims.authorizationId),
+          authorizationGrantRef: buildAuthorizationGrantRef(binding.authorizationId),
         },
-        quota: { kind: 'consume_reusable_wallet_session', quotaId: claims.quotaId },
+        quota: { kind: 'consume_reusable_wallet_session', quotaId: binding.quotaId },
         claimedAtMs: nowMs,
       },
     });
@@ -931,10 +1025,10 @@ async function validateEd25519ReusableAuthorizedOperation(input: {
     if (scope.authorization.kind !== 'reusable_wallet_session') {
       throw new Error('Reusable Wallet Session authority is required');
     }
-    const claims = input.authorization.validated.claims;
-    const tenantId = requireAuthorizationValue(parseTenantId(claims.runtimePolicyScope.orgId));
+    const binding = input.authorization.validated.binding;
+    const tenantId = requireAuthorizationValue(parseTenantId(binding.runtimePolicyScope.orgId));
     const principalId = requireAuthorizationValue(
-      parsePrincipalId(reusableWalletSessionPrincipalSubject(claims.authority)),
+      parsePrincipalId(reusableWalletSessionPrincipalSubject(binding.authority)),
     );
     const capabilityId = requireAuthorizationValue(
       parseCapabilityId(scope.material_activation.capability),
@@ -2144,11 +2238,33 @@ export async function handleThresholdEd25519(ctx: FetchRouterApiContext): Promis
       });
       if (!authorization.ok) return authorization.response;
 
-      const result = await ctx.service.walletRegistration.refreshEd25519YaoWalletSession({
-        kind: 'router_ab_ed25519_yao_budget_refresh_v1',
-        sessionPolicy: b.sessionPolicy,
-        authorization: authorization.authorization,
-      });
+      let refreshRequest: RouterAbEd25519YaoBudgetRefreshRequestV1;
+      switch (b.walletSessionTarget.kind) {
+        case 'new_wallet_session':
+          refreshRequest = {
+            kind: 'router_ab_ed25519_yao_budget_refresh_v1',
+            sessionPolicy: b.sessionPolicy,
+            authorization: authorization.authorization,
+          };
+          break;
+        case 'reuse_ecdsa_wallet_session': {
+          const reused = await resolveReusedEcdsaWalletSession({
+            ctx,
+            request: b,
+            authority,
+          });
+          if (!reused.ok) return reused.response;
+          refreshRequest = {
+            kind: 'router_ab_ed25519_yao_same_wallet_session_curve_mint_v1',
+            sessionPolicy: b.sessionPolicy,
+            authorization: authorization.authorization,
+            existingWalletSession: reused.existingWalletSession,
+          };
+          break;
+        }
+      }
+      const result =
+        await ctx.service.walletRegistration.refreshEd25519YaoWalletSession(refreshRequest);
       const status = thresholdEd25519StatusCode(result);
       ctx.logger.info('[threshold-ed25519] response', {
         route: pathname,

@@ -224,7 +224,7 @@ export type LinkedDeviceSessionClaimV1 = {
   readonly claimExpiresAtMs: number;
 };
 
-/** Exactly one reusable owner-session or one fresh step-up authorization source. */
+/** Exactly one opaque Wallet Session or one fresh step-up authorization source. */
 export type LinkedDeviceOwnerAuthorizationSourceV1 =
   | {
       readonly kind: 'wallet_session';

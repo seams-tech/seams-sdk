@@ -49,14 +49,12 @@ const productForks = [
 ];
 
 export type H2DemoHeroProps = {
-  kicker?: string;
   title?: React.ReactNode;
   sub?: React.ReactNode;
   authDefaultModeWhenNoDetectedAccount?: AuthMenuMode;
 };
 
 export function H2DemoHero({
-  kicker = 'Seams · Commerce account infrastructure',
   title = (
     <>
       {/* non-breaking hyphen keeps "policy-based" on one line */}
@@ -99,7 +97,6 @@ export function H2DemoHero({
     <header className="h2-hero" aria-labelledby="h2-hero-title">
       <div className="h2-hero__split">
         <div className="h2-hero__main">
-          <p className="h2-kicker">{kicker}</p>
           <h1 id="h2-hero-title" className="h2-display h2-hero__title">
             {title}
           </h1>
@@ -132,7 +129,6 @@ export function H2DemoHero({
               );
             })}
           </div>
-          <p className="h2-hero__note">Open SDK &middot; Non-custodial by design</p>
         </div>
 
         <div className="h2-hero__demo">
@@ -808,9 +804,6 @@ export function H2Security(): React.JSX.Element {
       <div className="h2-shell">
         <div className="h2-security">
           <div>
-            <p className="h2-kicker" style={{ marginBottom: 20 }}>
-              Security
-            </p>
             <h2 id="h2-security-title" className="h2-display h2-security__title">
               Custody and control, engineered in
             </h2>
@@ -925,9 +918,6 @@ export function H2Start(): React.JSX.Element {
       <div className="h2-shell">
         <div className="h2-eco__head h2-starthead">
           <div>
-            <p className="h2-kicker" style={{ marginBottom: 11 }}>
-              Get started
-            </p>
             <h2 id="h2-start-title" className="h2-display h2-eco__title">
               Start in the dashboard, or build it into your product
             </h2>

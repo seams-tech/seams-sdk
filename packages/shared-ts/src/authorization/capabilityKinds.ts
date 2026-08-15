@@ -89,7 +89,7 @@ export type AuthorizationEvidenceRequirement = {
 
 export type TenantId = DomainId<'TenantId'>;
 export type PrincipalId = DomainId<'PrincipalId'>;
-export type SeamsSessionId = DomainId<'SeamsSessionId'>;
+export type EcdsaAuthorizationSessionId = DomainId<'EcdsaAuthorizationSessionId'>;
 export type SeamsSession = DomainId<'SeamsSession'>;
 export type HostedWalletSessionExchangeCodeId = DomainId<'HostedWalletSessionExchangeCodeId'>;
 export type SessionClientId = DomainId<'SessionClientId'>;
@@ -247,8 +247,10 @@ export function parsePrincipalId(value: unknown): AuthorizationParseResult<Princ
   return parseAuthorizationId(value, 'principalId');
 }
 
-export function parseSeamsSessionId(value: unknown): AuthorizationParseResult<SeamsSessionId> {
-  return parseAuthorizationId(value, 'seamsSessionId');
+export function parseEcdsaAuthorizationSessionId(
+  value: unknown,
+): AuthorizationParseResult<EcdsaAuthorizationSessionId> {
+  return parseAuthorizationId(value, 'ecdsaAuthorizationSessionId');
 }
 
 export function parseSeamsSession(value: unknown): AuthorizationParseResult<SeamsSession> {

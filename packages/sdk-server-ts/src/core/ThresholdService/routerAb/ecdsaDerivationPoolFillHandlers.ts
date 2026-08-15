@@ -24,7 +24,11 @@ import {
   stepRouterAbEcdsaPresignSession,
   type RouterAbEcdsaDerivationPresignaturePoolFillAuth,
 } from './ecdsaDerivationPresignBridge';
-import type { RouterAbEcdsaDerivationOwnerWalletSessionClaims } from '../validation';
+import type { OpaqueOwnerWalletSessionBinding } from '../../../authorization/service';
+type OpaqueOwnerEcdsaWalletSessionBinding = Extract<
+  OpaqueOwnerWalletSessionBinding,
+  { readonly curve: 'ecdsa' }
+>;
 import { parseEcdsaKeyHandle, type EcdsaKeyHandle } from '../../keyMaterialBrands';
 
 type ParseOk<T> = { ok: true; value: T };
@@ -32,8 +36,8 @@ type ParseErr = { ok: false; code: string; message: string };
 type ParseResult<T> = ParseOk<T> | ParseErr;
 const PRESIGN_SESSION_ID_PREFIX = 'ecdsa-presign-v2';
 
-type RouterAbEcdsaDerivationPoolFillInitClaims = Pick<
-  RouterAbEcdsaDerivationOwnerWalletSessionClaims,
+type RouterAbEcdsaDerivationPoolFillInitBinding = Pick<
+  OpaqueOwnerEcdsaWalletSessionBinding,
   | 'walletId'
   | 'relayerKeyId'
   | 'keyHandle'
@@ -43,8 +47,8 @@ type RouterAbEcdsaDerivationPoolFillInitClaims = Pick<
   | 'routerAbEcdsaDerivationNormalSigning'
 >;
 
-type RouterAbEcdsaDerivationPoolFillStepClaims = Pick<
-  RouterAbEcdsaDerivationOwnerWalletSessionClaims,
+type RouterAbEcdsaDerivationPoolFillStepBinding = Pick<
+  OpaqueOwnerEcdsaWalletSessionBinding,
   | 'walletId'
   | 'relayerKeyId'
   | 'keyHandle'
@@ -273,7 +277,7 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
   }
 
   private async startStrictPresignSession(input: {
-    claims: RouterAbEcdsaDerivationPoolFillInitClaims;
+    binding: RouterAbEcdsaDerivationPoolFillInitBinding;
     keySelector: ThresholdEcdsaRoleLocalKeyRecordSelector;
     poolFill: RouterAbEcdsaDerivationSigningWorkerPoolFillDestination;
     walletId: string;
@@ -283,7 +287,7 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
   }): Promise<RouterAbEcdsaDerivationPoolFillInitResponse> {
     const transport = this.signingWorkerTransport;
     const scope = input.poolFill.routerAbEcdsaDerivation.scope;
-    const trustedScope = input.claims.routerAbEcdsaDerivationNormalSigning.scope;
+    const trustedScope = input.binding.routerAbEcdsaDerivationNormalSigning.scope;
     if (alphabetizeStringify(scope) !== alphabetizeStringify(trustedScope)) {
       return {
         ok: false,
@@ -295,18 +299,18 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
       scope.wallet_id !== input.walletId ||
       scope.signing_root_id !== input.signingRoot.signingRootId ||
       scope.signing_root_version !== input.signingRoot.signingRootVersion ||
-      input.keySelector.keyHandle !== input.claims.keyHandle
+      input.keySelector.keyHandle !== input.binding.keyHandle
     ) {
       return {
         ok: false,
         code: WALLET_SESSION_FAILURE_CODES.scopeMismatch,
-        message: 'poolFill scope does not match Wallet Session claims',
+        message: 'poolFill scope does not match Wallet Session binding',
       };
     }
     const nowMs = Date.now();
     const expiresAtMs = Math.min(
       input.poolFill.routerAbEcdsaDerivation.expiresAtMs,
-      input.claims.thresholdExpiresAtMs,
+      input.binding.thresholdExpiresAtMs,
       nowMs + 5 * 60_000,
     );
     if (expiresAtMs <= nowMs) {
@@ -316,7 +320,7 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
         message: 'Wallet Session expired',
       };
     }
-    const participantIds = normalizeThresholdEd25519ParticipantIds(input.claims.participantIds);
+    const participantIds = normalizeThresholdEd25519ParticipantIds(input.binding.participantIds);
     if (!participantIds || !sameParticipantIds(participantIds, this.participantIds2p)) {
       return {
         ok: false,
@@ -353,20 +357,20 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
   }
 
   private async stepStrictPresignSession(input: {
-    claims: RouterAbEcdsaDerivationPoolFillStepClaims;
+    binding: RouterAbEcdsaDerivationPoolFillStepBinding;
     presignSessionId: string;
     requestedStage: 'triples' | 'presign';
     outgoingMessagesB64u: string[];
   }): Promise<RouterAbEcdsaDerivationPoolFillStepResponse> {
     const transport = this.signingWorkerTransport;
-    const scope = input.claims.routerAbEcdsaDerivationNormalSigning.scope;
+    const scope = input.binding.routerAbEcdsaDerivationNormalSigning.scope;
     const stepped = await stepRouterAbEcdsaPresignSession({
       signingWorkerBaseUrl: transport.signingWorkerBaseUrl,
       scope,
       presignSessionId: input.presignSessionId,
       requestedStage: input.requestedStage,
       outgoingMessagesB64u: input.outgoingMessagesB64u,
-      expiresAtMs: input.claims.thresholdExpiresAtMs,
+      expiresAtMs: input.binding.thresholdExpiresAtMs,
       auth: transport.auth,
       fetchImpl: transport.fetchImpl,
     });
@@ -403,7 +407,7 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
   }
 
   async routerAbEcdsaDerivationPresignaturePoolFillInit(input: {
-    claims: RouterAbEcdsaDerivationPoolFillInitClaims;
+    binding: RouterAbEcdsaDerivationPoolFillInitBinding;
     request: RouterAbEcdsaDerivationPoolFillInitRequest;
   }): Promise<RouterAbEcdsaDerivationPoolFillInitResponse> {
     if (this.nodeRole !== 'coordinator') {
@@ -421,42 +425,42 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
     if (!parsedRequest.ok) return parsedRequest;
     const { keySelector, poolFill } = parsedRequest.value;
 
-    const claims = input.claims;
-    const walletId = toOptionalTrimmedString(claims?.walletId);
+    const binding = input.binding;
+    const walletId = toOptionalTrimmedString(binding?.walletId);
     if (!walletId)
       return {
         ok: false,
-        code: WALLET_SESSION_FAILURE_CODES.claimsInvalid,
+        code: WALLET_SESSION_FAILURE_CODES.invalid,
         message: 'Missing walletId in Wallet Session token',
       };
-    const tokenRelayerKeyId = toOptionalTrimmedString(claims?.relayerKeyId);
+    const tokenRelayerKeyId = toOptionalTrimmedString(binding?.relayerKeyId);
     let tokenKeyHandle: EcdsaKeyHandle;
     try {
-      tokenKeyHandle = parseEcdsaKeyHandle(claims?.keyHandle);
+      tokenKeyHandle = parseEcdsaKeyHandle(binding?.keyHandle);
     } catch {
       return {
         ok: false,
-        code: WALLET_SESSION_FAILURE_CODES.claimsInvalid,
-        message: 'Invalid Wallet Session token claims',
+        code: WALLET_SESSION_FAILURE_CODES.invalid,
+        message: 'Invalid Wallet Session token binding',
       };
     }
     if (!tokenRelayerKeyId) {
       return {
         ok: false,
-        code: WALLET_SESSION_FAILURE_CODES.claimsInvalid,
-        message: 'Invalid Wallet Session token claims',
+        code: WALLET_SESSION_FAILURE_CODES.invalid,
+        message: 'Invalid Wallet Session token binding',
       };
     }
-    const tokenSigningRoot = signingRootMetadataFromRuntimePolicyScope(claims.runtimePolicyScope);
+    const tokenSigningRoot = signingRootMetadataFromRuntimePolicyScope(binding.runtimePolicyScope);
     if (!tokenSigningRoot) {
       return {
         ok: false,
-        code: WALLET_SESSION_FAILURE_CODES.claimsInvalid,
+        code: WALLET_SESSION_FAILURE_CODES.invalid,
         message: 'Wallet Session token is missing signing-root scope',
       };
     }
     return this.startStrictPresignSession({
-      claims,
+      binding,
       keySelector,
       poolFill,
       walletId,
@@ -467,7 +471,7 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
   }
 
   async routerAbEcdsaDerivationPresignaturePoolFillStep(input: {
-    readonly claims: RouterAbEcdsaDerivationPoolFillStepClaims;
+    readonly binding: RouterAbEcdsaDerivationPoolFillStepBinding;
     readonly request: RouterAbEcdsaDerivationPoolFillStepRequest;
   }): Promise<RouterAbEcdsaDerivationPoolFillStepResponse> {
     if (this.nodeRole !== 'coordinator') {
@@ -484,26 +488,26 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
     const parsedRequest = parseRouterAbEcdsaDerivationPoolFillStepRequest(input.request);
     if (!parsedRequest.ok) return parsedRequest;
     const { presignSessionId, stage: requestedStage, outgoingMessagesB64u } = parsedRequest.value;
-    const claims = input.claims;
+    const binding = input.binding;
     const expiresAtMs = presignSessionExpiresAtMs(presignSessionId);
-    const walletId = toOptionalTrimmedString(claims.walletId);
+    const walletId = toOptionalTrimmedString(binding.walletId);
     try {
-      parseEcdsaKeyHandle(claims.keyHandle);
+      parseEcdsaKeyHandle(binding.keyHandle);
     } catch {
       return {
         ok: false,
-        code: WALLET_SESSION_FAILURE_CODES.claimsInvalid,
-        message: 'Invalid Wallet Session token claims',
+        code: WALLET_SESSION_FAILURE_CODES.invalid,
+        message: 'Invalid Wallet Session token binding',
       };
     }
-    const relayerKeyId = toOptionalTrimmedString(claims.relayerKeyId);
-    const participantIds = normalizeThresholdEd25519ParticipantIds(claims.participantIds);
-    const scope = claims.routerAbEcdsaDerivationNormalSigning.scope;
+    const relayerKeyId = toOptionalTrimmedString(binding.relayerKeyId);
+    const participantIds = normalizeThresholdEd25519ParticipantIds(binding.participantIds);
+    const scope = binding.routerAbEcdsaDerivationNormalSigning.scope;
     if (!walletId || !relayerKeyId || !participantIds || !expiresAtMs) {
       return {
         ok: false,
-        code: WALLET_SESSION_FAILURE_CODES.claimsInvalid,
-        message: 'Invalid Wallet Session token claims',
+        code: WALLET_SESSION_FAILURE_CODES.invalid,
+        message: 'Invalid Wallet Session token binding',
       };
     }
     if (
@@ -513,10 +517,10 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
       return {
         ok: false,
         code: WALLET_SESSION_FAILURE_CODES.scopeMismatch,
-        message: 'Wallet Session normal-signing scope does not match presign claims',
+        message: 'Wallet Session normal-signing scope does not match presign binding',
       };
     }
-    if (Date.now() > expiresAtMs || expiresAtMs > claims.thresholdExpiresAtMs) {
+    if (Date.now() > expiresAtMs || expiresAtMs > binding.thresholdExpiresAtMs) {
       return {
         ok: false,
         code: WALLET_SESSION_FAILURE_CODES.expired,
@@ -524,7 +528,7 @@ export class RouterAbEcdsaDerivationPoolFillHandlers {
       };
     }
     return await this.stepStrictPresignSession({
-      claims: { ...claims, thresholdExpiresAtMs: expiresAtMs },
+      binding: { ...binding, thresholdExpiresAtMs: expiresAtMs },
       presignSessionId,
       requestedStage,
       outgoingMessagesB64u,

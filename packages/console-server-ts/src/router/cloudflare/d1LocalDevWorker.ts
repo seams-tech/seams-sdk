@@ -994,15 +994,20 @@ async function createLocalRouterApiHandler(
       normalizeLocalString(env.ROUTER_AB_CEREMONY_JWT_ISSUER) || DEFAULT_LOCAL_ROUTER_AB_ROUTER_URL,
     audience: normalizeLocalString(env.ROUTER_AB_CEREMONY_JWT_AUDIENCE) || 'router-ab',
   });
+  let routerApiService: ReturnType<typeof createLocalD1RouterApiAuthService> | null = null;
   const ed25519YaoComposition = await createLocalEd25519YaoProductComposition(
     env,
     session,
     routerFetch,
     orgId,
+    async () => {
+      if (!routerApiService) throw new Error('Local Router API service is not initialized');
+      return routerApiService.authorizationSessions;
+    },
   );
   const ecdsaStrictPorts = localEcdsaStrictPorts(env, orgId);
   const linkedDevice = await localLinkedDeviceComposition(env, session, orgId);
-  const routerApiService = createLocalD1RouterApiAuthService(
+  routerApiService = createLocalD1RouterApiAuthService(
     env,
     orgId,
     ed25519YaoComposition,
@@ -1378,6 +1383,9 @@ async function createLocalEd25519YaoProductComposition(
   session: SessionAdapter,
   routerFetch: LocalEd25519YaoRouterFetchV1,
   orgId: string,
+  resolveAuthorizationSessions: ConstructorParameters<
+    typeof RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter
+  >[1],
 ): Promise<LocalEd25519YaoProductCompositionState> {
   const signingWorkerId =
     normalizeLocalString(env.SIGNING_WORKER_ID) ||
@@ -1436,6 +1444,7 @@ async function createLocalEd25519YaoProductComposition(
       backend,
       recoveryAuthorization: new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(
         session,
+        resolveAuthorizationSessions,
       ),
       capabilityPersistence: new CloudflareD1RouterAbEd25519YaoCapabilityPersistence({
         database: env.SIGNER_DB,

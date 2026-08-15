@@ -1019,7 +1019,6 @@ export class IntendedBehaviourHarness {
     const snapshot = await this.runIntendedPageAction(
       'syncPasskeyWallet',
       'intended-sync-passkey',
-      { authMenuWalletId: this.walletId },
     );
     const result = requirePasskeySyncResult(snapshot, registration);
     const observedPaths = this.trace
@@ -1491,19 +1490,15 @@ export class IntendedBehaviourHarness {
   }
 
   private async clearBrowserStorageForColdSync(): Promise<void> {
-    await this.page.goto('about:blank');
-    const session = await this.context.newCDPSession(this.page);
-    const origins = [new URL(this.config.appUrl).origin, new URL(this.config.walletOrigin).origin];
-    try {
-      for (const origin of origins) {
-        await session.send('Storage.clearDataForOrigin', {
-          origin,
-          storageTypes:
-            'local_storage,session_storage,indexeddb,cache_storage,service_workers',
-        });
-      }
-    } finally {
-      await session.detach();
+    await this.context.clearCookies();
+    const resetTargets = [
+      `${new URL(this.page.url()).origin}/robots.txt`,
+      `${new URL(this.config.walletOrigin).origin}/healthz`,
+    ];
+    for (const target of resetTargets) {
+      await this.page.goto(target, { waitUntil: 'commit' });
+      await this.page.evaluate(clearBrowserStorage);
+      await this.page.waitForFunction(browserStorageDatabasesEmpty, undefined, { timeout: 5_000 });
     }
     this.latestPageSnapshot = null;
     this.intendedPageReady = false;
@@ -1522,7 +1517,6 @@ export class IntendedBehaviourHarness {
     opts?: {
       nearAccountId?: string;
       expectedOutcome?: 'success' | 'error';
-      authMenuWalletId?: string;
     },
   ): Promise<IntendedPageSnapshot> {
     if (opts?.nearAccountId && !this.registeredWallet) {
@@ -1541,7 +1535,6 @@ export class IntendedBehaviourHarness {
           timeoutMs: 120_000,
           intervalMs: 250,
           diagnostics,
-          authMenuWalletId: opts?.authMenuWalletId,
         },
       );
       this.latestPageSnapshot = snapshot;
@@ -1951,6 +1944,11 @@ export class IntendedBehaviourHarness {
   }
 }
 
+async function browserStorageDatabasesEmpty(): Promise<boolean> {
+  const databases = await indexedDB.databases().catch((): IDBDatabaseInfo[] => []);
+  return databases.every((database) => !database.name);
+}
+
 function noYaoRecoveryAssertionLabel(scenario: IntendedNoYaoRecoveryAssertionScenario): string {
   switch (scenario.kind) {
     case 'passkey_unlock':
@@ -2202,7 +2200,7 @@ async function clearBrowserStorage(): Promise<void> {
         const request = indexedDB.deleteDatabase(name);
         request.onsuccess = () => resolve();
         request.onerror = () => resolve();
-        request.onblocked = () => resolve();
+        request.onblocked = () => undefined;
       }),
     );
   }
@@ -4201,7 +4199,6 @@ async function clickWalletIframeConfirm(
     timeoutMs?: number;
     diagnostics?: WalletIframeAutoConfirmDiagnostics;
     diagnosticsStartedAtMs?: number;
-    authMenuWalletId?: string;
   },
 ): Promise<boolean> {
   const timeoutMs = Math.max(50, Math.floor(opts?.timeoutMs ?? 15_000));
@@ -4225,16 +4222,6 @@ async function clickWalletIframeConfirm(
       diagnosticsStartedAtMs: opts?.diagnosticsStartedAtMs,
     });
     if (otpFilled) return true;
-
-    if (opts?.authMenuWalletId) {
-      const authMenuInput = frame.locator('[data-auth-menu-input]').first();
-      if (await authMenuInput.isVisible().catch(() => false)) {
-        const currentValue = await authMenuInput.inputValue();
-        if (currentValue !== opts.authMenuWalletId) {
-          await authMenuInput.fill(opts.authMenuWalletId);
-        }
-      }
-    }
 
     const confirmBtn = frame
       .locator(
@@ -4320,7 +4307,6 @@ async function autoConfirmWalletIframeUntil<T>(
     retryDelayMs?: number;
     stopAfterClick?: boolean;
     diagnostics?: WalletIframeAutoConfirmDiagnostics;
-    authMenuWalletId?: string;
   },
 ): Promise<T> {
   const timeoutMs = Math.max(250, Math.floor(opts?.timeoutMs ?? 55_000));
@@ -4342,7 +4328,6 @@ async function autoConfirmWalletIframeUntil<T>(
     retryDelayMs,
     stopAfterClick,
     diagnostics,
-    authMenuWalletId: opts?.authMenuWalletId,
     startedAtMs,
     isDone: () => done,
   });
@@ -4365,7 +4350,6 @@ async function runWalletIframeAutoConfirmLoop(args: {
   retryDelayMs: number;
   stopAfterClick: boolean;
   diagnostics?: WalletIframeAutoConfirmDiagnostics;
-  authMenuWalletId?: string;
   startedAtMs: number;
   isDone: () => boolean;
 }): Promise<void> {
@@ -4386,7 +4370,6 @@ async function runWalletIframeAutoConfirmLoop(args: {
       timeoutMs: Math.min(500, args.intervalMs),
       diagnostics: args.diagnostics,
       diagnosticsStartedAtMs: args.startedAtMs,
-      authMenuWalletId: args.authMenuWalletId,
     });
     if (clicked && args.stopAfterClick) return;
     if (args.retryDelayMs > 0) {

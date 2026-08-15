@@ -226,7 +226,7 @@ export async function handleOwnerWalletExecutionLanePreflight(
       authorizationSessions: ctx.service.authorizationSessions,
     });
     if (!validated.ok) return validationFailure(validated);
-    walletIdRaw = validated.claims.walletId;
+    walletIdRaw = validated.binding.walletId;
     authorization = {
       kind: 'wallet_auth_method',
       walletAuthMethodId: validated.walletSessionAuth.authority.bindingId,
@@ -238,7 +238,7 @@ export async function handleOwnerWalletExecutionLanePreflight(
       authorizationSessions: ctx.service.authorizationSessions,
     });
     if (!validated.ok) return validationFailure(validated);
-    walletIdRaw = validated.claims.walletId;
+    walletIdRaw = validated.binding.walletId;
     authorization = {
       kind: 'authority_ref',
       authorityRef: validated.walletSessionAuth.walletAuthAuthorityRef,
@@ -249,7 +249,7 @@ export async function handleOwnerWalletExecutionLanePreflight(
   const walletId = parseWalletId(walletIdRaw);
   if (!walletId.ok) {
     return validationFailure({
-      code: WALLET_SESSION_FAILURE_CODES.claimsInvalid,
+      code: WALLET_SESSION_FAILURE_CODES.invalid,
       message: 'Wallet Session wallet identity is invalid',
     });
   }

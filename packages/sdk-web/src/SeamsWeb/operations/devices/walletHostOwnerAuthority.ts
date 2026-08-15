@@ -1,5 +1,6 @@
 import type { HttpTransport } from '@/core/platform/http';
 import {
+  walletSessionAuthorizationIdForCurve,
   walletSessionTokenForCurve,
   type ActiveWalletSessionAuthorizationProjection,
   type WalletSessionAuthorizationRepository,
@@ -140,7 +141,10 @@ async function requestAsAuthorizedOwnerV1(
   }
   const projection = read.projection;
   if (
-    projection.authorizationId !== input.authentication.source.authorizationId ||
+    !projectionContainsAuthorizationId(
+      projection,
+      input.authentication.source.authorizationId,
+    ) ||
     projection.expiresAtMs <= Date.now()
   ) {
     throw new Error('Owner Wallet Session identity is invalid or expired');
@@ -199,6 +203,16 @@ function preferredOwnerWalletSessionToken(
   const ecdsa = walletSessionTokenForCurve(projection, 'ecdsa');
   if (ecdsa) return ecdsa;
   throw new Error('Owner Wallet Session has no supported signing token');
+}
+
+function projectionContainsAuthorizationId(
+  projection: ActiveWalletSessionAuthorizationProjection,
+  authorizationId: string,
+): boolean {
+  return (
+    walletSessionAuthorizationIdForCurve(projection, 'ed25519') === authorizationId ||
+    walletSessionAuthorizationIdForCurve(projection, 'ecdsa') === authorizationId
+  );
 }
 
 function parseOwnerAuthorizationResponseV1(
@@ -283,7 +297,7 @@ function assertWalletSessionSourceMatchesProjection(
   if (
     source.kind !== 'wallet_session' ||
     source.walletSessionId !== projection.walletSessionId ||
-    source.authorizationId !== projection.authorizationId
+    !projectionContainsAuthorizationId(projection, source.authorizationId)
   ) {
     throw new Error('Owner authorization Wallet Session identity changed');
   }

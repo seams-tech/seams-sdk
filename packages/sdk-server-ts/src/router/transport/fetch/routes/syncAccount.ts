@@ -18,16 +18,20 @@ import {
   DEFAULT_WALLET_SESSION_REMAINING_USES,
   DEFAULT_WALLET_SESSION_TTL_MS,
 } from '@shared/threshold/sessionPolicy';
-import { parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1 } from '@shared/utils/routerAbEd25519Yao';
-import { validateRouterAbEd25519WalletSessionTokenInputs } from '../../../auth/commonRouterUtils';
 import { parseWebAuthnCredentialIdB64u, parseWebAuthnRpId } from '@shared/utils/domainIds';
-import { isPlainObject } from '@shared/utils/validation';
 import { parseSessionOrigin, parseVerifiedOwnerProofId } from '../../../../authorization/domain';
 import { buildVerifiedWalletSessionPasskeyFactorResult } from '../../../../authorization/factorEvidence';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { mintRouterAbEd25519YaoWalletSessionV1 } from '../../../domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
+import {
+  parseRouterAbEcdsaPostRegistrationSessionActivationPolicyV1,
+  parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
+import { isPlainObject } from '@shared/utils/validation';
+import { authorWalletUnlockEcdsaRequest } from './sessions';
+import { handleStrictEcdsaSessionActivation } from './thresholdEcdsa';
 
 function syncAccountResponseStatus(result: { ok: boolean; verified?: boolean; code?: string }) {
   if (result.ok && result.verified) return 200;
@@ -45,56 +49,6 @@ function syncAccountResponseStatus(result: { ok: boolean; verified?: boolean; co
 
 export async function handleSyncAccount(ctx: FetchRouterApiContext): Promise<Response | null> {
   if (ctx.method !== 'POST') return null;
-
-  if (ctx.pathname === '/sync-account/rejoin') {
-    const body = await readJson(ctx.request);
-    const authorized = await validateRouterAbEd25519WalletSessionTokenInputs({
-      body,
-      headers: Object.fromEntries(ctx.request.headers.entries()),
-      authorizationSessions: ctx.service.authorizationSessions,
-    });
-    if (!authorized.ok) {
-      return json(
-        { ok: false, code: authorized.code, message: authorized.message },
-        { status: authorized.code === 'wallet_session_expired' ? 401 : 403 },
-      );
-    }
-    const executeRequest = parseRouterAbEd25519YaoRegistrationActivationExecuteRequestV1(
-      isPlainObject(body) ? body.executeRequest : null,
-    );
-    if (!executeRequest.ok) {
-      return json(
-        { ok: false, code: 'invalid_body', message: executeRequest.message },
-        { status: 400 },
-      );
-    }
-    const yaoRuntime = ctx.opts.routerAbEd25519YaoProduct;
-    if (!yaoRuntime) {
-      return json(
-        { ok: false, code: 'internal', message: 'Ed25519 Yao product is not configured' },
-        { status: 500 },
-      );
-    }
-    const lifecycle = executeRequest.value.binding.lifecycle;
-    const claims = authorized.claims;
-    if (
-      lifecycle.account_id !== claims.walletId ||
-      lifecycle.session_id !== claims.thresholdSessionId ||
-      lifecycle.selected_server_id !== claims.relayerKeyId
-    ) {
-      return json(
-        { ok: false, code: 'wallet_session_mismatch', message: 'Cold unlock identity changed' },
-        { status: 403 },
-      );
-    }
-    const replayed = await yaoRuntime.replayActivatedRegistration(executeRequest.value);
-    return replayed.ok
-      ? json({ ok: true, value: replayed.value }, { status: 200 })
-      : json(
-          { ok: false, code: replayed.code, message: replayed.message },
-          { status: replayed.status },
-        );
-  }
 
   if (ctx.pathname === '/sync-account/options') {
     const body = await readJson(ctx.request);
@@ -313,6 +267,51 @@ export async function handleSyncAccount(ctx: FetchRouterApiContext): Promise<Res
       const ecdsaSigners = await ctx.service.walletRegistration.listWalletEcdsaCustodyContinuity({
         walletId,
       });
+      let ecdsaSessionActivation = null;
+      let ecdsaActivationReceipt = null;
+      const firstEcdsaSigner = ecdsaSigners[0];
+      if (firstEcdsaSigner) {
+        const policy = parseRouterAbEcdsaPostRegistrationSessionActivationPolicyV1({
+          kind: 'router_ab_ecdsa_post_registration_session_activation_policy_v1',
+          key_handle: firstEcdsaSigner.walletKey.keyHandle,
+          session_policy: {
+            threshold_session_id: `sync-account-ecdsa:${parsed.request.challengeId}`,
+            wallet_session_mint_id: mintId.value,
+            ttl_ms: DEFAULT_WALLET_SESSION_TTL_MS,
+            remaining_uses: DEFAULT_WALLET_SESSION_REMAINING_USES,
+            runtime_policy_scope: firstEcdsaSigner.runtimePolicyScope,
+          },
+        });
+        const authored = await authorWalletUnlockEcdsaRequest(ctx, walletId, policy);
+        if (!authored.ok) {
+          return json(
+            { ok: false, code: authored.code, message: authored.message },
+            { status: authored.status },
+          );
+        }
+        const activatedResponse = await handleStrictEcdsaSessionActivation({
+          ctx,
+          body: authored.value.request,
+          source: 'verified_ed25519_wallet_session',
+          walletSessionToken: walletSession.session.walletSessionToken,
+          proof,
+        });
+        const activatedBody: unknown = await activatedResponse.json();
+        if (!activatedResponse.ok) {
+          const failure = isPlainObject(activatedBody) ? activatedBody : {};
+          return json(
+            {
+              ok: false,
+              code: String(failure.code || 'ecdsa_session_activation_failed'),
+              message: String(failure.message || 'ECDSA Wallet Session activation failed'),
+            },
+            { status: activatedResponse.status },
+          );
+        }
+        ecdsaSessionActivation =
+          parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1(activatedBody);
+        ecdsaActivationReceipt = authored.value.activationReceipt;
+      }
       responseBody = {
         ...result,
         thresholdEd25519: {
@@ -338,6 +337,12 @@ export async function handleSyncAccount(ctx: FetchRouterApiContext): Promise<Res
             runtimePolicyScope: signer.runtimePolicyScope,
           })),
         },
+        ...(ecdsaSessionActivation
+          ? {
+              ecdsaSession: ecdsaSessionActivation,
+              ecdsaActivationReceipt,
+            }
+          : {}),
       };
     }
     return json(responseBody, { status: syncAccountResponseStatus(result) });

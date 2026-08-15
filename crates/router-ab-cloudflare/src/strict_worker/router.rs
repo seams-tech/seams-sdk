@@ -13,7 +13,7 @@ use crate::{
     handle_cloudflare_router_normal_signing_prepare_internal_step_up_request_v2,
     parse_cloudflare_router_authorized_ed25519_prepare_request_v2_json,
     parse_cloudflare_router_authorized_linked_device_ecdsa_finalize_request_v1_json,
-    CloudflareRouterBearerAuthorizationV1, CloudflareRouterEcdsaAcceptedAuthorizedOperationV1,
+    CloudflareRouterEcdsaAcceptedAuthorizedOperationV1,
     CloudflareRouterEcdsaAcceptedCapabilityBindingV1,
     CloudflareRouterEd25519AcceptedAuthorizedOperationV1,
     CloudflareRouterEd25519AcceptedCapabilityBindingV1, CloudflareRouterEd25519JwksJwtVerifierV1,
@@ -256,13 +256,21 @@ pub(super) async fn handle_strict_router_fetch_v1(
     let gateway_owner_request = parsed_normal_signing
         .as_ref()
         .is_some_and(StrictRouterNormalSigningRequestV1::is_gateway_owner_wallet_session);
+    if parsed_normal_signing.as_ref().is_some_and(|parsed| {
+        !parsed.is_gateway_owner_wallet_session() && !parsed.is_operation_step_up()
+    }) {
+        return cloudflare_protocol_error_response_v1(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidGateDecision,
+            "Normal signing requires Gateway owner admission or operation step-up",
+        ));
+    }
     if gateway_owner_request && authorization_header_present {
         return cloudflare_protocol_error_response_v1(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
             "Gateway owner Wallet Session requests must omit Authorization",
         ));
     }
-    let authorization = if gateway_owner_request {
+    let authorization = if parsed_normal_signing.is_some() {
         None
     } else {
         match parse_cloudflare_router_bearer_authorization_from_request_v1(&request) {
@@ -299,7 +307,6 @@ pub(super) async fn handle_strict_router_fetch_v1(
     if let Some(parsed) = parsed_normal_signing {
         return execute_strict_router_normal_signing_request_v1(
             parsed,
-            authorization.as_ref(),
             &request,
             &env,
             &runtime,
@@ -558,7 +565,6 @@ async fn parse_strict_router_normal_signing_request_v1(
 #[cfg(feature = "strict-worker-router-entrypoint")]
 async fn execute_strict_router_normal_signing_request_v1(
     parsed: StrictRouterNormalSigningRequestV1,
-    authorization: Option<&CloudflareRouterBearerAuthorizationV1>,
     request: &Request,
     env: &Env,
     runtime: &CloudflareRouterWorkerRuntimeV1,
@@ -567,17 +573,6 @@ async fn execute_strict_router_normal_signing_request_v1(
     verifier: CloudflareRouterEd25519JwksJwtVerifierV1,
 ) -> worker::Result<Response> {
     let operation_step_up = parsed.is_operation_step_up();
-    let gateway_owner_wallet_session = parsed.is_gateway_owner_wallet_session();
-    if !operation_step_up && !gateway_owner_wallet_session && authorization.is_none() {
-        return router_json_cors_response_v1::<()>(
-            Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidGateDecision,
-                "Reusable Wallet Session authorization requires a Bearer credential",
-            )),
-            request,
-            env,
-        );
-    }
     match parsed {
         StrictRouterNormalSigningRequestV1::Ed25519Prepare {
             request: signing_request,
@@ -599,27 +594,16 @@ async fn execute_strict_router_normal_signing_request_v1(
             request: signing_request,
             authorized_operation,
         } => {
-            let credential = if gateway_owner_wallet_session {
-                match authorized_operation
-                    .gateway_owner_wallet_session_credential(trusted_source_digest)
-                {
-                    Ok(credential) => credential,
-                    Err(err) => {
-                        return router_json_cors_response_v1::<serde_json::Value>(
-                            Err(err),
-                            request,
-                            env,
-                        )
-                    }
-                }
-            } else {
-                match router_wallet_session_credential_v1(
-                    authorization.expect("reusable authorization checked"),
-                    request,
-                    env,
-                )? {
-                    Ok(credential) => credential,
-                    Err(response) => return Ok(response),
+            let credential = match authorized_operation
+                .gateway_owner_wallet_session_credential(trusted_source_digest)
+            {
+                Ok(credential) => credential,
+                Err(err) => {
+                    return router_json_cors_response_v1::<serde_json::Value>(
+                        Err(err),
+                        request,
+                        env,
+                    )
                 }
             };
             let response =
@@ -656,27 +640,16 @@ async fn execute_strict_router_normal_signing_request_v1(
             request: signing_request,
             authorized_operation,
         } => {
-            let credential = if gateway_owner_wallet_session {
-                match authorized_operation
-                    .gateway_owner_wallet_session_credential(trusted_source_digest)
-                {
-                    Ok(credential) => credential,
-                    Err(err) => {
-                        return router_json_cors_response_v1::<serde_json::Value>(
-                            Err(err),
-                            request,
-                            env,
-                        )
-                    }
-                }
-            } else {
-                match router_wallet_session_credential_v1(
-                    authorization.expect("reusable authorization checked"),
-                    request,
-                    env,
-                )? {
-                    Ok(credential) => credential,
-                    Err(response) => return Ok(response),
+            let credential = match authorized_operation
+                .gateway_owner_wallet_session_credential(trusted_source_digest)
+            {
+                Ok(credential) => credential,
+                Err(err) => {
+                    return router_json_cors_response_v1::<serde_json::Value>(
+                        Err(err),
+                        request,
+                        env,
+                    )
                 }
             };
             let response =
@@ -712,27 +685,16 @@ async fn execute_strict_router_normal_signing_request_v1(
             request: signing_request,
             authorized_operation,
         } => {
-            let credential = if gateway_owner_wallet_session {
-                match authorized_operation
-                    .gateway_owner_wallet_session_credential(trusted_source_digest)
-                {
-                    Ok(credential) => credential,
-                    Err(err) => {
-                        return router_json_cors_response_v1::<serde_json::Value>(
-                            Err(err),
-                            request,
-                            env,
-                        )
-                    }
-                }
-            } else {
-                match router_wallet_session_credential_v1(
-                    authorization.expect("reusable authorization checked"),
-                    request,
-                    env,
-                )? {
-                    Ok(credential) => credential,
-                    Err(response) => return Ok(response),
+            let credential = match authorized_operation
+                .gateway_owner_wallet_session_credential(trusted_source_digest)
+            {
+                Ok(credential) => credential,
+                Err(err) => {
+                    return router_json_cors_response_v1::<serde_json::Value>(
+                        Err(err),
+                        request,
+                        env,
+                    )
                 }
             };
             let response = handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_prepare_authenticated_public_request_v1(
@@ -767,27 +729,16 @@ async fn execute_strict_router_normal_signing_request_v1(
             request: signing_request,
             authorized_operation,
         } => {
-            let credential = if gateway_owner_wallet_session {
-                match authorized_operation
-                    .gateway_owner_wallet_session_credential(trusted_source_digest)
-                {
-                    Ok(credential) => credential,
-                    Err(err) => {
-                        return router_json_cors_response_v1::<serde_json::Value>(
-                            Err(err),
-                            request,
-                            env,
-                        )
-                    }
-                }
-            } else {
-                match router_wallet_session_credential_v1(
-                    authorization.expect("reusable authorization checked"),
-                    request,
-                    env,
-                )? {
-                    Ok(credential) => credential,
-                    Err(response) => return Ok(response),
+            let credential = match authorized_operation
+                .gateway_owner_wallet_session_credential(trusted_source_digest)
+            {
+                Ok(credential) => credential,
+                Err(err) => {
+                    return router_json_cors_response_v1::<serde_json::Value>(
+                        Err(err),
+                        request,
+                        env,
+                    )
                 }
             };
             let response = handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_finalize_authenticated_public_request_v1(
@@ -929,23 +880,6 @@ fn parse_router_public_body_v1<T>(
 ) -> worker::Result<Result<T, Response>> {
     match parser(body) {
         Ok(parsed) => Ok(Ok(parsed)),
-        Err(err) => {
-            let response = cloudflare_protocol_error_response_v1(err)?;
-            Ok(Err(cloudflare_router_normal_signing_response_v1(
-                response, request, env,
-            )?))
-        }
-    }
-}
-
-#[cfg(feature = "strict-worker-router-entrypoint")]
-fn router_wallet_session_credential_v1(
-    authorization: &CloudflareRouterBearerAuthorizationV1,
-    request: &Request,
-    env: &Env,
-) -> worker::Result<Result<CloudflareRouterWalletSessionCredentialV1, Response>> {
-    match CloudflareRouterWalletSessionCredentialV1::bearer(authorization.clone()) {
-        Ok(credential) => Ok(Ok(credential)),
         Err(err) => {
             let response = cloudflare_protocol_error_response_v1(err)?;
             Ok(Err(cloudflare_router_normal_signing_response_v1(
