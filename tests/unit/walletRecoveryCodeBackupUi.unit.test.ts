@@ -58,7 +58,7 @@ test('wallet recovery backup completes only through the acknowledged close contr
 
   await dialog
     .getByRole('checkbox', {
-      name: 'I saved these recovery codes somewhere private (will be deleted locally).',
+      name: 'I saved these recovery codes (these codes will not be shown again).',
     })
     .check();
   // Acknowledging relabels the single control to name what closing now does.
@@ -75,7 +75,7 @@ test('wallet recovery backup starts at the top with reachable actions and is key
   await openDialog(page);
   const dialog = page.getByRole('dialog');
   const acknowledgement = page.getByRole('checkbox', {
-    name: 'I saved these recovery codes somewhere private (will be deleted locally).',
+    name: 'I saved these recovery codes (these codes will not be shown again).',
   });
   await expect(dialog).toBeFocused();
   await expect(acknowledgement).toBeVisible();
@@ -107,7 +107,7 @@ test('account-menu recovery backup closes without completing until acknowledged'
   await expect(dialog.getByRole('button', { name: 'Finish backup' })).toHaveCount(0);
   await dialog
     .getByRole('checkbox', {
-      name: 'I saved these recovery codes somewhere private (will be deleted locally).',
+      name: 'I saved these recovery codes (these codes will not be shown again).',
     })
     .check();
   await expect(dialog.getByRole('button', { name: 'Close' })).toHaveCount(0);
