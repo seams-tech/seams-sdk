@@ -251,22 +251,16 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
                   </span>
                 </div>
                 {status.pendingLocalBackup ? (
-                  <>
-                    <p className="w3a-recovery-codes-note">
-                      Your recovery codes are waiting in this wallet. Back them up somewhere
-                      private.
-                    </p>
-                    <button
-                      type="button"
-                      className="w3a-recovery-codes-primary-action"
-                      disabled={backupState.kind === 'working'}
-                      onClick={finishPendingBackup}
-                    >
-                      {backupState.kind === 'working'
-                        ? 'Opening recovery codes…'
-                        : 'View recovery codes'}
-                    </button>
-                  </>
+                  <button
+                    type="button"
+                    className="w3a-recovery-codes-primary-action"
+                    disabled={backupState.kind === 'working'}
+                    onClick={finishPendingBackup}
+                  >
+                    {backupState.kind === 'working'
+                      ? 'Opening recovery codes…'
+                      : 'View recovery codes'}
+                  </button>
                 ) : null}
               </>
             ) : null}
