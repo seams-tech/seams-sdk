@@ -124,7 +124,6 @@ export interface ProfileDropdownProps {
   transactionSettingsOpen?: boolean;
   accountsRows?: AccountsSectionRow[];
   accountsOpen?: boolean;
-  linkedDevicesOpen?: boolean;
   exportKeysOpen?: boolean;
   exportLoadingChain?: ExportChain | null;
   onExportChain?: (chain: ExportChain) => void;

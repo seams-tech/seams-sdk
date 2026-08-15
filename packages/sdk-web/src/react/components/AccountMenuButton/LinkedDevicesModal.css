@@ -1,0 +1,278 @@
+.w3a-linked-devices-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(
+    --w3a-z-underlay-backdrop,
+    calc(var(--w3a-wallet-overlay-z, 2147483646) - var(--w3a-wallet-underlay-backdrop-offset, 2))
+  );
+  background: oklch(0.2 0.01 240 / 0.8);
+  backdrop-filter: blur(8px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 12px;
+  box-sizing: border-box;
+  overflow: auto;
+  animation: w3a-linked-devices-backdrop-opacity 32ms ease-in;
+}
+
+.w3a-linked-devices-modal-backdrop.theme-light {
+  background: oklch(0.2 0.01 240 / 0.6);
+}
+
+.w3a-linked-devices-modal-content {
+  position: relative;
+  z-index: var(
+    --w3a-z-underlay-content,
+    calc(var(--w3a-wallet-overlay-z, 2147483646) - var(--w3a-wallet-underlay-content-offset, 1))
+  );
+  display: flex;
+  flex-direction: column;
+  width: min(460px, 100%);
+  max-width: 100%;
+  min-width: 0;
+  max-height: 100%;
+  overflow: auto;
+  padding: 1.25rem;
+  border: 1px solid var(--w3a-colors-borderPrimary);
+  border-radius: 1.5rem;
+  background: var(--w3a-colors-colorBackground);
+  box-sizing: border-box;
+}
+
+.w3a-linked-devices-modal-title {
+  margin: 0 2.5rem 0.25rem 0;
+  font-size: 1.3125rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  color: var(--w3a-colors-textPrimary);
+}
+
+.w3a-linked-devices-modal-note {
+  margin: 0 0 0.75rem;
+  color: var(--w3a-colors-textSecondary);
+  font-size: 0.86rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.w3a-linked-devices-modal-close {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  background: none;
+  border: none;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--w3a-colors-textMuted);
+  cursor: pointer;
+  padding: 16px;
+  border-radius: 999px;
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.w3a-linked-devices-modal-close:hover {
+  color: var(--w3a-colors-textPrimary);
+  background: var(--w3a-colors-surface);
+}
+
+.w3a-linked-devices-modal-body {
+  display: grid;
+  gap: 0.5rem;
+}
+
+/* Both the loading and the loaded state render one card per row, so the box
+   the list occupies does not jump when the devices arrive. */
+.w3a-linked-devices-modal-placeholder {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 3.5rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--w3a-colors-borderPrimary);
+  border-radius: 0.75rem;
+  background: var(--w3a-colors-surface);
+  color: var(--w3a-colors-textSecondary);
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.w3a-linked-devices-modal-list {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 22rem;
+  overflow-y: auto;
+}
+
+.w3a-linked-devices-modal-item {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--w3a-colors-borderPrimary);
+  border-radius: 0.75rem;
+  background: var(--w3a-colors-surface);
+}
+
+.w3a-linked-devices-modal-item-main {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.w3a-linked-devices-modal-item-name {
+  color: var(--w3a-colors-textPrimary);
+  font-size: 0.95rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* The state chip carries the only status a person needs; colour reinforces the
+   word rather than replacing it. */
+.w3a-linked-devices-modal-standing {
+  flex: none;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.w3a-linked-devices-modal-standing.tone-active {
+  background: color-mix(in srgb, oklch(0.62 0.15 155), transparent 88%);
+  color: oklch(0.48 0.14 155);
+}
+
+.w3a-linked-devices-modal-standing.tone-pending {
+  background: color-mix(in srgb, oklch(0.72 0.15 85), transparent 88%);
+  color: oklch(0.5 0.13 85);
+}
+
+.w3a-linked-devices-modal-standing.tone-off {
+  background: color-mix(in srgb, var(--w3a-colors-textSecondary), transparent 90%);
+  color: var(--w3a-colors-textSecondary);
+}
+
+.theme-dark .w3a-linked-devices-modal-standing.tone-active {
+  color: oklch(0.8 0.14 155);
+}
+
+.theme-dark .w3a-linked-devices-modal-standing.tone-pending {
+  color: oklch(0.82 0.13 85);
+}
+
+.w3a-linked-devices-modal-item-detail {
+  color: var(--w3a-colors-textSecondary);
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.w3a-linked-devices-modal-confirm {
+  display: grid;
+  gap: 0.5rem;
+  color: var(--w3a-colors-textSecondary);
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.w3a-linked-devices-modal-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.w3a-linked-devices-modal-confirm-actions > button {
+  flex: 1 1 0;
+}
+
+.w3a-linked-devices-modal-secondary,
+.w3a-linked-devices-modal-danger {
+  justify-self: start;
+  min-height: 36px;
+  padding: 0.4rem 0.75rem;
+  border-radius: 0.6rem;
+  font-size: 0.86rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 140ms ease;
+}
+
+.w3a-linked-devices-modal-secondary {
+  border: 1px solid var(--w3a-colors-borderPrimary);
+  background: var(--w3a-colors-colorBackground);
+  color: var(--w3a-colors-textPrimary);
+}
+
+.w3a-linked-devices-modal-secondary:hover:not(:disabled) {
+  background: var(--w3a-colors-surface2, var(--w3a-colors-surface));
+}
+
+.w3a-linked-devices-modal-danger {
+  justify-self: stretch;
+  border: 1px solid transparent;
+  background: oklch(0.55 0.19 25);
+  color: #ffffff;
+}
+
+.w3a-linked-devices-modal-danger:hover {
+  background: oklch(0.49 0.19 25);
+}
+
+.w3a-linked-devices-modal-secondary:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.w3a-linked-devices-modal-secondary:focus-visible,
+.w3a-linked-devices-modal-danger:focus-visible {
+  outline: 2px solid var(--w3a-colors-primary);
+  outline-offset: 2px;
+}
+
+.w3a-linked-devices-modal-error {
+  padding: 0.6rem 0.75rem;
+  border: 1px solid color-mix(in srgb, oklch(0.58 0.18 25), transparent 75%);
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, oklch(0.58 0.18 25), transparent 93%);
+  color: oklch(0.52 0.17 25);
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.theme-dark .w3a-linked-devices-modal-error {
+  color: oklch(0.74 0.15 25);
+}
+
+/* Announced only — a visible copy would shift the card as it changes. */
+.w3a-linked-devices-modal-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@keyframes w3a-linked-devices-backdrop-opacity {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

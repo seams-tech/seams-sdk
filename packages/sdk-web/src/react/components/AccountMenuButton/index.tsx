@@ -15,6 +15,7 @@ import type { AccountMenuButtonProps, AccountsSectionRow, ExportChain, MenuItem 
 import { PROFILE_MENU_ITEM_IDS } from './types';
 import { QRCodeScanner } from '../QRCodeScanner';
 import { RecoveryCodesModal } from './RecoveryCodesModal';
+import { LinkedDevicesModal } from './LinkedDevicesModal';
 import './Web3AuthProfileButton.css';
 import { Theme, useTheme } from '../theme';
 import { requirePrimaryChainByFamily, resolvePrimaryExplorerUrl } from '@/core/config/chains';
@@ -131,7 +132,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
 
   // Local state for modals/expanded sections
   const [showQRScanner, setShowQRScanner] = useState(false);
-  const [linkedDevicesOpen, setLinkedDevicesOpen] = useState(false);
+  const [showLinkedDevices, setShowLinkedDevices] = useState(false);
   const [showRecoveryCodes, setShowRecoveryCodes] = useState(false);
   const [exportKeysOpen, setExportKeysOpen] = useState(false);
   const [exportLoadingChain, setExportLoadingChain] = useState<ExportChain | null>(null);
@@ -148,6 +149,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
   // Read current theme from Theme context (falls back to system preference)
   const { theme } = useTheme();
   const canShowRecoveryCodes = loginState.isLoggedIn && Boolean(walletId);
+  const canExportKeys = loginState.isLoggedIn && loginState.currentAuthMethod.kind !== 'none';
   const handleQrCodeScanned = useCallback(() => {
     setShowQRScanner(false);
   }, []);
@@ -348,17 +350,19 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
       });
     }
 
-    items.push({
-      id: PROFILE_MENU_ITEM_IDS.EXPORT_KEYS,
-      icon: exportLoadingChain ? <SpinnerIcon /> : <KeyIcon />,
-      label: 'Export Keys',
-      description: 'Export wallet signing keys',
-      disabled: !loginState.isLoggedIn,
-      onClick: () => {
-        setExportKeysOpen((v) => !v);
-      },
-      keepOpenOnClick: true,
-    });
+    if (canExportKeys) {
+      items.push({
+        id: PROFILE_MENU_ITEM_IDS.EXPORT_KEYS,
+        icon: exportLoadingChain ? <SpinnerIcon /> : <KeyIcon />,
+        label: 'Export Keys',
+        description: 'Export wallet signing keys',
+        disabled: false,
+        onClick: () => {
+          setExportKeysOpen((v) => !v);
+        },
+        keepOpenOnClick: true,
+      });
+    }
 
     if (canShowRecoveryCodes) {
       items.push({
@@ -388,9 +392,9 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
         id: PROFILE_MENU_ITEM_IDS.LINKED_DEVICES,
         icon: <LinkIcon />,
         label: 'Linked Devices',
-        description: 'View linked devices',
+        description: 'See devices using this wallet',
         disabled: !loginState.isLoggedIn,
-        onClick: () => setLinkedDevicesOpen((v) => !v),
+        onClick: () => setShowLinkedDevices(true),
         keepOpenOnClick: true,
       },
     );
@@ -405,7 +409,13 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
       keepOpenOnClick: true,
     });
     return items;
-  }, [accountsRows.length, canShowRecoveryCodes, exportLoadingChain, loginState.isLoggedIn]);
+  }, [
+    accountsRows.length,
+    canExportKeys,
+    canShowRecoveryCodes,
+    exportLoadingChain,
+    loginState.isLoggedIn,
+  ]);
 
   const highlightedMenuItemId = highlightedMenuItem?.id;
   const highlightShouldFocus = highlightedMenuItem?.focus ?? true;
@@ -474,7 +484,6 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
         transactionSettingsOpen={transactionSettingsOpen}
         accountsRows={accountsRows}
         accountsOpen={accountsOpen}
-        linkedDevicesOpen={linkedDevicesOpen}
         exportKeysOpen={exportKeysOpen}
         exportLoadingChain={exportLoadingChain}
         onExportChain={startExportKeyFlow}
@@ -512,6 +521,17 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
             isOpen={showRecoveryCodes}
             onClose={() => setShowRecoveryCodes(false)}
             recovery={recovery}
+          />,
+          portalHost!,
+        )}
+
+      {/* Linked Devices Modal (portaled alongside the other account-menu modals) */}
+      {canPortal &&
+        createPortal(
+          <LinkedDevicesModal
+            walletId={walletId ?? null}
+            isOpen={showLinkedDevices}
+            onClose={() => setShowLinkedDevices(false)}
           />,
           portalHost!,
         )}
