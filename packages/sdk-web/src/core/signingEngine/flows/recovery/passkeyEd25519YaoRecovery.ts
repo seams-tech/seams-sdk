@@ -73,6 +73,7 @@ function requireThresholdEd25519SessionId(
 }
 
 export type ParsedPasskeyEd25519YaoSyncResponseV1 = ParsedPasskeyEd25519YaoRecoveryDescriptorV1 & {
+  readonly keyVersion: string;
   readonly credentialPublicKeyB64u: string;
   readonly walletCustody: {
     readonly envelope: PasskeyCustodyEnvelopeRecord;
@@ -288,6 +289,7 @@ export function parsePasskeyEd25519YaoSyncResponseV1(
     signerSlot: requirePositiveInteger(response.signerSlot, 'signerSlot'),
     operationalPublicKey: requireString(response.publicKey, 'publicKey'),
     relayerKeyId: requireString(threshold.relayerKeyId, 'thresholdEd25519.relayerKeyId'),
+    keyVersion: requireString(threshold.keyVersion, 'thresholdEd25519.keyVersion'),
     credentialIdB64u: requireString(response.credentialIdB64u, 'credentialIdB64u'),
     credentialPublicKeyB64u: requireString(
       response.credentialPublicKeyB64u,
@@ -316,6 +318,7 @@ export function buildRecoveredWalletSessionState(input: {
   readonly parsed: ParsedPasskeyEd25519YaoRecoveryDescriptorV1;
   readonly relayerUrl: string;
   readonly rpId: string;
+  readonly thresholdSessionId: ThresholdEd25519SessionId;
 }): NearResolvedEd25519SigningSessionState {
   const parsed = input.parsed;
   const session = parsed.session;
@@ -327,7 +330,7 @@ export function buildRecoveredWalletSessionState(input: {
     walletSessionId: session.walletSessionId,
     authorizationId: session.authorizationId,
     quotaId: session.quotaId,
-    thresholdSessionId: session.thresholdSessionId,
+    thresholdSessionId: input.thresholdSessionId,
     remainingUses: session.remainingUses,
     expiresAtMs: session.expiresAtMs,
     runtimePolicyScope: session.runtimePolicyScope,

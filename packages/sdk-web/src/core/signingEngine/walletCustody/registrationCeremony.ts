@@ -625,18 +625,30 @@ function activationSessionIdFromResult(resultJson: string): readonly number[] {
  * *establish* a key set — registering a second, different key for a wallet
  * that already has one, which no later check would undo.
  */
-export type RejoinNearEd25519CustodyInput = Omit<EstablishNearEd25519CustodyInput, 'factorJson'> & {
+export type RejoinNearEd25519CustodyInput = Omit<
+  EstablishNearEd25519CustodyInput,
+  'factorJson' | 'registrationCeremonyId'
+> & {
   /** `JoinCustodyWireV1`: the stored envelope binding and its sealed seed. */
   readonly custodyJson: string;
+  readonly recoveryLifecycleId: string;
   /** The key this run must reproduce. */
   readonly registeredPublicKeyB64u: string;
+  readonly activateRouterRecovery: (
+    protocolResultJson: string,
+  ) => Promise<RouterAbEd25519YaoRecoveryActivationReceiptV1>;
 };
 
-export type RejoinedNearEd25519Custody = {
+type JoinedNearEd25519CustodyBase = {
   /** No custody records: the wallet already has its envelope and codes. */
   readonly commitPayload: WalletCustodyCeremonyCommitPayload;
   readonly activationReference: EstablishedNearEd25519Custody['activationReference'];
   readonly localMaterial: EstablishedNearEd25519Custody['localMaterial'];
+};
+
+export type RejoinedNearEd25519Custody = JoinedNearEd25519CustodyBase & {
+  readonly activationResultJson: string;
+  readonly activationReceipt: RouterAbEd25519YaoRecoveryActivationReceiptV1;
 };
 
 export type JoinNearEd25519CustodyInput = Omit<
@@ -647,7 +659,7 @@ export type JoinNearEd25519CustodyInput = Omit<
   readonly custodyJson: string;
 };
 
-export type JoinedNearEd25519Custody = RejoinedNearEd25519Custody;
+export type JoinedNearEd25519Custody = JoinedNearEd25519CustodyBase;
 
 export type RecoverNearEd25519CustodyInput = WalletRecoveryCustodyInput & {
   readonly runStep: WalletCustodyCeremonyStepRunner;
@@ -740,7 +752,12 @@ export async function recoverNearEd25519CustodyV1(
 export async function joinNearEd25519CustodyV1(
   input: JoinNearEd25519CustodyInput,
 ): Promise<JoinedNearEd25519Custody> {
-  return await runJoiningNearEd25519Custody(input, undefined, 'registration join');
+  return await runJoiningNearEd25519Custody(
+    input,
+    input.registrationCeremonyId,
+    undefined,
+    'registration join',
+  );
 }
 
 export async function rejoinNearEd25519CustodyV1(
@@ -751,14 +768,31 @@ export async function rejoinNearEd25519CustodyV1(
     throw new Error('a cold unlock must name the key set it reproduces');
   }
 
-  return await runJoiningNearEd25519Custody(input, registeredPublicKeyB64u, 'cold unlock');
+  let activationResultJson: string | null = null;
+  let activationReceipt: RouterAbEd25519YaoRecoveryActivationReceiptV1 | null = null;
+  const rejoined = await runJoiningNearEd25519Custody(
+    input,
+    input.recoveryLifecycleId,
+    registeredPublicKeyB64u,
+    'cold unlock',
+    async (protocolResultJson) => {
+      activationResultJson = protocolResultJson;
+      activationReceipt = await input.activateRouterRecovery(protocolResultJson);
+    },
+  );
+  if (!activationResultJson || !activationReceipt) {
+    throw new Error('the NEAR cold unlock produced no Router recovery activation');
+  }
+  return { ...rejoined, activationResultJson, activationReceipt };
 }
 
 async function runJoiningNearEd25519Custody(
-  input: JoinNearEd25519CustodyInput,
+  input: Omit<JoinNearEd25519CustodyInput, 'registrationCeremonyId'>,
+  lifecycleId: string,
   continuityRegisteredPublicKeyB64u: string | undefined,
   operation: 'registration join' | 'cold unlock',
-): Promise<RejoinedNearEd25519Custody> {
+  afterRouterRoundCompleted?: (protocolResultJson: string) => Promise<void>,
+): Promise<JoinedNearEd25519CustodyBase> {
   let activationSessionId: readonly number[] | null = null;
   const payload = await runWalletCustodyKeySetCeremony({
     runStep: input.runStep,
@@ -782,6 +816,7 @@ async function runJoiningNearEd25519Custody(
         activationSessionId = activationSessionIdFromResult(resultJson);
         return resultJson;
       },
+      ...(afterRouterRoundCompleted ? { afterRouterRoundCompleted } : {}),
     },
   });
 
@@ -803,7 +838,7 @@ async function runJoiningNearEd25519Custody(
     commitPayload: walletCustodyCommitPayloadForWire(payload),
     activationReference: {
       kind: 'router_ab_ed25519_yao_activation_reference_v1',
-      lifecycle_id: input.registrationCeremonyId,
+      lifecycle_id: lifecycleId,
       session_id: activationSessionId,
     },
     localMaterial: {

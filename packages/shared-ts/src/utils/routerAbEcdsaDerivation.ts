@@ -39,12 +39,12 @@ import {
   EVM_ECDSA_MPC_OPERATION_KINDS,
   parseMpcWalletSigningQuotaId,
   parseReusableWalletSessionMintId,
-  parseSeamsSessionId,
+  parseEcdsaAuthorizationSessionId,
   parseWalletSessionId,
   type EvmEcdsaMpcOperationKind,
   type MpcWalletSigningQuotaId,
   type ReusableWalletSessionMintId,
-  type SeamsSessionId,
+  type EcdsaAuthorizationSessionId,
   type WalletSessionId,
 } from '../authorization/capabilityKinds';
 import {
@@ -385,7 +385,7 @@ export type RouterAbEcdsaPostRegistrationSessionActivationResponseV1 = {
   kind: 'router_ab_ecdsa_post_registration_session_activated_v1';
   public_capability: RouterAbEcdsaDerivationPublicCapabilityV1;
   session: {
-    authorization_session_id: SeamsSessionId;
+    authorization_session_id: EcdsaAuthorizationSessionId;
     threshold_session_id: ThresholdEcdsaSessionId;
     wallet_session_id: WalletSessionId;
     quota_id: MpcWalletSigningQuotaId;
@@ -917,8 +917,11 @@ function requireThresholdEcdsaSessionId(value: unknown, label: string): Threshol
   return parsed.value;
 }
 
-function requireSeamsSessionId(value: unknown, label: string): SeamsSessionId {
-  const parsed = parseSeamsSessionId(value);
+function requireEcdsaAuthorizationSessionId(
+  value: unknown,
+  label: string,
+): EcdsaAuthorizationSessionId {
+  const parsed = parseEcdsaAuthorizationSessionId(value);
   if (!parsed.ok) throw new Error(`${label} is invalid`);
   return parsed.value;
 }
@@ -2249,7 +2252,7 @@ export function parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1(
     kind: 'router_ab_ecdsa_post_registration_session_activated_v1',
     public_capability: publicCapability,
     session: {
-      authorization_session_id: requireSeamsSessionId(
+      authorization_session_id: requireEcdsaAuthorizationSessionId(
         sessionRecord.authorization_session_id,
         `${label}.session.authorization_session_id`,
       ),

@@ -2,6 +2,7 @@ export const WALLET_SESSION_FAILURE_CODES = {
   missing: 'wallet_session_missing',
   signatureInvalid: 'wallet_session_signature_invalid',
   claimsInvalid: 'wallet_session_claims_invalid',
+  invalid: 'wallet_session_invalid',
   expired: 'wallet_session_expired',
   scopeMismatch: 'wallet_session_scope_mismatch',
   unavailable: 'wallet_session_unavailable',
@@ -16,6 +17,7 @@ export function isWalletSessionFailureCode(value: unknown): value is WalletSessi
     case WALLET_SESSION_FAILURE_CODES.missing:
     case WALLET_SESSION_FAILURE_CODES.signatureInvalid:
     case WALLET_SESSION_FAILURE_CODES.claimsInvalid:
+    case WALLET_SESSION_FAILURE_CODES.invalid:
     case WALLET_SESSION_FAILURE_CODES.expired:
     case WALLET_SESSION_FAILURE_CODES.scopeMismatch:
     case WALLET_SESSION_FAILURE_CODES.unavailable:

@@ -756,21 +756,6 @@ export interface EmailOtpWorkerOperationMap {
     };
     result: WalletRecoverySetRotationWorkerResultV1;
   };
-  verifyEmailOtpCode: {
-    payload: {
-      relayUrl: string;
-      walletId: string;
-      challengeId: string;
-      otpCode: string;
-      routePlan: EmailOtpRoutePlan;
-      otpChannel?: WalletEmailOtpChannel;
-    };
-    result: {
-      loginGrant: string;
-      otpChannel: WalletEmailOtpChannel;
-      enrollmentSealKeyVersion?: string;
-    };
-  };
   loginWithEmailOtpWallet: {
     payload: {
       relayUrl: string;
@@ -888,6 +873,35 @@ export interface EmailOtpWorkerOperationMap {
       issuedAuthorization: IssuedEd25519OperationStepUpAuthorization;
     };
   };
+  rehydrateActiveEmailOtpEd25519YaoSessionMaterial: {
+    payload: {
+      readonly relayUrl: string;
+      readonly walletId: string;
+      readonly orgId: string;
+      readonly providerSubjectId: string;
+      readonly nearAccountId: string;
+      readonly signerSlot: number;
+      readonly remainingUses: number;
+      readonly expectedOperationalPublicKey: string;
+      readonly expectedThresholdSessionId: ThresholdEd25519SessionId;
+      readonly walletSessionToken: string;
+      readonly ecdsa: {
+        readonly sessionHandleBinding: Extract<
+          EmailOtpEcdsaSessionBootstrapHandleBinding,
+          { readonly operation: 'wallet_unlock' }
+        >;
+        readonly runtimePolicyScope: ThresholdRuntimePolicyScope;
+        readonly sessionPolicy: RouterAbEcdsaPostRegistrationSessionActivationPolicyV1;
+      };
+      readonly walletCustodyEd25519Material: Extract<
+        EmailOtpWalletCustodyEd25519MaterialRequest,
+        { readonly kind: 'found' }
+      >;
+    };
+    result: EmailOtpEd25519YaoWorkerActivationResult & {
+      readonly ecdsaSession: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+    };
+  };
   activateEmailOtpEd25519YaoRegistrationMaterial: {
     payload: {
       readonly material: LoadedWalletCustodyEd25519MaterialV1;
@@ -914,7 +928,6 @@ export interface EmailOtpWorkerOperationMap {
       relayUrl: string;
       challengeId: string;
       otpCode: string;
-      groupId: string;
       lane: {
         walletId: string;
         providerSubjectId: string;
@@ -1016,8 +1029,7 @@ export type TempoSignerTransactionOperationRequest<T extends TempoSignerTransact
 
 export type EmailOtpChallengeOperationType =
   | 'requestEmailOtpChallenge'
-  | 'requestEmailOtpEnrollmentChallenge'
-  | 'verifyEmailOtpCode';
+  | 'requestEmailOtpEnrollmentChallenge';
 export type EmailOtpEnrollmentOperationType =
   | 'enrollEmailOtpWallet'
   | 'prepareEmailOtpRegistrationEnrollmentMaterial'
@@ -1034,6 +1046,7 @@ export type EmailOtpWarmSessionOperationType =
   | 'sealEmailOtpWarmSessionMaterial'
   | 'rehydrateEmailOtpEcdsaWarmSessionMaterial'
   | 'rehydrateEmailOtpEd25519YaoOperationMaterial'
+  | 'rehydrateActiveEmailOtpEd25519YaoSessionMaterial'
   | 'activateEmailOtpEd25519YaoRegistrationMaterial'
   | 'clearEmailOtpWarmSessionMaterial';
 export type EmailOtpExportOperationType = 'exportEmailOtpEd25519YaoSeed';

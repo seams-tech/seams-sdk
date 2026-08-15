@@ -72,11 +72,17 @@ export interface StartDevice2LinkingFlowResults {
   readonly qrCodeDataURL: string;
 }
 
+export type LinkedDeviceTargetPasskeyActivationV1 = {
+  readonly kind: 'linked_device_target_passkey_activation_v1';
+  readonly createPasskey: () => Promise<void>;
+};
+
 export interface StartDeviceLinkingOptionsDevice2 {
   cameraId?: string;
   options?: {
     onEvent?: EventCallback<LinkDeviceFlowEvent>;
     onError?: (error: Error) => void;
+    onTargetPasskeyRequired?: (activation: LinkedDeviceTargetPasskeyActivationV1) => void;
     afterCall?: AfterCall<StartDevice2LinkingFlowResults>;
     confirmationConfig?: Partial<ConfirmationConfig>;
     confirmerText?: { title?: string; body?: string };

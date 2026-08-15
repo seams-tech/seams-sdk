@@ -53,6 +53,7 @@ void invalidConsumedSingleUseEmailOtpAuthUse;
 const connectEmailOtpEd25519SessionArgs: ConnectEd25519SessionArgs = {
   kind: 'exact_ed25519_provisioning',
   laneIdentity: exactEd25519LaneIdentity,
+  existingWalletSessionToken: 'wst_test',
   relayerKeyId: 'router-key-1',
   routerAbNormalSigning,
   participantIds: [1, 2],

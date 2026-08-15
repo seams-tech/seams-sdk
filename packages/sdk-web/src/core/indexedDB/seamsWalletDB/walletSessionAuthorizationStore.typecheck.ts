@@ -22,15 +22,14 @@ declare const authMethod: WalletAuthMethod;
 declare const authority: WalletAuthAuthorityRef;
 
 const active: ActiveWalletSessionAuthorizationProjection = {
-  recordVersion: 'wallet_session_authorization_v2',
+  recordVersion: 'wallet_session_authorization_v3',
   status: 'active',
   walletId,
-  authorizationId,
   walletSessionId,
   quotaId,
   walletSessionTokens: {
     kind: 'evm_family_ecdsa',
-    ecdsa: { walletSessionToken, thresholdSessionId },
+    ecdsa: { authorizationId, walletSessionToken, thresholdSessionId },
   },
   authMethod,
   authority,
@@ -38,10 +37,9 @@ const active: ActiveWalletSessionAuthorizationProjection = {
 };
 
 const retired: RetiredWalletSessionAuthorizationProjection = {
-  recordVersion: 'wallet_session_authorization_v2',
+  recordVersion: 'wallet_session_authorization_v3',
   status: 'retired',
   walletId,
-  authorizationId,
   walletSessionId,
   quotaId,
   authMethod,
@@ -53,10 +51,9 @@ const retired: RetiredWalletSessionAuthorizationProjection = {
 
 // @ts-expect-error Exact active authorization requires its curve token bundle.
 const activeWithoutQuota: ActiveWalletSessionAuthorizationProjection = {
-  recordVersion: 'wallet_session_authorization_v2',
+  recordVersion: 'wallet_session_authorization_v3',
   status: 'active',
   walletId,
-  authorizationId,
   walletSessionId,
   authMethod,
   authority,

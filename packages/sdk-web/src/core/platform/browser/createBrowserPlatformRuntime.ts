@@ -433,7 +433,7 @@ function createBrowserAuthenticatorPort(
                 challenge: decodeBase64UrlArrayBuffer(operation.challengeB64u),
                 pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
                 authenticatorSelection: {
-                  residentKey: 'preferred',
+                  residentKey: 'required',
                   userVerification: operation.authenticatorOptions?.userVerification || 'preferred',
                 },
                 timeout: operation.authenticatorOptions?.timeoutMs,

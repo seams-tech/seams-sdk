@@ -1,8 +1,6 @@
 import type {
   RouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims,
-  RouterAbEcdsaDerivationWalletSessionClaims,
   RouterAbEd25519LinkedDeviceWalletSessionClaims,
-  RouterAbEd25519WalletSessionClaims,
   LinkedDeviceWalletSessionPermissionClaimsV1,
 } from '../../core/ThresholdService/validation';
 import type { OpaqueOwnerWalletSessionBinding } from '../../authorization/service';
@@ -155,19 +153,19 @@ function buildVerifiedLinkedDeviceBase(
 }
 
 export function buildVerifiedEcdsaWalletSessionAuth(
-  claims: Extract<OpaqueOwnerWalletSessionBinding, { readonly curve: 'ecdsa' }>,
+  session: Extract<OpaqueOwnerWalletSessionBinding, { readonly curve: 'ecdsa' }>,
 ): VerifiedOwnerEcdsaWalletSessionAuth;
 export function buildVerifiedEcdsaWalletSessionAuth(
-  claims: RouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims,
+  session: RouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims,
 ): VerifiedLinkedDeviceEcdsaWalletSessionAuth;
 export function buildVerifiedEcdsaWalletSessionAuth(
-  claims:
+  session:
     | Extract<OpaqueOwnerWalletSessionBinding, { readonly curve: 'ecdsa' }>
     | RouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims,
 ): VerifiedEcdsaWalletSessionAuth {
-  if (claims.authorizationKind === 'linked_device_wallet_session') {
+  if (session.kind !== 'opaque_owner_wallet_session_binding_v1') {
     return {
-      ...buildVerifiedLinkedDeviceBase(claims),
+      ...buildVerifiedLinkedDeviceBase(session),
       curve: 'ecdsa',
     };
   }
@@ -175,35 +173,35 @@ export function buildVerifiedEcdsaWalletSessionAuth(
     kind: 'wallet_session',
     curve: 'ecdsa',
     authorizationKind: 'owner_wallet_session',
-    thresholdSessionId: claims.thresholdSessionId,
-    walletId: claims.walletId,
-    authorizationId: claims.authorizationId,
-    walletSessionId: claims.walletSessionId,
-    quotaId: claims.quotaId,
-    userId: claims.walletId,
-    relayerKeyId: claims.relayerKeyId,
-    participantIds: claims.participantIds,
-    expiresAtMs: Math.floor(Number(claims.thresholdExpiresAtMs) || 0),
-    keyHandle: claims.keyHandle,
-    walletAuthAuthorityRef: claims.walletAuthAuthorityRef,
-    authSource: claims.authSource,
+    thresholdSessionId: session.thresholdSessionId,
+    walletId: session.walletId,
+    authorizationId: session.authorizationId,
+    walletSessionId: session.walletSessionId,
+    quotaId: session.quotaId,
+    userId: session.walletId,
+    relayerKeyId: session.relayerKeyId,
+    participantIds: session.participantIds,
+    expiresAtMs: Math.floor(Number(session.thresholdExpiresAtMs) || 0),
+    keyHandle: session.keyHandle,
+    walletAuthAuthorityRef: session.walletAuthAuthorityRef,
+    authSource: session.authSource,
   };
 }
 
 export function buildVerifiedEd25519WalletSessionAuth(
-  claims: Extract<OpaqueOwnerWalletSessionBinding, { readonly curve: 'ed25519' }>,
+  session: Extract<OpaqueOwnerWalletSessionBinding, { readonly curve: 'ed25519' }>,
 ): VerifiedOwnerEd25519WalletSessionAuth;
 export function buildVerifiedEd25519WalletSessionAuth(
-  claims: RouterAbEd25519LinkedDeviceWalletSessionClaims,
+  session: RouterAbEd25519LinkedDeviceWalletSessionClaims,
 ): VerifiedLinkedDeviceEd25519WalletSessionAuth;
 export function buildVerifiedEd25519WalletSessionAuth(
-  claims:
+  session:
     | Extract<OpaqueOwnerWalletSessionBinding, { readonly curve: 'ed25519' }>
     | RouterAbEd25519LinkedDeviceWalletSessionClaims,
 ): VerifiedEd25519WalletSessionAuth {
-  if (claims.authorizationKind === 'linked_device_wallet_session') {
+  if (session.kind !== 'opaque_owner_wallet_session_binding_v1') {
     return {
-      ...buildVerifiedLinkedDeviceBase(claims),
+      ...buildVerifiedLinkedDeviceBase(session),
       curve: 'ed25519',
     };
   }
@@ -211,17 +209,17 @@ export function buildVerifiedEd25519WalletSessionAuth(
     kind: 'wallet_session',
     curve: 'ed25519',
     authorizationKind: 'owner_wallet_session',
-    thresholdSessionId: claims.thresholdSessionId,
-    walletId: claims.walletId,
-    authorizationId: claims.authorizationId,
-    walletSessionId: claims.walletSessionId,
-    quotaId: claims.quotaId,
-    userId: claims.walletId,
-    authority: claims.authority,
-    authorityScope: claims.authorityScope,
-    relayerKeyId: claims.relayerKeyId,
-    participantIds: claims.participantIds,
-    expiresAtMs: Math.floor(Number(claims.thresholdExpiresAtMs) || 0),
-    ed25519RelayerKeyId: claims.relayerKeyId,
+    thresholdSessionId: session.thresholdSessionId,
+    walletId: session.walletId,
+    authorizationId: session.authorizationId,
+    walletSessionId: session.walletSessionId,
+    quotaId: session.quotaId,
+    userId: session.walletId,
+    authority: session.authority,
+    authorityScope: session.authorityScope,
+    relayerKeyId: session.relayerKeyId,
+    participantIds: session.participantIds,
+    expiresAtMs: Math.floor(Number(session.thresholdExpiresAtMs) || 0),
+    ed25519RelayerKeyId: session.relayerKeyId,
   };
 }

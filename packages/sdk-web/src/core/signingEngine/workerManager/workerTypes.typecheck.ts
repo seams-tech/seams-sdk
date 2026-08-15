@@ -530,7 +530,6 @@ const emailOtpEd25519YaoExportPayload: EmailOtpEd25519YaoExportPayload = {
   relayUrl: 'https://relay.example',
   challengeId: 'challenge-ed25519-export',
   otpCode: '123456',
-  groupId: 'prime',
   lane: {
     walletId: 'wallet.testnet',
     providerSubjectId: 'google:subject',

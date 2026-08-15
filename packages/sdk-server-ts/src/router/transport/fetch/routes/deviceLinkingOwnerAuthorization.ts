@@ -278,10 +278,10 @@ async function validateOwnerWalletSessionV1(input: {
     nowMs: input.nowV1,
   });
   if (ed25519.ok) {
-    const walletId = parseWalletIdBoundary(ed25519.claims.walletId);
-    const walletSessionId = parseWalletSessionIdBoundary(ed25519.claims.walletSessionId);
+    const walletId = parseWalletIdBoundary(ed25519.binding.walletId);
+    const walletSessionId = parseWalletSessionIdBoundary(ed25519.binding.walletSessionId);
     const authorizationId = parseWalletSessionAuthorizationIdBoundary(
-      ed25519.claims.authorizationId,
+      ed25519.binding.authorizationId,
     );
     if (!walletId || !walletSessionId || !authorizationId) {
       return denied('invalid', 'Wallet Session identity is invalid');
@@ -294,8 +294,8 @@ async function validateOwnerWalletSessionV1(input: {
         authorizationId,
         expiresAtMs: ed25519.walletSessionAuth.expiresAtMs,
         curve: 'ed25519',
-        authority: ed25519.claims.authority,
-        authorityScope: ed25519.claims.authorityScope,
+        authority: ed25519.binding.authority,
+        authorityScope: ed25519.binding.authorityScope,
       },
     };
   }
@@ -307,10 +307,10 @@ async function validateOwnerWalletSessionV1(input: {
     nowMs: input.nowV1,
   });
   if (ecdsa.ok) {
-    const walletId = parseWalletIdBoundary(ecdsa.claims.walletId);
-    const walletSessionId = parseWalletSessionIdBoundary(ecdsa.claims.walletSessionId);
+    const walletId = parseWalletIdBoundary(ecdsa.binding.walletId);
+    const walletSessionId = parseWalletSessionIdBoundary(ecdsa.binding.walletSessionId);
     const authorizationId = parseWalletSessionAuthorizationIdBoundary(
-      ecdsa.claims.authorizationId,
+      ecdsa.binding.authorizationId,
     );
     if (!walletId || !walletSessionId || !authorizationId) {
       return denied('invalid', 'Wallet Session identity is invalid');
@@ -323,16 +323,15 @@ async function validateOwnerWalletSessionV1(input: {
         authorizationId,
         expiresAtMs: ecdsa.walletSessionAuth.expiresAtMs,
         curve: 'ecdsa',
-        walletAuthAuthorityRef: ecdsa.claims.walletAuthAuthorityRef,
-        authSource: ecdsa.claims.authSource,
+        walletAuthAuthorityRef: ecdsa.binding.walletAuthAuthorityRef,
+        authSource: ecdsa.binding.authSource,
       },
     };
   }
   const code =
     ed25519.code === 'wallet_session_expired' || ecdsa.code === 'wallet_session_expired'
       ? 'expired'
-      : ed25519.code === 'wallet_session_claims_invalid' ||
-          ecdsa.code === 'wallet_session_claims_invalid'
+      : ed25519.code === 'wallet_session_invalid' || ecdsa.code === 'wallet_session_invalid'
         ? 'invalid'
         : 'unauthorized';
   return denied(code, 'An active owner Wallet Session is required');

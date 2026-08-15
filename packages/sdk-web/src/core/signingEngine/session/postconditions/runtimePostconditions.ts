@@ -20,6 +20,7 @@ import type {
   WalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
+import { walletSessionAuthorizationIdForCurve } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 
 export type RuntimePostconditionSource = 'registration_finalize' | 'wallet_unlock';
 
@@ -251,11 +252,16 @@ function readEcdsaUseCaseReadyLane(args: {
   if (!lane.authorization || !remainingSignatureUses || !expiresAtMs) {
     return 'lane_inventory_mismatch';
   }
+  const authorizationId = walletSessionAuthorizationIdForCurve(
+    lane.authorization.projection,
+    'ecdsa',
+  );
+  if (!authorizationId) return 'lane_inventory_mismatch';
   return {
     state: lane.state,
     authMethod: args.authMethod,
     target: { curve: 'ecdsa', chainTarget: args.chainTarget },
-    authorizationId: lane.authorization.projection.authorizationId,
+    authorizationId,
     materialActivationId: String(lane.materialActivation.activationId),
     remainingSignatureUses,
     expiresAtMs,

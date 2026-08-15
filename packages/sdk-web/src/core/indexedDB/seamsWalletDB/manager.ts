@@ -138,11 +138,12 @@ export class SeamsWalletDBManager {
             rejectBlockedOpen?.(seamsWalletDbOpenBlockedError(dbName));
           }, INDEXED_DB_BLOCKED_OPEN_TIMEOUT_MS);
         },
-        blocking() {
+        blocking: () => {
           console.warn('[SeamsWalletDBManager] IndexedDB connection is blocking an upgrade.', {
             dbName,
             dbVersion,
           });
+          this.close();
         },
         terminated() {
           console.warn('[SeamsWalletDBManager] IndexedDB connection has been terminated.', {

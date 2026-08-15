@@ -963,6 +963,7 @@ class IntendedPageController {
         buildHostedAuthMenuOpenRequest({
           authMenuSessionId,
           initialMode: 'login',
+          loginTarget: { kind: 'wallet_sync', walletId: toWalletId(this.walletId) },
           registrationAccountInput: 'implicit_wallet',
           showRegistrationInput: false,
           showProgress: true,

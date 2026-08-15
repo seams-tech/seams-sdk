@@ -4,8 +4,8 @@ mod local_dev_process;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
 use local_dev_process::{
-    normalize_root, post_json_to_path, post_json_to_path_with_authorization,
-    post_json_to_path_with_headers, read_worker_config, wait_for_existing_health,
+    normalize_root, post_json_to_path, post_json_to_path_with_headers, read_worker_config,
+    wait_for_existing_health,
     worker_process_spec_for_role_v1, LocalWorkerSpawnReceipt, LocalWorkerUrls,
 };
 use router_ab_cloudflare::CloudflareSigningWorkerEcdsaPoolAdmissionReceiptV1;
@@ -40,7 +40,6 @@ use router_ab_ecdsa_presign::session::{
 use router_ab_ecdsa_presign::AdditiveKeyShare;
 use router_ab_ecdsa_wire::{CompressedPointBytes, ScalarBytes};
 use serde::Serialize;
-use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use signer_core::secp256k1::{
     secp256k1_private_key_32_to_public_key_33, secp256k1_public_key_33_to_ethereum_address_20,
@@ -227,8 +226,6 @@ fn run_router_ab_ecdsa_derivation_live_http_smoke(
 ) -> Result<RouterAbEcdsaDerivationSmokeResult, Box<dyn std::error::Error>> {
     let signing_worker_identity = signing_worker_identity_from_root(root)?;
     let fixture = local_router_ab_ecdsa_derivation_fixture(signing_worker_identity)?;
-    let authorization =
-        local_smoke_router_ab_ecdsa_derivation_wallet_session_authorization_v1(&fixture)?;
     let pool_put = LocalSigningWorkerRouterAbEcdsaDerivationPresignaturePoolPutRequestV1 {
         scope: fixture.scope.clone(),
         server_presignature_id: fixture.server_presignature_id.clone(),
@@ -286,10 +283,9 @@ fn run_router_ab_ecdsa_derivation_live_http_smoke(
             client_rerandomization_contribution32,
         )),
     )?;
-    let (prepare_status, prepare_body) = post_json_to_path_with_authorization(
+    let (prepare_status, prepare_body) = post_json_to_path(
         &urls.router,
         LOCAL_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PREPARE_PATH,
-        authorization.as_str(),
         &prepare_request,
     )?;
     if prepare_status != 200 {
@@ -341,10 +337,9 @@ fn run_router_ab_ecdsa_derivation_live_http_smoke(
         b64u(&client_signature_share32),
         b64u(&client_rerandomization_contribution32),
     )?;
-    let (finalize_status, finalize_body) = post_json_to_path_with_authorization(
+    let (finalize_status, finalize_body) = post_json_to_path(
         &urls.router,
         LOCAL_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PATH,
-        authorization.as_str(),
         &finalize_request,
     )?;
     if finalize_status != 200 {
@@ -364,10 +359,9 @@ fn run_router_ab_ecdsa_derivation_live_http_smoke(
         );
     }
 
-    let (replay_status, replay_body) = post_json_to_path_with_authorization(
+    let (replay_status, replay_body) = post_json_to_path(
         &urls.router,
         LOCAL_ROUTER_AB_ECDSA_DERIVATION_SIGNING_PATH,
-        authorization.as_str(),
         &finalize_request,
     )?;
     if replay_status != 400 || !replay_body.contains("prepared presignature is not available") {
@@ -614,109 +608,13 @@ fn local_smoke_run_id() -> Result<String, Box<dyn std::error::Error>> {
     Ok(format!("{}-{millis}", std::process::id()))
 }
 
-const LOCAL_SMOKE_JWT_SECRET: &[u8] =
-    b"seams-local-d1-relay-session-secret-change-before-shared-dev";
-const LOCAL_SMOKE_JWT_ISSUER: &str = "seams-local-d1-relay";
-const LOCAL_SMOKE_JWT_AUDIENCE: &str = "seams-local-d1";
-const LOCAL_SMOKE_JWT_IAT: u64 = 1_700_000_000;
-const LOCAL_SMOKE_WALLET_SESSION_EXPIRES_AT_MS: u64 = 4_102_444_800_000;
-const LOCAL_SMOKE_WALLET_SESSION_REMAINING_USES: u32 = 32;
-const LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_ID: &str =
-    "local-router-ab-ecdsa-derivation-wallet-session";
-const LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_QUOTA_ID: &str =
-    "local-router-ab-ecdsa-derivation-quota";
 const LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_SESSION_ID: &str =
     "local-router-ab-ecdsa-derivation-session";
 const LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_WALLET_ID: &str =
     "wallet-router-ab-ecdsa-derivation-local";
-const LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_WALLET_KEY_ID: &str =
-    "wallet-key:evm-family:wallet-router-ab-ecdsa-derivation-local:signing-root-local:root-v1";
 const LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_KEY_ID: &str = "ecdsa-threshold-key-local";
 const LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_ID: &str = "signing-root-local";
 const LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_SIGNING_ROOT_VERSION: &str = "root-v1";
-const ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND: &str =
-    "router_ab_ecdsa_derivation_wallet_session_v1";
-const ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND: &str =
-    "router_ab_ecdsa_derivation_normal_signing_v1";
-
-fn local_smoke_router_ab_ecdsa_derivation_wallet_session_authorization_v1(
-    fixture: &LocalRouterAbEcdsaDerivationFixture,
-) -> Result<String, Box<dyn std::error::Error>> {
-    let claims = json!({
-        "sub": fixture.scope.wallet_id,
-        "kind": ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
-        "walletId": fixture.scope.wallet_id,
-        "thresholdSessionId": LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_THRESHOLD_SESSION_ID,
-        "walletSessionId": LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_ID,
-        "quotaId": LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_QUOTA_ID,
-        "keyScope": "evm-family",
-        "keyHandle": "local-router-ab-ecdsa-derivation-key-handle",
-        "relayerKeyId": fixture.scope.ecdsa_threshold_key_id,
-        "evmFamilySigningKeySlotId": LOCAL_SMOKE_ROUTER_AB_ECDSA_DERIVATION_WALLET_KEY_ID,
-        "participantIds": [1, 2],
-        "thresholdExpiresAtMs": LOCAL_SMOKE_WALLET_SESSION_EXPIRES_AT_MS,
-        "runtimePolicyScope": {
-            "orgId": "local-router-ab",
-            "projectId": "local-router-ab",
-            "envId": "dev",
-            "signingRootVersion": "default"
-        },
-        "routerAbRouterAbEcdsaDerivationNormalSigning": {
-            "kind": ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND,
-            "scope": fixture.scope
-        },
-        "iat": LOCAL_SMOKE_JWT_IAT,
-        "exp": LOCAL_SMOKE_WALLET_SESSION_EXPIRES_AT_MS / 1000,
-        "iss": LOCAL_SMOKE_JWT_ISSUER,
-        "aud": LOCAL_SMOKE_JWT_AUDIENCE
-    });
-    local_smoke_jwt_authorization(claims)
-}
-
-fn local_smoke_jwt_authorization(claims: Value) -> Result<String, Box<dyn std::error::Error>> {
-    let header = json!({ "alg": "HS256", "typ": "JWT" });
-    let header = b64u(&serde_json::to_vec(&header)?);
-    let claims = b64u(&serde_json::to_vec(&claims)?);
-    let signing_input = format!("{header}.{claims}");
-    let signature = b64u(&hmac_sha256(
-        LOCAL_SMOKE_JWT_SECRET,
-        signing_input.as_bytes(),
-    ));
-    Ok(format!("Bearer {signing_input}.{signature}"))
-}
-
-fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; 32] {
-    const BLOCK_BYTES: usize = 64;
-    let mut key_block = [0u8; BLOCK_BYTES];
-    if key.len() > BLOCK_BYTES {
-        let digest = Sha256::digest(key);
-        key_block[..digest.len()].copy_from_slice(&digest);
-    } else {
-        key_block[..key.len()].copy_from_slice(key);
-    }
-
-    let mut inner_pad = [0x36u8; BLOCK_BYTES];
-    let mut outer_pad = [0x5cu8; BLOCK_BYTES];
-    for i in 0..BLOCK_BYTES {
-        inner_pad[i] ^= key_block[i];
-        outer_pad[i] ^= key_block[i];
-    }
-
-    let mut inner = Sha256::new();
-    inner.update(inner_pad);
-    inner.update(message);
-    let inner_digest = inner.finalize();
-
-    let mut outer = Sha256::new();
-    outer.update(outer_pad);
-    outer.update(inner_digest);
-    let digest = outer.finalize();
-
-    let mut out = [0u8; 32];
-    out.copy_from_slice(&digest);
-    out
-}
-
 fn elapsed_ms(start: Instant) -> u64 {
     start.elapsed().as_millis().try_into().unwrap_or(u64::MAX)
 }

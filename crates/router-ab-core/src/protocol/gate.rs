@@ -89,11 +89,25 @@ impl ExpensiveWorkKindV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum GatePrincipalV1 {
-    /// Fully authenticated user/session.
-    AuthenticatedSession {
+    /// Reusable owner Wallet Session admission.
+    OwnerWalletSession {
         /// Canonical user or subject id.
         subject_id: String,
-        /// Canonical session id.
+        /// Canonical reusable Wallet Session id.
+        wallet_session_id: String,
+    },
+    /// Single-operation owner step-up admission.
+    OwnerOperationStepUp {
+        /// Canonical user or subject id.
+        subject_id: String,
+        /// Canonical authorization-session id for the operation.
+        authorization_session_id: String,
+    },
+    /// Verified Router JWT admission for non-owner Router paths.
+    RouterJwtSession {
+        /// Canonical user or subject id.
+        subject_id: String,
+        /// Canonical Router JWT session id.
         session_id: String,
     },
     /// Pre-auth browser or device session scoped to registration preparation.
@@ -104,12 +118,38 @@ pub enum GatePrincipalV1 {
 }
 
 impl GatePrincipalV1 {
-    /// Creates an authenticated-session principal.
-    pub fn authenticated_session(
+    /// Creates a reusable owner Wallet Session principal.
+    pub fn owner_wallet_session(
+        subject_id: impl Into<String>,
+        wallet_session_id: impl Into<String>,
+    ) -> RouterAbProtocolResult<Self> {
+        let principal = Self::OwnerWalletSession {
+            subject_id: subject_id.into(),
+            wallet_session_id: wallet_session_id.into(),
+        };
+        principal.validate()?;
+        Ok(principal)
+    }
+
+    /// Creates a single-operation owner step-up principal.
+    pub fn owner_operation_step_up(
+        subject_id: impl Into<String>,
+        authorization_session_id: impl Into<String>,
+    ) -> RouterAbProtocolResult<Self> {
+        let principal = Self::OwnerOperationStepUp {
+            subject_id: subject_id.into(),
+            authorization_session_id: authorization_session_id.into(),
+        };
+        principal.validate()?;
+        Ok(principal)
+    }
+
+    /// Creates a verified Router JWT principal.
+    pub fn router_jwt_session(
         subject_id: impl Into<String>,
         session_id: impl Into<String>,
     ) -> RouterAbProtocolResult<Self> {
-        let principal = Self::AuthenticatedSession {
+        let principal = Self::RouterJwtSession {
             subject_id: subject_id.into(),
             session_id: session_id.into(),
         };
@@ -131,7 +171,21 @@ impl GatePrincipalV1 {
     /// Validates branch-specific identity fields.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         match self {
-            Self::AuthenticatedSession {
+            Self::OwnerWalletSession {
+                subject_id,
+                wallet_session_id,
+            } => {
+                require_non_empty("subject_id", subject_id)?;
+                require_non_empty("wallet_session_id", wallet_session_id)
+            }
+            Self::OwnerOperationStepUp {
+                subject_id,
+                authorization_session_id,
+            } => {
+                require_non_empty("subject_id", subject_id)?;
+                require_non_empty("authorization_session_id", authorization_session_id)
+            }
+            Self::RouterJwtSession {
                 subject_id,
                 session_id,
             } => {
@@ -141,6 +195,23 @@ impl GatePrincipalV1 {
             Self::PreAuthSession {
                 pre_auth_session_id,
             } => require_non_empty("pre_auth_session_id", pre_auth_session_id),
+        }
+    }
+
+    /// Returns the admission-session identifier used by the gate key.
+    pub fn session_id(&self) -> &str {
+        match self {
+            Self::OwnerWalletSession {
+                wallet_session_id, ..
+            } => wallet_session_id,
+            Self::OwnerOperationStepUp {
+                authorization_session_id,
+                ..
+            } => authorization_session_id,
+            Self::RouterJwtSession { session_id, .. } => session_id,
+            Self::PreAuthSession {
+                pre_auth_session_id,
+            } => pre_auth_session_id,
         }
     }
 }

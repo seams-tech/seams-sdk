@@ -32,11 +32,11 @@ import { isPlainObject } from '@shared/utils/validation';
 import { walletSessionFailureErrorFromPayload } from '../lifecycle/walletSessionFailure';
 import {
   parseMpcWalletSigningQuotaId,
-  parseWalletSessionAuthorizationId,
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import {
   walletSessionAuthorizations,
+  walletSessionAuthorizationIdForCurve,
   walletSessionTokenForCurve,
   type ActiveWalletSessionAuthorizationProjection,
   type WalletSessionAuthorizationReadResult,
@@ -157,7 +157,6 @@ function exactResponseKeys(record: Record<string, unknown>): void {
     'signingWorkerId',
     'thresholdExpiresAtMs',
     'thresholdSessionId',
-    'authorizationId',
     'walletId',
     'walletSessionId',
   ].sort();
@@ -403,7 +402,7 @@ async function parseWarmRecoveryDescriptor(args: {
     response.routerAbNormalSigning,
   );
   const walletSessionId = parseWalletSessionId(response.walletSessionId);
-  const authorizationId = parseWalletSessionAuthorizationId(response.authorizationId);
+  const authorizationId = walletSessionAuthorizationIdForCurve(args.authorization, 'ed25519');
   const quotaId = parseMpcWalletSigningQuotaId(response.quotaId);
   const capability = parseEd25519YaoRecoveryCapabilityV1(response.capability);
   const walletSessionToken = walletSessionTokenForCurve(args.authorization, 'ed25519');
@@ -420,7 +419,7 @@ async function parseWarmRecoveryDescriptor(args: {
     !walletAuthAuthoritiesMatch(authority, expectedAuthority) ||
     authorityScope.kind !== 'passkey_rp' ||
     !walletSessionId.ok ||
-    !authorizationId.ok ||
+    !authorizationId ||
     !quotaId.ok ||
     String(walletSessionId.value) !== String(args.authorization.walletSessionId) ||
     String(quotaId.value) !== String(args.authorization.quotaId) ||
@@ -465,7 +464,7 @@ async function parseWarmRecoveryDescriptor(args: {
       walletSessionToken,
       thresholdSessionId,
       walletSessionId: walletSessionId.value,
-      authorizationId: authorizationId.value,
+      authorizationId,
       quotaId: quotaId.value,
       expiresAtMs: thresholdExpiresAtMs,
       remainingUses: record.remainingUses,

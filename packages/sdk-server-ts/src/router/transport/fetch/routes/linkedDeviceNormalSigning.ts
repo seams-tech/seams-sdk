@@ -56,9 +56,8 @@ import { parseEd25519ReusableAuthorizedOperationReceipt } from '../../../domains
 type LinkedNormalSigningPhase = 'prepare' | 'finalize';
 
 /**
- * Handles the linked-device branch before the owner Wallet Session branch. A
- * null result means the credential is an owner session (or no usable credential) and lets
- * the existing route continue unchanged.
+ * Handles the linked-device branch before opaque owner admission. A null
+ * result lets the owner route resolve its opaque credential.
  */
 export async function handleLinkedDeviceEd25519NormalSigning(input: {
   readonly ctx: FetchRouterApiContext;

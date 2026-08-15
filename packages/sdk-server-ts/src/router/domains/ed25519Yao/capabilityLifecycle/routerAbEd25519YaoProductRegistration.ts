@@ -23,8 +23,6 @@ import type {
   RouterAbEd25519YaoActivationConsumptionRequestV1,
   RouterAbEd25519YaoActivationConsumptionResultV1,
   RouterAbEd25519YaoRegistrationAdmissionClaimV1,
-  RouterAbEd25519YaoRegistrationExecuteRequestV1,
-  RouterAbEd25519YaoRegistrationResultV1,
   RouterAbEd25519YaoRegistrationServiceResult,
 } from '../registration/routerAbEd25519YaoRegistration';
 import {
@@ -45,7 +43,6 @@ import { createRouterApiModule, type RouterApiModule } from '../../../framework/
 import { issueRouterAbEd25519OpaqueWalletSessionToken } from '../../../auth/commonRouterUtils';
 import type {
   MpcWalletSigningQuotaId,
-  SeamsSessionId,
   WalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
@@ -108,13 +105,16 @@ export type RouterAbEd25519YaoWalletSessionMintInputV1 =
       readonly ttlMs?: never;
       readonly expiresAtMs: number;
       readonly remainingUses: number;
-      readonly seamsSessionId?: never;
     })
   | (RouterAbEd25519YaoWalletSessionMintIdentityV1 & {
       readonly kind: 'same_identity_budget_refresh_v1';
       readonly expiresAtMs?: never;
       readonly remainingUses: number;
-      readonly seamsSessionId?: never;
+    })
+  | (RouterAbEd25519YaoWalletSessionMintIdentityV1 & {
+      readonly kind: 'same_wallet_session_curve_mint_v1';
+      readonly expiresAtMs: number;
+      readonly remainingUses: number;
     });
 
 export type RouterAbEd25519YaoProductRegistrationRuntimeV1 =
@@ -132,11 +132,6 @@ export type RouterAbEd25519YaoProductRegistrationRuntimeV1 =
       consumeActivated(
         request: RouterAbEd25519YaoActivationConsumptionRequestV1,
       ): Promise<RouterAbEd25519YaoActivationConsumptionResultV1>;
-      replayActivatedRegistration(
-        request: RouterAbEd25519YaoRegistrationExecuteRequestV1,
-      ): Promise<
-        RouterAbEd25519YaoRegistrationServiceResult<RouterAbEd25519YaoRegistrationResultV1>
-      >;
     };
 
 export type RouterAbEd25519YaoVerifiedRegistrationAdmissionResultV1 =
@@ -416,6 +411,17 @@ async function resolveRouterAbEd25519YaoWalletSessionTermsV1(
           Math.max(1, Math.floor(input.remainingUses)),
         ),
       };
+    case 'same_wallet_session_curve_mint_v1':
+      if (!Number.isSafeInteger(input.expiresAtMs) || input.expiresAtMs <= nowMs) {
+        throw new Error('Existing Wallet Session expiry must follow issuance');
+      }
+      return {
+        expiresAtMs: input.expiresAtMs,
+        remainingUses: Math.min(
+          DEFAULT_WALLET_SESSION_REMAINING_USES,
+          Math.max(1, Math.floor(input.remainingUses)),
+        ),
+      };
     default:
       return assertNeverWalletSessionMintInput(input);
   }
@@ -459,12 +465,6 @@ class RouterAbEd25519YaoProductRegistrationRuntime implements RouterAbEd25519Yao
     const activationConsumer: RouterAbEd25519YaoActivationConsumerV1 =
       this.input.registrationService;
     return await activationConsumer.consumeActivated(request);
-  }
-
-  async replayActivatedRegistration(
-    request: RouterAbEd25519YaoRegistrationExecuteRequestV1,
-  ): Promise<RouterAbEd25519YaoRegistrationServiceResult<RouterAbEd25519YaoRegistrationResultV1>> {
-    return this.input.registrationService.replayActivated(request);
   }
 
   async installRegistrationFinalizeCapability(
@@ -515,7 +515,6 @@ export async function mintRouterAbEd25519YaoWalletSessionV1(input: {
     sessionInfo: {
       sessionKind: 'opaque',
       authorizationKind: 'owner_wallet_session',
-      ...(sessionInput.seamsSessionId ? { seamsSessionId: sessionInput.seamsSessionId } : {}),
       walletId: sessionInput.walletId,
       nearAccountId: sessionInput.nearAccountId,
       nearEd25519SigningKeyId: sessionInput.nearEd25519SigningKeyId,

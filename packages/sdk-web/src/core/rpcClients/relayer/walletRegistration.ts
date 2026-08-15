@@ -46,13 +46,11 @@ import {
 import type { WebAuthnAuthenticatorDeviceInfo } from '@shared/utils/webauthnDeviceInfo';
 import type {
   MpcWalletSigningQuotaId,
-  SeamsSessionId,
   WalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import {
   parseMpcWalletSigningQuotaId,
-  parseSeamsSessionId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
@@ -2221,7 +2219,6 @@ function parseRegistrationEstablishedSession(
     [
       'kind',
       'walletId',
-      'seamsSessionId',
       'authorizationId',
       'walletSessionId',
       'quotaId',
@@ -2238,11 +2235,10 @@ function parseRegistrationEstablishedSession(
   if (!walletId.ok || walletId.value !== expectedWalletId) {
     throw new Error(`${responseName} wallet identity is invalid`);
   }
-  const seamsSessionId = parseSeamsSessionId(record.seamsSessionId);
   const authorizationId = parseWalletSessionAuthorizationId(record.authorizationId);
   const walletSessionId = parseWalletSessionId(record.walletSessionId);
   const quotaId = parseMpcWalletSigningQuotaId(record.quotaId);
-  if (!seamsSessionId.ok || !authorizationId.ok || !walletSessionId.ok || !quotaId.ok) {
+  if (!authorizationId.ok || !walletSessionId.ok || !quotaId.ok) {
     throw new Error(`${responseName} identity is invalid`);
   }
   const expiresAtMs = requireResponseSafeInteger({
@@ -2262,7 +2258,6 @@ function parseRegistrationEstablishedSession(
     const ecdsa = parseRegistrationEstablishedEcdsaSession(tokens.ecdsa, {
       responseName,
       walletId: walletId.value,
-      seamsSessionId: seamsSessionId.value,
       authorizationId: authorizationId.value,
       walletSessionId: walletSessionId.value,
       quotaId: quotaId.value,
@@ -2272,7 +2267,6 @@ function parseRegistrationEstablishedSession(
     return {
       kind: 'registration_established_wallet_session_v1',
       walletId: walletId.value,
-      seamsSessionId: seamsSessionId.value,
       authorizationId: authorizationId.value,
       walletSessionId: walletSessionId.value,
       quotaId: quotaId.value,
@@ -2285,7 +2279,6 @@ function parseRegistrationEstablishedSession(
     const ed25519 = parseRegistrationEstablishedEd25519Session(tokens.ed25519, {
       responseName,
       walletId: walletId.value,
-      seamsSessionId: seamsSessionId.value,
       authorizationId: authorizationId.value,
       walletSessionId: walletSessionId.value,
       quotaId: quotaId.value,
@@ -2295,7 +2288,6 @@ function parseRegistrationEstablishedSession(
     return {
       kind: 'registration_established_wallet_session_v1',
       walletId: walletId.value,
-      seamsSessionId: seamsSessionId.value,
       authorizationId: authorizationId.value,
       walletSessionId: walletSessionId.value,
       quotaId: quotaId.value,
@@ -2308,7 +2300,6 @@ function parseRegistrationEstablishedSession(
     const ecdsa = parseRegistrationEstablishedEcdsaSession(tokens.ecdsa, {
       responseName,
       walletId: walletId.value,
-      seamsSessionId: seamsSessionId.value,
       authorizationId: authorizationId.value,
       walletSessionId: walletSessionId.value,
       quotaId: quotaId.value,
@@ -2317,7 +2308,6 @@ function parseRegistrationEstablishedSession(
     const ed25519 = parseRegistrationEstablishedEd25519Session(tokens.ed25519, {
       responseName,
       walletId: walletId.value,
-      seamsSessionId: seamsSessionId.value,
       authorizationId: authorizationId.value,
       walletSessionId: walletSessionId.value,
       quotaId: quotaId.value,
@@ -2327,7 +2317,6 @@ function parseRegistrationEstablishedSession(
     return {
       kind: 'registration_established_wallet_session_v1',
       walletId: walletId.value,
-      seamsSessionId: seamsSessionId.value,
       authorizationId: authorizationId.value,
       walletSessionId: walletSessionId.value,
       quotaId: quotaId.value,
@@ -2344,7 +2333,6 @@ function parseRegistrationEstablishedEcdsaSession(
   identity: {
     responseName: string;
     walletId: WalletId;
-    seamsSessionId: SeamsSessionId;
     authorizationId: WalletSessionAuthorizationId;
     walletSessionId: WalletSessionId;
     quotaId: MpcWalletSigningQuotaId;
@@ -2412,7 +2400,6 @@ function parseRegistrationEstablishedEd25519Session(
   identity: {
     responseName: string;
     walletId: WalletId;
-    seamsSessionId: SeamsSessionId;
     authorizationId: WalletSessionAuthorizationId;
     walletSessionId: WalletSessionId;
     quotaId: MpcWalletSigningQuotaId;

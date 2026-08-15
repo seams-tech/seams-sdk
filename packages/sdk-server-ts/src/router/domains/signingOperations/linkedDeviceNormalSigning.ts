@@ -34,8 +34,8 @@ import {
   type RouterAbMpcMaterialActivationRefWire,
 } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
-  parseRouterAbEcdsaDerivationWalletSessionClaims,
-  parseRouterAbEd25519WalletSessionClaims,
+  parseRouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims,
+  parseRouterAbEd25519LinkedDeviceWalletSessionClaims,
   type RouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims,
   type RouterAbEd25519LinkedDeviceWalletSessionClaims,
 } from '../../../core/ThresholdService/validation';
@@ -278,7 +278,7 @@ export async function parseLinkedDeviceWalletSessionForCurve(input: {
   if (!parsed.ok) return { kind: 'not_linked' };
   const nowMs = input.nowMs ? input.nowMs() : Date.now();
   if (input.curve === 'ed25519') {
-    const claims = parseRouterAbEd25519WalletSessionClaims(parsed.claims);
+    const claims = parseRouterAbEd25519LinkedDeviceWalletSessionClaims(parsed.claims);
     if (!claims || claims.authorizationKind !== 'linked_device_wallet_session') {
       return { kind: 'not_linked' };
     }
@@ -290,7 +290,7 @@ export async function parseLinkedDeviceWalletSessionForCurve(input: {
       walletSessionAuth: buildVerifiedEd25519WalletSessionAuth(claims),
     };
   }
-  const claims = parseRouterAbEcdsaDerivationWalletSessionClaims(parsed.claims);
+  const claims = parseRouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims(parsed.claims);
   if (!claims || claims.authorizationKind !== 'linked_device_wallet_session') {
     return { kind: 'not_linked' };
   }

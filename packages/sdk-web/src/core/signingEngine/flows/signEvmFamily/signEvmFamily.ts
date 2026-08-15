@@ -50,6 +50,7 @@ import type { SigningSessionCoordinator } from '../../session/SigningSessionCoor
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import { ensureSealedRefreshStartupParityForTransactionSigning } from '../../session/warmCapabilities/sealedRefreshParity';
 import { SIGNER_AUTH_METHODS, type SignerAuthMethod } from '@shared/utils/signerDomain';
+import { walletSessionAuthorizationIdForCurve } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { EmailOtpSigningSessionAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import {
   evmFamilySigningTargetFromExplicitTarget,
@@ -177,10 +178,17 @@ function ecdsaOperationAuthorizationQueueKey(args: {
   prepared: AuthorizedEvmFamilyEcdsaSigningSession;
 }): OperationAuthorizationQueueKey {
   const authorization = args.prepared.signingLane.authorization;
+  const authorizationId = walletSessionAuthorizationIdForCurve(
+    authorization.projection,
+    'ecdsa',
+  );
+  if (!authorizationId) {
+    throw new Error('ECDSA signing authorization has no curve-local authorization id');
+  }
   return buildOperationAuthorizationQueueKey({
     walletId: args.walletId,
     materialActivationId: args.prepared.signingLane.materialActivation.activationId,
-    authorizationId: authorization.projection.authorizationId,
+    authorizationId,
     authorityKey: signingLaneAuthBindingKey(args.prepared.signingLane.auth),
     targetKey: thresholdEcdsaChainTargetKey(args.prepared.signingLane.chainTarget),
   });

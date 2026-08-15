@@ -295,6 +295,7 @@ export async function requestEmailOtpChallenge(args: {
   emailHint?: string;
   expiresAtMs?: number;
 }> {
+  const operation = args.operation ?? WALLET_EMAIL_OTP_UNLOCK_OPERATION;
   if (!args.fetchImpl && args.workerCtx) {
     return await args.workerCtx.requestWorkerOperation({
       kind: 'emailOtp',
@@ -305,9 +306,8 @@ export async function requestEmailOtpChallenge(args: {
           walletId: readString(args.walletId, 'walletId'),
           routePlan: buildWorkerEmailOtpRoutePlan({
             routeFamily: 'login',
-            operation: args.operation,
+            operation,
           }),
-          ...(args.operation ? { operation: args.operation } : {}),
           otpChannel: EMAIL_OTP_CHANNEL,
         },
       },
@@ -319,7 +319,7 @@ export async function requestEmailOtpChallenge(args: {
     body: {
       walletId: readString(args.walletId, 'walletId'),
       otpChannel: args.otpChannel || EMAIL_OTP_CHANNEL,
-      ...(args.operation ? { operation: args.operation } : {}),
+      operation,
     },
   });
   const challenge = requireObjectJson(response.challenge, 'wallet/email-otp/challenge');
@@ -421,54 +421,4 @@ export async function requestEmailOtpEnrollmentChallenge(args: {
     result.expiresAtMs = expiresAtMs;
   }
   return result;
-}
-
-export async function verifyEmailOtpCode(args: {
-  relayUrl: string;
-  walletId: string;
-  challengeId: string;
-  otpCode: string;
-  otpChannel?: WalletEmailOtpChannel;
-  fetchImpl?: FetchLike;
-  workerCtx?: WorkerOperationContext;
-}): Promise<{
-  loginGrant: string;
-  otpChannel: WalletEmailOtpChannel;
-  enrollmentSealKeyVersion?: string;
-}> {
-  if (!args.fetchImpl && args.workerCtx) {
-    return await args.workerCtx.requestWorkerOperation({
-      kind: 'emailOtp',
-      request: {
-        type: 'verifyEmailOtpCode',
-        payload: {
-          relayUrl: readString(args.relayUrl, 'relayUrl'),
-          walletId: readString(args.walletId, 'walletId'),
-          challengeId: readString(args.challengeId, 'challengeId'),
-          otpCode: readString(args.otpCode, 'otpCode'),
-          routePlan: buildWorkerEmailOtpRoutePlan({
-            routeFamily: 'login',
-          }),
-          otpChannel: EMAIL_OTP_CHANNEL,
-        },
-      },
-    });
-  }
-  const response = await postJson({
-    url: joinNormalizedUrl(args.relayUrl, '/wallet/email-otp/login/verify'),
-    fetchImpl: args.fetchImpl,
-    body: {
-      walletId: readString(args.walletId, 'walletId'),
-      challengeId: readString(args.challengeId, 'challengeId'),
-      otpCode: readString(args.otpCode, 'otpCode'),
-      otpChannel: args.otpChannel || EMAIL_OTP_CHANNEL,
-    },
-  });
-  return {
-    loginGrant: readString(response.loginGrant, 'wallet/email-otp/login/verify loginGrant'),
-    otpChannel: EMAIL_OTP_CHANNEL,
-    ...(readOptionalString(response.enrollmentSealKeyVersion)
-      ? { enrollmentSealKeyVersion: readOptionalString(response.enrollmentSealKeyVersion) }
-      : {}),
-  };
 }

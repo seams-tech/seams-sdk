@@ -457,8 +457,12 @@ async function loginWithConfiguredTargets(args: {
   }
   const common = {
     walletSession,
+    providerIdentity: {
+      provider: 'google' as const,
+      providerSubjectId: args.state.providerSubject,
+    },
     challengeId: args.challenge.challengeId,
-    emailOtpAuthorityEmail: args.challenge.emailHint,
+    emailOtpAuthorityEmail: args.state.emailHint,
     otpCode: args.otpCode,
     ...(args.input.relayUrl ? { relayUrl: args.input.relayUrl } : {}),
     ...(args.input.emailOtpAuthPolicy ? { emailOtpAuthPolicy: args.input.emailOtpAuthPolicy } : {}),

@@ -93,8 +93,7 @@ export type HydratedSecp256k1SigningMaterialResolution =
  * runtime supplies normal-signing state, policy scope, and transport, and any
  * reusable Wallet Session remains a separate authorization input.
  *
- * Nothing is decoded out of the Wallet Session JWT. The JWT is a bearer
- * credential here and nothing more: the facts it used to carry are owned by
+ * Nothing is decoded out of the opaque Wallet Session token. The facts it authorizes are owned by
  * the manifest and durable material record, which are correlated before this
  * function receives the runtime. */
 export async function resolveHydratedSecp256k1SigningMaterial(args: {

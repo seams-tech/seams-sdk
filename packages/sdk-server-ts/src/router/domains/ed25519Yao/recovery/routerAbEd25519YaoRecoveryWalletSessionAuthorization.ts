@@ -1,6 +1,9 @@
 import type { RouterAbEd25519YaoActivationBindingV1 } from '@shared/utils/routerAbEd25519Yao';
 import { headersToRecord } from '../../../framework/http';
 import type { SessionAdapter } from '../../../framework/routerApi';
+import type { RouterApiAuthorizationSessionService } from '../../../framework/authServicePort';
+import { extractBearerCredential } from '../../../auth/routerApiKeyAuth';
+import { resolveOpaqueOwnerWalletSessionAdmission } from '../../../auth/commonRouterUtils';
 import {
   walletSessionFailureCodeFromParseReason,
   walletSessionFailureMessage,
@@ -146,12 +149,104 @@ async function recoveryClaimsAuthorize(
   }
 }
 
+async function authorizeOpaqueOwnerRecovery(input: {
+  readonly request: RouterAbEd25519YaoRecoveryAuthorizationInput;
+  readonly resolveAuthorizationSessions: () => Promise<RouterApiAuthorizationSessionService>;
+}): Promise<RouterAbEd25519YaoRecoveryAuthorizationResult | null> {
+  const token = extractBearerCredential(headersToRecord(input.request.request.headers));
+  if (!token?.startsWith('wst_')) return null;
+  let admission: Awaited<ReturnType<typeof resolveOpaqueOwnerWalletSessionAdmission>>;
+  try {
+    admission = await resolveOpaqueOwnerWalletSessionAdmission({
+      authorizationSessions: await input.resolveAuthorizationSessions(),
+      token,
+      curve: 'ed25519',
+      nowMs: Date.now(),
+    });
+  } catch {
+    return authorizationFailure({
+      status: 503,
+      code: 'wallet_session_unavailable',
+      message: walletSessionFailureMessage('wallet_session_unavailable'),
+    });
+  }
+  if (!admission || admission.curve !== 'ed25519') {
+    return authorizationFailure({
+      status: 401,
+      code: 'wallet_session_invalid',
+      message: walletSessionFailureMessage('wallet_session_invalid'),
+    });
+  }
+  const binding = admission.binding;
+  let matches: boolean;
+  switch (input.request.kind) {
+    case 'bootstrap':
+      matches =
+        binding.walletId === input.request.body.walletId &&
+        binding.nearAccountId === input.request.body.nearAccountId &&
+        binding.nearEd25519SigningKeyId === input.request.body.nearEd25519SigningKeyId &&
+        binding.thresholdSessionId === input.request.body.thresholdSessionId &&
+        binding.routerAbNormalSigning.signingWorkerId === input.request.body.signingWorkerId &&
+        binding.participantIds[0] === input.request.body.participantIds[0] &&
+        binding.participantIds[1] === input.request.body.participantIds[1];
+      break;
+    case 'admit':
+      matches =
+        binding.walletId === input.request.body.scope.account_id &&
+        binding.walletId === input.request.body.application_binding.wallet_id &&
+        binding.nearEd25519SigningKeyId ===
+          input.request.body.application_binding.near_ed25519_signing_key_id &&
+        binding.runtimePolicyScope.signingRootVersion ===
+          input.request.body.scope.root_share_epoch &&
+        binding.routerAbNormalSigning.signingWorkerId ===
+          input.request.body.scope.signing_worker_id &&
+        binding.participantIds[0] === input.request.body.participant_ids[0] &&
+        binding.participantIds[1] === input.request.body.participant_ids[1];
+      break;
+    case 'execute':
+    case 'activate':
+      matches =
+        binding.walletId === input.request.body.binding.lifecycle.account_id &&
+        binding.runtimePolicyScope.signingRootVersion ===
+          input.request.body.binding.lifecycle.root_share_epoch &&
+        binding.routerAbNormalSigning.signingWorkerId ===
+          input.request.body.binding.lifecycle.selected_server_id;
+      break;
+  }
+  if (!matches) {
+    return authorizationFailure({
+      status: 403,
+      code: 'wallet_session_scope_mismatch',
+      message: walletSessionFailureMessage('wallet_session_scope_mismatch'),
+    });
+  }
+  return {
+    ok: true,
+    authorization: { kind: 'wallet_session', binding },
+  };
+}
+
 export class RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter implements RouterAbEd25519YaoRecoveryAuthorizationAdapter {
-  constructor(private readonly session: SessionAdapter) {}
+  constructor(
+    private readonly session: SessionAdapter,
+    private readonly resolveAuthorizationSessions: () => Promise<RouterApiAuthorizationSessionService>,
+  ) {}
 
   async authorize(
     input: RouterAbEd25519YaoRecoveryAuthorizationInput,
   ): Promise<RouterAbEd25519YaoRecoveryAuthorizationResult> {
+    const opaque = await authorizeOpaqueOwnerRecovery({
+      request: input,
+      resolveAuthorizationSessions: this.resolveAuthorizationSessions,
+    });
+    if (opaque) return opaque;
+    if (input.kind === 'bootstrap') {
+      return authorizationFailure({
+        status: 401,
+        code: 'wallet_session_missing',
+        message: walletSessionFailureMessage('wallet_session_missing'),
+      });
+    }
     let parsed: Awaited<ReturnType<SessionAdapter['parse']>>;
     try {
       parsed = await this.session.parse(headersToRecord(input.request.headers));
@@ -194,7 +289,7 @@ export class RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter impleme
     }
     return {
       ok: true,
-      claims: { kind: 'wallet_recovery', walletId: recoveryClaims.walletId },
+      authorization: { kind: 'wallet_recovery', walletId: recoveryClaims.walletId },
     };
   }
 }

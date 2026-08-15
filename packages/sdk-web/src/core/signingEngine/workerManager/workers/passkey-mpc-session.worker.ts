@@ -57,7 +57,7 @@ const PASSKEY_SERVER_SEALED_SECRET_CACHE_MAX_ENTRIES = 32;
 
 type SigningSessionSealTransport = {
   relayerUrl: string;
-  walletSessionToken?: string;
+  walletSessionToken: string;
   keyVersion?: string;
   serverSealedSecretCacheScope?: PasskeyServerSealedSecretCacheScope;
 };
@@ -290,10 +290,10 @@ function parseSigningSessionSealTransport(value: unknown): SigningSessionSealTra
   const serverSealedSecretCacheScope = parsePasskeyServerSealedSecretCacheScope(
     transport.serverSealedSecretCacheScope,
   );
-  if (!relayerUrl) return null;
+  if (!relayerUrl || !walletSessionToken) return null;
   return {
     relayerUrl,
-    ...(walletSessionToken ? { walletSessionToken } : {}),
+    walletSessionToken,
     ...(keyVersion ? { keyVersion } : {}),
     ...(serverSealedSecretCacheScope ? { serverSealedSecretCacheScope } : {}),
   };
@@ -395,14 +395,11 @@ async function callSigningSessionSealRoute(args: {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
-    const walletSessionToken = normalizeOptionalNonEmptyString(args.transport.walletSessionToken);
     const keyVersion = normalizeOptionalNonEmptyString(args.keyVersion);
-    if (walletSessionToken) {
-      headers.Authorization = `Bearer ${walletSessionToken}`;
-    }
+    headers.Authorization = `Bearer ${args.transport.walletSessionToken}`;
     const response = await fetch(url, {
       method: 'POST',
-      credentials: walletSessionToken ? 'omit' : 'include',
+      credentials: 'omit',
       headers,
       signal: controller.signal,
       body: JSON.stringify({

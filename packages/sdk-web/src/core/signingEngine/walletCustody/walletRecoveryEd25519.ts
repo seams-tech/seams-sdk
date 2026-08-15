@@ -19,6 +19,7 @@ import {
 } from '@shared/utils/domainIds';
 import {
   routerAbMpcMaterialActivationRefFromWire,
+  routerAbMpcMaterialActivationRefToWire,
   sameRouterAbMpcMaterialActivationRef,
 } from '@shared/utils/routerAbNormalSigningIdentity';
 import { secureRandomId } from '@shared/utils/secureRandomId';
@@ -33,6 +34,91 @@ type NearRecoveryEntry = Extract<
   WalletRecoveryPreparationKeyManifestEntry,
   { readonly kind: 'near_ed25519' }
 >;
+
+export type WalletSessionEd25519RecoveryBasisV1 = {
+  readonly materialActivation: ReturnType<typeof routerAbMpcMaterialActivationRefFromWire>;
+  readonly activeCapabilityBinding: readonly number[];
+  readonly registeredPublicKey: readonly number[];
+  readonly applicationBinding: RouterAbEd25519YaoRecoveryAdmissionRequestV1['application_binding'];
+  readonly participantIds: readonly [number, number];
+  readonly lifecycle: {
+    readonly lifecycleId: string;
+    readonly rootShareEpoch: string;
+    readonly accountId: string;
+    readonly thresholdSessionId: string;
+    readonly signerSetId: string;
+    readonly signingWorkerId: string;
+  };
+};
+
+type Ed25519RecoveryCurrentScopeV1 = {
+  readonly root_share_epoch: string;
+  readonly account_id: string;
+  readonly signer_set_id: string;
+  readonly signing_worker_id: string;
+  readonly material_activation: RouterAbEd25519YaoRecoveryAdmissionRequestV1['active_material_activation'];
+};
+
+async function buildEd25519RecoveryAdmissionRequestV1(input: {
+  readonly lifecycleId: string;
+  readonly thresholdSessionId: string;
+  readonly currentScope: Ed25519RecoveryCurrentScopeV1;
+  readonly applicationBinding: RouterAbEd25519YaoRecoveryAdmissionRequestV1['application_binding'];
+  readonly participantIds: readonly [number, number];
+  readonly activeCapabilityBinding: readonly number[];
+  readonly registeredPublicKey: readonly number[];
+}): Promise<RouterAbEd25519YaoRecoveryAdmissionRequestV1> {
+  const currentActivation = routerAbMpcMaterialActivationRefFromWire(
+    input.currentScope.material_activation,
+  );
+  const activationId = parseMpcMaterialActivationId(
+    secureRandomId(
+      'wallet-recovery-ed25519-material-activation',
+      32,
+      'wallet recovery Ed25519 activation identities',
+    ),
+  );
+  const lifecycleBinding = parseMpcLifecycleBindingRef(
+    `${input.lifecycleId}:material-activation`,
+  );
+  if (!activationId.ok || !lifecycleBinding.ok) {
+    throw new Error('wallet recovery Ed25519 material activation identity is invalid');
+  }
+  const materialActivation = buildMpcMaterialActivationRef({
+    activationId: activationId.value,
+    capability: currentActivation.capability,
+    materialOwner: currentActivation.materialOwner,
+    keyBinding: currentActivation.keyBinding,
+    lifecycleBinding: lifecycleBinding.value,
+    signingWorker: currentActivation.signingWorker,
+  });
+  const replacementCapabilityBinding = new Uint8Array(32);
+  globalThis.crypto.getRandomValues(replacementCapabilityBinding);
+  try {
+    return requireParsed(
+      parseRouterAbEd25519YaoRecoveryAdmissionRequestV1({
+        scope: {
+          lifecycle_id: input.lifecycleId,
+          root_share_epoch: input.currentScope.root_share_epoch,
+          account_id: input.currentScope.account_id,
+          threshold_session_id: input.thresholdSessionId,
+          signer_set_id: input.currentScope.signer_set_id,
+          signing_worker_id: input.currentScope.signing_worker_id,
+          material_activation: routerAbMpcMaterialActivationRefToWire(materialActivation),
+        },
+        active_material_activation: input.currentScope.material_activation,
+        application_binding: input.applicationBinding,
+        participant_ids: input.participantIds,
+        active_capability_binding: input.activeCapabilityBinding,
+        replacement_capability_binding: [...replacementCapabilityBinding],
+        registered_public_key: input.registeredPublicKey,
+      }),
+      'wallet recovery Ed25519 admission request is invalid',
+    );
+  } finally {
+    replacementCapabilityBinding.fill(0);
+  }
+}
 
 export type WalletRecoveryEd25519Admission = {
   readonly request: RouterAbEd25519YaoRecoveryAdmissionRequestV1;
@@ -65,61 +151,40 @@ export async function buildWalletRecoveryEd25519AdmissionRequestV1(input: {
     reservationId,
     keySetId: input.entry.keySetId,
   });
-  const current = input.entry.recoveryBasis.scope.material_activation;
-  const activationId = parseMpcMaterialActivationId(
-    secureRandomId(
-      'wallet-recovery-ed25519-material-activation',
-      32,
-      'wallet recovery Ed25519 activation identities',
-    ),
-  );
-  const lifecycleBinding = parseMpcLifecycleBindingRef(`${lifecycleId}:material-activation`);
-  if (!activationId.ok || !lifecycleBinding.ok) {
-    throw new Error('wallet recovery Ed25519 material activation identity is invalid');
-  }
-  const currentActivation = routerAbMpcMaterialActivationRefFromWire(current);
-  const materialActivation = buildMpcMaterialActivationRef({
-    activationId: activationId.value,
-    capability: currentActivation.capability,
-    materialOwner: currentActivation.materialOwner,
-    keyBinding: currentActivation.keyBinding,
-    lifecycleBinding: lifecycleBinding.value,
-    signingWorker: currentActivation.signingWorker,
+  return await buildEd25519RecoveryAdmissionRequestV1({
+    lifecycleId,
+    thresholdSessionId: `${lifecycleId}:threshold-session`,
+    currentScope: input.entry.recoveryBasis.scope,
+    applicationBinding: input.entry.recoveryBasis.applicationBinding,
+    participantIds: input.entry.recoveryBasis.participantIds,
+    activeCapabilityBinding: input.entry.recoveryBasis.activeCapabilityBinding,
+    registeredPublicKey: input.entry.recoveryBasis.registeredPublicKey,
   });
-  const replacementCapabilityBinding = new Uint8Array(32);
-  globalThis.crypto.getRandomValues(replacementCapabilityBinding);
-  try {
-    return requireParsed(
-      parseRouterAbEd25519YaoRecoveryAdmissionRequestV1({
-        scope: {
-          lifecycle_id: lifecycleId,
-          root_share_epoch: input.entry.recoveryBasis.scope.root_share_epoch,
-          account_id: input.entry.recoveryBasis.scope.account_id,
-          threshold_session_id: `${lifecycleId}:threshold-session`,
-          signer_set_id: input.entry.recoveryBasis.scope.signer_set_id,
-          signing_worker_id: input.entry.recoveryBasis.scope.signing_worker_id,
-          material_activation: {
-            kind: materialActivation.kind,
-            activation_id: materialActivation.activationId,
-            capability: materialActivation.capability,
-            material_owner: materialActivation.materialOwner,
-            key_binding: materialActivation.keyBinding,
-            lifecycle_binding: materialActivation.lifecycleBinding,
-            signing_worker: materialActivation.signingWorker,
-          },
-        },
-        active_material_activation: current,
-        application_binding: input.entry.recoveryBasis.applicationBinding,
-        participant_ids: input.entry.recoveryBasis.participantIds,
-        active_capability_binding: input.entry.recoveryBasis.activeCapabilityBinding,
-        replacement_capability_binding: [...replacementCapabilityBinding],
-        registered_public_key: input.entry.recoveryBasis.registeredPublicKey,
-      }),
-      'wallet recovery Ed25519 admission request is invalid',
-    );
-  } finally {
-    replacementCapabilityBinding.fill(0);
-  }
+}
+
+export async function buildWalletSessionEd25519RecoveryAdmissionRequestV1(input: {
+  readonly basis: WalletSessionEd25519RecoveryBasisV1;
+}): Promise<RouterAbEd25519YaoRecoveryAdmissionRequestV1> {
+  const lifecycleId = secureRandomId(
+    'wallet-session-ed25519-recovery',
+    32,
+    'wallet-session Ed25519 recovery lifecycles',
+  );
+  return await buildEd25519RecoveryAdmissionRequestV1({
+    lifecycleId,
+    thresholdSessionId: input.basis.lifecycle.thresholdSessionId,
+    currentScope: {
+      root_share_epoch: input.basis.lifecycle.rootShareEpoch,
+      account_id: input.basis.lifecycle.accountId,
+      signer_set_id: input.basis.lifecycle.signerSetId,
+      signing_worker_id: input.basis.lifecycle.signingWorkerId,
+      material_activation: routerAbMpcMaterialActivationRefToWire(input.basis.materialActivation),
+    },
+    applicationBinding: input.basis.applicationBinding,
+    participantIds: input.basis.participantIds,
+    activeCapabilityBinding: input.basis.activeCapabilityBinding,
+    registeredPublicKey: input.basis.registeredPublicKey,
+  });
 }
 
 export async function admitWalletRecoveryEd25519V1(input: {

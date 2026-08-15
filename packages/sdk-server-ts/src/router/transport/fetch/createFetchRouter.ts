@@ -98,22 +98,22 @@ function signingSessionSealRecordFromAdmission(
     case 'ecdsa':
       return {
         curve: 'ecdsa',
-        thresholdSessionId: admission.claims.thresholdSessionId,
-        userId: admission.claims.walletId,
-        expiresAtMs: admission.claims.thresholdExpiresAtMs,
-        relayerKeyId: admission.claims.relayerKeyId,
-        participantIds: admission.claims.participantIds,
-        keyHandle: parseEcdsaKeyHandle(admission.claims.keyHandle),
+        thresholdSessionId: admission.binding.thresholdSessionId,
+        userId: admission.binding.walletId,
+        expiresAtMs: admission.binding.thresholdExpiresAtMs,
+        relayerKeyId: admission.binding.relayerKeyId,
+        participantIds: admission.binding.participantIds,
+        keyHandle: parseEcdsaKeyHandle(admission.binding.keyHandle),
       };
     case 'ed25519':
       return {
         curve: 'ed25519',
-        thresholdSessionId: admission.claims.thresholdSessionId,
-        userId: admission.claims.walletId,
-        expiresAtMs: admission.claims.thresholdExpiresAtMs,
-        relayerKeyId: admission.claims.relayerKeyId,
-        participantIds: admission.claims.participantIds,
-        authorityScope: admission.claims.authorityScope,
+        thresholdSessionId: admission.binding.thresholdSessionId,
+        userId: admission.binding.walletId,
+        expiresAtMs: admission.binding.thresholdExpiresAtMs,
+        relayerKeyId: admission.binding.relayerKeyId,
+        participantIds: admission.binding.participantIds,
+        authorityScope: admission.binding.authorityScope,
       };
   }
 }

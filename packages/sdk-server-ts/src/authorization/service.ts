@@ -35,7 +35,7 @@ import {
   parseHostedWalletSessionExchangeCodeId,
   parseLinkedDeviceWalletSessionAuthorizationId,
   parseWalletSessionAuthorizationId,
-  parseSeamsSessionId,
+  parseEcdsaAuthorizationSessionId,
   type MpcWalletSigningQuotaId,
   type AuthorizedOperationId,
   type LinkedDeviceWalletSessionAuthorizationId,
@@ -44,7 +44,7 @@ import {
   type TenantId,
   type WalletSessionAuthorizationId,
   type WalletSessionId,
-  type SeamsSessionId,
+  type EcdsaAuthorizationSessionId,
 } from '@shared/authorization/capabilityKinds';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import { sha256BytesUtf8 } from '@shared/utils/digests';
@@ -109,6 +109,7 @@ import {
   DEFAULT_WALLET_SESSION_REMAINING_USES,
   DEFAULT_WALLET_SESSION_TTL_MS,
 } from '@shared/threshold/sessionPolicy';
+import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 
 export interface AuthorizationSessionPort {
   readReusableWalletSessionStatus(input: {
@@ -293,7 +294,6 @@ export type OpaqueWalletSessionCurve = 'ecdsa' | 'ed25519';
 export type OpaqueOwnerWalletSessionBinding =
   | {
       readonly kind: 'opaque_owner_wallet_session_binding_v1';
-      readonly authorizationKind: 'owner_wallet_session';
       readonly curve: 'ed25519';
       readonly walletId: WalletId;
       readonly thresholdSessionId: string;
@@ -303,12 +303,7 @@ export type OpaqueOwnerWalletSessionBinding =
       readonly relayerKeyId: string;
       readonly participantIds: readonly number[];
       readonly thresholdExpiresAtMs: number;
-      readonly iat: number;
-      readonly exp: number;
-      readonly sub: string;
       readonly subjectId: string;
-      readonly sid?: string;
-      readonly seamsSessionId?: string;
       readonly nearAccountId: string;
       readonly nearEd25519SigningKeyId: string;
       readonly authority: WalletAuthAuthority;
@@ -318,7 +313,6 @@ export type OpaqueOwnerWalletSessionBinding =
     }
   | {
       readonly kind: 'opaque_owner_wallet_session_binding_v1';
-      readonly authorizationKind: 'owner_wallet_session';
       readonly curve: 'ecdsa';
       readonly walletId: WalletId;
       readonly thresholdSessionId: string;
@@ -329,12 +323,7 @@ export type OpaqueOwnerWalletSessionBinding =
       readonly relayerKeyId: string;
       readonly participantIds: readonly number[];
       readonly thresholdExpiresAtMs: number;
-      readonly iat: number;
-      readonly exp: number;
-      readonly keyScope: 'evm-family';
-      readonly sub: string;
       readonly subjectId: string;
-      readonly sid: SeamsSessionId;
       readonly keyHandle: string;
       readonly walletAuthAuthorityRef: WalletAuthAuthorityRef;
       readonly authSource:
@@ -379,6 +368,7 @@ function parseOpaqueBindingBase(value: Record<string, unknown>): {
   const subjectId = opaqueBindingString(value.subjectId);
   const thresholdExpiresAtMs = value.thresholdExpiresAtMs;
   const participantIds = value.participantIds;
+  const normalizedParticipantIds = normalizeThresholdEd25519ParticipantIds(participantIds);
   if (
     !walletId.ok ||
     !authorizationId.ok ||
@@ -391,8 +381,10 @@ function parseOpaqueBindingBase(value: Record<string, unknown>): {
     !Number.isSafeInteger(thresholdExpiresAtMs) ||
     thresholdExpiresAtMs <= 0 ||
     !Array.isArray(participantIds) ||
-    participantIds.length < 2 ||
-    participantIds.some((id) => !Number.isSafeInteger(id) || id < 0)
+    !normalizedParticipantIds ||
+    normalizedParticipantIds.length < 2 ||
+    normalizedParticipantIds.length !== participantIds.length ||
+    normalizedParticipantIds.some((id, index) => id !== participantIds[index])
   ) {
     return null;
   }
@@ -403,7 +395,7 @@ function parseOpaqueBindingBase(value: Record<string, unknown>): {
     walletSessionId: walletSessionId.value,
     quotaId: quotaId.value,
     relayerKeyId,
-    participantIds: [...participantIds] as number[],
+    participantIds: normalizedParticipantIds,
     thresholdExpiresAtMs,
     subjectId,
   };
@@ -450,8 +442,7 @@ export function parseOpaqueOwnerWalletSessionBinding(
   const record = opaqueBindingObject(value);
   if (
     !record ||
-    record.kind !== 'opaque_owner_wallet_session_binding_v1' ||
-    record.authorizationKind !== 'owner_wallet_session'
+    record.kind !== 'opaque_owner_wallet_session_binding_v1'
   ) {
     return null;
   }
@@ -469,17 +460,10 @@ export function parseOpaqueOwnerWalletSessionBinding(
       if (!authority || !nearAccountId || !nearEd25519SigningKeyId || !runtimePolicyScope || !routerAbNormalSigning) {
         return null;
       }
-      const seamsSessionId = record.seamsSessionId === undefined ? undefined : parseSeamsSessionId(record.seamsSessionId);
-      if (record.seamsSessionId !== undefined && (!seamsSessionId || !seamsSessionId.ok)) return null;
       return {
         kind: 'opaque_owner_wallet_session_binding_v1',
-        authorizationKind: 'owner_wallet_session',
         curve: 'ed25519',
         ...base,
-        sub: base.subjectId,
-        iat: Math.floor(Date.now() / 1000),
-        exp: Math.floor(base.thresholdExpiresAtMs / 1000),
-        ...(seamsSessionId && seamsSessionId.ok ? { seamsSessionId: seamsSessionId.value } : {}),
         nearAccountId,
         nearEd25519SigningKeyId,
         authority,
@@ -490,7 +474,7 @@ export function parseOpaqueOwnerWalletSessionBinding(
     }
     const authorizationSessionIdRaw = opaqueBindingString(record.authorizationSessionId);
     const authorizationSessionId = authorizationSessionIdRaw
-      ? parseSeamsSessionId(authorizationSessionIdRaw)
+      ? parseEcdsaAuthorizationSessionId(authorizationSessionIdRaw)
       : null;
     const keyHandle = opaqueBindingString(record.keyHandle);
     const walletAuthAuthorityRef = parseWalletAuthAuthorityRef(record.walletAuthAuthorityRef);
@@ -507,15 +491,9 @@ export function parseOpaqueOwnerWalletSessionBinding(
         : normalizeRuntimePolicyScope(opaqueBindingObject(record.runtimePolicyScope) || {});
     return {
       kind: 'opaque_owner_wallet_session_binding_v1',
-      authorizationKind: 'owner_wallet_session',
       curve: 'ecdsa',
       ...base,
-      sub: base.subjectId,
-      iat: Math.floor(Date.now() / 1000),
-      exp: Math.floor(base.thresholdExpiresAtMs / 1000),
-      keyScope: 'evm-family',
       authorizationSessionId: authorizationSessionId.value,
-      sid: authorizationSessionId.value,
       keyHandle,
       walletAuthAuthorityRef,
       authSource,
@@ -784,6 +762,15 @@ export class AuthorizationService {
   }): Promise<IssuedOpaqueWalletSessionToken> {
     if (input.proof.tenantId !== input.tenantId) {
       throw new Error('owner proof does not match the opaque Wallet Session tenant');
+    }
+    if (
+      input.binding.curve !== input.curve ||
+      input.binding.authorizationId !== input.authorizationId ||
+      input.binding.walletSessionId !== input.walletSessionId ||
+      input.binding.quotaId !== input.quotaId ||
+      input.binding.thresholdExpiresAtMs !== input.expiresAtMs
+    ) {
+      throw new Error('opaque Wallet Session binding does not match its authorization');
     }
     const consumedAtMs = requirePositiveTimestamp(
       input.consumedAtMs,

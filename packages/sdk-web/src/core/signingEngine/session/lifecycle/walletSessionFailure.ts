@@ -18,8 +18,9 @@ export type WalletSessionFailure =
       readonly code:
         | typeof WALLET_SESSION_FAILURE_CODES.signatureInvalid
         | typeof WALLET_SESSION_FAILURE_CODES.claimsInvalid
+        | typeof WALLET_SESSION_FAILURE_CODES.invalid
         | typeof WALLET_SESSION_FAILURE_CODES.scopeMismatch;
-      readonly reason: 'signature_invalid' | 'claims_invalid' | 'scope_mismatch';
+      readonly reason: 'signature_invalid' | 'claims_invalid' | 'invalid' | 'scope_mismatch';
     }
   | {
       readonly kind: 'unavailable';
@@ -52,6 +53,8 @@ export function walletSessionFailureFromCode(code: WalletSessionFailureCode): Wa
       return { kind: 'invalid', code, reason: 'signature_invalid' };
     case WALLET_SESSION_FAILURE_CODES.claimsInvalid:
       return { kind: 'invalid', code, reason: 'claims_invalid' };
+    case WALLET_SESSION_FAILURE_CODES.invalid:
+      return { kind: 'invalid', code, reason: 'invalid' };
     case WALLET_SESSION_FAILURE_CODES.scopeMismatch:
       return { kind: 'invalid', code, reason: 'scope_mismatch' };
     case WALLET_SESSION_FAILURE_CODES.unavailable:

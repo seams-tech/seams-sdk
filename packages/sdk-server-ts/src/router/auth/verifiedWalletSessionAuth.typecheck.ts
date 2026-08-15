@@ -7,8 +7,8 @@ import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthori
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import {
   thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
-  type RouterAbEcdsaDerivationOwnerWalletSessionClaims,
 } from '../../core/ThresholdService/validation';
+import type { OpaqueOwnerWalletSessionBinding } from '../../authorization/service';
 import type {
   MpcWalletSigningQuotaId,
   WalletSessionAuthorizationId,
@@ -19,7 +19,10 @@ declare const authorizationId: WalletSessionAuthorizationId;
 declare const walletSessionId: WalletSessionId;
 declare const quotaId: MpcWalletSigningQuotaId;
 declare const walletAuthAuthorityRef: WalletAuthAuthorityRef;
-declare const ecdsaAuthSource: RouterAbEcdsaDerivationOwnerWalletSessionClaims['authSource'];
+declare const ecdsaAuthSource: Extract<
+  OpaqueOwnerWalletSessionBinding,
+  { readonly curve: 'ecdsa' }
+>['authSource'];
 
 const passkeyAuthority = buildPasskeyWalletAuthAuthority({
   walletId: 'wallet-ed25519',

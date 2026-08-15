@@ -11,7 +11,10 @@ import type {
   LinkSessionAuthenticationV1,
   LinkSessionTransportPortV1,
 } from '@/SeamsWeb/operations/devices/deviceLinkingPorts';
-import { DeviceLinkingErrorCode } from '@/core/types/linkDevice';
+import {
+  DeviceLinkingErrorCode,
+  type LinkedDeviceTargetPasskeyActivationV1,
+} from '@/core/types/linkDevice';
 import {
   buildLinkedDeviceProvisionedExecutionEvidenceV1,
   type LinkedDeviceProvisionedExecutionEvidenceV1,
@@ -733,6 +736,7 @@ test.describe('linked-device browser orchestration', () => {
     let emitSessionEvent: ((event: LinkedDeviceSessionTransportEventV1) => void) | undefined;
     let authenticatedTransport: DeviceLinkingAuthenticatedTransportPortV1 | undefined;
     let aggregateAcknowledgement: LinkedDeviceReceiptAcknowledgementV1 | undefined;
+    let targetPasskeyActivation: LinkedDeviceTargetPasskeyActivationV1 | null = null;
     const ports = createPorts(
       calls,
       undefined,
@@ -747,7 +751,16 @@ test.describe('linked-device browser orchestration', () => {
         aggregateAcknowledgement = value;
       },
     );
-    const flow = new LinkDeviceFlow({}, ports);
+    const flow = new LinkDeviceFlow(
+      {
+        options: {
+          onTargetPasskeyRequired: (activation) => {
+            targetPasskeyActivation = activation;
+          },
+        },
+      },
+      ports,
+    );
     const generated = await flow.generateQR();
     if (!authenticatedTransport) throw new Error('authenticated transport was not bound');
     Object.assign(authenticatedTransport, {
@@ -803,6 +816,12 @@ test.describe('linked-device browser orchestration', () => {
       }),
       emittedAtMs: Date.now(),
     });
+    await expect
+      .poll(() => targetPasskeyActivation?.kind)
+      .toBe('linked_device_target_passkey_activation_v1');
+    expect(calls).not.toContain('target-passkey');
+    if (!targetPasskeyActivation) throw new Error('target passkey activation was not published');
+    await targetPasskeyActivation.createPasskey();
     await expect
       .poll(() => calls.slice(-13), { timeout: 5_000 })
       .toEqual([

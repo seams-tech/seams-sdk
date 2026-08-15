@@ -104,18 +104,6 @@ const signingCapabilityWithoutCommittedLane: LoginEmailOtpEcdsaCapabilityForSign
 };
 void signingCapabilityWithoutCommittedLane;
 
-const validCapabilityLoginWithDerivedProvider: LoginEmailOtpEcdsaCapabilityArgs = {
-  walletSession,
-  chainTarget,
-  otpCode: '123456',
-  routePlan,
-  emailHashHex: 'email-hash',
-  ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
-  providerIdentity: { kind: 'derive_from_route_auth' },
-  ed25519YaoRecovery: { kind: 'not_requested' },
-};
-void validCapabilityLoginWithDerivedProvider;
-
 const validCapabilityLoginWithExplicitProvider: LoginEmailOtpEcdsaCapabilityArgs = {
   walletSession,
   chainTarget,
@@ -150,7 +138,11 @@ const invalidCapabilityLoginWithAuthSubject: LoginEmailOtpEcdsaCapabilityArgs = 
   routePlan,
   emailHashHex: 'email-hash',
   ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
-  providerIdentity: { kind: 'derive_from_route_auth' },
+  providerIdentity: {
+    kind: 'explicit_provider_user',
+    provider: 'google',
+    providerUserId: 'google-provider-user-1',
+  },
   // @ts-expect-error authSubjectId is a worker boundary field, not a login authority input.
   authSubjectId: 'legacy-auth-subject',
 };
@@ -163,7 +155,11 @@ const invalidCapabilityLoginWithoutRoutePlan: LoginEmailOtpEcdsaCapabilityArgs =
   otpCode: '123456',
   emailHashHex: 'email-hash',
   ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
-  providerIdentity: { kind: 'derive_from_route_auth' },
+  providerIdentity: {
+    kind: 'explicit_provider_user',
+    provider: 'google',
+    providerUserId: 'google-provider-user-1',
+  },
 };
 void invalidCapabilityLoginWithoutRoutePlan;
 

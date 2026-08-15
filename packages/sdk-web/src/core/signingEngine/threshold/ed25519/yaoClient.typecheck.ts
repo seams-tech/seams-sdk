@@ -1,5 +1,7 @@
 import {
   type RouterAbEd25519YaoExportSeedInputV1,
+  type RouterAbEd25519YaoExportCustodyEnvelopeV1,
+  type RouterAbEd25519YaoExportEmailOtpFactorReleaseV1,
   WasmRouterAbEd25519YaoActiveClientV1,
 } from './yaoClient';
 
@@ -10,7 +12,7 @@ void forgedActiveClient;
 
 declare const exportRequest: RouterAbEd25519YaoExportSeedInputV1['request'];
 declare const exportTransport: RouterAbEd25519YaoExportSeedInputV1['transport'];
-declare const custodyEnvelope: RouterAbEd25519YaoExportSeedInputV1['custodyEnvelope'];
+declare const custodyEnvelope: RouterAbEd25519YaoExportCustodyEnvelopeV1;
 declare const passkeyAuthorization: Extract<
   RouterAbEd25519YaoExportSeedInputV1['authorization'],
   { kind: 'passkey' }
@@ -30,8 +32,10 @@ const validPasskeyExport = {
 const validEmailOtpExport = {
   request: exportRequest,
   transport: exportTransport,
-  custodyEnvelope,
   authorization: emailOtpAuthorization,
+  resolveCustodyEnvelope: async (
+    _release: RouterAbEd25519YaoExportEmailOtpFactorReleaseV1,
+  ) => custodyEnvelope,
 } satisfies RouterAbEd25519YaoExportSeedInputV1;
 
 void validPasskeyExport;

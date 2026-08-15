@@ -14,6 +14,7 @@ import type { AccountId } from '@/core/types/accountIds';
 import {
   type ActiveWalletSessionAuthorizationProjection,
   type WalletSessionAuthorizationReadResult,
+  walletSessionAuthorizationIdForCurve,
   walletSessionTokenForCurve,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
@@ -129,13 +130,14 @@ async function readColdExportBootstrap(input: {
     throw new Error('[SigningEngine][ed25519-export] reusable Wallet Session is unavailable');
   }
   const walletSessionToken = walletSessionTokenForCurve(input.authorization, 'ed25519');
+  const authorizationId = walletSessionAuthorizationIdForCurve(input.authorization, 'ed25519');
   const signer = input.subject.signer;
   const binding = input.material.binding;
   if (
     !walletSessionToken ||
     input.authorization.walletId !== signer.account.wallet.walletId ||
     input.authorization.authMethod !== 'email_otp' ||
-    !input.authorization.authorizationId ||
+    !authorizationId ||
     !input.authorization.walletSessionId ||
     !input.authorization.quotaId ||
     binding.walletId !== String(signer.account.wallet.walletId) ||
@@ -260,7 +262,7 @@ async function readColdExportBootstrap(input: {
           providerUserId: authority.factor.providerUserId,
         },
         thresholdSessionId: thresholdSessionId.value,
-        authorizationId: input.authorization.authorizationId,
+        authorizationId,
         walletSessionId: walletSessionId.value,
         quotaId: quotaId.value,
         expiresAtMs: Math.min(

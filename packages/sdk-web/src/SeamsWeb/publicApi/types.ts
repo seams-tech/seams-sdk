@@ -58,6 +58,7 @@ import type {
   UnlockFlowEvent,
   NearProvisioningStateChangedEvent,
 } from '@/core/types/sdkSentEvents';
+import type { EmailOtpProvider } from '@shared/utils/walletAuthAuthority';
 import type {
   ConfirmationBehavior,
   ConfirmationConfig,
@@ -504,6 +505,10 @@ export type GoogleEmailOtpRegistrationEnrollmentResult = Omit<
 export type EmailOtpEcdsaCapabilityArgs = {
   walletSession: WalletSessionRef;
   chainTarget: ThresholdEcdsaChainTarget;
+  providerIdentity: {
+    provider: EmailOtpProvider;
+    providerSubjectId: string;
+  };
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   relayUrl?: string;
   challengeId?: string;

@@ -63,6 +63,7 @@ export class EmailOtpEcdsaLifecycleRuntime {
       requireRelayUrl: () => this.ports.runtimeConfig.requireRelayUrl(),
       requireSigningSessionSealGroupId: () =>
         this.ports.runtimeConfig.requireSigningSessionSealGroupId(),
+      resolveCurrentEcdsaCapabilityRuntime: this.ports.resolveCurrentEcdsaCapabilityRuntime,
       publicationPorts: this.ports.publicationPorts(),
     });
   }
@@ -81,6 +82,7 @@ export class EmailOtpEcdsaLifecycleRuntime {
       requireRelayUrl: () => this.ports.runtimeConfig.requireRelayUrl(),
       requireSigningSessionSealGroupId: () =>
         this.ports.runtimeConfig.requireSigningSessionSealGroupId(),
+      resolveCurrentEcdsaCapabilityRuntime: this.ports.resolveCurrentEcdsaCapabilityRuntime,
       publicationPorts: this.ports.publicationPorts(),
     });
   }

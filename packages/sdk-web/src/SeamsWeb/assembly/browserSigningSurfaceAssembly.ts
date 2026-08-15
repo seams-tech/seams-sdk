@@ -130,14 +130,28 @@ export async function resolveExactWalletAuthAuthority(
   for (const sealedRecord of sealedRecords) {
     const restore = sealedRecord.ecdsaRestore;
     if (!restore || restore.authority.authorityDigest !== authorityRef.authorityDigest) continue;
-    if (restore.source === 'email_otp') return restore.emailOtpAuthority;
+    if (restore.source === 'email_otp') {
+      const candidateRef = await walletAuthAuthorityRef({ authority: restore.emailOtpAuthority });
+      if (
+        candidateRef.walletId === authorityRef.walletId &&
+        candidateRef.authorityDigest === authorityRef.authorityDigest
+      ) {
+        return restore.emailOtpAuthority;
+      }
+      continue;
+    }
     const authority = buildPasskeyWalletAuthAuthority({
       walletId: authorityRef.walletId,
       rpId: restore.rpId,
       credentialIdB64u: restore.credentialIdB64u,
     });
     const candidateRef = await walletAuthAuthorityRef({ authority });
-    if (candidateRef.authorityDigest === authorityRef.authorityDigest) return authority;
+    if (
+      candidateRef.walletId === authorityRef.walletId &&
+      candidateRef.authorityDigest === authorityRef.authorityDigest
+    ) {
+      return authority;
+    }
   }
   const authMethods = await walletAuthMethodStore.listWalletAuthMethodsForWallet(
     authorityRef.walletId,
@@ -153,7 +167,12 @@ export async function resolveExactWalletAuthAuthority(
             credentialIdB64u: authMethod.credentialIdB64u,
           });
     const candidateRef = await walletAuthAuthorityRef({ authority });
-    if (candidateRef.authorityDigest === authorityRef.authorityDigest) return authority;
+    if (
+      candidateRef.walletId === authorityRef.walletId &&
+      candidateRef.authorityDigest === authorityRef.authorityDigest
+    ) {
+      return authority;
+    }
   }
   const rpId = String(currentRpId || '').trim();
   if (!rpId) throw new Error('Exact wallet authentication authority requires an RP ID');
@@ -167,7 +186,12 @@ export async function resolveExactWalletAuthAuthority(
       credentialIdB64u: authenticator.credentialId,
     });
     const candidateRef = await walletAuthAuthorityRef({ authority });
-    if (candidateRef.authorityDigest === authorityRef.authorityDigest) return authority;
+    if (
+      candidateRef.walletId === authorityRef.walletId &&
+      candidateRef.authorityDigest === authorityRef.authorityDigest
+    ) {
+      return authority;
+    }
   }
   throw new Error('Exact wallet authentication authority is unavailable');
 }
@@ -215,7 +239,7 @@ export async function resolveBrowserActiveEcdsaWalletSessionAuthorization(
   if (!walletSessionToken) {
     return {
       kind: 'inactive',
-      reason: 'Reusable Wallet Session authorization has no ECDSA Wallet Session JWT',
+      reason: 'Reusable Wallet Session authorization has no ECDSA token',
     };
   }
   const status = await createRelayerReusableWalletSessionStatusPort({
@@ -392,7 +416,7 @@ async function getBrowserEcdsaSigningCapability(
   const canonical = await resolveBrowserCanonicalEcdsaSigningCapability(args, input);
   const walletSessionToken = walletSessionTokenForCurve(browserAuthorization.projection, 'ecdsa');
   if (!walletSessionToken) {
-    throw new Error('Owner ECDSA execution-lane preflight requires a Wallet Session JWT');
+    throw new Error('Owner ECDSA execution-lane preflight requires an opaque Wallet Session token');
   }
   const projection = await readOwnerWalletExecutionLaneProjectionV1({
     relayerUrl: String(args.seamsWebConfigs.network.relayer?.url || '').trim(),
@@ -516,7 +540,11 @@ async function requestEmailOtpEcdsaStepUpChallenge(args: {
         authLane: args.authority.authLane,
       });
     case 'capability_step_up':
-      throw new Error('Email OTP capability step-up requires an active opaque Wallet Session');
+      return await args.coordinator.requestTransactionSigningChallenge({
+        kind: 'wallet_login_challenge',
+        walletSession: args.walletSession,
+        chain: args.chain,
+      });
   }
 }
 
@@ -612,8 +640,12 @@ export function createBrowserSigningSurfaceEnginePorts(
         chain: challengeArgs.chain,
         authority: challengeArgs.authority,
       }),
-    requestEmailOtpEd25519SigningChallenge: () =>
-      Promise.reject(new Error('Email OTP Ed25519 step-up requires an active opaque Wallet Session')),
+    requestEmailOtpEd25519SigningChallenge: ({ walletSession }) =>
+      args.emailOtpSessions.requestTransactionSigningChallenge({
+        kind: 'wallet_login_challenge',
+        walletSession,
+        chain: 'near',
+      }),
     prepareNearEd25519YaoMaterialBoundary: args.prepareNearEd25519YaoMaterialBoundary,
     provisionThresholdEd25519Session: (provisionArgs) =>
       provisionThresholdEd25519SessionOperation(

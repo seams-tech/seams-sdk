@@ -49,7 +49,7 @@ import {
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type {
   MpcWalletSigningQuotaId,
-  SeamsSessionId,
+  EcdsaAuthorizationSessionId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
@@ -90,7 +90,7 @@ export type ThresholdEcdsaSessionBootstrapResult = {
   session: {
     ok: true;
     thresholdSessionId: string;
-    authorizationSessionId: SeamsSessionId;
+    authorizationSessionId: EcdsaAuthorizationSessionId;
     walletSessionId: WalletSessionId;
     quotaId: MpcWalletSigningQuotaId;
     expiresAtMs: number;

@@ -1405,11 +1405,20 @@ impl CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestSigningReque
             &self.request.authorization,
         ) {
             (
-                CloudflareRouterAuthContextV1::AuthenticatedSession { session_id, .. },
+                CloudflareRouterAuthContextV1::OwnerWalletSession {
+                    wallet_session_id: owner_wallet_session_id,
+                    ..
+                },
+                NormalSigningAuthorizationV1::ReusableWalletSession {
+                    wallet_session_id: scope_wallet_session_id,
+                },
+            ) if owner_wallet_session_id == scope_wallet_session_id => {}
+            (
+                CloudflareRouterAuthContextV1::RouterJwtSession { session_id, .. },
                 NormalSigningAuthorizationV1::ReusableWalletSession { wallet_session_id },
             ) if session_id == wallet_session_id => {}
             (
-                CloudflareRouterAuthContextV1::OperationStepUpSession { .. },
+                CloudflareRouterAuthContextV1::OwnerOperationStepUp { .. },
                 NormalSigningAuthorizationV1::OperationStepUp,
             ) => {}
             _ => {
@@ -1508,11 +1517,20 @@ impl CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestFinalizeRequ
             &self.request.authorization,
         ) {
             (
-                CloudflareRouterAuthContextV1::AuthenticatedSession { session_id, .. },
+                CloudflareRouterAuthContextV1::OwnerWalletSession {
+                    wallet_session_id: owner_wallet_session_id,
+                    ..
+                },
+                NormalSigningAuthorizationV1::ReusableWalletSession {
+                    wallet_session_id: scope_wallet_session_id,
+                },
+            ) if owner_wallet_session_id == scope_wallet_session_id => {}
+            (
+                CloudflareRouterAuthContextV1::RouterJwtSession { session_id, .. },
                 NormalSigningAuthorizationV1::ReusableWalletSession { wallet_session_id },
             ) if session_id == wallet_session_id => {}
             (
-                CloudflareRouterAuthContextV1::OperationStepUpSession { .. },
+                CloudflareRouterAuthContextV1::OwnerOperationStepUp { .. },
                 NormalSigningAuthorizationV1::OperationStepUp,
             ) => {}
             _ => {
@@ -1595,13 +1613,17 @@ impl CloudflareSigningWorkerAdmittedLinkedDeviceEcdsaPrepareRequestV1 {
         self.material_source
             .validate_for_linked_ecdsa_scope(&self.request.scope)?;
         self.trusted_admission.validate()?;
-        let CloudflareRouterAuthContextV1::AuthenticatedSession { session_id, .. } =
-            &self.trusted_admission.metadata.auth
-        else {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidGateDecision,
-                "linked ECDSA prepare requires authenticated Wallet Session admission",
-            ));
+        let session_id = match &self.trusted_admission.metadata.auth {
+            CloudflareRouterAuthContextV1::OwnerWalletSession {
+                wallet_session_id, ..
+            } => wallet_session_id,
+            CloudflareRouterAuthContextV1::RouterJwtSession { session_id, .. } => session_id,
+            _ => {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidGateDecision,
+                    "linked ECDSA prepare requires a reusable session admission",
+                ));
+            }
         };
         let NormalSigningAuthorizationV1::ReusableWalletSession { wallet_session_id } =
             &self.request.authorization

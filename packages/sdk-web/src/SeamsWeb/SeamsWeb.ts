@@ -2135,7 +2135,11 @@ export class SeamsWeb {
             }
           : { ed25519YaoRecovery: { kind: 'not_requested' as const } }),
         ecdsaBootstrapAuthorization: { kind: 'route_plan_auth' },
-        providerIdentity: { kind: 'derive_from_route_auth' },
+        providerIdentity: {
+          kind: 'explicit_provider_user',
+          provider: args.providerIdentity.provider,
+          providerUserId: args.providerIdentity.providerSubjectId,
+        },
         onProgress: markWorkerProgress,
       });
       let walletActivation: EmailOtpWalletPostUnlockActivation;

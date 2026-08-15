@@ -45,7 +45,11 @@ import type {
   RouterApiRouteExtension,
 } from '../../../framework/routeExtensions';
 import type { WalletEd25519YaoActiveCapabilityRecord } from '../../../../core/WalletStore';
-import type { RouterAbEd25519OwnerWalletSessionClaims } from '../../../../core/ThresholdService/validation';
+import type { OpaqueOwnerWalletSessionBinding } from '../../../../authorization/service';
+type OpaqueOwnerEd25519WalletSessionBinding = Extract<
+  OpaqueOwnerWalletSessionBinding,
+  { readonly curve: 'ed25519' }
+>;
 import {
   walletAuthAuthorityRef,
   type WalletAuthAuthorityRef,
@@ -316,10 +320,10 @@ export type RouterAbEd25519YaoRecoveryAuthorizationInput =
 export type RouterAbEd25519YaoRecoveryAuthorizationResult =
   | {
       readonly ok: true;
-      readonly claims:
+      readonly authorization:
         | {
             readonly kind: 'wallet_session';
-            readonly value: RouterAbEd25519OwnerWalletSessionClaims;
+            readonly binding: OpaqueOwnerEd25519WalletSessionBinding;
           }
         | {
             readonly kind: 'wallet_recovery';
@@ -464,16 +468,16 @@ export type RouterAbEd25519YaoWarmRecoveryBootstrapV1 = {
   readonly nearEd25519SigningKeyId: string;
   readonly signerSlot: number;
   readonly thresholdSessionId: ThresholdEd25519SessionId;
-  readonly walletSessionId: RouterAbEd25519OwnerWalletSessionClaims['walletSessionId'];
-  readonly quotaId: RouterAbEd25519OwnerWalletSessionClaims['quotaId'];
+  readonly walletSessionId: OpaqueOwnerEd25519WalletSessionBinding['walletSessionId'];
+  readonly quotaId: OpaqueOwnerEd25519WalletSessionBinding['quotaId'];
   readonly signingWorkerId: string;
   readonly thresholdExpiresAtMs: number;
   readonly participantIds: readonly [number, number];
-  readonly authority: RouterAbEd25519OwnerWalletSessionClaims['authority'];
+  readonly authority: OpaqueOwnerEd25519WalletSessionBinding['authority'];
   readonly authorityRef: WalletAuthAuthorityRef;
-  readonly authorityScope: RouterAbEd25519OwnerWalletSessionClaims['authorityScope'];
-  readonly runtimePolicyScope: RouterAbEd25519OwnerWalletSessionClaims['runtimePolicyScope'];
-  readonly routerAbNormalSigning: RouterAbEd25519OwnerWalletSessionClaims['routerAbNormalSigning'];
+  readonly authorityScope: OpaqueOwnerEd25519WalletSessionBinding['authorityScope'];
+  readonly runtimePolicyScope: OpaqueOwnerEd25519WalletSessionBinding['runtimePolicyScope'];
+  readonly routerAbNormalSigning: OpaqueOwnerEd25519WalletSessionBinding['routerAbNormalSigning'];
   readonly capability: RouterAbEd25519YaoActiveCapabilityDescriptorV1;
 };
 
@@ -703,11 +707,11 @@ function exactRuntimePolicyScope(left: RuntimePolicyScope, right: RuntimePolicyS
 
 export function warmBootstrapCapabilityMatchesStableIdentity(input: {
   readonly request: RouterAbEd25519YaoWarmRecoveryBootstrapRequestV1;
-  readonly claims: RouterAbEd25519OwnerWalletSessionClaims;
+  readonly binding: OpaqueOwnerEd25519WalletSessionBinding;
   readonly capability: RouterAbEd25519YaoActiveCapabilityDescriptorV1;
 }): boolean {
   const request = input.request;
-  const claims = input.claims;
+  const binding = input.binding;
   const capability = input.capability;
   return (
     capability.applicationBinding.wallet_id === request.walletId &&
@@ -716,10 +720,10 @@ export function warmBootstrapCapabilityMatchesStableIdentity(input: {
     capability.applicationBinding.key_creation_signer_slot === request.signerSlot &&
     capability.lifecycle.accountId === request.walletId &&
     capability.lifecycle.signingWorkerId === request.signingWorkerId &&
-    capability.lifecycle.rootShareEpoch === claims.runtimePolicyScope.signingRootVersion &&
+    capability.lifecycle.rootShareEpoch === binding.runtimePolicyScope.signingRootVersion &&
     capability.participantIds[0] === request.participantIds[0] &&
     capability.participantIds[1] === request.participantIds[1] &&
-    exactRuntimePolicyScope(capability.runtimePolicyScope, claims.runtimePolicyScope)
+    exactRuntimePolicyScope(capability.runtimePolicyScope, binding.runtimePolicyScope)
   );
 }
 
@@ -2379,7 +2383,7 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
       body: parsed.value,
     });
     if (!authorization.ok) return routeFailureResponse(authorization);
-    if (authorization.claims.kind !== 'wallet_session') {
+    if (authorization.authorization.kind !== 'wallet_session') {
       return json(
         {
           ok: false,
@@ -2389,7 +2393,7 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
         { status: 401 },
       );
     }
-    const walletSessionClaims = authorization.claims.value;
+    const walletSessionBinding = authorization.authorization.binding;
     const activeCapability = await this.capabilities.resolveActiveCapability({
       kind: 'router_ab_ed25519_yao_active_capability_lookup_v1',
       walletId: parsed.value.walletId,
@@ -2411,7 +2415,7 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
     if (
       !warmBootstrapCapabilityMatchesStableIdentity({
         request: parsed.value,
-        claims: walletSessionClaims,
+        binding: walletSessionBinding,
         capability: activeCapability.capability,
       })
     ) {
@@ -2424,7 +2428,7 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
         { status: 409 },
       );
     }
-    const participantIds = walletSessionClaims.participantIds;
+    const participantIds = walletSessionBinding.participantIds;
     const firstParticipantId = participantIds[0];
     const secondParticipantId = participantIds[1];
     if (firstParticipantId === undefined || secondParticipantId === undefined) {
@@ -2440,7 +2444,7 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
     let thresholdSessionId: ThresholdEd25519SessionId;
     try {
       thresholdSessionId = requireThresholdEd25519SessionId(
-        walletSessionClaims.thresholdSessionId,
+        walletSessionBinding.thresholdSessionId,
         'Wallet Session threshold session identity',
       );
     } catch {
@@ -2455,21 +2459,21 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
     }
     const response: RouterAbEd25519YaoWarmRecoveryBootstrapV1 = {
       kind: 'router_ab_ed25519_yao_warm_recovery_bootstrap_v1',
-      walletId: walletSessionClaims.walletId,
-      nearAccountId: walletSessionClaims.nearAccountId,
-      nearEd25519SigningKeyId: walletSessionClaims.nearEd25519SigningKeyId,
+      walletId: walletSessionBinding.walletId,
+      nearAccountId: walletSessionBinding.nearAccountId,
+      nearEd25519SigningKeyId: walletSessionBinding.nearEd25519SigningKeyId,
       signerSlot: parsed.value.signerSlot,
       thresholdSessionId,
-      walletSessionId: walletSessionClaims.walletSessionId,
-      quotaId: walletSessionClaims.quotaId,
-      signingWorkerId: walletSessionClaims.routerAbNormalSigning.signingWorkerId,
-      thresholdExpiresAtMs: walletSessionClaims.thresholdExpiresAtMs,
+      walletSessionId: walletSessionBinding.walletSessionId,
+      quotaId: walletSessionBinding.quotaId,
+      signingWorkerId: walletSessionBinding.routerAbNormalSigning.signingWorkerId,
+      thresholdExpiresAtMs: walletSessionBinding.thresholdExpiresAtMs,
       participantIds: [firstParticipantId, secondParticipantId],
-      authority: walletSessionClaims.authority,
-      authorityRef: await walletAuthAuthorityRef({ authority: walletSessionClaims.authority }),
-      authorityScope: walletSessionClaims.authorityScope,
-      runtimePolicyScope: walletSessionClaims.runtimePolicyScope,
-      routerAbNormalSigning: walletSessionClaims.routerAbNormalSigning,
+      authority: walletSessionBinding.authority,
+      authorityRef: await walletAuthAuthorityRef({ authority: walletSessionBinding.authority }),
+      authorityScope: walletSessionBinding.authorityScope,
+      runtimePolicyScope: walletSessionBinding.runtimePolicyScope,
+      routerAbNormalSigning: walletSessionBinding.routerAbNormalSigning,
       capability: activeCapability.capability,
     };
     return json(response, { status: 200 });

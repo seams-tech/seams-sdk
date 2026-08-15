@@ -51,7 +51,10 @@ import {
   type Ed25519LaneCandidate,
   type SelectedEd25519Lane,
 } from '../../session/identity/laneIdentity';
-import { signingLaneAuthMethod } from '../../session/identity/signingLaneAuthBinding';
+import {
+  signingLaneAuthBindingKey,
+  signingLaneAuthMethod,
+} from '../../session/identity/signingLaneAuthBinding';
 import {
   exactEd25519SigningLaneIdentityFromSelectedLane,
   exactSigningLaneIdentityKey,
@@ -126,7 +129,6 @@ function nearWalletSessionQuotaAdmissionDecisionFromError(error: unknown) {
     ? decideWalletSessionQuotaAdmissionFailure(failure)
     : null;
 }
-import { signingLaneAuthBindingKey } from '../../session/identity/signingLaneAuthBinding';
 import type { WalletSessionStatusIdentity } from '../../session/lifecycle/walletSessionStatus';
 import {
 } from '../../threshold/sessionPolicy';
@@ -434,6 +436,23 @@ function assertSigningLaneMatchesSelectedTransactionLane(args: {
       '[SigningEngine][near] prepared signing lane drifted from selected transaction lane',
     );
   }
+}
+
+function selectedEd25519LanesHaveSameSignerAndAuth(
+  left: SelectedEd25519Lane,
+  right: SelectedEd25519Lane,
+): boolean {
+  const leftSigner = left.identity.signer;
+  const rightSigner = right.identity.signer;
+  return (
+    String(leftSigner.account.wallet.walletId) ===
+      String(rightSigner.account.wallet.walletId) &&
+    String(leftSigner.account.nearAccountId) === String(rightSigner.account.nearAccountId) &&
+    String(leftSigner.nearEd25519SigningKeyId) ===
+      String(rightSigner.nearEd25519SigningKeyId) &&
+    leftSigner.signerSlot === rightSigner.signerSlot &&
+    signingLaneAuthBindingKey(left.auth) === signingLaneAuthBindingKey(right.auth)
+  );
 }
 
 function transactionReadinessFromPlannerInput(
@@ -1248,12 +1267,12 @@ async function prepareNearEd25519TransactionSigningSession(args: {
 }): Promise<PreparedNearEd25519TransactionSigningSession> {
   const nearAccountId = args.commandSubject.nearAccount.accountId;
   const operationUsesNeeded = requiredNearTransactionSignatureUses(args.input.transaction);
-  const availableLanes = await readNearEd25519AvailableSigningLanes({
+  let availableLanes = await readNearEd25519AvailableSigningLanes({
     deps: args.deps,
     commandSubject: args.commandSubject,
     authMethod: null,
   });
-  const selectedLane = selectSelectedEd25519LaneFromAvailableLanes({
+  let selectedLane = selectSelectedEd25519LaneFromAvailableLanes({
     commandSubject: args.commandSubject,
     availableLanes,
     signerSlot: args.input.signerSlot,
@@ -1281,6 +1300,36 @@ async function prepareNearEd25519TransactionSigningSession(args: {
     commandSubject: args.commandSubject,
     selectedLane: selectedLane.lane,
   });
+  if (initialMaterialBoundary.preparation.authorization.kind === 'authorized') {
+    const authorization = initialMaterialBoundary.preparation.authorization.authorization.projection;
+    if (
+      selectedLane.lane.walletSessionId !== authorization.walletSessionId ||
+      selectedLane.lane.quotaId !== authorization.quotaId
+    ) {
+      availableLanes = await readNearEd25519AvailableSigningLanes({
+        deps: args.deps,
+        commandSubject: args.commandSubject,
+        authMethod: signingLaneAuthMethod(selectedLane.lane.auth),
+      });
+      const refreshedLane = selectSelectedEd25519LaneFromAvailableLanes({
+        commandSubject: args.commandSubject,
+        availableLanes,
+        signerSlot: args.input.signerSlot,
+        operationUsesNeeded,
+      });
+      if (
+        !refreshedLane ||
+        !selectedEd25519LanesHaveSameSignerAndAuth(selectedLane.lane, refreshedLane.lane) ||
+        refreshedLane.lane.walletSessionId !== authorization.walletSessionId ||
+        refreshedLane.lane.quotaId !== authorization.quotaId
+      ) {
+        throw new Error(
+          '[SigningEngine][near] material restoration changed the Wallet Session without an exact refreshed lane',
+        );
+      }
+      selectedLane = refreshedLane;
+    }
+  }
   const forceFreshAuth =
     args.forceFreshAuth === true ||
     nearEd25519PreparationRequiresAuthorization(initialMaterialBoundary.preparation);

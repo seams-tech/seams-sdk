@@ -1485,25 +1485,28 @@ async function recordFreshExportProof(args: {
 }): Promise<RouterAbEd25519YaoExportAuthorizationResult> {
   const walletId = parseWalletId(args.input.body.application_binding.wallet_id);
   if (!walletId.ok) return authorizationFailure({ status: 403, code: 'invalid_body', message: walletId.error.message });
+  const authorizationIdentitySuffix = base64UrlEncode(
+    Uint8Array.from(args.input.body.authorization.authorization_digest),
+  );
   const principalId = parsePrincipalId(`ed25519-export:${walletId.value}`);
   const capabilityId = parseCapabilityId(String(args.input.body.scope.material_activation.capability));
   const operationId = parseCapabilityOperationId(
-    `ed25519-export:${args.input.body.scope.lifecycle_id}`,
+    `ed25519-export:${args.input.body.scope.lifecycle_id}:${authorizationIdentitySuffix}`,
   );
   const evidenceId = parseAuthorizationEvidenceId(
-    `ed25519-export:evidence:${args.input.body.scope.lifecycle_id}`,
+    `ed25519-export:evidence:${args.input.body.scope.lifecycle_id}:${authorizationIdentitySuffix}`,
   );
   const evidenceSetId = parseAuthorizationEvidenceSetId(
-    `ed25519-export:evidence-set:${args.input.body.scope.lifecycle_id}`,
+    `ed25519-export:evidence-set:${args.input.body.scope.lifecycle_id}:${authorizationIdentitySuffix}`,
   );
   const authorizedOperationId = parseAuthorizedOperationId(
-    `ed25519-export:authorized:${args.input.body.scope.lifecycle_id}`,
+    `ed25519-export:authorized:${args.input.body.scope.lifecycle_id}:${authorizationIdentitySuffix}`,
   );
   const auditEventId = parseAuthorizationAuditEventId(
-    `ed25519-export:audit:${args.input.body.scope.lifecycle_id}`,
+    `ed25519-export:audit:${args.input.body.scope.lifecycle_id}:${authorizationIdentitySuffix}`,
   );
   const proofId = parseVerifiedOwnerProofId(
-    `ed25519-export:proof:${args.input.body.scope.lifecycle_id}`,
+    `ed25519-export:proof:${args.input.body.scope.lifecycle_id}:${authorizationIdentitySuffix}`,
   );
   let requestOrigin: SessionOrigin;
   let digest: DigestB64u;

@@ -592,17 +592,17 @@ impl CeremonySeedHeldV1 {
                         .map_err(|error| CeremonyError::new(format!("root derivation: {error}")))?;
                 let root = Ed25519YaoClientDerivationRootV1::from_secret_bytes(*root);
 
-                // A key set that already has a registration must reproduce it,
-                // never establish a new one.
                 let prepared = match continuity {
-                    Some(expected_registered_public_key) => prepare_client_recovery_with_root_v1(
-                        &yao_admission,
-                        &yao_application,
-                        participant_ids,
-                        root,
-                        expected_registered_public_key,
-                        yao_entropy,
-                    ),
+                    Some(expected_registered_public_key) => {
+                        prepare_client_recovery_with_root_v1(
+                            &yao_admission,
+                            &yao_application,
+                            participant_ids,
+                            root,
+                            expected_registered_public_key,
+                            yao_entropy,
+                        )
+                    }
                     None => prepare_client_registration_with_root_v1(
                         &yao_admission,
                         &yao_application,

@@ -375,14 +375,6 @@ pub fn read_local_dev_http_request_v1(
     })
 }
 
-pub fn require_local_dev_normal_signing_wallet_session_v2(
-    request: &LocalDevHttpRequestPartsV1,
-) -> Result<(), &'static str> {
-    super::validate_local_router_wallet_session_authorization_header_v2(
-        request.authorization.as_deref(),
-    )
-}
-
 pub fn require_local_dev_internal_service_auth_v1(
     request: &LocalDevHttpRequestPartsV1,
 ) -> Result<(), &'static str> {

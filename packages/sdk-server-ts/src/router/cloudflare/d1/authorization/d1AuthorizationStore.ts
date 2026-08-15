@@ -865,7 +865,13 @@ export class CloudflareD1AuthorizationStore
     readonly walletSessionId: import('@shared/authorization/capabilityKinds').WalletSessionId;
   }): Promise<void> {
     const bindingJson = JSON.stringify(input.binding);
-    if (!bindingJson || !parseOpaqueOwnerWalletSessionBinding(input.binding)) {
+    const binding = parseOpaqueOwnerWalletSessionBinding(input.binding);
+    if (
+      !bindingJson ||
+      !binding ||
+      binding.curve !== input.curve ||
+      binding.walletSessionId !== input.walletSessionId
+    ) {
       throw new Error('opaque Wallet Session binding is invalid');
     }
     const result = await this.database

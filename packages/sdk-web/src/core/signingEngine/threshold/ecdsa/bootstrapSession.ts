@@ -26,7 +26,7 @@ import type { PersistedEcdsaRoleLocalMaterial } from '../../session/material/ecd
 import { computeEcdsaDerivationRoleLocalRelayerKeyId } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import type {
   MpcWalletSigningQuotaId,
-  SeamsSessionId,
+  EcdsaAuthorizationSessionId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import { parseReusableWalletSessionMintId } from '@shared/authorization/capabilityKinds';
@@ -86,7 +86,7 @@ type BootstrapEcdsaSessionSuccessCommon = {
   participantIds: number[];
   chainId: number;
   thresholdSessionId: string;
-  authorizationSessionId: SeamsSessionId;
+  authorizationSessionId: EcdsaAuthorizationSessionId;
   walletSessionId: WalletSessionId;
   quotaId: MpcWalletSigningQuotaId;
   expiresAtMs: number;

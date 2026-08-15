@@ -10,6 +10,7 @@ import {
 } from '@/core/signingEngine/session/identity/laneIdentity';
 import type {
   ThresholdEcdsaChainTarget,
+  WalletId,
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
@@ -262,17 +263,11 @@ function mergeEmailOtpEcdsaPublicationTimingsIntoLoginTimings(
   target.warmCapabilityPersistenceMs += source.warmCapabilityPersistenceMs;
 }
 
-export type EmailOtpEcdsaProviderIdentity =
-  | {
-      kind: 'derive_from_route_auth';
-      providerUserId?: never;
-      provider?: never;
-    }
-  | {
-      kind: 'explicit_provider_user';
-      provider: EmailOtpProvider;
-      providerUserId: string;
-    };
+export type EmailOtpEcdsaProviderIdentity = {
+  kind: 'explicit_provider_user';
+  provider: EmailOtpProvider;
+  providerUserId: string;
+};
 
 function normalizeEmailOtpProviderUserId(value: unknown, field: string): string {
   const normalized = String(value || '').trim();
@@ -284,23 +279,14 @@ function normalizeEmailOtpProviderUserId(value: unknown, field: string): string 
 
 function resolveEmailOtpEcdsaProviderIdentity(args: {
   identity: EmailOtpEcdsaProviderIdentity;
-  routePlan: EmailOtpRoutePlan;
 }): { provider: EmailOtpProvider; providerUserId: string } {
-  switch (args.identity.kind) {
-    case 'explicit_provider_user':
-      return {
-        provider: args.identity.provider,
-        providerUserId: normalizeEmailOtpProviderUserId(
-          args.identity.providerUserId,
-          'Email OTP provider user id',
-        ),
-      };
-    case 'derive_from_route_auth': {
-      throw new Error('[SigningEngine][email-otp] Verified provider identity is required');
-    }
-  }
-  args.identity satisfies never;
-  throw new Error('[SigningEngine][email-otp] unsupported provider identity branch');
+  return {
+    provider: args.identity.provider,
+    providerUserId: normalizeEmailOtpProviderUserId(
+      args.identity.providerUserId,
+      'Email OTP provider user id',
+    ),
+  };
 }
 
 export type LoginEmailOtpEcdsaCapabilityArgs = {
@@ -871,6 +857,18 @@ export async function provisionEmailOtpExistingKeySessions(args: {
     provisionContext,
     primaryTarget,
   );
+  const additionalAuthorization =
+    args.primarySession.kind === 'preauthorized_wallet_unlock'
+      ? primarySession.authorization
+      : {
+          kind: 'route_authorized' as const,
+          routeAuth: {
+            kind: 'opaque_wallet_session' as const,
+            walletSessionToken: requireEmailOtpWalletSessionToken(
+              primaryBootstrap.session.walletSessionToken,
+            ),
+          },
+        };
   const additionalContext: ProvisionEmailOtpExistingKeySessionContext = {
     ...provisionContext,
     args: {
@@ -886,15 +884,7 @@ export async function provisionEmailOtpExistingKeySessions(args: {
         },
       },
     },
-    authorization: {
-      kind: 'route_authorized',
-      routeAuth: {
-        kind: 'opaque_wallet_session',
-        walletSessionToken: requireEmailOtpWalletSessionToken(
-          primaryBootstrap.session.walletSessionToken,
-        ),
-      },
-    },
+    authorization: additionalAuthorization,
   };
   const additionalBootstraps = await Promise.all(
     args.publicationChainTargets
@@ -964,6 +954,7 @@ export type EmailOtpEcdsaLoginPorts = {
   ) => Promise<EmailOtpEcdsaExplicitExportBootstrapResult>;
   requireRelayUrl: () => string;
   requireSigningSessionSealGroupId: () => string;
+  resolveCurrentEcdsaCapabilityRuntime: typeof resolveActiveEcdsaCapabilityRuntime;
   publicationPorts: EmailOtpEcdsaPublicationPorts;
 };
 
@@ -1025,8 +1016,7 @@ type EmailOtpEcdsaSigningRefreshFacts = {
   runtimePolicyScope: ThresholdRuntimePolicyScope;
 };
 
-// The runtime policy scope is sealed-runtime state. It is not read back out of
-// the Wallet Session JWT, which is a bearer credential here.
+// The runtime policy scope is sealed-runtime state and is never derived from the opaque token.
 function requireEmailOtpEcdsaSigningRefreshRuntimePolicyScope(args: {
   runtimePolicyScope: ThresholdRuntimePolicyScope | null | undefined;
 }): ThresholdRuntimePolicyScope {
@@ -1213,7 +1203,6 @@ async function runEmailOtpEcdsaCapability(
   }
   const emailOtpProviderIdentity = resolveEmailOtpEcdsaProviderIdentity({
     identity: args.providerIdentity,
-    routePlan,
   });
   const emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext =
     emailOtpAuthRetention === 'single_use'

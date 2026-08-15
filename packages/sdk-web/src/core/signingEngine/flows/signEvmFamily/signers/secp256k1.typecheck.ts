@@ -33,17 +33,16 @@ const reusable: BuildReadySecp256k1SigningMaterialInput = {
 const operation: BuildReadySecp256k1SigningMaterialInput = {
   ...base,
   authorization: operationAuthorization,
-  credential: { kind: 'operation_step_up' },
+  credential: { kind: 'operation_step_up', walletSessionToken: 'opaque-token' },
   operationStepUpPreparation: operationPreparation,
 };
 
 const operationWithWalletCredential: BuildReadySecp256k1SigningMaterialInput = {
   ...base,
   authorization: operationAuthorization,
+  // @ts-expect-error Operation step-up credentials require the opaque owner bearer.
   credential: {
-    kind: 'reusable_wallet_session',
-    // @ts-expect-error Operation step-up cannot carry a reusable Wallet Session token.
-    walletSessionToken: 'wallet-session-token',
+    kind: 'operation_step_up',
   },
   operationStepUpPreparation: operationPreparation,
 };

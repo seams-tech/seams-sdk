@@ -154,6 +154,7 @@ export function signingSessionSealStatusCode(result: SigningSessionSealRouteResu
     case 'wallet_session_missing':
     case 'wallet_session_signature_invalid':
     case 'wallet_session_claims_invalid':
+    case 'wallet_session_invalid':
     case 'wallet_session_expired':
       return 401;
     case 'forbidden':
@@ -196,6 +197,7 @@ export function signingSessionSealAuthorizeStatusCode(
     case 'wallet_session_missing':
     case 'wallet_session_signature_invalid':
     case 'wallet_session_claims_invalid':
+    case 'wallet_session_invalid':
     case 'wallet_session_expired':
       return 401;
     case 'forbidden':

@@ -74,7 +74,7 @@ function passkeyAuthorityFromEd25519SessionPolicyAuthority(
  * Wallet-origin helper:
  * - build a threshold session policy (and digest)
  * - collect a WebAuthn assertion with challenge = `sessionPolicyDigest32`
- * - mint a Wallet Session JWT via `POST /router-ab/wallet-session/ed25519`
+ * - mint an opaque Wallet Session token
  *
  * Notes:
  * - This function is intentionally standard-WebAuthn (no contract verifier).
@@ -102,6 +102,7 @@ export async function connectEd25519Session(args: {
   remainingUses?: number;
   auth?: Ed25519WalletSessionMintAuthorization;
   workerCtx?: WorkerOperationContext;
+  existingWalletSessionToken?: string;
 }): Promise<ConnectEd25519SessionResult> {
   const sessionKind = 'opaque';
   const passkeyAuthority = passkeyAuthorityFromEd25519SessionPolicyAuthority(args.authority);
@@ -167,6 +168,9 @@ export async function connectEd25519Session(args: {
     auth,
     projectEnvironmentId: args.runtimeScopeBootstrap?.projectEnvironmentId,
     publishableKey: args.runtimeScopeBootstrap?.publishableKey,
+    ...(args.existingWalletSessionToken
+      ? { existingWalletSessionToken: args.existingWalletSessionToken }
+      : {}),
   });
   if (!minted.ok) {
     return {

@@ -25,16 +25,18 @@ import { seamsWalletDB } from '../singletons';
 import type { SeamsWalletDBManager } from './manager';
 
 export const WALLET_SESSION_AUTHORIZATION_RECORD_VERSION =
-  'wallet_session_authorization_v2' as const;
+  'wallet_session_authorization_v3' as const;
 
 export type WalletSessionAuthorizationToken = OpaqueWalletSessionToken;
 
 type Ed25519WalletSessionAuthorizationToken = {
+  readonly authorizationId: WalletSessionAuthorizationId;
   readonly walletSessionToken: WalletSessionAuthorizationToken;
   readonly thresholdSessionId: ThresholdEd25519SessionId;
 };
 
 type EcdsaWalletSessionAuthorizationToken = {
+  readonly authorizationId: WalletSessionAuthorizationId;
   readonly walletSessionToken: WalletSessionAuthorizationToken;
   readonly thresholdSessionId: ThresholdEcdsaSessionId;
 };
@@ -59,7 +61,6 @@ export type WalletSessionAuthorizationTokenBundle =
 type WalletSessionAuthorizationIdentity = {
   readonly recordVersion: typeof WALLET_SESSION_AUTHORIZATION_RECORD_VERSION;
   readonly walletId: WalletId;
-  readonly authorizationId: WalletSessionAuthorizationId;
   readonly walletSessionId: WalletSessionId;
   readonly quotaId: MpcWalletSigningQuotaId;
   readonly authMethod: WalletAuthMethod;
@@ -94,12 +95,30 @@ export type WalletSessionAuthorizationProjection =
 
 export type WalletSessionAuthorizationCurve = 'ed25519' | 'ecdsa';
 
-function walletSessionAuthorizationIdentityIdsAreDistinct(args: {
+function walletSessionAuthorizationCurveIdsAreDistinct(args: {
   readonly authorizationId: WalletSessionAuthorizationId;
   readonly walletSessionId: WalletSessionId;
   readonly quotaId: MpcWalletSigningQuotaId;
 }): boolean {
   return new Set([args.authorizationId, args.walletSessionId, args.quotaId]).size === 3;
+}
+
+export function walletSessionAuthorizationIdForCurve(
+  projection: ActiveWalletSessionAuthorizationProjection,
+  curve: WalletSessionAuthorizationCurve,
+): WalletSessionAuthorizationId | null {
+  switch (projection.walletSessionTokens.kind) {
+    case 'near_ed25519':
+      return curve === 'ed25519' ? projection.walletSessionTokens.ed25519.authorizationId : null;
+    case 'evm_family_ecdsa':
+      return curve === 'ecdsa' ? projection.walletSessionTokens.ecdsa.authorizationId : null;
+    case 'near_ed25519_and_evm_family_ecdsa':
+      return curve === 'ed25519'
+        ? projection.walletSessionTokens.ed25519.authorizationId
+        : projection.walletSessionTokens.ecdsa.authorizationId;
+    default:
+      return assertNeverWalletSessionTokenBundle(projection.walletSessionTokens);
+  }
 }
 
 export function walletSessionTokenForCurve(
@@ -250,7 +269,6 @@ const ACTIVE_FIELDS = [
   'recordVersion',
   'status',
   'walletId',
-  'authorizationId',
   'walletSessionId',
   'quotaId',
   'walletSessionTokens',
@@ -262,7 +280,6 @@ const RETIRED_FIELDS = [
   'recordVersion',
   'status',
   'walletId',
-  'authorizationId',
   'walletSessionId',
   'quotaId',
   'authMethod',
@@ -297,16 +314,19 @@ function parseEd25519WalletSessionAuthorizationToken(
 ): Ed25519WalletSessionAuthorizationToken | null {
   if (!isRecord(value)) return null;
   if (
-    Object.keys(value).length !== 2 ||
+    Object.keys(value).length !== 3 ||
+    !Object.prototype.hasOwnProperty.call(value, 'authorizationId') ||
     !Object.prototype.hasOwnProperty.call(value, 'walletSessionToken') ||
     !Object.prototype.hasOwnProperty.call(value, 'thresholdSessionId')
   ) {
     return null;
   }
+  const authorizationId = parseWalletSessionAuthorizationId(value.authorizationId);
   const thresholdSessionId = parseThresholdEd25519SessionId(value.thresholdSessionId);
-  if (!thresholdSessionId.ok) return null;
+  if (!authorizationId.ok || !thresholdSessionId.ok) return null;
   try {
     return {
+      authorizationId: authorizationId.value,
       walletSessionToken: requireOpaqueWalletSessionToken(value.walletSessionToken),
       thresholdSessionId: thresholdSessionId.value,
     };
@@ -320,16 +340,19 @@ function parseEcdsaWalletSessionAuthorizationToken(
 ): EcdsaWalletSessionAuthorizationToken | null {
   if (!isRecord(value)) return null;
   if (
-    Object.keys(value).length !== 2 ||
+    Object.keys(value).length !== 3 ||
+    !Object.prototype.hasOwnProperty.call(value, 'authorizationId') ||
     !Object.prototype.hasOwnProperty.call(value, 'walletSessionToken') ||
     !Object.prototype.hasOwnProperty.call(value, 'thresholdSessionId')
   ) {
     return null;
   }
+  const authorizationId = parseWalletSessionAuthorizationId(value.authorizationId);
   const thresholdSessionId = parseThresholdEcdsaSessionId(value.thresholdSessionId);
-  if (!thresholdSessionId.ok) return null;
+  if (!authorizationId.ok || !thresholdSessionId.ok) return null;
   try {
     return {
+      authorizationId: authorizationId.value,
       walletSessionToken: requireOpaqueWalletSessionToken(value.walletSessionToken),
       thresholdSessionId: thresholdSessionId.value,
     };
@@ -344,7 +367,6 @@ function walletSessionAuthorizationIdentityMatches(
 ): boolean {
   return (
     left.walletId === right.walletId &&
-    left.authorizationId === right.authorizationId &&
     left.walletSessionId === right.walletSessionId &&
     left.quotaId === right.quotaId &&
     left.authMethod === right.authMethod &&
@@ -390,30 +412,22 @@ function parseIdentity(
   record: Record<string, unknown>,
 ): Omit<WalletSessionAuthorizationIdentity, 'recordVersion'> | null {
   const walletId = parseWalletId(record.walletId);
-  const authorizationId = parseWalletSessionAuthorizationId(record.authorizationId);
   const walletSessionId = parseWalletSessionId(record.walletSessionId);
   const quotaId = parseMpcWalletSigningQuotaId(record.quotaId);
   const authority = parseWalletAuthAuthorityRef(record.authority);
   if (
     !walletId.ok ||
-    !authorizationId.ok ||
     !walletSessionId.ok ||
     !quotaId.ok ||
     !authority ||
     authority.walletId !== walletId.value ||
     !isWalletAuthMethod(record.authMethod) ||
-    !isPositiveSafeInteger(record.expiresAtMs) ||
-    !walletSessionAuthorizationIdentityIdsAreDistinct({
-      authorizationId: authorizationId.value,
-      walletSessionId: walletSessionId.value,
-      quotaId: quotaId.value,
-    })
+    !isPositiveSafeInteger(record.expiresAtMs)
   ) {
     return null;
   }
   return {
     walletId: walletId.value,
-    authorizationId: authorizationId.value,
     walletSessionId: walletSessionId.value,
     quotaId: quotaId.value,
     authMethod: record.authMethod,
@@ -436,6 +450,24 @@ export function parseWalletSessionAuthorizationProjection(
         raw.walletSessionTokens,
       );
       if (!walletSessionTokens) return null;
+      const curveAuthorizations =
+        walletSessionTokens.kind === 'near_ed25519'
+          ? [walletSessionTokens.ed25519]
+          : walletSessionTokens.kind === 'evm_family_ecdsa'
+            ? [walletSessionTokens.ecdsa]
+            : [walletSessionTokens.ed25519, walletSessionTokens.ecdsa];
+      if (
+        curveAuthorizations.some(
+          (authorization) =>
+            !walletSessionAuthorizationCurveIdsAreDistinct({
+              authorizationId: authorization.authorizationId,
+              walletSessionId: identity.walletSessionId,
+              quotaId: identity.quotaId,
+            }),
+        )
+      ) {
+        return null;
+      }
       return {
         recordVersion: WALLET_SESSION_AUTHORIZATION_RECORD_VERSION,
         status: 'active',
@@ -470,7 +502,6 @@ export function buildActiveWalletSessionAuthorizationProjection(
     recordVersion: WALLET_SESSION_AUTHORIZATION_RECORD_VERSION,
     status: 'active',
     walletId: input.walletId,
-    authorizationId: input.authorizationId,
     walletSessionId: input.walletSessionId,
     quotaId: input.quotaId,
     walletSessionTokens: input.walletSessionTokens,
@@ -493,7 +524,6 @@ export function retireWalletSessionAuthorizationProjection(args: {
     recordVersion: WALLET_SESSION_AUTHORIZATION_RECORD_VERSION,
     status: 'retired',
     walletId: args.active.walletId,
-    authorizationId: args.active.authorizationId,
     walletSessionId: args.active.walletSessionId,
     quotaId: args.active.quotaId,
     authMethod: args.active.authMethod,
@@ -635,7 +665,6 @@ export class WalletSessionAuthorizationRepository {
       const merged = current
         ? buildActiveWalletSessionAuthorizationProjection({
             walletId: incoming.walletId,
-            authorizationId: incoming.authorizationId,
             walletSessionId: incoming.walletSessionId,
             quotaId: incoming.quotaId,
             walletSessionTokens: mergeWalletSessionTokenBundles(
@@ -650,6 +679,80 @@ export class WalletSessionAuthorizationRepository {
       await store.put(toStoredRow(merged));
       await tx.done;
       return merged;
+    } catch (error) {
+      try {
+        tx.abort();
+      } catch {}
+      await tx.done.catch(() => undefined);
+      throw error;
+    }
+  }
+
+  async upsertActiveWithCurveMerge(args: {
+    readonly incoming: ActiveWalletSessionAuthorizationProjection;
+    readonly writtenAtMs: number;
+  }): Promise<ActiveWalletSessionAuthorizationProjection> {
+    const incoming = parseWalletSessionAuthorizationProjection(args.incoming);
+    if (!incoming || incoming.status !== 'active') {
+      throw new Error('Active Wallet Session authorization projection is invalid');
+    }
+    if (!isPositiveSafeInteger(args.writtenAtMs)) {
+      throw new Error('Wallet Session authorization write time is invalid');
+    }
+    const db = await this.manager.getDB();
+    const tx = db.transaction(STORE, 'readwrite');
+    const store = tx.objectStore(STORE);
+    try {
+      const rows = await store.index(SEAMS_WALLET_INDEXES.walletId).getAll(incoming.walletId);
+      const projections = rows.map(parseStoredRow);
+      if (projections.some((projection) => projection === null)) {
+        tx.abort();
+        throw new Error('Stored Wallet Session authorization projection is corrupt');
+      }
+      const active = projections.filter(
+        (projection): projection is ActiveWalletSessionAuthorizationProjection =>
+          projection?.status === 'active',
+      );
+      if (active.length > 1) {
+        tx.abort();
+        throw new Error('Multiple active Wallet Session authorization projections found');
+      }
+      const current = active[0];
+      if (!current) {
+        await store.put(toStoredRow(incoming));
+        await tx.done;
+        return incoming;
+      }
+
+      if (walletSessionAuthorizationIdentityMatches(current, incoming)) {
+        const merged = buildActiveWalletSessionAuthorizationProjection({
+          walletId: incoming.walletId,
+          walletSessionId: incoming.walletSessionId,
+          quotaId: incoming.quotaId,
+          walletSessionTokens: mergeWalletSessionTokenBundles(
+            current.walletSessionTokens,
+            incoming.walletSessionTokens,
+          ),
+          authMethod: incoming.authMethod,
+          authority: incoming.authority,
+          expiresAtMs: Math.min(current.expiresAtMs, incoming.expiresAtMs),
+        });
+        await store.put(toStoredRow(merged));
+        await tx.done;
+        return merged;
+      }
+
+      if (current.walletSessionId !== incoming.walletSessionId) {
+        const retired = retireWalletSessionAuthorizationProjection({
+          active: current,
+          reason: 'replaced',
+          retiredAtMs: args.writtenAtMs,
+        });
+        await store.put(toStoredRow(retired));
+      }
+      await store.put(toStoredRow(incoming));
+      await tx.done;
+      return incoming;
     } catch (error) {
       try {
         tx.abort();
