@@ -158,15 +158,13 @@
   min-height: 44px;
   border: 1px solid transparent;
   border-radius: 0.75rem;
-  background: var(--w3a-colors-primary);
-  color: var(--w3a-colors-buttonText);
+  background: var(--w3a-colors-buttonBackground, var(--w3a-colors-primary));
+  color: var(--w3a-colors-textButton, var(--w3a-colors-buttonText));
   padding: 0.55rem 0.75rem;
   font-size: 0.95rem;
   font-weight: 600;
   cursor: pointer;
-  transition:
-    filter 140ms ease,
-    background-color 140ms ease;
+  transition: background-color 140ms ease;
 }
 
 .w3a-recovery-codes-secondary-action {
@@ -183,7 +181,7 @@
 }
 
 .w3a-recovery-codes-primary-action:hover {
-  filter: brightness(1.05);
+  background: var(--w3a-colors-buttonHoverBackground, var(--w3a-colors-primaryHover));
 }
 
 .w3a-recovery-codes-secondary-action:hover {
