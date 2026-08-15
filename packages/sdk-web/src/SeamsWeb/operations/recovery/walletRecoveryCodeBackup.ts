@@ -99,6 +99,9 @@ class WalletRecoveryCodeBackupDialog {
       dialogSizing,
       'overflow:auto',
       'box-sizing:border-box',
+      /* The dialog itself takes programmatic focus on open; a focus ring on
+         the card's own edge reads as a stray blue border. */
+      'outline:none',
       /* border:none must stay explicit — the UA gives <dialog> a default
          border. The card floats on a dimmed backdrop with its own shadow, and
          in the iframe the frame hugs the card exactly, so a border reads as a
@@ -148,21 +151,21 @@ class WalletRecoveryCodeBackupDialog {
       const item = document.createElement('li');
       item.style.cssText = [
         'display:flex',
-        'gap:.5rem',
+        'gap:.4rem',
         'align-items:baseline',
-        'border-radius:.625rem',
+        'border-radius:.5rem',
         'background:var(--w3a-colors-surface2,#f4eadf)',
-        'padding:.5rem .625rem',
+        'padding:.375rem .5rem',
         'font-family:ui-monospace,SFMono-Regular,Menlo,monospace',
-        'font-size:.8125rem',
-        'line-height:1.35',
+        'font-size:.71875rem',
+        'line-height:1.4',
       ].join(';');
       const indexBadge = document.createElement('span');
       indexBadge.textContent = String(index + 1);
       indexBadge.style.cssText = [
         'flex:0 0 2ch',
         'text-align:right',
-        'font-weight:500',
+        'font-weight:400',
         'color:var(--w3a-colors-textSecondary,#565177)',
         'user-select:none',
       ].join(';');
@@ -172,7 +175,8 @@ class WalletRecoveryCodeBackupDialog {
          actually lift these into a password manager. Wraps at the hyphens. */
       codeText.style.cssText = [
         'min-width:0',
-        'font-weight:700',
+        'font-weight:400',
+        'letter-spacing:.01em',
         'overflow-wrap:anywhere',
         'user-select:all',
       ].join(';');
@@ -221,16 +225,15 @@ class WalletRecoveryCodeBackupDialog {
       'padding-top:.5rem',
       'background:var(--w3a-colors-colorBackground,#fffaf3)',
     ].join(';');
-    if (this.request.continuation === 'registration_may_defer') {
-      const deferButton = this.button('Back up later', this.defer.bind(this), false);
-      deferButton.setAttribute('data-w3a-wallet-recovery-backup-close', '');
-      finalActions.appendChild(deferButton);
-    } else {
-      const closeButton = this.button('Close', this.cancel.bind(this), false);
-      closeButton.setAttribute('data-w3a-wallet-recovery-backup-close', '');
-      finalActions.appendChild(closeButton);
-    }
-    finalActions.appendChild(this.button('Finish backup', this.finish.bind(this), true));
+    /* One control ends the dialog either way; the checkbox decides what that
+       means. Checked = the user affirmed the backup, so closing completes it
+       (and the wallet deletes its local copy). Unchecked = plain dismissal:
+       deferral during registration, cancellation from the account menu. */
+    const closeLabel =
+      this.request.continuation === 'registration_may_defer' ? 'Back up later' : 'Close';
+    const closeButton = this.button(closeLabel, this.closeAction.bind(this), true);
+    closeButton.setAttribute('data-w3a-wallet-recovery-backup-close', '');
+    finalActions.appendChild(closeButton);
     this.dialog.appendChild(finalActions);
 
     this.dialog.addEventListener('cancel', this.cancelFromEscape.bind(this));
@@ -273,15 +276,19 @@ class WalletRecoveryCodeBackupDialog {
     }
   }
 
-  private finish(): void {
-    if (!this.acknowledgement.checked) {
-      this.status.textContent = 'Confirm that you saved the recovery codes before continuing.';
-      this.acknowledgement.focus();
+  private closeAction(): void {
+    if (this.settled) return;
+    if (this.acknowledgement.checked) {
+      this.settled = true;
+      this.close();
+      this.resolveResult({ kind: 'wallet_recovery_codes_backed_up_v1' });
       return;
     }
-    this.settled = true;
-    this.close();
-    this.resolveResult({ kind: 'wallet_recovery_codes_backed_up_v1' });
+    if (this.request.continuation === 'registration_may_defer') {
+      this.defer();
+      return;
+    }
+    this.cancel();
   }
 
   private defer(): void {

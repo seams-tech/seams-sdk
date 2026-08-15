@@ -129,7 +129,8 @@ async function acknowledgeRecoveryCodeBackup(wallet: Frame): Promise<void> {
   const acknowledgement = wallet.locator('[data-w3a-wallet-recovery-backup-acknowledgement]');
   await acknowledgement.waitFor({ state: 'visible', timeout: 120_000 });
   await acknowledgement.check();
-  await wallet.getByRole('button', { name: 'Finish backup', exact: true }).click();
+  // Checked acknowledgement + the single close control completes the backup.
+  await wallet.locator('[data-w3a-wallet-recovery-backup-close]').click();
 }
 
 async function registerOwner(page: Page, diagnostics: readonly string[]): Promise<void> {
