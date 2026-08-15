@@ -3,7 +3,6 @@ import { MenuItem } from './MenuItem';
 import { LockMenuItem } from './LockMenuItem';
 import { TransactionSettingsSection } from './TransactionSettingsSection';
 import { AccountsSection } from './AccountsSection';
-import { LinkedDevicesSection } from './LinkedDevicesSection';
 import { ExportKeysSection } from './ExportKeysSection';
 import { PROFILE_MENU_ITEM_IDS } from './types';
 import type { ProfileDropdownProps } from './types';
@@ -38,7 +37,6 @@ export const ProfileDropdown = forwardRef<HTMLDivElement, ProfileDropdownWithRef
       transactionSettingsOpen = false,
       accountsRows,
       accountsOpen = false,
-      linkedDevicesOpen = false,
       exportKeysOpen = false,
       exportLoadingChain = null,
       onExportChain,
@@ -82,7 +80,6 @@ export const ProfileDropdown = forwardRef<HTMLDivElement, ProfileDropdownWithRef
             const isHighlighted = index === highlightedIndex;
 
             const isAccountsItem = item.id === PROFILE_MENU_ITEM_IDS.ACCOUNTS;
-            const isLinkedDevicesItem = item.id === PROFILE_MENU_ITEM_IDS.LINKED_DEVICES;
             const isExportKeysItem = item.id === PROFILE_MENU_ITEM_IDS.EXPORT_KEYS;
             return (
               <Fragment key={item.id ?? index}>
@@ -100,13 +97,6 @@ export const ProfileDropdown = forwardRef<HTMLDivElement, ProfileDropdownWithRef
                   <AccountsSection
                     rows={accountsRows}
                     isOpen={accountsOpen}
-                    style={{ ['--stagger-item-n' as any]: index }}
-                  />
-                )}
-                {isLinkedDevicesItem && (
-                  <LinkedDevicesSection
-                    walletId={walletId ?? null}
-                    isOpen={linkedDevicesOpen}
                     style={{ ['--stagger-item-n' as any]: index }}
                   />
                 )}
