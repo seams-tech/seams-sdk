@@ -11,6 +11,7 @@ import type {
 } from '../../packages/shared-ts/src/utils/domainIds';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
 import { parseRecoveryCodeReservationId } from '../../packages/shared-ts/src/wallet-recovery/recoveryCodeReservation';
+import { buildWalletRecoveryBackupAcknowledgementV1 } from '../../packages/shared-ts/src/wallet-recovery/backupAcknowledgement';
 import { applySignerMigrations } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
 import {
   CREDENTIAL_ID_B64U,
@@ -171,6 +172,19 @@ test('a recovery set is readable only under the wallet it names', async () => {
     });
     expect(await commit.readRecoveryEnvelopeSet(WALLET_ID as WalletId)).not.toBeNull();
     expect(await commit.readRecoveryEnvelopeSet(OTHER_WALLET_ID as WalletId)).toBeNull();
+  });
+});
+
+test('a backup acknowledgement round-trips through the custody record store', async () => {
+  await withStores(async ({ commit }) => {
+    const acknowledgement = buildWalletRecoveryBackupAcknowledgementV1({
+      walletId: WALLET_ID,
+      issuedAtMs: 1_000,
+      acknowledgedAtMs: 2_000,
+    });
+
+    expect(await commit.writeBackupAcknowledgement(acknowledgement)).toEqual({ kind: 'stored' });
+    expect(await commit.readBackupAcknowledgement(WALLET_ID as WalletId)).toEqual(acknowledgement);
   });
 });
 
