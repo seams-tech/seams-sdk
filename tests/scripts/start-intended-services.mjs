@@ -618,6 +618,9 @@ async function shutdown(exitCode) {
   for (const entry of [...managedChildren].reverse()) {
     forceStopChild(entry);
   }
+  terminateManagedProcessLeaks('SIGTERM');
+  await delay(500);
+  terminateManagedProcessLeaks('SIGKILL');
   process.exit(exitCode);
 }
 
@@ -661,6 +664,16 @@ function collectManagedProcessLeaks() {
     .split(/\r?\n/)
     .map(parseProcessEntry)
     .filter(isManagedProcessLeak);
+}
+
+function terminateManagedProcessLeaks(signal) {
+  for (const entry of collectManagedProcessLeaks()) {
+    try {
+      process.kill(entry.pid, signal);
+    } catch (error) {
+      if (error?.code !== 'ESRCH') throw error;
+    }
+  }
 }
 
 function parseProcessEntry(line) {
