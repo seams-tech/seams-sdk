@@ -205,7 +205,7 @@ class WalletRecoveryCodeBackupDialog {
       'width:1.125rem;height:1.125rem;margin:.1rem 0 0;flex:none;accent-color:var(--w3a-colors-primary,#3b82f6)';
     acknowledgementLabel.appendChild(this.acknowledgement);
     acknowledgementLabel.append(
-      'I saved these recovery codes somewhere private (will be deleted locally).',
+      'I saved these recovery codes (these codes will not be shown again).',
     );
     this.dialog.appendChild(acknowledgementLabel);
 
