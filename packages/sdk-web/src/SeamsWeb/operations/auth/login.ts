@@ -91,6 +91,7 @@ import {
   verifyPasskeyWalletUnlock,
   type PasskeySessionEcdsaCustodyContinuityV1,
   type PasskeySessionCustodyUnlockV1,
+  type PasskeyWalletUnlockInput,
   type PasskeyWalletUnlockEd25519Session,
 } from '@/core/rpcClients/near/rpcCalls';
 import { rememberPasskeyCustodySessionEnvelope } from '@/core/signingEngine/session/passkey/passkeyCustodySessionCache';
@@ -2464,7 +2465,7 @@ async function preparePasskeyExchangeEcdsaActivation(args: {
   };
 }
 
-async function completePasskeyWalletUnlock(args: {
+type CompletePasskeyWalletUnlockArgs = {
   context: LoginWebContext;
   walletIdentity: ResolvedLoginWalletIdentity;
   unlockSubjectId: string;
@@ -2480,7 +2481,54 @@ async function completePasskeyWalletUnlock(args: {
     challengeB64u: string;
     credentialIds: readonly string[];
   }) => Promise<WebAuthnAuthenticationCredential>;
-}): Promise<CompletedPasskeyWalletUnlock> {
+};
+
+function passkeyUnlockEd25519SessionRequest(args: {
+  walletIdentity: ResolvedLoginWalletIdentity;
+  remainingUses: number;
+}): PasskeyWalletUnlockInput['ed25519SessionRequest'] {
+  switch (args.walletIdentity.kind) {
+    case 'near_ed25519_capable_wallet':
+      return { kind: 'requested', remainingUses: args.remainingUses };
+    case 'evm_family_ecdsa_only_wallet':
+      return { kind: 'not_requested' };
+    default:
+      return assertNeverLoginState(args.walletIdentity);
+  }
+}
+
+function passkeyWalletUnlockInput(args: {
+  challengeId: string;
+  credential: WebAuthnAuthenticationCredential;
+  ed25519SessionRequest: PasskeyWalletUnlockInput['ed25519SessionRequest'];
+  expectedOrigin: string;
+  walletIdentity: ResolvedLoginWalletIdentity;
+  activation: PreparedPasskeyExchangeEcdsaActivation | null;
+}): PasskeyWalletUnlockInput {
+  if (args.activation) {
+    return {
+      type: 'passkey_assertion' as const,
+      challengeId: args.challengeId,
+      walletId: String(args.walletIdentity.walletId),
+      webauthn_authentication: args.credential,
+      ed25519SessionRequest: args.ed25519SessionRequest,
+      expected_origin: args.expectedOrigin,
+      ecdsaSessionPolicy: args.activation.policy,
+    };
+  }
+
+  return {
+    type: 'passkey_assertion' as const,
+    challengeId: args.challengeId,
+    webauthn_authentication: args.credential,
+    ed25519SessionRequest: args.ed25519SessionRequest,
+    expected_origin: args.expectedOrigin,
+  };
+}
+
+async function completePasskeyWalletUnlock(
+  args: CompletePasskeyWalletUnlockArgs,
+): Promise<CompletedPasskeyWalletUnlock> {
   emitUnlockEvent(args.onEvent, args.unlockSubjectId, {
     phase: UnlockEventPhase.STEP_03_PASSKEY_CHALLENGE_STARTED,
     status: 'running',
@@ -2524,29 +2572,20 @@ async function completePasskeyWalletUnlock(args: {
   const expectedOrigin = String(
     args.expectedOrigin ?? (typeof window !== 'undefined' ? window.location.origin : ''),
   ).trim();
-  const unlockInput = args.activation
-    ? ({
-        type: 'passkey_assertion',
-        challengeId,
-        walletId: String(args.walletIdentity.walletId),
-        webauthn_authentication: credential,
-        ed25519SessionRequest:
-          args.walletIdentity.kind === 'near_ed25519_capable_wallet'
-            ? { kind: 'requested', remainingUses: args.remainingUses }
-            : { kind: 'not_requested' },
-        ...(expectedOrigin ? { expected_origin: expectedOrigin } : {}),
-        ecdsaSessionPolicy: args.activation.policy,
-      } satisfies import('@/core/rpcClients/near/rpcCalls').PasskeyWalletUnlockInput)
-    : ({
-        type: 'passkey_assertion',
-        challengeId,
-        webauthn_authentication: credential,
-        ed25519SessionRequest:
-          args.walletIdentity.kind === 'near_ed25519_capable_wallet'
-            ? { kind: 'requested', remainingUses: args.remainingUses }
-            : { kind: 'not_requested' },
-        ...(expectedOrigin ? { expected_origin: expectedOrigin } : {}),
-      } satisfies import('@/core/rpcClients/near/rpcCalls').PasskeyWalletUnlockInput);
+  if (!expectedOrigin) {
+    throw new Error('[login] passkey wallet unlock requires an expected origin');
+  }
+  const unlockInput = passkeyWalletUnlockInput({
+    challengeId,
+    credential,
+    ed25519SessionRequest: passkeyUnlockEd25519SessionRequest({
+      walletIdentity: args.walletIdentity,
+      remainingUses: args.remainingUses,
+    }),
+    expectedOrigin,
+    walletIdentity: args.walletIdentity,
+    activation: args.activation,
+  });
   const result = await verifyPasskeyWalletUnlock(args.relayUrl, unlockInput);
   if (!result.success) {
     throw new Error(result.error || 'Passkey wallet unlock failed');

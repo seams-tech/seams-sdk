@@ -63,11 +63,42 @@ test('Cloudflare D1 Router API auth service verifies Google OIDC tokens and link
       subjects: ['google:subject-123'],
     });
 
-    const resolution = await callCf(createCloudflareRouter(service), {
+    const router = createCloudflareRouter(service, {
+      publishableKeyAuth: {
+        authenticate: async () => ({
+          ok: true,
+          principal: {
+            apiKeyId: 'publishable-key-a',
+            orgId: 'org-a',
+            projectId: 'project-a',
+            envId: 'env-a',
+            environmentId: 'project-env-a',
+            scopes: ['wallets:create'],
+          },
+        }),
+      },
+      orgProjectEnv: {
+        listEnvironments: async () => [
+          {
+            id: 'project-env-a',
+            projectId: 'project-a',
+            key: 'env-a',
+            signingRootVersion: 'default',
+            status: 'active',
+          },
+        ],
+      },
+    });
+    const resolution = await callCf(router, {
       method: 'POST',
       path: '/auth/google/verify',
       origin: 'https://app.example.test',
-      body: { id_token: idToken, account_mode: 'register' },
+      headers: { authorization: 'Bearer publishable-key' },
+      body: {
+        id_token: idToken,
+        account_mode: 'register',
+        project_environment_id: 'project-env-a',
+      },
     });
     expect(resolution.status).toBe(200);
     expect(resolution.json).toMatchObject({
@@ -77,11 +108,16 @@ test('Cloudflare D1 Router API auth service verifies Google OIDC tokens and link
       email: 'alice@example.test',
     });
 
-    const loginWithoutEnrollment = await callCf(createCloudflareRouter(service), {
+    const loginWithoutEnrollment = await callCf(router, {
       method: 'POST',
       path: '/auth/google/verify',
       origin: 'https://app.example.test',
-      body: { id_token: idToken, account_mode: 'login' },
+      headers: { authorization: 'Bearer publishable-key' },
+      body: {
+        id_token: idToken,
+        account_mode: 'login',
+        project_environment_id: 'project-env-a',
+      },
     });
     expect(loginWithoutEnrollment.status).toBe(200);
     expect(loginWithoutEnrollment.json).toMatchObject({

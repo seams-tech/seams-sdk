@@ -22,6 +22,7 @@ export type PasskeyLoginVerifyRequest = {
 export type GoogleLoginVerifyRequest = {
   idToken: string;
   accountMode: 'login' | 'register';
+  projectEnvironmentId: string;
 };
 
 export type AuthPasskeyStepUpRequest = {
@@ -65,7 +66,7 @@ export type AuthRouteParseResult<T> =
 
 const PASSKEY_OPTIONS_KEYS = ['user_id', 'rp_id', 'ttl_ms'] as const;
 const PASSKEY_VERIFY_KEYS = ['challengeId', 'webauthn_authentication'] as const;
-const GOOGLE_VERIFY_KEYS = ['account_mode', 'id_token'] as const;
+const GOOGLE_VERIFY_KEYS = ['account_mode', 'id_token', 'project_environment_id'] as const;
 const AUTH_LINK_KEYS = [
   'provider',
   'id_token',
@@ -224,12 +225,18 @@ export function parseGoogleLoginVerifyRequest(
   if (!idToken.ok) return idToken;
   const accountMode = requireTrimmedField(body.request, 'account_mode');
   if (!accountMode.ok) return accountMode;
+  const projectEnvironmentId = requireTrimmedField(body.request, 'project_environment_id');
+  if (!projectEnvironmentId.ok) return projectEnvironmentId;
   if (accountMode.request !== 'login' && accountMode.request !== 'register') {
     return invalidAuthBody('account_mode must be login or register');
   }
   return {
     ok: true,
-    request: { idToken: idToken.request, accountMode: accountMode.request },
+    request: {
+      idToken: idToken.request,
+      accountMode: accountMode.request,
+      projectEnvironmentId: projectEnvironmentId.request,
+    },
   };
 }
 
