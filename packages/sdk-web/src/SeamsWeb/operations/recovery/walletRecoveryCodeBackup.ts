@@ -226,13 +226,17 @@ class WalletRecoveryCodeBackupDialog {
       'background:var(--w3a-colors-colorBackground,#fffaf3)',
     ].join(';');
     /* One control ends the dialog either way; the checkbox decides what that
-       means. Checked = the user affirmed the backup, so closing completes it
-       (and the wallet deletes its local copy). Unchecked = plain dismissal:
-       deferral during registration, cancellation from the account menu. */
-    const closeLabel =
+       means and the label says so out loud. Checked = "Finish backup": closing
+       completes the backup and the wallet deletes its local copy. Unchecked =
+       plain dismissal: deferral during registration, cancellation from the
+       account menu. */
+    const idleCloseLabel =
       this.request.continuation === 'registration_may_defer' ? 'Back up later' : 'Close';
-    const closeButton = this.button(closeLabel, this.closeAction.bind(this), true);
+    const closeButton = this.button(idleCloseLabel, this.closeAction.bind(this), true);
     closeButton.setAttribute('data-w3a-wallet-recovery-backup-close', '');
+    this.acknowledgement.addEventListener('change', () => {
+      closeButton.textContent = this.acknowledgement.checked ? 'Finish backup' : idleCloseLabel;
+    });
     finalActions.appendChild(closeButton);
     this.dialog.appendChild(finalActions);
 
