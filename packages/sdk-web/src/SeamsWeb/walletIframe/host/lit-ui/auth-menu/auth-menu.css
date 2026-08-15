@@ -1195,13 +1195,10 @@ seams-auth-menu-surface {
   place-items: center;
   width: min(100%, 232px);
   aspect-ratio: 1 / 1;
+  margin-top: 1rem;
   padding: 1rem;
   border-radius: 1.25rem;
   background: #ffffff;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  box-shadow:
-    0 1px 2px rgba(15, 23, 42, 0.08),
-    0 14px 28px -20px rgba(15, 23, 42, 0.45);
 }
 
 .qr-code-placeholder {
