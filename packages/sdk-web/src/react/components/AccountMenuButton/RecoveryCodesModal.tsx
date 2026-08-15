@@ -197,6 +197,20 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
   const status = loadState.kind === 'loaded' ? loadState.status : null;
   const statusFailureMessage = recoveryStatusFailureMessage(status);
   const canViewCodes = canViewPendingRecoveryCodes(loadState);
+  /* The status arrives an async round-trip after the first paint, so every
+     row that exists after the load must also exist before it — otherwise the
+     card grows under the cursor as the response lands. Unknown values show a
+     dash; the row itself never appears or disappears. */
+  const statusValue = status
+    ? statusLabel(status)
+    : loadState.kind === 'error'
+      ? 'Could not load'
+      : 'Loading';
+  const activeCodesValue =
+    status?.kind === 'ready' ? `${status.activeCodeCount} / ${status.totalCodeCount}` : '—';
+  // One button element across both branches: rendering two separate nodes made
+  // React drop and rebuild it on load, flashing the control.
+  const showViewCodesButton = status?.kind === 'ready' ? status.pendingLocalBackup : canViewCodes;
 
   return (
     <Theme theme={theme} tokens={scopedTokens}>
@@ -240,37 +254,13 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
             </div>
             <div className="w3a-recovery-codes-status-row">
               <span className="w3a-recovery-codes-status-label">Status</span>
-              <span className="w3a-recovery-codes-status-value">
-                {status
-                  ? statusLabel(status)
-                  : loadState.kind === 'error'
-                    ? 'Could not load'
-                    : 'Loading'}
-              </span>
+              <span className="w3a-recovery-codes-status-value">{statusValue}</span>
             </div>
-            {status?.kind === 'ready' ? (
-              <>
-                <div className="w3a-recovery-codes-status-row">
-                  <span className="w3a-recovery-codes-status-label">Active codes</span>
-                  <span className="w3a-recovery-codes-status-value">
-                    {status.activeCodeCount} / {status.totalCodeCount}
-                  </span>
-                </div>
-                {status.pendingLocalBackup ? (
-                  <button
-                    type="button"
-                    className="w3a-recovery-codes-primary-action"
-                    disabled={backupState.kind === 'working'}
-                    onClick={finishPendingBackup}
-                  >
-                    {backupState.kind === 'working'
-                      ? 'Opening recovery codes…'
-                      : 'View recovery codes'}
-                  </button>
-                ) : null}
-              </>
-            ) : null}
-            {status?.kind !== 'ready' && canViewCodes ? (
+            <div className="w3a-recovery-codes-status-row">
+              <span className="w3a-recovery-codes-status-label">Active codes</span>
+              <span className="w3a-recovery-codes-status-value">{activeCodesValue}</span>
+            </div>
+            {showViewCodesButton ? (
               <button
                 type="button"
                 className="w3a-recovery-codes-primary-action"
@@ -280,11 +270,11 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
                 {backupState.kind === 'working' ? 'Opening recovery codes…' : 'View recovery codes'}
               </button>
             ) : null}
-            {loadState.kind === 'loading' ? (
-              <div className="w3a-recovery-codes-live-status" role="status" aria-live="polite">
-                Loading recovery-code status…
-              </div>
-            ) : null}
+            {/* Announced, not laid out: the Status row already carries this
+                visually, and a second visible line would shift the card. */}
+            <div className="w3a-recovery-codes-live-status" role="status" aria-live="polite">
+              {loadState.kind === 'loading' ? 'Loading recovery-code status…' : ''}
+            </div>
             {statusFailureMessage ? (
               <div className="w3a-recovery-codes-inline-error" role="alert">
                 {statusFailureMessage}
