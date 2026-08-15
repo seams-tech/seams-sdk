@@ -44,7 +44,7 @@ async function readResult(page: Page): Promise<unknown> {
   });
 }
 
-test('wallet recovery backup requires an explicit saved-codes acknowledgement', async ({
+test('wallet recovery backup completes only through the acknowledged close control', async ({
   page,
 }) => {
   await openDialog(page);
@@ -54,19 +54,14 @@ test('wallet recovery backup requires an explicit saved-codes acknowledgement', 
     dialog.getByRole('heading', { name: 'Save your wallet recovery codes' }),
   ).toBeVisible();
   await expect(dialog.getByRole('listitem')).toHaveCount(10);
-
-  await dialog.getByRole('button', { name: 'Finish backup' }).click();
-  await expect(dialog.getByRole('status')).toHaveText(
-    'Confirm that you saved the recovery codes before continuing.',
-  );
-  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Finish backup' })).toHaveCount(0);
 
   await dialog
     .getByRole('checkbox', {
       name: 'I saved these recovery codes somewhere private (will be deleted locally).',
     })
     .check();
-  await dialog.getByRole('button', { name: 'Finish backup' }).click();
+  await dialog.getByRole('button', { name: 'Back up later' }).click();
   await expect(readResult(page)).resolves.toEqual({ kind: 'wallet_recovery_codes_backed_up_v1' });
   await expect(dialog).toHaveCount(0);
 });
@@ -82,12 +77,11 @@ test('wallet recovery backup starts at the top with reachable actions and is key
   });
   await expect(dialog).toBeFocused();
   await expect(acknowledgement).toBeVisible();
-  await expect(dialog.getByRole('button', { name: 'Finish backup' })).toBeInViewport();
+  await expect(dialog.getByRole('button', { name: 'Back up later' })).toBeInViewport();
   await page.keyboard.press('Tab');
   await page.keyboard.press('Tab');
   await page.keyboard.press('Tab');
   await page.keyboard.press('Space');
-  await page.keyboard.press('Tab');
   await page.keyboard.press('Tab');
   await page.keyboard.press('Enter');
   await expect(readResult(page)).resolves.toEqual({ kind: 'wallet_recovery_codes_backed_up_v1' });
@@ -102,21 +96,37 @@ test('wallet recovery backup can be deferred to the account menu', async ({ page
   await expect(page.getByRole('dialog')).toHaveCount(0);
 });
 
-test('account-menu recovery backup must be completed or closed', async ({ page }) => {
+test('account-menu recovery backup closes without completing until acknowledged', async ({
+  page,
+}) => {
   await openDialog(page, 'pending_backup_must_finish');
   const dialog = page.getByRole('dialog');
   await expect(dialog.getByRole('button', { name: 'Back up later' })).toHaveCount(0);
-  await dialog.getByRole('button', { name: 'Finish backup' }).click();
-  await expect(dialog.getByRole('status')).toHaveText(
-    'Confirm that you saved the recovery codes before continuing.',
-  );
+  await expect(dialog.getByRole('button', { name: 'Finish backup' })).toHaveCount(0);
   await dialog
     .getByRole('checkbox', {
       name: 'I saved these recovery codes somewhere private (will be deleted locally).',
     })
     .check();
-  await dialog.getByRole('button', { name: 'Finish backup' }).click();
+  await dialog.getByRole('button', { name: 'Close' }).click();
   await expect(readResult(page)).resolves.toEqual({ kind: 'wallet_recovery_codes_backed_up_v1' });
+});
+
+test('account-menu recovery backup close without acknowledgement cancels', async ({ page }) => {
+  await openDialog(page, 'pending_backup_must_finish');
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  const error = await page.evaluate(async () => {
+    try {
+      await (window as unknown as { walletRecoveryBackupResult: Promise<unknown> })
+        .walletRecoveryBackupResult;
+      return '';
+    } catch (cause: unknown) {
+      return cause instanceof Error ? cause.message : String(cause);
+    }
+  });
+  expect(error).toContain('cancelled');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
 });
 
 test('Escape cancels registration and removes the modal', async ({ page }) => {

@@ -180,10 +180,16 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
           return;
       }
     } catch (error: unknown) {
-      setBackupState({
-        kind: 'error',
-        message: error instanceof Error ? error.message : 'Could not complete recovery-code backup',
-      });
+      const message =
+        error instanceof Error ? error.message : 'Could not complete recovery-code backup';
+      if (message.includes('cancelled before recovery-code backup')) {
+        // Dismissing the backup dialog without acknowledging is a normal
+        // close, not a failure worth an alert.
+        setBackupState({ kind: 'idle' });
+        await loadRecoveryCodeStatus();
+        return;
+      }
+      setBackupState({ kind: 'error', message });
     }
   }, [backupState.kind, loadRecoveryCodeStatus, recovery, walletId]);
 

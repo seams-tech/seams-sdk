@@ -1026,10 +1026,7 @@ export class IntendedBehaviourHarness {
     );
     await this.clearBrowserStorageForColdSync();
     const traceStartIndex = this.trace.length;
-    const snapshot = await this.runIntendedPageAction(
-      'syncPasskeyWallet',
-      'intended-sync-passkey',
-    );
+    const snapshot = await this.runIntendedPageAction('syncPasskeyWallet', 'intended-sync-passkey');
     const result = requirePasskeySyncResult(snapshot, registration);
     const observedPaths = this.trace
       .slice(traceStartIndex)
@@ -3975,7 +3972,8 @@ function captureWalletBudgetStatusRequest(
       Object.keys(requestBody).length !== 2 ||
       typeof requestBody.walletSessionId !== 'string' ||
       typeof requestBody.quotaId !== 'string'
-    ) return null;
+    )
+      return null;
   } catch {
     return null;
   }
@@ -4296,9 +4294,11 @@ async function acknowledgeWalletRecoveryCodeBackup(
         input.dispatchEvent(new Event('change', { bubbles: true }));
       });
     }
-    await frame.getByRole('button', { name: 'Finish backup' }).evaluate((button) => {
+    // With the acknowledgement checked, the single close control completes the
+    // backup (there is no separate "Finish backup" button).
+    await frame.locator('[data-w3a-wallet-recovery-backup-close]').evaluate((button) => {
       if (!(button instanceof HTMLButtonElement)) {
-        throw new Error('Wallet recovery backup finish control is not a button');
+        throw new Error('Wallet recovery backup close control is not a button');
       }
       button.click();
     });
