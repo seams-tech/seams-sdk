@@ -880,11 +880,6 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
             walletId: 'alice.testnet',
             options: {
               signerSlot: 2,
-              session: {
-                kind: 'jwt',
-                relayUrl: 'https://relay.example.localhost',
-                route: '/session/exchange',
-              },
               signingSession: {
                 ttlMs: 60_000,
                 remainingUses: 2,
@@ -930,14 +925,6 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
       options: {
         kind: 'pm_unlock_options_v1',
         signerSlot: { kind: 'value', value: 2 },
-        session: {
-          kind: 'value',
-          value: {
-            kind: 'jwt',
-            relayUrl: 'https://relay.example.localhost',
-            route: '/session/exchange',
-          },
-        },
         signingSession: {
           kind: 'value',
           value: {
