@@ -37,6 +37,10 @@ import {
   type EmailOtpWalletAuthAuthority,
   type PasskeyWalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
+import { buildLinkedOwnerPasskeyAuthBindingV1 } from '@shared/device-linking/ownerAuthBinding';
+import type { WalletAddAuthMethodLinkedDeviceEnrollmentV1 } from '../../../../core/registrationContracts';
+import type { LinkedDeviceOwnerAuthBindingWriterV1 } from '../deviceLinking/d1LinkedDeviceOwnerAuthBindingStore';
+import type { D1PreparedStatementLike } from '../../../../storage/tenantRoute';
 import type {
   D1WalletAuthMethodStore,
   WalletAuthMethodRecord,
@@ -210,6 +214,8 @@ export class CloudflareD1WalletAuthMethodService {
   private readonly sha256Bytes: Sha256Bytes;
   private readonly webAuthnStore: CloudflareD1WebAuthnStore;
 
+  private readonly linkedDeviceOwnerAuthBindings?: LinkedDeviceOwnerAuthBindingWriterV1;
+
   constructor(input: {
     readonly emailOtpChallengeVerifier: CloudflareD1EmailOtpChallengeVerifier;
     readonly getRegistrationCeremonyIntentStore: RegistrationCeremonyStoreProvider;
@@ -218,6 +224,12 @@ export class CloudflareD1WalletAuthMethodService {
     readonly passkeyCustodyEnvelopes: CloudflareD1PasskeyCustodyEnvelopeStore;
     readonly sha256Bytes: Sha256Bytes;
     readonly webAuthnStore: CloudflareD1WebAuthnStore;
+    /**
+     * Optional only where device linking is not deployed. A finalize that
+     * carries a linked-device enrollment without it fails closed rather than
+     * writing an owner credential no enrollment points at.
+     */
+    readonly linkedDeviceOwnerAuthBindings?: LinkedDeviceOwnerAuthBindingWriterV1;
   }) {
     this.emailOtpChallengeVerifier = input.emailOtpChallengeVerifier;
     this.getRegistrationCeremonyIntentStore = input.getRegistrationCeremonyIntentStore;
@@ -226,6 +238,41 @@ export class CloudflareD1WalletAuthMethodService {
     this.passkeyCustodyEnvelopes = input.passkeyCustodyEnvelopes;
     this.sha256Bytes = input.sha256Bytes;
     this.webAuthnStore = input.webAuthnStore;
+    this.linkedDeviceOwnerAuthBindings = input.linkedDeviceOwnerAuthBindings;
+  }
+
+  /**
+   * Builds the Phase 8 binding insert, or nothing when this finalize is an
+   * ordinary same-device add-passkey.
+   *
+   * The auth-method id is derived inside the builder from the credential this
+   * ceremony just verified, so the binding cannot name a credential other than
+   * the one being registered.
+   */
+  private buildLinkedDeviceOwnerAuthBindingStatement(input: {
+    readonly linkedDeviceEnrollment: WalletAddAuthMethodLinkedDeviceEnrollmentV1 | undefined;
+    readonly walletId: WalletId;
+    readonly rpId: WebAuthnRpId;
+    readonly credentialIdB64u: string;
+    readonly now: number;
+  }):
+    | { readonly kind: 'statements'; readonly statements: readonly D1PreparedStatementLike[] }
+    | { readonly kind: 'unavailable' } {
+    const enrollment = input.linkedDeviceEnrollment;
+    if (!enrollment) return { kind: 'statements', statements: [] };
+    const writer = this.linkedDeviceOwnerAuthBindings;
+    if (!writer) return { kind: 'unavailable' };
+    const binding = buildLinkedOwnerPasskeyAuthBindingV1({
+      tenantId: enrollment.tenantId,
+      walletId: input.walletId,
+      enrollmentId: enrollment.enrollmentId,
+      deviceId: enrollment.deviceId,
+      keyManifestDigestB64u: enrollment.keyManifestDigestB64u,
+      activatedAtMs: input.now,
+      rpId: input.rpId,
+      credentialIdB64u: requireStoredCredentialId(input.credentialIdB64u),
+    });
+    return { kind: 'statements', statements: [writer.buildInsertV1(binding).statement] };
   }
 
   async startWalletAddAuthMethod(
@@ -556,6 +603,24 @@ export class CloudflareD1WalletAuthMethodService {
           createdAtMs: now,
           updatedAtMs: now,
         };
+        // Refactor 103 Phase 8: when a linked device is the one adding this
+        // factor, its owner-auth binding joins the same batch. Writing it
+        // afterwards would leave a window where the wallet has an auth method
+        // no device owns.
+        const linkedDeviceBinding = this.buildLinkedDeviceOwnerAuthBindingStatement({
+          linkedDeviceEnrollment: request.linkedDeviceEnrollment,
+          walletId,
+          rpId: requireStoredRpId(ceremony.passkeyRegistration.rpId),
+          credentialIdB64u: credential.credentialIdB64u,
+          now,
+        });
+        if (linkedDeviceBinding.kind === 'unavailable') {
+          return {
+            ok: false,
+            code: 'invalid_state',
+            message: 'Linked-device owner auth bindings are not configured',
+          };
+        }
         const link = await this.passkeyCustodyEnvelopes.linkPasskeyFactorAtomically({
           envelope: replacementEnvelope,
           additionalStatements: [
@@ -572,6 +637,7 @@ export class CloudflareD1WalletAuthMethodService {
             }),
             this.webAuthnStore.prepareCredentialBindingInsertStatement(binding),
             ...this.getWalletAuthMethodStore().preparePasskeyRegistrationStatements(authMethod),
+            ...linkedDeviceBinding.statements,
           ],
         });
         if (link.kind === 'version_mismatch' || link.kind === 'conflict') {

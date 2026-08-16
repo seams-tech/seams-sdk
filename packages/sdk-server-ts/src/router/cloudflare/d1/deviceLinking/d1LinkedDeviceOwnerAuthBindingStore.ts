@@ -24,6 +24,17 @@ export type LinkedDeviceOwnerAuthBindingWriteV1 = {
   readonly statement: D1PreparedStatementLike;
 };
 
+/**
+ * The write half alone. The wallet auth-method service depends on this rather
+ * than the whole port so it cannot accidentally read bindings during a
+ * finalize — it only ever appends one insert to its own batch.
+ */
+export type LinkedDeviceOwnerAuthBindingWriterV1 = {
+  readonly buildInsertV1: (
+    binding: LinkedDeviceOwnerAuthBindingV1,
+  ) => LinkedDeviceOwnerAuthBindingWriteV1;
+};
+
 export type LinkedDeviceOwnerAuthBindingPortV1 = {
   readonly buildInsertV1: (
     binding: LinkedDeviceOwnerAuthBindingV1,
