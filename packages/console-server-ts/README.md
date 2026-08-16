@@ -17,7 +17,8 @@ pnpm run d1:local:restore:drill
 pnpm run d1:local:dev
 ```
 
-`d1:local:prepare` applies the local console and signer migrations, creates
+`d1:local:dev` applies the local console and signer migrations before starting
+the Worker. `d1:local:prepare` performs that preparation independently, creates
 friendly live links at `sqlite/seams_console.sqlite` and
 `sqlite/seams_signer.sqlite`, then checks that the expected tables exist.
 Run `d1:local:paths` independently to refresh those links after changing the

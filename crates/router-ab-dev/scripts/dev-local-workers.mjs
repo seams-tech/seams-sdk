@@ -827,7 +827,8 @@ function ensureCanonicalGatewayD1State() {
   if (recordedDigest === schemaDigest) return !gatewayD1HasConfiguredPublishableKey();
   if (
     stateEntries.length > 0 &&
-    (recordedDigest !== null || !gatewayD1HasCanonicalAuthorizedOperationsSchema())
+    recordedDigest === null &&
+    !gatewayD1HasCanonicalAuthorizedOperationsSchema()
   ) {
     const backupPath = `${d1LocalPersistPath}-schema-${new Date()
       .toISOString()
@@ -838,7 +839,7 @@ function ensureCanonicalGatewayD1State() {
 
   mkdirSync(d1LocalPersistPath, { recursive: true });
   writeFileSync(d1CanonicalSchemaMarkerPath, `${schemaDigest}\n`, 'utf8');
-  return true;
+  return !gatewayD1HasConfiguredPublishableKey();
 }
 
 function seedLocalConsoleIdentity() {
