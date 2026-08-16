@@ -42,13 +42,6 @@ export interface ClientAuthenticatorData {
   syncedAt: string;
 }
 
-export interface RecoveryEmailRecord {
-  nearAccountId: AccountId;
-  hashHex: string;
-  email: string;
-  addedAt: number;
-}
-
 export interface ThresholdEd25519KeyMaterial {
   nearAccountId: AccountId;
   signerSlot: number;

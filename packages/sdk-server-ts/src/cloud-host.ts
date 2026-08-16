@@ -12,11 +12,9 @@ export * from './router/framework/apiCredentialPorts';
 export * from './router/framework/applyRouteMetering';
 export * from './router/cloudflare-adaptor';
 export type {
-  CfEmailMessage,
   CfEnv,
   CfExecutionContext,
   CfScheduledEvent,
-  EmailHandler,
   FetchHandler,
   RouterApiCloudflareSignerWorkerEnv,
   ScheduledHandler,

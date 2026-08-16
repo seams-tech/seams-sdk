@@ -29,7 +29,6 @@ import type {
   NonceLaneLockStoreRecord,
   ProfileAuthenticatorRecord,
   ProfileContinuitySnapshot,
-  ProfileRecoveryEmailRecord,
   ProfileRecord,
   SignerMutationOptions,
   SignerOperationStatus,
@@ -148,14 +147,6 @@ type SignerOpsOutboxRow = {
   chain_target_key: string;
   updated_at: number;
   record: SignerOpOutboxRecord;
-};
-
-type RecoveryEmailRow = {
-  wallet_id: string;
-  hash_hex: string;
-  email: string;
-  added_at: number;
-  updated_at: number;
 };
 
 type NonceLaneLeaseRow = {
@@ -325,22 +316,6 @@ function parseNonceLeaseRow(value: unknown): NonceLaneLeaseStoreRecord | null {
   if (row.state !== record.state) return null;
   if (row.expires_at_ms !== Math.floor(Number(record.expiresAtMs))) return null;
   return record;
-}
-
-function profileRecoveryEmailFromRow(value: unknown): ProfileRecoveryEmailRecord | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const row = value as Partial<RecoveryEmailRow>;
-  const profileId = toTrimmedString(row.wallet_id || '');
-  const hashHex = toTrimmedString(row.hash_hex || '');
-  const email = toTrimmedString(row.email || '');
-  const addedAt = Math.floor(Number(row.added_at));
-  if (!profileId || !hashHex || !email || !Number.isSafeInteger(addedAt)) return null;
-  return {
-    profileId,
-    hashHex,
-    email,
-    addedAt,
-  };
 }
 
 function keyRangeUpperBound(value: number): IDBKeyRange {
@@ -3294,7 +3269,6 @@ export class SeamsWalletRepositories {
         SEAMS_WALLET_STORES.walletSigners,
         SEAMS_WALLET_STORES.nearAccountProjections,
         SEAMS_WALLET_STORES.signerOpsOutbox,
-        SEAMS_WALLET_STORES.recoveryEmails,
         SEAMS_WALLET_STORES.keyMaterial,
       ],
       'readwrite',
@@ -3334,11 +3308,6 @@ export class SeamsWalletRepositories {
         });
         await deleteRowsByIndex({
           store: ctx.store(SEAMS_WALLET_STORES.signerOpsOutbox),
-          indexName: SEAMS_WALLET_INDEXES.walletId,
-          key: IDBKeyRange.only(normalizedProfileId),
-        });
-        await deleteRowsByIndex({
-          store: ctx.store(SEAMS_WALLET_STORES.recoveryEmails),
           indexName: SEAMS_WALLET_INDEXES.walletId,
           key: IDBKeyRange.only(normalizedProfileId),
         });
@@ -3392,50 +3361,6 @@ export class SeamsWalletRepositories {
 
   async clearLastProfileSelection(scope?: string | null): Promise<void> {
     await this.setLastProfileState(null, scope);
-  }
-
-  async upsertRecoveryEmails(
-    walletId: string,
-    entries: Array<{ hashHex: string; email: string }>,
-  ): Promise<void> {
-    const normalizedWalletId = toTrimmedString(walletId || '');
-    if (!normalizedWalletId || entries.length === 0) return;
-    const now = Date.now();
-    await this.manager.runTransaction(
-      [SEAMS_WALLET_STORES.recoveryEmails],
-      'readwrite',
-      async (ctx) => {
-        const store = ctx.store(SEAMS_WALLET_STORES.recoveryEmails);
-        for (const entry of entries) {
-          const hashHex = toTrimmedString(entry.hashHex || '');
-          const email = toTrimmedString(entry.email || '');
-          if (!hashHex) continue;
-          const row: RecoveryEmailRow = {
-            wallet_id: normalizedWalletId,
-            hash_hex: hashHex,
-            email: email || hashHex,
-            added_at: now,
-            updated_at: now,
-          };
-          await store.put(row);
-        }
-      },
-    );
-  }
-
-  async listRecoveryEmails(walletId: string): Promise<ProfileRecoveryEmailRecord[]> {
-    const normalizedWalletId = toTrimmedString(walletId || '');
-    if (!normalizedWalletId) return [];
-    const db = await this.manager.getDB();
-    const tx = db.transaction(SEAMS_WALLET_STORES.recoveryEmails, 'readonly');
-    const rows = (await tx.store
-      .index(SEAMS_WALLET_INDEXES.walletId)
-      .getAll(normalizedWalletId)) as unknown[];
-    await tx.done;
-    return rows.flatMap((row) => {
-      const parsed = profileRecoveryEmailFromRow(row);
-      return parsed ? [parsed] : [];
-    });
   }
 
   async storeKeyMaterial(data: KeyMaterialRecord): Promise<void> {

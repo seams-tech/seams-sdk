@@ -113,10 +113,8 @@ export type {
 export type { RouteDefinition } from './framework/routeDefinitions';
 export { defineRoute } from './framework/routeDefinitions';
 export type {
-  CfEmailMessage,
   CfEnv,
   CfExecutionContext,
-  EmailHandler,
   FetchHandler,
   RouterApiCloudflareSignerWorkerEnv,
   SeamsD1SignerTenantStorageWorkerEnv,
@@ -145,8 +143,6 @@ export {
   createStaticCloudflareTenantStorageRouteResolver,
   createStaticCloudflareTenantStorageRouteResolverFromBindings,
 } from '../storage/tenantRoute';
-export type { CloudflareEmailHandlerOptions } from './cloudflare/runtime/email';
-export { createCloudflareEmailHandler } from './cloudflare/runtime/email';
 export type {
   InMemoryRouterApiRuntimeSnapshotConsumer,
   RouterApiRuntimeSnapshotPublishedUpdate,

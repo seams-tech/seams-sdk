@@ -128,8 +128,6 @@ test('self-host Cloudflare signing router keeps hosted SaaS dependencies out of 
     'createCloudflareConsoleRouter',
     './routes/apiWallets',
     './routes/sponsoredEvmCall',
-    './routes/recoverEmail',
-    './routes/emailRecovery',
     './routes/wellKnown',
     './routes/sessions',
     '@seams-internal/console-server',

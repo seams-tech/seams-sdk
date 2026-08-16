@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowLeftIcon, FingerprintIcon, MailIcon } from './ui/icons';
+import { ArrowLeftIcon, FingerprintIcon } from './ui/icons';
 import { PasskeyInput } from './ui/PasskeyInput';
 import { ContentSwitcher } from './ui/ContentSwitcher';
 import { SocialProviders } from './ui/SocialProviders';
@@ -583,17 +583,6 @@ export const SeamsAuthMenuClient: React.FC<SeamsAuthMenuProps> = ({
                     <QRCodeIcon width={18} height={18} strokeWidth={2} />
                     Scan and Link Device
                   </button>
-                  {controller.canRecoverAccountWithEmail ? (
-                    <button
-                      type="button"
-                      onClick={controller.onRecoverAccountWithEmail}
-                      className="w3a-link-device-btn"
-                      disabled={controller.waiting}
-                    >
-                      <MailIcon size={18} strokeWidth={2} style={{ display: 'block' }} />
-                      Recover Account with Email
-                    </button>
-                  ) : null}
                 </div>
               </div>
             )}

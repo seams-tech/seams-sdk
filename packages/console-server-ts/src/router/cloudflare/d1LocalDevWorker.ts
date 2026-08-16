@@ -14,7 +14,6 @@ import {
   createCloudflareD1RouterApiRouteExtensions,
 } from './d1ConsoleServices';
 import {
-  createCloudflareD1RouterApiEmailRecoveryAuthService,
   createCloudflareD1RouterApiAuthService,
   type CloudflareD1EmailOtpServerSealConfig,
   type CloudflareD1RouterApiAuthServiceOptions,
@@ -620,10 +619,7 @@ const SIGNER_READY_TABLES = Object.freeze([
   'verified_wallet_operation_evidence_sets',
   'verified_owner_proof_consumptions',
   'hosted_wallet_session_exchange_codes',
-  'recovery_sessions',
-  'recovery_executions',
   'near_public_keys',
-  'email_recovery_preparations',
   'email_otp_challenges',
   'email_otp_grants',
   'email_otp_wallet_enrollments',
@@ -898,9 +894,7 @@ function isRouterApiPath(pathname: string): boolean {
     pathname.startsWith('/relay/') ||
     pathname.startsWith('/.well-known/') ||
     pathname.startsWith('/auth/') ||
-    pathname.startsWith('/email-recovery/') ||
     pathname.startsWith('/near/') ||
-    pathname.startsWith('/recover-email') ||
     pathname.startsWith('/router-ab/') ||
     // The SDK relayer client POSTs signed delegates to `/signed-delegate`
     // (DEFAULT_SIGNED_DELEGATE_ROUTE). Without this, the request fell through
@@ -1029,7 +1023,6 @@ async function createLocalRouterApiHandler(
           },
         }
       : ed25519YaoComposition;
-  const emailRecoveryAuthService = createLocalD1EmailRecoveryAuthService(env);
   const baseHandler = createCloudflareRouter(routerApiService, {
     ...bundle.routerApiRouterOptions,
     routeExtensions: createCloudflareD1RouterApiRouteExtensions(bundle, routerApiService),
@@ -1045,10 +1038,6 @@ async function createLocalRouterApiHandler(
       fetch: (request) => env.MPC_ROUTER.fetch(request),
     },
     routerAbEcdsaStrictPostRegistration: ecdsaStrictPorts.postRegistration,
-    emailRecovery: {
-      kind: 'prepare_only',
-      authService: emailRecoveryAuthService,
-    },
     signingSessionSeal: localSigningSessionSealOptions(env),
   });
   if (ed25519Yao.kind !== 'enabled') return baseHandler;
@@ -1468,12 +1457,6 @@ function createLocalD1RouterApiAuthService(
     ...localD1RouterApiAuthServiceOptions(env, orgId, ed25519Yao, session, linkedDevice),
     signerWasmModuleOrPath: loadCloudflareSignerWasmModule,
   });
-}
-
-function createLocalD1EmailRecoveryAuthService(env: LocalD1DevEnv) {
-  return createCloudflareD1RouterApiEmailRecoveryAuthService(
-    localD1RouterApiAuthServiceOptions(env, localConsoleOrgId(env)),
-  );
 }
 
 function localRouterApiHandler(

@@ -573,22 +573,6 @@ test('local D1 Worker routes smoke requests through the Router API handler', asy
     },
   });
 
-  const emailRecovery = await localD1DevWorker.fetch(
-    new Request('http://127.0.0.1:8787/relay/email-recovery/prepare', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: '{}',
-    }),
-    env,
-    ctx,
-  );
-  expect(emailRecovery.status).toBe(400);
-  await expect(emailRecovery.json()).resolves.toMatchObject({
-    ok: false,
-    code: 'invalid_body',
-    message: 'account_id is required',
-  });
-
   const sponsored = await localD1DevWorker.fetch(
     new Request('http://127.0.0.1:8787/relay/sponsorships/evm/call', {
       method: 'POST',

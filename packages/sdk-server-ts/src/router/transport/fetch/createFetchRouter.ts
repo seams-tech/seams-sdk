@@ -1,8 +1,6 @@
 import { coerceRouterLogger } from '../../framework/logger';
 import { json, withCors } from '../../framework/http';
-import { handleEmailRecoveryPrepare } from './routes/emailRecovery';
 import { handleHealth, handleReady } from './routes/health';
-import { handleRecoverEmail } from './routes/recoverEmail';
 import { handleWalletRegistration } from './routes/walletRegistration';
 import {
   handlePasskeyCustody,
@@ -65,8 +63,6 @@ import { parseLinkedDeviceWalletSession } from '../../domains/signingOperations/
 import { DEFAULT_SESSION_COOKIE_NAME } from '../../framework/routerApi';
 import {
   attachRouterApiRouteSurface,
-  isEmailRecoveryPrepareRoutesEnabled,
-  isRecoverEmailRouteEnabled,
   resolveRouterApiRouteSurface,
 } from '../../framework/routerApiRouteSurface';
 import { findRouteDefinitionForRequest } from '../../framework/routeDefinitions';
@@ -265,8 +261,6 @@ export function createFetchRouter(
   const logger = coerceRouterLogger(effectiveOpts.logger);
   const routeSurface = resolveRouterApiRouteSurface(effectiveOpts, { transport: 'fetch' });
   const { routeDefinitions } = routeSurface;
-  const emailRecoveryPrepareRoutesEnabled = isEmailRecoveryPrepareRoutesEnabled(effectiveOpts);
-  const recoverEmailRouteEnabled = isRecoverEmailRouteEnabled(effectiveOpts);
   const fetchRouteExtensions = getRouterApiRouteExtensionsForTransport(routeExtensions, 'fetch');
 
   const handlers: Array<(c: FetchRouterApiContext) => Promise<Response | null>> = [
@@ -322,7 +316,6 @@ export function createFetchRouter(
     handleWalletRecoveryStatus,
     handleAuth,
     handleSyncAccount,
-    ...(emailRecoveryPrepareRoutesEnabled ? [handleEmailRecoveryPrepare] : []),
     handleOwnerWalletExecutionLanePreflight,
     handleThresholdEd25519,
     handleThresholdEcdsa,
@@ -356,7 +349,6 @@ export function createFetchRouter(
         });
       };
     }),
-    ...(recoverEmailRouteEnabled ? [handleRecoverEmail] : []),
     handleHealth,
     handleReady,
   ];

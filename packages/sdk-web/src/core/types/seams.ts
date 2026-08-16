@@ -169,14 +169,6 @@ export type SigningSessionSealConfig =
  *   relayer?: {
  *     url?: string;
  *     delegateActionRoute?: string;
- *     emailRecovery?: {
- *       minBalanceYocto?: string;
- *       pollingIntervalMs?: number;
- *       maxPollingDurationMs?: number;
- *       pendingTtlMs?: number;
- *       mailtoAddress?: string;
- *       emailDkimVerifierContract?: string;
- *     };
  *   };
  *   registration?: {
  *     mode?: 'managed';
@@ -193,8 +185,6 @@ export type SigningSessionSealConfig =
  * - Managed registration authenticates setup directly with the configured publishable key.
  * - `iframeWallet.walletOrigin` is required when `iframeWallet` is configured.
  *   Browser wallet capabilities run through hosted iframe mode.
- * - `relayer.emailRecovery.emailDkimVerifierContract` configures the DKIM verifier
- *   contract account used by email recovery flows.
  */
 export interface SeamsConfigsInput {
   chains?: SeamsChainConfigInput[];
@@ -283,14 +273,6 @@ export interface SeamsConfigsInput {
  *       url: string;
  *       routes: {
  *         delegateAction: string; *       };
- *       emailRecovery: {
- *         minBalanceYocto: string;
- *         pollingIntervalMs: number;
- *         maxPollingDurationMs: number;
- *         pendingTtlMs: number;
- *         mailtoAddress: string;
- *         emailDkimVerifierContract: string;
- *       };
  *     };
  *     registration: {
  *       mode: 'managed';
@@ -1052,36 +1034,16 @@ export interface SeamsRelayerConfigInput {
    * Defaults to '/signed-delegate'.
    */
   delegateActionRoute?: string;
-  emailRecovery?: {
-    minBalanceYocto?: string;
-    pollingIntervalMs?: number;
-    maxPollingDurationMs?: number;
-    pendingTtlMs?: number;
-    mailtoAddress?: string;
-    // Contract account that verifies DKIM signatures for email recovery.
-    emailDkimVerifierContract?: string;
-  };
 }
 
 export interface SeamsRelayerRoutesConfig {
   delegateAction: string;
 }
 
-export interface SeamsRelayerEmailRecoveryConfig {
-  minBalanceYocto: string;
-  pollingIntervalMs: number;
-  maxPollingDurationMs: number;
-  pendingTtlMs: number;
-  mailtoAddress: string;
-  // Contract account that verifies DKIM signatures for email recovery.
-  emailDkimVerifierContract: string;
-}
-
 export interface SeamsRelayerConfig {
   accountId: string;
   url: string;
   routes: SeamsRelayerRoutesConfig;
-  emailRecovery: SeamsRelayerEmailRecoveryConfig;
 }
 
 export type SeamsRegistrationConfig = {

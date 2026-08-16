@@ -5,7 +5,6 @@ import { LoadingButton } from '@/components/LoadingButton';
 import { GlassBorder } from '@/components/GlassBorder';
 import { useProfileMenuControl } from '@/context/ProfileMenuControl';
 import './SyncAccount.css';
-import { SetupEmailRecovery } from './SetupEmailRecovery';
 
 export function SyncAccount() {
   const { loginState } = useSeams();
@@ -46,8 +45,6 @@ export function SyncAccount() {
             Link Device
           </LoadingButton>
         </div>
-
-        <SetupEmailRecovery />
       </div>
     </GlassBorder>
   );

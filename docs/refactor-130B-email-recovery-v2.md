@@ -1,11 +1,18 @@
-# Refactor 130 — Centralized Email Recovery
+# Refactor 130B — Email Recovery V2
 
-Status: proposed.
+Status: deferred.
 
 ## Goal
 
-Replace the legacy inbound-email, DKIM, Outlayer, and on-chain EmailRecoverer
-pipeline with a centralized recovery-contact system.
+Define a possible centralized recovery-contact system for a future project.
+This plan records the current product and security direction. It does not
+authorize implementation, schema work, compatibility scaffolding, or preparatory
+abstractions.
+
+The legacy inbound-email, DKIM, Outlayer, and on-chain EmailRecoverer pipeline is
+removed independently by [Refactor 130A](./refactor-130A-email-recovery-cleanup.md).
+Completion of 130A creates no delivery commitment or runtime foundation for this
+plan.
 
 The existing 10 one-time recovery codes remain the primary offline recovery
 factor. The new email system is an independent fallback for users who lose
@@ -14,18 +21,19 @@ their authenticators and every saved recovery code.
 Social recovery authorizes a new wallet authenticator and rotates the recovery
 code set. It never reveals or decrypts the old plaintext recovery codes.
 
-## Delivery Rule
+## Deferral Rule
 
-Delete the legacy email-recovery system before implementing the replacement.
-Phase 2 cannot begin until every Phase 1 exit criterion passes. This creates a
-temporary period where recovery codes are the only recovery path, which is an
-accepted breaking change.
+Do not begin this plan as part of Refactor 130A. Re-evaluate the product model,
+threat model, account-replacement lifecycle, notification channel, abuse
+controls, and operational ownership before changing this status from deferred.
 
-Do not add feature flags, dual writes, legacy request adapters, fallback routes,
-or compatibility branches. Historical migrations remain immutable. Remove old
-runtime access and add a forward migration to drop retired storage.
+Any future implementation starts from the post-130A codebase. Do not restore
+legacy request shapes, storage, routes, contracts, configuration, or local email
+mappings.
 
-## Product Decisions
+All phases and checkboxes below are inactive while this plan remains deferred.
+
+## Working Product Decisions
 
 1. A logged-in user enrolls up to three recovery email addresses by approving
    one exact policy with a passkey assertion.
@@ -61,7 +69,7 @@ runtime access and add a forward migration to drop retired storage.
 - Create a second recovery-code generator, wrapper, storage model, or rotation
   workflow.
 
-## Security Invariants
+## Working Security Invariants
 
 - The server accepts a recovery contact only after a wallet-bound passkey
   assertion and an outbound email verification.
@@ -84,86 +92,12 @@ runtime access and add a forward migration to drop retired storage.
 - Recovery events are auditable without storing plaintext tokens, codes, email
   bodies, or key material.
 
-## Phase 1 — Remove the Legacy System
+## Phase 1 — Define the Central Recovery Domain
 
-Classify legacy tests and fixtures as `obsolete_test_or_fixture`. Delete them
-with the production paths they protect. Preserve tests that own the current
-recovery-code generation, wrapping, consumption, display, and rotation
-invariants.
+Create new domain names from the post-130A codebase. Avoid reusing ambiguous
+legacy types such as `EmailRecoveryRequest` or `setRecoveryEmails`.
 
-### 1.1 Server and worker cleanup
-
-- [ ] Delete `packages/sdk-server-ts/src/email-recovery/`, including raw RFC822
-      parsing, Outlayer encryption, EmailDKIMVerifier lookup, EmailRecoverer
-      action construction, and test helpers.
-- [ ] Delete the `/recover-email` transport route and the old
-      `/email-recovery/prepare` route family.
-- [ ] Delete `EmailRecoveryPreparationStore`,
-      `emailRecoveryAuthOperations`, recovery execution tracking, router option
-      branches, route definitions, and Cloudflare runtime wiring used only by
-      the legacy flow.
-- [ ] Remove legacy email-recovery exports from `@seams/sdk-server`.
-- [ ] Remove the inbound recovery-email handler from the web server and update
-      `apps/web-server/README.md`.
-- [ ] Remove recovery-specific configuration and bindings from local D1 and
-      Cloudflare worker construction.
-- [ ] Add a new D1 migration that drops `email_recovery_preparations` and any
-      other table proven to have no current recovery-code consumer. Keep the
-      historical migration files unchanged.
-- [ ] Audit WASM functions carrying `email_recovery_*` names. Delete bindings
-      used only by the DKIM pipeline. Rename genuinely shared ChaCha20,
-      X25519, or HKDF primitives when the Email OTP recovery-wrapped escrow still
-      uses them.
-
-### 1.2 SDK and wallet cleanup
-
-- [ ] Remove the legacy `getRecoveryEmails` and `setRecoveryEmails` public API.
-- [ ] Delete the email-specific branches from
-      `packages/sdk-web/src/SeamsWeb/operations/recovery/emailRecovery.ts` while
-      preserving the independent `syncAccount` behavior.
-- [ ] Delete `packages/sdk-web/src/utils/emailRecovery/` and its IndexedDB
-      recovery-email mapping.
-- [ ] Remove `PM_GET_RECOVERY_EMAILS`, `PM_SET_RECOVERY_EMAILS`, their router
-      methods, host handlers, message payloads, and type fixtures.
-- [ ] Remove legacy email-recovery lifecycle events and account-replacement
-      branches after confirming that no current recovery-code flow consumes
-      them.
-- [ ] Remove the demo `SetupEmailRecovery`, `EmailRecoveryFields`, styles, and
-      integration from `SyncAccount`.
-
-### 1.3 Tests, documentation, and dead data
-
-- [ ] Delete tests, fixtures, mocks, and source guards that exist solely for raw
-      email parsing, Outlayer encryption, DKIM verification, recovery
-      preparation, or EmailRecoverer execution.
-- [ ] Update intended-behavior documentation so recovery-code coverage remains
-      authoritative during the temporary email-recovery gap.
-- [ ] Remove active documentation for `/recover-email`, recovery preparation,
-      Outlayer email encryption, and on-chain recovery-email hashes.
-- [ ] Remove old local IndexedDB recovery-email records through the existing
-      scoped database migration mechanism.
-- [ ] Confirm no production bundle contains an endpoint, message kind, public
-      method, configuration key, or import for the retired flow.
-
-### Phase 1 exit criteria
-
-- `rg` finds no active references to `EmailRecoveryService`, `/recover-email`,
-  `verify_encrypted_email_and_recover`, `EmailDKIMVerifier`, `EmailRecoverer`,
-  `PM_GET_RECOVERY_EMAILS`, or `PM_SET_RECOVERY_EMAILS`.
-- The router returns 404 for every retired route.
-- Existing recovery-code registration, download, consumption, and rotation tests
-  pass.
-- TypeScript declarations contain no legacy recovery-email API.
-- `pnpm test:source-guards`, the focused recovery-code tests, and
-  `git diff --check` pass.
-- The cleanup lands as its own commit before replacement implementation begins.
-
-## Phase 2 — Define the Central Recovery Domain
-
-Create new domain names after Phase 1. Avoid reusing ambiguous legacy types such
-as `EmailRecoveryRequest` or `setRecoveryEmails`.
-
-### 2.1 Contact policy
+### 1.1 Contact policy
 
 Model contact cardinality and approval policy as a closed union:
 
@@ -198,7 +132,7 @@ Represent policy lifecycle with separate `pending_verification`, `active`,
 `never` fields for invalid combinations. Use branch-specific builders and an
 exhaustive switch for every transition.
 
-### 2.2 Recovery attempt
+### 1.2 Recovery attempt
 
 Use an immutable attempt identity and a lifecycle union:
 
@@ -226,7 +160,7 @@ Every attempt requires:
 Diagnostics and notification delivery records cannot influence authorization.
 Authorization reads only parsed policy, attempt, approval, and factor state.
 
-### 2.3 Persistence
+### 1.3 Persistence
 
 Add new D1 tables for:
 
@@ -242,7 +176,7 @@ only parsed domain records. Store contact email ciphertext under a dedicated
 KMS-managed envelope key; keep lookup digests, token hashes, and audit metadata
 separate.
 
-### Phase 2 exit criteria
+### Phase 1 exit criteria
 
 - Invalid contact counts, thresholds, and lifecycle combinations fail static
   type fixtures.
@@ -250,7 +184,7 @@ separate.
 - Schema tests prove uniqueness for policy versions, one approval per contact,
   and one successful finalization per wallet recovery attempt.
 
-## Phase 3 — Passkey-Signed Contact Enrollment
+## Phase 2 — Passkey-Signed Contact Enrollment
 
 - [ ] Add a server endpoint that issues a short-lived enrollment challenge for
       the authenticated wallet.
@@ -272,7 +206,7 @@ separate.
 Existing on-chain hashes and local recovery-email mappings are not migrated.
 Users enroll again through this flow.
 
-## Phase 4 — Social Recovery Approval
+## Phase 3 — Social Recovery Approval
 
 - [ ] Start recovery from a wallet-owned browser surface with a newly created
       passkey or wallet keypair.
@@ -296,7 +230,7 @@ The recovering browser holds an opaque attempt secret used only to resume the
 attempt. Email response ordering never selects a recipient or grants additional
 authority.
 
-## Phase 5 — Atomic Finalization and Recovery-Code Rotation
+## Phase 4 — Atomic Finalization and Recovery-Code Rotation
 
 - [ ] Re-read the active policy, attempt, approvals, additional factor, and
       cancellation state in one finalization transaction.
@@ -316,7 +250,7 @@ authority.
 Finalization must be idempotent. A retry returns the completed result metadata
 without installing another key or generating another code set.
 
-## Phase 6 — Product UI
+## Phase 5 — Product UI
 
 ### Recovery settings
 
@@ -341,7 +275,7 @@ Use the existing accessible form, modal, focus, error, and loading patterns.
 Recovery errors must identify the next safe action without disclosing registered
 addresses to unauthenticated users.
 
-## Phase 7 — Verification and Delivery
+## Phase 6 — Verification and Delivery
 
 ### Static guarantees
 
@@ -385,20 +319,17 @@ source-text guards.
 
 ### Delivery order
 
-1. Land and deploy Phase 1 cleanup.
-2. Confirm legacy endpoints are absent and recovery-code rotation remains
-   healthy.
-3. Land the new schema and centralized backend domain.
-4. Land enrollment, approval, finalization, and UI as one supported path.
-5. Require all users who want email fallback to enroll new recovery contacts.
+1. Complete a fresh product and security review and change this plan's status
+   through an explicit decision.
+2. Land the new schema and centralized backend domain.
+3. Land enrollment, approval, finalization, and UI as one supported path.
+4. Require all users who want email fallback to enroll new recovery contacts.
 
 Rollback of the replacement does not restore the deleted legacy system. Users
 retain their existing recovery codes throughout the rollout.
 
 ## Completion Criteria
 
-- The legacy DKIM/Outlayer/on-chain email-recovery pipeline is absent from
-  production code, routes, declarations, storage access, and UI.
 - A passkey-authenticated user can enroll and verify up to three centralized
   recovery contacts.
 - The exact configured threshold authorizes only the public key committed by

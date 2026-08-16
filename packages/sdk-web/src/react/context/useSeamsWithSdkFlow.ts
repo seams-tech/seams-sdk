@@ -263,10 +263,6 @@ export function useSeamsWithSdkFlow(args: {
         if (prop === 'recovery') {
           const recovery = Reflect.get(target as object, prop, receiver) as RecoveryCapability;
           return {
-            getRecoveryEmails: (...args: Parameters<RecoveryCapability['getRecoveryEmails']>) =>
-              recovery.getRecoveryEmails(...args),
-            setRecoveryEmails: (...args: Parameters<RecoveryCapability['setRecoveryEmails']>) =>
-              recovery.setRecoveryEmails(...args),
             syncAccount: syncAccountWithSdkFlow,
             getWalletRecoveryCodeStatus: (
               ...args: Parameters<RecoveryCapability['getWalletRecoveryCodeStatus']>

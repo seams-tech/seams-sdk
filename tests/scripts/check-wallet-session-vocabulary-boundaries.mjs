@@ -61,15 +61,10 @@ const classifiedSessionIdPublicSurfaceFiles = {
     'keep_app_device_or_recovery_session',
   'packages/sdk-server-ts/src/authorization/service.ts':
     'keep_app_device_or_recovery_session',
-  'packages/sdk-server-ts/src/core/RecoveryExecutionStore.ts':
-    'keep_app_device_or_recovery_session',
-  'packages/sdk-server-ts/src/core/RecoverySessionStore.ts': 'keep_app_device_or_recovery_session',
   'packages/sdk-server-ts/src/core/RegistrationCeremonyStore.ts':
     'keep_ed25519_yao_protocol_session',
   'packages/sdk-server-ts/src/core/types.ts': 'rename_later_agent_b_signing_or_wasm',
   'packages/sdk-server-ts/src/router/framework/authServicePort.ts': 'keep_app_device_or_recovery_session',
-  'packages/sdk-server-ts/src/router/domains/emailRecovery/recoveryExecutionTracking.ts':
-    'keep_app_device_or_recovery_session',
   'packages/sdk-server-ts/src/router/domains/ed25519Yao/export/routerAbEd25519YaoExport.ts':
     'keep_ed25519_yao_protocol_session',
   'packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery.ts':

@@ -22,7 +22,6 @@ const ALLOWLISTED_PUBLIC_RELAY_ROUTE_IDS = [
   'auth_provider_action',
   'sync_account_options',
   'sync_account_verify',
-  'email_recovery_prepare',
   'router_ab_ed25519_healthz',
   'router_ab_ed25519_wallet_session',
   'router_ab_ecdsa_derivation_healthz',
@@ -40,7 +39,6 @@ const ALLOWLISTED_PUBLIC_RELAY_ROUTE_IDS = [
   'wallet_add_auth_method_finalize',
   'wallet_revoke_auth_method',
   'wallet_email_otp_dev_cleanup_google_registration',
-  'recover_email',
 ] as const;
 
 const ALLOWLISTED_PROOFLESS_PUBLIC_RELAY_ROUTE_IDS = [
@@ -50,14 +48,11 @@ const ALLOWLISTED_PROOFLESS_PUBLIC_RELAY_ROUTE_IDS = [
   'relay_router_ab_public_keyset',
   'router_ab_ed25519_healthz',
   'router_ab_ecdsa_derivation_healthz',
-  'recover_email',
 ] as const;
 
 test.describe('route definition scaffolding', () => {
   test('Router API route ids are unique and core policies are encoded', async () => {
     const routes = createRouterApiRouteDefinitions({
-      enableEmailRecoveryPrepare: true,
-      enableRecoverEmail: true,
       enableHealthz: true,
       enableSigningSessionSeal: true,
       enableReadyz: true,

@@ -5,7 +5,6 @@ import type {
   WebAuthnCredentialBindingRecord,
   WebAuthnCredentialBindingStore,
 } from '../WebAuthnCredentialBindingStore';
-import type { EmailRecoveryResolvedWalletBinding } from '../EmailRecoveryPreparationStore';
 import type { Ed25519SessionPolicy, ThresholdRuntimePolicyScope } from '../types';
 import { parseWebAuthnRpId } from '@shared/utils/domainIds';
 import {
@@ -46,6 +45,15 @@ export function parseBoundaryWalletId(raw: unknown): string | null {
   }
 }
 
+export type ResolvedEd25519WalletBinding = {
+  walletId: string;
+  nearAccountId: string;
+  nearEd25519SigningKeyId: string;
+  rpId: string;
+  credentialIdB64u: string;
+  signerSlot: number;
+};
+
 /**
  * Returns `null` when the binding carries no Ed25519 identity, which is the
  * valid state for a wallet whose Ed25519 Yao ceremony has not settled yet.
@@ -55,7 +63,7 @@ export function parseBoundaryWalletId(raw: unknown): string | null {
 export function resolvedEd25519WalletBindingFromCredentialBinding(args: {
   binding: WebAuthnCredentialBindingRecord;
   signerSlot?: number;
-}): EmailRecoveryResolvedWalletBinding | null {
+}): ResolvedEd25519WalletBinding | null {
   const { nearAccountId, nearEd25519SigningKeyId } = args.binding;
   if (!nearAccountId || !nearEd25519SigningKeyId) return null;
   const resolvedSignerSlot =
@@ -75,7 +83,7 @@ export function resolvedEd25519WalletBindingFromCredentialBinding(args: {
 
 export function resolveThresholdEd25519SessionPolicyForBinding(args: {
   requestedSessionPolicy: Record<string, unknown>;
-  binding: EmailRecoveryResolvedWalletBinding;
+  binding: ResolvedEd25519WalletBinding;
   relayerKeyId: string;
   persistedRuntimePolicyScope?: ThresholdRuntimePolicyScope;
 }): { sessionPolicy: Ed25519SessionPolicy; runtimePolicyScope?: ThresholdRuntimePolicyScope } {
@@ -165,7 +173,7 @@ export function resolveThresholdEd25519SessionPolicyForBinding(args: {
 
 export function resolveRecoveryThresholdEd25519SessionPolicyForBinding(args: {
   requestedSessionPolicy: Record<string, unknown>;
-  binding: EmailRecoveryResolvedWalletBinding;
+  binding: ResolvedEd25519WalletBinding;
   relayerKeyId: string;
   persistedRuntimePolicyScope?: ThresholdRuntimePolicyScope;
 }): { sessionPolicy: Ed25519SessionPolicy; runtimePolicyScope?: ThresholdRuntimePolicyScope } {
@@ -199,13 +207,13 @@ export function resolveRecoveryThresholdEd25519SessionPolicyForBinding(args: {
     throw new Error('threshold-ed25519 session policy authority is required');
   }
   if (!isPasskeyWalletAuthAuthority(requestedAuthority)) {
-    throw new Error('email recovery threshold session authority must be passkey');
+    throw new Error('wallet recovery threshold session authority must be passkey');
   }
   if (requestedAuthority.walletId !== args.binding.walletId) {
-    throw new Error('email recovery threshold session authority walletId mismatch');
+    throw new Error('wallet recovery threshold session authority walletId mismatch');
   }
   if (requestedAuthority.verifier.rpId !== args.binding.rpId) {
-    throw new Error('email recovery threshold session authority rpId mismatch');
+    throw new Error('wallet recovery threshold session authority rpId mismatch');
   }
   const runtimePolicyScope =
     normalizeThresholdRuntimePolicyScope(args.requestedSessionPolicy.runtimePolicyScope) ||

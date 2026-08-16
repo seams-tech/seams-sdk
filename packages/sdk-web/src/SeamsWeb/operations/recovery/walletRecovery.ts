@@ -1,4 +1,4 @@
-import type { EmailRecoveryWebContext } from '@/SeamsWeb/signingSurface/ports';
+import type { WalletRecoveryWebContext } from '@/SeamsWeb/signingSurface/ports';
 import {
   buildWalletRecoveryCeremonyCustodyJson,
   prepareWalletRecoveryWithBootstrap,
@@ -89,7 +89,7 @@ function zeroizeBuffer(buffer: ArrayBuffer | null): void {
 }
 
 async function persistRecoveredNearKeySet(input: {
-  readonly context: EmailRecoveryWebContext;
+  readonly context: WalletRecoveryWebContext;
   readonly walletId: string;
   readonly recovered: RecoveredWalletCustodyNearKeySetV1;
 }): Promise<void> {
@@ -118,10 +118,10 @@ async function persistRecoveredNearKeySet(input: {
 }
 
 async function persistRecoveredEcdsaKeySet(input: {
-  readonly context: EmailRecoveryWebContext;
+  readonly context: WalletRecoveryWebContext;
   readonly walletId: string;
   readonly authorityRef: Parameters<
-    EmailRecoveryWebContext['signingEngine']['restoreWalletCustodyEcdsaContinuity']
+    WalletRecoveryWebContext['signingEngine']['restoreWalletCustodyEcdsaContinuity']
   >[0]['authority'];
   readonly recovered: RecoveredWalletCustodyEcdsaKeySetV1;
 }): Promise<void> {
@@ -146,10 +146,10 @@ async function persistRecoveredEcdsaKeySet(input: {
 }
 
 async function persistRecoveredLocalContinuity(input: {
-  readonly context: EmailRecoveryWebContext;
+  readonly context: WalletRecoveryWebContext;
   readonly walletId: string;
   readonly authorityRef: Parameters<
-    EmailRecoveryWebContext['signingEngine']['restoreWalletCustodyEcdsaContinuity']
+    WalletRecoveryWebContext['signingEngine']['restoreWalletCustodyEcdsaContinuity']
   >[0]['authority'];
   readonly recovered: RecoveredWalletCustodyManifestV1;
 }): Promise<'restored' | 'unlock_required'> {
@@ -251,7 +251,7 @@ export class WalletRecoveryCoordinator {
   }
 
   async complete(input: {
-    readonly context: EmailRecoveryWebContext;
+    readonly context: WalletRecoveryWebContext;
     readonly recoveryOperationId: string;
     readonly walletId: string;
     readonly relayUrl: string;

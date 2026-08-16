@@ -1,5 +1,10 @@
 # Email Integration Plan
 
+> Scope note: Refactor 130A removed the legacy inbound wallet email-recovery
+> pipeline. This document covers outbound console transactional email and
+> backup-email verification only; the old inbound handler and service paths are
+> historical references, not implementation guidance.
+
 Date updated: March 11, 2026
 
 ## Objective
@@ -18,7 +23,9 @@ Primary product goals:
 Use this split:
 
 - Cloudflare remains the runtime and edge platform.
-- Cloudflare Email Routing remains the inbound email and email-worker layer we already use for email recovery.
+- Do not use Cloudflare Email Routing as a wallet-recovery channel. Refactor
+  130A removed that inbound path; any future inbound product flow needs its own
+  reviewed design.
 - Resend is the default outbound transactional email provider for v1.
 - Keep Resend and Amazon SES behind the same narrow provider interface.
 
@@ -35,8 +42,8 @@ Reason:
 
 ### What already exists
 
-- Inbound email handling exists in `/Users/pta/Dev/rust/simple-threshold-signer/server/src/router/cloudflare/email.ts`.
-- Email-recovery service types already exist in `/Users/pta/Dev/rust/simple-threshold-signer/server/src/email-recovery/types.ts`.
+- The legacy inbound email handler and email-recovery service were removed by
+  Refactor 130A.
 - The account settings UI already models backup email status as `PENDING | VERIFIED` in `/Users/pta/Dev/rust/simple-threshold-signer/examples/seams-site/src/pages/dashboard/routes/account-settings/consoleAccountApi.ts`.
 
 ### What is missing
@@ -64,9 +71,9 @@ Why:
 - The Worker send-email docs are useful, but they are documented around verified Email Routing destinations and operational notifications, not as the primary foundation for app-wide transactional mail to arbitrary end users.
 - Cloudflare announced a broader Email Service private beta in September 2025, but pricing was still not finalized in the announcement and we should not bet this feature on a beta product.
 
-Good use of Cloudflare here:
+Good use of Cloudflare here for separately reviewed products:
 
-- inbound email handling,
+- inbound email handling unrelated to wallet recovery,
 - email-triggered workflows,
 - running the application that calls the outbound provider,
 - storing secrets and bindings at the edge.
@@ -271,7 +278,8 @@ Copy changes:
 
 - Store provider secret in Workers secrets.
 - Call Resend from the Worker runtime.
-- Keep the Cloudflare inbound email-recovery path as its own module; do not force outbound transactional logic through the inbound email handler.
+- Keep outbound transactional logic in its own module. Do not reintroduce an
+  inbound wallet email-recovery handler as part of this plan.
 
 ## Templates
 

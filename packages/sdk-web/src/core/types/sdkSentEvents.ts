@@ -218,7 +218,6 @@ export type WalletFlow =
   | 'unlock'
   | 'signing'
   | 'link_device'
-  | 'email_recovery'
   | 'account_sync'
   | 'key_export';
 
@@ -243,7 +242,6 @@ export type WalletFlowInteractionKind =
   | 'transaction_confirmation'
   | 'qr_scan'
   | 'qr_display'
-  | 'email_recovery_link'
   | 'key_export_viewer';
 
 export interface WalletFlowEventInteraction {

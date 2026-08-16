@@ -1,6 +1,6 @@
 import React from 'react';
 import type { EmailOtpAuthPolicy } from '@/core/types/seams';
-import { ArrowLeftIcon, FingerprintIcon, MailIcon } from './ui/icons';
+import { ArrowLeftIcon, FingerprintIcon } from './ui/icons';
 import { SocialProviders } from './ui/SocialProviders';
 import QRCodeIcon from '../QRCodeIcon';
 import { ArrowRightAnim } from '../ArrowRightAnim';
@@ -181,12 +181,6 @@ export const SeamsAuthMenuSkeletonInner = React.forwardRef<
                       <button className="w3a-link-device-btn" disabled>
                         <QRCodeIcon width={18} height={18} strokeWidth={2} />
                         Scan and Link Device
-                      </button>
-                      {/* the hydrated menu shows this whenever Google SSO is wired,
-                        which this skeleton always renders */}
-                      <button className="w3a-link-device-btn" disabled>
-                        <MailIcon size={18} strokeWidth={2} style={{ display: 'block' }} />
-                        Recover Account with Email
                       </button>
                     </div>
                   </div>

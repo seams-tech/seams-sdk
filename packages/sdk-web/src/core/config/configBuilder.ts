@@ -306,26 +306,6 @@ export function buildConfigsFromDefaults(args: {
         routes: {
           delegateAction: relayerDelegateActionRoute,
         },
-        emailRecovery: {
-          minBalanceYocto:
-            overrides.relayer?.emailRecovery?.minBalanceYocto ??
-            defaults.network.relayer.emailRecovery.minBalanceYocto,
-          pollingIntervalMs:
-            overrides.relayer?.emailRecovery?.pollingIntervalMs ??
-            defaults.network.relayer.emailRecovery.pollingIntervalMs,
-          maxPollingDurationMs:
-            overrides.relayer?.emailRecovery?.maxPollingDurationMs ??
-            defaults.network.relayer.emailRecovery.maxPollingDurationMs,
-          pendingTtlMs:
-            overrides.relayer?.emailRecovery?.pendingTtlMs ??
-            defaults.network.relayer.emailRecovery.pendingTtlMs,
-          mailtoAddress:
-            overrides.relayer?.emailRecovery?.mailtoAddress ??
-            defaults.network.relayer.emailRecovery.mailtoAddress,
-          emailDkimVerifierContract:
-            overrides.relayer?.emailRecovery?.emailDkimVerifierContract ??
-            defaults.network.relayer.emailRecovery.emailDkimVerifierContract,
-        },
       },
     },
     registration,

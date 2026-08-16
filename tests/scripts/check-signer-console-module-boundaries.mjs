@@ -13,7 +13,6 @@ const signerCoreRoots = [
   'packages/sdk-server-ts/src/wasm',
   'packages/sdk-server-ts/src/storage',
   'packages/sdk-server-ts/src/delegateAction',
-  'packages/sdk-server-ts/src/email-recovery',
 ];
 
 const signerRouterFiles = [

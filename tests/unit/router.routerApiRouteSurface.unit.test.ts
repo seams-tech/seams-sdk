@@ -185,11 +185,6 @@ function testExtensionRoute(id: string, method: 'GET' | 'POST', path: string) {
   });
 }
 
-const EMAIL_RECOVERY_EXECUTION_SERVICE = {
-  async requestEmailRecovery() {
-    return { success: true };
-  },
-};
 
 test.describe('Router API route surface wiring', () => {
   test('Express public entrypoint composes the canonical Ed25519 Yao module and envelope', async () => {
@@ -316,40 +311,6 @@ test.describe('Router API route surface wiring', () => {
     expect(ids.has('sponsored_evm_call')).toBe(false);
     expect(ids.has('signing_session_seal_apply_server_seal')).toBe(false);
     expect(ids.has('signing_session_seal_remove_server_seal')).toBe(false);
-  });
-
-  test('email recovery route surface separates prepare-only and executable ingress branches', async () => {
-    const service = makeRouterApiServiceBagFixture();
-    const prepareOnlySurface = getRouterApiRouteSurface(
-      createRouterApiRouter(service, {
-        emailRecovery: {
-          kind: 'prepare_only',
-          authService: service,
-        },
-      }),
-    );
-    const prepareOnlyIds = new Set(
-      (prepareOnlySurface?.routeDefinitions || []).map((route) => route.id),
-    );
-
-    expect(prepareOnlyIds.has('email_recovery_prepare')).toBe(true);
-    expect(prepareOnlyIds.has('recover_email')).toBe(false);
-
-    const executableSurface = getRouterApiRouteSurface(
-      createRouterApiRouter(service, {
-        emailRecovery: {
-          kind: 'prepare_and_execute',
-          authService: service,
-          executionService: EMAIL_RECOVERY_EXECUTION_SERVICE,
-        },
-      }),
-    );
-    const executableIds = new Set(
-      (executableSurface?.routeDefinitions || []).map((route) => route.id),
-    );
-
-    expect(executableIds.has('email_recovery_prepare')).toBe(true);
-    expect(executableIds.has('recover_email')).toBe(true);
   });
 
   test('fetch and express attach the same configured Router API route surface', async () => {

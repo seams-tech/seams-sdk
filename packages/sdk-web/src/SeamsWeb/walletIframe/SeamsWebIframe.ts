@@ -492,18 +492,6 @@ export class SeamsWebIframe {
       bootstrapEcdsaSession: async (args) => await this.bootstrapEcdsaSessionDomain(args),
     };
     this.recovery = {
-      getRecoveryEmails: async (walletId) => {
-        await this.requireRouterReady();
-        return await this.router.getRecoveryEmails(walletId);
-      },
-      setRecoveryEmails: async (args) => {
-        await this.requireRouterReady();
-        return await this.router.setRecoveryEmails({
-          walletId: args.walletId,
-          recoveryEmails: args.recoveryEmails,
-          options: args.options,
-        });
-      },
       syncAccount: async (args) => {
         await this.requireRouterReady();
         return await this.router.syncAccount({

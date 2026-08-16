@@ -14,20 +14,8 @@ import {
   type EmailOtpUnlockChallengeStore,
   type EmailOtpWalletEnrollmentStore,
 } from '../EmailOtpStores';
-import {
-  createEmailRecoveryPreparationStore,
-  type EmailRecoveryPreparationStore,
-} from '../EmailRecoveryPreparationStore';
 import { createIdentityStore, type IdentityStore } from '../IdentityStore';
 import { createNearPublicKeyStore, type NearPublicKeyStore } from '../NearPublicKeyStore';
-import {
-  createRecoveryExecutionStore,
-  type RecoveryExecutionStore,
-} from '../RecoveryExecutionStore';
-import {
-  createRecoverySessionStore,
-  type RecoverySessionStore,
-} from '../RecoverySessionStore';
 import {
   createRegistrationCeremonyStore,
   type RegistrationCeremonyStore,
@@ -93,10 +81,7 @@ export class AuthServiceStoreRegistry {
   private emailOtpRegistrationAttemptStore: EmailOtpRegistrationAttemptStore | null = null;
   private emailOtpRateLimiter: SigningSessionSealRateLimiter | null = null;
   private registrationPrepareRateLimiter: SigningSessionSealRateLimiter | null = null;
-  private emailRecoveryPreparationStore: EmailRecoveryPreparationStore | null = null;
   private nearPublicKeyStore: NearPublicKeyStore | null = null;
-  private recoverySessionStore: RecoverySessionStore | null = null;
-  private recoveryExecutionStore: RecoveryExecutionStore | null = null;
   private identityStore: IdentityStore | null = null;
   private registrationCeremonyStore: RegistrationCeremonyStore | null = null;
   private walletStore: WalletStore | null = null;
@@ -204,25 +189,9 @@ export class AuthServiceStoreRegistry {
     return this.identityStore;
   }
 
-  getEmailRecoveryPreparationStore(): EmailRecoveryPreparationStore {
-    this.emailRecoveryPreparationStore ??= createEmailRecoveryPreparationStore(
-      createStoreFactoryInput(this.input),
-    );
-    return this.emailRecoveryPreparationStore;
-  }
-
   getNearPublicKeyStore(): NearPublicKeyStore {
     this.nearPublicKeyStore ??= createNearPublicKeyStore(createStoreFactoryInput(this.input));
     return this.nearPublicKeyStore;
   }
 
-  getRecoverySessionStore(): RecoverySessionStore {
-    this.recoverySessionStore ??= createRecoverySessionStore(createStoreFactoryInput(this.input));
-    return this.recoverySessionStore;
-  }
-
-  getRecoveryExecutionStore(): RecoveryExecutionStore {
-    this.recoveryExecutionStore ??= createRecoveryExecutionStore(createStoreFactoryInput(this.input));
-    return this.recoveryExecutionStore;
-  }
 }

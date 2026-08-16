@@ -19,6 +19,7 @@ import { parseGoogleEmailOtpRegistrationAttemptRecord } from '../../../packages/
 import { parseD1RegistrationIntent } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1RegistrationCeremonyRecords';
 import { base64UrlDecode, base64UrlEncode } from '../../../packages/shared-ts/src/utils/encoders';
 import { parseWebAuthnRpId } from '../../../packages/shared-ts/src/utils/domainIds';
+import type { WebAuthnAuthenticatorDeviceInfo } from '../../../packages/shared-ts/src/utils/webauthnDeviceInfo';
 import { normalizeRuntimePolicyScope } from '../../../packages/shared-ts/src/threshold/signingRootScope';
 import {
   implicitNearAccountProvisioning,
@@ -856,6 +857,8 @@ export async function insertWebAuthn(input: {
   readonly credentialPublicKeyB64u?: string;
   readonly counter?: number;
   readonly signerSlot?: number;
+  /** Omitted for rows written before device capture existed. */
+  readonly deviceInfo?: WebAuthnAuthenticatorDeviceInfo;
 }): Promise<void> {
   const rpId = input.rpId || 'example.com';
   const credentialIdB64u = input.credentialIdB64u || 'credential-a';
@@ -866,8 +869,8 @@ export async function insertWebAuthn(input: {
     .prepare(
       `INSERT INTO webauthn_authenticators (
         namespace, org_id, project_id, env_id, user_id, credential_id_b64u,
-        credential_public_key_b64u, counter, created_at_ms, updated_at_ms
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        credential_public_key_b64u, counter, created_at_ms, updated_at_ms, device_info_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       input.namespace,
@@ -880,6 +883,7 @@ export async function insertWebAuthn(input: {
       counter,
       200,
       300,
+      input.deviceInfo ? JSON.stringify(input.deviceInfo) : '{}',
     )
     .run();
   await input.database
@@ -1387,60 +1391,4 @@ export async function insertEmailOtpAuthState(input: {
       record.updatedAtMs,
     )
     .run();
-}
-
-export async function insertRecoverySession(input: {
-  readonly database: D1DatabaseLike;
-  readonly namespace: string;
-  readonly orgId: string;
-  readonly projectId: string;
-  readonly envId: string;
-  readonly sessionId: string;
-  readonly status?: 'prepared' | 'verified' | 'near_recovered' | 'failed';
-  readonly metadata?: Record<string, unknown>;
-}): Promise<void> {
-  const record = recoverySessionRecord(input);
-  await input.database
-    .prepare(
-      `INSERT INTO recovery_sessions (
-        namespace, org_id, project_id, env_id, session_id, near_account_id, record_json,
-        expires_at_ms, created_at_ms, updated_at_ms
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .bind(
-      input.namespace,
-      input.orgId,
-      input.projectId,
-      input.envId,
-      record.sessionId,
-      record.nearAccountId,
-      JSON.stringify(record),
-      record.expiresAtMs,
-      record.createdAtMs,
-      record.updatedAtMs,
-    )
-    .run();
-}
-
-export function recoverySessionRecord(input: {
-  readonly sessionId: string;
-  readonly status?: 'prepared' | 'verified' | 'near_recovered' | 'failed';
-  readonly metadata?: Record<string, unknown>;
-}) {
-  return {
-    version: 'recovery_session_v1',
-    sessionId: input.sessionId,
-    userId: 'recovery-user',
-    nearAccountId: 'alice.testnet',
-    signerSlot: 1,
-    status: input.status || 'prepared',
-    createdAtMs: 1_000,
-    updatedAtMs: 1_100,
-    expiresAtMs: Date.now() + 60_000,
-    newNearPublicKey: 'ed25519:new-public-key',
-    newEvmOwnerAddress: '0x00000000000000000000000000000000000000aa',
-    recoveryDeadlineEpochSeconds: Math.floor(Date.now() / 1_000) + 3_600,
-    recoveryEmailPayloadHash: 'recovery-payload-hash',
-    ...(input.metadata ? { metadata: input.metadata } : {}),
-  };
 }

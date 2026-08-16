@@ -120,18 +120,6 @@ void seams.evm.signTransaction({
 void seams.recovery.syncAccount({ walletId: 'frost-vermillion-k7p9m2' });
 // @ts-expect-error syncAccount identifies a wallet, not a NEAR account-shaped accountId.
 void seams.recovery.syncAccount({ accountId: 'alice.testnet' });
-void seams.recovery.getRecoveryEmails('frost-vermillion-k7p9m2');
-void seams.recovery.setRecoveryEmails({
-  walletId: 'frost-vermillion-k7p9m2',
-  recoveryEmails: ['alice@example.com'],
-  options: {},
-});
-void seams.recovery.setRecoveryEmails({
-  // @ts-expect-error setRecoveryEmails identifies a wallet, not a NEAR account-shaped accountId.
-  accountId: 'alice.testnet',
-  recoveryEmails: ['alice@example.com'],
-  options: {},
-});
 void seams.recovery.getWalletRecoveryCodeStatus({ walletId: 'frost-vermillion-k7p9m2' });
 void seams.recovery.acknowledgeWalletRecoveryCodeBackup({ walletId: 'frost-vermillion-k7p9m2' });
 
