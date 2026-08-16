@@ -78,6 +78,12 @@ import type {
 } from './readySecp256k1Material';
 import type { CapabilityPreparationResult } from '../../session/material/capabilityPreparationResult';
 import type { HydratedEcdsaSignerMaterial } from '../../session/identity/evmFamilyEcdsaIdentity';
+import {
+  PENDING_CHALLENGE_B64U,
+  PENDING_INTENT_DIGEST,
+  registerIntentDigestPreparation,
+  type IntentDigestPreparationResult,
+} from '../../stepUpConfirmation/intentDigestPreparation';
 
 type EvmFamilySigningWebAuthnMode<TRequest> =
   | {
@@ -217,6 +223,18 @@ async function buildEvmFamilyOperationDigests(input: {
     displayDigest: parseDigestB64u(
       base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(input.displayModel))),
     ),
+  };
+}
+
+function intentDigestPreparationFromEvmIntent(args: {
+  intentDigestHex: string;
+  challengeB64u: string;
+  displayModel: TxDisplayModel;
+}): IntentDigestPreparationResult {
+  return {
+    intentDigest: args.intentDigestHex,
+    challengeB64u: args.challengeB64u,
+    displayModel: args.displayModel,
   };
 }
 
@@ -375,6 +393,44 @@ async function resolvePreparedEvmFamilyAuthorization(input: {
     default:
       return assertNeverEvmFamilySigningAuthorization(input.authorization);
   }
+}
+
+function buildPendingLinkedDeviceConfirmationRequest<
+  TRequest,
+  TResult extends object,
+>(args: {
+  config: EvmFamilyUiConfirmFlowConfig<
+    TRequest & { senderSignatureAlgorithm: string },
+    TResult
+  >;
+  input: SignEvmFamilyWithUiConfirmArgs<TRequest>;
+  sessionId: string;
+}): ConfirmIntentDigestSigningOperationRequest {
+  if (args.input.authorization.kind !== 'linked_device') {
+    throw new Error('[chains] pending linked-device confirmation requires linked authorization');
+  }
+  return {
+    ctx: { touchConfirm: args.input.touchConfirm },
+    sessionId: args.sessionId,
+    chain: args.config.targetKind,
+    kind: 'intentDigest',
+    signingSubject: {
+      kind: 'evm_wallet',
+      walletId: args.input.walletId,
+    },
+    signingAuthPlan: args.input.authorization.confirmationAuthPlan,
+    challengeB64u: PENDING_CHALLENGE_B64U,
+    intentDigest: PENDING_INTENT_DIGEST,
+    displayModel: args.config.buildDisplayModel({
+      request: args.input.request,
+      signerAccount: args.input.walletId,
+      title: args.config.title,
+      subtitle: args.config.body,
+    }),
+    title: args.config.title,
+    body: args.config.body,
+    confirmationConfigOverride: args.input.confirmationConfigOverride,
+  };
 }
 
 export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends object>(args: {
@@ -590,6 +646,12 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
       displayModel,
     };
   })();
+  if (input.authorization.kind === 'linked_device') {
+    registerIntentDigestPreparation({
+      requestId: sessionId,
+      preparation: intentPreparationTask.then(intentDigestPreparationFromEvmIntent),
+    });
+  }
   type ConfirmationAuthPayload = Awaited<
     ReturnType<typeof resolveSigningConfirmationAuth>
   >['confirmationAuthPayload'];
@@ -680,6 +742,61 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
   };
 
   const runShowConfirmationCommand = async (): Promise<void> => {
+    if (input.authorization.kind === 'linked_device') {
+      emitProgress({
+        phase: SigningEventPhase.STEP_05_CONFIRMATION_DISPLAYED,
+        status: 'waiting_for_user',
+        interaction: { kind: 'transaction_confirmation', overlay: 'show' },
+      });
+      input.onConfirmationDisplayed?.();
+      const pendingConfirmationRequest = buildPendingLinkedDeviceConfirmationRequest({
+        config,
+        input,
+        sessionId,
+      });
+      const runConfirmation = createSigningConfirmationCommandHandler({
+        runtime: input.touchConfirm,
+        request: pendingConfirmationRequest,
+      });
+      confirmation = await runConfirmation();
+      // A confirmed request has already awaited the exact preparation through
+      // the intent-digest readiness registry. A cancelled request returns
+      // immediately and leaves preparation to unwind through the outer catch.
+      intentPrepared = await intentPreparationTask;
+      intentHasSecp256k1Request = intentPrepared.intent.signRequests.some(
+        (signReq) => signReq.algorithm === 'secp256k1',
+      );
+      const stepUp = await resolvePreparedEvmFamilyAuthorization({
+        authorization: input.authorization,
+        thresholdEcdsaStepUp,
+        hasThresholdEcdsaRequest,
+        needsWebAuthn,
+        requiredSignatureUses: config.requiredSignatureUsesForRequest(input.request),
+        explicitAuthErrorLabel: config.explicitAuthErrorLabel,
+      });
+      if (!isWarmSessionSigningAuthPlan(stepUp.confirmationAuthPayload.signingAuthPlan)) {
+        throw new Error('[chains] linked-device signing requires a warm-session auth plan');
+      }
+      preparedStepUpAuth = stepUp;
+      emitProgress({
+        phase: SigningEventPhase.STEP_06_AUTH_WARM_SESSION_CLAIMED,
+        status: 'succeeded',
+        interaction: { kind: 'none', overlay: 'none' },
+        data: {
+          thresholdSessionId: stepUp.confirmationAuthPayload.signingAuthPlan.thresholdSessionId,
+          expiresAtMs: stepUp.confirmationAuthPayload.signingAuthPlan.expiresAtMs,
+          remainingUses: stepUp.confirmationAuthPayload.signingAuthPlan.remainingUses,
+        },
+      });
+      notifyAuthSideEffectStarted('auth_confirmed');
+      emitProgress({
+        phase: SigningEventPhase.STEP_05_CONFIRMATION_APPROVED,
+        status: 'succeeded',
+        interaction: { kind: 'transaction_confirmation', overlay: 'hide' },
+      });
+      return;
+    }
+
     // Resolve the exact operation, canonical material, and operation-step-up
     // preparation before any factor-specific side effect begins. In particular,
     // an Email OTP challenge must never be issued for material that this
@@ -761,15 +878,17 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
       request: confirmationRequest,
     });
     confirmation = await runConfirmation();
+    const confirmed = confirmation;
+    if (!confirmed) {
+      throw new Error('[chains] signing confirmation did not produce a decision');
+    }
     notifyAuthSideEffectStarted('auth_confirmed');
     switch (input.authorization.kind) {
       case 'owner':
         stepUpAuthorization = buildEvmFamilyEcdsaStepUpAuthorization({
           prepared: stepUp,
-          confirmation,
+          confirmation: confirmed,
         });
-        break;
-      case 'linked_device':
         break;
       default:
         assertNeverEvmFamilySigningAuthorization(input.authorization);

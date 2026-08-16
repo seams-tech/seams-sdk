@@ -4552,7 +4552,9 @@ export class BrowserSigningSurface {
       authentication.kind === 'authenticated' &&
       authentication.walletId === args.walletSession.walletId
     ) {
-      await this.warmCriticalResources();
+      if (__isWalletIframeHostMode()) {
+        void this.warmCriticalResources().catch(() => undefined);
+      }
       const linked = await signLinkedDeviceEvmFamilyV1({
         deps: this.enginePorts.tempoSigningDeps,
         authenticator: this.linkedDeviceAuthenticator,
