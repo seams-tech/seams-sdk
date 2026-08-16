@@ -22,6 +22,13 @@ type RevokeState =
   | { kind: 'working'; deviceId: string }
   | { kind: 'error'; message: string };
 
+/** Revoked devices are historical records, not devices the owner can manage. */
+function visibleLinkedDevices(
+  devices: readonly LinkedDeviceSummaryV1[],
+): readonly LinkedDeviceSummaryV1[] {
+  return devices.filter((device) => device.state !== 'revoked');
+}
+
 /**
  * Plain-language state for one device. The wire model carries five states and a
  * revocation epoch; a person only needs to know whether the device can still
@@ -139,7 +146,9 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
     setLoadState({ kind: 'loading' });
     try {
       const result = await seams.devices.listLinkedDevices({ walletId, limit: 50, cursor: null });
-      if (loadSeq.current === seq) setLoadState({ kind: 'loaded', devices: result.devices });
+      if (loadSeq.current === seq) {
+        setLoadState({ kind: 'loaded', devices: visibleLinkedDevices(result.devices) });
+      }
     } catch {
       if (loadSeq.current === seq) setLoadState({ kind: 'error' });
     }
@@ -218,7 +227,8 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
             await loadDevices();
             return;
           case 'not_found':
-            setRevokeState({ kind: 'error', message: 'That device is already gone.' });
+            setRevokeState({ kind: 'idle' });
+            setAnnouncement(`${description} was already removed.`);
             await loadDevices();
             return;
           case 'conflict':
@@ -314,7 +324,6 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
                     revokeState.kind === 'confirming' && revokeState.deviceId === deviceId;
                   const working =
                     revokeState.kind === 'working' && revokeState.deviceId === deviceId;
-                  const removed = device.state === 'revoked';
                   const fullIdShown = expandedDeviceId === deviceId;
                   return (
                     <li key={deviceId} className="w3a-linked-devices-modal-item">
@@ -368,11 +377,11 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
                         <button
                           type="button"
                           className="w3a-linked-devices-modal-secondary"
-                          disabled={working || removed}
+                          disabled={working}
                           aria-label={`Remove ${deviceDescription(device)}`}
                           onClick={() => setRevokeState({ kind: 'confirming', deviceId })}
                         >
-                          {working ? 'Removing…' : removed ? 'Removed' : 'Remove'}
+                          {working ? 'Removing…' : 'Remove'}
                         </button>
                       )}
                     </li>
