@@ -18,6 +18,11 @@
 
 use base64ct::{Base64UrlUnpadded, Encoding};
 use serde::Serialize;
+use signer_core::linked_device_custody_transfer::{
+    open_wallet_custody_seed_from_linked_device_v1, reseal_transferred_wallet_custody_seed_v1,
+    seal_wallet_custody_seed_for_linked_device_v1, LinkedDeviceCustodyTransferBindingV1,
+    LinkedDeviceCustodyTransferRecipientV1, WalletCustodySeedFromLinkedDeviceTransferV1,
+};
 use signer_core::passkey_custody::open_passkey_custody_secret_v1;
 use signer_core::passkey_custody::{
     open_verified_passkey_custody_secret_v1, open_wallet_custody_seed_envelope_v1,
@@ -47,6 +52,18 @@ fn decode_digest(value: &str, label: &str) -> Result<[u8; 32], JsValue> {
         .map_err(|_| js_error(format!("{label} must decode to 32 bytes")))
 }
 
+/// How an admitted seed reached this handle.
+///
+/// The two proofs authorize different writes — an envelope open may reseal
+/// locally, a linked-device transfer may reseal for the device it was
+/// addressed to — so the handle holds exactly one and each reseal entry point
+/// requires its own branch. An enum rather than two `Option`s keeps "admitted
+/// twice, by different routes" unrepresentable.
+enum WasmCustodySeedAdmissionV1 {
+    SealedEnvelope(WalletCustodySeedFromSealedEnvelopeV1),
+    LinkedDeviceTransfer(WalletCustodySeedFromLinkedDeviceTransferV1),
+}
+
 /// An opened custody secret held in Rust memory.
 ///
 /// There is deliberately no accessor for the bytes: JavaScript can learn the
@@ -56,10 +73,12 @@ fn decode_digest(value: &str, label: &str) -> Result<[u8; 32], JsValue> {
 pub struct WasmPasskeyCustodyHandleV1 {
     secret: Zeroizing<Vec<u8>>,
     kind: PasskeyCustodySecretKind,
-    /// Present only when this handle came from opening a wallet custody seed
-    /// envelope. It is what lets the seed be resealed under a second factor,
-    /// and it never crosses back into JavaScript.
-    admitted: Option<WalletCustodySeedFromSealedEnvelopeV1>,
+    /// Present only when this handle came from a wallet custody seed that was
+    /// admitted — opened from its envelope, or received through an
+    /// authenticated linked-device transfer. It is what lets the seed be
+    /// resealed under another factor, and it never crosses back into
+    /// JavaScript.
+    admitted: Option<WasmCustodySeedAdmissionV1>,
 }
 
 #[wasm_bindgen]
@@ -214,7 +233,7 @@ pub fn passkey_custody_open_wallet_seed_v1(
     Ok(WasmPasskeyCustodyHandleV1 {
         secret,
         kind: PasskeyCustodySecretKind::WalletCustodySeed,
-        admitted: Some(admitted),
+        admitted: Some(WasmCustodySeedAdmissionV1::SealedEnvelope(admitted)),
     })
 }
 
@@ -230,9 +249,17 @@ pub fn passkey_custody_reseal_wallet_seed_v1(
     new_factor_secret: &[u8],
     new_envelope_binding_json: &str,
 ) -> Result<JsValue, JsValue> {
-    let admitted = handle.admitted.as_ref().ok_or_else(|| {
-        js_error("this handle was not opened from a verified wallet custody seed envelope")
-    })?;
+    let admitted = match handle.admitted.as_ref() {
+        Some(WasmCustodySeedAdmissionV1::SealedEnvelope(admitted)) => admitted,
+        Some(WasmCustodySeedAdmissionV1::LinkedDeviceTransfer(_)) => return Err(js_error(
+            "a transferred seed reseals through passkey_custody_reseal_transferred_wallet_seed_v1",
+        )),
+        None => {
+            return Err(js_error(
+                "this handle was not opened from a verified wallet custody seed envelope",
+            ))
+        }
+    };
     let binding = parse_envelope_binding(new_envelope_binding_json)?;
     let mut nonce = [0u8; PASSKEY_CUSTODY_NONCE_LEN];
     getrandom::getrandom(&mut nonce)
@@ -295,6 +322,192 @@ pub fn passkey_custody_open_verified_v1(
         opened,
         binding.binding.kind(),
     ))
+}
+
+/// Device 2's transfer recipient key, generated inside this module.
+///
+/// The private half never crosses back into JavaScript and is deliberately not
+/// the QR's link key: that one lives in the device-linking key worker as a
+/// non-extractable `CryptoKey`, and a decap there would put the wallet custody
+/// seed in JavaScript memory. Publishing this public half through the
+/// authenticated enrollment is what tells Device 1 where to seal.
+#[wasm_bindgen]
+pub struct WasmLinkedDeviceCustodyTransferRecipientV1 {
+    inner: LinkedDeviceCustodyTransferRecipientV1,
+}
+
+#[wasm_bindgen]
+impl WasmLinkedDeviceCustodyTransferRecipientV1 {
+    /// The public key Device 1 seals to. Safe to publish.
+    pub fn public_key_b64u(&self) -> String {
+        self.inner.public_key_b64u()
+    }
+}
+
+/// Generates the recipient key Device 2 will open its custody transfer with.
+///
+/// Randomness is drawn here rather than accepted, so a caller cannot choose the
+/// key a seed will be sealed to.
+#[wasm_bindgen]
+pub fn linked_device_custody_transfer_recipient_v1(
+) -> Result<WasmLinkedDeviceCustodyTransferRecipientV1, JsValue> {
+    let mut secret = Zeroizing::new([0u8; 32]);
+    getrandom::getrandom(&mut secret[..])
+        .map_err(|_| js_error("linked-device custody transfer randomness is unavailable"))?;
+    Ok(WasmLinkedDeviceCustodyTransferRecipientV1 {
+        inner: LinkedDeviceCustodyTransferRecipientV1::from_secret_bytes(&secret[..])
+            .map_err(js_error)?,
+    })
+}
+
+/// Device 1: seals the wallet custody seed for one approved linked device.
+///
+/// Takes the handle rather than seed bytes, so only a device that actually
+/// opened a real envelope for this wallet can prepare a transfer. The ephemeral
+/// key and nonce are generated here rather than accepted, so a caller cannot
+/// reuse either across two transfers.
+#[wasm_bindgen]
+pub fn passkey_custody_seal_wallet_seed_for_linked_device_v1(
+    handle: &WasmPasskeyCustodyHandleV1,
+    transfer_binding_json: &str,
+) -> Result<JsValue, JsValue> {
+    let admitted = match handle.admitted.as_ref() {
+        Some(WasmCustodySeedAdmissionV1::SealedEnvelope(admitted)) => admitted,
+        Some(WasmCustodySeedAdmissionV1::LinkedDeviceTransfer(_)) => {
+            return Err(js_error(
+                "a transferred seed cannot be forwarded to a third device",
+            ))
+        }
+        None => {
+            return Err(js_error(
+                "this handle was not opened from a verified wallet custody seed envelope",
+            ))
+        }
+    };
+    let transfer = parse_transfer_binding(transfer_binding_json)?;
+    let mut ephemeral_secret = Zeroizing::new([0u8; 32]);
+    getrandom::getrandom(&mut ephemeral_secret[..])
+        .map_err(|_| js_error("linked-device custody transfer randomness is unavailable"))?;
+    let mut nonce = [0u8; PASSKEY_CUSTODY_NONCE_LEN];
+    getrandom::getrandom(&mut nonce)
+        .map_err(|_| js_error("linked-device custody transfer nonce randomness is unavailable"))?;
+    let sealed = seal_wallet_custody_seed_for_linked_device_v1(
+        admitted,
+        &handle.secret[..],
+        &transfer,
+        &ephemeral_secret[..],
+        &nonce,
+    )
+    .map_err(js_error)?;
+    serde_wasm_bindgen::to_value(&LinkedDeviceCustodyTransferWireV1 {
+        ephemeral_public_key_b64u: sealed.ephemeral_public_key_b64u(),
+        nonce_b64u: sealed.nonce_b64u(),
+        sealed_custody_secret_b64u: sealed.ciphertext_b64u(),
+        aad_hash_b64u: sealed.aad_hash_b64u(),
+        ciphertext_digest_b64u: sealed.ciphertext_digest_b64u(),
+    })
+    .map_err(js_error)
+}
+
+/// Device 2: opens a transfer addressed to this recipient key.
+///
+/// The resulting handle carries the linked-transfer admission, which only
+/// `passkey_custody_reseal_transferred_wallet_seed_v1` accepts. A transferred
+/// seed therefore cannot re-enter the local-envelope reseal path or be
+/// forwarded onward to a third device.
+#[wasm_bindgen]
+pub fn passkey_custody_open_wallet_seed_from_linked_device_v1(
+    recipient: &WasmLinkedDeviceCustodyTransferRecipientV1,
+    transfer_binding_json: &str,
+    ephemeral_public_key_b64u: &str,
+    nonce12: &[u8],
+    sealed_custody_secret_b64u: &str,
+    aad_hash_b64u: &str,
+    ciphertext_digest_b64u: &str,
+) -> Result<WasmPasskeyCustodyHandleV1, JsValue> {
+    let transfer = parse_transfer_binding(transfer_binding_json)?;
+    let ephemeral_public_key = decode_b64u(ephemeral_public_key_b64u, "ephemeralPublicKeyB64u")?;
+    let ciphertext = decode_b64u(sealed_custody_secret_b64u, "sealedCustodySecretB64u")?;
+    let expected_aad_hash = decode_digest(aad_hash_b64u, "aadHashB64u")?;
+    let expected_ciphertext_digest = decode_digest(ciphertext_digest_b64u, "ciphertextDigestB64u")?;
+    let (secret, admitted) = open_wallet_custody_seed_from_linked_device_v1(
+        &recipient.inner,
+        &transfer,
+        &ephemeral_public_key,
+        nonce12,
+        &ciphertext,
+        &expected_aad_hash,
+        &expected_ciphertext_digest,
+    )
+    .map_err(js_error)?;
+    Ok(WasmPasskeyCustodyHandleV1 {
+        secret,
+        kind: PasskeyCustodySecretKind::WalletCustodySeed,
+        admitted: Some(WasmCustodySeedAdmissionV1::LinkedDeviceTransfer(admitted)),
+    })
+}
+
+/// Device 2: seals the transferred seed under its own new factor.
+///
+/// Everything except the factor and the envelope id must match what the
+/// transfer admitted, so the envelope Device 2 writes makes exactly the claim
+/// Device 1's envelope made. Adding a device cannot derive a new wallet,
+/// change public keys, or relabel the key manifest.
+#[wasm_bindgen]
+pub fn passkey_custody_reseal_transferred_wallet_seed_v1(
+    handle: &WasmPasskeyCustodyHandleV1,
+    new_factor_secret: &[u8],
+    new_envelope_binding_json: &str,
+) -> Result<JsValue, JsValue> {
+    let admitted = match handle.admitted.as_ref() {
+        Some(WasmCustodySeedAdmissionV1::LinkedDeviceTransfer(admitted)) => admitted,
+        Some(WasmCustodySeedAdmissionV1::SealedEnvelope(_)) => {
+            return Err(js_error(
+                "a locally opened seed reseals through passkey_custody_reseal_wallet_seed_v1",
+            ))
+        }
+        None => {
+            return Err(js_error(
+                "this handle was not opened from a linked-device custody transfer",
+            ))
+        }
+    };
+    let binding = parse_envelope_binding(new_envelope_binding_json)?;
+    let mut nonce = [0u8; PASSKEY_CUSTODY_NONCE_LEN];
+    getrandom::getrandom(&mut nonce)
+        .map_err(|_| js_error("envelope nonce randomness is unavailable"))?;
+    let new_factor_secret = Zeroizing::new(new_factor_secret.to_vec());
+    let sealed = reseal_transferred_wallet_custody_seed_v1(
+        &new_factor_secret,
+        &binding,
+        admitted,
+        &nonce,
+        &handle.secret[..],
+    )
+    .map_err(js_error)?;
+    serde_wasm_bindgen::to_value(&ResealedEnvelopeWireV1 {
+        nonce_b64u: Base64UrlUnpadded::encode_string(&nonce),
+        sealed_custody_secret_b64u: sealed.ciphertext_b64u(),
+        aad_hash_b64u: sealed.aad_hash_b64u(),
+        ciphertext_digest_b64u: sealed.ciphertext_digest_b64u(),
+    })
+    .map_err(js_error)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LinkedDeviceCustodyTransferWireV1 {
+    ephemeral_public_key_b64u: String,
+    nonce_b64u: String,
+    sealed_custody_secret_b64u: String,
+    aad_hash_b64u: String,
+    ciphertext_digest_b64u: String,
+}
+
+fn parse_transfer_binding(
+    binding_json: &str,
+) -> Result<LinkedDeviceCustodyTransferBindingV1, JsValue> {
+    serde_json::from_str::<LinkedDeviceCustodyTransferBindingV1>(binding_json).map_err(js_error)
 }
 
 // The wallet recovery envelope set is deliberately absent from this module.

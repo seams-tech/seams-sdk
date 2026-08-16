@@ -602,7 +602,7 @@ pub fn reseal_wallet_custody_seed_under_new_factor_v1(
     seal_custody_secret(new_factor_secret, new_binding, nonce, custody_seed)
 }
 
-fn seal_custody_secret(
+pub(crate) fn seal_custody_secret(
     prf_first: &[u8],
     binding: &PasskeyCustodyEnvelopeBindingV1,
     nonce: &[u8],
