@@ -11,6 +11,23 @@ export type LinkedDeviceManagementPermission =
   | { readonly kind: 'owner' }
   | { readonly kind: 'signing_only' };
 
+export type AccountMenuCapabilities =
+  | {
+      readonly kind: 'signed_out';
+      readonly canExportKeys: false;
+      readonly canManageLinkedDevices: false;
+    }
+  | {
+      readonly kind: 'owner';
+      readonly canExportKeys: true;
+      readonly canManageLinkedDevices: true;
+    }
+  | {
+      readonly kind: 'signing_only';
+      readonly canExportKeys: false;
+      readonly canManageLinkedDevices: false;
+    };
+
 export function linkedDeviceManagementPermissionForLoginState(
   state: LoginState,
 ): LinkedDeviceManagementPermission {
@@ -19,6 +36,25 @@ export function linkedDeviceManagementPermissionForLoginState(
     return { kind: 'signing_only' };
   }
   return { kind: 'owner' };
+}
+
+export function accountMenuCapabilitiesForLoginState(
+  state: LoginState,
+): AccountMenuCapabilities {
+  const management = linkedDeviceManagementPermissionForLoginState(state);
+  switch (management.kind) {
+    case 'unauthenticated':
+      return { kind: 'signed_out', canExportKeys: false, canManageLinkedDevices: false };
+    case 'owner':
+      return { kind: 'owner', canExportKeys: true, canManageLinkedDevices: true };
+    case 'signing_only':
+      return { kind: 'signing_only', canExportKeys: false, canManageLinkedDevices: false };
+  }
+  return assertNeverAccountMenuPermission(management);
+}
+
+function assertNeverAccountMenuPermission(value: never): never {
+  throw new Error(`Unsupported account-menu permission: ${String(value)}`);
 }
 
 export function buildReactLoggedOutLoginState(): LoginState {

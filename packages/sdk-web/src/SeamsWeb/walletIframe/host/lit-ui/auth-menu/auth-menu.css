@@ -1346,6 +1346,14 @@ seams-auth-menu-surface {
   animation-fill-mode: both;
 }
 
+/* These sub-views title with a full instruction sentence, not a short heading,
+   so they speak one size quieter than the QR view's .qr-title. */
+.w3a-link-device-confirmation .qr-title {
+  max-width: 26ch;
+  font-size: 1.0625rem;
+  line-height: 1.35;
+}
+
 /* Dot-ring badge for the passkey confirmation. One geometry for both states:
    while waiting the dots sweep like a clock spinner; once approved they settle
    into a faint ring and the check strokes itself in. Monochrome on purpose —
