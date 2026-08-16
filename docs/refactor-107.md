@@ -613,8 +613,8 @@ wallet authority.
 - [x] Remove app session ID, app-session version, and copied app device identity
       from wallet operation step-up evidence and challenges.
 - [x] Remove duplicate client fallback policy and obsolete retry helpers.
-- [ ] Remove wallet-only persistence reads, fixtures, and tests that encode the
-      retired coupling. Done so far — deleted `tests/unit/sessionTokens.unit.test.ts`
+- [x] Remove wallet-only persistence reads, fixtures, and tests that encode the
+      retired coupling. Deleted `tests/unit/sessionTokens.unit.test.ts`
       (tested the removed `requireAppSessionJwt` / `requireWalletSessionJwt` /
       `appOrWalletSessionJwtAuth` / `parseAppSessionJwt` helpers),
       `tests/unit/walletIframeHostedSessionSource.unit.test.ts` (keyed
@@ -623,13 +623,16 @@ wallet authority.
       `tests/unit/walletIframeUnlockOptions.unit.test.ts` (asserted the retired
       `session: {kind:'jwt'}` PM_UNLOCK option and `ecdsaKeyFactsInventory`
       `mode:'app_session'`); dropped the same retired `session` option from
-      `tests/wallet-iframe/router.behavior.test.ts`. Outstanding — the retired
-      `session: {kind:'jwt'}` / `mode:'app_session'` shapes still appear in
-      `tests/unit/walletIframeAuthHandlers.unit.test.ts`,
-      `tests/unit/walletIframe.signerModeConfigPropagation.unit.test.ts`, and
-      `tests/unit/walletIframeHost.emailOtpRecoveryCodes.unit.test.ts`, each of
-      which also holds still-valid assertions and needs repair rather than
-      deletion.
+      `tests/wallet-iframe/router.behavior.test.ts`. Repaired
+      `tests/unit/walletIframeAuthHandlers.unit.test.ts` and
+      `tests/unit/walletIframeHost.emailOtpRecoveryCodes.unit.test.ts` onto the
+      current boundary: the host rejects a parent-supplied `walletSessionToken`,
+      injects its own origin token for `mode:'opaque_wallet_session'` key-facts
+      lookups, passes `mode:'webauthn'` through, clears hosted sessions on lock,
+      and keeps the redeemed token out of every parent-facing message.
+      `tests/unit/walletIframe.signerModeConfigPropagation.unit.test.ts` needed
+      no change — its `kind:'jwt'` values are `EcdsaSignerProvisioningSession`
+      config, not the retired PM_UNLOCK session option.
 - [x] Delete wallet `ActiveAuthorizationSession` types, services, D1 rows, and
       foreign keys after the last wallet consumer is gone.
 - [x] Delete application-auth provider types and iframe messages from the wallet
