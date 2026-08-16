@@ -26,6 +26,10 @@
   /* product-visual accent (Seams deck green): never on plain UI chrome */
   --h2-green: #157f5f;
   --h2-green-soft: #e4f0eb;
+  /* CTA accent, sampled from gradients/web/aqua-evergreen.jpg (mean of the
+     mid/dark evergreen cluster); replaces the old blue accent */
+  --h2-evergreen: #236058;
+  --h2-evergreen-deep: #174a46;
   --h2-amber: #b45309;
   --h2-amber-soft: #f7ecdd;
   --h2-red: #b91c1c;
@@ -191,6 +195,15 @@ body:has(.h2-page) {
 
 .h2-page .navbar-static:not(.navbar-static--compact) .navbar-static__pill {
   border-radius: 9999px;
+}
+
+/* Contact Sales accent: evergreen instead of the inherited blue */
+.h2-page .navbar-static__pill--ghost {
+  color: var(--h2-evergreen);
+}
+
+.h2-page .navbar-static__pill--ghost:hover {
+  color: var(--h2-evergreen-deep);
 }
 
 .h2-page .navbar-static--compact {
@@ -1716,11 +1729,10 @@ body:has(.h2-page) {
   padding: 16px 0 14px;
 }
 
-.h2-duo__visual .h2-mpc {
-  width: min(400px, 100%);
-}
-
+/* margin-top pins the CTA to the panel foot even when a panel has no visual;
+   panels with a flex:1 visual are unaffected (grow absorbs the free space) */
 .h2-duo__cta {
+  margin-top: auto;
   display: inline-flex;
   align-items: center;
   font-size: var(--h2-text-base);
@@ -2518,22 +2530,90 @@ body:has(.h2-page) {
   }
 }
 
-/* stitching flows from the shares toward the signature while the panel is
-   hovered; dash cycle is 9px so the -18px offset loops seamlessly */
-@keyframes h2-mpc-stitch {
-  to {
-    stroke-dashoffset: -18;
-  }
+/* ---------- split-key visual (duo card + Embedded Wallets pillar tab) ---------- */
+
+/* soft-asset language: floating share slabs with labeled white chips and one
+   green output; the stack's evergreen tones come from aqua-evergreen.jpg */
+.h2-splitkey {
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  justify-content: center;
+  gap: 18px 30px;
 }
 
-.h2-pillars__panel:hover .h2-mpc__flow {
-  animation: h2-mpc-stitch 700ms linear infinite;
+.h2-splitkey__stack {
+  width: 150px;
+  height: auto;
+  filter: drop-shadow(0 18px 20px rgba(23, 74, 70, 0.16));
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .h2-pillars__panel:hover .h2-mpc__flow {
-    animation: none;
-  }
+.h2-splitkey__chips {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+/* stagger the chips so they float instead of forming a column */
+.h2-splitkey__chip:nth-child(1) {
+  margin-left: 16px;
+}
+
+.h2-splitkey__chip:nth-child(3) {
+  margin-left: 34px;
+}
+
+.h2-splitkey__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px 8px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--h2-stone);
+  background: #ffffff;
+  box-shadow:
+    0 10px 24px -14px rgba(23, 42, 38, 0.28),
+    0 2px 6px -3px rgba(23, 42, 38, 0.12);
+  font-size: var(--h2-text-lg);
+  font-weight: 600;
+  color: var(--h2-ink);
+  white-space: nowrap;
+}
+
+.h2-splitkey__ico {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  background: var(--h2-taupe);
+  color: var(--h2-graphite);
+}
+
+.h2-splitkey__ico svg {
+  width: 12px;
+  height: 12px;
+}
+
+.h2-splitkey__chip--sig {
+  color: var(--h2-green);
+}
+
+.h2-splitkey__chip--sig .h2-splitkey__ico {
+  border-radius: 50%;
+  background: var(--h2-green-soft);
+  color: var(--h2-green);
+}
+
+.h2-splitkey__note {
+  grid-column: 1 / -1;
+  margin: 0;
+  text-align: center;
+  font-family: var(--h2-mono);
+  font-size: var(--h2-text-2xs);
+  letter-spacing: 0.08em;
+  color: var(--h2-ash);
 }
 
 /* status chips */
@@ -2949,6 +3029,12 @@ body:has(.h2-page) {
   font-size: var(--h2-text-xl);
   line-height: 1.6;
   color: var(--h2-smoke);
+}
+
+/* split-key diagram under the copy items, sized to their measure */
+.h2-security__diagram {
+  margin-top: 40px;
+  max-width: 432px;
 }
 
 .h2-security__grid {
