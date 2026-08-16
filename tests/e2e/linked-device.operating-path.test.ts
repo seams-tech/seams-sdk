@@ -220,7 +220,9 @@ function linkedDeviceConsoleDiagnostic(message: ConsoleMessage): string | null {
 }
 
 test.skip(!enabled, 'Set SEAMS_LINKED_DEVICE_E2E=1 with a composed linked-device backend');
-test.setTimeout(420_000);
+// Registration, linking, five signing operations, a step-up retry, a refresh,
+// and a lock/unlock cycle all run in one contract against live local services.
+test.setTimeout(900_000);
 
 async function addVirtualAuthenticator(page: Page): Promise<CDPSession> {
   const cdp = await page.context().newCDPSession(page);
@@ -841,13 +843,10 @@ test('Device 2 links, unlocks, refreshes, signs with warm and step-up auth, then
       throw new Error(`Device 1 claim failed (${claimResult.response.status()})`);
     }
     const device2Wallet = await walletFrame(device2Page);
-    const continueWithPasskey = device2Wallet.getByRole('button', {
-      name: 'Continue with passkey',
-      exact: true,
-    });
-    await continueWithPasskey.waitFor({ state: 'visible', timeout: 120_000 });
-    await continueWithPasskey.focus();
-    await continueWithPasskey.press('Enter');
+    const createTargetPasskey = device2Wallet.locator('[data-link-device-passkey-action]');
+    await createTargetPasskey.waitFor({ state: 'visible', timeout: 120_000 });
+    await createTargetPasskey.focus();
+    await createTargetPasskey.press('Enter');
     const walletSessionResult = await activeWalletSession;
     if (walletSessionResult.kind === 'timeout') {
       const walletState = (await device2Wallet.locator('body').innerText()).trim();
@@ -1001,11 +1000,19 @@ test('Device 2 links, unlocks, refreshes, signs with warm and step-up auth, then
     await openOwnerLinkedDevices(ownerPage);
     const linkedDevice = ownerPage.locator('.w3a-linked-devices-modal-item');
     await linkedDevice.waitFor({ state: 'visible', timeout: 60_000 });
-    await linkedDevice.getByRole('button', { name: 'Remove', exact: true }).click();
+    // The card's remove control is labelled `Remove <credential> (ID …)` so that
+    // two same-labelled cards announce distinctly; match the prefix, not the
+    // whole accessible name.
+    await linkedDevice.getByRole('button', { name: /^Remove\b/ }).click();
     await linkedDevice.getByRole('button', { name: 'Yes, remove', exact: true }).click();
-    await expect(linkedDevice.locator('.w3a-linked-devices-modal-standing')).toHaveText('Removed', {
-      timeout: 60_000,
-    });
+    // Removal revokes the enrollment. A revoked device is a historical record,
+    // not a manageable entry, so it leaves the list rather than standing in it.
+    await expect(linkedDevice).toHaveCount(0, { timeout: 60_000 });
+    await expect(
+      ownerPage.locator('.w3a-linked-devices-modal-placeholder', {
+        hasText: 'No other devices are using this wallet.',
+      }),
+    ).toBeVisible({ timeout: 60_000 });
   } finally {
     await closeBrowserContexts(ownerContext, device2Context);
   }
