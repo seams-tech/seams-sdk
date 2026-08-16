@@ -79,7 +79,10 @@ export const SeamsProfileSettingsButton: React.FC<SeamsProfileSettingsButtonProp
       return;
     }
     if (event.status === 'succeeded') {
-      toast.success(event.message || 'Device linking complete!', { id: 'device-linking' });
+      toast.success(event.message || 'QR code scanned', {
+        id: 'device-linking',
+        description: 'Continue setup on your other device.',
+      });
       return;
     }
     toast.loading(event.message || 'Processing device link...', { id: 'device-linking' });

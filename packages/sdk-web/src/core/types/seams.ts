@@ -37,6 +37,10 @@ import type {
   WalletUnlockSubjectSet,
 } from '../signingEngine/session/identity/walletUnlockSubject';
 
+export type ReusableWalletSessionAuthorizationId =
+  | WalletSessionAuthorizationId
+  | LinkedDeviceWalletSessionAuthorizationId;
+
 export type {
   SensitiveOperationPolicy,
   SignerAuthMethod,
@@ -384,11 +388,6 @@ export type WalletAuthenticationState =
       readonly kind: 'authenticated';
       readonly walletId: WalletId;
       readonly authMethod: WalletAuthMethod;
-    }
-  | {
-      readonly kind: 'linked_device_session';
-      readonly walletId: WalletId;
-      readonly authMethod?: never;
     };
 
 export type ReusableWalletSessionState =
@@ -406,7 +405,7 @@ export type ReusableWalletSessionState =
   | {
       readonly kind: 'active';
       readonly walletId: WalletId;
-      readonly authorizationId: WalletSessionAuthorizationId;
+      readonly authorizationId: ReusableWalletSessionAuthorizationId;
       readonly walletSessionId: WalletSessionId;
       readonly authMethod: WalletAuthMethod;
       readonly remainingUses: number;
@@ -415,20 +414,9 @@ export type ReusableWalletSessionState =
       readonly reason?: never;
     }
   | {
-      readonly kind: 'linked_device_active';
-      readonly walletId: WalletId;
-      readonly authorizationId: LinkedDeviceWalletSessionAuthorizationId;
-      readonly walletSessionId: WalletSessionId;
-      readonly authMethod: 'linked_device';
-      readonly expiresAtMs: number;
-      readonly remainingUses?: never;
-      readonly detectedAtMs?: never;
-      readonly reason?: never;
-    }
-  | {
       readonly kind: 'exhausted';
       readonly walletId: WalletId;
-      readonly authorizationId: WalletSessionAuthorizationId;
+      readonly authorizationId: ReusableWalletSessionAuthorizationId;
       readonly walletSessionId: WalletSessionId;
       readonly authMethod: WalletAuthMethod;
       readonly remainingUses: 0;
@@ -439,7 +427,7 @@ export type ReusableWalletSessionState =
   | {
       readonly kind: 'expired';
       readonly walletId: WalletId;
-      readonly authorizationId: WalletSessionAuthorizationId;
+      readonly authorizationId: ReusableWalletSessionAuthorizationId;
       readonly walletSessionId: WalletSessionId;
       readonly authMethod: WalletAuthMethod;
       readonly expiresAtMs: number;
@@ -450,7 +438,7 @@ export type ReusableWalletSessionState =
   | {
       readonly kind: 'missing';
       readonly walletId: WalletId;
-      readonly authorizationId: WalletSessionAuthorizationId;
+      readonly authorizationId: ReusableWalletSessionAuthorizationId;
       readonly walletSessionId: WalletSessionId;
       readonly authMethod: WalletAuthMethod;
       readonly remainingUses?: never;
@@ -465,7 +453,7 @@ export type ReusableWalletSessionState =
   | {
       readonly kind: 'superseded';
       readonly walletId: WalletId;
-      readonly authorizationId: WalletSessionAuthorizationId;
+      readonly authorizationId: ReusableWalletSessionAuthorizationId;
       readonly walletSessionId: WalletSessionId;
       readonly authMethod: WalletAuthMethod;
       readonly detectedAtMs: number;
@@ -476,7 +464,7 @@ export type ReusableWalletSessionState =
   | {
       readonly kind: 'unavailable';
       readonly walletId: WalletId;
-      readonly authorizationId?: WalletSessionAuthorizationId;
+      readonly authorizationId?: ReusableWalletSessionAuthorizationId;
       readonly reason: 'persistence_unavailable';
       readonly walletSessionId?: never;
       readonly authMethod?: never;
@@ -487,7 +475,7 @@ export type ReusableWalletSessionState =
   | {
       readonly kind: 'invalid';
       readonly walletId: WalletId;
-      readonly authorizationId?: WalletSessionAuthorizationId;
+      readonly authorizationId?: ReusableWalletSessionAuthorizationId;
       // `lifecycle_mismatch` is gone: replacement is `superseded`, which the
       // caller re-resolves. Collapsing it here told adapters a routine
       // replacement was a broken session.
@@ -889,7 +877,7 @@ export interface RecentUnlockAccount {
   displayName: string;
   signerSlot: number;
   lastLogin?: number;
-  authMethod?: WalletAuthMethod | null;
+  authMethod?: WalletAuthMethod | 'linked_device' | null;
 }
 
 export interface GetRecentUnlocksResult {

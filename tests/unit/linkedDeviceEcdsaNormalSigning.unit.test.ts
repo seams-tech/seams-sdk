@@ -25,7 +25,6 @@ import { buildR103ActiveExecutionFixture } from './helpers/deviceLinkContracts.f
 import {
   buildR102EcdsaLaneJob,
   buildR102ProtocolCommitReceipt,
-  buildR103SealedHolderRecord,
 } from './helpers/r102LaneGateway.fixtures';
 
 const R33 = Uint8Array.from(
@@ -33,6 +32,11 @@ const R33 = Uint8Array.from(
 );
 const VALID_SIGNATURE65_B64U =
   '9Vht2lMjQxvAZF7DYGZeNFEAl7O1sieic2Hn9tnDPKBgsUDMZksYnSG9PCGlRkS09MOQCxzBiMx6a9Z25HjngwA';
+
+async function presignatureIdFromBigR(bigR33: Uint8Array): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bigR33));
+  return `presig-${base64UrlEncode(digest)}`;
+}
 
 async function fixture() {
   const source = await buildR103ActiveExecutionFixture();
@@ -110,11 +114,10 @@ async function fixture() {
     },
     token,
   };
-  const holderRecord = buildR103SealedHolderRecord(job, protocolCommitReceipt);
-  return { bundle, child, walletSession, holderRecord, credentialIdB64u: token.walletKeyId, now };
+  return { bundle, child, walletSession, credentialIdB64u: token.walletKeyId, now };
 }
 
-test('claims before holder open, completes linked presign, finalizes once, and discards holder', async () => {
+test('uses the warm linked session without step-up and finalizes once', async () => {
   const value = await fixture();
   const events: string[] = [];
   let presignInitRequest: unknown;
@@ -190,6 +193,9 @@ test('claims before holder open, completes linked presign, finalizes once, and d
         args.kind === 'ecdsaPresignClient' &&
         args.request.type === EcdsaPresignClientRequestType.Admit
       ) {
+        expect(args.request.payload?.expectedPresignatureId).toBe(
+          await presignatureIdFromBigR(R33),
+        );
         events.push('source-admit');
         return {
           type: EcdsaPresignClientResponseType.AdmitSuccess,
@@ -291,42 +297,19 @@ test('claims before holder open, completes linked presign, finalizes once, and d
         };
       },
     },
-    holderRepository: {
-      async get() {
-        return value.holderRecord;
-      },
-      async put() {},
-      async delete() {},
-      async listForEnrollmentV1() {
-        return [value.holderRecord];
-      },
-    },
-    holderMaterial: {
-      async openPersistedHolderSigningMaterialV1() {
-        events.push('holder-open');
-        return {
-          kind: 'device_linking_holder_signing_material_handle_v1',
-          handleId: 'holder:test',
-          keyFamily: 'ecdsa_secp256k1',
-        };
-      },
-      async createEd25519HolderSigningShareV1() {
-        throw new Error('ECDSA test must not call Ed25519 share');
-      },
-      async discardHolderSigningMaterialV1() {
-        events.push('discard');
-      },
+    holderHandle: {
+      kind: 'device_linking_holder_signing_material_handle_v1',
+      handleId: 'holder:test',
+      keyFamily: 'ecdsa_secp256k1',
     },
     transport,
   });
   expect(result.signature65).toHaveLength(65);
-  expect(presignInitRequest).toHaveProperty('localPresenceAssertion');
+  expect(presignInitRequest).not.toHaveProperty('localPresenceAssertion');
   expect(presignStepRequest).not.toHaveProperty('localPresenceAssertion');
   expect(finalizeRequest).not.toHaveProperty('localPresenceAssertion');
   expect(events).toEqual([
-    'webauthn',
     'presign-init',
-    'holder-open',
     'source-init',
     'presign-step',
     'source-admit',
@@ -334,6 +317,5 @@ test('claims before holder open, completes linked presign, finalizes once, and d
     'source-commit',
     'source-compute',
     'finalize',
-    'discard',
   ]);
 });

@@ -52,11 +52,6 @@ type ExternalAuthEvidenceRecord = {
   message?: unknown;
 };
 
-type HostedAuthMenuCleanupMode =
-  | { readonly kind: 'component_unmounted' }
-  | { readonly kind: 'synthetic_remount' }
-  | { readonly kind: 'configuration_changed' };
-
 type HostedAuthMenuEffectConfig = {
   readonly initialMode: HostedAuthMenuMode;
   readonly registrationAccountInput: HostedSeamsAuthMenuProps['registrationAccountInput'];
@@ -64,13 +59,6 @@ type HostedAuthMenuEffectConfig = {
   readonly showProgress: boolean;
   readonly copy: HostedSeamsAuthMenuProps['copy'];
   readonly enabledExternalProviders: readonly HostedAuthMenuExternalProvider[];
-};
-
-type HostedAuthMenuEffectDependencies = readonly [SeamsWeb | null, string];
-
-type HostedAuthMenuPendingCleanup = {
-  readonly session: HostedAuthMenuSessionController;
-  readonly dependencies: HostedAuthMenuEffectDependencies;
 };
 
 let sessionCounter = 0;
@@ -202,42 +190,6 @@ function hostedAuthMenuEffectConfigKey(config: HostedAuthMenuEffectConfig): stri
   }
 }
 
-function hostedAuthMenuEffectDependencies(args: {
-  seams: SeamsWeb | null;
-  configKey: string;
-}): HostedAuthMenuEffectDependencies {
-  return [args.seams, args.configKey];
-}
-
-function hostedAuthMenuEffectDependenciesEqual(
-  left: HostedAuthMenuEffectDependencies,
-  right: HostedAuthMenuEffectDependencies,
-): boolean {
-  if (left.length !== right.length) return false;
-  return left.every((value, index) => Object.is(value, right[index]));
-}
-
-function runDeferredHostedAuthMenuCleanup(args: {
-  pendingCleanupRef: React.MutableRefObject<HostedAuthMenuPendingCleanup | null>;
-  pendingCleanup: HostedAuthMenuPendingCleanup;
-}): void {
-  if (args.pendingCleanupRef.current !== args.pendingCleanup) return;
-  args.pendingCleanupRef.current = null;
-  args.pendingCleanup.session.cleanup();
-}
-
-function deferHostedAuthMenuCleanup(args: {
-  pendingCleanupRef: React.MutableRefObject<HostedAuthMenuPendingCleanup | null>;
-  pendingCleanup: HostedAuthMenuPendingCleanup;
-}): void {
-  const run = runDeferredHostedAuthMenuCleanup.bind(null, args);
-  if (typeof queueMicrotask === 'function') {
-    queueMicrotask(run);
-    return;
-  }
-  void Promise.resolve().then(run);
-}
-
 class HostedAuthMenuSessionController {
   private readonly seams: SeamsAuthMenuBridge;
   private readonly anchorElement: HTMLElement;
@@ -289,40 +241,14 @@ class HostedAuthMenuSessionController {
   }
 
   cleanup(): void {
-    this.cleanupWithMode({ kind: 'component_unmounted' });
-  }
-
-  cleanupForSyntheticRemount(): void {
-    this.cleanupWithMode({ kind: 'synthetic_remount' });
-  }
-
-  cleanupForConfigurationChange(): void {
-    this.cleanupWithMode({ kind: 'configuration_changed' });
-  }
-
-  prepareForDeferredCleanup(): void {
-    if (!this.isActive) return;
+    if (this.hasFinalizedCleanup) return;
+    this.hasFinalizedCleanup = true;
     this.isActive = false;
     this.unsubscribeExternalAuthRequest?.();
     this.unsubscribeExternalAuthRequest = null;
     this.unsubscribeDemoEmailOtp?.();
     this.unsubscribeDemoEmailOtp = null;
     this.externalAuthRequestIds.clear();
-  }
-
-  private cleanupWithMode(mode: HostedAuthMenuCleanupMode): void {
-    if (this.hasFinalizedCleanup) return;
-    this.hasFinalizedCleanup = true;
-    this.prepareForDeferredCleanup();
-
-    if (mode.kind === 'component_unmounted' && !this.hasTerminalOutcome) {
-      this.emitOutcome({
-        kind: 'cancelled',
-        authMenuSessionId: this.authMenuSessionId,
-        reason: 'component_unmounted',
-      });
-    }
-
     if (this.hasOpenRequest) {
       void this.seams
         .cancelHostedAuthMenu({ authMenuSessionId: this.authMenuSessionId })
@@ -439,59 +365,64 @@ class HostedAuthMenuSessionController {
   }
 }
 
-function useOptionalSeams(): { seams: SeamsWeb | null; isLoggedIn: boolean } {
+type HostedAuthMenuContext = {
+  readonly seams: SeamsWeb | null;
+  readonly isLoggedIn: boolean;
+};
+
+type HostedAuthMenuTerminalGate = {
+  completed: boolean;
+  observedLoggedIn: boolean;
+};
+
+const hostedAuthMenuTerminalGates = new WeakMap<SeamsWeb, HostedAuthMenuTerminalGate>();
+
+function useOptionalSeams(): HostedAuthMenuContext {
   try {
     const context = useSeams();
-    return { seams: context.seams, isLoggedIn: context.loginState.isLoggedIn };
+    return {
+      seams: context.seams,
+      isLoggedIn: context.loginState.isLoggedIn,
+    };
   } catch (error: unknown) {
     if (typeof window === 'undefined') return { seams: null, isLoggedIn: false };
     throw error;
   }
 }
 
-/**
- * Authenticating is terminal for an auth menu, but hosts routinely re-key or
- * remount the component in the same commit that handles success — the demo
- * flips its detected-account mode and refreshes login state. A flag kept on the
- * component instance dies with that remount, so the replacement instance opens
- * a REPLACEMENT session and paints the sign-in form for a frame before the host
- * swaps in its post-login UI (the "menu flashes between Signing in and the
- * transaction page" report).
- *
- * Latch on the SeamsWeb instance instead, so the guard outlives any remount,
- * and release it only when the wallet actually signs out — a true -> false
- * login transition. Release cannot key off `isLoggedIn === false` alone: it is
- * still false for the tick between the terminal outcome and the host's login
- * refresh, which would clear the latch exactly when it is needed.
- */
-type HostedAuthMenuLoginLatch = {
-  authenticated: boolean;
-  observedLoggedIn: boolean;
-};
-
-const hostedAuthMenuLoginLatches = new WeakMap<SeamsWeb, HostedAuthMenuLoginLatch>();
-
-function hostedAuthMenuLoginLatch(seams: SeamsWeb | null): HostedAuthMenuLoginLatch | null {
+function terminalGateFor(seams: SeamsWeb | null): HostedAuthMenuTerminalGate | null {
   if (!seams) return null;
-  const existing = hostedAuthMenuLoginLatches.get(seams);
+  const existing = hostedAuthMenuTerminalGates.get(seams);
   if (existing) return existing;
-  const created: HostedAuthMenuLoginLatch = { authenticated: false, observedLoggedIn: false };
-  hostedAuthMenuLoginLatches.set(seams, created);
-  return created;
+  const gate: HostedAuthMenuTerminalGate = {
+    completed: false,
+    observedLoggedIn: false,
+  };
+  hostedAuthMenuTerminalGates.set(seams, gate);
+  return gate;
 }
 
-function syncHostedAuthMenuLoginLatch(
-  latch: HostedAuthMenuLoginLatch | null,
-  isLoggedIn: boolean,
-): void {
-  if (!latch) return;
+function syncTerminalGate(gate: HostedAuthMenuTerminalGate | null, isLoggedIn: boolean): void {
+  if (!gate) return;
   if (isLoggedIn) {
-    latch.observedLoggedIn = true;
+    gate.completed = true;
+    gate.observedLoggedIn = true;
     return;
   }
-  if (!latch.observedLoggedIn) return;
-  latch.observedLoggedIn = false;
-  latch.authenticated = false;
+  if (!gate.observedLoggedIn) return;
+  gate.completed = false;
+  gate.observedLoggedIn = false;
+}
+
+function forwardHostedAuthMenuOutcome(
+  terminalGateRef: React.MutableRefObject<HostedAuthMenuTerminalGate | null>,
+  onOutcomeRef: OutcomeRef,
+  outcome: HostedAuthMenuOutcome,
+): void {
+  if (isTerminalHostedAuthMenuSuccess(outcome) && terminalGateRef.current) {
+    terminalGateRef.current.completed = true;
+  }
+  onOutcomeRef.current(outcome);
 }
 
 export const HostedSeamsAuthMenu: React.FC<HostedSeamsAuthMenuProps> = ({
@@ -505,6 +436,8 @@ export const HostedSeamsAuthMenu: React.FC<HostedSeamsAuthMenuProps> = ({
   onOutcome,
 }) => {
   const { seams, isLoggedIn } = useOptionalSeams();
+  const terminalGate = terminalGateFor(seams);
+  syncTerminalGate(terminalGate, isLoggedIn);
   const effectConfigRef = React.useRef<HostedAuthMenuEffectConfig>({
     initialMode,
     registrationAccountInput,
@@ -516,18 +449,12 @@ export const HostedSeamsAuthMenu: React.FC<HostedSeamsAuthMenuProps> = ({
   const externalAuthBrokerRef = React.useRef<HostedAuthMenuExternalAuthBroker | null>(
     externalAuthBroker,
   );
-  const callerOnOutcomeRef = React.useRef<HostedSeamsAuthMenuProps['onOutcome']>(onOutcome);
+  const onOutcomeRef = React.useRef<HostedSeamsAuthMenuProps['onOutcome']>(onOutcome);
   const onDemoEmailOtpRef =
     React.useRef<HostedSeamsAuthMenuProps['onDemoEmailOtp']>(onDemoEmailOtp);
-  const onOutcomeRef = React.useRef<HostedSeamsAuthMenuProps['onOutcome']>(() => {});
+  const terminalGateRef = React.useRef<HostedAuthMenuTerminalGate | null>(terminalGate);
+  const forwardedOutcomeRef = React.useRef<HostedSeamsAuthMenuProps['onOutcome']>(() => {});
   const anchorRef = React.useRef<HTMLSpanElement | null>(null);
-  const pendingCleanupRef = React.useRef<HostedAuthMenuPendingCleanup | null>(null);
-  // See hostedAuthMenuLoginLatch: success is remembered on the SeamsWeb
-  // instance, so a host remount cannot reopen the menu and flash the form.
-  const loginLatch = hostedAuthMenuLoginLatch(seams);
-  syncHostedAuthMenuLoginLatch(loginLatch, isLoggedIn);
-  const loginLatchRef = React.useRef<HostedAuthMenuLoginLatch | null>(loginLatch);
-  loginLatchRef.current = loginLatch;
   effectConfigRef.current = {
     initialMode,
     registrationAccountInput,
@@ -537,34 +464,20 @@ export const HostedSeamsAuthMenu: React.FC<HostedSeamsAuthMenuProps> = ({
     enabledExternalProviders: externalProvidersForBroker(externalAuthBroker),
   };
   externalAuthBrokerRef.current = externalAuthBroker;
-  callerOnOutcomeRef.current = onOutcome;
+  onOutcomeRef.current = onOutcome;
   onDemoEmailOtpRef.current = onDemoEmailOtp;
-  onOutcomeRef.current = (outcome) => {
-    const latch = loginLatchRef.current;
-    if (latch && isTerminalHostedAuthMenuSuccess(outcome)) latch.authenticated = true;
-    callerOnOutcomeRef.current(outcome);
-  };
+  terminalGateRef.current = terminalGate;
+  forwardedOutcomeRef.current = forwardHostedAuthMenuOutcome.bind(
+    null,
+    terminalGateRef,
+    onOutcomeRef,
+  );
   const effectConfigKey = hostedAuthMenuEffectConfigKey(effectConfigRef.current);
 
   React.useEffect(() => {
-    const dependencies = hostedAuthMenuEffectDependencies({
-      seams,
-      configKey: effectConfigKey,
-    });
-    const previousCleanup = pendingCleanupRef.current;
-    if (previousCleanup) {
-      pendingCleanupRef.current = null;
-      if (hostedAuthMenuEffectDependenciesEqual(previousCleanup.dependencies, dependencies)) {
-        previousCleanup.session.cleanupForSyntheticRemount();
-      } else {
-        previousCleanup.session.cleanupForConfigurationChange();
-      }
-    }
     const anchorElement = anchorRef.current;
     if (!seams || !anchorElement || typeof window === 'undefined') return undefined;
-    // See hostedAuthMenuLoginLatch: never re-open after a successful
-    // authentication until the wallet signs out again.
-    if (loginLatchRef.current?.authenticated) return undefined;
+    if (terminalGateRef.current?.completed) return undefined;
 
     const config = effectConfigRef.current;
     const session = new HostedAuthMenuSessionController({
@@ -578,15 +491,10 @@ export const HostedSeamsAuthMenu: React.FC<HostedSeamsAuthMenuProps> = ({
       copy: config.copy,
       externalAuthBroker: externalAuthBrokerRef,
       onDemoEmailOtp: onDemoEmailOtpRef,
-      onOutcome: onOutcomeRef,
+      onOutcome: forwardedOutcomeRef,
     });
     session.start();
-    const pendingCleanup = { session, dependencies };
-    return () => {
-      pendingCleanupRef.current = pendingCleanup;
-      session.prepareForDeferredCleanup();
-      deferHostedAuthMenuCleanup({ pendingCleanupRef, pendingCleanup });
-    };
+    return session.cleanup.bind(session);
   }, [seams, effectConfigKey]);
 
   return (

@@ -8,7 +8,10 @@ import type {
   LoginUnlockSigningSurface,
   SeamsWebBaseContext,
 } from '@/SeamsWeb/signingSurface/ports';
-import { unlockResolvedWalletSubjectSet } from '@/SeamsWeb/operations/auth/login';
+import {
+  resolveLinkedDeviceUnlockSubjectSet,
+  unlockResolvedWalletSubjectSet,
+} from '@/SeamsWeb/operations/auth/login';
 import { clearHostedWalletSessions } from '@/SeamsWeb/walletIframe/host/hostedWalletSeamsSession';
 import {
   resolveWalletUnlockSubjectSet,
@@ -157,10 +160,13 @@ export async function prepareHostedPasskeyLogin(args: {
     walletId: String(walletId),
     requestedCapabilityFamilies: { kind: 'all_registered_mpc' },
   });
-  if (resolution.kind !== 'resolved') {
+  const subjectSet =
+    resolution.kind === 'resolved'
+      ? resolution.subjectSet
+      : await resolveLinkedDeviceUnlockSubjectSet(String(walletId));
+  if (!subjectSet) {
     throw new Error(`Hosted auth-menu login subject resolution failed: ${resolution.kind}`);
   }
-  const subjectSet = resolution.subjectSet;
   throwIfCancelled(args.cancellation);
   const prepared: HostedPasskeyLoginPrepared = Object.freeze({
     kind: 'hosted_passkey_login_prepared_v1',

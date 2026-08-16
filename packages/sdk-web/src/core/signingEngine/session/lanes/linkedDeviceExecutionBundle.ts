@@ -110,6 +110,7 @@ export type ActiveLinkedDeviceExecutionBundleV1 = {
   readonly aggregateReceiptDigestB64u: DigestB64u;
   readonly permission: ReturnType<typeof parseLinkedDeviceApprovalV1>['permission'];
   readonly revocationEpoch: number;
+  readonly remainingUses: number;
   readonly activatedAtMs: number;
   readonly issuedAtMs: number;
   readonly expiresAtMs: number;
@@ -405,6 +406,7 @@ export async function buildActiveLinkedDeviceExecutionBundleFromEvidenceV1(input
     aggregateReceiptDigestB64u: receipt.aggregateReceiptDigestB64u,
     permission: walletSession.permission,
     revocationEpoch: walletSession.revocationEpoch,
+    remainingUses: walletSession.remainingUses,
     activatedAtMs: receipt.activatedAtMs,
     issuedAtMs: walletSession.issuedAtMs,
     expiresAtMs: walletSession.expiresAtMs,
@@ -493,7 +495,7 @@ function assertWalletSessionIdentity(input: {
     input.walletSession.enrollmentId !== input.approval.enrollmentId ||
     input.walletSession.deviceId !== input.approval.deviceId ||
     input.walletSession.keyManifestDigestB64u !== input.receipt.manifestDigestB64u ||
-    input.walletSession.issuedAtMs !== input.receipt.activatedAtMs ||
+    input.walletSession.issuedAtMs < input.receipt.activatedAtMs ||
     input.walletSession.orderedTokens.length !== input.approval.orderedKeyBindings.length ||
     alphabetizeStringify(input.walletSession.permission) !==
       alphabetizeStringify(input.approval.permission)

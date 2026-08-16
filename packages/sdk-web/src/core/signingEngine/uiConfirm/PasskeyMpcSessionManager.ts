@@ -335,8 +335,8 @@ function parseWarmSessionSealAndPersistResult(
 function requirePasskeySealTransport(
   transport: WarmSessionSealTransportInput,
 ): PasskeyWarmSessionSealTransportInput {
-  if (transport.authMethod === 'email_otp') {
-    throw new Error('Passkey MPC session owner rejected Email OTP seal transport');
+  if (transport.authMethod === 'email_otp' || transport.curve === 'linked_device') {
+    throw new Error('Passkey MPC durable owner requires an owner signing-lane transport');
   }
   return transport;
 }

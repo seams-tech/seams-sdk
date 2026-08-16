@@ -178,12 +178,14 @@ import type {
 import type {
   IssueReusableWalletSessionInput,
   IssuedReusableWalletSession,
+  IssuedLinkedDeviceWalletSession,
   IssuedOpaqueWalletSessionToken,
   OpaqueWalletSessionCurve,
   OpaqueOwnerWalletSessionBinding,
   ResolvedOpaqueWalletSessionToken,
   EcdsaMaterialActivationScope,
   LinkedDeviceMaterialActivationScopeV1,
+  RenewLinkedDeviceWalletSessionInputV1,
 } from '../../authorization/service';
 import type { PrincipalId, TenantId } from '@shared/authorization/capabilityKinds';
 
@@ -1498,6 +1500,17 @@ export interface RouterApiAuthorizationSessionService {
     readonly quotaId: ReusableWalletSessionStatus['quotaId'];
     readonly nowMs: number;
   }): Promise<ReusableWalletSessionStatus>;
+  readLinkedDeviceWalletSessionAuthorization(input: {
+    readonly tenantId: TenantId;
+    readonly deviceId: import('@shared/signing-lanes/ids').LinkedDeviceId;
+    readonly authorizationId: import('@shared/authorization/capabilityKinds').LinkedDeviceWalletSessionAuthorizationId;
+    readonly walletSessionId: import('@shared/authorization/capabilityKinds').WalletSessionId;
+    readonly quotaId: import('@shared/authorization/capabilityKinds').MpcWalletSigningQuotaId;
+    readonly nowMs: number;
+  }): Promise<IssuedLinkedDeviceWalletSession | null>;
+  renewLinkedDeviceWalletSession(
+    input: RenewLinkedDeviceWalletSessionInputV1,
+  ): Promise<IssuedLinkedDeviceWalletSession>;
   mintHostedWalletSeamsSessionExchange(input: {
     readonly tenantId: TenantId;
     readonly walletSessionId: import('@shared/authorization/capabilityKinds').WalletSessionId;

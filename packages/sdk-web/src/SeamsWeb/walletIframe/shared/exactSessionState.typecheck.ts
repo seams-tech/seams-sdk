@@ -33,22 +33,10 @@ const linkedActiveSession = {
   walletId: walletId.value,
   authorizationId: linkedAuthorizationId.value,
   walletSessionId: walletSessionId.value,
-  authMethod: 'linked_device',
+  authMethod: 'passkey',
   expiresAtMs: 1,
 } satisfies WalletIframeExactSessionState;
 void linkedActiveSession;
-
-const invalidLinkedAuthorization = {
-  kind: 'active_session',
-  status: 'active',
-  walletId: walletId.value,
-  // @ts-expect-error linked-device identity rejects owner authorization IDs
-  authorizationId: authorizationId.value,
-  walletSessionId: walletSessionId.value,
-  authMethod: 'linked_device',
-  expiresAtMs: 1,
-} satisfies WalletIframeExactSessionState;
-void invalidLinkedAuthorization;
 
 const missingSession = {
   kind: 'wallet_unlocked_without_signing_session',

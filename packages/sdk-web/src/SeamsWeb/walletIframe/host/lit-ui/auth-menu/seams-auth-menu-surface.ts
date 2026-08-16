@@ -825,7 +825,10 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
     if (linkDevice.kind === 'passkey_required' || linkDevice.kind === 'creating_passkey') {
       return this.renderLinkDevicePasskeyConfirmation(linkDevice);
     }
-    if (linkDevice.kind === 'error') return this.renderLinkDeviceFailure(linkDevice);
+    if (linkDevice.kind === 'activating') return this.renderLinkedDeviceActivation(linkDevice);
+    if (linkDevice.kind === 'error' || linkDevice.kind === 'activation_error') {
+      return this.renderLinkDeviceFailure(linkDevice);
+    }
     // The code plate keeps its box while the QR is still being generated, so the
     // title/instruction/status stack below it never shifts when the image lands —
     // the placeholder simply dissolves into the code.
@@ -869,13 +872,20 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
   }
 
   private renderLinkDeviceFailure(
-    linkDevice: Extract<AuthMenuLinkDeviceState, { kind: 'error' }>,
+    linkDevice: Extract<AuthMenuLinkDeviceState, { kind: 'error' | 'activation_error' }>,
   ): TemplateResult {
+    const activationFailed = linkDevice.kind === 'activation_error';
     return html`
       <div class="w3a-link-device-confirmation w3a-link-device-failure">
         <div class="w3a-link-device-failure-icon">${linkFailedIcon()}</div>
-        <h2 class="qr-title" id=${AUTH_MENU_TITLE_ID}>Couldn't link device</h2>
-        <p class="w3a-link-device-failure-detail" role="alert">${linkDevice.message}</p>
+        <h2 class="qr-title" id=${AUTH_MENU_TITLE_ID}>
+          ${activationFailed ? 'Device linked' : "Couldn't link device"}
+        </h2>
+        <p class="w3a-link-device-failure-detail" role="alert">
+          ${activationFailed
+            ? html`Unable to open the wallet. Return to sign in and try again. ${linkDevice.message}`
+            : linkDevice.message}
+        </p>
         <button
           class="w3a-link-device-btn"
           type="button"
@@ -883,8 +893,22 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
           data-link-device-error-dismiss
           @click=${this.onBackClick}
         >
-          Close
+          Return to sign in
         </button>
+      </div>
+    `;
+  }
+
+  private renderLinkedDeviceActivation(
+    linkDevice: Extract<AuthMenuLinkDeviceState, { kind: 'activating' }>,
+  ): TemplateResult {
+    return html`
+      <div class="w3a-link-device-confirmation">
+        <span class="w3a-spinner" aria-hidden="true"></span>
+        <h2 class="qr-title" id=${AUTH_MENU_TITLE_ID}>Opening linked wallet</h2>
+        <p class="w3a-link-device-confirmation-copy" role="status" aria-live="polite">
+          ${linkDevice.message}
+        </p>
       </div>
     `;
   }

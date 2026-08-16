@@ -33,6 +33,10 @@ function requiredTransport(
   }
 }
 
+function linkedDevicePasskeyName(walletId: string): string {
+  return `${walletId} (2)`;
+}
+
 function registrationProjection(
   credential: Extract<
     Awaited<ReturnType<AuthenticatorPort['run']>>,
@@ -59,10 +63,13 @@ export function createDeviceLinkingTargetCredentialPortV1(args: {
 }): DeviceLinkingTargetCredentialPortV1 {
   return {
     async createTargetCredentialV1(input) {
+      const passkeyName = linkedDevicePasskeyName(String(input.preparation.walletId));
       const credential = await args.authenticator.run({
         kind: 'create_passkey',
         rpId: toRpId(input.preparation.rpId),
         userHandleB64u: input.preparation.userHandleB64u,
+        userName: passkeyName,
+        userDisplayName: passkeyName,
         challengeB64u: input.preparation.challengeB64u,
         requirePrfFirst: true,
         authenticatorOptions: { userVerification: 'required' },

@@ -9,7 +9,9 @@ use crate::{
     execute_cloudflare_signing_worker_linked_device_ecdsa_finalize_service_call_v1,
     handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_finalize_internal_step_up_request_v1,
     handle_cloudflare_router_ab_ecdsa_derivation_evm_digest_signing_prepare_internal_step_up_request_v1,
+    handle_cloudflare_router_normal_signing_finalize_internal_linked_device_request_v2,
     handle_cloudflare_router_normal_signing_finalize_internal_step_up_request_v2,
+    handle_cloudflare_router_normal_signing_prepare_internal_linked_device_request_v2,
     handle_cloudflare_router_normal_signing_prepare_internal_step_up_request_v2,
     parse_cloudflare_router_authorized_ed25519_prepare_request_v2_json,
     parse_cloudflare_router_authorized_linked_device_ecdsa_finalize_request_v1_json,
@@ -74,7 +76,7 @@ impl StrictRouterNormalSigningRequestV1 {
         }
     }
 
-    fn is_gateway_owner_wallet_session(&self) -> bool {
+    fn is_gateway_wallet_session(&self) -> bool {
         matches!(
             self,
             Self::EcdsaPrepare {
@@ -106,9 +108,78 @@ impl StrictRouterNormalSigningRequestV1 {
                         CloudflareRouterEd25519AcceptedAuthorizedOperationV1 {
                             binding: CloudflareRouterEd25519AcceptedCapabilityBindingV1::GatewayOwnerWalletSession { .. },
                             ..
+                    },
+                    ..
+                }
+                | Self::EcdsaPrepare {
+                    authorized_operation:
+                        CloudflareRouterEcdsaAcceptedAuthorizedOperationV1 {
+                            binding: CloudflareRouterEcdsaAcceptedCapabilityBindingV1::ReusableWalletSession { .. },
+                            ..
                         },
                     ..
                 }
+                | Self::EcdsaFinalize {
+                    authorized_operation:
+                        CloudflareRouterEcdsaAcceptedAuthorizedOperationV1 {
+                            binding: CloudflareRouterEcdsaAcceptedCapabilityBindingV1::ReusableWalletSession { .. },
+                            ..
+                        },
+                    ..
+                }
+                | Self::Ed25519Prepare {
+                    authorized_operation:
+                        CloudflareRouterEd25519AcceptedAuthorizedOperationV1 {
+                        binding: CloudflareRouterEd25519AcceptedCapabilityBindingV1::ReusableWalletSession { .. },
+                            ..
+                        },
+                    ..
+                }
+                | Self::Ed25519Finalize {
+                    authorized_operation:
+                        CloudflareRouterEd25519AcceptedAuthorizedOperationV1 {
+                            binding: CloudflareRouterEd25519AcceptedCapabilityBindingV1::ReusableWalletSession { .. },
+                            ..
+                        },
+                    ..
+                }
+                | Self::Ed25519Prepare {
+                    authorized_operation:
+                        CloudflareRouterEd25519AcceptedAuthorizedOperationV1 {
+                            binding: CloudflareRouterEd25519AcceptedCapabilityBindingV1::GatewayLinkedDeviceWalletSession { .. },
+                            ..
+                        },
+                    ..
+                }
+                | Self::Ed25519Finalize {
+                    authorized_operation:
+                        CloudflareRouterEd25519AcceptedAuthorizedOperationV1 {
+                            binding: CloudflareRouterEd25519AcceptedCapabilityBindingV1::GatewayLinkedDeviceWalletSession { .. },
+                            ..
+                        },
+                    ..
+                }
+        )
+    }
+
+    fn is_gateway_linked_device_wallet_session(&self) -> bool {
+        matches!(
+            self,
+            Self::Ed25519Prepare {
+                authorized_operation:
+                    CloudflareRouterEd25519AcceptedAuthorizedOperationV1 {
+                        binding: CloudflareRouterEd25519AcceptedCapabilityBindingV1::GatewayLinkedDeviceWalletSession { .. },
+                        ..
+                    },
+                ..
+            } | Self::Ed25519Finalize {
+                authorized_operation:
+                    CloudflareRouterEd25519AcceptedAuthorizedOperationV1 {
+                        binding: CloudflareRouterEd25519AcceptedCapabilityBindingV1::GatewayLinkedDeviceWalletSession { .. },
+                        ..
+                    },
+                ..
+            }
         )
     }
 }
@@ -253,21 +324,22 @@ pub(super) async fn handle_strict_router_fetch_v1(
             ));
         }
     };
-    let gateway_owner_request = parsed_normal_signing
+    let gateway_wallet_session_request = parsed_normal_signing
         .as_ref()
-        .is_some_and(StrictRouterNormalSigningRequestV1::is_gateway_owner_wallet_session);
-    if parsed_normal_signing.as_ref().is_some_and(|parsed| {
-        !parsed.is_gateway_owner_wallet_session() && !parsed.is_operation_step_up()
-    }) {
+        .is_some_and(StrictRouterNormalSigningRequestV1::is_gateway_wallet_session);
+    if parsed_normal_signing
+        .as_ref()
+        .is_some_and(|parsed| !parsed.is_gateway_wallet_session() && !parsed.is_operation_step_up())
+    {
         return cloudflare_protocol_error_response_v1(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidGateDecision,
-            "Normal signing requires Gateway owner admission or operation step-up",
+            "Normal signing requires Gateway Wallet Session admission or operation step-up",
         ));
     }
-    if gateway_owner_request && authorization_header_present {
+    if gateway_wallet_session_request && authorization_header_present {
         return cloudflare_protocol_error_response_v1(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
-            "Gateway owner Wallet Session requests must omit Authorization",
+            "Gateway Wallet Session requests must omit Authorization",
         ));
     }
     let authorization = if parsed_normal_signing.is_some() {
@@ -573,7 +645,24 @@ async fn execute_strict_router_normal_signing_request_v1(
     verifier: CloudflareRouterEd25519JwksJwtVerifierV1,
 ) -> worker::Result<Response> {
     let operation_step_up = parsed.is_operation_step_up();
+    let gateway_linked_device_wallet_session = parsed.is_gateway_linked_device_wallet_session();
     match parsed {
+        StrictRouterNormalSigningRequestV1::Ed25519Prepare {
+            request: signing_request,
+            authorized_operation,
+        } if gateway_linked_device_wallet_session => {
+            let response =
+                handle_cloudflare_router_normal_signing_prepare_internal_linked_device_request_v2(
+                    env,
+                    runtime,
+                    now_unix_ms,
+                    signing_request,
+                    authorized_operation,
+                    trusted_source_digest,
+                )
+                .await;
+            router_json_cors_response_v1(response, request, env)
+        }
         StrictRouterNormalSigningRequestV1::Ed25519Prepare {
             request: signing_request,
             authorized_operation,
@@ -616,6 +705,22 @@ async fn execute_strict_router_normal_signing_request_v1(
                     credential,
                     trusted_source_digest,
                     verifier,
+                )
+                .await;
+            router_json_cors_response_v1(response, request, env)
+        }
+        StrictRouterNormalSigningRequestV1::Ed25519Finalize {
+            request: signing_request,
+            authorized_operation,
+        } if gateway_linked_device_wallet_session => {
+            let response =
+                handle_cloudflare_router_normal_signing_finalize_internal_linked_device_request_v2(
+                    env,
+                    runtime,
+                    now_unix_ms,
+                    signing_request,
+                    authorized_operation,
+                    trusted_source_digest,
                 )
                 .await;
             router_json_cors_response_v1(response, request, env)

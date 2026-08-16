@@ -122,6 +122,8 @@ export type AuthenticatorOperation =
       kind: 'create_passkey';
       rpId: RpId;
       userHandleB64u: string;
+      userName: string;
+      userDisplayName: string;
       challengeB64u: string;
       requirePrfFirst: true;
       authenticatorOptions?: AuthenticatorOptions;
@@ -130,6 +132,8 @@ export type AuthenticatorOperation =
       kind: 'create_passkey';
       rpId: RpId;
       userHandleB64u: string;
+      userName: string;
+      userDisplayName: string;
       challengeB64u: string;
       requirePrfFirst: false;
       authenticatorOptions?: AuthenticatorOptions;

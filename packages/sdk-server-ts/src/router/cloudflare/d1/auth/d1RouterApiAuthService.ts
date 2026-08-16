@@ -337,7 +337,7 @@ function createD1LinkedDeviceComposition(input: {
   >;
   readonly authorization: Pick<
     CloudflareD1AuthorizationStore,
-    'readLinkedDeviceWalletSessionAuthorization'
+    'readClaimedLinkedDeviceWalletSessionAuthorization'
   >;
   readonly authorizationService: Pick<
     AuthorizationService,
@@ -2127,16 +2127,23 @@ function createD1AuthorizationSessionRouteService(
     issueReusableWalletSession: assembly.authorizationService.issueReusableWalletSession.bind(
       assembly.authorizationService,
     ),
-    issueOpaqueWalletSessionToken:
-      assembly.authorizationService.issueOpaqueWalletSessionToken.bind(
-        assembly.authorizationService,
-      ),
+    issueOpaqueWalletSessionToken: assembly.authorizationService.issueOpaqueWalletSessionToken.bind(
+      assembly.authorizationService,
+    ),
     resolveOpaqueWalletSessionToken:
       assembly.authorizationService.resolveOpaqueWalletSessionToken.bind(
         assembly.authorizationService,
       ),
     readReusableWalletSessionStatus:
       assembly.authorizationService.readReusableWalletSessionStatus.bind(
+        assembly.authorizationService,
+      ),
+    readLinkedDeviceWalletSessionAuthorization:
+      assembly.authorizationService.readLinkedDeviceWalletSessionAuthorization.bind(
+        assembly.authorizationService,
+      ),
+    renewLinkedDeviceWalletSession:
+      assembly.authorizationService.renewLinkedDeviceWalletSession.bind(
         assembly.authorizationService,
       ),
     mintHostedWalletSeamsSessionExchange:

@@ -290,9 +290,9 @@ export async function prepareAndCommitSourceLaneOperationV1(args: {
     for (const child of children) {
       if (child.keyFamily !== 'ecdsa_secp256k1') continue;
       await args.ports.reconcileEcdsaActivationJournalV1({
+        walletId: child.walletId,
         walletKeyId: child.walletKeyId,
-        laneId: child.source.laneId,
-        laneShareEpoch: child.source.laneShareEpoch,
+        source: child.source,
       });
     }
   }

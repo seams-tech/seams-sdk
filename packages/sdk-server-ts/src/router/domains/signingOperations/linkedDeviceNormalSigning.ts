@@ -62,6 +62,10 @@ import {
 import type { AuthorizedOperation, AuthorizedOperationInput } from '../../../authorization/domain';
 import type { MpcWalletSigningQuotaId } from '@shared/authorization/capabilityKinds';
 import type { WebAuthnRpId } from '@shared/utils/domainIds';
+import {
+  ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
+  ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+} from '@shared/utils/sessionTokens';
 import { computeLinkedDeviceLocalPresenceChallengeDigestV1 } from '@shared/device-linking/digests';
 import type { LinkedDeviceExecutionEnvelopeV1 } from '@shared/signing-lanes/execution';
 
@@ -268,6 +272,17 @@ export async function parseLinkedDeviceWalletSessionForCurve(input: {
   readonly headers: Record<string, string | string[] | undefined>;
   readonly nowMs?: () => number;
 }): Promise<LinkedDeviceSessionValidationResultV1> {
+  const linked = await parseLinkedDeviceWalletSession(input);
+  return linked.kind === 'linked_device' && linked.curve === input.curve
+    ? linked
+    : { kind: 'not_linked' };
+}
+
+export async function parseLinkedDeviceWalletSession(input: {
+  readonly session: SessionAdapter | null | undefined;
+  readonly headers: Record<string, string | string[] | undefined>;
+  readonly nowMs?: () => number;
+}): Promise<LinkedDeviceSessionValidationResultV1> {
   if (!input.session) return { kind: 'not_linked' };
   let parsed: Awaited<ReturnType<SessionAdapter['parse']>>;
   try {
@@ -277,30 +292,40 @@ export async function parseLinkedDeviceWalletSessionForCurve(input: {
   }
   if (!parsed.ok) return { kind: 'not_linked' };
   const nowMs = input.nowMs ? input.nowMs() : Date.now();
-  if (input.curve === 'ed25519') {
-    const claims = parseRouterAbEd25519LinkedDeviceWalletSessionClaims(parsed.claims);
-    if (!claims || claims.authorizationKind !== 'linked_device_wallet_session') {
-      return { kind: 'not_linked' };
+  const claimsKind =
+    parsed.claims && typeof parsed.claims === 'object'
+      ? Reflect.get(parsed.claims, 'kind')
+      : undefined;
+  switch (claimsKind) {
+    case ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND: {
+      const claims = parseRouterAbEd25519LinkedDeviceWalletSessionClaims(parsed.claims);
+      if (!claims || claims.authorizationKind !== 'linked_device_wallet_session') {
+        return { kind: 'not_linked' };
+      }
+      if (claims.expiresAtMs <= nowMs) return { kind: 'not_linked' };
+      return {
+        kind: 'linked_device',
+        curve: 'ed25519',
+        claims,
+        walletSessionAuth: buildVerifiedEd25519WalletSessionAuth(claims),
+      };
     }
-    if (claims.expiresAtMs <= nowMs) return { kind: 'not_linked' };
-    return {
-      kind: 'linked_device',
-      curve: 'ed25519',
-      claims,
-      walletSessionAuth: buildVerifiedEd25519WalletSessionAuth(claims),
-    };
+    case ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND: {
+      const claims = parseRouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims(parsed.claims);
+      if (!claims || claims.authorizationKind !== 'linked_device_wallet_session') {
+        return { kind: 'not_linked' };
+      }
+      if (claims.expiresAtMs <= nowMs) return { kind: 'not_linked' };
+      return {
+        kind: 'linked_device',
+        curve: 'ecdsa',
+        claims,
+        walletSessionAuth: buildVerifiedEcdsaWalletSessionAuth(claims),
+      };
+    }
+    default:
+      return { kind: 'not_linked' };
   }
-  const claims = parseRouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims(parsed.claims);
-  if (!claims || claims.authorizationKind !== 'linked_device_wallet_session') {
-    return { kind: 'not_linked' };
-  }
-  if (claims.expiresAtMs <= nowMs) return { kind: 'not_linked' };
-  return {
-    kind: 'linked_device',
-    curve: 'ecdsa',
-    claims,
-    walletSessionAuth: buildVerifiedEcdsaWalletSessionAuth(claims),
-  };
 }
 
 export function buildLinkedDeviceLocalPresenceVerifierPort(input: {

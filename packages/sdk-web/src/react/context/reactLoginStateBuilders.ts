@@ -24,7 +24,11 @@ export function buildReactLoggedInLoginStateFromSession(session: WalletSession):
   if (session.appIdentity.kind !== 'resolved') return null;
   const appIdentity = session.appIdentity;
   const authentication = session.authentication;
-  if (authentication.kind === 'linked_device_session') {
+  if (
+    authentication.kind === 'authenticated' &&
+    session.reusableWalletSession.kind === 'active' &&
+    session.appIdentity.authMethods.length === 0
+  ) {
     return {
       isLoggedIn: true,
       walletId: String(appIdentity.walletId),

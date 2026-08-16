@@ -147,14 +147,7 @@ export function createD1LinkedDeviceRouteServiceV1(
         intentDigestB64u,
       });
       const authorization = await options.authorizationService.renewLinkedDeviceWalletSession({
-        tenantId: target.target.tenantId,
-        deviceId: target.target.deviceId,
-        enrollmentId: target.target.enrollmentId,
-        authorizationId: target.target.authorizationId,
-        walletSessionId: target.target.walletSessionId,
-        quotaId: target.target.quotaId,
-        revocationEpoch: target.target.revocationEpoch,
-        renewedAtMs: input.requestedAtMs,
+        renewedAtMs: renewal.verifiedAtMs,
         renewal,
       });
       return { kind: 'active', authorization };

@@ -69,6 +69,7 @@ import { IndexedDBManager } from '@/core/indexedDB';
 import {
   linkedDeviceExecutionEvidence,
   resolveUniqueActiveLinkedDeviceExecutionBundleV1,
+  resolveUniqueLinkedDeviceExecutionBundleV1,
 } from '@/core/indexedDB/seamsWalletDB/linkedDeviceExecutionEvidenceStore';
 import { linkedDeviceWalletSessions } from '@/core/indexedDB/seamsWalletDB/linkedDeviceWalletSessionStore';
 import type { ActiveLinkedDeviceExecutionBundleV1 } from '@/core/signingEngine/session/lanes/linkedDeviceExecutionBundle';
@@ -115,6 +116,7 @@ import type {
 import type { EcdsaBootstrapRequest } from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
 import type { OpaqueWalletSessionAuth } from '@shared/utils/sessionTokens';
 import { parseSignerSlot } from '@/core/signingEngine/webauthnAuth/device/signerSlot';
+import { parseNearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/session/identity/laneIdentity';
 import {
   STALE_ECDSA_KEY_IDENTITY_ERROR_CODE,
@@ -1583,7 +1585,101 @@ export async function unlockResolvedWalletSubjectSet(
   subjectSet: WalletUnlockSubjectSet,
   options?: LoginHooksOptions,
 ): Promise<LoginAndCreateSessionResult> {
+  const linkedUnlock = await unlockLinkedDeviceSessionIfAvailable(context, subjectSet, options);
+  if (linkedUnlock) return linkedUnlock;
   return await unlockInternal(context, subjectSet, options);
+}
+
+export async function resolveLinkedDeviceUnlockSubjectSet(
+  walletId: string,
+): Promise<WalletUnlockSubjectSet | null> {
+  const result = await resolveUniqueLinkedDeviceExecutionBundleV1({
+    walletId,
+    evidenceRepository: linkedDeviceExecutionEvidence,
+    walletSessionRepository: linkedDeviceWalletSessions,
+  });
+  if (result.kind !== 'found') return null;
+  const execution = result.bundle.orderedExecutions.find(
+    (
+      candidate,
+    ): candidate is Extract<
+      ActiveLinkedDeviceExecutionBundleV1['orderedExecutions'][number],
+      { keyFamily: 'ed25519' }
+    > => candidate.keyFamily === 'ed25519',
+  );
+  if (!execution || !result.bundle.nearAccountId) return null;
+  const signingKeyId = parseNearEd25519SigningKeyId(
+    String(execution.walletKey.nearEd25519SigningKeyId),
+  );
+  const signerSlot = parseSignerSlot(execution.walletKey.keyCreationSignerSlot, { min: 1 });
+  if (!signerSlot) return null;
+  return {
+    kind: 'wallet_unlock_subject_set',
+    walletId: result.bundle.walletId,
+    subjects: [
+      {
+        kind: 'near_ed25519_wallet',
+        walletId: result.bundle.walletId,
+        nearAccountId: toAccountId(result.bundle.nearAccountId),
+        nearEd25519SigningKeyId: signingKeyId,
+        signerSlot,
+      },
+    ],
+  };
+}
+
+async function unlockLinkedDeviceSessionIfAvailable(
+  context: LoginWebContext,
+  subjectSet: WalletUnlockSubjectSet,
+  options?: LoginHooksOptions,
+): Promise<LoginAndCreateSessionResult | null> {
+  const walletId = String(subjectSet.walletId);
+  const result = await resolveUniqueLinkedDeviceExecutionBundleV1({
+    walletId,
+    evidenceRepository: linkedDeviceExecutionEvidence,
+    walletSessionRepository: linkedDeviceWalletSessions,
+  });
+  if (result.kind !== 'found') return null;
+  const linkedNearKey = result.bundle.orderedExecutions.find(
+    (
+      candidate,
+    ): candidate is Extract<
+      ActiveLinkedDeviceExecutionBundleV1['orderedExecutions'][number],
+      { keyFamily: 'ed25519' }
+    > => candidate.keyFamily === 'ed25519',
+  )?.walletKey.nearEd25519SigningKeyId;
+  const requestedNearKey = subjectSet.subjects.find(
+    (
+      subject,
+    ): subject is Extract<
+      WalletUnlockSubjectSet['subjects'][number],
+      { kind: 'near_ed25519_wallet' }
+    > => subject.kind === 'near_ed25519_wallet',
+  )?.nearEd25519SigningKeyId;
+  if (!linkedNearKey || !requestedNearKey || String(linkedNearKey) !== String(requestedNearKey)) {
+    return null;
+  }
+  await context.signingEngine.establishLinkedDeviceSigningSession(result.bundle.walletId);
+  if (!result.bundle.nearAccountId) {
+    throw new Error('linked-device NEAR account identity is unavailable during unlock');
+  }
+  const nearAccountId = toAccountId(result.bundle.nearAccountId);
+  const loginResult: LoginAndCreateSessionResult = {
+    success: true,
+    kind: 'near_wallet_unlocked',
+    walletId: result.bundle.walletId,
+    nearAccountId,
+    loggedInNearAccountId: String(nearAccountId),
+    operationalPublicKey: null,
+  };
+  return await finalizeLoginSuccess({
+    context,
+    authMethod: 'passkey',
+    unlockSubjectId: String(nearAccountId),
+    loginResult,
+    onEvent: options?.onEvent,
+    afterCall: options?.afterCall,
+  });
 }
 
 async function unlockInternal(
@@ -3998,22 +4094,13 @@ export async function getWalletSession(
   const requestedWalletId =
     walletId ??
     (currentAuthentication.kind !== 'signed_out' ? currentAuthentication.walletId : undefined);
-  if (
-    currentAuthentication.kind === 'signed_out' ||
-    currentAuthentication.kind === 'linked_device_session'
-  ) {
-    const linkedDeviceSession = await readActiveLinkedDeviceWalletSession(
-      context,
-      requestedWalletId,
-    );
-    if (linkedDeviceSession) return linkedDeviceSession;
-    if (
-      currentAuthentication.kind === 'linked_device_session' &&
-      requestedWalletId === currentAuthentication.walletId
-    ) {
-      context.signingEngine.clearLinkedDeviceWalletSession(currentAuthentication.walletId);
-      return buildAnonymousWalletSession();
-    }
+  const linkedDeviceSession = await readActiveLinkedDeviceWalletSession(context, requestedWalletId);
+  if (linkedDeviceSession && linkedDeviceSession.appIdentity.kind === 'resolved') {
+    const linkedWalletId = linkedDeviceSession.appIdentity.walletId;
+    const restored = context.signingEngine.hasLinkedDeviceSigningSession(linkedWalletId)
+      ? true
+      : await context.signingEngine.restoreLinkedDeviceSigningSession(linkedWalletId);
+    if (restored) return linkedDeviceSession;
   }
   let readResolution = await resolveWalletCapabilitySubjectResolution(requestedWalletId);
   let didReconcileEcdsaActivation = false;
@@ -4182,10 +4269,6 @@ async function buildActiveLinkedDeviceWalletSession(
   const nearOperationalPublicKey = ed25519Execution
     ? `ed25519:${base58Encode(base64UrlDecode(ed25519Execution.walletKey.registeredPublicKeyB64u))}`
     : null;
-  context.signingEngine.setLinkedDeviceWalletSession({
-    kind: 'linked_device_session',
-    walletId: bundle.walletId,
-  });
   return {
     appIdentity: {
       ...baseIdentity,
@@ -4197,15 +4280,17 @@ async function buildActiveLinkedDeviceWalletSession(
       thresholdEcdsaPublicKeyB64u: ecdsaExecution?.walletKey.thresholdPublicKey33B64u ?? null,
     },
     authentication: {
-      kind: 'linked_device_session',
+      kind: 'authenticated',
       walletId: bundle.walletId,
+      authMethod: 'passkey',
     },
     reusableWalletSession: {
-      kind: 'linked_device_active',
+      kind: 'active',
       walletId: bundle.walletId,
       authorizationId: bundle.authorizationId,
       walletSessionId: bundle.walletSessionId,
-      authMethod: 'linked_device',
+      authMethod: 'passkey',
+      remainingUses: bundle.remainingUses,
       expiresAtMs: bundle.expiresAtMs,
     },
     capabilityProjection: { kind: 'not_requested' },
@@ -4265,7 +4350,6 @@ function authenticatedWalletStateFromReusableSession(
     case 'absent':
     case 'expired':
     case 'invalid':
-    case 'linked_device_active':
     case 'missing':
     case 'superseded':
     case 'unavailable':
@@ -5564,6 +5648,32 @@ export async function getRecentUnlocks(
 ): Promise<GetRecentUnlocksResult> {
   const allUsersData = await context.signingEngine.getAllUsers();
   const accounts = allUsersData.map((user) => recentUnlockAccountFromUser(user));
+  const linked = await resolveUniqueLinkedDeviceExecutionBundleV1({
+    evidenceRepository: linkedDeviceExecutionEvidence,
+    walletSessionRepository: linkedDeviceWalletSessions,
+  });
+  if (linked.kind === 'found' && linked.bundle.nearAccountId) {
+    const nearExecution = linked.bundle.orderedExecutions.find(
+      (
+        candidate,
+      ): candidate is Extract<
+        ActiveLinkedDeviceExecutionBundleV1['orderedExecutions'][number],
+        { keyFamily: 'ed25519' }
+      > => candidate.keyFamily === 'ed25519',
+    );
+    const signerSlot = nearExecution
+      ? parseSignerSlot(nearExecution.walletKey.keyCreationSignerSlot, { min: 1 })
+      : null;
+    if (nearExecution && signerSlot) {
+      accounts.push({
+        walletId: String(linked.bundle.walletId),
+        nearAccountId: toAccountId(linked.bundle.nearAccountId),
+        displayName: `${String(linked.bundle.walletId)} (linked device)`,
+        signerSlot,
+        authMethod: 'passkey',
+      });
+    }
+  }
   const walletIds = [...new Set(accounts.map((account) => account.walletId))];
   const accountIds = [...new Set(accounts.map((account) => account.nearAccountId))];
   const lastUsedUser = await context.signingEngine.getLastUser();
@@ -5580,6 +5690,7 @@ export async function getRecentUnlocks(
  */
 export type LockOperationContext = {
   signingEngine: {
+    clearLinkedDeviceRefreshMaterial(): Promise<void>;
     clearWalletAuthentication(): void;
     getNonceCoordinator(): { clearAll(): void };
     clearThresholdEcdsaSigningQueue(): void;
@@ -5589,6 +5700,7 @@ export type LockOperationContext = {
 
 export async function lock(context: LockOperationContext): Promise<void> {
   const { signingEngine } = context;
+  await signingEngine.clearLinkedDeviceRefreshMaterial();
   signingEngine.clearWalletAuthentication();
   await IndexedDBManager.clearLastProfileSelection().catch(() => undefined);
   try {

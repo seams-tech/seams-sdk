@@ -1347,7 +1347,7 @@ function localLinkedDeviceExecution(env: LocalD1DevEnv) {
   );
   if (!rpId.ok) throw new Error(rpId.error.message);
   const expectedOrigin =
-    normalizeLocalString(env.LINKED_DEVICE_WEBAUTHN_ORIGIN) || 'https://localhost:8443';
+    normalizeLocalString(env.LINKED_DEVICE_WEBAUTHN_ORIGIN) || 'https://localhost';
   return {
     nowV1: Date.now,
     rpId: rpId.value,

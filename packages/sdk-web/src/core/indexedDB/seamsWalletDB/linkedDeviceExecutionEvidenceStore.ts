@@ -226,3 +226,35 @@ export async function resolveUniqueActiveLinkedDeviceExecutionBundleV1(input: {
     return { kind: 'corrupt' };
   }
 }
+
+export async function resolveUniqueLinkedDeviceExecutionBundleV1(input: {
+  readonly walletId?: string;
+  readonly evidenceRepository: Pick<
+    LinkedDeviceExecutionEvidenceRepositoryV1,
+    'readForEnrollmentV1'
+  >;
+  readonly walletSessionRepository: Pick<
+    LinkedDeviceWalletSessionRepositoryV1,
+    'readUniqueForWalletV1'
+  >;
+}): Promise<ActiveLinkedDeviceExecutionBundleReadResultV1> {
+  const walletSessionResult = await input.walletSessionRepository.readUniqueForWalletV1({
+    ...(input.walletId ? { walletId: input.walletId } : {}),
+  });
+  if (walletSessionResult.kind !== 'found') return walletSessionResult;
+  const evidenceResult = await input.evidenceRepository.readForEnrollmentV1(
+    walletSessionResult.delivery.enrollmentId,
+  );
+  if (evidenceResult.kind !== 'found') return evidenceResult;
+  try {
+    return {
+      kind: 'found',
+      bundle: await buildActiveLinkedDeviceExecutionBundleFromEvidenceV1({
+        evidence: evidenceResult.evidence,
+        walletSessionDelivery: walletSessionResult.delivery,
+      }),
+    };
+  } catch {
+    return { kind: 'corrupt' };
+  }
+}

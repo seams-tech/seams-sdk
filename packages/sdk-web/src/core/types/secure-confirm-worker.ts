@@ -103,6 +103,19 @@ export type WarmSessionSealTransportInput =
       ecdsaRestore: Exclude<SealedSigningSessionEcdsaRestoreMetadata, { source: 'email_otp' }>;
       ed25519Restore?: never;
       emailOtpRestore?: never;
+    })
+  | (PasskeyWarmSessionSealTransportCommon & {
+      curve: 'linked_device';
+      authMethod: 'passkey';
+      walletId: string;
+      walletSessionToken: string;
+      enrollmentId: string;
+      deviceId: string;
+      credentialIdB64u: string;
+      chainTarget?: never;
+      ecdsaRestore?: never;
+      ed25519Restore?: never;
+      emailOtpRestore?: never;
     });
 
 export interface WarmSessionSealAndPersistPayload {

@@ -19,7 +19,6 @@ import {
 import { ensureEd25519Prefix } from '@shared/utils/validation';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import type { AuthenticatorPort } from '@/core/platform';
-import type { LaneSealedHolderMaterialRepositoryV1 } from '@/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
 import type { LinkedDeviceWalletSessionTokenReadResultV1 } from '@/core/indexedDB/seamsWalletDB/linkedDeviceWalletSessionStore';
 import type {
   ActiveLinkedDeviceExecutionBundleV1,
@@ -27,9 +26,10 @@ import type {
 } from '@/core/signingEngine/session/lanes/linkedDeviceExecutionBundle';
 import type {
   DeviceLinkingHolderSigningMaterialPortV1,
+  DeviceLinkingHolderSigningMaterialHandleV1,
   DeviceLinkingEd25519SigningShareV1,
 } from '@/core/signingEngine/session/lanes/linkedDevicePorts';
-import { authorizeAndOpenLinkedDeviceHolderV1 } from '@/core/signingEngine/session/lanes/linkedDeviceLocalPresence';
+import { collectLinkedDeviceLocalPresenceV1 } from '@/core/signingEngine/session/lanes/linkedDeviceLocalPresence';
 import {
   buildRouterAbEd25519NearTransactionPrepareRequestV2,
   buildRouterAbEd25519Nep413PrepareRequestV2,
@@ -98,7 +98,7 @@ export type LinkedDeviceEd25519NormalSigningRequestV1 =
 export type LinkedDeviceEd25519NormalSigningPrepareRequestV1 =
   RouterAbNormalSigningPrepareRequestV2Wire & {
     readonly linkedDeviceExecution: LinkedDeviceExecutionEnvelopeV1;
-    readonly localPresenceAssertion: LinkedDeviceLocalPresenceAssertionV1;
+    readonly localPresenceAssertion?: LinkedDeviceLocalPresenceAssertionV1;
   };
 
 export type LinkedDeviceEd25519NormalSigningFinalizeRequestV1 =
@@ -122,8 +122,11 @@ export type LinkedDeviceEd25519NormalSigningTransportV1 = {
 export type LinkedDeviceEd25519NormalSigningInputV1 = {
   readonly relayServerUrl: string;
   readonly authenticator: AuthenticatorPort;
-  readonly holderRepository: LaneSealedHolderMaterialRepositoryV1;
   readonly holderMaterial: DeviceLinkingHolderSigningMaterialPortV1;
+  readonly holderHandle: Extract<
+    DeviceLinkingHolderSigningMaterialHandleV1,
+    { readonly keyFamily: 'ed25519' }
+  >;
   readonly bundle: ActiveLinkedDeviceExecutionBundleV1;
   readonly child: Extract<ActiveLinkedDeviceExecutionChildV1, { readonly keyFamily: 'ed25519' }>;
   readonly walletSession: Extract<
@@ -166,6 +169,10 @@ function requireAuthorizedOperationId(requestId: string): AuthorizedOperationId 
   const parsed = parseAuthorizedOperationId(`linked-ed25519-authorized-operation:${requestId}`);
   if (!parsed.ok) throw new Error(parsed.error.message);
   return parsed.value;
+}
+
+function isLinkedDeviceStepUpRequired(error: unknown): boolean {
+  return error instanceof Error && error.message.includes('linked_device_step_up_required');
 }
 
 function digestB64uFromWire(value: { readonly bytes: readonly number[] }): DigestB64u {
@@ -393,45 +400,43 @@ export async function executeLinkedDeviceEd25519NormalSigningV1(
     kind: 'wallet_session_jwt',
     walletSessionJwt: input.walletSession.token.walletSessionJwt,
   };
-  const presenceAndHolder = await authorizeAndOpenLinkedDeviceHolderV1({
-    authenticator: input.authenticator,
-    holderRepository: input.holderRepository,
-    holderMaterial: input.holderMaterial,
-    bundle: input.bundle,
-    child: input.child,
-    authorizedOperationId,
-    intentDigestB64u,
-    issuedAtMs: input.issuedAtMs,
-    expiresAtMs: input.request.expiresAtMs,
-    authorizeBeforeOpen: async (localPresenceAssertion) =>
-      await transport.prepare({
-        relayServerUrl: input.relayServerUrl,
-        credential,
-        request: {
-          ...prepare.request,
-          linkedDeviceExecution: envelope,
-          localPresenceAssertion,
-        },
-      }),
-  });
+  let prepareRequest: LinkedDeviceEd25519NormalSigningPrepareRequestV1 = {
+    ...prepare.request,
+    linkedDeviceExecution: envelope,
+  };
+  let prepareResponse: RouterAbNormalSigningPrepareResponseV1Wire;
   try {
-    const prepareRequest: LinkedDeviceEd25519NormalSigningPrepareRequestV1 = {
-      ...prepare.request,
-      linkedDeviceExecution: envelope,
-      localPresenceAssertion: presenceAndHolder.localPresenceAssertion,
-    };
-    const prepareResponse = presenceAndHolder.authorizationResult;
+    prepareResponse = await transport.prepare({
+      relayServerUrl: input.relayServerUrl,
+      credential,
+      request: prepareRequest,
+    });
+  } catch (error) {
+    if (!isLinkedDeviceStepUpRequired(error)) throw error;
+    const localPresenceAssertion = await collectLinkedDeviceLocalPresenceV1({
+      authenticator: input.authenticator,
+      bundle: input.bundle,
+      child: input.child,
+      authorizedOperationId,
+      intentDigestB64u,
+      issuedAtMs: input.issuedAtMs,
+      expiresAtMs: input.request.expiresAtMs,
+    });
+    prepareRequest = { ...prepareRequest, localPresenceAssertion };
+    prepareResponse = await transport.prepare({
+      relayServerUrl: input.relayServerUrl,
+      credential,
+      request: prepareRequest,
+    });
+  }
     requireRouterAbNormalSigningPrepareMatchesRequest({
       request: prepareRequest,
       signingPayloadDigest: prepare.admissionMaterial.signingPayloadDigest,
       response: prepareResponse,
     });
-    if (presenceAndHolder.holderMaterial.keyFamily !== 'ed25519') {
-      throw new Error('linked-device holder material changed its active curve');
-    }
     const clientShare = await createHolderShare({
       holderMaterial: input.holderMaterial,
-      handle: presenceAndHolder.holderMaterial,
+      handle: input.holderHandle,
       admissionMaterial: prepare.admissionMaterial,
       prepareResponse,
     });
@@ -467,9 +472,4 @@ export async function executeLinkedDeviceEd25519NormalSigningV1(
       ),
       signerPublicKey: signerPublicKey(input.child),
     };
-  } finally {
-    await input.holderMaterial.discardHolderSigningMaterialV1({
-      handle: presenceAndHolder.holderMaterial,
-    });
-  }
 }

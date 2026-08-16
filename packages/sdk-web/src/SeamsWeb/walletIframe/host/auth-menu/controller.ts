@@ -96,6 +96,11 @@ export class AuthMenuController {
         await this.beginGoogleEmailOtp({ idToken, mode, signal }),
       startDeviceLinking: this.startDeviceLinking,
       cancelDeviceLinking: this.cancelDeviceLinking,
+      activateLinkedDeviceSession: async (walletId) =>
+        await this.deps
+          .getSeamsWeb()
+          .getContext()
+          .signingEngine.establishLinkedDeviceSigningSession(walletId),
       sendToParent: this.deps.send,
     });
     const outcomePromise = session.waitForOutcome();
@@ -190,9 +195,9 @@ export class AuthMenuController {
     }
     const selectedWalletIsLocal = Boolean(
       selectedWalletId &&
-        loginAccountOptions(localUnlocks).some(
-          (option) => String(option.walletId) === selectedWalletId,
-        ),
+      loginAccountOptions(localUnlocks).some(
+        (option) => String(option.walletId) === selectedWalletId,
+      ),
     );
     if (selectedWalletId && selectedWalletIsLocal) {
       return await prepareHostedPasskeyLogin({

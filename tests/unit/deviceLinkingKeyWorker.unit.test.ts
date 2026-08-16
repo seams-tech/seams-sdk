@@ -612,9 +612,11 @@ test.describe('device-linking key worker', () => {
     const preparation = targetPreparation();
     const credentialIdB64u = base64UrlEncode(new Uint8Array(32).fill(8));
     const prfFirstB64u = base64UrlEncode(new Uint8Array(32).fill(11));
+    let createPasskeyOperation: Parameters<AuthenticatorPort['run']>[0] | null = null;
     const authenticator: AuthenticatorPort = {
       kind: 'authenticator',
-      async run() {
+      async run(operation) {
+        createPasskeyOperation = operation;
         return {
           ok: true,
           operation: 'create_passkey',
@@ -682,6 +684,11 @@ test.describe('device-linking key worker', () => {
     const result = await port.createTargetCredentialV1({
       preparation,
       keyMaterial: { kind: 'device_linking_key_material_handle_v1', handleId: 'handle-1' },
+    });
+    expect(createPasskeyOperation).toMatchObject({
+      userName: `${String(preparation.walletId)} (2)`,
+      userDisplayName: `${String(preparation.walletId)} (2)`,
+      userHandleB64u: preparation.userHandleB64u,
     });
     expect(transferredFactorSecret).toEqual(new Uint8Array(32).fill(11));
     expect(result.webauthnRegistration).not.toHaveProperty('clientExtensionResults');

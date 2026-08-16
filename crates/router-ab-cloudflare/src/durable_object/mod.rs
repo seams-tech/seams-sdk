@@ -981,17 +981,42 @@ impl CloudflareSigningWorkerEcdsaPresignatureRecordV1 {
                 "SigningWorker ECDSA presignature expired",
             ));
         }
-        if self.active_signing_worker_state == *active_signing_worker_state
-            && self.server_presignature_id == server_presignature_id
-            && self.request_digest == request_digest
-            && self.admitted_signing_digest == admitted_signing_digest
+        let recorded_active = &self.active_signing_worker_state;
+        if recorded_active.account_id != active_signing_worker_state.account_id
+            || recorded_active.material_activation
+                != active_signing_worker_state.material_activation
+            || recorded_active.account_public_key != active_signing_worker_state.account_public_key
+            || recorded_active.signing_worker != active_signing_worker_state.signing_worker
+            || recorded_active.activation_transcript_digest
+                != active_signing_worker_state.activation_transcript_digest
+            || recorded_active.activation_digest != active_signing_worker_state.activation_digest
+            || recorded_active.signing_worker_material_handle
+                != active_signing_worker_state.signing_worker_material_handle
         {
-            return Ok(());
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "SigningWorker ECDSA presignature active material does not match finalization request",
+            ));
         }
-        Err(RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-            "SigningWorker ECDSA presignature record does not match finalization request",
-        ))
+        if self.server_presignature_id != server_presignature_id {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "SigningWorker ECDSA presignature id does not match finalization request",
+            ));
+        }
+        if self.request_digest != request_digest {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "SigningWorker ECDSA presignature request digest does not match finalization request",
+            ));
+        }
+        if self.admitted_signing_digest != admitted_signing_digest {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "SigningWorker ECDSA presignature signing digest does not match finalization request",
+            ));
+        }
+        Ok(())
     }
 }
 

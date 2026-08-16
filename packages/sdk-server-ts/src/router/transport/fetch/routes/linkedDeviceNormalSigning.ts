@@ -21,7 +21,10 @@ import {
   proxyLinkedDeviceLaneAdmittedNormalSigningRequest,
   ROUTER_AB_ECDSA_DERIVATION_LINKED_DEVICE_SIGN_PATH,
 } from './normalSigningRouterProxy';
-import { buildLinkedDeviceLocalPresenceCapabilityV1 } from '../../../domains/signingOperations/walletExecutionAdmission';
+import {
+  buildLinkedDeviceLocalPresenceCapabilityV1,
+  buildLinkedDeviceWalletSessionRenewalCapabilityV1,
+} from '../../../domains/signingOperations/walletExecutionAdmission';
 import {
   buildEvmEcdsaMpcOperationRef,
   buildNearEd25519MpcOperationRef,
@@ -32,10 +35,7 @@ import {
 } from '@shared/authorization/capabilityKinds';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { base64UrlEncode } from '@shared/utils/base64';
-import {
-  parseRouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
-  parseRouterAbEcdsaDerivationEvmDigestSigningRequestV1,
-} from '@shared/utils/routerAbEcdsaDerivation';
+import { parseLinkedDeviceEcdsaNormalSigningScopeV1 } from '@shared/signing-lanes/linkedEcdsaScope';
 import { mpcMaterialActivationRefsEqual, parseWalletId } from '@shared/utils/domainIds';
 import {
   buildCapabilityOperationEnvelope,
@@ -44,6 +44,8 @@ import {
   parseSigningOperationFingerprintDigest,
 } from '@shared/authorization/operationFingerprint';
 import {
+  parseRouterAbMpcMaterialActivationRef,
+  parseRouterAbNormalSigningAuthorization,
   routerAbMpcMaterialActivationRefFromWire,
   type RouterAbMpcMaterialActivationRefWire,
 } from '@shared/utils/routerAbNormalSigningIdentity';
@@ -151,46 +153,18 @@ async function handleLinkedDeviceNormalSigning(
     const operation =
       input.curve === 'ed25519'
         ? await parseEd25519Operation(input.body, input.phase, input.authenticated.claims)
-        : parseEcdsaOperation(input.body, input.phase, input.authenticated.claims);
+        : parseEcdsaOperation(input.body, input.phase);
     const envelope = parseLinkedDeviceExecutionEnvelopeV1(input.body.linkedDeviceExecution);
     assertLinkedScopeMatches({
-      curve: input.curve,
       claims: input.authenticated.claims,
       envelope,
-      requestMaterialActivation: operation.materialActivation,
-      body: input.body,
+      operation,
     });
     assertLinkedRequestLifetime({
       expiresAtMs: operation.expiresAtMs,
       walletSessionExpiresAtMs: input.authenticated.claims.expiresAtMs,
       nowMs: Date.now(),
     });
-    let localPresenceAuthorization: LinkedDeviceLocalPresenceAuthorizationV1 | null = null;
-    if (input.phase === 'prepare') {
-      const localPresence = await verifyLinkedDeviceLocalPresenceForOperation({
-        assertion: input.body.localPresenceAssertion,
-        verifier: localPresenceVerifier,
-        authorizedOperationId: operation.authorizedOperationId,
-        deviceId: input.authenticated.claims.deviceId,
-        enrollmentId: input.authenticated.claims.enrollmentId,
-        intentDigestB64u: operation.digests.intentDigest,
-      });
-      if (localPresence.kind === 'refused') {
-        return json(
-          {
-            ok: false,
-            code: 'local_presence_required',
-            message: `Linked-device local presence was refused: ${localPresence.reason}`,
-          },
-          { status: 403 },
-        );
-      }
-      localPresenceAuthorization = {
-        kind: 'verified_assertion',
-        evidence: localPresence.evidence,
-      };
-    }
-
     const admissionInput = {
       authorizedOperations: input.ctx.service.authorizedOperations,
       tenantId: input.authenticated.claims.tenantId,
@@ -232,7 +206,58 @@ async function handleLinkedDeviceNormalSigning(
         );
       }
     }
-    const admission = await admitLinkedDeviceAuthorizedOperation(admissionInput);
+    let admission = await admitLinkedDeviceAuthorizedOperation(admissionInput);
+    if (admission.kind === 'wallet_session_quota_exhausted' && input.phase === 'prepare') {
+      if (!input.body.localPresenceAssertion) {
+        return json(
+          {
+            ok: false,
+            code: 'linked_device_step_up_required',
+            message: 'Linked-device Wallet Session requires local-presence renewal',
+          },
+          { status: 409 },
+        );
+      }
+      const localPresence = await verifyLinkedDeviceLocalPresenceForOperation({
+        assertion: input.body.localPresenceAssertion,
+        verifier: localPresenceVerifier,
+        authorizedOperationId: operation.authorizedOperationId,
+        deviceId: input.authenticated.claims.deviceId,
+        enrollmentId: input.authenticated.claims.enrollmentId,
+        intentDigestB64u: operation.digests.intentDigest,
+      });
+      if (localPresence.kind === 'refused') {
+        return json(
+          {
+            ok: false,
+            code: 'local_presence_required',
+            message: `Linked-device local presence was refused: ${localPresence.reason}`,
+          },
+          { status: 403 },
+        );
+      }
+      const renewal = buildLinkedDeviceWalletSessionRenewalCapabilityV1({
+        evidence: localPresence.evidence,
+        tenantId: input.authenticated.claims.tenantId,
+        deviceId: input.authenticated.claims.deviceId,
+        enrollmentId: input.authenticated.claims.enrollmentId,
+        authorizationId: input.authenticated.claims.authorizationId,
+        walletSessionId: input.authenticated.claims.walletSessionId,
+        quotaId: input.authenticated.claims.quotaId,
+        revocationEpoch: input.authenticated.claims.revocationEpoch,
+        authorizedOperationId: operation.authorizedOperationId,
+        intentDigestB64u: operation.digests.intentDigest,
+      });
+      const renewedAtMs = Date.now();
+      await input.ctx.service.authorizationSessions.renewLinkedDeviceWalletSession({
+        renewedAtMs,
+        renewal,
+      });
+      admission = await admitLinkedDeviceAuthorizedOperation({
+        ...admissionInput,
+        claimedAtMs: renewedAtMs,
+      });
+    }
     switch (admission.kind) {
       case 'authorization_grant_rejected':
       case 'verified_step_up_rejected':
@@ -277,9 +302,9 @@ async function handleLinkedDeviceNormalSigning(
           ...input,
           operation: admission.operation,
           envelope,
-          localPresence:
-            localPresenceAuthorization ??
-            buildLinkedDeviceLocalPresenceCapabilityV1(requireClaimedOperation(admission.operation)),
+          localPresence: buildLinkedDeviceLocalPresenceCapabilityV1(
+            requireClaimedOperation(admission.operation),
+          ),
           walletSessionId: input.authenticated.claims.walletSessionId,
           quotaId: input.authenticated.claims.quotaId,
           laneRevocationEpoch: input.authenticated.claims.revocationEpoch,
@@ -467,7 +492,12 @@ async function parseEd25519Operation(
   const displayDigest = parseEd25519Digest(body.display_digest, 'display_digest');
   const operationId = operationResult.operationId;
   return {
-    walletId: requireWalletId(claims.walletId),
+    walletId: requireWalletId(scope.account_id),
+    walletSessionId: requireText(
+      scope.authorization.wallet_session_id,
+      'scope.authorization.wallet_session_id',
+    ),
+    scopeMaterialActivation: routerAbMpcMaterialActivationRefFromWire(scope.material_activation),
     operation: operationResult.operation,
     operationId,
     capabilityId: requireCapabilityId(scope.material_activation.capability),
@@ -530,7 +560,12 @@ async function parseEd25519FinalizeOperation(
     throw new Error('linked-device Ed25519 operation fingerprint changed after prepare');
   }
   return {
-    walletId: requireWalletId(claims.walletId),
+    walletId: requireWalletId(scope.account_id),
+    walletSessionId: requireText(
+      scope.authorization.wallet_session_id,
+      'scope.authorization.wallet_session_id',
+    ),
+    scopeMaterialActivation: routerAbMpcMaterialActivationRefFromWire(scope.material_activation),
     operation,
     operationId,
     capabilityId,
@@ -545,21 +580,16 @@ async function parseEd25519FinalizeOperation(
 function parseEcdsaOperation(
   body: Record<string, unknown>,
   phase: LinkedNormalSigningPhase,
-  claims: Extract<
-    Awaited<ReturnType<typeof parseLinkedDeviceWalletSessionForCurve>>,
-    { readonly kind: 'linked_device'; readonly curve: 'ecdsa' }
-  >['claims'],
 ): ParsedLinkedOperation {
   const coreRequest = stripLinkedDeviceNormalSigningBoundaryFields(body);
-  const request =
-    phase === 'prepare'
-      ? parseRouterAbEcdsaDerivationEvmDigestSigningRequestV1(coreRequest)
-      : parseRouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1(coreRequest);
+  const request = parseLinkedEcdsaOperationRequest(coreRequest, phase);
   if (request.authorization.kind !== 'reusable_wallet_session') {
     throw new Error('linked-device ECDSA signing requires reusable session authorization');
   }
   return {
-    walletId: requireWalletId(claims.walletId),
+    walletId: requireWalletId(request.scope.walletId),
+    walletSessionId: request.authorization.wallet_session_id,
+    scopeMaterialActivation: request.scope.materialActivation,
     operation: buildEvmEcdsaMpcOperationRef('evm.sign_transaction'),
     operationId: requireOperationId(request.operation_id),
     capabilityId: requireCapabilityId(request.material_activation.capability),
@@ -577,8 +607,109 @@ function parseEcdsaOperation(
   };
 }
 
+function parseLinkedEcdsaOperationRequest(
+  body: Record<string, unknown>,
+  phase: LinkedNormalSigningPhase,
+) {
+  requireExactKeys(
+    body,
+    phase === 'prepare'
+      ? [
+          'scope',
+          'request_id',
+          'operation_id',
+          'operation_digests',
+          'authorization',
+          'material_activation',
+          'client_presignature_id',
+          'expires_at_ms',
+          'signing_digest_b64u',
+          'client_rerandomization_commitment32_b64u',
+        ]
+      : [
+          'scope',
+          'request_id',
+          'operation_id',
+          'operation_digests',
+          'authorization',
+          'material_activation',
+          'expires_at_ms',
+          'signing_digest_b64u',
+          'server_presignature_id',
+          'client_signature_share32_b64u',
+          'client_rerandomization_contribution32_b64u',
+        ],
+    'linkedEcdsaRequest',
+  );
+  const scope = parseLinkedDeviceEcdsaNormalSigningScopeV1(body.scope);
+  const operationDigests = requireRecord(body.operation_digests, 'operation_digests');
+  requireExactKeys(
+    operationDigests,
+    ['lane_digest_b64u', 'intent_digest_b64u', 'display_digest_b64u'],
+    'operation_digests',
+  );
+  const parsedDigests = {
+    lane_digest_b64u: parseDigestB64u(
+      requireText(operationDigests.lane_digest_b64u, 'operation_digests.lane_digest_b64u'),
+    ),
+    intent_digest_b64u: parseDigestB64u(
+      requireText(operationDigests.intent_digest_b64u, 'operation_digests.intent_digest_b64u'),
+    ),
+    display_digest_b64u: parseDigestB64u(
+      requireText(operationDigests.display_digest_b64u, 'operation_digests.display_digest_b64u'),
+    ),
+  };
+  const signingDigest = parseDigestB64u(
+    requireText(body.signing_digest_b64u, 'signing_digest_b64u'),
+  );
+  if (parsedDigests.intent_digest_b64u !== signingDigest) {
+    throw new Error('linked ECDSA intent digest must equal the signing digest');
+  }
+  const authorization = parseRouterAbNormalSigningAuthorization(body.authorization);
+  const materialActivation = parseRouterAbMpcMaterialActivationRef(body.material_activation);
+  if (
+    !mpcMaterialActivationRefsEqual(
+      routerAbMpcMaterialActivationRefFromWire(materialActivation),
+      scope.materialActivation,
+    )
+  ) {
+    throw new Error('linked ECDSA material activation does not match scope');
+  }
+  if (phase === 'prepare') {
+    requireText(body.client_presignature_id, 'client_presignature_id');
+    parseDigestB64u(
+      requireText(
+        body.client_rerandomization_commitment32_b64u,
+        'client_rerandomization_commitment32_b64u',
+      ),
+    );
+  } else {
+    requireText(body.server_presignature_id, 'server_presignature_id');
+    parseDigestB64u(
+      requireText(body.client_signature_share32_b64u, 'client_signature_share32_b64u'),
+    );
+    parseDigestB64u(
+      requireText(
+        body.client_rerandomization_contribution32_b64u,
+        'client_rerandomization_contribution32_b64u',
+      ),
+    );
+  }
+  return {
+    scope,
+    request_id: requireText(body.request_id, 'request_id'),
+    operation_id: requireText(body.operation_id, 'operation_id'),
+    operation_digests: parsedDigests,
+    authorization,
+    material_activation: materialActivation,
+    expires_at_ms: requirePositiveMs(body.expires_at_ms, 'expires_at_ms'),
+  };
+}
+
 type ParsedLinkedOperation = {
   readonly walletId: ReturnType<typeof requireWalletId>;
+  readonly walletSessionId: string;
+  readonly scopeMaterialActivation: ReturnType<typeof routerAbMpcMaterialActivationRefFromWire>;
   readonly operation: Parameters<typeof admitLinkedDeviceAuthorizedOperation>[0]['operation'];
   readonly operationId: ReturnType<typeof requireOperationId>;
   readonly capabilityId: ReturnType<typeof requireCapabilityId>;
@@ -594,7 +725,6 @@ type ParsedLinkedOperation = {
 };
 
 function assertLinkedScopeMatches(input: {
-  readonly curve: 'ed25519' | 'ecdsa';
   readonly claims: {
     readonly walletId: string;
     readonly walletSessionId: unknown;
@@ -603,34 +733,24 @@ function assertLinkedScopeMatches(input: {
     readonly walletKeyId: unknown;
   };
   readonly envelope: ReturnType<typeof parseLinkedDeviceExecutionEnvelopeV1>;
-  readonly requestMaterialActivation: RouterAbMpcMaterialActivationRefWire;
-  readonly body: Record<string, unknown>;
+  readonly operation: ParsedLinkedOperation;
 }): void {
-  const scope = requireRecord(input.body.scope, 'scope');
-  const scopeMaterial = requireRecord(scope.material_activation, 'scope.material_activation');
-  const authorization = requireRecord(
-    input.curve === 'ed25519' ? scope.authorization : input.body.authorization,
-    'authorization',
-  );
-  const scopeWallet = input.curve === 'ed25519' ? scope.account_id : scope.wallet_id;
-  if (String(scopeWallet) !== input.claims.walletId) {
+  if (String(input.operation.walletId) !== input.claims.walletId) {
     throw new Error('linked-device signing wallet does not match the Wallet Session');
   }
-  if (authorization.wallet_session_id !== input.claims.walletSessionId) {
+  if (input.operation.walletSessionId !== input.claims.walletSessionId) {
     throw new Error('linked-device signing Wallet Session does not match authorization scope');
   }
-  const requestMaterial = input.requestMaterialActivation;
-  const requestMaterialValue = routerAbMpcMaterialActivationRefFromWire(requestMaterial);
+  const requestMaterialValue = routerAbMpcMaterialActivationRefFromWire(
+    input.operation.materialActivation,
+  );
   if (
     !mpcMaterialActivationRefsEqual(requestMaterialValue, input.envelope.materialActivationValue)
   ) {
     throw new Error('linked-device execution material activation does not match signing scope');
   }
   if (
-    !mpcMaterialActivationRefsEqual(
-      requestMaterialValue,
-      routerAbMpcMaterialActivationRefFromWire(scopeMaterial),
-    )
+    !mpcMaterialActivationRefsEqual(requestMaterialValue, input.operation.scopeMaterialActivation)
   ) {
     throw new Error('linked-device signing scope material activation does not match request');
   }
@@ -721,6 +841,29 @@ function requireRecord(value: unknown, label: string): Record<string, unknown> {
     throw new Error(`${label} must be an object`);
   }
   return value as Record<string, unknown>;
+}
+
+function requireExactKeys(
+  record: Record<string, unknown>,
+  allowedKeys: readonly string[],
+  label: string,
+): void {
+  const allowed = new Set(allowedKeys);
+  for (const key of Object.keys(record)) {
+    if (!allowed.has(key)) throw new Error(`${label}.${key} is not a supported field`);
+  }
+}
+
+function requireText(value: unknown, label: string): string {
+  if (typeof value !== 'string' || !value.trim()) throw new Error(`${label} is required`);
+  return value.trim();
+}
+
+function requirePositiveMs(value: unknown, label: string): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`${label} must be a positive safe integer`);
+  }
+  return value;
 }
 
 function requireWalletId(value: unknown) {

@@ -58,17 +58,9 @@ require_file() {
   local path="$1"
   if [ ! -f "$path" ]; then
     print_error "Missing required WASM output: $path"
+    print_error "Run pnpm build:sdk-full to rebuild WASM packages."
     exit 1
   fi
-}
-
-wasm_outputs_present() {
-  local path
-  for path in "${REQUIRED_WASM_OUTPUTS[@]}"; do
-    if [ ! -f "$path" ]; then
-      return 1
-    fi
-  done
 }
 
 if command -v bun >/dev/null 2>&1; then BUN_BIN="$(command -v bun)"; elif [ -x "$HOME/.bun/bin/bun" ]; then BUN_BIN="$HOME/.bun/bin/bun"; else BUN_BIN=""; fi
@@ -78,15 +70,6 @@ acquire_build_output_lock
 print_success "WASM package-output build lock acquired"
 
 print_step "Checking existing WASM package outputs..."
-if ! wasm_outputs_present; then
-  print_warning "WASM package outputs are incomplete; building them now..."
-  if "$SCRIPT_DIR/build-wasm.sh"; then
-    print_success "Missing WASM package outputs rebuilt"
-  else
-    print_error "Failed to rebuild missing WASM package outputs"
-    exit 1
-  fi
-fi
 for path in "${REQUIRED_WASM_OUTPUTS[@]}"; do
   require_file "$path"
 done

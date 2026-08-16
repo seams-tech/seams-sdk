@@ -497,7 +497,7 @@ test.describe('linked-device browser orchestration', () => {
       undefined,
       qrData,
       {
-        onEvent: (event) => events.push(event.status),
+        onEvent: (event) => events.push(`${event.status}:${event.message}`),
       },
       ports,
     );
@@ -507,7 +507,11 @@ test.describe('linked-device browser orchestration', () => {
     expect(result.enrollmentId).toBe(fixture.approval.enrollmentId);
     expect(result.manifestDigestB64u).toBe(fixture.receipt.manifestDigestB64u);
     expect(calls).toEqual(['authenticate', 'claim', 'approve']);
-    expect(events).toEqual(['started', 'succeeded']);
+    expect(events).toEqual([
+      'started:Scanning QR code',
+      'succeeded:QR code scanned',
+      'succeeded:Device linked',
+    ]);
     expect(calls).not.toContain('keygen');
     expect(recordedApproval?.ownerAuthorization).toEqual(fixture.approval.ownerAuthorization);
   });
@@ -729,7 +733,7 @@ test.describe('linked-device browser orchestration', () => {
     expect(acknowledgement?.receipt).toEqual(active.deviceLink.receipt);
   });
 
-  test('Device 2 processes exact encrypted deliveries before aggregate acknowledgement', async () => {
+  test('Device 2 waits for source deliveries before processing and acknowledging them', async () => {
     const calls: string[] = [];
     const fixture = buildR103DeviceLinkFixture();
     const active = await buildR103ActiveExecutionFixture();
@@ -763,7 +767,27 @@ test.describe('linked-device browser orchestration', () => {
     );
     const generated = await flow.generateQR();
     if (!authenticatedTransport) throw new Error('authenticated transport was not bound');
+    let sessionReads = 0;
     Object.assign(authenticatedTransport, {
+      getSessionV1: async () => {
+        calls.push('get');
+        sessionReads += 1;
+        const state =
+          sessionReads <= 2
+            ? buildProvisioningLinkedDeviceSessionState({
+                linkSessionId: generated.qrData.linkSessionId,
+                walletId: fixture.approval.walletId,
+                enrollmentId: fixture.approval.enrollmentId,
+                provisioningStartedAtMs: Date.now(),
+              })
+            : buildCommittedCompletionRequiredLinkedDeviceSessionState({
+                linkSessionId: generated.qrData.linkSessionId,
+                walletId: fixture.approval.walletId,
+                enrollmentId: fixture.approval.enrollmentId,
+                committedAtMs: Date.now(),
+              });
+        return { state, deviceId: fixture.approval.deviceId };
+      },
       requestProvisioningDeliveriesV1: async () => {
         calls.push('provision-deliveries');
         return active.provisioning.deliveries;
@@ -823,12 +847,15 @@ test.describe('linked-device browser orchestration', () => {
     if (!targetPasskeyActivation) throw new Error('target passkey activation was not published');
     await targetPasskeyActivation.createPasskey();
     await expect
-      .poll(() => calls.slice(-13), { timeout: 5_000 })
+      .poll(() => calls.slice(-16), { timeout: 5_000 })
       .toEqual([
+        'get',
         'target-preparation',
         'target-passkey',
         'credential',
         'get-approval',
+        'get',
+        'get',
         'provision-deliveries',
         'prepare-lanes',
         'holder-receipts',

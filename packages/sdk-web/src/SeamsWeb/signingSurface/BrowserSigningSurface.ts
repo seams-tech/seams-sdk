@@ -165,9 +165,7 @@ import {
   rebindRouterAbEd25519WalletSessionStateFromExactRuntime,
   type ResolvedRouterAbEd25519WalletSessionState,
 } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
-import {
-  buildRouterAbEd25519SigningWalletSession,
-} from '@/core/signingEngine/session/routerAbSigningWalletSession';
+import { buildRouterAbEd25519SigningWalletSession } from '@/core/signingEngine/session/routerAbSigningWalletSession';
 import {
   hydratePasskeyEd25519YaoLocalMaterialV1,
   preparePasskeyEd25519YaoLocalMaterialRehydrationV1,
@@ -359,8 +357,12 @@ import { createWalletHostOwnerAuthoritiesV1 } from '../operations/devices/wallet
 import type { WalletHostCompositionDependenciesV1 } from '../operations/devices/walletHostComposition';
 import { createWalletHostSourceLanePortsV1 } from '../operations/devices/walletHostSourceLanePorts';
 import {
+  closeLinkedDeviceWarmSigningSessionV1,
+  openLinkedDeviceWarmSigningSessionV1,
+  restoreLinkedDeviceWarmSigningSessionV1,
   signLinkedDeviceEvmFamilyV1,
   signLinkedDeviceNearTransactionV1,
+  type LinkedDeviceWarmSigningSessionV1,
 } from '../operations/devices/linkedDeviceSigningRuntime';
 import type {
   LinkSessionOwnerApprovalUpdatesPortV1,
@@ -377,7 +379,10 @@ import {
 } from '@shared/device-linking';
 import type { LaneOperationSourcePortsV1 } from '@/core/signingEngine/session/lanes/operations/ports';
 import type { LaneSealedHolderMaterialRepositoryV1 } from '@/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
-import type { LinkedDeviceWalletSessionRepositoryV1 } from '@/core/indexedDB/seamsWalletDB/linkedDeviceWalletSessionStore';
+import {
+  linkedDeviceWalletSessions,
+  type LinkedDeviceWalletSessionRepositoryV1,
+} from '@/core/indexedDB/seamsWalletDB/linkedDeviceWalletSessionStore';
 import type { LinkedDeviceExecutionEvidenceRepositoryV1 } from '@/core/indexedDB/seamsWalletDB/linkedDeviceExecutionEvidenceStore';
 import type {
   EcdsaLaneProtocolWasmV1,
@@ -1326,10 +1331,7 @@ function emailOtpWalletSessionStateFromPublicLane(args: {
     throw new Error('[SigningEngine][near] Email OTP public lane authority is required');
   }
   const walletSessionToken = walletSessionTokenForCurve(args.authorization, 'ed25519');
-  const authorizationId = walletSessionAuthorizationIdForCurve(
-    args.authorization,
-    'ed25519',
-  );
+  const authorizationId = walletSessionAuthorizationIdForCurve(args.authorization, 'ed25519');
   if (!walletSessionToken || !authorizationId) {
     throw new Error('[SigningEngine][near] Email OTP Ed25519 Wallet Session token is unavailable');
   }
@@ -1692,6 +1694,7 @@ export class BrowserSigningSurface {
   private readonly nearClient: NearClient;
   private readonly nonceCoordinator: NonceCoordinator;
   private linkedDeviceAuthenticator: AuthenticatorPort | null = null;
+  private linkedDeviceWarmSigningSession: LinkedDeviceWarmSigningSessionV1 | null = null;
   private workerBaseOrigin: string = '';
   private appearance: AppearanceConfig;
   private readonly thresholdEcdsaBootstrapQueueByWallet: Map<string, Promise<void>> = new Map();
@@ -1988,10 +1991,7 @@ export class BrowserSigningSurface {
         if (authorization.kind !== 'found') {
           throw new Error('[SigningEngine][near] Email OTP Wallet Session is unavailable');
         }
-        const walletSessionToken = walletSessionTokenForCurve(
-          authorization.projection,
-          'ed25519',
-        );
+        const walletSessionToken = walletSessionTokenForCurve(authorization.projection, 'ed25519');
         if (!walletSessionToken) {
           throw new Error('[SigningEngine][near] Email OTP Wallet Session token is unavailable');
         }
@@ -2464,10 +2464,7 @@ export class BrowserSigningSurface {
     const authorization = read.projection;
     const statusCurve =
       authorization.walletSessionTokens.kind === 'evm_family_ecdsa' ? 'ecdsa' : 'ed25519';
-    const authorizationId = walletSessionAuthorizationIdForCurve(
-      authorization,
-      statusCurve,
-    );
+    const authorizationId = walletSessionAuthorizationIdForCurve(authorization, statusCurve);
     if (!authorizationId) {
       return { kind: 'invalid', walletId: exactWalletId, reason: 'malformed' };
     }
@@ -2634,26 +2631,54 @@ export class BrowserSigningSurface {
     this.applyAuthenticatedWalletState(state);
   }
 
-  setLinkedDeviceWalletSession(
-    state: Extract<WalletAuthenticationState, { kind: 'linked_device_session' }>,
-  ): void {
-    this.walletAuthenticationRestoreGeneration += 1;
-    this.walletAuthenticationState = state;
-    this.userPreferencesManager.setCurrentWallet(state.walletId);
+  async establishLinkedDeviceSigningSession(walletId: WalletId): Promise<void> {
+    if (!this.linkedDeviceAuthenticator) {
+      throw new Error('Linked-device authenticator is unavailable');
+    }
+    const nextSession = await openLinkedDeviceWarmSigningSessionV1({
+      walletId,
+      authenticator: this.linkedDeviceAuthenticator,
+      relayServerUrl: String(this.seamsWebConfigs.network.relayer?.url || ''),
+      warmMaterial: this.passkeyMpcSession,
+    });
+    if (this.linkedDeviceWarmSigningSession) {
+      closeLinkedDeviceWarmSigningSessionV1(this.linkedDeviceWarmSigningSession);
+    }
+    this.linkedDeviceWarmSigningSession = nextSession;
+    this.setWalletAuthenticated({ kind: 'authenticated', walletId, authMethod: 'passkey' });
   }
 
-  clearLinkedDeviceWalletSession(walletId: WalletId): void {
-    if (
-      this.walletAuthenticationState.kind !== 'linked_device_session' ||
-      this.walletAuthenticationState.walletId !== walletId
-    ) {
-      return;
+  async restoreLinkedDeviceSigningSession(walletId: WalletId): Promise<boolean> {
+    if (this.hasLinkedDeviceSigningSession(walletId)) return true;
+    const nextSession = await restoreLinkedDeviceWarmSigningSessionV1({
+      walletId,
+      relayServerUrl: String(this.seamsWebConfigs.network.relayer?.url || ''),
+      warmMaterial: this.passkeyMpcSession,
+    });
+    if (!nextSession) return false;
+    if (this.linkedDeviceWarmSigningSession) {
+      closeLinkedDeviceWarmSigningSessionV1(this.linkedDeviceWarmSigningSession);
     }
-    this.walletAuthenticationRestoreGeneration += 1;
-    this.walletAuthenticationState = { kind: 'signed_out' };
+    this.linkedDeviceWarmSigningSession = nextSession;
+    this.setWalletAuthenticated({ kind: 'authenticated', walletId, authMethod: 'passkey' });
+    return true;
+  }
+
+  hasLinkedDeviceSigningSession(walletId: WalletId): boolean {
+    return this.linkedDeviceWarmSigningSession?.walletId === walletId;
+  }
+
+  async clearLinkedDeviceRefreshMaterial(): Promise<void> {
+    const enrollmentId = this.linkedDeviceWarmSigningSession?.bundle.enrollmentId;
+    if (!enrollmentId) return;
+    await linkedDeviceWalletSessions.clearSealedRefreshV1(enrollmentId);
   }
 
   clearWalletAuthentication(): void {
+    if (this.linkedDeviceWarmSigningSession) {
+      closeLinkedDeviceWarmSigningSessionV1(this.linkedDeviceWarmSigningSession);
+      this.linkedDeviceWarmSigningSession = null;
+    }
     this.walletAuthenticationRestoreGeneration += 1;
     this.walletAuthenticationState = { kind: 'signed_out' };
   }
@@ -2703,17 +2728,36 @@ export class BrowserSigningSurface {
     });
   }
 
-  private async reconcileWalletHostEcdsaActivationJournalV1(
-    _input: Parameters<LaneOperationSourcePortsV1['reconcileEcdsaActivationJournalV1']>[0],
+  private async ensureWalletHostEcdsaSourceMaterialV1(
+    input: Parameters<LaneOperationSourcePortsV1['reconcileEcdsaActivationJournalV1']>[0],
   ): Promise<void> {
     if (this.walletAuthenticationState.kind !== 'authenticated') {
-      throw new Error('Wallet-host ECDSA reconciliation requires an authenticated wallet');
+      throw new Error('Wallet-host ECDSA source preparation requires an authenticated wallet');
     }
+    if (String(this.walletAuthenticationState.walletId) !== String(input.walletId)) {
+      throw new Error('Wallet-host ECDSA source preparation changed wallet identity');
+    }
+    const store = new IndexedDbEcdsaCapabilityManifestStore();
     await reconcileWalletHostEcdsaActivationJournalV1({
-      store: new IndexedDbEcdsaCapabilityManifestStore(),
+      store,
       workerCtx: this.getSignerWorkerContext(),
       walletId: this.walletAuthenticationState.walletId,
     });
+    const lookup = await store.lookupByMaterialActivation({
+      walletId: input.walletId,
+      materialActivation: input.source.materialActivation,
+    });
+    if (lookup.kind !== 'active') {
+      throw new Error(`Wallet-host ECDSA source material is ${lookup.kind}`);
+    }
+    const opened = await openEcdsaRoleLocalSigningMaterialWasm({
+      workerCtx: this.getSignerWorkerContext(),
+      authority: lookup.manifest.signer.authority,
+      materialActivation: input.source.materialActivation,
+    });
+    if (!opened.ok) {
+      throw new Error(`Wallet-host ECDSA source material open returned ${opened.reason}`);
+    }
   }
 
   private async createWalletHostEd25519LaneClientV1(args: {
@@ -2760,10 +2804,11 @@ export class BrowserSigningSurface {
       throw new Error('Wallet-host Ed25519 source lane requires a passkey runtime');
     }
     const materialActivation = runtime.sealedRecord.ed25519Restore.materialActivation;
-    const claim = await this.passkeyMpcSession.claimWarmSessionMaterial({
-      thresholdSessionId: runtime.thresholdSessionId,
-      purpose: { curve: 'ed25519', materialActivation },
-      consume: false,
+    const walletSessionState = await walletSessionStateFromExactEd25519Runtime(runtime);
+    const claim = await this.ensurePasskeyEd25519WarmSessionForSigning({
+      runtime,
+      walletSessionState,
+      materialActivation,
     });
     if (!claim.ok) throw new Error(`Wallet-host Ed25519 PRF is unavailable: ${claim.code}`);
     const envelope = await readPasskeyCustodySessionEnvelope({
@@ -2855,8 +2900,7 @@ export class BrowserSigningSurface {
       request: ownerAuthorities.managementRequest,
       ecdsa: this.createWalletHostEcdsaLaneWorkerV1(),
       createEd25519ClientV1: this.createWalletHostEd25519LaneClientV1.bind(this),
-      reconcileEcdsaActivationJournalV1:
-        this.reconcileWalletHostEcdsaActivationJournalV1.bind(this),
+      reconcileEcdsaActivationJournalV1: this.ensureWalletHostEcdsaSourceMaterialV1.bind(this),
       nowMs: Date.now,
     });
     return {
@@ -2972,7 +3016,8 @@ export class BrowserSigningSurface {
     if (
       request.kind === 'transactionWithActions' &&
       this.linkedDeviceAuthenticator &&
-      authentication.kind === 'linked_device_session' &&
+      this.linkedDeviceWarmSigningSession &&
+      authentication.kind === 'authenticated' &&
       authentication.walletId === request.args.commandSubject.walletSession.walletId
     ) {
       const linked = await signLinkedDeviceNearTransactionV1({
@@ -2980,10 +3025,17 @@ export class BrowserSigningSurface {
         nearAccountId: String(request.args.commandSubject.nearAccount.accountId),
         transaction: request.args.transaction,
         authenticator: this.linkedDeviceAuthenticator,
+        warmSession: this.linkedDeviceWarmSigningSession,
         relayServerUrl: String(this.seamsWebConfigs.network.relayer?.url || ''),
         chains: this.seamsWebConfigs.network.chains,
         nonceCoordinator: this.nonceCoordinator,
-        nearClient: this.nearClient,
+        touchConfirm: this.touchConfirm,
+        rpcCall: request.args.rpcCall,
+        ...(request.args.confirmationConfigOverride
+          ? { confirmationConfigOverride: request.args.confirmationConfigOverride }
+          : {}),
+        ...(request.args.title ? { title: request.args.title } : {}),
+        ...(request.args.body ? { body: request.args.body } : {}),
         workerCtx: this.getSignerWorkerContext(),
       });
       if (linked) return linked as NearSignIntentResult<TRequest>;
@@ -3222,7 +3274,9 @@ export class BrowserSigningSurface {
   }): Promise<MpcCapabilityHydrationPlan> {
     const input = requireAuthorizedNearEd25519BoundaryInput(args.input);
     if (input.auth.kind !== WALLET_AUTH_METHODS.emailOtp) {
-      throw new Error('[SigningEngine][near] Email OTP session restore requires Email OTP material');
+      throw new Error(
+        '[SigningEngine][near] Email OTP session restore requires Email OTP material',
+      );
     }
     const publicLane = await resolveExactEmailOtpPublicLaneReference({
       store: this.ed25519YaoPublicCapabilityReferences,
@@ -4405,12 +4459,14 @@ export class BrowserSigningSurface {
     const authentication = this.readWalletAuthenticationState();
     if (
       this.linkedDeviceAuthenticator &&
-      authentication.kind === 'linked_device_session' &&
+      this.linkedDeviceWarmSigningSession &&
+      authentication.kind === 'authenticated' &&
       authentication.walletId === args.walletSession.walletId
     ) {
       const linked = await signLinkedDeviceEvmFamilyV1({
         deps: this.enginePorts.tempoSigningDeps,
         authenticator: this.linkedDeviceAuthenticator,
+        warmSession: this.linkedDeviceWarmSigningSession,
         walletSession: args.walletSession,
         request: args.request,
         chainTarget: args.chainTarget,

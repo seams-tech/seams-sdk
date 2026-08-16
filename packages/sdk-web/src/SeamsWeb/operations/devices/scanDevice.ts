@@ -182,6 +182,12 @@ export async function scanAndLinkDevice(
       approval,
       authentication: owner.authentication,
     });
+    emitScannerEvent(options.onEvent, parsedQrData, {
+      phase: LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED,
+      status: 'succeeded',
+      message: 'QR code scanned',
+      interaction: { kind: 'qr_scan', overlay: 'none' },
+    });
     const activeApproval = await awaitActiveApprovalResult({
       result: recorded,
       transport: ports.transport,
@@ -204,7 +210,7 @@ export async function scanAndLinkDevice(
     emitScannerEvent(options.onEvent, parsedQrData, {
       phase: LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED,
       status: 'succeeded',
-      message: 'Device link approved',
+      message: 'Device linked',
       interaction: { kind: 'qr_scan', overlay: 'none' },
     });
     await options.afterCall?.(true, result);

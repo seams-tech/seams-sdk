@@ -51,6 +51,7 @@ import { createDeviceLinkingLaneProvisioningHandoffV1 } from './deviceLinkingPor
 import { LinkDeviceEventPhase, createLinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
 import type { CreateLinkDeviceFlowEventInput } from '@/core/types/sdkSentEvents';
 import { buildLinkedDeviceProvisionedExecutionEvidenceV1 } from '@/core/signingEngine/session/lanes/linkedDeviceExecutionBundle';
+import { nextLinkedDevicePollingDelayMsV1 } from './deviceLinkingHttpTransport';
 
 type EmitLinkDeviceEventInput = Omit<CreateLinkDeviceFlowEventInput, 'flowId' | 'accountId'> & {
   readonly accountId?: string;
@@ -71,6 +72,14 @@ function notifyError(callback: ((error: Error) => void) | undefined, error: Erro
   } catch {
     // Consumer callback failures do not replace the domain error.
   }
+}
+
+function resolveSessionStateRetry(resolve: () => void, attempt: number): void {
+  setTimeout(resolve, nextLinkedDevicePollingDelayMsV1(250, attempt));
+}
+
+async function waitForSessionStateRetry(attempt: number): Promise<void> {
+  await new Promise<void>((resolve) => resolveSessionStateRetry(resolve, attempt));
 }
 
 function phaseForState(state: LinkedDeviceSessionState): LinkDeviceEventPhase {
@@ -409,6 +418,7 @@ export class LinkDeviceFlow {
           phase: LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED,
           status: 'succeeded',
           message: 'Linked device active',
+          walletId: event.state.walletId,
           data: { role: 'display' },
           interaction: { kind: 'qr_display', overlay: 'hide' },
         });
@@ -532,6 +542,12 @@ export class LinkDeviceFlow {
     this.assertCurrentRun(runEpoch);
     this.assertProvisioningApprovalMatchesSession({ approval, state, deviceId });
     this.provisioningApproval = approval;
+    await this.waitForPreparedDeliveryCommitV1({
+      authenticatedTransport,
+      linkSessionId: state.linkSessionId,
+      expiresAtMs: this.session.qrData.expiresAtMs,
+      runEpoch,
+    });
     const deliveries = await authenticatedTransport.requestProvisioningDeliveriesV1({
       command: buildLinkedDeviceProvisioningCommandV1({
         linkSessionId: state.linkSessionId,
@@ -569,6 +585,55 @@ export class LinkDeviceFlow {
     });
     this.assertCurrentRun(runEpoch);
     await this.ensureWalletSessionDeliveryPersistedV1({ state, runEpoch, deviceId });
+  }
+
+  private async waitForPreparedDeliveryCommitV1(input: {
+    readonly authenticatedTransport: DeviceLinkingAuthenticatedTransportPortV1;
+    readonly linkSessionId: import('@shared/signing-lanes/ids').LinkDeviceSessionId;
+    readonly expiresAtMs: number;
+    readonly runEpoch: number;
+  }): Promise<void> {
+    let attempt = 0;
+    while (Date.now() < input.expiresAtMs) {
+      this.assertCurrentRun(input.runEpoch);
+      const snapshot = await input.authenticatedTransport.getSessionV1({
+        linkSessionId: input.linkSessionId,
+      });
+      switch (snapshot.state.state) {
+        case 'committed_completion_required':
+        case 'active':
+          return;
+        case 'claimed_by_owner':
+        case 'awaiting_target_passkey':
+        case 'provisioning':
+          break;
+        case 'expired_unclaimed':
+        case 'expired_claimed':
+          throw new DeviceLinkingError(
+            'Device-link session expired before source deliveries were committed',
+            DeviceLinkingErrorCode.SESSION_EXPIRED,
+            'registration',
+          );
+        case 'cancelled_unclaimed':
+        case 'cancelled_claimed_precommit':
+          throw new DeviceLinkingError(
+            'Device-link session was cancelled before source deliveries were committed',
+            DeviceLinkingErrorCode.REGISTRATION_FAILED,
+            'registration',
+          );
+        case 'displaying_qr':
+          throw new Error('linked-device session regressed after target credential registration');
+        default:
+          assertNeverLinkedDeviceSessionState(snapshot.state);
+      }
+      await waitForSessionStateRetry(attempt);
+      attempt += 1;
+    }
+    throw new DeviceLinkingError(
+      'Device-link session expired before source deliveries were committed',
+      DeviceLinkingErrorCode.SESSION_EXPIRED,
+      'registration',
+    );
   }
 
   private async acknowledgeHolderDeliveries(

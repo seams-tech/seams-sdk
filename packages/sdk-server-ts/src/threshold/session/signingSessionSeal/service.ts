@@ -2,10 +2,10 @@ import { base64UrlEncode } from '@shared/utils/encoders';
 import { sha256BytesUtf8 } from '@shared/utils/digests';
 import type {
   CreateSigningSessionSealServiceOptions,
+  SigningSessionSealAuthorizationSessionRecord,
   SigningSessionSealOperation,
   SigningSessionSealRouteResult,
   SigningSessionSealService,
-  SigningSessionSealThresholdSessionRecord,
 } from './signingSessionSeal.types';
 
 const SIGNING_SESSION_SEAL_LOG_LABEL = '[threshold-signing-session-seal]';
@@ -36,7 +36,7 @@ function toPositiveInt(value: unknown, defaultValue: number): number {
 }
 
 function isExpired(
-  session: Pick<SigningSessionSealThresholdSessionRecord, 'expiresAtMs'>,
+  session: Pick<SigningSessionSealAuthorizationSessionRecord, 'expiresAtMs'>,
   nowMs: number,
 ): boolean {
   return !Number.isFinite(session.expiresAtMs) || session.expiresAtMs <= nowMs;
@@ -126,8 +126,19 @@ type SigningSessionSealRequestInput = {
 
 type SigningSessionSealAuthInput = {
   userId: string;
-  thresholdSession: SigningSessionSealThresholdSessionRecord;
+  session: SigningSessionSealAuthorizationSessionRecord;
 };
+
+function signingSessionSealAuthorizationId(
+  session: SigningSessionSealAuthorizationSessionRecord,
+): string {
+  switch (session.kind) {
+    case 'owner_threshold_session':
+      return session.thresholdSessionId;
+    case 'linked_device_wallet_session':
+      return session.walletSessionId;
+  }
+}
 
 function fnv1aHex(input: string): string {
   let hash = 2166136261;
@@ -206,8 +217,8 @@ async function runSealOperation(input: {
       metadata: input.request.metadata,
     });
 
-    const session = input.auth.thresholdSession;
-    if (session.thresholdSessionId !== input.request.thresholdSessionId) {
+    const session = input.auth.session;
+    if (signingSessionSealAuthorizationId(session) !== input.request.thresholdSessionId) {
       result = {
         ok: false,
         code: 'forbidden',
@@ -269,13 +280,25 @@ async function runSealOperation(input: {
       return result;
     }
 
-    result = {
-      ok: true,
-      ciphertext: sealed.ciphertext,
-      keyVersion: sealed.keyVersion || input.request.keyVersion,
-      expiresAtMs: session.expiresAtMs,
-    };
-    return result;
+    switch (session.kind) {
+      case 'owner_threshold_session':
+        result = {
+          ok: true,
+          ciphertext: sealed.ciphertext,
+          keyVersion: sealed.keyVersion || input.request.keyVersion,
+          expiresAtMs: session.expiresAtMs,
+        };
+        return result;
+      case 'linked_device_wallet_session':
+        result = {
+          ok: true,
+          ciphertext: sealed.ciphertext,
+          keyVersion: sealed.keyVersion || input.request.keyVersion,
+          expiresAtMs: session.expiresAtMs,
+          remainingUses: session.remainingUses,
+        };
+        return result;
+    }
   } catch (error: unknown) {
     result = {
       ok: false,
