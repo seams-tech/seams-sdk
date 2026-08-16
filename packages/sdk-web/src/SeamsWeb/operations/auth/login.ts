@@ -68,7 +68,7 @@ import {
 import { IndexedDBManager } from '@/core/indexedDB';
 import {
   linkedDeviceExecutionEvidence,
-  resolveUniqueActiveLinkedDeviceExecutionBundleV1,
+  resolveActiveLinkedDeviceExecutionBundleV1,
   resolveUniqueLinkedDeviceExecutionBundleV1,
 } from '@/core/indexedDB/seamsWalletDB/linkedDeviceExecutionEvidenceStore';
 import { linkedDeviceWalletSessions } from '@/core/indexedDB/seamsWalletDB/linkedDeviceWalletSessionStore';
@@ -1659,7 +1659,11 @@ async function unlockLinkedDeviceSessionIfAvailable(
   if (!linkedNearKey || !requestedNearKey || String(linkedNearKey) !== String(requestedNearKey)) {
     return null;
   }
-  await context.signingEngine.establishLinkedDeviceSigningSession(result.bundle.walletId);
+  await context.signingEngine.establishLinkedDeviceSigningSession({
+    walletId: result.bundle.walletId,
+    enrollmentId: result.bundle.enrollmentId,
+    activation: { kind: 'existing_target_passkey' },
+  });
   if (!result.bundle.nearAccountId) {
     throw new Error('linked-device NEAR account identity is unavailable during unlock');
   }
@@ -4214,13 +4218,25 @@ async function readActiveLinkedDeviceWalletSession(
   context: WalletSessionWebContext,
   requestedWalletId?: WalletId | string,
 ): Promise<WalletSession | null> {
-  const result = await resolveUniqueActiveLinkedDeviceExecutionBundleV1({
+  const nowMs = Date.now();
+  const sealed = await linkedDeviceWalletSessions.readUniqueActiveSealedRefreshForWalletV1({
     ...(requestedWalletId ? { walletId: String(requestedWalletId) } : {}),
-    nowMs: Date.now(),
+    nowMs,
+  });
+  if (sealed.kind !== 'found') return null;
+  const result = await resolveActiveLinkedDeviceExecutionBundleV1({
+    enrollmentId: sealed.sealedRefresh.enrollmentId,
+    nowMs,
     evidenceRepository: linkedDeviceExecutionEvidence,
     walletSessionRepository: linkedDeviceWalletSessions,
   });
   if (result.kind !== 'found') return null;
+  if (
+    requestedWalletId !== undefined &&
+    String(result.bundle.walletId) !== String(requestedWalletId)
+  ) {
+    return null;
+  }
   try {
     return await buildActiveLinkedDeviceWalletSession(context, result.bundle);
   } catch (error) {

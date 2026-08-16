@@ -13,7 +13,12 @@ import type {
   SignTransactionResult,
 } from './seams';
 import type { SyncAccountResult, SignNEP413MessageResult } from '@/core/types/sdkPublicResults';
-import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
+import {
+  parseLinkedDeviceEnrollmentId,
+  parseWalletId,
+  type LinkedDeviceEnrollmentId,
+  type WalletId,
+} from '@shared/utils/domainIds';
 import { parseWalletSessionId, type WalletSessionId } from '@shared/authorization/capabilityKinds';
 import { isWalletAuthMethod, type WalletAuthMethod } from '@shared/utils/signerDomain';
 import type { RouterAbTraceContextV1 } from '@shared/utils/routerAbTraceContext';
@@ -430,7 +435,11 @@ export type SigningFlowEvent = WalletFlowEventBase<'signing', SigningEventPhase>
 export type LinkDeviceFlowEvent = WalletFlowEventBase<'link_device', LinkDeviceEventPhase>;
 export type LinkDeviceFlowOutcome =
   | { readonly kind: 'pending' }
-  | { readonly kind: 'active'; readonly walletId: WalletId }
+  | {
+      readonly kind: 'active';
+      readonly walletId: WalletId;
+      readonly enrollmentId: LinkedDeviceEnrollmentId;
+    }
   | { readonly kind: 'invalid_active' }
   | { readonly kind: 'failed' }
   | { readonly kind: 'cancelled' };
@@ -459,7 +468,10 @@ export function classifyLinkDeviceFlowEvent(event: LinkDeviceFlowEvent): LinkDev
     return { kind: 'pending' };
   }
   const walletId = parseWalletId(String(event.walletId ?? ''));
-  return walletId.ok ? { kind: 'active', walletId: walletId.value } : { kind: 'invalid_active' };
+  const enrollmentId = parseLinkedDeviceEnrollmentId(event.data?.enrollmentId);
+  return walletId.ok && enrollmentId.ok
+    ? { kind: 'active', walletId: walletId.value, enrollmentId: enrollmentId.value }
+    : { kind: 'invalid_active' };
 }
 
 export const WALLET_FLOW_EVENT_STEPS: Record<WalletFlowEventPhase, number> = {

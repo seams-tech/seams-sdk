@@ -37,6 +37,10 @@ function linkedDevicePasskeyName(walletId: string): string {
   return `${walletId} (2)`;
 }
 
+function zeroizeLiveBytes(value: Uint8Array): void {
+  if (value.byteLength > 0) value.fill(0);
+}
+
 function registrationProjection(
   credential: Extract<
     Awaited<ReturnType<AuthenticatorPort['run']>>,
@@ -83,22 +87,27 @@ export function createDeviceLinkingTargetCredentialPortV1(args: {
       const webauthnRegistration = registrationProjection(credential);
       const factorSecret = base64UrlDecode(credential.prf.prfFirstB64u);
       if (factorSecret.byteLength !== 32) {
-        factorSecret.fill(0);
+        zeroizeLiveBytes(factorSecret);
         throw new Error('linked-device passkey PRF output must be 32 bytes');
       }
+      const workerFactorSecret = factorSecret.slice();
       try {
         const prepared = await args.keyMaterial.prepareTargetHolderRegistrationsV1({
           handle: input.keyMaterial,
           preparation: input.preparation,
           credentialIdB64u: webauthnRegistration.credentialIdB64u,
-          factorSecret: factorSecret.buffer,
+          // The worker port transfers this buffer. Keep the ceremony result in
+          // its own live buffer for the session-activation consumer below.
+          factorSecret: workerFactorSecret.buffer,
         });
         return {
           webauthnRegistration,
           orderedHolderRegistrations: prepared.orderedHolderRegistrations,
+          factorSecret: factorSecret.slice(),
         };
       } finally {
-        if (factorSecret.byteLength > 0) factorSecret.fill(0);
+        zeroizeLiveBytes(factorSecret);
+        zeroizeLiveBytes(workerFactorSecret);
       }
     },
   };

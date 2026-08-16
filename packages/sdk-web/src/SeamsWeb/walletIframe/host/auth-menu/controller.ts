@@ -96,11 +96,6 @@ export class AuthMenuController {
         await this.beginGoogleEmailOtp({ idToken, mode, signal }),
       startDeviceLinking: this.startDeviceLinking,
       cancelDeviceLinking: this.cancelDeviceLinking,
-      activateLinkedDeviceSession: async (walletId) =>
-        await this.deps
-          .getSeamsWeb()
-          .getContext()
-          .signingEngine.establishLinkedDeviceSigningSession(walletId),
       sendToParent: this.deps.send,
     });
     const outcomePromise = session.waitForOutcome();

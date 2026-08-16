@@ -478,7 +478,10 @@ function createBrowserAuthenticatorPort(
                   displayName: operation.userDisplayName,
                 },
                 challenge: decodeBase64UrlArrayBuffer(operation.challengeB64u),
-                pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
+                pubKeyCredParams: [
+                  { type: 'public-key', alg: -7 },
+                  { type: 'public-key', alg: -257 },
+                ],
                 authenticatorSelection: {
                   residentKey: 'required',
                   userVerification: operation.authenticatorOptions?.userVerification || 'preferred',

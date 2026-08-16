@@ -24,6 +24,7 @@ import { createDeviceLinkingTargetCredentialPortV1 } from './deviceLinkingTarget
 import type {
   Device1SourcePreparationPortV1,
   Device1TargetReadySourceInputV1,
+  DeviceLinkingSessionActivationPortV1,
   DeviceLinkingFlowPortsV1,
   DeviceLinkingOwnerAuthorizationPortV1,
 } from './deviceLinkingPorts';
@@ -50,6 +51,7 @@ export type DeviceLinkingFlowPortsAssemblyOptionsV1 = {
     LinkedDeviceWalletSessionRepositoryV1,
     'putExactActiveDeliveryV1'
   >;
+  readonly sessionActivation: DeviceLinkingSessionActivationPortV1;
   readonly executionEvidenceRepository: Pick<
     LinkedDeviceExecutionEvidenceRepositoryV1,
     'putExactProvisionedEvidenceV1' | 'readForEnrollmentV1'
@@ -154,6 +156,7 @@ export function createDeviceLinkingFlowPortsV1(
   return {
     transport,
     ownerAuthorization: args.ownerAuthorization,
+    sessionActivation: args.sessionActivation,
     keyMaterial,
     targetCredential,
     laneProvisioning,
