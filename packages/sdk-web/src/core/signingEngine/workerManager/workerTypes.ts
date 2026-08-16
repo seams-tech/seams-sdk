@@ -1796,6 +1796,65 @@ export interface WalletCustodyCeremonyWorkerOperationMap {
       ciphertextDigestB64u: string;
     };
   };
+  /**
+   * Device 2: generates the X25519 recipient key Device 1 will seal the wallet
+   * custody seed to. The private half stays inside this worker under the
+   * returned handle; only the public key crosses back.
+   */
+  createLinkedDeviceCustodyTransferRecipient: {
+    payload: Record<string, never>;
+    result: { recipientHandleId: string; recipientPublicKeyB64u: string };
+  };
+  /**
+   * Device 1: opens its own custody envelope and reseals the seed for one
+   * approved linked device. The seed, the owner PRF, and the derived transfer
+   * key never leave the worker; the result is ciphertext plus public routing
+   * facts.
+   */
+  sealWalletCustodySeedForLinkedDevice: {
+    payload: {
+      existingEnvelope: PasskeyCustodyEnvelopeRecord;
+      existingFactorSecret: ArrayBuffer;
+      transferBindingJson: string;
+    };
+    result: {
+      ephemeralPublicKeyB64u: string;
+      nonceB64u: string;
+      sealedCustodySecretB64u: string;
+      aadHashB64u: string;
+      ciphertextDigestB64u: string;
+    };
+  };
+  /**
+   * Device 2: opens the transfer with its recipient handle and immediately
+   * reseals the seed under the passkey it just created. One operation rather
+   * than two so the opened seed never sits in a handle JavaScript could hold
+   * across a turn.
+   */
+  acceptLinkedDeviceCustodyTransfer: {
+    payload: {
+      recipientHandleId: string;
+      transferBindingJson: string;
+      ephemeralPublicKeyB64u: string;
+      nonceB64u: string;
+      sealedCustodySecretB64u: string;
+      aadHashB64u: string;
+      ciphertextDigestB64u: string;
+      replacementEnvelopeBindingJson: string;
+      replacementFactorSecret: ArrayBuffer;
+    };
+    result: {
+      nonceB64u: string;
+      sealedCustodySecretB64u: string;
+      aadHashB64u: string;
+      ciphertextDigestB64u: string;
+    };
+  };
+  /** Zeroizes a recipient handle on cancel, failure, or page teardown. */
+  discardLinkedDeviceCustodyTransferRecipient: {
+    payload: { recipientHandleId: string };
+    result: { recipientHandleId: string; discarded: boolean };
+  };
   rotateWalletRecoverySet: {
     payload: {
       custodyJson: string;

@@ -8,8 +8,13 @@ import init, {
   type WasmCeremonySeedHeldV1,
 } from '../../../../../../../wasm/wallet_custody_ceremony/pkg/wallet_custody_ceremony.js';
 import initNearSigner, {
+  linked_device_custody_transfer_recipient_v1,
+  passkey_custody_open_wallet_seed_from_linked_device_v1,
   passkey_custody_open_wallet_seed_v1,
+  passkey_custody_reseal_transferred_wallet_seed_v1,
   passkey_custody_reseal_wallet_seed_v1,
+  passkey_custody_seal_wallet_seed_for_linked_device_v1,
+  type WasmLinkedDeviceCustodyTransferRecipientV1,
 } from '../../../../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
 import initEd25519YaoClient, {
   WasmEd25519YaoLaneClientV1,
@@ -91,6 +96,15 @@ const ed25519YaoLaneSessions = new Map<
   { readonly sourceHandle: string; readonly client: WasmEd25519YaoLaneClientV1 }
 >();
 
+/**
+ * Device 2's custody-transfer recipient keys, held here for the same reason
+ * ceremony handles are: the private half must never exist as a JavaScript
+ * value. A linking attempt uses exactly one, and an abandoned attempt is a bug
+ * worth surfacing rather than absorbing, so the map is bounded.
+ */
+const MAX_ACTIVE_TRANSFER_RECIPIENTS = 2;
+const custodyTransferRecipients = new Map<string, WasmLinkedDeviceCustodyTransferRecipientV1>();
+
 type WorkerRequest<TType extends keyof WalletCustodyCeremonyWorkerOperationMap> = {
   readonly id: string;
   readonly type: TType;
@@ -102,6 +116,12 @@ type CompleteRequest = WorkerRequest<'completeWalletCustodyKeySetRun'>;
 type FinishRequest = WorkerRequest<'finishWalletCustodyKeySetRun'>;
 type DiscardRequest = WorkerRequest<'discardWalletCustodyCeremony'>;
 type LinkPasskeyRequest = WorkerRequest<'linkWalletCustodyPasskey'>;
+type CreateTransferRecipientRequest =
+  WorkerRequest<'createLinkedDeviceCustodyTransferRecipient'>;
+type SealForLinkedDeviceRequest = WorkerRequest<'sealWalletCustodySeedForLinkedDevice'>;
+type AcceptTransferRequest = WorkerRequest<'acceptLinkedDeviceCustodyTransfer'>;
+type DiscardTransferRecipientRequest =
+  WorkerRequest<'discardLinkedDeviceCustodyTransferRecipient'>;
 type RotateRecoverySetRequest = WorkerRequest<'rotateWalletRecoverySet'>;
 type OpenEd25519YaoLaneSourceRequest = WorkerRequest<'openEd25519YaoLaneSource'>;
 type PrepareEd25519YaoLaneRequest = WorkerRequest<'prepareEd25519YaoLane'>;
@@ -114,6 +134,10 @@ type WalletCustodyCeremonyWorkerRequest =
   | FinishRequest
   | DiscardRequest
   | LinkPasskeyRequest
+  | CreateTransferRecipientRequest
+  | SealForLinkedDeviceRequest
+  | AcceptTransferRequest
+  | DiscardTransferRecipientRequest
   | RotateRecoverySetRequest
   | OpenEd25519YaoLaneSourceRequest
   | PrepareEd25519YaoLaneRequest
@@ -614,6 +638,139 @@ async function linkWalletCustodyPasskey(request: LinkPasskeyRequest): Promise<un
   }
 }
 
+/**
+ * Device 2: publishes the key Device 1 will seal the wallet custody seed to.
+ *
+ * Deliberately generated here rather than in the device-linking key worker.
+ * That worker holds the QR's link key as a non-extractable `CryptoKey`, so
+ * decapsulating there would require the opened seed to cross into JavaScript
+ * before it could be resealed. Keeping the recipient key in the module that
+ * performs the reseal means the seed only ever exists inside wasm.
+ */
+async function createLinkedDeviceCustodyTransferRecipient(
+  _request: CreateTransferRecipientRequest,
+): Promise<unknown> {
+  await initializeNearSignerWasm();
+  if (custodyTransferRecipients.size >= MAX_ACTIVE_TRANSFER_RECIPIENTS) {
+    throw new Error('too many linked-device custody transfer recipients are active');
+  }
+  const recipient = linked_device_custody_transfer_recipient_v1();
+  const recipientHandleId = createTransferRecipientHandleId();
+  custodyTransferRecipients.set(recipientHandleId, recipient);
+  return {
+    recipientHandleId,
+    recipientPublicKeyB64u: recipient.public_key_b64u(),
+  };
+}
+
+/**
+ * Device 1: opens its own envelope and reseals the seed for one linked device.
+ *
+ * The opened handle is freed in `finally` whether or not the seal succeeded, so
+ * a failed transfer leaves no seed parked in worker memory.
+ */
+async function sealWalletCustodySeedForLinkedDevice(
+  request: SealForLinkedDeviceRequest,
+): Promise<unknown> {
+  await initializeNearSignerWasm();
+  const envelope = request.payload.existingEnvelope;
+  const existingFactorSecret = toBytes(request.payload.existingFactorSecret);
+  let handle: ReturnType<typeof passkey_custody_open_wallet_seed_v1> | null = null;
+  try {
+    handle = passkey_custody_open_wallet_seed_v1(
+      existingFactorSecret,
+      custodyEnvelopeBindingJson(envelope),
+      base64UrlDecode(envelope.nonceB64u),
+      envelope.sealedCustodySecretB64u,
+      envelope.aadHashB64u,
+      envelope.ciphertextDigestB64u,
+    );
+    const sealed = passkey_custody_seal_wallet_seed_for_linked_device_v1(
+      handle,
+      request.payload.transferBindingJson,
+    ) as Record<string, unknown>;
+    return {
+      ephemeralPublicKeyB64u: String(sealed.ephemeralPublicKeyB64u || ''),
+      nonceB64u: String(sealed.nonceB64u || ''),
+      sealedCustodySecretB64u: String(sealed.sealedCustodySecretB64u || ''),
+      aadHashB64u: String(sealed.aadHashB64u || ''),
+      ciphertextDigestB64u: String(sealed.ciphertextDigestB64u || ''),
+    };
+  } finally {
+    handle?.free();
+    existingFactorSecret.fill(0);
+  }
+}
+
+/**
+ * Device 2: opens the transfer and reseals under the passkey it just created.
+ *
+ * One message rather than two on purpose. Splitting them would leave an opened
+ * seed sitting behind a handle between turns, reachable by any later message;
+ * doing both here means the seed exists only for the span of this call. The
+ * recipient key is consumed either way — a transfer is single-use, and keeping
+ * it after an attempt would let a second package be opened against it.
+ */
+async function acceptLinkedDeviceCustodyTransfer(
+  request: AcceptTransferRequest,
+): Promise<unknown> {
+  await initializeNearSignerWasm();
+  const recipient = custodyTransferRecipients.get(request.payload.recipientHandleId);
+  if (!recipient) {
+    new Uint8Array(request.payload.replacementFactorSecret).fill(0);
+    throw new Error('linked-device custody transfer recipient is unknown or discarded');
+  }
+  custodyTransferRecipients.delete(request.payload.recipientHandleId);
+  const replacementFactorSecret = toBytes(request.payload.replacementFactorSecret);
+  let handle: ReturnType<typeof passkey_custody_open_wallet_seed_from_linked_device_v1> | null =
+    null;
+  try {
+    handle = passkey_custody_open_wallet_seed_from_linked_device_v1(
+      recipient,
+      request.payload.transferBindingJson,
+      request.payload.ephemeralPublicKeyB64u,
+      base64UrlDecode(request.payload.nonceB64u),
+      request.payload.sealedCustodySecretB64u,
+      request.payload.aadHashB64u,
+      request.payload.ciphertextDigestB64u,
+    );
+    const resealed = passkey_custody_reseal_transferred_wallet_seed_v1(
+      handle,
+      replacementFactorSecret,
+      request.payload.replacementEnvelopeBindingJson,
+    ) as Record<string, unknown>;
+    return {
+      nonceB64u: String(resealed.nonceB64u || ''),
+      sealedCustodySecretB64u: String(resealed.sealedCustodySecretB64u || ''),
+      aadHashB64u: String(resealed.aadHashB64u || ''),
+      ciphertextDigestB64u: String(resealed.ciphertextDigestB64u || ''),
+    };
+  } finally {
+    handle?.free();
+    replacementFactorSecret.fill(0);
+    recipient.free();
+  }
+}
+
+/** Cancel, failure, and page teardown all land here. */
+function discardLinkedDeviceCustodyTransferRecipient(
+  request: DiscardTransferRecipientRequest,
+): unknown {
+  const recipient = custodyTransferRecipients.get(request.payload.recipientHandleId);
+  custodyTransferRecipients.delete(request.payload.recipientHandleId);
+  recipient?.free();
+  return {
+    recipientHandleId: request.payload.recipientHandleId,
+    discarded: Boolean(recipient),
+  };
+}
+
+function createTransferRecipientHandleId(): string {
+  const bytes = new Uint8Array(16);
+  globalThis.crypto.getRandomValues(bytes);
+  return `linked-device-custody-transfer-${base64UrlEncode(bytes)}`;
+}
+
 async function rotateWalletRecoverySet(request: RotateRecoverySetRequest): Promise<unknown> {
   const factorSecret = toBytes(request.payload.factorSecret);
   let handle: WasmCeremonySeedHeldV1 | null = null;
@@ -657,6 +814,18 @@ async function handleRequest(request: WalletCustodyCeremonyWorkerRequest): Promi
       return;
     case 'linkWalletCustodyPasskey':
       postSucceeded(request.id, await linkWalletCustodyPasskey(request));
+      return;
+    case 'createLinkedDeviceCustodyTransferRecipient':
+      postSucceeded(request.id, await createLinkedDeviceCustodyTransferRecipient(request));
+      return;
+    case 'sealWalletCustodySeedForLinkedDevice':
+      postSucceeded(request.id, await sealWalletCustodySeedForLinkedDevice(request));
+      return;
+    case 'acceptLinkedDeviceCustodyTransfer':
+      postSucceeded(request.id, await acceptLinkedDeviceCustodyTransfer(request));
+      return;
+    case 'discardLinkedDeviceCustodyTransferRecipient':
+      postSucceeded(request.id, discardLinkedDeviceCustodyTransferRecipient(request));
       return;
     case 'rotateWalletRecoverySet':
       postSucceeded(request.id, await rotateWalletRecoverySet(request));
