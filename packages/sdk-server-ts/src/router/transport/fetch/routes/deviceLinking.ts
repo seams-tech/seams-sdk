@@ -42,6 +42,15 @@ import {
   type LinkDeviceSessionId,
 } from '@shared/signing-lanes/ids';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
+import type { WalletId } from '@shared/utils/domainIds';
+import {
+  parseLinkedDeviceCustodyTransferRecipientV1,
+  parseLinkedDeviceCustodyTransferSubmissionV1,
+} from '@shared/device-linking/custodyTransfer';
+import type {
+  LinkedDeviceCustodyTransferPortV1,
+  LinkedDeviceCustodyTransferWriteResultV1,
+} from '../../../../core/deviceLinking/linkedDeviceCustodyTransfer';
 import { alphabetizeStringify, sha256Bytes } from '@shared/utils/digests';
 import type {
   LinkedDeviceSessionRecordV1,
@@ -350,6 +359,13 @@ export type DeviceLinkingRouteServiceV1 = {
   readonly provisioningVerifier: DeviceLinkingProvisioningVerifierV1;
   /** Owner-authenticated R102 source handoff and Device2 refetch source. */
   readonly sourceHandoff: DeviceLinkingOwnerSourceHandoffProviderV1;
+  /**
+   * Optional only while the Phase 8 owner-credential cutover is landing. A
+   * deployment without it serves the temporary signing-only path and answers
+   * the custody-transfer routes with `not_supported` rather than 404, so a
+   * Device 2 that expects them fails with a diagnosable reason.
+   */
+  readonly custodyTransfer?: LinkedDeviceCustodyTransferPortV1;
 };
 
 type DeviceLinkingCreateRequestV1 = {
@@ -387,6 +403,10 @@ export async function handleDeviceLinking(ctx: FetchRouterApiContext): Promise<R
       return await handleTargetPreparation(ctx, service, action.linkSessionId, nowMs);
     if (action.kind === 'credential')
       return await handleCredential(ctx, service, action.linkSessionId, nowMs);
+    if (action.kind === 'custody-transfer-recipient')
+      return await handleCustodyTransferRecipient(ctx, service, action.linkSessionId, nowMs);
+    if (action.kind === 'custody-transfer')
+      return await handleCustodyTransfer(ctx, service, action.linkSessionId, nowMs);
     if (action.kind === 'receipt')
       return await handleReceipt(ctx, service, action.linkSessionId, nowMs);
     if (action.kind === 'wallet-session')
@@ -889,6 +909,203 @@ async function handleReceipt(
     return invalidInputResponse('receipt acknowledgement binding does not match session');
   return mutationResultResponse(
     await service.acknowledgeReceiptV1({ acknowledgement, session, requestedAtMs: nowMs }),
+  );
+}
+
+/**
+ * The recipient key Device 1 seals the wallet custody seed to.
+ *
+ * POST is Device 2 publishing it — device-authenticated, because only the
+ * device holding the link identity key may say where its own seed should go.
+ * GET is Device 1 reading it before sealing, and is owner-authenticated
+ * against the claimed session for the same reason the approval route is.
+ */
+async function handleCustodyTransferRecipient(
+  ctx: FetchRouterApiContext,
+  service: DeviceLinkingRouteServiceV1,
+  rawLinkSessionId: string,
+  nowMs: number,
+): Promise<Response> {
+  const custodyTransfer = service.custodyTransfer;
+  if (!custodyTransfer) return custodyTransferUnsupportedResponse();
+  if (ctx.method === 'GET') {
+    const owner = await authenticateOwnerForSession(ctx, service, rawLinkSessionId, nowMs);
+    if (owner.kind !== 'authorized') return ownerSessionAuthResponse(owner);
+    const transfer = await custodyTransfer.readTransferV1(owner.linkSessionId);
+    if (!transfer) return notFoundResponse();
+    return json(transfer.recipient, { status: 200 });
+  }
+  if (ctx.method !== 'POST') return methodNotAllowedResponse();
+  const authenticated = await authenticateDeviceForSession(ctx, service, rawLinkSessionId, nowMs);
+  if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
+  if (authenticated.kind === 'not_found') return notFoundResponse();
+  const recipient = parseBoundary(() =>
+    parseLinkedDeviceCustodyTransferRecipientV1(authenticated.body),
+  );
+  if (recipient.linkSessionId !== String(authenticated.linkSessionId))
+    return invalidInputResponse('link session id does not match route');
+  if (recipient.registeredAtMs > nowMs)
+    return invalidInputResponse('custody transfer recipient is from the future');
+  const identity = requireClaimedTransferIdentity(authenticated.session);
+  if (
+    !identity ||
+    identity.walletId !== recipient.walletId ||
+    identity.enrollmentId !== recipient.enrollmentId ||
+    identity.deviceId !== recipient.deviceId
+  ) {
+    return invalidInputResponse('custody transfer recipient binding does not match session');
+  }
+  return custodyTransferWriteResponse(
+    await custodyTransfer.registerRecipientV1({ recipient }),
+  );
+}
+
+/**
+ * The sealed package itself.
+ *
+ * POST is Device 1 submitting it — owner-authenticated, because only the
+ * approving owner holds a seed to seal. GET is Device 2 collecting it, and is
+ * device-authenticated. Neither direction carries a secret: the package is
+ * ciphertext plus public routing facts, and the recipient private key never
+ * leaves Device 2's custody module.
+ */
+async function handleCustodyTransfer(
+  ctx: FetchRouterApiContext,
+  service: DeviceLinkingRouteServiceV1,
+  rawLinkSessionId: string,
+  nowMs: number,
+): Promise<Response> {
+  const custodyTransfer = service.custodyTransfer;
+  if (!custodyTransfer) return custodyTransferUnsupportedResponse();
+  if (ctx.method === 'GET') {
+    const authenticated = await authenticateDeviceForSession(ctx, service, rawLinkSessionId, nowMs);
+    if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
+    if (authenticated.kind === 'not_found') return notFoundResponse();
+    const transfer = await custodyTransfer.readTransferV1(authenticated.linkSessionId);
+    if (!transfer || transfer.state !== 'sealed') return notFoundResponse();
+    return json(transfer.package, { status: 200 });
+  }
+  if (ctx.method !== 'POST') return methodNotAllowedResponse();
+  const owner = await authenticateOwnerForSession(ctx, service, rawLinkSessionId, nowMs);
+  if (owner.kind !== 'authorized') return ownerSessionAuthResponse(owner);
+  const submission = parseBoundary(() =>
+    parseLinkedDeviceCustodyTransferSubmissionV1(owner.body),
+  );
+  if (submission.linkSessionId !== String(owner.linkSessionId))
+    return invalidInputResponse('link session id does not match route');
+  if (submission.package.sealedAtMs > nowMs)
+    return invalidInputResponse('custody transfer package is from the future');
+  const identity = requireClaimedTransferIdentity(owner.session);
+  if (
+    !identity ||
+    identity.walletId !== submission.package.walletId ||
+    identity.enrollmentId !== submission.package.enrollmentId ||
+    identity.deviceId !== submission.package.deviceId
+  ) {
+    return invalidInputResponse('custody transfer package binding does not match session');
+  }
+  if (owner.walletId !== submission.package.walletId) {
+    return invalidInputResponse('custody transfer package names another wallet');
+  }
+  return custodyTransferWriteResponse(
+    await custodyTransfer.submitPackageV1({
+      linkSessionId: owner.linkSessionId,
+      package: submission.package,
+    }),
+  );
+}
+
+type DeviceLinkingOwnerSessionContextV1 =
+  | {
+      readonly kind: 'authorized';
+      readonly body: unknown;
+      readonly walletId: WalletId;
+      readonly linkSessionId: LinkDeviceSessionId;
+      readonly session: LinkedDeviceSessionRecordV1;
+    }
+  | DeviceLinkingAuthDeniedV1
+  | { readonly kind: 'not_found' };
+
+async function authenticateOwnerForSession(
+  ctx: FetchRouterApiContext,
+  service: DeviceLinkingRouteServiceV1,
+  rawLinkSessionId: string,
+  nowMs: number,
+): Promise<DeviceLinkingOwnerSessionContextV1> {
+  const linkSessionId = parseBoundary(() => parseSessionId(rawLinkSessionId));
+  const bodyDigestB64u = await requestBodyDigest(ctx.request);
+  const authenticated = await authenticateOwner(
+    service,
+    ctx.request,
+    ctx.method,
+    ctx.pathname,
+    bodyDigestB64u,
+    nowMs,
+  );
+  if (authenticated.kind === 'denied') return authenticated;
+  const session = await service.sessionService.getSessionV1({ linkSessionId, nowMs });
+  if (!session) return { kind: 'not_found' };
+  return {
+    kind: 'authorized',
+    body: authenticated.body,
+    walletId: authenticated.owner.walletId,
+    linkSessionId,
+    session,
+  };
+}
+
+function ownerSessionAuthResponse(
+  context: Exclude<DeviceLinkingOwnerSessionContextV1, { readonly kind: 'authorized' }>,
+): Response {
+  return context.kind === 'denied' ? authDeniedResponse(context) : notFoundResponse();
+}
+
+/**
+ * The claim and the approval must already agree before a transfer identity is
+ * usable; an unclaimed session has no wallet to seal for.
+ */
+function requireClaimedTransferIdentity(session: LinkedDeviceSessionRecordV1): {
+  readonly walletId: WalletId;
+  readonly enrollmentId: LinkedDeviceEnrollmentId;
+  readonly deviceId: LinkedDeviceId;
+} | null {
+  const claim = session.claimTranscript?.value;
+  if (!claim) return null;
+  if (!('enrollmentId' in session.state) || session.state.enrollmentId !== claim.enrollmentId) {
+    return null;
+  }
+  return {
+    walletId: claim.walletId,
+    enrollmentId: claim.enrollmentId,
+    deviceId: claim.deviceId,
+  };
+}
+
+function custodyTransferWriteResponse(
+  result: LinkedDeviceCustodyTransferWriteResultV1,
+): Response {
+  switch (result.outcome) {
+    case 'applied':
+    case 'replayed':
+      return json({ ok: true, outcome: result.outcome }, { status: 200 });
+    case 'conflict':
+      return json(
+        { ok: false, code: result.reason, message: 'custody transfer conflict' },
+        { status: 409 },
+      );
+  }
+  result satisfies never;
+  throw new Error('unsupported custody transfer write outcome');
+}
+
+function custodyTransferUnsupportedResponse(): Response {
+  return json(
+    {
+      ok: false,
+      code: 'not_supported',
+      message: 'Linked-device custody transfer is not configured',
+    },
+    { status: 501 },
   );
 }
 
@@ -1487,6 +1704,8 @@ function parseRoutePath(pathname: string):
         | 'provision'
         | 'holder-receipts'
         | 'credential'
+        | 'custody-transfer'
+        | 'custody-transfer-recipient'
         | 'receipt'
         | 'wallet-session'
         | 'wallet-session-renew'
@@ -1513,6 +1732,8 @@ function parseRoutePath(pathname: string):
     parts[1] !== 'provision' &&
     parts[1] !== 'holder-receipts' &&
     parts[1] !== 'credential' &&
+    parts[1] !== 'custody-transfer' &&
+    parts[1] !== 'custody-transfer-recipient' &&
     parts[1] !== 'receipt' &&
     parts[1] !== 'wallet-session' &&
     parts[1] !== 'wallet-session-renew' &&

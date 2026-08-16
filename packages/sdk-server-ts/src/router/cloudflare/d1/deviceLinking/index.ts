@@ -5,6 +5,7 @@ export * from './d1LinkedDeviceRouteService';
 export * from './d1LinkedDeviceAggregateActivationVerifier';
 export * from './d1LinkedDeviceSessionService';
 export * from './d1LinkedDeviceManagementStore';
+export * from './d1LinkedDeviceCustodyTransferStore';
 export * from './d1LinkedDeviceOwnerAuthBindingStore';
 export * from './d1LinkedDeviceManagementRouteService';
 export * from './d1LinkedDeviceGatewayCompletionService';
