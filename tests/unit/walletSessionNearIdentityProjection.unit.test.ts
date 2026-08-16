@@ -3,6 +3,7 @@ import { selectNearOperationalPublicKeyForLogin } from '@/SeamsWeb/operations/au
 import type { WalletSession } from '@/core/types/seams';
 import { toAccountId } from '@/core/types/accountIds';
 import {
+  accountMenuCapabilitiesForLoginState,
   buildReactLoggedInLoginStateFromSession,
   linkedDeviceManagementPermissionForLoginState,
 } from '@/react/context/reactLoginStateBuilders';
@@ -68,10 +69,20 @@ test('React projection treats a linked-device session as logged in without owner
   expect(linkedDeviceManagementPermissionForLoginState(projected)).toEqual({
     kind: 'signing_only',
   });
+  expect(accountMenuCapabilitiesForLoginState(projected)).toEqual({
+    kind: 'signing_only',
+    canExportKeys: false,
+    canManageLinkedDevices: false,
+  });
 });
 
 test('React projection grants linked-device management only to an owner auth binding', () => {
   const projected = buildReactLoggedInLoginStateFromSession(mixedWalletSession(NEAR_PUBLIC_KEY));
   if (!projected) throw new Error('owner session did not project to a login state');
   expect(linkedDeviceManagementPermissionForLoginState(projected)).toEqual({ kind: 'owner' });
+  expect(accountMenuCapabilitiesForLoginState(projected)).toEqual({
+    kind: 'owner',
+    canExportKeys: true,
+    canManageLinkedDevices: true,
+  });
 });

@@ -5,6 +5,7 @@ import {
   type CDPSession,
   type ConsoleMessage,
   type FrameLocator,
+  type Locator,
   type Page,
   type Request,
   type Response,
@@ -376,6 +377,77 @@ async function openDevice2Qr(page: Page): Promise<string> {
   return src;
 }
 
+const LINKED_DEVICE_PROFILE_ROWS = [
+  'Export Keys',
+  'Scan and Link Device',
+  'Linked Devices',
+] as const;
+
+async function openProfileMenu(page: Page): Promise<Locator> {
+  const profile = page.locator('.w3a-profile-button-morphable');
+  await profile.waitFor({ state: 'visible', timeout: 30_000 });
+  if ((await profile.getAttribute('data-state')) !== 'open') {
+    await profile.locator('.w3a-user-account-button-trigger').click();
+  }
+  const menu = profile.locator('.w3a-profile-dropdown-morphed[data-state="open"]');
+  await expect(menu).toBeVisible({ timeout: 10_000 });
+  return menu;
+}
+
+async function assertProfileRowsForSession(
+  page: Page,
+  sessionKind: 'owner' | 'signing_only',
+): Promise<Locator> {
+  const menu = await openProfileMenu(page);
+  for (const label of LINKED_DEVICE_PROFILE_ROWS) {
+    const row = menu.getByRole('button', { name: new RegExp(`^${label}\\b`) });
+    await expect(row).toHaveCount(1);
+    await expect(row).toBeVisible();
+    if (sessionKind === 'owner') {
+      await expect(row).toBeEnabled();
+    } else {
+      await expect(row).toBeDisabled();
+    }
+  }
+  return menu;
+}
+
+async function assertSigningOnlyProfileRowsCannotInvokeRestrictedActions(
+  page: Page,
+  menu: Locator,
+): Promise<void> {
+  const restrictedRequestPaths: string[] = [];
+  const onRequest = (request: Request) => {
+    const pathname = new URL(request.url()).pathname;
+    if (
+      pathname.includes('/wallet/device-linking/') ||
+      pathname.includes('/router-ab/') ||
+      pathname.includes('/wallet/execution')
+    ) {
+      restrictedRequestPaths.push(pathname);
+    }
+  };
+  page.on('request', onRequest);
+  try {
+    await menu.evaluate((root, labels) => {
+      for (const label of labels) {
+        const row = [...root.querySelectorAll('button')].find((button) =>
+          button.textContent?.trim().startsWith(label),
+        );
+        if (!row) throw new Error(`Profile menu row is missing: ${label}`);
+        row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      }
+    }, LINKED_DEVICE_PROFILE_ROWS);
+    await page.waitForTimeout(250);
+    expect(restrictedRequestPaths).toEqual([]);
+    await expect(page.locator('.w3a-linked-devices-modal-content')).toHaveCount(0);
+    await expect(page.locator('.qr-scanner-modal, .qr-scanner-panel')).toHaveCount(0);
+    await expect(page.locator('w3a-export-key-viewer')).toHaveCount(0);
+  } finally {
+    page.off('request', onRequest);
+  }
+}
+
 async function openOwnerScanner(page: Page, qrDataUrl: string): Promise<void> {
   await installQrCamera(page, qrDataUrl);
   const profile = page.locator('.w3a-profile-button-morphable').getByRole('button').first();
@@ -719,6 +791,10 @@ test('Device 2 links, unlocks, refreshes, signs with warm and step-up auth, then
       }
     });
     await registerOwner(ownerPage, ownerDiagnostics);
+    await assertProfileRowsForSession(ownerPage, 'owner');
+    await ownerPage
+      .locator('.w3a-profile-button-morphable .w3a-user-account-button-trigger')
+      .click();
 
     const created = device2Page.waitForResponse(
       (response) =>
@@ -785,6 +861,14 @@ test('Device 2 links, unlocks, refreshes, signs with warm and step-up auth, then
       timeout: 45_000,
     });
     await expect(device2Wallet.getByText('Generating QR code', { exact: false })).toBeHidden();
+    const signingOnlyMenu = await assertProfileRowsForSession(device2Page, 'signing_only');
+    await assertSigningOnlyProfileRowsCannotInvokeRestrictedActions(
+      device2Page,
+      signingOnlyMenu,
+    );
+    await device2Page
+      .locator('.w3a-profile-button-morphable .w3a-user-account-button-trigger')
+      .click();
     expect(ownerCredentialAddedEvents.length).toBeGreaterThan(0);
     expect(ownerCredentialAssertedEvents.slice(ownerCredentialAssertionsBeforeLinking)).toHaveLength(0);
     await lockAndUnlockLinkedDevice(device2Page, device2Diagnostics);

@@ -27,7 +27,7 @@ import {
   walletSessionRefFromSession,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { NearProvisioningState } from '@/core/types/seams';
-import { linkedDeviceManagementPermissionForLoginState } from '../../context/reactLoginStateBuilders';
+import { accountMenuCapabilitiesForLoginState } from '../../context/reactLoginStateBuilders';
 
 function formatExportKeyErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message.trim()) return error.message;
@@ -149,10 +149,9 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
 
   // Read current theme from Theme context (falls back to system preference)
   const { theme } = useTheme();
-  const canShowRecoveryCodes = loginState.isLoggedIn && Boolean(walletId);
-  const canExportKeys = loginState.isLoggedIn && loginState.currentAuthMethod.kind !== 'none';
-  const canManageLinkedDevices =
-    linkedDeviceManagementPermissionForLoginState(loginState).kind === 'owner';
+  const accountMenuCapabilities = accountMenuCapabilitiesForLoginState(loginState);
+  const canShowRecoveryCodes = accountMenuCapabilities.kind === 'owner' && Boolean(walletId);
+  const canManageLinkedDevices = accountMenuCapabilities.canManageLinkedDevices;
   const handleQrCodeScanned = useCallback(() => {
     setShowQRScanner(false);
   }, []);
@@ -357,13 +356,16 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
       });
     }
 
-    if (canExportKeys) {
+    if (accountMenuCapabilities.kind !== 'signed_out') {
       items.push({
         id: PROFILE_MENU_ITEM_IDS.EXPORT_KEYS,
         icon: exportLoadingChain ? <SpinnerIcon /> : <KeyIcon />,
         label: 'Export Keys',
-        description: 'Export wallet signing keys',
-        disabled: false,
+        description:
+          accountMenuCapabilities.kind === 'signing_only'
+            ? 'Unavailable on signing-only devices'
+            : 'Export wallet signing keys',
+        disabled: !accountMenuCapabilities.canExportKeys,
         onClick: () => {
           setExportKeysOpen((v) => !v);
         },
@@ -383,14 +385,18 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
       });
     }
 
-    if (canManageLinkedDevices) {
+    if (accountMenuCapabilities.kind !== 'signed_out') {
+      const canManageLinkedDevices = accountMenuCapabilities.canManageLinkedDevices;
+      const linkedDeviceDescription = canManageLinkedDevices
+        ? 'Scan QR to link a device'
+        : 'Available on the owner device';
       items.push(
         {
           id: PROFILE_MENU_ITEM_IDS.SCAN_LINK_DEVICE,
           icon: <ScanIcon />,
           label: 'Scan and Link Device',
-          description: 'Scan QR to link a device',
-          disabled: false,
+          description: linkedDeviceDescription,
+          disabled: !canManageLinkedDevices,
           onClick: () => {
             setShowQRScanner(true);
           },
@@ -400,8 +406,10 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
           id: PROFILE_MENU_ITEM_IDS.LINKED_DEVICES,
           icon: <LinkIcon />,
           label: 'Linked Devices',
-          description: 'See devices using this wallet',
-          disabled: false,
+          description: canManageLinkedDevices
+            ? 'See devices using this wallet'
+            : linkedDeviceDescription,
+          disabled: !canManageLinkedDevices,
           onClick: () => setShowLinkedDevices(true),
           keepOpenOnClick: true,
         },
@@ -420,8 +428,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
     return items;
   }, [
     accountsRows.length,
-    canExportKeys,
-    canManageLinkedDevices,
+    accountMenuCapabilities,
     canShowRecoveryCodes,
     exportLoadingChain,
     loginState.isLoggedIn,
