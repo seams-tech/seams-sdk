@@ -6,6 +6,7 @@ import {
 } from '@/SeamsWeb/operations/devices/scanDevice';
 import type {
   DeviceLinkingAuthenticatedTransportPortV1,
+  DeviceLinkingSessionActivationPortV1,
   LinkedDeviceApprovalResultV1,
   DeviceLinkingFlowPortsV1,
   LinkSessionAuthenticationV1,
@@ -64,6 +65,9 @@ function createPorts(
     readonly onSubmission: (submission: LinkedDeviceProvisioningDeliveriesSubmissionV1) => void;
   },
   approvalSubscriptionResults?: readonly LinkedDeviceApprovalResultV1[],
+  onSessionActivation?: (
+    input: Parameters<DeviceLinkingSessionActivationPortV1['activateLinkedDeviceSigningSessionV1']>[0],
+  ) => void,
 ): DeviceLinkingFlowPortsV1 {
   const fixture = buildR103DeviceLinkFixture();
   const now = Date.now();
@@ -371,7 +375,13 @@ function createPorts(
               },
             },
           ],
+          factorSecret: new Uint8Array(32).fill(8),
         };
+      },
+    },
+    sessionActivation: {
+      async activateLinkedDeviceSigningSessionV1(input) {
+        onSessionActivation?.(input);
       },
     },
     laneProvisioning: {
@@ -733,14 +743,17 @@ test.describe('linked-device browser orchestration', () => {
     expect(acknowledgement?.receipt).toEqual(active.deviceLink.receipt);
   });
 
-  test('Device 2 waits for source deliveries before processing and acknowledging them', async () => {
+  test('Device 2 finishes target provisioning before accepting the active state', async () => {
     const calls: string[] = [];
+    const events: string[] = [];
     const fixture = buildR103DeviceLinkFixture();
     const active = await buildR103ActiveExecutionFixture();
     let emitSessionEvent: ((event: LinkedDeviceSessionTransportEventV1) => void) | undefined;
     let authenticatedTransport: DeviceLinkingAuthenticatedTransportPortV1 | undefined;
     let aggregateAcknowledgement: LinkedDeviceReceiptAcknowledgementV1 | undefined;
     let targetPasskeyActivation: LinkedDeviceTargetPasskeyActivationV1 | null = null;
+    let sessionActivationKind: string | null = null;
+    let sessionActivationFactorSecret: readonly number[] | null = null;
     const ports = createPorts(
       calls,
       undefined,
@@ -754,12 +767,23 @@ test.describe('linked-device browser orchestration', () => {
       (value) => {
         aggregateAcknowledgement = value;
       },
+      undefined,
+      undefined,
+      (input) => {
+        sessionActivationKind = input.activation.kind;
+        if (input.activation.kind === 'target_passkey_creation') {
+          sessionActivationFactorSecret = Array.from(input.activation.factorSecret);
+        }
+      },
     );
     const flow = new LinkDeviceFlow(
       {
         options: {
           onTargetPasskeyRequired: (activation) => {
             targetPasskeyActivation = activation;
+          },
+          onEvent: (event) => {
+            events.push(event.message);
           },
         },
       },
@@ -829,6 +853,33 @@ test.describe('linked-device browser orchestration', () => {
         );
       },
     });
+    const persistExecutionEvidence = ports.executionEvidence.putExactProvisionedEvidenceV1.bind(
+      ports.executionEvidence,
+    );
+    let releaseExecutionEvidencePersistence: (() => void) | undefined;
+    const executionEvidencePersistenceGate = new Promise<void>((resolve) => {
+      releaseExecutionEvidencePersistence = resolve;
+    });
+    Object.assign(ports.executionEvidence, {
+      putExactProvisionedEvidenceV1: async (
+        evidence: LinkedDeviceProvisionedExecutionEvidenceV1,
+      ) => {
+        calls.push('persist-execution-evidence-started');
+        emitSessionEvent?.({
+          kind: 'linked_device_session_event_v1',
+          linkSessionId: generated.qrData.linkSessionId,
+          state: buildActiveLinkedDeviceSessionState({
+            linkSessionId: generated.qrData.linkSessionId,
+            walletId: fixture.approval.walletId,
+            enrollmentId: fixture.approval.enrollmentId,
+            activatedAtMs: active.deviceLink.receipt.activatedAtMs,
+          }),
+          emittedAtMs: Date.now(),
+        });
+        await executionEvidencePersistenceGate;
+        return await persistExecutionEvidence(evidence);
+      },
+    });
     emitSessionEvent?.({
       kind: 'linked_device_session_event_v1',
       linkSessionId: generated.qrData.linkSessionId,
@@ -845,9 +896,19 @@ test.describe('linked-device browser orchestration', () => {
       .toBe('linked_device_target_passkey_activation_v1');
     expect(calls).not.toContain('target-passkey');
     if (!targetPasskeyActivation) throw new Error('target passkey activation was not published');
-    await targetPasskeyActivation.createPasskey();
+    const activation = targetPasskeyActivation.createPasskey();
+    await expect.poll(() => calls).toContain('persist-execution-evidence-started');
+    expect(events).not.toContain('Linked device active');
+    expect(calls).not.toContain('get-wallet-session');
+    releaseExecutionEvidencePersistence?.();
+    await activation;
+    await expect(targetPasskeyActivation.createPasskey()).rejects.toThrow(
+      'activation has already completed',
+    );
+    await expect.poll(() => sessionActivationKind).toBe('target_passkey_creation');
+    expect(sessionActivationFactorSecret).toEqual(Array.from(new Uint8Array(32).fill(8)));
     await expect
-      .poll(() => calls.slice(-16), { timeout: 5_000 })
+      .poll(() => calls.slice(-17), { timeout: 5_000 })
       .toEqual([
         'get',
         'target-preparation',
@@ -859,6 +920,7 @@ test.describe('linked-device browser orchestration', () => {
         'provision-deliveries',
         'prepare-lanes',
         'holder-receipts',
+        'persist-execution-evidence-started',
         'persist-execution-evidence',
         'ack',
         'get-wallet-session',

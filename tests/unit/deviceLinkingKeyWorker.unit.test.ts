@@ -649,6 +649,7 @@ test.describe('device-linking key worker', () => {
       },
       async prepareTargetHolderRegistrationsV1(input) {
         transferredFactorSecret = new Uint8Array(input.factorSecret).slice();
+        structuredClone(input.factorSecret, { transfer: [input.factorSecret] });
         return {
           orderedHolderRegistrations: [
             {
@@ -691,8 +692,10 @@ test.describe('device-linking key worker', () => {
       userHandleB64u: preparation.userHandleB64u,
     });
     expect(transferredFactorSecret).toEqual(new Uint8Array(32).fill(11));
+    expect(result.factorSecret).toEqual(new Uint8Array(32).fill(11));
     expect(result.webauthnRegistration).not.toHaveProperty('clientExtensionResults');
     expect(JSON.stringify(result)).not.toContain('prfFirstB64u');
     expect(result.orderedHolderRegistrations).toHaveLength(1);
+    result.factorSecret.fill(0);
   });
 });

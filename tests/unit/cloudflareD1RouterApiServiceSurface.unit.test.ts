@@ -198,6 +198,15 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
           publicKey: 'ed25519:public',
           createdAtMs: 200,
           updatedAtMs: 300,
+          /* Inserted without device capture, so the D1 boundary synthesizes the
+             fallback rather than dropping the contract's required field. */
+          device: {
+            label: 'Unknown device',
+            browser: 'other',
+            os: 'other',
+            synced: false,
+            transports: [],
+          },
         },
       ],
     });

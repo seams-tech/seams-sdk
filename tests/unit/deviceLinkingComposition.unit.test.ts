@@ -158,6 +158,9 @@ function assemblyOptions(
     ownerAuthorization: ownerAuthorization(),
     repository: repository(),
     walletSessionRepository: walletSessionRepository(),
+    sessionActivation: {
+      activateLinkedDeviceSigningSessionV1: unsupported,
+    },
     executionEvidenceRepository: executionEvidenceRepository(),
     sourceLanePorts: sourceLanePorts(),
     workerEndpoint,

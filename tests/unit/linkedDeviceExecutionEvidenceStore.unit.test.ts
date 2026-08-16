@@ -33,6 +33,11 @@ test('persists one exact public linked-device execution evidence record', async 
         const replayed = await repository.putExactProvisionedEvidenceV1(input.evidence);
         const found = await repository.readForEnrollmentV1(input.evidence.approval.enrollmentId);
         await walletSessions.putExactActiveDeliveryV1(input.walletSession);
+        const exact = await storeModule.resolveLinkedDeviceExecutionBundleV1({
+          enrollmentId: input.evidence.approval.enrollmentId,
+          evidenceRepository: repository,
+          walletSessionRepository: walletSessions,
+        });
         const active = await storeModule.resolveActiveLinkedDeviceExecutionBundleV1({
           enrollmentId: input.evidence.approval.enrollmentId,
           nowMs: input.walletSession.issuedAtMs,
@@ -72,6 +77,7 @@ test('persists one exact public linked-device execution evidence record', async 
           persisted,
           replayed,
           found,
+          exact,
           active,
           expired,
           replayMismatchRejected,
@@ -94,6 +100,13 @@ test('persists one exact public linked-device execution evidence record', async 
   expect(result.persisted).toEqual(evidence);
   expect(result.replayed).toEqual(evidence);
   expect(result.found).toEqual({ kind: 'found', evidence });
+  expect(result.exact).toMatchObject({
+    kind: 'found',
+    bundle: {
+      kind: 'active_linked_device_execution_bundle_v1',
+      enrollmentId: evidence.approval.enrollmentId,
+    },
+  });
   expect(result.active).toMatchObject({
     kind: 'found',
     bundle: {

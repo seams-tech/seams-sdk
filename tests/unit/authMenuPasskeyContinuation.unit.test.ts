@@ -40,7 +40,6 @@ function authMenuSession(
     }) => Promise<GoogleEmailOtpWalletAuthLoginFlow>;
     sendToParent?: (message: unknown) => void;
     startDeviceLinking?: AuthMenuSessionArgs['startDeviceLinking'];
-    activateLinkedDeviceSession?: AuthMenuSessionArgs['activateLinkedDeviceSession'];
   } = {},
 ): AuthMenuSession {
   const sessionId = hostedAuthMenuSessionIdFromBoundary(
@@ -70,7 +69,6 @@ function authMenuSession(
         throw new Error('Device-linking flow fixture was not configured');
       }),
     cancelDeviceLinking: async () => {},
-    activateLinkedDeviceSession: args.activateLinkedDeviceSession ?? (async () => {}),
     sendToParent: args.sendToParent ?? (() => {}),
   });
 }
@@ -179,22 +177,14 @@ test.describe('hosted auth-menu passkey continuation', () => {
     });
   });
 
-  test('opens the linked signing session before completing authentication', async () => {
+  test('completes authentication after the linking flow establishes the signing session', async () => {
     let onEvent: StartDeviceLinkingCallbacks['onEvent'] | null = null;
     let resolveLinkDevice: ((result: { qrCodeDataURL: string }) => void) | null = null;
-    let resolveActivation: (() => void) | null = null;
-    let activationWalletId: string | null = null;
     const session = authMenuSession({
       startDeviceLinking: async (callbacks) => {
         onEvent = callbacks.onEvent;
         return await new Promise((resolve) => {
           resolveLinkDevice = resolve;
-        });
-      },
-      activateLinkedDeviceSession: async (walletId) => {
-        activationWalletId = walletId;
-        await new Promise<void>((resolve) => {
-          resolveActivation = resolve;
         });
       },
     });
@@ -208,27 +198,9 @@ test.describe('hosted auth-menu passkey continuation', () => {
         status: 'succeeded',
         message: 'Linked device active',
         walletId: 'wallet-linked-device-test',
+        data: { enrollmentId: 'enrollment-linked-device-test' },
       }),
     );
-
-    await expect.poll(() => activationWalletId).toBe('wallet-linked-device-test');
-    expect(session.state).toMatchObject({
-      kind: 'link_device',
-      viewModel: {
-        linkDevice: { kind: 'activating', message: 'Preparing this device for signing' },
-      },
-    });
-    if (!resolveLinkDevice) throw new Error('Device-linking flow did not start');
-    resolveLinkDevice({ qrCodeDataURL: 'data:image/svg+xml,late-result' });
-    await Promise.resolve();
-    expect(session.state).toMatchObject({
-      kind: 'link_device',
-      viewModel: {
-        linkDevice: { kind: 'activating', message: 'Preparing this device for signing' },
-      },
-    });
-    if (!resolveActivation) throw new Error('Linked-device activation did not start');
-    resolveActivation();
 
     await expect(outcome).resolves.toMatchObject({
       kind: 'authenticated',
@@ -236,38 +208,9 @@ test.describe('hosted auth-menu passkey continuation', () => {
       method: 'passkey',
     });
     expect(session.state.kind).toBe('complete');
-  });
-
-  test('shows a recoverable error when linked signing-session activation fails', async () => {
-    let onEvent: StartDeviceLinkingCallbacks['onEvent'] | null = null;
-    const session = authMenuSession({
-      startDeviceLinking: async (callbacks) => {
-        onEvent = callbacks.onEvent;
-        return await new Promise<never>(() => {});
-      },
-      activateLinkedDeviceSession: async () => {
-        throw new Error('Wallet Session renewal failed');
-      },
-    });
-
-    Reflect.apply(Reflect.get(session, 'openLinkDevice'), session, []);
-    if (!onEvent) throw new Error('Device-linking flow did not publish its event callback');
-    onEvent(
-      createLinkDeviceFlowEvent({
-        flowId: 'linked-device-activation-failure-test',
-        phase: LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED,
-        status: 'succeeded',
-        message: 'Linked device active',
-        walletId: 'wallet-linked-device-test',
-      }),
-    );
-
-    await expect
-      .poll(() =>
-        session.state.kind === 'link_device' ? session.state.viewModel.linkDevice : null,
-      )
-      .toEqual({ kind: 'activation_error', message: 'Wallet Session renewal failed' });
-    session.cleanup();
+    if (!resolveLinkDevice) throw new Error('Device-linking flow did not start');
+    resolveLinkDevice({ qrCodeDataURL: 'data:image/svg+xml,late-result' });
+    await Promise.resolve();
   });
 
   test('shows a recoverable error when linked activation omits its wallet identity', async () => {
