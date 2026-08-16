@@ -33,8 +33,6 @@ import {
   type WalletExecutionLaneProjectionSource,
 } from '../../../../core/signingLanes/WalletExecutionLaneProjection';
 import { D1IdentityStore } from '../../../../core/d1IdentityStore';
-import { D1EmailRecoveryPreparationStore } from '../../../../core/EmailRecoveryPreparationStore';
-import { D1WebAuthnCredentialBindingStore } from '../../../../core/WebAuthnCredentialBindingStore';
 import type { IdentityStore, LinkIdentityResult } from '../../../../core/IdentityStore';
 import type { D1PreparedStatementLike } from '../../../../storage/tenantRoute';
 import { normalizeLogger } from '../../../../core/logger';
@@ -58,7 +56,6 @@ import type {
   FundImplicitNearAccountRequest,
   FundImplicitNearAccountResult,
 } from '../../../../core/types';
-import { EmailRecoveryAuthOperations } from '../../../../core/authService/emailRecoveryAuthOperations';
 import type {
   RouterApiServiceBag,
   RouterApiWalletRegistrationService,
@@ -67,7 +64,6 @@ import { AuthorizationService } from '../../../../authorization/service';
 import { capabilityPolicyPort } from '../../../../authorization/capabilityPolicy';
 import { CloudflareD1AuthorizationStore } from '../authorization/d1AuthorizationStore';
 import { parseTenantId } from '@shared/authorization/capabilityKinds';
-import type { RouterApiEmailRecoveryAuthService } from '../../../framework/routerApi';
 import { CloudflareD1RegistrationCeremonyIntentStore } from '../registration/d1RegistrationCeremonyStore';
 import { isRecordValue, sha256BytesPortable } from './d1RouterApiAuthBoundary';
 import { CloudflareD1NearPublicKeyStore } from '../near/d1NearPublicKeyStore';
@@ -85,8 +81,6 @@ import { CloudflareD1EmailOtpChallengeService } from '../emailOtp/d1EmailOtpChal
 import { CloudflareD1EmailOtpRecoveryService } from '../emailOtp/d1EmailOtpRecoveryService';
 import { CloudflareD1GoogleEmailOtpRegistrationAttemptStore } from '../emailOtp/d1GoogleEmailOtpRegistrationAttemptStore';
 import { CloudflareD1GoogleEmailOtpSessionResolver } from '../emailOtp/d1GoogleEmailOtpSessionResolver';
-import { CloudflareD1SessionStore } from '../session/d1SessionStore';
-import { CloudflareD1SessionService } from '../session/d1SessionService';
 import { CloudflareD1IdentityService } from '../identity/d1IdentityService';
 import { CloudflareD1OidcVerificationService } from '../oidc/d1OidcVerificationService';
 import { CloudflareD1WebAuthnAuthService } from '../webauthn/d1WebAuthnAuthService';
@@ -230,7 +224,6 @@ type CloudflareD1RouterApiAuthAssembly = {
   readonly emailOtpRecoveryService: CloudflareD1EmailOtpRecoveryService;
   readonly identityService: CloudflareD1IdentityService;
   readonly oidcVerification: CloudflareD1OidcVerificationService;
-  readonly sessionService: CloudflareD1SessionService;
   readonly authorizationService: AuthorizationService;
   readonly googleEmailOtpSessions: CloudflareD1GoogleEmailOtpSessionResolver;
   readonly nearPublicKeys: CloudflareD1NearPublicKeyStore;
@@ -309,10 +302,6 @@ type D1NearFundingRouteServiceAssembly = Pick<
   CloudflareD1RouterApiAuthAssembly,
   'nearPublicKeys' | 'options'
 >;
-
-type D1RecoveryRouteServiceAssembly = Pick<CloudflareD1RouterApiAuthAssembly, 'sessionService'>;
-
-type D1EmailRecoveryAuthServiceAssembly = Pick<CloudflareD1RouterApiAuthAssembly, 'options'>;
 
 type D1RouterAccountRouteServiceAssembly = Pick<CloudflareD1RouterApiAuthAssembly, 'options'>;
 
@@ -729,47 +718,6 @@ function scopeValuesForOptions(
   values: readonly unknown[],
 ): readonly unknown[] {
   return [options.namespace, options.orgId, options.projectId, options.envId, ...values];
-}
-
-async function ensureD1EmailRecoverySignerRuntimeReady(): Promise<void> {}
-
-class CloudflareD1EmailRecoveryAuthService implements RouterApiEmailRecoveryAuthService {
-  private readonly operations: EmailRecoveryAuthOperations;
-
-  constructor(assembly: D1EmailRecoveryAuthServiceAssembly) {
-    const options = assembly.options;
-    this.operations = new EmailRecoveryAuthOperations({
-      ensureSignerAndRelayerAccount: ensureD1EmailRecoverySignerRuntimeReady,
-      getDefaultRuntimePolicyScope: () => ({
-        orgId: options.orgId,
-        projectId: options.projectId,
-        envId: options.envId,
-        signingRootVersion: 'default',
-      }),
-      webAuthnCredentialBindingStore: new D1WebAuthnCredentialBindingStore({
-        database: options.database,
-        namespace: options.namespace,
-        orgId: options.orgId,
-        projectId: options.projectId,
-        envId: options.envId,
-        ensureSchema: false,
-      }),
-      emailRecoveryPreparationStore: new D1EmailRecoveryPreparationStore({
-        database: options.database,
-        namespace: options.namespace,
-        orgId: options.orgId,
-        projectId: options.projectId,
-        envId: options.envId,
-        ensureSchema: false,
-      }),
-    });
-  }
-
-  async prepareEmailRecovery(
-    request: Parameters<RouterApiEmailRecoveryAuthService['prepareEmailRecovery']>[0],
-  ): ReturnType<RouterApiEmailRecoveryAuthService['prepareEmailRecovery']> {
-    return await this.operations.prepareEmailRecovery(request);
-  }
 }
 
 async function fundImplicitNearAccountForOptions(
@@ -1563,8 +1511,6 @@ function createCloudflareD1RouterApiAuthAssembly(
     ensureSchema: false,
   });
   const linkIdentity = linkD1Identity.bind(undefined, identityStore);
-  const sessionStore = new CloudflareD1SessionStore({ prepare });
-  const sessionService = new CloudflareD1SessionService({ sessionStore });
   const authorizationStore = new CloudflareD1AuthorizationStore({
     database: options.database,
     namespace: options.namespace,
@@ -1775,7 +1721,6 @@ function createCloudflareD1RouterApiAuthAssembly(
     emailOtpRecoveryService,
     identityService,
     oidcVerification,
-    sessionService,
     authorizationService,
     googleEmailOtpSessions,
     nearPublicKeys,
@@ -2207,26 +2152,6 @@ function createD1NearFundingRouteService(
   };
 }
 
-function createD1RecoveryRouteService(
-  assembly: D1RecoveryRouteServiceAssembly,
-): RouterApiServiceBag['recovery'] {
-  return {
-    getRecoverySession: assembly.sessionService.getRecoverySession.bind(assembly.sessionService),
-    recordRecoveryExecution: assembly.sessionService.recordRecoveryExecution.bind(
-      assembly.sessionService,
-    ),
-    updateRecoverySessionStatus: assembly.sessionService.updateRecoverySessionStatus.bind(
-      assembly.sessionService,
-    ),
-  };
-}
-
-function createD1EmailRecoveryAuthService(
-  assembly: D1EmailRecoveryAuthServiceAssembly,
-): RouterApiEmailRecoveryAuthService {
-  return new CloudflareD1EmailRecoveryAuthService(assembly);
-}
-
 function createD1RouterAccountRouteService(
   assembly: D1RouterAccountRouteServiceAssembly,
 ): RouterApiServiceBag['router'] {
@@ -2253,7 +2178,6 @@ export function createCloudflareD1RouterApiAuthService(
     authorizedOperations: createD1AuthorizedOperationRouteService(assembly),
     thresholdRuntime: createD1ThresholdRuntimeRouteService(assembly),
     nearFunding: createD1NearFundingRouteService(assembly),
-    recovery: createD1RecoveryRouteService(assembly),
     router: createD1RouterAccountRouteService(assembly),
     passkeyCustody: createD1PasskeyCustodyRouteService({
       passkeyCustodyEnvelopes: assembly.passkeyCustodyEnvelopes,
@@ -2285,11 +2209,4 @@ export function createCloudflareD1RouterApiAuthService(
       ? {}
       : { deviceLinkingLaneGateway: assembly.deviceLinkingLaneGateway }),
   };
-}
-
-export function createCloudflareD1RouterApiEmailRecoveryAuthService(
-  input: CloudflareD1RouterApiAuthServiceOptions,
-): RouterApiEmailRecoveryAuthService {
-  const assembly = createCloudflareD1RouterApiAuthAssembly(input);
-  return createD1EmailRecoveryAuthService(assembly);
 }

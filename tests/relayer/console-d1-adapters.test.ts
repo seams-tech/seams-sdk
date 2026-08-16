@@ -27,7 +27,6 @@ import {
   createD1ConsoleWebhookService,
   runD1ConsoleWebhookRetryDispatch,
 } from '../../packages/console-server-ts/src/webhooks/d1';
-import { D1EmailRecoveryPreparationStore } from '../../packages/sdk-server-ts/src/core/EmailRecoveryPreparationStore';
 import {
   D1EmailOtpAuthStateStore,
   D1EmailOtpChallengeStore,
@@ -42,8 +41,6 @@ import { D1WebAuthnLoginChallengeStore } from '../../packages/sdk-server-ts/src/
 import { D1WebAuthnSyncChallengeStore } from '../../packages/sdk-server-ts/src/core/WebAuthnSyncChallengeStore';
 import { D1IdentityStore } from '../../packages/sdk-server-ts/src/core/IdentityStore';
 import { D1NearPublicKeyStore } from '../../packages/sdk-server-ts/src/core/NearPublicKeyStore';
-import { D1RecoveryExecutionStore } from '../../packages/sdk-server-ts/src/core/RecoveryExecutionStore';
-import { D1RecoverySessionStore } from '../../packages/sdk-server-ts/src/core/RecoverySessionStore';
 import { D1WalletAuthMethodStore } from '../../packages/sdk-server-ts/src/core/WalletAuthMethodStore';
 import { D1WalletStore } from '../../packages/sdk-server-ts/src/core/WalletStore';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
@@ -86,9 +83,6 @@ import {
   buildRawD1EcdsaWalletSignerInsertInput,
   buildRawD1IdentityLinkInsertInput,
   buildRawD1AppSessionVersionInsertInput,
-  buildRawD1RecoverySessionInsertInput,
-  buildRawD1RecoveryExecutionInsertInput,
-  buildRawD1EmailRecoveryPreparationInsertInput,
   buildRawD1EmailOtpChallengeInsertInput,
   buildRawD1EmailOtpGrantInsertInput,
   buildRawD1EmailOtpEnrollmentInsertInput,
@@ -110,9 +104,6 @@ import {
   insertRawD1WalletAuthMethodRecord,
   insertRawD1IdentityLinkRecord,
   insertRawD1AppSessionVersionRecord,
-  insertRawD1RecoverySessionRecord,
-  insertRawD1RecoveryExecutionRecord,
-  insertRawD1EmailRecoveryPreparationRecord,
   insertRawD1EmailOtpChallengeRecord,
   insertRawD1EmailOtpGrantRecord,
   insertRawD1EmailOtpEnrollmentRecord,
@@ -141,16 +132,11 @@ import {
   expectRawD1WalletAuthMethodInsertRejected,
   expectRawD1IdentityLinkInsertRejected,
   expectRawD1AppSessionVersionInsertRejected,
-  expectRawD1RecoverySessionInsertRejected,
-  expectRawD1RecoveryExecutionInsertRejected,
-  expectRawD1EmailRecoveryPreparationInsertRejected,
   createD1AtomicAssessment,
   errorCode,
   createD1WebhookTestSecretCipher,
-  recoveryExecutionAction,
   nearPublicKeyValue,
   webhookDispatchEventId,
-  buildD1EmailRecoveryPreparationRecord,
   buildD1EmailOtpChallengeContext,
   buildD1EmailOtpChallengeRecord,
   buildD1EmailOtpGrantRecord,
@@ -177,6 +163,21 @@ test.describe('D1 migration smoke', () => {
           expect(walletColumns).toContain('wallet_id');
           expect(walletColumns).not.toContain('rp_id');
           expect(authMethodColumns).toContain('rp_id');
+
+          const retiredTables = await temp.database
+            .prepare(
+              `SELECT name
+                 FROM sqlite_master
+                WHERE type = 'table'
+                  AND name IN (
+                    'email_recovery_preparations',
+                    'recovery_sessions',
+                    'recovery_executions'
+                  )
+                ORDER BY name`,
+            )
+            .all<{ name?: unknown }>();
+          expect(retiredTables.results.map((row) => row.name)).toEqual([]);
         }
       } finally {
         cleanupTemporaryD1Database(temp.tempDir);
@@ -444,143 +445,14 @@ test.describe('D1 migration smoke', () => {
         buildRawD1AppSessionVersionInsertInput({}),
       );
 
-      await expectRawD1RecoverySessionInsertRejected(
-        temp.database,
-        buildRawD1RecoverySessionInsertInput({
-          sessionId: '',
-        }),
-      );
-      await expectRawD1RecoverySessionInsertRejected(
-        temp.database,
-        buildRawD1RecoverySessionInsertInput({
-          nearAccountId: 'wallet-raw-recovery.testnet',
-          recordJson: JSON.stringify({
-            version: 'recovery_session_v1',
-            sessionId: 'recovery-session-raw-schema',
-            nearAccountId: 'different-recovery.testnet',
-            status: 'prepared',
-            createdAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
-            updatedAtMs: Date.parse('2026-06-27T00:00:01.000Z'),
-            expiresAtMs: Date.parse('2026-06-27T00:10:00.000Z'),
-          }),
-        }),
-      );
-      await expectRawD1RecoverySessionInsertRejected(
-        temp.database,
-        buildRawD1RecoverySessionInsertInput({
-          recordJson: JSON.stringify({
-            version: 'recovery_session_v1',
-            sessionId: 'recovery-session-raw-schema',
-            nearAccountId: 'wallet-raw-recovery.testnet',
-            status: 'unsupported',
-            createdAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
-            updatedAtMs: Date.parse('2026-06-27T00:00:01.000Z'),
-            expiresAtMs: Date.parse('2026-06-27T00:10:00.000Z'),
-          }),
-        }),
-      );
-      await expectRawD1RecoverySessionInsertRejected(
-        temp.database,
-        buildRawD1RecoverySessionInsertInput({
-          expiresAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
-        }),
-      );
-      await insertRawD1RecoverySessionRecord(
-        temp.database,
-        buildRawD1RecoverySessionInsertInput({}),
-      );
-
-      await expectRawD1RecoveryExecutionInsertRejected(
-        temp.database,
-        buildRawD1RecoveryExecutionInsertInput({
-          chainIdKey: '',
-        }),
-      );
-      await expectRawD1RecoveryExecutionInsertRejected(
-        temp.database,
-        buildRawD1RecoveryExecutionInsertInput({
-          status: 'unsupported',
-        }),
-      );
-      await expectRawD1RecoveryExecutionInsertRejected(
-        temp.database,
-        buildRawD1RecoveryExecutionInsertInput({
-          recordJson: JSON.stringify({
-            version: 'recovery_execution_v1',
-            sessionId: 'different-recovery-session',
-            chainIdKey: 'evm:eip155:8453',
-            accountAddress: `0x${'22'.repeat(20)}`,
-            action: 'recover_owner',
-            status: 'pending',
-            createdAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
-            updatedAtMs: Date.parse('2026-06-27T00:00:01.000Z'),
-          }),
-        }),
-      );
-      await insertRawD1RecoveryExecutionRecord(
-        temp.database,
-        buildRawD1RecoveryExecutionInsertInput({}),
-      );
-
-      await expectRawD1EmailRecoveryPreparationInsertRejected(
-        temp.database,
-        buildRawD1EmailRecoveryPreparationInsertInput({
-          requestId: '',
-        }),
-      );
-      await expectRawD1EmailRecoveryPreparationInsertRejected(
-        temp.database,
-        buildRawD1EmailRecoveryPreparationInsertInput({
-          walletId: '',
-        }),
-      );
-      await expectRawD1EmailRecoveryPreparationInsertRejected(
-        temp.database,
-        buildRawD1EmailRecoveryPreparationInsertInput({
-          recordJson: JSON.stringify({
-            version: 'email_recovery_preparation_v1',
-            requestId: 'email-recovery-preparation-raw-schema',
-            accountId: 'wallet-raw-email-recovery.testnet',
-            walletBinding: {
-              walletId: 'different-wallet-id',
-            },
-            rpId: 'app.example.test',
-            createdAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
-            expiresAtMs: Date.parse('2026-06-27T00:10:00.000Z'),
-          }),
-        }),
-      );
-      await expectRawD1EmailRecoveryPreparationInsertRejected(
-        temp.database,
-        buildRawD1EmailRecoveryPreparationInsertInput({
-          expiresAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
-        }),
-      );
-      await insertRawD1EmailRecoveryPreparationRecord(
-        temp.database,
-        buildRawD1EmailRecoveryPreparationInsertInput({}),
-      );
-
       const identityRow = await temp.database
         .prepare('SELECT COUNT(*) AS record_count FROM identity_links')
         .first<{ record_count?: unknown }>();
       const sessionVersionRow = await temp.database
         .prepare('SELECT COUNT(*) AS record_count FROM app_session_versions')
         .first<{ record_count?: unknown }>();
-      const recoverySessionRow = await temp.database
-        .prepare('SELECT COUNT(*) AS record_count FROM recovery_sessions')
-        .first<{ record_count?: unknown }>();
-      const recoveryExecutionRow = await temp.database
-        .prepare('SELECT COUNT(*) AS record_count FROM recovery_executions')
-        .first<{ record_count?: unknown }>();
-      const emailRecoveryRow = await temp.database
-        .prepare('SELECT COUNT(*) AS record_count FROM email_recovery_preparations')
-        .first<{ record_count?: unknown }>();
       expect(Number(identityRow?.record_count || 0)).toBe(1);
       expect(Number(sessionVersionRow?.record_count || 0)).toBe(1);
-      expect(Number(recoverySessionRow?.record_count || 0)).toBe(1);
-      expect(Number(recoveryExecutionRow?.record_count || 0)).toBe(1);
-      expect(Number(emailRecoveryRow?.record_count || 0)).toBe(1);
     } finally {
       cleanupTemporaryD1Database(temp.tempDir);
     }
@@ -4275,197 +4147,6 @@ test.describe('D1 adapter contracts', () => {
       await expect(identity.getAppSessionVersionByUserId('user-d1-identity-alice')).resolves.toBe(
         rotatedVersion,
       );
-    } finally {
-      cleanupTemporaryD1Database(temp.tempDir);
-    }
-  });
-
-  test('signer recovery sessions and executions are scoped in D1', async () => {
-    const temp = createTemporaryD1Database();
-    try {
-      const clock = new TestMutableClock('2026-06-27T06:00:00.000Z');
-      const scope = {
-        database: temp.database,
-        namespace: 'd1-contracts',
-        orgId: 'org-d1-signer',
-        projectId: 'project-d1-signer',
-        envId: 'env-production',
-      };
-      const otherEnvScope = {
-        ...scope,
-        envId: 'env-development',
-        ensureSchema: false,
-      };
-      const sessionStore = new D1RecoverySessionStore({
-        ...scope,
-        now: clock.now,
-      });
-      const otherEnvSessionStore = new D1RecoverySessionStore({
-        ...otherEnvScope,
-        now: clock.now,
-      });
-      const executionStore = new D1RecoveryExecutionStore(scope);
-      const otherEnvExecutionStore = new D1RecoveryExecutionStore(otherEnvScope);
-      const recoverySession = {
-        version: 'recovery_session_v1',
-        sessionId: 'recovery-session-d1',
-        userId: 'user-d1-recovery',
-        nearAccountId: 'wallet-d1-recovery.testnet',
-        signerSlot: 1,
-        status: 'prepared',
-        createdAtMs: Date.parse('2026-06-27T06:00:00.000Z'),
-        updatedAtMs: Date.parse('2026-06-27T06:01:00.000Z'),
-        expiresAtMs: Date.parse('2026-06-27T07:00:00.000Z'),
-        newNearPublicKey: 'ed25519:new-public-key',
-        newEvmOwnerAddress: '0x1111111111111111111111111111111111111111',
-        recoveryDeadlineEpochSeconds: 1782530400,
-        recoveryEmailPayloadHash: 'hash-recovery-email',
-        metadata: { source: 'd1-test' },
-      } as const;
-      const pendingExecution = {
-        version: 'recovery_execution_v1',
-        sessionId: 'recovery-session-d1',
-        userId: 'user-d1-recovery',
-        nearAccountId: 'wallet-d1-recovery.testnet',
-        chainIdKey: 'near:testnet',
-        accountAddress: 'wallet-d1-recovery.testnet',
-        action: 'submit_recovery',
-        status: 'pending',
-        createdAtMs: Date.parse('2026-06-27T06:02:00.000Z'),
-        updatedAtMs: Date.parse('2026-06-27T06:03:00.000Z'),
-        metadata: { source: 'd1-test' },
-      } as const;
-      const confirmedExecution = {
-        version: 'recovery_execution_v1',
-        sessionId: 'recovery-session-d1',
-        userId: 'user-d1-recovery',
-        nearAccountId: 'wallet-d1-recovery.testnet',
-        chainIdKey: 'near:testnet',
-        accountAddress: 'wallet-d1-recovery.testnet',
-        action: 'confirm_recovery',
-        status: 'confirmed',
-        createdAtMs: Date.parse('2026-06-27T06:04:00.000Z'),
-        updatedAtMs: Date.parse('2026-06-27T06:05:00.000Z'),
-        transactionHash: 'near-tx-confirmed',
-      } as const;
-
-      await sessionStore.put(recoverySession);
-      await expect(sessionStore.get('recovery-session-d1')).resolves.toMatchObject({
-        sessionId: 'recovery-session-d1',
-        nearAccountId: 'wallet-d1-recovery.testnet',
-        status: 'prepared',
-      });
-      await expect(otherEnvSessionStore.get('recovery-session-d1')).resolves.toBeNull();
-      await expect(sessionStore.listByNearAccountId('wallet-d1-recovery.testnet')).resolves.toEqual(
-        [
-          expect.objectContaining({
-            sessionId: 'recovery-session-d1',
-          }),
-        ],
-      );
-
-      clock.set('2026-06-27T07:01:00.000Z');
-      await expect(sessionStore.get('recovery-session-d1')).resolves.toBeNull();
-
-      await executionStore.put(pendingExecution);
-      await executionStore.put(confirmedExecution);
-      await expect(
-        executionStore.get({
-          sessionId: 'recovery-session-d1',
-          chainIdKey: 'NEAR:TESTNET',
-          accountAddress: 'wallet-d1-recovery.testnet',
-          action: 'submit_recovery',
-        }),
-      ).resolves.toMatchObject({
-        status: 'pending',
-        action: 'submit_recovery',
-      });
-      await expect(
-        otherEnvExecutionStore.get({
-          sessionId: 'recovery-session-d1',
-          chainIdKey: 'near:testnet',
-          accountAddress: 'wallet-d1-recovery.testnet',
-          action: 'submit_recovery',
-        }),
-      ).resolves.toBeNull();
-
-      const sessionExecutions = await executionStore.listBySessionId('recovery-session-d1');
-      expect(sessionExecutions).toHaveLength(2);
-      expect(sessionExecutions.map(recoveryExecutionAction).sort()).toEqual([
-        'confirm_recovery',
-        'submit_recovery',
-      ]);
-      await expect(
-        executionStore.listByStatus({
-          status: 'pending',
-          action: 'submit_recovery',
-          updatedBeforeMs: Date.parse('2026-06-27T06:04:00.000Z'),
-          limit: 1,
-        }),
-      ).resolves.toEqual([
-        expect.objectContaining({
-          sessionId: 'recovery-session-d1',
-          action: 'submit_recovery',
-        }),
-      ]);
-    } finally {
-      cleanupTemporaryD1Database(temp.tempDir);
-    }
-  });
-
-  test('signer email recovery preparations are scoped and expire in D1', async () => {
-    const temp = createTemporaryD1Database();
-    try {
-      const clock = new TestMutableClock('2026-06-27T09:00:00.000Z');
-      const scope = {
-        database: temp.database,
-        namespace: 'd1-contracts',
-        orgId: 'org-d1-signer',
-        projectId: 'project-d1-signer',
-        envId: 'env-production',
-        now: clock.now,
-      };
-      const preparationStore = new D1EmailRecoveryPreparationStore(scope);
-      const otherEnvPreparationStore = new D1EmailRecoveryPreparationStore({
-        ...scope,
-        envId: 'env-development',
-        ensureSchema: false,
-      });
-      const activePreparation = buildD1EmailRecoveryPreparationRecord({
-        requestId: 'email-recovery-preparation-d1',
-        createdAtMs: Date.parse('2026-06-27T09:00:00.000Z'),
-        expiresAtMs: Date.parse('2026-06-27T09:30:00.000Z'),
-      });
-      const deletePreparation = buildD1EmailRecoveryPreparationRecord({
-        requestId: 'email-recovery-preparation-delete-d1',
-        createdAtMs: Date.parse('2026-06-27T09:01:00.000Z'),
-        expiresAtMs: Date.parse('2026-06-27T09:30:00.000Z'),
-      });
-
-      await preparationStore.put(activePreparation);
-      await expect(preparationStore.get('email-recovery-preparation-d1')).resolves.toMatchObject({
-        requestId: 'email-recovery-preparation-d1',
-        accountId: 'wallet-d1-email-recovery',
-        rpId: 'app.seams.test',
-      });
-      await expect(
-        otherEnvPreparationStore.get('email-recovery-preparation-d1'),
-      ).resolves.toBeNull();
-
-      clock.set('2026-06-27T09:31:00.000Z');
-      await expect(preparationStore.get('email-recovery-preparation-d1')).resolves.toBeNull();
-
-      clock.set('2026-06-27T09:02:00.000Z');
-      await preparationStore.put(deletePreparation);
-      await expect(
-        preparationStore.get('email-recovery-preparation-delete-d1'),
-      ).resolves.toMatchObject({
-        requestId: 'email-recovery-preparation-delete-d1',
-      });
-      await preparationStore.del('email-recovery-preparation-delete-d1');
-      await expect(
-        preparationStore.get('email-recovery-preparation-delete-d1'),
-      ).resolves.toBeNull();
     } finally {
       cleanupTemporaryD1Database(temp.tempDir);
     }

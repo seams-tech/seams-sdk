@@ -15,7 +15,6 @@ export interface RouterApiCloudflareSignerWorkerEnv {
   SESSION_COOKIE_NAME?: string;
   EXPECTED_ORIGIN?: string;
   EXPECTED_WALLET_ORIGIN?: string;
-  RECOVER_EMAIL_RECIPIENT?: string;
 }
 
 export interface SeamsD1SignerTenantStorageWorkerEnv {
@@ -33,16 +32,6 @@ export interface CfScheduledEvent {
   cron?: string;
 }
 
-export interface CfEmailMessage {
-  from: string;
-  to: string;
-  // Cloudflare uses `Headers`, but keep this flexible for userland tests.
-  headers: Headers | Iterable<[string, string]> | Record<string, string>;
-  raw: ReadableStream | ArrayBuffer | string;
-  rawSize?: number;
-  setReject(reason: string): void;
-}
-
 export type FetchHandler = (
   request: Request,
   env?: CfEnv,
@@ -50,11 +39,6 @@ export type FetchHandler = (
 ) => Promise<Response>;
 export type ScheduledHandler = (
   event: CfScheduledEvent,
-  env?: CfEnv,
-  ctx?: CfExecutionContext,
-) => Promise<void>;
-export type EmailHandler = (
-  message: CfEmailMessage,
   env?: CfEnv,
   ctx?: CfExecutionContext,
 ) => Promise<void>;

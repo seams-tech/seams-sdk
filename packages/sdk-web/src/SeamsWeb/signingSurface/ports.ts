@@ -834,13 +834,13 @@ export type LocalLoginStateWebContext = SeamsWebBaseContext<LocalLoginStateSurfa
 
 export type AccountSyncWebContext = SeamsWebBaseContext<AccountSyncSigningSurface>;
 
-export type EmailRecoverySigningSurface = AccountSyncSigningSurface &
+export type WalletRecoverySigningSurface = AccountSyncSigningSurface &
   Ed25519YaoCapabilityActivationSurface &
   WebAuthnRegistrationConfirmationSurface &
   Pick<RegistrationAccountSurface, 'storeWalletEd25519RecoveryRegistrationData'> &
   Pick<EcdsaRegistrationSurface, 'storeWalletEcdsaRecoverySignerRecords'>;
 
-export type EmailRecoveryWebContext = SeamsWebBaseContext<EmailRecoverySigningSurface>;
+export type WalletRecoveryWebContext = SeamsWebBaseContext<WalletRecoverySigningSurface>;
 
 export type DeviceLinkingSigningSurface = LocalLoginStateSurface &
   NearSigningSurface &

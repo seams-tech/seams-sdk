@@ -886,14 +886,6 @@ export interface EvmSignerCapability {
 }
 
 export interface RecoveryCapability {
-  getRecoveryEmails(walletId: string): Promise<Array<{ hashHex: string; email: string }>>;
-
-  setRecoveryEmails(args: {
-    walletId: string;
-    recoveryEmails: string[];
-    options: ActionHooksOptions;
-  }): Promise<ActionResult>;
-
   syncAccount(args: {
     walletId?: string;
     options?: SyncAccountHooksOptions;

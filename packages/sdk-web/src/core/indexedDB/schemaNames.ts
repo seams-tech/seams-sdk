@@ -1,5 +1,5 @@
 export const SEAMS_WALLET_DB_NAME = 'seams_wallet' as const;
-export const SEAMS_WALLET_DB_VERSION = 18 as const;
+export const SEAMS_WALLET_DB_VERSION = 19 as const;
 
 export const SEAMS_WALLET_STORES = {
   appState: 'app_state',
@@ -8,7 +8,6 @@ export const SEAMS_WALLET_STORES = {
   walletSigners: 'wallet_signers',
   nearAccountProjections: 'near_accounts',
   signerOpsOutbox: 'signer_ops_outbox',
-  recoveryEmails: 'recovery_emails',
   nonceLaneLeases: 'nonce_lane_leases',
   nonceLaneLocks: 'nonce_lane_locks',
   keyMaterial: 'key_material',
@@ -215,14 +214,6 @@ export const SEAMS_WALLET_SCHEMA_MANIFEST = [
       { name: SEAMS_WALLET_INDEXES.idempotencyKey, keyPath: 'idempotency_key', unique: true },
       { name: SEAMS_WALLET_INDEXES.walletId, keyPath: 'wallet_id', unique: false },
       { name: SEAMS_WALLET_INDEXES.chainTargetKey, keyPath: 'chain_target_key', unique: false },
-    ],
-  },
-  {
-    store: SEAMS_WALLET_STORES.recoveryEmails,
-    keyPath: ['wallet_id', 'hash_hex'],
-    indexes: [
-      { name: SEAMS_WALLET_INDEXES.walletId, keyPath: 'wallet_id', unique: false },
-      { name: SEAMS_WALLET_INDEXES.updatedAt, keyPath: 'updated_at', unique: false },
     ],
   },
   {

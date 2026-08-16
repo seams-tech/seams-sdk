@@ -10,7 +10,6 @@ export * from './digests';
 export * from './theme';
 export * from './keccak';
 export * from './recoveryDomain';
-export * from './recoveryEmail';
 export * from './paillier';
 export * from './signingSessionSeal';
 export * from './emailOtpRecoveryKey';

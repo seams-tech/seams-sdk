@@ -242,13 +242,6 @@ export type EnqueueSignerOperationInput = {
   txHash?: string;
 };
 
-export interface ProfileRecoveryEmailRecord {
-  profileId: ProfileId;
-  hashHex: string;
-  email: string;
-  addedAt: number;
-}
-
 export type NonceLaneLeaseStoreRecordState = 'reserved' | 'signed' | 'broadcast_accepted';
 
 interface NonceLaneLeaseStoreRecordBaseWithoutLifecycle {

@@ -100,11 +100,11 @@ export type StoreWalletEd25519RegistrationInput = {
 
 type StoreWalletEd25519RegistrationMode =
   | { kind: 'fresh_registration' }
-  | { kind: 'email_recovery_replacement' };
+  | { kind: 'wallet_recovery_replacement' };
 
 type StoreWalletEcdsaSignerRecordsMode =
   | { kind: 'fresh_registration' }
-  | { kind: 'email_recovery_replacement' };
+  | { kind: 'wallet_recovery_replacement' };
 
 export type StoreWalletEmailOtpEd25519RegistrationInput = Omit<
   StoreWalletEd25519RegistrationInput,
@@ -968,12 +968,12 @@ function walletEd25519RegistrationActivationPolicy(args: {
   switch (args.mode.kind) {
     case 'fresh_registration':
       return { mode: 'fail_if_occupied', signerSlot: args.signerSlot };
-    case 'email_recovery_replacement':
+    case 'wallet_recovery_replacement':
       return {
         mode: 'replace_slot',
         signerSlot: args.signerSlot,
         replacedSignerKind: SIGNER_KINDS.thresholdEd25519,
-        revocationReason: 'email_recovery_replacement',
+        revocationReason: 'wallet_recovery_replacement',
       };
   }
 }
@@ -985,12 +985,12 @@ function walletEcdsaSignerActivationPolicy(args: {
   switch (args.mode.kind) {
     case 'fresh_registration':
       return { mode: 'allocate_next_free' };
-    case 'email_recovery_replacement':
+    case 'wallet_recovery_replacement':
       return {
         mode: 'replace_profile_chain_kind',
         signerSlot: args.signerSlot,
         replacedSignerKind: SIGNER_KINDS.thresholdEcdsa,
-        revocationReason: 'email_recovery_replacement',
+        revocationReason: 'wallet_recovery_replacement',
       };
   }
 }
@@ -1232,7 +1232,7 @@ export async function storeWalletEd25519RecoveryRegistrationData(
   const stored = await storeWalletEd25519RegistrationDataWithMode(
     deps,
     args,
-    { kind: 'email_recovery_replacement' },
+    { kind: 'wallet_recovery_replacement' },
     { kind: 'near_ed25519_only' },
   );
   return { signerSlot: stored.signerSlot };
@@ -1743,7 +1743,7 @@ export async function storeWalletEcdsaRecoverySignerRecords(
       signerAuthMethod: SIGNER_AUTH_METHODS.passkey,
       signerSource: SIGNER_SOURCES.passkeyRegistration,
     },
-    { kind: 'email_recovery_replacement' },
+    { kind: 'wallet_recovery_replacement' },
   );
   const keyMaterialTimestamp = Date.now();
   const batch = await deps.accountStore.persistWalletSignerFinalize({

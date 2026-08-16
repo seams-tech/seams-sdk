@@ -14,6 +14,3 @@ export const THRESHOLD_DO_OBJECT_NAME_DEFAULT = 'threshold-store' as const;
 // Default base prefix for threshold keyspaces when a host does not specify any prefix variables.
 // This matches the SDK's published prefix defaults (w3a:threshold-ed25519:*).
 export const THRESHOLD_PREFIX_DEFAULT = 'w3a' as const;
-
-// DKIM verifier contract used by server-side email recovery when no override is provided.
-export const EMAIL_DKIM_VERIFIER_CONTRACT_DEFAULT = 'email-dkim-verifier-v1.testnet' as const;

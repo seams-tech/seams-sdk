@@ -292,25 +292,6 @@ check('route/lifecycle boundary sync-account routes parse request bodies at the 
   }
 });
 
-check('route/lifecycle boundary email-recovery prepare parses request bodies at the boundary', () => {
-  const parserSource = readRepoSource(
-    'packages/sdk-server-ts/src/router/domains/emailRecovery/emailRecoveryRequestValidation.ts',
-  );
-  const guardedFiles = [
-    'packages/sdk-server-ts/src/router/transport/fetch/routes/emailRecovery.ts',
-  ];
-
-  expect(parserSource).toContain('export function parsePrepareEmailRecoveryRequest');
-  expect(parserSource).toContain('Unsupported ${context} field');
-  expect(parserSource).toContain("'email-recovery prepare'");
-  expect(parserSource).toContain('threshold_ecdsa_prepare: Record<string, unknown>;');
-
-  for (const relativePath of guardedFiles) {
-    const source = readRepoSource(relativePath);
-    expect(source).toContain('parsePrepareEmailRecoveryRequest');
-  }
-});
-
 check('route/lifecycle boundary auth provider routes parse request bodies at the boundary', () => {
   const parserSource = readRepoSource(
     'packages/sdk-server-ts/src/router/auth/authRequestValidation.ts',

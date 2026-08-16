@@ -408,12 +408,10 @@ test.describe('wallet-host Lit auth menu surface', () => {
       const root = document.querySelector(tagName) as HTMLElement;
       return {
         hasPasskeyName: !!root.querySelector('#w3a-auth-menu-passkey-name'),
-        hasEmailRecovery: root.textContent?.includes('Recover Account with Email') ?? false,
       };
     }, AUTH_MENU_TAG);
 
     expect(snapshot.hasPasskeyName).toBe(false);
-    expect(snapshot.hasEmailRecovery).toBe(true);
   });
 
   test('preserves the original auth-menu spacing and social-provider structure', async ({

@@ -23,7 +23,6 @@ import type {
   WebhookDispatchRequest,
   WebhookDispatchResult,
 } from '../../../packages/console-server-ts/src/webhooks/service';
-import { type EmailRecoveryPreparationRecord } from '../../../packages/sdk-server-ts/src/core/EmailRecoveryPreparationStore';
 import {
   type EmailOtpChallengeContextInput,
   type EmailOtpChallengeRecord,
@@ -32,7 +31,6 @@ import {
   type GoogleEmailOtpRegistrationAttemptRecord,
 } from '../../../packages/sdk-server-ts/src/core/EmailOtpStores';
 import type { NearPublicKeyRecord } from '../../../packages/sdk-server-ts/src/core/NearPublicKeyStore';
-import type { RecoveryExecutionRecord } from '../../../packages/sdk-server-ts/src/core/RecoveryExecutionStore';
 import type { D1DatabaseLike } from '../../../packages/sdk-server-ts/src/storage/tenantRoute';
 import {
   EMAIL_OTP_CHANNEL,
@@ -227,45 +225,6 @@ export type RawD1AppSessionVersionInsertInput = {
   readonly recordJson: string;
   readonly createdAtMs: number;
   readonly updatedAtMs: number;
-};
-export type RawD1RecoverySessionInsertInput = {
-  readonly namespace: string;
-  readonly orgId: string;
-  readonly projectId: string;
-  readonly envId: string;
-  readonly sessionId: string;
-  readonly nearAccountId: string;
-  readonly recordJson: string;
-  readonly expiresAtMs: number;
-  readonly createdAtMs: number;
-  readonly updatedAtMs: number;
-};
-export type RawD1RecoveryExecutionInsertInput = {
-  readonly namespace: string;
-  readonly orgId: string;
-  readonly projectId: string;
-  readonly envId: string;
-  readonly sessionId: string;
-  readonly chainIdKey: string;
-  readonly accountAddress: string;
-  readonly action: string;
-  readonly status: string;
-  readonly recordJson: string;
-  readonly createdAtMs: number;
-  readonly updatedAtMs: number;
-};
-export type RawD1EmailRecoveryPreparationInsertInput = {
-  readonly namespace: string;
-  readonly orgId: string;
-  readonly projectId: string;
-  readonly envId: string;
-  readonly requestId: string;
-  readonly accountId: string;
-  readonly walletId: string;
-  readonly rpId: string;
-  readonly recordJson: string;
-  readonly createdAtMs: number;
-  readonly expiresAtMs: number;
 };
 export type RawD1EmailOtpChallengeInsertInput = {
   readonly namespace: string;
@@ -1035,152 +994,6 @@ export function buildRawD1AppSessionVersionInsertInput(
       }),
     createdAtMs,
     updatedAtMs,
-  };
-}
-
-export function buildRawD1RecoverySessionInsertInput(
-  input: Partial<RawD1RecoverySessionInsertInput>,
-): RawD1RecoverySessionInsertInput {
-  const createdAtMs = input.createdAtMs ?? Date.parse('2026-06-27T00:00:00.000Z');
-  const updatedAtMs = input.updatedAtMs ?? createdAtMs + 1000;
-  const expiresAtMs = input.expiresAtMs ?? createdAtMs + 600_000;
-  const sessionId = input.sessionId ?? 'recovery-session-raw-schema';
-  const nearAccountId = input.nearAccountId ?? 'wallet-raw-recovery.testnet';
-  return {
-    namespace: input.namespace ?? 'd1-contracts',
-    orgId: input.orgId ?? 'org-d1-recovery-schema',
-    projectId: input.projectId ?? 'project-d1-recovery-schema',
-    envId: input.envId ?? 'env-production',
-    sessionId,
-    nearAccountId,
-    recordJson:
-      input.recordJson ??
-      JSON.stringify({
-        version: 'recovery_session_v1',
-        sessionId,
-        userId: 'wallet-raw-recovery',
-        nearAccountId,
-        signerSlot: 1,
-        status: 'prepared',
-        createdAtMs,
-        updatedAtMs,
-        expiresAtMs,
-        newNearPublicKey: 'ed25519:raw-recovery-public-key',
-        newEvmOwnerAddress: `0x${'11'.repeat(20)}`,
-        recoveryDeadlineEpochSeconds: Math.floor(expiresAtMs / 1000),
-        recoveryEmailPayloadHash: 'raw-recovery-email-payload-hash',
-      }),
-    expiresAtMs,
-    createdAtMs,
-    updatedAtMs,
-  };
-}
-
-export function buildRawD1RecoveryExecutionInsertInput(
-  input: Partial<RawD1RecoveryExecutionInsertInput>,
-): RawD1RecoveryExecutionInsertInput {
-  const createdAtMs = input.createdAtMs ?? Date.parse('2026-06-27T00:00:00.000Z');
-  const updatedAtMs = input.updatedAtMs ?? createdAtMs + 1000;
-  const sessionId = input.sessionId ?? 'recovery-session-raw-schema';
-  const chainIdKey = input.chainIdKey ?? 'evm:eip155:8453';
-  const accountAddress = input.accountAddress ?? `0x${'22'.repeat(20)}`;
-  const action = input.action ?? 'recover_owner';
-  const status = input.status ?? 'pending';
-  return {
-    namespace: input.namespace ?? 'd1-contracts',
-    orgId: input.orgId ?? 'org-d1-recovery-schema',
-    projectId: input.projectId ?? 'project-d1-recovery-schema',
-    envId: input.envId ?? 'env-production',
-    sessionId,
-    chainIdKey,
-    accountAddress,
-    action,
-    status,
-    recordJson:
-      input.recordJson ??
-      JSON.stringify({
-        version: 'recovery_execution_v1',
-        sessionId,
-        userId: 'wallet-raw-recovery',
-        nearAccountId: 'wallet-raw-recovery.testnet',
-        chainIdKey,
-        accountAddress,
-        action,
-        status,
-        createdAtMs,
-        updatedAtMs,
-      }),
-    createdAtMs,
-    updatedAtMs,
-  };
-}
-
-export function buildRawD1EmailRecoveryPreparationInsertInput(
-  input: Partial<RawD1EmailRecoveryPreparationInsertInput>,
-): RawD1EmailRecoveryPreparationInsertInput {
-  const createdAtMs = input.createdAtMs ?? Date.parse('2026-06-27T00:00:00.000Z');
-  const expiresAtMs = input.expiresAtMs ?? createdAtMs + 600_000;
-  const requestId = input.requestId ?? 'email-recovery-preparation-raw-schema';
-  const accountId = input.accountId ?? 'wallet-raw-email-recovery.testnet';
-  const walletId = input.walletId ?? 'wallet-raw-email-recovery';
-  const rpId = input.rpId ?? 'app.example.test';
-  return {
-    namespace: input.namespace ?? 'd1-contracts',
-    orgId: input.orgId ?? 'org-d1-recovery-schema',
-    projectId: input.projectId ?? 'project-d1-recovery-schema',
-    envId: input.envId ?? 'env-production',
-    requestId,
-    accountId,
-    walletId,
-    rpId,
-    recordJson:
-      input.recordJson ??
-      JSON.stringify({
-        version: 'email_recovery_preparation_v1',
-        requestId,
-        accountId,
-        walletBinding: {
-          walletId,
-          nearAccountId: accountId,
-          nearEd25519SigningKeyId: 'ed25519:raw-email-recovery',
-          rpId,
-          signerSlot: 1,
-        },
-        rpId,
-        signerSlot: 1,
-        credentialIdB64u: 'raw-email-recovery-credential',
-        credentialPublicKeyB64u: 'raw-email-recovery-credential-public-key',
-        counter: 0,
-        createdAtMs,
-        expiresAtMs,
-        thresholdEd25519: {
-          relayerKeyId: 'relayer-raw-email-recovery',
-          publicKey: 'ed25519:raw-email-recovery',
-          keyVersion: '1',
-          recoveryExportCapable: true,
-        },
-        ecdsa: {
-          kind: 'evm_family_ecdsa_keygen',
-          chainTargets: ['evm:eip155:8453'],
-          prepare: {
-            formatVersion: 'ecdsa-derivation-role-local',
-            walletId,
-            walletKeyId: 'wallet-key-raw-email-recovery',
-            ecdsaThresholdKeyId: 'ecdsa-key-raw-email-recovery',
-            signingRootId: 'signing-root-raw-email-recovery',
-            signingRootVersion: '1',
-            keyScope: 'evm-family',
-            relayerKeyId: 'relayer-raw-email-recovery',
-            requestId,
-            thresholdSessionId: 'threshold-session-raw-email-recovery',
-            ttlMs: 600_000,
-            remainingUses: 1,
-            participantIds: [1, 2, 3],
-          },
-        },
-      }),
-    createdAtMs,
-    expiresAtMs,
   };
 }
 
@@ -1981,114 +1794,6 @@ export async function insertRawD1AppSessionVersionRecord(
     .run();
 }
 
-export async function insertRawD1RecoverySessionRecord(
-  database: D1DatabaseLike,
-  input: RawD1RecoverySessionInsertInput,
-): Promise<void> {
-  await database
-    .prepare(
-      `INSERT INTO recovery_sessions (
-        namespace,
-        org_id,
-        project_id,
-        env_id,
-        session_id,
-        near_account_id,
-        record_json,
-        expires_at_ms,
-        created_at_ms,
-        updated_at_ms
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .bind(
-      input.namespace,
-      input.orgId,
-      input.projectId,
-      input.envId,
-      input.sessionId,
-      input.nearAccountId,
-      input.recordJson,
-      input.expiresAtMs,
-      input.createdAtMs,
-      input.updatedAtMs,
-    )
-    .run();
-}
-
-export async function insertRawD1RecoveryExecutionRecord(
-  database: D1DatabaseLike,
-  input: RawD1RecoveryExecutionInsertInput,
-): Promise<void> {
-  await database
-    .prepare(
-      `INSERT INTO recovery_executions (
-        namespace,
-        org_id,
-        project_id,
-        env_id,
-        session_id,
-        chain_id_key,
-        account_address,
-        action,
-        status,
-        record_json,
-        created_at_ms,
-        updated_at_ms
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .bind(
-      input.namespace,
-      input.orgId,
-      input.projectId,
-      input.envId,
-      input.sessionId,
-      input.chainIdKey,
-      input.accountAddress,
-      input.action,
-      input.status,
-      input.recordJson,
-      input.createdAtMs,
-      input.updatedAtMs,
-    )
-    .run();
-}
-
-export async function insertRawD1EmailRecoveryPreparationRecord(
-  database: D1DatabaseLike,
-  input: RawD1EmailRecoveryPreparationInsertInput,
-): Promise<void> {
-  await database
-    .prepare(
-      `INSERT INTO email_recovery_preparations (
-        namespace,
-        org_id,
-        project_id,
-        env_id,
-        request_id,
-        account_id,
-        wallet_id,
-        rp_id,
-        record_json,
-        created_at_ms,
-        expires_at_ms
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .bind(
-      input.namespace,
-      input.orgId,
-      input.projectId,
-      input.envId,
-      input.requestId,
-      input.accountId,
-      input.walletId,
-      input.rpId,
-      input.recordJson,
-      input.createdAtMs,
-      input.expiresAtMs,
-    )
-    .run();
-}
-
 export async function insertRawD1EmailOtpChallengeRecord(
   database: D1DatabaseLike,
   input: RawD1EmailOtpChallengeInsertInput,
@@ -2548,33 +2253,6 @@ export async function expectRawD1AppSessionVersionInsertRejected(
   );
 }
 
-export async function expectRawD1RecoverySessionInsertRejected(
-  database: D1DatabaseLike,
-  input: RawD1RecoverySessionInsertInput,
-): Promise<void> {
-  await expect(insertRawD1RecoverySessionRecord(database, input)).rejects.toThrow(
-    /CHECK constraint failed/,
-  );
-}
-
-export async function expectRawD1RecoveryExecutionInsertRejected(
-  database: D1DatabaseLike,
-  input: RawD1RecoveryExecutionInsertInput,
-): Promise<void> {
-  await expect(insertRawD1RecoveryExecutionRecord(database, input)).rejects.toThrow(
-    /CHECK constraint failed/,
-  );
-}
-
-export async function expectRawD1EmailRecoveryPreparationInsertRejected(
-  database: D1DatabaseLike,
-  input: RawD1EmailRecoveryPreparationInsertInput,
-): Promise<void> {
-  await expect(insertRawD1EmailRecoveryPreparationRecord(database, input)).rejects.toThrow(
-    /CHECK constraint failed/,
-  );
-}
-
 export function createD1AtomicAssessment(): RecordSponsoredExecutionInput['assessment'] {
   return {
     succeeded: true,
@@ -2602,76 +2280,12 @@ export function createD1WebhookTestSecretCipher() {
   });
 }
 
-export function recoveryExecutionAction(record: RecoveryExecutionRecord): string {
-  return record.action;
-}
-
 export function nearPublicKeyValue(record: NearPublicKeyRecord): string {
   return record.publicKey;
 }
 
 export function webhookDispatchEventId(request: WebhookDispatchRequest): string {
   return request.eventId;
-}
-
-export function buildD1EmailRecoveryPreparationRecord(input: {
-  readonly requestId: string;
-  readonly createdAtMs: number;
-  readonly expiresAtMs: number;
-}): EmailRecoveryPreparationRecord {
-  return {
-    version: 'email_recovery_preparation_v1',
-    requestId: input.requestId,
-    accountId: 'wallet-d1-email-recovery',
-    walletBinding: {
-      walletId: 'wallet-d1-email-recovery',
-      nearAccountId: 'wallet-d1-email-recovery.testnet',
-      nearEd25519SigningKeyId: 'near-ed25519-email-recovery',
-      rpId: 'app.seams.test',
-      signerSlot: 1,
-    },
-    rpId: 'app.seams.test',
-    signerSlot: 1,
-    credentialIdB64u: 'credential-d1-email-recovery',
-    credentialPublicKeyB64u: 'credential-public-key-d1-email-recovery',
-    counter: 0,
-    createdAtMs: input.createdAtMs,
-    expiresAtMs: input.expiresAtMs,
-    thresholdEd25519: {
-      relayerKeyId: 'relayer-key-email-recovery',
-      publicKey: 'ed25519:email-recovery-public-key',
-      keyVersion: 'email-recovery-key-v1',
-      recoveryExportCapable: true,
-      clientParticipantId: 1,
-      relayerParticipantId: 2,
-      participantIds: [1, 2],
-    },
-    ecdsa: {
-      kind: 'evm_family_ecdsa_keygen',
-      chainTargets: [
-        {
-          kind: 'evm',
-          namespace: 'eip155',
-          chainId: 1,
-        },
-      ],
-      prepare: {
-        formatVersion: 'ecdsa-derivation-role-local',
-        walletId: 'wallet-d1-email-recovery',
-        walletKeyId: 'wallet-key-d1-email-recovery',
-        ecdsaThresholdKeyId: 'ecdsa-threshold-d1-email-recovery',
-        signingRootId: 'signing-root-d1-email-recovery',
-        signingRootVersion: 'version-d1-email-recovery',
-        keyScope: 'evm-family',
-        relayerKeyId: 'relayer-ecdsa-d1-email-recovery',
-        requestId: 'ecdsa-request-d1-email-recovery',
-        thresholdSessionId: 'threshold-session-d1-email-recovery',
-        ttlMs: 300_000,
-        remainingUses: 10,
-        participantIds: [1, 2],
-      },
-    },
-  };
 }
 
 export function buildD1EmailOtpChallengeContext(input: {

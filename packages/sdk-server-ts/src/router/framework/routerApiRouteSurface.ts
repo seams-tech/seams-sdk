@@ -19,21 +19,11 @@ export interface RouterApiRouteSurface {
   signedDelegatePath: string;
 }
 
-export function isEmailRecoveryPrepareRoutesEnabled(opts: RouterApiOptions): boolean {
-  return Boolean(opts.emailRecovery);
-}
-
-export function isRecoverEmailRouteEnabled(opts: RouterApiOptions): boolean {
-  return opts.emailRecovery?.kind === 'prepare_and_execute';
-}
-
 export function resolveRouterApiRouteDefinitionOptions(
   opts: RouterApiOptions,
 ): RouterApiRouteDefinitionOptions {
   return {
     enableHealthz: Boolean(opts.healthz),
-    enableEmailRecoveryPrepare: isEmailRecoveryPrepareRoutesEnabled(opts),
-    enableRecoverEmail: isRecoverEmailRouteEnabled(opts),
     enableSigningSessionSeal: Boolean(opts.signingSessionSeal),
     enableReadyz: Boolean(opts.readyz),
     signingSessionSealBasePath: opts.signingSessionSeal?.basePath,

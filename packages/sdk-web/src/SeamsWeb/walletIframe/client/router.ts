@@ -1124,7 +1124,6 @@ function createTerminalProgressForRequest(args: {
     'PM_REPORT_TEMPO_FINALIZED',
     'PM_REPORT_TEMPO_DROPPED_OR_REPLACED',
     'PM_RECONCILE_TEMPO_NONCE_LANE',
-    'PM_SET_RECOVERY_EMAILS',
   ]);
   const linkDeviceRequests = new Set<ParentToChildEnvelope['type']>([
     'PM_SCAN_AND_LINK_DEVICE',
@@ -3380,38 +3379,6 @@ export class WalletIframeRouter {
 
   async getRecentUnlocks(): Promise<GetRecentUnlocksResult> {
     const res = await this.post<GetRecentUnlocksResult>({ type: 'PM_GET_RECENT_UNLOCKS' });
-    return res.result;
-  }
-
-  async getRecoveryEmails(walletId: string): Promise<Array<{ hashHex: string; email: string }>> {
-    const res = await this.post<Array<{ hashHex: string; email: string }>>({
-      type: 'PM_GET_RECOVERY_EMAILS',
-      payload: { walletId },
-    });
-    return Array.isArray(res?.result) ? res.result : [];
-  }
-
-  async setRecoveryEmails(payload: {
-    walletId: string;
-    recoveryEmails: string[];
-    options: ActionHooksOptions;
-  }): Promise<ActionResult> {
-    const { options } = payload;
-    const safeOptions = {
-      waitUntil: options.waitUntil,
-      confirmationConfig: options.confirmationConfig,
-      ...(options.confirmerText ? { confirmerText: options.confirmerText } : {}),
-    };
-
-    const res = await this.post<ActionResult>({
-      type: 'PM_SET_RECOVERY_EMAILS',
-      payload: {
-        walletId: payload.walletId,
-        recoveryEmails: payload.recoveryEmails,
-        options: safeOptions,
-      },
-      options: { onProgress: this.wrapOnEvent(options?.onEvent, isSigningFlowEvent) },
-    });
     return res.result;
   }
 

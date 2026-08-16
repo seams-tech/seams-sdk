@@ -1,5 +1,8 @@
-import { EmailRecoveryDomain } from '@/SeamsWeb/operations/recovery/emailRecovery';
-import type { EmailRecoveryWebContext, RecoveryCapability } from '@/SeamsWeb/signingSurface/types';
+import { AccountSyncDomain } from '@/SeamsWeb/operations/recovery/accountSync';
+import type {
+  AccountSyncWebContext,
+  RecoveryCapability,
+} from '@/SeamsWeb/signingSurface/types';
 import type { WalletIframeCoordinator } from '@/SeamsWeb/walletIframe/coordinator';
 
 export type RecoveryCapabilityDomainMethods = {
@@ -14,18 +17,16 @@ export type RecoveryCapabilityDomainMethods = {
 };
 
 export function createRecoveryCapability(deps: {
-  getContext: () => EmailRecoveryWebContext;
+  getContext: () => AccountSyncWebContext;
   walletIframe: Pick<WalletIframeCoordinator, 'shouldUseWalletIframe' | 'requireRouter'>;
   domain: RecoveryCapabilityDomainMethods;
 }): RecoveryCapability {
-  const emailRecovery = new EmailRecoveryDomain({
+  const accountSync = new AccountSyncDomain({
     getContext: deps.getContext,
     walletIframe: deps.walletIframe,
   });
   return {
-    getRecoveryEmails: async (walletId) => await emailRecovery.getRecoveryEmails(walletId),
-    setRecoveryEmails: async (args) => await emailRecovery.setRecoveryEmails(args),
-    syncAccount: async (args) => await emailRecovery.syncAccount(args),
+    syncAccount: async (args) => await accountSync.syncAccount(args),
     getWalletRecoveryCodeStatus: deps.domain.getWalletRecoveryCodeStatus,
     acknowledgeWalletRecoveryCodeBackup: deps.domain.acknowledgeWalletRecoveryCodeBackup,
     requestWalletCustodyEmailOtpChallenge: deps.domain.requestWalletCustodyEmailOtpChallenge,

@@ -49,8 +49,6 @@ export interface RouteDefinition {
 }
 
 export interface RouterApiRouteDefinitionOptions {
-  enableEmailRecoveryPrepare?: boolean;
-  enableRecoverEmail?: boolean;
   enableHealthz?: boolean;
   enableSigningSessionSeal?: boolean;
   enableReadyz?: boolean;
@@ -136,13 +134,6 @@ const ROUTER_API_AUTH_IDENTITY_SERVICES = [
   'webAuthn',
   'emailOtp',
   'session',
-] as const satisfies readonly CoreRouteServiceKey[];
-const ROUTER_API_EMAIL_RECOVERY_AUTH_SERVICES = [
-  'emailRecoveryAuth',
-] as const satisfies readonly CoreRouteServiceKey[];
-const ROUTER_API_RECOVER_EMAIL_SERVICES = [
-  'recovery',
-  'emailRecoveryExecution',
 ] as const satisfies readonly CoreRouteServiceKey[];
 function normalizeAliases(
   path: string,
@@ -1085,40 +1076,6 @@ export function createRouterApiRouteDefinitions(
       ROUTER_API_AUTH_IDENTITY_SERVICES,
     ),
   );
-
-  if (options.enableEmailRecoveryPrepare) {
-    definitions.push(
-      publicRoute(
-        'email_recovery_prepare',
-        'POST',
-        '/email-recovery/prepare',
-        'Prepare email recovery flow',
-        {
-          plane: 'public',
-          proof: 'recovery_proof',
-          rationale: 'Email recovery preparation is a public recovery bootstrap route.',
-        },
-        ROUTER_API_EMAIL_RECOVERY_AUTH_SERVICES,
-      ),
-    );
-  }
-
-  if (options.enableRecoverEmail) {
-    definitions.push(
-      publicRoute(
-        'recover_email',
-        'POST',
-        '/recover-email',
-        'Process email recovery ingress',
-        {
-          plane: 'public',
-          rationale:
-            'Recover-email remains auth-free for now and should be revisited if it starts incurring billable execution cost.',
-        },
-        ROUTER_API_RECOVER_EMAIL_SERVICES,
-      ),
-    );
-  }
 
   if (options.enableSigningSessionSeal) {
     definitions.push(

@@ -196,12 +196,10 @@ export interface SeamsAuthMenuController {
   emailOtpAuthPolicy: EmailOtpAuthPolicy;
   canShowContinue: boolean;
   canSubmit: boolean;
-  canRecoverAccountWithEmail: boolean;
   lastUsedLoginMethod: LastUsedLoginMethod;
   onIntentChange: (next: AuthMenuMode) => void;
   onInputChange: (val: string) => void;
   onProceed: () => void;
-  onRecoverAccountWithEmail: () => void;
   onResetToStart: () => void;
   openScanDevice: () => void;
   onSocialLogin: (provider: keyof SocialLoginHandlers, modeOverride?: AuthMenuMode) => void;
@@ -1216,11 +1214,6 @@ export function useSeamsAuthMenuController(
     ],
   );
 
-  const canRecoverAccountWithEmail = typeof props.socialLogin?.google === 'function';
-  const onRecoverAccountWithEmail = React.useCallback(() => {
-    onSocialLogin('google', AuthMenuMode.Login);
-  }, [onSocialLogin]);
-
   const onOtpCodeChange = React.useCallback(
     (value: string) => {
       const normalized = String(value || '')
@@ -1614,12 +1607,10 @@ export function useSeamsAuthMenuController(
     emailOtpAuthPolicy,
     canShowContinue,
     canSubmit,
-    canRecoverAccountWithEmail,
     lastUsedLoginMethod,
     onIntentChange,
     onInputChange,
     onProceed,
-    onRecoverAccountWithEmail,
     onResetToStart,
     openScanDevice,
     onSocialLogin,

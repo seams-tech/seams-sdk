@@ -64,8 +64,6 @@ export type EmailOtpWalletRequestType =
   | 'PM_PREPARE_WALLET_RECOVERY_WITH_BOOTSTRAP'
   | 'PM_COMPLETE_WALLET_RECOVERY';
 export type RecoveryWalletRequestType =
-  | 'PM_GET_RECOVERY_EMAILS'
-  | 'PM_SET_RECOVERY_EMAILS'
   | 'PM_SYNC_ACCOUNT_FLOW';
 export type ExportWalletRequestType = 'PM_RESOLVE_EXACT_KEY_EXPORT_LANE' | 'PM_EXPORT_KEYPAIR_UI';
 export type DeviceLinkWalletRequestType =
@@ -77,8 +75,6 @@ export type DeviceLinkWalletRequestType =
   | 'PM_CANCEL_DEVICE_LINKING'
   | 'PM_SYNC_ACCOUNT_FLOW';
 export type PreferencesWalletRequestType =
-  | 'PM_GET_RECOVERY_EMAILS'
-  | 'PM_SET_RECOVERY_EMAILS'
   | 'PM_SET_CONFIRM_BEHAVIOR'
   | 'PM_SET_CONFIRMATION_CONFIG'
   | 'PM_GET_CONFIRMATION_CONFIG';
@@ -254,8 +250,6 @@ export function routeWalletHostRequest(request: ParentToChildEnvelope): WalletHo
     case 'PM_COMPLETE_WALLET_RECOVERY':
       return { kind: 'email_otp', type: request.type, request };
 
-    case 'PM_GET_RECOVERY_EMAILS':
-    case 'PM_SET_RECOVERY_EMAILS':
     case 'PM_SYNC_ACCOUNT_FLOW':
       return { kind: 'recovery', type: request.type, request };
 

@@ -334,10 +334,6 @@ export function applyWalletConfig(ctx: HostContext, payload: PMSetConfigPayload)
         ? {
             ...(prev.relayer || {}),
             ...(payload?.relayer || {}),
-            emailRecovery: {
-              ...(prev.relayer?.emailRecovery || {}),
-              ...(payload?.relayer?.emailRecovery || {}),
-            },
           }
         : undefined,
     registration: payload?.registration === undefined ? prev.registration : payload.registration,

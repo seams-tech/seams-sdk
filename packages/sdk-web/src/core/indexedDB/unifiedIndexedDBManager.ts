@@ -14,7 +14,6 @@ import type {
   NonceLaneLeaseStoreRecord,
   ProfileAuthenticatorRecord,
   ProfileContinuitySnapshot,
-  ProfileRecoveryEmailRecord,
   ProfileRecord,
   SignerMutationOptions,
   SignerOperationStatus,
@@ -161,17 +160,6 @@ export class UnifiedIndexedDBManager {
     replacement: unknown;
   }): Promise<boolean> {
     return this.seamsWalletRepositories.compareAndSwapAppState(input);
-  }
-
-  async upsertRecoveryEmails(
-    walletId: string,
-    entries: Array<{ hashHex: string; email: string }>,
-  ): Promise<void> {
-    return this.seamsWalletRepositories.upsertRecoveryEmails(walletId, entries);
-  }
-
-  async listRecoveryEmails(profileId: string): Promise<ProfileRecoveryEmailRecord[]> {
-    return this.seamsWalletRepositories.listRecoveryEmails(profileId);
   }
 
   setLastUserScope(scope: string | null): void {

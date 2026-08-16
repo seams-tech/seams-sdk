@@ -109,10 +109,6 @@ const forbiddenCloudflareD1EnvPricingPatterns = [
 ];
 const legacyRouteCapabilityFlagPatterns = [
   {
-    pattern: /\bemailRecovery\s*:\s*\{\s*enabled\b/,
-    message: 'uses the old emailRecovery enabled flag instead of structural route services',
-  },
-  {
     pattern: /\bed25519RegistrationPrepare\b/,
     message: 'uses the old separate Ed25519 registration prepare route capability',
   },
@@ -610,7 +606,6 @@ const oldWebServerTestPaths = [
   'tests/unit/relayServer.consoleConfig.unit.test.ts',
   'tests/unit/relayServer.stripeBillingProvider.unit.test.ts',
 ];
-const oldEmailEncryptionOutlayerCompatTestPath = 'tests/unit/emailEncryptionOutlayerCompat.test.ts';
 const oldExpressTypeShimPath = 'packages/sdk-server-ts/src/router/express-shim.d.ts';
 const deletedDuplicateTestSetupMockPaths = [
   'tests/setup/route-mocks.ts',
@@ -696,10 +691,6 @@ const staleRouterApiRenameTokens = [
   "SDK's legacy prefix defaults",
   'not legacy `code_source`',
   "compatible with the SDK's threshold store protocol",
-  'Outlayer compat tests',
-  'emailEncryptionOutlayerCompat',
-  'Email encryption compatibility with Outlayer worker seed',
-  'email encryption Outlayer compat test unavailable',
   'allowed by the relay',
   'served by the relay',
   'relay validates token audience',
@@ -972,7 +963,6 @@ const deletedAuthServiceRouterApiHarnessPaths = [
   'tests/relayer/cloudflare-router.test.ts',
   'tests/relayer/console-api-key-kinds.test.ts',
   'tests/relayer/email-otp.authservice.test.ts',
-  'tests/relayer/email-recovery.prepare.test.ts',
   'tests/relayer/email-otp.routes.test.ts',
   'tests/relayer/email-otp.bootstrap-integration.test.ts',
   'tests/relayer/health-wellknown.test.ts',
@@ -1577,11 +1567,6 @@ function staleRefactor82NameViolations() {
     if (fs.existsSync(toAbsolutePath(relativePath))) {
       violations.push(`${relativePath}: old web-server test filename exists`);
     }
-  }
-  if (fs.existsSync(toAbsolutePath(oldEmailEncryptionOutlayerCompatTestPath))) {
-    violations.push(
-      `${oldEmailEncryptionOutlayerCompatTestPath}: old Outlayer email encryption test filename exists`,
-    );
   }
   if (fs.existsSync(toAbsolutePath(oldExpressTypeShimPath))) {
     violations.push(`${oldExpressTypeShimPath}: old ambient Express type shim exists`);

@@ -236,15 +236,6 @@ Optional idempotency replay config (for multi-instance apply/remove dedupe):
 - `SIGNING_SESSION_SEAL_IDEMPOTENCY_UPSTASH_URL` / `SIGNING_SESSION_SEAL_IDEMPOTENCY_UPSTASH_TOKEN` (optional overrides)
 - `SIGNING_SESSION_SEAL_IDEMPOTENCY_REDIS_URL` (optional override)
 
-### `POST /recover-email` (email recovery)
-
-Receives a JSON `ForwardableEmailPayload` (including `raw` containing the full RFC822 message) and forwards it into `EmailRecoveryService.requestEmailRecovery`.
-
-Production notes:
-
-- This server is the HTTP sink; you still need an email ingress (inbound email provider/webhook or your own MTA pipeline) to receive SMTP and then `POST` here.
-- Emails can be large; this example uses `express.json({ limit: '5mb' })`.
-
 ## Configuration
 
 Create `.env` file:

@@ -1,7 +1,4 @@
 import type { RouterLogger } from './logger';
-import type {
-  ThresholdEd25519AuthorityScope,
-} from '../../core/types';
 import type { RouterApiRorOptions } from './ror/provider';
 import type { RouterApiModule } from './modules';
 import type { RouterApiRouteExtension } from './routeExtensions';
@@ -12,15 +9,12 @@ import type { RouterAbPublicKeysetV2 } from '@shared/utils/routerAbPublicKeyset'
 import type { RouterAbNormalSigningAdmissionAdapter } from '../domains/signingOperations/routerAbPrivateSigningWorker';
 import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '../domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 import type { RouterAbEcdsaStrictPostRegistrationPort } from '../domains/ecdsa/routerAbEcdsaStrictRegistration';
-import type { EmailRecoveryService } from '../../email-recovery';
 import type {
   RouterApiKeyAuthAdapter,
   RouterApiProjectEnvironmentResolver,
   RouterApiPublishableKeyAuthAdapter,
   RouterApiUsageMeterAdapter,
 } from './apiCredentialPorts';
-import type { PrepareEmailRecoveryRequest } from '../domains/emailRecovery/emailRecoveryRequestValidation';
-import type { EmailRecoveryResolvedWalletBinding } from '../../core/EmailRecoveryPreparationStore';
 import type { SessionParseResult } from '../../core/sessionValidation';
 
 export type {
@@ -165,41 +159,6 @@ export interface RouterApiWebhookEmitter {
   ): Promise<RouterApiWebhookEventResult> | RouterApiWebhookEventResult;
 }
 
-export type RouterApiEmailRecoveryResult =
-  | {
-      ok: true;
-      walletId: string;
-      walletBinding: EmailRecoveryResolvedWalletBinding;
-      credentialIdB64u: string;
-      thresholdEd25519: {
-        relayerKeyId: string;
-        authorityScope: ThresholdEd25519AuthorityScope;
-        participantIds?: number[];
-      };
-    }
-  | { ok: false; code: string; message: string };
-
-export interface RouterApiEmailRecoveryAuthService {
-  prepareEmailRecovery(request: PrepareEmailRecoveryRequest): Promise<RouterApiEmailRecoveryResult>;
-}
-
-export type RouterApiEmailRecoveryExecutionService = Pick<
-  EmailRecoveryService,
-  'requestEmailRecovery'
->;
-
-export type RouterApiEmailRecoveryOptions =
-  | {
-      kind: 'prepare_and_execute';
-      authService: RouterApiEmailRecoveryAuthService;
-      executionService: RouterApiEmailRecoveryExecutionService;
-    }
-  | {
-      kind: 'prepare_only';
-      authService: RouterApiEmailRecoveryAuthService;
-      executionService?: never;
-    };
-
 export type RouterApiEmailOtpExportPolicyPhase = 'challenge' | 'verify';
 
 export type RouterApiEmailOtpExportPolicyDecision =
@@ -265,8 +224,6 @@ export interface RouterApiOptions {
   runtimeSnapshots?: RouterApiRuntimeSnapshotConsumer | null;
   // Optional: webhook emitter for Router API session/wallet lifecycle events.
   routerApiWebhooks?: RouterApiWebhookOptions | null;
-  // Optional: enable DKIM/TEE email recovery prepare, respond, and ingress routes.
-  emailRecovery?: RouterApiEmailRecoveryOptions | null;
   /**
    * Optional policy adapter for Email OTP key-export authorization.
    *

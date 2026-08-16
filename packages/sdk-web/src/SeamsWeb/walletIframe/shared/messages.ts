@@ -892,8 +892,6 @@ export type ParentToChildType =
   | 'PM_VERIFY_WALLET_RECOVERY_BOOTSTRAP'
   | 'PM_PREPARE_WALLET_RECOVERY_WITH_BOOTSTRAP'
   | 'PM_COMPLETE_WALLET_RECOVERY'
-  | 'PM_GET_RECOVERY_EMAILS'
-  | 'PM_SET_RECOVERY_EMAILS'
   | 'PM_SIGN_TX_WITH_ACTIONS'
   | 'PM_SIGN_AND_SEND_TX'
   | 'PM_FUND_IMPLICIT_NEAR_ACCOUNT_FOR_TESTING'
@@ -1392,20 +1390,6 @@ export interface PMRevokeLinkedDevicePayload {
   requestedAtMs: number;
 }
 
-export interface PMGetRecoveryEmailsPayload {
-  walletId: string;
-}
-
-export interface PMSetRecoveryEmailsPayload {
-  walletId: string;
-  recoveryEmails: string[];
-  options: {
-    waitUntil?: unknown;
-    confirmationConfig?: Partial<ConfirmationConfig>;
-    [key: string]: unknown;
-  };
-}
-
 export type ProgressPayload = WalletFlowEvent | RegistrationTimingSpanV1;
 
 export function isRegistrationTimingSpanV1(value: unknown): value is RegistrationTimingSpanV1 {
@@ -1495,8 +1479,6 @@ export type ParentToChildEnvelope =
       PMPrepareWalletRecoveryWithBootstrapPayload
     >
   | RpcEnvelope<'PM_COMPLETE_WALLET_RECOVERY', PMCompleteWalletRecoveryPayload>
-  | RpcEnvelope<'PM_GET_RECOVERY_EMAILS', PMGetRecoveryEmailsPayload>
-  | RpcEnvelope<'PM_SET_RECOVERY_EMAILS', PMSetRecoveryEmailsPayload>
   | RpcEnvelope<'PM_SIGN_TX_WITH_ACTIONS', PMSignTxPayload>
   | RpcEnvelope<'PM_SIGN_AND_SEND_TX', PMSignAndSendTxPayload>
   | RpcEnvelope<

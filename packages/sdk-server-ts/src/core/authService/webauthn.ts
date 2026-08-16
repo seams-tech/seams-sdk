@@ -15,11 +15,11 @@ import type {
 } from '../WebAuthnSyncChallengeStore';
 import type { WebAuthnCredentialBindingStore } from '../WebAuthnCredentialBindingStore';
 import type { IdentityStore } from '../IdentityStore';
-import type { EmailRecoveryResolvedWalletBinding } from '../EmailRecoveryPreparationStore';
 import type { WebAuthnAuthenticationCredential } from '../types';
 import {
   parseBoundaryWalletId,
   resolvedEd25519WalletBindingFromCredentialBinding,
+  type ResolvedEd25519WalletBinding,
 } from './webauthnWalletBinding';
 import { passkeyThresholdEd25519AuthorityScope, requireWebAuthnRpId } from './webauthnAuthority';
 import {
@@ -77,7 +77,7 @@ export type WebAuthnSyncAccountOptionsResult =
       challengeB64u: string;
       expiresAtMs: number;
       credentialIds?: string[];
-      walletBinding?: EmailRecoveryResolvedWalletBinding;
+      walletBinding?: ResolvedEd25519WalletBinding;
     }
   | { ok: false; code: string; message: string };
 
@@ -96,7 +96,7 @@ export type WebAuthnSyncAccountVerificationResult =
       walletId: string;
       nearAccountId: string;
       nearEd25519SigningKeyId: string;
-      walletBinding: EmailRecoveryResolvedWalletBinding;
+      walletBinding: ResolvedEd25519WalletBinding;
       rpId: string;
       signerSlot: number;
       publicKey: string;
@@ -755,7 +755,7 @@ export async function createWebAuthnSyncAccountOptionsWithStores(input: {
     const challengeId = randomWebAuthnB64u(16);
     const challengeB64u = randomWebAuthnB64u(32);
     let credentialIds: string[] | undefined;
-    let walletBinding: EmailRecoveryResolvedWalletBinding | undefined;
+    let walletBinding: ResolvedEd25519WalletBinding | undefined;
 
     if (expectedUserId) {
       const bindingList = await listCredentialBindingsForUser({

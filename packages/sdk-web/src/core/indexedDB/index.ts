@@ -99,7 +99,6 @@ export type {
   SignerOperationStatus,
   SignerMutationOptions,
   SignerOpOutboxRecord,
-  ProfileRecoveryEmailRecord,
   NonceLaneLeaseStoreRecord,
   NonceLaneLeaseStoreRecordState,
   NonceLaneLockStoreRecord,

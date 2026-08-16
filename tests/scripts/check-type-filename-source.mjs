@@ -37,7 +37,6 @@ const allowedTypesTsFiles = new Set([
   'packages/console-server-ts/src/wallets/types.ts',
   'packages/console-server-ts/src/webhooks/types.ts',
   'packages/sdk-server-ts/src/core/types.ts',
-  'packages/sdk-server-ts/src/email-recovery/types.ts',
   'packages/sdk-web/src/SeamsWeb/publicApi/types.ts',
   'packages/sdk-web/src/SeamsWeb/signingSurface/types.ts',
   'packages/sdk-web/src/core/platform/types.ts',

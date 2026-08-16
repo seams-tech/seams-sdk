@@ -21,7 +21,7 @@ import type {
   AuthCapability,
   DevicesCapability,
   DeviceLinkingWebContext,
-  EmailRecoveryWebContext,
+  AccountSyncWebContext,
   EcdsaSessionBootstrapSurface,
   NearSigningSurface,
   EvmSignerCapability,
@@ -125,7 +125,7 @@ export type SeamsWebPublicApi = {
 };
 
 type PublicApiSigningSurface = RegistrationSigningSurface &
-  EmailRecoveryWebContext['signingEngine'] &
+  AccountSyncWebContext['signingEngine'] &
   DeviceLinkingWebContext['signingEngine'] &
   NearSigningSurface &
   UserAccountLookupSurface &
@@ -147,7 +147,7 @@ export function createPublicApi(deps: {
   devices: DevicesCapabilityDomainMethods;
   keys: KeyExportCapabilityDomainMethods;
 }): SeamsWebPublicApi {
-  const getEmailRecoveryContext = (): EmailRecoveryWebContext => ({
+  const getAccountSyncContext = (): AccountSyncWebContext => ({
     signingEngine: deps.signingEngine,
     nearClient: deps.nearClient,
     configs: deps.configs,
@@ -191,7 +191,7 @@ export function createPublicApi(deps: {
       enrollEmailOtp: deps.registration.enrollEmailOtp,
     },
     recovery: createRecoveryCapability({
-      getContext: getEmailRecoveryContext,
+      getContext: getAccountSyncContext,
       walletIframe: walletIframeRoutingSurface,
       domain: deps.recovery,
     }),

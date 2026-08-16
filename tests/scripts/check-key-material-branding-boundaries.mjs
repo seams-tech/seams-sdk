@@ -230,9 +230,6 @@ check('EVM-family signing key slot identity cannot fall back to generic wallet k
   const thresholdValidation = readRepoSource(
     'packages/sdk-server-ts/src/core/ThresholdService/validation.ts',
   );
-  const authService = readRepoSource(
-    'packages/sdk-server-ts/src/core/authService/emailRecoveryAuthOperations.ts',
-  );
   const d1RegistrationRecords = readRepoSource(
     'packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1RegistrationCeremonyRecords.ts',
   );
@@ -255,8 +252,6 @@ check('EVM-family signing key slot identity cannot fall back to generic wallet k
   expect(thresholdValidation).toContain('parseEvmFamilySigningKeySlotIdOrNull');
   expect(thresholdValidation).not.toContain('parseWalletKeyIdOrNull');
 
-  expect(authService).toContain('deriveEvmFamilySigningKeySlotId');
-  expect(authService).not.toContain('function encodeEcdsaWalletKeyIdPart');
   expect(d1RegistrationRecords).toContain('export { deriveEvmFamilySigningKeySlotId }');
   expect(d1RegistrationRecords).not.toContain('encodeURIComponent(walletId)');
 });

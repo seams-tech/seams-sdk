@@ -39,8 +39,6 @@ export type {
   GoogleEmailOtpResolutionResult,
 } from './googleEmailOtpRegistration';
 
-import { EMAIL_DKIM_VERIFIER_CONTRACT_DEFAULT } from '../defaultConfigsServer';
-import { EmailRecoveryService } from '../../email-recovery';
 import type { SignedDelegate } from '@shared/near/delegate';
 import {
   parseWebAuthnRpId,
@@ -94,7 +92,6 @@ import {
 } from './emailOtpChallengeOperations';
 import { verifyEmailOtpChallengeCode as verifyEmailOtpChallengeCodeWithStores } from './emailOtpChallengeVerification';
 import { verifyEmailOtpEnrollment as verifyEmailOtpEnrollmentWithStores } from './emailOtpRegistrationEnrollment';
-import { EmailRecoveryAuthOperations } from './emailRecoveryAuthOperations';
 import {
   createEmailOtpUnlockChallenge as createEmailOtpUnlockChallengeWithStores,
   verifyEmailOtpUnlockProof as verifyEmailOtpUnlockProofWithStores,
@@ -182,7 +179,6 @@ import {
 import { AuthServiceStoreRegistry } from './storeRegistry';
 import { NearAccountOperations } from './nearAccountOperations';
 import { IdentityOperations } from './identityOperations';
-import { RecoveryTrackingOperations } from './recoveryTrackingOperations';
 
 import {
   type EmailOtpWalletEnrollmentRecord,
@@ -204,21 +200,8 @@ import {
   type ListNearPublicKeysResult,
   type RecordNearPublicKeyMetadataResult,
 } from './nearPublicKeyMetadata';
-import type { RecoverySessionStatus } from '../RecoverySessionStore';
-import { type RecoveryExecutionStatus } from '../RecoveryExecutionStore';
-import {
-  type GetRecoveryExecutionResult,
-  type GetRecoverySessionResult,
-  type ListRecoveryExecutionsResult,
-  type RecordRecoveryExecutionResult,
-  type UpdateRecoverySessionStatusResult,
-} from './recoveryTracking';
 import { type LinkIdentityResult, type UnlinkIdentityResult } from '../IdentityStore';
 import type { ThresholdEcdsaChainTarget } from '../thresholdEcdsaChainTarget';
-import {
-  buildPreparedRecoverySessionRecord,
-  DEFAULT_RECOVERY_SESSION_TTL_MS,
-} from '../recoverySessionRecords';
 
 const REGISTRATION_WALLET_SIGNING_SESSION_REMAINING_USES = 3;
 
@@ -261,9 +244,6 @@ export class AuthService {
   private registrationRuntimeWarmPromise: Promise<void> | null = null;
   private readonly googleJwksState = createGoogleJwksState();
 
-  // DKIM/TEE email recovery logic (delegated to EmailRecoveryService)
-  public readonly emailRecovery: EmailRecoveryService | null = null;
-
   constructor(config: AuthServiceConfigInput) {
     this.config = createAuthServiceConfig(config);
     this.logger = coerceLogger(this.config.logger);
@@ -281,22 +261,6 @@ export class AuthService {
       ensureSignerWasm: this.ensureSignerWasm.bind(this),
       getRelayerPublicKey: () => this.runtimeState.relayerPublicKey,
     });
-    this.emailRecovery = new EmailRecoveryService({
-      relayerAccount: this.config.relayerAccount,
-      networkId: this.config.networkId,
-      emailDkimVerifierContract: EMAIL_DKIM_VERIFIER_CONTRACT_DEFAULT,
-      nearClient: this.nearClient,
-      logger: this.config.logger,
-      ensureSignerAndRelayerAccount: () => this._ensureSignerAndRelayerAccount(),
-      queueTransaction: <T>(fn: () => Promise<T>, label: string) =>
-        this.nearAccounts.queueTransaction(fn, label),
-      fetchTxContext: (accountId: string, publicKey: string) =>
-        this.nearAccounts.fetchTxContext(accountId, publicKey),
-      signGasRelayerNearTransaction: (input) =>
-        this.nearAccounts.signGasRelayerNearTransaction(input),
-      getRelayerPublicKey: () => this.runtimeState.relayerPublicKey,
-    });
-
     // Log effective configuration at construction time so operators can
     // verify wiring immediately when the service is created.
     this.logger.info(`
@@ -730,63 +694,6 @@ export class AuthService {
       removedAtMs: input.removedAtMs,
       source: input.source,
     });
-  }
-
-  private recoveryTrackingOperations(): RecoveryTrackingOperations {
-    return new RecoveryTrackingOperations({
-      recoverySessionStore: this.stores.getRecoverySessionStore(),
-      recoveryExecutionStore: this.stores.getRecoveryExecutionStore(),
-    });
-  }
-
-  async getRecoverySession(input: { sessionId: string }): Promise<GetRecoverySessionResult> {
-    return await this.recoveryTrackingOperations().getRecoverySession(input);
-  }
-
-  async updateRecoverySessionStatus(input: {
-    sessionId: string;
-    status: RecoverySessionStatus;
-    metadataPatch?: Record<string, unknown> | null;
-  }): Promise<UpdateRecoverySessionStatusResult> {
-    return await this.recoveryTrackingOperations().updateRecoverySessionStatus(input);
-  }
-
-  async getRecoveryExecution(input: {
-    sessionId: string;
-    chainIdKey: string;
-    accountAddress: string;
-    action: string;
-  }): Promise<GetRecoveryExecutionResult> {
-    return await this.recoveryTrackingOperations().getRecoveryExecution(input);
-  }
-
-  async listRecoveryExecutions(input: {
-    sessionId: string;
-  }): Promise<ListRecoveryExecutionsResult> {
-    return await this.recoveryTrackingOperations().listRecoveryExecutions(input);
-  }
-
-  async listRecoveryExecutionsByStatus(input: {
-    status: RecoveryExecutionStatus;
-    action?: string;
-    updatedBeforeMs?: number;
-    limit?: number;
-  }): Promise<ListRecoveryExecutionsResult> {
-    return await this.recoveryTrackingOperations().listRecoveryExecutionsByStatus(input);
-  }
-
-  async recordRecoveryExecution(input: {
-    sessionId: string;
-    chainIdKey: string;
-    accountAddress: string;
-    action: string;
-    status: RecoveryExecutionStatus;
-    transactionHash?: string;
-    errorCode?: string;
-    errorMessage?: string;
-    metadata?: Record<string, unknown>;
-  }): Promise<RecordRecoveryExecutionResult> {
-    return await this.recoveryTrackingOperations().recordRecoveryExecution(input);
   }
 
   async txStatus(txHash: string, senderAccountId: string): Promise<FinalExecutionOutcome> {
@@ -1368,20 +1275,6 @@ export class AuthService {
       logger: this.logger,
     });
   }
-  private emailRecoveryAuthOperations(): EmailRecoveryAuthOperations {
-    return new EmailRecoveryAuthOperations({
-      ensureSignerAndRelayerAccount: this._ensureSignerAndRelayerAccount.bind(this),
-      webAuthnCredentialBindingStore: this.stores.getWebAuthnCredentialBindingStore(),
-      emailRecoveryPreparationStore: this.stores.getEmailRecoveryPreparationStore(),
-    });
-  }
-
-  prepareEmailRecovery(
-    request: Parameters<EmailRecoveryAuthOperations['prepareEmailRecovery']>[0],
-  ): ReturnType<EmailRecoveryAuthOperations['prepareEmailRecovery']> {
-    return this.emailRecoveryAuthOperations().prepareEmailRecovery(request);
-  }
-
   /**
    * Account existence helper used by registration flows.
    */
