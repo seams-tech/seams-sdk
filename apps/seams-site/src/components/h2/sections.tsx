@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  Check,
   ChevronLeft,
   ChevronRight,
   Fingerprint,
@@ -8,8 +9,10 @@ import {
   ListChecks,
   Lock,
   ScrollText,
+  Server,
   Share2,
   ShieldCheck,
+  Smartphone,
   Twitter,
   Wallet,
 } from 'lucide-react';
@@ -294,9 +297,8 @@ export function H2Trusted(): React.JSX.Element {
 
 /* ---------- platform pillars ---------- */
 
-/* Two-lane MPC diagram: the shares converge through a policy gate into the
-   one green output. Drawn in the security section's line-art language; the
-   dashed connectors stitch-flow on panel hover (.h2-mpc__flow in h2.css). */
+/* Two-lane MPC diagram (wallet page security section): the shares converge
+   through a policy gate into the one green output. */
 export function MpcSplitDiagram(): React.JSX.Element {
   return (
     <svg
@@ -358,6 +360,72 @@ export function MpcSplitDiagram(): React.JSX.Element {
   );
 }
 
+/* Split-key visual (home duo card + Embedded Wallets pillar tab): a soft
+   isometric stack of the two key shares with floating labeled chips, resolving
+   into one green signature chip. Reference language: layered-asset cards in
+   the dynamic.xyz style, translated to the site's paper + evergreen palette. */
+export function SplitKeyVisual(): React.JSX.Element {
+  return (
+    <div
+      className="h2-splitkey"
+      role="img"
+      aria-label="Two key shares — one on the user's device, one on your infrastructure — combine into one signature; neither share signs alone"
+    >
+      <svg className="h2-splitkey__stack" viewBox="0 0 168 166" aria-hidden>
+        <defs>
+          <linearGradient id="h2sk-slab-a" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#dde8e4" />
+            <stop offset="100%" stopColor="#a9c6be" />
+          </linearGradient>
+          <linearGradient id="h2sk-slab-b" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#9fbfb7" />
+            <stop offset="100%" stopColor="#537f75" />
+          </linearGradient>
+        </defs>
+        {/* lower slab: share_b */}
+        <path d="M84 96 L152 130 L84 164 L16 130 Z" fill="#416760" />
+        <path
+          d="M84 88 L152 122 L84 156 L16 122 Z"
+          fill="url(#h2sk-slab-b)"
+          stroke="#ffffff"
+          strokeWidth="2"
+          strokeLinejoin="round"
+        />
+        {/* upper slab: share_a */}
+        <path d="M84 14 L152 48 L84 82 L16 48 Z" fill="#8fafa6" />
+        <path
+          d="M84 6 L152 40 L84 74 L16 40 Z"
+          fill="url(#h2sk-slab-a)"
+          stroke="#ffffff"
+          strokeWidth="2"
+          strokeLinejoin="round"
+        />
+      </svg>
+      <div className="h2-splitkey__chips">
+        <span className="h2-splitkey__chip">
+          <span className="h2-splitkey__ico">
+            <Smartphone aria-hidden />
+          </span>
+          User{'’'}s device
+        </span>
+        <span className="h2-splitkey__chip">
+          <span className="h2-splitkey__ico">
+            <Server aria-hidden />
+          </span>
+          Your infrastructure
+        </span>
+        <span className="h2-splitkey__chip h2-splitkey__chip--sig">
+          <span className="h2-splitkey__ico">
+            <Check aria-hidden />
+          </span>
+          One signature
+        </span>
+      </div>
+      <p className="h2-splitkey__note">2-of-2 {'·'} neither share signs alone</p>
+    </div>
+  );
+}
+
 type Pillar = {
   id: string;
   label: string;
@@ -414,7 +482,7 @@ const pillars: Pillar[] = [
         between the user&rsquo;s device and your infrastructure: neither can sign alone.
       </>
     ),
-    mock: <MpcSplitDiagram />,
+    mock: <SplitKeyVisual />,
   },
   {
     id: 'permissions',
@@ -836,6 +904,9 @@ export function H2Security(): React.JSX.Element {
                 Allowed, held, or blocked: each decision is attributed to a verified identity and
                 retained in the audit trail.
               </p>
+            </div>
+            <div className="h2-security__diagram">
+              <MpcSplitDiagram />
             </div>
           </div>
           <div className="h2-security__grid">

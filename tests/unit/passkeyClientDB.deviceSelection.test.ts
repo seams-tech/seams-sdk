@@ -787,7 +787,7 @@ test.describe('Seams wallet device selection', () => {
     expect(result).toEqual({
       oldSigner: {
         status: 'revoked',
-        revocationReason: 'wallet_recovery_replacement',
+            revocationReason: 'wallet_recovery_replacement',
       },
       newSigner: {
         status: 'active',
