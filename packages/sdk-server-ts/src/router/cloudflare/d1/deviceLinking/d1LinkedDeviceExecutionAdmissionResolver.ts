@@ -1,7 +1,5 @@
-import type {
-  AuthorizationGrantPort,
-  IssuedLinkedDeviceWalletSession,
-} from '../../../../authorization/service';
+import type { AuthorizationGrantPort } from '../../../../authorization/service';
+import type { LinkedDeviceWalletSessionAuthorization } from '../../../../authorization/domain';
 import type {
   ActiveLinkedDeviceEnrollmentExecutionRecordV1,
   ActiveLinkedDeviceExecutionProjectionV1,
@@ -54,7 +52,7 @@ export type D1LinkedDeviceExecutionAdmissionResolverOptionsV1 = {
   readonly scope: D1LinkedDeviceSessionScopeV1;
   readonly authorization: Pick<
     AuthorizationGrantPort,
-    'readLinkedDeviceWalletSessionAuthorization'
+    'readClaimedLinkedDeviceWalletSessionAuthorization'
   >;
   readonly credentials: D1LinkedDeviceCredentialResolverV1;
   readonly nowV1: () => number;
@@ -71,11 +69,13 @@ export class D1LinkedDeviceExecutionAdmissionResolverV1 implements LinkedDeviceE
   private readonly nowV1: () => number;
   private readonly lanes: CloudflareD1LaneLifecycleStore;
   private readonly materialResolver: LaneLifecycleStoreNormalSigningLaneMaterialResolverV1;
+  private readonly scope: D1LinkedDeviceSessionScopeV1;
 
   constructor(options: D1LinkedDeviceExecutionAdmissionResolverOptionsV1) {
     this.authorization = options.authorization;
     this.credentials = options.credentials;
     this.nowV1 = options.nowV1;
+    this.scope = options.scope;
     this.lanes = new CloudflareD1LaneLifecycleStore({
       database: options.database,
       scope: options.scope,
@@ -139,18 +139,19 @@ export class D1LinkedDeviceExecutionAdmissionResolverV1 implements LinkedDeviceE
       if (product.keyFamily === 'ecdsa_secp256k1' && protocolCommitReceipt === null) {
         return refused('linked_execution_unavailable');
       }
-      const issued = await this.authorization.readLinkedDeviceWalletSessionAuthorization({
-        tenantId: input.tenantId,
-        deviceId: input.deviceId,
-        authorizationId: input.authorizationId,
-        walletSessionId: input.walletSessionId,
-        quotaId: input.quotaId,
-        nowMs,
-      });
-      if (!issued) return refused('authorization_grant_mismatch');
+      const authorization =
+        await this.authorization.readClaimedLinkedDeviceWalletSessionAuthorization({
+          tenantId: input.tenantId,
+          deviceId: input.deviceId,
+          authorizationId: input.authorizationId,
+          walletSessionId: input.walletSessionId,
+          quotaId: input.quotaId,
+          nowMs,
+        });
+      if (!authorization) return refused('authorization_grant_mismatch');
       return await this.projectActiveExecution({
         input,
-        issued,
+        authorization,
         product,
         protocol: protocol.value,
         protocolCommitReceipt,
@@ -166,7 +167,7 @@ export class D1LinkedDeviceExecutionAdmissionResolverV1 implements LinkedDeviceE
     readonly input: Parameters<
       LinkedDeviceExecutionAdmissionResolverV1['resolveActiveLinkedDeviceExecutionV1']
     >[0];
-    readonly issued: IssuedLinkedDeviceWalletSession;
+    readonly authorization: LinkedDeviceWalletSessionAuthorization;
     readonly product: Extract<LaneProductEpochRecordV1, { readonly state: 'active' }>;
     readonly protocol: LaneProtocolRecordV1;
     readonly protocolCommitReceipt: LaneProtocolCommitReceiptV1 | null;
@@ -175,10 +176,15 @@ export class D1LinkedDeviceExecutionAdmissionResolverV1 implements LinkedDeviceE
     >;
     readonly laneEnrollmentId: LaneEnrollmentId;
   }): Promise<LinkedDeviceExecutionProjectionResult> {
-    const { input, issued, product, protocol, protocolCommitReceipt, material, laneEnrollmentId } =
-      projectionInput;
-    const authorization = issued.authorization;
-    const quota = issued.quota;
+    const {
+      input,
+      authorization,
+      product,
+      protocol,
+      protocolCommitReceipt,
+      material,
+      laneEnrollmentId,
+    } = projectionInput;
     if (
       authorization.tenantId !== input.tenantId ||
       authorization.walletId !== input.walletId ||
@@ -186,15 +192,11 @@ export class D1LinkedDeviceExecutionAdmissionResolverV1 implements LinkedDeviceE
       authorization.deviceId !== input.deviceId ||
       authorization.authorizationGrantRef.authorizationId !== input.authorizationId ||
       authorization.walletSessionId !== input.walletSessionId ||
-      authorization.quotaId !== input.quotaId ||
-      quota.tenantId !== input.tenantId ||
-      quota.walletSessionId !== authorization.walletSessionId ||
-      quota.quotaId !== authorization.quotaId ||
-      quota.remainingUses <= 0
+      authorization.quotaId !== input.quotaId
     ) {
       return refused('authorization_grant_mismatch');
     }
-    if (authorization.expiresAtMs <= this.nowV1() || quota.expiresAtMs <= this.nowV1()) {
+    if (authorization.expiresAtMs <= this.nowV1()) {
       return refused('authorization_expired');
     }
     if (input.laneRevocationEpoch !== product.revocationEpoch) {
@@ -266,6 +268,11 @@ export class D1LinkedDeviceExecutionAdmissionResolverV1 implements LinkedDeviceE
       verifiedLaneParticipantBindingDigestB64u: participantBindingDigestB64u,
       verifiedActivationReceiptDigestB64u: activationReceiptDigestB64u,
       materialSource: material.source,
+      trustedScope: {
+        orgId: this.scope.orgId,
+        projectId: this.scope.projectId,
+        environment: this.scope.envId,
+      },
     };
     let projection: ActiveLinkedDeviceExecutionProjectionV1;
     if (product.keyFamily === 'ecdsa_secp256k1') {

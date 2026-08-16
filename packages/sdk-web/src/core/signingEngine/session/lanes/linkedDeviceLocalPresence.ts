@@ -26,6 +26,11 @@ export type LinkedDevicePresenceAndHolderV1<TAuthorizationResult> = {
   readonly authorizationResult: TAuthorizationResult;
 };
 
+export type LinkedDeviceLocalPresenceAuthenticationV1 = {
+  readonly localPresenceAssertion: LinkedDeviceLocalPresenceAssertionV1;
+  readonly factorSecret: Uint8Array;
+};
+
 function assertPresenceLifetime(input: {
   readonly issuedAtMs: number;
   readonly expiresAtMs: number;
@@ -83,6 +88,45 @@ export async function authorizeAndOpenLinkedDeviceHolderV1<TAuthorizationResult>
     assertion: LinkedDeviceLocalPresenceAssertionV1,
   ) => Promise<TAuthorizationResult>;
 }): Promise<LinkedDevicePresenceAndHolderV1<TAuthorizationResult>> {
+  const holderRecord = await requireHolderRecord({
+    repository: input.holderRepository,
+    child: input.child,
+  });
+  const authentication = await authenticateLinkedDeviceLocalPresenceV1(input);
+  let authorizationResult: TAuthorizationResult;
+  let holderMaterial: DeviceLinkingHolderSigningMaterialHandleV1;
+  try {
+    authorizationResult = await input.authorizeBeforeOpen(authentication.localPresenceAssertion);
+    holderMaterial = await input.holderMaterial.openPersistedHolderSigningMaterialV1({
+      factorSecret: authentication.factorSecret.buffer,
+      job: input.child.job,
+      protocolCommitReceipt: input.child.protocolCommitReceipt,
+      materialActivation: input.child.materialActivation,
+      holderRecord,
+    });
+  } finally {
+    authentication.factorSecret.fill(0);
+  }
+  if (holderMaterial.keyFamily !== input.child.keyFamily) {
+    await input.holderMaterial.discardHolderSigningMaterialV1({ handle: holderMaterial });
+    throw new Error('linked-device holder material changed its active curve');
+  }
+  return {
+    holderMaterial,
+    localPresenceAssertion: authentication.localPresenceAssertion,
+    authorizationResult,
+  };
+}
+
+export async function authenticateLinkedDeviceLocalPresenceV1(input: {
+  readonly authenticator: AuthenticatorPort;
+  readonly bundle: ActiveLinkedDeviceExecutionBundleV1;
+  readonly child: ActiveLinkedDeviceExecutionChildV1;
+  readonly authorizedOperationId: AuthorizedOperationId;
+  readonly intentDigestB64u: DigestB64u;
+  readonly issuedAtMs: number;
+  readonly expiresAtMs: number;
+}): Promise<LinkedDeviceLocalPresenceAuthenticationV1> {
   assertPresenceLifetime({
     issuedAtMs: input.issuedAtMs,
     expiresAtMs: input.expiresAtMs,
@@ -96,10 +140,6 @@ export async function authorizeAndOpenLinkedDeviceHolderV1<TAuthorizationResult>
   }
   const credentialIdB64u =
     input.bundle.targetCredentialRegistration.webauthnRegistration.credentialIdB64u;
-  const holderRecord = await requireHolderRecord({
-    repository: input.holderRepository,
-    child: input.child,
-  });
   const challengeDigestB64u = await computeLinkedDeviceLocalPresenceChallengeDigestV1({
     authorizedOperationId: input.authorizedOperationId,
     deviceId: input.bundle.deviceId,
@@ -151,27 +191,22 @@ export async function authorizeAndOpenLinkedDeviceHolderV1<TAuthorizationResult>
     expiresAtMs: input.expiresAtMs,
     assertion,
   };
-  let authorizationResult: TAuthorizationResult;
-  let holderMaterial: DeviceLinkingHolderSigningMaterialHandleV1;
-  try {
-    authorizationResult = await input.authorizeBeforeOpen(localPresenceAssertion);
-    holderMaterial = await input.holderMaterial.openPersistedHolderSigningMaterialV1({
-      factorSecret: factorSecret.buffer,
-      job: input.child.job,
-      protocolCommitReceipt: input.child.protocolCommitReceipt,
-      materialActivation: input.child.materialActivation,
-      holderRecord,
-    });
-  } finally {
-    if (factorSecret.byteLength > 0) factorSecret.fill(0);
-  }
-  if (holderMaterial.keyFamily !== input.child.keyFamily) {
-    await input.holderMaterial.discardHolderSigningMaterialV1({ handle: holderMaterial });
-    throw new Error('linked-device holder material changed its active curve');
-  }
   return {
-    holderMaterial,
     localPresenceAssertion,
-    authorizationResult,
+    factorSecret,
   };
+}
+
+export async function collectLinkedDeviceLocalPresenceV1(input: {
+  readonly authenticator: AuthenticatorPort;
+  readonly bundle: ActiveLinkedDeviceExecutionBundleV1;
+  readonly child: ActiveLinkedDeviceExecutionChildV1;
+  readonly authorizedOperationId: AuthorizedOperationId;
+  readonly intentDigestB64u: DigestB64u;
+  readonly issuedAtMs: number;
+  readonly expiresAtMs: number;
+}): Promise<LinkedDeviceLocalPresenceAssertionV1> {
+  const authentication = await authenticateLinkedDeviceLocalPresenceV1(input);
+  authentication.factorSecret.fill(0);
+  return authentication.localPresenceAssertion;
 }

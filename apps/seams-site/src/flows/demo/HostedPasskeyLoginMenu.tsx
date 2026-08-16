@@ -12,7 +12,6 @@ import { toast } from 'sonner';
 
 import './PasskeyLoginMenu.css';
 import { FRONTEND_CONFIG } from '@/config';
-import { useAuthMenuControl } from '@/context/AuthMenuControl';
 import { showCopiedDemoEmailOtpToast } from './demoEmailOtpToast';
 import {
   ensureGoogleIdentityScriptLoaded,
@@ -125,7 +124,10 @@ async function prepareGoogleSsoReadiness(relayerBaseUrl: string): Promise<Google
 
   const googleOptions = await fetchGoogleAuthOptions(relayerBaseUrl);
   if (!googleOptions.configured || !googleOptions.clientId) {
-    return { kind: 'unavailable', message: 'Google SSO is not configured on the Router API server' };
+    return {
+      kind: 'unavailable',
+      message: 'Google SSO is not configured on the Router API server',
+    };
   }
 
   await ensureGoogleIdentityScriptLoaded();
@@ -191,7 +193,6 @@ export function HostedPasskeyLoginMenu(props: HostedPasskeyLoginMenuProps) {
     [],
   );
   const { seams, refreshLoginState } = useSeams();
-  const authMenuControl = useAuthMenuControl();
   const [existingAccountDetected, setExistingAccountDetected] = React.useState<boolean | null>(
     props.defaultModeWhenNoDetectedAccount === undefined ? true : null,
   );
@@ -206,7 +207,8 @@ export function HostedPasskeyLoginMenu(props: HostedPasskeyLoginMenuProps) {
         if (!cancelled) setGoogleSsoReadiness(readiness);
       })
       .catch((error: unknown) => {
-        if (!cancelled) setGoogleSsoReadiness({ kind: 'unavailable', message: formatGoogleBrokerError(error) });
+        if (!cancelled)
+          setGoogleSsoReadiness({ kind: 'unavailable', message: formatGoogleBrokerError(error) });
       });
     return () => {
       cancelled = true;
@@ -223,7 +225,8 @@ export function HostedPasskeyLoginMenu(props: HostedPasskeyLoginMenuProps) {
     seams.auth
       .getRecentUnlocks()
       .then((recentUnlocks: unknown) => {
-        if (!cancelled) setExistingAccountDetected(recentUnlocksContainExistingAccount(recentUnlocks));
+        if (!cancelled)
+          setExistingAccountDetected(recentUnlocksContainExistingAccount(recentUnlocks));
       })
       .catch(() => {
         if (!cancelled) setExistingAccountDetected(false);
@@ -234,7 +237,9 @@ export function HostedPasskeyLoginMenu(props: HostedPasskeyLoginMenuProps) {
   }, [props.defaultModeWhenNoDetectedAccount, seams]);
 
   const externalAuthBroker = React.useCallback(
-    async (_request: HostedAuthMenuExternalAuthRequest): Promise<HostedAuthMenuExternalAuthEvidence> => {
+    async (
+      _request: HostedAuthMenuExternalAuthRequest,
+    ): Promise<HostedAuthMenuExternalAuthEvidence> => {
       if (googleSsoReadiness.kind !== 'ready') {
         return providerUnavailableEvidence(
           googleSsoReadiness.kind === 'unavailable'
@@ -253,7 +258,7 @@ export function HostedPasskeyLoginMenu(props: HostedPasskeyLoginMenuProps) {
     [googleSsoReadiness],
   );
 
-  if (existingAccountDetected === null && authMenuControl.defaultModeOverride === undefined) {
+  if (existingAccountDetected === null) {
     return (
       <div ref={authMenuContainerRef} className="passkey-login-container-root">
         <div className="passkey-login-menu-placeholder" aria-hidden="true" />
@@ -262,14 +267,12 @@ export function HostedPasskeyLoginMenu(props: HostedPasskeyLoginMenuProps) {
   }
 
   const resolvedInitialMode = hostedModeFromReactMode(
-    authMenuControl.defaultModeOverride ??
-      (existingAccountDetected ? undefined : props.defaultModeWhenNoDetectedAccount),
+    existingAccountDetected ? undefined : props.defaultModeWhenNoDetectedAccount,
   );
 
   return (
     <div ref={authMenuContainerRef} className="passkey-login-container-root">
       <HostedSeamsAuthMenu
-        key={`seams-auth-menu-${resolvedInitialMode ?? 'login'}-${authMenuControl.remountKey}`}
         initialMode={resolvedInitialMode}
         registrationAccountInput="implicit_wallet"
         showRegistrationInput={false}

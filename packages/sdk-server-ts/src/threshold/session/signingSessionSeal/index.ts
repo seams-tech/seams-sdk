@@ -7,6 +7,7 @@ export type {
 export type {
   CreateSigningSessionSealServiceOptions,
   SigningSessionSealApplyServerSealRequest,
+  SigningSessionSealAuthorizationSessionRecord,
   SigningSessionSealAuthContext,
   SigningSessionSealCipherAuthContext,
   SigningSessionSealAuditSink,
@@ -30,6 +31,7 @@ export type {
   SigningSessionSealService,
   SigningSessionSealServiceIdempotencyOptions,
   SigningSessionSealStartupCapabilities,
+  SigningSessionSealLinkedDeviceWalletSessionRecord,
   SigningSessionSealThresholdSessionRecord,
 } from './signingSessionSeal.types';
 export type { CreateSigningSessionSealAuditLoggerOptions } from './observability/audit';

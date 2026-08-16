@@ -69,8 +69,8 @@ import {
   buildR103TargetReadySourceFixture,
 } from './helpers/deviceLinkContracts.fixtures';
 import {
-  DEFAULT_WALLET_SESSION_REMAINING_USES,
   DEFAULT_WALLET_SESSION_TTL_MS,
+  DEFAULT_WALLET_SESSION_REMAINING_USES,
 } from '../../packages/shared-ts/src/threshold/sessionPolicy';
 
 const signerMigrations = listD1MigrationFiles('d1-signer');
@@ -430,16 +430,43 @@ test.describe('D1 linked-device authorization', () => {
         },
         quota: { remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES },
       });
+      const renewedAtMs = linked.receipt.activatedAtMs + 10;
+      await store.renewLinkedDeviceWalletSessionAuthorization({
+        tenantId,
+        principalId: buildLinkedDevicePrincipalId(linked.approval.deviceId),
+        deviceId: linked.approval.deviceId,
+        enrollmentId: linked.approval.enrollmentId,
+        ...identity,
+        revocationEpoch: product.revocationEpoch,
+        issuedAtMs: renewedAtMs,
+        expiresAtMs: renewedAtMs + DEFAULT_WALLET_SESSION_TTL_MS,
+        remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
+      });
+      await expect(
+        issuer.resolveRenewalTargetV1({
+          session: activeSession,
+          requestedAtMs: renewedAtMs + 1,
+        }),
+      ).resolves.toMatchObject({ kind: 'available' });
+      await expect(
+        issuer.readActiveForSessionV1({
+          session: activeSession,
+          requestedAtMs: renewedAtMs + 1,
+        }),
+      ).resolves.toMatchObject({
+        authorization: { issuedAtMs: renewedAtMs },
+        quota: { expiresAtMs: renewedAtMs + DEFAULT_WALLET_SESSION_TTL_MS },
+      });
       await authorization.revokeLinkedDeviceWalletSession({
         tenantId,
         deviceId: linked.approval.deviceId,
         ...identity,
-        nowMs: linked.receipt.activatedAtMs + 2,
+        nowMs: renewedAtMs + 2,
       });
       await expect(
         issuer.issueForActiveSessionV1({
           session: activeSession,
-          requestedAtMs: linked.receipt.activatedAtMs + DEFAULT_WALLET_SESSION_TTL_MS + 1,
+          requestedAtMs: renewedAtMs + DEFAULT_WALLET_SESSION_TTL_MS + 1,
         }),
       ).resolves.toBeUndefined();
       await expect(
@@ -447,13 +474,13 @@ test.describe('D1 linked-device authorization', () => {
           tenantId,
           deviceId: linked.approval.deviceId,
           ...identity,
-          nowMs: linked.receipt.activatedAtMs + 3,
+          nowMs: renewedAtMs + 3,
         }),
       ).resolves.toMatchObject({ kind: 'revoked' });
       await expect(
         issuer.readActiveForSessionV1({
           session: activeSession,
-          requestedAtMs: linked.receipt.activatedAtMs + 3,
+          requestedAtMs: renewedAtMs + 3,
         }),
       ).rejects.toThrow('linked-device Wallet Session authorization is no longer active');
     } finally {

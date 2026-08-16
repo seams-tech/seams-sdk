@@ -720,6 +720,7 @@ type LinkedDeviceWalletSessionDeliveryBaseV1 = {
   readonly keyManifestDigestB64u: DigestB64u;
   readonly permission: QrLinkedDevicePermissionRequest;
   readonly revocationEpoch: number;
+  readonly remainingUses: number;
   readonly issuedAtMs: number;
   readonly expiresAtMs: number;
 };

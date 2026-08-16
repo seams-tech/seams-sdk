@@ -149,6 +149,23 @@ type RouterAbAcceptedAuthorizedOperationBindingV1 =
       readonly expiresAtMs: number;
     }
   | {
+      readonly kind: 'gateway_linked_device_wallet_session';
+      readonly subjectId: string;
+      readonly accountId: string;
+      readonly authorizationId: string;
+      readonly walletSessionId: string;
+      readonly quotaId: string;
+      readonly orgId: string;
+      readonly projectId: string;
+      readonly environment: string;
+      readonly signingWorkerId: string;
+      readonly expiresAtMs: number;
+      readonly materialSource: Extract<
+        RouterAbNormalSigningMaterialSourceV1,
+        { readonly kind: 'rotatable_lane' }
+      >;
+    }
+  | {
       readonly kind: 'operation_step_up';
       readonly authorizationSessionId: string;
       readonly orgId: string;
@@ -260,6 +277,33 @@ function buildRouterAbAcceptedAuthorizedOperationV1(input: {
           environment: input.binding.environment,
           signing_worker_id: input.binding.signingWorkerId,
           expires_at_ms: input.binding.expiresAtMs,
+        },
+        authorized_operation: {
+          kind: 'reusable_wallet_session_authorized_operation_v1' as const,
+          ...commonAuthorizedOperation,
+        },
+      };
+    case 'gateway_linked_device_wallet_session':
+      if (
+        operation.authorization.kind !== 'authorization_grant' ||
+        operation.quota.kind !== 'consume_reusable_wallet_session'
+      ) {
+        throw new Error('Gateway linked-device Wallet Session authorized operation is invalid');
+      }
+      return {
+        binding: {
+          kind: 'gateway_linked_device_wallet_session' as const,
+          subject_id: input.binding.subjectId,
+          account_id: input.binding.accountId,
+          authorization_id: input.binding.authorizationId,
+          wallet_session_id: input.binding.walletSessionId,
+          quota_id: input.binding.quotaId,
+          org_id: input.binding.orgId,
+          project_id: input.binding.projectId,
+          environment: input.binding.environment,
+          signing_worker_id: input.binding.signingWorkerId,
+          expires_at_ms: input.binding.expiresAtMs,
+          material_source: input.binding.materialSource,
         },
         authorized_operation: {
           kind: 'reusable_wallet_session_authorized_operation_v1' as const,

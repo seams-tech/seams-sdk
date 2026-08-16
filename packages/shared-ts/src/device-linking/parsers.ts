@@ -160,6 +160,7 @@ const LINKED_WALLET_SESSION_DELIVERY_FIELDS = [
   'keyManifestDigestB64u',
   'permission',
   'revocationEpoch',
+  'remainingUses',
   'issuedAtMs',
   'expiresAtMs',
   'orderedTokens',
@@ -918,6 +919,10 @@ export function parseLinkedDeviceWalletSessionDeliveryV1(
     revocationEpoch: parseNonNegativeSafeInteger(
       record.revocationEpoch,
       'LinkedDeviceWalletSessionDeliveryV1.revocationEpoch',
+    ),
+    remainingUses: parseNonNegativeSafeInteger(
+      record.remainingUses,
+      'LinkedDeviceWalletSessionDeliveryV1.remainingUses',
     ),
     issuedAtMs,
     expiresAtMs,

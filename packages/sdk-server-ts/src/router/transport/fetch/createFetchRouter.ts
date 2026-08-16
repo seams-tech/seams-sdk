@@ -54,11 +54,14 @@ import { handleSigningSessionSealRoutes } from '../../../threshold/session/signi
 import type {
   SigningSessionSealAuthorizeInput,
   SigningSessionSealAuthorizeResult,
+  SigningSessionSealCurve,
+  SigningSessionSealLinkedDeviceWalletSessionRecord,
   SigningSessionSealThresholdSessionRecord,
 } from '../../../threshold/session/signingSessionSeal/signingSessionSeal.types';
 import { parseEcdsaKeyHandle } from '../../../core/keyMaterialBrands';
 import { extractBearerCredential } from '../../auth/routerApiKeyAuth';
 import { resolveOpaqueOwnerWalletSessionAdmission } from '../../auth/commonRouterUtils';
+import { parseLinkedDeviceWalletSession } from '../../domains/signingOperations/linkedDeviceNormalSigning';
 import { DEFAULT_SESSION_COOKIE_NAME } from '../../framework/routerApi';
 import {
   attachRouterApiRouteSurface,
@@ -83,6 +86,11 @@ import type {
   FetchRouterRuntime,
 } from './fetchRouter.types';
 
+const SIGNING_SESSION_SEAL_OWNER_CURVES = {
+  ecdsa: 'ecdsa',
+  ed25519: 'ed25519',
+} as const satisfies Record<SigningSessionSealCurve, SigningSessionSealCurve>;
+
 export type {
   FetchRouterApiContext,
   FetchRouterHandler,
@@ -97,6 +105,7 @@ function signingSessionSealRecordFromAdmission(
   switch (admission.curve) {
     case 'ecdsa':
       return {
+        kind: 'owner_threshold_session',
         curve: 'ecdsa',
         thresholdSessionId: admission.binding.thresholdSessionId,
         userId: admission.binding.walletId,
@@ -107,6 +116,7 @@ function signingSessionSealRecordFromAdmission(
       };
     case 'ed25519':
       return {
+        kind: 'owner_threshold_session',
         curve: 'ed25519',
         thresholdSessionId: admission.binding.thresholdSessionId,
         userId: admission.binding.walletId,
@@ -120,6 +130,7 @@ function signingSessionSealRecordFromAdmission(
 
 async function authorizeSigningSessionSealWithOpaqueWalletSession(
   authorizationSessions: RouterApiAuthorizationSessionService | null | undefined,
+  session: RouterApiOptions['session'],
   input: SigningSessionSealAuthorizeInput,
 ): Promise<SigningSessionSealAuthorizeResult> {
   if (!authorizationSessions) {
@@ -139,7 +150,7 @@ async function authorizeSigningSessionSealWithOpaqueWalletSession(
       status: 401,
     };
   }
-  for (const curve of ['ecdsa', 'ed25519'] as const) {
+  for (const curve of Object.values(SIGNING_SESSION_SEAL_OWNER_CURVES)) {
     const admission = await resolveOpaqueOwnerWalletSessionAdmission({
       authorizationSessions,
       token,
@@ -156,7 +167,55 @@ async function authorizeSigningSessionSealWithOpaqueWalletSession(
         status: 403,
       };
     }
-    return { ok: true, auth: { userId: thresholdSession.userId, thresholdSession } };
+    return { ok: true, auth: { userId: thresholdSession.userId, session: thresholdSession } };
+  }
+  const linked = await parseLinkedDeviceWalletSession({
+    session,
+    headers: input.headers,
+  });
+  if (linked.kind === 'linked_device') {
+    if (String(linked.claims.walletSessionId) !== input.thresholdSessionId) {
+      return {
+        ok: false,
+        code: 'wallet_session_scope_mismatch',
+        message: 'Wallet Session does not match the requested linked-device session',
+        status: 403,
+      };
+    }
+    const persisted = await authorizationSessions.readLinkedDeviceWalletSessionAuthorization({
+      tenantId: linked.claims.tenantId,
+      deviceId: linked.claims.deviceId,
+      authorizationId: linked.claims.authorizationId,
+      walletSessionId: linked.claims.walletSessionId,
+      quotaId: linked.claims.quotaId,
+      nowMs: Date.now(),
+    });
+    const authorization = persisted?.authorization;
+    if (
+      !authorization ||
+      authorization.walletId !== linked.claims.walletId ||
+      authorization.enrollmentId !== linked.claims.enrollmentId ||
+      authorization.deviceId !== linked.claims.deviceId ||
+      authorization.keyManifestDigestB64u !== linked.claims.keyManifestDigestB64u ||
+      authorization.revocationEpoch !== linked.claims.revocationEpoch
+    ) {
+      return {
+        ok: false,
+        code: 'wallet_session_unavailable',
+        message: 'Linked-device Wallet Session is unavailable',
+        status: 401,
+      };
+    }
+    const linkedSession: SigningSessionSealLinkedDeviceWalletSessionRecord = {
+      kind: 'linked_device_wallet_session',
+      userId: String(linked.claims.walletId),
+      walletSessionId: String(linked.claims.walletSessionId),
+      deviceId: String(linked.claims.deviceId),
+      enrollmentId: String(linked.claims.enrollmentId),
+      expiresAtMs: Math.min(linked.claims.expiresAtMs, persisted.quota.expiresAtMs),
+      remainingUses: persisted.quota.remainingUses,
+    };
+    return { ok: true, auth: { userId: linkedSession.userId, session: linkedSession } };
   }
   return {
     ok: false,
@@ -177,6 +236,7 @@ async function handleOpaqueWalletSigningSessionSeal(
     authorize: authorizeSigningSessionSealWithOpaqueWalletSession.bind(
       undefined,
       context.service.authorizationSessions,
+      context.opts.session,
     ),
     options: context.opts.signingSessionSeal,
   });

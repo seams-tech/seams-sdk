@@ -579,10 +579,10 @@ export interface WalletAuthenticationSurface {
   setWalletAuthenticated(
     state: Extract<WalletAuthenticationState, { kind: 'authenticated' }>,
   ): void;
-  setLinkedDeviceWalletSession(
-    state: Extract<WalletAuthenticationState, { kind: 'linked_device_session' }>,
-  ): void;
-  clearLinkedDeviceWalletSession(walletId: WalletId): void;
+  establishLinkedDeviceSigningSession(walletId: WalletId): Promise<void>;
+  restoreLinkedDeviceSigningSession(walletId: WalletId): Promise<boolean>;
+  hasLinkedDeviceSigningSession(walletId: WalletId): boolean;
+  clearLinkedDeviceRefreshMaterial(): Promise<void>;
   clearWalletAuthentication(): void;
 }
 
@@ -603,8 +603,9 @@ export type WalletSessionReadSurface = RuntimeStartupSurface &
     WalletAuthenticationSurface,
     | 'readWalletAuthenticationState'
     | 'setWalletAuthenticated'
-    | 'setLinkedDeviceWalletSession'
-    | 'clearLinkedDeviceWalletSession'
+    | 'establishLinkedDeviceSigningSession'
+    | 'restoreLinkedDeviceSigningSession'
+    | 'hasLinkedDeviceSigningSession'
   > &
   Pick<
     SigningSessionSurface,
@@ -634,6 +635,7 @@ export type LoginUnlockSigningSurface = WalletSessionReadSurface &
   // reason.
   Pick<RegistrationAccountSurface, 'activateAuthenticatedWalletState'> &
   Pick<WalletAuthenticationSurface, 'setWalletAuthenticated'> &
+  Pick<WalletAuthenticationSurface, 'establishLinkedDeviceSigningSession'> &
   Pick<WarmSessionStatusSurface, 'getWarmThresholdEd25519SessionStatus'>;
 
 export type RecentUnlocksSigningSurface = Pick<
@@ -648,7 +650,10 @@ export interface EcdsaSessionControlSurface {
 
 export type LockSigningSurface = NonceCoordinatorSurface &
   EcdsaSessionControlSurface &
-  Pick<WalletAuthenticationSurface, 'clearWalletAuthentication'>;
+  Pick<
+    WalletAuthenticationSurface,
+    'clearLinkedDeviceRefreshMaterial' | 'clearWalletAuthentication'
+  >;
 
 export type LocalLoginStateSurface = WalletSessionReadSurface &
   Pick<

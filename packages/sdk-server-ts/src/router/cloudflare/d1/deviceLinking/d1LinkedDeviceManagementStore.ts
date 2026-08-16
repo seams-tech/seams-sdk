@@ -377,7 +377,11 @@ export class D1LinkedDeviceManagementStoreV1 implements LinkedDeviceManagementPr
       claim.enrollmentId,
     );
     const products = context.products.get(String(laneEnrollmentId)) ?? [];
-    assertProductsMatchManifest(products, enrollment.value.manifest);
+    assertProductsMatchManifest(
+      products,
+      enrollment.value.manifest,
+      enrollment.value.lifecycle,
+    );
     const metadata = context.metadata.get(metadataKey({
       walletId: claim.walletId,
       enrollmentId: claim.enrollmentId,
@@ -596,17 +600,24 @@ function assertManifestMatchesIdentity(
 function assertProductsMatchManifest(
   products: readonly LaneProductEpochRecordV1[],
   manifest: LaneEnrollmentManifestV1,
+  lifecycle: LaneEnrollmentAdmissionRecord['value']['lifecycle'],
 ): void {
-  if (products.length !== manifest.orderedChildren.length) {
+  if (
+    (lifecycle.state === 'ready_for_visibility' || lifecycle.state === 'active') &&
+    products.length !== manifest.orderedChildren.length
+  ) {
     throw new Error('lane enrollment products do not match the manifest count');
   }
   const byOperation = new Map(products.map((product) => [String(product.operationId), product]));
   if (byOperation.size !== products.length)
     throw new Error('lane enrollment products are duplicated');
-  for (const child of manifest.orderedChildren) {
-    const product = byOperation.get(String(child.operationId));
+  const childrenByOperation = new Map(
+    manifest.orderedChildren.map((child) => [String(child.operationId), child]),
+  );
+  for (const product of products) {
+    const child = childrenByOperation.get(String(product.operationId));
     if (
-      !product ||
+      !child ||
       product.enrollmentId !== manifest.enrollmentId ||
       product.walletId !== manifest.walletId ||
       product.walletKeyId !== child.walletKeyId ||

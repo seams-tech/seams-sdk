@@ -1,6 +1,6 @@
 import {
-  DEFAULT_WALLET_SESSION_REMAINING_USES,
   DEFAULT_WALLET_SESSION_TTL_MS,
+  DEFAULT_WALLET_SESSION_REMAINING_USES,
 } from '@shared/threshold/sessionPolicy';
 import { parseLaneEnrollmentId } from '@shared/signing-lanes/ids';
 import { computeLaneEnrollmentManifestDigestV1 } from '@shared/signing-lanes/rotationDigests';
@@ -52,7 +52,9 @@ export type LinkedDeviceWalletSessionRenewalTargetV1 = {
   readonly walletSessionId: Awaited<
     ReturnType<typeof deriveLinkedDeviceWalletSessionIdentityV1>
   >['walletSessionId'];
-  readonly quotaId: Awaited<ReturnType<typeof deriveLinkedDeviceWalletSessionIdentityV1>>['quotaId'];
+  readonly quotaId: Awaited<
+    ReturnType<typeof deriveLinkedDeviceWalletSessionIdentityV1>
+  >['quotaId'];
   readonly revocationEpoch: number;
 };
 
@@ -82,7 +84,6 @@ export class D1LinkedDeviceWalletSessionIssuerV1 {
       case 'exhausted':
       case 'expired':
       case 'revoked':
-        requireExistingAuthorizationMatches(status, issueInput);
         return;
       case 'invalid':
         throw new Error('linked-device Wallet Session persisted identity is invalid');
@@ -110,7 +111,6 @@ export class D1LinkedDeviceWalletSessionIssuerV1 {
       case 'active':
       case 'exhausted':
       case 'expired':
-        requireExistingAuthorizationMatches(status, issueInput);
         return {
           kind: 'available',
           target: {
@@ -153,7 +153,6 @@ export class D1LinkedDeviceWalletSessionIssuerV1 {
         nowMs: input.requestedAtMs,
       });
     if (!issued) return { kind: 'unavailable' };
-    requireIssuedAuthorizationMatches(issued, issueInput);
     return { kind: 'active', authorization: issued };
   }
 
@@ -211,52 +210,6 @@ export class D1LinkedDeviceWalletSessionIssuerV1 {
       issuedAtMs,
       expiresAtMs,
     };
-  }
-}
-
-function requireIssuedAuthorizationMatches(
-  issued: IssuedLinkedDeviceWalletSession,
-  expected: IssueLinkedDeviceWalletSessionInput,
-): void {
-  const authorization = issued.authorization;
-  if (
-    authorization.tenantId !== expected.tenantId ||
-    authorization.walletId !== expected.walletId ||
-    authorization.enrollmentId !== expected.enrollmentId ||
-    authorization.deviceId !== expected.deviceId ||
-    authorization.keyManifestDigestB64u !== expected.keyManifestDigestB64u ||
-    authorization.permission.kind !== expected.permission.kind ||
-    authorization.permission.administrationScope !== expected.permission.administrationScope ||
-    authorization.permission.localUserPresence !== expected.permission.localUserPresence ||
-    authorization.revocationEpoch !== expected.revocationEpoch ||
-    authorization.issuedAtMs !== expected.issuedAtMs ||
-    authorization.expiresAtMs !== expected.expiresAtMs ||
-    issued.quota.tenantId !== expected.tenantId ||
-    issued.quota.principalId !== authorization.principalId ||
-    issued.quota.walletSessionId !== authorization.walletSessionId ||
-    issued.quota.quotaId !== authorization.quotaId ||
-    issued.quota.expiresAtMs !== expected.expiresAtMs
-  ) {
-    throw new Error('linked-device Wallet Session active authorization differs');
-  }
-}
-
-function requireExistingAuthorizationMatches(
-  status: Exclude<
-    Awaited<ReturnType<AuthorizationService['getLinkedDeviceWalletSessionStatus']>>,
-    { readonly kind: 'missing' | 'invalid' }
-  >,
-  expected: IssueLinkedDeviceWalletSessionInput,
-): void {
-  if (
-    status.walletId !== expected.walletId ||
-    status.enrollmentId !== expected.enrollmentId ||
-    status.deviceId !== expected.deviceId ||
-    status.keyManifestDigestB64u !== expected.keyManifestDigestB64u ||
-    status.revocationEpoch !== expected.revocationEpoch ||
-    status.expiresAtMs !== expected.expiresAtMs
-  ) {
-    throw new Error('linked-device Wallet Session persisted authorization differs');
   }
 }
 

@@ -271,6 +271,11 @@ type ActiveLinkedDeviceExecutionProjectionCommonV1 = {
       readonly kind: 'rotatable_lane';
     }
   >;
+  readonly trustedScope: {
+    readonly orgId: string;
+    readonly projectId: string;
+    readonly environment: string;
+  };
 };
 
 export type ActiveLinkedDeviceExecutionProjectionV1 =

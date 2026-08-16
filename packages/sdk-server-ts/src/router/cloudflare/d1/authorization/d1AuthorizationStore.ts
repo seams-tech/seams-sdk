@@ -68,10 +68,7 @@ import { parseOpaqueOwnerWalletSessionBinding } from '../../../../authorization/
 import type { D1WalletStoreScope } from '../../../../core/d1WalletStore';
 import { d1ChangedRows, type D1Row } from '../../../../storage/d1Sql';
 import type { D1DatabaseLike, D1ResultLike } from '../../../../storage/tenantRoute';
-import {
-  parseLinkedDeviceEnrollmentId,
-  parseLinkedDeviceId,
-} from '@shared/utils/domainIds';
+import { parseLinkedDeviceEnrollmentId, parseLinkedDeviceId } from '@shared/utils/domainIds';
 import { parseWalletId } from '@shared/utils/domainIds';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import { CloudflareD1LaneLifecycleStore } from '../signingLanes/d1LaneLifecycleStore';
@@ -359,7 +356,14 @@ export class CloudflareD1AuthorizationStore
               )
               AND curve = ?`,
         )
-        .bind(this.namespace, this.namespace, input.codeHash, this.namespace, input.codeHash, input.curve);
+        .bind(
+          this.namespace,
+          this.namespace,
+          input.codeHash,
+          this.namespace,
+          input.codeHash,
+          input.curve,
+        );
       const updateStatement = this.database
         .prepare(
           `UPDATE hosted_wallet_session_exchange_codes
@@ -1027,9 +1031,7 @@ export class CloudflareD1AuthorizationStore
     ) {
       throw new Error('opaque Wallet Session persisted identity is inconsistent');
     }
-    const binding = parseOpaqueOwnerWalletSessionBinding(
-      String(row.token_binding_json || ''),
-    );
+    const binding = parseOpaqueOwnerWalletSessionBinding(String(row.token_binding_json || ''));
     if (!binding) throw new Error('opaque Wallet Session binding is invalid');
     return {
       kind: 'resolved_opaque_wallet_session_token',
@@ -1179,6 +1181,51 @@ export class CloudflareD1AuthorizationStore
       expiresAtMs: rows.quotaExpiresAtMs,
     });
     return { authorization, quota };
+  }
+
+  async readClaimedLinkedDeviceWalletSessionAuthorization(input: {
+    readonly tenantId: TenantId;
+    readonly deviceId: LinkedDeviceWalletSessionAuthorization['deviceId'];
+    readonly authorizationId: LinkedDeviceWalletSessionAuthorization['authorizationGrantRef']['authorizationId'];
+    readonly walletSessionId: WalletSessionId;
+    readonly quotaId: ActiveWalletSessionQuota['quotaId'];
+    readonly nowMs: number;
+  }): Promise<LinkedDeviceWalletSessionAuthorization | null> {
+    const rows = await this.readLinkedDeviceAuthorizationRows({
+      tenantId: input.tenantId,
+      authorizationId: input.authorizationId,
+    });
+    if (!rows) return null;
+    const authorization = rows.authorization;
+    if (
+      authorization.deviceId !== input.deviceId ||
+      authorization.walletSessionId !== input.walletSessionId ||
+      authorization.quotaId !== input.quotaId
+    ) {
+      throw new Error(
+        'claimed linked-device Wallet Session authorization identity does not match the request',
+      );
+    }
+    const nowMs = requirePositiveInteger(input.nowMs, 'claimed linked authorization read time');
+    if (
+      rows.lifecycleKind !== 'active' ||
+      (rows.quotaLifecycleKind !== 'active' && rows.quotaLifecycleKind !== 'exhausted')
+    ) {
+      throw new Error('claimed linked-device Wallet Session authorization is unavailable');
+    }
+    if (rows.expiresAtMs <= nowMs || rows.quotaExpiresAtMs <= nowMs) {
+      throw new Error('claimed linked-device Wallet Session authorization has expired');
+    }
+    if (
+      rows.quotaTenantId !== authorization.tenantId ||
+      rows.quotaPrincipalId !== authorization.principalId ||
+      rows.quotaWalletSessionId !== authorization.walletSessionId ||
+      rows.quotaId !== authorization.quotaId ||
+      rows.quotaExpiresAtMs !== authorization.expiresAtMs
+    ) {
+      throw new Error('claimed linked-device Wallet Session quota identity does not match');
+    }
+    return authorization;
   }
 
   async getLinkedDeviceWalletSessionStatus(input: {
@@ -1833,8 +1880,7 @@ export class CloudflareD1AuthorizationStore
                 AND authorization.principal_id = ?
                 AND authorization.lifecycle_kind = 'active'
                 AND authorization.expires_at_ms > ?
-                AND quota.lifecycle_kind = 'active'
-                AND quota.remaining_uses > 0
+                AND quota.lifecycle_kind IN ('active', 'exhausted')
                 AND quota.expires_at_ms > ?
               LIMIT 1`,
           )

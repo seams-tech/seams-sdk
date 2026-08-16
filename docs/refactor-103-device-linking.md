@@ -19,14 +19,13 @@ configured production topology and credentials.
 
 The original passkey-only implementation checkpoint is 18/21 complete. Phase 6
 adds an exact Passkey or Email OTP target-factor choice and is excluded from
-that checkpoint. The remaining readiness dependencies are Refactor 100's live
-custody verification and Refactor 101's broad integration gate. Target metadata
-enrichment, linked Wallet Session host projection, and the normal NEAR/Tempo
-dispatch integrations are implemented. The env-gated two-device live E2E
-contains exact linked-route assertions, but its final local rerun stopped at a
-disabled owner-registration control before the linking flow began. Post-v1
-refresh, compromise cleanup, and the separately tracked Wasm-size follow-up in
-Phase 5 remain deferred.
+that checkpoint. Phase 7 finishes the current signing-only linked-device path
+as a working vertical slice. Phase 8 then replaces the human-device authority
+with a canonical owner credential while retaining the independently revocable
+execution-lane substrate for Refactor 104. The remaining readiness dependencies
+are Refactor 100's live custody verification and Refactor 101's broad
+integration gate. Post-v1 refresh, compromise cleanup, and the separately
+tracked Wasm-size follow-up in Phase 5 remain deferred.
 
 ## Scope And Dependencies
 
@@ -52,7 +51,42 @@ It consumes:
 agent identity and delegated spending. No agent identity, custody, mandate,
 budget, or agent-request type belongs in this plan.
 
-## Goal
+## Delivery Strategy
+
+Implementation proceeds through two deliberate milestones:
+
+1. Complete the existing signing-only device path and prove its execution
+   substrate through real NEAR, Tempo, and EVM operations. This milestone keeps
+   linked-device holder shares, linked admission, independent revocation, and
+   required local presence. It grants no export or recovery authority.
+2. Cut human device linking over to canonical owner-factor enrollment. Device 2
+   then unlocks, signs, steps up, and exports through the same owner credential,
+   Wallet Session, and public operation paths as Device 1. The link bootstrap
+   and device-management records remain device-specific.
+
+The first milestone is an implementation proving ground, not the final human
+device authority model. Refactor 104 may reuse the curve-specific delegated
+execution lanes after the first milestone. It must introduce its own agent
+principal, owner-signed authorization, mandate, budget, and request signature;
+it cannot reinterpret a human linked-device session as agent authority.
+
+## Final Product Goal
+
+Give a new physical device an owner-approved credential for the existing
+wallet. Device 2 becomes a backup owner device and can recover practical access
+to the wallet, including key export, when Device 1 is unavailable.
+
+```text
+Device 2 prepares an unclaimed target factor and displays a public QR session.
+Device 1 authenticates and approves adding that exact device to the wallet.
+The existing wallet custody seed is resealed for Device 2's approved factor.
+The relay registers Device 2 as a canonical owner credential.
+Device 2 unlocks, signs, steps up, and exports through ordinary owner flows.
+Revocation disables future hosted use of the credential and clears local state.
+Previously exported key material cannot be retracted by revocation.
+```
+
+## Signing-Only Execution Milestone
 
 Give a new physical device an independently revocable, owner-approved signing
 capability for an exact wallet-key set.
@@ -314,6 +348,20 @@ SSE plus POST is the preferred first transport:
    and holder-side contributions through the Gateway boundary. Gateway emits
    the internally authenticated Router command; Router remains stateless.
 
+After the Gateway accepts the claim, owner approval, and holder-side
+contributions, Device 1 enters `owner_handoff_complete`. The scanner closes,
+focus returns to the initiating account-menu control, and a success toast
+announces:
+
+```text
+QR code scanned
+Continue setup on your other device.
+```
+
+QR decoding alone cannot enter this state. Parse, claim, authorization, or
+contribution failures remain in their exact recoverable error states and never
+emit the success toast.
+
 A blockchain transaction is unnecessary. The link authorization uses the
 existing owner Wallet Session authorization or one verified step-up evidence
 set.
@@ -334,6 +382,12 @@ After the authenticated claim reveals the wallet identity:
    participant, and transcript bindings.
 5. Seal each holder capability under the passkey KEK.
 6. Persist public projections and sealed envelopes.
+
+When an embedded browser rejects WebAuthn because the wallet document has a
+cross-origin ancestor, Device 2 performs the credential operation in a
+short-lived top-level wallet-origin window. That window inherits the same
+wallet origin and RP ID, closes after the prompt, and returns only the
+credential result to the wallet worker flow.
 7. Return one receipt per key and one aggregate manifest receipt.
 
 The worker rejects missing or duplicate keys, wrong public identity, recipient
@@ -576,6 +630,9 @@ material activation remain intact.
 ### Phase 4: Product Completion
 
 - [x] Add device management and activity summary views.
+- [ ] Add the Device 1 `owner_handoff_complete` state. Close the scanner,
+      restore focus, and show `QR code scanned` with `Continue setup on your
+      other device.` only after the Gateway accepts the complete owner handoff.
 - [ ] Add post-v1 refresh, reprovisioning, and compromise cleanup flows.
 - [x] Add operator recovery for committed delivery that cannot complete on the
       original link session. The route binds a fresh Device 2 continuation key,
@@ -817,6 +874,135 @@ Phase 6 is complete when both factor branches activate the same linked-device
 lane model, holder material remains worker-confined, valid Email OTP linked
 Wallet Sessions avoid redundant step-up, and the two live browser flows pass.
 
+### Phase 7: Complete The Signing-Only Vertical Slice
+
+This phase makes the existing linked execution model reliable before changing
+the human-device authority. It fixes demonstrated operating-path failures and
+does not add export, recovery, or account administration to the temporary
+signing-only grant.
+
+#### Persisted Device Session And Unlock
+
+- [ ] Project the exact active linked enrollment after refresh and wallet lock.
+      The account chooser must discover the linked credential without routing
+      it through owner credential lookup.
+- [ ] Restore a linked Wallet Session only after exact target-factor
+      authorization. Preserve wallet, device, enrollment, factor, lane,
+      revocation epoch, expiry, and quota identity.
+- [ ] Add an explicit renewal path before quota exhaustion blocks an otherwise
+      active enrollment. Renewal requires the same linked factor and never
+      mutates material activation.
+- [ ] Remove retry loops that repeatedly submit a terminally rejected or
+      exhausted session.
+
+#### Curve Execution
+
+- [ ] Route ordinary NEAR entry points through linked Ed25519 admission whenever
+      the active session authority is the signing-only linked branch. Gateway
+      admission must reach Router with one recognized admission form.
+- [ ] Route ordinary Tempo and EVM entry points through linked ECDSA admission
+      with the exact active child lane, holder material, presignature identity,
+      operation digests, and material activation.
+- [ ] Persist and reopen both curve holder envelopes after refresh. Reject
+      partial activation as an enrollment failure instead of projecting an
+      active device with missing execution material.
+- [ ] Return branch-specific server failures for admission, holder opening,
+      presign, online signing, session renewal, and revocation. Do not collapse
+      them into `linked execution unavailable` or `response failed`.
+
+#### Management And Temporary Product Boundary
+
+- [ ] Make list and revoke tolerate no partial manifest. Committed incomplete
+      enrollments enter a repair-required state and never count as active.
+- [ ] Keep key export and recovery controls unavailable for the signing-only
+      milestone. Explain that this device can sign but is not yet a backup owner
+      credential.
+- [ ] Complete the Device 1 handoff state: close the scanner, restore focus, and
+      show `Device approved` with `Finish setup on your other device` after the
+      Gateway accepts the owner handoff.
+
+#### Phase 7 Gate
+
+- [ ] Run one real two-device Passkey flow: link, refresh Device 2, lock and
+      unlock Device 2, sign NEAR, Tempo, and EVM, renew the linked session, list
+      the enrollment, and revoke it.
+- [ ] Assert the linked routes and exact enrollment identity for all three
+      operations. Assert that owner signing and export routes are not used.
+- [ ] Run the same operating path with Email OTP after Phase 6 lands.
+
+Phase 7 is complete only when a linked device survives refresh and lock,
+performs all supported signing operations, renews its authorization, appears in
+management, and is revoked without affecting Device 1.
+
+### Phase 8: Cut Human Linking Over To Owner Credentials
+
+This phase implements the final product model. Human Device 2 stops using the
+signing-only authority after cutover. The signing-only execution substrate
+remains available for Refactor 104's separately authorized delegated execution.
+
+#### Owner Credential Enrollment
+
+- [ ] Replace the human-device permission request with the canonical owner
+      credential/factor enrollment request already used by wallet custody.
+      Delete the human `owner_equivalent_signing`/`signing_only` request branch
+      at cutover; do not retain a compatibility parser.
+- [ ] After Device 1 approval, authenticate the exact Device 2 Passkey or Email
+      OTP factor and reseal the existing wallet custody seed for that factor.
+      Raw seed, PRF output, OTP factor secret, and envelope KEK remain inside
+      their existing trusted worker boundaries.
+- [ ] Register Device 2 in the canonical owner credential index used by login,
+      challenge verification, step-up, and recent-account discovery. Keep the
+      device enrollment ID as management and audit metadata.
+- [ ] Bind the new owner credential to the existing verified wallet-key
+      manifest. Adding Device 2 must not derive a new wallet, change public
+      keys, rotate signing roots, or create a parallel identity.
+
+#### Ordinary Owner Operations
+
+- [ ] Make Device 2 use the normal owner unlock and Wallet Session issuance
+      paths. Remove the linked-session projection from the human-device path.
+- [ ] Make NEAR, Tempo, and EVM calls use the normal owner signing dispatch.
+      Remove human-device selection from the linked curve executors.
+- [ ] Enable Ed25519 and ECDSA key export through the existing owner export and
+      fresh step-up flows. The account menu derives export availability from
+      owner authority rather than device-linking UI state.
+- [ ] Preserve the same confirmation policy and signing-session reuse behavior
+      on Device 1 and Device 2.
+
+#### Revocation And Cleanup
+
+- [ ] Revoke the owner credential, its Wallet Sessions, factor envelopes,
+      pending operations, and local projections as one fenced operation.
+- [ ] State the irreversible boundary in product copy: revocation prevents
+      future hosted use but cannot retract key material exported before
+      revocation.
+- [ ] Stop provisioning delegated child lanes for human devices. Remove the
+      human-only lane records, linked Wallet Session records, holder envelopes,
+      route branches, UI gates, fixtures, and tests that become unreachable.
+- [ ] Retain curve-specific delegated execution code only where Refactor 104
+      consumes it through its own authorization types. Move no human credential
+      or local-presence state into the agent domain.
+
+#### Phase 8 Gate
+
+- [ ] Run one real two-device Passkey flow and one Email OTP flow. For each:
+      enroll Device 2, refresh, lock and unlock, sign NEAR, Tempo, and EVM,
+      perform fresh step-up, export Ed25519 and ECDSA keys, and revoke Device 2.
+- [ ] Assert that Device 2 uses the same public and server owner endpoints as
+      Device 1 after enrollment. Only bootstrap and management endpoints remain
+      device-linking-specific.
+- [ ] Assert identical wallet public keys, addresses, manifest identity, and
+      account identity on both devices.
+- [ ] Assert that revoked credentials cannot unlock or obtain new sessions and
+      that Device 1 remains operational.
+- [ ] Reconcile every earlier signing-only invariant, state diagram, API table,
+      validation item, and product string in this document. Delete obsolete
+      signing-only human-device types in the same change.
+
+Phase 8 is complete when Device 2 is a canonical backup owner credential, all
+ordinary owner operations behave identically across devices, and the remaining
+delegated execution substrate has no dependency on human device authority.
+
 ## Validation
 
 Static fixtures prove:
@@ -869,6 +1055,10 @@ Lifecycle tests prove:
 - blockchain transactions for link authorization;
 - sharing an owner lane's existing holder material;
 - account administration, recovery, or export in the first release;
+- treating the Phase 7 signing-only milestone as the final human-device
+  authority model;
+- introducing agent identity, mandates, budgets, or agent requests while
+  extracting the delegated execution substrate;
 - claiming Yao production readiness before its security gates pass.
 
 ## Resolved Decisions And Follow-Up Boundary
@@ -879,6 +1069,11 @@ Lifecycle tests prove:
 - Phase 6 owns the explicit Passkey or Email OTP target-factor choice. Passkey
   remains recommended; Email OTP is available only for wallets with an active
   verified Email OTP factor.
+- Phase 7 completes and validates the signing-only lane as an operating path.
+  It does not expand that temporary grant into export or recovery authority.
+- Phase 8 makes human Device 2 a canonical owner credential and removes human
+  use of the signing-only authority. Refactor 104 owns any later agent use of
+  delegated execution under its own principal and authorization types.
 - The v1 compromise boundary is immediate aggregate revocation, server-role
   disablement, and exact local holder/session zeroization. Server-share
   destruction evidence, refresh/reprovisioning, and post-compromise recovery

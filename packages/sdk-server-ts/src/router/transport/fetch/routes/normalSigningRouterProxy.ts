@@ -10,6 +10,7 @@ import {
   type LinkedDeviceLocalPresenceAuthorizationV1,
 } from '../../../domains/signingOperations/walletExecutionAdmission';
 import type { RouterAbNormalSigningMaterialSourceV1 } from '../../../domains/signingOperations/routerAbPrivateSigningWorker';
+import { buildRouterAbEd25519AcceptedAuthorizedOperationV1 } from '../../../domains/signingOperations/routerAbPrivateSigningWorker';
 import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type {
@@ -47,9 +48,9 @@ export async function proxyNormalSigningRequestToMpcRouter(input: {
 
   try {
     const headers = new Headers(input.request.headers);
-    // Owner Wallet Session bearer tokens are gateway-only credentials. The
-    // Router receives the validated owner admission in the operation body.
-    if (input.body && isGatewayOwnerWalletSessionAdmission(input.body)) {
+    // Wallet Session bearer tokens are gateway-only credentials. The Router
+    // receives the validated owner or linked-device admission in the body.
+    if (input.body && isGatewayWalletSessionAdmission(input.body)) {
       headers.delete('authorization');
     }
     headers.set(
@@ -84,10 +85,14 @@ export async function proxyNormalSigningRequestToMpcRouter(input: {
   }
 }
 
-function isGatewayOwnerWalletSessionAdmission(body: Record<string, unknown>): boolean {
+function isGatewayWalletSessionAdmission(body: Record<string, unknown>): boolean {
   const authorizedOperation = body.authorized_operation;
   if (!isRecord(authorizedOperation)) return false;
-  return hasKind(authorizedOperation.binding, 'gateway_owner_wallet_session');
+  return (
+    hasKind(authorizedOperation.binding, 'gateway_owner_wallet_session') ||
+    hasKind(authorizedOperation.binding, 'gateway_linked_device_wallet_session') ||
+    hasKind(authorizedOperation.binding, 'reusable_wallet_session')
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -247,13 +252,43 @@ export async function proxyLinkedDeviceLaneAdmittedNormalSigningRequest(input: {
   if (admission.kind === 'refused') {
     return linkedAdmissionRefused(admission.reason);
   }
-  return await proxyRotatableLaneAdmittedNormalSigningRequest({
-    request: input.request,
-    proxy: input.proxy,
-    body: input.body,
-    materialSource: resolved.projection.materialSource,
-    targetPath: input.targetPath,
-  });
+  switch (resolved.projection.product.keyFamily) {
+    case 'ed25519':
+      return await proxyNormalSigningRequestToMpcRouter({
+        request: input.request,
+        proxy: input.proxy,
+        body: {
+          ...input.body,
+          authorized_operation: buildRouterAbEd25519AcceptedAuthorizedOperationV1({
+            operation: input.authorizedOperation,
+            binding: {
+              kind: 'gateway_linked_device_wallet_session',
+              subjectId: resolved.projection.authorization.principalId,
+              accountId: resolved.projection.authorization.walletId,
+              authorizationId:
+                resolved.projection.authorization.authorizationGrantRef.authorizationId,
+              walletSessionId: resolved.projection.authorization.walletSessionId,
+              quotaId: resolved.projection.authorization.quotaId,
+              orgId: resolved.projection.trustedScope.orgId,
+              projectId: resolved.projection.trustedScope.projectId,
+              environment: resolved.projection.trustedScope.environment,
+              signingWorkerId: resolved.projection.materialActivation.signingWorker,
+              expiresAtMs: resolved.projection.authorization.expiresAtMs,
+              materialSource: resolved.projection.materialSource,
+            },
+          }),
+        },
+        targetPath: input.targetPath,
+      });
+    case 'ecdsa_secp256k1':
+      return await proxyRotatableLaneAdmittedNormalSigningRequest({
+        request: input.request,
+        proxy: input.proxy,
+        body: input.body,
+        materialSource: resolved.projection.materialSource,
+        targetPath: input.targetPath,
+      });
+  }
 }
 
 function linkedProjectionMatchesRequest(

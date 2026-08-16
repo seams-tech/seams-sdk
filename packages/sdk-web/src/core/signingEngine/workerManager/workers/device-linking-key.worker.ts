@@ -1419,7 +1419,7 @@ function createLinkedHolderEcdsaPresignSession(
   ) {
     throw new Error('ECDSA presign pool changed the linked holder activation identity');
   }
-  const requestedGroupKey = new Uint8Array(request.groupPublicKey33);
+  const requestedGroupKey = new Uint8Array(request.groupPublicKey33).slice();
   const persistedGroupKey = base64UrlDecode(slot.job.thresholdPublicKey33B64u);
   try {
     if (

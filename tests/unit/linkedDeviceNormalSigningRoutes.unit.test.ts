@@ -33,27 +33,17 @@ import {
 import type { FetchRouterApiContext } from '../../packages/sdk-server-ts/src/router/transport/fetch/fetchRouter.types';
 import type { SessionAdapter } from '../../packages/sdk-server-ts/src/router/framework/routerApi';
 import { buildRouterAbEd25519NearTransactionPrepareRequestV2 } from '../../packages/sdk-web/src/core/rpcClients/relayer/routerAbNormalSigning';
-import {
-  buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1,
-  routerAbEcdsaDerivationContextBindingB64uV1,
-} from '../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
+import { routerAbMpcMaterialActivationRefToWire } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
 import {
   buildAuthorizedOperation,
   buildLinkedDevicePrincipalId,
   type AuthorizedOperation,
 } from '../../packages/sdk-server-ts/src/authorization/domain';
 import { buildRouterAbEd25519AcceptedAuthorizedOperationV1 } from '../../packages/sdk-server-ts/src/router/domains/signingOperations/routerAbPrivateSigningWorker';
+import { buildLinkedDeviceWalletExecutionFixture } from './helpers/linkedDeviceWalletExecution.fixtures';
 
 function digest(fill: number): string {
   return base64UrlEncode(new Uint8Array(32).fill(fill));
-}
-
-function hexB64u(hex: string): string {
-  const bytes = new Uint8Array(hex.length / 2);
-  for (let index = 0; index < bytes.length; index += 1) {
-    bytes[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16);
-  }
-  return base64UrlEncode(bytes);
 }
 
 function linkedClaims(expiresAtMs: number): Record<string, unknown> {
@@ -134,6 +124,8 @@ function required<T>(
 
 async function localPresenceAssertion(input: {
   readonly authorizedOperationId?: string;
+  readonly deviceId?: string;
+  readonly enrollmentId?: string;
   readonly intentDigestB64u: string;
   readonly issuedAtMs: number;
   readonly expiresAtMs: number;
@@ -145,8 +137,8 @@ async function localPresenceAssertion(input: {
         input.authorizedOperationId ?? 'linked-ed25519-authorized-operation:linked-request',
       ),
     ),
-    deviceId: required(parseLinkedDeviceId('device:2')),
-    enrollmentId: required(parseLinkedDeviceEnrollmentId('enrollment:2')),
+    deviceId: required(parseLinkedDeviceId(input.deviceId ?? 'device:2')),
+    enrollmentId: required(parseLinkedDeviceEnrollmentId(input.enrollmentId ?? 'enrollment:2')),
     credentialIdB64u: required(parseWebAuthnCredentialIdB64u(credentialIdB64u)),
     intentDigestB64u: parseDigestB64u(input.intentDigestB64u),
     issuedAtMs: input.issuedAtMs,
@@ -156,8 +148,8 @@ async function localPresenceAssertion(input: {
     kind: 'linked_device_local_presence_assertion_v1',
     authorizedOperationId:
       input.authorizedOperationId ?? 'linked-ed25519-authorized-operation:linked-request',
-    deviceId: 'device:2',
-    enrollmentId: 'enrollment:2',
+    deviceId: input.deviceId ?? 'device:2',
+    enrollmentId: input.enrollmentId ?? 'enrollment:2',
     credentialIdB64u,
     intentDigestB64u: input.intentDigestB64u,
     challengeDigestB64u,
@@ -312,7 +304,11 @@ function configuredService(input: {
   readonly completeAuthorizedOperation?: (
     operation: AuthorizedOperation,
   ) => Promise<AuthorizedOperation>;
-  readonly verifyLocalPresence?: () => Promise<{ readonly kind: 'verified'; readonly verifiedAtMs: number }>;
+  readonly verifyLocalPresence?: () => Promise<{
+    readonly kind: 'verified';
+    readonly verifiedAtMs: number;
+  }>;
+  readonly renewLinkedDeviceWalletSession?: () => Promise<void>;
 }) {
   return {
     authorizedOperations: {
@@ -331,59 +327,31 @@ function configuredService(input: {
       }),
     },
     linkedDeviceLocalPresence: {
-      verify: input.verifyLocalPresence ?? (async () => ({ kind: 'verified', verifiedAtMs: Date.now() })),
+      verify:
+        input.verifyLocalPresence ?? (async () => ({ kind: 'verified', verifiedAtMs: Date.now() })),
+    },
+    authorizationSessions: {
+      tenantId: 'tenant:1',
+      renewLinkedDeviceWalletSession: input.renewLinkedDeviceWalletSession ?? (async () => {}),
     },
   };
 }
 
 async function linkedEcdsaPrepareFixture(nowMs: number) {
   const expiresAtMs = nowMs + 30_000;
-  const materialActivation = {
-    kind: 'mpc_material_activation_ref' as const,
-    activation_id: 'activation:linked-ecdsa',
-    capability: 'capability:linked-ecdsa',
-    material_owner: 'wallet:1',
-    key_binding: 'key-binding:linked-ecdsa',
-    lifecycle_binding: 'lifecycle:linked-ecdsa',
-    signing_worker: 'worker:linked-ecdsa',
-  };
-  const context = { application_binding_digest_b64u: digest(20) };
+  const linked = await buildLinkedDeviceWalletExecutionFixture();
+  const scope = linked.projection.ecdsaNormalSigningScope;
+  if (!scope) throw new Error('linked fixture is missing its ECDSA scope');
+  const materialActivation = routerAbMpcMaterialActivationRefToWire(
+    linked.projection.materialActivation,
+  );
   const requestId = 'linked-ecdsa-request';
   const intentDigestB64u = digest(22);
-  const request = buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1({
-    scope: {
-      wallet_id: 'wallet:1',
-      ecdsa_threshold_key_id: 'ecdsa-key:linked',
-      signing_root_id: 'signing-root:linked',
-      signing_root_version: 'signing-root-version:linked',
-      context,
-      public_identity: {
-        context_binding_b64u: await routerAbEcdsaDerivationContextBindingB64uV1(context),
-        derivation_client_share_public_key33_b64u: hexB64u(
-          '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798',
-        ),
-        server_public_key33_b64u: hexB64u(
-          '02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5',
-        ),
-        threshold_public_key33_b64u: hexB64u(
-          '02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9',
-        ),
-        ethereum_address20_b64u: base64UrlEncode(new Uint8Array(20).fill(5)),
-        client_share_retry_counter: 0,
-        server_share_retry_counter: 1,
-      },
-      material_activation: materialActivation,
-      signing_worker: {
-        server_id: 'worker:linked-ecdsa',
-        key_epoch: 'worker-epoch:linked-ecdsa',
-        recipient_encryption_key:
-          'x25519:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-      },
-      activation_epoch: 'activation-epoch:linked-ecdsa',
-    },
-    requestId,
-    operationId: 'operation:linked-ecdsa',
-    operationDigests: {
+  const request = {
+    scope,
+    request_id: requestId,
+    operation_id: 'operation:linked-ecdsa',
+    operation_digests: {
       lane_digest_b64u: digest(21),
       intent_digest_b64u: intentDigestB64u,
       display_digest_b64u: digest(23),
@@ -392,27 +360,38 @@ async function linkedEcdsaPrepareFixture(nowMs: number) {
       kind: 'reusable_wallet_session',
       wallet_session_id: 'wallet-session:linked',
     },
-    materialActivation,
-    clientPresignatureId: 'presignature:linked-ecdsa',
-    expiresAtMs,
-    signingDigest32: new Uint8Array(32).fill(22),
-    clientRerandomizationCommitment32: new Uint8Array(32).fill(24),
-  });
+    material_activation: materialActivation,
+    client_presignature_id: 'presignature:linked-ecdsa',
+    expires_at_ms: expiresAtMs,
+    signing_digest_b64u: intentDigestB64u,
+    client_rerandomization_commitment32_b64u: digest(24),
+  };
+  const claims = {
+    ...linkedEcdsaClaims(expiresAtMs + 1_000),
+    walletId: String(scope.walletId),
+    deviceId: String(linked.projection.enrollment.deviceId),
+    sub: `linked-device:${String(linked.projection.enrollment.deviceId)}`,
+    enrollmentId: String(linked.projection.enrollment.enrollmentId),
+    walletKeyId: String(scope.walletKeyId),
+  };
   return {
     expiresAtMs,
+    claims,
     body: {
       ...request,
       linkedDeviceExecution: {
         kind: 'linked_device_execution_v1',
-        enrollmentId: 'enrollment:2',
-        deviceId: 'device:2',
-        walletKeyId: 'wallet-key:1',
-        laneId: 'lane:linked-ecdsa',
-        laneShareEpoch: 'lane-share-epoch:linked-ecdsa',
+        enrollmentId: String(linked.projection.enrollment.enrollmentId),
+        deviceId: String(linked.projection.enrollment.deviceId),
+        walletKeyId: String(scope.walletKeyId),
+        laneId: String(scope.laneId),
+        laneShareEpoch: String(scope.laneShareEpoch),
         materialActivation,
       },
       localPresenceAssertion: await localPresenceAssertion({
         authorizedOperationId: `linked-ecdsa-authorized-operation:${requestId}`,
+        deviceId: String(linked.projection.enrollment.deviceId),
+        enrollmentId: String(linked.projection.enrollment.enrollmentId),
         intentDigestB64u,
         issuedAtMs: nowMs - 1_000,
         expiresAtMs,
@@ -448,7 +427,7 @@ test('parses linked ECDSA boundary fields before atomic admission', async () => 
   let admissionCalls = 0;
   const result = await handleLinkedDeviceEcdsaNormalSigning({
     ctx: context(
-      sessionWithClaims(linkedEcdsaClaims(fixture.expiresAtMs + 1_000)),
+      sessionWithClaims(fixture.claims),
       configuredService({
         readAuthorizedOperation: async () => null,
         admitAuthorizedOperation: async () => {
@@ -471,6 +450,38 @@ test('parses linked ECDSA boundary fields before atomic admission', async () => 
     },
     admissionCalls: 1,
   });
+});
+
+test('renews an exhausted linked Wallet Session from fresh local presence and retries admission', async () => {
+  const fixture = await linkedEcdsaPrepareFixture(Date.now());
+  let admissionCalls = 0;
+  let renewalCalls = 0;
+  const result = await handleLinkedDeviceEcdsaNormalSigning({
+    ctx: context(
+      sessionWithClaims(fixture.claims),
+      configuredService({
+        readAuthorizedOperation: async () => null,
+        admitAuthorizedOperation: async () => {
+          admissionCalls += 1;
+          return admissionCalls === 1
+            ? { kind: 'wallet_session_quota_exhausted' }
+            : { kind: 'material_mismatch' };
+        },
+        renewLinkedDeviceWalletSession: async () => {
+          renewalCalls += 1;
+        },
+      }),
+    ),
+    body: fixture.body,
+    phase: 'prepare',
+  });
+
+  expect(result?.status).toBe(403);
+  expect(await result?.json()).toMatchObject({
+    code: 'linked_device_authorization_rejected',
+    message: 'Linked-device authorization was rejected: material_mismatch',
+  });
+  expect({ admissionCalls, renewalCalls }).toEqual({ admissionCalls: 2, renewalCalls: 1 });
 });
 
 test('does not claim quota when Ed25519 finalize has no prepared operation', async () => {
@@ -588,7 +599,7 @@ test('rejects linked signing when the inner scope substitutes material identity'
   let admissionCalls = 0;
   const result = await handleLinkedDeviceEcdsaNormalSigning({
     ctx: context(
-      sessionWithClaims(linkedEcdsaClaims(fixture.expiresAtMs + 1_000)),
+      sessionWithClaims(fixture.claims),
       configuredService({
         readAuthorizedOperation: async () => null,
         admitAuthorizedOperation: async () => {
@@ -601,9 +612,9 @@ test('rejects linked signing when the inner scope substitutes material identity'
       ...fixture.body,
       scope: {
         ...fixture.body.scope,
-        material_activation: {
-          ...fixture.body.scope.material_activation,
-          key_binding: 'key-binding:substituted',
+        materialActivation: {
+          ...fixture.body.scope.materialActivation,
+          keyBinding: 'key-binding:substituted',
         },
       },
     },
@@ -613,7 +624,7 @@ test('rejects linked signing when the inner scope substitutes material identity'
   expect(result?.status).toBe(400);
   expect(await result?.json()).toMatchObject({
     code: 'invalid_body',
-    message: 'linked-device signing scope material activation does not match request',
+    message: 'linked ECDSA material activation does not match scope',
   });
   expect(admissionCalls).toBe(0);
 });

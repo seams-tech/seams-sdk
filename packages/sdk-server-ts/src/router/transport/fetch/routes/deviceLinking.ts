@@ -169,10 +169,7 @@ export type DeviceLinkingRouteMutationResultV1 =
 type LinkedDevicePendingSessionStateV1 = Extract<
   LinkedDeviceSessionState,
   {
-    readonly state:
-      | 'awaiting_target_passkey'
-      | 'provisioning'
-      | 'committed_completion_required';
+    readonly state: 'awaiting_target_passkey' | 'provisioning' | 'committed_completion_required';
   }
 >;
 
@@ -490,7 +487,11 @@ async function handleClaim(
   if (body.payload.linkSessionId !== linkSessionId)
     return invalidInputResponse('link session id does not match route');
   return claimResultResponse(
-    await service.sessionService.claimSessionV1({ payload: body.payload, nowMs, owner: authentication.owner }),
+    await service.sessionService.claimSessionV1({
+      payload: body.payload,
+      nowMs,
+      owner: authentication.owner,
+    }),
   );
 }
 
@@ -540,7 +541,11 @@ async function handleApproval(
   if (approval.linkSessionId !== linkSessionId)
     return invalidInputResponse('link session id does not match route');
   return approvalResultResponse(
-    await service.sessionService.recordOwnerApprovalV1({ approval, nowMs, owner: authentication.owner }),
+    await service.sessionService.recordOwnerApprovalV1({
+      approval,
+      nowMs,
+      owner: authentication.owner,
+    }),
   );
 }
 
@@ -934,21 +939,25 @@ async function handleWalletSessionRenewal(
   rawLinkSessionId: string,
   nowMs: number,
 ): Promise<Response> {
-  const authenticated = await authenticateDeviceForSession(ctx, service, rawLinkSessionId, nowMs);
+  if (ctx.method !== 'POST') return methodNotAllowedResponse();
+  const authenticated = await authenticateWalletSessionRenewal(
+    ctx,
+    service,
+    rawLinkSessionId,
+    nowMs,
+  );
   if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
   if (authenticated.kind === 'not_found') return notFoundResponse();
-  if (ctx.method !== 'POST') return methodNotAllowedResponse();
   if (!isActiveLinkedDeviceSessionRecord(authenticated.session)) {
     return invalidStateResponse(authenticated.session);
   }
-  const request = parseBoundary(() => parseWalletSessionRenewalRequest(authenticated.body));
   const session = authenticated.session;
   const approval = session.approvalTranscript.value;
   assertApprovalMatchesPersistedSession(session, approval);
   const renewal = await service.renewWalletSessionAuthorizationV1({
     session,
     requestedAtMs: nowMs,
-    localPresenceAssertion: request.localPresenceAssertion,
+    localPresenceAssertion: authenticated.request.localPresenceAssertion,
   });
   if (renewal.kind === 'unavailable') {
     return json(
@@ -966,7 +975,11 @@ async function handleWalletSessionRenewal(
       { status: 403 },
     );
   }
-  assertIssuedAuthorizationMatchesSession(renewal.authorization, session, nowMs);
+  assertIssuedAuthorizationMatchesSession(
+    renewal.authorization,
+    session,
+    renewal.authorization.authorization.issuedAtMs,
+  );
   return await respondWithLinkedDeviceWalletSessionDelivery({
     ctx,
     service,
@@ -975,6 +988,34 @@ async function handleWalletSessionRenewal(
     authorization: renewal.authorization,
     nowMs,
   });
+}
+
+type WalletSessionRenewalRequestV1 = {
+  readonly keyFamily: 'ed25519' | 'ecdsa_secp256k1';
+  readonly localPresenceAssertion: unknown;
+};
+
+type WalletSessionRenewalAuthenticatedContextV1 =
+  | {
+      readonly kind: 'authorized';
+      readonly request: WalletSessionRenewalRequestV1;
+      readonly session: LinkedDeviceSessionRecordV1;
+    }
+  | DeviceLinkingAuthDeniedV1
+  | { readonly kind: 'not_found' };
+
+async function authenticateWalletSessionRenewal(
+  ctx: FetchRouterApiContext,
+  service: DeviceLinkingRouteServiceV1,
+  rawLinkSessionId: string,
+  nowMs: number,
+): Promise<WalletSessionRenewalAuthenticatedContextV1> {
+  const linkSessionId = parseBoundary(() => parseSessionId(rawLinkSessionId));
+  const session = await service.sessionService.getSessionV1({ linkSessionId, nowMs });
+  if (!session) return { kind: 'not_found' };
+  const rawBody = await readJson(ctx.request);
+  const request = parseBoundary(() => parseWalletSessionRenewalRequest(rawBody));
+  return { kind: 'authorized', request, session };
 }
 
 async function respondWithLinkedDeviceWalletSessionDelivery(input: {
@@ -1024,6 +1065,7 @@ async function respondWithLinkedDeviceWalletSessionDelivery(input: {
       keyManifestDigestB64u: authorization.keyManifestDigestB64u,
       permission: authorization.permission,
       revocationEpoch: authorization.revocationEpoch,
+      remainingUses: input.authorization.quota.remainingUses,
       issuedAtMs: authorization.issuedAtMs,
       expiresAtMs: authorization.expiresAtMs,
       ...(nearAccountId ? { nearAccountId } : {}),
@@ -1154,7 +1196,8 @@ function assertIssuedAuthorizationMatchesSession(
     authorization.permission.kind !== approval.permission.kind ||
     authorization.permission.administrationScope !== approval.permission.administrationScope ||
     authorization.permission.localUserPresence !== approval.permission.localUserPresence ||
-    authorization.issuedAtMs !== receipt.activatedAtMs ||
+    authorization.issuedAtMs < receipt.activatedAtMs ||
+    authorization.issuedAtMs > nowMs ||
     authorization.expiresAtMs <= nowMs ||
     quota.tenantId !== authorization.tenantId ||
     quota.principalId !== authorization.principalId ||
@@ -1672,10 +1715,13 @@ function parseRetryRequest(
   return request;
 }
 
-function parseWalletSessionRenewalRequest(raw: unknown): { readonly localPresenceAssertion: unknown } {
+function parseWalletSessionRenewalRequest(raw: unknown): WalletSessionRenewalRequestV1 {
   const record = requireRecord(raw, 'linked-device Wallet Session renewal request');
-  requireExactKeys(record, ['localPresenceAssertion']);
-  return { localPresenceAssertion: record.localPresenceAssertion };
+  requireExactKeys(record, ['keyFamily', 'localPresenceAssertion']);
+  if (record.keyFamily !== 'ed25519' && record.keyFamily !== 'ecdsa_secp256k1') {
+    throw new Error('linked-device Wallet Session renewal key family is invalid');
+  }
+  return { keyFamily: record.keyFamily, localPresenceAssertion: record.localPresenceAssertion };
 }
 
 type DeviceLinkingOperatorRecoveryRequestV1 = {

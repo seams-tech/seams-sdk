@@ -26,7 +26,6 @@ import { routerAbEcdsaRerandomizationClientCommitmentV1 } from '@shared/utils/ro
 import { secureRandomId } from '@shared/utils/secureRandomId';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import type { AuthenticatorPort } from '@/core/platform';
-import type { LaneSealedHolderMaterialRepositoryV1 } from '@/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
 import type { LinkedDeviceWalletSessionTokenReadResultV1 } from '@/core/indexedDB/seamsWalletDB/linkedDeviceWalletSessionStore';
 import type {
   ActiveLinkedDeviceExecutionBundleV1,
@@ -38,7 +37,7 @@ import type {
   DeviceLinkingHolderSigningMaterialPortV1,
   DeviceLinkingHolderSigningMaterialHandleV1,
 } from '@/core/signingEngine/session/lanes/linkedDevicePorts';
-import { authorizeAndOpenLinkedDeviceHolderV1 } from '@/core/signingEngine/session/lanes/linkedDeviceLocalPresence';
+import { collectLinkedDeviceLocalPresenceV1 } from '@/core/signingEngine/session/lanes/linkedDeviceLocalPresence';
 import { LinkedDeviceEcdsaSigningMaterialSourceV1 } from '../signers/linkedDeviceEcdsaSigningMaterialSource';
 import { verifySecp256k1RecoverableSignatureAgainstPublicKey33Wasm } from '@/core/signingEngine/chains/evm/evmCryptoWasm';
 
@@ -97,7 +96,7 @@ export type LinkedDeviceEcdsaFinalizeRequestWireV1 = Omit<
 
 type LinkedDeviceEcdsaInitialBoundaryV1 = {
   readonly linkedDeviceExecution: LinkedDeviceExecutionEnvelopeV1;
-  readonly localPresenceAssertion: LinkedDeviceLocalPresenceAssertionV1;
+  readonly localPresenceAssertion?: LinkedDeviceLocalPresenceAssertionV1;
 };
 
 type LinkedDeviceEcdsaContinuationBoundaryV1 = {
@@ -183,8 +182,10 @@ export type LinkedDeviceEcdsaNormalSigningRequestV1 = {
 export type LinkedDeviceEcdsaNormalSigningInputV1 = {
   readonly relayServerUrl: string;
   readonly authenticator: AuthenticatorPort;
-  readonly holderRepository: LaneSealedHolderMaterialRepositoryV1;
-  readonly holderMaterial: DeviceLinkingHolderSigningMaterialPortV1;
+  readonly holderHandle: Extract<
+    DeviceLinkingHolderSigningMaterialHandleV1,
+    { readonly keyFamily: 'ecdsa_secp256k1' }
+  >;
   readonly workerCtx: WorkerOperationContext;
   readonly bundle: ActiveLinkedDeviceExecutionBundleV1;
   readonly child: Extract<
@@ -212,6 +213,10 @@ function requireText(value: unknown, label: string): string {
     throw new Error(`${label} is required`);
   }
   return value;
+}
+
+function isLinkedDeviceStepUpRequired(error: unknown): boolean {
+  return error instanceof Error && error.message.includes('linked_device_step_up_required');
 }
 
 function requireRequestId(value: unknown): string {
@@ -448,7 +453,7 @@ function parsePresignProgress(value: unknown): LinkedDeviceEcdsaPresignProgressV
 }
 
 function parseSigningResponse(value: unknown): LinkedDeviceEcdsaSigningResponseV1 {
-  const record = requireResponseOk(value, 'linked ECDSA signing response');
+  const record = requireRecord(value, 'linked ECDSA signing response');
   const signatureScheme = requireText(record.signature_scheme, 'response.signature_scheme');
   if (signatureScheme !== 'ecdsa_secp256k1_recoverable_v1') {
     throw new Error('response.signature_scheme is invalid');
@@ -516,6 +521,11 @@ function resolveExchangeStage(input: {
 
 function zeroize(value: Uint8Array | null): void {
   if (value && value.byteLength > 0) value.fill(0);
+}
+
+async function presignatureIdFromBigR(bigR33: Uint8Array): Promise<string> {
+  const digest = new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256', bigR33));
+  return `presig-${base64UrlEncode(digest)}`;
 }
 
 function sameScope(
@@ -596,9 +606,10 @@ async function postLinkedJson(
   if (!response.ok) {
     const record =
       payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
+    const code = typeof record.code === 'string' ? `${record.code}: ` : '';
     throw new Error(
       typeof record.message === 'string'
-        ? record.message
+        ? `${code}${record.message}`
         : `linked ECDSA request failed (${response.status})`,
     );
   }
@@ -635,7 +646,7 @@ export function buildLinkedDeviceEcdsaPresignInitRequestV1(input: {
   readonly signingDigest32: Uint8Array;
   readonly clientRerandomizationCommitment32: Uint8Array;
   readonly linkedDeviceExecution: LinkedDeviceExecutionEnvelopeV1;
-  readonly localPresenceAssertion: LinkedDeviceLocalPresenceAssertionV1;
+  readonly localPresenceAssertion?: LinkedDeviceLocalPresenceAssertionV1;
   readonly presignSessionId?: string;
 }): LinkedDeviceEcdsaPresignInitBodyV1 {
   return {
@@ -653,7 +664,9 @@ export function buildLinkedDeviceEcdsaPresignInitRequestV1(input: {
       input.clientRerandomizationCommitment32,
     ),
     linkedDeviceExecution: input.linkedDeviceExecution,
-    localPresenceAssertion: input.localPresenceAssertion,
+    ...(input.localPresenceAssertion
+      ? { localPresenceAssertion: input.localPresenceAssertion }
+      : {}),
     ...(input.presignSessionId ? { presign_session_id: input.presignSessionId } : {}),
   };
 }
@@ -713,46 +726,7 @@ export async function executeLinkedDeviceEcdsaNormalSigningV1(
     walletSessionJwt: input.walletSession.token.walletSessionJwt,
   };
   const transport = input.transport ?? defaultTransport;
-  const presenceAndHolder = await authorizeAndOpenLinkedDeviceHolderV1({
-    authenticator: input.authenticator,
-    holderRepository: input.holderRepository,
-    holderMaterial: input.holderMaterial,
-    bundle: input.bundle,
-    child: input.child,
-    authorizedOperationId,
-    intentDigestB64u: input.request.operationDigests.intentDigest,
-    issuedAtMs: input.issuedAtMs,
-    expiresAtMs,
-    authorizeBeforeOpen: async (localPresenceAssertion) => {
-      const initRequest = buildLinkedDeviceEcdsaPresignInitRequestV1({
-        scope: scopeWire,
-        requestId,
-        operationId,
-        operationDigests: input.request.operationDigests,
-        authorization,
-        materialActivation,
-        clientPresignatureId,
-        expiresAtMs,
-        signingDigest32: input.request.signingDigest32,
-        clientRerandomizationCommitment32: commitment32,
-        linkedDeviceExecution: envelope,
-        localPresenceAssertion,
-        presignSessionId,
-      });
-      const initResponse = await transport.presignInit({
-        relayServerUrl: input.relayServerUrl,
-        credential,
-        request: initRequest,
-      });
-      assertPresignInitMatches(initRequest, initResponse, expiresAtMs);
-      return initResponse;
-    },
-  });
-  if (presenceAndHolder.holderMaterial.keyFamily !== 'ecdsa_secp256k1') {
-    throw new Error('linked ECDSA holder material changed its active curve');
-  }
-
-  const coreRequest = buildLinkedDeviceEcdsaPresignInitRequestV1({
+  let coreRequest = buildLinkedDeviceEcdsaPresignInitRequestV1({
     scope: scopeWire,
     requestId,
     operationId,
@@ -764,19 +738,57 @@ export async function executeLinkedDeviceEcdsaNormalSigningV1(
     signingDigest32: input.request.signingDigest32,
     clientRerandomizationCommitment32: commitment32,
     linkedDeviceExecution: envelope,
-    localPresenceAssertion: presenceAndHolder.localPresenceAssertion,
     presignSessionId,
   });
+  let initialProgress: LinkedDeviceEcdsaPresignInitProgressV1;
+  try {
+    initialProgress = await transport.presignInit({
+      relayServerUrl: input.relayServerUrl,
+      credential,
+      request: coreRequest,
+    });
+  } catch (error) {
+    if (!isLinkedDeviceStepUpRequired(error)) throw error;
+    const localPresenceAssertion = await collectLinkedDeviceLocalPresenceV1({
+      authenticator: input.authenticator,
+      bundle: input.bundle,
+      child: input.child,
+      authorizedOperationId,
+      intentDigestB64u: input.request.operationDigests.intentDigest,
+      issuedAtMs: input.issuedAtMs,
+      expiresAtMs,
+    });
+    coreRequest = buildLinkedDeviceEcdsaPresignInitRequestV1({
+      scope: scopeWire,
+      requestId,
+      operationId,
+      operationDigests: input.request.operationDigests,
+      authorization,
+      materialActivation,
+      clientPresignatureId,
+      expiresAtMs,
+      signingDigest32: input.request.signingDigest32,
+      clientRerandomizationCommitment32: commitment32,
+      linkedDeviceExecution: envelope,
+      localPresenceAssertion,
+      presignSessionId,
+    });
+    initialProgress = await transport.presignInit({
+      relayServerUrl: input.relayServerUrl,
+      credential,
+      request: coreRequest,
+    });
+  }
+  assertPresignInitMatches(coreRequest, initialProgress, expiresAtMs);
   const source = new LinkedDeviceEcdsaSigningMaterialSourceV1({
-    handle: presenceAndHolder.holderMaterial,
-    holderMaterial: input.holderMaterial,
+    handle: input.holderHandle,
   });
   const continuationCoreRequest = stripLocalPresenceAssertion(coreRequest);
   const poolIdentity = buildPoolIdentity(scope, input.child, requestId);
   let sessionId: string | null = null;
   let localHandle: string | null = null;
   let localBigR33: Uint8Array | null = null;
-  let serverProgress: LinkedDeviceEcdsaPresignProgressV1 = presenceAndHolder.authorizationResult;
+  let serverProgress: LinkedDeviceEcdsaPresignProgressV1 = initialProgress;
   let serverPresignatureId: string | null = null;
   let serverBigR33B64u: string | null = null;
   let serverRerandomization32: Uint8Array | null = null;
@@ -869,9 +881,10 @@ export async function executeLinkedDeviceEcdsaNormalSigningV1(
       throw new Error('linked ECDSA client/server presignature mismatch');
     }
     assertPresignCompletionMatches(coreRequest, sessionId, serverProgress);
+    const localPresignatureId = await presignatureIdFromBigR(localBigR33);
     await source.admitClientPresignature({
       materialHandle: localHandle,
-      expectedPresignatureId: serverPresignatureId,
+      expectedPresignatureId: localPresignatureId,
       poolIdentity,
       workerCtx: input.workerCtx,
     });

@@ -857,6 +857,24 @@ test.describe('signing session sealed store', () => {
     expect(result.built).toBeNull();
   });
 
+  test('preserves sealed lane-holder records owned by the lane store', async ({ page }) => {
+    const classification = await page.evaluate(
+      async ({ paths }) => {
+        const mod = await import(paths.sealedSessionStore);
+        return mod.classifyRawSealedSessionRecord({
+          kind: 'lane_sealed_holder_record_v1',
+          store_key: 'r102_lane_holder_v1:test',
+        });
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(classification).toMatchObject({
+      kind: 'unrelated_record',
+      reason: 'owned_by_lane_holder_store',
+    });
+  });
+
   test('rejects ECDSA signing-session seals with legacy user identity', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {

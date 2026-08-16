@@ -77,6 +77,7 @@ import type {
 import type { WalletIframeTransportDiagnostics } from './transport/IframeTransport';
 import {
   AccountSyncEventPhase,
+  classifyLinkDeviceFlowEvent,
   createAccountSyncFlowEvent,
   createKeyExportFlowEvent,
   createLinkDeviceFlowEvent,
@@ -560,12 +561,30 @@ function assertNeverWalletIframeRequestSurfaceKind(value: never): never {
 
 function isTerminalStickyWalletFlowProgress(payload: ProgressPayload): boolean {
   if (!isWalletFlowEvent(payload)) return false;
+  if (payload.flow === 'link_device') {
+    const outcome = classifyLinkDeviceFlowEvent(payload);
+    switch (outcome.kind) {
+      case 'pending':
+        return false;
+      case 'active':
+      case 'invalid_active':
+      case 'failed':
+      case 'cancelled':
+        return true;
+      default:
+        return assertNeverLinkDeviceFlowOutcome(outcome);
+    }
+  }
   return (
     payload.status === 'cancelled' ||
     payload.status === 'failed' ||
     payload.phase === KeyExportEventPhase.STEP_05_VIEWER_CLOSED ||
     payload.phase === KeyExportEventPhase.STEP_06_COMPLETED
   );
+}
+
+function assertNeverLinkDeviceFlowOutcome(value: never): never {
+  throw new Error(`Unhandled link-device flow outcome: ${String(value)}`);
 }
 
 function shouldHideWalletIframeSurface(payload: ProgressPayload): boolean {
@@ -2383,7 +2402,6 @@ export class WalletIframeRouter {
   private mirrorExpiredSession(event: SigningSessionExpiredEvent): void {
     const state = this.exactSessionState;
     if (state === null || state.kind !== 'active_session') return;
-    if (state.authMethod === 'linked_device') return;
     if (state.walletId !== event.walletId || state.walletSessionId !== event.walletSessionId)
       return;
     const expiredState: WalletIframeExactSessionState = {
@@ -3417,25 +3435,28 @@ export class WalletIframeRouter {
       confirmerText?: { title?: string; body?: string };
     };
   }): Promise<LinkDeviceResult> {
-    const res = await this.post<LinkDeviceResult>({
-      type: 'PM_SCAN_AND_LINK_DEVICE',
-      payload: {
-        qrData: payload.qrData,
-        ...(payload.options
-          ? {
-              options: {
-                ...(payload.options.confirmationConfig
-                  ? { confirmationConfig: payload.options.confirmationConfig }
-                  : {}),
-                ...(payload.options.confirmerText
-                  ? { confirmerText: payload.options.confirmerText }
-                  : {}),
-              },
-            }
-          : {}),
+    const res = await this.post<LinkDeviceResult>(
+      {
+        type: 'PM_SCAN_AND_LINK_DEVICE',
+        payload: {
+          qrData: payload.qrData,
+          ...(payload.options
+            ? {
+                options: {
+                  ...(payload.options.confirmationConfig
+                    ? { confirmationConfig: payload.options.confirmationConfig }
+                    : {}),
+                  ...(payload.options.confirmerText
+                    ? { confirmerText: payload.options.confirmerText }
+                    : {}),
+                },
+              }
+            : {}),
+        },
+        options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isLinkDeviceFlowEvent) },
       },
-      options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isLinkDeviceFlowEvent) },
-    });
+      { timeout: 'interactive' },
+    );
     return res.result as LinkDeviceResult;
   }
 
@@ -4073,23 +4094,14 @@ export class WalletIframeRouter {
     if (state === null || state.kind !== 'active_session' || state.walletId !== requestWalletId) {
       return { kind: 'unbound' };
     }
-    return state.authMethod === 'linked_device'
-      ? {
-          kind: 'exact_session',
-          walletId: state.walletId,
-          authorizationId: state.authorizationId,
-          walletSessionId: state.walletSessionId,
-          authMethod: 'linked_device',
-          expiresAtMs: state.expiresAtMs,
-        }
-      : {
-          kind: 'exact_session',
-          walletId: state.walletId,
-          authorizationId: state.authorizationId,
-          walletSessionId: state.walletSessionId,
-          authMethod: state.authMethod,
-          expiresAtMs: state.expiresAtMs,
-        };
+    return {
+      kind: 'exact_session',
+      walletId: state.walletId,
+      authorizationId: state.authorizationId,
+      walletSessionId: state.walletSessionId,
+      authMethod: state.authMethod,
+      expiresAtMs: state.expiresAtMs,
+    };
   }
 
   private requestAdmission(

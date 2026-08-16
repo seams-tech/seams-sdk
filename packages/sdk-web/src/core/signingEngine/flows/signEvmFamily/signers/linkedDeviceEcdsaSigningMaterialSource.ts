@@ -1,6 +1,5 @@
 import type {
   DeviceLinkingHolderSigningMaterialHandleV1,
-  DeviceLinkingHolderSigningMaterialPortV1,
 } from '@/core/signingEngine/session/lanes/linkedDevicePorts';
 import type { WorkerOperationContext } from '../../../workerManager/executeWorkerOperation';
 import type { RouterAbEcdsaDerivationClientSigningMaterialSource } from '../../../routerAb/ecdsaDerivation/presignaturePool';
@@ -25,14 +24,11 @@ type LinkedDeviceEcdsaHolderHandleV1 = Extract<
 export class LinkedDeviceEcdsaSigningMaterialSourceV1 implements RouterAbEcdsaDerivationClientSigningMaterialSource {
   readonly kind = 'router_ab_ecdsa_derivation_client_signing_material_source_v1' as const;
   private readonly handle: LinkedDeviceEcdsaHolderHandleV1;
-  private readonly holderMaterial: DeviceLinkingHolderSigningMaterialPortV1;
 
   constructor(input: {
     readonly handle: LinkedDeviceEcdsaHolderHandleV1;
-    readonly holderMaterial: DeviceLinkingHolderSigningMaterialPortV1;
   }) {
     this.handle = input.handle;
-    this.holderMaterial = input.holderMaterial;
   }
 
   async initClientPresignSession(
@@ -125,6 +121,6 @@ export class LinkedDeviceEcdsaSigningMaterialSourceV1 implements RouterAbEcdsaDe
   }
 
   async cleanupAfterSign(): Promise<void> {
-    await this.holderMaterial.discardHolderSigningMaterialV1({ handle: this.handle });
+    return;
   }
 }

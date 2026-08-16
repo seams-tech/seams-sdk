@@ -8,6 +8,7 @@ type LockFixture = {
   deps: WalletLockDomainDeps;
   calls: {
     clearNonce: number;
+    clearLinkedRefresh: number;
     clearAuthentication: number;
     clearEcdsaQueue: number;
     clearWarmMaterial: number;
@@ -21,6 +22,7 @@ function createLockFixture(args: {
 }): LockFixture {
   const calls = {
     clearNonce: 0,
+    clearLinkedRefresh: 0,
     clearAuthentication: 0,
     clearEcdsaQueue: 0,
     clearWarmMaterial: 0,
@@ -29,6 +31,9 @@ function createLockFixture(args: {
   const deps: WalletLockDomainDeps = {
     getContext: () => ({
       signingEngine: {
+        async clearLinkedDeviceRefreshMaterial(): Promise<void> {
+          calls.clearLinkedRefresh += 1;
+        },
         clearWalletAuthentication(): void {
           calls.clearAuthentication += 1;
         },
@@ -69,6 +74,7 @@ test.describe('wallet lock lifecycle', () => {
 
     expect(fixture.calls).toEqual({
       clearNonce: 1,
+      clearLinkedRefresh: 1,
       clearAuthentication: 1,
       clearEcdsaQueue: 1,
       clearWarmMaterial: 1,
@@ -87,6 +93,7 @@ test.describe('wallet lock lifecycle', () => {
     await expect(lockDomain(fixture.deps)).rejects.toThrow('wallet host lock failed');
     expect(fixture.calls).toEqual({
       clearNonce: 1,
+      clearLinkedRefresh: 1,
       clearAuthentication: 1,
       clearEcdsaQueue: 1,
       clearWarmMaterial: 1,

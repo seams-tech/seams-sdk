@@ -612,11 +612,21 @@ impl CloudflareSigningWorkerLaneMaterialRecordV1 {
     pub fn active_server_material(
         &self,
     ) -> RouterAbProtocolResult<CloudflareSigningWorkerLaneArtifactV1> {
+        self.active_server_material_with_activation()
+            .map(|(material, _)| material)
+    }
+
+    pub fn active_server_material_with_activation(
+        &self,
+    ) -> RouterAbProtocolResult<(CloudflareSigningWorkerLaneArtifactV1, u64)> {
         self.validate()?;
         match &self.lifecycle {
             CloudflareSigningWorkerLaneMaterialLifecycleV1::Active {
                 server_activation, ..
-            } => Ok(server_activation.active_server_material.clone()),
+            } => Ok((
+                server_activation.active_server_material.clone(),
+                server_activation.activated_at_ms,
+            )),
             _ => Err(lane_error(
                 RouterAbProtocolErrorCode::MissingLocalBinding,
                 "SigningWorker lane active server material is unavailable",

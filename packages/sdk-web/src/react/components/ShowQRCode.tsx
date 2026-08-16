@@ -1,7 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 
 import { useSeams } from '../context';
-import { LinkDeviceFlowEvent } from '../../core/types/sdkSentEvents';
+import {
+  classifyLinkDeviceFlowEvent,
+  type LinkDeviceFlowEvent,
+  type LinkDeviceFlowOutcome,
+} from '../../core/types/sdkSentEvents';
 import { toAccountId } from '../../core/types/accountIds';
 import './ShowQRCode.css';
 
@@ -10,6 +14,25 @@ export interface ShowQRCodeProps {
   onClose: () => void;
   onEvent: (event: LinkDeviceFlowEvent) => void;
   onError: (error: Error) => void;
+}
+
+function isCompletedDeviceLink(event: LinkDeviceFlowEvent): boolean {
+  const outcome = classifyLinkDeviceFlowEvent(event);
+  switch (outcome.kind) {
+    case 'active':
+      return true;
+    case 'pending':
+    case 'invalid_active':
+    case 'failed':
+    case 'cancelled':
+      return false;
+    default:
+      return assertNeverLinkDeviceFlowOutcome(outcome);
+  }
+}
+
+function assertNeverLinkDeviceFlowOutcome(value: never): never {
+  throw new Error(`Unhandled link-device flow outcome: ${String(value)}`);
 }
 
 export function ShowQRCode({ isOpen, onClose, onEvent, onError }: ShowQRCodeProps) {
@@ -24,16 +47,34 @@ export function ShowQRCode({ isOpen, onClose, onEvent, onError }: ShowQRCodeProp
     lastMessage?: string;
   }>({ mode: 'idle', isProcessing: false });
 
-  // Prevent duplicate concurrent starts (e.g., React StrictMode double-effect)
+  // Ignore async results from an earlier menu opening.
   const sessionRef = useRef(0);
+  const flowRuntimeRef = useRef({
+    startDevice2LinkingFlow,
+    cancelDeviceLinking,
+    accountIdRaw: '',
+    onClose,
+    onEvent,
+    onError,
+  });
+  flowRuntimeRef.current = {
+    startDevice2LinkingFlow,
+    cancelDeviceLinking,
+    accountIdRaw: String(
+      accountInputState?.targetAccountId || loginState?.nearAccountId || '',
+    ).trim(),
+    onClose,
+    onEvent,
+    onError,
+  };
 
-  // Auto-start QR generation when modal opens; cancel when closing or unmounting
+  // One menu opening owns one linking ceremony. Render-time callback changes must
+  // not cancel and restart the one-time QR invitation.
   useEffect(() => {
     if (!isOpen) return;
 
-    const accountIdRaw = String(
-      accountInputState?.targetAccountId || loginState?.nearAccountId || '',
-    ).trim();
+    const runtime = flowRuntimeRef.current;
+    const { accountIdRaw } = runtime;
 
     const mySession = ++sessionRef.current;
     let cancelled = false;
@@ -41,24 +82,31 @@ export function ShowQRCode({ isOpen, onClose, onEvent, onError }: ShowQRCodeProp
 
     (async () => {
       try {
-        const { qrCodeDataURL } = await startDevice2LinkingFlow({
+        const { qrCodeDataURL } = await runtime.startDevice2LinkingFlow({
           ...(accountIdRaw ? { accountId: toAccountId(accountIdRaw) } : {}),
           options: {
             onEvent: (event: LinkDeviceFlowEvent) => {
               if (cancelled) return;
+              if (isCompletedDeviceLink(event)) {
+                cancelled = true;
+                sessionRef.current++;
+                runtime.onEvent(event);
+                runtime.onClose();
+                return;
+              }
               setDeviceLinkingState((prev) => ({
                 ...prev,
                 lastPhase: String(event.phase),
                 lastMessage: event.message,
               }));
-              onEvent(event);
+              runtime.onEvent(event);
             },
             onError: (error: Error) => {
               if (cancelled) return;
               setDeviceLinkingState({ mode: 'idle', isProcessing: false });
-              onError(error);
+              runtime.onError(error);
               try {
-                onClose();
+                runtime.onClose();
               } catch {}
             },
           },
@@ -79,19 +127,10 @@ export function ShowQRCode({ isOpen, onClose, onEvent, onError }: ShowQRCodeProp
       cancelled = true;
       sessionRef.current++;
       try {
-        cancelDeviceLinking().catch(() => {});
+        runtime.cancelDeviceLinking().catch(() => {});
       } catch {}
     };
-  }, [
-    accountInputState?.targetAccountId,
-    isOpen,
-    loginState?.nearAccountId,
-    onClose,
-    onEvent,
-    onError,
-    startDevice2LinkingFlow,
-    cancelDeviceLinking,
-  ]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 

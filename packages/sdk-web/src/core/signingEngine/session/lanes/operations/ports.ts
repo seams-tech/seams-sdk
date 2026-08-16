@@ -63,8 +63,11 @@ export type LaneOperationSourcePortsV1 = LaneOperationClockV1 & {
   readonly wasm: LaneOperationWasmPortsV1;
   readonly protocolCommitter: LaneProtocolCommitterV1;
   readonly reconcileEcdsaActivationJournalV1: (input: {
+    readonly walletId: RotatableSigningLaneJobV1['walletId'];
     readonly walletKeyId: RotatableSigningLaneJobV1['walletKeyId'];
-    readonly laneId: RotatableSigningLaneJobV1['target']['laneId'];
-    readonly laneShareEpoch: RotatableSigningLaneJobV1['target']['laneShareEpoch'];
+    readonly source: Extract<
+      RotatableSigningLaneJobV1,
+      { readonly keyFamily: 'ecdsa_secp256k1' }
+    >['source'];
   }) => Promise<void>;
 };

@@ -37,15 +37,30 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
     [theme, tokens],
   );
 
+  const scannedPayloadRef = React.useRef<QrLinkedDeviceSessionPayloadV4 | null>(null);
+  const approvalReportedRef = React.useRef(false);
+
+  const handleLinkDeviceEvent = React.useCallback(
+    (event: LinkDeviceFlowEvent) => {
+      onEvent?.(event);
+      if (event.status !== 'succeeded' || approvalReportedRef.current) return;
+      const scannedPayload = scannedPayloadRef.current;
+      if (!scannedPayload) return;
+      approvalReportedRef.current = true;
+      onQRCodeScanned?.(scannedPayload);
+    },
+    [onEvent, onQRCodeScanned],
+  );
+
   const { linkDevice } = useDeviceLinking({
     onError,
     onClose,
-    onEvent,
+    onEvent: handleLinkDeviceEvent,
   });
 
   const qrCamera = useQRCamera({
     onQRDetected: async (qrData: QrLinkedDeviceSessionPayloadV4) => {
-      onQRCodeScanned?.(qrData);
+      scannedPayloadRef.current = qrData;
       await linkDevice(qrData, QRScanMode.CAMERA);
     },
     onError,
@@ -59,6 +74,8 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
   useEffect(() => {
     if (isOpen) {
       setIsVideoReady(false);
+      scannedPayloadRef.current = null;
+      approvalReportedRef.current = false;
     }
   }, [isOpen]);
 
@@ -187,12 +204,7 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
 
                   {/* Scanner Overlay */}
                   <div className="qr-scanner-overlay">
-                    <div className="qr-scanner-box">
-                      <div className="qr-scanner-corner-top-left" />
-                      <div className="qr-scanner-corner-top-right" />
-                      <div className="qr-scanner-corner-bottom-left" />
-                      <div className="qr-scanner-corner-bottom-right" />
-                    </div>
+                    <div className="qr-scanner-box" />
                   </div>
                 </div>
 

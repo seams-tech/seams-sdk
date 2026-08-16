@@ -96,6 +96,7 @@ export * from './threshold/session/signingSessionSeal/options';
 export type {
   CreateSigningSessionSealServiceOptions,
   SigningSessionSealApplyServerSealRequest,
+  SigningSessionSealAuthorizationSessionRecord,
   SigningSessionSealAuditEvent,
   SigningSessionSealAuditSink,
   SigningSessionSealAuthContext,
@@ -122,6 +123,7 @@ export type {
   SigningSessionSealService,
   SigningSessionSealServiceIdempotencyOptions,
   SigningSessionSealStartupCapabilities,
+  SigningSessionSealLinkedDeviceWalletSessionRecord,
   SigningSessionSealThresholdSessionRecord,
 } from './threshold/session/signingSessionSeal/signingSessionSeal.types';
 export {

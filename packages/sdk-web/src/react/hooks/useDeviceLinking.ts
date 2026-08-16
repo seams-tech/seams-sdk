@@ -38,8 +38,8 @@ export const useDeviceLinking = (options: UseDeviceLinkingOptions): UseDeviceLin
           onEvent,
         });
       } catch (linkingError: unknown) {
-        onError?.(linkingError instanceof Error ? linkingError : new Error(String(linkingError)));
         onClose?.();
+        onError?.(linkingError instanceof Error ? linkingError : new Error(String(linkingError)));
       }
     },
     [seams],

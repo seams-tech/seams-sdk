@@ -3,19 +3,44 @@ import {
   test,
   type BrowserContext,
   type ConsoleMessage,
-  type Frame,
+  type FrameLocator,
   type Page,
+  type Request,
+  type Response,
   type Route,
 } from '@playwright/test';
 
 const enabled = process.env.SEAMS_LINKED_DEVICE_E2E === '1';
-const appOrigin = String(process.env.SEAMS_LINKED_DEVICE_E2E_APP_URL || 'https://localhost')
+const appOrigin = String(
+  process.env.SEAMS_LINKED_DEVICE_E2E_APP_URL ||
+    process.env.SEAMS_INTENDED_APP_URL ||
+    'https://localhost',
+)
   .trim()
   .replace(/\/+$/, '');
 const nearStubBlockHash = '11111111111111111111111111111111';
+const arcStubBlockHash = `0x${'11'.repeat(32)}`;
+const arcStubTransactionHash = `0x${'22'.repeat(32)}`;
+const arcGreetingContract = '0xeB7aB5A6F761072C96147A54B8a15F012e836691';
+const arcState = {
+  greeting: 'Hello from local Arc',
+  pendingGreeting: 'Hello from linked Arc',
+  transactionInput: '0x',
+};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function requireRecordProperty(
+  value: unknown,
+  property: string,
+  context: string,
+): Record<string, unknown> {
+  if (!isRecord(value)) throw new Error(`${context} is not an object`);
+  const propertyValue = Reflect.get(value, property);
+  if (!isRecord(propertyValue)) throw new Error(`${context}.${property} is not an object`);
+  return propertyValue;
 }
 
 function nearRpcQueryResult(params: unknown): unknown {
@@ -85,6 +110,105 @@ async function fulfillNearRpc(route: Route): Promise<void> {
   });
 }
 
+function utf8Hex(value: string): string {
+  return Array.from(new TextEncoder().encode(value), (byte) =>
+    byte.toString(16).padStart(2, '0'),
+  ).join('');
+}
+
+function encodeArcGreetingResult(value: string): `0x${string}` {
+  const valueHex = utf8Hex(value);
+  const paddedValueHex = valueHex.padEnd(Math.ceil(valueHex.length / 64) * 64, '0');
+  return `0x${(32).toString(16).padStart(64, '0')}${(valueHex.length / 2)
+    .toString(16)
+    .padStart(64, '0')}${paddedValueHex}`;
+}
+
+function encodeArcSetGreetingInput(value: string): `0x${string}` {
+  return `0xa4136862${encodeArcGreetingResult(value).slice(2)}`;
+}
+
+function arcRpcResult(method: string): unknown {
+  switch (method) {
+    case 'eth_call':
+      return encodeArcGreetingResult(arcState.greeting);
+    case 'eth_chainId':
+      return `0x${(5_042_002).toString(16)}`;
+    case 'eth_getBalance':
+      return '0x3635c9adc5dea00000';
+    case 'eth_getTransactionCount':
+      return '0x0';
+    case 'eth_blockNumber':
+      return '0x10';
+    case 'eth_getBlockByNumber':
+      return {
+        number: '0x10',
+        hash: arcStubBlockHash,
+        baseFeePerGas: '0x3b9aca00',
+      };
+    case 'eth_maxPriorityFeePerGas':
+    case 'eth_gasPrice':
+      return '0x3b9aca00';
+    case 'eth_sendRawTransaction':
+      arcState.greeting = arcState.pendingGreeting;
+      return arcStubTransactionHash;
+    case 'eth_getTransactionReceipt':
+      return {
+        transactionHash: arcStubTransactionHash,
+        transactionIndex: '0x0',
+        blockHash: arcStubBlockHash,
+        blockNumber: '0x10',
+        from: '0x1111111111111111111111111111111111111111',
+        to: arcGreetingContract,
+        cumulativeGasUsed: '0x30d40',
+        gasUsed: '0x30d40',
+        effectiveGasPrice: '0x3b9aca00',
+        contractAddress: null,
+        logs: [],
+        logsBloom: `0x${'00'.repeat(256)}`,
+        status: '0x1',
+        type: '0x2',
+      };
+    case 'eth_getTransactionByHash':
+      return {
+        hash: arcStubTransactionHash,
+        nonce: '0x0',
+        blockHash: arcStubBlockHash,
+        blockNumber: '0x10',
+        transactionIndex: '0x0',
+        from: '0x1111111111111111111111111111111111111111',
+        to: arcGreetingContract,
+        value: '0x0',
+        gas: '0x30d40',
+        maxFeePerGas: '0x9502f9000',
+        maxPriorityFeePerGas: '0x77359400',
+        input: arcState.transactionInput,
+        type: '0x2',
+      };
+    default:
+      return null;
+  }
+}
+
+async function fulfillArcRpc(route: Route): Promise<void> {
+  const raw = route.request().postData() || '{}';
+  const parsed: unknown = JSON.parse(raw);
+  const request = isRecord(parsed) ? parsed : {};
+  const method = String(request.method || '');
+  const result = arcRpcResult(method);
+  await route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: request.id ?? 'linked-device-arc',
+      ...(result === null
+        ? { error: { code: -32601, message: `Unsupported Arc RPC method: ${method}` } }
+        : { result }),
+    }),
+  });
+}
+
 function linkedDeviceConsoleDiagnostic(message: ConsoleMessage): string | null {
   const text = message.text().replace(/\s+/g, ' ').trim().slice(0, 400);
   if (message.type() === 'error' || /camera|device linking|linked-device|qr|r102/i.test(text)) {
@@ -112,7 +236,7 @@ async function addVirtualAuthenticator(page: Page): Promise<void> {
   });
 }
 
-async function walletFrame(page: Page): Promise<Frame> {
+async function walletFrame(page: Page): Promise<FrameLocator> {
   const iframe = page.locator('iframe[src*="/wallet-service"]');
   await iframe.waitFor({ state: 'attached', timeout: 30_000 });
   const frame = await iframe.contentFrame();
@@ -120,17 +244,9 @@ async function walletFrame(page: Page): Promise<Frame> {
   return frame;
 }
 
-async function openWallet(page: Page): Promise<Frame> {
+async function openWallet(page: Page): Promise<FrameLocator> {
   await page.goto(`${appOrigin}/wallet`, { waitUntil: 'domcontentloaded' });
   return walletFrame(page);
-}
-
-async function acknowledgeRecoveryCodeBackup(wallet: Frame): Promise<void> {
-  const acknowledgement = wallet.locator('[data-w3a-wallet-recovery-backup-acknowledgement]');
-  await acknowledgement.waitFor({ state: 'visible', timeout: 120_000 });
-  await acknowledgement.check();
-  // Checked acknowledgement + the single close control completes the backup.
-  await wallet.locator('[data-w3a-wallet-recovery-backup-close]').click();
 }
 
 async function registerOwner(page: Page, diagnostics: readonly string[]): Promise<void> {
@@ -139,15 +255,14 @@ async function registerOwner(page: Page, diagnostics: readonly string[]): Promis
   await primary.waitFor({ state: 'visible', timeout: 30_000 });
   await primary.click();
   try {
-    await acknowledgeRecoveryCodeBackup(wallet);
+    await page
+      .locator('.w3a-profile-button-morphable')
+      .waitFor({ state: 'visible', timeout: 120_000 });
   } catch (error) {
-    throw new Error(`Owner registration did not reach recovery backup. ${diagnostics.join('\n')}`, {
+    throw new Error(`Owner registration did not complete. ${diagnostics.join('\n')}`, {
       cause: error,
     });
   }
-  await page
-    .locator('.w3a-profile-button-morphable')
-    .waitFor({ state: 'visible', timeout: 120_000 });
 }
 
 type QrCameraFrame = {
@@ -245,7 +360,7 @@ async function openDevice2Qr(page: Page): Promise<string> {
   const linkButton = wallet.getByRole('button', { name: 'Scan and Link Device', exact: true });
   await linkButton.waitFor({ state: 'visible', timeout: 30_000 });
   await linkButton.click();
-  const qr = wallet.locator('img[alt="Device Linking QR Code"]');
+  const qr = wallet.locator('img[alt="QR code to link this device"]');
   try {
     await qr.waitFor({ state: 'visible', timeout: 60_000 });
   } catch (error) {
@@ -268,6 +383,101 @@ async function openOwnerScanner(page: Page, qrDataUrl: string): Promise<void> {
   await page.locator('.qr-scanner-video').waitFor({ state: 'visible', timeout: 30_000 });
 }
 
+async function openOwnerLinkedDevices(page: Page): Promise<void> {
+  const profile = page.locator('.w3a-profile-button-morphable');
+  if ((await profile.getAttribute('data-state')) !== 'open') {
+    await profile.locator('.w3a-user-account-button-trigger').click();
+  }
+  await expect(profile).toHaveAttribute('data-state', 'open', { timeout: 10_000 });
+  await profile.getByRole('button', { name: /^Linked Devices/ }).click({ timeout: 10_000 });
+}
+
+async function lockAndUnlockLinkedDevice(
+  page: Page,
+  diagnostics: readonly string[],
+): Promise<void> {
+  const profile = page.locator('.w3a-profile-button-morphable');
+  if ((await profile.getAttribute('data-state')) !== 'open') {
+    await profile.locator('.w3a-user-account-button-trigger').click();
+  }
+  await expect(profile).toHaveAttribute('data-state', 'open', { timeout: 10_000 });
+  await profile.getByRole('button', { name: /^Lock Wallet/ }).click();
+
+  const wallet = await walletFrame(page);
+  await wallet
+    .getByRole('button', { name: 'Sign in with Passkey', exact: true })
+    .waitFor({ state: 'visible', timeout: 30_000 });
+
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await unlockLinkedDevice(page, diagnostics);
+}
+
+async function unlockLinkedDevice(page: Page, diagnostics: readonly string[]): Promise<void> {
+  const wallet = await walletFrame(page);
+  const unlock = wallet.getByRole('button', { name: 'Sign in with Passkey', exact: true });
+  await unlock.waitFor({ state: 'visible', timeout: 30_000 });
+  const renewed = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      new URL(response.url()).pathname.endsWith('/wallet-session-renew'),
+    { timeout: 90_000 },
+  );
+  await unlock.click();
+  const response = await renewed;
+  if (!response.ok()) {
+    throw new Error(
+      `Linked unlock did not establish a signing session (${response.status()}): ${await response.text()}\n${diagnostics.join('\n')}`,
+    );
+  }
+  const localPresenceAssertion = requireRecordProperty(
+    response.request().postDataJSON(),
+    'localPresenceAssertion',
+    'Device 2 unlock request',
+  );
+  expect(localPresenceAssertion).toEqual(
+    expect.objectContaining({
+      kind: 'linked_device_local_presence_assertion_v1',
+      authorizedOperationId: expect.any(String),
+      deviceId: expect.any(String),
+      enrollmentId: expect.any(String),
+      intentDigestB64u: expect.any(String),
+      challengeDigestB64u: expect.any(String),
+    }),
+  );
+  await page.getByRole('tab', { name: 'Tempo', exact: true }).waitFor({
+    state: 'visible',
+    timeout: 120_000,
+  });
+}
+
+async function refreshLinkedDeviceForSigning(
+  page: Page,
+): Promise<void> {
+  let renewalRequests = 0;
+  const countRenewalRequest = (request: Request): void => {
+    if (new URL(request.url()).pathname.endsWith('/wallet-session-renew')) {
+      renewalRequests += 1;
+    }
+  };
+  page.on('request', countRenewalRequest);
+  const rehydrated = page.waitForResponse(
+    (response) =>
+      response.request().method() === 'POST' &&
+      new URL(response.url()).pathname === '/wallet-session/seal/remove-server-seal',
+    { timeout: 120_000 },
+  );
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  const wallet = await walletFrame(page);
+  const tempoTab = page.getByRole('tab', { name: 'Tempo', exact: true });
+  const unlock = wallet.getByRole('button', { name: 'Sign in with Passkey', exact: true });
+  const restoreResponse = await rehydrated;
+  expect(restoreResponse.ok()).toBe(true);
+  await tempoTab.waitFor({ state: 'visible', timeout: 120_000 });
+  await expect(unlock).toBeHidden();
+  page.off('request', countRenewalRequest);
+  expect(renewalRequests).toBe(0);
+}
+
 async function confirmWalletSigning(page: Page): Promise<void> {
   const iframe = page.locator('iframe[allow*="publickey-credentials-get"]').last();
   await iframe.waitFor({ state: 'attached', timeout: 60_000 });
@@ -277,6 +487,70 @@ async function confirmWalletSigning(page: Page): Promise<void> {
     .first();
   await confirm.waitFor({ state: 'visible', timeout: 60_000 });
   await confirm.click();
+}
+
+function isEcdsaFinalSignResponse(response: Response): boolean {
+  return (
+    response.request().method() === 'POST' &&
+    new URL(response.url()).pathname === '/router-ab/ecdsa-derivation/sign'
+  );
+}
+
+function isEd25519FinalSignResponse(response: Response): boolean {
+  return (
+    response.request().method() === 'POST' &&
+    new URL(response.url()).pathname === '/router-ab/ed25519/sign'
+  );
+}
+
+function isArcBroadcastResponse(response: Response): boolean {
+  const body: unknown = response.request().postDataJSON();
+  return isRecord(body) && body.method === 'eth_sendRawTransaction';
+}
+
+function isNearBroadcastResponse(response: Response): boolean {
+  const body: unknown = response.request().postDataJSON();
+  return isRecord(body) && body.method === 'send_tx';
+}
+
+async function requireSuccessfulRouterResponse(
+  responsePromise: Promise<Response>,
+  diagnostics: readonly string[],
+): Promise<void> {
+  let response: Response;
+  try {
+    response = await responsePromise;
+  } catch (error: unknown) {
+    throw new Error(`Linked signing did not reach Router finalization. ${diagnostics.join('\n')}`, {
+      cause: error,
+    });
+  }
+  const responseBody = await response.text();
+  if (response.ok()) {
+    const parsed: unknown = JSON.parse(responseBody);
+    if (
+      parsed === null ||
+      typeof parsed !== 'object' ||
+      Array.isArray(parsed) ||
+      Reflect.get(parsed, 'ok') !== false
+    ) {
+      return;
+    }
+  }
+  throw new Error(
+    `Linked signing request failed (${response.status()}): ${responseBody}\nRequest: ${response.request().postData() ?? '<empty>'}`,
+  );
+}
+
+async function requireSuccessfulJsonRpcResponse(
+  responsePromise: Promise<Response>,
+  label: string,
+): Promise<void> {
+  const response = await responsePromise;
+  const responseBody = await response.text();
+  const parsed: unknown = JSON.parse(responseBody);
+  if (response.ok() && isRecord(parsed) && !Reflect.has(parsed, 'error')) return;
+  throw new Error(`${label} failed (${response.status()}): ${responseBody}`);
 }
 
 async function linkedSigning(page: Page, diagnostics: readonly string[]): Promise<void> {
@@ -299,24 +573,57 @@ async function linkedSigning(page: Page, diagnostics: readonly string[]): Promis
   await tempoFunding.waitFor({ state: 'visible', timeout: 60_000 });
   if ((await tempoFunding.textContent())?.trim() === 'Fund Tempo Account') {
     await expect(tempoFunding).toBeEnabled({ timeout: 120_000 });
+    const fundingSigned = page.waitForResponse(isEcdsaFinalSignResponse, { timeout: 180_000 });
     await tempoFunding.click();
     await confirmWalletSigning(page);
-    await expect(tempoFunding).toBeEnabled({ timeout: 180_000 });
+    await requireSuccessfulRouterResponse(fundingSigned, diagnostics);
+    await expect(tempoFunding).toHaveText('Tempo Account Funded', { timeout: 180_000 });
+    await expect(tempoFunding).toBeDisabled();
   }
   const tempoSign = page.getByRole('button', { name: 'Sign on Tempo', exact: true });
   await tempoSign.waitFor({ state: 'visible', timeout: 60_000 });
   await expect(tempoSign).toBeEnabled({ timeout: 120_000 });
+  const tempoSigned = page.waitForResponse(isEcdsaFinalSignResponse, { timeout: 180_000 });
   await tempoSign.click();
   await confirmWalletSigning(page);
+  await requireSuccessfulRouterResponse(tempoSigned, diagnostics);
   await expect(tempoSign).toBeEnabled({ timeout: 180_000 });
+
+  const arcTab = page.getByRole('tab', { name: 'Arc', exact: true });
+  await arcTab.click();
+  const arcGreetingInput = page.getByPlaceholder('Enter a new greeting');
+  arcState.pendingGreeting = 'Hello from linked Arc';
+  arcState.transactionInput = encodeArcSetGreetingInput(arcState.pendingGreeting);
+  await arcGreetingInput.fill(arcState.pendingGreeting);
+  const arcSign = page.getByRole('button', { name: 'Sign on Arc', exact: true });
+  await expect(arcSign).toBeEnabled({ timeout: 120_000 });
+  const arcSigned = page.waitForResponse(isEcdsaFinalSignResponse, { timeout: 180_000 });
+  const arcBroadcast = page.waitForResponse(isArcBroadcastResponse, { timeout: 180_000 });
+  await arcSign.click();
+  await confirmWalletSigning(page);
+  await requireSuccessfulRouterResponse(arcSigned, diagnostics);
+  await requireSuccessfulJsonRpcResponse(arcBroadcast, 'Linked Arc transaction broadcast');
 
   const nearTab = page.getByRole('tab', { name: 'NEAR', exact: true });
   await nearTab.click();
   const sign = page.getByRole('button', { name: 'Sign on NEAR', exact: true });
   await sign.waitFor({ state: 'visible', timeout: 60_000 });
   await expect(sign).toBeEnabled();
+  const nearSigned = page.waitForResponse(isEd25519FinalSignResponse, { timeout: 180_000 });
+  const nearBroadcast = page.waitForResponse(isNearBroadcastResponse, { timeout: 180_000 });
   await sign.click();
-  await expect(sign).toBeEnabled({ timeout: 180_000 });
+  await confirmWalletSigning(page);
+  await requireSuccessfulRouterResponse(nearSigned, diagnostics);
+  await requireSuccessfulJsonRpcResponse(nearBroadcast, 'Linked NEAR transaction broadcast');
+
+  await tempoTab.click();
+  await expect(tempoSign).toBeEnabled({ timeout: 120_000 });
+  const renewedTempoSigned = page.waitForResponse(isEcdsaFinalSignResponse, {
+    timeout: 180_000,
+  });
+  await tempoSign.click();
+  await confirmWalletSigning(page);
+  await requireSuccessfulRouterResponse(renewedTempoSigned, diagnostics);
 }
 
 function resolveContextCloseTimeout(resolve: () => void): void {
@@ -333,12 +640,13 @@ async function closeBrowserContexts(
   ]);
 }
 
-test('Device 2 QR → Device 1 scan → Wallet Session → linked signing → revocation', async ({
+test('Device 2 links, unlocks, refreshes, signs with warm and step-up auth, then is revoked', async ({
   browser,
 }) => {
   const ownerContext = await browser.newContext({ ignoreHTTPSErrors: true });
   const device2Context = await browser.newContext({ ignoreHTTPSErrors: true });
   await device2Context.route(/https:\/\/[^/]*(?:near\.org|fastnear\.com)\//, fulfillNearRpc);
+  await device2Context.route(/https:\/\/[^/]*arc\.network\//, fulfillArcRpc);
   const ownerPage = await ownerContext.newPage();
   const device2Page = await device2Context.newPage();
   const ownerDiagnostics: string[] = [];
@@ -350,7 +658,10 @@ test('Device 2 QR → Device 1 scan → Wallet Session → linked signing → re
     });
     device2Page.on('console', (message) => {
       const text = message.text().replace(/\s+/g, ' ').trim().slice(0, 400);
-      if (message.type() === 'error' || /linked-device|WalletSession/i.test(text)) {
+      if (
+        message.type() === 'error' ||
+        /linked-device|WalletSession|WebAuthn|bridge|passkey/i.test(text)
+      ) {
         device2Diagnostics.push(`[device2:${message.type()}] ${text}`);
       }
     });
@@ -401,20 +712,29 @@ test('Device 2 QR → Device 1 scan → Wallet Session → linked signing → re
     if (!claimResult.response.ok()) {
       throw new Error(`Device 1 claim failed (${claimResult.response.status()})`);
     }
+    const device2Wallet = await walletFrame(device2Page);
+    const continueWithPasskey = device2Wallet.getByRole('button', {
+      name: 'Continue with passkey',
+      exact: true,
+    });
+    await continueWithPasskey.waitFor({ state: 'visible', timeout: 120_000 });
+    await continueWithPasskey.focus();
+    await continueWithPasskey.press('Enter');
     const walletSessionResult = await activeWalletSession;
     if (walletSessionResult.kind === 'timeout') {
-      const device2Wallet = await walletFrame(device2Page);
       const walletState = (await device2Wallet.locator('body').innerText()).trim();
       throw new Error(
-        `Device 2 did not receive an active Wallet Session. Wallet state: ${walletState}\n${ownerDiagnostics.join('\n')}`,
+        `Device 2 did not receive an active Wallet Session. Page: ${device2Page.url()} Wallet state: ${walletState}\n${device2Diagnostics.join('\n')}\n${ownerDiagnostics.join('\n')}`,
         { cause: walletSessionResult.error },
       );
     }
-    const device2Wallet = await walletFrame(device2Page);
-    await device2Wallet.getByText('Linked device active', { exact: true }).waitFor({
+    await device2Page.getByRole('tab', { name: 'Tempo', exact: true }).waitFor({
       state: 'visible',
-      timeout: 180_000,
+      timeout: 45_000,
     });
+    await expect(device2Wallet.getByText('Generating QR code', { exact: false })).toBeHidden();
+    await lockAndUnlockLinkedDevice(device2Page, device2Diagnostics);
+    await refreshLinkedDeviceForSigning(device2Page);
     const linkedSigningRequests: Array<{ pathname: string; body: unknown }> = [];
     device2Page.on('request', (request) => {
       const pathname = new URL(request.url()).pathname;
@@ -434,6 +754,12 @@ test('Device 2 QR → Device 1 scan → Wallet Session → linked signing → re
     expect(linkedPaths).toContain('/router-ab/ed25519/sign/prepare');
     expect(linkedPaths).toContain('/router-ab/ed25519/sign');
     expect(linkedPaths).not.toContain('/router-ab/ecdsa-derivation/sign/prepare');
+    const admissionRequests = linkedSigningRequests.filter(
+      (request) =>
+        request.pathname === '/router-ab/ecdsa-derivation/linked-device/presign/init' ||
+        request.pathname === '/router-ab/ed25519/sign/prepare',
+    );
+    expect(admissionRequests.length).toBeGreaterThanOrEqual(5);
     for (const request of linkedSigningRequests) {
       if (
         request.pathname === '/router-ab/ecdsa-derivation/linked-device/presign/init' ||
@@ -442,21 +768,62 @@ test('Device 2 QR → Device 1 scan → Wallet Session → linked signing → re
         expect(request.body).toEqual(
           expect.objectContaining({
             linkedDeviceExecution: expect.objectContaining({ enrollmentId: expect.any(String) }),
-            localPresenceAssertion: expect.objectContaining({ kind: expect.any(String) }),
+          }),
+        );
+      } else if (
+        request.pathname === '/router-ab/ed25519/sign' ||
+        request.pathname === '/router-ab/ecdsa-derivation/sign'
+      ) {
+        expect(request.body).toEqual(
+          expect.objectContaining({
+            linkedDeviceExecution: expect.objectContaining({ enrollmentId: expect.any(String) }),
           }),
         );
       }
     }
+    expect(admissionRequests[0]?.body).not.toEqual(
+      expect.objectContaining({ localPresenceAssertion: expect.anything() }),
+    );
+    const stepUpRequests = admissionRequests.filter(
+      (request) =>
+        request.body !== null &&
+        typeof request.body === 'object' &&
+        !Array.isArray(request.body) &&
+        Reflect.has(request.body, 'localPresenceAssertion'),
+    );
+    expect(stepUpRequests).toHaveLength(1);
+    const stepUpBody = stepUpRequests[0]?.body;
+    expect(stepUpBody).toEqual(
+      expect.objectContaining({
+        localPresenceAssertion: expect.objectContaining({
+          kind: 'linked_device_local_presence_assertion_v1',
+          authorizedOperationId: expect.any(String),
+          deviceId: expect.any(String),
+          enrollmentId: expect.any(String),
+          intentDigestB64u: expect.any(String),
+          challengeDigestB64u: expect.any(String),
+        }),
+      }),
+    );
+    const stepUpExecution = requireRecordProperty(
+      stepUpBody,
+      'linkedDeviceExecution',
+      'Device 2 step-up request',
+    );
+    const stepUpPresence = requireRecordProperty(
+      stepUpBody,
+      'localPresenceAssertion',
+      'Device 2 step-up request',
+    );
+    expect(stepUpPresence.enrollmentId).toBe(stepUpExecution.enrollmentId);
+    expect(stepUpPresence.deviceId).toBe(stepUpExecution.deviceId);
 
-    await ownerPage.locator('.w3a-profile-button-morphable').getByRole('button').first().click();
-    const profileMenu = ownerPage.locator('.w3a-profile-dropdown-morphed[data-state="open"]');
-    await profileMenu.getByRole('button', { name: /^Linked Devices/ }).click();
-    await ownerPage
-      .locator('.w3a-linked-devices-row')
-      .waitFor({ state: 'visible', timeout: 60_000 });
-    ownerPage.once('dialog', (dialog) => void dialog.accept());
-    await ownerPage.getByRole('button', { name: 'Revoke device', exact: true }).click();
-    await expect(ownerPage.getByRole('button', { name: 'Revoked', exact: true })).toBeVisible({
+    await openOwnerLinkedDevices(ownerPage);
+    const linkedDevice = ownerPage.locator('.w3a-linked-devices-modal-item');
+    await linkedDevice.waitFor({ state: 'visible', timeout: 60_000 });
+    await linkedDevice.getByRole('button', { name: 'Remove', exact: true }).click();
+    await linkedDevice.getByRole('button', { name: 'Yes, remove', exact: true }).click();
+    await expect(linkedDevice.locator('.w3a-linked-devices-modal-standing')).toHaveText('Removed', {
       timeout: 60_000,
     });
   } finally {

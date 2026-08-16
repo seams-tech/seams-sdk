@@ -802,7 +802,7 @@ mod worker_execution {
     ) -> RouterAbProtocolResult<Zeroizing<[u8; 32]>> {
         let share = match source {
             CloudflareEcdsaLaneSourceMaterialLookupV1::LaneMaterial { lookup } => {
-                let artifact =
+                let (artifact, _) =
                     load_cloudflare_signing_worker_active_lane_material_v1(env, &lookup.identity)
                         .await?;
                 let material: CloudflareEcdsaLaneActiveServerMaterialV1 = parse_artifact(

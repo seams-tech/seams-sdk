@@ -859,7 +859,7 @@ pub async fn load_cloudflare_signing_worker_lane_holder_redelivery_v1(
 pub async fn load_cloudflare_signing_worker_active_lane_material_v1(
     env: &Env,
     identity: &CloudflareSigningWorkerLaneMaterialIdentityV1,
-) -> RouterAbProtocolResult<CloudflareSigningWorkerLaneArtifactV1> {
+) -> RouterAbProtocolResult<(CloudflareSigningWorkerLaneArtifactV1, u64)> {
     let database = signing_worker_private_d1_from_env_v1(env)?;
     let db = database
         .with_session_constraint(D1SessionConstraint::FirstPrimary)
@@ -867,7 +867,7 @@ pub async fn load_cloudflare_signing_worker_active_lane_material_v1(
     let cipher = SigningWorkerPrivateD1CipherV1::from_env(env)?;
     load_signing_worker_lane_material_record_v1(&db, &cipher, identity)
         .await?
-        .active_server_material()
+        .active_server_material_with_activation()
 }
 
 /// Loads an encrypted lane record by operation before any replayed crypto runs.
@@ -939,7 +939,7 @@ pub async fn load_cloudflare_signing_worker_registration_active_material_v1(
 pub async fn load_cloudflare_signing_worker_normal_signing_lane_material_v1(
     env: &Env,
     lookup: &CloudflareSigningWorkerNormalSigningLaneMaterialLookupV1,
-) -> RouterAbProtocolResult<CloudflareSigningWorkerLaneArtifactV1> {
+) -> RouterAbProtocolResult<(CloudflareSigningWorkerLaneArtifactV1, u64)> {
     lookup.validate()?;
     load_cloudflare_signing_worker_active_lane_material_v1(env, &lookup.identity).await
 }

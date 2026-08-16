@@ -17,6 +17,10 @@ import { walletIframeRequestIdFromBoundary } from '@/core/types/walletIframeIden
 import { walletIdFromString } from '@shared/utils/registrationIntent';
 import type { AppearanceConfig } from '@/core/types/seams';
 import type { GoogleEmailOtpWalletAuthLoginFlow } from '@/SeamsWeb/publicApi/types';
+import { createLinkDeviceFlowEvent, LinkDeviceEventPhase } from '@/core/types/sdkSentEvents';
+
+type AuthMenuSessionArgs = ConstructorParameters<typeof AuthMenuSession>[0];
+type StartDeviceLinkingCallbacks = Parameters<AuthMenuSessionArgs['startDeviceLinking']>[0];
 
 const APPEARANCE = {
   theme: { id: 'default', mode: 'dark', colors: {} },
@@ -35,6 +39,8 @@ function authMenuSession(
       signal: AbortSignal;
     }) => Promise<GoogleEmailOtpWalletAuthLoginFlow>;
     sendToParent?: (message: unknown) => void;
+    startDeviceLinking?: AuthMenuSessionArgs['startDeviceLinking'];
+    activateLinkedDeviceSession?: AuthMenuSessionArgs['activateLinkedDeviceSession'];
   } = {},
 ): AuthMenuSession {
   const sessionId = hostedAuthMenuSessionIdFromBoundary(
@@ -58,6 +64,13 @@ function authMenuSession(
       (async () => {
         throw new Error('Google flow fixture was not configured');
       }),
+    startDeviceLinking:
+      args.startDeviceLinking ??
+      (async () => {
+        throw new Error('Device-linking flow fixture was not configured');
+      }),
+    cancelDeviceLinking: async () => {},
+    activateLinkedDeviceSession: args.activateLinkedDeviceSession ?? (async () => {}),
     sendToParent: args.sendToParent ?? (() => {}),
   });
 }
@@ -164,6 +177,173 @@ test.describe('hosted auth-menu passkey continuation', () => {
       kind: 'cancelled',
       reason: 'close_button',
     });
+  });
+
+  test('opens the linked signing session before completing authentication', async () => {
+    let onEvent: StartDeviceLinkingCallbacks['onEvent'] | null = null;
+    let resolveLinkDevice: ((result: { qrCodeDataURL: string }) => void) | null = null;
+    let resolveActivation: (() => void) | null = null;
+    let activationWalletId: string | null = null;
+    const session = authMenuSession({
+      startDeviceLinking: async (callbacks) => {
+        onEvent = callbacks.onEvent;
+        return await new Promise((resolve) => {
+          resolveLinkDevice = resolve;
+        });
+      },
+      activateLinkedDeviceSession: async (walletId) => {
+        activationWalletId = walletId;
+        await new Promise<void>((resolve) => {
+          resolveActivation = resolve;
+        });
+      },
+    });
+    const outcome = session.waitForOutcome();
+    Reflect.apply(Reflect.get(session, 'openLinkDevice'), session, []);
+    if (!onEvent) throw new Error('Device-linking flow did not publish its event callback');
+    onEvent(
+      createLinkDeviceFlowEvent({
+        flowId: 'linked-device-terminal-test',
+        phase: LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED,
+        status: 'succeeded',
+        message: 'Linked device active',
+        walletId: 'wallet-linked-device-test',
+      }),
+    );
+
+    await expect.poll(() => activationWalletId).toBe('wallet-linked-device-test');
+    expect(session.state).toMatchObject({
+      kind: 'link_device',
+      viewModel: {
+        linkDevice: { kind: 'activating', message: 'Preparing this device for signing' },
+      },
+    });
+    if (!resolveLinkDevice) throw new Error('Device-linking flow did not start');
+    resolveLinkDevice({ qrCodeDataURL: 'data:image/svg+xml,late-result' });
+    await Promise.resolve();
+    expect(session.state).toMatchObject({
+      kind: 'link_device',
+      viewModel: {
+        linkDevice: { kind: 'activating', message: 'Preparing this device for signing' },
+      },
+    });
+    if (!resolveActivation) throw new Error('Linked-device activation did not start');
+    resolveActivation();
+
+    await expect(outcome).resolves.toMatchObject({
+      kind: 'authenticated',
+      walletId: 'wallet-linked-device-test',
+      method: 'passkey',
+    });
+    expect(session.state.kind).toBe('complete');
+  });
+
+  test('shows a recoverable error when linked signing-session activation fails', async () => {
+    let onEvent: StartDeviceLinkingCallbacks['onEvent'] | null = null;
+    const session = authMenuSession({
+      startDeviceLinking: async (callbacks) => {
+        onEvent = callbacks.onEvent;
+        return await new Promise<never>(() => {});
+      },
+      activateLinkedDeviceSession: async () => {
+        throw new Error('Wallet Session renewal failed');
+      },
+    });
+
+    Reflect.apply(Reflect.get(session, 'openLinkDevice'), session, []);
+    if (!onEvent) throw new Error('Device-linking flow did not publish its event callback');
+    onEvent(
+      createLinkDeviceFlowEvent({
+        flowId: 'linked-device-activation-failure-test',
+        phase: LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED,
+        status: 'succeeded',
+        message: 'Linked device active',
+        walletId: 'wallet-linked-device-test',
+      }),
+    );
+
+    await expect
+      .poll(() =>
+        session.state.kind === 'link_device' ? session.state.viewModel.linkDevice : null,
+      )
+      .toEqual({ kind: 'activation_error', message: 'Wallet Session renewal failed' });
+    session.cleanup();
+  });
+
+  test('shows a recoverable error when linked activation omits its wallet identity', async () => {
+    let onEvent: StartDeviceLinkingCallbacks['onEvent'] | null = null;
+    const session = authMenuSession({
+      startDeviceLinking: async (callbacks) => {
+        onEvent = callbacks.onEvent;
+        return await new Promise<never>(() => {});
+      },
+    });
+
+    Reflect.apply(Reflect.get(session, 'openLinkDevice'), session, []);
+    if (!onEvent) throw new Error('Device-linking flow did not publish its event callback');
+    onEvent(
+      createLinkDeviceFlowEvent({
+        flowId: 'linked-device-missing-wallet-test',
+        phase: LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED,
+        status: 'succeeded',
+        message: 'Linked device active',
+      }),
+    );
+
+    expect(session.state).toMatchObject({
+      kind: 'link_device',
+      viewModel: {
+        linkDevice: {
+          kind: 'activation_error',
+          message: 'Linked-device activation omitted its wallet identity',
+        },
+      },
+    });
+    session.cleanup();
+  });
+
+  test('does not return to the QR screen after linked passkey creation starts', async () => {
+    let callbacks: StartDeviceLinkingCallbacks | null = null;
+    let resolveLinkDevice: ((result: { qrCodeDataURL: string }) => void) | null = null;
+    let resolvePasskey: (() => void) | null = null;
+    const session = authMenuSession({
+      startDeviceLinking: async (nextCallbacks) => {
+        callbacks = nextCallbacks;
+        return await new Promise((resolve) => {
+          resolveLinkDevice = resolve;
+        });
+      },
+    });
+
+    Reflect.apply(Reflect.get(session, 'openLinkDevice'), session, []);
+    if (!callbacks) throw new Error('Device-linking flow did not publish its callbacks');
+    callbacks.onTargetPasskeyRequired({
+      createPasskey: async () => {
+        await new Promise<void>((resolve) => {
+          resolvePasskey = resolve;
+        });
+      },
+    });
+    Reflect.apply(Reflect.get(session, 'completeLinkDeviceOpen'), session, [
+      Reflect.get(session, 'deviceLinkGeneration'),
+      { qrCodeDataURL: 'data:image/svg+xml,fixture' },
+    ]);
+    Reflect.apply(Reflect.get(session, 'createLinkedDevicePasskey'), session, []);
+
+    expect(session.state).toMatchObject({
+      kind: 'link_device',
+      viewModel: { linkDevice: { kind: 'creating_passkey' } },
+    });
+    if (!resolveLinkDevice) throw new Error('Device-linking flow did not start');
+    resolveLinkDevice({ qrCodeDataURL: 'data:image/svg+xml,late-result' });
+    await Promise.resolve();
+
+    expect(session.state).toMatchObject({
+      kind: 'link_device',
+      viewModel: { linkDevice: { kind: 'creating_passkey' } },
+    });
+    resolvePasskey?.();
+    session.cleanup();
   });
 
   test('does not prepare sponsored registration until its required name is entered', () => {

@@ -204,7 +204,7 @@ export interface WarmSessionWorkerSealPort {
 
 export type PasskeyWarmSessionSealTransportInput = Exclude<
   WarmSessionSealTransportInput,
-  { authMethod: 'email_otp' }
+  { authMethod: 'email_otp' } | { curve: 'linked_device' }
 >;
 
 export interface WarmSessionSealPersister {

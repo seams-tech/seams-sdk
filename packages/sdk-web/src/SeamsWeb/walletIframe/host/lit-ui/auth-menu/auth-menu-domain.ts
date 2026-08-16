@@ -133,7 +133,9 @@ export type AuthMenuLinkDeviceState =
       readonly kind: 'creating_passkey';
       readonly message: string;
     }
-  | { readonly kind: 'error'; readonly message: string };
+  | { readonly kind: 'activating'; readonly message: string }
+  | { readonly kind: 'error'; readonly message: string }
+  | { readonly kind: 'activation_error'; readonly message: string };
 
 export type AuthMenuLinkDeviceViewModel = AuthMenuViewModelCommon & {
   readonly kind: 'link_device';

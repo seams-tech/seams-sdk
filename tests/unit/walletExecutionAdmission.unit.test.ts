@@ -4,6 +4,7 @@ import {
   prepareOwnerWalletExecution,
 } from '../../packages/sdk-server-ts/src/router/domains/signingOperations/walletExecutionAdmission';
 import {
+  proxyNormalSigningRequestToMpcRouter,
   proxyLinkedDeviceLaneAdmittedNormalSigningRequest,
   proxyOwnerLaneAdmittedNormalSigningRequest,
 } from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/normalSigningRouterProxy';
@@ -256,6 +257,31 @@ test.describe('R101 wallet execution admission', () => {
       intent: 'linked-device',
       material_source: { kind: 'rotatable_lane' },
     });
+  });
+
+  test('removes the gateway bearer token from linked-device Router admission', async () => {
+    let routerAuthorization: string | null = 'unobserved';
+    const response = await proxyNormalSigningRequestToMpcRouter({
+      request: new Request('https://wallet.example.test/sign', {
+        method: 'POST',
+        headers: { authorization: 'Bearer gateway-only-wallet-session' },
+      }),
+      proxy: {
+        internalServiceAuthSecret: 'test-router-secret',
+        fetch: async (request) => {
+          routerAuthorization = request.headers.get('authorization');
+          return new Response('{"ok":true}', { status: 200 });
+        },
+      },
+      body: {
+        authorized_operation: {
+          binding: { kind: 'gateway_linked_device_wallet_session' },
+        },
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(routerAuthorization).toBeNull();
   });
 
   test('refuses a resolver projection for a substituted lane coordinate before Router dispatch', async () => {
