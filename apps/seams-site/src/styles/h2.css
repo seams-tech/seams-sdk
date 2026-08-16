@@ -26,10 +26,10 @@
   /* product-visual accent (Seams deck green): never on plain UI chrome */
   --h2-green: #157f5f;
   --h2-green-soft: #e4f0eb;
-  /* CTA accent, sampled from gradients/web/aqua-evergreen.jpg (mean of the
-     mid/dark evergreen cluster); replaces the old blue accent */
-  --h2-evergreen: #236058;
-  --h2-evergreen-deep: #174a46;
+  /* CTA accent: the split-key slab sage-teal (deep slab of .h2-splitkey);
+     replaces the old blue accent */
+  --h2-evergreen: #537f75;
+  --h2-evergreen-deep: #416760;
   --h2-amber: #b45309;
   --h2-amber-soft: #f7ecdd;
   --h2-red: #b91c1c;
@@ -197,13 +197,16 @@ body:has(.h2-page) {
   border-radius: 9999px;
 }
 
-/* Contact Sales accent: evergreen instead of the inherited blue */
+/* Contact Sales stays in ink and marks hover with a grey fill alone — no accent
+   colour, no border — so nothing in the nav competes with the solid Dashboard
+   pill beside it. */
 .h2-page .navbar-static__pill--ghost {
-  color: var(--h2-evergreen);
+  color: var(--h2-ink);
 }
 
 .h2-page .navbar-static__pill--ghost:hover {
-  color: var(--h2-evergreen-deep);
+  color: var(--h2-ink);
+  background: var(--h2-taupe);
 }
 
 .h2-page .navbar-static--compact {
@@ -1719,12 +1722,12 @@ body:has(.h2-page) {
   color: var(--h2-smoke);
 }
 
-/* visuals bottom-align so the two panels read as twins even though their
-   contents differ in height */
+/* visuals center in the space between the copy and the CTA, so a panel that
+   grows taller than its twin doesn't strand its visual at the bottom edge */
 .h2-duo__visual {
   flex: 1;
   display: grid;
-  place-items: end center;
+  place-items: center;
   min-height: 224px;
   padding: 16px 0 14px;
 }
@@ -2539,20 +2542,23 @@ body:has(.h2-page) {
   grid-template-columns: auto auto;
   align-items: center;
   justify-content: center;
-  gap: 18px 30px;
+  gap: 30px;
 }
 
 .h2-splitkey__stack {
-  width: 150px;
+  width: 136px;
   height: auto;
-  filter: drop-shadow(0 18px 20px rgba(23, 74, 70, 0.16));
+  filter: drop-shadow(0 16px 18px rgba(23, 74, 70, 0.18));
 }
 
+/* chips stretch over the stack's height so each one sits beside its layer */
 .h2-splitkey__chips {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 12px;
+  align-self: stretch;
+  justify-content: space-between;
+  padding: 6px 0 14px;
 }
 
 /* stagger the chips so they float instead of forming a column */
@@ -2565,6 +2571,7 @@ body:has(.h2-page) {
 }
 
 .h2-splitkey__chip {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -2579,6 +2586,28 @@ body:has(.h2-page) {
   font-weight: 600;
   color: var(--h2-ink);
   white-space: nowrap;
+}
+
+/* hairline connectors reaching back toward the slab vertices */
+.h2-splitkey__chip::before {
+  content: '';
+  position: absolute;
+  right: 100%;
+  top: 50%;
+  height: 1px;
+  background: var(--h2-stone);
+}
+
+.h2-splitkey__chip:nth-child(1)::before {
+  width: 46px;
+}
+
+.h2-splitkey__chip:nth-child(2)::before {
+  width: 30px;
+}
+
+.h2-splitkey__chip:nth-child(3)::before {
+  width: 64px;
 }
 
 .h2-splitkey__ico {
@@ -2604,16 +2633,6 @@ body:has(.h2-page) {
   border-radius: 50%;
   background: var(--h2-green-soft);
   color: var(--h2-green);
-}
-
-.h2-splitkey__note {
-  grid-column: 1 / -1;
-  margin: 0;
-  text-align: center;
-  font-family: var(--h2-mono);
-  font-size: var(--h2-text-2xs);
-  letter-spacing: 0.08em;
-  color: var(--h2-ash);
 }
 
 /* status chips */

@@ -371,27 +371,41 @@ export function SplitKeyVisual(): React.JSX.Element {
       role="img"
       aria-label="Two key shares — one on the user's device, one on your infrastructure — combine into one signature; neither share signs alone"
     >
-      <svg className="h2-splitkey__stack" viewBox="0 0 168 166" aria-hidden>
+      <svg className="h2-splitkey__stack" viewBox="0 0 168 194" aria-hidden>
         <defs>
           <linearGradient id="h2sk-slab-a" x1="0" y1="0" x2="1" y2="1">
             <stop offset="0%" stopColor="#dde8e4" />
             <stop offset="100%" stopColor="#a9c6be" />
           </linearGradient>
           <linearGradient id="h2sk-slab-b" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#bed5ce" />
+            <stop offset="100%" stopColor="#7fa79d" />
+          </linearGradient>
+          <linearGradient id="h2sk-slab-c" x1="0" y1="0" x2="1" y2="1">
             <stop offset="0%" stopColor="#9fbfb7" />
             <stop offset="100%" stopColor="#537f75" />
           </linearGradient>
         </defs>
-        {/* lower slab: share_b */}
-        <path d="M84 96 L152 130 L84 164 L16 130 Z" fill="#416760" />
+        {/* each slab: an offset underside that reads as the slab's edge and
+            contact shadow, under a white-outlined sage face. Drawn bottom-up,
+            and the 54u pitch is shorter than the 68u diamond, so each slab
+            overlaps and occludes the tip of the one beneath it */}
+        <path d="M84 122 L152 156 L84 190 L16 156 Z" fill="#416760" />
         <path
-          d="M84 88 L152 122 L84 156 L16 122 Z"
+          d="M84 114 L152 148 L84 182 L16 148 Z"
+          fill="url(#h2sk-slab-c)"
+          stroke="#ffffff"
+          strokeWidth="2"
+          strokeLinejoin="round"
+        />
+        <path d="M84 68 L152 102 L84 136 L16 102 Z" fill="#648d83" />
+        <path
+          d="M84 60 L152 94 L84 128 L16 94 Z"
           fill="url(#h2sk-slab-b)"
           stroke="#ffffff"
           strokeWidth="2"
           strokeLinejoin="round"
         />
-        {/* upper slab: share_a */}
         <path d="M84 14 L152 48 L84 82 L16 48 Z" fill="#8fafa6" />
         <path
           d="M84 6 L152 40 L84 74 L16 40 Z"
@@ -421,7 +435,6 @@ export function SplitKeyVisual(): React.JSX.Element {
           One signature
         </span>
       </div>
-      <p className="h2-splitkey__note">2-of-2 {'·'} neither share signs alone</p>
     </div>
   );
 }
