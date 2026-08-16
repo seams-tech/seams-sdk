@@ -2,6 +2,7 @@ import {
   expect,
   test,
   type BrowserContext,
+  type CDPSession,
   type ConsoleMessage,
   type FrameLocator,
   type Page,
@@ -220,7 +221,7 @@ function linkedDeviceConsoleDiagnostic(message: ConsoleMessage): string | null {
 test.skip(!enabled, 'Set SEAMS_LINKED_DEVICE_E2E=1 with a composed linked-device backend');
 test.setTimeout(420_000);
 
-async function addVirtualAuthenticator(page: Page): Promise<void> {
+async function addVirtualAuthenticator(page: Page): Promise<CDPSession> {
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('WebAuthn.enable');
   await cdp.send('WebAuthn.addVirtualAuthenticator', {
@@ -234,6 +235,7 @@ async function addVirtualAuthenticator(page: Page): Promise<void> {
       automaticPresenceSimulation: true,
     },
   });
+  return cdp;
 }
 
 async function walletFrame(page: Page): Promise<FrameLocator> {
@@ -450,9 +452,7 @@ async function unlockLinkedDevice(page: Page, diagnostics: readonly string[]): P
   });
 }
 
-async function refreshLinkedDeviceForSigning(
-  page: Page,
-): Promise<void> {
+async function refreshLinkedDeviceForSigning(page: Page): Promise<void> {
   let renewalRequests = 0;
   const countRenewalRequest = (request: Request): void => {
     if (new URL(request.url()).pathname.endsWith('/wallet-session-renew')) {
@@ -508,9 +508,52 @@ function isArcBroadcastResponse(response: Response): boolean {
   return isRecord(body) && body.method === 'eth_sendRawTransaction';
 }
 
+function isArcReceiptResponse(response: Response): boolean {
+  const body: unknown = response.request().postDataJSON();
+  return isRecord(body) && body.method === 'eth_getTransactionReceipt';
+}
+
 function isNearBroadcastResponse(response: Response): boolean {
   const body: unknown = response.request().postDataJSON();
   return isRecord(body) && body.method === 'send_tx';
+}
+
+type LinkedSigningResponseObservation = {
+  readonly pathname: string;
+  readonly status: number;
+  readonly requestBody: unknown;
+  readonly responseBody: unknown;
+};
+
+function isLinkedDeviceAdmissionPath(pathname: string): boolean {
+  return (
+    pathname === '/router-ab/ecdsa-derivation/linked-device/presign/init' ||
+    pathname === '/router-ab/ed25519/sign/prepare'
+  );
+}
+
+async function captureLinkedSigningResponse(
+  response: Response,
+): Promise<LinkedSigningResponseObservation> {
+  const responseText = await response.text().catch(() => '');
+  let responseBody: unknown = null;
+  try {
+    responseBody = JSON.parse(responseText);
+  } catch {
+    responseBody = responseText;
+  }
+  return {
+    pathname: new URL(response.url()).pathname,
+    status: response.status(),
+    requestBody: response.request().postDataJSON(),
+    responseBody,
+  };
+}
+
+function responseCode(observation: LinkedSigningResponseObservation): string | null {
+  return isRecord(observation.responseBody) && typeof observation.responseBody.code === 'string'
+    ? observation.responseBody.code
+    : null;
 }
 
 async function requireSuccessfulRouterResponse(
@@ -649,6 +692,16 @@ test('Device 2 links, unlocks, refreshes, signs with warm and step-up auth, then
   await device2Context.route(/https:\/\/[^/]*arc\.network\//, fulfillArcRpc);
   const ownerPage = await ownerContext.newPage();
   const device2Page = await device2Context.newPage();
+  const ownerAuthenticator = await addVirtualAuthenticator(ownerPage);
+  await addVirtualAuthenticator(device2Page);
+  const ownerCredentialAddedEvents: unknown[] = [];
+  const ownerCredentialAssertedEvents: unknown[] = [];
+  ownerAuthenticator.on('WebAuthn.credentialAdded', (event) => {
+    ownerCredentialAddedEvents.push(event);
+  });
+  ownerAuthenticator.on('WebAuthn.credentialAsserted', (event) => {
+    ownerCredentialAssertedEvents.push(event);
+  });
   const ownerDiagnostics: string[] = [];
   const device2Diagnostics: string[] = [];
   try {
@@ -665,8 +718,6 @@ test('Device 2 links, unlocks, refreshes, signs with warm and step-up auth, then
         device2Diagnostics.push(`[device2:${message.type()}] ${text}`);
       }
     });
-    await addVirtualAuthenticator(ownerPage);
-    await addVirtualAuthenticator(device2Page);
     await registerOwner(ownerPage, ownerDiagnostics);
 
     const created = device2Page.waitForResponse(
@@ -702,6 +753,7 @@ test('Device 2 links, unlocks, refreshes, signs with warm and step-up auth, then
         (response) => ({ kind: 'claimed' as const, response }),
         (error: unknown) => ({ error, kind: 'timeout' as const }),
       );
+    const ownerCredentialAssertionsBeforeLinking = ownerCredentialAssertedEvents.length;
     await openOwnerScanner(ownerPage, qrDataUrl);
     const claimResult = await claimed;
     if (claimResult.kind === 'timeout') {
@@ -733,15 +785,32 @@ test('Device 2 links, unlocks, refreshes, signs with warm and step-up auth, then
       timeout: 45_000,
     });
     await expect(device2Wallet.getByText('Generating QR code', { exact: false })).toBeHidden();
+    expect(ownerCredentialAddedEvents.length).toBeGreaterThan(0);
+    expect(ownerCredentialAssertedEvents.slice(ownerCredentialAssertionsBeforeLinking)).toHaveLength(0);
     await lockAndUnlockLinkedDevice(device2Page, device2Diagnostics);
     await refreshLinkedDeviceForSigning(device2Page);
     const linkedSigningRequests: Array<{ pathname: string; body: unknown }> = [];
+    const linkedSigningResponses: LinkedSigningResponseObservation[] = [];
+    const linkedSigningResponseObservations: Promise<void>[] = [];
+    const arcReceiptResponses: Response[] = [];
     device2Page.on('request', (request) => {
       const pathname = new URL(request.url()).pathname;
       if (!pathname.includes('/router-ab/')) return;
       linkedSigningRequests.push({ pathname, body: request.postDataJSON() });
     });
+    device2Page.on('response', (response) => {
+      if (isArcReceiptResponse(response)) {
+        arcReceiptResponses.push(response);
+      }
+      if (!isLinkedDeviceAdmissionPath(new URL(response.url()).pathname)) return;
+      linkedSigningResponseObservations.push(
+        captureLinkedSigningResponse(response).then((observation) => {
+          linkedSigningResponses.push(observation);
+        }),
+      );
+    });
     await linkedSigning(device2Page, device2Diagnostics);
+    await Promise.all(linkedSigningResponseObservations);
     const linkedPaths = linkedSigningRequests.map((request) => request.pathname);
     if (linkedPaths.length === 0) {
       throw new Error(
@@ -760,6 +829,11 @@ test('Device 2 links, unlocks, refreshes, signs with warm and step-up auth, then
         request.pathname === '/router-ab/ed25519/sign/prepare',
     );
     expect(admissionRequests.length).toBeGreaterThanOrEqual(5);
+    const stepUpResponses = linkedSigningResponses.filter(
+      (response) => responseCode(response) === 'linked_device_step_up_required',
+    );
+    expect(stepUpResponses).toHaveLength(1);
+    expect(stepUpResponses[0]?.status).toBe(409);
     for (const request of linkedSigningRequests) {
       if (
         request.pathname === '/router-ab/ecdsa-derivation/linked-device/presign/init' ||
@@ -792,6 +866,14 @@ test('Device 2 links, unlocks, refreshes, signs with warm and step-up auth, then
         Reflect.has(request.body, 'localPresenceAssertion'),
     );
     expect(stepUpRequests).toHaveLength(1);
+    const stepUpRetryResponses = linkedSigningResponses.filter(
+      (response) =>
+        response.requestBody !== null &&
+        isRecord(response.requestBody) &&
+        Reflect.has(response.requestBody, 'localPresenceAssertion') &&
+        response.status === 200,
+    );
+    expect(stepUpRetryResponses).toHaveLength(1);
     const stepUpBody = stepUpRequests[0]?.body;
     expect(stepUpBody).toEqual(
       expect.objectContaining({
@@ -817,6 +899,20 @@ test('Device 2 links, unlocks, refreshes, signs with warm and step-up auth, then
     );
     expect(stepUpPresence.enrollmentId).toBe(stepUpExecution.enrollmentId);
     expect(stepUpPresence.deviceId).toBe(stepUpExecution.deviceId);
+
+    const arcReceiptResponse = arcReceiptResponses.at(-1);
+    if (!arcReceiptResponse) {
+      throw new Error('Linked Arc signing did not request a transaction receipt');
+    }
+    const arcReceiptBody: unknown = JSON.parse(await arcReceiptResponse.text());
+    if (!isRecord(arcReceiptBody) || Reflect.has(arcReceiptBody, 'error')) {
+      throw new Error(`Linked Arc receipt response was an RPC/auth failure: ${JSON.stringify(arcReceiptBody)}`);
+    }
+    const arcReceipt = requireRecordProperty(arcReceiptBody, 'result', 'Linked Arc transaction receipt');
+    if (arcReceipt.status === '0x0') {
+      throw new Error('Linked Arc transaction reverted with receipt status 0x0');
+    }
+    expect(arcReceipt.status).toBe('0x1');
 
     await openOwnerLinkedDevices(ownerPage);
     const linkedDevice = ownerPage.locator('.w3a-linked-devices-modal-item');

@@ -2,12 +2,12 @@ import { expect, test } from '@playwright/test';
 import { selectNearOperationalPublicKeyForLogin } from '@/SeamsWeb/operations/auth/login';
 import type { WalletSession } from '@/core/types/seams';
 import { toAccountId } from '@/core/types/accountIds';
-import { buildReactLoggedInLoginStateFromSession } from '@/react/context/reactLoginStateBuilders';
-import { walletIdFromString } from '@shared/utils/registrationIntent';
 import {
-  activeLinkedDeviceWalletSessionFixture,
-  activeWalletSessionFixture,
-} from './helpers/walletSessionReadProjection.fixtures';
+  buildReactLoggedInLoginStateFromSession,
+  linkedDeviceManagementPermissionForLoginState,
+} from '@/react/context/reactLoginStateBuilders';
+import { walletIdFromString } from '@shared/utils/registrationIntent';
+import { activeWalletSessionFixture } from './helpers/walletSessionReadProjection.fixtures';
 
 const WALLET_ID = walletIdFromString('frost-vermillion-k7p9m2');
 const NEAR_ACCOUNT_ID = toAccountId('frost-vermillion-k7p9m2.testnet');
@@ -46,10 +46,11 @@ test('React projection retains NEAR identity for a mixed wallet session', () => 
 
 test('React projection treats a linked-device session as logged in without owner auth', () => {
   const projected = buildReactLoggedInLoginStateFromSession(
-    activeLinkedDeviceWalletSessionFixture({
+    activeWalletSessionFixture({
       walletId: String(WALLET_ID),
       nearAccountId: String(NEAR_ACCOUNT_ID),
       nearOperationalPublicKey: NEAR_PUBLIC_KEY,
+      authMethods: [],
       thresholdEcdsaEthereumAddress: '0x1111111111111111111111111111111111111111',
       thresholdEcdsaPublicKeyB64u: 'mixed-wallet-ecdsa-public-key',
     }),
@@ -63,4 +64,14 @@ test('React projection treats a linked-device session as logged in without owner
     currentAuthMethod: { kind: 'none' },
     authMethods: [],
   });
+  if (!projected) throw new Error('linked-device session did not project to a login state');
+  expect(linkedDeviceManagementPermissionForLoginState(projected)).toEqual({
+    kind: 'signing_only',
+  });
+});
+
+test('React projection grants linked-device management only to an owner auth binding', () => {
+  const projected = buildReactLoggedInLoginStateFromSession(mixedWalletSession(NEAR_PUBLIC_KEY));
+  if (!projected) throw new Error('owner session did not project to a login state');
+  expect(linkedDeviceManagementPermissionForLoginState(projected)).toEqual({ kind: 'owner' });
 });

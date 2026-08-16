@@ -19,6 +19,7 @@ type LockFixture = {
 function createLockFixture(args: {
   useWalletIframe: boolean;
   hostLock: () => Promise<unknown>;
+  clearLinkedRefresh?: () => Promise<void>;
 }): LockFixture {
   const calls = {
     clearNonce: 0,
@@ -33,6 +34,7 @@ function createLockFixture(args: {
       signingEngine: {
         async clearLinkedDeviceRefreshMaterial(): Promise<void> {
           calls.clearLinkedRefresh += 1;
+          await args.clearLinkedRefresh?.();
         },
         clearWalletAuthentication(): void {
           calls.clearAuthentication += 1;
@@ -99,5 +101,26 @@ test.describe('wallet lock lifecycle', () => {
       clearWarmMaterial: 1,
       hostLock: 1,
     });
+  });
+
+  test('starts wallet-host lock while linked-device cleanup is still pending', async () => {
+    let releaseLinkedRefresh!: () => void;
+    const linkedRefreshCleanup = new Promise<void>((resolve) => {
+      releaseLinkedRefresh = resolve;
+    });
+    const fixture = createLockFixture({
+      useWalletIframe: true,
+      clearLinkedRefresh: () => linkedRefreshCleanup,
+      hostLock: async () => undefined,
+    });
+
+    const lockPromise = lockDomain(fixture.deps);
+    await expect.poll(() => fixture.calls.hostLock).toBe(1);
+    expect(fixture.calls.clearLinkedRefresh).toBe(1);
+    expect(fixture.calls.clearAuthentication).toBe(1);
+
+    releaseLinkedRefresh();
+    await lockPromise;
+    expect(fixture.calls.clearWarmMaterial).toBe(1);
   });
 });

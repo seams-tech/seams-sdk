@@ -85,6 +85,7 @@ function createDeps(input: {
   currentWalletId: string | null;
   onGetWalletSession(walletId: string | undefined): WalletSession;
   onUnlock?: (...args: unknown[]) => unknown;
+  onLock?: () => Promise<void>;
   onRestoreWalletAuthenticationState?: (
     walletId: string | undefined,
     auth: WalletAuthenticationRestoreAuth,
@@ -106,7 +107,9 @@ function createDeps(input: {
       getWalletSession: async (walletId: string | undefined) => input.onGetWalletSession(walletId),
       unlock: async (...args: unknown[]) =>
         input.onUnlock?.(...args) ?? { success: false, error: 'captured' },
-      lock: async () => undefined,
+      lock: async () => {
+        await input.onLock?.();
+      },
       restoreWalletAuthenticationState: async (
         walletId: string | undefined,
         auth: WalletAuthenticationRestoreAuth,
@@ -324,6 +327,41 @@ test.describe('wallet iframe auth handlers', () => {
       if (originalWindow === undefined) Reflect.deleteProperty(globalThis, 'window');
       else Reflect.set(globalThis, 'window', originalWindow);
     }
+  });
+
+  test('acknowledges host lock before linked-device cleanup completes', async () => {
+    let releaseCleanup!: () => void;
+    let cleanupCompleted = false;
+    const cleanup = new Promise<void>((resolve) => {
+      releaseCleanup = resolve;
+    });
+    const posted: ChildToParentEnvelope[] = [];
+    const deps = createDeps({
+      currentWalletId: 'harbor-current',
+      posted,
+      onGetWalletSession: (walletId) => loggedInWalletSession(walletId || 'anonymous'),
+      onLock: async () => {
+        await cleanup;
+        cleanupCompleted = true;
+      },
+    });
+    const handlers = createAuthWalletIframeHandlers(deps);
+
+    const handlerPromise = handlers.PM_LOCK!({
+      type: 'PM_LOCK',
+      requestId: 'lock-before-cleanup',
+    });
+    await expect.poll(() => posted.length).toBe(1);
+    expect(posted[0]).toMatchObject({
+      type: 'PM_RESULT',
+      requestId: 'lock-before-cleanup',
+      payload: { ok: true },
+    });
+    expect(cleanupCompleted).toBe(false);
+
+    releaseCleanup();
+    await handlerPromise;
+    await expect.poll(() => cleanupCompleted).toBe(true);
   });
 
   test('passes unscoped wallet-session reads through when host current wallet is cold', async () => {

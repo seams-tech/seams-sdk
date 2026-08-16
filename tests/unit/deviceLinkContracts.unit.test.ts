@@ -104,6 +104,7 @@ test.describe('R103 shared linked-device contracts', () => {
         walletId: projection.walletId,
         authMethod: projection.authMethod,
       }),
+      hasLinkedDeviceSigningSession: () => false,
       readOwnerSourceLaneHintsV1: async () => [sourceHint],
     });
 
@@ -123,6 +124,54 @@ test.describe('R103 shared linked-device contracts', () => {
     expect(body.orderedOwnerSourceLaneHints).toEqual([sourceHint]);
     expect(JSON.stringify(captured?.body)).not.toContain('walletSessionJwt');
     expect(JSON.stringify(captured?.body)).not.toContain('privateKey');
+  });
+
+  test('signing-only linked-device sessions cannot use owner device operations', async () => {
+    const deviceLink = buildR103DeviceLinkFixture();
+    const owner = await buildOwnerWalletExecutionEvidenceFixture();
+    const projection = availableLaneEd25519Authorization({
+      walletId: String(owner.walletId),
+      identitySeed: 'linked-device-management-guard',
+      authMethod: 'passkey',
+    });
+    const authorities = createWalletHostOwnerAuthoritiesV1({
+      http: {
+        kind: 'http_transport',
+        request: async () => {
+          throw new Error('linked-device owner operations must stop before HTTP');
+        },
+      },
+      relayerUrl: 'https://relay.example.test',
+      walletSessions: {
+        read: async () => ({ kind: 'missing' as const }),
+        readActiveForWallet: async () => {
+          throw new Error('linked-device owner operations must stop before session lookup');
+        },
+      },
+      readWalletAuthenticationState: () => ({
+        kind: 'authenticated',
+        walletId: projection.walletId,
+        authMethod: projection.authMethod,
+      }),
+      hasLinkedDeviceSigningSession: (walletId) => walletId === projection.walletId,
+      readOwnerSourceLaneHintsV1: async () => {
+        throw new Error('linked-device owner operations must stop before source lookup');
+      },
+    });
+
+    await expect(
+      authorities.ownerAuthorization.authenticateOwnerForLinkingV1({
+        payload: deviceLink.payload,
+        requestedAtMs: 2_000,
+      }),
+    ).rejects.toThrow('Signing-only linked-device sessions cannot manage devices');
+    await expect(
+      authorities.managementRequest.request({
+        walletId: projection.walletId,
+        method: 'GET',
+        canonicalPath: '/wallet/device-linking/v1/devices',
+      }),
+    ).rejects.toThrow('Signing-only linked-device sessions cannot manage devices');
   });
 
   test('round-trips QR, approval, transcript, and receipt projections through strict parsers', async () => {

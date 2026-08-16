@@ -63,6 +63,7 @@ import {
 } from '../../../packages/shared-ts/src/utils/domainIds';
 import { base64UrlEncode } from '../../../packages/shared-ts/src/utils/base64';
 import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '../../../packages/shared-ts/src/utils/sessionTokens';
+import { DEFAULT_WALLET_SESSION_REMAINING_USES } from '../../../packages/shared-ts/src/threshold/sessionPolicy';
 import { parseDigestB64u } from '../../../packages/shared-ts/src/utils/canonicalPrimitives';
 import {
   buildR102HolderDeliveryReceipt,
@@ -330,50 +331,99 @@ function buildUnsignedJwt(payload: Readonly<Record<string, unknown>>): string {
   return `${header}.${body}.signature`;
 }
 
+function assertNeverLinkedDeviceKeyFamily(value: never): never {
+  throw new Error(`unsupported linked-device key family: ${String(value)}`);
+}
+
 export function buildR103LinkedWalletSessionDeliveryFixture(
   fixture: R103DeviceLinkFixture,
+  input: { readonly sessionSuffix?: string } = {},
 ): LinkedDeviceWalletSessionDeliveryV1 {
   const binding = fixture.approval.orderedKeyBindings[0];
   if (!binding) throw new Error('R103 approval fixture has no key binding');
   const issuedAtMs = fixture.receipt.activatedAtMs;
   const expiresAtMs = issuedAtMs + 86_400_000;
-  const identity = {
+  const sessionSuffix = input.sessionSuffix ? `:${input.sessionSuffix}` : '';
+  const authorizationId = `linked-authorization-r103-delivery${sessionSuffix}`;
+  const walletSessionId = `linked-wallet-session-r103-delivery${sessionSuffix}`;
+  const quotaId = `linked-quota-r103-delivery${sessionSuffix}`;
+  const walletSessionJwt = buildUnsignedJwt({
+    kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+    authorizationKind: 'linked_device_wallet_session',
+    sub: `linked-device:${fixture.approval.deviceId}`,
     tenantId: 'tenant-r103-delivery',
     walletId: fixture.approval.walletId,
     enrollmentId: fixture.approval.enrollmentId,
     deviceId: fixture.approval.deviceId,
-    authorizationId: 'linked-authorization-r103-delivery',
-    walletSessionId: 'linked-wallet-session-r103-delivery',
-    quotaId: 'linked-quota-r103-delivery',
+    authorizationId,
+    walletSessionId,
+    quotaId,
     keyManifestDigestB64u: fixture.receipt.manifestDigestB64u,
     permission: fixture.approval.permission,
     revocationEpoch: binding.sourceRevocationEpoch,
     issuedAtMs,
     expiresAtMs,
-  };
-  const walletSessionJwt = buildUnsignedJwt({
-    kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-    authorizationKind: 'linked_device_wallet_session',
-    sub: `linked-device:${fixture.approval.deviceId}`,
-    ...identity,
     walletKeyId: binding.walletKeyId,
     iat: Math.floor(issuedAtMs / 1_000),
     exp: Math.floor(expiresAtMs / 1_000),
   });
-  return parseLinkedDeviceWalletSessionDeliveryV1({
-    kind: 'linked_device_wallet_session_delivery_v1',
-    ...identity,
-    ...(binding.keyFamily === 'ed25519' ? { nearAccountId: 'alice.testnet' } : {}),
-    orderedTokens: [
-      {
-        kind: 'linked_device_wallet_session_token_v1',
-        walletKeyId: binding.walletKeyId,
-        keyFamily: binding.keyFamily,
-        walletSessionJwt,
+  switch (binding.keyFamily) {
+    case 'ed25519':
+      return parseLinkedDeviceWalletSessionDeliveryV1({
+        kind: 'linked_device_wallet_session_delivery_v1',
+        tenantId: 'tenant-r103-delivery',
+        walletId: fixture.approval.walletId,
+        enrollmentId: fixture.approval.enrollmentId,
+        deviceId: fixture.approval.deviceId,
+        authorizationId,
+        walletSessionId,
+        quotaId,
+        keyManifestDigestB64u: fixture.receipt.manifestDigestB64u,
+        permission: fixture.approval.permission,
         revocationEpoch: binding.sourceRevocationEpoch,
-      },
-    ],
-  });
+        remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
+        issuedAtMs,
+        expiresAtMs,
+        nearAccountId: 'alice.testnet',
+        orderedTokens: [
+          {
+            kind: 'linked_device_wallet_session_token_v1',
+            walletKeyId: binding.walletKeyId,
+            keyFamily: 'ed25519',
+            walletSessionJwt,
+            revocationEpoch: binding.sourceRevocationEpoch,
+          },
+        ],
+      });
+    case 'ecdsa_secp256k1':
+      return parseLinkedDeviceWalletSessionDeliveryV1({
+        kind: 'linked_device_wallet_session_delivery_v1',
+        tenantId: 'tenant-r103-delivery',
+        walletId: fixture.approval.walletId,
+        enrollmentId: fixture.approval.enrollmentId,
+        deviceId: fixture.approval.deviceId,
+        authorizationId,
+        walletSessionId,
+        quotaId,
+        keyManifestDigestB64u: fixture.receipt.manifestDigestB64u,
+        permission: fixture.approval.permission,
+        revocationEpoch: binding.sourceRevocationEpoch,
+        remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
+        issuedAtMs,
+        expiresAtMs,
+        orderedTokens: [
+          {
+            kind: 'linked_device_wallet_session_token_v1',
+            walletKeyId: binding.walletKeyId,
+            keyFamily: 'ecdsa_secp256k1',
+            walletSessionJwt,
+            revocationEpoch: binding.sourceRevocationEpoch,
+          },
+        ],
+      });
+    default:
+      return assertNeverLinkedDeviceKeyFamily(binding.keyFamily);
+  }
 }
 
 export function buildR103ProvisioningFixture(
@@ -577,14 +627,18 @@ export async function buildR103ActiveExecutionFixture(
 export function buildR103DeviceLinkFixture(
   input: {
     readonly linkSessionId?: string;
+    readonly enrollmentId?: string;
+    readonly deviceId?: string;
   } = {},
 ): R103DeviceLinkFixture {
   const linkSessionId = required(
     parseLinkDeviceSessionId(input.linkSessionId ?? 'link-session:r103'),
   );
   const walletId = required(parseWalletId('wallet:r103'));
-  const enrollmentId = required(parseLinkedDeviceEnrollmentId('enrollment:r103'));
-  const deviceId = required(parseLinkedDeviceId('device:r103'));
+  const enrollmentId = required(
+    parseLinkedDeviceEnrollmentId(input.enrollmentId ?? 'enrollment:r103'),
+  );
+  const deviceId = required(parseLinkedDeviceId(input.deviceId ?? 'device:r103'));
   const walletKeyId = required(parseWalletKeyId('wallet-key:r103'));
   const sourceLaneId = required(parseSigningLaneId('lane:owner:r103'));
   const targetLaneId = required(parseSigningLaneId('lane:device:r103'));

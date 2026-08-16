@@ -36,6 +36,10 @@ import {
   D1EmailOtpWalletEnrollmentStore,
 } from '../../packages/sdk-server-ts/src/core/EmailOtpStores';
 import { D1WebAuthnAuthenticatorStore } from '../../packages/sdk-server-ts/src/core/WebAuthnAuthenticatorStore';
+import {
+  deriveWebAuthnAuthenticatorDeviceInfo,
+  unknownWebAuthnAuthenticatorDeviceInfo,
+} from '../../packages/shared-ts/src/utils/webauthnDeviceInfo';
 import { D1WebAuthnCredentialBindingStore } from '../../packages/sdk-server-ts/src/core/WebAuthnCredentialBindingStore';
 import { D1WebAuthnLoginChallengeStore } from '../../packages/sdk-server-ts/src/core/WebAuthnLoginChallengeStore';
 import { D1WebAuthnSyncChallengeStore } from '../../packages/sdk-server-ts/src/core/WebAuthnSyncChallengeStore';
@@ -3932,6 +3936,7 @@ test.describe('D1 adapter contracts', () => {
         counter: 1,
         createdAtMs: 1000,
         updatedAtMs: 1000,
+        deviceInfo: unknownWebAuthnAuthenticatorDeviceInfo(),
       });
       await authenticatorStore.put('user-d1-webauthn', {
         version: 'webauthn_authenticator_v1',
@@ -3940,6 +3945,13 @@ test.describe('D1 adapter contracts', () => {
         counter: 3,
         createdAtMs: 900,
         updatedAtMs: 2000,
+        deviceInfo: deriveWebAuthnAuthenticatorDeviceInfo({
+          userAgent:
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+          aaguid: 'fbfc3007-154e-4ecc-8c0b-6e020557d7bd',
+          backedUp: true,
+          transports: ['internal', 'hybrid'],
+        }),
       });
       await bindingStore.put({
         version: 'webauthn_credential_binding_v1',
@@ -3964,6 +3976,15 @@ test.describe('D1 adapter contracts', () => {
         counter: 3,
         createdAtMs: 900,
         updatedAtMs: 2000,
+        deviceInfo: {
+          label: 'Safari on macOS',
+          browser: 'safari',
+          os: 'macos',
+          synced: true,
+          transports: ['internal', 'hybrid'],
+          provider: 'icloud-keychain',
+          providerLabel: 'iCloud Keychain',
+        },
       });
       await expect(
         otherAuthenticatorStore.get('user-d1-webauthn', 'credential-d1-webauthn'),

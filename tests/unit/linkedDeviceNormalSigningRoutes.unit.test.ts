@@ -32,6 +32,7 @@ import {
 } from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/linkedDeviceNormalSigning';
 import type { FetchRouterApiContext } from '../../packages/sdk-server-ts/src/router/transport/fetch/fetchRouter.types';
 import type { SessionAdapter } from '../../packages/sdk-server-ts/src/router/framework/routerApi';
+import type { RouterApiAuthorizedOperationService } from '../../packages/sdk-server-ts/src/router/framework/authServicePort';
 import { buildRouterAbEd25519NearTransactionPrepareRequestV2 } from '../../packages/sdk-web/src/core/rpcClients/relayer/routerAbNormalSigning';
 import { routerAbMpcMaterialActivationRefToWire } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
 import {
@@ -41,6 +42,13 @@ import {
 } from '../../packages/sdk-server-ts/src/authorization/domain';
 import { buildRouterAbEd25519AcceptedAuthorizedOperationV1 } from '../../packages/sdk-server-ts/src/router/domains/signingOperations/routerAbPrivateSigningWorker';
 import { buildLinkedDeviceWalletExecutionFixture } from './helpers/linkedDeviceWalletExecution.fixtures';
+
+type AuthorizedOperationAdmissionInput = Parameters<
+  RouterApiAuthorizedOperationService['admitAuthorizedOperation']
+>[0];
+type AuthorizedOperationAdmissionResult = Awaited<
+  ReturnType<RouterApiAuthorizedOperationService['admitAuthorizedOperation']>
+>;
 
 function digest(fill: number): string {
   return base64UrlEncode(new Uint8Array(32).fill(fill));
@@ -94,6 +102,10 @@ function sessionWithClaims(claims: Record<string, unknown>): SessionAdapter {
 function context(
   session: SessionAdapter,
   service: Record<string, unknown> = {},
+  routerProxy?: {
+    readonly internalServiceAuthSecret: string;
+    readonly fetch: (request: Request) => Promise<Response>;
+  },
 ): FetchRouterApiContext {
   const request = new Request('https://example.test/router-ab/ed25519/signing/prepare', {
     method: 'POST',
@@ -106,7 +118,7 @@ function context(
     method: 'POST',
     runtime: { kind: 'inline' },
     service,
-    opts: { session },
+    opts: { session, routerAbNormalSigningRouterProxy: routerProxy },
     logger: {},
     mePath: '/me',
     routeDefinitions: [],
@@ -299,8 +311,11 @@ async function claimedOperation(
 }
 
 function configuredService(input: {
+  readonly tenantId?: string;
   readonly readAuthorizedOperation: () => Promise<AuthorizedOperation | null>;
-  readonly admitAuthorizedOperation: () => Promise<Record<string, unknown>>;
+  readonly admitAuthorizedOperation: (
+    input: AuthorizedOperationAdmissionInput,
+  ) => Promise<AuthorizedOperationAdmissionResult>;
   readonly completeAuthorizedOperation?: (
     operation: AuthorizedOperation,
   ) => Promise<AuthorizedOperation>;
@@ -309,10 +324,11 @@ function configuredService(input: {
     readonly verifiedAtMs: number;
   }>;
   readonly renewLinkedDeviceWalletSession?: () => Promise<void>;
+  readonly resolveLinkedDeviceExecution?: () => Promise<unknown>;
 }) {
   return {
     authorizedOperations: {
-      tenantId: 'tenant:1',
+      tenantId: input.tenantId ?? 'tenant:1',
       readAuthorizedOperation: input.readAuthorizedOperation,
       admitAuthorizedOperation: input.admitAuthorizedOperation,
       completeAuthorizedOperation: async ({ operation }: { operation: AuthorizedOperation }) =>
@@ -321,17 +337,19 @@ function configuredService(input: {
           : operation,
     },
     linkedDeviceExecution: {
-      resolveActiveLinkedDeviceExecutionV1: async () => ({
-        kind: 'refused',
-        reason: 'linked_enrollment_mismatch',
-      }),
+      resolveActiveLinkedDeviceExecutionV1:
+        input.resolveLinkedDeviceExecution ??
+        (async () => ({
+          kind: 'refused',
+          reason: 'linked_enrollment_mismatch',
+        })),
     },
     linkedDeviceLocalPresence: {
       verify:
         input.verifyLocalPresence ?? (async () => ({ kind: 'verified', verifiedAtMs: Date.now() })),
     },
     authorizationSessions: {
-      tenantId: 'tenant:1',
+      tenantId: input.tenantId ?? 'tenant:1',
       renewLinkedDeviceWalletSession: input.renewLinkedDeviceWalletSession ?? (async () => {}),
     },
   };
@@ -377,6 +395,7 @@ async function linkedEcdsaPrepareFixture(nowMs: number) {
   return {
     expiresAtMs,
     claims,
+    projection: linked.projection,
     body: {
       ...request,
       linkedDeviceExecution: {
@@ -452,36 +471,104 @@ test('parses linked ECDSA boundary fields before atomic admission', async () => 
   });
 });
 
-test('renews an exhausted linked Wallet Session from fresh local presence and retries admission', async () => {
+test('returns step-up-required once, then renews and retries linked admission with local presence', async () => {
   const fixture = await linkedEcdsaPrepareFixture(Date.now());
+  const currentTimeMs = Date.now();
+  const activeProjection = {
+    ...fixture.projection,
+    authorization: {
+      ...fixture.projection.authorization,
+      issuedAtMs: currentTimeMs - 1_000,
+      expiresAtMs: currentTimeMs + 60_000,
+    },
+  };
+  const activeClaims = {
+    ...fixture.claims,
+    tenantId: String(activeProjection.authorization.tenantId),
+    walletId: String(activeProjection.authorization.walletId),
+    enrollmentId: String(activeProjection.authorization.enrollmentId),
+    deviceId: String(activeProjection.authorization.deviceId),
+    sub: `linked-device:${String(activeProjection.authorization.deviceId)}`,
+    authorizationId: String(activeProjection.authorization.authorizationGrantRef.authorizationId),
+    walletSessionId: String(activeProjection.authorization.walletSessionId),
+    quotaId: String(activeProjection.authorization.quotaId),
+    keyManifestDigestB64u: String(activeProjection.authorization.keyManifestDigestB64u),
+    revocationEpoch: activeProjection.authorization.revocationEpoch,
+    issuedAtMs: activeProjection.authorization.issuedAtMs,
+    expiresAtMs: activeProjection.authorization.expiresAtMs,
+    iat: Math.floor(activeProjection.authorization.issuedAtMs / 1000),
+    exp: Math.floor(activeProjection.authorization.expiresAtMs / 1000),
+  };
+  const activeBody = {
+    ...fixture.body,
+    authorization: {
+      ...fixture.body.authorization,
+      wallet_session_id: String(activeProjection.authorization.walletSessionId),
+    },
+  };
   let admissionCalls = 0;
   let renewalCalls = 0;
-  const result = await handleLinkedDeviceEcdsaNormalSigning({
+  let localPresenceCalls = 0;
+  const service = configuredService({
+    tenantId: String(activeProjection.authorization.tenantId),
+    readAuthorizedOperation: async () => null,
+    admitAuthorizedOperation: async ({ operation }) => {
+      admissionCalls += 1;
+      if (admissionCalls <= 2) return { kind: 'wallet_session_quota_exhausted' };
+      return { kind: 'claimed', operation: await buildAuthorizedOperation(operation) };
+    },
+    verifyLocalPresence: async () => {
+      localPresenceCalls += 1;
+      return { kind: 'verified', verifiedAtMs: Date.now() };
+    },
+    renewLinkedDeviceWalletSession: async () => {
+      renewalCalls += 1;
+    },
+    resolveLinkedDeviceExecution: async () => ({
+      kind: 'projected',
+      projection: activeProjection,
+    }),
+  });
+  const firstBody = { ...activeBody };
+  delete firstBody.localPresenceAssertion;
+  const firstResult = await handleLinkedDeviceEcdsaNormalSigning({
     ctx: context(
-      sessionWithClaims(fixture.claims),
-      configuredService({
-        readAuthorizedOperation: async () => null,
-        admitAuthorizedOperation: async () => {
-          admissionCalls += 1;
-          return admissionCalls === 1
-            ? { kind: 'wallet_session_quota_exhausted' }
-            : { kind: 'material_mismatch' };
-        },
-        renewLinkedDeviceWalletSession: async () => {
-          renewalCalls += 1;
-        },
-      }),
+      sessionWithClaims(activeClaims),
+      service,
     ),
-    body: fixture.body,
+    body: firstBody,
     phase: 'prepare',
   });
 
-  expect(result?.status).toBe(403);
-  expect(await result?.json()).toMatchObject({
-    code: 'linked_device_authorization_rejected',
-    message: 'Linked-device authorization was rejected: material_mismatch',
+  expect(firstResult?.status).toBe(409);
+  expect(await firstResult?.json()).toMatchObject({
+    code: 'linked_device_step_up_required',
+    message: 'Linked-device Wallet Session requires local-presence renewal',
   });
-  expect({ admissionCalls, renewalCalls }).toEqual({ admissionCalls: 2, renewalCalls: 1 });
+
+  const retryResult = await handleLinkedDeviceEcdsaNormalSigning({
+    ctx: context(
+      sessionWithClaims(activeClaims),
+      service,
+      {
+        internalServiceAuthSecret: 'test-router-secret',
+        fetch: async () => new Response('{"ok":true}', { status: 200 }),
+      },
+    ),
+    body: activeBody,
+    phase: 'prepare',
+  });
+
+  const retryBody = await retryResult?.json();
+  expect({ status: retryResult?.status, body: retryBody }).toEqual({
+    status: 200,
+    body: { ok: true },
+  });
+  expect({ admissionCalls, renewalCalls, localPresenceCalls }).toEqual({
+    admissionCalls: 3,
+    renewalCalls: 1,
+    localPresenceCalls: 1,
+  });
 });
 
 test('does not claim quota when Ed25519 finalize has no prepared operation', async () => {

@@ -157,7 +157,66 @@ class PrewarmWorker {
   }
 }
 
+class WasmReadyWorker {
+  static instances: WasmReadyWorker[] = [];
+
+  readonly listeners = new Map<string, Set<WorkerListener>>();
+  terminated = false;
+
+  constructor(url: string | URL, _opts?: WorkerOptions) {
+    WasmReadyWorker.instances.push(this);
+    const workerUrl = String(url);
+    const delayMs =
+      workerUrl.includes('/evm-crypto.worker.js') || workerUrl.includes('/tempo-signer.worker.js')
+        ? 20
+        : 0;
+    setTimeout(() => {
+      this.emitMessage({ type: 'WORKER_READY', ready: true });
+    }, delayMs);
+  }
+
+  addEventListener(type: string, listener: WorkerListener): void {
+    const set = this.listeners.get(type) || new Set<WorkerListener>();
+    set.add(listener);
+    this.listeners.set(type, set);
+  }
+
+  removeEventListener(type: string, listener: WorkerListener): void {
+    this.listeners.get(type)?.delete(listener);
+  }
+
+  postMessage(_message: unknown, _transfer?: Transferable[]): void {}
+
+  terminate(): void {
+    this.terminated = true;
+  }
+
+  private emitMessage(data: unknown): void {
+    for (const listener of this.listeners.get('message') || []) {
+      listener(new MessageEvent('message', { data }));
+    }
+  }
+}
+
 test.describe('WorkerTransport multichain timeout guard', () => {
+  test('prewarmWorkers waits for EVM and Tempo worker readiness', async () => {
+    const originalWorker = globalThis.Worker;
+    WasmReadyWorker.instances.length = 0;
+    (globalThis as unknown as { Worker: typeof Worker }).Worker =
+      WasmReadyWorker as unknown as typeof Worker;
+
+    try {
+      const transport = new WorkerTransport();
+      const startedAt = performance.now();
+      await transport.prewarmWorkers();
+
+      expect(performance.now() - startedAt).toBeGreaterThanOrEqual(15);
+      expect(WasmReadyWorker.instances).toHaveLength(6);
+    } finally {
+      (globalThis as unknown as { Worker: typeof Worker }).Worker = originalWorker;
+    }
+  });
+
   test('email OTP Yao prewarm skips, coalesces, and retries after failure', async () => {
     const originalWorker = globalThis.Worker;
     PrewarmWorker.instances.length = 0;
