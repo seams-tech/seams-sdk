@@ -152,6 +152,19 @@ type LinkedDeviceEcdsaSigningResponseV1 = {
   readonly signature65_b64u: string;
 };
 
+export class LinkedDeviceEcdsaHttpError extends Error {
+  readonly kind = 'linked_device_ecdsa_http_error_v1' as const;
+  readonly status: number;
+  readonly code: string;
+
+  constructor(input: { readonly status: number; readonly code: string; readonly message: string }) {
+    super(input.message);
+    this.name = 'LinkedDeviceEcdsaHttpError';
+    this.status = input.status;
+    this.code = input.code;
+  }
+}
+
 export type LinkedDeviceEcdsaNormalSigningTransportV1 = {
   readonly presignInit: (input: {
     readonly relayServerUrl: string;
@@ -216,7 +229,11 @@ function requireText(value: unknown, label: string): string {
 }
 
 function isLinkedDeviceStepUpRequired(error: unknown): boolean {
-  return error instanceof Error && error.message.includes('linked_device_step_up_required');
+  return (
+    error instanceof LinkedDeviceEcdsaHttpError &&
+    error.status === 409 &&
+    error.code === 'linked_device_step_up_required'
+  );
 }
 
 function requireRequestId(value: unknown): string {
@@ -605,13 +622,19 @@ async function postLinkedJson(
   const payload: unknown = await response.json().catch(() => undefined);
   if (!response.ok) {
     const record =
-      payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
-    const code = typeof record.code === 'string' ? `${record.code}: ` : '';
-    throw new Error(
-      typeof record.message === 'string'
-        ? `${code}${record.message}`
-        : `linked ECDSA request failed (${response.status})`,
-    );
+      payload && typeof payload === 'object' && !Array.isArray(payload)
+        ? (payload as Record<string, unknown>)
+        : undefined;
+    const code = typeof record?.code === 'string' ? record.code : 'linked_request_failed';
+    const message =
+      typeof record?.message === 'string'
+        ? record.message
+        : `linked ECDSA request failed (${response.status})`;
+    throw new LinkedDeviceEcdsaHttpError({
+      status: response.status,
+      code,
+      message: `${code}: ${message}`,
+    });
   }
   return payload;
 }
