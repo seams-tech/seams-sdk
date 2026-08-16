@@ -3050,10 +3050,22 @@ body:has(.h2-page) {
   color: var(--h2-smoke);
 }
 
-/* split-key diagram under the copy items, sized to their measure */
-.h2-security__diagram {
-  margin-top: 40px;
-  max-width: 432px;
+/* paged right column: one stage tall enough for either view, so the section
+   height (and the pager on its rule) holds still when the view changes */
+.h2-security__stage {
+  display: grid;
+  place-items: center;
+  min-height: 386px;
+}
+
+.h2-security__stage > .h2-security__grid {
+  width: 100%;
+}
+
+/* the pager rides this section's bottom rule, so the content sits closer to
+   it than the default 86px section padding would allow */
+.h2-section--pagerfoot {
+  padding-bottom: 34px;
 }
 
 .h2-security__grid {

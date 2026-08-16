@@ -879,9 +879,18 @@ function LineArt({ children }: { children: React.ReactNode }): React.JSX.Element
   );
 }
 
+/* the right column pages between the capability grid and the signing diagram */
+const securityViews = ['Custody primitives', 'Threshold signing'];
+
 export function H2Security(): React.JSX.Element {
+  const [view, setView] = React.useState(0);
+  const lastView = securityViews.length - 1;
+
   return (
-    <section className="h2-section h2-rule" aria-labelledby="h2-security-title">
+    <section
+      className="h2-section h2-rule h2-section--pagerfoot"
+      aria-labelledby="h2-security-title"
+    >
       <div className="h2-shell">
         <div className="h2-security">
           <div>
@@ -918,72 +927,105 @@ export function H2Security(): React.JSX.Element {
                 retained in the audit trail.
               </p>
             </div>
-            <div className="h2-security__diagram">
-              <MpcSplitDiagram />
-            </div>
           </div>
-          <div className="h2-security__grid">
-            <div className="h2-security__cell">
-              {/* nested isometric cube: dashed hidden edges, faint-filled inner cube */}
-              <LineArt>
-                <path d="M50 12 L80 27 L80 63 L50 78 L20 63 L20 27 Z" />
-                <path
-                  d="M50 12 L50 48 M50 48 L20 63 M50 48 L80 63"
-                  strokeDasharray="2.5 3"
-                  opacity="0.5"
-                />
-                <path
-                  d="M50 36 L63 42.5 L63 58 L50 64.5 L37 58 L37 42.5 Z"
-                  fill="var(--h2-taupe)"
-                />
-                <path d="M37 42.5 L50 49 L63 42.5 M50 49 L50 64.5" />
-                <path d="M20 27 L50 42 L80 27 M50 42 L50 78" />
-              </LineArt>
-              <span>Split-key custody</span>
-            </div>
-            <div className="h2-security__cell">
-              {/* double-outline shield on a dotted axis */}
-              <LineArt>
-                <path d="M50 4 V96" strokeDasharray="2.5 3" opacity="0.4" />
-                <path
-                  d="M50 12 L81 22 V48 C81 66 68 78 50 86 C32 78 19 66 19 48 V22 Z"
-                  fill="var(--h2-bg)"
-                />
-                <path
-                  d="M50 20 L74 28 V48 C74 61 64 71 50 77 C36 71 26 61 26 48 V28 Z"
-                  opacity="0.7"
-                />
-                <path d="M38 48 L47 57 L63 39" />
-              </LineArt>
-              <span>Policy engine</span>
-            </div>
-            <div className="h2-security__cell">
-              {/* technical key: concentric head, construction circle + crosshair */}
-              <LineArt>
-                <path d="M36 8 V68 M6 38 H66" strokeDasharray="2.5 3" opacity="0.4" />
-                <circle cx="36" cy="38" r="22" strokeDasharray="2.5 3" opacity="0.4" />
-                <circle cx="36" cy="38" r="15" fill="var(--h2-bg)" />
-                <circle cx="36" cy="38" r="8" />
-                <path d="M47 49 L82 84 M62 64 L71 55 M71 73 L80 64" />
-              </LineArt>
-              <span>Scoped credentials</span>
-            </div>
-            <div className="h2-security__cell">
-              {/* layered ledger: offset sheets with dashed projection guides */}
-              <LineArt>
-                <path d="M34 10 H78 V74 H34 Z" opacity="0.7" />
-                <path
-                  d="M34 10 L24 24 M78 10 L68 24 M78 74 L68 88 M34 74 L24 88"
-                  strokeDasharray="2.5 3"
-                  opacity="0.5"
-                />
-                <path d="M24 24 H68 V88 H24 Z" fill="var(--h2-bg)" />
-                <path d="M32 40 H60 M32 49 H60 M32 58 H60 M32 67 H50" />
-              </LineArt>
-              <span>Audit log</span>
-            </div>
+          <div className="h2-security__stage">
+            {view === 1 ? (
+              <MpcSplitDiagram />
+            ) : (
+              <div className="h2-security__grid">
+                <div className="h2-security__cell">
+                  {/* nested isometric cube: dashed hidden edges, faint-filled inner cube */}
+                  <LineArt>
+                    <path d="M50 12 L80 27 L80 63 L50 78 L20 63 L20 27 Z" />
+                    <path
+                      d="M50 12 L50 48 M50 48 L20 63 M50 48 L80 63"
+                      strokeDasharray="2.5 3"
+                      opacity="0.5"
+                    />
+                    <path
+                      d="M50 36 L63 42.5 L63 58 L50 64.5 L37 58 L37 42.5 Z"
+                      fill="var(--h2-taupe)"
+                    />
+                    <path d="M37 42.5 L50 49 L63 42.5 M50 49 L50 64.5" />
+                    <path d="M20 27 L50 42 L80 27 M50 42 L50 78" />
+                  </LineArt>
+                  <span>Split-key custody</span>
+                </div>
+                <div className="h2-security__cell">
+                  {/* double-outline shield on a dotted axis */}
+                  <LineArt>
+                    <path d="M50 4 V96" strokeDasharray="2.5 3" opacity="0.4" />
+                    <path
+                      d="M50 12 L81 22 V48 C81 66 68 78 50 86 C32 78 19 66 19 48 V22 Z"
+                      fill="var(--h2-bg)"
+                    />
+                    <path
+                      d="M50 20 L74 28 V48 C74 61 64 71 50 77 C36 71 26 61 26 48 V28 Z"
+                      opacity="0.7"
+                    />
+                    <path d="M38 48 L47 57 L63 39" />
+                  </LineArt>
+                  <span>Policy engine</span>
+                </div>
+                <div className="h2-security__cell">
+                  {/* technical key: concentric head, construction circle + crosshair */}
+                  <LineArt>
+                    <path d="M36 8 V68 M6 38 H66" strokeDasharray="2.5 3" opacity="0.4" />
+                    <circle cx="36" cy="38" r="22" strokeDasharray="2.5 3" opacity="0.4" />
+                    <circle cx="36" cy="38" r="15" fill="var(--h2-bg)" />
+                    <circle cx="36" cy="38" r="8" />
+                    <path d="M47 49 L82 84 M62 64 L71 55 M71 73 L80 64" />
+                  </LineArt>
+                  <span>Scoped credentials</span>
+                </div>
+                <div className="h2-security__cell">
+                  {/* layered ledger: offset sheets with dashed projection guides */}
+                  <LineArt>
+                    <path d="M34 10 H78 V74 H34 Z" opacity="0.7" />
+                    <path
+                      d="M34 10 L24 24 M78 10 L68 24 M78 74 L68 88 M34 74 L24 88"
+                      strokeDasharray="2.5 3"
+                      opacity="0.5"
+                    />
+                    <path d="M24 24 H68 V88 H24 Z" fill="var(--h2-bg)" />
+                    <path d="M32 40 H60 M32 49 H60 M32 58 H60 M32 67 H50" />
+                  </LineArt>
+                  <span>Audit log</span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
+      </div>
+      {/* pager straddles the section's bottom rule, centered on the page */}
+      <div className="h2-pager" role="group" aria-label="Custody views">
+        <button
+          type="button"
+          className="h2-pager__btn"
+          aria-label="Previous custody view"
+          disabled={view === 0}
+          onClick={() => setView((v) => Math.max(0, v - 1))}
+        >
+          <ChevronLeft aria-hidden />
+        </button>
+        <span className="h2-pager__dots">
+          {securityViews.map((name, i) => (
+            <span
+              key={name}
+              className={`h2-pager__dot${i === view ? ' is-active' : ''}`}
+              title={name}
+            />
+          ))}
+        </span>
+        <button
+          type="button"
+          className="h2-pager__btn"
+          aria-label="Next custody view"
+          disabled={view >= lastView}
+          onClick={() => setView((v) => Math.min(lastView, v + 1))}
+        >
+          <ChevronRight aria-hidden />
+        </button>
       </div>
     </section>
   );
