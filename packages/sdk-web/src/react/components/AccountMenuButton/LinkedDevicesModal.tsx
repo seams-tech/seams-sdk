@@ -62,6 +62,45 @@ function friendlyDay(value: number, now: number): string {
   });
 }
 
+function deviceNumbers(devices: readonly LinkedDeviceSummaryV1[]): ReadonlyMap<string, number> {
+  const oldestFirst = [...devices].sort((left, right) => {
+    const createdAtDifference = left.createdAtMs - right.createdAtMs;
+    if (createdAtDifference !== 0) return createdAtDifference;
+    return String(left.deviceId).localeCompare(String(right.deviceId));
+  });
+  return new Map(oldestFirst.map((device, index) => [String(device.deviceId), index + 2]));
+}
+
+function shortDeviceId(deviceId: LinkedDeviceSummaryV1['deviceId']): string {
+  const value = String(deviceId);
+  return value.length <= 12 ? value : `…${value.slice(-8)}`;
+}
+
+function devicePlatformDescription(device: LinkedDeviceSummaryV1): string {
+  switch (device.platform) {
+    case 'platform':
+    case 'internal':
+      return 'Built into device';
+    case 'cross-platform':
+      return 'External';
+    case 'hybrid':
+    case 'cable':
+      return 'Nearby device';
+    case 'usb':
+      return 'USB';
+    case 'nfc':
+      return 'NFC';
+    case 'ble':
+      return 'Bluetooth';
+    case 'smart-card':
+      return 'Smart card';
+    case 'unspecified':
+      return 'Passkey';
+    default:
+      return device.platform;
+  }
+}
+
 function focusableDialogElements(dialog: HTMLElement): HTMLElement[] {
   return Array.from(
     dialog.querySelectorAll<HTMLElement>(
@@ -200,6 +239,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
   if (!isOpen) return null;
 
   const devices = loadState.kind === 'loaded' ? loadState.devices : [];
+  const numberByDeviceId = deviceNumbers(devices);
   const showEmpty = loadState.kind === 'loaded' && devices.length === 0;
 
   return (
@@ -264,6 +304,10 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
               <ul className="w3a-linked-devices-modal-list">
                 {devices.map((device) => {
                   const deviceId = String(device.deviceId);
+                  const deviceNumber = numberByDeviceId.get(deviceId);
+                  if (deviceNumber === undefined) {
+                    throw new Error('linked device number is missing');
+                  }
                   const standing = deviceStanding(device);
                   const confirming =
                     revokeState.kind === 'confirming' && revokeState.deviceId === deviceId;
@@ -273,9 +317,20 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
                   return (
                     <li key={deviceId} className="w3a-linked-devices-modal-item">
                       <div className="w3a-linked-devices-modal-item-main">
-                        <span className="w3a-linked-devices-modal-item-name">{device.label}</span>
+                        <span className="w3a-linked-devices-modal-item-name">
+                          Device {deviceNumber}
+                        </span>
                         <span className={`w3a-linked-devices-modal-standing tone-${standing.tone}`}>
                           {standing.label}
+                        </span>
+                      </div>
+                      <div className="w3a-linked-devices-modal-item-identity">
+                        <span>{device.label}</span>
+                        <span aria-hidden="true">&middot;</span>
+                        <span>{devicePlatformDescription(device)}</span>
+                        <span aria-hidden="true">&middot;</span>
+                        <span className="w3a-linked-devices-modal-device-id" title={deviceId}>
+                          ID {shortDeviceId(device.deviceId)}
                         </span>
                       </div>
                       <div className="w3a-linked-devices-modal-item-detail">

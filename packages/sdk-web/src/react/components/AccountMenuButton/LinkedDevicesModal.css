@@ -176,6 +176,21 @@
   font-weight: 500;
 }
 
+.w3a-linked-devices-modal-item-identity {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.35rem;
+  color: var(--w3a-colors-textSecondary);
+  font-size: 0.8rem;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.w3a-linked-devices-modal-device-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+
 .w3a-linked-devices-modal-confirm {
   display: grid;
   gap: 0.5rem;
