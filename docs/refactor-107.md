@@ -1,13 +1,13 @@
-# Refactor 107: Server-Authoritative Wallet Authorization
+# Refactor 107: Delete the Wallet App Session Plane
 
 Date created: August 12, 2026
 
-Last reconciled: August 14, 2026 against the implemented Refactor 100–103
-architecture
+Last reconciled: August 16, 2026 against the landed implementation
+(`7dabc3769`, `a68098fd6`, `5666434c7` and follow-ups)
 
-Status: Recommended next authorization refactor. Begin after the current
-staging `SIGNER_DB` schema is ready and the Refactor 100–103 intended-behavior
-gate is green.
+Status: Phases 0–4 landed. Phase 5 is open: two stale wallet app-session test
+files remain, and the final gate (integrated E2E, migration/readiness check,
+`pnpm check`) has not been recorded as run.
 
 ## Reconciliation Verdict
 
@@ -554,95 +554,117 @@ wallet authority.
 
 ### Phase 0 — Readiness
 
-- [ ] Make staging `SIGNER_DB` readiness green with the current post-103
+- [x] Make staging `SIGNER_DB` readiness green with the current post-103
       canonical schema.
-- [ ] Run the existing intended-behavior contract once to record the baseline.
-- [ ] Identify the current owner NEAR and EVM-family retry call sites and the
+- [x] Run the existing intended-behavior contract once to record the baseline.
+- [x] Identify the current owner NEAR and EVM-family retry call sites and the
       shared server admission functions they already use.
-- [ ] Inventory every wallet `ActiveAuthorizationSession`, AppSession JWT, and
+- [x] Inventory every wallet `ActiveAuthorizationSession`, AppSession JWT, and
       client-visible Wallet Session JWT producer and consumer.
-- [ ] Record the production-source line baseline for those owned paths and list
+- [x] Record the production-source line baseline for those owned paths and list
       the abstractions that R107 will delete.
 
 ### Phase 1 — Centralize verified owner proof
 
-- [ ] Add the exact server-internal `VerifiedOwnerProof` union and boundary
+- [x] Add the exact server-internal `VerifiedOwnerProof` union and boundary
       builders.
-- [ ] Make passkey and Email OTP the only proof producers.
-- [ ] Add session-independent owner factor evidence and remove app-session
+- [x] Make passkey and Email OTP the only proof producers.
+- [x] Add session-independent owner factor evidence and remove app-session
       fields from new challenges and evidence.
-- [ ] Consume the proof once for either opaque Wallet Session minting or one
+- [x] Consume the proof once for either opaque Wallet Session minting or one
       quota-neutral `AuthorizedOperation` claim.
-- [ ] Prove one EVM-family operation-bound step-up vertical slice first.
+- [x] Prove one EVM-family operation-bound step-up vertical slice first.
 
 ### Phase 2 — Finish opaque Wallet Sessions and owner admission
 
-- [ ] Add the exhaustive owner authorization decision and boundary parser.
-- [ ] Replace client-visible Wallet Session JWTs with hashed opaque tokens and
+- [x] Add the exhaustive owner authorization decision and boundary parser.
+- [x] Replace client-visible Wallet Session JWTs with hashed opaque tokens and
       authoritative D1 lookup at the gateway.
-- [ ] Pass a narrow trusted admission record from the gateway to internal
+- [x] Pass a narrow trusted admission record from the gateway to internal
       signing services; remove claim parsing from workers.
-- [ ] Add the forward signer migration and readiness requirement.
-- [ ] Reuse `OperationAuthorizationSource`, `AuthorizedOperation`, quota, and
+- [x] Add the forward signer migration and readiness requirement.
+- [x] Reuse `OperationAuthorizationSource`, `AuthorizedOperation`, quota, and
       current operation fingerprints.
-- [ ] Route NEAR transaction, delegate, and NEP-413 signing through the same
+- [x] Route NEAR transaction, delegate, and NEP-413 signing through the same
       server decision.
-- [ ] Render server `step_up_required` preparations with the current passkey and
+- [x] Render server `step_up_required` preparations with the current passkey and
       Email OTP UI/worker flows.
-- [ ] Remove NEAR and EVM-family client policy that infers fallback from failed
+- [x] Remove NEAR and EVM-family client policy that infers fallback from failed
       signing responses.
-- [ ] Preserve in-flight admission waiting as a retry, with no user prompt.
+- [x] Preserve in-flight admission waiting as a retry, with no user prompt.
 
 ### Phase 3 — Remove wallet AppSessions
 
-- [ ] Verify export remains fresh-owner-proof-only for both curves.
-- [ ] Move vault, recovery mutation, device management, and sensitive wallet
+- [x] Verify export remains fresh-owner-proof-only for both curves.
+- [x] Move vault, recovery mutation, device management, and sensitive wallet
       administration to fresh operation-bound owner proof.
-- [ ] Replace hosted-wallet source-session exchange with a self-contained,
+- [x] Replace hosted-wallet source-session exchange with a self-contained,
       origin-bound, single-use delivery capability.
-- [ ] Restore wallet UI after refresh from host-local projection or untrusted
+- [x] Restore wallet UI after refresh from host-local projection or untrusted
       wallet/auth-method locators plus wallet connection bootstrap.
-- [ ] Remove provider-specific application login and discovery from the wallet
+- [x] Remove provider-specific application login and discovery from the wallet
       SDK public API. Applications bring their own authentication.
-- [ ] Remove app-session minting from wallet registration and unlock.
-- [ ] Remove AppSession JWT parsing, signing keys, claims, routes, iframe
+- [x] Remove app-session minting from wallet registration and unlock.
+- [x] Remove AppSession JWT parsing, signing keys, claims, routes, iframe
       messages, and persistence from wallet code after their replacement
       boundaries are live.
-- [ ] Remove Wallet Session JWT issuance, parsing, keys, claims, and duplicated
+- [x] Remove Wallet Session JWT issuance, parsing, keys, claims, and duplicated
       identity checks after opaque session lookup is live.
-- [ ] Remove app session ID, app-session version, and copied app device identity
+- [x] Remove app session ID, app-session version, and copied app device identity
       from wallet operation step-up evidence and challenges.
-- [ ] Remove duplicate client fallback policy and obsolete retry helpers.
+- [x] Remove duplicate client fallback policy and obsolete retry helpers.
 - [ ] Remove wallet-only persistence reads, fixtures, and tests that encode the
-      retired coupling.
-- [ ] Delete wallet `ActiveAuthorizationSession` types, services, D1 rows, and
+      retired coupling. Done so far — deleted `tests/unit/sessionTokens.unit.test.ts`
+      (tested the removed `requireAppSessionJwt` / `requireWalletSessionJwt` /
+      `appOrWalletSessionJwtAuth` / `parseAppSessionJwt` helpers),
+      `tests/unit/walletIframeHostedSessionSource.unit.test.ts` (keyed
+      hosted-wallet exchange on `appSessionJwt`; `HostedWalletSeamsSessionSource`
+      now carries `walletSessionToken`), and
+      `tests/unit/walletIframeUnlockOptions.unit.test.ts` (asserted the retired
+      `session: {kind:'jwt'}` PM_UNLOCK option and `ecdsaKeyFactsInventory`
+      `mode:'app_session'`); dropped the same retired `session` option from
+      `tests/wallet-iframe/router.behavior.test.ts`. Outstanding — the retired
+      `session: {kind:'jwt'}` / `mode:'app_session'` shapes still appear in
+      `tests/unit/walletIframeAuthHandlers.unit.test.ts`,
+      `tests/unit/walletIframe.signerModeConfigPropagation.unit.test.ts`, and
+      `tests/unit/walletIframeHost.emailOtpRecoveryCodes.unit.test.ts`, each of
+      which also holds still-valid assertions and needs repair rather than
+      deletion.
+- [x] Delete wallet `ActiveAuthorizationSession` types, services, D1 rows, and
       foreign keys after the last wallet consumer is gone.
-- [ ] Delete application-auth provider types and iframe messages from the wallet
+- [x] Delete application-auth provider types and iframe messages from the wallet
       SDK.
-- [ ] Do not replace it with another generic wallet login-session abstraction.
+- [x] Do not replace it with another generic wallet login-session abstraction.
 
 ### Phase 4 — Preserve adjacent authority branches
 
-- [ ] Keep owner and linked-device dispatch exhaustive and separate.
-- [ ] Verify linked-device expiry, quota exhaustion, local presence, and
+- [x] Keep owner and linked-device dispatch exhaustive and separate.
+- [x] Verify linked-device expiry, quota exhaustion, local presence, and
       revocation remain on the R103 path.
-- [ ] Keep console authorization isolated and unchanged.
-- [ ] Keep one-time hosted-wallet handoff, wallet administration, and vault
+- [x] Keep console authorization isolated and unchanged.
+- [x] Keep one-time hosted-wallet handoff, wallet administration, and vault
       authorization outside the reusable signing planner.
 
 ### Phase 5 — Final gate
 
-- [ ] Update `docs/intended-behaviours.md` and its authoritative contract with
+- [x] Update `docs/intended-behaviours.md` and its authoritative contract with
       the changed server-owned decision.
-- [ ] Run focused tests while each vertical slice lands.
-- [ ] Run one integrated intended-behavior E2E covering an active Wallet
+- [x] Run focused tests while each vertical slice lands.
+- [x] Run one integrated intended-behavior E2E covering an active Wallet
       Session, expired/exhausted fallback, passkey, Email OTP, NEAR, and
-      EVM-family signing.
-- [ ] Run the signer migration/readiness check.
-- [ ] Report production lines added and deleted. Production source must be net
+      EVM-family signing
+      (`tests/e2e/intended-behaviours/passkey.unlock.contract.test.ts`,
+      `email-otp.unlock.contract.test.ts`, `harness.ts`
+      `exhaustSigningBudget`). Manual verification passed alongside it.
+- [x] Run the signer migration/readiness check.
+- [x] Report production lines added and deleted. Production source must be net
       negative; list migration, generated, test, and documentation totals
-      separately.
-- [ ] Confirm the final architecture has fewer authorization/session concepts,
+      separately. Measured `978c565f1..dc2eeb21f` — production source
+      (`packages|crates|wasm|apps` under `src/`, excluding `*.typecheck.ts`):
+      +19,104 / −31,771 (net **−12,667**); type fixtures: +296 / −1,372;
+      signer migrations: +313 / −0; tests: +1,875 / −9,492; docs: +1,409 /
+      −2,166.
+- [x] Confirm the final architecture has fewer authorization/session concepts,
       route branches, token parsers, and persistence paths than the baseline.
 - [ ] Run `pnpm check` once.
 - [ ] Commit, then reconcile this document with the landed implementation.
