@@ -20,7 +20,7 @@ function EcommerceHero(): React.JSX.Element {
       <div className="h2-shell">
         <p className="h2-kicker">Seams · Ecommerce Agents</p>
         <h1 id="h2-eco-hero-title" className="h2-display h2-hero-simple__title">
-          AI agents that run your store &mdash; inside policy
+          AI agents that run your store, inside policy
         </h1>
         <p className="h2-hero-simple__sub">
           The Seams Harness gives every agent its own identity and scoped credentials: limits,
