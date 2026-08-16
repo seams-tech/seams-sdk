@@ -10,57 +10,48 @@ import { toAccountId } from '@/core/types/accountIds';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
 import { buildNoCurrentWalletAuthMethod } from '@shared/utils/walletCapabilityBindings';
 import {
-  activeHostedWalletAppSessionJwt,
-  activeWalletOriginAppSessionJwt,
-  clearWalletOriginAppSession,
+  activeWalletSessionToken,
+  clearHostedWalletSessions,
+  redeemHostedWalletSeamsSession,
 } from '@/SeamsWeb/walletIframe/host/hostedWalletSeamsSession';
-import { activeWalletSessionFixture } from './helpers/walletSessionReadProjection.fixtures';
 import type { WalletAuthenticationRestoreAuth } from '@/SeamsWeb/signingSurface/ports';
 
-function encoded(value: unknown): string {
-  return Buffer.from(JSON.stringify(value)).toString('base64url');
-}
+const RELAY_URL = 'https://relay.example.test';
+const WALLET_ORIGIN = 'https://wallet.example.test';
+const HOST_WALLET_SESSION_TOKEN = 'wst_host-origin-token';
 
-class MemoryStorage implements Storage {
-  private readonly values = new Map<string, string>();
-
-  get length(): number {
-    return this.values.size;
+/**
+ * Seeds the wallet host's own opaque Wallet Session the way a real hosted handoff does:
+ * the host redeems a single-use exchange capability and keeps the token in its origin.
+ */
+async function seedHostedWalletSession(): Promise<void> {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        ok: true,
+        walletSessionId: 'wallet-session-1',
+        walletSessionToken: HOST_WALLET_SESSION_TOKEN,
+        curve: 'ecdsa',
+        expiresAtMs: Date.now() + 60_000,
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+  try {
+    await redeemHostedWalletSeamsSession(
+      {
+        exchangeCode: 'exchange-1',
+        nonce: 'nonce-1',
+        curve: 'ecdsa',
+        appOrigin: 'https://app.example.test',
+        walletOrigin: WALLET_ORIGIN,
+        relayUrl: RELAY_URL,
+      },
+      RELAY_URL,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
   }
-
-  clear(): void {
-    this.values.clear();
-  }
-
-  getItem(key: string): string | null {
-    return this.values.get(key) ?? null;
-  }
-
-  key(index: number): string | null {
-    return Array.from(this.values.keys())[index] ?? null;
-  }
-
-  removeItem(key: string): void {
-    this.values.delete(key);
-  }
-
-  setItem(key: string, value: string): void {
-    this.values.set(key, String(value));
-  }
-}
-
-function walletOriginPasskeyJwt(walletId: string): string {
-  return `${encoded({ alg: 'none', typ: 'JWT' })}.${encoded({
-    kind: 'app_session_v1',
-    tenantId: 'tenant-1',
-    sub: walletId,
-    seamsSessionId: 'session-1',
-    deviceId: 'device-1',
-    provider: 'passkey',
-    authSource: { kind: 'passkey', credentialIdB64u: 'credential-1' },
-    sessionAudience: { kind: 'first_party_web', origin: 'https://wallet.example.test' },
-    exp: Math.floor(Date.now() / 1000) + 3600,
-  })}.signature`;
 }
 
 function loggedInWalletSession(walletId: string): WalletSession {
@@ -175,7 +166,105 @@ test.describe('wallet iframe auth handlers', () => {
     });
   });
 
-  test('defaults hosted passkey unlock to a JWT session and preserves explicit sessions', async () => {
+  test('rejects a parent-supplied wallet session token on unlock', async () => {
+    const posted: ChildToParentEnvelope[] = [];
+    const unlockCalls: unknown[][] = [];
+    const deps = createDeps({
+      currentWalletId: 'harbor-current',
+      posted,
+      onGetWalletSession: (walletId) => loggedInWalletSession(walletId || 'anonymous'),
+      onUnlock: (...args) => {
+        unlockCalls.push(args);
+        return { success: false, error: 'captured' };
+      },
+    });
+    const handlers = createAuthWalletIframeHandlers(deps);
+
+    await expect(
+      handlers.PM_UNLOCK!({
+        type: 'PM_UNLOCK',
+        requestId: 'unlock-parent-bearer',
+        payload: {
+          kind: 'custom_options',
+          walletId: 'harbor-current',
+          options: {
+            kind: 'pm_unlock_options_v1',
+            signerSlot: { kind: 'default' },
+            signingSession: { kind: 'default' },
+            unlockSelection: { kind: 'default' },
+            ecdsaKeyFactsInventory: {
+              kind: 'value',
+              value: {
+                mode: 'opaque_wallet_session',
+                curve: 'ecdsa_secp256k1',
+                walletSessionToken: 'wst_parent-supplied-token',
+              },
+            },
+          },
+        },
+      }),
+    ).rejects.toThrow('wallet iframe unlock requests must not carry walletSessionToken');
+
+    expect(unlockCalls).toHaveLength(0);
+  });
+
+  test('injects the host-origin wallet session token for opaque key-facts lookups', async () => {
+    const originalWindow = Reflect.get(globalThis, 'window');
+    const posted: ChildToParentEnvelope[] = [];
+    const unlockCalls: unknown[][] = [];
+    const deps = createDeps({
+      currentWalletId: 'harbor-current',
+      posted,
+      onGetWalletSession: (walletId) => loggedInWalletSession(walletId || 'anonymous'),
+      onUnlock: (...args) => {
+        unlockCalls.push(args);
+        return { success: false, error: 'captured' };
+      },
+    });
+    Reflect.set(globalThis, 'window', { location: { origin: WALLET_ORIGIN } });
+
+    try {
+      await seedHostedWalletSession();
+      const handlers = createAuthWalletIframeHandlers(deps);
+
+      await handlers.PM_UNLOCK!({
+        type: 'PM_UNLOCK',
+        requestId: 'unlock-opaque',
+        payload: {
+          kind: 'custom_options',
+          walletId: 'harbor-current',
+          options: {
+            kind: 'pm_unlock_options_v1',
+            signerSlot: { kind: 'default' },
+            signingSession: { kind: 'default' },
+            unlockSelection: { kind: 'default' },
+            ecdsaKeyFactsInventory: {
+              kind: 'value',
+              value: { mode: 'opaque_wallet_session', curve: 'ecdsa_secp256k1' },
+            },
+          },
+        },
+      });
+
+      expect(unlockCalls).toHaveLength(1);
+      expect(unlockCalls[0]).toEqual([
+        'harbor-current',
+        expect.objectContaining({
+          ecdsaKeyFactsInventory: {
+            mode: 'opaque_wallet_session',
+            curve: 'ecdsa_secp256k1',
+            walletSessionToken: HOST_WALLET_SESSION_TOKEN,
+          },
+        }),
+      ]);
+    } finally {
+      clearHostedWalletSessions();
+      if (originalWindow === undefined) Reflect.deleteProperty(globalThis, 'window');
+      else Reflect.set(globalThis, 'window', originalWindow);
+    }
+  });
+
+  test('passes webauthn key-facts lookups through without a wallet session token', async () => {
     const posted: ChildToParentEnvelope[] = [];
     const unlockCalls: unknown[][] = [];
     const deps = createDeps({
@@ -191,255 +280,47 @@ test.describe('wallet iframe auth handlers', () => {
 
     await handlers.PM_UNLOCK!({
       type: 'PM_UNLOCK',
-      requestId: 'unlock-default',
-      payload: { kind: 'default_options', walletId: 'harbor-current' },
-    });
-    await handlers.PM_UNLOCK!({
-      type: 'PM_UNLOCK',
-      requestId: 'unlock-explicit',
+      requestId: 'unlock-webauthn',
       payload: {
         kind: 'custom_options',
         walletId: 'harbor-current',
         options: {
           kind: 'pm_unlock_options_v1',
           signerSlot: { kind: 'default' },
-          session: {
-            kind: 'value',
-            value: {
-              kind: 'jwt',
-              relayUrl: 'https://explicit-relay.example.test',
-              route: '/explicit-exchange',
-              exchange: { type: 'passkey_assertion' },
-            },
-          },
           signingSession: { kind: 'default' },
           unlockSelection: { kind: 'default' },
-          ecdsaKeyFactsInventory: { kind: 'default' },
+          ecdsaKeyFactsInventory: { kind: 'value', value: { mode: 'webauthn' } },
         },
       },
     });
 
-    expect(unlockCalls).toHaveLength(2);
+    expect(unlockCalls).toHaveLength(1);
     expect(unlockCalls[0]).toEqual([
       'harbor-current',
-      expect.objectContaining({
-        session: {
-          kind: 'jwt',
-          exchange: { type: 'passkey_assertion' },
-        },
-      }),
-    ]);
-    expect(unlockCalls[1]).toEqual([
-      'harbor-current',
-      expect.objectContaining({
-        session: {
-          kind: 'jwt',
-          relayUrl: 'https://explicit-relay.example.test',
-          route: '/explicit-exchange',
-          exchange: { type: 'passkey_assertion' },
-        },
-      }),
+      expect.objectContaining({ ecdsaKeyFactsInventory: { mode: 'webauthn' } }),
     ]);
   });
 
-  test('stores local passkey app session JWT and clears it when the wallet locks', async () => {
+  test('clears the host-origin wallet session when the wallet locks', async () => {
     const originalWindow = Reflect.get(globalThis, 'window');
-    const walletId = 'harbor-current';
-    const freshJwt = walletOriginPasskeyJwt(walletId);
     const posted: ChildToParentEnvelope[] = [];
     const deps = createDeps({
-      currentWalletId: walletId,
+      currentWalletId: 'harbor-current',
       posted,
-      onGetWalletSession: (requestedWalletId) =>
-        loggedInWalletSession(requestedWalletId || walletId),
-      onUnlock: async () => ({
-        success: true,
-        kind: 'near_wallet_unlocked',
-        walletId: walletIdFromString(walletId),
-        nearAccountId: toAccountId(`${walletId}.near`),
-        loggedInNearAccountId: `${walletId}.near`,
-        operationalPublicKey: 'ed25519:public-key',
-        jwt: freshJwt,
-      }),
+      onGetWalletSession: (walletId) => loggedInWalletSession(walletId || 'anonymous'),
     });
-    Reflect.set(globalThis, 'window', { location: { origin: 'https://wallet.example.test' } });
+    Reflect.set(globalThis, 'window', { location: { origin: WALLET_ORIGIN } });
 
     try {
+      await seedHostedWalletSession();
+      expect(activeWalletSessionToken('ecdsa', RELAY_URL)).toBe(HOST_WALLET_SESSION_TOKEN);
+
       const handlers = createAuthWalletIframeHandlers(deps);
-      await handlers.PM_UNLOCK!({
-        type: 'PM_UNLOCK',
-        requestId: 'unlock-local',
-        payload: { kind: 'default_options', walletId },
-      });
+      await handlers.PM_LOCK!({ type: 'PM_LOCK', requestId: 'lock-hosted' });
 
-      expect(activeWalletOriginAppSessionJwt('https://relay.example.test', walletId)).toBe(
-        freshJwt,
-      );
-      expect(activeHostedWalletAppSessionJwt('https://relay.example.test')).toBeUndefined();
-
-      await handlers.PM_LOCK!({ type: 'PM_LOCK', requestId: 'lock-local' });
-      expect(
-        activeWalletOriginAppSessionJwt('https://relay.example.test', walletId),
-      ).toBeUndefined();
+      expect(activeWalletSessionToken('ecdsa', RELAY_URL)).toBeUndefined();
     } finally {
-      clearWalletOriginAppSession();
-      if (originalWindow === undefined) Reflect.deleteProperty(globalThis, 'window');
-      else Reflect.set(globalThis, 'window', originalWindow);
-    }
-  });
-
-  test('restores a persisted wallet-origin app session with a cold wallet read and rejects mismatches', async () => {
-    const originalWindow = Reflect.get(globalThis, 'window');
-    const originalSessionStorage = Reflect.get(globalThis, 'sessionStorage');
-    const storageKey = 'seams:wallet-origin-app-session:v1';
-    const walletId = 'harbor-current';
-    const freshJwt = walletOriginPasskeyJwt(walletId);
-    const posted: ChildToParentEnvelope[] = [];
-    const restoreCalls: Array<string | undefined> = [];
-    const deps = createDeps({
-      currentWalletId: null,
-      posted,
-      onGetWalletSession: (requestedWalletId) =>
-        activeWalletSessionFixture({ walletId: requestedWalletId || walletId }),
-      onUnlock: async () => ({
-        success: true,
-        kind: 'near_wallet_unlocked',
-        walletId: walletIdFromString(walletId),
-        nearAccountId: toAccountId(`${walletId}.near`),
-        loggedInNearAccountId: `${walletId}.near`,
-        operationalPublicKey: 'ed25519:public-key',
-        jwt: freshJwt,
-      }),
-      onRestoreWalletAuthenticationStateFromHostSession: (requestedWalletId) => {
-        restoreCalls.push(requestedWalletId);
-      },
-    });
-    Reflect.set(globalThis, 'window', { location: { origin: 'https://wallet.example.test' } });
-    Reflect.set(globalThis, 'sessionStorage', new MemoryStorage());
-
-    try {
-      sessionStorage.removeItem(storageKey);
-      const handlers = createAuthWalletIframeHandlers(deps);
-      await handlers.PM_UNLOCK!({
-        type: 'PM_UNLOCK',
-        requestId: 'unlock-for-refresh',
-        payload: { kind: 'default_options', walletId },
-      });
-      const persisted = sessionStorage.getItem(storageKey);
-      expect(persisted).not.toBeNull();
-
-      clearWalletOriginAppSession();
-      sessionStorage.setItem(storageKey, persisted!);
-      await handlers.PM_GET_EXACT_WALLET_SESSION_STATE!({
-        type: 'PM_GET_EXACT_WALLET_SESSION_STATE',
-        requestId: 'restore-after-refresh',
-        payload: { authenticationRead: 'restore', wallet: { kind: 'current' } },
-      });
-      expect(restoreCalls).toEqual([undefined]);
-
-      clearWalletOriginAppSession();
-      sessionStorage.setItem(storageKey, persisted!);
-      expect(
-        activeWalletOriginAppSessionJwt('https://relay.example.test', 'harbor-other'),
-      ).toBeUndefined();
-      expect(sessionStorage.getItem(storageKey)).toBeNull();
-
-      clearWalletOriginAppSession();
-      sessionStorage.setItem(storageKey, persisted!);
-      expect(activeWalletOriginAppSessionJwt('https://other-relay.example.test', walletId)).toBe(
-        undefined,
-      );
-      expect(sessionStorage.getItem(storageKey)).toBeNull();
-    } finally {
-      clearWalletOriginAppSession();
-      if (originalWindow === undefined) Reflect.deleteProperty(globalThis, 'window');
-      else Reflect.set(globalThis, 'window', originalWindow);
-      if (originalSessionStorage === undefined)
-        Reflect.deleteProperty(globalThis, 'sessionStorage');
-      else Reflect.set(globalThis, 'sessionStorage', originalSessionStorage);
-    }
-  });
-
-  test('caches explicit passkey JWT unlocks and preserves the source for cookie unlocks', async () => {
-    const originalWindow = Reflect.get(globalThis, 'window');
-    const walletId = 'harbor-current';
-    const freshJwt = walletOriginPasskeyJwt(walletId);
-    const posted: ChildToParentEnvelope[] = [];
-    let unlockCount = 0;
-    const deps = createDeps({
-      currentWalletId: walletId,
-      posted,
-      onGetWalletSession: (requestedWalletId) =>
-        loggedInWalletSession(requestedWalletId || walletId),
-      onUnlock: async () => {
-        unlockCount += 1;
-        return {
-          success: true,
-          kind: 'ecdsa_wallet_unlocked',
-          walletId: walletIdFromString(walletId),
-          ...(unlockCount === 1 ? { jwt: freshJwt } : {}),
-        };
-      },
-    });
-    Reflect.set(globalThis, 'window', { location: { origin: 'https://wallet.example.test' } });
-
-    try {
-      const handlers = createAuthWalletIframeHandlers(deps);
-      await handlers.PM_UNLOCK!({
-        type: 'PM_UNLOCK',
-        requestId: 'unlock-explicit-jwt',
-        payload: {
-          kind: 'custom_options',
-          walletId,
-          options: {
-            kind: 'pm_unlock_options_v1',
-            signerSlot: { kind: 'default' },
-            session: {
-              kind: 'value',
-              value: {
-                kind: 'jwt',
-                exchange: { type: 'passkey_assertion' },
-              },
-            },
-            signingSession: { kind: 'default' },
-            unlockSelection: { kind: 'default' },
-            ecdsaKeyFactsInventory: { kind: 'default' },
-          },
-        },
-      });
-
-      expect(activeWalletOriginAppSessionJwt('https://relay.example.test', walletId)).toBe(
-        freshJwt,
-      );
-
-      await handlers.PM_UNLOCK!({
-        type: 'PM_UNLOCK',
-        requestId: 'unlock-cookie',
-        payload: {
-          kind: 'custom_options',
-          walletId,
-          options: {
-            kind: 'pm_unlock_options_v1',
-            signerSlot: { kind: 'default' },
-            session: {
-              kind: 'value',
-              value: {
-                kind: 'cookie',
-                exchange: { type: 'passkey_assertion' },
-              },
-            },
-            signingSession: { kind: 'default' },
-            unlockSelection: { kind: 'default' },
-            ecdsaKeyFactsInventory: { kind: 'default' },
-          },
-        },
-      });
-
-      expect(activeWalletOriginAppSessionJwt('https://relay.example.test', walletId)).toBe(
-        freshJwt,
-      );
-    } finally {
-      clearWalletOriginAppSession();
+      clearHostedWalletSessions();
       if (originalWindow === undefined) Reflect.deleteProperty(globalThis, 'window');
       else Reflect.set(globalThis, 'window', originalWindow);
     }
