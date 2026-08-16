@@ -66,28 +66,12 @@ export type WalletLockDomainDeps = {
   };
 };
 
-async function awaitLocalAndWalletHostLock(
-  localLock: Promise<void>,
-  walletHostLock: Promise<unknown>,
-): Promise<void> {
-  const [localResult, walletHostResult] = await Promise.allSettled([
-    localLock,
-    walletHostLock,
-  ]);
-  if (localResult.status === 'rejected') throw localResult.reason;
-  if (walletHostResult.status === 'rejected') throw walletHostResult.reason;
+function reportBackgroundWalletLockFailure(error: unknown): void {
+  console.warn('[wallet auth] background lock cleanup failed', error);
 }
 
-async function requireWalletHostRouterWhileLocalLocking(
-  localLock: Promise<void>,
-  walletIframe: WalletLockDomainDeps['walletIframe'],
-): Promise<{ lock(): Promise<unknown> }> {
-  try {
-    return await walletIframe.requireRouter();
-  } catch (error: unknown) {
-    await localLock;
-    throw error;
-  }
+function continueWalletLockInBackground(lockPromise: Promise<void>): void {
+  void lockPromise.catch(reportBackgroundWalletLockFailure);
 }
 
 function walletUnlockCapabilityScope(
@@ -201,11 +185,9 @@ export async function lockDomain(deps: WalletLockDomainDeps): Promise<void> {
     await localLock;
     return;
   }
-  const router = await requireWalletHostRouterWhileLocalLocking(
-    localLock,
-    deps.walletIframe,
-  );
-  await awaitLocalAndWalletHostLock(localLock, router.lock());
+  continueWalletLockInBackground(localLock);
+  const router = await deps.walletIframe.requireRouter();
+  await router.lock();
 }
 
 export async function getWalletSessionDomain(

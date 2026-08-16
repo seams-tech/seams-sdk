@@ -96,6 +96,11 @@ const STORED_ROW_FIELDS = [
   'sealed_refresh',
 ] as const;
 
+// Lock invalidates refresh material synchronously. The IndexedDB write can
+// finish later, so reads in the same runtime must observe the lock boundary
+// immediately and wait for a new sealed refresh before restoring a session.
+const lockedLinkedDeviceEnrollments = new Set<string>();
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -428,6 +433,7 @@ export class LinkedDeviceWalletSessionRepositoryV1 {
   async clearEnrollmentV1(enrollmentId: LinkedDeviceEnrollmentId): Promise<void> {
     const db = await this.manager.getDB();
     await db.delete(STORE, enrollmentId);
+    lockedLinkedDeviceEnrollments.delete(String(enrollmentId));
   }
 
   async putSealedRefreshV1(
@@ -445,6 +451,7 @@ export class LinkedDeviceWalletSessionRepositoryV1 {
       await clearOtherWalletSealedRefreshes(store, stored.enrollment_id, stored.wallet_id);
       await store.put(rowWithSealedRefresh(stored, sealedRefresh));
       await tx.done;
+      lockedLinkedDeviceEnrollments.delete(String(sealedRefresh.enrollmentId));
       return sealedRefresh;
     } catch (error) {
       try {
@@ -456,6 +463,7 @@ export class LinkedDeviceWalletSessionRepositoryV1 {
   }
 
   async clearSealedRefreshV1(enrollmentId: LinkedDeviceEnrollmentId): Promise<void> {
+    lockedLinkedDeviceEnrollments.add(String(enrollmentId));
     const db = await this.manager.getDB();
     const tx = db.transaction(STORE, 'readwrite');
     const store = tx.objectStore(STORE);
@@ -485,9 +493,15 @@ export class LinkedDeviceWalletSessionRepositoryV1 {
     if (!Number.isSafeInteger(input.nowMs) || input.nowMs <= 0) {
       throw new Error('Linked-device sealed refresh read time is invalid');
     }
+    if (lockedLinkedDeviceEnrollments.has(String(input.enrollmentId))) {
+      return { kind: 'missing' };
+    }
     try {
       const db = await this.manager.getDB();
       const raw = await db.get(STORE, input.enrollmentId);
+      if (lockedLinkedDeviceEnrollments.has(String(input.enrollmentId))) {
+        return { kind: 'missing' };
+      }
       if (raw === undefined) return { kind: 'missing' };
       const row = parseStoredRow(raw);
       if (!row) return { kind: 'corrupt' };
@@ -532,6 +546,7 @@ export class LinkedDeviceWalletSessionRepositoryV1 {
       for (const row of rows) {
         const parsed = parseStoredRow(row);
         if (!parsed) return { kind: 'corrupt' };
+        if (lockedLinkedDeviceEnrollments.has(String(parsed.enrollment_id))) continue;
         if (!parsed.sealed_refresh) continue;
         if (
           parsed.delivery.expiresAtMs <= input.nowMs ||

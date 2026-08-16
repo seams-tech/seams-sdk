@@ -5718,13 +5718,14 @@ export async function lock(context: LockOperationContext): Promise<void> {
   const { signingEngine } = context;
   const linkedDeviceRefreshCleanup = signingEngine.clearLinkedDeviceRefreshMaterial();
   signingEngine.clearWalletAuthentication();
-  await linkedDeviceRefreshCleanup;
-  await IndexedDBManager.clearLastProfileSelection().catch(() => undefined);
   try {
     signingEngine.getNonceCoordinator().clearAll();
   } catch {}
   try {
     signingEngine.clearThresholdEcdsaSigningQueue();
   } catch {}
-  await signingEngine.clearVolatileWarmSigningMaterial();
+  const warmMaterialCleanup = signingEngine.clearVolatileWarmSigningMaterial();
+  await linkedDeviceRefreshCleanup;
+  await IndexedDBManager.clearLastProfileSelection().catch(() => undefined);
+  await warmMaterialCleanup;
 }
