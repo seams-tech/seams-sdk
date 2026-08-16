@@ -1749,6 +1749,8 @@ export class BrowserSigningSurface {
   private readonly nearProvisioningUnsubscribe: () => void;
   private walletAuthenticationState: WalletAuthenticationState = { kind: 'signed_out' };
   private walletAuthenticationRestoreGeneration = 0;
+  private linkedDeviceRefreshCleanupInFlight: Promise<void> | null = null;
+  private volatileWarmSigningMaterialCleanupInFlight: Promise<void> | null = null;
 
   readonly seamsWebConfigs: SeamsConfigsReadonly;
 
@@ -2691,12 +2693,22 @@ export class BrowserSigningSurface {
 
   async restoreLinkedDeviceSigningSession(walletId: WalletId): Promise<boolean> {
     if (this.hasLinkedDeviceSigningSession(walletId)) return true;
+    const restoreGeneration = this.walletAuthenticationRestoreGeneration;
+    const refreshCleanup = this.linkedDeviceRefreshCleanupInFlight;
+    if (refreshCleanup) await refreshCleanup;
+    const warmMaterialCleanup = this.volatileWarmSigningMaterialCleanupInFlight;
+    if (warmMaterialCleanup) await warmMaterialCleanup;
+    if (this.walletAuthenticationRestoreGeneration !== restoreGeneration) return false;
     const nextSession = await restoreLinkedDeviceWarmSigningSessionV1({
       walletId,
       relayServerUrl: String(this.seamsWebConfigs.network.relayer?.url || ''),
       warmMaterial: this.passkeyMpcSession,
     });
     if (!nextSession) return false;
+    if (this.walletAuthenticationRestoreGeneration !== restoreGeneration) {
+      closeLinkedDeviceWarmSigningSessionV1(nextSession);
+      return false;
+    }
     if (this.linkedDeviceWarmSigningSession) {
       closeLinkedDeviceWarmSigningSessionV1(this.linkedDeviceWarmSigningSession);
     }
@@ -2712,7 +2724,15 @@ export class BrowserSigningSurface {
   async clearLinkedDeviceRefreshMaterial(): Promise<void> {
     const enrollmentId = this.linkedDeviceWarmSigningSession?.bundle.enrollmentId;
     if (!enrollmentId) return;
-    await linkedDeviceWalletSessions.clearSealedRefreshV1(enrollmentId);
+    const cleanup = linkedDeviceWalletSessions.clearSealedRefreshV1(enrollmentId);
+    this.linkedDeviceRefreshCleanupInFlight = cleanup;
+    try {
+      await cleanup;
+    } finally {
+      if (this.linkedDeviceRefreshCleanupInFlight === cleanup) {
+        this.linkedDeviceRefreshCleanupInFlight = null;
+      }
+    }
   }
 
   clearWalletAuthentication(): void {
@@ -5268,6 +5288,18 @@ export class BrowserSigningSurface {
   }
 
   async clearVolatileWarmSigningMaterial(walletId?: WalletId): Promise<void> {
+    const cleanup = this.clearVolatileWarmSigningMaterialInternal(walletId);
+    this.volatileWarmSigningMaterialCleanupInFlight = cleanup;
+    try {
+      await cleanup;
+    } finally {
+      if (this.volatileWarmSigningMaterialCleanupInFlight === cleanup) {
+        this.volatileWarmSigningMaterialCleanupInFlight = null;
+      }
+    }
+  }
+
+  private async clearVolatileWarmSigningMaterialInternal(walletId?: WalletId): Promise<void> {
     try {
       if (walletId) {
         this.enginePorts.ed25519YaoActiveClients.disposeWallet(walletId);

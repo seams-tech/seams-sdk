@@ -229,7 +229,24 @@ test('selects one active sealed refresh and clears superseded sealed refreshes',
           schema.SEAMS_WALLET_STORES.linkedDeviceWalletSessions,
           older.enrollmentId,
         );
-        return { ambiguous, unique, olderSealedRefresh: olderRow?.sealed_refresh ?? null };
+        const clearPromise = repository.clearSealedRefreshV1(current.enrollmentId);
+        const duringClear = await repository.readUniqueActiveSealedRefreshForWalletV1({
+          walletId: current.walletId,
+          nowMs: current.issuedAtMs,
+        });
+        await clearPromise;
+        const afterClear = await repository.readUniqueActiveSealedRefreshForWalletV1({
+          walletId: current.walletId,
+          nowMs: current.issuedAtMs,
+        });
+        await repository.putSealedRefreshV1(sealedRefreshFor(current, 'BA'));
+        return {
+          ambiguous,
+          unique,
+          olderSealedRefresh: olderRow?.sealed_refresh ?? null,
+          duringClear,
+          afterClear,
+        };
       } finally {
         manager.close();
         await new Promise<void>((resolve) => {
@@ -249,4 +266,6 @@ test('selects one active sealed refresh and clears superseded sealed refreshes',
     sealedRefresh: { enrollmentId: current.enrollmentId, sealedSecretB64u: 'Aw' },
   });
   expect(result.olderSealedRefresh).toBeNull();
+  expect(result.duringClear).toEqual({ kind: 'missing' });
+  expect(result.afterClear).toEqual({ kind: 'missing' });
 });

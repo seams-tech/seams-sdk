@@ -20,6 +20,7 @@ function createLockFixture(args: {
   useWalletIframe: boolean;
   hostLock: () => Promise<unknown>;
   clearLinkedRefresh?: () => Promise<void>;
+  clearWarmMaterial?: () => Promise<void>;
 }): LockFixture {
   const calls = {
     clearNonce: 0,
@@ -49,6 +50,7 @@ function createLockFixture(args: {
         },
         async clearVolatileWarmSigningMaterial(): Promise<void> {
           calls.clearWarmMaterial += 1;
+          await args.clearWarmMaterial?.();
         },
       },
     }),
@@ -84,7 +86,7 @@ test.describe('wallet lock lifecycle', () => {
     });
   });
 
-  test('propagates wallet-host lock failure after local cleanup', async () => {
+  test('propagates wallet-host lock failure while local cleanup continues', async () => {
     const fixture = createLockFixture({
       useWalletIframe: true,
       hostLock: async () => {
@@ -93,24 +95,31 @@ test.describe('wallet lock lifecycle', () => {
     });
 
     await expect(lockDomain(fixture.deps)).rejects.toThrow('wallet host lock failed');
-    expect(fixture.calls).toEqual({
-      clearNonce: 1,
-      clearLinkedRefresh: 1,
-      clearAuthentication: 1,
-      clearEcdsaQueue: 1,
-      clearWarmMaterial: 1,
-      hostLock: 1,
-    });
+    expect(fixture.calls.clearLinkedRefresh).toBe(1);
+    expect(fixture.calls.clearAuthentication).toBe(1);
+    expect(fixture.calls.hostLock).toBe(1);
+    await expect.poll(() => fixture.calls.clearNonce).toBe(1);
+    await expect.poll(() => fixture.calls.clearEcdsaQueue).toBe(1);
+    await expect.poll(() => fixture.calls.clearWarmMaterial).toBe(1);
   });
 
-  test('starts wallet-host lock while linked-device cleanup is still pending', async () => {
+  test('acknowledges wallet-host lock before slow linked-device cleanup completes', async () => {
     let releaseLinkedRefresh!: () => void;
+    let releaseWarmMaterial!: () => void;
+    let warmMaterialCompleted = false;
     const linkedRefreshCleanup = new Promise<void>((resolve) => {
       releaseLinkedRefresh = resolve;
+    });
+    const warmMaterialCleanup = new Promise<void>((resolve) => {
+      releaseWarmMaterial = resolve;
     });
     const fixture = createLockFixture({
       useWalletIframe: true,
       clearLinkedRefresh: () => linkedRefreshCleanup,
+      clearWarmMaterial: async () => {
+        await warmMaterialCleanup;
+        warmMaterialCompleted = true;
+      },
       hostLock: async () => undefined,
     });
 
@@ -119,8 +128,13 @@ test.describe('wallet lock lifecycle', () => {
     expect(fixture.calls.clearLinkedRefresh).toBe(1);
     expect(fixture.calls.clearAuthentication).toBe(1);
 
-    releaseLinkedRefresh();
     await lockPromise;
     expect(fixture.calls.clearWarmMaterial).toBe(1);
+    expect(warmMaterialCompleted).toBe(false);
+
+    releaseLinkedRefresh();
+    expect(warmMaterialCompleted).toBe(false);
+    releaseWarmMaterial();
+    await expect.poll(() => warmMaterialCompleted).toBe(true);
   });
 });
