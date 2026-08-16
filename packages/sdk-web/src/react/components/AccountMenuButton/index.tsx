@@ -27,6 +27,7 @@ import {
   walletSessionRefFromSession,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { NearProvisioningState } from '@/core/types/seams';
+import { linkedDeviceManagementPermissionForLoginState } from '../../context/reactLoginStateBuilders';
 
 function formatExportKeyErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message.trim()) return error.message;
@@ -150,6 +151,8 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
   const { theme } = useTheme();
   const canShowRecoveryCodes = loginState.isLoggedIn && Boolean(walletId);
   const canExportKeys = loginState.isLoggedIn && loginState.currentAuthMethod.kind !== 'none';
+  const canManageLinkedDevices =
+    linkedDeviceManagementPermissionForLoginState(loginState).kind === 'owner';
   const handleQrCodeScanned = useCallback(() => {
     setShowQRScanner(false);
   }, []);
@@ -159,6 +162,10 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
       setShowRecoveryCodes(false);
     }
   }, [canShowRecoveryCodes]);
+
+  useEffect(() => {
+    if (!canManageLinkedDevices) setShowLinkedDevices(false);
+  }, [canManageLinkedDevices]);
 
   // Keep local view state in sync with SDK preferences (mirrors wallet host in iframe mode)
   useEffect(() => {
@@ -376,28 +383,30 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
       });
     }
 
-    items.push(
-      {
-        id: PROFILE_MENU_ITEM_IDS.SCAN_LINK_DEVICE,
-        icon: <ScanIcon />,
-        label: 'Scan and Link Device',
-        description: 'Scan QR to link a device',
-        disabled: !loginState.isLoggedIn,
-        onClick: () => {
-          setShowQRScanner(true);
+    if (canManageLinkedDevices) {
+      items.push(
+        {
+          id: PROFILE_MENU_ITEM_IDS.SCAN_LINK_DEVICE,
+          icon: <ScanIcon />,
+          label: 'Scan and Link Device',
+          description: 'Scan QR to link a device',
+          disabled: false,
+          onClick: () => {
+            setShowQRScanner(true);
+          },
+          keepOpenOnClick: true,
         },
-        keepOpenOnClick: true,
-      },
-      {
-        id: PROFILE_MENU_ITEM_IDS.LINKED_DEVICES,
-        icon: <LinkIcon />,
-        label: 'Linked Devices',
-        description: 'See devices using this wallet',
-        disabled: !loginState.isLoggedIn,
-        onClick: () => setShowLinkedDevices(true),
-        keepOpenOnClick: true,
-      },
-    );
+        {
+          id: PROFILE_MENU_ITEM_IDS.LINKED_DEVICES,
+          icon: <LinkIcon />,
+          label: 'Linked Devices',
+          description: 'See devices using this wallet',
+          disabled: false,
+          onClick: () => setShowLinkedDevices(true),
+          keepOpenOnClick: true,
+        },
+      );
+    }
 
     items.push({
       id: PROFILE_MENU_ITEM_IDS.TRANSACTION_SETTINGS,
@@ -412,6 +421,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
   }, [
     accountsRows.length,
     canExportKeys,
+    canManageLinkedDevices,
     canShowRecoveryCodes,
     exportLoadingChain,
     loginState.isLoggedIn,

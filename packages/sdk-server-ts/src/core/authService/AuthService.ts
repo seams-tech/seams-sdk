@@ -57,6 +57,7 @@ import {
   verifyWebAuthnLoginWithStores,
   verifyWebAuthnRegistrationCredentialForIntent,
   verifyWebAuthnSyncAccountWithStores,
+  type WebAuthnAuthenticatorListResult,
   type WebAuthnSyncAccountVerificationRequest,
   type WebAuthnSyncAccountVerificationResult,
   type WebAuthnSyncAccountOptionsResult,
@@ -788,18 +789,10 @@ export class AuthService {
    * This is relay-private state (no on-chain authenticator registry).
    * Intended for UI surfaces like "Linked Devices" in the SDK.
    */
-  async listWebAuthnAuthenticatorsForUser(input: { userId: string; rpId?: string }): Promise<{
-    ok: boolean;
-    code?: string;
-    message?: string;
-    authenticators?: Array<{
-      credentialIdB64u: string;
-      signerSlot?: number;
-      publicKey?: string;
-      createdAtMs?: number;
-      updatedAtMs?: number;
-    }>;
-  }> {
+  async listWebAuthnAuthenticatorsForUser(input: {
+    userId: string;
+    rpId?: string;
+  }): Promise<WebAuthnAuthenticatorListResult> {
     return await listWebAuthnAuthenticatorsForUserWithStores({
       userId: input.userId,
       rpId: String(input.rpId || '').trim(),

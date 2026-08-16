@@ -1,6 +1,10 @@
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { errorMessage } from '@shared/utils/errors';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
+import {
+  unknownWebAuthnAuthenticatorDeviceInfo,
+  type WebAuthnAuthenticatorDeviceInfo,
+} from '@shared/utils/webauthnDeviceInfo';
 import type { WebAuthnRpId } from '@shared/utils/domainIds';
 import type { ThresholdEd25519AuthorityScope } from '../types';
 import type { NormalizedLogger } from '../logger';
@@ -48,17 +52,25 @@ export type WebAuthnAuthenticationLiteResult = {
   message?: string;
 };
 
+/**
+ * One listed authenticator. `device` is required: the published service
+ * contract declares it, and a binding with no authenticator row still gets the
+ * `Unknown device` fallback rather than an absent field.
+ */
+export type WebAuthnAuthenticatorListEntry = {
+  credentialIdB64u: string;
+  signerSlot?: number;
+  publicKey?: string;
+  createdAtMs?: number;
+  updatedAtMs?: number;
+  device: WebAuthnAuthenticatorDeviceInfo;
+};
+
 export type WebAuthnAuthenticatorListResult = {
   ok: boolean;
   code?: string;
   message?: string;
-  authenticators?: Array<{
-    credentialIdB64u: string;
-    signerSlot?: number;
-    publicKey?: string;
-    createdAtMs?: number;
-    updatedAtMs?: number;
-  }>;
+  authenticators?: WebAuthnAuthenticatorListEntry[];
 };
 
 export type WebAuthnLoginOptionsResult = {
@@ -268,6 +280,9 @@ function updatedAuthenticatorRecord(input: {
     counter: input.newCounter,
     createdAtMs: input.latest.createdAtMs,
     updatedAtMs: Date.now(),
+    /* An assertion advances the counter and nothing else. Registration-time
+       device metadata is carried forward untouched. */
+    deviceInfo: input.latest.deviceInfo,
   };
 }
 
@@ -334,25 +349,20 @@ function authenticatorListEntry(input: {
     updatedAtMs?: number;
   };
   authenticator: WebAuthnAuthenticatorRecord | undefined;
-}): {
-  credentialIdB64u: string;
-  signerSlot?: number;
-  publicKey?: string;
-  createdAtMs?: number;
-  updatedAtMs?: number;
-} {
+}): WebAuthnAuthenticatorListEntry {
   return {
     credentialIdB64u: input.binding.credentialIdB64u,
     signerSlot: input.binding.signerSlot,
     publicKey: input.binding.publicKey,
     createdAtMs: input.authenticator?.createdAtMs ?? input.binding.createdAtMs,
     updatedAtMs: input.authenticator?.updatedAtMs ?? input.binding.updatedAtMs,
+    device: input.authenticator?.deviceInfo ?? unknownWebAuthnAuthenticatorDeviceInfo(),
   };
 }
 
 function compareAuthenticatorListEntries(
-  left: ReturnType<typeof authenticatorListEntry>,
-  right: ReturnType<typeof authenticatorListEntry>,
+  left: WebAuthnAuthenticatorListEntry,
+  right: WebAuthnAuthenticatorListEntry,
 ): number {
   return (Number(left.signerSlot || 0) || 0) - (Number(right.signerSlot || 0) || 0);
 }
@@ -653,7 +663,7 @@ export async function listWebAuthnAuthenticatorsForUserWithStores(input: {
       authByCredentialId.set(String(authenticator.credentialIdB64u || '').trim(), authenticator);
     }
 
-    const merged: ReturnType<typeof authenticatorListEntry>[] = [];
+    const merged: WebAuthnAuthenticatorListEntry[] = [];
     for (const binding of bindings) {
       merged.push(
         authenticatorListEntry({

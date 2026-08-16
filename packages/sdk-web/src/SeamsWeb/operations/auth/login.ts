@@ -5716,8 +5716,9 @@ export type LockOperationContext = {
 
 export async function lock(context: LockOperationContext): Promise<void> {
   const { signingEngine } = context;
-  await signingEngine.clearLinkedDeviceRefreshMaterial();
+  const linkedDeviceRefreshCleanup = signingEngine.clearLinkedDeviceRefreshMaterial();
   signingEngine.clearWalletAuthentication();
+  await linkedDeviceRefreshCleanup;
   await IndexedDBManager.clearLastProfileSelection().catch(() => undefined);
   try {
     signingEngine.getNonceCoordinator().clearAll();

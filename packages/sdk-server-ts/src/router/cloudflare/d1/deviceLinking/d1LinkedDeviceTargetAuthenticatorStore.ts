@@ -10,6 +10,7 @@ import type { LinkedDeviceLocalPresenceVerifierPortV1 } from '../../../auth/link
 import type { D1LinkedDeviceCredentialResolverV1 } from './d1LinkedDeviceExecutionAdmissionResolver';
 import type { D1LinkedDeviceSessionScopeV1 } from './d1LinkedDeviceSessionStore';
 import { parseWebAuthnCredentialIdB64u, type WebAuthnRpId } from '@shared/utils/domainIds';
+import { unknownWebAuthnAuthenticatorDeviceInfo } from '@shared/utils/webauthnDeviceInfo';
 
 type TargetAuthenticatorRowV1 = {
   readonly credential_id_b64u?: unknown;
@@ -204,6 +205,9 @@ function parseTargetAuthenticatorRow(row: TargetAuthenticatorRowV1): WebAuthnAut
     counter,
     createdAtMs: registeredAtMs,
     updatedAtMs: registeredAtMs,
+    /* The signing-only target registration captures no server-derived device
+       metadata, and Refactor 103B deliberately does not add any to it. */
+    deviceInfo: unknownWebAuthnAuthenticatorDeviceInfo(),
   };
 }
 

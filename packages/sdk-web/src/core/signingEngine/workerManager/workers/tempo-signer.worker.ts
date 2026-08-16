@@ -120,9 +120,16 @@ async function ensureWasm(): Promise<void> {
   return wasmInitPromise;
 }
 
-setTimeout(() => {
+async function prewarmWasmAndSignalWorkerReady(): Promise<void> {
+  try {
+    await ensureWasm();
+  } catch {
+    // Keep the worker ready signal best-effort; the operation path reports init failures.
+  }
   postToMainThread({ type: WorkerControlMessage.WORKER_READY, ready: true });
-}, 0);
+}
+
+void prewarmWasmAndSignalWorkerReady();
 
 self.addEventListener('message', async (event: MessageEvent) => {
   const msg = event.data as TempoSignerWorkerRequest;

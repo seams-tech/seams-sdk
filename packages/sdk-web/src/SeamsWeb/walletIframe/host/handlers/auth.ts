@@ -81,6 +81,14 @@ function walletSessionRequestWalletId(
   return currentWalletId || undefined;
 }
 
+function reportBackgroundWalletLockFailure(error: unknown): void {
+  console.warn('[wallet iframe] background wallet lock cleanup failed', error);
+}
+
+function continueWalletLockInBackground(lockPromise: Promise<void>): void {
+  void lockPromise.catch(reportBackgroundWalletLockFailure);
+}
+
 async function resolveExactWalletSessionState(
   pm: ReturnType<HandlerDeps['getSeamsWeb']>,
   payload: PMGetExactWalletSessionStatePayload,
@@ -123,9 +131,10 @@ export function createAuthWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
 
     PM_LOCK: async (req: Req<'PM_LOCK'>) => {
       const pm = deps.getSeamsWeb();
-      await pm.auth.lock();
+      const lockPromise = pm.auth.lock();
       clearHostedWalletSessions();
       respondOk(deps, req.requestId);
+      continueWalletLockInBackground(lockPromise);
     },
 
     PM_LOCK_EXACT_WALLET_SESSION: async (req: Req<'PM_LOCK_EXACT_WALLET_SESSION'>) => {
@@ -142,9 +151,10 @@ export function createAuthWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
         respondOkResult(deps, req.requestId, { kind: 'stale_session', expected, current });
         return;
       }
-      await pm.auth.lock();
+      const lockPromise = pm.auth.lock();
       clearHostedWalletSessions();
       respondOkResult(deps, req.requestId, { kind: 'locked', identity: expected });
+      continueWalletLockInBackground(lockPromise);
     },
 
     PM_GET_WALLET_SESSION: async (req: Req<'PM_GET_WALLET_SESSION'>) => {

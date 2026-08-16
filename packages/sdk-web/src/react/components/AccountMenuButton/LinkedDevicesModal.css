@@ -191,6 +191,30 @@
   overflow-wrap: anywhere;
 }
 
+/* Reads as part of the metadata line rather than a control, so the row keeps
+   wrapping as one sentence at narrow widths and at 200% zoom. */
+.w3a-linked-devices-modal-disclosure {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--w3a-colors-textSecondary);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  cursor: pointer;
+}
+
+.w3a-linked-devices-modal-disclosure:hover {
+  color: var(--w3a-colors-textPrimary);
+}
+
+.w3a-linked-devices-modal-disclosure:focus-visible {
+  outline: 2px solid var(--w3a-colors-primary);
+  outline-offset: 2px;
+  border-radius: 0.25rem;
+}
+
 .w3a-linked-devices-modal-confirm {
   display: grid;
   gap: 0.5rem;
