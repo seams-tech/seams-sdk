@@ -228,7 +228,26 @@ export type DeviceLinkingTargetCredentialPortV1 = {
       LinkedDeviceTargetHolderRegistrationV1,
       ...LinkedDeviceTargetHolderRegistrationV1[],
     ];
+    /** Ephemeral PRF output from the user-verified creation ceremony. */
+    readonly factorSecret: Uint8Array;
   }>;
+};
+
+export type LinkedDeviceSigningSessionActivationV1 =
+  | {
+      readonly kind: 'target_passkey_creation';
+      readonly factorSecret: Uint8Array;
+    }
+  | {
+      readonly kind: 'existing_target_passkey';
+    };
+
+export type DeviceLinkingSessionActivationPortV1 = {
+  activateLinkedDeviceSigningSessionV1(input: {
+    readonly walletId: WalletId;
+    readonly enrollmentId: LinkedDeviceEnrollmentId;
+    readonly activation: LinkedDeviceSigningSessionActivationV1;
+  }): Promise<void>;
 };
 
 /** R102 source/recipient/delivery/activation handoff owned by the worker assembly. */
@@ -272,6 +291,7 @@ export type Device2LinkingFlowPortsV1 = {
   readonly transport: LinkSessionTransportPortV1;
   readonly keyMaterial: DeviceLinkingKeyMaterialPortV1;
   readonly targetCredential: DeviceLinkingTargetCredentialPortV1;
+  readonly sessionActivation: DeviceLinkingSessionActivationPortV1;
   readonly laneProvisioning: DeviceLinkingLaneProvisioningPortV1;
   readonly walletSessions: DeviceLinkingWalletSessionStorePortV1;
   readonly executionEvidence: DeviceLinkingExecutionEvidenceStorePortV1;

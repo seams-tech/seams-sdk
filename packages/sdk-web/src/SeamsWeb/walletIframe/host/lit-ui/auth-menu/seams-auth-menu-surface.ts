@@ -164,21 +164,30 @@ function linkDeviceIcon(): TemplateResult {
   `;
 }
 
-function approvedDeviceIcon(): TemplateResult {
+const LINK_DEVICE_DOT_COUNT = 12;
+
+function linkDeviceDotRing(waiting: boolean): TemplateResult {
   return html`
-    <svg
-      width="28"
-      height="28"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="2.25"
-      stroke-linecap="round"
-      stroke-linejoin="round"
+    <div
+      class="w3a-link-device-dot-ring ${waiting ? 'is-waiting' : 'is-approved'}"
       aria-hidden="true"
     >
-      <path d="m5 12 4 4L19 6" />
-    </svg>
+      ${Array.from(
+        { length: LINK_DEVICE_DOT_COUNT },
+        (_, index) => html`<span style="--dot-index: ${index}"></span>`,
+      )}
+      <svg
+        class="w3a-link-device-dot-ring-check"
+        viewBox="0 0 52 52"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2.5"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <path d="m18.5 27 5 5 10-11" />
+      </svg>
+    </div>
   `;
 }
 
@@ -893,15 +902,8 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
     const creating = linkDevice.kind === 'creating_passkey';
     return html`
       <div class="w3a-link-device-confirmation">
-        <div class="w3a-link-device-approved-icon">${approvedDeviceIcon()}</div>
-        <h2 class="qr-title" id=${AUTH_MENU_TITLE_ID}>
-          ${creating ? 'Finish on this device' : 'Device approved'}
-        </h2>
-        <p class="w3a-link-device-confirmation-copy" role="status" aria-live="polite">
-          ${creating
-            ? linkDevice.message
-            : 'Use Touch ID or your device screen lock to finish linking.'}
-        </p>
+        ${linkDeviceDotRing(creating)}
+        <h2 class="qr-title" id=${AUTH_MENU_TITLE_ID} aria-live="polite">${linkDevice.message}</h2>
         <button
           class="w3a-link-device-btn w3a-link-device-btn-primary"
           type="button"
@@ -910,8 +912,7 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
           ?disabled=${creating}
           @click=${this.onLinkDeviceCreatePasskey}
         >
-          ${creating ? html`<span class="w3a-spinner" aria-hidden="true"></span>` : null}
-          ${creating ? 'Waiting for passkey' : 'Continue with passkey'}
+          ${creating ? 'Waiting for passkey' : 'Create passkey'}
         </button>
       </div>
     `;

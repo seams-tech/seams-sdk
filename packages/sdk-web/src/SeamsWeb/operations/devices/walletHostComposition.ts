@@ -19,7 +19,10 @@ import type {
   LinkSessionOwnerApprovalUpdatesPortV1,
   LinkSessionOwnerAuthenticatedRequestPortV1,
 } from './deviceLinkingOwnerTransport';
-import type { DeviceLinkingOwnerAuthorizationPortV1 } from './deviceLinkingPorts';
+import type {
+  DeviceLinkingOwnerAuthorizationPortV1,
+  DeviceLinkingSessionActivationPortV1,
+} from './deviceLinkingPorts';
 import type { LinkedDeviceManagementPortV1 } from '@/SeamsWeb/publicApi/devices';
 import type { WalletHostManagementRequestV1 } from './walletHostOwnerAuthority';
 
@@ -44,6 +47,7 @@ export type WalletHostCompositionDependenciesV1 = {
     LinkedDeviceWalletSessionRepositoryV1,
     'putExactActiveDeliveryV1'
   >;
+  readonly sessionActivation: DeviceLinkingSessionActivationPortV1;
   readonly executionEvidenceRepository: Pick<
     LinkedDeviceExecutionEvidenceRepositoryV1,
     'putExactProvisionedEvidenceV1' | 'readForEnrollmentV1'

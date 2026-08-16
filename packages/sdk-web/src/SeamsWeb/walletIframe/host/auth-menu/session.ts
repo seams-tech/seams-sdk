@@ -158,8 +158,6 @@ type StartDeviceLinking = (callbacks: {
   readonly onTargetPasskeyRequired: (activation: LinkedDeviceTargetPasskeyActivationV1) => void;
 }) => Promise<StartDevice2LinkingFlowResults>;
 type CancelDeviceLinking = () => Promise<void>;
-type ActivateLinkedDeviceSession = (walletId: WalletId) => Promise<void>;
-
 const AUTH_MENU_TAG = 'seams-auth-menu-surface';
 const AUTH_MENU_PASSKEY_PREPARATION_TIMEOUT_MS = 20_000;
 const AUTH_MENU_PASSKEY_PREPARATION_TIMEOUT_MESSAGE =
@@ -365,7 +363,6 @@ export class AuthMenuSession {
   private beginGoogleEmailOtp: BeginGoogleEmailOtp;
   private readonly startDeviceLinking: StartDeviceLinking;
   private readonly cancelDeviceLinking: CancelDeviceLinking;
-  private readonly activateLinkedDeviceSession: ActivateLinkedDeviceSession;
   private loginPreparation: PrepareLoginPasskey | null = null;
   private loginAccountOptions: readonly AuthMenuAccountOption[] = [];
   private selectedLoginWalletId: string | null = null;
@@ -388,7 +385,6 @@ export class AuthMenuSession {
     beginGoogleEmailOtp: BeginGoogleEmailOtp;
     startDeviceLinking: StartDeviceLinking;
     cancelDeviceLinking: CancelDeviceLinking;
-    activateLinkedDeviceSession: ActivateLinkedDeviceSession;
     sendToParent: (message: ChildToParentEnvelope) => void;
   }) {
     this.identity = {
@@ -399,7 +395,6 @@ export class AuthMenuSession {
     this.beginGoogleEmailOtp = args.beginGoogleEmailOtp;
     this.startDeviceLinking = args.startDeviceLinking;
     this.cancelDeviceLinking = args.cancelDeviceLinking;
-    this.activateLinkedDeviceSession = args.activateLinkedDeviceSession;
     this.sendToParent = args.sendToParent;
     this.stateValue = {
       kind: 'preparing',
@@ -1147,18 +1142,12 @@ export class AuthMenuSession {
       case 'active':
         if (this.linkedDeviceActivationInProgress) return;
         this.linkedDeviceActivationInProgress = true;
-        this.stateValue = {
-          ...state,
-          viewModel: {
-            ...state.viewModel,
-            linkDevice: {
-              kind: 'activating',
-              message: 'Preparing this device for signing',
-            },
-          },
-        };
-        this.updateElement();
-        void this.finishLinkedDeviceActivation(generation, outcome.walletId);
+        this.complete({
+          kind: 'authenticated',
+          authMenuSessionId: this.identity.authMenuSessionId,
+          walletId: outcome.walletId,
+          method: 'passkey',
+        });
         return;
       case 'invalid_active':
         this.showLinkedDeviceActivationError(
@@ -1187,28 +1176,6 @@ export class AuthMenuSession {
       viewModel: { ...state.viewModel, linkDevice },
     };
     this.updateElement();
-  }
-
-  private async finishLinkedDeviceActivation(
-    generation: number,
-    walletId: WalletId,
-  ): Promise<void> {
-    try {
-      await this.activateLinkedDeviceSession(walletId);
-      if (generation !== this.deviceLinkGeneration || this.stateValue.kind !== 'link_device')
-        return;
-      this.complete({
-        kind: 'authenticated',
-        authMenuSessionId: this.identity.authMenuSessionId,
-        walletId,
-        method: 'passkey',
-      });
-    } catch (error: unknown) {
-      const state = this.stateValue;
-      if (generation !== this.deviceLinkGeneration || state.kind !== 'link_device') return;
-      this.linkedDeviceActivationInProgress = false;
-      this.showLinkedDeviceActivationError(state, error);
-    }
   }
 
   private showLinkedDeviceActivationError(
@@ -1240,7 +1207,7 @@ export class AuthMenuSession {
       viewModel: {
         ...state.viewModel,
         linkDevice: this.targetPasskeyActivation
-          ? { kind: 'passkey_required', message: 'Your other device approved the link' }
+          ? { kind: 'passkey_required', message: 'Create a passkey to finish linking this device' }
           : {
               kind: 'ready',
               qrCodeDataURL: result.qrCodeDataURL,
@@ -1265,7 +1232,7 @@ export class AuthMenuSession {
         ...state.viewModel,
         linkDevice: {
           kind: 'passkey_required',
-          message: 'Your other device approved the link',
+          message: 'Create a passkey to finish linking this device',
         },
       },
     };
@@ -1289,7 +1256,7 @@ export class AuthMenuSession {
         ...state.viewModel,
         linkDevice: {
           kind: 'creating_passkey',
-          message: 'Complete the passkey prompt on this device',
+          message: 'Follow the passkey prompt on your screen',
         },
       },
     };

@@ -19,7 +19,7 @@ export type LinkedDeviceSealedRefreshMaterialV1 = {
   readonly algorithm: typeof SIGNING_SESSION_SEAL_ALG;
   readonly groupId: typeof SIGNING_SESSION_SEAL_GROUP_ID;
   readonly walletId: string;
-  readonly enrollmentId: string;
+  readonly enrollmentId: LinkedDeviceEnrollmentId;
   readonly deviceId: string;
   readonly walletSessionId: string;
   readonly credentialIdB64u: string;
@@ -37,6 +37,14 @@ type StoredLinkedDeviceWalletSessionRowV1 = {
   readonly expires_at_ms: number;
   readonly delivery: LinkedDeviceWalletSessionDeliveryV1;
   readonly sealed_refresh: LinkedDeviceSealedRefreshMaterialV1 | null;
+};
+
+type LinkedDeviceWalletSessionWriteStore = {
+  index(name: typeof SEAMS_WALLET_INDEXES.walletId): {
+    getAll(query: string): Promise<unknown[]>;
+  };
+  delete(key: string): Promise<unknown>;
+  put(row: StoredLinkedDeviceWalletSessionRowV1): Promise<unknown>;
 };
 
 export type LinkedDeviceWalletSessionReadResultV1 =
@@ -68,7 +76,12 @@ export type LinkedDeviceSealedRefreshReadResultV1 =
       readonly sealedRefresh: LinkedDeviceSealedRefreshMaterialV1;
     }
   | {
-      readonly kind: 'missing' | 'expired' | 'corrupt' | 'persistence_unavailable';
+      readonly kind:
+        | 'missing'
+        | 'expired'
+        | 'ambiguous'
+        | 'corrupt'
+        | 'persistence_unavailable';
       readonly delivery?: never;
       readonly sealedRefresh?: never;
     };
@@ -148,12 +161,16 @@ function parseSealedRefresh(
   ) {
     throw new Error('sealed refresh protocol is invalid');
   }
+  const enrollmentId = nonEmptyString(raw.enrollmentId);
+  if (enrollmentId !== delivery.enrollmentId) {
+    throw new Error('sealed refresh enrollment identity does not match its Wallet Session');
+  }
   const parsed: LinkedDeviceSealedRefreshMaterialV1 = {
     kind: 'linked_device_sealed_refresh_material_v1',
     algorithm: SIGNING_SESSION_SEAL_ALG,
     groupId: SIGNING_SESSION_SEAL_GROUP_ID,
     walletId: nonEmptyString(raw.walletId),
-    enrollmentId: nonEmptyString(raw.enrollmentId),
+    enrollmentId: delivery.enrollmentId,
     deviceId: nonEmptyString(raw.deviceId),
     walletSessionId: nonEmptyString(raw.walletSessionId),
     credentialIdB64u: canonicalBase64Url(raw.credentialIdB64u),
@@ -213,6 +230,49 @@ function toStoredRow(
   };
 }
 
+async function replaceCurrentWalletSessionRow(
+  store: LinkedDeviceWalletSessionWriteStore,
+  row: StoredLinkedDeviceWalletSessionRowV1,
+): Promise<void> {
+  const walletRows = await store.index(SEAMS_WALLET_INDEXES.walletId).getAll(row.wallet_id);
+  for (const walletRow of walletRows) {
+    if (!isRecord(walletRow)) continue;
+    const enrollmentId = walletRow.enrollment_id;
+    if (typeof enrollmentId === 'string' && enrollmentId !== row.enrollment_id) {
+      await store.delete(enrollmentId);
+    }
+  }
+  await store.put(row);
+}
+
+function rowWithSealedRefresh(
+  row: StoredLinkedDeviceWalletSessionRowV1,
+  sealedRefresh: LinkedDeviceSealedRefreshMaterialV1 | null,
+): StoredLinkedDeviceWalletSessionRowV1 {
+  return {
+    enrollment_id: row.enrollment_id,
+    wallet_id: row.wallet_id,
+    device_id: row.device_id,
+    expires_at_ms: row.expires_at_ms,
+    delivery: row.delivery,
+    sealed_refresh: sealedRefresh,
+  };
+}
+
+async function clearOtherWalletSealedRefreshes(
+  store: LinkedDeviceWalletSessionWriteStore,
+  currentEnrollmentId: string,
+  walletId: string,
+): Promise<void> {
+  const walletRows = await store.index(SEAMS_WALLET_INDEXES.walletId).getAll(walletId);
+  for (const walletRow of walletRows) {
+    const parsed = parseStoredRow(walletRow);
+    if (!parsed) throw new Error('Stored linked-device Wallet Session is corrupt');
+    if (parsed.enrollment_id === currentEnrollmentId || parsed.sealed_refresh === null) continue;
+    await store.put(rowWithSealedRefresh(parsed, null));
+  }
+}
+
 function deliveriesEqual(
   left: LinkedDeviceWalletSessionDeliveryV1,
   right: LinkedDeviceWalletSessionDeliveryV1,
@@ -238,10 +298,11 @@ export class LinkedDeviceWalletSessionRepositoryV1 {
         if (!deliveriesEqual(existing.delivery, delivery)) {
           throw new Error('Linked-device Wallet Session replay does not match');
         }
+        await replaceCurrentWalletSessionRow(store, existing);
         await tx.done;
         return existing.delivery;
       }
-      await store.put(toStoredRow(delivery));
+      await replaceCurrentWalletSessionRow(store, toStoredRow(delivery));
       await tx.done;
       return delivery;
     } catch (error) {
@@ -265,10 +326,19 @@ export class LinkedDeviceWalletSessionRepositoryV1 {
       if (existingRaw === undefined) {
         throw new Error('Linked-device Wallet Session renewal has no persisted session');
       }
-      if (!parseStoredRow(existingRaw)) {
+      const existing = parseStoredRow(existingRaw);
+      if (!existing) {
         throw new Error('Stored linked-device Wallet Session is corrupt');
       }
-      await store.put(toStoredRow(renewed));
+      if (
+        existing.delivery.tenantId !== renewed.tenantId ||
+        existing.delivery.walletId !== renewed.walletId ||
+        existing.delivery.enrollmentId !== renewed.enrollmentId ||
+        existing.delivery.deviceId !== renewed.deviceId
+      ) {
+        throw new Error('Linked-device Wallet Session renewal identity changed');
+      }
+      await replaceCurrentWalletSessionRow(store, toStoredRow(renewed));
       await tx.done;
       return renewed;
     } catch (error) {
@@ -372,7 +442,8 @@ export class LinkedDeviceWalletSessionRepositoryV1 {
       if (!stored) throw new Error('Linked-device Wallet Session is unavailable for sealing');
       const sealedRefresh = parseSealedRefresh(raw, stored.delivery);
       if (!sealedRefresh) throw new Error('Linked-device sealed refresh material is required');
-      await store.put({ ...stored, sealed_refresh: sealedRefresh });
+      await clearOtherWalletSealedRefreshes(store, stored.enrollment_id, stored.wallet_id);
+      await store.put(rowWithSealedRefresh(stored, sealedRefresh));
       await tx.done;
       return sealedRefresh;
     } catch (error) {
@@ -396,7 +467,7 @@ export class LinkedDeviceWalletSessionRepositoryV1 {
       }
       const stored = parseStoredRow(storedRaw);
       if (!stored) throw new Error('Stored linked-device Wallet Session is corrupt');
-      await store.put({ ...stored, sealed_refresh: null });
+      await store.put(rowWithSealedRefresh(stored, null));
       await tx.done;
     } catch (error) {
       try {
@@ -433,6 +504,55 @@ export class LinkedDeviceWalletSessionRepositoryV1 {
         delivery: row.delivery,
         sealedRefresh: row.sealed_refresh,
       };
+    } catch {
+      return { kind: 'persistence_unavailable' };
+    }
+  }
+
+  async readUniqueActiveSealedRefreshForWalletV1(input: {
+    readonly walletId?: string;
+    readonly nowMs: number;
+  }): Promise<LinkedDeviceSealedRefreshReadResultV1> {
+    if (!Number.isSafeInteger(input.nowMs) || input.nowMs <= 0) {
+      throw new Error('Linked-device sealed refresh read time is invalid');
+    }
+    try {
+      const db = await this.manager.getDB();
+      const rows = await db
+        .transaction(STORE, 'readonly')
+        .objectStore(STORE)
+        .index(SEAMS_WALLET_INDEXES.walletId)
+        .getAll(input.walletId);
+      if (rows.length === 0) return { kind: 'missing' };
+      const active: Array<{
+        readonly delivery: LinkedDeviceWalletSessionDeliveryV1;
+        readonly sealedRefresh: LinkedDeviceSealedRefreshMaterialV1;
+      }> = [];
+      let sawExpired = false;
+      for (const row of rows) {
+        const parsed = parseStoredRow(row);
+        if (!parsed) return { kind: 'corrupt' };
+        if (!parsed.sealed_refresh) continue;
+        if (
+          parsed.delivery.expiresAtMs <= input.nowMs ||
+          parsed.sealed_refresh.expiresAtMs <= input.nowMs ||
+          parsed.sealed_refresh.remainingUses <= 0
+        ) {
+          sawExpired = true;
+          continue;
+        }
+        active.push({ delivery: parsed.delivery, sealedRefresh: parsed.sealed_refresh });
+      }
+      if (active.length > 1) return { kind: 'ambiguous' };
+      const found = active[0];
+      if (found) {
+        return {
+          kind: 'found',
+          delivery: found.delivery,
+          sealedRefresh: found.sealedRefresh,
+        };
+      }
+      return sawExpired ? { kind: 'expired' } : { kind: 'missing' };
     } catch {
       return { kind: 'persistence_unavailable' };
     }

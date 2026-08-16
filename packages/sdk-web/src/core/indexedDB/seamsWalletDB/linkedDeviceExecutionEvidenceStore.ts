@@ -193,6 +193,36 @@ export async function resolveActiveLinkedDeviceExecutionBundleV1(input: {
   }
 }
 
+export async function resolveLinkedDeviceExecutionBundleV1(input: {
+  readonly enrollmentId: LinkedDeviceEnrollmentId;
+  readonly evidenceRepository: Pick<
+    LinkedDeviceExecutionEvidenceRepositoryV1,
+    'readForEnrollmentV1'
+  >;
+  readonly walletSessionRepository: Pick<
+    LinkedDeviceWalletSessionRepositoryV1,
+    'readForEnrollmentV1'
+  >;
+}): Promise<ActiveLinkedDeviceExecutionBundleReadResultV1> {
+  const [evidenceResult, walletSessionResult] = await Promise.all([
+    input.evidenceRepository.readForEnrollmentV1(input.enrollmentId),
+    input.walletSessionRepository.readForEnrollmentV1(input.enrollmentId),
+  ]);
+  if (evidenceResult.kind !== 'found') return evidenceResult;
+  if (walletSessionResult.kind !== 'found') return walletSessionResult;
+  try {
+    return {
+      kind: 'found',
+      bundle: await buildActiveLinkedDeviceExecutionBundleFromEvidenceV1({
+        evidence: evidenceResult.evidence,
+        walletSessionDelivery: walletSessionResult.delivery,
+      }),
+    };
+  } catch {
+    return { kind: 'corrupt' };
+  }
+}
+
 export async function resolveUniqueActiveLinkedDeviceExecutionBundleV1(input: {
   readonly walletId?: string;
   readonly nowMs: number;

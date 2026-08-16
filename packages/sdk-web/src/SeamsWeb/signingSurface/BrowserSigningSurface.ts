@@ -368,7 +368,10 @@ import type {
   LinkSessionOwnerApprovalUpdatesPortV1,
   LinkSessionOwnerAuthenticatedRequestPortV1,
 } from '../operations/devices/deviceLinkingOwnerTransport';
-import type { LinkSessionSubscriptionV1 } from '../operations/devices/deviceLinkingPorts';
+import type {
+  LinkedDeviceSigningSessionActivationV1,
+  LinkSessionSubscriptionV1,
+} from '../operations/devices/deviceLinkingPorts';
 import { nextLinkedDevicePollingDelayMsV1 } from '../operations/devices/deviceLinkingHttpTransport';
 import type { LinkedDeviceApprovalResultV1, LinkedDeviceApprovalV1 } from '@shared/device-linking';
 import type { LinkedDeviceOwnerSourceLaneV1 } from '@shared/device-linking';
@@ -436,6 +439,20 @@ import type {
   ReservedRegistrationWebAuthnPrompt,
   WebAuthnPromptCancellation,
 } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/webauthnPromptCoordinator';
+
+type LinkedDeviceSigningSessionActivationWithAuthenticatorV1 =
+  | Extract<
+      LinkedDeviceSigningSessionActivationV1,
+      { readonly kind: 'target_passkey_creation' }
+    >
+  | (Extract<
+      LinkedDeviceSigningSessionActivationV1,
+      { readonly kind: 'existing_target_passkey' }
+    > & { readonly authenticator: AuthenticatorPort });
+
+function assertNeverLinkedDeviceSigningSessionActivationV1(value: never): never {
+  throw new Error(`Unsupported linked-device signing session activation: ${String(value)}`);
+}
 
 async function resolveActiveEd25519WalletSessionAuthorization(
   walletId: WalletId,
@@ -2631,21 +2648,43 @@ export class BrowserSigningSurface {
     this.applyAuthenticatedWalletState(state);
   }
 
-  async establishLinkedDeviceSigningSession(walletId: WalletId): Promise<void> {
-    if (!this.linkedDeviceAuthenticator) {
-      throw new Error('Linked-device authenticator is unavailable');
+  async establishLinkedDeviceSigningSession(input: {
+    readonly walletId: WalletId;
+    readonly enrollmentId: import('@shared/signing-lanes/ids').LinkedDeviceEnrollmentId;
+    readonly activation: LinkedDeviceSigningSessionActivationV1;
+  }): Promise<void> {
+    let activation: LinkedDeviceSigningSessionActivationWithAuthenticatorV1;
+    switch (input.activation.kind) {
+      case 'target_passkey_creation':
+        activation = input.activation;
+        break;
+      case 'existing_target_passkey': {
+        const authenticator = this.linkedDeviceAuthenticator;
+        if (!authenticator) {
+          throw new Error('Linked-device authenticator is unavailable');
+        }
+        activation = { kind: 'existing_target_passkey', authenticator };
+        break;
+      }
+      default:
+        return assertNeverLinkedDeviceSigningSessionActivationV1(input.activation);
     }
     const nextSession = await openLinkedDeviceWarmSigningSessionV1({
-      walletId,
-      authenticator: this.linkedDeviceAuthenticator,
+      walletId: input.walletId,
+      enrollmentId: input.enrollmentId,
       relayServerUrl: String(this.seamsWebConfigs.network.relayer?.url || ''),
       warmMaterial: this.passkeyMpcSession,
+      activation,
     });
     if (this.linkedDeviceWarmSigningSession) {
       closeLinkedDeviceWarmSigningSessionV1(this.linkedDeviceWarmSigningSession);
     }
     this.linkedDeviceWarmSigningSession = nextSession;
-    this.setWalletAuthenticated({ kind: 'authenticated', walletId, authMethod: 'passkey' });
+    this.setWalletAuthenticated({
+      kind: 'authenticated',
+      walletId: input.walletId,
+      authMethod: 'passkey',
+    });
   }
 
   async restoreLinkedDeviceSigningSession(walletId: WalletId): Promise<boolean> {
@@ -2914,6 +2953,14 @@ export class BrowserSigningSurface {
       repository: args.repository,
       walletSessionRepository: args.walletSessionRepository,
       executionEvidenceRepository: args.executionEvidenceRepository,
+      sessionActivation: {
+        activateLinkedDeviceSigningSessionV1: async (input) =>
+          await this.establishLinkedDeviceSigningSession({
+            walletId: input.walletId,
+            enrollmentId: input.enrollmentId,
+            activation: input.activation,
+          }),
+      },
       sourceLanePorts,
       nowMs: () => Date.now(),
       pollIntervalMs: 250,

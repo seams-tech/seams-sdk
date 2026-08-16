@@ -1346,17 +1346,79 @@ seams-auth-menu-surface {
   animation-fill-mode: both;
 }
 
-.w3a-link-device-approved-icon {
-  width: 60px;
-  height: 60px;
-  display: grid;
-  place-items: center;
+/* Dot-ring badge for the passkey confirmation. One geometry for both states:
+   while waiting the dots sweep like a clock spinner; once approved they settle
+   into a faint ring and the check strokes itself in. Monochrome on purpose —
+   nothing here should claim success louder than the flow has earned. */
+.w3a-link-device-dot-ring {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  color: var(--w3a-colors-textSecondary, #64748b);
+}
+
+.w3a-link-device-dot-ring > span {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 4px;
+  height: 4px;
+  margin: -2px;
   border-radius: 999px;
-  color: var(--w3a-colors-textButton, #ffffff);
-  background: var(--w3a-colors-primary, #3b82f6);
-  box-shadow:
-    0 0 0 5px color-mix(in srgb, var(--w3a-colors-primary, #3b82f6), transparent 88%),
-    0 12px 24px -16px color-mix(in srgb, var(--w3a-colors-primary, #3b82f6), #000000 30%);
+  background: currentColor;
+  transform: rotate(calc(var(--dot-index) * 30deg)) translateY(-18px);
+}
+
+.w3a-link-device-dot-ring.is-waiting > span {
+  animation: w3a-link-dot-sweep 1s linear infinite;
+  animation-delay: calc((var(--dot-index) - 12) / 12 * 1s);
+}
+
+.w3a-link-device-dot-ring.is-approved > span {
+  opacity: 0.25;
+}
+
+.w3a-link-device-dot-ring-check {
+  position: absolute;
+  inset: 0;
+  color: var(--w3a-colors-textPrimary, #1e293b);
+  opacity: 0;
+}
+
+.w3a-link-device-dot-ring.is-approved .w3a-link-device-dot-ring-check {
+  opacity: 1;
+  stroke-dasharray: 23;
+  stroke-dashoffset: 0;
+  animation: w3a-link-check-draw 450ms var(--w3a-ease-out, ease-out) 150ms both;
+}
+
+@keyframes w3a-link-dot-sweep {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.12;
+  }
+}
+
+@keyframes w3a-link-check-draw {
+  from {
+    stroke-dashoffset: 23;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .w3a-link-device-dot-ring.is-waiting > span {
+    animation: none;
+    opacity: 0.45;
+  }
+
+  .w3a-link-device-dot-ring.is-approved .w3a-link-device-dot-ring-check {
+    animation: none;
+  }
 }
 
 .w3a-link-device-confirmation-copy {
@@ -1657,18 +1719,6 @@ seams-auth-menu-surface {
 .w3a-link-device-btn-primary:disabled {
   opacity: 0.6;
   cursor: not-allowed;
-}
-
-/* Button-local spinner: match text size inside buttons */
-.w3a-link-device-btn .w3a-spinner {
-  width: 1em;
-  height: 1em;
-  border-width: 2px;
-}
-
-.w3a-link-device-btn-primary .w3a-spinner {
-  border-color: rgba(255, 255, 255, 0.35);
-  border-top-color: #ffffff;
 }
 
 .w3a-signup-menu-root {
