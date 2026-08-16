@@ -38,6 +38,7 @@ default = []
 secp256k1 = ["dep:hkdf", "dep:k256", "dep:sha2", "dep:sha3"]
 near-crypto = ["dep:hkdf", "dep:sha2", "dep:base64ct", "dep:chacha20poly1305"]
 passkey-custody = ["dep:hkdf", "dep:sha2", "dep:base64ct", "dep:chacha20poly1305", "dep:serde"]
+linked-device-custody-transfer = ["passkey-custody", "dep:curve25519-dalek", "dep:serde_json"]
 tx-finalization = ["dep:serde", "dep:sha3"]
 webauthn-p256 = ["dep:ciborium", "dep:p256"]
 ecdsa-role-local-client = [
