@@ -1,4 +1,5 @@
 export * from './contracts';
+export * from './ownerAuthBinding';
 export * from './parsers';
 export * from './digests';
 export * from './requestProof';
