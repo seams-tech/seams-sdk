@@ -407,6 +407,7 @@ import type {
 import { readPasskeyCustodySessionEnvelope } from '@/core/signingEngine/session/passkey/passkeyCustodySessionCache';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { base58Encode } from '@shared/utils/base58';
+import { __isWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode';
 import {
   createBrowserActiveEcdsaWalletSessionAuthorizationResolver,
   createBrowserCanonicalWalletSessionStatusReader,
@@ -1734,6 +1735,7 @@ export class BrowserSigningSurface {
   private readonly recoveryPublicDeps: RecoveryPublicDeps;
   private readonly registrationPublicDeps: registrationPublic.RegistrationPublicDeps;
   private readonly sealedRefreshStartupParityPromise: Promise<void>;
+  private hostWarmCriticalResourcesTask: Promise<WorkerResourceWarmupDiagnostics> | null = null;
   private sealedRefreshStartupParityError: Error | null = null;
   private readonly signingRuntime: SigningRuntime;
   private readonly runtimePorts: RuntimePorts;
@@ -2722,7 +2724,7 @@ export class BrowserSigningSurface {
     this.walletAuthenticationState = { kind: 'signed_out' };
   }
 
-  async warmCriticalResources(
+  private async runWarmCriticalResources(
     accountContext?: WorkerResourceWarmupAccountContext,
   ): Promise<WorkerResourceWarmupDiagnostics> {
     try {
@@ -2737,6 +2739,25 @@ export class BrowserSigningSurface {
     return await this.enginePorts
       .getManagerConveniencePorts()
       .warmCriticalResources(accountContext);
+  }
+
+  async warmCriticalResources(
+    accountContext?: WorkerResourceWarmupAccountContext,
+  ): Promise<WorkerResourceWarmupDiagnostics> {
+    if (__isWalletIframeHostMode() && accountContext === undefined) {
+      const existing = this.hostWarmCriticalResourcesTask;
+      if (existing) return await existing;
+
+      const task = this.runWarmCriticalResources();
+      this.hostWarmCriticalResourcesTask = task;
+      void task.catch(() => {
+        if (this.hostWarmCriticalResourcesTask === task) {
+          this.hostWarmCriticalResourcesTask = null;
+        }
+      });
+      return await task;
+    }
+    return await this.runWarmCriticalResources(accountContext);
   }
 
   async prewarmEmailOtpYao(
@@ -2932,6 +2953,7 @@ export class BrowserSigningSurface {
       relayerUrl,
       walletSessions: walletSessionAuthorizations,
       readWalletAuthenticationState: () => this.walletAuthenticationState,
+      hasLinkedDeviceSigningSession: (walletId) => this.hasLinkedDeviceSigningSession(walletId),
       readOwnerSourceLaneHintsV1: this.readWalletHostOwnerSourceLaneHintsV1.bind(this),
     });
     const ownerTransport = createWalletHostOwnerApprovalTransportV1(ownerAuthorities.ownerRequest);
@@ -4510,6 +4532,7 @@ export class BrowserSigningSurface {
       authentication.kind === 'authenticated' &&
       authentication.walletId === args.walletSession.walletId
     ) {
+      await this.warmCriticalResources();
       const linked = await signLinkedDeviceEvmFamilyV1({
         deps: this.enginePorts.tempoSigningDeps,
         authenticator: this.linkedDeviceAuthenticator,

@@ -66,6 +66,30 @@ export type WalletLockDomainDeps = {
   };
 };
 
+async function awaitLocalAndWalletHostLock(
+  localLock: Promise<void>,
+  walletHostLock: Promise<unknown>,
+): Promise<void> {
+  const [localResult, walletHostResult] = await Promise.allSettled([
+    localLock,
+    walletHostLock,
+  ]);
+  if (localResult.status === 'rejected') throw localResult.reason;
+  if (walletHostResult.status === 'rejected') throw walletHostResult.reason;
+}
+
+async function requireWalletHostRouterWhileLocalLocking(
+  localLock: Promise<void>,
+  walletIframe: WalletLockDomainDeps['walletIframe'],
+): Promise<{ lock(): Promise<unknown> }> {
+  try {
+    return await walletIframe.requireRouter();
+  } catch (error: unknown) {
+    await localLock;
+    throw error;
+  }
+}
+
 function walletUnlockCapabilityScope(
   selection: LoginHooksOptions['unlockSelection'] | undefined,
 ): WalletUnlockCapabilityFamilyScope {
@@ -172,10 +196,16 @@ export async function unlockDomain(
 }
 
 export async function lockDomain(deps: WalletLockDomainDeps): Promise<void> {
-  await lockCore(deps.getContext());
-  if (!deps.walletIframe.shouldUseWalletIframe()) return;
-  const router = await deps.walletIframe.requireRouter();
-  await router.lock();
+  const localLock = lockCore(deps.getContext());
+  if (!deps.walletIframe.shouldUseWalletIframe()) {
+    await localLock;
+    return;
+  }
+  const router = await requireWalletHostRouterWhileLocalLocking(
+    localLock,
+    deps.walletIframe,
+  );
+  await awaitLocalAndWalletHostLock(localLock, router.lock());
 }
 
 export async function getWalletSessionDomain(

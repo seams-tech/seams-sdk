@@ -847,9 +847,8 @@ function authenticatorStoreView(store: CloudflareD1WebAuthnStore): WebAuthnAuthe
     get: async (userId, credentialIdB64u) => {
       const record = await store.readAuthenticator({ userId, credentialIdB64u });
       if (!record) return null;
-      /* The router row carries device info the verifier has no use for, and
-         lacks the version tag the core record is discriminated by. The five
-         fields verification actually reads are identical in both. */
+      /* The router row lacks the version tag the core record is discriminated
+         by. Every other field, device metadata included, is identical in both. */
       return {
         version: 'webauthn_authenticator_v1',
         credentialIdB64u: record.credentialIdB64u,
@@ -857,6 +856,7 @@ function authenticatorStoreView(store: CloudflareD1WebAuthnStore): WebAuthnAuthe
         counter: record.counter,
         createdAtMs: record.createdAtMs,
         updatedAtMs: record.updatedAtMs,
+        deviceInfo: record.deviceInfo,
       };
     },
     /* Narrowed to the counter on purpose. A successful assertion may advance

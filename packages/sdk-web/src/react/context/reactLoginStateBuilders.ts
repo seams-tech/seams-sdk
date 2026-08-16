@@ -6,6 +6,21 @@ import {
 import type { LoginState } from '../types';
 import { isWalletSessionReadyForUi } from './walletSessionReadiness';
 
+export type LinkedDeviceManagementPermission =
+  | { readonly kind: 'unauthenticated' }
+  | { readonly kind: 'owner' }
+  | { readonly kind: 'signing_only' };
+
+export function linkedDeviceManagementPermissionForLoginState(
+  state: LoginState,
+): LinkedDeviceManagementPermission {
+  if (!state.isLoggedIn) return { kind: 'unauthenticated' };
+  if (state.authMethods.length === 0 || state.currentAuthMethod.kind !== 'selected') {
+    return { kind: 'signing_only' };
+  }
+  return { kind: 'owner' };
+}
+
 export function buildReactLoggedOutLoginState(): LoginState {
   return {
     isLoggedIn: false,

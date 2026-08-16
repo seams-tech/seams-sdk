@@ -62,18 +62,19 @@ function friendlyDay(value: number, now: number): string {
   });
 }
 
-function deviceNumbers(devices: readonly LinkedDeviceSummaryV1[]): ReadonlyMap<string, number> {
-  const oldestFirst = [...devices].sort((left, right) => {
-    const createdAtDifference = left.createdAtMs - right.createdAtMs;
-    if (createdAtDifference !== 0) return createdAtDifference;
-    return String(left.deviceId).localeCompare(String(right.deviceId));
-  });
-  return new Map(oldestFirst.map((device, index) => [String(device.deviceId), index + 2]));
-}
-
 function shortDeviceId(deviceId: LinkedDeviceSummaryV1['deviceId']): string {
   const value = String(deviceId);
   return value.length <= 12 ? value : `…${value.slice(-8)}`;
+}
+
+/**
+ * The one description the card heading, the removal confirmation, and every
+ * live announcement share. Credential labels repeat across cards — two platform
+ * passkeys are both "Platform passkey" — so the stable device ID suffix is what
+ * makes a sentence name a single card rather than a category of them.
+ */
+function deviceDescription(device: LinkedDeviceSummaryV1): string {
+  return `${device.label} (ID ${shortDeviceId(device.deviceId)})`;
 }
 
 function devicePlatformDescription(device: LinkedDeviceSummaryV1): string {
@@ -118,6 +119,9 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
   const [loadState, setLoadState] = React.useState<LinkedDevicesLoadState>({ kind: 'idle' });
   const [revokeState, setRevokeState] = React.useState<RevokeState>({ kind: 'idle' });
   const [announcement, setAnnouncement] = React.useState('');
+  /** Device IDs are identifiers, not secrets, but printing one in full by
+   * default buries the rest of the card. One card at a time may expand. */
+  const [expandedDeviceId, setExpandedDeviceId] = React.useState<string | null>(null);
   const loadSeq = React.useRef(0);
   const dialogRef = React.useRef<HTMLDivElement>(null);
   const closeButtonRef = React.useRef<HTMLButtonElement>(null);
@@ -187,6 +191,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
       setLoadState({ kind: 'idle' });
       setRevokeState({ kind: 'idle' });
       setAnnouncement('');
+      setExpandedDeviceId(null);
       return;
     }
     void loadDevices();
@@ -196,8 +201,9 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
     async (device: LinkedDeviceSummaryV1) => {
       if (!walletId) return;
       const deviceId = String(device.deviceId);
+      const description = deviceDescription(device);
       setRevokeState({ kind: 'working', deviceId });
-      setAnnouncement(`Removing ${device.label}…`);
+      setAnnouncement(`Removing ${description}…`);
       try {
         const result = await seams.devices.revokeLinkedDevice({
           walletId,
@@ -208,7 +214,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
           case 'revoked':
           case 'replayed':
             setRevokeState({ kind: 'idle' });
-            setAnnouncement(`${device.label} can no longer use this wallet.`);
+            setAnnouncement(`${description} can no longer use this wallet.`);
             await loadDevices();
             return;
           case 'not_found':
@@ -239,7 +245,6 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
   if (!isOpen) return null;
 
   const devices = loadState.kind === 'loaded' ? loadState.devices : [];
-  const numberByDeviceId = deviceNumbers(devices);
   const showEmpty = loadState.kind === 'loaded' && devices.length === 0;
 
   return (
@@ -304,41 +309,44 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
               <ul className="w3a-linked-devices-modal-list">
                 {devices.map((device) => {
                   const deviceId = String(device.deviceId);
-                  const deviceNumber = numberByDeviceId.get(deviceId);
-                  if (deviceNumber === undefined) {
-                    throw new Error('linked device number is missing');
-                  }
                   const standing = deviceStanding(device);
                   const confirming =
                     revokeState.kind === 'confirming' && revokeState.deviceId === deviceId;
                   const working =
                     revokeState.kind === 'working' && revokeState.deviceId === deviceId;
                   const removed = device.state === 'revoked';
+                  const fullIdShown = expandedDeviceId === deviceId;
                   return (
                     <li key={deviceId} className="w3a-linked-devices-modal-item">
                       <div className="w3a-linked-devices-modal-item-main">
-                        <span className="w3a-linked-devices-modal-item-name">
-                          Device {deviceNumber}
-                        </span>
+                        <span className="w3a-linked-devices-modal-item-name">{device.label}</span>
                         <span className={`w3a-linked-devices-modal-standing tone-${standing.tone}`}>
                           {standing.label}
                         </span>
                       </div>
                       <div className="w3a-linked-devices-modal-item-identity">
-                        <span>{device.label}</span>
-                        <span aria-hidden="true">&middot;</span>
                         <span>{devicePlatformDescription(device)}</span>
                         <span aria-hidden="true">&middot;</span>
-                        <span className="w3a-linked-devices-modal-device-id" title={deviceId}>
-                          ID {shortDeviceId(device.deviceId)}
+                        <span className="w3a-linked-devices-modal-device-id">
+                          ID {fullIdShown ? deviceId : shortDeviceId(device.deviceId)}
                         </span>
+                        <button
+                          type="button"
+                          className="w3a-linked-devices-modal-disclosure"
+                          aria-expanded={fullIdShown}
+                          onClick={() => setExpandedDeviceId(fullIdShown ? null : deviceId)}
+                        >
+                          {fullIdShown ? 'Hide full ID' : 'Show full ID'}
+                        </button>
                       </div>
                       <div className="w3a-linked-devices-modal-item-detail">
                         Last used {friendlyDay(device.lastActivityAtMs, Date.now())}
                       </div>
                       {confirming ? (
                         <div className="w3a-linked-devices-modal-confirm">
-                          <span>Remove this device? It will lose access right away.</span>
+                          <span>
+                            Remove {deviceDescription(device)}? It will lose access right away.
+                          </span>
                           <div className="w3a-linked-devices-modal-confirm-actions">
                             <button
                               type="button"
@@ -361,6 +369,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
                           type="button"
                           className="w3a-linked-devices-modal-secondary"
                           disabled={working || removed}
+                          aria-label={`Remove ${deviceDescription(device)}`}
                           onClick={() => setRevokeState({ kind: 'confirming', deviceId })}
                         >
                           {working ? 'Removing…' : removed ? 'Removed' : 'Remove'}

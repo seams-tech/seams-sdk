@@ -163,6 +163,47 @@ function isReadyFrame(value: unknown): boolean {
   );
 }
 
+type WasmPrewarmWorkerKind = 'evmCrypto' | 'tempoSigner';
+
+type WorkerReadiness = {
+  readonly promise: Promise<void>;
+  readonly resolve: () => void;
+  readonly reject: (error: Error) => void;
+  settled: boolean;
+};
+
+function isWasmPrewarmWorkerKind(kind: SignerWorkerKind): kind is WasmPrewarmWorkerKind {
+  return kind === 'evmCrypto' || kind === 'tempoSigner';
+}
+
+function createWorkerReadiness(): WorkerReadiness {
+  let resolvePromise: () => void = () => {};
+  let rejectPromise: (error: Error) => void = () => {};
+  const promise = new Promise<void>((resolve, reject) => {
+    resolvePromise = resolve;
+    rejectPromise = reject;
+  });
+  void promise.catch(() => {});
+  return {
+    promise,
+    resolve: resolvePromise,
+    reject: rejectPromise,
+    settled: false,
+  };
+}
+
+function resolveWorkerReadiness(readiness: WorkerReadiness): void {
+  if (readiness.settled) return;
+  readiness.settled = true;
+  readiness.resolve();
+}
+
+function rejectWorkerReadiness(readiness: WorkerReadiness, error: Error): void {
+  if (readiness.settled) return;
+  readiness.settled = true;
+  readiness.reject(error);
+}
+
 function isNearRpcProgressFrame(value: unknown): value is NearRpcProgressFrame {
   return (
     !!value &&
@@ -225,6 +266,7 @@ function isRpcProgressFrame(value: unknown): value is RpcProgressFrame {
 export class WorkerTransport implements SignerWorkerTransportProtocol {
   private workerBaseOrigin: string | undefined;
   private readonly workers = new Map<SignerWorkerKind, Worker>();
+  private readonly workerReadiness = new Map<WasmPrewarmWorkerKind, WorkerReadiness>();
   private readonly pendingByKind = new Map<SignerWorkerKind, Map<string, PendingEntry>>();
   private readonly messageHandlers = new Map<SignerWorkerKind, (event: MessageEvent) => void>();
   private readonly errorHandlers = new Map<SignerWorkerKind, (event: ErrorEvent) => void>();
@@ -250,6 +292,16 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
     for (const kind of SIGNER_WORKER_KINDS) {
       this.getOrCreateWorker(kind);
     }
+    await Promise.all([
+      this.requireWorkerReadiness('evmCrypto'),
+      this.requireWorkerReadiness('tempoSigner'),
+    ]);
+  }
+
+  private requireWorkerReadiness(kind: WasmPrewarmWorkerKind): Promise<void> {
+    const readiness = this.workerReadiness.get(kind);
+    if (!readiness) throw new Error(`${kind} worker readiness was not initialized`);
+    return readiness.promise;
   }
 
   /**
@@ -583,6 +635,9 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
     if (existing) return existing;
 
     const worker = this.createWorker(kind);
+    if (isWasmPrewarmWorkerKind(kind)) {
+      this.workerReadiness.set(kind, createWorkerReadiness());
+    }
     const messageHandler = (event: MessageEvent): void => {
       this.handleWorkerMessage(kind, event);
     };
@@ -756,7 +811,13 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
 
   private handleWorkerMessage(kind: SignerWorkerKind, event: MessageEvent): void {
     const data = event.data as unknown;
-    if (isReadyFrame(data)) return;
+    if (isReadyFrame(data)) {
+      if (isWasmPrewarmWorkerKind(kind)) {
+        const readiness = this.workerReadiness.get(kind);
+        if (readiness) resolveWorkerReadiness(readiness);
+      }
+      return;
+    }
 
     if (kind === 'nearSigner') {
       this.handleNearWorkerMessage(data);
@@ -997,6 +1058,10 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
       code: 'WORKER_RUNTIME_ERROR',
       workerKind: kind,
     });
+    if (isWasmPrewarmWorkerKind(kind)) {
+      const readiness = this.workerReadiness.get(kind);
+      if (readiness) rejectWorkerReadiness(readiness, runtimeError);
+    }
     this.rejectAllPending(kind, runtimeError);
     this.resetWorker(kind);
   }
@@ -1061,9 +1126,20 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
 
   private terminateWorkerOnly(kind: SignerWorkerKind): void {
     const worker = this.workers.get(kind);
-    if (!worker) return;
+    const readiness = this.readinessForWorker(kind);
+    if (!worker) {
+      if (readiness) {
+        rejectWorkerReadiness(readiness, new Error(`${kind} worker was reset`));
+        this.deleteWorkerReadiness(kind);
+      }
+      return;
+    }
 
     this.rejectAllPending(kind, new Error(`${kind} worker was reset`));
+    if (readiness) {
+      rejectWorkerReadiness(readiness, new Error(`${kind} worker was reset`));
+      this.deleteWorkerReadiness(kind);
+    }
 
     const messageHandler = this.messageHandlers.get(kind);
     const errorHandler = this.errorHandlers.get(kind);
@@ -1074,6 +1150,16 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
     this.workers.delete(kind);
     this.messageHandlers.delete(kind);
     this.errorHandlers.delete(kind);
+  }
+
+  private readinessForWorker(kind: SignerWorkerKind): WorkerReadiness | undefined {
+    if (!isWasmPrewarmWorkerKind(kind)) return undefined;
+    return this.workerReadiness.get(kind);
+  }
+
+  private deleteWorkerReadiness(kind: SignerWorkerKind): void {
+    if (!isWasmPrewarmWorkerKind(kind)) return;
+    this.workerReadiness.delete(kind);
   }
 }
 

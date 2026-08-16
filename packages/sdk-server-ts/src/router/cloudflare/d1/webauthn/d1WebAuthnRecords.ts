@@ -1,8 +1,7 @@
 import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import {
-  parseWebAuthnAuthenticatorDeviceInfo,
-  unknownWebAuthnAuthenticatorDeviceInfo,
+  parseWebAuthnAuthenticatorDeviceInfoJson,
   type WebAuthnAuthenticatorDeviceInfo,
 } from '@shared/utils/webauthnDeviceInfo';
 import {
@@ -68,15 +67,7 @@ export type WebAuthnAuthenticatorRecord = {
 export function parseWebAuthnAuthenticatorRowDeviceInfo(
   raw: unknown,
 ): WebAuthnAuthenticatorDeviceInfo {
-  if (typeof raw !== 'string' || !raw.trim()) return unknownWebAuthnAuthenticatorDeviceInfo();
-  try {
-    return (
-      parseWebAuthnAuthenticatorDeviceInfo(JSON.parse(raw)) ??
-      unknownWebAuthnAuthenticatorDeviceInfo()
-    );
-  } catch {
-    return unknownWebAuthnAuthenticatorDeviceInfo();
-  }
+  return parseWebAuthnAuthenticatorDeviceInfoJson(raw);
 }
 
 export type WebAuthnLoginChallengeRecord = {
