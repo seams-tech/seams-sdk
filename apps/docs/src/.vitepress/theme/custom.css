@@ -39,8 +39,7 @@
   --vp-c-text-3: #6d675f;
 }
 
-/* Nav bar: wordmark brand sized like the marketing site header, with the two
-   nav links sitting immediately left of centre instead of at the far right. */
+/* Nav bar: wordmark brand sized like the marketing site header. */
 :root {
   --vp-nav-logo-height: 20px;
 }
@@ -59,22 +58,6 @@
 .VPNavBarTitle .title > span {
   color: var(--vp-c-text-2);
   letter-spacing: 0.01em;
-}
-
-@media (min-width: 960px) {
-  .VPNavBar .content-body {
-    justify-content: flex-start;
-  }
-
-  .VPNavBar .content-body .menu {
-    order: -1;
-  }
-
-  .VPNavBar .content-body .search {
-    flex-grow: 0;
-    margin-left: auto;
-    padding-left: 24px;
-  }
 }
 
 /* The default theme paints a fixed gradient strip over the bottom of the

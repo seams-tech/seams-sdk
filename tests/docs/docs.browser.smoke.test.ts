@@ -39,6 +39,7 @@ test('docs onboarding, examples, search, appearance, and responsive navigation s
   await expect(page.getByRole('heading', { name: 'Create a wallet', level: 1 })).toBeVisible();
 
   const sidebar = page.getByRole('navigation', { name: 'Sidebar Navigation' });
+  await sidebar.getByRole('button', { name: 'Guides' }).click();
   await sidebar.getByRole('button', { name: 'Examples' }).click();
   await sidebar.locator('a[href="/examples/"]').click();
   await expect(page).toHaveURL(/\/examples\/$/);
