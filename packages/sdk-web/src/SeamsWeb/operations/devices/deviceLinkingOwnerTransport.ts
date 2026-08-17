@@ -9,7 +9,8 @@ import type {
   LinkedDeviceProvisioningDeliveriesSubmissionV1,
   LinkedDeviceTargetReadyR102InputV1,
 } from '@shared/device-linking';
-import type { LinkDeviceSessionId } from '@shared/signing-lanes/ids';
+import { parseLinkDeviceSessionId, type LinkDeviceSessionId } from '@shared/signing-lanes/ids';
+import { parseLinkedDeviceCustodyTransferRecipientV1 } from '@shared/device-linking/custodyTransfer';
 import type {
   LinkSessionAuthenticationV1,
   LinkSessionOwnerTransportPortV1,
@@ -89,6 +90,28 @@ export function createDeviceLinkingOwnerTransportV1(
       });
       return parseOwnerResponseV1(response, parseLinkedDeviceProvisioningDeliveriesSubmissionV1);
     },
+    getCustodyTransferRecipientV1: async (input) => {
+      const response = await options.request.requestOwnerV1({
+        method: 'GET',
+        canonicalPath: `${sessionPath(input.linkSessionId)}/custody-transfer-recipient`,
+        authentication: input.authentication,
+      });
+      // Device 2 has not published a recipient key yet. Normal while the
+      // target device is still preparing, so it is a value rather than a throw.
+      if (response.status === 404) return null;
+      return parseOwnerResponseV1(response, parseLinkedDeviceCustodyTransferRecipientV1);
+    },
+    submitCustodyTransferPackageV1: async (input) => {
+      const response = await options.request.requestOwnerV1({
+        method: 'POST',
+        canonicalPath: `${sessionPath(
+          requireLinkSessionId(input.submission.linkSessionId),
+        )}/custody-transfer`,
+        body: input.submission,
+        authentication: input.authentication,
+      });
+      parseOwnerResponseV1(response, (raw) => raw);
+    },
     subscribeApprovalV1: options.approvalUpdates.subscribeApprovalV1,
   };
 }
@@ -119,4 +142,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function sessionPath(linkSessionId: LinkDeviceSessionId): string {
   return `${LINKED_DEVICE_SESSION_HTTP_BASE_PATH_V1}/${String(linkSessionId)}`;
+}
+
+/**
+ * The submission carries its link session as a plain string because that is
+ * also the body the server parses. Re-parsing keeps the request path derived
+ * from a branded id.
+ */
+function requireLinkSessionId(raw: string): LinkDeviceSessionId {
+  const parsed = parseLinkDeviceSessionId(raw);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
 }
