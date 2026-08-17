@@ -2,7 +2,7 @@
 
 Date created: August 11, 2026
 
-Last reconciled: August 17, 2026 (D1 ownership and deployment-binding audit)
+Last reconciled: August 18, 2026 (R103 zero-prompt implementation evidence)
 
 Status: Planned; implementation is gated on the Wallet-boundary stabilization
 criteria below.
@@ -116,10 +116,16 @@ are part of the starting tree. The Console and signer databases each have one
 canonical `0001` baseline; the current baselines contain 49 Console tables and
 52 signer tables.
 
+Refactor 103's zero-prompt source cutover landed in `44e7fbfdf` through
+`4cc6156d3`: the worker-held capability, owner Wallet Session authorization,
+zero-prompt Device 1 flow, focused capability tests, and two-device prompt
+counters are present. Its composed-worker lifecycle, transfer-misuse, and live
+two-device prompt-counter runs remain open evidence.
+
 Refactor 105 remains a no-go while Refactor 103 is changing linked-owner Wallet
-Sessions, custody handles, canonical owner lifecycle, revocation, or browser
-Wallet state. Refactor 103B also remains open until its metadata projection is
-proven through that canonical lifecycle.
+Sessions, canonical owner lifecycle, revocation, browser Wallet state, or fixes
+found by those live zero-prompt runs. Refactor 103B also remains open until its
+metadata projection is proven through that canonical lifecycle.
 
 Refactors 100-102 still contain open validation or follow-up items in their
 plans. Reconcile those items at the gate: complete anything that can still
