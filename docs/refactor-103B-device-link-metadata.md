@@ -1,6 +1,10 @@
 # Refactor 103B — Canonical Device-Link Metadata
 
-Status: proposed implementation plan.
+Status: active implementation. Phase 1 and the independent account-menu work
+are complete. Phase 2 and Phase 4 await the live Refactor 103 Phase 8
+owner-credential cutover.
+
+Last reconciled: August 17, 2026.
 
 ## Goal
 
@@ -194,6 +198,9 @@ binding with no authenticator row at all.
 
 ### Phase 2: Project Metadata Through The Phase 8 Binding
 
+- [x] Define and atomically persist the exact Phase 8 linked enrollment ->
+      canonical `WalletAuthMethodId` binding with successful owner-credential
+      activation.
 - [ ] Require the exact Phase 8 owner-auth-method binding when projecting one
       managed linked device.
 - [ ] For a Passkey binding, resolve the canonical authenticator by wallet and
@@ -213,9 +220,9 @@ Phase 2 is complete when management returns one exact branch for every active
 or historical linked owner credential without consulting the Phase 7 target
 registration.
 
-Blocked: Refactor 103 Phase 8 is not implemented. No linked-device enrollment
-carries a canonical `WalletAuthMethodId` today, so there is no binding to
-require, resolve, or fail closed on.
+Partially unblocked: Refactor 103 Phase 8 now owns the exact binding and its
+atomic write. The two-device browser flow does not yet reach successful
+canonical activation, and device management does not yet consume the binding.
 
 ### Phase 3: Update The Account Menu
 
@@ -270,8 +277,9 @@ Perform this deletion with the Refactor 103 Phase 8 human-device cutover:
 
 No dual-read fallback remains after cutover.
 
-Blocked with Phase 2: the temporary path is still the only metadata source for
-a human linked device until the Phase 8 cutover replaces it.
+Blocked with Phase 2: the temporary path remains the active metadata source for
+a human linked device until the Phase 8 browser cutover reaches canonical
+activation and management consumes its binding.
 
 ## Security And Privacy Constraints
 

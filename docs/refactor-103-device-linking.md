@@ -4,7 +4,7 @@ Date created: June 15, 2026
 
 Rewritten: July 22, 2026
 
-Last reconciled: August 14, 2026 (linked-device factor-choice plan)
+Last reconciled: August 17, 2026 (Phase 8 owner-credential cutover checkpoint)
 
 Status: active implementation. The strict QR v4 contract, exhaustive session
 state, durable claim and expiry store, authenticated request-proof transport,
@@ -939,6 +939,39 @@ management, and is revoked without affecting Device 1.
 This phase implements the final product model. Human Device 2 stops using the
 signing-only authority after cutover. The signing-only execution substrate
 remains available for Refactor 104's separately authorized delegated execution.
+
+#### Landed Phase 8 Prerequisites
+
+- [x] Carry the wallet custody seed through the worker-owned sealed transfer
+      protocol, persist and relay its public package, expose authenticated
+      transfer routes, and assemble the browser transfer port for both devices.
+- [x] Start the canonical add-auth-method ceremony under Device 1 authority and
+      bind it into the immutable approval and target preparation.
+- [x] Carry the server-verified custody key-manifest digest on canonical owner
+      Wallet Sessions, bind it into approval, and admit Device 2 finalize from
+      the approved `awaiting_target_passkey` state.
+- [x] Persist one exact linked enrollment -> canonical `WalletAuthMethodId`
+      binding in the same transaction as successful credential and custody-
+      envelope activation.
+- [x] Reach the canonical add-auth-method finalizer from an authenticated
+      Device 2 route without accepting linked-enrollment facts from the wire
+      request.
+- [x] Make add-auth-method finalize exactly replayable after ceremony
+      consumption and reject substituted requests or admissions.
+- [x] Record the issuing `walletAuthMethodId` on canonical Wallet Sessions and
+      enforce it during readback and issuance replay.
+- [x] Extract the canonical local Passkey projection so ordinary add-Passkey
+      and Device 2 enrollment can share one persistence path.
+- [x] Add approval/parser round-trip guards and focused admission, provenance,
+      binding, finalize-replay, and custody-transfer tests.
+- [x] Reuse Device 1's first approval-time Passkey prompt to retain the current
+      custody envelope and PRF output locally until the recipient arrives;
+      seal once and zeroize on completion or failure.
+- [ ] Wire Device 2 recipient publication, transfer acceptance, canonical
+      finalize, local projection persistence, and idempotent session completion
+      into one working browser flow.
+- [ ] Prove Device 2 canonical unlock before removing any human linked-session
+      or target-lane path.
 
 #### Owner Credential Enrollment
 
