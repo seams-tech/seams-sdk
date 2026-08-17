@@ -991,20 +991,20 @@ Raw seed bytes never enter application JavaScript or persistence.
 
 ##### Worker Capability
 
-- [ ] Add one worker-owned `UnlockedWalletCustodyTransferCapabilityV1`. Its
+- [x] Add one worker-owned `UnlockedWalletCustodyTransferCapabilityV1`. Its
       public reference contains the opaque handle ID, wallet ID, issuing
       `WalletAuthMethodId`, owner Wallet Session ID, and expiry. The worker owns
       the opened custody-seed handle; no API returns seed bytes or a serializable
       secret representation.
-- [ ] Establish the capability during successful owner registration and normal
+- [x] Establish the capability during successful owner registration and normal
       owner unlock by reusing the factor secret and verified custody envelope
       already present in that operation. Commit it only after the matching owner
       Wallet Session is active. Creating it must add no authenticator or OTP
       interaction.
-- [ ] Keep at most one active capability per wallet and owner Wallet Session.
+- [x] Keep at most one active capability per wallet and owner Wallet Session.
       Replacing it destroys the previous handle. Refuse a wallet, auth-method,
       Wallet Session, or expiry mismatch inside the worker before sealing.
-- [ ] Destroy the capability on lock, logout, wallet switch, Wallet Session
+- [x] Destroy the capability on lock, logout, wallet switch, Wallet Session
       retirement or replacement, expiry, worker reset, page teardown, and every
       failed registration or unlock after the handle was created. Never persist
       or restore it. After a worker or page restart, the user explicitly unlocks
@@ -1012,16 +1012,16 @@ Raw seed bytes never enter application JavaScript or persistence.
 
 ##### Owner Approval And Ceremony Start
 
-- [ ] Preflight the active owner Wallet Session and unlocked custody capability
+- [x] Preflight the active owner Wallet Session and unlocked custody capability
       before claiming the scanned link session. If either is absent, return an
       exact `wallet_unlock_required` result without starting WebAuthn, OTP, or a
       partially approved enrollment.
-- [ ] Authorize the linked add-auth-method ceremony with the same active owner
+- [x] Authorize the linked add-auth-method ceremony with the same active owner
       Wallet Session that authorizes the QR claim and approval. Bind the exact
       link session, wallet, enrollment, device, new factor kind, ceremony, and
       expiry into the immutable approval. Do not accept these facts from an
       unauthenticated request body.
-- [ ] Remove `collectOwnerAssertionV1` from the Device 1 linking composition.
+- [x] Remove `collectOwnerAssertionV1` from the Device 1 linking composition.
       Delete the approval-time call to
       `collectAuthenticationCredentialForWalletChallengeB64u`, the retained PRF
       buffer, `LinkedDeviceOwnerCustodyHoldV1`, and the prompted fallback. A
@@ -1030,26 +1030,26 @@ Raw seed bytes never enter application JavaScript or persistence.
 
 ##### Seed Transfer
 
-- [ ] Replace `sealForLinkedDeviceV1({ existingEnvelope,
+- [x] Replace `sealForLinkedDeviceV1({ existingEnvelope,
       existingFactorSecret, ... })` with a worker operation that accepts the
       opaque unlocked capability and the approved recipient binding. The worker
       seals directly from its custody handle and generates a fresh X25519
       ephemeral key and nonce for every transfer.
-- [ ] Preserve the existing X25519 -> HKDF-SHA256 -> ChaCha20-Poly1305 wire
+- [x] Preserve the existing X25519 -> HKDF-SHA256 -> ChaCha20-Poly1305 wire
       format and authenticated binding over wallet, enrollment, device,
       recipient public key, and custody-secret identity. The server continues to
       relay only the recipient public key and sealed package.
-- [ ] Keep Device 2's open-and-reseal operation single-call and single-use. The
+- [x] Keep Device 2's open-and-reseal operation single-call and single-use. The
       recipient private key, transferred seed handle, and new factor secret stay
       inside its worker and are destroyed whether resealing succeeds or fails.
-- [ ] Permit the Device 1 capability to seal multiple separately approved
+- [x] Permit the Device 1 capability to seal multiple separately approved
       enrollments only while its exact owner Wallet Session remains active. Each
       transfer gets independent ephemeral key material and remains bound to one
       approved recipient.
 
 ##### Cutover And Proof
 
-- [ ] Delete the temporary approval-prompt custody path and its fixtures in the
+- [x] Delete the temporary approval-prompt custody path and its fixtures in the
       same commit that makes the worker capability path operational. Keep no
       compatibility branch or automatic prompted fallback.
 - [ ] Add one focused lifecycle test proving registration and unlock establish
@@ -1062,7 +1062,7 @@ Raw seed bytes never enter application JavaScript or persistence.
       reset the counter after Device 1 unlock, scan and approve the QR, assert
       zero Device 1 factor prompts, assert exactly one Device 2 prompt for its
       new Passkey, then reload Device 2 and prove canonical unlock and signing.
-- [ ] Prove the unavailable-capability case separately: QR linking returns
+- [x] Prove the unavailable-capability case separately: QR linking returns
       `wallet_unlock_required`, performs no factor prompt, records no owner
       approval, and creates no credential or custody-transfer package.
 
@@ -1070,6 +1070,17 @@ The zero-prompt cutover is complete when an already-unlocked Device 1 links a
 new owner device without another factor interaction, while the custody seed
 remains worker-confined, volatile, session-bound, and unavailable after lock or
 session invalidation.
+
+Status: the cutover is implemented and the fail-closed preflight, registry
+lifecycle, and capability seal boundary are proven by focused unit tests
+(`tests/unit/unlockedCustodyTransferCapability.unit.test.ts`,
+`tests/unit/walletHostOwnerAuthority.unit.test.ts`,
+`tests/unit/deviceLinkingCustodyTransferPort.unit.test.ts`). The three
+unchecked items above need a composed stack: the lifecycle and
+transfer-misuse tests against the real ceremony worker, and the two-device
+contract with its prompt counters
+(`tests/e2e/linked-device.operating-path.test.ts`, already extended with
+zero-Device-1-prompt and exactly-one-Device-2-passkey assertions).
 
 #### Owner Credential Enrollment
 
