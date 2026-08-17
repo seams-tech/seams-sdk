@@ -9801,7 +9801,7 @@ test.describe('dashboard console config page api wiring', () => {
         .locator('.dashboard-hero__primary')
         .getByRole('link', { name: /Sponsor gas for your users/ }),
     ).toHaveCount(1);
-    await expect(statusGrid.locator(':scope > section')).toHaveCount(2);
+    await expect(statusGrid.locator(':scope > section')).toHaveCount(3);
     expect(actionCardsBounds.width).toBeLessThanOrEqual(960);
     expect(Math.abs(sponsorshipPromoBounds.width - actionCardsBounds.width)).toBeLessThan(2);
     expect(Math.abs(sponsorshipPromoBounds.x - actionCardsBounds.x)).toBeLessThan(2);

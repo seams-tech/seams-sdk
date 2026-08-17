@@ -3842,7 +3842,7 @@
   width: min(100%, 960px);
   margin-inline: auto;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   align-items: stretch;
 }
@@ -5642,12 +5642,6 @@ select.dashboard-input {
   flex-direction: column;
 }
 
-.dashboard-ops-cockpit-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-
 .dashboard-ops-cockpit-view .dashboard-ops-cockpit-panel {
   flex: 1 1 calc((100% - 24px) / 3);
 }
@@ -5693,13 +5687,6 @@ select.dashboard-input {
 
 .dashboard-shell--route-overview .dashboard-pagination-note {
   color: #777169;
-}
-
-.dashboard-shell--route-overview .dashboard-ops-cockpit-grid {
-  justify-content: center;
-  gap: 12px;
-  width: min(100%, 900px);
-  margin-inline: auto;
 }
 
 .dashboard-shell--route-overview .dashboard-ops-cockpit-panel {

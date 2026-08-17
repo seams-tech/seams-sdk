@@ -415,6 +415,49 @@ export function OpsCockpitPage(): React.JSX.Element {
                 )}
               </OpsCockpitQueuePanel>
             ) : null}
+
+            {showWebhookQueue ? (
+              <OpsCockpitQueuePanel
+                ariaLabel="Failed webhook summary"
+                title="Failed webhooks (dead letters)"
+                badge={`${failedWebhooks.length}`}
+              >
+                {mutationNotice ? (
+                  <p className="dashboard-pagination-note">{mutationNotice}</p>
+                ) : null}
+                {mutationErrorMessage ? (
+                  <p className="dashboard-pagination-note">{mutationErrorMessage}</p>
+                ) : null}
+                {failedWebhooks.length === 0 ? (
+                  <p className="dashboard-pagination-note">
+                    No unresolved webhook dead letters.
+                  </p>
+                ) : (
+                  <ul className="dashboard-view-list">
+                    {failedWebhooks.slice(0, 8).map((entry) => (
+                      <li key={entry.deadLetter.id}>
+                        Endpoint <code>{entry.endpointId}</code> event{' '}
+                        <code>{entry.deadLetter.eventType || entry.deadLetter.eventId}</code> failed{' '}
+                        <strong>{entry.deadLetter.failedAttempts}</strong> attempts; last error:{' '}
+                        {entry.deadLetter.lastErrorMessage || 'n/a'} (
+                        {formatTimestamp(entry.deadLetter.movedToDlqAt)}){' '}
+                        <button
+                          type="button"
+                          className="dashboard-inline-link"
+                          onClick={() => onReplayDeadLetter(entry)}
+                          disabled={
+                            replayingDeadLetterId === entry.deadLetter.id ||
+                            !String(entry.deadLetter.deliveryId || '').trim()
+                          }
+                        >
+                          {replayingDeadLetterId === entry.deadLetter.id ? 'Replaying...' : 'Replay'}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </OpsCockpitQueuePanel>
+            ) : null}
           </div>
         </div>
       </section>
@@ -442,46 +485,6 @@ export function OpsCockpitPage(): React.JSX.Element {
         </section>
       ) : null}
 
-      <div className="dashboard-ops-cockpit-grid" aria-label="Ops cockpit queues">
-        {showWebhookQueue ? (
-          <OpsCockpitQueuePanel
-            ariaLabel="Failed webhook summary"
-            title="Failed webhooks (dead letters)"
-            badge={`${failedWebhooks.length}`}
-          >
-            {mutationNotice ? <p className="dashboard-pagination-note">{mutationNotice}</p> : null}
-            {mutationErrorMessage ? (
-              <p className="dashboard-pagination-note">{mutationErrorMessage}</p>
-            ) : null}
-            {failedWebhooks.length === 0 ? (
-              <p className="dashboard-pagination-note">No unresolved webhook dead letters.</p>
-            ) : (
-              <ul className="dashboard-view-list">
-                {failedWebhooks.slice(0, 8).map((entry) => (
-                  <li key={entry.deadLetter.id}>
-                    Endpoint <code>{entry.endpointId}</code> event{' '}
-                    <code>{entry.deadLetter.eventType || entry.deadLetter.eventId}</code> failed{' '}
-                    <strong>{entry.deadLetter.failedAttempts}</strong> attempts; last error:{' '}
-                    {entry.deadLetter.lastErrorMessage || 'n/a'} (
-                    {formatTimestamp(entry.deadLetter.movedToDlqAt)}){' '}
-                    <button
-                      type="button"
-                      className="dashboard-inline-link"
-                      onClick={() => onReplayDeadLetter(entry)}
-                      disabled={
-                        replayingDeadLetterId === entry.deadLetter.id ||
-                        !String(entry.deadLetter.deliveryId || '').trim()
-                      }
-                    >
-                      {replayingDeadLetterId === entry.deadLetter.id ? 'Replaying...' : 'Replay'}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </OpsCockpitQueuePanel>
-        ) : null}
-      </div>
     </div>
   );
 }
