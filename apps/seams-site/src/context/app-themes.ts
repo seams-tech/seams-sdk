@@ -227,33 +227,6 @@ const GREENHOUSE_LIGHT_COLORS: Record<string, string> = {
   highlightAmount: '#308970',
 };
 
-// "Ultramarine" — the Greenhouse layout with the green pair swapped for
-// ultramarine blue (#1a1ae6 pigment / #4b4bff lift): same navy ink on layered
-// creams, so only the accent hue changes.
-const ULTRAMARINE_LIGHT_COLORS: Record<string, string> = {
-  ...GREENHOUSE_LIGHT_COLORS,
-
-  primary: '#1a1ae6',
-  primaryHover: '#1414b8',
-  secondaryHover: '#1a1ae6',
-  accent: '#4b4bff',
-
-  buttonBackground: '#1a1ae6',
-  secondaryButtonBackground: '#1a1ae6',
-  secondaryButtonHoverBackground: '#1414b8',
-  buttonHoverBackground: '#1414b8',
-
-  focus: '#1a1ae6',
-  success: '#308970',
-  info: '#1a1ae6',
-
-  highlightPrimary: '#4b4bff',
-  highlightRow: 'rgba(26, 26, 230, 0.12)',
-  highlightHalo: '#b3b3ff',
-  highlightReceiver: '#1a1ae6',
-  highlightAmount: '#1a1ae6',
-};
-
 // "Pastel Dark" — the Pastel Rainbow palette on charcoal (Outlander-dashboard
 // style): plum-charcoal layers, mint carrying the CTAs with dark ink, and the
 // remaining pastels as status/highlight tones (pastels are light, so they
@@ -371,7 +344,6 @@ export type DemoThemeId =
   | 'rose-pine-dark'
   | 'rose-pine-light'
   | 'greenhouse'
-  | 'ultramarine'
   | 'pastel'
   | 'pastel-dark';
 
@@ -410,13 +382,6 @@ export const DEMO_THEME_PRESETS: DemoThemePreset[] = [
     mode: 'light',
     swatch: '#308970',
     colors: GREENHOUSE_LIGHT_COLORS,
-  },
-  {
-    id: 'ultramarine',
-    label: 'Ultramarine',
-    mode: 'light',
-    swatch: '#1a1ae6',
-    colors: ULTRAMARINE_LIGHT_COLORS,
   },
   {
     id: 'pastel',

@@ -78,11 +78,13 @@ seams-auth-menu-surface {
   background: var(--w3a-colors-colorBackground);
   border: 1px solid var(--w3a-colors-borderPrimary);
   border-radius: var(--w3a-shape-card, 16px);
+  /* The iframe surface only extends 16px past the card (surface inset), so
+     the shadow's reach (offset + blur - |spread|) must stay under that or the
+     bottom corners clip at the iframe edge. */
   box-shadow: var(
     --w3a-seams-auth-menu-shadow,
-    0 1px 2px -1px rgba(15, 23, 42, 0.06),
-    0 6px 16px -10px rgba(15, 23, 42, 0.2),
-    0 18px 36px -22px rgba(15, 23, 42, 0.22)
+    0 1px 3px -2px rgba(15, 23, 42, 0.1),
+    0 8px 18px -16px rgba(15, 23, 42, 0.22)
   );
   padding: var(--w3a-spacing-lg);
   padding-top: var(--w3a-seams-auth-menu-padding-top);
