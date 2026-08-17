@@ -5,20 +5,20 @@ import type {
 } from './verifiedWalletSessionAuth';
 import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
-import {
-  thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
-} from '../../core/ThresholdService/validation';
+import { thresholdEd25519AuthorityScopeFromWalletAuthAuthority } from '../../core/ThresholdService/validation';
 import type { OpaqueOwnerWalletSessionBinding } from '../../authorization/service';
 import type {
   MpcWalletSigningQuotaId,
   WalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
+import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 
 declare const authorizationId: WalletSessionAuthorizationId;
 declare const walletSessionId: WalletSessionId;
 declare const quotaId: MpcWalletSigningQuotaId;
 declare const walletAuthAuthorityRef: WalletAuthAuthorityRef;
+declare const keyManifestDigestB64u: DigestB64u;
 declare const ecdsaAuthSource: Extract<
   OpaqueOwnerWalletSessionBinding,
   { readonly curve: 'ecdsa' }
@@ -43,6 +43,7 @@ const ecdsaAuth = {
   relayerKeyId: 'ecdsa-relayer',
   participantIds: [1, 2] as const,
   expiresAtMs: Date.now() + 60_000,
+  keyManifestDigestB64u,
   keyHandle: 'ederivation-key-1',
   walletAuthAuthorityRef,
   authSource: ecdsaAuthSource,
@@ -63,6 +64,7 @@ const ed25519Auth = {
   relayerKeyId: 'ed25519-relayer',
   participantIds: [1, 2] as const,
   expiresAtMs: Date.now() + 60_000,
+  keyManifestDigestB64u,
   ed25519RelayerKeyId: 'ed25519-relayer',
 } satisfies VerifiedEd25519WalletSessionAuth;
 
@@ -91,6 +93,7 @@ const invalidEcdsaWithEd25519OnlyField = {
   relayerKeyId: 'ecdsa-relayer',
   participantIds: [1, 2] as const,
   expiresAtMs: Date.now() + 60_000,
+  keyManifestDigestB64u,
   keyHandle: 'ederivation-key-1',
   walletAuthAuthorityRef,
   authSource: ecdsaAuthSource,
@@ -112,6 +115,7 @@ const invalidEcdsaWithSigningSlot = {
   relayerKeyId: 'ecdsa-relayer',
   participantIds: [1, 2] as const,
   expiresAtMs: Date.now() + 60_000,
+  keyManifestDigestB64u,
   keyHandle: 'ederivation-key-1',
   walletAuthAuthorityRef,
   authSource: ecdsaAuthSource,
@@ -135,6 +139,7 @@ const invalidEd25519WithEcdsaOnlyField = {
   participantIds: [1, 2] as const,
   expiresAtMs: Date.now() + 60_000,
   ed25519RelayerKeyId: 'ed25519-relayer',
+  keyManifestDigestB64u,
   // @ts-expect-error Ed25519 auth must not carry ECDSA key handles.
   keyHandle: 'ederivation-key-1',
 } satisfies VerifiedEd25519WalletSessionAuth;

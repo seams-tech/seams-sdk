@@ -166,8 +166,7 @@ type D1WalletRegistrationFinalizeSuccess = Extract<
   WalletRegistrationFinalizeResponse,
   { ok: true }
 >;
-type D1WalletRegistrationFinalizeReplaySuccess =
-  D1WalletRegistrationFinalizeSuccess;
+type D1WalletRegistrationFinalizeReplaySuccess = D1WalletRegistrationFinalizeSuccess;
 type D1WalletRegistrationFinalizeEcdsaPayload = {
   readonly walletKeys: WalletRegistrationEcdsaWalletKey[];
 };
@@ -521,6 +520,14 @@ export function parseD1WalletRegistrationFinalizeReplayResponse(
   if (authMethod.kind === 'email_otp' && rpId) {
     return null;
   }
+  // A stored success predating this field cannot name the manifest its session
+  // would be minted against, so it does not replay as a success.
+  let custodyKeyManifestDigestB64u;
+  try {
+    custodyKeyManifestDigestB64u = parseDigestB64u(record.custodyKeyManifestDigestB64u);
+  } catch {
+    return null;
+  }
   const ecdsa = parseD1WalletRegistrationFinalizeEcdsa(record.ecdsa);
   if (record.kind === 'evm_family_ecdsa') {
     if (!ecdsa) {
@@ -535,6 +542,7 @@ export function parseD1WalletRegistrationFinalizeReplayResponse(
         rpId,
         authority,
         authMethod,
+        custodyKeyManifestDigestB64u,
         ecdsa,
       };
     }
@@ -544,6 +552,7 @@ export function parseD1WalletRegistrationFinalizeReplayResponse(
       walletId,
       authority,
       authMethod,
+      custodyKeyManifestDigestB64u,
       ecdsa,
     } as const;
     return response;
@@ -592,6 +601,7 @@ export function parseD1WalletRegistrationFinalizeReplayResponse(
       authorityScope,
       accountProvisioning,
       resolvedAccount,
+      custodyKeyManifestDigestB64u,
       ed25519,
     };
   }
@@ -604,6 +614,7 @@ export function parseD1WalletRegistrationFinalizeReplayResponse(
     authorityScope,
     accountProvisioning,
     resolvedAccount,
+    custodyKeyManifestDigestB64u,
     ed25519,
   } as const;
   return response;

@@ -1,3 +1,4 @@
+import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type {
   WalletRegistrationNearProvisioningResponseV2,
   WalletRegistrationActivateResponseV2,
@@ -975,6 +976,7 @@ export type RouterApiMethodTypes = {
       readonly walletId?: string;
       readonly nearAccountId?: string;
       readonly nearEd25519SigningKeyId?: string;
+      readonly custodyKeyManifestDigestB64u?: DigestB64u;
       readonly walletBinding?: ResolvedEd25519WalletBinding;
       readonly rpId?: string;
       readonly signerSlot?: number;
@@ -1117,6 +1119,8 @@ export interface RouterApiWalletRegistrationService {
           readonly remainingUses: number;
         };
         readonly normalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
+        /** Recorded on the signer record when registration verified this key set. */
+        readonly keyManifestDigestB64u: DigestB64u;
       }
     | { readonly ok: false; readonly code: string; readonly message: string }
   >;

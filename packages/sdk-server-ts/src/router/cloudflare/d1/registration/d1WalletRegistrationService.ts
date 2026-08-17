@@ -59,6 +59,7 @@ import {
 } from '@shared/utils/routerAbNormalSigningIdentity';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
+import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
   ecdsaClientRootPublicKey33B64uFromString,
   type EcdsaClientRootPublicKey33B64u,
@@ -219,9 +220,7 @@ import {
   type WalletSignerRecord,
 } from '../../../../core/WalletStore';
 import type { D1WalletStore } from '../../../../core/d1WalletStore';
-import {
-  thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
-} from '../../../../core/ThresholdService/validation';
+import { thresholdEd25519AuthorityScopeFromWalletAuthAuthority } from '../../../../core/ThresholdService/validation';
 import {
   isEmailOtpWalletAuthAuthority,
   isPasskeyWalletAuthAuthority,
@@ -1289,12 +1288,10 @@ export class CloudflareD1WalletRegistrationService {
     readonly bootstrap: EcdsaDerivationServerBootstrapResponse;
     readonly runtimePolicyScope: RuntimePolicyScope;
     readonly proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
+    readonly keyManifestDigestB64u: DigestB64u;
   }): Promise<RegistrationEstablishedSession> {
     const reusableWalletSession = await this.issueRegistrationEstablishedGrant(input);
-    const base = this.registrationEstablishedSessionBase(
-      input.authority,
-      reusableWalletSession,
-    );
+    const base = this.registrationEstablishedSessionBase(input.authority, reusableWalletSession);
     const bootstrap = input.bootstrap;
     const thresholdSessionId = parseThresholdEcdsaSessionId(bootstrap.thresholdSessionId);
     if (!thresholdSessionId.ok) throw new Error(thresholdSessionId.error.message);
@@ -1326,6 +1323,7 @@ export class CloudflareD1WalletRegistrationService {
         expiresAtMs: base.expiresAtMs,
         participantIds: bootstrap.participantIds,
         runtimePolicyScope: input.runtimePolicyScope,
+        keyManifestDigestB64u: input.keyManifestDigestB64u,
         authorizationSessionId: registrationEstablishedEcdsaAuthorizationSessionId(
           base.authorizationId,
         ),
@@ -1374,14 +1372,12 @@ export class CloudflareD1WalletRegistrationService {
     readonly remainingUses: number;
     readonly publicResult: WalletRegistrationEd25519YaoPublicResult;
     readonly proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
+    readonly keyManifestDigestB64u: DigestB64u;
   }): Promise<RegistrationEstablishedSession> {
     const reusableWalletSession =
       (await this.readRegistrationEstablishedGrant(input)) ??
       (await this.issueRegistrationEstablishedGrant(input));
-    const base = this.registrationEstablishedSessionBase(
-      input.authority,
-      reusableWalletSession,
-    );
+    const base = this.registrationEstablishedSessionBase(input.authority, reusableWalletSession);
     const publicResult = input.publicResult;
     const thresholdSessionId = parseThresholdEd25519SessionId(publicResult.thresholdSessionId);
     if (!thresholdSessionId.ok) throw new Error(thresholdSessionId.error.message);
@@ -1408,6 +1404,7 @@ export class CloudflareD1WalletRegistrationService {
         participantIds: publicResult.participantIds,
         runtimePolicyScope: publicResult.runtimePolicyScope,
         routerAbNormalSigning: publicResult.routerAbNormalSigning,
+        keyManifestDigestB64u: input.keyManifestDigestB64u,
       },
     });
     if (!signed.ok) throw new Error(signed.message);
@@ -1665,6 +1662,8 @@ export class CloudflareD1WalletRegistrationService {
           readonly remainingUses: number;
         };
         readonly normalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
+        /** Recorded on the signer record when registration verified this key set. */
+        readonly keyManifestDigestB64u: DigestB64u;
       }
     | { readonly ok: false; readonly code: string; readonly message: string }
   > {
@@ -1712,6 +1711,7 @@ export class CloudflareD1WalletRegistrationService {
           remainingUses: input.session_policy.remaining_uses,
         },
         normalSigning,
+        keyManifestDigestB64u: parseDigestB64u(signer.custodyKeyManifestDigestB64u),
       };
     } catch (error: unknown) {
       return {
@@ -1834,33 +1834,30 @@ export class CloudflareD1WalletRegistrationService {
           };
       switch (request.kind) {
         case 'router_ab_ed25519_yao_budget_refresh_v1': {
-            const expiresAtMs = issuedAtMs + DEFAULT_WALLET_SESSION_TTL_MS;
-            const remainingUses = Math.min(
-              DEFAULT_WALLET_SESSION_REMAINING_USES,
-              policy.remainingUses,
-            );
-            const mintId = requireReusableWalletSessionMintId(
-              authorization.verifiedChallengeId,
-            );
-            const reusableWalletSession =
-              await this.authorizationService.issueReusableWalletSession({
-                tenantId: this.authorizationTenantId,
-                principalId: reusableWalletSessionPrincipalId(authority),
-                walletId: authority.walletId,
-                authority: await walletAuthAuthorityRef({ authority }),
-                mintId,
-                remainingUses,
-                issuedAtMs,
-                expiresAtMs,
-              });
-            sessionIdentity = {
-              kind: 'same_identity_budget_refresh_v1' as const,
-              authorizationId: reusableWalletSession.session.authorizationId,
-              walletSessionId: reusableWalletSession.quota.walletSessionId,
-              quotaId: reusableWalletSession.quota.quotaId,
-              remainingUses,
-            };
-            break;
+          const expiresAtMs = issuedAtMs + DEFAULT_WALLET_SESSION_TTL_MS;
+          const remainingUses = Math.min(
+            DEFAULT_WALLET_SESSION_REMAINING_USES,
+            policy.remainingUses,
+          );
+          const mintId = requireReusableWalletSessionMintId(authorization.verifiedChallengeId);
+          const reusableWalletSession = await this.authorizationService.issueReusableWalletSession({
+            tenantId: this.authorizationTenantId,
+            principalId: reusableWalletSessionPrincipalId(authority),
+            walletId: authority.walletId,
+            authority: await walletAuthAuthorityRef({ authority }),
+            mintId,
+            remainingUses,
+            issuedAtMs,
+            expiresAtMs,
+          });
+          sessionIdentity = {
+            kind: 'same_identity_budget_refresh_v1' as const,
+            authorizationId: reusableWalletSession.session.authorizationId,
+            walletSessionId: reusableWalletSession.quota.walletSessionId,
+            quotaId: reusableWalletSession.quota.quotaId,
+            remainingUses,
+          };
+          break;
         }
         case 'router_ab_ed25519_yao_same_wallet_session_curve_mint_v1':
           sessionIdentity = {
@@ -1868,7 +1865,7 @@ export class CloudflareD1WalletRegistrationService {
             ...request.existingWalletSession,
           };
           break;
-        }
+      }
       let sessionInput: RouterAbEd25519YaoWalletSessionMintInputV1;
       switch (sessionIdentity.kind) {
         case 'same_identity_budget_refresh_v1':
@@ -1885,6 +1882,7 @@ export class CloudflareD1WalletRegistrationService {
             remainingUses: sessionIdentity.remainingUses,
             participantIds: exactParticipantIds,
             runtimePolicyScope,
+            keyManifestDigestB64u: parseDigestB64u(signer.custodyKeyManifestDigestB64u),
             proof: authorization.proof,
           };
           break;
@@ -1903,6 +1901,7 @@ export class CloudflareD1WalletRegistrationService {
             remainingUses: sessionIdentity.remainingUses,
             participantIds: exactParticipantIds,
             runtimePolicyScope,
+            keyManifestDigestB64u: parseDigestB64u(signer.custodyKeyManifestDigestB64u),
             proof: authorization.proof,
           };
           break;
@@ -2073,6 +2072,7 @@ export class CloudflareD1WalletRegistrationService {
           quotaId: reusableWalletSession.quota.quotaId,
           participantIds,
           runtimePolicyScope: signer.runtimePolicyScope,
+          keyManifestDigestB64u: parseDigestB64u(signer.custodyKeyManifestDigestB64u),
           expiresAtMs,
           remainingUses: reusableRemainingUses,
           proof: request.proof,
@@ -2631,6 +2631,7 @@ export class CloudflareD1WalletRegistrationService {
         expiresAtMs: Date.now() + DEFAULT_WALLET_SESSION_TTL_MS,
         remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
         publicResult: finalized.ed25519,
+        keyManifestDigestB64u: finalized.custodyKeyManifestDigestB64u,
         proof,
       });
     return { ...finalized, registrationEstablishedSession };
@@ -3278,6 +3279,7 @@ export class CloudflareD1WalletRegistrationService {
       remainingUses: activated.ecdsa.bootstrap.remainingUses,
       bootstrap: activated.ecdsa.bootstrap,
       runtimePolicyScope,
+      keyManifestDigestB64u: commit.custodyKeyManifestDigestB64u,
       proof: await this.registrationOwnerProof({
         registrationCeremonyId: context.registrationCeremonyId,
         authMethod: commit.authMethod,
@@ -4162,6 +4164,7 @@ export class CloudflareD1WalletRegistrationService {
                 rpId: finalizePasskeyRpId(ceremonyAuthority),
                 authMethod,
                 ...custodyField,
+                custodyKeyManifestDigestB64u,
                 authorityScope,
                 accountProvisioning: finalizeNearEd25519.accountProvisioning,
                 resolvedAccount: resolvedNearAccount,
@@ -4174,6 +4177,7 @@ export class CloudflareD1WalletRegistrationService {
                 authority: walletAuthAuthority,
                 authMethod,
                 ...custodyField,
+                custodyKeyManifestDigestB64u,
                 authorityScope,
                 accountProvisioning: finalizeNearEd25519.accountProvisioning,
                 resolvedAccount: resolvedNearAccount,
@@ -4190,6 +4194,7 @@ export class CloudflareD1WalletRegistrationService {
                 rpId: finalizePasskeyRpId(ceremonyAuthority),
                 authMethod,
                 ...custodyField,
+                custodyKeyManifestDigestB64u,
                 ecdsa: { walletKeys: ecdsaWalletKeys },
               }
             : {
@@ -4199,6 +4204,7 @@ export class CloudflareD1WalletRegistrationService {
                 authority: walletAuthAuthority,
                 authMethod,
                 ...custodyField,
+                custodyKeyManifestDigestB64u,
                 ecdsa: { walletKeys: ecdsaWalletKeys },
               };
       }

@@ -46,7 +46,7 @@ import {
   thresholdEcdsaChainTargetFromValue,
   thresholdEcdsaChainTargetKey,
 } from './thresholdEcdsaChainTarget';
-import { D1WalletStore } from './d1WalletStore';
+import { D1WalletStore, parseWalletEd25519SignerRecord } from './d1WalletStore';
 import type { D1WalletStoreOptions } from './d1WalletStore';
 
 export {
@@ -172,6 +172,15 @@ export interface WalletStore {
   listEcdsaSignersForWallet(input: {
     walletId: WalletId;
   }): Promise<readonly WalletEcdsaSignerRecord[]>;
+  /**
+   * The wallet's Ed25519 signer for one key-creation slot. Callers that need
+   * the manifest a NEAR key set was registered against read it from here — it
+   * is recorded on the signer and nowhere else.
+   */
+  getEd25519SignerBySlot(input: {
+    walletId: WalletId;
+    signerSlot: number;
+  }): Promise<WalletEd25519SignerRecord | null>;
   putEcdsaPendingSessionActivation(
     record: WalletEcdsaPendingSessionActivationRecord,
   ): Promise<void>;
@@ -518,6 +527,19 @@ class InMemoryWalletStore implements WalletStore {
     return matches.length === 1 ? matches[0] : null;
   }
 
+  async getEd25519SignerBySlot(input: {
+    walletId: WalletId;
+    signerSlot: number;
+  }): Promise<WalletEd25519SignerRecord | null> {
+    const matches = [...this.signers.values()].filter(
+      (record): record is WalletEd25519SignerRecord =>
+        record.version === 'wallet_signer_ed25519_v1' &&
+        record.walletId === input.walletId &&
+        record.signerSlot === input.signerSlot,
+    );
+    return matches.length === 1 ? (matches[0] ?? null) : null;
+  }
+
   async getEcdsaSignerByPublicCapability(input: {
     walletId: WalletId;
     publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
@@ -689,6 +711,23 @@ class CloudflareDurableObjectWalletStore implements WalletStore {
     return parseWalletEcdsaSignerRecord(current?.value);
   }
 
+  async getEd25519SignerBySlot(input: {
+    walletId: WalletId;
+    signerSlot: number;
+  }): Promise<WalletEd25519SignerRecord | null> {
+    const response = await this.stub.fetch('https://threshold-store.invalid/', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        op: 'get',
+        key: this.key('signer', `${input.walletId}:ed25519-slot:${input.signerSlot}`),
+      }),
+    });
+    if (!response.ok) return null;
+    const current = (await response.json().catch(() => null)) as { value?: unknown } | null;
+    return parseWalletEd25519SignerRecord(current?.value);
+  }
+
   async getEcdsaSignerByPublicCapability(input: {
     walletId: WalletId;
     publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
@@ -841,6 +880,12 @@ class CloudflareDurableObjectWalletStore implements WalletStore {
       const current = await this.listEcdsaSignersForWallet({ walletId: record.walletId });
       const next = current.filter((signer) => signer.chainTargetKey !== record.chainTargetKey);
       await this.put(this.key('signer', `${record.walletId}:ecdsa-list`), [...next, record]);
+    }
+    if (record.version === 'wallet_signer_ed25519_v1') {
+      await this.put(
+        this.key('signer', `${record.walletId}:ed25519-slot:${record.signerSlot}`),
+        record,
+      );
     }
   }
 

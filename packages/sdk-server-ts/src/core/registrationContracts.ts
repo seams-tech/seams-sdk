@@ -337,14 +337,12 @@ export type WalletAddAuthMethodFinalizeResponse =
       message: string;
     };
 
-export type RevokeAuthMethodExistingAuth =
-  | {
-      kind: 'webauthn_assertion';
-      rpId: WebAuthnRpId;
-      credential: WebAuthnAuthenticationCredential;
-      expectedChallengeDigestB64u: string;
-    }
-;
+export type RevokeAuthMethodExistingAuth = {
+  kind: 'webauthn_assertion';
+  rpId: WebAuthnRpId;
+  credential: WebAuthnAuthenticationCredential;
+  expectedChallengeDigestB64u: string;
+};
 
 export type WalletRevokeAuthMethodRequest = {
   walletId: WalletId;
@@ -375,14 +373,12 @@ export type WalletRevokeAuthMethodResponse =
       message: string;
     };
 
-export type AddSignerAuth =
-  | {
-      kind: 'webauthn_assertion';
-      rpId: WebAuthnRpId;
-      credential: WebAuthnAuthenticationCredential;
-      expectedChallengeDigestB64u: string;
-    }
-;
+export type AddSignerAuth = {
+  kind: 'webauthn_assertion';
+  rpId: WebAuthnRpId;
+  credential: WebAuthnAuthenticationCredential;
+  expectedChallengeDigestB64u: string;
+};
 
 export type WalletAddSignerStartRequest = {
   walletId: WalletId;
@@ -402,20 +398,18 @@ export type WalletAddSignerStartResponse =
       ok: true;
       addSignerCeremonyId: string;
       intent: AddSignerIntentV1;
-    } & (
-      | ({ readonly authorizationKind: 'webauthn_assertion' } & (
-          | {
-              kind: 'near_ed25519';
-              ed25519: WalletAddSignerEd25519YaoStart;
-              ecdsa?: never;
-            }
-          | {
-              kind: 'evm_family_ecdsa';
-              ecdsa: WalletAddSignerEcdsaPreparePayload;
-              ed25519?: never;
-            }
-        ))
-    ))
+    } & ({ readonly authorizationKind: 'webauthn_assertion' } & (
+      | {
+          kind: 'near_ed25519';
+          ed25519: WalletAddSignerEd25519YaoStart;
+          ecdsa?: never;
+        }
+      | {
+          kind: 'evm_family_ecdsa';
+          ecdsa: WalletAddSignerEcdsaPreparePayload;
+          ed25519?: never;
+        }
+    )))
   | {
       ok: false;
       code: string;
@@ -862,6 +856,15 @@ type WalletRegistrationFinalizeResponseBase = {
    * the registration itself succeeded regardless.
    */
   walletCustody?: WalletCustodyRegistrationOutcome;
+  /**
+   * The key manifest this finalize verified against the custody commit and
+   * recorded on the signer records it wrote. Required on every success branch:
+   * a finalize that reaches success has already refused a request without a
+   * custody commit, so there is no success state that lacks one. Callers that
+   * mint a session from this response take the manifest from here rather than
+   * re-reading the client's commit payload.
+   */
+  custodyKeyManifestDigestB64u: DigestB64u;
 };
 
 type WalletRegistrationFinalizeResponseAuthMethod =

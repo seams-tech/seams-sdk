@@ -167,9 +167,7 @@ import {
   type GithubOAuthCodeFacadeResult,
   type GithubOAuthPublicConfig,
 } from './githubOAuth';
-import type {
-  ListIdentitiesResult,
-} from './identity';
+import type { ListIdentitiesResult } from './identity';
 import { isNodeEnvironment as isAuthServiceNodeEnvironment } from './wasm';
 import {
   createInitialAuthServiceRuntimeState,
@@ -1265,6 +1263,7 @@ export class AuthService {
       syncChallengeStore: this.stores.getWebAuthnSyncChallengeStore(),
       credentialBindingStore: this.stores.getWebAuthnCredentialBindingStore(),
       authenticatorStore: this.stores.getWebAuthnAuthenticatorStore(),
+      walletStore: this.stores.getWalletStore(),
       logger: this.logger,
     });
   }

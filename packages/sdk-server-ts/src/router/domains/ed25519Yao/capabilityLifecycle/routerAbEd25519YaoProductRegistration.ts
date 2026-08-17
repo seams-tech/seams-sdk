@@ -80,6 +80,7 @@ import {
   DEFAULT_WALLET_SESSION_REMAINING_USES,
   DEFAULT_WALLET_SESSION_TTL_MS,
 } from '@shared/threshold/sessionPolicy';
+import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 
 export type RouterAbEd25519YaoWalletSessionMintResultV1 =
   | { readonly ok: true; readonly session: WalletRegistrationEd25519YaoBootstrapSession }
@@ -97,6 +98,8 @@ type RouterAbEd25519YaoWalletSessionMintIdentityV1 = {
   readonly quotaId: MpcWalletSigningQuotaId;
   readonly participantIds: readonly [number, number];
   readonly runtimePolicyScope: RuntimePolicyScope;
+  /** Recorded on the signer record when registration verified this key set. */
+  readonly keyManifestDigestB64u: DigestB64u;
 };
 
 export type RouterAbEd25519YaoWalletSessionMintInputV1 =
@@ -526,6 +529,7 @@ export async function mintRouterAbEd25519YaoWalletSessionV1(input: {
       participantIds: [sessionInput.participantIds[0], sessionInput.participantIds[1]],
       runtimePolicyScope: sessionInput.runtimePolicyScope,
       routerAbNormalSigning,
+      keyManifestDigestB64u: sessionInput.keyManifestDigestB64u,
     },
     fallbackParticipantIds: [sessionInput.participantIds[0], sessionInput.participantIds[1]],
     invalidPayloadErrorMessage: 'invalid Ed25519 Yao Wallet Session payload',

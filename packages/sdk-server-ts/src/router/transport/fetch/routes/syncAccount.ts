@@ -69,6 +69,20 @@ export async function handleSyncAccount(ctx: FetchRouterApiContext): Promise<Res
     let responseBody: unknown = result;
     const yaoRuntime = ctx.opts.routerAbEd25519YaoProduct;
     if (result.ok && result.verified && result.thresholdEd25519) {
+      // The minted session names the manifest its key set was registered
+      // against. Verification resolves it from the signer record, so its
+      // absence here is a server inconsistency, not a client error.
+      const custodyKeyManifestDigestB64u = result.custodyKeyManifestDigestB64u;
+      if (!custodyKeyManifestDigestB64u) {
+        return json(
+          {
+            ok: false,
+            code: 'internal',
+            message: 'Sync verification did not resolve the wallet key manifest',
+          },
+          { status: 500 },
+        );
+      }
       if (!yaoRuntime) {
         return json(
           {
@@ -222,6 +236,7 @@ export async function handleSyncAccount(ctx: FetchRouterApiContext): Promise<Res
           quotaId: reusableWalletSession.quota.quotaId,
           participantIds: [firstParticipantId, secondParticipantId],
           runtimePolicyScope: capability.capability.runtimePolicyScope,
+          keyManifestDigestB64u: custodyKeyManifestDigestB64u,
           expiresAtMs,
           remainingUses: DEFAULT_WALLET_SESSION_REMAINING_USES,
         },
