@@ -767,14 +767,18 @@ test('Device 2 links, unlocks, refreshes, signs with warm and step-up auth, then
   const ownerPage = await ownerContext.newPage();
   const device2Page = await device2Context.newPage();
   const ownerAuthenticator = await addVirtualAuthenticator(ownerPage);
-  await addVirtualAuthenticator(device2Page);
+  const device2Authenticator = await addVirtualAuthenticator(device2Page);
   const ownerCredentialAddedEvents: unknown[] = [];
   const ownerCredentialAssertedEvents: unknown[] = [];
+  const device2CredentialAddedEvents: unknown[] = [];
   ownerAuthenticator.on('WebAuthn.credentialAdded', (event) => {
     ownerCredentialAddedEvents.push(event);
   });
   ownerAuthenticator.on('WebAuthn.credentialAsserted', (event) => {
     ownerCredentialAssertedEvents.push(event);
+  });
+  device2Authenticator.on('WebAuthn.credentialAdded', (event) => {
+    device2CredentialAddedEvents.push(event);
   });
   const ownerDiagnostics: string[] = [];
   const device2Diagnostics: string[] = [];
@@ -832,6 +836,7 @@ test('Device 2 links, unlocks, refreshes, signs with warm and step-up auth, then
         (error: unknown) => ({ error, kind: 'timeout' as const }),
       );
     const ownerCredentialAssertionsBeforeLinking = ownerCredentialAssertedEvents.length;
+    const ownerCredentialCreationsBeforeLinking = ownerCredentialAddedEvents.length;
     await openOwnerScanner(ownerPage, qrDataUrl);
     const claimResult = await claimed;
     if (claimResult.kind === 'timeout') {
@@ -869,7 +874,15 @@ test('Device 2 links, unlocks, refreshes, signs with warm and step-up auth, then
       .locator('.w3a-profile-button-morphable .w3a-user-account-button-trigger')
       .click();
     expect(ownerCredentialAddedEvents.length).toBeGreaterThan(0);
+    /* R103 zero-prompt handoff, asserted with real prompt counters: from the
+       moment Device 1 opened the scanner through Device 2 receiving its
+       active Wallet Session, Device 1's authenticator performed zero
+       assertions and zero creations — the scan itself was the approval —
+       while Device 2 created exactly one passkey, the credential it is
+       enrolling. */
     expect(ownerCredentialAssertedEvents.slice(ownerCredentialAssertionsBeforeLinking)).toHaveLength(0);
+    expect(ownerCredentialAddedEvents.slice(ownerCredentialCreationsBeforeLinking)).toHaveLength(0);
+    expect(device2CredentialAddedEvents).toHaveLength(1);
     await lockAndUnlockLinkedDevice(device2Page, device2Diagnostics);
     await refreshLinkedDeviceForSigning(device2Page);
     const linkedSigningRequests: Array<{ pathname: string; body: unknown }> = [];
