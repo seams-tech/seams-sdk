@@ -24,6 +24,7 @@ import {
   type WalletKeyId,
 } from '@shared/signing-lanes/ids';
 import {
+  hasWhitespaceOrControlCharacters,
   parseMpcMaterialActivationRef,
   parseWalletId,
   type DomainIdParseResult,
@@ -2293,7 +2294,7 @@ function parseIdentityString(raw: unknown, field: string): string {
     typeof raw !== 'string' ||
     raw.length === 0 ||
     raw.trim() !== raw ||
-    /[\s\u0000-\u001f\u007f]/.test(raw)
+    hasWhitespaceOrControlCharacters(raw)
   )
     throw new Error(`${field} is invalid`);
   return raw;

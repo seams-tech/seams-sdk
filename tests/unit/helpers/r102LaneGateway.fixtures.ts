@@ -46,14 +46,20 @@ import {
   buildOwnerLaneParticipantContinuityV1,
   parseWalletSignerId,
 } from '../../../packages/shared-ts/src/signing-lanes/ownerContinuity';
-import { parseDigestB64u } from '../../../packages/shared-ts/src/utils/canonicalPrimitives';
+import {
+  parseDigestB64u,
+  type DigestB64u,
+} from '../../../packages/shared-ts/src/utils/canonicalPrimitives';
 import { base64UrlEncode } from '../../../packages/shared-ts/src/utils/base64';
 import type {
   LaneEnrollmentId,
   WalletKeyId,
 } from '../../../packages/shared-ts/src/signing-lanes/ids';
 import type { LaneEffectRecordV1 } from '../../../packages/sdk-server-ts/src/core/signingLanes/LaneEffectJournalStore';
-import type { LaneEnrollmentAdmissionRecord } from '../../../packages/sdk-server-ts/src/core/signingLanes/LaneLifecycleStore';
+import type {
+  LaneEnrollmentAdmissionRecord,
+  LaneProtocolAdmissionRecord,
+} from '../../../packages/sdk-server-ts/src/core/signingLanes/LaneLifecycleStore';
 import {
   parseLaneSealedHolderRecordV1,
   type LaneSealedHolderRecordV1,
@@ -204,6 +210,69 @@ export async function buildR102EnrollmentAdmissionRecordFixture(
     },
     version: 1,
     commandDigestB64u: DIGEST_B64U,
+  };
+}
+
+export function buildR102PreparingEnrollmentAdmissionRecordFixture(
+  manifest: LaneEnrollmentManifestV1,
+  manifestDigestB64u: DigestB64u,
+  startedAtMs: number,
+): LaneEnrollmentAdmissionRecord {
+  return {
+    value: {
+      manifest,
+      lifecycle: {
+        state: 'preparing',
+        manifestDigestB64u,
+        startedAtMs,
+      },
+    },
+    version: 1,
+    commandDigestB64u: manifestDigestB64u,
+  };
+}
+
+export function buildR102ActiveProtocolAdmissionRecordFixture(
+  job: RotatableSigningLaneJobV1,
+  digestB64u: DigestB64u,
+  activatedAtMs: number,
+): LaneProtocolAdmissionRecord {
+  return {
+    version: 1,
+    commandDigestB64u: digestB64u,
+    value: {
+      job,
+      lifecycle: {
+        state: 'active',
+        transcriptHashB64u: digestB64u,
+        protocolCommitReceiptDigestB64u: digestB64u,
+        holderDeliveryReceiptDigestB64u: digestB64u,
+        serverActivationReceiptDigestB64u: digestB64u,
+        aggregateActivationReceiptDigestB64u: digestB64u,
+        activatedAtMs,
+      },
+    },
+  };
+}
+
+export function buildR102CommittedAwaitingHolderDeliveryProtocolAdmissionRecordFixture(
+  job: RotatableSigningLaneJobV1,
+  receipt: LaneProtocolCommitReceiptV1,
+  receiptDigestB64u: DigestB64u,
+): LaneProtocolAdmissionRecord {
+  return {
+    value: {
+      job,
+      lifecycle: {
+        state: 'committed_awaiting_holder_delivery',
+        startedAtMs: 1_000,
+        committedAtMs: 2_000,
+        transcriptHashB64u: receipt.transcriptHashB64u,
+        protocolCommitReceiptDigestB64u: receiptDigestB64u,
+      },
+    },
+    version: 2,
+    commandDigestB64u: receiptDigestB64u,
   };
 }
 

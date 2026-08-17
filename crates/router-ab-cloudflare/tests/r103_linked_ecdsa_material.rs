@@ -347,7 +347,7 @@ fn linked_ecdsa_prepared_bundle_binds_request_and_material() {
         "project:r103",
         "test",
         scope.wallet_id.clone(),
-        CloudflareRouterAuthContextV1::authenticated_session("subject:r103", "wallet-session:r103")
+        CloudflareRouterAuthContextV1::owner_wallet_session("subject:r103", "wallet-session:r103")
             .expect("auth"),
         public_digest(10),
         prepare_request.request_digest().expect("request digest"),

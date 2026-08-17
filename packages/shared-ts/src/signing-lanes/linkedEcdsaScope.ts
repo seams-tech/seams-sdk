@@ -17,6 +17,7 @@ import {
   type WalletKeyId,
 } from './ids';
 import {
+  hasWhitespaceOrControlCharacters,
   parseMpcMaterialActivationId,
   parseMpcMaterialActivationRef,
   parseWalletId,
@@ -311,7 +312,7 @@ function parseEvmAddress(value: unknown, label: string): string {
 }
 
 function requireVisibleText(value: string, label: string): void {
-  if (!value || [...value].some((character) => /\s|[\u0000-\u001f\u007f]/u.test(character))) {
+  if (!value || hasWhitespaceOrControlCharacters(value)) {
     throw new Error(`${label} must contain visible non-whitespace text`);
   }
 }

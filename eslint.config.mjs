@@ -28,6 +28,7 @@ export default [
       'crates/**/_build/**',
       'tools/**/target/**',
       'wasm/**/pkg/**',
+      'crates/router-ab-ed25519-yao-client/pkg/**',
       'wasm/**/target/**',
       'apps/seams-site/public/**',
     ],

@@ -2,6 +2,7 @@ import type { RecoveryCodeLifecycleState } from './recoveryEnvelopes';
 import { base64UrlEncode } from '../utils/base64';
 import { alphabetizeStringify, sha256BytesUtf8 } from '../utils/digests';
 import { parseCorrelationId, type CorrelationId } from '../utils/canonicalPrimitives';
+import { hasWhitespaceOrControlCharacters } from '../utils/domainIds';
 
 /**
  * Recovery-code reservation lifecycle.
@@ -64,7 +65,7 @@ export function parseRecoveryCodeReservationId(value: unknown): RecoveryCodeRese
     value.length === 0 ||
     value.length > 512 ||
     value.trim() !== value ||
-    /[\s\u0000-\u001f\u007f]/.test(value)
+    hasWhitespaceOrControlCharacters(value)
   ) {
     throw new Error('recovery code reservation id must be a compact opaque identifier');
   }
