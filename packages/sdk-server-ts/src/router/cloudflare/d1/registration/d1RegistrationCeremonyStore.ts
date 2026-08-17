@@ -1,3 +1,4 @@
+import type { D1PreparedStatementLike } from '../../../../storage/tenantRoute';
 import { isPlainObject, toOptionalTrimmedString } from '@shared/utils/validation';
 import {
   StoredAddAuthMethodIntent,
@@ -5,6 +6,7 @@ import {
   StoredWalletAddAuthMethodCeremony,
   StoredWalletAddSignerCeremony,
   StoredWalletAddSignerFinalizeReplay,
+  StoredWalletAddAuthMethodFinalizeReplay,
   StoredWalletRegistrationCeremony,
   type StoredWalletRegistrationEvmFamilyEcdsaActivationClaimedBranch,
   type StoredWalletRegistrationEvmFamilyEcdsaResponseClaimedBranch,
@@ -18,6 +20,7 @@ import {
   parseD1StoredWalletAddAuthMethodCeremony,
   parseD1StoredWalletAddSignerCeremony,
   parseD1StoredWalletAddSignerFinalizeReplay,
+  parseD1StoredWalletAddAuthMethodFinalizeReplay,
   parseD1StoredWalletRegistrationCeremony,
 } from './d1RegistrationCeremonyRecords';
 import {
@@ -28,6 +31,7 @@ import {
 type RegistrationCeremonyIntentScope =
   | 'ceremony'
   | 'add-signer-finalize-replay'
+  | 'add-auth-method-finalize-replay'
   | 'add-signer-finalize-claim'
   | 'add-auth-method-intent'
   | 'add-signer-intent'
@@ -37,6 +41,7 @@ type RegistrationCeremonyIntentScope =
 type RegistrationIntentPutInput =
   | StoredWalletRegistrationCeremony
   | StoredWalletAddSignerFinalizeReplay
+  | StoredWalletAddAuthMethodFinalizeReplay
   | StoredAddSignerIntent
   | StoredWalletAddSignerCeremony
   | StoredAddAuthMethodIntent
@@ -146,9 +151,7 @@ export class CloudflareD1RegistrationCeremonyIntentStore {
     readonly expected: D1WalletRegistrationEcdsaCeremonyClaimV1;
     readonly next: StoredWalletRegistrationCeremony;
   }): Promise<void> {
-    if (
-      input.expected.ceremony.registrationCeremonyId !== input.next.registrationCeremonyId
-    ) {
+    if (input.expected.ceremony.registrationCeremonyId !== input.next.registrationCeremonyId) {
       throw new Error('ECDSA registration claim commit cannot change its ceremony identity');
     }
     await this.storage.updateExpectedVersion({
@@ -217,6 +220,37 @@ export class CloudflareD1RegistrationCeremonyIntentStore {
         expiresAtMs: replay.expiresAtMs,
       },
     ]);
+  }
+
+  /**
+   * The statements that record a completed add-auth-method finalize.
+   *
+   * Returned rather than executed so the caller can put them in the same batch
+   * as the credential, custody envelope, auth method, and owner binding — a
+   * stored response must never outlive, or precede, the work it describes.
+   */
+  async buildAddAuthMethodFinalizeReplayStatements(
+    replay: StoredWalletAddAuthMethodFinalizeReplay,
+  ): Promise<readonly D1PreparedStatementLike[]> {
+    return await this.storage.buildPutManyExactStatements([
+      {
+        scope: 'add-auth-method-finalize-replay',
+        id: replay.addAuthMethodCeremonyId,
+        value: encodeRecord(replay),
+        expiresAtMs: replay.expiresAtMs,
+      },
+    ]);
+  }
+
+  async getAddAuthMethodFinalizeReplay(
+    addAuthMethodCeremonyId: string,
+  ): Promise<StoredWalletAddAuthMethodFinalizeReplay | null> {
+    const ceremonyId = toOptionalTrimmedString(addAuthMethodCeremonyId);
+    if (!ceremonyId) return null;
+    const value = await this.get('add-auth-method-finalize-replay', ceremonyId);
+    const replay = parseD1StoredWalletAddAuthMethodFinalizeReplay(value);
+    if (!replay || replay.expiresAtMs <= Date.now()) return null;
+    return replay;
   }
 
   async getAddSignerFinalizeReplay(input: {
@@ -392,9 +426,7 @@ export class CloudflareD1RegistrationCeremonyIntentStore {
 
   private async claimEcdsaBranch(input: {
     readonly registrationCeremonyId: string;
-    readonly expectedKind:
-      | 'evm_family_ecdsa_prepared'
-      | 'evm_family_ecdsa_pending_activation';
+    readonly expectedKind: 'evm_family_ecdsa_prepared' | 'evm_family_ecdsa_pending_activation';
     readonly binding:
       | {
           readonly kind: 'strict_registration';

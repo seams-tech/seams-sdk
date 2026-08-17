@@ -11,6 +11,7 @@ import type {
   RegistrationIntentV1,
   WalletAddSignerStartResponse,
   WalletAddSignerFinalizeRequest,
+  WalletAddAuthMethodFinalizeResponse,
   WalletAddSignerFinalizeResponse,
   WalletAddAuthMethodRegistrationOptions,
   WalletRegistrationStartResponse,
@@ -684,12 +685,11 @@ export type StoredWalletAddSignerCeremony = {
   signingRootId: string;
   signingRootVersion: string;
   expiresAtMs: number;
-  auth:
-    | {
-        kind: 'webauthn_assertion';
-        rpId: string;
-        credentialIdB64u: string;
-      };
+  auth: {
+    kind: 'webauthn_assertion';
+    rpId: string;
+    credentialIdB64u: string;
+  };
   signerState: StoredWalletAddSignerSignerState;
 };
 
@@ -699,6 +699,29 @@ export type StoredWalletAddSignerFinalizeReplay = {
   idempotencyKey: string;
   request: StoredWalletAddSignerFinalizeRequest;
   response: Extract<WalletAddSignerFinalizeResponse, { ok: true }>;
+  createdAtMs: number;
+  expiresAtMs: number;
+};
+
+/**
+ * Refactor 103 Phase 8: an add-auth-method finalize that already succeeded.
+ *
+ * Finalize consumes its ceremony, so a client that lost the response has no way
+ * to ask again — the ceremony is gone and the credential is already registered.
+ * This record is what makes the retry answerable, and it is written in the same
+ * batch as the credential, custody envelope, auth method, and owner binding so
+ * a stored response always describes work that actually landed.
+ *
+ * `requestDigestB64u` covers the ceremony, the normalized request, the
+ * authorization branch, and any linked admission. One comparison therefore
+ * distinguishes an exact retry from a substituted credential, envelope, wallet,
+ * device, enrollment, or key manifest.
+ */
+export type StoredWalletAddAuthMethodFinalizeReplay = {
+  kind: 'wallet_add_auth_method_finalize_replay_v1';
+  addAuthMethodCeremonyId: string;
+  requestDigestB64u: string;
+  response: Extract<WalletAddAuthMethodFinalizeResponse, { ok: true }>;
   createdAtMs: number;
   expiresAtMs: number;
 };
