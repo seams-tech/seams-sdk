@@ -9,6 +9,8 @@ import {
   DEFAULT_EMAIL_OTP_RATE_LIMIT_WINDOW_MS,
   DEFAULT_EMAIL_OTP_SENSITIVE_ATTEMPT_RATE_LIMIT_MAX,
   DEFAULT_EMAIL_OTP_VERIFY_RATE_LIMIT_MAX,
+  DEFAULT_CONSOLE_SESSION_AUDIENCE,
+  DEFAULT_CONSOLE_SESSION_COOKIE_NAME,
   DEFAULT_RELAY_SESSION_AUDIENCE,
   DEFAULT_SESSION_COOKIE_NAME,
   GATEWAY_WORKER_COMPATIBILITY_DATE,
@@ -95,13 +97,7 @@ function buildConfig(
   if (resources.consoleD1.id === resources.signerD1.id) {
     throw new Error('resources.consoleD1.id and resources.signerD1.id must be different');
   }
-  const vars = buildWorkerVars(
-    deployment,
-    siteOrigin,
-    walletOrigin,
-    emailOtpDelivery,
-    docsOrigin,
-  );
+  const vars = buildWorkerVars(deployment, siteOrigin, walletOrigin, emailOtpDelivery, docsOrigin);
   return {
     name: resources.workerName,
     main: path.join(packageRoot, 'src/router/cloudflare/d1RouterApiWorker.ts'),
@@ -183,6 +179,9 @@ function buildWorkerVars(deployment, siteOrigin, walletOrigin, emailOtpDelivery,
     RELAY_SESSION_AUDIENCE: DEFAULT_RELAY_SESSION_AUDIENCE,
     RELAY_CORS_ORIGINS: deployment.origins.allowedCors.join(','),
     CONSOLE_BASE_URL: deployment.origins.allowedCors[0],
+    CONSOLE_SESSION_COOKIE_NAME: DEFAULT_CONSOLE_SESSION_COOKIE_NAME,
+    CONSOLE_SESSION_ISSUER: `${deployment.origins.gateway}/console`,
+    CONSOLE_SESSION_AUDIENCE: DEFAULT_CONSOLE_SESSION_AUDIENCE,
     SESSION_COOKIE_NAME: DEFAULT_SESSION_COOKIE_NAME,
     SIGNING_SESSION_SEAL_CURRENT_KEY_VERSION: deployment.signingSessionSeal.currentKeyVersion,
     SIGNING_SESSION_SEAL_ACCEPTED_WARM_KEY_VERSIONS:

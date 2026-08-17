@@ -49,8 +49,7 @@ const expectedMainByProfile = Object.freeze({
 const requiredSecretVarsByProfile = Object.freeze({
   console: Object.freeze(['CONSOLE_SESSION_HMAC_SECRET', 'STRIPE_API_SK']),
   gateway: Object.freeze([
-    /* Sessions are Ed25519-signed with the ceremony key; the legacy
-       RELAY_SESSION_HMAC_SECRET is no longer read by the gateway worker. */
+    'CONSOLE_SESSION_HMAC_SECRET',
     'ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK',
     'ACCOUNT_ID_DERIVATION_SECRET',
     'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
@@ -82,6 +81,9 @@ const requiredVarsByProfile = Object.freeze({
     'LINKED_DEVICE_WEBAUTHN_ORIGIN',
     'SPONSORED_EXECUTION_REAL_PRICING_JSON',
     'CONSOLE_BASE_URL',
+    'CONSOLE_SESSION_COOKIE_NAME',
+    'CONSOLE_SESSION_ISSUER',
+    'CONSOLE_SESSION_AUDIENCE',
   ]),
 });
 const forbiddenPostgresTokens = Object.freeze([
