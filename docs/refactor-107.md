@@ -2,12 +2,12 @@
 
 Date created: August 12, 2026
 
-Last reconciled: August 16, 2026 against the landed implementation
-(`7dabc3769`, `a68098fd6`, `5666434c7` and follow-ups)
+Last reconciled: August 17, 2026 against the landed implementation
+(`7dabc3769`, `a68098fd6`, `5666434c7`, `76f28275d`, `cb28cd463`,
+`15c0298ef`, `b68eed371` and follow-ups)
 
-Status: Phases 0–4 landed. Phase 5 is open: two stale wallet app-session test
-files remain, and the final gate (integrated E2E, migration/readiness check,
-`pnpm check`) has not been recorded as run.
+Status: Complete. Phases 0–5 landed. The stale wallet app-session tests were
+reconciled in `76f28275d`, and the final repository gate passes.
 
 ## Reconciliation Verdict
 
@@ -669,8 +669,13 @@ wallet authority.
       −2,166.
 - [x] Confirm the final architecture has fewer authorization/session concepts,
       route branches, token parsers, and persistence paths than the baseline.
-- [ ] Run `pnpm check` once.
-- [ ] Commit, then reconcile this document with the landed implementation.
+- [x] Run `pnpm check` once. The August 17 closure run passed lint, TypeScript,
+      documentation, Rust formatting and clippy, signing architecture, six Rust
+      signer-parity vectors, and three browser/WASM replay contracts. Closure
+      also restored the workspace lint gate (`cb28cd463`), made router type
+      checks self-contained (`15c0298ef`), and corrected the embedded signer
+      parity lock (`b68eed371`).
+- [x] Commit, then reconcile this document with the landed implementation.
 
 ## Required Type Guarantees
 
