@@ -338,6 +338,15 @@ export async function resolveD1AddAuthMethodExistingAuth(input: {
       message: 'Email OTP add-auth authorization requires the wallet auth service boundary',
     };
   }
+  if (input.auth.kind === 'wallet_session') {
+    /* R103: wallet-session authorization is resolved against active wallet
+       methods in the wallet auth service boundary, not here. */
+    return {
+      ok: false,
+      code: 'unsupported',
+      message: 'Wallet Session add-auth authorization requires the wallet auth service boundary',
+    };
+  }
 
   const authorization = await resolveD1WebAuthnExistingWalletAuth({
     credential: input.auth.credential,

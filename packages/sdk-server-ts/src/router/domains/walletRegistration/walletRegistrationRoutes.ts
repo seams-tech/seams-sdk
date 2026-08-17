@@ -967,6 +967,26 @@ async function parseWalletAddAuthMethodStartBody(
       credential: credential.value,
       expectedChallengeDigestB64u,
     };
+  } else if (auth.kind === 'wallet_session') {
+    /* R103 zero-prompt handoff: the body names only the auth kind. Every
+       identity fact is resolved from the verified bearer admission in the
+       route handler, which replaces this placeholder before the request is
+       used — a body that tried to supply session or credential facts here is
+       rejected outright. */
+    if (Object.keys(auth).length !== 1) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'wallet_session auth carries no body facts',
+      };
+    }
+    existingAuth = {
+      kind: 'wallet_session',
+      walletSessionId: '',
+      authorizationId: '',
+      rpId: '' as WebAuthnRpId,
+      credentialIdB64u: '',
+    };
   } else {
     return {
       ok: false,
@@ -2324,17 +2344,18 @@ export async function handleRouterApiWalletAddAuthMethodStart(
   }
   const parsedBody = await parseWalletAddAuthMethodStartBody(input.body, walletId);
   if (!parsedBody.ok) return routeError(400, parsedBody.code, parsedBody.message);
-  if (parsedBody.value.auth.kind === 'webauthn_assertion') {
+  let request = parsedBody.value;
+  if (request.auth.kind === 'webauthn_assertion') {
     const origin = requireWebAuthnExpectedOrigin(input);
     if (!origin.ok) return origin.response;
-    const parsedRpId = requireWebAuthnRpId(parsedBody.value.auth.rpId);
+    const parsedRpId = requireWebAuthnRpId(request.auth.rpId);
     if (!parsedRpId.ok) return parsedRpId.response;
     const verified = await input.services.walletRegistration.verifyWebAuthnAuthenticationLite({
       userId: walletId,
       rpId: parsedRpId.rpId,
-      expectedChallenge: parsedBody.value.auth.expectedChallengeDigestB64u,
+      expectedChallenge: request.auth.expectedChallengeDigestB64u,
       expected_origin: origin.expectedOrigin,
-      webauthn_authentication: parsedBody.value.auth.credential,
+      webauthn_authentication: request.auth.credential,
     });
     if (!verified.success || !verified.verified) {
       return routeError(
@@ -2343,10 +2364,46 @@ export async function handleRouterApiWalletAddAuthMethodStart(
         verified.message || 'Invalid add-auth-method WebAuthn authorization',
       );
     }
+  } else if (request.auth.kind === 'wallet_session') {
+    /* R103 zero-prompt handoff: owner authority for the linked-device
+       ceremony start is the active owner Wallet Session presented as the
+       bearer credential. The session's own minting authority names the
+       passkey whose custody envelope the ceremony binds — the body supplied
+       none of these facts. */
+    const admission = await resolveRouteOpaqueOwnerWalletSession(input, 'ed25519');
+    if (!admission || admission.curve !== 'ed25519') {
+      return routeError(
+        401,
+        'unauthorized',
+        'Add-auth-method requires an active owner Wallet Session',
+      );
+    }
+    const binding = admission.binding;
+    if (String(binding.walletId) !== walletId) {
+      return routeError(401, 'unauthorized', 'Owner Wallet Session names another wallet');
+    }
+    const authority = binding.authority;
+    if (authority.factor?.kind !== 'passkey' || authority.verifier?.kind !== 'webauthn') {
+      return routeError(
+        401,
+        'unauthorized',
+        'Add-auth-method requires a passkey-owned owner Wallet Session',
+      );
+    }
+    request = {
+      ...request,
+      auth: {
+        kind: 'wallet_session',
+        walletSessionId: String(binding.walletSessionId),
+        authorizationId: String(binding.authorizationId),
+        rpId: authority.verifier.rpId,
+        credentialIdB64u: String(authority.factor.credentialIdB64u),
+      },
+    };
   }
   const result = await input.services.walletRegistration.startWalletAddAuthMethod(
     {
-      ...parsedBody.value,
+      ...request,
       subject: { kind: 'wallet_auth_method_management', walletId: walletIdFromString(walletId) },
     },
     { userAgent: registrationUserAgentFromHeaders(input.headers) },
