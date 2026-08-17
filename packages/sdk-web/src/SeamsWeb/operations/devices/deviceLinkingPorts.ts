@@ -27,7 +27,9 @@ import type {
   LinkedDeviceWalletSessionDeliveryV1,
   LinkDevicePublicKeyB64u,
   QrLinkedDeviceSessionPayloadV4,
+  LinkedDeviceOwnerFinalizeRequestV1,
 } from '@shared/device-linking';
+import type { WalletAddAuthMethodFinalizeResponse } from '@/core/rpcClients/relayer/walletRegistration';
 import type { SealedLaneHolderMaterialV1 } from '@shared/signing-lanes/rotation';
 import type {
   LinkedDeviceCustodyTransferPackageV1,
@@ -94,6 +96,10 @@ export type DeviceLinkingAuthenticatedTransportPortV1 = {
   registerTargetCredentialV1(input: {
     readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
   }): Promise<void>;
+  finalizeOwnerAuthMethodV1(input: {
+    readonly linkSessionId: LinkDeviceSessionId;
+    readonly request: LinkedDeviceOwnerFinalizeRequestV1;
+  }): Promise<WalletAddAuthMethodFinalizeResponse>;
   /**
    * Refactor 103 Phase 8. Device 2 publishes where the wallet custody seed
    * should be sealed, then collects the sealed package once Device 1 has
