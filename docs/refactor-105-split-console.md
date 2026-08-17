@@ -108,6 +108,45 @@ The prerequisite is satisfied when:
 Documentation decisions may land earlier. Detailed inventories, file movement,
 package creation, and import renaming wait for this gate.
 
+### Prepared Kickoff Runway
+
+The pre-gate architecture review is complete. Refactor 107 is reconciled and its
+final repository gate passed. Refactor 130A and the clean-slate D1 consolidation
+are part of the starting tree. The Console and signer databases each have one
+canonical `0001` baseline; the current baselines contain 49 Console tables and
+52 signer tables.
+
+Refactor 105 remains a no-go while Refactor 103 is changing linked-owner Wallet
+Sessions, custody handles, canonical owner lifecycle, revocation, or browser
+Wallet state. Refactor 103B also remains open until its metadata projection is
+proven through that canonical lifecycle.
+
+Refactors 100-102 still contain open validation or follow-up items in their
+plans. Reconcile those items at the gate: complete anything that can still
+change an R105-owned path, and explicitly defer unrelated follow-ups. Do not
+carry an ambiguous "active" prerequisite into the ownership freeze.
+
+Immediately after those gates close:
+
+1. freeze the stabilized route, service, table, migration, job, binding, UI, and
+   test ownership inventory;
+2. add the narrow Console-core Wallet-import boundary check with a temporary,
+   explicit allowlist;
+3. create `wallet-console-shared-ts` and move Wallet-specific scopes, policies,
+   events, meters, sponsorship contracts, and webhook categories out of
+   `console-shared-ts`;
+4. add Console-owned D1, logger, HTTP, random-ID, encoding, normalization, and
+   Console-session boundary modules;
+5. replace the broad optional Console router service bag with exact core and
+   Wallet Console compositions;
+6. create `wallet-console-server-ts`, move the clearly Wallet-owned services,
+   and remove the Wallet server dependency from Console core;
+7. run the packed-artifact boundary proof before relocating authentication,
+   deployments, dashboard code, schemas, or public package names.
+
+The public Wallet package rename remains one atomic late phase. Do not introduce
+forwarding packages, aliases, or dual import paths while preparing it.
+
 Refactors 113 and 114 are proposed Wallet follow-ups. Refactor 130B is deferred.
 They do not block Refactor 105 unless they enter implementation before this gate
 passes; if that happens, finish their changes to shared Wallet paths before the
@@ -568,10 +607,11 @@ the product that owns their persistence and request boundary.
 
 The existing `seams-console` and `seams-signer` database split remains.
 
-The August 17 schema audit replayed every current migration into fresh SQLite
-databases. The effective result contains 49 Console tables and 51 Wallet runtime
-tables. The security-critical split is sound: `seams-console` contains no wallet
-custody seeds, signer shares, WebAuthn credentials, opaque Wallet Sessions, or
+The August 17 clean-slate cutover replaced the prior migration ledgers with one
+canonical baseline per database. The current result contains 49 Console tables
+and 52 Wallet runtime tables. The security-critical split is sound:
+`seams-console` contains no wallet custody seeds, signer shares, WebAuthn
+credentials, opaque Wallet Sessions, or
 signing-protocol state. The remaining work is product ownership inside
 `seams-console` and removal of the hosted Gateway's direct `CONSOLE_DB` binding.
 
@@ -613,7 +653,11 @@ Rules:
   service binding; the Console never receives signer custody storage;
 - Console core billing consumes typed usage events and has no wallet meter logic;
 - wallet event producers own idempotency keys and wallet usage dimensions;
-- current applied D1 migration history remains append-only;
+- the canonical `0001` files describe the only supported fresh database state;
+- Refactor 105 may replace the composed Console baseline with explicit fresh
+  Console-core and composed Wallet Console entrypoints in one atomic cutover;
+- do not add legacy upgrade paths for the databases deleted by the clean-slate
+  reset;
 - add a checked-in per-table ownership inventory for the existing Console
   schema, including tables whose columns or constraints mix core and Wallet
   vocabulary;
@@ -621,8 +665,8 @@ Rules:
   MPC Admin;
 - create fresh-schema migration tests for Console core alone and for the composed
   Wallet Console before repository extraction;
-- keep any upgrade-only compatibility at the migration boundary and delete it
-  after the composed production database has crossed the cutover.
+- recreate local and deployed migration ledgers when the R105 schema ownership
+  cutover lands.
 
 Keep Console core and Wallet Console tables in one private `seams-console` D1 by
 default. This preserves atomic billing, reservation, and control-plane updates.
@@ -676,9 +720,9 @@ Move platform routes according to Refactor 99B before completing the extraction:
       matrix. Mark `api_keys`, audit/evidence, prepaid reservations, billing
       usage enums, observability, and webhook categories as mixed until their
       product vocabulary is assigned.
-- [ ] Record all 51 effective `seams-signer` tables as Wallet runtime ownership
-      and verify that the forward R107 and R130A migrations leave no retired App
-      Session, authorization-session, or legacy email-recovery tables effective.
+- [ ] Record all 52 effective `seams-signer` tables as Wallet runtime ownership
+      and verify that the canonical baseline contains no retired App Session,
+      authorization-session, or legacy email-recovery tables.
 - [ ] Record the current route surfaces for Gateway, Console, and Admin.
 - [ ] Record imports from `console-server-ts` to
       `@seams/sdk-server/cloud-host` by domain and symbol.
@@ -857,20 +901,18 @@ Exit:
       tables.
 - [ ] Move new Wallet Console migrations and scheduled jobs under the Wallet
       Console package.
-- [ ] Keep historical applied migration files immutable through the production
-      cutover.
-- [ ] Treat `0001_console_d1_initial.sql` as the immutable historical composed
-      baseline; do not use it as the fresh Console-core schema.
+- [ ] Treat `0001_console_d1_initial.sql` as the current composed source
+      baseline. Replace it atomically when the explicit fresh Console-core and
+      composed Wallet Console entrypoints are ready.
 - [ ] Add an explicit fresh Console-core schema entrypoint containing only the
       core-owned tables and product-neutral forms of retained mixed tables.
 - [ ] Add an explicit composed Wallet Console schema entrypoint containing
       Console core plus Wallet Console tables and Wallet-owned catalogs.
-- [ ] Use forward migrations to remove Wallet-only constraints from retained
-      Console-core tables and validate Wallet values at the Wallet Console
-      request or storage boundary.
-- [ ] Validate fresh Console-core creation, fresh composed creation, and upgrade
-      from the current composed production schema. Keep these as direct migration
-      entrypoints without adding a schema generator or migration framework.
+- [ ] Remove Wallet-only constraints from retained Console-core tables and
+      validate Wallet values at the Wallet Console request or storage boundary.
+- [ ] Validate fresh Console-core and fresh composed creation. Keep these as
+      direct migration entrypoints without adding a schema generator, migration
+      framework, or legacy upgrade path.
 - [ ] Make migration orchestration an explicit responsibility of the private
       deployed composition root.
 - [ ] Remove signer migration and signer smoke orchestration from Console-core
@@ -884,8 +926,7 @@ Exit:
 - a new Console-core database contains no Wallet tables;
 - a composed Wallet Console database contains core plus Wallet product tables;
 - both fresh schemas match the checked-in ownership inventory exactly;
-- the historical composed baseline remains immutable and upgrades through
-  forward migrations;
+- the canonical baselines create only their declared fresh schemas;
 - signer migrations remain owned and packaged by the Wallet server package;
 - the private deployment applies signer migrations without Wallet source access;
 - no migration path silently creates tables owned by another product.
@@ -991,7 +1032,8 @@ Add targeted behavioral tests for:
 - custody-sensitive commands using only the internal wallet control port;
 - Console-core fresh schema containing exactly the core-owned tables and composed
   Wallet Console fresh schema containing exactly core plus Wallet-owned tables;
-- migration from the current composed Console database;
+- fresh creation from the canonical Console-core and composed Wallet Console
+  baselines;
 - effective Wallet signer schema ownership, including absence of the retired App
   Session, authorization-session, and legacy email-recovery tables;
 - package deletion builds and packed-artifact installs;
@@ -1022,9 +1064,8 @@ the request boundary for one bounded cutover only.
 
 ### Migration ownership drift
 
-Preserve applied migration history and classify it explicitly. Require one owner
-for each new migration. Prove both fresh schema variants before repository
-movement.
+Require one owner for each baseline section and each later migration. Prove both
+fresh schema variants before repository movement.
 
 ### Cross-plane D1 binding leakage
 
@@ -1070,8 +1111,8 @@ builds with workspace links and source aliases disabled are the exit gate.
   has an explicit Console-core, Wallet Console, MPC Admin, or composition owner.
 - a fresh Console-core schema contains only core-owned tables, while a fresh
   composed schema contains exactly Console core plus Wallet Console tables.
-- the historical composed migration baseline remains immutable and the current
-  production schema upgrades through forward migrations.
+- the canonical Console-core and composed Wallet Console baselines create their
+  declared schemas from an empty database.
 - `apps/seams-site` contains no customer dashboard or Console dependency.
 - Console core, Wallet SDK, and Wallet Console composition pass clean packed
   builds without workspace links.
