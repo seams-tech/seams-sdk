@@ -33,8 +33,6 @@ const consoleMigrationRoot = path.join(
   repoRoot,
   'packages/console-server-ts/migrations/d1-console',
 );
-const consoleCanonicalBaselinePredecessorFingerprint =
-  '2fd73fce9f520386935efba23ca5a326275715dfa5e02bbca69d88bf7ae3e4b5';
 
 test('migration fingerprint output is stable per database and uses sorted framed records', () => {
   const migrationsDir = writeMigrationDirectory();
@@ -200,19 +198,20 @@ test('post-103 signer bridge upgrades the deployed baseline and stays fresh-sche
   }
 });
 
-test('Console canonical baseline bridge preserves deployed data and stays fresh-schema safe', async () => {
+test('Console canonical baseline is a single migration and stays fresh-schema safe', async () => {
   const deployed = createTemporaryD1Database();
   const fresh = createTemporaryD1Database();
   try {
     const consoleMigrations = readMigrationFiles(consoleMigrationRoot);
+    const migrationFiles = listD1MigrationFiles('d1-console');
+    const migrationNames = consoleMigrations.map((migration) => migration.name);
+    expect(migrationNames).toEqual(['0001_console_d1_initial.sql']);
+    expect(migrationFiles.map((file) => path.basename(file))).toEqual(migrationNames);
     const currentFingerprint = digestMigrations(consoleMigrations);
-    const appliedMigrationNames = new Set(deployedConsoleMigrationNames);
-    expect(deployedConsoleMigrationNames).toHaveLength(24);
+    const appliedMigrationNames = new Set(migrationNames);
 
-    await applyD1MigrationFiles(deployed.database, [
-      path.join(consoleMigrationRoot, '0001_console_d1_initial.sql'),
-    ]);
-    await deployed.database.exec(deployedConsoleBridgeFixtureSql);
+    await applyD1MigrationFiles(deployed.database, migrationFiles);
+    await deployed.database.exec(deployedConsoleFixtureSql);
     await deployed.database.exec(`
       CREATE TABLE d1_migrations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -223,36 +222,22 @@ test('Console canonical baseline bridge preserves deployed data and stays fresh-
         key TEXT PRIMARY KEY NOT NULL,
         value TEXT NOT NULL
       );
-      INSERT INTO d1_migrations (name) VALUES
-        ('${deployedConsoleMigrationNames.join("'),\n        ('")}');
+      INSERT INTO d1_migrations (name) VALUES ('${migrationNames.join("'),\n        ('")}');
       INSERT INTO d1_migration_metadata (key, value)
-      VALUES ('schema_fingerprint', '${consoleCanonicalBaselinePredecessorFingerprint}');
+      VALUES ('schema_fingerprint', '${currentFingerprint}');
     `);
 
-    const predecessorMetadata = await deployed.database
+    const persistedFingerprint = await deployed.database
       .prepare(`SELECT value FROM d1_migration_metadata WHERE key = 'schema_fingerprint'`)
       .first<{ readonly value: string }>();
-    expect(predecessorMetadata?.value).toBe(consoleCanonicalBaselinePredecessorFingerprint);
+    expect(persistedFingerprint?.value).toBe(currentFingerprint);
     expect(() =>
       assertAppliedMigrationSourcesUnchanged({
-        previousFingerprint: consoleCanonicalBaselinePredecessorFingerprint,
+        previousFingerprint: currentFingerprint,
         appliedMigrationNames,
         migrations: consoleMigrations,
-        acceptedPredecessor: {
-          fingerprint: consoleCanonicalBaselinePredecessorFingerprint,
-          bridgeMigrationName: '0026_console_canonical_baseline_bridge.sql',
-        },
       }),
     ).not.toThrow();
-
-    for (const migration of consoleMigrations) {
-      if (appliedMigrationNames.has(migration.name)) continue;
-      await deployed.database.exec(
-        `${migration.source.trimEnd()}
-INSERT INTO d1_migrations (name) VALUES ('${migration.name}');`,
-      );
-      appliedMigrationNames.add(migration.name);
-    }
 
     const organization = await deployed.database
       .prepare(
@@ -274,24 +259,10 @@ INSERT INTO d1_migrations (name) VALUES ('${migration.name}');`,
       .all<{ readonly type: string; readonly name: string }>();
     expect(deployedSchema.results).toHaveLength(171);
 
-    const bridgeRecord = await deployed.database
-      .prepare(`SELECT name FROM d1_migrations WHERE name = ?`)
-      .bind('0026_console_canonical_baseline_bridge.sql')
-      .first<{ readonly name: string }>();
-    expect(bridgeRecord?.name).toBe('0026_console_canonical_baseline_bridge.sql');
-    await deployed.database.exec(`
-      INSERT INTO d1_migration_metadata (key, value)
-      VALUES ('schema_fingerprint', '${currentFingerprint}')
-      ON CONFLICT(key) DO UPDATE SET value = excluded.value;
-    `);
-    const persistedFingerprint = await deployed.database
-      .prepare(`SELECT value FROM d1_migration_metadata WHERE key = 'schema_fingerprint'`)
-      .first<{ readonly value: string }>();
-    expect(persistedFingerprint?.value).toBe(currentFingerprint);
-
     const historyRows = await deployed.database
       .prepare(`SELECT name FROM d1_migrations ORDER BY id`)
       .all<{ readonly name: string }>();
+    expect(historyRows.results.map((row) => row.name)).toEqual(migrationNames);
     const rerunAppliedMigrationNames = new Set<string>();
     for (const row of historyRows.results) rerunAppliedMigrationNames.add(row.name);
     const missingOnRerun: string[] = [];
@@ -307,7 +278,7 @@ INSERT INTO d1_migrations (name) VALUES ('${migration.name}');`,
       }),
     ).not.toThrow();
 
-    await applyD1MigrationFiles(fresh.database, listD1MigrationFiles('d1-console'));
+    await applyD1MigrationFiles(fresh.database, migrationFiles);
     const freshSchema = await fresh.database
       .prepare(
         `SELECT type, name
@@ -327,34 +298,7 @@ INSERT INTO d1_migrations (name) VALUES ('${migration.name}');`,
   }
 });
 
-const deployedConsoleMigrationNames = [
-  '0001_console_d1_initial.sql',
-  '0002_console_org_project_env.sql',
-  '0003_console_account.sql',
-  '0004_console_team_rbac.sql',
-  '0005_console_policies.sql',
-  '0006_console_billing_ledger.sql',
-  '0007_console_billing_purchases.sql',
-  '0008_console_api_keys.sql',
-  '0010_console_audit.sql',
-  '0011_console_approvals.sql',
-  '0012_console_wallet_index.sql',
-  '0013_console_sponsorship_spend_caps.sql',
-  '0014_console_key_exports.sql',
-  '0015_console_webhooks.sql',
-  '0016_console_observability.sql',
-  '0017_console_webhook_retry_claims.sql',
-  '0018_console_constraint_hardening.sql',
-  '0019_console_sponsorship_pricing.sql',
-  '0020_console_organization_access.sql',
-  '0021_console_billing_refunds.sql',
-  '0022_console_email.sql',
-  '0023_console_billing_email_state.sql',
-  '0024_console_stripe_post_processing_outbox.sql',
-  '0025_console_account_welcome_email.sql',
-] as const;
-
-const deployedConsoleBridgeFixtureSql = `
+const deployedConsoleFixtureSql = `
 INSERT INTO organizations (
   namespace,
   id,
