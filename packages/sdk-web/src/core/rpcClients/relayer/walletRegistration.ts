@@ -778,6 +778,13 @@ export type AddAuthMethodAuth =
       expectedChallengeDigestB64u: string;
     }
   | {
+      /* R103 zero-prompt handoff: owner authority carried by the active owner
+         Wallet Session. The token travels as the bearer credential, never in
+         the request body; the server resolves every identity fact from it. */
+      kind: 'wallet_session';
+      walletSessionToken: string;
+    }
+  | {
       kind: 'email_otp';
     };
 
@@ -3491,6 +3498,10 @@ function addAuthMethodAuthBody(auth: AddAuthMethodAuth): unknown {
         credential: auth.credential,
         expectedChallengeDigestB64u: auth.expectedChallengeDigestB64u,
       };
+    case 'wallet_session':
+      // The kind only. The token is the bearer credential, and the server
+      // refuses a body that carries session or credential facts.
+      return { kind: 'wallet_session' };
     case 'email_otp':
       return { kind: 'email_otp' };
   }
@@ -3563,6 +3574,9 @@ export async function startWalletAddAuthMethod(args: {
       auth: addAuthMethodAuthBody(args.auth),
       ...addAuthMethodAuthorityBody(args.authority),
     },
+    ...(args.auth.kind === 'wallet_session'
+      ? { headers: { authorization: `Bearer ${args.auth.walletSessionToken}` } }
+      : {}),
   });
   return parseWalletAddAuthMethodStartResponse({ value, expectedIntent: args.intent });
 }

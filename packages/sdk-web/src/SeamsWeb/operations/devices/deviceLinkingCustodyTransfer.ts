@@ -5,13 +5,15 @@
  * Three steps, split across two machines:
  *
  *   Device 2  createRecipientV1        publish where to seal
- *   Device 1  sealForLinkedDeviceV1    open own envelope, seal the seed
+ *   Device 1  sealForLinkedDeviceV1    seal from the unlocked capability
  *   Device 2  acceptTransferV1         open the seal, reseal under new passkey
  *
  * Every one of them routes into the wallet custody ceremony worker. The wallet
- * custody seed, the owner PRF, the new device's PRF, the recipient private
- * key, and the derived transfer key exist only inside that worker's wasm; this
- * module moves ciphertext and public routing facts.
+ * custody seed, the new device's PRF, the recipient private key, and the
+ * derived transfer key exist only inside that worker's wasm; this module moves
+ * ciphertext, public routing facts, and the opaque capability reference. R103
+ * zero-prompt handoff: Device 1 seals from the custody handle its worker has
+ * held since unlock — no envelope, no factor secret, and no prompt here.
  */
 import {
   buildLinkedDeviceCustodyTransferBindingV1,
@@ -24,12 +26,12 @@ import {
   type LinkedDeviceCustodyTransferRecipientV1,
 } from '@shared/device-linking/custodyTransfer';
 import type { LinkedDeviceEnrollmentId, LinkedDeviceId } from '@shared/signing-lanes/ids';
-import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import {
   parseEnvelopeCiphertextB64u,
   parseEnvelopeNonceB64u,
   parseDigestField,
 } from '@shared/passkey-custody';
+import type { UnlockedWalletCustodyTransferCapabilityV1 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { WalletId } from '@shared/utils/domainIds';
 import type { WalletCustodyCeremonyTransportPort } from '@/core/signingEngine/walletCustody/ceremonyStepRunner';
 import type { WalletCustodyCeremonyWorkerOperationMap } from '@/core/signingEngine/workerManager/workerTypes';
@@ -68,8 +70,7 @@ export type DeviceLinkingCustodyTransferPortV1 = {
   /** Device 1. */
   readonly sealForLinkedDeviceV1: (input: {
     readonly recipient: LinkedDeviceCustodyTransferRecipientV1;
-    readonly existingEnvelope: PasskeyCustodyEnvelopeRecord;
-    readonly existingFactorSecret: Uint8Array;
+    readonly capability: UnlockedWalletCustodyTransferCapabilityV1;
     readonly sealedAtMs: number;
   }) => Promise<LinkedDeviceCustodyTransferPackageV1>;
   /** Device 2. */
@@ -123,43 +124,38 @@ export function createDeviceLinkingCustodyTransferPortV1(
       // Device 1 rebuilds the binding from its own view of the enrollment
       // rather than echoing a server-supplied one: the binding is the AAD, so
       // accepting it from the relay would let the relay choose what the seal
-      // authenticates.
+      // authenticates. The custody-secret identity is the canonical wallet
+      // seed binding — the same constant Device 2 rebuilds — and the worker's
+      // admitted seed independently authenticates it inside wasm.
       const transferBinding = buildLinkedDeviceCustodyTransferBindingV1({
         walletId: input.recipient.walletId,
         enrollmentId: input.recipient.enrollmentId,
         deviceId: input.recipient.deviceId,
         recipientPublicKeyB64u: input.recipient.recipientPublicKeyB64u,
         binding: parseLinkedDeviceCustodyTransferSecretBindingV1(
-          input.existingEnvelope.binding,
-          'linked-device custody transfer existing envelope binding',
+          {
+            kind: 'wallet_custody_seed_v1',
+            derivationScheme: 'wallet_seed_parallel_hkdf_sha256_v1',
+          },
+          'linked-device custody transfer sealed binding',
         ),
       });
-      if (input.existingEnvelope.walletId !== input.recipient.walletId) {
-        throw new Error('linked-device custody transfer envelope names another wallet');
+      if (input.capability.walletId !== String(input.recipient.walletId)) {
+        throw new Error('linked-device custody transfer capability names another wallet');
       }
-      // The worker transfers this buffer, so hand it a copy and zeroize ours.
-      const workerFactorSecret = input.existingFactorSecret.slice();
-      let sealed: CustodyTransferWorkerResult<'sealWalletCustodySeedForLinkedDevice'>;
-      try {
-        sealed = requireRecord(
-          await worker.requestOperation({
-            kind: 'walletCustodyCeremony',
-            request: {
-              type: 'sealWalletCustodySeedForLinkedDevice',
-              payload: {
-                existingEnvelope: input.existingEnvelope,
-                existingFactorSecret: workerFactorSecret.buffer,
-                transferBindingJson:
-                  serializeLinkedDeviceCustodyTransferBindingV1(transferBinding),
-              },
-              transfer: [workerFactorSecret.buffer],
+      const sealed = requireRecord(
+        await worker.requestOperation({
+          kind: 'walletCustodyCeremony',
+          request: {
+            type: 'sealWalletCustodySeedForLinkedDevice',
+            payload: {
+              capability: input.capability,
+              transferBindingJson: serializeLinkedDeviceCustodyTransferBindingV1(transferBinding),
             },
-          }),
-          'linked-device custody transfer seal',
-        ) as CustodyTransferWorkerResult<'sealWalletCustodySeedForLinkedDevice'>;
-      } finally {
-        zeroize(workerFactorSecret);
-      }
+          },
+        }),
+        'linked-device custody transfer seal',
+      ) as CustodyTransferWorkerResult<'sealWalletCustodySeedForLinkedDevice'>;
       return {
         kind: 'linked_device_custody_transfer_package_v1',
         walletId: input.recipient.walletId,

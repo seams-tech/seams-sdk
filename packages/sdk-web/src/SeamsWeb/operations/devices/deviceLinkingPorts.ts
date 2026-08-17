@@ -1,5 +1,6 @@
 import type { DeviceLinkingCustodyTransferPortV1 } from './deviceLinkingCustodyTransfer';
 import type { LinkedDeviceOwnerEnrollmentStartV1 } from './deviceLinkingOwnerEnrollmentStart';
+import type { UnlockedWalletCustodyTransferCapabilityV1 } from '@/core/signingEngine/workerManager/workerTypes';
 import type {
   LinkedDeviceProvisioningChildV1,
   LinkedDeviceApprovalV1,
@@ -266,6 +267,13 @@ export type DeviceLinkingOwnerAuthorizationPortV1 = {
     readonly authentication: LinkSessionAuthenticationV1;
     readonly walletId: WalletId;
     readonly ownerAuthorization: LinkedDeviceOwnerAuthorizationSourceV1;
+    /**
+     * R103 zero-prompt handoff: the worker-held unlocked custody capability
+     * this owner session authorizes. Preflighted before the claim — when the
+     * wallet lacks it, authentication fails with `wallet_unlock_required`
+     * instead of prompting.
+     */
+    readonly custodyTransferCapability: UnlockedWalletCustodyTransferCapabilityV1;
     readonly policyDigestB64u: DigestB64u;
     readonly operationId: LaneOperationId;
     readonly idempotencyKey: LaneOperationIdempotencyKey;

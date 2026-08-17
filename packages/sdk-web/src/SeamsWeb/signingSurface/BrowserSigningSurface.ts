@@ -211,7 +211,6 @@ import {
   type LinkedDeviceOwnerEnrollmentStartV1,
 } from '../operations/devices/deviceLinkingOwnerEnrollmentStart';
 import { parseWebAuthnRpId } from '@shared/utils/domainIds';
-import { collectAuthenticationCredentialForWalletChallengeB64u } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import { resolveManagedRuntimeScopeBootstrap } from '@/core/config/managedRuntimeScope';
 import {
   parseReusableWalletSessionMintId,
@@ -420,6 +419,7 @@ import {
   custodyEnvelopePasskeyAuthMethodIdV1,
   destroyUnlockedWalletCustodyTransferCapabilitiesV1 as destroyUnlockedCustodyCapabilitiesWithWorkerV1,
   establishUnlockedWalletCustodyTransferCapabilityV1 as establishUnlockedCustodyCapabilityWithWorkerV1,
+  readUnlockedWalletCustodyTransferCapabilityV1,
 } from '@/core/signingEngine/walletCustody/unlockedCustodyTransferCapability';
 import { base58Encode } from '@shared/utils/base58';
 import { __isWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode';
@@ -3078,6 +3078,8 @@ export class BrowserSigningSurface {
       readWalletAuthenticationState: () => this.walletAuthenticationState,
       hasLinkedDeviceSigningSession: (walletId) => this.hasLinkedDeviceSigningSession(walletId),
       readOwnerSourceLaneHintsV1: this.readWalletHostOwnerSourceLaneHintsV1.bind(this),
+      readUnlockedCustodyCapabilityV1: (walletId) =>
+        readUnlockedWalletCustodyTransferCapabilityV1(String(walletId)),
       startOwnerEnrollmentCeremonyV1: this.startLinkedDeviceOwnerEnrollmentCeremonyV1.bind(this),
     });
     const ownerTransport = createWalletHostOwnerApprovalTransportV1(ownerAuthorities.ownerRequest);
@@ -3129,9 +3131,10 @@ export class BrowserSigningSurface {
    * Starts the owner add-auth-method ceremony that a linked Device 2 finalizes.
    *
    * Device 1 holds the owner authority, so the ceremony is minted here during
-   * approval. Its identity and registration options travel onward in the
-   * approval; the custody material that same prompt produced stays on this
-   * device, held until there is a recipient to seal the wallet custody seed for.
+   * approval — authorized by the active owner Wallet Session, never by a
+   * fresh factor prompt (R103 zero-prompt handoff). The custody seed reaches
+   * Device 2 through the worker-held unlocked capability, so nothing is
+   * collected or held here.
    */
   private async startLinkedDeviceOwnerEnrollmentCeremonyV1(input: {
     readonly linkSessionId: LinkDeviceSessionId;
@@ -3163,19 +3166,21 @@ export class BrowserSigningSurface {
     if (!managedRuntimeScope) {
       throw new Error('Linked-device owner enrollment requires a managed runtime scope');
     }
+    const sessionRead = await walletSessionAuthorizations.readActiveForWallet(input.walletId);
+    if (sessionRead.kind !== 'found' || sessionRead.projection.status !== 'active') {
+      throw new Error('Linked-device owner enrollment requires an active owner Wallet Session');
+    }
+    const ownerWalletSessionToken = walletSessionTokenForCurve(sessionRead.projection, 'ed25519');
+    if (!ownerWalletSessionToken) {
+      throw new Error('Linked-device owner enrollment requires an Ed25519 Wallet Session token');
+    }
     return await startLinkedDeviceOwnerEnrollmentCeremonyV1(
       {
         relayerUrl: String(this.seamsWebConfigs.network.relayer?.url || '').trim(),
         rpId: rpId.value,
         publishableKey: managedRuntimeScope.publishableKey,
         projectEnvironmentId: managedRuntimeScope.projectEnvironmentId,
-        collectOwnerAssertionV1: async (assertion) =>
-          await collectAuthenticationCredentialForWalletChallengeB64u({
-            credentialStore: IndexedDBManager,
-            touchIdPrompt: this.touchIdPrompt,
-            walletId: assertion.walletId,
-            challengeB64u: assertion.challengeB64u,
-          }),
+        ownerWalletSessionToken: String(ownerWalletSessionToken),
       },
       { walletId: input.walletId },
     );
