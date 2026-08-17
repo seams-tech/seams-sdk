@@ -7,10 +7,12 @@ import {
   parseQrLinkedDeviceSessionPayloadV4,
 } from '@shared/device-linking';
 import type {
+  LinkedDeviceEnrollmentReceiptV1,
   LinkedDeviceOwnerAuthorizationSourceV1,
   LinkedDeviceCustodyTransferPackageV1,
   QrLinkedDeviceSessionPayloadV4,
 } from '@shared/device-linking';
+import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
   createLinkDeviceFlowEvent,
   LinkDeviceEventPhase,
@@ -203,7 +205,7 @@ export async function scanAndLinkDevice(
       message: 'QR code scanned',
       interaction: { kind: 'qr_scan', overlay: 'none' },
     });
-    const activeApproval = await awaitActiveApprovalResult({
+    const completion = await awaitApprovalCompletionV1({
       result: recorded,
       transport: ports.transport,
       linkSessionId: claim.linkSessionId,
@@ -223,14 +225,21 @@ export async function scanAndLinkDevice(
       custodyTransfer: ports.custodyTransfer,
       custodyHold: ownerEnrollment.custodyHold,
     });
-    const result: LinkDeviceResult = {
+    const identity = {
       success: true,
       walletId: claim.walletId,
       enrollmentId: claim.enrollmentId,
       deviceId: claim.deviceId,
-      manifestDigestB64u: activeApproval.manifestDigestB64u,
-      receipt: activeApproval.receipt,
-    };
+    } as const;
+    const result: LinkDeviceResult =
+      completion.kind === 'owner_handoff_complete'
+        ? { ...identity, kind: 'owner_handoff_complete' }
+        : {
+            ...identity,
+            kind: 'lane_enrollment_complete',
+            manifestDigestB64u: completion.manifestDigestB64u,
+            receipt: completion.receipt,
+          };
     emitScannerEvent(options.onEvent, parsedQrData, {
       phase: LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED,
       status: 'succeeded',
@@ -262,29 +271,48 @@ export async function scanAndLinkDevice(
   }
 }
 
-type ActiveApprovalResult = Extract<LinkedDeviceApprovalResultV1, { readonly outcome: 'active' }>;
+/**
+ * How the enrollment this scanner authorized finished.
+ *
+ * Refactor 103 Phase 8: the canonical owner finalize commits Device 2's
+ * credential and advances the link session in one transaction, so the moment
+ * the session leaves `awaiting_target_passkey` the handoff is done. Device 1
+ * has nothing left to contribute and must not wait on the R102 lane enrollment
+ * that used to follow — on the canonical path it never runs, so waiting on it
+ * would hold the scanner open until the session expired.
+ *
+ * The lane variant remains reachable only by a session resumed from before the
+ * cutover, which still completes through the aggregate receipt.
+ */
+type CompletedApprovalResult =
+  | { readonly kind: 'owner_handoff_complete' }
+  | {
+      readonly kind: 'lane_enrollment_complete';
+      readonly manifestDigestB64u: DigestB64u;
+      readonly receipt: LinkedDeviceEnrollmentReceiptV1;
+    };
 
-function activeApprovalFromResult(
+function completedApprovalFromResult(
   result: LinkedDeviceApprovalResultV1,
-): ActiveApprovalResult | null {
+): CompletedApprovalResult | null {
   switch (result.outcome) {
     case 'active':
       return {
-        ...result,
+        kind: 'lane_enrollment_complete',
         manifestDigestB64u: result.receipt.manifestDigestB64u,
+        receipt: result.receipt,
       };
     case 'pending':
-      return null;
+      return ownerHandoffFromPendingState(result.state);
     case 'replayed':
       if (result.replay.state === 'active') {
         return {
-          outcome: 'active',
-          state: result.replay.session,
+          kind: 'lane_enrollment_complete',
           manifestDigestB64u: result.replay.receipt.manifestDigestB64u,
           receipt: result.replay.receipt,
         };
       }
-      return null;
+      return ownerHandoffFromPendingState(result.replay.session);
     default: {
       const exhaustive: never = result;
       throw new Error(`unsupported approval result: ${String(exhaustive)}`);
@@ -292,7 +320,31 @@ function activeApprovalFromResult(
   }
 }
 
-async function awaitActiveApprovalResult(input: {
+/**
+ * A session still reported as pending, read for whether the owner finalize has
+ * already landed. `provisioning` is the state that finalize advances to, and it
+ * is only reachable through it.
+ */
+function ownerHandoffFromPendingState(
+  state: Extract<LinkedDeviceApprovalResultV1, { readonly outcome: 'pending' }>['state'],
+): CompletedApprovalResult | null {
+  switch (state.state) {
+    case 'provisioning':
+      return { kind: 'owner_handoff_complete' };
+    case 'awaiting_target_passkey':
+      return null;
+    // A resumed pre-cutover session that already committed its lanes. It still
+    // finishes through the aggregate receipt, so this keeps waiting for one.
+    case 'committed_completion_required':
+      return null;
+    default: {
+      const exhaustive: never = state;
+      throw new Error(`unsupported pending session state: ${String(exhaustive)}`);
+    }
+  }
+}
+
+async function awaitApprovalCompletionV1(input: {
   readonly result: LinkedDeviceApprovalResultV1;
   readonly transport: LinkSessionOwnerTransportPortV1;
   readonly linkSessionId: QrLinkedDeviceSessionPayloadV4['linkSessionId'];
@@ -306,8 +358,8 @@ async function awaitActiveApprovalResult(input: {
   readonly sourcePreparation: Device1LinkingFlowPortsV1['sourcePreparation'];
   readonly custodyTransfer: Device1LinkingFlowPortsV1['custodyTransfer'];
   readonly custodyHold: LinkedDeviceOwnerCustodyHoldV1;
-}): Promise<ActiveApprovalResult> {
-  const immediate = activeApprovalFromResult(input.result);
+}): Promise<CompletedApprovalResult> {
+  const immediate = completedApprovalFromResult(input.result);
   if (immediate) return immediate;
   let latestResult: LinkedDeviceApprovalResultV1 | null = input.result;
   let sourceHandoffComplete = false;
@@ -327,11 +379,11 @@ async function awaitActiveApprovalResult(input: {
     while (Date.now() < input.expiresAtMs) {
       const observed = latestResult;
       latestResult = null;
-      let active: ActiveApprovalResult | null = null;
+      let completed: CompletedApprovalResult | null = null;
       if (observed) {
         pollAttempt = 0;
-        active = activeApprovalFromResult(observed);
-        if (!active && !sourceHandoffComplete) {
+        completed = completedApprovalFromResult(observed);
+        if (!completed && !sourceHandoffComplete) {
           sourceHandoffComplete = await preparePendingSourceHandoffV1(input, observed);
         }
       }
@@ -351,7 +403,7 @@ async function awaitActiveApprovalResult(input: {
           }
         }
       }
-      if (active && custodyTransferSubmitted) return active;
+      if (completed && custodyTransferSubmitted) return completed;
       await waitForApprovalPollV1(pollAttempt);
       pollAttempt += 1;
     }
@@ -376,7 +428,7 @@ async function awaitActiveApprovalResult(input: {
  * state for as long as the target device is still preparing.
  */
 async function sealCustodyForPublishedRecipientV1(
-  input: Parameters<typeof awaitActiveApprovalResult>[0],
+  input: Parameters<typeof awaitApprovalCompletionV1>[0],
 ): Promise<LinkedDeviceCustodyTransferPackageV1 | null> {
   const recipient = await input.transport.getCustodyTransferRecipientV1({
     linkSessionId: input.linkSessionId,
@@ -404,7 +456,7 @@ async function sealCustodyForPublishedRecipientV1(
 }
 
 async function submitCustodyTransferPackageV1(
-  input: Parameters<typeof awaitActiveApprovalResult>[0],
+  input: Parameters<typeof awaitApprovalCompletionV1>[0],
   sealedPackage: LinkedDeviceCustodyTransferPackageV1,
 ): Promise<void> {
   await input.transport.submitCustodyTransferPackageV1({
@@ -430,7 +482,7 @@ function readErrorStatusV1(error: unknown): number | null {
 }
 
 async function preparePendingSourceHandoffV1(
-  input: Parameters<typeof awaitActiveApprovalResult>[0],
+  input: Parameters<typeof awaitApprovalCompletionV1>[0],
   result: LinkedDeviceApprovalResultV1,
 ): Promise<boolean> {
   const state = pendingApprovalStateV1(result);
