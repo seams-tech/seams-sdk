@@ -27,7 +27,6 @@ function main() {
     previousFingerprint,
     appliedMigrationNames: applied,
     migrations,
-    acceptedPredecessor: options.acceptedPredecessor,
   });
   if (previousFingerprint === fingerprint && missing.length === 0) {
     process.stdout.write(`D1 migrations unchanged (${fingerprint})\n`);
@@ -48,16 +47,9 @@ function parseArgs(args) {
   const config = readOption(args, '--config');
   const migrationsDir = readOption(args, '--migrations-dir');
   const expectedFingerprint = readOption(args, '--expected-fingerprint');
-  const predecessorFingerprint = readOption(args, '--predecessor-fingerprint');
-  const predecessorBridgeMigration = readOption(args, '--predecessor-bridge-migration');
   if (!database || !config || !migrationsDir) {
     throw new Error(
-      'Usage: apply-remote-d1-migrations.mjs --database <binding> --config <path> --migrations-dir <path> [--expected-fingerprint <sha256>] [--predecessor-fingerprint <sha256> --predecessor-bridge-migration <filename>]',
-    );
-  }
-  if (Boolean(predecessorFingerprint) !== Boolean(predecessorBridgeMigration)) {
-    throw new Error(
-      '--predecessor-fingerprint and --predecessor-bridge-migration must be supplied together',
+      'Usage: apply-remote-d1-migrations.mjs --database <binding> --config <path> --migrations-dir <path> [--expected-fingerprint <sha256>]',
     );
   }
   return {
@@ -65,13 +57,6 @@ function parseArgs(args) {
     config: resolve(config),
     migrationsDir: resolve(migrationsDir),
     expectedFingerprint,
-    acceptedPredecessor:
-      predecessorFingerprint && predecessorBridgeMigration
-        ? {
-            fingerprint: predecessorFingerprint,
-            bridgeMigrationName: predecessorBridgeMigration,
-          }
-        : undefined,
   };
 }
 

@@ -215,17 +215,6 @@ export type RawD1IdentityLinkInsertInput = {
   readonly createdAtMs: number;
   readonly updatedAtMs: number;
 };
-export type RawD1AppSessionVersionInsertInput = {
-  readonly namespace: string;
-  readonly orgId: string;
-  readonly projectId: string;
-  readonly envId: string;
-  readonly userId: string;
-  readonly sessionVersion: string;
-  readonly recordJson: string;
-  readonly createdAtMs: number;
-  readonly updatedAtMs: number;
-};
 export type RawD1EmailOtpChallengeInsertInput = {
   readonly namespace: string;
   readonly orgId: string;
@@ -236,8 +225,7 @@ export type RawD1EmailOtpChallengeInsertInput = {
   readonly walletId: string;
   readonly recordOrgId: string;
   readonly otpChannel: string;
-  readonly sessionHash: string;
-  readonly appSessionVersion: string;
+  readonly ownerProofBindingDigest: string;
   readonly action: string;
   readonly operation: string;
   readonly otpCode: string;
@@ -308,7 +296,7 @@ export type RawD1EmailOtpRegistrationAttemptInsertInput = {
   readonly email: string;
   readonly walletId: string;
   readonly state: string;
-  readonly appSessionVersion: string;
+  readonly ownerProofBindingDigest: string;
   readonly runtimeOrgId: string;
   readonly runtimePolicyKey: string;
   readonly offerWalletIdsJson: string;
@@ -969,34 +957,6 @@ export function buildRawD1IdentityLinkInsertInput(
   };
 }
 
-export function buildRawD1AppSessionVersionInsertInput(
-  input: Partial<RawD1AppSessionVersionInsertInput>,
-): RawD1AppSessionVersionInsertInput {
-  const createdAtMs = input.createdAtMs ?? Date.parse('2026-06-27T00:00:00.000Z');
-  const updatedAtMs = input.updatedAtMs ?? createdAtMs + 1000;
-  const userId = input.userId ?? 'wallet-raw-app-session';
-  const sessionVersion = input.sessionVersion ?? 'app-session-version-raw';
-  return {
-    namespace: input.namespace ?? 'd1-contracts',
-    orgId: input.orgId ?? 'org-d1-identity-schema',
-    projectId: input.projectId ?? 'project-d1-identity-schema',
-    envId: input.envId ?? 'env-production',
-    userId,
-    sessionVersion,
-    recordJson:
-      input.recordJson ??
-      JSON.stringify({
-        version: 'app_session_version_v1',
-        userId,
-        appSessionVersion: sessionVersion,
-        createdAtMs,
-        updatedAtMs,
-      }),
-    createdAtMs,
-    updatedAtMs,
-  };
-}
-
 export function buildRawD1EmailOtpChallengeInsertInput(
   input: Partial<RawD1EmailOtpChallengeInsertInput>,
 ): RawD1EmailOtpChallengeInsertInput {
@@ -1007,8 +967,8 @@ export function buildRawD1EmailOtpChallengeInsertInput(
   const walletId = input.walletId ?? 'wallet-raw-email-otp';
   const recordOrgId = input.recordOrgId ?? 'org-d1-email-otp-schema';
   const otpChannel = input.otpChannel ?? 'email_otp';
-  const sessionHash = input.sessionHash ?? 'session-hash-raw-email-otp';
-  const appSessionVersion = input.appSessionVersion ?? 'app-session-raw-email-otp';
+  const ownerProofBindingDigest =
+    input.ownerProofBindingDigest ?? 'owner-proof-binding-raw-email-otp';
   const action = input.action ?? 'wallet_email_otp_login';
   const operation = input.operation ?? 'wallet_unlock';
   const otpCode = input.otpCode ?? '123456';
@@ -1022,8 +982,7 @@ export function buildRawD1EmailOtpChallengeInsertInput(
     walletId,
     recordOrgId,
     otpChannel,
-    sessionHash,
-    appSessionVersion,
+    ownerProofBindingDigest,
     action,
     operation,
     otpCode,
@@ -1036,10 +995,8 @@ export function buildRawD1EmailOtpChallengeInsertInput(
         walletId,
         orgId: recordOrgId,
         otpChannel,
-        email: 'raw@example.test',
+        ownerProofBindingDigest,
         otpCode,
-        sessionHash,
-        appSessionVersion,
         action,
         operation,
         createdAtMs,
@@ -1084,8 +1041,7 @@ export function buildRawD1EmailOtpGrantInsertInput(
         orgId: recordOrgId,
         challengeId,
         otpChannel: 'email_otp',
-        sessionHash: 'session-hash-raw-email-otp',
-        appSessionVersion: 'app-session-raw-email-otp',
+        ownerProofBindingDigest: 'owner-proof-binding-raw-email-otp',
         action,
         issuedAtMs,
         expiresAtMs,
@@ -1216,7 +1172,8 @@ export function buildRawD1EmailOtpRegistrationAttemptInsertInput(
   const email = input.email ?? 'raw@example.test';
   const walletId = input.walletId ?? 'wallet-raw-email-otp';
   const state = input.state ?? 'started';
-  const appSessionVersion = input.appSessionVersion ?? 'app-session-raw-email-otp';
+  const ownerProofBindingDigest =
+    input.ownerProofBindingDigest ?? 'owner-proof-binding-raw-email-otp';
   const runtimeOrgId = input.runtimeOrgId ?? 'org-d1-email-otp-schema';
   const runtimePolicyKey =
     input.runtimePolicyKey ??
@@ -1232,7 +1189,7 @@ export function buildRawD1EmailOtpRegistrationAttemptInsertInput(
     email,
     walletId,
     state,
-    appSessionVersion,
+    ownerProofBindingDigest,
     runtimeOrgId,
     runtimePolicyKey,
     offerWalletIdsJson,
@@ -1249,7 +1206,7 @@ export function buildRawD1EmailOtpRegistrationAttemptInsertInput(
           { candidateId: 'candidate-raw-email-otp', walletId, collisionCounter: 0 },
         ],
         selectedCandidateId: 'candidate-raw-email-otp',
-        appSessionVersion,
+        ownerProofBindingDigest,
         authProvider: 'google',
         accountIdSlugVersion: 'hmac_readable_v1',
         walletIdDerivationNonce: 'nonce-raw-email-otp',
@@ -1762,38 +1719,6 @@ export async function insertRawD1IdentityLinkRecord(
     .run();
 }
 
-export async function insertRawD1AppSessionVersionRecord(
-  database: D1DatabaseLike,
-  input: RawD1AppSessionVersionInsertInput,
-): Promise<void> {
-  await database
-    .prepare(
-      `INSERT INTO app_session_versions (
-        namespace,
-        org_id,
-        project_id,
-        env_id,
-        user_id,
-        session_version,
-        record_json,
-        created_at_ms,
-        updated_at_ms
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .bind(
-      input.namespace,
-      input.orgId,
-      input.projectId,
-      input.envId,
-      input.userId,
-      input.sessionVersion,
-      input.recordJson,
-      input.createdAtMs,
-      input.updatedAtMs,
-    )
-    .run();
-}
-
 export async function insertRawD1EmailOtpChallengeRecord(
   database: D1DatabaseLike,
   input: RawD1EmailOtpChallengeInsertInput,
@@ -1810,15 +1735,14 @@ export async function insertRawD1EmailOtpChallengeRecord(
         wallet_id,
         record_org_id,
         otp_channel,
-        session_hash,
-        app_session_version,
+        owner_proof_binding_digest,
         action,
         operation,
         otp_code,
         record_json,
         created_at_ms,
         expires_at_ms
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       input.namespace,
@@ -1830,8 +1754,7 @@ export async function insertRawD1EmailOtpChallengeRecord(
       input.walletId,
       input.recordOrgId,
       input.otpChannel,
-      input.sessionHash,
-      input.appSessionVersion,
+      input.ownerProofBindingDigest,
       input.action,
       input.operation,
       input.otpCode,
@@ -2004,7 +1927,7 @@ export async function insertRawD1EmailOtpRegistrationAttemptRecord(
         email,
         wallet_id,
         state,
-        app_session_version,
+        owner_proof_binding_digest,
         runtime_org_id,
         runtime_policy_key,
         offer_wallet_ids_json,
@@ -2024,7 +1947,7 @@ export async function insertRawD1EmailOtpRegistrationAttemptRecord(
       input.email,
       input.walletId,
       input.state,
-      input.appSessionVersion,
+      input.ownerProofBindingDigest,
       input.runtimeOrgId,
       input.runtimePolicyKey,
       input.offerWalletIdsJson,
@@ -2240,15 +2163,6 @@ export async function expectRawD1IdentityLinkInsertRejected(
   input: RawD1IdentityLinkInsertInput,
 ): Promise<void> {
   await expect(insertRawD1IdentityLinkRecord(database, input)).rejects.toThrow(
-    /CHECK constraint failed/,
-  );
-}
-
-export async function expectRawD1AppSessionVersionInsertRejected(
-  database: D1DatabaseLike,
-  input: RawD1AppSessionVersionInsertInput,
-): Promise<void> {
-  await expect(insertRawD1AppSessionVersionRecord(database, input)).rejects.toThrow(
     /CHECK constraint failed/,
   );
 }

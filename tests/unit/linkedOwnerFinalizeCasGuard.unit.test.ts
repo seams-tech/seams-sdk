@@ -29,8 +29,8 @@ import {
  * changed is a successful statement. Without the guard the credential would
  * commit anyway, which is the exact split-brain the fence exists to prevent.
  *
- * These run against the real migrations, so they fail if `0008` is missing or
- * its guard row is absent rather than passing on a mock that cannot be wrong.
+ * These run against the canonical signer migration, so they fail if the guard
+ * row is absent rather than passing on a mock that cannot be wrong.
  */
 const scope: D1LinkedDeviceSessionScopeV1 = {
   namespace: 'signer',

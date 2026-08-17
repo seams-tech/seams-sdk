@@ -86,7 +86,6 @@ import {
   buildRawD1WalletInsertInput,
   buildRawD1EcdsaWalletSignerInsertInput,
   buildRawD1IdentityLinkInsertInput,
-  buildRawD1AppSessionVersionInsertInput,
   buildRawD1EmailOtpChallengeInsertInput,
   buildRawD1EmailOtpGrantInsertInput,
   buildRawD1EmailOtpEnrollmentInsertInput,
@@ -107,7 +106,6 @@ import {
   insertRawD1WalletSignerRecord,
   insertRawD1WalletAuthMethodRecord,
   insertRawD1IdentityLinkRecord,
-  insertRawD1AppSessionVersionRecord,
   insertRawD1EmailOtpChallengeRecord,
   insertRawD1EmailOtpGrantRecord,
   insertRawD1EmailOtpEnrollmentRecord,
@@ -135,7 +133,6 @@ import {
   expectRawD1WalletSignerInsertRejected,
   expectRawD1WalletAuthMethodInsertRejected,
   expectRawD1IdentityLinkInsertRejected,
-  expectRawD1AppSessionVersionInsertRejected,
   createD1AtomicAssessment,
   errorCode,
   createD1WebhookTestSecretCipher,
@@ -408,55 +405,10 @@ test.describe('D1 migration smoke', () => {
       );
       await insertRawD1IdentityLinkRecord(temp.database, buildRawD1IdentityLinkInsertInput({}));
 
-      await expectRawD1AppSessionVersionInsertRejected(
-        temp.database,
-        buildRawD1AppSessionVersionInsertInput({
-          userId: '',
-        }),
-      );
-      await expectRawD1AppSessionVersionInsertRejected(
-        temp.database,
-        buildRawD1AppSessionVersionInsertInput({
-          sessionVersion: '',
-        }),
-      );
-      await expectRawD1AppSessionVersionInsertRejected(
-        temp.database,
-        buildRawD1AppSessionVersionInsertInput({
-          recordJson: JSON.stringify({
-            version: 'wrong_app_session_version',
-            userId: 'wallet-raw-app-session',
-            appSessionVersion: 'app-session-version-raw',
-            createdAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
-            updatedAtMs: Date.parse('2026-06-27T00:00:01.000Z'),
-          }),
-        }),
-      );
-      await expectRawD1AppSessionVersionInsertRejected(
-        temp.database,
-        buildRawD1AppSessionVersionInsertInput({
-          recordJson: JSON.stringify({
-            version: 'app_session_version_v1',
-            userId: 'wallet-raw-app-session',
-            appSessionVersion: 'different-session-version',
-            createdAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
-            updatedAtMs: Date.parse('2026-06-27T00:00:01.000Z'),
-          }),
-        }),
-      );
-      await insertRawD1AppSessionVersionRecord(
-        temp.database,
-        buildRawD1AppSessionVersionInsertInput({}),
-      );
-
       const identityRow = await temp.database
         .prepare('SELECT COUNT(*) AS record_count FROM identity_links')
         .first<{ record_count?: unknown }>();
-      const sessionVersionRow = await temp.database
-        .prepare('SELECT COUNT(*) AS record_count FROM app_session_versions')
-        .first<{ record_count?: unknown }>();
       expect(Number(identityRow?.record_count || 0)).toBe(1);
-      expect(Number(sessionVersionRow?.record_count || 0)).toBe(1);
     } finally {
       cleanupTemporaryD1Database(temp.tempDir);
     }
@@ -489,9 +441,8 @@ test.describe('D1 migration smoke', () => {
             walletId: 'wallet-raw-email-otp',
             orgId: 'org-d1-email-otp-schema',
             otpChannel: 'email_otp',
+            ownerProofBindingDigest: 'owner-proof-binding-raw-email-otp',
             otpCode: '123456',
-            sessionHash: 'session-hash-raw-email-otp',
-            appSessionVersion: 'app-session-raw-email-otp',
             action: 'wallet_email_otp_login',
             operation: 'wallet_unlock',
             createdAtMs: Date.parse('2026-06-27T00:00:00.000Z'),
@@ -605,12 +556,6 @@ test.describe('D1 migration smoke', () => {
       await expectRawD1EmailOtpRegistrationAttemptInsertRejected(
         temp.database,
         buildRawD1EmailOtpRegistrationAttemptInsertInput({
-          offerWalletIdsJson: JSON.stringify({ walletId: 'wallet-raw-email-otp' }),
-        }),
-      );
-      await expectRawD1EmailOtpRegistrationAttemptInsertRejected(
-        temp.database,
-        buildRawD1EmailOtpRegistrationAttemptInsertInput({
           recordJson: JSON.stringify({
             version: 'google_email_otp_registration_attempt_v1',
             attemptId: 'email-otp-registration-attempt-raw-schema',
@@ -618,7 +563,7 @@ test.describe('D1 migration smoke', () => {
             email: 'raw@example.test',
             walletId: 'different-wallet-id',
             state: 'started',
-            appSessionVersion: 'app-session-raw-email-otp',
+            ownerProofBindingDigest: 'owner-proof-binding-raw-email-otp',
             runtimePolicyScope: {
               orgId: 'org-d1-email-otp-schema',
             },
