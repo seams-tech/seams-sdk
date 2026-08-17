@@ -86,7 +86,10 @@ import { CloudflareD1GoogleEmailOtpRegistrationAttemptStore } from '../emailOtp/
 import { CloudflareD1GoogleEmailOtpSessionResolver } from '../emailOtp/d1GoogleEmailOtpSessionResolver';
 import { CloudflareD1IdentityService } from '../identity/d1IdentityService';
 import { CloudflareD1OidcVerificationService } from '../oidc/d1OidcVerificationService';
-import { CloudflareD1WebAuthnAuthService } from '../webauthn/d1WebAuthnAuthService';
+import {
+  CloudflareD1WebAuthnAuthService,
+  type D1WebAuthnWalletManifestSource,
+} from '../webauthn/d1WebAuthnAuthService';
 import { CloudflareD1WalletAuthMethodService } from '../wallet/d1WalletAuthMethodService';
 import {
   CloudflareD1WalletRegistrationService,
@@ -1507,6 +1510,14 @@ async function createSponsoredNamedNearAccountForOptions(
   }
 }
 
+async function readD1Ed25519KeyManifestBySlot(
+  walletStore: D1WalletStore,
+  input: Parameters<D1WebAuthnWalletManifestSource['getEd25519KeyManifestBySlot']>[0],
+): Promise<Awaited<ReturnType<D1WebAuthnWalletManifestSource['getEd25519KeyManifestBySlot']>>> {
+  const signer = await walletStore.getEd25519SignerBySlot(input);
+  return signer ? { custodyKeyManifestDigestB64u: signer.custodyKeyManifestDigestB64u } : null;
+}
+
 function createCloudflareD1RouterApiAuthAssembly(
   input: CloudflareD1RouterApiAuthServiceOptions,
 ): CloudflareD1RouterApiAuthAssembly {
@@ -1567,7 +1578,12 @@ function createCloudflareD1RouterApiAuthAssembly(
     projectId: options.projectId,
     envId: options.envId,
   });
-  const webAuthnAuthService = new CloudflareD1WebAuthnAuthService({ webAuthnStore });
+  const webAuthnAuthService = new CloudflareD1WebAuthnAuthService({
+    webAuthnStore,
+    walletManifestSource: {
+      getEd25519KeyManifestBySlot: readD1Ed25519KeyManifestBySlot.bind(undefined, walletStore),
+    },
+  });
   const linkedDeviceWalletRegistrationProjection: Pick<
     RouterApiWalletRegistrationService,
     'resolveActiveOwnerWalletExecutionLane' | 'listWalletEcdsaCustodyContinuity'
