@@ -161,11 +161,6 @@ type TargetCredentialActivationState =
       readonly kind: 'factor_ready';
       readonly runEpoch: number;
       readonly factorSecret: Uint8Array;
-    }
-  | {
-      readonly kind: 'consuming';
-      readonly runEpoch: number;
-      readonly factorSecret: Uint8Array;
     };
 
 function assertNeverTargetCredentialActivationState(value: never): never {
@@ -536,18 +531,13 @@ export class LinkDeviceFlow {
         if (!this.session) throw new Error('device-link session is unavailable');
         this.session = { ...this.session, state: event.state };
         await this.ensureWalletSessionDeliveryPersistedV1({ state: event.state, runEpoch });
-        const targetFactorSecret = this.claimTargetCredentialFactorSecret(runEpoch);
-        try {
-          await this.ports.sessionActivation.activateLinkedDeviceSigningSessionV1({
-            walletId: event.state.walletId,
-            enrollmentId: event.state.enrollmentId,
-            activation: targetFactorSecret
-              ? { kind: 'target_passkey_creation', factorSecret: targetFactorSecret }
-              : { kind: 'existing_target_passkey' },
-          });
-        } finally {
-          this.clearTargetCredentialActivationState();
-        }
+        // Refactor 103 Phase 8. Device 2 finishes linking as an ordinary owner:
+        // its canonical credential and the local records that unlock it were
+        // committed by the finalize, so there is no warm linked session to
+        // activate here. The new passkey's PRF was consumed by the custody
+        // reseal and has no further consumer, so it is wiped rather than
+        // handed to a signing runtime that no longer exists on this path.
+        this.clearTargetCredentialActivationState();
         this.emit({
           phase: LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED,
           status: 'succeeded',
@@ -649,13 +639,6 @@ export class LinkDeviceFlow {
           );
         }
         return Promise.reject(new LinkDeviceFlowSupersededError());
-      case 'consuming':
-        if (this.targetCredentialActivationState.runEpoch === input.runEpoch) {
-          return Promise.reject(
-            new Error('Device-link target passkey activation is already being consumed'),
-          );
-        }
-        return Promise.reject(new LinkDeviceFlowSupersededError());
       default:
         return assertNeverTargetCredentialActivationState(this.targetCredentialActivationState);
     }
@@ -714,34 +697,9 @@ export class LinkDeviceFlow {
     }
   }
 
-  private claimTargetCredentialFactorSecret(runEpoch: number): Uint8Array | null {
-    switch (this.targetCredentialActivationState.kind) {
-      case 'idle':
-        return null;
-      case 'in_progress':
-        throw new Error('Device-link target passkey activation is still in progress');
-      case 'factor_ready': {
-        if (this.targetCredentialActivationState.runEpoch !== runEpoch) {
-          throw new LinkDeviceFlowSupersededError();
-        }
-        const factorSecret = this.targetCredentialActivationState.factorSecret;
-        this.targetCredentialActivationState = {
-          kind: 'consuming',
-          runEpoch,
-          factorSecret,
-        };
-        return factorSecret;
-      }
-      case 'consuming':
-        throw new Error('Device-link target passkey activation is already being consumed');
-      default:
-        return assertNeverTargetCredentialActivationState(this.targetCredentialActivationState);
-    }
-  }
-
   private clearTargetCredentialActivationState(): void {
     const state = this.targetCredentialActivationState;
-    if (state.kind === 'factor_ready' || state.kind === 'consuming') {
+    if (state.kind === 'factor_ready') {
       zeroizeLiveBytes(state.factorSecret);
     }
     this.targetCredentialActivationState = { kind: 'idle' };

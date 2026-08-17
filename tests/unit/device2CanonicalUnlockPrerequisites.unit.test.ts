@@ -66,6 +66,11 @@ test('the canonical enrollment completes before the temporary lane path runs', a
   // prompt per device.
   expect(harness.calls.filter((call) => call === 'target-passkey').length).toBe(1);
 
+  // The linked warm-session activation is gone from the canonical route. The
+  // port is still wired and still throws, so reaching it would fail loudly —
+  // this asserts it was never reached at all.
+  expect(harness.calls).not.toContain('session-activation');
+
   // The R102 lane path is stubbed to fail, and every local record still landed.
   // That is the precondition for the cutover: Device 2's canonical identity does
   // not depend on the lanes about to be deleted.
