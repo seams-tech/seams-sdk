@@ -25,8 +25,7 @@ const MANIFEST_DIGEST = parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(
 async function preparation(
   overrides: Partial<Record<string, unknown>> = {},
 ): Promise<LinkedDeviceTargetPreparationV1> {
-  const base = (await buildR103TargetCredentialFixture(buildR103DeviceLinkFixture()))
-    .preparation;
+  const base = (await buildR103TargetCredentialFixture(buildR103DeviceLinkFixture())).preparation;
   return parseLinkedDeviceTargetPreparationV1({
     ...base,
     issuedAtMs: NOW_MS - 1_000,
@@ -40,12 +39,17 @@ async function preparation(
 }
 
 /**
- * A session already device-authenticated for this link session, parked at a
- * state that carries the verified key manifest.
+ * A session already device-authenticated and approved for this link session.
+ * The manifest rides the approval transcript, so every approved state carries
+ * one — the state itself is no longer where it comes from.
  */
 function session(
   prepared: LinkedDeviceTargetPreparationV1,
-  overrides: { readonly state?: LinkedDeviceSessionRecordV1['state']; readonly claim?: unknown } = {},
+  overrides: {
+    readonly state?: LinkedDeviceSessionRecordV1['state'];
+    readonly claim?: unknown;
+    readonly approval?: unknown;
+  } = {},
 ): LinkedDeviceSessionRecordV1 {
   const claim = {
     kind: 'linked_device_session_claim_v1' as const,
@@ -66,8 +70,9 @@ function session(
       enrollmentId: prepared.enrollmentId,
       keyManifestDigestB64u: MANIFEST_DIGEST,
     },
-    claimTranscript:
-      overrides.claim === null ? undefined : { value: overrides.claim ?? claim },
+    claimTranscript: overrides.claim === null ? undefined : { value: overrides.claim ?? claim },
+    approvalTranscript:
+      overrides.approval === null ? undefined : { sourceKeyManifestDigestB64u: MANIFEST_DIGEST },
   } as unknown as LinkedDeviceSessionRecordV1;
 }
 
@@ -104,26 +109,68 @@ test('refuses a ceremony this enrollment was never approved for', async () => {
   ).toEqual({ ok: false, reason: 'ceremony_does_not_match_enrollment' });
 });
 
-test('refuses before the key manifest exists', async () => {
+test('admits from awaiting_target_passkey, the state Device 2 finalizes in', async () => {
+  // The manifest arrives with the approval rather than with an R102 commit, so
+  // this state carries one and no longer has to be excluded.
   const prepared = await preparation();
-  // `awaiting_target_passkey` precedes the R102 commit, so there is no
-  // manifest for the new owner credential to be bound to.
+  const result = admitLinkedOwnerEnrollmentFinalizeV1({
+    session: session(prepared, {
+      state: {
+        state: 'awaiting_target_passkey',
+        linkSessionId: prepared.linkSessionId,
+        walletId: prepared.walletId,
+        enrollmentId: prepared.enrollmentId,
+        credentialDeadlineMs: NOW_MS + 60_000,
+      },
+    }),
+    preparation: prepared,
+    addAuthMethodCeremonyId: CEREMONY_ID,
+    requestedAtMs: NOW_MS,
+  });
+  expect(result).toEqual({
+    ok: true,
+    admission: {
+      walletId: prepared.walletId,
+      enrollmentId: prepared.enrollmentId,
+      deviceId: prepared.deviceId,
+      keyManifestDigestB64u: MANIFEST_DIGEST,
+      addAuthMethodCeremonyId: CEREMONY_ID,
+    },
+  });
+});
+
+test('refuses a session that was never approved', async () => {
+  // Being approved is the real precondition: the approval is what carries the
+  // manifest the binding is written from.
+  const prepared = await preparation();
+  expect(
+    admitLinkedOwnerEnrollmentFinalizeV1({
+      session: session(prepared, { approval: null }),
+      preparation: prepared,
+      addAuthMethodCeremonyId: CEREMONY_ID,
+      requestedAtMs: NOW_MS,
+    }),
+  ).toEqual({ ok: false, reason: 'session_not_approved' });
+});
+
+test('refuses a state no approval can be recorded in', async () => {
+  const prepared = await preparation();
   expect(
     admitLinkedOwnerEnrollmentFinalizeV1({
       session: session(prepared, {
         state: {
-          state: 'awaiting_target_passkey',
+          state: 'claimed_by_owner',
           linkSessionId: prepared.linkSessionId,
           walletId: prepared.walletId,
           enrollmentId: prepared.enrollmentId,
-          credentialDeadlineMs: NOW_MS + 60_000,
+          claimExpiresAtMs: NOW_MS + 60_000,
         },
       }),
       preparation: prepared,
       addAuthMethodCeremonyId: CEREMONY_ID,
       requestedAtMs: NOW_MS,
     }),
-  ).toEqual({ ok: false, reason: 'session_has_no_key_manifest' });
+  ).toEqual({ ok: false, reason: 'session_not_approved' });
 });
 
 test('refuses an unclaimed session', async () => {
