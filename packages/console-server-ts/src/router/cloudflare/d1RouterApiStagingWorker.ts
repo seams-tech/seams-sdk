@@ -190,7 +190,7 @@ type RouterApiTenantScope = {
   readonly envId: string;
 };
 
-type HostedConsoleIdentityService = ReturnType<
+export type HostedConsoleIdentityService = ReturnType<
   typeof createCloudflareD1RouterApiAuthService
 >['identity'];
 
@@ -210,14 +210,23 @@ type HostedConsoleLoginIdentity =
       readonly name: string;
     };
 
-interface HostedConsoleAuthHandlerOptions {
+export type HostedConsoleInitialOwnerPolicy =
+  | {
+      readonly kind: 'configured_google_email';
+      readonly email: string;
+    }
+  | {
+      readonly kind: 'first_verified_google';
+    };
+
+export interface HostedConsoleAuthHandlerOptions {
   readonly handler: FetchHandler;
   readonly identity: HostedConsoleIdentityService;
   readonly session: SessionAdapter;
   readonly organizationAccess: ConsoleOrganizationAccessService;
   readonly orgProjectEnv: ConsoleOrgProjectEnvService;
   readonly scope: RouterApiTenantScope;
-  readonly initialOwnerEmail: string;
+  readonly initialOwner: HostedConsoleInitialOwnerPolicy;
   readonly corsOrigins: readonly string[];
 }
 
@@ -379,7 +388,7 @@ function consoleAuthJson(body: unknown, status: number, setCookie?: string): Res
   return new Response(JSON.stringify(body), { status, headers });
 }
 
-class HostedConsoleAuthHandler {
+export class HostedConsoleAuthHandler {
   constructor(private readonly options: HostedConsoleAuthHandlerOptions) {}
 
   async fetch(request: Request, env?: object, ctx?: CfExecutionContext): Promise<Response> {
@@ -522,11 +531,12 @@ class HostedConsoleAuthHandler {
 
   private async bootstrapInitialOwner(identity: HostedConsoleLoginIdentity): Promise<void> {
     if (identity.kind !== 'google') return;
-    const initialOwnerEmail = normalizeConsoleLoginEmail(this.options.initialOwnerEmail);
+    if (!isAuthoritativeGoogleEmail(identity)) {
+      return;
+    }
     if (
-      !initialOwnerEmail ||
-      identity.email !== initialOwnerEmail ||
-      !isAuthoritativeGoogleEmail(identity)
+      this.options.initialOwner.kind === 'configured_google_email' &&
+      identity.email !== normalizeConsoleLoginEmail(this.options.initialOwner.email)
     ) {
       return;
     }
@@ -719,7 +729,10 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     organizationAccess: bundle.organizationAccess,
     orgProjectEnv: bundle.orgProjectEnv,
     scope,
-    initialOwnerEmail: readEnvString(env, 'CONSOLE_INITIAL_OWNER_EMAIL'),
+    initialOwner: {
+      kind: 'configured_google_email',
+      email: readEnvString(env, 'CONSOLE_INITIAL_OWNER_EMAIL'),
+    },
     corsOrigins: readCsvList(env.RELAY_CORS_ORIGINS),
   });
   return dispatchHostedGatewayRequest.bind(

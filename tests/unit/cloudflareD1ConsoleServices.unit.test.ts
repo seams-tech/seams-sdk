@@ -260,6 +260,9 @@ function createLocalWorkflowRequest(input: {
   readonly headers?: HeadersInit;
 }): Request {
   const headers = new Headers(input.headers);
+  if (input.path.startsWith('/console/') && !input.path.startsWith('/console/auth/')) {
+    headers.set('x-console-user-id', 'local-workflow-user');
+  }
   let body: string | undefined;
   if (input.body) {
     body = JSON.stringify(input.body);
@@ -271,6 +274,53 @@ function createLocalWorkflowRequest(input: {
     body,
   });
 }
+
+test('local Console sign-out clears the session and refresh stays unauthorized', async () => {
+  const database = new FakeD1Database();
+  const env = createLocalD1WorkflowEnv({
+    consoleDatabase: database,
+    signerDatabase: database,
+  });
+  const ctx = createFakeExecutionContext();
+
+  const missingSession = await localD1DevWorker.fetch(
+    new Request('https://localhost:9444/console/session'),
+    env,
+    ctx,
+  );
+  expect(missingSession.status).toBe(401);
+
+  const invalidGoogleLogin = await localD1DevWorker.fetch(
+    new Request('https://localhost:9444/console/auth/google', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    }),
+    env,
+    ctx,
+  );
+  expect(invalidGoogleLogin.status).toBe(400);
+  await expect(readJsonRecord(invalidGoogleLogin)).resolves.toMatchObject({
+    ok: false,
+    code: 'invalid_body',
+  });
+
+  const revoke = await localD1DevWorker.fetch(
+    new Request('https://localhost:9444/console/auth/revoke', { method: 'POST' }),
+    env,
+    ctx,
+  );
+  expect(revoke.status).toBe(200);
+  expect(revoke.headers.get('set-cookie')).toContain('seams-console-jwt=');
+  expect(revoke.headers.get('set-cookie')).toContain('Max-Age=0');
+
+  const refreshed = await localD1DevWorker.fetch(
+    new Request('https://localhost:9444/console/session'),
+    env,
+    ctx,
+  );
+  expect(refreshed.status).toBe(401);
+});
 
 async function callLocalWorkflowWorker(
   env: LocalD1WorkflowEnv,
