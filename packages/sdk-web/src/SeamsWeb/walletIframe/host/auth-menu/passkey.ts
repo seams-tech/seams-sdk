@@ -153,7 +153,7 @@ export async function prepareHostedPasskeyLogin(args: {
   authMenuSessionId: HostedAuthMenuSessionId;
   requestId: WalletIframeRequestId;
   cancellation: HostedPasskeyPreparationCancellation;
-}): Promise<HostedPasskeyLoginPrepared> {
+}): Promise<HostedPasskeyPrepared> {
   throwIfCancelled(args.cancellation);
   const walletId = walletIdFromString(args.walletId);
   const resolution = await resolveWalletUnlockSubjectSet({
@@ -165,7 +165,13 @@ export async function prepareHostedPasskeyLogin(args: {
       ? resolution.subjectSet
       : await resolveLinkedDeviceUnlockSubjectSet(String(walletId));
   if (!subjectSet) {
-    throw new Error(`Hosted auth-menu login subject resolution failed: ${resolution.kind}`);
+    return await prepareHostedPasskeyAccountSync({
+      context: args.context,
+      walletId: String(walletId),
+      authMenuSessionId: args.authMenuSessionId,
+      requestId: args.requestId,
+      cancellation: args.cancellation,
+    });
   }
   throwIfCancelled(args.cancellation);
   const prepared: HostedPasskeyLoginPrepared = Object.freeze({
