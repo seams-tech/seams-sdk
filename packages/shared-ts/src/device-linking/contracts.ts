@@ -476,6 +476,27 @@ export type LinkedDeviceTargetPreparationChildV1 = {
   readonly targetHolderParticipantId: LaneHolderParticipantId;
 };
 
+/**
+ * Refactor 103 Phase 8: the canonical owner add-auth-method ceremony this
+ * enrollment will finalize.
+ *
+ * Device 2 has no owner authority, so it cannot start one. Device 1 does,
+ * during approval, and its identity travels here so Device 2's single WebAuthn
+ * creation is the ceremony's own registration — one prompt, one challenge, one
+ * ceremony. Device 2 then finalizes it under link-session device
+ * authentication rather than owner authentication.
+ *
+ * The registration options are carried opaquely: they are the server's own
+ * `WalletAddAuthMethodRegistrationOptions`, echoed to the browser that will
+ * call `navigator.credentials.create`. Re-declaring their shape here would
+ * fork the canonical add-passkey contract.
+ */
+export type LinkedDeviceOwnerEnrollmentCeremonyV1 = {
+  readonly kind: 'linked_device_owner_enrollment_ceremony_v1';
+  readonly addAuthMethodCeremonyId: string;
+  readonly registration: unknown;
+};
+
 /** Server-owned challenge and exact R102 child identities required before Device 2 creates keys. */
 export type LinkedDeviceTargetPreparationV1 = {
   readonly kind: 'linked_device_target_preparation_v1';
@@ -490,6 +511,12 @@ export type LinkedDeviceTargetPreparationV1 = {
     LinkedDeviceTargetPreparationChildV1,
     ...LinkedDeviceTargetPreparationChildV1[],
   ];
+  /**
+   * Absent until Device 1 has started the owner ceremony. Its absence is what
+   * tells Device 2 to keep waiting rather than to create a passkey that no
+   * ceremony can finalize.
+   */
+  readonly ownerEnrollment?: LinkedDeviceOwnerEnrollmentCeremonyV1;
   readonly issuedAtMs: number;
   readonly expiresAtMs: number;
 };
