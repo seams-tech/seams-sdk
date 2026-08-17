@@ -52,6 +52,14 @@ import { LinkDeviceEventPhase, createLinkDeviceFlowEvent } from '@/core/types/sd
 import type { CreateLinkDeviceFlowEventInput } from '@/core/types/sdkSentEvents';
 import { buildLinkedDeviceProvisionedExecutionEvidenceV1 } from '@/core/signingEngine/session/lanes/linkedDeviceExecutionBundle';
 import { nextLinkedDevicePollingDelayMsV1 } from './deviceLinkingHttpTransport';
+import {
+  acceptLinkedDeviceCustodyTransferV1,
+  discardLinkedDeviceCustodyRecipientV1,
+  publishLinkedDeviceCustodyRecipientV1,
+} from './deviceLinkingTargetCustodyTransfer';
+import type { DeviceLinkingCustodyTransferRecipientHandleV1 } from './deviceLinkingCustodyTransfer';
+import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
+import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 
 type EmitLinkDeviceEventInput = Omit<CreateLinkDeviceFlowEventInput, 'flowId' | 'accountId'> & {
   readonly accountId?: string;
@@ -162,12 +170,25 @@ function zeroizeLiveBytes(value: Uint8Array): void {
   if (value.byteLength > 0) value.fill(0);
 }
 
+/** The relying party the owner ceremony will verify this credential against. */
+function requireTargetRpIdV1(preparation: LinkedDeviceTargetPreparationV1): WebAuthnRpId {
+  const rpId = parseWebAuthnRpId(preparation.ownerEnrollment.registration.rpId);
+  if (!rpId.ok) throw new Error(rpId.error.message);
+  return rpId.value;
+}
+
 export class LinkDeviceFlow {
   private readonly options: StartDevice2LinkingFlowArgs;
   private readonly ports: Device2LinkingFlowPortsV1;
   private readonly flowId: string;
   private session: DeviceLinkingSession | null = null;
   private keyMaterialHandle: DeviceLinkingKeyMaterialHandleV1 | null = null;
+  /**
+   * Refactor 103 Phase 8. The wallet custody seed resealed under this device's
+   * new passkey, waiting for the canonical finalize that registers it as an
+   * owner auth method.
+   */
+  private resealedCustodyEnvelope: PasskeyCustodyEnvelopeRecord | null = null;
   private authenticatedTransport: DeviceLinkingAuthenticatedTransportPortV1 | null = null;
   private subscription: LinkSessionSubscriptionV1 | null = null;
   private error?: Error;
@@ -671,12 +692,54 @@ export class LinkDeviceFlow {
     if (!this.keyMaterialHandle || !this.session)
       throw new Error('device-link key material is unavailable');
     const authenticatedTransport = this.requireAuthenticatedTransport();
+    // Started, not awaited. Device 1 cannot seal the wallet custody seed until
+    // a recipient exists, and the owner is already waiting there, so publishing
+    // one now lets that seal happen while this device's user is still at the
+    // passkey prompt. Awaiting it here would spend the click's transient user
+    // activation on a worker call and a POST before WebAuthn ever sees it.
+    const recipientPublish = publishLinkedDeviceCustodyRecipientV1({
+      custodyTransfer: this.ports.custodyTransfer,
+      transport: authenticatedTransport,
+      identity: {
+        linkSessionId: String(state.linkSessionId),
+        walletId: state.walletId,
+        enrollmentId: state.enrollmentId,
+        deviceId,
+      },
+      registeredAtMs: Date.now(),
+    });
+    // Nothing awaits it until after the prompt; this keeps an early rejection
+    // from being reported as unhandled. It is re-raised at the await below.
+    recipientPublish.catch(() => undefined);
     // This is the first operation after the UI click so WebAuthn receives transient user activation.
     const credential = await this.ports.targetCredential.createTargetCredentialV1({
       preparation,
       keyMaterial: this.keyMaterialHandle,
     });
+    let recipient: DeviceLinkingCustodyTransferRecipientHandleV1 | null = null;
     try {
+      recipient = await recipientPublish;
+      this.assertCurrentRun(runEpoch);
+      // The wallet custody seed, resealed under the passkey just created. Held
+      // for the canonical finalize that registers this credential as an owner
+      // auth method; the temporary lane path below does not use it.
+      this.resealedCustodyEnvelope = await acceptLinkedDeviceCustodyTransferV1({
+        custodyTransfer: this.ports.custodyTransfer,
+        transport: authenticatedTransport,
+        recipient,
+        rpId: requireTargetRpIdV1(preparation),
+        credentialIdB64u: credential.webauthnRegistration.credentialIdB64u,
+        replacementFactorSecret: credential.factorSecret,
+        // Whichever deadline comes first: past the ceremony the credential this
+        // seed is for can never be minted, and past the session there is no
+        // authenticated channel left to finalize it through.
+        expiresAtMs: Math.min(
+          preparation.ownerEnrollment.expiresAtMs,
+          this.session.qrData.expiresAtMs,
+        ),
+        assertCurrentRun: () => this.assertCurrentRun(runEpoch),
+        waitForPollV1: waitForSessionStateRetry,
+      });
       this.assertCurrentRun(runEpoch);
       const targetPreparationDigestB64u =
         await computeLinkedDeviceTargetPreparationDigestV1(preparation);
@@ -746,6 +809,10 @@ export class LinkDeviceFlow {
       return credential.factorSecret;
     } catch (error: unknown) {
       zeroizeLiveBytes(credential.factorSecret);
+      // A recipient nobody will seal to is a live private key in the worker.
+      if (recipient) {
+        await discardLinkedDeviceCustodyRecipientV1(this.ports.custodyTransfer, recipient);
+      }
       throw error;
     }
   }
