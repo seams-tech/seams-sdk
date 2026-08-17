@@ -1,5 +1,5 @@
 import { parseOptionalPositiveInteger } from './evm';
-import { getNearSpendCapChainId } from '@seams-internal/console-shared/gasSponsorshipSpendCapTargets';
+import { getNearSpendCapChainId } from '@seams-internal/wallet-console-shared/gasSponsorshipSpendCapTargets';
 import type {
   SponsorshipSpendPricingEstimateInput,
   SponsorshipSpendPricingFinalizeInput,

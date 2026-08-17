@@ -2,7 +2,7 @@ import { base64UrlDecode, base64UrlEncode } from '@seams/sdk-server/cloud-host';
 import {
   normalizeConsoleWebhookEventCategory,
   type ConsoleWebhookEventCategory,
-} from '@seams-internal/console-shared/webhookEventCategories';
+} from '@seams-internal/wallet-console-shared/webhookEventCategories';
 import type { NormalizedLogger } from '@seams/sdk-server/cloud-host';
 import {
   d1Integer as toNumber,

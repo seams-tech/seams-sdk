@@ -11,7 +11,7 @@ import type { D1DatabaseLike } from '@seams/sdk-server/cloud-host';
 import {
   isApiCredentialScope,
   type ApiCredentialScope,
-} from '@seams-internal/console-shared/apiKeyScopes';
+} from '@seams-internal/wallet-console-shared/apiKeyScopes';
 import { ConsoleApiKeyError } from './errors';
 import { isIpAllowlistMatch } from './ipAllowlist';
 import { buildPublishableKeyOriginBlockedMessage } from './originMessage';

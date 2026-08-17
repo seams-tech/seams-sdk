@@ -9,7 +9,7 @@ import type {
 } from '../sponsoredCalls';
 import type { ConsoleSponsorshipSpendCapService } from '../sponsorshipSpendCaps';
 import type { ConsoleWebhookService } from '../webhooks';
-import { getNearSpendCapChainId } from '@seams-internal/console-shared/gasSponsorshipSpendCapTargets';
+import { getNearSpendCapChainId } from '@seams-internal/wallet-console-shared/gasSponsorshipSpendCapTargets';
 import {
   buildSponsoredSpendCapSourceEventId,
   isSponsorshipSpendCapEnforcementError,

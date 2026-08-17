@@ -13,7 +13,7 @@ import { normalizeCorsOrigin } from '@seams/sdk-server/cloud-host';
 import {
   isApiCredentialScope,
   type ApiCredentialScope,
-} from "@seams-internal/console-shared/apiKeyScopes";
+} from "@seams-internal/wallet-console-shared/apiKeyScopes";
 import type {
   AuthenticateConsoleApiKeyRequest,
   AuthenticateConsoleApiKeyResult,
