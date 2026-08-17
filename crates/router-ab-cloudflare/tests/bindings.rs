@@ -305,6 +305,26 @@ fn normal_signing_v2_wallet_session(expires_at_ms: u64) -> CloudflareRouterVerif
     .expect("wallet session")
 }
 
+fn ecdsa_wallet_session(expires_at_ms: u64) -> CloudflareRouterVerifiedWalletSessionV1 {
+    CloudflareRouterVerifiedWalletSessionV1::new(
+        "wallet-1",
+        "wallet-1",
+        "authorization-session-1",
+        "authorization-1",
+        "wallet-session-1",
+        "quota-1",
+        "ecdsa-material-lifecycle-1",
+        "org-1",
+        "project-1",
+        "dev",
+        "evm-family",
+        "server-a",
+        digest(0x90),
+        expires_at_ms,
+    )
+    .expect("ECDSA wallet session")
+}
+
 fn normal_signing_v2_prepare_request(
     expires_at_ms: u64,
 ) -> RouterAbEd25519NormalSigningPrepareRequestV2 {
@@ -838,7 +858,7 @@ fn trusted_admission(decision: ExpensiveWorkGateDecisionV1) -> CloudflareRouterT
             "project-1",
             "dev",
             "account.near",
-            GatePrincipalV1::authenticated_session("user-1", "session-1").expect("principal"),
+            GatePrincipalV1::router_jwt_session("user-1", "session-1").expect("principal"),
             digest(0x90),
         )
         .expect("gate context"),
@@ -854,7 +874,7 @@ fn trusted_metadata() -> CloudflareRouterTrustedRequestMetadataV1 {
         "project-1",
         "dev",
         "account.near",
-        CloudflareRouterAuthContextV1::authenticated_session("user-1", "session-1")
+        CloudflareRouterAuthContextV1::router_jwt_session("user-1", "session-1")
             .expect("auth context"),
         digest(0x90),
     )
@@ -983,83 +1003,6 @@ fn valid_router_jwt_claims() -> serde_json::Value {
             "requestDigest": request.router_replay_digest(),
         },
     })
-}
-
-fn valid_wallet_session_jwt_claims() -> serde_json::Value {
-    let mut claims = valid_router_jwt_claims();
-    claims["kind"] = serde_json::json!("router_ab_ed25519_wallet_session_v1");
-    claims["authorizationKind"] = serde_json::json!("owner_wallet_session");
-    claims["walletId"] = serde_json::json!("user-1");
-    claims["nearAccountId"] = serde_json::json!("account.near");
-    claims["nearEd25519SigningKeyId"] = serde_json::json!("near-key-1");
-    claims["relayerKeyId"] = serde_json::json!("server-a");
-    claims["authority"] = serde_json::json!({
-        "walletId": "user-1",
-    });
-    claims["authorityScope"] = serde_json::json!({
-        "kind": "passkey_rp",
-        "rpId": "example.com",
-    });
-    claims["authorizationId"] = serde_json::json!("authorization-1");
-    claims["walletSessionId"] = serde_json::json!("wallet-session-1");
-    claims["quotaId"] = serde_json::json!("quota-1");
-    claims["thresholdSessionId"] = serde_json::json!("ed25519-material-lifecycle-1");
-    claims["thresholdExpiresAtMs"] = serde_json::json!(3_000);
-    claims["participantIds"] = serde_json::json!([1, 2]);
-    claims["runtimePolicyScope"] = serde_json::json!({
-        "orgId": "org-1",
-        "projectId": "project-1",
-        "envId": "dev",
-        "signingRootVersion": "default",
-    });
-    claims["routerAbNormalSigning"] = serde_json::json!({
-        "signingWorkerId": "server-a",
-    });
-    claims
-}
-
-fn valid_ecdsa_wallet_session_jwt_claims() -> serde_json::Value {
-    let mut claims = valid_router_jwt_claims();
-    claims["kind"] = serde_json::json!("router_ab_ecdsa_derivation_wallet_session_v1");
-    claims["authorizationKind"] = serde_json::json!("owner_wallet_session");
-    claims["sub"] = serde_json::json!("wallet-1");
-    claims["account_id"] = serde_json::json!("wallet-1");
-    claims["sid"] = serde_json::json!("authorization-session-1");
-    claims["walletId"] = serde_json::json!("wallet-1");
-    claims["authorizationId"] = serde_json::json!("authorization-1");
-    claims["authorizationSessionId"] = serde_json::json!("authorization-session-1");
-    claims["walletAuthAuthorityRef"] = serde_json::json!({
-        "kind": "wallet_auth_authority_ref",
-        "walletId": "wallet-1",
-        "authorityDigest": base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([0x55; 32]),
-    });
-    claims["authSource"] = serde_json::json!({
-        "kind": "passkey",
-        "credentialIdB64u": "credential-id",
-    });
-    claims["walletSessionId"] = serde_json::json!("wallet-session-1");
-    claims["quotaId"] = serde_json::json!("quota-1");
-    claims["thresholdSessionId"] = serde_json::json!("ecdsa-material-lifecycle-1");
-    claims["keyScope"] = serde_json::json!("evm-family");
-    claims["keyHandle"] = serde_json::json!("ecdsa-key-handle-1");
-    claims["relayerKeyId"] = serde_json::json!("server-a");
-    claims["thresholdExpiresAtMs"] = serde_json::json!(3_000);
-    claims["participantIds"] = serde_json::json!([1, 2]);
-    claims["runtimePolicyScope"] = serde_json::json!({
-        "orgId": "org-1",
-        "projectId": "project-1",
-        "envId": "dev",
-        "signingRootVersion": "default",
-    });
-    claims["routerAbEcdsaDerivationNormalSigning"] = serde_json::json!({
-        "scope": {
-            "wallet_id": "wallet-1",
-            "signing_worker": {
-                "server_id": "server-a",
-            },
-        },
-    });
-    claims
 }
 
 #[test]
@@ -1708,14 +1651,14 @@ fn router_ab_ecdsa_derivation_trusted_admission(
 ) -> CloudflareRouterNormalSigningTrustedAdmissionV1 {
     let auth = match &request.authorization {
         NormalSigningAuthorizationV1::ReusableWalletSession { wallet_session_id } => {
-            CloudflareRouterAuthContextV1::authenticated_session(
+            CloudflareRouterAuthContextV1::owner_wallet_session(
                 "subject-1",
                 wallet_session_id.clone(),
             )
             .expect("Router A/B ECDSA derivation auth context")
         }
         NormalSigningAuthorizationV1::OperationStepUp => {
-            CloudflareRouterAuthContextV1::operation_step_up_session(
+            CloudflareRouterAuthContextV1::owner_operation_step_up(
                 "subject-1",
                 "authorization-session-ecdsa-1",
             )
@@ -1746,14 +1689,14 @@ fn router_ab_ecdsa_derivation_finalize_trusted_admission(
 ) -> CloudflareRouterNormalSigningTrustedAdmissionV1 {
     let auth = match &request.authorization {
         NormalSigningAuthorizationV1::ReusableWalletSession { wallet_session_id } => {
-            CloudflareRouterAuthContextV1::authenticated_session(
+            CloudflareRouterAuthContextV1::owner_wallet_session(
                 "subject-1",
                 wallet_session_id.clone(),
             )
             .expect("Router A/B ECDSA derivation finalize auth context")
         }
         NormalSigningAuthorizationV1::OperationStepUp => {
-            CloudflareRouterAuthContextV1::operation_step_up_session(
+            CloudflareRouterAuthContextV1::owner_operation_step_up(
                 "subject-1",
                 "authorization-session-ecdsa-1",
             )
@@ -2973,7 +2916,7 @@ fn trusted_admission_rejects_mismatched_request_resource() {
             "project-1",
             "dev",
             "different.near",
-            GatePrincipalV1::authenticated_session("user-1", "session-1").expect("principal"),
+            GatePrincipalV1::router_jwt_session("user-1", "session-1").expect("principal"),
             digest(0x90),
         )
         .expect("gate context"),
@@ -3089,7 +3032,7 @@ fn router_admission_provider_output_rejects_metadata_mismatch() {
         "project-1",
         "dev",
         "different.near",
-        CloudflareRouterAuthContextV1::authenticated_session("user-1", "session-1")
+        CloudflareRouterAuthContextV1::router_jwt_session("user-1", "session-1")
             .expect("auth context"),
         digest(0x90),
     )
@@ -3428,38 +3371,28 @@ fn router_ed25519_jwks_jwt_verifier_rejects_request_scope_mismatch() {
 }
 
 #[test]
-fn router_wallet_session_credential_accepts_bearer_authorization_header() {
-    let credential = CloudflareRouterWalletSessionCredentialV1::from_bearer_authorization_header(
-        "Bearer wallet-session-token",
-    )
-    .expect("wallet session credential");
+fn router_wallet_session_credential_accepts_gateway_owner_projection() {
+    let session = normal_signing_v2_wallet_session(3_000);
+    let credential = CloudflareRouterWalletSessionCredentialV1::gateway_owner(session.clone())
+        .expect("Gateway owner credential");
 
     credential.validate().expect("credential validates");
     match credential {
-        CloudflareRouterWalletSessionCredentialV1::Bearer { authorization } => {
-            assert_eq!(authorization.token, "wallet-session-token");
+        CloudflareRouterWalletSessionCredentialV1::GatewayOwner { wallet_session } => {
+            assert_eq!(wallet_session.wallet_session_id, session.wallet_session_id);
         }
     }
 }
 
 #[test]
-fn router_ed25519_jwks_wallet_session_verifier_accepts_normal_signing_claims() {
+fn router_wallet_session_verifier_accepts_normal_signing_projection() {
     let signing_key = SigningKey::from_bytes(&[0x42; 32]);
     let jwks_json = ed25519_jwks_json(&signing_key, "router-key-1");
     let mut verifier = CloudflareRouterEd25519JwksJwtVerifierV1::from_jwks_json(&jwks_json)
-        .expect("ed25519 jwks verifier");
-    let token = ed25519_jwt(
-        &signing_key,
-        "router-key-1",
-        valid_wallet_session_jwt_claims(),
-    );
-    let credential = CloudflareRouterWalletSessionCredentialV1::bearer(
-        CloudflareRouterBearerAuthorizationV1::from_authorization_header(&format!(
-            "Bearer {token}"
-        ))
-        .expect("authorization"),
-    )
-    .expect("wallet session credential");
+        .expect("Ed25519 JWK verifier");
+    let session = normal_signing_v2_wallet_session(3_000);
+    let credential =
+        CloudflareRouterWalletSessionCredentialV1::gateway_owner(session).expect("credential");
 
     let session = verifier
         .verify_wallet_session(
@@ -3468,36 +3401,23 @@ fn router_ed25519_jwks_wallet_session_verifier_accepts_normal_signing_claims() {
             digest(0x90),
             1_000,
         )
-        .expect("wallet session verifies");
+        .expect("Wallet Session verifies");
 
-    assert_eq!(session.subject_id, "user-1");
     assert_eq!(session.account_id, "account.near");
     assert_eq!(session.wallet_session_id, "wallet-session-1");
-    assert_eq!(session.quota_id, "quota-1");
-    assert_eq!(session.threshold_session_id, "ed25519-material-lifecycle-1");
     assert_eq!(session.authorization_level, "near-ed25519");
     assert_eq!(session.signing_worker_id, "server-a");
-    assert_eq!(session.expires_at_ms, 3_000);
 }
 
 #[test]
-fn router_ed25519_jwks_wallet_session_verifier_accepts_canonical_ecdsa_claims() {
+fn router_wallet_session_verifier_accepts_ecdsa_projection() {
     let signing_key = SigningKey::from_bytes(&[0x42; 32]);
     let jwks_json = ed25519_jwks_json(&signing_key, "router-key-1");
     let mut verifier = CloudflareRouterEd25519JwksJwtVerifierV1::from_jwks_json(&jwks_json)
-        .expect("ed25519 jwks verifier");
-    let token = ed25519_jwt(
-        &signing_key,
-        "router-key-1",
-        valid_ecdsa_wallet_session_jwt_claims(),
-    );
-    let credential = CloudflareRouterWalletSessionCredentialV1::bearer(
-        CloudflareRouterBearerAuthorizationV1::from_authorization_header(&format!(
-            "Bearer {token}"
-        ))
-        .expect("authorization"),
-    )
-    .expect("wallet session credential");
+        .expect("Ed25519 JWK verifier");
+    let credential =
+        CloudflareRouterWalletSessionCredentialV1::gateway_owner(ecdsa_wallet_session(3_000))
+            .expect("credential");
 
     let session = verifier
         .verify_wallet_session(
@@ -3506,216 +3426,46 @@ fn router_ed25519_jwks_wallet_session_verifier_accepts_canonical_ecdsa_claims() 
             digest(0x90),
             1_000,
         )
-        .expect("canonical ECDSA wallet session verifies");
+        .expect("ECDSA Wallet Session verifies");
 
-    assert_eq!(session.subject_id, "wallet-1");
     assert_eq!(session.account_id, "wallet-1");
     assert_eq!(session.authorization_session_id, "authorization-session-1");
     assert_eq!(session.authorization_level, "evm-family");
-    assert_eq!(session.signing_worker_id, "server-a");
 }
 
 #[test]
-fn router_ed25519_jwks_wallet_session_verifier_rejects_ecdsa_missing_authority_ref() {
+fn router_wallet_session_verifier_rejects_source_mismatch() {
     let signing_key = SigningKey::from_bytes(&[0x42; 32]);
     let jwks_json = ed25519_jwks_json(&signing_key, "router-key-1");
     let mut verifier = CloudflareRouterEd25519JwksJwtVerifierV1::from_jwks_json(&jwks_json)
-        .expect("ed25519 jwks verifier");
-    let mut claims = valid_ecdsa_wallet_session_jwt_claims();
-    claims
-        .as_object_mut()
-        .expect("claims object")
-        .remove("walletAuthAuthorityRef");
-    let token = ed25519_jwt(&signing_key, "router-key-1", claims);
-    let credential = CloudflareRouterWalletSessionCredentialV1::bearer(
-        CloudflareRouterBearerAuthorizationV1::from_authorization_header(&format!(
-            "Bearer {token}"
-        ))
-        .expect("authorization"),
+        .expect("Ed25519 JWK verifier");
+    let credential = CloudflareRouterWalletSessionCredentialV1::gateway_owner(
+        normal_signing_v2_wallet_session(3_000),
     )
-    .expect("wallet session credential");
+    .expect("credential");
 
     let err = verifier
         .verify_wallet_session(
             &router_admission_bindings().jwt,
             &credential,
-            digest(0x90),
+            digest(0x91),
             1_000,
         )
-        .expect_err("ECDSA Wallet Session without authority ref must fail");
-
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
-}
-
-#[test]
-fn router_ed25519_jwks_wallet_session_verifier_rejects_ecdsa_authority_ref_wallet_mismatch() {
-    let signing_key = SigningKey::from_bytes(&[0x42; 32]);
-    let jwks_json = ed25519_jwks_json(&signing_key, "router-key-1");
-    let mut verifier = CloudflareRouterEd25519JwksJwtVerifierV1::from_jwks_json(&jwks_json)
-        .expect("ed25519 jwks verifier");
-    let mut claims = valid_ecdsa_wallet_session_jwt_claims();
-    claims["walletAuthAuthorityRef"]["walletId"] = serde_json::json!("different-wallet");
-    let token = ed25519_jwt(&signing_key, "router-key-1", claims);
-    let credential = CloudflareRouterWalletSessionCredentialV1::bearer(
-        CloudflareRouterBearerAuthorizationV1::from_authorization_header(&format!(
-            "Bearer {token}"
-        ))
-        .expect("authorization"),
-    )
-    .expect("wallet session credential");
-
-    let err = verifier
-        .verify_wallet_session(
-            &router_admission_bindings().jwt,
-            &credential,
-            digest(0x90),
-            1_000,
-        )
-        .expect_err("authority ref wallet id mismatch must fail");
-
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
-}
-
-#[test]
-fn router_ed25519_jwks_wallet_session_verifier_rejects_ecdsa_unsupported_auth_source() {
-    let signing_key = SigningKey::from_bytes(&[0x42; 32]);
-    let jwks_json = ed25519_jwks_json(&signing_key, "router-key-1");
-    let mut verifier = CloudflareRouterEd25519JwksJwtVerifierV1::from_jwks_json(&jwks_json)
-        .expect("ed25519 jwks verifier");
-    let mut claims = valid_ecdsa_wallet_session_jwt_claims();
-    claims["authSource"] = serde_json::json!({
-        "kind": "oidc_provider",
-        "providerId": "unsupported",
-        "providerSubject": "provider-subject",
-    });
-    let token = ed25519_jwt(&signing_key, "router-key-1", claims);
-    let credential = CloudflareRouterWalletSessionCredentialV1::bearer(
-        CloudflareRouterBearerAuthorizationV1::from_authorization_header(&format!(
-            "Bearer {token}"
-        ))
-        .expect("authorization"),
-    )
-    .expect("wallet session credential");
-
-    let err = verifier
-        .verify_wallet_session(
-            &router_admission_bindings().jwt,
-            &credential,
-            digest(0x90),
-            1_000,
-        )
-        .expect_err("unsupported auth source provider must fail");
-
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
-}
-
-#[test]
-fn router_ed25519_jwks_wallet_session_verifier_rejects_ecdsa_fields_on_ed25519_owner() {
-    let signing_key = SigningKey::from_bytes(&[0x42; 32]);
-    let jwks_json = ed25519_jwks_json(&signing_key, "router-key-1");
-    let mut verifier = CloudflareRouterEd25519JwksJwtVerifierV1::from_jwks_json(&jwks_json)
-        .expect("ed25519 jwks verifier");
-    let mut claims = valid_wallet_session_jwt_claims();
-    claims["walletAuthAuthorityRef"] = serde_json::json!({
-        "kind": "wallet_auth_authority_ref",
-        "walletId": "user-1",
-        "authorityDigest": base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([0x55; 32]),
-    });
-    let token = ed25519_jwt(&signing_key, "router-key-1", claims);
-    let credential = CloudflareRouterWalletSessionCredentialV1::bearer(
-        CloudflareRouterBearerAuthorizationV1::from_authorization_header(&format!(
-            "Bearer {token}"
-        ))
-        .expect("authorization"),
-    )
-    .expect("wallet session credential");
-
-    let err = verifier
-        .verify_wallet_session(
-            &router_admission_bindings().jwt,
-            &credential,
-            digest(0x90),
-            1_000,
-        )
-        .expect_err("Ed25519 Wallet Session with ECDSA-only fields must fail");
-
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
-}
-
-#[test]
-fn router_ed25519_jwks_wallet_session_verifier_rejects_ecdsa_duplicate_identity_mismatch() {
-    let signing_key = SigningKey::from_bytes(&[0x42; 32]);
-    let jwks_json = ed25519_jwks_json(&signing_key, "router-key-1");
-    let mut verifier = CloudflareRouterEd25519JwksJwtVerifierV1::from_jwks_json(&jwks_json)
-        .expect("ed25519 jwks verifier");
-    let mut claims = valid_ecdsa_wallet_session_jwt_claims();
-    claims["walletId"] = serde_json::json!("different-wallet");
-    let token = ed25519_jwt(&signing_key, "router-key-1", claims);
-    let credential = CloudflareRouterWalletSessionCredentialV1::bearer(
-        CloudflareRouterBearerAuthorizationV1::from_authorization_header(&format!(
-            "Bearer {token}"
-        ))
-        .expect("authorization"),
-    )
-    .expect("wallet session credential");
-
-    let err = verifier
-        .verify_wallet_session(
-            &router_admission_bindings().jwt,
-            &credential,
-            digest(0x90),
-            1_000,
-        )
-        .expect_err("mismatched ECDSA duplicate identity must fail");
-
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
-}
-
-#[test]
-fn router_ed25519_jwks_wallet_session_verifier_rejects_pairwise_identity_alias() {
-    let signing_key = SigningKey::from_bytes(&[0x42; 32]);
-    let jwks_json = ed25519_jwks_json(&signing_key, "router-key-1");
-    let mut verifier = CloudflareRouterEd25519JwksJwtVerifierV1::from_jwks_json(&jwks_json)
-        .expect("ed25519 jwks verifier");
-    let mut claims = valid_wallet_session_jwt_claims();
-    claims["authorizationId"] = serde_json::json!("wallet-session-1");
-    let token = ed25519_jwt(&signing_key, "router-key-1", claims);
-    let credential = CloudflareRouterWalletSessionCredentialV1::bearer(
-        CloudflareRouterBearerAuthorizationV1::from_authorization_header(&format!(
-            "Bearer {token}"
-        ))
-        .expect("authorization"),
-    )
-    .expect("wallet session credential");
-
-    let err = verifier
-        .verify_wallet_session(
-            &router_admission_bindings().jwt,
-            &credential,
-            digest(0x90),
-            1_000,
-        )
-        .expect_err("authorization and Wallet Session ids must remain distinct");
+        .expect_err("source mismatch must fail");
 
     assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
 }
 
 #[test]
-fn router_ed25519_jwks_wallet_session_verifier_rejects_cross_lane_kind() {
+fn router_wallet_session_verifier_rejects_expired_projection() {
     let signing_key = SigningKey::from_bytes(&[0x42; 32]);
     let jwks_json = ed25519_jwks_json(&signing_key, "router-key-1");
     let mut verifier = CloudflareRouterEd25519JwksJwtVerifierV1::from_jwks_json(&jwks_json)
-        .expect("ed25519 jwks verifier");
-    let mut claims = valid_wallet_session_jwt_claims();
-    claims["kind"] = serde_json::json!("router_ab_ecdsa_derivation_wallet_session_v1");
-    let token = ed25519_jwt(&signing_key, "router-key-1", claims);
-    let credential = CloudflareRouterWalletSessionCredentialV1::bearer(
-        CloudflareRouterBearerAuthorizationV1::from_authorization_header(&format!(
-            "Bearer {token}"
-        ))
-        .expect("authorization"),
+        .expect("Ed25519 JWK verifier");
+    let credential = CloudflareRouterWalletSessionCredentialV1::gateway_owner(
+        normal_signing_v2_wallet_session(1_000),
     )
-    .expect("wallet session credential");
+    .expect("credential");
 
     let err = verifier
         .verify_wallet_session(
@@ -3724,97 +3474,42 @@ fn router_ed25519_jwks_wallet_session_verifier_rejects_cross_lane_kind() {
             digest(0x90),
             1_000,
         )
-        .expect_err("cross-lane wallet session kind must fail");
+        .expect_err("expired Wallet Session must fail");
 
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::ExpiredLocalRequest);
 }
 
 #[test]
-fn router_ed25519_jwks_wallet_session_verifier_rejects_legacy_authorization_alias() {
-    let signing_key = SigningKey::from_bytes(&[0x42; 32]);
-    let jwks_json = ed25519_jwks_json(&signing_key, "router-key-1");
-    let mut verifier = CloudflareRouterEd25519JwksJwtVerifierV1::from_jwks_json(&jwks_json)
-        .expect("ed25519 jwks verifier");
-    let mut claims = valid_wallet_session_jwt_claims();
-    claims[["signing", "GrantId"].concat()] = serde_json::json!("legacy-authorization-alias");
-    let token = ed25519_jwt(&signing_key, "router-key-1", claims);
-    let credential = CloudflareRouterWalletSessionCredentialV1::bearer(
-        CloudflareRouterBearerAuthorizationV1::from_authorization_header(&format!(
-            "Bearer {token}"
-        ))
-        .expect("authorization"),
-    )
-    .expect("wallet session credential");
+fn router_wallet_session_credential_rejects_duplicate_authorization_ids() {
+    let mut session = normal_signing_v2_wallet_session(3_000);
+    session.authorization_id = session.wallet_session_id.clone();
 
-    let err = verifier
-        .verify_wallet_session(
-            &router_admission_bindings().jwt,
-            &credential,
-            digest(0x90),
-            1_000,
-        )
-        .expect_err("legacy signing grant must fail");
+    let err = CloudflareRouterWalletSessionCredentialV1::gateway_owner(session)
+        .expect_err("duplicate authorization and Wallet Session ids must fail");
 
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
 }
 
 #[test]
-fn router_ed25519_jwks_wallet_session_verifier_rejects_missing_quota_id() {
-    let signing_key = SigningKey::from_bytes(&[0x42; 32]);
-    let jwks_json = ed25519_jwks_json(&signing_key, "router-key-1");
-    let mut verifier = CloudflareRouterEd25519JwksJwtVerifierV1::from_jwks_json(&jwks_json)
-        .expect("ed25519 jwks verifier");
-    let mut claims = valid_wallet_session_jwt_claims();
-    claims
-        .as_object_mut()
-        .expect("claims object")
-        .remove("quotaId");
-    let token = ed25519_jwt(&signing_key, "router-key-1", claims);
-    let credential = CloudflareRouterWalletSessionCredentialV1::bearer(
-        CloudflareRouterBearerAuthorizationV1::from_authorization_header(&format!(
-            "Bearer {token}"
-        ))
-        .expect("authorization"),
-    )
-    .expect("wallet session credential");
+fn router_wallet_session_credential_rejects_missing_quota_id() {
+    let mut session = normal_signing_v2_wallet_session(3_000);
+    session.quota_id.clear();
 
-    let err = verifier
-        .verify_wallet_session(
-            &router_admission_bindings().jwt,
-            &credential,
-            digest(0x90),
-            1_000,
-        )
-        .expect_err("missing quota must fail");
+    let err = CloudflareRouterWalletSessionCredentialV1::gateway_owner(session)
+        .expect_err("missing quota id must fail");
 
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::EmptyField);
 }
 
 #[test]
-fn router_ed25519_jwks_wallet_session_verifier_rejects_missing_normal_signing_claims() {
-    let signing_key = SigningKey::from_bytes(&[0x42; 32]);
-    let jwks_json = ed25519_jwks_json(&signing_key, "router-key-1");
-    let mut verifier = CloudflareRouterEd25519JwksJwtVerifierV1::from_jwks_json(&jwks_json)
-        .expect("ed25519 jwks verifier");
-    let token = ed25519_jwt(&signing_key, "router-key-1", valid_router_jwt_claims());
-    let credential = CloudflareRouterWalletSessionCredentialV1::bearer(
-        CloudflareRouterBearerAuthorizationV1::from_authorization_header(&format!(
-            "Bearer {token}"
-        ))
-        .expect("authorization"),
-    )
-    .expect("wallet session credential");
+fn router_wallet_session_credential_rejects_missing_normal_signing_claims() {
+    let mut session = normal_signing_v2_wallet_session(3_000);
+    session.authorization_level.clear();
 
-    let err = verifier
-        .verify_wallet_session(
-            &router_admission_bindings().jwt,
-            &credential,
-            digest(0x90),
-            1_000,
-        )
-        .expect_err("missing normal-signing claim must fail");
+    let err = CloudflareRouterWalletSessionCredentialV1::gateway_owner(session)
+        .expect_err("missing authorization level must fail");
 
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::EmptyField);
 }
 
 #[test]
@@ -4174,8 +3869,8 @@ fn router_normal_signing_admission_v2_converts_to_v1_store_metadata() {
     assert_eq!(metadata.intent_digest, admission.intent_digest);
     assert_eq!(
         metadata.auth,
-        CloudflareRouterAuthContextV1::authenticated_session("user-1", "wallet-session-1")
-            .expect("authenticated session")
+        CloudflareRouterAuthContextV1::owner_wallet_session("user-1", "wallet-session-1")
+            .expect("owner Wallet Session auth context")
     );
 }
 
@@ -4206,8 +3901,8 @@ fn router_normal_signing_finalize_admission_v2_converts_to_v1_store_metadata() {
     assert_eq!(metadata.intent_digest, admission.intent_digest);
     assert_eq!(
         metadata.auth,
-        CloudflareRouterAuthContextV1::authenticated_session("user-1", "wallet-session-1")
-            .expect("authenticated session")
+        CloudflareRouterAuthContextV1::owner_wallet_session("user-1", "wallet-session-1")
+            .expect("owner Wallet Session auth context")
     );
 }
 
@@ -4399,7 +4094,7 @@ fn router_runtime_project_policy_rejects_normal_signing_when_disabled() {
         "project-1",
         "dev",
         "account.near",
-        CloudflareRouterAuthContextV1::authenticated_session("user-1", "session-1")
+        CloudflareRouterAuthContextV1::router_jwt_session("user-1", "session-1")
             .expect("auth context"),
         digest(0x90),
         digest(0x91),
@@ -4510,7 +4205,7 @@ fn router_trusted_metadata_must_match_public_request_lifecycle() {
         "project-1",
         "dev",
         "different.near",
-        CloudflareRouterAuthContextV1::authenticated_session("user-1", "session-1")
+        CloudflareRouterAuthContextV1::router_jwt_session("user-1", "session-1")
             .expect("auth context"),
         digest(0x90),
     )
@@ -6910,7 +6605,7 @@ fn router_ab_ecdsa_derivation_admitted_request_accepts_reusable_wallet_session_d
         .expect("reusable Wallet Session authorization is independent of material activation");
     assert!(matches!(
         admitted.trusted_admission.metadata.auth,
-        CloudflareRouterAuthContextV1::AuthenticatedSession { .. }
+        CloudflareRouterAuthContextV1::OwnerWalletSession { .. }
     ));
 }
 
@@ -6919,7 +6614,7 @@ fn router_ab_ecdsa_derivation_admitted_request_rejects_wrong_reusable_wallet_ses
     let request = router_ab_ecdsa_derivation_digest_signing_request();
     let mut trusted_admission = router_ab_ecdsa_derivation_trusted_admission(&request);
     trusted_admission.metadata.auth =
-        CloudflareRouterAuthContextV1::authenticated_session("subject-1", "wrong-wallet-session")
+        CloudflareRouterAuthContextV1::owner_wallet_session("subject-1", "wrong-wallet-session")
             .expect("wrong Wallet Session auth context");
 
     let err = CloudflareSigningWorkerAdmittedRouterAbEcdsaDerivationEvmDigestSigningRequestV1::new(
@@ -6945,7 +6640,7 @@ fn router_ab_ecdsa_derivation_admitted_request_accepts_operation_step_up_only_wi
         .expect("operation step-up authorization is accepted with step-up auth context");
     assert!(matches!(
         admitted.trusted_admission.metadata.auth,
-        CloudflareRouterAuthContextV1::OperationStepUpSession { .. }
+        CloudflareRouterAuthContextV1::OwnerOperationStepUp { .. }
     ));
 }
 
@@ -6988,11 +6683,13 @@ fn router_ab_ecdsa_derivation_admitted_finalize_accepts_reusable_wallet_session_
         .expect("reusable Wallet Session authorization is independent of material activation");
     assert!(matches!(
         admitted.trusted_admission.metadata.auth,
-        CloudflareRouterAuthContextV1::AuthenticatedSession { .. }
+        CloudflareRouterAuthContextV1::OwnerWalletSession { .. }
     ));
     let admitted_session_id = match &admitted.trusted_admission.metadata.auth {
-        CloudflareRouterAuthContextV1::AuthenticatedSession { session_id, .. } => session_id,
-        _ => unreachable!("reusable authorization must use authenticated session auth"),
+        CloudflareRouterAuthContextV1::OwnerWalletSession {
+            wallet_session_id, ..
+        } => wallet_session_id,
+        _ => unreachable!("reusable authorization must use owner Wallet Session auth"),
     };
     assert_ne!(
         admitted_session_id,
@@ -7004,14 +6701,15 @@ fn router_ab_ecdsa_derivation_admitted_finalize_accepts_reusable_wallet_session_
 }
 
 #[test]
-fn router_ab_ecdsa_derivation_admitted_finalize_rejects_authenticated_auth_for_operation_step_up() {
+fn router_ab_ecdsa_derivation_admitted_finalize_rejects_owner_wallet_session_auth_for_operation_step_up(
+) {
     let mut request = router_ab_ecdsa_derivation_digest_signing_finalize_request();
     request.authorization =
         NormalSigningAuthorizationV1::operation_step_up().expect("operation step-up authorization");
     let mut trusted_admission = router_ab_ecdsa_derivation_finalize_trusted_admission(&request);
     trusted_admission.metadata.auth =
-        CloudflareRouterAuthContextV1::authenticated_session("subject-1", "wallet-session-ecdsa-1")
-            .expect("authenticated auth context");
+        CloudflareRouterAuthContextV1::owner_wallet_session("subject-1", "wallet-session-ecdsa-1")
+            .expect("owner Wallet Session auth context");
     let effect_claim = ecdsa_effect_claim(&request);
     let effect_identity = ecdsa_effect_identity(&request);
 

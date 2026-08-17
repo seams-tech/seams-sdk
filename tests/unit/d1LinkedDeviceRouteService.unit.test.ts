@@ -21,8 +21,8 @@ import {
   buildR102HolderDeliveryReceipt,
   buildR102ManifestChild,
   buildR102ProtocolCommitReceipt,
-  buildR102CommittedProtocolAdmissionRecordFixture,
   buildR102PreparingEnrollmentAdmissionRecordFixture,
+  buildR102CommittedAwaitingHolderDeliveryProtocolAdmissionRecordFixture,
 } from './helpers/r102LaneGateway.fixtures';
 import {
   buildLaneEnrollmentManifestV1,
@@ -95,10 +95,11 @@ test('binds deliveries and holder receipts to the persisted child operation', as
   const enrollment = buildR102PreparingEnrollmentAdmissionRecordFixture(
     manifest,
     fixture.receipt.manifestDigestB64u,
+    1_000,
   );
-  const protocol = buildR102CommittedProtocolAdmissionRecordFixture(
+  const protocol = buildR102CommittedAwaitingHolderDeliveryProtocolAdmissionRecordFixture(
     job,
-    receipt.transcriptHashB64u,
+    receipt,
     receiptDigestB64u,
   );
   const verifier = new D1LinkedDeviceProvisioningVerifierV1({

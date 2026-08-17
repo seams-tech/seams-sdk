@@ -32,7 +32,7 @@ fn work_kind_maps_to_router_ab_request_kind() {
 #[test]
 fn gate_context_requires_server_derived_boundary_fields() {
     let principal =
-        GatePrincipalV1::authenticated_session("user-1", "session-1").expect("principal");
+        GatePrincipalV1::owner_wallet_session("user-1", "session-1").expect("principal");
 
     let context = ExpensiveWorkGateContextV1::new(
         ExpensiveWorkKindV1::RegistrationPrepare,
@@ -68,7 +68,7 @@ fn gate_context_rejects_empty_resource_id() {
 
 #[test]
 fn gate_principal_rejects_empty_branch_identity() {
-    let err = GatePrincipalV1::authenticated_session("user-1", "")
+    let err = GatePrincipalV1::owner_wallet_session("user-1", "")
         .expect_err("empty session id must be rejected");
 
     assert_eq!(err.code(), RouterAbProtocolErrorCode::EmptyField);
