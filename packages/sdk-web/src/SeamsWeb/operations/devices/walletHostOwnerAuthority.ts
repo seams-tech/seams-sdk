@@ -256,12 +256,28 @@ async function requireActiveWalletSessionForWalletV1(
   walletId: WalletId,
 ): Promise<ActiveWalletSessionAuthorizationProjection> {
   const read = await context.walletSessions.readActiveForWallet(walletId);
-  if (
-    read.kind !== 'found' ||
-    read.projection.status !== 'active' ||
-    read.projection.expiresAtMs <= Date.now()
-  ) {
-    throw new Error('An active owner Wallet Session is required');
+  // One error per cause: this gate fails for reasons with different remedies
+  // (unlock again, versus stale local rows from an older build), and a single
+  // message made them indistinguishable in the field.
+  switch (read.kind) {
+    case 'found':
+      break;
+    case 'missing':
+      throw new Error(
+        'An active owner Wallet Session is required — unlock this wallet, then retry',
+      );
+    case 'corrupt':
+      throw new Error(
+        'Stored owner Wallet Session state is corrupt for this wallet — lock and unlock to replace it',
+      );
+    case 'persistence_unavailable':
+      throw new Error('Owner Wallet Session storage is unavailable');
+    default:
+      read satisfies never;
+      throw new Error('Unsupported owner Wallet Session read result');
+  }
+  if (read.projection.status !== 'active' || read.projection.expiresAtMs <= Date.now()) {
+    throw new Error('The owner Wallet Session has expired — unlock this wallet, then retry');
   }
   return read.projection;
 }
