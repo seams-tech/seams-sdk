@@ -17,7 +17,7 @@ import {
   buildR102ServerActivationReceipt,
   buildR102ActiveProductEpoch,
   buildR102LaneEnrollmentFixture,
-  buildR102ActiveEnrollmentAdmissionRecordFixture,
+  buildR102EnrollmentAdmissionRecordFixture,
   buildR102ActiveProtocolAdmissionRecordFixture,
   buildR102RevokedProductEpoch,
 } from './helpers/r102LaneGateway.fixtures';
@@ -132,11 +132,22 @@ async function activeLaneResolverFixture(curve: 'ed25519' | 'ecdsa_secp256k1') {
       : buildR102EcdsaLaneJob('normal-resolver-ecdsa');
   const product = await buildR102ActiveProductEpoch(job);
   const enrollmentFixture = buildR102LaneEnrollmentFixture();
-  const enrollment = buildR102ActiveEnrollmentAdmissionRecordFixture(
-    enrollmentFixture.manifest,
-    product.aggregateManifestDigestB64u,
+  const enrollmentRecord = await buildR102EnrollmentAdmissionRecordFixture(enrollmentFixture);
+  const enrollment = {
+    ...enrollmentRecord,
+    value: {
+      ...enrollmentRecord.value,
+      lifecycle: {
+        ...enrollmentRecord.value.lifecycle,
+        manifestDigestB64u: product.aggregateManifestDigestB64u,
+      },
+    },
+  };
+  const protocol = buildR102ActiveProtocolAdmissionRecordFixture(
+    job,
+    parseDigestB64u(DIGEST_B64U),
+    4_000,
   );
-  const protocol = buildR102ActiveProtocolAdmissionRecordFixture(job);
   return { job, product, enrollment, protocol };
 }
 

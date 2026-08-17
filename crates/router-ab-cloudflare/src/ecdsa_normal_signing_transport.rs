@@ -381,7 +381,7 @@ mod tests {
             "project-1",
             "dev",
             scope.wallet_id.clone(),
-            CloudflareRouterAuthContextV1::authenticated_session("subject-1", "wallet-session-1")
+            CloudflareRouterAuthContextV1::owner_wallet_session("subject-1", "wallet-session-1")
                 .expect("auth context"),
             PublicDigest32::new([0x42; 32]),
             intent_digest,

@@ -16,7 +16,7 @@ import {
 import { alphabetizeStringify } from '@shared/utils/digests';
 import { errorMessage } from '@shared/utils/errors';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
-import { parseWebAuthnCredentialIdB64u } from '@shared/utils/domainIds';
+import { hasControlCharacter, parseWebAuthnCredentialIdB64u } from '@shared/utils/domainIds';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { sha256BytesUtf8 } from '@shared/utils/digests';
 import { computeLaneEnrollmentManifestDigestV1 } from '@shared/signing-lanes/rotationDigests';
@@ -879,8 +879,7 @@ function requiredScope(value: string, field: string): string {
     typeof value !== 'string' ||
     value.length === 0 ||
     value.trim() !== value ||
-    // eslint-disable-next-line no-control-regex
-    /[\u0000-\u001f\u007f]/.test(value)
+    hasControlCharacter(value)
   ) {
     throw new Error(`${field} is invalid`);
   }

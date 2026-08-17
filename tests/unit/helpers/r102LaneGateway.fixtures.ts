@@ -5,9 +5,6 @@ import {
   buildLaneHolderDeliveryReceiptV1,
   buildLaneProtocolCommitReceiptV1,
   buildLaneServerActivationReceiptV1,
-  buildLaneProtocolRecordV1,
-  parseLaneEnrollmentLifecycleV1,
-  parseLaneProtocolLifecycleV1,
   parseRotatableSigningLaneJobV1,
 } from '../../../packages/shared-ts/src/signing-lanes/rotationParsers';
 import type {
@@ -49,7 +46,10 @@ import {
   buildOwnerLaneParticipantContinuityV1,
   parseWalletSignerId,
 } from '../../../packages/shared-ts/src/signing-lanes/ownerContinuity';
-import { parseDigestB64u } from '../../../packages/shared-ts/src/utils/canonicalPrimitives';
+import {
+  parseDigestB64u,
+  type DigestB64u,
+} from '../../../packages/shared-ts/src/utils/canonicalPrimitives';
 import { base64UrlEncode } from '../../../packages/shared-ts/src/utils/base64';
 import type {
   LaneEnrollmentId,
@@ -198,22 +198,15 @@ export async function buildR102EnrollmentAdmissionRecordFixture(
   fixture: R102LaneEnrollmentFixture,
 ): Promise<LaneEnrollmentAdmissionRecord> {
   const manifestDigestB64u = await computeLaneEnrollmentManifestDigestV1(fixture.manifest);
-  return buildR102ActiveEnrollmentAdmissionRecordFixture(fixture.manifest, manifestDigestB64u);
-}
-
-export function buildR102ActiveEnrollmentAdmissionRecordFixture(
-  manifest: LaneEnrollmentManifestV1,
-  manifestDigestB64u: string,
-): LaneEnrollmentAdmissionRecord {
   return {
     value: {
-      manifest,
-      lifecycle: parseLaneEnrollmentLifecycleV1({
+      manifest: fixture.manifest,
+      lifecycle: {
         state: 'active',
         manifestDigestB64u,
         aggregateReceiptDigestB64u: DIGEST_B64U,
         activatedAtMs: 4_000,
-      }),
+      },
     },
     version: 1,
     commandDigestB64u: DIGEST_B64U,
@@ -222,16 +215,17 @@ export function buildR102ActiveEnrollmentAdmissionRecordFixture(
 
 export function buildR102PreparingEnrollmentAdmissionRecordFixture(
   manifest: LaneEnrollmentManifestV1,
-  manifestDigestB64u: string,
+  manifestDigestB64u: DigestB64u,
+  startedAtMs: number,
 ): LaneEnrollmentAdmissionRecord {
   return {
     value: {
       manifest,
-      lifecycle: parseLaneEnrollmentLifecycleV1({
+      lifecycle: {
         state: 'preparing',
         manifestDigestB64u,
-        startedAtMs: 1_000,
-      }),
+        startedAtMs,
+      },
     },
     version: 1,
     commandDigestB64u: manifestDigestB64u,
@@ -240,43 +234,45 @@ export function buildR102PreparingEnrollmentAdmissionRecordFixture(
 
 export function buildR102ActiveProtocolAdmissionRecordFixture(
   job: RotatableSigningLaneJobV1,
+  digestB64u: DigestB64u,
+  activatedAtMs: number,
 ): LaneProtocolAdmissionRecord {
   return {
     version: 1,
-    commandDigestB64u: DIGEST_B64U,
-    value: buildLaneProtocolRecordV1({
+    commandDigestB64u: digestB64u,
+    value: {
       job,
-      lifecycle: parseLaneProtocolLifecycleV1({
+      lifecycle: {
         state: 'active',
-        transcriptHashB64u: DIGEST_B64U,
-        protocolCommitReceiptDigestB64u: DIGEST_B64U,
-        holderDeliveryReceiptDigestB64u: DIGEST_B64U,
-        serverActivationReceiptDigestB64u: DIGEST_B64U,
-        aggregateActivationReceiptDigestB64u: DIGEST_B64U,
-        activatedAtMs: 4_000,
-      }),
-    }),
+        transcriptHashB64u: digestB64u,
+        protocolCommitReceiptDigestB64u: digestB64u,
+        holderDeliveryReceiptDigestB64u: digestB64u,
+        serverActivationReceiptDigestB64u: digestB64u,
+        aggregateActivationReceiptDigestB64u: digestB64u,
+        activatedAtMs,
+      },
+    },
   };
 }
 
-export function buildR102CommittedProtocolAdmissionRecordFixture(
+export function buildR102CommittedAwaitingHolderDeliveryProtocolAdmissionRecordFixture(
   job: RotatableSigningLaneJobV1,
-  transcriptHashB64u: string,
-  receiptDigestB64u: string,
+  receipt: LaneProtocolCommitReceiptV1,
+  receiptDigestB64u: DigestB64u,
 ): LaneProtocolAdmissionRecord {
   return {
-    version: 2,
-    commandDigestB64u: receiptDigestB64u,
-    value: buildLaneProtocolRecordV1({
+    value: {
       job,
-      lifecycle: parseLaneProtocolLifecycleV1({
+      lifecycle: {
         state: 'committed_awaiting_holder_delivery',
         startedAtMs: 1_000,
         committedAtMs: 2_000,
-        transcriptHashB64u,
+        transcriptHashB64u: receipt.transcriptHashB64u,
         protocolCommitReceiptDigestB64u: receiptDigestB64u,
-      }),
-    }),
+      },
+    },
+    version: 2,
+    commandDigestB64u: receiptDigestB64u,
   };
 }
 
