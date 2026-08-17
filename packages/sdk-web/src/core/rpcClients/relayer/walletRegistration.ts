@@ -26,6 +26,7 @@ import {
 import { parseImplicitNearAccountId, parseNamedNearAccountId } from '@shared/utils/near';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import type { CorrelationId } from '@shared/utils/canonicalPrimitives';
+import { base64UrlDecode } from '@shared/utils/base64';
 import type {
   RegistrationEstablishedEcdsaSession,
   RegistrationEstablishedEd25519Session,
@@ -666,6 +667,21 @@ type WalletRegistrationFinalizeResponseBase = {
   walletCustody?: WalletCustodyRegistrationOutcome;
 };
 
+/**
+ * The manifest the wallet's key set was registered against. Owner Wallet
+ * Sessions name this digest, so the finalize that creates the key set is where
+ * the client first learns it. Finalize-only: the activate leg precedes the key
+ * set and has no manifest to name.
+ */
+type WalletRegistrationFinalizeManifest = {
+  /**
+   * Optional on the wire only because the activate leg's server builder does
+   * not yet honor the contract that requires it; validated whenever present.
+   * The NEAR provisioning completion always carries it.
+   */
+  custodyKeyManifestDigestB64u?: string;
+};
+
 export type WalletRegistrationFinalizeResponseAuthority =
   | {
       rpId: string;
@@ -695,11 +711,13 @@ type WalletRegistrationFinalizeSignerResult =
     };
 
 export type EmailOtpWalletRegistrationFinalizeResponse = WalletRegistrationFinalizeResponseBase &
+  WalletRegistrationFinalizeManifest &
   Extract<WalletRegistrationFinalizeResponseAuthority, { authMethod: { kind: 'email_otp' } }> &
   WalletRegistrationFinalizeSignerResult;
 
 export type WalletRegistrationFinalizeResponse =
   | (WalletRegistrationFinalizeResponseBase &
+      WalletRegistrationFinalizeManifest &
       Extract<WalletRegistrationFinalizeResponseAuthority, { authMethod: { kind: 'passkey' } }> &
       WalletRegistrationFinalizeSignerResult)
   | EmailOtpWalletRegistrationFinalizeResponse;
@@ -2219,7 +2237,12 @@ type DistributiveOmit<T, K extends keyof any> = T extends unknown ? Omit<T, K> :
 
 export type WalletRegistrationActivateEd25519PendingV2 = DistributiveOmit<
   Extract<WalletRegistrationFinalizeResponse, { ok: true; kind: 'near_ed25519' }>,
-  'ed25519' | 'resolvedAccount' | 'accountProvisioning' | 'authorityScope'
+  | 'ed25519'
+  | 'resolvedAccount'
+  | 'accountProvisioning'
+  | 'authorityScope'
+  // The activate leg precedes the key set, so there is no manifest to name yet.
+  | 'custodyKeyManifestDigestB64u'
 > & {
   /* Required, not optional: a pending Ed25519-only wallet with no provisioning
      state would be indistinguishable from one that never needed NEAR. */
@@ -3303,6 +3326,7 @@ export function parseWalletRegistrationFinalizeResponse(args: {
       'rpId',
       'authMethod',
       'walletCustody',
+      'custodyKeyManifestDigestB64u',
       'kind',
       'authorityScope',
       'accountProvisioning',
@@ -3343,6 +3367,22 @@ export function parseWalletRegistrationFinalizeResponse(args: {
             responseName,
           ),
         };
+  const custodyKeyManifestDigestB64u =
+    response.custodyKeyManifestDigestB64u === undefined
+      ? undefined
+      : requireResponseString({
+          responseName,
+          field: 'custodyKeyManifestDigestB64u',
+          value: response.custodyKeyManifestDigestB64u,
+        });
+  if (
+    custodyKeyManifestDigestB64u !== undefined &&
+    base64UrlDecode(custodyKeyManifestDigestB64u).byteLength !== 32
+  ) {
+    throw new Error(`${responseName} response has invalid custodyKeyManifestDigestB64u`);
+  }
+  const manifest =
+    custodyKeyManifestDigestB64u === undefined ? {} : { custodyKeyManifestDigestB64u };
 
   switch (response.kind) {
     case 'near_ed25519': {
@@ -3361,6 +3401,7 @@ export function parseWalletRegistrationFinalizeResponse(args: {
           authority,
           ...(registrationDiagnostics ? { registrationDiagnostics } : {}),
           ...walletCustody,
+          ...manifest,
           rpId: authorityBranch.rpId,
           authMethod: authorityBranch.authMethod,
           kind: 'near_ed25519',
@@ -3376,6 +3417,7 @@ export function parseWalletRegistrationFinalizeResponse(args: {
         authority,
         ...(registrationDiagnostics ? { registrationDiagnostics } : {}),
         ...walletCustody,
+        ...manifest,
         authMethod: authorityBranch.authMethod,
         kind: 'near_ed25519',
         authorityScope: near.authorityScope,
@@ -3404,6 +3446,7 @@ export function parseWalletRegistrationFinalizeResponse(args: {
           authority,
           ...(registrationDiagnostics ? { registrationDiagnostics } : {}),
           ...walletCustody,
+          ...manifest,
           rpId: authorityBranch.rpId,
           authMethod: authorityBranch.authMethod,
           kind: 'evm_family_ecdsa',
@@ -3416,6 +3459,7 @@ export function parseWalletRegistrationFinalizeResponse(args: {
         authority,
         ...(registrationDiagnostics ? { registrationDiagnostics } : {}),
         ...walletCustody,
+        ...manifest,
         authMethod: authorityBranch.authMethod,
         kind: 'evm_family_ecdsa',
         ecdsa,

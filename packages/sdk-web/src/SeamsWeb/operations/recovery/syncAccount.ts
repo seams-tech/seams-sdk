@@ -559,8 +559,7 @@ function isSealablePasskeyEd25519YaoClient(
   activeClient: PasskeyEd25519YaoRecoveryResultV1['activeClient'],
 ): activeClient is RouterAbEd25519YaoSealableActiveClientV1 {
   return (
-    'sealLocalMaterial' in activeClient &&
-    typeof activeClient.sealLocalMaterial === 'function'
+    'sealLocalMaterial' in activeClient && typeof activeClient.sealLocalMaterial === 'function'
   );
 }
 
@@ -933,6 +932,16 @@ async function persistRecoveredPasskey(input: {
       rawId: String(input.credential.rawId || ''),
     },
     version: 2,
+  });
+  // The signer rows live under the NEAR account profile; session identity
+  // finds them by pivoting through the canonical wallet profile's provisioning
+  // record. A synced device joins a wallet whose NEAR account already exists,
+  // so provisioning is observed ready — without this write the wallet unlocks
+  // and then cannot name its own NEAR identity.
+  await input.context.signingEngine.setWalletNearProvisioningState({
+    walletId: parsed.walletId,
+    status: 'near_ready',
+    nearAccountId: parsed.nearAccountId,
   });
   await input.context.signingEngine.storeAuthenticator({
     nearAccountId: parsed.nearAccountId,

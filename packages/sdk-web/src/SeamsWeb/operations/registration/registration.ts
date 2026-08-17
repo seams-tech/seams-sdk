@@ -1896,6 +1896,7 @@ function finalizeResponseViewFromActivatedEcdsa(
     registrationDiagnostics,
     rpId,
     authMethod,
+    custodyKeyManifestDigestB64u,
     ecdsa: activatedEcdsa,
   } = activated;
   const { activation: _activation, bootstrap: _bootstrap, ...ecdsa } = activatedEcdsa;
@@ -1904,6 +1905,7 @@ function finalizeResponseViewFromActivatedEcdsa(
     walletId,
     authority,
     ...(registrationDiagnostics ? { registrationDiagnostics } : {}),
+    ...(custodyKeyManifestDigestB64u !== undefined ? { custodyKeyManifestDigestB64u } : {}),
     kind: 'evm_family_ecdsa' as const,
     ecdsa,
   };
