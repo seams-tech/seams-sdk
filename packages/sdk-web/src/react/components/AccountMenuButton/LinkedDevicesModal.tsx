@@ -80,33 +80,30 @@ function shortDeviceId(deviceId: LinkedDeviceSummaryV1['deviceId']): string {
  * passkeys are both "Platform passkey" — so the stable device ID suffix is what
  * makes a sentence name a single card rather than a category of them.
  */
-function deviceDescription(device: LinkedDeviceSummaryV1): string {
-  return `${device.label} (ID ${shortDeviceId(device.deviceId)})`;
+function credentialDescription(device: LinkedDeviceSummaryV1): string {
+  switch (device.credential.kind) {
+    case 'passkey':
+      return device.credential.device.label;
+    case 'email_otp':
+      return 'Email OTP';
+  }
 }
 
-function devicePlatformDescription(device: LinkedDeviceSummaryV1): string {
-  switch (device.platform) {
-    case 'platform':
-    case 'internal':
-      return 'Built into device';
-    case 'cross-platform':
-      return 'External';
-    case 'hybrid':
-    case 'cable':
-      return 'Nearby device';
-    case 'usb':
-      return 'USB';
-    case 'nfc':
-      return 'NFC';
-    case 'ble':
-      return 'Bluetooth';
-    case 'smart-card':
-      return 'Smart card';
-    case 'unspecified':
-      return 'Passkey';
-    default:
-      return device.platform;
+function credentialSecondaryDescription(device: LinkedDeviceSummaryV1): string | null {
+  switch (device.credential.kind) {
+    case 'email_otp':
+      return null;
+    case 'passkey': {
+      const metadata = device.credential.device;
+      const provider = metadata.providerLabel ?? metadata.provider;
+      const sync = metadata.synced ? 'Synced passkey' : 'Passkey';
+      return provider ? `${provider} · ${sync}` : sync;
+    }
   }
+}
+
+function deviceDescription(device: LinkedDeviceSummaryV1): string {
+  return `${credentialDescription(device)} (ID ${shortDeviceId(device.deviceId)})`;
 }
 
 function focusableDialogElements(dialog: HTMLElement): HTMLElement[] {
@@ -319,6 +316,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
               <ul className="w3a-linked-devices-modal-list">
                 {devices.map((device) => {
                   const deviceId = String(device.deviceId);
+                  const secondaryDescription = credentialSecondaryDescription(device);
                   const standing = deviceStanding(device);
                   const confirming =
                     revokeState.kind === 'confirming' && revokeState.deviceId === deviceId;
@@ -328,14 +326,16 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
                   return (
                     <li key={deviceId} className="w3a-linked-devices-modal-item">
                       <div className="w3a-linked-devices-modal-item-main">
-                        <span className="w3a-linked-devices-modal-item-name">{device.label}</span>
+                        <span className="w3a-linked-devices-modal-item-name">
+                          {credentialDescription(device)}
+                        </span>
                         <span className={`w3a-linked-devices-modal-standing tone-${standing.tone}`}>
                           {standing.label}
                         </span>
                       </div>
                       <div className="w3a-linked-devices-modal-item-identity">
-                        <span>{devicePlatformDescription(device)}</span>
-                        <span aria-hidden="true">&middot;</span>
+                        {secondaryDescription ? <span>{secondaryDescription}</span> : null}
+                        {secondaryDescription ? <span aria-hidden="true">&middot;</span> : null}
                         <span className="w3a-linked-devices-modal-device-id">
                           ID {fullIdShown ? deviceId : shortDeviceId(device.deviceId)}
                         </span>

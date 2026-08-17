@@ -36,6 +36,8 @@ import {
 } from '../../packages/sdk-server-ts/src/core/deviceLinking/linkedDeviceManagement';
 import { parseLinkedDeviceSessionRecordV1 } from '../../packages/sdk-server-ts/src/core/deviceLinking/linkedDeviceSession';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
+import { buildLinkedOwnerPasskeyBindingFixtureV1 } from './helpers/linkedOwnerAuthBinding.fixtures';
+import { unknownWebAuthnAuthenticatorDeviceInfo } from '../../packages/shared-ts/src/utils/webauthnDeviceInfo';
 
 const DIGEST = parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(7)));
 
@@ -383,8 +385,20 @@ async function buildManagementTarget(): Promise<LinkedDeviceManagementTargetV1> 
     deviceId: fixture.approval.deviceId,
     enrollmentId: fixture.approval.enrollmentId,
     walletId: fixture.approval.walletId,
-    label: 'Test device',
-    platform: 'test',
+    credential: (() => {
+      const ownerBinding = buildLinkedOwnerPasskeyBindingFixtureV1({
+        walletId: String(fixture.approval.walletId),
+        enrollmentId: String(fixture.approval.enrollmentId),
+        deviceId: String(fixture.approval.deviceId),
+      });
+      if (ownerBinding.factor.kind !== 'passkey') throw new Error('expected passkey binding');
+      return {
+        kind: 'passkey',
+        walletAuthMethodId: ownerBinding.walletAuthMethodId,
+        credentialIdB64u: ownerBinding.factor.credentialIdB64u,
+        device: unknownWebAuthnAuthenticatorDeviceInfo(),
+      };
+    })(),
     permission: fixture.approval.permission,
     keyManifestDigestB64u: fixture.approval.policyDigestB64u,
     coveredWalletKeys: [binding.walletKeyId],

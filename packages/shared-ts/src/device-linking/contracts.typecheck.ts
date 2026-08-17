@@ -43,10 +43,12 @@ import type { OwnerLaneParticipantContinuityV1 } from '../signing-lanes/ownerCon
 import type {
   MpcMaterialActivationId,
   MpcMaterialActivationRef,
+  WalletAuthMethodId,
   WalletId,
   WebAuthnCredentialIdB64u,
   WebAuthnRpId,
 } from '../utils/domainIds';
+import type { WebAuthnAuthenticatorDeviceInfo } from '../utils/webauthnDeviceInfo';
 
 declare const linkSessionId: LinkDeviceSessionId;
 declare const walletId: WalletId;
@@ -70,6 +72,8 @@ declare const materialActivationId: MpcMaterialActivationId;
 declare const holderParticipant: LaneHolderParticipantRecordV1;
 declare const rpId: WebAuthnRpId;
 declare const credentialIdB64u: WebAuthnCredentialIdB64u;
+declare const walletAuthMethodId: WalletAuthMethodId;
+declare const authenticatorDevice: WebAuthnAuthenticatorDeviceInfo;
 declare const ed25519WalletKey: Extract<WalletKeyRecord, { readonly keyFamily: 'ed25519' }>;
 declare const ecdsaWalletKey: Extract<WalletKeyRecord, { readonly keyFamily: 'ecdsa_secp256k1' }>;
 declare const ownerLane: Extract<
@@ -275,8 +279,12 @@ const summary: LinkedDeviceSummaryV1 = {
   deviceId,
   enrollmentId,
   walletId,
-  label: 'Target device',
-  platform: 'browser',
+  credential: {
+    kind: 'passkey',
+    walletAuthMethodId,
+    credentialIdB64u,
+    device: authenticatorDevice,
+  },
   permission: payload.requestedPermission,
   keyManifestDigestB64u: digest,
   coveredWalletKeys: [walletKeyId],
@@ -284,6 +292,23 @@ const summary: LinkedDeviceSummaryV1 = {
   createdAtMs: 1,
   lastActivityAtMs: 2,
   revocationEpoch: 0,
+};
+
+const emailOtpSummary: LinkedDeviceSummaryV1 = {
+  ...summary,
+  credential: { kind: 'email_otp', walletAuthMethodId },
+};
+
+const invalidEmailOtpSummary: LinkedDeviceSummaryV1 = {
+  ...emailOtpSummary,
+  // @ts-expect-error Email OTP summaries cannot carry WebAuthn metadata.
+  credential: { kind: 'email_otp', walletAuthMethodId, device: authenticatorDevice },
+};
+
+const invalidPasskeySummary: LinkedDeviceSummaryV1 = {
+  ...summary,
+  // @ts-expect-error Passkey summaries require canonical authenticator metadata.
+  credential: { kind: 'passkey', walletAuthMethodId, credentialIdB64u },
 };
 
 const validReceiptAcknowledgement: LinkedDeviceReceiptAcknowledgementV1 = {

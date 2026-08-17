@@ -6,9 +6,16 @@ import type {
 import { parseLaneEnrollmentId } from '@shared/signing-lanes/ids';
 import { computeLaneEnrollmentManifestDigestV1 } from '@shared/signing-lanes/rotationDigests';
 import type { LaneEnrollmentManifestV1, LaneProductEpochRecordV1 } from '@shared/signing-lanes';
+import type { TenantId } from '@shared/authorization/capabilityKinds';
 import type { WalletId } from '@shared/utils/domainIds';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
-import { queryD1All, queryD1One } from '../../../../storage/d1Sql';
+import {
+  walletAuthMethodRecordId,
+  type WalletAuthMethodRecord,
+} from '@shared/utils/registrationIntent';
+import { normalizeWalletAuthMethod } from '../../../../core/d1WalletAuthMethodStore';
+import { parseWebAuthnAuthenticator, type D1AuthenticatorRow } from '../webauthn/d1WebAuthnRecords';
+import { parseD1JsonColumn, queryD1All, queryD1One } from '../../../../storage/d1Sql';
 import type { D1DatabaseLike } from '../../../../storage/tenantRoute';
 import type {
   LinkedDeviceManagementProjectionPortV1,
@@ -17,9 +24,11 @@ import type {
 import { encodeLinkedDeviceListCursorV1 } from '../../../../core/deviceLinking/linkedDeviceManagement';
 import type {
   LinkedDeviceListResultV1,
+  LinkedOwnerCredentialMetadataV1,
   LinkedDeviceSummaryV1,
 } from '@shared/device-linking/contracts';
-import { parseLinkedDeviceTargetCredentialRegistrationV1 } from '@shared/device-linking/parsers';
+import { D1LinkedDeviceOwnerAuthBindingStoreV1 } from './d1LinkedDeviceOwnerAuthBindingStore';
+import type { LinkedDeviceOwnerAuthBindingV1 } from '@shared/device-linking/ownerAuthBinding';
 import type {
   LinkedDeviceSessionRecordV1,
   LinkedDeviceSessionListCursorV1,
@@ -28,19 +37,14 @@ import type {
 import type { D1LinkedDeviceSessionScopeV1 } from './d1LinkedDeviceSessionStore';
 import type { LinkedDeviceSessionServiceV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
 import type { LaneEnrollmentAdmissionRecord } from '../../../../core/signingLanes/LaneLifecycleStore';
-import {
-  parseEnrollmentRow,
-  parseProductEpochRow,
-} from '../signingLanes/d1LaneRecords';
+import { parseEnrollmentRow, parseProductEpochRow } from '../signingLanes/d1LaneRecords';
 
 const ENROLLMENT_TABLE = 'lane_enrollments';
-const TARGET_CREDENTIAL_TABLE = 'linked_device_target_credentials';
+const WALLET_AUTH_METHOD_TABLE = 'wallet_auth_methods';
+const WEBAUTHN_AUTHENTICATOR_TABLE = 'webauthn_authenticators';
 const AUTHORIZATION_AUDIT_TABLE = 'authorized_operation_audit_events';
 
-export type D1LinkedDeviceManagementMetadataV1 = {
-  readonly label: string;
-  readonly platform: string;
-};
+export type D1LinkedDeviceManagementMetadataV1 = LinkedOwnerCredentialMetadataV1;
 
 export type D1LinkedDeviceManagementMetadataPortV1 = {
   readLinkedDeviceMetadataV1(input: {
@@ -57,47 +61,33 @@ export type D1LinkedDeviceManagementMetadataPortV1 = {
   ) => Promise<ReadonlyMap<string, D1LinkedDeviceManagementMetadataV1>>;
 };
 
-export class D1LinkedDeviceTargetCredentialMetadataSourceV1 implements D1LinkedDeviceManagementMetadataPortV1 {
-  constructor(
-    private readonly input: {
-      readonly database: D1DatabaseLike;
-      readonly scope: D1LinkedDeviceSessionScopeV1;
-    },
-  ) {}
+export class D1LinkedDeviceCanonicalOwnerAuthMetadataSourceV1 implements D1LinkedDeviceManagementMetadataPortV1 {
+  private readonly database: D1DatabaseLike;
+  private readonly scope: D1LinkedDeviceSessionScopeV1;
+  private readonly tenantId: TenantId;
+  private readonly bindings: D1LinkedDeviceOwnerAuthBindingStoreV1;
+
+  constructor(input: {
+    readonly database: D1DatabaseLike;
+    readonly scope: D1LinkedDeviceSessionScopeV1;
+    readonly tenantId: TenantId;
+  }) {
+    this.database = input.database;
+    this.scope = normalizeScope(input.scope);
+    this.tenantId = input.tenantId;
+    this.bindings = new D1LinkedDeviceOwnerAuthBindingStoreV1({
+      database: this.database,
+      scope: this.scope,
+    });
+  }
 
   async readLinkedDeviceMetadataV1(input: {
     readonly walletId: WalletId;
     readonly enrollmentId: LinkedDeviceEnrollmentId;
     readonly deviceId: LinkedDeviceId;
   }): Promise<D1LinkedDeviceManagementMetadataV1 | null> {
-    const row = await queryD1One(
-      this.input.database,
-      `SELECT registration_json
-         FROM ${TARGET_CREDENTIAL_TABLE}
-        WHERE namespace = ?1 AND org_id = ?2 AND project_id = ?3 AND env_id = ?4
-          AND wallet_id = ?5 AND enrollment_id = ?6 AND device_id = ?7
-          AND state = 'registered'
-        LIMIT 1`,
-      [
-        ...scopeValues(normalizeScope(this.input.scope)),
-        String(input.walletId),
-        String(input.enrollmentId),
-        String(input.deviceId),
-      ],
-    );
-    if (!row) return null;
-    const registrationJson = requiredString(field(row, 'registration_json'), 'registration_json');
-    const registration = parseLinkedDeviceTargetCredentialRegistrationV1(
-      JSON.parse(registrationJson),
-    );
-    if (
-      registration.walletId !== input.walletId ||
-      registration.enrollmentId !== input.enrollmentId ||
-      registration.deviceId !== input.deviceId
-    ) {
-      throw new Error('linked-device target credential metadata identity changed');
-    }
-    return metadataFromRegistration(registration.webauthnRegistration);
+    const metadata = await this.readLinkedDeviceMetadataBatchV1([input]);
+    return metadata.get(metadataKey(input)) ?? null;
   }
 
   async readLinkedDeviceMetadataBatchV1(
@@ -108,37 +98,117 @@ export class D1LinkedDeviceTargetCredentialMetadataSourceV1 implements D1LinkedD
     }>,
   ): Promise<ReadonlyMap<string, D1LinkedDeviceManagementMetadataV1>> {
     if (inputs.length === 0) return new Map();
-    const keySet = new Set(inputs.map(metadataKey));
-    const rows = await queryD1All(
-      this.input.database,
-      `SELECT wallet_id, enrollment_id, device_id, registration_json
-         FROM ${TARGET_CREDENTIAL_TABLE}
-        WHERE namespace = ?1 AND org_id = ?2 AND project_id = ?3 AND env_id = ?4
-          AND state = 'registered'
-          AND wallet_id IN (${inputs.map((_, index) => `?${index + 5}`).join(', ')})`,
-      [...scopeValues(normalizeScope(this.input.scope)), ...inputs.map((item) => String(item.walletId))],
-    );
-    const result = new Map<string, D1LinkedDeviceManagementMetadataV1>();
-    for (const row of rows) {
-      const walletId = requiredString(field(row, 'wallet_id'), 'wallet_id');
-      const enrollmentId = requiredString(field(row, 'enrollment_id'), 'enrollment_id');
-      const deviceId = requiredString(field(row, 'device_id'), 'device_id');
-      const key = `${walletId}\u0000${enrollmentId}\u0000${deviceId}`;
-      if (!keySet.has(key)) continue;
-      const registration = parseLinkedDeviceTargetCredentialRegistrationV1(
-        JSON.parse(requiredString(field(row, 'registration_json'), 'registration_json')),
-      );
-      if (
-        String(registration.walletId) !== walletId ||
-        String(registration.enrollmentId) !== enrollmentId ||
-        String(registration.deviceId) !== deviceId ||
-        result.has(key)
-      ) {
-        throw new Error('linked-device target credential metadata identity changed');
+    const identities = uniqueMetadataIdentities(inputs);
+    const walletIds = [...new Set(identities.map((item) => String(item.walletId)))];
+    if (walletIds.length !== 1) {
+      throw new Error('linked-device metadata batch must be wallet-scoped');
+    }
+    const walletId = walletIds[0];
+    const firstIdentity = identities[0];
+    if (!walletId || !firstIdentity) {
+      throw new Error('linked-device metadata batch wallet is missing');
+    }
+    const bindings = await this.bindings.readBatchForWalletV1(firstIdentity.walletId);
+    const selectedBindings = new Map<string, LinkedDeviceOwnerAuthBindingV1>();
+    for (const identity of identities) {
+      const binding = bindings.get(String(identity.deviceId));
+      if (!binding) throw new Error('linked-device owner auth binding is missing');
+      assertBindingMatchesIdentity(binding, identity, this.tenantId);
+      const key = metadataKey(identity);
+      if (selectedBindings.has(key)) {
+        throw new Error('linked-device owner auth binding identity is duplicated');
       }
-      result.set(key, metadataFromRegistration(registration.webauthnRegistration));
+      selectedBindings.set(key, binding);
+    }
+
+    const authMethodIds = [
+      ...new Set(
+        [...selectedBindings.values()].map((binding) => String(binding.walletAuthMethodId)),
+      ),
+    ];
+    const authMethodRows = await queryD1All(
+      this.database,
+      `SELECT wallet_id, wallet_auth_method_id, record_json
+         FROM ${WALLET_AUTH_METHOD_TABLE}
+        WHERE namespace = ?1 AND org_id = ?2 AND project_id = ?3 AND env_id = ?4
+          AND wallet_id = ?5
+          AND wallet_auth_method_id IN (${authMethodIds.map((_, index) => `?${index + 6}`).join(', ')})`,
+      [...scopeValues(this.scope), walletId, ...authMethodIds],
+    );
+    const authMethods = new Map<string, WalletAuthMethodRecord>();
+    for (const row of authMethodRows) {
+      const authMethodId = requiredString(
+        field(row, 'wallet_auth_method_id'),
+        'wallet_auth_method_id',
+      );
+      if (authMethods.has(authMethodId)) {
+        throw new Error('linked-device canonical auth method is duplicated');
+      }
+      const authMethod = normalizeWalletAuthMethod(parseD1JsonColumn(field(row, 'record_json')));
+      if (!authMethod || String(authMethod.walletId) !== walletId) {
+        throw new Error('linked-device canonical auth method is invalid');
+      }
+      if (String(walletAuthMethodRecordId(authMethod)) !== authMethodId) {
+        throw new Error('linked-device canonical auth method identity changed');
+      }
+      if (String(field(row, 'wallet_id')) !== walletId) {
+        throw new Error('linked-device canonical auth method wallet changed');
+      }
+      authMethods.set(authMethodId, authMethod);
+    }
+
+    const credentialIds = [
+      ...new Set(
+        [...selectedBindings.values()].flatMap((binding) =>
+          binding.factor.kind === 'passkey' ? [String(binding.factor.credentialIdB64u)] : [],
+        ),
+      ),
+    ];
+    const authenticators = await this.readCanonicalAuthenticatorsV1({ walletId, credentialIds });
+    const result = new Map<string, D1LinkedDeviceManagementMetadataV1>();
+    for (const identity of identities) {
+      const binding = selectedBindings.get(metadataKey(identity));
+      if (!binding) throw new Error('linked-device owner auth binding is missing');
+      const authMethod = authMethods.get(String(binding.walletAuthMethodId));
+      if (!authMethod) throw new Error('linked-device canonical auth method is missing');
+      result.set(
+        metadataKey(identity),
+        buildCanonicalMetadataV1({ binding, authMethod, authenticators }),
+      );
     }
     return result;
+  }
+
+  private async readCanonicalAuthenticatorsV1(input: {
+    readonly walletId: string;
+    readonly credentialIds: readonly string[];
+  }): Promise<ReadonlyMap<string, ReturnType<typeof parseWebAuthnAuthenticator>>> {
+    if (input.credentialIds.length === 0) return new Map();
+    const rows = await queryD1All(
+      this.database,
+      `SELECT user_id, credential_id_b64u, credential_public_key_b64u, counter,
+              created_at_ms, updated_at_ms, device_info_json
+         FROM ${WEBAUTHN_AUTHENTICATOR_TABLE}
+        WHERE namespace = ?1 AND org_id = ?2 AND project_id = ?3 AND env_id = ?4
+          AND user_id = ?5
+          AND credential_id_b64u IN (${input.credentialIds.map((_, index) => `?${index + 6}`).join(', ')})`,
+      [...scopeValues(this.scope), input.walletId, ...input.credentialIds],
+    );
+    const authenticators = new Map<string, ReturnType<typeof parseWebAuthnAuthenticator>>();
+    for (const row of rows) {
+      const credentialId = requiredString(field(row, 'credential_id_b64u'), 'credential_id_b64u');
+      if (authenticators.has(credentialId)) {
+        throw new Error('linked-device canonical authenticator is duplicated');
+      }
+      const userId = requiredString(field(row, 'user_id'), 'user_id');
+      if (userId !== input.walletId) {
+        throw new Error('linked-device canonical authenticator wallet changed');
+      }
+      const authenticator = parseWebAuthnAuthenticator(row as D1AuthenticatorRow);
+      if (!authenticator) throw new Error('linked-device canonical authenticator is invalid');
+      authenticators.set(credentialId, authenticator);
+    }
+    return authenticators;
   }
 }
 
@@ -220,17 +290,23 @@ export class D1LinkedDeviceSigningActivitySourceV1 {
 export type D1LinkedDeviceManagementStoreOptionsV1 = {
   readonly database: D1DatabaseLike;
   readonly scope: D1LinkedDeviceSessionScopeV1;
-  readonly sessionService: Pick<LinkedDeviceSessionServiceV1, 'getSessionV1' | 'listSessionsForWalletV1'>;
+  readonly sessionService: Pick<
+    LinkedDeviceSessionServiceV1,
+    'getSessionV1' | 'listSessionsForWalletV1'
+  >;
   readonly nowV1: () => number;
   readonly metadata: D1LinkedDeviceManagementMetadataPortV1;
 };
 
 type ManagementProjectionContextV1 = {
-  readonly enrollments: ReadonlyMap<string, {
-    readonly admission: LaneEnrollmentAdmissionRecord;
-    readonly manifestDigestB64u: string;
-    readonly updatedAtMs: number;
-  }>;
+  readonly enrollments: ReadonlyMap<
+    string,
+    {
+      readonly admission: LaneEnrollmentAdmissionRecord;
+      readonly manifestDigestB64u: string;
+      readonly updatedAtMs: number;
+    }
+  >;
   readonly products: ReadonlyMap<string, readonly LaneProductEpochRecordV1[]>;
   readonly metadata: ReadonlyMap<string, D1LinkedDeviceManagementMetadataV1>;
   readonly signingActivity: ReadonlyMap<string, number>;
@@ -245,7 +321,10 @@ type LinkedDeviceManagementIdentityV1 = {
 export class D1LinkedDeviceManagementStoreV1 implements LinkedDeviceManagementProjectionPortV1 {
   private readonly database: D1DatabaseLike;
   private readonly scope: D1LinkedDeviceSessionScopeV1;
-  private readonly sessionService: Pick<LinkedDeviceSessionServiceV1, 'getSessionV1' | 'listSessionsForWalletV1'>;
+  private readonly sessionService: Pick<
+    LinkedDeviceSessionServiceV1,
+    'getSessionV1' | 'listSessionsForWalletV1'
+  >;
   private readonly nowV1: () => number;
   private readonly metadata: D1LinkedDeviceManagementMetadataPortV1;
   private readonly signingActivity: D1LinkedDeviceSigningActivitySourceV1;
@@ -282,9 +361,7 @@ export class D1LinkedDeviceManagementStoreV1 implements LinkedDeviceManagementPr
     }
     return {
       devices: summaries,
-      nextCursor: sessions.nextCursor
-        ? encodeLinkedDeviceListCursorV1(sessions.nextCursor)
-        : null,
+      nextCursor: sessions.nextCursor ? encodeLinkedDeviceListCursorV1(sessions.nextCursor) : null,
     };
   }
 
@@ -377,24 +454,26 @@ export class D1LinkedDeviceManagementStoreV1 implements LinkedDeviceManagementPr
       claim.enrollmentId,
     );
     const products = context.products.get(String(laneEnrollmentId)) ?? [];
-    assertProductsMatchManifest(
-      products,
-      enrollment.value.manifest,
-      enrollment.value.lifecycle,
+    assertProductsMatchManifest(products, enrollment.value.manifest, enrollment.value.lifecycle);
+    const credential = context.metadata.get(
+      metadataKey({
+        walletId: claim.walletId,
+        enrollmentId: claim.enrollmentId,
+        deviceId: claim.deviceId,
+      }),
     );
-    const metadata = context.metadata.get(metadataKey({
-      walletId: claim.walletId,
-      enrollmentId: claim.enrollmentId,
-      deviceId: claim.deviceId,
-    })) ?? null;
-    if (!metadata) return null;
-    const normalizedMetadata = parseMetadata(metadata);
+    if (!credential) {
+      throw new Error('linked-device owner auth metadata is missing');
+    }
     const enrollmentUpdatedAtMs = enrollmentContext.updatedAtMs;
-    const signingActivityAtMs = context.signingActivity.get(metadataKey({
-      walletId: claim.walletId,
-      enrollmentId: claim.enrollmentId,
-      deviceId: claim.deviceId,
-    })) ?? null;
+    const signingActivityAtMs =
+      context.signingActivity.get(
+        metadataKey({
+          walletId: claim.walletId,
+          enrollmentId: claim.enrollmentId,
+          deviceId: claim.deviceId,
+        }),
+      ) ?? null;
     const lastActivityAtMs = Math.max(
       session.updatedAtMs,
       enrollmentUpdatedAtMs,
@@ -405,8 +484,7 @@ export class D1LinkedDeviceManagementStoreV1 implements LinkedDeviceManagementPr
       deviceId: claim.deviceId,
       enrollmentId: claim.enrollmentId,
       walletId: claim.walletId,
-      label: normalizedMetadata.label,
-      platform: normalizedMetadata.platform,
+      credential,
       permission: approval.permission,
       keyManifestDigestB64u: manifestDigest,
       coveredWalletKeys: enrollment.value.manifest.orderedChildren.map(
@@ -428,7 +506,12 @@ export class D1LinkedDeviceManagementStoreV1 implements LinkedDeviceManagementPr
   ): Promise<ManagementProjectionContextV1> {
     const identities = uniqueSessionIdentities(sessions);
     if (identities.length === 0) {
-      return { enrollments: new Map(), products: new Map(), metadata: new Map(), signingActivity: new Map() };
+      return {
+        enrollments: new Map(),
+        products: new Map(),
+        metadata: new Map(),
+        signingActivity: new Map(),
+      };
     }
     const enrollmentIds = [...new Set(identities.map((identity) => String(identity.enrollmentId)))];
     const enrollmentRows = await queryD1All(
@@ -440,11 +523,14 @@ export class D1LinkedDeviceManagementStoreV1 implements LinkedDeviceManagementPr
           AND enrollment_id IN (${enrollmentIds.map((_, index) => `?${index + 5}`).join(', ')})`,
       [...scopeValues(this.scope), ...enrollmentIds],
     );
-    const enrollments = new Map<string, {
-      readonly admission: LaneEnrollmentAdmissionRecord;
-      readonly manifestDigestB64u: string;
-      readonly updatedAtMs: number;
-    }>();
+    const enrollments = new Map<
+      string,
+      {
+        readonly admission: LaneEnrollmentAdmissionRecord;
+        readonly manifestDigestB64u: string;
+        readonly updatedAtMs: number;
+      }
+    >();
     for (const row of enrollmentRows) {
       const parsed = parseEnrollmentRow(row);
       enrollments.set(parsed.enrollmentId, {
@@ -477,7 +563,6 @@ export class D1LinkedDeviceManagementStoreV1 implements LinkedDeviceManagementPr
     const signingActivity = await this.signingActivity.readLastSigningActivityBatchV1(identities);
     return { enrollments, products, metadata, signingActivity };
   }
-
 }
 
 function normalizeScope(scope: D1LinkedDeviceSessionScopeV1): D1LinkedDeviceSessionScopeV1 {
@@ -491,6 +576,20 @@ function normalizeScope(scope: D1LinkedDeviceSessionScopeV1): D1LinkedDeviceSess
 
 function metadataKey(input: LinkedDeviceManagementIdentityV1): string {
   return `${String(input.walletId)}\u0000${String(input.enrollmentId)}\u0000${String(input.deviceId)}`;
+}
+
+function uniqueMetadataIdentities(
+  inputs: ReadonlyArray<LinkedDeviceManagementIdentityV1>,
+): readonly LinkedDeviceManagementIdentityV1[] {
+  const identities = new Map<string, LinkedDeviceManagementIdentityV1>();
+  for (const input of inputs) {
+    const key = metadataKey(input);
+    if (identities.has(key)) {
+      throw new Error('linked-device metadata identity is duplicated');
+    }
+    identities.set(key, input);
+  }
+  return [...identities.values()];
 }
 
 function uniqueSessionIdentities(
@@ -546,39 +645,65 @@ function requiredTimestamp(raw: unknown, field: string): number {
   return value;
 }
 
-function parseMetadata(
-  metadata: D1LinkedDeviceManagementMetadataV1,
-): D1LinkedDeviceManagementMetadataV1 {
+function assertBindingMatchesIdentity(
+  binding: LinkedDeviceOwnerAuthBindingV1,
+  identity: LinkedDeviceManagementIdentityV1,
+  tenantId: TenantId,
+): void {
   if (
-    typeof metadata.label !== 'string' ||
-    !metadata.label ||
-    metadata.label.trim() !== metadata.label ||
-    typeof metadata.platform !== 'string' ||
-    !metadata.platform ||
-    metadata.platform.trim() !== metadata.platform
+    binding.tenantId !== tenantId ||
+    binding.walletId !== identity.walletId ||
+    binding.enrollmentId !== identity.enrollmentId ||
+    binding.deviceId !== identity.deviceId
   ) {
-    throw new Error('linked-device metadata is invalid');
+    throw new Error('linked-device owner auth binding identity does not match its session');
   }
-  return metadata;
 }
 
-function metadataFromRegistration(
-  registration: ReturnType<
-    typeof parseLinkedDeviceTargetCredentialRegistrationV1
-  >['webauthnRegistration'],
-): D1LinkedDeviceManagementMetadataV1 {
-  switch (registration.authenticatorAttachment) {
-    case 'platform':
-      return { label: 'Platform passkey', platform: 'platform' };
-    case 'cross-platform':
-      return { label: 'Security key', platform: 'cross-platform' };
-    case null: {
-      const platform = registration.transports.includes('internal')
-        ? 'platform'
-        : (registration.transports[0] ?? 'unspecified');
-      return { label: 'Passkey', platform };
-    }
+function buildCanonicalMetadataV1(input: {
+  readonly binding: LinkedDeviceOwnerAuthBindingV1;
+  readonly authMethod: WalletAuthMethodRecord;
+  readonly authenticators: ReadonlyMap<string, ReturnType<typeof parseWebAuthnAuthenticator>>;
+}): D1LinkedDeviceManagementMetadataV1 {
+  const { binding, authMethod } = input;
+  const expectedStatus = binding.lifecycle.state === 'revoked' ? 'revoked' : 'active';
+  if (authMethod.status !== expectedStatus) {
+    throw new Error('linked-device owner auth binding lifecycle disagrees with auth method');
   }
+  if (binding.factor.kind === 'passkey') {
+    if (
+      authMethod.kind !== 'passkey' ||
+      authMethod.walletId !== binding.walletId ||
+      authMethod.rpId !== binding.factor.rpId ||
+      authMethod.credentialIdB64u !== binding.factor.credentialIdB64u ||
+      String(walletAuthMethodRecordId(authMethod)) !== String(binding.walletAuthMethodId)
+    ) {
+      throw new Error('linked-device passkey binding disagrees with canonical auth method');
+    }
+    const authenticator = input.authenticators.get(String(binding.factor.credentialIdB64u));
+    if (!authenticator) {
+      throw new Error('linked-device canonical passkey authenticator is missing');
+    }
+    return {
+      kind: 'passkey',
+      walletAuthMethodId: binding.walletAuthMethodId,
+      credentialIdB64u: binding.factor.credentialIdB64u,
+      device: authenticator.deviceInfo,
+    };
+  }
+  if (
+    authMethod.kind !== 'email_otp' ||
+    authMethod.walletId !== binding.walletId ||
+    authMethod.emailHashHex !== binding.factor.emailHashHex ||
+    authMethod.registrationAuthorityId !== binding.factor.registrationAuthorityId ||
+    String(walletAuthMethodRecordId(authMethod)) !== String(binding.walletAuthMethodId)
+  ) {
+    throw new Error('linked-device Email OTP binding disagrees with canonical auth method');
+  }
+  return {
+    kind: 'email_otp',
+    walletAuthMethodId: binding.walletAuthMethodId,
+  };
 }
 
 function assertManifestMatchesIdentity(

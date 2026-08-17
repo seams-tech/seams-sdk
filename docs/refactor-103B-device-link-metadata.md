@@ -201,36 +201,35 @@ binding with no authenticator row at all.
 - [x] Define and atomically persist the exact Phase 8 linked enrollment ->
       canonical `WalletAuthMethodId` binding with successful owner-credential
       activation.
-- [ ] Require the exact Phase 8 owner-auth-method binding when projecting one
+- [x] Require the exact Phase 8 owner-auth-method binding when projecting one
       managed linked device.
-- [ ] For a Passkey binding, resolve the canonical authenticator by wallet and
+- [x] For a Passkey binding, resolve the canonical authenticator by wallet and
       credential ID and return its parsed `deviceInfo`.
-- [ ] For an Email OTP binding, return the Email OTP branch with no WebAuthn
+- [x] For an Email OTP binding, return the Email OTP branch with no WebAuthn
       fields.
-- [ ] Reject cross-wallet, duplicate, missing, revoked-mismatch, and
+- [x] Reject cross-wallet, duplicate, missing, revoked-mismatch, and
       credential-mismatch joins.
-- [ ] Batch reads for the list path. Avoid one authenticator or auth-method
+- [x] Batch reads for the list path. Avoid one authenticator or auth-method
       query per card.
-- [ ] Replace `LinkedDeviceSummaryV1.label` and `.platform` with the exact
+- [x] Replace `LinkedDeviceSummaryV1.label` and `.platform` with the exact
       credential metadata union at the request boundary.
-- [ ] Update the parser and type fixtures. Add `@ts-expect-error` cases for
+- [x] Update the parser and type fixtures. Add `@ts-expect-error` cases for
       Passkey metadata on Email OTP and missing metadata on Passkey.
 
 Phase 2 is complete when management returns one exact branch for every active
 or historical linked owner credential without consulting the Phase 7 target
 registration.
 
-Partially unblocked: Refactor 103 Phase 8 now owns the exact binding and its
-atomic write. The two-device browser flow does not yet reach successful
-canonical activation, and device management does not yet consume the binding.
+Landed. Management resolves the immutable Phase 8 binding in one wallet-scoped
+batch, joins the exact canonical auth method and authenticator, and fails closed
+when any identity or lifecycle fact disagrees.
 
 ### Phase 3: Update The Account Menu
 
 - [x] Remove creation-order `Device N` numbering.
 - [x] Use the credential label as the primary display name for Passkeys.
-- [ ] Show the provider when present and the sync state when useful.
-      (Blocked on Phase 2 — the summary carries no provider or sync field.)
-- [ ] Show `Email OTP` for the Email OTP branch. (Blocked on Phase 2.)
+- [x] Show the provider when present and the sync state when useful.
+- [x] Show `Email OTP` for the Email OTP branch.
 - [x] Keep the shortened stable device ID visible on every branch; expose the
       full ID through an explicit copy or disclosure action if needed.
 - [x] Preserve lifecycle status, last activity, confirmation, revocation, focus
@@ -264,22 +263,21 @@ unverified hardware model or fabricated slot.
 
 Perform this deletion with the Refactor 103 Phase 8 human-device cutover:
 
-- [ ] Delete `D1LinkedDeviceTargetCredentialMetadataSourceV1` from the human
+- [x] Delete `D1LinkedDeviceTargetCredentialMetadataSourceV1` from the human
       management path.
-- [ ] Delete `metadataFromRegistration` and its generic attachment-derived
+- [x] Delete `metadataFromRegistration` and its generic attachment-derived
       labels when no delegated consumer remains.
-- [ ] Delete tests and fixtures that require human management summaries to read
+- [x] Delete tests and fixtures that require human management summaries to read
       `linked_device_target_credentials.registration_json`.
-- [ ] Delete the retired `label` and `platform` summary fields and all parser
+- [x] Delete the retired `label` and `platform` summary fields and all parser
       branches that accept them.
-- [ ] Retain target-credential metadata code only if Refactor 104 has an exact
-      delegated-device consumer with its own public contract.
+- [x] Keep R102 target-credential persistence protocol-only; no delegated
+      public metadata consumer exists today.
 
 No dual-read fallback remains after cutover.
 
-Blocked with Phase 2: the temporary path remains the active metadata source for
-a human linked device until the Phase 8 browser cutover reaches canonical
-activation and management consumes its binding.
+Landed. Human management has one canonical metadata path and no dual-read
+fallback.
 
 ## Security And Privacy Constraints
 

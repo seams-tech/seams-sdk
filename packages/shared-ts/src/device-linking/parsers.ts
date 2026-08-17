@@ -42,6 +42,7 @@ import {
 import {
   parseMpcMaterialActivationId,
   parseMpcMaterialActivationRef,
+  parseWalletAuthMethodId,
   parseWalletId,
   parseWebAuthnCredentialIdB64u,
   parseWebAuthnRpId,
@@ -78,6 +79,7 @@ const ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND =
 const ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND = 'router_ab_ed25519_wallet_session_v1';
 import { parseUnixMs, requireRecord, rejectUnknownFields } from '../passkey-custody/primitives';
 import { parseNearAccountId } from '../utils/near';
+import { parseWebAuthnAuthenticatorDeviceInfo } from '../utils/webauthnDeviceInfo';
 import {
   assertNeverLinkedDeviceSessionState,
   type LinkedDeviceApprovalV1,
@@ -97,6 +99,7 @@ import {
   type LinkedDeviceRevokeRequestV1,
   type LinkedDeviceRevokeResultV1,
   type LinkedDeviceSummaryV1,
+  type LinkedOwnerCredentialMetadataV1,
   type LinkedDeviceWalletSessionDeliveryV1,
   type LinkedDeviceWalletSessionTokenV1,
   type LinkedDeviceOwnerAuthorizationSourceV1,
@@ -407,8 +410,7 @@ const LINKED_DEVICE_SUMMARY_FIELDS = [
   'deviceId',
   'enrollmentId',
   'walletId',
-  'label',
-  'platform',
+  'credential',
   'permission',
   'keyManifestDigestB64u',
   'coveredWalletKeys',
@@ -417,6 +419,13 @@ const LINKED_DEVICE_SUMMARY_FIELDS = [
   'lastActivityAtMs',
   'revocationEpoch',
 ] as const;
+const LINKED_OWNER_PASSKEY_CREDENTIAL_FIELDS = [
+  'kind',
+  'walletAuthMethodId',
+  'credentialIdB64u',
+  'device',
+] as const;
+const LINKED_OWNER_EMAIL_OTP_CREDENTIAL_FIELDS = ['kind', 'walletAuthMethodId'] as const;
 const LINKED_DEVICE_LIST_REQUEST_FIELDS = ['kind', 'walletId', 'limit', 'cursor'] as const;
 const LINKED_DEVICE_LIST_RESULT_FIELDS = ['devices', 'nextCursor'] as const;
 const LINKED_DEVICE_REVOKE_REQUEST_FIELDS = [
@@ -677,6 +686,47 @@ function parseEvidenceSet(raw: unknown, label: string): AuthorizationEvidenceSet
   return parseId(parseAuthorizationEvidenceSetId, raw, label);
 }
 
+function parseLinkedOwnerCredentialMetadata(
+  raw: unknown,
+  label: string,
+): LinkedOwnerCredentialMetadataV1 {
+  const record = requireRecord(raw, label);
+  switch (record.kind) {
+    case 'passkey': {
+      const exact = exactRecord(record, LINKED_OWNER_PASSKEY_CREDENTIAL_FIELDS, label);
+      const device = parseWebAuthnAuthenticatorDeviceInfo(exact.device);
+      if (!device) throw new Error(`${label}.device is invalid`);
+      return {
+        kind: 'passkey',
+        walletAuthMethodId: parseId(
+          parseWalletAuthMethodId,
+          exact.walletAuthMethodId,
+          `${label}.walletAuthMethodId`,
+        ),
+        credentialIdB64u: parseId(
+          parseWebAuthnCredentialIdB64u,
+          exact.credentialIdB64u,
+          `${label}.credentialIdB64u`,
+        ),
+        device,
+      };
+    }
+    case 'email_otp': {
+      const exact = exactRecord(record, LINKED_OWNER_EMAIL_OTP_CREDENTIAL_FIELDS, label);
+      return {
+        kind: 'email_otp',
+        walletAuthMethodId: parseId(
+          parseWalletAuthMethodId,
+          exact.walletAuthMethodId,
+          `${label}.walletAuthMethodId`,
+        ),
+      };
+    }
+    default:
+      throw new Error(`${label}.kind is invalid`);
+  }
+}
+
 function parseLinkedDeviceSummaryRecord(record: UnknownRecord): LinkedDeviceSummaryV1 {
   const state = record.state;
   if (
@@ -688,20 +738,6 @@ function parseLinkedDeviceSummaryRecord(record: UnknownRecord): LinkedDeviceSumm
   ) {
     throw new Error('LinkedDeviceSummaryV1.state is invalid');
   }
-  if (
-    typeof record.label !== 'string' ||
-    record.label.length === 0 ||
-    record.label.trim() !== record.label
-  ) {
-    throw new Error('LinkedDeviceSummaryV1.label is invalid');
-  }
-  if (
-    typeof record.platform !== 'string' ||
-    record.platform.trim() !== record.platform ||
-    record.platform.length === 0
-  ) {
-    throw new Error('LinkedDeviceSummaryV1.platform is invalid');
-  }
   if (!Array.isArray(record.coveredWalletKeys)) {
     throw new Error('LinkedDeviceSummaryV1.coveredWalletKeys is invalid');
   }
@@ -712,8 +748,10 @@ function parseLinkedDeviceSummaryRecord(record: UnknownRecord): LinkedDeviceSumm
     deviceId: parseDeviceId(record.deviceId, 'LinkedDeviceSummaryV1.deviceId'),
     enrollmentId: parseEnrollmentId(record.enrollmentId, 'LinkedDeviceSummaryV1.enrollmentId'),
     walletId: parseWallet(record.walletId, 'LinkedDeviceSummaryV1.walletId'),
-    label: record.label,
-    platform: record.platform,
+    credential: parseLinkedOwnerCredentialMetadata(
+      record.credential,
+      'LinkedDeviceSummaryV1.credential',
+    ),
     permission: parsePermission(record.permission, 'LinkedDeviceSummaryV1.permission'),
     keyManifestDigestB64u: parseDigest(
       record.keyManifestDigestB64u,

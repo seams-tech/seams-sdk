@@ -15,8 +15,20 @@ type DeviceFixture = {
   readonly deviceId: string;
   readonly enrollmentId: string;
   readonly walletId: string;
-  readonly label: string;
-  readonly platform: string;
+  readonly credential: {
+    readonly kind: 'passkey';
+    readonly walletAuthMethodId: string;
+    readonly credentialIdB64u: string;
+    readonly device: {
+      readonly label: string;
+      readonly browser: 'safari';
+      readonly os: 'ios';
+      readonly synced: true;
+      readonly transports: readonly ['internal'];
+      readonly provider: 'icloud-keychain';
+      readonly providerLabel: 'iCloud Keychain';
+    };
+  };
   readonly permission: {
     readonly kind: 'owner_equivalent_signing';
     readonly administrationScope: 'signing_only';
@@ -40,8 +52,20 @@ function deviceFixture(
     deviceId,
     enrollmentId: `enrollment-${deviceId}`,
     walletId: WALLET_ID,
-    label,
-    platform: 'platform',
+    credential: {
+      kind: 'passkey',
+      walletAuthMethodId: `passkey:wallet.example.localhost:credential-${deviceId}`,
+      credentialIdB64u: `credential-${deviceId}`,
+      device: {
+        label,
+        browser: 'safari',
+        os: 'ios',
+        synced: true,
+        transports: ['internal'],
+        provider: 'icloud-keychain',
+        providerLabel: 'iCloud Keychain',
+      },
+    },
     permission: {
       kind: 'owner_equivalent_signing',
       administrationScope: 'signing_only',
@@ -131,11 +155,7 @@ async function renderModal(
           React.createElement(
             Theme,
             { theme: 'light' },
-            React.createElement(
-              SeamsContextProvider,
-              { config },
-              React.createElement(Harness),
-            ),
+            React.createElement(SeamsContextProvider, { config }, React.createElement(Harness)),
           ),
         );
       });
