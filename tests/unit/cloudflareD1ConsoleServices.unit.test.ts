@@ -15,7 +15,7 @@ import localD1DevWorker, {
 } from '../../packages/console-server-ts/src/router/cloudflare/d1LocalDevWorker';
 import type { SponsoredEvmCallExecutorConfig } from '../../packages/console-server-ts/src/sponsorship/evmExecutorTypes';
 import { resolveStaticSponsoredExecutionPricingFromEnv } from '../../packages/console-server-ts/src/sponsorship/pricing';
-import { getNearSpendCapChainId } from '../../packages/console-shared-ts/src/gasSponsorshipSpendCapTargets';
+import { getNearSpendCapChainId } from '../../packages/wallet-console-shared-ts/src/gasSponsorshipSpendCapTargets';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import {
   applyD1MigrationFiles,

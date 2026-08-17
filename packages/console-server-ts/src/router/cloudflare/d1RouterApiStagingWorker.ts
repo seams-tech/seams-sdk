@@ -11,9 +11,12 @@ import { createCloudflareConsoleRouter } from './createCloudflareConsoleRouter';
 import type { ConsoleOrganizationAccessService } from '@seams-internal/console-server/teamRbac';
 import type { ConsoleOrgProjectEnvService } from '@seams-internal/console-server/orgProjectEnv';
 import {
+  consoleCoreServicesFromBundle,
   createCloudflareD1ConsoleServiceBundle,
   createCloudflareD1RouterApiRouteExtensions,
+  walletConsoleServicesFromBundle,
 } from './d1ConsoleServices';
+import { composeHostedConsoleRouterOptions } from '../consoleComposition';
 import type { CloudflareD1EmailOtpServerSealConfig } from '@seams/sdk-server/cloud-host';
 import { createCloudflareD1RouterApiAuthService } from '@seams/sdk-server/cloud-host';
 import { loadCloudflareSignerWasmModule } from './d1SignerWasm';
@@ -714,16 +717,21 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     defaultEnvironmentId: scope.envId,
     platformSupportEmails: readEnvString(env, 'CONSOLE_PLATFORM_SUPPORT_EMAILS'),
   });
-  const consoleHandler = createCloudflareConsoleRouter({
-    ...bundle.consoleRouterOptions,
-    healthz: true,
-    readyz: true,
-    corsOrigins: readCsvList(env.RELAY_CORS_ORIGINS),
-    auth: consoleAuth,
-    session: consoleSession,
-    readyCheck: createRouterApiReadyCheck(env),
-    billingStripeWebhookSigningSecret: readEnvString(env, 'STRIPE_WEBHOOK_SECRET'),
-  });
+  const consoleHandler = createCloudflareConsoleRouter(
+    composeHostedConsoleRouterOptions({
+      core: consoleCoreServicesFromBundle(bundle),
+      walletConsole: walletConsoleServicesFromBundle(bundle),
+      tenantStorage: {
+        resolver: bundle.tenantStorageRouteResolver,
+        namespace: bundle.tenantStorageNamespace,
+      },
+      corsOrigins: readCsvList(env.RELAY_CORS_ORIGINS),
+      auth: consoleAuth,
+      session: consoleSession,
+      readyCheck: createRouterApiReadyCheck(env),
+      billingStripeWebhookSigningSecret: readEnvString(env, 'STRIPE_WEBHOOK_SECRET'),
+    }),
+  );
   const hostedConsoleHandler = new HostedConsoleAuthHandler({
     handler: consoleHandler,
     identity: service.identity,

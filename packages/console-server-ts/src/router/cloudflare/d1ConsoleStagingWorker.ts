@@ -1,6 +1,11 @@
 import type { D1DatabaseLike } from '@seams/sdk-server/cloud-host';
 import { createCloudflareConsoleRouter } from './createCloudflareConsoleRouter';
-import { createCloudflareD1ConsoleOnlyServiceBundle } from './d1ConsoleServices';
+import { composeConsoleOnlyRouterOptions } from '../consoleComposition';
+import {
+  consoleCoreServicesFromBundle,
+  createCloudflareD1ConsoleOnlyServiceBundle,
+  walletConsoleServicesFromBundle,
+} from './d1ConsoleServices';
 import type {
   CfExecutionContext,
   CfScheduledEvent,
@@ -105,14 +110,15 @@ async function createConsoleHandler(env: CloudflareD1ConsoleStagingEnv): Promise
     defaultEnvironmentId: readEnvString(env, 'CONSOLE_DEFAULT_ENVIRONMENT_ID'),
     platformSupportEmails: readEnvString(env, 'CONSOLE_PLATFORM_SUPPORT_EMAILS'),
   });
-  return createCloudflareConsoleRouter({
-    ...bundle.consoleRouterOptions,
-    healthz: true,
-    readyz: true,
-    auth,
-    readyCheck: createConsoleReadyCheck(env),
-    billingStripeWebhookSigningSecret: requireEnvString(env, 'STRIPE_WEBHOOK_SECRET'),
-  });
+  return createCloudflareConsoleRouter(
+    composeConsoleOnlyRouterOptions({
+      core: consoleCoreServicesFromBundle(bundle),
+      walletConsole: walletConsoleServicesFromBundle(bundle),
+      auth,
+      readyCheck: createConsoleReadyCheck(env),
+      billingStripeWebhookSigningSecret: requireEnvString(env, 'STRIPE_WEBHOOK_SECRET'),
+    }),
+  );
 }
 
 function consoleHandler(env: CloudflareD1ConsoleStagingEnv): Promise<FetchHandler> {

@@ -23,6 +23,8 @@
       "@shared/threshold": ["../packages/shared-ts/src/threshold/index.ts"],
       "@seams-internal/console-shared": ["../packages/console-shared-ts/src/index.ts"],
       "@seams-internal/console-shared/*": ["../packages/console-shared-ts/src/*"],
+      "@seams-internal/wallet-console-shared": ["../packages/wallet-console-shared-ts/src/index.ts"],
+      "@seams-internal/wallet-console-shared/*": ["../packages/wallet-console-shared-ts/src/*"],
       "@seams-internal/console-server": ["../packages/console-server-ts/src/index.ts"],
       "@seams-internal/console-server/*": ["../packages/console-server-ts/src/*"],
       "@seams-internal/shared-ts/*": ["../packages/shared-ts/src/*"],
