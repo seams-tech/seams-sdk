@@ -62,7 +62,10 @@ import {
 import type { DeviceLinkingCustodyTransferRecipientHandleV1 } from './deviceLinkingCustodyTransfer';
 import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
-import { persistFinalizedPasskeyAuthMethodV1 } from '../authMethods/passkey/localPasskeyProjection';
+import {
+  persistFinalizedPasskeyAuthMethodV1,
+  type FinalizedPasskeyAuthMethodV1,
+} from '../authMethods/passkey/localPasskeyProjection';
 
 type EmitLinkDeviceEventInput = Omit<CreateLinkDeviceFlowEventInput, 'flowId' | 'accountId'> & {
   readonly accountId?: string;
@@ -171,6 +174,65 @@ function assertNeverTargetCredentialActivationState(value: never): never {
 
 function zeroizeLiveBytes(value: Uint8Array): void {
   if (value.byteLength > 0) value.fill(0);
+}
+
+/**
+ * How many times the local writes are retried before the flow gives up.
+ *
+ * Small on purpose. A transient IndexedDB failure clears in a moment; a durable
+ * one (quota, private browsing) will not clear by being asked again, and the
+ * retained finalize is what protects the credential in that case, not the loop.
+ */
+const LINKED_OWNER_ENROLLMENT_PERSIST_ATTEMPTS_V1 = 3;
+
+/** A committed owner finalize, held until its local writes have landed. */
+type RetainedLinkedOwnerFinalizeV1 = {
+  readonly request: LinkedDeviceOwnerFinalizeRequestV1;
+  readonly response: Awaited<
+    ReturnType<DeviceLinkingAuthenticatedTransportPortV1['finalizeOwnerAuthMethodV1']>
+  >;
+};
+
+/**
+ * Checks a finalize response against the credential it was supposed to register
+ * and returns exactly the fields the local projection needs.
+ *
+ * Returning the projection rather than asserting in place keeps the narrowing
+ * where the check is: the caller cannot reach the passkey fields without having
+ * proved the response is a passkey for this wallet and this credential.
+ */
+function requireFinalizedOwnerPasskeyV1(
+  finalized: RetainedLinkedOwnerFinalizeV1['response'],
+  expected: {
+    readonly state: Extract<LinkedDeviceSessionState, { state: 'awaiting_target_passkey' }>;
+    readonly preparation: LinkedDeviceTargetPreparationV1;
+    readonly credential: Awaited<
+      ReturnType<DeviceLinkingTargetCredentialPortV1['createTargetCredentialV1']>
+    >;
+  },
+): FinalizedPasskeyAuthMethodV1 {
+  const authMethod = finalized.authMethod;
+  if (authMethod.kind !== 'passkey' || authMethod.status !== 'active') {
+    throw new Error('linked-device owner finalize returned a non-passkey auth method');
+  }
+  if (typeof finalized.rpId !== 'string') {
+    throw new Error('linked-device owner finalize omitted the passkey relying party');
+  }
+  if (
+    String(finalized.walletId) !== String(expected.state.walletId) ||
+    String(finalized.rpId) !== String(expected.preparation.ownerEnrollment.registration.rpId) ||
+    String(authMethod.credentialIdB64u) !==
+      String(expected.credential.webauthnRegistration.credentialIdB64u)
+  ) {
+    throw new Error('linked-device owner finalize returned a mismatched auth method');
+  }
+  return {
+    walletId: finalized.walletId,
+    rpId: finalized.rpId,
+    credentialIdB64u: authMethod.credentialIdB64u,
+    credentialPublicKeyB64u: authMethod.credentialPublicKeyB64u,
+    counter: authMethod.counter,
+  };
 }
 
 /** The relying party the owner ceremony will verify this credential against. */
@@ -765,21 +827,18 @@ export class LinkDeviceFlow {
       if (!resealedCustodyEnvelope) {
         throw new Error('linked-device custody transfer did not produce a resealed envelope');
       }
-      await this.finalizeLinkedOwnerAuthMethodV1({
+      // Commits the credential and lands both local writes as one recoverable
+      // unit, so neither can be left behind by a failure in the other.
+      await this.commitLinkedOwnerEnrollmentV1({
         authenticatedTransport,
         state,
         preparation,
         credential,
         custodyEnvelope: resealedCustodyEnvelope,
+        registration,
         runEpoch,
       });
       this.resealedCustodyEnvelope = null;
-      // The canonical owner finalize advances the session to provisioning.
-      // The R102 credential registration below is deliberately replay-safe in
-      // that state and records the same target preparation binding.
-      await authenticatedTransport.registerTargetCredentialV1({
-        registration,
-      });
       this.assertCurrentRun(runEpoch);
       const approval = await authenticatedTransport.getApprovalV1({
         linkSessionId: state.linkSessionId,
@@ -851,7 +910,26 @@ export class LinkDeviceFlow {
     }
   }
 
-  private async finalizeLinkedOwnerAuthMethodV1(input: {
+  /**
+   * Commits the owner credential, then lands the local writes that depend on it.
+   *
+   * The server half of this is irreversible: one successful finalize registers
+   * the passkey, the custody envelope, and the owner binding in a single
+   * transaction. Everything after it is local, and a local failure must never
+   * be recovered by minting a second credential — the wallet would carry two
+   * owner factors for one device, only one of which anything knows about.
+   *
+   * So the canonical response is retained the moment the server commits and
+   * reused for every subsequent attempt, rather than the flow unwinding to
+   * somewhere that would prompt again. The finalize is replayable rather than
+   * repeatable — the server answers an identical request with the original
+   * response — but the retained copy means the retry does not even need to ask.
+   *
+   * If the writes still cannot land, this throws and the flow tears itself
+   * down: `handleSessionTransportFailure` advances the run epoch and releases
+   * the local resources, so nothing reaches the authenticator a second time.
+   */
+  private async commitLinkedOwnerEnrollmentV1(input: {
     readonly authenticatedTransport: DeviceLinkingAuthenticatedTransportPortV1;
     readonly state: Extract<LinkedDeviceSessionState, { state: 'awaiting_target_passkey' }>;
     readonly preparation: LinkedDeviceTargetPreparationV1;
@@ -859,6 +937,7 @@ export class LinkDeviceFlow {
       ReturnType<DeviceLinkingTargetCredentialPortV1['createTargetCredentialV1']>
     >;
     readonly custodyEnvelope: PasskeyCustodyEnvelopeRecord;
+    readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
     readonly runEpoch: number;
   }): Promise<void> {
     const request: LinkedDeviceOwnerFinalizeRequestV1 = {
@@ -867,33 +946,47 @@ export class LinkDeviceFlow {
       webauthnRegistration: input.credential.webauthnRegistration,
       custodyEnvelope: input.custodyEnvelope,
     };
-    const finalized = await input.authenticatedTransport.finalizeOwnerAuthMethodV1({
-      linkSessionId: input.state.linkSessionId,
+    // One server call, retained for the whole commit. Replaying it would return
+    // this same response — the point of retaining it is that the retry below
+    // never has to unwind far enough to ask.
+    const retained: RetainedLinkedOwnerFinalizeV1 = {
       request,
-    });
+      response: await input.authenticatedTransport.finalizeOwnerAuthMethodV1({
+        linkSessionId: input.state.linkSessionId,
+        request,
+      }),
+    };
     this.assertCurrentRun(input.runEpoch);
-    if (finalized.authMethod.kind !== 'passkey' || finalized.authMethod.status !== 'active') {
-      throw new Error('linked-device owner finalize returned a non-passkey auth method');
+    const projection = requireFinalizedOwnerPasskeyV1(retained.response, input);
+    let attempt = 0;
+    for (;;) {
+      try {
+        this.assertCurrentRun(input.runEpoch);
+        await persistFinalizedPasskeyAuthMethodV1(projection);
+        // The canonical owner finalize advances the session to provisioning.
+        // The R102 credential registration is deliberately replay-safe in that
+        // state and records the same target preparation binding.
+        await input.authenticatedTransport.registerTargetCredentialV1({
+          registration: input.registration,
+        });
+        this.assertCurrentRun(input.runEpoch);
+        return;
+      } catch (error: unknown) {
+        if (error instanceof LinkDeviceFlowSupersededError) throw error;
+        if (attempt >= LINKED_OWNER_ENROLLMENT_PERSIST_ATTEMPTS_V1) {
+          // The credential exists on the server, so this says what is actually
+          // true rather than implying nothing happened. The flow tears down
+          // from here; it does not fall back to making another one.
+          throw new DeviceLinkingError(
+            `Device-link owner credential was registered but could not be stored locally: ${errorMessage(error)}`,
+            DeviceLinkingErrorCode.REGISTRATION_FAILED,
+            'registration',
+          );
+        }
+        await waitForSessionStateRetry(attempt);
+        attempt += 1;
+      }
     }
-    if (typeof finalized.rpId !== 'string') {
-      throw new Error('linked-device owner finalize omitted the passkey relying party');
-    }
-    if (
-      String(finalized.walletId) !== String(input.state.walletId) ||
-      String(finalized.rpId) !== String(input.preparation.ownerEnrollment.registration.rpId) ||
-      String(finalized.authMethod.credentialIdB64u) !==
-        String(input.credential.webauthnRegistration.credentialIdB64u)
-    ) {
-      throw new Error('linked-device owner finalize returned a mismatched auth method');
-    }
-    await persistFinalizedPasskeyAuthMethodV1({
-      walletId: finalized.walletId,
-      rpId: finalized.rpId,
-      credentialIdB64u: finalized.authMethod.credentialIdB64u,
-      credentialPublicKeyB64u: finalized.authMethod.credentialPublicKeyB64u,
-      counter: finalized.authMethod.counter,
-    });
-    this.assertCurrentRun(input.runEpoch);
   }
 
   private async waitForPreparedDeliveryCommitV1(input: {
