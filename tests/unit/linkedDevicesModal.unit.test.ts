@@ -15,20 +15,25 @@ type DeviceFixture = {
   readonly deviceId: string;
   readonly enrollmentId: string;
   readonly walletId: string;
-  readonly credential: {
-    readonly kind: 'passkey';
-    readonly walletAuthMethodId: string;
-    readonly credentialIdB64u: string;
-    readonly device: {
-      readonly label: string;
-      readonly browser: 'safari';
-      readonly os: 'ios';
-      readonly synced: true;
-      readonly transports: readonly ['internal'];
-      readonly provider: 'icloud-keychain';
-      readonly providerLabel: 'iCloud Keychain';
-    };
-  };
+  readonly credential:
+    | {
+        readonly kind: 'passkey';
+        readonly walletAuthMethodId: string;
+        readonly credentialIdB64u: string;
+        readonly device: {
+          readonly label: string;
+          readonly browser: 'safari';
+          readonly os: 'ios';
+          readonly synced: true;
+          readonly transports: readonly ['internal'];
+          readonly provider: 'icloud-keychain';
+          readonly providerLabel: 'iCloud Keychain';
+        };
+      }
+    | {
+        readonly kind: 'email_otp';
+        readonly walletAuthMethodId: string;
+      };
   readonly permission: {
     readonly kind: 'owner_equivalent_signing';
     readonly administrationScope: 'signing_only';
@@ -77,6 +82,16 @@ function deviceFixture(
     createdAtMs: nowMs - 86_400_000,
     lastActivityAtMs: nowMs - 3_600_000,
     revocationEpoch: 0,
+  };
+}
+
+function emailOtpDeviceFixture(deviceId: string, state: DeviceState): DeviceFixture {
+  return {
+    ...deviceFixture(deviceId, 'unused', state),
+    credential: {
+      kind: 'email_otp',
+      walletAuthMethodId: `email_otp:${WALLET_ID}:${'b'.repeat(64)}`,
+    },
   };
 }
 
@@ -182,6 +197,7 @@ test.describe('linked devices modal lifecycle', () => {
       devices: [
         deviceFixture('device-active', 'Phone passkey', 'active'),
         deviceFixture('device-paused', 'Laptop passkey', 'suspended'),
+        emailOtpDeviceFixture('device-email', 'active'),
         deviceFixture('device-removed', 'Old passkey', 'revoked'),
       ],
       revokeOutcomes: [],
@@ -190,10 +206,11 @@ test.describe('linked devices modal lifecycle', () => {
     const dialog = page.getByRole('dialog', { name: 'Your devices' });
     await expect(dialog.getByText('Phone passkey')).toBeVisible();
     await expect(dialog.getByText('Laptop passkey')).toBeVisible();
+    await expect(dialog.getByText('Email OTP')).toBeVisible();
     await expect(
       dialog.locator('.w3a-linked-devices-modal-item-name').filter({ hasText: 'Old passkey' }),
     ).toHaveCount(0);
-    await expect(dialog.getByText('Can use this wallet', { exact: true })).toBeVisible();
+    await expect(dialog.getByText('Can use this wallet', { exact: true })).toHaveCount(2);
     await expect(dialog.getByText('Paused', { exact: true })).toBeVisible();
     await expect(dialog.getByRole('button', { name: /Remove Phone passkey/ })).toBeVisible();
     await expect(dialog.getByRole('button', { name: /Remove Laptop passkey/ })).toBeVisible();
