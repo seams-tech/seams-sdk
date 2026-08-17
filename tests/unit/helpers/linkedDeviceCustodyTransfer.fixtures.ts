@@ -11,7 +11,9 @@ import {
   type LinkedDeviceCustodyTransferPackageV1,
   type LinkedDeviceCustodyTransferRecipientV1,
 } from '../../../packages/shared-ts/src/device-linking/custodyTransfer';
+import type { LinkedDeviceOwnerCustodyHoldV1 } from '../../../packages/sdk-web/src/SeamsWeb/operations/devices/deviceLinkingOwnerCustody';
 import { base64UrlEncode } from '../../../packages/shared-ts/src/utils/base64';
+import { passkeyCustodyEnvelope } from './passkeyCustodyEnvelope.fixtures';
 
 function publicKey(fill: number): string {
   return base64UrlEncode(new Uint8Array(32).fill(fill));
@@ -27,6 +29,31 @@ const AAD_HASH_B64U = base64UrlEncode(new Uint8Array(32).fill(5));
 const CIPHERTEXT_DIGEST_B64U = base64UrlEncode(new Uint8Array(32).fill(6));
 
 export const LINKED_DEVICE_TRANSFER_SEALED_AT_MS = 1_800_000_000_000;
+
+/**
+ * Device 1's held custody material, with the production hold's once-only rule.
+ *
+ * The real hold releases the wallet custody seed exactly once and zeroizes it,
+ * so a stub that could be sealed twice would let a test pass a flow that seals
+ * on every poll. Refusing the second seal here is what makes "sealed once"
+ * assertable at all.
+ */
+export function buildLinkedDeviceOwnerCustodyHoldStubV1(): LinkedDeviceOwnerCustodyHoldV1 {
+  let released = false;
+  return {
+    sealOnceV1: async (seal) => {
+      if (released) throw new Error('held custody was already released');
+      released = true;
+      return await seal({
+        existingEnvelope: passkeyCustodyEnvelope(),
+        existingFactorSecret: new Uint8Array(32).fill(7),
+      });
+    },
+    discardV1: () => {
+      released = true;
+    },
+  };
+}
 
 export type LinkedDeviceCustodyTransferFixtureOverridesV1 = {
   readonly walletId?: string;
