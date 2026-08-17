@@ -1,4 +1,4 @@
-import type { NormalizedLogger } from '@seams/sdk-server/cloud-host';
+import type { NormalizedLogger } from '../boundary';
 import {
   buildWebhookDeadLetterObservabilityEvent,
   buildWebhookEndpointDegradedObservabilityEvent,

@@ -1,5 +1,5 @@
 import type { SwitchConsoleAccountOrganizationContextResult } from '@seams-internal/console-server/account';
-import type { SessionAdapter, SessionClaims } from '@seams/sdk-server/cloud-host';
+import type { SessionAdapter, SessionClaims } from '../boundary';
 
 const RESERVED_SESSION_CLAIMS = new Set([
   'sub',

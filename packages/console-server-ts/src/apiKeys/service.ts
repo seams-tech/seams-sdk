@@ -9,7 +9,7 @@ import {
   makeSecretPreview,
   parseApiKeySecret,
 } from './secret';
-import { normalizeCorsOrigin } from '@seams/sdk-server/cloud-host';
+import { normalizeCorsOrigin } from '../boundary';
 import {
   isApiCredentialScope,
   type ApiCredentialScope,

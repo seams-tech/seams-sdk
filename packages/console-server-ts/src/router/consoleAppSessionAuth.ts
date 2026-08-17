@@ -7,7 +7,7 @@ import type {
   ActiveOrganizationAuthorization,
   ConsoleOrganizationAccessService,
 } from '../teamRbac';
-import type { SessionAdapter } from '@seams/sdk-server/cloud-host';
+import type { SessionAdapter } from '../boundary';
 import type { ConsoleAuthAdapter, ConsoleAuthClaims, HeaderRecord } from './consoleAuth';
 
 export interface ConsoleSsoProvisioningOptions {

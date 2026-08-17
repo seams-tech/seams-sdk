@@ -1,9 +1,9 @@
-import { base64UrlDecode, base64UrlEncode } from '@seams/sdk-server/cloud-host';
+import { base64UrlDecode, base64UrlEncode } from '../boundary';
 import {
   normalizeConsoleWebhookEventCategory,
   type ConsoleWebhookEventCategory,
 } from '@seams-internal/wallet-console-shared/webhookEventCategories';
-import type { NormalizedLogger } from '@seams/sdk-server/cloud-host';
+import type { NormalizedLogger } from '../boundary';
 import {
   d1Integer as toNumber,
   d1ChangedRows,
@@ -11,8 +11,8 @@ import {
   queryD1All as queryRows,
   queryD1One as queryFirstRow,
   type D1Row,
-} from '@seams/sdk-server/cloud-host';
-import type { D1DatabaseLike } from '@seams/sdk-server/cloud-host';
+} from '../boundary';
+import type { D1DatabaseLike } from '../boundary';
 import { ConsoleWebhookError } from './errors';
 import {
   appendConsoleWebhookObservabilitySignals,

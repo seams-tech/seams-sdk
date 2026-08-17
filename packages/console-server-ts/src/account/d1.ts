@@ -6,7 +6,7 @@ import {
   queryD1One,
   type D1DatabaseLike,
   type D1Row,
-} from '@seams/sdk-server/cloud-host';
+} from '../boundary';
 import type { ConsoleOnboardingService } from '../onboarding';
 import type {
   ConsoleOrgProjectEnvContext,

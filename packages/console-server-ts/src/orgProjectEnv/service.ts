@@ -1,4 +1,4 @@
-import { secureRandomBase36 } from '@seams/sdk-server/cloud-host';
+import { secureRandomBase36 } from '../boundary';
 import { ConsoleOrgProjectEnvError } from './errors';
 import { DEFAULT_CONSOLE_SIGNING_ROOT_VERSION } from './types';
 import type {

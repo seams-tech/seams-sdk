@@ -1,4 +1,4 @@
-import type { RouterLogger } from '@seams/sdk-server/cloud-host';
+import type { RouterLogger } from '../boundary';
 import type { ConsoleBillingService } from '@seams-internal/console-server/billing';
 import type { ConsoleBillingPrepaidReservationService } from '@seams-internal/console-server/billingPrepaidReservations';
 import type { ConsoleSponsoredCallService } from '@seams-internal/console-server/sponsoredCalls';
@@ -20,7 +20,7 @@ import type {
   ConsoleObservabilityIngestionService,
   ConsoleObservabilityService,
 } from '@seams-internal/console-server/observability';
-import type { SessionAdapter } from '@seams/sdk-server/cloud-host';
+import type { SessionAdapter } from '../boundary';
 import type { ConsoleAuthAdapter } from './consoleAuth';
 import type { TenantStorageRouteResolver } from './cloudflare/tenantStorageRoute';
 
