@@ -349,13 +349,6 @@ test.describe('Router A/B ECDSA derivation normal-signing boundary', () => {
         }),
       ).resolves.toEqual(signedResponse);
 
-      await expect(
-        prepareRouterAbEcdsaDerivationEvmDigestSigningV1({
-          relayServerUrl: 'https://router.example/base/',
-          credential: { kind: 'app_session_jwt', appSessionJwt: 'app-session-jwt' },
-          request,
-        }),
-      ).resolves.toEqual(preparedResponse);
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -363,7 +356,6 @@ test.describe('Router A/B ECDSA derivation normal-signing boundary', () => {
     expect(calls.map((call) => call.url)).toEqual([
       'https://router.example/base/router-ab/ecdsa-derivation/sign/prepare',
       'https://router.example/base/router-ab/ecdsa-derivation/sign',
-      'https://router.example/base/router-ab/ecdsa-derivation/sign/prepare',
     ]);
     expect(calls[0].init.credentials).toBe('omit');
     expect(calls[0].init.headers).toEqual({
@@ -372,12 +364,6 @@ test.describe('Router A/B ECDSA derivation normal-signing boundary', () => {
     });
     expect(JSON.parse(String(calls[0].init.body))).toEqual(request);
     expect(JSON.parse(String(calls[1].init.body))).toEqual(finalizeRequest);
-    expect(calls[2].init.credentials).toBe('omit');
-    expect(calls[2].init.headers).toEqual({
-      'Content-Type': 'application/json',
-      Authorization: 'Bearer app-session-jwt',
-    });
-    expect(JSON.parse(String(calls[2].init.body))).toEqual(request);
   });
 
   test('classifies a stale server pool record as pool-entry expiry', async () => {

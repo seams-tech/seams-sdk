@@ -190,12 +190,19 @@ function parseDomainId<T>(raw: unknown, fieldName: string): DomainIdParseResult<
   return { ok: true, value: value as T };
 }
 
-export function hasWhitespaceOrControlCharacters(value: string): boolean {
+export function hasControlCharacter(value: string): boolean {
   for (const character of value) {
     const code = character.charCodeAt(0);
-    if (/\s/.test(character) || code <= 31 || code === 127) return true;
+    if (code <= 31 || code === 127) return true;
   }
   return false;
+}
+
+export function hasWhitespaceOrControlCharacters(value: string): boolean {
+  for (const character of value) {
+    if (/\s/.test(character)) return true;
+  }
+  return hasControlCharacter(value);
 }
 
 export function parseWalletId(raw: unknown): DomainIdParseResult<WalletId> {

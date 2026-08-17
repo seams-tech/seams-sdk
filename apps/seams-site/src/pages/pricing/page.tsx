@@ -7,6 +7,7 @@ import './styles.css';
 
 export function PricingPage(): React.JSX.Element {
   const { linkProps } = useSiteRouter();
+  const dashboardProps = linkProps('/dashboard');
   const docsProps = linkProps('/docs/');
 
   return (
