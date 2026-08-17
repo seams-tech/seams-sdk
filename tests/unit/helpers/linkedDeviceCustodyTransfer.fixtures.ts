@@ -42,7 +42,7 @@ export function buildUnlockedCustodyCapabilityFixtureV1(
     kind: 'unlocked_wallet_custody_transfer_capability_v1',
     capabilityHandleId: 'unlocked-custody-capability-fixture',
     walletId: 'alice.testnet',
-    walletAuthMethodId: 'passkey wallet.example.test Y3JlZGVudGlhbC1maXJzdA',
+    walletAuthMethodId: 'passkey:wallet.example.test:Y3JlZGVudGlhbC1maXJzdA',
     walletSessionId: 'available-lane-wallet-session:owner-authorization',
     expiresAtMs: LINKED_DEVICE_TRANSFER_SEALED_AT_MS,
     ...overrides,

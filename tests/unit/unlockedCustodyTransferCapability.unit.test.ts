@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { WalletCustodyCeremonyTransportPort } from '@/core/signingEngine/walletCustody/ceremonyStepRunner';
 import {
+  custodyEnvelopePasskeyAuthMethodIdV1,
   destroyUnlockedWalletCustodyTransferCapabilitiesV1,
   dropUnlockedWalletCustodyTransferCapabilityReferenceV1,
   establishUnlockedWalletCustodyTransferCapabilityV1,
@@ -54,6 +55,14 @@ test.beforeEach(() => {
   dropUnlockedWalletCustodyTransferCapabilityReferenceV1();
 });
 
+test('uses the canonical wallet auth-method identity for a passkey envelope', () => {
+  const envelope = passkeyCustodyEnvelope();
+  if (envelope.factor.kind !== 'passkey') throw new Error('fixture factor is not a passkey');
+  expect(custodyEnvelopePasskeyAuthMethodIdV1(envelope.factor)).toBe(
+    `passkey:${envelope.factor.rpId}:${envelope.factor.credentialIdB64u}`,
+  );
+});
+
 test('establish forwards a copied factor secret, records the reference, and zeroizes its copy', async () => {
   const reference = establishedReference();
   let transferredBuffer: ArrayBuffer | null = null;
@@ -88,7 +97,7 @@ test('establish refuses a worker response that is not a capability reference', a
       existingEnvelope: passkeyCustodyEnvelope(),
       existingFactorSecret: new Uint8Array(32).fill(7),
       walletId: 'alice.testnet',
-      walletAuthMethodId: 'passkey wallet.example.test cred',
+      walletAuthMethodId: 'passkey:wallet.example.test:cred',
       walletSessionId: 'wallet-session:unlock',
       expiresAtMs: Date.now() + 60_000,
     }),

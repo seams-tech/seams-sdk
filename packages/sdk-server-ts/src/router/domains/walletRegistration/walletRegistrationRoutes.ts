@@ -158,6 +158,12 @@ type RouterApiWalletRegistrationInput = {
 
 type ParseResult<T> = { ok: true; value: T } | { ok: false; code: 'invalid_body'; message: string };
 
+type ParsedWalletAddAuthMethodStartRequest = Omit<WalletAddAuthMethodStartRequest, 'auth'> & {
+  readonly auth:
+    | Extract<WalletAddAuthMethodStartRequest['auth'], { readonly kind: 'webauthn_assertion' }>
+    | { readonly kind: 'wallet_session' };
+};
+
 type RegistrationTraceContextParseResult =
   | { readonly ok: true; readonly value: RouterAbTraceContextV1 | null }
   | { readonly ok: false; readonly message: string };
@@ -892,7 +898,7 @@ async function parseWalletAddSignerStartBody(
 async function parseWalletAddAuthMethodStartBody(
   body: Record<string, unknown>,
   walletId: string,
-): Promise<ParseResult<WalletAddAuthMethodStartRequest>> {
+): Promise<ParseResult<ParsedWalletAddAuthMethodStartRequest>> {
   const intent = isPlainObject(body.intent) ? body.intent : null;
   if (!intent || intent.version !== 'add_auth_method_intent_v1') {
     return { ok: false, code: 'invalid_body', message: 'add-auth-method intent is required' };
@@ -942,7 +948,7 @@ async function parseWalletAddAuthMethodStartBody(
   if (!auth) {
     return { ok: false, code: 'invalid_body', message: 'add-auth-method auth is required' };
   }
-  let existingAuth: WalletAddAuthMethodStartRequest['auth'];
+  let existingAuth: ParsedWalletAddAuthMethodStartRequest['auth'];
   if (auth.kind === 'webauthn_assertion') {
     const authRpId = parseWebAuthnRpId(auth.rpId);
     if (!authRpId.ok) {
@@ -970,9 +976,7 @@ async function parseWalletAddAuthMethodStartBody(
   } else if (auth.kind === 'wallet_session') {
     /* R103 zero-prompt handoff: the body names only the auth kind. Every
        identity fact is resolved from the verified bearer admission in the
-       route handler, which replaces this placeholder before the request is
-       used — a body that tried to supply session or credential facts here is
-       rejected outright. */
+       route handler before a service request is built. */
     if (Object.keys(auth).length !== 1) {
       return {
         ok: false,
@@ -982,10 +986,6 @@ async function parseWalletAddAuthMethodStartBody(
     }
     existingAuth = {
       kind: 'wallet_session',
-      walletSessionId: '',
-      authorizationId: '',
-      rpId: '' as WebAuthnRpId,
-      credentialIdB64u: '',
     };
   } else {
     return {
@@ -2344,18 +2344,19 @@ export async function handleRouterApiWalletAddAuthMethodStart(
   }
   const parsedBody = await parseWalletAddAuthMethodStartBody(input.body, walletId);
   if (!parsedBody.ok) return routeError(400, parsedBody.code, parsedBody.message);
-  let request = parsedBody.value;
-  if (request.auth.kind === 'webauthn_assertion') {
+  const parsedRequest = parsedBody.value;
+  let request: WalletAddAuthMethodStartRequest;
+  if (parsedRequest.auth.kind === 'webauthn_assertion') {
     const origin = requireWebAuthnExpectedOrigin(input);
     if (!origin.ok) return origin.response;
-    const parsedRpId = requireWebAuthnRpId(request.auth.rpId);
+    const parsedRpId = requireWebAuthnRpId(parsedRequest.auth.rpId);
     if (!parsedRpId.ok) return parsedRpId.response;
     const verified = await input.services.walletRegistration.verifyWebAuthnAuthenticationLite({
       userId: walletId,
       rpId: parsedRpId.rpId,
-      expectedChallenge: request.auth.expectedChallengeDigestB64u,
+      expectedChallenge: parsedRequest.auth.expectedChallengeDigestB64u,
       expected_origin: origin.expectedOrigin,
-      webauthn_authentication: request.auth.credential,
+      webauthn_authentication: parsedRequest.auth.credential,
     });
     if (!verified.success || !verified.verified) {
       return routeError(
@@ -2364,7 +2365,17 @@ export async function handleRouterApiWalletAddAuthMethodStart(
         verified.message || 'Invalid add-auth-method WebAuthn authorization',
       );
     }
-  } else if (request.auth.kind === 'wallet_session') {
+    const auth = parsedRequest.auth;
+    request = {
+      ...parsedRequest,
+      auth: {
+        kind: auth.kind,
+        rpId: auth.rpId,
+        credential: auth.credential,
+        expectedChallengeDigestB64u: auth.expectedChallengeDigestB64u,
+      },
+    };
+  } else if (parsedRequest.auth.kind === 'wallet_session') {
     /* R103 zero-prompt handoff: owner authority for the linked-device
        ceremony start is the active owner Wallet Session presented as the
        bearer credential. The session's own minting authority names the
@@ -2391,7 +2402,7 @@ export async function handleRouterApiWalletAddAuthMethodStart(
       );
     }
     request = {
-      ...request,
+      ...parsedRequest,
       auth: {
         kind: 'wallet_session',
         walletSessionId: String(binding.walletSessionId),
@@ -2400,6 +2411,8 @@ export async function handleRouterApiWalletAddAuthMethodStart(
         credentialIdB64u: String(authority.factor.credentialIdB64u),
       },
     };
+  } else {
+    return routeError(400, 'invalid_body', 'add-auth-method auth.kind is unsupported');
   }
   const result = await input.services.walletRegistration.startWalletAddAuthMethod(
     {
