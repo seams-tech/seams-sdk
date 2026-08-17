@@ -248,7 +248,6 @@ export function H2DemoHero({
             </div>
           </div>
           <div className="h2-shapeswitch" role="group" aria-label="Corner shape">
-            <span className="h2-shapeswitch__label">Corners</span>
             {(
               [
                 { id: 'square', label: 'Sharp' },
@@ -258,7 +257,10 @@ export function H2DemoHero({
               <button
                 key={s.id}
                 type="button"
-                className={`h2-shapeswitch__btn${demoShape === s.id ? ' is-active' : ''}`}
+                /* the chip wears the corner style it selects */
+                className={`h2-shapeswitch__btn h2-shapeswitch__btn--${s.id}${
+                  demoShape === s.id ? ' is-active' : ''
+                }`}
                 aria-pressed={demoShape === s.id}
                 onClick={() => setDemoShape(s.id)}
               >

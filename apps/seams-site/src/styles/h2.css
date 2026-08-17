@@ -1887,6 +1887,18 @@ body:has(.h2-page) {
   margin-top: 14px;
 }
 
+/* the chip row scrolls edge to edge: break out of the demo column's 36px side
+   padding, then re-add it inside so the chips still start on the content rail.
+   The negative margins cancel the added width, so the row's layout footprint
+   (and the centered THEMES kicker above it) is unchanged. */
+.h2-hero__demo .h2-themeswitch__track {
+  width: calc(100% + 72px);
+  max-width: calc(100% + 72px);
+  margin-inline: -36px;
+  padding-inline: 36px;
+  scroll-padding-inline: 36px;
+}
+
 .h2-page--wallet .passkey-demo {
   min-height: var(--h2-wallet-demo-shell-min-height);
 }
@@ -2018,16 +2030,6 @@ body:has(.h2-page) {
   margin-top: 26px;
 }
 
-.h2-shapeswitch__label {
-  margin-right: 4px;
-  font-family: var(--h2-mono);
-  font-size: var(--h2-text-xs);
-  font-weight: 500;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--h2-ash);
-}
-
 .h2-shapeswitch__btn {
   display: inline-flex;
   align-items: center;
@@ -2045,6 +2047,11 @@ body:has(.h2-page) {
     color 150ms ease,
     border-color 150ms ease,
     background-color 150ms ease;
+}
+
+/* the Sharp chip previews the square geometry it selects */
+.h2-shapeswitch__btn--square {
+  border-radius: 4px;
 }
 
 .h2-shapeswitch__btn:hover {
