@@ -25,7 +25,8 @@ import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { sha256Bytes } from '@shared/utils/digests';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
-import type { LinkDeviceSessionId } from '@shared/signing-lanes/ids';
+import { parseLinkDeviceSessionId, type LinkDeviceSessionId } from '@shared/signing-lanes/ids';
+import { parseLinkedDeviceCustodyTransferPackageV1 } from '@shared/device-linking/custodyTransfer';
 import type { HttpTransport } from '@/core/platform/http';
 import type {
   DeviceLinkingAuthenticatedTransportPortV1,
@@ -172,6 +173,30 @@ export function createDeviceLinkingAuthenticatedSessionTransportV1(
         body: registration,
       });
     },
+    registerCustodyTransferRecipientV1: async ({ recipient }) => {
+      const linkSessionId = requireLinkSessionId(recipient.linkSessionId);
+      await requestDeviceV1({
+        options,
+        baseUrl,
+        method: 'POST',
+        canonicalPath: sessionActionPath(linkSessionId, 'custody-transfer-recipient'),
+        linkSessionId,
+        body: recipient,
+      });
+    },
+    getCustodyTransferPackageV1: async ({ linkSessionId }) => {
+      const response = await requestDeviceV1({
+        options,
+        baseUrl,
+        method: 'GET',
+        canonicalPath: sessionActionPath(linkSessionId, 'custody-transfer'),
+        linkSessionId,
+        allowNotFound: true,
+      });
+      // Device 1 has not sealed yet. Normal while the owner is approving.
+      if (response.status === 404) return null;
+      return parseLinkedDeviceCustodyTransferPackageV1(response.body);
+    },
     acknowledgeReceiptV1: async ({ acknowledgement }) => {
       await requestMutationV1({
         options,
@@ -231,6 +256,17 @@ export function createDeviceLinkingSessionTransportPortV1(
   };
 }
 
+/**
+ * The recipient registration carries its link session as a plain string,
+ * because it is also the body the server parses. Re-parsing it here keeps the
+ * signed canonical path derived from a branded id.
+ */
+function requireLinkSessionId(raw: string): LinkDeviceSessionId {
+  const parsed = parseLinkDeviceSessionId(raw);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+}
+
 async function requestSessionV1(input: {
   readonly options: DeviceLinkingAuthenticatedSessionTransportOptionsV1;
   readonly baseUrl: string;
@@ -265,6 +301,12 @@ async function requestDeviceV1(input: {
   readonly canonicalPath: string;
   readonly linkSessionId: LinkDeviceSessionId;
   readonly body?: unknown;
+  /**
+   * A poll for something the other device has not produced yet. 404 is the
+   * expected answer while waiting, so the caller wants it as a value rather
+   * than an exception.
+   */
+  readonly allowNotFound?: boolean;
 }): Promise<DeviceRequestResponseV1> {
   const bodyBytes = encodeRequestBodyV1(input.body);
   const bodyDigestB64u = parseDigestB64u(base64UrlEncode(await sha256Bytes(bodyBytes)));
@@ -315,6 +357,7 @@ async function requestDeviceV1(input: {
     ...(input.body === undefined ? {} : { body: input.body }),
   });
   if (!response.ok) throw new Error(`linked-device request failed: ${response.message}`);
+  if (input.allowNotFound && response.value.status === 404) return response.value;
   if (response.value.status < 200 || response.value.status >= 300) {
     throw new Error(parseHttpFailureMessageV1(response.value));
   }
@@ -438,6 +481,8 @@ function sessionActionPath(
     | 'provision'
     | 'holder-receipts'
     | 'credential'
+    | 'custody-transfer'
+    | 'custody-transfer-recipient'
     | 'receipt'
     | 'retry'
     | 'cancel',

@@ -27,6 +27,11 @@ import type {
   QrLinkedDeviceSessionPayloadV4,
 } from '@shared/device-linking';
 import type { SealedLaneHolderMaterialV1 } from '@shared/signing-lanes/rotation';
+import type {
+  LinkedDeviceCustodyTransferPackageV1,
+  LinkedDeviceCustodyTransferRecipientV1,
+  LinkedDeviceCustodyTransferSubmissionV1,
+} from '@shared/device-linking/custodyTransfer';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type {
   LaneOperationId,
@@ -87,6 +92,18 @@ export type DeviceLinkingAuthenticatedTransportPortV1 = {
   registerTargetCredentialV1(input: {
     readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
   }): Promise<void>;
+  /**
+   * Refactor 103 Phase 8. Device 2 publishes where the wallet custody seed
+   * should be sealed, then collects the sealed package once Device 1 has
+   * produced it. `null` means Device 1 has not sealed yet — normal while the
+   * owner is still approving, not an error.
+   */
+  registerCustodyTransferRecipientV1(input: {
+    readonly recipient: LinkedDeviceCustodyTransferRecipientV1;
+  }): Promise<void>;
+  getCustodyTransferPackageV1(input: {
+    readonly linkSessionId: LinkDeviceSessionId;
+  }): Promise<LinkedDeviceCustodyTransferPackageV1 | null>;
   acknowledgeReceiptV1(input: {
     readonly acknowledgement: LinkedDeviceReceiptAcknowledgementV1;
   }): Promise<void>;
@@ -134,6 +151,19 @@ export type LinkSessionOwnerTransportPortV1 = {
     readonly submission: LinkedDeviceProvisioningDeliveriesSubmissionV1;
     readonly authentication: LinkSessionAuthenticationV1;
   }): Promise<LinkedDeviceProvisioningDeliveriesSubmissionV1>;
+  /**
+   * Refactor 103 Phase 8. Device 1 reads where to seal, then returns the
+   * sealed package. `null` means Device 2 has not published a recipient key
+   * yet — normal while the target device is still preparing.
+   */
+  getCustodyTransferRecipientV1(input: {
+    readonly linkSessionId: LinkDeviceSessionId;
+    readonly authentication: LinkSessionAuthenticationV1;
+  }): Promise<LinkedDeviceCustodyTransferRecipientV1 | null>;
+  submitCustodyTransferPackageV1(input: {
+    readonly submission: LinkedDeviceCustodyTransferSubmissionV1;
+    readonly authentication: LinkSessionAuthenticationV1;
+  }): Promise<void>;
   subscribeApprovalV1(input: {
     readonly linkSessionId: LinkDeviceSessionId;
     readonly authentication: LinkSessionAuthenticationV1;
