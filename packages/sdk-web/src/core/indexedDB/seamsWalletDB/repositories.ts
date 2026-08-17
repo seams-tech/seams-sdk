@@ -461,7 +461,7 @@ function profileRow(input: UpsertProfileInput, existing?: ProfileRecord): Wallet
     defaultSignerSlot: input.defaultSignerSlot ?? existing?.defaultSignerSlot ?? 1,
     ...(passkeyCredential ? { passkeyCredential } : {}),
     preferences: input.preferences ?? existing?.preferences,
-    ...(input.nearProvisioning ?? existing?.nearProvisioning
+    ...((input.nearProvisioning ?? existing?.nearProvisioning)
       ? { nearProvisioning: input.nearProvisioning ?? existing?.nearProvisioning }
       : {}),
     createdAt: existing?.createdAt ?? now,
@@ -1111,48 +1111,6 @@ function parseAccountSignerRow(value: unknown): AccountSignerRecord | null {
   if (row.status !== record.status) return null;
   if (row.updated_at !== record.updatedAt) return null;
   return record;
-}
-
-function isLegacyWalletScopedNearSignerProjection(args: {
-  existing: AccountSignerRecord;
-  targetProfileId: string;
-  chainIdKey: string;
-  accountAddress: string;
-  accountModel: string;
-  signerKind: AccountSignerRecord['signerKind'];
-  signerAuthMethod: AccountSignerRecord['signerAuthMethod'];
-  signerSource: AccountSignerRecord['signerSource'];
-  metadata: Record<string, unknown> | undefined;
-}): boolean {
-  const existingMetadata = args.existing.metadata || {};
-  const targetMetadata = args.metadata || {};
-  const walletId = toTrimmedString(targetMetadata.walletId || '');
-  const nearAccountId = normalizeIndexedDbAccountAddress(targetMetadata.nearAccountId);
-  const nearSigningKeyId = toTrimmedString(targetMetadata.nearEd25519SigningKeyId || '');
-  const operationalPublicKey = toTrimmedString(targetMetadata.operationalPublicKey || '');
-  return (
-    args.existing.status === 'active' &&
-    args.accountModel === 'near-native' &&
-    args.signerKind === SIGNER_KINDS.thresholdEd25519 &&
-    args.existing.signerKind === SIGNER_KINDS.thresholdEd25519 &&
-    args.signerAuthMethod === SIGNER_AUTH_METHODS.passkey &&
-    args.existing.signerAuthMethod === SIGNER_AUTH_METHODS.passkey &&
-    args.signerSource === SIGNER_SOURCES.passkeyRegistration &&
-    args.existing.signerSource === SIGNER_SOURCES.passkeyRegistration &&
-    args.chainIdKey.startsWith('near:') &&
-    args.existing.chainIdKey === args.chainIdKey &&
-    args.existing.accountAddress === args.accountAddress &&
-    args.targetProfileId === `near-profile:${args.accountAddress}` &&
-    !!walletId &&
-    args.existing.profileId === walletId &&
-    toTrimmedString(existingMetadata.walletId || '') === walletId &&
-    nearAccountId === args.accountAddress &&
-    normalizeIndexedDbAccountAddress(existingMetadata.nearAccountId) === args.accountAddress &&
-    !!nearSigningKeyId &&
-    toTrimmedString(existingMetadata.nearEd25519SigningKeyId || '') === nearSigningKeyId &&
-    !!operationalPublicKey &&
-    toTrimmedString(existingMetadata.operationalPublicKey || '') === operationalPublicKey
-  );
 }
 
 async function deleteConflictingThresholdEcdsaSignerRows(args: {
@@ -2208,21 +2166,7 @@ export class SeamsWalletRepositories {
     const existingSigner = parseAccountSignerRow(
       await signerStore.get(walletSignerId({ chainIdKey, accountAddress, signerId })),
     );
-    if (
-      existingSigner &&
-      existingSigner.profileId !== profileId &&
-      !isLegacyWalletScopedNearSignerProjection({
-        existing: existingSigner,
-        targetProfileId: profileId,
-        chainIdKey,
-        accountAddress,
-        accountModel,
-        signerKind,
-        signerAuthMethod,
-        signerSource,
-        metadata: input.signer.metadata,
-      })
-    ) {
+    if (existingSigner && existingSigner.profileId !== profileId) {
       throw makeConstraintError(
         'CHAIN_ACCOUNT_PROFILE_MISMATCH',
         `Signer row belongs to a different profile for ${chainIdKey}/${accountAddress}/${signerId}`,
