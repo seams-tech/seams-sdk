@@ -4,7 +4,7 @@ Date created: June 15, 2026
 
 Rewritten: July 22, 2026
 
-Last reconciled: August 17, 2026 (Phase 8 owner-credential cutover checkpoint)
+Last reconciled: August 17, 2026 (Phase 8 zero-prompt owner handoff plan)
 
 Status: active implementation. The strict QR v4 contract, exhaustive session
 state, durable claim and expiry store, authenticated request-proof transport,
@@ -964,14 +964,112 @@ remains available for Refactor 104's separately authorized delegated execution.
       and Device 2 enrollment can share one persistence path.
 - [x] Add approval/parser round-trip guards and focused admission, provenance,
       binding, finalize-replay, and custody-transfer tests.
-- [x] Reuse Device 1's first approval-time Passkey prompt to retain the current
+- [x] Reuse Device 1's approval-time Passkey assertion to retain the current
       custody envelope and PRF output locally until the recipient arrives;
-      seal once and zeroize on completion or failure.
+      seal once and zeroize on completion or failure. This is the temporary
+      prompted path replaced by the zero-prompt cutover below.
 - [x] Wire Device 2 recipient publication, transfer acceptance, canonical
       finalize, local projection persistence, and idempotent session completion
       into one working browser flow.
 - [ ] Prove Device 2 canonical unlock before removing any human linked-session
       or target-lane path.
+
+#### Zero-Prompt Device 1 Handoff
+
+Product requirement: scanning and approving a QR on an already-unlocked Device
+1 must not invoke WebAuthn, Touch ID, an Email OTP challenge, or another factor
+prompt. The QR scan is the deliberate approval action. Device 2 still performs
+its own factor ceremony because it is creating the new owner credential.
+
+The old signing-only flow needed only an active owner Wallet Session. Phase 8
+also transfers the wallet custody seed, and the current implementation reopens
+Device 1's custody envelope during linking to obtain that seed. The zero-prompt
+cutover moves that envelope-open step to ordinary registration or unlock, where
+the owner factor is already being presented, and retains only an opaque custody
+capability inside the wallet worker for the lifetime of the unlocked session.
+Raw seed bytes never enter application JavaScript or persistence.
+
+##### Worker Capability
+
+- [ ] Add one worker-owned `UnlockedWalletCustodyTransferCapabilityV1`. Its
+      public reference contains the opaque handle ID, wallet ID, issuing
+      `WalletAuthMethodId`, owner Wallet Session ID, and expiry. The worker owns
+      the opened custody-seed handle; no API returns seed bytes or a serializable
+      secret representation.
+- [ ] Establish the capability during successful owner registration and normal
+      owner unlock by reusing the factor secret and verified custody envelope
+      already present in that operation. Commit it only after the matching owner
+      Wallet Session is active. Creating it must add no authenticator or OTP
+      interaction.
+- [ ] Keep at most one active capability per wallet and owner Wallet Session.
+      Replacing it destroys the previous handle. Refuse a wallet, auth-method,
+      Wallet Session, or expiry mismatch inside the worker before sealing.
+- [ ] Destroy the capability on lock, logout, wallet switch, Wallet Session
+      retirement or replacement, expiry, worker reset, page teardown, and every
+      failed registration or unlock after the handle was created. Never persist
+      or restore it. After a worker or page restart, the user explicitly unlocks
+      the wallet before linking; the linking flow itself never triggers a prompt.
+
+##### Owner Approval And Ceremony Start
+
+- [ ] Preflight the active owner Wallet Session and unlocked custody capability
+      before claiming the scanned link session. If either is absent, return an
+      exact `wallet_unlock_required` result without starting WebAuthn, OTP, or a
+      partially approved enrollment.
+- [ ] Authorize the linked add-auth-method ceremony with the same active owner
+      Wallet Session that authorizes the QR claim and approval. Bind the exact
+      link session, wallet, enrollment, device, new factor kind, ceremony, and
+      expiry into the immutable approval. Do not accept these facts from an
+      unauthenticated request body.
+- [ ] Remove `collectOwnerAssertionV1` from the Device 1 linking composition.
+      Delete the approval-time call to
+      `collectAuthenticationCredentialForWalletChallengeB64u`, the retained PRF
+      buffer, `LinkedDeviceOwnerCustodyHoldV1`, and the prompted fallback. A
+      missing capability is an unlock requirement rather than permission to
+      prompt from the QR flow.
+
+##### Seed Transfer
+
+- [ ] Replace `sealForLinkedDeviceV1({ existingEnvelope,
+      existingFactorSecret, ... })` with a worker operation that accepts the
+      opaque unlocked capability and the approved recipient binding. The worker
+      seals directly from its custody handle and generates a fresh X25519
+      ephemeral key and nonce for every transfer.
+- [ ] Preserve the existing X25519 -> HKDF-SHA256 -> ChaCha20-Poly1305 wire
+      format and authenticated binding over wallet, enrollment, device,
+      recipient public key, and custody-secret identity. The server continues to
+      relay only the recipient public key and sealed package.
+- [ ] Keep Device 2's open-and-reseal operation single-call and single-use. The
+      recipient private key, transferred seed handle, and new factor secret stay
+      inside its worker and are destroyed whether resealing succeeds or fails.
+- [ ] Permit the Device 1 capability to seal multiple separately approved
+      enrollments only while its exact owner Wallet Session remains active. Each
+      transfer gets independent ephemeral key material and remains bound to one
+      approved recipient.
+
+##### Cutover And Proof
+
+- [ ] Delete the temporary approval-prompt custody path and its fixtures in the
+      same commit that makes the worker capability path operational. Keep no
+      compatibility branch or automatic prompted fallback.
+- [ ] Add one focused lifecycle test proving registration and unlock establish
+      the capability, and lock, session retirement, expiry, and worker reset
+      destroy or invalidate it.
+- [ ] Add one transfer test proving wrong-wallet, wrong-session, expired,
+      unknown, and destroyed handles fail before producing ciphertext. Preserve
+      the existing substituted-binding and recipient-key rejection tests.
+- [ ] Extend the two-device intended-behavior contract with prompt counters:
+      reset the counter after Device 1 unlock, scan and approve the QR, assert
+      zero Device 1 factor prompts, assert exactly one Device 2 prompt for its
+      new Passkey, then reload Device 2 and prove canonical unlock and signing.
+- [ ] Prove the unavailable-capability case separately: QR linking returns
+      `wallet_unlock_required`, performs no factor prompt, records no owner
+      approval, and creates no credential or custody-transfer package.
+
+The zero-prompt cutover is complete when an already-unlocked Device 1 links a
+new owner device without another factor interaction, while the custody seed
+remains worker-confined, volatile, session-bound, and unavailable after lock or
+session invalidation.
 
 #### Owner Credential Enrollment
 
