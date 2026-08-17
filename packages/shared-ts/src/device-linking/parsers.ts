@@ -71,9 +71,7 @@ import type {
 } from '../signing-lanes/rotation';
 import { parseOwnerLaneParticipantContinuityV1 } from '../signing-lanes/ownerContinuity';
 import { base64UrlDecode, base64UrlEncode } from '../utils/base64';
-import {
-  decodeJwtPayloadRecord,
-} from '../utils/sessionTokens';
+import { decodeJwtPayloadRecord } from '../utils/sessionTokens';
 const ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND =
   'router_ab_ecdsa_derivation_wallet_session_v1';
 const ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND = 'router_ab_ed25519_wallet_session_v1';
@@ -244,6 +242,7 @@ const ENROLLMENT_FIELDS = [
   'devicePublicKeyB64u',
   'permission',
   'ownerAuthorization',
+  'ownerEnrollment',
   'policyDigestB64u',
   'operationId',
   'idempotencyKey',
