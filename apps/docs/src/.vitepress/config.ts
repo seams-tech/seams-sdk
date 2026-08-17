@@ -251,7 +251,7 @@ export default defineConfig({
   },
   markdown: {
     theme: {
-      light: 'vitesse-light',
+      light: 'one-light',
       dark: 'vitesse-dark',
     },
     languageAlias: {
