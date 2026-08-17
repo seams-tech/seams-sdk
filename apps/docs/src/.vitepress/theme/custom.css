@@ -60,6 +60,27 @@
   letter-spacing: 0.01em;
 }
 
+/* Sidebar: the section headings carry the structure on their own, so drop the
+   rules between groups and tighten the rhythm around each one. */
+.VPSidebar .group,
+.VPSidebar .group + .group {
+  border-top: 0;
+  padding-top: 2px;
+}
+
+.VPSidebar .VPSidebarItem.level-0 {
+  padding-bottom: 12px;
+}
+
+.VPSidebar .VPSidebarItem.level-0.collapsed {
+  padding-bottom: 0;
+}
+
+.VPSidebar .VPSidebarItem .text {
+  padding: 2px 0;
+  line-height: 22px;
+}
+
 /* The default theme paints a fixed gradient strip over the bottom of the
    outline column; it covers the footer instead of fading the outline. */
 .VPDoc .aside .aside-curtain {
