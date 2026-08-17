@@ -46,7 +46,6 @@ import type {
 import { buildActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
   parseMpcWalletSigningQuotaId,
-  parseSeamsSessionId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
@@ -72,6 +71,7 @@ import {
   parseCapabilityInstanceRef,
   parseMpcMaterialOwnerRef,
   parseRootShareEpoch,
+  parseThresholdEcdsaSessionId,
   parseWalletAuthorityBindingDigest,
   type DomainIdParseResult,
 } from '@shared/utils/domainIds';
@@ -684,13 +684,16 @@ export function activeEvmFamilyWalletSessionAuthorizationFixture(args: {
     parseMpcWalletSigningQuotaId(args.quotaId || 'ecdsa-fixture-quota'),
     'quotaId',
   );
-  const seamsSessionId = requireFixtureId(
-    parseSeamsSessionId('ecdsa-fixture-authorization-session'),
-    'authorizationSessionId',
-  );
+  // The retired opaque-session id survives only as a JWT claim string; it is no
+  // longer a parsed domain id anywhere in the projection.
+  const seamsSessionId = 'ecdsa-fixture-authorization-session';
   const authorizationId = requireFixtureId(
     parseWalletSessionAuthorizationId('ecdsa-fixture-authorization'),
     'authorizationId',
+  );
+  const thresholdSessionId = requireFixtureId(
+    parseThresholdEcdsaSessionId('ecdsa-fixture-threshold-session'),
+    'thresholdSessionId',
   );
   const expiresAtMs = args.expiresAtMs ?? 1_900_000_000_000;
   const remainingUses = args.remainingUses ?? 5;
@@ -721,8 +724,6 @@ export function activeEvmFamilyWalletSessionAuthorizationFixture(args: {
     kind: 'active_reusable_wallet_session_authorization',
     projection: buildActiveWalletSessionAuthorizationProjection({
       walletId: signer.walletId,
-      seamsSessionId,
-      authorizationId,
       walletSessionId,
       quotaId,
       authMethod: args.authMethod ?? 'passkey',
@@ -730,7 +731,11 @@ export function activeEvmFamilyWalletSessionAuthorizationFixture(args: {
       expiresAtMs,
       walletSessionTokens: {
         kind: 'evm_family_ecdsa',
-        ecdsa: { walletSessionJwt },
+        ecdsa: {
+          authorizationId,
+          walletSessionToken: walletSessionJwt,
+          thresholdSessionId,
+        },
       },
     }),
     status: {
