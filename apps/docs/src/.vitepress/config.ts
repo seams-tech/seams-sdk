@@ -41,24 +41,23 @@ const guidesSection: DefaultTheme.SidebarItem = {
       link: '/guides/recovery-export-and-rotation',
     },
     { text: 'Theming', link: '/guides/theming' },
-  ],
-};
-
-const examplesSection: DefaultTheme.SidebarItem = {
-  text: 'Examples',
-  collapsed: true,
-  items: [
-    { text: 'Overview', link: '/examples/' },
     {
-      text: 'Wallet setup and authentication',
-      link: '/examples/wallet-setup-and-authentication',
+      text: 'Examples',
+      collapsed: true,
+      items: [
+        { text: 'Overview', link: '/examples/' },
+        {
+          text: 'Wallet setup and authentication',
+          link: '/examples/wallet-setup-and-authentication',
+        },
+        { text: 'Signing', link: '/examples/signing' },
+        {
+          text: 'Advanced wallet operations',
+          link: '/examples/advanced-wallet-operations',
+        },
+        { text: 'UI customization', link: '/examples/ui-customization' },
+      ],
     },
-    { text: 'Signing', link: '/examples/signing' },
-    {
-      text: 'Advanced wallet operations',
-      link: '/examples/advanced-wallet-operations',
-    },
-    { text: 'UI customization', link: '/examples/ui-customization' },
   ],
 };
 
@@ -213,7 +212,6 @@ const useCasesSection: DefaultTheme.SidebarItem = {
 const documentationSidebar: DefaultTheme.SidebarItem[] = [
   getStartedSection,
   guidesSection,
-  examplesSection,
   referenceSection,
   conceptsSection,
   deployAndOperateSection,
