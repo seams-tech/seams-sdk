@@ -450,23 +450,23 @@ export function SplitKeyVisual(): React.JSX.Element {
       <svg className="h2-splitkey__stack" viewBox="0 0 168 194" aria-hidden>
         <defs>
           <linearGradient id="h2sk-slab-a" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="#eae7e3" />
-            <stop offset="100%" stopColor="#c6c1ba" />
+            <stop offset="0%" stopColor="#eeebe7" />
+            <stop offset="100%" stopColor="#d3cec7" />
           </linearGradient>
           <linearGradient id="h2sk-slab-b" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="#d7d2cb" />
-            <stop offset="100%" stopColor="#a29c93" />
+            <stop offset="0%" stopColor="#dfdad3" />
+            <stop offset="100%" stopColor="#b6b0a7" />
           </linearGradient>
           <linearGradient id="h2sk-slab-c" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="#bab4ab" />
-            <stop offset="100%" stopColor="#767068" />
+            <stop offset="0%" stopColor="#c8c2b9" />
+            <stop offset="100%" stopColor="#948d84" />
           </linearGradient>
         </defs>
         {/* each slab: an offset underside that reads as the slab's edge and
             contact shadow, under a white-outlined sage face. Drawn bottom-up,
             and the 54u pitch is shorter than the 68u diamond, so each slab
             overlaps and occludes the tip of the one beneath it */}
-        <path d="M84 122 L152 156 L84 190 L16 156 Z" fill="#5b554e" />
+        <path d="M84 122 L152 156 L84 190 L16 156 Z" fill="#7a736b" />
         <path
           d="M84 114 L152 148 L84 182 L16 148 Z"
           fill="url(#h2sk-slab-c)"
@@ -475,7 +475,7 @@ export function SplitKeyVisual(): React.JSX.Element {
           vectorEffect="non-scaling-stroke"
           strokeLinejoin="round"
         />
-        <path d="M84 68 L152 102 L84 136 L16 102 Z" fill="#8a8379" />
+        <path d="M84 68 L152 102 L84 136 L16 102 Z" fill="#a29b91" />
         <path
           d="M84 60 L152 94 L84 128 L16 94 Z"
           fill="url(#h2sk-slab-b)"
@@ -484,7 +484,7 @@ export function SplitKeyVisual(): React.JSX.Element {
           vectorEffect="non-scaling-stroke"
           strokeLinejoin="round"
         />
-        <path d="M84 14 L152 48 L84 82 L16 48 Z" fill="#b0a9a1" />
+        <path d="M84 14 L152 48 L84 82 L16 48 Z" fill="#c0b9b1" />
         <path
           d="M84 6 L152 40 L84 74 L16 40 Z"
           fill="url(#h2sk-slab-a)"
