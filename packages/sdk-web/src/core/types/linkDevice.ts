@@ -1,17 +1,12 @@
 import type { ActionResult } from './seams';
 import type { AfterCall, EventCallback, LinkDeviceFlowEvent } from './sdkSentEvents';
 import type { ConfirmationConfig } from './signer-worker';
-import type {
-  LinkedDeviceEnrollmentReceiptV1,
-  LinkedDeviceSessionState,
-  QrLinkedDeviceSessionPayloadV4,
-} from '@shared/device-linking';
+import type { LinkedDeviceSessionState, QrLinkedDeviceSessionPayloadV4 } from '@shared/device-linking';
 import type {
   LinkedDeviceEnrollmentId,
   LinkedDeviceId,
   LinkDeviceSessionId,
 } from '@shared/signing-lanes/ids';
-import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { WalletId } from '@shared/utils/domainIds';
 
 export { LinkDeviceEventPhase } from './sdkSentEvents';
@@ -38,17 +33,6 @@ export type LinkDeviceResult =
       readonly deviceId: LinkedDeviceId;
       readonly manifestDigestB64u?: never;
       readonly receipt?: never;
-      readonly error?: never;
-    }
-  | {
-      readonly success: true;
-      /** The temporary R102 lane enrollment, reached only by a resumed session. */
-      readonly kind: 'lane_enrollment_complete';
-      readonly walletId: WalletId;
-      readonly enrollmentId: LinkedDeviceEnrollmentId;
-      readonly deviceId: LinkedDeviceId;
-      readonly manifestDigestB64u: DigestB64u;
-      readonly receipt: LinkedDeviceEnrollmentReceiptV1;
       readonly error?: never;
     }
   | (Extract<ActionResult, { success: false }> & {
