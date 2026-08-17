@@ -4,7 +4,6 @@ import process from 'node:process';
 import { gatewaySecretNames, readBackendLane } from '../../../scripts/deployment-targets.mjs';
 
 const OPTIONAL_SECRET_NAMES = [
-  'CONSOLE_INITIAL_OWNER_EMAIL',
   'GITHUB_OAUTH_CALLBACK_URL',
   'GITHUB_OAUTH_CLIENT_ID',
   'GITHUB_OAUTH_CLIENT_SECRET',
@@ -18,7 +17,10 @@ function main() {
   const laneId = readLaneId();
   const lane = readBackendLane(laneId);
   requireProvisionedLane(laneId, lane.provisioning);
-  const secrets = readRequiredSecrets(gatewaySecretNames(lane));
+  const secrets = readRequiredSecrets([
+    'CONSOLE_INITIAL_OWNER_EMAIL',
+    ...gatewaySecretNames(lane),
+  ]);
   addOptionalSecrets(secrets);
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.writeFileSync(outputPath, `${JSON.stringify(secrets)}\n`, {

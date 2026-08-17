@@ -1,3 +1,4 @@
+import { parseWalletAuthMethodId } from '@shared/utils/domainIds';
 import type {
   SigningRootId,
   SigningRootVersion,
@@ -43,8 +44,13 @@ declare const createdAt: IsoTimestamp;
 declare const callerManifestId: EcdsaCapabilityManifestId;
 declare const plan: InitialEcdsaCapabilityActivationPlan;
 
+const walletAuthMethodId = parseWalletAuthMethodId('passkey:wallet.example.test:typecheck');
+if (!walletAuthMethodId.ok) {
+  throw new Error('type fixture requires a valid wallet auth-method identity');
+}
 const authority: WalletAuthAuthorityRef = {
   kind: 'wallet_auth_authority_ref',
+    walletAuthMethodId: walletAuthMethodId.value,
   walletId,
   authorityDigest,
 };
@@ -114,6 +120,7 @@ buildInitialEcdsaCapabilityActivationPlan({
   ...validInput,
   authority: {
     kind: 'wallet_auth_authority_ref',
+    walletAuthMethodId: walletAuthMethodId.value,
     walletId,
     // @ts-expect-error Exact authority references require their authority digest.
     authorityDigest: undefined,

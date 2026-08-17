@@ -1,3 +1,4 @@
+import { parseWalletAuthMethodId } from '@shared/utils/domainIds';
 import type {
   CapabilityInstanceRef,
   MpcMaterialActivationId,
@@ -103,8 +104,13 @@ declare const routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNorma
 declare const registeredPublicFacts: VerifiedEcdsaPublicFacts;
 declare const replacementActiveManifest: ActiveEcdsaCapabilityManifest;
 
+const walletAuthMethodId = parseWalletAuthMethodId('passkey:wallet.example.test:typecheck');
+if (!walletAuthMethodId.ok) {
+  throw new Error('type fixture requires a valid wallet auth-method identity');
+}
 const authority: WalletAuthAuthorityRef = {
   kind: 'wallet_auth_authority_ref',
+    walletAuthMethodId: walletAuthMethodId.value,
   walletId,
   authorityDigest,
 };

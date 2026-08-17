@@ -594,6 +594,9 @@ export class CloudflareD1AuthorizationStore
         input.session.tenantId,
         input.session.walletId,
         input.session.authority.authorityDigest,
+        // Recorded so pausing or revoking this credential can select every
+        // session it issued, rather than recomputing a digest per candidate.
+        input.session.authority.walletAuthMethodId,
         input.session.mintId,
       );
     const retireSessionStatement = this.database
@@ -667,6 +670,7 @@ export class CloudflareD1AuthorizationStore
           principal_id,
           wallet_id,
           authority_digest,
+          wallet_auth_method_id,
           mint_id,
           quota_id,
           lifecycle_kind,
@@ -674,7 +678,7 @@ export class CloudflareD1AuthorizationStore
           expires_at_ms
         )
         VALUES (
-          ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?
+          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?
         )`,
       )
       .bind(
