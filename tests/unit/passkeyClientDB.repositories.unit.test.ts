@@ -3,6 +3,7 @@ import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
   indexedDB: '/_test-sdk/esm/core/indexedDB/index.js',
+  accountLifecycle: '/_test-sdk/esm/core/signingEngine/flows/registration/accountLifecycle.js',
 } as const;
 
 test.describe('Seams wallet repositories', () => {
@@ -257,6 +258,105 @@ test.describe('Seams wallet repositories', () => {
       profileId: 'frost-vermillion-k7p9m2',
       activeSignerSlot: 1,
       scope: 'https://split.example',
+    });
+  });
+
+  test('sync projection keeps the NEAR signer outside the canonical wallet profile', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const { UnifiedIndexedDBManager, SeamsWalletDBManager, createSeamsTestWalletDbName } =
+          await import(paths.indexedDB);
+        const { storeUserData } = await import(paths.accountLifecycle);
+        const seamsWalletDB = new SeamsWalletDBManager();
+        seamsWalletDB.setDbName(
+          createSeamsTestWalletDbName(`repo_sync_projection_${crypto.randomUUID()}`),
+        );
+        const db = new UnifiedIndexedDBManager({ seamsWalletDB });
+
+        const walletId = 'wallet_sync_projection';
+        const nearAccountId = 'sync-projection.testnet';
+        const nearEd25519SigningKeyId = 'near-ed25519:sync-projection';
+        const operationalPublicKey = 'ed25519:sync-projection';
+        await db.upsertProfile({ profileId: walletId, defaultSignerSlot: 4 });
+        await db.activateAccountSigner({
+          account: {
+            profileId: walletId,
+            chainIdKey: 'wallet',
+            accountAddress: walletId,
+            accountModel: 'wallet',
+          },
+          signer: {
+            signerId: operationalPublicKey,
+            signerType: 'threshold',
+            signerKind: 'threshold-ed25519',
+            signerAuthMethod: 'passkey',
+            signerSource: 'passkey_registration',
+            metadata: {
+              walletId,
+              nearAccountId,
+              nearEd25519SigningKeyId,
+              operationalPublicKey,
+            },
+          },
+          activationPolicy: { mode: 'fail_if_occupied', signerSlot: 4 },
+          mutation: { routeThroughOutbox: false },
+        });
+
+        await storeUserData(
+          {
+            accountStore: db,
+          },
+          {
+            walletId,
+            nearAccountId,
+            signerSlot: 4,
+            operationalPublicKey,
+            nearEd25519SigningKeyId,
+            lastUpdated: Date.now(),
+            passkeyCredential: {
+              id: 'sync-credential',
+              rawId: 'sync-credential',
+            },
+            version: 2,
+          },
+        );
+
+        const walletSigners = await db.listAccountSignersByProfile({
+          profileId: walletId,
+          status: 'active',
+        });
+        const nearProfileId = `profile-near:${nearAccountId}`;
+        const nearSigners = await db.listAccountSignersByProfile({
+          profileId: nearProfileId,
+          status: 'active',
+        });
+        const lastProfileState = await db.getLastProfileState();
+        return {
+          walletSignerIds: walletSigners.map((signer: { signerId: string }) => signer.signerId),
+          nearSigner: nearSigners[0],
+          lastProfileState,
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.walletSignerIds).toEqual(['ed25519:sync-projection']);
+    expect(result.nearSigner).toMatchObject({
+      profileId: 'profile-near:sync-projection.testnet',
+      chainIdKey: 'near:testnet',
+      accountAddress: 'sync-projection.testnet',
+      signerId: 'sync-credential',
+      signerSlot: 4,
+      metadata: {
+        walletId: 'wallet_sync_projection',
+        nearEd25519SigningKeyId: 'near-ed25519:sync-projection',
+      },
+    });
+    expect(result.lastProfileState).toMatchObject({
+      profileId: 'profile-near:sync-projection.testnet',
+      activeSignerSlot: 4,
     });
   });
 
