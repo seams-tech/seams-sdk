@@ -2548,7 +2548,7 @@ body:has(.h2-page) {
 .h2-splitkey__stack {
   width: 136px;
   height: auto;
-  filter: drop-shadow(0 16px 18px rgba(23, 74, 70, 0.18));
+  filter: drop-shadow(0 16px 18px rgba(40, 36, 32, 0.18));
 }
 
 /* chips stretch over the stack's height so each one sits beside its layer */
@@ -2580,8 +2580,8 @@ body:has(.h2-page) {
   border: 1px solid var(--h2-stone);
   background: #ffffff;
   box-shadow:
-    0 10px 24px -14px rgba(23, 42, 38, 0.28),
-    0 2px 6px -3px rgba(23, 42, 38, 0.12);
+    0 10px 24px -14px rgba(40, 36, 32, 0.28),
+    0 2px 6px -3px rgba(40, 36, 32, 0.12);
   font-size: var(--h2-text-lg);
   font-weight: 600;
   color: var(--h2-ink);
