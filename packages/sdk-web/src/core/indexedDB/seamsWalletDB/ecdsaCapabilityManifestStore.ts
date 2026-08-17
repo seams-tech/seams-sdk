@@ -118,9 +118,12 @@ import { SEAMS_WALLET_INDEXES, SEAMS_WALLET_STORES } from '../schemaNames';
 import { seamsWalletDB } from '../singletons';
 import type { SeamsWalletDBManager, SeamsWalletTransactionContext } from './manager';
 
-const MANIFEST_RECORD_VERSION = 'ecdsa_capability_manifest_v2' as const;
-const POINTER_RECORD_VERSION = 'ecdsa_current_capability_manifest_v1' as const;
-const MATERIAL_RECORD_VERSION = 'ecdsa_role_local_material_v1' as const;
+// Bumped with the authority ref: these rows now record which wallet auth
+// method issued the authority, so a row written before that is read as the
+// wrong version and re-derived rather than failing an exact-key check.
+const MANIFEST_RECORD_VERSION = 'ecdsa_capability_manifest_v3' as const;
+const POINTER_RECORD_VERSION = 'ecdsa_current_capability_manifest_v2' as const;
+const MATERIAL_RECORD_VERSION = 'ecdsa_role_local_material_v2' as const;
 const JOURNAL_RECORD_VERSION = 'ecdsa_activation_commit_journal_v1' as const;
 const SEALING_KEY_RECORD_VERSION = 'ecdsa_material_sealing_key_v1' as const;
 
@@ -521,6 +524,7 @@ async function persistenceDigest(
     capability_ref: selector.capability,
     wallet_id: selector.authority.walletId,
     authority_digest: selector.authority.authorityDigest,
+    wallet_auth_method_id: selector.authority.walletAuthMethodId,
     detail,
   });
   return parseDigestB64u(base64UrlEncode(await sha256BytesUtf8(canonical)));
@@ -1268,6 +1272,7 @@ function manifestRowCommon(proof: ParsedActiveManifestProof, manifestState: 'act
     capability_ref: selector.capability,
     wallet_id: selector.authority.walletId,
     authority_digest: selector.authority.authorityDigest,
+    wallet_auth_method_id: selector.authority.walletAuthMethodId,
     manifest_state: manifestState,
   };
 }
@@ -1299,6 +1304,7 @@ function parseManifestRow(value: unknown): ParsedManifestRow {
     'capability_ref',
     'wallet_id',
     'authority_digest',
+    'wallet_auth_method_id',
     'manifest_state',
     'active_proof',
   ];
@@ -1366,6 +1372,7 @@ function storedPointerRow(manifest: ActiveEcdsaCapabilityManifest) {
     capability_ref: selector.capability,
     wallet_id: selector.authority.walletId,
     authority_digest: selector.authority.authorityDigest,
+    wallet_auth_method_id: selector.authority.walletAuthMethodId,
     manifest_id: manifest.identity.manifestId,
     manifest_revision: manifest.identity.manifestRevision,
   };
@@ -1378,6 +1385,7 @@ function parsePointerRow(value: unknown): ParsedPointerRow {
     'capability_ref',
     'wallet_id',
     'authority_digest',
+    'wallet_auth_method_id',
     'manifest_id',
     'manifest_revision',
   ]);
@@ -1388,6 +1396,7 @@ function parsePointerRow(value: unknown): ParsedPointerRow {
     kind: 'wallet_auth_authority_ref',
     walletId: record.wallet_id,
     authorityDigest: record.authority_digest,
+    walletAuthMethodId: record.wallet_auth_method_id,
   });
   if (!authority) throw new Error('current ECDSA capability pointer authority is invalid');
   return {
@@ -1412,6 +1421,7 @@ function storedMaterialRow(
     capability_ref: selector.capability,
     wallet_id: selector.authority.walletId,
     authority_digest: selector.authority.authorityDigest,
+    wallet_auth_method_id: selector.authority.walletAuthMethodId,
     sealing_key_id: material.sealingKeyId,
     iv: material.iv12B64u,
     ciphertext: material.ciphertextB64u,
@@ -1433,6 +1443,7 @@ function parseMaterialLocator(value: unknown): ParsedMaterialLocator {
     'capability_ref',
     'wallet_id',
     'authority_digest',
+    'wallet_auth_method_id',
     'sealing_key_id',
     'iv',
     'ciphertext',
@@ -1444,6 +1455,7 @@ function parseMaterialLocator(value: unknown): ParsedMaterialLocator {
     kind: 'wallet_auth_authority_ref',
     walletId: record.wallet_id,
     authorityDigest: record.authority_digest,
+    walletAuthMethodId: record.wallet_auth_method_id,
   });
   if (!authority) throw new Error('ECDSA role-local material authority is invalid');
   return {
@@ -1508,6 +1520,7 @@ function storedJournalRow(journal: EcdsaCapabilityActivationCommitJournal) {
     capability_ref: selector.capability,
     wallet_id: selector.authority.walletId,
     authority_digest: selector.authority.authorityDigest,
+    wallet_auth_method_id: selector.authority.walletAuthMethodId,
     journal,
   };
 }
@@ -1520,6 +1533,7 @@ function parseJournalRow(value: unknown) {
     'capability_ref',
     'wallet_id',
     'authority_digest',
+    'wallet_auth_method_id',
     'journal',
   ]);
   if (record.record_version !== JOURNAL_RECORD_VERSION) {

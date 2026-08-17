@@ -118,6 +118,17 @@ export type WalletAuthAuthorityRef = {
   kind: 'wallet_auth_authority_ref';
   walletId: WalletId;
   authorityDigest: WalletAuthorityBindingDigest;
+  /**
+   * Which wallet auth method issued this authority.
+   *
+   * The digest already proves *what* the authority was, but proving is not
+   * addressing: revoking or pausing one credential has to select every session
+   * that credential issued, and a digest can only be recomputed and compared
+   * one candidate at a time. Carrying the binding id makes that selection a
+   * lookup. It is always derived from the authority rather than supplied, so a
+   * ref whose id disagrees with its digest cannot be built.
+   */
+  walletAuthMethodId: WalletAuthMethodId;
 };
 
 export function parseWalletAuthAuthorityRef(raw: unknown): WalletAuthAuthorityRef | null {
@@ -125,19 +136,23 @@ export function parseWalletAuthAuthorityRef(raw: unknown): WalletAuthAuthorityRe
   const record = raw as Record<string, unknown>;
   const fields = Object.keys(record);
   if (
-    fields.length !== 3 ||
-    !fields.every((field) => ['kind', 'walletId', 'authorityDigest'].includes(field)) ||
+    fields.length !== 4 ||
+    !fields.every((field) =>
+      ['kind', 'walletId', 'authorityDigest', 'walletAuthMethodId'].includes(field),
+    ) ||
     record.kind !== 'wallet_auth_authority_ref'
   ) {
     return null;
   }
   const walletId = parseWalletId(record.walletId);
   const authorityDigest = parseWalletAuthorityBindingDigest(record.authorityDigest);
-  if (!walletId.ok || !authorityDigest.ok) return null;
+  const walletAuthMethodId = parseWalletAuthMethodId(record.walletAuthMethodId);
+  if (!walletId.ok || !authorityDigest.ok || !walletAuthMethodId.ok) return null;
   return {
     kind: 'wallet_auth_authority_ref',
     walletId: walletId.value,
     authorityDigest: authorityDigest.value,
+    walletAuthMethodId: walletAuthMethodId.value,
   };
 }
 
@@ -614,5 +629,6 @@ export async function walletAuthAuthorityRef(args: {
     authorityDigest: await walletAuthorityBindingDigest({
       authority: args.authority,
     }),
+    walletAuthMethodId: args.authority.bindingId,
   };
 }

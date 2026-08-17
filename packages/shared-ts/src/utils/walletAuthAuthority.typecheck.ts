@@ -226,6 +226,7 @@ void ({
   kind: 'wallet_auth_authority_ref',
   walletId,
   authorityDigest,
+  walletAuthMethodId: emailOtpAuthority.bindingId,
 } satisfies WalletAuthAuthorityRef);
 
 void canonicalWalletAuthorityBindingDigestInput({ authority: emailOtpAuthority });
@@ -242,7 +243,8 @@ void ({
   kind: 'wallet_auth_authority_ref',
   walletId,
   authorityDigest,
-  // @ts-expect-error authority refs carry only stable digest identity, not raw authority data.
+  walletAuthMethodId: emailOtpAuthority.bindingId,
+  // @ts-expect-error authority refs carry stable digest and binding identity, not raw authority data.
   authority: emailOtpAuthority,
 } satisfies WalletAuthAuthorityRef);
 

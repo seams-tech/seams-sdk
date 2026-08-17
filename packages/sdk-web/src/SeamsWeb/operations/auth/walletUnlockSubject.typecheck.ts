@@ -1,3 +1,4 @@
+import { parseWalletAuthMethodId } from '@shared/utils/domainIds';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { parseEcdsaThresholdKeyId } from '@/core/signingEngine/session/keyMaterialBrands';
 import { toAccountId } from '@/core/types/accountIds';
@@ -23,12 +24,17 @@ if (!capability.ok || !authorityDigest.ok) {
 const signerSlot = parseSignerSlot(1);
 if (!signerSlot) throw new Error('type fixture requires a valid signer slot');
 
+const walletAuthMethodId = parseWalletAuthMethodId('passkey:wallet.example.test:typecheck');
+if (!walletAuthMethodId.ok) {
+  throw new Error('type fixture requires a valid wallet auth-method identity');
+}
 const ecdsaSubject: WalletUnlockSubject = {
   kind: 'evm_family_ecdsa_wallet',
   walletId,
   capability: capability.value,
   authority: {
     kind: 'wallet_auth_authority_ref',
+    walletAuthMethodId: walletAuthMethodId.value,
     walletId,
     authorityDigest: authorityDigest.value,
   },
