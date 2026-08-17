@@ -1,12 +1,12 @@
-import { secureRandomBase36 } from '@seams/sdk-server/cloud-host';
+import { secureRandomBase36 } from '../boundary';
 import {
   d1Integer as toNumber,
   formatD1ExecStatement,
   parseD1JsonArrayColumn as parseJsonArray,
   parseD1JsonObjectColumn as parseJsonObject,
   type D1Row,
-} from '@seams/sdk-server/cloud-host';
-import type { D1DatabaseLike } from '@seams/sdk-server/cloud-host';
+} from '../boundary';
+import type { D1DatabaseLike } from '../boundary';
 import { ConsoleAuditError } from './errors';
 import type { ConsoleAuditContext, ConsoleAuditService } from './service';
 import type {

@@ -1,4 +1,4 @@
-import { secureRandomBase36 } from '@seams/sdk-server/cloud-host';
+import { secureRandomBase36 } from '../boundary';
 import {
   d1ChangedRows,
   d1Integer,
@@ -6,12 +6,12 @@ import {
   queryD1All,
   queryD1One,
   type D1Row,
-} from '@seams/sdk-server/cloud-host';
+} from '../boundary';
 import type {
   D1DatabaseLike,
   D1PreparedStatementLike,
   D1ResultLike,
-} from '@seams/sdk-server/cloud-host';
+} from '../boundary';
 import {
   parseConsoleEmailTemplate,
   renderConsoleEmailV1,

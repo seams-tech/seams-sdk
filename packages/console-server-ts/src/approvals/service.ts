@@ -1,4 +1,4 @@
-import { secureRandomBase36 } from '@seams/sdk-server/cloud-host';
+import { secureRandomBase36 } from '../boundary';
 import { ConsoleApprovalsError } from './errors';
 import type {
   ApproveConsoleApprovalRequest,

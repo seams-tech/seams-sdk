@@ -1,4 +1,4 @@
-import { normalizeCorsOrigin } from '@seams/sdk-server/cloud-host';
+import { normalizeCorsOrigin } from '../boundary';
 
 function normalizeOrigin(input: string): string {
   return normalizeCorsOrigin(input) || String(input || '').trim();
