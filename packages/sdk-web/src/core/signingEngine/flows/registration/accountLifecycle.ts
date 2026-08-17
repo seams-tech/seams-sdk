@@ -340,7 +340,8 @@ export async function storeUserData(
     throw new Error('SeamsWalletDB: storeUserData requires an exact signerSlot');
   }
   const normalizedSignerSlot = signerSlot;
-  const profileId = toWalletId(userData.walletId);
+  const walletId = toWalletId(userData.walletId);
+  const profileId = buildNearProfileId(nearAccountId);
   const chainIdKey = inferNearChainIdKey(nearAccountId, userData.preferences?.useNetwork);
   const accountAddress = normalizeIndexedDbAccountAddress(nearAccountId);
   const signerId =
@@ -374,7 +375,7 @@ export async function storeUserData(
       signerSource: SIGNER_SOURCES.passkeyRegistration,
       metadata: {
         ...(existingSigner?.metadata || {}),
-        walletId: String(profileId),
+        walletId: String(walletId),
         nearAccountId: String(nearAccountId),
         nearEd25519SigningKeyId: userData.nearEd25519SigningKeyId,
         operationalPublicKey: userData.operationalPublicKey,
