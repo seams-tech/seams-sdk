@@ -60,8 +60,34 @@
   letter-spacing: 0.01em;
 }
 
-/* Sidebar: the section headings carry the structure on their own, so drop the
-   rules between groups and tighten the rhythm around each one. */
+/* Sidebar: pull the tree toward the left edge so long entries wrap less, and
+   open up the space above the first heading. */
+@media (min-width: 960px) {
+  .Layout .VPSidebar {
+    padding-right: 16px;
+    padding-left: 20px;
+  }
+
+  .Layout .VPSidebar .curtain {
+    margin-right: -16px;
+    margin-left: -20px;
+  }
+
+  .Layout .VPSidebar .group {
+    width: auto;
+  }
+
+  .Layout .VPNavBar .container > .title {
+    padding: 0 20px;
+  }
+}
+
+.VPSidebar .group:first-child {
+  padding-top: 20px;
+}
+
+/* The section headings carry the structure on their own, so drop the rules
+   between groups and tighten the rhythm around each one. */
 .VPSidebar .group,
 .VPSidebar .group + .group {
   border-top: 0;
@@ -79,6 +105,11 @@
 .VPSidebar .VPSidebarItem .text {
   padding: 2px 0;
   line-height: 22px;
+}
+
+/* Step each level of the tree in under its heading. */
+.VPSidebar .VPSidebarItem .items {
+  padding-left: 12px;
 }
 
 /* The default theme paints a fixed gradient strip over the bottom of the
