@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test';
-import { IndexedDBManager } from '../../packages/sdk-web/src/core/indexedDB';
-import { buildDevice2LinkFlowHarnessV1 } from './helpers/device2LinkFlow.fixtures';
+import {
+  buildDevice2LinkFlowHarnessV1,
+  withCapturedLocalWritesV1,
+} from './helpers/device2LinkFlow.fixtures';
 
 /**
  * A successful owner finalize is irreversible: one call registers the passkey,
@@ -14,53 +16,12 @@ import { buildDevice2LinkFlowHarnessV1 } from './helpers/device2LinkFlow.fixture
  * response, and nothing on the recovery path is allowed to reach the
  * authenticator.
  */
-/**
- * Stands in for all three local writes unlock depends on.
- *
- * They are one recoverable unit, so a test that replaced only the auth method
- * would leave the other two hitting real storage and would stop measuring the
- * retry it is about.
- */
-async function withLocalWrites(
-  hooks: {
-    readonly onProfile?: () => void;
-    readonly onAuthenticator?: () => void;
-    readonly onAuthMethod?: (record: { readonly credentialIdB64u: string }) => void;
-  },
-  body: () => Promise<void>,
-): Promise<void> {
-  const original = {
-    profile: IndexedDBManager.upsertProfile,
-    authenticator: IndexedDBManager.upsertProfileAuthenticator,
-    authMethod: IndexedDBManager.upsertWalletAuthMethod,
-  };
-  IndexedDBManager.upsertProfile = (async (input: unknown) => {
-    hooks.onProfile?.();
-    return input;
-  }) as never;
-  IndexedDBManager.upsertProfileAuthenticator = (async () => {
-    hooks.onAuthenticator?.();
-  }) as never;
-  IndexedDBManager.upsertWalletAuthMethod = (async (record: {
-    readonly credentialIdB64u: string;
-  }) => {
-    hooks.onAuthMethod?.(record);
-  }) as never;
-  try {
-    await body();
-  } finally {
-    IndexedDBManager.upsertProfile = original.profile;
-    IndexedDBManager.upsertProfileAuthenticator = original.authenticator;
-    IndexedDBManager.upsertWalletAuthMethod = original.authMethod;
-  }
-}
-
 test('a failed projection write is retried against the committed finalize', async () => {
   const harness = await buildDevice2LinkFlowHarnessV1();
   const writes: string[] = [];
   const profiles: number[] = [];
   let failuresRemaining = 1;
-  await withLocalWrites(
+  await withCapturedLocalWritesV1(
     {
       onProfile: () => profiles.push(profiles.length + 1),
       onAuthMethod: (record) => {
@@ -97,7 +58,7 @@ test('a failed projection write is retried against the committed finalize', asyn
 test('a durable projection failure never mints a second credential', async () => {
   const harness = await buildDevice2LinkFlowHarnessV1();
   let writeAttempts = 0;
-  await withLocalWrites(
+  await withCapturedLocalWritesV1(
     {
       onProfile: () => {
         writeAttempts += 1;
