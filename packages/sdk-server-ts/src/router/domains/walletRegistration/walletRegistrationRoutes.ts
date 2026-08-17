@@ -2367,6 +2367,9 @@ export async function handleRouterApiWalletAddAuthMethodFinalize(
   const result = await input.services.walletRegistration.finalizeWalletAddAuthMethod({
     ...request.value,
     subject: { kind: 'wallet_auth_method_management', walletId: walletIdFromString(walletId) },
+    // This route is owner-authenticated and has no link session, so it can only
+    // ever finalize an ordinary owner factor.
+    authorization: { kind: 'owner' },
   });
   return routeJson(result.ok ? 200 : 400, result, {
     usage: result.ok ? { walletId: result.walletId } : undefined,

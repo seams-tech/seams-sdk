@@ -1,4 +1,5 @@
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
+import type { LinkedOwnerEnrollmentAdmissionV1 } from '../../core/deviceLinking/linkedOwnerEnrollmentAdmission';
 import type {
   WalletRegistrationNearProvisioningResponseV2,
   WalletRegistrationActivateResponseV2,
@@ -110,8 +111,29 @@ export type RevokeWalletAuthMethodCommand = Readonly<
   { subject: WalletAuthMethodManagementSubject } & Omit<WalletRevokeAuthMethodRequest, 'walletId'>
 >;
 
+/**
+ * How a finalize was authorized, and the only way linked-device facts reach the
+ * finalizer.
+ *
+ * The linked branch carries an admission that only
+ * `admitLinkedOwnerEnrollmentFinalizeV1` produces, from an authenticated link
+ * session and its persisted preparation. The public add-auth-method route has
+ * neither, so it cannot construct this branch — which is the point: a caller
+ * must not be able to claim its factor is a linked-device enrollment.
+ */
+export type WalletAddAuthMethodFinalizeAuthorizationV1 =
+  | { readonly kind: 'owner' }
+  | {
+      readonly kind: 'linked_device';
+      readonly tenantId: TenantId;
+      readonly admission: LinkedOwnerEnrollmentAdmissionV1;
+    };
+
 export type FinalizeWalletAddAuthMethodCommand = Readonly<
-  { subject: WalletAuthMethodManagementSubject } & WalletAddAuthMethodFinalizeRequest
+  {
+    subject: WalletAuthMethodManagementSubject;
+    authorization: WalletAddAuthMethodFinalizeAuthorizationV1;
+  } & WalletAddAuthMethodFinalizeRequest
 >;
 
 export type EmailOtpAuthorizationSessionSubject = Readonly<{

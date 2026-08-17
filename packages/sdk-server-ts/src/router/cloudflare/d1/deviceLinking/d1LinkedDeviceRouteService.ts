@@ -1,3 +1,5 @@
+import type { FinalizeWalletAddAuthMethodCommand } from '../../../framework/authServicePort';
+import type { WalletAddAuthMethodFinalizeResponse } from '../../../../core/registrationContracts';
 import type { LinkedOwnerEnrollmentCeremonyReaderV1 } from '../../../../core/deviceLinking/linkedOwnerEnrollmentProvenance';
 import { parseLinkDeviceSessionId, type LinkDeviceSessionId } from '@shared/signing-lanes/ids';
 import { readJson } from '../../../../router/framework/http';
@@ -42,6 +44,12 @@ export type D1LinkedDeviceRouteServiceOptionsV1 = {
   readonly database: D1DatabaseLike;
   readonly scope: D1LinkedDeviceSessionScopeV1;
   readonly tenantId: TenantId;
+  /** The canonical add-auth-method service; the linked finalize reuses it. */
+  readonly walletAuthMethods: {
+    finalizeWalletAddAuthMethod(
+      command: FinalizeWalletAddAuthMethodCommand,
+    ): Promise<WalletAddAuthMethodFinalizeResponse>;
+  };
   readonly authorizationService: Pick<
     AuthorizationService,
     | 'getLinkedDeviceWalletSessionStatus'
@@ -174,6 +182,23 @@ export function createD1LinkedDeviceRouteServiceV1(
   return {
     sessionService: routeSessionService,
     nowV1,
+    // Same finalizer the owner add-auth-method route calls. The tenant is this
+    // service's own, so the route never names one.
+    finalizeLinkedOwnerAuthMethodV1: async (input) =>
+      await options.walletAuthMethods.finalizeWalletAddAuthMethod({
+        addAuthMethodCeremonyId: input.addAuthMethodCeremonyId,
+        webauthnRegistration: input.webauthnRegistration,
+        custodyEnvelope: input.custodyEnvelope,
+        subject: {
+          kind: 'wallet_auth_method_management',
+          walletId: input.admission.walletId,
+        },
+        authorization: {
+          kind: 'linked_device',
+          tenantId: options.tenantId,
+          admission: input.admission,
+        },
+      }),
     verifyPublicSessionProofV1: async (input) => {
       const result = await proofVerifier.verifyPublicCreateV1({
         proof: input.proof,
@@ -212,8 +237,10 @@ export function createD1LinkedDeviceRouteServiceV1(
     acknowledgeReceiptV1,
     readWalletSessionAuthorizationV1,
     renewWalletSessionAuthorizationV1,
-    resolveNearAccountIdForEd25519WalletKeyV1:
-      resolveNearAccountIdForEd25519WalletKeyV1.bind(undefined, walletStore),
+    resolveNearAccountIdForEd25519WalletKeyV1: resolveNearAccountIdForEd25519WalletKeyV1.bind(
+      undefined,
+      walletStore,
+    ),
     retryCommittedDeliveryV1: completion.retry.retryCommittedDeliveryV1.bind(completion.retry),
     operatorRecovery: options.operatorRecovery,
     provisioning: options.provisioning,
@@ -224,9 +251,7 @@ export function createD1LinkedDeviceRouteServiceV1(
 
 async function resolveNearAccountIdForEd25519WalletKeyV1(
   walletStore: D1WalletStore,
-  input: Parameters<
-    DeviceLinkingRouteServiceV1['resolveNearAccountIdForEd25519WalletKeyV1']
-  >[0],
+  input: Parameters<DeviceLinkingRouteServiceV1['resolveNearAccountIdForEd25519WalletKeyV1']>[0],
 ): Promise<string> {
   const signers = await walletStore.listEd25519SignersForWallet({ walletId: input.walletId });
   const matches = [];

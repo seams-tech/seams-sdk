@@ -52,6 +52,7 @@ import {
   type WebAuthnRpId,
 } from '../utils/domainIds';
 import { parseDigestB64u, type DigestB64u } from '../utils/canonicalPrimitives';
+import { parsePasskeyCustodyEnvelopeRecord } from '../passkey-custody/custodyEnvelope';
 import {
   parseLaneHolderPackageWireV1,
   parseLaneHolderDeliveryReceiptV1,
@@ -120,6 +121,7 @@ import {
   type LinkDevicePublicKeyB64u,
   type QrLinkedDevicePermissionRequest,
   type QrLinkedDeviceSessionPayloadV4,
+  type LinkedDeviceOwnerFinalizeRequestV1,
 } from './contracts';
 
 type UnknownRecord = Record<string, unknown>;
@@ -3129,4 +3131,38 @@ export function buildCommittedCompletionRequiredLinkedDeviceSessionState(args: {
     keyManifestDigestB64u: args.keyManifestDigestB64u,
     transcriptSetDigestB64u: args.transcriptSetDigestB64u,
   });
+}
+
+const OWNER_FINALIZE_REQUEST_FIELDS = [
+  'kind',
+  'addAuthMethodCeremonyId',
+  'webauthnRegistration',
+  'custodyEnvelope',
+] as const;
+
+export function parseLinkedDeviceOwnerFinalizeRequestV1(
+  raw: unknown,
+): LinkedDeviceOwnerFinalizeRequestV1 {
+  const record = exactRecord(
+    raw,
+    OWNER_FINALIZE_REQUEST_FIELDS,
+    'LinkedDeviceOwnerFinalizeRequestV1',
+  );
+  if (record.kind !== 'linked_device_owner_finalize_request_v1') {
+    throw new Error('LinkedDeviceOwnerFinalizeRequestV1.kind is invalid');
+  }
+  const addAuthMethodCeremonyId =
+    typeof record.addAuthMethodCeremonyId === 'string' ? record.addAuthMethodCeremonyId.trim() : '';
+  if (!addAuthMethodCeremonyId) {
+    throw new Error('LinkedDeviceOwnerFinalizeRequestV1.addAuthMethodCeremonyId is required');
+  }
+  if (record.webauthnRegistration === undefined || record.webauthnRegistration === null) {
+    throw new Error('LinkedDeviceOwnerFinalizeRequestV1.webauthnRegistration is required');
+  }
+  return {
+    kind: 'linked_device_owner_finalize_request_v1',
+    addAuthMethodCeremonyId,
+    webauthnRegistration: record.webauthnRegistration,
+    custodyEnvelope: parsePasskeyCustodyEnvelopeRecord(record.custodyEnvelope),
+  };
 }
