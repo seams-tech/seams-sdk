@@ -139,7 +139,7 @@ import { createD1LinkedDeviceRouteServiceV1 } from '../deviceLinking/d1LinkedDev
 import { createD1LinkedDeviceManagementRouteServiceV1 } from '../deviceLinking/d1LinkedDeviceManagementRouteService';
 import {
   D1LinkedDeviceManagementStoreV1,
-  D1LinkedDeviceTargetCredentialMetadataSourceV1,
+  D1LinkedDeviceCanonicalOwnerAuthMetadataSourceV1,
 } from '../deviceLinking/d1LinkedDeviceManagementStore';
 import {
   AuthorizationServiceLinkedDeviceWalletSessionRevocationV1,
@@ -491,14 +491,21 @@ function createD1LinkedDeviceComposition(input: {
     if (!deviceLinking || !sessionConfig) {
       throw new Error('linked-device management requires linked-device session composition');
     }
+    const managementTenantId = parseTenantId(input.options.orgId);
+    if (!managementTenantId.ok) {
+      throw new Error(
+        `orgId cannot identify a linked-device management tenant: ${managementTenantId.error.message}`,
+      );
+    }
     const metadataSource = new D1LinkedDeviceWalletSessionAuthorizationMetadataSourceV1({
       database: input.options.database,
       scope,
     });
     const preparation = new D1LinkedDeviceRevocationPreparationV1(metadataSource);
-    const metadata = new D1LinkedDeviceTargetCredentialMetadataSourceV1({
+    const metadata = new D1LinkedDeviceCanonicalOwnerAuthMetadataSourceV1({
       database: input.options.database,
       scope,
+      tenantId: managementTenantId.value,
     });
     const managementProjection = new D1LinkedDeviceManagementStoreV1({
       database: input.options.database,

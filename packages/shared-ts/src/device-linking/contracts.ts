@@ -28,10 +28,12 @@ import type { OwnerLaneParticipantContinuityV1 } from '../signing-lanes/ownerCon
 import type {
   MpcMaterialActivationId,
   MpcMaterialActivationRef,
+  WalletAuthMethodId,
   WalletId,
   WebAuthnCredentialIdB64u,
   WebAuthnRpId,
 } from '../utils/domainIds';
+import type { WebAuthnAuthenticatorDeviceInfo } from '../utils/webauthnDeviceInfo';
 import type { DigestB64u } from '../utils/canonicalPrimitives';
 import type { WalletAddAuthMethodRegistrationOptions } from '../utils/addAuthMethodRegistration';
 import type {
@@ -689,13 +691,27 @@ export type LinkedDeviceApprovalResultV1 =
           };
     };
 
+/** Canonical owner credential metadata projected into linked-device management. */
+export type LinkedOwnerCredentialMetadataV1 =
+  | {
+      readonly kind: 'passkey';
+      readonly walletAuthMethodId: WalletAuthMethodId;
+      readonly credentialIdB64u: WebAuthnCredentialIdB64u;
+      readonly device: WebAuthnAuthenticatorDeviceInfo;
+    }
+  | {
+      readonly kind: 'email_otp';
+      readonly walletAuthMethodId: WalletAuthMethodId;
+      readonly device?: never;
+      readonly credentialIdB64u?: never;
+    };
+
 /** Public wallet-scoped projection for linked-device management. */
 export type LinkedDeviceSummaryV1 = {
   readonly deviceId: LinkedDeviceId;
   readonly enrollmentId: LinkedDeviceEnrollmentId;
   readonly walletId: WalletId;
-  readonly label: string;
-  readonly platform: string;
+  readonly credential: LinkedOwnerCredentialMetadataV1;
   readonly permission: QrLinkedDevicePermissionRequest;
   readonly keyManifestDigestB64u: DigestB64u;
   readonly coveredWalletKeys: readonly WalletKeyId[];

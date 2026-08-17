@@ -15,9 +15,10 @@ import {
 } from '../../packages/sdk-server-ts/src/core/deviceLinking/linkedDeviceSession';
 import {
   D1LinkedDeviceManagementStoreV1,
-  D1LinkedDeviceTargetCredentialMetadataSourceV1,
+  D1LinkedDeviceCanonicalOwnerAuthMetadataSourceV1,
   D1LinkedDeviceSigningActivitySourceV1,
 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceManagementStore';
+import { parseTenantId } from '../../packages/shared-ts/src/authorization/capabilityKinds';
 import {
   D1LinkedDeviceSessionStoreV1,
   type D1LinkedDeviceSessionScopeV1,
@@ -231,7 +232,7 @@ test('reads only exact scope and device signing activity from authorization audi
   ).resolves.toBe(8_000);
 });
 
-test('projects multiple wallet sessions with a bounded D1 query set', async () => {
+test('fails closed on missing owner bindings with a bounded D1 query set', async () => {
   temporary = createTemporaryD1Database();
   await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
   let queryCount = 0;
@@ -311,9 +312,10 @@ test('projects multiple wallet sessions with a bounded D1 query set', async () =
     scope,
     sessionService,
     nowV1: () => 3_003,
-    metadata: new D1LinkedDeviceTargetCredentialMetadataSourceV1({
+    metadata: new D1LinkedDeviceCanonicalOwnerAuthMetadataSourceV1({
       database: countedDatabase,
       scope,
+      tenantId: parseTenantId(scope.orgId).value,
     }),
   });
   await expect(
@@ -322,6 +324,6 @@ test('projects multiple wallet sessions with a bounded D1 query set', async () =
       limit: 10,
       cursor: null,
     }),
-  ).resolves.toEqual({ devices: [], nextCursor: null });
+  ).rejects.toThrow('linked-device owner auth binding is missing');
   expect(queryCount).toBeLessThanOrEqual(8);
 });

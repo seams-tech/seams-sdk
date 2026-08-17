@@ -8,6 +8,8 @@ import {
 import type { AuthorizationService } from '../../packages/sdk-server-ts/src/authorization/service';
 import type { LinkedDeviceWalletSessionStatus } from '../../packages/sdk-server-ts/src/authorization/domain';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
+import { buildLinkedOwnerPasskeyBindingFixtureV1 } from './helpers/linkedOwnerAuthBinding.fixtures';
+import { unknownWebAuthnAuthenticatorDeviceInfo } from '../../packages/shared-ts/src/utils/webauthnDeviceInfo';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,
@@ -253,6 +255,12 @@ test('management composition uses the authenticated owner context', async () => 
   temporary = createTemporaryD1Database();
   await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
   const fixture = buildR103DeviceLinkFixture();
+  const ownerBinding = buildLinkedOwnerPasskeyBindingFixtureV1({
+    walletId: String(fixture.approval.walletId),
+    enrollmentId: String(fixture.approval.enrollmentId),
+    deviceId: String(fixture.approval.deviceId),
+  });
+  if (ownerBinding.factor.kind !== 'passkey') throw new Error('expected passkey binding');
   const scope = {
     namespace: 'signer',
     orgId: 'org_management_composition_route',
@@ -267,7 +275,12 @@ test('management composition uses the authenticated owner context', async () => 
       listSessionsForWalletV1: async () => ({ records: [], nextCursor: null }),
     },
     metadata: {
-      readLinkedDeviceMetadataV1: async () => ({ label: 'Device', platform: 'test' }),
+      readLinkedDeviceMetadataV1: async () => ({
+        kind: 'passkey',
+        walletAuthMethodId: ownerBinding.walletAuthMethodId,
+        credentialIdB64u: ownerBinding.factor.credentialIdB64u,
+        device: unknownWebAuthnAuthenticatorDeviceInfo(),
+      }),
       readLinkedDeviceMetadataBatchV1: async () => new Map(),
     },
     preparation: {
