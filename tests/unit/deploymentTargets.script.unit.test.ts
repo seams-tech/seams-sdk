@@ -297,7 +297,7 @@ test('required secrets are derived from enabled capabilities', async () => {
   const targets = module.parseDeploymentTargets(validTargets());
   const staging = targets.backendLanes['staging-testnet'];
   expect(module.componentSecretNames(staging, 'gateway')).toEqual([
-    'RELAY_SESSION_HMAC_SECRET',
+    'CONSOLE_SESSION_HMAC_SECRET',
     'ACCOUNT_ID_DERIVATION_SECRET',
     'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
     'LINKED_DEVICE_OPERATOR_RECOVERY_SECRET',
@@ -380,6 +380,9 @@ test('production workflows supply selectable provider credentials as protected s
     const workflow = readFileSync(path.join(repoRoot, '.github/workflows', workflowName), 'utf8');
     expect(workflow).toContain(
       'CONSOLE_INITIAL_OWNER_EMAIL: ${{ secrets.CONSOLE_INITIAL_OWNER_EMAIL }}',
+    );
+    expect(workflow).toContain(
+      'CONSOLE_SESSION_HMAC_SECRET: ${{ secrets.CONSOLE_SESSION_HMAC_SECRET }}',
     );
     expect(workflow).toContain('RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}');
     expect(workflow).toContain(

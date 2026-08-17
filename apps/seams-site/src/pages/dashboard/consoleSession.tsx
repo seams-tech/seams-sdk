@@ -223,7 +223,7 @@ export async function revokeDashboardConsoleSession(): Promise<void> {
   const base = requireConsoleBaseUrl();
   let response: Response;
   try {
-    response = await fetch(`${base}/session/revoke`, {
+    response = await fetch(`${base}/console/auth/revoke`, {
       method: 'POST',
       headers: buildConsoleAcceptHeaders(),
       credentials: 'include',
@@ -233,8 +233,8 @@ export async function revokeDashboardConsoleSession(): Promise<void> {
     throw normalizeConsoleFetchError({
       error,
       baseUrl: base,
-      path: '/session/revoke',
-      operation: 'Session revoke request',
+      path: '/console/auth/revoke',
+      operation: 'Console session revoke request',
     });
   }
 
@@ -245,7 +245,7 @@ export async function revokeDashboardConsoleSession(): Promise<void> {
   if (response.status === 401) {
     return;
   }
-  throw new Error(consoleErrorMessage(response, body, 'Session revoke failed'));
+  throw new Error(consoleErrorMessage(response, body, 'Console session revoke failed'));
 }
 
 const CONSOLE_SIGN_OUT_FLAG_KEY = 'seams.console.signedOut';

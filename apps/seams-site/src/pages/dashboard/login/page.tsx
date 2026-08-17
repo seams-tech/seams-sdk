@@ -33,20 +33,44 @@ async function parseOptionalJson(response: Response): Promise<Record<string, unk
   return isRecord(value) ? value : null;
 }
 
+type DashboardLoginCommand =
+  | { readonly kind: 'google'; readonly idToken: string }
+  | { readonly kind: 'github'; readonly code: string };
+
+function assertNeverDashboardLogin(command: never): never {
+  throw new Error(`Unsupported dashboard login command: ${String(command)}`);
+}
+
 async function exchangeDashboardSession(
   relayerBaseUrl: string,
-  exchange: Record<string, unknown>,
-  providerLabel: string,
+  command: DashboardLoginCommand,
 ): Promise<void> {
-  const response = await fetch(`${relayerBaseUrl}/session/exchange`, {
+  let path: string;
+  let body: { readonly idToken: string } | { readonly code: string };
+  let providerLabel: string;
+  switch (command.kind) {
+    case 'google':
+      path = '/console/auth/google';
+      body = { idToken: command.idToken };
+      providerLabel = 'Google';
+      break;
+    case 'github':
+      path = '/console/auth/github';
+      body = { code: command.code };
+      providerLabel = 'GitHub';
+      break;
+    default:
+      return assertNeverDashboardLogin(command);
+  }
+  const response = await fetch(`${relayerBaseUrl}${path}`, {
     method: 'POST',
     credentials: 'include',
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-    body: JSON.stringify({ session_kind: 'cookie', exchange }),
+    body: JSON.stringify(body),
   });
-  const body = await parseOptionalJson(response);
-  if (!response.ok || body?.ok !== true) {
-    const message = String(body?.message || '').trim();
+  const responseBody = await parseOptionalJson(response);
+  if (!response.ok || responseBody?.ok !== true) {
+    const message = String(responseBody?.message || '').trim();
     throw new Error(message || `${providerLabel} session exchange failed (${response.status})`);
   }
 }
@@ -157,11 +181,7 @@ export function DashboardLoginPage(): React.JSX.Element {
     let cancelled = false;
     setLoadingProvider('github');
     setErrorMessage('');
-    exchangeDashboardSession(
-      relayerBaseUrl,
-      { type: 'github_oauth_code', code: callback.code },
-      'GitHub',
-    )
+    exchangeDashboardSession(relayerBaseUrl, { kind: 'github', code: callback.code })
       .then(fetchDashboardConsoleSession)
       .then(() => {
         if (!cancelled) go('/dashboard');
@@ -197,11 +217,7 @@ export function DashboardLoginPage(): React.JSX.Element {
       await ensureGoogleIdentityScriptLoaded();
       const idToken = await requestGoogleIdToken(googleClientId);
 
-      await exchangeDashboardSession(
-        relayerBaseUrl,
-        { type: 'oidc_jwt', provider: 'google', token: idToken },
-        'Google',
-      );
+      await exchangeDashboardSession(relayerBaseUrl, { kind: 'google', idToken });
 
       await fetchDashboardConsoleSession();
       go('/dashboard');

@@ -30,6 +30,9 @@ async function routePath(pathname: string): Promise<string> {
 
 test('hosted gateway dispatches console routes to the console router', async () => {
   await expect(routePath('/console/session')).resolves.toBe('console');
+  await expect(routePath('/console/auth/google')).resolves.toBe('console');
+  await expect(routePath('/console/auth/github')).resolves.toBe('console');
+  await expect(routePath('/console/auth/revoke')).resolves.toBe('console');
   await expect(routePath('/console/billing/account')).resolves.toBe('console');
 });
 

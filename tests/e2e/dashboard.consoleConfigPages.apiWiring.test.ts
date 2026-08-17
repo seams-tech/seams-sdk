@@ -269,9 +269,6 @@ test.describe('dashboard console config page api wiring', () => {
     let sessionEstablished = false;
     let sessionExchangeCalls = 0;
     let exchangeToken = '';
-    let exchangeType = '';
-    let exchangeProvider = '';
-    let exchangeSessionKind = '';
     let optionsRequestUsedLegacyAuthHeaders = false;
     let exchangeRequestUsedLegacyAuthHeaders = false;
 
@@ -326,7 +323,7 @@ test.describe('dashboard console config page api wiring', () => {
       });
     });
 
-    await page.route(`${consoleOrigin}/session/exchange`, async (route) => {
+    await page.route(`${consoleOrigin}/console/auth/google`, async (route) => {
       const req = route.request();
       if (req.method().toUpperCase() !== 'POST') {
         await route.fulfill({ status: 405, body: '' });
@@ -334,11 +331,7 @@ test.describe('dashboard console config page api wiring', () => {
       }
       exchangeRequestUsedLegacyAuthHeaders = hasLegacyDashboardAuthHeaders(req.headers());
       const body = parseJsonBody(req.postData());
-      const exchange = (body.exchange || {}) as Record<string, unknown>;
-      exchangeToken = String(exchange.token || '').trim();
-      exchangeType = String(exchange.type || '').trim();
-      exchangeProvider = String(exchange.provider || '').trim();
-      exchangeSessionKind = String(body.session_kind || '').trim();
+      exchangeToken = String(body.idToken || '').trim();
       sessionExchangeCalls += 1;
       sessionEstablished = true;
       await route.fulfill({
@@ -347,9 +340,7 @@ test.describe('dashboard console config page api wiring', () => {
         body: JSON.stringify({
           ok: true,
           session: {
-            kind: 'app_session_v1',
-            sub: 'google:dashboard-login-test',
-            appSessionVersion: 'v1',
+            kind: 'console_session_v1',
           },
         }),
       });
@@ -359,6 +350,11 @@ test.describe('dashboard console config page api wiring', () => {
       const req = route.request();
       const method = req.method().toUpperCase();
       const pathname = new URL(req.url()).pathname;
+
+      if (pathname === '/console/auth/google') {
+        await route.fallback();
+        return;
+      }
 
       if (pathname === '/console/session') {
         if (!sessionEstablished) {
@@ -483,9 +479,6 @@ test.describe('dashboard console config page api wiring', () => {
 
     await expect.poll(() => sessionExchangeCalls).toBe(1);
     await expect.poll(() => exchangeToken).toBe('mock-google-id-token');
-    await expect(exchangeType).toBe('oidc_jwt');
-    await expect(exchangeProvider).toBe('google');
-    await expect(exchangeSessionKind).toBe('cookie');
     await expect(optionsRequestUsedLegacyAuthHeaders).toBe(false);
     await expect(exchangeRequestUsedLegacyAuthHeaders).toBe(false);
     await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/onboarding');
@@ -498,7 +491,6 @@ test.describe('dashboard console config page api wiring', () => {
     const consoleOrigin = new URL(String(baseURL || 'http://127.0.0.1:3600')).origin;
     let sessionEstablished = false;
     let exchangeCode = '';
-    let exchangeType = '';
 
     await page.addInitScript(() => {
       window.sessionStorage.setItem('seams.dashboard.github.oauth.state', 'github-test-state');
@@ -522,20 +514,22 @@ test.describe('dashboard console config page api wiring', () => {
         }),
       });
     });
-    await page.route(`${consoleOrigin}/session/exchange`, async (route) => {
+    await page.route(`${consoleOrigin}/console/auth/github`, async (route) => {
       const body = parseJsonBody(route.request().postData());
-      const exchange = (body.exchange || {}) as Record<string, unknown>;
-      exchangeType = String(exchange.type || '');
-      exchangeCode = String(exchange.code || '');
+      exchangeCode = String(body.code || '');
       sessionEstablished = true;
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ ok: true, session: { kind: 'app_session_v1' } }),
+        body: JSON.stringify({ ok: true, session: { kind: 'console_session_v1' } }),
       });
     });
     await page.route(`${consoleOrigin}/console/**`, async (route) => {
       const pathname = new URL(route.request().url()).pathname;
+      if (pathname === '/console/auth/github') {
+        await route.fallback();
+        return;
+      }
       if (pathname === '/console/session' && sessionEstablished) {
         await route.fulfill({
           status: 200,
@@ -571,7 +565,6 @@ test.describe('dashboard console config page api wiring', () => {
     await expect(page.getByRole('button', { name: /continue with github/i })).toBeEnabled();
     await page.goto('/dashboard/login?code=github-temporary-code&state=github-test-state');
 
-    await expect.poll(() => exchangeType).toBe('github_oauth_code');
     await expect.poll(() => exchangeCode).toBe('github-temporary-code');
     await expect.poll(() => new URL(page.url()).pathname).toBe('/dashboard/onboarding');
   });
@@ -1475,7 +1468,7 @@ test.describe('dashboard console config page api wiring', () => {
       });
     });
 
-    await page.route(`${consoleOrigin}/session/revoke`, async (route) => {
+    await page.route(`${consoleOrigin}/console/auth/revoke`, async (route) => {
       sessionRevokeCalls += 1;
       sessionRevoked = true;
       await route.fulfill({
