@@ -1515,9 +1515,9 @@ async function openEcdsaRoleLocalSigningMaterial(
     throw new Error(materialActivationResult.error.message);
   }
   const materialActivation = materialActivationResult.value;
-  const lookup = await ecdsaCapabilityManifestStore.lookup({
-    capability: materialActivation.capability,
-    authority,
+  const lookup = await ecdsaCapabilityManifestStore.lookupByMaterialActivation({
+    walletId: authority.walletId,
+    materialActivation,
   });
   if (lookup.kind === 'persistence_unavailable') {
     throw new Error('Canonical ECDSA role-local material persistence is unavailable');
