@@ -371,6 +371,32 @@ function passkeyCustodyEnvelopeFromRegistrationCommit(args: {
   });
 }
 
+/* Exported for tests: ECDSA-only and deferred mixed registration share this
+   post-persistence capability handoff. */
+export async function establishPasskeyRegistrationCustodyTransferCapability(args: {
+  readonly signingEngine: Pick<
+    RegistrationWebContext['signingEngine'],
+    'establishUnlockedWalletCustodyTransferCapabilityV1'
+  >;
+  readonly commit: WalletCustodyCeremonyCommitPayload;
+  readonly passkeyPrfFirstB64u: string;
+  readonly walletId: string;
+  readonly walletSessionId: string;
+  readonly expiresAtMs: number;
+}): Promise<void> {
+  await args.signingEngine.establishUnlockedWalletCustodyTransferCapabilityV1({
+    existingEnvelope: passkeyCustodyEnvelopeFromRegistrationCommit({
+      commit: args.commit,
+      walletId: args.walletId,
+      activatedAtMs: Date.now(),
+    }),
+    passkeyPrfFirstB64u: args.passkeyPrfFirstB64u,
+    walletId: args.walletId,
+    walletSessionId: args.walletSessionId,
+    expiresAtMs: args.expiresAtMs,
+  });
+}
+
 async function rememberPasskeyRegistrationCustodyEnvelope(args: {
   readonly commit: WalletCustodyCeremonyCommitPayload;
   readonly walletId: string;
@@ -2876,6 +2902,20 @@ async function registerEcdsaOrMixedWallet(
       registrationTiming,
       plan: persistencePlan,
     });
+    if (args.authMethod.kind === 'passkey') {
+      if (!passkeyAuthority) {
+        throw new Error('Passkey registration authority was not collected');
+      }
+      const registrationSession = persistencePlan.ecdsa.session.registrationEstablishedSession;
+      await establishPasskeyRegistrationCustodyTransferCapability({
+        signingEngine: context.signingEngine,
+        commit: ceremony.walletCustody.commitPayload,
+        passkeyPrfFirstB64u: passkeyAuthority.prfFirstB64u,
+        walletId: String(walletId),
+        walletSessionId: String(registrationSession.walletSessionId),
+        expiresAtMs: registrationSession.expiresAtMs,
+      });
+    }
     const primaryEcdsaKey = persistencePlan.ecdsa.walletKeys[0];
     /* Commit #2 is deliberately not awaited: registration returns as soon as
        the ECDSA wallet is durable, which is what takes the Yao wait off the
@@ -3671,12 +3711,9 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
        registration and the owner Wallet Session persisted above is active, so
        the linking capability is established here from the envelope this
        ceremony just sealed — never later, and never from the linking flow. */
-    await context.signingEngine.establishUnlockedWalletCustodyTransferCapabilityV1({
-      existingEnvelope: passkeyCustodyEnvelopeFromRegistrationCommit({
-        commit: established.commitPayload,
-        walletId: String(finalized.walletId),
-        activatedAtMs: Date.now(),
-      }),
+    await establishPasskeyRegistrationCustodyTransferCapability({
+      signingEngine: context.signingEngine,
+      commit: established.commitPayload,
       passkeyPrfFirstB64u: passkeyAuthority.prfFirstB64u,
       walletId: String(finalized.walletId),
       walletSessionId: String(registrationAuthorization.walletSessionId),
