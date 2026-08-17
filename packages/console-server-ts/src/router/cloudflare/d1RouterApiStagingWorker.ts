@@ -288,6 +288,8 @@ const RELAY_SIGNER_READY_TABLES = Object.freeze([
   'linked_device_provisioning_records',
   'linked_device_source_handoffs',
   'linked_device_owner_planning_snapshots',
+  'linked_device_owner_auth_bindings',
+  'linked_device_custody_transfers',
   'linked_device_target_deployment_descriptors',
 ]);
 

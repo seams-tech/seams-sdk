@@ -129,7 +129,7 @@ function firstFakeD1Row<T>(query: string): T | null {
     return { table_count: 44 } as T;
   }
   if (query.includes('sqlite_master') && query.includes('email_otp_registration_attempts')) {
-    return { table_count: 26 } as T;
+    return { table_count: 47 } as T;
   }
   return null;
 }
@@ -582,7 +582,7 @@ test('local D1 Worker ready smoke validates D1 tables and signer-D1 admission', 
     namespace: 'seams-local-test',
     schemas: {
       consoleTables: 44,
-      signerTables: 26,
+      signerTables: 47,
     },
     admission: {
       database: 'SIGNER_DB',
@@ -1076,7 +1076,7 @@ test('local D1 Worker runs dashboard, signer, billing, and reconciliation smoke 
       namespace: 'seams-local-workflow-smoke',
       schemas: {
         consoleTables: 44,
-        signerTables: 26,
+        signerTables: 47,
       },
       /* Admission moved to private D1, so readiness names the database it
          proved the policy against rather than a Durable Object binding. */
