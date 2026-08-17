@@ -28,6 +28,7 @@ import type {
   WalletIframeWarmupSurface,
   WalletIframeSurfaceMeasurementSurface,
   WalletAuthenticationSurface,
+  UnlockedCustodyCapabilitySurface,
   WebAuthnRegistrationConfirmationSurface,
 } from './ports';
 import type { UserPreferencesManager } from '@/core/signingEngine/session/userPreferences';
@@ -77,6 +78,7 @@ export type {
   SigningSessionSurface,
   TempoNonceLifecycleSurface,
   TempoSigningSurface,
+  UnlockedCustodyCapabilitySurface,
   UserAccountLookupSurface,
   UserProfileStoreSurface,
   WalletIframeWarmupSurface,
@@ -116,6 +118,7 @@ export interface SeamsWebSigningSurface
     RegistrationAccountSurface,
     EcdsaRegistrationSurface,
     Ed25519YaoCapabilityActivationSurface,
+    UnlockedCustodyCapabilitySurface,
     WalletCustodyCeremonySurface,
     Ed25519MaterialOwnerQueueSurface,
     WebAuthnRegistrationConfirmationSurface,

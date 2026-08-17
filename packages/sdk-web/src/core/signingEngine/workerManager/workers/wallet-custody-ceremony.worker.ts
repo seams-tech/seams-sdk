@@ -15,6 +15,7 @@ import initNearSigner, {
   passkey_custody_reseal_wallet_seed_v1,
   passkey_custody_seal_wallet_seed_for_linked_device_v1,
   type WasmLinkedDeviceCustodyTransferRecipientV1,
+  type WasmPasskeyCustodyHandleV1,
 } from '../../../../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
 import initEd25519YaoClient, {
   WasmEd25519YaoLaneClientV1,
@@ -105,6 +106,42 @@ const ed25519YaoLaneSessions = new Map<
 const MAX_ACTIVE_TRANSFER_RECIPIENTS = 2;
 const custodyTransferRecipients = new Map<string, WasmLinkedDeviceCustodyTransferRecipientV1>();
 
+/**
+ * Refactor 103 zero-prompt handoff — Device 1's unlocked custody transfer
+ * capabilities.
+ *
+ * Each entry owns a custody-seed handle opened during registration or ordinary
+ * unlock, when the owner factor was already being presented. The handle stays
+ * in this map for the lifetime of the owner Wallet Session that authorized it,
+ * so approving a linked device later seals from here without another factor
+ * prompt. The reference JavaScript holds back is the map key plus the binding
+ * facts below — never the seed, and never anything that survives this worker.
+ *
+ * Sealing re-verifies every stored fact against the presented reference, and a
+ * mismatch fails before any ciphertext exists. One capability per wallet:
+ * establishing a replacement destroys the previous handle first, and the map
+ * is bounded like the recipient map because an abandoned handle is a bug worth
+ * surfacing.
+ */
+const MAX_ACTIVE_UNLOCKED_CUSTODY_CAPABILITIES = 4;
+type UnlockedCustodyCapabilityRecordV1 = {
+  readonly handle: WasmPasskeyCustodyHandleV1;
+  readonly walletId: string;
+  readonly walletAuthMethodId: string;
+  readonly walletSessionId: string;
+  readonly expiresAtMs: number;
+};
+const unlockedCustodyCapabilities = new Map<string, UnlockedCustodyCapabilityRecordV1>();
+
+function destroyUnlockedCustodyCapabilityEntry(capabilityHandleId: string): boolean {
+  const record = unlockedCustodyCapabilities.get(capabilityHandleId);
+  unlockedCustodyCapabilities.delete(capabilityHandleId);
+  if (!record) return false;
+  record.handle.destroy();
+  record.handle.free();
+  return true;
+}
+
 type WorkerRequest<TType extends keyof WalletCustodyCeremonyWorkerOperationMap> = {
   readonly id: string;
   readonly type: TType;
@@ -118,6 +155,10 @@ type DiscardRequest = WorkerRequest<'discardWalletCustodyCeremony'>;
 type LinkPasskeyRequest = WorkerRequest<'linkWalletCustodyPasskey'>;
 type CreateTransferRecipientRequest =
   WorkerRequest<'createLinkedDeviceCustodyTransferRecipient'>;
+type EstablishUnlockedCustodyCapabilityRequest =
+  WorkerRequest<'establishUnlockedWalletCustodyTransferCapability'>;
+type DestroyUnlockedCustodyCapabilitiesRequest =
+  WorkerRequest<'destroyUnlockedWalletCustodyTransferCapabilities'>;
 type SealForLinkedDeviceRequest = WorkerRequest<'sealWalletCustodySeedForLinkedDevice'>;
 type AcceptTransferRequest = WorkerRequest<'acceptLinkedDeviceCustodyTransfer'>;
 type DiscardTransferRecipientRequest =
@@ -135,6 +176,8 @@ type WalletCustodyCeremonyWorkerRequest =
   | DiscardRequest
   | LinkPasskeyRequest
   | CreateTransferRecipientRequest
+  | EstablishUnlockedCustodyCapabilityRequest
+  | DestroyUnlockedCustodyCapabilitiesRequest
   | SealForLinkedDeviceRequest
   | AcceptTransferRequest
   | DiscardTransferRecipientRequest
@@ -664,20 +707,43 @@ async function createLinkedDeviceCustodyTransferRecipient(
 }
 
 /**
- * Device 1: opens its own envelope and reseals the seed for one linked device.
- *
- * The opened handle is freed in `finally` whether or not the seal succeeded, so
- * a failed transfer leaves no seed parked in worker memory.
+ * Refactor 103 zero-prompt handoff: opens the wallet custody seed envelope
+ * with the factor secret already in hand from registration or ordinary
+ * unlock, and parks the opened handle for the owner Wallet Session that
+ * authorized it. Only the public reference crosses back.
  */
-async function sealWalletCustodySeedForLinkedDevice(
-  request: SealForLinkedDeviceRequest,
+async function establishUnlockedWalletCustodyTransferCapability(
+  request: EstablishUnlockedCustodyCapabilityRequest,
 ): Promise<unknown> {
   await initializeNearSignerWasm();
   const envelope = request.payload.existingEnvelope;
   const existingFactorSecret = toBytes(request.payload.existingFactorSecret);
-  let handle: ReturnType<typeof passkey_custody_open_wallet_seed_v1> | null = null;
   try {
-    handle = passkey_custody_open_wallet_seed_v1(
+    const walletId = requireCapabilityFact(request.payload.walletId, 'walletId');
+    const walletAuthMethodId = requireCapabilityFact(
+      request.payload.walletAuthMethodId,
+      'walletAuthMethodId',
+    );
+    const walletSessionId = requireCapabilityFact(
+      request.payload.walletSessionId,
+      'walletSessionId',
+    );
+    const expiresAtMs = request.payload.expiresAtMs;
+    if (!Number.isSafeInteger(expiresAtMs) || expiresAtMs <= Date.now()) {
+      throw new Error('unlocked custody capability expiry must be in the future');
+    }
+    if (String(envelope.walletId) !== walletId) {
+      throw new Error('unlocked custody capability envelope names another wallet');
+    }
+    // One capability per wallet: a replacement (new unlock, new session)
+    // destroys the previous handle before the new one is admitted.
+    for (const [existingId, record] of [...unlockedCustodyCapabilities]) {
+      if (record.walletId === walletId) destroyUnlockedCustodyCapabilityEntry(existingId);
+    }
+    if (unlockedCustodyCapabilities.size >= MAX_ACTIVE_UNLOCKED_CUSTODY_CAPABILITIES) {
+      throw new Error('too many unlocked custody capabilities are active');
+    }
+    const handle = passkey_custody_open_wallet_seed_v1(
       existingFactorSecret,
       custodyEnvelopeBindingJson(envelope),
       base64UrlDecode(envelope.nonceB64u),
@@ -685,21 +751,106 @@ async function sealWalletCustodySeedForLinkedDevice(
       envelope.aadHashB64u,
       envelope.ciphertextDigestB64u,
     );
-    const sealed = passkey_custody_seal_wallet_seed_for_linked_device_v1(
+    const capabilityHandleId = createUnlockedCustodyCapabilityHandleId();
+    unlockedCustodyCapabilities.set(capabilityHandleId, {
       handle,
-      request.payload.transferBindingJson,
-    ) as Record<string, unknown>;
+      walletId,
+      walletAuthMethodId,
+      walletSessionId,
+      expiresAtMs,
+    });
     return {
-      ephemeralPublicKeyB64u: String(sealed.ephemeralPublicKeyB64u || ''),
-      nonceB64u: String(sealed.nonceB64u || ''),
-      sealedCustodySecretB64u: String(sealed.sealedCustodySecretB64u || ''),
-      aadHashB64u: String(sealed.aadHashB64u || ''),
-      ciphertextDigestB64u: String(sealed.ciphertextDigestB64u || ''),
+      kind: 'unlocked_wallet_custody_transfer_capability_v1',
+      capabilityHandleId,
+      walletId,
+      walletAuthMethodId,
+      walletSessionId,
+      expiresAtMs,
     };
   } finally {
-    handle?.free();
     existingFactorSecret.fill(0);
   }
+}
+
+/** Lock, logout, session retirement, expiry, failed activation, teardown. */
+function destroyUnlockedWalletCustodyTransferCapabilities(
+  request: DestroyUnlockedCustodyCapabilitiesRequest,
+): unknown {
+  const scope = request.payload.scope;
+  let destroyedCount = 0;
+  for (const [capabilityHandleId, record] of [...unlockedCustodyCapabilities]) {
+    const matches =
+      scope.kind === 'all' ||
+      (scope.kind === 'capability' && scope.capabilityHandleId === capabilityHandleId) ||
+      (scope.kind === 'wallet' && scope.walletId === record.walletId) ||
+      (scope.kind === 'wallet_session' && scope.walletSessionId === record.walletSessionId);
+    if (matches && destroyUnlockedCustodyCapabilityEntry(capabilityHandleId)) {
+      destroyedCount += 1;
+    }
+  }
+  return { destroyedCount };
+}
+
+/**
+ * Device 1: seals the seed for one approved linked device from the unlocked
+ * capability established at registration or unlock.
+ *
+ * Every fact in the presented reference is re-verified against the record this
+ * worker stored, so a caller holding a stale or foreign reference fails before
+ * any ciphertext exists. An expired capability is destroyed on sight. The
+ * handle survives a successful seal: separately approved enrollments may seal
+ * again while the owner Wallet Session remains active, each with fresh
+ * ephemeral key material drawn inside wasm.
+ */
+async function sealWalletCustodySeedForLinkedDevice(
+  request: SealForLinkedDeviceRequest,
+): Promise<unknown> {
+  await initializeNearSignerWasm();
+  const capability = request.payload.capability;
+  const capabilityHandleId = requireCapabilityFact(
+    capability.capabilityHandleId,
+    'capabilityHandleId',
+  );
+  const record = unlockedCustodyCapabilities.get(capabilityHandleId);
+  if (!record) {
+    throw new Error('unlocked custody capability is unknown or destroyed');
+  }
+  if (
+    String(capability.walletId) !== record.walletId ||
+    String(capability.walletAuthMethodId) !== record.walletAuthMethodId ||
+    String(capability.walletSessionId) !== record.walletSessionId ||
+    capability.expiresAtMs !== record.expiresAtMs
+  ) {
+    throw new Error('unlocked custody capability reference does not match the held handle');
+  }
+  if (record.expiresAtMs <= Date.now()) {
+    destroyUnlockedCustodyCapabilityEntry(capabilityHandleId);
+    throw new Error('unlocked custody capability has expired');
+  }
+  const sealed = passkey_custody_seal_wallet_seed_for_linked_device_v1(
+    record.handle,
+    request.payload.transferBindingJson,
+  ) as Record<string, unknown>;
+  return {
+    ephemeralPublicKeyB64u: String(sealed.ephemeralPublicKeyB64u || ''),
+    nonceB64u: String(sealed.nonceB64u || ''),
+    sealedCustodySecretB64u: String(sealed.sealedCustodySecretB64u || ''),
+    aadHashB64u: String(sealed.aadHashB64u || ''),
+    ciphertextDigestB64u: String(sealed.ciphertextDigestB64u || ''),
+  };
+}
+
+function requireCapabilityFact(value: unknown, label: string): string {
+  if (typeof value !== 'string' || !value || value.trim() !== value) {
+    throw new Error(`unlocked custody capability ${label} is invalid`);
+  }
+  return value;
+}
+
+function createUnlockedCustodyCapabilityHandleId(): string {
+  const bytes = new Uint8Array(16);
+  globalThis.crypto.getRandomValues(bytes);
+  return `unlocked-custody-capability-${base64UrlEncode(bytes)}`;
 }
 
 /**
@@ -817,6 +968,12 @@ async function handleRequest(request: WalletCustodyCeremonyWorkerRequest): Promi
       return;
     case 'createLinkedDeviceCustodyTransferRecipient':
       postSucceeded(request.id, await createLinkedDeviceCustodyTransferRecipient(request));
+      return;
+    case 'establishUnlockedWalletCustodyTransferCapability':
+      postSucceeded(request.id, await establishUnlockedWalletCustodyTransferCapability(request));
+      return;
+    case 'destroyUnlockedWalletCustodyTransferCapabilities':
+      postSucceeded(request.id, destroyUnlockedWalletCustodyTransferCapabilities(request));
       return;
     case 'sealWalletCustodySeedForLinkedDevice':
       postSucceeded(request.id, await sealWalletCustodySeedForLinkedDevice(request));

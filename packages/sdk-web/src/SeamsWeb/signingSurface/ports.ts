@@ -1,5 +1,7 @@
 import type { NonceCoordinator } from '@/core/signingEngine/nonce/NonceCoordinator';
 import type { UiConfirmSurfaceMeasurementBinding } from '@/core/signingEngine/uiConfirm/uiConfirm.types';
+import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
+import type { UnlockedWalletCustodyCapabilityDestroyScopeV1 } from '@/core/signingEngine/workerManager/workerTypes';
 import type {
   NearProvisioningState,
   NearProvisioningWriteV1,
@@ -362,6 +364,29 @@ export interface Ed25519YaoCapabilityActivationSurface {
  * `commitPayload` is the wire projection; `localMaterial` is the continuity
  * cache and never crosses.
  */
+/**
+ * Refactor 103 zero-prompt handoff — the unlocked wallet custody transfer
+ * capability at its auth choke points.
+ *
+ * Establish runs during successful owner registration and ordinary unlock,
+ * where the passkey factor is already being presented, and only after the
+ * owner Wallet Session named in the input is active. Destroy runs at lock,
+ * logout, wallet switch, session retirement, and expiry. The linking flow only
+ * ever reads; it never establishes and never prompts.
+ */
+export interface UnlockedCustodyCapabilitySurface {
+  establishUnlockedWalletCustodyTransferCapabilityV1(input: {
+    readonly existingEnvelope: PasskeyCustodyEnvelopeRecord;
+    readonly passkeyPrfFirstB64u: string;
+    readonly walletId: string;
+    readonly walletSessionId: string;
+    readonly expiresAtMs: number;
+  }): Promise<void>;
+  destroyUnlockedWalletCustodyTransferCapabilitiesV1(
+    scope: UnlockedWalletCustodyCapabilityDestroyScopeV1,
+  ): Promise<void>;
+}
+
 export interface WalletCustodyCeremonySurface {
   createWalletRecoveryReplacementCredential(args: {
     walletId: string;
@@ -619,6 +644,7 @@ export type WalletSessionReadSurface = RuntimeStartupSurface &
 
 export type LoginUnlockSigningSurface = WalletSessionReadSurface &
   UserAccountLookupSurface &
+  UnlockedCustodyCapabilitySurface &
   LoginWarmSigningSurface &
   Ed25519YaoCapabilityActivationSurface &
   Ed25519MaterialOwnerQueueSurface &
@@ -655,6 +681,7 @@ export interface EcdsaSessionControlSurface {
 
 export type LockSigningSurface = NonceCoordinatorSurface &
   EcdsaSessionControlSurface &
+  Pick<UnlockedCustodyCapabilitySurface, 'destroyUnlockedWalletCustodyTransferCapabilitiesV1'> &
   Pick<
     WalletAuthenticationSurface,
     'clearLinkedDeviceRefreshMaterial' | 'clearWalletAuthentication'
@@ -783,6 +810,7 @@ export interface EmailOtpRegistrationEnrollmentSurface {
 export type RegistrationSigningSurface = RpIdSurface &
   WalletIframeSurfaceMeasurementSurface &
   Ed25519YaoCapabilityActivationSurface &
+  UnlockedCustodyCapabilitySurface &
   WalletCustodyCeremonySurface &
   Pick<WalletIframeWarmupSurface, 'warmCriticalResources'> &
   RegistrationResourceWarmupSurface &

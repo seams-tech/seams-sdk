@@ -1,6 +1,7 @@
 import { errorMessage } from '@shared/utils/errors';
 import { secureRandomId } from '@shared/utils/secureRandomId';
 import { isObject } from '@shared/utils/validation';
+import { dropUnlockedWalletCustodyTransferCapabilityReferenceV1 } from '@/core/signingEngine/walletCustody/unlockedCustodyTransferCapability';
 import {
   type NearWorkerProgressEvent,
   type WorkerErrorResponse,
@@ -1150,6 +1151,13 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
     this.workers.delete(kind);
     this.messageHandlers.delete(kind);
     this.errorHandlers.delete(kind);
+
+    // R103 zero-prompt handoff: terminating the ceremony worker destroys its
+    // custody-seed handles with it. Drop the main-thread reference so the
+    // linking preflight cannot pass against a handle that no longer exists.
+    if (kind === 'walletCustodyCeremony') {
+      dropUnlockedWalletCustodyTransferCapabilityReferenceV1();
+    }
   }
 
   private readinessForWorker(kind: SignerWorkerKind): WorkerReadiness | undefined {
