@@ -39,6 +39,47 @@
   --vp-c-text-3: #6d675f;
 }
 
+/* The same roles on a warm neutral ink, so the two modes read as one brand. */
+.dark {
+  color-scheme: dark;
+
+  --vp-c-gray-1: #b5aea5;
+  --vp-c-gray-2: #33302c;
+  --vp-c-gray-3: #2a2724;
+  --vp-c-gray-soft: rgb(180 173 164 / 0.16);
+
+  --vp-c-indigo-1: #9db8e3;
+  --vp-c-indigo-2: #b3c8ea;
+  --vp-c-indigo-3: #7e9fd2;
+  --vp-c-indigo-soft: rgb(157 184 227 / 0.16);
+
+  --vp-c-green-1: #6ec7a4;
+  --vp-c-green-2: #6ec7a4;
+  --vp-c-green-3: #52ab89;
+  --vp-c-green-soft: rgb(110 199 164 / 0.16);
+
+  --vp-c-yellow-1: #e0ac68;
+  --vp-c-yellow-2: #e0ac68;
+  --vp-c-yellow-3: #c08f4f;
+  --vp-c-yellow-soft: rgb(224 172 104 / 0.16);
+
+  --vp-c-red-1: #e58c81;
+  --vp-c-red-2: #e58c81;
+  --vp-c-red-3: #c76f66;
+  --vp-c-red-soft: rgb(229 140 129 / 0.16);
+
+  --vp-c-bg: #121110;
+  --vp-c-bg-alt: #1a1917;
+  --vp-c-bg-elv: #1e1c1a;
+  --vp-c-bg-soft: #1e1c1a;
+  --vp-c-border: #423e39;
+  --vp-c-divider: #2d2a27;
+  --vp-c-gutter: #2d2a27;
+  --vp-c-text-1: #f1ede8;
+  --vp-c-text-2: #b5aea5;
+  --vp-c-text-3: #857e76;
+}
+
 /* Nav bar: wordmark brand sized like the marketing site header. */
 :root {
   --vp-nav-logo-height: 20px;
@@ -83,7 +124,7 @@
 }
 
 .VPSidebar .group:first-child {
-  padding-top: 20px;
+  padding-top: 36px;
 }
 
 /* The section headings carry the structure on their own, so drop the rules
@@ -170,6 +211,15 @@
   display: block;
   width: auto;
   height: 16px;
+}
+
+.seams-docs-footer__wordmark--dark,
+.dark .seams-docs-footer__wordmark--light {
+  display: none;
+}
+
+.dark .seams-docs-footer__wordmark--dark {
+  display: block;
 }
 
 .seams-docs-footer__links {
