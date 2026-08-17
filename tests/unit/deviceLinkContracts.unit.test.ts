@@ -32,6 +32,7 @@ import {
 } from '../../packages/shared-ts/src/device-linking';
 import type { HttpTransport } from '../../packages/sdk-web/src/core/platform/http';
 import { createWalletHostOwnerAuthoritiesV1 } from '../../packages/sdk-web/src/SeamsWeb/operations/devices/walletHostOwnerAuthority';
+import { buildUnlockedCustodyCapabilityFixtureV1 } from './helpers/linkedDeviceCustodyTransfer.fixtures';
 import {
   buildR103DeviceLinkFixture,
   buildR103OwnerEnrollmentCeremonyV1,
@@ -112,6 +113,12 @@ test.describe('R103 shared linked-device contracts', () => {
       }),
       hasLinkedDeviceSigningSession: () => false,
       readOwnerSourceLaneHintsV1: async () => [sourceHint],
+      readUnlockedCustodyCapabilityV1: () =>
+        buildUnlockedCustodyCapabilityFixtureV1({
+          walletId: String(projection.walletId),
+          walletSessionId: String(projection.walletSessionId),
+          expiresAtMs: projection.expiresAtMs,
+        }),
     });
 
     await expect(
@@ -165,6 +172,9 @@ test.describe('R103 shared linked-device contracts', () => {
       hasLinkedDeviceSigningSession: (walletId) => walletId === projection.walletId,
       readOwnerSourceLaneHintsV1: async () => {
         throw new Error('linked-device owner operations must stop before source lookup');
+      },
+      readUnlockedCustodyCapabilityV1: () => {
+        throw new Error('linked-device owner operations must stop before capability lookup');
       },
     });
 

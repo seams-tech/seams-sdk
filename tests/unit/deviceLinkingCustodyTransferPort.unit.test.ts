@@ -2,13 +2,13 @@ import { expect, test } from '@playwright/test';
 import { createDeviceLinkingCustodyTransferPortV1 } from '../../packages/sdk-web/src/SeamsWeb/operations/devices/deviceLinkingCustodyTransfer';
 import type { WalletCustodyCeremonyTransportPort } from '../../packages/sdk-web/src/core/signingEngine/walletCustody/ceremonyStepRunner';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
-import { passkeyCustodyEnvelope } from './helpers/passkeyCustodyEnvelope.fixtures';
 import {
   LINKED_DEVICE_TRANSFER_EPHEMERAL_PUBLIC_KEY_B64U,
   LINKED_DEVICE_TRANSFER_RECIPIENT_PUBLIC_KEY_B64U,
   LINKED_DEVICE_TRANSFER_SEALED_AT_MS,
   buildLinkedDeviceCustodyTransferPackageFixtureV1,
   buildLinkedDeviceCustodyTransferRecipientFixtureV1,
+  buildUnlockedCustodyCapabilityFixtureV1,
 } from './helpers/linkedDeviceCustodyTransfer.fixtures';
 
 type WorkerCall = { readonly type: string; readonly payload: Record<string, unknown> };
@@ -52,14 +52,6 @@ const SEALED = {
   ciphertextDigestB64u: base64UrlEncode(new Uint8Array(32).fill(6)),
 };
 
-/**
- * Device 1's own wallet custody seed envelope, from the shared factory so it
- * tracks the record type rather than a snapshot of it.
- */
-function ownerEnvelope() {
-  return passkeyCustodyEnvelope();
-}
-
 test('Device 2 publishes a recipient key generated inside the worker', async () => {
   const worker = fakeWorker({
     createLinkedDeviceCustodyTransferRecipient: {
@@ -89,12 +81,11 @@ test('Device 2 publishes a recipient key generated inside the worker', async () 
 test('Device 1 rebuilds the transfer binding locally rather than echoing the relay', async () => {
   const worker = fakeWorker({ sealWalletCustodySeedForLinkedDevice: SEALED });
   const port = createDeviceLinkingCustodyTransferPortV1(worker.transport);
-  const factorSecret = new Uint8Array(32).fill(7);
+  const capability = buildUnlockedCustodyCapabilityFixtureV1();
 
   const sealed = await port.sealForLinkedDeviceV1({
     recipient: buildLinkedDeviceCustodyTransferRecipientFixtureV1(),
-    existingEnvelope: ownerEnvelope(),
-    existingFactorSecret: factorSecret,
+    capability,
     sealedAtMs: LINKED_DEVICE_TRANSFER_SEALED_AT_MS,
   });
 
@@ -102,8 +93,15 @@ test('Device 1 rebuilds the transfer binding locally rather than echoing the rel
 
   // The binding is the AAD. It is constructed from the device's own view of
   // the enrollment, so the relay cannot choose what the seal authenticates.
+  // R103: no envelope and no factor secret cross this boundary — only the
+  // opaque capability reference and the binding.
   const call = worker.calls[0];
   expect(call?.type).toBe('sealWalletCustodySeedForLinkedDevice');
+  expect(Object.keys(call?.payload ?? {}).sort()).toEqual([
+    'capability',
+    'transferBindingJson',
+  ]);
+  expect(call?.payload.capability).toEqual(capability);
   expect(JSON.parse(String(call?.payload.transferBindingJson))).toEqual({
     walletId: 'alice.testnet',
     enrollmentId: 'enrollment:device-2',
@@ -114,19 +112,16 @@ test('Device 1 rebuilds the transfer binding locally rather than echoing the rel
       derivationScheme: 'wallet_seed_parallel_hkdf_sha256_v1',
     },
   });
-  // The caller's copy is zeroized; only the transferred buffer reached wasm.
-  expect([...factorSecret]).toEqual(new Array(32).fill(7));
 });
 
-test('Device 1 refuses to seal an envelope belonging to another wallet', async () => {
+test('Device 1 refuses a capability naming another wallet before it reaches the worker', async () => {
   const worker = fakeWorker({ sealWalletCustodySeedForLinkedDevice: SEALED });
   const port = createDeviceLinkingCustodyTransferPortV1(worker.transport);
 
   await expect(
     port.sealForLinkedDeviceV1({
       recipient: buildLinkedDeviceCustodyTransferRecipientFixtureV1({ walletId: 'bob.testnet' }),
-      existingEnvelope: ownerEnvelope(),
-      existingFactorSecret: new Uint8Array(32).fill(7),
+      capability: buildUnlockedCustodyCapabilityFixtureV1(),
       sealedAtMs: LINKED_DEVICE_TRANSFER_SEALED_AT_MS,
     }),
   ).rejects.toThrow(/names another wallet/);
