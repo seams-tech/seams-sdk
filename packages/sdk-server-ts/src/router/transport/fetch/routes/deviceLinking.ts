@@ -26,6 +26,7 @@ import {
   parseLinkedDeviceSessionClaimRequestV1,
   parseLinkedDeviceSessionTransportRequestV1,
   parseLinkedDeviceTargetCredentialRegistrationV1,
+  parseLinkedDeviceOwnerFinalizeRequestV1,
   parseLinkedDeviceTargetPreparationV1,
   parseLinkedDeviceTargetReadyR102InputV1,
   parseLinkedDeviceApprovalV1,
@@ -69,6 +70,10 @@ import {
   type LinkedDeviceRequestProofV1,
 } from '../../../../core/deviceLinking/requestProof';
 import type { FetchRouterApiContext } from '../createFetchRouter';
+import { admitLinkedOwnerEnrollmentFinalizeV1 } from '../../../../core/deviceLinking/linkedOwnerEnrollmentAdmission';
+import type { LinkedOwnerEnrollmentAdmissionV1 } from '../../../../core/deviceLinking/linkedOwnerEnrollmentAdmission';
+import type { WalletAddAuthMethodFinalizeResponse } from '../../../../core/registrationContracts';
+import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import { json, readJson } from '../../../framework/http';
 import type { SessionAdapter } from '../../../framework/routerApi';
 import {
@@ -308,6 +313,19 @@ export type DeviceLinkingRouteServiceV1 = {
     readonly requestedAtMs: number;
   }): Promise<DeviceLinkingDeviceAuthenticatedRequestV1 | DeviceLinkingAuthDeniedV1>;
   readonly targetCredential: DeviceLinkingTargetCredentialProviderV1;
+  /**
+   * The canonical add-auth-method finalizer, reached with a server-derived
+   * linked-device admission. Same finalizer the owner route calls.
+   *
+   * The admission is passed rather than a whole command so the tenant stays the
+   * implementation's own: the route never names a tenant it could get wrong.
+   */
+  finalizeLinkedOwnerAuthMethodV1(input: {
+    readonly addAuthMethodCeremonyId: string;
+    readonly webauthnRegistration: unknown;
+    readonly custodyEnvelope: PasskeyCustodyEnvelopeRecord;
+    readonly admission: LinkedOwnerEnrollmentAdmissionV1;
+  }): Promise<WalletAddAuthMethodFinalizeResponse>;
   acknowledgeReceiptV1(input: {
     readonly acknowledgement: LinkedDeviceReceiptAcknowledgementV1;
     readonly session: LinkedDeviceSessionRecordV1;
@@ -401,6 +419,8 @@ export async function handleDeviceLinking(ctx: FetchRouterApiContext): Promise<R
       return await handleHolderReceipts(ctx, service, action.linkSessionId, nowMs);
     if (action.kind === 'target-preparation')
       return await handleTargetPreparation(ctx, service, action.linkSessionId, nowMs);
+    if (action.kind === 'owner-finalize')
+      return await handleOwnerFinalize(ctx, service, action.linkSessionId, nowMs);
     if (action.kind === 'credential')
       return await handleCredential(ctx, service, action.linkSessionId, nowMs);
     if (action.kind === 'custody-transfer-recipient')
@@ -831,6 +851,58 @@ async function handleTargetPreparation(
   return json(preparation, { status: 200 });
 }
 
+/**
+ * Device 2's canonical add-auth-method finalize.
+ *
+ * The finalize itself is the ordinary one — same verification, same atomic
+ * write. What this route adds is the admission: the public add-auth-method
+ * route is owner-authenticated and cannot speak for a linked device, so the
+ * only way linked-device facts reach the finalizer is by being derived here,
+ * from an authenticated link session and its persisted preparation.
+ *
+ * Replay is the server's, not the client's: a finalize that succeeded but whose
+ * local persistence failed can be sent again and returns the same response.
+ */
+async function handleOwnerFinalize(
+  ctx: FetchRouterApiContext,
+  service: DeviceLinkingRouteServiceV1,
+  rawLinkSessionId: string,
+  nowMs: number,
+): Promise<Response> {
+  const authenticated = await authenticateDeviceForSession(ctx, service, rawLinkSessionId, nowMs);
+  if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
+  if (authenticated.kind === 'not_found') return notFoundResponse();
+  if (ctx.method !== 'POST') return methodNotAllowedResponse();
+  const request = parseBoundary(() => parseLinkedDeviceOwnerFinalizeRequestV1(authenticated.body));
+  const session = authenticated.session;
+  const approval = requireProvisioningApproval(session);
+  const rawPreparation = await awaitTargetPreparation(service, session, approval, nowMs);
+  const preparation = parseBoundary(() => parseLinkedDeviceTargetPreparationV1(rawPreparation));
+  const admitted = admitLinkedOwnerEnrollmentFinalizeV1({
+    session,
+    preparation,
+    addAuthMethodCeremonyId: request.addAuthMethodCeremonyId,
+    requestedAtMs: nowMs,
+  });
+  if (!admitted.ok) {
+    return json(
+      {
+        ok: false,
+        code: 'unauthorized',
+        message: `linked owner finalize refused: ${admitted.reason}`,
+      },
+      { status: 403 },
+    );
+  }
+  const finalized = await service.finalizeLinkedOwnerAuthMethodV1({
+    addAuthMethodCeremonyId: request.addAuthMethodCeremonyId,
+    webauthnRegistration: request.webauthnRegistration,
+    custodyEnvelope: request.custodyEnvelope,
+    admission: admitted.admission,
+  });
+  return json(finalized, { status: finalized.ok ? 200 : 400 });
+}
+
 function awaitTargetPreparation(
   service: DeviceLinkingRouteServiceV1,
   session: LinkedDeviceSessionRecordV1,
@@ -955,9 +1027,7 @@ async function handleCustodyTransferRecipient(
   ) {
     return invalidInputResponse('custody transfer recipient binding does not match session');
   }
-  return custodyTransferWriteResponse(
-    await custodyTransfer.registerRecipientV1({ recipient }),
-  );
+  return custodyTransferWriteResponse(await custodyTransfer.registerRecipientV1({ recipient }));
 }
 
 /**
@@ -988,9 +1058,7 @@ async function handleCustodyTransfer(
   if (ctx.method !== 'POST') return methodNotAllowedResponse();
   const owner = await authenticateOwnerForSession(ctx, service, rawLinkSessionId, nowMs);
   if (owner.kind !== 'authorized') return ownerSessionAuthResponse(owner);
-  const submission = parseBoundary(() =>
-    parseLinkedDeviceCustodyTransferSubmissionV1(owner.body),
-  );
+  const submission = parseBoundary(() => parseLinkedDeviceCustodyTransferSubmissionV1(owner.body));
   if (submission.linkSessionId !== String(owner.linkSessionId))
     return invalidInputResponse('link session id does not match route');
   if (submission.package.sealedAtMs > nowMs)
@@ -1081,9 +1149,7 @@ function requireClaimedTransferIdentity(session: LinkedDeviceSessionRecordV1): {
   };
 }
 
-function custodyTransferWriteResponse(
-  result: LinkedDeviceCustodyTransferWriteResultV1,
-): Response {
+function custodyTransferWriteResponse(result: LinkedDeviceCustodyTransferWriteResultV1): Response {
   switch (result.outcome) {
     case 'applied':
     case 'replayed':
@@ -1701,6 +1767,7 @@ function parseRoutePath(pathname: string):
         | 'target-ready'
         | 'prepared-deliveries'
         | 'target-preparation'
+        | 'owner-finalize'
         | 'provision'
         | 'holder-receipts'
         | 'credential'
@@ -1729,6 +1796,7 @@ function parseRoutePath(pathname: string):
     parts[1] !== 'target-ready' &&
     parts[1] !== 'prepared-deliveries' &&
     parts[1] !== 'target-preparation' &&
+    parts[1] !== 'owner-finalize' &&
     parts[1] !== 'provision' &&
     parts[1] !== 'holder-receipts' &&
     parts[1] !== 'credential' &&

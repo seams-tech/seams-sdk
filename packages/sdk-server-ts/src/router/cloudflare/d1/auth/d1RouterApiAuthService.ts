@@ -1,3 +1,5 @@
+import type { FinalizeWalletAddAuthMethodCommand } from '../../../framework/authServicePort';
+import type { WalletAddAuthMethodFinalizeResponse } from '../../../../core/registrationContracts';
 import {
   parseRouterAbEcdsaDerivationNormalSigningStateV1,
   parseRouterAbEcdsaRegistrationActivationReceiptV1,
@@ -335,6 +337,12 @@ function createD1LinkedDeviceComposition(input: {
    * seals it.
    */
   readonly ownerEnrollmentCeremonies: LinkedOwnerEnrollmentCeremonyReaderV1;
+  /** The canonical add-auth-method service the linked finalize reuses. */
+  readonly walletAuthMethods: {
+    finalizeWalletAddAuthMethod(
+      command: FinalizeWalletAddAuthMethodCommand,
+    ): Promise<WalletAddAuthMethodFinalizeResponse>;
+  };
   readonly authorizationService: Pick<
     AuthorizationService,
     | 'getLinkedDeviceWalletSessionStatus'
@@ -462,6 +470,7 @@ function createD1LinkedDeviceComposition(input: {
       database: input.options.database,
       scope,
       tenantId: tenantId.value,
+      walletAuthMethods: input.walletAuthMethods,
       authorizationService: input.authorizationService,
       ownerAuthorization: ownerAuthorizationProvider.ownerAuthorization,
       ownerEnrollmentCeremonies: input.ownerEnrollmentCeremonies,
@@ -1564,6 +1573,12 @@ function createCloudflareD1RouterApiAuthAssembly(
   };
   const linkedDeviceComposition = createD1LinkedDeviceComposition({
     ownerEnrollmentCeremonies: getRegistrationCeremonyIntentStore(),
+    // Deferred: the auth-method service is built below, and the linked finalize
+    // only reaches it at request time.
+    walletAuthMethods: {
+      finalizeWalletAddAuthMethod: (command) =>
+        walletAuthMethods.finalizeWalletAddAuthMethod(command),
+    },
     options,
     authorizationSessions: createD1AuthorizationSessionRouteService({
       authorizationService,

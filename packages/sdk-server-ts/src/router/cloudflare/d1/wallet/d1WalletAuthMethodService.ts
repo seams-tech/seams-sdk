@@ -39,7 +39,6 @@ import {
   type PasskeyWalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
 import { buildLinkedOwnerPasskeyAuthBindingV1 } from '@shared/device-linking/ownerAuthBinding';
-import type { WalletAddAuthMethodLinkedDeviceEnrollmentV1 } from '../../../../core/registrationContracts';
 import type { LinkedDeviceOwnerAuthBindingWriterV1 } from '../deviceLinking/d1LinkedDeviceOwnerAuthBindingStore';
 import type { D1PreparedStatementLike } from '../../../../storage/tenantRoute';
 import type {
@@ -91,6 +90,7 @@ import type { CloudflareD1WebAuthnStore } from '../webauthn/d1WebAuthnStore';
 import type { CloudflareD1PasskeyCustodyEnvelopeStore } from '../passkeyCustody/d1PasskeyCustodyEnvelopeStore';
 import type {
   FinalizeWalletAddAuthMethodCommand,
+  WalletAddAuthMethodFinalizeAuthorizationV1,
   RevokeWalletAuthMethodCommand,
   StartWalletAddAuthMethodCommand,
 } from '../../../framework/authServicePort';
@@ -244,31 +244,37 @@ export class CloudflareD1WalletAuthMethodService {
 
   /**
    * Builds the Phase 8 binding insert, or nothing when this finalize is an
-   * ordinary same-device add-passkey.
+   * ordinary owner add-passkey.
    *
-   * The auth-method id is derived inside the builder from the credential this
-   * ceremony just verified, so the binding cannot name a credential other than
-   * the one being registered.
+   * Every fact here comes from the server's own admission — never from the
+   * request — and the auth-method id is derived inside the builder from the
+   * credential this ceremony just verified, so the binding cannot name a
+   * credential other than the one being registered.
    */
   private buildLinkedDeviceOwnerAuthBindingStatement(input: {
-    readonly linkedDeviceEnrollment: WalletAddAuthMethodLinkedDeviceEnrollmentV1 | undefined;
+    readonly authorization: WalletAddAuthMethodFinalizeAuthorizationV1;
     readonly walletId: WalletId;
     readonly rpId: WebAuthnRpId;
     readonly credentialIdB64u: string;
     readonly now: number;
   }):
     | { readonly kind: 'statements'; readonly statements: readonly D1PreparedStatementLike[] }
-    | { readonly kind: 'unavailable' } {
-    const enrollment = input.linkedDeviceEnrollment;
-    if (!enrollment) return { kind: 'statements', statements: [] };
+    | { readonly kind: 'unavailable' }
+    | { readonly kind: 'wallet_mismatch' } {
+    const authorization = input.authorization;
+    if (authorization.kind === 'owner') return { kind: 'statements', statements: [] };
     const writer = this.linkedDeviceOwnerAuthBindings;
     if (!writer) return { kind: 'unavailable' };
+    // The admission was proved against a link session, and the ceremony was
+    // resolved from this request. Both name a wallet, and a binding is only
+    // meaningful if they are the same one.
+    if (authorization.admission.walletId !== input.walletId) return { kind: 'wallet_mismatch' };
     const binding = buildLinkedOwnerPasskeyAuthBindingV1({
-      tenantId: enrollment.tenantId,
+      tenantId: authorization.tenantId,
       walletId: input.walletId,
-      enrollmentId: enrollment.enrollmentId,
-      deviceId: enrollment.deviceId,
-      keyManifestDigestB64u: enrollment.keyManifestDigestB64u,
+      enrollmentId: authorization.admission.enrollmentId,
+      deviceId: authorization.admission.deviceId,
+      keyManifestDigestB64u: authorization.admission.keyManifestDigestB64u,
       activatedAtMs: input.now,
       rpId: input.rpId,
       credentialIdB64u: requireStoredCredentialId(input.credentialIdB64u),
@@ -610,7 +616,7 @@ export class CloudflareD1WalletAuthMethodService {
         // afterwards would leave a window where the wallet has an auth method
         // no device owns.
         const linkedDeviceBinding = this.buildLinkedDeviceOwnerAuthBindingStatement({
-          linkedDeviceEnrollment: request.linkedDeviceEnrollment,
+          authorization: request.authorization,
           walletId,
           rpId: requireStoredRpId(ceremony.passkeyRegistration.rpId),
           credentialIdB64u: credential.credentialIdB64u,
@@ -621,6 +627,13 @@ export class CloudflareD1WalletAuthMethodService {
             ok: false,
             code: 'invalid_state',
             message: 'Linked-device owner auth bindings are not configured',
+          };
+        }
+        if (linkedDeviceBinding.kind === 'wallet_mismatch') {
+          return {
+            ok: false,
+            code: 'invalid_body',
+            message: 'linked-device admission and add-auth-method ceremony name different wallets',
           };
         }
         const link = await this.passkeyCustodyEnvelopes.linkPasskeyFactorAtomically({
@@ -1501,12 +1514,7 @@ export class CloudflareD1WalletAuthMethodService {
     const challengeSubjectId = parseChallengeSubjectId(proof.providerSubject);
     const challengeId = parseEmailOtpChallengeId(proof.challengeId);
     const orgId = parseOrgId(input.orgId);
-    if (
-      !providerSubject.ok ||
-      !challengeSubjectId.ok ||
-      !challengeId.ok ||
-      !orgId.ok
-    ) {
+    if (!providerSubject.ok || !challengeSubjectId.ok || !challengeId.ok || !orgId.ok) {
       return {
         ok: false,
         code: 'invalid_body',
@@ -1611,12 +1619,7 @@ export class CloudflareD1WalletAuthMethodService {
     const challengeSubjectId = parseChallengeSubjectId(proof.providerSubject);
     const challengeId = parseEmailOtpChallengeId(proof.challengeId);
     const orgId = parseOrgId(input.orgId);
-    if (
-      !providerSubject.ok ||
-      !challengeSubjectId.ok ||
-      !challengeId.ok ||
-      !orgId.ok
-    ) {
+    if (!providerSubject.ok || !challengeSubjectId.ok || !challengeId.ok || !orgId.ok) {
       return {
         ok: false,
         code: 'invalid_body',

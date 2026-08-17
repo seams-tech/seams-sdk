@@ -272,33 +272,23 @@ export type WalletAddAuthMethodStartResponse =
     };
 
 /**
- * Refactor 103 Phase 8: present when this factor is being added by a linked
- * device rather than by the wallet's current device.
+ * What a client sends to finalize an added factor — the same bytes whether the
+ * wallet's own device or a linked device is adding it.
  *
- * It is what turns the enrollment into a canonical owner credential, and it is
- * written in the same D1 batch as the auth method and the custody envelope —
- * a crash between the two would otherwise leave a wallet auth method no device
- * owns, or a device pointing at nothing.
+ * Whether this is a linked-device enrollment is never part of the request.
+ * That is admission data the server derives from an authenticated link session,
+ * so a caller cannot assert it. See the finalize command's `authorization`.
  */
-export type WalletAddAuthMethodLinkedDeviceEnrollmentV1 = {
-  readonly tenantId: TenantId;
-  readonly enrollmentId: LinkedDeviceEnrollmentId;
-  readonly deviceId: LinkedDeviceId;
-  readonly keyManifestDigestB64u: DigestB64u;
-};
-
 export type WalletAddAuthMethodFinalizeRequest =
   | {
       addAuthMethodCeremonyId: string;
       webauthnRegistration: unknown;
       custodyEnvelope: PasskeyCustodyEnvelopeRecord;
-      linkedDeviceEnrollment?: WalletAddAuthMethodLinkedDeviceEnrollmentV1;
     }
   | {
       addAuthMethodCeremonyId: string;
       webauthnRegistration?: never;
       custodyEnvelope?: never;
-      linkedDeviceEnrollment?: never;
     };
 
 export type WalletAuthMethodStatusAnnotation<Status extends WalletAuthMethodRecord['status']> = {

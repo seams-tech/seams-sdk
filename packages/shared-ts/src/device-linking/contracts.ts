@@ -1,3 +1,4 @@
+import type { PasskeyCustodyEnvelopeRecord } from '../passkey-custody';
 import type {
   AuthorizationEvidenceSetId,
   AuthorizedOperationId,
@@ -658,10 +659,7 @@ export type LinkedDeviceSessionProjectionV1 = {
 type LinkedDevicePendingSessionStateV1 = Extract<
   LinkedDeviceSessionState,
   {
-    readonly state:
-      | 'awaiting_target_passkey'
-      | 'provisioning'
-      | 'committed_completion_required';
+    readonly state: 'awaiting_target_passkey' | 'provisioning' | 'committed_completion_required';
   }
 >;
 
@@ -749,10 +747,9 @@ type LinkedDeviceWalletSessionTokenBaseV1 = {
   readonly revocationEpoch: number;
 };
 
-export type LinkedDeviceWalletSessionEd25519TokenV1 =
-  LinkedDeviceWalletSessionTokenBaseV1 & {
-    readonly keyFamily: 'ed25519';
-  };
+export type LinkedDeviceWalletSessionEd25519TokenV1 = LinkedDeviceWalletSessionTokenBaseV1 & {
+  readonly keyFamily: 'ed25519';
+};
 
 export type LinkedDeviceWalletSessionEcdsaTokenV1 = LinkedDeviceWalletSessionTokenBaseV1 & {
   readonly keyFamily: 'ecdsa_secp256k1';
@@ -785,14 +782,8 @@ export type LinkedDeviceWalletSessionDeliveryV1 =
       readonly nearAccountId: NearAccountId;
       readonly orderedTokens:
         | readonly [LinkedDeviceWalletSessionEd25519TokenV1]
-        | readonly [
-            LinkedDeviceWalletSessionEd25519TokenV1,
-            LinkedDeviceWalletSessionEcdsaTokenV1,
-          ]
-        | readonly [
-            LinkedDeviceWalletSessionEcdsaTokenV1,
-            LinkedDeviceWalletSessionEd25519TokenV1,
-          ];
+        | readonly [LinkedDeviceWalletSessionEd25519TokenV1, LinkedDeviceWalletSessionEcdsaTokenV1]
+        | readonly [LinkedDeviceWalletSessionEcdsaTokenV1, LinkedDeviceWalletSessionEd25519TokenV1];
     })
   | (LinkedDeviceWalletSessionDeliveryBaseV1 & {
       readonly nearAccountId?: never;
@@ -802,3 +793,17 @@ export type LinkedDeviceWalletSessionDeliveryV1 =
 export function assertNeverLinkedDeviceSessionState(value: never): never {
   throw new Error(`[LinkedDeviceSessionState] unsupported state: ${String(value)}`);
 }
+
+/**
+ * What Device 2 sends to finalize its owner factor.
+ *
+ * Deliberately the same three fields the ordinary add-auth-method finalize
+ * takes. Whether this is a linked-device enrollment is the server's to decide
+ * from the authenticated link session, so it is absent here.
+ */
+export type LinkedDeviceOwnerFinalizeRequestV1 = {
+  readonly kind: 'linked_device_owner_finalize_request_v1';
+  readonly addAuthMethodCeremonyId: string;
+  readonly webauthnRegistration: unknown;
+  readonly custodyEnvelope: PasskeyCustodyEnvelopeRecord;
+};
