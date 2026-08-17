@@ -187,6 +187,15 @@ function custodyFactorFromAddAuthMethodAuth(auth: StoredWalletAddAuthMethodCerem
         rpId: requireStoredRpId(auth.rpId),
         credentialIdB64u: requireStoredCredentialId(auth.credentialIdB64u),
       };
+    case 'wallet_session':
+      /* R103 zero-prompt handoff: the custody factor is the passkey that
+         minted the authorizing owner Wallet Session, carried on the resolved
+         session binding rather than a fresh assertion. */
+      return {
+        kind: 'passkey' as const,
+        rpId: requireStoredRpId(auth.rpId),
+        credentialIdB64u: requireStoredCredentialId(auth.credentialIdB64u),
+      };
     case 'email_otp':
       return {
         kind: 'email_otp' as const,
@@ -849,6 +858,37 @@ export class CloudflareD1WalletAuthMethodService {
           enrollmentId: input.auth.enrollmentId,
           enrollmentSealKeyVersion: input.auth.enrollmentSealKeyVersion,
           authorityRef: input.auth.authorityRef,
+        },
+      };
+    }
+    if (input.auth.kind === 'wallet_session') {
+      /* R103 zero-prompt handoff: the route already verified the bearer
+         session and resolved its minting passkey. This re-checks that the
+         passkey is still an active auth method of this exact wallet, so a
+         revoked credential cannot keep authorizing ceremonies through a
+         session it minted earlier. */
+      const sessionFactorIsActive = activeWalletMethods.some(
+        (method) =>
+          method.kind === 'passkey' &&
+          input.auth.kind === 'wallet_session' &&
+          String(method.rpId || '') === String(input.auth.rpId) &&
+          String(method.credentialIdB64u || '') === String(input.auth.credentialIdB64u),
+      );
+      if (!sessionFactorIsActive) {
+        return {
+          ok: false,
+          code: 'unauthorized',
+          message: 'Owner Wallet Session passkey is not an active auth method of this wallet',
+        };
+      }
+      return {
+        ok: true,
+        auth: {
+          kind: 'wallet_session',
+          walletSessionId: input.auth.walletSessionId,
+          authorizationId: input.auth.authorizationId,
+          rpId: String(input.auth.rpId),
+          credentialIdB64u: input.auth.credentialIdB64u,
         },
       };
     }

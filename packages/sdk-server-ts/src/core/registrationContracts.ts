@@ -178,6 +178,17 @@ export type AddAuthMethodExistingAuth =
       expectedChallengeDigestB64u: string;
     }
   | {
+      /* R103 zero-prompt handoff: owner authority proven by the active owner
+         Wallet Session bearer token. Every field here is resolved from the
+         verified session admission at the route — a request body cannot
+         supply them. */
+      kind: 'wallet_session';
+      walletSessionId: string;
+      authorizationId: string;
+      rpId: WebAuthnRpId;
+      credentialIdB64u: string;
+    }
+  | {
       kind: 'email_otp';
       providerUserId: string;
       enrollmentId: string;

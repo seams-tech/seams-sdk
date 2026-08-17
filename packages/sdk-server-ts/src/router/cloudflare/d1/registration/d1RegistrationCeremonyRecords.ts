@@ -2441,6 +2441,7 @@ function d1AddAuthMethodCustodyFactorMatches(
 ): boolean {
   switch (auth.kind) {
     case 'webauthn_assertion':
+    case 'wallet_session':
       return (
         custodyEnvelope.factor.kind === 'passkey' &&
         custodyEnvelope.factor.rpId === auth.rpId &&
@@ -2604,6 +2605,15 @@ function parseD1StoredAddAuthMethodAuth(
     const rpId = toOptionalTrimmedString(record?.rpId);
     const credentialIdB64u = toOptionalTrimmedString(record?.credentialIdB64u);
     return rpId && credentialIdB64u ? { kind: 'webauthn_assertion', rpId, credentialIdB64u } : null;
+  }
+  if (kind === 'wallet_session') {
+    const walletSessionId = toOptionalTrimmedString(record?.walletSessionId);
+    const authorizationId = toOptionalTrimmedString(record?.authorizationId);
+    const rpId = toOptionalTrimmedString(record?.rpId);
+    const credentialIdB64u = toOptionalTrimmedString(record?.credentialIdB64u);
+    return walletSessionId && authorizationId && rpId && credentialIdB64u
+      ? { kind: 'wallet_session', walletSessionId, authorizationId, rpId, credentialIdB64u }
+      : null;
   }
   return null;
 }

@@ -767,6 +767,17 @@ type StoredWalletAddAuthMethodCeremonyBase = {
         credentialIdB64u: string;
       }
     | {
+        /* R103 zero-prompt handoff: the ceremony was authorized by an active
+           owner Wallet Session. The passkey identity is the session's minting
+           authority, resolved server-side from the session binding — never
+           from the request body. */
+        kind: 'wallet_session';
+        walletSessionId: string;
+        authorizationId: string;
+        rpId: string;
+        credentialIdB64u: string;
+      }
+    | {
         kind: 'email_otp';
         providerUserId: string;
         enrollmentId: string;
@@ -1784,6 +1795,20 @@ function parseAddAuthMethodCeremonyAuth(
       authorityRef,
     };
   }
+  if (value.kind === 'wallet_session') {
+    const walletSessionId = trimString(value.walletSessionId);
+    const authorizationId = trimString(value.authorizationId);
+    const rpId = trimString(value.rpId);
+    const credentialIdB64u = trimString(value.credentialIdB64u);
+    if (!walletSessionId || !authorizationId || !rpId || !credentialIdB64u) return null;
+    return {
+      kind: 'wallet_session',
+      walletSessionId,
+      authorizationId,
+      rpId,
+      credentialIdB64u,
+    };
+  }
   if (value.kind !== 'webauthn_assertion') return null;
   const rpId = trimString(value.rpId);
   const credentialIdB64u = trimString(value.credentialIdB64u);
@@ -1801,6 +1826,7 @@ function addAuthMethodCustodyFactorMatches(
 ): boolean {
   switch (auth.kind) {
     case 'webauthn_assertion':
+    case 'wallet_session':
       return (
         custodyEnvelope.factor.kind === 'passkey' &&
         custodyEnvelope.factor.rpId === auth.rpId &&
