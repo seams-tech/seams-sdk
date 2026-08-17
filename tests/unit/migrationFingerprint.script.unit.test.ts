@@ -7,6 +7,7 @@ import { expect, test } from '@playwright/test';
 import {
   assertAppliedMigrationSourcesUnchanged,
   digestMigrations,
+  readMigrationFiles,
 } from '../../scripts/migration-fingerprint.mjs';
 import {
   applyD1MigrationFiles,
@@ -28,6 +29,12 @@ const applierPath = path.join(
   'packages/console-server-ts/scripts/apply-remote-d1-migrations.mjs',
 );
 const signerMigrationRoot = path.join(repoRoot, 'packages/sdk-server-ts/migrations/d1-signer');
+const consoleMigrationRoot = path.join(
+  repoRoot,
+  'packages/console-server-ts/migrations/d1-console',
+);
+const consoleCanonicalBaselinePredecessorFingerprint =
+  '2fd73fce9f520386935efba23ca5a326275715dfa5e02bbca69d88bf7ae3e4b5';
 
 test('migration fingerprint output is stable per database and uses sorted framed records', () => {
   const migrationsDir = writeMigrationDirectory();
@@ -192,6 +199,173 @@ test('post-103 signer bridge upgrades the deployed baseline and stays fresh-sche
     cleanupTemporaryD1Database(fresh.tempDir);
   }
 });
+
+test('Console canonical baseline bridge preserves deployed data and stays fresh-schema safe', async () => {
+  const deployed = createTemporaryD1Database();
+  const fresh = createTemporaryD1Database();
+  try {
+    const consoleMigrations = readMigrationFiles(consoleMigrationRoot);
+    const currentFingerprint = digestMigrations(consoleMigrations);
+    const appliedMigrationNames = new Set(deployedConsoleMigrationNames);
+    expect(deployedConsoleMigrationNames).toHaveLength(24);
+
+    await applyD1MigrationFiles(deployed.database, [
+      path.join(consoleMigrationRoot, '0001_console_d1_initial.sql'),
+    ]);
+    await deployed.database.exec(deployedConsoleBridgeFixtureSql);
+    await deployed.database.exec(`
+      CREATE TABLE d1_migrations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE NOT NULL,
+        applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE d1_migration_metadata (
+        key TEXT PRIMARY KEY NOT NULL,
+        value TEXT NOT NULL
+      );
+      INSERT INTO d1_migrations (name) VALUES
+        ('${deployedConsoleMigrationNames.join("'),\n        ('")}');
+      INSERT INTO d1_migration_metadata (key, value)
+      VALUES ('schema_fingerprint', '${consoleCanonicalBaselinePredecessorFingerprint}');
+    `);
+
+    const predecessorMetadata = await deployed.database
+      .prepare(`SELECT value FROM d1_migration_metadata WHERE key = 'schema_fingerprint'`)
+      .first<{ readonly value: string }>();
+    expect(predecessorMetadata?.value).toBe(consoleCanonicalBaselinePredecessorFingerprint);
+    expect(() =>
+      assertAppliedMigrationSourcesUnchanged({
+        previousFingerprint: consoleCanonicalBaselinePredecessorFingerprint,
+        appliedMigrationNames,
+        migrations: consoleMigrations,
+        acceptedPredecessor: {
+          fingerprint: consoleCanonicalBaselinePredecessorFingerprint,
+          bridgeMigrationName: '0026_console_canonical_baseline_bridge.sql',
+        },
+      }),
+    ).not.toThrow();
+
+    for (const migration of consoleMigrations) {
+      if (appliedMigrationNames.has(migration.name)) continue;
+      await deployed.database.exec(
+        `${migration.source.trimEnd()}
+INSERT INTO d1_migrations (name) VALUES ('${migration.name}');`,
+      );
+      appliedMigrationNames.add(migration.name);
+    }
+
+    const organization = await deployed.database
+      .prepare(
+        `SELECT name, slug
+           FROM organizations
+          WHERE namespace = 'namespace' AND id = 'org-1'`,
+      )
+      .first<{ readonly name: string; readonly slug: string }>();
+    expect(organization).toEqual({ name: 'Acme', slug: 'acme' });
+
+    const deployedSchema = await deployed.database
+      .prepare(
+        `SELECT type, name
+           FROM sqlite_master
+          WHERE name NOT LIKE 'sqlite_%'
+            AND name NOT IN ('d1_migrations', 'd1_migration_metadata')
+          ORDER BY type, name`,
+      )
+      .all<{ readonly type: string; readonly name: string }>();
+    expect(deployedSchema.results).toHaveLength(171);
+
+    const bridgeRecord = await deployed.database
+      .prepare(`SELECT name FROM d1_migrations WHERE name = ?`)
+      .bind('0026_console_canonical_baseline_bridge.sql')
+      .first<{ readonly name: string }>();
+    expect(bridgeRecord?.name).toBe('0026_console_canonical_baseline_bridge.sql');
+    await deployed.database.exec(`
+      INSERT INTO d1_migration_metadata (key, value)
+      VALUES ('schema_fingerprint', '${currentFingerprint}')
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+    `);
+    const persistedFingerprint = await deployed.database
+      .prepare(`SELECT value FROM d1_migration_metadata WHERE key = 'schema_fingerprint'`)
+      .first<{ readonly value: string }>();
+    expect(persistedFingerprint?.value).toBe(currentFingerprint);
+
+    const historyRows = await deployed.database
+      .prepare(`SELECT name FROM d1_migrations ORDER BY id`)
+      .all<{ readonly name: string }>();
+    const rerunAppliedMigrationNames = new Set<string>();
+    for (const row of historyRows.results) rerunAppliedMigrationNames.add(row.name);
+    const missingOnRerun: string[] = [];
+    for (const migration of consoleMigrations) {
+      if (!rerunAppliedMigrationNames.has(migration.name)) missingOnRerun.push(migration.name);
+    }
+    expect(missingOnRerun).toEqual([]);
+    expect(() =>
+      assertAppliedMigrationSourcesUnchanged({
+        previousFingerprint: currentFingerprint,
+        appliedMigrationNames: rerunAppliedMigrationNames,
+        migrations: consoleMigrations,
+      }),
+    ).not.toThrow();
+
+    await applyD1MigrationFiles(fresh.database, listD1MigrationFiles('d1-console'));
+    const freshSchema = await fresh.database
+      .prepare(
+        `SELECT type, name
+           FROM sqlite_master
+          WHERE name NOT LIKE 'sqlite_%'
+          ORDER BY type, name`,
+      )
+      .all<{ readonly type: string; readonly name: string }>();
+    expect(freshSchema.results).toEqual(deployedSchema.results);
+    const organizationsTable = await fresh.database
+      .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'organizations'`)
+      .first<{ readonly name: string }>();
+    expect(organizationsTable?.name).toBe('organizations');
+  } finally {
+    cleanupTemporaryD1Database(deployed.tempDir);
+    cleanupTemporaryD1Database(fresh.tempDir);
+  }
+});
+
+const deployedConsoleMigrationNames = [
+  '0001_console_d1_initial.sql',
+  '0002_console_org_project_env.sql',
+  '0003_console_account.sql',
+  '0004_console_team_rbac.sql',
+  '0005_console_policies.sql',
+  '0006_console_billing_ledger.sql',
+  '0007_console_billing_purchases.sql',
+  '0008_console_api_keys.sql',
+  '0010_console_audit.sql',
+  '0011_console_approvals.sql',
+  '0012_console_wallet_index.sql',
+  '0013_console_sponsorship_spend_caps.sql',
+  '0014_console_key_exports.sql',
+  '0015_console_webhooks.sql',
+  '0016_console_observability.sql',
+  '0017_console_webhook_retry_claims.sql',
+  '0018_console_constraint_hardening.sql',
+  '0019_console_sponsorship_pricing.sql',
+  '0020_console_organization_access.sql',
+  '0021_console_billing_refunds.sql',
+  '0022_console_email.sql',
+  '0023_console_billing_email_state.sql',
+  '0024_console_stripe_post_processing_outbox.sql',
+  '0025_console_account_welcome_email.sql',
+] as const;
+
+const deployedConsoleBridgeFixtureSql = `
+INSERT INTO organizations (
+  namespace,
+  id,
+  name,
+  slug,
+  created_by_user_id,
+  status,
+  created_at_ms,
+  updated_at_ms
+) VALUES ('namespace', 'org-1', 'Acme', 'acme', 'user-1', 'ACTIVE', 1, 1);
+`;
 
 const deployedSignerBridgeFixtureSql = `
 CREATE TABLE authorized_operation_audit_events (
