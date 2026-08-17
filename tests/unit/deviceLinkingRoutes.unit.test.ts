@@ -25,6 +25,7 @@ import {
 } from '@shared/utils/sessionTokens';
 import {
   buildR103DeviceLinkFixture,
+  buildR103OwnerEnrollmentCeremonyReaderV1,
   buildR103ProvisioningFixture,
 } from './helpers/deviceLinkContracts.fixtures';
 import {
@@ -85,6 +86,7 @@ test('creates and polls a session projection without transcript or authorization
   const fixture = buildR103DeviceLinkFixture();
   const store = new D1LinkedDeviceSessionStoreV1({ database: temporary.database, scope });
   const sessionService = new LinkedDeviceSessionServiceV1({
+    ownerEnrollmentCeremonies: buildR103OwnerEnrollmentCeremonyReaderV1(fixture.approval),
     store,
     authorization: ownerAuthorization(),
     aggregateActivationVerifier,
@@ -123,6 +125,7 @@ test('projects the claimed device identity after owner claim', async () => {
   const fixture = buildR103DeviceLinkFixture();
   const store = new D1LinkedDeviceSessionStoreV1({ database: temporary.database, scope });
   const sessionService = new LinkedDeviceSessionServiceV1({
+    ownerEnrollmentCeremonies: buildR103OwnerEnrollmentCeremonyReaderV1(fixture.approval),
     store,
     authorization: ownerAuthorization(),
     aggregateActivationVerifier,
@@ -245,6 +248,7 @@ test('owner target-ready GET authenticates before parsing and returns the exact 
   let ownerAuthCalls = 0;
   const store = new D1LinkedDeviceSessionStoreV1({ database: temporary.database, scope });
   const sessionService = new LinkedDeviceSessionServiceV1({
+    ownerEnrollmentCeremonies: buildR103OwnerEnrollmentCeremonyReaderV1(fixture.approval),
     store,
     authorization: ownerAuthorization(),
     aggregateActivationVerifier,
@@ -302,6 +306,7 @@ test('authenticates owner before parsing claim and returns no session secrets', 
   const fixture = buildR103DeviceLinkFixture();
   const store = new D1LinkedDeviceSessionStoreV1({ database: temporary.database, scope });
   const sessionService = new LinkedDeviceSessionServiceV1({
+    ownerEnrollmentCeremonies: buildR103OwnerEnrollmentCeremonyReaderV1(fixture.approval),
     store,
     authorization: ownerAuthorization(),
     aggregateActivationVerifier,
@@ -341,6 +346,7 @@ test('rejects a replayed device signature when the authenticated request body ch
   const fixture = buildR103DeviceLinkFixture();
   const store = new D1LinkedDeviceSessionStoreV1({ database: temporary.database, scope });
   const sessionService = new LinkedDeviceSessionServiceV1({
+    ownerEnrollmentCeremonies: buildR103OwnerEnrollmentCeremonyReaderV1(fixture.approval),
     store,
     authorization: ownerAuthorization(),
     aggregateActivationVerifier,
@@ -545,6 +551,7 @@ test('operator recovery binds a fresh proof key before retrying committed delive
       linkSessionId: fixture.payload.linkSessionId,
       walletId: fixture.approval.walletId,
       enrollmentId: fixture.approval.enrollmentId,
+      keyManifestDigestB64u: fixture.receipt.manifestDigestB64u,
       transcriptSetDigestB64u: fixture.approval.policyDigestB64u,
     },
     revision: 3,
@@ -712,6 +719,7 @@ function routeServiceFor(
     sessionService: routeSessionService,
     nowV1: () => nowMs,
     verifyPublicSessionProofV1: async () => ({ kind: 'authorized' as const }),
+    resolveNearAccountIdForEd25519WalletKeyV1: async () => 'wallet-r103.testnet',
     authenticateOwnerRequestV1: async ({ request, method, pathname, bodyDigestB64u }) => ({
       kind: 'authorized' as const,
       body: await request.json(),

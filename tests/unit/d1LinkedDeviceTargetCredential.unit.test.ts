@@ -20,6 +20,8 @@ import {
 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceTargetAuthenticatorStore';
 import {
   buildR103DeviceLinkFixture,
+  buildR103OwnerApprovalContextV1,
+  buildR103OwnerEnrollmentCeremonyReaderV1,
   buildR103ProvisioningFixture,
   buildR103TargetCredentialFixture,
   buildR103TargetReadySourceFixture,
@@ -69,6 +71,7 @@ test('persists verified attestation and exact public child records before provis
   );
   const store = new D1LinkedDeviceSessionStoreV1({ database: temporary.database, scope });
   const sessionService = new LinkedDeviceSessionServiceV1({
+    ownerEnrollmentCeremonies: buildR103OwnerEnrollmentCeremonyReaderV1(fixture.approval),
     store,
     authorization: ownerAuthorization(fixture),
     aggregateActivationVerifier,
@@ -76,6 +79,7 @@ test('persists verified attestation and exact public child records before provis
   await sessionService.createUnclaimedSessionV1({ payload: fixture.payload, nowMs: 3_000 });
   await sessionService.claimSessionV1({ payload: fixture.payload, nowMs: 3_001 });
   const approvalResult = await sessionService.recordOwnerApprovalV1({
+    owner: buildR103OwnerApprovalContextV1(approval),
     approval,
     nowMs: 3_002,
   });
