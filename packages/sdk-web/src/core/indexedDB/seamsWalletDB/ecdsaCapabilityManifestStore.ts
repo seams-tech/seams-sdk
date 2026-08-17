@@ -59,10 +59,7 @@ import {
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import { thresholdEcdsaChainTargetFromRequest } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import {
-  buildEcdsaRoleLocalPublicFacts,
-  type EcdsaRoleLocalPublicFacts,
-} from '@/core/platform';
+import { buildEcdsaRoleLocalPublicFacts, type EcdsaRoleLocalPublicFacts } from '@/core/platform';
 import {
   buildVerifiedEcdsaPublicFacts,
   toEvmFamilyEcdsaKeyHandle,
@@ -123,7 +120,6 @@ import type { SeamsWalletDBManager, SeamsWalletTransactionContext } from './mana
 // wrong version and re-derived rather than failing an exact-key check.
 const MANIFEST_RECORD_VERSION = 'ecdsa_capability_manifest_v3' as const;
 const POINTER_RECORD_VERSION = 'ecdsa_current_capability_manifest_v2' as const;
-const UNATTRIBUTED_POINTER_RECORD_VERSION = 'ecdsa_current_capability_manifest_v1' as const;
 const MATERIAL_RECORD_VERSION = 'ecdsa_role_local_material_v2' as const;
 const JOURNAL_RECORD_VERSION = 'ecdsa_activation_commit_journal_v1' as const;
 const SEALING_KEY_RECORD_VERSION = 'ecdsa_material_sealing_key_v1' as const;
@@ -1410,23 +1406,6 @@ function parsePointerRow(value: unknown): ParsedPointerRow {
   };
 }
 
-function isUnattributedPointerRow(value: unknown): boolean {
-  try {
-    const record = requireRecord(value, 'unattributed ECDSA capability pointer');
-    requireExactKeys(record, 'unattributed ECDSA capability pointer', [
-      'record_version',
-      'capability_ref',
-      'wallet_id',
-      'authority_digest',
-      'manifest_id',
-      'manifest_revision',
-    ]);
-    return record.record_version === UNATTRIBUTED_POINTER_RECORD_VERSION;
-  } catch {
-    return false;
-  }
-}
-
 function storedMaterialRow(
   material: ValidatedEncryptedEcdsaReadyMaterial,
   manifest: ActiveEcdsaCapabilityManifest,
@@ -1750,7 +1729,6 @@ export class IndexedDbEcdsaCapabilityManifestStore {
     const selectors: EcdsaCapabilitySelector[] = [];
     try {
       for (const row of rows) {
-        if (isUnattributedPointerRow(row)) continue;
         const pointer = parsePointerRow(row);
         if (pointer.selector.authority.walletId === parsedWalletId.value) {
           selectors.push(pointer.selector);
@@ -2748,9 +2726,7 @@ export async function importWalletCustodyEcdsaContinuity(
   if (!authority || String(authority.walletId) !== String(input.walletId)) {
     throw new Error('ECDSA custody import authority is invalid');
   }
-  const publicCapability = parseRouterAbEcdsaDerivationPublicCapabilityV1(
-    input.publicCapability,
-  );
+  const publicCapability = parseRouterAbEcdsaDerivationPublicCapabilityV1(input.publicCapability);
   const receipt = parseRouterAbEcdsaRegistrationActivationReceiptV1(input.activationReceipt);
   const materialActivation = routerAbMpcMaterialActivationRefFromWire(
     receipt.ecdsa_activation.material_activation,
@@ -2820,8 +2796,7 @@ export async function importWalletCustodyEcdsaContinuity(
     relayerParticipantId: participantIds[1],
     participantIds,
     contextBinding32B64u: input.publicFacts.contextBinding32B64u,
-    derivationClientSharePublicKey33B64u:
-      input.publicFacts.derivationClientSharePublicKey33B64u,
+    derivationClientSharePublicKey33B64u: input.publicFacts.derivationClientSharePublicKey33B64u,
     relayerPublicKey33B64u: input.publicFacts.relayerPublicKey33B64u,
     groupPublicKey33B64u: input.publicFacts.groupPublicKey33B64u,
     ethereumAddress,
@@ -2856,7 +2831,9 @@ export async function importWalletCustodyEcdsaContinuity(
     roleLocalPublicFacts,
     routerAbEcdsaDerivationNormalSigning: normalSigning,
     runtimePolicyScope: normalizeRuntimePolicyScope(input.runtimePolicyScope),
-    committedAt: parseIsoTimestamp(new Date(receipt.ecdsa_activation.activated_at_ms).toISOString()),
+    committedAt: parseIsoTimestamp(
+      new Date(receipt.ecdsa_activation.activated_at_ms).toISOString(),
+    ),
   });
 }
 

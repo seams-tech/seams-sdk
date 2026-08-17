@@ -36,14 +36,6 @@ const GATEWAY_BUNDLE = path.join(
   'payload',
   'd1RouterApiWorker.js',
 );
-const SIGNER_POST_103_PREDECESSOR = Object.freeze({
-  fingerprint: '9f39009398142d1e13b3c3c2f5ce53a2dcb71bc05aafc1bb8c1cf189cb2c479c',
-  bridgeMigrationName: '0002_signer_post_103_canonical_upgrade.sql',
-});
-const CONSOLE_CANONICAL_BASELINE_PREDECESSOR = Object.freeze({
-  fingerprint: '2fd73fce9f520386935efba23ca5a326275715dfa5e02bbca69d88bf7ae3e4b5',
-  bridgeMigrationName: '0026_console_canonical_baseline_bridge.sql',
-});
 const BACKEND_SMOKE_PATHS = Object.freeze([
   '/readyz',
   '/healthz',
@@ -549,13 +541,10 @@ function migrateBackend(lane) {
     {
       database: 'CONSOLE_DB',
       directory: path.join(GATEWAY_ROOT, 'migrations', 'd1-console'),
-      acceptedPredecessor: CONSOLE_CANONICAL_BASELINE_PREDECESSOR,
     },
     {
       database: 'SIGNER_DB',
       directory: path.join(GATEWAY_ROOT, '..', 'sdk-server-ts', 'migrations', 'd1-signer'),
-      // Production lanes still carry this exact pre-canonical set; the bridge consumes it once.
-      acceptedPredecessor: SIGNER_POST_103_PREDECESSOR,
     },
   ];
   for (const migration of migrations) {
@@ -571,14 +560,6 @@ function migrateBackend(lane) {
       '--expected-fingerprint',
       fingerprint,
     ];
-    if (migration.acceptedPredecessor) {
-      migrationArgs.push(
-        '--predecessor-fingerprint',
-        migration.acceptedPredecessor.fingerprint,
-        '--predecessor-bridge-migration',
-        migration.acceptedPredecessor.bridgeMigrationName,
-      );
-    }
     runCommand('node', migrationArgs, { cwd: GATEWAY_ROOT });
   }
 }

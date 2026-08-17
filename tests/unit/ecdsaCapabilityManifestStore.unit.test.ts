@@ -792,55 +792,6 @@ test.describe('canonical ECDSA capability manifest store', () => {
     } catch {}
   });
 
-  test('treats an unattributed v1 pointer as absent so sync can rederive it', async ({ page }) => {
-    const fixture = ecdsaCapabilityActivationFixture();
-    await prepareStoreModulePage(page);
-    const result = await page.evaluate(
-      async ({ storeModule, fixture }) => {
-        await new Promise<void>((resolve) => {
-          const request = indexedDB.deleteDatabase('seams_wallet');
-          request.onsuccess = () => resolve();
-          request.onerror = () => resolve();
-          request.onblocked = () => resolve();
-        });
-        const module = await import(storeModule);
-        const store = new module.IndexedDbEcdsaCapabilityManifestStore();
-        const authority = fixture.prepareInput.activationBinding.signer.authority;
-        const walletId = authority.walletId;
-        await store.listActiveWalletCapabilitySubjects(walletId);
-
-        await new Promise<void>((resolve, reject) => {
-          const request = indexedDB.open('seams_wallet');
-          request.onsuccess = () => {
-            const db = request.result;
-            const transaction = db.transaction('ecdsa_current_capability_manifests', 'readwrite');
-            transaction.objectStore('ecdsa_current_capability_manifests').put({
-              record_version: 'ecdsa_current_capability_manifest_v1',
-              capability_ref: fixture.prepareInput.activationBinding.signer.capability,
-              wallet_id: walletId,
-              authority_digest: authority.authorityDigest,
-              manifest_id: fixture.prepareInput.activationBinding.targetManifest.manifestId,
-              manifest_revision:
-                fixture.prepareInput.activationBinding.targetManifest.manifestRevision,
-            });
-            transaction.oncomplete = () => {
-              db.close();
-              resolve();
-            };
-            transaction.onerror = () => reject(transaction.error);
-            transaction.onabort = () => reject(transaction.error);
-          };
-          request.onerror = () => reject(request.error);
-        });
-
-        return await store.listActiveWalletCapabilitySubjects(walletId);
-      },
-      { storeModule: STORE_MODULE, fixture },
-    );
-
-    expect(result).toEqual({ kind: 'resolved', subjects: [] });
-  });
-
   test('imports a Router-committed custody activation as canonical readable material', async ({
     page,
   }) => {

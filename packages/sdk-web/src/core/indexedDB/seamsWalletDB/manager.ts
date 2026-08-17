@@ -5,7 +5,6 @@ import {
   type SeamsWalletDBConfig,
 } from './schema';
 import { SEAMS_WALLET_DB_NAME, type SeamsWalletStoreName } from '../schemaNames';
-import { deleteObsoleteStandaloneWalletDatabases } from './obsoleteDatabases';
 
 export type SeamsWalletTransactionMode = 'readonly' | 'readwrite';
 
@@ -18,23 +17,6 @@ export type SeamsWalletTransactionContext = {
 const INDEXED_DB_BLOCKED_OPEN_TIMEOUT_MS = 3_000;
 const INDEXED_DB_OPEN_TIMEOUT_MS = 8_000;
 const INDEXED_DB_TRANSACTION_TIMEOUT_MS = 8_000;
-const RETIRED_VERSIONED_WALLET_DB_NAME = 'seams_wallet_v17';
-
-function warnRetiredWalletDbDeletionBlocked(): void {
-  console.warn('[SeamsWalletDBManager] Retired versioned wallet database deletion is blocked.');
-}
-
-function warnRetiredWalletDbDeletionFailed(): void {
-  console.warn('[SeamsWalletDBManager] Retired versioned wallet database deletion failed.');
-}
-
-function deleteRetiredVersionedWalletDatabase(): void {
-  if (typeof indexedDB === 'undefined') return;
-  const request = indexedDB.deleteDatabase(RETIRED_VERSIONED_WALLET_DB_NAME);
-  request.onblocked = warnRetiredWalletDbDeletionBlocked;
-  request.onerror = warnRetiredWalletDbDeletionFailed;
-}
-
 function seamsWalletDbOpenBlockedError(dbName: string): Error {
   return new Error(
     `[SeamsWalletDBManager] IndexedDB open is blocked for ${dbName}. Close other tabs using this app and retry.`,
@@ -117,7 +99,6 @@ export class SeamsWalletDBManager {
       throw new Error('[SeamsWalletDBManager] IndexedDB is disabled in this environment.');
     }
     if (!this.dbPromise) {
-      deleteRetiredVersionedWalletDatabase();
       const dbName = this.config.dbName;
       const dbVersion = this.config.dbVersion;
       let blockedTimer: ReturnType<typeof setTimeout> | null = null;
@@ -126,8 +107,8 @@ export class SeamsWalletDBManager {
         rejectBlockedOpen = reject;
       });
       const openPromise = openDB(dbName, dbVersion, {
-        upgrade(db, _oldVersion, _newVersion, tx) {
-          upgradeSeamsWalletDBSchema(db, tx);
+        upgrade(db) {
+          upgradeSeamsWalletDBSchema(db);
         },
         blocked() {
           console.warn('[SeamsWalletDBManager] IndexedDB open is blocked.', {
@@ -167,11 +148,7 @@ export class SeamsWalletDBManager {
         throw error;
       });
     }
-    const db = await this.dbPromise;
-    if (this.config.dbName === SEAMS_WALLET_DB_NAME) {
-      await deleteObsoleteStandaloneWalletDatabases();
-    }
-    return db;
+    return await this.dbPromise;
   }
 
   async runTransaction<T>(

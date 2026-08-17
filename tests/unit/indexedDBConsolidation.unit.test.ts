@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 import {
@@ -13,15 +12,10 @@ import {
 
 const CANONICAL_NAME_PATTERN = /^seams_[a-z0-9]+(?:_[a-z0-9]+)*$/;
 const SNAKE_CASE_PATTERN = /^[a-z0-9]+(?:_[a-z0-9]+)*$/;
-const ECDSA_CAPABILITY_STORE_SOURCE = new URL(
-  '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore.ts',
-  import.meta.url,
-);
-
 test.describe('IndexedDB consolidation', () => {
   test('canonical wallet schema names use one Seams-prefixed DB and unprefixed snake_case stores', () => {
     expect(SEAMS_WALLET_DB_NAME).toBe('seams_wallet');
-    expect(SEAMS_WALLET_DB_VERSION).toBe(21);
+    expect(SEAMS_WALLET_DB_VERSION).toBe(22);
     expect(Object.values(SEAMS_WALLET_STORES).every((name) => !name.startsWith('seams_'))).toBe(
       true,
     );
@@ -56,92 +50,6 @@ test.describe('IndexedDB consolidation', () => {
         expect(index.name, `${entry.store}:${index.name}`).toMatch(SNAKE_CASE_PATTERN);
       }
     }
-  });
-
-  test('ECDSA capability manifest store uses the canonical wallet database manager', () => {
-    const source = readFileSync(ECDSA_CAPABILITY_STORE_SOURCE, 'utf8');
-    expect(source).toContain('seamsWalletDB');
-    expect(source).not.toContain('indexedDB.open(');
-    expect(source).not.toContain('seams_router_ab_ecdsa_role_local_session_v1');
-    expect(source).not.toContain('seams_router_ab_ecdsa_presign_material_v2');
-  });
-
-  test('opening seams_wallet deletes obsolete standalone ECDSA databases', async ({ page }) => {
-    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
-    const databaseNames = await page.evaluate(async () => {
-      const obsoleteNames = [
-        'seams_router_ab_ecdsa_role_local_session_v1',
-        'seams_router_ab_ecdsa_presign_material_v2',
-      ];
-      for (const dbName of obsoleteNames) {
-        await new Promise<void>((resolve, reject) => {
-          const request = indexedDB.open(dbName, 1);
-          request.onsuccess = () => {
-            request.result.close();
-            resolve();
-          };
-          request.onerror = () => reject(request.error);
-        });
-      }
-
-      const managerModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
-      const manager = new managerModule.SeamsWalletDBManager();
-      await manager.getDB();
-      manager.close();
-      return (await indexedDB.databases()).map((database) => database.name);
-    });
-
-    expect(databaseNames).not.toContain('seams_router_ab_ecdsa_role_local_session_v1');
-    expect(databaseNames).not.toContain('seams_router_ab_ecdsa_presign_material_v2');
-  });
-
-  test('wallet schema upgrade deletes the retired recovery-email store', async ({ page }) => {
-    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
-    const result = await page.evaluate(async () => {
-      const schemaNames = await import('/_test-sdk/esm/core/indexedDB/schemaNames.js');
-      const managerModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
-      const dbName = schemaNames.createSeamsTestWalletDbName(
-        `recovery_email_upgrade_${crypto.randomUUID()}`,
-      );
-
-      await new Promise<void>((resolve) => {
-        const request = indexedDB.deleteDatabase(dbName);
-        request.onsuccess = () => resolve();
-        request.onerror = () => resolve();
-        request.onblocked = () => resolve();
-      });
-      await new Promise<void>((resolve, reject) => {
-        const request = indexedDB.open(dbName, 18);
-        request.onupgradeneeded = () => {
-          request.result.createObjectStore('seams_recovery_emails', {
-            keyPath: ['wallet_id', 'hash_hex'],
-          });
-        };
-        request.onsuccess = () => {
-          request.result.close();
-          resolve();
-        };
-        request.onerror = () => reject(request.error);
-      });
-
-      const manager = new managerModule.SeamsWalletDBManager();
-      manager.setDbName(dbName);
-      const db = await manager.getDB();
-      const observed = {
-        version: db.version,
-        hasRetiredStore: db.objectStoreNames.contains('seams_recovery_emails'),
-      };
-      manager.close();
-      await new Promise<void>((resolve) => {
-        const request = indexedDB.deleteDatabase(dbName);
-        request.onsuccess = () => resolve();
-        request.onerror = () => resolve();
-        request.onblocked = () => resolve();
-      });
-      return observed;
-    });
-
-    expect(result).toEqual({ version: SEAMS_WALLET_DB_VERSION, hasRetiredStore: false });
   });
 
   test('fresh seams wallet databases match the schema manifest', async ({ page }) => {
@@ -219,168 +127,6 @@ test.describe('IndexedDB consolidation', () => {
         })),
       );
     }
-  });
-
-  test('schema upgrade replaces stale unique auth-method identifier index', async ({ page }) => {
-    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
-    const result = await page.evaluate(async () => {
-      const schemaNames = await import('/_test-sdk/esm/core/indexedDB/schemaNames.js');
-      const managerModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
-      const dbName = schemaNames.createSeamsTestWalletDbName(
-        `auth_method_index_upgrade_${crypto.randomUUID()}`,
-      );
-      await new Promise<void>((resolve) => {
-        const request = indexedDB.deleteDatabase(dbName);
-        request.onsuccess = () => resolve();
-        request.onerror = () => resolve();
-        request.onblocked = () => resolve();
-      });
-      await new Promise<void>((resolve, reject) => {
-        const request = indexedDB.open(dbName, 4);
-        request.onupgradeneeded = () => {
-          const store = request.result.createObjectStore(
-            schemaNames.SEAMS_WALLET_STORES.walletAuthMethods,
-            { keyPath: 'wallet_auth_method_id' },
-          );
-          store.createIndex(
-            schemaNames.SEAMS_WALLET_INDEXES.kindRpIdAuthIdentifier,
-            ['kind', 'rp_id', 'auth_identifier_key'],
-            { unique: true },
-          );
-        };
-        request.onsuccess = () => {
-          request.result.close();
-          resolve();
-        };
-        request.onerror = () => reject(request.error);
-      });
-
-      const manager = new managerModule.SeamsWalletDBManager();
-      manager.setDbName(dbName);
-      const db = await manager.getDB();
-      const tx = db.transaction(schemaNames.SEAMS_WALLET_STORES.walletAuthMethods, 'readonly');
-      const index = tx
-        .objectStore(schemaNames.SEAMS_WALLET_STORES.walletAuthMethods)
-        .index(schemaNames.SEAMS_WALLET_INDEXES.kindRpIdAuthIdentifier);
-      const observed = {
-        version: db.version,
-        unique: index.unique,
-        keyPath: index.keyPath,
-      };
-      manager.close();
-      await new Promise<void>((resolve) => {
-        const request = indexedDB.deleteDatabase(dbName);
-        request.onsuccess = () => resolve();
-        request.onerror = () => resolve();
-        request.onblocked = () => resolve();
-      });
-      return observed;
-    });
-
-    expect(result).toEqual({
-      version: SEAMS_WALLET_DB_VERSION,
-      unique: false,
-      keyPath: ['kind', 'rp_id', 'auth_identifier_key'],
-    });
-  });
-
-  test('schema upgrade lets one wallet key carry several owner devices', async ({ page }) => {
-    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
-    const result = await page.evaluate(async () => {
-      const schemaNames = await import('/_test-sdk/esm/core/indexedDB/schemaNames.js');
-      const managerModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
-      const dbName = schemaNames.createSeamsTestWalletDbName(
-        `owner_signer_index_upgrade_${crypto.randomUUID()}`,
-      );
-      await new Promise<void>((resolve) => {
-        const request = indexedDB.deleteDatabase(dbName);
-        request.onsuccess = () => resolve();
-        request.onerror = () => resolve();
-        request.onblocked = () => resolve();
-      });
-      // The pre-cutover schema: both mirrors unique, which permits exactly one
-      // owner Ed25519 signer per wallet.
-      await new Promise<void>((resolve, reject) => {
-        const request = indexedDB.open(dbName, 4);
-        request.onupgradeneeded = () => {
-          const store = request.result.createObjectStore(
-            schemaNames.SEAMS_WALLET_STORES.walletSigners,
-            { keyPath: 'wallet_signer_id' },
-          );
-          store.createIndex(
-            schemaNames.SEAMS_WALLET_INDEXES.walletKindNearEd25519SigningKeyId,
-            ['wallet_id', 'kind', 'near_ed25519_signing_key_id'],
-            { unique: true },
-          );
-          store.createIndex(
-            schemaNames.SEAMS_WALLET_INDEXES.walletKindNearSignerSlot,
-            ['wallet_id', 'kind', 'near_signer_slot'],
-            { unique: true },
-          );
-        };
-        request.onsuccess = () => {
-          request.result.close();
-          resolve();
-        };
-        request.onerror = () => reject(request.error);
-      });
-
-      const manager = new managerModule.SeamsWalletDBManager();
-      manager.setDbName(dbName);
-      const db = await manager.getDB();
-
-      // Two owner devices on one wallet: same NEAR key, same inherited slot,
-      // different credentials. Both must land.
-      const row = (credentialId: string) => ({
-        wallet_signer_id: `near:testnet/alice.testnet/${credentialId}`,
-        wallet_id: 'profile-near:alice.testnet',
-        kind: 'threshold_ed25519',
-        near_ed25519_signing_key_id: 'ed25519:shared-wallet-key',
-        near_signer_slot: 4,
-        status: 'active',
-        updated_at: 1,
-        record: { profileId: 'profile-near:alice.testnet', signerId: credentialId },
-      });
-      const writeTx = db.transaction(schemaNames.SEAMS_WALLET_STORES.walletSigners, 'readwrite');
-      const writeStore = writeTx.objectStore(schemaNames.SEAMS_WALLET_STORES.walletSigners);
-      let writeError: string | null = null;
-      try {
-        await writeStore.put(row('device-1-credential'));
-        await writeStore.put(row('device-2-credential'));
-        await writeTx.done;
-      } catch (error: unknown) {
-        writeError = error instanceof Error ? error.message : String(error);
-      }
-
-      const readTx = db.transaction(schemaNames.SEAMS_WALLET_STORES.walletSigners, 'readonly');
-      const readStore = readTx.objectStore(schemaNames.SEAMS_WALLET_STORES.walletSigners);
-      const observed = {
-        version: db.version,
-        nearKeyUnique: readStore.index(
-          schemaNames.SEAMS_WALLET_INDEXES.walletKindNearEd25519SigningKeyId,
-        ).unique,
-        slotUnique: readStore.index(schemaNames.SEAMS_WALLET_INDEXES.walletKindNearSignerSlot)
-          .unique,
-        rowCount: await readStore.count(),
-        writeError,
-      };
-      manager.close();
-      await new Promise<void>((resolve) => {
-        const request = indexedDB.deleteDatabase(dbName);
-        request.onsuccess = () => resolve();
-        request.onerror = () => resolve();
-        request.onblocked = () => resolve();
-      });
-      return observed;
-    });
-
-    expect(result).toEqual({
-      version: SEAMS_WALLET_DB_VERSION,
-      nearKeyUnique: false,
-      slotUnique: false,
-      rowCount: 2,
-      writeError: null,
-    });
   });
 
   test('unified repositories persist profile, chain account, and app state', async ({ page }) => {
