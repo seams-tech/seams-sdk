@@ -78,7 +78,7 @@ const referenceSection: DefaultTheme.SidebarItem = {
 };
 
 const conceptsSection: DefaultTheme.SidebarItem = {
-  text: 'Concepts and security',
+  text: 'Concepts',
   collapsed: true,
   items: [
     { text: 'Overview', link: '/concepts/' },
@@ -212,10 +212,10 @@ const useCasesSection: DefaultTheme.SidebarItem = {
 const documentationSidebar: DefaultTheme.SidebarItem[] = [
   getStartedSection,
   guidesSection,
-  referenceSection,
+  useCasesSection,
   conceptsSection,
   deployAndOperateSection,
-  useCasesSection,
+  referenceSection,
 ];
 
 export default defineConfig({
