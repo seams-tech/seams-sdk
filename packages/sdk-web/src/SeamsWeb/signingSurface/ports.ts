@@ -48,10 +48,7 @@ import type {
   Ed25519YaoPublicCapabilityReferenceV1,
 } from '@/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
 import type { AccountId } from '@/core/types/accountIds';
-import type {
-  LinkedDeviceEnrollmentId,
-  MpcMaterialActivationRef,
-} from '@shared/utils/domainIds';
+import type { LinkedDeviceEnrollmentId, MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type { LinkedDeviceSigningSessionActivationV1 } from '../operations/devices/deviceLinkingPorts';
 import type { ImportWalletCustodyEcdsaContinuityInput } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
 import type { EcdsaRoleLocalPersistedMaterialRef } from '@/core/signingEngine/session/keyMaterialBrands';
@@ -679,7 +676,13 @@ export type AccountSyncSigningSurface = LocalLoginStateSurface &
   PasskeyLoginAssertionSurface &
   Pick<
     UserProfileStoreSurface & RegistrationAccountSurface,
-    'storeUserData' | 'storeAuthenticator' | 'upsertEd25519YaoPublicCapabilityLaneReference'
+    | 'storeUserData'
+    | 'storeAuthenticator'
+    | 'upsertEd25519YaoPublicCapabilityLaneReference'
+    // A synced device joins a wallet whose NEAR account already exists, so it
+    // observes provisioning as ready — the same write linked-device enrollment
+    // makes. Session identity resolves NEAR signers through this record.
+    | 'setWalletNearProvisioningState'
   >;
 
 export interface WebAuthnRegistrationConfirmationSurface {

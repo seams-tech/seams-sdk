@@ -1,4 +1,6 @@
 import { toTrimmedString } from '@shared/utils/validation';
+import { buildNearProfileId } from '../../accountData/near/profileId';
+import { toAccountId } from '../../types/accountIds';
 import { alphabetizeStringify } from '@shared/utils/digests';
 import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 import { SIGNER_AUTH_METHODS, SIGNER_KINDS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
@@ -2560,6 +2562,23 @@ export class SeamsWalletRepositories {
     });
   }
 
+  /**
+   * The wallet's active signers, resolved from its identity — not from a guess
+   * that the wallet id is a profile key.
+   *
+   * Two local profile identities exist: the canonical wallet profile, keyed by
+   * the wallet id and carrying NEAR provisioning, and the NEAR account profile
+   * (`buildNearProfileId`), which owns the signer rows. Reading signer rows
+   * with the wallet id as the profile key answered "none" for every registered
+   * wallet, which surfaced far away as an unresolvable session identity and as
+   * ECDSA material reporting `device_link_required` on a device that was never
+   * linked.
+   *
+   * The pivot goes through branded constructors on purpose: only a NEAR
+   * account id proven by the wallet's own provisioning record can become the
+   * profile key. Rows written directly under the wallet id are still read —
+   * that is the canonical wallet profile's own signer set.
+   */
   async listActiveWalletSigners(args: {
     walletId: string;
     signerFamily: WalletSignerLookup['signerFamily'];
@@ -2568,11 +2587,29 @@ export class SeamsWalletRepositories {
     if (!walletId) return [];
     const signerKind =
       args.signerFamily === 'ecdsa' ? SIGNER_KINDS.thresholdEcdsa : SIGNER_KINDS.thresholdEd25519;
-    const signers = await this.listAccountSignersByProfile({
-      profileId: walletId,
-      status: 'active',
-    });
-    return signers.filter((signer) => signer.signerKind === signerKind);
+    const profileIds = [walletId];
+    const walletProfile = await this.getProfile(walletId);
+    const provisioning = walletProfile?.nearProvisioning;
+    if (provisioning?.status === 'near_ready' && provisioning.nearAccountId) {
+      profileIds.push(String(buildNearProfileId(toAccountId(provisioning.nearAccountId))));
+    }
+    const collected: AccountSignerRecord[] = [];
+    const seen = new Set<string>();
+    for (const profileId of profileIds) {
+      const signers = await this.listAccountSignersByProfile({ profileId, status: 'active' });
+      for (const signer of signers) {
+        if (signer.signerKind !== signerKind) continue;
+        // A signer row names its wallet in metadata; a row claiming another
+        // wallet must not leak in through a shared NEAR profile.
+        const metadataWalletId = toTrimmedString(String(signer.metadata?.walletId ?? ''));
+        if (metadataWalletId && metadataWalletId !== walletId) continue;
+        const key = `${signer.chainIdKey}/${signer.accountAddress}/${signer.signerId}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        collected.push(signer);
+      }
+    }
+    return collected;
   }
 
   async getActiveWalletSignerForChainTarget(args: {
@@ -2833,7 +2870,18 @@ export class SeamsWalletRepositories {
   }
 
   async listWalletPasskeyAuthenticators(walletId: string): Promise<ProfileAuthenticatorRecord[]> {
-    return await this.listProfileAuthenticators(walletId);
+    // Same pivot as listActiveWalletSigners: authenticators registered through
+    // NEAR-account flows live under the NEAR profile, and the canonical wallet
+    // profile's provisioning record is the proof linking the two identities.
+    const own = await this.listProfileAuthenticators(walletId);
+    const walletProfile = await this.getProfile(walletId);
+    const provisioning = walletProfile?.nearProvisioning;
+    if (provisioning?.status !== 'near_ready' || !provisioning.nearAccountId) return own;
+    const nearProfileId = String(buildNearProfileId(toAccountId(provisioning.nearAccountId)));
+    if (nearProfileId === walletId) return own;
+    const nearRows = await this.listProfileAuthenticators(nearProfileId);
+    const seen = new Set(own.map((record) => record.credentialId));
+    return [...own, ...nearRows.filter((record) => !seen.has(record.credentialId))];
   }
 
   async getWalletPasskeyAuthenticator(args: {
