@@ -2808,6 +2808,7 @@ function parseWalletRegistrationNearProvisioningResponseV2(
       'rpId',
       'authMethod',
       'walletCustody',
+      'custodyKeyManifestDigestB64u',
       'kind',
       'accountProvisioning',
       'resolvedAccount',
