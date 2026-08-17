@@ -19,24 +19,12 @@ struct ReleaseWasmTarget {
     artifact: PathBuf,
 }
 
-fn release_wasm_targets(root: &Path) -> [ReleaseWasmTarget; 3] {
+fn release_wasm_targets(root: &Path) -> [ReleaseWasmTarget; 1] {
     [
-        ReleaseWasmTarget {
-            manifest: root.join("wasm/router_ab_ecdsa_presign_client/Cargo.toml"),
-            artifact: root.join(
-                "wasm/router_ab_ecdsa_presign_client/target/wasm32-unknown-unknown/release/router_ab_ecdsa_presign_client.wasm",
-            ),
-        },
         ReleaseWasmTarget {
             manifest: root.join("wasm/router_ab_ecdsa_signing_worker/Cargo.toml"),
             artifact: root.join(
                 "wasm/router_ab_ecdsa_signing_worker/target/wasm32-unknown-unknown/release/router_ab_ecdsa_signing_worker.wasm",
-            ),
-        },
-        ReleaseWasmTarget {
-            manifest: root.join("wasm/router_ab_ecdsa_online_client/Cargo.toml"),
-            artifact: root.join(
-                "wasm/router_ab_ecdsa_online_client/target/wasm32-unknown-unknown/release/router_ab_ecdsa_online_client.wasm",
             ),
         },
     ]

@@ -59,17 +59,26 @@ function checkRouterAbServerWalletSessionIssuerUsesExactClaimBuilders() {
     if (source.includes(marker)) offenders.push(`commonRouterUtils.ts contains ${marker}`);
   }
 
-  assertNoOffenders('Router A/B server Wallet Session issuer must use exact claim builders', offenders);
+  assertNoOffenders(
+    'Router A/B server Wallet Session issuer must use exact claim builders',
+    offenders,
+  );
   for (const marker of [
     'function buildRouterAbEd25519WalletSessionClaims(',
-    '): RouterAbEd25519WalletSessionClaims {',
     'const claims = buildRouterAbEd25519WalletSessionClaims({',
     'function buildRouterAbEcdsaDerivationWalletSessionClaims(',
-    'const claims: RouterAbEcdsaDerivationWalletSessionClaims = {',
     'const claims = buildRouterAbEcdsaDerivationWalletSessionClaims({',
   ]) {
     assert.ok(source.includes(marker), `commonRouterUtils.ts missing ${marker}`);
   }
+  assert.ok(
+    source.includes('): RouterAbEd25519OwnerWalletSessionClaims {'),
+    'commonRouterUtils.ts missing the exact Ed25519 owner-claim builder return type',
+  );
+  assert.ok(
+    source.includes('): RouterAbEcdsaDerivationOwnerWalletSessionClaims {'),
+    'commonRouterUtils.ts missing the exact ECDSA owner-claim builder return type',
+  );
 }
 
 function checkRouterAbEcdsaDerivationScopeComparisonUsesCanonicalProtocolBytes() {
@@ -85,7 +94,10 @@ function checkRouterAbEcdsaDerivationScopeComparisonUsesCanonicalProtocolBytes()
   ];
   const offenders = collectForbiddenMarkerOffenders(guardedFiles, forbiddenMarkers);
 
-  assertNoOffenders('Router A/B ECDSA derivation scope comparison must use canonical bytes', offenders);
+  assertNoOffenders(
+    'Router A/B ECDSA derivation scope comparison must use canonical bytes',
+    offenders,
+  );
   assert.ok(
     readRepoFile('packages/shared-ts/src/utils/routerAbEcdsaDerivation.ts').includes(
       'routerAbEcdsaDerivationNormalSigningScopeCanonicalBytesV1',
@@ -95,9 +107,7 @@ function checkRouterAbEcdsaDerivationScopeComparisonUsesCanonicalProtocolBytes()
   assert.ok(
     readRepoFile(
       'packages/sdk-server-ts/src/router/domains/signingOperations/routerAbPrivateSigningWorker.ts',
-    ).includes(
-      'sameRouterAbEcdsaDerivationNormalSigningScopeV1',
-    ),
+    ).includes('sameRouterAbEcdsaDerivationNormalSigningScopeV1'),
     'routerAbPrivateSigningWorker.ts missing canonical scope comparison',
   );
   assert.ok(

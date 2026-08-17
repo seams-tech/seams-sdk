@@ -4,30 +4,57 @@
  * This file centralizes helper calls made to the NEAR RPC (account existence checks,
  * access key polling, tx context fetch, etc).
  *
- * App session minting in SDK login flows is exchange-first (`POST /session/exchange`)
- * for BYO auth integration.
+ * Wallet unlock verification and NEAR RPC helpers share this transport module.
  */
 
 import type { NearClient } from './NearClient';
 import type { AccountId } from '../../types/accountIds';
 import type { WebAuthnAuthenticationCredential } from '../../types/webauthn';
-import type { ManagedRuntimeScopeBootstrap } from '../../config/managedRuntimeScope';
+import type { ThresholdEcdsaChainTarget } from '../../platform';
 
 import { TransactionContext } from '../../types/rpc';
 import { errorMessage } from '@shared/utils/errors';
-import {
-  joinNormalizedUrl,
-  normalizeJwtCookieSessionKind,
-  stripTrailingSlashes,
-} from '@shared/utils/normalize';
+import { joinNormalizedUrl } from '@shared/utils/normalize';
 import { ensureEd25519Prefix, isObject, requireTrimmedString } from '@shared/utils/validation';
 import { redactCredentialExtensionOutputs } from '../../signingEngine/webauthnAuth/credentials/credentialExtensions';
 import {
-  parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1,
+  parseRouterAbEcdsaPostRegistrationSessionActivationPolicyV1,
   parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1,
-  type RouterAbEcdsaPostRegistrationSessionActivationRequestV1,
+  parseRouterAbEcdsaDerivationPublicCapabilityV1,
+  parseRouterAbEcdsaRegistrationActivationReceiptV1,
+  type RouterAbEcdsaPostRegistrationSessionActivationPolicyV1,
   type RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
+  type RouterAbEcdsaRegistrationActivationReceiptV1,
+  type RouterAbEcdsaDerivationPublicCapabilityV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
+import {
+  normalizeRuntimePolicyScope,
+  type RuntimePolicyScope,
+} from '@shared/threshold/signingRootScope';
+import {
+  parseEd25519YaoRecoveryCapabilityV1,
+  type ParsedYaoRecoveryCapabilityV1,
+} from '../../signingEngine/flows/recovery/passkeyEd25519YaoRecovery';
+import {
+  parsePasskeyCustodyEnvelopeRecord,
+  type PasskeyCustodyEnvelopeRecord,
+} from '@shared/passkey-custody';
+import {
+  parseMpcWalletSigningQuotaId,
+  parseWalletSessionAuthorizationId,
+  parseWalletSessionId,
+  type MpcWalletSigningQuotaId,
+  type WalletSessionAuthorizationId,
+  type WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
+import {
+  parseThresholdEd25519SessionId,
+  type ThresholdEd25519SessionId,
+} from '@shared/utils/domainIds';
+import {
+  requireRouterAbEd25519NormalSigningState,
+  type RouterAbEd25519NormalSigningState,
+} from '@shared/utils/signingSessionSeal';
 
 export async function fetchNonceBlockHashAndHeight({
   nearClient,
@@ -218,206 +245,367 @@ export async function checkNearAccountExistsBestEffort(
   return false;
 }
 
-export type OidcSessionExchangeInput = {
-  type: 'oidc_jwt';
-  token: string;
-  ecdsaSessionActivation?: never;
-};
-
-type PasskeySessionExchangeInputCore = {
+type PasskeyWalletUnlockInputCore = {
   type: 'passkey_assertion';
   challengeId: string;
   webauthn_authentication: WebAuthnAuthenticationCredential;
+  ed25519SessionRequest:
+    | { readonly kind: 'not_requested' }
+    | { readonly kind: 'requested'; readonly remainingUses: number };
   expected_origin?: string;
 };
 
-export type PasskeySessionExchangeInputWithoutEcdsaActivation = PasskeySessionExchangeInputCore & {
-  ecdsaSessionActivation?: never;
+export type PasskeyWalletUnlockInputWithoutEcdsaActivation = PasskeyWalletUnlockInputCore & {
+  ecdsaSessionPolicy?: never;
 };
 
-export type PasskeySessionExchangeInputWithEcdsaActivation = PasskeySessionExchangeInputCore & {
-  ecdsaSessionActivation: RouterAbEcdsaPostRegistrationSessionActivationRequestV1;
+export type PasskeyWalletUnlockInputWithEcdsaActivation = PasskeyWalletUnlockInputCore & {
+  walletId: string;
+  ecdsaSessionPolicy: RouterAbEcdsaPostRegistrationSessionActivationPolicyV1;
 };
 
-export type SessionExchangeInput =
-  | OidcSessionExchangeInput
-  | PasskeySessionExchangeInputWithoutEcdsaActivation
-  | PasskeySessionExchangeInputWithEcdsaActivation;
+export type PasskeyWalletUnlockInput =
+  | PasskeyWalletUnlockInputWithoutEcdsaActivation
+  | PasskeyWalletUnlockInputWithEcdsaActivation;
 
-type SessionExchangeFailure = {
+type WalletUnlockFailure = {
   success: false;
-  jwt?: never;
   sessionUserId?: never;
   sessionExpiresAt?: never;
   ecdsaSession?: never;
+  ed25519Session?: never;
+  walletCustody?: never;
   error: string;
 };
 
-type SessionExchangeSuccessCore = {
+type WalletUnlockSuccessCore = {
   success: true;
-  jwt?: string;
+  ed25519Session: PasskeyWalletUnlockEd25519Session | null;
   sessionUserId?: string;
   sessionExpiresAt?: string;
   error?: never;
 };
 
-export type SessionExchangeSuccessWithoutEcdsaActivation = SessionExchangeSuccessCore & {
+export type PasskeyWalletUnlockEd25519Session = {
+  readonly walletId: string;
+  readonly nearAccountId: string;
+  readonly nearEd25519SigningKeyId: string;
+  readonly relayerKeyId: string;
+  readonly participantIds: readonly [number, number];
+  readonly thresholdSessionId: ThresholdEd25519SessionId;
+  readonly authorizationId: WalletSessionAuthorizationId;
+  readonly walletSessionId: WalletSessionId;
+  readonly quotaId: MpcWalletSigningQuotaId;
+  readonly expiresAtMs: number;
+  readonly remainingUses: number;
+  readonly runtimePolicyScope: RuntimePolicyScope;
+  readonly routerAbNormalSigning: RouterAbEd25519NormalSigningState;
+  readonly walletSessionToken: string;
+};
+
+export type PasskeySessionCustodyUnlockV1 = {
+  readonly kind: 'wallet_custody_passkey_login_v1';
+  readonly envelope: PasskeyCustodyEnvelopeRecord;
+  readonly storeVersion: string;
+  readonly ed25519:
+    | { readonly kind: 'absent' }
+    | {
+        readonly kind: 'active';
+        readonly nearAccountId: string;
+        readonly nearEd25519SigningKeyId: string;
+        readonly signerSlot: number;
+        readonly publicKey: string;
+        readonly relayerKeyId: string;
+        readonly participantIds: readonly [number, number];
+        readonly capability: ParsedYaoRecoveryCapabilityV1;
+      };
+};
+
+export type PasskeySessionEcdsaCustodySignerV1 = {
+  readonly chainTarget: ThresholdEcdsaChainTarget;
+  readonly walletKey: {
+    readonly walletId: string;
+    readonly keyHandle: string;
+    readonly ecdsaThresholdKeyId: string;
+    readonly signingRootId: string;
+    readonly signingRootVersion: string;
+    readonly relayerKeyId: string;
+    readonly contextBinding32B64u: string;
+    readonly derivationClientSharePublicKey33B64u: string;
+    readonly participantIds: readonly [number, number];
+    readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
+  };
+  readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+  readonly runtimePolicyScope: RuntimePolicyScope;
+};
+
+export type PasskeySessionEcdsaCustodyContinuityV1 = {
+  readonly kind: 'wallet_custody_ecdsa_sync_continuity_v1';
+  readonly signers: readonly PasskeySessionEcdsaCustodySignerV1[];
+};
+
+export type WalletUnlockSuccessWithoutEcdsaActivation = WalletUnlockSuccessCore & {
   ecdsaSession?: never;
+  walletCustody?: never;
 };
 
-export type SessionExchangeSuccessWithEcdsaActivation = SessionExchangeSuccessCore & {
+export type WalletUnlockSuccessWithEcdsaActivation = WalletUnlockSuccessCore & {
   ecdsaSession: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
+  ecdsaActivationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+  ecdsaCustody: PasskeySessionEcdsaCustodyContinuityV1;
+  walletCustody: PasskeySessionCustodyUnlockV1;
 };
 
-export type SessionExchangeResult =
-  | SessionExchangeFailure
-  | SessionExchangeSuccessWithoutEcdsaActivation
-  | SessionExchangeSuccessWithEcdsaActivation;
-
-export type SessionExchangeResultFor<Input extends SessionExchangeInput> =
-  Input extends PasskeySessionExchangeInputWithEcdsaActivation
-    ? SessionExchangeFailure | SessionExchangeSuccessWithEcdsaActivation
-    : SessionExchangeFailure | SessionExchangeSuccessWithoutEcdsaActivation;
-
-export type SessionExchangeRuntimeScope =
-  | {
-      kind: 'unscoped';
-    }
-  | ({
-      kind: 'managed';
-    } & ManagedRuntimeScopeBootstrap);
-
-type SessionExchangeRequestBody =
-  | {
-      sessionKind: 'jwt' | 'cookie';
-      exchange: Record<string, unknown>;
-    }
-  | {
-      sessionKind: 'jwt' | 'cookie';
-      exchange: Record<string, unknown>;
-      projectEnvironmentId: string;
-    };
-
-type SessionExchangeRequestTransport = {
-  headers: Record<string, string>;
-  body: SessionExchangeRequestBody;
+export type PasskeyWalletUnlockSuccessWithoutEcdsaActivation = WalletUnlockSuccessCore & {
+  ecdsaSession?: never;
+  walletCustody: PasskeySessionCustodyUnlockV1;
 };
 
-function buildSessionExchangeRequestTransport(
-  sessionKind: 'jwt' | 'cookie',
-  exchange: Record<string, unknown>,
-  runtimeScope: SessionExchangeRuntimeScope,
-): SessionExchangeRequestTransport {
-  switch (runtimeScope.kind) {
-    case 'unscoped':
-      return {
-        headers: { 'Content-Type': 'application/json' },
-        body: { sessionKind, exchange },
-      };
-    case 'managed': {
-      const projectEnvironmentId = requireTrimmedString(
-        runtimeScope.projectEnvironmentId,
-        'runtimeScope.projectEnvironmentId',
-      );
-      const publishableKey = requireTrimmedString(
-        runtimeScope.publishableKey,
-        'runtimeScope.publishableKey',
-      );
-      return {
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${publishableKey}`,
-        },
-        body: { sessionKind, exchange, projectEnvironmentId },
-      };
-    }
-    default:
-      return assertNeverSessionExchangeRuntimeScope(runtimeScope);
+export type WalletUnlockResult =
+  | WalletUnlockFailure
+  | WalletUnlockSuccessWithoutEcdsaActivation
+  | PasskeyWalletUnlockSuccessWithoutEcdsaActivation
+  | WalletUnlockSuccessWithEcdsaActivation;
+
+export type WalletUnlockResultFor<Input extends PasskeyWalletUnlockInput> =
+  Input extends PasskeyWalletUnlockInputWithEcdsaActivation
+    ? WalletUnlockFailure | WalletUnlockSuccessWithEcdsaActivation
+    : WalletUnlockFailure | PasskeyWalletUnlockSuccessWithoutEcdsaActivation;
+
+function parsePasskeyWalletCustodyUnlockV1(raw: unknown): PasskeySessionCustodyUnlockV1 {
+  if (!isObject(raw) || raw.kind !== 'wallet_custody_passkey_login_v1') {
+    throw new Error('Passkey wallet unlock returned invalid custody data');
   }
+  if (!isObject(raw.ed25519)) {
+    throw new Error('Passkey wallet unlock omitted Ed25519 custody continuity');
+  }
+  if (raw.ed25519.kind === 'absent') {
+    return {
+      kind: 'wallet_custody_passkey_login_v1',
+      envelope: parsePasskeyCustodyEnvelopeRecord(raw.envelope),
+      storeVersion: requireTrimmedString(raw.storeVersion, 'walletCustody.storeVersion'),
+      ed25519: { kind: 'absent' },
+    };
+  }
+  if (raw.ed25519.kind !== 'active') {
+    throw new Error('Passkey wallet unlock returned invalid Ed25519 custody state');
+  }
+  const signerSlot = Number(raw.ed25519.signerSlot);
+  const participantIds = raw.ed25519.participantIds;
+  if (
+    !Number.isSafeInteger(signerSlot) ||
+    signerSlot < 1 ||
+    !Array.isArray(participantIds) ||
+    participantIds.length !== 2 ||
+    !participantIds.every((value) => Number.isSafeInteger(value) && Number(value) > 0) ||
+    participantIds[0] === participantIds[1]
+  ) {
+    throw new Error('Passkey wallet unlock returned invalid Ed25519 signer identity');
+  }
+  return {
+    kind: 'wallet_custody_passkey_login_v1',
+    envelope: parsePasskeyCustodyEnvelopeRecord(raw.envelope),
+    storeVersion: requireTrimmedString(raw.storeVersion, 'walletCustody.storeVersion'),
+    ed25519: {
+      kind: 'active',
+      nearAccountId: requireTrimmedString(
+        raw.ed25519.nearAccountId,
+        'walletCustody.ed25519.nearAccountId',
+      ),
+      nearEd25519SigningKeyId: requireTrimmedString(
+        raw.ed25519.nearEd25519SigningKeyId,
+        'walletCustody.ed25519.nearEd25519SigningKeyId',
+      ),
+      signerSlot,
+      publicKey: requireTrimmedString(raw.ed25519.publicKey, 'walletCustody.ed25519.publicKey'),
+      relayerKeyId: requireTrimmedString(
+        raw.ed25519.relayerKeyId,
+        'walletCustody.ed25519.relayerKeyId',
+      ),
+      participantIds: [Number(participantIds[0]), Number(participantIds[1])],
+      capability: parseEd25519YaoRecoveryCapabilityV1(raw.ed25519.capability),
+    },
+  };
 }
 
-function assertNeverSessionExchangeRuntimeScope(value: never): never {
-  throw new Error(`Unsupported session exchange runtime scope: ${JSON.stringify(value)}`);
+function parseSessionEcdsaChainTarget(value: unknown): ThresholdEcdsaChainTarget {
+  if (!isObject(value)) throw new Error('ECDSA custody chain target is invalid');
+  const kind = requireTrimmedString(value.kind, 'ecdsaCustody.chainTarget.kind');
+  const chainId = Number(value.chainId);
+  const networkSlug = requireTrimmedString(
+    value.networkSlug,
+    'ecdsaCustody.chainTarget.networkSlug',
+  );
+  if (!Number.isSafeInteger(chainId) || chainId < 0 || !networkSlug) {
+    throw new Error('ECDSA custody chain target is invalid');
+  }
+  if (kind === 'evm') {
+    if (value.namespace !== 'eip155') throw new Error('ECDSA custody EVM namespace is invalid');
+    return { kind: 'evm', namespace: 'eip155', chainId, networkSlug };
+  }
+  if (kind === 'tempo') return { kind: 'tempo', chainId, networkSlug };
+  throw new Error('ECDSA custody chain target kind is invalid');
 }
 
-export function exchangeSession<Input extends SessionExchangeInput>(
-  relayServerUrl: string,
-  routePath: string,
-  sessionKind: 'jwt' | 'cookie',
-  input: Input,
-  runtimeScope: SessionExchangeRuntimeScope,
-): Promise<SessionExchangeResultFor<Input>>;
-export async function exchangeSession(
-  relayServerUrl: string,
-  routePath: string,
-  sessionKind: 'jwt' | 'cookie',
-  input: SessionExchangeInput,
-  runtimeScope: SessionExchangeRuntimeScope,
-): Promise<SessionExchangeResult> {
-  try {
-    const exchangeType = String(input?.type || '')
-      .trim()
-      .toLowerCase();
-    let exchangeBody: Record<string, unknown>;
-
-    if (exchangeType === 'oidc_jwt') {
-      const token = String((input as { token?: unknown }).token || '').trim();
-      if (!token) throw new Error('Missing exchange token');
-      exchangeBody = {
-        type: 'oidc_jwt',
-        token,
-      };
-    } else if (exchangeType === 'passkey_assertion') {
-      const challengeId = String((input as { challengeId?: unknown }).challengeId || '').trim();
-      if (!challengeId) throw new Error('Missing passkey challengeId');
-
-      const webauthnAuthentication = (input as { webauthn_authentication?: unknown })
-        .webauthn_authentication;
-      if (!webauthnAuthentication || typeof webauthnAuthentication !== 'object') {
-        throw new Error('Missing webauthn_authentication');
-      }
-
-      const expectedOrigin = String(
-        (input as { expected_origin?: unknown }).expected_origin || '',
-      ).trim();
-
-      exchangeBody = {
-        type: 'passkey_assertion',
-        challengeId,
-        webauthn_authentication: redactCredentialExtensionOutputs(
-          webauthnAuthentication as WebAuthnAuthenticationCredential,
-        ),
-        ...(expectedOrigin ? { expected_origin: expectedOrigin } : {}),
-        ...(input.ecdsaSessionActivation
-          ? {
-              ecdsa_session_activation:
-                parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1(
-                  input.ecdsaSessionActivation,
-                ),
-            }
-          : {}),
-      };
-    } else {
-      throw new Error('Unsupported exchange.type');
+function parsePasskeySessionEcdsaCustodyContinuity(
+  raw: unknown,
+): PasskeySessionEcdsaCustodyContinuityV1 {
+  if (!isObject(raw) || raw.kind !== 'wallet_custody_ecdsa_sync_continuity_v1') {
+    throw new Error('Passkey wallet unlock returned invalid ECDSA custody continuity');
+  }
+  if (!Array.isArray(raw.signers)) {
+    throw new Error('Passkey wallet unlock returned invalid ECDSA custody signers');
+  }
+  const signers: PasskeySessionEcdsaCustodySignerV1[] = [];
+  for (const value of raw.signers) {
+    if (!isObject(value) || !isObject(value.walletKey)) {
+      throw new Error('Passkey wallet unlock returned invalid ECDSA custody signer');
     }
+    const walletKey = value.walletKey;
+    const participantIds = walletKey.participantIds;
+    if (
+      !Array.isArray(participantIds) ||
+      participantIds.length !== 2 ||
+      participantIds[0] !== 1 ||
+      participantIds[1] !== 2
+    ) {
+      throw new Error('Passkey wallet unlock returned invalid ECDSA custody participants');
+    }
+    signers.push({
+      chainTarget: parseSessionEcdsaChainTarget(value.chainTarget),
+      walletKey: {
+        walletId: requireTrimmedString(walletKey.walletId, 'ecdsaCustody.walletKey.walletId'),
+        keyHandle: requireTrimmedString(walletKey.keyHandle, 'ecdsaCustody.walletKey.keyHandle'),
+        ecdsaThresholdKeyId: requireTrimmedString(
+          walletKey.ecdsaThresholdKeyId,
+          'ecdsaCustody.walletKey.ecdsaThresholdKeyId',
+        ),
+        signingRootId: requireTrimmedString(
+          walletKey.signingRootId,
+          'ecdsaCustody.walletKey.signingRootId',
+        ),
+        signingRootVersion: requireTrimmedString(
+          walletKey.signingRootVersion,
+          'ecdsaCustody.walletKey.signingRootVersion',
+        ),
+        relayerKeyId: requireTrimmedString(
+          walletKey.relayerKeyId,
+          'ecdsaCustody.walletKey.relayerKeyId',
+        ),
+        contextBinding32B64u: requireTrimmedString(
+          walletKey.contextBinding32B64u,
+          'ecdsaCustody.walletKey.contextBinding32B64u',
+        ),
+        derivationClientSharePublicKey33B64u: requireTrimmedString(
+          walletKey.derivationClientSharePublicKey33B64u,
+          'ecdsaCustody.walletKey.derivationClientSharePublicKey33B64u',
+        ),
+        participantIds: [1, 2],
+        publicCapability: parseRouterAbEcdsaDerivationPublicCapabilityV1(
+          walletKey.publicCapability,
+        ),
+      },
+      activationReceipt: parseRouterAbEcdsaRegistrationActivationReceiptV1(value.activationReceipt),
+      runtimePolicyScope: normalizeRuntimePolicyScope(value.runtimePolicyScope),
+    });
+  }
+  if (signers.length === 0) throw new Error('Passkey wallet unlock omitted ECDSA custody signers');
+  return { kind: 'wallet_custody_ecdsa_sync_continuity_v1', signers };
+}
 
-    const normalizedRoutePath = String(routePath || '').trim();
-    const path = normalizedRoutePath
-      ? normalizedRoutePath.startsWith('/')
-        ? normalizedRoutePath
-        : `/${normalizedRoutePath}`
-      : '/';
-    const url = joinNormalizedUrl(relayServerUrl, path);
-    const requestTransport = buildSessionExchangeRequestTransport(
-      sessionKind,
-      exchangeBody,
-      runtimeScope,
-    );
+function parsePasskeyWalletUnlockEd25519Session(
+  raw: unknown,
+): PasskeyWalletUnlockEd25519Session | null {
+  if (raw === null) return null;
+  if (!isObject(raw)) throw new Error('Wallet unlock returned invalid Ed25519 session data');
+  const thresholdSessionId = parseThresholdEd25519SessionId(raw.thresholdSessionId);
+  const authorizationId = parseWalletSessionAuthorizationId(raw.authorizationId);
+  const walletSessionId = parseWalletSessionId(raw.walletSessionId);
+  const quotaId = parseMpcWalletSigningQuotaId(raw.quotaId);
+  const expiresAtMs = Number(raw.expiresAtMs);
+  const remainingUses = Number(raw.remainingUses);
+  const runtimePolicyScope = normalizeRuntimePolicyScope(raw.runtimePolicyScope);
+  const routerAbNormalSigning = requireRouterAbEd25519NormalSigningState(raw.routerAbNormalSigning);
+  const participantIds = raw.participantIds;
+  const walletSessionToken = requireTrimmedString(
+    raw.walletSessionToken,
+    'ed25519Session.walletSessionToken',
+  );
+  if (
+    !thresholdSessionId.ok ||
+    !authorizationId.ok ||
+    !walletSessionId.ok ||
+    !quotaId.ok ||
+    !Number.isSafeInteger(expiresAtMs) ||
+    expiresAtMs <= Date.now() ||
+    !Number.isSafeInteger(remainingUses) ||
+    remainingUses < 1 ||
+    !Array.isArray(participantIds) ||
+    participantIds.length !== 2 ||
+    !participantIds.every(
+      (participantId) => Number.isSafeInteger(participantId) && participantId > 0,
+    ) ||
+    participantIds[0] === participantIds[1]
+  ) {
+    throw new Error('Wallet unlock returned invalid Ed25519 session lifecycle');
+  }
+  return {
+    walletId: requireTrimmedString(raw.walletId, 'ed25519Session.walletId'),
+    nearAccountId: requireTrimmedString(raw.nearAccountId, 'ed25519Session.nearAccountId'),
+    nearEd25519SigningKeyId: requireTrimmedString(
+      raw.nearEd25519SigningKeyId,
+      'ed25519Session.nearEd25519SigningKeyId',
+    ),
+    relayerKeyId: requireTrimmedString(raw.relayerKeyId, 'ed25519Session.relayerKeyId'),
+    participantIds: [Number(participantIds[0]), Number(participantIds[1])],
+    thresholdSessionId: thresholdSessionId.value,
+    authorizationId: authorizationId.value,
+    walletSessionId: walletSessionId.value,
+    quotaId: quotaId.value,
+    expiresAtMs,
+    remainingUses,
+    runtimePolicyScope,
+    routerAbNormalSigning,
+    walletSessionToken,
+  };
+}
+
+export function verifyPasskeyWalletUnlock<Input extends PasskeyWalletUnlockInput>(
+  relayServerUrl: string,
+  input: Input,
+): Promise<WalletUnlockResultFor<Input>>;
+export async function verifyPasskeyWalletUnlock(
+  relayServerUrl: string,
+  input: PasskeyWalletUnlockInput,
+): Promise<WalletUnlockResult> {
+  try {
+    if (input.type !== 'passkey_assertion') {
+      throw new Error('Passkey wallet unlock requires a passkey assertion');
+    }
+    const challengeId = requireTrimmedString(input.challengeId, 'challengeId');
+    const webauthnAuthentication = input.webauthn_authentication;
+    const expectedOrigin = String(input.expected_origin || '').trim();
+    const body: Record<string, unknown> = {
+      unlockBackend: 'passkey',
+      challengeId,
+      ...('walletId' in input && input.walletId ? { walletId: input.walletId } : {}),
+      webauthn_authentication: redactCredentialExtensionOutputs(webauthnAuthentication),
+      ed25519SessionRequest: input.ed25519SessionRequest,
+      ...(expectedOrigin ? { expected_origin: expectedOrigin } : {}),
+      ...(input.ecdsaSessionPolicy
+        ? {
+            ecdsaSessionPolicy: parseRouterAbEcdsaPostRegistrationSessionActivationPolicyV1(
+              input.ecdsaSessionPolicy,
+            ),
+          }
+        : {}),
+    };
+    const url = joinNormalizedUrl(relayServerUrl, '/wallet/unlock/verify');
     const response = await fetch(url, {
       method: 'POST',
-      headers: requestTransport.headers,
-      credentials: sessionKind === 'cookie' ? 'include' : 'omit',
-      body: JSON.stringify(requestTransport.body),
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'omit',
+      body: JSON.stringify(body),
     });
 
     const dataJson: unknown = await response.json().catch(() => ({}));
@@ -431,48 +619,67 @@ export async function exchangeSession(
     if (data.ok !== true) {
       return {
         success: false,
-        error: typeof data.message === 'string' ? data.message : 'Session exchange failed',
+        error:
+          typeof data.message === 'string' ? data.message : 'Wallet unlock verification failed',
       };
     }
-
-    const sessionObj = isObject(data.session) ? data.session : null;
-    const sessionUserId =
-      sessionObj && typeof sessionObj.userId === 'string' ? String(sessionObj.userId) : undefined;
-    const sessionExpiresAt =
-      sessionObj && typeof sessionObj.expiresAt === 'string'
-        ? String(sessionObj.expiresAt)
-        : undefined;
-    const jwt = typeof data.jwt === 'string' ? data.jwt : undefined;
     const requestedEcdsaActivation =
-      input.type === 'passkey_assertion' && input.ecdsaSessionActivation !== undefined;
+      input.type === 'passkey_assertion' && input.ecdsaSessionPolicy !== undefined;
+    const ed25519Session = parsePasskeyWalletUnlockEd25519Session(data.ed25519Session);
+    if (input.ed25519SessionRequest.kind === 'requested' && !ed25519Session) {
+      throw new Error('Wallet unlock omitted the requested Ed25519 Wallet Session');
+    }
+    if (input.ed25519SessionRequest.kind === 'not_requested' && ed25519Session) {
+      throw new Error('Wallet unlock returned an unrequested Ed25519 Wallet Session');
+    }
+    const walletCustody = parsePasskeyWalletCustodyUnlockV1(data.walletCustody);
     let ecdsaSession: RouterAbEcdsaPostRegistrationSessionActivationResponseV1 | undefined;
+    let ecdsaActivationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1 | undefined;
+    let ecdsaCustody: PasskeySessionEcdsaCustodyContinuityV1 | undefined;
     if (requestedEcdsaActivation) {
       if (data.ecdsaSession === undefined) {
-        throw new Error('Session exchange omitted the requested ECDSA Wallet Session activation');
+        throw new Error('Wallet unlock omitted the requested ECDSA Wallet Session activation');
       }
       ecdsaSession = parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1(
         data.ecdsaSession,
       );
+      if (data.ecdsaActivationReceipt === undefined || data.ecdsaCustody === undefined) {
+        throw new Error('Wallet unlock omitted ECDSA custody continuity');
+      }
+      ecdsaActivationReceipt = parseRouterAbEcdsaRegistrationActivationReceiptV1(
+        data.ecdsaActivationReceipt,
+      );
+      ecdsaCustody = parsePasskeySessionEcdsaCustodyContinuity(data.ecdsaCustody);
+      if (!walletCustody) {
+        throw new Error('Wallet unlock omitted wallet custody for ECDSA activation');
+      }
     } else if (data.ecdsaSession !== undefined) {
-      throw new Error('Session exchange returned an unrequested ECDSA Wallet Session activation');
+      throw new Error('Wallet unlock returned an unrequested ECDSA Wallet Session activation');
     }
-    if (ecdsaSession) {
+    if (ecdsaSession && ecdsaActivationReceipt && ecdsaCustody && walletCustody) {
       return {
         success: true,
-        ...(sessionUserId ? { sessionUserId } : {}),
-        ...(sessionExpiresAt ? { sessionExpiresAt } : {}),
-        ...(jwt ? { jwt } : {}),
         ecdsaSession,
+        ecdsaActivationReceipt,
+        ecdsaCustody,
+        ed25519Session,
+        walletCustody,
+      };
+    }
+    if (walletCustody) {
+      return {
+        success: true,
+        ed25519Session,
+        walletCustody,
       };
     }
     return {
       success: true,
-      ...(sessionUserId ? { sessionUserId } : {}),
-      ...(sessionExpiresAt ? { sessionExpiresAt } : {}),
-      ...(jwt ? { jwt } : {}),
+      ed25519Session,
+      walletCustody,
     };
   } catch (error: unknown) {
-    return { success: false, error: errorMessage(error) || 'Failed to exchange session token' };
+    return { success: false, error: errorMessage(error) || 'Failed to verify wallet unlock' };
   }
 }
 
@@ -492,106 +699,3 @@ export interface AuthenticatorsResult {
 // The lite relayer stack no longer stores authenticators on-chain, but some older helpers/tests
 // still reference this type via `AuthenticatorsResult`.
 export type ContractStoredAuthenticator = Record<string, unknown>;
-
-export type RecoveryAttemptStatus =
-  | 'Started'
-  | 'VerifyingDkim'
-  | 'DkimFailed'
-  | 'PolicyFailed'
-  | 'Recovering'
-  | 'AwaitingMoreEmails'
-  | 'Complete'
-  | 'Failed';
-
-export type RecoveryAttempt = {
-  request_id: string;
-  status: RecoveryAttemptStatus | string;
-  created_at_ms: number;
-  updated_at_ms: number;
-  error?: string | null;
-  /**
-   * 32-byte SHA-256 hash of "<canonical_from>|<account_id_lower>".
-   * Returned by newer EmailRecoverer contracts (replaces `from_address`).
-   */
-  from_address_hash?: number[] | null;
-  /** Legacy field (string email address). */
-  from_address?: string | null;
-  email_timestamp_ms?: number | null;
-  newPublicKey?: string | null;
-};
-
-function normalizeByteArray(input: unknown): number[] | null | undefined {
-  if (input == null) return input as null | undefined;
-
-  if (Array.isArray(input)) {
-    return input.map((v) => Number(v)).filter((v) => Number.isFinite(v));
-  }
-
-  if (typeof input === 'string' && input) {
-    try {
-      const bytes =
-        typeof Buffer !== 'undefined'
-          ? Buffer.from(input, 'base64')
-          : Uint8Array.from(atob(input), (c) => c.charCodeAt(0));
-      const arr =
-        bytes instanceof Uint8Array ? Array.from(bytes) : Array.from(new Uint8Array(bytes));
-      return arr;
-    } catch {
-      return undefined;
-    }
-  }
-
-  return undefined;
-}
-
-export async function getEmailRecoveryAttempt(
-  nearClient: NearClient,
-  accountId: string,
-  requestId: string,
-): Promise<RecoveryAttempt | null> {
-  const raw = await nearClient.view<
-    { request_id: string },
-    | (Omit<RecoveryAttempt, 'status' | 'from_address_hash'> & {
-        status: unknown;
-        from_address_hash?: unknown;
-      })
-    | null
-  >({
-    account: accountId,
-    method: 'get_recovery_attempt',
-    args: { request_id: requestId },
-  });
-
-  if (!raw) return null;
-
-  // Normalization logic for status (string or object enum)
-  const statusRaw = raw.status;
-  const fromAddressHashRaw = raw.from_address_hash;
-  const status = (() => {
-    if (typeof statusRaw === 'string') return statusRaw.trim();
-    if (statusRaw && typeof statusRaw === 'object') {
-      const keys = Object.keys(statusRaw as Record<string, unknown>);
-      if (keys.length === 1) {
-        return String(keys[0] || '').trim();
-      }
-    }
-    return '';
-  })();
-
-  const from_address_hash = (() => {
-    const normalized = normalizeByteArray(fromAddressHashRaw);
-    if (normalized !== undefined) return normalized;
-    if (fromAddressHashRaw == null) return fromAddressHashRaw;
-    return undefined;
-  })();
-
-  return {
-    ...raw,
-    from_address_hash,
-    newPublicKey:
-      typeof (raw as Record<string, unknown>).new_public_key === 'string'
-        ? String((raw as Record<string, unknown>).new_public_key || '')
-        : (raw.newPublicKey ?? null),
-    status: status as RecoveryAttemptStatus,
-  };
-}

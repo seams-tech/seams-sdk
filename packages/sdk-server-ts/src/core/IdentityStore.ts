@@ -1,7 +1,6 @@
 import type { NormalizedLogger } from './logger';
 import type { CloudflareDurableObjectNamespaceLike, ThresholdStoreConfigInput } from './types';
 import { THRESHOLD_DO_OBJECT_NAME_DEFAULT, THRESHOLD_PREFIX_DEFAULT } from './defaultConfigsServer';
-import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { isObject as isObjectLoose, toOptionalTrimmedString } from '@shared/utils/validation';
 import {
   RedisTcpClient,
@@ -38,14 +37,6 @@ export type IdentityUserRecord = {
   updatedAtMs: number;
 };
 
-export type AppSessionVersionRecord = {
-  version: 'app_session_version_v1';
-  userId: string;
-  appSessionVersion: string;
-  createdAtMs: number;
-  updatedAtMs: number;
-};
-
 export type LinkIdentityResult =
   | { ok: true; movedFromUserId?: string }
   | { ok: false; code: string; message: string };
@@ -69,20 +60,6 @@ export interface IdentityStore {
     subject: string;
   }): Promise<UnlinkIdentityResult>;
 
-  /**
-   * Returns the current app session version for a user.
-   * This enables server-side revocation of otherwise stateless JWT sessions.
-   */
-  getAppSessionVersionByUserId(userId: string): Promise<string | null>;
-  /**
-   * Returns the current app session version or creates one if missing.
-   */
-  ensureAppSessionVersionByUserId(userId: string): Promise<string>;
-  /**
-   * Rotates the app session version and returns the new value.
-   * Any existing app-session JWTs with the previous version become invalid.
-   */
-  rotateAppSessionVersionByUserId(userId: string): Promise<string>;
 }
 
 function isObject(v: unknown): v is Record<string, unknown> {
@@ -104,10 +81,6 @@ export function resolveIdentityStoreNamespace(config: Record<string, unknown>): 
   const base = toOptionalTrimmedString(config.THRESHOLD_PREFIX) || THRESHOLD_PREFIX_DEFAULT;
   const baseWithColon = toPrefixWithColon(base, `${THRESHOLD_PREFIX_DEFAULT}:`);
   return `${baseWithColon}identity:`;
-}
-
-function generateAppSessionVersion(): string {
-  return secureRandomBase64Url(32, 'app session versions');
 }
 
 function parseIdentitySubjectRecord(raw: unknown): IdentitySubjectRecord | null {
@@ -159,28 +132,6 @@ function parseIdentityUserRecord(raw: unknown): IdentityUserRecord | null {
   };
 }
 
-function parseAppSessionVersionRecord(raw: unknown): AppSessionVersionRecord | null {
-  if (!isObject(raw)) return null;
-  const version = toOptionalTrimmedString(raw.version);
-  const userId = toOptionalTrimmedString(raw.userId);
-  const appSessionVersion = toOptionalTrimmedString(raw.appSessionVersion);
-  const createdAtMsRaw = (raw as { createdAtMs?: unknown }).createdAtMs;
-  const updatedAtMsRaw = (raw as { updatedAtMs?: unknown }).updatedAtMs;
-  const createdAtMs = typeof createdAtMsRaw === 'number' ? createdAtMsRaw : Number(createdAtMsRaw);
-  const updatedAtMs = typeof updatedAtMsRaw === 'number' ? updatedAtMsRaw : Number(updatedAtMsRaw);
-  if (version !== 'app_session_version_v1') return null;
-  if (!userId || !appSessionVersion) return null;
-  if (!Number.isFinite(createdAtMs) || createdAtMs <= 0) return null;
-  if (!Number.isFinite(updatedAtMs) || updatedAtMs <= 0) return null;
-  return {
-    version: 'app_session_version_v1',
-    userId,
-    appSessionVersion,
-    createdAtMs: Math.floor(createdAtMs),
-    updatedAtMs: Math.floor(updatedAtMs),
-  };
-}
-
 function requireD1ScopeString(input: unknown, field: string): string {
   const normalized = toOptionalTrimmedString(input);
   if (!normalized) throw new Error(`${field} is required for D1 identity store`);
@@ -203,7 +154,6 @@ class InMemoryIdentityStore implements IdentityStore {
   private readonly prefix: string;
   private readonly subjectToUser = new Map<string, IdentitySubjectRecord>();
   private readonly userToSubjects = new Map<string, IdentityUserRecord>();
-  private readonly userToAppSessionVersion = new Map<string, AppSessionVersionRecord>();
 
   constructor(prefix: string) {
     this.prefix = prefix;
@@ -215,10 +165,6 @@ class InMemoryIdentityStore implements IdentityStore {
 
   private userKey(userId: string): string {
     return `${this.prefix}user:${userId}`;
-  }
-
-  private appSessionVersionKey(userId: string): string {
-    return `${this.prefix}app_session_version:${userId}`;
   }
 
   async getUserIdBySubject(subject: string): Promise<string | null> {
@@ -390,49 +336,6 @@ class InMemoryIdentityStore implements IdentityStore {
     return { ok: true };
   }
 
-  async getAppSessionVersionByUserId(userId: string): Promise<string | null> {
-    const uid = toOptionalTrimmedString(userId);
-    if (!uid) return null;
-    return (
-      this.userToAppSessionVersion.get(this.appSessionVersionKey(uid))?.appSessionVersion || null
-    );
-  }
-
-  async ensureAppSessionVersionByUserId(userId: string): Promise<string> {
-    const uid = toOptionalTrimmedString(userId);
-    if (!uid) throw new Error('Missing userId');
-    const existing = this.userToAppSessionVersion.get(this.appSessionVersionKey(uid)) || null;
-    if (existing?.appSessionVersion) return existing.appSessionVersion;
-
-    const now = Date.now();
-    const appSessionVersion = generateAppSessionVersion();
-    const record: AppSessionVersionRecord = {
-      version: 'app_session_version_v1',
-      userId: uid,
-      appSessionVersion,
-      createdAtMs: now,
-      updatedAtMs: now,
-    };
-    this.userToAppSessionVersion.set(this.appSessionVersionKey(uid), record);
-    return appSessionVersion;
-  }
-
-  async rotateAppSessionVersionByUserId(userId: string): Promise<string> {
-    const uid = toOptionalTrimmedString(userId);
-    if (!uid) throw new Error('Missing userId');
-    const existing = this.userToAppSessionVersion.get(this.appSessionVersionKey(uid)) || null;
-    const now = Date.now();
-    const appSessionVersion = generateAppSessionVersion();
-    const record: AppSessionVersionRecord = {
-      version: 'app_session_version_v1',
-      userId: uid,
-      appSessionVersion,
-      createdAtMs: existing?.createdAtMs || now,
-      updatedAtMs: now,
-    };
-    this.userToAppSessionVersion.set(this.appSessionVersionKey(uid), record);
-    return appSessionVersion;
-  }
 }
 
 type DurableObjectStubLike = { fetch(input: RequestInfo, init?: RequestInit): Promise<Response> };
@@ -518,10 +421,6 @@ abstract class KvBackedIdentityStore implements IdentityStore {
 
   protected userKey(userId: string): string {
     return `${this.prefix}user:${userId}`;
-  }
-
-  protected appSessionVersionKey(userId: string): string {
-    return `${this.prefix}app_session_version:${userId}`;
   }
 
   protected abstract getJson(key: string): Promise<unknown | null>;
@@ -698,55 +597,6 @@ abstract class KvBackedIdentityStore implements IdentityStore {
     return { ok: true };
   }
 
-  async getAppSessionVersionByUserId(userId: string): Promise<string | null> {
-    const uid = toOptionalTrimmedString(userId);
-    if (!uid) return null;
-    const raw = await this.getJson(this.appSessionVersionKey(uid));
-    const parsed = parseAppSessionVersionRecord(raw);
-    return parsed?.appSessionVersion || null;
-  }
-
-  async ensureAppSessionVersionByUserId(userId: string): Promise<string> {
-    const uid = toOptionalTrimmedString(userId);
-    if (!uid) throw new Error('Missing userId');
-
-    const existing = parseAppSessionVersionRecord(
-      await this.getJson(this.appSessionVersionKey(uid)),
-    );
-    if (existing?.appSessionVersion) return existing.appSessionVersion;
-
-    const now = Date.now();
-    const appSessionVersion = generateAppSessionVersion();
-    await this.setJson(this.appSessionVersionKey(uid), {
-      version: 'app_session_version_v1',
-      userId: uid,
-      appSessionVersion,
-      createdAtMs: now,
-      updatedAtMs: now,
-    } satisfies AppSessionVersionRecord);
-
-    const reread = parseAppSessionVersionRecord(await this.getJson(this.appSessionVersionKey(uid)));
-    return reread?.appSessionVersion || appSessionVersion;
-  }
-
-  async rotateAppSessionVersionByUserId(userId: string): Promise<string> {
-    const uid = toOptionalTrimmedString(userId);
-    if (!uid) throw new Error('Missing userId');
-
-    const existing = parseAppSessionVersionRecord(
-      await this.getJson(this.appSessionVersionKey(uid)),
-    );
-    const now = Date.now();
-    const appSessionVersion = generateAppSessionVersion();
-    await this.setJson(this.appSessionVersionKey(uid), {
-      version: 'app_session_version_v1',
-      userId: uid,
-      appSessionVersion,
-      createdAtMs: existing?.createdAtMs || now,
-      updatedAtMs: now,
-    } satisfies AppSessionVersionRecord);
-    return appSessionVersion;
-  }
 }
 
 class UpstashRedisRestIdentityStore extends KvBackedIdentityStore {

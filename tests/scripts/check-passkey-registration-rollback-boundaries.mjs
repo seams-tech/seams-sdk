@@ -75,7 +75,7 @@ function collectRollbackStateViolations() {
     violations,
   );
 
-  requireContains(rollbackBlock, 'pending?.dispose()', registrationPath, violations);
+  requireContains(rollbackBlock, 'zeroizeArrayBuffer(factorSecret)', registrationPath, violations);
   requireContains(rollbackBlock, 'persistedMaterialTarget', registrationPath, violations);
   requireContains(rollbackBlock, 'persistedSignerRollbackReceipt', registrationPath, violations);
   requireContains(
@@ -106,7 +106,12 @@ function collectPasskeyRegistrationHelperViolations() {
     violations,
   );
 
-  requireContains(functionBlock, 'return await this.registerWalletDomain({', seamsWebPath, violations);
+  requireContains(
+    functionBlock,
+    'return await this.registerWalletDomain({',
+    seamsWebPath,
+    violations,
+  );
   requireContains(
     functionBlock,
     'buildNearWalletRegistrationSignerSetSelection',

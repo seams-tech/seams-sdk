@@ -37,7 +37,7 @@ import type {
   CanonicalEvmFamilyEcdsaSigningCapability,
 } from '../../session/material/ecdsaSigningCapability';
 import { authorizeEvmFamilyEcdsaSigningCapability } from '../../session/material/ecdsaSigningCapability';
-import { walletSessionJwtForCurve } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { walletSessionTokenForCurve } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 
 export async function hydrateEcdsaRoleLocalMaterialForSigning(args: {
   persistedMaterial: PersistedEcdsaRoleLocalMaterial;
@@ -93,8 +93,7 @@ export type HydratedSecp256k1SigningMaterialResolution =
  * runtime supplies normal-signing state, policy scope, and transport, and any
  * reusable Wallet Session remains a separate authorization input.
  *
- * Nothing is decoded out of the Wallet Session JWT. The JWT is a bearer
- * credential here and nothing more: the facts it used to carry are owned by
+ * Nothing is decoded out of the opaque Wallet Session token. The facts it authorizes are owned by
  * the manifest and durable material record, which are correlated before this
  * function receives the runtime. */
 export async function resolveHydratedSecp256k1SigningMaterial(args: {
@@ -264,8 +263,8 @@ export function attachReusableEcdsaWalletSessionAuthorization(args: {
       'Reusable Wallet Session authorization wallet does not match hydrated material',
     );
   }
-  const walletSessionJwt = walletSessionJwtForCurve(projection, 'ecdsa');
-  if (!walletSessionJwt) {
+  const walletSessionToken = walletSessionTokenForCurve(projection, 'ecdsa');
+  if (!walletSessionToken) {
     throw new Error('Reusable Wallet Session authorization is unavailable');
   }
   return buildReadySecp256k1SigningMaterial({
@@ -276,8 +275,8 @@ export function attachReusableEcdsaWalletSessionAuthorization(args: {
       wallet_session_id: projection.walletSessionId,
     },
     credential: {
-      kind: 'reusable_wallet_session_jwt',
-      walletSessionJwt,
+      kind: 'reusable_wallet_session',
+      walletSessionToken,
     },
     expiresAtMs: authorized.authorization.status.expiresAtMs,
     singleUseEmailOtpSession: false,

@@ -1,467 +1,409 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect } from 'react';
+import type { LinkedDeviceSummaryV1 } from '@shared/device-linking';
+import { Theme, useTheme } from '../theme';
 import { useSeams } from '../../context';
 import './LinkedDevicesModal.css';
-import { useTheme, Theme } from '../theme';
-import {
-  nearAccountRefFromAccountId,
-  walletSessionRefFromSession,
-} from '../../../core/signingEngine/interfaces/ecdsaChainTarget';
 
-interface LinkedDevicesModalProps {
-  walletId: string;
-  nearAccountId: string;
+export interface LinkedDevicesModalProps {
+  walletId: string | null;
   isOpen: boolean;
   onClose: () => void;
 }
 
-type RouterApiAuthenticatorRow = {
-  signerSlot?: number;
-  publicKey?: string;
-};
+type LinkedDevicesLoadState =
+  | { kind: 'idle' }
+  | { kind: 'loading' }
+  | { kind: 'loaded'; devices: readonly LinkedDeviceSummaryV1[] }
+  | { kind: 'error' };
+
+type RevokeState =
+  | { kind: 'idle' }
+  | { kind: 'confirming'; deviceId: string }
+  | { kind: 'working'; deviceId: string }
+  | { kind: 'error'; message: string };
+
+/** Revoked devices are historical records, not devices the owner can manage. */
+function visibleLinkedDevices(
+  devices: readonly LinkedDeviceSummaryV1[],
+): readonly LinkedDeviceSummaryV1[] {
+  return devices.filter((device) => device.state !== 'revoked');
+}
+
+/**
+ * Plain-language state for one device. The wire model carries five states and a
+ * revocation epoch; a person only needs to know whether the device can still
+ * reach the wallet right now.
+ */
+function deviceStanding(device: LinkedDeviceSummaryV1): {
+  readonly label: string;
+  readonly tone: 'active' | 'pending' | 'off';
+} {
+  switch (device.state) {
+    case 'active':
+      return { label: 'Can use this wallet', tone: 'active' };
+    case 'provisioning':
+      return { label: 'Finishing setup', tone: 'pending' };
+    case 'suspended':
+      return { label: 'Paused', tone: 'off' };
+    case 'expired':
+      return { label: 'Expired', tone: 'off' };
+    case 'revoked':
+      return { label: 'Removed', tone: 'off' };
+  }
+}
+
+/** "today" / "yesterday" / a plain date — never a timestamp with seconds. */
+function friendlyDay(value: number, now: number): string {
+  const then = new Date(value);
+  const startOfToday = new Date(now);
+  startOfToday.setHours(0, 0, 0, 0);
+  const dayMs = 24 * 60 * 60 * 1000;
+  const daysAgo = Math.floor((startOfToday.getTime() - then.setHours(0, 0, 0, 0)) / dayMs);
+  if (daysAgo <= 0) return 'today';
+  if (daysAgo === 1) return 'yesterday';
+  if (daysAgo < 7) return `${daysAgo} days ago`;
+  return new Date(value).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+function shortDeviceId(deviceId: LinkedDeviceSummaryV1['deviceId']): string {
+  const value = String(deviceId);
+  return value.length <= 12 ? value : `…${value.slice(-8)}`;
+}
+
+/**
+ * The one description the card heading, the removal confirmation, and every
+ * live announcement share. Credential labels repeat across cards — two platform
+ * passkeys are both "Platform passkey" — so the stable device ID suffix is what
+ * makes a sentence name a single card rather than a category of them.
+ */
+function deviceDescription(device: LinkedDeviceSummaryV1): string {
+  return `${device.label} (ID ${shortDeviceId(device.deviceId)})`;
+}
+
+function devicePlatformDescription(device: LinkedDeviceSummaryV1): string {
+  switch (device.platform) {
+    case 'platform':
+    case 'internal':
+      return 'Built into device';
+    case 'cross-platform':
+      return 'External';
+    case 'hybrid':
+    case 'cable':
+      return 'Nearby device';
+    case 'usb':
+      return 'USB';
+    case 'nfc':
+      return 'NFC';
+    case 'ble':
+      return 'Bluetooth';
+    case 'smart-card':
+      return 'Smart card';
+    case 'unspecified':
+      return 'Passkey';
+    default:
+      return device.platform;
+  }
+}
+
+function focusableDialogElements(dialog: HTMLElement): HTMLElement[] {
+  return Array.from(
+    dialog.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    ),
+  );
+}
 
 export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
   walletId,
-  nearAccountId,
   isOpen,
   onClose,
 }) => {
-  const { seams, loginState, viewAccessKeyList } = useSeams();
+  const { seams } = useSeams();
+  const [loadState, setLoadState] = React.useState<LinkedDevicesLoadState>({ kind: 'idle' });
+  const [revokeState, setRevokeState] = React.useState<RevokeState>({ kind: 'idle' });
+  const [announcement, setAnnouncement] = React.useState('');
+  /** Device IDs are identifiers, not secrets, but printing one in full by
+   * default buries the rest of the card. One card at a time may expand. */
+  const [expandedDeviceId, setExpandedDeviceId] = React.useState<string | null>(null);
+  const loadSeq = React.useRef(0);
+  const dialogRef = React.useRef<HTMLDivElement>(null);
+  const closeButtonRef = React.useRef<HTMLButtonElement>(null);
+  const previousFocusRef = React.useRef<HTMLElement | null>(null);
   const { theme, tokens } = useTheme();
   const scopedTokens = React.useMemo(
     () => (theme === 'dark' ? { dark: tokens } : { light: tokens }),
     [theme, tokens],
   );
-  const pageSize = 3;
-  // Authenticators list: credentialId + signer slot
-  const [authRows, setAuthRows] = useState<
-    Array<{
-      credentialId: string;
-      signerSlot: number;
-      nearPublicKey: string | null;
-    }>
-  >([
-    {
-      credentialId: 'placeholder',
-      signerSlot: 0,
-      nearPublicKey: null,
-    },
-  ]);
-  const [page, setPage] = useState(0);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [tooltipVisible, setTooltipVisible] = useState<number | null>(null);
-  const [currentSignerSlot, setCurrentSignerSlot] = useState<number | null>(null);
 
-  useEffect(() => {
-    if (isOpen) {
-      setPage(0);
-      loadAuthenticators();
-    }
-  }, [isOpen, walletId, nearAccountId]);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    setPage(0);
-  }, [isOpen, authRows.length]);
-
-  // Close on ESC press while modal is open
-  useEffect(() => {
-    if (!isOpen) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' || e.key === 'Esc') {
-        e.preventDefault();
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [isOpen, onClose]);
-
-  const loadAuthenticators = async () => {
-    if (!seams) return;
-
-    setIsLoading(true);
-    setError(null);
-
+  const loadDevices = React.useCallback(async () => {
+    if (!walletId) return;
+    const seq = loadSeq.current + 1;
+    loadSeq.current = seq;
+    setLoadState({ kind: 'loading' });
     try {
-      // Resolve current signer slot for highlighting
-      let currentSignerSlotFromState: number | null = null;
-      try {
-        const session = await seams.auth.getWalletSession(walletId);
-        const slot =
-          session.appIdentity.kind === 'resolved'
-            ? session.appIdentity.userData?.signerSlot
-            : undefined;
-        currentSignerSlotFromState =
-          typeof slot === 'number' && Number.isFinite(slot) ? Math.floor(slot) : null;
-      } catch {
-        currentSignerSlotFromState = null;
+      const result = await seams.devices.listLinkedDevices({ walletId, limit: 50, cursor: null });
+      if (loadSeq.current === seq) {
+        setLoadState({ kind: 'loaded', devices: visibleLinkedDevices(result.devices) });
       }
-      setCurrentSignerSlot(currentSignerSlotFromState);
+    } catch {
+      if (loadSeq.current === seq) setLoadState({ kind: 'error' });
+    }
+  }, [seams, walletId]);
 
-      const keys = await viewAccessKeyList({
-        walletSession: walletSessionRefFromSession({
-          walletId,
-          walletSessionUserId: walletId,
-        }),
-        nearAccount: nearAccountRefFromAccountId(nearAccountId),
-      });
+  const handleDialogKeyDown = React.useCallback(
+    (event: KeyboardEvent) => {
+      if (event.key === 'Escape' || event.key === 'Esc') {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab' || !dialogRef.current) return;
+      const focusable = focusableDialogElements(dialogRef.current);
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialogRef.current.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    },
+    [onClose],
+  );
 
-      const keyMetaByPublicKey = new Map<string, { signerSlot?: number }>();
+  useEffect(() => {
+    if (!isOpen) return;
+    previousFocusRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    closeButtonRef.current?.focus();
+    window.addEventListener('keydown', handleDialogKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleDialogKeyDown);
+      previousFocusRef.current?.focus();
+      previousFocusRef.current = null;
+    };
+  }, [handleDialogKeyDown, isOpen]);
 
-      // Best-effort: fetch signer metadata from relay-private WebAuthn stores (auth-protected).
-      // This annotates access keys with signer slots.
-      const relayMetaByPublicKey = new Map<string, RouterApiAuthenticatorRow>();
+  useEffect(() => {
+    if (!isOpen) {
+      loadSeq.current += 1;
+      setLoadState({ kind: 'idle' });
+      setRevokeState({ kind: 'idle' });
+      setAnnouncement('');
+      setExpandedDeviceId(null);
+      return;
+    }
+    void loadDevices();
+  }, [isOpen, loadDevices]);
+
+  const revokeDevice = React.useCallback(
+    async (device: LinkedDeviceSummaryV1) => {
+      if (!walletId) return;
+      const deviceId = String(device.deviceId);
+      const description = deviceDescription(device);
+      setRevokeState({ kind: 'working', deviceId });
+      setAnnouncement(`Removing ${description}…`);
       try {
-        const relayerUrl = String((seams as any)?.configs?.network.relayer?.url || '')
-          .trim()
-          .replace(/\/$/, '');
-        if (relayerUrl) {
-          // Prefer the dedicated key metadata endpoint when available.
-          try {
-            const resp = await fetch(`${relayerUrl}/near/public-keys`, {
-              method: 'GET',
-              credentials: 'include',
+        const result = await seams.devices.revokeLinkedDevice({
+          walletId,
+          deviceId,
+          requestedAtMs: Date.now(),
+        });
+        switch (result.kind) {
+          case 'revoked':
+          case 'replayed':
+            setRevokeState({ kind: 'idle' });
+            setAnnouncement(`${description} can no longer use this wallet.`);
+            await loadDevices();
+            return;
+          case 'not_found':
+            setRevokeState({ kind: 'idle' });
+            setAnnouncement(`${description} was already removed.`);
+            await loadDevices();
+            return;
+          case 'conflict':
+            setRevokeState({
+              kind: 'error',
+              message: 'Something changed on that device. Try again.',
             });
-            const json = await resp.json().catch(() => ({}) as any);
-            const list =
-              resp.ok && json?.ok === true && Array.isArray(json?.keys) ? (json.keys as any[]) : [];
-            for (const row of list) {
-              const pk = typeof row?.publicKey === 'string' ? row.publicKey.trim() : '';
-              if (!pk) continue;
-              const signerSlot =
-                typeof row?.signerSlot === 'number' && Number.isFinite(row.signerSlot)
-                  ? Math.floor(row.signerSlot)
-                  : undefined;
-              keyMetaByPublicKey.set(pk, {
-                ...(signerSlot ? { signerSlot } : {}),
-              });
-            }
-          } catch {
-            // ignore
-          }
-
-          const rpIdOverride = String((seams as any)?.configs?.rpIdOverride || '').trim();
-          const rpId =
-            rpIdOverride ||
-            (typeof window !== 'undefined' ? String(window.location.hostname || '').trim() : '');
-          const url = `${relayerUrl}/webauthn/authenticators${rpId ? `?rpId=${encodeURIComponent(rpId)}` : ''}`;
-          const resp = await fetch(url, { method: 'GET', credentials: 'include' });
-          const json = await resp.json().catch(() => ({}) as any);
-          const list: RouterApiAuthenticatorRow[] =
-            resp.ok && json?.ok === true && Array.isArray(json?.authenticators)
-              ? json.authenticators
-              : [];
-          for (const row of list) {
-            const pk = typeof row?.publicKey === 'string' ? row.publicKey.trim() : '';
-            if (!pk) continue;
-            relayMetaByPublicKey.set(pk, row);
-          }
+            await loadDevices();
+            return;
+          case 'unauthorized':
+            setRevokeState({
+              kind: 'error',
+              message: 'You need to unlock this wallet before removing a device.',
+            });
+            return;
         }
       } catch {
-        // Ignore Router API metadata failures; fallback is pure on-chain access key listing.
+        setRevokeState({ kind: 'error', message: "Couldn't remove that device. Try again." });
       }
-
-      const currentKey = loginState?.nearPublicKey || null;
-
-      const nextSignerSlot = (() => {
-        let next = 1;
-        return () => {
-          while (currentSignerSlotFromState != null && next === currentSignerSlotFromState)
-            next++;
-          return next++;
-        };
-      })();
-
-      const rows: Array<{
-        credentialId: string;
-        signerSlot: number;
-        nearPublicKey: string | null;
-      }> = [];
-      const items = Array.isArray((keys as any)?.keys)
-        ? ((keys as any).keys as Array<{ public_key?: unknown }>)
-        : [];
-      for (const item of items) {
-        const publicKey = typeof item?.public_key === 'string' ? item.public_key : null;
-        const isCurrent = !!publicKey && !!currentKey && publicKey === currentKey;
-        const keyMeta = publicKey ? keyMetaByPublicKey.get(publicKey) : undefined;
-        const relayMeta = publicKey ? relayMetaByPublicKey.get(publicKey) : undefined;
-        const metaSignerSlot =
-          keyMeta &&
-          typeof keyMeta.signerSlot === 'number' &&
-          Number.isFinite(keyMeta.signerSlot)
-            ? Math.floor(keyMeta.signerSlot)
-            : null;
-        const relaySignerSlot =
-          relayMeta &&
-          typeof relayMeta.signerSlot === 'number' &&
-          Number.isFinite(relayMeta.signerSlot)
-            ? Math.floor(relayMeta.signerSlot)
-            : null;
-        const signerSlot =
-          isCurrent && currentSignerSlotFromState != null
-            ? currentSignerSlotFromState
-            : metaSignerSlot && metaSignerSlot >= 1
-              ? metaSignerSlot
-              : relaySignerSlot && relaySignerSlot >= 1
-                ? relaySignerSlot
-                : nextSignerSlot();
-        rows.push({
-          credentialId: publicKey || `access-key-${signerSlot}`,
-          signerSlot,
-          nearPublicKey: publicKey,
-        });
-      }
-      setAuthRows(rows);
-    } catch (err: any) {
-      setError(err.message || 'Failed to load linked signers or access keys');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const copyToClipboard = async (text: string, keyIndex: number) => {
-    try {
-      await navigator.clipboard.writeText(text);
-
-      // Fire custom event for copy action
-      const copyEvent = new CustomEvent('accessKeyCopied', {
-        detail: {
-          publicKey: text,
-          keyIndex: keyIndex,
-          timestamp: Date.now(),
-        },
-      });
-      window.dispatchEvent(copyEvent);
-
-      // Show brief tooltip feedback
-      setTooltipVisible(keyIndex);
-      setTimeout(() => setTooltipVisible(null), 2000);
-    } catch (err) {
-      console.error('Failed to copy to clipboard:', err);
-    }
-  };
+    },
+    [loadDevices, seams, walletId],
+  );
 
   if (!isOpen) return null;
 
-  // Prevent any events from bubbling up to parent components
-  const handleBackdropClick = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    onClose();
-  };
-
-  const handleModalContentClick = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    // Don't call onClose here - we want to keep the modal open
-  };
+  const devices = loadState.kind === 'loaded' ? loadState.devices : [];
+  const showEmpty = loadState.kind === 'loaded' && devices.length === 0;
 
   return (
     <Theme theme={theme} tokens={scopedTokens}>
       <div
-        className={`w3a-access-keys-modal-backdrop theme-${theme}`}
-        onClick={handleBackdropClick}
-        onMouseDown={(e) => e.stopPropagation()}
-        onMouseUp={(e) => e.stopPropagation()}
+        className={`w3a-linked-devices-modal-backdrop theme-${theme}`}
+        role="presentation"
+        onMouseDown={(event) => {
+          if (event.target === event.currentTarget) onClose();
+        }}
       >
         <div
-          className="w3a-access-keys-modal-content"
-          onClick={handleModalContentClick}
-          onMouseDown={(e) => e.stopPropagation()}
-          onMouseUp={(e) => e.stopPropagation()}
+          ref={dialogRef}
+          className="w3a-linked-devices-modal-content"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="w3a-linked-devices-modal-title"
+          aria-describedby="w3a-linked-devices-modal-description"
+          tabIndex={-1}
         >
-          <div className="w3a-access-keys-modal-header">
-            <h2 className="w3a-access-keys-modal-title">Linked Signers</h2>
-          </div>
           <button
-            className="w3a-access-keys-modal-close"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onClose();
-            }}
+            ref={closeButtonRef}
+            type="button"
+            className="w3a-linked-devices-modal-close"
+            onClick={onClose}
+            aria-label="Close linked devices"
           >
             ✕
           </button>
+          <h2 id="w3a-linked-devices-modal-title" className="w3a-linked-devices-modal-title">
+            Your devices
+          </h2>
+          <p id="w3a-linked-devices-modal-description" className="w3a-linked-devices-modal-note">
+            These devices can use this wallet. Remove any you don&apos;t recognize.
+          </p>
 
-          {error && (
-            <div className="w3a-access-keys-error">
-              <p>{error}</p>
-              <button
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  loadAuthenticators();
-                }}
-                className="w3a-btn w3a-btn-primary"
-              >
-                Try Again
-              </button>
-            </div>
-          )}
+          <div className="w3a-linked-devices-modal-body">
+            {loadState.kind === 'loading' || loadState.kind === 'idle' ? (
+              <div className="w3a-linked-devices-modal-placeholder">Checking your devices…</div>
+            ) : null}
 
-          {!isLoading &&
-            !error &&
-            authRows.filter((r) => r.credentialId !== 'placeholder').length === 0 && (
-              <div className="w3a-access-keys-empty">
-                <p>No linked signers found.</p>
+            {loadState.kind === 'error' ? (
+              <div className="w3a-linked-devices-modal-placeholder">
+                <span>We couldn&apos;t load your devices.</span>
+                <button
+                  type="button"
+                  className="w3a-linked-devices-modal-secondary"
+                  onClick={() => void loadDevices()}
+                >
+                  Try again
+                </button>
               </div>
-            )}
+            ) : null}
 
-          {!error && authRows.filter((r) => r.credentialId !== 'placeholder').length > 0 && (
-            <div className="w3a-keys-list">
-              {(() => {
-                const rows = authRows.filter((r) => r.credentialId !== 'placeholder');
-                const current =
-                  currentSignerSlot != null
-                    ? rows.find((r) => r.signerSlot === currentSignerSlot)
-                    : null;
-                const othersAll =
-                  currentSignerSlot != null
-                    ? rows.filter((r) => r.signerSlot !== currentSignerSlot)
-                    : rows;
+            {showEmpty ? (
+              <div className="w3a-linked-devices-modal-placeholder">
+                No other devices are using this wallet.
+              </div>
+            ) : null}
 
-                const totalOthers = othersAll.length;
-                const totalPages = Math.max(1, Math.ceil(totalOthers / pageSize));
-                const pageSafe = Math.min(page, Math.max(0, totalPages - 1));
-                const startIndex = pageSafe * pageSize;
-                const endIndex = Math.min(totalOthers, startIndex + pageSize);
-                const others = othersAll.slice(startIndex, endIndex);
-
-                const items: React.ReactNode[] = [];
-
-                if (current) {
-                  const index = 0;
-                  const currentKey = current.nearPublicKey || loginState?.nearPublicKey || null;
-                  items.push(
-                    <div key={`current-${current.signerSlot}`} className="w3a-key-item">
-                      <div className="w3a-key-content">
-                        <div className="w3a-key-details">
-                          <div className="w3a-key-header">
-                            <div className="mono w3a-signer-row">
-                              <span className="w3a-signer-badge">
-                                Signer {current.signerSlot}
-                              </span>
-                              <span className="w3a-current-signer-text">(active signer)</span>
-                            </div>
-                          </div>
-                          {currentKey && (
-                            <div
-                              className="mono w3a-copyable-key w3a-access-key-current"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                copyToClipboard(currentKey, index);
-                              }}
-                              onMouseEnter={() => setTooltipVisible(index)}
-                              onMouseLeave={() => setTooltipVisible(null)}
-                              title="Click to copy"
-                            >
-                              Access Key: {currentKey}
-                              {tooltipVisible === index && (
-                                <div className="w3a-copy-tooltip">Click to copy</div>
-                              )}
-                            </div>
-                          )}
-                        </div>
+            {devices.length > 0 ? (
+              <ul className="w3a-linked-devices-modal-list">
+                {devices.map((device) => {
+                  const deviceId = String(device.deviceId);
+                  const standing = deviceStanding(device);
+                  const confirming =
+                    revokeState.kind === 'confirming' && revokeState.deviceId === deviceId;
+                  const working =
+                    revokeState.kind === 'working' && revokeState.deviceId === deviceId;
+                  const fullIdShown = expandedDeviceId === deviceId;
+                  return (
+                    <li key={deviceId} className="w3a-linked-devices-modal-item">
+                      <div className="w3a-linked-devices-modal-item-main">
+                        <span className="w3a-linked-devices-modal-item-name">{device.label}</span>
+                        <span className={`w3a-linked-devices-modal-standing tone-${standing.tone}`}>
+                          {standing.label}
+                        </span>
                       </div>
-                    </div>,
-                  );
-                }
-
-                others.forEach((item, i) => {
-                  const globalIndex = startIndex + i;
-                  items.push(
-                    <div key={`other-${item.signerSlot}-${i}`} className="w3a-key-item">
-                      <div className="w3a-key-content">
-                        <div className="w3a-key-details">
-                          <div className="w3a-key-header">
-                            <div className="mono w3a-signer-row">
-                              <span className="w3a-signer-badge">Signer {item.signerSlot}</span>
-                            </div>
-                          </div>
-                          {item.nearPublicKey && (
-                            <div
-                              className="mono w3a-copyable-key"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                copyToClipboard(item.nearPublicKey!, 10 + globalIndex);
-                              }}
-                              onMouseEnter={() => setTooltipVisible(10 + globalIndex)}
-                              onMouseLeave={() => setTooltipVisible(null)}
-                              title="Click to copy"
-                            >
-                              Access Key: {item.nearPublicKey}
-                              {tooltipVisible === 10 + globalIndex && (
-                                <div className="w3a-copy-tooltip">Click to copy</div>
-                              )}
-                            </div>
-                          )}
-                        </div>
+                      <div className="w3a-linked-devices-modal-item-identity">
+                        <span>{devicePlatformDescription(device)}</span>
+                        <span aria-hidden="true">&middot;</span>
+                        <span className="w3a-linked-devices-modal-device-id">
+                          ID {fullIdShown ? deviceId : shortDeviceId(device.deviceId)}
+                        </span>
+                        <button
+                          type="button"
+                          className="w3a-linked-devices-modal-disclosure"
+                          aria-expanded={fullIdShown}
+                          onClick={() => setExpandedDeviceId(fullIdShown ? null : deviceId)}
+                        >
+                          {fullIdShown ? 'Hide full ID' : 'Show full ID'}
+                        </button>
                       </div>
-                    </div>,
+                      <div className="w3a-linked-devices-modal-item-detail">
+                        Last used {friendlyDay(device.lastActivityAtMs, Date.now())}
+                      </div>
+                      {confirming ? (
+                        <div className="w3a-linked-devices-modal-confirm">
+                          <span>
+                            Remove {deviceDescription(device)}? It will lose access right away.
+                          </span>
+                          <div className="w3a-linked-devices-modal-confirm-actions">
+                            <button
+                              type="button"
+                              className="w3a-linked-devices-modal-secondary"
+                              onClick={() => setRevokeState({ kind: 'idle' })}
+                            >
+                              Keep it
+                            </button>
+                            <button
+                              type="button"
+                              className="w3a-linked-devices-modal-danger"
+                              onClick={() => void revokeDevice(device)}
+                            >
+                              Yes, remove
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          className="w3a-linked-devices-modal-secondary"
+                          disabled={working}
+                          aria-label={`Remove ${deviceDescription(device)}`}
+                          onClick={() => setRevokeState({ kind: 'confirming', deviceId })}
+                        >
+                          {working ? 'Removing…' : 'Remove'}
+                        </button>
+                      )}
+                    </li>
                   );
-                });
+                })}
+              </ul>
+            ) : null}
 
-                return items;
-              })()}
+            {revokeState.kind === 'error' ? (
+              <div className="w3a-linked-devices-modal-error" role="alert">
+                {revokeState.message}
+              </div>
+            ) : null}
+
+            <div className="w3a-linked-devices-modal-live" role="status" aria-live="polite">
+              {announcement}
             </div>
-          )}
-
-          {!error &&
-            authRows.filter((r) => r.credentialId !== 'placeholder').length > 0 &&
-            (() => {
-              const rows = authRows.filter((r) => r.credentialId !== 'placeholder');
-              const current =
-                currentSignerSlot != null
-                  ? rows.find((r) => r.signerSlot === currentSignerSlot)
-                  : null;
-              const othersAll =
-                currentSignerSlot != null && current
-                  ? rows.filter((r) => r.signerSlot !== currentSignerSlot)
-                  : rows;
-              const totalOthers = othersAll.length;
-              const totalPages = Math.max(1, Math.ceil(totalOthers / pageSize));
-              const pageSafe = Math.min(page, Math.max(0, totalPages - 1));
-              const startIndex = pageSafe * pageSize;
-              const endIndex = Math.min(totalOthers, startIndex + pageSize);
-              if (totalPages <= 1) return null;
-
-              return (
-                <div className="w3a-pagination" onClick={(e) => e.stopPropagation()}>
-                  <button
-                    type="button"
-                    className="w3a-btn w3a-btn-primary"
-                    disabled={pageSafe <= 0}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setPage((p) => Math.max(0, p - 1));
-                    }}
-                  >
-                    Prev
-                  </button>
-                  <div className="w3a-pagination-info">
-                    {startIndex + 1}-{endIndex} of {totalOthers} (page {pageSafe + 1}/{totalPages})
-                  </div>
-                  <button
-                    type="button"
-                    className="w3a-btn w3a-btn-primary"
-                    disabled={pageSafe >= totalPages - 1}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setPage((p) => Math.min(totalPages - 1, p + 1));
-                    }}
-                  >
-                    Next
-                  </button>
-                </div>
-              );
-            })()}
-
+          </div>
         </div>
       </div>
     </Theme>
   );
 };
+
+export default LinkedDevicesModal;

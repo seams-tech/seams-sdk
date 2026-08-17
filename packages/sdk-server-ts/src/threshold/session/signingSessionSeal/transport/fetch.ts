@@ -1,5 +1,4 @@
 import type { NormalizedLogger } from '../../../../core/logger';
-import type { SessionAdapter } from '../../../../router/framework/routerApi';
 import {
   buildSigningSessionSealApplyPath,
   buildSigningSessionSealRemovePath,
@@ -17,7 +16,7 @@ type FetchSigningSessionSealContext = {
   pathname: string;
   method: string;
   logger: NormalizedLogger;
-  session: SessionAdapter | null | undefined;
+  authorize?: SigningSessionSealRoutesOptions['authorize'];
   options: SigningSessionSealRoutesOptions | null | undefined;
 };
 
@@ -87,7 +86,7 @@ export async function handleSigningSessionSealRoutes(
     const authorized = await authorizeSigningSessionSealRequest({
       options,
       headers: headersToRecord(ctx.request.headers),
-      session: ctx.session,
+      authorize: ctx.authorize,
       thresholdSessionId: parsed.value.thresholdSessionId,
     });
     if (!authorized.ok) {

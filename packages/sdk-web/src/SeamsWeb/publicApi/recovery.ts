@@ -1,29 +1,39 @@
-import { EmailRecoveryDomain } from '@/SeamsWeb/operations/recovery/emailRecovery';
+import { AccountSyncDomain } from '@/SeamsWeb/operations/recovery/accountSync';
 import type {
-  EmailRecoveryWebContext,
+  AccountSyncWebContext,
   RecoveryCapability,
 } from '@/SeamsWeb/signingSurface/types';
 import type { WalletIframeCoordinator } from '@/SeamsWeb/walletIframe/coordinator';
 
 export type RecoveryCapabilityDomainMethods = {
-  getEmailOtpRecoveryCodeStatus: RecoveryCapability['getEmailOtpRecoveryCodeStatus'];
-  rotateEmailOtpRecoveryCodes: RecoveryCapability['rotateEmailOtpRecoveryCodes'];
+  getWalletRecoveryCodeStatus: RecoveryCapability['getWalletRecoveryCodeStatus'];
+  acknowledgeWalletRecoveryCodeBackup: RecoveryCapability['acknowledgeWalletRecoveryCodeBackup'];
+  requestWalletCustodyEmailOtpChallenge: RecoveryCapability['requestWalletCustodyEmailOtpChallenge'];
+  rotateWalletRecoveryCodes: RecoveryCapability['rotateWalletRecoveryCodes'];
+  requestWalletRecoveryBootstrapChallenge: RecoveryCapability['requestWalletRecoveryBootstrapChallenge'];
+  verifyWalletRecoveryBootstrap: RecoveryCapability['verifyWalletRecoveryBootstrap'];
+  prepareWalletRecoveryWithBootstrap: RecoveryCapability['prepareWalletRecoveryWithBootstrap'];
+  completeWalletRecovery: RecoveryCapability['completeWalletRecovery'];
 };
 
 export function createRecoveryCapability(deps: {
-  getContext: () => EmailRecoveryWebContext;
+  getContext: () => AccountSyncWebContext;
   walletIframe: Pick<WalletIframeCoordinator, 'shouldUseWalletIframe' | 'requireRouter'>;
   domain: RecoveryCapabilityDomainMethods;
 }): RecoveryCapability {
-  const emailRecovery = new EmailRecoveryDomain({
+  const accountSync = new AccountSyncDomain({
     getContext: deps.getContext,
     walletIframe: deps.walletIframe,
   });
   return {
-    getRecoveryEmails: async (walletId) => await emailRecovery.getRecoveryEmails(walletId),
-    setRecoveryEmails: async (args) => await emailRecovery.setRecoveryEmails(args),
-    syncAccount: async (args) => await emailRecovery.syncAccount(args),
-    getEmailOtpRecoveryCodeStatus: deps.domain.getEmailOtpRecoveryCodeStatus,
-    rotateEmailOtpRecoveryCodes: deps.domain.rotateEmailOtpRecoveryCodes,
+    syncAccount: async (args) => await accountSync.syncAccount(args),
+    getWalletRecoveryCodeStatus: deps.domain.getWalletRecoveryCodeStatus,
+    acknowledgeWalletRecoveryCodeBackup: deps.domain.acknowledgeWalletRecoveryCodeBackup,
+    requestWalletCustodyEmailOtpChallenge: deps.domain.requestWalletCustodyEmailOtpChallenge,
+    rotateWalletRecoveryCodes: deps.domain.rotateWalletRecoveryCodes,
+    requestWalletRecoveryBootstrapChallenge: deps.domain.requestWalletRecoveryBootstrapChallenge,
+    verifyWalletRecoveryBootstrap: deps.domain.verifyWalletRecoveryBootstrap,
+    prepareWalletRecoveryWithBootstrap: deps.domain.prepareWalletRecoveryWithBootstrap,
+    completeWalletRecovery: deps.domain.completeWalletRecovery,
   } satisfies RecoveryCapability;
 }

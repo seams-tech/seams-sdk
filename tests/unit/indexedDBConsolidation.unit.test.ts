@@ -3,30 +3,25 @@ import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 import {
   SEAMS_WALLET_DB_NAME,
+  SEAMS_WALLET_DB_VERSION,
   SEAMS_WALLET_INDEXES,
   SEAMS_WALLET_SCHEMA_MANIFEST,
   SEAMS_WALLET_STORES,
   assertCanonicalIndexedDBName,
   createSeamsTestWalletDbName,
 } from '../../packages/sdk-web/src/core/indexedDB/schemaNames';
-import { SEAMS_WALLET_SCHEMA_VERSION } from '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/schema';
 
 const CANONICAL_NAME_PATTERN = /^seams_[a-z0-9]+(?:_[a-z0-9]+)*$/;
 const SNAKE_CASE_PATTERN = /^[a-z0-9]+(?:_[a-z0-9]+)*$/;
-const ECDSA_MATERIAL_STORE_SOURCES = [
-  new URL(
-    '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/ecdsaPresignMaterialStore.ts',
-    import.meta.url,
-  ),
-  new URL(
-    '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore.ts',
-    import.meta.url,
-  ),
-] as const;
+const ECDSA_CAPABILITY_STORE_SOURCE = new URL(
+  '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore.ts',
+  import.meta.url,
+);
 
 test.describe('IndexedDB consolidation', () => {
   test('canonical wallet schema names use one Seams-prefixed DB and unprefixed snake_case stores', () => {
     expect(SEAMS_WALLET_DB_NAME).toBe('seams_wallet');
+    expect(SEAMS_WALLET_DB_VERSION).toBe(19);
     expect(Object.values(SEAMS_WALLET_STORES).every((name) => !name.startsWith('seams_'))).toBe(
       true,
     );
@@ -50,10 +45,6 @@ test.describe('IndexedDB consolidation', () => {
     );
   });
 
-  test('wallet schema is v17', () => {
-    expect(SEAMS_WALLET_SCHEMA_VERSION).toBe(17);
-  });
-
   test('schema manifest defines every canonical store exactly once', () => {
     const manifestStores = SEAMS_WALLET_SCHEMA_MANIFEST.map((entry) => entry.store);
     expect([...new Set(manifestStores)].sort()).toEqual(Object.values(SEAMS_WALLET_STORES).sort());
@@ -67,12 +58,90 @@ test.describe('IndexedDB consolidation', () => {
     }
   });
 
-  test('ECDSA material stores use the canonical wallet database manager', () => {
-    for (const sourceUrl of ECDSA_MATERIAL_STORE_SOURCES) {
-      const source = readFileSync(sourceUrl, 'utf8');
-      expect(source).toContain('seamsWalletDB');
-      expect(source).not.toContain('indexedDB.open(');
-    }
+  test('ECDSA capability manifest store uses the canonical wallet database manager', () => {
+    const source = readFileSync(ECDSA_CAPABILITY_STORE_SOURCE, 'utf8');
+    expect(source).toContain('seamsWalletDB');
+    expect(source).not.toContain('indexedDB.open(');
+    expect(source).not.toContain('seams_router_ab_ecdsa_role_local_session_v1');
+    expect(source).not.toContain('seams_router_ab_ecdsa_presign_material_v2');
+  });
+
+  test('opening seams_wallet deletes obsolete standalone ECDSA databases', async ({ page }) => {
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
+    const databaseNames = await page.evaluate(async () => {
+      const obsoleteNames = [
+        'seams_router_ab_ecdsa_role_local_session_v1',
+        'seams_router_ab_ecdsa_presign_material_v2',
+      ];
+      for (const dbName of obsoleteNames) {
+        await new Promise<void>((resolve, reject) => {
+          const request = indexedDB.open(dbName, 1);
+          request.onsuccess = () => {
+            request.result.close();
+            resolve();
+          };
+          request.onerror = () => reject(request.error);
+        });
+      }
+
+      const managerModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
+      const manager = new managerModule.SeamsWalletDBManager();
+      await manager.getDB();
+      manager.close();
+      return (await indexedDB.databases()).map((database) => database.name);
+    });
+
+    expect(databaseNames).not.toContain('seams_router_ab_ecdsa_role_local_session_v1');
+    expect(databaseNames).not.toContain('seams_router_ab_ecdsa_presign_material_v2');
+  });
+
+  test('wallet schema upgrade deletes the retired recovery-email store', async ({ page }) => {
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
+    const result = await page.evaluate(async () => {
+      const schemaNames = await import('/_test-sdk/esm/core/indexedDB/schemaNames.js');
+      const managerModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
+      const dbName = schemaNames.createSeamsTestWalletDbName(
+        `recovery_email_upgrade_${crypto.randomUUID()}`,
+      );
+
+      await new Promise<void>((resolve) => {
+        const request = indexedDB.deleteDatabase(dbName);
+        request.onsuccess = () => resolve();
+        request.onerror = () => resolve();
+        request.onblocked = () => resolve();
+      });
+      await new Promise<void>((resolve, reject) => {
+        const request = indexedDB.open(dbName, 18);
+        request.onupgradeneeded = () => {
+          request.result.createObjectStore('seams_recovery_emails', {
+            keyPath: ['wallet_id', 'hash_hex'],
+          });
+        };
+        request.onsuccess = () => {
+          request.result.close();
+          resolve();
+        };
+        request.onerror = () => reject(request.error);
+      });
+
+      const manager = new managerModule.SeamsWalletDBManager();
+      manager.setDbName(dbName);
+      const db = await manager.getDB();
+      const observed = {
+        version: db.version,
+        hasRetiredStore: db.objectStoreNames.contains('seams_recovery_emails'),
+      };
+      manager.close();
+      await new Promise<void>((resolve) => {
+        const request = indexedDB.deleteDatabase(dbName);
+        request.onsuccess = () => resolve();
+        request.onerror = () => resolve();
+        request.onblocked = () => resolve();
+      });
+      return observed;
+    });
+
+    expect(result).toEqual({ version: SEAMS_WALLET_DB_VERSION, hasRetiredStore: false });
   });
 
   test('fresh seams wallet databases match the schema manifest', async ({ page }) => {
@@ -98,7 +167,8 @@ test.describe('IndexedDB consolidation', () => {
         request.onblocked = () => resolve();
       });
 
-      const manager = new managerModule.SeamsWalletDBManager({ dbName });
+      const manager = new managerModule.SeamsWalletDBManager();
+      manager.setDbName(dbName);
       const db = await manager.getDB();
       const observed = manifest.map((definition) => {
         const storeNames = Array.from(db.objectStoreNames);
@@ -151,7 +221,70 @@ test.describe('IndexedDB consolidation', () => {
     }
   });
 
-  test('unified repositories persist profile, chain account, app state, and recovery email records', async ({
+  test('schema upgrade replaces stale unique auth-method identifier index', async ({ page }) => {
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
+    const result = await page.evaluate(async () => {
+      const schemaNames = await import('/_test-sdk/esm/core/indexedDB/schemaNames.js');
+      const managerModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
+      const dbName = schemaNames.createSeamsTestWalletDbName(
+        `auth_method_index_upgrade_${crypto.randomUUID()}`,
+      );
+      await new Promise<void>((resolve) => {
+        const request = indexedDB.deleteDatabase(dbName);
+        request.onsuccess = () => resolve();
+        request.onerror = () => resolve();
+        request.onblocked = () => resolve();
+      });
+      await new Promise<void>((resolve, reject) => {
+        const request = indexedDB.open(dbName, 4);
+        request.onupgradeneeded = () => {
+          const store = request.result.createObjectStore(
+            schemaNames.SEAMS_WALLET_STORES.walletAuthMethods,
+            { keyPath: 'wallet_auth_method_id' },
+          );
+          store.createIndex(
+            schemaNames.SEAMS_WALLET_INDEXES.kindRpIdAuthIdentifier,
+            ['kind', 'rp_id', 'auth_identifier_key'],
+            { unique: true },
+          );
+        };
+        request.onsuccess = () => {
+          request.result.close();
+          resolve();
+        };
+        request.onerror = () => reject(request.error);
+      });
+
+      const manager = new managerModule.SeamsWalletDBManager();
+      manager.setDbName(dbName);
+      const db = await manager.getDB();
+      const tx = db.transaction(schemaNames.SEAMS_WALLET_STORES.walletAuthMethods, 'readonly');
+      const index = tx
+        .objectStore(schemaNames.SEAMS_WALLET_STORES.walletAuthMethods)
+        .index(schemaNames.SEAMS_WALLET_INDEXES.kindRpIdAuthIdentifier);
+      const observed = {
+        version: db.version,
+        unique: index.unique,
+        keyPath: index.keyPath,
+      };
+      manager.close();
+      await new Promise<void>((resolve) => {
+        const request = indexedDB.deleteDatabase(dbName);
+        request.onsuccess = () => resolve();
+        request.onerror = () => resolve();
+        request.onblocked = () => resolve();
+      });
+      return observed;
+    });
+
+    expect(result).toEqual({
+      version: SEAMS_WALLET_DB_VERSION,
+      unique: false,
+      keyPath: ['kind', 'rp_id', 'auth_identifier_key'],
+    });
+  });
+
+  test('unified repositories persist profile, chain account, and app state', async ({
     page,
   }) => {
     await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
@@ -217,9 +350,6 @@ test.describe('IndexedDB consolidation', () => {
       await repositories.setAppState('selected-wallet', { walletId: 'alice.testnet' });
       await repositories.setLastProfileStateForProfile('alice.testnet', 2);
       await repositories.setLastProfileStateForProfile('bob.testnet', 1, 'https://app.example');
-      await repositories.upsertRecoveryEmails('alice.testnet', [
-        { hashHex: '0xabc', email: 'alice@example.test' },
-      ]);
       const profile = await repositories.getProfile('alice.testnet');
       const profiles = await repositories.listProfiles();
       const deletedProfile = await repositories.getProfile('delete.testnet');
@@ -237,7 +367,6 @@ test.describe('IndexedDB consolidation', () => {
       const appState = await repositories.getAppState('selected-wallet');
       const lastProfileState = await repositories.getLastProfileState();
       const scopedLastProfileState = await repositories.getLastProfileState('https://app.example');
-      const recoveryEmails = await repositories.listRecoveryEmails('alice.testnet');
       manager.close();
       await new Promise<void>((resolve) => {
         const request = indexedDB.deleteDatabase(dbName);
@@ -257,7 +386,6 @@ test.describe('IndexedDB consolidation', () => {
         appState,
         lastProfileState,
         scopedLastProfileState,
-        recoveryEmails,
       };
     });
 
@@ -305,14 +433,6 @@ test.describe('IndexedDB consolidation', () => {
       activeSignerSlot: 1,
       scope: 'https://app.example',
     });
-    expect(result.recoveryEmails).toEqual([
-      {
-        profileId: 'alice.testnet',
-        hashHex: '0xabc',
-        email: 'alice@example.test',
-        addedAt: expect.any(Number),
-      },
-    ]);
   });
 
   test('wallet signer rows mirror branch identity fields and replace duplicate ECDSA key identities', async ({

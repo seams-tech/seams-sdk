@@ -27,11 +27,6 @@ import type {
   WalletAuthMethodRecord,
   WalletAuthMethodStore,
 } from '../../../../core/d1WalletAuthMethodStore';
-import {
-  addAuthMethodInputMatches,
-  addSignerSelectionMatches,
-  runtimePolicyScopeMatches,
-} from '../registration/d1RegistrationCeremonyRecords';
 import { toRecordValue } from '../auth/d1RouterApiAuthBoundary';
 import type { RevokeWalletAuthMethodCommand } from '../../../framework/authServicePort';
 import { webAuthnCredentialIdB64uFromCredential } from '../../../auth/webAuthnCredentialCodecs';
@@ -57,15 +52,6 @@ export type D1RevokeWalletAuthMethodAuth =
       readonly kind: 'webauthn_assertion';
       readonly rpId: WebAuthnRpId;
       readonly credential: unknown;
-    }
-  | {
-      readonly kind: 'app_session';
-      readonly policy: {
-        readonly permission: 'wallet_auth_method_revoke';
-        readonly walletId: WalletId;
-        readonly target: D1RevokeWalletAuthMethodTarget;
-        readonly expiresAtMs: number;
-      };
     };
 
 export type D1RevokeWalletAuthMethodBoundary =
@@ -258,37 +244,6 @@ export function d1RevokeTargetsEqual(
   }
 }
 
-export function validateD1RevokeWalletAuthMethodPolicy(input: {
-  readonly auth: D1RevokeWalletAuthMethodAuth;
-  readonly walletId: WalletId;
-  readonly target: D1RevokeWalletAuthMethodTarget;
-  readonly nowMs: number;
-}): RevokeWalletAuthMethodResult | null {
-  if (input.auth.kind !== 'app_session') return null;
-  if (input.auth.policy.walletId !== input.walletId) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'auth-method revoke policy wallet mismatch',
-    };
-  }
-  if (!d1RevokeTargetsEqual(input.auth.policy.target, input.target)) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'auth-method revoke policy target mismatch',
-    };
-  }
-  if (input.auth.policy.expiresAtMs <= input.nowMs) {
-    return {
-      ok: false,
-      code: 'invalid_body',
-      message: 'auth-method revoke policy is expired',
-    };
-  }
-  return null;
-}
-
 export async function authorizeD1WalletAuthMethodRevoke(input: {
   readonly walletAuthMethodStore: Pick<WalletAuthMethodStore, 'getPasskey'>;
   readonly walletId: WalletId;
@@ -352,45 +307,6 @@ export async function resolveD1AddSignerExistingAuth(input: {
   readonly walletAuthMethodStore: Pick<WalletAuthMethodStore, 'getPasskey'>;
   readonly nowMs: number;
 }): Promise<D1AddSignerExistingAuthResolution> {
-  if (input.auth.kind === 'app_session') {
-    if (input.auth.policy.walletId !== input.walletId) {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'add-signer auth.policy wallet mismatch',
-      };
-    }
-    if (
-      !addSignerSelectionMatches(input.auth.policy.signerSelection, input.intent.signerSelection)
-    ) {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'add-signer auth.policy selection mismatch',
-      };
-    }
-    if (
-      !runtimePolicyScopeMatches(
-        input.auth.policy.runtimePolicyScope,
-        input.intent.runtimePolicyScope,
-      )
-    ) {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'add-signer auth.policy runtime scope mismatch',
-      };
-    }
-    if (input.auth.policy.expiresAtMs <= input.nowMs) {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'add-signer auth.policy is expired',
-      };
-    }
-    return { ok: true, auth: { kind: 'app_session' } };
-  }
-
   const authorization = await resolveD1WebAuthnExistingWalletAuth({
     credential: input.auth.credential,
     rpId: input.auth.rpId,
@@ -415,41 +331,12 @@ export async function resolveD1AddAuthMethodExistingAuth(input: {
   readonly walletAuthMethodStore: Pick<WalletAuthMethodStore, 'getPasskey'>;
   readonly nowMs: number;
 }): Promise<D1AddAuthMethodExistingAuthResolution> {
-  if (input.auth.kind === 'app_session') {
-    if (input.auth.policy.walletId !== input.walletId) {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'add-auth-method auth.policy wallet mismatch',
-      };
-    }
-    if (!addAuthMethodInputMatches(input.auth.policy.authMethod, input.intent.authMethod)) {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'add-auth-method auth.policy method mismatch',
-      };
-    }
-    if (
-      !runtimePolicyScopeMatches(
-        input.auth.policy.runtimePolicyScope,
-        input.intent.runtimePolicyScope,
-      )
-    ) {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'add-auth-method auth.policy runtime scope mismatch',
-      };
-    }
-    if (input.auth.policy.expiresAtMs <= input.nowMs) {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'add-auth-method auth.policy is expired',
-      };
-    }
-    return { ok: true, auth: { kind: 'app_session' } };
+  if (input.auth.kind === 'email_otp') {
+    return {
+      ok: false,
+      code: 'unsupported',
+      message: 'Email OTP add-auth authorization requires the wallet auth service boundary',
+    };
   }
 
   const authorization = await resolveD1WebAuthnExistingWalletAuth({
@@ -569,28 +456,5 @@ function parseD1RevokeWalletAuthMethodAuth(input: {
       credential: raw.credential,
     };
   }
-  if (kind !== 'app_session') return null;
-  const rawPolicy = toRecordValue(raw.policy);
-  const target = parseD1RevokeWalletAuthMethodTarget(rawPolicy?.target);
-  const expiresAtMs = Math.floor(Number(rawPolicy?.expiresAtMs));
-  const permission = toOptionalTrimmedString(rawPolicy?.permission);
-  const policyWalletId = walletIdFromString(toOptionalTrimmedString(rawPolicy?.walletId));
-  if (
-    !rawPolicy ||
-    permission !== 'wallet_auth_method_revoke' ||
-    !policyWalletId ||
-    !target ||
-    !Number.isSafeInteger(expiresAtMs)
-  ) {
-    return null;
-  }
-  return {
-    kind: 'app_session',
-    policy: {
-      permission: 'wallet_auth_method_revoke',
-      walletId: policyWalletId,
-      target,
-      expiresAtMs,
-    },
-  };
+  return null;
 }

@@ -62,7 +62,7 @@ import {
 import { PasskeyMpcSessionDurableState } from './PasskeyMpcSessionDurableState';
 import {
   walletSessionAuthorizations,
-  walletSessionJwtForCurve,
+  walletSessionTokenForCurve,
   type ActiveWalletSessionAuthorizationProjection,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import { toWalletId } from '../interfaces/ecdsaChainTarget';
@@ -335,8 +335,8 @@ function parseWarmSessionSealAndPersistResult(
 function requirePasskeySealTransport(
   transport: WarmSessionSealTransportInput,
 ): PasskeyWarmSessionSealTransportInput {
-  if (transport.authMethod === 'email_otp') {
-    throw new Error('Passkey MPC session owner rejected Email OTP seal transport');
+  if (transport.authMethod === 'email_otp' || transport.curve === 'linked_device') {
+    throw new Error('Passkey MPC durable owner requires an owner signing-lane transport');
   }
   return transport;
 }
@@ -587,8 +587,8 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionPort {
         args.record,
         authorization,
       );
-      const walletSessionJwt = walletSessionJwtForCurve(authorization, 'ecdsa');
-      if (!walletSessionJwt) return null;
+      const walletSessionToken = walletSessionTokenForCurve(authorization, 'ecdsa');
+      if (!walletSessionToken) return null;
       const restoreWalletId = String(ecdsaRestore.authority.walletId).trim();
       if (!restoreWalletId || restoreWalletId !== String(args.walletId).trim()) return null;
       const groupId = String(args.record.groupId || '').trim();
@@ -601,7 +601,7 @@ class PasskeyMpcSessionManagerImpl implements PasskeyMpcSessionPort {
         relayerUrl: args.record.relayerUrl,
         signingSessionSealKeyVersion: parseSigningSessionSealKeyVersion(args.record.keyVersion),
         groupId,
-        walletSessionJwt,
+        walletSessionToken,
         ecdsaRestore,
       };
       return await restorePasskeyEcdsaSealedRecordForWallet({

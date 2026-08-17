@@ -21,7 +21,6 @@ import {
 import {
   parseEmailOtpChallengeId,
   parseEmailOtpProviderUserId,
-  parseAppSessionJwt,
   parseVerifiedEmailAddress,
   parseWalletAuthorityBindingDigest,
   parseWalletAuthMethodId,
@@ -39,7 +38,6 @@ const rpId = unwrapDomainId(parseWebAuthnRpId('wallet.example.test'));
 const credentialIdB64u = unwrapDomainId(parseWebAuthnCredentialIdB64u('credential-id'));
 const providerUserId = unwrapDomainId(parseEmailOtpProviderUserId('google:alice'));
 const challengeId = unwrapDomainId(parseEmailOtpChallengeId('challenge-id'));
-const appSessionJwt = unwrapDomainId(parseAppSessionJwt('app-session.jwt'));
 const walletId = unwrapDomainId(parseWalletId('alice.testnet'));
 const authorityDigest = unwrapDomainId(parseWalletAuthorityBindingDigest('digest'));
 const verifiedEmail = unwrapDomainId(parseVerifiedEmailAddress('alice@example.test'));
@@ -251,13 +249,13 @@ void ({
 void ({
   kind: 'active_wallet_session',
   authority: emailOtpAuthority,
-  walletSessionJwt: 'wallet-session.jwt',
+  walletSessionToken: 'wallet-session-token',
 } satisfies ActiveWalletSession);
 
 void ({
   kind: 'active_wallet_session',
   authority: emailOtpAuthority,
-  walletSessionJwt: 'wallet-session.jwt',
+  walletSessionToken: 'wallet-session-token',
   // @ts-expect-error active wallet sessions derive wallet identity from the bound authority.
   walletId,
 } satisfies ActiveWalletSession);
@@ -273,7 +271,6 @@ const googleSsoRegistrationProof = {
   registrationAttemptId: 'attempt',
   registrationOfferId: 'offer',
   registrationCandidateId: 'candidate',
-  appSessionJwt,
 } satisfies AuthMethodProof;
 void googleSsoRegistrationProof;
 
@@ -281,7 +278,6 @@ const emailOtpChallengeProof = {
   kind: 'email_otp_challenge',
   challengeId,
   otpCode: '123456',
-  appSessionJwt,
 } satisfies AuthMethodProof;
 void emailOtpChallengeProof;
 
@@ -289,7 +285,6 @@ void ({
   kind: 'email_otp_challenge',
   challengeId,
   otpCode: '123456',
-  appSessionJwt,
   // @ts-expect-error Email OTP challenge proof is request-boundary data, not authority identity.
   providerUserId,
 } satisfies AuthMethodProof);

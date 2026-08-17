@@ -1514,6 +1514,7 @@ dependencies = [
  "router-ab-ecdsa-presign",
  "router-ab-ecdsa-wire",
  "router-ab-ed25519-yao",
+ "router-ab-ed25519-yao-protocol",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -1613,6 +1614,8 @@ dependencies = [
 name = "router-ab-ed25519-yao"
 version = "0.1.0"
 dependencies = [
+ "base64ct",
+ "curve25519-dalek",
  "ed25519-yao",
  "hpke-ng",
  "rand_core 0.9.5",

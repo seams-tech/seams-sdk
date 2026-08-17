@@ -5,6 +5,7 @@ import {
   parseRouterAbEd25519YaoRecoveryActivationResultV1,
   parseRouterAbEd25519YaoRecoveryAdmissionRequestV1,
   parseRouterAbEd25519YaoRegistrationActivationResultV1,
+  parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1,
   parseRouterAbEd25519YaoRegistrationAdmissionRequestV1,
   type RouterAbEd25519YaoActivationAdmissionReceiptV1,
   type RouterAbEd25519YaoActivationExecuteRequestV1,
@@ -17,6 +18,7 @@ import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '@shared/utils/session
 import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { VersionedJsonRecordReadResult } from '../../../packages/sdk-server-ts/src/router/framework/versionedJsonRecordStore';
 import {
+  isRouterAbEd25519OwnerWalletSessionClaims,
   parseRouterAbEd25519WalletSessionClaims,
   thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
 } from '../../../packages/sdk-server-ts/src/core/ThresholdService/validation';
@@ -237,7 +239,7 @@ class AllowRecoveryAuthorization implements RouterAbEd25519YaoRecoveryAuthorizat
   authorize(
     _input: RouterAbEd25519YaoRecoveryAuthorizationInput,
   ): RouterAbEd25519YaoRecoveryAuthorizationResult {
-    return { ok: true, claims: this.claims };
+    return { ok: true, claims: { kind: 'wallet_session', value: this.claims } };
   }
 }
 
@@ -271,8 +273,10 @@ export async function buildSecondRouterAbEd25519YaoRecoveryRequestScopedFixture(
   return recoveryFixture(SECONDARY_IDENTITY, store);
 }
 
-export function buildRouterAbEd25519YaoCapabilityReplacementFixture(): RouterAbEd25519YaoCapabilityReplacementFixture {
-  return capabilityReplacementFixture(PRIMARY_IDENTITY);
+export function buildRouterAbEd25519YaoCapabilityReplacementFixture(
+  lifecycleId: string = PRIMARY_IDENTITY.lifecycleId,
+): RouterAbEd25519YaoCapabilityReplacementFixture {
+  return capabilityReplacementFixture({ ...PRIMARY_IDENTITY, lifecycleId });
 }
 
 function capabilityReplacementFixture(
@@ -308,6 +312,7 @@ function capabilityReplacementFixture(
       activeCapabilityBinding: registrationActivation.binding.session_id,
       nearAccountId: identity.nearAccountId,
       admissionRequest: registrationRequest,
+      admissionReceipt: registrationAdmissionReceipt(identity),
       activationResult: registrationActivation,
       runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     },
@@ -375,6 +380,7 @@ function installActiveCapability(
     activeCapabilityBinding: bytes(identity.activeCapabilitySeed),
     nearAccountId: identity.nearAccountId,
     registrationAdmissionRequest: registrationAdmission(identity),
+    registrationAdmissionReceipt: registrationAdmissionReceipt(identity),
     registrationResult: registrationResult(identity),
     runtimePolicyScope: RUNTIME_POLICY_SCOPE,
   });
@@ -461,6 +467,19 @@ function registrationResult(identity: RecoveryFixtureIdentity) {
         identity.registeredPublicKeySeed,
         binding.material_activation,
       ),
+    }),
+  );
+}
+
+function registrationAdmissionReceipt(identity: RecoveryFixtureIdentity) {
+  return requireParsed(
+    parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1({
+      binding: registrationBinding(identity),
+      keyset: {
+        deriver_a_input_public_key: bytes(51),
+        deriver_b_input_public_key: bytes(52),
+        signing_worker_recipient_public_key: bytes(53),
+      },
     }),
   );
 }
@@ -624,6 +643,7 @@ function recoveryClaims(identity: RecoveryFixtureIdentity) {
   });
   const claims = parseRouterAbEd25519WalletSessionClaims({
     kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+    authorizationKind: 'owner_wallet_session',
     sub: identity.walletId,
     walletId: identity.walletId,
     nearAccountId: identity.nearAccountId,
@@ -643,7 +663,9 @@ function recoveryClaims(identity: RecoveryFixtureIdentity) {
       signingWorkerId: identity.signingWorkerId,
     },
   });
-  if (!claims) throw new Error('recovery fixture Wallet Session claims are invalid');
+  if (!claims || !isRouterAbEd25519OwnerWalletSessionClaims(claims)) {
+    throw new Error('recovery fixture Wallet Session claims are invalid');
+  }
   return claims;
 }
 

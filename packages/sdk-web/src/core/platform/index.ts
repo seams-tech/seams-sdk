@@ -2,9 +2,6 @@ export type {
   AuthenticatorOperation,
   AuthenticatorPort,
   AuthenticatorResult,
-  BuildEcdsaRoleLocalExportArtifactErrorCode,
-  BuildEcdsaRoleLocalExportArtifactInput,
-  BuildEcdsaRoleLocalExportArtifactOutput,
   ClientSecretSource,
   ClockPort,
   CleanupMalformedEcdsaRoleLocalRecordInput,
@@ -78,14 +75,10 @@ export {
   type BrowserRuntimePorts,
 } from './browser/createBrowserPlatformRuntime';
 export {
-  parseGeneratedBuildEcdsaRoleLocalExportArtifactOutput,
   parseGeneratedFinalizeEcdsaClientBootstrapOutput,
   parseGeneratedPrepareEcdsaClientBootstrapOutput,
-  toGeneratedBuildEcdsaRoleLocalExportArtifactCommand,
   toGeneratedFinalizeEcdsaClientBootstrapCommand,
   toGeneratedPrepareEcdsaClientBootstrapCommand,
-  type GeneratedBuildEcdsaRoleLocalExportArtifactCommand,
-  type GeneratedBuildEcdsaRoleLocalExportArtifactOutput,
   type GeneratedFinalizeEcdsaClientBootstrapCommand,
   type GeneratedFinalizeEcdsaClientBootstrapOutput,
   type GeneratedPrepareEcdsaClientBootstrapCommand,
@@ -102,3 +95,4 @@ export {
   parseRawEcdsaRoleLocalRecord,
   serializeEcdsaRoleLocalReadyRecord,
 } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
+export type { ThresholdEcdsaChainTarget } from './ecdsaRoleLocalRecords';

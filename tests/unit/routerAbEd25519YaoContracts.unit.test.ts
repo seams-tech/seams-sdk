@@ -29,7 +29,10 @@ import {
   type RouterAbEd25519YaoRegistrationBackendResult,
 } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/registration/routerAbEd25519YaoRegistration';
 import { coerceRouterLogger } from '../../packages/sdk-server-ts/src/router/framework/logger';
-import { createRouterAbEd25519YaoHttpRegistrationBackendFromEnv } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/registration/routerAbEd25519YaoHttpRegistrationBackend';
+import {
+  createRouterAbEd25519YaoHttpRegistrationBackendFromEnv,
+  parseRouterAbEd25519YaoActivationKeysetFromEnvV1,
+} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/registration/routerAbEd25519YaoHttpRegistrationBackend';
 
 type RouterAbEd25519YaoRegistrationBindingV1 =
   RouterAbEd25519YaoActivationBindingV1<'registration'>;
@@ -234,6 +237,17 @@ function hex(bytesValue: readonly number[]): string {
 function x25519(seed: number): string {
   return `x25519:${hex(bytes(seed))}`;
 }
+
+test('parses the deployment Yao activation keyset from canonical x25519 env values', () => {
+  const keyset = parseRouterAbEd25519YaoActivationKeysetFromEnvV1({
+    DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY: x25519(1),
+    DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY: x25519(2),
+    SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: x25519(3),
+  });
+  expect(keyset.deriver_a_input_public_key).toEqual(bytes(1));
+  expect(keyset.deriver_b_input_public_key).toEqual(bytes(2));
+  expect(keyset.signing_worker_recipient_public_key).toEqual(bytes(3));
+});
 
 function localHttpBackendEnv(): Readonly<Record<string, unknown>> {
   return {
@@ -625,6 +639,14 @@ test.describe('Router A/B Ed25519 Yao registration contracts', () => {
     expect(activated.ok).toBe(true);
     const retry = await service.execute(request);
     expect(retry).toEqual(activated);
+    expect(backend.executeCalls).toBe(1);
+
+    expect(service.replayActivated(request)).toEqual(activated);
+    expect(service.replayActivated(parsedExecuteRequestWithCiphertextSeed(20))).toMatchObject({
+      ok: false,
+      status: 409,
+      code: 'binding_mismatch',
+    });
     expect(backend.executeCalls).toBe(1);
 
     const substituted = await service.execute(parsedExecuteRequestWithCiphertextSeed(20));

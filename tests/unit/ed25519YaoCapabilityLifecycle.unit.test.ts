@@ -19,9 +19,7 @@ import { nearEd25519SigningKeyIdFromString } from '../../packages/shared-ts/src/
 import { parseThresholdEd25519SessionId } from '../../packages/shared-ts/src/utils/domainIds';
 import { toRpId } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { nearEd25519PublicLocatorObservation } from '../../packages/sdk-web/src/SeamsWeb/signingSurface/BrowserSigningSurface';
-import {
-  passkeyEd25519YaoLaneReferenceFromRecovery,
-} from '@/core/signingEngine/flows/recovery/passkeyEd25519YaoRecovery';
+import { passkeyEd25519YaoLaneReferenceFromRecovery } from '@/core/signingEngine/flows/recovery/passkeyEd25519YaoRecovery';
 import {
   buildPasskeyEd25519AuthorizationProjectionFixture,
   buildPasskeyEd25519SealedSessionRecordFixture,
@@ -113,9 +111,7 @@ test.describe('Ed25519 Yao public capability lifecycle', () => {
       lanes: [lane],
     });
     expect(await store.listLanes()).toEqual([lane]);
-    expect(
-      parseEd25519YaoPublicCapabilityLanesV1(appState.read(LANES_APP_STATE_KEY)),
-    ).toEqual({
+    expect(parseEd25519YaoPublicCapabilityLanesV1(appState.read(LANES_APP_STATE_KEY))).toEqual({
       kind: ED25519_YAO_PUBLIC_CAPABILITY_LANES_KIND_V1,
       lanes: [lane],
     });
@@ -144,6 +140,8 @@ test.describe('Ed25519 Yao public capability lifecycle', () => {
       },
       nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString('scope-yao-lifecycle'),
       signerSlot: 1,
+      remainingUses: 3,
+      expiresAtMs: 1_900_000_000_000,
     };
     const user: ClientUserData = {
       walletId: String(identity.walletId),

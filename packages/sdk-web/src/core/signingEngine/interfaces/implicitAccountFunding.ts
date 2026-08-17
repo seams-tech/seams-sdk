@@ -1,8 +1,8 @@
-import type { NonceLease } from '../nonce/nonceTypes';
 import type {
   NearFundingRequest,
   NearTransactionReadiness,
-} from '../nonce/nearTransactionReadiness';
+  NonceLease,
+} from '../nonce/NonceCoordinator';
 
 /**
  * Funds an unfunded implicit NEAR account in the middle of a signing

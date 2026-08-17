@@ -25,37 +25,28 @@ const reusable: BuildReadySecp256k1SigningMaterialInput = {
   ...base,
   authorization: reusableAuthorization,
   credential: {
-    kind: 'reusable_wallet_session_jwt',
-    walletSessionJwt: 'wallet-session-jwt',
+    kind: 'reusable_wallet_session',
+    walletSessionToken: 'wallet-session-token',
   },
 };
 
 const operation: BuildReadySecp256k1SigningMaterialInput = {
   ...base,
   authorization: operationAuthorization,
-  credential: { kind: 'app_session_jwt', appSessionJwt: 'app-session-jwt' },
+  credential: { kind: 'operation_step_up', walletSessionToken: 'opaque-token' },
   operationStepUpPreparation: operationPreparation,
 };
 
-// @ts-expect-error Reusable authorization cannot carry app-session authority.
-const reusableWithAppCredential: BuildReadySecp256k1SigningMaterialInput = {
-  ...base,
-  authorization: reusableAuthorization,
-  credential: { kind: 'app_session_jwt', appSessionJwt: 'app-session-jwt' },
-};
-
-// @ts-expect-error Operation step-up cannot carry a reusable Wallet Session JWT.
 const operationWithWalletCredential: BuildReadySecp256k1SigningMaterialInput = {
   ...base,
   authorization: operationAuthorization,
+  // @ts-expect-error Operation step-up credentials require the opaque owner bearer.
   credential: {
-    kind: 'reusable_wallet_session_jwt',
-    walletSessionJwt: 'wallet-session-jwt',
+    kind: 'operation_step_up',
   },
   operationStepUpPreparation: operationPreparation,
 };
 
 void reusable;
 void operation;
-void reusableWithAppCredential;
 void operationWithWalletCredential;

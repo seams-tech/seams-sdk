@@ -108,19 +108,19 @@ const productsDropdownPane: DropdownPane = {
     {
       title: 'Guides',
       description: 'Key, credential, policy, and signing architecture',
-      to: '/docs/concepts/',
+      to: '/docs/guides/',
       icon: BookOpen,
     },
     {
       title: 'Tools',
       description: 'SDK references for auth, sessions, wallet UI, and policy',
-      to: '/docs/concepts/auth-methods/',
+      to: '/docs/reference/',
       icon: Wrench,
     },
     {
       title: 'Use cases',
       description: 'Mandates, payments, recovery, and delegated agents',
-      to: '/docs/concepts/policy/mandates',
+      to: '/docs/use-cases/',
       icon: ListChecks,
     },
   ],
@@ -130,7 +130,7 @@ const productsDropdownPane: DropdownPane = {
     to: '/docs/concepts/architecture',
     tone: 'bluegreen',
   },
-  footerLinks: [{ label: 'Read the docs', to: '/docs/concepts/' }],
+  footerLinks: [{ label: 'Read the docs', to: '/docs/' }],
 };
 
 const pricingDropdownPane: DropdownPane = {

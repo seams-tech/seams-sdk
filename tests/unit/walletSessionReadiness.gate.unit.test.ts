@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { isWalletSessionReadyForUi } from '@/react/context/walletSessionReadiness';
 import {
   activeWalletSessionFixture,
+  activeLinkedDeviceWalletSessionFixture,
   anonymousWalletSessionFixture,
   exhaustedWalletSessionFixture,
   expiredWalletSessionFixture,
@@ -49,6 +50,14 @@ test.describe('wallet authentication readiness gate', () => {
           nearOperationalPublicKey: null,
           thresholdEcdsaPublicKeyB64u: 'threshold-ecdsa-public-key',
         }),
+      }),
+    ).toBe(true);
+  });
+
+  test('accepts an active linked-device Wallet Session', () => {
+    expect(
+      isWalletSessionReadyForUi({
+        session: activeLinkedDeviceWalletSessionFixture(),
       }),
     ).toBe(true);
   });

@@ -78,6 +78,7 @@ type IntendedHarnessAction =
   | 'addPasskeyEd25519YaoWalletSigner'
   | 'registerEmailOtpWallet'
   | 'awaitNearReady'
+  | 'syncPasskeyWallet'
   | 'unlockPasskeyWallet'
   | 'unlockEmailOtpWallet'
   | 'signNearTransaction'
@@ -88,7 +89,7 @@ type IntendedHarnessAction =
 
 type TraceEntry = {
   atMs: number;
-  kind: 'stage' | 'console' | 'pageerror' | 'requestfailed' | 'response' | 'service';
+  kind: 'stage' | 'console' | 'pageerror' | 'request' | 'requestfailed' | 'response' | 'service';
   message: string;
   url?: string;
   status?: number;
@@ -328,6 +329,13 @@ type PasskeyUnlockResultSnapshot = {
   remainingUses: number | null;
 };
 
+type PasskeySyncResultSnapshot = {
+  kind: 'passkey_sync_success';
+  walletId: string;
+  nearAccountId: string;
+  operationalPublicKey: string;
+};
+
 type EmailOtpUnlockCoreSnapshot = {
   kind: 'email_otp_unlock_success';
   walletId: string;
@@ -380,6 +388,7 @@ type IntendedActionResultSnapshot =
   | EmailOtpRegistrationResultSnapshot
   | NearProvisioningReadySnapshot
   | NearSigningResultSnapshot
+  | PasskeySyncResultSnapshot
   | PasskeyUnlockResultSnapshot
   | EmailOtpUnlockResultSnapshot
   | TempoSigningResultSnapshot
@@ -410,6 +419,7 @@ type IntendedLifecycleTracePayload = {
 type WalletIframeAutoConfirmDiagnostics = {
   attempts: number;
   clicked: boolean;
+  recoveryBackupAcknowledged?: boolean;
   otpFilled?: boolean;
   otpChallengeMissing?: boolean;
   otpLookupKind?: IntendedEmailOtpCodeRequestForPage['kind'];
@@ -490,7 +500,6 @@ type SigningAuthEventSummary = {
   emailOtpVerifyStarted: boolean;
   emailOtpVerifySucceeded: boolean;
   emailOtpAuthenticationComplete: boolean;
-  emailOtpAppSessionExchangeSucceeded: boolean;
   thresholdReconnectStarted: boolean;
   thresholdReconnectSucceeded: boolean;
 };
@@ -535,7 +544,6 @@ const SIGNING_AUTH_EMAIL_OTP_CHALLENGE_SENT = 'signing.auth.email_otp.challenge.
 const SIGNING_AUTH_EMAIL_OTP_VERIFY_STARTED = 'signing.auth.email_otp.verify.started';
 const SIGNING_AUTH_EMAIL_OTP_VERIFY_SUCCEEDED = 'signing.auth.email_otp.verify.succeeded';
 const SIGNING_AUTHENTICATION_COMPLETE = 'signing.authentication.complete';
-const UNLOCK_APP_SESSION_EXCHANGE_SUCCEEDED = 'unlock.app_session.exchange.succeeded';
 const SIGNING_THRESHOLD_SESSION_RECONNECT_STARTED = 'signing.threshold_session.reconnect.started';
 const SIGNING_THRESHOLD_SESSION_RECONNECT_SUCCEEDED =
   'signing.threshold_session.reconnect.succeeded';
@@ -990,6 +998,16 @@ export class IntendedBehaviourHarness {
     if (snapshot.events.length === 0) {
       throw new Error('Passkey unlock did not emit structured lifecycle events');
     }
+    const observedPaths = this.trace
+      .slice(traceStartIndex)
+      .map((entry) => routePathAtRouter(entry.url, this.config.routerUrl))
+      .filter((path): path is string => path !== null);
+    if (!observedPaths.includes('/wallet/unlock/verify')) {
+      throw new Error('Passkey unlock did not traverse /wallet/unlock/verify');
+    }
+    if (observedPaths.includes('/router-ab/wallet-session/ed25519')) {
+      throw new Error('Passkey unlock requested a second Ed25519 Wallet Session ceremony');
+    }
     this.assertNoRouterAbEd25519YaoRecoveryRoutes(traceStartIndex, {
       kind: 'passkey_unlock',
     });
@@ -997,6 +1015,36 @@ export class IntendedBehaviourHarness {
     this.passkeyPromptCount += 1;
     this.recordService(
       `passkey unlock succeeded wallet=${result.walletId} near=${result.nearAccountId}`,
+    );
+  }
+
+  async syncPasskeyWalletFromEmptyStorage(): Promise<void> {
+    this.recordStage('sync_passkey_wallet_from_empty_storage');
+    const registration = requireNearReadyRegisteredWallet(
+      requirePasskeyRegisteredWalletSnapshot(this.requireRegisteredWalletForSigning()),
+      'Passkey cold sync',
+    );
+    await this.clearBrowserStorageForColdSync();
+    const traceStartIndex = this.trace.length;
+    const snapshot = await this.runIntendedPageAction('syncPasskeyWallet', 'intended-sync-passkey');
+    const result = requirePasskeySyncResult(snapshot, registration);
+    const observedPaths = this.trace
+      .slice(traceStartIndex)
+      .map((entry) => routePathAtRouter(entry.url, this.config.routerUrl))
+      .filter((path): path is string => path !== null);
+    if (!observedPaths.includes('/sync-account/verify')) {
+      throw new Error('Passkey cold sync did not traverse /sync-account/verify');
+    }
+    if (observedPaths.some((path) => path.startsWith('/wallets/recovery/'))) {
+      throw new Error('Passkey cold sync unexpectedly consumed wallet recovery state');
+    }
+    if (observedPaths.some((path) => path.startsWith('/wallets/register/'))) {
+      throw new Error('Passkey cold sync unexpectedly created another wallet registration');
+    }
+    this.currentWarmSigningStage = 'post_unlock';
+    this.passkeyPromptCount += 1;
+    this.recordService(
+      `passkey cold sync restored wallet=${result.walletId} near=${result.nearAccountId}`,
     );
   }
 
@@ -1448,6 +1496,23 @@ export class IntendedBehaviourHarness {
     this.recordService('browser runtime reset preserving storage');
   }
 
+  private async clearBrowserStorageForColdSync(): Promise<void> {
+    await this.context.clearCookies();
+    const resetTargets = [
+      `${new URL(this.page.url()).origin}/robots.txt`,
+      `${new URL(this.config.walletOrigin).origin}/healthz`,
+    ];
+    for (const target of resetTargets) {
+      await this.page.goto(target, { waitUntil: 'commit' });
+      await this.page.evaluate(clearBrowserStorage);
+      await this.page.waitForFunction(browserStorageDatabasesEmpty, undefined, { timeout: 5_000 });
+    }
+    this.latestPageSnapshot = null;
+    this.intendedPageReady = false;
+    this.reloadIntendedPageBeforeNextAction = true;
+    this.recordService('browser storage cleared while preserving the synced passkey credential');
+  }
+
   private async ensureIntendedPageOpen(): Promise<void> {
     if (this.intendedPageReady && !this.reloadIntendedPageBeforeNextAction) return;
     await this.openIntendedPage();
@@ -1643,6 +1708,15 @@ export class IntendedBehaviourHarness {
   }
 
   private handleRequest(request: Request): void {
+    const routePath = routePathAtRouter(request.url(), this.config.routerUrl);
+    if (routePath) {
+      this.trace.push({
+        atMs: Date.now(),
+        kind: 'request',
+        message: `${request.method()} ${routePath}`,
+        url: request.url(),
+      });
+    }
     const captured = captureWalletBudgetStatusRequest(request, this.config.routerUrl);
     if (captured) this.latestWalletBudgetStatusRequest = captured;
   }
@@ -1875,6 +1949,11 @@ export class IntendedBehaviourHarness {
     if (this.registeredWallet) return this.registeredWallet;
     throw new Error('Signing requires a registered wallet');
   }
+}
+
+async function browserStorageDatabasesEmpty(): Promise<boolean> {
+  const databases = await indexedDB.databases().catch((): IDBDatabaseInfo[] => []);
+  return databases.every((database) => !database.name);
 }
 
 function noYaoRecoveryAssertionLabel(scenario: IntendedNoYaoRecoveryAssertionScenario): string {
@@ -2128,7 +2207,7 @@ async function clearBrowserStorage(): Promise<void> {
         const request = indexedDB.deleteDatabase(name);
         request.onsuccess = () => resolve();
         request.onerror = () => resolve();
-        request.onblocked = () => resolve();
+        request.onblocked = () => undefined;
       }),
     );
   }
@@ -2320,7 +2399,6 @@ function summarizeSigningAuthEvents(snapshot: IntendedPageSnapshot): SigningAuth
   let emailOtpVerifyStarted = false;
   let emailOtpVerifySucceeded = false;
   let emailOtpAuthenticationComplete = false;
-  let emailOtpAppSessionExchangeSucceeded = false;
   let thresholdReconnectStarted = false;
   let thresholdReconnectSucceeded = false;
 
@@ -2370,10 +2448,6 @@ function summarizeSigningAuthEvents(snapshot: IntendedPageSnapshot): SigningAuth
       case SIGNING_AUTH_EMAIL_OTP_VERIFY_SUCCEEDED:
         emailOtpVerifySucceeded = true;
         break;
-      case UNLOCK_APP_SESSION_EXCHANGE_SUCCEEDED:
-        emailOtpAppSessionExchangeSucceeded =
-          emailOtpAppSessionExchangeSucceeded || eventAuthMethod(event.payload) === 'email_otp';
-        break;
       case SIGNING_THRESHOLD_SESSION_RECONNECT_STARTED:
         thresholdReconnectStarted = true;
         break;
@@ -2398,7 +2472,6 @@ function summarizeSigningAuthEvents(snapshot: IntendedPageSnapshot): SigningAuth
     emailOtpVerifyStarted,
     emailOtpVerifySucceeded,
     emailOtpAuthenticationComplete,
-    emailOtpAppSessionExchangeSucceeded,
     thresholdReconnectStarted,
     thresholdReconnectSucceeded,
   };
@@ -2439,7 +2512,6 @@ function signingAuthSummaryDetails(summary: SigningAuthEventSummary): string {
     emailOtpVerifyStarted: summary.emailOtpVerifyStarted,
     emailOtpVerifySucceeded: summary.emailOtpVerifySucceeded,
     emailOtpAuthenticationComplete: summary.emailOtpAuthenticationComplete,
-    emailOtpAppSessionExchangeSucceeded: summary.emailOtpAppSessionExchangeSucceeded,
     thresholdReconnectStarted: summary.thresholdReconnectStarted,
     thresholdReconnectSucceeded: summary.thresholdReconnectSucceeded,
   });
@@ -2503,8 +2575,7 @@ function assertEmailOtpStepUpSigningAuth(input: {
   const performedEmailOtpAuth =
     input.summary.emailOtpChallengeSent ||
     input.summary.emailOtpVerifySucceeded ||
-    input.summary.emailOtpAuthenticationComplete ||
-    input.summary.emailOtpAppSessionExchangeSucceeded;
+    input.summary.emailOtpAuthenticationComplete;
   if (!performedEmailOtpAuth) {
     throw new Error(
       `${input.label} at ${input.stage} did not perform Email OTP step-up; observed ${signingAuthSummaryDetails(input.summary)}`,
@@ -2591,8 +2662,7 @@ function hasAnyEmailOtpSigningEvent(summary: SigningAuthEventSummary): boolean {
     summary.emailOtpChallengeSent ||
     summary.emailOtpVerifyStarted ||
     summary.emailOtpVerifySucceeded ||
-    summary.emailOtpAuthenticationComplete ||
-    summary.emailOtpAppSessionExchangeSucceeded
+    summary.emailOtpAuthenticationComplete
   );
 }
 
@@ -2781,6 +2851,33 @@ function requirePasskeyUnlockResult(
   }
   if (result.signingSessionStatus !== 'active') {
     throw new Error(`Passkey unlock signing session is not active: ${result.signingSessionStatus}`);
+  }
+  return result;
+}
+
+function requirePasskeySyncResult(
+  snapshot: IntendedPageSnapshot,
+  expected: {
+    walletId: string;
+    nearAccountId: string;
+    operationalPublicKey: string;
+  },
+): PasskeySyncResultSnapshot {
+  if (snapshot.action.status !== 'success') {
+    throw new Error(`Passkey cold sync did not succeed: ${snapshot.action.status}`);
+  }
+  const result = snapshot.action.result;
+  if (result.kind !== 'passkey_sync_success') {
+    throw new Error(`Passkey cold sync returned unexpected result kind: ${result.kind}`);
+  }
+  if (result.walletId !== expected.walletId) {
+    throw new Error(`Passkey cold sync wallet mismatch: ${result.walletId}`);
+  }
+  if (result.nearAccountId !== expected.nearAccountId) {
+    throw new Error(`Passkey cold sync NEAR account mismatch: ${result.nearAccountId}`);
+  }
+  if (result.operationalPublicKey !== expected.operationalPublicKey) {
+    throw new Error('Passkey cold sync changed the Ed25519 public key');
   }
   return result;
 }
@@ -3541,6 +3638,16 @@ function parseIntendedActionResultSnapshot(raw: unknown): IntendedActionResultSn
         ),
         remainingUses: nullableNumber(record.remainingUses, 'passkey unlock remainingUses'),
       };
+    case 'passkey_sync_success':
+      return {
+        kind,
+        walletId: requireString(record.walletId, 'passkey sync walletId'),
+        nearAccountId: requireString(record.nearAccountId, 'passkey sync nearAccountId'),
+        operationalPublicKey: requireString(
+          record.operationalPublicKey,
+          'passkey sync operationalPublicKey',
+        ),
+      };
     case 'email_otp_unlock_success':
       return {
         kind,
@@ -3735,6 +3842,7 @@ function parseIntendedHarnessAction(raw: unknown): IntendedHarnessAction {
     case 'addPasskeyEd25519YaoWalletSigner':
     case 'registerEmailOtpWallet':
     case 'awaitNearReady':
+    case 'syncPasskeyWallet':
     case 'unlockPasskeyWallet':
     case 'unlockEmailOtpWallet':
     case 'signNearTransaction':
@@ -3764,6 +3872,17 @@ function routerAbEd25519SigningPath(
     if (url.pathname === path) return path;
   }
   return null;
+}
+
+function routePathAtRouter(rawUrl: string | undefined, routerUrl: string): string | null {
+  if (!rawUrl) return null;
+  try {
+    const url = new URL(rawUrl);
+    if (url.origin !== new URL(routerUrl).origin) return null;
+    return url.pathname;
+  } catch {
+    return null;
+  }
 }
 
 function routerAbEd25519YaoRegistrationPath(
@@ -3853,7 +3972,8 @@ function captureWalletBudgetStatusRequest(
       Object.keys(requestBody).length !== 2 ||
       typeof requestBody.walletSessionId !== 'string' ||
       typeof requestBody.quotaId !== 'string'
-    ) return null;
+    )
+      return null;
   } catch {
     return null;
   }
@@ -4115,6 +4235,7 @@ async function clickWalletIframeConfirm(
       .locator(
         [
           '[data-seams-registration-activation-start="true"]',
+          '[data-auth-menu-primary]',
           '#w3a-confirm-portal button.btn-confirm',
           '#w3a-confirm-portal button.confirm',
         ].join(', '),
@@ -4149,6 +4270,39 @@ async function closeExportViewerFrameButton(page: Page): Promise<boolean> {
       .catch(() => false);
     if (!visible) continue;
     await closeButton.click({ timeout: 2_000 });
+    return true;
+  }
+  return false;
+}
+
+async function acknowledgeWalletRecoveryCodeBackup(
+  page: Page,
+  diagnostics?: WalletIframeAutoConfirmDiagnostics,
+): Promise<boolean> {
+  for (const frame of page.frames()) {
+    const acknowledgement = frame
+      .locator('[data-w3a-wallet-recovery-backup-acknowledgement]')
+      .first();
+    const visible = await acknowledgement.isVisible().catch(() => false);
+    if (!visible) continue;
+    if (!(await acknowledgement.isChecked())) {
+      await acknowledgement.evaluate((input) => {
+        if (!(input instanceof HTMLInputElement)) {
+          throw new Error('Wallet recovery backup acknowledgement is not an input');
+        }
+        input.checked = true;
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+    }
+    // With the acknowledgement checked, the single close control completes the
+    // backup (there is no separate "Finish backup" button).
+    await frame.locator('[data-w3a-wallet-recovery-backup-close]').evaluate((button) => {
+      if (!(button instanceof HTMLButtonElement)) {
+        throw new Error('Wallet recovery backup close control is not a button');
+      }
+      button.click();
+    });
+    if (diagnostics) diagnostics.recoveryBackupAcknowledged = true;
     return true;
   }
   return false;
@@ -4211,6 +4365,17 @@ async function runWalletIframeAutoConfirmLoop(args: {
 }): Promise<void> {
   const deadline = Date.now() + args.timeoutMs;
   while (!args.isDone() && Date.now() < deadline) {
+    const recoveryBackupAcknowledged = await acknowledgeWalletRecoveryCodeBackup(
+      args.page,
+      args.diagnostics,
+    );
+    if (recoveryBackupAcknowledged) {
+      if (args.stopAfterClick) return;
+      if (args.retryDelayMs > 0) {
+        await args.page.waitForTimeout(args.retryDelayMs);
+      }
+      continue;
+    }
     const clicked = await clickWalletIframeConfirm(args.page, {
       timeoutMs: Math.min(500, args.intervalMs),
       diagnostics: args.diagnostics,

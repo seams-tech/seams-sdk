@@ -10,7 +10,6 @@ import {
 import {
   mpcMaterialActivationRefsEqual,
   parseCapabilityInstanceRef,
-  parseMpcMaterialActivationId,
   parseMpcMaterialActivationRef,
   parseMpcMaterialOwnerRef,
   parseWalletId,
@@ -19,6 +18,7 @@ import {
   type MpcMaterialActivationRef,
   type WalletId,
 } from '@shared/utils/domainIds';
+import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import {
   parseCanonicalEcdsaServerActivationRequest,
   parseEcdsaActivationDigest,
@@ -38,9 +38,18 @@ import {
 } from '@shared/utils/ecdsaCapabilityActivation';
 import { alphabetizeStringify, sha256Bytes, sha256BytesUtf8 } from '@shared/utils/digests';
 import { secureRandomId } from '@shared/utils/secureRandomId';
-import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
-import { requireRouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
-import type { RouterAbEcdsaDerivationNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import {
+  normalizeRuntimePolicyScope,
+  type RuntimePolicyScope,
+} from '@shared/threshold/signingRootScope';
+import {
+  parseRouterAbEcdsaDerivationPublicCapabilityV1,
+  parseRouterAbEcdsaRegistrationActivationReceiptV1,
+  requireRouterAbEcdsaDerivationNormalSigningStateV1,
+  type RouterAbEcdsaDerivationNormalSigningStateV1,
+  type RouterAbEcdsaDerivationPublicCapabilityV1,
+  type RouterAbEcdsaRegistrationActivationReceiptV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import {
   parseSdkEcdsaDerivationSigningRootId,
   parseSdkEcdsaDerivationSigningRootVersion,
@@ -103,6 +112,8 @@ import {
   type ValidatedEncryptedEcdsaReadyMaterial,
 } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
 import type { VerifiedEcdsaPublicFacts } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import type { ThresholdEcdsaChainTarget } from '@/core/platform/types';
+import type { WalletCustodyEvmFamilyPublicFacts } from '@shared/passkey-custody';
 import { SEAMS_WALLET_INDEXES, SEAMS_WALLET_STORES } from '../schemaNames';
 import { seamsWalletDB } from '../singletons';
 import type { SeamsWalletDBManager, SeamsWalletTransactionContext } from './manager';
@@ -262,6 +273,17 @@ export type RecordEcdsaServerActivationInput = {
 
 export type SealEcdsaCapabilityActivationInput = {
   readonly committedJournal: ServerCommittedEcdsaActivationJournal;
+  readonly readyStateBlobB64u: string;
+  readonly registeredPublicFacts: VerifiedEcdsaPublicFacts;
+  readonly roleLocalPublicFacts: EcdsaRoleLocalPublicFacts;
+  readonly routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
+  readonly runtimePolicyScope: ReturnType<typeof normalizeRuntimePolicyScope>;
+  readonly committedAt: IsoTimestamp;
+};
+
+export type ImportCommittedWalletCustodyEcdsaActivationInput = {
+  readonly activationBinding: EcdsaActivationBinding;
+  readonly serverCommit: ServerReturnedEcdsaActivationCommit;
   readonly readyStateBlobB64u: string;
   readonly registeredPublicFacts: VerifiedEcdsaPublicFacts;
   readonly roleLocalPublicFacts: EcdsaRoleLocalPublicFacts;
@@ -575,7 +597,6 @@ function activationBindingAadProjection(binding: EcdsaActivationBinding) {
       signing_root_id: binding.signer.signingRootId,
       signing_root_version: binding.signer.signingRootVersion,
     },
-    activation_id: binding.activationId,
     role_local_binding: binding.roleLocalBinding,
     binding_digest: binding.bindingDigest,
     durable_material_ref: binding.durableMaterialRef,
@@ -595,7 +616,6 @@ function activeManifestBindingAadProjection(manifest: ActiveEcdsaCapabilityManif
       signing_root_id: manifest.signer.signingRootId,
       signing_root_version: manifest.signer.signingRootVersion,
     },
-    activation_id: manifest.durableMaterial.materialActivation.activationId,
     role_local_binding: manifest.durableMaterial.roleLocalBinding,
     binding_digest: manifest.durableMaterial.bindingDigest,
     durable_material_ref: manifest.durableMaterial.durableMaterialRef,
@@ -652,6 +672,18 @@ function readyAadProjection(
     stage: 'activation_ready',
     activation_binding: activationBinding,
     server_activation: serverActivation,
+  };
+}
+
+function importedReadyAadProjection(input: {
+  readonly activationBinding: EcdsaActivationBinding;
+  readonly serverActivation: EcdsaServerActivationCommit;
+}) {
+  return {
+    version: MATERIAL_AAD_VERSION,
+    stage: 'activation_ready',
+    activation_binding: activationBindingAadProjection(input.activationBinding),
+    server_activation: input.serverActivation,
   };
 }
 
@@ -908,7 +940,6 @@ function parseActivationBinding(value: unknown): EcdsaActivationBinding {
     'kind',
     'targetManifest',
     'signer',
-    'activationId',
     'roleLocalBinding',
     'bindingDigest',
     'durableMaterialRef',
@@ -919,7 +950,6 @@ function parseActivationBinding(value: unknown): EcdsaActivationBinding {
   return buildEcdsaActivationBinding({
     targetManifest: parseManifestIdentity(record.targetManifest),
     signer: parsePreparedSigner(record.signer),
-    activationId: unwrapDomainId(parseMpcMaterialActivationId(record.activationId)),
     roleLocalBinding: parseRoleLocalBinding(record.roleLocalBinding),
     bindingDigest: parseEcdsaRoleLocalBindingDigest(record.bindingDigest),
     durableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef(record.durableMaterialRef),
@@ -2147,10 +2177,7 @@ export class IndexedDbEcdsaCapabilityManifestStore {
     try {
       for (const row of rows) {
         const pointer = parsePointerRow(row);
-        if (
-          pointer.selector.authority.walletId === walletId &&
-          pointer.selector.capability === capability
-        ) {
+        if (pointer.selector.authority.walletId === walletId) {
           selectors.push(pointer.selector);
         }
       }
@@ -2160,38 +2187,41 @@ export class IndexedDbEcdsaCapabilityManifestStore {
     if (selectors.length === 0) {
       return { kind: 'missing', subject: 'capability', capability };
     }
-    if (selectors.length > 1) {
-      return { kind: 'exact_record_conflict', capability };
+    const exact: Extract<EcdsaCapabilityManifestLookup, { readonly kind: 'active' }>[] = [];
+    for (const selector of selectors) {
+      const lookup = await this.lookup(selector);
+      switch (lookup.kind) {
+        case 'active':
+          if (
+            mpcMaterialActivationRefsEqual(
+              lookup.manifest.activation.materialActivation,
+              materialActivation,
+            ) &&
+            mpcMaterialActivationRefsEqual(
+              lookup.manifest.durableMaterial.materialActivation,
+              materialActivation,
+            ) &&
+            mpcMaterialActivationRefsEqual(
+              lookup.material.binding.materialActivation,
+              materialActivation,
+            )
+          ) {
+            exact.push(lookup);
+          }
+          break;
+        case 'retired':
+          break;
+        case 'missing':
+          return { kind: 'missing', subject: lookup.subject, capability };
+        case 'exact_binding_mismatch':
+        case 'exact_record_conflict':
+        case 'corrupt':
+        case 'persistence_unavailable':
+          return { kind: lookup.kind, capability };
+      }
     }
-
-    const lookup = await this.lookup(selectors[0]);
-    switch (lookup.kind) {
-      case 'active':
-        return mpcMaterialActivationRefsEqual(
-          lookup.manifest.activation.materialActivation,
-          materialActivation,
-        ) &&
-          mpcMaterialActivationRefsEqual(
-            lookup.manifest.durableMaterial.materialActivation,
-            materialActivation,
-          ) &&
-          mpcMaterialActivationRefsEqual(
-            lookup.material.binding.materialActivation,
-            materialActivation,
-          )
-          ? lookup
-          : { kind: 'exact_binding_mismatch', capability };
-      case 'retired':
-        return lookup;
-      case 'missing':
-        return { kind: 'missing', subject: lookup.subject, capability };
-      case 'exact_binding_mismatch':
-      case 'exact_record_conflict':
-      case 'corrupt':
-      case 'persistence_unavailable':
-        return { kind: lookup.kind, capability };
-    }
-    return assertNever(lookup);
+    if (exact.length > 1) return { kind: 'exact_record_conflict', capability };
+    return exact[0] ?? { kind: 'exact_binding_mismatch', capability };
   }
 
   async openActiveMaterial(
@@ -2227,8 +2257,7 @@ export class IndexedDbEcdsaCapabilityManifestStore {
     }
     if (
       locator.durableMaterialRef !== materialRef.durableMaterialRef ||
-      locator.bindingDigest !== materialRef.bindingDigest ||
-      locator.selector.capability !== capability
+      locator.bindingDigest !== materialRef.bindingDigest
     ) {
       return { kind: 'exact_binding_mismatch', capability };
     }
@@ -2297,7 +2326,6 @@ export class IndexedDbEcdsaCapabilityManifestStore {
       const durableMaterial = parsed.activeProof.durableMaterial;
       if (durableMaterial.durableMaterialRef !== materialRef.durableMaterialRef) continue;
       if (
-        parsed.selector.capability !== capability ||
         durableMaterial.bindingDigest !== materialRef.bindingDigest ||
         !mpcMaterialActivationRefsEqual(
           durableMaterial.materialActivation,
@@ -2453,6 +2481,105 @@ export class IndexedDbEcdsaCapabilityManifestStore {
     }
   }
 
+  async importCommittedWalletCustodyActivation(
+    input: ImportCommittedWalletCustodyEcdsaActivationInput,
+  ): Promise<EcdsaCapabilityActivationFinalizationResult> {
+    const serverActivation = buildEcdsaServerActivationCommit({
+      activationBinding: input.activationBinding,
+      serverCommit: input.serverCommit,
+    });
+    const selector = {
+      capability: input.activationBinding.signer.capability,
+      authority: input.activationBinding.signer.authority,
+    };
+    const sealingKeyId = parseEcdsaMaterialSealingKeyId(
+      secureRandomId('ecdsa-material-sealing-key', 32, 'ECDSA material sealing key identities'),
+    );
+    try {
+      const sealingKey = await generateMaterialSealingKey();
+      const encrypted = await encryptStateBlob({
+        key: sealingKey,
+        stateBlobB64u: input.readyStateBlobB64u,
+        aadProjection: importedReadyAadProjection({
+          activationBinding: input.activationBinding,
+          serverActivation,
+        }),
+      });
+      const durableMaterial = buildDurableEcdsaMaterialBinding({
+        activationBinding: input.activationBinding,
+        serverActivation,
+        routerAbEcdsaDerivationNormalSigning: input.routerAbEcdsaDerivationNormalSigning,
+        roleLocalPublicFacts: input.roleLocalPublicFacts,
+        ciphertextDigest: parseEcdsaCiphertextDigest(encrypted.digestB64u),
+        runtimePolicyScope: input.runtimePolicyScope,
+      });
+      const readyMaterial = buildValidatedEncryptedEcdsaReadyMaterial({
+        binding: durableMaterial,
+        sealingKeyId,
+        iv12B64u: encrypted.iv12B64u,
+        ciphertextB64u: encrypted.ciphertextB64u,
+      });
+      const activeManifest = buildActiveEcdsaCapabilityManifest({
+        activationBinding: input.activationBinding,
+        serverActivation,
+        registeredPublicFacts: input.registeredPublicFacts,
+        durableMaterial,
+        committedAt: input.committedAt,
+      });
+      const activeProof: ParsedActiveManifestProof = {
+        activationBinding: input.activationBinding,
+        serverActivation,
+        durableMaterial,
+        activeManifest,
+        committedAt: input.committedAt,
+      };
+      await this.manager.runTransaction(
+        [MANIFEST_STORE, POINTER_STORE, MATERIAL_STORE, SEALING_KEY_STORE],
+        'readwrite',
+        async (context) => {
+          const pointerStore = context.store(POINTER_STORE);
+          const existingPointer = await pointerStore.get(selectorKey(selector));
+          const activeRows = await context
+            .store(MANIFEST_STORE)
+            .index(SEAMS_WALLET_INDEXES.capabilityWalletAuthorityState)
+            .getAll([...selectorKey(selector), 'active']);
+          if (existingPointer !== undefined || activeRows.length !== 0) {
+            throw new FinalizationControlError(
+              'exact_record_conflict',
+              'ECDSA custody import found an existing active manifest',
+            );
+          }
+          await context.store(SEALING_KEY_STORE).add(storedSealingKeyRow(sealingKeyId, sealingKey));
+          await context.store(MATERIAL_STORE).add(storedMaterialRow(readyMaterial, activeManifest));
+          await context.store(MANIFEST_STORE).add(storedActiveManifestRow(activeProof));
+          await pointerStore.put(storedPointerRow(activeManifest));
+        },
+      );
+      return { kind: 'committed', manifest: activeManifest, material: readyMaterial };
+    } catch (error: unknown) {
+      if (error instanceof FinalizationControlError || isConstraintError(error)) {
+        return {
+          kind: 'exact_record_conflict',
+          selector,
+          conflictDigest: await persistenceDigest(
+            'custody_import_conflict',
+            selector,
+            errorMessage(error),
+          ),
+        };
+      }
+      return {
+        kind: 'corrupt',
+        selector,
+        corruptionDigest: await persistenceDigest(
+          'custody_import_corrupt',
+          selector,
+          errorMessage(error),
+        ),
+      };
+    }
+  }
+
   private async readMaterialSealingKey(
     keyIdInput: EcdsaMaterialSealingKeyId,
   ): Promise<CryptoKey | null> {
@@ -2561,6 +2688,143 @@ export class IndexedDbEcdsaCapabilityManifestStore {
       };
     }
   }
+}
+
+export type ImportWalletCustodyEcdsaContinuityInput = {
+  readonly store: IndexedDbEcdsaCapabilityManifestStore;
+  readonly authority: WalletAuthAuthorityRef;
+  readonly chainTargets: readonly [ThresholdEcdsaChainTarget, ...ThresholdEcdsaChainTarget[]];
+  readonly walletId: string;
+  readonly keyHandle: string;
+  readonly ecdsaThresholdKeyId: string;
+  readonly signingRootId: string;
+  readonly signingRootVersion: string;
+  readonly relayerKeyId: string;
+  readonly participantIds: readonly [number, number];
+  readonly publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
+  readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+  readonly runtimePolicyScope: RuntimePolicyScope;
+  readonly readyStateBlobB64u: string;
+  readonly publicFacts: WalletCustodyEvmFamilyPublicFacts;
+};
+
+export async function importWalletCustodyEcdsaContinuity(
+  input: ImportWalletCustodyEcdsaContinuityInput,
+): Promise<EcdsaCapabilityActivationFinalizationResult> {
+  const authority = parseWalletAuthAuthorityRef(input.authority);
+  if (!authority || String(authority.walletId) !== String(input.walletId)) {
+    throw new Error('ECDSA custody import authority is invalid');
+  }
+  const publicCapability = parseRouterAbEcdsaDerivationPublicCapabilityV1(
+    input.publicCapability,
+  );
+  const receipt = parseRouterAbEcdsaRegistrationActivationReceiptV1(input.activationReceipt);
+  const materialActivation = routerAbMpcMaterialActivationRefFromWire(
+    receipt.ecdsa_activation.material_activation,
+  );
+  if (
+    !mpcMaterialActivationRefsEqual(
+      materialActivation,
+      routerAbMpcMaterialActivationRefFromWire(publicCapability.material_activation),
+    )
+  ) {
+    throw new Error('ECDSA custody continuity changed the material activation');
+  }
+  const participantIds = [
+    toParticipantId(input.participantIds[0]),
+    toParticipantId(input.participantIds[1]),
+  ] as const;
+  const roleLocalBinding = buildEcdsaRoleLocalMaterialBinding({
+    keyHandle: parseEcdsaKeyHandle(input.keyHandle),
+    ecdsaThresholdKeyId: parseEcdsaThresholdKeyId(input.ecdsaThresholdKeyId),
+    clientVerifyingPublicKey33B64u: parseEcdsaClientVerifyingPublicKey33B64u(
+      input.publicFacts.derivationClientSharePublicKey33B64u,
+    ),
+    participantIds,
+    relayerKeyId: parseEcdsaRelayerKeyId(input.relayerKeyId),
+  });
+  const signer = buildPreparedEvmFamilySigner({
+    capability: materialActivation.capability,
+    signerId: parseEvmFamilyEcdsaSignerId(
+      secureRandomId('ecdsa-signer', 32, 'ECDSA custody signer identities'),
+    ),
+    authority,
+    scope: buildEcdsaCapabilityScope({ targetMemberships: input.chainTargets }),
+    materialOwner: materialActivation.materialOwner,
+    signingRootId: parseSdkEcdsaDerivationSigningRootId(input.signingRootId),
+    signingRootVersion: parseSdkEcdsaDerivationSigningRootVersion(input.signingRootVersion),
+  });
+  const activationBinding = buildEcdsaActivationBinding({
+    targetManifest: buildEcdsaManifestIdentity({
+      manifestId: parseEcdsaCapabilityManifestId(
+        secureRandomId('ecdsa-manifest', 32, 'ECDSA custody manifest identities'),
+      ),
+      manifestRevision: parseEcdsaCapabilityManifestRevision(1),
+    }),
+    signer,
+    roleLocalBinding,
+    bindingDigest: parseEcdsaRoleLocalBindingDigest(input.publicFacts.contextBinding32B64u),
+    durableMaterialRef: parseEcdsaRoleLocalDurableMaterialRef(
+      secureRandomId('ecdsa-role-local-material', 32, 'ECDSA custody material identities'),
+    ),
+  });
+  const ethereumAddress = input.publicFacts.ethereumAddress;
+  const registeredPublicFacts = buildVerifiedEcdsaPublicFacts({
+    keyHandle: toEvmFamilyEcdsaKeyHandle(input.keyHandle),
+    publicKeyB64u: input.publicFacts.groupPublicKey33B64u,
+    participantIds,
+    thresholdOwnerAddress: ethereumAddress,
+  });
+  const roleLocalPublicFacts = buildEcdsaRoleLocalPublicFacts({
+    walletId: authority.walletId,
+    chainTarget: input.chainTargets[0],
+    keyHandle: roleLocalBinding.keyHandle,
+    ecdsaThresholdKeyId: roleLocalBinding.ecdsaThresholdKeyId,
+    signingRootId: signer.signingRootId,
+    signingRootVersion: signer.signingRootVersion,
+    applicationBindingDigestB64u: publicCapability.context.application_binding_digest_b64u,
+    clientParticipantId: participantIds[0],
+    relayerParticipantId: participantIds[1],
+    participantIds,
+    contextBinding32B64u: input.publicFacts.contextBinding32B64u,
+    derivationClientSharePublicKey33B64u:
+      input.publicFacts.derivationClientSharePublicKey33B64u,
+    relayerPublicKey33B64u: input.publicFacts.relayerPublicKey33B64u,
+    groupPublicKey33B64u: input.publicFacts.groupPublicKey33B64u,
+    ethereumAddress,
+    publicCapability,
+  });
+  const normalSigning: RouterAbEcdsaDerivationNormalSigningStateV1 = {
+    kind: 'router_ab_ecdsa_derivation_normal_signing_v1',
+    scope: {
+      wallet_id: String(authority.walletId),
+      ecdsa_threshold_key_id: String(roleLocalBinding.ecdsaThresholdKeyId),
+      signing_root_id: String(signer.signingRootId),
+      signing_root_version: String(signer.signingRootVersion),
+      context: receipt.ecdsa_activation.context,
+      public_identity: receipt.ecdsa_activation.public_identity,
+      material_activation: receipt.ecdsa_activation.material_activation,
+      signing_worker: receipt.ecdsa_activation.signing_worker,
+      activation_epoch: receipt.ecdsa_activation.activation_epoch,
+    },
+  };
+  return await input.store.importCommittedWalletCustodyActivation({
+    activationBinding,
+    serverCommit: {
+      correlationId: receipt.activation_correlation_id,
+      activationRequestDigest: parseDigestB64u(
+        base64UrlEncode(Uint8Array.from(receipt.activation_request_digest.bytes)),
+      ),
+      serverGeneration: receipt.server_generation,
+      protocolReceipt: receipt,
+    },
+    readyStateBlobB64u: input.readyStateBlobB64u,
+    registeredPublicFacts,
+    roleLocalPublicFacts,
+    routerAbEcdsaDerivationNormalSigning: normalSigning,
+    runtimePolicyScope: normalizeRuntimePolicyScope(input.runtimePolicyScope),
+    committedAt: parseIsoTimestamp(new Date(receipt.ecdsa_activation.activated_at_ms).toISOString()),
+  });
 }
 
 async function lookupInTransaction(

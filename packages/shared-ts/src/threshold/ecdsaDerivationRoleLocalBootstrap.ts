@@ -16,6 +16,17 @@ export type EcdsaClientRootPublicKey33B64u = string & {
   readonly __brand: 'EcdsaClientRootPublicKey33B64u';
 };
 
+export function ecdsaClientRootPublicKey33B64uFromString(
+  value: string,
+): EcdsaClientRootPublicKey33B64u {
+  const normalized = value.trim();
+  const bytes = base64UrlDecode(normalized);
+  if (bytes.length !== 33 || base64UrlEncode(bytes) !== normalized) {
+    throw new Error('ECDSA client root public key must be canonical base64url for 33 bytes');
+  }
+  return normalized as EcdsaClientRootPublicKey33B64u;
+}
+
 export type DerivationClientSharePublicKey33B64u = string & {
   readonly __brand: 'DerivationClientSharePublicKey33B64u';
 };

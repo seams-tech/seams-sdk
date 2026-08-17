@@ -26,6 +26,7 @@ import type {
 } from '@shared/utils/registrationIntent';
 import type { WalletAuthMethodBinding } from '@shared/utils/walletCapabilityBindings';
 import type {
+  LinkedDeviceWalletSessionAuthorizationId,
   WalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
@@ -35,6 +36,10 @@ import type {
   NearEd25519WalletUnlockSubject,
   WalletUnlockSubjectSet,
 } from '../signingEngine/session/identity/walletUnlockSubject';
+
+export type ReusableWalletSessionAuthorizationId =
+  | WalletSessionAuthorizationId
+  | LinkedDeviceWalletSessionAuthorizationId;
 
 export type {
   SensitiveOperationPolicy,
@@ -164,14 +169,6 @@ export type SigningSessionSealConfig =
  *   relayer?: {
  *     url?: string;
  *     delegateActionRoute?: string;
- *     emailRecovery?: {
- *       minBalanceYocto?: string;
- *       pollingIntervalMs?: number;
- *       maxPollingDurationMs?: number;
- *       pendingTtlMs?: number;
- *       mailtoAddress?: string;
- *       emailDkimVerifierContract?: string;
- *     };
  *   };
  *   registration?: {
  *     mode?: 'managed';
@@ -188,8 +185,6 @@ export type SigningSessionSealConfig =
  * - Managed registration authenticates setup directly with the configured publishable key.
  * - `iframeWallet.walletOrigin` is required when `iframeWallet` is configured.
  *   Browser wallet capabilities run through hosted iframe mode.
- * - `relayer.emailRecovery.emailDkimVerifierContract` configures the DKIM verifier
- *   contract account used by email recovery flows.
  */
 export interface SeamsConfigsInput {
   chains?: SeamsChainConfigInput[];
@@ -278,14 +273,6 @@ export interface SeamsConfigsInput {
  *       url: string;
  *       routes: {
  *         delegateAction: string; *       };
- *       emailRecovery: {
- *         minBalanceYocto: string;
- *         pollingIntervalMs: number;
- *         maxPollingDurationMs: number;
- *         pendingTtlMs: number;
- *         mailtoAddress: string;
- *         emailDkimVerifierContract: string;
- *       };
  *     };
  *     registration: {
  *       mode: 'managed';
@@ -400,7 +387,7 @@ export type ReusableWalletSessionState =
   | {
       readonly kind: 'active';
       readonly walletId: WalletId;
-      readonly authorizationId: WalletSessionAuthorizationId;
+      readonly authorizationId: ReusableWalletSessionAuthorizationId;
       readonly walletSessionId: WalletSessionId;
       readonly authMethod: WalletAuthMethod;
       readonly remainingUses: number;
@@ -411,7 +398,7 @@ export type ReusableWalletSessionState =
   | {
       readonly kind: 'exhausted';
       readonly walletId: WalletId;
-      readonly authorizationId: WalletSessionAuthorizationId;
+      readonly authorizationId: ReusableWalletSessionAuthorizationId;
       readonly walletSessionId: WalletSessionId;
       readonly authMethod: WalletAuthMethod;
       readonly remainingUses: 0;
@@ -422,7 +409,7 @@ export type ReusableWalletSessionState =
   | {
       readonly kind: 'expired';
       readonly walletId: WalletId;
-      readonly authorizationId: WalletSessionAuthorizationId;
+      readonly authorizationId: ReusableWalletSessionAuthorizationId;
       readonly walletSessionId: WalletSessionId;
       readonly authMethod: WalletAuthMethod;
       readonly expiresAtMs: number;
@@ -433,7 +420,7 @@ export type ReusableWalletSessionState =
   | {
       readonly kind: 'missing';
       readonly walletId: WalletId;
-      readonly authorizationId: WalletSessionAuthorizationId;
+      readonly authorizationId: ReusableWalletSessionAuthorizationId;
       readonly walletSessionId: WalletSessionId;
       readonly authMethod: WalletAuthMethod;
       readonly remainingUses?: never;
@@ -448,7 +435,7 @@ export type ReusableWalletSessionState =
   | {
       readonly kind: 'superseded';
       readonly walletId: WalletId;
-      readonly authorizationId: WalletSessionAuthorizationId;
+      readonly authorizationId: ReusableWalletSessionAuthorizationId;
       readonly walletSessionId: WalletSessionId;
       readonly authMethod: WalletAuthMethod;
       readonly detectedAtMs: number;
@@ -459,7 +446,7 @@ export type ReusableWalletSessionState =
   | {
       readonly kind: 'unavailable';
       readonly walletId: WalletId;
-      readonly authorizationId?: WalletSessionAuthorizationId;
+      readonly authorizationId?: ReusableWalletSessionAuthorizationId;
       readonly reason: 'persistence_unavailable';
       readonly walletSessionId?: never;
       readonly authMethod?: never;
@@ -470,7 +457,7 @@ export type ReusableWalletSessionState =
   | {
       readonly kind: 'invalid';
       readonly walletId: WalletId;
-      readonly authorizationId?: WalletSessionAuthorizationId;
+      readonly authorizationId?: ReusableWalletSessionAuthorizationId;
       // `lifecycle_mismatch` is gone: replacement is `superseded`, which the
       // caller re-resolves. Collapsing it here told adapters a routine
       // replacement was a broken session.
@@ -784,7 +771,6 @@ export type LoginResult =
       loggedInNearAccountId: string;
       operationalPublicKey: string | null;
       nearAccountId: AccountId;
-      jwt?: string;
       error?: never;
     }
   | {
@@ -794,7 +780,6 @@ export type LoginResult =
       loggedInNearAccountId?: never;
       operationalPublicKey?: never;
       nearAccountId?: never;
-      jwt?: string;
       error?: never;
     }
   | {
@@ -805,7 +790,6 @@ export type LoginResult =
       loggedInNearAccountId?: never;
       operationalPublicKey?: never;
       nearAccountId?: never;
-      jwt?: never;
     };
 
 export interface SigningSessionStatus {
@@ -875,7 +859,7 @@ export interface RecentUnlockAccount {
   displayName: string;
   signerSlot: number;
   lastLogin?: number;
-  authMethod?: WalletAuthMethod | null;
+  authMethod?: WalletAuthMethod | 'linked_device' | null;
 }
 
 export interface GetRecentUnlocksResult {
@@ -1050,36 +1034,16 @@ export interface SeamsRelayerConfigInput {
    * Defaults to '/signed-delegate'.
    */
   delegateActionRoute?: string;
-  emailRecovery?: {
-    minBalanceYocto?: string;
-    pollingIntervalMs?: number;
-    maxPollingDurationMs?: number;
-    pendingTtlMs?: number;
-    mailtoAddress?: string;
-    // Contract account that verifies DKIM signatures for email recovery.
-    emailDkimVerifierContract?: string;
-  };
 }
 
 export interface SeamsRelayerRoutesConfig {
   delegateAction: string;
 }
 
-export interface SeamsRelayerEmailRecoveryConfig {
-  minBalanceYocto: string;
-  pollingIntervalMs: number;
-  maxPollingDurationMs: number;
-  pendingTtlMs: number;
-  mailtoAddress: string;
-  // Contract account that verifies DKIM signatures for email recovery.
-  emailDkimVerifierContract: string;
-}
-
 export interface SeamsRelayerConfig {
   accountId: string;
   url: string;
   routes: SeamsRelayerRoutesConfig;
-  emailRecovery: SeamsRelayerEmailRecoveryConfig;
 }
 
 export type SeamsRegistrationConfig = {

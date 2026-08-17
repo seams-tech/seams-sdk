@@ -110,6 +110,7 @@ on the intended runner.
   - `pnpm test` → `pnpm -C tests test` (full suite)
   - `pnpm test:lite` → `pnpm -C tests test:lite` (lite suite; excludes the heavier wallet-iframe sticky-behavior coverage)
   - `pnpm test:inline` → line reporter
+  - `pnpm test:linked-device` → opt-in two-browser Device 2 lifecycle against already-running composed services
   - `pnpm test:intended` → intended-behaviour lifecycle contract suite against already-running local services
   - `pnpm test:intended:ci` → intended-behaviour lifecycle contract suite with CI-managed local service startup
   - `pnpm ensure:intended-google-token` → accept or refresh the Email OTP Google ID token before intended contracts run
@@ -133,6 +134,10 @@ Test profiles:
 - Generic e2e scripts exclude `e2e/intended-behaviours/*.contract.test.ts`;
   lifecycle contracts run through `test:intended` or `test:intended:ci`.
   `test:e2e` uses the same generic config and excludes intended contracts.
+- `test:linked-device` is an explicit iteration test. It links Device 2, locks and
+  unlocks its wallet, signs on Tempo, Arc, and NEAR, exhausts reusable authority
+  to exercise passkey step-up, and revokes the enrollment. It is excluded from
+  the routine intended-behaviour command.
 
 - Direct Playwright subset examples:
 
@@ -217,6 +222,7 @@ pnpm build:sdk
 - E2E
   - `e2e/intended-behaviours/*.contract.test.ts` intended registration,
     unlock, signing, step-up, and export lifecycle contracts
+  - `e2e/linked-device.operating-path.test.ts` opt-in Device 2 lifecycle contract
   - `e2e/dashboard.*.apiWiring.test.ts` and
     `e2e/pricing.checkout.apiWiring.test.ts` dashboard/API wiring smoke tests
   - `e2e/cancel_overlay_specs.test.ts` cancel + overlay specs (cancel hides UI)

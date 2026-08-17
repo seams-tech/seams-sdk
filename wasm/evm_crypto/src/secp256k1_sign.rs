@@ -33,3 +33,20 @@ pub fn verify_secp256k1_recoverable_signature_against_public_key_33(
     signature65.zeroize();
     result
 }
+
+pub fn verify_secp256k1_bip340_signature_against_public_key_33(
+    mut digest32: Vec<u8>,
+    mut signature64: Vec<u8>,
+    public_key33: Vec<u8>,
+) -> Result<Vec<u8>, JsValue> {
+    let result = signer_core::secp256k1::verify_secp256k1_bip340_signature_against_public_key_33(
+        digest32.as_slice(),
+        signature64.as_slice(),
+        public_key33.as_slice(),
+    )
+    .map(|()| Vec::new())
+    .map_err(js_core_err);
+    digest32.zeroize();
+    signature64.zeroize();
+    result
+}

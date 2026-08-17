@@ -91,8 +91,16 @@ test('D1 staging smoke builds the actual console and gateway readiness endpoint 
     ['console_readyz', 'GET', `${D1_STAGING_CONSOLE_ORIGIN}/console/readyz`],
     ['router_api_readyz', 'GET', `${D1_STAGING_GATEWAY_ORIGIN}/readyz`],
     ['router_api_healthz', 'GET', `${D1_STAGING_GATEWAY_ORIGIN}/healthz`],
-    ['signer_custody_ed25519_healthz', 'GET', `${D1_STAGING_GATEWAY_ORIGIN}/router-ab/ed25519/healthz`],
-    ['signer_custody_ecdsa_derivation_healthz', 'GET', `${D1_STAGING_GATEWAY_ORIGIN}/router-ab/ecdsa-derivation/healthz`],
+    [
+      'signer_custody_ed25519_healthz',
+      'GET',
+      `${D1_STAGING_GATEWAY_ORIGIN}/router-ab/ed25519/healthz`,
+    ],
+    [
+      'signer_custody_ecdsa_derivation_healthz',
+      'GET',
+      `${D1_STAGING_GATEWAY_ORIGIN}/router-ab/ecdsa-derivation/healthz`,
+    ],
   ]);
 });
 

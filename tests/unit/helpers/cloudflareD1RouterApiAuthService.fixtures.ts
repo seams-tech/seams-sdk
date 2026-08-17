@@ -1,6 +1,5 @@
 import { expect } from '@playwright/test';
 import { isoCBOR } from '@simplewebauthn/server/helpers';
-import { createHash } from 'node:crypto';
 import type { D1DatabaseLike } from '../../../packages/sdk-server-ts/src/storage/tenantRoute';
 import type {
   CloudflareDurableObjectNamespaceLike,
@@ -20,6 +19,7 @@ import { parseGoogleEmailOtpRegistrationAttemptRecord } from '../../../packages/
 import { parseD1RegistrationIntent } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1RegistrationCeremonyRecords';
 import { base64UrlDecode, base64UrlEncode } from '../../../packages/shared-ts/src/utils/encoders';
 import { parseWebAuthnRpId } from '../../../packages/shared-ts/src/utils/domainIds';
+import type { WebAuthnAuthenticatorDeviceInfo } from '../../../packages/shared-ts/src/utils/webauthnDeviceInfo';
 import { normalizeRuntimePolicyScope } from '../../../packages/shared-ts/src/threshold/signingRootScope';
 import {
   implicitNearAccountProvisioning,
@@ -27,14 +27,6 @@ import {
   walletIdFromString,
 } from '../../../packages/shared-ts/src/utils/registrationIntent';
 import { buildPasskeyWalletAuthAuthority } from '../../../packages/shared-ts/src/utils/walletAuthAuthority';
-import {
-  EMAIL_OTP_RECOVERY_KEY_COUNT,
-  EMAIL_OTP_RECOVERY_WRAP_ALG,
-  EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
-  EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
-  buildEmailOtpRecoveryWrapBinding,
-  encodeEmailOtpRecoveryWrappedEnrollmentAad,
-} from '../../../packages/shared-ts/src/utils/emailOtpRecoveryKey';
 import {
   secp256k1PrivateKey32ToPublicKey33,
   signSecp256k1Recoverable,
@@ -60,9 +52,7 @@ export type TestEcdsaRelayerPublicKey =
   EcdsaDerivationServerBootstrapResponse['publicIdentity']['relayerPublicKey33B64u'];
 
 export const EMAIL_OTP_SERVER_SEAL_KEY_VERSION = 'kek-s-email-otp-test';
-export const EMAIL_OTP_SERVER_SEAL_ROOT_SECRET_B64U = Buffer.alloc(32, 0x42).toString(
-  'base64url',
-);
+export const EMAIL_OTP_SERVER_SEAL_ROOT_SECRET_B64U = Buffer.alloc(32, 0x42).toString('base64url');
 
 export type WebAuthnAssertionFixture = {
   readonly credentialIdB64u: string;
@@ -285,7 +275,6 @@ export class RecordingDurableObjectStub implements CloudflareDurableObjectStubLi
     this.values.set(key, { expiresAtMs });
     return recordingDurableObjectJson({ ok: true, value: { reserved: true } });
   }
-
 }
 
 export class RecordingDurableObjectNamespace implements CloudflareDurableObjectNamespaceLike {
@@ -666,9 +655,7 @@ class EmailOtpClientSealFixture {
 
 export async function createEmailOtpClientSealFixture(): Promise<EmailOtpClientSealFixture> {
   await ensureSigningSessionSealShamir3PassWasm();
-  return new EmailOtpClientSealFixture(
-    shamir3pass_generate_lock_key_handle('rfc2409-group2'),
-  );
+  return new EmailOtpClientSealFixture(shamir3pass_generate_lock_key_handle('rfc2409-group2'));
 }
 
 export async function generateGoogleOidcTestKey(kid: string): Promise<{
@@ -870,6 +857,8 @@ export async function insertWebAuthn(input: {
   readonly credentialPublicKeyB64u?: string;
   readonly counter?: number;
   readonly signerSlot?: number;
+  /** Omitted for rows written before device capture existed. */
+  readonly deviceInfo?: WebAuthnAuthenticatorDeviceInfo;
 }): Promise<void> {
   const rpId = input.rpId || 'example.com';
   const credentialIdB64u = input.credentialIdB64u || 'credential-a';
@@ -880,8 +869,8 @@ export async function insertWebAuthn(input: {
     .prepare(
       `INSERT INTO webauthn_authenticators (
         namespace, org_id, project_id, env_id, user_id, credential_id_b64u,
-        credential_public_key_b64u, counter, created_at_ms, updated_at_ms
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        credential_public_key_b64u, counter, created_at_ms, updated_at_ms, device_info_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       input.namespace,
@@ -894,6 +883,7 @@ export async function insertWebAuthn(input: {
       counter,
       200,
       300,
+      input.deviceInfo ? JSON.stringify(input.deviceInfo) : '{}',
     )
     .run();
   await input.database
@@ -1401,386 +1391,4 @@ export async function insertEmailOtpAuthState(input: {
       record.updatedAtMs,
     )
     .run();
-}
-
-export async function insertEmailOtpRecoveryEscrow(input: {
-  readonly database: D1DatabaseLike;
-  readonly namespace: string;
-  readonly orgId: string;
-  readonly projectId: string;
-  readonly envId: string;
-  readonly recoveryKeyId: string;
-  readonly recoveryKeyStatus: 'active' | 'consumed' | 'revoked';
-  readonly issuedAtMs: number;
-  readonly updatedAtMs: number;
-}): Promise<void> {
-  const record = emailOtpRecoveryEscrowRecord(input);
-  await input.database
-    .prepare(
-      `INSERT INTO email_otp_recovery_wrapped_enrollment_escrows (
-        namespace, org_id, project_id, env_id, wallet_id, recovery_key_id, recovery_key_status,
-        record_json, issued_at_ms, updated_at_ms
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .bind(
-      input.namespace,
-      input.orgId,
-      input.projectId,
-      input.envId,
-      record.walletId,
-      record.recoveryKeyId,
-      record.recoveryKeyStatus,
-      JSON.stringify(record),
-      record.issuedAtMs,
-      record.updatedAtMs,
-    )
-    .run();
-}
-
-export async function insertEmailOtpGrant(input: {
-  readonly database: D1DatabaseLike;
-  readonly namespace: string;
-  readonly orgId: string;
-  readonly projectId: string;
-  readonly envId: string;
-  readonly grantToken: string;
-  readonly appSessionVersion: string;
-}): Promise<void> {
-  const record = emailOtpGrantRecord(input);
-  await input.database
-    .prepare(
-      `INSERT INTO email_otp_grants (
-        namespace, org_id, project_id, env_id, grant_token, user_id, wallet_id, record_org_id,
-        challenge_id, action, record_json, issued_at_ms, expires_at_ms
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .bind(
-      input.namespace,
-      input.orgId,
-      input.projectId,
-      input.envId,
-      record.grantToken,
-      record.userId,
-      record.walletId,
-      record.orgId,
-      record.challengeId,
-      record.action,
-      JSON.stringify(record),
-      record.issuedAtMs,
-      record.expiresAtMs,
-    )
-    .run();
-}
-
-export function emailOtpGrantRecord(input: {
-  readonly orgId: string;
-  readonly grantToken: string;
-  readonly appSessionVersion: string;
-}) {
-  return {
-    version: 'email_otp_grant_v1',
-    grantToken: input.grantToken,
-    userId: 'google:email-user',
-    walletId: 'email-wallet.testnet',
-    orgId: input.orgId,
-    challengeId: `challenge-${input.grantToken}`,
-    otpChannel: 'email_otp',
-    sessionHash: 'session-hash-a',
-    appSessionVersion: input.appSessionVersion,
-    action: 'wallet_email_otp_unseal',
-    issuedAtMs: Date.now() - 1_000,
-    expiresAtMs: Date.now() + 60_000,
-  };
-}
-
-export function emailOtpRecoveryEscrowRecord(input: {
-  readonly orgId: string;
-  readonly recoveryKeyId: string;
-  readonly recoveryKeyStatus: 'active' | 'consumed' | 'revoked';
-  readonly issuedAtMs: number;
-  readonly updatedAtMs: number;
-}) {
-  return {
-    version: 'email_otp_recovery_wrapped_enrollment_escrow_v1',
-    alg: 'chacha20poly1305-hkdf-sha256-v1',
-    secretKind: 'email_otp_device_enrollment_escrow',
-    escrowKind: 'recovery_wrapped_enrollment_escrow',
-    walletId: 'email-wallet.testnet',
-    userId: 'google:email-user',
-    authSubjectId: 'google:email-user',
-    authMethod: 'google_sso_email_otp',
-    enrollmentId: 'enrollment-a',
-    enrollmentVersion: 'enrollment-v1',
-    enrollmentSealKeyVersion: 'seal-v1',
-    signingRootId: 'project-a:env-a',
-    signingRootVersion: 'root-v1',
-    recoveryKeyId: input.recoveryKeyId,
-    recoveryKeyStatus: input.recoveryKeyStatus,
-    nonceB64u: `nonce-${input.recoveryKeyId}`,
-    wrappedDeviceEnrollmentEscrowB64u: `wrapped-${input.recoveryKeyId}`,
-    aadHashB64u: `aad-${input.recoveryKeyId}`,
-    issuedAtMs: input.issuedAtMs,
-    updatedAtMs: input.updatedAtMs,
-    ...(input.recoveryKeyStatus === 'consumed' ? { consumedAtMs: input.updatedAtMs } : {}),
-    ...(input.recoveryKeyStatus === 'revoked' ? { revokedAtMs: input.updatedAtMs } : {}),
-  };
-}
-
-export type RecoveryRotationEscrowInput = {
-  readonly recoveryKeyId: string;
-  readonly nonceB64u: string;
-  readonly wrappedDeviceEnrollmentEscrowB64u: string;
-  readonly aadHashB64u: string;
-};
-
-export type RecoveryWrappedEnrollmentEscrowInput = {
-  readonly version: 'email_otp_recovery_wrapped_enrollment_escrow_v1';
-  readonly alg: typeof EMAIL_OTP_RECOVERY_WRAP_ALG;
-  readonly secretKind: typeof EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND;
-  readonly escrowKind: typeof EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND;
-  readonly walletId: string;
-  readonly userId: string;
-  readonly authSubjectId: string;
-  readonly authMethod: 'google_sso_email_otp';
-  readonly enrollmentId: string;
-  readonly enrollmentVersion: string;
-  readonly enrollmentSealKeyVersion: string;
-  readonly signingRootId: string;
-  readonly signingRootVersion: string;
-  readonly recoveryKeyId: string;
-  readonly recoveryKeyStatus: 'active';
-  readonly nonceB64u: string;
-  readonly wrappedDeviceEnrollmentEscrowB64u: string;
-  readonly aadHashB64u: string;
-  readonly issuedAtMs: number;
-  readonly updatedAtMs: number;
-};
-
-export function makeRecoveryRotationEscrowInputs(): RecoveryRotationEscrowInput[] {
-  const inputs: RecoveryRotationEscrowInput[] = [];
-  for (let index = 1; index <= 10; index += 1) {
-    inputs.push(recoveryRotationEscrowInput(index));
-  }
-  return inputs;
-}
-
-export function recoveryRotationEscrowInput(index: number): RecoveryRotationEscrowInput {
-  const recoveryKeyId = `rotated-recovery-${index}`;
-  const binding = buildEmailOtpRecoveryWrapBinding({
-    walletId: 'email-wallet.testnet',
-    userId: 'google:email-user',
-    authSubjectId: 'google:email-user',
-    authMethod: 'google_sso_email_otp',
-    enrollmentId: 'enrollment-a',
-    enrollmentVersion: 'enrollment-v1',
-    enrollmentSealKeyVersion: 'seal-v1',
-    signingRootId: 'project-a:env-a',
-    signingRootVersion: 'root-v1',
-    recoveryKeyId,
-  });
-  return {
-    recoveryKeyId,
-    nonceB64u: base64UrlEncode(new Uint8Array(12).fill(index)),
-    wrappedDeviceEnrollmentEscrowB64u: base64UrlEncode(new Uint8Array(32).fill(index + 10)),
-    aadHashB64u: base64UrlEncode(
-      createHash('sha256').update(encodeEmailOtpRecoveryWrappedEnrollmentAad(binding)).digest(),
-    ),
-  };
-}
-
-export function makeRecoveryWrappedEnrollmentEscrows(input: {
-  readonly walletId: string;
-  readonly userId: string;
-  readonly enrollmentId: string;
-  readonly enrollmentSealKeyVersion: string;
-  readonly enrollmentVersion?: string;
-  readonly signingRootId?: string;
-  readonly signingRootVersion?: string;
-  readonly issuedAtMs?: number;
-}): RecoveryWrappedEnrollmentEscrowInput[] {
-  const enrollmentVersion = input.enrollmentVersion || 'enrollment-v1';
-  const signingRootId = input.signingRootId || 'project-a:env-a';
-  const signingRootVersion = input.signingRootVersion || 'root-v1';
-  const issuedAtMs = input.issuedAtMs || Date.now();
-  const records: RecoveryWrappedEnrollmentEscrowInput[] = [];
-  for (let index = 1; index <= EMAIL_OTP_RECOVERY_KEY_COUNT; index += 1) {
-    records.push(
-      recoveryWrappedEnrollmentEscrowInput({
-        index,
-        walletId: input.walletId,
-        userId: input.userId,
-        enrollmentId: input.enrollmentId,
-        enrollmentVersion,
-        enrollmentSealKeyVersion: input.enrollmentSealKeyVersion,
-        signingRootId,
-        signingRootVersion,
-        issuedAtMs,
-      }),
-    );
-  }
-  return records;
-}
-
-export function recoveryWrappedEnrollmentEscrowInput(input: {
-  readonly index: number;
-  readonly walletId: string;
-  readonly userId: string;
-  readonly enrollmentId: string;
-  readonly enrollmentVersion: string;
-  readonly enrollmentSealKeyVersion: string;
-  readonly signingRootId: string;
-  readonly signingRootVersion: string;
-  readonly issuedAtMs: number;
-}): RecoveryWrappedEnrollmentEscrowInput {
-  const recoveryKeyId = `enrollment-recovery-${input.index}`;
-  const binding = buildEmailOtpRecoveryWrapBinding({
-    walletId: input.walletId,
-    userId: input.userId,
-    authSubjectId: input.userId,
-    authMethod: 'google_sso_email_otp',
-    enrollmentId: input.enrollmentId,
-    enrollmentVersion: input.enrollmentVersion,
-    enrollmentSealKeyVersion: input.enrollmentSealKeyVersion,
-    signingRootId: input.signingRootId,
-    signingRootVersion: input.signingRootVersion,
-    recoveryKeyId,
-  });
-  return {
-    version: 'email_otp_recovery_wrapped_enrollment_escrow_v1',
-    alg: EMAIL_OTP_RECOVERY_WRAP_ALG,
-    secretKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
-    escrowKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
-    walletId: input.walletId,
-    userId: input.userId,
-    authSubjectId: input.userId,
-    authMethod: 'google_sso_email_otp',
-    enrollmentId: input.enrollmentId,
-    enrollmentVersion: input.enrollmentVersion,
-    enrollmentSealKeyVersion: input.enrollmentSealKeyVersion,
-    signingRootId: input.signingRootId,
-    signingRootVersion: input.signingRootVersion,
-    recoveryKeyId,
-    recoveryKeyStatus: 'active',
-    nonceB64u: base64UrlEncode(new Uint8Array(12).fill(input.index)),
-    wrappedDeviceEnrollmentEscrowB64u: base64UrlEncode(new Uint8Array(48).fill(input.index + 20)),
-    aadHashB64u: recoveryEscrowAadHashB64u(binding),
-    issuedAtMs: input.issuedAtMs,
-    updatedAtMs: input.issuedAtMs,
-  };
-}
-
-export function recoveryEscrowAadHashB64u(
-  binding: ReturnType<typeof buildEmailOtpRecoveryWrapBinding>,
-): string {
-  return base64UrlEncode(
-    createHash('sha256').update(encodeEmailOtpRecoveryWrappedEnrollmentAad(binding)).digest(),
-  );
-}
-
-export async function readRecoveryEscrowStatusCounts(input: {
-  readonly database: D1DatabaseLike;
-  readonly namespace: string;
-  readonly orgId: string;
-  readonly projectId: string;
-  readonly envId: string;
-}): Promise<Record<string, number>> {
-  const result = await input.database
-    .prepare(
-      `SELECT recovery_key_status, COUNT(*) AS count
-         FROM email_otp_recovery_wrapped_enrollment_escrows
-        WHERE namespace = ?
-          AND org_id = ?
-          AND project_id = ?
-          AND env_id = ?
-          AND wallet_id = ?
-        GROUP BY recovery_key_status`,
-    )
-    .bind(input.namespace, input.orgId, input.projectId, input.envId, 'email-wallet.testnet')
-    .all<SqliteJsonRow>();
-  const counts: Record<string, number> = {};
-  for (const row of result.results || []) {
-    const status = String(row.recovery_key_status || '').trim();
-    if (status) counts[status] = toInteger(row.count);
-  }
-  return counts;
-}
-
-export async function countActiveRecoveryWrappedEnrollmentEscrows(input: {
-  readonly database: D1DatabaseLike;
-  readonly namespace: string;
-  readonly orgId: string;
-  readonly projectId: string;
-  readonly envId: string;
-  readonly walletId: string;
-}): Promise<number> {
-  const row = await input.database
-    .prepare(
-      `SELECT COUNT(*) AS active_count
-         FROM email_otp_recovery_wrapped_enrollment_escrows
-        WHERE namespace = ?
-          AND org_id = ?
-          AND project_id = ?
-          AND env_id = ?
-          AND wallet_id = ?
-          AND recovery_key_status = 'active'`,
-    )
-    .bind(input.namespace, input.orgId, input.projectId, input.envId, input.walletId)
-    .first<SqliteJsonRow>();
-  return toInteger(row?.active_count);
-}
-
-export async function insertRecoverySession(input: {
-  readonly database: D1DatabaseLike;
-  readonly namespace: string;
-  readonly orgId: string;
-  readonly projectId: string;
-  readonly envId: string;
-  readonly sessionId: string;
-  readonly status?: 'prepared' | 'verified' | 'near_recovered' | 'failed';
-  readonly metadata?: Record<string, unknown>;
-}): Promise<void> {
-  const record = recoverySessionRecord(input);
-  await input.database
-    .prepare(
-      `INSERT INTO recovery_sessions (
-        namespace, org_id, project_id, env_id, session_id, near_account_id, record_json,
-        expires_at_ms, created_at_ms, updated_at_ms
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .bind(
-      input.namespace,
-      input.orgId,
-      input.projectId,
-      input.envId,
-      record.sessionId,
-      record.nearAccountId,
-      JSON.stringify(record),
-      record.expiresAtMs,
-      record.createdAtMs,
-      record.updatedAtMs,
-    )
-    .run();
-}
-
-export function recoverySessionRecord(input: {
-  readonly sessionId: string;
-  readonly status?: 'prepared' | 'verified' | 'near_recovered' | 'failed';
-  readonly metadata?: Record<string, unknown>;
-}) {
-  return {
-    version: 'recovery_session_v1',
-    sessionId: input.sessionId,
-    userId: 'recovery-user',
-    nearAccountId: 'alice.testnet',
-    signerSlot: 1,
-    status: input.status || 'prepared',
-    createdAtMs: 1_000,
-    updatedAtMs: 1_100,
-    expiresAtMs: Date.now() + 60_000,
-    newNearPublicKey: 'ed25519:new-public-key',
-    newEvmOwnerAddress: '0x00000000000000000000000000000000000000aa',
-    recoveryDeadlineEpochSeconds: Math.floor(Date.now() / 1_000) + 3_600,
-    recoveryEmailPayloadHash: 'recovery-payload-hash',
-    ...(input.metadata ? { metadata: input.metadata } : {}),
-  };
 }

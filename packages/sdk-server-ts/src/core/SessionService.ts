@@ -212,7 +212,7 @@ export class SessionService<TClaims extends Record<string, unknown> = Record<str
         return { ok: false, code: 'not_eligible', message: 'Not within refresh window' };
       const sub = String(payload.sub || '');
       if (!sub) return { ok: false, code: 'invalid_claims', message: 'Missing sub claim' };
-      // Preserve non-reserved claims (e.g. kind, provider, appSessionVersion) so refreshed
+      // Preserve non-reserved claims so refreshed
       // sessions retain their scope and can't be "downgraded" into ambiguous tokens.
       const extra: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(payload || {})) {

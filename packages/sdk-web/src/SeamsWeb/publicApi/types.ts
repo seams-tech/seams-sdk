@@ -16,24 +16,14 @@ import type {
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
-  EmailOtpDeviceEnrollmentRemoveResult,
-  EmailOtpDeviceEnrollmentRestoreResult,
   EmailOtpChallengeDelivery,
   EmailOtpEnrollmentResult,
-  EmailOtpRecoveryCodeBackupStatus,
-  EmailOtpRecoveryCodeLifecycleStatus,
-  EmailOtpRecoveryCodeStatus,
-  GoogleEmailOtpSessionExchangeResult,
   DemoEmailOtpCodeResponse,
 } from '@/core/signingEngine/session/emailOtp/publicTypes';
 import type { ProvisionWarmEd25519CapabilityResult } from '@/core/signingEngine/session/warmCapabilities/types';
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { RouterAbEcdsaDerivationLoginPresignaturePrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
-import type {
-  AccessKeyList,
-  NearClient,
-  SignedTransaction,
-} from '@/core/rpcClients/near/NearClient';
+import type { NearClient, SignedTransaction } from '@/core/rpcClients/near/NearClient';
 import type {
   ActionResult,
   DelegateRouterApiResult,
@@ -68,6 +58,7 @@ import type {
   UnlockFlowEvent,
   NearProvisioningStateChangedEvent,
 } from '@/core/types/sdkSentEvents';
+import type { EmailOtpProvider } from '@shared/utils/walletAuthAuthority';
 import type {
   ConfirmationBehavior,
   ConfirmationConfig,
@@ -84,6 +75,42 @@ import type {
   SignNEP413MessageResult,
 } from '@/SeamsWeb/operations/near/signNEP413';
 import type { SyncAccountResult } from '@/SeamsWeb/operations/recovery/syncAccount';
+import type {
+  CompleteWalletRecoveryResult,
+  PrepareWalletWithCodeResult,
+  WalletRecoveryBootstrapChallengeResult,
+  WalletRecoveryBootstrapVerifyResult,
+} from '@/SeamsWeb/operations/recovery/walletRecovery';
+import type {
+  AddPasskeyAuthorization,
+  AddPasskeyHooksOptions,
+  AddPasskeyResult,
+} from '@/SeamsWeb/operations/authMethods/passkey/addPasskey';
+import type {
+  WalletRecoveryBackupAcknowledgementResult,
+  WalletRecoveryCodeStatusResult,
+  WalletCustodyEmailOtpChallengeResult,
+} from '@/core/rpcClients/relayer/walletRecoveryRotate';
+import type { WalletRecoveryRotationAuthorization } from '@/SeamsWeb/operations/recovery/walletRecoveryRotation';
+import type { WalletRecoveryRotationOutcome } from '@/core/signingEngine/walletCustody/walletRecoveryRotation';
+export type {
+  CompleteWalletRecoveryResult,
+  PrepareWalletWithCodeResult,
+  WalletRecoveryBootstrapChallengeResult,
+  WalletRecoveryBootstrapVerifyResult,
+} from '@/SeamsWeb/operations/recovery/walletRecovery';
+export type {
+  AddPasskeyAuthorization,
+  AddPasskeyHooksOptions,
+  AddPasskeyResult,
+} from '@/SeamsWeb/operations/authMethods/passkey/addPasskey';
+export type {
+  WalletRecoveryBackupAcknowledgementResult,
+  WalletRecoveryCodeStatusResult,
+  WalletCustodyEmailOtpChallengeResult,
+} from '@/core/rpcClients/relayer/walletRecoveryRotate';
+export type { WalletRecoveryRotationAuthorization } from '@/SeamsWeb/operations/recovery/walletRecoveryRotation';
+export type { WalletRecoveryRotationOutcome } from '@/core/signingEngine/walletCustody/walletRecoveryRotation';
 import type { UserPreferencesManager } from '@/core/signingEngine/session/userPreferences';
 import type {
   AvailableSigningLanes,
@@ -130,12 +157,16 @@ import type {
   PrepareEmailOtpRegistrationEnrollmentMaterialInternalResult,
 } from '@/core/signingEngine/flows/signEvmFamily/emailOtpPublic';
 import type {
-  DeviceLinkingQRData,
   LinkDeviceResult,
   ScanAndLinkDeviceOptionsDevice1,
   StartDevice2LinkingFlowArgs,
   StartDevice2LinkingFlowResults,
 } from '@/core/types/linkDevice';
+import type {
+  LinkedDeviceListResultV1,
+  LinkedDeviceRevokeResultV1,
+  QrLinkedDeviceSessionPayloadV4,
+} from '@shared/device-linking';
 import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
 import type {
   WalletEmailOtpChannel,
@@ -167,6 +198,11 @@ import type {
   StoreWalletEmailOtpEcdsaRegistrationInput,
 } from '@/core/signingEngine/flows/registration/accountLifecycle';
 import type { HydrateWarmSigningSessionInput } from '@/core/signingEngine/session/passkey/warmSessionHydration';
+export type {
+  LinkedDeviceListResultV1,
+  LinkedDeviceRevokeResultV1,
+  LinkedDeviceSummaryV1,
+} from '@shared/device-linking';
 
 type PublicThresholdEcdsaSessionKeyRef = Omit<
   ThresholdEcdsaSessionBootstrapResult['thresholdEcdsaKeyRef'],
@@ -174,7 +210,6 @@ type PublicThresholdEcdsaSessionKeyRef = Omit<
   | 'signingRootId'
   | 'signingRootVersion'
   | 'ecdsaDerivationExportArtifact'
-  | 'walletSessionJwt'
 >;
 
 export type PublicThresholdEcdsaSessionBootstrapResult = Omit<
@@ -438,7 +473,6 @@ export type BootstrapThresholdEcdsaSessionArgs = {
   source?: 'login' | 'registration' | 'manual-bootstrap' | 'email_otp';
   ecdsaThresholdKeyId?: never;
   participantIds?: never;
-  sessionKind?: never;
   sessionIdentity?: never;
   routeAuth?: never;
   webauthnAuthentication?: never;
@@ -452,25 +486,12 @@ export type EmailOtpChallengeResult = {
   delivery: EmailOtpChallengeDelivery;
   emailHint?: string;
   expiresAtMs?: number;
-  appSessionVersion?: string;
 };
 
-export type {
-  EmailOtpDeviceEnrollmentRemoveResult,
-  EmailOtpDeviceEnrollmentRestoreResult,
+export type { EmailOtpEnrollmentResult };
+
+export type GoogleEmailOtpRegistrationEnrollmentResult = Omit<
   EmailOtpEnrollmentResult,
-  EmailOtpRecoveryCodeBackupStatus,
-  EmailOtpRecoveryCodeLifecycleStatus,
-  EmailOtpRecoveryCodeStatus,
-  GoogleEmailOtpSessionExchangeResult,
-};
-
-export type EmailOtpBackedUpEnrollmentResult = Omit<EmailOtpEnrollmentResult, 'recoveryKeys'> & {
-  recoveryCodeBackup: EmailOtpRecoveryCodeBackupStatus;
-};
-
-export type GoogleEmailOtpRegistrationBackedUpEnrollmentResult = Omit<
-  EmailOtpBackedUpEnrollmentResult,
   'challengeId'
 > & {
   registrationAuthorityId: string;
@@ -484,12 +505,15 @@ export type GoogleEmailOtpRegistrationBackedUpEnrollmentResult = Omit<
 export type EmailOtpEcdsaCapabilityArgs = {
   walletSession: WalletSessionRef;
   chainTarget: ThresholdEcdsaChainTarget;
+  providerIdentity: {
+    provider: EmailOtpProvider;
+    providerSubjectId: string;
+  };
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   relayUrl?: string;
   challengeId?: string;
   otpCode: string;
   groupId?: string;
-  appSessionJwt?: string;
   registrationAttemptId?: string;
   emailOtpAuthorityEmail?: string;
   onEvent?: (event: UnlockFlowEvent) => void;
@@ -529,31 +553,6 @@ export function registrationFinalizeIdempotencyKeyFromString(
   return normalized as RegistrationFinalizeIdempotencyKey;
 }
 
-export type GoogleEmailOtpRegistrationBackupActionKind = 'download' | 'copy' | 'print' | 'manual';
-
-export type EmailOtpRecoveryCodeBackupAck = {
-  kind: 'email_otp_recovery_code_backup_ack_v1';
-  offerId: GoogleEmailOtpRegistrationOfferId;
-  candidateId: GoogleEmailOtpRegistrationCandidateId;
-  recoveryCodesIssuedAtMs: number;
-  backupActionKind: GoogleEmailOtpRegistrationBackupActionKind;
-  acknowledgedAtMs: number;
-  idempotencyKey: RegistrationFinalizeIdempotencyKey;
-  recoveryKeys?: never;
-  recoveryCodes?: never;
-  appSessionJwt?: never;
-  otpCode?: never;
-  challengeId?: never;
-  walletId?: never;
-  webauthn?: never;
-  passkey?: never;
-};
-
-export type EmailOtpRecoveryCodeRotationResult = {
-  status: EmailOtpRecoveryCodeStatus;
-  recoveryCodeBackup: EmailOtpRecoveryCodeBackupStatus;
-};
-
 export type GoogleEmailOtpRegistrationCandidate = {
   candidateId: GoogleEmailOtpRegistrationCandidateId;
   walletId: WalletId;
@@ -581,8 +580,7 @@ export type GoogleEmailOtpRegistrationFinalizeInput = {
   offerId: GoogleEmailOtpRegistrationOfferId;
   candidateId: GoogleEmailOtpRegistrationCandidateId;
   idempotencyKey: RegistrationFinalizeIdempotencyKey;
-  emailOtpEnrollment: GoogleEmailOtpRegistrationBackedUpEnrollmentResult;
-  backupAck: EmailOtpRecoveryCodeBackupAck;
+  emailOtpEnrollment: GoogleEmailOtpRegistrationEnrollmentResult;
   walletId?: never;
   otpCode?: never;
   challengeId?: never;
@@ -600,7 +598,7 @@ export type GoogleEmailOtpWalletAuthEcdsaTargets =
     };
 
 export type GoogleEmailOtpWalletAuthFailureCode =
-  | 'google_exchange_failed'
+  | 'google_verification_failed'
   | 'google_account_registration_required'
   | 'email_otp_challenge_failed'
   | 'email_otp_invalid_code'
@@ -608,7 +606,6 @@ export type GoogleEmailOtpWalletAuthFailureCode =
   | 'email_otp_rate_limited'
   | 'registration_failed'
   | 'registration_restore_required'
-  | 'email_otp_device_recovery_required'
   | 'unlock_failed'
   | 'recovery_code_backup_incomplete'
   | 'local_signing_session_not_ready'
@@ -692,13 +689,11 @@ export type GoogleEmailOtpWalletAuthStartInput = {
   idToken: string;
   mode: GoogleEmailOtpWalletAuthRequestedMode;
   relayUrl?: string;
-  sessionKind?: 'jwt' | 'cookie';
   ecdsaTargets?: GoogleEmailOtpWalletAuthEcdsaTargets;
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   onDemoOtp?: (response: DemoEmailOtpCodeResponse) => void;
   onEvent?: (event: RegistrationFlowEvent | UnlockFlowEvent) => void;
 };
-
 export interface AuthCapability {
   unlock(walletId: string, options?: LoginHooksOptions): Promise<LoginAndCreateSessionResult>;
   lock(): Promise<void>;
@@ -716,7 +711,6 @@ export interface AuthCapability {
   requestEmailOtpChallenge(args: {
     walletId: string;
     relayUrl?: string;
-    appSessionJwt?: string;
     operation?: WalletEmailOtpLoginOperation;
     onEvent?: (event: UnlockFlowEvent) => void;
   }): Promise<EmailOtpChallengeResult>;
@@ -734,13 +728,6 @@ export interface AuthCapability {
     remainingUses?: number;
     onEvent?: (event: UnlockFlowEvent) => void;
   }): Promise<EmailOtpEcdsaCapabilityResult>;
-  exchangeGoogleEmailOtpSession(args: {
-    idToken: string;
-    accountMode: 'register' | 'login';
-    relayUrl?: string;
-    sessionKind?: 'jwt' | 'cookie';
-    onEvent?: (event: RegistrationFlowEvent | UnlockFlowEvent) => void;
-  }): Promise<GoogleEmailOtpSessionExchangeResult>;
   loginWithEmailOtpEcdsaCapability(
     args: EmailOtpEcdsaCapabilityArgs,
   ): Promise<EmailOtpEcdsaCapabilityResult>;
@@ -762,6 +749,12 @@ export interface RegistrationCapability {
     signerSelection: AddSignerSelection;
     options?: RegistrationHooksOptions;
   }): Promise<RegistrationResult>;
+  addPasskey(args: {
+    walletId: WalletId | string;
+    rpId: string;
+    authorization: AddPasskeyAuthorization;
+    options?: AddPasskeyHooksOptions;
+  }): Promise<AddPasskeyResult>;
   registerWallet(args: {
     authMethod: RegistrationAuthMethodInput;
     wallet: RegisterWalletInput;
@@ -778,7 +771,6 @@ export interface RegistrationCapability {
   requestEmailOtpEnrollmentChallenge(args: {
     walletId: string;
     relayUrl?: string;
-    appSessionJwt?: string;
     onEvent?: (event: RegistrationFlowEvent) => void;
   }): Promise<EmailOtpChallengeResult>;
   enrollEmailOtp(args: {
@@ -787,10 +779,9 @@ export interface RegistrationCapability {
     relayUrl?: string;
     challengeId?: string;
     groupId?: string;
-    appSessionJwt?: string;
     clientSecret32?: Uint8Array;
     onEvent?: (event: RegistrationFlowEvent) => void;
-  }): Promise<EmailOtpEnrollmentResult | EmailOtpBackedUpEnrollmentResult>;
+  }): Promise<EmailOtpEnrollmentResult>;
 }
 
 export interface NearSignerCapability {
@@ -895,30 +886,59 @@ export interface EvmSignerCapability {
 }
 
 export interface RecoveryCapability {
-  getRecoveryEmails(walletId: string): Promise<Array<{ hashHex: string; email: string }>>;
-
-  setRecoveryEmails(args: {
-    walletId: string;
-    recoveryEmails: string[];
-    options: ActionHooksOptions;
-  }): Promise<ActionResult>;
-
   syncAccount(args: {
     walletId?: string;
     options?: SyncAccountHooksOptions;
   }): Promise<SyncAccountResult>;
 
-  getEmailOtpRecoveryCodeStatus(args: {
-    walletId: string;
-    relayUrl?: string;
-    appSessionJwt?: string;
-  }): Promise<EmailOtpRecoveryCodeStatus>;
+  getWalletRecoveryCodeStatus(args: { walletId: string }): Promise<WalletRecoveryCodeStatusResult>;
 
-  rotateEmailOtpRecoveryCodes(args: {
+  acknowledgeWalletRecoveryCodeBackup(args: {
     walletId: string;
+  }): Promise<WalletRecoveryBackupAcknowledgementResult>;
+
+  requestWalletCustodyEmailOtpChallenge(args: {
+    walletId: string;
+    providerSubjectId: string;
+    operation: 'credentials_list' | 'credential_label' | 'recovery_acknowledge' | 'recovery_rotate' | 'recovery_read';
+    payload: Record<string, unknown>;
+    requestOrigin?: string;
+  }): Promise<WalletCustodyEmailOtpChallengeResult>;
+
+  rotateWalletRecoveryCodes(args: {
+    walletId: string;
+    authorization: WalletRecoveryRotationAuthorization;
+  }): Promise<WalletRecoveryRotationOutcome>;
+
+  requestWalletRecoveryBootstrapChallenge(args: {
+    walletId: string;
+    orgId: string;
     relayUrl?: string;
-    appSessionJwt?: string;
-  }): Promise<EmailOtpRecoveryCodeRotationResult>;
+  }): Promise<WalletRecoveryBootstrapChallengeResult>;
+
+  verifyWalletRecoveryBootstrap(args: {
+    walletId: string;
+    orgId: string;
+    challengeId: string;
+    otpCode: string;
+    relayUrl?: string;
+  }): Promise<WalletRecoveryBootstrapVerifyResult>;
+
+  prepareWalletRecoveryWithBootstrap(args: {
+    walletId: string;
+    orgId: string;
+    challengeId: string;
+    recoveryBootstrapGrant: string;
+    replacedCredentialIdB64u: string;
+    recoveryCode: string;
+    relayUrl?: string;
+  }): Promise<PrepareWalletWithCodeResult>;
+
+  completeWalletRecovery(args: {
+    walletId: string;
+    recoveryOperationId: string;
+    relayUrl?: string;
+  }): Promise<CompleteWalletRecoveryResult>;
 }
 
 export interface DevicesCapability {
@@ -926,24 +946,24 @@ export interface DevicesCapability {
     args: StartDevice2LinkingFlowArgs,
   ): Promise<StartDevice2LinkingFlowResults>;
 
-  stopDevice2LinkingFlow(): Promise<void>;
+  cancelDeviceLinking(): Promise<void>;
 
-  linkDeviceWithScannedQRData(
-    qrData: DeviceLinkingQRData,
+  scanAndLinkDevice(
+    qrData: QrLinkedDeviceSessionPayloadV4,
     options: ScanAndLinkDeviceOptionsDevice1,
   ): Promise<LinkDeviceResult>;
 
-  viewAccessKeyList(args: {
-    walletSession: WalletSessionRef;
-    nearAccount: NearAccountRef;
-  }): Promise<AccessKeyList>;
+  listLinkedDevices(args: {
+    walletId: string;
+    limit: number;
+    cursor: string | null;
+  }): Promise<LinkedDeviceListResultV1>;
 
-  deleteDeviceKey(args: {
-    walletSession: WalletSessionRef;
-    nearAccount: NearAccountRef;
-    publicKeyToDelete: string;
-    options: ActionHooksOptions;
-  }): Promise<ActionResult>;
+  revokeLinkedDevice(args: {
+    walletId: string;
+    deviceId: string;
+    requestedAtMs: number;
+  }): Promise<LinkedDeviceRevokeResultV1>;
 }
 
 export type KeyExportUiOptions = SigningEngineExportKeypairWithUIInput['options'];

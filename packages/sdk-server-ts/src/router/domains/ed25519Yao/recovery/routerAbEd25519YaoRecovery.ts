@@ -11,6 +11,7 @@ import {
   parseRouterAbEd25519YaoRecoveryAdmissionRequestV1,
   parseRouterAbEd25519YaoWarmRecoveryBootstrapRequestV1,
   parseRouterAbEd25519YaoRegistrationActivationResultV1,
+  parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1,
   parseRouterAbEd25519YaoRegistrationAdmissionRequestV1,
   type RouterAbEd25519YaoActivationAdmissionReceiptV1,
   type RouterAbEd25519YaoActivationBindingV1,
@@ -44,7 +45,11 @@ import type {
   RouterApiRouteExtension,
 } from '../../../framework/routeExtensions';
 import type { WalletEd25519YaoActiveCapabilityRecord } from '../../../../core/WalletStore';
-import type { RouterAbEd25519WalletSessionClaims } from '../../../../core/ThresholdService/validation';
+import type { OpaqueOwnerWalletSessionBinding } from '../../../../authorization/service';
+type OpaqueOwnerEd25519WalletSessionBinding = Extract<
+  OpaqueOwnerWalletSessionBinding,
+  { readonly curve: 'ed25519' }
+>;
 import {
   walletAuthAuthorityRef,
   type WalletAuthAuthorityRef,
@@ -315,7 +320,15 @@ export type RouterAbEd25519YaoRecoveryAuthorizationInput =
 export type RouterAbEd25519YaoRecoveryAuthorizationResult =
   | {
       readonly ok: true;
-      readonly claims: RouterAbEd25519WalletSessionClaims;
+      readonly authorization:
+        | {
+            readonly kind: 'wallet_session';
+            readonly binding: OpaqueOwnerEd25519WalletSessionBinding;
+          }
+        | {
+            readonly kind: 'wallet_recovery';
+            readonly walletId: string;
+          };
     }
   | {
       readonly ok: false;
@@ -337,6 +350,7 @@ export type RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallationV1 = {
   readonly activeCapabilityBinding: RouterAbEd25519YaoBytes32V1;
   readonly nearAccountId: string;
   readonly registrationAdmissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+  readonly registrationAdmissionReceipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
   readonly registrationResult: RegistrationResult;
   readonly runtimePolicyScope: RuntimePolicyScope;
 };
@@ -429,6 +443,14 @@ export type RouterAbEd25519YaoActiveCapabilityDescriptorV1 = {
     readonly signingWorkerId: string;
   };
   readonly stateEpoch: number;
+  readonly registrationContinuity:
+    | {
+        readonly kind: 'registration';
+        readonly admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
+        readonly admissionReceipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
+        readonly activationTranscript: readonly number[];
+      }
+    | { readonly kind: 'recovery' };
 };
 
 export type RouterAbEd25519YaoActiveCapabilityLookupResultV1 =
@@ -446,16 +468,16 @@ export type RouterAbEd25519YaoWarmRecoveryBootstrapV1 = {
   readonly nearEd25519SigningKeyId: string;
   readonly signerSlot: number;
   readonly thresholdSessionId: ThresholdEd25519SessionId;
-  readonly walletSessionId: RouterAbEd25519WalletSessionClaims['walletSessionId'];
-  readonly quotaId: RouterAbEd25519WalletSessionClaims['quotaId'];
+  readonly walletSessionId: OpaqueOwnerEd25519WalletSessionBinding['walletSessionId'];
+  readonly quotaId: OpaqueOwnerEd25519WalletSessionBinding['quotaId'];
   readonly signingWorkerId: string;
   readonly thresholdExpiresAtMs: number;
   readonly participantIds: readonly [number, number];
-  readonly authority: RouterAbEd25519WalletSessionClaims['authority'];
+  readonly authority: OpaqueOwnerEd25519WalletSessionBinding['authority'];
   readonly authorityRef: WalletAuthAuthorityRef;
-  readonly authorityScope: RouterAbEd25519WalletSessionClaims['authorityScope'];
-  readonly runtimePolicyScope: RouterAbEd25519WalletSessionClaims['runtimePolicyScope'];
-  readonly routerAbNormalSigning: RouterAbEd25519WalletSessionClaims['routerAbNormalSigning'];
+  readonly authorityScope: OpaqueOwnerEd25519WalletSessionBinding['authorityScope'];
+  readonly runtimePolicyScope: OpaqueOwnerEd25519WalletSessionBinding['runtimePolicyScope'];
+  readonly routerAbNormalSigning: OpaqueOwnerEd25519WalletSessionBinding['routerAbNormalSigning'];
   readonly capability: RouterAbEd25519YaoActiveCapabilityDescriptorV1;
 };
 
@@ -602,7 +624,7 @@ const ROUTER_AB_ED25519_YAO_RECOVERY_ROUTES = Object.freeze([
     auth: {
       plane: 'public',
       proof: 'threshold_protocol_state',
-      rationale: 'Warm recovery bootstrap requires an exact Ed25519 Wallet Session JWT.',
+      rationale: 'Warm recovery bootstrap requires an exact opaque Ed25519 Wallet Session token.',
     },
     metering: { kind: 'none' },
     requiredServices: [],
@@ -685,11 +707,11 @@ function exactRuntimePolicyScope(left: RuntimePolicyScope, right: RuntimePolicyS
 
 export function warmBootstrapCapabilityMatchesStableIdentity(input: {
   readonly request: RouterAbEd25519YaoWarmRecoveryBootstrapRequestV1;
-  readonly claims: RouterAbEd25519WalletSessionClaims;
+  readonly binding: OpaqueOwnerEd25519WalletSessionBinding;
   readonly capability: RouterAbEd25519YaoActiveCapabilityDescriptorV1;
 }): boolean {
   const request = input.request;
-  const claims = input.claims;
+  const binding = input.binding;
   const capability = input.capability;
   return (
     capability.applicationBinding.wallet_id === request.walletId &&
@@ -698,10 +720,10 @@ export function warmBootstrapCapabilityMatchesStableIdentity(input: {
     capability.applicationBinding.key_creation_signer_slot === request.signerSlot &&
     capability.lifecycle.accountId === request.walletId &&
     capability.lifecycle.signingWorkerId === request.signingWorkerId &&
-    capability.lifecycle.rootShareEpoch === claims.runtimePolicyScope.signingRootVersion &&
+    capability.lifecycle.rootShareEpoch === binding.runtimePolicyScope.signingRootVersion &&
     capability.participantIds[0] === request.participantIds[0] &&
     capability.participantIds[1] === request.participantIds[1] &&
-    exactRuntimePolicyScope(capability.runtimePolicyScope, claims.runtimePolicyScope)
+    exactRuntimePolicyScope(capability.runtimePolicyScope, binding.runtimePolicyScope)
   );
 }
 
@@ -875,11 +897,18 @@ function buildCapabilityIdentity(
     input.registrationAdmissionRequest,
   );
   if (!parsedRequest.ok) return invalidInstallation(parsedRequest.message);
+  const parsedReceipt = parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1(
+    input.registrationAdmissionReceipt,
+  );
+  if (!parsedReceipt.ok) return invalidInstallation(parsedReceipt.message);
   const parsedResult = parseRouterAbEd25519YaoRegistrationActivationResultV1(
     input.registrationResult,
   );
   if (!parsedResult.ok) return invalidInstallation(parsedResult.message);
-  if (!registrationResultMatchesAdmission(parsedRequest.value, parsedResult.value)) {
+  if (
+    !registrationResultMatchesAdmission(parsedRequest.value, parsedResult.value) ||
+    !equalWire(parsedReceipt.value.binding, parsedResult.value.binding)
+  ) {
     return invalidInstallation('registration result does not match its admitted lifecycle');
   }
   let runtimePolicyScope: RuntimePolicyScope;
@@ -908,6 +937,7 @@ function buildCapabilityIdentity(
     capabilityBinding,
     nearAccountId,
     registrationAdmissionRequest: parsedRequest.value,
+    registrationAdmissionReceipt: parsedReceipt.value,
     registrationResult: parsedResult.value,
     runtimePolicyScope,
   });
@@ -916,6 +946,7 @@ function buildCapabilityIdentity(
     activeCapabilityBinding: capabilityBinding,
     nearAccountId,
     admissionRequest: parsedRequest.value,
+    admissionReceipt: parsedReceipt.value,
     activationResult: parsedResult.value,
     runtimePolicyScope,
   };
@@ -946,6 +977,7 @@ function buildPersistedCapabilityIdentity(
         activeCapabilityBinding: input.activeCapabilityBinding,
         nearAccountId: input.nearAccountId,
         registrationAdmissionRequest: input.admissionRequest,
+        registrationAdmissionReceipt: input.admissionReceipt,
         registrationResult: input.activationResult,
         runtimePolicyScope: input.runtimePolicyScope,
       });
@@ -1472,6 +1504,17 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
           signingWorkerId: lifecycle.selected_server_id,
         },
         stateEpoch: matched.stateEpoch,
+        registrationContinuity:
+          matched.persisted.version === 'wallet_ed25519_yao_registration_capability_v1'
+            ? {
+                kind: 'registration',
+                admissionRequest: matched.persisted.admissionRequest,
+                admissionReceipt: matched.persisted.admissionReceipt,
+                activationTranscript: [
+                  ...matched.persisted.activationResult.public_receipt.transcript,
+                ],
+              }
+            : { kind: 'recovery' },
       },
     };
   }
@@ -2340,6 +2383,17 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
       body: parsed.value,
     });
     if (!authorization.ok) return routeFailureResponse(authorization);
+    if (authorization.authorization.kind !== 'wallet_session') {
+      return json(
+        {
+          ok: false,
+          code: 'wallet_session_claims_invalid',
+          message: 'warm recovery requires a Wallet Session',
+        },
+        { status: 401 },
+      );
+    }
+    const walletSessionBinding = authorization.authorization.binding;
     const activeCapability = await this.capabilities.resolveActiveCapability({
       kind: 'router_ab_ed25519_yao_active_capability_lookup_v1',
       walletId: parsed.value.walletId,
@@ -2361,7 +2415,7 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
     if (
       !warmBootstrapCapabilityMatchesStableIdentity({
         request: parsed.value,
-        claims: authorization.claims,
+        binding: walletSessionBinding,
         capability: activeCapability.capability,
       })
     ) {
@@ -2374,7 +2428,7 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
         { status: 409 },
       );
     }
-    const participantIds = authorization.claims.participantIds;
+    const participantIds = walletSessionBinding.participantIds;
     const firstParticipantId = participantIds[0];
     const secondParticipantId = participantIds[1];
     if (firstParticipantId === undefined || secondParticipantId === undefined) {
@@ -2390,7 +2444,7 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
     let thresholdSessionId: ThresholdEd25519SessionId;
     try {
       thresholdSessionId = requireThresholdEd25519SessionId(
-        authorization.claims.thresholdSessionId,
+        walletSessionBinding.thresholdSessionId,
         'Wallet Session threshold session identity',
       );
     } catch {
@@ -2405,21 +2459,21 @@ class RouterAbEd25519YaoRecoveryRouteExtension implements RouterApiRouteExtensio
     }
     const response: RouterAbEd25519YaoWarmRecoveryBootstrapV1 = {
       kind: 'router_ab_ed25519_yao_warm_recovery_bootstrap_v1',
-      walletId: authorization.claims.walletId,
-      nearAccountId: authorization.claims.nearAccountId,
-      nearEd25519SigningKeyId: authorization.claims.nearEd25519SigningKeyId,
+      walletId: walletSessionBinding.walletId,
+      nearAccountId: walletSessionBinding.nearAccountId,
+      nearEd25519SigningKeyId: walletSessionBinding.nearEd25519SigningKeyId,
       signerSlot: parsed.value.signerSlot,
       thresholdSessionId,
-      walletSessionId: authorization.claims.walletSessionId,
-      quotaId: authorization.claims.quotaId,
-      signingWorkerId: authorization.claims.routerAbNormalSigning.signingWorkerId,
-      thresholdExpiresAtMs: authorization.claims.thresholdExpiresAtMs,
+      walletSessionId: walletSessionBinding.walletSessionId,
+      quotaId: walletSessionBinding.quotaId,
+      signingWorkerId: walletSessionBinding.routerAbNormalSigning.signingWorkerId,
+      thresholdExpiresAtMs: walletSessionBinding.thresholdExpiresAtMs,
       participantIds: [firstParticipantId, secondParticipantId],
-      authority: authorization.claims.authority,
-      authorityRef: await walletAuthAuthorityRef({ authority: authorization.claims.authority }),
-      authorityScope: authorization.claims.authorityScope,
-      runtimePolicyScope: authorization.claims.runtimePolicyScope,
-      routerAbNormalSigning: authorization.claims.routerAbNormalSigning,
+      authority: walletSessionBinding.authority,
+      authorityRef: await walletAuthAuthorityRef({ authority: walletSessionBinding.authority }),
+      authorityScope: walletSessionBinding.authorityScope,
+      runtimePolicyScope: walletSessionBinding.runtimePolicyScope,
+      routerAbNormalSigning: walletSessionBinding.routerAbNormalSigning,
       capability: activeCapability.capability,
     };
     return json(response, { status: 200 });

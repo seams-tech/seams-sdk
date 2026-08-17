@@ -14,7 +14,6 @@ export function WalletPage(): React.JSX.Element {
       <div className="h2-col">
         <H2DemoHero
           authDefaultModeWhenNoDetectedAccount={AuthMenuMode.Register}
-          kicker="Seams · Embedded Wallet"
           title={
             <>
               Non&#8209;custodial wallets, opened with a passkey

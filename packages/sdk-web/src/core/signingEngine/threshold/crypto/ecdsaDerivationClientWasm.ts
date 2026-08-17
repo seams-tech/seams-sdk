@@ -30,6 +30,10 @@ import type {
   FinalizeRouterAbEcdsaExplicitExportRequestV1,
   FinalizeRouterAbEcdsaExplicitExportResultV1,
   RehydrateEcdsaRoleLocalSigningMaterialResultV1,
+  SignWalletRecoveryEcdsaMaterialPossessionProofRequestV1,
+  SignWalletRecoveryEcdsaMaterialPossessionProofResultV1,
+  VerifyRouterAbEcdsaPostRegistrationProofsRequestV1,
+  VerifyRouterAbEcdsaPostRegistrationProofsResultV1,
 } from '../../workerManager/ecdsaClientWorkerChannels';
 import {
   parseEcdsaRoleLocalPersistedMaterialRef,
@@ -47,8 +51,6 @@ import {
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import type {
-  BuildEcdsaRoleLocalExportArtifactCommand as GeneratedBuildEcdsaRoleLocalExportArtifactCommand,
-  BuildEcdsaRoleLocalExportArtifactOutput as GeneratedBuildEcdsaRoleLocalExportArtifactOutput,
   EcdsaRoleLocalReadyStateBlob as GeneratedEcdsaRoleLocalReadyStateBlob,
   FinalizeEcdsaClientBootstrapCommand as GeneratedFinalizeEcdsaClientBootstrapCommand,
   FinalizeEcdsaClientBootstrapOutput as GeneratedFinalizeEcdsaClientBootstrapOutput,
@@ -317,18 +319,11 @@ export async function reconcileCanonicalEcdsaActivationWasm(input: {
   if (result.kind !== 'canonical_ecdsa_activation_committed_finalization_required_v1') {
     return result;
   }
-  const activation = await finalizeRouterAbEcdsaRegistrationActivationWasm({
-    workerCtx: input.workerCtx,
-    command: {
-      kind: 'finalize_router_ab_ecdsa_registration_activation_v1',
-      journalId: result.journalId,
-      activationReceipt: result.activationReceipt,
-      routerAbEcdsaDerivationNormalSigning: result.routerAbEcdsaDerivationNormalSigning,
-    },
-  });
   return {
-    kind: 'canonical_ecdsa_activation_reconciliation_finalized_v1',
-    activation,
+    kind: 'canonical_ecdsa_activation_reconciliation_pending_v1',
+    journalId: result.journalId,
+    reason: 'wallet_custody_rejoin_required',
+    activationCommand: null,
   };
 }
 
@@ -416,27 +411,25 @@ export async function closeRouterAbEcdsaPostRegistrationCeremonyWasm(input: {
   return response.payload;
 }
 
-export async function buildEcdsaRoleLocalExportArtifactCommandWasm(input: {
-  command: GeneratedBuildEcdsaRoleLocalExportArtifactCommand;
+export async function verifyRouterAbEcdsaPostRegistrationProofsWasm(input: {
+  command: VerifyRouterAbEcdsaPostRegistrationProofsRequestV1;
   workerCtx: WorkerOperationContext;
-}): Promise<GeneratedBuildEcdsaRoleLocalExportArtifactOutput> {
+}): Promise<VerifyRouterAbEcdsaPostRegistrationProofsResultV1> {
   const response = await requestEcdsaDerivationRoleLocalMaterialOperation({
     workerCtx: input.workerCtx,
     request: {
-      type: EcdsaDerivationClientCustomRequestType.BuildThresholdEcdsaDerivationRoleLocalExportArtifact,
+      type: EcdsaDerivationClientCustomRequestType.VerifyRouterAbEcdsaPostRegistrationProofs,
       timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
       payload: input.command,
     },
   });
-
   if (
     response.type !==
-    EcdsaDerivationClientCustomResponseType.BuildThresholdEcdsaDerivationRoleLocalExportArtifactSuccess
+    EcdsaDerivationClientCustomResponseType.VerifyRouterAbEcdsaPostRegistrationProofsSuccess
   ) {
-    throw new Error('BuildThresholdEcdsaDerivationRoleLocalExportArtifact failed');
+    throw new Error('Router A/B ECDSA post-registration proof verification failed');
   }
-
-  return response.payload as GeneratedBuildEcdsaRoleLocalExportArtifactOutput;
+  return response.payload;
 }
 
 export async function storeEcdsaRoleLocalSigningMaterialWasm(input: {
@@ -533,12 +526,7 @@ export async function openEcdsaRoleLocalSigningMaterialWasm(input: {
       };
     case 'ecdsa_role_local_signing_material_opened_v1': {
       const materialRef = parseEcdsaRoleLocalPersistedMaterialRef(payload.materialRef);
-      if (
-        !mpcMaterialActivationRefsEqual(
-          materialActivation,
-          materialRef.materialActivation,
-        )
-      ) {
+      if (!mpcMaterialActivationRefsEqual(materialActivation, materialRef.materialActivation)) {
         throw new Error('ECDSA role-local signing material open changed its activation identity');
       }
       const liveHandle = parseEcdsaRoleLocalWorkerHandle(payload.liveHandle);
@@ -558,6 +546,32 @@ export async function openEcdsaRoleLocalSigningMaterialWasm(input: {
       );
     }
   }
+}
+
+export async function signWalletRecoveryEcdsaMaterialPossessionProofWasm(input: {
+  readonly challenge: SignWalletRecoveryEcdsaMaterialPossessionProofRequestV1['challenge'];
+  readonly stateBlob: SignWalletRecoveryEcdsaMaterialPossessionProofRequestV1['stateBlob'];
+  readonly workerCtx: WorkerOperationContext;
+}): Promise<SignWalletRecoveryEcdsaMaterialPossessionProofResultV1> {
+  const response = await requestEcdsaDerivationRoleLocalMaterialOperation({
+    workerCtx: input.workerCtx,
+    request: {
+      type: EcdsaDerivationClientCustomRequestType.SignWalletRecoveryEcdsaMaterialPossessionProof,
+      timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
+      payload: {
+        kind: 'sign_wallet_recovery_ecdsa_material_possession_proof_v1',
+        challenge: input.challenge,
+        stateBlob: input.stateBlob,
+      },
+    },
+  });
+  if (
+    response.type !==
+    EcdsaDerivationClientCustomResponseType.SignWalletRecoveryEcdsaMaterialPossessionProofSuccess
+  ) {
+    throw new Error('Wallet recovery ECDSA possession proof signing failed');
+  }
+  return response.payload;
 }
 
 function asEcdsaDerivationPresignProgress(
@@ -627,18 +641,14 @@ export async function thresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandl
   return asEcdsaDerivationPresignProgress(response.payload.progress);
 }
 
-export async function thresholdEcdsaEmailOtpPresignSessionInitWasm(input: {
-  thresholdSessionId: string;
+export async function thresholdEcdsaLinkedHolderPresignSessionInitWasm(input: {
+  holderHandleId: string;
   sessionId: string;
   groupPublicKey33: Uint8Array;
   materialExpiresAtMs: number;
   poolIdentity: EcdsaClientPresignPoolIdentity;
   workerCtx: WorkerOperationContext;
-}): Promise<{
-  progress: EcdsaDerivationClientThresholdEcdsaPresignProgress;
-  remainingUses: number;
-  expiresAtMs: number;
-}> {
+}): Promise<EcdsaDerivationClientThresholdEcdsaPresignProgress> {
   const groupPublicKey33 = input.groupPublicKey33.slice();
   const response = await requestEcdsaPresignOperation({
     workerCtx: input.workerCtx,
@@ -647,8 +657,8 @@ export async function thresholdEcdsaEmailOtpPresignSessionInitWasm(input: {
       timeoutMs: ECDSA_DERIVATION_CLIENT_WORKER_TIMEOUT_MS,
       payload: {
         authority: {
-          kind: 'email_otp_worker_session',
-          thresholdSessionId: input.thresholdSessionId,
+          kind: 'linked_holder_signing_material',
+          holderHandleId: input.holderHandleId,
         },
         sessionId: input.sessionId,
         groupPublicKey33: groupPublicKey33.buffer,
@@ -659,17 +669,12 @@ export async function thresholdEcdsaEmailOtpPresignSessionInitWasm(input: {
     },
   });
   if (response.type !== EcdsaPresignClientResponseType.SessionInitSuccess) {
-    throw new Error('Email OTP ECDSA presign initialization failed');
+    throw new Error('Linked holder ECDSA presign initialization failed');
   }
-  const authority = response.payload.authority;
-  if (authority.kind !== 'email_otp_worker_session') {
-    throw new Error('Email OTP ECDSA presign returned a different authority');
+  if (response.payload.authority.kind !== 'linked_holder_signing_material') {
+    throw new Error('Linked holder ECDSA presign returned a different authority');
   }
-  return {
-    progress: asEcdsaDerivationPresignProgress(response.payload.progress),
-    remainingUses: authority.remainingUses,
-    expiresAtMs: authority.expiresAtMs,
-  };
+  return asEcdsaDerivationPresignProgress(response.payload.progress);
 }
 
 export async function thresholdEcdsaRoleLocalPresignSessionStepWasm(input: {

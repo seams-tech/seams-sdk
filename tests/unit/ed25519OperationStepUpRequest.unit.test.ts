@@ -88,14 +88,12 @@ test('Ed25519 operation step-up emits the grant wire kind accepted by its wallet
       normalSigningRequest: await normalSigningRequest(),
       displayDigest: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
       proof: { kind: 'passkey', authority, credential },
-      credential: { kind: 'app_session_jwt', appSessionJwt: 'app-session-jwt' },
+      credential: { kind: 'operation_step_up' },
       materialRecovery: { kind: 'not_requested' },
     });
 
     expect(requestInit?.credentials).toBe('omit');
-    expect(requestInit?.headers).toMatchObject({
-      Authorization: 'Bearer app-session-jwt',
-    });
+    expect(new Headers(requestInit?.headers).has('Authorization')).toBe(false);
     const body = JSON.parse(String(requestInit?.body)) as Record<string, unknown>;
     expect(body).toMatchObject({
       kind: 'router_ab_ed25519_yao_operation_step_up_grant_v1',

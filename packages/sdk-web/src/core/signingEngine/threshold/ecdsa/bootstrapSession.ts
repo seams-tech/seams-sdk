@@ -1,8 +1,7 @@
-import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
-import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
+import { base64UrlDecode } from '@shared/utils/base64';
 import type { ThresholdEcdsaDerivationRouteAuth } from '@/core/rpcClients/relayer/thresholdEcdsa';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
-import type { ThresholdCredentialStorePort, ThresholdWebAuthnPromptPort } from '../crypto/webauthn';
+import type { ThresholdWebAuthnPromptPort } from '../crypto/webauthn';
 import {
   normalizeThresholdRuntimePolicyScope,
   type ThresholdRuntimePolicyScope,
@@ -12,8 +11,6 @@ import type {
   EvmFamilyEcdsaKeyIdentity,
   EvmFamilyEcdsaActivationLanePolicy,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
-import type { ThresholdEcdsaChainTarget } from '../../interfaces/ecdsaChainTarget';
-import type { EmailOtpWorkerIssuedSessionHandle } from '@/core/platform/types';
 import type {
   RouterAbEcdsaDerivationPublicCapabilityV1,
   RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
@@ -29,110 +26,35 @@ import type { PersistedEcdsaRoleLocalMaterial } from '../../session/material/ecd
 import { computeEcdsaDerivationRoleLocalRelayerKeyId } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import type {
   MpcWalletSigningQuotaId,
-  SeamsSessionId,
+  EcdsaAuthorizationSessionId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import { parseReusableWalletSessionMintId } from '@shared/authorization/capabilityKinds';
 
 type BootstrapEcdsaSessionBaseArgs = {
-  credentialStore: ThresholdCredentialStorePort;
-  touchIdPrompt: ThresholdWebAuthnPromptPort;
+  touchIdPrompt: Pick<ThresholdWebAuthnPromptPort, 'getRpId'>;
   relayerUrl: string;
-  userId: string;
-  chainTarget: ThresholdEcdsaChainTarget;
-  participantIds?: number[];
-  sessionKind?: 'jwt';
   requestId?: string;
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
-  runtimeScopeBootstrap?: {
-    projectEnvironmentId: string;
-    publishableKey: string;
-  };
-  ttlMs?: number;
-  remainingUses?: number;
   workerCtx: WorkerOperationContext;
 };
 
-type BootstrapEcdsaPasskeyPromptAuthArgs = {
-  authKind: 'passkey_prompt';
-  passkeyPrfFirst32?: never;
-  passkeyPrfFirstB64u?: never;
-  passkeyCredentialIdB64u?: never;
-  emailOtpWorkerSessionHandle?: never;
-  webauthnAuthentication?: never;
+type BootstrapEcdsaExactSessionArgsBase = BootstrapEcdsaSessionBaseArgs & {
+  keyHandle: EvmFamilyEcdsaKeyHandle;
+  key: EvmFamilyEcdsaKeyIdentity;
+  lanePolicy: EvmFamilyEcdsaActivationLanePolicy;
+  publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
+  existingRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
+  evmFamilySigningKeySlotId?: never;
+  ecdsaThresholdKeyId?: never;
 };
-
-type BootstrapEcdsaPasskeyWebAuthnAuthArgs = {
-  authKind: 'passkey_webauthn';
-  webauthnAuthentication: WebAuthnAuthenticationCredential;
-  passkeyPrfFirst32?: never;
-  passkeyPrfFirstB64u?: never;
-  passkeyCredentialIdB64u?: never;
-  emailOtpWorkerSessionHandle?: never;
-};
-
-type BootstrapEcdsaPasskeyWebAuthnPrfB64uAuthArgs = {
-  authKind: 'passkey_webauthn_prf_b64u';
-  webauthnAuthentication: WebAuthnAuthenticationCredential;
-  passkeyPrfFirstB64u: string;
-  passkeyPrfFirst32?: never;
-  passkeyCredentialIdB64u?: never;
-  emailOtpWorkerSessionHandle?: never;
-};
-
-type BootstrapEcdsaPasskeyPrfB64uAuthArgs = {
-  authKind: 'passkey_prf_b64u';
-  passkeyPrfFirstB64u: string;
-  passkeyCredentialIdB64u: string;
-  passkeyPrfFirst32?: never;
-  emailOtpWorkerSessionHandle?: never;
-  webauthnAuthentication?: never;
-};
-
-type BootstrapEcdsaPasskeyPrfBytesAuthArgs = {
-  authKind: 'passkey_prf_bytes';
-  passkeyPrfFirst32: Uint8Array;
-  passkeyCredentialIdB64u: string;
-  passkeyPrfFirstB64u?: never;
-  emailOtpWorkerSessionHandle?: never;
-  webauthnAuthentication?: never;
-};
-
-type BootstrapEcdsaEmailOtpAuthArgs = {
-  authKind: 'email_otp';
-  emailOtpWorkerSessionHandle: Extract<
-    EmailOtpWorkerIssuedSessionHandle,
-    { action: 'threshold_ecdsa_bootstrap' }
-  >;
-  passkeyPrfFirst32?: never;
-  passkeyPrfFirstB64u?: never;
-  passkeyCredentialIdB64u?: never;
-  webauthnAuthentication?: never;
-};
-
-export type BootstrapEcdsaSessionAuthArgs =
-  | BootstrapEcdsaPasskeyPromptAuthArgs
-  | BootstrapEcdsaPasskeyWebAuthnAuthArgs
-  | BootstrapEcdsaPasskeyWebAuthnPrfB64uAuthArgs
-  | BootstrapEcdsaPasskeyPrfB64uAuthArgs
-  | BootstrapEcdsaPasskeyPrfBytesAuthArgs
-  | BootstrapEcdsaEmailOtpAuthArgs;
-
-type BootstrapEcdsaExactSessionArgsBase = BootstrapEcdsaSessionBaseArgs &
-  BootstrapEcdsaSessionAuthArgs & {
-    keyHandle: EvmFamilyEcdsaKeyHandle;
-    key: EvmFamilyEcdsaKeyIdentity;
-    lanePolicy: EvmFamilyEcdsaActivationLanePolicy;
-    publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
-    existingRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
-    evmFamilySigningKeySlotId?: never;
-    ecdsaThresholdKeyId?: never;
-  };
 
 type BootstrapEcdsaExactSessionArgs = BootstrapEcdsaExactSessionArgsBase &
   (
     | {
-        bootstrapAuth: Extract<ThresholdEcdsaDerivationRouteAuth, { kind: 'wallet_session' }>;
+        bootstrapAuth: Extract<
+          ThresholdEcdsaDerivationRouteAuth,
+          { kind: 'opaque_wallet_session' }
+        >;
         sessionActivation?: never;
       }
     | {
@@ -164,7 +86,7 @@ type BootstrapEcdsaSessionSuccessCommon = {
   participantIds: number[];
   chainId: number;
   thresholdSessionId: string;
-  authorizationSessionId: SeamsSessionId;
+  authorizationSessionId: EcdsaAuthorizationSessionId;
   walletSessionId: WalletSessionId;
   quotaId: MpcWalletSigningQuotaId;
   expiresAtMs: number;
@@ -172,71 +94,25 @@ type BootstrapEcdsaSessionSuccessCommon = {
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   signingRootId: string;
   signingRootVersion: string;
-  jwt: string;
+  walletSessionToken: string;
   roleLocalActivation: ExistingEcdsaRoleLocalActivation;
   routerAbEcdsaDerivationNormalSigning: Awaited<
     ReturnType<typeof activateStrictEcdsaPostRegistrationSession>
   >['sessionActivation']['normal_signing'];
 };
 
-type BootstrapEcdsaPasskeySessionSuccess = BootstrapEcdsaSessionSuccessCommon & {
-  secretSourceKind: 'passkey';
-  passkeyPrfFirstB64u: string;
-  passkeyCredentialIdB64u: string;
-};
-
-type BootstrapEcdsaEmailOtpSessionSuccess = BootstrapEcdsaSessionSuccessCommon & {
-  secretSourceKind: 'email_otp';
-  passkeyPrfFirstB64u?: never;
-  passkeyCredentialIdB64u?: never;
+type BootstrapEcdsaPersistedRoleLocalSessionSuccess = BootstrapEcdsaSessionSuccessCommon & {
+  secretSourceKind: 'persisted_role_local';
 };
 
 export type BootstrapEcdsaSessionResult =
-  | BootstrapEcdsaPasskeySessionSuccess
-  | BootstrapEcdsaEmailOtpSessionSuccess
+  | BootstrapEcdsaPersistedRoleLocalSessionSuccess
   | BootstrapEcdsaSessionFailure;
-
-function credentialIdFromCredential(credential: WebAuthnAuthenticationCredential): string {
-  const credentialId = String(credential.rawId || credential.id || '').trim();
-  if (!credentialId) {
-    throw new Error('Strict passkey ECDSA activation requires a credential id');
-  }
-  return credentialId;
-}
-
-function strictPasskeyMaterial(
-  args: BootstrapEcdsaExactSessionArgs,
-): { passkeyPrfFirstB64u: string; passkeyCredentialIdB64u: string } | null {
-  switch (args.authKind) {
-    case 'passkey_prf_bytes':
-      return {
-        passkeyPrfFirstB64u: base64UrlEncode(args.passkeyPrfFirst32),
-        passkeyCredentialIdB64u: args.passkeyCredentialIdB64u,
-      };
-    case 'passkey_prf_b64u':
-      return {
-        passkeyPrfFirstB64u: args.passkeyPrfFirstB64u,
-        passkeyCredentialIdB64u: args.passkeyCredentialIdB64u,
-      };
-    case 'passkey_webauthn_prf_b64u':
-      return {
-        passkeyPrfFirstB64u: args.passkeyPrfFirstB64u,
-        passkeyCredentialIdB64u: credentialIdFromCredential(args.webauthnAuthentication),
-      };
-    case 'passkey_prompt':
-    case 'passkey_webauthn':
-      throw new Error('Strict passkey ECDSA activation requires PRF.first material');
-    case 'email_otp':
-      return null;
-  }
-  args satisfies never;
-  throw new Error('Strict ECDSA activation auth kind is invalid');
-}
 
 async function bootstrapStrictExistingEcdsaSession(
   args: BootstrapEcdsaExactSessionArgs,
   rpId: string,
-): Promise<BootstrapEcdsaPasskeySessionSuccess | BootstrapEcdsaEmailOtpSessionSuccess> {
+): Promise<BootstrapEcdsaPersistedRoleLocalSessionSuccess> {
   const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(
     args.lanePolicy.runtimePolicyScope,
   );
@@ -298,22 +174,14 @@ async function bootstrapStrictExistingEcdsaSession(
     runtimePolicyScope,
     signingRootId: String(args.key.signingRootId),
     signingRootVersion: String(args.key.signingRootVersion),
-    jwt: strict.sessionActivation.session.wallet_session_jwt,
+    walletSessionToken: strict.sessionActivation.session.wallet_session_token,
     roleLocalActivation: strict.roleLocalActivation,
     routerAbEcdsaDerivationNormalSigning: strict.sessionActivation.normal_signing,
   };
-  const passkeyMaterial = strictPasskeyMaterial(args);
-  return passkeyMaterial
-    ? {
-        ...common,
-        secretSourceKind: 'passkey',
-        passkeyPrfFirstB64u: passkeyMaterial.passkeyPrfFirstB64u,
-        passkeyCredentialIdB64u: passkeyMaterial.passkeyCredentialIdB64u,
-      }
-    : {
-        ...common,
-        secretSourceKind: 'email_otp',
-      };
+  return {
+    ...common,
+    secretSourceKind: 'persisted_role_local',
+  };
 }
 
 function requireFreshReusableWalletSessionMintId() {

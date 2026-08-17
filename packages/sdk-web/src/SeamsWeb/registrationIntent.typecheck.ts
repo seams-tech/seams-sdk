@@ -10,6 +10,7 @@ import {
   type ThresholdEd25519RegistrationSpec,
 } from '@shared/utils/registrationIntent';
 import { parseWebAuthnRpId } from '@shared/utils/domainIds';
+import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 
 const materialActivation = {
   kind: 'mpc_material_activation_ref' as const,
@@ -38,6 +39,7 @@ function unwrapDomainId<T>(result: { ok: true; value: T } | { ok: false }): T {
 }
 
 const rpId = unwrapDomainId(parseWebAuthnRpId('wallet.example.test'));
+declare const custodyEnvelope: PasskeyCustodyEnvelopeRecord;
 
 const ed25519Spec = {
   accountProvisioning: implicitNearAccountProvisioning(),
@@ -95,7 +97,8 @@ const validEd25519AddSignerStart = {
   addSignerCeremonyId: 'add-signer-ceremony-1',
   intent: addSignerIntentFixture,
   kind: 'near_ed25519',
-  ed25519: { admissionRequest: addSignerAdmissionRequestFixture },
+  authorizationKind: 'webauthn_assertion',
+  ed25519: { admissionRequest: addSignerAdmissionRequestFixture, custodyEnvelope },
 } satisfies WalletAddSignerStartResponse;
 void validEd25519AddSignerStart;
 
@@ -130,6 +133,11 @@ const validEd25519AddSignerFinalize = {
       lifecycle_id: 'add-signer-ceremony-1',
       session_id: new Array<number>(32).fill(1),
     },
+  },
+  custodyKeySet: {
+    kind: 'near_ed25519_v1',
+    keyManifestDigestB64u: 'key-manifest-digest',
+    registeredPublicKeyB64u: 'registered-public-key',
   },
 } satisfies FinalizeWalletAddSignerArgs;
 void validEd25519AddSignerFinalize;

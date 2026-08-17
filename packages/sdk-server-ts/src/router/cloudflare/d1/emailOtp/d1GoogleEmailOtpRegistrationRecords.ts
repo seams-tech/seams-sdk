@@ -37,7 +37,7 @@ type GoogleEmailOtpRegistrationAttemptParseFields = {
   readonly offerId: string;
   readonly offerCandidates: NonEmptyGoogleEmailOtpRegistrationOfferCandidates;
   readonly selectedCandidateId: string;
-  readonly appSessionVersion: string;
+  readonly ownerProofBindingDigest: string;
   readonly authProvider: string;
   readonly accountIdSlugVersion: 'hmac_readable_v1';
   readonly walletIdDerivationNonce: string;
@@ -135,7 +135,7 @@ export function parseGoogleEmailOtpRegistrationAttemptRecord(
   const offerId = toOptionalTrimmedString(record.offerId);
   const offerCandidates = parseGoogleEmailOtpRegistrationOfferCandidates(record.offerCandidates);
   const selectedCandidateId = toOptionalTrimmedString(record.selectedCandidateId);
-  const appSessionVersion = toOptionalTrimmedString(record.appSessionVersion);
+  const ownerProofBindingDigest = toOptionalTrimmedString(record.ownerProofBindingDigest);
   const authProvider = toOptionalTrimmedString(record.authProvider);
   const accountIdSlugVersion = toOptionalTrimmedString(record.accountIdSlugVersion);
   const walletIdDerivationNonce = toOptionalTrimmedString(record.walletIdDerivationNonce);
@@ -160,7 +160,7 @@ export function parseGoogleEmailOtpRegistrationAttemptRecord(
       candidates: offerCandidates,
       candidateId: selectedCandidateId,
     }) ||
-    !appSessionVersion ||
+    !ownerProofBindingDigest ||
     authProvider !== GOOGLE_EMAIL_OTP_AUTH_PROVIDER ||
     accountIdSlugVersion !== 'hmac_readable_v1' ||
     !walletIdDerivationNonce ||
@@ -183,7 +183,7 @@ export function parseGoogleEmailOtpRegistrationAttemptRecord(
     offerId,
     offerCandidates,
     selectedCandidateId,
-    appSessionVersion,
+    ownerProofBindingDigest,
     authProvider,
     accountIdSlugVersion: 'hmac_readable_v1',
     walletIdDerivationNonce,
@@ -235,7 +235,7 @@ export function registrationAttemptMatchesStartedScope(
     readonly providerSubject: string;
     readonly email: string;
     readonly orgId: string;
-    readonly appSessionVersion: string;
+    readonly ownerProofBindingDigest: string;
     readonly runtimePolicyScope?: RuntimePolicyScope;
     readonly nowMs: number;
   },
@@ -243,7 +243,7 @@ export function registrationAttemptMatchesStartedScope(
   return (
     record.providerSubject === input.providerSubject &&
     record.email === input.email &&
-    record.appSessionVersion === input.appSessionVersion &&
+    record.ownerProofBindingDigest === input.ownerProofBindingDigest &&
     record.runtimePolicyScope?.orgId === input.orgId &&
     runtimePolicyScopeKey(record.runtimePolicyScope) ===
       runtimePolicyScopeKey(input.runtimePolicyScope) &&
@@ -258,7 +258,7 @@ export function registrationAttemptMatchesReplacementScope(
     readonly providerSubject: string;
     readonly email: string;
     readonly orgId: string;
-    readonly appSessionVersion: string;
+    readonly ownerProofBindingDigest: string;
     readonly runtimePolicyScope?: RuntimePolicyScope;
     readonly nowMs: number;
   },
@@ -266,7 +266,7 @@ export function registrationAttemptMatchesReplacementScope(
   return (
     record.providerSubject === input.providerSubject &&
     record.email === input.email &&
-    record.appSessionVersion !== input.appSessionVersion &&
+    record.ownerProofBindingDigest !== input.ownerProofBindingDigest &&
     record.runtimePolicyScope?.orgId === input.orgId &&
     runtimePolicyScopeKey(record.runtimePolicyScope) ===
       runtimePolicyScopeKey(input.runtimePolicyScope) &&
@@ -319,7 +319,7 @@ export function pendingGoogleEmailOtpRegistrationAttemptWithUpdatedAt(
       offerId: record.offerId,
       offerCandidates: record.offerCandidates,
       selectedCandidateId: record.selectedCandidateId,
-      appSessionVersion: record.appSessionVersion,
+      ownerProofBindingDigest: record.ownerProofBindingDigest,
       authProvider: record.authProvider,
       accountIdSlugVersion: 'hmac_readable_v1',
       walletIdDerivationNonce: record.walletIdDerivationNonce,
@@ -340,7 +340,7 @@ export function pendingGoogleEmailOtpRegistrationAttemptWithUpdatedAt(
     offerId: record.offerId,
     offerCandidates: record.offerCandidates,
     selectedCandidateId: record.selectedCandidateId,
-    appSessionVersion: record.appSessionVersion,
+    ownerProofBindingDigest: record.ownerProofBindingDigest,
     authProvider: record.authProvider,
     accountIdSlugVersion: 'hmac_readable_v1',
     walletIdDerivationNonce: record.walletIdDerivationNonce,
@@ -369,7 +369,7 @@ export function pendingGoogleEmailOtpRegistrationAttemptWithSelectedCandidate(in
       offerId: input.record.offerId,
       offerCandidates: input.record.offerCandidates,
       selectedCandidateId: input.candidate.candidateId,
-      appSessionVersion: input.record.appSessionVersion,
+      ownerProofBindingDigest: input.record.ownerProofBindingDigest,
       authProvider: input.record.authProvider,
       accountIdSlugVersion: 'hmac_readable_v1',
       walletIdDerivationNonce: input.record.walletIdDerivationNonce,
@@ -392,7 +392,7 @@ export function pendingGoogleEmailOtpRegistrationAttemptWithSelectedCandidate(in
     offerId: input.record.offerId,
     offerCandidates: input.record.offerCandidates,
     selectedCandidateId: input.candidate.candidateId,
-    appSessionVersion: input.record.appSessionVersion,
+    ownerProofBindingDigest: input.record.ownerProofBindingDigest,
     authProvider: input.record.authProvider,
     accountIdSlugVersion: 'hmac_readable_v1',
     walletIdDerivationNonce: input.record.walletIdDerivationNonce,
@@ -410,7 +410,7 @@ export function pendingGoogleEmailOtpRegistrationAttemptWithSelectedCandidate(in
 
 export function abandonedGoogleEmailOtpRegistrationAttemptRecord(input: {
   readonly record: PendingGoogleEmailOtpRegistrationAttemptRecord;
-  readonly failureCode: 'app_session_version_replaced' | 'offer_restarted_by_user';
+  readonly failureCode: 'owner_proof_binding_replaced' | 'offer_restarted_by_user';
   readonly updatedAtMs: number;
 }): GoogleEmailOtpRegistrationAttemptRecord {
   return {
@@ -422,7 +422,7 @@ export function abandonedGoogleEmailOtpRegistrationAttemptRecord(input: {
     offerId: input.record.offerId,
     offerCandidates: input.record.offerCandidates,
     selectedCandidateId: input.record.selectedCandidateId,
-    appSessionVersion: input.record.appSessionVersion,
+    ownerProofBindingDigest: input.record.ownerProofBindingDigest,
     authProvider: input.record.authProvider,
     accountIdSlugVersion: 'hmac_readable_v1',
     walletIdDerivationNonce: input.record.walletIdDerivationNonce,
@@ -518,7 +518,7 @@ function startedGoogleEmailOtpRegistrationAttemptRecord(
     offerId: input.offerId,
     offerCandidates: input.offerCandidates,
     selectedCandidateId: input.selectedCandidateId,
-    appSessionVersion: input.appSessionVersion,
+    ownerProofBindingDigest: input.ownerProofBindingDigest,
     authProvider: input.authProvider,
     accountIdSlugVersion: 'hmac_readable_v1',
     walletIdDerivationNonce: input.walletIdDerivationNonce,
@@ -543,7 +543,7 @@ function keyFinalizedGoogleEmailOtpRegistrationAttemptRecord(
     offerId: input.offerId,
     offerCandidates: input.offerCandidates,
     selectedCandidateId: input.selectedCandidateId,
-    appSessionVersion: input.appSessionVersion,
+    ownerProofBindingDigest: input.ownerProofBindingDigest,
     authProvider: input.authProvider,
     accountIdSlugVersion: 'hmac_readable_v1',
     walletIdDerivationNonce: input.walletIdDerivationNonce,
@@ -575,7 +575,7 @@ function terminalGoogleEmailOtpRegistrationAttemptRecord(input: {
         offerId: fields.offerId,
         offerCandidates: fields.offerCandidates,
         selectedCandidateId: fields.selectedCandidateId,
-        appSessionVersion: fields.appSessionVersion,
+        ownerProofBindingDigest: fields.ownerProofBindingDigest,
         authProvider: fields.authProvider,
         accountIdSlugVersion: 'hmac_readable_v1',
         walletIdDerivationNonce: fields.walletIdDerivationNonce,
@@ -598,7 +598,7 @@ function terminalGoogleEmailOtpRegistrationAttemptRecord(input: {
         offerId: fields.offerId,
         offerCandidates: fields.offerCandidates,
         selectedCandidateId: fields.selectedCandidateId,
-        appSessionVersion: fields.appSessionVersion,
+        ownerProofBindingDigest: fields.ownerProofBindingDigest,
         authProvider: fields.authProvider,
         accountIdSlugVersion: 'hmac_readable_v1',
         walletIdDerivationNonce: fields.walletIdDerivationNonce,
@@ -622,7 +622,7 @@ function terminalGoogleEmailOtpRegistrationAttemptRecord(input: {
         offerId: fields.offerId,
         offerCandidates: fields.offerCandidates,
         selectedCandidateId: fields.selectedCandidateId,
-        appSessionVersion: fields.appSessionVersion,
+        ownerProofBindingDigest: fields.ownerProofBindingDigest,
         authProvider: fields.authProvider,
         accountIdSlugVersion: 'hmac_readable_v1',
         walletIdDerivationNonce: fields.walletIdDerivationNonce,
@@ -645,7 +645,7 @@ function terminalGoogleEmailOtpRegistrationAttemptRecord(input: {
         offerId: fields.offerId,
         offerCandidates: fields.offerCandidates,
         selectedCandidateId: fields.selectedCandidateId,
-        appSessionVersion: fields.appSessionVersion,
+        ownerProofBindingDigest: fields.ownerProofBindingDigest,
         authProvider: fields.authProvider,
         accountIdSlugVersion: 'hmac_readable_v1',
         walletIdDerivationNonce: fields.walletIdDerivationNonce,
@@ -672,7 +672,7 @@ function googleEmailOtpRegistrationAttemptFields(
     offerId: record.offerId,
     offerCandidates: record.offerCandidates,
     selectedCandidateId: record.selectedCandidateId,
-    appSessionVersion: record.appSessionVersion,
+    ownerProofBindingDigest: record.ownerProofBindingDigest,
     authProvider: record.authProvider,
     accountIdSlugVersion: 'hmac_readable_v1',
     walletIdDerivationNonce: record.walletIdDerivationNonce,

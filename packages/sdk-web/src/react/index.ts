@@ -98,11 +98,6 @@ export type { NearClient, AccessKeyList } from '../core/rpcClients/near/NearClie
 export { useAccountInput } from './hooks/useAccountInput';
 export { useDeviceLinking } from './hooks/useDeviceLinking';
 export type { UseDeviceLinkingOptions, UseDeviceLinkingReturn } from './hooks/useDeviceLinking';
-export { useGoogleEmailOtpWalletAuth } from './hooks/useGoogleEmailOtpWalletAuth';
-export type {
-  UseGoogleEmailOtpWalletAuthOptions,
-  UseGoogleEmailOtpWalletAuthResult,
-} from './hooks/useGoogleEmailOtpWalletAuth';
 export { useQRCamera, QRScanMode } from './hooks/useQRCamera';
 export type { UseQRCameraOptions, UseQRCameraReturn } from './hooks/useQRCamera';
 export { usePostfixPosition } from './components/SeamsAuthMenu/ui/usePostfixPosition';

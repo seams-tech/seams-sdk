@@ -9439,11 +9439,9 @@ test.describe('dashboard console config page api wiring', () => {
     let rejectRequestCount = 0;
     let lastApproveBody: Record<string, unknown> | null = null;
     let lastRejectBody: Record<string, unknown> | null = null;
-    let auditExportListRequestCount = 0;
-    let auditExportCreateRequestCount = 0;
-    let lastAuditExportCreateBody: Record<string, unknown> | null = null;
     let replayRequestCount = 0;
     let lastReplayBody: Record<string, unknown> | null = null;
+    let summaryAccessDenied = false;
 
     await page.route(`${consoleOrigin}/console/**`, async (route) => {
       const req = route.request();
@@ -9529,6 +9527,18 @@ test.describe('dashboard console config page api wiring', () => {
 
       if (pathname === '/console/ops-cockpit/summary' && method === 'GET') {
         lastSummaryWindowMinutes = String(url.searchParams.get('windowMinutes') || '').trim();
+        if (summaryAccessDenied) {
+          await route.fulfill({
+            status: 403,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              ok: false,
+              code: 'forbidden',
+              message: 'This action requires platform.support access',
+            }),
+          });
+          return;
+        }
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -9665,90 +9675,6 @@ test.describe('dashboard console config page api wiring', () => {
         return;
       }
 
-      if (pathname === '/console/audit/exports' && method === 'GET') {
-        auditExportListRequestCount += 1;
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            ok: true,
-            exports: [
-              {
-                id: 'exp_queued',
-                orgId: 'org_dash_console_pages',
-                requestedByUserId: 'user_dash_console_pages',
-                status: 'QUEUED',
-                format: 'JSONL',
-                filters: {
-                  domain: 'POLICY',
-                  projectId: 'proj_active',
-                  environmentId: 'env_active',
-                },
-                createdAt: iso('2026-03-01T09:00:00.000Z'),
-                updatedAt: iso('2026-03-01T09:00:00.000Z'),
-                readyAt: null,
-                expiresAt: null,
-                downloadUrl: null,
-                failureCode: null,
-                failureMessage: null,
-              },
-              {
-                id: 'exp_processing',
-                orgId: 'org_dash_console_pages',
-                requestedByUserId: 'user_dash_console_pages',
-                status: 'PROCESSING',
-                format: 'CSV',
-                filters: {
-                  domain: 'BILLING',
-                  projectId: 'proj_active',
-                  environmentId: 'env_active',
-                },
-                createdAt: iso('2026-03-01T09:30:00.000Z'),
-                updatedAt: iso('2026-03-01T09:30:00.000Z'),
-                readyAt: null,
-                expiresAt: null,
-                downloadUrl: null,
-                failureCode: null,
-                failureMessage: null,
-              },
-            ],
-          }),
-        });
-        return;
-      }
-
-      if (pathname === '/console/audit/exports' && method === 'POST') {
-        auditExportCreateRequestCount += 1;
-        lastAuditExportCreateBody = parseJsonBody(req.postData());
-        await route.fulfill({
-          status: 201,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            ok: true,
-            export: {
-              id: 'exp_requeued_1',
-              orgId: 'org_dash_console_pages',
-              requestedByUserId: 'user_dash_console_pages',
-              status: 'QUEUED',
-              format: String(lastAuditExportCreateBody?.format || 'JSONL'),
-              filters: {
-                domain: String(lastAuditExportCreateBody?.domain || ''),
-                projectId: String(lastAuditExportCreateBody?.projectId || ''),
-                environmentId: String(lastAuditExportCreateBody?.environmentId || ''),
-              },
-              createdAt: iso('2026-03-02T13:05:00.000Z'),
-              updatedAt: iso('2026-03-02T13:05:00.000Z'),
-              readyAt: null,
-              expiresAt: null,
-              downloadUrl: null,
-              failureCode: null,
-              failureMessage: null,
-            },
-          }),
-        });
-        return;
-      }
-
       if (pathname === '/console/approvals/apr_1/approve' && method === 'POST') {
         approveRequestCount += 1;
         lastApproveBody = parseJsonBody(req.postData());
@@ -9844,6 +9770,74 @@ test.describe('dashboard console config page api wiring', () => {
     await expect(page.locator('#dashboard-main-title')).toHaveText(/overview/i);
     await expect.poll(() => lastSummaryWindowMinutes).toBe('60');
 
+    const quickActions = page.locator('section[aria-label="Quick actions"]');
+    await expect(quickActions.locator('.dashboard-hero__card')).toHaveCount(3);
+    await expect(
+      quickActions.getByRole('heading', { name: 'What would you like to do?' }),
+    ).toHaveCSS('text-align', 'center');
+    const quickActionsBounds = await quickActions.boundingBox();
+    const primaryActionsBounds = await quickActions
+      .locator('.dashboard-hero__primary')
+      .boundingBox();
+    const primaryActionsTitleBounds = await quickActions
+      .getByRole('heading', { name: 'What would you like to do?' })
+      .boundingBox();
+    const actionCardsBounds = await quickActions.locator('.dashboard-hero__cards').boundingBox();
+    const sponsorshipPromo = quickActions.getByRole('link', { name: /Sponsor gas for your users/ });
+    const sponsorshipPromoBounds = await sponsorshipPromo.boundingBox();
+    const statusGrid = quickActions.locator('.dashboard-hero__status-grid');
+    const statusGridBounds = await statusGrid.boundingBox();
+    if (
+      !quickActionsBounds ||
+      !primaryActionsBounds ||
+      !primaryActionsTitleBounds ||
+      !actionCardsBounds ||
+      !sponsorshipPromoBounds ||
+      !statusGridBounds
+    ) {
+      throw new Error('Quick action layout bounds were unavailable');
+    }
+    const primaryActionsContentCenter =
+      (primaryActionsTitleBounds.y + statusGridBounds.y + statusGridBounds.height) / 2;
+    const primaryActionsContainerCenter = primaryActionsBounds.y + primaryActionsBounds.height / 2;
+    const primaryActionsUpwardOffset = primaryActionsContainerCenter - primaryActionsContentCenter;
+    expect(primaryActionsUpwardOffset).toBeGreaterThanOrEqual(24);
+    expect(primaryActionsUpwardOffset).toBeLessThanOrEqual(64);
+    await expect(
+      quickActions
+        .locator('.dashboard-hero__primary')
+        .getByRole('link', { name: /Sponsor gas for your users/ }),
+    ).toHaveCount(1);
+    await expect(statusGrid.locator(':scope > section')).toHaveCount(2);
+    expect(actionCardsBounds.width).toBeLessThanOrEqual(960);
+    expect(Math.abs(sponsorshipPromoBounds.width - actionCardsBounds.width)).toBeLessThan(2);
+    expect(Math.abs(sponsorshipPromoBounds.x - actionCardsBounds.x)).toBeLessThan(2);
+    expect(Math.abs(statusGridBounds.width - actionCardsBounds.width)).toBeLessThan(2);
+    expect(Math.abs(statusGridBounds.x - actionCardsBounds.x)).toBeLessThan(2);
+    expect(
+      Math.abs(
+        actionCardsBounds.x +
+          actionCardsBounds.width / 2 -
+          (quickActionsBounds.x + quickActionsBounds.width / 2),
+      ),
+    ).toBeLessThan(2);
+    await expect(quickActions.getByRole('link', { name: 'User wallets', exact: true })).toHaveCount(
+      0,
+    );
+    await expect(
+      quickActions.getByRole('link', { name: 'Gas sponsorship', exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      quickActions.getByRole('link', { name: 'Observability', exact: true }),
+    ).toHaveCount(0);
+    await expect(quickActions.getByRole('link', { name: 'Audit logs', exact: true })).toHaveCount(
+      0,
+    );
+    await expect(quickActions.getByRole('link', { name: 'Webhooks', exact: true })).toHaveCount(0);
+    await expect(quickActions.getByRole('link', { name: 'Team members', exact: true })).toHaveCount(
+      0,
+    );
+
     const pendingApprovalsSummary = page.locator('section[aria-label="Pending approvals summary"]');
     await expect(pendingApprovalsSummary).not.toContainText('Approval action reason');
     await expect(pendingApprovalsSummary).not.toContainText('MFA verified (approve)');
@@ -9881,18 +9875,27 @@ test.describe('dashboard console config page api wiring', () => {
     await expect.poll(() => String(lastReplayBody?.deliveryId || '')).toBe('del_1');
     await expect(failedWebhookSummary).toContainText('Replay queued for delivery del_1.');
 
-    const auditExportSummary = page.locator('section[aria-label="Audit export queue summary"]');
-    await auditExportSummary.locator('button:has-text("Requeue")').first().click();
-    await expect.poll(() => auditExportListRequestCount).toBe(1);
-    await expect.poll(() => auditExportCreateRequestCount).toBe(1);
-    await expect.poll(() => String(lastAuditExportCreateBody?.format || '')).toBe('JSONL');
-    await expect.poll(() => String(lastAuditExportCreateBody?.domain || '')).toBe('POLICY');
-    await expect.poll(() => String(lastAuditExportCreateBody?.projectId || '')).toBe('proj_active');
-    await expect
-      .poll(() => String(lastAuditExportCreateBody?.environmentId || ''))
-      .toBe('env_active');
-    await expect(auditExportSummary).toContainText(
-      'Queued replacement export exp_requeued_1 from exp_queued.',
-    );
+    await expect(page.locator('section[aria-label="Billing failure summary"]')).toBeVisible();
+    await expect(page.locator('section[aria-label="Audit export queue summary"]')).toHaveCount(0);
+    const overview = page.locator('[aria-label="Ops cockpit page"]');
+    const queueGroup = page.locator('[aria-label="Ops cockpit queues"]');
+    await expect(queueGroup.locator('.dashboard-ops-cockpit-panel')).toHaveCount(1);
+    const overviewBounds = await overview.boundingBox();
+    const queueGroupBounds = await queueGroup.boundingBox();
+    if (!overviewBounds || !queueGroupBounds) {
+      throw new Error('Queue layout bounds were unavailable');
+    }
+    expect(queueGroupBounds.width).toBeLessThanOrEqual(900);
+    expect(
+      Math.abs(
+        queueGroupBounds.x +
+          queueGroupBounds.width / 2 -
+          (overviewBounds.x + overviewBounds.width / 2),
+      ),
+    ).toBeLessThan(2);
+
+    summaryAccessDenied = true;
+    await page.reload();
+    await expect(page.getByText('This action requires platform.support access')).toHaveCount(0);
   });
 });

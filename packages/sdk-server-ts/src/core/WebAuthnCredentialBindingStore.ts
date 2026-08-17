@@ -175,6 +175,46 @@ export function prepareD1WebAuthnCredentialBindingPutStatement(input: {
     );
 }
 
+/** Insert-only binding write for credential promotion. */
+export function prepareD1WebAuthnCredentialBindingInsertStatement(input: {
+  readonly database: D1DatabaseLike;
+  readonly scope: D1WebAuthnCredentialBindingScope;
+  readonly record: WebAuthnCredentialBindingRecord;
+}): D1PreparedStatementLike {
+  const parsed = parseWebAuthnCredentialBindingRecord(input.record);
+  if (!parsed) throw new Error('Invalid credential binding record');
+  return input.database
+    .prepare(
+      `INSERT INTO webauthn_credential_bindings (
+        namespace,
+        org_id,
+        project_id,
+        env_id,
+        rp_id,
+        credential_id_b64u,
+        user_id,
+        signer_slot,
+        record_json,
+        created_at_ms,
+        updated_at_ms
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      input.scope.namespace,
+      input.scope.orgId,
+      input.scope.projectId,
+      input.scope.envId,
+      parsed.rpId,
+      parsed.credentialIdB64u,
+      parsed.userId,
+      parsed.signerSlot ?? null,
+      JSON.stringify(parsed),
+      parsed.createdAtMs,
+      parsed.updatedAtMs,
+    );
+}
+
 type D1WebAuthnCredentialBindingRow = {
   readonly record_json?: unknown;
   readonly max_signer_slot?: unknown;
@@ -190,8 +230,7 @@ export const WEBAUTHN_CREDENTIAL_BINDING_STORE_D1_SCHEMA_SQL = Object.freeze([
       rp_id TEXT NOT NULL,
       credential_id_b64u TEXT NOT NULL,
       user_id TEXT NOT NULL,
-      -- Nullable until the wallet's Ed25519 Yao ceremony settles; kept in sync
-      -- with migration 0016_signer_webauthn_optional_ed25519.sql.
+      -- Nullable until the wallet's Ed25519 Yao ceremony settles.
       signer_slot INTEGER,
       record_json TEXT NOT NULL,
       created_at_ms INTEGER NOT NULL,

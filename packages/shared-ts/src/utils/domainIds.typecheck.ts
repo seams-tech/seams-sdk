@@ -1,6 +1,5 @@
 import type {
   ChallengeSubjectId,
-  AppSessionVersion,
   AgentPrincipalId,
   CapabilityInstanceRef,
   DelegatedIdempotencyKey,
@@ -26,7 +25,6 @@ import type {
   OrgId,
   ProviderSubject,
   RootShareEpoch,
-  RotationOperationId,
   SigningLaneId,
   ThresholdEcdsaSessionId,
   ThresholdEd25519SessionId,
@@ -55,7 +53,6 @@ declare const googleProviderSubject: GoogleProviderSubject;
 declare const verifiedGoogleEmail: VerifiedGoogleEmail;
 declare const challengeSubjectId: ChallengeSubjectId;
 declare const orgId: OrgId;
-declare const appSessionVersion: AppSessionVersion;
 declare const emailOtpChallengeId: EmailOtpChallengeId;
 declare const registrationAttemptId: EmailOtpRegistrationAttemptId;
 declare const walletSessionId: WalletSessionId;
@@ -69,7 +66,6 @@ declare const laneShareEpoch: LaneShareEpoch;
 declare const agentPrincipalId: AgentPrincipalId;
 declare const linkedDeviceId: LinkedDeviceId;
 declare const mandatePolicyId: MandatePolicyId;
-declare const rotationOperationId: RotationOperationId;
 declare const delegatedIntentDigest: DelegatedIntentDigest;
 declare const delegatedIdempotencyKey: DelegatedIdempotencyKey;
 declare const linkDeviceSessionId: LinkDeviceSessionId;
@@ -125,10 +121,6 @@ function acceptsOrgId(value: OrgId): void {
   void value;
 }
 
-function acceptsAppSessionVersion(value: AppSessionVersion): void {
-  void value;
-}
-
 function acceptsWalletSessionId(value: WalletSessionId): void {
   void value;
 }
@@ -170,10 +162,6 @@ function acceptsLinkedDeviceId(value: LinkedDeviceId): void {
 }
 
 function acceptsMandatePolicyId(value: MandatePolicyId): void {
-  void value;
-}
-
-function acceptsRotationOperationId(value: RotationOperationId): void {
   void value;
 }
 
@@ -236,7 +224,6 @@ acceptsGoogleProviderSubject(googleProviderSubject);
 acceptsVerifiedGoogleEmail(verifiedGoogleEmail);
 acceptsChallengeSubjectId(challengeSubjectId);
 acceptsOrgId(orgId);
-acceptsAppSessionVersion(appSessionVersion);
 acceptsEmailOtpChallengeId(emailOtpChallengeId);
 acceptsEmailOtpRegistrationAttemptId(registrationAttemptId);
 acceptsWalletSessionId(walletSessionId);
@@ -250,7 +237,6 @@ acceptsLaneShareEpoch(laneShareEpoch);
 acceptsAgentPrincipalId(agentPrincipalId);
 acceptsLinkedDeviceId(linkedDeviceId);
 acceptsMandatePolicyId(mandatePolicyId);
-acceptsRotationOperationId(rotationOperationId);
 acceptsDelegatedIntentDigest(delegatedIntentDigest);
 acceptsDelegatedIdempotencyKey(delegatedIdempotencyKey);
 acceptsLinkDeviceSessionId(linkDeviceSessionId);
@@ -312,9 +298,6 @@ acceptsChallengeSubjectId(emailOtpChallengeId);
 // @ts-expect-error Organization ids are not wallet ids.
 acceptsWalletId(orgId);
 
-// @ts-expect-error App-session versions are not organization ids.
-acceptsOrgId(appSessionVersion);
-
 // @ts-expect-error Registration attempt ids are not OTP challenge ids.
 acceptsEmailOtpChallengeId(registrationAttemptId);
 
@@ -362,9 +345,6 @@ acceptsLinkedDeviceId(agentPrincipalId);
 
 // @ts-expect-error Linked devices are not agent principals.
 acceptsAgentPrincipalId(linkedDeviceId);
-
-// @ts-expect-error Mandate policies are not rotation operations.
-acceptsRotationOperationId(mandatePolicyId);
 
 // @ts-expect-error Delegated intent digests are not idempotency keys.
 acceptsDelegatedIdempotencyKey(delegatedIntentDigest);

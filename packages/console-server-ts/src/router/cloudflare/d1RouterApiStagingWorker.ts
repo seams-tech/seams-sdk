@@ -8,7 +8,6 @@ import { requireStripeBillingProviderAdaptersFromEnv } from '@seams-internal/con
 import { createCloudflareRouter } from '@seams/sdk-server/cloud-host';
 import { withCors } from '@seams/sdk-server/cloud-host';
 import { createCloudflareConsoleRouter } from './createCloudflareConsoleRouter';
-import { createAppSessionConsoleAuthAdapter } from '../consoleAppSessionAuth';
 import {
   createCloudflareD1ConsoleServiceBundle,
   createCloudflareD1RouterApiRouteExtensions,
@@ -20,10 +19,6 @@ import { createSigningSessionSealOptions } from '@seams/sdk-server/cloud-host';
 import { RouterAbEcdsaPresignRuntime } from '@seams/sdk-server/cloud-host';
 import type { SigningSessionSealRoutesOptions } from '@seams/sdk-server/cloud-host';
 import type {
-  CloudflareD1OidcExchangeConfig,
-  CloudflareD1OidcExchangeIssuerConfig,
-} from '@seams/sdk-server/cloud-host';
-import type {
   CfExecutionContext,
   CfScheduledEvent,
   FetchHandler,
@@ -31,14 +26,13 @@ import type {
 } from '@seams/sdk-server/cloud-host';
 import {
   createRouterAbEd25519YaoHttpRegistrationBackendFromEnv,
+  parseRouterAbEd25519YaoActivationKeysetFromEnvV1,
   type RouterAbEd25519YaoGatewaySpanV1,
 } from '@seams/sdk-server/cloud-host';
 import { type RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '@seams/sdk-server/cloud-host';
 import type { SessionAdapter } from '@seams/sdk-server/cloud-host';
 import { D1WalletStore } from '@seams/sdk-server/cloud-host';
 import { CloudflareD1RouterAbEd25519YaoCapabilityPersistence } from '@seams/sdk-server/cloud-host';
-import { CloudflareD1WebAuthnAuthService } from '@seams/sdk-server/cloud-host';
-import { CloudflareD1WebAuthnStore } from '@seams/sdk-server/cloud-host';
 import {
   createRouterAbEcdsaEd25519CeremonyTokenIssuer,
   createRouterAbEcdsaStrictPostRegistrationPort,
@@ -50,6 +44,8 @@ import {
 } from '@seams/sdk-server/cloud-host';
 import {
   createEd25519SessionAdapter,
+  createConsoleSessionAuthAdapter,
+  createHmacSessionAdapterFromEnv,
   readCsvList,
   readEnvString,
   requireEnvString,
@@ -60,6 +56,7 @@ import {
   type RouterAbPublicKeysetV2,
 } from '@seams/sdk-server/cloud-host';
 import { parseWalletId } from '@seams/sdk-server/cloud-host';
+import { normalizeLogger, parseWebAuthnRpId } from '@seams/sdk-server/cloud-host';
 import {
   createRouterAbServiceBindingFetch,
   ROUTER_AB_MPC_ROUTER_ORIGIN,
@@ -69,8 +66,18 @@ import {
 import { handleRouterAbEd25519YaoRegistrationRequestScopedCloudflareV1 } from '@seams/sdk-server/cloud-host';
 import { createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1 } from '@seams/sdk-server/cloud-host';
 import { RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter } from '@seams/sdk-server/cloud-host';
-import { RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter } from '@seams/sdk-server/cloud-host';
+import { RouterAbEd25519YaoExportOwnerProofAuthorizationAdapter } from '@seams/sdk-server/cloud-host';
 import { createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1 } from '@seams/sdk-server/cloud-host';
+import { createD1LinkedDeviceTargetDeploymentDescriptorRuntimeV1 } from '@seams/sdk-server/cloud-host';
+import {
+  base64UrlEncode,
+  sha256Bytes,
+  buildSigningWorkerParticipantRecordWithDigestV1,
+  parseHpkePublicKeyB64u,
+  parseSigningWorkerParticipantId,
+  parseSigningWorkerRecipientKeyDigestB64u,
+  parseSigningWorkerRecipientKeyId,
+} from '@seams/sdk-server/cloud-host';
 import { handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1 } from '@seams/sdk-server/cloud-host';
 import { handleRouterAbEd25519YaoExportRequestScopedCloudflareV1 } from '@seams/sdk-server/cloud-host';
 import {
@@ -115,7 +122,6 @@ interface CloudflareD1RouterApiStagingEnv
   readonly GITHUB_OAUTH_CLIENT_ID?: string;
   readonly GITHUB_OAUTH_CLIENT_SECRET?: string;
   readonly GITHUB_OAUTH_CALLBACK_URL?: string;
-  readonly SEAMS_OIDC_EXCHANGE_JSON?: string;
   readonly ACCOUNT_ID_DERIVATION_SECRET?: string;
   readonly ROUTER_AB_NORMAL_SIGNING_WORKER_ID?: string;
   readonly SIGNING_WORKER_ID?: string;
@@ -127,9 +133,10 @@ interface CloudflareD1RouterApiStagingEnv
   readonly ROUTER_AB_CEREMONY_JWT_KEY_ID?: string;
   readonly ROUTER_AB_ECDSA_REGISTRATION_TOPOLOGY_JSON?: string;
   readonly ROUTER_AB_PUBLIC_KEYSET_JSON?: string;
-  readonly DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY?: string;
-  readonly DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY?: string;
-  readonly SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY?: string;
+  readonly LINKED_DEVICE_WEBAUTHN_RP_ID?: string;
+  readonly LINKED_DEVICE_WEBAUTHN_ORIGIN?: string;
+  readonly LINKED_DEVICE_OPERATOR_RECOVERY_SECRET?: string;
+  readonly LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET?: string;
   readonly SIGNING_SESSION_SEAL_ROOT_SECRET_B64U?: string;
   readonly SIGNING_SESSION_SEAL_CURRENT_KEY_VERSION?: string;
   readonly SIGNING_SESSION_SEAL_ACCEPTED_WARM_KEY_VERSIONS?: string;
@@ -152,8 +159,6 @@ interface CloudflareD1RouterApiStagingEnv
   readonly EMAIL_OTP_GRANT_RATE_LIMIT_WINDOW_MS?: string;
   readonly EMAIL_OTP_MAX_ATTEMPTS?: string;
   readonly EMAIL_OTP_LOCKOUT_TTL_MS?: string;
-  readonly EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_MAX?: string;
-  readonly EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_WINDOW_MS?: string;
   readonly EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_MAX?: string;
   readonly EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS?: string;
   readonly SPONSORED_EVM_EXECUTORS_JSON?: string;
@@ -206,7 +211,11 @@ const RELAY_CONSOLE_READY_TABLES = Object.freeze([
 const RELAY_SIGNER_READY_TABLES = Object.freeze([
   'wallets',
   'wallet_auth_methods',
-  'app_session_versions',
+  'reusable_wallet_sessions',
+  'opaque_wallet_session_tokens',
+  'verified_wallet_operation_evidence_sets',
+  'verified_owner_proof_consumptions',
+  'hosted_wallet_session_exchange_codes',
   'email_otp_challenges',
   'email_otp_grants',
   'router_ab_yao_versioned_json_records',
@@ -215,6 +224,24 @@ const RELAY_SIGNER_READY_TABLES = Object.freeze([
   'router_ab_normal_signing_admission_records',
   'registration_ceremony_records',
   'registration_ceremony_cas_guard',
+  'lane_enrollments',
+  'lane_protocol_operations',
+  'lane_product_epochs',
+  'lane_receipts',
+  'lane_effect_journal',
+  'lane_locks',
+  'lane_cas_guard',
+  'linked_device_wallet_session_authorizations',
+  'linked_device_wallet_session_quotas',
+  'linked_device_sessions',
+  'linked_device_session_transcripts',
+  'linked_device_request_proof_nonces',
+  'linked_device_target_credentials',
+  'linked_device_target_commit_reservations',
+  'linked_device_provisioning_records',
+  'linked_device_source_handoffs',
+  'linked_device_owner_planning_snapshots',
+  'linked_device_target_deployment_descriptors',
 ]);
 
 const ROUTER_AB_CEREMONY_JWKS_PATH = '/.well-known/router-ab-ceremony-jwks.json';
@@ -224,6 +251,7 @@ function emitRefactor93GatewaySpan(span: RouterAbEd25519YaoGatewaySpanV1): void 
 }
 
 export function createStagingEd25519YaoBackend(env: CloudflareD1RouterApiStagingEnv) {
+  const keyEnvironment = stagingEd25519YaoKeyEnvironment(env);
   return createRouterAbEd25519YaoHttpRegistrationBackendFromEnv({
     env: {
       MPC_ROUTER_URL: ROUTER_AB_MPC_ROUTER_ORIGIN,
@@ -232,18 +260,10 @@ export function createStagingEd25519YaoBackend(env: CloudflareD1RouterApiStaging
         env,
         'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
       ),
-      DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY: requireEnvString(
-        env,
-        'DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY',
-      ),
-      DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY: requireEnvString(
-        env,
-        'DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY',
-      ),
-      SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: requireEnvString(
-        env,
-        'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY',
-      ),
+      DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY: keyEnvironment.DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY,
+      DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY: keyEnvironment.DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY,
+      SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY:
+        keyEnvironment.SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY,
     },
     onSpan: emitRefactor93GatewaySpan,
     fetch: createRouterAbServiceBindingFetch(env),
@@ -257,6 +277,84 @@ function stagingTenantScope(env: CloudflareD1RouterApiStagingEnv): RouterApiTena
     projectId: requireEnvString(env, 'SEAMS_STAGING_PROJECT_ID'),
     envId: requireEnvString(env, 'SEAMS_STAGING_ENV_ID'),
   };
+}
+
+async function createStagingRouterApiAuthComposition(
+  env: CloudflareD1RouterApiStagingEnv,
+  scope: RouterApiTenantScope,
+  session: SessionAdapter,
+  yaoRuntime: RouterAbEd25519YaoProductRegistrationRuntimeV1,
+) {
+  const ecdsaCeremonyTokenIssuer = createStagingEcdsaCeremonyTokenIssuer(env);
+  const topology = requireStagingEcdsaRegistrationTopology(env);
+  const tokenScope = {
+    orgId: scope.orgId,
+    projectId: scope.projectId,
+    environment: scope.envId,
+  };
+  const ecdsaStrictRegistration = createRouterAbEcdsaStrictRegistrationPort({
+    router: env.MPC_ROUTER,
+    tokenIssuer: ecdsaCeremonyTokenIssuer,
+    tokenScope,
+    topology,
+  });
+  const ecdsaStrictPostRegistration = createRouterAbEcdsaStrictPostRegistrationPort({
+    router: env.MPC_ROUTER,
+    tokenIssuer: ecdsaCeremonyTokenIssuer,
+    tokenScope,
+    topology,
+  });
+  const service = createCloudflareD1RouterApiAuthService({
+    database: env.SIGNER_DB,
+    namespace: scope.namespace,
+    orgId: scope.orgId,
+    projectId: scope.projectId,
+    envId: scope.envId,
+    relayerAccount: readEnvString(env, 'RELAYER_ACCOUNT_ID'),
+    relayerPublicKey: readEnvString(env, 'RELAYER_PUBLIC_KEY'),
+    relayerPrivateKey: readEnvString(env, 'RELAYER_PRIVATE_KEY'),
+    nearRpcUrl: readEnvString(env, 'NEAR_RPC_URL'),
+    signerWasmModuleOrPath: loadCloudflareSignerWasmModule,
+    accountInitialBalance: readEnvString(env, 'ACCOUNT_INITIAL_BALANCE'),
+    implicitNearAccountTestFundingEnabled: readEnvString(
+      env,
+      'ENABLE_IMPLICIT_NEAR_ACCOUNT_TEST_FUNDING',
+    ),
+    googleOidcClientId: readEnvString(env, 'GOOGLE_OIDC_CLIENT_ID'),
+    githubOAuth: stagingGithubOAuthConfig(env),
+    accountIdDerivationSecret: requireEnvString(env, 'ACCOUNT_ID_DERIVATION_SECRET'),
+    emailOtpServerSeal: stagingEmailOtpServerSealConfig(env),
+    emailOtpDeliveryMode: readEnvString(env, 'EMAIL_OTP_DELIVERY_MODE'),
+    emailOtpRuntimeProfile: readEnvString(env, 'EMAIL_OTP_RUNTIME_PROFILE'),
+    emailOtpDeliveryProvider: resolveEmailOtpDeliveryProviderFromEnv(env),
+    emailOtpDemoAllowedOrigins: readEnvString(env, 'EMAIL_OTP_DEMO_ALLOWED_ORIGINS'),
+    emailOtpProduction: readEnvString(env, 'EMAIL_OTP_PRODUCTION'),
+    emailOtpDevOutboxEnabled: readEnvString(env, 'EMAIL_OTP_DEV_OUTBOX_ENABLED'),
+    emailOtpChallengeRateLimitMax: readEnvString(env, 'EMAIL_OTP_CHALLENGE_RATE_LIMIT_MAX'),
+    emailOtpChallengeRateLimitWindowMs: readEnvString(
+      env,
+      'EMAIL_OTP_CHALLENGE_RATE_LIMIT_WINDOW_MS',
+    ),
+    emailOtpVerifyRateLimitMax: readEnvString(env, 'EMAIL_OTP_VERIFY_RATE_LIMIT_MAX'),
+    emailOtpVerifyRateLimitWindowMs: readEnvString(env, 'EMAIL_OTP_VERIFY_RATE_LIMIT_WINDOW_MS'),
+    emailOtpGrantRateLimitMax: readEnvString(env, 'EMAIL_OTP_GRANT_RATE_LIMIT_MAX'),
+    emailOtpGrantRateLimitWindowMs: readEnvString(env, 'EMAIL_OTP_GRANT_RATE_LIMIT_WINDOW_MS'),
+    emailOtpMaxAttempts: readEnvString(env, 'EMAIL_OTP_MAX_ATTEMPTS'),
+    emailOtpLockoutTtlMs: readEnvString(env, 'EMAIL_OTP_LOCKOUT_TTL_MS'),
+    emailOtpGoogleRegistrationAttemptRateLimitMax: readEnvString(
+      env,
+      'EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_MAX',
+    ),
+    emailOtpGoogleRegistrationAttemptRateLimitWindowMs: readEnvString(
+      env,
+      'EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS',
+    ),
+    routerAbEcdsaPresignRuntime: createStagingEcdsaPresignRuntime(env),
+    ed25519YaoProductRegistration: yaoRuntime,
+    ecdsaStrictRegistration,
+    linkedDevice: await stagingLinkedDeviceComposition(env, session),
+  });
+  return { service, ecdsaStrictPostRegistration };
 }
 
 async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Promise<FetchHandler> {
@@ -288,86 +386,13 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     },
   });
   const session = stagingSessionAdapter(env);
-  const yaoRuntime = createStagingYaoRequestScopedRuntime(env, session);
-  const ecdsaCeremonyTokenIssuer = createStagingEcdsaCeremonyTokenIssuer(env);
-  const ecdsaStrictRegistration = createRouterAbEcdsaStrictRegistrationPort({
-    router: env.MPC_ROUTER,
-    tokenIssuer: ecdsaCeremonyTokenIssuer,
-    tokenScope: {
-      orgId: scope.orgId,
-      projectId: scope.projectId,
-      environment: scope.envId,
-    },
-    topology: requireStagingEcdsaRegistrationTopology(env),
-  });
-  const ecdsaStrictPostRegistration = createRouterAbEcdsaStrictPostRegistrationPort({
-    router: env.MPC_ROUTER,
-    tokenIssuer: ecdsaCeremonyTokenIssuer,
-    tokenScope: {
-      orgId: scope.orgId,
-      projectId: scope.projectId,
-      environment: scope.envId,
-    },
-    topology: requireStagingEcdsaRegistrationTopology(env),
-  });
-  const service = createCloudflareD1RouterApiAuthService({
-    database: env.SIGNER_DB,
-    namespace: scope.namespace,
-    orgId: scope.orgId,
-    projectId: scope.projectId,
-    envId: scope.envId,
-    relayerAccount: readEnvString(env, 'RELAYER_ACCOUNT_ID'),
-    relayerPublicKey: readEnvString(env, 'RELAYER_PUBLIC_KEY'),
-    relayerPrivateKey: readEnvString(env, 'RELAYER_PRIVATE_KEY'),
-    nearRpcUrl: readEnvString(env, 'NEAR_RPC_URL'),
-    signerWasmModuleOrPath: loadCloudflareSignerWasmModule,
-    accountInitialBalance: readEnvString(env, 'ACCOUNT_INITIAL_BALANCE'),
-    implicitNearAccountTestFundingEnabled: readEnvString(
-      env,
-      'ENABLE_IMPLICIT_NEAR_ACCOUNT_TEST_FUNDING',
-    ),
-    googleOidcClientId: readEnvString(env, 'GOOGLE_OIDC_CLIENT_ID'),
-    githubOAuth: stagingGithubOAuthConfig(env),
-    oidcExchange: stagingOidcExchangeConfig(env),
-    accountIdDerivationSecret: requireEnvString(env, 'ACCOUNT_ID_DERIVATION_SECRET'),
-    emailOtpServerSeal: stagingEmailOtpServerSealConfig(env),
-    emailOtpDeliveryMode: readEnvString(env, 'EMAIL_OTP_DELIVERY_MODE'),
-    emailOtpRuntimeProfile: readEnvString(env, 'EMAIL_OTP_RUNTIME_PROFILE'),
-    emailOtpDeliveryProvider: resolveEmailOtpDeliveryProviderFromEnv(env),
-    emailOtpDemoAllowedOrigins: readEnvString(env, 'EMAIL_OTP_DEMO_ALLOWED_ORIGINS'),
-    emailOtpProduction: readEnvString(env, 'EMAIL_OTP_PRODUCTION'),
-    emailOtpDevOutboxEnabled: readEnvString(env, 'EMAIL_OTP_DEV_OUTBOX_ENABLED'),
-    emailOtpChallengeRateLimitMax: readEnvString(env, 'EMAIL_OTP_CHALLENGE_RATE_LIMIT_MAX'),
-    emailOtpChallengeRateLimitWindowMs: readEnvString(
-      env,
-      'EMAIL_OTP_CHALLENGE_RATE_LIMIT_WINDOW_MS',
-    ),
-    emailOtpVerifyRateLimitMax: readEnvString(env, 'EMAIL_OTP_VERIFY_RATE_LIMIT_MAX'),
-    emailOtpVerifyRateLimitWindowMs: readEnvString(env, 'EMAIL_OTP_VERIFY_RATE_LIMIT_WINDOW_MS'),
-    emailOtpGrantRateLimitMax: readEnvString(env, 'EMAIL_OTP_GRANT_RATE_LIMIT_MAX'),
-    emailOtpGrantRateLimitWindowMs: readEnvString(env, 'EMAIL_OTP_GRANT_RATE_LIMIT_WINDOW_MS'),
-    emailOtpMaxAttempts: readEnvString(env, 'EMAIL_OTP_MAX_ATTEMPTS'),
-    emailOtpLockoutTtlMs: readEnvString(env, 'EMAIL_OTP_LOCKOUT_TTL_MS'),
-    emailOtpRecoveryKeyAttemptRateLimitMax: readEnvString(
-      env,
-      'EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_MAX',
-    ),
-    emailOtpRecoveryKeyAttemptRateLimitWindowMs: readEnvString(
-      env,
-      'EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_WINDOW_MS',
-    ),
-    emailOtpGoogleRegistrationAttemptRateLimitMax: readEnvString(
-      env,
-      'EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_MAX',
-    ),
-    emailOtpGoogleRegistrationAttemptRateLimitWindowMs: readEnvString(
-      env,
-      'EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS',
-    ),
-    routerAbEcdsaPresignRuntime: createStagingEcdsaPresignRuntime(env),
-    ed25519YaoProductRegistration: yaoRuntime,
-    ecdsaStrictRegistration,
-  });
+  const yaoRuntime = createStagingYaoRequestScopedRuntime(env);
+  const { service, ecdsaStrictPostRegistration } = await createStagingRouterApiAuthComposition(
+    env,
+    scope,
+    session,
+    yaoRuntime,
+  );
   const routerApiHandler = createCloudflareRouter(service, {
     ...bundle.routerApiRouterOptions,
     routeExtensions: createCloudflareD1RouterApiRouteExtensions(bundle, service),
@@ -386,20 +411,19 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     signingSessionSeal: stagingSigningSessionSealOptions(env),
     routerAbEd25519YaoProduct: yaoRuntime,
   });
-  const consoleAuth = createAppSessionConsoleAuthAdapter({
-    session,
-    authService: service.sessionVersions,
+  const consoleAuth = createConsoleSessionAuthAdapter({
+    session: createHmacSessionAdapterFromEnv({
+      env,
+      secretName: 'RELAY_SESSION_HMAC_SECRET',
+      cookieName: readEnvString(env, 'CONSOLE_SESSION_COOKIE_NAME'),
+      issuer: readEnvString(env, 'CONSOLE_SESSION_ISSUER'),
+      audience: readEnvString(env, 'CONSOLE_SESSION_AUDIENCE'),
+    }),
     organizationAccess: bundle.organizationAccess,
     defaultOrgId: scope.orgId,
     defaultProjectId: scope.projectId,
     defaultEnvironmentId: scope.envId,
-    initialOwnerEmail: readEnvString(env, 'CONSOLE_INITIAL_OWNER_EMAIL'),
     platformSupportEmails: readEnvString(env, 'CONSOLE_PLATFORM_SUPPORT_EMAILS'),
-    provisioning: {
-      orgProjectEnv: bundle.orgProjectEnv,
-      audit: bundle.audit,
-      logger: console,
-    },
   });
   const consoleHandler = createCloudflareConsoleRouter({
     ...bundle.consoleRouterOptions,
@@ -411,6 +435,115 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
     billingStripeWebhookSigningSecret: readEnvString(env, 'STRIPE_WEBHOOK_SECRET'),
   });
   return dispatchHostedGatewayRequest.bind(null, consoleHandler, routerApiHandler);
+}
+
+function stagingLinkedDeviceExecution(env: CloudflareD1RouterApiStagingEnv) {
+  const rpId = parseWebAuthnRpId(requireEnvString(env, 'LINKED_DEVICE_WEBAUTHN_RP_ID'));
+  if (!rpId.ok) throw new Error(rpId.error.message);
+  return {
+    nowV1: Date.now,
+    rpId: rpId.value,
+    expectedOrigin: requireEnvString(env, 'LINKED_DEVICE_WEBAUTHN_ORIGIN'),
+    logger: normalizeLogger(),
+  };
+}
+
+async function stagingLinkedDeviceComposition(
+  env: CloudflareD1RouterApiStagingEnv,
+  session: SessionAdapter,
+) {
+  const internalServiceAuth = requireEnvString(env, 'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET');
+  const scope = stagingTenantScope(env);
+  const operatorRecoverySecret = stagingLinkedDeviceOperatorRecoverySecret(
+    env,
+    internalServiceAuth,
+  );
+  const descriptorHmacSecret = requireEnvString(env, 'LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET');
+  if (
+    descriptorHmacSecret === internalServiceAuth ||
+    descriptorHmacSecret === operatorRecoverySecret
+  ) {
+    throw new Error(
+      'LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET must differ from Router internal auth and operator recovery',
+    );
+  }
+  const targetRuntime = await createD1LinkedDeviceTargetDeploymentDescriptorRuntimeV1({
+    database: env.SIGNER_DB,
+    scope,
+    targetSigningWorker: await stagingLinkedDeviceTargetSigningWorker(env),
+    descriptorHmacSecret,
+    ed25519: {
+      yaoSuiteId: 'ed25519-yao-suite:A',
+      circuitDigestB64u: 'uojcq1xwowjW5QC2ZkQk0aevJmiiHYdJh41CtSpIaRk',
+    },
+  });
+  return {
+    execution: stagingLinkedDeviceExecution(env),
+    session: {
+      session,
+      laneRuntime: {
+        router: env.MPC_ROUTER,
+        signingWorker: env.SIGNING_WORKER,
+        internalServiceAuth,
+        ed25519YaoKeyset: stagingEd25519YaoActivationKeyset(env),
+      },
+      operatorRecovery: {
+        operatorSecret: operatorRecoverySecret,
+      },
+      targetDeploymentDescriptorProvider: targetRuntime.provider,
+    },
+    management: {},
+  };
+}
+
+async function stagingLinkedDeviceTargetSigningWorker(env: CloudflareD1RouterApiStagingEnv) {
+  const participantId = requireEnvString(env, 'SIGNING_WORKER_ID');
+  const keyset = stagingEd25519YaoActivationKeyset(env);
+  const hpkePublicKey = new Uint8Array(keyset.signing_worker_recipient_public_key);
+  const hpkePublicKeyB64u = base64UrlEncode(hpkePublicKey);
+  const parsedParticipantId = parseSigningWorkerParticipantId(participantId);
+  if (!parsedParticipantId.ok) throw new Error(parsedParticipantId.error.message);
+  const recipientKeyId =
+    requireStagingRouterAbPublicKeyset(env).signing_worker_server_output_hpke.key_epoch;
+  const parsedRecipientKeyId = parseSigningWorkerRecipientKeyId(recipientKeyId);
+  if (!parsedRecipientKeyId.ok) throw new Error(parsedRecipientKeyId.error.message);
+  const parsedHpkePublicKeyB64u = parseHpkePublicKeyB64u(hpkePublicKeyB64u);
+  if (!parsedHpkePublicKeyB64u.ok) {
+    throw new Error(parsedHpkePublicKeyB64u.error.message);
+  }
+  const hpkePublicKeyDigestB64u = base64UrlEncode(await sha256Bytes(hpkePublicKey));
+  const parsedHpkePublicKeyDigestB64u =
+    parseSigningWorkerRecipientKeyDigestB64u(hpkePublicKeyDigestB64u);
+  if (!parsedHpkePublicKeyDigestB64u.ok) {
+    throw new Error(parsedHpkePublicKeyDigestB64u.error.message);
+  }
+  const participant = await buildSigningWorkerParticipantRecordWithDigestV1({
+    participantId: parsedParticipantId.value,
+    recipient: {
+      kind: 'signing_worker_recipient_identity_v1',
+      recipientKeyId: parsedRecipientKeyId.value,
+      hpkePublicKeyB64u: parsedHpkePublicKeyB64u.value,
+      hpkePublicKeyDigestB64u: parsedHpkePublicKeyDigestB64u.value,
+    },
+  });
+  return {
+    participantId: participant.participantId,
+    participantBindingDigestB64u: participant.participantBindingDigestB64u,
+    recipientKeyId: participant.recipientKeyId,
+    hpkePublicKeyB64u: participant.hpkePublicKeyB64u,
+    hpkePublicKeyDigestB64u: participant.hpkePublicKeyDigestB64u,
+  };
+}
+
+function stagingLinkedDeviceOperatorRecoverySecret(
+  env: CloudflareD1RouterApiStagingEnv,
+  internalServiceAuth: string,
+): string {
+  const secret = requireEnvString(env, 'LINKED_DEVICE_OPERATOR_RECOVERY_SECRET');
+  if (secret === internalServiceAuth) {
+    throw new Error('LINKED_DEVICE_OPERATOR_RECOVERY_SECRET must differ from Router internal auth');
+  }
+  return secret;
 }
 
 export async function dispatchHostedGatewayRequest(
@@ -435,6 +568,22 @@ function requireStagingRouterAbPublicKeyset(
     throw new Error('ROUTER_AB_PUBLIC_KEYSET_JSON must contain a JSON object');
   }
   return parseRouterAbPublicKeysetV2(parsed);
+}
+
+function stagingEd25519YaoKeyEnvironment(env: CloudflareD1RouterApiStagingEnv) {
+  const keyset = requireStagingRouterAbPublicKeyset(env);
+  return {
+    DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY:
+      keyset.signer_envelope_hpke.current.deriver_a.public_key,
+    DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY:
+      keyset.signer_envelope_hpke.current.deriver_b.public_key,
+    SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY:
+      keyset.signing_worker_server_output_hpke.public_key,
+  };
+}
+
+function stagingEd25519YaoActivationKeyset(env: CloudflareD1RouterApiStagingEnv) {
+  return parseRouterAbEd25519YaoActivationKeysetFromEnvV1(stagingEd25519YaoKeyEnvironment(env));
 }
 
 function createStagingEcdsaCeremonyTokenIssuer(
@@ -604,24 +753,6 @@ function stagingEmailOtpServerSealConfig(
   };
 }
 
-function stagingOidcExchangeConfig(
-  env: CloudflareD1RouterApiStagingEnv,
-): CloudflareD1OidcExchangeConfig | undefined {
-  const source = readEnvString(env, 'SEAMS_OIDC_EXCHANGE_JSON');
-  if (!source) return undefined;
-  const parsed = parseJsonObject(source);
-  if (!parsed) throw new Error('SEAMS_OIDC_EXCHANGE_JSON must be a JSON object');
-  const issuers = parseOidcExchangeIssuers(parsed.issuers);
-  if (issuers.length === 0) {
-    throw new Error('SEAMS_OIDC_EXCHANGE_JSON must define at least one OIDC issuer');
-  }
-  const clockSkewSec = parseOptionalClockSkewSec(parsed.clockSkewSec);
-  return {
-    issuers,
-    ...(clockSkewSec === undefined ? {} : { clockSkewSec }),
-  };
-}
-
 function stagingGithubOAuthConfig(env: CloudflareD1RouterApiStagingEnv) {
   const clientId = readEnvString(env, 'GITHUB_OAUTH_CLIENT_ID');
   const clientSecret = readEnvString(env, 'GITHUB_OAUTH_CLIENT_SECRET');
@@ -633,50 +764,6 @@ function stagingGithubOAuthConfig(env: CloudflareD1RouterApiStagingEnv) {
     );
   }
   return { clientId, clientSecret, callbackUrl };
-}
-
-function parseOptionalClockSkewSec(input: unknown): string | number | undefined {
-  if (typeof input === 'number' && Number.isFinite(input)) return input;
-  const value = normalizeString(input);
-  return value || undefined;
-}
-
-function parseOidcExchangeIssuers(input: unknown): CloudflareD1OidcExchangeIssuerConfig[] {
-  if (!Array.isArray(input)) return [];
-  const issuers: CloudflareD1OidcExchangeIssuerConfig[] = [];
-  for (const raw of input) {
-    const issuer = parseOidcExchangeIssuer(raw);
-    if (issuer) issuers.push(issuer);
-  }
-  return issuers;
-}
-
-function parseOidcExchangeIssuer(input: unknown): CloudflareD1OidcExchangeIssuerConfig | null {
-  if (!isRecord(input)) return null;
-  const issuer = normalizeString(input.issuer);
-  const jwksUrl = normalizeString(input.jwksUrl);
-  const audiences = parseStringArray(input.audiences);
-  const subjectPrefix = normalizeString(input.subjectPrefix);
-  if (!issuer || !jwksUrl || audiences.length === 0) return null;
-  return {
-    issuer,
-    jwksUrl,
-    audiences,
-    ...(subjectPrefix ? { subjectPrefix } : {}),
-  };
-}
-
-function parseStringArray(input: unknown): string[] {
-  if (!Array.isArray(input)) return [];
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const raw of input) {
-    const value = normalizeString(raw);
-    if (!value || seen.has(value)) continue;
-    out.push(value);
-    seen.add(value);
-  }
-  return out;
 }
 
 function parseJsonObject(text: string): Record<string, unknown> | null {
@@ -864,10 +951,21 @@ async function handlePartitionedD1Operation(
       });
     case 'export_admission':
     case 'export_execute':
+      {
+      const scope = stagingTenantScope(env);
+      const session = stagingSessionAdapter(env);
+      const yaoRuntime = createStagingYaoRequestScopedRuntime(env);
+      const { service } = await createStagingRouterApiAuthComposition(
+        env,
+        scope,
+        session,
+        yaoRuntime,
+      );
       return await handleRouterAbEd25519YaoExportRequestScopedCloudflareV1({
         request,
-        ...createStagingExportRequestScopedDependencies(env),
+        ...createStagingExportRequestScopedDependencies(env, service),
       });
+      }
   }
 }
 
@@ -896,11 +994,9 @@ async function loadStagingPersistedActiveCapability(
 
 function createStagingYaoRequestScopedRuntime(
   env: CloudflareD1RouterApiStagingEnv,
-  session: SessionAdapter,
 ): RouterAbEd25519YaoProductRegistrationRuntimeV1 {
   return createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1({
     signingWorkerId: requireEnvString(env, 'SIGNING_WORKER_ID'),
-    session,
     store: createStagingYaoPartitionedStateStore(env),
     registrationBackend: createStagingEd25519YaoBackend(env),
     loadPersistedActiveCapability: loadStagingPersistedActiveCapability.bind(undefined, env),
@@ -931,49 +1027,53 @@ export function createStagingRecoveryRequestScopedDependencies(
   return {
     store,
     backend: createStagingEd25519YaoBackend(env),
-    authorization: new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(session),
+    authorization: new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(
+      session,
+      async () => {
+        const yaoRuntime = createStagingYaoRequestScopedRuntime(env);
+        const { service } = await createStagingRouterApiAuthComposition(
+          env,
+          scope,
+          session,
+          yaoRuntime,
+        );
+        return service.authorizationSessions;
+      },
+    ),
     capabilityPersistence: new CloudflareD1RouterAbEd25519YaoCapabilityPersistence({
       database: env.SIGNER_DB,
       scope,
       walletStore: stagingWalletStore(env),
       ensureSchema: false,
     }),
-    capabilities: createStagingYaoRequestScopedRuntime(env, session),
+    capabilities: createStagingYaoRequestScopedRuntime(env),
   };
 }
 
 /**
- * Builds the export request-scoped dependencies from the environment alone. The
- * capability resolver comes from the request-scoped runtime, so export reads the
- * same partitioned state it will eventually be cut over to.
+ * Builds export request-scoped state while reusing the request's authoritative
+ * Router API factor and owner-proof services.
  */
 export function createStagingExportRequestScopedDependencies(
   env: CloudflareD1RouterApiStagingEnv,
+  service: ReturnType<typeof createCloudflareD1RouterApiAuthService>,
 ): {
   readonly store: ReturnType<typeof createStagingYaoPartitionedStateStore>;
   readonly backend: ReturnType<typeof createStagingEd25519YaoBackend>;
-  readonly authorization: RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter;
+  readonly authorization: RouterAbEd25519YaoExportOwnerProofAuthorizationAdapter;
   readonly capabilities: RouterAbEd25519YaoProductRegistrationRuntimeV1;
 } {
-  const scope = stagingTenantScope(env);
-  const session = stagingSessionAdapter(env);
   const store = createStagingYaoPartitionedStateStore(env);
   return {
     store,
     backend: createStagingEd25519YaoBackend(env),
-    authorization: new RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter(
-      session,
-      new CloudflareD1WebAuthnAuthService({
-        webAuthnStore: new CloudflareD1WebAuthnStore({
-          database: env.SIGNER_DB,
-          namespace: scope.namespace,
-          orgId: scope.orgId,
-          projectId: scope.projectId,
-          envId: scope.envId,
-        }),
-      }),
+    authorization: new RouterAbEd25519YaoExportOwnerProofAuthorizationAdapter(
+      service.webAuthn,
+      service.emailOtp,
+      service.walletAuthMethods,
+      service.authorizedOperations,
     ),
-    capabilities: createStagingYaoRequestScopedRuntime(env, session),
+    capabilities: createStagingYaoRequestScopedRuntime(env),
   };
 }
 

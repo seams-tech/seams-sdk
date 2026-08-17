@@ -4,7 +4,10 @@ import {
   type MpcWalletSigningQuotaId,
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-import { walletSessionJwtAuth, type WalletSessionJwtAuth } from '@shared/utils/sessionTokens';
+import {
+  opaqueWalletSessionAuth,
+  type WalletSessionRouteAuth,
+} from '@shared/utils/sessionTokens';
 import {
   buildBearerAuthorizationHeader,
   buildRelayerJsonPostRequestInit,
@@ -44,7 +47,10 @@ export interface ReusableWalletSessionStatusPort {
   read(input: ReusableWalletSessionStatusIdentity): Promise<ReusableWalletSessionStatus>;
 }
 
-export type ReusableWalletSessionStatusAuth = WalletSessionJwtAuth;
+export type ReusableWalletSessionStatusAuth = Extract<
+  WalletSessionRouteAuth,
+  { readonly kind: 'opaque_wallet_session' }
+>;
 
 export type RelayerReusableWalletSessionStatusPortOptions = {
   readonly relayerUrl: string;
@@ -164,7 +170,7 @@ export class RelayerReusableWalletSessionStatusPort implements ReusableWalletSes
   constructor(options: RelayerReusableWalletSessionStatusPortOptions) {
     this.relayerUrl = normalizeRelayerBaseUrl(options.relayerUrl);
     if (!this.relayerUrl) throw new Error('Relayer URL is required');
-    this.auth = walletSessionJwtAuth(options.auth.jwt);
+    this.auth = opaqueWalletSessionAuth(options.auth.walletSessionToken);
     this.fetchImpl = options.fetchImpl ?? defaultStatusFetch;
   }
 
@@ -174,7 +180,7 @@ export class RelayerReusableWalletSessionStatusPort implements ReusableWalletSes
       reads = new Map();
       statusReadsByFetch.set(this.fetchImpl, reads);
     }
-    const readKey = [this.relayerUrl, this.auth.jwt, input.walletSessionId, input.quotaId].join(
+    const readKey = [this.relayerUrl, this.auth.walletSessionToken, input.walletSessionId, input.quotaId].join(
       '\u0000',
     );
     const existing = reads.get(readKey);
@@ -201,8 +207,8 @@ export class RelayerReusableWalletSessionStatusPort implements ReusableWalletSes
             quotaId: input.quotaId,
           },
           headers: buildBearerAuthorizationHeader({
-            token: this.auth.jwt,
-            missingMessage: 'Wallet Session JWT is required for Wallet Session status',
+            token: this.auth.walletSessionToken,
+            missingMessage: 'Wallet Session token is required for Wallet Session status',
           }),
         }),
         credentials: 'omit',

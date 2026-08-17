@@ -17,9 +17,6 @@ import type {
   EcdsaDerivationRelayerPublicKey33B64u,
 } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import type {
-  BuildEcdsaRoleLocalExportArtifactCommand as GeneratedBuildEcdsaRoleLocalExportArtifactCommand,
-  BuildEcdsaRoleLocalExportArtifactErrorCode as GeneratedBuildEcdsaRoleLocalExportArtifactErrorCode,
-  BuildEcdsaRoleLocalExportArtifactOutput as GeneratedBuildEcdsaRoleLocalExportArtifactOutput,
   FinalizeEcdsaClientBootstrapCommand as GeneratedFinalizeEcdsaClientBootstrapCommand,
   FinalizeEcdsaClientBootstrapErrorCode as GeneratedFinalizeEcdsaClientBootstrapErrorCode,
   FinalizeEcdsaClientBootstrapOutput as GeneratedFinalizeEcdsaClientBootstrapOutput,
@@ -125,6 +122,8 @@ export type AuthenticatorOperation =
       kind: 'create_passkey';
       rpId: RpId;
       userHandleB64u: string;
+      userName: string;
+      userDisplayName: string;
       challengeB64u: string;
       requirePrfFirst: true;
       authenticatorOptions?: AuthenticatorOptions;
@@ -133,6 +132,8 @@ export type AuthenticatorOperation =
       kind: 'create_passkey';
       rpId: RpId;
       userHandleB64u: string;
+      userName: string;
+      userDisplayName: string;
       challengeB64u: string;
       requirePrfFirst: false;
       authenticatorOptions?: AuthenticatorOptions;
@@ -324,23 +325,6 @@ export type StoreEcdsaRoleLocalSigningMaterialOutput = {
 
 export type StoreEcdsaRoleLocalSigningMaterialErrorCode = 'invalid_ready_state' | 'crypto_failure';
 
-export type BuildEcdsaRoleLocalExportArtifactInput = {
-  kind: GeneratedBuildEcdsaRoleLocalExportArtifactCommand['kind'];
-  algorithm: GeneratedBuildEcdsaRoleLocalExportArtifactCommand['algorithm'];
-  stateBlob: EcdsaRoleLocalReadyStateBlob;
-  publicFacts: EcdsaRoleLocalPublicFacts;
-  serverExportShare32B64u: GeneratedBuildEcdsaRoleLocalExportArtifactCommand['serverExportShare32B64u'];
-};
-
-export type BuildEcdsaRoleLocalExportArtifactOutput = {
-  publicKeyHex: GeneratedBuildEcdsaRoleLocalExportArtifactOutput['publicKeyHex'];
-  privateKeyHex: GeneratedBuildEcdsaRoleLocalExportArtifactOutput['privateKeyHex'];
-  ethereumAddress: `0x${string}`;
-};
-
-export type BuildEcdsaRoleLocalExportArtifactErrorCode =
-  GeneratedBuildEcdsaRoleLocalExportArtifactErrorCode;
-
 export type EcdsaProvisioningState =
   | {
       kind: 'needs_secret_source';
@@ -422,14 +406,6 @@ export type SignerCryptoPort = {
     SignerCryptoResult<
       StoreEcdsaRoleLocalSigningMaterialOutput,
       StoreEcdsaRoleLocalSigningMaterialErrorCode
-    >
-  >;
-  buildEcdsaRoleLocalExportArtifact(
-    input: BuildEcdsaRoleLocalExportArtifactInput,
-  ): Promise<
-    SignerCryptoResult<
-      BuildEcdsaRoleLocalExportArtifactOutput,
-      BuildEcdsaRoleLocalExportArtifactErrorCode
     >
   >;
 };

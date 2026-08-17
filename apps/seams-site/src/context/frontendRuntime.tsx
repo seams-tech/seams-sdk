@@ -16,7 +16,6 @@ import {
 } from './frontendRuntimeState';
 
 const NETWORK_STORAGE_KEY = 'seams.production.console.network.v1';
-const NETWORK_CHANGED_EVENT = 'seams:frontend-network-changed';
 const DASHBOARD_UI_STATE_KEY = 'seams-dashboard-ui-state-v1';
 const DASHBOARD_UI_QUERY_KEYS = [
   'db_sb',
@@ -73,11 +72,6 @@ function clearNetworkScopedBrowserState(): void {
   }
 }
 
-function reloadFrontendRuntime(): void {
-  if (typeof window === 'undefined') return;
-  window.location.reload();
-}
-
 export function getActiveFrontendDeployment(): FrontendDeployment {
   return activeDeployment;
 }
@@ -97,18 +91,12 @@ export function setActiveFrontendNetwork(network: FrontendNetwork): FrontendDepl
     source: 'console',
   });
   const nextDeployment = activateFrontendNetwork(network);
-  if (!transition.reload) return nextDeployment;
+  if (previousNetwork === nextDeployment.network) return nextDeployment;
   clearNetworkScopedBrowserState();
   if (typeof window !== 'undefined') {
     try {
       window.localStorage.setItem(NETWORK_STORAGE_KEY, transition.persistedNetwork);
     } catch {}
-    window.dispatchEvent(
-      new CustomEvent<{ network: FrontendNetwork }>(NETWORK_CHANGED_EVENT, {
-        detail: { network },
-      }),
-    );
-    reloadFrontendRuntime();
   }
   return nextDeployment;
 }
@@ -179,12 +167,7 @@ export function FrontendSdkProvider({
     [appearance, deployment],
   );
   return (
-    <SeamsWebProvider
-      key={`${FRONTEND_CONFIG.siteKind}:${deployment.network}`}
-      eager={eager}
-      theme={theme}
-      config={sdkConfig}
-    >
+    <SeamsWebProvider eager={eager} theme={theme} config={sdkConfig}>
       {children}
     </SeamsWebProvider>
   );

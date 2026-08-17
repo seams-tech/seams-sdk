@@ -3,7 +3,6 @@ import type {
   ThresholdEcdsaChainTarget,
   WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type {
   RouterAbEcdsaDerivationPublicCapabilityV1,
   RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
@@ -16,11 +15,11 @@ import type {
 } from '../identity/evmFamilyEcdsaIdentity';
 import type { PersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocalMaterialResolver';
 import type { EcdsaBootstrapRequest } from './ecdsaBootstrap';
+import { requireOpaqueWalletSessionToken } from '@shared/utils/sessionTokens';
 
 declare const walletId: WalletId;
 declare const subjectId: WalletId;
 declare const chainTarget: ThresholdEcdsaChainTarget;
-declare const webauthnAuthentication: WebAuthnAuthenticationCredential;
 declare const emailOtpWorkerSessionHandle: Extract<
   EmailOtpWorkerIssuedSessionHandle,
   { action: 'threshold_ecdsa_bootstrap' }
@@ -58,26 +57,13 @@ const validPasskeyFreshBootstrap = {
   publicCapability,
   existingRoleLocalMaterial,
   source: 'login',
-  passkeyPrfFirstB64u: 'passkey-prf-first',
   passkeyCredentialIdB64u,
   routeAuth: {
-    kind: 'wallet_session',
-    jwt: 'threshold-session-jwt',
+    kind: 'opaque_wallet_session',
+    walletSessionToken: requireOpaqueWalletSessionToken('threshold-session-token'),
   },
 } satisfies EcdsaBootstrapRequest;
 void validPasskeyFreshBootstrap;
-
-const validPasskeyFreshWebAuthnBootstrap = {
-  kind: 'passkey_fresh_ecdsa_bootstrap',
-  keyHandle,
-  key,
-  lanePolicy,
-  publicCapability,
-  existingRoleLocalMaterial,
-  source: 'login',
-  webauthnAuthentication,
-} satisfies EcdsaBootstrapRequest;
-void validPasskeyFreshWebAuthnBootstrap;
 
 const validPasskeyPreauthorizedBootstrap = {
   kind: 'passkey_preauthorized_ecdsa_bootstrap',
@@ -87,7 +73,6 @@ const validPasskeyPreauthorizedBootstrap = {
   publicCapability,
   existingRoleLocalMaterial,
   source: 'login',
-  passkeyPrfFirstB64u: 'passkey-prf-first',
   passkeyCredentialIdB64u,
   sessionActivation,
 } satisfies EcdsaBootstrapRequest;
@@ -102,7 +87,6 @@ const invalidPasskeyPreauthorizedBootstrapWithoutActivation: EcdsaBootstrapReque
   publicCapability,
   existingRoleLocalMaterial,
   source: 'login',
-  passkeyPrfFirstB64u: 'passkey-prf-first',
   passkeyCredentialIdB64u,
 };
 void invalidPasskeyPreauthorizedBootstrapWithoutActivation;
@@ -115,13 +99,12 @@ const invalidPasskeyPreauthorizedBootstrapWithRouteAuth: EcdsaBootstrapRequest =
   publicCapability,
   existingRoleLocalMaterial,
   source: 'login',
-  passkeyPrfFirstB64u: 'passkey-prf-first',
   passkeyCredentialIdB64u,
   sessionActivation,
   routeAuth: {
     // @ts-expect-error Preauthorized bootstrap cannot trigger another route authorization.
-    kind: 'wallet_session',
-    jwt: 'threshold-session-jwt',
+    kind: 'opaque_wallet_session',
+    walletSessionToken: requireOpaqueWalletSessionToken('threshold-session-token'),
   },
 };
 void invalidPasskeyPreauthorizedBootstrapWithRouteAuth;
@@ -131,7 +114,7 @@ const invalidTargetPasskeyFreshBootstrap: EcdsaBootstrapRequest = {
   kind: 'passkey_fresh_ecdsa_bootstrap',
   walletId,
   chainTarget,
-  webauthnAuthentication,
+  passkeyCredentialIdB64u,
 };
 void invalidTargetPasskeyFreshBootstrap;
 
@@ -142,11 +125,10 @@ const validWalletSessionReconnectBootstrap = {
   lanePolicy,
   publicCapability,
   existingRoleLocalMaterial,
-  passkeyPrfFirstB64u: 'passkey-prf-first',
   passkeyCredentialIdB64u,
   routeAuth: {
-    kind: 'wallet_session',
-    jwt: 'threshold-session-jwt',
+    kind: 'opaque_wallet_session',
+    walletSessionToken: requireOpaqueWalletSessionToken('threshold-session-token'),
   },
 } satisfies EcdsaBootstrapRequest;
 void validWalletSessionReconnectBootstrap;
@@ -197,12 +179,3 @@ const invalidEmailOtpBootstrapWithoutAuthContext: EcdsaBootstrapRequest = {
   emailOtpWorkerSessionHandle,
 };
 void invalidEmailOtpBootstrapWithoutAuthContext;
-
-// @ts-expect-error Warm discovery rejects passkey PRF material.
-const invalidReuseBootstrapWithPasskeyPrfFirst: EcdsaBootstrapRequest = {
-  kind: 'reuse_warm_ecdsa_bootstrap',
-  walletId,
-  chainTarget,
-  passkeyPrfFirstB64u: 'passkey-prf-first',
-};
-void invalidReuseBootstrapWithPasskeyPrfFirst;

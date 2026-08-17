@@ -51,7 +51,8 @@ export function resolveWorkerUrl(
       | 'ecdsaOnlineClient'
       | 'passkeyMpcSession'
       | 'passkeyMpcExport'
-      | 'touchConfirm';
+      | 'touchConfirm'
+      | 'deviceLinking';
     baseOrigin?: string;
   },
 ): string {
@@ -87,6 +88,9 @@ export function resolveWorkerUrl(
       case 'passkeyMpcSession':
         override = ovAny.__W3A_PASSKEY_MPC_SESSION_WORKER_URL__;
         break;
+      case 'deviceLinking':
+        override = ovAny.__W3A_DEVICE_LINKING_WORKER_URL__;
+        break;
       default:
         worker satisfies never;
     }
@@ -111,7 +115,8 @@ type DedicatedWorkerKind =
   | 'ecdsaOnlineClient'
   | 'passkeyMpcSession'
   | 'passkeyMpcExport'
-  | 'touchConfirm';
+  | 'touchConfirm'
+  | 'deviceLinking';
 
 function detectWorkerFromPath(p: string): DedicatedWorkerKind {
   if (/near-signer\.worker\.js(?:$|\?)/.test(p)) return 'signer';
@@ -120,6 +125,7 @@ function detectWorkerFromPath(p: string): DedicatedWorkerKind {
   if (/ecdsa-online-client\.worker\.js(?:$|\?)/.test(p)) return 'ecdsaOnlineClient';
   if (/passkey-mpc-export\.worker\.js(?:$|\?)/.test(p)) return 'passkeyMpcExport';
   if (/passkey-mpc-session\.worker\.js(?:$|\?)/.test(p)) return 'passkeyMpcSession';
+  if (/device-linking-key\.worker\.js(?:$|\?)/.test(p)) return 'deviceLinking';
   return 'touchConfirm';
 }
 
@@ -139,6 +145,8 @@ function defaultWorkerPath(worker: DedicatedWorkerKind): string {
       return '/sdk/workers/passkey-mpc-export.worker.js';
     case 'passkeyMpcSession':
       return '/sdk/workers/passkey-mpc-session.worker.js';
+    case 'deviceLinking':
+      return '/sdk/workers/device-linking-key.worker.js';
     default:
       worker satisfies never;
       throw new Error('Unsupported dedicated worker kind');

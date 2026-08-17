@@ -1,9 +1,8 @@
 import type { WebAuthnAuthenticationCredential } from '../../types/webauthn';
 import { errorMessage } from '@shared/utils/errors';
 import {
-  requireAppSessionJwt,
-  requireWalletSessionJwt,
-  type AppOrWalletSessionAuth,
+  requireOpaqueWalletSessionToken,
+  type WalletSessionRouteAuth,
 } from '@shared/utils/sessionTokens';
 import {
   parseRootShareEpoch,
@@ -12,19 +11,19 @@ import {
 import {
   ROUTER_AB_ECDSA_DERIVATION_BOOTSTRAP_PATH,
   ROUTER_AB_ECDSA_DERIVATION_EXPORT_PATH,
-  ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PATH,
+  ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH,
   ROUTER_AB_ECDSA_DERIVATION_SESSION_ACTIVATION_PATH,
   parseRouterAbEcdsaExplicitExportForwardedResponseV1,
   parseRouterAbEcdsaPostRegistrationSessionActivationResponseV1,
-  parseRouterAbEcdsaStrictForwardedRegistrationResponseV1,
+  parseRouterAbEcdsaDerivationActivationRefreshResponseV1,
   requireRouterAbEcdsaDerivationNormalSigningStateV1,
   type RouterAbEcdsaExplicitExportForwardedResponseV1,
   type RouterAbEcdsaDerivationExplicitExportRequestV1,
   type RouterAbEcdsaDerivationNormalSigningStateV1,
-  type RouterAbEcdsaDerivationRecoveryRequestV1,
+  type RouterAbEcdsaDerivationActivationRefreshCommitRequestV1,
+  type RouterAbEcdsaDerivationActivationRefreshResponseV1,
   type RouterAbEcdsaPostRegistrationSessionActivationRequestV1,
   type RouterAbEcdsaPostRegistrationSessionActivationResponseV1,
-  type RouterAbEcdsaStrictForwardedRegistrationResponseV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { ThresholdRuntimePolicyScope } from '../../signingEngine/threshold/sessionPolicy';
 import { toWalletId, type WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -222,16 +221,8 @@ type RawThresholdEcdsaDerivationRoleLocalRouteResponse<T> = {
   value?: T;
 };
 
-type RouterAbEcdsaPostRegistrationClientProofCall = {
-  readonly kind: 'recovery';
-  readonly path: typeof ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PATH;
-  readonly request: RouterAbEcdsaDerivationRecoveryRequestV1;
-  readonly requestDigestB64u: string;
-  readonly auth: ThresholdEcdsaDerivationRouteAuth;
-};
-
 export type ThresholdEcdsaDerivationRouteAuth =
-  | AppOrWalletSessionAuth
+  | WalletSessionRouteAuth
   | { kind: 'publishable_key'; token: string };
 
 function requireNonEmptyString(value: unknown, field: string): string {
@@ -417,8 +408,9 @@ export function parseThresholdEcdsaDerivationRoleLocalBootstrapValue(
 
 function resolveBearerToken(auth?: ThresholdEcdsaDerivationRouteAuth): string {
   if (!auth) return '';
-  if (auth.kind === 'app_session') return requireAppSessionJwt(auth.jwt);
-  if (auth.kind === 'wallet_session') return requireWalletSessionJwt(auth.jwt);
+  if (auth.kind === 'opaque_wallet_session') {
+    return requireOpaqueWalletSessionToken(auth.walletSessionToken);
+  }
   return String(auth.token || '').trim();
 }
 
@@ -456,46 +448,6 @@ async function parseRelayJson<T>(response: Response): Promise<T> {
     } as T;
   }
   return parseJsonText<T>(text);
-}
-
-async function executeRouterAbEcdsaPostRegistrationClientProofCall(
-  relayServerUrl: string,
-  call: RouterAbEcdsaPostRegistrationClientProofCall,
-): Promise<
-  ThresholdEcdsaDerivationRoleLocalRouteResult<RouterAbEcdsaStrictForwardedRegistrationResponseV1>
-> {
-  try {
-    const base = normalizeRelayerBaseUrl(relayServerUrl);
-    if (!base) throw new Error('Missing relayServerUrl');
-    const response = await fetch(
-      `${base}${call.path}`,
-      buildRelayRequestInit({
-        auth: call.auth,
-        body: { request: call.request, requestDigestB64u: call.requestDigestB64u },
-      }),
-    );
-    const json = await parseRelayJson<unknown>(response);
-    if (!response.ok) {
-      const failure =
-        json && typeof json === 'object' && !Array.isArray(json)
-          ? (json as { code?: unknown; message?: unknown })
-          : null;
-      return {
-        ok: false,
-        code: String(failure?.code || 'http_error'),
-        message: String(failure?.message || `HTTP ${response.status}`),
-      };
-    }
-    return {
-      ok: true,
-      value: parseRouterAbEcdsaStrictForwardedRegistrationResponseV1(json),
-    };
-  } catch (error: unknown) {
-    return {
-      ok: false,
-      error: errorMessage(error) || `Router A/B ECDSA ${call.kind} failed`,
-    };
-  }
 }
 
 export async function routerAbEcdsaExplicitExport(
@@ -545,23 +497,48 @@ export async function routerAbEcdsaExplicitExport(
   }
 }
 
-export async function routerAbEcdsaRecovery(
+export async function routerAbEcdsaActivationRefresh(
   relayServerUrl: string,
   input: {
-    readonly request: RouterAbEcdsaDerivationRecoveryRequestV1;
+    readonly request: RouterAbEcdsaDerivationActivationRefreshCommitRequestV1;
     readonly requestDigestB64u: string;
     readonly auth: ThresholdEcdsaDerivationRouteAuth;
   },
 ): Promise<
-  ThresholdEcdsaDerivationRoleLocalRouteResult<RouterAbEcdsaStrictForwardedRegistrationResponseV1>
+  ThresholdEcdsaDerivationRoleLocalRouteResult<RouterAbEcdsaDerivationActivationRefreshResponseV1>
 > {
-  return await executeRouterAbEcdsaPostRegistrationClientProofCall(relayServerUrl, {
-    kind: 'recovery',
-    path: ROUTER_AB_ECDSA_DERIVATION_RECOVERY_PATH,
-    request: input.request,
-    requestDigestB64u: input.requestDigestB64u,
-    auth: input.auth,
-  });
+  try {
+    const base = normalizeRelayerBaseUrl(relayServerUrl);
+    if (!base) throw new Error('Missing relayServerUrl');
+    const response = await fetch(
+      `${base}${ROUTER_AB_ECDSA_DERIVATION_REFRESH_PATH}`,
+      buildRelayRequestInit({
+        auth: input.auth,
+        body: { request: input.request, requestDigestB64u: input.requestDigestB64u },
+      }),
+    );
+    const json = await parseRelayJson<unknown>(response);
+    if (!response.ok) {
+      const failure =
+        json && typeof json === 'object' && !Array.isArray(json)
+          ? (json as { code?: unknown; message?: unknown })
+          : null;
+      return {
+        ok: false,
+        code: String(failure?.code || 'http_error'),
+        message: String(failure?.message || `HTTP ${response.status}`),
+      };
+    }
+    return {
+      ok: true,
+      value: parseRouterAbEcdsaDerivationActivationRefreshResponseV1(json),
+    };
+  } catch (error: unknown) {
+    return {
+      ok: false,
+      error: errorMessage(error) || 'Router A/B ECDSA activation refresh failed',
+    };
+  }
 }
 
 export async function activateRouterAbEcdsaPostRegistrationSession(

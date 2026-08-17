@@ -1,5 +1,4 @@
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
-import type { WalletSessionRef } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type { EmailOtpRuntimeConfig } from './runtimeConfig';
 import type { EmailOtpEcdsaPublicationPorts } from './ecdsaPublication';
@@ -26,6 +25,8 @@ export class EmailOtpEcdsaLifecycleRuntime {
     private readonly ports: {
       configs: SeamsConfigsReadonly;
       getSignerWorkerContext: () => WorkerOperationContext | null | undefined;
+      loadWalletCustodyEd25519Material: EmailOtpWalletSessionCoordinatorDeps['loadWalletCustodyEd25519Material'];
+      restoreWalletCustodyEcdsaContinuity: EmailOtpWalletSessionCoordinatorDeps['restoreWalletCustodyEcdsaContinuity'];
       provisionThresholdEcdsaSession: (
         request: ThresholdEcdsaActivationRequest,
       ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
@@ -34,10 +35,6 @@ export class EmailOtpEcdsaLifecycleRuntime {
       ) => Promise<EmailOtpEcdsaExplicitExportBootstrapResult>;
       runtimeConfig: EmailOtpRuntimeConfig;
       resolveCurrentEcdsaCapabilityRuntime: EmailOtpWalletSessionCoordinatorDeps['resolveCurrentEcdsaCapabilityRuntime'];
-      rememberAppSessionJwt: (args: {
-        walletId: WalletSessionRef['walletId'];
-        appSessionJwt: string;
-      }) => void;
       publicationPorts: () => EmailOtpEcdsaPublicationPorts;
     },
   ) {}
@@ -58,13 +55,15 @@ export class EmailOtpEcdsaLifecycleRuntime {
     return await loginWithEmailOtpEcdsaCapability(args, {
       configs: this.ports.configs,
       getSignerWorkerContext: this.ports.getSignerWorkerContext,
+      loadWalletCustodyEd25519Material: this.ports.loadWalletCustodyEd25519Material,
+      restoreWalletCustodyEcdsaContinuity: this.ports.restoreWalletCustodyEcdsaContinuity,
       provisionThresholdEcdsaSession: this.ports.provisionThresholdEcdsaSession,
       provisionEmailOtpEcdsaExplicitExportSession:
         this.ports.provisionEmailOtpEcdsaExplicitExportSession,
       requireRelayUrl: () => this.ports.runtimeConfig.requireRelayUrl(),
       requireSigningSessionSealGroupId: () =>
         this.ports.runtimeConfig.requireSigningSessionSealGroupId(),
-      rememberAppSessionJwt: (request) => this.ports.rememberAppSessionJwt(request),
+      resolveCurrentEcdsaCapabilityRuntime: this.ports.resolveCurrentEcdsaCapabilityRuntime,
       publicationPorts: this.ports.publicationPorts(),
     });
   }
@@ -75,13 +74,15 @@ export class EmailOtpEcdsaLifecycleRuntime {
     return await prepareEmailOtpEcdsaExportCapability(args, {
       configs: this.ports.configs,
       getSignerWorkerContext: this.ports.getSignerWorkerContext,
+      loadWalletCustodyEd25519Material: this.ports.loadWalletCustodyEd25519Material,
+      restoreWalletCustodyEcdsaContinuity: this.ports.restoreWalletCustodyEcdsaContinuity,
       provisionThresholdEcdsaSession: this.ports.provisionThresholdEcdsaSession,
       provisionEmailOtpEcdsaExplicitExportSession:
         this.ports.provisionEmailOtpEcdsaExplicitExportSession,
       requireRelayUrl: () => this.ports.runtimeConfig.requireRelayUrl(),
       requireSigningSessionSealGroupId: () =>
         this.ports.runtimeConfig.requireSigningSessionSealGroupId(),
-      rememberAppSessionJwt: (request) => this.ports.rememberAppSessionJwt(request),
+      resolveCurrentEcdsaCapabilityRuntime: this.ports.resolveCurrentEcdsaCapabilityRuntime,
       publicationPorts: this.ports.publicationPorts(),
     });
   }

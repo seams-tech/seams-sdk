@@ -24,6 +24,62 @@ export type RouterAbMpcMaterialActivationRefWire = {
   readonly signing_worker: string;
 };
 
+export type RouterAbEd25519OperationStepUpPreparationV1Wire = {
+  readonly wallet_id: string;
+  readonly operation_kind:
+    | 'near.sign_transaction'
+    | 'near.sign_delegate_action'
+    | 'near.sign_nep413_message';
+  readonly operation_id: string;
+  readonly request_id: string;
+  readonly account_id: string;
+  readonly material_activation: RouterAbMpcMaterialActivationRefWire;
+  readonly signing_worker_id: string;
+  readonly near_account_id: string;
+  readonly signer_slot: number;
+  readonly participant_ids: readonly [number, number];
+  readonly expires_at_ms: number;
+};
+
+export type RouterAbEd25519OwnerOperationAuthorizationDecisionV1Wire =
+  | {
+      readonly kind: 'authorized';
+      readonly operation: {
+        readonly kind: 'authorized_operation';
+        readonly operation_id: string;
+        readonly authorized_operation_id: string;
+        readonly operation_fingerprint_digest: string;
+      };
+      readonly source: {
+        readonly kind: 'reusable_wallet_session';
+        readonly wallet_session_id: string;
+        readonly quota_id: string;
+      };
+    }
+  | {
+      readonly kind: 'step_up_required';
+      readonly reason:
+        | 'wallet_session_missing'
+        | 'wallet_session_expired'
+        | 'wallet_session_exhausted'
+        | 'wallet_session_ended'
+        | 'wallet_session_superseded';
+      readonly step_up: RouterAbEd25519OperationStepUpPreparationV1Wire;
+    }
+  | {
+      readonly kind: 'denied';
+      readonly denial: {
+        readonly code:
+          | 'invalid_identity'
+          | 'invalid_authority'
+          | 'invalid_operation'
+          | 'inactive_material'
+          | 'replayed_step_up'
+          | 'authorization_unavailable';
+        readonly message: string;
+      };
+    };
+
 function requireRecord(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`${label} must be an object`);

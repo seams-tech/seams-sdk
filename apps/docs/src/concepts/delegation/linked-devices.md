@@ -23,3 +23,14 @@ permission policy, revocation status, and audit history.
 Owner-equivalent linked-device lanes should require local user presence for
 signing. Scoped linked-device lanes should use the same mandate admission model
 as delegated agents.
+
+## Link from the app
+
+The new device displays a short-lived QR payload. An authenticated owner device
+scans and approves it through the linking hook.
+
+::: details Runnable React example
+
+<<< ../../examples/device-linking.tsx
+
+:::

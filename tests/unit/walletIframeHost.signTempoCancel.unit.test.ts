@@ -179,15 +179,11 @@ test.describe('wallet iframe host PM_SIGN_TEMPO cancellation guards', () => {
     const wrongSelector = makeTempoFeeTokenPreferenceRequest('req-hostile-selector');
     wrongSelector.payload.request.tx.data =
       '0x1234567800000000000000000000000020c0000000000000000000000000000000000001';
-    await expect(handlers.PM_SIGN_TEMPO!(wrongSelector)).rejects.toThrow(
-      'FeeManager.setUserToken',
-    );
+    await expect(handlers.PM_SIGN_TEMPO!(wrongSelector)).rejects.toThrow('FeeManager.setUserToken');
 
     const wrongChain = makeTempoFeeTokenPreferenceRequest('req-hostile-chain');
     wrongChain.payload.request.tx.chainId = 1;
-    await expect(handlers.PM_SIGN_TEMPO!(wrongChain)).rejects.toThrow(
-      'chain id does not match',
-    );
+    await expect(handlers.PM_SIGN_TEMPO!(wrongChain)).rejects.toThrow('chain id does not match');
     expect(feeTokenSignCalls).toBe(0);
   });
 });
@@ -386,21 +382,6 @@ test.describe('wallet iframe host canonical signer error mapping', () => {
     expect(
       resolveWalletBoundaryErrorCode({
         requestType: 'PM_SIGN_TEMPO',
-        rawCode: 'threshold_ecdsa_session_not_ready',
-        message: 'Email OTP /session/refresh HTTP 401 unauthorized',
-      }),
-    ).toBe('fresh_email_otp_required');
-    expect(
-      resolveWalletBoundaryErrorCode({
-        requestType: 'PM_SIGN_TX_WITH_ACTIONS',
-        rawCode: 'threshold_ed25519_session_not_ready',
-        message: 'Email OTP /session/refresh HTTP 403 forbidden',
-      }),
-    ).toBe('fresh_email_otp_required');
-
-    expect(
-      resolveWalletBoundaryErrorCode({
-        requestType: 'PM_SIGN_TEMPO',
         message:
           '[SigningEngine] threshold-ecdsa key export requires fresh passkey authentication after Email OTP login',
       }),
@@ -477,5 +458,4 @@ test.describe('wallet iframe host canonical signer error mapping', () => {
       ).toBe(message);
     }
   });
-
 });

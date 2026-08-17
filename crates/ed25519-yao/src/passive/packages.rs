@@ -11,8 +11,8 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use super::roles::{
     ActivationSessionBinding, DecodedDeriverAActivationShares, DecodedDeriverAExportSeedShare,
-    DecodedDeriverBActivationShares, DecodedDeriverBExportSeedShare, ExportSessionBinding,
-    TranscriptDigest32,
+    DecodedDeriverALaneShares, DecodedDeriverBActivationShares, DecodedDeriverBExportSeedShare,
+    DecodedDeriverBLaneShares, ExportSessionBinding, LaneSessionBinding, TranscriptDigest32,
 };
 
 // Recipient encryption is intentionally deferred to Phase 6B.
@@ -23,6 +23,7 @@ pub(super) const ACTIVATION_PACKAGE_BYTES: usize = PACKAGE_HEADER_BYTES + 64;
 pub(super) const EXPORT_PACKAGE_BYTES: usize = PACKAGE_HEADER_BYTES + 32;
 const ACTIVATION_FAMILY_TAG: u8 = 0x93;
 const EXPORT_FAMILY_TAG: u8 = 0x94;
+const LANE_MATERIALIZATION_FAMILY_TAG: u8 = 0x95;
 const DERIVER_A_ROLE_TAG: u8 = 0xa1;
 const DERIVER_B_ROLE_TAG: u8 = 0xb2;
 const CLIENT_RECIPIENT_TAG: u8 = 0x01;
@@ -31,6 +32,8 @@ const EXPORT_RECIPIENT_TAG: u8 = 0x03;
 const CLIENT_SCALAR_SHARE_OUTPUT_KIND: u8 = 0x21;
 const SIGNING_WORKER_SCALAR_SHARE_OUTPUT_KIND: u8 = 0x22;
 const EXPORT_SEED_SHARE_OUTPUT_KIND: u8 = 0x23;
+const LANE_HOLDER_SHARE_OUTPUT_KIND: u8 = 0x31;
+const LANE_SIGNING_WORKER_SHARE_OUTPUT_KIND: u8 = 0x32;
 const PACKAGE_ITEM_COUNT: u32 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -140,6 +143,22 @@ impl RecipientPackageBinding for ExportSessionBinding {
 
     fn schedule_digest_bytes(self) -> [u8; 32] {
         *ExportSessionBinding::schedule_digest(&self).as_bytes()
+    }
+}
+
+impl RecipientPackageBinding for LaneSessionBinding {
+    const FAMILY_TAG: u8 = LANE_MATERIALIZATION_FAMILY_TAG;
+
+    fn session_bytes(self) -> [u8; 32] {
+        *LaneSessionBinding::session_bytes(&self)
+    }
+
+    fn circuit_digest_bytes(self) -> [u8; 32] {
+        *LaneSessionBinding::circuit_digest(&self).as_bytes()
+    }
+
+    fn schedule_digest_bytes(self) -> [u8; 32] {
+        *LaneSessionBinding::schedule_digest(&self).as_bytes()
     }
 }
 
@@ -430,6 +449,52 @@ define_activation_package!(
     DERIVER_A_ROLE_TAG,
     SIGNING_WORKER_RECIPIENT_TAG,
     SIGNING_WORKER_SCALAR_SHARE_OUTPUT_KIND
+);
+
+define_share_commitment!(DeriverALaneHolderShareCommitment);
+define_share_commitment!(DeriverBLaneHolderShareCommitment);
+define_share_commitment!(DeriverALaneSigningWorkerShareCommitment);
+define_share_commitment!(DeriverBLaneSigningWorkerShareCommitment);
+
+define_activation_package!(
+    DeriverALaneHolderPackage,
+    LaneSessionBinding,
+    DecodedDeriverALaneShares,
+    holder_share_bytes,
+    DeriverALaneHolderShareCommitment,
+    DERIVER_A_ROLE_TAG,
+    0x04,
+    LANE_HOLDER_SHARE_OUTPUT_KIND
+);
+define_activation_package!(
+    DeriverBLaneHolderPackage,
+    LaneSessionBinding,
+    DecodedDeriverBLaneShares,
+    holder_share_bytes,
+    DeriverBLaneHolderShareCommitment,
+    DERIVER_B_ROLE_TAG,
+    0x04,
+    LANE_HOLDER_SHARE_OUTPUT_KIND
+);
+define_activation_package!(
+    DeriverALaneSigningWorkerPackage,
+    LaneSessionBinding,
+    DecodedDeriverALaneShares,
+    signing_worker_share_bytes,
+    DeriverALaneSigningWorkerShareCommitment,
+    DERIVER_A_ROLE_TAG,
+    0x05,
+    LANE_SIGNING_WORKER_SHARE_OUTPUT_KIND
+);
+define_activation_package!(
+    DeriverBLaneSigningWorkerPackage,
+    LaneSessionBinding,
+    DecodedDeriverBLaneShares,
+    signing_worker_share_bytes,
+    DeriverBLaneSigningWorkerShareCommitment,
+    DERIVER_B_ROLE_TAG,
+    0x05,
+    LANE_SIGNING_WORKER_SHARE_OUTPUT_KIND
 );
 define_activation_package!(
     DeriverBSigningWorkerScalarPackage,

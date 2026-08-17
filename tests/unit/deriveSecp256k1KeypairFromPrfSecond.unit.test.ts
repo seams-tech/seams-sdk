@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { setupBasicPasskeyTest } from '../setup';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { bytesToHex, hexToBytes } from '@/core/signingEngine/chains/evm/bytes';
 
@@ -9,7 +10,10 @@ const IMPORT_PATHS = {
 
 test.describe('deriveSecp256k1KeypairFromPrfSecondWasm', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/');
+    /* Full setup rather than a bare navigation: this test drives the evmCrypto
+       worker, and a worker resolves its own imports — the page's import map
+       does not reach inside it. */
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
   });
 
   test('is deterministic and returns valid secp256k1 material', async ({ page }) => {

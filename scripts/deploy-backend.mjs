@@ -36,6 +36,14 @@ const GATEWAY_BUNDLE = path.join(
   'payload',
   'd1RouterApiWorker.js',
 );
+const SIGNER_POST_103_PREDECESSOR = Object.freeze({
+  fingerprint: '9f39009398142d1e13b3c3c2f5ce53a2dcb71bc05aafc1bb8c1cf189cb2c479c',
+  bridgeMigrationName: '0002_signer_post_103_canonical_upgrade.sql',
+});
+const CONSOLE_CANONICAL_BASELINE_PREDECESSOR = Object.freeze({
+  fingerprint: '2fd73fce9f520386935efba23ca5a326275715dfa5e02bbca69d88bf7ae3e4b5',
+  bridgeMigrationName: '0026_console_canonical_baseline_bridge.sql',
+});
 const BACKEND_SMOKE_PATHS = Object.freeze([
   '/readyz',
   '/healthz',
@@ -538,26 +546,40 @@ function migrateBackend(lane) {
   const gatewayConfig = gatewayConfigPath(lane.id);
   renderGatewayConfig(lane.id, gatewayConfig);
   const migrations = [
-    ['CONSOLE_DB', path.join(GATEWAY_ROOT, 'migrations', 'd1-console')],
-    ['SIGNER_DB', path.join(GATEWAY_ROOT, '..', 'sdk-server-ts', 'migrations', 'd1-signer')],
+    {
+      database: 'CONSOLE_DB',
+      directory: path.join(GATEWAY_ROOT, 'migrations', 'd1-console'),
+      acceptedPredecessor: CONSOLE_CANONICAL_BASELINE_PREDECESSOR,
+    },
+    {
+      database: 'SIGNER_DB',
+      directory: path.join(GATEWAY_ROOT, '..', 'sdk-server-ts', 'migrations', 'd1-signer'),
+      // Production lanes still carry this exact pre-canonical set; the bridge consumes it once.
+      acceptedPredecessor: SIGNER_POST_103_PREDECESSOR,
+    },
   ];
-  for (const [database, migrationsDirectory] of migrations) {
-    const fingerprint = readMigrationSet(migrationsDirectory).fingerprint;
-    runCommand(
-      'node',
-      [
-        'scripts/apply-remote-d1-migrations.mjs',
-        '--database',
-        database,
-        '--config',
-        gatewayConfig,
-        '--migrations-dir',
-        migrationsDirectory,
-        '--expected-fingerprint',
-        fingerprint,
-      ],
-      { cwd: GATEWAY_ROOT },
-    );
+  for (const migration of migrations) {
+    const fingerprint = readMigrationSet(migration.directory).fingerprint;
+    const migrationArgs = [
+      'scripts/apply-remote-d1-migrations.mjs',
+      '--database',
+      migration.database,
+      '--config',
+      gatewayConfig,
+      '--migrations-dir',
+      migration.directory,
+      '--expected-fingerprint',
+      fingerprint,
+    ];
+    if (migration.acceptedPredecessor) {
+      migrationArgs.push(
+        '--predecessor-fingerprint',
+        migration.acceptedPredecessor.fingerprint,
+        '--predecessor-bridge-migration',
+        migration.acceptedPredecessor.bridgeMigrationName,
+      );
+    }
+    runCommand('node', migrationArgs, { cwd: GATEWAY_ROOT });
   }
 }
 

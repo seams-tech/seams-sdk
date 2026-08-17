@@ -9,9 +9,9 @@ test.describe('shared validation helpers', () => {
   test('requires trimmed non-empty strings with stable error text', () => {
     expect(requireTrimmedString('  value  ', 'field')).toBe('value');
     expect(() => requireTrimmedString('   ', 'field')).toThrow('field is required');
-    expect(() =>
-      requireTrimmedString(undefined, 'field', 'must be a non-empty string'),
-    ).toThrow('field must be a non-empty string');
+    expect(() => requireTrimmedString(undefined, 'field', 'must be a non-empty string')).toThrow(
+      'field must be a non-empty string',
+    );
   });
 
   test('normalizes optional non-empty strings without accepting non-strings', () => {

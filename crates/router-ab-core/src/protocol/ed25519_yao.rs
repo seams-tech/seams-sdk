@@ -38,6 +38,8 @@ pub enum Ed25519YaoCircuitFamilyV1 {
     Activation,
     /// Produces Client-recipient seed shares for explicit export.
     Export,
+    /// Creates or refreshes a recipient-isolated signing lane.
+    LaneMaterialization,
 }
 
 /// Product lifecycle operation admitted to the fixed Yao circuit families.
@@ -57,6 +59,10 @@ pub enum Ed25519YaoOperationV1 {
     Refresh,
     /// Explicitly authorized seed export.
     Export,
+    /// Creates a new recipient-isolated linked-device lane.
+    LaneProvisioning,
+    /// Refreshes one existing lane into its next share epoch.
+    LaneRefresh,
 }
 
 impl Ed25519YaoOperationV1 {
@@ -67,6 +73,9 @@ impl Ed25519YaoOperationV1 {
                 Ed25519YaoCircuitFamilyV1::Activation
             }
             Self::Export => Ed25519YaoCircuitFamilyV1::Export,
+            Self::LaneProvisioning | Self::LaneRefresh => {
+                Ed25519YaoCircuitFamilyV1::LaneMaterialization
+            }
         }
     }
 
@@ -74,8 +83,9 @@ impl Ed25519YaoOperationV1 {
         match self {
             Self::Registration => ExpensiveWorkKindV1::RegistrationPrepare,
             Self::Recovery => ExpensiveWorkKindV1::Recovery,
-            Self::Refresh => ExpensiveWorkKindV1::ServerShareRefresh,
+            Self::Refresh | Self::LaneRefresh => ExpensiveWorkKindV1::ServerShareRefresh,
             Self::Export => ExpensiveWorkKindV1::KeyExport,
+            Self::LaneProvisioning => ExpensiveWorkKindV1::RegistrationPrepare,
         }
     }
 }
@@ -1118,6 +1128,8 @@ pub enum Ed25519YaoInputKindV1 {
     Activation,
     /// Explicit-export input.
     Export,
+    /// Lane-materialization input used only by lane creation or refresh.
+    LaneMaterialization,
 }
 
 impl Ed25519YaoInputKindV1 {
@@ -1126,6 +1138,7 @@ impl Ed25519YaoInputKindV1 {
         match self {
             Self::Activation => 1,
             Self::Export => 2,
+            Self::LaneMaterialization => 3,
         }
     }
 }
@@ -1186,6 +1199,9 @@ impl Ed25519YaoEncryptedInputV1 {
             != match self.kind {
                 Ed25519YaoInputKindV1::Activation => Ed25519YaoCircuitFamilyV1::Activation,
                 Ed25519YaoInputKindV1::Export => Ed25519YaoCircuitFamilyV1::Export,
+                Ed25519YaoInputKindV1::LaneMaterialization => {
+                    Ed25519YaoCircuitFamilyV1::LaneMaterialization
+                }
             }
         {
             return Err(invalid_yao_wire(
@@ -1415,6 +1431,10 @@ pub enum Ed25519YaoPackageKindV1 {
     ActivationSigningWorker,
     /// Export seed share encrypted to Client.
     ExportClient,
+    /// Lane holder share encrypted to the target holder recipient.
+    LaneHolder,
+    /// Lane SigningWorker share encrypted to the target SigningWorker recipient.
+    LaneSigningWorker,
 }
 
 impl Ed25519YaoPackageKindV1 {
@@ -1424,12 +1444,17 @@ impl Ed25519YaoPackageKindV1 {
             Self::ActivationClient => 1,
             Self::ActivationSigningWorker => 2,
             Self::ExportClient => 3,
+            Self::LaneHolder => 4,
+            Self::LaneSigningWorker => 5,
         }
     }
 
     /// Reports whether Client owns this package kind.
     pub const fn is_client(self) -> bool {
-        matches!(self, Self::ActivationClient | Self::ExportClient)
+        matches!(
+            self,
+            Self::ActivationClient | Self::ExportClient | Self::LaneHolder
+        )
     }
 }
 

@@ -247,15 +247,6 @@ pub fn post_json_to_path<T: Serialize>(
     post_json_to_path_with_headers(base_url, path, body, &[])
 }
 
-pub fn post_json_to_path_with_authorization<T: Serialize>(
-    base_url: &str,
-    path: &str,
-    authorization: &str,
-    body: &T,
-) -> Result<(u16, String), Box<dyn std::error::Error>> {
-    post_json_to_path_with_headers(base_url, path, body, &[("authorization", authorization)])
-}
-
 pub fn post_json_to_path_with_headers<T: Serialize>(
     base_url: &str,
     path: &str,

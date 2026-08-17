@@ -64,7 +64,7 @@ seams-auth-menu-surface {
   /* relative position to anchor back button */
   width: min(100dvw, 420px);
   max-width: 100dvw;
-  min-width: 330px;
+  min-width: min(330px, 100dvw);
   min-height: var(--w3a-menu-min-block-size, 250px);
   color: var(--w3a-colors-textPrimary);
   font-family: var(
@@ -204,7 +204,7 @@ seams-auth-menu-surface {
 
 /* Specific height adjustments for different states */
 .w3a-signup-menu-root[data-scan-device='true'] {
-  min-height: 300px;
+  min-height: 280px;
 }
 
 .w3a-signup-menu-root[data-otp-prompt='true'] {
@@ -218,8 +218,7 @@ seams-auth-menu-surface {
   text-wrap: balance;
 }
 
-.w3a-signup-menu-root[data-registration-prompt='true'] .w3a-header,
-.w3a-signup-menu-root[data-post-recovery-rotation-prompt='true'] .w3a-header {
+.w3a-signup-menu-root[data-registration-prompt='true'] .w3a-header {
   padding-left: 44px;
 }
 
@@ -1146,9 +1145,11 @@ seams-auth-menu-surface {
 
 /* Scan device content wrapper */
 .qr-code-container {
-  padding-top: 1rem;
+  padding-top: 0.25rem;
 }
 
+/* The plate carries 1rem of its own padding around the code, so the title can
+   sit tight against it and still read as separated from the QR modules. */
 .qr-header {
   position: relative;
   display: grid;
@@ -1156,12 +1157,19 @@ seams-auth-menu-surface {
   padding: 0;
 }
 
+/* Sized off the menu's own title (21px) rather than louder than it: this heading
+   sits inside the same card, so a heavier scale reads as a second, competing
+   header. Shared with the link-device confirmation and failure views so every
+   sub-view of this flow speaks at one volume. */
 .qr-title {
   margin: 0;
   padding-top: 0;
   color: var(--w3a-colors-textPrimary, #1e293b);
-  font-size: 1.5rem;
-  font-weight: 700;
+  font-size: 1.3125rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  text-wrap: balance;
 }
 
 .qr-body {
@@ -1172,36 +1180,92 @@ seams-auth-menu-surface {
   padding: 0;
 }
 
+/* One tight gap for the whole stack: the three text lines read as a single
+   block, and the title sits close under the code plate. */
 .qr-code-section {
   display: flex;
   width: 100%;
   flex-direction: column;
   align-items: center;
+  gap: 0.3rem;
 }
 
+/* The code always sits on an opaque white plate: the QR PNG is black-on-white,
+   so on a dark theme an unbacked image reads as a raw white rectangle. The
+   plate is a fixed square in both states — the placeholder below occupies the
+   same box, so nothing under it moves when the image arrives. */
 .qr-code-display {
-  display: flex;
-  width: 100%;
-  max-width: 300px;
-  flex-direction: column;
-  align-items: center;
-  gap: 0;
+  display: grid;
+  place-items: center;
+  width: min(100%, 232px);
+  aspect-ratio: 1 / 1;
+  margin-top: 1rem;
   padding: 1rem;
-  border-radius: 1.5rem;
+  border-radius: 1.25rem;
+  background: #ffffff;
+}
+
+.qr-code-placeholder {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 0.75rem;
+  background: rgba(15, 23, 42, 0.05);
+  animation: qr-placeholder-pulse 1.8s ease-in-out infinite;
+}
+
+/* On the white plate the spinner's default translucent-white track is invisible;
+   restate the track against the plate rather than the card. */
+.qr-code-placeholder .w3a-spinner {
+  width: 28px;
+  height: 28px;
+  border-width: 3px;
+  border-color: rgba(15, 23, 42, 0.12);
+  border-top-color: var(--w3a-colors-primary);
+}
+
+@keyframes qr-placeholder-pulse {
+  0%,
+  100% {
+    background-color: rgba(15, 23, 42, 0.05);
+  }
+
+  50% {
+    background-color: rgba(15, 23, 42, 0.09);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qr-code-placeholder {
+    animation: none;
+  }
 }
 
 .qr-instruction,
 .qr-status {
   margin: 0;
   color: var(--w3a-colors-textSecondary, #1e293b);
-  font-size: 1rem;
   font-weight: 500;
-  line-height: 1.5;
   text-align: center;
+  text-wrap: pretty;
 }
 
+.qr-instruction {
+  max-width: 34ch;
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+/* The status is a running commentary on the pairing, not a peer of the
+   instruction — one step quieter and smaller so the two lines stack as a
+   hierarchy instead of a paragraph. */
 .qr-status {
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.25rem;
+  color: color-mix(in srgb, var(--w3a-colors-textSecondary, #64748b), transparent 25%);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.4;
 }
 
 .animated-ellipsis {
@@ -1234,15 +1298,12 @@ seams-auth-menu-surface {
 }
 
 .qr-code-image {
+  width: 100%;
   max-width: 200px;
   height: auto;
-  border-radius: var(--w3a-border-radius-md, 0.5rem);
-}
-
-.qr-loading {
-  padding: 2rem;
-  color: var(--w3a-colors-textSecondary, #64748b);
-  text-align: center;
+  border-radius: 0.5rem;
+  animation: content-enter var(--w3a-duration-enter, 200ms) var(--w3a-ease-out, ease-out);
+  animation-fill-mode: both;
 }
 
 .w3a-scan-device-content {
@@ -1254,7 +1315,7 @@ seams-auth-menu-surface {
   gap: 16px;
   background: transparent;
   text-align: center;
-  min-height: 300px;
+  min-height: 260px;
   width: 100%;
   overflow: hidden;
   animation: content-enter var(--w3a-duration-enter, 200ms) var(--w3a-ease-out, ease-out);
@@ -1270,9 +1331,155 @@ seams-auth-menu-surface {
   overflow: hidden;
 }
 
-.w3a-scan-device-content .qr-code-display {
-  max-width: 280px;
-  width: 100%;
+.w3a-link-device-confirmation {
+  min-height: 260px;
+  width: min(100%, 360px);
+  margin-inline: auto;
+  padding: 1.5rem 0.5rem 0.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.875rem;
+  text-align: center;
+  animation: content-enter var(--w3a-duration-enter, 200ms) var(--w3a-ease-out, ease-out);
+  animation-fill-mode: both;
+}
+
+/* These sub-views title with a full instruction sentence, not a short heading,
+   so they speak one size quieter than the QR view's .qr-title. */
+.w3a-link-device-confirmation .qr-title {
+  max-width: 26ch;
+  font-size: 1.0625rem;
+  line-height: 1.35;
+}
+
+/* Dot-ring badge for the passkey confirmation. One geometry for both states:
+   while waiting the dots sweep like a clock spinner; once approved they settle
+   into a faint ring and the check strokes itself in. Monochrome on purpose —
+   nothing here should claim success louder than the flow has earned. */
+.w3a-link-device-dot-ring {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  color: var(--w3a-colors-textSecondary, #64748b);
+}
+
+.w3a-link-device-dot-ring > span {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 4px;
+  height: 4px;
+  margin: -2px;
+  border-radius: 999px;
+  background: currentColor;
+  transform: rotate(calc(var(--dot-index) * 30deg)) translateY(-18px);
+}
+
+.w3a-link-device-dot-ring.is-waiting > span {
+  animation: w3a-link-dot-sweep 1s linear infinite;
+  animation-delay: calc((var(--dot-index) - 12) / 12 * 1s);
+}
+
+.w3a-link-device-dot-ring.is-approved > span {
+  opacity: 0.25;
+}
+
+.w3a-link-device-dot-ring-check {
+  position: absolute;
+  inset: 0;
+  color: var(--w3a-colors-textPrimary, #1e293b);
+  opacity: 0;
+}
+
+.w3a-link-device-dot-ring.is-approved .w3a-link-device-dot-ring-check {
+  opacity: 1;
+  stroke-dasharray: 23;
+  stroke-dashoffset: 0;
+  animation: w3a-link-check-draw 450ms var(--w3a-ease-out, ease-out) 150ms both;
+}
+
+@keyframes w3a-link-dot-sweep {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.12;
+  }
+}
+
+@keyframes w3a-link-check-draw {
+  from {
+    stroke-dashoffset: 23;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .w3a-link-device-dot-ring.is-waiting > span {
+    animation: none;
+    opacity: 0.45;
+  }
+
+  .w3a-link-device-dot-ring.is-approved .w3a-link-device-dot-ring-check {
+    animation: none;
+  }
+}
+
+.w3a-link-device-confirmation-copy {
+  max-width: 30ch;
+  margin: 0;
+  color: var(--w3a-colors-textSecondary, #64748b);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+.w3a-link-device-confirmation .w3a-link-device-btn {
+  width: min(100%, 280px);
+  margin-top: 0.25rem;
+}
+
+/* Failure view. Same skeleton as the approved-device confirmation — badge,
+   title, copy, one control — so the flow's two end states are the same shape
+   and only the colour of the badge changes. */
+.w3a-link-device-failure {
+  gap: 0.75rem;
+}
+
+.w3a-link-device-failure-icon {
+  width: 60px;
+  height: 60px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--w3a-colors-error, #ef4444);
+  background: color-mix(in srgb, var(--w3a-colors-error, #ef4444), transparent 88%);
+  box-shadow:
+    0 0 0 5px color-mix(in srgb, var(--w3a-colors-error, #ef4444), transparent 90%),
+    0 12px 24px -18px color-mix(in srgb, var(--w3a-colors-error, #ef4444), #000000 35%);
+}
+
+/* The detail is a raw error string, so it is sized and coloured as evidence
+   rather than as prose: quiet, tight, and allowed to break mid-token so a long
+   technical message wraps instead of forcing the card wider. */
+.w3a-link-device-failure-detail {
+  width: min(100%, 320px);
+  margin: 0;
+  padding: 0.75rem 0.875rem;
+  border: 1px solid color-mix(in srgb, var(--w3a-colors-error, #ef4444), transparent 84%);
+  border-radius: calc(var(--w3a-shape-card, 16px) - 6px);
+  background: color-mix(in srgb, var(--w3a-colors-error, #ef4444), transparent 94%);
+  color: color-mix(in srgb, var(--w3a-colors-textSecondary, #64748b), transparent 15%);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.5;
+  text-wrap: pretty;
+  overflow-wrap: anywhere;
 }
 
 /* Status message row */
@@ -1482,6 +1689,10 @@ seams-auth-menu-surface {
   text-overflow: ellipsis;
   white-space: nowrap;
   transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    color 160ms ease,
     border-radius 300ms cubic-bezier(0.22, 1, 0.36, 1),
     height 300ms cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -1490,6 +1701,11 @@ seams-auth-menu-surface {
 .w3a-link-device-btn:hover:not(:disabled),
 .w3a-link-device-btn:focus-visible {
   background: var(--w3a-colors-surface2) !important;
+}
+
+.w3a-link-device-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--w3a-colors-primary), transparent 72%);
 }
 
 .w3a-link-device-btn-primary {
@@ -1511,18 +1727,6 @@ seams-auth-menu-surface {
 .w3a-link-device-btn-primary:disabled {
   opacity: 0.6;
   cursor: not-allowed;
-}
-
-/* Button-local spinner: match text size inside buttons */
-.w3a-link-device-btn .w3a-spinner {
-  width: 1em;
-  height: 1em;
-  border-width: 2px;
-}
-
-.w3a-link-device-btn-primary .w3a-spinner {
-  border-color: rgba(255, 255, 255, 0.35);
-  border-top-color: #ffffff;
 }
 
 .w3a-signup-menu-root {

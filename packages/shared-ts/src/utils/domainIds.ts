@@ -1,5 +1,3 @@
-import { isAppSessionJwt } from './sessionTokens';
-
 export type DomainId<TBrand extends string> = string & {
   readonly __domainIdBrand: TBrand;
 };
@@ -44,18 +42,17 @@ export type EmailOtpRegistrationAttemptId = DomainId<'EmailOtpRegistrationAttemp
 // stay separate from wallet ids and provider subjects.
 export type OrgId = DomainId<'OrgId'>;
 
-// App-session version string from the auth/session authority. OTP challenges
-// bind to it so old app sessions cannot consume new challenges.
-export type AppSessionVersion = DomainId<'AppSessionVersion'>;
-
 // WebAuthn relying-party id. This belongs to passkey/WebAuthn auth scope and
 // must not be used as a wallet, NEAR account, or signing-key identity.
 export type WebAuthnRpId = DomainId<'WebAuthnRpId'>;
 export type WebAuthnCredentialIdB64u = DomainId<'WebAuthnCredentialIdB64u'>;
+
+// One passkey-sealed custody envelope. This locates ciphertext for a credential
+// and must never be used as a wallet, credential, lane, material-activation, or
+// authorization identity.
+export type PasskeyEnvelopeId = DomainId<'PasskeyEnvelopeId'>;
 export type WalletAuthMethodId = DomainId<'WalletAuthMethodId'>;
 export type WalletAuthorityBindingDigest = DomainId<'WalletAuthorityBindingDigest'>;
-export type AppSessionJwt = DomainId<'AppSessionJwt'>;
-
 // Opaque identities that keep MPC capability, material, runtime, and lifecycle
 // bindings independent from authorization and wallet-session identities.
 export type CapabilityInstanceRef = DomainId<'CapabilityInstanceRef'>;
@@ -142,8 +139,15 @@ export type LinkedDeviceId = DomainId<'LinkedDeviceId'>;
 // Delegated mandate policy identity.
 export type MandatePolicyId = DomainId<'MandatePolicyId'>;
 
-// Rotation or lane-creation operation identity.
-export type RotationOperationId = DomainId<'RotationOperationId'>;
+// Immutable identities for one rotatable signing-lane protocol operation and
+// its aggregate enrollment.
+export type LaneOperationId = DomainId<'LaneOperationId'>;
+export type LaneEnrollmentId = DomainId<'LaneEnrollmentId'>;
+export type LaneOperationIdempotencyKey = DomainId<'LaneOperationIdempotencyKey'>;
+export type LinkedDeviceEnrollmentId = DomainId<'LinkedDeviceEnrollmentId'>;
+export type Ed25519YaoSuiteId = DomainId<'Ed25519YaoSuiteId'>;
+export type EcdsaRelayerKeyId = DomainId<'EcdsaRelayerKeyId'>;
+export type LaneHolderRecipientHandleV1 = DomainId<'LaneHolderRecipientHandleV1'>;
 
 // Canonical delegated intent digest.
 export type DelegatedIntentDigest = DomainId<'DelegatedIntentDigest'>;
@@ -186,12 +190,19 @@ function parseDomainId<T>(raw: unknown, fieldName: string): DomainIdParseResult<
   return { ok: true, value: value as T };
 }
 
-export function hasWhitespaceOrControlCharacters(value: string): boolean {
+export function hasControlCharacter(value: string): boolean {
   for (const character of value) {
     const code = character.charCodeAt(0);
-    if (/\s/.test(character) || code <= 31 || code === 127) return true;
+    if (code <= 31 || code === 127) return true;
   }
   return false;
+}
+
+export function hasWhitespaceOrControlCharacters(value: string): boolean {
+  for (const character of value) {
+    if (/\s/.test(character)) return true;
+  }
+  return hasControlCharacter(value);
 }
 
 export function parseWalletId(raw: unknown): DomainIdParseResult<WalletId> {
@@ -286,10 +297,6 @@ export function parseOrgId(raw: unknown): DomainIdParseResult<OrgId> {
   return parseDomainId(raw, 'orgId');
 }
 
-export function parseAppSessionVersion(raw: unknown): DomainIdParseResult<AppSessionVersion> {
-  return parseDomainId(raw, 'appSessionVersion');
-}
-
 export function parseWebAuthnRpId(raw: unknown): DomainIdParseResult<WebAuthnRpId> {
   const parsed = parseDomainId<WebAuthnRpId>(raw, 'rpId');
   if (!parsed.ok) return parsed;
@@ -311,6 +318,10 @@ export function parseWebAuthnCredentialIdB64u(
   return parseDomainId(raw, 'credentialIdB64u');
 }
 
+export function parsePasskeyEnvelopeId(raw: unknown): DomainIdParseResult<PasskeyEnvelopeId> {
+  return parseDomainId(raw, 'passkeyEnvelopeId');
+}
+
 export function parseWalletAuthMethodId(raw: unknown): DomainIdParseResult<WalletAuthMethodId> {
   return parseDomainId(raw, 'walletAuthMethodId');
 }
@@ -319,18 +330,6 @@ export function parseWalletAuthorityBindingDigest(
   raw: unknown,
 ): DomainIdParseResult<WalletAuthorityBindingDigest> {
   return parseDomainId(raw, 'walletAuthorityBindingDigest');
-}
-
-export function parseAppSessionJwt(raw: unknown): DomainIdParseResult<AppSessionJwt> {
-  const parsed = parseDomainId<AppSessionJwt>(raw, 'appSessionJwt');
-  if (!parsed.ok || isAppSessionJwt(parsed.value)) return parsed;
-  return {
-    ok: false,
-    error: {
-      code: 'invalid',
-      message: 'appSessionJwt must be an app_session_v1 JWT',
-    },
-  };
 }
 
 export function parseCapabilityInstanceRef(
@@ -548,8 +547,38 @@ export function parseMandatePolicyId(raw: unknown): DomainIdParseResult<MandateP
   return parseDomainId(raw, 'mandatePolicyId');
 }
 
-export function parseRotationOperationId(raw: unknown): DomainIdParseResult<RotationOperationId> {
-  return parseDomainId(raw, 'rotationOperationId');
+export function parseLaneOperationId(raw: unknown): DomainIdParseResult<LaneOperationId> {
+  return parseDomainId(raw, 'laneOperationId');
+}
+
+export function parseLaneEnrollmentId(raw: unknown): DomainIdParseResult<LaneEnrollmentId> {
+  return parseDomainId(raw, 'laneEnrollmentId');
+}
+
+export function parseLaneOperationIdempotencyKey(
+  raw: unknown,
+): DomainIdParseResult<LaneOperationIdempotencyKey> {
+  return parseDomainId(raw, 'laneOperationIdempotencyKey');
+}
+
+export function parseLinkedDeviceEnrollmentId(
+  raw: unknown,
+): DomainIdParseResult<LinkedDeviceEnrollmentId> {
+  return parseDomainId(raw, 'linkedDeviceEnrollmentId');
+}
+
+export function parseEd25519YaoSuiteId(raw: unknown): DomainIdParseResult<Ed25519YaoSuiteId> {
+  return parseDomainId(raw, 'ed25519YaoSuiteId');
+}
+
+export function parseEcdsaRelayerKeyId(raw: unknown): DomainIdParseResult<EcdsaRelayerKeyId> {
+  return parseDomainId(raw, 'ecdsaRelayerKeyId');
+}
+
+export function parseLaneHolderRecipientHandleV1(
+  raw: unknown,
+): DomainIdParseResult<LaneHolderRecipientHandleV1> {
+  return parseDomainId(raw, 'laneHolderRecipientHandle');
 }
 
 export function parseDelegatedIntentDigest(

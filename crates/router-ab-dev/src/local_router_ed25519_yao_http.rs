@@ -16,6 +16,7 @@ pub struct LocalRouterEd25519YaoPairDispatchV1 {
     pub operation: Ed25519YaoOperationV1,
     pub binding: Ed25519YaoCeremonyBindingV1,
     pub export_binding: Option<RouterAbEd25519YaoExportBindingV1>,
+    pub work: router_ab_cloudflare::CloudflareEd25519YaoPairWorkV1,
     pub pair_binding: Ed25519YaoInputPairBindingV1,
     pub deriver_a_input: Ed25519YaoEncryptedInputV1,
     pub deriver_b_input: Ed25519YaoEncryptedInputV1,
@@ -43,6 +44,7 @@ impl LocalRouterEd25519YaoPairDispatchV1 {
                 operation: binding.operation,
                 binding,
                 export_binding: None,
+                work: router_ab_cloudflare::CloudflareEd25519YaoPairWorkV1::Ceremony,
                 pair_binding,
                 deriver_a_input,
                 deriver_b_input,
@@ -58,6 +60,32 @@ impl LocalRouterEd25519YaoPairDispatchV1 {
                 operation: binding.ceremony().operation,
                 binding: binding.ceremony().clone(),
                 export_binding: Some(binding),
+                work: router_ab_cloudflare::CloudflareEd25519YaoPairWorkV1::Ceremony,
+                pair_binding,
+                deriver_a_input,
+                deriver_b_input,
+            },
+            RouterEd25519YaoExecuteRequestV1::LaneProvisioning {
+                authority,
+                binding,
+                pair_binding,
+                job,
+                deriver_a_input,
+                deriver_b_input,
+            }
+            | RouterEd25519YaoExecuteRequestV1::LaneRefresh {
+                authority,
+                binding,
+                pair_binding,
+                job,
+                deriver_a_input,
+                deriver_b_input,
+            } => Self {
+                authority,
+                operation: binding.operation,
+                binding,
+                export_binding: None,
+                work: router_ab_cloudflare::CloudflareEd25519YaoPairWorkV1::Lane { job },
                 pair_binding,
                 deriver_a_input,
                 deriver_b_input,
@@ -71,13 +99,21 @@ impl LocalRouterEd25519YaoPairDispatchV1 {
         match (self.operation, self.export_binding.is_some()) {
             (Ed25519YaoOperationV1::Export, true)
             | (Ed25519YaoOperationV1::Registration, false)
-            | (Ed25519YaoOperationV1::Recovery, false) => {}
+            | (Ed25519YaoOperationV1::Recovery, false)
+            | (Ed25519YaoOperationV1::LaneProvisioning, false)
+            | (Ed25519YaoOperationV1::LaneRefresh, false) => {}
             (Ed25519YaoOperationV1::Export, false) => {
                 return Err(pair_http_error(
                     "Router export dispatch is missing its export binding",
                 ))
             }
-            (Ed25519YaoOperationV1::Registration | Ed25519YaoOperationV1::Recovery, true) => {
+            (
+                Ed25519YaoOperationV1::Registration
+                | Ed25519YaoOperationV1::Recovery
+                | Ed25519YaoOperationV1::LaneProvisioning
+                | Ed25519YaoOperationV1::LaneRefresh,
+                true,
+            ) => {
                 return Err(pair_http_error(
                     "non-export dispatch carries an export binding",
                 ))

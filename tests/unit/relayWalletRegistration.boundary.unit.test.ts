@@ -27,9 +27,7 @@ import {
 import { parseWebAuthnRpId, type WebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import { deriveEvmFamilySigningKeySlotId } from '../../packages/shared-ts/src/signing-lanes';
 import { thresholdEcdsaChainTargetKey } from '../../packages/sdk-server-ts/src/core/thresholdEcdsaChainTarget';
-import {
-  buildEmailOtpWalletAuthAuthority,
-} from '../../packages/shared-ts/src/utils/walletAuthAuthority';
+import { buildEmailOtpWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 
 const routeDefinitions = createRouterApiRouteDefinitions({
   enableHealthz: true,
@@ -79,12 +77,14 @@ function ecdsaInventoryInputFor(args: {
   body: unknown;
   authService: Record<string, unknown>;
   session: Record<string, unknown>;
+  headers?: Record<string, string>;
+  authorizationSessions?: Record<string, unknown>;
   walletId?: string;
   origin?: string;
 }) {
   return {
     body: args.body,
-    headers: { authorization: 'Bearer test-session' },
+    headers: args.headers ?? { authorization: 'Bearer test-session' },
     logger: {
       debug: () => {},
       info: () => {},
@@ -98,15 +98,15 @@ function ecdsaInventoryInputFor(args: {
       walletRegistration: args.authService,
       authService: args.authService,
       session: args.session,
+      ...(args.authorizationSessions
+        ? { authorizationSessions: args.authorizationSessions }
+        : {}),
     },
   } as unknown as Parameters<typeof handleRouterApiWalletEcdsaKeyFactsInventory>[0];
 }
 
 function addSignerInputFor(args: {
-  routeId:
-    | 'wallet_add_signer_intent'
-    | 'wallet_add_signer_start'
-    | 'wallet_add_signer_finalize';
+  routeId: 'wallet_add_signer_intent' | 'wallet_add_signer_start' | 'wallet_add_signer_finalize';
   body: unknown;
   authService: Record<string, unknown>;
   session?: Record<string, unknown>;
@@ -1186,8 +1186,8 @@ test.describe('wallet registration route boundaries', () => {
     });
   });
 
-  test('ECDSA key-facts inventory accepts app-session inventory policy', async () => {
-    let captured: unknown = null;
+  test('ECDSA key-facts inventory rejects opaque authorization without a bearer token', async () => {
+    let inventoryCalled = false;
     const response = await handleRouterApiWalletEcdsaKeyFactsInventory(
       ecdsaInventoryInputFor({
         body: {
@@ -1199,94 +1199,27 @@ test.describe('wallet registration route boundaries', () => {
             },
           ],
           auth: {
-            kind: 'app_session',
-            policy: {
-              permission: 'ecdsa_key_facts_inventory',
-              walletId: 'wallet_alice',
-              chainTargets: [{ kind: 'tempo', chainId: 42431 }],
-              expiresAtMs: Date.now() + 60_000,
-            },
+            kind: 'opaque_wallet_session',
+            curve: 'ecdsa_secp256k1',
           },
         },
         authService: {
-          validateAppSessionVersion: async (request: unknown) => {
-            expect(request).toEqual({
-              userId: 'app-user-1',
-              appSessionVersion: 'asv-1',
-            });
-            return { ok: true };
-          },
-          listWalletEcdsaKeyFactsInventory: async (request: unknown) => {
-            captured = request;
-            return {
-              records: [
-                {
-                  keyHandle: 'ederivation-key-alice',
-                  ecdsaThresholdKeyId: 'ederivation-alice',
-                  chainTarget: { kind: 'tempo', chainId: 42431 },
-                  targetKey: 'tempo:42431',
-                  accountAddress: '0x1111111111111111111111111111111111111111',
-                  ownerAddress: '0x1111111111111111111111111111111111111111',
-                  relayerKeyId: 'rk-1',
-                  thresholdEcdsaPublicKeyB64u: 'group-public-key',
-                  key: {
-                    walletId: 'wallet_alice',
-                    subjectId: 'wallet_alice',
-                    rpId: 'wallet.example.test',
-                    keyScope: 'evm-family',
-                    ecdsaThresholdKeyId: 'ederivation-alice',
-                    signingRootId: 'project:dev',
-                    signingRootVersion: 'default',
-                    participantIds: [1, 2],
-                    thresholdOwnerAddress: '0x1111111111111111111111111111111111111111',
-                  },
-                },
-              ],
-              diagnostics: {
-                userId: 'wallet_alice',
-                inputCount: 1,
-                returnedCount: 1,
-                ecdsaBootstrapExportRuntimePresent: true,
-                rejected: {},
-              },
-            };
+          listWalletEcdsaKeyFactsInventory: async () => {
+            inventoryCalled = true;
+            return { records: [], diagnostics: {} };
           },
         },
-        session: {
-          parse: async () => ({
-            ok: true,
-            claims: {
-              kind: 'app_session_v1',
-              sub: 'app-user-1',
-              walletId: 'wallet_alice',
-              appSessionVersion: 'asv-1',
-              exp: Math.floor(Date.now() / 1000) + 60,
-            },
-          }),
-        },
+        session: {},
+        headers: {},
       }),
     );
 
-    expect(response.status).toBe(200);
-    expect(captured).toEqual({
-      walletId: 'wallet_alice',
-      rpId: 'wallet.example.test',
-      keyTargets: [
-        {
-          keyHandle: 'ederivation-key-alice',
-          chainTarget: { kind: 'tempo', chainId: 42431 },
-        },
-      ],
-    });
+    expect(response.status).toBe(401);
     expect(response.body).toMatchObject({
-      ok: true,
-      ecdsaKeyIdentityTargets: [
-        {
-          keyHandle: 'ederivation-key-alice',
-          targetKey: 'tempo:42431',
-        },
-      ],
+      ok: false,
+      code: 'unauthorized',
     });
+    expect(inventoryCalled).toBe(false);
   });
 
   test('ECDSA key-facts inventory rejects mismatched WebAuthn challenge digest', async () => {

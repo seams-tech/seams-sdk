@@ -17,6 +17,11 @@ import { resolveExactEcdsaCapabilityRuntime } from '../../session/material/activ
 import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { SignerAuthMethod } from '@shared/utils/signerDomain';
+import {
+  walletSessionAuthorizations,
+  walletSessionAuthorizationIdForCurve,
+  walletSessionTokenForCurve,
+} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type {
   ThresholdEcdsaChainTarget,
   WalletId,
@@ -86,6 +91,15 @@ function requireEvmFamilyRelayerUrl(deps: EvmFamilySigningDeps): string {
   return relayerUrl;
 }
 
+async function readPersistedOwnerWalletSessionToken(walletId: WalletId): Promise<string | null> {
+  const read = await walletSessionAuthorizations.readActiveForWallet(walletId);
+  if (read.kind !== 'found') return null;
+  return (
+    walletSessionTokenForCurve(read.projection, 'ecdsa') ??
+    walletSessionTokenForCurve(read.projection, 'ed25519')
+  );
+}
+
 /** R90-INV-010. The wallet's active manifest names the material that may be
  * used right now. When it has moved on from the one this operation was prepared
  * against, the preparation is superseded -- material activation is advance-only,
@@ -150,12 +164,17 @@ export function ecdsaSigningAuthorizationSupersession(args: {
   const prepared = args.preparedAuthorization.projection;
   const currentAuthorization = args.currentAuthorization;
   const current = currentAuthorization?.projection;
+  const preparedAuthorizationId = walletSessionAuthorizationIdForCurve(prepared, 'ecdsa');
+  const currentAuthorizationId = current
+    ? walletSessionAuthorizationIdForCurve(current, 'ecdsa')
+    : null;
   if (
     currentAuthorization &&
     current &&
     String(current.walletId) === String(prepared.walletId) &&
     String(current.walletSessionId) === String(prepared.walletSessionId) &&
-    String(current.authorizationId) === String(prepared.authorizationId) &&
+    currentAuthorizationId !== null &&
+    currentAuthorizationId === preparedAuthorizationId &&
     String(current.quotaId) === String(prepared.quotaId) &&
     String(currentAuthorization.status.walletSessionId) ===
       String(args.preparedAuthorization.status.walletSessionId) &&
@@ -297,17 +316,19 @@ export async function createEvmFamilySigningFlowRuntime(args: {
         materialActivation: resolvedSigner.materialActivation,
       })
     : undefined;
-  const authorization = resolvedSigner
+  const activeAuthorization = resolvedSigner
     ? await args.deps.resolveActiveEcdsaWalletSessionAuthorization(resolvedSigner.walletId)
     : null;
-
+  const persistedOwnerWalletSessionToken = resolvedSigner
+    ? readPersistedOwnerWalletSessionToken(resolvedSigner.walletId)
+    : Promise.resolve(null);
   const thresholdEcdsaStepUpRuntime: EvmFamilyThresholdEcdsaStepUpRuntime | undefined = capability
     ? {
         ...(args.emailOtpSigningForFlow ? { emailOtpSigning: args.emailOtpSigningForFlow } : {}),
         // Without an active reusable Wallet Session the candidate is
         // auth-neutral, so the operation must be authorized by a step-up on
         // the capability's own factor rather than a warm session.
-        reusableAuthorization: authorization
+        reusableAuthorization: activeAuthorization
           ? { kind: 'active' }
           : {
               kind: 'absent',
@@ -324,17 +345,19 @@ export async function createEvmFamilySigningFlowRuntime(args: {
             args.onAuthSideEffectStarted?.(
               authorization.kind === 'passkey' ? 'passkey_reauth' : 'email_otp_challenge',
             );
-            const sessionAuth = await args.deps.resolveEcdsaOperationStepUpSessionAuth({
-              walletSession: args.walletSession,
-              authMethod: authorization.kind,
-            });
+            const walletSessionToken = await persistedOwnerWalletSessionToken;
+            if (!walletSessionToken) {
+              throw new Error(
+                '[SigningEngine] ECDSA operation step-up requires an opaque owner Wallet Session',
+              );
+            }
             return await authorizeEvmFamilyEcdsaOperationStepUp({
               relayerUrl,
-              sessionAuth,
               authority: capability.authority,
               authorization,
               prepared,
               material,
+              walletSessionToken,
             });
           },
         },
@@ -369,8 +392,8 @@ export async function createEvmFamilySigningFlowRuntime(args: {
           resolveEcdsaSigningMaterialPlan: async () =>
             await resolveEcdsaSigningMaterialHydrationPlan({
               capability,
-              preparedAuthorization: authorization,
-              currentAuthorization: authorization
+              preparedAuthorization: activeAuthorization,
+              currentAuthorization: activeAuthorization
                 ? await args.deps.resolveActiveEcdsaWalletSessionAuthorization(
                     resolvedSigner.walletId,
                   )

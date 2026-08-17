@@ -16,6 +16,7 @@ export interface ClientUserData {
   lastLogin?: number;
   lastUpdated?: number;
   operationalPublicKey: string;
+  nearEd25519SigningKeyId: string;
   passkeyCredential: PasskeyCredentialRecord;
   authMethod?: WalletAuthMethod | null;
   preferences?: UserPreferences;
@@ -39,13 +40,6 @@ export interface ClientAuthenticatorData {
   signerSlot: number;
   registered: string;
   syncedAt: string;
-}
-
-export interface RecoveryEmailRecord {
-  nearAccountId: AccountId;
-  hashHex: string;
-  email: string;
-  addedAt: number;
 }
 
 export interface ThresholdEd25519KeyMaterial {

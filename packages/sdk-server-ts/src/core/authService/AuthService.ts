@@ -39,8 +39,6 @@ export type {
   GoogleEmailOtpResolutionResult,
 } from './googleEmailOtpRegistration';
 
-import { EMAIL_DKIM_VERIFIER_CONTRACT_DEFAULT } from '../defaultConfigsServer';
-import { EmailRecoveryService } from '../../email-recovery';
 import type { SignedDelegate } from '@shared/near/delegate';
 import {
   parseWebAuthnRpId,
@@ -59,9 +57,11 @@ import {
   verifyWebAuthnLoginWithStores,
   verifyWebAuthnRegistrationCredentialForIntent,
   verifyWebAuthnSyncAccountWithStores,
+  type WebAuthnAuthenticatorListResult,
   type WebAuthnSyncAccountVerificationRequest,
   type WebAuthnSyncAccountVerificationResult,
   type WebAuthnSyncAccountOptionsResult,
+  type WebAuthnLoginVerificationResult,
 } from './webauthn';
 import { randomBase64Url, randomOpaqueId } from './bytes';
 import {
@@ -87,29 +87,12 @@ import {
 } from './emailOtpChallenges';
 import {
   createEmailOtpChallenge as createEmailOtpChallengeOperation,
-  createEmailOtpDeviceRecoveryChallenge as createEmailOtpDeviceRecoveryChallengeOperation,
   createEmailOtpEnrollmentChallenge as createEmailOtpEnrollmentChallengeOperation,
   verifyEmailOtpChallenge as verifyEmailOtpChallengeOperation,
-  verifyEmailOtpDeviceRecoveryChallenge as verifyEmailOtpDeviceRecoveryChallengeOperation,
   type EmailOtpChallengeOperationsInput,
 } from './emailOtpChallengeOperations';
 import { verifyEmailOtpChallengeCode as verifyEmailOtpChallengeCodeWithStores } from './emailOtpChallengeVerification';
 import { verifyEmailOtpEnrollment as verifyEmailOtpEnrollmentWithStores } from './emailOtpRegistrationEnrollment';
-import {
-  consumeEmailOtpRecoveryKey as consumeEmailOtpRecoveryKeyWithStores,
-  getEmailOtpRecoveryCodeStatus as getEmailOtpRecoveryCodeStatusWithStores,
-  recordEmailOtpRecoveryKeyAttemptFailure as recordEmailOtpRecoveryKeyAttemptFailureWithStores,
-  rotateEmailOtpRecoveryKeys as rotateEmailOtpRecoveryKeysWithStores,
-  type EmailOtpRecoveryCodeStatusRequest,
-  type EmailOtpRecoveryCodeStatusResult,
-  type EmailOtpRecoveryKeyAttemptFailureRequest,
-  type EmailOtpRecoveryKeyAttemptFailureResult,
-  type EmailOtpRecoveryKeyConsumeRequest,
-  type EmailOtpRecoveryKeyConsumeResult,
-  type EmailOtpRecoveryKeysRotateRequest,
-  type EmailOtpRecoveryKeysRotateResult,
-} from './emailOtpRecoveryKeys';
-import { EmailRecoveryAuthOperations } from './emailRecoveryAuthOperations';
 import {
   createEmailOtpUnlockChallenge as createEmailOtpUnlockChallengeWithStores,
   verifyEmailOtpUnlockProof as verifyEmailOtpUnlockProofWithStores,
@@ -122,7 +105,6 @@ import {
   parseRawEmailOtpRegistrationChallengeProofInput,
   readEmailOtpStoredChallengePurpose,
   type EmailOtpChallengeBindingMismatchCode,
-  type EmailOtpRecoveryChallengeEscrow,
   type EmailOtpRegistrationChallengeProof,
   type EmailOtpRegistrationChallengeProofInput,
   type EmailOtpRegistrationChallengeProofResult,
@@ -176,11 +158,8 @@ import {
 } from './registrationThresholdHelpers';
 import {
   createGoogleJwksState,
-  createOidcJwksState,
   verifyGoogleLoginWithIdentityStore,
-  verifyOidcJwtExchangeWithIdentityStore,
   type GoogleLoginFacadeResult,
-  type OidcJwtExchangeFacadeResult,
 } from './oidcVerification';
 import {
   githubOAuthPublicConfig,
@@ -189,8 +168,6 @@ import {
   type GithubOAuthPublicConfig,
 } from './githubOAuth';
 import type {
-  AppSessionVersionMutationResult,
-  AppSessionVersionValidationResult,
   ListIdentitiesResult,
 } from './identity';
 import { isNodeEnvironment as isAuthServiceNodeEnvironment } from './wasm';
@@ -203,7 +180,6 @@ import {
 import { AuthServiceStoreRegistry } from './storeRegistry';
 import { NearAccountOperations } from './nearAccountOperations';
 import { IdentityOperations } from './identityOperations';
-import { RecoveryTrackingOperations } from './recoveryTrackingOperations';
 
 import {
   type EmailOtpWalletEnrollmentRecord,
@@ -225,21 +201,8 @@ import {
   type ListNearPublicKeysResult,
   type RecordNearPublicKeyMetadataResult,
 } from './nearPublicKeyMetadata';
-import type { RecoverySessionStatus } from '../RecoverySessionStore';
-import { type RecoveryExecutionStatus } from '../RecoveryExecutionStore';
-import {
-  type GetRecoveryExecutionResult,
-  type GetRecoverySessionResult,
-  type ListRecoveryExecutionsResult,
-  type RecordRecoveryExecutionResult,
-  type UpdateRecoverySessionStatusResult,
-} from './recoveryTracking';
 import { type LinkIdentityResult, type UnlinkIdentityResult } from '../IdentityStore';
 import type { ThresholdEcdsaChainTarget } from '../thresholdEcdsaChainTarget';
-import {
-  buildPreparedRecoverySessionRecord,
-  DEFAULT_RECOVERY_SESSION_TTL_MS,
-} from '../recoverySessionRecords';
 
 const REGISTRATION_WALLET_SIGNING_SESSION_REMAINING_USES = 3;
 
@@ -281,10 +244,6 @@ export class AuthService {
   private readonly emailOtpMemoryOutbox: EmailOtpMemoryOutbox = new Map();
   private registrationRuntimeWarmPromise: Promise<void> | null = null;
   private readonly googleJwksState = createGoogleJwksState();
-  private readonly oidcJwksState = createOidcJwksState();
-
-  // DKIM/TEE email recovery logic (delegated to EmailRecoveryService)
-  public readonly emailRecovery: EmailRecoveryService | null = null;
 
   constructor(config: AuthServiceConfigInput) {
     this.config = createAuthServiceConfig(config);
@@ -303,22 +262,6 @@ export class AuthService {
       ensureSignerWasm: this.ensureSignerWasm.bind(this),
       getRelayerPublicKey: () => this.runtimeState.relayerPublicKey,
     });
-    this.emailRecovery = new EmailRecoveryService({
-      relayerAccount: this.config.relayerAccount,
-      networkId: this.config.networkId,
-      emailDkimVerifierContract: EMAIL_DKIM_VERIFIER_CONTRACT_DEFAULT,
-      nearClient: this.nearClient,
-      logger: this.config.logger,
-      ensureSignerAndRelayerAccount: () => this._ensureSignerAndRelayerAccount(),
-      queueTransaction: <T>(fn: () => Promise<T>, label: string) =>
-        this.nearAccounts.queueTransaction(fn, label),
-      fetchTxContext: (accountId: string, publicKey: string) =>
-        this.nearAccounts.fetchTxContext(accountId, publicKey),
-      signGasRelayerNearTransaction: (input) =>
-        this.nearAccounts.signGasRelayerNearTransaction(input),
-      getRelayerPublicKey: () => this.runtimeState.relayerPublicKey,
-    });
-
     // Log effective configuration at construction time so operators can
     // verify wiring immediately when the service is created.
     this.logger.info(`
@@ -335,11 +278,6 @@ export class AuthService {
         : `• googleOidc: not configured`
     }
     • githubOAuth: ${this.config.githubOAuth ? 'configured' : 'not configured'}
-    ${
-      this.config.oidcExchange?.issuers?.length
-        ? `• oidcExchange: ${this.config.oidcExchange.issuers.length} issuer(s)`
-        : `• oidcExchange: not configured`
-    }
     `);
   }
 
@@ -403,7 +341,6 @@ export class AuthService {
     sub?: string;
     email?: string;
     accountMode?: unknown;
-    appSessionVersion?: string;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
     restartRegistrationOffer?: unknown;
   }): Promise<string> {
@@ -426,7 +363,7 @@ export class AuthService {
     accountMode?: unknown;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
     clientIp?: string;
-    appSessionUserId?: string;
+    providerUserId?: string;
     restartRegistrationOffer?: unknown;
   }): Promise<
     | { ok: true }
@@ -449,7 +386,6 @@ export class AuthService {
     sub?: string;
     email?: string | VerifiedGoogleEmail;
     accountMode?: unknown;
-    appSessionVersion?: string;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
     restartRegistrationOffer?: unknown;
   }): Promise<GoogleEmailOtpResolutionResult> {
@@ -472,7 +408,7 @@ export class AuthService {
   async validateGoogleEmailOtpRegistrationCandidateWallet(input: {
     registrationAttemptId: string;
     walletId: string;
-    appSessionVersion: string;
+    ownerProofBindingDigest: string;
     providerSubject: string;
   }): Promise<{ ok: true } | { ok: false; code: string; message: string }> {
     return await validateGoogleEmailOtpRegistrationCandidateWalletForAuthService({
@@ -528,10 +464,6 @@ export class AuthService {
       deps: this.googleEmailOtpOperationsInput(),
       request: input,
     });
-  }
-
-  isOidcExchangeConfigured(): boolean {
-    return Boolean(this.config.oidcExchange?.issuers?.length);
   }
 
   async warmRegistrationRuntime(): Promise<void> {
@@ -629,7 +561,6 @@ export class AuthService {
     challenge: { limit: number; windowMs: number };
     verify: { limit: number; windowMs: number };
     grant: { limit: number; windowMs: number };
-    recoveryKeyAttempt: { limit: number; windowMs: number };
     googleRegistrationAttempt: { limit: number; windowMs: number };
   } {
     return resolveEmailOtpRateLimitPoliciesFromSource({
@@ -639,7 +570,7 @@ export class AuthService {
   }
 
   private async consumeEmailOtpRateLimit(args: {
-    scope: 'challenge' | 'verify' | 'grant' | 'recoveryKeyAttempt' | 'googleRegistrationAttempt';
+    scope: 'challenge' | 'verify' | 'grant' | 'googleRegistrationAttempt';
     action?: string;
     userId?: string;
     walletId?: string;
@@ -680,7 +611,9 @@ export class AuthService {
     return createEmailOtpShamirCipherFromConfig({
       rootSecretB64u: this.readConfigValue('SIGNING_SESSION_SEAL_ROOT_SECRET_B64U'),
       currentKeyVersion: this.readConfigValue('SIGNING_SESSION_SEAL_CURRENT_KEY_VERSION'),
-      acceptedWarmKeyVersions: this.readConfigValue('SIGNING_SESSION_SEAL_ACCEPTED_WARM_KEY_VERSIONS')
+      acceptedWarmKeyVersions: this.readConfigValue(
+        'SIGNING_SESSION_SEAL_ACCEPTED_WARM_KEY_VERSIONS',
+      )
         .split(',')
         .map((value) => value.trim())
         .filter(Boolean),
@@ -738,25 +671,6 @@ export class AuthService {
     return await this.identityOperations().unlinkIdentity(input);
   }
 
-  async getOrCreateAppSessionVersion(input: {
-    userId: string;
-  }): Promise<AppSessionVersionMutationResult> {
-    return await this.identityOperations().getOrCreateAppSessionVersion(input);
-  }
-
-  async rotateAppSessionVersion(input: {
-    userId: string;
-  }): Promise<AppSessionVersionMutationResult> {
-    return await this.identityOperations().rotateAppSessionVersion(input);
-  }
-
-  async validateAppSessionVersion(input: {
-    userId: string;
-    appSessionVersion: string;
-  }): Promise<AppSessionVersionValidationResult> {
-    return await this.identityOperations().validateAppSessionVersion(input);
-  }
-
   async recordNearPublicKeyMetadata(input: {
     userId?: unknown;
     publicKey?: unknown;
@@ -781,63 +695,6 @@ export class AuthService {
       removedAtMs: input.removedAtMs,
       source: input.source,
     });
-  }
-
-  private recoveryTrackingOperations(): RecoveryTrackingOperations {
-    return new RecoveryTrackingOperations({
-      recoverySessionStore: this.stores.getRecoverySessionStore(),
-      recoveryExecutionStore: this.stores.getRecoveryExecutionStore(),
-    });
-  }
-
-  async getRecoverySession(input: { sessionId: string }): Promise<GetRecoverySessionResult> {
-    return await this.recoveryTrackingOperations().getRecoverySession(input);
-  }
-
-  async updateRecoverySessionStatus(input: {
-    sessionId: string;
-    status: RecoverySessionStatus;
-    metadataPatch?: Record<string, unknown> | null;
-  }): Promise<UpdateRecoverySessionStatusResult> {
-    return await this.recoveryTrackingOperations().updateRecoverySessionStatus(input);
-  }
-
-  async getRecoveryExecution(input: {
-    sessionId: string;
-    chainIdKey: string;
-    accountAddress: string;
-    action: string;
-  }): Promise<GetRecoveryExecutionResult> {
-    return await this.recoveryTrackingOperations().getRecoveryExecution(input);
-  }
-
-  async listRecoveryExecutions(input: {
-    sessionId: string;
-  }): Promise<ListRecoveryExecutionsResult> {
-    return await this.recoveryTrackingOperations().listRecoveryExecutions(input);
-  }
-
-  async listRecoveryExecutionsByStatus(input: {
-    status: RecoveryExecutionStatus;
-    action?: string;
-    updatedBeforeMs?: number;
-    limit?: number;
-  }): Promise<ListRecoveryExecutionsResult> {
-    return await this.recoveryTrackingOperations().listRecoveryExecutionsByStatus(input);
-  }
-
-  async recordRecoveryExecution(input: {
-    sessionId: string;
-    chainIdKey: string;
-    accountAddress: string;
-    action: string;
-    status: RecoveryExecutionStatus;
-    transactionHash?: string;
-    errorCode?: string;
-    errorMessage?: string;
-    metadata?: Record<string, unknown>;
-  }): Promise<RecordRecoveryExecutionResult> {
-    return await this.recoveryTrackingOperations().recordRecoveryExecution(input);
   }
 
   async txStatus(txHash: string, senderAccountId: string): Promise<FinalExecutionOutcome> {
@@ -932,18 +789,10 @@ export class AuthService {
    * This is relay-private state (no on-chain authenticator registry).
    * Intended for UI surfaces like "Linked Devices" in the SDK.
    */
-  async listWebAuthnAuthenticatorsForUser(input: { userId: string; rpId?: string }): Promise<{
-    ok: boolean;
-    code?: string;
-    message?: string;
-    authenticators?: Array<{
-      credentialIdB64u: string;
-      signerSlot?: number;
-      publicKey?: string;
-      createdAtMs?: number;
-      updatedAtMs?: number;
-    }>;
-  }> {
+  async listWebAuthnAuthenticatorsForUser(input: {
+    userId: string;
+    rpId?: string;
+  }): Promise<WebAuthnAuthenticatorListResult> {
     return await listWebAuthnAuthenticatorsForUserWithStores({
       userId: input.userId,
       rpId: String(input.rpId || '').trim(),
@@ -985,18 +834,12 @@ export class AuthService {
     challenge_id?: unknown;
     webauthn_authentication?: unknown;
     expected_origin?: string;
-  }): Promise<{
-    ok: boolean;
-    verified?: boolean;
-    userId?: string;
-    rpId?: string;
-    code?: string;
-    message?: string;
-  }> {
+  }): Promise<WebAuthnLoginVerificationResult> {
     return await verifyWebAuthnLoginWithStores({
       request,
       loginChallengeStore: this.stores.getWebAuthnLoginChallengeStore(),
       authenticatorStore: this.stores.getWebAuthnAuthenticatorStore(),
+      credentialBindingStore: this.stores.getWebAuthnCredentialBindingStore(),
       identityStore: this.stores.getIdentityStore(),
       logger: this.logger,
     });
@@ -1036,6 +879,10 @@ export class AuthService {
         verified: true;
         userId: string;
         walletId: string;
+        providerUserId: string;
+        orgId: string;
+        enrollmentId: string;
+        enrollmentSealKeyVersion: string;
         unlockKeyVersion: string;
       }
     | { ok: false; verified: false; code: string; message: string }
@@ -1086,8 +933,7 @@ export class AuthService {
     orgId?: unknown;
     email?: unknown;
     otpChannel?: unknown;
-    sessionHash?: unknown;
-    appSessionVersion?: unknown;
+    ownerProofBindingDigest?: unknown;
     clientIp?: unknown;
     operation?: unknown;
     reuseActiveChallenge?: unknown;
@@ -1109,9 +955,6 @@ export class AuthService {
     return {
       createChallengeWithAction: this.createEmailOtpChallengeWithAction.bind(this),
       verifyChallengeCode: this.verifyEmailOtpChallengeCode.bind(this),
-      readActiveEnrollment: this.readActiveEmailOtpEnrollment.bind(this),
-      recoveryWrappedEnrollmentEscrowStore:
-        this.stores.getEmailOtpRecoveryWrappedEnrollmentEscrowStore(),
       grantStore: this.stores.getEmailOtpGrantStore(),
       resolveConfig: this.resolveEmailOtpConfig.bind(this),
     };
@@ -1123,8 +966,7 @@ export class AuthService {
     orgId?: unknown;
     email?: unknown;
     otpChannel?: unknown;
-    sessionHash?: unknown;
-    appSessionVersion?: unknown;
+    ownerProofBindingDigest?: unknown;
     clientIp?: unknown;
     operation?: unknown;
     reuseActiveChallenge?: unknown;
@@ -1139,8 +981,7 @@ export class AuthService {
           walletId: string;
           orgId: string;
           otpChannel: EmailOtpChannel;
-          sessionHash: string;
-          appSessionVersion: string;
+          ownerProofBindingDigest: string;
           action: typeof WALLET_EMAIL_OTP_ACTIONS.login;
           operation: EmailOtpLoginChallengeOperation;
         };
@@ -1161,8 +1002,7 @@ export class AuthService {
     orgId?: unknown;
     email?: unknown;
     otpChannel?: unknown;
-    sessionHash?: unknown;
-    appSessionVersion?: unknown;
+    ownerProofBindingDigest?: unknown;
     clientIp?: unknown;
     operation?: unknown;
   }): Promise<
@@ -1176,8 +1016,7 @@ export class AuthService {
           walletId: string;
           orgId: string;
           otpChannel: EmailOtpChannel;
-          sessionHash: string;
-          appSessionVersion: string;
+          ownerProofBindingDigest: string;
           action: typeof WALLET_EMAIL_OTP_ACTIONS.registration;
           operation: typeof WALLET_EMAIL_OTP_REGISTRATION_OPERATION;
         };
@@ -1194,44 +1033,6 @@ export class AuthService {
     );
   }
 
-  async createEmailOtpDeviceRecoveryChallenge(request: {
-    userId?: unknown;
-    walletId?: unknown;
-    orgId?: unknown;
-    email?: unknown;
-    otpChannel?: unknown;
-    sessionHash?: unknown;
-    appSessionVersion?: unknown;
-    clientIp?: unknown;
-  }): Promise<
-    | {
-        ok: true;
-        challenge: {
-          challengeId: string;
-          issuedAtMs: number;
-          expiresAtMs: number;
-          userId: string;
-          walletId: string;
-          orgId: string;
-          otpChannel: EmailOtpChannel;
-          sessionHash: string;
-          appSessionVersion: string;
-          action: typeof WALLET_EMAIL_OTP_ACTIONS.deviceRecovery;
-          operation: typeof WALLET_EMAIL_OTP_UNLOCK_OPERATION;
-        };
-        delivery: {
-          mode: 'email_provider' | 'log' | 'memory';
-          emailHint: string;
-        };
-      }
-    | { ok: false; code: string; message: string }
-  > {
-    return await createEmailOtpDeviceRecoveryChallengeOperation(
-      this.emailOtpChallengeOperationsInput(),
-      request,
-    );
-  }
-
   private async verifyEmailOtpChallengeCode(request: {
     challengeSubjectId?: unknown;
     walletId?: unknown;
@@ -1239,8 +1040,7 @@ export class AuthService {
     challengeId?: unknown;
     otpCode?: unknown;
     otpChannel?: unknown;
-    sessionHash?: unknown;
-    appSessionVersion?: unknown;
+    ownerProofBindingDigest?: unknown;
     registrationChallengeProof?: EmailOtpRegistrationChallengeProof;
     allowRegistrationChallengeReroll?: boolean;
     clientIp?: unknown;
@@ -1268,8 +1068,7 @@ export class AuthService {
     challengeId?: unknown;
     otpCode?: unknown;
     otpChannel?: unknown;
-    sessionHash?: unknown;
-    appSessionVersion?: unknown;
+    ownerProofBindingDigest?: unknown;
     clientIp?: unknown;
     operation?: unknown;
   }): Promise<
@@ -1291,68 +1090,22 @@ export class AuthService {
     return await verifyEmailOtpChallengeOperation(this.emailOtpChallengeOperationsInput(), request);
   }
 
-  async verifyEmailOtpDeviceRecoveryChallenge(request: {
-    userId?: unknown;
-    walletId?: unknown;
-    orgId?: unknown;
-    challengeId?: unknown;
-    otpCode?: unknown;
-    otpChannel?: unknown;
-    sessionHash?: unknown;
-    appSessionVersion?: unknown;
-    clientIp?: unknown;
-  }): Promise<
-    | {
-        ok: true;
-        challengeId: string;
-        otpChannel: EmailOtpChannel;
-        recoveryConsumeGrant: string;
-        recoveryConsumeGrantExpiresAtMs: number;
-        recoveryWrappedEnrollmentEscrows: EmailOtpRecoveryChallengeEscrow[];
-        enrollment: {
-          walletId: string;
-          providerUserId: string;
-          orgId: string;
-          enrollmentId: string;
-          enrollmentVersion: string;
-          enrollmentSealKeyVersion: string;
-          signingRootId: string;
-          signingRootVersion: string;
-          recoveryWrappedEnrollmentEscrowCount: number;
-        };
-      }
-    | {
-        ok: false;
-        code: string;
-        message: string;
-        attemptsRemaining?: number;
-        lockedUntilMs?: number;
-      }
-  > {
-    return await verifyEmailOtpDeviceRecoveryChallengeOperation(
-      this.emailOtpChallengeOperationsInput(),
-      request,
-    );
-  }
-
   async verifyEmailOtpEnrollment(request: {
-    /** Provider subject from the app-session JWT that requested the registration OTP. */
+    /** Provider subject that requested the registration OTP. */
     providerSubject: unknown;
     walletId: unknown;
     orgId: unknown;
     challengeId: unknown;
     otpCode: unknown;
     otpChannel: unknown;
-    sessionHash: unknown;
-    appSessionVersion: unknown;
+    ownerProofBindingDigest: unknown;
     /** Email asserted by the registration proof. It must match the challenged email. */
     proofEmail?: unknown;
     clientIp?: unknown;
-    recoveryWrappedEnrollmentEscrows?: unknown;
     enrollmentSealKeyVersion?: unknown;
+    serverSealedFactorCiphertextB64u?: unknown;
     clientUnlockPublicKeyB64u?: unknown;
     unlockKeyVersion?: unknown;
-    thresholdEcdsaClientVerifyingShareB64u?: unknown;
     googleEmailOtpRegistrationAttemptId?: unknown;
   }): Promise<
     | {
@@ -1379,8 +1132,6 @@ export class AuthService {
       walletStore: this.stores.getWalletStore(),
       walletEnrollmentStore: this.stores.getEmailOtpWalletEnrollmentStore(),
       authStateStore: this.stores.getEmailOtpAuthStateStore(),
-      recoveryWrappedEnrollmentEscrowStore:
-        this.stores.getEmailOtpRecoveryWrappedEnrollmentEscrowStore(),
       registrationAttemptStore: this.stores.getEmailOtpRegistrationAttemptStore(),
       identityStore: this.stores.getIdentityStore(),
       verifyChallengeCode: this.verifyEmailOtpChallengeCode.bind(this),
@@ -1440,63 +1191,6 @@ export class AuthService {
     });
   }
 
-  async getEmailOtpRecoveryCodeStatus(
-    request: EmailOtpRecoveryCodeStatusRequest,
-  ): Promise<EmailOtpRecoveryCodeStatusResult> {
-    return await getEmailOtpRecoveryCodeStatusWithStores({
-      request,
-      recoveryWrappedEnrollmentEscrowStore:
-        this.stores.getEmailOtpRecoveryWrappedEnrollmentEscrowStore(),
-      readActiveEnrollment: this.readActiveEmailOtpEnrollment.bind(this),
-    });
-  }
-  async consumeEmailOtpRecoveryKey(
-    request: EmailOtpRecoveryKeyConsumeRequest,
-  ): Promise<EmailOtpRecoveryKeyConsumeResult> {
-    return await consumeEmailOtpRecoveryKeyWithStores({
-      request,
-      stores: this.emailOtpRecoveryKeysStores(),
-      ports: this.emailOtpRecoveryKeysPorts(),
-    });
-  }
-  async rotateEmailOtpRecoveryKeys(
-    request: EmailOtpRecoveryKeysRotateRequest,
-  ): Promise<EmailOtpRecoveryKeysRotateResult> {
-    return await rotateEmailOtpRecoveryKeysWithStores({
-      request,
-      store: this.stores.getEmailOtpRecoveryWrappedEnrollmentEscrowStore(),
-      readActiveEnrollment: this.readActiveEmailOtpEnrollment.bind(this),
-      readEnrollmentAuthState: this.readEmailOtpAuthStateForEnrollment.bind(this),
-      resolveConfig: this.resolveEmailOtpConfig.bind(this),
-    });
-  }
-  async recordEmailOtpRecoveryKeyAttemptFailure(
-    request: EmailOtpRecoveryKeyAttemptFailureRequest,
-  ): Promise<EmailOtpRecoveryKeyAttemptFailureResult> {
-    return await recordEmailOtpRecoveryKeyAttemptFailureWithStores({
-      request,
-      stores: this.emailOtpRecoveryKeysStores(),
-      ports: this.emailOtpRecoveryKeysPorts(),
-    });
-  }
-  private emailOtpRecoveryKeysStores() {
-    return {
-      grantStore: this.stores.getEmailOtpGrantStore(),
-      recoveryWrappedEnrollmentEscrowStore:
-        this.stores.getEmailOtpRecoveryWrappedEnrollmentEscrowStore(),
-    };
-  }
-
-  private emailOtpRecoveryKeysPorts() {
-    return {
-      readActiveEnrollment: this.readActiveEmailOtpEnrollment.bind(this),
-      readEnrollmentAuthState: this.readEmailOtpAuthStateForEnrollment.bind(this),
-      putEnrollmentAuthState: this.putEmailOtpAuthStateForEnrollment.bind(this),
-      consumeRateLimit: this.consumeEmailOtpRateLimit.bind(this),
-      resolveConfig: this.resolveEmailOtpConfig.bind(this),
-    };
-  }
-
   async readEmailOtpOutboxEntry(request: {
     challengeId?: unknown;
     userId?: unknown;
@@ -1527,15 +1221,6 @@ export class AuthService {
       operation: 'apply-server-seal',
       request,
       shamir: this.createEmailOtpShamirCipher(),
-    });
-  }
-
-  async verifyOidcJwtExchange(request: { token?: unknown }): Promise<OidcJwtExchangeFacadeResult> {
-    return await verifyOidcJwtExchangeWithIdentityStore({
-      request,
-      config: this.config.oidcExchange,
-      jwksState: this.oidcJwksState,
-      identityStore: this.stores.getIdentityStore(),
     });
   }
 
@@ -1583,20 +1268,6 @@ export class AuthService {
       logger: this.logger,
     });
   }
-  private emailRecoveryAuthOperations(): EmailRecoveryAuthOperations {
-    return new EmailRecoveryAuthOperations({
-      ensureSignerAndRelayerAccount: this._ensureSignerAndRelayerAccount.bind(this),
-      webAuthnCredentialBindingStore: this.stores.getWebAuthnCredentialBindingStore(),
-      emailRecoveryPreparationStore: this.stores.getEmailRecoveryPreparationStore(),
-    });
-  }
-
-  prepareEmailRecovery(
-    request: Parameters<EmailRecoveryAuthOperations['prepareEmailRecovery']>[0],
-  ): ReturnType<EmailRecoveryAuthOperations['prepareEmailRecovery']> {
-    return this.emailRecoveryAuthOperations().prepareEmailRecovery(request);
-  }
-
   /**
    * Account existence helper used by registration flows.
    */

@@ -37,12 +37,12 @@ import {
   type RouterAbEd25519YaoVerifiedActivationIntentV1,
   type RouterAbEd25519YaoRegistrationIntentBindingResult,
 } from '../registration/routerAbEd25519YaoRegistrationIntentAuthorization';
-import type { SessionAdapter } from '../../../framework/routerApi';
+import type { RouterApiAuthorizationSessionService } from '../../../framework/authServicePort';
+import type { VerifiedOwnerProof } from '../../../../authorization/domain';
 import { createRouterApiModule, type RouterApiModule } from '../../../framework/modules';
-import { signRouterAbEd25519WalletSessionJwt } from '../../../auth/commonRouterUtils';
+import { issueRouterAbEd25519OpaqueWalletSessionToken } from '../../../auth/commonRouterUtils';
 import type {
   MpcWalletSigningQuotaId,
-  SeamsSessionId,
   WalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
@@ -86,6 +86,7 @@ export type RouterAbEd25519YaoWalletSessionMintResultV1 =
   | { readonly ok: false; readonly code: string; readonly message: string };
 
 type RouterAbEd25519YaoWalletSessionMintIdentityV1 = {
+  readonly proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
   readonly walletId: WalletId;
   readonly nearAccountId: string;
   readonly nearEd25519SigningKeyId: string;
@@ -104,20 +105,16 @@ export type RouterAbEd25519YaoWalletSessionMintInputV1 =
       readonly ttlMs?: never;
       readonly expiresAtMs: number;
       readonly remainingUses: number;
-      readonly seamsSessionId?: never;
-    })
-  | (RouterAbEd25519YaoWalletSessionMintIdentityV1 & {
-      readonly kind: 'verified_app_session_wallet_unlock_v1';
-      readonly ttlMs?: never;
-      readonly expiresAtMs: number;
-      readonly remainingUses: number;
-      readonly seamsSessionId: SeamsSessionId;
     })
   | (RouterAbEd25519YaoWalletSessionMintIdentityV1 & {
       readonly kind: 'same_identity_budget_refresh_v1';
       readonly expiresAtMs?: never;
       readonly remainingUses: number;
-      readonly seamsSessionId?: SeamsSessionId;
+    })
+  | (RouterAbEd25519YaoWalletSessionMintIdentityV1 & {
+      readonly kind: 'same_wallet_session_curve_mint_v1';
+      readonly expiresAtMs: number;
+      readonly remainingUses: number;
     });
 
 export type RouterAbEd25519YaoProductRegistrationRuntimeV1 =
@@ -135,9 +132,6 @@ export type RouterAbEd25519YaoProductRegistrationRuntimeV1 =
       consumeActivated(
         request: RouterAbEd25519YaoActivationConsumptionRequestV1,
       ): Promise<RouterAbEd25519YaoActivationConsumptionResultV1>;
-      mintWalletSession(
-        input: RouterAbEd25519YaoWalletSessionMintInputV1,
-      ): Promise<RouterAbEd25519YaoWalletSessionMintResultV1>;
     };
 
 export type RouterAbEd25519YaoVerifiedRegistrationAdmissionResultV1 =
@@ -183,7 +177,6 @@ export type RouterAbEd25519YaoProductRegistrationPortsV1 = {
   readonly recoveryAuthorization: RouterAbEd25519YaoRecoveryAuthorizationAdapter;
   readonly exportService: RouterAbEd25519YaoExportService;
   readonly exportAuthorization: RouterAbEd25519YaoExportAuthorizationAdapter;
-  readonly session: SessionAdapter;
 };
 
 export type RouterAbEd25519YaoProductRegistrationStateV1 = {
@@ -350,7 +343,6 @@ export function createRouterAbEd25519YaoProductRegistrationCompositionFromPortsV
     authorization: input.authorization,
     capabilityInstaller: input.recoveryService,
     capabilityResolver: input.capabilities,
-    session: input.session,
   });
   const registrationModule = createRouterAbEd25519YaoRegistrationModule({
     service: input.registrationService,
@@ -401,7 +393,6 @@ async function resolveRouterAbEd25519YaoWalletSessionTermsV1(
   const nowMs = Date.now();
   switch (input.kind) {
     case 'verified_wallet_unlock_v1':
-    case 'verified_app_session_wallet_unlock_v1':
       if (!Number.isSafeInteger(input.expiresAtMs) || input.expiresAtMs <= nowMs) {
         throw new Error('Verified wallet unlock expiry must follow issuance');
       }
@@ -415,6 +406,17 @@ async function resolveRouterAbEd25519YaoWalletSessionTermsV1(
     case 'same_identity_budget_refresh_v1':
       return {
         expiresAtMs: nowMs + DEFAULT_WALLET_SESSION_TTL_MS,
+        remainingUses: Math.min(
+          DEFAULT_WALLET_SESSION_REMAINING_USES,
+          Math.max(1, Math.floor(input.remainingUses)),
+        ),
+      };
+    case 'same_wallet_session_curve_mint_v1':
+      if (!Number.isSafeInteger(input.expiresAtMs) || input.expiresAtMs <= nowMs) {
+        throw new Error('Existing Wallet Session expiry must follow issuance');
+      }
+      return {
+        expiresAtMs: input.expiresAtMs,
         remainingUses: Math.min(
           DEFAULT_WALLET_SESSION_REMAINING_USES,
           Math.max(1, Math.floor(input.remainingUses)),
@@ -437,7 +439,6 @@ class RouterAbEd25519YaoProductRegistrationRuntime implements RouterAbEd25519Yao
       readonly capabilityInstaller: RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallerV1 &
         RouterAbEd25519YaoPersistedActiveCapabilityInstallerV1;
       readonly capabilityResolver: RouterAbEd25519YaoActiveCapabilityResolverV1;
-      readonly session: SessionAdapter;
     },
   ) {
     this.signingWorkerId = input.signingWorkerId.trim();
@@ -483,20 +484,14 @@ class RouterAbEd25519YaoProductRegistrationRuntime implements RouterAbEd25519Yao
   ): Promise<RouterAbEd25519YaoActiveCapabilityLookupResultV1> {
     return await this.input.capabilityResolver.resolveActiveCapability(input);
   }
-
-  async mintWalletSession(
-    sessionInput: RouterAbEd25519YaoWalletSessionMintInputV1,
-  ): Promise<RouterAbEd25519YaoWalletSessionMintResultV1> {
-    return await mintRouterAbEd25519YaoWalletSessionV1({
-      session: this.input.session,
-      signingWorkerId: this.signingWorkerId,
-      sessionInput,
-    });
-  }
 }
 
 export async function mintRouterAbEd25519YaoWalletSessionV1(input: {
-  readonly session: SessionAdapter;
+  readonly opaqueWalletSessions: Pick<
+    RouterApiAuthorizationSessionService,
+    'issueOpaqueWalletSessionToken'
+  >;
+  readonly tenantId: RouterApiAuthorizationSessionService['tenantId'];
   readonly signingWorkerId: string;
   readonly sessionInput: RouterAbEd25519YaoWalletSessionMintInputV1;
 }): Promise<RouterAbEd25519YaoWalletSessionMintResultV1> {
@@ -510,16 +505,16 @@ export async function mintRouterAbEd25519YaoWalletSessionV1(input: {
     kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
     signingWorkerId,
   } as const;
-  const signed = await signRouterAbEd25519WalletSessionJwt({
-    session: input.session,
+  const signed = await issueRouterAbEd25519OpaqueWalletSessionToken({
+    opaqueWalletSessions: input.opaqueWalletSessions,
+    tenantId: input.tenantId,
+    proof: sessionInput.proof,
     userId: sessionInput.walletId,
     relayerKeyId: signingWorkerId,
     authority: sessionInput.authority,
     sessionInfo: {
-      sessionKind: 'jwt',
-      ...(sessionInput.seamsSessionId
-        ? { seamsSessionId: sessionInput.seamsSessionId }
-        : {}),
+      sessionKind: 'opaque',
+      authorizationKind: 'owner_wallet_session',
       walletId: sessionInput.walletId,
       nearAccountId: sessionInput.nearAccountId,
       nearEd25519SigningKeyId: sessionInput.nearEd25519SigningKeyId,
@@ -533,23 +528,26 @@ export async function mintRouterAbEd25519YaoWalletSessionV1(input: {
       routerAbNormalSigning,
     },
     fallbackParticipantIds: [sessionInput.participantIds[0], sessionInput.participantIds[1]],
-    requireJwtErrorMessage: 'Ed25519 Wallet Session must use jwt sessionKind',
-    invalidPayloadErrorMessage: 'invalid Ed25519 Yao Wallet Session payload for jwt signing',
+    invalidPayloadErrorMessage: 'invalid Ed25519 Yao Wallet Session payload',
   });
   if (!signed.ok) return { ok: false, code: signed.code, message: signed.message };
+  if (signed.authorizationKind !== 'owner_wallet_session') {
+    return { ok: false, code: 'internal', message: 'Owner Wallet Session issuance failed' };
+  }
   return {
     ok: true,
     session: {
-      sessionKind: 'jwt',
-      walletSessionJwt: signed.jwt,
+      sessionKind: 'opaque',
+      walletSessionToken: signed.token,
       walletId: sessionInput.walletId,
       nearAccountId: sessionInput.nearAccountId,
       nearEd25519SigningKeyId: sessionInput.nearEd25519SigningKeyId,
       authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(sessionInput.authority),
-      thresholdSessionId: signed.thresholdSessionId,
+      thresholdSessionId: sessionInput.thresholdSessionId,
+      authorizationId: sessionInput.authorizationId,
       walletSessionId: sessionInput.walletSessionId,
       quotaId: sessionInput.quotaId,
-      expiresAtMs: signed.thresholdExpiresAtMs,
+      expiresAtMs: terms.expiresAtMs,
       participantIds: [sessionInput.participantIds[0], sessionInput.participantIds[1]],
       remainingUses: terms.remainingUses,
       signingRootId,
@@ -567,7 +565,6 @@ export function createRouterAbEd25519YaoProductRegistrationRuntimeV1(input: {
   readonly capabilityInstaller: RouterAbEd25519YaoRegistrationFinalizeCapabilityInstallerV1 &
     RouterAbEd25519YaoPersistedActiveCapabilityInstallerV1;
   readonly capabilityResolver: RouterAbEd25519YaoActiveCapabilityResolverV1;
-  readonly session: SessionAdapter;
 }): RouterAbEd25519YaoProductRegistrationRuntimeV1 {
   return new RouterAbEd25519YaoProductRegistrationRuntime(input);
 }

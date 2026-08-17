@@ -1,23 +1,26 @@
 import type { D1WalletAddSignerFinalizePreparedV1 } from './d1WalletAddSignerService';
-import type {
-  WalletAddSignerEcdsaActivationPrepareRequest,
-  WalletAddSignerEcdsaActivationQueryRequest,
-  WalletAddSignerEcdsaActivationRequest,
-} from '../../../../core/registrationContracts';
+import type { WalletAddSignerEcdsaActivationRequest } from '../../../../core/registrationContracts';
 
-declare const activationPrepareRequest: WalletAddSignerEcdsaActivationPrepareRequest;
+declare const activationCommit: WalletAddSignerEcdsaActivationRequest;
 
-const activationCommitWithoutPreparedDigest = {
-  addSignerCeremonyId: activationPrepareRequest.addSignerCeremonyId,
-  // @ts-expect-error Add-signer activation commit requires the prepared request digest.
-  ecdsa: activationPrepareRequest.ecdsa,
+const activationCommitWithoutCanonicalDigest = {
+  addSignerCeremonyId: activationCommit.addSignerCeremonyId,
+  // @ts-expect-error Add-signer activation commit requires the canonical command digest.
+  ecdsa: {
+    kind: activationCommit.ecdsa.kind,
+    activationCorrelationId: activationCommit.ecdsa.activationCorrelationId,
+    publicFacts: activationCommit.ecdsa.publicFacts,
+  },
 } satisfies WalletAddSignerEcdsaActivationRequest;
 
-const activationQueryWithoutPreparedDigest = {
-  addSignerCeremonyId: activationPrepareRequest.addSignerCeremonyId,
-  // @ts-expect-error Add-signer activation query requires the prepared request digest.
-  ecdsa: activationPrepareRequest.ecdsa,
-} satisfies WalletAddSignerEcdsaActivationQueryRequest;
+const activationCommitWithBrowserOwnedMaterial = {
+  ...activationCommit,
+  ecdsa: {
+    ...activationCommit.ecdsa,
+    // @ts-expect-error The public activation request cannot choose Router-owned material identity.
+    materialActivation: {},
+  },
+} satisfies WalletAddSignerEcdsaActivationRequest;
 
 const validEd25519FinalizePrepared = {
   kind: 'd1_wallet_add_signer_finalize_ed25519_prepared_v1',
@@ -43,5 +46,5 @@ void validEd25519FinalizePrepared;
 void validEcdsaFinalizePrepared;
 void ecdsaFinalizeWithSessionTerms;
 void ed25519FinalizeWithSessionTerms;
-void activationCommitWithoutPreparedDigest;
-void activationQueryWithoutPreparedDigest;
+void activationCommitWithoutCanonicalDigest;
+void activationCommitWithBrowserOwnedMaterial;

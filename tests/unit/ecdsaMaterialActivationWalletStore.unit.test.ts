@@ -3,7 +3,8 @@ import { createWalletStore } from '../../packages/sdk-server-ts/src/core/WalletS
 import { normalizeLogger } from '../../packages/sdk-server-ts/src/core/logger';
 import type { FetchRouterApiContext } from '../../packages/sdk-server-ts/src/router/transport/fetch/fetchRouter.types';
 import { handleThresholdEcdsa } from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/thresholdEcdsa';
-import { buildVerifiedFactorEvidenceSet } from '../../packages/sdk-server-ts/src/authorization/factorEvidence';
+import { buildVerifiedWalletOperationFactorEvidenceSet } from '../../packages/sdk-server-ts/src/authorization/factorEvidence';
+import { buildAuthorizedOperation } from '../../packages/sdk-server-ts/src/authorization/domain';
 import { parseWalletId } from '../../packages/shared-ts/src/utils/domainIds';
 import {
   parseRouterAbMpcMaterialActivationRef,
@@ -16,13 +17,13 @@ import {
   buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1,
   ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PATH,
   ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PREPARE_PATH,
-  ROUTER_AB_ECDSA_DERIVATION_OPERATION_STEP_UP_GRANT_PATH,
+  ROUTER_AB_ECDSA_DERIVATION_OPERATION_STEP_UP_PATH,
   ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_INIT_PATH,
   ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_STEP_PATH,
   type RouterAbEcdsaDerivationNormalSigningScopeV1,
   type RouterAbEcdsaOperationStepUpPreparationV1Wire,
 } from '../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
-import { buildPasskeyAuthorizationSessionFixture } from './helpers/authorizationCore.fixtures';
+import { buildPasskeyWalletSessionIssuanceFixture } from './helpers/authorizationCore.fixtures';
 import { createWalletEcdsaSignerRecord } from './helpers/walletRegistrationSigner.fixtures';
 import { buildRouterAbEcdsaWalletSessionClaimsFixture } from './helpers/routerAbEcdsaWalletSessionClaims.fixtures';
 
@@ -75,7 +76,7 @@ type RouteSideEffects = {
   proofVerifications: number;
   otpConsumptions: number;
   evidenceWrites: number;
-  grantWrites: number;
+  admissions: number;
   claims: number;
   audits: number;
   quotaWrites: number;
@@ -87,7 +88,7 @@ function emptyRouteSideEffects(): RouteSideEffects {
     proofVerifications: 0,
     otpConsumptions: 0,
     evidenceWrites: 0,
-    grantWrites: 0,
+    admissions: 0,
     claims: 0,
     audits: 0,
     quotaWrites: 0,
@@ -107,11 +108,9 @@ async function stepUpRouteFixture(input: {
 }): Promise<FetchRouterApiContext> {
   const nowMs = Date.now();
   const walletId = String(input.signer.walletId);
-  const sessionFixture = await buildPasskeyAuthorizationSessionFixture({
+  const sessionFixture = await buildPasskeyWalletSessionIssuanceFixture({
     tenantId: 'tenant-material-activation',
     principalId: 'principal-material-activation',
-    sessionId: 'session-material-activation',
-    deviceId: 'device-material-activation',
     walletId,
     credentialIdB64u: 'credential-material-activation',
     rpId: 'app.example.test',
@@ -121,7 +120,7 @@ async function stepUpRouteFixture(input: {
   const capability = input.signer.walletKey.publicCapability;
   const materialResolutionQueue = [...(input.materialResolutionQueue ?? [])];
   const requestBody = {
-    kind: 'router_ab_ecdsa_operation_step_up_grant_v1',
+    kind: 'router_ab_ecdsa_operation_step_up_v1',
     operation: {
       wallet_id: walletId,
       operation_kind: 'evm.sign_transaction',
@@ -168,33 +167,45 @@ async function stepUpRouteFixture(input: {
     },
   };
   const request = new Request(
-    `https://app.example.test${ROUTER_AB_ECDSA_DERIVATION_OPERATION_STEP_UP_GRANT_PATH}`,
+    `https://app.example.test${ROUTER_AB_ECDSA_DERIVATION_OPERATION_STEP_UP_PATH}`,
     {
       method: 'POST',
-      headers: { 'content-type': 'application/json', origin: 'https://app.example.test' },
+      headers: {
+        authorization: 'Bearer opaque-wallet-session',
+        'content-type': 'application/json',
+        origin: 'https://app.example.test',
+      },
       body: JSON.stringify(requestBody),
     },
   );
-  const rawClaims = {
-    kind: 'app_session_v1',
-    sub: 'principal-material-activation',
-    appSessionVersion: 'app-session-version-1',
-    seamsSessionId: 'session-material-activation',
-    walletId,
-    walletAuthAuthorityRef: sessionFixture.authorityRef,
-    runtimePolicyScope: {
+  const runtimePolicyScope = {
       orgId: 'tenant-material-activation',
       projectId: 'project-material-activation',
       envId: 'env-material-activation',
       signingRootVersion: input.signer.walletKey.signingRootVersion,
-    },
-    tenantId: 'tenant-material-activation',
-    exp: Math.floor((nowMs + 50_000) / 1_000),
   };
+  const rawClaims = buildRouterAbEcdsaWalletSessionClaimsFixture({
+    walletId,
+    keyHandle: input.signer.walletKey.keyHandle,
+    relayerKeyId: input.signer.walletKey.relayerKeyId,
+    participantIds: input.signer.walletKey.participantIds,
+    thresholdExpiresAtMs: nowMs + 50_000,
+    runtimePolicyScope,
+    normalSigningScope: requestBody.operation.normal_signing_scope,
+    authorizationId: 'authorization-material-activation',
+    authorizationSessionId: 'wallet-session-material-activation',
+    walletSessionId: 'wallet-session-material-activation',
+    quotaId: 'quota-material-activation',
+    walletAuthAuthorityRef: sessionFixture.authorityRef,
+    authSource: {
+      kind: 'passkey',
+      credentialIdB64u: sessionFixture.authority.factor.credentialIdB64u,
+    },
+  });
   return {
     request,
     url: new URL(request.url),
-    pathname: ROUTER_AB_ECDSA_DERIVATION_OPERATION_STEP_UP_GRANT_PATH,
+    pathname: ROUTER_AB_ECDSA_DERIVATION_OPERATION_STEP_UP_PATH,
     method: 'POST',
     logger: normalizeLogger(),
     service: {
@@ -228,23 +239,56 @@ async function stepUpRouteFixture(input: {
               };
         },
       },
+      walletAuthMethods: {
+        async verifyActivePasskeyAuthority() {
+          return { ok: true as const };
+        },
+      },
       authorizationSessions: {
         tenantId: sessionFixture.session.tenantId,
-        async readActiveSession() {
-          return sessionFixture.session;
+        async resolveOpaqueWalletSessionToken() {
+          return {
+            kind: 'resolved_opaque_wallet_session_token' as const,
+            curve: 'ecdsa' as const,
+            binding: rawClaims,
+            authorization: {
+              tenantId: sessionFixture.session.tenantId,
+              principalId: sessionFixture.session.principalId,
+              walletId: input.signer.walletId,
+              authorityDigest: sessionFixture.authorityRef.authorityDigest,
+              authorizationId: 'authorization-material-activation',
+              walletSessionId: 'wallet-session-material-activation',
+              quotaId: 'quota-material-activation',
+              expiresAtMs: nowMs + 50_000,
+            },
+            quota: {
+              kind: 'active_wallet_session_quota' as const,
+              tenantId: sessionFixture.session.tenantId,
+              principalId: sessionFixture.session.principalId,
+              walletSessionId: 'wallet-session-material-activation',
+              quotaId: 'quota-material-activation',
+              lifecycle: 'active' as const,
+              remainingUses: 3,
+              expiresAtMs: nowMs + 50_000,
+            },
+          };
         },
       },
       authorizedOperations: {
         tenantId: sessionFixture.session.tenantId,
-        async recordVerifiedFactorEvidenceSet(evidenceInput) {
+        async recordVerifiedWalletOperationFactorEvidenceSet(evidenceInput) {
           input.sideEffects.evidenceWrites += 1;
-          return buildVerifiedFactorEvidenceSet(evidenceInput);
+          return buildVerifiedWalletOperationFactorEvidenceSet(evidenceInput);
         },
-        async issueGrant() {
-          input.sideEffects.grantWrites += 1;
+        async readAuthorizedOperation() {
+          return null;
         },
-        async putEcdsaEvidenceAndGrant({ evidenceSet, material }) {
+        /* Refactor 90's single atomic admission: material validation and the
+           claim are one step, so a material the wallet no longer names is
+           refused here rather than after a separate grant write. */
+        async admitAuthorizedOperation({ operation, material }) {
           if (
+            !material ||
             material.walletId !== input.signer.walletId ||
             !sameRouterAbMpcMaterialActivationRef(
               material.materialActivation,
@@ -253,59 +297,14 @@ async function stepUpRouteFixture(input: {
           ) {
             return { kind: 'material_mismatch' as const };
           }
-          input.sideEffects.evidenceWrites += 1;
-          input.sideEffects.grantWrites += 1;
-          void evidenceSet;
-          return { kind: 'committed' as const };
-        },
-        async claimEcdsaOperation({ material }) {
-          if (
-            material.walletId !== input.signer.walletId ||
-            !sameRouterAbMpcMaterialActivationRef(
-              material.materialActivation,
-              capability.material_activation,
-            )
-          ) {
-            return { kind: 'material_mismatch' as const };
-          }
-          input.sideEffects.claims += 1;
-          return { kind: 'grant_mismatch' as const };
-        },
-        async claimEcdsaOperationStepUpFromGrant({ material }) {
-          if (
-            material.walletId !== input.signer.walletId ||
-            !sameRouterAbMpcMaterialActivationRef(
-              material.materialActivation,
-              capability.material_activation,
-            )
-          ) {
-            return { kind: 'material_mismatch' as const };
-          }
-          input.sideEffects.claims += 1;
-          return { kind: 'grant_mismatch' as const };
-        },
-        async claimEcdsaReusableWalletSessionOperation({ material }) {
-          if (
-            material.walletId !== input.signer.walletId ||
-            !sameRouterAbMpcMaterialActivationRef(
-              material.materialActivation,
-              capability.material_activation,
-            )
-          ) {
-            return {
-              claim: null,
-              result: { kind: 'material_mismatch' as const },
-            };
-          }
-          input.sideEffects.claims += 1;
+          input.sideEffects.admissions += 1;
           return {
-            claim: null,
-            result: { kind: 'grant_mismatch' as const },
+            kind: 'claimed' as const,
+            operation: await buildAuthorizedOperation(operation),
           };
         },
-        async claimOperationStepUpFromGrant() {
-          input.sideEffects.claims += 1;
-          throw new Error('claim must not run while issuing a step-up grant');
+        async completeAuthorizedOperation() {
+          throw new Error('an admitted step-up operation must not complete on this route');
         },
       },
       webAuthn: {
@@ -410,7 +409,11 @@ test('operation step-up rejects a key handle outside the canonical signer', asyn
   };
   ctx.request = new Request(ctx.request.url, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', origin: 'https://app.example.test' },
+      headers: {
+        authorization: 'Bearer opaque-wallet-session',
+        'content-type': 'application/json',
+        origin: 'https://app.example.test',
+      },
     body: JSON.stringify({
       ...body,
       operation: { ...body.operation, key_handle: 'hostile-key-handle' },
@@ -441,7 +444,11 @@ test('operation step-up rejects hostile signer runtime facts before side effects
     };
     ctx.request = new Request(ctx.request.url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', origin: 'https://app.example.test' },
+      headers: {
+        authorization: 'Bearer opaque-wallet-session',
+        'content-type': 'application/json',
+        origin: 'https://app.example.test',
+      },
       body: JSON.stringify({
         ...body,
         operation: { ...body.operation, ...operationOverride },
@@ -454,7 +461,7 @@ test('operation step-up rejects hostile signer runtime facts before side effects
   }
 });
 
-test('operation step-up issues one grant for the exact canonical material ref', async () => {
+test('operation step-up admits one authorized operation for the exact canonical material ref', async () => {
   const walletId = fixtureWalletId();
   const signer = createWalletEcdsaSignerRecord({ walletId, now: 1_900_000_000_000 });
   const sideEffects = emptyRouteSideEffects();
@@ -469,14 +476,14 @@ test('operation step-up issues one grant for the exact canonical material ref', 
   expect(response?.status).toBe(200);
   expect(sideEffects.proofVerifications).toBe(1);
   expect(sideEffects.evidenceWrites).toBe(1);
-  expect(sideEffects.grantWrites).toBe(1);
+  expect(sideEffects.admissions).toBe(1);
   expect(sideEffects.otpConsumptions).toBe(0);
   expect(sideEffects.claims).toBe(0);
   expect(sideEffects.audits).toBe(0);
   expect(sideEffects.quotaWrites).toBe(0);
 });
 
-test('operation step-up rejects a material replacement before proof, evidence, or grant writes', async () => {
+test('operation step-up rejects a material replacement before proof, evidence, or admission', async () => {
   const walletId = fixtureWalletId();
   const signer = createWalletEcdsaSignerRecord({ walletId, now: 1_900_000_000_000 });
   const canonicalActivation = signer.walletKey.publicCapability.material_activation;
@@ -495,7 +502,7 @@ test('operation step-up rejects a material replacement before proof, evidence, o
   expect(sideEffects.proofVerifications).toBe(0);
   expect(sideEffects.otpConsumptions).toBe(0);
   expect(sideEffects.evidenceWrites).toBe(0);
-  expect(sideEffects.grantWrites).toBe(0);
+  expect(sideEffects.admissions).toBe(0);
   expect(sideEffects.claims).toBe(0);
   expect(sideEffects.audits).toBe(0);
   expect(sideEffects.quotaWrites).toBe(0);
@@ -506,10 +513,7 @@ test('operation step-up prepare and finalize reject superseded material before c
   const walletId = fixtureWalletId();
   const signer = createWalletEcdsaSignerRecord({ walletId, now: 1_900_000_000_000 });
   const canonicalActivation = signer.walletKey.publicCapability.material_activation;
-  const supersededActivation = corruptMaterialActivation(
-    canonicalActivation,
-    'activation_id',
-  );
+  const supersededActivation = corruptMaterialActivation(canonicalActivation, 'activation_id');
   const capability = signer.walletKey.publicCapability;
   const nowMs = Date.now();
   const scope = {
@@ -525,7 +529,6 @@ test('operation step-up prepare and finalize reject superseded material before c
   };
   const authorization = {
     kind: 'operation_step_up' as const,
-    grant_id: 'operation-step-up-grant-superseded',
   };
   const prepare = buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1({
     scope,
@@ -569,7 +572,11 @@ test('operation step-up prepare and finalize reject superseded material before c
     });
     ctx.request = new Request(`https://app.example.test${pathname}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', origin: 'https://app.example.test' },
+      headers: {
+        authorization: 'Bearer opaque-wallet-session',
+        'content-type': 'application/json',
+        origin: 'https://app.example.test',
+      },
       body: JSON.stringify(body),
     });
     ctx.url = new URL(ctx.request.url);
@@ -618,7 +625,6 @@ test('operation step-up rejects material replaced during policy evaluation', asy
     },
     authorization: {
       kind: 'operation_step_up',
-      grant_id: 'operation-step-up-policy-race-grant',
     },
     materialActivation: canonicalActivation,
     clientPresignatureId: 'client-presignature-policy-race',
@@ -637,7 +643,11 @@ test('operation step-up rejects material replaced during policy evaluation', asy
     `https://app.example.test${ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_PREPARE_PATH}`,
     {
       method: 'POST',
-      headers: { 'content-type': 'application/json', origin: 'https://app.example.test' },
+      headers: {
+        authorization: 'Bearer opaque-wallet-session',
+        'content-type': 'application/json',
+        origin: 'https://app.example.test',
+      },
       body: JSON.stringify(request),
     },
   );
@@ -717,7 +727,7 @@ test('pool-fill rejects hostile material refs before claims or runtime calls', a
     );
     const authorization =
       testCase.authorizationKind === 'operation_step_up'
-        ? { kind: 'operation_step_up' as const, grant_id: 'pool-fill-step-up-grant' }
+        ? { kind: 'operation_step_up' as const }
         : { kind: 'reusable_wallet_session' as const, wallet_session_id: 'wallet-session-pool' };
     const body =
       testCase.pathname === ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_INIT_PATH
@@ -769,7 +779,11 @@ test('pool-fill rejects hostile material refs before claims or runtime calls', a
     }
     ctx.request = new Request(`https://app.example.test${testCase.pathname}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', origin: 'https://app.example.test' },
+      headers: {
+        authorization: 'Bearer opaque-wallet-session',
+        'content-type': 'application/json',
+        origin: 'https://app.example.test',
+      },
       body: JSON.stringify(body),
     });
     ctx.url = new URL(ctx.request.url);
@@ -807,7 +821,6 @@ test('operation step-up pool fill rejects a material replacement before claim or
     },
     authorization: {
       kind: 'operation_step_up' as const,
-      grant_id: 'pool-fill-step-up-grant',
     },
     operation,
   };
@@ -815,7 +828,11 @@ test('operation step-up pool fill rejects a material replacement before claim or
     `https://app.example.test${ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_FILL_INIT_PATH}`,
     {
       method: 'POST',
-      headers: { 'content-type': 'application/json', origin: 'https://app.example.test' },
+      headers: {
+        authorization: 'Bearer opaque-wallet-session',
+        'content-type': 'application/json',
+        origin: 'https://app.example.test',
+      },
       body: JSON.stringify(body),
     },
   );

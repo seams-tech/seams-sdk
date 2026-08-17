@@ -116,7 +116,7 @@ test.describe('available signing lane curve isolation', () => {
     });
   });
 
-  test('keeps durable policy when a public capability has another threshold session', async ({
+  test('prefers a current public capability over deferred durable policy', async ({
     page,
   }) => {
     const durableRecord = buildPasskeyEd25519SealedSessionRecordFixture({
@@ -184,89 +184,22 @@ test.describe('available signing lane curve isolation', () => {
     expect(result).toEqual({
       candidateCount: 1,
       lane: {
-        authorizationState: 'authorization_required',
-        expiresAtMs: durableRecord.expiresAtMs,
-        remainingUses: 7,
-        source: 'durable_sealed_record',
-        state: 'deferred',
-        thresholdSessionId: durableRecord.thresholdSessionIds.ed25519,
+        authorizationState: 'authorized',
+        expiresAtMs: currentRecord.expiresAtMs,
+        remainingUses: undefined,
+        source: 'public_capability_reference',
+        state: 'ready',
+        thresholdSessionId: currentRecord.thresholdSessionIds.ed25519,
       },
     });
   });
 
-  test('does not advertise a public-only lane without a sealed runtime', async ({ page }) => {
-    const record = buildPasskeyEd25519SealedSessionRecordFixture({
-      expiresAtMs: Date.now() + 60_000,
-      remainingUses: 9,
-    });
-    const authorization = buildPasskeyEd25519AuthorizationProjectionFixture(record);
-    const restore = record.ed25519Restore;
-    const publicCapabilityReference = {
-      walletId: record.walletId,
-      nearAccountId: restore.nearAccountId,
-      thresholdSessionId: record.thresholdSessionIds.ed25519,
-      runtimePolicyScope: restore.runtimePolicyScope,
-      materialActivation: restore.materialActivation,
-      auth: {
-        kind: 'passkey' as const,
-        rpId: restore.rpId,
-        credentialIdB64u: restore.credentialIdB64u,
-      },
-      nearEd25519SigningKeyId: restore.nearEd25519SigningKeyId,
-      signerSlot: restore.signerSlot,
-    };
-    const result = await page.evaluate(
-      async ({ modulePath, publicCapabilityReference, authorization }) => {
-        const { readAvailableSigningLanes } = await import(modulePath);
-        const read = async (isActive: boolean) =>
-          await readAvailableSigningLanes(
-            {
-              walletId: publicCapabilityReference.walletId,
-              ecdsaChainTargets: [],
-            },
-            {
-              listSealedRecordsForWallet: async () => [],
-              listPublicCapabilityReferences: async () => [publicCapabilityReference],
-              isPublicCapabilityActive: () => isActive,
-              readActiveWalletSessionAuthorization: async () => authorization,
-            },
-          );
-        const live = await read(true);
-        const stale = await read(false);
-        return {
-          live: {
-            candidateCount: live.candidates.ed25519.near.length,
-            state: live.lanes.ed25519.near.state,
-          },
-          stale: {
-            candidateCount: stale.candidates.ed25519.near.length,
-            state: stale.lanes.ed25519.near.state,
-          },
-        };
-      },
-      {
-        modulePath: AVAILABLE_SIGNING_LANES_PATH,
-        publicCapabilityReference,
-        authorization,
-      },
-    );
-
-    expect(result).toEqual({
-      live: {
-        candidateCount: 0,
-        state: 'missing',
-      },
-      stale: {
-        candidateCount: 0,
-        state: 'missing',
-      },
-    });
-  });
-
-  test('does not advertise an Email OTP public-only lane without a sealed runtime', async ({ page }) => {
+  test('prefers a fresh Email OTP unlock capability over exhausted durable policy', async ({
+    page,
+  }) => {
     const record = buildEmailOtpEd25519SealedSessionRecordFixture({
       expiresAtMs: Date.now() + 60_000,
-      remainingUses: 9,
+      remainingUses: 0,
     });
     const authorization = buildEmailOtpEd25519AuthorizationProjectionFixture(record);
     const restore = record.ed25519Restore;
@@ -282,51 +215,50 @@ test.describe('available signing lane curve isolation', () => {
       },
       nearEd25519SigningKeyId: restore.nearEd25519SigningKeyId,
       signerSlot: restore.signerSlot,
+      remainingUses: 3,
+      expiresAtMs: authorization.expiresAtMs,
     };
     const result = await page.evaluate(
-      async ({ modulePath, publicCapabilityReference, authorization }) => {
+      async ({ modulePath, record, publicCapabilityReference, authorization }) => {
         const { readAvailableSigningLanes } = await import(modulePath);
-        const read = async (isActive: boolean) =>
-          await readAvailableSigningLanes(
-            {
-              walletId: publicCapabilityReference.walletId,
-              ecdsaChainTargets: [],
-            },
-            {
-              listSealedRecordsForWallet: async () => [],
-              listPublicCapabilityReferences: async () => [publicCapabilityReference],
-              isPublicCapabilityActive: () => isActive,
-              readActiveWalletSessionAuthorization: async () => authorization,
-            },
-          );
-        const live = await read(true);
-        const stale = await read(false);
-        return {
-          live: {
-            candidateCount: live.candidates.ed25519.near.length,
-            state: live.lanes.ed25519.near.state,
+        const lanes = await readAvailableSigningLanes(
+          {
+            walletId: publicCapabilityReference.walletId,
+            ecdsaChainTargets: [],
           },
-          stale: {
-            candidateCount: stale.candidates.ed25519.near.length,
-            state: stale.lanes.ed25519.near.state,
+          {
+            listSealedRecordsForWallet: async () => [record],
+            listPublicCapabilityReferences: async () => [publicCapabilityReference],
+            isPublicCapabilityActive: () => true,
+            readActiveWalletSessionAuthorization: async () => authorization,
+          },
+        );
+        const lane = lanes.lanes.ed25519.near;
+        return {
+          candidateCount: lanes.candidates.ed25519.near.length,
+          lane: {
+            authorizationState: lane.authorizationState,
+            remainingUses: lane.remainingUses,
+            source: lane.source,
+            state: lane.state,
           },
         };
       },
       {
         modulePath: AVAILABLE_SIGNING_LANES_PATH,
+        record,
         publicCapabilityReference,
         authorization,
       },
     );
 
     expect(result).toEqual({
-      live: {
-        candidateCount: 0,
-        state: 'missing',
-      },
-      stale: {
-        candidateCount: 0,
-        state: 'missing',
+      candidateCount: 1,
+      lane: {
+        authorizationState: 'authorized',
+        remainingUses: 3,
+        source: 'public_capability_reference',
+        state: 'ready',
       },
     });
   });

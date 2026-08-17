@@ -3,21 +3,15 @@ use router_ab_core::{
     Ed25519YaoCeremonyBindingV1, Ed25519YaoEncryptedPackageV1, Ed25519YaoOperationV1,
     Ed25519YaoPackageKindV1, Ed25519YaoSessionIdV1, Ed25519YaoStableKeyContextBindingV1,
     Ed25519YaoStateEpochV1, ExpensiveWorkKindV1, LifecycleScopeV1, MpcMaterialActivationRefV1,
-    RootShareEpoch,
-    RouterAbEd25519YaoActivationAdmissionReceiptV1, RouterAbEd25519YaoActivationKeysetV1,
-    RouterAbEd25519YaoActivationPublicReceiptV1, RouterAbEd25519YaoActivationResultV1,
-    RouterAbEd25519YaoApplicationBindingFactsV1, RouterAbEd25519YaoExportAdmissionReceiptV1,
-    RouterAbEd25519YaoExportBindingV1, RouterAbEd25519YaoExportResultV1,
+    RootShareEpoch, RouterAbEd25519YaoActivationAdmissionReceiptV1,
+    RouterAbEd25519YaoActivationKeysetV1, RouterAbEd25519YaoActivationPublicReceiptV1,
+    RouterAbEd25519YaoActivationResultV1, RouterAbEd25519YaoApplicationBindingFactsV1,
 };
 use router_ab_dev::{
     build_local_activation_deriver_a_v1, build_local_activation_deriver_b_v1,
-    build_local_export_deriver_a_v1, build_local_export_deriver_b_v1,
     generate_local_ed25519_yao_recipient_key_pair_v1,
     open_local_ed25519_yao_activation_deriver_a_input_v1,
-    open_local_ed25519_yao_activation_deriver_b_input_v1,
-    open_local_ed25519_yao_export_deriver_a_input_v1,
-    open_local_ed25519_yao_export_deriver_b_input_v1, run_local_export_deriver_a_http_v1,
-    run_local_export_deriver_b_http_v1, seal_local_ed25519_yao_package_v1,
+    open_local_ed25519_yao_activation_deriver_b_input_v1, seal_local_ed25519_yao_package_v1,
     LocalDeriverAWorkerConfigV1, LocalDeriverBWorkerConfigV1,
 };
 use router_ab_ed25519_yao::{
@@ -25,15 +19,17 @@ use router_ab_ed25519_yao::{
         derive_registration_receipt, ActivationPublicCommitments, DirectionalWireDecoder,
         DirectionalWireEncoder, RelayEvent, RelayStep, WireDirection, WireMessage, WireMessageKind,
     },
-    stable_key_derivation_context_v1, ActivationDeriverA, ActivationDeriverB, ExportDeriverA,
-    ExportDeriverB,
+    stable_key_derivation_context_v1, ActivationDeriverA, ActivationDeriverB,
 };
 use router_ab_ed25519_yao_client::{
-    complete_client_activation_v1, complete_client_export_v1, prepare_email_otp_client_export_v1,
-    prepare_email_otp_client_registration_v1, prepare_passkey_client_export_v1,
-    prepare_passkey_client_recovery_v1, prepare_passkey_client_registration_v1,
-    ClientActivationEntropyV1, ClientActivationError, ClientActivationStateV1,
+    client_application_binding_digest_v1, complete_client_activation_v1,
+    import_activated_client_material_v1, import_activated_client_under_custody_seed_v1,
+    prepare_client_registration_with_root_v1, seal_activated_client_under_custody_seed_v1,
+    ActivatedClientV1, ClientActivationEntropyV1, ClientActivationError, ClientActivationStateV1,
+    LocalMaterialError, LocalMaterialSealDomainV1,
 };
+use signer_core::ed25519_yao_derivation::Ed25519YaoClientDerivationRootV1;
+use signer_core::wallet_seed_derivation::derive_ed25519_yao_client_root_from_seed_v1;
 
 #[test]
 fn client_activation_entropy_rejects_zero_and_reused_seeds() {
@@ -48,285 +44,6 @@ fn client_activation_entropy_rejects_zero_and_reused_seeds() {
     );
 }
 
-#[test]
-fn client_registration_boundary_completes_real_a_b_circuit() {
-    let activation = run_client_activation(ClientActivationTestCase::Registration {
-        session_byte: 0x51,
-        passkey_prf_first: [0x11; 32],
-        entropy: activation_entropy(0x71),
-    });
-    let receipt = activation.result.public_receipt().clone();
-    let activated = complete_client_activation_v1(activation.state, &activation.result)
-        .expect("Client activation");
-    let scalar = Scalar::from_canonical_bytes(*activated.client_scalar_share())
-        .into_option()
-        .expect("canonical Client scalar");
-    assert_eq!(
-        (ED25519_BASEPOINT_POINT * scalar).compress().to_bytes(),
-        receipt.joined_client_commitment()
-    );
-    assert_eq!(
-        activated.registered_public_key(),
-        receipt.registered_public_key()
-    );
-    assert_eq!(activated.state_epoch(), 1);
-}
-
-#[test]
-fn same_root_recovery_preserves_the_exact_registered_public_key() {
-    let passkey_prf_first = [0x21; 32];
-    let registration = run_client_activation(ClientActivationTestCase::Registration {
-        session_byte: 0x52,
-        passkey_prf_first,
-        entropy: activation_entropy(0x74),
-    });
-    let registered = complete_client_activation_v1(registration.state, &registration.result)
-        .expect("registration activation");
-    let registered_public_key = registered.registered_public_key();
-
-    let recovery = run_client_activation(ClientActivationTestCase::Recovery {
-        session_byte: 0x53,
-        passkey_prf_first,
-        expected_registered_public_key: registered_public_key,
-        entropy: activation_entropy(0x77),
-    });
-    assert_eq!(
-        recovery.result.public_receipt().registered_public_key(),
-        registered_public_key
-    );
-    let recovered = complete_client_activation_v1(recovery.state, &recovery.result)
-        .expect("same-root recovery activation");
-    assert_eq!(recovered.registered_public_key(), registered_public_key);
-    assert_eq!(recovered.state_epoch(), 2);
-}
-
-#[test]
-fn different_root_recovery_is_rejected_by_public_key_continuity() {
-    let registration = run_client_activation(ClientActivationTestCase::Registration {
-        session_byte: 0x54,
-        passkey_prf_first: [0x31; 32],
-        entropy: activation_entropy(0x7a),
-    });
-    let registered = complete_client_activation_v1(registration.state, &registration.result)
-        .expect("registration activation");
-    let registered_public_key = registered.registered_public_key();
-
-    let recovery = run_client_activation(ClientActivationTestCase::Recovery {
-        session_byte: 0x55,
-        passkey_prf_first: [0x32; 32],
-        expected_registered_public_key: registered_public_key,
-        entropy: activation_entropy(0x7d),
-    });
-    assert_ne!(
-        recovery.result.public_receipt().registered_public_key(),
-        registered_public_key
-    );
-    assert_eq!(
-        complete_client_activation_v1(recovery.state, &recovery.result)
-            .expect_err("different-root recovery must fail continuity"),
-        ClientActivationError::PublicKeyContinuityMismatch
-    );
-}
-
-#[test]
-fn client_export_reconstructs_seed_matching_registered_public_key() {
-    let passkey_prf_first = [0x41; 32];
-    let registration = run_client_activation(ClientActivationTestCase::Registration {
-        session_byte: 0x61,
-        passkey_prf_first,
-        entropy: activation_entropy(0x81),
-    });
-    let registered_public_key = registration.result.public_receipt().registered_public_key();
-    let export = run_client_export(
-        ClientExportFactor::PasskeyPrfFirst(passkey_prf_first),
-        registered_public_key,
-        0x62,
-    );
-    let seed = complete_client_export_v1(export.state, &export.result).expect("Client export");
-    assert_eq!(
-        signer_core::near_ed25519_recovery::expand_ed25519_seed(*seed.as_bytes()).public_key_bytes,
-        registered_public_key
-    );
-}
-
-#[test]
-fn email_otp_client_export_reconstructs_seed_matching_registered_public_key() {
-    let email_otp_factor = [0x44; 32];
-    let registration = run_client_activation(ClientActivationTestCase::EmailOtpRegistration {
-        session_byte: 0x65,
-        email_otp_factor,
-        entropy: activation_entropy(0x87),
-    });
-    let registered_public_key = registration.result.public_receipt().registered_public_key();
-    let export = run_client_export(
-        ClientExportFactor::EmailOtp(email_otp_factor),
-        registered_public_key,
-        0x66,
-    );
-    let seed = complete_client_export_v1(export.state, &export.result).expect("Client export");
-    assert_eq!(
-        signer_core::near_ed25519_recovery::expand_ed25519_seed(*seed.as_bytes()).public_key_bytes,
-        registered_public_key
-    );
-}
-
-#[test]
-fn client_export_rejects_registered_public_key_substitution() {
-    let export = run_client_export(
-        ClientExportFactor::PasskeyPrfFirst([0x42; 32]),
-        [0x99; 32],
-        0x63,
-    );
-    assert_eq!(
-        complete_client_export_v1(export.state, &export.result)
-            .expect_err("substituted public key must fail"),
-        ClientActivationError::PublicKeyContinuityMismatch
-    );
-}
-
-#[test]
-fn export_result_rejects_transcript_and_role_package_substitution() {
-    let export = run_client_export(
-        ClientExportFactor::PasskeyPrfFirst([0x43; 32]),
-        [0x98; 32],
-        0x64,
-    );
-    let binding = export.result.binding().clone();
-    let transcript = export.result.transcript();
-    let package_a = export.result.deriver_a_client_package().clone();
-    let package_b = export.result.deriver_b_client_package().clone();
-    let mut wrong_transcript = transcript;
-    wrong_transcript[0] ^= 1;
-    assert!(RouterAbEd25519YaoExportResultV1::new(
-        binding.clone(),
-        wrong_transcript,
-        package_a.clone(),
-        package_b.clone(),
-    )
-    .is_err());
-    assert!(
-        RouterAbEd25519YaoExportResultV1::new(binding, transcript, package_b, package_a,).is_err()
-    );
-}
-
-struct ClientExportCircuitResult {
-    state: router_ab_ed25519_yao_client::ClientExportStateV1,
-    result: RouterAbEd25519YaoExportResultV1,
-}
-
-enum ClientExportFactor {
-    PasskeyPrfFirst([u8; 32]),
-    EmailOtp([u8; 32]),
-}
-
-fn run_client_export(
-    factor: ClientExportFactor,
-    registered_public_key: [u8; 32],
-    session_byte: u8,
-) -> ClientExportCircuitResult {
-    let application = application();
-    let participant_ids = [1, 2];
-    let context = stable_key_derivation_context_v1(&application, participant_ids)
-        .expect("stable derivation context");
-    let material_activation = material_activation(session_byte);
-    let ceremony = Ed25519YaoCeremonyBindingV1::new(
-        lifecycle(ExpensiveWorkKindV1::KeyExport, session_byte),
-        Ed25519YaoOperationV1::Export,
-        Ed25519YaoSessionIdV1::new([session_byte; 32]).expect("session"),
-        Ed25519YaoStableKeyContextBindingV1::new(context.binding_digest()),
-        material_activation,
-    )
-    .expect("export ceremony");
-    let binding = RouterAbEd25519YaoExportBindingV1::new(
-        ceremony.clone(),
-        registered_public_key,
-        Ed25519YaoStateEpochV1::new(1).expect("state epoch"),
-        [0x91; 32],
-        [0x92; 32],
-    )
-    .expect("export binding");
-    let deriver_a_recipient =
-        generate_local_ed25519_yao_recipient_key_pair_v1().expect("Deriver A recipient");
-    let deriver_b_recipient =
-        generate_local_ed25519_yao_recipient_key_pair_v1().expect("Deriver B recipient");
-    let signing_worker_recipient =
-        generate_local_ed25519_yao_recipient_key_pair_v1().expect("SigningWorker recipient");
-    let keyset = RouterAbEd25519YaoActivationKeysetV1::new(
-        deriver_a_recipient.public_key,
-        deriver_b_recipient.public_key,
-        signing_worker_recipient.public_key,
-    )
-    .expect("keyset");
-    let admission = RouterAbEd25519YaoExportAdmissionReceiptV1::new(binding.clone(), keyset)
-        .expect("export admission");
-    let entropy_bytes = activation_entropy(0x84);
-    let recipient_key_material = entropy_bytes.recipient_key_material;
-    let entropy = ClientActivationEntropyV1::new(
-        entropy_bytes.recipient_key_material,
-        entropy_bytes.deriver_a_seal_seed,
-        entropy_bytes.deriver_b_seal_seed,
-    )
-    .expect("export entropy");
-    let prepared = match factor {
-        ClientExportFactor::PasskeyPrfFirst(passkey_prf_first) => prepare_passkey_client_export_v1(
-            &admission,
-            &application,
-            participant_ids,
-            passkey_prf_first,
-            entropy,
-        ),
-        ClientExportFactor::EmailOtp(email_otp_factor) => prepare_email_otp_client_export_v1(
-            &admission,
-            &application,
-            participant_ids,
-            email_otp_factor,
-            entropy,
-        ),
-    }
-    .expect("prepare export");
-    let (execute, state) = prepared.into_parts();
-    let request_a = open_local_ed25519_yao_export_deriver_a_input_v1(
-        execute.deriver_a_input(),
-        &deriver_a_recipient.private_key,
-    )
-    .expect("open export A");
-    let request_b = open_local_ed25519_yao_export_deriver_b_input_v1(
-        execute.deriver_b_input(),
-        &deriver_b_recipient.private_key,
-    )
-    .expect("open export B");
-    let (_, role_a) =
-        build_local_export_deriver_a_v1(&deriver_a_config(), request_a).expect("build export A");
-    let (_, role_b) =
-        build_local_export_deriver_b_v1(&deriver_b_config(), request_b).expect("build export B");
-    let (completion_a, completion_b) =
-        run_export_roles(ceremony.session_id.into_bytes(), role_a, role_b);
-    let transcript = completion_a.final_transcript();
-    assert_eq!(transcript, completion_b.final_transcript());
-    let client_public_key = derive_client_public_key(recipient_key_material);
-    let package_a = seal_local_ed25519_yao_package_v1(
-        router_ab_core::Ed25519YaoPackageKindV1::ExportClient,
-        router_ab_core::Ed25519YaoDeriverRoleV1::DeriverA,
-        ceremony.session_id.into_bytes(),
-        transcript,
-        client_public_key,
-        completion_a.export_package().as_bytes(),
-    )
-    .expect("seal export A package");
-    let package_b = seal_local_ed25519_yao_package_v1(
-        router_ab_core::Ed25519YaoPackageKindV1::ExportClient,
-        router_ab_core::Ed25519YaoDeriverRoleV1::DeriverB,
-        ceremony.session_id.into_bytes(),
-        transcript,
-        client_public_key,
-        completion_b.export_package().as_bytes(),
-    )
-    .expect("seal export B package");
-    let result = RouterAbEd25519YaoExportResultV1::new(binding, transcript, package_a, package_b)
-        .expect("export result");
-    ClientExportCircuitResult { state, result }
-}
-
 #[derive(Clone, Copy)]
 struct ActivationEntropyBytes {
     recipient_key_material: [u8; 32],
@@ -334,71 +51,17 @@ struct ActivationEntropyBytes {
     deriver_b_seal_seed: [u8; 32],
 }
 
-enum ClientActivationTestCase {
-    Registration {
-        session_byte: u8,
-        passkey_prf_first: [u8; 32],
-        entropy: ActivationEntropyBytes,
-    },
-    EmailOtpRegistration {
-        session_byte: u8,
-        email_otp_factor: [u8; 32],
-        entropy: ActivationEntropyBytes,
-    },
-    Recovery {
-        session_byte: u8,
-        passkey_prf_first: [u8; 32],
-        expected_registered_public_key: [u8; 32],
-        entropy: ActivationEntropyBytes,
-    },
+struct SeedRootActivationCase {
+    /// Registration from a Client root the caller derived from the wallet
+    /// custody seed, which is how Refactor 100 registers.
+    session_byte: u8,
+    wallet_custody_seed: [u8; 32],
+    entropy: ActivationEntropyBytes,
 }
 
 struct ClientActivationCircuitResult {
     state: ClientActivationStateV1,
     result: RouterAbEd25519YaoActivationResultV1,
-}
-
-impl ClientActivationTestCase {
-    fn operation(&self) -> Ed25519YaoOperationV1 {
-        match self {
-            Self::Registration { .. } | Self::EmailOtpRegistration { .. } => {
-                Ed25519YaoOperationV1::Registration
-            }
-            Self::Recovery { .. } => Ed25519YaoOperationV1::Recovery,
-        }
-    }
-
-    fn work_kind(&self) -> ExpensiveWorkKindV1 {
-        match self {
-            Self::Registration { .. } | Self::EmailOtpRegistration { .. } => {
-                ExpensiveWorkKindV1::RegistrationPrepare
-            }
-            Self::Recovery { .. } => ExpensiveWorkKindV1::Recovery,
-        }
-    }
-
-    fn state_epoch(&self) -> u64 {
-        match self {
-            Self::Registration { .. } | Self::EmailOtpRegistration { .. } => 1,
-            Self::Recovery { .. } => 2,
-        }
-    }
-
-    fn session_byte(&self) -> u8 {
-        match self {
-            Self::Registration { session_byte, .. }
-            | Self::EmailOtpRegistration { session_byte, .. }
-            | Self::Recovery { session_byte, .. } => *session_byte,
-        }
-    }
-
-    fn entropy(&self) -> ActivationEntropyBytes {
-        match self {
-            Self::Registration { entropy, .. }
-            | Self::EmailOtpRegistration { entropy, .. }
-            | Self::Recovery { entropy, .. } => *entropy,
-        }
-    }
 }
 
 fn activation_entropy(first_byte: u8) -> ActivationEntropyBytes {
@@ -410,65 +73,42 @@ fn activation_entropy(first_byte: u8) -> ActivationEntropyBytes {
 }
 
 fn prepare_client_activation(
-    case: &ClientActivationTestCase,
+    case: &SeedRootActivationCase,
     admission: &RouterAbEd25519YaoActivationAdmissionReceiptV1,
     application: &RouterAbEd25519YaoApplicationBindingFactsV1,
     participant_ids: [u16; 2],
 ) -> router_ab_ed25519_yao_client::PreparedClientActivationV1 {
-    let entropy = case.entropy();
+    let entropy = case.entropy;
     let entropy = ClientActivationEntropyV1::new(
         entropy.recipient_key_material,
         entropy.deriver_a_seal_seed,
         entropy.deriver_b_seal_seed,
     )
     .expect("activation entropy");
-    match case {
-        ClientActivationTestCase::Registration {
-            passkey_prf_first, ..
-        } => prepare_passkey_client_registration_v1(
-            admission,
-            application,
-            participant_ids,
-            *passkey_prf_first,
-            entropy,
-        )
-        .expect("prepare registration"),
-        ClientActivationTestCase::EmailOtpRegistration {
-            email_otp_factor, ..
-        } => prepare_email_otp_client_registration_v1(
-            admission,
-            application,
-            participant_ids,
-            *email_otp_factor,
-            entropy,
-        )
-        .expect("prepare Email OTP registration"),
-        ClientActivationTestCase::Recovery {
-            passkey_prf_first,
-            expected_registered_public_key,
-            ..
-        } => prepare_passkey_client_recovery_v1(
-            admission,
-            application,
-            participant_ids,
-            *passkey_prf_first,
-            *expected_registered_public_key,
-            entropy,
-        )
-        .expect("prepare recovery"),
-    }
+    let digest = client_application_binding_digest_v1(application, participant_ids)
+        .expect("application binding digest");
+    let root = derive_ed25519_yao_client_root_from_seed_v1(&case.wallet_custody_seed, &digest)
+        .expect("seed-derived Client root");
+    prepare_client_registration_with_root_v1(
+        admission,
+        application,
+        participant_ids,
+        Ed25519YaoClientDerivationRootV1::from_secret_bytes(*root),
+        entropy,
+    )
+    .expect("prepare seed-root registration")
 }
 
-fn run_client_activation(case: ClientActivationTestCase) -> ClientActivationCircuitResult {
+fn run_client_activation(case: SeedRootActivationCase) -> ClientActivationCircuitResult {
     let application = application();
     let participant_ids = [1, 2];
     let context = stable_key_derivation_context_v1(&application, participant_ids)
         .expect("stable derivation context");
-    let material_activation = material_activation(case.session_byte());
+    let material_activation = material_activation(case.session_byte);
     let binding = Ed25519YaoCeremonyBindingV1::new(
-        lifecycle(case.work_kind(), case.session_byte()),
-        case.operation(),
-        Ed25519YaoSessionIdV1::new([case.session_byte(); 32]).expect("session"),
+        lifecycle(ExpensiveWorkKindV1::RegistrationPrepare, case.session_byte),
+        Ed25519YaoOperationV1::Registration,
+        Ed25519YaoSessionIdV1::new([case.session_byte; 32]).expect("session"),
         Ed25519YaoStableKeyContextBindingV1::new(context.binding_digest()),
         material_activation.clone(),
     )
@@ -487,7 +127,7 @@ fn run_client_activation(case: ClientActivationTestCase) -> ClientActivationCirc
     .expect("activation keyset");
     let admission = RouterAbEd25519YaoActivationAdmissionReceiptV1::new(binding.clone(), keyset)
         .expect("admission");
-    let recipient_key_material = case.entropy().recipient_key_material;
+    let recipient_key_material = case.entropy.recipient_key_material;
     let prepared = prepare_client_activation(&case, &admission, &application, participant_ids);
     let (execute, state) = prepared.into_parts();
     let request_a = open_local_ed25519_yao_activation_deriver_a_input_v1(
@@ -500,8 +140,14 @@ fn run_client_activation(case: ClientActivationTestCase) -> ClientActivationCirc
         &deriver_b_recipient.private_key,
     )
     .expect("open Deriver B input");
-    assert_eq!(request_a.binding.operation, case.operation());
-    assert_eq!(request_b.binding.operation, case.operation());
+    assert_eq!(
+        request_a.binding.operation,
+        Ed25519YaoOperationV1::Registration
+    );
+    assert_eq!(
+        request_b.binding.operation,
+        Ed25519YaoOperationV1::Registration
+    );
     assert_eq!(request_a.recipients, request_b.recipients);
     assert_eq!(
         request_a.recipients.signing_worker_public_key,
@@ -543,7 +189,7 @@ fn run_client_activation(case: ClientActivationTestCase) -> ClientActivationCirc
         *receipt.joined_client_commitment(),
         *receipt.joined_signing_worker_commitment(),
         *receipt.joined_signing_worker_commitment(),
-        Ed25519YaoStateEpochV1::new(case.state_epoch()).expect("state epoch"),
+        Ed25519YaoStateEpochV1::new(1).expect("state epoch"),
         material_activation,
     )
     .expect("Router public receipt");
@@ -645,28 +291,6 @@ fn deriver_b_config() -> LocalDeriverBWorkerConfigV1 {
         role_private_storage_path: "/tmp/local-test-b-root".to_owned(),
         sealed_root_shares_path: "/tmp/local-test-b-sealed".to_owned(),
     }
-}
-
-fn run_export_roles(
-    session: [u8; 32],
-    role_a: ExportDeriverA,
-    role_b: ExportDeriverB,
-) -> (
-    router_ab_ed25519_yao::relay::ExportDeriverACompletion,
-    router_ab_ed25519_yao::relay::ExportDeriverBCompletion,
-) {
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("export listener");
-    let address = listener.local_addr().expect("export listener address");
-    let deriver_b = std::thread::spawn(move || {
-        let (stream, _) = listener.accept().expect("accept export A");
-        run_local_export_deriver_b_http_v1(stream, session, "client-export-test", role_b)
-            .expect("run export B")
-    });
-    let completion_a =
-        run_local_export_deriver_a_http_v1(address, session, "client-export-test", role_a)
-            .expect("run export A");
-    let completion_b = deriver_b.join().expect("join export B");
-    (completion_a, completion_b)
 }
 
 fn run_roles(
@@ -838,4 +462,253 @@ fn expect_complete<R, C>(step: RelayStep<R, C>) -> C {
         RelayStep::Complete(completion) => completion,
         _ => panic!("expected completion"),
     }
+}
+
+#[test]
+fn seed_derived_registration_completes_the_real_a_b_circuit() {
+    let activation = run_client_activation(SeedRootActivationCase {
+        session_byte: 0x53,
+        wallet_custody_seed: [0x22; 32],
+        entropy: activation_entropy(0x73),
+    });
+    let receipt = activation.result.public_receipt().clone();
+    let activated = complete_client_activation_v1(activation.state, &activation.result)
+        .expect("Client activation");
+    let scalar = Scalar::from_canonical_bytes(*activated.client_scalar_share())
+        .into_option()
+        .expect("canonical Client scalar");
+    assert_eq!(
+        (ED25519_BASEPOINT_POINT * scalar).compress().to_bytes(),
+        receipt.joined_client_commitment()
+    );
+    assert_eq!(
+        activated.registered_public_key(),
+        receipt.registered_public_key()
+    );
+    assert_eq!(activated.state_epoch(), 1);
+}
+
+#[test]
+fn a_different_wallet_custody_seed_registers_a_different_key() {
+    // The seed is the only secret input, so two seeds must not converge on one
+    // registered public key.
+    let first = run_client_activation(SeedRootActivationCase {
+        session_byte: 0x54,
+        wallet_custody_seed: [0x22; 32],
+        entropy: activation_entropy(0x74),
+    });
+    let second = run_client_activation(SeedRootActivationCase {
+        session_byte: 0x54,
+        wallet_custody_seed: [0x23; 32],
+        entropy: activation_entropy(0x74),
+    });
+    assert_ne!(
+        first.result.public_receipt().registered_public_key(),
+        second.result.public_receipt().registered_public_key()
+    );
+}
+
+/// Refactor 100. The same-device continuity cache, sealed under the wallet
+/// custody seed rather than a factor.
+///
+/// The point of the seed domain is that the record stops belonging to whichever
+/// factor happened to register. These run against a real activated Client from
+/// the A/B circuit above, because a cache that round-trips synthetic bytes
+/// proves nothing about whether the material it returns can actually sign.
+const CACHE_BINDING: &[u8] = b"wallet:alice.testnet|key:near-ed25519-key-1|epoch:1";
+const CACHE_NONCE: [u8; 12] = [0x5a; 12];
+
+fn activated_for_cache() -> (ActivatedClientV1, [u8; 32], [u8; 32]) {
+    let activation = run_client_activation(SeedRootActivationCase {
+        session_byte: 0x61,
+        wallet_custody_seed: [0x31; 32],
+        entropy: activation_entropy(0x81),
+    });
+    let receipt = activation.result.public_receipt().clone();
+    let activated = complete_client_activation_v1(activation.state, &activation.result)
+        .expect("Client activation");
+    let registered_public_key = activated.registered_public_key();
+    (
+        activated,
+        registered_public_key,
+        receipt.signing_worker_verifying_share(),
+    )
+}
+
+#[test]
+fn a_seed_sealed_cache_returns_material_that_reproduces_the_registered_key() {
+    let (activated, registered_public_key, verifying_share) = activated_for_cache();
+    let cache_key = [0x44; 32];
+    let scalar_share = *activated.client_scalar_share();
+
+    let sealed = seal_activated_client_under_custody_seed_v1(
+        &activated,
+        &cache_key,
+        CACHE_BINDING,
+        &CACHE_NONCE,
+    )
+    .expect("seal");
+
+    let opened = import_activated_client_under_custody_seed_v1(
+        &cache_key,
+        CACHE_BINDING,
+        &CACHE_NONCE,
+        &sealed,
+        &registered_public_key,
+        activated.state_epoch(),
+        [1, 2],
+        &verifying_share,
+    )
+    .expect("import");
+
+    assert_eq!(*opened.client_scalar_share(), scalar_share);
+    assert_eq!(opened.registered_public_key(), registered_public_key);
+    assert_eq!(opened.state_epoch(), activated.state_epoch());
+}
+
+#[test]
+fn a_seed_sealed_cache_does_not_open_under_the_passkey_factor_domain() {
+    // A record sealed for the wallet must never open as though a passkey factor
+    // had sealed it, even when both paths receive identical bytes.
+    let (activated, registered_public_key, verifying_share) = activated_for_cache();
+    let secret = [0x44; 32];
+    let sealed = seal_activated_client_under_custody_seed_v1(
+        &activated,
+        &secret,
+        CACHE_BINDING,
+        &CACHE_NONCE,
+    )
+    .expect("seal");
+
+    let opened = import_activated_client_material_v1(
+        &secret,
+        CACHE_BINDING,
+        &CACHE_NONCE,
+        &sealed,
+        &registered_public_key,
+        activated.state_epoch(),
+        [1, 2],
+        &verifying_share,
+        LocalMaterialSealDomainV1::PasskeyPrfFirst,
+    );
+    assert_eq!(opened.err(), Some(LocalMaterialError::SealFailed));
+}
+
+#[test]
+fn a_cache_record_is_bound_to_its_wallet_and_its_key() {
+    let (activated, registered_public_key, verifying_share) = activated_for_cache();
+    let cache_key = [0x44; 32];
+    let sealed = seal_activated_client_under_custody_seed_v1(
+        &activated,
+        &cache_key,
+        CACHE_BINDING,
+        &CACHE_NONCE,
+    )
+    .expect("seal");
+
+    // A different binding is a different wallet or key set. The binding is both
+    // HKDF input and AEAD associated data, so this fails at the seal layer
+    // rather than producing openable material for the wrong wallet.
+    let wrong_binding = import_activated_client_under_custody_seed_v1(
+        &cache_key,
+        b"wallet:mallory.testnet|key:near-ed25519-key-1|epoch:1",
+        &CACHE_NONCE,
+        &sealed,
+        &registered_public_key,
+        activated.state_epoch(),
+        [1, 2],
+        &verifying_share,
+    );
+    assert_eq!(wrong_binding.err(), Some(LocalMaterialError::SealFailed));
+
+    // Another wallet's seed yields another cache key and opens nothing.
+    let wrong_key = import_activated_client_under_custody_seed_v1(
+        &[0x45; 32],
+        CACHE_BINDING,
+        &CACHE_NONCE,
+        &sealed,
+        &registered_public_key,
+        activated.state_epoch(),
+        [1, 2],
+        &verifying_share,
+    );
+    assert_eq!(wrong_key.err(), Some(LocalMaterialError::SealFailed));
+}
+
+#[test]
+fn a_cache_record_is_refused_when_it_names_another_identity_or_epoch() {
+    // The record decrypts here — the caller holds the right cache key — so
+    // these are the checks that stand between a stale cache and material
+    // installed against the wrong key or a superseded epoch.
+    let (activated, registered_public_key, verifying_share) = activated_for_cache();
+    let cache_key = [0x44; 32];
+    let sealed = seal_activated_client_under_custody_seed_v1(
+        &activated,
+        &cache_key,
+        CACHE_BINDING,
+        &CACHE_NONCE,
+    )
+    .expect("seal");
+
+    let wrong_public_key = import_activated_client_under_custody_seed_v1(
+        &cache_key,
+        CACHE_BINDING,
+        &CACHE_NONCE,
+        &sealed,
+        &[0x77; 32],
+        activated.state_epoch(),
+        [1, 2],
+        &verifying_share,
+    );
+    assert_eq!(
+        wrong_public_key.err(),
+        Some(LocalMaterialError::IdentityMismatch)
+    );
+
+    let wrong_epoch = import_activated_client_under_custody_seed_v1(
+        &cache_key,
+        CACHE_BINDING,
+        &CACHE_NONCE,
+        &sealed,
+        &registered_public_key,
+        activated.state_epoch() + 1,
+        [1, 2],
+        &verifying_share,
+    );
+    assert_eq!(
+        wrong_epoch.err(),
+        Some(LocalMaterialError::IdentityMismatch)
+    );
+}
+
+#[test]
+fn a_cache_record_is_refused_when_its_share_cannot_reproduce_the_key() {
+    // The public-relation check. Without it a record that decrypts and names
+    // the right key could still install a share that recombines to something
+    // else entirely — material signing under a key the wallet does not own.
+    let (activated, registered_public_key, _) = activated_for_cache();
+    let cache_key = [0x44; 32];
+    let sealed = seal_activated_client_under_custody_seed_v1(
+        &activated,
+        &cache_key,
+        CACHE_BINDING,
+        &CACHE_NONCE,
+    )
+    .expect("seal");
+
+    let opened = import_activated_client_under_custody_seed_v1(
+        &cache_key,
+        CACHE_BINDING,
+        &CACHE_NONCE,
+        &sealed,
+        &registered_public_key,
+        activated.state_epoch(),
+        [1, 2],
+        // A verifying share the SigningWorker never held.
+        &[0x66; 32],
+    );
+    assert_eq!(
+        opened.err(),
+        Some(LocalMaterialError::PublicRelationMismatch)
+    );
 }

@@ -167,8 +167,6 @@ type EcdsaInactiveSealedMaterialRecordBase = {
   expiresAtMs?: never;
   remainingUses?: never;
   thresholdSessionIds?: never;
-  walletSessionJwt?: never;
-  sessionKind?: never;
   authorizationRetirementReason: 'expired' | 'exhausted';
   ed25519Restore?: never;
 };
@@ -186,8 +184,6 @@ type EcdsaInactiveMaterialPublicRestoreBase = {
   runtimePolicyScope: ReturnType<typeof normalizeRuntimePolicyScope>;
   routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
   publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
-  walletSessionJwt?: never;
-  sessionKind?: never;
   clientVerifyingShareB64u?: never;
 };
 
@@ -238,6 +234,7 @@ export type SealedSessionRecordClassificationReason =
   | 'invalid_payload'
   | 'invalid_header'
   | 'invalid_identity'
+  | 'owned_by_lane_holder_store'
   | 'missing_signing_root_id'
   | 'missing_participant_ids'
   | 'missing_restore_metadata';
@@ -256,6 +253,7 @@ type NonCurrentSealedSessionRecordClassificationKind =
   | 'delete_required'
   | 'rebuild_required'
   | 'user_action_required'
+  | 'unrelated_record'
   | 'malformed';
 
 type NonCurrentSealedSessionRecordClassification = {
@@ -500,12 +498,6 @@ function normalizeEthereumAddress(value: unknown): `0x${string}` | undefined {
   return /^0x[0-9a-f]{40}$/.test(normalized) ? (normalized as `0x${string}`) : undefined;
 }
 
-function rawSealedRestoreBearerRejection(
-  value: Record<string, unknown>,
-): SealedSessionRecordClassificationReason | null {
-  return value.sessionKind != null || value.walletSessionJwt != null ? 'invalid_identity' : null;
-}
-
 function resolveSealedRecordCurve(args: {
   curve?: 'ed25519' | 'ecdsa';
   thresholdSessionIds: { ed25519?: string; ecdsa?: string };
@@ -571,7 +563,6 @@ function normalizeEcdsaRestoreMetadata(
   } catch {
     chainTarget = null;
   }
-  if (rawSealedRestoreBearerRejection(obj)) return undefined;
   const source = normalizeSealedEcdsaRestoreSource(obj.source);
   const authorityRef = parseWalletAuthAuthorityRef(obj.authority);
   const rpId = normalizeOptionalNonEmptyString(obj.rpId);
@@ -709,7 +700,6 @@ function normalizeCurrentEd25519RestoreMetadata(
   const emailHashHex = normalizeOptionalNonEmptyString(obj.emailHashHex);
   const authSubjectId = normalizeOptionalNonEmptyString(obj.authSubjectId);
   const relayerKeyId = normalizeOptionalNonEmptyString(obj.relayerKeyId);
-  if (rawSealedRestoreBearerRejection(obj)) return undefined;
   const participantIds = Array.isArray(obj.participantIds)
     ? obj.participantIds
         .map((participantId) => Math.floor(Number(participantId)))
@@ -916,6 +906,9 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
   raw = storagePayloadFromSealedStoreRow(raw);
   const obj = asRawSealedSessionRecord(raw);
   if (!obj) return classifyNonCurrentRecord('malformed', null, 'invalid_payload');
+  if (obj.kind === 'lane_sealed_holder_record_v1') {
+    return classifyNonCurrentRecord('unrelated_record', obj, 'owned_by_lane_holder_store');
+  }
   if (hasRetiredAuthorizationIdentityField(obj)) {
     return classifyNonCurrentRecord('delete_required', obj, 'invalid_identity');
   }
@@ -1007,10 +1000,6 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
     if (!normalizeParticipantIds(ecdsaRestoreObj.participantIds).length) {
       return classifyNonCurrentRecord('delete_required', obj, 'missing_participant_ids');
     }
-    const ecdsaRestoreAuthRejection = rawSealedRestoreBearerRejection(ecdsaRestoreObj);
-    if (ecdsaRestoreAuthRejection) {
-      return classifyNonCurrentRecord('delete_required', obj, ecdsaRestoreAuthRejection);
-    }
     if (!ecdsaRestore) {
       return classifyNonCurrentRecord('rebuild_required', obj, 'missing_restore_metadata');
     }
@@ -1063,10 +1052,6 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
   }
   if (!normalizeParticipantIds(ed25519RestoreObj.participantIds).length) {
     return classifyNonCurrentRecord('delete_required', obj, 'missing_participant_ids');
-  }
-  const ed25519RestoreAuthRejection = rawSealedRestoreBearerRejection(ed25519RestoreObj);
-  if (ed25519RestoreAuthRejection) {
-    return classifyNonCurrentRecord('delete_required', obj, ed25519RestoreAuthRejection);
   }
   if (!ed25519Restore) {
     return classifyNonCurrentRecord('rebuild_required', obj, 'missing_restore_metadata');
@@ -1147,8 +1132,6 @@ function normalizeEcdsaInactiveMaterialPublicRestore(
   const obj = asRawSealedSessionRecord(value);
   if (!obj) return null;
   if (
-    obj.walletSessionJwt != null ||
-    obj.sessionKind != null ||
     obj.clientVerifyingShareB64u != null
   ) {
     return null;
@@ -1291,8 +1274,6 @@ function normalizeEcdsaInactiveSealedMaterialRecord(
   if (
     hasRetiredAuthorizationIdentityField(obj) ||
     obj.thresholdSessionIds != null ||
-    obj.walletSessionJwt != null ||
-    obj.sessionKind != null ||
     obj.ed25519Restore != null
   ) {
     return null;
@@ -1383,6 +1364,7 @@ function logSealedSessionClassification(args: {
 }): void {
   if (args.classification.kind === 'ecdsa_inactive_material') return;
   if (args.classification.kind === 'rebuild_required') return;
+  if (args.classification.kind === 'unrelated_record') return;
   const outcome = args.classification.kind === 'malformed' ? 'malformed' : 'rejected';
   const payload = {
     operation: args.operation,

@@ -9,6 +9,18 @@ function bytes(value: number): number[] {
   return new Array<number>(32).fill(value);
 }
 
+function materialActivation() {
+  return {
+    kind: 'mpc_material_activation_ref' as const,
+    activation_id: 'export-material-activation-1',
+    capability: 'export-capability-1',
+    material_owner: 'wallet-1',
+    key_binding: 'export-key-1',
+    lifecycle_binding: 'export-lifecycle-1',
+    signing_worker: 'signing-worker-1',
+  };
+}
+
 function exportAdmissionRequest(): RouterAbEd25519YaoExportAdmissionRequestV1 {
   return {
     scope: {
@@ -18,6 +30,7 @@ function exportAdmissionRequest(): RouterAbEd25519YaoExportAdmissionRequestV1 {
       threshold_session_id: 'wallet-session-1',
       signer_set_id: 'signer-set-1',
       signing_worker_id: 'signing-worker-1',
+      material_activation: materialActivation(),
     },
     application_binding: {
       wallet_id: 'wallet-1',

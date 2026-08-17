@@ -18,30 +18,22 @@ const approvedBinaryFallbacks = new Map([
   ['packages/sdk-web/src/SeamsWeb/assembly/browserSigningSurfaceAssembly.ts', 1],
   ['packages/sdk-web/src/core/signingEngine/flows/signNear/signTransactions.ts', 1],
   ['packages/sdk-web/src/core/signingEngine/session/sealedRecovery/recoveryRecord.ts', 1],
-  ['packages/sdk-web/src/core/signingEngine/threshold/ecdsa/bootstrapSession.ts', 1],
-  ['packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1WalletRegistrationService.ts', 1],
+  [
+    'packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1WalletRegistrationService.ts',
+    1,
+  ],
 ]);
 const approvedLiteralUnions = new Map([
-  ['packages/sdk-web/src/core/rpcClients/relayer/walletRegistration.ts', 1],
   ['packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaExportMaterial.ts', 1],
-  [
-    'packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts',
-    7,
-  ],
+  ['packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts', 7],
   [
     'packages/sdk-web/src/core/signingEngine/session/persistence/durableSealedSessionCommands.ts',
     4,
   ],
   ['packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore.ts', 6],
-  [
-    'packages/sdk-web/src/core/signingEngine/session/postconditions/runtimePostconditions.ts',
-    0,
-  ],
+  ['packages/sdk-web/src/core/signingEngine/session/postconditions/runtimePostconditions.ts', 0],
   ['packages/sdk-web/src/core/signingEngine/session/sealedRecovery/recoveryRecord.ts', 1],
-  [
-    'packages/sdk-web/src/core/signingEngine/session/sealedRecovery/sealedRecovery.types.ts',
-    4,
-  ],
+  ['packages/sdk-web/src/core/signingEngine/session/sealedRecovery/sealedRecovery.types.ts', 4],
   ['packages/sdk-web/src/core/signingEngine/session/warmCapabilities/types.ts', 0],
   ['packages/sdk-web/src/core/signingEngine/stepUpConfirmation/methodRunners.ts', 1],
   ['packages/sdk-web/src/core/signingEngine/stepUpConfirmation/methodSelection.ts', 1],
@@ -79,7 +71,10 @@ function stringLiteralValue(node) {
 
 function isExactBinaryAuthLiteralUnion(node) {
   if (!ts.isUnionTypeNode(node) || node.types.length !== 2) return false;
-  const values = node.types.map(stringLiteralValue).filter((value) => value !== null).sort();
+  const values = node.types
+    .map(stringLiteralValue)
+    .filter((value) => value !== null)
+    .sort();
   return values.length === 2 && values[0] === 'email_otp' && values[1] === 'passkey';
 }
 
@@ -266,9 +261,8 @@ function checkClassifierFixtures() {
     1,
   );
   assert.equal(
-    fixtureOccurrences(
-      "const authMethod = input.kind === 'email_otp' ? 'email_otp' : 'passkey';",
-    ).binaryFallbacks.length,
+    fixtureOccurrences("const authMethod = input.kind === 'email_otp' ? 'email_otp' : 'passkey';")
+      .binaryFallbacks.length,
     1,
   );
   assert.equal(
@@ -286,7 +280,8 @@ function checkClassifierFixtures() {
 }
 
 function formatOccurrence(occurrence) {
-  const line = occurrence.sourceFile.getLineAndCharacterOfPosition(occurrence.node.getStart()).line + 1;
+  const line =
+    occurrence.sourceFile.getLineAndCharacterOfPosition(occurrence.node.getStart()).line + 1;
   return `${occurrence.relativePath}:${line} [${occurrence.context}]: ${normalizedSource(occurrence.node)}`;
 }
 

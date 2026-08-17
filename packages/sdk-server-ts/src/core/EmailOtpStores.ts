@@ -15,8 +15,6 @@ import {
   parseCurrentEmailOtpAuthStateRow,
   parseCurrentEmailOtpGrantRecord,
   parseCurrentEmailOtpGrantRow,
-  parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRecord,
-  parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRow,
   parseCurrentEmailOtpUnlockChallengeRecord,
   parseCurrentEmailOtpUnlockChallengeRow,
   parseCurrentEmailOtpWalletEnrollmentRecord,
@@ -36,22 +34,14 @@ import {
   WALLET_EMAIL_OTP_UNLOCK_OPERATION,
   isWalletEmailOtpLoginOperation,
 } from '@shared/utils/emailOtpDomain';
-import {
-  EMAIL_OTP_RECOVERY_WRAP_ALG,
-  EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
-  EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
-  buildEmailOtpRecoveryWrapBinding,
-  type EmailOtpRecoveryWrapBinding,
-} from '@shared/utils/emailOtpRecoveryKey';
-
 export type EmailOtpChannel = WalletEmailOtpChannel;
 export type EmailOtpGrantAction =
   | typeof WALLET_EMAIL_OTP_ACTIONS.unseal
-  | typeof WALLET_EMAIL_OTP_ACTIONS.deviceRecovery;
+  | typeof WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap;
 export type EmailOtpChallengeAction =
   | typeof WALLET_EMAIL_OTP_ACTIONS.login
   | typeof WALLET_EMAIL_OTP_ACTIONS.registration
-  | typeof WALLET_EMAIL_OTP_ACTIONS.deviceRecovery;
+  | typeof WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap;
 export type EmailOtpChallengeOperation = WalletEmailOtpOperation;
 export type EmailOtpLoginChallengeOperation = WalletEmailOtpLoginOperation;
 
@@ -72,9 +62,8 @@ export type EmailOtpChallengeRecord = {
   /** Normalized email address that received the OTP code. */
   email: string;
   otpCode: string;
-  /** App-session binding hash for non-reroll flows. */
-  sessionHash: string;
-  appSessionVersion: string;
+  /** Exact wallet, owner, operation, origin, and audience binding digest. */
+  ownerProofBindingDigest: string;
   action: EmailOtpChallengeAction;
   operation: EmailOtpChallengeOperation;
   createdAtMs: number;
@@ -88,8 +77,7 @@ export type EmailOtpChallengeContextInput = {
   walletId: string;
   orgId?: string;
   otpChannel: EmailOtpChannel;
-  sessionHash: string;
-  appSessionVersion: string;
+  ownerProofBindingDigest: string;
   action: EmailOtpChallengeAction;
   operation: EmailOtpChallengeOperation;
   nowMs: number;
@@ -100,7 +88,9 @@ export interface EmailOtpChallengeStore {
   get(challengeId: string): Promise<EmailOtpChallengeRecord | null>;
   deleteExpired(nowMs: number): Promise<EmailOtpChallengeRecord[]>;
   countActiveByContext(input: EmailOtpChallengeContextInput): Promise<number>;
-  findLatestActiveByContext(input: EmailOtpChallengeContextInput): Promise<EmailOtpChallengeRecord | null>;
+  findLatestActiveByContext(
+    input: EmailOtpChallengeContextInput,
+  ): Promise<EmailOtpChallengeRecord | null>;
   deleteOldestActiveByContext(
     input: EmailOtpChallengeContextInput,
   ): Promise<EmailOtpChallengeRecord | null>;
@@ -120,8 +110,7 @@ export type EmailOtpGrantRecord = {
   orgId?: string;
   challengeId: string;
   otpChannel: EmailOtpChannel;
-  sessionHash: string;
-  appSessionVersion: string;
+  ownerProofBindingDigest: string;
   action: EmailOtpGrantAction;
   issuedAtMs: number;
   expiresAtMs: number;
@@ -143,12 +132,9 @@ export type EmailOtpWalletEnrollmentRecord = {
   enrollmentId: string;
   enrollmentVersion: string;
   enrollmentSealKeyVersion: string;
-  signingRootId: string;
-  signingRootVersion: string;
-  recoveryWrappedEnrollmentEscrowCount: number;
   clientUnlockPublicKeyB64u: string;
   unlockKeyVersion: string;
-  thresholdEcdsaClientVerifyingShareB64u: string;
+  serverSealedFactorCiphertextB64u: string;
   createdAtMs: number;
   updatedAtMs: number;
 };
@@ -161,99 +147,6 @@ export interface EmailOtpWalletEnrollmentStore {
   }): Promise<EmailOtpWalletEnrollmentRecord | null>;
   put(record: EmailOtpWalletEnrollmentRecord): Promise<void>;
   del(walletId: string): Promise<void>;
-}
-
-export type EmailOtpRecoveryWrappedEnrollmentEscrowStatus = 'active' | 'consumed' | 'revoked';
-
-type EmailOtpRecoveryWrappedEnrollmentEscrowBase = {
-  version: 'email_otp_recovery_wrapped_enrollment_escrow_v1';
-  alg: typeof EMAIL_OTP_RECOVERY_WRAP_ALG;
-  secretKind: typeof EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND;
-  escrowKind: typeof EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND;
-  walletId: string;
-  userId: string;
-  authSubjectId: string;
-  authMethod: 'google_sso_email_otp';
-  enrollmentId: string;
-  enrollmentVersion: string;
-  enrollmentSealKeyVersion: string;
-  signingRootId: string;
-  signingRootVersion: string;
-  recoveryKeyId: string;
-  recoveryKeyLabel?: string;
-  recoveryKeyStatus: EmailOtpRecoveryWrappedEnrollmentEscrowStatus;
-  nonceB64u: string;
-  wrappedDeviceEnrollmentEscrowB64u: string;
-  aadHashB64u: string;
-  issuedAtMs: number;
-  updatedAtMs: number;
-};
-
-export type ActiveEmailOtpRecoveryWrappedEnrollmentEscrowRecord =
-  EmailOtpRecoveryWrappedEnrollmentEscrowBase & {
-    recoveryKeyStatus: 'active';
-    consumedAtMs?: never;
-    revokedAtMs?: never;
-  };
-
-export type ConsumedEmailOtpRecoveryWrappedEnrollmentEscrowRecord =
-  EmailOtpRecoveryWrappedEnrollmentEscrowBase & {
-    recoveryKeyStatus: 'consumed';
-    consumedAtMs: number;
-    revokedAtMs?: never;
-  };
-
-export type RevokedEmailOtpRecoveryWrappedEnrollmentEscrowRecord =
-  EmailOtpRecoveryWrappedEnrollmentEscrowBase & {
-    recoveryKeyStatus: 'revoked';
-    consumedAtMs?: never;
-    revokedAtMs: number;
-  };
-
-export type EmailOtpRecoveryWrappedEnrollmentEscrowRecord =
-  | ActiveEmailOtpRecoveryWrappedEnrollmentEscrowRecord
-  | ConsumedEmailOtpRecoveryWrappedEnrollmentEscrowRecord
-  | RevokedEmailOtpRecoveryWrappedEnrollmentEscrowRecord;
-
-export type EmailOtpRecoveryWrappedEnrollmentEscrowBoundary =
-  | {
-      record: ActiveEmailOtpRecoveryWrappedEnrollmentEscrowRecord;
-      binding: EmailOtpRecoveryWrapBinding;
-      lifecycle: {
-        status: 'active';
-        consumedAtMs?: never;
-        revokedAtMs?: never;
-      };
-    }
-  | {
-      record: ConsumedEmailOtpRecoveryWrappedEnrollmentEscrowRecord;
-      binding: EmailOtpRecoveryWrapBinding;
-      lifecycle: {
-        status: 'consumed';
-        consumedAtMs: number;
-        revokedAtMs?: never;
-      };
-    }
-  | {
-      record: RevokedEmailOtpRecoveryWrappedEnrollmentEscrowRecord;
-      binding: EmailOtpRecoveryWrapBinding;
-      lifecycle: {
-        status: 'revoked';
-        consumedAtMs?: never;
-        revokedAtMs: number;
-      };
-    };
-
-export interface EmailOtpRecoveryWrappedEnrollmentEscrowStore {
-  get(input: {
-    walletId: string;
-    recoveryKeyId: string;
-  }): Promise<EmailOtpRecoveryWrappedEnrollmentEscrowRecord | null>;
-  listByWallet(walletId: string): Promise<EmailOtpRecoveryWrappedEnrollmentEscrowRecord[]>;
-  listActiveByWallet(walletId: string): Promise<EmailOtpRecoveryWrappedEnrollmentEscrowRecord[]>;
-  put(record: EmailOtpRecoveryWrappedEnrollmentEscrowRecord): Promise<void>;
-  putMany(records: readonly EmailOtpRecoveryWrappedEnrollmentEscrowRecord[]): Promise<void>;
-  del(input: { walletId: string; recoveryKeyId: string }): Promise<void>;
 }
 
 export type EmailOtpAuthStateRecord = {
@@ -324,7 +217,7 @@ type GoogleEmailOtpRegistrationAttemptBaseRecord = {
   providerSubject: string;
   email: string;
   walletId: string;
-  appSessionVersion: string;
+  ownerProofBindingDigest: string;
   authProvider: string;
   accountIdSlugVersion: 'hmac_readable_v1';
   walletIdDerivationNonce: string;
@@ -409,18 +302,18 @@ export interface EmailOtpRegistrationAttemptStore {
     providerSubject: string;
     email: string;
     orgId: string;
-    appSessionVersion: string;
+    ownerProofBindingDigest: string;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
     nowMs: number;
   }): Promise<PendingGoogleEmailOtpRegistrationAttemptRecord | null>;
-  abandonStartedBySubjectEmailExceptAppSession(input: {
+  abandonStartedBySubjectEmailExceptBinding(input: {
     providerSubject: string;
     email: string;
     orgId: string;
-    appSessionVersion: string;
+    ownerProofBindingDigest: string;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
     nowMs: number;
-    failureCode: 'app_session_version_replaced';
+    failureCode: 'owner_proof_binding_replaced';
   }): Promise<number>;
   hasLiveStartedWalletAttempt(input: { walletId: string; nowMs: number }): Promise<boolean>;
   deleteExpired(nowMs: number): Promise<number>;
@@ -437,7 +330,7 @@ function registrationAttemptMatchesStartedScope(
     providerSubject: string;
     email: string;
     orgId: string;
-    appSessionVersion: string;
+    ownerProofBindingDigest: string;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
     nowMs: number;
   },
@@ -445,7 +338,7 @@ function registrationAttemptMatchesStartedScope(
   return (
     record.providerSubject === input.providerSubject &&
     record.email === input.email &&
-    record.appSessionVersion === input.appSessionVersion &&
+    record.ownerProofBindingDigest === input.ownerProofBindingDigest &&
     record.runtimePolicyScope?.orgId === input.orgId &&
     runtimePolicyScopeKey(record.runtimePolicyScope) ===
       runtimePolicyScopeKey(input.runtimePolicyScope) &&
@@ -460,7 +353,7 @@ function registrationAttemptMatchesReplacementScope(
     providerSubject: string;
     email: string;
     orgId: string;
-    appSessionVersion: string;
+    ownerProofBindingDigest: string;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
     nowMs: number;
   },
@@ -468,7 +361,7 @@ function registrationAttemptMatchesReplacementScope(
   return (
     record.providerSubject === input.providerSubject &&
     record.email === input.email &&
-    record.appSessionVersion !== input.appSessionVersion &&
+    record.ownerProofBindingDigest !== input.ownerProofBindingDigest &&
     record.runtimePolicyScope?.orgId === input.orgId &&
     runtimePolicyScopeKey(record.runtimePolicyScope) ===
       runtimePolicyScopeKey(input.runtimePolicyScope) &&
@@ -534,8 +427,7 @@ export const EMAIL_OTP_STORE_D1_SCHEMA_SQL = Object.freeze([
       wallet_id TEXT NOT NULL,
       record_org_id TEXT NOT NULL,
       otp_channel TEXT NOT NULL,
-      session_hash TEXT NOT NULL,
-      app_session_version TEXT NOT NULL,
+      owner_proof_binding_digest TEXT NOT NULL,
       action TEXT NOT NULL,
       operation TEXT NOT NULL,
       otp_code TEXT NOT NULL,
@@ -547,8 +439,7 @@ export const EMAIL_OTP_STORE_D1_SCHEMA_SQL = Object.freeze([
       CHECK (length(challenge_subject_id) > 0),
       CHECK (length(wallet_id) > 0),
       CHECK (otp_channel = 'email_otp'),
-      CHECK (length(session_hash) > 0),
-      CHECK (length(app_session_version) > 0),
+      CHECK (length(owner_proof_binding_digest) > 0),
       CHECK (length(action) > 0),
       CHECK (length(operation) > 0),
       CHECK (length(otp_code) > 0),
@@ -568,8 +459,7 @@ export const EMAIL_OTP_STORE_D1_SCHEMA_SQL = Object.freeze([
         wallet_id,
         record_org_id,
         otp_channel,
-        session_hash,
-        app_session_version,
+        owner_proof_binding_digest,
         action,
         operation,
         expires_at_ms
@@ -658,39 +548,6 @@ export const EMAIL_OTP_STORE_D1_SCHEMA_SQL = Object.freeze([
       )
   `,
   `
-    CREATE TABLE IF NOT EXISTS email_otp_recovery_wrapped_enrollment_escrows (
-      namespace TEXT NOT NULL,
-      org_id TEXT NOT NULL,
-      project_id TEXT NOT NULL,
-      env_id TEXT NOT NULL,
-      wallet_id TEXT NOT NULL,
-      recovery_key_id TEXT NOT NULL,
-      recovery_key_status TEXT NOT NULL,
-      record_json TEXT NOT NULL,
-      issued_at_ms INTEGER NOT NULL,
-      updated_at_ms INTEGER NOT NULL,
-      PRIMARY KEY (namespace, org_id, project_id, env_id, wallet_id, recovery_key_id),
-      CHECK (length(wallet_id) > 0),
-      CHECK (length(recovery_key_id) > 0),
-      CHECK (recovery_key_status IN ('active', 'consumed', 'revoked')),
-      CHECK (json_valid(record_json)),
-      CHECK (issued_at_ms > 0),
-      CHECK (updated_at_ms > 0)
-    )
-  `,
-  `
-    CREATE INDEX IF NOT EXISTS email_otp_recovery_wrapped_escrows_wallet_idx
-      ON email_otp_recovery_wrapped_enrollment_escrows (
-        namespace,
-        org_id,
-        project_id,
-        env_id,
-        wallet_id,
-        recovery_key_status,
-        updated_at_ms
-      )
-  `,
-  `
     CREATE TABLE IF NOT EXISTS email_otp_auth_states (
       namespace TEXT NOT NULL,
       org_id TEXT NOT NULL,
@@ -754,7 +611,7 @@ export const EMAIL_OTP_STORE_D1_SCHEMA_SQL = Object.freeze([
       email TEXT NOT NULL,
       wallet_id TEXT NOT NULL,
       state TEXT NOT NULL,
-      app_session_version TEXT NOT NULL,
+      owner_proof_binding_digest TEXT NOT NULL,
       runtime_org_id TEXT NOT NULL,
       runtime_policy_key TEXT NOT NULL,
       offer_wallet_ids_json TEXT NOT NULL,
@@ -768,7 +625,7 @@ export const EMAIL_OTP_STORE_D1_SCHEMA_SQL = Object.freeze([
       CHECK (length(email) > 0),
       CHECK (length(wallet_id) > 0),
       CHECK (state IN ('started', 'key_finalized', 'active', 'abandoned', 'failed', 'expired')),
-      CHECK (length(app_session_version) > 0),
+      CHECK (length(owner_proof_binding_digest) > 0),
       CHECK (json_valid(offer_wallet_ids_json)),
       CHECK (json_valid(record_json)),
       CHECK (created_at_ms > 0),
@@ -787,7 +644,7 @@ export const EMAIL_OTP_STORE_D1_SCHEMA_SQL = Object.freeze([
         email,
         state,
         expires_at_ms,
-        app_session_version,
+        owner_proof_binding_digest,
         runtime_org_id,
         runtime_policy_key,
         updated_at_ms
@@ -940,8 +797,7 @@ function parseChallengeRecord(raw: unknown): EmailOtpChallengeRecord | null {
   const otpChannel = toOptionalTrimmedString(obj.otpChannel);
   const email = toOptionalTrimmedString(obj.email);
   const otpCode = toOptionalTrimmedString(obj.otpCode);
-  const sessionHash = toOptionalTrimmedString(obj.sessionHash);
-  const appSessionVersion = toOptionalTrimmedString(obj.appSessionVersion);
+  const ownerProofBindingDigest = toOptionalTrimmedString(obj.ownerProofBindingDigest);
   const action = toOptionalTrimmedString(obj.action);
   const operationRaw = toOptionalTrimmedString(obj.operation);
   const createdAtMs = Number(obj.createdAtMs);
@@ -949,13 +805,13 @@ function parseChallengeRecord(raw: unknown): EmailOtpChallengeRecord | null {
   const attemptCount = Number(obj.attemptCount);
   const maxAttempts = Number(obj.maxAttempts);
   if (version !== 'email_otp_challenge_v1') return null;
-  if (!challengeId || !challengeSubjectId || !walletId || !email || !otpCode || !sessionHash)
+  if (!challengeId || !challengeSubjectId || !walletId || !email || !otpCode || !ownerProofBindingDigest)
     return null;
   if (otpChannel !== EMAIL_OTP_CHANNEL) return null;
   if (
     action !== WALLET_EMAIL_OTP_ACTIONS.login &&
     action !== WALLET_EMAIL_OTP_ACTIONS.registration &&
-    action !== WALLET_EMAIL_OTP_ACTIONS.deviceRecovery
+    action !== WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap
   )
     return null;
   const operation: EmailOtpChallengeOperation =
@@ -964,7 +820,6 @@ function parseChallengeRecord(raw: unknown): EmailOtpChallengeRecord | null {
       : operationRaw === WALLET_EMAIL_OTP_REGISTRATION_OPERATION
         ? operationRaw
         : WALLET_EMAIL_OTP_UNLOCK_OPERATION;
-  if (!appSessionVersion) return null;
   if (!Number.isFinite(createdAtMs) || createdAtMs <= 0) return null;
   if (!Number.isFinite(expiresAtMs) || expiresAtMs <= 0) return null;
   if (!Number.isFinite(attemptCount) || attemptCount < 0) return null;
@@ -978,8 +833,7 @@ function parseChallengeRecord(raw: unknown): EmailOtpChallengeRecord | null {
     otpChannel: EMAIL_OTP_CHANNEL,
     email,
     otpCode,
-    sessionHash,
-    appSessionVersion,
+    ownerProofBindingDigest,
     action,
     operation,
     createdAtMs: Math.floor(createdAtMs),
@@ -999,8 +853,7 @@ function challengeContextMatches(
     record.walletId === input.walletId &&
     String(record.orgId || '') === String(input.orgId || '') &&
     record.otpChannel === input.otpChannel &&
-    record.sessionHash === input.sessionHash &&
-    record.appSessionVersion === input.appSessionVersion &&
+    record.ownerProofBindingDigest === input.ownerProofBindingDigest &&
     record.action === input.action &&
     record.operation === input.operation
   );
@@ -1017,18 +870,17 @@ function parseGrantRecord(raw: unknown): EmailOtpGrantRecord | null {
   const orgId = toOptionalTrimmedString(obj.orgId) || undefined;
   const challengeId = toOptionalTrimmedString(obj.challengeId);
   const otpChannel = toOptionalTrimmedString(obj.otpChannel);
-  const sessionHash = toOptionalTrimmedString(obj.sessionHash);
-  const appSessionVersion = toOptionalTrimmedString(obj.appSessionVersion);
+  const ownerProofBindingDigest = toOptionalTrimmedString(obj.ownerProofBindingDigest);
   const action = toOptionalTrimmedString(obj.action);
   const issuedAtMs = Number(obj.issuedAtMs);
   const expiresAtMs = Number(obj.expiresAtMs);
   if (version !== 'email_otp_grant_v1') return null;
-  if (!grantToken || !userId || !walletId || !challengeId || !sessionHash || !appSessionVersion)
+  if (!grantToken || !userId || !walletId || !challengeId || !ownerProofBindingDigest)
     return null;
   if (otpChannel !== EMAIL_OTP_CHANNEL) return null;
   if (
     action !== WALLET_EMAIL_OTP_ACTIONS.unseal &&
-    action !== WALLET_EMAIL_OTP_ACTIONS.deviceRecovery
+    action !== WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap
   ) {
     return null;
   }
@@ -1042,8 +894,7 @@ function parseGrantRecord(raw: unknown): EmailOtpGrantRecord | null {
     ...(orgId ? { orgId } : {}),
     challengeId,
     otpChannel: EMAIL_OTP_CHANNEL,
-    sessionHash,
-    appSessionVersion,
+    ownerProofBindingDigest,
     action,
     issuedAtMs: Math.floor(issuedAtMs),
     expiresAtMs: Math.floor(expiresAtMs),
@@ -1063,13 +914,11 @@ function parseWalletEnrollmentRecord(raw: unknown): EmailOtpWalletEnrollmentReco
   const enrollmentId = toOptionalTrimmedString(obj.enrollmentId);
   const enrollmentVersion = toOptionalTrimmedString(obj.enrollmentVersion);
   const enrollmentSealKeyVersion = toOptionalTrimmedString(obj.enrollmentSealKeyVersion);
-  const signingRootId = toOptionalTrimmedString(obj.signingRootId);
-  const signingRootVersion = toOptionalTrimmedString(obj.signingRootVersion);
-  const recoveryWrappedEnrollmentEscrowCount = Number(obj.recoveryWrappedEnrollmentEscrowCount);
   const clientUnlockPublicKeyB64u = toOptionalTrimmedString(obj.clientUnlockPublicKeyB64u);
   const unlockKeyVersion = toOptionalTrimmedString(obj.unlockKeyVersion);
-  const thresholdEcdsaClientVerifyingShareB64u =
-    toOptionalTrimmedString(obj.thresholdEcdsaClientVerifyingShareB64u) || '';
+  const serverSealedFactorCiphertextB64u = toOptionalTrimmedString(
+    obj.serverSealedFactorCiphertextB64u,
+  );
   const createdAtMs = Number(obj.createdAtMs);
   const updatedAtMs = Number(obj.updatedAtMs);
   if (version !== 'email_otp_wallet_enrollment_v1') return null;
@@ -1080,19 +929,11 @@ function parseWalletEnrollmentRecord(raw: unknown): EmailOtpWalletEnrollmentReco
     !verifiedEmail ||
     !enrollmentId ||
     !enrollmentVersion ||
-    !enrollmentSealKeyVersion ||
-    !signingRootId ||
-    !signingRootVersion
+    !enrollmentSealKeyVersion
   ) {
     return null;
   }
-  if (
-    !Number.isFinite(recoveryWrappedEnrollmentEscrowCount) ||
-    recoveryWrappedEnrollmentEscrowCount <= 0
-  ) {
-    return null;
-  }
-  if (!clientUnlockPublicKeyB64u || !unlockKeyVersion || !thresholdEcdsaClientVerifyingShareB64u) {
+  if (!clientUnlockPublicKeyB64u || !unlockKeyVersion || !serverSealedFactorCiphertextB64u) {
     return null;
   }
   if (!Number.isFinite(createdAtMs) || createdAtMs <= 0) return null;
@@ -1106,71 +947,12 @@ function parseWalletEnrollmentRecord(raw: unknown): EmailOtpWalletEnrollmentReco
     enrollmentId,
     enrollmentVersion,
     enrollmentSealKeyVersion,
-    signingRootId,
-    signingRootVersion,
-    recoveryWrappedEnrollmentEscrowCount: Math.floor(recoveryWrappedEnrollmentEscrowCount),
     clientUnlockPublicKeyB64u,
     unlockKeyVersion,
-    thresholdEcdsaClientVerifyingShareB64u,
+    serverSealedFactorCiphertextB64u,
     createdAtMs: Math.floor(createdAtMs),
     updatedAtMs: Math.floor(updatedAtMs),
   };
-}
-
-export function emailOtpRecoveryWrappedEnrollmentEscrowBoundaryFromRecord(
-  record: EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
-): EmailOtpRecoveryWrappedEnrollmentEscrowBoundary {
-  const binding = buildEmailOtpRecoveryWrapBinding({
-    walletId: record.walletId,
-    userId: record.userId,
-    authSubjectId: record.authSubjectId,
-    authMethod: record.authMethod,
-    enrollmentId: record.enrollmentId,
-    enrollmentVersion: record.enrollmentVersion,
-    enrollmentSealKeyVersion: record.enrollmentSealKeyVersion,
-    signingRootId: record.signingRootId,
-    signingRootVersion: record.signingRootVersion,
-    recoveryKeyId: record.recoveryKeyId,
-  });
-  switch (record.recoveryKeyStatus) {
-    case 'active':
-      return {
-        record,
-        binding,
-        lifecycle: {
-          status: 'active',
-        },
-      };
-    case 'consumed':
-      return {
-        record,
-        binding,
-        lifecycle: {
-          status: 'consumed',
-          consumedAtMs: record.consumedAtMs,
-        },
-      };
-    case 'revoked':
-      return {
-        record,
-        binding,
-        lifecycle: {
-          status: 'revoked',
-          revokedAtMs: record.revokedAtMs,
-        },
-      };
-    default: {
-      const _exhaustive: never = record;
-      throw new Error(`Unsupported Email OTP recovery escrow lifecycle: ${String(_exhaustive)}`);
-    }
-  }
-}
-
-export function parseEmailOtpRecoveryWrappedEnrollmentEscrowBoundary(
-  raw: unknown,
-): EmailOtpRecoveryWrappedEnrollmentEscrowBoundary | null {
-  const record = parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRecord(raw);
-  return record ? emailOtpRecoveryWrappedEnrollmentEscrowBoundaryFromRecord(record) : null;
 }
 
 function parseAuthStateRecord(raw: unknown): EmailOtpAuthStateRecord | null {
@@ -1310,7 +1092,7 @@ function parseRegistrationAttemptRecord(
   const offerId = toOptionalTrimmedString(obj.offerId);
   const offerCandidates = parseGoogleEmailOtpRegistrationOfferCandidates(obj.offerCandidates);
   const selectedCandidateId = toOptionalTrimmedString(obj.selectedCandidateId);
-  const appSessionVersion = toOptionalTrimmedString(obj.appSessionVersion);
+  const ownerProofBindingDigest = toOptionalTrimmedString(obj.ownerProofBindingDigest);
   const authProvider = toOptionalTrimmedString(obj.authProvider) || 'google_oidc';
   const accountIdSlugVersion =
     toOptionalTrimmedString(obj.accountIdSlugVersion) || 'hmac_readable_v1';
@@ -1333,7 +1115,7 @@ function parseRegistrationAttemptRecord(
     !offerCandidates ||
     !selectedCandidateId ||
     !offerCandidates.some((candidate) => candidate.candidateId === selectedCandidateId) ||
-    !appSessionVersion
+    !ownerProofBindingDigest
   ) {
     return null;
   }
@@ -1363,7 +1145,7 @@ function parseRegistrationAttemptRecord(
     offerId,
     offerCandidates,
     selectedCandidateId,
-    appSessionVersion,
+    ownerProofBindingDigest,
     authProvider,
     accountIdSlugVersion: 'hmac_readable_v1' as const,
     walletIdDerivationNonce,
@@ -1556,67 +1338,6 @@ class InMemoryEmailOtpWalletEnrollmentStore implements EmailOtpWalletEnrollmentS
   }
 }
 
-class InMemoryEmailOtpRecoveryWrappedEnrollmentEscrowStore implements EmailOtpRecoveryWrappedEnrollmentEscrowStore {
-  private readonly map = new Map<string, EmailOtpRecoveryWrappedEnrollmentEscrowRecord>();
-
-  private key(input: { walletId: string; recoveryKeyId: string }): string {
-    return `${input.walletId}\u0000${input.recoveryKeyId}`;
-  }
-
-  async get(input: {
-    walletId: string;
-    recoveryKeyId: string;
-  }): Promise<EmailOtpRecoveryWrappedEnrollmentEscrowRecord | null> {
-    const walletId = toOptionalTrimmedString(input.walletId);
-    const recoveryKeyId = toOptionalTrimmedString(input.recoveryKeyId);
-    if (!walletId || !recoveryKeyId) return null;
-    const record = this.map.get(this.key({ walletId, recoveryKeyId }));
-    return record ? cloneRecord(record) : null;
-  }
-
-  async listActiveByWallet(
-    walletId: string,
-  ): Promise<EmailOtpRecoveryWrappedEnrollmentEscrowRecord[]> {
-    const key = toOptionalTrimmedString(walletId);
-    if (!key) return [];
-    return Array.from(this.map.values())
-      .filter((record) => record.walletId === key && record.recoveryKeyStatus === 'active')
-      .map((record) => cloneRecord(record));
-  }
-
-  async listByWallet(walletId: string): Promise<EmailOtpRecoveryWrappedEnrollmentEscrowRecord[]> {
-    const key = toOptionalTrimmedString(walletId);
-    if (!key) return [];
-    return Array.from(this.map.values())
-      .filter((record) => record.walletId === key)
-      .map((record) => cloneRecord(record));
-  }
-
-  async put(record: EmailOtpRecoveryWrappedEnrollmentEscrowRecord): Promise<void> {
-    const parsed = parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRecord(record);
-    if (!parsed) throw new Error('Invalid Email OTP recovery-wrapped enrollment escrow record');
-    this.map.set(this.key(parsed), cloneRecord(parsed));
-  }
-
-  async putMany(records: readonly EmailOtpRecoveryWrappedEnrollmentEscrowRecord[]): Promise<void> {
-    const parsedRecords = records.map((record) => {
-      const parsed = parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRecord(record);
-      if (!parsed) throw new Error('Invalid Email OTP recovery-wrapped enrollment escrow record');
-      return parsed;
-    });
-    for (const parsed of parsedRecords) {
-      this.map.set(this.key(parsed), cloneRecord(parsed));
-    }
-  }
-
-  async del(input: { walletId: string; recoveryKeyId: string }): Promise<void> {
-    const walletId = toOptionalTrimmedString(input.walletId);
-    const recoveryKeyId = toOptionalTrimmedString(input.recoveryKeyId);
-    if (!walletId || !recoveryKeyId) return;
-    this.map.delete(this.key({ walletId, recoveryKeyId }));
-  }
-}
-
 class InMemoryEmailOtpAuthStateStore implements EmailOtpAuthStateStore {
   private readonly map = new Map<string, EmailOtpAuthStateRecord>();
 
@@ -1684,7 +1405,7 @@ class InMemoryEmailOtpRegistrationAttemptStore implements EmailOtpRegistrationAt
     providerSubject: string;
     email: string;
     orgId: string;
-    appSessionVersion: string;
+    ownerProofBindingDigest: string;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
     nowMs: number;
   }): Promise<PendingGoogleEmailOtpRegistrationAttemptRecord | null> {
@@ -1696,14 +1417,14 @@ class InMemoryEmailOtpRegistrationAttemptStore implements EmailOtpRegistrationAt
     return null;
   }
 
-  async abandonStartedBySubjectEmailExceptAppSession(input: {
+  async abandonStartedBySubjectEmailExceptBinding(input: {
     providerSubject: string;
     email: string;
     orgId: string;
-    appSessionVersion: string;
+    ownerProofBindingDigest: string;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
     nowMs: number;
-    failureCode: 'app_session_version_replaced';
+    failureCode: 'owner_proof_binding_replaced';
   }): Promise<number> {
     let abandoned = 0;
     for (const record of this.map.values()) {
@@ -1769,10 +1490,7 @@ abstract class D1EmailOtpStoreBase {
     this.schemaReady = true;
   }
 
-  protected bindScope(
-    statement: string,
-    values: readonly unknown[] = [],
-  ): D1PreparedStatementLike {
+  protected bindScope(statement: string, values: readonly unknown[] = []): D1PreparedStatementLike {
     return bindD1EmailOtpScope(this.database, this.scope, statement, values);
   }
 }
@@ -1803,8 +1521,7 @@ export class D1EmailOtpChallengeStore
         wallet_id,
         record_org_id,
         otp_channel,
-        session_hash,
-        app_session_version,
+        owner_proof_binding_digest,
         action,
         operation,
         otp_code,
@@ -1812,15 +1529,14 @@ export class D1EmailOtpChallengeStore
         created_at_ms,
         expires_at_ms
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT (namespace, org_id, project_id, env_id, challenge_id)
       DO UPDATE SET
         challenge_subject_id = EXCLUDED.challenge_subject_id,
         wallet_id = EXCLUDED.wallet_id,
         record_org_id = EXCLUDED.record_org_id,
         otp_channel = EXCLUDED.otp_channel,
-        session_hash = EXCLUDED.session_hash,
-        app_session_version = EXCLUDED.app_session_version,
+        owner_proof_binding_digest = EXCLUDED.owner_proof_binding_digest,
         action = EXCLUDED.action,
         operation = EXCLUDED.operation,
         otp_code = EXCLUDED.otp_code,
@@ -1833,8 +1549,7 @@ export class D1EmailOtpChallengeStore
         parsed.walletId,
         parsed.orgId || '',
         parsed.otpChannel,
-        parsed.sessionHash,
-        parsed.appSessionVersion,
+        parsed.ownerProofBindingDigest,
         parsed.action,
         parsed.operation,
         parsed.otpCode,
@@ -1909,8 +1624,7 @@ export class D1EmailOtpChallengeStore
           AND wallet_id = ?
           AND record_org_id = ?
           AND otp_channel = ?
-          AND session_hash = ?
-          AND app_session_version = ?
+          AND owner_proof_binding_digest = ?
           AND action = ?
           AND operation = ?`,
       [
@@ -1919,8 +1633,7 @@ export class D1EmailOtpChallengeStore
         input.walletId,
         String(input.orgId || ''),
         input.otpChannel,
-        input.sessionHash,
-        input.appSessionVersion,
+        input.ownerProofBindingDigest,
         input.action,
         input.operation,
       ],
@@ -1944,8 +1657,7 @@ export class D1EmailOtpChallengeStore
           AND wallet_id = ?
           AND record_org_id = ?
           AND otp_channel = ?
-          AND session_hash = ?
-          AND app_session_version = ?
+          AND owner_proof_binding_digest = ?
           AND action = ?
           AND operation = ?
         ORDER BY expires_at_ms DESC, created_at_ms DESC
@@ -1956,8 +1668,7 @@ export class D1EmailOtpChallengeStore
         input.walletId,
         String(input.orgId || ''),
         input.otpChannel,
-        input.sessionHash,
-        input.appSessionVersion,
+        input.ownerProofBindingDigest,
         input.action,
         input.operation,
       ],
@@ -1989,8 +1700,7 @@ export class D1EmailOtpChallengeStore
            AND wallet_id = ?
            AND record_org_id = ?
            AND otp_channel = ?
-           AND session_hash = ?
-           AND app_session_version = ?
+           AND owner_proof_binding_digest = ?
            AND action = ?
            AND operation = ?
          ORDER BY created_at_ms ASC, expires_at_ms ASC
@@ -2009,8 +1719,7 @@ export class D1EmailOtpChallengeStore
         input.walletId,
         String(input.orgId || ''),
         input.otpChannel,
-        input.sessionHash,
-        input.appSessionVersion,
+        input.ownerProofBindingDigest,
         input.action,
         input.operation,
         this.scope.namespace,
@@ -2045,8 +1754,7 @@ export class D1EmailOtpChallengeStore
           AND wallet_id = ?
           AND record_org_id = ?
           AND otp_channel = ?
-          AND session_hash = ?
-          AND app_session_version = ?
+          AND owner_proof_binding_digest = ?
           AND action = ?
           AND operation = ?
           AND otp_code = ?
@@ -2058,8 +1766,7 @@ export class D1EmailOtpChallengeStore
         input.walletId,
         String(input.orgId || ''),
         input.otpChannel,
-        input.sessionHash,
-        input.appSessionVersion,
+        input.ownerProofBindingDigest,
         input.action,
         input.operation,
         input.otpCode,
@@ -2332,170 +2039,6 @@ export class D1EmailOtpWalletEnrollmentStore
   }
 }
 
-export class D1EmailOtpRecoveryWrappedEnrollmentEscrowStore
-  extends D1EmailOtpStoreBase
-  implements EmailOtpRecoveryWrappedEnrollmentEscrowStore
-{
-  readonly adapterKind = 'd1';
-
-  async get(input: {
-    walletId: string;
-    recoveryKeyId: string;
-  }): Promise<EmailOtpRecoveryWrappedEnrollmentEscrowRecord | null> {
-    await this.ensureSchema();
-    const walletId = toOptionalTrimmedString(input.walletId);
-    const recoveryKeyId = toOptionalTrimmedString(input.recoveryKeyId);
-    if (!walletId || !recoveryKeyId) return null;
-    const row = await this.bindScope(
-      `SELECT record_json, updated_at_ms, recovery_key_id
-         FROM email_otp_recovery_wrapped_enrollment_escrows
-        WHERE namespace = ?
-          AND org_id = ?
-          AND project_id = ?
-          AND env_id = ?
-          AND wallet_id = ?
-          AND recovery_key_id = ?
-        LIMIT 1`,
-      [walletId, recoveryKeyId],
-    ).first<D1EmailOtpRecordRow>();
-    const parsed = parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRow({
-      recordJson: parseJsonRecord(row?.record_json),
-      updatedAtMs: row?.updated_at_ms,
-    });
-    if (!row) return null;
-    if (!parsed) {
-      await this.del({ walletId, recoveryKeyId });
-      return null;
-    }
-    return cloneRecord(parsed);
-  }
-
-  async listActiveByWallet(
-    walletId: string,
-  ): Promise<EmailOtpRecoveryWrappedEnrollmentEscrowRecord[]> {
-    return await this.listByWalletAndStatus({ walletId, status: 'active' });
-  }
-
-  async listByWallet(walletId: string): Promise<EmailOtpRecoveryWrappedEnrollmentEscrowRecord[]> {
-    return await this.listByWalletAndStatus({ walletId, status: null });
-  }
-
-  private async listByWalletAndStatus(input: {
-    walletId: string;
-    status: EmailOtpRecoveryWrappedEnrollmentEscrowStatus | null;
-  }): Promise<EmailOtpRecoveryWrappedEnrollmentEscrowRecord[]> {
-    await this.ensureSchema();
-    const key = toOptionalTrimmedString(input.walletId);
-    if (!key) return [];
-    const rows = await this.bindScope(
-      `SELECT record_json, updated_at_ms, recovery_key_id
-         FROM email_otp_recovery_wrapped_enrollment_escrows
-        WHERE namespace = ?
-          AND org_id = ?
-          AND project_id = ?
-          AND env_id = ?
-          AND wallet_id = ?
-          AND (? IS NULL OR recovery_key_status = ?)
-        ORDER BY updated_at_ms DESC, recovery_key_id ASC`,
-      [key, input.status, input.status],
-    ).all<D1EmailOtpRecordRow>();
-    const records: EmailOtpRecoveryWrappedEnrollmentEscrowRecord[] = [];
-    const malformedRecoveryKeyIds: string[] = [];
-    for (const row of rows.results || []) {
-      const parsed = parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRow({
-        recordJson: parseJsonRecord(row.record_json),
-        updatedAtMs: row.updated_at_ms,
-      });
-      if (parsed) {
-        records.push(cloneRecord(parsed));
-        continue;
-      }
-      const recoveryKeyId = toOptionalTrimmedString(row.recovery_key_id);
-      if (recoveryKeyId) malformedRecoveryKeyIds.push(recoveryKeyId);
-    }
-    await Promise.all(
-      malformedRecoveryKeyIds.map((recoveryKeyId) => this.del({ walletId: key, recoveryKeyId })),
-    );
-    return records;
-  }
-
-  async put(record: EmailOtpRecoveryWrappedEnrollmentEscrowRecord): Promise<void> {
-    await this.ensureSchema();
-    const parsed = parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRecord(record);
-    if (!parsed) throw new Error('Invalid Email OTP recovery-wrapped enrollment escrow record');
-    await this.putParsed(parsed);
-  }
-
-  async putMany(records: readonly EmailOtpRecoveryWrappedEnrollmentEscrowRecord[]): Promise<void> {
-    await this.ensureSchema();
-    const statements: D1PreparedStatementLike[] = [];
-    for (const record of records) {
-      const parsed = parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRecord(record);
-      if (!parsed) throw new Error('Invalid Email OTP recovery-wrapped enrollment escrow record');
-      statements.push(this.putParsedStatement(parsed));
-    }
-    if (statements.length === 0) return;
-    await this.database.batch(statements);
-  }
-
-  private async putParsed(
-    parsed: EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
-  ): Promise<void> {
-    await this.putParsedStatement(parsed).run();
-  }
-
-  private putParsedStatement(
-    parsed: EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
-  ): D1PreparedStatementLike {
-    return this.bindScope(
-      `INSERT INTO email_otp_recovery_wrapped_enrollment_escrows (
-        namespace,
-        org_id,
-        project_id,
-        env_id,
-        wallet_id,
-        recovery_key_id,
-        recovery_key_status,
-        record_json,
-        issued_at_ms,
-        updated_at_ms
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT (namespace, org_id, project_id, env_id, wallet_id, recovery_key_id)
-      DO UPDATE SET
-        recovery_key_status = EXCLUDED.recovery_key_status,
-        record_json = EXCLUDED.record_json,
-        issued_at_ms = EXCLUDED.issued_at_ms,
-        updated_at_ms = EXCLUDED.updated_at_ms`,
-      [
-        parsed.walletId,
-        parsed.recoveryKeyId,
-        parsed.recoveryKeyStatus,
-        JSON.stringify(parsed),
-        parsed.issuedAtMs,
-        parsed.updatedAtMs,
-      ],
-    );
-  }
-
-  async del(input: { walletId: string; recoveryKeyId: string }): Promise<void> {
-    await this.ensureSchema();
-    const walletId = toOptionalTrimmedString(input.walletId);
-    const recoveryKeyId = toOptionalTrimmedString(input.recoveryKeyId);
-    if (!walletId || !recoveryKeyId) return;
-    await this.bindScope(
-      `DELETE FROM email_otp_recovery_wrapped_enrollment_escrows
-        WHERE namespace = ?
-          AND org_id = ?
-          AND project_id = ?
-          AND env_id = ?
-          AND wallet_id = ?
-          AND recovery_key_id = ?`,
-      [walletId, recoveryKeyId],
-    ).run();
-  }
-}
-
 export class D1EmailOtpAuthStateStore
   extends D1EmailOtpStoreBase
   implements EmailOtpAuthStateStore
@@ -2699,7 +2242,7 @@ export class D1EmailOtpRegistrationAttemptStore
         email,
         wallet_id,
         state,
-        app_session_version,
+        owner_proof_binding_digest,
         runtime_org_id,
         runtime_policy_key,
         offer_wallet_ids_json,
@@ -2715,7 +2258,7 @@ export class D1EmailOtpRegistrationAttemptStore
         email = EXCLUDED.email,
         wallet_id = EXCLUDED.wallet_id,
         state = EXCLUDED.state,
-        app_session_version = EXCLUDED.app_session_version,
+        owner_proof_binding_digest = EXCLUDED.owner_proof_binding_digest,
         runtime_org_id = EXCLUDED.runtime_org_id,
         runtime_policy_key = EXCLUDED.runtime_policy_key,
         offer_wallet_ids_json = EXCLUDED.offer_wallet_ids_json,
@@ -2729,7 +2272,7 @@ export class D1EmailOtpRegistrationAttemptStore
         parsed.email,
         parsed.walletId,
         parsed.state,
-        parsed.appSessionVersion,
+        parsed.ownerProofBindingDigest,
         parsed.runtimePolicyScope?.orgId || '',
         runtimePolicyScopeKey(parsed.runtimePolicyScope),
         JSON.stringify(parsed.offerCandidates.map((candidate) => candidate.walletId)),
@@ -2773,7 +2316,7 @@ export class D1EmailOtpRegistrationAttemptStore
     providerSubject: string;
     email: string;
     orgId: string;
-    appSessionVersion: string;
+    ownerProofBindingDigest: string;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
     nowMs: number;
   }): Promise<PendingGoogleEmailOtpRegistrationAttemptRecord | null> {
@@ -2789,7 +2332,7 @@ export class D1EmailOtpRegistrationAttemptStore
           AND email = ?
           AND state IN ('started', 'key_finalized')
           AND expires_at_ms > ?
-          AND app_session_version = ?
+          AND owner_proof_binding_digest = ?
           AND runtime_org_id = ?
           AND runtime_policy_key = ?
         ORDER BY updated_at_ms DESC
@@ -2798,7 +2341,7 @@ export class D1EmailOtpRegistrationAttemptStore
         input.providerSubject,
         input.email,
         input.nowMs,
-        input.appSessionVersion,
+        input.ownerProofBindingDigest,
         input.orgId,
         runtimePolicyScopeKey(input.runtimePolicyScope),
       ],
@@ -2816,14 +2359,14 @@ export class D1EmailOtpRegistrationAttemptStore
     return null;
   }
 
-  async abandonStartedBySubjectEmailExceptAppSession(input: {
+  async abandonStartedBySubjectEmailExceptBinding(input: {
     providerSubject: string;
     email: string;
     orgId: string;
-    appSessionVersion: string;
+    ownerProofBindingDigest: string;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
     nowMs: number;
-    failureCode: 'app_session_version_replaced';
+    failureCode: 'owner_proof_binding_replaced';
   }): Promise<number> {
     await this.ensureSchema();
     const result = await this.bindScope(
@@ -2954,21 +2497,6 @@ export function createEmailOtpWalletEnrollmentStore(
   assertEmailOtpStoreKindKnown(input, 'enrollment');
   input?.logger?.info('[email-otp] Using in-memory wallet enrollment store (non-persistent)');
   return new InMemoryEmailOtpWalletEnrollmentStore();
-}
-
-export function createEmailOtpRecoveryWrappedEnrollmentEscrowStore(
-  input?: EmailOtpStoreFactoryInput,
-): EmailOtpRecoveryWrappedEnrollmentEscrowStore {
-  const d1 = resolveD1EmailOtpStoreOptions(input, 'recovery-wrapped enrollment escrow');
-  if (d1) {
-    input?.logger?.info('[email-otp] Using D1 recovery-wrapped enrollment escrow store');
-    return new D1EmailOtpRecoveryWrappedEnrollmentEscrowStore(d1);
-  }
-  assertEmailOtpStoreKindKnown(input, 'recovery-wrapped enrollment escrow');
-  input?.logger?.info(
-    '[email-otp] Using in-memory recovery-wrapped enrollment escrow store (non-persistent)',
-  );
-  return new InMemoryEmailOtpRecoveryWrappedEnrollmentEscrowStore();
 }
 
 export function createEmailOtpAuthStateStore(

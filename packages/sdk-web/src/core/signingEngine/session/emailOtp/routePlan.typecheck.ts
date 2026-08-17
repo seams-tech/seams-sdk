@@ -15,7 +15,7 @@ const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
 });
 void ({
   kind: 'signing_session',
-  jwt: 'threshold-session-jwt',
+  walletSessionToken: 'threshold-session-token',
   thresholdSessionId: 'threshold-session',
   curve: 'ecdsa',
   chainTarget,
@@ -25,7 +25,7 @@ void buildEmailOtpRoutePlan({
   routeFamily: 'signing_session',
   authLane: {
     kind: 'signing_session',
-    jwt: 'threshold-session-jwt',
+    walletSessionToken: 'threshold-session-token',
     thresholdSessionId: 'threshold-session',
     curve: 'ecdsa',
     chainTarget,
@@ -35,7 +35,7 @@ void buildEmailOtpRoutePlan({
 
 const ecdsaBootstrapRouteAuth = {
   kind: 'threshold_ecdsa_session',
-  jwt: 'threshold-ecdsa-session-jwt',
+  walletSessionToken: 'threshold-ecdsa-session-token',
   curve: 'ecdsa',
   thresholdSessionId: 'ecdsa-threshold-session',
   chainTarget,
@@ -48,7 +48,7 @@ void ({
 
 const ed25519RouteAuth = {
   kind: 'threshold_ed25519_session',
-  jwt: 'threshold-ed25519-session-jwt',
+  walletSessionToken: 'threshold-ed25519-session-token',
   curve: 'ed25519',
 } satisfies EmailOtpThresholdEd25519RouteAuth;
 

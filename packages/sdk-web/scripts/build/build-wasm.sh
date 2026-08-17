@@ -98,29 +98,17 @@ build_ed25519_yao_client() {
       wasm-pack build --locked --target web --out-dir pkg --out-name router_ab_ed25519_yao_client --release
 }
 
-build_ecdsa_registration_client() {
-  run_in_dir "$SOURCE_WASM_ECDSA_REGISTRATION_CLIENT" \
-    with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_ECDSA_REGISTRATION_CLIENT/Cargo.lock" \
-      wasm-pack build --locked --target web --out-dir pkg --out-name ecdsa_registration_client --release
+build_wallet_custody_ceremony() {
+  run_in_dir "$SOURCE_WASM_WALLET_CUSTODY_CEREMONY" \
+    with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_WALLET_CUSTODY_CEREMONY/Cargo.lock" \
+      wasm-pack build --locked --target web --out-dir pkg --out-name wallet_custody_ceremony --release
 }
 
-build_router_ab_ecdsa_derivation_client() {
-  run_in_dir "$SOURCE_WASM_ECDSA_DERIVATION_CLIENT" \
+build_router_ab_ecdsa_client() {
+  run_in_dir "$SOURCE_WASM_ECDSA_CLIENT" \
     with_ecdsa_derivation_hot_path_rustflags \
-      with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_ECDSA_DERIVATION_CLIENT/Cargo.lock" \
-      wasm-pack build --locked --target web --out-dir pkg --out-name router_ab_ecdsa_derivation_client --release
-}
-
-build_router_ab_ecdsa_presign_client() {
-  run_in_dir "$SOURCE_WASM_ECDSA_PRESIGN_CLIENT" \
-    with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_ECDSA_PRESIGN_CLIENT/Cargo.lock" \
-      wasm-pack build --locked --target web --out-dir pkg --out-name router_ab_ecdsa_presign_client --release
-}
-
-build_router_ab_ecdsa_online_client() {
-  run_in_dir "$SOURCE_WASM_ECDSA_ONLINE_CLIENT" \
-    with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_ECDSA_ONLINE_CLIENT/Cargo.lock" \
-      wasm-pack build --locked --target web --out-dir pkg --out-name router_ab_ecdsa_online_client --release
+      with_wasm_bindgen_cli_for_lockfile "$SDK_ROOT/$SOURCE_WASM_ECDSA_CLIENT/Cargo.lock" \
+      wasm-pack build --locked --target web --out-dir pkg --out-name router_ab_ecdsa_client --release
 }
 
 build_router_ab_ecdsa_signing_worker() {
@@ -245,12 +233,10 @@ GATEWAY_WASM_SOURCES=(
 )
 FULL_SDK_WASM_SOURCES=(
   "$SOURCE_ED25519_YAO_CLIENT"
-  "$SOURCE_WASM_ECDSA_REGISTRATION_CLIENT"
-  "$SOURCE_WASM_ECDSA_DERIVATION_CLIENT"
-  "$SOURCE_WASM_ECDSA_PRESIGN_CLIENT"
-  "$SOURCE_WASM_ECDSA_ONLINE_CLIENT"
+  "$SOURCE_WASM_ECDSA_CLIENT"
   "$SOURCE_WASM_TEMPO_SIGNER"
   "$SOURCE_WASM_EMAIL_OTP_RUNTIME"
+  "$SOURCE_WASM_WALLET_CUSTODY_CEREMONY"
 )
 
 if [ "${WASM_SDK_USE_PREBUILT:-0}" = "1" ]; then
@@ -275,12 +261,10 @@ else
   start_job "Shamir3Pass runtime WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_SHAMIR3PASS_RUNTIME" shamir3pass_runtime
   if [ "$WASM_SDK_BUILD_TARGET" = "all" ]; then
     start_job "Ed25519 Yao Client WASM (release)" build_ed25519_yao_client
-    start_job "ECDSA registration client WASM (release)" build_ecdsa_registration_client
-    start_job "ECDSA client signer WASM (release)" build_router_ab_ecdsa_derivation_client
-    start_job "ECDSA presign client WASM (release)" build_router_ab_ecdsa_presign_client
-    start_job "ECDSA online client WASM (release)" build_router_ab_ecdsa_online_client
+    start_job "ECDSA client signer WASM (release)" build_router_ab_ecdsa_client
     start_job "Tempo signer WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_TEMPO_SIGNER" tempo_signer
     start_job "Email OTP runtime WASM ($DEFAULT_WASM_PROFILE_LABEL)" build_profiled_wasm_crate "$SOURCE_WASM_EMAIL_OTP_RUNTIME" email_otp_runtime
+    start_job "Wallet custody ceremony WASM (release)" build_wallet_custody_ceremony
   fi
   wait_for_jobs
 
@@ -310,18 +294,9 @@ if [ "$WASM_SDK_BUILD_TARGET" = "all" ]; then
   require_file "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg/router_ab_ed25519_yao_client.js"
   require_file "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg/router_ab_ed25519_yao_client.d.ts"
   require_file "$SDK_ROOT/$SOURCE_ED25519_YAO_CLIENT/pkg/router_ab_ed25519_yao_client_bg.wasm"
-  require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_REGISTRATION_CLIENT/pkg/ecdsa_registration_client.js"
-  require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_REGISTRATION_CLIENT/pkg/ecdsa_registration_client.d.ts"
-  require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_REGISTRATION_CLIENT/pkg/ecdsa_registration_client_bg.wasm"
-  require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_DERIVATION_CLIENT/pkg/router_ab_ecdsa_derivation_client.js"
-  require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_DERIVATION_CLIENT/pkg/router_ab_ecdsa_derivation_client.d.ts"
-  require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_DERIVATION_CLIENT/pkg/router_ab_ecdsa_derivation_client_bg.wasm"
-  require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_PRESIGN_CLIENT/pkg/router_ab_ecdsa_presign_client.js"
-  require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_PRESIGN_CLIENT/pkg/router_ab_ecdsa_presign_client.d.ts"
-  require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_PRESIGN_CLIENT/pkg/router_ab_ecdsa_presign_client_bg.wasm"
-  require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_ONLINE_CLIENT/pkg/router_ab_ecdsa_online_client.js"
-  require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_ONLINE_CLIENT/pkg/router_ab_ecdsa_online_client.d.ts"
-  require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_ONLINE_CLIENT/pkg/router_ab_ecdsa_online_client_bg.wasm"
+  require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_CLIENT/pkg/router_ab_ecdsa_client.js"
+  require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_CLIENT/pkg/router_ab_ecdsa_client.d.ts"
+  require_file "$SDK_ROOT/$SOURCE_WASM_ECDSA_CLIENT/pkg/router_ab_ecdsa_client_bg.wasm"
   require_file "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/pkg/tempo_signer.js"
   require_file "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/pkg/tempo_signer.d.ts"
   require_file "$SDK_ROOT/$SOURCE_WASM_TEMPO_SIGNER/pkg/tempo_signer_bg.wasm"
@@ -331,6 +306,9 @@ if [ "$WASM_SDK_BUILD_TARGET" = "all" ]; then
   require_file "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/pkg/email_otp_runtime.js"
   require_file "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/pkg/email_otp_runtime.d.ts"
   require_file "$SDK_ROOT/$SOURCE_WASM_EMAIL_OTP_RUNTIME/pkg/email_otp_runtime_bg.wasm"
+  require_file "$SDK_ROOT/$SOURCE_WASM_WALLET_CUSTODY_CEREMONY/pkg/wallet_custody_ceremony.js"
+  require_file "$SDK_ROOT/$SOURCE_WASM_WALLET_CUSTODY_CEREMONY/pkg/wallet_custody_ceremony.d.ts"
+  require_file "$SDK_ROOT/$SOURCE_WASM_WALLET_CUSTODY_CEREMONY/pkg/wallet_custody_ceremony_bg.wasm"
 fi
 print_success "Expected WASM package outputs are present"
 

@@ -40,7 +40,7 @@
     "caddy": "pnpm -C apps/seams-site caddy",
     "site": "pnpm run site:serve",
     "site:serve": "concurrently --kill-others --names caddy,site,docs \"pnpm run caddy\" \"node ./scripts/start-local-site.mjs\" \"pnpm run docs:dev\"",
-    "gateway:server": "export SEAMS_D1_LOCAL_PERSIST_TO=\"${SEAMS_D1_LOCAL_PERSIST_TO:-../../.local/cloudflare-state/gateway}\"; export SEAMS_D1_LOCAL_WRANGLER_CONFIG=\"${SEAMS_D1_LOCAL_WRANGLER_CONFIG:-wrangler.d1-local.toml}\"; pnpm -C packages/sdk-server-ts build && pnpm -C packages/console-server-ts run d1:local:prepare && pnpm run seed:intended-local-console && pnpm -C packages/console-server-ts run d1:local:dev",
+    "gateway:server": "export SEAMS_D1_LOCAL_PERSIST_TO=\"${SEAMS_D1_LOCAL_PERSIST_TO:-../../.local/cloudflare-state/gateway}\"; export SEAMS_D1_LOCAL_WRANGLER_CONFIG=\"${SEAMS_D1_LOCAL_WRANGLER_CONFIG:-wrangler.d1-local.toml}\"; pnpm exec concurrently --kill-others-on-fail --names sdk,d1 \"pnpm -C packages/sdk-server-ts build\" \"pnpm -C packages/console-server-ts run d1:local:prepare\" && pnpm -C packages/console-server-ts run d1:local:serve",
     "gateway:server:threshold-3nodes": "pnpm -C packages/sdk-server-ts build && HOST=127.0.0.1 EXPECTED_ORIGIN=https://localhost EXPECTED_WALLET_ORIGIN=https://localhost:8443 ROUTER_AB_NORMAL_SIGNING_WORKER_ID=${ROUTER_AB_NORMAL_SIGNING_WORKER_ID:-local-signing-worker} ROUTER_AB_SIGNING_WORKER_URL=${ROUTER_AB_SIGNING_WORKER_URL:-http://127.0.0.1:9103} ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET=${ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET:-dev-router-ab-internal-service-auth} pnpm -C apps/web-server dev:threshold:3relays",
     "gateway:server:iphone": "pnpm -C packages/sdk-server-ts build && HOST=0.0.0.0 EXPECTED_ORIGIN=https://pta-m4.local EXPECTED_WALLET_ORIGIN=https://pta-m4.local:8443 ROUTER_AB_NORMAL_SIGNING_WORKER_ID=${ROUTER_AB_NORMAL_SIGNING_WORKER_ID:-local-signing-worker} ROUTER_AB_SIGNING_WORKER_URL=${ROUTER_AB_SIGNING_WORKER_URL:-http://127.0.0.1:9103} ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET=${ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET:-dev-router-ab-internal-service-auth} pnpm -C apps/web-server dev",
     "router": "node ./crates/router-ab-dev/scripts/dev-local-workers.mjs --mode logs",
@@ -82,6 +82,7 @@
     "test:lite": "pnpm -C tests test:lite",
     "test:inline": "pnpm -C tests test:inline",
     "test:e2e": "pnpm -C tests test:e2e",
+    "test:linked-device": "pnpm -C tests test:linked-device",
     "test:intended": "pnpm -C tests test:intended",
     "test:intended:ci": "pnpm -C tests test:intended:ci",
     "ensure:intended-google-token": "pnpm -C tests ensure:intended-google-token",
@@ -98,7 +99,7 @@
     "test:threshold-core": "pnpm -C tests test:threshold-core",
     "test:signers:gates": "pnpm -C tests test:signers:gates",
     "show-report": "pnpm -C tests show-report",
-    "benchmark:router-ab-ecdsa-derivation:wasm": "bash -lc 'if [ -z \"${CC_wasm32_unknown_unknown:-}\" ] && [ -x /opt/homebrew/opt/llvm/bin/clang ]; then export CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang; fi; cd wasm/router_ab_ecdsa_signing_worker && wasm-pack build --target web --out-dir pkg && cd ../router_ab_ecdsa_derivation_client && wasm-pack build --target web --out-dir pkg && cd ../.. && node ./benchmarks/router-ab-ecdsa-derivation-wasm/src/runner.mjs'"
+    "benchmark:router-ab-ecdsa-derivation:wasm": "bash -lc 'if [ -z \"${CC_wasm32_unknown_unknown:-}\" ] && [ -x /opt/homebrew/opt/llvm/bin/clang ]; then export CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang; fi; cd wasm/router_ab_ecdsa_signing_worker && wasm-pack build --target web --out-dir pkg && cd ../router_ab_ecdsa_client && wasm-pack build --target web --out-dir pkg && cd ../.. && node ./benchmarks/router-ab-ecdsa-derivation-wasm/src/runner.mjs'"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",

@@ -56,8 +56,9 @@ function delay(ms: number): Promise<void> {
 test.describe('threshold Ed25519 MPC session store', () => {
   test('rejects stale root rpId on persisted Ed25519 session records', () => {
     const authority = authorityScope();
-    expect(parseThresholdEd25519MpcSessionRecord({ ...createMpcSessionRecord(), rpId: 'legacy-rp' }))
-      .toBeNull();
+    expect(
+      parseThresholdEd25519MpcSessionRecord({ ...createMpcSessionRecord(), rpId: 'legacy-rp' }),
+    ).toBeNull();
     expect(
       parseEd25519WalletSessionRecord({
         expiresAtMs: Date.now() + 60_000,

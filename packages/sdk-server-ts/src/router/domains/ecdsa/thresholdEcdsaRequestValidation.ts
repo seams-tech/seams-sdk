@@ -24,7 +24,6 @@ export type ThresholdEcdsaRouteParseResult<T> =
   | { ok: false; body: ThresholdEcdsaRouteErrorBody };
 
 const POOL_FILL_INIT_KEYS = [
-  'sessionKind',
   'keyHandle',
   'ecdsaThresholdKeyId',
   'count',
@@ -34,7 +33,6 @@ const POOL_FILL_INIT_KEYS = [
   'operation',
 ] as const;
 const POOL_FILL_STEP_KEYS = [
-  'sessionKind',
   'presignSessionId',
   'stage',
   'outgoingMessagesB64u',
@@ -101,14 +99,6 @@ function unexpectedThresholdEcdsaKey(
   return null;
 }
 
-function rejectNonJwtSessionKind(
-  record: Record<string, unknown>,
-  message: string,
-): ThresholdEcdsaRouteParseResult<never> | null {
-  if (record.sessionKind === undefined || record.sessionKind === 'jwt') return null;
-  return invalidThresholdEcdsaBody(message);
-}
-
 function optionalStringField(record: Record<string, unknown>, field: string): string | undefined {
   const value = record[field];
   if (typeof value !== 'string') return undefined;
@@ -130,11 +120,6 @@ export function parseRouterAbEcdsaDerivationPoolFillInitRouteRequest(
   if (!isPlainObject(raw)) {
     return invalidThresholdEcdsaBody('Expected JSON object body');
   }
-  const sessionKindError = rejectNonJwtSessionKind(
-    raw,
-    'Router A/B ECDSA derivation presignature pool fill requires sessionKind=jwt',
-  );
-  if (sessionKindError) return sessionKindError;
   const unexpectedKey = unexpectedThresholdEcdsaKey(raw, POOL_FILL_INIT_KEYS);
   if (unexpectedKey) {
     return invalidThresholdEcdsaBody(`Unsupported threshold-ecdsa pool-fill init field: ${unexpectedKey}`);
@@ -197,11 +182,6 @@ export function parseRouterAbEcdsaDerivationPoolFillStepRouteRequest(
   if (!isPlainObject(raw)) {
     return invalidThresholdEcdsaBody('Expected JSON object body');
   }
-  const sessionKindError = rejectNonJwtSessionKind(
-    raw,
-    'Router A/B ECDSA derivation presignature pool fill requires sessionKind=jwt',
-  );
-  if (sessionKindError) return sessionKindError;
   const unexpectedKey = unexpectedThresholdEcdsaKey(raw, POOL_FILL_STEP_KEYS);
   if (unexpectedKey) {
     return invalidThresholdEcdsaBody(`Unsupported threshold-ecdsa pool-fill step field: ${unexpectedKey}`);

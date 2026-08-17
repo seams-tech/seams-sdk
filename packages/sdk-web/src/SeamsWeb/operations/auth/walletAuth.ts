@@ -66,6 +66,14 @@ export type WalletLockDomainDeps = {
   };
 };
 
+function reportBackgroundWalletLockFailure(error: unknown): void {
+  console.warn('[wallet auth] background lock cleanup failed', error);
+}
+
+function continueWalletLockInBackground(lockPromise: Promise<void>): void {
+  void lockPromise.catch(reportBackgroundWalletLockFailure);
+}
+
 function walletUnlockCapabilityScope(
   selection: LoginHooksOptions['unlockSelection'] | undefined,
 ): WalletUnlockCapabilityFamilyScope {
@@ -172,8 +180,12 @@ export async function unlockDomain(
 }
 
 export async function lockDomain(deps: WalletLockDomainDeps): Promise<void> {
-  await lockCore(deps.getContext());
-  if (!deps.walletIframe.shouldUseWalletIframe()) return;
+  const localLock = lockCore(deps.getContext());
+  if (!deps.walletIframe.shouldUseWalletIframe()) {
+    await localLock;
+    return;
+  }
+  continueWalletLockInBackground(localLock);
   const router = await deps.walletIframe.requireRouter();
   await router.lock();
 }

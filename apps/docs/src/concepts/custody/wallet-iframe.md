@@ -28,3 +28,14 @@ The iframe keeps wallet authority independent from the app page. A compromised
 app page still has to pass wallet-origin checks, policy, auth-method
 requirements, Wallet Session admission, replay checks, and signing budget
 admission before a signing lane can participate.
+
+## Configure the boundary
+
+Set the wallet origin explicitly when mounting the React provider. The wallet
+service and SDK paths resolve against that dedicated origin.
+
+::: details Runnable React example
+
+<<< ../../examples/setup.tsx
+
+:::

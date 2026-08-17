@@ -1,381 +1,425 @@
-use chacha20poly1305::aead::{Aead, Payload};
-use chacha20poly1305::{ChaCha20Poly1305, KeyInit, Nonce};
-use curve25519_dalek::{constants::ED25519_BASEPOINT_POINT, scalar::Scalar};
-use hkdf::Hkdf;
+use js_sys::{Array, Object, Reflect, Uint8Array};
+use presign_rand_core::OsRng;
 use router_ab_core::{
-    RouterAbEd25519YaoActivationAdmissionReceiptV1, RouterAbEd25519YaoActivationResultV1,
-    RouterAbEd25519YaoApplicationBindingFactsV1, RouterAbEd25519YaoExportAdmissionReceiptV1,
-    RouterAbEd25519YaoExportResultV1,
+    Ed25519YaoCeremonyBindingV1, Ed25519YaoLaneJobV1, RouterAbEd25519YaoApplicationBindingFactsV1,
+    RouterAbEd25519YaoExportAdmissionReceiptV1, RouterAbEd25519YaoExportResultV1,
 };
-use sha2::Sha256;
-use signer_core::near_threshold_frost::compute_threshold_ed25519_group_public_key_2p_from_verifying_shares;
-use subtle::ConstantTimeEq;
+use router_ab_ecdsa_online::{
+    combine_rerandomization_contributions, compute_client_signature_share, ClientPresignMaterial,
+    OnlineClientInput,
+};
+use router_ab_ecdsa_presign::session::{
+    derive_presign_pair_context, ClientPresignSession as FixedClientPresignSession,
+    PresignSessionError, PresignSessionProgress,
+};
+use router_ab_ecdsa_presign::{AdditiveKeyShare, PresignOutput};
+use router_ab_ecdsa_wire::{CompressedPointBytes, ScalarBytes};
+use serde::de::DeserializeOwned;
 use wasm_bindgen::prelude::*;
 use zeroize::{Zeroize, Zeroizing};
 
+use crate::lane_holder::{
+    verify_holder_package, LaneCustodySealV1, LaneHolderRecipientV1, LaneHolderSigningMaterialV1,
+};
 use crate::{
-    complete_client_activation_v1, complete_client_export_v1, create_client_signing_share_v1,
-    prepare_email_otp_client_export_v1, prepare_email_otp_client_recovery_v1,
-    prepare_email_otp_client_registration_v1, prepare_passkey_client_export_v1,
-    prepare_passkey_client_recovery_v1, prepare_passkey_client_registration_v1,
-    ClientActivationEntropyV1, ClientActivationStateV1, ClientExportStateV1,
+    complete_client_export_v1, create_client_signing_share_v1,
+    prepare_client_export_from_custody_seed_v1, ClientActivationEntropyV1, ClientExportStateV1,
     ClientSigningRequestV1,
+};
+use crate::{
+    complete_client_lane_v1, prepare_client_lane_dispatch_with_root_v1, prepare_client_lane_v1,
+    ClientLaneExecutionEntropyV1, Ed25519YaoClientDerivationRootV1, PreparedClientLaneV1,
+};
+use crate::{
+    ed25519_local_material_binding_v1, import_activated_client_material_v1,
+    open_wallet_custody_ed25519_material_v1, seal_activated_client_material_v1,
+    LocalMaterialSealDomainV1, OpenWalletCustodyEd25519MaterialV1,
 };
 use signer_core::near_ed25519_recovery::{
     build_near_ed25519_seed_export_artifact_v1, encode_near_ed25519_public_key_from_seed,
 };
 use signer_core::near_threshold_ed25519::CommitmentsWire;
+use signer_core::passkey_custody::open_wallet_custody_seed_envelope_v1;
+use signer_core::passkey_custody::PasskeyCustodyEnvelopeBindingV1;
+use signer_core::wallet_seed_derivation::derive_ed25519_yao_client_root_from_seed_v1;
 
-const ACTIVATED_CLIENT_SEAL_VERSION_V1: u8 = 1;
-const ACTIVATED_CLIENT_PLAINTEXT_LEN_V1: usize = 1 + 32 + 32 + 8;
-const ACTIVATED_CLIENT_NONCE_LEN_V1: usize = 12;
-const PASSKEY_ACTIVATED_CLIENT_SEAL_INFO_V1: &[u8] =
-    b"seams/router-ab/ed25519-yao/activated-client-seal/v1";
-const PASSKEY_ACTIVATED_CLIENT_SEAL_SALT_V1: &[u8] =
-    b"seams/router-ab/ed25519-yao/activated-client-seal/salt/v1";
-const EMAIL_OTP_ACTIVATED_CLIENT_SEAL_INFO_V1: &[u8] =
-    b"seams/router-ab/ed25519-yao/activated-client-seal/email-otp/v1";
-const EMAIL_OTP_ACTIVATED_CLIENT_SEAL_SALT_V1: &[u8] =
-    b"seams/router-ab/ed25519-yao/activated-client-seal/email-otp/salt/v1";
-const MAX_ACTIVATED_CLIENT_BINDING_LEN_V1: usize = 4096;
+const LANE_HOLDER_FROST_PARTICIPANT_ID_V1: u16 = 1;
+const LANE_SIGNING_WORKER_FROST_PARTICIPANT_ID_V1: u16 = 2;
 
-/// One-use browser registration session containing only Client-owned secret state.
+/// Worker-owned factor context for sealing one target lane share.
+///
+/// Factor material remains inside Rust memory. The supported branches are the
+/// two existing custody factors (`passkey` and `email_otp`); future factor
+/// strings fail closed until signer-core defines their KEK context.
 #[wasm_bindgen]
-pub struct WasmClientRegistrationSessionV1 {
-    execute_request_json: String,
-    state: Option<ClientActivationStateV1>,
+pub struct WasmLaneCustodySealV1 {
+    inner: LaneCustodySealV1,
 }
 
 #[wasm_bindgen]
-impl WasmClientRegistrationSessionV1 {
-    /// Prepares binding-specific A/B inputs from exact boundary values.
+impl WasmLaneCustodySealV1 {
+    /// Loads one already-authorized custody factor into an opaque seal handle.
     #[wasm_bindgen(constructor)]
     pub fn new(
-        admission_json: &str,
-        application_json: &str,
-        client_participant_id: u16,
-        signing_worker_participant_id: u16,
-        passkey_prf_first: &[u8],
-        recipient_key_material: &[u8],
-        deriver_a_seal_seed: &[u8],
-        deriver_b_seal_seed: &[u8],
-    ) -> Result<WasmClientRegistrationSessionV1, JsValue> {
-        let admission =
-            serde_json::from_str::<RouterAbEd25519YaoActivationAdmissionReceiptV1>(admission_json)
+        factor_kind: &str,
+        factor_secret: &[u8],
+        envelope_binding_json: &str,
+        custody_binding_id: &str,
+        custody_binding_digest_b64u: &str,
+    ) -> Result<WasmLaneCustodySealV1, JsValue> {
+        let factor_secret = Zeroizing::new(parse_32(factor_secret, "lane custody factor secret")?);
+        let binding =
+            serde_json::from_str::<PasskeyCustodyEnvelopeBindingV1>(envelope_binding_json)
                 .map_err(js_error)?;
-        let application =
-            serde_json::from_str::<RouterAbEd25519YaoApplicationBindingFactsV1>(application_json)
-                .map_err(js_error)?;
-        let passkey_prf_first = Zeroizing::new(parse_32(passkey_prf_first, "passkey PRF.first")?);
-        let recipient_key_material =
-            Zeroizing::new(parse_32(recipient_key_material, "recipient key material")?);
-        let deriver_a_seal_seed =
-            Zeroizing::new(parse_32(deriver_a_seal_seed, "Deriver A seal seed")?);
-        let deriver_b_seal_seed =
-            Zeroizing::new(parse_32(deriver_b_seal_seed, "Deriver B seal seed")?);
-        let entropy = ClientActivationEntropyV1::new(
-            *recipient_key_material,
-            *deriver_a_seal_seed,
-            *deriver_b_seal_seed,
-        )
-        .map_err(js_error)?;
-        let prepared = prepare_passkey_client_registration_v1(
-            &admission,
-            &application,
-            [client_participant_id, signing_worker_participant_id],
-            *passkey_prf_first,
-            entropy,
-        )
-        .map_err(js_error)?;
-        let (execute_request, state) = prepared.into_parts();
-        let execute_request_json = serde_json::to_string(&execute_request).map_err(js_error)?;
         Ok(Self {
-            execute_request_json,
-            state: Some(state),
+            inner: LaneCustodySealV1::from_factor(
+                factor_kind,
+                *factor_secret,
+                binding,
+                custody_binding_id.to_owned(),
+                custody_binding_digest_b64u.to_owned(),
+            )
+            .map_err(js_error)?,
+        })
+    }
+}
+
+/// One-use target-holder X25519 recipient retained inside the worker WASM.
+#[wasm_bindgen]
+pub struct WasmLaneHolderRecipientV1 {
+    inner: LaneHolderRecipientV1,
+}
+
+#[wasm_bindgen]
+impl WasmLaneHolderRecipientV1 {
+    /// Creates a recipient from worker-generated key material.
+    #[wasm_bindgen(constructor)]
+    pub fn new(
+        operation_id: &str,
+        recipient_key_material: &[u8],
+    ) -> Result<WasmLaneHolderRecipientV1, JsValue> {
+        let key_material = Zeroizing::new(parse_32(
+            recipient_key_material,
+            "lane holder recipient key material",
+        )?);
+        Ok(Self {
+            inner: LaneHolderRecipientV1::new(operation_id.to_owned(), *key_material)
+                .map_err(js_error)?,
         })
     }
 
-    /// Returns the canonical opaque Router execution request JSON.
-    pub fn execute_request_json(&self) -> String {
-        self.execute_request_json.clone()
+    /// Returns the public X25519 recipient key.
+    pub fn hpke_public_key_b64u(&self) -> String {
+        self.inner.public_key_b64u().to_owned()
     }
 
-    /// Opens and verifies a terminal Router result exactly once.
-    pub fn complete(&mut self, result_json: &str) -> Result<WasmActivatedClientV1, JsValue> {
-        let result = serde_json::from_str::<RouterAbEd25519YaoActivationResultV1>(result_json)
+    /// Returns the SHA-256 digest of the public recipient key.
+    pub fn hpke_public_key_digest_b64u(&self) -> String {
+        self.inner.public_key_digest_b64u().to_owned()
+    }
+
+    /// Opens one exact committed package and seals the share to custody.
+    #[allow(clippy::too_many_arguments)]
+    pub fn open_and_seal(
+        &mut self,
+        custody: &WasmLaneCustodySealV1,
+        job_json: &str,
+        receipt_json: &str,
+        holder_package_json: &str,
+        nonce12: &[u8],
+    ) -> Result<JsValue, JsValue> {
+        let output = self
+            .inner
+            .open_and_seal(
+                &custody.inner,
+                job_json,
+                receipt_json,
+                holder_package_json,
+                nonce12,
+            )
             .map_err(js_error)?;
-        let state = self
-            .state
+        serde_wasm_bindgen::to_value(&output).map_err(js_error)
+    }
+
+    /// Immediately zeroizes the recipient private key.
+    pub fn destroy(&mut self) {
+        self.inner.destroy();
+    }
+}
+
+/// Verifies a committed holder package without opening recipient ciphertext.
+#[wasm_bindgen]
+pub fn verify_lane_holder_package_commitment_v1(
+    job_json: &str,
+    receipt_json: &str,
+    holder_package_json: &str,
+) -> Result<JsValue, JsValue> {
+    let output =
+        verify_holder_package(job_json, receipt_json, holder_package_json).map_err(js_error)?;
+    serde_wasm_bindgen::to_value(&output).map_err(js_error)
+}
+
+/// Opaque lane-holder signing material reopened from one exact custody record.
+///
+/// The factor and scalar share remain inside the worker WASM. Ed25519 exposes
+/// only a signature share. ECDSA remains opaque until a dedicated presign
+/// worker bridge consumes it.
+#[wasm_bindgen]
+pub struct WasmLaneHolderSigningMaterialV1 {
+    inner: LaneHolderSigningMaterialV1,
+}
+
+#[wasm_bindgen]
+impl WasmLaneHolderSigningMaterialV1 {
+    /// Opens one digest-verified sealed holder record and binds it to the exact
+    /// persisted R102 job and protocol receipt.
+    #[wasm_bindgen(constructor)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        factor_secret: &[u8],
+        sealed_holder_material_b64u: &str,
+        expected_record_digest_b64u: &str,
+        expected_holder_ciphertext_digest_set_b64u: &str,
+        job_json: &str,
+        receipt_json: &str,
+    ) -> Result<Self, JsValue> {
+        let factor_secret = Zeroizing::new(factor_secret.to_vec());
+        Ok(Self {
+            inner: LaneHolderSigningMaterialV1::open(
+                &factor_secret,
+                sealed_holder_material_b64u,
+                expected_record_digest_b64u,
+                expected_holder_ciphertext_digest_set_b64u,
+                job_json,
+                receipt_json,
+            )
+            .map_err(js_error)?,
+        })
+    }
+
+    /// Returns the public curve discriminator for the retained share.
+    pub fn key_family(&self) -> Result<String, JsValue> {
+        self.inner.kind().map(str::to_owned).map_err(js_error)
+    }
+
+    /// Creates one Ed25519 Client signature share without releasing the scalar.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_ed25519_signing_share(
+        &self,
+        admitted_digest: &[u8],
+        signing_worker_commitments_json: &str,
+        signing_worker_verifying_share: &[u8],
+    ) -> Result<WasmClientSigningShareV1, JsValue> {
+        let (share, registered_public_key) = self.inner.ed25519_material().map_err(js_error)?;
+        build_client_signing_share(
+            share,
+            registered_public_key,
+            LANE_HOLDER_FROST_PARTICIPANT_ID_V1,
+            LANE_SIGNING_WORKER_FROST_PARTICIPANT_ID_V1,
+            admitted_digest,
+            signing_worker_commitments_json,
+            signing_worker_verifying_share,
+        )
+    }
+
+    /// Starts presigning inside the holder WASM without releasing its scalar.
+    pub fn create_ecdsa_presign_session(
+        &self,
+        group_public_key33: &[u8],
+        presign_session_id: &str,
+    ) -> Result<WasmLaneHolderEcdsaPresignSessionV1, JsValue> {
+        let signing_share32 = self.inner.ecdsa_material().map_err(js_error)?;
+        Ok(WasmLaneHolderEcdsaPresignSessionV1 {
+            inner: new_ecdsa_presign_session(
+                signing_share32,
+                group_public_key33,
+                presign_session_id,
+            )?,
+            completed: None,
+        })
+    }
+
+    /// Immediately destroys retained holder material.
+    pub fn destroy(&mut self) {
+        self.inner.destroy();
+    }
+}
+
+#[wasm_bindgen]
+/// One opaque ECDSA presign session bound to a lane holder share.
+pub struct WasmLaneHolderEcdsaPresignSessionV1 {
+    inner: FixedClientPresignSession,
+    completed: Option<PresignOutput>,
+}
+
+#[wasm_bindgen]
+impl WasmLaneHolderEcdsaPresignSessionV1 {
+    /// Returns the public protocol stage.
+    pub fn stage(&self) -> String {
+        self.inner.stage().as_str().to_owned()
+    }
+
+    /// Returns queued public protocol messages and progress.
+    pub fn poll(&mut self) -> Result<JsValue, JsValue> {
+        ecdsa_presign_progress_to_js(self.inner.poll())
+    }
+
+    /// Consumes one public message from the SigningWorker.
+    pub fn message(&mut self, message: &[u8]) -> Result<(), JsValue> {
+        self.inner
+            .message(message, &mut OsRng)
+            .map_err(js_ecdsa_presign_error)
+    }
+
+    /// Advances a completed triples session into presigning.
+    pub fn start_presign(&mut self) -> Result<(), JsValue> {
+        self.inner.start_presign().map_err(js_ecdsa_presign_error)
+    }
+
+    /// Returns only the public presignature commitment.
+    pub fn presignature_big_r_33(&mut self) -> Result<Vec<u8>, JsValue> {
+        if self.completed.is_none() {
+            self.completed = Some(
+                self.inner
+                    .take_presignature()
+                    .map_err(js_ecdsa_presign_error)?,
+            );
+        }
+        Ok(self
+            .completed
+            .as_ref()
+            .expect("completed presignature was just installed")
+            .big_r_bytes()
+            .as_bytes()
+            .to_vec())
+    }
+
+    /// Consumes the retained presignature and computes its public online share.
+    #[allow(clippy::too_many_arguments)]
+    pub fn compute_signature_share(
+        &mut self,
+        group_public_key33: &[u8],
+        expected_presign_big_r33: &[u8],
+        digest32: &[u8],
+        client_rerandomization_contribution32: &[u8],
+        signing_worker_rerandomization_contribution32: &[u8],
+    ) -> Result<Vec<u8>, JsValue> {
+        let output = self
+            .completed
             .take()
-            .ok_or_else(|| JsValue::from_str("Ed25519 Yao registration session was consumed"))?;
-        let activated = complete_client_activation_v1(state, &result).map_err(js_error)?;
-        Ok(WasmActivatedClientV1 {
-            client_scalar_share: Zeroizing::new(*activated.client_scalar_share()),
-            registered_public_key: activated.registered_public_key(),
-            state_epoch: activated.state_epoch(),
-        })
-    }
-}
-
-/// One-use browser recovery session containing only Client-owned secret state.
-#[wasm_bindgen]
-pub struct WasmClientRecoverySessionV1 {
-    execute_request_json: String,
-    state: Option<ClientActivationStateV1>,
-}
-
-#[wasm_bindgen]
-impl WasmClientRecoverySessionV1 {
-    /// Prepares same-passkey recovery inputs bound to the registered public key.
-    #[wasm_bindgen(constructor)]
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        admission_json: &str,
-        application_json: &str,
-        client_participant_id: u16,
-        signing_worker_participant_id: u16,
-        passkey_prf_first: &[u8],
-        expected_registered_public_key: &[u8],
-        recipient_key_material: &[u8],
-        deriver_a_seal_seed: &[u8],
-        deriver_b_seal_seed: &[u8],
-    ) -> Result<WasmClientRecoverySessionV1, JsValue> {
-        let admission =
-            serde_json::from_str::<RouterAbEd25519YaoActivationAdmissionReceiptV1>(admission_json)
-                .map_err(js_error)?;
-        let application =
-            serde_json::from_str::<RouterAbEd25519YaoApplicationBindingFactsV1>(application_json)
-                .map_err(js_error)?;
-        let passkey_prf_first = Zeroizing::new(parse_32(passkey_prf_first, "passkey PRF.first")?);
-        let expected_registered_public_key = parse_32(
-            expected_registered_public_key,
-            "expected registered public key",
-        )?;
-        let recipient_key_material =
-            Zeroizing::new(parse_32(recipient_key_material, "recipient key material")?);
-        let deriver_a_seal_seed =
-            Zeroizing::new(parse_32(deriver_a_seal_seed, "Deriver A seal seed")?);
-        let deriver_b_seal_seed =
-            Zeroizing::new(parse_32(deriver_b_seal_seed, "Deriver B seal seed")?);
-        let entropy = ClientActivationEntropyV1::new(
-            *recipient_key_material,
-            *deriver_a_seal_seed,
-            *deriver_b_seal_seed,
+            .ok_or_else(|| JsValue::from_str("presignature is unavailable"))?;
+        compute_ecdsa_online_share(
+            output,
+            group_public_key33,
+            expected_presign_big_r33,
+            digest32,
+            client_rerandomization_contribution32,
+            signing_worker_rerandomization_contribution32,
         )
-        .map_err(js_error)?;
-        let prepared = prepare_passkey_client_recovery_v1(
-            &admission,
-            &application,
-            [client_participant_id, signing_worker_participant_id],
-            *passkey_prf_first,
-            expected_registered_public_key,
-            entropy,
-        )
-        .map_err(js_error)?;
-        let (execute_request, state) = prepared.into_parts();
-        let execute_request_json = serde_json::to_string(&execute_request).map_err(js_error)?;
-        Ok(Self {
-            execute_request_json,
-            state: Some(state),
-        })
-    }
-
-    /// Returns the canonical opaque Router execution request JSON.
-    pub fn execute_request_json(&self) -> String {
-        self.execute_request_json.clone()
-    }
-
-    /// Opens and verifies a terminal recovery result exactly once.
-    pub fn complete(&mut self, result_json: &str) -> Result<WasmActivatedClientV1, JsValue> {
-        let result = serde_json::from_str::<RouterAbEd25519YaoActivationResultV1>(result_json)
-            .map_err(js_error)?;
-        let state = self
-            .state
-            .take()
-            .ok_or_else(|| JsValue::from_str("Ed25519 Yao recovery session was consumed"))?;
-        let activated = complete_client_activation_v1(state, &result).map_err(js_error)?;
-        Ok(WasmActivatedClientV1 {
-            client_scalar_share: Zeroizing::new(*activated.client_scalar_share()),
-            registered_public_key: activated.registered_public_key(),
-            state_epoch: activated.state_epoch(),
-        })
     }
 }
 
-/// One-use Email OTP registration session containing only Client-owned secret state.
-#[wasm_bindgen]
-pub struct WasmEmailOtpClientRegistrationSessionV1 {
-    execute_request_json: String,
-    state: Option<ClientActivationStateV1>,
+fn compute_ecdsa_online_share(
+    output: PresignOutput,
+    group_public_key33: &[u8],
+    expected_presign_big_r33: &[u8],
+    digest32: &[u8],
+    client_rerandomization_contribution32: &[u8],
+    signing_worker_rerandomization_contribution32: &[u8],
+) -> Result<Vec<u8>, JsValue> {
+    let (big_r33, k_share32, sigma_share32) = output.into_parts();
+    let material = ClientPresignMaterial::from_bytes(
+        *big_r33.as_bytes(),
+        k_share32.into_bytes(),
+        sigma_share32.into_bytes(),
+    )
+    .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    let entropy32 = combine_rerandomization_contributions(
+        parse_32(
+            client_rerandomization_contribution32,
+            "client rerandomization contribution",
+        )?,
+        parse_32(
+            signing_worker_rerandomization_contribution32,
+            "signing worker rerandomization contribution",
+        )?,
+    );
+    let input = OnlineClientInput::new(
+        group_public_key33
+            .try_into()
+            .map_err(|_| JsValue::from_str("group public key must contain 33 bytes"))?,
+        expected_presign_big_r33
+            .try_into()
+            .map_err(|_| JsValue::from_str("expected presign R must contain 33 bytes"))?,
+        parse_32(digest32, "signing digest")?,
+        entropy32,
+    )
+    .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    compute_client_signature_share(
+        material
+            .reserve()
+            .commit(input)
+            .map_err(|error| JsValue::from_str(&error.to_string()))?,
+    )
+    .map(|share| share.to_vec())
+    .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 
-#[wasm_bindgen]
-impl WasmEmailOtpClientRegistrationSessionV1 {
-    /// Prepares binding-specific A/B inputs from an owned Email OTP factor.
-    #[wasm_bindgen(constructor)]
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        admission_json: &str,
-        application_json: &str,
-        client_participant_id: u16,
-        signing_worker_participant_id: u16,
-        email_otp_factor: &[u8],
-        recipient_key_material: &[u8],
-        deriver_a_seal_seed: &[u8],
-        deriver_b_seal_seed: &[u8],
-    ) -> Result<WasmEmailOtpClientRegistrationSessionV1, JsValue> {
-        let admission =
-            serde_json::from_str::<RouterAbEd25519YaoActivationAdmissionReceiptV1>(admission_json)
-                .map_err(js_error)?;
-        let application =
-            serde_json::from_str::<RouterAbEd25519YaoApplicationBindingFactsV1>(application_json)
-                .map_err(js_error)?;
-        let email_otp_factor =
-            Zeroizing::new(parse_32(email_otp_factor, "Email OTP factor secret")?);
-        let recipient_key_material =
-            Zeroizing::new(parse_32(recipient_key_material, "recipient key material")?);
-        let deriver_a_seal_seed =
-            Zeroizing::new(parse_32(deriver_a_seal_seed, "Deriver A seal seed")?);
-        let deriver_b_seal_seed =
-            Zeroizing::new(parse_32(deriver_b_seal_seed, "Deriver B seal seed")?);
-        let entropy = ClientActivationEntropyV1::new(
-            *recipient_key_material,
-            *deriver_a_seal_seed,
-            *deriver_b_seal_seed,
-        )
-        .map_err(js_error)?;
-        let prepared = prepare_email_otp_client_registration_v1(
-            &admission,
-            &application,
-            [client_participant_id, signing_worker_participant_id],
-            *email_otp_factor,
-            entropy,
-        )
-        .map_err(js_error)?;
-        let (execute_request, state) = prepared.into_parts();
-        let execute_request_json = serde_json::to_string(&execute_request).map_err(js_error)?;
-        Ok(Self {
-            execute_request_json,
-            state: Some(state),
-        })
-    }
-
-    /// Returns the canonical opaque Router execution request JSON.
-    pub fn execute_request_json(&self) -> String {
-        self.execute_request_json.clone()
-    }
-
-    /// Opens and verifies a terminal Router result exactly once.
-    pub fn complete(&mut self, result_json: &str) -> Result<WasmActivatedClientV1, JsValue> {
-        let result = serde_json::from_str::<RouterAbEd25519YaoActivationResultV1>(result_json)
-            .map_err(js_error)?;
-        let state = self.state.take().ok_or_else(|| {
-            JsValue::from_str("Ed25519 Yao Email OTP registration session was consumed")
-        })?;
-        let activated = complete_client_activation_v1(state, &result).map_err(js_error)?;
-        Ok(WasmActivatedClientV1 {
-            client_scalar_share: Zeroizing::new(*activated.client_scalar_share()),
-            registered_public_key: activated.registered_public_key(),
-            state_epoch: activated.state_epoch(),
-        })
-    }
+fn new_ecdsa_presign_session(
+    signing_share32: &[u8; 32],
+    group_public_key33: &[u8],
+    presign_session_id: &str,
+) -> Result<FixedClientPresignSession, JsValue> {
+    let group_public_key33: [u8; 33] = group_public_key33
+        .try_into()
+        .map_err(|_| JsValue::from_str("group public key must contain 33 bytes"))?;
+    let wallet_public_key = CompressedPointBytes::new(group_public_key33);
+    let context = derive_presign_pair_context(wallet_public_key, presign_session_id)
+        .map_err(js_ecdsa_presign_error)?;
+    let key_share = AdditiveKeyShare::from_bytes(ScalarBytes::new(*signing_share32))
+        .map_err(|error| JsValue::from_str(&error.to_string()))?;
+    FixedClientPresignSession::new(context, key_share, wallet_public_key, &mut OsRng)
+        .map_err(js_ecdsa_presign_error)
 }
 
-/// One-use Email OTP recovery session containing only Client-owned secret state.
-#[wasm_bindgen]
-pub struct WasmEmailOtpClientRecoverySessionV1 {
-    execute_request_json: String,
-    state: Option<ClientActivationStateV1>,
+fn ecdsa_presign_progress_to_js(progress: PresignSessionProgress) -> Result<JsValue, JsValue> {
+    let output = Object::new();
+    Reflect::set(
+        &output,
+        &JsValue::from_str("stage"),
+        &JsValue::from_str(progress.stage.as_str()),
+    )?;
+    Reflect::set(
+        &output,
+        &JsValue::from_str("event"),
+        &JsValue::from_str(progress.event.as_str()),
+    )?;
+    let outgoing = Array::new();
+    for message in progress.outgoing {
+        outgoing.push(&Uint8Array::from(message.as_slice()));
+    }
+    Reflect::set(&output, &JsValue::from_str("outgoing"), &outgoing)?;
+    Ok(output.into())
 }
 
-#[wasm_bindgen]
-impl WasmEmailOtpClientRecoverySessionV1 {
-    /// Prepares same-factor recovery inputs bound to the registered public key.
-    #[wasm_bindgen(constructor)]
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        admission_json: &str,
-        application_json: &str,
-        client_participant_id: u16,
-        signing_worker_participant_id: u16,
-        email_otp_factor: &[u8],
-        expected_registered_public_key: &[u8],
-        recipient_key_material: &[u8],
-        deriver_a_seal_seed: &[u8],
-        deriver_b_seal_seed: &[u8],
-    ) -> Result<WasmEmailOtpClientRecoverySessionV1, JsValue> {
-        let admission =
-            serde_json::from_str::<RouterAbEd25519YaoActivationAdmissionReceiptV1>(admission_json)
-                .map_err(js_error)?;
-        let application =
-            serde_json::from_str::<RouterAbEd25519YaoApplicationBindingFactsV1>(application_json)
-                .map_err(js_error)?;
-        let email_otp_factor =
-            Zeroizing::new(parse_32(email_otp_factor, "Email OTP factor secret")?);
-        let expected_registered_public_key = parse_32(
-            expected_registered_public_key,
-            "expected registered public key",
-        )?;
-        let recipient_key_material =
-            Zeroizing::new(parse_32(recipient_key_material, "recipient key material")?);
-        let deriver_a_seal_seed =
-            Zeroizing::new(parse_32(deriver_a_seal_seed, "Deriver A seal seed")?);
-        let deriver_b_seal_seed =
-            Zeroizing::new(parse_32(deriver_b_seal_seed, "Deriver B seal seed")?);
-        let entropy = ClientActivationEntropyV1::new(
-            *recipient_key_material,
-            *deriver_a_seal_seed,
-            *deriver_b_seal_seed,
-        )
-        .map_err(js_error)?;
-        let prepared = prepare_email_otp_client_recovery_v1(
-            &admission,
-            &application,
-            [client_participant_id, signing_worker_participant_id],
-            *email_otp_factor,
-            expected_registered_public_key,
-            entropy,
-        )
-        .map_err(js_error)?;
-        let (execute_request, state) = prepared.into_parts();
-        let execute_request_json = serde_json::to_string(&execute_request).map_err(js_error)?;
-        Ok(Self {
-            execute_request_json,
-            state: Some(state),
-        })
-    }
-
-    /// Returns the canonical opaque Router execution request JSON.
-    pub fn execute_request_json(&self) -> String {
-        self.execute_request_json.clone()
-    }
-
-    /// Opens and verifies a terminal recovery result exactly once.
-    pub fn complete(&mut self, result_json: &str) -> Result<WasmActivatedClientV1, JsValue> {
-        let result = serde_json::from_str::<RouterAbEd25519YaoActivationResultV1>(result_json)
-            .map_err(js_error)?;
-        let state = self.state.take().ok_or_else(|| {
-            JsValue::from_str("Ed25519 Yao Email OTP recovery session was consumed")
-        })?;
-        let activated = complete_client_activation_v1(state, &result).map_err(js_error)?;
-        Ok(WasmActivatedClientV1 {
-            client_scalar_share: Zeroizing::new(*activated.client_scalar_share()),
-            registered_public_key: activated.registered_public_key(),
-            state_epoch: activated.state_epoch(),
-        })
-    }
+fn js_ecdsa_presign_error(error: PresignSessionError) -> JsValue {
+    JsValue::from_str(&error.to_string())
 }
 
-/// One-use passkey exact-seed export session containing only Client-owned secret state.
+/// One-use explicit export session opened from the wallet custody envelope.
+///
+/// The factor authorizes and opens the envelope. The custody seed and the
+/// derived Ed25519 root remain inside this Rust boundary for the full export
+/// protocol preparation.
 #[wasm_bindgen]
-pub struct WasmPasskeyClientExportSessionV1 {
+pub struct WasmCustodyEnvelopeExportSessionV1 {
     execute_request_json: String,
     state: Option<ClientExportStateV1>,
 }
 
 #[wasm_bindgen]
-impl WasmPasskeyClientExportSessionV1 {
-    /// Prepares binding-specific export inputs from fresh passkey PRF.first.
+impl WasmCustodyEnvelopeExportSessionV1 {
+    /// Opens the custody envelope and prepares a one-use export request.
     #[wasm_bindgen(constructor)]
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -383,18 +427,40 @@ impl WasmPasskeyClientExportSessionV1 {
         application_json: &str,
         client_participant_id: u16,
         signing_worker_participant_id: u16,
-        passkey_prf_first: &[u8],
+        factor_secret: &[u8],
+        envelope_binding_json: &str,
+        envelope_nonce: &[u8],
+        envelope_ciphertext: &[u8],
+        envelope_aad_hash: &[u8],
+        envelope_ciphertext_digest: &[u8],
         recipient_key_material: &[u8],
         deriver_a_seal_seed: &[u8],
         deriver_b_seal_seed: &[u8],
-    ) -> Result<WasmPasskeyClientExportSessionV1, JsValue> {
+    ) -> Result<WasmCustodyEnvelopeExportSessionV1, JsValue> {
         let admission =
             serde_json::from_str::<RouterAbEd25519YaoExportAdmissionReceiptV1>(admission_json)
                 .map_err(js_error)?;
         let application =
             serde_json::from_str::<RouterAbEd25519YaoApplicationBindingFactsV1>(application_json)
                 .map_err(js_error)?;
-        let passkey_prf_first = Zeroizing::new(parse_32(passkey_prf_first, "passkey PRF.first")?);
+        let envelope_binding =
+            serde_json::from_str::<PasskeyCustodyEnvelopeBindingV1>(envelope_binding_json)
+                .map_err(js_error)?;
+        let factor_secret = Zeroizing::new(parse_32(factor_secret, "custody factor secret")?);
+        let (seed, _) = open_wallet_custody_seed_envelope_v1(
+            &*factor_secret,
+            &envelope_binding,
+            envelope_nonce,
+            envelope_ciphertext,
+            envelope_aad_hash,
+            envelope_ciphertext_digest,
+        )
+        .map_err(js_error)?;
+        let custody_seed = Zeroizing::new(
+            seed.as_slice()
+                .try_into()
+                .map_err(|_| JsValue::from_str("wallet custody seed must contain 32 bytes"))?,
+        );
         let recipient_key_material =
             Zeroizing::new(parse_32(recipient_key_material, "recipient key material")?);
         let deriver_a_seal_seed =
@@ -407,11 +473,11 @@ impl WasmPasskeyClientExportSessionV1 {
             *deriver_b_seal_seed,
         )
         .map_err(js_error)?;
-        let prepared = prepare_passkey_client_export_v1(
+        let prepared = prepare_client_export_from_custody_seed_v1(
             &admission,
             &application,
             [client_participant_id, signing_worker_participant_id],
-            *passkey_prf_first,
+            &*custody_seed,
             entropy,
         )
         .map_err(js_error)?;
@@ -423,12 +489,12 @@ impl WasmPasskeyClientExportSessionV1 {
         })
     }
 
-    /// Returns the canonical opaque Router execution request JSON.
+    /// Returns the serialized request to execute through the Router A/B export protocol.
     pub fn execute_request_json(&self) -> String {
         self.execute_request_json.clone()
     }
 
-    /// Opens, reconstructs, and verifies a terminal export exactly once.
+    /// Consumes the session and returns the verified exported seed.
     pub fn complete(&mut self, result_json: &str) -> Result<WasmExportedEd25519SeedV1, JsValue> {
         let result = serde_json::from_str::<RouterAbEd25519YaoExportResultV1>(result_json)
             .map_err(js_error)?;
@@ -436,83 +502,6 @@ impl WasmPasskeyClientExportSessionV1 {
             .state
             .take()
             .ok_or_else(|| JsValue::from_str("Ed25519 Yao export session was consumed"))?;
-        let seed = complete_client_export_v1(state, &result).map_err(js_error)?;
-        Ok(WasmExportedEd25519SeedV1 {
-            seed: Some(Zeroizing::new(seed.into_bytes())),
-        })
-    }
-}
-
-/// One-use Email OTP exact-seed export session containing only Client-owned secret state.
-#[wasm_bindgen]
-pub struct WasmEmailOtpClientExportSessionV1 {
-    execute_request_json: String,
-    state: Option<ClientExportStateV1>,
-}
-
-#[wasm_bindgen]
-impl WasmEmailOtpClientExportSessionV1 {
-    /// Prepares binding-specific export inputs from the owned Email OTP factor.
-    #[wasm_bindgen(constructor)]
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        admission_json: &str,
-        application_json: &str,
-        client_participant_id: u16,
-        signing_worker_participant_id: u16,
-        email_otp_factor: &[u8],
-        recipient_key_material: &[u8],
-        deriver_a_seal_seed: &[u8],
-        deriver_b_seal_seed: &[u8],
-    ) -> Result<WasmEmailOtpClientExportSessionV1, JsValue> {
-        let admission =
-            serde_json::from_str::<RouterAbEd25519YaoExportAdmissionReceiptV1>(admission_json)
-                .map_err(js_error)?;
-        let application =
-            serde_json::from_str::<RouterAbEd25519YaoApplicationBindingFactsV1>(application_json)
-                .map_err(js_error)?;
-        let email_otp_factor =
-            Zeroizing::new(parse_32(email_otp_factor, "Email OTP factor secret")?);
-        let recipient_key_material =
-            Zeroizing::new(parse_32(recipient_key_material, "recipient key material")?);
-        let deriver_a_seal_seed =
-            Zeroizing::new(parse_32(deriver_a_seal_seed, "Deriver A seal seed")?);
-        let deriver_b_seal_seed =
-            Zeroizing::new(parse_32(deriver_b_seal_seed, "Deriver B seal seed")?);
-        let entropy = ClientActivationEntropyV1::new(
-            *recipient_key_material,
-            *deriver_a_seal_seed,
-            *deriver_b_seal_seed,
-        )
-        .map_err(js_error)?;
-        let prepared = prepare_email_otp_client_export_v1(
-            &admission,
-            &application,
-            [client_participant_id, signing_worker_participant_id],
-            *email_otp_factor,
-            entropy,
-        )
-        .map_err(js_error)?;
-        let (execute_request, state) = prepared.into_parts();
-        let execute_request_json = serde_json::to_string(&execute_request).map_err(js_error)?;
-        Ok(Self {
-            execute_request_json,
-            state: Some(state),
-        })
-    }
-
-    /// Returns the canonical opaque Router execution request JSON.
-    pub fn execute_request_json(&self) -> String {
-        self.execute_request_json.clone()
-    }
-
-    /// Opens, reconstructs, and verifies a terminal export exactly once.
-    pub fn complete(&mut self, result_json: &str) -> Result<WasmExportedEd25519SeedV1, JsValue> {
-        let result = serde_json::from_str::<RouterAbEd25519YaoExportResultV1>(result_json)
-            .map_err(js_error)?;
-        let state = self.state.take().ok_or_else(|| {
-            JsValue::from_str("Ed25519 Yao Email OTP export session was consumed")
-        })?;
         let seed = complete_client_export_v1(state, &result).map_err(js_error)?;
         Ok(WasmExportedEd25519SeedV1 {
             seed: Some(Zeroizing::new(seed.into_bytes())),
@@ -575,29 +564,7 @@ impl WasmActivatedClientV1 {
             &wrapping_secret,
             binding,
             nonce,
-            PASSKEY_ACTIVATED_CLIENT_SEAL_SALT_V1,
-            PASSKEY_ACTIVATED_CLIENT_SEAL_INFO_V1,
-        )
-    }
-
-    /// Authenticates and encrypts active Client material under Email OTP enrollment custody.
-    pub fn seal_email_otp_local_material(
-        &self,
-        owned_enrollment_secret32: &[u8],
-        binding: &[u8],
-        nonce: &[u8],
-    ) -> Result<Vec<u8>, JsValue> {
-        let wrapping_secret = Zeroizing::new(parse_32(
-            owned_enrollment_secret32,
-            "Email OTP enrollment secret",
-        )?);
-        seal_activated_client_local_material(
-            self,
-            &wrapping_secret,
-            binding,
-            nonce,
-            EMAIL_OTP_ACTIVATED_CLIENT_SEAL_SALT_V1,
-            EMAIL_OTP_ACTIVATED_CLIENT_SEAL_INFO_V1,
+            LocalMaterialSealDomainV1::PasskeyPrfFirst,
         )
     }
 
@@ -624,39 +591,7 @@ impl WasmActivatedClientV1 {
             expected_state_epoch,
             [client_participant_id, signing_worker_participant_id],
             signing_worker_verifying_share,
-            PASSKEY_ACTIVATED_CLIENT_SEAL_SALT_V1,
-            PASSKEY_ACTIVATED_CLIENT_SEAL_INFO_V1,
-        )
-    }
-
-    /// Opens an Email OTP custody envelope and re-verifies its public threshold relation.
-    #[allow(clippy::too_many_arguments)]
-    pub fn import_email_otp_local_material(
-        owned_enrollment_secret32: &[u8],
-        binding: &[u8],
-        nonce: &[u8],
-        ciphertext: &[u8],
-        expected_registered_public_key: &[u8],
-        expected_state_epoch: u64,
-        client_participant_id: u16,
-        signing_worker_participant_id: u16,
-        signing_worker_verifying_share: &[u8],
-    ) -> Result<WasmActivatedClientV1, JsValue> {
-        let wrapping_secret = Zeroizing::new(parse_32(
-            owned_enrollment_secret32,
-            "Email OTP enrollment secret",
-        )?);
-        import_activated_client_local_material(
-            &wrapping_secret,
-            binding,
-            nonce,
-            ciphertext,
-            expected_registered_public_key,
-            expected_state_epoch,
-            [client_participant_id, signing_worker_participant_id],
-            signing_worker_verifying_share,
-            EMAIL_OTP_ACTIVATED_CLIENT_SEAL_SALT_V1,
-            EMAIL_OTP_ACTIVATED_CLIENT_SEAL_INFO_V1,
+            LocalMaterialSealDomainV1::PasskeyPrfFirst,
         )
     }
 
@@ -682,41 +617,29 @@ impl WasmActivatedClientV1 {
     }
 }
 
-fn validate_activated_client_binding(binding: &[u8]) -> Result<(), JsValue> {
-    if binding.is_empty() || binding.len() > MAX_ACTIVATED_CLIENT_BINDING_LEN_V1 {
-        return Err(JsValue::from_str(
-            "Ed25519 Yao activated Client binding length is invalid",
-        ));
-    }
-    Ok(())
-}
-
+/// Seals under one of the shared wrapping domains.
+///
+/// The crypto itself lives in `local_material`, because the wallet custody
+/// ceremony has to seal the same record shape from its own wasm module and
+/// this one is compiled only for `wasm32`. These shims exist to keep the
+/// binding surface unchanged while there is a single implementation underneath.
 fn seal_activated_client_local_material(
     activated_client: &WasmActivatedClientV1,
     wrapping_secret: &[u8; 32],
     binding: &[u8],
     nonce: &[u8],
-    salt: &[u8],
-    info: &[u8],
+    domain: LocalMaterialSealDomainV1,
 ) -> Result<Vec<u8>, JsValue> {
-    let nonce = parse_12(nonce, "activated Client seal nonce")?;
-    validate_activated_client_binding(binding)?;
-    let key = derive_activated_client_seal_key(wrapping_secret, binding, salt, info)?;
-    let mut plaintext = Zeroizing::new([0u8; ACTIVATED_CLIENT_PLAINTEXT_LEN_V1]);
-    plaintext[0] = ACTIVATED_CLIENT_SEAL_VERSION_V1;
-    plaintext[1..33].copy_from_slice(&activated_client.client_scalar_share[..]);
-    plaintext[33..65].copy_from_slice(&activated_client.registered_public_key);
-    plaintext[65..73].copy_from_slice(&activated_client.state_epoch.to_be_bytes());
-    ChaCha20Poly1305::new_from_slice(&key[..])
-        .map_err(js_error)?
-        .encrypt(
-            Nonce::from_slice(&nonce),
-            Payload {
-                msg: plaintext.as_slice(),
-                aad: binding,
-            },
-        )
-        .map_err(|_| JsValue::from_str("Ed25519 Yao activated Client seal failed"))
+    seal_activated_client_material_v1(
+        &activated_client.client_scalar_share,
+        &activated_client.registered_public_key,
+        activated_client.state_epoch,
+        wrapping_secret,
+        binding,
+        nonce,
+        domain,
+    )
+    .map_err(|error| JsValue::from_str(&error.to_string()))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -729,11 +652,8 @@ fn import_activated_client_local_material(
     expected_state_epoch: u64,
     participant_ids: [u16; 2],
     signing_worker_verifying_share: &[u8],
-    salt: &[u8],
-    info: &[u8],
+    domain: LocalMaterialSealDomainV1,
 ) -> Result<WasmActivatedClientV1, JsValue> {
-    let nonce = parse_12(nonce, "activated Client seal nonce")?;
-    validate_activated_client_binding(binding)?;
     let expected_registered_public_key = parse_32(
         expected_registered_public_key,
         "expected registered Ed25519 public key",
@@ -742,89 +662,109 @@ fn import_activated_client_local_material(
         signing_worker_verifying_share,
         "SigningWorker verifying share",
     )?;
-    let key = derive_activated_client_seal_key(wrapping_secret, binding, salt, info)?;
-    let plaintext = ChaCha20Poly1305::new_from_slice(&key[..])
-        .map_err(js_error)?
-        .decrypt(
-            Nonce::from_slice(&nonce),
-            Payload {
-                msg: ciphertext,
-                aad: binding,
-            },
-        )
-        .map(Zeroizing::new)
-        .map_err(|_| JsValue::from_str("Ed25519 Yao activated Client envelope is invalid"))?;
-    if plaintext.len() != ACTIVATED_CLIENT_PLAINTEXT_LEN_V1
-        || plaintext[0] != ACTIVATED_CLIENT_SEAL_VERSION_V1
-    {
-        return Err(JsValue::from_str(
-            "Ed25519 Yao activated Client envelope version is invalid",
-        ));
-    }
-    let client_scalar_share =
-        Zeroizing::new(parse_32(&plaintext[1..33], "sealed Client scalar share")?);
-    let registered_public_key =
-        parse_32(&plaintext[33..65], "sealed registered Ed25519 public key")?;
-    let state_epoch = u64::from_be_bytes(
-        plaintext[65..73]
-            .try_into()
-            .map_err(|_| JsValue::from_str("sealed state epoch is invalid"))?,
-    );
-    if !bool::from(registered_public_key.ct_eq(&expected_registered_public_key))
-        || state_epoch != expected_state_epoch
-    {
-        return Err(JsValue::from_str(
-            "Ed25519 Yao activated Client envelope identity mismatch",
-        ));
-    }
-    verify_imported_public_relation(
-        &client_scalar_share,
+    let opened = import_activated_client_material_v1(
+        wrapping_secret,
+        binding,
+        nonce,
+        ciphertext,
+        &expected_registered_public_key,
+        expected_state_epoch,
         participant_ids,
         &signing_worker_verifying_share,
-        &registered_public_key,
-    )?;
+        domain,
+    )
+    .map_err(|error| JsValue::from_str(&error.to_string()))?;
     Ok(WasmActivatedClientV1 {
-        client_scalar_share,
-        registered_public_key,
-        state_epoch,
+        client_scalar_share: opened.client_scalar_share,
+        registered_public_key: opened.registered_public_key,
+        state_epoch: opened.state_epoch,
     })
 }
 
-fn derive_activated_client_seal_key(
-    wrapping_secret: &[u8; 32],
-    binding: &[u8],
-    salt: &[u8],
-    info: &[u8],
-) -> Result<Zeroizing<[u8; 32]>, JsValue> {
-    let hkdf = Hkdf::<Sha256>::new(Some(salt), wrapping_secret);
-    let mut key = Zeroizing::new([0u8; 32]);
-    hkdf.expand_multi_info(&[info, binding], &mut key[..])
-        .map_err(|_| JsValue::from_str("Ed25519 Yao activated Client key derivation failed"))?;
-    Ok(key)
-}
-
-fn verify_imported_public_relation(
-    client_scalar_share: &[u8; 32],
-    participant_ids: [u16; 2],
-    signing_worker_verifying_share: &[u8; 32],
-    registered_public_key: &[u8; 32],
-) -> Result<(), JsValue> {
-    let scalar = Option::<Scalar>::from(Scalar::from_canonical_bytes(*client_scalar_share))
-        .ok_or_else(|| JsValue::from_str("sealed Client scalar share is invalid"))?;
-    let client_verifying_share = (ED25519_BASEPOINT_POINT * scalar).compress().to_bytes();
-    let threshold_public_key = compute_threshold_ed25519_group_public_key_2p_from_verifying_shares(
-        &client_verifying_share,
+/// Opens the wallet's Ed25519 continuity cache with any enrolled factor.
+///
+/// **The unlock read side, and deliberately one call.** The custody seed
+/// exists only between opening the envelope and deriving the cache key.
+/// Splitting this into "open the envelope" and "open the cache" would put the
+/// seed in a caller's hands, and every caller here is JavaScript.
+///
+/// Exported from *this* module rather than the ceremony's because the handle
+/// it returns has to be the one the signing path already uses: two wasm
+/// modules each define their own `WasmActivatedClientV1`, and a handle from
+/// the wrong module cannot sign.
+///
+/// The caller never assembles the cache seal binding. It is rebuilt here from
+/// the record's own fields, because it is both HKDF input and AEAD associated
+/// data — a caller that assembled it even slightly differently would hold a
+/// record that never opens, and the failure would read as a bad factor.
+///
+/// Any factor works, which is the point of sealing under the seed: a passkey
+/// enrolled long after registration opens the cache the Email OTP enrollment
+/// wrote, and the reverse.
+#[wasm_bindgen(js_name = openWalletCustodyEd25519MaterialV1)]
+#[allow(clippy::too_many_arguments)]
+pub fn wasm_open_wallet_custody_ed25519_material_v1(
+    factor_secret: &[u8],
+    envelope_binding_json: &str,
+    envelope_nonce: &[u8],
+    envelope_ciphertext: &[u8],
+    envelope_aad_hash: &[u8],
+    envelope_ciphertext_digest: &[u8],
+    application_binding_digest: &[u8],
+    registered_public_key: &[u8],
+    state_epoch: u64,
+    client_participant_id: u16,
+    signing_worker_participant_id: u16,
+    signing_worker_verifying_share: &[u8],
+    cache_nonce: &[u8],
+    cache_ciphertext: &[u8],
+) -> Result<WasmActivatedClientV1, JsValue> {
+    let envelope_binding =
+        serde_json::from_str::<PasskeyCustodyEnvelopeBindingV1>(envelope_binding_json)
+            .map_err(js_error)?;
+    let application_binding_digest =
+        parse_32(application_binding_digest, "application binding digest")?;
+    let registered_public_key = parse_32(
+        registered_public_key,
+        "expected registered Ed25519 public key",
+    )?;
+    let signing_worker_verifying_share = parse_32(
         signing_worker_verifying_share,
-        participant_ids[0],
-        participant_ids[1],
-    )
+        "SigningWorker verifying share",
+    )?;
+    let participant_ids = [client_participant_id, signing_worker_participant_id];
+
+    // Rebuilt, never accepted: see above.
+    let binding = ed25519_local_material_binding_v1(
+        &application_binding_digest,
+        &registered_public_key,
+        participant_ids,
+        state_epoch,
+    );
+
+    let opened = open_wallet_custody_ed25519_material_v1(OpenWalletCustodyEd25519MaterialV1 {
+        factor_secret,
+        envelope_binding: &envelope_binding,
+        envelope_nonce,
+        envelope_ciphertext,
+        envelope_aad_hash,
+        envelope_ciphertext_digest,
+        application_binding_digest: &application_binding_digest,
+        binding: &binding,
+        nonce: cache_nonce,
+        ciphertext: cache_ciphertext,
+        expected_registered_public_key: &registered_public_key,
+        expected_state_epoch: state_epoch,
+        participant_ids,
+        signing_worker_verifying_share: &signing_worker_verifying_share,
+    })
     .map_err(js_error)?;
-    if !bool::from(threshold_public_key.ct_eq(registered_public_key)) {
-        return Err(JsValue::from_str(
-            "sealed Client material does not match the registered Ed25519 public key",
-        ));
-    }
-    Ok(())
+
+    Ok(WasmActivatedClientV1 {
+        client_scalar_share: Zeroizing::new(*opened.client_scalar_share()),
+        registered_public_key: opened.registered_public_key(),
+        state_epoch: opened.state_epoch(),
+    })
 }
 
 /// One Client FROST share created from activated Yao material.
@@ -894,14 +834,195 @@ fn parse_32(value: &[u8], label: &str) -> Result<[u8; 32], JsValue> {
         .map_err(|_| JsValue::from_str(&format!("{label} must contain exactly 32 bytes")))
 }
 
-fn parse_12(value: &[u8], label: &str) -> Result<[u8; ACTIVATED_CLIENT_NONCE_LEN_V1], JsValue> {
-    value.try_into().map_err(|_| {
-        JsValue::from_str(&format!(
-            "{label} must contain exactly {ACTIVATED_CLIENT_NONCE_LEN_V1} bytes"
-        ))
-    })
-}
-
 fn js_error(error: impl core::fmt::Display) -> JsValue {
     JsValue::from_str(&error.to_string())
+}
+
+fn parse_js_domain_value<T: DeserializeOwned>(value: JsValue) -> Result<T, JsValue> {
+    if let Some(json) = value.as_string() {
+        serde_json::from_str(&json).map_err(js_error)
+    } else {
+        serde_wasm_bindgen::from_value(value).map_err(js_error)
+    }
+}
+
+/// Opaque wallet-custody source for Ed25519 Yao lane preparation.
+///
+/// This handle must be created and retained inside the dedicated signing
+/// worker. Neither the custody seed nor stable Client root crosses into JS.
+#[wasm_bindgen]
+pub struct WasmEd25519YaoLaneSourceV1 {
+    root: Ed25519YaoClientDerivationRootV1,
+}
+
+#[wasm_bindgen]
+impl WasmEd25519YaoLaneSourceV1 {
+    /// Opens the custody envelope and retains only the derived Client root.
+    #[wasm_bindgen(constructor)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        factor_secret: &[u8],
+        envelope_binding_json: &str,
+        envelope_nonce: &[u8],
+        envelope_ciphertext: &[u8],
+        envelope_aad_hash: &[u8],
+        envelope_ciphertext_digest: &[u8],
+        application_binding_digest: &[u8],
+    ) -> Result<Self, JsValue> {
+        let envelope_binding =
+            serde_json::from_str::<PasskeyCustodyEnvelopeBindingV1>(envelope_binding_json)
+                .map_err(js_error)?;
+        let factor_secret = Zeroizing::new(factor_secret.to_vec());
+        let (seed, _) = open_wallet_custody_seed_envelope_v1(
+            &factor_secret,
+            &envelope_binding,
+            envelope_nonce,
+            envelope_ciphertext,
+            envelope_aad_hash,
+            envelope_ciphertext_digest,
+        )
+        .map_err(js_error)?;
+        let application_binding_digest = parse_32(
+            application_binding_digest,
+            "Ed25519 Yao application binding digest",
+        )?;
+        let root = derive_ed25519_yao_client_root_from_seed_v1(&seed, &application_binding_digest)
+            .map_err(js_error)?;
+        Ok(Self {
+            root: Ed25519YaoClientDerivationRootV1::from_secret_bytes(*root),
+        })
+    }
+}
+
+#[derive(Debug)]
+enum WasmEd25519YaoLaneClientStateV1 {
+    Empty,
+    Prepared {
+        request_json: String,
+        completion: PreparedClientLaneV1,
+    },
+    Consumed,
+}
+
+/// One-use WASM typestate client for Ed25519 Yao lane provisioning/refresh.
+///
+/// The source root and derived contributions remain inside this boundary. The
+/// returned request contains only recipient-encrypted Deriver inputs.
+#[wasm_bindgen]
+pub struct WasmEd25519YaoLaneClientV1 {
+    state: WasmEd25519YaoLaneClientStateV1,
+}
+
+#[wasm_bindgen]
+impl WasmEd25519YaoLaneClientV1 {
+    /// Creates an empty one-use lane client.
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Self {
+        Self {
+            state: WasmEd25519YaoLaneClientStateV1::Empty,
+        }
+    }
+
+    /// Prepares the exact authenticated internal dispatch artifact and returns
+    /// `{ requestJson }` for Router execution.
+    #[allow(clippy::too_many_arguments)]
+    pub fn prepare(
+        &mut self,
+        job_input: JsValue,
+        binding_input: JsValue,
+        application_input: JsValue,
+        client_participant_id: u16,
+        signing_worker_participant_id: u16,
+        source: &WasmEd25519YaoLaneSourceV1,
+        deriver_a_input_public_key: &[u8],
+        deriver_b_input_public_key: &[u8],
+        deriver_a_seal_seed: &[u8],
+        deriver_b_seal_seed: &[u8],
+    ) -> Result<JsValue, JsValue> {
+        if !matches!(self.state, WasmEd25519YaoLaneClientStateV1::Empty) {
+            return Err(JsValue::from_str(
+                "Ed25519 Yao lane client is already prepared",
+            ));
+        }
+        let job = parse_js_domain_value::<Ed25519YaoLaneJobV1>(job_input)?;
+        let binding = parse_js_domain_value::<Ed25519YaoCeremonyBindingV1>(binding_input)?;
+        let application = parse_js_domain_value::<RouterAbEd25519YaoApplicationBindingFactsV1>(
+            application_input,
+        )?;
+        let deriver_a_input_public_key =
+            parse_32(deriver_a_input_public_key, "Deriver A input public key")?;
+        let deriver_b_input_public_key =
+            parse_32(deriver_b_input_public_key, "Deriver B input public key")?;
+        let deriver_a_seal_seed =
+            Zeroizing::new(parse_32(deriver_a_seal_seed, "Deriver A seal seed")?);
+        let deriver_b_seal_seed =
+            Zeroizing::new(parse_32(deriver_b_seal_seed, "Deriver B seal seed")?);
+        let prepared = prepare_client_lane_v1(job).map_err(js_error)?;
+        let entropy = ClientLaneExecutionEntropyV1::new(*deriver_a_seal_seed, *deriver_b_seal_seed)
+            .map_err(js_error)?;
+        let dispatch = prepare_client_lane_dispatch_with_root_v1(
+            prepared,
+            &binding,
+            &application,
+            [client_participant_id, signing_worker_participant_id],
+            &source.root,
+            deriver_a_input_public_key,
+            deriver_b_input_public_key,
+            entropy,
+        )
+        .map_err(js_error)?;
+        let (execute_request, completion) = dispatch.into_parts();
+        let request_json = serde_json::to_string(&execute_request).map_err(js_error)?;
+        self.state = WasmEd25519YaoLaneClientStateV1::Prepared {
+            request_json: request_json.clone(),
+            completion,
+        };
+        let object = js_sys::Object::new();
+        js_sys::Reflect::set(
+            &object,
+            &JsValue::from_str("requestJson"),
+            &JsValue::from_str(&request_json),
+        )
+        .map_err(|_| JsValue::from_str("failed to construct lane request"))?;
+        Ok(object.into())
+    }
+
+    /// Returns the prepared request JSON for callers that use the Rust-style
+    /// getter convention.
+    pub fn execute_request_json(&self) -> Result<String, JsValue> {
+        match &self.state {
+            WasmEd25519YaoLaneClientStateV1::Prepared { request_json, .. } => {
+                Ok(request_json.clone())
+            }
+            WasmEd25519YaoLaneClientStateV1::Empty | WasmEd25519YaoLaneClientStateV1::Consumed => {
+                Err(JsValue::from_str("Ed25519 Yao lane client is not prepared"))
+            }
+        }
+    }
+
+    /// Consumes the one-use state and returns the immutable receipt plus the
+    /// opaque holder package set required for later delivery.
+    pub fn complete(&mut self, result_input: JsValue) -> Result<JsValue, JsValue> {
+        let state = core::mem::replace(&mut self.state, WasmEd25519YaoLaneClientStateV1::Consumed);
+        let WasmEd25519YaoLaneClientStateV1::Prepared {
+            completion: prepared,
+            ..
+        } = state
+        else {
+            return Err(JsValue::from_str(
+                "Ed25519 Yao lane client was not prepared",
+            ));
+        };
+        let response_json = if let Some(response_json) = result_input.as_string() {
+            response_json
+        } else {
+            let value = js_sys::Reflect::get(&result_input, &JsValue::from_str("responseJson"))
+                .map_err(|_| JsValue::from_str("lane responseJson is missing"))?;
+            value
+                .as_string()
+                .ok_or_else(|| JsValue::from_str("lane responseJson must be a string"))?
+        };
+        let receipt = complete_client_lane_v1(prepared, &response_json).map_err(js_error)?;
+        serde_wasm_bindgen::to_value(&receipt).map_err(js_error)
+    }
 }

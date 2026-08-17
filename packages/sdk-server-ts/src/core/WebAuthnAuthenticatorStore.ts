@@ -10,6 +10,12 @@ import {
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { isObject as isObjectLoose } from '@shared/utils/validation';
 import {
+  parseWebAuthnAuthenticatorDeviceInfo,
+  parseWebAuthnAuthenticatorDeviceInfoJson,
+  unknownWebAuthnAuthenticatorDeviceInfo,
+  type WebAuthnAuthenticatorDeviceInfo,
+} from '@shared/utils/webauthnDeviceInfo';
+import {
   RedisTcpClient,
   UpstashRedisRestClient,
   redisDel,
@@ -26,6 +32,12 @@ export type WebAuthnAuthenticatorRecord = {
   counter: number;
   createdAtMs: number;
   updatedAtMs: number;
+  /**
+   * Server-derived device metadata captured at registration verification.
+   * Required so the authenticator listing can promise it; rows written before
+   * device capture parse back as `Unknown device` at the store boundary.
+   */
+  deviceInfo: WebAuthnAuthenticatorDeviceInfo;
 };
 
 export interface WebAuthnAuthenticatorStore {
@@ -75,6 +87,7 @@ type D1WebAuthnAuthenticatorRow = {
   readonly counter?: unknown;
   readonly created_at_ms?: unknown;
   readonly updated_at_ms?: unknown;
+  readonly device_info_json?: unknown;
 };
 
 export const WEBAUTHN_AUTHENTICATOR_STORE_D1_SCHEMA_SQL = Object.freeze([
@@ -90,6 +103,7 @@ export const WEBAUTHN_AUTHENTICATOR_STORE_D1_SCHEMA_SQL = Object.freeze([
       counter INTEGER NOT NULL,
       created_at_ms INTEGER NOT NULL,
       updated_at_ms INTEGER NOT NULL,
+      device_info_json TEXT NOT NULL DEFAULT '{}',
       PRIMARY KEY (namespace, org_id, project_id, env_id, user_id, credential_id_b64u),
       CHECK (length(user_id) > 0),
       CHECK (length(credential_id_b64u) > 0),
@@ -163,6 +177,9 @@ function parseWebAuthnAuthenticatorRecord(raw: unknown): WebAuthnAuthenticatorRe
     counter: Math.floor(counter),
     createdAtMs: Math.floor(createdAtMs),
     updatedAtMs: Math.floor(updatedAtMs),
+    deviceInfo:
+      parseWebAuthnAuthenticatorDeviceInfo(raw.deviceInfo) ??
+      unknownWebAuthnAuthenticatorDeviceInfo(),
   };
 }
 
@@ -208,6 +225,7 @@ function parseD1WebAuthnAuthenticatorRow(
     counter: row.counter,
     createdAtMs: row.created_at_ms,
     updatedAtMs: row.updated_at_ms,
+    deviceInfo: parseWebAuthnAuthenticatorDeviceInfoJson(row.device_info_json),
   });
 }
 
@@ -292,7 +310,7 @@ export class D1WebAuthnAuthenticatorStore implements WebAuthnAuthenticatorStore 
     if (!uid || !cid) return null;
     const row = await this.database
       .prepare(
-        `SELECT credential_id_b64u, credential_public_key_b64u, counter, created_at_ms, updated_at_ms
+        `SELECT credential_id_b64u, credential_public_key_b64u, counter, created_at_ms, updated_at_ms, device_info_json
            FROM webauthn_authenticators
           WHERE namespace = ?
             AND org_id = ?
@@ -325,9 +343,10 @@ export class D1WebAuthnAuthenticatorStore implements WebAuthnAuthenticatorStore 
           credential_public_key_b64u,
           counter,
           created_at_ms,
-          updated_at_ms
+          updated_at_ms,
+          device_info_json
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (namespace, org_id, project_id, env_id, user_id, credential_id_b64u)
         DO UPDATE SET
           credential_public_key_b64u = EXCLUDED.credential_public_key_b64u,
@@ -339,7 +358,8 @@ export class D1WebAuthnAuthenticatorStore implements WebAuthnAuthenticatorStore 
           updated_at_ms = MAX(
             webauthn_authenticators.updated_at_ms,
             EXCLUDED.updated_at_ms
-          )`,
+          ),
+          device_info_json = EXCLUDED.device_info_json`,
       )
       .bind(
         this.scope.namespace,
@@ -352,6 +372,7 @@ export class D1WebAuthnAuthenticatorStore implements WebAuthnAuthenticatorStore 
         parsed.counter,
         parsed.createdAtMs,
         parsed.updatedAtMs,
+        JSON.stringify(parsed.deviceInfo),
       )
       .run();
   }
@@ -381,7 +402,7 @@ export class D1WebAuthnAuthenticatorStore implements WebAuthnAuthenticatorStore 
     if (!uid) return [];
     const result = await this.database
       .prepare(
-        `SELECT credential_id_b64u, credential_public_key_b64u, counter, created_at_ms, updated_at_ms
+        `SELECT credential_id_b64u, credential_public_key_b64u, counter, created_at_ms, updated_at_ms, device_info_json
            FROM webauthn_authenticators
           WHERE namespace = ?
             AND org_id = ?

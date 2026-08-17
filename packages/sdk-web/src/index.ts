@@ -28,7 +28,6 @@ export type {
   WalletIframeExactSessionIdentity,
   WalletIframeExactSessionState,
 } from './SeamsWeb/walletIframe/shared/exactSessionState';
-export type { WalletAuthenticationRestoreAuth } from './SeamsWeb/signingSurface/ports';
 
 export * from './config';
 export { PASSKEY_MANAGER_DEFAULT_CONFIGS } from './core/config/defaultConfigs';
@@ -115,12 +114,21 @@ export type {
   WalletFlowEventStatus,
 } from './core/types/sdkSentEvents';
 export type {
-  DeviceLinkingQRData,
   DeviceLinkingSession,
   LinkDeviceResult,
   DeviceLinkingError,
   DeviceLinkingErrorCode,
 } from './core/types/linkDevice';
+export type {
+  LinkedDeviceListRequestV1,
+  LinkedDeviceListResultV1,
+  LinkedDeviceManagementRequestV1,
+  LinkedDeviceRevokeRequestV1,
+  LinkedDeviceRevokeResultV1,
+  LinkedDeviceSummaryV1,
+  QrLinkedDevicePermissionRequest,
+  QrLinkedDeviceSessionPayloadV4,
+} from '@shared/device-linking';
 
 // === AccountID Types ===
 export type { AccountId } from './core/types/accountIds';

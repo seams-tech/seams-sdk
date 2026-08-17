@@ -89,7 +89,7 @@ export type AuthorizationEvidenceRequirement = {
 
 export type TenantId = DomainId<'TenantId'>;
 export type PrincipalId = DomainId<'PrincipalId'>;
-export type SeamsSessionId = DomainId<'SeamsSessionId'>;
+export type EcdsaAuthorizationSessionId = DomainId<'EcdsaAuthorizationSessionId'>;
 export type SeamsSession = DomainId<'SeamsSession'>;
 export type HostedWalletSessionExchangeCodeId = DomainId<'HostedWalletSessionExchangeCodeId'>;
 export type SessionClientId = DomainId<'SessionClientId'>;
@@ -99,11 +99,32 @@ export type CapabilityId = DomainId<'CapabilityId'>;
 export type CapabilityBindingId = DomainId<'CapabilityBindingId'>;
 export type CapabilityOperationId = DomainId<'CapabilityOperationId'>;
 export type WalletSessionAuthorizationId = DomainId<'WalletSessionAuthorizationId'>;
-/** The reusable authorization branch carries exactly one authorization identity. */
-export type AuthorizationGrantRef = {
+export type LinkedDeviceWalletSessionAuthorizationId =
+  DomainId<'LinkedDeviceWalletSessionAuthorizationId'>;
+
+export const AUTHORIZATION_GRANT_KINDS = {
+  walletSession: 'wallet_session_authorization',
+  linkedDeviceWalletSession: 'linked_device_wallet_session_authorization_v1',
+} as const;
+
+export type AuthorizationGrantKind =
+  (typeof AUTHORIZATION_GRANT_KINDS)[keyof typeof AUTHORIZATION_GRANT_KINDS];
+
+export type WalletSessionAuthorizationRef = {
   readonly kind: 'wallet_session_authorization';
   readonly authorizationId: WalletSessionAuthorizationId;
 };
+
+export type LinkedDeviceWalletSessionAuthorizationRefV1 = {
+  readonly kind: 'linked_device_wallet_session_authorization_v1';
+  readonly authorizationId: LinkedDeviceWalletSessionAuthorizationId;
+};
+export type LinkedDeviceWalletSessionAuthorizationRef = LinkedDeviceWalletSessionAuthorizationRefV1;
+
+/** Each reusable authorization branch carries exactly one authorization identity. */
+export type AuthorizationGrantRef =
+  | WalletSessionAuthorizationRef
+  | LinkedDeviceWalletSessionAuthorizationRefV1;
 export type AuthorizedOperationId = DomainId<'AuthorizedOperationId'>;
 export type WalletSessionId = DomainId<'WalletSessionId'>;
 export type MpcWalletSigningQuotaId = DomainId<'MpcWalletSigningQuotaId'>;
@@ -205,10 +226,7 @@ export function parseCapabilityOperationRef(
 
 export function buildAuthorizationEvidenceRequirement(input: {
   readonly mode: AuthorizationEvidenceRequirement['mode'];
-  readonly evidenceKinds: readonly [
-    AuthorizationEvidenceKind,
-    ...AuthorizationEvidenceKind[],
-  ];
+  readonly evidenceKinds: readonly [AuthorizationEvidenceKind, ...AuthorizationEvidenceKind[]];
 }): AuthorizationEvidenceRequirement {
   const canonicalKinds = [...new Set(input.evidenceKinds)].sort();
   const [firstKind, ...remainingKinds] = canonicalKinds;
@@ -229,8 +247,10 @@ export function parsePrincipalId(value: unknown): AuthorizationParseResult<Princ
   return parseAuthorizationId(value, 'principalId');
 }
 
-export function parseSeamsSessionId(value: unknown): AuthorizationParseResult<SeamsSessionId> {
-  return parseAuthorizationId(value, 'seamsSessionId');
+export function parseEcdsaAuthorizationSessionId(
+  value: unknown,
+): AuthorizationParseResult<EcdsaAuthorizationSessionId> {
+  return parseAuthorizationId(value, 'ecdsaAuthorizationSessionId');
 }
 
 export function parseSeamsSession(value: unknown): AuthorizationParseResult<SeamsSession> {
@@ -282,21 +302,47 @@ export function parseAuthorizationGrantRef(
   if (keys.length !== 2 || !keys.includes('kind') || !keys.includes('authorizationId')) {
     return invalidResult('authorizationGrantRef contains unexpected fields');
   }
-  if (record.kind !== 'wallet_session_authorization') {
-    return invalidResult('authorizationGrantRef.kind is unsupported');
+  switch (record.kind) {
+    case AUTHORIZATION_GRANT_KINDS.walletSession: {
+      const authorizationId = parseWalletSessionAuthorizationId(record.authorizationId);
+      if (!authorizationId.ok) return authorizationId;
+      return {
+        ok: true,
+        value: {
+          kind: AUTHORIZATION_GRANT_KINDS.walletSession,
+          authorizationId: authorizationId.value,
+        },
+      };
+    }
+    case AUTHORIZATION_GRANT_KINDS.linkedDeviceWalletSession: {
+      const authorizationId = parseLinkedDeviceWalletSessionAuthorizationId(record.authorizationId);
+      if (!authorizationId.ok) return authorizationId;
+      return {
+        ok: true,
+        value: {
+          kind: AUTHORIZATION_GRANT_KINDS.linkedDeviceWalletSession,
+          authorizationId: authorizationId.value,
+        },
+      };
+    }
+    default:
+      return invalidResult('authorizationGrantRef.kind is unsupported');
   }
-  const authorizationId = parseWalletSessionAuthorizationId(record.authorizationId);
-  if (!authorizationId.ok) return authorizationId;
-  return {
-    ok: true,
-    value: { kind: 'wallet_session_authorization', authorizationId: authorizationId.value },
-  };
 }
 
 export function buildAuthorizationGrantRef(
   authorizationId: WalletSessionAuthorizationId,
-): AuthorizationGrantRef {
-  return { kind: 'wallet_session_authorization', authorizationId };
+): WalletSessionAuthorizationRef {
+  return { kind: AUTHORIZATION_GRANT_KINDS.walletSession, authorizationId };
+}
+
+export function buildLinkedDeviceWalletSessionAuthorizationRef(
+  authorizationId: LinkedDeviceWalletSessionAuthorizationId,
+): LinkedDeviceWalletSessionAuthorizationRefV1 {
+  return {
+    kind: AUTHORIZATION_GRANT_KINDS.linkedDeviceWalletSession,
+    authorizationId,
+  };
 }
 
 export function parseWalletSessionAuthorizationId(
@@ -305,15 +351,19 @@ export function parseWalletSessionAuthorizationId(
   return parseAuthorizationId(value, 'walletSessionAuthorizationId');
 }
 
+export function parseLinkedDeviceWalletSessionAuthorizationId(
+  value: unknown,
+): AuthorizationParseResult<LinkedDeviceWalletSessionAuthorizationId> {
+  return parseAuthorizationId(value, 'linkedDeviceWalletSessionAuthorizationId');
+}
+
 export function parseAuthorizedOperationId(
   value: unknown,
 ): AuthorizationParseResult<AuthorizedOperationId> {
   return parseAuthorizationId(value, 'authorizedOperationId');
 }
 
-export function parseWalletSessionId(
-  value: unknown,
-): AuthorizationParseResult<WalletSessionId> {
+export function parseWalletSessionId(value: unknown): AuthorizationParseResult<WalletSessionId> {
   return parseAuthorizationId(value, 'walletSessionId');
 }
 

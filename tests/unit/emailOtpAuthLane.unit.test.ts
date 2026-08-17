@@ -4,8 +4,6 @@ import {
   buildEmailOtpRoutePlan,
   emailOtpRoutePath,
   normalizeEmailOtpRoutePlan,
-  resolveEmailOtpAuthLane,
-  routeFamilyForAuthLane,
 } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 import { thresholdEcdsaChainTargetFromChainFamily } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
@@ -16,81 +14,54 @@ const TEMPO_CHAIN_TARGET = thresholdEcdsaChainTargetFromChainFamily({
 });
 
 test.describe('Email OTP auth lane route planning', () => {
-  test('plans fresh login and registration from app-session auth', () => {
-    const authLane = resolveEmailOtpAuthLane({ appSessionJwt: 'app-session-jwt' });
-    expect(authLane).toEqual({ kind: 'app_session', jwt: 'app-session-jwt' });
-
-    const login = buildEmailOtpRoutePlan({
+  test('uses the unified operation-bound challenge route for fresh login', () => {
+    const plan = buildEmailOtpRoutePlan({
       routeFamily: 'login',
-      authLane,
       operation: 'wallet_unlock',
     });
-    const registration = buildEmailOtpRoutePlan({
+
+    expect(emailOtpRoutePath(plan, 'challenge')).toBe('/wallet/email-otp/challenge');
+  });
+
+  test('keeps registration challenge routing separate', () => {
+    const plan = buildEmailOtpRoutePlan({
       routeFamily: 'registration',
-      authLane,
       operation: 'registration',
     });
 
-    expect(emailOtpRoutePath(login, 'challenge')).toBe('/wallet/email-otp/login/challenge');
-    expect(emailOtpRoutePath(registration, 'challenge')).toBe(
+    expect(emailOtpRoutePath(plan, 'challenge')).toBe(
       '/wallet/email-otp/registration/challenge',
     );
-    expect(authLaneToRouteAuth(login.authLane)).toEqual({
-      kind: 'app_session',
-      jwt: 'app-session-jwt',
-    });
   });
 
-  test('plans fresh login from cookie auth without bearer route auth', () => {
-    const authLane = resolveEmailOtpAuthLane({ sessionKind: 'cookie' });
-    const plan = buildEmailOtpRoutePlan({
-      routeFamily: 'login',
-      authLane,
-      operation: 'wallet_unlock',
-    });
-
-    expect(plan.authLane).toEqual({ kind: 'cookie' });
-    expect(authLaneToRouteAuth(plan.authLane)).toBeUndefined();
-    expect(emailOtpRoutePath(plan, 'verify')).toBe('/wallet/email-otp/login/verify');
-    expect(emailOtpRoutePath(plan, 'verifyAndUnseal')).toBe(
-      '/wallet/email-otp/login/verify-and-unseal',
-    );
-  });
-
-  test('plans signing-session routes from restored threshold-session auth', () => {
-    const authLane = resolveEmailOtpAuthLane({
-      routeAuth: { kind: 'wallet_session', jwt: 'threshold-session-jwt' },
-      thresholdSessionId: 'threshold-session',
-      curve: 'ecdsa',
-      chainTarget: TEMPO_CHAIN_TARGET,
-    });
-    expect(routeFamilyForAuthLane({ authLane: authLane!, freshRouteFamily: 'login' })).toBe(
-      'signing_session',
-    );
-
+  test('uses opaque Wallet Session auth for signing-session challenges', () => {
     const plan = buildEmailOtpRoutePlan({
       routeFamily: 'signing_session',
-      authLane,
       operation: 'export_key',
+      authLane: {
+        kind: 'signing_session',
+        walletSessionToken: 'opaque-wallet-session-token',
+        thresholdSessionId: 'threshold-session',
+        curve: 'ecdsa',
+        chainTarget: TEMPO_CHAIN_TARGET,
+      },
     });
 
-    expect(emailOtpRoutePath(plan, 'challenge')).toBe(
-      '/wallet/email-otp/signing-session/challenge',
-    );
+    expect(emailOtpRoutePath(plan, 'challenge')).toBe('/wallet/email-otp/challenge');
     expect(authLaneToRouteAuth(plan.authLane)).toEqual({
-      kind: 'wallet_session',
-      jwt: 'threshold-session-jwt',
+      kind: 'opaque_wallet_session',
+      walletSessionToken: 'opaque-wallet-session-token',
     });
   });
 
-  test('normalizes the canonical grant-free ECDSA worker route plan', () => {
+  test('normalizes the canonical opaque ECDSA route plan', () => {
     expect(
       normalizeEmailOtpRoutePlan({
         routeFamily: 'signing_session',
         operation: 'transaction_sign',
         authLane: {
           kind: 'signing_session',
-          jwt: 'threshold-session-jwt',
+          walletSessionToken: 'opaque-wallet-session-token',
           thresholdSessionId: 'threshold-session',
           curve: 'ecdsa',
           chainTarget: TEMPO_CHAIN_TARGET,
@@ -101,7 +72,7 @@ test.describe('Email OTP auth lane route planning', () => {
       operation: 'transaction_sign',
       authLane: {
         kind: 'signing_session',
-        jwt: 'threshold-session-jwt',
+        walletSessionToken: 'opaque-wallet-session-token',
         thresholdSessionId: 'threshold-session',
         curve: 'ecdsa',
         chainTarget: TEMPO_CHAIN_TARGET,
@@ -109,59 +80,10 @@ test.describe('Email OTP auth lane route planning', () => {
     });
   });
 
-  test('fails closed for mismatched lane and route family', () => {
-    const signingLane = resolveEmailOtpAuthLane({
-      routeAuth: { kind: 'wallet_session', jwt: 'threshold-session-jwt' },
-      thresholdSessionId: 'threshold-session',
-      curve: 'ed25519',
-    });
-    const appLane = resolveEmailOtpAuthLane({ appSessionJwt: 'app-session-jwt' });
-
-    expect(() =>
-      buildEmailOtpRoutePlan({
-        routeFamily: 'login',
-        authLane: signingLane,
-        operation: 'wallet_unlock',
-      }),
-    ).toThrow(/cannot use signing-session auth/);
-    expect(() =>
-      buildEmailOtpRoutePlan({
-        routeFamily: 'signing_session',
-        authLane: appLane,
-        operation: 'transaction_sign',
-      }),
-    ).toThrow(/require signing-session auth/);
-  });
-
-  test('rejects route families paired with the wrong operation', () => {
-    const appLane = resolveEmailOtpAuthLane({ appSessionJwt: 'app-session-jwt' });
-    const signingLane = resolveEmailOtpAuthLane({
-      routeAuth: { kind: 'wallet_session', jwt: 'threshold-session-jwt' },
-      thresholdSessionId: 'threshold-session',
-      curve: 'ed25519',
-    });
-
-    expect(() =>
-      buildEmailOtpRoutePlan({
-        routeFamily: 'registration',
-        authLane: appLane,
-        operation: 'export_key',
-      }),
-    ).toThrow(/require registration operation/);
-    expect(() =>
-      buildEmailOtpRoutePlan({
-        routeFamily: 'signing_session',
-        authLane: signingLane,
-        operation: 'wallet_unlock',
-      }),
-    ).toThrow(/require signing or export operation/);
-  });
-
   test('rejects incomplete and malformed persisted route plans', () => {
     expect(
       normalizeEmailOtpRoutePlan({
         routeFamily: 'login',
-        authLane: { kind: 'cookie' },
       }),
     ).toBeUndefined();
     expect(
@@ -170,7 +92,7 @@ test.describe('Email OTP auth lane route planning', () => {
         operation: 'transaction_sign',
         authLane: {
           kind: 'signing_session',
-          jwt: 'threshold-session-jwt',
+          walletSessionToken: 'opaque-wallet-session-token',
           thresholdSessionId: 'threshold-session',
           curve: 'ecdsa',
           chainTarget: { kind: 'evm', namespace: 'eip155', chainId: -1 },

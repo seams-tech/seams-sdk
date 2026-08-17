@@ -16,16 +16,16 @@ declare const passkeyEcdsaRestore: Exclude<
   { source: 'email_otp' }
 >;
 
-const validWarmSessionSealTransportWithWalletSessionJwt = {
+const validWarmSessionSealTransportWithWalletSessionToken = {
   curve: 'ecdsa',
   authMethod: 'passkey',
   walletId: passkeyEcdsaRestore.authority.walletId,
   chainTarget,
   relayerUrl: 'https://relay.example',
-  walletSessionJwt: 'wallet-session-jwt',
+  walletSessionToken: 'wallet-session-token',
   ecdsaRestore: passkeyEcdsaRestore,
 } satisfies WarmSessionSealTransportInput;
-void validWarmSessionSealTransportWithWalletSessionJwt;
+void validWarmSessionSealTransportWithWalletSessionToken;
 
 const invalidWarmSessionSealTransportPasskeyEcdsaWithoutWalletId = {
   curve: 'ecdsa',
@@ -41,32 +41,32 @@ const validWarmSessionSealTransportWithEmailOtpAuthMethod = {
   curve: 'ed25519',
   authMethod: 'email_otp',
   relayerUrl: 'https://relay.example',
-  walletSessionJwt: 'wallet-session-jwt',
+  walletSessionToken: 'wallet-session-token',
 } satisfies WarmSessionSealTransportInput;
 void validWarmSessionSealTransportWithEmailOtpAuthMethod;
 
 // @ts-expect-error Email OTP seal transports require explicit wallet-session authority.
-const invalidWarmSessionSealTransportEmailOtpWithoutWalletSessionJwt: WarmSessionSealTransportInput = {
+const invalidWarmSessionSealTransportEmailOtpWithoutWalletSessionToken: WarmSessionSealTransportInput = {
   curve: 'ed25519',
   authMethod: 'email_otp',
   relayerUrl: 'https://relay.example',
 };
-void invalidWarmSessionSealTransportEmailOtpWithoutWalletSessionJwt;
+void invalidWarmSessionSealTransportEmailOtpWithoutWalletSessionToken;
 
 // @ts-expect-error Email OTP ECDSA seal transports require explicit wallet-session authority.
-const invalidWarmSessionSealTransportEmailOtpEcdsaWithoutWalletSessionJwt: WarmSessionSealTransportInput = {
+const invalidWarmSessionSealTransportEmailOtpEcdsaWithoutWalletSessionToken: WarmSessionSealTransportInput = {
   curve: 'ecdsa',
   authMethod: 'email_otp',
   chainTarget,
   relayerUrl: 'https://relay.example',
 };
-void invalidWarmSessionSealTransportEmailOtpEcdsaWithoutWalletSessionJwt;
+void invalidWarmSessionSealTransportEmailOtpEcdsaWithoutWalletSessionToken;
 
 const invalidWarmSessionSealTransportWithEmailOtpRestore = {
   curve: 'ed25519',
   authMethod: 'email_otp',
   relayerUrl: 'https://relay.example',
-  walletSessionJwt: 'wallet-session-jwt',
+  walletSessionToken: 'wallet-session-token',
   // @ts-expect-error Email OTP Ed25519 seal transports keep raw restore metadata out of TS.
   emailOtpRestore: {
     xClientBaseB64u: 'x-client-base',
@@ -80,7 +80,7 @@ const invalidWarmSessionSealTransportWithUnknownAuthMethod = {
   // @ts-expect-error warm-session seal auth methods are explicit domain values.
   authMethod: 'cookie',
   walletId: 'wallet-id',
-  walletSessionJwt: 'wallet-session-jwt',
+  walletSessionToken: 'wallet-session-token',
   ed25519Restore: passkeyEd25519Restore,
   relayerUrl: 'https://relay.example',
 } satisfies WarmSessionSealTransportInput;
@@ -90,10 +90,10 @@ const invalidWarmSessionSealTransportWithOldTokenField = {
   curve: 'ed25519',
   authMethod: 'passkey',
   walletId: 'wallet-id',
-  walletSessionJwt: 'wallet-session-jwt',
+  walletSessionToken: 'wallet-session-token',
   ed25519Restore: passkeyEd25519Restore,
   relayerUrl: 'https://relay.example',
-  // @ts-expect-error warm-session worker transports use walletSessionJwt.
+  // @ts-expect-error warm-session worker transports use walletSessionToken.
   thresholdSessionAuthToken: 'wallet-session-jwt',
 } satisfies WarmSessionSealTransportInput;
 void invalidWarmSessionSealTransportWithOldTokenField;
@@ -102,7 +102,7 @@ const validWarmSessionSealTransportWithBrandedSealVersion = {
   curve: 'ed25519',
   authMethod: 'passkey',
   walletId: 'wallet-id',
-  walletSessionJwt: 'wallet-session-jwt',
+  walletSessionToken: 'wallet-session-token',
   ed25519Restore: passkeyEd25519Restore,
   relayerUrl: 'https://relay.example',
   signingSessionSealKeyVersion,
@@ -113,7 +113,7 @@ const invalidWarmSessionSealTransportWithRawSealVersion = {
   curve: 'ed25519',
   authMethod: 'passkey',
   walletId: 'wallet-id',
-  walletSessionJwt: 'wallet-session-jwt',
+  walletSessionToken: 'wallet-session-token',
   ed25519Restore: passkeyEd25519Restore,
   relayerUrl: 'https://relay.example',
   // @ts-expect-error warm-session worker transports require branded seal key versions.
@@ -125,7 +125,7 @@ const invalidWarmSessionSealTransportWithGenericKeyVersion = {
   curve: 'ed25519',
   authMethod: 'passkey',
   walletId: 'wallet-id',
-  walletSessionJwt: 'wallet-session-jwt',
+  walletSessionToken: 'wallet-session-token',
   ed25519Restore: passkeyEd25519Restore,
   relayerUrl: 'https://relay.example',
   // @ts-expect-error warm-session worker transports use signingSessionSealKeyVersion.

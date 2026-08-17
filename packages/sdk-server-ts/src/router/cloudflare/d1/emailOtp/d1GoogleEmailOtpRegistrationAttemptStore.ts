@@ -51,7 +51,7 @@ export class CloudflareD1GoogleEmailOtpRegistrationAttemptStore {
     readonly offerId: string;
     readonly offerCandidates: NonEmptyGoogleEmailOtpRegistrationOfferCandidates;
     readonly selectedCandidateId: string;
-    readonly appSessionVersion: string;
+    readonly ownerProofBindingDigest: string;
     readonly authProvider: string;
     readonly walletIdDerivationNonce: string;
     readonly collisionCounter: number;
@@ -68,7 +68,7 @@ export class CloudflareD1GoogleEmailOtpRegistrationAttemptStore {
       offerId: input.offerId,
       offerCandidates: input.offerCandidates,
       selectedCandidateId: input.selectedCandidateId,
-      appSessionVersion: input.appSessionVersion,
+      ownerProofBindingDigest: input.ownerProofBindingDigest,
       authProvider: input.authProvider,
       accountIdSlugVersion: 'hmac_readable_v1',
       walletIdDerivationNonce: input.walletIdDerivationNonce,
@@ -87,7 +87,7 @@ export class CloudflareD1GoogleEmailOtpRegistrationAttemptStore {
     readonly providerSubject: string;
     readonly email: string;
     readonly orgId: string;
-    readonly appSessionVersion: string;
+    readonly ownerProofBindingDigest: string;
     readonly runtimePolicyScope: RuntimePolicyScope;
   }): Promise<PendingGoogleEmailOtpRegistrationAttemptRecord | null> {
     const nowMs = Date.now();
@@ -103,7 +103,7 @@ export class CloudflareD1GoogleEmailOtpRegistrationAttemptStore {
           AND email = ?
           AND state IN ('started', 'key_finalized')
           AND expires_at_ms > ?
-          AND app_session_version = ?
+          AND owner_proof_binding_digest = ?
           AND runtime_org_id = ?
           AND runtime_policy_key = ?
         ORDER BY updated_at_ms DESC
@@ -112,7 +112,7 @@ export class CloudflareD1GoogleEmailOtpRegistrationAttemptStore {
         input.providerSubject,
         input.email,
         nowMs,
-        input.appSessionVersion,
+        input.ownerProofBindingDigest,
         input.orgId,
         runtimePolicyScopeKey(input.runtimePolicyScope),
       ],
@@ -128,7 +128,7 @@ export class CloudflareD1GoogleEmailOtpRegistrationAttemptStore {
         providerSubject: input.providerSubject,
         email: input.email,
         orgId: input.orgId,
-        appSessionVersion: input.appSessionVersion,
+        ownerProofBindingDigest: input.ownerProofBindingDigest,
         runtimePolicyScope: input.runtimePolicyScope,
         nowMs,
       })
@@ -140,14 +140,14 @@ export class CloudflareD1GoogleEmailOtpRegistrationAttemptStore {
     return refreshed;
   }
 
-  async abandonStartedExceptAppSession(input: {
+  async abandonStartedExceptBinding(input: {
     readonly providerSubject: string;
     readonly email: string;
     readonly orgId: string;
-    readonly appSessionVersion: string;
+    readonly ownerProofBindingDigest: string;
     readonly runtimePolicyScope: RuntimePolicyScope;
     readonly nowMs: number;
-    readonly failureCode: 'app_session_version_replaced';
+    readonly failureCode: 'owner_proof_binding_replaced';
   }): Promise<void> {
     const result = await this.prepare(
       `SELECT record_json, expires_at_ms, updated_at_ms, attempt_id
@@ -238,7 +238,7 @@ export class CloudflareD1GoogleEmailOtpRegistrationAttemptStore {
         email,
         wallet_id,
         state,
-        app_session_version,
+        owner_proof_binding_digest,
         runtime_org_id,
         runtime_policy_key,
         offer_wallet_ids_json,
@@ -254,7 +254,7 @@ export class CloudflareD1GoogleEmailOtpRegistrationAttemptStore {
         email = EXCLUDED.email,
         wallet_id = EXCLUDED.wallet_id,
         state = EXCLUDED.state,
-        app_session_version = EXCLUDED.app_session_version,
+        owner_proof_binding_digest = EXCLUDED.owner_proof_binding_digest,
         runtime_org_id = EXCLUDED.runtime_org_id,
         runtime_policy_key = EXCLUDED.runtime_policy_key,
         offer_wallet_ids_json = EXCLUDED.offer_wallet_ids_json,
@@ -268,7 +268,7 @@ export class CloudflareD1GoogleEmailOtpRegistrationAttemptStore {
         record.email,
         record.walletId,
         record.state,
-        record.appSessionVersion,
+        record.ownerProofBindingDigest,
         record.runtimePolicyScope?.orgId || '',
         runtimePolicyScopeKey(record.runtimePolicyScope),
         googleEmailOtpRegistrationOfferWalletIdsJson(record.offerCandidates),

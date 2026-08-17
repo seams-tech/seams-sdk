@@ -36,7 +36,6 @@ import {
   type WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { UserPreferencesManager } from '../../session/userPreferences';
-import { generateSessionId as generateSessionIdValue } from '../../session/passkey/prfCache';
 import type {
   ProvisionWarmEd25519CapabilityArgs,
   ProvisionWarmEd25519CapabilityResult,
@@ -154,7 +153,6 @@ export type CreateSigningEnginePortsArgs = {
   provisionThresholdEd25519Session: (
     args: ProvisionWarmEd25519CapabilityArgs,
   ) => Promise<ProvisionWarmEd25519CapabilityResult>;
-  resolveEcdsaOperationStepUpSessionAuth: EvmFamilySigningDeps['resolveEcdsaOperationStepUpSessionAuth'];
   restorePersistedSessionForSigning: (
     args: RestorePersistedSessionForSigningInput,
   ) => Promise<unknown>;
@@ -198,16 +196,6 @@ export type SigningEnginePorts = {
 
 export function resolveNearRpcUrl(args: CreateSigningEnginePortsArgs): string {
   return resolvePrimaryNearRpcUrl(args.seamsWebConfigs.network.chains);
-}
-
-export function createGetOrCreateActiveThresholdEcdsaSessionId(): (
-  nearAccountId: AccountId,
-  chainTarget: ThresholdEcdsaChainTarget,
-) => string {
-  return (_nearAccountId, chainTarget) =>
-    generateSessionIdValue(
-      chainTarget.kind === 'tempo' ? 'threshold-ecdsa-tempo' : 'threshold-ecdsa-evm',
-    );
 }
 
 export function createWorkerResourceWarmupDepsFactory(

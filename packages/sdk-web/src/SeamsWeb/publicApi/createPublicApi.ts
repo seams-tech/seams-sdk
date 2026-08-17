@@ -21,7 +21,7 @@ import type {
   AuthCapability,
   DevicesCapability,
   DeviceLinkingWebContext,
-  EmailRecoveryWebContext,
+  AccountSyncWebContext,
   EcdsaSessionBootstrapSurface,
   NearSigningSurface,
   EvmSignerCapability,
@@ -65,6 +65,7 @@ export type RegistrationCapabilityDomainMethods = {
   getNearProvisioningState: RegistrationCapability['getNearProvisioningState'];
   onNearProvisioningStateChanged: RegistrationCapability['onNearProvisioningStateChanged'];
   addWalletSigner: RegistrationCapability['addWalletSigner'];
+  addPasskey: RegistrationCapability['addPasskey'];
   registerWallet: RegistrationCapability['registerWallet'];
   registerPasskey: RegistrationCapability['registerPasskey'];
   requestEmailOtpEnrollmentChallenge: RegistrationCapability['requestEmailOtpEnrollmentChallenge'];
@@ -124,7 +125,7 @@ export type SeamsWebPublicApi = {
 };
 
 type PublicApiSigningSurface = RegistrationSigningSurface &
-  EmailRecoveryWebContext['signingEngine'] &
+  AccountSyncWebContext['signingEngine'] &
   DeviceLinkingWebContext['signingEngine'] &
   NearSigningSurface &
   UserAccountLookupSurface &
@@ -146,7 +147,7 @@ export function createPublicApi(deps: {
   devices: DevicesCapabilityDomainMethods;
   keys: KeyExportCapabilityDomainMethods;
 }): SeamsWebPublicApi {
-  const getEmailRecoveryContext = (): EmailRecoveryWebContext => ({
+  const getAccountSyncContext = (): AccountSyncWebContext => ({
     signingEngine: deps.signingEngine,
     nearClient: deps.nearClient,
     configs: deps.configs,
@@ -182,6 +183,7 @@ export function createPublicApi(deps: {
       getNearProvisioningState: deps.registration.getNearProvisioningState,
       onNearProvisioningStateChanged: deps.registration.onNearProvisioningStateChanged,
       addWalletSigner: deps.registration.addWalletSigner,
+      addPasskey: deps.registration.addPasskey,
       registerWallet: deps.registration.registerWallet,
       registerWithEmailOtp: deps.registration.registerWallet,
       registerPasskey: deps.registration.registerPasskey,
@@ -189,7 +191,7 @@ export function createPublicApi(deps: {
       enrollEmailOtp: deps.registration.enrollEmailOtp,
     },
     recovery: createRecoveryCapability({
-      getContext: getEmailRecoveryContext,
+      getContext: getAccountSyncContext,
       walletIframe: walletIframeRoutingSurface,
       domain: deps.recovery,
     }),

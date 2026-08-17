@@ -1,8 +1,10 @@
 import {
   deriveRouterAbEd25519YaoStableContextBindingV1,
+  parseRouterAbEd25519YaoActivationKeysetV1,
   parseRouterAbEd25519YaoActivationResultV1,
   parseRouterAbEd25519YaoExportResultV1,
   type RouterAbEd25519YaoActivationExecuteRequestV1,
+  type RouterAbEd25519YaoActivationKeysetV1,
   type RouterAbEd25519YaoExportBindingV1,
   type RouterAbEd25519YaoRecoveryActivationRequestV1,
   type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
@@ -62,6 +64,25 @@ export type RouterAbEd25519YaoGatewaySpanV1 = {
 };
 
 export type RouterAbEd25519YaoHttpRegistrationBackendRawEnv = Readonly<Record<string, unknown>>;
+
+export function parseRouterAbEd25519YaoActivationKeysetFromEnvV1(
+  env: RouterAbEd25519YaoHttpRegistrationBackendRawEnv,
+): RouterAbEd25519YaoActivationKeysetV1 {
+  return parseRouterAbEd25519YaoActivationKeysetV1({
+    deriver_a_input_public_key: x25519PublicKeyFromEnv(
+      envValue(env, ROUTER_AB_ENV_KEYS.deriverAInputPublicKey),
+      ROUTER_AB_ENV_KEYS.deriverAInputPublicKey,
+    ),
+    deriver_b_input_public_key: x25519PublicKeyFromEnv(
+      envValue(env, ROUTER_AB_ENV_KEYS.deriverBInputPublicKey),
+      ROUTER_AB_ENV_KEYS.deriverBInputPublicKey,
+    ),
+    signing_worker_recipient_public_key: x25519PublicKeyFromEnv(
+      envValue(env, ROUTER_AB_ENV_KEYS.signingWorkerRecipientPublicKey),
+      ROUTER_AB_ENV_KEYS.signingWorkerRecipientPublicKey,
+    ),
+  });
+}
 
 type ValidatedHttpBackendConfig = {
   routerUrl: string;
@@ -673,7 +694,7 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
                 primitive_request_kind: 'registration',
                 root_share_epoch: request.scope.root_share_epoch,
                 account_id: request.scope.account_id,
-              session_id: request.scope.threshold_session_id,
+                session_id: request.scope.threshold_session_id,
                 signer_set_id: request.scope.signer_set_id,
                 selected_server_id: request.scope.signing_worker_id,
               },
@@ -696,7 +717,7 @@ export class RouterAbEd25519YaoHttpRegistrationBackend
                 primitive_request_kind: 'recovery',
                 root_share_epoch: request.scope.root_share_epoch,
                 account_id: request.scope.account_id,
-              session_id: request.scope.threshold_session_id,
+                session_id: request.scope.threshold_session_id,
                 signer_set_id: request.scope.signer_set_id,
                 selected_server_id: request.scope.signing_worker_id,
               },

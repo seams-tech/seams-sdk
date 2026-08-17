@@ -16,7 +16,8 @@ function digest(fill: number) {
 }
 
 test('ECDSA Email OTP export verifies its challenge with the originating app session lane', async () => {
-  const { authority, manifest } = await canonicalEvmFamilyEcdsaSigningCapabilityFixture('email_otp');
+  const { authority, manifest } =
+    await canonicalEvmFamilyEcdsaSigningCapabilityFixture('email_otp');
   const chainTarget = manifest.signer.scope.targetMemberships[0];
   if (!chainTarget) throw new Error('ECDSA fixture is missing a target membership');
   const publicFacts = manifest.signer.registeredPublicFacts;
@@ -50,7 +51,8 @@ test('ECDSA Email OTP export verifies its challenge with the originating app ses
       chainTarget,
     },
   });
-  if (!signingSessionAuthority) throw new Error('ECDSA signing-session authority fixture is invalid');
+  if (!signingSessionAuthority)
+    throw new Error('ECDSA signing-session authority fixture is invalid');
   const persistedMaterial = buildPersistedEcdsaRoleLocalMaterial({
     authority: manifest.signer.authority,
     materialActivation: manifest.durableMaterial.materialActivation,

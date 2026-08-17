@@ -31,21 +31,19 @@ import type { RouterAbEd25519YaoActiveClientV1 } from '../threshold/ed25519/yaoC
 import type { EmailOtpTransactionSigningChallenge } from '../session/emailOtp/publicTypes';
 import type { PasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { ResolvedRouterAbEd25519WalletSessionState } from '../session/warmCapabilities/routerAbEd25519WalletSessionState';
-import type {
-  MpcMaterialActivationRef,
-  ThresholdEd25519SessionId,
-} from '@shared/utils/domainIds';
+import type { MpcMaterialActivationRef, ThresholdEd25519SessionId } from '@shared/utils/domainIds';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
-import type { MpcWalletSigningQuotaId, WalletSessionId } from '@shared/authorization/capabilityKinds';
+import type {
+  MpcWalletSigningQuotaId,
+  WalletSessionId,
+} from '@shared/authorization/capabilityKinds';
 import type { ActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { NearEd25519YaoSigningPreparation } from '../session/material/nearEd25519YaoSigningPreparation';
 import type { RouterAbNormalSigningPrepareRequestV2Wire } from '@/core/rpcClients/relayer/routerAbNormalSigning';
-import type {
-  Ed25519OperationStepUpProof,
-} from '../threshold/ed25519/walletSession';
+import type { Ed25519OperationStepUpProof } from '../threshold/ed25519/walletSession';
 export type NearResolvedEd25519WalletSessionAuth = {
-  kind: 'wallet_session_jwt';
-  walletSessionJwt: string;
+  kind: 'wallet_session_opaque';
+  walletSessionToken: string;
 };
 
 export type NearPasskeyOperationStepUpPlan = {
@@ -108,6 +106,13 @@ export type NearEd25519YaoOperationMaterial = {
   facts: NearEd25519YaoOperationMaterialFacts;
 };
 
+export type NearEd25519FundingSession = {
+  readonly kind: 'near_ed25519_funding_session';
+  readonly signer: NearTransactionSigningLane['identity']['signer'];
+  readonly thresholdSessionId: ThresholdEd25519SessionId;
+  readonly walletSessionToken: string;
+};
+
 export type NearEd25519OperationStepUpAuthorization = {
   kind: 'verified_step_up';
   authorization: { kind: 'operation_step_up'; evidence_set_digest: string };
@@ -148,6 +153,7 @@ export type NearEd25519YaoMaterialExecutor = {
     preparation: NearEd25519YaoSigningPreparation,
   ) => Promise<NearEd25519YaoOperationMaterial>;
   resolveWalletSessionState: () => Promise<ResolvedRouterAbEd25519WalletSessionState>;
+  resolveFundingSession: () => Promise<NearEd25519FundingSession>;
   preparePasskeyOperationStepUp: (
     preparation: NearEd25519YaoSigningPreparation,
   ) => Promise<NearPasskeyEd25519OperationStepUpCapabilityPreparation>;

@@ -1,9 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
   buildMpcMaterialActivationRefFixture,
-  buildWalletAuthAuthorityRefFixture,
 } from './helpers/ecdsaMaterialRef.fixtures';
-import { activeEvmFamilyWalletSessionAuthorizationFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
 import { createWalletIframeHandlers } from '@/SeamsWeb/walletIframe/host/wallet-iframe-handlers';
 import type { ChildToParentEnvelope } from '@/SeamsWeb/walletIframe/shared/messages';
 import {
@@ -14,6 +12,7 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   buildEvmFamilyEcdsaSignerBinding,
+  exactEd25519ExportMaterialIdentity,
   exactEd25519SigningLaneIdentity,
   exactEcdsaSigningLaneIdentity,
   nearEd25519SignerBindingFromBoundaryFields,
@@ -23,9 +22,7 @@ import {
   toEvmFamilyEcdsaKeyHandle,
   toRpId,
 } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
-import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
-import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 
 type Deferred<T> = {
   promise: Promise<T>;
@@ -41,11 +38,6 @@ const EXPORT_CHAIN_TARGET = thresholdEcdsaChainTargetFromChainFamily({
 });
 const EXPORT_KEY = buildEvmFamilyEcdsaKeyIdentity({
   walletId: EXPORT_WALLET_ID,
-  evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
-    walletId: EXPORT_WALLET_ID,
-    signingRootId: 'signing-root-export-host',
-    signingRootVersion: 'root-v1',
-  }),
   ecdsaThresholdKeyId: 'ecdsa-threshold-export-host',
   signingRootId: 'signing-root-export-host',
   signingRootVersion: 'root-v1',
@@ -71,10 +63,6 @@ const EXPORT_LANE = exactEcdsaSigningLaneIdentity({
     rpId: toRpId('example.test'),
     credentialIdB64u: 'cred-export-host',
   },
-  authorization: activeEvmFamilyWalletSessionAuthorizationFixture({
-    walletId: EXPORT_WALLET_ID,
-    authority: buildWalletAuthAuthorityRefFixture({ walletId: String(EXPORT_WALLET_ID) }),
-  }),
 });
 const EXPORT_WALLET_SESSION = walletSessionRefFromSession({
   walletId: EXPORT_WALLET_ID,
@@ -85,17 +73,11 @@ const EXPORT_ED25519_MATERIAL_ACTIVATION = buildMpcMaterialActivationRefFixture(
   'export-host-ed25519',
   String(EXPORT_WALLET_ID),
 );
-const EXPORT_ED25519_WALLET_SESSION_ID = SigningSessionIds.walletSession(
-  'wallet-session-export-host',
-);
-const EXPORT_ED25519_QUOTA_ID = SigningSessionIds.walletSessionQuota('quota-export-host');
-const EXPORT_ED25519_LANE = exactEd25519SigningLaneIdentity({
+const EXPORT_ED25519_LANE = exactEd25519ExportMaterialIdentity({
   signer: nearEd25519SignerBindingFromBoundaryFields({
     walletId: EXPORT_WALLET_ID,
     nearAccountId: EXPORT_NEAR_ACCOUNT.accountId,
-    nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString(
-      'ed25519ks_wallet_export_host',
-    ),
+    nearEd25519SigningKeyId: nearEd25519SigningKeyIdFromString('ed25519ks_wallet_export_host'),
     signerSlot: 1,
   }),
   auth: {
@@ -103,8 +85,6 @@ const EXPORT_ED25519_LANE = exactEd25519SigningLaneIdentity({
     rpId: toRpId('example.test'),
     credentialIdB64u: 'cred-ed25519-export-host',
   },
-  walletSessionId: EXPORT_ED25519_WALLET_SESSION_ID,
-  quotaId: EXPORT_ED25519_QUOTA_ID,
   thresholdSessionId: 'threshold-ed25519-export-host',
 });
 
@@ -172,9 +152,7 @@ test.describe('wallet iframe host export UI handlers', () => {
       respondIfCancelled: () => false,
     });
 
-    await handlers.PM_EXPORT_KEYPAIR_UI!(
-      makeEd25519ExportKeypairReq('req-ed25519-export') as any,
-    );
+    await handlers.PM_EXPORT_KEYPAIR_UI!(makeEd25519ExportKeypairReq('req-ed25519-export') as any);
 
     expect(exportedInput).toEqual(
       expect.objectContaining({

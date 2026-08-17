@@ -21,13 +21,15 @@ use super::ot::OtError;
 ))]
 use super::ot::OtSessionId;
 use super::roles::{
-    ActivationSessionBinding, ExportSessionBinding, RoleBoundaryError, TranscriptDigest32,
+    ActivationSessionBinding, ExportSessionBinding, LaneSessionBinding, RoleBoundaryError,
+    TranscriptDigest32,
 };
 use super::runtime::CircuitRunError;
 use super::{EvaluatorWire, Garbler, GarblerWire, SessionDomain, WireValue, LABEL_BYTES};
 
 const ACTIVATION_FAMILY_TAG: u8 = 0x93;
 const EXPORT_FAMILY_TAG: u8 = 0x94;
+const LANE_MATERIALIZATION_FAMILY_TAG: u8 = 0x95;
 const TRANSCRIPT_START_DOMAIN: &[u8] = b"seams:ed25519-yao:phase4:transcript-start:v1";
 #[cfg(any(
     test,
@@ -177,6 +179,17 @@ pub(super) fn export_transcript_start(
     )
 }
 
+pub(super) fn lane_materialization_transcript_start(
+    binding: LaneSessionBinding,
+) -> Result<TranscriptDigest32, Phase4CeremonyError> {
+    transcript_start(
+        LANE_MATERIALIZATION_FAMILY_TAG,
+        binding.session_bytes(),
+        binding.circuit_digest().as_bytes(),
+        binding.schedule_digest().as_bytes(),
+    )
+}
+
 fn transcript_start(
     family: u8,
     session: &[u8; 32],
@@ -242,6 +255,23 @@ pub(super) fn export_ot_session(
 ) -> Result<OtSessionId, Phase4CeremonyError> {
     ot_session(
         EXPORT_FAMILY_TAG,
+        binding.session_bytes(),
+        binding.circuit_digest().as_bytes(),
+        binding.schedule_digest().as_bytes(),
+    )
+}
+
+#[cfg(any(
+    test,
+    feature = "passive-benchmark",
+    feature = "phase9-role-benchmark",
+    feature = "local-protocol"
+))]
+pub(super) fn lane_materialization_ot_session(
+    binding: LaneSessionBinding,
+) -> Result<OtSessionId, Phase4CeremonyError> {
+    ot_session(
+        LANE_MATERIALIZATION_FAMILY_TAG,
         binding.session_bytes(),
         binding.circuit_digest().as_bytes(),
         binding.schedule_digest().as_bytes(),

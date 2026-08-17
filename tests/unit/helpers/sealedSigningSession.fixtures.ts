@@ -164,6 +164,7 @@ export function buildPasskeyEd25519AuthorizationProjectionFixture(
       kind: 'near_ed25519',
       ed25519: {
         walletSessionJwt: fixtureJwt(ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND, {
+          authorizationKind: 'owner_wallet_session',
           walletId: record.walletId,
           authorizationId,
           nearAccountId: record.ed25519Restore.nearAccountId,
@@ -275,6 +276,7 @@ export function buildEmailOtpEd25519AuthorizationProjectionFixture(
       kind: 'near_ed25519',
       ed25519: {
         walletSessionJwt: fixtureJwt(ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND, {
+          authorizationKind: 'owner_wallet_session',
           walletId: record.walletId,
           authorizationId: `wallet-session-authorization:${record.thresholdSessionIds.ed25519}`,
           nearAccountId: record.ed25519Restore.nearAccountId,
@@ -362,6 +364,7 @@ function fixtureSealedEcdsaWalletSessionJwt(args: {
     encode({ alg: 'none', typ: 'JWT' }),
     encode({
       kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
+      authorizationKind: 'owner_wallet_session',
       sub: args.walletId,
       walletId: args.walletId,
       keyHandle: args.keyHandle,

@@ -1,6 +1,5 @@
 import type {
   MpcWalletSigningQuotaId,
-  SeamsSessionId,
   WalletSessionAuthorizationId,
   WalletSessionId,
 } from '../authorization/capabilityKinds';
@@ -18,11 +17,11 @@ import type { RouterAbEcdsaDerivationNormalSigningStateV1 } from './routerAbEcds
 
 /**
  * Registration establishes one reusable authorization identity. Each curve
- * still receives its own Router Wallet Session JWT because the two JWT kinds
- * carry different material bindings.
+ * receives its own opaque bearer token and server-validated material binding.
  */
 export type RegistrationEstablishedEcdsaSession = {
-  readonly walletSessionJwt: string;
+  readonly sessionKind: 'opaque';
+  readonly walletSessionToken: string;
   readonly thresholdSessionId: ThresholdEcdsaSessionId;
   readonly keyHandle: ThresholdEcdsaKeyHandle;
   readonly runtimePolicyScope: RuntimePolicyScope;
@@ -30,7 +29,8 @@ export type RegistrationEstablishedEcdsaSession = {
 };
 
 export type RegistrationEstablishedEd25519Session = {
-  readonly walletSessionJwt: string;
+  readonly sessionKind: 'opaque';
+  readonly walletSessionToken: string;
   readonly thresholdSessionId: ThresholdEd25519SessionId;
   readonly nearAccountId: NearAccountId;
   readonly nearEd25519SigningKeyId: NearEd25519SigningKeyId;
@@ -58,7 +58,6 @@ export type RegistrationEstablishedSessionTokens =
 export type RegistrationEstablishedSession = {
   readonly kind: 'registration_established_wallet_session_v1';
   readonly walletId: WalletId;
-  readonly seamsSessionId: SeamsSessionId;
   readonly authorizationId: WalletSessionAuthorizationId;
   readonly walletSessionId: WalletSessionId;
   readonly quotaId: MpcWalletSigningQuotaId;

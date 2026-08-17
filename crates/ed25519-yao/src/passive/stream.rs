@@ -15,7 +15,9 @@ use core::marker::PhantomData;
 
 use sha2::{Digest, Sha256};
 
-use super::roles::{ActivationSessionBinding, ExportSessionBinding, TranscriptDigest32};
+use super::roles::{
+    ActivationSessionBinding, ExportSessionBinding, LaneSessionBinding, TranscriptDigest32,
+};
 
 pub(super) const STREAM_MANIFEST_BYTES: usize = 248;
 pub(super) const TABLE_FRAME_HEADER_BYTES: usize = 92;
@@ -35,10 +37,14 @@ const FINAL_TRANSCRIPT_DOMAIN: &[u8] = b"seams:ed25519-yao:stream-final-transcri
 
 const ACTIVATION_FAMILY_TAG: u8 = 0x93;
 const EXPORT_FAMILY_TAG: u8 = 0x94;
+const LANE_MATERIALIZATION_FAMILY_TAG: u8 = 0x95;
 const ACTIVATION_AND_GATES: u32 = 65_780;
 const EXPORT_AND_GATES: u32 = 1_275;
+const LANE_MATERIALIZATION_AND_GATES: u32 = 70_370;
 const ACTIVATION_TABLE_BYTES: usize = ACTIVATION_AND_GATES as usize * TABLE_BYTES_PER_AND_GATE;
 const EXPORT_TABLE_BYTES: usize = EXPORT_AND_GATES as usize * TABLE_BYTES_PER_AND_GATE;
+const LANE_MATERIALIZATION_TABLE_BYTES: usize =
+    LANE_MATERIALIZATION_AND_GATES as usize * TABLE_BYTES_PER_AND_GATE;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum StreamWireError {
@@ -149,8 +155,12 @@ pub(super) struct ActivationStream;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct ExportStream;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct LaneMaterializationStream;
+
 impl sealed::Sealed for ActivationStream {}
 impl sealed::Sealed for ExportStream {}
+impl sealed::Sealed for LaneMaterializationStream {}
 
 impl FixedStreamFamily for ActivationStream {
     type Binding = ActivationSessionBinding;
@@ -186,8 +196,27 @@ impl FixedStreamFamily for ExportStream {
     }
 }
 
+impl FixedStreamFamily for LaneMaterializationStream {
+    type Binding = LaneSessionBinding;
+
+    const TAG: u8 = LANE_MATERIALIZATION_FAMILY_TAG;
+    const AND_GATE_COUNT: u32 = LANE_MATERIALIZATION_AND_GATES;
+    const TABLE_PAYLOAD_BYTES: usize = LANE_MATERIALIZATION_TABLE_BYTES;
+
+    fn binding_fields(binding: Self::Binding) -> BindingFields {
+        BindingFields {
+            session: *binding.session_bytes(),
+            gate_domain: binding.gate_domain(),
+            circuit_digest: *binding.circuit_digest().as_bytes(),
+            schedule_digest: *binding.schedule_digest().as_bytes(),
+        }
+    }
+}
+
 pub(super) type ActivationStreamManifest<C> = PassiveStreamManifest<ActivationStream, C>;
 pub(super) type ExportStreamManifest<C> = PassiveStreamManifest<ExportStream, C>;
+pub(super) type LaneMaterializationStreamManifest<C> =
+    PassiveStreamManifest<LaneMaterializationStream, C>;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) struct PassiveStreamManifest<F: FixedStreamFamily, C: FixedChunkProfile> {

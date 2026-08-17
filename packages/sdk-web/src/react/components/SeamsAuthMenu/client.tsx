@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowLeftIcon, FingerprintIcon, MailIcon } from './ui/icons';
+import { ArrowLeftIcon, FingerprintIcon } from './ui/icons';
 import { PasskeyInput } from './ui/PasskeyInput';
 import { ContentSwitcher } from './ui/ContentSwitcher';
 import { SocialProviders } from './ui/SocialProviders';
@@ -205,7 +205,6 @@ export const SeamsAuthMenuClient: React.FC<SeamsAuthMenuProps> = ({
       data-scan-device={controller.showScanDevice}
       data-otp-prompt={controller.otpPrompt ? 'true' : 'false'}
       data-registration-prompt={controller.registrationPrompt ? 'true' : 'false'}
-      data-post-recovery-rotation-prompt={controller.postRecoveryRotationPrompt ? 'true' : 'false'}
       style={rootStyle}
     >
       <ContentSwitcher
@@ -234,10 +233,6 @@ export const SeamsAuthMenuClient: React.FC<SeamsAuthMenuProps> = ({
                 controller.otpPrompt.onBack();
                 return;
               }
-              if (controller.postRecoveryRotationPrompt) {
-                controller.postRecoveryRotationPrompt.onDismiss();
-                return;
-              }
               if (controller.showScanDevice) {
                 controller.closeLinkDeviceView('user');
                 return;
@@ -248,8 +243,7 @@ export const SeamsAuthMenuClient: React.FC<SeamsAuthMenuProps> = ({
               controller.waiting ||
               controller.showScanDevice ||
               controller.registrationPrompt ||
-              controller.otpPrompt ||
-              controller.postRecoveryRotationPrompt
+              controller.otpPrompt
                 ? ' is-visible'
                 : ''
             }`}
@@ -261,8 +255,27 @@ export const SeamsAuthMenuClient: React.FC<SeamsAuthMenuProps> = ({
         showQRCodeElement={
           <React.Suspense
             fallback={
-              <div className="qr-loading">
-                <p>Loading QR…</p>
+              /* Mirrors ShowQRCode's generating state so the lazy-load gap and
+                 QR generation read as one continuous wait. */
+              <div className="qr-code-container">
+                <div className="qr-body">
+                  <div className="qr-code-section">
+                    <div className="qr-code-display">
+                      <div className="qr-code-placeholder">
+                        <span className="w3a-spinner" aria-hidden="true"></span>
+                      </div>
+                    </div>
+                    <div className="qr-header">
+                      <h2 className="qr-title">Scan and Link Device</h2>
+                    </div>
+                    <div className="qr-instruction">
+                      Preparing a one-time code for your other device.
+                    </div>
+                    <div className="qr-status" role="status" aria-live="polite">
+                      Generating QR code<span className="animated-ellipsis"></span>
+                    </div>
+                  </div>
+                </div>
               </div>
             }
           >
@@ -320,52 +333,6 @@ export const SeamsAuthMenuClient: React.FC<SeamsAuthMenuProps> = ({
               {controller.registrationPrompt.submitting
                 ? 'Creating...'
                 : controller.registrationPrompt.submitLabel}
-            </button>
-          </div>
-        ) : controller.postRecoveryRotationPrompt ? (
-          <div className="w3a-otp-prompt" aria-live="polite">
-            <div className="w3a-otp-prompt-copy">
-              <div className="w3a-otp-title">Rotate recovery codes</div>
-              <p className="w3a-otp-description">
-                One recovery code was used. Rotate now to get back to a full set.
-              </p>
-              <div
-                className="w3a-otp-account"
-                title={controller.postRecoveryRotationPrompt.walletId}
-              >
-                <span className="w3a-otp-account-label">Active codes</span>
-                <span className="w3a-otp-account-value">
-                  {controller.postRecoveryRotationPrompt.activeRecoveryCodeCount} /{' '}
-                  {controller.postRecoveryRotationPrompt.expectedRecoveryCodeCount}
-                </span>
-              </div>
-            </div>
-            {controller.postRecoveryRotationPrompt.error ? (
-              <p className="w3a-otp-error" role="alert">
-                {controller.postRecoveryRotationPrompt.error}
-              </p>
-            ) : (
-              <p className="w3a-otp-helper">
-                New codes are stored locally and can be downloaded from Recovery Codes.
-              </p>
-            )}
-            <button
-              type="button"
-              className="w3a-auth-method-btn w3a-auth-method-btn-primary"
-              onClick={controller.postRecoveryRotationPrompt.onRotate}
-              disabled={controller.postRecoveryRotationPrompt.rotating}
-            >
-              {controller.postRecoveryRotationPrompt.rotating
-                ? 'Rotating...'
-                : 'Rotate recovery codes'}
-            </button>
-            <button
-              type="button"
-              className="w3a-otp-resend"
-              onClick={controller.postRecoveryRotationPrompt.onDismiss}
-              disabled={controller.postRecoveryRotationPrompt.rotating}
-            >
-              Later
             </button>
           </div>
         ) : controller.otpPrompt ? (
@@ -616,17 +583,6 @@ export const SeamsAuthMenuClient: React.FC<SeamsAuthMenuProps> = ({
                     <QRCodeIcon width={18} height={18} strokeWidth={2} />
                     Scan and Link Device
                   </button>
-                  {controller.canRecoverAccountWithEmail ? (
-                    <button
-                      type="button"
-                      onClick={controller.onRecoverAccountWithEmail}
-                      className="w3a-link-device-btn"
-                      disabled={controller.waiting}
-                    >
-                      <MailIcon size={18} strokeWidth={2} style={{ display: 'block' }} />
-                      Recover Account with Email
-                    </button>
-                  ) : null}
                 </div>
               </div>
             )}

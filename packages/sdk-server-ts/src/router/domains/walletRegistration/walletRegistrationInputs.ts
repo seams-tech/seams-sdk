@@ -1,5 +1,4 @@
 import type { CorrelationId } from '@shared/utils/canonicalPrimitives';
-import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type {
   RegisterWalletInput,
   RegistrationAuthMethodInput,
@@ -10,7 +9,6 @@ import type {
   RouterAbEcdsaVerifiedClientActivationFactsV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { WalletRegistrationAuthorityInput } from '../../../core/registrationContracts';
-import type { SessionAdapter } from '../../framework/routerApi';
 import type { ThresholdRuntimePolicyScope } from '../../../core/types';
 import type {
   WalletRegistrationSetupMinter,
@@ -70,14 +68,12 @@ export type WalletRegistrationActivateInput = {
   readonly ecdsa?: {
     readonly activationCorrelationId: CorrelationId;
     readonly activationRequestDigestB64u: string;
-    readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
     readonly clientActivation: RouterAbEcdsaVerifiedClientActivationFactsV1;
   };
   readonly emailOtpEnrollment?: unknown;
-  readonly emailOtpBackupAck?: unknown;
+  /** The custody ceremony's sealed output; the admission gate owns validation. */
+  readonly walletCustodyCommit?: unknown;
   readonly verifier: WalletRegistrationSetupVerifier;
-  /** Signs the registration-established Router Wallet Session JWTs. */
-  readonly session: SessionAdapter;
 };
 
 export type WalletRegistrationNearProvisioningInput = {
@@ -86,8 +82,12 @@ export type WalletRegistrationNearProvisioningInput = {
   readonly idempotencyKey: string;
   readonly ed25519: unknown;
   readonly emailOtpEnrollment?: unknown;
-  readonly emailOtpBackupAck?: unknown;
+  /**
+   * The custody ceremony's sealed output. An Ed25519-only wallet establishes
+   * its custody *here* rather than at activate: activate returns
+   * `near_pending` with no Yao result yet, so this deferred leg is the first
+   * point at which that wallet has a key set to seal against.
+   */
+  readonly walletCustodyCommit?: unknown;
   readonly verifier: WalletRegistrationSetupVerifier;
-  /** Signs the registration-established Router Wallet Session JWTs. */
-  readonly session: SessionAdapter;
 };

@@ -72,7 +72,7 @@ pub use local_dev_http::{
     local_dev_http_error_body_v1, local_dev_http_handle_request_v1,
     local_dev_http_handle_request_with_dispatcher_v1, local_dev_http_route_error_v1,
     local_dev_router_request_with_dispatcher_v1, read_local_dev_http_request_v1,
-    require_local_dev_internal_service_auth_v1, require_local_dev_normal_signing_wallet_session_v2,
+    require_local_dev_internal_service_auth_v1,
     write_local_dev_http_response_v1, LocalDevHttpErrorBodyV1, LocalDevHttpRequestPartsV1,
     LocalDevHttpTopologyV1, LocalRouterRequestDispatcherV1,
 };
@@ -395,43 +395,6 @@ pub const LOCAL_HTTP_CANONICAL_WIRE_CONTENT_TYPE_V1: &str = "application/octet-s
 pub const LOCAL_HTTP_JSON_CONTENT_TYPE_V1: &str = "application/json";
 /// Default local HTTP service-binding timeout.
 pub const LOCAL_HTTP_SERVICE_BINDING_TIMEOUT_MS_V1: u64 = 10_000;
-
-pub fn validate_local_router_wallet_session_authorization_header_v2(
-    authorization: Option<&str>,
-) -> Result<(), &'static str> {
-    let Some(header) = authorization else {
-        return Err("local Router normal-signing Wallet Session authorization is missing");
-    };
-    let Some(token) = header.trim().strip_prefix("Bearer ") else {
-        return Err("local Router normal-signing Wallet Session authorization must use Bearer");
-    };
-    if token.is_empty() || token.bytes().any(|byte| byte.is_ascii_whitespace()) {
-        return Err("local Router normal-signing Wallet Session bearer token is invalid");
-    }
-    let mut segments = token.split('.');
-    let Some(header_segment) = segments.next() else {
-        return Err("local Router normal-signing Wallet Session JWT is invalid");
-    };
-    let Some(claims_segment) = segments.next() else {
-        return Err("local Router normal-signing Wallet Session JWT is invalid");
-    };
-    let Some(signature_segment) = segments.next() else {
-        return Err("local Router normal-signing Wallet Session JWT is invalid");
-    };
-    if segments.next().is_some() {
-        return Err("local Router normal-signing Wallet Session JWT is invalid");
-    }
-    for segment in [header_segment, claims_segment, signature_segment] {
-        if segment.is_empty()
-            || !segment
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
-        {
-            return Err("local Router normal-signing Wallet Session JWT is invalid");
-        }
-    }
-    Ok(())
-}
 
 /// Returns the local private service-auth secret used between Router and workers.
 pub fn local_router_ab_internal_service_auth_secret_v1() -> String {

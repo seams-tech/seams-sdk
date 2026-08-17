@@ -44,7 +44,8 @@ test('Email OTP escrow reports empty plaintext as typed corrupt local custody', 
     reason: 'invalid_escrow_plaintext_length',
     expectedLength: 32,
     actualLength: 0,
-    message: 'Email OTP local custody plaintext has invalid length: expected at most 32 bytes, received 0',
+    message:
+      'Email OTP local custody plaintext has invalid length: expected at most 32 bytes, received 0',
   });
 });
 

@@ -15,6 +15,7 @@ import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/ro
 import { compactImplicitNearAccountId } from '@shared/utils/near';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { sha256HexUtf8 } from '@shared/utils/digests';
+import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { WebAuthnRegistrationCredential } from '@/core/types';
@@ -99,11 +100,11 @@ export type StoreWalletEd25519RegistrationInput = {
 
 type StoreWalletEd25519RegistrationMode =
   | { kind: 'fresh_registration' }
-  | { kind: 'email_recovery_replacement' };
+  | { kind: 'wallet_recovery_replacement' };
 
 type StoreWalletEcdsaSignerRecordsMode =
   | { kind: 'fresh_registration' }
-  | { kind: 'email_recovery_replacement' };
+  | { kind: 'wallet_recovery_replacement' };
 
 export type StoreWalletEmailOtpEd25519RegistrationInput = Omit<
   StoreWalletEd25519RegistrationInput,
@@ -111,6 +112,7 @@ export type StoreWalletEmailOtpEd25519RegistrationInput = Omit<
 > & {
   email: string;
   registrationAuthorityId: string;
+  authority: EmailOtpWalletAuthAuthority;
 };
 
 /**
@@ -172,6 +174,7 @@ export type StoreWalletEcdsaRegistrationInput = StoreWalletEcdsaSignerRecordsInp
 export type StoreWalletEmailOtpEcdsaRegistrationInput = StoreWalletEcdsaSignerRecordsInput & {
   email: string;
   registrationAuthorityId: string;
+  authority: EmailOtpWalletAuthAuthority;
 };
 
 export type StoredWalletEcdsaSignerRecord = {
@@ -300,6 +303,8 @@ async function readNearUserData(
       : projection.profile.passkeyCredential?.id || passkeyCredentialRawId;
   const operationalPublicKey =
     typeof metadata.operationalPublicKey === 'string' ? metadata.operationalPublicKey : '';
+  const nearEd25519SigningKeyId = String(metadata.nearEd25519SigningKeyId || '').trim();
+  if (!nearEd25519SigningKeyId) return null;
 
   return {
     walletId,
@@ -315,6 +320,7 @@ async function readNearUserData(
     lastLogin: projection.profile.updatedAt,
     lastUpdated: projection.profile.updatedAt,
     operationalPublicKey,
+    nearEd25519SigningKeyId,
     passkeyCredential: {
       id: passkeyCredentialId,
       rawId: passkeyCredentialRawId,
@@ -368,6 +374,9 @@ export async function storeUserData(
       signerSource: SIGNER_SOURCES.passkeyRegistration,
       metadata: {
         ...(existingSigner?.metadata || {}),
+        walletId: String(profileId),
+        nearAccountId: String(nearAccountId),
+        nearEd25519SigningKeyId: userData.nearEd25519SigningKeyId,
         operationalPublicKey: userData.operationalPublicKey,
         passkeyCredentialId: userData.passkeyCredential?.id,
         passkeyCredentialRawId: userData.passkeyCredential?.rawId,
@@ -809,6 +818,7 @@ async function emailOtpAuthMethod(args: {
   walletId: WalletId;
   email: string;
   registrationAuthorityId: string;
+  authority: EmailOtpWalletAuthAuthority;
 }): Promise<LocalWalletAuthMethodRecord> {
   const walletId = String(args.walletId || '').trim();
   const email = String(args.email || '')
@@ -820,6 +830,13 @@ async function emailOtpAuthMethod(args: {
       'SeamsWalletDB: Email OTP auth method requires walletId, email, and registrationAuthorityId',
     );
   }
+  const emailHashHex = await sha256HexUtf8(email);
+  if (
+    String(args.authority.walletId) !== walletId ||
+    args.authority.verifier.emailHashHex !== emailHashHex
+  ) {
+    throw new Error('SeamsWalletDB: Email OTP auth method authority does not match wallet or email');
+  }
   const nowMs = Date.now();
   return {
     version: 'wallet_auth_method_v1',
@@ -827,8 +844,9 @@ async function emailOtpAuthMethod(args: {
     status: 'active',
     localStatus: 'synced',
     walletId: args.walletId,
-    emailHashHex: await sha256HexUtf8(email),
+    emailHashHex,
     registrationAuthorityId,
+    authority: args.authority,
     createdAtMs: nowMs,
     updatedAtMs: nowMs,
   };
@@ -861,6 +879,7 @@ export async function atomicStoreRegistrationData(
     credential: WebAuthnRegistrationCredential;
     credentialPublicKeyB64u: string;
     operationalPublicKey: string;
+    nearEd25519SigningKeyId: string;
   },
 ): Promise<StoredRegistrationData> {
   const credentialId: string = args.credential.rawId;
@@ -875,6 +894,7 @@ export async function atomicStoreRegistrationData(
     nearAccountId: args.nearAccountId,
     signerSlot: 1,
     operationalPublicKey: args.operationalPublicKey,
+    nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
     lastUpdated: Date.now(),
     passkeyCredential: {
       id: args.credential.id,
@@ -948,12 +968,12 @@ function walletEd25519RegistrationActivationPolicy(args: {
   switch (args.mode.kind) {
     case 'fresh_registration':
       return { mode: 'fail_if_occupied', signerSlot: args.signerSlot };
-    case 'email_recovery_replacement':
+    case 'wallet_recovery_replacement':
       return {
         mode: 'replace_slot',
         signerSlot: args.signerSlot,
         replacedSignerKind: SIGNER_KINDS.thresholdEd25519,
-        revocationReason: 'email_recovery_replacement',
+        revocationReason: 'wallet_recovery_replacement',
       };
   }
 }
@@ -965,12 +985,12 @@ function walletEcdsaSignerActivationPolicy(args: {
   switch (args.mode.kind) {
     case 'fresh_registration':
       return { mode: 'allocate_next_free' };
-    case 'email_recovery_replacement':
+    case 'wallet_recovery_replacement':
       return {
         mode: 'replace_profile_chain_kind',
         signerSlot: args.signerSlot,
         replacedSignerKind: SIGNER_KINDS.thresholdEcdsa,
-        revocationReason: 'email_recovery_replacement',
+        revocationReason: 'wallet_recovery_replacement',
       };
   }
 }
@@ -1212,7 +1232,7 @@ export async function storeWalletEd25519RecoveryRegistrationData(
   const stored = await storeWalletEd25519RegistrationDataWithMode(
     deps,
     args,
-    { kind: 'email_recovery_replacement' },
+    { kind: 'wallet_recovery_replacement' },
     { kind: 'near_ed25519_only' },
   );
   return { signerSlot: stored.signerSlot };
@@ -1354,6 +1374,7 @@ async function storeWalletEmailOtpEd25519RegistrationDataWithComposition(
       walletId: args.walletId,
       email: args.email,
       registrationAuthorityId: args.registrationAuthorityId,
+      authority: args.authority,
     }),
     authenticators: [],
     signerActivations,
@@ -1722,7 +1743,7 @@ export async function storeWalletEcdsaRecoverySignerRecords(
       signerAuthMethod: SIGNER_AUTH_METHODS.passkey,
       signerSource: SIGNER_SOURCES.passkeyRegistration,
     },
-    { kind: 'email_recovery_replacement' },
+    { kind: 'wallet_recovery_replacement' },
   );
   const keyMaterialTimestamp = Date.now();
   const batch = await deps.accountStore.persistWalletSignerFinalize({
@@ -1892,6 +1913,7 @@ export async function storeWalletEmailOtpEcdsaRegistrationData(
       walletId: args.walletId,
       email: args.email,
       registrationAuthorityId: args.registrationAuthorityId,
+      authority: args.authority,
     }),
     authenticators: [],
     signerActivations: preparedEcdsa.signerActivations.map((activation) => activation.input),

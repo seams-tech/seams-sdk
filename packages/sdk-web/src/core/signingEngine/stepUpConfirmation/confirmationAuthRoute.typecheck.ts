@@ -96,8 +96,8 @@ const invalidPasskeyWithFundingAuth = {
   signingAuthPlan: passkeyPlan,
   // @ts-expect-error Confirmation payloads cannot carry wallet-session funding authority.
   nearFundingAuth: {
-    kind: 'wallet_session',
-    walletSessionJwt: 'stale-wallet-session-jwt',
+    kind: 'opaque_wallet_session',
+    walletSessionToken: 'stale-wallet-session-token',
   },
 } satisfies OrchestrateNearTransactionSigningConfirmationParams;
 

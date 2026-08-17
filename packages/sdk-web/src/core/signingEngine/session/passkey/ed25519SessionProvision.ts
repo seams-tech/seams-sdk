@@ -52,7 +52,7 @@ export type ProvisionThresholdEd25519SessionDeps = {
 function sealTransportForProvisionedEd25519Session(args: {
   walletId: string;
   relayerUrl: string;
-  walletSessionJwt: string;
+  walletSessionToken: string;
   ed25519Restore: PasskeyEd25519SealRestoreMetadata;
 }): WarmSessionSealTransportInput {
   return {
@@ -60,7 +60,7 @@ function sealTransportForProvisionedEd25519Session(args: {
     authMethod: 'passkey',
     walletId: args.walletId,
     relayerUrl: args.relayerUrl,
-    walletSessionJwt: args.walletSessionJwt,
+    walletSessionToken: args.walletSessionToken,
     ed25519Restore: args.ed25519Restore,
   };
 }
@@ -139,7 +139,7 @@ export async function provisionThresholdEd25519Session(
   const nearAccountId = toAccountId(protocol.nearAccountId);
   const relayerUrl = String(args.relayerUrl || deps.defaultRelayerUrl || '').trim();
   const participantIds = normalizeThresholdEd25519ParticipantIds(args.participantIds);
-  const sessionKind = 'jwt';
+  const sessionKind = 'opaque';
   if (!relayerUrl) {
     throw new Error('Missing relayer url (configs.network.relayer.url)');
   }
@@ -166,6 +166,9 @@ export async function provisionThresholdEd25519Session(
     ttlMs: args.ttlMs,
     remainingUses: args.remainingUses,
     workerCtx,
+    ...(args.kind === 'exact_ed25519_provisioning'
+      ? { existingWalletSessionToken: args.existingWalletSessionToken }
+      : {}),
   });
   if (!connected.ok) {
     return {
@@ -178,16 +181,17 @@ export async function provisionThresholdEd25519Session(
   const resolvedThresholdSessionId = connected.thresholdSessionId || protocol.thresholdSessionId;
   const expiresAtMs = Number(connected.expiresAtMs);
   const remainingUses = Number(connected.remainingUses);
-  const jwt = String(connected.jwt || '').trim();
-  const prfFirstB64u = String(connected.ecdsaDerivationPasskeyPrfFirstB64u || '').trim();
+  const walletSessionToken = String(connected.walletSessionToken || '').trim();
+  const prfFirstB64u = String(connected.passkeyPrfFirstB64u || '').trim();
   const runtimePolicyScope = connected.runtimePolicyScope;
   if (
     !resolvedThresholdSessionId ||
     !connected.walletSessionId ||
+    !connected.authorizationId ||
     !connected.quotaId ||
     !Number.isFinite(expiresAtMs) ||
     !Number.isFinite(remainingUses) ||
-    !jwt
+    !walletSessionToken
   ) {
     return {
       ok: false,
@@ -214,12 +218,12 @@ export async function provisionThresholdEd25519Session(
     kind: 'minted_ed25519_wallet_session_authority',
     thresholdSessionId: resolvedThresholdSessionId,
     walletSessionId: connected.walletSessionId,
+    authorizationId: connected.authorizationId,
     quotaId: connected.quotaId,
     expiresAtMs,
     remainingUses,
     runtimePolicyScope,
-    jwt,
-    ecdsaDerivationPasskeyPrfFirstB64u: prfFirstB64u,
+    walletSessionToken,
   };
   const rpId = deps.touchIdPrompt.getRpId();
   if (prfFirstB64u && args.source === 'email_otp') {
@@ -248,7 +252,7 @@ export async function provisionThresholdEd25519Session(
     const transport = sealTransportForProvisionedEd25519Session({
       walletId: protocol.walletId,
       relayerUrl,
-      walletSessionJwt: jwt,
+      walletSessionToken,
       ed25519Restore,
     });
     try {
@@ -277,13 +281,11 @@ export async function provisionThresholdEd25519Session(
     ok: true,
     thresholdSessionId: resolvedThresholdSessionId,
     walletSessionId: connected.walletSessionId,
+    authorizationId: connected.authorizationId,
     quotaId: connected.quotaId,
     expiresAtMs,
     remainingUses,
     runtimePolicyScope,
-    jwt,
-    ...(connected.ecdsaDerivationPasskeyPrfFirstB64u
-      ? { ecdsaDerivationPasskeyPrfFirstB64u: connected.ecdsaDerivationPasskeyPrfFirstB64u }
-      : {}),
+    walletSessionToken,
   };
 }

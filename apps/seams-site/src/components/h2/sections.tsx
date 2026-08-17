@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  Check,
   ChevronLeft,
   ChevronRight,
   Fingerprint,
@@ -8,8 +9,10 @@ import {
   ListChecks,
   Lock,
   ScrollText,
+  Server,
   Share2,
   ShieldCheck,
+  Smartphone,
   Twitter,
   Wallet,
 } from 'lucide-react';
@@ -49,14 +52,12 @@ const productForks = [
 ];
 
 export type H2DemoHeroProps = {
-  kicker?: string;
   title?: React.ReactNode;
   sub?: React.ReactNode;
   authDefaultModeWhenNoDetectedAccount?: AuthMenuMode;
 };
 
 export function H2DemoHero({
-  kicker = 'Seams · Commerce account infrastructure',
   title = (
     <>
       {/* non-breaking hyphen keeps "policy-based" on one line */}
@@ -82,8 +83,8 @@ export function H2DemoHero({
   const activePreset =
     DEMO_THEME_PRESETS.find((theme) => theme.id === demoTheme) ?? DEMO_THEME_PRESETS[0];
   const activeWalletId = loginState?.isLoggedIn ? loginState.walletId || '' : '';
-  const startProps = linkProps('/docs/concepts/');
-  const authProps = linkProps('/docs/concepts/auth-methods/');
+  const startProps = linkProps('/docs/');
+  const authProps = linkProps('/docs/guides/authentication');
 
   React.useEffect(() => {
     try {
@@ -99,7 +100,6 @@ export function H2DemoHero({
     <header className="h2-hero" aria-labelledby="h2-hero-title">
       <div className="h2-hero__split">
         <div className="h2-hero__main">
-          <p className="h2-kicker">{kicker}</p>
           <h1 id="h2-hero-title" className="h2-display h2-hero__title">
             {title}
           </h1>
@@ -132,7 +132,6 @@ export function H2DemoHero({
               );
             })}
           </div>
-          <p className="h2-hero__note">Open SDK &middot; Non-custodial by design</p>
         </div>
 
         <div className="h2-hero__demo">
@@ -144,7 +143,7 @@ export function H2DemoHero({
             className="h2-demo-theme-root"
             style={{ display: 'contents' }}
           >
-            {/* SDK card renders in its own px; scoped zoom keeps the designed
+            {/* SDK card renders in its own px; scoped scaling keeps the designed
                 hero proportion now that the page-level zoom is gone */}
             <div className="h2-sdk-zoom">
               {show ? (
@@ -298,9 +297,8 @@ export function H2Trusted(): React.JSX.Element {
 
 /* ---------- platform pillars ---------- */
 
-/* Two-lane MPC diagram: the shares converge through a policy gate into the
-   one green output. Drawn in the security section's line-art language; the
-   dashed connectors stitch-flow on panel hover (.h2-mpc__flow in h2.css). */
+/* Two-lane MPC diagram (wallet page security section): the shares converge
+   through a policy gate into the one green output. */
 export function MpcSplitDiagram(): React.JSX.Element {
   return (
     <svg
@@ -362,6 +360,85 @@ export function MpcSplitDiagram(): React.JSX.Element {
   );
 }
 
+/* Split-key visual (home duo card + Embedded Wallets pillar tab): a soft
+   isometric stack of the two key shares with floating labeled chips, resolving
+   into one green signature chip. Reference language: layered-asset cards in
+   the dynamic.xyz style, translated to the site's paper + evergreen palette. */
+export function SplitKeyVisual(): React.JSX.Element {
+  return (
+    <div
+      className="h2-splitkey"
+      role="img"
+      aria-label="Two key shares — one on the user's device, one on your infrastructure — combine into one signature; neither share signs alone"
+    >
+      <svg className="h2-splitkey__stack" viewBox="0 0 168 194" aria-hidden>
+        <defs>
+          <linearGradient id="h2sk-slab-a" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#dde8e4" />
+            <stop offset="100%" stopColor="#a9c6be" />
+          </linearGradient>
+          <linearGradient id="h2sk-slab-b" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#bed5ce" />
+            <stop offset="100%" stopColor="#7fa79d" />
+          </linearGradient>
+          <linearGradient id="h2sk-slab-c" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#9fbfb7" />
+            <stop offset="100%" stopColor="#537f75" />
+          </linearGradient>
+        </defs>
+        {/* each slab: an offset underside that reads as the slab's edge and
+            contact shadow, under a white-outlined sage face. Drawn bottom-up,
+            and the 54u pitch is shorter than the 68u diamond, so each slab
+            overlaps and occludes the tip of the one beneath it */}
+        <path d="M84 122 L152 156 L84 190 L16 156 Z" fill="#416760" />
+        <path
+          d="M84 114 L152 148 L84 182 L16 148 Z"
+          fill="url(#h2sk-slab-c)"
+          stroke="#ffffff"
+          strokeWidth="2"
+          strokeLinejoin="round"
+        />
+        <path d="M84 68 L152 102 L84 136 L16 102 Z" fill="#648d83" />
+        <path
+          d="M84 60 L152 94 L84 128 L16 94 Z"
+          fill="url(#h2sk-slab-b)"
+          stroke="#ffffff"
+          strokeWidth="2"
+          strokeLinejoin="round"
+        />
+        <path d="M84 14 L152 48 L84 82 L16 48 Z" fill="#8fafa6" />
+        <path
+          d="M84 6 L152 40 L84 74 L16 40 Z"
+          fill="url(#h2sk-slab-a)"
+          stroke="#ffffff"
+          strokeWidth="2"
+          strokeLinejoin="round"
+        />
+      </svg>
+      <div className="h2-splitkey__chips">
+        <span className="h2-splitkey__chip">
+          <span className="h2-splitkey__ico">
+            <Smartphone aria-hidden />
+          </span>
+          User{'’'}s device
+        </span>
+        <span className="h2-splitkey__chip">
+          <span className="h2-splitkey__ico">
+            <Server aria-hidden />
+          </span>
+          Your infrastructure
+        </span>
+        <span className="h2-splitkey__chip h2-splitkey__chip--sig">
+          <span className="h2-splitkey__ico">
+            <Check aria-hidden />
+          </span>
+          One signature
+        </span>
+      </div>
+    </div>
+  );
+}
+
 type Pillar = {
   id: string;
   label: string;
@@ -418,7 +495,7 @@ const pillars: Pillar[] = [
         between the user&rsquo;s device and your infrastructure: neither can sign alone.
       </>
     ),
-    mock: <MpcSplitDiagram />,
+    mock: <SplitKeyVisual />,
   },
   {
     id: 'permissions',
@@ -808,9 +885,6 @@ export function H2Security(): React.JSX.Element {
       <div className="h2-shell">
         <div className="h2-security">
           <div>
-            <p className="h2-kicker" style={{ marginBottom: 20 }}>
-              Security
-            </p>
             <h2 id="h2-security-title" className="h2-display h2-security__title">
               Custody and control, engineered in
             </h2>
@@ -843,6 +917,9 @@ export function H2Security(): React.JSX.Element {
                 Allowed, held, or blocked: each decision is attributed to a verified identity and
                 retained in the audit trail.
               </p>
+            </div>
+            <div className="h2-security__diagram">
+              <MpcSplitDiagram />
             </div>
           </div>
           <div className="h2-security__grid">
@@ -925,9 +1002,6 @@ export function H2Start(): React.JSX.Element {
       <div className="h2-shell">
         <div className="h2-eco__head h2-starthead">
           <div>
-            <p className="h2-kicker" style={{ marginBottom: 11 }}>
-              Get started
-            </p>
             <h2 id="h2-start-title" className="h2-display h2-eco__title">
               Start in the dashboard, or build it into your product
             </h2>

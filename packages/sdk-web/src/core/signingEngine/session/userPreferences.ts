@@ -211,6 +211,14 @@ export class UserPreferencesManager {
     }
   }
 
+  projectCurrentWallet(walletId: WalletId): void {
+    const previous = this.currentWalletId;
+    this.setCurrentWallet(walletId);
+    if (previous && String(previous) === String(walletId)) {
+      this.notifyCurrentWalletChange(walletId);
+    }
+  }
+
   private applyStoredPreferences(
     preferences: { confirmationConfig?: ConfirmationConfig } | undefined,
   ): void {

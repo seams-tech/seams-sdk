@@ -388,7 +388,6 @@ export function createThresholdEcdsaBootstrapFixture(args: {
       thresholdEcdsaPublicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
       relayerVerifyingShareB64u: VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U,
     },
-    passkeyCredentialIdB64u,
     session: {
       ok: true,
       thresholdSessionId: sessionId,
@@ -415,7 +414,6 @@ export function thresholdEcdsaBootstrapPublicFactsFixture(
     case 'role_local_durable_sealed_ref':
     case 'role_local_durable_public_anchor':
       return binding.publicFacts;
-    case 'email_otp_worker_handle':
     case 'role_local_ready_state_blob':
       return binding.ecdsaRoleLocalReadyRecord.publicFacts;
     case 'metadata_only':
@@ -527,6 +525,7 @@ function toFixtureWalletSessionJwt(
       sub: args.nearAccountId,
       walletId: args.nearAccountId,
       kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
+      authorizationKind: 'owner_wallet_session',
       thresholdSessionId: args.sessionId,
       authorizationId: args.authorizationId,
       authorizationSessionId: args.authorizationSessionId,

@@ -7,6 +7,7 @@ import type {
   SignNEP413HooksOptions,
   SignTransactionHooksOptions,
 } from '@/core/types/sdkSentEvents';
+import type { AddPasskeyHooksOptions } from '@/SeamsWeb/operations/authMethods/passkey/addPasskey';
 import {
   type PMExecuteActionPayload,
   type PMFundImplicitNearAccountForTestingPayload,
@@ -30,10 +31,6 @@ import type { ActionArgs } from '@/core/types';
 import type { RegistrationAuthMethodInput } from '@shared/utils/registrationIntent';
 import type { HandlerDeps, HandlerMap, Req } from './walletIframeHandler.types';
 import { respondOk, respondOkResult, withProgress, withRegistrationProgress } from './shared';
-import {
-  activeHostedWalletAppSessionJwt,
-  activeWalletOrHostedAppSessionJwt,
-} from '../hostedWalletSeamsSession';
 
 function walletSessionFromWalletId(walletIdRaw: unknown) {
   const walletId = toWalletId(walletIdRaw);
@@ -72,12 +69,7 @@ function assertNeverRegistrationAuthMethod(value: never): never {
 
 function walletOriginRegistrationAuthMethod(
   authMethod: PMRegistrationAuthMethodInput,
-  relayUrl: string,
-  wallet: PMRegisterWalletPayload['wallet'],
 ): RegistrationAuthMethodInput {
-  if (Object.prototype.hasOwnProperty.call(authMethod, 'appSessionJwt')) {
-    throw new Error('Wallet iframe registration payload must not carry appSessionJwt');
-  }
   switch (authMethod.kind) {
     case 'passkey':
       return {
@@ -88,21 +80,14 @@ function walletOriginRegistrationAuthMethod(
           : { authenticatorOptions: authMethod.authenticatorOptions }),
       };
     case 'email_otp': {
-      const appSessionJwt =
-        wallet.kind === 'provided'
-          ? activeWalletOrHostedAppSessionJwt(relayUrl, String(wallet.walletId))
-          : activeHostedWalletAppSessionJwt(relayUrl);
-      if (!appSessionJwt) {
-        throw new Error('Email OTP registration requires an active hosted-wallet Seams Session');
-      }
       switch (authMethod.proofKind) {
         case 'otp_challenge':
           return {
             kind: 'email_otp',
             proofKind: 'otp_challenge',
             email: authMethod.email,
+            providerSubject: authMethod.providerSubject,
             otpCode: authMethod.otpCode,
-            appSessionJwt,
             ...(authMethod.challengeId === undefined
               ? {}
               : { challengeId: authMethod.challengeId }),
@@ -112,12 +97,10 @@ function walletOriginRegistrationAuthMethod(
             kind: 'email_otp',
             proofKind: 'google_sso_registration',
             email: authMethod.email,
-            appSessionJwt,
-            googleEmailOtpRegistrationAttemptId:
-              authMethod.googleEmailOtpRegistrationAttemptId,
+            providerSubject: authMethod.providerSubject,
+            googleEmailOtpRegistrationAttemptId: authMethod.googleEmailOtpRegistrationAttemptId,
             googleEmailOtpRegistrationOfferId: authMethod.googleEmailOtpRegistrationOfferId,
-            googleEmailOtpRegistrationCandidateId:
-              authMethod.googleEmailOtpRegistrationCandidateId,
+            googleEmailOtpRegistrationCandidateId: authMethod.googleEmailOtpRegistrationCandidateId,
           };
         default:
           return assertNeverRegistrationAuthMethod(authMethod);
@@ -142,8 +125,6 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
       const result = await pm.registration.registerWallet({
         authMethod: walletOriginRegistrationAuthMethod(
           payload.authMethod,
-          pm.configs.network.relayer.url,
-          payload.wallet,
         ),
         wallet: payload.wallet,
         signerSelection: payload.signerSelection,
@@ -169,6 +150,28 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
         walletId: payload.walletId,
         rpId: payload.rpId,
         signerSelection: payload.signerSelection,
+        options: {
+          ...hooksOptions,
+          ...(payload.confirmationConfig ? { confirmationConfig: payload.confirmationConfig } : {}),
+        },
+      });
+      if (deps.respondIfCancelled(req.requestId)) return;
+      respondOkResult(deps, req.requestId, result);
+    },
+
+    PM_ADD_PASSKEY: async (req: Req<'PM_ADD_PASSKEY'>) => {
+      const pm = deps.getSeamsWeb();
+      const payload = req.payload!;
+      if (deps.respondIfCancelled(req.requestId)) return;
+      const hooksOptions = withProgress(
+        deps,
+        req.requestId,
+        payload.options || {},
+      ) as AddPasskeyHooksOptions;
+      const result = await pm.registration.addPasskey({
+        walletId: payload.walletId,
+        rpId: payload.rpId,
+        authorization: payload.authorization,
         options: {
           ...hooksOptions,
           ...(payload.confirmationConfig ? { confirmationConfig: payload.confirmationConfig } : {}),

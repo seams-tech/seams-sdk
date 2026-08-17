@@ -21,12 +21,6 @@ export class EmailOtpWalletSessionCoordinator {
     this.runtime = new EmailOtpWalletSessionRuntime(deps);
   }
 
-  persistEd25519YaoCapabilityForRefresh(
-    args: Parameters<EmailOtpWalletSessionRuntime['persistEd25519YaoCapabilityForRefresh']>[0],
-  ): ReturnType<EmailOtpWalletSessionRuntime['persistEd25519YaoCapabilityForRefresh']> {
-    return this.runtime.persistEd25519YaoCapabilityForRefresh(args);
-  }
-
   persistEcdsaSessionForRefresh(
     args: Parameters<EmailOtpWalletSessionRuntime['persistEcdsaSessionForRefresh']>[0],
   ): ReturnType<EmailOtpWalletSessionRuntime['persistEcdsaSessionForRefresh']> {
@@ -63,50 +57,10 @@ export class EmailOtpWalletSessionCoordinator {
     return this.runtime.clearVolatileWarmSessionMaterial(target);
   }
 
-  rememberAppSessionJwt(
-    args: Parameters<EmailOtpWalletSessionRuntime['rememberAppSessionJwt']>[0],
-  ): ReturnType<EmailOtpWalletSessionRuntime['rememberAppSessionJwt']> {
-    return this.runtime.rememberAppSessionJwt(args);
-  }
-
-  rememberAppSessionBinding(
-    binding: Parameters<EmailOtpWalletSessionRuntime['rememberAppSessionBinding']>[0],
-  ): ReturnType<EmailOtpWalletSessionRuntime['rememberAppSessionBinding']> {
-    return this.runtime.rememberAppSessionBinding(binding);
-  }
-
-  resolveAppSessionJwt(
-    args: Parameters<EmailOtpWalletSessionRuntime['resolveAppSessionJwt']>[0],
-  ): ReturnType<EmailOtpWalletSessionRuntime['resolveAppSessionJwt']> {
-    return this.runtime.resolveAppSessionJwt(args);
-  }
-
-  resolveAppSessionJwtForWallet(
-    args: Parameters<EmailOtpWalletSessionRuntime['resolveAppSessionJwtForWallet']>[0],
-  ): ReturnType<EmailOtpWalletSessionRuntime['resolveAppSessionJwtForWallet']> {
-    return this.runtime.resolveAppSessionJwtForWallet(args);
-  }
-
-  resolveAppSessionJwtForProviderSubject(
-    args: Parameters<EmailOtpWalletSessionRuntime['resolveAppSessionJwtForProviderSubject']>[0],
-  ): ReturnType<EmailOtpWalletSessionRuntime['resolveAppSessionJwtForProviderSubject']> {
-    return this.runtime.resolveAppSessionJwtForProviderSubject(args);
-  }
-
   async requestTransactionSigningChallenge(
     args: Parameters<EmailOtpWalletSessionRuntime['requestTransactionSigningChallenge']>[0],
   ): ReturnType<EmailOtpWalletSessionRuntime['requestTransactionSigningChallenge']> {
     return await this.runtime.requestTransactionSigningChallenge(args);
-  }
-
-  async requestCapabilityStepUpTransactionSigningChallenge(
-    args: Parameters<
-      EmailOtpWalletSessionRuntime['requestCapabilityStepUpTransactionSigningChallenge']
-    >[0],
-  ): ReturnType<
-    EmailOtpWalletSessionRuntime['requestCapabilityStepUpTransactionSigningChallenge']
-  > {
-    return await this.runtime.requestCapabilityStepUpTransactionSigningChallenge(args);
   }
 
   async requestExportChallenge(

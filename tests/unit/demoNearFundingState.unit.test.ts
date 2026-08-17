@@ -100,9 +100,9 @@ test('funding readiness controls NEAR transaction and delegate actions independe
 });
 
 test('funding RPC probes do not block a signer with a complete NEAR identity', () => {
-  expect(
-    canStartDemoNearTransaction({ kind: 'checking', nearAccountId: NEAR_ACCOUNT_ID }),
-  ).toBe(true);
+  expect(canStartDemoNearTransaction({ kind: 'checking', nearAccountId: NEAR_ACCOUNT_ID })).toBe(
+    true,
+  );
   expect(
     canStartDemoNearTransaction({
       kind: 'unknown',

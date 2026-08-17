@@ -8,10 +8,19 @@ import type {
   MpcWalletSigningQuotaId,
   TenantId,
   WalletSessionAuthorizationId,
+  LinkedDeviceWalletSessionAuthorizationId,
+  WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
+import type { LinkedDeviceEnrollmentId, LinkedDeviceId, WalletId } from '@shared/utils/domainIds';
 import type { CapabilityOperationEnvelope } from '@shared/authorization/operationFingerprint';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
-import type { AuthorizedOperationInput, OperationAuthorizationSource } from './domain';
+import type {
+  AuthorizedOperation,
+  AuthorizedOperationInput,
+  OperationAuthorizationSource,
+  OwnerOperationAuthorizationDecision,
+  VerifiedOwnerProof,
+} from './domain';
 
 declare const tenantId: TenantId;
 declare const authorizedOperationId: AuthorizedOperationId;
@@ -31,8 +40,18 @@ declare const exportOperation: CapabilityOperationEnvelope<
 >;
 declare const evidenceSetDigest: DigestB64u;
 declare const authorizationId: WalletSessionAuthorizationId;
+declare const linkedAuthorizationId: LinkedDeviceWalletSessionAuthorizationId;
+declare const linkedTenantId: TenantId;
+declare const linkedDeviceId: LinkedDeviceId;
+declare const linkedWalletId: WalletId;
+declare const linkedEnrollmentId: LinkedDeviceEnrollmentId;
+declare const linkedWalletSessionId: WalletSessionId;
+declare const linkedQuotaId: MpcWalletSigningQuotaId;
 declare const quotaId: MpcWalletSigningQuotaId;
 declare const authorizationGrantRef: AuthorizationGrantRef;
+declare const claimedOperation: AuthorizedOperation & { readonly lifecycle: 'claimed' };
+declare const ownerWalletProof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
+declare const ownerOperationProof: Extract<VerifiedOwnerProof, { readonly purpose: 'operation' }>;
 
 const reusableSource: Extract<
   OperationAuthorizationSource,
@@ -41,15 +60,38 @@ const reusableSource: Extract<
   kind: 'authorization_grant',
   authorizationGrantRef,
 };
-const stepUpSource: Extract<
-  OperationAuthorizationSource,
-  { readonly kind: 'verified_step_up' }
-> = {
+const stepUpSource: Extract<OperationAuthorizationSource, { readonly kind: 'verified_step_up' }> = {
   kind: 'verified_step_up',
   evidenceSetDigest,
 };
 void reusableSource;
 void stepUpSource;
+
+const linkedSource: Extract<
+  OperationAuthorizationSource,
+  { readonly kind: 'authorization_grant' }
+> = {
+  kind: 'authorization_grant',
+  authorizationGrantRef: {
+    kind: 'linked_device_wallet_session_authorization_v1',
+    authorizationId: linkedAuthorizationId,
+  },
+};
+void linkedSource;
+
+// @ts-expect-error Linked authorization identities cannot carry owner grant references.
+const invalidLinkedOwnerRef: AuthorizationGrantRef = {
+  kind: 'linked_device_wallet_session_authorization_v1',
+  authorizationId,
+};
+void invalidLinkedOwnerRef;
+
+void linkedTenantId;
+void linkedDeviceId;
+void linkedWalletId;
+void linkedEnrollmentId;
+void linkedWalletSessionId;
+void linkedQuotaId;
 
 const validInput: AuthorizedOperationInput = {
   tenantId,
@@ -127,6 +169,53 @@ const invalidReusableSource: OperationAuthorizationSource = {
   evidenceSetDigest,
 };
 void invalidReusableSource;
+
+const authorizedDecision: OwnerOperationAuthorizationDecision<{ readonly kind: 'step_up' }> = {
+  kind: 'authorized',
+  operation: claimedOperation,
+  source: {
+    kind: 'authorization_grant',
+    authorizationGrantRef: { kind: 'wallet_session_authorization', authorizationId },
+  },
+};
+void authorizedDecision;
+
+// @ts-expect-error one authorization decision cannot both admit and request step-up
+const invalidMixedDecision: OwnerOperationAuthorizationDecision<{ readonly kind: 'step_up' }> = {
+  kind: 'authorized',
+  operation: claimedOperation,
+  source: {
+    kind: 'authorization_grant',
+    authorizationGrantRef: { kind: 'wallet_session_authorization', authorizationId },
+  },
+  stepUp: { kind: 'step_up' as const },
+};
+void invalidMixedDecision;
+
+const invalidLinkedOwnerDecision: OwnerOperationAuthorizationDecision<{
+  readonly kind: 'step_up';
+}> = {
+  kind: 'authorized',
+  operation: claimedOperation,
+  // @ts-expect-error linked-device grants cannot enter the owner authorization decision
+  source: linkedSource,
+};
+void invalidLinkedOwnerDecision;
+
+function acceptWalletSessionProof(
+  proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>,
+): void {
+  void proof;
+}
+function acceptOperationProof(
+  proof: Extract<VerifiedOwnerProof, { readonly purpose: 'operation' }>,
+): void {
+  void proof.operation;
+}
+acceptWalletSessionProof(ownerWalletProof);
+acceptOperationProof(ownerOperationProof);
+// @ts-expect-error a wallet-session proof cannot enter the operation branch.
+acceptOperationProof(ownerWalletProof);
 
 // Keep operation identity declarations live so this fixture checks imported brands.
 void capabilityId;

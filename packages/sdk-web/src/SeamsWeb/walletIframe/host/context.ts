@@ -1,5 +1,6 @@
 import { MinimalNearClient } from '@/core/rpcClients/near/NearClient';
 import { SeamsWeb } from '@/SeamsWeb';
+import type { SeamsWebInternalOptions } from '@/SeamsWeb/SeamsWeb';
 import { __setWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode';
 import type { AppearanceConfigInput, SeamsConfigsInput, ThemeMode } from '@/core/types/seams';
 import type { PMSetConfigPayload } from '../shared/messages';
@@ -246,7 +247,6 @@ export interface HostContext {
   onWindowMessage?: (e: MessageEvent) => void;
   surfaceMeasurementBinding: UiConfirmSurfaceMeasurementBinding;
 }
-
 export function createHostContext(): HostContext {
   return {
     parentOrigin: null,
@@ -264,11 +264,17 @@ export function createHostContext(): HostContext {
   };
 }
 
+export function resolveWalletHostInternalOptionsV1(
+): Extract<SeamsWebInternalOptions, { readonly kind: 'wallet_host' }> {
+  return { kind: 'wallet_host' };
+}
+
 export function ensureSeamsWeb(ctx: HostContext): SeamsWeb {
   const { walletConfigs } = ctx;
   if (!walletConfigs) {
     throw new Error('Wallet service not configured. Call PM_SET_CONFIG first.');
   }
+  const internalOptions = resolveWalletHostInternalOptionsV1();
   const nearRpcUrl = resolvePrimaryNearRpcUrl(walletConfigs.chains || []);
   if (!ctx.nearClient) {
     ctx.nearClient = new MinimalNearClient(nearRpcUrl);
@@ -277,7 +283,7 @@ export function ensureSeamsWeb(ctx: HostContext): SeamsWeb {
     const cfg = sanitizeWalletHostConfigs(walletConfigs);
     assertWalletHostConfigsNoNestedIframeWallet(cfg);
     __setWalletIframeHostMode(true);
-    ctx.seamsWeb = new SeamsWeb(cfg, ctx.nearClient, { allowDirectWalletMode: 'wallet_host' });
+    ctx.seamsWeb = new SeamsWeb(cfg, ctx.nearClient, internalOptions);
     try {
       void ctx.seamsWeb.initWalletIframe().catch(() => {});
     } catch {}
@@ -328,10 +334,6 @@ export function applyWalletConfig(ctx: HostContext, payload: PMSetConfigPayload)
         ? {
             ...(prev.relayer || {}),
             ...(payload?.relayer || {}),
-            emailRecovery: {
-              ...(prev.relayer?.emailRecovery || {}),
-              ...(payload?.relayer?.emailRecovery || {}),
-            },
           }
         : undefined,
     registration: payload?.registration === undefined ? prev.registration : payload.registration,

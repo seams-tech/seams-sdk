@@ -26,6 +26,7 @@ import {
   authorizationRequiredCanonicalEcdsaAvailableLane,
   canonicalEcdsaAvailableLane,
 } from './helpers/availableSigningLanes.fixtures';
+import { resolveCanonicalPasskeyEcdsaExportMaterialForLane } from '@/core/signingEngine/flows/recovery/ecdsaExportMaterial';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 import { availableLaneEd25519Authorization } from './helpers/availableSigningLanes.fixtures';
 
@@ -123,8 +124,8 @@ function depsFor(lanes: ConcreteAvailableEcdsaSigningLane[]): ExportLaneSelectio
 }
 
 function ed25519Lane(
-  overrides: Partial<ConcreteAvailableEd25519SigningLane> = {},
-): ConcreteAvailableEd25519SigningLane {
+  overrides: Partial<Extract<ConcreteAvailableEd25519SigningLane, { authorizationState: 'authorized' }>> = {},
+): Extract<ConcreteAvailableEd25519SigningLane, { authorizationState: 'authorized' }> {
   return {
     auth: passkeySigningAuth(),
     curve: 'ed25519',
@@ -143,6 +144,26 @@ function ed25519Lane(
     authorizationState: 'authorized',
     authorization: ED25519_AUTHORIZATION,
     ...overrides,
+  };
+}
+
+function deferredEd25519Lane(): Extract<
+  ConcreteAvailableEd25519SigningLane,
+  { authorizationState: 'authorization_required' }
+> {
+  return {
+    auth: passkeySigningAuth(),
+    curve: 'ed25519',
+    chain: 'near',
+    materialActivation: ED25519_MATERIAL_ACTIVATION,
+    walletId: toWalletId(WALLET_ID),
+    nearAccountId: NEAR_ACCOUNT.accountId,
+    nearEd25519SigningKeyId: NEAR_ED25519_SIGNING_KEY_ID,
+    signerSlot: 1,
+    state: 'deferred',
+    thresholdSessionId: 'threshold-session-ed25519-export',
+    source: 'durable_sealed_record',
+    authorizationState: 'authorization_required',
   };
 }
 
@@ -324,14 +345,7 @@ test.describe('Ed25519 export lane selection', () => {
   });
 
   test('selects deferred durable material without reusable authorization', async () => {
-    const lane = ed25519Lane({
-      state: 'deferred',
-      source: 'durable_sealed_record',
-      authorizationState: 'authorization_required',
-      authorization: undefined,
-      remainingUses: undefined,
-      expiresAtMs: undefined,
-    });
+    const lane = deferredEd25519Lane();
 
     await expect(
       resolveExactKeyExportLane(depsForEd25519([lane]), {
@@ -369,10 +383,7 @@ test.describe('Ed25519 export lane selection', () => {
     );
     await expect(
       resolveExactKeyExportLane(
-        depsForEd25519([
-          ed25519Lane(),
-          ed25519Lane({ materialActivation: supersededActivation }),
-        ]),
+        depsForEd25519([ed25519Lane(), ed25519Lane({ materialActivation: supersededActivation })]),
         {
           kind: 'ed25519',
           walletSession: walletSessionRefFromSession({
@@ -419,6 +430,22 @@ test.describe('ECDSA export lane selection', () => {
       material: { kind: 'sealed_worker_material' },
     });
     expect(resolved).not.toHaveProperty('authorization');
+
+    const material = resolveCanonicalPasskeyEcdsaExportMaterialForLane({
+      deps: {
+        exportArtifactsByLane: new Map(),
+        relayerUrl: 'https://relay.example.test',
+      },
+      exportLane: resolved,
+    });
+    expect(material).toMatchObject({
+      kind: 'fresh_passkey_needs_authorization',
+      chainTarget: EVM_TARGET,
+      existingRoleLocalMaterial: {
+        materialActivation: lane.capability.manifest.activation.materialActivation,
+      },
+      relayerUrl: 'https://relay.example.test',
+    });
   });
 
   test('selects ready Email OTP ECDSA export lanes after registration without restore', async () => {
@@ -688,5 +715,4 @@ test.describe('ECDSA export lane selection', () => {
       }),
     ).rejects.toThrow('exact lane selection failed: ambiguous_material');
   });
-
 });

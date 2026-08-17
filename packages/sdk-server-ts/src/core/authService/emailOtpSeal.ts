@@ -102,7 +102,7 @@ export async function runEmailOtpServerSealOperation(input: {
       thresholdSessionId: emailOtpServerSealThresholdSessionId(input.operation),
       ciphertext: wrappedCiphertext,
       keyVersion: input.shamir.keyVersion,
-      auth: { userId: 'email_otp', claims: {} },
+      auth: { userId: 'email_otp' },
     });
     if (!result.ok) return result;
     return {

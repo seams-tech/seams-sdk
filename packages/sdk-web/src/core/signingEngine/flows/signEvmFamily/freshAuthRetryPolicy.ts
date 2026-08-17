@@ -4,14 +4,23 @@ import {
   type SignerAuthMethod,
 } from '@shared/utils/signerDomain';
 import {
-  decideWalletSessionQuotaAdmissionError,
+  WalletSessionQuotaAdmissionError,
+  classifyWalletSessionQuotaAdmissionFailure,
+  decideWalletSessionQuotaAdmissionFailure,
+  type RouterAbOwnerOperationAuthorizationDecisionV1Wire,
   type OperationAuthorizationQueueKey,
   type WalletSessionQuotaAdmissionDecision,
 } from '../../session/operationState/authorizationAdmission';
 import type { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
-import { walletSessionFailureFromError } from '../../session/lifecycle/walletSessionFailure';
-import { isFreshEmailOtpReauthRequiredError } from './errors';
 import type { EvmFamilySenderSignatureAlgorithm } from './types';
+
+function ownerOperationAuthorizationDecisionFromError(
+  error: unknown,
+): RouterAbOwnerOperationAuthorizationDecisionV1Wire | undefined {
+  return error instanceof WalletSessionQuotaAdmissionError
+    ? error.authorizationDecision
+    : undefined;
+}
 
 export type EvmFamilyFreshAuthRetrySideEffectState =
   | 'no_auth_side_effect_started'
@@ -191,9 +200,21 @@ export function classifyEvmFamilyFreshAuthRetry(
   if (args.senderSignatureAlgorithm !== 'secp256k1') {
     return blockEvmFamilyFreshAuthRetry(args, 'non_secp256k1_sender');
   }
+  const ownerDecision = ownerOperationAuthorizationDecisionFromError(args.error);
+  const admissionFailure = classifyWalletSessionQuotaAdmissionFailure(args.error);
   const admissionDecision =
     args.trigger === 'wallet_signing_budget_exhausted'
-      ? decideWalletSessionQuotaAdmissionError(args.error)
+      ? ownerDecision?.kind === 'step_up_required'
+        ? decideWalletSessionQuotaAdmissionFailure(
+            admissionFailure ?? {
+              kind: 'exhausted',
+              source: 'server_prepare',
+              detail: 'Server requires owner operation step-up',
+            },
+          )
+        : admissionFailure?.kind === 'in_flight'
+          ? decideWalletSessionQuotaAdmissionFailure(admissionFailure)
+          : null
       : null;
   const admissionCanRetryAfterSideEffect =
     admissionDecision?.kind === 'request_fresh_step_up' ||
@@ -209,10 +230,7 @@ export function classifyEvmFamilyFreshAuthRetry(
     if (args.hasEmailOtpSigningPlan || args.hasStepUpAuthPlan) {
       return blockEvmFamilyFreshAuthRetry(args, 'signing_auth_plan_already_selected');
     }
-    const walletSessionFailure = walletSessionFailureFromError(args.error);
-    const requiresWalletSessionStepUp =
-      walletSessionFailure?.kind === 'expired' || walletSessionFailure?.kind === 'missing';
-    if (!requiresWalletSessionStepUp && !isFreshEmailOtpReauthRequiredError(args.error)) {
+    if (ownerDecision?.kind !== 'step_up_required') {
       return blockEvmFamilyFreshAuthRetry(args, 'error_not_retryable');
     }
     if (

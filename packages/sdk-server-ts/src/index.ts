@@ -44,46 +44,6 @@ export type {
   Ed25519WalletSessionRecord,
 } from './core/ThresholdService';
 export {
-  D1RecoverySessionStore,
-  ensureRecoverySessionStoreD1Schema,
-  createRecoverySessionStore,
-  RECOVERY_SESSION_STORE_D1_SCHEMA_SQL,
-  type D1RecoverySessionStoreOptions,
-  type D1RecoverySessionStoreSchemaOptions,
-  type RecoverySessionStore,
-  type RecoverySessionRecord,
-  type RecoverySessionStatus,
-} from './core/RecoverySessionStore';
-export {
-  buildPreparedRecoverySessionRecord,
-  DEFAULT_RECOVERY_SESSION_TTL_MS,
-} from './core/recoverySessionRecords';
-export {
-  D1EmailRecoveryPreparationStore,
-  EMAIL_RECOVERY_PREPARATION_STORE_D1_SCHEMA_SQL,
-  createEmailRecoveryPreparationStore,
-  ensureEmailRecoveryPreparationStoreD1Schema,
-  type D1EmailRecoveryPreparationStoreOptions,
-  type D1EmailRecoveryPreparationStoreSchemaOptions,
-  type EmailRecoveryPreparationRecord,
-  type EmailRecoveryPreparationStore,
-} from './core/EmailRecoveryPreparationStore';
-export {
-  D1RecoveryExecutionStore,
-  ensureRecoveryExecutionStoreD1Schema,
-  createRecoveryExecutionStore,
-  RECOVERY_EXECUTION_STORE_D1_SCHEMA_SQL,
-  type D1RecoveryExecutionStoreOptions,
-  type D1RecoveryExecutionStoreSchemaOptions,
-  type RecoveryExecutionStore,
-  type RecoveryExecutionRecord,
-  type RecoveryExecutionStatus,
-} from './core/RecoveryExecutionStore';
-export {
-  buildRecoveryExecutionRecord,
-  inferNearRecoveryChainIdKey,
-} from './core/recoveryExecutionRecords';
-export {
   D1WalletAuthMethodStore,
   createWalletAuthMethodStore,
   ensureWalletAuthMethodStoreD1Schema,
@@ -159,7 +119,6 @@ export {
   createIdentityStore,
   ensureIdentityStoreD1Schema,
   resolveIdentityStoreNamespace,
-  type AppSessionVersionRecord,
   type D1IdentityStoreOptions,
   type D1IdentityStoreSchemaOptions,
   type IdentityStore,
@@ -195,7 +154,6 @@ export {
   createCloudflareD1RouterAbNormalSigningAdmissionStore,
   type CloudflareD1RouterAbNormalSigningAdmissionStoreOptions,
 } from './router/cloudflare/d1/signingAdmission/d1RouterAbNormalSigningAdmissionStore';
-export * from './email-recovery';
 export * from './threshold/session/signingSessionSeal';
 export type {
   RouterApiModule,

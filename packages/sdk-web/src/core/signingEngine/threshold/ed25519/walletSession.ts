@@ -14,7 +14,7 @@ import {
 } from '@/core/platform/types';
 import { toRpId } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type {
-  RouterAbEd25519NormalSigningCredential,
+  RouterAbOwnerNormalSigningCredential,
   RouterAbNormalSigningPrepareRequestV2Wire,
 } from '@/core/rpcClients/relayer/routerAbNormalSigning';
 import {
@@ -29,8 +29,10 @@ import {
 } from '@shared/utils/domainIds';
 import {
   parseMpcWalletSigningQuotaId,
+  parseWalletSessionAuthorizationId,
   parseWalletSessionId,
   type MpcWalletSigningQuotaId,
+  type WalletSessionAuthorizationId,
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 
@@ -47,43 +49,14 @@ export type ThresholdEd25519WebAuthnPrfSecretSource = {
   prfFirstB64u?: never;
 };
 
-export type Ed25519WalletSessionMintAuthorization =
-  | {
-      kind: 'app_session_jwt';
-      appSessionJwt: string;
-      localSecretSource: ThresholdEd25519WebAuthnPrfSecretSource;
-      priorWalletSessionJwt?: never;
-      thresholdEcdsaSessionJwt?: never;
-      policySecretSource?: never;
-      useAppSessionCookie?: never;
-      webauthnAuthentication?: never;
-      localPrfCredential?: never;
-      localPrfFirstB64u?: never;
-    }
-  | {
-      kind: 'app_session_cookie';
-      localSecretSource: ThresholdEd25519WebAuthnPrfSecretSource;
-      appSessionJwt?: never;
-      priorWalletSessionJwt?: never;
-      thresholdEcdsaSessionJwt?: never;
-      policySecretSource?: never;
-      useAppSessionCookie?: never;
-      webauthnAuthentication?: never;
-      localPrfCredential?: never;
-      localPrfFirstB64u?: never;
-    }
-  | {
-      kind: 'threshold_session_policy_webauthn';
-      policySecretSource: ThresholdEd25519WebAuthnPrfSecretSource;
-      appSessionJwt?: never;
-      priorWalletSessionJwt?: never;
-      thresholdEcdsaSessionJwt?: never;
-      localSecretSource?: never;
-      useAppSessionCookie?: never;
-      localPrfCredential?: never;
-      webauthnAuthentication?: never;
-      localPrfFirstB64u?: never;
-    };
+export type Ed25519WalletSessionMintAuthorization = {
+  kind: 'threshold_session_policy_webauthn';
+  policySecretSource: ThresholdEd25519WebAuthnPrfSecretSource;
+  localSecretSource?: never;
+  localPrfCredential?: never;
+  webauthnAuthentication?: never;
+  localPrfFirstB64u?: never;
+};
 
 function requireNonEmptyEd25519SecretSourceString(value: unknown, field: string): string {
   const normalized = String(value ?? '').trim();
@@ -133,46 +106,37 @@ export function buildThresholdEd25519WebAuthnPrfSecretSource(args: {
 export function localPrfFirstForEd25519WalletSessionMintAuthorization(
   auth: Ed25519WalletSessionMintAuthorization,
 ): string {
-  switch (auth.kind) {
-    case 'app_session_jwt':
-    case 'app_session_cookie':
-      return auth.localSecretSource.secretSource.prfFirstB64u;
-    case 'threshold_session_policy_webauthn':
-      return auth.policySecretSource.secretSource.prfFirstB64u;
-    default: {
-      const exhaustive: never = auth;
-      return exhaustive;
-    }
-  }
+  return auth.policySecretSource.secretSource.prfFirstB64u;
 }
 
 /**
  * Ed25519 Wallet Session mint.
  *
  * `threshold_session_policy_webauthn` sends a WebAuthn assertion whose challenge
- * is the `sessionPolicyDigest32`. App-session branches authorize the route with
- * the app session; the local PRF credential stays in wallet origin.
+ * is the `sessionPolicyDigest32`. The local PRF credential stays in wallet origin.
  *
  * Notes:
  * - PRF outputs must never be sent to the Router API; they should be used only in wallet origin.
  */
 export async function mintEd25519WalletSession(args: {
   relayerUrl: string;
-  sessionKind: 'jwt';
+  sessionKind: 'opaque';
   relayerKeyId: string;
   sessionPolicy: Ed25519SessionPolicy;
   auth: Ed25519WalletSessionMintAuthorization;
   projectEnvironmentId?: string;
   publishableKey?: string;
+  existingWalletSessionToken?: string;
 }): Promise<{
   ok: boolean;
   thresholdSessionId?: ThresholdEd25519SessionId;
+  authorizationId?: WalletSessionAuthorizationId;
   walletSessionId?: WalletSessionId;
   quotaId?: MpcWalletSigningQuotaId;
   expiresAtMs?: number;
   remainingUses?: number;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
-  jwt?: string;
+  walletSessionToken?: string;
   code?: string;
   message?: string;
 }> {
@@ -193,20 +157,20 @@ export async function mintEd25519WalletSession(args: {
     };
   }
 
-  const webauthn_authentication =
-    args.auth.kind === 'threshold_session_policy_webauthn'
-      ? redactCredentialExtensionOutputs(args.auth.policySecretSource.credential)
-      : undefined;
+  const webauthn_authentication = redactCredentialExtensionOutputs(
+    args.auth.policySecretSource.credential,
+  );
 
   type Ed25519WalletSessionMintResponseBody = Partial<{
     ok: boolean;
     thresholdSessionId: string;
     walletSessionId: string;
+    authorizationId: string;
     quotaId: string;
     expiresAt: string;
     remainingUses: number;
     runtimePolicyScope: ThresholdRuntimePolicyScope;
-    jwt: string;
+    walletSessionToken: string;
     code: string;
     message: string;
   }>;
@@ -215,15 +179,10 @@ export async function mintEd25519WalletSession(args: {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   try {
     const url = `${relayerUrl}${ROUTER_AB_ED25519_WALLET_SESSION_PATH}`;
-    const appSessionJwt =
-      args.auth.kind === 'app_session_jwt'
-        ? String(args.auth.appSessionJwt || '').trim() || undefined
-        : undefined;
-    const useAppSessionCookie = args.auth.kind === 'app_session_cookie';
+    const existingWalletSessionToken = String(args.existingWalletSessionToken || '').trim();
     const publishableKey = String(args.publishableKey || '').trim() || undefined;
-    const bearerToken = appSessionJwt || publishableKey;
-    const usesPublishableKeyBearer = Boolean(publishableKey && !appSessionJwt);
-    const projectEnvironmentId = usesPublishableKeyBearer
+    const bearerToken = existingWalletSessionToken || publishableKey;
+    const projectEnvironmentId = !existingWalletSessionToken && publishableKey
       ? String(args.projectEnvironmentId || '').trim() || undefined
       : undefined;
     timeoutId = setTimeout(
@@ -237,13 +196,16 @@ export async function mintEd25519WalletSession(args: {
         'Content-Type': 'application/json',
         ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
       },
-      credentials: useAppSessionCookie ? 'include' : 'omit',
+      credentials: 'omit',
       signal: controller.signal,
       body: JSON.stringify({
         sessionKind: args.sessionKind,
         relayerKeyId: args.relayerKeyId,
         sessionPolicy: args.sessionPolicy,
         ...(projectEnvironmentId ? { projectEnvironmentId } : {}),
+        walletSessionTarget: existingWalletSessionToken
+          ? { kind: 'reuse_ecdsa_wallet_session' }
+          : { kind: 'new_wallet_session' },
         ...(webauthn_authentication ? { webauthn_authentication } : {}),
       }),
     });
@@ -279,8 +241,9 @@ export async function mintEd25519WalletSession(args: {
       };
     }
     const walletSessionId = parseWalletSessionId(data.walletSessionId);
+    const authorizationId = parseWalletSessionAuthorizationId(data.authorizationId);
     const quotaId = parseMpcWalletSigningQuotaId(data.quotaId);
-    if (!walletSessionId.ok || !quotaId.ok) {
+    if (!walletSessionId.ok || !authorizationId.ok || !quotaId.ok) {
       return {
         ok: false,
         code: 'invalid_response',
@@ -291,11 +254,12 @@ export async function mintEd25519WalletSession(args: {
       ok: data.ok === true,
       ...(thresholdSessionId?.ok ? { thresholdSessionId: thresholdSessionId.value } : {}),
       walletSessionId: walletSessionId.value,
+      authorizationId: authorizationId.value,
       quotaId: quotaId.value,
       expiresAtMs,
       remainingUses: data.remainingUses,
       ...(data.runtimePolicyScope ? { runtimePolicyScope: data.runtimePolicyScope } : {}),
-      jwt: data.jwt,
+    walletSessionToken: data.walletSessionToken,
       ...(data.code ? { code: data.code } : {}),
       ...(data.message ? { message: data.message } : {}),
     };
@@ -337,27 +301,22 @@ export type Ed25519OperationStepUpProof =
     };
 
 export type Ed25519OperationStepUpMaterialRecoveryRequest =
+  | { kind: 'not_requested' }
   | {
-      kind: 'not_requested';
-      wrappedCiphertext?: never;
-      enrollmentSealKeyVersion?: never;
-    }
-  | {
-      kind: 'email_otp_local_material_v1';
-      wrappedCiphertext: string;
-      enrollmentSealKeyVersion: string;
+      kind: 'email_otp_factor_release_v1';
+      workerEphemeralPublicKey65B64u: string;
     };
 
 export type Ed25519OperationStepUpMaterialRecoveryResponse =
+  | { kind: 'not_requested' }
   | {
-      kind: 'not_requested';
-      ciphertext?: never;
-      enrollmentSealKeyVersion?: never;
-    }
-  | {
-      kind: 'email_otp_local_material_v1';
-      ciphertext: string;
+      kind: 'email_otp_factor_release_v1';
+      challengeId: string;
+      enrollmentId: string;
       enrollmentSealKeyVersion: string;
+      serverEphemeralPublicKey65B64u: string;
+      nonce12B64u: string;
+      ciphertextB64u: string;
     };
 
 type Ed25519EmailOtpOperationStepUpProof = Extract<
@@ -368,9 +327,9 @@ type Ed25519NoMaterialRecoveryRequest = Extract<
   Ed25519OperationStepUpMaterialRecoveryRequest,
   { kind: 'not_requested' }
 >;
-type Ed25519EmailOtpLocalMaterialRecoveryRequest = Extract<
+type Ed25519EmailOtpFactorReleaseRequest = Extract<
   Ed25519OperationStepUpMaterialRecoveryRequest,
-  { kind: 'email_otp_local_material_v1' }
+  { kind: 'email_otp_factor_release_v1' }
 >;
 
 type Ed25519OperationStepUpAuthorizationRequestBase = {
@@ -380,22 +339,22 @@ type Ed25519OperationStepUpAuthorizationRequestBase = {
   credential: Ed25519OperationStepUpCredential;
 };
 
-export type Ed25519OperationStepUpCredential = Exclude<
-  RouterAbEd25519NormalSigningCredential,
-  { kind: 'wallet_session_jwt' }
->;
+export type Ed25519OperationStepUpCredential = RouterAbOwnerNormalSigningCredential;
 
-export type Ed25519OperationStepUpAuthorizationRequest = Ed25519OperationStepUpAuthorizationRequestBase &
-  (
-    | {
-        proof: Ed25519OperationStepUpProof;
-        materialRecovery: Ed25519NoMaterialRecoveryRequest;
-      }
-    | {
-        proof: Ed25519EmailOtpOperationStepUpProof;
-        materialRecovery: Ed25519EmailOtpLocalMaterialRecoveryRequest;
-      }
-  );
+export type Ed25519OperationStepUpAuthorizationRequest =
+  Ed25519OperationStepUpAuthorizationRequestBase &
+    (
+      | {
+          proof: Extract<Ed25519OperationStepUpProof, { kind: 'passkey' }>;
+          materialRecovery: Ed25519NoMaterialRecoveryRequest;
+        }
+      | {
+          proof: Ed25519EmailOtpOperationStepUpProof;
+          materialRecovery:
+            | Ed25519NoMaterialRecoveryRequest
+            | Ed25519EmailOtpFactorReleaseRequest;
+        }
+    );
 
 type Ed25519OperationStepUpProofWire =
   | {
@@ -429,10 +388,7 @@ function serializeEd25519OperationStepUpProof(
           proof.providerSubjectId,
           'providerSubjectId',
         ),
-        challenge_id: requireNonEmptyEd25519SecretSourceString(
-          proof.challengeId,
-          'challengeId',
-        ),
+        challenge_id: requireNonEmptyEd25519SecretSourceString(proof.challengeId, 'challengeId'),
         otp_code: requireNonEmptyEd25519SecretSourceString(proof.otpCode, 'otpCode'),
       };
     default:
@@ -485,31 +441,33 @@ function requireNormalizedEd25519OperationStepUpString(value: unknown, field: st
 function buildEd25519OperationStepUpMaterialRecoveryRequest(
   request: Ed25519OperationStepUpAuthorizationRequest,
 ): Ed25519OperationStepUpMaterialRecoveryRequest {
-  switch (request.materialRecovery.kind) {
-    case 'not_requested':
-      return { kind: 'not_requested' };
-    case 'email_otp_local_material_v1': {
-      if (request.proof.kind !== 'email_otp') {
+  switch (request.proof.kind) {
+    case 'passkey':
+      if (request.materialRecovery.kind !== 'not_requested') {
         throw new Error(
-          '[threshold-ed25519] Passkey operation step-up cannot request Email OTP material recovery',
+          '[threshold-ed25519] passkey operation step-up cannot request material recovery',
         );
       }
-      return {
-        kind: 'email_otp_local_material_v1',
-        wrappedCiphertext: requireNormalizedEd25519OperationStepUpString(
-          request.materialRecovery.wrappedCiphertext,
-          'materialRecovery.wrappedCiphertext',
-        ),
-        enrollmentSealKeyVersion: requireNormalizedEd25519OperationStepUpString(
-          request.materialRecovery.enrollmentSealKeyVersion,
-          'materialRecovery.enrollmentSealKeyVersion',
-        ),
-      };
-    }
-    default: {
-      const exhaustive: never = request.materialRecovery;
-      return exhaustive;
-    }
+      return { kind: 'not_requested' };
+    case 'email_otp':
+      switch (request.materialRecovery.kind) {
+        case 'not_requested':
+          return { kind: 'not_requested' };
+        case 'email_otp_factor_release_v1':
+          return {
+            kind: 'email_otp_factor_release_v1',
+            workerEphemeralPublicKey65B64u: requireNormalizedEd25519OperationStepUpString(
+              request.materialRecovery.workerEphemeralPublicKey65B64u,
+              'workerEphemeralPublicKey65B64u',
+            ),
+          };
+        default:
+          request.materialRecovery satisfies never;
+          throw new Error('[threshold-ed25519] unsupported material recovery request');
+      }
+    default:
+      request.proof satisfies never;
+      throw new Error('[threshold-ed25519] unsupported operation step-up proof');
   }
 }
 
@@ -535,33 +493,51 @@ function parseEd25519OperationStepUpMaterialRecoveryResponse(args: {
       }
       return { kind: 'not_requested' };
     }
-    case 'email_otp_local_material_v1': {
+    case 'email_otp_factor_release_v1': {
       requireExactEd25519OperationStepUpResponseKeys(
         response,
-        ['kind', 'ciphertext', 'enrollmentSealKeyVersion'],
+        [
+          'kind',
+          'challengeId',
+          'enrollmentId',
+          'enrollmentSealKeyVersion',
+          'serverEphemeralPublicKey65B64u',
+          'nonce12B64u',
+          'ciphertextB64u',
+        ],
         'operation step-up material recovery',
       );
-      if (args.requested.kind !== 'email_otp_local_material_v1') {
+      if (args.requested.kind !== 'email_otp_factor_release_v1') {
         throw new Error(
           '[threshold-ed25519] operation step-up material recovery response does not match the request',
         );
       }
-      const enrollmentSealKeyVersion = requireNormalizedEd25519OperationStepUpString(
-        response.enrollmentSealKeyVersion,
-        'materialRecovery.enrollmentSealKeyVersion',
-      );
-      if (enrollmentSealKeyVersion !== args.requested.enrollmentSealKeyVersion) {
-        throw new Error(
-          '[threshold-ed25519] operation step-up material recovery key version changed',
-        );
-      }
       return {
-        kind: 'email_otp_local_material_v1',
-        ciphertext: requireNormalizedEd25519OperationStepUpString(
-          response.ciphertext,
-          'materialRecovery.ciphertext',
+        kind: 'email_otp_factor_release_v1',
+        challengeId: requireNormalizedEd25519OperationStepUpString(
+          response.challengeId,
+          'materialRecovery.challengeId',
         ),
-        enrollmentSealKeyVersion,
+        enrollmentId: requireNormalizedEd25519OperationStepUpString(
+          response.enrollmentId,
+          'materialRecovery.enrollmentId',
+        ),
+        enrollmentSealKeyVersion: requireNormalizedEd25519OperationStepUpString(
+          response.enrollmentSealKeyVersion,
+          'materialRecovery.enrollmentSealKeyVersion',
+        ),
+        serverEphemeralPublicKey65B64u: requireNormalizedEd25519OperationStepUpString(
+          response.serverEphemeralPublicKey65B64u,
+          'materialRecovery.serverEphemeralPublicKey65B64u',
+        ),
+        nonce12B64u: requireNormalizedEd25519OperationStepUpString(
+          response.nonce12B64u,
+          'materialRecovery.nonce12B64u',
+        ),
+        ciphertextB64u: requireNormalizedEd25519OperationStepUpString(
+          response.ciphertextB64u,
+          'materialRecovery.ciphertextB64u',
+        ),
       };
     }
     default:
@@ -623,26 +599,32 @@ export async function issueEd25519OperationStepUpAuthorization(
   const relayerUrl = stripTrailingSlashes(toTrimmedString(args.relayerUrl));
   if (!relayerUrl) throw new Error('[threshold-ed25519] operation step-up relayerUrl is required');
   const materialRecovery = buildEd25519OperationStepUpMaterialRecoveryRequest(args);
-  const requestInit = buildRelayerJsonPostRequestInit({
-    ...(args.credential.kind === 'app_session_jwt'
+  const bearer =
+    args.credential.kind === 'wallet_session_opaque'
       ? {
-          headers: buildBearerAuthorizationHeader({
-            token: args.credential.appSessionJwt,
-            missingMessage: 'appSessionJwt is required',
-          }),
+          token: args.credential.walletSessionToken,
+          missingMessage: 'walletSessionToken is required',
         }
-      : {}),
+      : null;
+  const requestInit = buildRelayerJsonPostRequestInit({
+    ...(bearer ? { headers: buildBearerAuthorizationHeader(bearer) } : {}),
     body: {
       kind: 'router_ab_ed25519_yao_operation_step_up_grant_v1',
       normalSigningRequest: args.normalSigningRequest,
       displayDigest: args.displayDigest,
       proof: serializeEd25519OperationStepUpProof(args.proof),
-      materialRecovery,
+      materialRecovery:
+        materialRecovery.kind === 'email_otp_factor_release_v1'
+          ? {
+              kind: materialRecovery.kind,
+              worker_ephemeral_public_key_65_b64u:
+                materialRecovery.workerEphemeralPublicKey65B64u,
+            }
+          : materialRecovery,
     },
   });
   const response = await fetch(`${relayerUrl}${ROUTER_AB_ED25519_WALLET_SESSION_PATH}`, {
     ...requestInit,
-    ...(args.credential.kind === 'app_session_cookie' ? { credentials: 'include' } : {}),
   });
   const body: unknown = await response.json().catch(() => ({}));
   if (!response.ok) {

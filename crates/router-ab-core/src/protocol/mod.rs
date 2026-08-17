@@ -6,6 +6,8 @@
 
 mod ecdsa_threshold_prf_request;
 mod ed25519_yao;
+mod ed25519_yao_lane;
+mod ed25519_yao_lane_dispatch;
 mod ed25519_yao_router;
 mod engine;
 mod envelope;
@@ -44,6 +46,16 @@ pub use self::ed25519_yao::{
     ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
     ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1,
 };
+pub use self::ed25519_yao_lane::{
+    Ed25519YaoLaneAuthorizationV1, Ed25519YaoLaneJobV1, Ed25519YaoLaneProtocolCommittedV1,
+    Ed25519YaoLaneRequestKindV1, Ed25519YaoLaneSourceKindV1, Ed25519YaoLaneSourceV1,
+    Ed25519YaoLaneTargetHolderV1, Ed25519YaoLaneTargetSigningWorkerV1, Ed25519YaoLaneTargetV1,
+    OwnerLaneParticipantContinuityV1, RouterAbEd25519YaoLaneExecuteRequestV1,
+    RouterAbEd25519YaoLaneResultV1,
+};
+pub use self::ed25519_yao_lane_dispatch::{
+    RouterAbEd25519YaoLaneDispatchRequestV1, RouterAbEd25519YaoLaneDispatchResponseV1,
+};
 pub use self::ed25519_yao_router::{
     ed25519_yao_encrypted_input_digest_v1, ed25519_yao_input_pair_digest_v1,
     ed25519_yao_recipient_set_digest_v1, Ed25519YaoCeremonyIdentityV1, Ed25519YaoCircuitIdV1,
@@ -54,7 +66,7 @@ pub use self::ed25519_yao_router::{
     RouterEd25519YaoExecuteRequestV1, RouterEd25519YaoExecuteResultV1,
     RouterEd25519YaoExecuteSuccessV1, RouterEd25519YaoGatewayExecuteRequestV1,
     ED25519_YAO_ACTIVATION_CIRCUIT_ID_V1, ED25519_YAO_EXPORT_CIRCUIT_ID_V1,
-    ED25519_YAO_PROTOCOL_ID_V1,
+    ED25519_YAO_LANE_MATERIALIZATION_CIRCUIT_ID_V1, ED25519_YAO_PROTOCOL_ID_V1,
 };
 pub use self::engine::{
     AuditEventV1, AuditSink, Clock, Csprng, DeriverAEngine, DeriverBEngine, PeerTransport,
@@ -165,24 +177,31 @@ pub use self::router_ab_ecdsa_derivation::{
     parse_router_ab_ecdsa_derivation_evm_digest_signing_prepare_response_v1_json,
     parse_router_ab_ecdsa_derivation_evm_digest_signing_request_v1_json,
     parse_router_ab_ecdsa_derivation_explicit_export_request_v1_json,
+    parse_router_ab_ecdsa_derivation_linked_device_normal_signing_scope_v1_json,
     parse_router_ab_ecdsa_derivation_normal_signing_scope_v1_json,
-    parse_router_ab_ecdsa_derivation_recovery_request_v1_json,
     parse_router_ab_ecdsa_derivation_registration_bootstrap_request_v1_json,
-    router_ab_ecdsa_rerandomization_client_commitment_v1,
-    RouterAbEcdsaDerivationActivationReceiptV1, RouterAbEcdsaDerivationActivationRefreshRequestV1,
+    router_ab_ecdsa_rerandomization_client_commitment_v1, EcdsaTargetCapabilityBindingV1,
+    EcdsaTargetChainTargetV1, EcdsaTargetThresholdSessionBindingV1, LinkedDeviceEcdsaKeyFamilyV1,
+    LinkedDeviceEcdsaLaneKindV1, LinkedDeviceEcdsaNormalSigningScopeInputV1,
+    LinkedDeviceEcdsaNormalSigningScopeKindV1, RouterAbEcdsaDerivationActivationReceiptV1,
+    RouterAbEcdsaDerivationActivationRefreshRequestV1,
     RouterAbEcdsaDerivationDeriverEnvelopeCommonV1,
     RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1,
     RouterAbEcdsaDerivationDeriverExportEnvelopePlaintextV1,
-    RouterAbEcdsaDerivationDeriverRecoveryEnvelopePlaintextV1,
     RouterAbEcdsaDerivationDeriverRefreshEnvelopePlaintextV1,
     RouterAbEcdsaDerivationDeriverRegistrationEnvelopePlaintextV1,
     RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1,
     RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1,
     RouterAbEcdsaDerivationEvmDigestSigningRequestV1,
     RouterAbEcdsaDerivationEvmDigestSigningResponseV1,
-    RouterAbEcdsaDerivationExplicitExportRequestV1, RouterAbEcdsaDerivationNormalSigningScopeV1,
-    RouterAbEcdsaDerivationOperationDigestsV1, RouterAbEcdsaDerivationOutputKindV1,
-    RouterAbEcdsaDerivationPublicIdentityV1, RouterAbEcdsaDerivationRecoveryRequestV1,
+    RouterAbEcdsaDerivationExplicitExportRequestV1,
+    RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningFinalizeRequestV1,
+    RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningPrepareResponseV1,
+    RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningRequestV1,
+    RouterAbEcdsaDerivationLinkedDeviceEvmDigestSigningResponseV1,
+    RouterAbEcdsaDerivationLinkedDeviceNormalSigningScopeV1,
+    RouterAbEcdsaDerivationNormalSigningScopeV1, RouterAbEcdsaDerivationOperationDigestsV1,
+    RouterAbEcdsaDerivationOutputKindV1, RouterAbEcdsaDerivationPublicIdentityV1,
     RouterAbEcdsaDerivationRegistrationBootstrapRequestV1,
     RouterAbEcdsaDerivationRegistrationHeaderV1, RouterAbEcdsaDerivationRegistrationPurposeV1,
     RouterAbEcdsaDerivationRequestKindV1, RouterAbEcdsaDerivationSignatureSchemeV1,

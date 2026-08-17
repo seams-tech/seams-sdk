@@ -5,11 +5,17 @@ import {
   routerAbEcdsaDerivationEvmDigestSigningRequestDigestV1,
   parseRouterAbEcdsaDerivationEvmDigestSigningPrepareResponseForRequestV1,
   parseRouterAbEcdsaDerivationEvmDigestSigningResponseForCoreRequestV1,
+  parseRouterAbEcdsaOperationStepUpPreparationV1,
   type RouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1Wire,
   type RouterAbEcdsaDerivationEvmDigestSigningPrepareResponseV1Wire,
   type RouterAbEcdsaDerivationEvmDigestSigningRequestV1Wire,
   type RouterAbEcdsaDerivationEvmDigestSigningResponseV1Wire,
+  type RouterAbOwnerOperationAuthorizationDecisionV1Wire,
 } from '@shared/utils/routerAbEcdsaDerivation';
+import type {
+  RouterAbEd25519OwnerOperationAuthorizationDecisionV1Wire,
+  RouterAbEd25519OperationStepUpPreparationV1Wire,
+} from '@shared/utils/routerAbNormalSigningIdentity';
 import {
   buildBearerAuthorizationHeader,
   buildRelayerJsonPostRequestInit,
@@ -23,6 +29,11 @@ import {
   type RouterAbMpcMaterialActivationRefWire,
   type RouterAbNormalSigningAuthorizationWire,
 } from '@shared/utils/routerAbNormalSigningIdentity';
+import type { LinkedDeviceWalletSessionCredential } from '@/core/signingEngine/session/lanes/linkedDeviceWalletSessionCredential';
+import {
+  isLinkedDeviceWalletSessionCredential,
+  linkedDeviceWalletSessionBearer,
+} from '@/core/signingEngine/session/lanes/linkedDeviceWalletSessionCredential';
 
 const INTENT_VERSION_V2 = 'router-ab-protocol/ed25519-normal-signing/intent/v2';
 const PAYLOAD_VERSION_V2 = 'router-ab-protocol/ed25519-normal-signing/payload/v2';
@@ -31,6 +42,9 @@ const NEP413_PREFIX = 2_147_484_061;
 type RouterAbSigningErrorPayload = {
   code: string;
   message: string;
+  authorizationDecision?:
+    | RouterAbOwnerOperationAuthorizationDecisionV1Wire
+    | RouterAbEd25519OwnerOperationAuthorizationDecisionV1Wire;
 };
 
 export function routerAbNormalSigningAdmissionErrorFromPayload(args: {
@@ -38,18 +52,31 @@ export function routerAbNormalSigningAdmissionErrorFromPayload(args: {
   message: string;
   path: string;
   status: number;
+  authorizationDecision?:
+    | RouterAbOwnerOperationAuthorizationDecisionV1Wire
+    | RouterAbEd25519OwnerOperationAuthorizationDecisionV1Wire;
 }): WalletSessionQuotaAdmissionError | null {
   const code = String(args.code || '').trim();
   const detail = `Router A/B signing ${args.path} returned HTTP ${args.status}: ${
     args.message || code || 'unknown admission failure'
   }`;
+  if (args.authorizationDecision?.kind === 'step_up_required') {
+    return new WalletSessionQuotaAdmissionError(
+      {
+        kind: 'exhausted',
+        source: 'server_prepare',
+        detail,
+      },
+      args.authorizationDecision,
+    );
+  }
   switch (code) {
     case 'wallet_budget_exhausted':
       return new WalletSessionQuotaAdmissionError({
         kind: 'exhausted',
         source: 'server_prepare',
         detail,
-      });
+      }, args.authorizationDecision);
     case 'wallet_budget_in_flight':
     case 'wallet_budget_reserved':
       return new WalletSessionQuotaAdmissionError({
@@ -63,24 +90,24 @@ export function routerAbNormalSigningAdmissionErrorFromPayload(args: {
   }
 }
 
-export type RouterAbWalletSessionCredential = {
-  kind: 'wallet_session_jwt';
-  walletSessionJwt: string;
-  appSessionJwt?: never;
+export type RouterAbOpaqueWalletSessionCredential = {
+  kind: 'wallet_session_opaque';
+  walletSessionToken: string;
 };
+
+export type RouterAbWalletSessionCredential =
+  | RouterAbOpaqueWalletSessionCredential
+  | LinkedDeviceWalletSessionCredential;
 
 export type RouterAbEd25519NormalSigningCredential =
   | RouterAbWalletSessionCredential
   | {
-      kind: 'app_session_jwt';
-      appSessionJwt: string;
-      walletSessionJwt?: never;
-    }
-  | {
-      kind: 'app_session_cookie';
-      walletSessionJwt?: never;
-      appSessionJwt?: never;
+      kind: 'operation_step_up';
     };
+
+export type RouterAbOwnerNormalSigningCredential =
+  | RouterAbOpaqueWalletSessionCredential
+  | { kind: 'operation_step_up' };
 
 export type RouterAbPublicDigest32Wire = {
   bytes: readonly number[];
@@ -1034,22 +1061,22 @@ function buildRouterAbRequestInit(args: {
   body: unknown;
 }): RequestInit {
   const bearer =
-    args.credential.kind === 'wallet_session_jwt'
+    isLinkedDeviceWalletSessionCredential(args.credential)
       ? {
-          token: args.credential.walletSessionJwt,
-          missingMessage: 'walletSessionJwt is required',
+          token: linkedDeviceWalletSessionBearer(args.credential),
+          missingMessage: 'linked-device Wallet Session JWT is required',
         }
-      : args.credential.kind === 'app_session_jwt'
+        : args.credential.kind === 'wallet_session_opaque'
         ? {
-            token: args.credential.appSessionJwt,
-            missingMessage: 'appSessionJwt is required',
+            token: args.credential.walletSessionToken,
+            missingMessage: 'walletSessionToken is required',
           }
         : null;
   const init = buildRelayerJsonPostRequestInit({
     ...(bearer ? { headers: buildBearerAuthorizationHeader(bearer) } : {}),
     body: args.body,
   });
-  return args.credential.kind === 'app_session_cookie' ? { ...init, credentials: 'include' } : init;
+  return init;
 }
 
 function parseRouterAbSigningErrorPayload(bodyText: string): RouterAbSigningErrorPayload | null {
@@ -1062,9 +1089,215 @@ function parseRouterAbSigningErrorPayload(bodyText: string): RouterAbSigningErro
     const code = String(record.code || '').trim();
     const message = String(record.message || '').trim();
     if (!code) return null;
-    return { code, message };
+    const authorizationDecision =
+      record.authorization_decision === undefined
+        ? undefined
+        : parseRouterAbOwnerOperationAuthorizationDecision(record.authorization_decision);
+    return { code, message, ...(authorizationDecision ? { authorizationDecision } : {}) };
   } catch {
     return null;
+  }
+}
+
+function parseRouterAbOwnerOperationAuthorizationDecision(
+  value: unknown,
+):
+  | RouterAbOwnerOperationAuthorizationDecisionV1Wire
+  | RouterAbEd25519OwnerOperationAuthorizationDecisionV1Wire {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Router A/B owner-operation authorization decision is invalid');
+  }
+  const record = value as Record<string, unknown>;
+  const kind = record.kind;
+  if (kind === 'step_up_required') {
+    requireExactRecordFields(
+      record,
+      ['kind', 'reason', 'step_up'],
+      'owner-operation step-up decision',
+    );
+    const reason = record.reason;
+    if (
+      reason !== 'wallet_session_missing' &&
+      reason !== 'wallet_session_expired' &&
+      reason !== 'wallet_session_exhausted' &&
+      reason !== 'wallet_session_ended' &&
+      reason !== 'wallet_session_superseded'
+    ) {
+      throw new Error('owner-operation step-up decision reason is invalid');
+    }
+    const stepUp = record.step_up;
+    if (
+      stepUp &&
+      typeof stepUp === 'object' &&
+      !Array.isArray(stepUp) &&
+      'operation_digests' in stepUp
+    ) {
+      return { kind, reason, step_up: parseRouterAbEcdsaOperationStepUpPreparationV1(stepUp) };
+    }
+    return { kind, reason, step_up: parseRouterAbEd25519OperationStepUpPreparation(stepUp) };
+  }
+  if (kind === 'denied') {
+    requireExactRecordFields(record, ['kind', 'denial'], 'owner-operation denial decision');
+    if (!record.denial || typeof record.denial !== 'object' || Array.isArray(record.denial)) {
+      throw new Error('owner-operation denial is invalid');
+    }
+    const denial = record.denial as Record<string, unknown>;
+    requireExactRecordFields(denial, ['code', 'message'], 'owner-operation denial');
+    const code = denial.code;
+    if (
+      code !== 'invalid_identity' &&
+      code !== 'invalid_authority' &&
+      code !== 'invalid_operation' &&
+      code !== 'inactive_material' &&
+      code !== 'replayed_step_up' &&
+      code !== 'authorization_unavailable'
+    ) {
+      throw new Error('owner-operation denial code is invalid');
+    }
+    if (typeof denial.message !== 'string' || denial.message.trim() !== denial.message) {
+      throw new Error('owner-operation denial message is invalid');
+    }
+    return { kind, denial: { code, message: denial.message } };
+  }
+  if (kind === 'authorized') {
+    requireExactRecordFields(record, ['kind', 'operation', 'source'], 'owner-operation decision');
+    if (!record.operation || typeof record.operation !== 'object' || Array.isArray(record.operation)) {
+      throw new Error('owner-operation authorized operation is invalid');
+    }
+    const operation = record.operation as Record<string, unknown>;
+    requireExactRecordFields(
+      operation,
+      ['kind', 'operation_id', 'authorized_operation_id', 'operation_fingerprint_digest'],
+      'owner-operation authorized operation',
+    );
+    if (
+      operation.kind !== 'authorized_operation' ||
+      typeof operation.operation_id !== 'string' ||
+      typeof operation.authorized_operation_id !== 'string' ||
+      typeof operation.operation_fingerprint_digest !== 'string'
+    ) {
+      throw new Error('owner-operation authorized operation is invalid');
+    }
+    if (!record.source || typeof record.source !== 'object' || Array.isArray(record.source)) {
+      throw new Error('owner-operation authorized source is invalid');
+    }
+    const source = record.source as Record<string, unknown>;
+    requireExactRecordFields(
+      source,
+      ['kind', 'wallet_session_id', 'quota_id'],
+      'owner-operation authorized source',
+    );
+    if (
+      source.kind !== 'reusable_wallet_session' ||
+      typeof source.wallet_session_id !== 'string' ||
+      typeof source.quota_id !== 'string'
+    ) {
+      throw new Error('owner-operation authorized source is invalid');
+    }
+    return {
+      kind,
+      operation: {
+        kind: 'authorized_operation',
+        operation_id: operation.operation_id,
+        authorized_operation_id: operation.authorized_operation_id,
+        operation_fingerprint_digest: operation.operation_fingerprint_digest,
+      },
+      source: {
+        kind: 'reusable_wallet_session',
+        wallet_session_id: source.wallet_session_id,
+        quota_id: source.quota_id,
+      },
+    };
+  }
+  throw new Error('owner-operation authorization decision kind is invalid');
+}
+
+function parseRouterAbEd25519OperationStepUpPreparation(
+  value: unknown,
+): RouterAbEd25519OperationStepUpPreparationV1Wire {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Ed25519 operation step-up preparation is invalid');
+  }
+  const record = value as Record<string, unknown>;
+  requireExactRecordFields(
+    record,
+    [
+      'wallet_id',
+      'operation_kind',
+      'operation_id',
+      'request_id',
+      'account_id',
+      'material_activation',
+      'signing_worker_id',
+      'near_account_id',
+      'signer_slot',
+      'participant_ids',
+      'expires_at_ms',
+    ],
+    'Ed25519 owner-operation step-up preparation',
+  );
+  const operationKind = record.operation_kind;
+  if (
+    operationKind !== 'near.sign_transaction' &&
+    operationKind !== 'near.sign_delegate_action' &&
+    operationKind !== 'near.sign_nep413_message'
+  ) {
+    throw new Error('Ed25519 operation step-up kind is invalid');
+  }
+  if (
+    typeof record.wallet_id !== 'string' ||
+    typeof record.operation_id !== 'string' ||
+    typeof record.request_id !== 'string' ||
+    typeof record.account_id !== 'string' ||
+    typeof record.signing_worker_id !== 'string' ||
+    typeof record.near_account_id !== 'string' ||
+    !Number.isSafeInteger(record.signer_slot) ||
+    !Number.isSafeInteger(record.expires_at_ms) ||
+    !Array.isArray(record.participant_ids) ||
+    record.participant_ids.length !== 2 ||
+    !record.participant_ids.every(
+      (participantId) => Number.isSafeInteger(participantId) && Number(participantId) > 0,
+    )
+  ) {
+    throw new Error('Ed25519 operation step-up preparation fields are invalid');
+  }
+  const [firstParticipantId, secondParticipantId] = record.participant_ids;
+  const signerSlot = record.signer_slot;
+  const expiresAtMs = record.expires_at_ms;
+  if (
+    typeof firstParticipantId !== 'number' ||
+    typeof secondParticipantId !== 'number' ||
+    typeof signerSlot !== 'number' ||
+    typeof expiresAtMs !== 'number'
+  ) {
+    throw new Error('Ed25519 operation step-up participants are invalid');
+  }
+  return {
+    wallet_id: record.wallet_id,
+    operation_kind: operationKind,
+    operation_id: record.operation_id,
+    request_id: record.request_id,
+    account_id: record.account_id,
+    material_activation: parseRouterAbMpcMaterialActivationRef(record.material_activation),
+    signing_worker_id: record.signing_worker_id,
+    near_account_id: record.near_account_id,
+    signer_slot: signerSlot,
+    participant_ids: [firstParticipantId, secondParticipantId],
+    expires_at_ms: expiresAtMs,
+  };
+}
+
+function requireExactRecordFields(
+  record: Record<string, unknown>,
+  fields: readonly string[],
+  label: string,
+): void {
+  const expected = new Set(fields);
+  for (const key of Object.keys(record)) {
+    if (!expected.has(key)) throw new Error(`${label} contains unsupported field ${key}`);
+  }
+  for (const field of fields) {
+    if (!Object.hasOwn(record, field)) throw new Error(`${label} is missing ${field}`);
   }
 }
 
@@ -1076,6 +1309,7 @@ function routerAbSigningHttpError(args: { path: string; status: number; bodyText
       message: payload.message,
       path: args.path,
       status: args.status,
+      authorizationDecision: payload.authorizationDecision,
     });
     if (admissionError) return admissionError;
     const walletSessionError = walletSessionFailureErrorFromPayload({

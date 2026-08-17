@@ -40,10 +40,9 @@ SIGNING_WORKER_ID = "router-ab-signing-worker-staging"
 ROUTER_AB_CEREMONY_JWT_ISSUER = "https://<gateway-staging-host>"
 ROUTER_AB_CEREMONY_JWT_AUDIENCE = "router-ab"
 ROUTER_AB_CEREMONY_JWT_KEY_ID = "router-ab-ceremony-staging-r1"
+LINKED_DEVICE_WEBAUTHN_RP_ID = "<wallet-staging-host>"
+LINKED_DEVICE_WEBAUTHN_ORIGIN = "https://<app-staging-host>"
 ROUTER_AB_ECDSA_REGISTRATION_TOPOLOGY_JSON = '{"routerId":"router-ab-mpc-router-staging","signerSet":{"signer_set_id":"router-ab-staging-signers-r1","policy":"all_2","signer_a":{"role":"signer_a","signer_id":"signer-a","key_epoch":"epoch-1"},"signer_b":{"role":"signer_b","signer_id":"signer-b","key_epoch":"epoch-1"},"selected_server":{"server_id":"router-ab-signing-worker-staging","key_epoch":"epoch-1","recipient_encryption_key":"x25519:<signing-worker-output-public-key>"}},"deriverRecipientKeys":{"deriver_a":{"role":"signer_a","key_epoch":"epoch-1","public_key":"x25519:<deriver-a-envelope-public-key>"},"deriver_b":{"role":"signer_b","key_epoch":"epoch-1","public_key":"x25519:<deriver-b-envelope-public-key>"}}}'
-DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY = "x25519:<deriver-a-input-public-key>"
-DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY = "x25519:<deriver-b-input-public-key>"
-SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY = "x25519:<signing-worker-output-public-key>"
 RELAYER_ACCOUNT_ID = "seams-relayer-staging.testnet"
 RELAYER_PUBLIC_KEY = "ed25519:<staging-relayer-public-key>"
 NEAR_RPC_URL = "https://test.rpc.fastnear.com"
@@ -62,6 +61,8 @@ required = [
   "RELAY_SESSION_HMAC_SECRET",
   "ACCOUNT_ID_DERIVATION_SECRET",
   "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET",
+  "LINKED_DEVICE_OPERATOR_RECOVERY_SECRET",
+  "LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET",
   "ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK",
   "RELAYER_PRIVATE_KEY",
   "SPONSORED_EVM_EXECUTORS_JSON",

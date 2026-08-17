@@ -1,5 +1,4 @@
 pub mod ecdsa_bootstrap;
-pub mod ecdsa_export;
 
 pub use ecdsa_bootstrap::{
     Base64UrlEncodingV1, EcdsaBootstrapSecretSourceV1, EcdsaClientBootstrapAlgorithmV1,
@@ -14,16 +13,8 @@ pub use ecdsa_bootstrap::{
     SignerCoreProducerV1,
 };
 
-pub use ecdsa_export::{
-    BuildEcdsaRoleLocalExportArtifactCommandKindV1, BuildEcdsaRoleLocalExportArtifactCommandV1,
-    BuildEcdsaRoleLocalExportArtifactErrorCodeV1, BuildEcdsaRoleLocalExportArtifactOutputV1,
-    EcdsaRoleLocalExportPublicFactsV1,
-};
 
 #[cfg(feature = "ecdsa-role-local-client")]
 pub use ecdsa_bootstrap::{
     finalize_ecdsa_client_bootstrap_command_v1, prepare_ecdsa_client_bootstrap_command_v1,
 };
-
-#[cfg(feature = "ecdsa-role-local-client")]
-pub use ecdsa_export::build_ecdsa_role_local_export_artifact_command_v1;

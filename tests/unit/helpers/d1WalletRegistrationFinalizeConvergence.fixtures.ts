@@ -38,8 +38,9 @@ import {
 import { RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter } from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecoveryWalletSessionAuthorization';
 import {
   InMemoryRouterAbEd25519YaoExportService,
-  RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter,
   type RouterAbEd25519YaoExportBackend,
+  type RouterAbEd25519YaoExportAuthorizationAdapter,
+  type RouterAbEd25519YaoExportAuthorizationInput,
 } from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/export/routerAbEd25519YaoExport';
 import type { RouterAbEcdsaStrictRegistrationPort } from '../../../packages/sdk-server-ts/src/router/domains/ecdsa/routerAbEcdsaStrictRegistration';
 import {
@@ -580,6 +581,18 @@ class FailureInjectingYaoRuntime implements RouterAbEd25519YaoProductRegistratio
     return result;
   }
 
+  async replayActivatedRegistration(
+    input: Parameters<
+      RouterAbEd25519YaoProductRegistrationRuntimeV1['replayActivatedRegistration']
+    >[0],
+  ): Promise<
+    Awaited<
+      ReturnType<RouterAbEd25519YaoProductRegistrationRuntimeV1['replayActivatedRegistration']>
+    >
+  > {
+    return await this.delegate.replayActivatedRegistration(input);
+  }
+
   async installRegistrationFinalizeCapability(
     input: Parameters<
       RouterAbEd25519YaoProductRegistrationRuntimeV1['installRegistrationFinalizeCapability']
@@ -760,6 +773,15 @@ function buildCeremony(input: {
  * its own fixed ids. The receipt binding mirrors the request scope, so every
  * field it needs is derivable from that request.
  */
+/** Splits an admission request's `signing_root_id` back into scope fields. */
+function incomingSigningRootScope(
+  incoming: RouterAbEd25519YaoRegistrationAdmissionRequestV1 | undefined,
+): { projectId?: string; envId?: string } {
+  if (!incoming) return {};
+  const [projectId, envId] = String(incoming.application_binding.signing_root_id).split(':');
+  return projectId && envId ? { projectId, envId } : {};
+}
+
 export async function createActivatedFinalizeYaoRuntimeFixture(overrides?: {
   readonly admissionRequest: RouterAbEd25519YaoRegistrationAdmissionRequestV1;
   readonly signingRootVersion?: string;
@@ -782,19 +804,28 @@ export async function createActivatedFinalizeYaoRuntimeFixture(overrides?: {
     thresholdSessionId: incoming
       ? incoming.scope.threshold_session_id
       : 'threshold-finalize-convergence',
-    signerSlot: incoming
-      ? incoming.application_binding.key_creation_signer_slot
-      : 1,
+    signerSlot: incoming ? incoming.application_binding.key_creation_signer_slot : 1,
     signingWorkerId: incoming ? incoming.scope.signing_worker_id : SIGNING_WORKER_ID,
     participantIds: [1, 2],
     runtimePolicyScope: {
       ...TEST_SCOPE,
+      /* The ceremony's own project/env, so the signing root id this fixture
+         derives equals the one the incoming request carries. */
+      ...incomingSigningRootScope(incoming),
       signingRootVersion:
         incoming?.scope.root_share_epoch ?? overrides?.signingRootVersion ?? 'root-finalize-v1',
     },
     seed: 93,
     ...(incoming
-      ? { lifecycleId: incoming.scope.lifecycle_id, signerSetId: incoming.scope.signer_set_id }
+      ? {
+          lifecycleId: incoming.scope.lifecycle_id,
+          signerSetId: incoming.scope.signer_set_id,
+          /* Everything the incoming request already decided is carried rather
+             than re-invented, so the admission request this rebuilds is byte-
+             equal to the one admitted — which is what finalize compares its
+             stored signer branch against. */
+          materialActivation: incoming.scope.material_activation as never,
+        }
       : {}),
   });
   if (capability.capability.version !== 'wallet_ed25519_yao_registration_capability_v1') {
@@ -825,6 +856,38 @@ export async function createActivatedFinalizeYaoRuntimeFixture(overrides?: {
     recoveryService,
     state.export,
   );
+  const exportAuthorization: RouterAbEd25519YaoExportAuthorizationAdapter = {
+    async authorize(input: RouterAbEd25519YaoExportAuthorizationInput) {
+      const rawSessionId =
+        input.kind === 'admit'
+          ? input.body.scope.threshold_session_id
+          : input.body.binding.ceremony.lifecycle.session_id;
+      const thresholdSessionId = parseThresholdEd25519SessionId(rawSessionId);
+      if (!thresholdSessionId.ok) {
+        return {
+          ok: false as const,
+          status: 403 as const,
+          code: 'invalid_body',
+          message: thresholdSessionId.error.message,
+        };
+      }
+      return { ok: true as const, authorizationIdentity: { thresholdSessionId: thresholdSessionId.value } };
+    },
+    async resolveAuthorizationIdentity() {
+      const thresholdSessionId = parseThresholdEd25519SessionId(
+        admissionRequest.scope.threshold_session_id,
+      );
+      if (!thresholdSessionId.ok) {
+        return {
+          ok: false as const,
+          status: 403 as const,
+          code: 'invalid_body',
+          message: thresholdSessionId.error.message,
+        };
+      }
+      return { ok: true as const, authorizationIdentity: { thresholdSessionId: thresholdSessionId.value } };
+    },
+  };
   const composition = createRouterAbEd25519YaoProductRegistrationCompositionFromPortsV1({
     signingWorkerId: SIGNING_WORKER_ID,
     registrationService: registration,
@@ -835,11 +898,7 @@ export async function createActivatedFinalizeYaoRuntimeFixture(overrides?: {
     capabilities: recoveryService,
     recoveryAuthorization: new RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter(session),
     exportService,
-    exportAuthorization: new RouterAbEd25519YaoExportWalletSessionAuthorizationAdapter(session, {
-      async verifyWebAuthnAuthenticationLite(): Promise<never> {
-        throw new Error('WebAuthn export is outside the finalize convergence fixture');
-      },
-    }),
+    exportAuthorization,
     session,
   });
   return {

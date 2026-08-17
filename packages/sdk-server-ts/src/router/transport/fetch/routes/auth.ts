@@ -1,7 +1,7 @@
-import { DEFAULT_SESSION_COOKIE_NAME } from '../../../framework/routerApi';
-import { emitRouterApiWebhookEvent } from '../../../framework/routerApiWebhooks';
 import type { FetchRouterApiContext } from '../createFetchRouter';
-import { headersToRecord, json, readJson } from '../../../framework/http';
+import { json, readJson } from '../../../framework/http';
+import { extractBearerCredential } from '../../../auth/routerApiKeyAuth';
+import { resolveThresholdRuntimePolicyScope } from '../../../auth/commonRouterUtils';
 import {
   parseAuthIdentityMutationRequest,
   parseAuthProviderActionPath,
@@ -20,163 +20,68 @@ function assertNeverAuthIdentityMutation(route: never): never {
 }
 
 export async function handleAuth(ctx: FetchRouterApiContext): Promise<Response | null> {
-  const hasBearerSessionSignal = (): boolean => {
-    const authorization = String(ctx.request.headers.get('authorization') || '').trim();
-    return authorization.toLowerCase().startsWith('bearer ');
-  };
-
-  const hasCookieSessionSignal = (): boolean => {
-    const cookie = String(ctx.request.headers.get('cookie') || '').trim();
-    if (!cookie) return false;
-    const cookieName =
-      String(ctx.opts.sessionCookieName || '').trim() || DEFAULT_SESSION_COOKIE_NAME;
-    for (const part of cookie.split(';')) {
-      const chunk = String(part || '').trim();
-      if (!chunk) continue;
-      const equalsIndex = chunk.indexOf('=');
-      const name = (equalsIndex >= 0 ? chunk.slice(0, equalsIndex) : chunk).trim();
-      if (name === cookieName) return true;
-    }
-    return false;
-  };
-
-  const maybeEmitWarmExpired = async (input: {
-    code: string;
-    message: string;
-    source: string;
-    claims?: Record<string, unknown>;
-    userId?: string;
-    appSessionVersion?: string;
-    hadBearerSessionSignal?: boolean;
-    hadCookieSessionSignal?: boolean;
-  }): Promise<void> => {
-    const code = String(input.code || '').trim();
-    const shouldEmit =
-      code === 'invalid_session_version' ||
-      (code === 'unauthorized' &&
-        (Boolean(input.hadBearerSessionSignal) || Boolean(input.hadCookieSessionSignal)));
-    if (!shouldEmit) return;
-
-    await emitRouterApiWebhookEvent({
-      logger: ctx.logger,
-      webhooks: ctx.opts.routerApiWebhooks,
-      eventType: 'session.warm.expired',
-      claims: input.claims,
-      userId: input.userId,
-      payload: {
-        expired: true,
-        source: input.source,
-        reason: input.message || 'Session expired',
-        sessionKind: 'jwt',
-        code,
-        ...(input.appSessionVersion ? { appSessionVersion: input.appSessionVersion } : {}),
-      },
-    });
-  };
-
-  async function requireAppSession(input: {
-    source: string;
-  }): Promise<{ ok: true; userId: string; claims: any } | { ok: false; response: Response }> {
-    const session = ctx.opts.session;
-    if (!session) {
+  const requireWalletSession = async (): Promise<
+    { ok: true; walletId: string } | { ok: false; response: Response }
+  > => {
+    const token = extractBearerCredential(ctx.request.headers);
+    if (!token) {
       return {
         ok: false,
         response: json(
-          { ok: false, code: 'sessions_disabled', message: 'Sessions are not configured' },
-          { status: 501 },
+          { ok: false, code: 'unauthorized', message: 'No valid Wallet Session' },
+          { status: 401 },
         ),
       };
     }
-    const parsed = await session.parse(headersToRecord(ctx.request.headers));
-    if (!parsed.ok) {
-      await maybeEmitWarmExpired({
-        code: 'unauthorized',
-        message: 'No valid session',
-        source: input.source,
-        hadBearerSessionSignal: hasBearerSessionSignal(),
-        hadCookieSessionSignal: hasCookieSessionSignal(),
+    try {
+      const nowMs = Date.now();
+      const ecdsa = await ctx.service.authorizationSessions.resolveOpaqueWalletSessionToken({
+        tenantId: ctx.service.authorizationSessions.tenantId,
+        token,
+        curve: 'ecdsa',
+        nowMs,
       });
+      const resolved =
+        ecdsa ??
+        (await ctx.service.authorizationSessions.resolveOpaqueWalletSessionToken({
+          tenantId: ctx.service.authorizationSessions.tenantId,
+          token,
+          curve: 'ed25519',
+          nowMs,
+        }));
+      if (!resolved) {
+        return {
+          ok: false,
+          response: json(
+            { ok: false, code: 'unauthorized', message: 'No valid Wallet Session' },
+            { status: 401 },
+          ),
+        };
+      }
+      return { ok: true, walletId: resolved.authorization.walletId };
+    } catch {
       return {
         ok: false,
         response: json(
-          { ok: false, code: 'unauthorized', message: 'No valid session' },
-          { status: 401 },
+          { ok: false, code: 'wallet_session_unavailable', message: 'Wallet Session is unavailable' },
+          { status: 503 },
         ),
       };
     }
-    const claims: any = (parsed as any).claims || {};
-    const kindRaw = (claims as any).kind;
-    const kind = typeof kindRaw === 'string' ? kindRaw.trim() : '';
-    if (kind !== 'app_session_v1') {
-      return {
-        ok: false,
-        response: json(
-          { ok: false, code: 'unauthorized', message: 'No valid app session' },
-          { status: 401 },
-        ),
-      };
-    }
-    const userId = String((claims as any).sub || '').trim();
-    if (!userId) {
-      return {
-        ok: false,
-        response: json(
-          { ok: false, code: 'unauthorized', message: 'Invalid session' },
-          { status: 401 },
-        ),
-      };
-    }
-
-    const appSessionVersion =
-      typeof (claims as any).appSessionVersion === 'string'
-        ? String((claims as any).appSessionVersion).trim()
-        : '';
-    if (!appSessionVersion) {
-      return {
-        ok: false,
-        response: json(
-          { ok: false, code: 'unauthorized', message: 'Invalid app session' },
-          { status: 401 },
-        ),
-      };
-    }
-    const validated = await ctx.service.sessionVersions.validateAppSessionVersion({
-      userId,
-      appSessionVersion,
-    });
-    if (!validated.ok) {
-      await maybeEmitWarmExpired({
-        code: validated.code,
-        message: validated.message,
-        source: input.source,
-        claims,
-        userId,
-        appSessionVersion,
-      });
-      return {
-        ok: false,
-        response: json(
-          { ok: false, code: validated.code, message: validated.message },
-          { status: validated.code === 'internal' ? 500 : 401 },
-        ),
-      };
-    }
-
-    return { ok: true, userId, claims };
-  }
+  };
 
   async function requirePasskeyStepUp(input: {
-    userId: string;
+    walletId: string;
     stepUp: AuthPasskeyStepUpRequest;
   }): Promise<{ ok: true } | { ok: false; response: Response }> {
     const result = await ctx.service.webAuthn.verifyWebAuthnLogin(input.stepUp);
-    if (!result.ok || !result.verified || !result.userId) {
+    if (!result.ok) {
       return {
         ok: false,
         response: json(result, { status: result.code === 'internal' ? 500 : 400 }),
       };
     }
-    if (String(result.userId).trim() !== input.userId) {
+    if (String(result.userId).trim() !== input.walletId) {
       return {
         ok: false,
         response: json(
@@ -189,9 +94,9 @@ export async function handleAuth(ctx: FetchRouterApiContext): Promise<Response |
   }
 
   if (ctx.method === 'GET' && ctx.pathname === '/auth/identities') {
-    const sess = await requireAppSession({ source: 'auth.identities' });
+    const sess = await requireWalletSession();
     if (!sess.ok) return sess.response;
-    const out = await ctx.service.identity.listIdentities({ userId: sess.userId });
+    const out = await ctx.service.identity.listIdentities({ userId: sess.walletId });
     return json(out, { status: out.ok ? 200 : out.code === 'internal' ? 500 : 400 });
   }
 
@@ -205,13 +110,13 @@ export async function handleAuth(ctx: FetchRouterApiContext): Promise<Response |
     }
 
     const command = parsed.request;
-    const sess = await requireAppSession({ source: command.source });
+    const sess = await requireWalletSession();
     if (!sess.ok) return sess.response;
 
     const stepUpRequest = command.request.stepUp;
-    const stepUp = await requirePasskeyStepUp({ userId: sess.userId, stepUp: stepUpRequest });
+    const stepUp = await requirePasskeyStepUp({ walletId: sess.walletId, stepUp: stepUpRequest });
     if (!stepUp.ok) return stepUp.response;
-    await ctx.service.emailOtp.markEmailOtpStrongAuthSatisfied({ walletId: sess.userId });
+    await ctx.service.emailOtp.markEmailOtpStrongAuthSatisfied({ walletId: sess.walletId });
 
     switch (command.kind) {
       case 'link': {
@@ -224,14 +129,14 @@ export async function handleAuth(ctx: FetchRouterApiContext): Promise<Response |
         const subject = verified.providerSubject;
 
         const linked = await ctx.service.identity.linkIdentity({
-          userId: sess.userId,
+          userId: sess.walletId,
           subject,
           allowMoveIfSoleIdentity: true,
         });
         if (!linked.ok) {
           return json(linked, { status: linked.code === 'internal' ? 500 : 400 });
         }
-        const identities = await ctx.service.identity.listIdentities({ userId: sess.userId });
+        const identities = await ctx.service.identity.listIdentities({ userId: sess.walletId });
         return json(
           {
             ok: true,
@@ -256,80 +161,18 @@ export async function handleAuth(ctx: FetchRouterApiContext): Promise<Response |
         { status: 400 },
       );
     }
-    const out = await ctx.service.identity.unlinkIdentity({ userId: sess.userId, subject });
+    const out = await ctx.service.identity.unlinkIdentity({ userId: sess.walletId, subject });
     if (!out.ok) {
       return json(out, { status: out.code === 'internal' ? 500 : 400 });
     }
-    const identities = await ctx.service.identity.listIdentities({ userId: sess.userId });
-
-    const rotated = await ctx.service.sessionVersions.rotateAppSessionVersion({
-      userId: sess.userId,
-    });
-    if (!rotated.ok) {
-      return json(
-        { ok: false, code: rotated.code, message: rotated.message },
-        { status: rotated.code === 'internal' ? 500 : 400 },
-      );
-    }
-
-    const session = ctx.opts.session;
-    if (!session) {
-      return json(
-        {
-          ok: true,
-          unlinked: true,
-          subject,
-          ...(identities.ok ? { identities: identities.subjects } : {}),
-        },
-        { status: 200 },
-      );
-    }
-
-    const authHeader = String(ctx.request.headers.get('authorization') || '').trim();
-    const cookieHeader = String(ctx.request.headers.get('cookie') || '').trim();
-    const rawKind = command.request.session_kind;
-    const requestedKind = rawKind === 'cookie' ? 'cookie' : rawKind === 'jwt' ? 'jwt' : null;
-    const inferredKind =
-      requestedKind ||
-      (authHeader && /^Bearer\s+/i.test(authHeader) ? 'jwt' : cookieHeader ? 'cookie' : 'jwt');
-
-    const preserved: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(sess.claims || {})) {
-      if (
-        k === 'sub' ||
-        k === 'exp' ||
-        k === 'iat' ||
-        k === 'nbf' ||
-        k === 'jti' ||
-        k === 'iss' ||
-        k === 'aud' ||
-        k === 'kind' ||
-        k === 'appSessionVersion'
-      )
-        continue;
-      preserved[k] = v;
-    }
-
-    const token = await session.signJwt(sess.userId, {
-      ...preserved,
-      kind: 'app_session_v1',
-      appSessionVersion: rotated.appSessionVersion,
-    });
-
+    const identities = await ctx.service.identity.listIdentities({ userId: sess.walletId });
     const baseBody = {
       ok: true,
       unlinked: true,
       subject,
       ...(identities.ok ? { identities: identities.subjects } : {}),
     };
-    if (inferredKind === 'cookie') {
-      return json(baseBody, {
-        status: 200,
-        headers: { 'Set-Cookie': session.buildSetCookie(token) },
-      });
-    }
-
-    return json({ ...baseBody, jwt: token }, { status: 200 });
+    return json(baseBody, { status: 200 });
   }
 
   if (ctx.method !== 'POST') return null;
@@ -369,17 +212,43 @@ export async function handleAuth(ctx: FetchRouterApiContext): Promise<Response |
     case 'google_verify': {
       const parsed = parseGoogleLoginVerifyRequest(await readJson(ctx.request));
       if (!parsed.ok) return json(parsed.body, { status: parsed.status });
+      const runtimePolicyScope = await resolveThresholdRuntimePolicyScope({
+        explicitScopeRaw: undefined,
+        projectEnvironmentIdRaw: parsed.request.projectEnvironmentId,
+        headers: ctx.request.headers,
+        origin,
+        publishableKeyAuth: ctx.opts.publishableKeyAuth,
+        orgProjectEnv: ctx.opts.orgProjectEnv,
+      });
+      if (!runtimePolicyScope.ok) {
+        return json(
+          { ok: false, code: runtimePolicyScope.code, message: runtimePolicyScope.message },
+          { status: runtimePolicyScope.status },
+        );
+      }
+      if (!runtimePolicyScope.scope) {
+        return json(
+          {
+            ok: false,
+            code: 'runtime_policy_scope_unavailable',
+            message: 'Google Email OTP requires an active managed runtime policy scope',
+          },
+          { status: 500 },
+        );
+      }
       const result = await ctx.service.identity.verifyGoogleLogin(parsed.request);
-      if (!result.ok || !result.verified || !result.userId) {
+      if (!result.ok || !result.verified || !result.providerSubject) {
         return json(result, { status: result.code === 'internal' ? 500 : 400 });
       }
-
-      const baseBody = {
-        ok: true,
-        verified: true,
-        ...(result.email ? { email: result.email } : {}),
-      };
-      return json(baseBody, { status: 200 });
+      const resolution = await ctx.service.identity.resolveGoogleEmailOtpSession({
+        providerSubject: result.providerSubject,
+        email: result.email,
+        accountMode: parsed.request.accountMode,
+        runtimePolicyScope: runtimePolicyScope.scope,
+      });
+      return json(resolution, {
+        status: resolution.ok ? 200 : resolution.code === 'wallet_id_collision' ? 409 : 400,
+      });
     }
     default:
       return assertNeverAuthProviderAction(parsedRoute);

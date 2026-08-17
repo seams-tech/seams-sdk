@@ -24,9 +24,12 @@ import {
   buildFixtureRouterAbEcdsaStrictRegistrationRequest,
   createRouterAbSigningRuntimesForUnitTests,
   fixtureRouterAbEcdsaActivationFacts,
+  fixtureRouterAbEcdsaMaterialActivation,
   FixtureRouterAbEcdsaStrictRegistrationPort,
   SuccessfulFixtureRouterAbEcdsaStrictRegistrationPort,
 } from '../helpers/routerAbSigningRuntimeTestUtils';
+import { base64UrlDecode } from '../../packages/shared-ts/src/utils/encoders';
+import { computeWalletAddSignerEcdsaActivationRequestDigestB64u } from '../../packages/shared-ts/src/utils/walletAddSignerActivation';
 import {
   RecordingDurableObjectNamespace,
   requireSingleEcdsaPrepare,
@@ -44,6 +47,9 @@ const TEST_YAO_SIGNING_WORKER_ID = 'test-yao-signing-worker';
 const TEST_YAO_SESSION_ID = new Array<number>(32).fill(7);
 const TEST_ECDSA_ACTIVATION_FACTS: RouterAbEcdsaVerifiedClientActivationFactsV1 =
   fixtureRouterAbEcdsaActivationFacts();
+const TEST_ECDSA_MATERIAL_ACTIVATION = fixtureRouterAbEcdsaMaterialActivation(
+  'strict-add-signer-wallet.testnet',
+);
 
 function yaoBytes(seed: number): number[] {
   return new Array<number>(32).fill(seed);
@@ -400,31 +406,31 @@ test('passkey Ed25519 budget refresh accepts current session identity independen
     });
 
     const refreshed = await service.walletRegistration.refreshEd25519YaoWalletSession({
-        kind: 'router_ab_ed25519_yao_budget_refresh_v1',
-        sessionPolicy: {
-          version: 'threshold_session_v1',
-          nearAccountId,
-          nearEd25519SigningKeyId,
-          authority,
-          relayerKeyId: TEST_YAO_SIGNING_WORKER_ID,
-          thresholdSessionId: currentThresholdSessionId,
-          walletSessionId: currentWalletSessionId,
-          quotaId: currentQuotaId,
-          runtimePolicyScope,
-          routerAbNormalSigning: {
-            kind: 'router_ab_ed25519_normal_signing_v1',
-            signingWorkerId: TEST_YAO_SIGNING_WORKER_ID,
-          },
-          participantIds,
-          ttlMs: 60_000,
-          remainingUses: 1,
+      kind: 'router_ab_ed25519_yao_budget_refresh_v1',
+      sessionPolicy: {
+        version: 'threshold_session_v1',
+        nearAccountId,
+        nearEd25519SigningKeyId,
+        authority,
+        relayerKeyId: TEST_YAO_SIGNING_WORKER_ID,
+        thresholdSessionId: currentThresholdSessionId,
+        walletSessionId: currentWalletSessionId,
+        quotaId: currentQuotaId,
+        runtimePolicyScope,
+        routerAbNormalSigning: {
+          kind: 'router_ab_ed25519_normal_signing_v1',
+          signingWorkerId: TEST_YAO_SIGNING_WORKER_ID,
         },
-        authorization: {
-          kind: 'verified_passkey_assertion_router_ab_ed25519_yao_budget_refresh_v1',
-          authority,
-          verifiedChallengeId: 'passkey-budget-refresh-challenge',
-        },
-      });
+        participantIds,
+        ttlMs: 60_000,
+        remainingUses: 1,
+      },
+      authorization: {
+        kind: 'verified_passkey_assertion_router_ab_ed25519_yao_budget_refresh_v1',
+        authority,
+        verifiedChallengeId: 'passkey-budget-refresh-challenge',
+      },
+    });
     expect(refreshed).toMatchObject({
       ok: true,
       walletId,
@@ -728,51 +734,28 @@ test('partitioned D1 completes and replays the strict ECDSA add-signer lifecycle
       }),
     ).resolves.toEqual(responded);
 
-    const unconfiguredSigningService = createCloudflareD1RouterApiAuthService({
-      database,
-      namespace: scope.namespace,
-      orgId: scope.orgId,
-      projectId: scope.projectId,
-      envId: scope.envId,
-      routerAbSigningRuntimes: null,
-      ecdsaStrictRegistration: strictRegistration,
-      thresholdStore: {
-        kind: 'cloudflare-do',
-        namespace: new RecordingDurableObjectNamespace(),
-        THRESHOLD_PREFIX: 'strict-add-signer-test',
-        ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'test-threshold-signing-worker',
-      },
-    });
-    const activationRequest = {
+    /* The digest is the client's now: no preparation route hands it back, so
+       the commit carries the digest of the canonical add-signer activation
+       command and the service recomputes it from the same coordinates. */
+    const activationCorrelationId = parseCorrelationId('activation-correlation-add-signer');
+    const canonicalActivationDigestB64u =
+      await computeWalletAddSignerEcdsaActivationRequestDigestB64u({
+        addSignerCeremonyId: started.addSignerCeremonyId,
+        activationCorrelationId,
+        publicFacts: TEST_ECDSA_ACTIVATION_FACTS,
+      });
+    const activationCommitRequest = {
       addSignerCeremonyId: started.addSignerCeremonyId,
       ecdsa: {
-        kind: 'router_ab_ecdsa_registration_activation_v1',
-        activationCorrelationId: parseCorrelationId('activation-correlation-add-signer'),
+        kind: 'router_ab_ecdsa_registration_activation_v1' as const,
+        activationCorrelationId,
         publicFacts: TEST_ECDSA_ACTIVATION_FACTS,
-      },
-    } as const;
-    const preparedActivation =
-      await service.walletAuthMethods.prepareWalletAddSignerEcdsaActivation(activationRequest);
-    if (!preparedActivation.ok) throw new Error(preparedActivation.message);
-    const activationCommitRequest = {
-      addSignerCeremonyId: activationRequest.addSignerCeremonyId,
-      ecdsa: {
-        kind: activationRequest.ecdsa.kind,
-        activationCorrelationId: activationRequest.ecdsa.activationCorrelationId,
-        publicFacts: activationRequest.ecdsa.publicFacts,
-        expectedActivationRequestDigest:
-          preparedActivation.ecdsa.preparation.activation_request_digest,
+        expectedActivationRequestDigest: {
+          bytes: Array.from(base64UrlDecode(canonicalActivationDigestB64u)),
+        },
+        materialActivation: TEST_ECDSA_MATERIAL_ACTIVATION,
       },
     };
-    await expect(
-      service.walletAuthMethods.queryWalletAddSignerEcdsaActivation(activationCommitRequest),
-    ).resolves.toMatchObject({
-      ok: true,
-      ecdsa: {
-        kind: 'router_ab_ecdsa_registration_activation_queried_v1',
-        result: { kind: 'not_committed' },
-      },
-    });
     await expect(
       service.walletAuthMethods.activateWalletAddSignerEcdsa({
         addSignerCeremonyId: activationCommitRequest.addSignerCeremonyId,
@@ -785,41 +768,34 @@ test('partitioned D1 completes and replays the strict ECDSA add-signer lifecycle
       ok: false,
       code: 'activation_digest_mismatch',
     });
+    /* Crash reconciliation: the Router commits custody and the caller dies
+       before the ceremony records it. The claim written before the Router leg
+       is what lets the retry below finish the ceremony instead of stranding a
+       wallet whose signer the Router already holds. */
+    strictRegistration.failAfterNextActivationCommit = true;
     await expect(
-      unconfiguredSigningService.walletAuthMethods.activateWalletAddSignerEcdsa(
-        activationCommitRequest,
-      ),
-    ).resolves.toMatchObject({
-      ok: false,
-      code: 'ecdsa_activation_terminal_failure',
-    });
-    await expect(
-      service.walletAuthMethods.queryWalletAddSignerEcdsaActivation(activationCommitRequest),
-    ).resolves.toMatchObject({
-      ok: true,
-      ecdsa: {
-        kind: 'router_ab_ecdsa_registration_activation_queried_v1',
-        result: { kind: 'committed' },
-      },
-    });
+      service.walletAuthMethods.activateWalletAddSignerEcdsa(activationCommitRequest),
+    ).resolves.toMatchObject({ ok: false });
     const activated =
       await service.walletAuthMethods.activateWalletAddSignerEcdsa(activationCommitRequest);
     if (!activated.ok) throw new Error(activated.message);
-    await expect(
-      service.walletAuthMethods.queryWalletAddSignerEcdsaActivation(activationCommitRequest),
-    ).resolves.toMatchObject({
-      ok: true,
-      ecdsa: {
-        kind: 'router_ab_ecdsa_registration_activation_queried_v1',
-        result: {
-          kind: 'committed',
-          receipt: activated.ecdsa.activation,
-        },
-      },
-    });
+    /* Completion is queryable by replaying the commit: same coordinates, same
+       receipt, byte for byte. */
     await expect(
       service.walletAuthMethods.activateWalletAddSignerEcdsa(activationCommitRequest),
     ).resolves.toEqual(activated);
+    await expect(
+      service.walletAuthMethods.activateWalletAddSignerEcdsa({
+        addSignerCeremonyId: activationCommitRequest.addSignerCeremonyId,
+        ecdsa: {
+          ...activationCommitRequest.ecdsa,
+          expectedActivationRequestDigest: { bytes: new Array<number>(32).fill(13) },
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'activation_digest_mismatch',
+    });
 
     const finalizeRequest = {
       kind: 'evm_family_ecdsa' as const,

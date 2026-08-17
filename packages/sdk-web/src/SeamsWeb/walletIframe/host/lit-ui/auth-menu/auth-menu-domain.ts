@@ -125,7 +125,17 @@ export type AuthMenuLinkDeviceState =
       readonly qrCodeDataURL: string;
       readonly message: string;
     }
-  | { readonly kind: 'error'; readonly message: string };
+  | {
+      readonly kind: 'passkey_required';
+      readonly message: string;
+    }
+  | {
+      readonly kind: 'creating_passkey';
+      readonly message: string;
+    }
+  | { readonly kind: 'activating'; readonly message: string }
+  | { readonly kind: 'error'; readonly message: string }
+  | { readonly kind: 'activation_error'; readonly message: string };
 
 export type AuthMenuLinkDeviceViewModel = AuthMenuViewModelCommon & {
   readonly kind: 'link_device';
@@ -158,6 +168,9 @@ export type AuthMenuIntent =
     }
   | {
       readonly kind: 'link_device_open';
+    }
+  | {
+      readonly kind: 'link_device_create_passkey';
     }
   | {
       readonly kind: 'registration_reroll';
@@ -217,6 +230,7 @@ export function isAuthMenuIntent(value: unknown): value is AuthMenuIntent {
       return record.mode === 'login' || record.mode === 'register';
     case 'back':
     case 'link_device_open':
+    case 'link_device_create_passkey':
     case 'registration_reroll':
       return true;
     case 'submit':

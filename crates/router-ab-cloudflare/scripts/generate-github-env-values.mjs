@@ -78,9 +78,6 @@ const OBSOLETE_GATEWAY_VARIABLE_NAMES = new Set([
   'EMAIL_OTP_RUNTIME_PROFILE',
   'EMAIL_OTP_DEMO_ALLOWED_ORIGINS',
   'GOOGLE_OIDC_CLIENT_ID',
-  'SEAMS_OIDC_EXCHANGE_JSON',
-  'EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_MAX',
-  'EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_WINDOW_MS',
   'EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_MAX',
   'EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS',
 ]);
@@ -1185,12 +1182,6 @@ function buildGatewayOptionalDeploymentConfig(input) {
       `${input.environmentPrefix}-gateway`,
       'GOOGLE_OIDC_CLIENT_ID',
     ) || checkedInOptional?.googleOidcClientId;
-  const oidcExchangeJson = readSuppliedValue(
-    suppliedValues,
-    input.target,
-    `${input.environmentPrefix}-gateway`,
-    'SEAMS_OIDC_EXCHANGE_JSON',
-  );
   return {
     nearRelayer: relayerAccountId
       ? {
@@ -1201,9 +1192,6 @@ function buildGatewayOptionalDeploymentConfig(input) {
         }
       : null,
     googleOidcClientId: googleOidcClientId || null,
-    oidcExchange: oidcExchangeJson
-      ? parseSuppliedJsonObject('SEAMS_OIDC_EXCHANGE_JSON', oidcExchangeJson)
-      : checkedInOptional?.oidcExchange || null,
   };
 }
 

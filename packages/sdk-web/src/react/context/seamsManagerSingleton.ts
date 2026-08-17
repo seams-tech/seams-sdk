@@ -3,7 +3,7 @@ import { buildConfigsFromEnv } from '@/core/config/defaultConfigs';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { SeamsConfigsReadonly, SeamsConfigsInput } from '@/core/types/seams';
 
-// Singleton to prevent multiple manager instances in StrictMode and across HMR/module duplication.
+// Keep one live manager per window and replace it when the runtime configuration changes.
 //
 // IMPORTANT: Only persist on `window` (not Node/SSR globalThis) to avoid leaking
 // state across server requests/tests.
@@ -26,17 +26,6 @@ function getSingletonState(): SingletonState {
     g[WINDOW_SINGLETON_KEY] = { manager: null, configKey: null } satisfies SingletonState;
   }
   return g[WINDOW_SINGLETON_KEY] as SingletonState;
-}
-
-function isDevRuntime(): boolean {
-  const env = (globalThis as any)?.process?.env?.NODE_ENV;
-  if (env && env !== 'production') return true;
-  try {
-    const h = typeof window !== 'undefined' ? window.location.hostname || '' : '';
-    if (/localhost|127\.(?:0|[1-9]\d?)\.(?:0|[1-9]\d?)\.(?:0|[1-9]\d?)|\.local(?:host)?$/i.test(h))
-      return true;
-  } catch {}
-  return false;
 }
 
 function stableStringify(value: unknown): string {
@@ -99,13 +88,10 @@ export function getOrCreateSeamsManager(
     return state.manager;
   }
 
-  // Guardrail: treat config as immutable after the first creation to avoid leaking resources
-  // (iframes/workers/listeners) by re-instantiating on re-renders.
-  if (state.configKey && state.configKey !== nextKey && isDevRuntime()) {
-    console.warn(
-      '[SeamsContextProvider] Ignoring config changes after initialization. Ensure you pass a stable config object; appearance changes should go through `seams.setAppearance` or the provider theme prop.',
-      { previousKey: state.configKey, nextKey },
-    );
+  if (state.configKey !== nextKey) {
+    state.manager.dispose();
+    state.manager = new SeamsWeb(config, nearClient);
+    state.configKey = nextKey;
   }
 
   return state.manager;

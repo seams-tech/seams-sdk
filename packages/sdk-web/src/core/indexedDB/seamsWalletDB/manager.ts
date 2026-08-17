@@ -1,11 +1,11 @@
 import { openDB, type IDBPDatabase } from 'idb';
 import {
   SEAMS_WALLET_DB_CONFIG,
-  SEAMS_WALLET_SCHEMA_VERSION,
-  installSeamsWalletDBSchema,
+  upgradeSeamsWalletDBSchema,
   type SeamsWalletDBConfig,
 } from './schema';
 import { SEAMS_WALLET_DB_NAME, type SeamsWalletStoreName } from '../schemaNames';
+import { deleteObsoleteStandaloneWalletDatabases } from './obsoleteDatabases';
 
 export type SeamsWalletTransactionMode = 'readonly' | 'readwrite';
 
@@ -119,29 +119,36 @@ export class SeamsWalletDBManager {
     if (!this.dbPromise) {
       deleteRetiredVersionedWalletDatabase();
       const dbName = this.config.dbName;
+      const dbVersion = this.config.dbVersion;
       let blockedTimer: ReturnType<typeof setTimeout> | null = null;
       let rejectBlockedOpen: ((error: Error) => void) | null = null;
       const blockedOpen = new Promise<IDBPDatabase>((_resolve, reject) => {
         rejectBlockedOpen = reject;
       });
-      const openPromise = openDB(dbName, SEAMS_WALLET_SCHEMA_VERSION, {
-        upgrade(db) {
-          installSeamsWalletDBSchema(db);
+      const openPromise = openDB(dbName, dbVersion, {
+        upgrade(db, _oldVersion, _newVersion, tx) {
+          upgradeSeamsWalletDBSchema(db, tx);
         },
         blocked() {
-          console.warn('[SeamsWalletDBManager] IndexedDB open is blocked.', { dbName });
+          console.warn('[SeamsWalletDBManager] IndexedDB open is blocked.', {
+            dbName,
+            dbVersion,
+          });
           blockedTimer = setTimeout(() => {
             rejectBlockedOpen?.(seamsWalletDbOpenBlockedError(dbName));
           }, INDEXED_DB_BLOCKED_OPEN_TIMEOUT_MS);
         },
-        blocking() {
+        blocking: () => {
           console.warn('[SeamsWalletDBManager] IndexedDB connection is blocking an upgrade.', {
             dbName,
+            dbVersion,
           });
+          this.close();
         },
         terminated() {
           console.warn('[SeamsWalletDBManager] IndexedDB connection has been terminated.', {
             dbName,
+            dbVersion,
           });
         },
       });
@@ -160,7 +167,11 @@ export class SeamsWalletDBManager {
         throw error;
       });
     }
-    return await this.dbPromise;
+    const db = await this.dbPromise;
+    if (this.config.dbName === SEAMS_WALLET_DB_NAME) {
+      await deleteObsoleteStandaloneWalletDatabases();
+    }
+    return db;
   }
 
   async runTransaction<T>(

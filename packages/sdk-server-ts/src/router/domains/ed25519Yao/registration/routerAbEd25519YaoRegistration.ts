@@ -28,9 +28,10 @@ import type {
 
 type RouterAbEd25519YaoRegistrationAdmissionReceiptV1 =
   RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
-type RouterAbEd25519YaoRegistrationExecuteRequestV1 =
+export type RouterAbEd25519YaoRegistrationExecuteRequestV1 =
   RouterAbEd25519YaoActivationExecuteRequestV1<'registration'>;
-type RouterAbEd25519YaoRegistrationResultV1 = RouterAbEd25519YaoActivationResultV1<'registration'>;
+export type RouterAbEd25519YaoRegistrationResultV1 =
+  RouterAbEd25519YaoActivationResultV1<'registration'>;
 
 export type RouterAbEd25519YaoRegistrationFailureCode =
   | 'invalid_backend_response'

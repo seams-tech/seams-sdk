@@ -1,563 +1,781 @@
-# Refactor 107: Signing-Session Step-Up Fallback
+# Refactor 107: Delete the Wallet App Session Plane
 
 Date created: August 12, 2026
 
-Last reconciled: August 13, 2026
+Last reconciled: August 16, 2026 against the landed implementation
+(`7dabc3769`, `a68098fd6`, `5666434c7` and follow-ups)
 
-Status: Planned
+Status: Phases 0–4 landed. Phase 5 is open: two stale wallet app-session test
+files remain, and the final gate (integrated E2E, migration/readiness check,
+`pnpm check`) has not been recorded as run.
 
-Implementation starts after Refactors 100–103 are implemented and green. The
-rough delivery estimate is two working days with four agents. It is an estimate,
-not a reason to add scheduling or coordination machinery.
+## Reconciliation Verdict
 
-## Outcome
+R107 is the right next plan with a simpler boundary than the original draft.
+The remaining problems are duplicated signing-authorization planning across
+the server, SDK, iframe, and curve-specific flows, plus a wallet app session
+whose responsibilities are already owned by narrower authorities. The current
+client retries some expired or exhausted Wallet Sessions with same-method
+step-up, but the choice happens after failed signing requests and is
+implemented separately for NEAR and EVM-family operations.
 
-Wallet unlock creates a signing session. A signing session is a short-lived,
-budgeted authorization for multiple signing operations.
+R107 moves that choice to one server-owned admission decision.
 
-The server selects the authorization path for each operation:
+R107 removes application authentication from the wallet SDK. Applications may
+use any authentication system and then pass an untrusted wallet locator to the
+SDK. That locator selects a wallet; it never proves ownership. The wallet
+server prepares the exact owner ceremony required to open the wallet and create
+signing authorization. Passkey and Email OTP remain the two owner methods in
+R107. Their verifiers produce one server-internal `VerifiedOwnerProof` rather
+than app-session state.
+
+Successful owner authentication creates an opaque, D1-backed Wallet Session.
+The browser receives a random bearer token with no authorization claims. The
+gateway hashes and resolves that token, validates its live wallet, authority,
+budget, expiry, and revocation state, and passes a trusted internal admission
+record to signing workers. Client-visible Wallet Session JWTs and duplicated
+claim validation are deleted.
+
+Wallet-owner authentication has two protocol branches:
+
+- built-in passkey;
+- built-in Email OTP.
+
+Refresh restores an untrusted wallet/auth-method locator and asks the server
+for the next exact ceremony. Hosted-wallet iframe handoff uses a single-use,
+origin-bound exchange capability. Wallet administration and vault operations
+require fresh operation-bound owner proof. None of those paths needs a
+long-lived `ActiveAuthorizationSession` or an application JWT.
+
+Console authentication remains an independent console session. R107 does not
+change it.
+
+R107 has four deliverables:
+
+1. centralize owner authorization around `VerifiedOwnerProof`;
+2. make passkey and Email OTP its only proof producers;
+3. finish opaque, server-resolved Wallet Sessions;
+4. remove wallet AppSession JWTs and every obsolete app-session dependency.
+
+The replacement seams land before their old consumers are deleted so each
+vertical slice remains testable throughout the cutover.
+
+R107 also has two implementation constraints:
+
+- reduce conceptual and operational complexity by deleting duplicate session,
+  claim-validation, fallback-planning, and persistence paths;
+- finish with a net reduction in production source lines. Report forward
+  migrations, generated artifacts, tests, and documentation separately so they
+  cannot hide implementation growth.
+
+New seams must replace old seams in the same refactor. Wrappers, dual paths,
+compatibility branches, and another generic wallet login-session abstraction
+fail this constraint.
+
+The result is:
 
 ```text
-valid signing session with remaining budget
-  -> atomically authorize the operation and consume session budget
-
-missing, expired, exhausted, or user-ended signing session
-  -> request same-method step-up
-  -> atomically authorize exactly one operation
+owner signing request
+  -> valid reusable Wallet Session
+       -> atomically claim AuthorizedOperation and consume quota
+  -> recoverable Wallet Session unavailability
+       -> return exact same-method step-up preparation
+       -> verify one operation-bound proof
+       -> atomically claim one quota-neutral AuthorizedOperation
+  -> invalid identity, authority, lane, material, or operation binding
+       -> hard denial
 ```
 
-Step-up is the fallback for signing-session unavailability. It does not create,
-renew, or replenish a signing session.
+Step-up authorizes one operation. It does not create, renew, or replenish a
+reusable Wallet Session.
 
-Key export always requires fresh, operation-bound step-up. Signing-session state
-never admits or blocks export.
+Key export continues to require fresh owner proof. The existing export flows
+already implement that product behavior; R107 keeps it as an admission
+invariant and removes any remaining dependency on a reusable signing session.
 
-Wallet authentication no longer depends on an AppSession JWT. Passkey and Email
-OTP proof directly create either:
+## Current Architecture To Simplify
 
-- a signing session during unlock; or
-- one `AuthorizedOperation` during step-up.
+The implemented Refactor 100–103 model has independent authority planes. R107
+keeps those boundaries while deleting the redundant wallet app-session plane.
 
-The Google SSO + Email OTP user experience stays the same. Google remains part
-of registration and cold account discovery for a Google-backed Email OTP
-authority. Once the wallet and active authority are known, unlock and step-up
-use Email OTP without reopening Google SSO.
+| Plane                         | Current authority                                                                                | R107 responsibility                                         |
+| ----------------------------- | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------- |
+| Application authentication    | Wallet SDK app-session and provider-specific bootstrap paths                                     | Delete; applications bring their own authentication         |
+| Wallet owner authentication   | Built-in passkey and Email OTP paths coupled to wallet app sessions                              | Both produce one server-internal `VerifiedOwnerProof`       |
+| Wallet discovery and handoff  | `ActiveAuthorizationSession`, browser projection, hosted-wallet exchange                         | Use untrusted locators and one-time exchange                |
+| Signing authorization         | Wallet Session JWT, linked-device authorization, quotas, `AuthorizedOperation`, verified step-up | Use opaque D1-backed sessions and central owner admission   |
+| Signing identity and material | `WalletKey`, active `SigningLane`, exact `MpcMaterialActivationRef`, share and revocation epochs | Re-resolve before admission and execution; never mutate     |
+| Custody and execution         | Factor-wrapped owner custody, opaque workers, curve-specific Router A/B execution                | Require an operation claim before custody or execution open |
+| Console authentication        | `console_session_v1`                                                                             | Preserve as the console-only session boundary               |
 
-Registration remains a separate ceremony that establishes the authority.
-Unlock and step-up resolve an already-established active authority. Preserve
-the current Google token, provider-subject, email, issuer/audience, expiry, and
-redirect-integrity checks while removing the AppSession intermediary.
+Concrete implementation evidence:
 
-## Required Scope
+- `packages/sdk-server-ts/src/authorization/domain.ts` already defines the
+  disjoint `AuthorizationGrant`, `OperationAuthorizationSource`, and
+  `AuthorizedOperation` unions.
+- `packages/sdk-server-ts/src/authorization/factorEvidence.ts` still contains
+  wallet paths that bind evidence to `ActiveAuthorizationSession`, copy its
+  session and device IDs, and clamp evidence expiry to the app session. R107
+  replaces those wallet paths with operation-bound evidence and deletes the
+  obsolete session-bound records after vault and administration move.
+- `packages/sdk-web/src/core/types/seams.ts` projects authentication,
+  `ReusableWalletSessionState`, capability readiness, and linked-device state
+  as separate lifecycle unions. R107 preserves that separation.
+- `packages/sdk-web/src/core/signingEngine/session/operationState/authorizationAdmission.ts`
+  and the NEAR/EVM signing flows already implement client-side retry decisions.
+  R107 replaces those policy decisions with rendering of a server decision.
+- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signingFlow.ts`
+  already models owner and linked-device authorization as a discriminated
+  union. R107 keeps those branches explicit.
+- `packages/sdk-web/src/core/signingEngine/session/lanes/linkedDeviceExecutionBundle.ts`
+  binds a linked session to its enrollment, device, wallet keys, child lanes,
+  activations, permission, and revocation epoch. Owner fallback must never
+  manufacture or replace that bundle.
 
-R107 implements only the work needed for that outcome:
+## Refactor 100–103 Invariants
 
-1. Remove wallet AppSession issuance, admission, and persistence dependencies.
-2. Let passkey and Email OTP proof create a signing session directly.
-3. Let fresh passkey and Email OTP proof create one operation authorization
-   without an active signing session.
-4. Make the server authoritative for choosing signing-session authorization,
-   step-up, or hard denial.
-5. Apply the same authorization behavior to NEAR Ed25519 and EVM ECDSA signing.
-6. Make both owner key-export paths step-up-only.
-7. Preserve Refactors 100–103 custody, key, lane, material, and linked-device
-   rules.
-8. Reclassify every wallet route so an expired signing session cannot block the
-   narrow bootstrap needed to authenticate again.
-9. Remove wallet-only AppSession code after the new path works.
+### Refactor 100: owner custody
 
-The following work is deliberately excluded:
+- Passkey and Email OTP are factor-specific ways to open the same portable
+  owner custody.
+- Factor proof, KEKs, custody seeds, roots, and holder shares stay inside their
+  owning workers.
+- A fresh authorization proof does not create new signing material or change a
+  public key.
+- Lock, expiry, success, and failure preserve the existing zeroization rules.
 
-- a repository-wide `WalletSession` to `SigningSession` symbol rename;
-- a new console-session architecture;
-- new Google OIDC nonce or redirect-state plumbing;
-- new export-target, custody, lane, or key abstractions;
-- linked-device redesign beyond connecting R103's existing proof and local-
-  presence path to the common authorization decision;
-- historical migration rewrites;
-- source-text guards, generated planning artifacts, or exhaustive test matrices.
+### Refactor 101: wallet keys and lanes
 
-The implementation may retain current `WalletSession*` symbols. This document
-uses “signing session” as the domain term. A mechanical rename can happen later
-as one atomic change if it is still worthwhile.
+- `WalletKey` is the stable signing identity.
+- `SigningLane` is one independently revocable holder/server execution path.
+- Every operation resolves one active wallet key, lane, participant binding,
+  share epoch, revocation epoch, and material activation.
+- Authorization completes before root, share, presignature, Client,
+  SigningWorker, or relayer work begins.
+- Export accepts owner authorization only.
 
-## Post-103 Baseline
+### Refactor 102: rotation and activation
 
-R107 assumes these refactors are complete:
+- Lane creation and refresh preserve the wallet public identity.
+- A fresh `MpcMaterialActivationRef` identifies each activated lane epoch.
+- Authorization identity never aliases lane identity, activation identity, or
+  an aggregate enrollment receipt.
+- Stale, retired, superseded, or revoked material is a hard denial. Fresh proof
+  cannot reactivate it.
 
-| Refactor | Remains authoritative for | R107 changes |
-| --- | --- | --- |
-| R100 | encrypted owner custody, factor unwrap, recovery envelopes, worker capabilities | authorization entry only |
-| R101 | `WalletKey`, active `SigningLane`, exact execution preparation, export permissions | authorization selection only |
-| R102 | provisioning, refresh, activation, epochs, material and lane revocation | no lifecycle changes |
-| R103 | linked-device enrollment, permissions, local presence, child lanes, revocation | session-unavailable fallback through its existing proof path |
+### Refactor 103: linked devices
 
-Authorization and signing material stay separate. Signing sessions remain bound
-to tenant, principal, wallet, and active authentication authority. The operation
-claim resolves and binds the current key, lane, material, and revocation epochs.
-R107 does not add lane or material sets to the session.
+- A linked device owns a distinct `LinkedDeviceWalletSessionAuthorizationV1`,
+  quota, enrollment, device identity, child-lane set, and revocation epoch.
+- Every linked signature requires local user presence and a signing-only
+  permission.
+- Linked-device signing stays on its existing linked routes and active
+  execution bundle.
+- An unavailable linked Wallet Session returns a linked-device renewal or
+  denial result. It never falls through to owner passkey or owner Email OTP
+  step-up.
+- Linked-device and delegated lanes remain unable to export or recover keys.
 
-An inactive, stale, or revoked lane remains a hard failure. Fresh authentication
-cannot reactivate signing material or bypass a linked-device restriction.
+## Terminology
 
-## Authentication Methods and UX
+Use the current domain names precisely during the cutover:
 
-Keep the existing `WalletAuthAuthorityRef` and
-`EmailOtpWalletAuthAuthority` model. Email OTP continues to support its current
-provider variants, including the Google-backed authority. R107 does not add a
-parallel `GoogleEmailOtp` domain type.
+- **wallet locator** — untrusted local wallet ID plus auth-method ID used only
+  to request the next server-prepared ceremony;
+- **application authentication** — authentication owned entirely by the
+  integrating application; it is outside the wallet SDK and grants no wallet
+  authority;
+- **verified owner proof** — server-internal, short-lived, single-use evidence
+  produced by a built-in owner-method verifier and bound to one wallet-session
+  mint or one exact operation;
+- **hosted-wallet exchange** — short-lived, single-use, origin-bound delivery
+  capability created by successful login or registration and consumed once by
+  the wallet host;
+- **opaque Wallet Session** — random bearer token whose hash identifies one
+  server-side `WalletSessionAuthorization`, budget, expiry, and revocation
+  state; the token contains no claims;
+- **step-up evidence** — fresh factor evidence bound to one exact operation;
+- **threshold session** — curve-local cryptographic session identified by
+  `thresholdSessionId`;
+- **signing lane** — durable share-bearing execution material;
+- **material activation** — exact active cryptographic capability identity.
 
-The required ceremonies are:
+R107 does not perform a repository-wide `WalletSession` rename. The current
+symbols remain valid when they describe reusable signing authorization.
 
-| Situation | Ceremony | Result |
-| --- | --- | --- |
-| Passkey unlock | passkey assertion | signing session |
-| Passkey operation step-up | operation-bound passkey assertion | one `AuthorizedOperation` |
-| Google-backed cold entry | existing Google SSO, Email OTP, and client unlock-key proof | signing session |
-| Known-wallet Email OTP unlock | Email OTP and existing client unlock-key proof | signing session |
-| Known-wallet Email OTP step-up | operation-bound Email OTP | one `AuthorizedOperation` |
+## Required Outcome
 
-Cold Email OTP unlock must preserve the current custody boundary. OTP
-verification yields the one-use challenge consumed by the enrolled client
-unlock-key signature; OTP alone does not unseal custody or mint the signing
-session.
+R107 delivers the following behavior for owner operations:
 
-Google participates again only when discovery or re-establishing the Google-
-bound authority genuinely requires it. Signing-session expiry by itself never
-causes a Google prompt.
+1. Registration and unlock create an opaque Wallet Session with the configured
+   budget and expiry.
+2. Transaction signing consumes that session while it is active and has enough
+   uses.
+3. Missing, expired, exhausted, or explicitly ended owner sessions produce one
+   same-method step-up preparation when the authority and material remain
+   active.
+4. Fresh passkey or Email OTP proof claims exactly one quota-neutral
+   `AuthorizedOperation`.
+5. NEAR, Tempo, and EVM use the same decision contract.
+6. Key export always uses fresh owner proof and never consumes reusable signing
+   quota.
+7. Invalid credentials and stale identity or material fail without a prompt
+   loop.
+8. Page refresh restores wallet UI from untrusted locators or wallet-host local
+   state without an app authorization session.
+9. Vault and wallet administration require fresh owner proof bound to the exact
+   operation.
+10. Linked-device authorization and console sessions keep their independent
+    boundaries.
+11. Application authentication is absent from wallet SDK types, routes,
+    storage, and iframe messages.
 
-## Server-Authoritative Authorization
+## Server Authorization Decision
 
-The client supplies the operation and either a presented signing-session token
-or an explicit no-session attempt with an untrusted known-wallet locator. Raw
-request input is normalized once into a discriminated union.
-
-The server returns one exhaustive result:
+Reuse the existing operation, grant, quota, and material types. Add one shared
+decision union at the server boundary:
 
 ```ts
-type OperationAuthorizationDecision =
+type OwnerOperationAuthorizationDecision =
   | {
       readonly kind: 'authorized';
-      readonly source: 'signing_session' | 'operation_step_up';
-      readonly operation: AuthorizedOperation;
+      readonly operation: Extract<AuthorizedOperation, { lifecycle: 'claimed' }>;
+      readonly source: Extract<
+        OperationAuthorizationSource,
+        { readonly kind: 'authorization_grant' | 'verified_step_up' }
+      >;
+      readonly stepUp?: never;
+      readonly denial?: never;
     }
   | {
       readonly kind: 'step_up_required';
       readonly reason:
-        | 'signing_session_missing'
-        | 'signing_session_expired'
-        | 'signing_session_exhausted'
-        | 'signing_session_ended'
-        | 'signing_session_scope_unavailable';
-      readonly preparation: OperationStepUpPreparation;
+        | 'wallet_session_missing'
+        | 'wallet_session_expired'
+        | 'wallet_session_exhausted'
+        | 'wallet_session_ended'
+        | 'wallet_session_superseded';
+      readonly stepUp: OwnerOperationStepUpPreparation;
+      readonly operation?: never;
+      readonly source?: never;
+      readonly denial?: never;
     }
   | {
       readonly kind: 'denied';
-      readonly reason: OperationAuthorizationDenial;
+      readonly denial: OwnerOperationAuthorizationDenial;
+      readonly operation?: never;
+      readonly source?: never;
+      readonly stepUp?: never;
     };
 ```
 
-There is one server planner. Client, iframe, and worker code render the requested
-ceremony and return its proof. They do not reproduce session-validity or
-fallback policy.
+The exact shared type should reuse the established NEAR and ECDSA step-up
+preparation records rather than introducing another curve-specific payload.
+Boundary parsers normalize route input once. Core admission receives only the
+precise branch it can execute.
 
-Authorization follows this order:
+The planner runs in this order:
 
-1. Parse and fingerprint the exact operation using the post-103 canonical
-   operation types.
-2. Resolve the current wallet, principal, authentication authority, key, lane,
-   material, enrollment, and revocation state.
-3. Validate a presented signing session.
-4. Atomically claim an `AuthorizedOperation` and consume quota when the session
-   is usable.
-5. Return `step_up_required` for recoverable session unavailability.
-6. Verify fresh operation-bound proof, then atomically claim one
-   `AuthorizedOperation`.
-7. Open custody or begin MPC work only after the claim succeeds.
+1. Parse and fingerprint the exact operation.
+2. Resolve tenant, principal, wallet, active owner authority, wallet key,
+   signing lane, share epoch, revocation epoch, and material activation.
+3. Reject invalid identity, operation, or material bindings.
+4. Hash and resolve a presented opaque Wallet Session token, then validate its
+   live server-side authorization.
+5. Atomically claim and consume quota when it is usable.
+6. Return an exact same-method step-up preparation for recoverable session
+   unavailability.
+7. Verify fresh operation-bound proof and atomically claim one quota-neutral
+   operation.
+8. Open custody or start MPC only after the claim succeeds.
 
-The following conditions permit fallback:
+### Recoverable unavailability
 
-- no signing session was presented;
-- the signing session expired or exhausted its budget;
-- the user ended or superseded the signing session while its authentication
-  authority remains active;
-- a valid same-wallet session lacks permission for the requested operation.
+These states may request same-method owner step-up:
 
-The following conditions are hard denials:
+- no reusable owner Wallet Session is available;
+- the session expired;
+- its quota is exhausted;
+- the user explicitly ended it;
+- its projection was superseded and re-resolution found the same active owner
+  authority.
 
-- malformed token, bad signature, wrong issuer, audience, tenant, or origin;
-- cross-wallet or cross-principal presentation;
-- revoked or replaced authentication authority;
-- revoked linked-device enrollment;
-- inactive, stale, superseded, or revoked key, lane, epoch, or material;
-- operation fingerprint, intent, display, or lane mismatch;
-- consumed, expired, or replayed challenge or evidence.
+### Hard denial
 
-This distinction prevents a bad credential from being downgraded into a fresh
-authentication prompt. “Signing session ended” and “authentication authority
-revoked” must remain different lifecycle states in code and persistence.
+These states fail directly:
 
-## Session-Independent Step-Up Evidence
+- unknown, expired, revoked, or malformed opaque token;
+- wrong issuer, audience, origin, tenant, principal, or wallet;
+- auth-method substitution;
+- revoked or replaced owner authority;
+- linked-device token presented to an owner route;
+- revoked linked enrollment;
+- inactive, stale, retired, superseded, or revoked key, lane, epoch, or
+  material activation;
+- operation, lane, intent, display, fingerprint, or material mismatch;
+- expired, consumed, or replayed step-up challenge or evidence;
+- unavailable authorization persistence or other server infrastructure
+  failure.
 
-The current factor-evidence path requires an `ActiveAuthorizationSession`,
-copies its session and device IDs, and clamps proof expiry to the AppSession.
-Remove that dependency for wallet operation step-up.
+An infrastructure failure is never converted into a user prompt.
 
-The operation-bound evidence must contain validated, required fields for:
+## Verified Owner Proof
 
-- tenant, principal, wallet, and active authority;
-- proof kind and replay identity;
-- exact capability and operation kind;
-- canonical lane, intent, and display digests already defined by R101–103;
-- origin and audience where the factor protocol requires them;
-- verification and expiry timestamps.
+Passkey and Email OTP verification converge on one server-internal proof. This
+is the central authorization seam for R107.
 
-It must not contain an AppSession ID, AppSession version, or signing-session
-authorization. The operation claim re-reads the active authority and current
-key/lane/material state before accepting the evidence.
+```ts
+type VerifiedOwnerProofCommon = {
+  readonly kind: 'verified_owner_proof_v1';
+  readonly proofId: VerifiedOwnerProofId;
+  readonly method: 'passkey' | 'email_otp';
+  readonly tenantId: TenantId;
+  readonly principalId: PrincipalId;
+  readonly walletId: WalletId;
+  readonly authority: WalletAuthAuthorityRef;
+  readonly origin: string;
+  readonly audience: string;
+  readonly replayIdentity: string;
+  readonly verifiedAtMs: number;
+  readonly expiresAtMs: number;
+};
 
-Passkey challenges bind the RP ID, allowed credential, origin, wallet,
+type VerifiedOwnerProof = VerifiedOwnerProofCommon &
+  (
+    | {
+        readonly purpose: 'wallet_session';
+        readonly operation?: never;
+      }
+    | {
+        readonly purpose: 'operation';
+        readonly operation: OwnerOperationBinding;
+      }
+  );
+```
+
+`VerifiedOwnerProof` is never serialized to the browser. The verifier creates
+it after resolving the active owner authority and consuming the exact factor
+challenge. The authorization service consumes it once to mint an opaque Wallet
+Session or claim one `AuthorizedOperation`.
+
+The proof carries no app authorization session ID, app-session version, copied
+app device ID, reusable Wallet Session authorization, quota, threshold session,
+or material activation. A factor-specific credential or challenge identity
+remains part of the verifier's replay state when its protocol requires it.
+
+Passkey preparation binds RP ID, allowed credential, origin, wallet, owner
 authority, purpose, and exact operation fingerprint.
 
-Email OTP challenges bind the server-resolved active authority, stored email
-and provider subject, tenant, wallet, purpose, origin/audience, exact operation
-fingerprint, expiry, and attempt limits. The destination email comes from the
-stored authority, never from the request.
+Email OTP preparation resolves the destination from the stored active authority
+and binds tenant, principal, wallet, provider subject, purpose, origin/audience,
+operation fingerprint, expiry, and attempt limits. The request never supplies
+the destination email.
 
-Challenges remain short-lived, rate-limited, single-use, and atomically
-consumed with the authorization claim. Responses remain opaque enough to avoid
-wallet, account, and authentication-method enumeration.
+Challenges remain short-lived, rate-limited, opaque, single-use, and atomically
+consumed with Wallet Session minting or the operation claim.
 
-## Known-Wallet Bootstrap After Expiry
+## Wallet Connection Bootstrap
 
-The client needs a way to begin OTP or passkey authentication after losing its
-signing session. Persist the existing wallet ID and authentication-authority ID
-as untrusted locators. They grant no authority.
+The application authenticates its own users outside this SDK. It may then call
+the wallet SDK with a wallet ID and auth-method ID retained by the browser or
+application. Those values are untrusted locators and grant no authority.
 
-The server uses those locators only to find and re-resolve the exact active
-wallet and method. It applies origin/audience checks, enumeration-safe
-responses, and existing challenge rate limits before returning a narrow
-ceremony preparation. Provider subjects, email addresses, credential inventory,
-key material, and broad wallet state are never returned by this bootstrap.
+The bootstrap route:
 
-An expired JWT may be decoded for diagnostics only. Its claims cannot serve as
-the locator or authorization source.
+1. resolves the exact active wallet and owner authority;
+2. applies origin, audience, tenant, and rate-limit checks;
+3. returns only the next passkey or Email OTP ceremony preparation;
+4. keeps email, provider subject, credential inventory, key material, and broad
+   wallet state private.
 
-Known-wallet OTP unlock uses OTP without Google SSO and still performs the
-existing client unlock-key proof. Known-wallet OTP operation step-up ends at one
-`AuthorizedOperation`; it does not unlock the wallet.
+Known-wallet Email OTP unlock keeps the existing client unlock-key proof. OTP
+alone cannot open custody or create an opaque Wallet Session.
+
+Application OAuth, OIDC, and API sessions remain outside wallet domain state
+and grant no wallet authority.
+
+This bootstrap replaces wallet app-session refresh. A successful owner ceremony
+may mint only the opaque Wallet Session, operation evidence, or one-time
+hosted-wallet exchange required by the caller.
+
+## Deferred External Owner Methods
+
+External verification webhooks are outside R107. R107 creates the future
+extension seam by making passkey and Email OTP produce the same
+`VerifiedOwnerProof`. A later refactor may add another server-side verifier that
+produces this proof after explicit console configuration, wallet enrollment,
+challenge binding, and custody binding.
+
+R107 adds no external-verifier routes, persistence, SDK branches, webhook
+configuration, signing keys, or environment variables. Application sessions
+and arbitrary application JWTs remain unable to produce `VerifiedOwnerProof`.
+
+## Hosted-Wallet Iframe Handoff
+
+The iframe needs delivery, not a parallel login authority.
+
+1. Successful registration or login mints one opaque exchange capability for
+   the exact app origin and wallet-host origin.
+2. The outer app transfers that capability to the wallet host.
+3. The host consumes it once and receives only the wallet projection and opaque
+   Wallet Session explicitly included in the delivery.
+4. The wallet host stores the opaque token in its own origin. The outer
+   application never receives it.
+5. Refresh uses host-local persisted projection and Wallet Session state. When
+   those are unavailable, the host uses wallet connection bootstrap.
+6. Replay, wrong origin, expiry, or identity mismatch fails closed.
+
+Delete the source `ActiveAuthorizationSession` requirement from exchange mint
+and redemption. The exchange record itself owns origin, audience, wallet,
+expiry, nonce, and consumption state.
+
+## Vault And Wallet Administration
+
+Vault access, recovery mutation, device management, and other sensitive wallet
+administration use fresh owner proof bound to one exact operation. They do not
+accept a reusable signing Wallet Session and do not require an app
+authorization session.
+
+Non-sensitive wallet UI reads use local projections or narrowly scoped public
+status routes. If a read cannot be safe with an untrusted wallet locator and
+origin/rate-limit checks, require fresh owner proof. Do not introduce a
+replacement generic wallet login session.
 
 ## Export Admission
 
-Reuse the exact NEAR and EVM export requests, custody rules, operation
-fingerprints, and owner-lane restrictions produced by R100–103. R107 adds no
-export target type.
+The current post-103 export model is already correct and remains authoritative:
 
-For both curves:
+1. select the exact active owner export lane and material activation;
+2. prepare the operation-bound ceremony for the enrolled owner method;
+3. verify fresh owner proof;
+4. atomically claim a quota-neutral `AuthorizedOperation` with
+   `authorization.kind === 'verified_step_up'`;
+5. re-resolve the lane and activation;
+6. open custody and execute export.
 
-1. Prepare the exact export operation without requiring a signing session.
-2. Request fresh passkey or Email OTP proof from the active owner authority.
-3. Create session-independent step-up evidence.
-4. Atomically claim the quota-neutral `AuthorizedOperation`.
-5. Re-resolve the active owner lane and material.
-6. Open custody and execute export.
+The request type rejects reusable Wallet Session and linked-device
+authorization branches with `never` fields. R107 removes remaining app-session
+coupling from export evidence and does not redesign the export workers or
+viewer.
 
-Linked-device and delegated lanes remain unable to export. A signing-session
-token in an export request is rejected at the request boundary rather than
-consulted by admission.
+## Owner And Linked-Device Dispatch
 
-## Route and Persistence Cutover
+Keep the outer signing dispatch exhaustive:
 
-### Wallet routes
+```ts
+type SigningAuthority =
+  | { readonly kind: 'owner' }
+  | {
+      readonly kind: 'linked_device';
+      readonly execution: ActiveLinkedDeviceExecutionBundleV1;
+      readonly localPresence: LinkedDeviceLocalPresenceAssertionV1;
+    };
+```
 
-Classify every wallet route in the post-103 route registry and enforce the
-classification centrally:
+Use exhaustive `switch` statements at the public NEAR and EVM-family dispatch
+boundaries. The owner branch calls the R107 planner. The linked-device branch
+continues through its linked normal-signing routes, exact child lane, local
+presence proof, authorization grant, and quota. Tempo continues to share the
+EVM-family branch.
 
-1. **Opaque bootstrap** — cold discovery, known-wallet challenge preparation,
-   and minimal expired-session status.
+## Persistence And Migration
+
+The current signer baseline already contains:
+
+- `authorization_sessions`, which R107 removes after its remaining wallet
+  exchange, vault, and administration consumers migrate;
+- `authorization_wallet_session_quotas` for reusable signing budget;
+- `authorized_operations` and audit events for atomic operation lifecycle;
+- `verified_grant_evidence_sets`, whose current `session_id` foreign key also
+  serves non-wallet authorization;
+- linked-device authorization and quota tables.
+
+Keep reusable and linked-device tables intact. Add one wallet-operation step-up
+evidence table or an equally narrow replacement branch without an
+`authorization_sessions` foreign key. Use the existing
+`authorized_operations.authorization_source_kind = 'verified_step_up'`
+admission path.
+
+Store only a hash of each opaque Wallet Session token. The session row owns its
+wallet, owner authority, quota, expiry, revocation, and replacement state. A
+gateway lookup converts the public token into a narrow trusted internal
+admission record. Router, Deriver, SigningWorker, and application code never
+parse Wallet Session claims. Remove Wallet Session JWT signing keys, issuers,
+claim types, parsers, and claim-copying persistence after the cutover.
+
+Migration rules:
+
+1. Treat the currently deployed canonical `0001_signer_d1_initial.sql` as an
+   immutable baseline for fresh databases.
+2. Add a new numbered forward migration for the R107 persistence change.
+3. Never rewrite an applied migration under the same filename or migration ID.
+4. Add the new table and required columns to signer readiness checks before
+   deployment.
+5. Cut over once. Remove old wallet reads and writes in the same change; do not
+   add dual-write or runtime compatibility paths.
+6. Drop `authorization_sessions` and its wallet-only evidence foreign keys once
+   no wallet route reads them. Preserve unrelated persistence only when a
+   current non-wallet domain still owns it.
+7. Revoke opaque sessions by updating their authoritative D1 row; no token
+   blocklist or secondary revocation cache is needed.
+
+These rules incorporate the post-103 canonical-schema model and prevent a
+fresh local database from diverging from an already-migrated staging database.
+
+## Route Boundary
+
+Classify wallet routes by their actual authority requirement:
+
+1. **Wallet discovery** — wallet connection challenge preparation and minimal
+   public status from untrusted locators.
 2. **Proof completion** — passkey, OTP, and client unlock-key verification.
-3. **Operation admission** — server decision followed by signing-session claim
-   or operation step-up.
-4. **Signing-session management** — creation, active-session inspection, and
-   revocation.
-5. **Wallet administration** — the existing fresh-auth policy for the exact
-   administrative operation.
+3. **Owner operation admission** — R107 authorization decision followed by
+   signing or export.
+4. **Opaque Wallet Session management** — mint, resolve, inspect, consume, and
+   revoke server-side signing authorization.
+5. **Linked-device operation admission** — existing linked session, local
+   presence, permission, enrollment, and lane checks.
+6. **Hosted-wallet handoff** — mint and consume one origin-bound, single-use
+   exchange delivery.
+7. **Wallet administration and vault** — fresh operation-bound owner proof for
+   recovery, custody access, device management, and other sensitive actions.
 
-No route receives a blanket signing-session requirement. Bootstrap routes
-return only the information needed for the next proof. Local wallet lock always
-works; a server revocation attempt may be best-effort when the session is
-already unavailable.
+Use the existing route composition and shared parsers. A new route registry is
+unnecessary unless the current code cannot express one of these boundaries.
+Console `console_session_v1` stays isolated and wallet routes reject its token
+kind and audience.
 
-Implement this as one registry derived from the actual post-103 routes, mapping
-each route to its admission class and bootstrap requirement. Do not create a
-separate planning artifact. Reuse existing route tests and add coverage only
-for missing fallback, bootstrap, and credential-isolation behavior.
+Application authentication has no wallet route category. The SDK public API
+accepts a locator, owner-ceremony responses, and operation requests. It does
+not accept an application JWT or an application-authenticated principal as
+wallet authority.
 
-### Persistence
+## Implementation Plan
 
-Use a forward migration. Preserve historical migrations.
+### Phase 0 — Readiness
 
-`authorization_sessions` and `verified_grant_evidence_sets` currently also
-serve non-wallet capabilities such as vault access. Do not delete those shared
-tables as part of the wallet fix. Split wallet operation evidence into the
-narrow session-independent persistence branch required by
-`AuthorizedOperation` admission, then remove wallet reads and writes from the
-old branch. There is no dual-write or runtime compatibility path after cutover.
+- [x] Make staging `SIGNER_DB` readiness green with the current post-103
+      canonical schema.
+- [x] Run the existing intended-behavior contract once to record the baseline.
+- [x] Identify the current owner NEAR and EVM-family retry call sites and the
+      shared server admission functions they already use.
+- [x] Inventory every wallet `ActiveAuthorizationSession`, AppSession JWT, and
+      client-visible Wallet Session JWT producer and consumer.
+- [x] Record the production-source line baseline for those owned paths and list
+      the abstractions that R107 will delete.
 
-The wallet evidence branch must enforce exact operation binding, expiry,
-single-use consumption, active-authority revalidation, and atomic operation
-claim. Existing reusable signing-session quota and `AuthorizedOperation`
-lifecycle machinery remain in place.
+### Phase 1 — Centralize verified owner proof
 
-Remove wallet `sessionHash`, `appSessionVersion`, AppSession foreign keys,
-claims, route middleware, client payloads, iframe messages, and worker inputs
-after their replacements are live. Delete obsolete wallet-only fixtures and
-tests with them.
+- [x] Add the exact server-internal `VerifiedOwnerProof` union and boundary
+      builders.
+- [x] Make passkey and Email OTP the only proof producers.
+- [x] Add session-independent owner factor evidence and remove app-session
+      fields from new challenges and evidence.
+- [x] Consume the proof once for either opaque Wallet Session minting or one
+      quota-neutral `AuthorizedOperation` claim.
+- [x] Prove one EVM-family operation-bound step-up vertical slice first.
 
-### Console isolation
+### Phase 2 — Finish opaque Wallet Sessions and owner admission
 
-Keep the existing console-specific `console_session_v1` implementation. Console
-redesign is outside R107. Wallet routes must reject console token kinds and
-audiences, and console code must not import wallet authorization middleware.
+- [x] Add the exhaustive owner authorization decision and boundary parser.
+- [x] Replace client-visible Wallet Session JWTs with hashed opaque tokens and
+      authoritative D1 lookup at the gateway.
+- [x] Pass a narrow trusted admission record from the gateway to internal
+      signing services; remove claim parsing from workers.
+- [x] Add the forward signer migration and readiness requirement.
+- [x] Reuse `OperationAuthorizationSource`, `AuthorizedOperation`, quota, and
+      current operation fingerprints.
+- [x] Route NEAR transaction, delegate, and NEP-413 signing through the same
+      server decision.
+- [x] Render server `step_up_required` preparations with the current passkey and
+      Email OTP UI/worker flows.
+- [x] Remove NEAR and EVM-family client policy that infers fallback from failed
+      signing responses.
+- [x] Preserve in-flight admission waiting as a retry, with no user prompt.
 
-This means R107 removes AppSession from the wallet security plane. Any generic
-authorization-session persistence still required by vault capabilities and the
-isolated console session remain separate systems with separate audiences.
+### Phase 3 — Remove wallet AppSessions
 
-## Four-Agent Implementation Plan
+- [x] Verify export remains fresh-owner-proof-only for both curves.
+- [x] Move vault, recovery mutation, device management, and sensitive wallet
+      administration to fresh operation-bound owner proof.
+- [x] Replace hosted-wallet source-session exchange with a self-contained,
+      origin-bound, single-use delivery capability.
+- [x] Restore wallet UI after refresh from host-local projection or untrusted
+      wallet/auth-method locators plus wallet connection bootstrap.
+- [x] Remove provider-specific application login and discovery from the wallet
+      SDK public API. Applications bring their own authentication.
+- [x] Remove app-session minting from wallet registration and unlock.
+- [x] Remove AppSession JWT parsing, signing keys, claims, routes, iframe
+      messages, and persistence from wallet code after their replacement
+      boundaries are live.
+- [x] Remove Wallet Session JWT issuance, parsing, keys, claims, and duplicated
+      identity checks after opaque session lookup is live.
+- [x] Remove app session ID, app-session version, and copied app device identity
+      from wallet operation step-up evidence and challenges.
+- [x] Remove duplicate client fallback policy and obsolete retry helpers.
+- [x] Remove wallet-only persistence reads, fixtures, and tests that encode the
+      retired coupling. Deleted `tests/unit/sessionTokens.unit.test.ts`
+      (tested the removed `requireAppSessionJwt` / `requireWalletSessionJwt` /
+      `appOrWalletSessionJwtAuth` / `parseAppSessionJwt` helpers),
+      `tests/unit/walletIframeHostedSessionSource.unit.test.ts` (keyed
+      hosted-wallet exchange on `appSessionJwt`; `HostedWalletSeamsSessionSource`
+      now carries `walletSessionToken`), and
+      `tests/unit/walletIframeUnlockOptions.unit.test.ts` (asserted the retired
+      `session: {kind:'jwt'}` PM_UNLOCK option and `ecdsaKeyFactsInventory`
+      `mode:'app_session'`); dropped the same retired `session` option from
+      `tests/wallet-iframe/router.behavior.test.ts`. Repaired
+      `tests/unit/walletIframeAuthHandlers.unit.test.ts` and
+      `tests/unit/walletIframeHost.emailOtpRecoveryCodes.unit.test.ts` onto the
+      current boundary: the host rejects a parent-supplied `walletSessionToken`,
+      injects its own origin token for `mode:'opaque_wallet_session'` key-facts
+      lookups, passes `mode:'webauthn'` through, clears hosted sessions on lock,
+      and keeps the redeemed token out of every parent-facing message.
+      `tests/unit/walletIframe.signerModeConfigPropagation.unit.test.ts` needed
+      no change — its `kind:'jwt'` values are `EcdsaSignerProvisioningSession`
+      config, not the retired PM_UNLOCK session option.
+- [x] Delete wallet `ActiveAuthorizationSession` types, services, D1 rows, and
+      foreign keys after the last wallet consumer is gone.
+- [x] Delete application-auth provider types and iframe messages from the wallet
+      SDK.
+- [x] Do not replace it with another generic wallet login-session abstraction.
 
-Land one small, compilable foundation change first. It defines the final
-authorization-decision union, session-independent wallet evidence shape,
-request-boundary attempt union, and typed `step_up_required` response. While it
-lands, the other agents can derive the post-103 route manifest, locate current
-call sites, and prepare focused tests. All later branches build on this seam.
+### Phase 4 — Preserve adjacent authority branches
 
-After that seam merges, four agents work concurrently:
+- [x] Keep owner and linked-device dispatch exhaustive and separate.
+- [x] Verify linked-device expiry, quota exhaustion, local presence, and
+      revocation remain on the R103 path.
+- [x] Keep console authorization isolated and unchanged.
+- [x] Keep one-time hosted-wallet handoff, wallet administration, and vault
+      authorization outside the reusable signing planner.
 
-### Agent 1 — Direct authentication and persistence
+### Phase 5 — Final gate
 
-Owns:
+- [x] Update `docs/intended-behaviours.md` and its authoritative contract with
+      the changed server-owned decision.
+- [x] Run focused tests while each vertical slice lands.
+- [x] Run one integrated intended-behavior E2E covering an active Wallet
+      Session, expired/exhausted fallback, passkey, Email OTP, NEAR, and
+      EVM-family signing
+      (`tests/e2e/intended-behaviours/passkey.unlock.contract.test.ts`,
+      `email-otp.unlock.contract.test.ts`, `harness.ts`
+      `exhaustSigningBudget`). Manual verification passed alongside it.
+- [x] Run the signer migration/readiness check.
+- [x] Report production lines added and deleted. Production source must be net
+      negative; list migration, generated, test, and documentation totals
+      separately. Measured `978c565f1..dc2eeb21f` — production source
+      (`packages|crates|wasm|apps` under `src/`, excluding `*.typecheck.ts`):
+      +19,104 / −31,771 (net **−12,667**); type fixtures: +296 / −1,372;
+      signer migrations: +313 / −0; tests: +1,875 / −9,492; docs: +1,409 /
+      −2,166.
+- [x] Confirm the final architecture has fewer authorization/session concepts,
+      route branches, token parsers, and persistence paths than the baseline.
+- [ ] Run `pnpm check` once.
+- [ ] Commit, then reconcile this document with the landed implementation.
 
-- shared auth types and boundary parsers;
-- wallet factor-evidence builders;
-- passkey and Email OTP challenge bindings;
-- known-wallet bootstrap and unlock verification;
-- the forward signer migration and persistence adapter;
-- removal of wallet AppSession producers.
+## Required Type Guarantees
 
-Delivers direct proof-to-signing-session and proof-to-operation evidence for
-both wallet auth methods. Owns focused auth and migration tests.
+Keep focused type fixtures for these invalid states:
 
-### Agent 2 — Server planning, admission, and execution
+1. export input cannot carry reusable Wallet Session or linked-device
+   authorization;
+2. an authorization decision cannot contain both an admitted operation and a
+   step-up preparation;
+3. owner step-up evidence cannot carry app-session or reusable-session fields;
+4. linked-device execution cannot enter the owner fallback planner;
+5. a verified-step-up operation is quota-neutral;
+6. a reusable owner operation consumes exactly one Wallet Session quota;
+7. a wallet locator cannot satisfy owner proof or operation authorization;
+8. wallet SDK inputs cannot carry application JWTs or application auth state;
+9. public opaque tokens cannot be constructed as trusted internal admission
+   records;
+10. a `VerifiedOwnerProof` cannot be both a Wallet Session mint proof and an
+    operation-bound proof;
+11. a `VerifiedOwnerProof` cannot be constructed from browser input or
+    serialized as a public bearer credential;
+12. passkey and Email OTP are the exhaustive R107 owner-method union.
 
-Owns:
+## Required Behavioral Evidence
 
-- the single server authorization planner;
-- signing-session availability classification;
-- atomic `AuthorizedOperation` admission;
-- NEAR Ed25519 and EVM ECDSA signing/export route handlers;
-- revalidation before custody opening and MPC execution;
-- removal of wallet AppSession consumers in server operation paths.
+The integrated contract must prove:
 
-Delivers one end-to-end server path first, then applies the same established
-path to the other curve. Owns focused planner, replay, and admission tests.
-
-### Agent 3 — SDK, iframe, worker, and UX
-
-Owns:
-
-- client handling of `authorized`, `step_up_required`, and `denied`;
-- passkey and OTP prompts requested by the server;
-- known-wallet locator persistence;
-- wallet unlock, transaction signing, and export orchestration;
-- iframe/worker protocol cleanup;
-- removal of wallet AppSession payloads and client-side duplicate planning.
-
-Delivers unchanged Google + OTP cold UX, OTP-only known-wallet flows, and
-successful fallback after session expiry. Owns focused client and iframe tests.
-
-### Agent 4 — Route boundary and continuous integration
-
-Owns:
-
-- the central wallet route-admission registry and concrete route manifest;
-- isolation of the existing console session from wallet middleware;
-- intended-behavior contracts and the three type-level invalid-state checks;
-- shared barrels or central files that would otherwise cause merge conflicts;
-- continuous integration of Agents 1–3 from the foundation change onward.
-
-Agent 4 does not redesign console authentication. It keeps the working branch
-compilable and runs the narrow checks as each operating path lands.
-
-Each agent owns tests and obsolete-fixture deletion for its source area. Agents
-avoid editing another agent's modules. Agent 4 owns genuine central-file
-conflicts.
-
-## Phased TODO List
-
-The phases express code dependencies. Agents work concurrently inside a phase
-where ownership permits. Integration starts with the foundation change and
-continues throughout implementation.
-
-### Phase 0 — Shared seam
-
-- [ ] Define the exhaustive server `OperationAuthorizationDecision` union.
-- [ ] Define session-independent wallet factor evidence and boundary parsers.
-- [ ] Define the request union for presented-session and no-session attempts.
-- [ ] Add the typed `step_up_required` response to the shared protocol.
-- [ ] Land the forward schema shape without changing historical migrations.
-- [ ] Confirm the shared seam compiles before parallel source changes begin.
-
-### Phase 1 — Direct authentication foundation
-
-- [ ] Agent 1: remove `ActiveAuthorizationSession` from wallet step-up factor
-  evidence and expiry calculation.
-- [ ] Agent 1: bind passkey and Email OTP challenges to the active authority and
-  exact operation fingerprint.
-- [ ] Agent 1: implement the opaque known-wallet authentication bootstrap.
-- [ ] Agent 1: preserve Google-backed cold entry and client unlock-key proof.
-- [ ] Agent 1: make passkey and known-wallet Email OTP unlock create signing
-  sessions directly.
-- [ ] Agent 4: add the central route-admission registry and classify the routes
-  needed by the first operating path.
-
-### Phase 2 — First complete operating path
-
-- [ ] Agent 2: implement the server authorization planner and the exact split
-  between recoverable signing-session unavailability and hard denial.
-- [ ] Agent 2: atomically claim `AuthorizedOperation` from session-independent
-  step-up evidence.
-- [ ] Agent 2: make NEAR Ed25519 transaction signing fall back to step-up after
-  signing-session expiry.
-- [ ] Agent 2: make NEAR Ed25519 export step-up-only and independent of signing-
-  session state.
-- [ ] Agent 3: handle `step_up_required` and perform the server-selected passkey
-  or Email OTP ceremony.
-- [ ] Agent 3: prove the full expired-session flow through client, iframe, and
-  worker without reopening Google SSO for known-wallet Email OTP.
-- [ ] Agent 4: integrate the vertical slice and run its focused auth, admission,
-  route, and client tests.
-
-### Phase 3 — Complete supported operations
-
-- [ ] Agent 2: apply the established planner and admission path to EVM ECDSA
-  transaction signing and export.
-- [ ] Agent 2: re-resolve active authority, key, lane, material, and revocation
-  state before custody opening or MPC execution on both curves.
-- [ ] Agent 3: finish unlock, signing, and export orchestration for both wallet
-  authentication methods and curves.
-- [ ] Agent 4: classify every remaining wallet route and enforce its admission
-  class centrally.
-- [ ] Connect R103 linked-device signing to the common decision while preserving
-  its permissions, local-presence requirement, and hard revocation behavior.
-- [ ] Isolate `console_session_v1` so wallet routes reject console credentials.
-
-### Phase 4 — Delete the retired wallet path
-
-- [ ] Remove wallet AppSession producers, middleware, claims, and persistence
-  dependencies.
-- [ ] Remove `sessionHash` and `appSessionVersion` from wallet challenges and
-  operation evidence.
-- [ ] Remove wallet AppSession payloads from SDK, iframe, and worker protocols.
-- [ ] Remove duplicate client-side authorization planning.
-- [ ] Delete wallet-only fixtures, tests, and helpers that enforce the retired
-  AppSession path.
-- [ ] Confirm vault authorization and the existing console session remain
-  isolated and functional.
-
-### Phase 5 — Verify and finish
-
-- [ ] Update `docs/intended-behaviours.md` and its contracts with the behavior
-  change.
-- [ ] Add the three required type-level invalid-state checks.
-- [ ] Run the focused tests for each changed operating path.
-- [ ] Run the intended-behavior contracts and signer migration check.
-- [ ] Run `pnpm check` once on the integrated change.
-- [ ] Confirm every completion criterion below and remove any obsolete wallet
-  AppSession code uncovered by verification.
-
-## Required Verification
-
-Update `docs/intended-behaviours.md` and its authoritative contracts in the same
-change as the behavior.
-
-The minimum behavioral coverage is:
-
-- an active signing session signs without a prompt and consumes budget;
-- missing, expired, exhausted, and user-ended sessions produce one same-method
-  step-up and then sign successfully;
-- passkey and known-wallet Email OTP fallback work for NEAR and EVM;
-- Google-backed cold unlock keeps Google SSO + OTP + client unlock-key proof;
-- known-wallet Email OTP unlock and step-up never reopen Google SSO;
-- NEAR and EVM export work after session expiry and always require fresh proof;
-- successful step-up creates one operation and no signing session;
-- invalid token, cross-wallet binding, wrong origin/audience, revoked authority,
-  revoked enrollment, stale lane/material, replay, and operation mismatch fail
-  without a prompt loop;
-- challenge bootstrap works after expiry without exposing method inventory;
-- linked-device fallback preserves R103 permission, local-presence, and
-  revocation rules;
-- wallet routes reject console credentials;
-- no wallet client, iframe, worker, route, or operation-admission path requires
-  an AppSession.
-
-Keep three type-level checks for the changed domain seam:
-
-1. export input cannot carry signing-session authorization;
-2. known-wallet OTP ceremony cannot carry Google provider evidence;
-3. an authorization decision cannot contain both signing-session and step-up
-   state.
-
-Prefer updating existing fixtures and contracts. Add a new test only when no
-current authoritative test owns the behavior. Classify failures before changing
-production code; delete tests that exist solely for the retired AppSession path.
-
-Run, in order:
-
-1. focused auth, planner, persistence, client, and route tests owned by each
-   changed path;
-2. the intended-behavior contracts;
-3. the signer migration check;
-4. `pnpm check` once after integration.
+- active owner Wallet Sessions sign without a prompt and consume budget;
+- missing, expired, exhausted, ended, and safely superseded sessions request
+  one same-method step-up and then sign;
+- passkey and known-wallet Email OTP fallback work for NEAR, Tempo, and EVM;
+- changing or removing the application's authentication provider does not
+  change wallet owner authentication or an existing Wallet Session;
+- each built-in verifier produces the same server-internal
+  `VerifiedOwnerProof` shape after its method-specific checks;
+- a Wallet Session proof cannot authorize an operation directly, and an
+  operation proof cannot mint a reusable Wallet Session;
+- a forged wallet locator can prepare only a rate-limited ceremony and cannot
+  authorize, open custody, or inspect private wallet state;
+- opaque Wallet Session lookup, quota consumption, expiry, replacement, and
+  revocation are enforced from D1;
+- signing workers receive trusted internal admission and never parse a public
+  Wallet Session token;
+- in-flight admission waits and retries without prompting;
+- both exports always require fresh owner proof;
+- successful step-up creates one operation and no reusable Wallet Session;
+- malformed token, cross-wallet identity, wrong origin/audience, revoked
+  authority, stale material, replay, and operation mismatch fail without a
+  prompt loop;
+- linked-device signing still uses linked routes and local presence, and cannot
+  export;
+- refresh restores wallet UI without a wallet app session;
+- hosted-wallet exchange remains origin-bound and single-use without a source
+  app session;
+- the outer application never receives the wallet host's opaque Wallet Session
+  token;
+- vault and wallet administration require fresh owner proof;
+- console sessions remain functional and isolated.
 
 ## Completion Criteria
 
 R107 is complete when:
 
-- wallet unlock directly creates a signing session from verified passkey or
-  Email OTP authentication;
-- signing-session unavailability falls back to same-method step-up for every
-  permitted signing operation;
-- export admission is step-up-only and independent of signing-session state;
-- wallet operation evidence and admission have no AppSession dependency;
-- the server alone selects authorization behavior;
-- revoked identity, authority, enrollment, lane, and material states remain
-  hard denials;
-- Google-backed cold and known-wallet UX match the required ceremonies;
-- wallet routes are isolated from console and non-wallet session systems;
-- wallet AppSession runtime code and obsolete tests are deleted;
-- the required verification passes.
+- the server alone chooses reusable owner authorization, same-method step-up,
+  or hard denial for every owner signing operation;
+- NEAR, Tempo, and EVM share that decision contract;
+- wallet operation step-up evidence has no app authorization session
+  dependency;
+- wallet registration, unlock, refresh, iframe handoff, vault, and wallet
+  administration have no `ActiveAuthorizationSession` dependency;
+- the wallet SDK has no application-authentication API, provider integration,
+  app JWT, or app-session persistence;
+- passkey and Email OTP verifiers produce one exact server-internal
+  `VerifiedOwnerProof` union;
+- reusable Wallet Sessions are opaque, D1-backed, revocable bearer tokens with
+  no client-visible claims;
+- internal signing services consume trusted admission records rather than
+  public Wallet Session tokens;
+- reusable Wallet Session authorization remains budgeted and exact;
+- export remains fresh-owner-proof-only and quota-neutral;
+- linked-device authorization, local presence, lanes, and revocation retain the
+  R103 boundary;
+- key, lane, activation, custody, and execution identities retain the
+  Refactor 100–103 boundaries;
+- duplicate client fallback policy and obsolete wallet-only persistence are
+  deleted;
+- wallet app-session types, routes, and persistence are deleted rather than
+  renamed or wrapped;
+- production source has a net reduction in lines, with migrations, generated
+  artifacts, tests, and documentation reported separately;
+- the final domain model contains fewer session and authorization concepts than
+  the Refactor 100–103 baseline;
+- the migration/readiness check, integrated intended-behavior E2E, and final
+  gate all pass.
 
-## Issues Flagged by Review
+## Explicit Non-Goals
 
-These are implementation constraints, not extra projects:
-
-1. **Known-wallet bootstrap is required.** Removing AppSession without retaining
-   an untrusted wallet/authority locator would make OTP-only fallback impossible.
-2. **Bootstrap cannot require a signing session.** Authenticator inventory,
-   public-key lookup, or session-state routes must not recreate the expiry
-   lockout. Return a narrow ceremony preparation instead of broad inventory.
-3. **Shared authorization persistence cannot be deleted wholesale.** Vault
-   evidence currently references `authorization_sessions`; migrate the wallet
-   branch and leave unrelated capability storage intact.
-4. **Revocation meanings must stay separate.** Ending a signing session permits
-   fallback. Revoking its authentication authority, linked enrollment, lane, or
-   material is a hard denial.
-5. **Cold OTP unlock includes client-key proof.** Preserve that custody-unseal
-   step when removing the AppSession intermediary.
-6. **Exact route names depend on the merged R100–103 tree.** Derive the route
-   manifest from that tree once. Do not plan or implement against transitional
-   routes.
-7. **Global naming cleanup is high-conflict, behavior-neutral work.** R107 uses
-   clear domain language while leaving the mechanical symbol rename outside the
-   correctness fix.
+- repository-wide `WalletSession` renaming;
+- console-session redesign;
+- external owner methods, verification webhooks, provider plugins, and their
+  enrollment or custody model; these belong to a later refactor built on
+  `VerifiedOwnerProof`;
+- accepting application authentication as wallet authority;
+- linked-device renewal redesign;
+- new custody, key, lane, activation, export, or worker abstractions;
+- delegated-agent authorization from Refactor 104;
+- historical migration rewrites;
+- generated planning artifacts or source-text guards.

@@ -11,6 +11,7 @@ import type {
   WebAuthnRegistrationCredential,
 } from '@/core/types';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
+import type { WalletAddAuthMethodRegistrationOptions } from '@/core/rpcClients/relayer/walletRegistration';
 import type { RegistrationCredentialConfirmationPayload } from '../../workerManager/validation';
 import type { WebAuthnAllowCredential } from '../../webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
@@ -179,6 +180,7 @@ export function atomicStoreRegistrationData(
     credential: WebAuthnRegistrationCredential;
     credentialPublicKeyB64u: string;
     operationalPublicKey: string;
+    nearEd25519SigningKeyId: string;
   },
 ): Promise<StoredRegistrationData> {
   return atomicStoreRegistrationDataValue(deps.accountLifecycle, args);
@@ -277,6 +279,7 @@ export function requestRegistrationCredentialConfirmation(
     confirmerText?: { title?: string; body?: string };
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
     challengeB64u?: string;
+    registrationOptions?: WalletAddAuthMethodRegistrationOptions;
   },
 ): Promise<RegistrationCredentialConfirmationPayload> {
   return requestRegistrationCredentialConfirmationValue(deps.session, params);

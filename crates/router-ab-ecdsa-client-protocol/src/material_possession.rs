@@ -1,10 +1,12 @@
 use k256::elliptic_curve::sec1::ToEncodedPoint;
-use k256::schnorr::{Signature, VerifyingKey};
-use k256::PublicKey;
+use k256::schnorr::{Signature, SigningKey, VerifyingKey};
+use k256::{PublicKey, SecretKey};
 use sha2::{Digest, Sha256};
 
 const CLIENT_MATERIAL_POSSESSION_CHALLENGE_DOMAIN_V1: &[u8] =
     b"router-ab-ecdsa/client-material-possession/challenge/v1";
+const WALLET_RECOVERY_MATERIAL_POSSESSION_CHALLENGE_DOMAIN_V1: &[u8] =
+    b"seams/wallet-recovery/ecdsa-existing-material-possession/v1";
 
 /// Client-material possession challenge or proof failure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -140,6 +142,95 @@ impl EcdsaClientMaterialPossessionChallengeV1 {
     }
 }
 
+/// No-refresh wallet-recovery challenge bound to one exact existing ECDSA
+/// material reservation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EcdsaWalletRecoveryMaterialPossessionChallengeV1 {
+    /// Wallet that owns the recovery reservation.
+    pub wallet_id: String,
+    /// One-use recovery reservation identity.
+    pub reservation_id: String,
+    /// Replacement custody operation identity.
+    pub replacement_id: String,
+    /// Exact key-set identity selected by the recovery manifest.
+    pub key_set_id: String,
+    /// Exact key handle selected by the recovery manifest.
+    pub key_handle: String,
+    /// Digest of the registered ECDSA key manifest.
+    pub registered_key_manifest_digest32: [u8; 32],
+    /// Digest of the registered public capability.
+    pub public_capability_digest32: [u8; 32],
+    /// Digest of the authenticated authority reference.
+    pub authority_ref_digest32: [u8; 32],
+    /// Compressed client-share public key bound to the existing material.
+    pub derivation_client_share_public_key33: [u8; 33],
+    /// Server generation expected by the recovery reservation.
+    pub expected_server_generation: String,
+    /// One-use server nonce.
+    pub server_nonce32: [u8; 32],
+    /// Reservation expiry in Unix milliseconds.
+    pub expires_at_ms: u64,
+}
+
+impl EcdsaWalletRecoveryMaterialPossessionChallengeV1 {
+    /// Validates the complete no-refresh wallet-recovery challenge.
+    pub fn validate(&self) -> Result<(), EcdsaClientMaterialPossessionError> {
+        require_non_empty(&self.wallet_id)?;
+        require_non_empty(&self.reservation_id)?;
+        require_non_empty(&self.replacement_id)?;
+        require_non_empty(&self.key_set_id)?;
+        if !self.key_set_id.starts_with("evm_family_ecdsa:")
+            || self.key_set_id.len() == "evm_family_ecdsa:".len()
+        {
+            return Err(EcdsaClientMaterialPossessionError::InvalidShape);
+        }
+        require_non_empty(&self.key_handle)?;
+        require_non_empty(&self.expected_server_generation)?;
+        if self.expires_at_ms == 0 {
+            return Err(EcdsaClientMaterialPossessionError::InvalidShape);
+        }
+        validate_compressed_public_key33(&self.derivation_client_share_public_key33)
+    }
+
+    /// Returns canonical bytes for the no-refresh wallet-recovery challenge.
+    pub fn canonical_bytes(&self) -> Result<Vec<u8>, EcdsaClientMaterialPossessionError> {
+        self.validate()?;
+        let mut output = Vec::new();
+        push_bytes(
+            &mut output,
+            WALLET_RECOVERY_MATERIAL_POSSESSION_CHALLENGE_DOMAIN_V1,
+        )?;
+        push_bytes(
+            &mut output,
+            EcdsaClientMaterialPossessionProofSchemeV1::Secp256k1Bip340Sha256
+                .wire_label()
+                .as_bytes(),
+        )?;
+        push_string(&mut output, &self.wallet_id)?;
+        push_string(&mut output, &self.reservation_id)?;
+        push_string(&mut output, &self.replacement_id)?;
+        push_string(&mut output, &self.key_set_id)?;
+        push_string(&mut output, &self.key_handle)?;
+        push_bytes(&mut output, &self.registered_key_manifest_digest32)?;
+        push_bytes(&mut output, &self.public_capability_digest32)?;
+        push_bytes(&mut output, &self.authority_ref_digest32)?;
+        push_bytes(&mut output, &self.derivation_client_share_public_key33)?;
+        push_string(&mut output, &self.expected_server_generation)?;
+        push_bytes(&mut output, &self.server_nonce32)?;
+        push_bytes(&mut output, &self.expires_at_ms.to_be_bytes())?;
+        Ok(output)
+    }
+
+    /// Returns the SHA-256 digest signed by the exact existing client material.
+    pub fn digest(&self) -> Result<[u8; 32], EcdsaClientMaterialPossessionError> {
+        let digest = Sha256::digest(self.canonical_bytes()?);
+        digest
+            .as_slice()
+            .try_into()
+            .map_err(|_| EcdsaClientMaterialPossessionError::InvalidShape)
+    }
+}
+
 /// BIP340 proof of possession for one exact activation challenge.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EcdsaClientMaterialPossessionProofV1 {
@@ -167,17 +258,78 @@ pub fn verify_ecdsa_client_material_possession_proof_v1(
     proof: &EcdsaClientMaterialPossessionProofV1,
 ) -> Result<(), EcdsaClientMaterialPossessionError> {
     challenge.validate()?;
+    verify_bip340_signature(
+        &challenge.derivation_client_share_public_key33,
+        &challenge.digest()?,
+        proof,
+    )
+}
+
+/// Verifies a no-refresh wallet-recovery possession proof for its exact
+/// reservation-bound challenge.
+pub fn verify_ecdsa_wallet_recovery_material_possession_proof_v1(
+    challenge: &EcdsaWalletRecoveryMaterialPossessionChallengeV1,
+    proof: &EcdsaClientMaterialPossessionProofV1,
+) -> Result<(), EcdsaClientMaterialPossessionError> {
+    challenge.validate()?;
+    verify_bip340_signature(
+        &challenge.derivation_client_share_public_key33,
+        &challenge.digest()?,
+        proof,
+    )
+}
+
+/// Signs a no-refresh wallet-recovery challenge from one exact client share.
+///
+/// The caller owns the input buffers and must zeroize the scalar and auxiliary
+/// randomness after this function returns. `k256` owns and zeroizes its scalar
+/// and nonce intermediates while constructing the BIP340 signature.
+pub fn sign_ecdsa_wallet_recovery_material_possession_proof_v1(
+    challenge: &EcdsaWalletRecoveryMaterialPossessionChallengeV1,
+    client_share32: &[u8; 32],
+    aux_rand32: &[u8; 32],
+) -> Result<EcdsaClientMaterialPossessionProofV1, EcdsaClientMaterialPossessionError> {
+    challenge.validate()?;
+    let secret_key = SecretKey::from_slice(client_share32)
+        .map_err(|_| EcdsaClientMaterialPossessionError::InvalidProof)?;
+    let encoded_public_key = secret_key.public_key().to_encoded_point(true);
+    if encoded_public_key.as_bytes() != challenge.derivation_client_share_public_key33 {
+        return Err(EcdsaClientMaterialPossessionError::InvalidProof);
+    }
+    let signing_key = SigningKey::from_bytes(client_share32)
+        .map_err(|_| EcdsaClientMaterialPossessionError::InvalidProof)?;
+    let signature = signing_key
+        .sign_prehash_with_aux_rand(&challenge.digest()?, aux_rand32)
+        .map_err(|_| EcdsaClientMaterialPossessionError::InvalidProof)?;
+    EcdsaClientMaterialPossessionProofV1::new(signature.to_bytes())
+}
+
+fn verify_bip340_signature(
+    public_key33: &[u8; 33],
+    digest32: &[u8; 32],
+    proof: &EcdsaClientMaterialPossessionProofV1,
+) -> Result<(), EcdsaClientMaterialPossessionError> {
     if proof.scheme != EcdsaClientMaterialPossessionProofSchemeV1::Secp256k1Bip340Sha256 {
         return Err(EcdsaClientMaterialPossessionError::InvalidProof);
     }
     let signature = Signature::try_from(proof.signature64.as_slice())
         .map_err(|_| EcdsaClientMaterialPossessionError::InvalidProof)?;
-    let verifying_key =
-        VerifyingKey::from_bytes(&challenge.derivation_client_share_public_key33[1..])
-            .map_err(|_| EcdsaClientMaterialPossessionError::InvalidProof)?;
+    let verifying_key = VerifyingKey::from_bytes(&public_key33[1..])
+        .map_err(|_| EcdsaClientMaterialPossessionError::InvalidProof)?;
     verifying_key
-        .verify_raw(&challenge.digest()?, &signature)
+        .verify_raw(digest32, &signature)
         .map_err(|_| EcdsaClientMaterialPossessionError::InvalidProof)
+}
+
+fn validate_compressed_public_key33(
+    public_key33: &[u8; 33],
+) -> Result<(), EcdsaClientMaterialPossessionError> {
+    let public_key = PublicKey::from_sec1_bytes(public_key33.as_slice())
+        .map_err(|_| EcdsaClientMaterialPossessionError::InvalidShape)?;
+    if public_key.to_encoded_point(true).as_bytes() != public_key33 {
+        return Err(EcdsaClientMaterialPossessionError::InvalidShape);
+    }
+    Ok(())
 }
 
 fn require_non_empty(value: &str) -> Result<(), EcdsaClientMaterialPossessionError> {
@@ -212,8 +364,11 @@ mod tests {
     use k256::SecretKey;
 
     use super::{
-        verify_ecdsa_client_material_possession_proof_v1, EcdsaClientMaterialPossessionChallengeV1,
-        EcdsaClientMaterialPossessionError, EcdsaClientMaterialPossessionProofV1,
+        sign_ecdsa_wallet_recovery_material_possession_proof_v1,
+        verify_ecdsa_client_material_possession_proof_v1,
+        verify_ecdsa_wallet_recovery_material_possession_proof_v1,
+        EcdsaClientMaterialPossessionChallengeV1, EcdsaClientMaterialPossessionError,
+        EcdsaClientMaterialPossessionProofV1, EcdsaWalletRecoveryMaterialPossessionChallengeV1,
     };
 
     fn signing_key(secret_byte: u8) -> SigningKey {
@@ -346,6 +501,23 @@ mod tests {
         substitutions
     }
 
+    fn wallet_recovery_challenge() -> EcdsaWalletRecoveryMaterialPossessionChallengeV1 {
+        EcdsaWalletRecoveryMaterialPossessionChallengeV1 {
+            wallet_id: "wallet-1".to_owned(),
+            reservation_id: "reservation-1".to_owned(),
+            replacement_id: "replacement-1".to_owned(),
+            key_set_id: "evm_family_ecdsa:key-handle-1".to_owned(),
+            key_handle: "key-handle-1".to_owned(),
+            registered_key_manifest_digest32: [0x41; 32],
+            public_capability_digest32: [0x42; 32],
+            authority_ref_digest32: [0x43; 32],
+            derivation_client_share_public_key33: compressed_public_key33(7),
+            expected_server_generation: "server-generation-1".to_owned(),
+            server_nonce32: [0x44; 32],
+            expires_at_ms: 1_900_000_000_000,
+        }
+    }
+
     #[test]
     fn challenge_digest_vector_is_frozen() {
         assert_eq!(
@@ -420,6 +592,76 @@ mod tests {
     fn proof_constructor_rejects_noncanonical_signature() {
         assert_eq!(
             EcdsaClientMaterialPossessionProofV1::new([0u8; 64]),
+            Err(EcdsaClientMaterialPossessionError::InvalidProof),
+        );
+    }
+
+    #[test]
+    fn wallet_recovery_challenge_digest_vector_is_frozen() {
+        assert_eq!(
+            wallet_recovery_challenge()
+                .digest()
+                .expect("challenge digest"),
+            [
+                0xc1, 0xf7, 0x90, 0x90, 0x73, 0x31, 0x45, 0xee, 0x35, 0xcd, 0x04, 0x04, 0x9a, 0x90,
+                0x6c, 0xcf, 0xdf, 0x7f, 0xdb, 0x01, 0xb8, 0x21, 0xfd, 0x3c, 0x99, 0xab, 0x44, 0x29,
+                0x83, 0xfe, 0xd8, 0xbe,
+            ],
+        );
+    }
+
+    #[test]
+    fn wallet_recovery_signer_binds_scalar_parity_and_verifies() {
+        let challenge = wallet_recovery_challenge();
+        let mut client_share32 = [0u8; 32];
+        client_share32[31] = 7;
+        let aux_rand32 = [0x5a; 32];
+        let proof = sign_ecdsa_wallet_recovery_material_possession_proof_v1(
+            &challenge,
+            &client_share32,
+            &aux_rand32,
+        )
+        .expect("wallet recovery proof");
+        assert_eq!(
+            proof.signature64,
+            [
+                0x13, 0xff, 0xa1, 0xea, 0xb1, 0x50, 0x96, 0x88, 0x84, 0x70, 0x63, 0xf4, 0x7a, 0xb2,
+                0x67, 0x3b, 0xeb, 0x2e, 0x8b, 0xe7, 0xcb, 0x7d, 0x1c, 0x73, 0xf2, 0x72, 0xd9, 0x5f,
+                0x7f, 0xd7, 0x40, 0x88, 0xb1, 0x80, 0x99, 0x38, 0x46, 0xa7, 0x5f, 0x60, 0xd7, 0x3c,
+                0x7e, 0xc7, 0x18, 0x2f, 0x38, 0x31, 0xcb, 0xa8, 0xc5, 0xf8, 0x2b, 0xc5, 0x0c, 0xd0,
+                0x91, 0xb6, 0x90, 0x29, 0x8a, 0x0e, 0x15, 0x42,
+            ],
+        );
+        verify_ecdsa_wallet_recovery_material_possession_proof_v1(&challenge, &proof)
+            .expect("wallet recovery proof verifies");
+
+        let mut wrong_share32 = [0u8; 32];
+        wrong_share32[31] = 8;
+        assert_eq!(
+            sign_ecdsa_wallet_recovery_material_possession_proof_v1(
+                &challenge,
+                &wrong_share32,
+                &aux_rand32,
+            ),
+            Err(EcdsaClientMaterialPossessionError::InvalidProof),
+        );
+    }
+
+    #[test]
+    fn wallet_recovery_proof_rejects_challenge_substitution() {
+        let challenge = wallet_recovery_challenge();
+        let mut client_share32 = [0u8; 32];
+        client_share32[31] = 7;
+        let proof = sign_ecdsa_wallet_recovery_material_possession_proof_v1(
+            &challenge,
+            &client_share32,
+            &[0x5a; 32],
+        )
+        .expect("wallet recovery proof");
+        let mut substituted = challenge.clone();
+        substituted.reservation_id = "reservation-2".to_owned();
+        assert_eq!(
+            verify_ecdsa_wallet_recovery_material_possession_proof_v1(&substituted, &proof),
             Err(EcdsaClientMaterialPossessionError::InvalidProof),
         );
     }

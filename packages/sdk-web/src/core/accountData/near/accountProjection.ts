@@ -103,6 +103,7 @@ export async function upsertNearAccountProjectionRecords(args: {
       signerSource: SIGNER_SOURCES.passkeyRegistration,
       metadata: {
         ...(existingSigner?.metadata || {}),
+        nearEd25519SigningKeyId: userData.nearEd25519SigningKeyId,
         operationalPublicKey: userData.operationalPublicKey,
         passkeyCredentialId: userData.passkeyCredential?.id,
         passkeyCredentialRawId: userData.passkeyCredential?.rawId,
@@ -255,6 +256,8 @@ export async function getNearAccountProjection(
       : projection.profile.passkeyCredential?.id || passkeyCredentialRawId;
   const operationalPublicKey =
     typeof metadata.operationalPublicKey === 'string' ? metadata.operationalPublicKey : '';
+  const nearEd25519SigningKeyId = toTrimmedString(metadata.nearEd25519SigningKeyId || '');
+  if (!nearEd25519SigningKeyId) return null;
   const walletId = toTrimmedString(metadata.walletId || '');
   if (!walletId) return null;
   const authMethod = toWalletAuthMethod(projection.selectedSigner.signerAuthMethod);
@@ -273,6 +276,7 @@ export async function getNearAccountProjection(
     lastLogin: projection.profile.updatedAt,
     lastUpdated: projection.profile.updatedAt,
     operationalPublicKey,
+    nearEd25519SigningKeyId,
     passkeyCredential: {
       id: passkeyCredentialId,
       rawId: passkeyCredentialRawId,
@@ -403,6 +407,7 @@ export async function upsertNearAccountProjection(
     lastLogin: now,
     lastUpdated: input.lastUpdated ?? now,
     operationalPublicKey: input.operationalPublicKey,
+    nearEd25519SigningKeyId: input.nearEd25519SigningKeyId,
     passkeyCredential: input.passkeyCredential,
     preferences: input.preferences ?? {
       useRelayer: false,

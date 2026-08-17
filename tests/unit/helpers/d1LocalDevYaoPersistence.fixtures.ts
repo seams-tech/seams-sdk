@@ -42,7 +42,7 @@ import {
   ed25519NearPublicKeyFromBytes,
 } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoWalletSigner';
 import type { CfExecutionContext } from '../../../packages/sdk-server-ts/src/router/cloudflare/runtime/cloudflare.types';
-import { createHmacSessionAdapter } from '../../../packages/console-server-ts/src/router/cloudflare/d1StagingSession';
+import { createEd25519SessionAdapter } from '../../../packages/console-server-ts/src/router/cloudflare/d1StagingSession';
 import { buildRouterAbEd25519YaoRegistrationCapabilityRecordV1 } from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
 import { createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1 } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoProductRegistrationPartitionedStateStore';
 import { createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1 } from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationRequestScopedRuntime';
@@ -62,9 +62,15 @@ const SIGNING_WORKER_ID = 'signing-worker.local';
 const ROOT_SHARE_EPOCH = 'root-local-yao-v1';
 const SIGNING_ROOT_ID = `${PROJECT_ID}:${ENV_ID}`;
 const EXPIRES_AT_MS = 4_102_444_800_000;
-const LOCAL_SESSION_SECRET = 'local-yao-session-secret-at-least-32-bytes';
-const LOCAL_SESSION_ISSUER = 'seams-local-d1-relay';
-const LOCAL_SESSION_AUDIENCE = 'seams-local-d1';
+const LOCAL_CEREMONY_ISSUER = 'http://127.0.0.1:9090';
+const LOCAL_CEREMONY_AUDIENCE = 'router-ab';
+const LOCAL_CEREMONY_KEY_ID = 'local-router-ab-r1';
+const LOCAL_CEREMONY_PRIVATE_JWK = {
+  kty: 'OKP',
+  crv: 'Ed25519',
+  x: 'dZBo_spdvrGU19BMbbgt3_4I4QlqHoNzfr1zH3QqFyI',
+  d: 'iUlWL9uMjgvXkHHq9q0y-jfVnOEQ3nZLCObiP3tatqE',
+} as const;
 const LOCAL_ORIGIN = 'http://127.0.0.1:8787';
 const EMAIL_PROVIDER_SUBJECT_ID = 'google:local-yao-user';
 
@@ -280,9 +286,9 @@ export function createLocalYaoWorkerEnv(input: {
     ROUTER_AB_NORMAL_SIGNING_WORKER_ID: SIGNING_WORKER_ID,
     SIGNING_WORKER_ID,
     ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET: 'local-yao-internal-auth',
-    RELAY_SESSION_HMAC_SECRET: LOCAL_SESSION_SECRET,
-    RELAY_SESSION_ISSUER: LOCAL_SESSION_ISSUER,
-    RELAY_SESSION_AUDIENCE: LOCAL_SESSION_AUDIENCE,
+    ROUTER_AB_CEREMONY_JWT_ISSUER: LOCAL_CEREMONY_ISSUER,
+    ROUTER_AB_CEREMONY_JWT_AUDIENCE: LOCAL_CEREMONY_AUDIENCE,
+    ROUTER_AB_CEREMONY_JWT_KEY_ID: LOCAL_CEREMONY_KEY_ID,
     DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY: `x25519:${'11'.repeat(32)}`,
     DERIVER_B_ED25519_YAO_INPUT_PUBLIC_KEY: `x25519:${'22'.repeat(32)}`,
     DERIVER_A_ENVELOPE_HPKE_KEY_EPOCH: 'epoch-1',
@@ -294,12 +300,7 @@ export function createLocalYaoWorkerEnv(input: {
     SIGNING_WORKER_SERVER_OUTPUT_HPKE_KEY_EPOCH: 'epoch-1',
     SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: `x25519:${'55'.repeat(32)}`,
     ACCOUNT_ID_DERIVATION_SECRET: 'local-yao-account-id-secret',
-    ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK: JSON.stringify({
-      kty: 'OKP',
-      crv: 'Ed25519',
-      x: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
-      d: 'AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE',
-    }),
+    ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK: JSON.stringify(LOCAL_CEREMONY_PRIVATE_JWK),
     ROUTER_AB_ECDSA_REGISTRATION_TOPOLOGY_JSON: JSON.stringify({
       routerId: 'local-router',
       signerSet: {
@@ -332,6 +333,15 @@ export function buildLocalYaoRegistrationFixture(lifecycleId: string) {
       threshold_session_id: `wallet-session-${lifecycleId}`,
       signer_set_id: 'ed25519:1',
       signing_worker_id: SIGNING_WORKER_ID,
+      material_activation: {
+        kind: 'mpc_material_activation_ref',
+        activation_id: `activation-${lifecycleId}`,
+        capability: `capability-${lifecycleId}`,
+        material_owner: String(walletId),
+        key_binding: `key-${lifecycleId}`,
+        lifecycle_binding: lifecycleId,
+        signing_worker: SIGNING_WORKER_ID,
+      },
     },
     application_binding: {
       wallet_id: walletId,
@@ -394,8 +404,6 @@ export async function buildLocalYaoExistingWalletFixture(input: {
           capability.admissionRequest.application_binding.near_ed25519_signing_key_id,
         signerSlot: capability.admissionRequest.application_binding.key_creation_signer_slot,
         thresholdSessionId: capability.admissionRequest.scope.threshold_session_id,
-        walletSessionId: localWalletSessionId(),
-        quotaId: localWalletSessionQuotaId(),
         signingWorkerId: capability.admissionRequest.scope.signing_worker_id,
         participantIds: capability.admissionRequest.participant_ids,
       }),
@@ -403,11 +411,6 @@ export async function buildLocalYaoExistingWalletFixture(input: {
     recoveryAdmission,
     exportAdmission: {
       protocol: exportAdmission,
-      authorizationIdentity: {
-        walletSessionId: localWalletSessionId(),
-        quotaId: localWalletSessionQuotaId(),
-        thresholdSessionId: capability.admissionRequest.scope.threshold_session_id,
-      },
       authorization: {
         kind: 'email_otp_factor' as const,
         providerSubjectId: EMAIL_PROVIDER_SUBJECT_ID,
@@ -605,11 +608,22 @@ async function buildLocalRegistrationCapability(): Promise<WalletEd25519YaoActiv
   const registrationResult = requireParsed(
     parseRouterAbEd25519YaoRegistrationActivationResultV1(activationResult(binding)),
   );
+  const registrationAdmissionReceipt = requireParsed(
+    parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1({
+      binding,
+      keyset: {
+        deriver_a_input_public_key: bytes(31),
+        deriver_b_input_public_key: bytes(32),
+        signing_worker_recipient_public_key: bytes(33),
+      },
+    }),
+  );
   const built = buildRouterAbEd25519YaoRegistrationCapabilityRecordV1({
     kind: 'router_ab_ed25519_yao_registration_finalize_capability_v1',
     activeCapabilityBinding: bytes(20),
     nearAccountId: localNearAccountId(),
     registrationAdmissionRequest: admissionRequest,
+    registrationAdmissionReceipt,
     registrationResult,
     runtimePolicyScope: localRuntimePolicyScope(),
   });
@@ -649,6 +663,7 @@ async function persistLocalCapability(
       signingRootVersion: capability.admissionRequest.scope.root_share_epoch,
       runtimePolicyScope: capability.runtimePolicyScope,
       activeYaoCapability: capability,
+      custodyKeyManifestDigestB64u: Buffer.alloc(32, 21).toString('base64url'),
       now: Date.now() - 10_000,
     }),
   );
@@ -657,6 +672,7 @@ async function persistLocalCapability(
 async function issueLocalWalletSessionToken(
   capability: WalletEd25519YaoActiveCapabilityRecord,
 ): Promise<string> {
+  const nowSeconds = Math.floor(Date.now() / 1000);
   const authority = buildEmailOtpWalletAuthAuthority({
     walletId: localWalletId(),
     provider: 'google',
@@ -665,6 +681,7 @@ async function issueLocalWalletSessionToken(
   });
   const claims = parseRouterAbEd25519WalletSessionClaims({
     kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+    authorizationKind: 'owner_wallet_session',
     sub: localWalletId(),
     walletId: localWalletId(),
     nearAccountId: capability.nearAccountId,
@@ -679,6 +696,8 @@ async function issueLocalWalletSessionToken(
     authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(authority),
     runtimePolicyScope: localRuntimePolicyScope(),
     thresholdExpiresAtMs: Date.now() + 120_000,
+    iat: nowSeconds,
+    exp: nowSeconds + 120,
     participantIds: [1, 2],
     routerAbNormalSigning: {
       kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
@@ -686,10 +705,12 @@ async function issueLocalWalletSessionToken(
     },
   });
   if (!claims) throw new Error('Local Wallet Session claims are invalid');
-  return await createHmacSessionAdapter({
-    secret: LOCAL_SESSION_SECRET,
-    issuer: LOCAL_SESSION_ISSUER,
-    audience: LOCAL_SESSION_AUDIENCE,
+  return await createEd25519SessionAdapter({
+    privateJwk: LOCAL_CEREMONY_PRIVATE_JWK,
+    issuer: LOCAL_CEREMONY_ISSUER,
+    audience: LOCAL_CEREMONY_AUDIENCE,
+    keyId: LOCAL_CEREMONY_KEY_ID,
+    ttlSeconds: 120,
   }).signJwt(localWalletId(), claims);
 }
 

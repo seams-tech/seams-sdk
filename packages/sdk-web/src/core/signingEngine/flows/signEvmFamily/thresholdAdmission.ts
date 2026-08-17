@@ -13,7 +13,6 @@ import {
 import {
   issueEcdsaOperationStepUpAuthorization,
   prepareEcdsaOperationStepUp,
-  type EcdsaOperationStepUpSessionAuth,
   type PreparedEcdsaOperationStepUp,
 } from '../../threshold/ecdsa/operationStepUp';
 import type { HydratedEcdsaSignerMaterial } from '../../session/identity/evmFamilyEcdsaIdentity';
@@ -62,11 +61,11 @@ export async function prepareEvmFamilyEcdsaOperationStepUp(args: {
 
 export async function authorizeEvmFamilyEcdsaOperationStepUp(args: {
   readonly relayerUrl: string;
-  readonly sessionAuth: EcdsaOperationStepUpSessionAuth;
   readonly authority: WalletAuthAuthority;
   readonly authorization: EvmFamilyEcdsaOperationStepUpAuthorization;
   readonly prepared: PreparedEcdsaOperationStepUp;
   readonly material: HydratedEcdsaSignerMaterial;
+  readonly walletSessionToken: string;
 }): Promise<ReadySecp256k1SigningMaterial> {
   const proof = operationStepUpProof({
     authority: args.authority,
@@ -74,20 +73,16 @@ export async function authorizeEvmFamilyEcdsaOperationStepUp(args: {
   });
   const authorization = await issueEcdsaOperationStepUpAuthorization({
     relayerUrl: args.relayerUrl,
-    sessionAuth: args.sessionAuth,
     request: {
       kind: 'router_ab_ecdsa_operation_step_up_v1',
       operation: args.prepared.operation,
       proof,
     },
   });
-  const credential =
-    args.sessionAuth.kind === 'app_session_jwt'
-      ? {
-          kind: 'app_session_jwt' as const,
-          appSessionJwt: args.sessionAuth.appSessionJwt,
-        }
-      : { kind: 'app_session_cookie' as const };
+  const credential = {
+    kind: 'operation_step_up' as const,
+    walletSessionToken: args.walletSessionToken,
+  };
   return buildReadySecp256k1SigningMaterial({
     walletId: args.material.walletId,
     signerSession: args.material,

@@ -4,6 +4,7 @@ mod add256;
 mod clamp;
 mod families;
 mod ir;
+mod lane_materialization;
 mod phase4_families;
 mod scalar;
 mod schedule;
@@ -46,6 +47,12 @@ pub use phase4_families::{
     PHASE4_PRIVATE_OUTPUT_ACTIVATION_INPUT_SCHEMA_V1,
     PHASE4_PRIVATE_OUTPUT_ACTIVATION_OUTPUT_SCHEMA_V1,
     PHASE4_PRIVATE_OUTPUT_EXPORT_INPUT_SCHEMA_V1, PHASE4_PRIVATE_OUTPUT_EXPORT_OUTPUT_SCHEMA_V1,
+};
+
+pub use lane_materialization::{
+    compile_lane_materialization_v1, LaneMaterializationCoreDigest32V1, LaneMaterializationCoreV1,
+    LaneMaterializationScheduleDigest32V1, LANE_MATERIALIZATION_INPUT_SCHEMA_V1,
+    LANE_MATERIALIZATION_OUTPUT_SCHEMA_V1,
 };
 
 pub use sha512::{

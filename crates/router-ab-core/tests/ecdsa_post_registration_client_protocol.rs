@@ -7,8 +7,7 @@ use router_ab_core::protocol::{
     RoleEnvelopeAadV1, RouterAbEcdsaDerivationActivationRefreshRequestV1,
     RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1,
     RouterAbEcdsaDerivationExplicitExportRequestV1, RouterAbEcdsaDerivationPublicIdentityV1,
-    RouterAbEcdsaDerivationRecoveryRequestV1, RouterAbEcdsaDerivationStableKeyContextV1,
-    ServerIdentityV1, SignerIdentityV1, SignerSetV1,
+    RouterAbEcdsaDerivationStableKeyContextV1, ServerIdentityV1, SignerIdentityV1, SignerSetV1,
 };
 use router_ab_ecdsa_client_protocol::{
     build_ecdsa_post_registration_request_v1, derive_ecdsa_client_ephemeral_keypair_v1,
@@ -29,7 +28,6 @@ const SERVER_ID: &str = "signing-worker-1";
 
 enum CorePostRequest {
     Export(RouterAbEcdsaDerivationExplicitExportRequestV1),
-    Recovery(RouterAbEcdsaDerivationRecoveryRequestV1),
     Refresh(RouterAbEcdsaDerivationActivationRefreshRequestV1),
 }
 
@@ -37,7 +35,6 @@ impl CorePostRequest {
     fn header_bytes(&self) -> Vec<u8> {
         match self {
             Self::Export(request) => request.canonical_request_header_bytes(),
-            Self::Recovery(request) => request.canonical_request_header_bytes(),
             Self::Refresh(request) => request.canonical_request_header_bytes(),
         }
         .expect("core header bytes")
@@ -46,7 +43,6 @@ impl CorePostRequest {
     fn header_digest(&self) -> PublicDigest32 {
         match self {
             Self::Export(request) => request.request_header_digest(),
-            Self::Recovery(request) => request.request_header_digest(),
             Self::Refresh(request) => request.request_header_digest(),
         }
         .expect("core header digest")
@@ -55,7 +51,6 @@ impl CorePostRequest {
     fn request_bytes(&self) -> Vec<u8> {
         match self {
             Self::Export(request) => request.canonical_request_bytes(),
-            Self::Recovery(request) => request.canonical_request_bytes(),
             Self::Refresh(request) => request.canonical_request_bytes(),
         }
         .expect("core request bytes")
@@ -64,7 +59,6 @@ impl CorePostRequest {
     fn request_digest(&self) -> PublicDigest32 {
         match self {
             Self::Export(request) => request.request_digest(),
-            Self::Recovery(request) => request.request_digest(),
             Self::Refresh(request) => request.request_digest(),
         }
         .expect("core request digest")
@@ -73,7 +67,6 @@ impl CorePostRequest {
     fn threshold_request(&self) -> EcdsaThresholdPrfRequestV1 {
         match self {
             Self::Export(request) => request.to_threshold_prf_request(),
-            Self::Recovery(request) => request.to_threshold_prf_request(),
             Self::Refresh(request) => request.to_threshold_prf_request(),
         }
         .expect("core threshold request")
@@ -83,11 +76,6 @@ impl CorePostRequest {
         match self {
             Self::Export(request) => {
                 RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1::export_for_request(
-                    request, role, aad_digest,
-                )
-            }
-            Self::Recovery(request) => {
-                RouterAbEcdsaDerivationDeriverEnvelopePlaintextV1::recovery_for_request(
                     request, role, aad_digest,
                 )
             }
@@ -214,12 +202,6 @@ fn lifecycle_wire(
         EcdsaPostRegistrationCeremonyV1::ExplicitExport => {
             ("key_export", "export", "export-lifecycle-1", "root-epoch-1")
         }
-        EcdsaPostRegistrationCeremonyV1::Recovery => (
-            "recovery",
-            "recovery",
-            "recovery-lifecycle-1",
-            "root-epoch-1",
-        ),
         EcdsaPostRegistrationCeremonyV1::ActivationRefresh => (
             "server_share_refresh",
             "refresh",
@@ -243,7 +225,6 @@ fn core_lifecycle(ceremony: EcdsaPostRegistrationCeremonyV1) -> LifecycleScopeV1
     let wire = lifecycle_wire(ceremony);
     let work_kind = match ceremony {
         EcdsaPostRegistrationCeremonyV1::ExplicitExport => ExpensiveWorkKindV1::KeyExport,
-        EcdsaPostRegistrationCeremonyV1::Recovery => ExpensiveWorkKindV1::Recovery,
         EcdsaPostRegistrationCeremonyV1::ActivationRefresh => {
             ExpensiveWorkKindV1::ServerShareRefresh
         }
@@ -263,7 +244,6 @@ fn core_lifecycle(ceremony: EcdsaPostRegistrationCeremonyV1) -> LifecycleScopeV1
 fn recipient_key(ceremony: EcdsaPostRegistrationCeremonyV1) -> String {
     let seed = match ceremony {
         EcdsaPostRegistrationCeremonyV1::ExplicitExport => [0x71; 32],
-        EcdsaPostRegistrationCeremonyV1::Recovery => [0x72; 32],
         EcdsaPostRegistrationCeremonyV1::ActivationRefresh => [0x73; 32],
     };
     derive_ecdsa_client_ephemeral_keypair_v1(seed)
@@ -303,10 +283,6 @@ fn operation(ceremony: EcdsaPostRegistrationCeremonyV1) -> EcdsaPostRegistration
         EcdsaPostRegistrationCeremonyV1::ExplicitExport => {
             explicit_export_operation("reusable_wallet_session", "wallet-session-1", 0x51)
         }
-        EcdsaPostRegistrationCeremonyV1::Recovery => EcdsaPostRegistrationOperationV1::Recovery {
-            authorization_digest_b64u: b64u(&[0x52; 32]),
-            nonce: "recovery-nonce-1".to_owned(),
-        },
         EcdsaPostRegistrationCeremonyV1::ActivationRefresh => {
             EcdsaPostRegistrationOperationV1::ActivationRefresh {
                 authorization_digest_b64u: b64u(&[0x53; 32]),
@@ -329,8 +305,7 @@ fn operation(ceremony: EcdsaPostRegistrationCeremonyV1) -> EcdsaPostRegistration
 
 fn recipient(ceremony: EcdsaPostRegistrationCeremonyV1) -> EcdsaPostRegistrationRecipientV1 {
     match ceremony {
-        EcdsaPostRegistrationCeremonyV1::ExplicitExport
-        | EcdsaPostRegistrationCeremonyV1::Recovery => {
+        EcdsaPostRegistrationCeremonyV1::ExplicitExport => {
             EcdsaPostRegistrationRecipientV1::ClientProofBundles {
                 client_ephemeral_public_key: recipient_key(ceremony),
             }
@@ -497,22 +472,6 @@ fn core_request(
                 deriver_b_export_envelope: common.9,
             })
         }
-        EcdsaPostRegistrationCeremonyV1::Recovery => {
-            CorePostRequest::Recovery(RouterAbEcdsaDerivationRecoveryRequestV1 {
-                context: common.0,
-                lifecycle: common.1,
-                public_identity: common.2,
-                signer_set: common.3,
-                router_id: common.4,
-                client_id: common.5,
-                client_ephemeral_public_key: common.6,
-                recovery_authorization_digest_b64u: b64u(&[0x52; 32]),
-                recovery_nonce: "recovery-nonce-1".to_owned(),
-                expires_at_ms: common.7,
-                deriver_a_recovery_envelope: common.8,
-                deriver_b_recovery_envelope: common.9,
-            })
-        }
         EcdsaPostRegistrationCeremonyV1::ActivationRefresh => {
             let material_owner = common.1.account_id.clone();
             CorePostRequest::Refresh(RouterAbEcdsaDerivationActivationRefreshRequestV1 {
@@ -641,10 +600,9 @@ fn assert_client_parity(
 }
 
 #[test]
-fn explicit_export_recovery_and_refresh_match_core_exactly() {
+fn explicit_export_and_refresh_match_core_exactly() {
     for ceremony in [
         EcdsaPostRegistrationCeremonyV1::ExplicitExport,
-        EcdsaPostRegistrationCeremonyV1::Recovery,
         EcdsaPostRegistrationCeremonyV1::ActivationRefresh,
     ] {
         assert_parity(ceremony);
@@ -720,7 +678,7 @@ fn operation_step_up_public_digest_uses_marker_and_binds_export_authorization_di
 #[test]
 fn post_registration_rejects_lifecycle_output_authorization_nonce_epoch_and_recipient_drift() {
     let mut lifecycle = lifecycle_wire(EcdsaPostRegistrationCeremonyV1::ExplicitExport);
-    lifecycle.primitive_request_kind = "recovery".to_owned();
+    lifecycle.primitive_request_kind = "refresh".to_owned();
     assert_eq!(
         EcdsaPostRegistrationLifecycleV1::from_wire(
             EcdsaPostRegistrationCeremonyV1::ExplicitExport,

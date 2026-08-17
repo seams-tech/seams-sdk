@@ -34,7 +34,7 @@ test.describe('WalletIframeRouter signing-session expiry lifecycle', () => {
     await page.unroute(WALLET_SERVICE_ROUTE).catch(() => {});
   });
 
-  test('forwards each exact event once without cancelling the operation that will step up', async ({
+  test('forwards each exact event once and cancels only exact-session requests', async ({
     page,
   }) => {
     const result = await page.evaluate(
@@ -125,14 +125,10 @@ test.describe('WalletIframeRouter signing-session expiry lifecycle', () => {
         };
         emitSdkLifecycleEvent.call(router, activeExpiry);
         emitSdkLifecycleEvent.call(router, activeExpiry);
-        await new Promise((resolve) => window.setTimeout(resolve, 50));
-        const requestSettledAfterExpiry = requestSettled;
-        await router.cancelAll();
         const requestResult = await pendingRequest;
 
         return {
           staleEventResult,
-          requestSettledAfterExpiry,
           requestResult,
           finalMirroredState: router.getMirroredExactSessionState(),
           lifecycleEventSessionIds: lifecycleEvents.map((event) => event.walletSessionId),
@@ -155,9 +151,14 @@ test.describe('WalletIframeRouter signing-session expiry lifecycle', () => {
     expect(result.staleEventResult.loginStatuses).toEqual([
       { isLoggedIn: true, walletId: WALLET_ID },
     ]);
-    expect(result.requestSettledAfterExpiry).toBe(false);
-    expect(result.requestResult.kind).toBe('rejected');
-    expect(result.requestResult.code).not.toBe('wallet_session_expired');
+    expect(result.requestResult).toEqual({
+      kind: 'rejected',
+      name: 'WalletIframeSessionExpiredRequestError',
+      message: 'Wallet session expired',
+      code: 'wallet_session_expired',
+      walletId: WALLET_ID,
+      walletSessionId: ACTIVE_SESSION_ID,
+    });
     expect(result.finalMirroredState).toEqual({
       kind: 'expired_session',
       walletId: WALLET_ID,
@@ -173,7 +174,9 @@ test.describe('WalletIframeRouter signing-session expiry lifecycle', () => {
     ]);
   });
 
-  test('keeps active and queued operations eligible for step-up after expiry', async ({ page }) => {
+  test('rejects queued exact requests while admitting requests started after expiry', async ({
+    page,
+  }) => {
     const result = await page.evaluate(
       async ({ routerPath, walletOrigin, walletId, activeSessionId, expiresAtMs }) => {
         const module = await import(routerPath);
@@ -211,15 +214,9 @@ test.describe('WalletIframeRouter signing-session expiry lifecycle', () => {
               },
             );
 
-        let firstSettled = false;
-        const firstRequest = execute().finally(() => {
-          firstSettled = true;
-        });
+        const firstRequest = execute();
         await new Promise((resolve) => window.setTimeout(resolve, 30));
-        let queuedSettled = false;
-        const queuedRequest = execute().finally(() => {
-          queuedSettled = true;
-        });
+        const queuedRequest = execute();
         await new Promise((resolve) => window.setTimeout(resolve, 30));
 
         const emitSdkLifecycleEvent = Reflect.get(router, 'emitSdkLifecycleEvent');
@@ -237,15 +234,22 @@ test.describe('WalletIframeRouter signing-session expiry lifecycle', () => {
           source: 'server_rejection',
         });
 
-        await new Promise((resolve) => window.setTimeout(resolve, 50));
-        const settledAfterExpiry = { first: firstSettled, queued: queuedSettled };
-        await router.cancelAll();
         const [firstResult, queuedResult] = await Promise.all([firstRequest, queuedRequest]);
+
+        let postExpirySettled = false;
+        const postExpiryRequest = execute().finally(() => {
+          postExpirySettled = true;
+        });
+        await new Promise((resolve) => window.setTimeout(resolve, 50));
+        const postExpirySettledBeforeCancel = postExpirySettled;
+        await router.cancelAll();
+        const postExpiryResult = await postExpiryRequest;
 
         return {
           firstResult,
           queuedResult,
-          settledAfterExpiry,
+          postExpirySettledBeforeCancel,
+          postExpiryResult,
         };
       },
       {
@@ -257,9 +261,22 @@ test.describe('WalletIframeRouter signing-session expiry lifecycle', () => {
       },
     );
 
-    expect(result.settledAfterExpiry).toEqual({ first: false, queued: false });
-    expect(result.firstResult.code).not.toBe('wallet_session_expired');
-    expect(result.queuedResult.code).not.toBe('wallet_session_expired');
+    expect(result.firstResult).toEqual({
+      kind: 'rejected',
+      code: 'wallet_session_expired',
+      walletSessionId: ACTIVE_SESSION_ID,
+    });
+    expect(result.queuedResult).toEqual({
+      kind: 'rejected',
+      code: 'wallet_session_expired',
+      walletSessionId: ACTIVE_SESSION_ID,
+    });
+    expect(result.postExpirySettledBeforeCancel).toBe(false);
+    expect(result.postExpiryResult).toEqual({
+      kind: 'rejected',
+      code: '',
+      walletSessionId: '',
+    });
   });
 
   test('locks only the exact session selected by the caller', async ({ page }) => {

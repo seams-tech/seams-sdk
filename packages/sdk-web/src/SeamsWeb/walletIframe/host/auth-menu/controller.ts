@@ -4,6 +4,7 @@ import type {
   ChildToParentEnvelope,
   HostedAuthMenuCancelPayload,
   HostedAuthMenuExternalAuthResolution,
+  HostedAuthMenuLoginTarget,
   HostedAuthMenuOpenRequest,
 } from '../../shared/messages';
 import { AuthMenuSession } from './session';
@@ -33,7 +34,10 @@ import {
   passkeyRecentWalletId,
 } from './account-options';
 import type { LinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
-import type { StartDevice2LinkingFlowResults } from '@/core/types/linkDevice';
+import type {
+  StartDevice2LinkingFlowArgs,
+  StartDevice2LinkingFlowResults,
+} from '@/core/types/linkDevice';
 
 export type AuthMenuControllerDeps = {
   readonly getSeamsWeb: () => SeamsWeb;
@@ -50,6 +54,16 @@ function trustedHostHostname(): string {
     }
   } catch {}
   return window.location.hostname || 'Wallet';
+}
+
+function requestedWalletIdForLoginTarget(target: HostedAuthMenuLoginTarget): string | null {
+  switch (target.kind) {
+    case 'discoverable':
+      return null;
+    case 'wallet':
+    case 'wallet_sync':
+      return String(target.walletId);
+  }
 }
 
 export class AuthMenuController {
@@ -81,10 +95,11 @@ export class AuthMenuController {
       beginGoogleEmailOtp: async ({ idToken, mode, signal }) =>
         await this.beginGoogleEmailOtp({ idToken, mode, signal }),
       startDeviceLinking: this.startDeviceLinking,
-      stopDeviceLinking: this.stopDeviceLinking,
+      cancelDeviceLinking: this.cancelDeviceLinking,
       sendToParent: this.deps.send,
     });
     const outcomePromise = session.waitForOutcome();
+    const requestedWalletId = requestedWalletIdForLoginTarget(args.request.loginTarget);
     this.sessions.set(args.request.authMenuSessionId, session);
     try {
       session.mount();
@@ -98,8 +113,10 @@ export class AuthMenuController {
         ),
       );
       session.setLoginPreparation({
-        accountOptions: [],
-        selectedWalletId: null,
+        accountOptions: requestedWalletId
+          ? [{ walletId: requestedWalletId, displayName: requestedWalletId }]
+          : [],
+        selectedWalletId: requestedWalletId,
         prepare: (walletId, cancellation) =>
           this.prepareLogin(
             requestId,
@@ -107,9 +124,12 @@ export class AuthMenuController {
             cancellation,
             walletId,
             null,
+            args.request.loginTarget,
           ),
       });
-      void this.bootstrapLoginAccounts(session, requestId);
+      if (!requestedWalletId) {
+        void this.bootstrapLoginAccounts(session, requestId, args.request.loginTarget);
+      }
       return await outcomePromise;
     } finally {
       session.cleanup();
@@ -120,6 +140,7 @@ export class AuthMenuController {
   private async bootstrapLoginAccounts(
     session: AuthMenuSession,
     requestId: WalletIframeRequestId,
+    loginTarget: HostedAuthMenuLoginTarget,
   ): Promise<void> {
     const recentUnlocks = await this.deps
       .getSeamsWeb()
@@ -137,6 +158,7 @@ export class AuthMenuController {
           cancellation,
           walletId,
           recentUnlocks,
+          loginTarget,
         ),
     });
   }
@@ -147,10 +169,32 @@ export class AuthMenuController {
     cancellation: Extract<WebAuthnPromptCancellation, { kind: 'abort_signal' }>,
     walletId: string | null,
     recentUnlocks: GetRecentUnlocksResult | null,
+    loginTarget: HostedAuthMenuLoginTarget,
   ): Promise<HostedPasskeyPrepared> {
     const context = createHostedPasskeyContext(this.deps.getSeamsWeb().getContext());
-    const selectedWalletId = walletId || passkeyRecentWalletId(recentUnlocks);
-    if (selectedWalletId) {
+    const localUnlocks =
+      recentUnlocks ??
+      (await this.deps
+        .getSeamsWeb()
+        .auth.getRecentUnlocks()
+        .catch(() => null));
+    const selectedWalletId = walletId || passkeyRecentWalletId(localUnlocks);
+    if (loginTarget.kind === 'wallet_sync') {
+      return await prepareHostedPasskeyAccountSync({
+        context,
+        walletId: String(loginTarget.walletId),
+        authMenuSessionId,
+        requestId,
+        cancellation,
+      });
+    }
+    const selectedWalletIsLocal = Boolean(
+      selectedWalletId &&
+      loginAccountOptions(localUnlocks).some(
+        (option) => String(option.walletId) === selectedWalletId,
+      ),
+    );
+    if (selectedWalletId && selectedWalletIsLocal) {
       return await prepareHostedPasskeyLogin({
         context,
         walletId: selectedWalletId,
@@ -161,7 +205,7 @@ export class AuthMenuController {
     }
     return await prepareHostedPasskeyAccountSync({
       context,
-      walletId: null,
+      walletId: selectedWalletId,
       authMenuSessionId,
       requestId,
       cancellation,
@@ -177,12 +221,6 @@ export class AuthMenuController {
     const result = await this.deps.getSeamsWeb().auth.beginGoogleEmailOtpWalletAuth({
       idToken: args.idToken,
       mode: args.mode,
-      // The wallet host is a third-party context, so a cookie session is not
-      // usable here. Without an explicit 'jwt' the session exchange returns no
-      // JWT, the flow's state carries no appSessionJwt, and the ECDSA login
-      // reaches resolveEmailOtpAuthLane with nothing to authenticate with —
-      // surfacing as "Email OTP ECDSA login requires route auth".
-      sessionKind: 'jwt',
     });
     if (!result.ok) throw new Error(result.error.message);
     const flow = result.value;
@@ -193,13 +231,16 @@ export class AuthMenuController {
     return flow;
   }
 
-  private startDeviceLinking = async (
-    onEvent: (event: LinkDeviceFlowEvent) => void,
-  ): Promise<StartDevice2LinkingFlowResults> =>
-    await this.deps.getSeamsWeb().devices.startDevice2LinkingFlow({ options: { onEvent } });
+  private startDeviceLinking = async (callbacks: {
+    readonly onEvent: (event: LinkDeviceFlowEvent) => void;
+    readonly onTargetPasskeyRequired: NonNullable<
+      NonNullable<StartDevice2LinkingFlowArgs['options']>['onTargetPasskeyRequired']
+    >;
+  }): Promise<StartDevice2LinkingFlowResults> =>
+    await this.deps.getSeamsWeb().devices.startDevice2LinkingFlow({ options: callbacks });
 
-  private stopDeviceLinking = async (): Promise<void> =>
-    await this.deps.getSeamsWeb().devices.stopDevice2LinkingFlow();
+  private cancelDeviceLinking = async (): Promise<void> =>
+    await this.deps.getSeamsWeb().devices.cancelDeviceLinking();
 
   private async prepareRegistration(
     request: HostedAuthMenuOpenRequest,

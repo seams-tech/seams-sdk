@@ -3,12 +3,10 @@
 use std::{env, fs, path::PathBuf};
 
 use signer_core::commands::{
-    Base64UrlEncodingV1, BuildEcdsaRoleLocalExportArtifactCommandKindV1,
-    BuildEcdsaRoleLocalExportArtifactCommandV1, BuildEcdsaRoleLocalExportArtifactErrorCodeV1,
-    BuildEcdsaRoleLocalExportArtifactOutputV1, EcdsaBootstrapSecretSourceV1,
+    Base64UrlEncodingV1, EcdsaBootstrapSecretSourceV1,
     EcdsaClientBootstrapAlgorithmV1, EcdsaClientBootstrapContextV1, EcdsaClientBootstrapFactsV1,
     EcdsaClientBootstrapParticipantsV1, EcdsaPreparePublicFactsV1, EcdsaReadyPublicFactsV1,
-    EcdsaRoleLocalExportPublicFactsV1, EcdsaRoleLocalPendingStateBlobV1,
+    EcdsaRoleLocalPendingStateBlobV1,
     EcdsaRoleLocalReadyStateBlobV1, FinalizeEcdsaClientBootstrapCommandKindV1,
     FinalizeEcdsaClientBootstrapCommandV1, FinalizeEcdsaClientBootstrapErrorCodeV1,
     FinalizeEcdsaClientBootstrapOutputV1, PendingStateBlobKindV1,
@@ -71,11 +69,6 @@ fn generated_signer_core_commands_ts() -> String {
     push_decl::<EcdsaReadyPublicFactsV1>(&mut out, &cfg);
     push_decl::<FinalizeEcdsaClientBootstrapOutputV1>(&mut out, &cfg);
     push_decl::<FinalizeEcdsaClientBootstrapErrorCodeV1>(&mut out, &cfg);
-    push_decl::<BuildEcdsaRoleLocalExportArtifactCommandKindV1>(&mut out, &cfg);
-    push_decl::<EcdsaRoleLocalExportPublicFactsV1>(&mut out, &cfg);
-    push_decl::<BuildEcdsaRoleLocalExportArtifactCommandV1>(&mut out, &cfg);
-    push_decl::<BuildEcdsaRoleLocalExportArtifactOutputV1>(&mut out, &cfg);
-    push_decl::<BuildEcdsaRoleLocalExportArtifactErrorCodeV1>(&mut out, &cfg);
     out.pop();
     out
 }

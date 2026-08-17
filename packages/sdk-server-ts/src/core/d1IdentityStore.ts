@@ -1,9 +1,7 @@
-import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { d1ChangedRows, formatD1ExecStatement } from '../storage/d1Sql';
 import type { D1DatabaseLike } from '../storage/tenantRoute';
 import type {
-  AppSessionVersionRecord,
   IdentityStore,
   IdentitySubjectRecord,
   LinkIdentityResult,
@@ -48,11 +46,6 @@ type D1IdentityLinkRow = {
   readonly subject_count?: unknown;
 };
 
-type D1AppSessionVersionRow = {
-  readonly session_version?: unknown;
-  readonly created_at_ms?: unknown;
-};
-
 export const IDENTITY_STORE_D1_SCHEMA_SQL = Object.freeze([
   `
     CREATE TABLE IF NOT EXISTS identity_links (
@@ -93,36 +86,6 @@ export const IDENTITY_STORE_D1_SCHEMA_SQL = Object.freeze([
         created_at_ms
       )
   `,
-  `
-    CREATE TABLE IF NOT EXISTS app_session_versions (
-      namespace TEXT NOT NULL,
-      org_id TEXT NOT NULL,
-      project_id TEXT NOT NULL,
-      env_id TEXT NOT NULL,
-      user_id TEXT NOT NULL,
-      session_version TEXT NOT NULL,
-      record_json TEXT NOT NULL,
-      created_at_ms INTEGER NOT NULL,
-      updated_at_ms INTEGER NOT NULL,
-      PRIMARY KEY (namespace, org_id, project_id, env_id, user_id),
-      CHECK (length(namespace) > 0),
-      CHECK (length(org_id) > 0),
-      CHECK (length(project_id) > 0),
-      CHECK (length(env_id) > 0),
-      CHECK (length(user_id) > 0),
-      CHECK (length(session_version) > 0),
-      CHECK (json_valid(record_json)),
-      CHECK (created_at_ms > 0),
-      CHECK (updated_at_ms >= created_at_ms),
-      CHECK (COALESCE(json_extract(record_json, '$.version') = 'app_session_version_v1', 0)),
-      CHECK (COALESCE(json_extract(record_json, '$.userId') = user_id, 0)),
-      CHECK (
-        COALESCE(json_extract(record_json, '$.appSessionVersion') = session_version, 0)
-      ),
-      CHECK (COALESCE(json_extract(record_json, '$.createdAtMs') = created_at_ms, 0)),
-      CHECK (COALESCE(json_extract(record_json, '$.updatedAtMs') = updated_at_ms, 0))
-    )
-  `,
 ] as const);
 
 export async function ensureIdentityStoreD1Schema(
@@ -135,10 +98,6 @@ export async function ensureIdentityStoreD1Schema(
 
 function defaultNow(): Date {
   return new Date();
-}
-
-function generateAppSessionVersion(): string {
-  return secureRandomBase64Url(32, 'app session versions');
 }
 
 function requireD1ScopeString(input: unknown, field: string): string {
@@ -184,21 +143,6 @@ function buildIdentitySubjectRecord(input: {
     version: 'identity_subject_v1',
     subject: input.subject,
     userId: input.userId,
-    createdAtMs: input.createdAtMs,
-    updatedAtMs: input.updatedAtMs,
-  };
-}
-
-function buildAppSessionVersionRecord(input: {
-  readonly userId: string;
-  readonly appSessionVersion: string;
-  readonly createdAtMs: number;
-  readonly updatedAtMs: number;
-}): AppSessionVersionRecord {
-  return {
-    version: 'app_session_version_v1',
-    userId: input.userId,
-    appSessionVersion: input.appSessionVersion,
     createdAtMs: input.createdAtMs,
     updatedAtMs: input.updatedAtMs,
   };
@@ -514,120 +458,6 @@ export class D1IdentityStore implements IdentityStore {
       return { ok: false, code: 'not_found', message: 'Subject is not linked to this user' };
     }
     return { ok: true };
-  }
-
-  async getAppSessionVersionByUserId(userId: string): Promise<string | null> {
-    await this.ensureSchema();
-    const uid = toOptionalTrimmedString(userId);
-    if (!uid) return null;
-    const row = await this.bindScope(
-      `SELECT session_version
-         FROM app_session_versions
-        WHERE namespace = ?
-          AND org_id = ?
-          AND project_id = ?
-          AND env_id = ?
-          AND user_id = ?
-        LIMIT 1`,
-      [uid],
-    ).first<D1AppSessionVersionRow>();
-    return toOptionalTrimmedString(row?.session_version) || null;
-  }
-
-  async ensureAppSessionVersionByUserId(userId: string): Promise<string> {
-    await this.ensureSchema();
-    const uid = toOptionalTrimmedString(userId);
-    if (!uid) throw new Error('Missing userId');
-    const now = this.now().getTime();
-    const next = generateAppSessionVersion();
-    await this.bindScope(
-      `INSERT INTO app_session_versions (
-        namespace,
-        org_id,
-        project_id,
-        env_id,
-        user_id,
-        session_version,
-        record_json,
-        created_at_ms,
-        updated_at_ms
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT (namespace, org_id, project_id, env_id, user_id) DO NOTHING`,
-      [
-        uid,
-        next,
-        JSON.stringify(
-          buildAppSessionVersionRecord({
-            userId: uid,
-            appSessionVersion: next,
-            createdAtMs: now,
-            updatedAtMs: now,
-          }),
-        ),
-        now,
-        now,
-      ],
-    ).run();
-    return (await this.getAppSessionVersionByUserId(uid)) || next;
-  }
-
-  async rotateAppSessionVersionByUserId(userId: string): Promise<string> {
-    await this.ensureSchema();
-    const uid = toOptionalTrimmedString(userId);
-    if (!uid) throw new Error('Missing userId');
-    const now = this.now().getTime();
-    const existing = await this.bindScope(
-      `SELECT created_at_ms
-         FROM app_session_versions
-        WHERE namespace = ?
-          AND org_id = ?
-          AND project_id = ?
-          AND env_id = ?
-          AND user_id = ?
-        LIMIT 1`,
-      [uid],
-    ).first<D1AppSessionVersionRow>();
-    const existingCreatedAtMs = Number(existing?.created_at_ms);
-    const createdAtMs =
-      Number.isFinite(existingCreatedAtMs) && existingCreatedAtMs > 0
-        ? Math.floor(existingCreatedAtMs)
-        : now;
-    const next = generateAppSessionVersion();
-    await this.bindScope(
-      `INSERT INTO app_session_versions (
-        namespace,
-        org_id,
-        project_id,
-        env_id,
-        user_id,
-        session_version,
-        record_json,
-        created_at_ms,
-        updated_at_ms
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT (namespace, org_id, project_id, env_id, user_id)
-      DO UPDATE SET
-        session_version = EXCLUDED.session_version,
-        record_json = EXCLUDED.record_json,
-        updated_at_ms = EXCLUDED.updated_at_ms`,
-      [
-        uid,
-        next,
-        JSON.stringify(
-          buildAppSessionVersionRecord({
-            userId: uid,
-            appSessionVersion: next,
-            createdAtMs,
-            updatedAtMs: now,
-          }),
-        ),
-        createdAtMs,
-        now,
-      ],
-    ).run();
-    return next;
   }
 
   private async deleteIdentityLink(input: {

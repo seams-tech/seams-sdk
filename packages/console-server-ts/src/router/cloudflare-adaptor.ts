@@ -19,11 +19,9 @@ export * from '../wallets';
 export * from '../webhooks';
 
 export type {
-  CfEmailMessage,
   CfEnv,
   CfExecutionContext,
   CfScheduledEvent,
-  EmailHandler,
   FetchHandler,
   RouterApiCloudflareSignerWorkerEnv,
   ScheduledHandler,

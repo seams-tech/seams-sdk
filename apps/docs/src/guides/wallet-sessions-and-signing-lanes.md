@@ -5,17 +5,20 @@ description: Create exact wallet-session references, choose a capability lane, a
 
 # Wallet sessions and signing lanes
 
-A wallet session binds authenticated wallet identity to a limited signing
-capability. A signing lane identifies the custody and policy path used for one
-operation family.
+Start with [Signing](/examples/signing). A wallet session binds authenticated
+wallet identity to a limited signing capability. A signing lane identifies the
+custody and policy path for one operation family.
 
-## Before signing
+## Before you call a signing method
 
-Require a ready `WalletSession`, derive its exact reference, and derive the
-NEAR account or EVM-family chain target from validated configuration. Inspect
-capability readiness for the requested lane.
+1. Unlock the wallet and require a ready `WalletSession`.
+2. Derive its exact reference from validated wallet identity.
+3. Derive the NEAR account or EVM-family chain target from validated
+   configuration.
+4. Confirm that the requested lane is ready, then pass the same session
+   reference through the complete operation.
 
-## Recoverable states
+## Handle recoverable states
 
 - An expired or depleted session requires fresh authentication or refresh.
 - A capability that is still provisioning must reach its ready state.
@@ -23,9 +26,7 @@ capability readiness for the requested lane.
 - A cancelled user-presence prompt ends the current operation without changing
   wallet identity.
 
-Pass the same wallet-session reference through the complete sign operation.
-Diagnostics and progress events can describe the flow; the result union owns
-the control decision.
+Progress events describe the flow. Use the result union for control decisions.
 
 Read [wallet sessions](/concepts/sessions/wallet-sessions) and [signing
 lanes](/concepts/sessions/signing-lanes).

@@ -7,14 +7,12 @@ import {
   WALLET_EMAIL_OTP_UNLOCK_OPERATION,
 } from '@shared/utils/emailOtpDomain';
 import {
-  parseAppSessionVersion,
   parseChallengeSubjectId,
   parseEmailOtpChallengeId,
   parseEmailOtpRegistrationAttemptId,
   parseOrgId,
   parseProviderSubject,
   parseWalletId,
-  type AppSessionVersion,
   type ChallengeSubjectId,
   type EmailOtpChallengeId,
   type EmailOtpRegistrationAttemptId,
@@ -28,7 +26,6 @@ import type {
   EmailOtpChallengeAction,
   EmailOtpChallengeOperation,
   EmailOtpChallengeRecord,
-  EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
   EmailOtpWalletEnrollmentRecord,
 } from '../EmailOtpStores';
 
@@ -39,42 +36,8 @@ function assertNever(value: never): never {
 export type EmailOtpRegistrationEnrollmentPersistence = {
   previousProviderWalletId?: string;
   enrollment: EmailOtpWalletEnrollmentRecord;
-  recoveryWrappedEnrollmentEscrows: readonly EmailOtpRecoveryWrappedEnrollmentEscrowRecord[];
   authState: EmailOtpAuthStateRecord;
 };
-
-export type EmailOtpRecoveryChallengeEscrow = Omit<
-  EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
-  | 'recoveryKeyId'
-  | 'recoveryKeyStatus'
-  | 'issuedAtMs'
-  | 'updatedAtMs'
-  | 'consumedAtMs'
-  | 'revokedAtMs'
->;
-
-export function redactEmailOtpRecoveryChallengeEscrow(
-  record: EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
-): EmailOtpRecoveryChallengeEscrow {
-  return {
-    version: record.version,
-    alg: record.alg,
-    secretKind: record.secretKind,
-    escrowKind: record.escrowKind,
-    walletId: record.walletId,
-    userId: record.userId,
-    authSubjectId: record.authSubjectId,
-    authMethod: record.authMethod,
-    enrollmentId: record.enrollmentId,
-    enrollmentVersion: record.enrollmentVersion,
-    enrollmentSealKeyVersion: record.enrollmentSealKeyVersion,
-    signingRootId: record.signingRootId,
-    signingRootVersion: record.signingRootVersion,
-    nonceB64u: record.nonceB64u,
-    wrappedDeviceEnrollmentEscrowB64u: record.wrappedDeviceEnrollmentEscrowB64u,
-    aadHashB64u: record.aadHashB64u,
-  };
-}
 
 export type EmailOtpRegistrationChallengePurpose =
   | {
@@ -98,7 +61,7 @@ export type EmailOtpRegistrationChallengeProof =
       challengeId: EmailOtpChallengeId;
       finalWalletId: WalletId;
       orgId: OrgId;
-      appSessionVersion: AppSessionVersion;
+      ownerProofBindingDigest: string;
     }
   | {
       kind: 'direct_proof_email';
@@ -109,7 +72,7 @@ export type EmailOtpRegistrationChallengeProof =
       challengeId: EmailOtpChallengeId;
       finalWalletId: WalletId;
       orgId: OrgId;
-      appSessionVersion: AppSessionVersion;
+      ownerProofBindingDigest: string;
     };
 
 export type VerifiedEmailOtpRegistrationChallengeProofShared = {
@@ -120,7 +83,7 @@ export type VerifiedEmailOtpRegistrationChallengeProofShared = {
   originalWalletId: WalletId;
   finalWalletId: WalletId;
   orgId: OrgId;
-  appSessionVersion: AppSessionVersion;
+  ownerProofBindingDigest: string;
   purpose: EmailOtpRegistrationChallengePurpose;
 };
 
@@ -148,9 +111,6 @@ export type EmailOtpChallengeVerificationIntent =
     }
   | {
       kind: 'export_key';
-    }
-  | {
-      kind: 'device_recovery';
     };
 
 export type EmailOtpStoredChallengePurpose =
@@ -173,11 +133,6 @@ export type EmailOtpStoredChallengePurpose =
       kind: 'export_key';
       action: typeof WALLET_EMAIL_OTP_ACTIONS.login;
       operation: typeof WALLET_EMAIL_OTP_EXPORT_OPERATION;
-    }
-  | {
-      kind: 'device_recovery';
-      action: typeof WALLET_EMAIL_OTP_ACTIONS.deviceRecovery;
-      operation: typeof WALLET_EMAIL_OTP_UNLOCK_OPERATION;
     };
 
 export type EmailOtpChallengeBindingMismatchCode =
@@ -206,7 +161,7 @@ export type VerifiedEmailOtpChallengeCodeSuccess =
       registrationChallengeProof: VerifiedEmailOtpRegistrationChallengeProof;
     })
   | (VerifiedEmailOtpChallengeCodeSuccessBase & {
-      intent: 'wallet_unlock' | 'transaction_sign' | 'export_key' | 'device_recovery';
+      intent: 'wallet_unlock' | 'transaction_sign' | 'export_key';
       registrationChallengeProof?: never;
     });
 
@@ -235,9 +190,6 @@ export function emailOtpChallengeVerificationIntentFromRequest(input: {
       binding: input.registrationChallengeProof,
       allowWalletReroll: input.allowRegistrationChallengeReroll === true,
     };
-  }
-  if (input.expectedAction === WALLET_EMAIL_OTP_ACTIONS.deviceRecovery) {
-    return { kind: 'device_recovery' };
   }
   const operation = input.expectedOperation || WALLET_EMAIL_OTP_UNLOCK_OPERATION;
   if (operation === WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION) {
@@ -276,12 +228,6 @@ export function expectedEmailOtpStoredChallengePurpose(
         kind: 'export_key',
         action: WALLET_EMAIL_OTP_ACTIONS.login,
         operation: WALLET_EMAIL_OTP_EXPORT_OPERATION,
-      };
-    case 'device_recovery':
-      return {
-        kind: 'device_recovery',
-        action: WALLET_EMAIL_OTP_ACTIONS.deviceRecovery,
-        operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
       };
   }
   return assertNever(intent);
@@ -322,16 +268,6 @@ export function readEmailOtpStoredChallengePurpose(
         operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
       };
     }
-  }
-  if (
-    record.action === WALLET_EMAIL_OTP_ACTIONS.deviceRecovery &&
-    record.operation === WALLET_EMAIL_OTP_UNLOCK_OPERATION
-  ) {
-    return {
-      kind: 'device_recovery',
-      action: WALLET_EMAIL_OTP_ACTIONS.deviceRecovery,
-      operation: WALLET_EMAIL_OTP_UNLOCK_OPERATION,
-    };
   }
   return null;
 }
@@ -381,7 +317,6 @@ export function buildVerifiedEmailOtpRegistrationChallengeProof(input: {
   if (String(input.proof.providerSubject) !== String(input.proof.challengeSubjectId)) return null;
   if (input.record.otpChannel !== EMAIL_OTP_CHANNEL) return null;
   if (String(input.record.orgId || '') !== input.proof.orgId) return null;
-  if (input.record.appSessionVersion !== input.proof.appSessionVersion) return null;
   const purpose = emailOtpRegistrationChallengePurposeForRecord({
     storedPurpose: input.storedPurpose,
     allowWalletReroll: input.allowWalletReroll,
@@ -404,7 +339,7 @@ export function buildVerifiedEmailOtpRegistrationChallengeProof(input: {
         originalWalletId: originalWalletId.value,
         finalWalletId: input.proof.finalWalletId,
         orgId: input.proof.orgId,
-        appSessionVersion: input.proof.appSessionVersion,
+        ownerProofBindingDigest: input.proof.ownerProofBindingDigest,
         purpose,
         registrationAttemptId: input.proof.registrationAttemptId,
       };
@@ -418,7 +353,7 @@ export function buildVerifiedEmailOtpRegistrationChallengeProof(input: {
         originalWalletId: originalWalletId.value,
         finalWalletId: input.proof.finalWalletId,
         orgId: input.proof.orgId,
-        appSessionVersion: input.proof.appSessionVersion,
+        ownerProofBindingDigest: input.proof.ownerProofBindingDigest,
         purpose,
       };
   }
@@ -436,7 +371,7 @@ export type EmailOtpRegistrationChallengeProofInput =
       challengeSubjectId: ChallengeSubjectId;
       walletId: WalletId;
       orgId: OrgId;
-      appSessionVersion: AppSessionVersion;
+      ownerProofBindingDigest: string;
       registrationAttemptId: EmailOtpRegistrationAttemptId;
       challengeId: EmailOtpChallengeId;
     }
@@ -446,7 +381,7 @@ export type EmailOtpRegistrationChallengeProofInput =
       challengeSubjectId: ChallengeSubjectId;
       finalWalletId: WalletId;
       orgId: OrgId;
-      appSessionVersion: AppSessionVersion;
+      ownerProofBindingDigest: string;
       proofEmail: string;
       challengeId: EmailOtpChallengeId;
     };
@@ -459,7 +394,7 @@ export function parseRawEmailOtpRegistrationChallengeProofInput(request: {
   providerSubject: unknown;
   walletId: unknown;
   orgId: unknown;
-  appSessionVersion: unknown;
+  ownerProofBindingDigest: unknown;
   challengeId: unknown;
   proofEmail?: unknown;
   googleEmailOtpRegistrationAttemptId?: unknown;
@@ -504,12 +439,12 @@ export function parseRawEmailOtpRegistrationChallengeProofInput(request: {
       message: 'Email OTP registration requires orgId',
     };
   }
-  const appSessionVersion = parseAppSessionVersion(request.appSessionVersion);
-  if (!appSessionVersion.ok) {
+  const ownerProofBindingDigest = toOptionalTrimmedString(request.ownerProofBindingDigest);
+  if (!ownerProofBindingDigest) {
     return {
       ok: false,
       code: 'invalid_body',
-      message: 'Email OTP registration requires appSessionVersion',
+      message: 'Email OTP registration requires ownerProofBindingDigest',
     };
   }
 
@@ -525,7 +460,7 @@ export function parseRawEmailOtpRegistrationChallengeProofInput(request: {
         challengeSubjectId: challengeSubjectId.value,
         walletId: finalWalletId.value,
         orgId: orgId.value,
-        appSessionVersion: appSessionVersion.value,
+        ownerProofBindingDigest,
         registrationAttemptId: registrationAttemptId.value,
         challengeId: challengeId.value,
       },
@@ -555,7 +490,7 @@ export function parseRawEmailOtpRegistrationChallengeProofInput(request: {
       challengeSubjectId: challengeSubjectId.value,
       finalWalletId: finalWalletId.value,
       orgId: orgId.value,
-      appSessionVersion: appSessionVersion.value,
+      ownerProofBindingDigest,
       proofEmail,
       challengeId: challengeId.value,
     },

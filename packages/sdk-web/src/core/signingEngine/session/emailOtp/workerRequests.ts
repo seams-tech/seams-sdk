@@ -2,41 +2,17 @@ import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type {
-  EmailOtpEd25519YaoIssuedOperationAuthorizationV1,
-  EmailOtpEd25519YaoOperationStepUpProofV1,
-  EmailOtpEcdsaSessionBootstrapHandlePayload,
   EmailOtpWarmMaterialTarget,
+  EmailOtpEd25519YaoOperationMaterialRequest,
   SignerWorkerOperationResult,
 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { SigningSessionSealKeyVersion } from '../keyMaterialBrands';
-import type { WalletRegistrationEd25519YaoBootstrapSession } from '@/core/rpcClients/relayer/walletRegistration';
-import type { RouterAbNormalSigningPrepareRequestV2Wire } from '@/core/rpcClients/relayer/routerAbNormalSigning';
-import type {
-  MpcMaterialActivationRef,
-  ThresholdEd25519SessionId,
-} from '@shared/utils/domainIds';
-import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '../../threshold/ed25519/yaoClient';
 
 type EmailOtpWorkerRequester = Pick<WorkerOperationContext, 'requestWorkerOperation'>;
 
-export async function requestDisposeEmailOtpEcdsaClientRootHandle(args: {
-  workerCtx: WorkerOperationContext;
-  clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
-}): Promise<boolean> {
-  const result = await args.workerCtx.requestWorkerOperation({
-    kind: 'emailOtp',
-    request: {
-      type: 'disposeEmailOtpEcdsaClientRootHandle',
-      timeoutMs: 5_000,
-      payload: { clientRootShareHandle: args.clientRootShareHandle },
-    },
-  });
-  return result.removed;
-}
-
 export type EmailOtpWarmSessionTransport = {
   relayerUrl: string;
-  walletSessionJwt?: string;
+  walletSessionToken?: string;
   signingSessionSealKeyVersion?: SigningSessionSealKeyVersion;
   groupId?: string;
 };
@@ -47,13 +23,6 @@ export type EmailOtpEcdsaWarmSessionRestore = {
   keyHandle: string;
   chainTarget: ThresholdEcdsaChainTarget;
   authSubjectId: string;
-};
-
-export type EmailOtpEd25519YaoLocalMaterialRestore = {
-  session: WalletRegistrationEd25519YaoBootstrapSession;
-  providerSubject: string;
-  signerSlot: number;
-  expectedOperationalPublicKey: string;
 };
 
 export async function requestSealEmailOtpWarmSessionMaterial(args: {
@@ -69,30 +38,6 @@ export async function requestSealEmailOtpWarmSessionMaterial(args: {
       payload: {
         target: args.target,
         transport: args.transport,
-      },
-    },
-  });
-}
-
-export async function requestBindEmailOtpEcdsaWarmSessionFromWorkerHandle(args: {
-  workerCtx: WorkerOperationContext;
-  clientRootShareHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
-  thresholdSessionId: string;
-  remainingUses: number;
-  expiresAtMs: number;
-}): Promise<
-  SignerWorkerOperationResult<'emailOtp', 'bindEmailOtpEcdsaWarmSessionFromWorkerHandle'>
-> {
-  return await args.workerCtx.requestWorkerOperation({
-    kind: 'emailOtp',
-    request: {
-      type: 'bindEmailOtpEcdsaWarmSessionFromWorkerHandle',
-      timeoutMs: 5_000,
-      payload: {
-        clientRootShareHandle: args.clientRootShareHandle,
-        thresholdSessionId: args.thresholdSessionId,
-        remainingUses: args.remainingUses,
-        expiresAtMs: args.expiresAtMs,
       },
     },
   });
@@ -170,68 +115,18 @@ export async function requestRehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
   });
 }
 
-export async function requestRehydrateEmailOtpEd25519YaoLocalMaterial(args: {
+export async function requestRehydrateEmailOtpEd25519YaoOperationMaterial(args: {
   workerCtx: WorkerOperationContext;
-  target: Extract<EmailOtpWarmMaterialTarget, { kind: 'ed25519_yao' }>;
-  sealedSecretB64u: string;
-  remainingUses: number;
-  expiresAtMs: number;
-  transport: Required<EmailOtpWarmSessionTransport>;
-  restore: EmailOtpEd25519YaoLocalMaterialRestore;
-}): Promise<SignerWorkerOperationResult<'emailOtp', 'rehydrateEmailOtpEd25519YaoLocalMaterial'>> {
+  payload: EmailOtpEd25519YaoOperationMaterialRequest;
+}): Promise<
+  SignerWorkerOperationResult<'emailOtp', 'rehydrateEmailOtpEd25519YaoOperationMaterial'>
+> {
   return await args.workerCtx.requestWorkerOperation({
     kind: 'emailOtp',
     request: {
-      type: 'rehydrateEmailOtpEd25519YaoLocalMaterial',
-      timeoutMs: 60_000,
-      payload: {
-        target: args.target,
-        sealedSecretB64u: args.sealedSecretB64u,
-        remainingUses: args.remainingUses,
-        expiresAtMs: args.expiresAtMs,
-        transport: args.transport,
-        restore: args.restore,
-      },
-    },
-  });
-}
-
-export async function requestRehydrateEmailOtpEd25519YaoOperationMaterial(args: {
-  workerContext: WorkerOperationContext;
-  relayUrl: string;
-  walletId: string;
-  nearAccountId: string;
-  signerSlot: number;
-  providerSubjectId: string;
-  expectedOperationalPublicKey: string;
-  expectedThresholdSessionId: ThresholdEd25519SessionId;
-  expectedMaterialActivation: MpcMaterialActivationRef;
-  normalSigningRequest: RouterAbNormalSigningPrepareRequestV2Wire;
-  displayDigest: string;
-  proof: EmailOtpEd25519YaoOperationStepUpProofV1;
-}): Promise<{
-  activeClientHandle: string;
-  metadata: RouterAbEd25519YaoActiveClientMetadataV1;
-  issuedAuthorization: EmailOtpEd25519YaoIssuedOperationAuthorizationV1;
-}> {
-  return await args.workerContext.requestWorkerOperation({
-    kind: 'emailOtp',
-    request: {
       type: 'rehydrateEmailOtpEd25519YaoOperationMaterial',
-      timeoutMs: 60_000,
-      payload: {
-        relayUrl: args.relayUrl,
-        walletId: args.walletId,
-        nearAccountId: args.nearAccountId,
-        signerSlot: args.signerSlot,
-        providerSubjectId: args.providerSubjectId,
-        expectedOperationalPublicKey: args.expectedOperationalPublicKey,
-        expectedThresholdSessionId: args.expectedThresholdSessionId,
-        expectedMaterialActivation: args.expectedMaterialActivation,
-        normalSigningRequest: args.normalSigningRequest,
-        displayDigest: args.displayDigest,
-        proof: args.proof,
-      },
+      timeoutMs: 120_000,
+      payload: args.payload,
     },
   });
 }

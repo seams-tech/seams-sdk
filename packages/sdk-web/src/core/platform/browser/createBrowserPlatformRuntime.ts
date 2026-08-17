@@ -8,7 +8,6 @@ import { errorMessage } from '@shared/utils/errors';
 import {
   finalizeEcdsaClientBootstrapCommandWasm,
   prepareEcdsaClientBootstrapCommandWasm,
-  buildEcdsaRoleLocalExportArtifactCommandWasm,
   closeRouterAbEcdsaRegistrationCeremonyWasm,
   createRouterAbEcdsaRegistrationCeremonyWasm,
   finalizeRouterAbEcdsaRegistrationActivationWasm,
@@ -22,10 +21,15 @@ import {
   getSignerWorkerOperationErrorCode,
 } from '../../signingEngine/workerManager/workerTypes';
 import {
+  isSerializedRegistrationCredential,
   serializeAuthenticationCredentialWithPRF,
   serializeRegistrationCredentialWithPRF,
 } from '../../signingEngine/webauthnAuth/credentials/helpers';
 import { getPrfFirstB64uFromCredential } from '../../signingEngine/webauthnAuth/credentials/credentialExtensions';
+import {
+  requestParentDomainWebAuthn,
+  WindowParentDomainWebAuthnClient,
+} from '../../signingEngine/webauthnAuth/fallbacks/safari-fallbacks';
 import {
   ecdsaRoleLocalReadyRecordMatchesInput,
   ecdsaRoleLocalReadyRecordStorageKey,
@@ -39,9 +43,7 @@ import {
 } from '../../signingEngine/session/keyMaterialBrands';
 import {
   parseGeneratedFinalizeEcdsaClientBootstrapOutput,
-  parseGeneratedBuildEcdsaRoleLocalExportArtifactOutput,
   parseGeneratedPrepareEcdsaClientBootstrapOutput,
-  toGeneratedBuildEcdsaRoleLocalExportArtifactCommand,
   toGeneratedFinalizeEcdsaClientBootstrapCommand,
   toGeneratedPrepareEcdsaClientBootstrapCommand,
 } from '../signerCoreCommandAdapters';
@@ -49,8 +51,6 @@ import type {
   AuthenticatorOperation,
   AuthenticatorResult,
   AuthenticatorPort,
-  BuildEcdsaRoleLocalExportArtifactErrorCode,
-  BuildEcdsaRoleLocalExportArtifactOutput,
   ClockPort,
   CleanupMalformedEcdsaRoleLocalRecordResult,
   DurableRecordStore,
@@ -243,23 +243,6 @@ function mapFinalizeEcdsaCommandError(
   return signerCryptoCommandFailure('invalid_pending_state', message);
 }
 
-function mapBuildEcdsaRoleLocalExportCommandError(
-  error: unknown,
-): SignerCryptoCommandFailure<BuildEcdsaRoleLocalExportArtifactErrorCode> {
-  const message = errorMessage(error);
-  if (
-    /public facts|public key|public identity|ethereum address|context binding|context/i.test(
-      message,
-    )
-  ) {
-    return signerCryptoCommandFailure('invalid_public_identity', message);
-  }
-  if (/ready state|state blob|stateBlob|blob magic|trailing bytes|decode/i.test(message)) {
-    return signerCryptoCommandFailure('invalid_ready_state', message);
-  }
-  return signerCryptoCommandFailure('crypto_failure', message);
-}
-
 function parseRelayerPublicIdentity(input: unknown): BrowserRelayerPublicIdentity {
   if (!isRecord(input)) {
     throw new Error('ECDSA relayer public identity must be an object');
@@ -432,6 +415,47 @@ function isPublicKeyCredential(value: Credential | null): value is PublicKeyCred
   );
 }
 
+function isCrossOriginIframe(): boolean {
+  if (typeof window === 'undefined' || window.top === window) return false;
+  try {
+    return window.top?.location.origin !== window.location.origin;
+  } catch {
+    return true;
+  }
+}
+
+async function runBrowserCredentialOperation(
+  kind: 'create' | 'get',
+  publicKey: PublicKeyCredentialCreationOptions | PublicKeyCredentialRequestOptions,
+  credentials: CredentialsContainer,
+): Promise<unknown> {
+  if (!isCrossOriginIframe()) {
+    return kind === 'create'
+      ? credentials.create({ publicKey: publicKey as PublicKeyCredentialCreationOptions })
+      : credentials.get({ publicKey: publicKey as PublicKeyCredentialRequestOptions });
+  }
+  const result = await requestParentDomainWebAuthn(
+    kind,
+    publicKey,
+    new WindowParentDomainWebAuthnClient(),
+    publicKey.timeout ?? 60_000,
+  );
+  if (result.ok) return result.credential;
+  throw new DOMException(result.error || 'Passkey verification was cancelled', 'NotAllowedError');
+}
+
+function isSerializedAuthenticationCredential(
+  value: unknown,
+): value is ReturnType<typeof serializeAuthenticationCredentialWithPRF> {
+  if (!value || typeof value !== 'object') return false;
+  const response = (value as { response?: unknown }).response;
+  return Boolean(
+    response &&
+    typeof response === 'object' &&
+    typeof (response as { authenticatorData?: unknown }).authenticatorData === 'string',
+  );
+}
+
 function createBrowserAuthenticatorPort(
   credentials: CredentialsContainer | undefined,
 ): AuthenticatorPort {
@@ -444,25 +468,33 @@ function createBrowserAuthenticatorPort(
       try {
         switch (operation.kind) {
           case 'create_passkey': {
-            const credential = await credentials.create({
-              publicKey: {
+            const credential = await runBrowserCredentialOperation(
+              'create',
+              {
                 rp: { id: operation.rpId, name: operation.rpId },
                 user: {
                   id: decodeBase64UrlArrayBuffer(operation.userHandleB64u),
-                  name: operation.userHandleB64u,
-                  displayName: operation.userHandleB64u,
+                  name: operation.userName,
+                  displayName: operation.userDisplayName,
                 },
                 challenge: decodeBase64UrlArrayBuffer(operation.challengeB64u),
-                pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
+                pubKeyCredParams: [
+                  { type: 'public-key', alg: -7 },
+                  { type: 'public-key', alg: -257 },
+                ],
                 authenticatorSelection: {
-                  residentKey: 'preferred',
+                  residentKey: 'required',
                   userVerification: operation.authenticatorOptions?.userVerification || 'preferred',
                 },
                 timeout: operation.authenticatorOptions?.timeoutMs,
                 extensions: prfExtensionInput(),
               },
-            });
-            if (!isPublicKeyCredential(credential)) {
+              credentials,
+            );
+            if (
+              !isPublicKeyCredential(credential as Credential | null) &&
+              !isSerializedRegistrationCredential(credential)
+            ) {
               return {
                 ok: false,
                 code: 'invalid_credential',
@@ -471,7 +503,11 @@ function createBrowserAuthenticatorPort(
             }
             let serialized: ReturnType<typeof serializeRegistrationCredentialWithPRF>;
             try {
-              serialized = serializeRegistrationCredentialWithPRF({ credential });
+              serialized = isSerializedRegistrationCredential(credential)
+                ? credential
+                : serializeRegistrationCredentialWithPRF({
+                    credential: credential as PublicKeyCredential,
+                  });
             } catch (error) {
               if (operation.requirePrfFirst) {
                 const prfFailure = requiredPrfSerializationFailure(error);
@@ -508,8 +544,9 @@ function createBrowserAuthenticatorPort(
             };
           }
           case 'get_passkey': {
-            const credential = await credentials.get({
-              publicKey: {
+            const credential = await runBrowserCredentialOperation(
+              'get',
+              {
                 rpId: operation.rpId,
                 challenge: decodeBase64UrlArrayBuffer(operation.challengeB64u),
                 allowCredentials: [
@@ -521,8 +558,12 @@ function createBrowserAuthenticatorPort(
                 userVerification: 'preferred',
                 extensions: prfExtensionInput(),
               },
-            });
-            if (!isPublicKeyCredential(credential)) {
+              credentials,
+            );
+            if (
+              !isPublicKeyCredential(credential as Credential | null) &&
+              !isSerializedAuthenticationCredential(credential)
+            ) {
               return {
                 ok: false,
                 code: 'invalid_credential',
@@ -531,7 +572,11 @@ function createBrowserAuthenticatorPort(
             }
             let serialized: ReturnType<typeof serializeAuthenticationCredentialWithPRF>;
             try {
-              serialized = serializeAuthenticationCredentialWithPRF({ credential });
+              serialized = isSerializedAuthenticationCredential(credential)
+                ? credential
+                : serializeAuthenticationCredentialWithPRF({
+                    credential: credential as PublicKeyCredential,
+                  });
             } catch (error) {
               if (operation.requirePrfFirst) {
                 const prfFailure = requiredPrfSerializationFailure(error);
@@ -746,47 +791,6 @@ function createBrowserSignerCryptoPort(
         return (
           mapSignerCryptoInvocationError(error) ||
           signerCryptoCommandFailure('crypto_failure', errorMessage(error))
-        );
-      }
-    },
-    async buildEcdsaRoleLocalExportArtifact(
-      input,
-    ): Promise<
-      SignerCryptoResult<
-        BuildEcdsaRoleLocalExportArtifactOutput,
-        BuildEcdsaRoleLocalExportArtifactErrorCode
-      >
-    > {
-      if (
-        input.stateBlob.kind !== 'ecdsa_role_local_state_blob_v1' ||
-        input.stateBlob.curve !== 'secp256k1' ||
-        input.stateBlob.encoding !== 'base64url' ||
-        input.stateBlob.producer !== 'signer_core'
-      ) {
-        return signerCryptoCommandFailure(
-          'invalid_ready_state',
-          'ECDSA role-local ready blob envelope is invalid',
-        );
-      }
-      if (!workerCtx) {
-        return signerCryptoInvocationFailure(
-          'unavailable',
-          'ECDSA role-local export worker context is unavailable',
-        );
-      }
-      try {
-        const generatedCommand = toGeneratedBuildEcdsaRoleLocalExportArtifactCommand(input);
-        const generatedOutput = await buildEcdsaRoleLocalExportArtifactCommandWasm({
-          command: generatedCommand,
-          workerCtx,
-        });
-        return {
-          ok: true,
-          value: parseGeneratedBuildEcdsaRoleLocalExportArtifactOutput(generatedOutput),
-        };
-      } catch (error) {
-        return (
-          mapSignerCryptoInvocationError(error) || mapBuildEcdsaRoleLocalExportCommandError(error)
         );
       }
     },

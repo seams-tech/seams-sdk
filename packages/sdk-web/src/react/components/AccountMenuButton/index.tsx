@@ -15,6 +15,7 @@ import type { AccountMenuButtonProps, AccountsSectionRow, ExportChain, MenuItem 
 import { PROFILE_MENU_ITEM_IDS } from './types';
 import { QRCodeScanner } from '../QRCodeScanner';
 import { RecoveryCodesModal } from './RecoveryCodesModal';
+import { LinkedDevicesModal } from './LinkedDevicesModal';
 import './Web3AuthProfileButton.css';
 import { Theme, useTheme } from '../theme';
 import { requirePrimaryChainByFamily, resolvePrimaryExplorerUrl } from '@/core/config/chains';
@@ -25,8 +26,8 @@ import {
   toWalletId,
   walletSessionRefFromSession,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { NearProvisioningState } from '@/core/types/seams';
+import { accountMenuCapabilitiesForLoginState } from '../../context/reactLoginStateBuilders';
 
 function formatExportKeyErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message.trim()) return error.message;
@@ -70,7 +71,7 @@ function resolveDefaultPortalTarget(
 
 /**
  * Account Menu Button Component
- * Provides user settings, account management, and the refactor-84 device-link scanner shell.
+ * Provides user settings, account management, and the device-link scanner shell.
  * **Important:** This component should be used inside a SeamsWeb context.
  * Wrap your app with PasskeyProvider or ensure SeamsWeb is available in context via useSeams.
  *
@@ -118,6 +119,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
 }) => {
   // Get values from context if not provided as props
   const { loginState, seams, lock } = useSeams();
+  const recovery = useMemo(() => seams.recovery, [seams]);
 
   // Use props if provided, otherwise fall back to context
   const accountName =
@@ -131,7 +133,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
 
   // Local state for modals/expanded sections
   const [showQRScanner, setShowQRScanner] = useState(false);
-  const [linkedDevicesOpen, setLinkedDevicesOpen] = useState(false);
+  const [showLinkedDevices, setShowLinkedDevices] = useState(false);
   const [showRecoveryCodes, setShowRecoveryCodes] = useState(false);
   const [exportKeysOpen, setExportKeysOpen] = useState(false);
   const [exportLoadingChain, setExportLoadingChain] = useState<ExportChain | null>(null);
@@ -147,16 +149,22 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
 
   // Read current theme from Theme context (falls back to system preference)
   const { theme } = useTheme();
-  const canShowRecoveryCodes =
-    loginState.isLoggedIn &&
-    Boolean(walletId) &&
-    loginState.authMethods.some((authMethod) => authMethod.kind === SIGNER_AUTH_METHODS.emailOtp);
+  const accountMenuCapabilities = accountMenuCapabilitiesForLoginState(loginState);
+  const canShowRecoveryCodes = accountMenuCapabilities.kind === 'owner' && Boolean(walletId);
+  const canManageLinkedDevices = accountMenuCapabilities.canManageLinkedDevices;
+  const handleQrCodeScanned = useCallback(() => {
+    setShowQRScanner(false);
+  }, []);
 
   useEffect(() => {
     if (!canShowRecoveryCodes) {
       setShowRecoveryCodes(false);
     }
   }, [canShowRecoveryCodes]);
+
+  useEffect(() => {
+    if (!canManageLinkedDevices) setShowLinkedDevices(false);
+  }, [canManageLinkedDevices]);
 
   // Keep local view state in sync with SDK preferences (mirrors wallet host in iframe mode)
   useEffect(() => {
@@ -348,52 +356,65 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
       });
     }
 
-    items.push({
-      id: PROFILE_MENU_ITEM_IDS.EXPORT_KEYS,
-      icon: exportLoadingChain ? <SpinnerIcon /> : <KeyIcon />,
-      label: 'Export Keys',
-      description: 'Export wallet signing keys',
-      disabled: !loginState.isLoggedIn,
-      onClick: () => {
-        setExportKeysOpen((v) => !v);
-      },
-      keepOpenOnClick: true,
-    });
+    if (accountMenuCapabilities.kind !== 'signed_out') {
+      items.push({
+        id: PROFILE_MENU_ITEM_IDS.EXPORT_KEYS,
+        icon: exportLoadingChain ? <SpinnerIcon /> : <KeyIcon />,
+        label: 'Export Keys',
+        description:
+          accountMenuCapabilities.kind === 'signing_only'
+            ? 'Unavailable on signing-only devices'
+            : 'Export wallet signing keys',
+        disabled: !accountMenuCapabilities.canExportKeys,
+        onClick: () => {
+          setExportKeysOpen((v) => !v);
+        },
+        keepOpenOnClick: true,
+      });
+    }
 
     if (canShowRecoveryCodes) {
       items.push({
         id: PROFILE_MENU_ITEM_IDS.RECOVERY_CODES,
         icon: <RecoveryCodesIcon />,
         label: 'Recovery Codes',
-        description: 'Email OTP backup codes',
+        description: 'Back up wallet recovery codes',
         disabled: false,
         onClick: () => setShowRecoveryCodes(true),
         keepOpenOnClick: true,
       });
     }
 
-    items.push(
-      {
-        id: PROFILE_MENU_ITEM_IDS.SCAN_LINK_DEVICE,
-        icon: <ScanIcon />,
-        label: 'Scan and Link Device',
-        description: 'Scan QR to link a device',
-        disabled: !loginState.isLoggedIn,
-        onClick: () => {
-          setShowQRScanner(true);
+    if (accountMenuCapabilities.kind !== 'signed_out') {
+      const canManageLinkedDevices = accountMenuCapabilities.canManageLinkedDevices;
+      const linkedDeviceDescription = canManageLinkedDevices
+        ? 'Scan QR to link a device'
+        : 'Available on the owner device';
+      items.push(
+        {
+          id: PROFILE_MENU_ITEM_IDS.SCAN_LINK_DEVICE,
+          icon: <ScanIcon />,
+          label: 'Scan and Link Device',
+          description: linkedDeviceDescription,
+          disabled: !canManageLinkedDevices,
+          onClick: () => {
+            setShowQRScanner(true);
+          },
+          keepOpenOnClick: true,
         },
-        keepOpenOnClick: true,
-      },
-      {
-        id: PROFILE_MENU_ITEM_IDS.LINKED_DEVICES,
-        icon: <LinkIcon />,
-        label: 'Linked Devices',
-        description: 'View linked devices',
-        disabled: !loginState.isLoggedIn,
-        onClick: () => setLinkedDevicesOpen((v) => !v),
-        keepOpenOnClick: true,
-      },
-    );
+        {
+          id: PROFILE_MENU_ITEM_IDS.LINKED_DEVICES,
+          icon: <LinkIcon />,
+          label: 'Linked Devices',
+          description: canManageLinkedDevices
+            ? 'See devices using this wallet'
+            : linkedDeviceDescription,
+          disabled: !canManageLinkedDevices,
+          onClick: () => setShowLinkedDevices(true),
+          keepOpenOnClick: true,
+        },
+      );
+    }
 
     items.push({
       id: PROFILE_MENU_ITEM_IDS.TRANSACTION_SETTINGS,
@@ -405,7 +426,13 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
       keepOpenOnClick: true,
     });
     return items;
-  }, [accountsRows.length, canShowRecoveryCodes, exportLoadingChain, loginState.isLoggedIn]);
+  }, [
+    accountsRows.length,
+    accountMenuCapabilities,
+    canShowRecoveryCodes,
+    exportLoadingChain,
+    loginState.isLoggedIn,
+  ]);
 
   const highlightedMenuItemId = highlightedMenuItem?.id;
   const highlightShouldFocus = highlightedMenuItem?.focus ?? true;
@@ -474,7 +501,6 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
         transactionSettingsOpen={transactionSettingsOpen}
         accountsRows={accountsRows}
         accountsOpen={accountsOpen}
-        linkedDevicesOpen={linkedDevicesOpen}
         exportKeysOpen={exportKeysOpen}
         exportLoadingChain={exportLoadingChain}
         onExportChain={startExportKeyFlow}
@@ -490,7 +516,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
           <QRCodeScanner
             key="profile-qr-scanner"
             isOpen={showQRScanner}
-            fundingAmount={deviceLinkingScannerParams?.fundingAmount || '0.05'}
+            onQRCodeScanned={handleQrCodeScanned}
             onError={(error) => {
               deviceLinkingScannerParams?.onError?.(error);
               setShowQRScanner(false);
@@ -511,6 +537,18 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
             walletId={walletId!}
             isOpen={showRecoveryCodes}
             onClose={() => setShowRecoveryCodes(false)}
+            recovery={recovery}
+          />,
+          portalHost!,
+        )}
+
+      {/* Linked Devices Modal (portaled alongside the other account-menu modals) */}
+      {canPortal &&
+        createPortal(
+          <LinkedDevicesModal
+            walletId={walletId ?? null}
+            isOpen={showLinkedDevices}
+            onClose={() => setShowLinkedDevices(false)}
           />,
           portalHost!,
         )}

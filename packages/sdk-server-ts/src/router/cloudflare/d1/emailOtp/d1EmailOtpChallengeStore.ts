@@ -43,8 +43,7 @@ export type EmailOtpChallengeContextInput = {
   readonly challengeSubjectId: string;
   readonly walletId: string;
   readonly orgId: string;
-  readonly sessionHash: string;
-  readonly appSessionVersion: string;
+  readonly ownerProofBindingDigest: string;
   readonly action: EmailOtpChallengeIssueAction;
   readonly operation: EmailOtpChallengeOperation;
   readonly nowMs: number;
@@ -141,8 +140,7 @@ export class CloudflareD1EmailOtpChallengeStore {
           AND wallet_id = ?
           AND record_org_id = ?
           AND otp_channel = ?
-          AND session_hash = ?
-          AND app_session_version = ?
+          AND owner_proof_binding_digest = ?
           AND action = ?
           AND operation = ?
           AND expires_at_ms > ?
@@ -181,8 +179,7 @@ export class CloudflareD1EmailOtpChallengeStore {
         wallet_id,
         record_org_id,
         otp_channel,
-        session_hash,
-        app_session_version,
+        owner_proof_binding_digest,
         action,
         operation,
         otp_code,
@@ -190,15 +187,14 @@ export class CloudflareD1EmailOtpChallengeStore {
         created_at_ms,
         expires_at_ms
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         record.challengeId,
         record.challengeSubjectId,
         record.walletId,
         record.orgId || '',
         EMAIL_OTP_CHANNEL,
-        record.sessionHash,
-        record.appSessionVersion,
+        record.ownerProofBindingDigest,
         record.action,
         record.operation,
         record.otpCode,
@@ -469,8 +465,7 @@ export class CloudflareD1EmailOtpChallengeStore {
           AND wallet_id = ?
           AND record_org_id = ?
           AND otp_channel = ?
-          AND session_hash = ?
-          AND app_session_version = ?
+          AND owner_proof_binding_digest = ?
           AND action = ?
           AND operation = ?
           AND expires_at_ms > ?`,
@@ -500,8 +495,7 @@ export class CloudflareD1EmailOtpChallengeStore {
                  AND wallet_id = ?
                  AND record_org_id = ?
                  AND otp_channel = ?
-                 AND session_hash = ?
-                 AND app_session_version = ?
+                 AND owner_proof_binding_digest = ?
                  AND action = ?
                  AND operation = ?
                  AND expires_at_ms > ?

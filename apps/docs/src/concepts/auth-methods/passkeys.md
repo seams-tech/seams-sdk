@@ -20,3 +20,14 @@ Passkeys can:
 Passkeys do not make app sessions into signing authority. Passkey results are
 normalized into the same lane, Wallet Session/quota, capability-grant, and policy model
 as other auth methods.
+
+## Register with a passkey
+
+The React integration keeps registration results typed by capability and
+provisioning state.
+
+::: details Runnable React example
+
+<<< ../../examples/registration.tsx
+
+:::

@@ -4,32 +4,18 @@ import {
   createEmailOtpAuthStateStore,
   createEmailOtpChallengeStore,
   createEmailOtpGrantStore,
-  createEmailOtpRecoveryWrappedEnrollmentEscrowStore,
   createEmailOtpRegistrationAttemptStore,
   createEmailOtpUnlockChallengeStore,
   createEmailOtpWalletEnrollmentStore,
   type EmailOtpAuthStateStore,
   type EmailOtpChallengeStore,
   type EmailOtpGrantStore,
-  type EmailOtpRecoveryWrappedEnrollmentEscrowStore,
   type EmailOtpRegistrationAttemptStore,
   type EmailOtpUnlockChallengeStore,
   type EmailOtpWalletEnrollmentStore,
 } from '../EmailOtpStores';
-import {
-  createEmailRecoveryPreparationStore,
-  type EmailRecoveryPreparationStore,
-} from '../EmailRecoveryPreparationStore';
 import { createIdentityStore, type IdentityStore } from '../IdentityStore';
 import { createNearPublicKeyStore, type NearPublicKeyStore } from '../NearPublicKeyStore';
-import {
-  createRecoveryExecutionStore,
-  type RecoveryExecutionStore,
-} from '../RecoveryExecutionStore';
-import {
-  createRecoverySessionStore,
-  type RecoverySessionStore,
-} from '../RecoverySessionStore';
 import {
   createRegistrationCeremonyStore,
   type RegistrationCeremonyStore,
@@ -90,18 +76,12 @@ export class AuthServiceStoreRegistry {
   private emailOtpChallengeStore: EmailOtpChallengeStore | null = null;
   private emailOtpGrantStore: EmailOtpGrantStore | null = null;
   private emailOtpWalletEnrollmentStore: EmailOtpWalletEnrollmentStore | null = null;
-  private emailOtpRecoveryWrappedEnrollmentEscrowStore:
-    | EmailOtpRecoveryWrappedEnrollmentEscrowStore
-    | null = null;
   private emailOtpAuthStateStore: EmailOtpAuthStateStore | null = null;
   private emailOtpUnlockChallengeStore: EmailOtpUnlockChallengeStore | null = null;
   private emailOtpRegistrationAttemptStore: EmailOtpRegistrationAttemptStore | null = null;
   private emailOtpRateLimiter: SigningSessionSealRateLimiter | null = null;
   private registrationPrepareRateLimiter: SigningSessionSealRateLimiter | null = null;
-  private emailRecoveryPreparationStore: EmailRecoveryPreparationStore | null = null;
   private nearPublicKeyStore: NearPublicKeyStore | null = null;
-  private recoverySessionStore: RecoverySessionStore | null = null;
-  private recoveryExecutionStore: RecoveryExecutionStore | null = null;
   private identityStore: IdentityStore | null = null;
   private registrationCeremonyStore: RegistrationCeremonyStore | null = null;
   private walletStore: WalletStore | null = null;
@@ -171,12 +151,6 @@ export class AuthServiceStoreRegistry {
     return this.emailOtpWalletEnrollmentStore;
   }
 
-  getEmailOtpRecoveryWrappedEnrollmentEscrowStore(): EmailOtpRecoveryWrappedEnrollmentEscrowStore {
-    this.emailOtpRecoveryWrappedEnrollmentEscrowStore ??=
-      createEmailOtpRecoveryWrappedEnrollmentEscrowStore(createStoreFactoryInput(this.input));
-    return this.emailOtpRecoveryWrappedEnrollmentEscrowStore;
-  }
-
   getEmailOtpAuthStateStore(): EmailOtpAuthStateStore {
     this.emailOtpAuthStateStore ??= createEmailOtpAuthStateStore(createStoreFactoryInput(this.input));
     return this.emailOtpAuthStateStore;
@@ -215,25 +189,9 @@ export class AuthServiceStoreRegistry {
     return this.identityStore;
   }
 
-  getEmailRecoveryPreparationStore(): EmailRecoveryPreparationStore {
-    this.emailRecoveryPreparationStore ??= createEmailRecoveryPreparationStore(
-      createStoreFactoryInput(this.input),
-    );
-    return this.emailRecoveryPreparationStore;
-  }
-
   getNearPublicKeyStore(): NearPublicKeyStore {
     this.nearPublicKeyStore ??= createNearPublicKeyStore(createStoreFactoryInput(this.input));
     return this.nearPublicKeyStore;
   }
 
-  getRecoverySessionStore(): RecoverySessionStore {
-    this.recoverySessionStore ??= createRecoverySessionStore(createStoreFactoryInput(this.input));
-    return this.recoverySessionStore;
-  }
-
-  getRecoveryExecutionStore(): RecoveryExecutionStore {
-    this.recoveryExecutionStore ??= createRecoveryExecutionStore(createStoreFactoryInput(this.input));
-    return this.recoveryExecutionStore;
-  }
 }

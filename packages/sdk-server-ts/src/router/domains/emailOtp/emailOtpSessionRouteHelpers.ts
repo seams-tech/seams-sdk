@@ -190,11 +190,11 @@ export function validateEmailOtpWalletId(input: {
   if (!walletId) {
     return emailOtpRouteValidationError(400, 'invalid_body', 'walletId is required');
   }
-  if (walletId !== getSessionWalletId(input.claims, input.userId)) {
+  if (walletId !== getAuthenticatedWalletId(input.claims, input.userId)) {
     return emailOtpRouteValidationError(
       403,
       'wallet_identity_mismatch',
-      'walletId must match the current app session wallet',
+      'walletId must match the authenticated wallet',
     );
   }
   return { ok: true, walletId };
@@ -221,7 +221,7 @@ export function validateEmailOtpRequiredString(
   return { ok: true, value };
 }
 
-export function getSessionWalletId(claims: unknown, userId: string): string {
+export function getAuthenticatedWalletId(claims: unknown, userId: string): string {
   return toOptionalRecordString(claims, 'walletId') || toOptionalTrimmedString(userId) || '';
 }
 
@@ -252,74 +252,28 @@ export function parseOidcAccountMode(raw: unknown): OidcAccountMode | undefined 
   return undefined;
 }
 
-export function stableEmailOtpSessionBindingClaims(
-  claims: Record<string, unknown>,
-): Record<string, unknown> {
-  const stable: Record<string, unknown> = {};
-  for (const key of [
-    'kind',
-    'sub',
-    'appSessionVersion',
-    'walletId',
-    'orgId',
-    'projectId',
-    'environmentId',
-    'provider',
-    'oidcProvider',
-    'providerSubject',
-    'runtimePolicyScope',
-  ]) {
-    const value = claims[key];
-    if (value !== undefined && value !== null && value !== '') {
-      stable[key] = value;
-    }
-  }
-  return stable;
-}
-
-export function stableEmailOtpSigningSessionBindingClaims(
-  claims: Record<string, unknown>,
-): Record<string, unknown> {
-  const stable: Record<string, unknown> = {};
-  for (const key of [
-    'kind',
-    'sub',
-    'sessionId',
-    'relayerKeyId',
-    'rpId',
-    'runtimePolicyScope',
-    'thresholdExpiresAtMs',
-    'participantIds',
-  ]) {
-    const value = claims[key];
-    if (value !== undefined && value !== null && value !== '') {
-      stable[key] = value;
-    }
-  }
-  return stable;
-}
-
-export async function hashEmailOtpAppSessionClaims(
-  claims: Record<string, unknown>,
-): Promise<string> {
-  const json = alphabetizeStringify(stableEmailOtpSessionBindingClaims(claims));
-  return base64UrlEncode(await sha256BytesUtf8(json));
-}
-
-export function emailOtpAppSessionClaimsForSubject(input: {
-  userId: string;
-  claims: Record<string, unknown>;
-}): Record<string, unknown> {
-  return {
-    sub: input.userId,
-    ...input.claims,
-  };
-}
-
-export async function hashEmailOtpSigningSessionClaims(
-  claims: Record<string, unknown>,
-): Promise<string> {
-  const json = alphabetizeStringify(stableEmailOtpSigningSessionBindingClaims(claims));
+export async function hashEmailOtpOperationBinding(input: {
+  walletId: string;
+  providerUserId: string;
+  orgId: string;
+  operation: string;
+  requestOrigin: string | null;
+  audience: string | null;
+  authorityRef?: unknown;
+  operationFingerprintDigest?: string;
+}): Promise<string> {
+  const json = alphabetizeStringify({
+    walletId: input.walletId,
+    providerUserId: input.providerUserId,
+    orgId: input.orgId,
+    operation: input.operation,
+    requestOrigin: input.requestOrigin || '',
+    audience: input.audience || '',
+    ...(input.authorityRef !== undefined ? { authorityRef: input.authorityRef } : {}),
+    ...(input.operationFingerprintDigest
+      ? { operationFingerprintDigest: input.operationFingerprintDigest }
+      : {}),
+  });
   return base64UrlEncode(await sha256BytesUtf8(json));
 }
 
@@ -332,8 +286,7 @@ export function emailOtpChallengeResponseBody(result: {
     userId: string;
     walletId: string;
     orgId?: string;
-    sessionHash: string;
-    appSessionVersion: string;
+    ownerProofBindingDigest: string;
     otpChannel: string;
     action: string;
     operation: string;
@@ -354,8 +307,7 @@ export function emailOtpChallengeResponseBody(result: {
       userId: challenge.userId,
       walletId: challenge.walletId,
       ...(challenge.orgId ? { orgId: challenge.orgId } : {}),
-      sessionHash: challenge.sessionHash,
-      appSessionVersion: challenge.appSessionVersion,
+      ownerProofBindingDigest: challenge.ownerProofBindingDigest,
       otpChannel: challenge.otpChannel,
       action: challenge.action,
       operation: challenge.operation,

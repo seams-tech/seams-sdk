@@ -1,6 +1,10 @@
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { errorMessage } from '@shared/utils/errors';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
+import {
+  unknownWebAuthnAuthenticatorDeviceInfo,
+  type WebAuthnAuthenticatorDeviceInfo,
+} from '@shared/utils/webauthnDeviceInfo';
 import type { WebAuthnRpId } from '@shared/utils/domainIds';
 import type { ThresholdEd25519AuthorityScope } from '../types';
 import type { NormalizedLogger } from '../logger';
@@ -15,11 +19,11 @@ import type {
 } from '../WebAuthnSyncChallengeStore';
 import type { WebAuthnCredentialBindingStore } from '../WebAuthnCredentialBindingStore';
 import type { IdentityStore } from '../IdentityStore';
-import type { EmailRecoveryResolvedWalletBinding } from '../EmailRecoveryPreparationStore';
 import type { WebAuthnAuthenticationCredential } from '../types';
 import {
   parseBoundaryWalletId,
   resolvedEd25519WalletBindingFromCredentialBinding,
+  type ResolvedEd25519WalletBinding,
 } from './webauthnWalletBinding';
 import { passkeyThresholdEd25519AuthorityScope, requireWebAuthnRpId } from './webauthnAuthority';
 import {
@@ -48,17 +52,25 @@ export type WebAuthnAuthenticationLiteResult = {
   message?: string;
 };
 
+/**
+ * One listed authenticator. `device` is required: the published service
+ * contract declares it, and a binding with no authenticator row still gets the
+ * `Unknown device` fallback rather than an absent field.
+ */
+export type WebAuthnAuthenticatorListEntry = {
+  credentialIdB64u: string;
+  signerSlot?: number;
+  publicKey?: string;
+  createdAtMs?: number;
+  updatedAtMs?: number;
+  device: WebAuthnAuthenticatorDeviceInfo;
+};
+
 export type WebAuthnAuthenticatorListResult = {
   ok: boolean;
   code?: string;
   message?: string;
-  authenticators?: Array<{
-    credentialIdB64u: string;
-    signerSlot?: number;
-    publicKey?: string;
-    createdAtMs?: number;
-    updatedAtMs?: number;
-  }>;
+  authenticators?: WebAuthnAuthenticatorListEntry[];
 };
 
 export type WebAuthnLoginOptionsResult = {
@@ -77,7 +89,7 @@ export type WebAuthnSyncAccountOptionsResult =
       challengeB64u: string;
       expiresAtMs: number;
       credentialIds?: string[];
-      walletBinding?: EmailRecoveryResolvedWalletBinding;
+      walletBinding?: ResolvedEd25519WalletBinding;
     }
   | { ok: false; code: string; message: string };
 
@@ -96,7 +108,7 @@ export type WebAuthnSyncAccountVerificationResult =
       walletId: string;
       nearAccountId: string;
       nearEd25519SigningKeyId: string;
-      walletBinding: EmailRecoveryResolvedWalletBinding;
+      walletBinding: ResolvedEd25519WalletBinding;
       rpId: string;
       signerSlot: number;
       publicKey: string;
@@ -121,14 +133,31 @@ export type WebAuthnSyncAccountVerificationResult =
       message: string;
     };
 
-export type WebAuthnLoginVerificationResult = {
-  ok: boolean;
-  verified?: boolean;
-  userId?: string;
-  rpId?: string;
-  code?: string;
-  message?: string;
-};
+export type WebAuthnLoginVerificationResult =
+  | {
+      ok: true;
+      verified: true;
+      userId: string;
+      rpId: string;
+      credentialIdB64u: string;
+      ed25519:
+        | { readonly kind: 'absent' }
+        | {
+            readonly kind: 'active';
+            readonly nearAccountId: string;
+            readonly nearEd25519SigningKeyId: string;
+            readonly signerSlot: number;
+            readonly publicKey: string;
+            readonly relayerKeyId: string;
+            readonly participantIds: readonly [number, number];
+          };
+    }
+  | {
+      ok: false;
+      verified?: false;
+      code: string;
+      message: string;
+    };
 
 function readRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -251,6 +280,9 @@ function updatedAuthenticatorRecord(input: {
     counter: input.newCounter,
     createdAtMs: input.latest.createdAtMs,
     updatedAtMs: Date.now(),
+    /* An assertion advances the counter and nothing else. Registration-time
+       device metadata is carried forward untouched. */
+    deviceInfo: input.latest.deviceInfo,
   };
 }
 
@@ -317,25 +349,20 @@ function authenticatorListEntry(input: {
     updatedAtMs?: number;
   };
   authenticator: WebAuthnAuthenticatorRecord | undefined;
-}): {
-  credentialIdB64u: string;
-  signerSlot?: number;
-  publicKey?: string;
-  createdAtMs?: number;
-  updatedAtMs?: number;
-} {
+}): WebAuthnAuthenticatorListEntry {
   return {
     credentialIdB64u: input.binding.credentialIdB64u,
     signerSlot: input.binding.signerSlot,
     publicKey: input.binding.publicKey,
     createdAtMs: input.authenticator?.createdAtMs ?? input.binding.createdAtMs,
     updatedAtMs: input.authenticator?.updatedAtMs ?? input.binding.updatedAtMs,
+    device: input.authenticator?.deviceInfo ?? unknownWebAuthnAuthenticatorDeviceInfo(),
   };
 }
 
 function compareAuthenticatorListEntries(
-  left: ReturnType<typeof authenticatorListEntry>,
-  right: ReturnType<typeof authenticatorListEntry>,
+  left: WebAuthnAuthenticatorListEntry,
+  right: WebAuthnAuthenticatorListEntry,
 ): number {
   return (Number(left.signerSlot || 0) || 0) - (Number(right.signerSlot || 0) || 0);
 }
@@ -636,7 +663,7 @@ export async function listWebAuthnAuthenticatorsForUserWithStores(input: {
       authByCredentialId.set(String(authenticator.credentialIdB64u || '').trim(), authenticator);
     }
 
-    const merged: ReturnType<typeof authenticatorListEntry>[] = [];
+    const merged: WebAuthnAuthenticatorListEntry[] = [];
     for (const binding of bindings) {
       merged.push(
         authenticatorListEntry({
@@ -738,7 +765,7 @@ export async function createWebAuthnSyncAccountOptionsWithStores(input: {
     const challengeId = randomWebAuthnB64u(16);
     const challengeB64u = randomWebAuthnB64u(32);
     let credentialIds: string[] | undefined;
-    let walletBinding: EmailRecoveryResolvedWalletBinding | undefined;
+    let walletBinding: ResolvedEd25519WalletBinding | undefined;
 
     if (expectedUserId) {
       const bindingList = await listCredentialBindingsForUser({
@@ -975,6 +1002,7 @@ export async function verifyWebAuthnLoginWithStores(input: {
   };
   loginChallengeStore: WebAuthnLoginChallengeStore;
   authenticatorStore: WebAuthnAuthenticatorStore;
+  credentialBindingStore: WebAuthnCredentialBindingStore;
   identityStore: IdentityStore;
   logger: NormalizedLogger;
 }): Promise<WebAuthnLoginVerificationResult> {
@@ -1023,12 +1051,55 @@ export async function verifyWebAuthnLoginWithStores(input: {
       };
     }
 
+    const credential = input.request
+      .webauthn_authentication as WebAuthnAuthenticationCredential;
+    const credentialIdB64u = String(credential.rawId || credential.id || '').trim();
+    const binding = credentialIdB64u
+      ? await input.credentialBindingStore.get(record.rpId, credentialIdB64u)
+      : null;
+    const walletBinding = binding
+      ? resolvedEd25519WalletBindingFromCredentialBinding({ binding })
+      : null;
+    const firstParticipantId = binding?.participantIds?.[0];
+    const secondParticipantId = binding?.participantIds?.[1];
+    if (!binding) {
+      return {
+        ok: false,
+        verified: false,
+        code: 'unknown_credential',
+        message: 'Credential has no wallet binding',
+      };
+    }
+    const ed25519 =
+      walletBinding &&
+      binding.publicKey &&
+      binding.relayerKeyId &&
+      firstParticipantId !== undefined &&
+      secondParticipantId !== undefined
+        ? {
+            kind: 'active' as const,
+            nearAccountId: walletBinding.nearAccountId,
+            nearEd25519SigningKeyId: walletBinding.nearEd25519SigningKeyId,
+            signerSlot: walletBinding.signerSlot,
+            publicKey: binding.publicKey,
+            relayerKeyId: binding.relayerKeyId,
+            participantIds: [firstParticipantId, secondParticipantId] as const,
+          }
+        : { kind: 'absent' as const };
+
     await linkNearSubjectForWebAuthnLogin({
       identityStore: input.identityStore,
       userId: record.userId,
     });
 
-    return { ok: true, verified: true, userId: record.userId, rpId: record.rpId };
+    return {
+      ok: true,
+      verified: true,
+      userId: record.userId,
+      rpId: record.rpId,
+      credentialIdB64u,
+      ed25519,
+    };
   } catch (e: unknown) {
     return {
       ok: false,

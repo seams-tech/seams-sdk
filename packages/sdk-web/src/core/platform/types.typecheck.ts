@@ -131,13 +131,6 @@ runtime.signerCrypto.finalizeEcdsaClientBootstrap({
     relayerShareRetryCounter: 0,
   },
 });
-runtime.signerCrypto.buildEcdsaRoleLocalExportArtifact({
-  kind: 'build_ecdsa_role_local_export_artifact_v1',
-  algorithm: 'router_ab_ecdsa_derivation_secp256k1_role_local_v1',
-  stateBlob: readyBlob,
-  publicFacts,
-  serverExportShare32B64u: 'server-share',
-});
 
 if (platformResult.ok) {
   platformResult.value.value;

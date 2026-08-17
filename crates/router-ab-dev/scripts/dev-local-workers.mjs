@@ -1,10 +1,18 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  writeFileSync,
+} from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import net from 'node:net';
 import { isAbsolute, join, relative } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
+import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 
@@ -86,13 +94,14 @@ const argv = process.argv.slice(2);
 const options = parseArgs(argv);
 const root = resolvePath(options.root);
 const cloudflareStateRoot = join(root, '.local', 'cloudflare-state');
-const d1LocalPersistPath = resolvePath(
-  process.env.SEAMS_D1_LOCAL_PERSIST_TO || join(cloudflareStateRoot, 'gateway'),
+const d1LocalPersistPath = join(cloudflareStateRoot, 'gateway');
+const d1LocalWranglerConfigPath = join(
+  root,
+  '.runtime',
+  'wrangler-d1-local',
+  'wrangler.d1-local.toml',
 );
-const d1LocalWranglerConfigPath = resolvePath(
-  process.env.SEAMS_D1_LOCAL_WRANGLER_CONFIG ||
-    join(root, '.runtime', 'wrangler-d1-local', 'wrangler.d1-local.toml'),
-);
+const d1CanonicalSchemaMarkerPath = join(d1LocalPersistPath, '.canonical-schema-sha256');
 const strictPersistPath = join(cloudflareStateRoot, 'router-ab');
 const strictWorkerBuildRoot = join(repoRoot, 'crates', 'router-ab-cloudflare', 'build');
 const strictBuildReceiptPath = join(strictWorkerBuildRoot, 'local-build-receipt.json');
@@ -102,29 +111,22 @@ const strictWorkerBuildProfile = resolveStrictWorkerBuildProfile({
   help: options.help,
   receiptPath: strictBuildReceiptPath,
 });
-const ecdsaDerivationClientRoot = join(repoRoot, 'wasm', 'router_ab_ecdsa_derivation_client');
+const ecdsaClientRoot = join(repoRoot, 'wasm', 'router_ab_ecdsa_client');
 const ecdsaDerivationClientDependencyPath = join(
-  ecdsaDerivationClientRoot,
+  ecdsaClientRoot,
   'target',
   'wasm32-unknown-unknown',
   'release',
   'deps',
-  'router_ab_ecdsa_derivation_client.d',
+  'router_ab_ecdsa_client.d',
 );
 const ecdsaDerivationClientPackageWasmPath = join(
-  ecdsaDerivationClientRoot,
+  ecdsaClientRoot,
   'pkg',
-  'router_ab_ecdsa_derivation_client_bg.wasm',
+  'router_ab_ecdsa_client_bg.wasm',
 );
 const ecdsaDerivationClientSdkWasmPaths = [
-  join(
-    repoRoot,
-    'packages',
-    'sdk-web',
-    'dist',
-    'workers',
-    'router_ab_ecdsa_derivation_client_bg.wasm',
-  ),
+  join(repoRoot, 'packages', 'sdk-web', 'dist', 'workers', 'router_ab_ecdsa_client_bg.wasm'),
   join(
     repoRoot,
     'packages',
@@ -133,7 +135,7 @@ const ecdsaDerivationClientSdkWasmPaths = [
     'public',
     'sdk',
     'workers',
-    'router_ab_ecdsa_derivation_client_bg.wasm',
+    'router_ab_ecdsa_client_bg.wasm',
   ),
   join(
     repoRoot,
@@ -142,9 +144,9 @@ const ecdsaDerivationClientSdkWasmPaths = [
     'dist',
     'esm',
     'wasm',
-    'router_ab_ecdsa_derivation_client',
+    'router_ab_ecdsa_client',
     'pkg',
-    'router_ab_ecdsa_derivation_client_bg.wasm',
+    'router_ab_ecdsa_client_bg.wasm',
   ),
 ];
 let strictRuntime;
@@ -205,6 +207,8 @@ const labelColors = {
   'signing-worker': '\x1b[35m',
 };
 const resetColor = '\x1b[0m';
+const boldColor = '\x1b[1m';
+const brightGreenColor = '\x1b[92m';
 
 try {
   if (options.help) {
@@ -225,6 +229,7 @@ try {
     process.exit(0);
   }
   const d1Runtime = prepareD1LocalRouterConfig();
+  const gatewayD1NeedsBootstrap = ensureCanonicalGatewayD1State();
   strictRuntime = prepareRouterAbStrictLocalRuntimeConfigs({
     repoRoot,
     localEnvRoot: root,
@@ -240,6 +245,8 @@ try {
   startProductionWorkers();
   await waitForProductionWorkers();
   await ensureGateway();
+  if (gatewayD1NeedsBootstrap) seedLocalConsoleIdentity();
+  printProductionReadySummary();
   if (displayMode === 'multiplex') {
     enterDashboard();
     captureInput();
@@ -302,6 +309,8 @@ function prepareD1LocalRouterConfig() {
     repoRoot,
     localEnvRoot: root,
     outputConfigPath: d1LocalWranglerConfigPath,
+    localConsoleProjectId: process.env.SEAMS_LOCAL_CONSOLE_PROJECT_ID,
+    localConsoleEnvironmentId: process.env.SEAMS_LOCAL_CONSOLE_ENVIRONMENT_ID,
   });
 }
 
@@ -808,6 +817,124 @@ function applyPrivateD1Migrations() {
   }
 }
 
+function ensureCanonicalGatewayD1State() {
+  const schemaDigest = canonicalGatewayD1SchemaDigest();
+  const recordedDigest = existsSync(d1CanonicalSchemaMarkerPath)
+    ? readFileSync(d1CanonicalSchemaMarkerPath, 'utf8').trim()
+    : null;
+  const stateEntries = existsSync(d1LocalPersistPath) ? readdirSync(d1LocalPersistPath) : [];
+
+  if (recordedDigest === schemaDigest) return !gatewayD1HasConfiguredPublishableKey();
+  if (
+    stateEntries.length > 0 &&
+    recordedDigest === null &&
+    !gatewayD1HasCanonicalAuthorizedOperationsSchema()
+  ) {
+    const backupPath = `${d1LocalPersistPath}-schema-${new Date()
+      .toISOString()
+      .replace(/[:.]/g, '-')}`;
+    renameSync(d1LocalPersistPath, backupPath);
+    console.log(`Archived non-canonical gateway D1 state at ${backupPath}`);
+  }
+
+  mkdirSync(d1LocalPersistPath, { recursive: true });
+  writeFileSync(d1CanonicalSchemaMarkerPath, `${schemaDigest}\n`, 'utf8');
+  return !gatewayD1HasConfiguredPublishableKey();
+}
+
+function seedLocalConsoleIdentity() {
+  console.log('Bootstrapping the worktree-local publishable key...');
+  run('node', ['tests/scripts/seed-intended-local-console.mjs'], {
+    ...process.env,
+    SEAMS_D1_LOCAL_PERSIST_TO: d1LocalPersistPath,
+    SEAMS_D1_LOCAL_WRANGLER_CONFIG: d1LocalWranglerConfigPath,
+    SEAMS_LOCAL_CONSOLE_ORG_ID: strictRuntime.localConsoleOrganizationId,
+  });
+}
+
+function canonicalGatewayD1SchemaDigest() {
+  const migrationDirectories = [
+    join(repoRoot, 'packages', 'console-server-ts', 'migrations', 'd1-console'),
+    join(repoRoot, 'packages', 'sdk-server-ts', 'migrations', 'd1-signer'),
+  ];
+  const migrationPaths = [];
+  for (const directory of migrationDirectories) {
+    for (const name of readdirSync(directory).sort()) {
+      if (name.endsWith('.sql')) migrationPaths.push(join(directory, name));
+    }
+  }
+  const hash = createHash('sha256');
+  for (const path of migrationPaths) {
+    hash.update(relative(repoRoot, path));
+    hash.update('\0');
+    hash.update(readFileSync(path));
+    hash.update('\0');
+  }
+  return hash.digest('hex');
+}
+
+function gatewayD1HasCanonicalAuthorizedOperationsSchema() {
+  for (const path of sqliteFilesIn(d1LocalPersistPath)) {
+    const database = new DatabaseSync(path, { readOnly: true });
+    try {
+      const row = database
+        .prepare(
+          `SELECT COUNT(*) AS present
+             FROM pragma_table_info('authorized_operations')
+            WHERE name = 'authorization_grant_kind'`,
+        )
+        .get();
+      if (Number(row?.present) === 1) return true;
+    } finally {
+      database.close();
+    }
+  }
+  return false;
+}
+
+function gatewayD1HasConfiguredPublishableKey() {
+  const publishableKey = String(process.env.SEAMS_INTENDED_PUBLISHABLE_KEY || 'pk_local').trim();
+  const secretHash = `sha256:${createHash('sha256').update(publishableKey).digest('hex')}`;
+  for (const path of sqliteFilesIn(d1LocalPersistPath)) {
+    const database = new DatabaseSync(path, { readOnly: true });
+    try {
+      const hasApiKeys = database
+        .prepare(
+          `SELECT COUNT(*) AS present FROM sqlite_master WHERE type = 'table' AND name = 'api_keys'`,
+        )
+        .get();
+      if (Number(hasApiKeys?.present) !== 1) continue;
+      const row = database
+        .prepare(
+          `SELECT COUNT(*) AS present
+             FROM api_keys
+            WHERE kind = 'publishable_key'
+              AND status = 'ACTIVE'
+              AND secret_hash = ?`,
+        )
+        .get(secretHash);
+      if (Number(row?.present) === 1) return true;
+    } finally {
+      database.close();
+    }
+  }
+  return false;
+}
+
+function sqliteFilesIn(directory) {
+  if (!existsSync(directory)) return [];
+  const files = [];
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...sqliteFilesIn(path));
+    } else if (entry.isFile() && entry.name.endsWith('.sqlite')) {
+      files.push(path);
+    }
+  }
+  return files;
+}
+
 async function waitForProductionWorkers() {
   for (let index = 0; index < strictRuntime.configs.length; index += 1) {
     const config = strictRuntime.configs[index];
@@ -818,6 +945,44 @@ async function waitForProductionWorkers() {
   const keysetUrl = `${strictRuntime.mpcRouterUrl}/.well-known/router-ab/keyset`;
   await waitForUrlStatus(keysetUrl, 90_000);
   appendLine(workerPanes[0], 'production topology ready');
+}
+
+function printProductionReadySummary() {
+  const rows = [
+    ['Gateway', gatewayBaseUrl, labelColors.gateway],
+    ['Gateway HTTPS', gatewayPublicUrl, labelColors.gateway],
+  ];
+  for (const endpoint of productionWorkerEndpoints) {
+    const label = endpoint.label ?? endpoint.role;
+    rows.push([label, endpoint.url, labelColors[label] ?? '']);
+  }
+
+  if (displayMode === 'multiplex') {
+    appendLine(gatewayPane, `ROUTER FULLY OPERATIONAL — ${rows.length}/${rows.length} ready`);
+    for (const [label, url] of rows) {
+      appendLine(gatewayPane, `READY ${label.padEnd(16)} ${url}`);
+    }
+    return;
+  }
+
+  const useColor = process.stdout.isTTY && !process.env.NO_COLOR;
+  const green = useColor ? brightGreenColor : '';
+  const bold = useColor ? boldColor : '';
+  const reset = useColor ? resetColor : '';
+  const rule = '━'.repeat(56);
+  const output = ['', `${green}${bold}${rule}${reset}`];
+  output.push(
+    `${green}${bold}  ✓ ROUTER FULLY OPERATIONAL${reset}  ${green}${rows.length}/${rows.length} services ready${reset}`,
+  );
+  output.push(`${green}${bold}${rule}${reset}`);
+  for (const [label, url, serviceColor] of rows) {
+    const color = useColor ? serviceColor : '';
+    output.push(
+      `${green}  ✓ READY${reset}  ${color}${bold}${label.padEnd(16)}${reset} ${color}${url}${reset}`,
+    );
+  }
+  output.push(`${green}${bold}${rule}${reset}`, '');
+  process.stdout.write(`${output.join('\n')}\n`);
 }
 
 async function assertProductionWorkerPortsAvailable() {

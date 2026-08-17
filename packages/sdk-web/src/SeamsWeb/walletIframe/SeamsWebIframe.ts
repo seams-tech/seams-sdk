@@ -28,7 +28,7 @@ import {
   type ThresholdEcdsaChainTarget,
   type WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { SignedTransaction, AccessKeyList } from '@/core/rpcClients/near/NearClient';
+import type { SignedTransaction } from '@/core/rpcClients/near/NearClient';
 import type { PreferencesChangedPayload } from './shared/messages';
 import type {
   WalletIframeExactSessionIdentity,
@@ -333,8 +333,6 @@ export class SeamsWebIframe {
         await this.router.requestEmailOtpSigningSessionChallenge(args),
       refreshEmailOtpSigningSession: async (args) =>
         await this.router.refreshEmailOtpSigningSession(args),
-      exchangeGoogleEmailOtpSession: async (args) =>
-        await this.router.exchangeGoogleEmailOtpSession(args),
       loginWithEmailOtpEcdsaCapability: async (args) =>
         await this.router.loginWithEmailOtpEcdsaCapability(args),
       beginGoogleEmailOtpWalletAuth: async (args) =>
@@ -345,6 +343,7 @@ export class SeamsWebIframe {
       onNearProvisioningStateChanged: (listener) =>
         this.router.onSdkLifecycleEvent(deliverNearProvisioningStateChanged.bind(null, listener)),
       addWalletSigner: async (args) => await this.addWalletSignerDomain(args),
+      addPasskey: async (args) => await this.addPasskeyDomain(args),
       registerWallet: async (args) => await this.registerWalletDomain(args),
       registerWithEmailOtp: async (args) => await this.registerWalletDomain(args),
       registerPasskey: async (options) => await this.registerPasskeyDomain(options),
@@ -493,18 +492,6 @@ export class SeamsWebIframe {
       bootstrapEcdsaSession: async (args) => await this.bootstrapEcdsaSessionDomain(args),
     };
     this.recovery = {
-      getRecoveryEmails: async (walletId) => {
-        await this.requireRouterReady();
-        return await this.router.getRecoveryEmails(walletId);
-      },
-      setRecoveryEmails: async (args) => {
-        await this.requireRouterReady();
-        return await this.router.setRecoveryEmails({
-          walletId: args.walletId,
-          recoveryEmails: args.recoveryEmails,
-          options: args.options,
-        });
-      },
       syncAccount: async (args) => {
         await this.requireRouterReady();
         return await this.router.syncAccount({
@@ -512,17 +499,50 @@ export class SeamsWebIframe {
           onEvent: args?.options?.onEvent,
         });
       },
-      getEmailOtpRecoveryCodeStatus: async (args) =>
-        await this.router.getEmailOtpRecoveryCodeStatus({
+      getWalletRecoveryCodeStatus: async (args) =>
+        await this.router.getWalletRecoveryCodeStatus({
           walletId: args.walletId,
-          relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
-          ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
         }),
-      rotateEmailOtpRecoveryCodes: async (args) =>
-        await this.router.rotateEmailOtpRecoveryCodes({
+      acknowledgeWalletRecoveryCodeBackup: async (args) =>
+        await this.router.acknowledgeWalletRecoveryCodeBackup({
           walletId: args.walletId,
+        }),
+      requestWalletCustodyEmailOtpChallenge: async (args) =>
+        await this.router.requestWalletCustodyEmailOtpChallenge(args),
+      rotateWalletRecoveryCodes: async (args) =>
+        await this.router.rotateWalletRecoveryCodes({
+          walletId: args.walletId,
+          authorization: args.authorization,
+        }),
+      requestWalletRecoveryBootstrapChallenge: async (args) =>
+        await this.router.requestWalletRecoveryBootstrapChallenge({
+          walletId: args.walletId,
+          orgId: args.orgId,
           relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
-          ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
+        }),
+      verifyWalletRecoveryBootstrap: async (args) =>
+        await this.router.verifyWalletRecoveryBootstrap({
+          walletId: args.walletId,
+          orgId: args.orgId,
+          challengeId: args.challengeId,
+          otpCode: args.otpCode,
+          relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
+        }),
+      prepareWalletRecoveryWithBootstrap: async (args) =>
+        await this.router.prepareWalletRecoveryWithBootstrap({
+          walletId: args.walletId,
+          orgId: args.orgId,
+          challengeId: args.challengeId,
+          recoveryBootstrapGrant: args.recoveryBootstrapGrant,
+          replacedCredentialIdB64u: args.replacedCredentialIdB64u,
+          recoveryCode: args.recoveryCode,
+          relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
+        }),
+      completeWalletRecovery: async (args) =>
+        await this.router.completeWalletRecovery({
+          walletId: args.walletId,
+          recoveryOperationId: args.recoveryOperationId,
+          relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
         }),
     } satisfies RecoveryCapability;
     this.devices = {
@@ -530,15 +550,14 @@ export class SeamsWebIframe {
         await this.requireRouterReady();
         return await this.router.startDevice2LinkingFlow(args);
       },
-      stopDevice2LinkingFlow: async () => {
+      cancelDeviceLinking: async () => {
         await this.requireRouterReady();
-        await this.router.stopDevice2LinkingFlow();
+        await this.router.cancelDeviceLinking();
       },
-      linkDeviceWithScannedQRData: async (qrData, options) => {
+      scanAndLinkDevice: async (qrData, options) => {
         await this.requireRouterReady();
-        return await this.router.linkDeviceWithScannedQRData({
+        return await this.router.scanAndLinkDevice({
           qrData,
-          fundingAmount: options.fundingAmount,
           options: {
             onEvent: options.onEvent,
             ...(options.confirmerText ? { confirmerText: options.confirmerText } : {}),
@@ -548,8 +567,18 @@ export class SeamsWebIframe {
           },
         });
       },
-      viewAccessKeyList: async (args) => await this.viewAccessKeyListDomain(args),
-      deleteDeviceKey: async (args) => await this.deleteDeviceKeyDomain(args),
+      listLinkedDevices: async (args) => {
+        await this.requireRouterReady();
+        return await this.router.listLinkedDevices({
+          walletId: args.walletId,
+          limit: args.limit,
+          cursor: args.cursor,
+        });
+      },
+      revokeLinkedDevice: async (args) => {
+        await this.requireRouterReady();
+        return await this.router.revokeLinkedDevice(args);
+      },
     };
     this.keys = {
       resolveExactKeyExportLane: async (input) => await this.resolveExactKeyExportLaneDomain(input),
@@ -607,17 +636,6 @@ export class SeamsWebIframe {
       throw new Error('[SeamsWebIframe] Wallet iframe is configured but unavailable.');
     }
     return this.router;
-  }
-
-  async showEmailOtpRecoveryCodesForAccountMenu(args: { walletId: string }): Promise<{
-    status: Awaited<ReturnType<RecoveryCapability['getEmailOtpRecoveryCodeStatus']>>;
-    displayedStoredCodes: boolean;
-  }> {
-    await this.requireRouterReady();
-    return await this.router.showEmailOtpRecoveryCodes({
-      walletId: args.walletId,
-      relayUrl: String(this.configs.network.relayer.url || '').trim(),
-    });
   }
 
   isReady(): boolean {
@@ -729,6 +747,22 @@ export class SeamsWebIframe {
     try {
       await this.requireRouterReady();
       const res = await this.router.addWalletSigner(args);
+      await args.options?.afterCall?.(true, res);
+      return res;
+    } catch (err: unknown) {
+      const e = toError(err);
+      await args.options?.onError?.(e);
+      await args.options?.afterCall?.(false, undefined, e);
+      throw e;
+    }
+  }
+
+  private async addPasskeyDomain(
+    args: Parameters<RegistrationCapability['addPasskey']>[0],
+  ): Promise<Awaited<ReturnType<RegistrationCapability['addPasskey']>>> {
+    try {
+      await this.requireRouterReady();
+      const res = await this.router.addPasskey(args);
       await args.options?.afterCall?.(true, res);
       return res;
     } catch (err: unknown) {
@@ -1283,36 +1317,6 @@ export class SeamsWebIframe {
 
   private async hasPasskeyCredentialDomain(walletId: string): Promise<boolean> {
     return this.router.hasPasskeyCredential(walletId);
-  }
-  private async viewAccessKeyListDomain(args: {
-    walletSession: WalletSessionRef;
-    nearAccount: NearAccountRef;
-  }): Promise<AccessKeyList> {
-    return this.router.viewAccessKeyList({
-      walletId: args.walletSession.walletId,
-      nearAccountId: String(args.nearAccount.accountId),
-    });
-  }
-  private async deleteDeviceKeyDomain(
-    args: Parameters<DevicesCapability['deleteDeviceKey']>[0],
-  ): Promise<ActionResult> {
-    try {
-      const res = await this.router.deleteDeviceKey({
-        walletId: String(args.walletSession.walletId),
-        nearAccountId: String(args.nearAccount.accountId),
-        publicKeyToDelete: args.publicKeyToDelete,
-        options: {
-          onEvent: args.options?.onEvent,
-        },
-      });
-      await args.options?.afterCall?.(true, res);
-      return res;
-    } catch (err: unknown) {
-      const e = toError(err);
-      await args.options?.onError?.(e);
-      await args.options?.afterCall?.(false, undefined, e);
-      throw e;
-    }
   }
   private async executeActionDomain(args: {
     walletSession: WalletSessionRef;

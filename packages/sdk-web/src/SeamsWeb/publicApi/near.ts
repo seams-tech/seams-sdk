@@ -30,7 +30,7 @@ import { resolveNearCommandSubject } from '@/SeamsWeb/operations/near/commandSub
 import { fundImplicitNearAccountForTesting } from '@/core/rpcClients/relayer/walletRegistration';
 import {
   walletSessionAuthorizations,
-  walletSessionJwtForCurve,
+  walletSessionTokenForCurve,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type {
   NearAccountRef,
@@ -65,18 +65,18 @@ function requireNearSigningCapability(
   });
 }
 
-async function requireCurrentEd25519WalletSessionJwt(
+async function requireCurrentEd25519WalletSessionToken(
   walletSession: WalletSessionRef,
 ): Promise<string> {
   const read = await walletSessionAuthorizations.readActiveForWallet(walletSession.walletId);
   if (read.kind !== 'found' || read.projection.expiresAtMs <= Date.now()) {
     throw new Error('Current Ed25519 wallet session is required for implicit NEAR funding');
   }
-  const walletSessionJwt = walletSessionJwtForCurve(read.projection, 'ed25519');
-  if (!walletSessionJwt) {
+  const walletSessionToken = walletSessionTokenForCurve(read.projection, 'ed25519');
+  if (!walletSessionToken) {
     throw new Error('Current Ed25519 wallet session is required for implicit NEAR funding');
   }
-  return walletSessionJwt;
+  return walletSessionToken;
 }
 
 export async function fundImplicitNearAccountFromCurrentSession(args: {
@@ -90,7 +90,7 @@ export async function fundImplicitNearAccountFromCurrentSession(args: {
     walletId: args.walletSession.walletId,
     nearAccountId: args.nearAccount.accountId,
     nearPublicKeyStr: requireNearPublicKey(args.nearPublicKey),
-    walletSessionJwt: await requireCurrentEd25519WalletSessionJwt(args.walletSession),
+    walletSessionToken: await requireCurrentEd25519WalletSessionToken(args.walletSession),
   });
 }
 

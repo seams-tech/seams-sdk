@@ -146,6 +146,25 @@ export class CloudflareD1WebAuthnAuthService {
       const expiresAtMs = createdAtMs + webAuthnLoginChallengeTtlMs(input.ttlMs ?? input.ttl_ms);
       const challengeId = secureRandomBase64Url(16, 'WebAuthn login challenge id');
       const challengeB64u = secureRandomBase64Url(32, 'WebAuthn login challenge');
+      const credentialIds: string[] = [];
+      const seenCredentialIds = new Set<string>();
+      const bindings = await this.webAuthnStore.readBindingRows({
+        userId: userId.value,
+        rpId,
+      });
+      for (const binding of bindings) {
+        const credentialId = toOptionalTrimmedString(binding.credentialIdB64u);
+        if (!credentialId || seenCredentialIds.has(credentialId)) continue;
+        seenCredentialIds.add(credentialId);
+        credentialIds.push(credentialId);
+      }
+      if (credentialIds.length === 0) {
+        return {
+          ok: false,
+          code: 'unknown_credential',
+          message: 'Wallet has no registered passkey credential',
+        };
+      }
       const record: WebAuthnLoginChallengeRecord = {
         version: 'webauthn_login_challenge_v1',
         challengeId,
@@ -164,7 +183,7 @@ export class CloudflareD1WebAuthnAuthService {
         expiresAtMs,
       });
 
-      return { ok: true, challengeId, challengeB64u, expiresAtMs };
+      return { ok: true, challengeId, challengeB64u, credentialIds, expiresAtMs };
     } catch (error: unknown) {
       return {
         ok: false,
@@ -478,7 +497,56 @@ export class CloudflareD1WebAuthnAuthService {
           message: verification.message || 'Authentication verification failed',
         };
       }
-      return { ok: true, verified: true, userId: challenge.userId, rpId: challenge.rpId };
+      const credentialId = webAuthnCredentialIdB64uFromCredential(credential);
+      if (!credentialId.ok) {
+        return {
+          ok: false,
+          verified: false,
+          code: credentialId.code,
+          message: credentialId.message,
+        };
+      }
+      const binding = await this.webAuthnStore.readBindingByCredential({
+        rpId: challenge.rpId,
+        credentialIdB64u: credentialId.credentialIdB64u,
+      });
+      const walletBinding = binding
+        ? webAuthnSyncWalletBindingFromCredentialBinding(binding)
+        : null;
+      const firstParticipantId = binding?.participantIds?.[0];
+      const secondParticipantId = binding?.participantIds?.[1];
+      if (!binding) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'unknown_credential',
+          message: 'Credential has no wallet binding',
+        };
+      }
+      const ed25519 =
+        walletBinding &&
+        binding.publicKey &&
+        binding.relayerKeyId &&
+        firstParticipantId !== undefined &&
+        secondParticipantId !== undefined
+          ? {
+              kind: 'active' as const,
+              nearAccountId: walletBinding.nearAccountId,
+              nearEd25519SigningKeyId: walletBinding.nearEd25519SigningKeyId,
+              signerSlot: walletBinding.signerSlot,
+              publicKey: binding.publicKey,
+              relayerKeyId: binding.relayerKeyId,
+              participantIds: [firstParticipantId, secondParticipantId] as const,
+            }
+          : { kind: 'absent' as const };
+      return {
+        ok: true,
+        verified: true,
+        userId: challenge.userId,
+        rpId: challenge.rpId,
+        credentialIdB64u: credentialId.credentialIdB64u,
+        ed25519,
+      };
     } catch (error: unknown) {
       return {
         ok: false,

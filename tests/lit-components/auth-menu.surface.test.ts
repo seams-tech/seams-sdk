@@ -173,7 +173,76 @@ test.describe('wallet-host Lit auth menu surface', () => {
       title: 'Scan and Link Device',
       instruction: 'Scan to backup your other device.',
       status: 'Waiting for device to scan',
-      imageAlt: 'Device Linking QR Code',
+      imageAlt: 'QR code to link this device',
+      intents: [{ kind: 'back' }],
+    });
+  });
+
+  test('renders post-link activation without returning to QR generation', async ({ page }) => {
+    await mountAuthMenu(page, {
+      ...loginViewModel(),
+      kind: 'link_device',
+      heading: 'Scan and link device',
+      subtitle: 'Scan this code with your other device.',
+      ctaLabel: '',
+      linkDevice: {
+        kind: 'activating',
+        message: 'Preparing this device for signing',
+      },
+    });
+
+    const result = await page.evaluate((tagName) => {
+      const element = document.querySelector(tagName) as HTMLElement;
+      return {
+        title: element.querySelector('.qr-title')?.textContent?.trim(),
+        status: element.querySelector('[role="status"]')?.textContent?.trim(),
+        live: element.querySelector('[role="status"]')?.getAttribute('aria-live'),
+        hasQrImage: !!element.querySelector('.qr-code-image'),
+        text: element.textContent ?? '',
+      };
+    }, AUTH_MENU_TAG);
+
+    expect(result.title).toBe('Opening linked wallet');
+    expect(result.status).toBe('Preparing this device for signing');
+    expect(result.live).toBe('polite');
+    expect(result.hasQrImage).toBe(false);
+    expect(result.text).not.toContain('Generating QR code');
+    expect(result.text).not.toContain('Preparing a one-time code');
+  });
+
+  test('renders linked-wallet activation failures with a recovery action', async ({ page }) => {
+    await mountAuthMenu(page, {
+      ...loginViewModel(),
+      kind: 'link_device',
+      heading: 'Scan and link device',
+      subtitle: 'Scan this code with your other device.',
+      ctaLabel: '',
+      linkDevice: {
+        kind: 'activation_error',
+        message: 'Wallet Session renewal failed',
+      },
+    });
+
+    const result = await page.evaluate((tagName) => {
+      const element = document.querySelector(tagName) as HTMLElement;
+      const intents: unknown[] = [];
+      element.addEventListener('w3a-auth-menu-intent', (event) => {
+        intents.push((event as CustomEvent<unknown>).detail);
+      });
+      (element.querySelector('[data-auth-menu-primary]') as HTMLButtonElement).click();
+      return {
+        title: element.querySelector('.qr-title')?.textContent?.trim(),
+        alert: element.querySelector('[role="alert"]')?.textContent?.replace(/\s+/g, ' ').trim(),
+        action: element.querySelector('[data-auth-menu-primary]')?.textContent?.trim(),
+        intents,
+      };
+    }, AUTH_MENU_TAG);
+
+    expect(result).toEqual({
+      title: 'Device linked',
+      alert:
+        'Unable to open the wallet. Return to sign in and try again. Wallet Session renewal failed',
+      action: 'Return to sign in',
       intents: [{ kind: 'back' }],
     });
   });
@@ -339,12 +408,10 @@ test.describe('wallet-host Lit auth menu surface', () => {
       const root = document.querySelector(tagName) as HTMLElement;
       return {
         hasPasskeyName: !!root.querySelector('#w3a-auth-menu-passkey-name'),
-        hasEmailRecovery: root.textContent?.includes('Recover Account with Email') ?? false,
       };
     }, AUTH_MENU_TAG);
 
     expect(snapshot.hasPasskeyName).toBe(false);
-    expect(snapshot.hasEmailRecovery).toBe(true);
   });
 
   test('preserves the original auth-menu spacing and social-provider structure', async ({

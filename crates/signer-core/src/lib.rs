@@ -24,10 +24,16 @@ pub mod near_ed25519_recovery;
 pub mod near_threshold_ed25519;
 #[cfg(feature = "near-threshold-ed25519")]
 pub mod near_threshold_frost;
+#[cfg(feature = "passkey-custody")]
+pub mod passkey_custody;
 #[cfg(feature = "secp256k1")]
 pub mod secp256k1;
 #[cfg(feature = "tx-finalization")]
 pub mod tempo_tx;
+#[cfg(feature = "passkey-custody")]
+pub mod wallet_recovery_custody;
+#[cfg(feature = "passkey-custody")]
+pub mod wallet_seed_derivation;
 #[cfg(feature = "webauthn-p256")]
 pub mod webauthn_p256;
 

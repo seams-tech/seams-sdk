@@ -116,7 +116,6 @@ test.describe('Ed25519 Yao request-scoped persistence boundary', () => {
       kind: 'ceremony',
       value: { lifecycleId: 'export-1' },
     });
-
   });
 
   test('does not route unrelated identifiers or malformed ceremony requests', async () => {

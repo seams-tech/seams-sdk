@@ -21,7 +21,7 @@ test('resolveWasmUrl uses the embedded wallet SDK workers base when available', 
       href: 'https://wallet.example.test/sdk/wallet-iframe-host-runtime.js?v=1',
       origin: 'https://wallet.example.test',
     } as Location,
-  } as unknown as (typeof globalThis) & { location?: Location };
+  } as unknown as typeof globalThis & { location?: Location };
 
   expect(String(resolveWasmUrl('wasm_signer_worker_bg.wasm', 'NEAR Signer DERIVATION'))).toBe(
     'https://wallet.example.test/sdk/workers/wasm_signer_worker_bg.wasm',

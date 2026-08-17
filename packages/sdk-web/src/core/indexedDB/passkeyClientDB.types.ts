@@ -7,6 +7,7 @@ import type {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { SignerAuthMethod, SignerKind, SignerSource } from '@shared/utils';
 import type { WalletAuthMethodRecord } from '@shared/utils/registrationIntent';
+import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 
 export interface PasskeyCredentialRecord {
   id: string;
@@ -160,9 +161,15 @@ export interface AccountSignerRecord {
   metadata?: Record<string, unknown>;
 }
 
-export type LocalWalletAuthMethodRecord = WalletAuthMethodRecord & {
-  localStatus: 'synced' | 'pending';
-};
+export type LocalWalletAuthMethodRecord =
+  | (Extract<WalletAuthMethodRecord, { kind: 'passkey' }> & {
+      localStatus: 'synced' | 'pending';
+      authority?: never;
+    })
+  | (Extract<WalletAuthMethodRecord, { kind: 'email_otp' }> & {
+      localStatus: 'synced' | 'pending';
+      authority: EmailOtpWalletAuthAuthority;
+    });
 
 export interface ProfileContinuitySnapshot {
   profile: ProfileRecord;
@@ -234,13 +241,6 @@ export type EnqueueSignerOperationInput = {
   lastError?: string;
   txHash?: string;
 };
-
-export interface ProfileRecoveryEmailRecord {
-  profileId: ProfileId;
-  hashHex: string;
-  email: string;
-  addedAt: number;
-}
 
 export type NonceLaneLeaseStoreRecordState = 'reserved' | 'signed' | 'broadcast_accepted';
 

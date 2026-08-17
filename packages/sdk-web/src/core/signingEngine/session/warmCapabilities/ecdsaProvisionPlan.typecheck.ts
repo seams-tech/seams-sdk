@@ -4,7 +4,7 @@ import type {
   EvmFamilyEcdsaKeyIdentity,
 } from '../identity/evmFamilyEcdsaIdentity';
 import type { ThresholdEcdsaChainTarget } from '../../interfaces/ecdsaChainTarget';
-import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
+import type { WalletSessionRouteAuth } from '@shared/utils/sessionTokens';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '../identity/laneIdentity';
 import {
   buildEcdsaSessionIdentity,
@@ -19,7 +19,7 @@ declare const key: EvmFamilyEcdsaKeyIdentity;
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const webauthnAuthentication: WebAuthnAuthenticationCredential;
 declare const emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
-declare const walletSessionRouteAuth: AppOrWalletSessionAuth;
+declare const walletSessionRouteAuth: WalletSessionRouteAuth;
 declare const emailOtpWorkerHandle: Extract<
   EmailOtpWorkerIssuedSessionHandle,
   { action: 'threshold_ecdsa_bootstrap' }
@@ -47,7 +47,7 @@ void buildEcdsaSessionProvisionPlan({
   chainTarget,
   sessionIdentity: identity,
   signingKeyContext,
-  sessionKind: 'jwt',
+  sessionKind: 'opaque',
   sessionBudgetUses: 1,
   requestId: 'request-1',
   provisionSecretSource: passkeySecret,
@@ -61,7 +61,7 @@ void buildEcdsaSessionProvisionPlan({
   chainTarget,
   sessionIdentity: identity,
   signingKeyContext,
-  sessionKind: 'jwt',
+  sessionKind: 'opaque',
   sessionBudgetUses: 1,
   provisionSecretSource: emailOtpSecret,
   walletSessionRouteAuth,

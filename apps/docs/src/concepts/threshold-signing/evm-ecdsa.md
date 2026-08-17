@@ -33,3 +33,14 @@ the displayed owner address.
 Normal ECDSA signing uses Router admission plus SigningWorker participation.
 Deriver A and Deriver B remain outside the signing hot path. Pool refill and
 normal signing use strict Router A/B routes and one-use presignature state.
+
+## Execute an EVM-family transaction
+
+Application code supplies the chain target and typed transaction. Nonce
+allocation remains inside the signing engine.
+
+::: details Runnable TypeScript example
+
+<<< ../../examples/evm-signing.ts
+
+:::

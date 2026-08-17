@@ -18,7 +18,6 @@ const DemoPage = React.lazy(() =>
 const SyncAccount = React.lazy(() =>
   import('@/flows/demo/SyncAccount').then((m) => ({ default: m.SyncAccount })),
 );
-import { AuthMenuControlProvider } from '@/context/AuthMenuControl';
 import { ProfileMenuControlProvider } from '@/context/ProfileMenuControl';
 import { useDemoWalletSessionLifecycle } from '@/flows/demo/hooks/useDemoWalletSessionLifecycle';
 
@@ -195,15 +194,13 @@ export function DemoPasskeyColumn({
       <DemoToastThemeBridge />
       <div className={`passkey-demo${isDemoUnlocked ? ' passkey-demo--with-profile' : ''}`}>
         {isDemoUnlocked ? <NavbarProfileOverlay /> : null}
-        <AuthMenuControlProvider>
-          {/* Fixed-width so switching pages never resizes/re-centers the card;
-              the external pager drives `index` (fully controlled). */}
-          <Carousel
-            pages={pages}
-            index={currentPage}
-            style={{ width: 'min(480px, calc(100vw - 2rem))', margin: '0 auto' }}
-          />
-        </AuthMenuControlProvider>
+        {/* Fixed-width so switching pages never resizes/re-centers the card;
+            the external pager drives `index` (fully controlled). */}
+        <Carousel
+          pages={pages}
+          index={currentPage}
+          style={{ width: 'min(480px, calc(100vw - 2rem))', margin: '0 auto' }}
+        />
       </div>
     </ProfileMenuControlProvider>
   );

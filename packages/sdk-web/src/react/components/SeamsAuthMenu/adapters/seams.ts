@@ -15,7 +15,7 @@ export interface SeamsAuthMenuRuntime {
   sdkFlow: SDKFlowRuntime;
   displayPostfix?: string;
   isUsingExistingAccount?: boolean;
-  stopDevice2LinkingFlow?: () => Promise<void>;
+  cancelDeviceLinking?: () => Promise<void>;
 }
 
 export function useSeamsAuthMenuRuntime(): SeamsAuthMenuRuntime {
@@ -35,7 +35,7 @@ export function useSeamsAuthMenuRuntime(): SeamsAuthMenuRuntime {
     sdkFlow: ctx.sdkFlow,
     displayPostfix: ctx.accountInputState?.displayPostfix,
     isUsingExistingAccount: ctx.accountInputState?.isUsingExistingAccount,
-    stopDevice2LinkingFlow: ctx.stopDevice2LinkingFlow,
+    cancelDeviceLinking: ctx.cancelDeviceLinking,
   };
 }
 

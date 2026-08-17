@@ -4,15 +4,12 @@ import type { VerifiedEcdsaPublicFacts } from '../../session/identity/evmFamilyE
 import type { ThresholdRuntimePolicyScope } from '../../threshold/sessionPolicy';
 import {
   thresholdEcdsaChainTargetKey,
-  toWalletId,
   walletSessionRefFromSession,
   type ThresholdEcdsaChainTarget,
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { EcdsaExplicitExportSessionAuth } from '../../threshold/ecdsa/activation';
 import type { EcdsaExplicitExportOperationAuthorization } from '../../threshold/ecdsa/activation';
 import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
-import type { SignerAuthMethod } from '@shared/utils/signerDomain';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/uiConfirm.types';
 import {
@@ -33,7 +30,7 @@ import {
 } from '../../session/passkey/ecdsaSessionProvision';
 import { deriveEvmFamilySigningKeySlotId } from '../../session/identity/evmFamilyEcdsaIdentity';
 import {
-  type EmailOtpWalletSessionExportAuthorizationDeps,
+  type EmailOtpExportAuthorizationDeps,
   requestEmailOtpKeyExportAuthorization,
   requestThresholdEcdsaExportAuthorization,
   showThresholdEcdsaExportViewer,
@@ -45,16 +42,13 @@ import {
   emitKeyExportEvent,
   type KeyExportEventCallback,
 } from './keyExportFlow';
-import { resolveActiveEcdsaCapabilityRuntime } from '../../session/material/activeEcdsaCapabilityRuntime';
 import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
 import { resolveThresholdEcdsaSigningQueueKey } from '../../threshold/ecdsa/signingQueue';
 import {
   issueEcdsaOperationStepUpAuthorization,
   prepareEcdsaOperationStepUp,
-  type EcdsaOperationStepUpSessionAuth,
   type PreparedEcdsaOperationStepUp,
 } from '../../threshold/ecdsa/operationStepUp';
-import { parseAppSessionJwt } from '@shared/utils/domainIds';
 import {
   buildPasskeyWalletAuthAuthority,
   isEmailOtpWalletAuthAuthority,
@@ -79,7 +73,7 @@ export type EcdsaExportFlowDeps = {
   touchConfirm: Pick<UiConfirmRuntimeBridgePort, 'initialize' | 'requestUserConfirmation'>;
   theme?: ThemeMode;
   emailOtp: {
-    requestExportChallenge: EmailOtpWalletSessionExportAuthorizationDeps['requestExportChallenge'];
+    requestExportChallenge: EmailOtpExportAuthorizationDeps['requestExportChallenge'];
     exportEcdsaKeyWithDurableAuthorization: (args: {
       walletSession: ReturnType<typeof walletSessionRefFromSession>;
       chainTarget: ThresholdEcdsaChainTarget;
@@ -98,11 +92,6 @@ export type EcdsaExportFlowDeps = {
   provisionPasskeyEcdsaExplicitExportSession: (
     args: ThresholdEcdsaPasskeyExportActivationRequest,
   ) => Promise<ThresholdEcdsaExplicitKeyExportBootstrapResult>;
-  resolvePasskeyEcdsaExportRouteAuth: (
-    walletId: string,
-    chainTarget: ThresholdEcdsaChainTarget,
-    authMethod: SignerAuthMethod,
-  ) => Promise<EcdsaExplicitExportSessionAuth>;
   getSignerWorkerContext: () => WorkerOperationContext;
   withThresholdEcdsaSigningQueue: <T>(args: {
     queueKey: string;
@@ -117,18 +106,6 @@ type EcdsaExportOptions = {
   theme?: 'dark' | 'light';
 };
 
-async function resolvePasskeyEcdsaExportRouteAuth(args: {
-  deps: Pick<EcdsaExportFlowDeps, 'resolvePasskeyEcdsaExportRouteAuth'>;
-  walletId: string;
-  chainTarget: ThresholdEcdsaChainTarget;
-  authMethod: SignerAuthMethod;
-}): Promise<EcdsaExplicitExportSessionAuth> {
-  return await args.deps.resolvePasskeyEcdsaExportRouteAuth(
-    args.walletId,
-    args.chainTarget,
-    args.authMethod,
-  );
-}
 
 function emitEcdsaMaterialStarted(args: {
   flowId: string;
@@ -276,17 +253,18 @@ async function prepareAndShowEcdsaExportArtifact(
             );
           }
         } else {
-          const current = await resolveActiveEcdsaCapabilityRuntime({
-            walletId: args.exportLane.key.walletId,
-            chainTarget: args.exportLane.chainTarget,
-          });
-          if (current.kind !== 'resolved') {
-            throw new Error(
-              `[SigningEngine][ecdsa-export] prepared material was superseded: ${current.reason}`,
-            );
+          const current = await resolveEcdsaExportMaterialForLane(
+            deps.sessionStore,
+            args.exportLane,
+          );
+          if (current.kind !== 'fresh_passkey_needs_authorization') {
+            throw new Error('[SigningEngine][ecdsa-export] prepared export authority changed');
           }
           if (
-            !mpcMaterialActivationRefsEqual(current.runtime.materialActivation, materialActivation)
+            !mpcMaterialActivationRefsEqual(
+              current.existingRoleLocalMaterial.materialActivation,
+              materialActivation,
+            )
           ) {
             throw new Error(
               '[SigningEngine][ecdsa-export] prepared material activation was superseded',
@@ -394,51 +372,29 @@ async function prepareExplicitEcdsaExportOperation(args: {
   readonly chainTarget: ThresholdEcdsaChainTarget;
   readonly requestId: string;
   readonly persistedMaterial: PersistedEcdsaRoleLocalMaterial;
+  readonly operationRuntime: EcdsaExportOperationRuntime;
 }): Promise<PreparedEcdsaOperationStepUp> {
-  const resolved = await resolveActiveEcdsaCapabilityRuntime({
-    walletId: toWalletId(args.walletId),
-    chainTarget: args.chainTarget,
-  });
-  if (resolved.kind !== 'resolved') {
-    throw new Error(
-      `[SigningEngine][ecdsa-export] canonical runtime unavailable: ${resolved.reason}`,
-    );
-  }
-  if (
-    !mpcMaterialActivationRefsEqual(
-      resolved.runtime.materialActivation,
-      args.persistedMaterial.materialActivation,
-    )
-  ) {
-    throw new Error('[SigningEngine][ecdsa-export] export material activation mismatch');
-  }
   return await prepareExplicitEcdsaExportOperationWithRuntime({
-    ...args,
-    operationRuntime: {
-      normalSigning: resolved.runtime.normalSigning,
-      relayerKeyId: resolved.runtime.relayerKeyId,
-      participantIds: resolved.runtime.participantIds,
-    },
+    walletId: args.walletId,
+    chainTarget: args.chainTarget,
+    requestId: args.requestId,
+    persistedMaterial: args.persistedMaterial,
+    operationRuntime: args.operationRuntime,
   });
 }
 
 async function assertEcdsaExportMaterialStillActive(args: {
-  readonly walletId: string;
-  readonly chainTarget: ThresholdEcdsaChainTarget;
+  readonly deps: EcdsaExportFlowDeps;
+  readonly exportLane: ExactEcdsaExportLane;
   readonly expectedMaterialActivation: PersistedEcdsaRoleLocalMaterial['materialActivation'];
 }): Promise<void> {
-  const resolved = await resolveActiveEcdsaCapabilityRuntime({
-    walletId: toWalletId(args.walletId),
-    chainTarget: args.chainTarget,
-  });
-  if (resolved.kind !== 'resolved') {
-    throw new Error(
-      `[SigningEngine][ecdsa-export] active material unavailable after authorization: ${resolved.reason}`,
-    );
+  const current = await resolveEcdsaExportMaterialForLane(args.deps.sessionStore, args.exportLane);
+  if (current.kind !== 'fresh_passkey_needs_authorization') {
+    throw new Error('[SigningEngine][ecdsa-export] passkey export authority changed');
   }
   if (
     !mpcMaterialActivationRefsEqual(
-      resolved.runtime.materialActivation,
+      current.existingRoleLocalMaterial.materialActivation,
       args.expectedMaterialActivation,
     )
   ) {
@@ -466,20 +422,6 @@ async function assertEmailOtpEcdsaExportMaterialStillActive(args: {
     throw new Error(
       '[SigningEngine][ecdsa-export] active material changed after authorization confirmation',
     );
-  }
-}
-
-function operationStepUpSessionAuth(
-  sessionAuth: EcdsaExplicitExportSessionAuth,
-): EcdsaOperationStepUpSessionAuth {
-  switch (sessionAuth.kind) {
-    case 'app_session': {
-      const parsed = parseAppSessionJwt(sessionAuth.jwt);
-      if (!parsed.ok) throw new Error(parsed.error.message);
-      return { kind: 'app_session_jwt', appSessionJwt: parsed.value };
-    }
-    case 'cookie':
-      return { kind: 'app_session_cookie' };
   }
 }
 
@@ -533,13 +475,11 @@ function emailOtpExportProof(args: {
 
 async function issueExplicitEcdsaExportAuthorization(args: {
   readonly relayerUrl: string;
-  readonly sessionAuth: EcdsaExplicitExportSessionAuth;
   readonly prepared: PreparedEcdsaOperationStepUp;
   readonly proof: ReturnType<typeof passkeyExportProof> | ReturnType<typeof emailOtpExportProof>;
 }) {
   const authorization = await issueEcdsaOperationStepUpAuthorization({
     relayerUrl: args.relayerUrl,
-    sessionAuth: operationStepUpSessionAuth(args.sessionAuth),
     request: {
       kind: 'router_ab_ecdsa_operation_step_up_v1',
       operation: args.prepared.operation,
@@ -555,7 +495,6 @@ async function issueExplicitEcdsaExportAuthorization(args: {
     kind: 'verified_step_up' as const,
     evidenceSetDigest,
     operation: args.prepared.operation,
-    sessionAuth: args.sessionAuth,
     expiresAtMs: authorization.expires_at_ms,
     quotaUse: 'none' as const,
     unseal,
@@ -613,6 +552,7 @@ async function prepareFreshPasskeyEcdsaExportMaterial(
     chainTarget: args.exportLane.chainTarget,
     requestId,
     persistedMaterial: args.material.existingRoleLocalMaterial,
+    operationRuntime: args.material,
   });
   const exportCredential = await requestThresholdEcdsaExportAuthorization(
     { touchConfirm: deps.touchConfirm, theme: deps.theme },
@@ -626,19 +566,12 @@ async function prepareFreshPasskeyEcdsaExportMaterial(
     },
   );
   await assertEcdsaExportMaterialStillActive({
-    walletId: args.walletId,
-    chainTarget: args.exportLane.chainTarget,
-    expectedMaterialActivation: args.material.existingRoleLocalMaterial.materialActivation,
-  });
-  const sessionAuth = await resolvePasskeyEcdsaExportRouteAuth({
     deps,
-    walletId: args.walletId,
-    chainTarget: args.exportLane.chainTarget,
-    authMethod: 'passkey',
+    exportLane: args.exportLane,
+    expectedMaterialActivation: args.material.existingRoleLocalMaterial.materialActivation,
   });
   const authorization = await issueExplicitEcdsaExportAuthorization({
     relayerUrl: args.material.relayerUrl,
-    sessionAuth,
     prepared,
     proof: passkeyExportProof({
       persistedMaterial: args.material.existingRoleLocalMaterial,
@@ -654,15 +587,6 @@ async function prepareFreshPasskeyEcdsaExportMaterial(
   return {
     exportActivation,
     credential: exportCredential.credential,
-  };
-}
-
-function emailOtpEcdsaExportChallengeAuthority(
-  sessionAuth: Extract<EcdsaExplicitExportSessionAuth, { kind: 'app_session' }>,
-) {
-  return {
-    kind: 'app_session' as const,
-    appSessionJwt: sessionAuth.jwt,
   };
 }
 
@@ -703,16 +627,6 @@ export async function exportThresholdEcdsaKeyWithFreshEmailOtpRouteAuth(
   },
 ): Promise<{ accountId: string; exportedSchemes: ExportedKeySchemes }> {
   const exportChain = ecdsaExportBoundaryChain(args.exportLane);
-  const sessionAuth = await resolvePasskeyEcdsaExportRouteAuth({
-    deps,
-    walletId: args.walletId,
-    chainTarget: args.exportLane.chainTarget,
-    authMethod: 'email_otp',
-  });
-  if (sessionAuth.kind !== 'app_session') {
-    throw new Error('[SigningEngine][ecdsa-export] Email OTP export requires an app session');
-  }
-  const challengeAuthority = emailOtpEcdsaExportChallengeAuthority(sessionAuth);
   const prepared = await prepareExplicitEcdsaExportOperationWithRuntime({
     walletId: args.walletId,
     chainTarget: args.exportLane.chainTarget,
@@ -734,7 +648,6 @@ export async function exportThresholdEcdsaKeyWithFreshEmailOtpRouteAuth(
       chain: exportChain,
       publicKey: String(args.material.publicFacts.publicKeyB64u),
       curve: 'ecdsa' satisfies WalletAuthCurve,
-      challengeAuthority,
       flowId: args.flowId,
       onEvent: args.onEvent,
     },
@@ -746,7 +659,6 @@ export async function exportThresholdEcdsaKeyWithFreshEmailOtpRouteAuth(
   });
   const explicitExportAuthorization = await issueExplicitEcdsaExportAuthorization({
     relayerUrl: args.material.relayerUrl,
-    sessionAuth,
     prepared,
     proof: emailOtpExportProof({
       authority: args.material.authorization.authority,

@@ -3,7 +3,7 @@ import type { WalletUIRegistry } from '../host/lit-ui/iframe-lit-element-registr
 import type { BootstrapThresholdEcdsaSessionArgs } from '@/SeamsWeb/signingSurface/types';
 import { SignedTransaction } from '@/core/rpcClients/near/NearClient';
 import { ActionArgs, TransactionInput } from '@/core/types';
-import { type DeviceLinkingQRData } from '@/core/types/linkDevice';
+import type { QrLinkedDeviceSessionPayloadV4 } from '@shared/device-linking';
 import type { DelegateActionInput } from '@/core/types/delegate';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type { TempoSigningRequest } from '@/core/signingEngine/chains/tempo/tempoSigning.types';
@@ -20,6 +20,7 @@ import type {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EmailOtpAuthPolicy, SeamsConfigsInput } from '@/core/types/seams';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
+import type { WalletCustodyAdminOperation } from '@shared/authorization/walletCustodyOperation';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type {
   RegistrationTimingSpanV1,
@@ -35,7 +36,10 @@ import type {
   GoogleEmailOtpWalletAuthResolvedMode,
   GoogleEmailOtpWalletAuthRequestedMode,
   GoogleEmailOtpWalletAuthSubmitSuccess,
+  AddPasskeyAuthorization,
+  EmailOtpEcdsaCapabilityArgs,
   ResolveExactKeyExportLaneInput,
+  WalletRecoveryRotationAuthorization,
 } from '@/SeamsWeb/publicApi/types';
 import type {
   AddSignerSelection,
@@ -99,6 +103,11 @@ export type HostedAuthMenuRegistrationAccountInput =
 
 export type HostedAuthMenuExternalProvider = 'google';
 
+export type HostedAuthMenuLoginTarget =
+  | { readonly kind: 'discoverable' }
+  | { readonly kind: 'wallet'; readonly walletId: WalletId }
+  | { readonly kind: 'wallet_sync'; readonly walletId: WalletId };
+
 export type HostedAuthMenuModeCopy = {
   title: string;
   subtitle: string;
@@ -127,6 +136,7 @@ export type HostedAuthMenuOpenRequest = {
   kind: 'hosted_auth_menu_open_v1';
   authMenuSessionId: HostedAuthMenuSessionId;
   initialMode: HostedAuthMenuMode;
+  loginTarget: HostedAuthMenuLoginTarget;
   registrationAccountInput: HostedAuthMenuRegistrationAccountInput;
   showRegistrationInput: boolean;
   showProgress: boolean;
@@ -507,6 +517,7 @@ export function parseHostedAuthMenuOpenRequest(value: unknown): HostedAuthMenuOp
       'kind',
       'authMenuSessionId',
       'initialMode',
+      'loginTarget',
       'registrationAccountInput',
       'showRegistrationInput',
       'showProgress',
@@ -519,11 +530,29 @@ export function parseHostedAuthMenuOpenRequest(value: unknown): HostedAuthMenuOp
   }
   const authMenuSessionId = hostedAuthMenuSessionIdFromBoundary(record.authMenuSessionId);
   const initialMode = parseAuthMenuMode(record.initialMode);
+  const loginTargetRecord = recordFromBoundary(record.loginTarget);
+  const loginWalletId =
+    loginTargetRecord?.kind === 'wallet' || loginTargetRecord?.kind === 'wallet_sync'
+      ? parseWalletId(loginTargetRecord.walletId)
+      : null;
+  const loginTarget: HostedAuthMenuLoginTarget | null =
+    loginTargetRecord?.kind === 'discoverable' && hasOnlyKeys(loginTargetRecord, ['kind'])
+      ? { kind: 'discoverable' }
+      : loginTargetRecord?.kind === 'wallet' &&
+          hasOnlyKeys(loginTargetRecord, ['kind', 'walletId']) &&
+          loginWalletId?.ok
+        ? { kind: 'wallet', walletId: loginWalletId.value }
+        : loginTargetRecord?.kind === 'wallet_sync' &&
+            hasOnlyKeys(loginTargetRecord, ['kind', 'walletId']) &&
+            loginWalletId?.ok
+          ? { kind: 'wallet_sync', walletId: loginWalletId.value }
+        : null;
   const registrationAccountInput = parseRegistrationAccountInput(record.registrationAccountInput);
   const providers = parseExternalProviders(record.enabledExternalProviders);
   if (
     !authMenuSessionId ||
     !initialMode ||
+    !loginTarget ||
     !registrationAccountInput ||
     typeof record.showRegistrationInput !== 'boolean' ||
     typeof record.showProgress !== 'boolean' ||
@@ -536,6 +565,7 @@ export function parseHostedAuthMenuOpenRequest(value: unknown): HostedAuthMenuOp
     kind: 'hosted_auth_menu_open_v1',
     authMenuSessionId,
     initialMode,
+    loginTarget,
     registrationAccountInput,
     showRegistrationInput: record.showRegistrationInput,
     showProgress: record.showProgress,
@@ -547,6 +577,7 @@ export function parseHostedAuthMenuOpenRequest(value: unknown): HostedAuthMenuOp
 export function buildHostedAuthMenuOpenRequest(args: {
   authMenuSessionId: HostedAuthMenuSessionId;
   initialMode?: HostedAuthMenuMode;
+  loginTarget?: HostedAuthMenuLoginTarget;
   registrationAccountInput?: HostedAuthMenuRegistrationAccountInput;
   showRegistrationInput?: boolean;
   showProgress?: boolean;
@@ -562,6 +593,7 @@ export function buildHostedAuthMenuOpenRequest(args: {
     !hasOnlyKeys(argsRecord, [
       'authMenuSessionId',
       'initialMode',
+      'loginTarget',
       'registrationAccountInput',
       'showRegistrationInput',
       'showProgress',
@@ -578,6 +610,7 @@ export function buildHostedAuthMenuOpenRequest(args: {
     kind: 'hosted_auth_menu_open_v1',
     authMenuSessionId: parsedSessionId,
     initialMode: args.initialMode ?? 'login',
+    loginTarget: args.loginTarget ?? { kind: 'discoverable' },
     registrationAccountInput: args.registrationAccountInput ?? 'implicit_wallet',
     showRegistrationInput: args.showRegistrationInput ?? false,
     showProgress: args.showProgress ?? false,
@@ -831,6 +864,7 @@ export type ParentToChildType =
   // SeamsWeb API surface
   | 'PM_REGISTER_WALLET'
   | 'PM_ADD_WALLET_SIGNER'
+  | 'PM_ADD_PASSKEY'
   | 'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION'
   | 'PM_UNLOCK'
   | 'PM_LOCK'
@@ -841,7 +875,6 @@ export type ParentToChildType =
   | 'PM_REQUEST_EMAIL_OTP_CHALLENGE'
   | 'PM_REQUEST_EMAIL_OTP_ENROLLMENT_CHALLENGE'
   | 'PM_REQUEST_EMAIL_OTP_SIGNING_SESSION_CHALLENGE'
-  | 'PM_EXCHANGE_GOOGLE_EMAIL_OTP_SESSION'
   | 'PM_BEGIN_GOOGLE_EMAIL_OTP_WALLET_AUTH'
   | 'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_RESEND'
   | 'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_REROLL_WALLET_ID'
@@ -851,11 +884,14 @@ export type ParentToChildType =
   | 'PM_ENROLL_EMAIL_OTP'
   | 'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY'
   | 'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION'
-  | 'PM_GET_EMAIL_OTP_RECOVERY_CODE_STATUS'
-  | 'PM_SHOW_EMAIL_OTP_RECOVERY_CODES'
-  | 'PM_ROTATE_EMAIL_OTP_RECOVERY_CODES'
-  | 'PM_GET_RECOVERY_EMAILS'
-  | 'PM_SET_RECOVERY_EMAILS'
+  | 'PM_GET_WALLET_RECOVERY_CODE_STATUS'
+  | 'PM_ACKNOWLEDGE_WALLET_RECOVERY_CODE_BACKUP'
+  | 'PM_ROTATE_WALLET_RECOVERY_CODES'
+  | 'PM_REQUEST_WALLET_CUSTODY_EMAIL_OTP_CHALLENGE'
+  | 'PM_REQUEST_WALLET_RECOVERY_BOOTSTRAP_CHALLENGE'
+  | 'PM_VERIFY_WALLET_RECOVERY_BOOTSTRAP'
+  | 'PM_PREPARE_WALLET_RECOVERY_WITH_BOOTSTRAP'
+  | 'PM_COMPLETE_WALLET_RECOVERY'
   | 'PM_SIGN_TX_WITH_ACTIONS'
   | 'PM_SIGN_AND_SEND_TX'
   | 'PM_FUND_IMPLICIT_NEAR_ACCOUNT_FOR_TESTING'
@@ -878,11 +914,11 @@ export type ParentToChildType =
   | 'PM_SET_CONFIRMATION_CONFIG'
   | 'PM_GET_CONFIRMATION_CONFIG'
   | 'PM_HAS_PASSKEY'
-  | 'PM_VIEW_ACCESS_KEYS'
-  | 'PM_DELETE_DEVICE_KEY'
-  | 'PM_LINK_DEVICE_WITH_SCANNED_QR_DATA'
+  | 'PM_LIST_LINKED_DEVICES'
+  | 'PM_REVOKE_LINKED_DEVICE'
+  | 'PM_SCAN_AND_LINK_DEVICE'
   | 'PM_START_DEVICE2_LINKING_FLOW'
-  | 'PM_STOP_DEVICE2_LINKING_FLOW'
+  | 'PM_CANCEL_DEVICE_LINKING'
   | 'PM_SYNC_ACCOUNT_FLOW';
 
 export type ChildToParentType =
@@ -933,21 +969,24 @@ export interface PMCancelPayload {
 export interface PMRedeemHostedWalletSeamsSessionPayload {
   exchangeCode: string;
   nonce: string;
+  curve: 'ecdsa' | 'ed25519';
+  appOrigin: string;
+  walletOrigin: string;
   relayUrl: string;
 }
 
 type PMEmailOtpChallengeRegistrationAuthMethod = Omit<
   Extract<EmailOtpRegistrationAuthMethodInput, { proofKind: 'otp_challenge' }>,
-  'appSessionJwt'
+  'walletSessionToken'
 > & {
-  appSessionJwt?: never;
+  walletSessionToken?: never;
 };
 
 type PMGoogleSsoRegistrationAuthMethod = Omit<
   Extract<EmailOtpRegistrationAuthMethodInput, { proofKind: 'google_sso_registration' }>,
-  'appSessionJwt'
+  'walletSessionToken'
 > & {
-  appSessionJwt?: never;
+  walletSessionToken?: never;
 };
 
 export type PMRegistrationAuthMethodInput =
@@ -971,11 +1010,18 @@ export interface PMAddWalletSignerPayload {
   options?: Record<string, unknown>;
 }
 
+export interface PMAddPasskeyPayload {
+  walletId: WalletId | string;
+  rpId: string;
+  authorization: AddPasskeyAuthorization;
+  confirmationConfig?: Partial<ConfirmationConfig>;
+  options?: Record<string, unknown>;
+}
+
 export type PMGoogleEmailOtpWalletAuthStartPayload = {
   idToken: string;
   mode: GoogleEmailOtpWalletAuthRequestedMode;
   relayUrl?: string;
-  sessionKind?: 'jwt' | 'cookie';
   ecdsaTargets?: GoogleEmailOtpWalletAuthEcdsaTargets;
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   diagnostics: {
@@ -1238,47 +1284,72 @@ export interface PMEmailOtpSigningSessionChallengePayload {
   chainTarget: ThresholdEcdsaChainTarget;
 }
 
-export interface PMExchangeGoogleEmailOtpSessionPayload {
-  idToken: string;
-  accountMode: 'register' | 'login';
-  relayUrl?: string;
-  sessionKind?: 'jwt' | 'cookie';
-}
-
 export interface PMEnrollEmailOtpPayload {
   walletId: string;
   otpCode: string;
   relayUrl?: string;
   challengeId?: string;
   groupId?: string;
-  appSessionJwt?: never;
+  walletSessionToken?: never;
 }
 
-export interface PMGetEmailOtpRecoveryCodeStatusPayload {
+export interface PMWalletRecoverySessionPayload {
   walletId: string;
+}
+
+export interface PMRequestWalletCustodyEmailOtpChallengePayload {
+  walletId: string;
+  providerSubjectId: string;
+  operation: WalletCustodyAdminOperation;
+  payload: Record<string, unknown>;
+  requestOrigin?: string;
+}
+
+export interface PMRotateWalletRecoveryCodesPayload extends PMWalletRecoverySessionPayload {
+  authorization: WalletRecoveryRotationAuthorization;
+}
+
+export interface PMRequestWalletRecoveryBootstrapChallengePayload {
+  walletId: string;
+  orgId: string;
   relayUrl?: string;
 }
 
-export interface PMShowEmailOtpRecoveryCodesPayload {
+export interface PMVerifyWalletRecoveryBootstrapPayload {
   walletId: string;
+  orgId: string;
+  challengeId: string;
+  otpCode: string;
   relayUrl?: string;
 }
 
-export interface PMRotateEmailOtpRecoveryCodesPayload {
+export interface PMPrepareWalletRecoveryWithBootstrapPayload {
   walletId: string;
+  orgId: string;
+  challengeId: string;
+  recoveryBootstrapGrant: string;
+  replacedCredentialIdB64u: string;
+  recoveryCode: string;
+  relayUrl?: string;
+}
+
+export interface PMCompleteWalletRecoveryPayload {
+  walletId: string;
+  recoveryOperationId: string;
   relayUrl?: string;
 }
 
 export interface PMEmailOtpEcdsaCapabilityPayload {
   walletSession: WalletSessionRef;
   chainTarget: ThresholdEcdsaChainTarget;
+  providerIdentity: EmailOtpEcdsaCapabilityArgs['providerIdentity'];
   publicationChainTargets?: readonly ThresholdEcdsaChainTarget[];
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   relayUrl?: string;
   challengeId?: string;
   otpCode: string;
   groupId?: string;
-  appSessionJwt?: never;
+  walletSessionToken?: never;
   registrationAttemptId?: string;
   emailOtpAuthorityEmail?: string;
 }
@@ -1307,32 +1378,16 @@ export interface PMHasPasskeyPayload {
   walletId: string;
 }
 
-export interface PMViewAccessKeysPayload {
+export interface PMListLinkedDevicesPayload {
   walletId: string;
-  nearAccountId: string;
+  limit: number;
+  cursor: string | null;
 }
 
-export interface PMDeleteDeviceKeyPayload {
+export interface PMRevokeLinkedDevicePayload {
   walletId: string;
-  nearAccountId: string;
-  publicKeyToDelete: string;
-  options: {
-    [key: string]: unknown;
-  };
-}
-
-export interface PMGetRecoveryEmailsPayload {
-  walletId: string;
-}
-
-export interface PMSetRecoveryEmailsPayload {
-  walletId: string;
-  recoveryEmails: string[];
-  options: {
-    waitUntil?: unknown;
-    confirmationConfig?: Partial<ConfirmationConfig>;
-    [key: string]: unknown;
-  };
+  deviceId: string;
+  requestedAtMs: number;
 }
 
 export type ProgressPayload = WalletFlowEvent | RegistrationTimingSpanV1;
@@ -1378,6 +1433,7 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_REDEEM_HOSTED_WALLET_SEAMS_SESSION', PMRedeemHostedWalletSeamsSessionPayload>
   | RpcEnvelope<'PM_REGISTER_WALLET', PMRegisterWalletPayload>
   | RpcEnvelope<'PM_ADD_WALLET_SIGNER', PMAddWalletSignerPayload>
+  | RpcEnvelope<'PM_ADD_PASSKEY', PMAddPasskeyPayload>
   | RpcEnvelope<'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION', BootstrapThresholdEcdsaSessionArgs>
   | RpcEnvelope<'PM_UNLOCK', PMUnlockPayload>
   | RpcEnvelope<'PM_LOCK'>
@@ -1391,7 +1447,6 @@ export type ParentToChildEnvelope =
       'PM_REQUEST_EMAIL_OTP_SIGNING_SESSION_CHALLENGE',
       PMEmailOtpSigningSessionChallengePayload
     >
-  | RpcEnvelope<'PM_EXCHANGE_GOOGLE_EMAIL_OTP_SESSION', PMExchangeGoogleEmailOtpSessionPayload>
   | RpcEnvelope<'PM_BEGIN_GOOGLE_EMAIL_OTP_WALLET_AUTH', PMGoogleEmailOtpWalletAuthStartPayload>
   | RpcEnvelope<'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_RESEND', PMGoogleEmailOtpWalletAuthHandlePayload>
   | RpcEnvelope<
@@ -1407,11 +1462,23 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_ENROLL_EMAIL_OTP', PMEnrollEmailOtpPayload>
   | RpcEnvelope<'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY', PMEmailOtpEcdsaCapabilityPayload>
   | RpcEnvelope<'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION', PMRefreshEmailOtpSigningSessionPayload>
-  | RpcEnvelope<'PM_GET_EMAIL_OTP_RECOVERY_CODE_STATUS', PMGetEmailOtpRecoveryCodeStatusPayload>
-  | RpcEnvelope<'PM_SHOW_EMAIL_OTP_RECOVERY_CODES', PMShowEmailOtpRecoveryCodesPayload>
-  | RpcEnvelope<'PM_ROTATE_EMAIL_OTP_RECOVERY_CODES', PMRotateEmailOtpRecoveryCodesPayload>
-  | RpcEnvelope<'PM_GET_RECOVERY_EMAILS', PMGetRecoveryEmailsPayload>
-  | RpcEnvelope<'PM_SET_RECOVERY_EMAILS', PMSetRecoveryEmailsPayload>
+  | RpcEnvelope<'PM_GET_WALLET_RECOVERY_CODE_STATUS', PMWalletRecoverySessionPayload>
+  | RpcEnvelope<'PM_ACKNOWLEDGE_WALLET_RECOVERY_CODE_BACKUP', PMWalletRecoverySessionPayload>
+  | RpcEnvelope<'PM_ROTATE_WALLET_RECOVERY_CODES', PMRotateWalletRecoveryCodesPayload>
+  | RpcEnvelope<
+      'PM_REQUEST_WALLET_CUSTODY_EMAIL_OTP_CHALLENGE',
+      PMRequestWalletCustodyEmailOtpChallengePayload
+    >
+  | RpcEnvelope<
+      'PM_REQUEST_WALLET_RECOVERY_BOOTSTRAP_CHALLENGE',
+      PMRequestWalletRecoveryBootstrapChallengePayload
+    >
+  | RpcEnvelope<'PM_VERIFY_WALLET_RECOVERY_BOOTSTRAP', PMVerifyWalletRecoveryBootstrapPayload>
+  | RpcEnvelope<
+      'PM_PREPARE_WALLET_RECOVERY_WITH_BOOTSTRAP',
+      PMPrepareWalletRecoveryWithBootstrapPayload
+    >
+  | RpcEnvelope<'PM_COMPLETE_WALLET_RECOVERY', PMCompleteWalletRecoveryPayload>
   | RpcEnvelope<'PM_SIGN_TX_WITH_ACTIONS', PMSignTxPayload>
   | RpcEnvelope<'PM_SIGN_AND_SEND_TX', PMSignAndSendTxPayload>
   | RpcEnvelope<
@@ -1440,13 +1507,12 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_SET_CONFIRMATION_CONFIG', PMSetConfirmationConfigPayload>
   | RpcEnvelope<'PM_GET_CONFIRMATION_CONFIG'>
   | RpcEnvelope<'PM_HAS_PASSKEY', PMHasPasskeyPayload>
-  | RpcEnvelope<'PM_VIEW_ACCESS_KEYS', PMViewAccessKeysPayload>
-  | RpcEnvelope<'PM_DELETE_DEVICE_KEY', PMDeleteDeviceKeyPayload>
+  | RpcEnvelope<'PM_LIST_LINKED_DEVICES', PMListLinkedDevicesPayload>
+  | RpcEnvelope<'PM_REVOKE_LINKED_DEVICE', PMRevokeLinkedDevicePayload>
   | RpcEnvelope<
-      'PM_LINK_DEVICE_WITH_SCANNED_QR_DATA',
+      'PM_SCAN_AND_LINK_DEVICE',
       {
-        qrData: DeviceLinkingQRData;
-        fundingAmount: string;
+        qrData: QrLinkedDeviceSessionPayloadV4;
         options?: {
           confirmationConfig?: Partial<ConfirmationConfig>;
           confirmerText?: { title?: string; body?: string };
@@ -1458,14 +1524,13 @@ export type ParentToChildEnvelope =
       {
         ui?: 'modal' | 'inline';
         cameraId?: string;
-        signerSlot?: number;
         options?: {
           confirmationConfig?: Partial<ConfirmationConfig>;
           confirmerText?: { title?: string; body?: string };
         };
       }
     >
-  | RpcEnvelope<'PM_STOP_DEVICE2_LINKING_FLOW'>
+  | RpcEnvelope<'PM_CANCEL_DEVICE_LINKING'>
   | RpcEnvelope<'PM_SYNC_ACCOUNT_FLOW', { walletId?: string }>;
 
 export type ChildToParentEnvelope =

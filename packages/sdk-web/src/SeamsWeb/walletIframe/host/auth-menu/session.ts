@@ -52,10 +52,17 @@ import {
   type HostedPasskeyLoginOutcome,
   type HostedPasskeyPrepared,
 } from './passkey';
-import { parseWalletId } from '@shared/utils/domainIds';
+import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
 import { createReadableWalletId } from '@shared/utils/registrationIntent';
-import type { LinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
-import type { StartDevice2LinkingFlowResults } from '@/core/types/linkDevice';
+import {
+  classifyLinkDeviceFlowEvent,
+  type LinkDeviceFlowEvent,
+  type LinkDeviceFlowOutcome,
+} from '@/core/types/sdkSentEvents';
+import type {
+  LinkedDeviceTargetPasskeyActivationV1,
+  StartDevice2LinkingFlowResults,
+} from '@/core/types/linkDevice';
 
 type HostedPasskeyMenuPrepared = HostedPasskeyRegistrationPrepared | HostedPasskeyPrepared;
 
@@ -146,11 +153,11 @@ type PrepareLoginPasskey = (
   walletId: string | null,
   cancellation: Extract<WebAuthnPromptCancellation, { kind: 'abort_signal' }>,
 ) => Promise<HostedPasskeyMenuPrepared>;
-type StartDeviceLinking = (
-  onEvent: (event: LinkDeviceFlowEvent) => void,
-) => Promise<StartDevice2LinkingFlowResults>;
-type StopDeviceLinking = () => Promise<void>;
-
+type StartDeviceLinking = (callbacks: {
+  readonly onEvent: (event: LinkDeviceFlowEvent) => void;
+  readonly onTargetPasskeyRequired: (activation: LinkedDeviceTargetPasskeyActivationV1) => void;
+}) => Promise<StartDevice2LinkingFlowResults>;
+type CancelDeviceLinking = () => Promise<void>;
 const AUTH_MENU_TAG = 'seams-auth-menu-surface';
 const AUTH_MENU_PASSKEY_PREPARATION_TIMEOUT_MS = 20_000;
 const AUTH_MENU_PASSKEY_PREPARATION_TIMEOUT_MESSAGE =
@@ -327,8 +334,8 @@ function linkDeviceViewModel(base: AuthMenuViewModel): AuthMenuLinkDeviceViewMod
     appearance: base.appearance,
     hostname: base.hostname,
     closeLabel: base.closeLabel,
-    heading: 'Scan and Link Device',
-    subtitle: 'Scan to backup your other device.',
+    heading: 'Scan and link device',
+    subtitle: 'Scan this code with your other device.',
     ctaLabel: '',
     showProgress: base.showProgress,
     enabledExternalProviders: base.enabledExternalProviders,
@@ -355,7 +362,7 @@ export class AuthMenuSession {
   private googleCancellation: AbortController | null = null;
   private beginGoogleEmailOtp: BeginGoogleEmailOtp;
   private readonly startDeviceLinking: StartDeviceLinking;
-  private readonly stopDeviceLinking: StopDeviceLinking;
+  private readonly cancelDeviceLinking: CancelDeviceLinking;
   private loginPreparation: PrepareLoginPasskey | null = null;
   private loginAccountOptions: readonly AuthMenuAccountOption[] = [];
   private selectedLoginWalletId: string | null = null;
@@ -364,6 +371,8 @@ export class AuthMenuSession {
   private preparationGeneration = 0;
   private googleGeneration = 0;
   private deviceLinkGeneration = 0;
+  private linkedDeviceActivationInProgress = false;
+  private targetPasskeyActivation: LinkedDeviceTargetPasskeyActivationV1 | null = null;
   private preparationDeadlineTimer: ReturnType<typeof setTimeout> | null = null;
   private preparationExpiryTimer: ReturnType<typeof setTimeout> | null = null;
   private lastReportedError: string | null = null;
@@ -375,7 +384,7 @@ export class AuthMenuSession {
     hostname: string;
     beginGoogleEmailOtp: BeginGoogleEmailOtp;
     startDeviceLinking: StartDeviceLinking;
-    stopDeviceLinking: StopDeviceLinking;
+    cancelDeviceLinking: CancelDeviceLinking;
     sendToParent: (message: ChildToParentEnvelope) => void;
   }) {
     this.identity = {
@@ -385,7 +394,7 @@ export class AuthMenuSession {
     this.request = args.request;
     this.beginGoogleEmailOtp = args.beginGoogleEmailOtp;
     this.startDeviceLinking = args.startDeviceLinking;
-    this.stopDeviceLinking = args.stopDeviceLinking;
+    this.cancelDeviceLinking = args.cancelDeviceLinking;
     this.sendToParent = args.sendToParent;
     this.stateValue = {
       kind: 'preparing',
@@ -607,7 +616,7 @@ export class AuthMenuSession {
   private invalidatePreparation(): void {
     if (this.stateValue.kind === 'link_device') {
       this.deviceLinkGeneration += 1;
-      void this.stopDeviceLinking().catch(() => {});
+      void this.cancelDeviceLinking().catch(() => {});
     }
     this.clearPreparationDeadlineTimer();
     this.clearPreparationExpiryTimer();
@@ -652,10 +661,7 @@ export class AuthMenuSession {
     this.preparationDeadlineTimer = null;
   }
 
-  private schedulePreparationDeadline(
-    generation: number,
-    cancellation: AbortController,
-  ): void {
+  private schedulePreparationDeadline(generation: number, cancellation: AbortController): void {
     this.clearPreparationDeadlineTimer();
     this.preparationDeadlineTimer = setTimeout(
       this.expirePasskeyPreparation.bind(this, generation, cancellation),
@@ -958,6 +964,9 @@ export class AuthMenuSession {
       case 'link_device_open':
         this.openLinkDevice();
         return;
+      case 'link_device_create_passkey':
+        this.createLinkedDevicePasskey();
+        return;
       case 'registration_reroll':
         this.rerollRegistrationWallet();
         return;
@@ -1109,13 +1118,18 @@ export class AuthMenuSession {
     };
     this.invalidatePreparation();
     const generation = ++this.deviceLinkGeneration;
+    this.linkedDeviceActivationInProgress = false;
+    this.targetPasskeyActivation = null;
     this.stateValue = {
       kind: 'link_device',
       returnState,
       viewModel: linkDeviceViewModel(state.viewModel),
     };
     this.updateElement();
-    void this.startDeviceLinking(this.onLinkDeviceEvent.bind(this, generation))
+    void this.startDeviceLinking({
+      onEvent: this.onLinkDeviceEvent.bind(this, generation),
+      onTargetPasskeyRequired: this.onTargetPasskeyRequired.bind(this, generation),
+    })
       .then(this.completeLinkDeviceOpen.bind(this, generation))
       .catch(this.failLinkDeviceOpen.bind(this, generation));
   }
@@ -1123,11 +1137,39 @@ export class AuthMenuSession {
   private onLinkDeviceEvent(generation: number, event: LinkDeviceFlowEvent): void {
     const state = this.stateValue;
     if (generation !== this.deviceLinkGeneration || state.kind !== 'link_device') return;
+    const outcome = classifyLinkDeviceFlowEvent(event);
+    switch (outcome.kind) {
+      case 'active':
+        if (this.linkedDeviceActivationInProgress) return;
+        this.linkedDeviceActivationInProgress = true;
+        this.complete({
+          kind: 'authenticated',
+          authMenuSessionId: this.identity.authMenuSessionId,
+          walletId: outcome.walletId,
+          method: 'passkey',
+        });
+        return;
+      case 'invalid_active':
+        this.showLinkedDeviceActivationError(
+          state,
+          new Error('Linked-device activation omitted its wallet identity'),
+        );
+        return;
+      case 'failed':
+      case 'cancelled':
+      case 'pending':
+        break;
+      default:
+        return assertNeverLinkDeviceFlowOutcome(outcome);
+    }
     const message = event.message?.trim();
     if (!message) return;
+    const current = state.viewModel.linkDevice;
     const linkDevice =
-      state.viewModel.linkDevice.kind === 'ready'
-        ? { ...state.viewModel.linkDevice, message }
+      current.kind === 'ready' ||
+      current.kind === 'passkey_required' ||
+      current.kind === 'creating_passkey'
+        ? { ...current, message }
         : { kind: 'loading' as const, message };
     this.stateValue = {
       ...state,
@@ -1136,18 +1178,100 @@ export class AuthMenuSession {
     this.updateElement();
   }
 
+  private showLinkedDeviceActivationError(
+    state: Extract<AuthMenuSessionState, { kind: 'link_device' }>,
+    error: unknown,
+  ): void {
+    this.stateValue = {
+      ...state,
+      viewModel: {
+        ...state.viewModel,
+        linkDevice: { kind: 'activation_error', message: errorMessage(error) },
+      },
+    };
+    this.updateElement();
+  }
+
   private completeLinkDeviceOpen(generation: number, result: StartDevice2LinkingFlowResults): void {
     const state = this.stateValue;
+    if (
+      generation !== this.deviceLinkGeneration ||
+      state.kind !== 'link_device' ||
+      this.linkedDeviceActivationInProgress ||
+      state.viewModel.linkDevice.kind !== 'loading'
+    ) {
+      return;
+    }
+    this.stateValue = {
+      ...state,
+      viewModel: {
+        ...state.viewModel,
+        linkDevice: this.targetPasskeyActivation
+          ? { kind: 'passkey_required', message: 'Create a passkey to finish linking this device' }
+          : {
+              kind: 'ready',
+              qrCodeDataURL: result.qrCodeDataURL,
+              message: 'Waiting for device to scan',
+            },
+      },
+    };
+    this.updateElement();
+  }
+
+  private onTargetPasskeyRequired(
+    generation: number,
+    activation: LinkedDeviceTargetPasskeyActivationV1,
+  ): void {
+    const state = this.stateValue;
     if (generation !== this.deviceLinkGeneration || state.kind !== 'link_device') return;
+    this.targetPasskeyActivation = activation;
+    if (state.viewModel.linkDevice.kind !== 'ready') return;
     this.stateValue = {
       ...state,
       viewModel: {
         ...state.viewModel,
         linkDevice: {
-          kind: 'ready',
-          qrCodeDataURL: result.qrCodeDataURL,
-          message: 'Waiting for device to scan',
+          kind: 'passkey_required',
+          message: 'Create a passkey to finish linking this device',
         },
+      },
+    };
+    this.updateElement();
+  }
+
+  private createLinkedDevicePasskey(): void {
+    const state = this.stateValue;
+    const activation = this.targetPasskeyActivation;
+    if (
+      !activation ||
+      state.kind !== 'link_device' ||
+      state.viewModel.linkDevice.kind !== 'passkey_required'
+    ) {
+      return;
+    }
+    this.targetPasskeyActivation = null;
+    this.stateValue = {
+      ...state,
+      viewModel: {
+        ...state.viewModel,
+        linkDevice: {
+          kind: 'creating_passkey',
+          message: 'Follow the passkey prompt on your screen',
+        },
+      },
+    };
+    this.updateElement();
+    void activation.createPasskey().catch(this.failTargetPasskeyCreation.bind(this));
+  }
+
+  private failTargetPasskeyCreation(error: unknown): void {
+    const state = this.stateValue;
+    if (state.kind !== 'link_device') return;
+    this.stateValue = {
+      ...state,
+      viewModel: {
+        ...state.viewModel,
+        linkDevice: { kind: 'error', message: errorMessage(error) },
       },
     };
     this.updateElement();
@@ -1155,7 +1279,14 @@ export class AuthMenuSession {
 
   private failLinkDeviceOpen(generation: number, error: unknown): void {
     const state = this.stateValue;
-    if (generation !== this.deviceLinkGeneration || state.kind !== 'link_device') return;
+    if (
+      generation !== this.deviceLinkGeneration ||
+      state.kind !== 'link_device' ||
+      this.linkedDeviceActivationInProgress ||
+      state.viewModel.linkDevice.kind !== 'loading'
+    ) {
+      return;
+    }
     this.stateValue = {
       ...state,
       viewModel: {
@@ -1170,7 +1301,8 @@ export class AuthMenuSession {
     const state = this.stateValue;
     if (state.kind !== 'link_device') return;
     this.deviceLinkGeneration += 1;
-    void this.stopDeviceLinking().catch(() => {});
+    this.targetPasskeyActivation = null;
+    void this.cancelDeviceLinking().catch(() => {});
     this.stateValue = state.returnState;
     this.updateElement();
     this.startPasskeyPreparation();
@@ -1563,19 +1695,22 @@ export class AuthMenuSession {
         },
       },
     };
-    this.updateElement();
     if (prepared.kind === 'hosted_passkey_login_prepared_v1') {
+      this.updateElement();
       void this.finishPreparedPasskey(prepared);
       return;
     }
     let authority: Promise<unknown>;
     try {
-      // Registration and account sync start WebAuthn while this click still owns activation.
+      // Start WebAuthn before rendering the busy state. The click's user
+      // activation must reach navigator.credentials.get synchronously.
       authority = this.startPreparedCredential(prepared);
     } catch (error: unknown) {
+      this.updateElement();
       this.fail(this.ceremonyFailure(prepared, error));
       return;
     }
+    this.updateElement();
     void authority.then(
       () => this.finishPreparedPasskey(prepared),
       (error: unknown) => this.fail(this.ceremonyFailure(prepared, error)),
@@ -1748,6 +1883,10 @@ export class AuthMenuSession {
 
 function assertNeverAuthMenuIntent(value: never): never {
   throw new Error(`Unhandled auth-menu intent: ${String(value)}`);
+}
+
+function assertNeverLinkDeviceFlowOutcome(value: never): never {
+  throw new Error(`Unhandled link-device flow outcome: ${String(value)}`);
 }
 
 function assertNeverHostedPasskeyPrepared(value: never): never {

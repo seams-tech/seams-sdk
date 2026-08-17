@@ -12,32 +12,42 @@ import type {
 } from '../domains/walletRegistration/walletRegistrationInputs';
 import type { WalletEmailOtpAction } from '@shared/utils/emailOtpDomain';
 import type {
+  MpcMaterialActivationRef,
   OrgId,
   ProviderSubject,
+  WalletAuthMethodId,
   WalletId,
   WebAuthnRpId,
 } from '@shared/utils/domainIds';
 import type { WebAuthnAuthenticatorDeviceInfo } from '@shared/utils/webauthnDeviceInfo';
 import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
 import type { RouterAbTraceContextV1 } from '@shared/utils/routerAbTraceContext';
-import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import type {
+  EmailOtpWalletAuthAuthority,
+  WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
+import type {
+  WalletExecutionLaneAuthSource,
+  WalletExecutionLaneProjectionResult,
+} from '../../core/signingLanes/WalletExecutionLaneProjection';
 import type { RouterAbMpcMaterialActivationRefWire } from '@shared/utils/routerAbNormalSigningIdentity';
 import type {
   EmailOtpChannel,
   EmailOtpChallengeOperation,
-  EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
   EmailOtpWalletEnrollmentRecord,
 } from '../../core/EmailOtpStores';
-import type { EmailRecoveryResolvedWalletBinding } from '../../core/EmailRecoveryPreparationStore';
 import type { LinkIdentityResult, UnlinkIdentityResult } from '../../core/IdentityStore';
 import type { NearPublicKeyAuthBinding, NearPublicKeyKind } from '../../core/NearPublicKeyStore';
-import type {
-  RecoveryExecutionRecord,
-  RecoveryExecutionStatus,
-} from '../../core/RecoveryExecutionStore';
-import type { RecoverySessionRecord, RecoverySessionStatus } from '../../core/RecoverySessionStore';
+import type { ResolvedEd25519WalletBinding } from '../../core/authService/webauthnWalletBinding';
 import type { RouterAbEcdsaPresignRuntime } from '../../core/routerAbSigning/RouterAbEcdsaPresignRuntime';
-import type { WalletEcdsaSignerKey } from '../../core/WalletStore';
+import type { DeviceLinkingRouteServiceV1 } from '../transport/fetch/routes/deviceLinking';
+import type { DeviceManagementRouteServiceV1 } from '../transport/fetch/routes/deviceManagement';
+import type { DeviceLinkingGatewayCompletionServiceV1 } from '../transport/fetch/routes/deviceLinkingGateway';
+import type { DeviceLinkingOwnerAuthorizationRouteServiceV1 } from '../transport/fetch/routes/deviceLinkingOwnerAuthorization';
+import type { DeviceLinkingLaneGatewayRouteServiceV1 } from '../transport/fetch/routes/deviceLinkingLaneGateway';
+import type { LinkedDeviceLocalPresenceVerifierPortV1 } from '../auth/linkedDeviceLocalPresenceVerifier';
+import type { LinkedDeviceExecutionAdmissionResolverV1 } from '../domains/signingOperations/walletExecutionAdmission';
+import type { WalletEcdsaSignerKey, WalletEcdsaSignerRecord } from '../../core/WalletStore';
 import type {
   FundImplicitNearAccountRequest,
   FundImplicitNearAccountResult,
@@ -92,10 +102,7 @@ export type CreateAddSignerIntentCommand = Readonly<{
 }>;
 
 export type StartWalletAddAuthMethodCommand = Readonly<
-  { subject: WalletAuthMethodManagementSubject } & Omit<
-    WalletAddAuthMethodStartRequest,
-    'walletId'
-  >
+  { subject: WalletAuthMethodManagementSubject } & Omit<WalletAddAuthMethodStartRequest, 'walletId'>
 >;
 
 export type RevokeWalletAuthMethodCommand = Readonly<
@@ -131,10 +138,6 @@ export type ConsumeEmailOtpGrantCommand = Readonly<{
   clientIp?: string;
 }>;
 
-export type GetEmailOtpRecoveryCodeStatusCommand = Readonly<{
-  subject: EmailOtpProviderIdentitySubject;
-}>;
-
 export type EmailOtpStrongAuthSubject = Readonly<{
   kind: 'email_otp_strong_auth';
   walletId: WalletId;
@@ -149,12 +152,9 @@ import type {
   RouterAbEcdsaDerivationActivationRefreshForwardedResponseV1,
   RouterAbEcdsaDerivationActivationRefreshRequestV1,
   RouterAbEcdsaDerivationNormalSigningStateV1,
-  RouterAbEcdsaDerivationRecoveryRequestV1,
   RouterAbEcdsaPostRegistrationSessionActivationRequestV1,
-  RouterAbEcdsaStrictForwardedRegistrationResponseV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type {
-  ActiveAuthorizationSession,
   AuthorizedOperation,
   AuthorizedOperationInput,
   HostedWalletSeamsSessionExchangeCode,
@@ -164,17 +164,25 @@ import type {
   ReusableWalletSessionStatus,
   SessionOrigin,
   VerifiedAuthorizationEvidenceSet,
+  VerifiedOwnerProof,
 } from '../../authorization/domain';
 import type {
-  VerifiedFactorEvidenceSetInput,
-  VerifiedSessionEvidenceSetInput,
+  VerifiedWalletOperationFactorEvidenceSetInput,
+  VerifiedOwnerProofInput,
 } from '../../authorization/factorEvidence';
 import type {
   IssueReusableWalletSessionInput,
   IssuedReusableWalletSession,
+  IssuedLinkedDeviceWalletSession,
+  IssuedOpaqueWalletSessionToken,
+  OpaqueWalletSessionCurve,
+  OpaqueOwnerWalletSessionBinding,
+  ResolvedOpaqueWalletSessionToken,
   EcdsaMaterialActivationScope,
+  LinkedDeviceMaterialActivationScopeV1,
+  RenewLinkedDeviceWalletSessionInputV1,
 } from '../../authorization/service';
-import type { PrincipalId, SeamsSessionId, TenantId } from '@shared/authorization/capabilityKinds';
+import type { PrincipalId, TenantId } from '@shared/authorization/capabilityKinds';
 
 export type EmailOtpChallengeDelivery =
   | {
@@ -212,8 +220,7 @@ type EmailOtpChallengeResponse = {
   readonly walletId: string;
   readonly orgId: string;
   readonly otpChannel: EmailOtpChannel;
-  readonly sessionHash: string;
-  readonly appSessionVersion: string;
+  readonly ownerProofBindingDigest: string;
   readonly action: WalletEmailOtpAction;
   readonly operation: EmailOtpChallengeOperation;
 };
@@ -224,8 +231,7 @@ type EmailOtpChallengeCreateInput = {
   readonly orgId?: unknown;
   readonly email?: unknown;
   readonly otpChannel?: unknown;
-  readonly sessionHash?: unknown;
-  readonly appSessionVersion?: unknown;
+  readonly ownerProofBindingDigest?: unknown;
   readonly clientIp?: unknown;
   readonly reuseActiveChallenge?: unknown;
   readonly operation?: unknown;
@@ -254,8 +260,7 @@ type EmailOtpChallengeVerifyInput = {
   readonly challengeId?: unknown;
   readonly otpCode?: unknown;
   readonly otpChannel?: unknown;
-  readonly sessionHash?: unknown;
-  readonly appSessionVersion?: unknown;
+  readonly ownerProofBindingDigest?: unknown;
   readonly clientIp?: unknown;
   readonly operation?: unknown;
 };
@@ -285,15 +290,13 @@ type EmailOtpEnrollmentVerifyInput = {
   readonly challengeId: unknown;
   readonly otpCode: unknown;
   readonly otpChannel: unknown;
-  readonly sessionHash: unknown;
-  readonly appSessionVersion: unknown;
+  readonly ownerProofBindingDigest: unknown;
   readonly proofEmail?: unknown;
   readonly clientIp?: unknown;
-  readonly recoveryWrappedEnrollmentEscrows?: unknown;
   readonly enrollmentSealKeyVersion?: unknown;
+  readonly serverSealedFactorCiphertextB64u?: unknown;
   readonly clientUnlockPublicKeyB64u?: unknown;
   readonly unlockKeyVersion?: unknown;
-  readonly thresholdEcdsaClientVerifyingShareB64u?: unknown;
   readonly googleEmailOtpRegistrationAttemptId?: unknown;
 };
 
@@ -307,48 +310,6 @@ type EmailOtpEnrollmentVerifyResult =
         readonly updatedAtMs: number;
         readonly enrollmentSealKeyVersion: string;
         readonly unlockKeyVersion: string;
-      };
-    }
-  | {
-      readonly ok: false;
-      readonly code: string;
-      readonly message: string;
-      readonly attemptsRemaining?: number;
-      readonly lockedUntilMs?: number;
-      readonly retryAfterMs?: number;
-      readonly resetAtMs?: number;
-    };
-
-type EmailOtpRecoveryChallengeEscrow = Omit<
-  EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
-  | 'recoveryKeyId'
-  | 'recoveryKeyStatus'
-  | 'issuedAtMs'
-  | 'updatedAtMs'
-  | 'consumedAtMs'
-  | 'revokedAtMs'
->;
-
-type EmailOtpDeviceRecoveryChallengeVerifyInput = Omit<EmailOtpChallengeVerifyInput, 'operation'>;
-
-type EmailOtpDeviceRecoveryChallengeVerifyResult =
-  | {
-      readonly ok: true;
-      readonly challengeId: string;
-      readonly otpChannel: EmailOtpChannel;
-      readonly recoveryConsumeGrant: string;
-      readonly recoveryConsumeGrantExpiresAtMs: number;
-      readonly recoveryWrappedEnrollmentEscrows: EmailOtpRecoveryChallengeEscrow[];
-      readonly enrollment: {
-        readonly walletId: string;
-        readonly providerUserId: string;
-        readonly orgId: string;
-        readonly enrollmentId: string;
-        readonly enrollmentVersion: string;
-        readonly enrollmentSealKeyVersion: string;
-        readonly signingRootId: string;
-        readonly signingRootVersion: string;
-        readonly recoveryWrappedEnrollmentEscrowCount: number;
       };
     }
   | {
@@ -435,6 +396,53 @@ type ThresholdEcdsaKeyInventoryRecord = {
   };
 };
 
+type EmailOtpWalletRecoveryBootstrapChallengeCreateInput = {
+  readonly walletId?: unknown;
+  readonly orgId?: unknown;
+  readonly clientIp?: unknown;
+  readonly requestOrigin?: unknown;
+};
+
+type EmailOtpWalletRecoveryBootstrapChallengeCreateResult =
+  | {
+      readonly ok: true;
+      readonly challengeId: string;
+      readonly otpChannel: EmailOtpChannel;
+      readonly expiresAtMs: number;
+      readonly emailHint: string;
+    }
+  | {
+      readonly ok: false;
+      readonly code: string;
+      readonly message: string;
+      readonly retryAfterMs?: number;
+      readonly lockedUntilMs?: number;
+    };
+
+type EmailOtpWalletRecoveryBootstrapVerifyInput = {
+  readonly walletId?: unknown;
+  readonly orgId?: unknown;
+  readonly challengeId?: unknown;
+  readonly otpCode?: unknown;
+  readonly clientIp?: unknown;
+};
+
+type EmailOtpWalletRecoveryBootstrapVerifyResult =
+  | {
+      readonly ok: true;
+      readonly walletId: string;
+      readonly challengeId: string;
+      readonly recoveryBootstrapGrant: string;
+      readonly recoveryBootstrapGrantExpiresAtMs: number;
+    }
+  | {
+      readonly ok: false;
+      readonly code: string;
+      readonly message: string;
+      readonly attemptsRemaining?: number;
+      readonly lockedUntilMs?: number;
+      readonly retryAfterMs?: number;
+    };
 type RouterApiOkFailure = {
   readonly ok: false;
   readonly code: string;
@@ -445,6 +453,23 @@ type RouterApiRateLimitedFailure = RouterApiOkFailure & {
   readonly retryAfterMs?: number;
   readonly resetAtMs?: number;
 };
+
+type EmailOtpWalletRecoveryBootstrapConsumeInput = {
+  readonly recoveryBootstrapGrant?: unknown;
+  readonly walletId?: unknown;
+  readonly orgId?: unknown;
+};
+
+type EmailOtpWalletRecoveryBootstrapConsumeResult =
+  | {
+      readonly ok: true;
+      readonly walletId: string;
+      readonly providerUserId: string;
+      readonly orgId: string;
+      readonly challengeId: string;
+      readonly grantExpiresAtMs: number;
+    }
+  | { readonly ok: false; readonly code: string; readonly message: string };
 
 export type RouterApiMethodTypes = {
   applyEmailOtpServerSeal: {
@@ -457,6 +482,7 @@ export type RouterApiMethodTypes = {
         }
       | RouterApiOkFailure;
   };
+
   cleanupGoogleEmailOtpDevRegistrationState: {
     readonly input: {
       readonly providerSubject?: unknown;
@@ -515,7 +541,7 @@ export type RouterApiMethodTypes = {
       readonly accountMode?: unknown;
       readonly runtimePolicyScope?: ThresholdRuntimePolicyScope;
       readonly clientIp?: string;
-      readonly appSessionUserId?: string;
+      readonly providerUserId?: string;
       readonly restartRegistrationOffer?: unknown;
     };
     readonly result:
@@ -528,32 +554,13 @@ export type RouterApiMethodTypes = {
           readonly resetAtMs?: number;
         };
   };
-  consumeEmailOtpRecoveryKey: {
-    readonly input: {
-      readonly recoveryConsumeGrant?: unknown;
-      readonly userId?: unknown;
-      readonly walletId?: unknown;
-      readonly orgId?: unknown;
-      readonly recoveryKeyId?: unknown;
-      readonly clientIp?: unknown;
-    };
-    readonly result:
-      | {
-          readonly ok: true;
-          readonly walletId: string;
-          readonly recoveryKeyId: string;
-          readonly consumedAtMs: number;
-          readonly activeRecoveryWrappedEnrollmentEscrowCount: number;
-        }
-      | RouterApiOkFailure;
-  };
   createEmailOtpChallenge: {
     readonly input: EmailOtpChallengeCreateInput;
     readonly result: EmailOtpChallengeCreateResult;
   };
-  createEmailOtpDeviceRecoveryChallenge: {
-    readonly input: Omit<EmailOtpChallengeCreateInput, 'operation' | 'reuseActiveChallenge'>;
-    readonly result: EmailOtpChallengeCreateResult;
+  createEmailOtpWalletRecoveryBootstrapChallenge: {
+    readonly input: EmailOtpWalletRecoveryBootstrapChallengeCreateInput;
+    readonly result: EmailOtpWalletRecoveryBootstrapChallengeCreateResult;
   };
   createEmailOtpEnrollmentChallenge: {
     readonly input: Omit<EmailOtpChallengeCreateInput, 'operation' | 'reuseActiveChallenge'>;
@@ -590,6 +597,7 @@ export type RouterApiMethodTypes = {
       readonly ok: boolean;
       readonly challengeId?: string;
       readonly challengeB64u?: string;
+      readonly credentialIds?: string[];
       readonly expiresAtMs?: number;
       readonly code?: string;
       readonly message?: string;
@@ -607,7 +615,7 @@ export type RouterApiMethodTypes = {
       readonly challengeId?: string;
       readonly challengeB64u?: string;
       readonly credentialIds?: string[];
-      readonly walletBinding?: EmailRecoveryResolvedWalletBinding;
+      readonly walletBinding?: ResolvedEd25519WalletBinding;
       readonly expiresAtMs?: number;
       readonly code?: string;
       readonly message?: string;
@@ -629,24 +637,6 @@ export type RouterApiMethodTypes = {
     readonly input: never;
     readonly result: string;
   };
-  getEmailOtpRecoveryCodeStatus: {
-    readonly input: GetEmailOtpRecoveryCodeStatusCommand;
-    readonly result:
-      | {
-          readonly ok: true;
-          readonly status: 'ready' | 'incomplete' | 'not_enrolled';
-          readonly walletId: string;
-          readonly enrollmentId: string;
-          readonly enrollmentSealKeyVersion: string;
-          readonly expectedRecoveryCodeCount: number;
-          readonly activeRecoveryCodeCount: number;
-          readonly consumedRecoveryCodeCount: number;
-          readonly revokedRecoveryCodeCount: number;
-          readonly totalRecoveryCodeCount: number;
-          readonly issuedAtMs: number | null;
-        }
-      | RouterApiOkFailure;
-  };
   getGoogleOidcPublicConfig: {
     readonly input: never;
     readonly result: { readonly configured: boolean; readonly clientId?: string };
@@ -661,29 +651,9 @@ export type RouterApiMethodTypes = {
           readonly callbackUrl: string;
         };
   };
-  getOrCreateAppSessionVersion: {
-    readonly input: { readonly userId: string };
-    readonly result:
-      | { readonly ok: true; readonly appSessionVersion: string }
-      | {
-          readonly ok: false;
-          readonly code: 'invalid_args' | 'internal';
-          readonly message: string;
-        };
-  };
   getRelayerAccount: {
     readonly input: never;
     readonly result: { readonly accountId: string; readonly publicKey: string };
-  };
-  getRecoverySession: {
-    readonly input: { readonly sessionId: string };
-    readonly result:
-      | { readonly ok: true; readonly record: RecoverySessionRecord | null }
-      | {
-          readonly ok: false;
-          readonly code: 'invalid_args' | 'internal';
-          readonly message: string;
-        };
   };
   isEmailOtpStrongAuthRequired: {
     readonly input: { readonly subject: EmailOtpStrongAuthSubject };
@@ -800,38 +770,6 @@ export type RouterApiMethodTypes = {
         }
       | RouterApiOkFailure;
   };
-  recordEmailOtpRecoveryKeyAttemptFailure: {
-    readonly input: {
-      readonly recoveryConsumeGrant?: unknown;
-      readonly userId?: unknown;
-      readonly walletId?: unknown;
-      readonly orgId?: unknown;
-      readonly clientIp?: unknown;
-    };
-    readonly result:
-      | { readonly ok: true; readonly walletId: string; readonly recordedAtMs: number }
-      | RouterApiRateLimitedFailure;
-  };
-  recordRecoveryExecution: {
-    readonly input: {
-      readonly sessionId: string;
-      readonly chainIdKey: string;
-      readonly accountAddress: string;
-      readonly action: string;
-      readonly status: RecoveryExecutionStatus;
-      readonly transactionHash?: string;
-      readonly errorCode?: string;
-      readonly errorMessage?: string;
-      readonly metadata?: Record<string, unknown>;
-    };
-    readonly result:
-      | { readonly ok: true; readonly record: RecoveryExecutionRecord }
-      | {
-          readonly ok: false;
-          readonly code: 'invalid_args' | 'internal';
-          readonly message: string;
-        };
-  };
   removeEmailOtpServerSeal: RouterApiMethodTypes['applyEmailOtpServerSeal'];
   respondWalletAddSignerEcdsaDerivation: {
     readonly input: WalletAddSignerEcdsaDerivationRespondRequest;
@@ -859,7 +797,6 @@ export type RouterApiMethodTypes = {
       readonly sub?: string;
       readonly email?: string;
       readonly accountMode?: unknown;
-      readonly appSessionVersion?: string;
       readonly runtimePolicyScope?: ThresholdRuntimePolicyScope;
       readonly restartRegistrationOffer?: unknown;
     };
@@ -871,7 +808,6 @@ export type RouterApiMethodTypes = {
       readonly sub?: string;
       readonly email?: string;
       readonly accountMode?: unknown;
-      readonly appSessionVersion?: string;
       readonly runtimePolicyScope?: ThresholdRuntimePolicyScope;
       readonly restartRegistrationOffer?: unknown;
     };
@@ -880,38 +816,6 @@ export type RouterApiMethodTypes = {
   revokeWalletAuthMethod: {
     readonly input: RevokeWalletAuthMethodCommand;
     readonly result: WalletRevokeAuthMethodResponse;
-  };
-  rotateEmailOtpRecoveryKeys: {
-    readonly input: {
-      readonly userId?: unknown;
-      readonly walletId?: unknown;
-      readonly orgId?: unknown;
-      readonly enrollmentId?: unknown;
-      readonly enrollmentSealKeyVersion?: unknown;
-      readonly recoveryWrappedEnrollmentEscrows?: unknown;
-    };
-    readonly result:
-      | {
-          readonly ok: true;
-          readonly walletId: string;
-          readonly enrollmentId: string;
-          readonly enrollmentSealKeyVersion: string;
-          readonly activeRecoveryCodeCount: number;
-          readonly revokedRecoveryCodeCount: number;
-          readonly totalRecoveryCodeCount: number;
-          readonly issuedAtMs: number;
-        }
-      | RouterApiOkFailure;
-  };
-  rotateAppSessionVersion: {
-    readonly input: { readonly userId: string };
-    readonly result:
-      | { readonly ok: true; readonly appSessionVersion: string }
-      | {
-          readonly ok: false;
-          readonly code: 'invalid_args' | 'internal';
-          readonly message: string;
-        };
   };
   startWalletAddAuthMethod: {
     readonly input: StartWalletAddAuthMethodCommand;
@@ -925,30 +829,6 @@ export type RouterApiMethodTypes = {
     readonly input: { readonly userId: string; readonly subject: string };
     readonly result: UnlinkIdentityResult;
   };
-  updateRecoverySessionStatus: {
-    readonly input: {
-      readonly sessionId: string;
-      readonly status: RecoverySessionStatus;
-      readonly metadataPatch?: Record<string, unknown> | null;
-    };
-    readonly result:
-      | { readonly ok: true; readonly record: RecoverySessionRecord }
-      | {
-          readonly ok: false;
-          readonly code: 'invalid_args' | 'internal';
-          readonly message: string;
-        };
-  };
-  validateAppSessionVersion: {
-    readonly input: { readonly userId: string; readonly appSessionVersion: string };
-    readonly result:
-      | { readonly ok: true }
-      | {
-          readonly ok: false;
-          readonly code: 'invalid_session_version' | 'unauthorized' | 'internal';
-          readonly message: string;
-        };
-  };
   validateGoogleEmailOtpRegistrationCandidateWallet: {
     readonly input: GoogleEmailOtpRegistrationCandidateWalletValidationRequest;
     readonly result: GoogleEmailOtpRegistrationCandidateWalletValidationResult;
@@ -957,9 +837,17 @@ export type RouterApiMethodTypes = {
     readonly input: EmailOtpChallengeVerifyInput;
     readonly result: EmailOtpChallengeVerifyResult;
   };
-  verifyEmailOtpDeviceRecoveryChallenge: {
-    readonly input: EmailOtpDeviceRecoveryChallengeVerifyInput;
-    readonly result: EmailOtpDeviceRecoveryChallengeVerifyResult;
+  verifyEmailOtpWalletRecoveryBootstrap: {
+    readonly input: EmailOtpWalletRecoveryBootstrapVerifyInput;
+    readonly result: EmailOtpWalletRecoveryBootstrapVerifyResult;
+  };
+  consumeEmailOtpWalletRecoveryBootstrap: {
+    readonly input: EmailOtpWalletRecoveryBootstrapConsumeInput;
+    readonly result: EmailOtpWalletRecoveryBootstrapConsumeResult;
+  };
+  verifyEmailOtpWalletRecoveryChallenge: {
+    readonly input: Omit<EmailOtpChallengeVerifyInput, 'operation'>;
+    readonly result: EmailOtpChallengeVerifyResult;
   };
   verifyEmailOtpEnrollment: {
     readonly input: EmailOtpEnrollmentVerifyInput;
@@ -980,6 +868,8 @@ export type RouterApiMethodTypes = {
           readonly walletId: string;
           readonly providerUserId: string;
           readonly orgId: string;
+          readonly enrollmentId: string;
+          readonly enrollmentSealKeyVersion: string;
           readonly unlockKeyVersion: string;
         }
       | {
@@ -1023,24 +913,6 @@ export type RouterApiMethodTypes = {
       readonly message?: string;
     };
   };
-  verifyOidcJwtExchange: {
-    readonly input: { readonly token?: unknown };
-    readonly result: {
-      readonly ok: boolean;
-      readonly verified?: boolean;
-      readonly userId?: string;
-      readonly providerSubject?: string;
-      readonly iss?: string;
-      readonly aud?: string[];
-      readonly sub?: string;
-      readonly email?: string;
-      readonly name?: string;
-      readonly given_name?: string;
-      readonly family_name?: string;
-      readonly code?: string;
-      readonly message?: string;
-    };
-  };
   verifyWebAuthnAuthenticationLite: {
     readonly input: {
       readonly userId: string;
@@ -1063,14 +935,31 @@ export type RouterApiMethodTypes = {
       readonly webauthn_authentication?: unknown;
       readonly expected_origin?: string;
     };
-    readonly result: {
-      readonly ok: boolean;
-      readonly verified?: boolean;
-      readonly userId?: string;
-      readonly rpId?: string;
-      readonly code?: string;
-      readonly message?: string;
-    };
+    readonly result:
+      | {
+          readonly ok: true;
+          readonly verified: true;
+          readonly userId: string;
+          readonly rpId: string;
+          readonly credentialIdB64u: string;
+          readonly ed25519:
+            | { readonly kind: 'absent' }
+            | {
+                readonly kind: 'active';
+                readonly nearAccountId: string;
+                readonly nearEd25519SigningKeyId: string;
+                readonly signerSlot: number;
+                readonly publicKey: string;
+                readonly relayerKeyId: string;
+                readonly participantIds: readonly [number, number];
+              };
+        }
+      | {
+          readonly ok: false;
+          readonly verified?: false;
+          readonly code: string;
+          readonly message: string;
+        };
   };
   verifyWebAuthnSyncAccount: {
     readonly input: {
@@ -1086,7 +975,7 @@ export type RouterApiMethodTypes = {
       readonly walletId?: string;
       readonly nearAccountId?: string;
       readonly nearEd25519SigningKeyId?: string;
-      readonly walletBinding?: EmailRecoveryResolvedWalletBinding;
+      readonly walletBinding?: ResolvedEd25519WalletBinding;
       readonly rpId?: string;
       readonly signerSlot?: number;
       readonly publicKey?: string;
@@ -1112,7 +1001,7 @@ export type RouterApiMethodTypes = {
 export type GoogleEmailOtpRegistrationCandidateWalletValidationRequest = {
   readonly registrationAttemptId: string;
   readonly walletId: string;
-  readonly appSessionVersion: string;
+  readonly ownerProofBindingDigest: string;
   readonly providerSubject: string;
 };
 
@@ -1128,15 +1017,32 @@ export interface RouterApiEmailOtpChallengeService {
   createEmailOtpChallenge(
     input: RouterApiMethodTypes['createEmailOtpChallenge']['input'],
   ): Promise<RouterApiMethodTypes['createEmailOtpChallenge']['result']>;
-  createEmailOtpDeviceRecoveryChallenge(
-    input: RouterApiMethodTypes['createEmailOtpDeviceRecoveryChallenge']['input'],
-  ): Promise<RouterApiMethodTypes['createEmailOtpDeviceRecoveryChallenge']['result']>;
+  createEmailOtpWalletRecoveryBootstrapChallenge(
+    input: RouterApiMethodTypes['createEmailOtpWalletRecoveryBootstrapChallenge']['input'],
+  ): Promise<RouterApiMethodTypes['createEmailOtpWalletRecoveryBootstrapChallenge']['result']>;
   createEmailOtpEnrollmentChallenge(
     input: RouterApiMethodTypes['createEmailOtpEnrollmentChallenge']['input'],
   ): Promise<RouterApiMethodTypes['createEmailOtpEnrollmentChallenge']['result']>;
 }
 
 export interface RouterApiWalletRegistrationService {
+  resolveActiveOwnerWalletExecutionLane(input: {
+    readonly walletId: WalletId;
+    readonly expectedMaterialActivation: MpcMaterialActivationRef;
+    readonly authorization:
+      | {
+          readonly kind: 'wallet_auth_method';
+          readonly walletAuthMethodId: WalletAuthMethodId;
+        }
+      | {
+          readonly kind: 'authority_ref';
+          readonly authorityRef: WalletAuthAuthorityRef;
+          readonly authSource: WalletExecutionLaneAuthSource;
+        };
+  }): Promise<WalletExecutionLaneProjectionResult>;
+  listWalletEcdsaCustodyContinuity(input: {
+    readonly walletId: string;
+  }): Promise<readonly WalletEcdsaSignerRecord[]>;
   resolveEd25519MaterialActivation(input: {
     readonly walletId: string;
     readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
@@ -1148,6 +1054,7 @@ export interface RouterApiWalletRegistrationService {
         readonly signerSlot: number;
         readonly signingWorkerId: string;
         readonly participantIds: readonly [number, number];
+        readonly runtimePolicyScope: ThresholdRuntimePolicyScope;
       }
     | { readonly ok: false; readonly code: 'not_found' | 'internal'; readonly message: string }
   >;
@@ -1156,17 +1063,21 @@ export interface RouterApiWalletRegistrationService {
     readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
   }): Promise<
     | {
-      readonly ok: true;
-      readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
-      readonly keyHandle: string;
-      readonly relayerKeyId: string;
-      readonly participantIds: readonly [number, number];
-    }
+        readonly ok: true;
+        readonly materialActivation: RouterAbMpcMaterialActivationRefWire;
+        readonly keyHandle: string;
+        readonly relayerKeyId: string;
+        readonly participantIds: readonly [number, number];
+        readonly runtimePolicyScope: ThresholdRuntimePolicyScope;
+      }
     | { readonly ok: false; readonly code: 'not_found' | 'internal'; readonly message: string }
   >;
   listWalletEcdsaKeyFactsInventory(
     input: RouterApiMethodTypes['listWalletEcdsaKeyFactsInventory']['input'],
   ): Promise<RouterApiMethodTypes['listWalletEcdsaKeyFactsInventory']['result']>;
+  readActiveEmailOtpEnrollment(
+    input: RouterApiMethodTypes['readActiveEmailOtpEnrollment']['input'],
+  ): Promise<RouterApiMethodTypes['readActiveEmailOtpEnrollment']['result']>;
   setupWalletRegistration(
     input: WalletRegistrationSetupInput,
   ): Promise<WalletRegistrationSetupResponseV2>;
@@ -1187,19 +1098,11 @@ export interface RouterApiWalletRegistrationService {
   provisionEd25519YaoWalletSession(
     input: RouterAbEd25519YaoVerifiedWalletUnlockRequestV1,
   ): Promise<RouterAbEd25519YaoVerifiedWalletUnlockResponseV1>;
-  recordEcdsaPostRegistrationProof(
-    input:
-      | {
-          readonly operation: 'recovery';
-          readonly request: RouterAbEcdsaDerivationRecoveryRequestV1;
-          readonly response: RouterAbEcdsaStrictForwardedRegistrationResponseV1;
-        }
-      | {
-          readonly operation: 'refresh';
-          readonly request: RouterAbEcdsaDerivationActivationRefreshRequestV1;
-          readonly response: RouterAbEcdsaDerivationActivationRefreshForwardedResponseV1;
-        },
-  ): Promise<
+  recordEcdsaPostRegistrationProof(input: {
+    readonly operation: 'refresh';
+    readonly request: RouterAbEcdsaDerivationActivationRefreshRequestV1;
+    readonly response: RouterAbEcdsaDerivationActivationRefreshForwardedResponseV1;
+  }): Promise<
     { readonly ok: true } | { readonly ok: false; readonly code: string; readonly message: string }
   >;
   activateEcdsaPostRegistrationSession(
@@ -1220,15 +1123,22 @@ export interface RouterApiWalletRegistrationService {
 }
 
 export interface RouterApiWalletAuthVerificationService {
-  validateAppSessionVersion(
-    input: RouterApiMethodTypes['validateAppSessionVersion']['input'],
-  ): Promise<RouterApiMethodTypes['validateAppSessionVersion']['result']>;
   verifyWebAuthnAuthenticationLite(
     input: RouterApiMethodTypes['verifyWebAuthnAuthenticationLite']['input'],
   ): Promise<RouterApiMethodTypes['verifyWebAuthnAuthenticationLite']['result']>;
 }
 
 export interface RouterApiWalletAuthMethodService {
+  verifyActivePasskeyAuthority(
+    authority: import('@shared/utils/walletAuthAuthority').PasskeyWalletAuthAuthority,
+  ): Promise<
+    { readonly ok: true } | { readonly ok: false; readonly code: string; readonly message: string }
+  >;
+  verifyActiveEmailOtpAuthority(
+    authority: EmailOtpWalletAuthAuthority,
+  ): Promise<
+    { readonly ok: true } | { readonly ok: false; readonly code: string; readonly message: string }
+  >;
   resolveActiveEmailOtpAuthorityForVerifiedSubject(input: {
     readonly walletId: string;
     readonly providerUserId: string;
@@ -1282,9 +1192,6 @@ export interface RouterApiWalletRegistrationRouteService
     RouterApiWalletRegistrationService,
     RouterApiWalletAuthMethodService,
     RouterApiWalletAuthVerificationService {
-  getOrCreateAppSessionVersion(
-    input: RouterApiMethodTypes['getOrCreateAppSessionVersion']['input'],
-  ): Promise<RouterApiMethodTypes['getOrCreateAppSessionVersion']['result']>;
   fundImplicitNearAccount(
     input: FundImplicitNearAccountRequest,
   ): Promise<FundImplicitNearAccountResult>;
@@ -1321,12 +1228,6 @@ export interface RouterApiEmailOtpRouteService extends RouterApiEmailOtpChalleng
   consumeEmailOtpGrant(
     input: RouterApiMethodTypes['consumeEmailOtpGrant']['input'],
   ): Promise<RouterApiMethodTypes['consumeEmailOtpGrant']['result']>;
-  consumeEmailOtpRecoveryKey(
-    input: RouterApiMethodTypes['consumeEmailOtpRecoveryKey']['input'],
-  ): Promise<RouterApiMethodTypes['consumeEmailOtpRecoveryKey']['result']>;
-  getEmailOtpRecoveryCodeStatus(
-    input: RouterApiMethodTypes['getEmailOtpRecoveryCodeStatus']['input'],
-  ): Promise<RouterApiMethodTypes['getEmailOtpRecoveryCodeStatus']['result']>;
   isEmailOtpStrongAuthRequired(
     input: RouterApiMethodTypes['isEmailOtpStrongAuthRequired']['input'],
   ): Promise<RouterApiMethodTypes['isEmailOtpStrongAuthRequired']['result']>;
@@ -1342,138 +1243,30 @@ export interface RouterApiEmailOtpRouteService extends RouterApiEmailOtpChalleng
   readEmailOtpOutboxEntry(
     input: RouterApiMethodTypes['readEmailOtpOutboxEntry']['input'],
   ): Promise<RouterApiMethodTypes['readEmailOtpOutboxEntry']['result']>;
-  recordEmailOtpRecoveryKeyAttemptFailure(
-    input: RouterApiMethodTypes['recordEmailOtpRecoveryKeyAttemptFailure']['input'],
-  ): Promise<RouterApiMethodTypes['recordEmailOtpRecoveryKeyAttemptFailure']['result']>;
   removeEmailOtpServerSeal(
     input: RouterApiMethodTypes['removeEmailOtpServerSeal']['input'],
   ): Promise<RouterApiMethodTypes['removeEmailOtpServerSeal']['result']>;
-  rotateEmailOtpRecoveryKeys(
-    input: RouterApiMethodTypes['rotateEmailOtpRecoveryKeys']['input'],
-  ): Promise<RouterApiMethodTypes['rotateEmailOtpRecoveryKeys']['result']>;
   validateGoogleEmailOtpRegistrationCandidateWallet(
     input: GoogleEmailOtpRegistrationCandidateWalletValidationRequest,
   ): Promise<GoogleEmailOtpRegistrationCandidateWalletValidationResult>;
   verifyEmailOtpChallenge(
     input: RouterApiMethodTypes['verifyEmailOtpChallenge']['input'],
   ): Promise<RouterApiMethodTypes['verifyEmailOtpChallenge']['result']>;
-  verifyEmailOtpDeviceRecoveryChallenge(
-    input: RouterApiMethodTypes['verifyEmailOtpDeviceRecoveryChallenge']['input'],
-  ): Promise<RouterApiMethodTypes['verifyEmailOtpDeviceRecoveryChallenge']['result']>;
+  verifyEmailOtpWalletRecoveryBootstrap(
+    input: RouterApiMethodTypes['verifyEmailOtpWalletRecoveryBootstrap']['input'],
+  ): Promise<RouterApiMethodTypes['verifyEmailOtpWalletRecoveryBootstrap']['result']>;
+  consumeEmailOtpWalletRecoveryBootstrap(
+    input: RouterApiMethodTypes['consumeEmailOtpWalletRecoveryBootstrap']['input'],
+  ): Promise<RouterApiMethodTypes['consumeEmailOtpWalletRecoveryBootstrap']['result']>;
+  verifyEmailOtpWalletRecoveryChallenge(
+    input: RouterApiMethodTypes['verifyEmailOtpWalletRecoveryChallenge']['input'],
+  ): Promise<RouterApiMethodTypes['verifyEmailOtpWalletRecoveryChallenge']['result']>;
   verifyEmailOtpEnrollment(
     input: RouterApiMethodTypes['verifyEmailOtpEnrollment']['input'],
   ): Promise<RouterApiMethodTypes['verifyEmailOtpEnrollment']['result']>;
   verifyGoogleLogin(
     input: RouterApiMethodTypes['verifyGoogleLogin']['input'],
   ): Promise<RouterApiMethodTypes['verifyGoogleLogin']['result']>;
-}
-
-export interface RouterApiSessionVersionService {
-  getOrCreateAppSessionVersion(
-    input: RouterApiMethodTypes['getOrCreateAppSessionVersion']['input'],
-  ): Promise<RouterApiMethodTypes['getOrCreateAppSessionVersion']['result']>;
-  rotateAppSessionVersion(
-    input: RouterApiMethodTypes['rotateAppSessionVersion']['input'],
-  ): Promise<RouterApiMethodTypes['rotateAppSessionVersion']['result']>;
-  validateAppSessionVersion(
-    input: RouterApiMethodTypes['validateAppSessionVersion']['input'],
-  ): Promise<RouterApiMethodTypes['validateAppSessionVersion']['result']>;
-}
-
-export type RouterApiSessionExchangePhase = 'claimed' | 'session_prepared' | 'completed';
-
-export type RouterApiSessionExchangeAccountMode = 'login';
-
-export type RouterApiSessionExchangePrepared = {
-  readonly seamsSessionId: string;
-  readonly deviceId: string;
-  readonly createdAtMs: number;
-};
-
-export type RouterApiSessionExchangeResponse = {
-  readonly status: number;
-  readonly bodyText: string;
-  readonly setCookie?: string;
-};
-
-type RouterApiSessionExchangeJournalBase = {
-  readonly kind: 'google_email_otp_session_exchange_journal_v1';
-  readonly idempotencyKey: string;
-  readonly requestFingerprint: string;
-  readonly accountMode: RouterApiSessionExchangeAccountMode;
-  readonly version: number;
-  readonly phaseData: Readonly<Record<string, unknown>>;
-  readonly prepared: RouterApiSessionExchangePrepared;
-  readonly createdAtMs: number;
-  readonly updatedAtMs: number;
-  readonly expiresAtMs: number;
-};
-
-export type RouterApiSessionExchangeJournal =
-  | (RouterApiSessionExchangeJournalBase & {
-      readonly lifecycle: 'in_progress';
-      readonly phase: Exclude<RouterApiSessionExchangePhase, 'completed'>;
-      readonly response?: never;
-    })
-  | (RouterApiSessionExchangeJournalBase & {
-      readonly lifecycle: 'completed';
-      readonly phase: 'completed';
-      readonly response: RouterApiSessionExchangeResponse;
-    });
-
-export type RouterApiCompletedSessionExchangeJournal = Extract<
-  RouterApiSessionExchangeJournal,
-  { readonly lifecycle: 'completed' }
->;
-
-export type RouterApiSessionExchangeClaimResult =
-  | { readonly kind: 'claimed'; readonly journal: RouterApiSessionExchangeJournal }
-  | { readonly kind: 'resume'; readonly journal: RouterApiSessionExchangeJournal }
-  | { readonly kind: 'replayed'; readonly journal: RouterApiCompletedSessionExchangeJournal }
-  | {
-      readonly kind: 'conflict';
-      readonly code: 'idempotency_conflict';
-      readonly journal: RouterApiSessionExchangeJournal;
-      readonly message: string;
-    }
-  | { readonly kind: 'uncertain'; readonly message: string };
-
-export type RouterApiSessionExchangeMutationResult =
-  | { readonly kind: 'stored'; readonly journal: RouterApiSessionExchangeJournal }
-  | { readonly kind: 'replayed'; readonly journal: RouterApiSessionExchangeJournal }
-  | {
-      readonly kind: 'conflict';
-      readonly code: 'version_conflict' | 'response_conflict' | 'request_conflict';
-      readonly journal?: RouterApiSessionExchangeJournal;
-      readonly message: string;
-    }
-  | {
-      readonly kind: 'in_progress';
-      readonly journal: RouterApiSessionExchangeJournal;
-      readonly retryAfterMs: number;
-    }
-  | { readonly kind: 'uncertain'; readonly message: string };
-
-export interface RouterApiSessionExchangeService {
-  claimGoogleEmailOtp(input: {
-    readonly idempotencyKey: string;
-    readonly requestFingerprint: string;
-    readonly accountMode: RouterApiSessionExchangeAccountMode;
-    readonly nowMs: number;
-  }): Promise<RouterApiSessionExchangeClaimResult>;
-  read(idempotencyKey: string): Promise<RouterApiSessionExchangeJournal | null>;
-  checkpoint(input: {
-    readonly key: string;
-    readonly expectedVersion: number;
-    readonly phase: Exclude<RouterApiSessionExchangePhase, 'claimed' | 'completed'>;
-    readonly data: Readonly<Record<string, unknown>>;
-  }): Promise<RouterApiSessionExchangeMutationResult>;
-  complete(input: {
-    readonly key: string;
-    readonly expectedVersion: number;
-    readonly response: RouterApiSessionExchangeResponse;
-    readonly expiresAtMs: number;
-  }): Promise<RouterApiSessionExchangeMutationResult>;
 }
 
 export interface RouterApiIdentityService {
@@ -1503,9 +1296,6 @@ export interface RouterApiIdentityService {
   verifyGithubOAuthCode(
     input: RouterApiMethodTypes['verifyGithubOAuthCode']['input'],
   ): Promise<RouterApiMethodTypes['verifyGithubOAuthCode']['result']>;
-  verifyOidcJwtExchange(
-    input: RouterApiMethodTypes['verifyOidcJwtExchange']['input'],
-  ): Promise<RouterApiMethodTypes['verifyOidcJwtExchange']['result']>;
 }
 
 export interface RouterApiWebAuthnService {
@@ -1538,22 +1328,13 @@ export interface RouterApiNearFundingService {
   ): Promise<RouterApiMethodTypes['listNearPublicKeysForUser']['result']>;
 }
 
-export interface RouterApiRecoveryRouteService {
-  getRecoverySession(
-    input: RouterApiMethodTypes['getRecoverySession']['input'],
-  ): Promise<RouterApiMethodTypes['getRecoverySession']['result']>;
-  recordRecoveryExecution(
-    input: RouterApiMethodTypes['recordRecoveryExecution']['input'],
-  ): Promise<RouterApiMethodTypes['recordRecoveryExecution']['result']>;
-  updateRecoverySessionStatus(
-    input: RouterApiMethodTypes['updateRecoverySessionStatus']['input'],
-  ): Promise<RouterApiMethodTypes['updateRecoverySessionStatus']['result']>;
-}
-
 export interface RouterApiRouterAccountService {
   getConfiguredRelayerAccount(): string;
   getRelayerAccount(): Promise<{ accountId: string; publicKey: string }>;
 }
+
+export type { RouterApiPasskeyCustodyService } from '../cloudflare/d1/passkeyCustody/d1PasskeyCustodyRouteService';
+import type { RouterApiPasskeyCustodyService } from '../cloudflare/d1/passkeyCustody/d1PasskeyCustodyRouteService';
 
 export interface RouterApiServiceBag {
   walletRegistration: RouterApiWalletRegistrationService;
@@ -1562,31 +1343,52 @@ export interface RouterApiServiceBag {
   emailOtp: RouterApiEmailOtpRouteService;
   webAuthn: RouterApiWebAuthnService;
   identity: RouterApiIdentityService;
-  sessionVersions: RouterApiSessionVersionService;
-  sessionExchanges: RouterApiSessionExchangeService;
   authorizationSessions: RouterApiAuthorizationSessionService;
   authorizedOperations: RouterApiAuthorizedOperationService;
   thresholdRuntime: RouterAbSigningRuntimeService;
   nearFunding: RouterApiNearFundingService;
-  recovery: RouterApiRecoveryRouteService;
   router: RouterApiRouterAccountService;
+  /**
+   * Custody envelope retrieval, for a browser whose local storage is empty.
+   *
+   * Declared here rather than reached through a store because the whole
+   * layer beneath it spent its existence built, tested and unreachable —
+   * a port on the bag is what makes it callable from a route.
+   */
+  passkeyCustody: RouterApiPasskeyCustodyService;
+  /** Durable R103 link-session transport; omitted by deployments that disable linking. */
+  deviceLinking?: DeviceLinkingRouteServiceV1;
+  /** Authenticated R103 linked-device projection and revocation transport. */
+  deviceManagement?: DeviceManagementRouteServiceV1;
+  /** Durable active linked-device lane projection used by normal signing admission. */
+  linkedDeviceExecution?: LinkedDeviceExecutionAdmissionResolverV1;
+  /** Device-local user-presence verifier used by linked normal signing admission. */
+  linkedDeviceLocalPresence?: LinkedDeviceLocalPresenceVerifierPortV1;
+  /** Private Gateway completion endpoint for the linked-device activation commit. */
+  deviceLinkingGateway?: DeviceLinkingGatewayCompletionServiceV1;
+  /** Request-scoped owner Wallet Session metadata for Device 1 approval. */
+  deviceLinkingOwnerAuthorization?: DeviceLinkingOwnerAuthorizationRouteServiceV1;
+  /** Owner-authenticated Device 1 source preparation and protocol commit transport. */
+  deviceLinkingLaneGateway?: DeviceLinkingLaneGatewayRouteServiceV1;
 }
 
 export interface RouterApiAuthorizedOperationService {
   readonly tenantId: TenantId;
-  recordVerifiedFactorEvidenceSet(
-    input: VerifiedFactorEvidenceSetInput,
+  buildVerifiedOwnerProof(input: VerifiedOwnerProofInput): Promise<VerifiedOwnerProof>;
+  recordVerifiedWalletOperationFactorEvidenceSet(
+    input: VerifiedWalletOperationFactorEvidenceSetInput,
   ): Promise<VerifiedAuthorizationEvidenceSet>;
-  recordVerifiedSessionEvidenceSet(
-    input: VerifiedSessionEvidenceSetInput,
-  ): Promise<VerifiedAuthorizationEvidenceSet>;
+  readAuthorizedOperationById(input: {
+    readonly tenantId: TenantId;
+    readonly authorizedOperationId: import('@shared/authorization/capabilityKinds').AuthorizedOperationId;
+  }): Promise<AuthorizedOperation | null>;
   readAuthorizedOperation(input: {
     readonly tenantId: TenantId;
     readonly operationFingerprintDigest: import('@shared/authorization/operationFingerprint').CapabilityOperationFingerprintDigest;
   }): Promise<AuthorizedOperation | null>;
   admitAuthorizedOperation(input: {
     readonly operation: AuthorizedOperationInput;
-    readonly material?: EcdsaMaterialActivationScope;
+    readonly material?: EcdsaMaterialActivationScope | LinkedDeviceMaterialActivationScopeV1;
   }): Promise<
     | { readonly kind: 'claimed'; readonly operation: AuthorizedOperation }
     | { readonly kind: 'replayed'; readonly operation: AuthorizedOperation }
@@ -1609,15 +1411,26 @@ export interface RouterApiAuthorizedOperationService {
 
 export interface RouterApiAuthorizationSessionService {
   readonly tenantId: TenantId;
-  recordActiveSession(session: ActiveAuthorizationSession): Promise<void>;
   issueReusableWalletSession(
     input: IssueReusableWalletSessionInput,
   ): Promise<IssuedReusableWalletSession>;
-  readActiveSession(input: {
+  issueOpaqueWalletSessionToken(input: {
+    readonly proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
     readonly tenantId: TenantId;
-    readonly sessionId: SeamsSessionId;
+    readonly authorizationId: import('@shared/authorization/capabilityKinds').WalletSessionAuthorizationId;
+    readonly walletSessionId: import('@shared/authorization/capabilityKinds').WalletSessionId;
+    readonly quotaId: import('@shared/authorization/capabilityKinds').MpcWalletSigningQuotaId;
+    readonly expiresAtMs: number;
+    readonly consumedAtMs: number;
+    readonly curve: OpaqueWalletSessionCurve;
+    readonly binding: OpaqueOwnerWalletSessionBinding;
+  }): Promise<IssuedOpaqueWalletSessionToken>;
+  resolveOpaqueWalletSessionToken(input: {
+    readonly tenantId: TenantId;
+    readonly token: string;
+    readonly curve: OpaqueWalletSessionCurve;
     readonly nowMs: number;
-  }): Promise<ActiveAuthorizationSession | null>;
+  }): Promise<ResolvedOpaqueWalletSessionToken | null>;
   readReusableWalletSessionStatus(input: {
     readonly tenantId: TenantId;
     readonly principalId: PrincipalId;
@@ -1625,19 +1438,33 @@ export interface RouterApiAuthorizationSessionService {
     readonly quotaId: ReusableWalletSessionStatus['quotaId'];
     readonly nowMs: number;
   }): Promise<ReusableWalletSessionStatus>;
+  readLinkedDeviceWalletSessionAuthorization(input: {
+    readonly tenantId: TenantId;
+    readonly deviceId: import('@shared/signing-lanes/ids').LinkedDeviceId;
+    readonly authorizationId: import('@shared/authorization/capabilityKinds').LinkedDeviceWalletSessionAuthorizationId;
+    readonly walletSessionId: import('@shared/authorization/capabilityKinds').WalletSessionId;
+    readonly quotaId: import('@shared/authorization/capabilityKinds').MpcWalletSigningQuotaId;
+    readonly nowMs: number;
+  }): Promise<IssuedLinkedDeviceWalletSession | null>;
+  renewLinkedDeviceWalletSession(
+    input: RenewLinkedDeviceWalletSessionInputV1,
+  ): Promise<IssuedLinkedDeviceWalletSession>;
   mintHostedWalletSeamsSessionExchange(input: {
     readonly tenantId: TenantId;
-    readonly principalId: PrincipalId;
-    readonly sourceSessionId: SeamsSessionId;
+    readonly walletSessionId: import('@shared/authorization/capabilityKinds').WalletSessionId;
     readonly appOrigin: SessionOrigin;
     readonly walletOrigin: SessionOrigin;
+    readonly curve: OpaqueWalletSessionCurve;
+    readonly binding: Readonly<Record<string, unknown>>;
     readonly issuedAtMs: number;
     readonly expiresAtMs: number;
   }): Promise<HostedWalletSeamsSessionExchangeDelivery>;
   redeemHostedWalletSeamsSessionExchange(input: {
     readonly exchangeCode: HostedWalletSeamsSessionExchangeCode;
     readonly nonce: HostedWalletSeamsSessionExchangeNonce;
+    readonly appOrigin: SessionOrigin;
     readonly walletOrigin: SessionOrigin;
+    readonly curve: OpaqueWalletSessionCurve;
     readonly redeemedAtMs: number;
   }): Promise<RedeemHostedWalletSeamsSessionExchangeResult>;
 }
@@ -1648,8 +1475,7 @@ export function routerApiWalletRegistrationRouteService(
   return {
     ...service.walletRegistration,
     ...service.walletAuthMethods,
-    getOrCreateAppSessionVersion: service.sessionVersions.getOrCreateAppSessionVersion,
-    validateAppSessionVersion: service.sessionVersions.validateAppSessionVersion,
+    readActiveEmailOtpEnrollment: service.emailOtp.readActiveEmailOtpEnrollment,
     verifyWebAuthnAuthenticationLite: service.webAuthn.verifyWebAuthnAuthenticationLite,
     fundImplicitNearAccount: service.nearFunding.fundImplicitNearAccount,
     listWalletEcdsaKeyFactsInventory: service.walletRegistration.listWalletEcdsaKeyFactsInventory,

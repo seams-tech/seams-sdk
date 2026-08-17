@@ -21,6 +21,8 @@ export type PasskeyLoginVerifyRequest = {
 
 export type GoogleLoginVerifyRequest = {
   idToken: string;
+  accountMode: 'login' | 'register';
+  projectEnvironmentId: string;
 };
 
 export type AuthPasskeyStepUpRequest = {
@@ -38,7 +40,6 @@ export type AuthLinkIdentityRequest = {
 export type AuthUnlinkIdentityRequest = {
   subject: string;
   stepUp: AuthPasskeyStepUpRequest;
-  session_kind?: 'jwt' | 'cookie';
 };
 
 export type AuthIdentityMutationRequest =
@@ -65,7 +66,7 @@ export type AuthRouteParseResult<T> =
 
 const PASSKEY_OPTIONS_KEYS = ['user_id', 'rp_id', 'ttl_ms'] as const;
 const PASSKEY_VERIFY_KEYS = ['challengeId', 'webauthn_authentication'] as const;
-const GOOGLE_VERIFY_KEYS = ['id_token'] as const;
+const GOOGLE_VERIFY_KEYS = ['account_mode', 'id_token', 'project_environment_id'] as const;
 const AUTH_LINK_KEYS = [
   'provider',
   'id_token',
@@ -76,7 +77,6 @@ const AUTH_UNLINK_KEYS = [
   'subject',
   'step_up_challenge_id',
   'webauthn_authentication',
-  'session_kind',
 ] as const;
 
 function invalidAuthBody(message: string): AuthRouteParseResult<never> {
@@ -223,7 +223,21 @@ export function parseGoogleLoginVerifyRequest(
 
   const idToken = requireTrimmedField(body.request, 'id_token');
   if (!idToken.ok) return idToken;
-  return { ok: true, request: { idToken: idToken.request } };
+  const accountMode = requireTrimmedField(body.request, 'account_mode');
+  if (!accountMode.ok) return accountMode;
+  const projectEnvironmentId = requireTrimmedField(body.request, 'project_environment_id');
+  if (!projectEnvironmentId.ok) return projectEnvironmentId;
+  if (accountMode.request !== 'login' && accountMode.request !== 'register') {
+    return invalidAuthBody('account_mode must be login or register');
+  }
+  return {
+    ok: true,
+    request: {
+      idToken: idToken.request,
+      accountMode: accountMode.request,
+      projectEnvironmentId: projectEnvironmentId.request,
+    },
+  };
 }
 
 function parsePasskeyStepUpRequest(input: {
@@ -289,12 +303,6 @@ export function parseAuthUnlinkIdentityRequest(input: {
 
   const subject = requireTrimmedField(body.request, 'subject');
   if (!subject.ok) return subject;
-  const rawSessionKind = toOptionalTrimmedString(body.request.session_kind);
-  if (rawSessionKind && rawSessionKind !== 'jwt' && rawSessionKind !== 'cookie') {
-    return invalidAuthBody('session_kind must be jwt or cookie');
-  }
-  const sessionKind =
-    rawSessionKind === 'jwt' || rawSessionKind === 'cookie' ? rawSessionKind : undefined;
   const stepUp = parsePasskeyStepUpRequest({ body: body.request, origin: input.origin });
   if (!stepUp.ok) return stepUp;
 
@@ -303,7 +311,6 @@ export function parseAuthUnlinkIdentityRequest(input: {
     request: {
       subject: subject.request,
       stepUp: stepUp.request,
-      ...(sessionKind ? { session_kind: sessionKind } : {}),
     },
   };
 }

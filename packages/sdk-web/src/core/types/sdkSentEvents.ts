@@ -13,11 +13,13 @@ import type {
   SignTransactionResult,
 } from './seams';
 import type { SyncAccountResult, SignNEP413MessageResult } from '@/core/types/sdkPublicResults';
-import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
 import {
-  parseWalletSessionId,
-  type WalletSessionId,
-} from '@shared/authorization/capabilityKinds';
+  parseLinkedDeviceEnrollmentId,
+  parseWalletId,
+  type LinkedDeviceEnrollmentId,
+  type WalletId,
+} from '@shared/utils/domainIds';
+import { parseWalletSessionId, type WalletSessionId } from '@shared/authorization/capabilityKinds';
 import { isWalletAuthMethod, type WalletAuthMethod } from '@shared/utils/signerDomain';
 import type { RouterAbTraceContextV1 } from '@shared/utils/routerAbTraceContext';
 
@@ -221,7 +223,6 @@ export type WalletFlow =
   | 'unlock'
   | 'signing'
   | 'link_device'
-  | 'email_recovery'
   | 'account_sync'
   | 'key_export';
 
@@ -246,7 +247,6 @@ export type WalletFlowInteractionKind =
   | 'transaction_confirmation'
   | 'qr_scan'
   | 'qr_display'
-  | 'email_recovery_link'
   | 'key_export_viewer';
 
 export interface WalletFlowEventInteraction {
@@ -328,9 +328,9 @@ export enum UnlockEventPhase {
   STEP_03_EMAIL_OTP_INPUT_REQUIRED = 'unlock.auth.email_otp.input.required',
   STEP_03_EMAIL_OTP_VERIFY_STARTED = 'unlock.auth.email_otp.verify.started',
   STEP_03_EMAIL_OTP_VERIFY_SUCCEEDED = 'unlock.auth.email_otp.verify.succeeded',
-  STEP_04_APP_SESSION_EXCHANGE_STARTED = 'unlock.app_session.exchange.started',
-  STEP_04_APP_SESSION_EXCHANGE_SUCCEEDED = 'unlock.app_session.exchange.succeeded',
-  STEP_04_APP_SESSION_EXCHANGE_SKIPPED = 'unlock.app_session.exchange.skipped',
+  STEP_04_WALLET_UNLOCK_EXCHANGE_STARTED = 'unlock.wallet.exchange.started',
+  STEP_04_WALLET_UNLOCK_EXCHANGE_SUCCEEDED = 'unlock.wallet.exchange.succeeded',
+  STEP_04_WALLET_UNLOCK_EXCHANGE_SKIPPED = 'unlock.wallet.exchange.skipped',
   STEP_05_SIGNING_SESSION_WARMUP_STARTED = 'unlock.signing_session.warmup.started',
   STEP_05_ED25519_SIGNING_SESSION_READY = 'unlock.signing_session.ed25519.ready',
   STEP_05_ECDSA_SIGNING_SESSION_READY = 'unlock.signing_session.ecdsa.ready',
@@ -433,6 +433,16 @@ export type RegistrationFlowEvent = WalletFlowEventBase<'registration', Registra
 export type UnlockFlowEvent = WalletFlowEventBase<'unlock', UnlockEventPhase>;
 export type SigningFlowEvent = WalletFlowEventBase<'signing', SigningEventPhase>;
 export type LinkDeviceFlowEvent = WalletFlowEventBase<'link_device', LinkDeviceEventPhase>;
+export type LinkDeviceFlowOutcome =
+  | { readonly kind: 'pending' }
+  | {
+      readonly kind: 'active';
+      readonly walletId: WalletId;
+      readonly enrollmentId: LinkedDeviceEnrollmentId;
+    }
+  | { readonly kind: 'invalid_active' }
+  | { readonly kind: 'failed' }
+  | { readonly kind: 'cancelled' };
 export type AccountSyncFlowEvent = WalletFlowEventBase<'account_sync', AccountSyncEventPhase>;
 export type KeyExportFlowEvent = WalletFlowEventBase<'key_export', KeyExportEventPhase>;
 
@@ -443,6 +453,26 @@ export type WalletFlowEvent =
   | LinkDeviceFlowEvent
   | AccountSyncFlowEvent
   | KeyExportFlowEvent;
+
+export function classifyLinkDeviceFlowEvent(event: LinkDeviceFlowEvent): LinkDeviceFlowOutcome {
+  if (event.phase === LinkDeviceEventPhase.FAILED || event.status === 'failed') {
+    return { kind: 'failed' };
+  }
+  if (event.phase === LinkDeviceEventPhase.CANCELLED || event.status === 'cancelled') {
+    return { kind: 'cancelled' };
+  }
+  if (
+    event.phase !== LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED ||
+    event.status !== 'succeeded'
+  ) {
+    return { kind: 'pending' };
+  }
+  const walletId = parseWalletId(String(event.walletId ?? ''));
+  const enrollmentId = parseLinkedDeviceEnrollmentId(event.data?.enrollmentId);
+  return walletId.ok && enrollmentId.ok
+    ? { kind: 'active', walletId: walletId.value, enrollmentId: enrollmentId.value }
+    : { kind: 'invalid_active' };
+}
 
 export const WALLET_FLOW_EVENT_STEPS: Record<WalletFlowEventPhase, number> = {
   [RegistrationEventPhase.STEP_01_STARTED]: 1,
@@ -489,9 +519,9 @@ export const WALLET_FLOW_EVENT_STEPS: Record<WalletFlowEventPhase, number> = {
   [UnlockEventPhase.STEP_03_EMAIL_OTP_INPUT_REQUIRED]: 3,
   [UnlockEventPhase.STEP_03_EMAIL_OTP_VERIFY_STARTED]: 3,
   [UnlockEventPhase.STEP_03_EMAIL_OTP_VERIFY_SUCCEEDED]: 3,
-  [UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_STARTED]: 4,
-  [UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_SUCCEEDED]: 4,
-  [UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_SKIPPED]: 4,
+  [UnlockEventPhase.STEP_04_WALLET_UNLOCK_EXCHANGE_STARTED]: 4,
+  [UnlockEventPhase.STEP_04_WALLET_UNLOCK_EXCHANGE_SUCCEEDED]: 4,
+  [UnlockEventPhase.STEP_04_WALLET_UNLOCK_EXCHANGE_SKIPPED]: 4,
   [UnlockEventPhase.STEP_05_SIGNING_SESSION_WARMUP_STARTED]: 5,
   [UnlockEventPhase.STEP_05_ED25519_SIGNING_SESSION_READY]: 5,
   [UnlockEventPhase.STEP_05_ECDSA_SIGNING_SESSION_READY]: 5,
@@ -617,9 +647,9 @@ export const WALLET_FLOW_EVENT_MESSAGES: Record<WalletFlowEventPhase, string> = 
   [UnlockEventPhase.STEP_03_EMAIL_OTP_INPUT_REQUIRED]: 'Enter the email code',
   [UnlockEventPhase.STEP_03_EMAIL_OTP_VERIFY_STARTED]: 'Verifying email code',
   [UnlockEventPhase.STEP_03_EMAIL_OTP_VERIFY_SUCCEEDED]: 'Email verified',
-  [UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_STARTED]: 'Creating app session',
-  [UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_SUCCEEDED]: 'App session ready',
-  [UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_SKIPPED]: 'App session skipped',
+  [UnlockEventPhase.STEP_04_WALLET_UNLOCK_EXCHANGE_STARTED]: 'Creating wallet session',
+  [UnlockEventPhase.STEP_04_WALLET_UNLOCK_EXCHANGE_SUCCEEDED]: 'Wallet session ready',
+  [UnlockEventPhase.STEP_04_WALLET_UNLOCK_EXCHANGE_SKIPPED]: 'Wallet session skipped',
   [UnlockEventPhase.STEP_05_SIGNING_SESSION_WARMUP_STARTED]: 'Preparing transaction signing',
   [UnlockEventPhase.STEP_05_ED25519_SIGNING_SESSION_READY]: 'NEAR signing authorization ready',
   [UnlockEventPhase.STEP_05_ECDSA_SIGNING_SESSION_READY]: 'EVM signing session ready',
@@ -832,6 +862,29 @@ export interface AfterCall<T> {
   (success: false, result?: undefined, error?: Error): void | Promise<void>;
 }
 
+export type WalletRecoveryCodeBackupRequestV1 = {
+  readonly kind: 'wallet_recovery_code_backup_request_v1';
+  readonly walletId: string;
+  readonly recoveryCodes: readonly string[];
+  readonly continuation: 'registration_may_defer' | 'pending_backup_must_finish';
+};
+
+export type WalletRecoveryCodeBackupAcknowledgementV1 =
+  | { readonly kind: 'wallet_recovery_codes_backed_up_v1' }
+  | { readonly kind: 'wallet_recovery_code_backup_deferred_v1' };
+
+export type WalletRecoveryCodeBackupHandlerV1 = (
+  request: WalletRecoveryCodeBackupRequestV1,
+) => Promise<WalletRecoveryCodeBackupAcknowledgementV1> | WalletRecoveryCodeBackupAcknowledgementV1;
+
+export type WalletRecoveryCodeBackupDuringRegistrationV1 =
+  | { readonly kind: 'defer_to_account_menu' }
+  | { readonly kind: 'show_builtin_dialog' }
+  | {
+      readonly kind: 'custom_handler';
+      readonly handler: WalletRecoveryCodeBackupHandlerV1;
+    };
+
 //////////////////////////////////
 /// Hooks Options
 //////////////////////////////////
@@ -841,6 +894,11 @@ export interface RegistrationHooksOptions {
   onEvent?: EventCallback<RegistrationFlowEvent>;
   onError?: (error: Error) => void;
   afterCall?: AfterCall<RegistrationResult>;
+  /**
+   * Controls recovery-code backup during registration. Omission defers backup
+   * to Recovery Codes in the account menu without opening a dialog.
+   */
+  recoveryCodeBackup?: WalletRecoveryCodeBackupDuringRegistrationV1;
   /** Optional sink for sanitized Refactor 93 registration timing spans. */
   onTimingSpan?: RegistrationTimingSpanCallbackV1;
   // Signer provisioning options used during registration.
@@ -880,9 +938,9 @@ export interface LoginHooksOptions {
       };
   ecdsaKeyFactsInventory?:
     | {
-        mode: 'app_session';
-        appSessionJwt?: string;
-        policyTtlMs?: number;
+        mode: 'opaque_wallet_session';
+        curve: 'ecdsa_secp256k1';
+        walletSessionToken: string;
       }
     | {
         mode: 'webauthn';
@@ -895,31 +953,6 @@ export interface LoginHooksOptions {
    * (WebAuthn) prompt.
    */
   signerSlot?: number;
-  // Optional: request a server session (JWT in body or HttpOnly cookie)
-  session?: {
-    // 'jwt' returns the token in the JSON body; 'cookie' sets HttpOnly cookie
-    kind: 'jwt' | 'cookie';
-    // Optional: override Router API URL; defaults to SeamsConfigsReadonly.network.relayer.url
-    relayUrl?: string;
-    // Optional: override route path.
-    // - defaults to '/session/exchange'
-    // - must target exchange-capable route when `session` is provided
-    route?: string;
-    // Required exchange input for `POST /session/exchange`.
-    exchange?:
-      | {
-          // BYO auth: external OIDC token -> Router API app session mint
-          type: 'oidc_jwt';
-          token: string;
-        }
-      | {
-          // One-step passkey unlock + app session mint.
-          // SDK obtains challenge + WebAuthn assertion before calling `/session/exchange`.
-          type: 'passkey_assertion';
-          expectedOrigin?: string;
-          expected_origin?: string;
-        };
-  };
   /**
    * Optional: override the warm signing session policy minted during login.
    * Defaults come from `SeamsConfigsReadonly.signing.sessionDefaults`.

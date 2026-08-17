@@ -41,6 +41,8 @@ export function walletSessionFailureMessage(code: WalletSessionFailureCode): str
       return 'Wallet Session signature is invalid';
     case 'wallet_session_claims_invalid':
       return 'Wallet Session claims are invalid';
+    case 'wallet_session_invalid':
+      return 'Wallet Session is invalid';
     case 'wallet_session_expired':
       return 'Wallet Session expired';
     case 'wallet_session_scope_mismatch':
@@ -57,6 +59,7 @@ export function walletSessionFailureStatus(code: WalletSessionFailureCode): 401 
     case 'wallet_session_missing':
     case 'wallet_session_signature_invalid':
     case 'wallet_session_claims_invalid':
+    case 'wallet_session_invalid':
     case 'wallet_session_expired':
       return 401;
     case 'wallet_session_scope_mismatch':

@@ -9,9 +9,7 @@ test.describe('Google Identity prompt handling', () => {
     await page.goto('/');
   });
 
-  test('requests the Google prompt and resolves the credential callback', async ({
-    page,
-  }) => {
+  test('requests the Google prompt and resolves the credential callback', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
         let initializedConfig: Record<string, unknown> | null = null;
@@ -20,7 +18,11 @@ test.describe('Google Identity prompt handling', () => {
         const nativeSetTimeout = window.setTimeout.bind(window);
         const nativeClearTimeout = window.clearTimeout.bind(window);
         window.setTimeout = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) =>
-          nativeSetTimeout(handler, timeout === 60_000 ? 1_000 : timeout, ...args)) as typeof window.setTimeout;
+          nativeSetTimeout(
+            handler,
+            timeout === 60_000 ? 1_000 : timeout,
+            ...args,
+          )) as typeof window.setTimeout;
         window.clearTimeout = ((handle?: number) =>
           nativeClearTimeout(handle)) as typeof window.clearTimeout;
 
@@ -96,7 +98,11 @@ test.describe('Google Identity prompt handling', () => {
         const nativeSetTimeout = window.setTimeout.bind(window);
         const nativeClearTimeout = window.clearTimeout.bind(window);
         window.setTimeout = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) =>
-          nativeSetTimeout(handler, timeout === 60_000 ? 1_000 : timeout, ...args)) as typeof window.setTimeout;
+          nativeSetTimeout(
+            handler,
+            timeout === 60_000 ? 1_000 : timeout,
+            ...args,
+          )) as typeof window.setTimeout;
         window.clearTimeout = ((handle?: number) =>
           nativeClearTimeout(handle)) as typeof window.clearTimeout;
 
@@ -166,7 +172,11 @@ test.describe('Google Identity prompt handling', () => {
         const nativeSetTimeout = window.setTimeout.bind(window);
         const nativeClearTimeout = window.clearTimeout.bind(window);
         window.setTimeout = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) =>
-          nativeSetTimeout(handler, timeout === 60_000 ? 10 : timeout, ...args)) as typeof window.setTimeout;
+          nativeSetTimeout(
+            handler,
+            timeout === 60_000 ? 10 : timeout,
+            ...args,
+          )) as typeof window.setTimeout;
         window.clearTimeout = ((handle?: number) =>
           nativeClearTimeout(handle)) as typeof window.clearTimeout;
 

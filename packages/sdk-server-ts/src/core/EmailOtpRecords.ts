@@ -7,16 +7,10 @@ import {
   WALLET_EMAIL_OTP_UNLOCK_OPERATION,
   isWalletEmailOtpLoginOperation,
 } from '@shared/utils/emailOtpDomain';
-import {
-  EMAIL_OTP_RECOVERY_WRAP_ALG,
-  EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
-  EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
-} from '@shared/utils/emailOtpRecoveryKey';
 import type {
   EmailOtpAuthStateRecord,
   EmailOtpChallengeRecord,
   EmailOtpGrantRecord,
-  EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
   EmailOtpUnlockChallengeRecord,
   EmailOtpWalletEnrollmentRecord,
   GoogleEmailOtpRegistrationAttemptRecord,
@@ -56,27 +50,6 @@ function parseRuntimePolicyScope(raw: unknown): ThresholdRuntimePolicyScope | un
   if (!orgId || !projectId || !envId || !signingRootVersion) return undefined;
   return { orgId, projectId, envId, signingRootVersion };
 }
-
-const EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_FORBIDDEN_FIELDS = Object.freeze([
-  'enrollmentEscrowCiphertextB64u',
-  'encSB64u',
-  'encS',
-  'S',
-  'secretS',
-  'plaintextS',
-  'emailOtpSecretS',
-  'clientSecret',
-  'clientSecret32',
-  'clientSecretB64u',
-  'clientSecret32B64u',
-  'signingSessionSecretB64u',
-  'sealedSecretB64u',
-  'walletSessionJwt',
-  'recoveryKey',
-  'recoveryKeys',
-  'recoveryKek',
-  'K_recovery_i',
-] as const);
 
 function hasOwnRecordField(record: Record<string, unknown>, field: string): boolean {
   return Object.prototype.hasOwnProperty.call(record, field);
@@ -121,8 +94,7 @@ export function parseCurrentEmailOtpChallengeRecord(raw: unknown): EmailOtpChall
   const otpChannel = toOptionalTrimmedString(obj.otpChannel);
   const email = toOptionalTrimmedString(obj.email);
   const otpCode = toOptionalTrimmedString(obj.otpCode);
-  const sessionHash = toOptionalTrimmedString(obj.sessionHash);
-  const appSessionVersion = toOptionalTrimmedString(obj.appSessionVersion);
+  const ownerProofBindingDigest = toOptionalTrimmedString(obj.ownerProofBindingDigest);
   const action = toOptionalTrimmedString(obj.action);
   const operationRaw = toOptionalTrimmedString(obj.operation);
   const createdAtMs = toPositiveSafeInt(obj.createdAtMs);
@@ -136,8 +108,7 @@ export function parseCurrentEmailOtpChallengeRecord(raw: unknown): EmailOtpChall
     !walletId ||
     !email ||
     !otpCode ||
-    !sessionHash ||
-    !appSessionVersion ||
+    !ownerProofBindingDigest ||
     !action ||
     !operationRaw ||
     !createdAtMs ||
@@ -151,7 +122,7 @@ export function parseCurrentEmailOtpChallengeRecord(raw: unknown): EmailOtpChall
   if (
     action !== WALLET_EMAIL_OTP_ACTIONS.login &&
     action !== WALLET_EMAIL_OTP_ACTIONS.registration &&
-    action !== WALLET_EMAIL_OTP_ACTIONS.deviceRecovery
+    action !== WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap
   ) {
     return null;
   }
@@ -171,8 +142,7 @@ export function parseCurrentEmailOtpChallengeRecord(raw: unknown): EmailOtpChall
     otpChannel: EMAIL_OTP_CHANNEL,
     email,
     otpCode,
-    sessionHash,
-    appSessionVersion,
+    ownerProofBindingDigest,
     action,
     operation,
     createdAtMs,
@@ -204,8 +174,7 @@ export function parseCurrentEmailOtpGrantRecord(raw: unknown): EmailOtpGrantReco
   const orgId = toOptionalTrimmedString(obj.orgId) || undefined;
   const challengeId = toOptionalTrimmedString(obj.challengeId);
   const otpChannel = toOptionalTrimmedString(obj.otpChannel);
-  const sessionHash = toOptionalTrimmedString(obj.sessionHash);
-  const appSessionVersion = toOptionalTrimmedString(obj.appSessionVersion);
+  const ownerProofBindingDigest = toOptionalTrimmedString(obj.ownerProofBindingDigest);
   const action = toOptionalTrimmedString(obj.action);
   const issuedAtMs = toPositiveSafeInt(obj.issuedAtMs);
   const expiresAtMs = toPositiveSafeInt(obj.expiresAtMs);
@@ -215,8 +184,7 @@ export function parseCurrentEmailOtpGrantRecord(raw: unknown): EmailOtpGrantReco
     !userId ||
     !walletId ||
     !challengeId ||
-    !sessionHash ||
-    !appSessionVersion ||
+    !ownerProofBindingDigest ||
     !action ||
     !issuedAtMs ||
     !expiresAtMs
@@ -226,7 +194,7 @@ export function parseCurrentEmailOtpGrantRecord(raw: unknown): EmailOtpGrantReco
   if (otpChannel !== EMAIL_OTP_CHANNEL) return null;
   if (
     action !== WALLET_EMAIL_OTP_ACTIONS.unseal &&
-    action !== WALLET_EMAIL_OTP_ACTIONS.deviceRecovery
+    action !== WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap
   ) {
     return null;
   }
@@ -238,8 +206,7 @@ export function parseCurrentEmailOtpGrantRecord(raw: unknown): EmailOtpGrantReco
     ...(orgId ? { orgId } : {}),
     challengeId,
     otpChannel: EMAIL_OTP_CHANNEL,
-    sessionHash,
-    appSessionVersion,
+    ownerProofBindingDigest,
     action,
     issuedAtMs,
     expiresAtMs,
@@ -319,7 +286,7 @@ export function parseCurrentGoogleEmailOtpRegistrationAttemptRecord(
   const offerId = toOptionalTrimmedString(obj.offerId);
   const offerCandidates = parseGoogleEmailOtpRegistrationOfferCandidates(obj.offerCandidates);
   const selectedCandidateId = toOptionalTrimmedString(obj.selectedCandidateId);
-  const appSessionVersion = toOptionalTrimmedString(obj.appSessionVersion);
+  const ownerProofBindingDigest = toOptionalTrimmedString(obj.ownerProofBindingDigest);
   const authProvider = toOptionalTrimmedString(obj.authProvider);
   const accountIdSlugVersion = toOptionalTrimmedString(obj.accountIdSlugVersion);
   const walletIdDerivationNonce = toOptionalTrimmedString(obj.walletIdDerivationNonce);
@@ -341,7 +308,7 @@ export function parseCurrentGoogleEmailOtpRegistrationAttemptRecord(
     !offerCandidates ||
     !selectedCandidateId ||
     !offerCandidates.some((candidate) => candidate.candidateId === selectedCandidateId) ||
-    !appSessionVersion ||
+    !ownerProofBindingDigest ||
     !authProvider ||
     accountIdSlugVersion !== 'hmac_readable_v1' ||
     !walletIdDerivationNonce ||
@@ -376,7 +343,7 @@ export function parseCurrentGoogleEmailOtpRegistrationAttemptRecord(
     offerId,
     offerCandidates,
     selectedCandidateId,
-    appSessionVersion,
+    ownerProofBindingDigest,
     authProvider,
     accountIdSlugVersion: 'hmac_readable_v1' as const,
     walletIdDerivationNonce,
@@ -443,16 +410,11 @@ export function parseCurrentEmailOtpWalletEnrollmentRecord(
   const enrollmentId = toOptionalTrimmedString(obj.enrollmentId);
   const enrollmentVersion = toOptionalTrimmedString(obj.enrollmentVersion);
   const enrollmentSealKeyVersion = toOptionalTrimmedString(obj.enrollmentSealKeyVersion);
-  const signingRootId = toOptionalTrimmedString(obj.signingRootId);
-  const signingRootVersion = toOptionalTrimmedString(obj.signingRootVersion);
-  const recoveryWrappedEnrollmentEscrowCount = toPositiveSafeInt(
-    obj.recoveryWrappedEnrollmentEscrowCount,
+  const serverSealedFactorCiphertextB64u = toOptionalTrimmedString(
+    obj.serverSealedFactorCiphertextB64u,
   );
   const clientUnlockPublicKeyB64u = toOptionalTrimmedString(obj.clientUnlockPublicKeyB64u);
   const unlockKeyVersion = toOptionalTrimmedString(obj.unlockKeyVersion);
-  const thresholdEcdsaClientVerifyingShareB64u = toOptionalTrimmedString(
-    obj.thresholdEcdsaClientVerifyingShareB64u,
-  );
   const createdAtMs = toPositiveSafeInt(obj.createdAtMs);
   const updatedAtMs = toPositiveSafeInt(obj.updatedAtMs);
   if (
@@ -464,12 +426,9 @@ export function parseCurrentEmailOtpWalletEnrollmentRecord(
     !enrollmentId ||
     !enrollmentVersion ||
     !enrollmentSealKeyVersion ||
-    !signingRootId ||
-    !signingRootVersion ||
-    !recoveryWrappedEnrollmentEscrowCount ||
+    !serverSealedFactorCiphertextB64u ||
     !clientUnlockPublicKeyB64u ||
     !unlockKeyVersion ||
-    !thresholdEcdsaClientVerifyingShareB64u ||
     !createdAtMs ||
     !updatedAtMs
   ) {
@@ -485,12 +444,9 @@ export function parseCurrentEmailOtpWalletEnrollmentRecord(
     enrollmentId,
     enrollmentVersion,
     enrollmentSealKeyVersion,
-    signingRootId,
-    signingRootVersion,
-    recoveryWrappedEnrollmentEscrowCount,
+    serverSealedFactorCiphertextB64u,
     clientUnlockPublicKeyB64u,
     unlockKeyVersion,
-    thresholdEcdsaClientVerifyingShareB64u,
     createdAtMs,
     updatedAtMs,
   };
@@ -501,140 +457,6 @@ export function parseCurrentEmailOtpWalletEnrollmentRow(input: {
   updatedAtMs: unknown;
 }): EmailOtpWalletEnrollmentRecord | null {
   const record = parseCurrentEmailOtpWalletEnrollmentRecord(input.recordJson);
-  const updatedAtMs = toPositiveSafeInt(input.updatedAtMs);
-  if (!record || !updatedAtMs) return null;
-  if (record.updatedAtMs !== updatedAtMs) return null;
-  return record;
-}
-
-export function parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRecord(
-  raw: unknown,
-): EmailOtpRecoveryWrappedEnrollmentEscrowRecord | null {
-  const parsed = parseJsonRecord(raw);
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
-  const obj = parsed as Record<string, unknown>;
-  for (const field of EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_FORBIDDEN_FIELDS) {
-    if (hasOwnRecordField(obj, field)) return null;
-  }
-  const version = toOptionalTrimmedString(obj.version);
-  const alg = toOptionalTrimmedString(obj.alg);
-  const secretKind = toOptionalTrimmedString(obj.secretKind);
-  const escrowKind = toOptionalTrimmedString(obj.escrowKind);
-  const walletId = toOptionalTrimmedString(obj.walletId);
-  const userId = toOptionalTrimmedString(obj.userId);
-  const authSubjectId = toOptionalTrimmedString(obj.authSubjectId);
-  const authMethod = toOptionalTrimmedString(obj.authMethod);
-  const enrollmentId = toOptionalTrimmedString(obj.enrollmentId);
-  const enrollmentVersion = toOptionalTrimmedString(obj.enrollmentVersion);
-  const enrollmentSealKeyVersion = toOptionalTrimmedString(obj.enrollmentSealKeyVersion);
-  const signingRootId = toOptionalTrimmedString(obj.signingRootId);
-  const signingRootVersion = toOptionalTrimmedString(obj.signingRootVersion);
-  const recoveryKeyId = toOptionalTrimmedString(obj.recoveryKeyId);
-  const recoveryKeyLabel = toOptionalTrimmedString(obj.recoveryKeyLabel) || undefined;
-  const recoveryKeyStatus = toOptionalTrimmedString(obj.recoveryKeyStatus);
-  const nonceB64u = toOptionalTrimmedString(obj.nonceB64u);
-  const wrappedDeviceEnrollmentEscrowB64u = toOptionalTrimmedString(
-    obj.wrappedDeviceEnrollmentEscrowB64u,
-  );
-  const aadHashB64u = toOptionalTrimmedString(obj.aadHashB64u);
-  const issuedAtMs = toPositiveSafeInt(obj.issuedAtMs);
-  const updatedAtMs = toPositiveSafeInt(obj.updatedAtMs);
-  const consumedAtMs =
-    obj.consumedAtMs == null ? undefined : toPositiveSafeInt(obj.consumedAtMs) || undefined;
-  const revokedAtMs =
-    obj.revokedAtMs == null ? undefined : toPositiveSafeInt(obj.revokedAtMs) || undefined;
-  if (
-    version !== 'email_otp_recovery_wrapped_enrollment_escrow_v1' ||
-    alg !== EMAIL_OTP_RECOVERY_WRAP_ALG ||
-    secretKind !== EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND ||
-    escrowKind !== EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND ||
-    !walletId ||
-    !userId ||
-    !authSubjectId ||
-    authMethod !== 'google_sso_email_otp' ||
-    !enrollmentId ||
-    !enrollmentVersion ||
-    !enrollmentSealKeyVersion ||
-    !signingRootId ||
-    !signingRootVersion ||
-    !recoveryKeyId ||
-    !nonceB64u ||
-    !wrappedDeviceEnrollmentEscrowB64u ||
-    !aadHashB64u ||
-    !recoveryKeyStatus ||
-    !issuedAtMs ||
-    !updatedAtMs
-  ) {
-    return null;
-  }
-  if (userId !== authSubjectId) return null;
-  if (
-    !isB64uString(nonceB64u) ||
-    !isB64uString(wrappedDeviceEnrollmentEscrowB64u) ||
-    !isB64uString(aadHashB64u)
-  ) {
-    return null;
-  }
-  if (
-    recoveryKeyStatus !== 'active' &&
-    recoveryKeyStatus !== 'consumed' &&
-    recoveryKeyStatus !== 'revoked'
-  ) {
-    return null;
-  }
-  if ('acknowledgedAtMs' in obj || 'abandonedAtMs' in obj || 'cleanupReason' in obj) {
-    return null;
-  }
-  if (updatedAtMs < issuedAtMs) return null;
-
-  const base = {
-    version: 'email_otp_recovery_wrapped_enrollment_escrow_v1' as const,
-    alg: EMAIL_OTP_RECOVERY_WRAP_ALG,
-    secretKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
-    escrowKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
-    walletId,
-    userId,
-    authSubjectId,
-    authMethod: 'google_sso_email_otp' as const,
-    enrollmentId,
-    enrollmentVersion,
-    enrollmentSealKeyVersion,
-    signingRootId,
-    signingRootVersion,
-    recoveryKeyId,
-    ...(recoveryKeyLabel ? { recoveryKeyLabel } : {}),
-    nonceB64u,
-    wrappedDeviceEnrollmentEscrowB64u,
-    aadHashB64u,
-    issuedAtMs,
-    updatedAtMs,
-  };
-  switch (recoveryKeyStatus) {
-    case 'active':
-      if (consumedAtMs !== undefined || revokedAtMs !== undefined) {
-        return null;
-      }
-      return { ...base, recoveryKeyStatus };
-    case 'consumed':
-      if (consumedAtMs === undefined || revokedAtMs !== undefined) {
-        return null;
-      }
-      return { ...base, recoveryKeyStatus, consumedAtMs };
-    case 'revoked':
-      if (consumedAtMs !== undefined || revokedAtMs === undefined) {
-        return null;
-      }
-      return { ...base, recoveryKeyStatus, revokedAtMs };
-    default:
-      return null;
-  }
-}
-
-export function parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRow(input: {
-  recordJson: unknown;
-  updatedAtMs: unknown;
-}): EmailOtpRecoveryWrappedEnrollmentEscrowRecord | null {
-  const record = parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRecord(input.recordJson);
   const updatedAtMs = toPositiveSafeInt(input.updatedAtMs);
   if (!record || !updatedAtMs) return null;
   if (record.updatedAtMs !== updatedAtMs) return null;

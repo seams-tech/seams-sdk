@@ -7,6 +7,7 @@ import {
   VAULT_OPERATION_KINDS,
   buildEvmEcdsaMpcOperationRef,
   buildAuthorizationEvidenceRequirement,
+  buildLinkedDeviceWalletSessionAuthorizationRef,
   buildNearEd25519MpcOperationRef,
   buildVaultOperationRef,
   type AuthFactorId,
@@ -14,9 +15,10 @@ import {
   type AuthorizationEvidenceKind,
   type AuthorizationEvidenceRequirement,
   type AuthorizationGrantRef,
+  type LinkedDeviceWalletSessionAuthorizationId,
   type WalletSessionAuthorizationId,
   type AuthorizedOperationId,
-  type SeamsSessionId,
+  type EcdsaAuthorizationSessionId,
 } from './capabilityKinds';
 
 const vaultOperation = buildVaultOperationRef(VAULT_OPERATION_KINDS.proxyUse);
@@ -70,16 +72,23 @@ buildAuthorizationEvidenceRequirement({ mode: 'all', evidenceKinds: [] });
 const unsupportedEvidence: AuthorizationEvidenceKind = 'mpc_signer_proof';
 void unsupportedEvidence;
 
-declare const seamsSessionId: SeamsSessionId;
+declare const ecdsaAuthorizationSessionId: EcdsaAuthorizationSessionId;
 declare const authorizationId: WalletSessionAuthorizationId;
+declare const linkedAuthorizationId: LinkedDeviceWalletSessionAuthorizationId;
 declare const authorizedOperationId: AuthorizedOperationId;
 const authorizationRef: AuthorizationGrantRef = {
   kind: 'wallet_session_authorization',
   authorizationId,
 };
 void authorizationRef;
+const linkedAuthorizationRef: AuthorizationGrantRef =
+  buildLinkedDeviceWalletSessionAuthorizationRef(linkedAuthorizationId);
+void linkedAuthorizationRef;
+// @ts-expect-error Owner and linked-device authorization identities are independent.
+const invalidLinkedAuthorizationId: LinkedDeviceWalletSessionAuthorizationId = authorizationId;
+void invalidLinkedAuthorizationId;
 // @ts-expect-error Session identity cannot substitute for reusable authorization identity.
-const invalidAuthorizationId: WalletSessionAuthorizationId = seamsSessionId;
+const invalidAuthorizationId: WalletSessionAuthorizationId = ecdsaAuthorizationSessionId;
 void invalidAuthorizationId;
 // @ts-expect-error Wallet authorization identity cannot substitute for operation identity.
 const invalidOperationId: AuthorizedOperationId = authorizationId;
@@ -87,5 +96,5 @@ void invalidOperationId;
 
 declare const factorId: AuthFactorId;
 // @ts-expect-error Factor and session identities are independent.
-const invalidSessionId: SeamsSessionId = factorId;
+const invalidSessionId: EcdsaAuthorizationSessionId = factorId;
 void invalidSessionId;

@@ -58,7 +58,6 @@ export function registerSigningSessionSealRoutes(
       const authorized = await authorizeSigningSessionSealRequest({
         options,
         headers: req.headers || {},
-        session: ctx.session,
         thresholdSessionId: parsed.value.thresholdSessionId,
       });
       if (!authorized.ok) {
@@ -121,7 +120,6 @@ export function registerSigningSessionSealRoutes(
       const authorized = await authorizeSigningSessionSealRequest({
         options,
         headers: req.headers || {},
-        session: ctx.session,
         thresholdSessionId: parsed.value.thresholdSessionId,
       });
       if (!authorized.ok) {

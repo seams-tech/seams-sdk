@@ -171,6 +171,25 @@ export function unknownWebAuthnAuthenticatorDeviceInfo(): WebAuthnAuthenticatorD
   };
 }
 
+/**
+ * Boundary parse of a persisted `device_info_json` column. A row written before
+ * device capture existed (empty string, `'{}'`, or an unreadable value) becomes
+ * `Unknown device` rather than failing the surrounding read.
+ */
+export function parseWebAuthnAuthenticatorDeviceInfoJson(
+  raw: unknown,
+): WebAuthnAuthenticatorDeviceInfo {
+  if (typeof raw !== 'string' || !raw.trim()) return unknownWebAuthnAuthenticatorDeviceInfo();
+  try {
+    return (
+      parseWebAuthnAuthenticatorDeviceInfo(JSON.parse(raw)) ??
+      unknownWebAuthnAuthenticatorDeviceInfo()
+    );
+  } catch {
+    return unknownWebAuthnAuthenticatorDeviceInfo();
+  }
+}
+
 function isWebAuthnDeviceBrowser(value: unknown): value is WebAuthnDeviceBrowser {
   return typeof value === 'string' && WEBAUTHN_DEVICE_BROWSERS.includes(value as never);
 }

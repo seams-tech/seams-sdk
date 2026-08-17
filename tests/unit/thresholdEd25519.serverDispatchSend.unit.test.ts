@@ -207,8 +207,6 @@ test('executeActionInternal forwards the original signing error to afterCall', a
     success: false,
     error: 'synthetic NEAR signing failure',
   });
-  expect(afterCalls).toEqual([
-    { ok: false, error: 'synthetic NEAR signing failure' },
-  ]);
+  expect(afterCalls).toEqual([{ ok: false, error: 'synthetic NEAR signing failure' }]);
   expect(onErrors).toContain('synthetic NEAR signing failure');
 });

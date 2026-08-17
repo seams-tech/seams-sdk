@@ -2,7 +2,11 @@ import { expect, test } from '@playwright/test';
 import { selectNearOperationalPublicKeyForLogin } from '@/SeamsWeb/operations/auth/login';
 import type { WalletSession } from '@/core/types/seams';
 import { toAccountId } from '@/core/types/accountIds';
-import { buildReactLoggedInLoginStateFromSession } from '@/react/context/reactLoginStateBuilders';
+import {
+  accountMenuCapabilitiesForLoginState,
+  buildReactLoggedInLoginStateFromSession,
+  linkedDeviceManagementPermissionForLoginState,
+} from '@/react/context/reactLoginStateBuilders';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
 import { activeWalletSessionFixture } from './helpers/walletSessionReadProjection.fixtures';
 
@@ -38,5 +42,47 @@ test('React projection retains NEAR identity for a mixed wallet session', () => 
     nearAccountId: NEAR_ACCOUNT_ID,
     nearPublicKey: NEAR_PUBLIC_KEY,
     thresholdEcdsaEthereumAddress: '0x1111111111111111111111111111111111111111',
+  });
+});
+
+test('React projection treats a linked-device session as logged in without owner auth', () => {
+  const projected = buildReactLoggedInLoginStateFromSession(
+    activeWalletSessionFixture({
+      walletId: String(WALLET_ID),
+      nearAccountId: String(NEAR_ACCOUNT_ID),
+      nearOperationalPublicKey: NEAR_PUBLIC_KEY,
+      authMethods: [],
+      thresholdEcdsaEthereumAddress: '0x1111111111111111111111111111111111111111',
+      thresholdEcdsaPublicKeyB64u: 'mixed-wallet-ecdsa-public-key',
+    }),
+  );
+
+  expect(projected).toMatchObject({
+    isLoggedIn: true,
+    walletId: WALLET_ID,
+    nearAccountId: NEAR_ACCOUNT_ID,
+    nearPublicKey: NEAR_PUBLIC_KEY,
+    currentAuthMethod: { kind: 'none' },
+    authMethods: [],
+  });
+  if (!projected) throw new Error('linked-device session did not project to a login state');
+  expect(linkedDeviceManagementPermissionForLoginState(projected)).toEqual({
+    kind: 'signing_only',
+  });
+  expect(accountMenuCapabilitiesForLoginState(projected)).toEqual({
+    kind: 'signing_only',
+    canExportKeys: false,
+    canManageLinkedDevices: false,
+  });
+});
+
+test('React projection grants linked-device management only to an owner auth binding', () => {
+  const projected = buildReactLoggedInLoginStateFromSession(mixedWalletSession(NEAR_PUBLIC_KEY));
+  if (!projected) throw new Error('owner session did not project to a login state');
+  expect(linkedDeviceManagementPermissionForLoginState(projected)).toEqual({ kind: 'owner' });
+  expect(accountMenuCapabilitiesForLoginState(projected)).toEqual({
+    kind: 'owner',
+    canExportKeys: true,
+    canManageLinkedDevices: true,
   });
 });

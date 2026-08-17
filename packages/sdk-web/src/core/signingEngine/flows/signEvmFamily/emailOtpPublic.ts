@@ -1,7 +1,6 @@
 import {
   enrollEmailOtpWallet,
   prepareEmailOtpRegistrationEnrollmentMaterial,
-  rotateEmailOtpRecoveryCodesWithWorker,
 } from '../../session/emailOtp/workerEnrollment';
 import type { EmailOtpAuthPolicy } from '@/core/types/seams';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
@@ -9,7 +8,6 @@ import type {
   WalletEmailOtpChannel,
   WalletEmailOtpLoginOperation,
 } from '@shared/utils/emailOtpDomain';
-import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   ThresholdEcdsaChainTarget,
@@ -30,7 +28,6 @@ import type {
   LoginEmailOtpEcdsaCapabilityArgs,
 } from '../../session/emailOtp/ecdsaLogin';
 import {
-  resolveEmailOtpAuthLane,
   type EmailOtpRoutePlan,
 } from '../../stepUpConfirmation/otpPrompt/authLane';
 import { buildFreshEmailOtpRoutePlan } from '../../session/emailOtp/routePlan';
@@ -46,12 +43,9 @@ export type LoginWithEmailOtpEcdsaCapabilityInternalArgs = {
   otpCode: string;
   operation?: WalletEmailOtpLoginOperation;
   groupId?: string;
-  appSessionJwt?: string;
-  routeAuth?: AppOrWalletSessionAuth;
   keyHandle?: string;
   participantIds?: number[];
   publicationChainTargets?: readonly ThresholdEcdsaChainTarget[];
-  sessionKind?: 'jwt';
   ttlMs?: number;
   remainingUses?: number;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -71,47 +65,23 @@ export type EnrollEmailOtpInternalArgs = {
   relayUrl?: string;
   challengeId?: string;
   groupId?: string;
-  appSessionJwt?: string;
   clientSecret32?: Uint8Array;
   otpChannel?: WalletEmailOtpChannel;
 };
 
-export type RotateEmailOtpRecoveryCodesInternalArgs = {
-  walletId: WalletId;
-  relayUrl?: string;
-  appSessionJwt?: string;
-};
-
 export type EnrollEmailOtpInternalResult = Awaited<ReturnType<typeof enrollEmailOtpWallet>>;
-
-export type RotateEmailOtpRecoveryCodesInternalResult = Awaited<
-  ReturnType<typeof rotateEmailOtpRecoveryCodesWithWorker>
->;
-
-export type PrepareEmailOtpRegistrationEnrollmentMaterialEd25519YaoFactor =
-  | {
-      kind: 'ed25519_yao_factor_requested';
-      providerSubject: string;
-    }
-  | {
-      kind: 'ed25519_yao_factor_not_requested';
-      providerSubject?: never;
-    };
 
 type PrepareEmailOtpRegistrationEnrollmentMaterialInternalArgsBase = {
   walletId: WalletId;
   userId: string;
   relayUrl?: string;
   groupId?: string;
-  appSessionJwt: string;
   otpChannel?: WalletEmailOtpChannel;
   clientSecret32?: Uint8Array;
 };
 
 export type PrepareEmailOtpRegistrationEnrollmentMaterialInternalArgs =
-  PrepareEmailOtpRegistrationEnrollmentMaterialInternalArgsBase & {
-    ed25519YaoFactor: PrepareEmailOtpRegistrationEnrollmentMaterialEd25519YaoFactor;
-  };
+  PrepareEmailOtpRegistrationEnrollmentMaterialInternalArgsBase;
 
 export type PrepareEmailOtpRegistrationEnrollmentMaterialInternalResult = Awaited<
   ReturnType<typeof prepareEmailOtpRegistrationEnrollmentMaterial>
@@ -136,27 +106,13 @@ export type EmailOtpPublicDeps = {
 
 function buildEmailOtpEcdsaFreshRoutePlanFromBoundary(
   args: {
-    routeAuth?: AppOrWalletSessionAuth;
-    appSessionJwt?: string;
-    sessionKind?: 'jwt';
     chainTarget: ThresholdEcdsaChainTarget;
     operation?: WalletEmailOtpLoginOperation;
   },
   freshRouteFamily: 'login' | 'registration',
 ): EmailOtpRoutePlan {
-  const authLane = resolveEmailOtpAuthLane({
-    routeAuth: args.routeAuth,
-    appSessionJwt: args.appSessionJwt,
-    sessionKind: args.sessionKind || 'jwt',
-    curve: 'ecdsa',
-    chainTarget: args.chainTarget,
-  });
-  if (!authLane) {
-    throw new Error(`Email OTP ECDSA ${freshRouteFamily} requires route auth`);
-  }
   return buildFreshEmailOtpRoutePlan({
     freshRouteFamily,
-    authLane,
     operation: args.operation,
   });
 }
@@ -189,26 +145,6 @@ function emailOtpEcdsaLoginCoreArgsFromBoundary(
     ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
     ...(args.onProgress ? { onProgress: args.onProgress } : {}),
   };
-}
-
-function emailOtpRegistrationEd25519YaoFactorRequestFromBoundary(
-  args: PrepareEmailOtpRegistrationEnrollmentMaterialInternalArgs,
-):
-  | { kind: 'requested'; providerSubject: string }
-  | { kind: 'not_requested'; providerSubject?: never } {
-  switch (args.ed25519YaoFactor.kind) {
-    case 'ed25519_yao_factor_requested': {
-      const providerSubject = String(args.ed25519YaoFactor.providerSubject).trim();
-      if (!providerSubject || providerSubject !== String(args.userId).trim()) {
-        throw new Error('Email OTP Ed25519 Yao factor requires the exact provider subject');
-      }
-      return { kind: 'requested', providerSubject };
-    }
-    case 'ed25519_yao_factor_not_requested':
-      return { kind: 'not_requested' };
-    default:
-      throw new Error('Unsupported Email OTP Ed25519 Yao factor request');
-  }
 }
 
 export async function loginWithEmailOtpEcdsaCapabilityInternal(
@@ -311,27 +247,8 @@ export async function enrollEmailOtpInternal(
     otpCode: args.otpCode,
     groupId,
     workerCtx: deps.getSignerWorkerContext(),
-    appSessionJwt: args.appSessionJwt,
     otpChannel: args.otpChannel,
     ...(args.clientSecret32 ? { clientSecret32: args.clientSecret32 } : {}),
-  });
-}
-
-export async function rotateEmailOtpRecoveryCodesInternal(
-  deps: EmailOtpPublicDeps,
-  args: RotateEmailOtpRecoveryCodesInternalArgs,
-): Promise<RotateEmailOtpRecoveryCodesInternalResult> {
-  const walletId = toWalletId(args.walletId);
-  const relayUrl = String(args.relayUrl || deps.relayerUrl || '').trim();
-  if (!relayUrl) {
-    throw new Error('Missing relayer url (configs.network.relayer.url)');
-  }
-  return await rotateEmailOtpRecoveryCodesWithWorker({
-    relayUrl,
-    walletId: String(walletId),
-    userId: String(walletId),
-    workerCtx: deps.getSignerWorkerContext(),
-    appSessionJwt: args.appSessionJwt,
   });
 }
 
@@ -358,10 +275,8 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterialInternal(
     userId,
     groupId,
     workerCtx: deps.getSignerWorkerContext(),
-    appSessionJwt: args.appSessionJwt,
     otpChannel: args.otpChannel,
-    ecdsaClientRootHandle: { kind: 'not_requested' },
-    ed25519YaoFactor: emailOtpRegistrationEd25519YaoFactorRequestFromBoundary(args),
+    ecdsaSessionHandle: { kind: 'not_requested' },
     ...(args.clientSecret32 ? { clientSecret32: args.clientSecret32 } : {}),
   });
 }

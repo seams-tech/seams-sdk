@@ -50,7 +50,7 @@ const enrollmentWithParentBearer: PMEnrollEmailOtpPayload = {
   walletId: 'wallet.testnet',
   otpCode: '123456',
   // @ts-expect-error Hosted-wallet enrollment exchanges the bearer before postMessage.
-  appSessionJwt: 'parent-app-session-jwt',
+  walletSessionToken: 'parent-wallet-session-token',
 };
 void enrollmentWithParentBearer;
 
@@ -59,7 +59,7 @@ const ecdsaLoginWithParentBearer: PMEmailOtpEcdsaCapabilityPayload = {
   chainTarget,
   otpCode: '123456',
   // @ts-expect-error Hosted-wallet ECDSA login exchanges the bearer before postMessage.
-  appSessionJwt: 'parent-app-session-jwt',
+  walletSessionToken: 'parent-wallet-session-token',
 };
 void ecdsaLoginWithParentBearer;
 

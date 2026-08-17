@@ -13,19 +13,8 @@ import { routerAbMpcMaterialActivationRefToWire } from '@shared/utils/routerAbNo
 import type { OperationDigestSet } from '@shared/authorization/operationFingerprint';
 import type { EvmEcdsaMpcOperationKind } from '@shared/authorization/capabilityKinds';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
-import type { AppSessionJwt } from '@shared/utils/domainIds';
 import { walletSessionFailureErrorFromPayload } from '@/core/signingEngine/session/lifecycle/walletSessionFailure';
 import { WALLET_SESSION_FAILURE_CODES } from '@shared/utils/walletSessionFailure';
-
-export type EcdsaOperationStepUpSessionAuth =
-  | {
-      readonly kind: 'app_session_jwt';
-      readonly appSessionJwt: AppSessionJwt;
-    }
-  | {
-      readonly kind: 'app_session_cookie';
-      readonly appSessionJwt?: never;
-    };
 
 export type PreparedEcdsaOperationStepUp = {
   readonly operation: RouterAbEcdsaOperationStepUpPreparationV1Wire;
@@ -148,7 +137,6 @@ function ecdsaOperationStepUpSessionMessage(code: unknown, serverMessage: string
 
 export async function issueEcdsaOperationStepUpAuthorization(args: {
   readonly relayerUrl: string;
-  readonly sessionAuth: EcdsaOperationStepUpSessionAuth;
   readonly request: RouterAbEcdsaOperationStepUpAuthorizationRequestV1Wire;
   readonly fetchImpl?: typeof fetch;
 }): Promise<RouterAbEcdsaOperationStepUpAuthorizationResponseV1Wire> {
@@ -161,11 +149,8 @@ export async function issueEcdsaOperationStepUpAuthorization(args: {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      ...(args.sessionAuth.kind === 'app_session_jwt'
-        ? { Authorization: `Bearer ${args.sessionAuth.appSessionJwt}` }
-        : {}),
     },
-    credentials: args.sessionAuth.kind === 'app_session_cookie' ? 'include' : 'omit',
+    credentials: 'omit',
     body: JSON.stringify(request),
   });
   const body = await response.json().catch(() => null);

@@ -111,6 +111,16 @@ export function prepareRouterAbD1LocalRuntimeConfig(input) {
     'SEAMS_LOCAL_CONSOLE_ORG_ID',
     localConsoleOrganizationId,
   );
+  runtimeConfig = replaceTomlAssignment(
+    runtimeConfig,
+    'SEAMS_LOCAL_CONSOLE_PROJECT_ID',
+    input.localConsoleProjectId ?? 'local-smoke-project',
+  );
+  runtimeConfig = replaceTomlAssignment(
+    runtimeConfig,
+    'SEAMS_LOCAL_CONSOLE_ENVIRONMENT_ID',
+    input.localConsoleEnvironmentId ?? 'local',
+  );
 
   mkdirSync(path.dirname(outputConfigPath), { recursive: true });
   writeFileSync(outputConfigPath, runtimeConfig, { mode: 0o600 });

@@ -3,16 +3,44 @@ export { createIndexedDBNonceLaneCoordinationStore } from './nonceLaneCoordinati
 export { seamsWalletDB } from './singletons';
 export {
   SEAMS_WALLET_DB_NAME,
+  SEAMS_WALLET_DB_VERSION,
   SEAMS_WALLET_INDEXES,
   SEAMS_WALLET_SCHEMA_MANIFEST,
   SEAMS_WALLET_STORES,
   assertCanonicalIndexedDBName,
   createSeamsTestWalletDbName,
 } from './schemaNames';
-export { SEAMS_WALLET_SCHEMA_VERSION } from './seamsWalletDB/schema';
+export { upgradeSeamsWalletDBSchema } from './seamsWalletDB/schema';
 export type { SeamsWalletDBConfig } from './seamsWalletDB/schema';
 export { SeamsWalletDBManager } from './seamsWalletDB/manager';
 export { SeamsWalletRepositories } from './seamsWalletDB/repositories';
+export {
+  LaneSealedHolderMaterialRepository,
+  laneSealedHolderMaterialRepository,
+  laneSealedHolderStoreKeyV1,
+} from './seamsWalletDB/laneHolderMaterialStore';
+export type {
+  LaneSealedHolderMaterialRepositoryV1,
+  LaneSealedHolderRecordV1,
+  LaneSealedHolderRecordLookupV1,
+} from './seamsWalletDB/laneHolderMaterialStore';
+export {
+  LinkedDeviceWalletSessionRepositoryV1,
+  linkedDeviceWalletSessions,
+} from './seamsWalletDB/linkedDeviceWalletSessionStore';
+export type {
+  LinkedDeviceWalletSessionReadResultV1,
+  LinkedDeviceWalletSessionTokenReadResultV1,
+} from './seamsWalletDB/linkedDeviceWalletSessionStore';
+export {
+  LinkedDeviceExecutionEvidenceRepositoryV1,
+  linkedDeviceExecutionEvidence,
+  resolveActiveLinkedDeviceExecutionBundleV1,
+} from './seamsWalletDB/linkedDeviceExecutionEvidenceStore';
+export type {
+  ActiveLinkedDeviceExecutionBundleReadResultV1,
+  LinkedDeviceExecutionEvidenceReadResultV1,
+} from './seamsWalletDB/linkedDeviceExecutionEvidenceStore';
 export {
   WALLET_SESSION_AUTHORIZATION_RECORD_VERSION,
   WalletSessionAuthorizationRepository,
@@ -25,7 +53,7 @@ export type {
   ActiveWalletSessionAuthorizationProjection,
   BuildActiveWalletSessionAuthorizationProjectionInput,
   RetiredWalletSessionAuthorizationProjection,
-  WalletSessionAuthorizationJwt,
+  WalletSessionAuthorizationToken,
   WalletSessionAuthorizationProjection,
   WalletSessionAuthorizationReadResult,
   WalletSessionAuthorizationRetirementReason,
@@ -71,7 +99,6 @@ export type {
   SignerOperationStatus,
   SignerMutationOptions,
   SignerOpOutboxRecord,
-  ProfileRecoveryEmailRecord,
   NonceLaneLeaseStoreRecord,
   NonceLaneLeaseStoreRecordState,
   NonceLaneLockStoreRecord,
@@ -81,7 +108,6 @@ export type {
   EnqueueSignerOperationInput,
   LocalWalletAuthMethodRecord,
 } from './passkeyClientDB.types';
-
 
 export type {
   KeyMaterialAlgorithm,

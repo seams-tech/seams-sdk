@@ -1,13 +1,14 @@
 import type { AccountId } from '@/core/types/accountIds';
 import type {
   ThresholdEcdsaChainTarget,
+  WalletId,
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { VerifiedEcdsaPublicFacts } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type { EmailOtpSigningSessionAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
-import type { ResolvedEmailOtpEd25519YaoExportV1 } from './ed25519YaoSealedRecovery';
+import type { ResolvedWalletCustodyEd25519ExportV1 } from './ed25519ExportContext';
 import type { EmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import { buildEmailOtpSigningSessionRoutePlan } from './routePlan';
 import {
@@ -31,6 +32,13 @@ export type EmailOtpRouteChain = 'near' | EmailOtpEcdsaRouteChain;
 
 export type RequestEmailOtpChallengeArgs =
   | {
+      kind: 'wallet_login_challenge';
+      walletSession: WalletSessionRef;
+      chain: EmailOtpRouteChain;
+      authLane?: never;
+      routeAuth?: never;
+    }
+  | {
       kind: 'wallet_session_challenge';
       walletSession: WalletSessionRef;
       chain: EmailOtpRouteChain;
@@ -46,24 +54,16 @@ export type RequestEmailOtpChallengeArgs =
       routeAuth?: never;
     }
   | {
-      kind: 'wallet_capability_step_up_challenge';
-      walletSession: WalletSessionRef;
-      chain: EmailOtpRouteChain;
-      appSessionJwt: string;
+      kind: 'wallet_export_challenge';
+      walletId: WalletId;
+      chain: 'near';
+      walletSession?: never;
       authLane?: never;
       routeAuth?: never;
-    };
+    }
+  ;
 
-export type RequestEmailOtpExportChallengeArgs = Exclude<
-  RequestEmailOtpChallengeArgs,
-  { kind: 'wallet_capability_step_up_challenge' }
-> | {
-  kind: 'wallet_capability_export_challenge';
-  walletSession: WalletSessionRef;
-  chain: EmailOtpEcdsaRouteChain;
-  appSessionJwt: string;
-  authLane?: never;
-};
+export type RequestEmailOtpExportChallengeArgs = RequestEmailOtpChallengeArgs;
 
 export type ExportEcdsaKeyWithDurableAuthorizationArgs = {
   walletSession: WalletSessionRef;
@@ -80,7 +80,7 @@ export type ExportEcdsaKeyWithDurableAuthorizationArgs = {
 export type ExportEd25519YaoSeedWithFreshEmailOtpLaneArgs = {
   challengeId: string;
   otpCode: string;
-  exportContext: ResolvedEmailOtpEd25519YaoExportV1;
+  exportContext: ResolvedWalletCustodyEd25519ExportV1;
 };
 
 export class EmailOtpExportRecoveryRuntime {
@@ -137,7 +137,6 @@ export class EmailOtpExportRecoveryRuntime {
       {
         getSignerWorkerContext: this.ports.getSignerWorkerContext,
         requireRelayUrl: this.ports.requireRelayUrl,
-        requireSigningSessionSealGroupId: this.ports.requireSigningSessionSealGroupId,
       },
       args,
     );

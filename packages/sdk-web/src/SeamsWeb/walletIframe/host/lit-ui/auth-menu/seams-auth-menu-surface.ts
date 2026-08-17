@@ -9,6 +9,7 @@ import {
   isAuthMenuLoadingStatus,
   isAuthMenuReady,
   type AuthMenuIntent,
+  type AuthMenuLinkDeviceState,
   type AuthMenuLoginViewModel,
   type AuthMenuRegisterViewModel,
   type AuthMenuViewModel,
@@ -163,11 +164,38 @@ function linkDeviceIcon(): TemplateResult {
   `;
 }
 
-function mailIcon(): TemplateResult {
+const LINK_DEVICE_DOT_COUNT = 12;
+
+function linkDeviceDotRing(waiting: boolean): TemplateResult {
+  return html`
+    <div
+      class="w3a-link-device-dot-ring ${waiting ? 'is-waiting' : 'is-approved'}"
+      aria-hidden="true"
+    >
+      ${Array.from(
+        { length: LINK_DEVICE_DOT_COUNT },
+        (_, index) => html`<span style="--dot-index: ${index}"></span>`,
+      )}
+      <svg
+        class="w3a-link-device-dot-ring-check"
+        viewBox="0 0 52 52"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2.5"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <path d="m18.5 27 5 5 10-11" />
+      </svg>
+    </div>
+  `;
+}
+
+function linkFailedIcon(): TemplateResult {
   return html`
     <svg
-      width="18"
-      height="18"
+      width="26"
+      height="26"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -176,8 +204,10 @@ function mailIcon(): TemplateResult {
       stroke-linejoin="round"
       aria-hidden="true"
     >
-      <path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7" />
-      <rect x="2" y="4" width="20" height="16" rx="2" />
+      <path d="M9 17H7A5 5 0 0 1 7 7h2" />
+      <path d="M15 7h2a5 5 0 0 1 3.54 8.54" />
+      <path d="m2 2 20 20" />
+      <path d="M8 12h3" />
     </svg>
   `;
 }
@@ -216,6 +246,10 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
     accountMenuOpen: { state: true },
   } as const;
 
+  /* Typed with `!` rather than `declare`: both erase without emitting a class
+     field that would shadow the accessors `static properties` installs, but
+     the test runner's bundled Babel rejects a `declare` field outright, which
+     makes this module unimportable from a unit test. */
   viewModel!: AuthMenuViewModel;
   private accountMenuOpen!: boolean;
 
@@ -226,6 +260,7 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
   private shouldFocusInitialControl = false;
   private contentResizeObserver: ResizeObserver | null = null;
   private contentHeightFrame: number | null = null;
+  private previousLinkDeviceStateKind: AuthMenuLinkDeviceState['kind'] | null = null;
 
   constructor() {
     super();
@@ -289,8 +324,20 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
   protected updated(changedProperties: Map<string | number | symbol, unknown>): void {
     super.updated(changedProperties);
     if (this.shouldFocusInitialControl) this.focusInitialControl();
+    this.focusLinkDevicePasskeyAction();
     this.observeContentSize();
     this.queueContentHeightSync();
+  }
+
+  private focusLinkDevicePasskeyAction(): void {
+    const currentKind =
+      this.viewModel.kind === 'link_device' ? this.viewModel.linkDevice.kind : null;
+    const shouldFocus =
+      currentKind === 'passkey_required' && this.previousLinkDeviceStateKind !== currentKind;
+    this.previousLinkDeviceStateKind = currentKind;
+    if (shouldFocus) {
+      this.querySelector<HTMLElement>('[data-link-device-passkey-action]')?.focus();
+    }
   }
 
   private observeContentSize(): void {
@@ -459,6 +506,10 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
 
   private onLinkDeviceOpen = (): void => {
     this.emitIntent({ kind: 'link_device_open' });
+  };
+
+  private onLinkDeviceCreatePasskey = (): void => {
+    this.emitIntent({ kind: 'link_device_create_passkey' });
   };
 
   private emitIntent(intent: AuthMenuIntent): void {
@@ -710,13 +761,6 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
           <button class="w3a-link-device-btn" type="button" @click=${this.onLinkDeviceOpen}>
             ${linkDeviceIcon()} Scan and Link Device
           </button>
-          ${(viewModel.enabledExternalProviders?.includes('google') ?? false)
-            ? html`
-                <button class="w3a-link-device-btn" type="button" @click=${this.onGoogleClick}>
-                  ${mailIcon()} Recover Account with Email
-                </button>
-              `
-            : null}
         </div>
       </div>
     `;
@@ -761,47 +805,115 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
     viewModel: Extract<AuthMenuViewModel, { kind: 'link_device' }>,
   ): TemplateResult {
     const linkDevice = viewModel.linkDevice;
+    if (linkDevice.kind === 'passkey_required' || linkDevice.kind === 'creating_passkey') {
+      return this.renderLinkDevicePasskeyConfirmation(linkDevice);
+    }
+    if (linkDevice.kind === 'activating') return this.renderLinkedDeviceActivation(linkDevice);
+    if (linkDevice.kind === 'error' || linkDevice.kind === 'activation_error') {
+      return this.renderLinkDeviceFailure(linkDevice);
+    }
+    // The code plate keeps its box while the QR is still being generated, so the
+    // title/instruction/status stack below it never shifts when the image lands —
+    // the placeholder simply dissolves into the code.
+    const ready = linkDevice.kind === 'ready';
     return html`
       <div class="w3a-scan-device-content">
         <div class="qr-code-container">
           <div class="qr-body">
             <div class="qr-code-section">
-              ${linkDevice.kind === 'ready'
-                ? html`
-                    <div class="qr-code-display">
+              <div class="qr-code-display">
+                ${ready
+                  ? html`
                       <img
                         src=${linkDevice.qrCodeDataURL}
-                        alt="Device Linking QR Code"
+                        alt="QR code to link this device"
                         class="qr-code-image"
                       />
-                    </div>
-                  `
-                : html`
-                    <div class="qr-loading">
-                      <p>
-                        ${linkDevice.kind === 'loading'
-                          ? 'Generating QR code...'
-                          : linkDevice.message}
-                      </p>
-                      ${linkDevice.kind === 'error'
-                        ? html`<button type="button" @click=${this.onBackClick}>Close</button>`
-                        : null}
-                    </div>
-                  `}
-              <div class="qr-header">
-                <h2 class="qr-title">Scan and Link Device</h2>
+                    `
+                  : html`
+                      <div class="qr-code-placeholder">
+                        <span class="w3a-spinner" aria-hidden="true"></span>
+                      </div>
+                    `}
               </div>
-              ${linkDevice.kind === 'ready'
-                ? html`
-                    <div class="qr-instruction">Scan to backup your other device.</div>
-                    <div class="qr-status">
-                      ${linkDevice.message}<span class="animated-ellipsis"></span>
-                    </div>
-                  `
-                : null}
+              <div class="qr-header">
+                <h2 class="qr-title" id=${AUTH_MENU_TITLE_ID}>${viewModel.heading}</h2>
+              </div>
+              <div class="qr-instruction">
+                ${ready ? viewModel.subtitle : 'Preparing a one-time code for your other device.'}
+              </div>
+              <div class="qr-status" role="status" aria-live="polite">
+                ${ready ? linkDevice.message : 'Generating QR code'}<span
+                  class="animated-ellipsis"
+                ></span>
+              </div>
             </div>
           </div>
         </div>
+      </div>
+    `;
+  }
+
+  private renderLinkDeviceFailure(
+    linkDevice: Extract<AuthMenuLinkDeviceState, { kind: 'error' | 'activation_error' }>,
+  ): TemplateResult {
+    const activationFailed = linkDevice.kind === 'activation_error';
+    return html`
+      <div class="w3a-link-device-confirmation w3a-link-device-failure">
+        <div class="w3a-link-device-failure-icon">${linkFailedIcon()}</div>
+        <h2 class="qr-title" id=${AUTH_MENU_TITLE_ID}>
+          ${activationFailed ? 'Device linked' : "Couldn't link device"}
+        </h2>
+        <p class="w3a-link-device-failure-detail" role="alert">
+          ${activationFailed
+            ? html`Unable to open the wallet. Return to sign in and try again. ${linkDevice.message}`
+            : linkDevice.message}
+        </p>
+        <button
+          class="w3a-link-device-btn"
+          type="button"
+          data-auth-menu-primary
+          data-link-device-error-dismiss
+          @click=${this.onBackClick}
+        >
+          Return to sign in
+        </button>
+      </div>
+    `;
+  }
+
+  private renderLinkedDeviceActivation(
+    linkDevice: Extract<AuthMenuLinkDeviceState, { kind: 'activating' }>,
+  ): TemplateResult {
+    return html`
+      <div class="w3a-link-device-confirmation">
+        <span class="w3a-spinner" aria-hidden="true"></span>
+        <h2 class="qr-title" id=${AUTH_MENU_TITLE_ID}>Opening linked wallet</h2>
+        <p class="w3a-link-device-confirmation-copy" role="status" aria-live="polite">
+          ${linkDevice.message}
+        </p>
+      </div>
+    `;
+  }
+
+  private renderLinkDevicePasskeyConfirmation(
+    linkDevice: Extract<AuthMenuLinkDeviceState, { kind: 'passkey_required' | 'creating_passkey' }>,
+  ): TemplateResult {
+    const creating = linkDevice.kind === 'creating_passkey';
+    return html`
+      <div class="w3a-link-device-confirmation">
+        ${linkDeviceDotRing(creating)}
+        <h2 class="qr-title" id=${AUTH_MENU_TITLE_ID} aria-live="polite">${linkDevice.message}</h2>
+        <button
+          class="w3a-link-device-btn w3a-link-device-btn-primary"
+          type="button"
+          data-auth-menu-primary
+          data-link-device-passkey-action
+          ?disabled=${creating}
+          @click=${this.onLinkDeviceCreatePasskey}
+        >
+          ${creating ? 'Waiting for passkey' : 'Create passkey'}
+        </button>
       </div>
     `;
   }

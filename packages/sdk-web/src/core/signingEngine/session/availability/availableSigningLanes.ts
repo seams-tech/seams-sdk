@@ -51,14 +51,11 @@ import type {
   CanonicalEvmFamilyEcdsaSigningCapability,
 } from '../material/ecdsaSigningCapability';
 import {
-  walletSessionJwtForCurve,
+  walletSessionTokenForCurve,
   type ActiveWalletSessionAuthorizationProjection,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
-import {
-  parseRouterAbEd25519WalletSessionIdentityClaims,
-  parseWalletSessionAuthorizationIdentityClaims,
-} from '../routerAbSigningWalletSession';
 import { SigningSessionIds } from '../operationState/types';
+import type { Ed25519YaoPublicCapabilityLaneReferenceV1 } from '../../threshold/ed25519/yaoPublicCapabilityReferences';
 
 export type AvailableSigningLaneState =
   | 'ready'
@@ -306,28 +303,16 @@ function recordToEd25519Lane(
       : remainingUses === 0
         ? 'exhausted'
         : 'restorable';
-  const walletSessionJwt = activeAuthorization
-    ? walletSessionJwtForCurve(activeAuthorization, 'ed25519')
-    : null;
-  const claims = walletSessionJwt
-    ? parseWalletSessionAuthorizationIdentityClaims(walletSessionJwt)
-    : null;
-  const ed25519Claims = walletSessionJwt
-    ? parseRouterAbEd25519WalletSessionIdentityClaims(walletSessionJwt)
+  const walletSessionToken = activeAuthorization
+    ? walletSessionTokenForCurve(activeAuthorization, 'ed25519')
     : null;
   const authorization =
     activeAuthorization &&
-    claims &&
-    ed25519Claims &&
+    walletSessionToken &&
     String(activeAuthorization.walletId) === walletId &&
     activeAuthorization.authMethod === record.authMethod &&
-    claims.walletId === walletId &&
-    claims.authorizationId === activeAuthorization.authorizationId &&
-    claims.walletSessionId === activeAuthorization.walletSessionId &&
-    claims.quotaId === activeAuthorization.quotaId &&
-    ed25519Claims.nearAccountId === restore.nearAccountId &&
-    ed25519Claims.nearEd25519SigningKeyId === restore.nearEd25519SigningKeyId &&
-    ed25519Claims.thresholdSessionId === thresholdSessionId
+    activeAuthorization.walletSessionId.length > 0 &&
+    activeAuthorization.quotaId.length > 0
       ? activeAuthorization
       : null;
   try {
@@ -359,6 +344,73 @@ function recordToEd25519Lane(
           state: 'deferred',
           authorizationState: 'authorization_required',
         };
+  } catch {
+    return null;
+  }
+}
+
+function isEmailOtpPublicCapabilityLaneReference(
+  reference: Ed25519YaoPublicCapabilityLaneReferenceV1,
+): reference is Extract<
+  Ed25519YaoPublicCapabilityLaneReferenceV1,
+  { auth: { kind: 'email_otp' } }
+> {
+  return reference.auth.kind === 'email_otp';
+}
+
+function publicCapabilityReferenceToEd25519Lane(
+  reference: Ed25519YaoPublicCapabilityLaneReferenceV1,
+  activeAuthorization: ActiveWalletSessionAuthorizationProjection | null,
+): ConcreteAvailableEd25519SigningLane | null {
+  const walletId = String(reference.walletId || '').trim();
+  const nearAccountId = String(reference.nearAccountId || '').trim();
+  const thresholdSessionId = String(reference.thresholdSessionId || '').trim();
+  if (!walletId || !nearAccountId || !thresholdSessionId) return null;
+  const walletSessionToken = activeAuthorization
+    ? walletSessionTokenForCurve(activeAuthorization, 'ed25519')
+    : null;
+  const authorization =
+    activeAuthorization &&
+    walletSessionToken &&
+    String(activeAuthorization.walletId) === walletId &&
+    activeAuthorization.authMethod === reference.auth.kind &&
+    activeAuthorization.walletSessionId.length > 0 &&
+    activeAuthorization.quotaId.length > 0
+      ? activeAuthorization
+      : null;
+  try {
+    const base = {
+      auth: reference.auth,
+      curve: 'ed25519' as const,
+      chain: 'near' as const,
+      materialActivation: reference.materialActivation,
+      walletId: toWalletId(walletId),
+      nearAccountId: toAccountId(nearAccountId),
+      nearEd25519SigningKeyId: reference.nearEd25519SigningKeyId,
+      signerSlot: reference.signerSlot,
+      thresholdSessionId,
+      source: 'public_capability_reference' as const,
+    };
+    if (!authorization) {
+      return { ...base, state: 'deferred', authorizationState: 'authorization_required' };
+    }
+    const authorizationExpiresAtMs = Math.floor(Number(authorization.expiresAtMs) || 0);
+    const emailOtpReference = isEmailOtpPublicCapabilityLaneReference(reference)
+      ? reference
+      : null;
+    const expiresAtMs = emailOtpReference
+      ? Math.min(emailOtpReference.expiresAtMs, authorizationExpiresAtMs)
+      : authorizationExpiresAtMs;
+    const state: AvailableSigningLaneState =
+      expiresAtMs > 0 && expiresAtMs <= Date.now() ? 'expired' : 'ready';
+    return {
+      ...base,
+      state,
+      authorizationState: 'authorized',
+      authorization,
+      ...(emailOtpReference ? { remainingUses: emailOtpReference.remainingUses } : {}),
+      ...(expiresAtMs > 0 ? { expiresAtMs } : {}),
+    };
   } catch {
     return null;
   }
@@ -455,6 +507,10 @@ export type ReadAvailableSigningLanesPorts = {
       curve: 'ed25519';
     };
   }) => Promise<SigningSessionSealedStoreRecord[]>;
+  listPublicCapabilityReferences?: () => Promise<
+    readonly Ed25519YaoPublicCapabilityLaneReferenceV1[]
+  >;
+  isPublicCapabilityActive?: (reference: Ed25519YaoPublicCapabilityLaneReferenceV1) => boolean;
   readActiveWalletSessionAuthorization?: (
     walletId: WalletId,
   ) => Promise<ActiveWalletSessionAuthorizationProjection | null>;
@@ -854,10 +910,10 @@ function compareEd25519DuplicateLanePriority(
   left: AvailableEd25519SigningLane,
   right: AvailableEd25519SigningLane,
 ): number {
-  const sourceDelta = availableLaneSourcePriority(left) - availableLaneSourcePriority(right);
-  if (sourceDelta) return sourceDelta;
   const stateDelta = availableLaneStatePriority(left) - availableLaneStatePriority(right);
   if (stateDelta) return stateDelta;
+  const sourceDelta = availableLaneSourcePriority(left) - availableLaneSourcePriority(right);
+  if (sourceDelta) return sourceDelta;
   return availableLaneUpdatedAtMs(left) - availableLaneUpdatedAtMs(right);
 }
 
@@ -1532,7 +1588,8 @@ function suppressPublicEd25519CandidatesWithDurablePolicy(
         (lane): lane is ConcreteAvailableEd25519SigningLane =>
           isConcreteAvailableSigningLane(lane) &&
           lane.curve === 'ed25519' &&
-          lane.source === 'durable_sealed_record',
+          lane.source === 'durable_sealed_record' &&
+          (lane.state === 'ready' || lane.state === 'restorable'),
       )
       .map(ed25519LaneGroupKey)
       .filter((key): key is Ed25519LaneGroupKey => key !== null)
@@ -1569,6 +1626,9 @@ export async function readAvailableSigningLanes(
       curve: 'ed25519',
     },
   });
+  const publicCapabilityReferences = ports.listPublicCapabilityReferences
+    ? await ports.listPublicCapabilityReferences()
+    : [];
   const activeAuthorization = ports.readActiveWalletSessionAuthorization
     ? await ports.readActiveWalletSessionAuthorization(walletId)
     : null;
@@ -1594,6 +1654,14 @@ export async function readAvailableSigningLanes(
     ed25519Candidates.push(lane);
     const updatedAtMs = availableLaneUpdatedAtMs(lane);
     generation = Math.max(generation, updatedAtMs);
+  }
+  for (const reference of publicCapabilityReferences) {
+    if (String(reference.walletId) !== String(walletId)) continue;
+    if (!ports.isPublicCapabilityActive?.(reference)) continue;
+    const lane = publicCapabilityReferenceToEd25519Lane(reference, activeAuthorization);
+    if (!lane) continue;
+    if (input.authMethod && signingLaneAuthMethod(lane.auth) !== input.authMethod) continue;
+    ed25519Candidates.push(lane);
   }
   const canonicalEcdsaLanes =
     ecdsaChainTargets.length > 0 && ports.listCanonicalEcdsaLanesForWallet

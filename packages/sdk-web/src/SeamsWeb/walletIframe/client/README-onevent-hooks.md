@@ -60,7 +60,7 @@ Ordering is FIFO per `requestId`.
 - Host posts PROGRESS from `onEvent`:
   - `src/SeamsWeb/walletIframe/host/wallet-iframe-handlers.ts`
     - `withProgress()` wraps host-side SDK calls and posts `PROGRESS`.
-    - Covered flows include registration, unlock, Email OTP registration/unlock/capability calls, signing, link device, email recovery, account sync, and key export.
+    - Covered flows include registration, unlock, Email OTP registration/unlock/capability calls, signing, link device, wallet recovery, account sync, and key export.
   - `src/SeamsWeb/walletIframe/host/index.ts`
     - Owns the host `postProgress()` send path.
 - Client receives PROGRESS and invokes app `onEvent` via wrapper:

@@ -597,7 +597,6 @@ function checkWalletUnlockKeepsRawEcdsaParsingAtBoundaries() {
     'metadata.ecdsaThresholdKeyId',
     'metadata.signingRootId',
     'metadata.signingRootVersion',
-    'metadata.participantIds',
     'metadata.thresholdOwnerAddress',
     'metadata.ownerAddress',
     'const records = inventory.records',
@@ -612,38 +611,19 @@ function checkWalletUnlockKeepsRawEcdsaParsingAtBoundaries() {
 }
 
 function checkPrepareParsersDeriveSigningRootFromRuntimePolicyScope() {
-  const parserTargets = [
-    {
-      relativePath: 'packages/sdk-web/src/SeamsWeb/operations/devices/linkDevice.ts',
-      functionName: 'parseLinkDeviceEcdsaPrepare',
-    },
-  ];
-  const offenders = [];
+  const relativePath = 'packages/sdk-web/src/SeamsWeb/operations/devices/linkDevice.ts';
+  const source = readRepoFile(relativePath);
+  if (isRefactor84LinkDeviceStub(relativePath, source)) return;
 
-  for (const { relativePath, functionName } of parserTargets) {
-    const source = readRepoFile(relativePath);
-    if (isRefactor84LinkDeviceStub(relativePath, source)) {
-      continue;
-    }
-    const functionStart = source.indexOf(`function ${functionName}(`);
-    const openBraceIndex = source.indexOf('{', functionStart);
-    const block = findBalancedBlock(source, openBraceIndex);
-    if (!block) {
-      offenders.push(`${relativePath} missing ${functionName}`);
-      continue;
-    }
-    if (!block.includes('signingRootScopeFromRuntimePolicyScope(runtimePolicyScope)')) {
-      offenders.push(`${relativePath} ${functionName} does not derive signing root from scope`);
-    }
-    if (/\bvalue\.signingRoot(?:Id|Version)\b/.test(block)) {
-      offenders.push(`${relativePath} ${functionName} reads signing root from payload`);
-    }
-    if (!/\bruntimePolicyScope\s*,/.test(block)) {
-      offenders.push(`${relativePath} ${functionName} does not return runtimePolicyScope`);
-    }
-  }
-
-  assertNoOffenders(offenders, 'ECDSA prepare parser signing-root derivation');
+  // R103's typed LinkDeviceFlow consumes a parsed target-preparation DTO and no
+  // longer parses an ECDSA prepare payload in this module. Keep the retired
+  // parser absent rather than freezing its deleted response shape in a guard.
+  assertNoOffenders(
+    source.includes('function parseLinkDeviceEcdsaPrepare(')
+      ? [`${relativePath} retains the retired parseLinkDeviceEcdsaPrepare boundary`]
+      : [],
+    'ECDSA prepare parser signing-root derivation',
+  );
 }
 
 function checkNearAccountToEcdsaSubjectDerivationsStayOutOfSigningPaths() {
@@ -798,13 +778,11 @@ function checkRestorableMpcMaterialConstructionStaysProtocolOwned() {
   const allowedConstructorFiles = new Set([
     'packages/sdk-web/src/core/signingEngine/session/material/restorableMpcMaterialRef.internal.ts',
     'packages/sdk-web/src/core/signingEngine/session/material/ecdsaCapabilityHydration.ts',
-    'packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519YaoSealedRecovery.ts',
     'packages/sdk-web/src/core/signingEngine/session/passkey/ed25519YaoLocalMaterial.ts',
   ]);
   const allowedInternalImports = new Set([
     'packages/sdk-web/src/core/signingEngine/session/material/mpcCapabilityHydration.ts',
     'packages/sdk-web/src/core/signingEngine/session/material/ecdsaCapabilityHydration.ts',
-    'packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519YaoSealedRecovery.ts',
     'packages/sdk-web/src/core/signingEngine/session/passkey/ed25519YaoLocalMaterial.ts',
   ]);
   for (const relativePath of listTsFiles('packages/sdk-web/src')) {

@@ -253,15 +253,10 @@ type WalletRegistrationActivateAuthWorkV2 =
   | {
       authMethod: 'passkey';
       emailOtpEnrollment?: never;
-      emailOtpBackupAck?: never;
     }
   | {
       authMethod: 'email_otp';
       emailOtpEnrollment: NonNullable<FinalizeRequestBase['emailOtpEnrollment']>;
-      /* Required, not optional: the commit refuses enrollment without the
-         backup acknowledgement, because issuing recovery codes the user never
-         confirmed saving is how an account becomes unrecoverable. */
-      emailOtpBackupAck: NonNullable<FinalizeRequestBase['emailOtpBackupAck']>;
     };
 
 type WalletRegistrationActivateRequestBaseV2 = {
@@ -327,11 +322,9 @@ type DistributiveOmit<T, K extends keyof any> = T extends unknown ? Omit<T, K> :
  */
 export type WalletRegistrationActivateEd25519PendingV2 = DistributiveOmit<
   Ed25519FinalizeSuccess,
-  'ed25519' | 'resolvedAccount' | 'accountProvisioning' | 'authorityScope' | 'appSessionJwt'
+  'ed25519' | 'resolvedAccount' | 'accountProvisioning' | 'authorityScope'
 > & {
   nearProvisioning: { status: 'near_pending' };
-  /** Internal first-party passkey authority consumed before public return. */
-  appSessionJwt?: string;
   ed25519?: never;
   resolvedAccount?: never;
   accountProvisioning?: never;
@@ -340,11 +333,9 @@ export type WalletRegistrationActivateEd25519PendingV2 = DistributiveOmit<
 };
 
 export type WalletRegistrationActivateResponseV2 =
-  | (DistributiveOmit<EcdsaFinalizeSuccess, 'ecdsa' | 'appSessionJwt'> & {
+  | (DistributiveOmit<EcdsaFinalizeSuccess, 'ecdsa'> & {
       ecdsa: ActivateEcdsaTerminalPayload;
       registrationEstablishedSession: RegistrationEstablishedSession;
-      /** Internal first-party passkey authority consumed before public return. */
-      appSessionJwt?: string;
       /** Mixed plans: deferred NEAR snapshot; never identifiers before readiness. */
       nearProvisioning?: { status: 'near_pending' };
     })
@@ -356,20 +347,8 @@ type ActivateSuccessV2 = Exclude<
   WalletRegistrationRouteErrorV2
 >;
 
-type ActivatePasskeyRouteAuth = Pick<
-  Extract<WalletRegistrationFinalizeRouteSuccess, { authMethod: { kind: 'passkey' } }>,
-  'authMethod' | 'rpId'
-> & { appSessionJwt: string };
-
-type ActivateEmailOtpRouteAuth = Pick<
-  Extract<WalletRegistrationFinalizeRouteSuccess, { authMethod: { kind: 'email_otp' } }>,
-  'authMethod' | 'rpId' | 'appSessionJwt'
->;
-
-/** Public activate response after the route mints the Email OTP app session. */
 export type WalletRegistrationActivateRouteResponseV2 =
-  | (ActivateSuccessV2 & ActivatePasskeyRouteAuth)
-  | (ActivateSuccessV2 & ActivateEmailOtpRouteAuth)
+  | ActivateSuccessV2
   | WalletRegistrationRouteErrorV2;
 
 /**
@@ -397,31 +376,18 @@ export type WalletRegistrationNearProvisioningRequestV2 = {
     { kind: 'near_ed25519' }
   >['ed25519'];
   emailOtpEnrollment?: NonNullable<WalletRegistrationFinalizeRequest['emailOtpEnrollment']>;
-  emailOtpBackupAck?: NonNullable<WalletRegistrationFinalizeRequest['emailOtpBackupAck']>;
 };
 
-type WalletRegistrationNearProvisioningPasskeySuccessV2 = Extract<
+type WalletRegistrationNearProvisioningSuccessV2 = Extract<
   WalletRegistrationFinalizeResponse,
-  { ok: true; kind: 'near_ed25519'; authMethod: { kind: 'passkey' } }
+  { ok: true; kind: 'near_ed25519' }
 > & {
   registrationEstablishedSession: RegistrationEstablishedSession;
   nearProvisioning: { status: 'near_ready' };
-  appSessionJwt?: never;
-};
-
-type WalletRegistrationNearProvisioningEmailOtpSuccessV2 = Extract<
-  WalletRegistrationFinalizeResponse,
-  { ok: true; kind: 'near_ed25519'; authMethod: { kind: 'email_otp' } }
-> & {
-  registrationEstablishedSession: RegistrationEstablishedSession;
-  nearProvisioning: { status: 'near_ready' };
-  /** Internal first-party Email OTP authority consumed before public return. */
-  appSessionJwt: string;
 };
 
 export type WalletRegistrationNearProvisioningResponseV2 =
-  | WalletRegistrationNearProvisioningPasskeySuccessV2
-  | WalletRegistrationNearProvisioningEmailOtpSuccessV2
+  | WalletRegistrationNearProvisioningSuccessV2
   | (WalletRegistrationRouteErrorV2 & {
       /**
        * A retryable failure leaves the pending wallet intact and the call
@@ -431,4 +397,4 @@ export type WalletRegistrationNearProvisioningResponseV2 =
       nearProvisioning?: { status: 'near_failed_retryable' };
     });
 
-/** Public route response after the Gateway mints the Email OTP app session. */
+/** Public route response after the Gateway mints the Email OTP authentication session. */

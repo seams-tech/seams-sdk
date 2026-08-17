@@ -64,30 +64,24 @@ import type {
   ThresholdEcdsaChainTarget,
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { parseAppSessionJwt } from '@shared/utils/domainIds';
 import {
   SIGNER_AUTH_METHODS,
   WALLET_AUTH_METHODS,
   type SignerAuthMethod,
 } from '@shared/utils/signerDomain';
 import {
-  buildEmailOtpWalletAuthAuthority,
   buildPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
-  type EmailOtpProvider,
   type WalletAuthAuthority,
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
-import {
-  emailOtpAppSessionBindingFromJwt,
-  emailOtpProviderFromAppSessionJwt as parseEmailOtpProviderFromAppSessionJwt,
-} from '@/core/signingEngine/session/emailOtp/appSessionJwtCache';
 import type { EmailOtpTransactionSigningChallenge } from '@/core/signingEngine/session/emailOtp/publicTypes';
 import type { RestorePersistedSessionForSigningInput } from '@/core/signingEngine/session/sealedRecovery/sealedRecovery.types';
-import { activeWalletOrHostedAppSessionJwt } from '@/SeamsWeb/walletIframe/host/hostedWalletSeamsSession';
-import type { EcdsaOperationStepUpSessionAuth } from '@/core/signingEngine/threshold/ecdsa/operationStepUp';
 import { __isWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode';
-import { walletSessionJwtForCurve } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { walletSessionTokenForCurve } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { readOwnerWalletExecutionLaneProjectionV1 } from '@/core/rpcClients/relayer/ownerWalletExecutionLanePreflight';
+import { hydrateWalletExecutionLane } from '@/core/signingEngine/session/lanes/walletExecutionLaneHydration';
+import type { EcdsaCapabilityManifestLookup } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
 
 type SigningEnginePorts = ReturnType<typeof createSigningEnginePorts>;
 
@@ -118,69 +112,9 @@ type ExactWalletAuthMethodStore = Pick<
   'listWalletAuthMethodsForWallet'
 >;
 
-type ExactEmailOtpSessionResolver = Pick<
-  EmailOtpWalletSessionCoordinator,
-  'resolveAppSessionJwtForWallet'
->;
-
 type ExactWalletAuthMethods = Awaited<
   ReturnType<ExactWalletAuthMethodStore['listWalletAuthMethodsForWallet']>
 >;
-
-function emailOtpProviderFromAppSessionJwt(appSessionJwt: string): EmailOtpProvider | null {
-  try {
-    return parseEmailOtpProviderFromAppSessionJwt(appSessionJwt);
-  } catch {
-    return null;
-  }
-}
-
-async function resolveExactEmailOtpWalletAuthAuthority(args: {
-  authorityRef: WalletAuthAuthorityRef;
-  authMethods: ExactWalletAuthMethods;
-  emailOtpSessions: ExactEmailOtpSessionResolver;
-  relayUrl: string;
-}): Promise<WalletAuthAuthority | null> {
-  const emailOtpAuthMethods = args.authMethods.filter(
-    (authMethod) => authMethod.kind === 'email_otp' && authMethod.status === 'active',
-  );
-  if (emailOtpAuthMethods.length === 0 || !args.relayUrl) return null;
-
-  let appSessionJwt: string;
-  try {
-    appSessionJwt = await args.emailOtpSessions.resolveAppSessionJwtForWallet({
-      walletId: args.authorityRef.walletId,
-      relayUrl: args.relayUrl,
-    });
-  } catch {
-    return null;
-  }
-
-  let binding: ReturnType<typeof emailOtpAppSessionBindingFromJwt>;
-  try {
-    binding = emailOtpAppSessionBindingFromJwt({
-      walletId: args.authorityRef.walletId,
-      appSessionJwt,
-    });
-  } catch {
-    return null;
-  }
-  const provider = emailOtpProviderFromAppSessionJwt(appSessionJwt);
-  if (!provider) return null;
-
-  for (const authMethod of emailOtpAuthMethods) {
-    if (authMethod.walletId !== args.authorityRef.walletId) continue;
-    const authority = buildEmailOtpWalletAuthAuthority({
-      walletId: args.authorityRef.walletId,
-      provider,
-      providerUserId: binding.providerSubject,
-      emailHashHex: authMethod.emailHashHex,
-    });
-    const candidateRef = await walletAuthAuthorityRef({ authority });
-    if (candidateRef.authorityDigest === args.authorityRef.authorityDigest) return authority;
-  }
-  return null;
-}
 
 export async function resolveExactWalletAuthAuthority(
   authorityRef: WalletAuthAuthorityRef,
@@ -188,8 +122,6 @@ export async function resolveExactWalletAuthAuthority(
   walletAuthMethodStore: ExactWalletAuthMethodStore,
   passkeyAuthenticatorStore: SigningEngineStorePorts['walletProfileAndSignerRecords']['passkeyAuthenticatorStore'],
   currentRpId: string,
-  emailOtpSessions: ExactEmailOtpSessionResolver,
-  relayUrl: string,
 ): Promise<WalletAuthAuthority> {
   const sealedRecords = await sealedSigningSessionStore.listEcdsaSealedSessionsForWallet({
     walletId: authorityRef.walletId,
@@ -198,34 +130,49 @@ export async function resolveExactWalletAuthAuthority(
   for (const sealedRecord of sealedRecords) {
     const restore = sealedRecord.ecdsaRestore;
     if (!restore || restore.authority.authorityDigest !== authorityRef.authorityDigest) continue;
-    if (restore.source === 'email_otp') return restore.emailOtpAuthority;
+    if (restore.source === 'email_otp') {
+      const candidateRef = await walletAuthAuthorityRef({ authority: restore.emailOtpAuthority });
+      if (
+        candidateRef.walletId === authorityRef.walletId &&
+        candidateRef.authorityDigest === authorityRef.authorityDigest
+      ) {
+        return restore.emailOtpAuthority;
+      }
+      continue;
+    }
     const authority = buildPasskeyWalletAuthAuthority({
       walletId: authorityRef.walletId,
       rpId: restore.rpId,
       credentialIdB64u: restore.credentialIdB64u,
     });
     const candidateRef = await walletAuthAuthorityRef({ authority });
-    if (candidateRef.authorityDigest === authorityRef.authorityDigest) return authority;
+    if (
+      candidateRef.walletId === authorityRef.walletId &&
+      candidateRef.authorityDigest === authorityRef.authorityDigest
+    ) {
+      return authority;
+    }
   }
   const authMethods = await walletAuthMethodStore.listWalletAuthMethodsForWallet(
     authorityRef.walletId,
   );
-  const emailOtpAuthority = await resolveExactEmailOtpWalletAuthAuthority({
-    authorityRef,
-    authMethods,
-    emailOtpSessions,
-    relayUrl: String(relayUrl || '').trim(),
-  });
-  if (emailOtpAuthority) return emailOtpAuthority;
   for (const authMethod of authMethods) {
-    if (authMethod.kind !== 'passkey' || authMethod.status !== 'active') continue;
-    const authority = buildPasskeyWalletAuthAuthority({
-      walletId: authorityRef.walletId,
-      rpId: authMethod.rpId,
-      credentialIdB64u: authMethod.credentialIdB64u,
-    });
+    if (authMethod.status !== 'active') continue;
+    const authority =
+      authMethod.kind === 'email_otp'
+        ? authMethod.authority
+        : buildPasskeyWalletAuthAuthority({
+            walletId: authorityRef.walletId,
+            rpId: authMethod.rpId,
+            credentialIdB64u: authMethod.credentialIdB64u,
+          });
     const candidateRef = await walletAuthAuthorityRef({ authority });
-    if (candidateRef.authorityDigest === authorityRef.authorityDigest) return authority;
+    if (
+      candidateRef.walletId === authorityRef.walletId &&
+      candidateRef.authorityDigest === authorityRef.authorityDigest
+    ) {
+      return authority;
+    }
   }
   const rpId = String(currentRpId || '').trim();
   if (!rpId) throw new Error('Exact wallet authentication authority requires an RP ID');
@@ -239,7 +186,12 @@ export async function resolveExactWalletAuthAuthority(
       credentialIdB64u: authenticator.credentialId,
     });
     const candidateRef = await walletAuthAuthorityRef({ authority });
-    if (candidateRef.authorityDigest === authorityRef.authorityDigest) return authority;
+    if (
+      candidateRef.walletId === authorityRef.walletId &&
+      candidateRef.authorityDigest === authorityRef.authorityDigest
+    ) {
+      return authority;
+    }
   }
   throw new Error('Exact wallet authentication authority is unavailable');
 }
@@ -283,16 +235,16 @@ export async function resolveBrowserActiveEcdsaWalletSessionAuthorization(
   }
   const relayerUrl = String(args.seamsWebConfigs.network.relayer?.url || '').trim();
   if (!relayerUrl) throw new Error('Reusable Wallet Session status requires a relayer URL');
-  const walletSessionJwt = walletSessionJwtForCurve(projection, 'ecdsa');
-  if (!walletSessionJwt) {
+  const walletSessionToken = walletSessionTokenForCurve(projection, 'ecdsa');
+  if (!walletSessionToken) {
     return {
       kind: 'inactive',
-      reason: 'Reusable Wallet Session authorization has no ECDSA Wallet Session JWT',
+      reason: 'Reusable Wallet Session authorization has no ECDSA token',
     };
   }
   const status = await createRelayerReusableWalletSessionStatusPort({
     relayerUrl,
-    auth: { kind: 'wallet_session', jwt: walletSessionJwt },
+    auth: { kind: 'opaque_wallet_session', walletSessionToken },
   }).read({
     walletSessionId: projection.walletSessionId,
     quotaId: projection.quotaId,
@@ -332,6 +284,9 @@ async function activeEcdsaReplacementManifestForTarget(args: {
 }): Promise<ActiveEcdsaCapabilityManifest | null> {
   for (const subject of args.subjects) {
     const lookup = await ecdsaCapabilityManifestStore.lookup(subject);
+    if (lookup.kind === 'persistence_unavailable') {
+      throw new Error('ECDSA capability persistence is unavailable');
+    }
     if (lookup.kind !== 'active') continue;
     const manifest = lookup.manifest;
     if (manifest.signer.walletId !== args.walletId) continue;
@@ -347,12 +302,17 @@ async function activeEcdsaReplacementManifestForTarget(args: {
   return null;
 }
 
-async function getBrowserCanonicalEcdsaSigningCapability(
+type BrowserCanonicalEcdsaCapabilityResolution = {
+  readonly capability: CanonicalEvmFamilyEcdsaSigningCapability;
+  readonly lookup: Extract<EcdsaCapabilityManifestLookup, { readonly kind: 'active' }>;
+};
+
+async function resolveBrowserCanonicalEcdsaSigningCapability(
   args: BrowserEcdsaCapabilityReaderContext,
   input: Parameters<
     Parameters<typeof createSigningEnginePorts>[0]['resolveCanonicalEcdsaSigningCapability']
   >[0],
-): Promise<CanonicalEvmFamilyEcdsaSigningCapability> {
+): Promise<BrowserCanonicalEcdsaCapabilityResolution> {
   const walletId = toWalletId(input.walletId);
   const subjects = await ecdsaCapabilityManifestStore.listActiveWalletCapabilitySubjects(walletId);
   if (subjects.kind !== 'resolved') {
@@ -381,25 +341,21 @@ async function getBrowserCanonicalEcdsaSigningCapability(
     }
     return fallback();
   };
-  const matches = subjects.subjects.filter(
-    (subject) => subject.capability === input.materialActivation.capability,
-  );
-  if (matches.length !== 1) {
-    if (matches.length === 0) {
-      await throwSupersededByReplacement(() => {
-        throw new Error('ECDSA capability manifest is missing');
-      });
-    }
-    throw new Error('ECDSA capability manifest is ambiguous');
-  }
-  const manifestLookup = await ecdsaCapabilityManifestStore.lookup(matches[0]);
-  if (manifestLookup.kind === 'retired') {
-    await throwSupersededByReplacement(() => {
-      throw new Error('ECDSA capability manifest is retired');
-    });
+  const manifestLookup = await ecdsaCapabilityManifestStore.lookupByMaterialActivation({
+    walletId,
+    materialActivation: input.materialActivation,
+  });
+  if (
+    manifestLookup.kind === 'persistence_unavailable' ||
+    manifestLookup.kind === 'exact_record_conflict' ||
+    manifestLookup.kind === 'corrupt'
+  ) {
+    throw new Error(`ECDSA material activation is ${manifestLookup.kind}`);
   }
   if (manifestLookup.kind !== 'active') {
-    throw new Error(`ECDSA capability manifest is ${manifestLookup.kind}`);
+    return await throwSupersededByReplacement(() => {
+      throw new Error('ECDSA capability manifest is missing');
+    });
   }
   const manifest = manifestLookup.manifest;
   if (
@@ -416,15 +372,13 @@ async function getBrowserCanonicalEcdsaSigningCapability(
   // references and returns the typed `superseded` outcome, which owns the single
   // canonical re-resolution. Throwing here would turn routine replacement into
   // a terminal signing failure before that boundary can classify it.
-  return await buildCanonicalEvmFamilyEcdsaSigningCapability({
+  const capability = await buildCanonicalEvmFamilyEcdsaSigningCapability({
     authority: await resolveExactWalletAuthAuthority(
       manifest.signer.authority,
       args.sealedSigningSessionStore,
       args.stores.walletProfileAndSignerRecords.accountStore,
       args.stores.walletProfileAndSignerRecords.passkeyAuthenticatorStore,
       args.touchIdPrompt.getRpId(),
-      args.emailOtpSessions,
-      String(args.seamsWebConfigs.network.relayer?.url || '').trim(),
     ),
     manifest,
     material: buildPersistedEcdsaRoleLocalMaterial({
@@ -433,6 +387,16 @@ async function getBrowserCanonicalEcdsaSigningCapability(
       publicFacts: manifest.durableMaterial.roleLocalPublicFacts,
     }),
   });
+  return { capability, lookup: manifestLookup };
+}
+
+async function getBrowserCanonicalEcdsaSigningCapability(
+  args: BrowserEcdsaCapabilityReaderContext,
+  input: Parameters<
+    Parameters<typeof createSigningEnginePorts>[0]['resolveCanonicalEcdsaSigningCapability']
+  >[0],
+): Promise<CanonicalEvmFamilyEcdsaSigningCapability> {
+  return (await resolveBrowserCanonicalEcdsaSigningCapability(args, input)).capability;
 }
 
 async function getBrowserEcdsaSigningCapability(
@@ -449,8 +413,32 @@ async function getBrowserEcdsaSigningCapability(
     throw new Error(resolution.reason);
   }
   const browserAuthorization = resolution.authorization;
+  const canonical = await resolveBrowserCanonicalEcdsaSigningCapability(args, input);
+  const walletSessionToken = walletSessionTokenForCurve(browserAuthorization.projection, 'ecdsa');
+  if (!walletSessionToken) {
+    throw new Error('Owner ECDSA execution-lane preflight requires an opaque Wallet Session token');
+  }
+  const projection = await readOwnerWalletExecutionLaneProjectionV1({
+    relayerUrl: String(args.seamsWebConfigs.network.relayer?.url || '').trim(),
+    walletSessionToken,
+    curve: 'ecdsa_secp256k1',
+    expectedMaterialActivation: canonical.capability.manifest.activation.materialActivation,
+  });
+  const hydrated = hydrateWalletExecutionLane({
+    walletKey: projection.walletKey,
+    lane: projection.lane,
+    material: {
+      keyFamily: 'ecdsa_secp256k1',
+      laneShareEpoch: projection.lane.laneShareEpoch,
+      lookup: canonical.lookup,
+      runtime: { kind: 'absent' },
+    },
+  });
+  if (hydrated.kind !== 'active_wallet_execution_lane_v1') {
+    throw new Error(`Owner ECDSA execution lane is ${hydrated.reason}`);
+  }
   return authorizeEvmFamilyEcdsaSigningCapability({
-    capability: await getBrowserCanonicalEcdsaSigningCapability(args, input),
+    capability: canonical.capability,
     authorization: browserAuthorization,
   });
 }
@@ -552,49 +540,11 @@ async function requestEmailOtpEcdsaStepUpChallenge(args: {
         authLane: args.authority.authLane,
       });
     case 'capability_step_up':
-      // Auth-neutral material has no warm signing lane to mint against, so the
-      // challenge is minted against the wallet's own app session. The mailbox
-      // is the capability's: the authority was already checked against the
-      // selected capability before it got here.
-      return await args.coordinator.requestCapabilityStepUpTransactionSigningChallenge({
+      return await args.coordinator.requestTransactionSigningChallenge({
+        kind: 'wallet_login_challenge',
         walletSession: args.walletSession,
         chain: args.chain,
       });
-  }
-}
-
-async function resolveBrowserEcdsaOperationStepUpSessionAuth(args: {
-  context: BrowserEcdsaCapabilityReaderContext;
-  walletSession: WalletSessionRef;
-  authMethod: SignerAuthMethod;
-}): Promise<EcdsaOperationStepUpSessionAuth> {
-  switch (args.authMethod) {
-    case 'passkey': {
-      if (!__isWalletIframeHostMode()) return { kind: 'app_session_cookie' };
-      const relayerUrl = String(args.context.seamsWebConfigs.network.relayer?.url || '').trim();
-      if (!relayerUrl) {
-        throw new Error('Wallet iframe app session requires a relayer URL');
-      }
-      const appSessionJwt = activeWalletOrHostedAppSessionJwt(
-        relayerUrl,
-        String(args.walletSession.walletId),
-      );
-      if (!appSessionJwt) {
-        throw new Error('Wallet iframe app session JWT is unavailable for operation step-up');
-      }
-      return { kind: 'app_session_jwt', appSessionJwt };
-    }
-    case 'email_otp': {
-      const relayerUrl = String(args.context.seamsWebConfigs.network.relayer?.url || '').trim();
-      if (!relayerUrl) throw new Error('ECDSA operation step-up requires a relayer URL');
-      const jwt = await args.context.emailOtpSessions.resolveAppSessionJwt({
-        walletSession: args.walletSession,
-        relayUrl: relayerUrl,
-      });
-      const parsedJwt = parseAppSessionJwt(jwt);
-      if (!parsedJwt.ok) throw new Error(parsedJwt.error.message);
-      return { kind: 'app_session_jwt', appSessionJwt: parsedJwt.value } as const;
-    }
   }
 }
 
@@ -662,12 +612,6 @@ export function createBrowserSigningSurfaceEnginePorts(
       getBrowserEcdsaSigningCapability(args, input),
     resolveActiveEcdsaWalletSessionAuthorization:
       createBrowserActiveEcdsaWalletSessionAuthorizationResolver(args),
-    resolveEcdsaOperationStepUpSessionAuth: (input) =>
-      resolveBrowserEcdsaOperationStepUpSessionAuth({
-        context: args,
-        walletSession: input.walletSession,
-        authMethod: input.authMethod,
-      }),
     signerWorkerManager: args.signerWorkerManager,
     getWorkerBaseOrigin: args.getWorkerBaseOrigin,
     workerWarmupPolicy: args.workerWarmupPolicy,
@@ -696,9 +640,10 @@ export function createBrowserSigningSurfaceEnginePorts(
         chain: challengeArgs.chain,
         authority: challengeArgs.authority,
       }),
-    requestEmailOtpEd25519SigningChallenge: (challengeArgs) =>
-      args.emailOtpSessions.requestCapabilityStepUpTransactionSigningChallenge({
-        walletSession: challengeArgs.walletSession,
+    requestEmailOtpEd25519SigningChallenge: ({ walletSession }) =>
+      args.emailOtpSessions.requestTransactionSigningChallenge({
+        kind: 'wallet_login_challenge',
+        walletSession,
         chain: 'near',
       }),
     prepareNearEd25519YaoMaterialBoundary: args.prepareNearEd25519YaoMaterialBoundary,
@@ -723,8 +668,25 @@ export function createBrowserSigningSurfaceEnginePorts(
     readAvailableSigningLanesForSigning: (readArgs) =>
       readPersistedAvailableSigningLanesForSigningOperation(
         {
+          ed25519YaoPublicCapabilityLanes: args.ed25519YaoPublicCapabilityReferences,
+          isEd25519YaoPublicCapabilityActive: (reference) => {
+            switch (reference.auth.kind) {
+              case 'email_otp':
+                return true;
+              case 'passkey':
+                return (
+                  args.getEnginePorts().ed25519YaoActiveClients.resolve({
+                    walletId: reference.walletId,
+                    nearAccountId: reference.nearAccountId,
+                    materialActivation: reference.materialActivation,
+                  }) !== null
+                );
+            }
+          },
           readActiveWalletSessionAuthorization: async (walletId) => {
-            const read = await walletSessionAuthorizations.readActiveForWallet(toWalletId(walletId));
+            const read = await walletSessionAuthorizations.readActiveForWallet(
+              toWalletId(walletId),
+            );
             return read.kind === 'found' ? read.projection : null;
           },
           listEcdsaSigningCapabilitiesForWallet: (input) =>
@@ -738,14 +700,8 @@ export function createBrowserSigningSurfaceEnginePorts(
         {
           queueByWallet: args.thresholdEcdsaBootstrapQueueByWallet,
           activationDeps: args.getEnginePorts().walletSessionActivationDeps,
-          sealPersistence: args.passkeyMpcSession,
           persistEcdsaRoleLocalReadyRecord:
             args.runtimePorts.storage.persistEcdsaRoleLocalReadyRecord,
-          resolveSealTransport: ({ lane, authorization }) =>
-            args.warmSigning.capabilityReader.resolveEcdsaSealTransportForLane({
-              lane,
-              authorization,
-            }),
         },
         provisionArgs,
       ),

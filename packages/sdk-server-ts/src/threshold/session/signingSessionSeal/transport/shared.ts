@@ -8,8 +8,6 @@ import type {
   SigningSessionSealRouteHeaders,
   SigningSessionSealRouteResult,
   SigningSessionSealRoutesOptions,
-  SigningSessionSealSessionAdapter,
-  SigningSessionSealSessionClaims,
 } from '../signingSessionSeal.types';
 
 const DEFAULT_BASE_PATH = WALLET_SESSION_SEAL_BASE_PATH;
@@ -121,27 +119,17 @@ export function parseSigningSessionSealRemoveBody(
   };
 }
 
-function claimsFromUnknown(value: unknown): SigningSessionSealSessionClaims {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-  return value as SigningSessionSealSessionClaims;
-}
-
-function userIdFromClaims(claims: SigningSessionSealSessionClaims): string {
-  const raw = (claims as { walletId?: unknown }).walletId;
-  return typeof raw === 'string' ? raw.trim() : '';
-}
-
 export async function authorizeSigningSessionSealRequest(args: {
   options: SigningSessionSealRoutesOptions;
   headers: SigningSessionSealRouteHeaders;
-  session: SigningSessionSealSessionAdapter | null | undefined;
-  thresholdSessionId?: string;
+  authorize?: SigningSessionSealRoutesOptions['authorize'];
+  thresholdSessionId: string;
 }): Promise<SigningSessionSealAuthorizeResult> {
-  if (args.options.authorize) {
+  const authorize = args.authorize ?? args.options.authorize;
+  if (authorize) {
     try {
-      return await args.options.authorize({
+      return await authorize({
         headers: args.headers,
-        session: args.session,
         thresholdSessionId: args.thresholdSessionId,
       });
     } catch (error: unknown) {
@@ -151,37 +139,12 @@ export async function authorizeSigningSessionSealRequest(args: {
     }
   }
 
-  if (!args.session) {
-    return {
-      ok: false,
-      code: 'sessions_disabled',
-      message: 'Sessions are not configured for Signing-session seal routes',
-      status: 501,
-    };
-  }
-
-  const parsed = await args.session.parse(args.headers);
-  if (!parsed.ok) {
-    return {
-      ok: false,
-      code: 'unauthorized',
-      message: 'No valid session',
-      status: 401,
-    };
-  }
-
-  const claims = claimsFromUnknown(parsed.claims);
-  const userId = userIdFromClaims(claims);
-  if (!userId) {
-    return {
-      ok: false,
-      code: 'unauthorized',
-      message: 'Invalid session subject',
-      status: 401,
-    };
-  }
-
-  return { ok: true, auth: { userId, claims } };
+  return {
+    ok: false,
+    code: 'sessions_disabled',
+    message: 'Opaque Wallet Session authorization is not configured for seal routes',
+    status: 501,
+  };
 }
 
 export function signingSessionSealStatusCode(result: SigningSessionSealRouteResult): number {
@@ -191,6 +154,7 @@ export function signingSessionSealStatusCode(result: SigningSessionSealRouteResu
     case 'wallet_session_missing':
     case 'wallet_session_signature_invalid':
     case 'wallet_session_claims_invalid':
+    case 'wallet_session_invalid':
     case 'wallet_session_expired':
       return 401;
     case 'forbidden':
@@ -233,6 +197,7 @@ export function signingSessionSealAuthorizeStatusCode(
     case 'wallet_session_missing':
     case 'wallet_session_signature_invalid':
     case 'wallet_session_claims_invalid':
+    case 'wallet_session_invalid':
     case 'wallet_session_expired':
       return 401;
     case 'forbidden':

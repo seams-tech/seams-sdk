@@ -1,27 +1,20 @@
 import type { RouterLogger } from './logger';
-import type {
-  ThresholdEd25519AuthorityScope,
-} from '../../core/types';
 import type { RouterApiRorOptions } from './ror/provider';
 import type { RouterApiModule } from './modules';
 import type { RouterApiRouteExtension } from './routeExtensions';
 import type { SigningSessionSealRoutesOptions } from '../../threshold/session/signingSessionSeal/signingSessionSeal.types';
-import { normalizeJwtCookieSessionKind } from '@shared/utils/normalize';
 import { WALLET_EMAIL_OTP_EXPORT_OPERATION } from '@shared/utils/emailOtpDomain';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { RouterAbPublicKeysetV2 } from '@shared/utils/routerAbPublicKeyset';
 import type { RouterAbNormalSigningAdmissionAdapter } from '../domains/signingOperations/routerAbPrivateSigningWorker';
 import type { RouterAbEd25519YaoProductRegistrationRuntimeV1 } from '../domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 import type { RouterAbEcdsaStrictPostRegistrationPort } from '../domains/ecdsa/routerAbEcdsaStrictRegistration';
-import type { EmailRecoveryService } from '../../email-recovery';
 import type {
   RouterApiKeyAuthAdapter,
   RouterApiProjectEnvironmentResolver,
   RouterApiPublishableKeyAuthAdapter,
   RouterApiUsageMeterAdapter,
 } from './apiCredentialPorts';
-import type { PrepareEmailRecoveryRequest } from '../domains/emailRecovery/emailRecoveryRequestValidation';
-import type { EmailRecoveryResolvedWalletBinding } from '../../core/EmailRecoveryPreparationStore';
 import type { SessionParseResult } from '../../core/sessionValidation';
 
 export type {
@@ -45,7 +38,6 @@ export type {
 // Minimal session adapter interface expected by the routers.
 export type SessionClaims = Record<string, unknown>;
 
-export type SessionKind = 'cookie' | 'jwt';
 export const DEFAULT_SESSION_COOKIE_NAME = 'seams-jwt';
 
 /**
@@ -89,15 +81,6 @@ function decodeJwtPayloadUtf8(payloadB64u: string): string | undefined {
   } catch {
     return undefined;
   }
-}
-
-export function parseSessionKind(body: unknown): SessionKind {
-  const v =
-    body && typeof body === 'object' && !Array.isArray(body)
-      ? (body as Record<string, unknown>)
-      : {};
-  const raw = v.sessionKind ?? v.session_kind;
-  return normalizeJwtCookieSessionKind(raw);
 }
 
 export interface SessionAdapter {
@@ -176,41 +159,6 @@ export interface RouterApiWebhookEmitter {
   ): Promise<RouterApiWebhookEventResult> | RouterApiWebhookEventResult;
 }
 
-export type RouterApiEmailRecoveryResult =
-  | {
-      ok: true;
-      walletId: string;
-      walletBinding: EmailRecoveryResolvedWalletBinding;
-      credentialIdB64u: string;
-      thresholdEd25519: {
-        relayerKeyId: string;
-        authorityScope: ThresholdEd25519AuthorityScope;
-        participantIds?: number[];
-      };
-    }
-  | { ok: false; code: string; message: string };
-
-export interface RouterApiEmailRecoveryAuthService {
-  prepareEmailRecovery(request: PrepareEmailRecoveryRequest): Promise<RouterApiEmailRecoveryResult>;
-}
-
-export type RouterApiEmailRecoveryExecutionService = Pick<
-  EmailRecoveryService,
-  'requestEmailRecovery'
->;
-
-export type RouterApiEmailRecoveryOptions =
-  | {
-      kind: 'prepare_and_execute';
-      authService: RouterApiEmailRecoveryAuthService;
-      executionService: RouterApiEmailRecoveryExecutionService;
-    }
-  | {
-      kind: 'prepare_only';
-      authService: RouterApiEmailRecoveryAuthService;
-      executionService?: never;
-    };
-
 export type RouterApiEmailOtpExportPolicyPhase = 'challenge' | 'verify';
 
 export type RouterApiEmailOtpExportPolicyDecision =
@@ -239,7 +187,7 @@ export interface RouterApiEmailOtpExportPolicyInput {
   orgId?: string;
   projectId?: string;
   environmentId?: string;
-  appSessionVersion: string;
+  ownerProofBindingDigest: string;
   challengeId?: string;
   sourceIp?: string;
 }
@@ -265,12 +213,10 @@ export interface RouterApiOptions {
    * Pass raw strings; the router normalizes/merges internally.
    */
   corsOrigins?: Array<string | undefined>;
-  // Optional: customize canonical app-session read route.
-  sessionRoutes?: { state?: string };
   // Optional: pluggable session adapter
   session?: SessionAdapter | null;
   /**
-   * App-session cookie name used for passive stale-session signal matching.
+   * Router session cookie name used for passive stale-session signal matching.
    * Defaults to `seams-jwt`.
    */
   sessionCookieName?: string;
@@ -278,8 +224,6 @@ export interface RouterApiOptions {
   runtimeSnapshots?: RouterApiRuntimeSnapshotConsumer | null;
   // Optional: webhook emitter for Router API session/wallet lifecycle events.
   routerApiWebhooks?: RouterApiWebhookOptions | null;
-  // Optional: enable DKIM/TEE email recovery prepare, respond, and ingress routes.
-  emailRecovery?: RouterApiEmailRecoveryOptions | null;
   /**
    * Optional policy adapter for Email OTP key-export authorization.
    *

@@ -30,20 +30,16 @@ export type { TempoFeeTokenValidation } from '@/core/signingEngine/chains/tempo/
 
 export type {
   AuthCapability,
+  AddPasskeyAuthorization,
+  AddPasskeyResult,
   BootstrapThresholdEcdsaSessionArgs,
   DevicesCapability,
-  EmailOtpBackedUpEnrollmentResult,
   EmailOtpChallengeResult,
   EmailOtpEcdsaCapabilityArgs,
   EmailOtpEcdsaCapabilityResult,
   EmailOtpEnrollmentResult,
-  EmailOtpRecoveryCodeBackupStatus,
-  EmailOtpRecoveryCodeRotationResult,
-  EmailOtpRecoveryCodeStatus,
   ExportKeypairWithUIInput,
-  GoogleEmailOtpSessionExchangeResult,
-  EmailOtpRecoveryCodeBackupAck,
-  GoogleEmailOtpRegistrationBackupActionKind,
+  GoogleEmailOtpRegistrationEnrollmentResult,
   GoogleEmailOtpRegistrationCandidate,
   GoogleEmailOtpRegistrationCandidateId,
   GoogleEmailOtpRegistrationFinalizeInput,
@@ -75,6 +71,10 @@ export type {
   PreferencesCapability,
   RegistrationCapability,
   RecoveryCapability,
+  WalletRecoveryRotationAuthorization,
+  WalletRecoveryRotationOutcome,
+  CompleteWalletRecoveryResult,
+  PrepareWalletWithCodeResult,
   ReconcileTempoNonceLaneArgs,
   ReportTempoBroadcastAcceptedArgs,
   ReportTempoBroadcastRejectedArgs,
@@ -122,10 +122,19 @@ export type {
 } from '@/core/types/sdkPublicResults';
 
 export type {
-  DeviceLinkingQRData,
   DeviceLinkingSession,
   LinkDeviceResult,
 } from '@/core/types/linkDevice';
+export type {
+  LinkedDeviceListRequestV1,
+  LinkedDeviceListResultV1,
+  LinkedDeviceManagementRequestV1,
+  LinkedDeviceRevokeRequestV1,
+  LinkedDeviceRevokeResultV1,
+  LinkedDeviceSummaryV1,
+  QrLinkedDevicePermissionRequest,
+  QrLinkedDeviceSessionPayloadV4,
+} from '@shared/device-linking';
 export {
   LinkDeviceEventPhase,
   DeviceLinkingError,

@@ -23,7 +23,6 @@ import type { RootShareEpoch, WebAuthnRpId } from '@shared/utils/domainIds';
 import type { EvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import type {
   MpcWalletSigningQuotaId,
-  SeamsSessionId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 
@@ -266,10 +265,6 @@ export interface AuthServiceConfig {
    * Optional GitHub OAuth configuration for exchanging authorization codes.
    */
   githubOAuth?: GithubOAuthConfig;
-  /**
-   * Optional generic OIDC JWT exchange configuration for `POST /session/exchange`.
-   */
-  oidcExchange?: OidcExchangeConfig;
 }
 
 export type GoogleOidcConfig = {
@@ -304,31 +299,6 @@ export interface GithubOAuthConfigEnvInput {
 
 export type GithubOAuthConfigInput = GithubOAuthConfig | GithubOAuthConfigEnvInput;
 
-export type OidcExchangeIssuerConfig = {
-  /** Exact issuer (`iss`) value to trust. */
-  issuer: string;
-  /** Allowed audiences (`aud`) for this issuer. */
-  audiences: string[];
-  /** JWKS endpoint used to verify JWT signatures for this issuer. */
-  jwksUrl: string;
-  /**
-   * Optional stable subject prefix for internal identity mapping.
-   * Defaults to `oidc:{issuer}:`.
-   */
-  subjectPrefix?: string;
-};
-
-export type OidcExchangeConfig = {
-  issuers: OidcExchangeIssuerConfig[];
-  /**
-   * Allowed JWT clock skew in seconds for `iat`/`nbf`/`exp` checks.
-   * Defaults to 60 seconds.
-   */
-  clockSkewSec?: number;
-};
-
-export type OidcExchangeConfigInput = OidcExchangeConfig;
-
 /**
  * User-facing input shape for `AuthService`. Fields that have SDK defaults are optional here.
  *
@@ -343,7 +313,6 @@ export type AuthServiceConfigInput = Omit<
   | 'thresholdStore'
   | 'googleOidc'
   | 'githubOAuth'
-  | 'oidcExchange'
 > & {
   nearRpcUrl?: string;
   networkId?: string;
@@ -352,7 +321,6 @@ export type AuthServiceConfigInput = Omit<
   thresholdStore?: ThresholdStoreConfigInput;
   googleOidc?: GoogleOidcConfigInput;
   githubOAuth?: GithubOAuthConfigInput;
-  oidcExchange?: OidcExchangeConfigInput;
 };
 
 // Account creation and registration types shared by Router API flows.
@@ -459,12 +427,8 @@ export interface WebAuthnAuthenticationCredential {
 export interface VerifyAuthenticationResponse {
   success: boolean;
   verified?: boolean;
-  jwt?: string;
-  sessionCredential?: any;
-  // Unified error model
   code?: string;
   message?: string;
-  contractResponse?: any;
 }
 
 // ================================
@@ -531,17 +495,6 @@ export type Ed25519SessionPolicy = {
 
 export type ThresholdEd25519VerifiedWalletAuth =
   | {
-      kind: 'app_session';
-      claims: {
-        sub: string;
-        kind: 'app_session_v1';
-        appSessionVersion: string;
-        walletId?: string;
-        runtimePolicyScope?: ThresholdRuntimePolicyScope;
-      };
-      sessionWalletId: string;
-    }
-  | {
       kind: 'threshold_ecdsa_session';
       claims: {
         sub: string;
@@ -576,7 +529,6 @@ export interface ThresholdEd25519SessionRequest {
   sessionPolicy: Ed25519SessionPolicy;
   projectEnvironmentId?: string;
   auth: ThresholdEd25519SessionAuth;
-  sessionKind?: 'jwt';
 }
 
 export interface ThresholdEd25519SessionResponse {
@@ -598,7 +550,6 @@ export interface ThresholdEd25519SessionResponse {
   remainingUses?: number;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
-  jwt?: string;
 }
 
 // ==========================================
@@ -671,14 +622,6 @@ export function registrationPreparationIdFromString(value: string): Registration
   return String(value || '').trim() as RegistrationPreparationId;
 }
 
-export interface EcdsaKeyFactsInventoryPolicy {
-  permission: 'ecdsa_key_facts_inventory';
-  walletId: WalletId;
-  chainTargets: ThresholdEcdsaChainTarget[];
-  runtimePolicyScope?: RuntimePolicyScope;
-  expiresAtMs: number;
-}
-
 export type WalletKeyFactsInventoryAuth =
   | {
       kind: 'webauthn_assertion';
@@ -686,19 +629,21 @@ export type WalletKeyFactsInventoryAuth =
       expectedChallengeDigestB64u: string;
       serverNonceB64u: string;
       runtimePolicyScope?: RuntimePolicyScope;
+      curve?: never;
     }
   | {
-      kind: 'app_session';
-      policy: EcdsaKeyFactsInventoryPolicy;
+      kind: 'opaque_wallet_session';
+      curve: 'ecdsa_secp256k1';
+      credential?: never;
+      expectedChallengeDigestB64u?: never;
+      serverNonceB64u?: never;
+      runtimePolicyScope?: never;
     };
 
 export interface ThresholdEcdsaDerivationFinalizeResponse {
   ok: boolean;
   code?: string;
   message?: string;
-  sessionKind?: 'jwt';
-  sessionAuthTokenUserId?: string;
-  sessionAuthTokenRpId?: string;
   keyHandle?: string;
   ecdsaThresholdKeyId?: EcdsaThresholdKeyId;
   clientVerifyingShareB64u?: string;
@@ -717,7 +662,6 @@ export interface ThresholdEcdsaDerivationFinalizeResponse {
   signingRootId?: string;
   signingRootVersion?: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
-  jwt?: string;
   canonicalPublicKeyHex?: string;
   privateKeyHex?: string;
   canonicalEthereumAddress?: string;
@@ -789,7 +733,6 @@ interface EcdsaDerivationClientBootstrapRequestBase {
   ttlMs: number;
   remainingUses: number;
   participantIds: number[];
-  sessionKind?: 'jwt';
   runtimePolicyScope?: RuntimePolicyScope;
 }
 
@@ -959,11 +902,4 @@ export interface ThresholdEcdsaCosignFinalizeResponse {
   code?: string;
   message?: string;
   relayerRound2?: unknown;
-}
-
-export interface RefreshSessionResult {
-  ok: boolean;
-  jwt?: string;
-  code?: string;
-  message?: string;
 }

@@ -15,31 +15,18 @@ const ROUTER_API_ROUTE_SURFACE_SYMBOL = Symbol.for('seams.routerApiRouteSurface'
 const SIGNED_DELEGATE_ROUTE_ID = 'signed_delegate';
 
 export interface RouterApiRouteSurface {
-  mePath: string;
   routeDefinitions: readonly RouteDefinition[];
   signedDelegatePath: string;
-}
-
-export function isEmailRecoveryPrepareRoutesEnabled(opts: RouterApiOptions): boolean {
-  return Boolean(opts.emailRecovery);
-}
-
-export function isRecoverEmailRouteEnabled(opts: RouterApiOptions): boolean {
-  return opts.emailRecovery?.kind === 'prepare_and_execute';
 }
 
 export function resolveRouterApiRouteDefinitionOptions(
   opts: RouterApiOptions,
 ): RouterApiRouteDefinitionOptions {
-  const mePath = String(opts.sessionRoutes?.state || '').trim() || '/session/state';
   return {
     enableHealthz: Boolean(opts.healthz),
-    enableEmailRecoveryPrepare: isEmailRecoveryPrepareRoutesEnabled(opts),
-    enableRecoverEmail: isRecoverEmailRouteEnabled(opts),
     enableSigningSessionSeal: Boolean(opts.signingSessionSeal),
     enableReadyz: Boolean(opts.readyz),
     signingSessionSealBasePath: opts.signingSessionSeal?.basePath,
-    sessionStatePath: mePath,
   };
 }
 
@@ -53,7 +40,6 @@ export function resolveRouterApiRouteSurface(
   opts: RouterApiOptions,
   input: { transport?: RouterApiRouteExtensionTransport } = {},
 ): RouterApiRouteSurface {
-  const mePath = String(opts.sessionRoutes?.state || '').trim() || '/session/state';
   const transport = input.transport || 'fetch';
   const routeExtensions = resolveRouterApiModuleRouteExtensions(opts);
   const routeDefinitions = [
@@ -62,7 +48,6 @@ export function resolveRouterApiRouteSurface(
   ];
   assertUniqueRouterApiRouteDefinitions(routeDefinitions);
   return {
-    mePath,
     routeDefinitions: Object.freeze(routeDefinitions),
     signedDelegatePath: findSignedDelegatePath(routeDefinitions),
   };
@@ -89,15 +74,10 @@ export function getRouterApiRouteSurface(target: unknown): RouterApiRouteSurface
   const value = (target as Record<PropertyKey, unknown>)[ROUTER_API_ROUTE_SURFACE_SYMBOL];
   if (!value || typeof value !== 'object') return null;
   const surface = value as Partial<RouterApiRouteSurface>;
-  if (
-    typeof surface.mePath !== 'string' ||
-    typeof surface.signedDelegatePath !== 'string' ||
-    !Array.isArray(surface.routeDefinitions)
-  ) {
+  if (typeof surface.signedDelegatePath !== 'string' || !Array.isArray(surface.routeDefinitions)) {
     return null;
   }
   return {
-    mePath: surface.mePath,
     routeDefinitions: surface.routeDefinitions,
     signedDelegatePath: surface.signedDelegatePath,
   };

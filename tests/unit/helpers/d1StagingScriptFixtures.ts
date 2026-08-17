@@ -208,6 +208,8 @@ RELAYER_PUBLIC_KEY = "ed25519:11111111111111111111111111111111"
 ROUTER_AB_CEREMONY_JWT_KEY_ID = "router-ab-ceremony-staging-r1"
 ROUTER_AB_CEREMONY_JWT_ISSUER = "https://seams-gateway-staging.example"
 ROUTER_AB_CEREMONY_JWT_AUDIENCE = "router-ab"
+LINKED_DEVICE_WEBAUTHN_RP_ID = "wallet.staging.example"
+LINKED_DEVICE_WEBAUTHN_ORIGIN = "https://app.staging.example"
 SPONSORED_EXECUTION_REAL_PRICING_JSON = '{"provider":"outlayer","nearRpcUrl":"https://free.rpc.fastnear.com","oracleContractId":"price-oracle.near","nearUsdPriceId":"c415de8d2efa7db216527dff4b60e8f3a5311c740dadb233e13e12547e226750","maxAgeSeconds":120,"maxLatestToEmaDeviationBps":1000,"cacheTtlMs":60000,"near":{"TESTNET":{"nativeUnitDecimals":24,"estimateFeeAmountYocto":"1000000000000000000000","pricingVersionPrefix":"outlayer-near-testnet"}}}'
 SPONSORED_EXECUTION_STATIC_PRICING_JSON = '{"near":{"TESTNET":{"estimateFeeAmountYocto":"1000000000000000000000","minorPerFeeUnitNumerator":"300","minorPerFeeUnitDenominator":"1000000000000000000000000","pricingVersion":"static-near-testnet-v1"}}}'
 CONSOLE_BASE_URL = "https://console.staging.example"
@@ -220,6 +222,6 @@ CONSOLE_EMAIL_CRON_EXPRESSIONS = "*/5 * * * *"
 crons = ["*/5 * * * *"]
 
 [secrets]
-required = ["ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK", "ACCOUNT_ID_DERIVATION_SECRET", "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET", "SPONSORED_EVM_EXECUTORS_JSON", "STRIPE_API_SK", "STRIPE_WEBHOOK_SECRET", "RESEND_API_KEY", "CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U"]
+required = ["ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK", "ACCOUNT_ID_DERIVATION_SECRET", "ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET", "LINKED_DEVICE_OPERATOR_RECOVERY_SECRET", "LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET", "SPONSORED_EVM_EXECUTORS_JSON", "STRIPE_API_SK", "STRIPE_WEBHOOK_SECRET", "RESEND_API_KEY", "CONSOLE_EMAIL_INVITATION_SECRET_KEY_B64U"]
 `;
 }

@@ -1,4 +1,5 @@
 {
+	admin off
 	auto_https disable_redirects
 	log {
 		level ERROR
@@ -9,6 +10,7 @@
 localhost {
 	tls internal
 	encode gzip
+	header Permissions-Policy "publickey-credentials-get=(self \"https://localhost:8443\"), publickey-credentials-create=(self \"https://localhost:8443\"), clipboard-read=(self \"https://localhost:8443\"), clipboard-write=(self \"https://localhost:8443\")"
 	@app_wallet_assets {
 		path /sdk/* /wallet-service /wallet-service/* /export-viewer /export-viewer/*
 	}
@@ -97,7 +99,7 @@ localhost:9444 {
 	header @router_allowed_origin Access-Control-Allow-Origin {http.request.header.Origin}
 	header @router_allowed_origin Access-Control-Allow-Credentials true
 	header @router_allowed_origin Access-Control-Allow-Methods "GET,POST,PUT,PATCH,DELETE,OPTIONS"
-	header @router_allowed_origin Access-Control-Allow-Headers "Content-Type,Authorization,X-Seams-Trace-Id,X-Seams-Environment-Id,X-Environment-Id,X-Console-Org-Id,X-Console-User-Id,X-Console-Roles,X-Console-Project-Id,X-Console-Environment-Id"
+	header @router_allowed_origin Access-Control-Allow-Headers "Content-Type,Authorization,X-Seams-Linked-Device-Proof-V1,X-Seams-Trace-Id,X-Seams-Environment-Id,X-Environment-Id,X-Console-Org-Id,X-Console-User-Id,X-Console-Roles,X-Console-Project-Id,X-Console-Environment-Id"
 	header @router_allowed_origin Vary Origin
 	respond @router_preflight 204
 	reverse_proxy 127.0.0.1:9090 {
@@ -108,13 +110,11 @@ localhost:9444 {
 		header_down -Vary
 	}
 	handle_errors {
-		@router_optional_probe path /session/state /auth/google/options /.well-known/webauthn /.well-known/webauthn/
-		@router_session_state path /session/state
+		@router_optional_probe path /auth/google/options /.well-known/webauthn /.well-known/webauthn/
 		@router_google_options path /auth/google/options
 		@router_well_known_webauthn path /.well-known/webauthn /.well-known/webauthn/
 		header @router_optional_probe Content-Type "application/json; charset=utf-8"
 		header @router_optional_probe Cache-Control "no-store"
-		respond @router_session_state `{"authenticated":false,"routerAvailable":false}` 200
 		respond @router_google_options `{"ok":true,"configured":false,"routerAvailable":false,"message":"Router API server is unavailable"}` 200
 		respond @router_well_known_webauthn `{"origins":[],"capabilities":{"signingSessionSeal":{"mode":"none"}},"routerAvailable":false}` 200
 	}

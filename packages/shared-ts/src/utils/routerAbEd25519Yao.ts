@@ -727,6 +727,8 @@ function parseOperation(value: unknown, label: string): RouterAbEd25519YaoOperat
     case 'recovery':
     case 'refresh':
     case 'export':
+    case 'lane_provisioning':
+    case 'lane_refresh':
       return value;
     default:
       throw new Error(`${label} is invalid`);
@@ -961,6 +963,12 @@ function parseCeremonyBinding(value: unknown): RouterAbEd25519YaoCeremonyBinding
   return binding;
 }
 
+export function parseRouterAbEd25519YaoCeremonyBindingV1(
+  value: unknown,
+): RouterAbEd25519YaoCeremonyBindingV1 {
+  return parseCeremonyBinding(value);
+}
+
 function requireExportCeremonyBinding(value: unknown): RouterAbEd25519YaoExportCeremonyBindingV1 {
   const binding = parseCeremonyBinding(value);
   if (
@@ -1070,6 +1078,8 @@ function requireActivationBinding(
       };
     case 'refresh':
     case 'export':
+    case 'lane_provisioning':
+    case 'lane_refresh':
       throw new Error('activation binding has a non-activation operation');
   }
 }
@@ -1106,6 +1116,12 @@ function parseKeyset(value: unknown): RouterAbEd25519YaoActivationKeysetV1 {
     throw new Error('keyset public keys must be distinct');
   }
   return keyset;
+}
+
+export function parseRouterAbEd25519YaoActivationKeysetV1(
+  value: unknown,
+): RouterAbEd25519YaoActivationKeysetV1 {
+  return parseKeyset(value);
 }
 
 function parseEncryptedInput(value: unknown, label: string): RouterAbEd25519YaoEncryptedInputV1 {

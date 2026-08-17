@@ -1,7 +1,6 @@
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { secureRandomId } from '@shared/utils/secureRandomId';
-import { normalizeJwtCookieSessionKind } from '@shared/utils/normalize';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import {
   DEFAULT_WALLET_SESSION_REMAINING_USES,
@@ -23,7 +22,6 @@ import type { RouterAbEd25519NormalSigningState } from '@shared/utils/signingSes
 import type { SigningOperationId } from '../session/operationState/types';
 
 export type ThresholdRuntimePolicyScope = RuntimePolicyScope;
-export type ThresholdSessionKind = 'jwt' | 'cookie';
 
 export const THRESHOLD_SESSION_POLICY_VERSION = 'threshold_session_v1' as const;
 
@@ -82,10 +80,6 @@ export function normalizeThresholdRuntimePolicyScope(
   } catch {
     return undefined;
   }
-}
-
-export function normalizeThresholdSessionKind(value: unknown): ThresholdSessionKind {
-  return normalizeJwtCookieSessionKind(value);
 }
 
 export type Ed25519SessionPolicy = {
@@ -292,7 +286,6 @@ async function buildExactEd25519SessionPolicy(
   const sessionPolicyDigest32 = await computeEd25519SessionPolicyDigest32(policy);
   return { policy, policyJson: JSON.stringify(policy), sessionPolicyDigest32 };
 }
-
 
 export function isThresholdSignerMissingKeyError(err: unknown): boolean {
   const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();

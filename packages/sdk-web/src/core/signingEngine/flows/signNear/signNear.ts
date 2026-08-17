@@ -51,7 +51,10 @@ import {
   type Ed25519LaneCandidate,
   type SelectedEd25519Lane,
 } from '../../session/identity/laneIdentity';
-import { signingLaneAuthMethod } from '../../session/identity/signingLaneAuthBinding';
+import {
+  signingLaneAuthBindingKey,
+  signingLaneAuthMethod,
+} from '../../session/identity/signingLaneAuthBinding';
 import {
   exactEd25519SigningLaneIdentityFromSelectedLane,
   exactSigningLaneIdentityKey,
@@ -88,10 +91,44 @@ import {
 import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import {
   buildWalletSessionQuotaAdmissionQueueKey,
-  decideWalletSessionQuotaAdmissionError,
+  WalletSessionQuotaAdmissionError,
+  classifyWalletSessionQuotaAdmissionFailure,
+  decideWalletSessionQuotaAdmissionFailure,
   waitForWalletSessionQuotaAdmissionRetry,
 } from '../../session/operationState/authorizationAdmission';
-import { signingLaneAuthBindingKey } from '../../session/identity/signingLaneAuthBinding';
+import type { RouterAbEd25519OwnerOperationAuthorizationDecisionV1Wire } from '@shared/utils/routerAbNormalSigningIdentity';
+
+function nearOwnerOperationAuthorizationDecisionFromError(
+  error: unknown,
+): RouterAbEd25519OwnerOperationAuthorizationDecisionV1Wire | undefined {
+  if (!(error instanceof WalletSessionQuotaAdmissionError)) return undefined;
+  const decision = error.authorizationDecision;
+  if (!decision || decision.kind !== 'step_up_required' || !('request_id' in decision.step_up)) {
+    return undefined;
+  }
+  return {
+    kind: 'step_up_required',
+    reason: decision.reason,
+    step_up: decision.step_up,
+  };
+}
+
+function nearWalletSessionQuotaAdmissionDecisionFromError(error: unknown) {
+  const ownerDecision = nearOwnerOperationAuthorizationDecisionFromError(error);
+  const failure = classifyWalletSessionQuotaAdmissionFailure(error);
+  if (ownerDecision) {
+    return decideWalletSessionQuotaAdmissionFailure(
+      failure ?? {
+        kind: 'exhausted',
+        source: 'server_prepare',
+        detail: 'Server requires owner operation step-up',
+      },
+    );
+  }
+  return failure?.kind === 'in_flight'
+    ? decideWalletSessionQuotaAdmissionFailure(failure)
+    : null;
+}
 import type { WalletSessionStatusIdentity } from '../../session/lifecycle/walletSessionStatus';
 import {
 } from '../../threshold/sessionPolicy';
@@ -399,6 +436,23 @@ function assertSigningLaneMatchesSelectedTransactionLane(args: {
       '[SigningEngine][near] prepared signing lane drifted from selected transaction lane',
     );
   }
+}
+
+function selectedEd25519LanesHaveSameSignerAndAuth(
+  left: SelectedEd25519Lane,
+  right: SelectedEd25519Lane,
+): boolean {
+  const leftSigner = left.identity.signer;
+  const rightSigner = right.identity.signer;
+  return (
+    String(leftSigner.account.wallet.walletId) ===
+      String(rightSigner.account.wallet.walletId) &&
+    String(leftSigner.account.nearAccountId) === String(rightSigner.account.nearAccountId) &&
+    String(leftSigner.nearEd25519SigningKeyId) ===
+      String(rightSigner.nearEd25519SigningKeyId) &&
+    leftSigner.signerSlot === rightSigner.signerSlot &&
+    signingLaneAuthBindingKey(left.auth) === signingLaneAuthBindingKey(right.auth)
+  );
 }
 
 function transactionReadinessFromPlannerInput(
@@ -1213,12 +1267,12 @@ async function prepareNearEd25519TransactionSigningSession(args: {
 }): Promise<PreparedNearEd25519TransactionSigningSession> {
   const nearAccountId = args.commandSubject.nearAccount.accountId;
   const operationUsesNeeded = requiredNearTransactionSignatureUses(args.input.transaction);
-  const availableLanes = await readNearEd25519AvailableSigningLanes({
+  let availableLanes = await readNearEd25519AvailableSigningLanes({
     deps: args.deps,
     commandSubject: args.commandSubject,
     authMethod: null,
   });
-  const selectedLane = selectSelectedEd25519LaneFromAvailableLanes({
+  let selectedLane = selectSelectedEd25519LaneFromAvailableLanes({
     commandSubject: args.commandSubject,
     availableLanes,
     signerSlot: args.input.signerSlot,
@@ -1246,6 +1300,36 @@ async function prepareNearEd25519TransactionSigningSession(args: {
     commandSubject: args.commandSubject,
     selectedLane: selectedLane.lane,
   });
+  if (initialMaterialBoundary.preparation.authorization.kind === 'authorized') {
+    const authorization = initialMaterialBoundary.preparation.authorization.authorization.projection;
+    if (
+      selectedLane.lane.walletSessionId !== authorization.walletSessionId ||
+      selectedLane.lane.quotaId !== authorization.quotaId
+    ) {
+      availableLanes = await readNearEd25519AvailableSigningLanes({
+        deps: args.deps,
+        commandSubject: args.commandSubject,
+        authMethod: signingLaneAuthMethod(selectedLane.lane.auth),
+      });
+      const refreshedLane = selectSelectedEd25519LaneFromAvailableLanes({
+        commandSubject: args.commandSubject,
+        availableLanes,
+        signerSlot: args.input.signerSlot,
+        operationUsesNeeded,
+      });
+      if (
+        !refreshedLane ||
+        !selectedEd25519LanesHaveSameSignerAndAuth(selectedLane.lane, refreshedLane.lane) ||
+        refreshedLane.lane.walletSessionId !== authorization.walletSessionId ||
+        refreshedLane.lane.quotaId !== authorization.quotaId
+      ) {
+        throw new Error(
+          '[SigningEngine][near] material restoration changed the Wallet Session without an exact refreshed lane',
+        );
+      }
+      selectedLane = refreshedLane;
+    }
+  }
   const forceFreshAuth =
     args.forceFreshAuth === true ||
     nearEd25519PreparationRequiresAuthorization(initialMaterialBoundary.preparation);
@@ -1477,10 +1561,10 @@ export async function signTransactionWithActions(
     const alreadyAttemptedFreshAuth =
       signingAuthPlan.kind === SigningAuthPlanKind.PasskeyReauth ||
       signingAuthPlan.kind === SigningAuthPlanKind.EmailOtpReauth;
-    const admissionDecision = decideWalletSessionQuotaAdmissionError(error);
+    const ownerDecision = nearOwnerOperationAuthorizationDecisionFromError(error);
+    const admissionDecision = nearWalletSessionQuotaAdmissionDecisionFromError(error);
     const walletSessionFailure = walletSessionFailureFromError(error);
-    const walletSessionRequiresStepUp =
-      walletSessionFailure?.kind === 'expired' || walletSessionFailure?.kind === 'missing';
+    const walletSessionRequiresStepUp = ownerDecision?.kind === 'step_up_required';
     if (
       !attempt.retryingFreshAuth &&
       !alreadyAttemptedFreshAuth &&
@@ -1504,11 +1588,14 @@ export async function signTransactionWithActions(
         expiresAtMs: preparationAuthorization.authorization.status.expiresAtMs,
       });
       const isEmailOtpSession = transactionLane.auth.kind === 'email_otp';
+      const ownerStepUpReason = ownerDecision?.kind === 'step_up_required'
+        ? ownerDecision.reason
+        : undefined;
       const reason = admissionDecision
         ? admissionDecision.reason === 'stale_projection'
           ? 'wallet_signing_budget_stale_projection'
           : 'wallet_signing_budget_exhausted'
-        : walletSessionFailure?.kind === 'missing'
+        : ownerStepUpReason === 'wallet_session_missing'
           ? 'threshold_session_missing'
           : 'threshold_session_expired';
       emitNearSigningEvent(publicOptions.onEvent, nearAccountId, {
@@ -1635,7 +1722,8 @@ async function executeNearDelegateSigningAttempt(
       }),
     });
   } catch (error: unknown) {
-    const admissionDecision = decideWalletSessionQuotaAdmissionError(error);
+    const ownerDecision = nearOwnerOperationAuthorizationDecisionFromError(error);
+    const admissionDecision = nearWalletSessionQuotaAdmissionDecisionFromError(error);
     if (args.attempt.kind === 'initial' && admissionDecision) {
       if (admissionDecision.kind === 'wait_and_retry_admission') {
         await waitForWalletSessionQuotaAdmissionRetry(admissionDecision.retryAfterMs);
@@ -1661,11 +1749,7 @@ async function executeNearDelegateSigningAttempt(
       });
     }
     const failure = walletSessionFailureFromError(error);
-    if (
-      args.attempt.kind === 'initial' &&
-      !prepared.forceFreshAuth &&
-      (failure?.kind === 'expired' || failure?.kind === 'missing')
-    ) {
+    if (args.attempt.kind === 'initial' && !prepared.forceFreshAuth && ownerDecision) {
       await invalidateAuthoritativeNearWalletSessionExpiry({
         failure,
         coordinator: args.deps.signingSessionCoordinator,
@@ -1776,11 +1860,12 @@ async function executeNearNep413SigningAttempt(
       }),
     });
   } catch (error: unknown) {
+    const ownerDecision = nearOwnerOperationAuthorizationDecisionFromError(error);
     const failure = walletSessionFailureFromError(error);
     if (
       args.attempt.kind === 'initial' &&
       !prepared.forceFreshAuth &&
-      (failure?.kind === 'expired' || failure?.kind === 'missing')
+      ownerDecision !== undefined
     ) {
       await invalidateAuthoritativeNearWalletSessionExpiry({
         failure,

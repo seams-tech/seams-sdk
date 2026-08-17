@@ -27,17 +27,17 @@
       "curve": "secp256k1",
       "encoding": "base64url",
       "producer": "signer_core",
-      "stateBlobB64u": "UkFFRFAyAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVYGtvbqG1th75M_BZw596y4cRPwCBbmQw3bSA53pbIm3AAAAAHjBxf0UMHDzHuNEGlo5WPFaLFhqHIwP6JxhmfQT6MYYAtwt5jXVelj7TRZgVnmNBX0EQ2GY6bQrhRtfKfqOiuZq"
+      "stateBlobB64u": "UkFFRFAyAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVYGtvbqG1th75M_BZw596y4cRPwCBbmQw3bSA53pbIm3AAAAAP1Q-4UJ3OuxMtXl3nrR93IoRL3quTE-SzgoCL7lDq0xAio1Giifu-vPbRiqOSjKenme1ZbXPNhj8IDEzGpWZcnq"
     },
     "clientBootstrap": {
       "contextBinding32B64u": "ga29uobW2Hvkz8FnDn3rLhxE_AIFuZDDdtIDnelsibc",
-      "derivationClientSharePublicKey33B64u": "Atwt5jXVelj7TRZgVnmNBX0EQ2GY6bQrhRtfKfqOiuZq",
+      "derivationClientSharePublicKey33B64u": "Aio1Giifu-vPbRiqOSjKenme1ZbXPNhj8IDEzGpWZcnq",
       "clientShareRetryCounter": 0,
       "participantId": 1
     },
     "publicFacts": {
-      "derivationClientSharePublicKey33B64u": "Atwt5jXVelj7TRZgVnmNBX0EQ2GY6bQrhRtfKfqOiuZq",
-      "clientVerifyingShareB64u": "Atwt5jXVelj7TRZgVnmNBX0EQ2GY6bQrhRtfKfqOiuZq"
+      "derivationClientSharePublicKey33B64u": "Aio1Giifu-vPbRiqOSjKenme1ZbXPNhj8IDEzGpWZcnq",
+      "clientVerifyingShareB64u": "Aio1Giifu-vPbRiqOSjKenme1ZbXPNhj8IDEzGpWZcnq"
     }
   },
   "finalizeCommand": {
@@ -47,13 +47,14 @@
       "curve": "secp256k1",
       "encoding": "base64url",
       "producer": "signer_core",
-      "stateBlobB64u": "UkFFRFAyAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVYGtvbqG1th75M_BZw596y4cRPwCBbmQw3bSA53pbIm3AAAAAHjBxf0UMHDzHuNEGlo5WPFaLFhqHIwP6JxhmfQT6MYYAtwt5jXVelj7TRZgVnmNBX0EQ2GY6bQrhRtfKfqOiuZq"
+      "stateBlobB64u": "UkFFRFAyAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVYGtvbqG1th75M_BZw596y4cRPwCBbmQw3bSA53pbIm3AAAAAP1Q-4UJ3OuxMtXl3nrR93IoRL3quTE-SzgoCL7lDq0xAio1Giifu-vPbRiqOSjKenme1ZbXPNhj8IDEzGpWZcnq"
     },
     "relayerPublicIdentity": {
       "relayerKeyId": "relayer-key",
       "relayerPublicKey33B64u": "A6tbOC71wOA6nkWqZtdKpJ-LGiCSJANkUOpy2v8eYxYO",
-      "groupPublicKey33B64u": "A40b71OnjHXDpAfjpNrmDton5rtQ-s2b9iiVXT93TtAM",
-      "ethereumAddress": "0x1602940437e1ba13e06c5a452833dadf081ad1f2"
+      "groupPublicKey33B64u": "AsJG7NB4H444LdTWA0Bjw0JGgKBPupAeyuTZBLfwIlwX",
+      "ethereumAddress": "0x36987ddfcb4dbdbb54ba8de7f0a63259d074c26c",
+      "relayerShareRetryCounter": 0
     }
   },
   "expectedFinalizeOutput": {
@@ -62,15 +63,15 @@
       "curve": "secp256k1",
       "encoding": "base64url",
       "producer": "signer_core",
-      "stateBlobB64u": "UkFFRFIyAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVQALcmVsYXllci1rZXmBrb26htbYe-TPwWcOfesuHET8AgW5kMN20gOd6WyJtwAAAAB4wcX9FDBw8x7jRBpaOVjxWixYahyMD-icYZn0E-jGGALcLeY11XpY-00WYFZ5jQV9BENhmOm0K4UbXyn6jormagAAAAADq1s4LvXA4DqeRapm10qkn4saIJIkA2RQ6nLa_x5jFg4DjRvvU6eMdcOkB-Ok2uYO2ifmu1D6zZv2KJVdP3dO0AwWApQEN-G6E-BsWkUoM9rfCBrR8g"
+      "stateBlobB64u": "UkFFRFIyAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVQALcmVsYXllci1rZXmBrb26htbYe-TPwWcOfesuHET8AgW5kMN20gOd6WyJtwAAAAD9UPuFCdzrsTLV5d560fdyKES96rkxPks4KAi-5Q6tMQIqNRoon7vrz20Yqjkoynp5ntWW1zzYY_CAxMxqVmXJ6gAAAAADq1s4LvXA4DqeRapm10qkn4saIJIkA2RQ6nLa_x5jFg4Cwkbs0Hgfjjgt1NYDQGPDQkaAoE-6kB7K5NkEt_AiXBc2mH3fy029u1S6jefwpjJZ0HTCbA"
     },
     "publicFacts": {
       "contextBinding32B64u": "ga29uobW2Hvkz8FnDn3rLhxE_AIFuZDDdtIDnelsibc",
-      "derivationClientSharePublicKey33B64u": "Atwt5jXVelj7TRZgVnmNBX0EQ2GY6bQrhRtfKfqOiuZq",
-      "clientVerifyingShareB64u": "Atwt5jXVelj7TRZgVnmNBX0EQ2GY6bQrhRtfKfqOiuZq",
+      "derivationClientSharePublicKey33B64u": "Aio1Giifu-vPbRiqOSjKenme1ZbXPNhj8IDEzGpWZcnq",
+      "clientVerifyingShareB64u": "Aio1Giifu-vPbRiqOSjKenme1ZbXPNhj8IDEzGpWZcnq",
       "relayerPublicKey33B64u": "A6tbOC71wOA6nkWqZtdKpJ-LGiCSJANkUOpy2v8eYxYO",
-      "groupPublicKey33B64u": "A40b71OnjHXDpAfjpNrmDton5rtQ-s2b9iiVXT93TtAM",
-      "ethereumAddress": "0x1602940437e1ba13e06c5a452833dadf081ad1f2"
+      "groupPublicKey33B64u": "AsJG7NB4H444LdTWA0Bjw0JGgKBPupAeyuTZBLfwIlwX",
+      "ethereumAddress": "0x36987ddfcb4dbdbb54ba8de7f0a63259d074c26c"
     }
   }
 }

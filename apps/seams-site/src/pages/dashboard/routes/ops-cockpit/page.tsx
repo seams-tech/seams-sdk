@@ -1,17 +1,7 @@
 import React from 'react';
 import { useSiteRouter } from '@/app/router/useSiteRouter';
 import { formatDashboardTimestamp } from '../../utils/timestamps';
-import {
-  ActivityIcon,
-  CreditCardIcon,
-  FuelIcon,
-  KeyRoundIcon,
-  ScaleIcon,
-  ScrollTextIcon,
-  UserCogIcon,
-  WalletCardsIcon,
-  WebhookIcon,
-} from '../../icons/SidebarIcons';
+import { CreditCardIcon, KeyRoundIcon, ScaleIcon } from '../../icons/SidebarIcons';
 import { useDashboardConsoleSession } from '../../consoleSession';
 import {
   getDashboardOpsCockpitSummary,
@@ -24,7 +14,6 @@ import {
   approveDashboardApproval,
   rejectDashboardApproval,
 } from '../approvals/consoleApprovalsApi';
-import { createDashboardAuditExport, listDashboardAuditExports } from '../audit/consoleAuditApi';
 import { replayDashboardWebhookDelivery } from '../webhooks/consoleWebhooksApi';
 
 type OpsCockpitData = {
@@ -57,6 +46,10 @@ function formatApprovalLabel(value: string | null | undefined): string {
 function toErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error || 'Unknown error');
+}
+
+function isPlatformSupportAccessMessage(message: string): boolean {
+  return message.includes('platform.support access');
 }
 
 function toSectionWarning(label: string, status: DashboardOpsCockpitSectionStatus): string | null {
@@ -93,15 +86,6 @@ const OVERVIEW_HERO_ACTIONS = [
   },
 ] as const;
 
-const OVERVIEW_HERO_TOOLS = [
-  { label: 'User wallets', path: '/dashboard/wallets-list', icon: WalletCardsIcon },
-  { label: 'Gas sponsorship', path: '/dashboard/gas-sponsorship', icon: FuelIcon },
-  { label: 'Observability', path: '/dashboard/observability', icon: ActivityIcon },
-  { label: 'Audit logs', path: '/dashboard/audit', icon: ScrollTextIcon },
-  { label: 'Webhooks', path: '/dashboard/webhooks', icon: WebhookIcon },
-  { label: 'Team members', path: '/dashboard/team-members', icon: UserCogIcon },
-] as const;
-
 function OpsCockpitQueuePanel(props: {
   ariaLabel: string;
   title: string;
@@ -131,10 +115,6 @@ export function OpsCockpitPage(): React.JSX.Element {
   const [approvalMutationErrorMessage, setApprovalMutationErrorMessage] =
     React.useState<string>('');
   const [approvalMutationNotice, setApprovalMutationNotice] = React.useState<string>('');
-  const [requeueingAuditExportId, setRequeueingAuditExportId] = React.useState<string>('');
-  const [auditExportMutationErrorMessage, setAuditExportMutationErrorMessage] =
-    React.useState<string>('');
-  const [auditExportMutationNotice, setAuditExportMutationNotice] = React.useState<string>('');
   const [replayingDeadLetterId, setReplayingDeadLetterId] = React.useState<string>('');
   const [mutationErrorMessage, setMutationErrorMessage] = React.useState<string>('');
   const [mutationNotice, setMutationNotice] = React.useState<string>('');
@@ -164,8 +144,9 @@ export function OpsCockpitPage(): React.JSX.Element {
         toSectionWarning('Approvals queue', summary.approvals.status),
         toSectionWarning('Billing failure queue', summary.billing.status),
         toSectionWarning('Webhook dead letters', summary.webhooks.status),
-        toSectionWarning('Audit export queue', summary.auditExports.status),
-      ].filter((entry): entry is string => Boolean(entry));
+      ].filter(
+        (entry): entry is string => Boolean(entry) && !isPlatformSupportAccessMessage(entry || ''),
+      );
       if (summary.webhooks.endpointCount > summary.webhooks.scannedEndpointCount) {
         warnings.push(
           `Webhook dead-letter scan capped at ${summary.webhooks.scannedEndpointCount} endpoints (total ${summary.webhooks.endpointCount}).`,
@@ -295,202 +276,171 @@ export function OpsCockpitPage(): React.JSX.Element {
     [loadOpsCockpit, session.claims, session.errorMessage],
   );
 
-  const onRequeueAuditExport = React.useCallback(
-    async (exportId: string) => {
-      if (!session.claims) {
-        setAuditExportMutationErrorMessage(
-          session.errorMessage || 'Console session is unavailable',
-        );
-        return;
-      }
-      const normalizedExportId = String(exportId || '').trim();
-      if (!normalizedExportId) {
-        setAuditExportMutationErrorMessage('Export id is required.');
-        return;
-      }
-      setRequeueingAuditExportId(normalizedExportId);
-      setAuditExportMutationErrorMessage('');
-      setAuditExportMutationNotice('');
-      try {
-        const exports = await listDashboardAuditExports({ limit: 200 });
-        const sourceExport = exports.find((entry) => entry.id === normalizedExportId);
-        if (!sourceExport) {
-          throw new Error(`Audit export ${normalizedExportId} was not found.`);
-        }
-        const requeued = await createDashboardAuditExport({
-          format: sourceExport.format,
-          ...(sourceExport.filters.domain && sourceExport.filters.domain !== 'ALL'
-            ? { domain: sourceExport.filters.domain }
-            : {}),
-          ...(sourceExport.filters.projectId ? { projectId: sourceExport.filters.projectId } : {}),
-          ...(sourceExport.filters.environmentId
-            ? { environmentId: sourceExport.filters.environmentId }
-            : {}),
-          ...(sourceExport.filters.from ? { from: sourceExport.filters.from } : {}),
-          ...(sourceExport.filters.to ? { to: sourceExport.filters.to } : {}),
-        });
-        setAuditExportMutationNotice(
-          `Queued replacement export ${requeued.id} from ${normalizedExportId}.`,
-        );
-        loadOpsCockpit();
-      } catch (error: unknown) {
-        setAuditExportMutationErrorMessage(toErrorMessage(error));
-      } finally {
-        setRequeueingAuditExportId('');
-      }
-    },
-    [loadOpsCockpit, session.claims, session.errorMessage],
-  );
-
   const summary = data.summary;
   const pendingApprovals = summary?.approvals.pending || [];
   const failedInvoices = summary?.billing.failedInvoices || [];
   const failedWebhooks = summary?.webhooks.deadLetters || [];
-  const queuedAuditExports = summary?.auditExports.queuedExports || [];
-  const showAuditExportQueue = summary?.auditExports.status.state !== 'not_configured';
   const showWebhookQueue = summary?.webhooks.status.state !== 'not_configured';
   const showBillingQueue = summary?.billing.status.state !== 'not_configured';
   const summaryWarnings = data.warnings;
+  const visibleErrorMessage = isPlatformSupportAccessMessage(errorMessage) ? '' : errorMessage;
 
   return (
     <div className="dashboard-view dashboard-ops-cockpit-view" aria-label="Ops cockpit page">
       <section className="dashboard-hero" aria-label="Quick actions">
-        <h2 className="dashboard-hero__title">What would you like to do?</h2>
-        <div className="dashboard-hero__cards">
-          {OVERVIEW_HERO_ACTIONS.map((action) => {
-            const ActionIcon = action.icon;
-            const navProps = linkProps(action.path);
-            return (
-              <a
-                key={action.path}
-                className="dashboard-hero__card"
-                href={navProps.href}
-                onClick={navProps.onClick}
-              >
-                <span
-                  className={`dashboard-hero__card-icon dashboard-hero__card-icon--${action.tone}`}
-                  aria-hidden="true"
+        <div className="dashboard-hero__primary">
+          <h2 className="dashboard-hero__title">What would you like to do?</h2>
+          <div className="dashboard-hero__cards">
+            {OVERVIEW_HERO_ACTIONS.map((action) => {
+              const ActionIcon = action.icon;
+              const navProps = linkProps(action.path);
+              return (
+                <a
+                  key={action.path}
+                  className="dashboard-hero__card"
+                  href={navProps.href}
+                  onClick={navProps.onClick}
                 >
-                  <ActionIcon size={20} />
-                </span>
-                <span className="dashboard-hero__card-title">{action.title}</span>
-                <span className="dashboard-hero__card-description">{action.description}</span>
-              </a>
-            );
-          })}
-        </div>
-        <div className="dashboard-hero__chips">
-          {OVERVIEW_HERO_TOOLS.map((tool) => {
-            const ToolIcon = tool.icon;
-            const navProps = linkProps(tool.path);
-            return (
-              <a
-                key={tool.path}
-                className="dashboard-hero__chip"
-                href={navProps.href}
-                onClick={navProps.onClick}
-              >
-                <ToolIcon size={16} />
-                <span>{tool.label}</span>
-              </a>
-            );
-          })}
-        </div>
-        <a
-          className="dashboard-hero__promo"
-          href={linkProps('/dashboard/gas-sponsorship').href}
-          onClick={linkProps('/dashboard/gas-sponsorship').onClick}
-        >
-          <span className="dashboard-hero__promo-copy">
-            <span className="dashboard-hero__promo-title">Sponsor gas for your users</span>
-            <span className="dashboard-hero__promo-description">
-              Cover transaction fees with policies and spend caps — no user top-ups required.
-            </span>
-          </span>
-          <span className="dashboard-pagination-button dashboard-pagination-button--primary">
-            Set up sponsorship
-          </span>
-        </a>
-      </section>
-
-      <section
-        className="dashboard-view__section dashboard-ops-cockpit-summary--plain"
-        aria-label="Ops cockpit summary"
-      >
-        {loading ? <p className="dashboard-pagination-note">Refreshing queue snapshot...</p> : null}
-        {errorMessage ? <p className="dashboard-pagination-note">{errorMessage}</p> : null}
-        {summaryWarnings.length > 0 ? (
-          <div className="dashboard-view-grid">
-            {summaryWarnings.map((warning) => (
-              <p className="dashboard-pagination-note" key={warning}>
-                {warning}
-              </p>
-            ))}
-          </div>
-        ) : null}
-      </section>
-
-      <section className="dashboard-view__section" aria-label="Pending approvals summary">
-        <h2>Pending approvals</h2>
-        {approvalMutationNotice ? (
-          <p className="dashboard-pagination-note">{approvalMutationNotice}</p>
-        ) : null}
-        {approvalMutationErrorMessage ? (
-          <p className="dashboard-pagination-note">{approvalMutationErrorMessage}</p>
-        ) : null}
-        {pendingApprovals.length === 0 ? (
-          <p className="dashboard-pagination-note">No pending approvals.</p>
-        ) : (
-          <ul className="dashboard-view-list">
-            {pendingApprovals.slice(0, 6).map((row) => (
-              <li key={row.id}>
-                <p>
-                  <strong>{formatApprovalLabel(row.operationType)}</strong> for{' '}
-                  {formatApprovalLabel(row.resourceType || 'resource').toLowerCase()}{' '}
-                  <code>{row.resourceId || row.id}</code> by <code>{row.requestedByUserId}</code> at{' '}
-                  {formatTimestamp(row.createdAt)}
-                </p>
-                {row.reason ? (
-                  <p className="dashboard-pagination-note">Requested reason: {row.reason}</p>
-                ) : null}
-                <p className="dashboard-pagination-note">
-                  {row.requiredApprovals === 1
-                    ? '1 approval required.'
-                    : `${row.requiredApprovals} approvals required.`}{' '}
-                  {row.requireMfa ? 'MFA verification is required to approve.' : ''}
-                </p>
-                {row.requireMfa ? (
-                  <p className="dashboard-pagination-note">
-                    Approve unavailable in overview: this request requires MFA verification.
-                  </p>
-                ) : null}
-                <p>
-                  {!row.requireMfa ? (
-                    <>
-                      <button
-                        type="button"
-                        className="dashboard-inline-link"
-                        onClick={() => onApprovePendingApproval(row)}
-                        disabled={approvingApprovalId === row.id || rejectingApprovalId === row.id}
-                      >
-                        {approvingApprovalId === row.id ? 'Approving...' : 'Approve'}
-                      </button>{' '}
-                    </>
-                  ) : null}
-                  <button
-                    type="button"
-                    className="dashboard-inline-link dashboard-inline-link--danger"
-                    onClick={() => onRejectPendingApproval(row)}
-                    disabled={approvingApprovalId === row.id || rejectingApprovalId === row.id}
+                  <span
+                    className={`dashboard-hero__card-icon dashboard-hero__card-icon--${action.tone}`}
+                    aria-hidden="true"
                   >
-                    {rejectingApprovalId === row.id ? 'Rejecting...' : 'Reject'}
-                  </button>
-                </p>
-              </li>
-            ))}
-          </ul>
-        )}
+                    <ActionIcon size={20} />
+                  </span>
+                  <span className="dashboard-hero__card-title">{action.title}</span>
+                  <span className="dashboard-hero__card-description">{action.description}</span>
+                </a>
+              );
+            })}
+          </div>
+          <a
+            className="dashboard-hero__promo"
+            href={linkProps('/dashboard/gas-sponsorship').href}
+            onClick={linkProps('/dashboard/gas-sponsorship').onClick}
+          >
+            <span className="dashboard-hero__promo-copy">
+              <span className="dashboard-hero__promo-title">Sponsor gas for your users</span>
+              <span className="dashboard-hero__promo-description">
+                Cover transaction fees with policies and spend caps — no user top-ups required.
+              </span>
+            </span>
+            <span className="dashboard-pagination-button dashboard-pagination-button--primary">
+              Set up sponsorship
+            </span>
+          </a>
+          <div className="dashboard-hero__status-grid">
+            <section className="dashboard-hero__status-card" aria-label="Pending approvals summary">
+              <h2>Pending approvals</h2>
+              {approvalMutationNotice ? (
+                <p className="dashboard-pagination-note">{approvalMutationNotice}</p>
+              ) : null}
+              {approvalMutationErrorMessage ? (
+                <p className="dashboard-pagination-note">{approvalMutationErrorMessage}</p>
+              ) : null}
+              {pendingApprovals.length === 0 ? (
+                <p className="dashboard-pagination-note">No pending approvals.</p>
+              ) : (
+                <ul className="dashboard-view-list">
+                  {pendingApprovals.slice(0, 6).map((row) => (
+                    <li key={row.id}>
+                      <p>
+                        <strong>{formatApprovalLabel(row.operationType)}</strong> for{' '}
+                        {formatApprovalLabel(row.resourceType || 'resource').toLowerCase()}{' '}
+                        <code>{row.resourceId || row.id}</code> by{' '}
+                        <code>{row.requestedByUserId}</code> at {formatTimestamp(row.createdAt)}
+                      </p>
+                      {row.reason ? (
+                        <p className="dashboard-pagination-note">Requested reason: {row.reason}</p>
+                      ) : null}
+                      <p className="dashboard-pagination-note">
+                        {row.requiredApprovals === 1
+                          ? '1 approval required.'
+                          : `${row.requiredApprovals} approvals required.`}{' '}
+                        {row.requireMfa ? 'MFA verification is required to approve.' : ''}
+                      </p>
+                      {row.requireMfa ? (
+                        <p className="dashboard-pagination-note">
+                          Approve unavailable in overview: this request requires MFA verification.
+                        </p>
+                      ) : null}
+                      <p>
+                        {!row.requireMfa ? (
+                          <>
+                            <button
+                              type="button"
+                              className="dashboard-inline-link"
+                              onClick={() => onApprovePendingApproval(row)}
+                              disabled={
+                                approvingApprovalId === row.id || rejectingApprovalId === row.id
+                              }
+                            >
+                              {approvingApprovalId === row.id ? 'Approving...' : 'Approve'}
+                            </button>{' '}
+                          </>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="dashboard-inline-link dashboard-inline-link--danger"
+                          onClick={() => onRejectPendingApproval(row)}
+                          disabled={
+                            approvingApprovalId === row.id || rejectingApprovalId === row.id
+                          }
+                        >
+                          {rejectingApprovalId === row.id ? 'Rejecting...' : 'Reject'}
+                        </button>
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            {showBillingQueue ? (
+              <OpsCockpitQueuePanel
+                ariaLabel="Billing failure summary"
+                title="Failed or overdue invoices"
+                badge={`${failedInvoices.length}`}
+              >
+                {failedInvoices.length === 0 ? (
+                  <p className="dashboard-pagination-note">No failed or overdue invoices.</p>
+                ) : (
+                  <ul className="dashboard-view-list">
+                    {failedInvoices.slice(0, 6).map((row) => (
+                      <li key={row.id}>
+                        Invoice <code>{row.id}</code> is <strong>{row.status}</strong> with due date{' '}
+                        {formatTimestamp(row.dueAt)}.
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </OpsCockpitQueuePanel>
+            ) : null}
+          </div>
+        </div>
       </section>
+
+      {loading || visibleErrorMessage || summaryWarnings.length > 0 ? (
+        <section
+          className="dashboard-view__section dashboard-ops-cockpit-summary--plain"
+          aria-label="Ops cockpit summary"
+        >
+          {loading ? (
+            <p className="dashboard-pagination-note">Refreshing queue snapshot...</p>
+          ) : null}
+          {visibleErrorMessage ? (
+            <p className="dashboard-pagination-note">{visibleErrorMessage}</p>
+          ) : null}
+          {summaryWarnings.length > 0 ? (
+            <div className="dashboard-view-grid">
+              {summaryWarnings.map((warning) => (
+                <p className="dashboard-pagination-note" key={warning}>
+                  {warning}
+                </p>
+              ))}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       <div className="dashboard-ops-cockpit-grid" aria-label="Ops cockpit queues">
         {showWebhookQueue ? (
@@ -524,62 +474,6 @@ export function OpsCockpitPage(): React.JSX.Element {
                       }
                     >
                       {replayingDeadLetterId === entry.deadLetter.id ? 'Replaying...' : 'Replay'}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </OpsCockpitQueuePanel>
-        ) : null}
-
-        {showBillingQueue ? (
-          <OpsCockpitQueuePanel
-            ariaLabel="Billing failure summary"
-            title="Failed or overdue invoices"
-            badge={`${failedInvoices.length}`}
-          >
-            {failedInvoices.length === 0 ? (
-              <p className="dashboard-pagination-note">No failed or overdue invoices.</p>
-            ) : (
-              <ul className="dashboard-view-list">
-                {failedInvoices.slice(0, 6).map((row) => (
-                  <li key={row.id}>
-                    Invoice <code>{row.id}</code> is <strong>{row.status}</strong> with due date{' '}
-                    {formatTimestamp(row.dueAt)}.
-                  </li>
-                ))}
-              </ul>
-            )}
-          </OpsCockpitQueuePanel>
-        ) : null}
-
-        {showAuditExportQueue ? (
-          <OpsCockpitQueuePanel
-            ariaLabel="Audit export queue summary"
-            title="Queued audit exports"
-            badge={`${queuedAuditExports.length}`}
-          >
-            {auditExportMutationNotice ? (
-              <p className="dashboard-pagination-note">{auditExportMutationNotice}</p>
-            ) : null}
-            {auditExportMutationErrorMessage ? (
-              <p className="dashboard-pagination-note">{auditExportMutationErrorMessage}</p>
-            ) : null}
-            {queuedAuditExports.length === 0 ? (
-              <p className="dashboard-pagination-note">No queued or processing audit exports.</p>
-            ) : (
-              <ul className="dashboard-view-list">
-                {queuedAuditExports.slice(0, 6).map((row) => (
-                  <li key={row.id}>
-                    Export <code>{row.id}</code> is <strong>{row.status}</strong> ({row.format})
-                    since {formatTimestamp(row.createdAt)}{' '}
-                    <button
-                      type="button"
-                      className="dashboard-inline-link"
-                      onClick={() => onRequeueAuditExport(row.id)}
-                      disabled={requeueingAuditExportId === row.id}
-                    >
-                      {requeueingAuditExportId === row.id ? 'Requeueing...' : 'Requeue'}
                     </button>
                   </li>
                 ))}

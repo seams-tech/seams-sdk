@@ -1,16 +1,11 @@
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { sha256BytesUtf8 } from '@shared/utils/digests';
-import {
-  parseRouterAbEcdsaDerivationWalletSessionClaims,
-  parseRouterAbEd25519WalletSessionClaims,
-} from '../../../core/ThresholdService/validation';
-import { parseEcdsaKeyHandle } from '../../../core/keyMaterialBrands';
 import type {
   CreateSigningSessionSealServiceOptions,
+  SigningSessionSealAuthorizationSessionRecord,
   SigningSessionSealOperation,
   SigningSessionSealRouteResult,
   SigningSessionSealService,
-  SigningSessionSealThresholdSessionRecord,
 } from './signingSessionSeal.types';
 
 const SIGNING_SESSION_SEAL_LOG_LABEL = '[threshold-signing-session-seal]';
@@ -41,7 +36,7 @@ function toPositiveInt(value: unknown, defaultValue: number): number {
 }
 
 function isExpired(
-  session: Pick<SigningSessionSealThresholdSessionRecord, 'expiresAtMs'>,
+  session: Pick<SigningSessionSealAuthorizationSessionRecord, 'expiresAtMs'>,
   nowMs: number,
 ): boolean {
   return !Number.isFinite(session.expiresAtMs) || session.expiresAtMs <= nowMs;
@@ -131,8 +126,19 @@ type SigningSessionSealRequestInput = {
 
 type SigningSessionSealAuthInput = {
   userId: string;
-  claims: Record<string, unknown>;
+  session: SigningSessionSealAuthorizationSessionRecord;
 };
+
+function signingSessionSealAuthorizationId(
+  session: SigningSessionSealAuthorizationSessionRecord,
+): string {
+  switch (session.kind) {
+    case 'owner_threshold_session':
+      return session.thresholdSessionId;
+    case 'linked_device_wallet_session':
+      return session.walletSessionId;
+  }
+}
 
 function fnv1aHex(input: string): string {
   let hash = 2166136261;
@@ -182,43 +188,6 @@ function shouldPersistIdempotentResult(result: SigningSessionSealRouteResult): b
   return SIGNING_SESSION_SEAL_REPLAYABLE_ERROR_CODES.has(String(result.code || '').trim());
 }
 
-function parseCurveBoundThresholdSession(args: {
-  claims: Record<string, unknown>;
-  thresholdSessionId: string;
-}): SigningSessionSealThresholdSessionRecord | null {
-  const requestedThresholdSessionId = String(args.thresholdSessionId || '').trim();
-  if (!requestedThresholdSessionId) return null;
-  const ecdsaClaims = parseRouterAbEcdsaDerivationWalletSessionClaims(args.claims);
-  if (ecdsaClaims) {
-    return ecdsaClaims.thresholdSessionId === requestedThresholdSessionId
-      ? {
-          curve: 'ecdsa',
-          thresholdSessionId: requestedThresholdSessionId,
-          userId: ecdsaClaims.walletId,
-          expiresAtMs: ecdsaClaims.thresholdExpiresAtMs,
-          relayerKeyId: ecdsaClaims.relayerKeyId,
-          participantIds: ecdsaClaims.participantIds,
-          keyHandle: parseEcdsaKeyHandle(ecdsaClaims.keyHandle),
-        }
-      : null;
-  }
-  const ed25519Claims = parseRouterAbEd25519WalletSessionClaims(args.claims);
-  if (ed25519Claims) {
-    return ed25519Claims.thresholdSessionId === requestedThresholdSessionId
-      ? {
-          curve: 'ed25519',
-          thresholdSessionId: requestedThresholdSessionId,
-          userId: ed25519Claims.walletId,
-          expiresAtMs: ed25519Claims.thresholdExpiresAtMs,
-          relayerKeyId: ed25519Claims.relayerKeyId,
-          participantIds: ed25519Claims.participantIds,
-          authorityScope: ed25519Claims.authorityScope,
-        }
-      : null;
-  }
-  return null;
-}
-
 async function runSealOperation(input: {
   options: CreateSigningSessionSealServiceOptions;
   operation: SigningSessionSealOperation;
@@ -228,7 +197,7 @@ async function runSealOperation(input: {
     keyVersion?: string;
     metadata?: Record<string, unknown>;
   };
-  auth: { userId: string; claims: Record<string, unknown> };
+  auth: SigningSessionSealAuthInput;
 }): Promise<SigningSessionSealRouteResult> {
   const nowMs = input.options.nowMs || Date.now;
   const startedAtMs = nowMs();
@@ -248,11 +217,8 @@ async function runSealOperation(input: {
       metadata: input.request.metadata,
     });
 
-    const session = parseCurveBoundThresholdSession({
-      claims: input.auth.claims,
-      thresholdSessionId: input.request.thresholdSessionId,
-    });
-    if (!session) {
+    const session = input.auth.session;
+    if (signingSessionSealAuthorizationId(session) !== input.request.thresholdSessionId) {
       result = {
         ok: false,
         code: 'forbidden',
@@ -303,7 +269,7 @@ async function runSealOperation(input: {
       ciphertext: input.request.ciphertext,
       keyVersion: input.request.keyVersion,
       metadata: input.request.metadata,
-      auth: input.auth,
+      auth: { userId: input.auth.userId },
     });
     if (!sealed.ok) {
       result = {
@@ -314,13 +280,25 @@ async function runSealOperation(input: {
       return result;
     }
 
-    result = {
-      ok: true,
-      ciphertext: sealed.ciphertext,
-      keyVersion: sealed.keyVersion || input.request.keyVersion,
-      expiresAtMs: session.expiresAtMs,
-    };
-    return result;
+    switch (session.kind) {
+      case 'owner_threshold_session':
+        result = {
+          ok: true,
+          ciphertext: sealed.ciphertext,
+          keyVersion: sealed.keyVersion || input.request.keyVersion,
+          expiresAtMs: session.expiresAtMs,
+        };
+        return result;
+      case 'linked_device_wallet_session':
+        result = {
+          ok: true,
+          ciphertext: sealed.ciphertext,
+          keyVersion: sealed.keyVersion || input.request.keyVersion,
+          expiresAtMs: session.expiresAtMs,
+          remainingUses: session.remainingUses,
+        };
+        return result;
+    }
   } catch (error: unknown) {
     result = {
       ok: false,

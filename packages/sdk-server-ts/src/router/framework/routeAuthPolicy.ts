@@ -1,6 +1,6 @@
 import type {
-  RouterAbEcdsaDerivationWalletSessionClaims,
-  RouterAbEd25519WalletSessionClaims,
+  RouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims,
+  RouterAbEd25519LinkedDeviceWalletSessionClaims,
 } from '../../core/ThresholdService/validation';
 import type { RouterApiKeyPrincipal, SessionClaims } from './routerApi';
 import { ROUTER_API_CREDENTIAL_SCOPES } from './apiCredentialPorts';
@@ -64,7 +64,9 @@ export type RoutePrincipal =
     }
   | {
       kind: 'capability_grant';
-      claims: RouterAbEd25519WalletSessionClaims | RouterAbEcdsaDerivationWalletSessionClaims;
+      claims:
+        | RouterAbEd25519LinkedDeviceWalletSessionClaims
+        | RouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims;
     }
   | {
       kind: 'public';

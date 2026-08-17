@@ -9,19 +9,21 @@ import type {
 } from '@shared/utils/domainIds';
 import type {
   MpcWalletSigningQuotaId,
+  WalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 
 declare const walletSessionId: WalletSessionId;
+declare const authorizationId: WalletSessionAuthorizationId;
 declare const quotaId: MpcWalletSigningQuotaId;
 declare const thresholdSessionId: ThresholdEd25519SessionId;
 
 const auth = {
-  kind: 'wallet_session_jwt',
-  walletSessionJwt: 'wallet-session-jwt',
+  kind: 'wallet_session_opaque',
+  walletSessionToken: 'wallet-session-token',
   credential: {
-    kind: 'wallet_session_jwt',
-    walletSessionJwt: 'wallet-session-jwt',
+    kind: 'wallet_session_opaque',
+    walletSessionToken: 'wallet-session-token',
   },
 } satisfies RouterAbSigningWalletSessionAuth;
 
@@ -41,6 +43,7 @@ const validSession = {
   curve: 'ed25519',
   auth,
   walletSessionId,
+  authorizationId,
   thresholdSessionId,
   quotaId,
   remainingUses: 2,

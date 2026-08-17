@@ -175,7 +175,7 @@ test.describe('Router A/B ECDSA derivation presign bridge', () => {
     };
 
     const initialized = await handlers.routerAbEcdsaDerivationPresignaturePoolFillInit({
-      claims,
+      binding: claims,
       request: {
         keyHandle: claims.keyHandle,
         count: 1,
@@ -197,7 +197,7 @@ test.describe('Router A/B ECDSA derivation presign bridge', () => {
     }
 
     const completed = await handlers.routerAbEcdsaDerivationPresignaturePoolFillStep({
-      claims,
+      binding: claims,
       request: {
         presignSessionId: initialized.presignSessionId,
         stage: 'presign',
@@ -317,9 +317,8 @@ test.describe('Router A/B ECDSA derivation presign bridge', () => {
 
   test('requires the active Worker receipt to name material activation explicitly', () => {
     const validReceipt = receipt(request(), true);
-    const parsed = parseCloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutReceiptV1(
-      validReceipt,
-    );
+    const parsed =
+      parseCloudflareSigningWorkerEcdsaDerivationPresignaturePoolPutReceiptV1(validReceipt);
     expect(parsed.active_signing_worker_state.material_activation).toEqual(materialActivation);
 
     const activationIdOnlyState = {

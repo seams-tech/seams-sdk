@@ -14,6 +14,7 @@ import type {
   SealedSigningSessionEd25519RestoreMetadata,
 } from '@shared/utils/signingSessionSeal';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
+import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 
 type WarmSessionSealTransportCommon = {
   walletId?: string;
@@ -23,11 +24,11 @@ type WarmSessionSealTransportCommon = {
 };
 
 type EmailOtpWarmSessionSealTransportCommon = WarmSessionSealTransportCommon & {
-  walletSessionJwt: string;
+  walletSessionToken: string;
 };
 
 type PasskeyWarmSessionSealTransportCommon = WarmSessionSealTransportCommon & {
-  walletSessionJwt?: string;
+  walletSessionToken?: string;
   serverSealedSecretCacheScope?: {
     kind: 'passkey_registration';
     walletId: string;
@@ -81,7 +82,7 @@ export type WarmSessionSealTransportInput =
       curve: 'ed25519';
       authMethod: 'passkey';
       walletId: string;
-      walletSessionJwt: string;
+      walletSessionToken: string;
       ecdsaRestore?: never;
       ed25519Restore: PasskeyEd25519SealRestoreMetadata;
       emailOtpRestore?: never;
@@ -100,6 +101,19 @@ export type WarmSessionSealTransportInput =
       walletId: string;
       chainTarget: ThresholdEcdsaChainTarget;
       ecdsaRestore: Exclude<SealedSigningSessionEcdsaRestoreMetadata, { source: 'email_otp' }>;
+      ed25519Restore?: never;
+      emailOtpRestore?: never;
+    })
+  | (PasskeyWarmSessionSealTransportCommon & {
+      curve: 'linked_device';
+      authMethod: 'passkey';
+      walletId: string;
+      walletSessionToken: string;
+      enrollmentId: string;
+      deviceId: string;
+      credentialIdB64u: string;
+      chainTarget?: never;
+      ecdsaRestore?: never;
       ed25519Restore?: never;
       emailOtpRestore?: never;
     });
@@ -161,8 +175,8 @@ export const ROUTER_AB_ED25519_YAO_EXPORT_ARTIFACT_KIND_V1 =
 
 /** Authorization is carried independently from the exact material lane. */
 export type RouterAbEd25519YaoExportWorkerAuthorizationV1 = {
-  readonly kind: 'wallet_session';
-  readonly walletSessionJwt: string;
+  readonly kind: 'opaque_wallet_session';
+  readonly walletSessionToken: string;
 };
 
 export type RouterAbEd25519YaoExportWorkerPayloadV1 = ExportPrivateKeysWithUiWorkerPayloadBase & {
@@ -179,6 +193,7 @@ export type RouterAbEd25519YaoExportWorkerPayloadV1 = ExportPrivateKeysWithUiWor
     credentialIdB64u: string;
     materialActivation: MpcMaterialActivationRef;
   };
+  walletCustodyEnvelope: PasskeyCustodyEnvelopeRecord;
   capability: {
     scope: RouterAbEd25519YaoLifecycleScopeV1;
     applicationBinding: RouterAbEd25519YaoApplicationBindingFactsV1;

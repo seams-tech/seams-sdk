@@ -15,6 +15,74 @@
   margin-bottom: 0;
 }
 
+/* Numbered walkthrough for the two-device flow, grouped on its own tinted panel
+   so the three steps read as one sequence and stay visually separate from the
+   action button below them. */
+.link-device-steps {
+  display: grid;
+  gap: 14px;
+  width: 100%;
+  margin: 0 0 4px;
+  padding: 16px 18px;
+  border-radius: 12px;
+  background: var(--site-surface-muted);
+  list-style: none;
+  counter-reset: link-device-step;
+  text-align: left;
+}
+
+/* The badge is absolutely positioned rather than a grid/flex track: a track
+   would promote the step's inline <strong> to its own item and break the
+   sentence across lines. */
+.link-device-steps li {
+  position: relative;
+  min-height: 22px;
+  padding-left: 32px;
+  counter-increment: link-device-step;
+  color: var(--site-text-primary);
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+/* white disc on the tinted panel, ringed rather than filled — a solid chip at
+   this size reads as a button */
+.link-device-steps li::before {
+  content: counter(link-device-step);
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--site-surface);
+  box-shadow: inset 0 0 0 1px var(--site-border);
+  color: var(--site-text-secondary);
+  font-size: 0.7rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* rail runs badge-to-badge, not past the last one */
+.link-device-steps li:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  top: 24px;
+  bottom: -16px;
+  left: 10px;
+  width: 1px;
+  background: var(--site-border-strong);
+}
+
+.link-device-steps strong {
+  font-weight: 600;
+}
+
+.recovery-section .button {
+  justify-self: center;
+}
+
 /* beta chip rides beside the section title */
 .recovery-beta-chip {
   display: inline-block;

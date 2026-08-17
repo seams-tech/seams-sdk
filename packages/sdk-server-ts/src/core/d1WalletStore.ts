@@ -9,17 +9,23 @@ import {
   type ThresholdEcdsaChainTarget,
 } from './thresholdEcdsaChainTarget';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
+import type { EcdsaClientRootPublicKey33B64u } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
 import {
   normalizeRuntimePolicyScope,
   signingRootScopeFromRuntimePolicyScope,
+  type RuntimePolicyScope,
 } from '@shared/threshold/signingRootScope';
 import {
   parseRouterAbEd25519YaoRecoveryActivationResultV1,
   parseRouterAbEd25519YaoRecoveryAdmissionRequestV1,
   parseRouterAbEd25519YaoRegistrationActivationResultV1,
+  parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1,
   parseRouterAbEd25519YaoRegistrationAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
-import type { RouterAbEcdsaDerivationPublicCapabilityV1 } from '@shared/utils/routerAbEcdsaDerivation';
+import type {
+  RouterAbEcdsaDerivationPublicCapabilityV1,
+  RouterAbEcdsaRegistrationActivationReceiptV1,
+} from '@shared/utils/routerAbEcdsaDerivation';
 import {
   sameRouterAbMpcMaterialActivationRef,
   type RouterAbMpcMaterialActivationRefWire,
@@ -282,8 +288,12 @@ function parseWalletEd25519YaoActiveCapabilityRecord(
       const activationResult = parseRouterAbEd25519YaoRegistrationActivationResultV1(
         raw.activationResult,
       );
+      const admissionReceipt = parseRouterAbEd25519YaoRegistrationActivationAdmissionReceiptV1(
+        raw.admissionReceipt,
+      );
       if (
         !admissionRequest.ok ||
+        !admissionReceipt.ok ||
         !activationResult.ok ||
         !Array.isArray(raw.activeCapabilityBinding) ||
         !equalBytes(raw.activeCapabilityBinding, activationResult.value.binding.session_id)
@@ -295,6 +305,7 @@ function parseWalletEd25519YaoActiveCapabilityRecord(
         activeCapabilityBinding: [...activationResult.value.binding.session_id],
         nearAccountId,
         admissionRequest: admissionRequest.value,
+        admissionReceipt: admissionReceipt.value,
         activationResult: activationResult.value,
         runtimePolicyScope,
       };
@@ -343,13 +354,12 @@ export function parseWalletEd25519SignerRecord(raw: unknown): WalletEd25519Signe
   const keyVersion = toOptionalTrimmedString(raw.keyVersion);
   const signingRootId = toOptionalTrimmedString(raw.signingRootId);
   const signingRootVersion = toOptionalTrimmedString(raw.signingRootVersion);
+  const custodyKeyManifestDigestB64u = toOptionalTrimmedString(raw.custodyKeyManifestDigestB64u);
   const signerSlot = Math.floor(Number(raw.signerSlot));
   const createdAtMs = normalizeTimestampMs(raw.createdAtMs);
   const updatedAtMs = normalizeTimestampMs(raw.updatedAtMs);
   const participantIds = normalizeThresholdEd25519ParticipantIds(raw.participantIds);
-  const activeYaoCapability = parseWalletEd25519YaoActiveCapabilityRecord(
-    raw.activeYaoCapability,
-  );
+  const activeYaoCapability = parseWalletEd25519YaoActiveCapabilityRecord(raw.activeYaoCapability);
   let runtimePolicyScope;
   try {
     runtimePolicyScope = normalizeRuntimePolicyScope(raw.runtimePolicyScope);
@@ -368,6 +378,7 @@ export function parseWalletEd25519SignerRecord(raw: unknown): WalletEd25519Signe
     !keyVersion ||
     !signingRootId ||
     !signingRootVersion ||
+    !custodyKeyManifestDigestB64u ||
     signingRootId !== expectedSigningRoot.signingRootId ||
     signingRootVersion !== expectedSigningRoot.signingRootVersion ||
     !participantIds ||
@@ -421,6 +432,7 @@ export function parseWalletEd25519SignerRecord(raw: unknown): WalletEd25519Signe
     signingRootVersion,
     runtimePolicyScope,
     activeYaoCapability,
+    custodyKeyManifestDigestB64u,
     createdAtMs,
     updatedAtMs,
   };
@@ -562,6 +574,10 @@ export function prepareD1WalletPutSignerStatement(input: {
 export function buildWalletEcdsaSignerRecord(input: {
   readonly walletId: WalletId;
   readonly walletKey: WalletRegistrationEcdsaWalletKey;
+  readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
+  readonly runtimePolicyScope: RuntimePolicyScope;
+  readonly custodyKeyManifestDigestB64u: string;
+  readonly custodyClientRootPublicKey33B64u: EcdsaClientRootPublicKey33B64u;
   readonly createdAtMs: number;
   readonly updatedAtMs: number;
 }): WalletEcdsaSignerRecord {
@@ -573,6 +589,10 @@ export function buildWalletEcdsaSignerRecord(input: {
     chainTargetKey,
     chainTarget: input.walletKey.chainTarget,
     walletKey: walletEcdsaSignerKeyFromRegistration(input.walletKey),
+    activationReceipt: input.activationReceipt,
+    runtimePolicyScope: input.runtimePolicyScope,
+    custodyKeyManifestDigestB64u: input.custodyKeyManifestDigestB64u,
+    custodyClientRootPublicKey33B64u: input.custodyClientRootPublicKey33B64u,
     createdAtMs: input.createdAtMs,
     updatedAtMs: input.updatedAtMs,
   };
@@ -826,6 +846,84 @@ export class D1WalletStore implements WalletStore {
     return matches[0] ?? null;
   }
 
+  async listEcdsaSignersForWallet(input: {
+    walletId: WalletId;
+  }): Promise<readonly WalletEcdsaSignerRecord[]> {
+    await this.ensureSchema();
+    const result = await this.database
+      .prepare(
+        `SELECT record_json
+           FROM wallet_signers
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND wallet_id = ?
+            AND signer_family = 'ecdsa'
+          ORDER BY signer_id`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        input.walletId,
+      )
+      .all<D1WalletRow>();
+    const signers: WalletEcdsaSignerRecord[] = [];
+    for (const row of result.results || []) {
+      const signer = parseWalletEcdsaSignerRecord(parseD1JsonColumn(row.record_json));
+      if (!signer || signer.walletId !== input.walletId) {
+        throw new Error('Wallet ECDSA signer record is invalid');
+      }
+      signers.push(signer);
+    }
+    return signers;
+  }
+
+  async listEcdsaPendingSessionActivationsForLifecycle(input: {
+    walletId: WalletId;
+    lifecycleId: string;
+  }): Promise<readonly WalletEcdsaPendingSessionActivationRecord[]> {
+    await this.ensureSchema();
+    const lifecycleId = toOptionalTrimmedString(input.lifecycleId);
+    if (!lifecycleId) return [];
+    const result = await this.database
+      .prepare(
+        `SELECT record_json
+           FROM wallet_ecdsa_pending_session_activations
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND wallet_id = ?
+            AND lifecycle_id = ?
+            AND expires_at_ms > ?
+          ORDER BY request_id`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        input.walletId,
+        lifecycleId,
+        Date.now(),
+      )
+      .all<D1WalletRow>();
+    const records: WalletEcdsaPendingSessionActivationRecord[] = [];
+    for (const row of result.results || []) {
+      const record = parseWalletEcdsaPendingSessionActivationRecord(
+        parseD1JsonColumn(row.record_json),
+      );
+      if (!record || record.walletId !== input.walletId || record.lifecycleId !== lifecycleId) {
+        throw new Error('Wallet ECDSA recovery activation record is invalid');
+      }
+      records.push(record);
+    }
+    return records;
+  }
+
   async putEcdsaPendingSessionActivation(
     record: WalletEcdsaPendingSessionActivationRecord,
   ): Promise<void> {
@@ -865,102 +963,6 @@ export class D1WalletStore implements WalletStore {
         record.expiresAtMs,
       )
       .run();
-  }
-
-  async takeEcdsaPendingSessionActivationPair(input: {
-    walletId: WalletId;
-    recovery: { readonly lifecycleId: string; readonly requestId: string };
-    refresh: { readonly lifecycleId: string; readonly requestId: string };
-  }): Promise<{
-    readonly recovery: Extract<
-      WalletEcdsaPendingSessionActivationRecord,
-      { readonly operation: 'recovery' }
-    >;
-    readonly refresh: Extract<
-      WalletEcdsaPendingSessionActivationRecord,
-      { readonly operation: 'refresh' }
-    >;
-  } | null> {
-    await this.ensureSchema();
-    const result = await this.database
-      .prepare(
-        `DELETE FROM wallet_ecdsa_pending_session_activations
-          WHERE namespace = ?
-            AND org_id = ?
-            AND project_id = ?
-            AND env_id = ?
-            AND wallet_id = ?
-            AND (
-              (lifecycle_id = ? AND request_id = ?)
-              OR
-              (lifecycle_id = ? AND request_id = ?)
-            )
-            AND 2 = (
-              SELECT COUNT(*)
-                FROM wallet_ecdsa_pending_session_activations AS pending
-               WHERE pending.namespace = ?
-                 AND pending.org_id = ?
-                 AND pending.project_id = ?
-                 AND pending.env_id = ?
-                 AND pending.wallet_id = ?
-                 AND (
-                   (pending.lifecycle_id = ? AND pending.request_id = ?)
-                   OR
-                   (pending.lifecycle_id = ? AND pending.request_id = ?)
-                 )
-            )
-          RETURNING record_json`,
-      )
-      .bind(
-        this.scope.namespace,
-        this.scope.orgId,
-        this.scope.projectId,
-        this.scope.envId,
-        input.walletId,
-        input.recovery.lifecycleId,
-        input.recovery.requestId,
-        input.refresh.lifecycleId,
-        input.refresh.requestId,
-        this.scope.namespace,
-        this.scope.orgId,
-        this.scope.projectId,
-        this.scope.envId,
-        input.walletId,
-        input.recovery.lifecycleId,
-        input.recovery.requestId,
-        input.refresh.lifecycleId,
-        input.refresh.requestId,
-      )
-      .all<D1WalletRow>();
-    const records = (result.results || [])
-      .map((row) =>
-        parseWalletEcdsaPendingSessionActivationRecord(
-          parseD1JsonColumn(row.record_json),
-        ),
-      )
-      .filter(
-        (record): record is WalletEcdsaPendingSessionActivationRecord =>
-          record !== null && record.expiresAtMs > Date.now(),
-      );
-    const recovery = records.find(
-      (
-        record,
-      ): record is Extract<
-        WalletEcdsaPendingSessionActivationRecord,
-        { readonly operation: 'recovery' }
-      > => record.operation === 'recovery',
-    );
-    const refresh = records.find(
-      (
-        record,
-      ): record is Extract<
-        WalletEcdsaPendingSessionActivationRecord,
-        { readonly operation: 'refresh' }
-      > => record.operation === 'refresh',
-    );
-    return records.length === 2 && recovery && refresh
-      ? { recovery, refresh }
-      : null;
   }
 
   async getEd25519Signer(input: {
@@ -1112,6 +1114,41 @@ export class D1WalletStore implements WalletStore {
     for (const row of result.results || []) {
       const signer = parseWalletEd25519SignerRecord(parseD1JsonColumn(row.record_json));
       if (!signer) throw new Error('Wallet Ed25519 signer record is invalid');
+      signers.push(signer);
+    }
+    return signers;
+  }
+
+  async listEd25519SignersForWallet(input: {
+    walletId: WalletId;
+  }): Promise<readonly WalletEd25519SignerRecord[]> {
+    await this.ensureSchema();
+    const result = await this.database
+      .prepare(
+        `SELECT record_json
+           FROM wallet_signers
+          WHERE namespace = ?
+            AND org_id = ?
+            AND project_id = ?
+            AND env_id = ?
+            AND wallet_id = ?
+            AND signer_family = 'ed25519'
+          ORDER BY signer_id`,
+      )
+      .bind(
+        this.scope.namespace,
+        this.scope.orgId,
+        this.scope.projectId,
+        this.scope.envId,
+        input.walletId,
+      )
+      .all<D1WalletRow>();
+    const signers: WalletEd25519SignerRecord[] = [];
+    for (const row of result.results || []) {
+      const signer = parseWalletEd25519SignerRecord(parseD1JsonColumn(row.record_json));
+      if (!signer || signer.walletId !== input.walletId) {
+        throw new Error('Wallet Ed25519 signer record is invalid');
+      }
       signers.push(signer);
     }
     return signers;

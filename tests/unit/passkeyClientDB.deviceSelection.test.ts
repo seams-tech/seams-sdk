@@ -742,7 +742,7 @@ test.describe('Seams wallet device selection', () => {
             mode: 'replace_profile_chain_kind',
             signerSlot: 1,
             replacedSignerKind: 'threshold-ecdsa',
-            revocationReason: 'email_recovery_replacement',
+            revocationReason: 'wallet_recovery_replacement',
           },
           preferredSlot: 1,
           mutation: { routeThroughOutbox: false },
@@ -787,7 +787,7 @@ test.describe('Seams wallet device selection', () => {
     expect(result).toEqual({
       oldSigner: {
         status: 'revoked',
-        revocationReason: 'email_recovery_replacement',
+            revocationReason: 'wallet_recovery_replacement',
       },
       newSigner: {
         status: 'active',

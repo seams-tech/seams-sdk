@@ -1,5 +1,18 @@
 import { base64UrlDecode } from '@shared/utils/encoders';
-import { parseWebAuthnRpId } from '@shared/utils/domainIds';
+import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
+import {
+  parseProviderSubject,
+  parseWebAuthnCredentialIdB64u,
+  parseWebAuthnRpId,
+  parseLinkedDeviceEnrollmentId,
+  parseLinkedDeviceId,
+  parseWalletKeyId,
+  type ProviderSubject,
+  type WebAuthnCredentialIdB64u,
+  type LinkedDeviceEnrollmentId,
+  type LinkedDeviceId,
+  type WalletKeyId,
+} from '@shared/utils/domainIds';
 import {
   isEmailOtpWalletAuthAuthority,
   isPasskeyWalletAuthAuthority,
@@ -54,11 +67,13 @@ import type {
 import { registrationPreparationIdFromString } from '../registrationContracts';
 import {
   parseMpcWalletSigningQuotaId,
-  parseSeamsSessionId,
+  parseTenantId,
+  parseLinkedDeviceWalletSessionAuthorizationId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
   type MpcWalletSigningQuotaId,
-  type SeamsSessionId,
+  type TenantId,
+  type LinkedDeviceWalletSessionAuthorizationId,
   type WalletSessionAuthorizationId,
   type WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
@@ -501,9 +516,6 @@ export function parseEcdsaDerivationClientBootstrapRequest(
   const clientShareRetryCounter = raw.clientShareRetryCounter;
   const ttlMs = raw.ttlMs;
   const remainingUses = raw.remainingUses;
-  const sessionKindRaw = toOptionalString(raw.sessionKind);
-  const sessionKind: 'jwt' | null | undefined =
-    sessionKindRaw === 'jwt' ? 'jwt' : sessionKindRaw ? null : undefined;
   const participantIds = normalizeThresholdEd25519ParticipantIds(raw.participantIds);
   const runtimePolicyScopeRaw = (raw as { runtimePolicyScope?: unknown }).runtimePolicyScope;
   const runtimePolicyScope =
@@ -526,7 +538,6 @@ export function parseEcdsaDerivationClientBootstrapRequest(
     !derivationClientSharePublicKey33B64u ||
     !contextBinding32B64u ||
     !requestId ||
-    sessionKind === null ||
     !sessionId ||
     !isNonNegativeInteger(clientShareRetryCounter) ||
     !isPositiveIntegerAtMost(ttlMs, MAX_WALLET_SESSION_TTL_MS) ||
@@ -565,7 +576,6 @@ export function parseEcdsaDerivationClientBootstrapRequest(
     ttlMs,
     remainingUses,
     participantIds,
-    sessionKind,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
   };
   if (clientRootProof) return { ...base, clientRootProof };
@@ -1223,35 +1233,48 @@ export function parseRouterAbEcdsaDerivationPoolFillSessionRecord(
   };
 }
 
-type Ed25519WalletSessionClaimKind = typeof ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND;
+export type LinkedDeviceWalletSessionPermissionClaimsV1 = {
+  readonly kind: 'owner_equivalent_signing';
+  readonly administrationScope: 'signing_only';
+  readonly localUserPresence: 'required';
+};
 
-export type Ed25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessionClaimKind> = {
+type LinkedDeviceWalletSessionClaimBase = {
   sub: string;
   walletId: string;
-  nearAccountId: string;
-  nearEd25519SigningKeyId: string;
-  kind: Kind;
-  sid?: SeamsSessionId;
-  thresholdSessionId: string;
-  authorizationId: WalletSessionAuthorizationId;
+  kind: string;
+  authorizationKind: 'linked_device_wallet_session';
+  authorizationId: LinkedDeviceWalletSessionAuthorizationId;
+  tenantId: TenantId;
+  deviceId: LinkedDeviceId;
+  enrollmentId: LinkedDeviceEnrollmentId;
+  walletKeyId: WalletKeyId;
+  keyManifestDigestB64u: DigestB64u;
+  revocationEpoch: number;
+  permission: LinkedDeviceWalletSessionPermissionClaimsV1;
+  issuedAtMs: number;
+  expiresAtMs: number;
   walletSessionId: WalletSessionId;
   quotaId: MpcWalletSigningQuotaId;
-  relayerKeyId: string;
-  authority: WalletAuthAuthority;
-  authorityScope: ThresholdEd25519AuthorityScope;
-  runtimePolicyScope?: RuntimePolicyScope;
-  thresholdExpiresAtMs: number;
-  participantIds: number[];
-  iat?: number;
-  exp?: number;
+  iat: number;
+  exp: number;
   nbf?: number;
 };
 
-export type RouterAbEd25519WalletSessionClaims = Ed25519WalletSessionClaimsForKind<
-  typeof ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND
-> & {
-  runtimePolicyScope: RuntimePolicyScope;
-  routerAbNormalSigning: RouterAbEd25519NormalSigningState;
+export type RouterAbEd25519LinkedDeviceWalletSessionClaims = LinkedDeviceWalletSessionClaimBase & {
+  readonly kind: typeof ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND;
+  readonly authorizationKind: 'linked_device_wallet_session';
+  readonly nearAccountId?: never;
+  readonly nearEd25519SigningKeyId?: never;
+  readonly sid?: never;
+  readonly authority?: never;
+  readonly authorityScope?: never;
+  readonly thresholdSessionId?: never;
+  readonly relayerKeyId?: never;
+  readonly participantIds?: never;
+  readonly thresholdExpiresAtMs?: never;
+  readonly runtimePolicyScope?: never;
+  readonly routerAbNormalSigning?: never;
 };
 
 function parseRuntimePolicyScope(raw: unknown): RuntimePolicyScope | null {
@@ -1262,412 +1285,295 @@ function parseRuntimePolicyScope(raw: unknown): RuntimePolicyScope | null {
   }
 }
 
-function parseEd25519WalletSessionClaimsForKind<Kind extends Ed25519WalletSessionClaimKind>(
+function parseLinkedDeviceWalletSessionPermissionClaims(
   raw: unknown,
-  expectedKind: Kind,
-): Ed25519WalletSessionClaimsForKind<Kind> | null {
+): LinkedDeviceWalletSessionPermissionClaimsV1 | null {
   if (!isObject(raw)) return null;
-  const kind = toOptionalString(raw.kind);
-  if (kind !== expectedKind) return null;
-  const sub = toOptionalString(raw.sub);
-  const walletId = toOptionalString((raw as { walletId?: unknown }).walletId);
-  const nearAccountId = toOptionalString((raw as { nearAccountId?: unknown }).nearAccountId);
-  const nearEd25519SigningKeyId = toOptionalString(
-    (raw as { nearEd25519SigningKeyId?: unknown }).nearEd25519SigningKeyId,
-  );
-  const sidRaw = (raw as { sid?: unknown }).sid;
-  const seamsSessionId =
-    sidRaw === undefined ? { ok: true as const, value: undefined } : parseSeamsSessionId(sidRaw);
-  const thresholdSessionId = toOptionalString(
-    (raw as { thresholdSessionId?: unknown }).thresholdSessionId,
-  );
-  const authorizationId = parseWalletSessionAuthorizationId(
-    (raw as { authorizationId?: unknown }).authorizationId,
-  );
-  const walletSessionId = parseWalletSessionId(
-    (raw as { walletSessionId?: unknown }).walletSessionId,
-  );
-  const quotaId = parseMpcWalletSigningQuotaId((raw as { quotaId?: unknown }).quotaId);
-  const relayerKeyId = toOptionalString(raw.relayerKeyId);
-  const authorityScope = parseThresholdEd25519AuthorityScope(
-    (raw as { authorityScope?: unknown }).authorityScope,
-  );
-  const authority = parseWalletAuthAuthority((raw as { authority?: unknown }).authority);
+  const keys = Object.keys(raw).sort();
   if (
-    !sub ||
-    !walletId ||
-    walletId !== sub ||
-    !nearAccountId ||
-    !nearEd25519SigningKeyId ||
-    !seamsSessionId.ok ||
-    !thresholdSessionId ||
-    !authorizationId.ok ||
-    !walletSessionId.ok ||
-    !quotaId.ok ||
-    !relayerKeyId ||
-    !authorityScope ||
-    !authority ||
-    authority.walletId !== walletId ||
-    !thresholdEd25519AuthorityScopesMatch(
-      thresholdEd25519AuthorityScopeFromWalletAuthAuthority(authority),
-      authorityScope,
-    )
-  )
+    keys.length !== 3 ||
+    keys[0] !== 'administrationScope' ||
+    keys[1] !== 'kind' ||
+    keys[2] !== 'localUserPresence'
+  ) {
     return null;
-  const thresholdExpiresAtMs = (raw as { thresholdExpiresAtMs?: unknown }).thresholdExpiresAtMs;
-  if (!isValidNumber(thresholdExpiresAtMs)) return null;
-  const participantIds = normalizeThresholdEd25519ParticipantIds(
-    (raw as { participantIds?: unknown }).participantIds,
-  );
-  if (!participantIds || participantIds.length < 2) return null;
-  const out: Ed25519WalletSessionClaimsForKind<Kind> = {
-    sub,
-    walletId,
-    nearAccountId,
-    nearEd25519SigningKeyId,
-    kind: expectedKind,
-    ...(seamsSessionId.value ? { sid: seamsSessionId.value } : {}),
-    thresholdSessionId,
-    authorizationId: authorizationId.value,
-    walletSessionId: walletSessionId.value,
-    quotaId: quotaId.value,
-    relayerKeyId,
-    authority,
-    authorityScope,
-    thresholdExpiresAtMs,
-    participantIds,
+  }
+  if (
+    raw.kind !== 'owner_equivalent_signing' ||
+    raw.administrationScope !== 'signing_only' ||
+    raw.localUserPresence !== 'required'
+  ) {
+    return null;
+  }
+  return {
+    kind: 'owner_equivalent_signing',
+    administrationScope: 'signing_only',
+    localUserPresence: 'required',
   };
-  const runtimePolicyScopeRaw = (raw as { runtimePolicyScope?: unknown }).runtimePolicyScope;
-  if (runtimePolicyScopeRaw !== undefined) {
-    const runtimePolicyScope = parseRuntimePolicyScope(runtimePolicyScopeRaw);
-    if (!runtimePolicyScope) {
-      console.warn(
-        '[threshold-ecdsa-e2e] app session runtimePolicyScope parse failed',
-        runtimePolicyScopeRaw,
-      );
+}
+
+export function parseRouterAbEd25519LinkedDeviceWalletSessionClaims(
+  raw: unknown,
+): RouterAbEd25519LinkedDeviceWalletSessionClaims | null {
+  if (!isObject(raw)) return null;
+  if (toOptionalString(raw.kind) !== ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND) return null;
+  if (toOptionalString(raw.authorizationKind) !== 'linked_device_wallet_session') return null;
+  if (
+    hasForbiddenFields(raw, [
+      'nearAccountId',
+      'nearEd25519SigningKeyId',
+      'sid',
+      'authority',
+      'authorityScope',
+      'thresholdSessionId',
+      'relayerKeyId',
+      'participantIds',
+      'thresholdExpiresAtMs',
+      'runtimePolicyScope',
+      'routerAbNormalSigning',
+      'authorizationSessionId',
+      'walletAuthAuthorityRef',
+      'authSource',
+      'keyScope',
+      'keyHandle',
+      'evmFamilySigningKeySlotId',
+      'ecdsaThresholdKeyId',
+      'signingRootId',
+      'signingRootVersion',
+      'walletKeyVersion',
+      'derivationVersion',
+      'stableKeyContext',
+      'publicIdentity',
+      'activationEpoch',
+      'materialActivation',
+      'routerMaterial',
+      'signingWorkerId',
+      'routerAbEcdsaDerivationNormalSigning',
+      'routerAbEcdsaDerivationIssuerBinding',
+    ])
+  ) {
+    return null;
+  }
+  const deviceIdResult = parseLinkedDeviceId(raw.deviceId);
+  const enrollmentIdResult = parseLinkedDeviceEnrollmentId(raw.enrollmentId);
+  const walletKeyIdResult = parseWalletKeyId(raw.walletKeyId);
+  const tenantIdResult = parseTenantId(raw.tenantId);
+  const authorizationIdResult = parseLinkedDeviceWalletSessionAuthorizationId(raw.authorizationId);
+  const walletSessionIdResult = parseWalletSessionId(raw.walletSessionId);
+  const quotaIdResult = parseMpcWalletSigningQuotaId(raw.quotaId);
+  const keyManifestDigest = (() => {
+    try {
+      return parseDigestB64u(raw.keyManifestDigestB64u);
+    } catch {
       return null;
     }
-    out.runtimePolicyScope = runtimePolicyScope;
-  }
-
-  const iat = (raw as { iat?: unknown }).iat;
-  if (iat !== undefined) {
-    const v = Number(iat);
-    if (!Number.isFinite(v)) return null;
-    out.iat = v;
-  }
-
-  const exp = (raw as { exp?: unknown }).exp;
-  if (exp !== undefined) {
-    const v = Number(exp);
-    if (!Number.isFinite(v)) return null;
-    out.exp = v;
-  }
-
-  const nbf = (raw as { nbf?: unknown }).nbf;
-  if (nbf !== undefined) {
-    const v = Number(nbf);
-    if (!Number.isFinite(v)) return null;
-    out.nbf = v;
-  }
-
-  return out;
-}
-
-export function parseRouterAbEd25519WalletSessionClaims(
-  raw: unknown,
-): RouterAbEd25519WalletSessionClaims | null {
-  const claims = parseEd25519WalletSessionClaimsForKind(
-    raw,
-    ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-  );
-  if (!claims?.runtimePolicyScope) return null;
-  let routerAbNormalSigning: RouterAbEd25519NormalSigningState | null = null;
-  try {
-    routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
-      isObject(raw) ? raw.routerAbNormalSigning : undefined,
-    );
-  } catch {
-    return null;
-  }
-  if (!routerAbNormalSigning) return null;
-  return {
-    ...claims,
-    runtimePolicyScope: claims.runtimePolicyScope,
-    routerAbNormalSigning,
-  };
-}
-
-export type AppSessionClaims = {
-  sub: string;
-  kind: 'app_session_v1';
-  appSessionVersion: string;
-  seamsSessionId?: SeamsSessionId;
-  walletId?: string;
-  walletAuthAuthorityRef?: WalletAuthAuthorityRef;
-  googleEmailOtpRegistrationAttemptId?: string;
-  googleEmailOtpResolutionMode?: 'existing_wallet' | 'register_started';
-  runtimePolicyScope?: RuntimePolicyScope;
-  iat?: number;
-  exp?: number;
-  nbf?: number;
-};
-
-export function parseAppSessionClaims(raw: unknown): AppSessionClaims | null {
-  if (!isObject(raw)) return null;
-  const kind = toOptionalString(raw.kind);
-  if (kind !== 'app_session_v1') return null;
+  })();
+  const walletId = toOptionalString(raw.walletId);
   const sub = toOptionalString(raw.sub);
-  const appSessionVersion = toOptionalString(raw.appSessionVersion);
-  if (!sub || !appSessionVersion) return null;
-  const out: AppSessionClaims = {
-    sub,
-    kind,
-    appSessionVersion,
-  };
-  const seamsSessionIdRaw = (raw as { seamsSessionId?: unknown }).seamsSessionId;
-  if (seamsSessionIdRaw !== undefined) {
-    const seamsSessionId = parseSeamsSessionId(seamsSessionIdRaw);
-    if (!seamsSessionId.ok) return null;
-    out.seamsSessionId = seamsSessionId.value;
-  }
-  const walletId = toOptionalString((raw as { walletId?: unknown }).walletId);
-  if (walletId) out.walletId = walletId;
-  const walletAuthAuthorityRefRaw = (raw as { walletAuthAuthorityRef?: unknown })
-    .walletAuthAuthorityRef;
-  if (walletAuthAuthorityRefRaw !== undefined) {
-    const walletAuthAuthorityRef = parseWalletAuthAuthorityRef(walletAuthAuthorityRefRaw);
-    if (!walletAuthAuthorityRef) return null;
-    out.walletAuthAuthorityRef = walletAuthAuthorityRef;
-  }
-  const googleEmailOtpRegistrationAttemptId = toOptionalString(
-    (raw as { googleEmailOtpRegistrationAttemptId?: unknown }).googleEmailOtpRegistrationAttemptId,
-  );
-  if (googleEmailOtpRegistrationAttemptId) {
-    out.googleEmailOtpRegistrationAttemptId = googleEmailOtpRegistrationAttemptId;
-  }
-  const googleEmailOtpResolutionModeRaw = (raw as { googleEmailOtpResolutionMode?: unknown })
-    .googleEmailOtpResolutionMode;
-  const googleEmailOtpResolutionMode =
-    googleEmailOtpResolutionModeRaw === undefined
-      ? ''
-      : toOptionalString(googleEmailOtpResolutionModeRaw);
-  if (googleEmailOtpResolutionMode) {
-    if (
-      googleEmailOtpResolutionMode !== 'existing_wallet' &&
-      googleEmailOtpResolutionMode !== 'register_started'
-    ) {
-      return null;
-    }
-    out.googleEmailOtpResolutionMode = googleEmailOtpResolutionMode;
-  } else if (googleEmailOtpResolutionModeRaw !== undefined) {
-    return null;
-  }
-  const runtimePolicyScopeRaw = (raw as { runtimePolicyScope?: unknown }).runtimePolicyScope;
-  if (runtimePolicyScopeRaw !== undefined) {
-    const runtimePolicyScope = parseRuntimePolicyScope(runtimePolicyScopeRaw);
-    if (!runtimePolicyScope) return null;
-    out.runtimePolicyScope = runtimePolicyScope;
-  }
-
-  const iat = (raw as { iat?: unknown }).iat;
-  if (iat !== undefined) {
-    const v = Number(iat);
-    if (!Number.isFinite(v)) return null;
-    out.iat = v;
-  }
-
-  const exp = (raw as { exp?: unknown }).exp;
-  if (exp !== undefined) {
-    const v = Number(exp);
-    if (!Number.isFinite(v)) return null;
-    out.exp = v;
-  }
-
-  const nbf = (raw as { nbf?: unknown }).nbf;
-  if (nbf !== undefined) {
-    const v = Number(nbf);
-    if (!Number.isFinite(v)) return null;
-    out.nbf = v;
-  }
-
-  return out;
-}
-
-export function resolveAppSessionProviderUserIdForWalletScope(
-  claims: AppSessionClaims | null | undefined,
-  requestedWalletId: unknown,
-): string | undefined {
-  if (!claims) return undefined;
-  const subject = toOptionalString(claims.sub);
-  const walletId = toOptionalString(requestedWalletId);
-  if (!subject || !walletId || subject === walletId) return undefined;
-  return subject;
-}
-
-export function resolveAppSessionWalletIdForWalletScope(
-  claims: AppSessionClaims | null | undefined,
-  requestedWalletIdRaw: unknown,
-): string | undefined {
-  if (!claims) return undefined;
-  const explicitWalletId = toOptionalString(claims.walletId);
-  if (explicitWalletId) return explicitWalletId;
-  const subject = toOptionalString(claims.sub);
-  const requestedWalletId = toOptionalString(requestedWalletIdRaw);
-  if (subject && requestedWalletId && subject === requestedWalletId) return subject;
-  return undefined;
-}
-
-type EcdsaWalletSessionClaimKind = typeof ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND;
-
-export type EcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionClaimKind> = {
-  sub: string;
-  walletId: string;
-  kind: Kind;
-  sid: SeamsSessionId;
-  thresholdSessionId: string;
-  authorizationId: WalletSessionAuthorizationId;
-  authorizationSessionId: SeamsSessionId;
-  walletSessionId: WalletSessionId;
-  quotaId: MpcWalletSigningQuotaId;
-  keyScope: 'evm-family';
-  keyHandle: string;
-  relayerKeyId: string;
-  runtimePolicyScope?: RuntimePolicyScope;
-  thresholdExpiresAtMs: number;
-  participantIds: number[];
-  iat?: number;
-  exp?: number;
-  nbf?: number;
-};
-
-export type RouterAbEcdsaDerivationWalletSessionClaims = EcdsaWalletSessionClaimsForKind<
-  typeof ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND
-> & {
-  routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
-};
-
-function parseEcdsaWalletSessionClaimsForKind<Kind extends EcdsaWalletSessionClaimKind>(
-  raw: unknown,
-  expectedKind: Kind,
-): EcdsaWalletSessionClaimsForKind<Kind> | null {
-  if (!isObject(raw)) return null;
-  if ('evmFamilySigningKeySlotId' in raw) return null;
-  const kind = toOptionalString(raw.kind);
-  if (kind !== expectedKind) return null;
-  const sub = toOptionalString(raw.sub);
-  const walletId = toOptionalString((raw as { walletId?: unknown }).walletId);
-  const thresholdSessionId = toOptionalString(
-    (raw as { thresholdSessionId?: unknown }).thresholdSessionId,
-  );
-  const seamsSessionId = parseSeamsSessionId((raw as { sid?: unknown }).sid);
-  const authorizationId = parseWalletSessionAuthorizationId(
-    (raw as { authorizationId?: unknown }).authorizationId,
-  );
-  const authorizationSessionId = parseSeamsSessionId(
-    (raw as { authorizationSessionId?: unknown }).authorizationSessionId,
-  );
-  const walletSessionId = parseWalletSessionId(
-    (raw as { walletSessionId?: unknown }).walletSessionId,
-  );
-  const quotaId = parseMpcWalletSigningQuotaId((raw as { quotaId?: unknown }).quotaId);
-  const keyScope = toOptionalString((raw as { keyScope?: unknown }).keyScope);
-  const keyHandle = toOptionalString((raw as { keyHandle?: unknown }).keyHandle);
-  const relayerKeyId = toOptionalString(raw.relayerKeyId);
+  const issuedAtMs = raw.issuedAtMs;
+  const expiresAtMs = raw.expiresAtMs;
+  const revocationEpoch = raw.revocationEpoch;
+  const permission = parseLinkedDeviceWalletSessionPermissionClaims(raw.permission);
+  const iat = raw.iat;
+  const exp = raw.exp;
   if (
-    !sub ||
+    !deviceIdResult.ok ||
+    !enrollmentIdResult.ok ||
+    !walletKeyIdResult.ok ||
+    !tenantIdResult.ok ||
+    !authorizationIdResult.ok ||
+    !walletSessionIdResult.ok ||
+    !quotaIdResult.ok ||
+    !keyManifestDigest ||
     !walletId ||
-    walletId !== sub ||
-    !seamsSessionId.ok ||
-    !thresholdSessionId ||
-    !authorizationId.ok ||
-    !authorizationSessionId.ok ||
-    seamsSessionId.value !== authorizationSessionId.value ||
-    !walletSessionId.ok ||
-    !quotaId.ok ||
-    keyScope !== 'evm-family' ||
-    !keyHandle ||
-    !relayerKeyId
-  )
+    !sub ||
+    sub !== `linked-device:${String(deviceIdResult.value)}` ||
+    !isNonNegativeInteger(issuedAtMs) ||
+    !isNonNegativeInteger(expiresAtMs) ||
+    !isNonNegativeInteger(revocationEpoch) ||
+    !permission ||
+    !isNonNegativeInteger(iat) ||
+    !isNonNegativeInteger(exp) ||
+    issuedAtMs >= expiresAtMs ||
+    exp <= 0 ||
+    issuedAtMs < iat * 1000 ||
+    issuedAtMs >= (iat + 1) * 1000 ||
+    expiresAtMs < exp * 1000 ||
+    expiresAtMs >= (exp + 1) * 1000
+  ) {
     return null;
-  const thresholdExpiresAtMs = (raw as { thresholdExpiresAtMs?: unknown }).thresholdExpiresAtMs;
-  if (!isValidNumber(thresholdExpiresAtMs)) return null;
-  const participantIds = normalizeThresholdEd25519ParticipantIds(
-    (raw as { participantIds?: unknown }).participantIds,
-  );
-  if (!participantIds || participantIds.length < 2) return null;
-  const out: EcdsaWalletSessionClaimsForKind<Kind> = {
+  }
+  const out: RouterAbEd25519LinkedDeviceWalletSessionClaims = {
     sub,
     walletId,
-    kind: expectedKind,
-    sid: seamsSessionId.value,
-    thresholdSessionId,
-    authorizationId: authorizationId.value,
-    authorizationSessionId: authorizationSessionId.value,
-    walletSessionId: walletSessionId.value,
-    quotaId: quotaId.value,
-    keyScope,
-    keyHandle,
-    relayerKeyId,
-    thresholdExpiresAtMs,
-    participantIds,
+    kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+    authorizationKind: 'linked_device_wallet_session',
+    authorizationId: authorizationIdResult.value,
+    walletSessionId: walletSessionIdResult.value,
+    quotaId: quotaIdResult.value,
+    tenantId: tenantIdResult.value,
+    deviceId: deviceIdResult.value,
+    enrollmentId: enrollmentIdResult.value,
+    walletKeyId: walletKeyIdResult.value,
+    keyManifestDigestB64u: keyManifestDigest,
+    revocationEpoch,
+    permission,
+    issuedAtMs,
+    expiresAtMs,
+    iat,
+    exp,
   };
-  const runtimePolicyScopeRaw = (raw as { runtimePolicyScope?: unknown }).runtimePolicyScope;
-  if (runtimePolicyScopeRaw !== undefined) {
-    const runtimePolicyScope = parseRuntimePolicyScope(runtimePolicyScopeRaw);
-    if (!runtimePolicyScope) return null;
-    out.runtimePolicyScope = runtimePolicyScope;
-  }
-
-  const iat = (raw as { iat?: unknown }).iat;
-  if (iat !== undefined) {
-    const v = Number(iat);
-    if (!Number.isFinite(v)) return null;
-    out.iat = v;
-  }
-
-  const exp = (raw as { exp?: unknown }).exp;
-  if (exp !== undefined) {
-    const v = Number(exp);
-    if (!Number.isFinite(v)) return null;
-    out.exp = v;
-  }
-
-  const nbf = (raw as { nbf?: unknown }).nbf;
+  const nbf = raw.nbf;
   if (nbf !== undefined) {
-    const v = Number(nbf);
-    if (!Number.isFinite(v)) return null;
-    out.nbf = v;
+    const value = Number(nbf);
+    if (!isNonNegativeInteger(value)) return null;
+    out.nbf = value;
   }
-
   return out;
 }
 
-export function parseRouterAbEcdsaDerivationWalletSessionClaims(
-  raw: unknown,
-): RouterAbEcdsaDerivationWalletSessionClaims | null {
-  const claims = parseEcdsaWalletSessionClaimsForKind(
-    raw,
-    ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
-  );
-  if (!claims || !isObject(raw)) return null;
-  const hasNormalSigning = raw.routerAbEcdsaDerivationNormalSigning !== undefined;
-  const hasIssuerBinding = raw.routerAbEcdsaDerivationIssuerBinding !== undefined;
-  if (!hasNormalSigning || hasIssuerBinding) return null;
+export type RouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims =
+  LinkedDeviceWalletSessionClaimBase & {
+    readonly kind: typeof ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND;
+    readonly authorizationKind: 'linked_device_wallet_session';
+    readonly sid?: never;
+    readonly authorizationSessionId?: never;
+    readonly walletAuthAuthorityRef?: never;
+    readonly authSource?: never;
+    readonly nearAccountId?: never;
+    readonly nearEd25519SigningKeyId?: never;
+    readonly authority?: never;
+    readonly authorityScope?: never;
+    readonly thresholdSessionId?: never;
+    readonly relayerKeyId?: never;
+    readonly participantIds?: never;
+    readonly thresholdExpiresAtMs?: never;
+    readonly runtimePolicyScope?: never;
+    readonly routerAbEcdsaDerivationNormalSigning?: never;
+    readonly keyScope?: never;
+    readonly keyHandle?: never;
+  };
 
-  let normalSigning: RouterAbEcdsaDerivationNormalSigningStateV1 | null = null;
-  try {
-    normalSigning = parseRouterAbEcdsaDerivationNormalSigningStateV1(
-      raw.routerAbEcdsaDerivationNormalSigning,
-    );
-  } catch {
+export function parseRouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims(
+  raw: unknown,
+): RouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims | null {
+  if (!isObject(raw)) return null;
+  if (toOptionalString(raw.kind) !== ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND) {
     return null;
   }
-  if (!normalSigning) return null;
-  return {
-    ...claims,
-    routerAbEcdsaDerivationNormalSigning: normalSigning,
+  if (toOptionalString(raw.authorizationKind) !== 'linked_device_wallet_session') return null;
+  if (
+    hasForbiddenFields(raw, [
+      'sid',
+      'authorizationSessionId',
+      'walletAuthAuthorityRef',
+      'authSource',
+      'runtimePolicyScope',
+      'nearAccountId',
+      'nearEd25519SigningKeyId',
+      'authority',
+      'authorityScope',
+      'thresholdSessionId',
+      'relayerKeyId',
+      'participantIds',
+      'thresholdExpiresAtMs',
+      'routerAbEcdsaDerivationNormalSigning',
+      'routerAbEcdsaDerivationIssuerBinding',
+      'routerAbNormalSigning',
+      'keyScope',
+      'keyHandle',
+      'evmFamilySigningKeySlotId',
+      'ecdsaThresholdKeyId',
+      'signingRootId',
+      'signingRootVersion',
+      'walletKeyVersion',
+      'derivationVersion',
+      'stableKeyContext',
+      'publicIdentity',
+      'activationEpoch',
+      'materialActivation',
+      'routerMaterial',
+      'signingWorkerId',
+    ])
+  ) {
+    return null;
+  }
+  const deviceIdResult = parseLinkedDeviceId(raw.deviceId);
+  const enrollmentIdResult = parseLinkedDeviceEnrollmentId(raw.enrollmentId);
+  const walletKeyIdResult = parseWalletKeyId(raw.walletKeyId);
+  const tenantIdResult = parseTenantId(raw.tenantId);
+  const authorizationIdResult = parseLinkedDeviceWalletSessionAuthorizationId(raw.authorizationId);
+  const walletSessionIdResult = parseWalletSessionId(raw.walletSessionId);
+  const quotaIdResult = parseMpcWalletSigningQuotaId(raw.quotaId);
+  const keyManifestDigest = (() => {
+    try {
+      return parseDigestB64u(raw.keyManifestDigestB64u);
+    } catch {
+      return null;
+    }
+  })();
+  const walletId = toOptionalString(raw.walletId);
+  const sub = toOptionalString(raw.sub);
+  const issuedAtMs = raw.issuedAtMs;
+  const expiresAtMs = raw.expiresAtMs;
+  const revocationEpoch = raw.revocationEpoch;
+  const permission = parseLinkedDeviceWalletSessionPermissionClaims(raw.permission);
+  const iat = raw.iat;
+  const exp = raw.exp;
+  if (
+    !deviceIdResult.ok ||
+    !enrollmentIdResult.ok ||
+    !walletKeyIdResult.ok ||
+    !tenantIdResult.ok ||
+    !authorizationIdResult.ok ||
+    !walletSessionIdResult.ok ||
+    !quotaIdResult.ok ||
+    !keyManifestDigest ||
+    !walletId ||
+    !sub ||
+    sub !== `linked-device:${String(deviceIdResult.value)}` ||
+    !isNonNegativeInteger(issuedAtMs) ||
+    !isNonNegativeInteger(expiresAtMs) ||
+    !isNonNegativeInteger(revocationEpoch) ||
+    !permission ||
+    issuedAtMs >= expiresAtMs ||
+    !isNonNegativeInteger(iat) ||
+    !isNonNegativeInteger(exp) ||
+    exp <= 0 ||
+    issuedAtMs < iat * 1000 ||
+    issuedAtMs >= (iat + 1) * 1000 ||
+    expiresAtMs < exp * 1000 ||
+    expiresAtMs >= (exp + 1) * 1000
+  ) {
+    return null;
+  }
+  const out: RouterAbEcdsaDerivationLinkedDeviceWalletSessionClaims = {
+    sub,
+    walletId,
+    kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
+    authorizationKind: 'linked_device_wallet_session',
+    authorizationId: authorizationIdResult.value,
+    walletSessionId: walletSessionIdResult.value,
+    quotaId: quotaIdResult.value,
+    tenantId: tenantIdResult.value,
+    deviceId: deviceIdResult.value,
+    enrollmentId: enrollmentIdResult.value,
+    walletKeyId: walletKeyIdResult.value,
+    keyManifestDigestB64u: keyManifestDigest,
+    revocationEpoch,
+    permission,
+    issuedAtMs,
+    expiresAtMs,
+    iat,
+    exp,
   };
+  const nbf = raw.nbf;
+  if (nbf !== undefined) {
+    const value = Number(nbf);
+    if (!isNonNegativeInteger(value)) return null;
+    out.nbf = value;
+  }
+  return out;
 }
 
 export function normalizeByteArray32(input: unknown): Uint8Array | null {

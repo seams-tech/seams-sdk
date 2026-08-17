@@ -1,6 +1,5 @@
 import { alphabetizeStringify, sha256BytesUtf8 } from './digests';
 import type {
-  AppSessionVersion,
   ChallengeSubjectId,
   EmailOtpChallengeId,
   EmailOtpProviderUserId,
@@ -65,7 +64,6 @@ export type PasskeyRegistrationAuthMethodInput = {
   email?: never;
   otpCode?: never;
   challengeId?: never;
-  appSessionJwt?: never;
 };
 
 export type EmailOtpRegistrationAuthMethodInput =
@@ -73,8 +71,8 @@ export type EmailOtpRegistrationAuthMethodInput =
       kind: 'email_otp';
       proofKind: 'otp_challenge';
       email: string;
+      providerSubject: string;
       otpCode: string;
-      appSessionJwt: string;
       challengeId?: string;
       rpId?: never;
       googleEmailOtpRegistrationAttemptId?: never;
@@ -86,7 +84,7 @@ export type EmailOtpRegistrationAuthMethodInput =
       kind: 'email_otp';
       proofKind: 'google_sso_registration';
       email: string;
-      appSessionJwt: string;
+      providerSubject: string;
       googleEmailOtpRegistrationAttemptId: string;
       googleEmailOtpRegistrationOfferId: string;
       googleEmailOtpRegistrationCandidateId: string;
@@ -107,7 +105,6 @@ export type AddAuthMethodInput =
       email?: never;
       otpCode?: never;
       challengeId?: never;
-      appSessionJwt?: never;
       authenticatorOptions?: never;
     }
   | {
@@ -116,7 +113,6 @@ export type AddAuthMethodInput =
       rpId?: never;
       otpCode?: never;
       challengeId?: never;
-      appSessionJwt?: never;
       authenticatorOptions?: never;
     };
 
@@ -155,7 +151,6 @@ export type RegistrationAuthority =
       originalWalletId?: never;
       finalWalletId?: never;
       orgId?: never;
-      appSessionVersion?: never;
       challengePurpose?: never;
       googleEmailOtpRegistrationOfferId?: never;
       googleEmailOtpRegistrationCandidateId?: never;
@@ -164,7 +159,7 @@ export type RegistrationAuthority =
       kind: 'email_otp';
       proofKind: 'otp_challenge';
       walletId: WalletId;
-      /** OIDC provider subject from the app-session JWT that requested the OTP. */
+      /** OIDC provider subject verified for the OTP registration proof. */
       providerSubject: ProviderSubject;
       /** Challenge owner verified against the OTP challenge record. */
       challengeSubjectId: ChallengeSubjectId;
@@ -179,8 +174,8 @@ export type RegistrationAuthority =
       finalWalletId: WalletId;
       /** Tenant scope verified against the OTP challenge record. */
       orgId: OrgId;
-      /** App-session version verified against the OTP challenge record. */
-      appSessionVersion: AppSessionVersion;
+      /** Operation-bound owner proof digest verified against the OTP challenge record. */
+      ownerProofBindingDigest: string;
       challengePurpose: 'registration' | 'registration_reroll';
       registrationIntentDigestB64u: string;
       credentialIdB64u?: never;
@@ -205,7 +200,7 @@ export type RegistrationAuthority =
       registrationAuthorityId: string;
       finalWalletId: WalletId;
       orgId: OrgId;
-      appSessionVersion: AppSessionVersion;
+      ownerProofBindingDigest: string;
       registrationIntentDigestB64u: string;
       challengeSubjectId?: never;
       challengeId?: never;
@@ -222,7 +217,6 @@ export type EmailOtpRegistrationProof =
   | {
       version: 'email_otp_registration_proof_v1';
       proofKind: 'otp_challenge';
-      /** OIDC provider subject from the app-session JWT that requested the OTP. */
       providerSubject: string;
       /** Normalized email address that received the OTP. */
       email: string;
@@ -231,7 +225,6 @@ export type EmailOtpRegistrationProof =
       otpChannel: 'email_otp';
       /** Registration intent digest that binds the OTP proof to the wallet-registration request. */
       registrationIntentDigestB64u: string;
-      appSessionVersion: string;
       googleEmailOtpRegistrationAttemptId?: never;
       googleEmailOtpRegistrationOfferId?: never;
       googleEmailOtpRegistrationCandidateId?: never;
@@ -245,7 +238,6 @@ export type EmailOtpRegistrationProof =
       googleEmailOtpRegistrationOfferId: string;
       googleEmailOtpRegistrationCandidateId: string;
       registrationIntentDigestB64u: string;
-      appSessionVersion: string;
       challengeId?: never;
       otpCode?: never;
       otpChannel?: never;
@@ -1510,10 +1502,10 @@ export function normalizeRegistrationAuthMethodInput(
   if (kind === 'email_otp') {
     const proofKind = trimString(raw.proofKind);
     const email = trimString(raw.email);
-    const appSessionJwt = trimString(raw.appSessionJwt);
+    const providerSubject = trimString(raw.providerSubject);
     if (
       !email ||
-      !appSessionJwt ||
+      !providerSubject ||
       Object.prototype.hasOwnProperty.call(raw, 'rpId') ||
       Object.prototype.hasOwnProperty.call(raw, 'authenticatorOptions')
     ) {
@@ -1534,8 +1526,8 @@ export function normalizeRegistrationAuthMethodInput(
         kind: 'email_otp',
         proofKind: 'otp_challenge',
         email,
+        providerSubject,
         otpCode,
-        appSessionJwt,
         ...(challengeId ? { challengeId } : {}),
       };
     }
@@ -1560,7 +1552,7 @@ export function normalizeRegistrationAuthMethodInput(
         kind: 'email_otp',
         proofKind: 'google_sso_registration',
         email,
-        appSessionJwt,
+        providerSubject,
         googleEmailOtpRegistrationAttemptId,
         googleEmailOtpRegistrationOfferId,
         googleEmailOtpRegistrationCandidateId,
@@ -1581,7 +1573,6 @@ export function normalizeAddAuthMethodInput(raw: unknown): AddAuthMethodInput | 
       Object.prototype.hasOwnProperty.call(raw, 'email') ||
       Object.prototype.hasOwnProperty.call(raw, 'otpCode') ||
       Object.prototype.hasOwnProperty.call(raw, 'challengeId') ||
-      Object.prototype.hasOwnProperty.call(raw, 'appSessionJwt') ||
       Object.prototype.hasOwnProperty.call(raw, 'authenticatorOptions')
     ) {
       return null;
@@ -1595,7 +1586,6 @@ export function normalizeAddAuthMethodInput(raw: unknown): AddAuthMethodInput | 
       Object.prototype.hasOwnProperty.call(raw, 'rpId') ||
       Object.prototype.hasOwnProperty.call(raw, 'otpCode') ||
       Object.prototype.hasOwnProperty.call(raw, 'challengeId') ||
-      Object.prototype.hasOwnProperty.call(raw, 'appSessionJwt') ||
       Object.prototype.hasOwnProperty.call(raw, 'authenticatorOptions')
     ) {
       return null;
@@ -1647,13 +1637,11 @@ export function normalizeEmailOtpRegistrationProof(raw: unknown): EmailOtpRegist
   const providerSubject = trimString(raw.providerSubject);
   const email = trimString(raw.email).toLowerCase();
   const registrationIntentDigestB64u = trimString(raw.registrationIntentDigestB64u);
-  const appSessionVersion = trimString(raw.appSessionVersion);
   if (
     version !== 'email_otp_registration_proof_v1' ||
     !providerSubject ||
     !email ||
-    !registrationIntentDigestB64u ||
-    !appSessionVersion
+    !registrationIntentDigestB64u
   ) {
     return null;
   }
@@ -1680,7 +1668,6 @@ export function normalizeEmailOtpRegistrationProof(raw: unknown): EmailOtpRegist
       otpCode,
       otpChannel: 'email_otp',
       registrationIntentDigestB64u,
-      appSessionVersion,
     };
   }
   if (proofKind === 'google_sso_registration') {
@@ -1708,7 +1695,6 @@ export function normalizeEmailOtpRegistrationProof(raw: unknown): EmailOtpRegist
       googleEmailOtpRegistrationOfferId,
       googleEmailOtpRegistrationCandidateId,
       registrationIntentDigestB64u,
-      appSessionVersion,
     };
   }
   return null;

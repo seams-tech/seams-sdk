@@ -7,11 +7,18 @@ import {
   ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH,
   ROUTER_AB_ED25519_WALLET_SESSION_PATH,
 } from '@shared/utils/signingSessionSeal';
-import { resolveThresholdRuntimePolicyScope } from '../../../auth/commonRouterUtils';
+import {
+  resolveOpaqueOwnerWalletSessionAdmission,
+  resolveThresholdRuntimePolicyScope,
+} from '../../../auth/commonRouterUtils';
+import { extractBearerCredential } from '../../../auth/routerApiKeyAuth';
 import { normalizeCorsOrigin } from '../../../../core/SessionService';
 import {
-  authenticateRouterAbOperationStepUpAppSession,
+  authenticateRouterAbWalletOperationStepUpIdentity,
   authorizeRouterAbEd25519NormalSigningRoute,
+  buildRouterAbEd25519OwnerOperationStepUpPreparation,
+  decideRouterAbEd25519OwnerOperationAuthorization,
+  routerAbEd25519OwnerOperationFailureResult,
   buildRouterAbEd25519PrivateSigningWorkerBody,
   parseRouterAbEd25519OperationStepUpScope,
   parseRouterAbOperationStepUpOperation,
@@ -60,21 +67,25 @@ import {
   type AuthorizedOperationReplayResponse,
 } from '../../../../authorization/domain';
 import {
-  buildVerifiedEmailOtpFactorResult,
-  buildVerifiedPasskeyFactorResult,
-  type VerifiedAuthorizationFactorResult,
+  buildVerifiedWalletOperationEmailOtpFactorResult,
+  buildVerifiedWalletOperationPasskeyFactorResult,
+  buildVerifiedWalletSessionPasskeyFactorResult,
+  type VerifiedWalletOperationFactorResult,
 } from '../../../../authorization/factorEvidence';
-import {
-  parseAppSessionClaims,
-  resolveAppSessionWalletIdForWalletScope,
-} from '../../../../core/ThresholdService/validation';
+import { parseSessionOrigin, parseVerifiedOwnerProofId } from '../../../../authorization/domain';
 import type {
+  RouterAbEd25519YaoBudgetRefreshRequestV1,
   RouterAbEd25519YaoBudgetRefreshAuthorizationV1,
   RouterAbEd25519YaoOperationStepUpGrantCommandV1,
   RouterAbEd25519YaoSessionRouteCommandV1,
 } from '../../../domains/ed25519Yao/session/routerAbEd25519YaoWalletSession';
-import { proxyNormalSigningRequestToMpcRouter } from './normalSigningRouterProxy';
-import { parseEmailOtpChallengeId } from '@shared/utils/domainIds';
+import { proxyOwnerLaneAdmittedNormalSigningRequest } from './normalSigningRouterProxy';
+import { handleLinkedDeviceEd25519NormalSigning } from './linkedDeviceNormalSigning';
+import {
+  parseEmailOtpChallengeId,
+  parseWalletId,
+  parseWebAuthnCredentialIdB64u,
+} from '@shared/utils/domainIds';
 import {
   EMAIL_OTP_CHANNEL,
   WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
@@ -82,27 +93,25 @@ import {
 import { walletIdFromString } from '@shared/utils/registrationIntent';
 import {
   emailOtpStatusCode,
-  hashEmailOtpAppSessionClaims,
+  hashEmailOtpOperationBinding,
 } from '../../../domains/emailOtp/emailOtpSessionRouteHelpers';
+import { sealEmailOtpFactorSecretForWorker } from '../../../domains/emailOtp/emailOtpRouteHandlers';
 import type {
   RouterAbEd25519YaoOperationStepUpMaterialRecoveryRequest,
   RouterAbEd25519YaoOperationStepUpMaterialRecoveryResponse,
 } from '../../../domains/ed25519Yao/session/routerAbEd25519YaoWalletSession';
-
-type Ed25519ReusableAuthorizedOperationReceipt = {
-  readonly kind: 'reusable_wallet_session_authorized_operation_v1';
-  readonly authorized_operation_id: string;
-  readonly operation_id: string;
-  readonly capability_kind: 'near_ed25519_mpc_signing';
-  readonly operation_kind:
-    | 'near.sign_transaction'
-    | 'near.sign_delegate_action'
-    | 'near.sign_nep413_message';
-  readonly lane_digest_b64u: string;
-  readonly intent_digest_b64u: string;
-  readonly display_digest_b64u: string;
-  readonly operation_fingerprint_digest: string;
-};
+import type {
+  RouterApiEmailOtpRouteService,
+  RouterApiWalletAuthMethodService,
+} from '../../../framework/authServicePort';
+import {
+  parseEd25519ReusableAuthorizedOperationReceipt,
+  requireAuthorizedOperationReceiptString,
+  requireEd25519OperationKind,
+  requireExactAuthorizedOperationReceiptFields,
+  type Ed25519OperationKind,
+  type Ed25519ReusableAuthorizedOperationReceipt,
+} from '../../../domains/signingOperations/ed25519AuthorizedOperationReceipt';
 
 type Ed25519VerifiedStepUpAuthorizedOperationReceipt = {
   readonly kind: 'verified_step_up_authorized_operation_v1';
@@ -121,8 +130,6 @@ type Ed25519VerifiedStepUpAuthorizedOperationReceipt = {
   readonly operation_fingerprint_digest: string;
 };
 
-type Ed25519OperationKind = Ed25519ReusableAuthorizedOperationReceipt['operation_kind'];
-
 type Ed25519AuthorizedOperationAdmission =
   | {
       readonly kind: 'claimed';
@@ -138,6 +145,26 @@ type Ed25519AuthorizedOperationAdmission =
       readonly operation: AuthorizedOperation;
     };
 
+async function resolveActiveEd25519OperationStepUpAuthority(
+  walletAuthMethods: RouterApiWalletAuthMethodService,
+  proof: RouterAbEd25519YaoOperationStepUpGrantCommandV1['proof'],
+) {
+  switch (proof.kind) {
+    case 'passkey': {
+      const verified = await walletAuthMethods.verifyActivePasskeyAuthority(proof.authority);
+      return verified.ok ? { ok: true as const, authority: proof.authority } : verified;
+    }
+    case 'email_otp':
+      return await walletAuthMethods.resolveActiveEmailOtpAuthorityForVerifiedSubject({
+        walletId: proof.authorityRef.walletId,
+        providerUserId: proof.providerSubjectId,
+      });
+    default:
+      proof satisfies never;
+      throw new Error('Unsupported Ed25519 operation step-up proof');
+  }
+}
+
 function reusableWalletSessionPrincipalSubject(authority: WalletAuthAuthority): string {
   switch (authority.factor.kind) {
     case 'email_otp':
@@ -147,6 +174,34 @@ function reusableWalletSessionPrincipalSubject(authority: WalletAuthAuthority): 
   }
 }
 
+function buildEd25519GatewayOwnerWalletSessionBinding(
+  authorization: AcceptedEd25519NormalSigningAuthorization,
+) {
+  if (authorization.kind !== 'reusable_wallet_session') {
+    throw new Error('Ed25519 Gateway owner Wallet Session requires reusable authorization');
+  }
+  const binding = authorization.validated.binding;
+  const runtimePolicyScope = binding.runtimePolicyScope;
+  if (!runtimePolicyScope) {
+    throw new Error('Ed25519 Wallet Session runtime policy scope is required');
+  }
+  return {
+    kind: 'gateway_owner_wallet_session' as const,
+    subjectId: binding.subjectId,
+    accountId: binding.walletId,
+    authorizationSessionId: binding.walletSessionId,
+    authorizationId: binding.authorizationId,
+    walletSessionId: binding.walletSessionId,
+    quotaId: binding.quotaId,
+    thresholdSessionId: binding.thresholdSessionId,
+    orgId: runtimePolicyScope.orgId,
+    projectId: runtimePolicyScope.projectId,
+    environment: runtimePolicyScope.envId,
+    signingWorkerId: binding.routerAbNormalSigning.signingWorkerId,
+    expiresAtMs: binding.thresholdExpiresAtMs,
+  };
+}
+
 type RouterAbEd25519AuthorizedOperationWire = {
   readonly binding:
     | {
@@ -154,6 +209,21 @@ type RouterAbEd25519AuthorizedOperationWire = {
         readonly authorization_id: string;
         readonly wallet_session_id: string;
         readonly quota_id: string;
+      }
+    | {
+        readonly kind: 'gateway_owner_wallet_session';
+        readonly subject_id: string;
+        readonly account_id: string;
+        readonly authorization_session_id: string;
+        readonly authorization_id: string;
+        readonly wallet_session_id: string;
+        readonly quota_id: string;
+        readonly threshold_session_id: string;
+        readonly org_id: string;
+        readonly project_id: string;
+        readonly environment: string;
+        readonly signing_worker_id: string;
+        readonly expires_at_ms: number;
       }
     | {
         readonly kind: 'operation_step_up';
@@ -177,6 +247,24 @@ type RouterAbEd25519AuthorizedOperationWireInput =
         readonly kind: 'reusable_wallet_session';
         readonly walletSessionId: string;
         readonly quotaId: string;
+      };
+    }
+  | {
+      readonly operation: AuthorizedOperation;
+      readonly binding: {
+        readonly kind: 'gateway_owner_wallet_session';
+        readonly subjectId: string;
+        readonly accountId: string;
+        readonly authorizationSessionId: string;
+        readonly authorizationId: string;
+        readonly walletSessionId: string;
+        readonly quotaId: string;
+        readonly thresholdSessionId: string;
+        readonly orgId: string;
+        readonly projectId: string;
+        readonly environment: string;
+        readonly signingWorkerId: string;
+        readonly expiresAtMs: number;
       };
     }
   | {
@@ -230,6 +318,34 @@ function buildRouterAbEd25519AuthorizedOperationWire(
           ...commonAuthorizedOperation,
         },
       };
+    case 'gateway_owner_wallet_session':
+      if (
+        operation.authorization.kind !== 'authorization_grant' ||
+        operation.quota.kind !== 'consume_reusable_wallet_session'
+      ) {
+        throw new Error('Gateway owner Wallet Session authorized operation is invalid');
+      }
+      return {
+        binding: {
+          kind: 'gateway_owner_wallet_session',
+          subject_id: input.binding.subjectId,
+          account_id: input.binding.accountId,
+          authorization_session_id: input.binding.authorizationSessionId,
+          authorization_id: input.binding.authorizationId,
+          wallet_session_id: input.binding.walletSessionId,
+          quota_id: input.binding.quotaId,
+          threshold_session_id: input.binding.thresholdSessionId,
+          org_id: input.binding.orgId,
+          project_id: input.binding.projectId,
+          environment: input.binding.environment,
+          signing_worker_id: input.binding.signingWorkerId,
+          expires_at_ms: input.binding.expiresAtMs,
+        },
+        authorized_operation: {
+          kind: 'reusable_wallet_session_authorized_operation_v1',
+          ...commonAuthorizedOperation,
+        },
+      };
     case 'operation_step_up':
       if (
         operation.authorization.kind !== 'verified_step_up' ||
@@ -256,47 +372,63 @@ function buildRouterAbEd25519AuthorizedOperationWire(
   }
 }
 
-function requireReceiptString(record: Record<string, unknown>, name: string): string {
-  const field = typeof record[name] === 'string' ? record[name].trim() : '';
-  if (!field) throw new Error(`authorized_operation.${name} is required`);
-  return field;
-}
+type EmailOtpFactorReleaseEnrollment = {
+  readonly enrollmentId: string;
+  readonly enrollmentSealKeyVersion: string;
+  readonly serverSealedFactorCiphertextB64u: string;
+};
 
-function requireEd25519OperationKind(value: unknown): Ed25519OperationKind {
-  if (
-    value !== 'near.sign_transaction' &&
-    value !== 'near.sign_delegate_action' &&
-    value !== 'near.sign_nep413_message'
-  ) {
-    throw new Error('authorized_operation.operation_kind is invalid');
-  }
-  return value;
-}
+type EmailOtpFactorReleaseRequest = {
+  readonly enrollment: EmailOtpFactorReleaseEnrollment;
+  readonly workerEphemeralPublicKey65B64u: string;
+};
 
-function requireExactAuthorizedOperationFields(
-  record: Record<string, unknown>,
-  branchFields: readonly string[] = [],
-): void {
-  const expected = [
-    'capability_kind',
-    'display_digest_b64u',
-    'intent_digest_b64u',
-    'kind',
-    'lane_digest_b64u',
-    'operation_fingerprint_digest',
-    'operation_id',
-    'operation_kind',
-    'authorized_operation_id',
-    ...branchFields,
-  ];
-  expected.sort();
-  const actual = Object.keys(record).sort();
-  if (
-    actual.length !== expected.length ||
-    actual.some((field, index) => field !== expected[index])
-  ) {
-    throw new Error('authorized_operation has invalid fields');
+type EmailOtpFactorReleaseResponse = Extract<
+  RouterAbEd25519YaoOperationStepUpMaterialRecoveryResponse,
+  { readonly kind: 'email_otp_factor_release_v1' }
+>;
+
+async function releaseEmailOtpFactorForWorker(input: {
+  readonly emailOtp: Pick<RouterApiEmailOtpRouteService, 'removeEmailOtpServerSeal'>;
+  readonly request: EmailOtpFactorReleaseRequest;
+  readonly walletId: string;
+  readonly challengeId: string;
+}): Promise<
+  | { readonly ok: true; readonly recovery: EmailOtpFactorReleaseResponse }
+  | { readonly ok: false; readonly code: string; readonly message: string }
+> {
+  const unsealed = await input.emailOtp.removeEmailOtpServerSeal({
+    wrappedCiphertext: input.request.enrollment.serverSealedFactorCiphertextB64u,
+  });
+  if (!unsealed.ok) return unsealed;
+  if (unsealed.enrollmentSealKeyVersion !== input.request.enrollment.enrollmentSealKeyVersion) {
+    return {
+      ok: false,
+      code: 'scope_mismatch',
+      message: 'Email OTP factor release seal key version changed',
+    };
   }
+  const sealed = await sealEmailOtpFactorSecretForWorker({
+    factorSecret32B64u: unsealed.ciphertext,
+    workerEphemeralPublicKey65B64u: input.request.workerEphemeralPublicKey65B64u,
+    walletId: input.walletId,
+    enrollmentId: input.request.enrollment.enrollmentId,
+    enrollmentSealKeyVersion: input.request.enrollment.enrollmentSealKeyVersion,
+    challengeId: input.challengeId,
+  });
+  if (!sealed.ok) return sealed;
+  return {
+    ok: true,
+    recovery: {
+      kind: 'email_otp_factor_release_v1',
+      challengeId: input.challengeId,
+      enrollmentId: input.request.enrollment.enrollmentId,
+      enrollmentSealKeyVersion: input.request.enrollment.enrollmentSealKeyVersion,
+      serverEphemeralPublicKey65B64u: sealed.serverEphemeralPublicKey65B64u,
+      nonce12B64u: sealed.nonce12B64u,
+      ciphertextB64u: sealed.ciphertextB64u,
+    },
+  };
 }
 
 type PasskeyEd25519AuthorizationResult =
@@ -304,14 +436,99 @@ type PasskeyEd25519AuthorizationResult =
       ok: true;
       authorization: Extract<
         RouterAbEd25519YaoBudgetRefreshAuthorizationV1,
-        {
-          kind:
-            | 'verified_passkey_assertion_router_ab_ed25519_yao_budget_refresh_v1'
-            | 'verified_passkey_app_session_router_ab_ed25519_yao_budget_refresh_v1';
-        }
+        { kind: 'verified_passkey_assertion_router_ab_ed25519_yao_budget_refresh_v1' }
       >;
     }
   | { ok: false; response: Response };
+
+type ReusedEcdsaWalletSessionResult =
+  | {
+      readonly ok: true;
+      readonly existingWalletSession: Extract<
+        RouterAbEd25519YaoBudgetRefreshRequestV1,
+        { readonly kind: 'router_ab_ed25519_yao_same_wallet_session_curve_mint_v1' }
+      >['existingWalletSession'];
+    }
+  | { readonly ok: false; readonly response: Response };
+
+async function resolveReusedEcdsaWalletSession(input: {
+  readonly ctx: FetchRouterApiContext;
+  readonly request: RouterAbEd25519YaoSessionRouteCommandV1;
+  readonly authority: PasskeyWalletAuthAuthority;
+}): Promise<ReusedEcdsaWalletSessionResult> {
+  const token = extractBearerCredential(input.ctx.request.headers);
+  if (!token) {
+    return {
+      ok: false,
+      response: json(
+        {
+          ok: false,
+          code: 'unauthorized',
+          message: 'Existing ECDSA Wallet Session authorization is required',
+        },
+        { status: 401 },
+      ),
+    };
+  }
+  const admission = await resolveOpaqueOwnerWalletSessionAdmission({
+    authorizationSessions: input.ctx.service.authorizationSessions,
+    token,
+    curve: 'ecdsa',
+    nowMs: Date.now(),
+  });
+  const authorityRef = await walletAuthAuthorityRef({ authority: input.authority });
+  if (
+    !admission ||
+    admission.binding.walletId !== input.authority.walletId ||
+    String(admission.resolved.authorization.authorityDigest) !==
+      String(authorityRef.authorityDigest) ||
+    alphabetizeStringify(admission.binding.runtimePolicyScope) !==
+      alphabetizeStringify(input.request.sessionPolicy.runtimePolicyScope)
+  ) {
+    return {
+      ok: false,
+      response: json(
+        {
+          ok: false,
+          code: 'scope_mismatch',
+          message: 'ECDSA Wallet Session does not match the requested Ed25519 signing lane',
+        },
+        { status: 403 },
+      ),
+    };
+  }
+  const authorization = admission.resolved.authorization;
+  const status = await input.ctx.service.authorizationSessions.readReusableWalletSessionStatus({
+    tenantId: authorization.tenantId,
+    principalId: authorization.principalId,
+    walletSessionId: authorization.walletSessionId,
+    quotaId: authorization.quotaId,
+    nowMs: Date.now(),
+  });
+  if (status.kind !== 'active') {
+    return {
+      ok: false,
+      response: json(
+        {
+          ok: false,
+          code: 'wallet_session_invalid',
+          message: 'Existing ECDSA Wallet Session is no longer active',
+        },
+        { status: 401 },
+      ),
+    };
+  }
+  return {
+    ok: true,
+    existingWalletSession: {
+      authorizationId: authorization.authorizationId,
+      walletSessionId: authorization.walletSessionId,
+      quotaId: authorization.quotaId,
+      expiresAtMs: status.expiresAtMs,
+      remainingUses: status.remainingUses,
+    },
+  };
+}
 
 async function validatePasskeyEd25519SessionAuthorization(input: {
   ctx: FetchRouterApiContext;
@@ -363,11 +580,38 @@ async function validatePasskeyEd25519SessionAuthorization(input: {
     webauthn_authentication: credential.webauthnAuthentication,
   });
   if (verified.success && verified.verified) {
+    const authorityRef = await walletAuthAuthorityRef({ authority: input.authority });
+    const verifiedAtMs = Date.now();
+    const proof = await input.ctx.service.authorizedOperations.buildVerifiedOwnerProof({
+      purpose: 'wallet_session',
+      proofId: parseVerifiedOwnerProofId(`ed25519-refresh:${expectedChallenge}`),
+      factor: buildVerifiedWalletSessionPasskeyFactorResult({
+        tenantId: input.ctx.service.authorizationSessions.tenantId,
+        principalId: requireAuthorizationValue(parsePrincipalId(input.authority.walletId)),
+        walletId: requireAuthorizationValue(parseWalletId(input.authority.walletId)),
+        authorityRef,
+        requestOrigin: parseSessionOrigin(expectedOrigin),
+        audience: parseSessionOrigin(expectedOrigin),
+        factorId: requireAuthorizationValue(parseAuthFactorId(`passkey:${credentialIdB64u}`)),
+        credentialIdB64u: requireAuthorizationValue(
+          parseWebAuthnCredentialIdB64u(credentialIdB64u),
+        ),
+        assertionDigest: parseDigestB64u(
+          base64UrlEncode(
+            await sha256BytesUtf8(alphabetizeStringify(credential.webauthnAuthentication)),
+          ),
+        ),
+        verifiedAtMs,
+        expiresAtMs: verifiedAtMs + 60_000,
+      }),
+    });
+    if (proof.purpose !== 'wallet_session') throw new Error('Owner proof purpose is invalid');
     return {
       ok: true,
       authorization: {
         kind: 'verified_passkey_assertion_router_ab_ed25519_yao_budget_refresh_v1',
         authority: input.authority,
+        proof,
         verifiedChallengeId: expectedChallenge,
       },
     };
@@ -382,120 +626,6 @@ async function validatePasskeyEd25519SessionAuthorization(input: {
       },
       { status: 401 },
     ),
-  };
-}
-
-async function validateSignedEd25519SessionAuthorization(input: {
-  ctx: FetchRouterApiContext;
-  request: RouterAbEd25519YaoSessionRouteCommandV1;
-  authority: PasskeyWalletAuthAuthority;
-}): Promise<PasskeyEd25519AuthorizationResult> {
-  if (input.request.routeAuth.kind !== 'signed_session') {
-    throw new Error('validateSignedEd25519SessionAuthorization requires signed-session route auth');
-  }
-  const session = input.ctx.opts.session;
-  if (!session) {
-    return {
-      ok: false,
-      response: json(
-        { ok: false, code: 'unauthorized', message: 'Signed session authorization is unavailable' },
-        { status: 401 },
-      ),
-    };
-  }
-  const parsedSession = await session.parse(
-    Object.fromEntries(input.ctx.request.headers.entries()),
-  );
-  if (!parsedSession.ok) {
-    return {
-      ok: false,
-      response: json(
-        { ok: false, code: 'unauthorized', message: 'Signed session authorization is required' },
-        { status: 401 },
-      ),
-    };
-  }
-  let appSessionClaims = parseAppSessionClaims(parsedSession.claims);
-  if (
-    appSessionClaims &&
-    (!isPlainObject(parsedSession.claims) || parsedSession.claims.provider !== 'passkey')
-  ) {
-    appSessionClaims = null;
-  }
-  if (appSessionClaims) {
-    const version = await input.ctx.service.sessionVersions.validateAppSessionVersion({
-      userId: appSessionClaims.sub,
-      appSessionVersion: appSessionClaims.appSessionVersion,
-    });
-    if (!version.ok) appSessionClaims = null;
-  }
-  const appSessionWalletId = resolveAppSessionWalletIdForWalletScope(
-    appSessionClaims,
-    input.authority.walletId,
-  );
-  if (
-    !appSessionClaims ||
-    appSessionWalletId !== input.authority.walletId ||
-    !appSessionClaims.seamsSessionId
-  ) {
-    return {
-      ok: false,
-      response: json(
-        {
-          ok: false,
-          code: 'unauthorized',
-          message: 'Passkey app session does not authorize the active Ed25519 wallet',
-        },
-        { status: 401 },
-      ),
-    };
-  }
-  const expectedAuthorityRef = await walletAuthAuthorityRef({ authority: input.authority });
-  const signedAuthorityRef = appSessionClaims.walletAuthAuthorityRef;
-  if (
-    !signedAuthorityRef ||
-    signedAuthorityRef.walletId !== expectedAuthorityRef.walletId ||
-    signedAuthorityRef.authorityDigest !== expectedAuthorityRef.authorityDigest
-  ) {
-    return {
-      ok: false,
-      response: json(
-        {
-          ok: false,
-          code: 'unauthorized',
-          message: 'Passkey app session authority does not match the active Ed25519 authority',
-        },
-        { status: 401 },
-      ),
-    };
-  }
-  const signedRuntimePolicyScope = appSessionClaims.runtimePolicyScope;
-  if (
-    !signedRuntimePolicyScope ||
-    alphabetizeStringify(signedRuntimePolicyScope) !==
-      alphabetizeStringify(input.request.sessionPolicy.runtimePolicyScope)
-  ) {
-    return {
-      ok: false,
-      response: json(
-        {
-          ok: false,
-          code: 'scope_mismatch',
-          message: 'Passkey app session runtime scope does not match the Ed25519 session policy',
-        },
-        { status: 403 },
-      ),
-    };
-  }
-  return {
-    ok: true,
-    authorization: {
-      kind: 'verified_passkey_app_session_router_ab_ed25519_yao_budget_refresh_v1',
-      authority: input.authority,
-      authorityRef: signedAuthorityRef,
-      runtimePolicyScope: signedRuntimePolicyScope,
-      seamsSessionId: appSessionClaims.seamsSessionId,
-    },
   };
 }
 
@@ -520,40 +650,6 @@ function digestWireB64u(value: unknown, label: string): string {
   return base64UrlEncode(Uint8Array.from(bytes));
 }
 
-function parseEd25519ReusableAuthorizedOperationReceipt(
-  value: unknown,
-): Ed25519ReusableAuthorizedOperationReceipt {
-  const record = isPlainObject(value) ? value : null;
-  if (!record || record.kind !== 'reusable_wallet_session_authorized_operation_v1') {
-    throw new Error('Ed25519 reusable Wallet Session authorized operation is required');
-  }
-  requireExactAuthorizedOperationFields(record);
-  const capabilityKind = requireReceiptString(record, 'capability_kind');
-  if (capabilityKind !== 'near_ed25519_mpc_signing') {
-    throw new Error('authorized_operation.capability_kind is invalid');
-  }
-  const operationKind = requireEd25519OperationKind(requireReceiptString(record, 'operation_kind'));
-  const laneDigest = requireReceiptString(record, 'lane_digest_b64u');
-  const intentDigest = requireReceiptString(record, 'intent_digest_b64u');
-  const displayDigest = requireReceiptString(record, 'display_digest_b64u');
-  parseDigestB64u(laneDigest);
-  parseDigestB64u(intentDigest);
-  parseDigestB64u(displayDigest);
-  const fingerprint = requireReceiptString(record, 'operation_fingerprint_digest');
-  parseCapabilityOperationFingerprintDigest(fingerprint);
-  return {
-    kind: 'reusable_wallet_session_authorized_operation_v1',
-    authorized_operation_id: requireReceiptString(record, 'authorized_operation_id'),
-    operation_id: requireReceiptString(record, 'operation_id'),
-    capability_kind: 'near_ed25519_mpc_signing',
-    operation_kind: operationKind,
-    lane_digest_b64u: laneDigest,
-    intent_digest_b64u: intentDigest,
-    display_digest_b64u: displayDigest,
-    operation_fingerprint_digest: fingerprint,
-  };
-}
-
 function parseEd25519VerifiedStepUpAuthorizedOperationReceipt(
   value: unknown,
 ): Ed25519VerifiedStepUpAuthorizedOperationReceipt {
@@ -561,31 +657,42 @@ function parseEd25519VerifiedStepUpAuthorizedOperationReceipt(
   if (!record || record.kind !== 'verified_step_up_authorized_operation_v1') {
     throw new Error('Ed25519 verified step-up authorized operation is required');
   }
-  requireExactAuthorizedOperationFields(record, [
+  requireExactAuthorizedOperationReceiptFields(record, [
     'authorization_session_id',
     'evidence_set_digest',
   ]);
-  const capabilityKind = requireReceiptString(record, 'capability_kind');
+  const capabilityKind = requireAuthorizedOperationReceiptString(record, 'capability_kind');
   if (capabilityKind !== 'near_ed25519_mpc_signing') {
     throw new Error('authorized_operation.capability_kind is invalid');
   }
-  const operationKind = requireEd25519OperationKind(requireReceiptString(record, 'operation_kind'));
-  const evidenceSetDigest = requireReceiptString(record, 'evidence_set_digest');
+  const operationKind = requireEd25519OperationKind(
+    requireAuthorizedOperationReceiptString(record, 'operation_kind'),
+  );
+  const evidenceSetDigest = requireAuthorizedOperationReceiptString(record, 'evidence_set_digest');
   parseDigestB64u(evidenceSetDigest);
-  const laneDigest = requireReceiptString(record, 'lane_digest_b64u');
-  const intentDigest = requireReceiptString(record, 'intent_digest_b64u');
-  const displayDigest = requireReceiptString(record, 'display_digest_b64u');
+  const laneDigest = requireAuthorizedOperationReceiptString(record, 'lane_digest_b64u');
+  const intentDigest = requireAuthorizedOperationReceiptString(record, 'intent_digest_b64u');
+  const displayDigest = requireAuthorizedOperationReceiptString(record, 'display_digest_b64u');
   parseDigestB64u(laneDigest);
   parseDigestB64u(intentDigest);
   parseDigestB64u(displayDigest);
-  const fingerprint = requireReceiptString(record, 'operation_fingerprint_digest');
+  const fingerprint = requireAuthorizedOperationReceiptString(
+    record,
+    'operation_fingerprint_digest',
+  );
   parseCapabilityOperationFingerprintDigest(fingerprint);
   return {
     kind: 'verified_step_up_authorized_operation_v1',
-    authorization_session_id: requireReceiptString(record, 'authorization_session_id'),
+    authorization_session_id: requireAuthorizedOperationReceiptString(
+      record,
+      'authorization_session_id',
+    ),
     evidence_set_digest: evidenceSetDigest,
-    authorized_operation_id: requireReceiptString(record, 'authorized_operation_id'),
-    operation_id: requireReceiptString(record, 'operation_id'),
+    authorized_operation_id: requireAuthorizedOperationReceiptString(
+      record,
+      'authorized_operation_id',
+    ),
+    operation_id: requireAuthorizedOperationReceiptString(record, 'operation_id'),
     capability_kind: 'near_ed25519_mpc_signing',
     operation_kind: operationKind,
     lane_digest_b64u: laneDigest,
@@ -623,23 +730,23 @@ async function authorizeEd25519ReusableWalletSessionOperation(input: {
       body: input.body,
       authorization: {
         kind: 'reusable_wallet_session',
-        claims: input.authorization.validated.claims,
+        binding: input.authorization.validated.binding,
       },
       headers: Object.fromEntries(input.ctx.request.headers.entries()),
     });
     if (!('admission_candidate' in privateBody)) {
       throw new Error('Ed25519 normal-signing prepare admission is required');
     }
-    const claims = input.authorization.validated.claims;
+    const binding = input.authorization.validated.binding;
     const nowMs = Date.now();
-    const tenantId = requireAuthorizationValue(parseTenantId(claims.runtimePolicyScope.orgId));
+    const tenantId = requireAuthorizationValue(parseTenantId(binding.runtimePolicyScope.orgId));
     const principalId = requireAuthorizationValue(
-      parsePrincipalId(reusableWalletSessionPrincipalSubject(claims.authority)),
+      parsePrincipalId(reusableWalletSessionPrincipalSubject(binding.authority)),
     );
     if (
       tenantId !== input.ctx.service.authorizedOperations.tenantId ||
       tenantId !== input.ctx.service.authorizationSessions.tenantId ||
-      scope.authorization.wallet_session_id !== claims.walletSessionId
+      scope.authorization.wallet_session_id !== binding.walletSessionId
     ) {
       return {
         ok: false,
@@ -680,9 +787,9 @@ async function authorizeEd25519ReusableWalletSessionOperation(input: {
         operation: envelope,
         authorization: {
           kind: 'authorization_grant',
-          authorizationGrantRef: buildAuthorizationGrantRef(claims.authorizationId),
+          authorizationGrantRef: buildAuthorizationGrantRef(binding.authorizationId),
         },
-        quota: { kind: 'consume_reusable_wallet_session', quotaId: claims.quotaId },
+        quota: { kind: 'consume_reusable_wallet_session', quotaId: binding.quotaId },
         claimedAtMs: nowMs,
       },
     });
@@ -691,12 +798,28 @@ async function authorizeEd25519ReusableWalletSessionOperation(input: {
       outcome.kind !== 'operation_in_progress' &&
       outcome.kind !== 'replayed'
     ) {
+      const stepUpMaterial = await input.ctx.service.walletRegistration.resolveEd25519MaterialActivation({
+        walletId: scope.account_id,
+        materialActivation: scope.material_activation,
+      });
+      const stepUp =
+        stepUpMaterial.ok
+          ? buildRouterAbEd25519OwnerOperationStepUpPreparation({
+              scope,
+              body: input.body,
+              material: stepUpMaterial,
+            }) ?? undefined
+          : undefined;
+      const failure = routerAbEd25519OwnerOperationFailureResult({
+        status: outcome.kind === 'authorization_grant_rejected' ? 403 : 409,
+        code: outcome.kind,
+        message: 'Ed25519 authorized operation rejected',
+        phase: 'prepare',
+        stepUp,
+      });
       return {
         ok: false,
-        response: json(
-          { ok: false, code: outcome.kind, message: 'Ed25519 authorized operation rejected' },
-          { status: outcome.kind === 'authorization_grant_rejected' ? 403 : 409 },
-        ),
+        response: json(failure.body, { status: failure.status }),
       };
     }
     if (outcome.kind === 'operation_in_progress' || outcome.kind === 'replayed') {
@@ -902,10 +1025,10 @@ async function validateEd25519ReusableAuthorizedOperation(input: {
     if (scope.authorization.kind !== 'reusable_wallet_session') {
       throw new Error('Reusable Wallet Session authority is required');
     }
-    const claims = input.authorization.validated.claims;
-    const tenantId = requireAuthorizationValue(parseTenantId(claims.runtimePolicyScope.orgId));
+    const binding = input.authorization.validated.binding;
+    const tenantId = requireAuthorizationValue(parseTenantId(binding.runtimePolicyScope.orgId));
     const principalId = requireAuthorizationValue(
-      parsePrincipalId(reusableWalletSessionPrincipalSubject(claims.authority)),
+      parsePrincipalId(reusableWalletSessionPrincipalSubject(binding.authority)),
     );
     const capabilityId = requireAuthorizationValue(
       parseCapabilityId(scope.material_activation.capability),
@@ -970,9 +1093,7 @@ async function validateEd25519ReusableAuthorizedOperation(input: {
       ctx: input.ctx,
       operation: operationResult,
     });
-    return revalidated.ok
-      ? { ok: true, receipt, operation: revalidated.operation }
-      : revalidated;
+    return revalidated.ok ? { ok: true, receipt, operation: revalidated.operation } : revalidated;
   } catch (error: unknown) {
     return {
       ok: false,
@@ -1115,9 +1236,7 @@ async function validateEd25519VerifiedStepUpAuthorizedOperation(input: {
       ctx: input.ctx,
       operation: operationResult,
     });
-    return revalidated.ok
-      ? { ok: true, receipt, operation: revalidated.operation }
-      : revalidated;
+    return revalidated.ok ? { ok: true, receipt, operation: revalidated.operation } : revalidated;
   } catch (error: unknown) {
     return {
       ok: false,
@@ -1160,9 +1279,7 @@ export function replayCompletedEd25519Operation(operation: AuthorizedOperation):
  * operation must never fall back to the live upstream response after the
  * completion write, since that would make retries non-idempotent.
  */
-export function requireCompletedEd25519OperationResponse(
-  operation: AuthorizedOperation,
-): Response {
+export function requireCompletedEd25519OperationResponse(operation: AuthorizedOperation): Response {
   const replay = replayCompletedEd25519Operation(operation);
   if (!replay) throw new Error('Ed25519 operation completion readback is not completed');
   return replay;
@@ -1245,55 +1362,6 @@ export function isRouterAbEd25519OperationInProgressResponse(input: {
   );
 }
 
-type Ed25519OperationStepUpMaterialRecoveryResult =
-  | {
-      readonly ok: true;
-      readonly recovery: RouterAbEd25519YaoOperationStepUpMaterialRecoveryResponse;
-    }
-  | {
-      readonly ok: false;
-      readonly code: string;
-      readonly message: string;
-    };
-
-export async function recoverEd25519OperationStepUpMaterial(input: {
-  readonly request: RouterAbEd25519YaoOperationStepUpMaterialRecoveryRequest;
-  readonly removeEmailOtpServerSeal: (input: { readonly wrappedCiphertext: string }) => Promise<
-    | {
-        readonly ok: true;
-        readonly ciphertext: string;
-        readonly enrollmentSealKeyVersion: string;
-      }
-    | { readonly ok: false; readonly code: string; readonly message: string }
-  >;
-}): Promise<Ed25519OperationStepUpMaterialRecoveryResult> {
-  switch (input.request.kind) {
-    case 'not_requested':
-      return { ok: true, recovery: { kind: 'not_requested' } };
-    case 'email_otp_local_material_v1': {
-      const unsealed = await input.removeEmailOtpServerSeal({
-        wrappedCiphertext: input.request.wrappedCiphertext,
-      });
-      if (!unsealed.ok) return unsealed;
-      if (unsealed.enrollmentSealKeyVersion !== input.request.enrollmentSealKeyVersion) {
-        return {
-          ok: false,
-          code: 'scope_mismatch',
-          message: 'Email OTP operation step-up enrollment seal key version changed',
-        };
-      }
-      return {
-        ok: true,
-        recovery: {
-          kind: 'email_otp_local_material_v1',
-          ciphertext: unsealed.ciphertext,
-          enrollmentSealKeyVersion: unsealed.enrollmentSealKeyVersion,
-        },
-      };
-    }
-  }
-}
-
 async function issueEd25519OperationStepUpGrant(input: {
   ctx: FetchRouterApiContext;
   request: RouterAbEd25519YaoOperationStepUpGrantCommandV1;
@@ -1305,19 +1373,28 @@ async function issueEd25519OperationStepUpGrant(input: {
       { status: 400 },
     );
   }
-  const authenticated = await authenticateRouterAbOperationStepUpAppSession({
-    headers: Object.fromEntries(input.ctx.request.headers.entries()),
-    session: input.ctx.opts.session,
-    scope,
-    authorizedOperations: input.ctx.service.authorizedOperations,
-    authorizationSessions: input.ctx.service.authorizationSessions,
-  });
-  if (!authenticated.ok) {
-    return json(authenticated.error.body, { status: authenticated.error.status });
+  const proof = input.request.proof;
+  const activeAuthority = await resolveActiveEd25519OperationStepUpAuthority(
+    input.ctx.service.walletAuthMethods,
+    proof,
+  );
+  if (!activeAuthority.ok) {
+    return json(
+      { ok: false, code: 'scope_mismatch', message: 'Operation step-up authority is not active' },
+      { status: 403 },
+    );
+  }
+  const authority =
+    proof.kind === 'passkey' ? proof.authority : activeAuthority.authority;
+  const operation = parseRouterAbOperationStepUpOperation(
+    input.request.normalSigningRequest.intent,
+  );
+  if (!operation.ok) {
+    return json({ ok: false, code: 'invalid_body', message: operation.message }, { status: 400 });
   }
   const activeMaterial =
     await input.ctx.service.walletRegistration.resolveEd25519MaterialActivation({
-      walletId: authenticated.session.walletId,
+      walletId: scope.account_id,
       materialActivation: scope.material_activation,
     });
   if (!activeMaterial.ok) {
@@ -1348,6 +1425,20 @@ async function issueEd25519OperationStepUpGrant(input: {
       { status: 403 },
     );
   }
+  const authenticated = await authenticateRouterAbWalletOperationStepUpIdentity({
+    kind: 'verified_owner_proof',
+    headers: Object.fromEntries(input.ctx.request.headers.entries()),
+    walletId: scope.account_id,
+    materialOwner: scope.material_activation.material_owner,
+    operationId: String(operation.operationId),
+    authority,
+    runtimePolicyScope: activeMaterial.runtimePolicyScope,
+    expiresAtMs: Number(input.request.normalSigningRequest.expires_at_ms),
+    authorizedOperations: input.ctx.service.authorizedOperations,
+  });
+  if (!authenticated.ok) {
+    return json(authenticated.error.body, { status: authenticated.error.status });
+  }
   let privateBody: Awaited<ReturnType<typeof buildRouterAbEd25519PrivateSigningWorkerBody>>;
   try {
     privateBody = await buildRouterAbEd25519PrivateSigningWorkerBody({
@@ -1371,12 +1462,6 @@ async function issueEd25519OperationStepUpGrant(input: {
       { ok: false, code: 'invalid_body', message: 'Operation step-up prepare is required' },
       { status: 400 },
     );
-  }
-  const operation = parseRouterAbOperationStepUpOperation(
-    input.request.normalSigningRequest.intent,
-  );
-  if (!operation.ok) {
-    return json({ ok: false, code: 'invalid_body', message: operation.message }, { status: 400 });
   }
   const intent = input.request.normalSigningRequest.intent;
   if (!isPlainObject(intent)) {
@@ -1403,7 +1488,6 @@ async function issueEd25519OperationStepUpGrant(input: {
     },
   });
   const challengeB64u = await computeCapabilityOperationFingerprintDigest(envelope);
-  const proof = input.request.proof;
   const authorityRef =
     proof.kind === 'passkey'
       ? await walletAuthAuthorityRef({ authority: proof.authority })
@@ -1418,12 +1502,9 @@ async function issueEd25519OperationStepUpGrant(input: {
       { status: 403 },
     );
   }
-  const activeSession = authenticated.activeSession;
   const nowMs = Date.now();
-  const expiresAtMs = Math.min(
-    Number(input.request.normalSigningRequest.expires_at_ms),
-    authenticated.expiresAtMs,
-  );
+  const expiresAtMs = Number(input.request.normalSigningRequest.expires_at_ms);
+  const requestOrigin = authenticated.requestOrigin;
   const requestId = String(scope.request_id);
   const evidenceId = requireAuthorizationValue(
     parseAuthorizationEvidenceId(`evidence:${requestId}`),
@@ -1431,36 +1512,27 @@ async function issueEd25519OperationStepUpGrant(input: {
   const evidenceSetId = requireAuthorizationValue(
     parseAuthorizationEvidenceSetId(`evidence-set:${requestId}`),
   );
-  let factor: VerifiedAuthorizationFactorResult;
-  let materialRecovery: RouterAbEd25519YaoOperationStepUpMaterialRecoveryResponse;
+  let factor: VerifiedWalletOperationFactorResult;
+  let materialRecovery: RouterAbEd25519YaoOperationStepUpMaterialRecoveryResponse = {
+    kind: 'not_requested',
+  };
+  let pendingFactorRelease: EmailOtpFactorReleaseRequest | null = null;
+  let factorReleaseChallengeId: string | null = null;
   switch (proof.kind) {
     case 'passkey': {
-      if (
-        activeSession.authSource.kind !== 'passkey' ||
-        proof.authority.factor.credentialIdB64u !== activeSession.authSource.credentialIdB64u
-      ) {
-        return json(
-          { ok: false, code: 'scope_mismatch', message: 'Passkey authority changed' },
-          { status: 403 },
-        );
-      }
       const credential = proof.webauthnAuthentication;
       const credentialId = String(credential.rawId || credential.id || '').trim();
-      if (credentialId !== activeSession.authSource.credentialIdB64u) {
+      if (credentialId !== proof.authority.factor.credentialIdB64u) {
         return json(
           { ok: false, code: 'unauthorized', message: 'Passkey credential changed' },
           { status: 401 },
         );
       }
-      const origin =
-        activeSession.audience.kind === 'first_party_web'
-          ? activeSession.audience.origin
-          : activeSession.audience.walletOrigin;
       const verified = await input.ctx.service.webAuthn.verifyWebAuthnAuthenticationLite({
         userId: authenticated.session.walletId,
         rpId: proof.authority.verifier.rpId,
         expectedChallenge: challengeB64u,
-        expected_origin: origin,
+        expected_origin: requestOrigin,
         webauthn_authentication: credential,
       });
       if (!verified.success || !verified.verified) {
@@ -1473,17 +1545,18 @@ async function issueEd25519OperationStepUpGrant(input: {
           { status: 401 },
         );
       }
-      factor = buildVerifiedPasskeyFactorResult({
+      factor = buildVerifiedWalletOperationPasskeyFactorResult({
         tenantId: authenticated.session.tenantId,
         principalId: authenticated.session.principalId,
-        sessionId: authenticated.session.sessionId,
-        deviceId: activeSession.deviceId,
+        walletId: walletIdFromString(authenticated.session.walletId),
+        requestOrigin,
+        audience: requestOrigin,
         factorId: requireAuthorizationValue(
-          parseAuthFactorId(`passkey:${activeSession.authSource.credentialIdB64u}`),
+          parseAuthFactorId(`passkey:${proof.authority.factor.credentialIdB64u}`),
         ),
         authorityRef: authenticated.authorityRef,
         operation: envelope,
-        credentialIdB64u: activeSession.authSource.credentialIdB64u,
+        credentialIdB64u: proof.authority.factor.credentialIdB64u,
         assertionDigest: parseDigestB64u(
           base64UrlEncode(await sha256BytesUtf8(alphabetizeStringify(credential))),
         ),
@@ -1494,16 +1567,15 @@ async function issueEd25519OperationStepUpGrant(input: {
       break;
     }
     case 'email_otp': {
-      if (
-        activeSession.authSource.kind !== 'oidc_provider' ||
-        String(activeSession.authSource.providerSubject) !== proof.providerSubjectId
-      ) {
-        return json(
-          { ok: false, code: 'scope_mismatch', message: 'Email OTP authority changed' },
-          { status: 403 },
-        );
-      }
-      const sessionHash = await hashEmailOtpAppSessionClaims(authenticated.rawClaims);
+      const operationBinding = await hashEmailOtpOperationBinding({
+        walletId: authenticated.session.walletId,
+        providerUserId: proof.providerSubjectId,
+        orgId: authenticated.session.tenantId,
+        operation: WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
+        requestOrigin,
+        audience: requestOrigin,
+        authorityRef: authenticated.authorityRef,
+      });
       const verified = await input.ctx.service.emailOtp.verifyEmailOtpChallenge({
         userId: authenticated.session.principalId,
         walletId: authenticated.session.walletId,
@@ -1511,12 +1583,31 @@ async function issueEd25519OperationStepUpGrant(input: {
         challengeId: proof.challengeId,
         otpCode: proof.otpCode,
         otpChannel: EMAIL_OTP_CHANNEL,
-        sessionHash,
-        appSessionVersion: activeSession.appSessionVersion,
+        ownerProofBindingDigest: operationBinding,
         operation: WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
       });
       if (!verified.ok) {
         return json(verified, { status: verified.code === 'invalid_body' ? 400 : 401 });
+      }
+      if (input.request.materialRecovery.kind === 'email_otp_factor_release_v1') {
+        const enrollment = await input.ctx.service.emailOtp.readActiveEmailOtpEnrollment({
+          walletId: authenticated.session.walletId,
+          orgId: authenticated.session.tenantId,
+          providerUserId: proof.providerSubjectId,
+        });
+        if (!enrollment.ok) {
+          return json(enrollment, { status: emailOtpStatusCode(enrollment.code) });
+        }
+        pendingFactorRelease = {
+          enrollment: {
+            enrollmentId: enrollment.enrollment.enrollmentId,
+            enrollmentSealKeyVersion: enrollment.enrollment.enrollmentSealKeyVersion,
+            serverSealedFactorCiphertextB64u:
+              enrollment.enrollment.serverSealedFactorCiphertextB64u,
+          },
+          workerEphemeralPublicKey65B64u:
+            input.request.materialRecovery.workerEphemeralPublicKey65B64u,
+        };
       }
       const consumed = await input.ctx.service.emailOtp.consumeEmailOtpGrant({
         subject: {
@@ -1531,34 +1622,15 @@ async function issueEd25519OperationStepUpGrant(input: {
       if (!consumed.ok) {
         return json(consumed, { status: consumed.code === 'invalid_body' ? 400 : 401 });
       }
-      const recoveredMaterial = await recoverEd25519OperationStepUpMaterial({
-        request: input.request.materialRecovery,
-        removeEmailOtpServerSeal: input.ctx.service.emailOtp.removeEmailOtpServerSeal.bind(
-          input.ctx.service.emailOtp,
-        ),
-      });
-      if (!recoveredMaterial.ok) {
-        return json(
-          {
-            ok: false,
-            code: recoveredMaterial.code,
-            message: recoveredMaterial.message,
-          },
-          { status: emailOtpStatusCode(recoveredMaterial.code) },
-        );
-      }
-      materialRecovery = recoveredMaterial.recovery;
-      factor = buildVerifiedEmailOtpFactorResult({
+      factorReleaseChallengeId = consumed.challengeId;
+      factor = buildVerifiedWalletOperationEmailOtpFactorResult({
         tenantId: authenticated.session.tenantId,
         principalId: authenticated.session.principalId,
-        sessionId: authenticated.session.sessionId,
-        deviceId: activeSession.deviceId,
+        walletId: walletIdFromString(authenticated.session.walletId),
+        requestOrigin,
+        audience: requestOrigin,
         factorId: requireAuthorizationValue(
-          parseAuthFactorId(
-            `email_otp:${
-              activeSession.authSource.providerId === 'google_oidc' ? 'google' : 'email'
-            }:${proof.providerSubjectId}`,
-          ),
+          parseAuthFactorId(`email_otp:${authority.factor.provider}:${proof.providerSubjectId}`),
         ),
         authorityRef: authenticated.authorityRef,
         operation: envelope,
@@ -1579,13 +1651,13 @@ async function issueEd25519OperationStepUpGrant(input: {
       break;
     }
   }
-  const evidenceSet = await input.ctx.service.authorizedOperations.recordVerifiedFactorEvidenceSet({
-    session: activeSession,
-    operation: envelope,
-    evidenceId,
-    evidenceSetId,
-    factor,
-  });
+  const evidenceSet =
+    await input.ctx.service.authorizedOperations.recordVerifiedWalletOperationFactorEvidenceSet({
+      operation: envelope,
+      evidenceId,
+      evidenceSetId,
+      factor,
+    });
   const atomicOperation = await input.ctx.service.authorizedOperations.admitAuthorizedOperation({
     operation: {
       tenantId: authenticated.session.tenantId,
@@ -1630,6 +1702,45 @@ async function issueEd25519OperationStepUpGrant(input: {
         { status: 409 },
       );
   }
+  if (pendingFactorRelease) {
+    if (!factorReleaseChallengeId) {
+      throw new Error('Email OTP factor release challenge is missing after grant consumption');
+    }
+    const currentEnrollment = await input.ctx.service.emailOtp.readActiveEmailOtpEnrollment({
+      walletId: authenticated.session.walletId,
+      orgId: authenticated.session.tenantId,
+      providerUserId: proof.kind === 'email_otp' ? proof.providerSubjectId : undefined,
+    });
+    if (!currentEnrollment.ok) {
+      return json(currentEnrollment, { status: emailOtpStatusCode(currentEnrollment.code) });
+    }
+    if (
+      currentEnrollment.enrollment.enrollmentId !== pendingFactorRelease.enrollment.enrollmentId ||
+      currentEnrollment.enrollment.enrollmentSealKeyVersion !==
+        pendingFactorRelease.enrollment.enrollmentSealKeyVersion ||
+      currentEnrollment.enrollment.serverSealedFactorCiphertextB64u !==
+        pendingFactorRelease.enrollment.serverSealedFactorCiphertextB64u
+    ) {
+      return json(
+        {
+          ok: false,
+          code: 'scope_mismatch',
+          message: 'Email OTP enrollment changed before factor release',
+        },
+        { status: 409 },
+      );
+    }
+    const released = await releaseEmailOtpFactorForWorker({
+      emailOtp: input.ctx.service.emailOtp,
+      request: pendingFactorRelease,
+      walletId: authenticated.session.walletId,
+      challengeId: factorReleaseChallengeId,
+    });
+    if (!released.ok) {
+      return json(released, { status: emailOtpStatusCode(released.code) });
+    }
+    materialRecovery = released.recovery;
+  }
   return json(
     {
       ok: true,
@@ -1643,6 +1754,48 @@ async function issueEd25519OperationStepUpGrant(input: {
     },
     { status: 200 },
   );
+}
+
+type AcceptedEd25519NormalSigningAuthorization = Extract<
+  Awaited<ReturnType<typeof authorizeRouterAbEd25519NormalSigningRoute>>,
+  { readonly ok: true }
+>;
+
+async function proxyEd25519OwnerLaneExecution(input: {
+  readonly ctx: FetchRouterApiContext;
+  readonly body: Record<string, unknown>;
+  readonly authorization: AcceptedEd25519NormalSigningAuthorization;
+  readonly authorizedOperation: AuthorizedOperation;
+}): Promise<Response> {
+  const scope = parseRouterAbEd25519OperationStepUpScope(input.body.scope);
+  const walletId = parseWalletId(scope.account_id);
+  if (!walletId.ok) {
+    return json(
+      { ok: false, code: 'invalid_body', message: 'Ed25519 signing wallet is invalid' },
+      { status: 400 },
+    );
+  }
+  const laneAuthorization =
+    input.authorization.kind === 'operation_step_up'
+      ? {
+          kind: 'authority_ref' as const,
+          authorityRef: input.authorization.session.walletAuthAuthorityRef,
+          authSource: input.authorization.session.authSource,
+        }
+      : {
+          kind: 'wallet_auth_method' as const,
+          walletAuthMethodId: input.authorization.validated.walletSessionAuth.authority.bindingId,
+        };
+  return await proxyOwnerLaneAdmittedNormalSigningRequest({
+    request: input.ctx.request,
+    proxy: input.ctx.opts.routerAbNormalSigningRouterProxy,
+    body: input.body,
+    authorizedOperation: input.authorizedOperation,
+    walletId: walletId.value,
+    expectedMaterialActivation: scope.material_activation,
+    authorization: laneAuthorization,
+    walletRegistration: input.ctx.service.walletRegistration,
+  });
 }
 
 async function handleRouterAbEd25519NormalSigningRoute(input: {
@@ -1677,9 +1830,10 @@ async function handleRouterAbEd25519NormalSigningRoute(input: {
         operation: authorization.operation,
       });
       if (execution.kind !== 'execute') return execution.response;
-      const upstream = await proxyNormalSigningRequestToMpcRouter({
-        request: input.ctx.request,
-        proxy: input.ctx.opts.routerAbNormalSigningRouterProxy,
+      const upstream = await proxyEd25519OwnerLaneExecution({
+        ctx: input.ctx,
+        authorization,
+        authorizedOperation: execution.operation,
         body: {
           ...input.body,
           authorized_operation: buildRouterAbEd25519AuthorizedOperationWire({
@@ -1747,9 +1901,10 @@ async function handleRouterAbEd25519NormalSigningRoute(input: {
     if (!validatedAuthorization.ok) return validatedAuthorization.response;
     const replay = replayCompletedEd25519Operation(validatedAuthorization.operation);
     if (replay) return replay;
-    const upstream = await proxyNormalSigningRequestToMpcRouter({
-      request: input.ctx.request,
-      proxy: input.ctx.opts.routerAbNormalSigningRouterProxy,
+    const upstream = await proxyEd25519OwnerLaneExecution({
+      ctx: input.ctx,
+      authorization,
+      authorizedOperation: validatedAuthorization.operation,
       body: {
         ...input.body,
         authorized_operation: buildRouterAbEd25519AuthorizedOperationWire({
@@ -1805,17 +1960,42 @@ async function handleRouterAbEd25519NormalSigningRoute(input: {
     if (authorized.admission.kind !== 'claimed') {
       throw new Error('Ed25519 prepare execution claim changed');
     }
-    const upstream = await proxyNormalSigningRequestToMpcRouter({
-      request: input.ctx.request,
-      proxy: input.ctx.opts.routerAbNormalSigningRouterProxy,
+    const ownerDecision = decideRouterAbEd25519OwnerOperationAuthorization({
+      operation: execution.operation,
+    });
+    if (ownerDecision.kind !== 'authorized') {
+      return json(
+        {
+          ok: false,
+          code: ownerDecision.kind === 'denied' ? ownerDecision.denial.code : 'authorization_unavailable',
+          message:
+            ownerDecision.kind === 'denied'
+              ? ownerDecision.denial.message
+              : 'Ed25519 operation step-up was not admitted',
+          authorization_decision:
+            ownerDecision.kind === 'denied'
+              ? ownerDecision
+              : {
+                  kind: 'denied' as const,
+                  denial: {
+                    code: 'authorization_unavailable' as const,
+                    message: 'Ed25519 operation step-up was not admitted',
+                  },
+                },
+        },
+        { status: 403 },
+      );
+    }
+    const upstream = await proxyEd25519OwnerLaneExecution({
+      ctx: input.ctx,
+      authorization,
+      authorizedOperation: execution.operation,
       body: {
         ...input.body,
         authorized_operation: buildRouterAbEd25519AuthorizedOperationWire({
           operation: execution.operation,
           binding: {
-            kind: 'reusable_wallet_session',
-            walletSessionId: authorization.validated.claims.walletSessionId,
-            quotaId: authorization.validated.claims.quotaId,
+            ...buildEd25519GatewayOwnerWalletSessionBinding(authorization),
           },
         }),
       },
@@ -1867,17 +2047,16 @@ async function handleRouterAbEd25519NormalSigningRoute(input: {
   if (!validatedAuthorization.ok) return validatedAuthorization.response;
   const replay = replayCompletedEd25519Operation(validatedAuthorization.operation);
   if (replay) return replay;
-  const upstream = await proxyNormalSigningRequestToMpcRouter({
-    request: input.ctx.request,
-    proxy: input.ctx.opts.routerAbNormalSigningRouterProxy,
+  const upstream = await proxyEd25519OwnerLaneExecution({
+    ctx: input.ctx,
+    authorization,
+    authorizedOperation: validatedAuthorization.operation,
     body: {
       ...input.body,
       authorized_operation: buildRouterAbEd25519AuthorizedOperationWire({
         operation: validatedAuthorization.operation,
         binding: {
-          kind: 'reusable_wallet_session',
-          walletSessionId: authorization.validated.claims.walletSessionId,
-          quotaId: authorization.validated.claims.quotaId,
+          ...buildEd25519GatewayOwnerWalletSessionBinding(authorization),
         },
       }),
     },
@@ -1907,9 +2086,7 @@ async function handleRouterAbEd25519NormalSigningRoute(input: {
   return requireCompletedEd25519OperationResponse(completed);
 }
 
-export async function handleThresholdEd25519(
-  ctx: FetchRouterApiContext,
-): Promise<Response | null> {
+export async function handleThresholdEd25519(ctx: FetchRouterApiContext): Promise<Response | null> {
   if (ctx.method === 'GET' && ctx.pathname === ROUTER_AB_ED25519_HEALTH_PATH) {
     if (!ctx.opts.routerAbNormalSigningRouterProxy) {
       const body = {
@@ -1942,6 +2119,14 @@ export async function handleThresholdEd25519(
 
   switch (pathname) {
     case ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH:
+      {
+        const linked = await handleLinkedDeviceEd25519NormalSigning({
+          ctx,
+          body,
+          phase: 'prepare',
+        });
+        if (linked) return linked;
+      }
       return handleRouterAbEd25519NormalSigningRoute({
         ctx,
         body,
@@ -1949,6 +2134,14 @@ export async function handleThresholdEd25519(
       });
 
     case ROUTER_AB_ED25519_NORMAL_SIGNING_PATH:
+      {
+        const linked = await handleLinkedDeviceEd25519NormalSigning({
+          ctx,
+          body,
+          phase: 'finalize',
+        });
+        if (linked) return linked;
+      }
       return handleRouterAbEd25519NormalSigningRoute({
         ctx,
         body,
@@ -1958,23 +2151,6 @@ export async function handleThresholdEd25519(
 
   switch (pathname) {
     case ROUTER_AB_ED25519_WALLET_SESSION_PATH: {
-      const session = ctx.opts.session;
-      if (!session) {
-        ctx.logger.warn('[threshold-ed25519] request', {
-          route: pathname,
-          method: ctx.method,
-          sessions: false,
-        });
-        return json(
-          {
-            ok: false,
-            code: 'sessions_disabled',
-            message: 'Sessions are not configured on this server',
-          },
-          { status: 501 },
-        );
-      }
-
       if (body.kind === 'router_ab_ed25519_yao_operation_step_up_grant_v1') {
         const parsedGrant = parseThresholdEd25519OperationStepUpGrantRequest(body);
         if (!parsedGrant.ok) {
@@ -2055,25 +2231,40 @@ export async function handleThresholdEd25519(
           { status: 403 },
         );
       }
-      const authorization =
-        b.routeAuth.kind === 'passkey'
-          ? await validatePasskeyEd25519SessionAuthorization({
-              ctx,
-              request: b,
-              authority,
-            })
-          : await validateSignedEd25519SessionAuthorization({
-              ctx,
-              request: b,
-              authority,
-            });
+      const authorization = await validatePasskeyEd25519SessionAuthorization({
+        ctx,
+        request: b,
+        authority,
+      });
       if (!authorization.ok) return authorization.response;
 
-      const result = await ctx.service.walletRegistration.refreshEd25519YaoWalletSession({
-        kind: 'router_ab_ed25519_yao_budget_refresh_v1',
-        sessionPolicy: b.sessionPolicy,
-        authorization: authorization.authorization,
-      });
+      let refreshRequest: RouterAbEd25519YaoBudgetRefreshRequestV1;
+      switch (b.walletSessionTarget.kind) {
+        case 'new_wallet_session':
+          refreshRequest = {
+            kind: 'router_ab_ed25519_yao_budget_refresh_v1',
+            sessionPolicy: b.sessionPolicy,
+            authorization: authorization.authorization,
+          };
+          break;
+        case 'reuse_ecdsa_wallet_session': {
+          const reused = await resolveReusedEcdsaWalletSession({
+            ctx,
+            request: b,
+            authority,
+          });
+          if (!reused.ok) return reused.response;
+          refreshRequest = {
+            kind: 'router_ab_ed25519_yao_same_wallet_session_curve_mint_v1',
+            sessionPolicy: b.sessionPolicy,
+            authorization: authorization.authorization,
+            existingWalletSession: reused.existingWalletSession,
+          };
+          break;
+        }
+      }
+      const result =
+        await ctx.service.walletRegistration.refreshEd25519YaoWalletSession(refreshRequest);
       const status = thresholdEd25519StatusCode(result);
       ctx.logger.info('[threshold-ed25519] response', {
         route: pathname,

@@ -25,7 +25,6 @@ export type EmailOtpRateLimitScope =
   | 'challenge'
   | 'verify'
   | 'grant'
-  | 'recoveryKeyAttempt'
   | 'googleRegistrationAttempt';
 
 export type EmailOtpRateLimitPolicies = Record<EmailOtpRateLimitScope, AuthRateLimitPolicy>;
@@ -128,9 +127,6 @@ export function resolveEmailOtpRateLimitPolicies(
   const grantDefault = input.production
     ? { limit: 30, windowMs: 60_000 }
     : { limit: 100, windowMs: 60_000 };
-  const recoveryKeyAttemptDefault = input.production
-    ? { limit: 10, windowMs: 5 * 60_000 }
-    : { limit: 100, windowMs: 60_000 };
   const googleRegistrationAttemptDefault = input.production
     ? { limit: 12, windowMs: 10 * 60_000 }
     : { limit: 200, windowMs: 60_000 };
@@ -179,22 +175,6 @@ export function resolveEmailOtpRateLimitPolicies(
         name: 'EMAIL_OTP_GRANT_RATE_LIMIT_WINDOW_MS',
         raw: readEmailOtpConfigValue(input, 'EMAIL_OTP_GRANT_RATE_LIMIT_WINDOW_MS'),
         defaultValue: grantDefault.windowMs,
-        min: 1_000,
-        max: 24 * 60 * 60_000,
-      }),
-    },
-    recoveryKeyAttempt: {
-      limit: parseConfiguredInteger({
-        name: 'EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_MAX',
-        raw: readEmailOtpConfigValue(input, 'EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_MAX'),
-        defaultValue: recoveryKeyAttemptDefault.limit,
-        min: 1,
-        max: 1000,
-      }),
-      windowMs: parseConfiguredInteger({
-        name: 'EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_WINDOW_MS',
-        raw: readEmailOtpConfigValue(input, 'EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_WINDOW_MS'),
-        defaultValue: recoveryKeyAttemptDefault.windowMs,
         min: 1_000,
         max: 24 * 60 * 60_000,
       }),

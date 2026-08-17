@@ -5,7 +5,6 @@ export { ArrowUpIcon } from './ArrowUp';
 export { AtSignIcon } from './AtSign';
 export { ChromeIcon } from './Chrome';
 export { FingerprintIcon } from './BiometricMark';
-export { MailIcon } from './Mail';
 
 // Default exports
 export { default as AppleIconDefault } from './Apple';
@@ -15,4 +14,3 @@ export { default as ArrowUpIconDefault } from './ArrowUp';
 export { default as AtSignIconDefault } from './AtSign';
 export { default as ChromeIconDefault } from './Chrome';
 export { default as FingerprintIconDefault } from './BiometricMark';
-export { default as MailIconDefault } from './Mail';

@@ -23,7 +23,6 @@ export interface FetchRouterApiContext {
   opts: RouterApiOptions;
   logger: NormalizedRouterLogger;
 
-  mePath: string;
   routeDefinitions: readonly RouteDefinition[];
 }
 

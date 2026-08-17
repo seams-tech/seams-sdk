@@ -5,6 +5,10 @@ import type {
   WalletSession,
 } from '@seams/sdk';
 import {
+  buildHostedAuthMenuOpenRequest,
+  hostedAuthMenuSessionIdFromBoundary,
+} from '@seams/sdk';
+import {
   ActionType,
   useSeams,
   type AddedNearEd25519SignerCapability,
@@ -29,6 +33,7 @@ type IntendedActionName =
   | 'addPasskeyEd25519YaoWalletSigner'
   | 'registerEmailOtpWallet'
   | 'awaitNearReady'
+  | 'syncPasskeyWallet'
   | 'unlockPasskeyWallet'
   | 'unlockEmailOtpWallet'
   | 'signNearTransaction'
@@ -235,6 +240,13 @@ type PasskeyUnlockResultSummary = {
   remainingUses: number | null;
 };
 
+type PasskeySyncResultSummary = {
+  kind: 'passkey_sync_success';
+  walletId: string;
+  nearAccountId: string;
+  operationalPublicKey: string;
+};
+
 type EmailOtpUnlockCoreSummary = {
   kind: 'email_otp_unlock_success';
   walletId: string;
@@ -287,6 +299,7 @@ type IntendedActionResult =
   | EmailOtpRegistrationResultSummary
   | NearProvisioningReadySummary
   | NearSigningResultSummary
+  | PasskeySyncResultSummary
   | PasskeyUnlockResultSummary
   | EmailOtpUnlockResultSummary
   | TempoSigningResultSummary
@@ -545,6 +558,15 @@ export const IntendedBehaviourE2EPage: React.FC = () => {
           </button>
           <button
             type="button"
+            data-testid="intended-sync-passkey"
+            disabled={state.action.status === 'running'}
+            onClick={controller.runSyncPasskeyWallet}
+            style={buttonStyle}
+          >
+            Sync Passkey
+          </button>
+          <button
+            type="button"
             data-testid="intended-unlock-passkey"
             disabled={state.action.status === 'running'}
             onClick={controller.runUnlockPasskeyWallet}
@@ -674,6 +696,10 @@ class IntendedPageController {
 
   runUnlockPasskeyWallet = (): void => {
     void this.unlockPasskeyWallet();
+  };
+
+  runSyncPasskeyWallet = (): void => {
+    void this.syncPasskeyWallet();
   };
 
   runUnlockEmailOtpWallet = (): void => {
@@ -921,6 +947,64 @@ class IntendedPageController {
     }
   }
 
+  private async syncPasskeyWallet(): Promise<void> {
+    const action: IntendedActionName = 'syncPasskeyWallet';
+    this.dispatch({ kind: 'action_started', action });
+    try {
+      const authMenuSessionId = hostedAuthMenuSessionIdFromBoundary(
+        `intended-passkey-sync-${crypto.randomUUID()}`,
+      );
+      if (!authMenuSessionId) throw new Error('Passkey sync auth-menu identity is invalid');
+      const anchorElement = document.querySelector<HTMLElement>(
+        '[data-testid="intended-sync-passkey"]',
+      );
+      if (!anchorElement) throw new Error('Passkey sync anchor is unavailable');
+      const outcome = await this.seams.openHostedAuthMenu(
+        buildHostedAuthMenuOpenRequest({
+          authMenuSessionId,
+          initialMode: 'login',
+          loginTarget: { kind: 'wallet_sync', walletId: toWalletId(this.walletId) },
+          registrationAccountInput: 'implicit_wallet',
+          showRegistrationInput: false,
+          showProgress: true,
+          enabledExternalProviders: [],
+        }),
+        anchorElement,
+      );
+      if (outcome.kind !== 'account_synced') {
+        throw new Error(`Passkey sync ended with ${outcome.kind}`);
+      }
+      if (String(outcome.walletId) !== this.walletId) {
+        throw new Error(`Passkey sync wallet mismatch: ${String(outcome.walletId)}`);
+      }
+      const session = await this.seams.auth.getWalletSession(String(outcome.walletId));
+      if (session.appIdentity.kind !== 'resolved') {
+        throw new Error(`Passkey sync wallet identity is ${session.appIdentity.kind}`);
+      }
+      const nearAccountId = String(session.appIdentity.nearAccountId ?? '').trim();
+      const operationalPublicKey = String(
+        session.appIdentity.nearOperationalPublicKey ?? '',
+      ).trim();
+      if (!nearAccountId || !operationalPublicKey) {
+        throw new Error('Passkey sync omitted its NEAR signer identity');
+      }
+      this.nearAccountId = nearAccountId;
+      await this.refreshLoginState(String(outcome.walletId));
+      this.dispatch({
+        kind: 'action_succeeded',
+        action,
+        result: {
+          kind: 'passkey_sync_success',
+          walletId: String(outcome.walletId),
+          nearAccountId,
+          operationalPublicKey,
+        },
+      });
+    } catch (error) {
+      this.dispatch({ kind: 'action_failed', action, error: errorMessage(error) });
+    }
+  }
+
   private async unlockEmailOtpWallet(): Promise<void> {
     const action: IntendedActionName = 'unlockEmailOtpWallet';
     this.dispatch({ kind: 'action_started', action });
@@ -1094,7 +1178,6 @@ class IntendedPageController {
     const flowResult = await this.seams.auth.beginGoogleEmailOtpWalletAuth({
       idToken,
       mode: 'register',
-      sessionKind: 'jwt',
       ecdsaTargets: this.emailOtpEcdsaTargetProfile.sdkTargets,
       emailOtpAuthPolicy: 'session',
       onEvent: this.recordLifecycleEvent,
@@ -1131,7 +1214,6 @@ class IntendedPageController {
     const flowResult = await this.seams.auth.beginGoogleEmailOtpWalletAuth({
       idToken,
       mode: 'login',
-      sessionKind: 'jwt',
       ecdsaTargets: this.emailOtpEcdsaTargetProfile.sdkTargets,
       emailOtpAuthPolicy: 'session',
       onEvent: this.recordLifecycleEvent,
@@ -1169,30 +1251,19 @@ class IntendedPageController {
     const lookup = parseEmailOtpCodeLookup(input);
     const walletId = requireWalletIdString(input.walletId);
     const idToken = requireGoogleIdToken(this.googleIdToken);
-    const exchange = await this.seams.auth.exchangeGoogleEmailOtpSession({
-      idToken,
-      accountMode: 'login',
-      sessionKind: 'jwt',
-      onEvent: this.recordLifecycleEvent,
-    });
-    const exchangeWalletId = String(exchange.session.walletId || '').trim();
-    if (exchangeWalletId !== walletId) {
-      throw new Error(`Email OTP outbox app-session wallet mismatch: ${exchangeWalletId}`);
-    }
-    const appSessionJwt = String(exchange.jwt || '').trim();
-    if (!appSessionJwt) {
-      throw new Error('Email OTP dev outbox requires an app-session JWT');
-    }
     const url = emailOtpDevOutboxUrl({
       relayerUrl: requireRelayerUrl(this.seams.configs.network.relayer?.url),
-      walletId,
-      lookup,
     });
     const response = await fetch(url, {
-      method: 'GET',
+      method: 'POST',
       headers: {
-        Authorization: `Bearer ${appSessionJwt}`,
+        'content-type': 'application/json',
       },
+      body: JSON.stringify({
+        idToken,
+        walletId,
+        ...(lookup.kind === 'challenge' ? { challengeId: lookup.challengeId } : {}),
+      }),
     });
     const json = await response.json();
     const outbox = parseEmailOtpOutboxSuccess(json);
@@ -1409,6 +1480,7 @@ function intendedActionResultWalletId(result: IntendedActionResult): string | nu
     case 'near_provisioning_ready':
     case 'near_sign_success':
     case 'passkey_unlock_success':
+    case 'passkey_sync_success':
     case 'email_otp_unlock_success':
     case 'tempo_sign_success':
     case 'arc_evm_sign_success':
@@ -1428,6 +1500,7 @@ function intendedActionResultNearAccountId(result: IntendedActionResult): string
     case 'near_provisioning_ready':
     case 'near_sign_success':
     case 'passkey_unlock_success':
+    case 'passkey_sync_success':
     case 'email_otp_unlock_success':
     case 'ed25519_export_success':
       return result.nearAccountId ?? null;
@@ -1454,6 +1527,7 @@ function intendedActionResultNearSignerSlot(
       return 1;
     case 'near_sign_success':
     case 'passkey_unlock_success':
+    case 'passkey_sync_success':
     case 'email_otp_unlock_success':
     case 'tempo_sign_success':
     case 'arc_evm_sign_success':
@@ -2246,20 +2320,8 @@ type EmailOtpCodeLookup =
 
 function emailOtpDevOutboxUrl(input: {
   relayerUrl: string;
-  walletId: string;
-  lookup: EmailOtpCodeLookup;
 }): string {
-  const url = new URL('/wallet/email-otp/dev/otp-outbox', input.relayerUrl);
-  url.searchParams.set('walletId', input.walletId);
-  switch (input.lookup.kind) {
-    case 'challenge':
-      url.searchParams.set('challengeId', input.lookup.challengeId);
-      return url.href;
-    case 'latest_for_wallet':
-      return url.href;
-    default:
-      return assertNever(input.lookup);
-  }
+  return new URL('/wallet/email-otp/dev/otp-outbox', input.relayerUrl).href;
 }
 
 function parseEmailOtpCodeLookup(input: IntendedEmailOtpCodeRequest): EmailOtpCodeLookup {

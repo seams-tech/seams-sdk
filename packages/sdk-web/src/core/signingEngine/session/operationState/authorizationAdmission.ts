@@ -1,3 +1,10 @@
+import type { RouterAbOwnerOperationAuthorizationDecisionV1Wire as RouterAbEcdsaOwnerOperationAuthorizationDecisionV1Wire } from '@shared/utils/routerAbEcdsaDerivation';
+import type { RouterAbEd25519OwnerOperationAuthorizationDecisionV1Wire } from '@shared/utils/routerAbNormalSigningIdentity';
+
+export type RouterAbOwnerOperationAuthorizationDecisionV1Wire =
+  | RouterAbEcdsaOwnerOperationAuthorizationDecisionV1Wire
+  | RouterAbEd25519OwnerOperationAuthorizationDecisionV1Wire;
+
 export const WALLET_SESSION_QUOTA_EXHAUSTED_ERROR =
   '[WalletSessionQuotaAdmission] wallet-session quota is exhausted';
 export const WALLET_SESSION_QUOTA_IN_FLIGHT_ERROR =
@@ -64,11 +71,16 @@ export type SigningAdmissionQueueKey =
 
 export class WalletSessionQuotaAdmissionError extends Error {
   readonly failure: WalletSessionQuotaAdmissionFailure;
+  readonly authorizationDecision?: RouterAbOwnerOperationAuthorizationDecisionV1Wire;
 
-  constructor(failure: WalletSessionQuotaAdmissionFailure) {
+  constructor(
+    failure: WalletSessionQuotaAdmissionFailure,
+    authorizationDecision?: RouterAbOwnerOperationAuthorizationDecisionV1Wire,
+  ) {
     super(walletSessionQuotaAdmissionFailureMessage(failure));
     this.name = 'WalletSessionQuotaAdmissionError';
     this.failure = failure;
+    this.authorizationDecision = authorizationDecision;
   }
 }
 

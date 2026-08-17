@@ -103,7 +103,7 @@ export async function resolveOidcWalletIdWithGoogleEmailOtp(input: {
     sub?: string;
     email?: string;
     accountMode?: unknown;
-    appSessionVersion?: string;
+    ownerProofBindingDigest?: string;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
     restartRegistrationOffer?: unknown;
   };
@@ -149,7 +149,7 @@ export async function consumeGoogleEmailOtpRegistrationAttemptRateLimitForAuthSe
     accountMode?: unknown;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
     clientIp?: string;
-    appSessionUserId?: string;
+    providerUserId?: string;
     restartRegistrationOffer?: unknown;
   };
 }): Promise<GoogleEmailOtpRegistrationRateLimitResult> {
@@ -166,7 +166,7 @@ export async function resolveGoogleEmailOtpSessionForAuthService(input: {
     sub?: string;
     email?: string | VerifiedGoogleEmail;
     accountMode?: unknown;
-    appSessionVersion?: string;
+    ownerProofBindingDigest?: string;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
     restartRegistrationOffer?: unknown;
   };
@@ -207,7 +207,7 @@ export async function validateGoogleEmailOtpRegistrationCandidateWalletForAuthSe
   readonly request: {
     registrationAttemptId: string;
     walletId: string;
-    appSessionVersion: string;
+    ownerProofBindingDigest: string;
     providerSubject: string;
   };
 }): Promise<{ ok: true } | { ok: false; code: string; message: string }> {
@@ -215,7 +215,7 @@ export async function validateGoogleEmailOtpRegistrationCandidateWalletForAuthSe
     registrationAttemptStore: input.deps.registrationAttemptStore,
     registrationAttemptId: input.request.registrationAttemptId,
     walletId: input.request.walletId,
-    appSessionVersion: input.request.appSessionVersion,
+    ownerProofBindingDigest: input.request.ownerProofBindingDigest,
     providerSubject: input.request.providerSubject,
     nowMs: Date.now(),
   });

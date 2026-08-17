@@ -14,10 +14,9 @@ import {
   listD1MigrationFiles,
 } from '../helpers/sqliteD1';
 import {
-  buildEmailOtpVerifiedFactorFixture,
-  buildPasskeyAuthorizationSessionFixture,
-  buildPasskeyVerifiedFactorFixture,
+  buildPasskeyWalletSessionIssuanceFixture,
   buildReusableAuthorizationCoreFixture,
+  buildWalletOperationPasskeyVerifiedFactorFixture,
 } from './helpers/authorizationCore.fixtures';
 import {
   parseHostedWalletSeamsSessionExchangeNonce,
@@ -35,7 +34,7 @@ import { admitRouterAbEcdsaReusableWalletSessionOperation } from '../../packages
 import { buildRouterAbEcdsaWalletSessionClaimsFixture } from './helpers/routerAbEcdsaWalletSessionClaims.fixtures';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
-import { parseVerifiedAuthorizationEvidenceSetFromPersistence } from '../../packages/sdk-server-ts/src/authorization/factorEvidence';
+import { parseProviderSubject } from '../../packages/shared-ts/src/utils/domainIds';
 import { capabilityPolicyPort } from '../../packages/sdk-server-ts/src/authorization/capabilityPolicy';
 import {
   buildEvmEcdsaMpcOperationRef,
@@ -59,18 +58,15 @@ test.describe('D1 authorization core', () => {
     try {
       await applyD1MigrationFiles(temporary.database, signerMigrations);
       const service = createService(temporary.database, 'wallet-session-issuance');
-      const fixture = await buildPasskeyAuthorizationSessionFixture({
+      const fixture = await buildPasskeyWalletSessionIssuanceFixture({
         tenantId: 'tenant-wallet-session',
         principalId: 'principal-wallet-session',
-        sessionId: 'session-wallet-session',
-        deviceId: 'device-wallet-session',
         walletId: 'wallet-session-wallet',
         credentialIdB64u: 'credential-wallet-session',
         rpId: 'example.test',
         origin: 'https://app.example.test',
         expiresAtMs: 1_900_000_100_000,
       });
-      await service.recordActiveSession(fixture.session);
       const mintId = requiredMintId('registration:wallet-session');
       const issued = await service.issueReusableWalletSession({
         tenantId: fixture.session.tenantId,
@@ -80,7 +76,7 @@ test.describe('D1 authorization core', () => {
         mintId,
         remainingUses: 3,
         issuedAtMs: fixture.session.createdAtMs + 1,
-        expiresAtMs: fixture.session.lifecycle.expiresAtMs,
+        expiresAtMs: fixture.session.expiresAtMs,
       });
       expect(issued.session.authorizationId).not.toBe(issued.quota.quotaId);
       await expect(
@@ -92,7 +88,7 @@ test.describe('D1 authorization core', () => {
           mintId,
           remainingUses: 3,
           issuedAtMs: fixture.session.createdAtMs + 1,
-          expiresAtMs: fixture.session.lifecycle.expiresAtMs,
+          expiresAtMs: fixture.session.expiresAtMs,
         }),
       ).resolves.toEqual(issued);
       await expect(rowCount(temporary.database, 'reusable_wallet_sessions')).resolves.toBe(1);
@@ -104,55 +100,14 @@ test.describe('D1 authorization core', () => {
     }
   });
 
-  test('replays an active authorization session only for the same identity', async () => {
-    const temporary = createTemporaryD1Database();
-    try {
-      await applyD1MigrationFiles(temporary.database, signerMigrations);
-      const service = createService(temporary.database, 'authorization-session-replay');
-      const fixture = await buildPasskeyAuthorizationSessionFixture({
-        tenantId: 'tenant-authorization-session-replay',
-        principalId: 'principal-authorization-session-replay',
-        sessionId: 'session-authorization-session-replay',
-        deviceId: 'device-authorization-session-replay',
-        walletId: 'wallet-authorization-session-replay',
-        credentialIdB64u: 'credential-authorization-session-replay',
-        rpId: 'example.test',
-        origin: 'https://app.example.test',
-        expiresAtMs: 1_900_000_100_000,
-      });
-      await service.recordActiveSession(fixture.session);
-      await expect(service.recordActiveSession(fixture.session)).resolves.toBeUndefined();
-
-      const conflicting = await buildPasskeyAuthorizationSessionFixture({
-        tenantId: 'tenant-authorization-session-replay',
-        principalId: 'principal-authorization-session-conflict',
-        sessionId: 'session-authorization-session-replay',
-        deviceId: 'device-authorization-session-replay',
-        walletId: 'wallet-authorization-session-conflict',
-        credentialIdB64u: 'credential-authorization-session-conflict',
-        rpId: 'example.test',
-        origin: 'https://app.example.test',
-        expiresAtMs: 1_900_000_100_000,
-      });
-      await expect(service.recordActiveSession(conflicting.session)).rejects.toThrow(
-        'active authorization session identity does not match the persisted session',
-      );
-      await expect(rowCount(temporary.database, 'authorization_sessions')).resolves.toBe(1);
-    } finally {
-      cleanupTemporaryD1Database(temporary.tempDir);
-    }
-  });
-
   test('replays one Wallet Session mint when only server-issued timestamps differ', async () => {
     const temporary = createTemporaryD1Database();
     try {
       await applyD1MigrationFiles(temporary.database, signerMigrations);
       const service = createService(temporary.database, 'wallet-session-timestamp-replay');
-      const fixture = await buildPasskeyAuthorizationSessionFixture({
+      const fixture = await buildPasskeyWalletSessionIssuanceFixture({
         tenantId: 'tenant-wallet-session-timestamp-replay',
         principalId: 'principal-wallet-session-timestamp-replay',
-        sessionId: 'session-wallet-session-timestamp-replay',
-        deviceId: 'device-wallet-session-timestamp-replay',
         walletId: 'wallet-session-timestamp-replay-wallet',
         credentialIdB64u: 'credential-wallet-session-timestamp-replay',
         rpId: 'example.test',
@@ -168,7 +123,7 @@ test.describe('D1 authorization core', () => {
         mintId,
         remainingUses: 3,
         issuedAtMs: fixture.session.createdAtMs + 1,
-        expiresAtMs: fixture.session.lifecycle.expiresAtMs,
+        expiresAtMs: fixture.session.expiresAtMs,
       });
       await expect(
         service.issueReusableWalletSession({
@@ -179,7 +134,7 @@ test.describe('D1 authorization core', () => {
           mintId,
           remainingUses: 3,
           issuedAtMs: fixture.session.createdAtMs + 2,
-          expiresAtMs: fixture.session.lifecycle.expiresAtMs + 1_000,
+          expiresAtMs: fixture.session.expiresAtMs + 1_000,
         }),
       ).resolves.toEqual(issued);
     } finally {
@@ -192,11 +147,9 @@ test.describe('D1 authorization core', () => {
     try {
       await applyD1MigrationFiles(temporary.database, signerMigrations);
       const service = createService(temporary.database, 'wallet-session-rollback');
-      const fixture = await buildPasskeyAuthorizationSessionFixture({
+      const fixture = await buildPasskeyWalletSessionIssuanceFixture({
         tenantId: 'tenant-wallet-session',
         principalId: 'principal-wallet-session',
-        sessionId: 'missing-session-wallet-session',
-        deviceId: 'device-wallet-session',
         walletId: 'wallet-session-wallet',
         credentialIdB64u: 'credential-wallet-session',
         rpId: 'example.test',
@@ -211,7 +164,7 @@ test.describe('D1 authorization core', () => {
         mintId: requiredMintId('unlock:wallet-session'),
         remainingUses: 3,
         issuedAtMs: fixture.session.createdAtMs + 1,
-        expiresAtMs: fixture.session.lifecycle.expiresAtMs,
+        expiresAtMs: fixture.session.expiresAtMs,
       });
       const replacement = await service.issueReusableWalletSession({
         tenantId: fixture.session.tenantId,
@@ -221,7 +174,7 @@ test.describe('D1 authorization core', () => {
         mintId: requiredMintId('unlock:replacement-wallet-session'),
         remainingUses: 3,
         issuedAtMs: fixture.session.createdAtMs + 2,
-        expiresAtMs: fixture.session.lifecycle.expiresAtMs,
+        expiresAtMs: fixture.session.expiresAtMs,
       });
       expect(replacement.session.authorizationId).not.toBe(issued.session.authorizationId);
       await expect(
@@ -245,11 +198,9 @@ test.describe('D1 authorization core', () => {
     try {
       await applyD1MigrationFiles(temporary.database, signerMigrations);
       const service = createService(temporary.database, namespace);
-      const fixture = await buildPasskeyAuthorizationSessionFixture({
+      const fixture = await buildPasskeyWalletSessionIssuanceFixture({
         tenantId: 'tenant-wallet-session-status',
         principalId: 'principal-wallet-session-status',
-        sessionId: 'session-wallet-session-status',
-        deviceId: 'device-wallet-session-status',
         walletId: 'wallet-session-status-wallet',
         credentialIdB64u: 'credential-wallet-session-status',
         rpId: 'example.test',
@@ -264,7 +215,7 @@ test.describe('D1 authorization core', () => {
         mintId: requiredMintId('unlock:wallet-session-status'),
         remainingUses: 3,
         issuedAtMs: fixture.session.createdAtMs + 1,
-        expiresAtMs: fixture.session.lifecycle.expiresAtMs,
+        expiresAtMs: fixture.session.expiresAtMs,
       });
       const statusInput = {
         tenantId: issued.session.tenantId,
@@ -300,7 +251,7 @@ test.describe('D1 authorization core', () => {
         mintId: requiredMintId('unlock:wallet-session-status-replacement'),
         remainingUses: 3,
         issuedAtMs: fixture.session.createdAtMs + 2,
-        expiresAtMs: fixture.session.lifecycle.expiresAtMs,
+        expiresAtMs: fixture.session.expiresAtMs,
       });
       await expect(service.readReusableWalletSessionStatus(statusInput)).resolves.toMatchObject({
         kind: 'superseded',
@@ -324,11 +275,9 @@ test.describe('D1 authorization core', () => {
     try {
       await applyD1MigrationFiles(temporary.database, signerMigrations);
       const service = createService(temporary.database, 'wallet-session-conflicting-replay');
-      const fixture = await buildPasskeyAuthorizationSessionFixture({
+      const fixture = await buildPasskeyWalletSessionIssuanceFixture({
         tenantId: 'tenant-wallet-session-conflict',
         principalId: 'principal-wallet-session-conflict',
-        sessionId: 'session-wallet-session-conflict',
-        deviceId: 'device-wallet-session-conflict',
         walletId: 'wallet-session-conflict-wallet',
         credentialIdB64u: 'credential-wallet-session-conflict',
         rpId: 'example.test',
@@ -344,7 +293,7 @@ test.describe('D1 authorization core', () => {
         mintId,
         remainingUses: 3,
         issuedAtMs: fixture.session.createdAtMs + 1,
-        expiresAtMs: fixture.session.lifecycle.expiresAtMs,
+        expiresAtMs: fixture.session.expiresAtMs,
       });
       await expect(
         service.issueReusableWalletSession({
@@ -355,7 +304,7 @@ test.describe('D1 authorization core', () => {
           mintId,
           remainingUses: 2,
           issuedAtMs: fixture.session.createdAtMs + 1,
-          expiresAtMs: fixture.session.lifecycle.expiresAtMs,
+          expiresAtMs: fixture.session.expiresAtMs,
         }),
       ).rejects.toThrow('issuance replay does not match');
     } finally {
@@ -468,7 +417,7 @@ test.describe('D1 authorization core', () => {
     }
   });
 
-  test('admits an Email OTP registration ECDSA prepare under its authorization principal', async () => {
+  test('admits an Email OTP ECDSA operation without an active app-session dependency', async () => {
     const temporary = createTemporaryD1Database();
     const namespace = 'authorized-operation-email-otp-registration';
     try {
@@ -492,7 +441,6 @@ test.describe('D1 authorization core', () => {
         authorizedOperations: store,
         audit: store,
       });
-      await service.recordActiveSession(fixture.session);
       await store.putWalletSessionAuthorization({
         session: fixture.reusableWalletSession,
         quota: fixture.quota,
@@ -535,6 +483,8 @@ test.describe('D1 authorization core', () => {
         },
       });
       if (!normalSigning) throw new Error('ECDSA normal-signing fixture is invalid');
+      const providerSubject = parseProviderSubject(fixture.reusableWalletSession.principalId);
+      if (!providerSubject.ok) throw new Error(providerSubject.error.message);
       const claims = buildRouterAbEcdsaWalletSessionClaimsFixture({
         walletId: String(fixture.reusableWalletSession.walletId),
         keyHandle: signer.walletKey.keyHandle,
@@ -543,10 +493,15 @@ test.describe('D1 authorization core', () => {
         thresholdExpiresAtMs: fixture.quota.expiresAtMs,
         runtimePolicyScope: material.runtimePolicyScope,
         normalSigningScope: normalSigning.scope,
-        authorizationSessionId: String(fixture.session.sessionId),
+        authorizationSessionId: String(fixture.reusableWalletSession.walletSessionId),
         authorizationId: String(fixture.reusableWalletSession.authorizationId),
         walletSessionId: String(fixture.reusableWalletSession.walletSessionId),
         quotaId: String(fixture.reusableWalletSession.quotaId),
+        authSource: {
+          kind: 'oidc_provider',
+          providerId: 'oidc',
+          providerSubject: providerSubject.value,
+        },
       });
       expect(String(claims.sub)).not.toBe(String(fixture.session.principalId));
       const request = buildRouterAbEcdsaDerivationEvmDigestSigningRequestV1({
@@ -572,17 +527,11 @@ test.describe('D1 authorization core', () => {
         tenantId: fixture.session.tenantId,
         admitAuthorizedOperation: service.admitAuthorizedOperation.bind(service),
       };
-      const authorizationSessions = {
-        tenantId: fixture.session.tenantId,
-        readActiveSession: service.readActiveSession.bind(service),
-      };
-
       const first = await admitRouterAbEcdsaReusableWalletSessionOperation({
         request,
         materialActivation: material.materialActivation,
         claims,
         authorizedOperations,
-        authorizationSessions,
         resolveEcdsaMaterialActivation: async () => ({
           ok: true as const,
           materialActivation: material.materialActivation,
@@ -596,16 +545,10 @@ test.describe('D1 authorization core', () => {
         throw new Error('expected a newly admitted Email OTP operation');
       }
       await expect(
-        readQuotaRemainingUses(
-          temporary.database,
-          fixture.session.tenantId,
-          fixture.quota.quotaId,
-        ),
+        readQuotaRemainingUses(temporary.database, fixture.session.tenantId, fixture.quota.quotaId),
       ).resolves.toBe(2);
 
-      const mismatchedPrincipal = parsePrincipalId(
-        String(fixture.reusableWalletSession.walletId),
-      );
+      const mismatchedPrincipal = parsePrincipalId(String(fixture.reusableWalletSession.walletId));
       if (!mismatchedPrincipal.ok) throw new Error(mismatchedPrincipal.error.message);
       const admittedInput = authorizedOperationInput(first.admission.operation);
       const mismatchedOperation = buildCapabilityOperationEnvelope({
@@ -633,11 +576,7 @@ test.describe('D1 authorization core', () => {
         }),
       ).resolves.toEqual({ kind: 'authorization_grant_rejected' });
       await expect(
-        readQuotaRemainingUses(
-          temporary.database,
-          fixture.session.tenantId,
-          fixture.quota.quotaId,
-        ),
+        readQuotaRemainingUses(temporary.database, fixture.session.tenantId, fixture.quota.quotaId),
       ).resolves.toBe(2);
 
       const retry = await admitRouterAbEcdsaReusableWalletSessionOperation({
@@ -645,7 +584,6 @@ test.describe('D1 authorization core', () => {
         materialActivation: material.materialActivation,
         claims,
         authorizedOperations,
-        authorizationSessions,
         resolveEcdsaMaterialActivation: async () => ({
           ok: true as const,
           materialActivation: material.materialActivation,
@@ -656,11 +594,7 @@ test.describe('D1 authorization core', () => {
       });
       expect(retry).toMatchObject({ ok: true, admission: { kind: 'operation_in_progress' } });
       await expect(
-        readQuotaRemainingUses(
-          temporary.database,
-          fixture.session.tenantId,
-          fixture.quota.quotaId,
-        ),
+        readQuotaRemainingUses(temporary.database, fixture.session.tenantId, fixture.quota.quotaId),
       ).resolves.toBe(2);
     } finally {
       cleanupTemporaryD1Database(temporary.tempDir);
@@ -835,12 +769,12 @@ test.describe('D1 authorization core', () => {
     }
   });
 
-  test('rejects step-up admission when evidence is substituted for the operation', async () => {
+  test('admits wallet step-up evidence without an app session and rejects substitution', async () => {
     const temporary = createTemporaryD1Database();
     const namespace = 'authorized-operation-step-up-binding';
     try {
       await applyD1MigrationFiles(temporary.database, signerMigrations);
-      const fixture = await buildPasskeyVerifiedFactorFixture();
+      const fixture = await buildWalletOperationPasskeyVerifiedFactorFixture();
       const walletSignerScope = signerPersistenceScope(
         namespace,
         fixture.authorization.authorizedOperation.tenantId,
@@ -859,9 +793,7 @@ test.describe('D1 authorization core', () => {
         authorizedOperations: store,
         audit: store,
       });
-      await service.recordActiveSession(fixture.authorization.session);
-      await service.recordVerifiedFactorEvidenceSet({
-        session: fixture.authorization.session,
+      const evidenceSet = await service.recordVerifiedWalletOperationFactorEvidenceSet({
         operation: fixture.authorization.authorizedOperation.operation,
         evidenceId: fixture.evidenceId,
         evidenceSetId: fixture.evidenceSetId,
@@ -891,6 +823,22 @@ test.describe('D1 authorization core', () => {
         service.admitAuthorizedOperation({ operation: claimInput, material }),
       ).resolves.toEqual({ kind: 'verified_step_up_rejected' });
       await expect(rowCount(temporary.database, 'authorized_operations')).resolves.toBe(0);
+
+      await expect(
+        service.admitAuthorizedOperation({
+          operation: {
+            ...claimInput,
+            authorization: {
+              kind: 'verified_step_up',
+              evidenceSetDigest: evidenceSet.evidenceSetDigest,
+            },
+          },
+          material,
+        }),
+      ).resolves.toMatchObject({ kind: 'claimed' });
+      await expect(
+        rowCount(temporary.database, 'verified_wallet_operation_evidence_sets'),
+      ).resolves.toBe(1);
     } finally {
       cleanupTemporaryD1Database(temporary.tempDir);
     }
@@ -901,21 +849,36 @@ test.describe('D1 authorization core', () => {
     try {
       await applyD1MigrationFiles(temporary.database, signerMigrations);
       const service = createService(temporary.database, 'hosted-wallet-exchange-test');
-      const fixture = await buildReusableAuthorizationCoreFixture();
-      await service.recordActiveSession(fixture.session);
+      const fixture = await buildPasskeyWalletSessionIssuanceFixture({
+        tenantId: 'tenant-hosted-wallet-exchange',
+        principalId: 'principal-hosted-wallet-exchange',
+        walletId: 'wallet-hosted-wallet-exchange',
+        credentialIdB64u: 'credential-hosted-wallet-exchange',
+        rpId: 'example.test',
+        origin: 'https://app.example.test',
+        expiresAtMs: 1_900_000_100_000,
+      });
       const issuedAtMs = fixture.session.createdAtMs + 1_000;
       const walletOrigin = parseSessionOrigin('https://wallet.example.test');
-      if (fixture.session.audience.kind !== 'first_party_web') {
-        throw new Error('fixture must use a first-party audience');
-      }
-      const delivery = await service.mintHostedWalletSeamsSessionExchange({
+      const walletSession = await service.issueReusableWalletSession({
         tenantId: fixture.session.tenantId,
         principalId: fixture.session.principalId,
-        sourceSessionId: fixture.session.sessionId,
-        appOrigin: fixture.session.audience.origin,
-        walletOrigin,
+        walletId: fixture.authority.walletId,
+        authority: fixture.authorityRef,
+        mintId: requiredMintId('unlock:hosted-wallet-exchange'),
+        remainingUses: 3,
         issuedAtMs,
-        expiresAtMs: issuedAtMs + 60_000,
+        expiresAtMs: fixture.session.expiresAtMs,
+      });
+      const delivery = await service.mintHostedWalletSeamsSessionExchange({
+        tenantId: fixture.session.tenantId,
+        walletSessionId: walletSession.session.walletSessionId,
+        appOrigin: fixture.session.origin,
+        walletOrigin,
+        curve: 'ecdsa',
+        binding: { walletId: fixture.authority.walletId },
+        issuedAtMs,
+        expiresAtMs: fixture.session.expiresAtMs,
       });
       const persisted = await temporary.database
         .prepare(
@@ -930,7 +893,9 @@ test.describe('D1 authorization core', () => {
         service.redeemHostedWalletSeamsSessionExchange({
           exchangeCode: delivery.exchangeCode,
           nonce: parseHostedWalletSeamsSessionExchangeNonce('incorrect-nonce'),
+          appOrigin: fixture.session.origin,
           walletOrigin,
+          curve: 'ecdsa',
           redeemedAtMs: issuedAtMs + 1,
         }),
       ).resolves.toEqual({ kind: 'nonce_mismatch' });
@@ -938,21 +903,67 @@ test.describe('D1 authorization core', () => {
         service.redeemHostedWalletSeamsSessionExchange({
           exchangeCode: delivery.exchangeCode,
           nonce: delivery.nonce,
+          appOrigin: fixture.session.origin,
           walletOrigin,
+          curve: 'ecdsa',
           redeemedAtMs: issuedAtMs + 2,
         }),
       ).resolves.toMatchObject({
         kind: 'redeemed',
-        session: {
-          principalId: fixture.session.principalId,
-          authSource: fixture.session.authSource,
-        },
+        walletSessionId: walletSession.session.walletSessionId,
+        walletSessionToken: expect.stringMatching(/^wst_/),
+        curve: 'ecdsa',
       });
+      await expect(rowCount(temporary.database, 'opaque_wallet_session_tokens')).resolves.toBe(1);
+      const ed25519Delivery = await service.mintHostedWalletSeamsSessionExchange({
+        tenantId: fixture.session.tenantId,
+        walletSessionId: walletSession.session.walletSessionId,
+        appOrigin: fixture.session.origin,
+        walletOrigin,
+        curve: 'ed25519',
+        binding: { walletId: fixture.authority.walletId },
+        issuedAtMs: issuedAtMs + 4,
+        expiresAtMs: fixture.session.expiresAtMs,
+      });
+      await expect(
+        service.redeemHostedWalletSeamsSessionExchange({
+          exchangeCode: ed25519Delivery.exchangeCode,
+          nonce: ed25519Delivery.nonce,
+          appOrigin: fixture.session.origin,
+          walletOrigin,
+          curve: 'ed25519',
+          redeemedAtMs: issuedAtMs + 5,
+        }),
+      ).resolves.toMatchObject({ kind: 'redeemed', curve: 'ed25519' });
+      await expect(rowCount(temporary.database, 'opaque_wallet_session_tokens')).resolves.toBe(2);
+      const replacementDelivery = await service.mintHostedWalletSeamsSessionExchange({
+        tenantId: fixture.session.tenantId,
+        walletSessionId: walletSession.session.walletSessionId,
+        appOrigin: fixture.session.origin,
+        walletOrigin,
+        curve: 'ecdsa',
+        binding: { walletId: fixture.authority.walletId },
+        issuedAtMs: issuedAtMs + 6,
+        expiresAtMs: fixture.session.expiresAtMs,
+      });
+      await expect(
+        service.redeemHostedWalletSeamsSessionExchange({
+          exchangeCode: replacementDelivery.exchangeCode,
+          nonce: replacementDelivery.nonce,
+          appOrigin: fixture.session.origin,
+          walletOrigin,
+          curve: 'ecdsa',
+          redeemedAtMs: issuedAtMs + 7,
+        }),
+      ).resolves.toMatchObject({ kind: 'redeemed', curve: 'ecdsa' });
+      await expect(rowCount(temporary.database, 'opaque_wallet_session_tokens')).resolves.toBe(2);
       await expect(
         service.redeemHostedWalletSeamsSessionExchange({
           exchangeCode: delivery.exchangeCode,
           nonce: delivery.nonce,
+          appOrigin: fixture.session.origin,
           walletOrigin,
+          curve: 'ecdsa',
           redeemedAtMs: issuedAtMs + 3,
         }),
       ).resolves.toEqual({ kind: 'already_consumed' });
@@ -961,82 +972,6 @@ test.describe('D1 authorization core', () => {
     }
   });
 
-  test('normalizes Passkey and Email OTP verification into one evidence-set shape', async () => {
-    const temporary = createTemporaryD1Database();
-    try {
-      await applyD1MigrationFiles(temporary.database, signerMigrations);
-      const service = createService(temporary.database, 'factor-evidence-conformance');
-      const passkey = await buildPasskeyVerifiedFactorFixture();
-      const emailOtp = await buildEmailOtpVerifiedFactorFixture();
-      await service.recordActiveSession(passkey.authorization.session);
-      const passkeyEvidence = await service.recordVerifiedFactorEvidenceSet({
-        session: passkey.authorization.session,
-        operation: passkey.authorization.authorizedOperation.operation,
-        evidenceId: passkey.evidenceId,
-        evidenceSetId: passkey.evidenceSetId,
-        factor: passkey.factor,
-      });
-      const emailOtpEvidence = await service.recordVerifiedFactorEvidenceSet({
-        session: emailOtp.authorization.session,
-        operation: emailOtp.authorization.authorizedOperation.operation,
-        evidenceId: emailOtp.evidenceId,
-        evidenceSetId: emailOtp.evidenceSetId,
-        factor: emailOtp.factor,
-      });
-      expect(Object.keys(passkeyEvidence).sort()).toEqual(Object.keys(emailOtpEvidence).sort());
-      expect(passkeyEvidence).toMatchObject({
-        tenantId: emailOtpEvidence.tenantId,
-        principalId: emailOtpEvidence.principalId,
-        sessionId: emailOtpEvidence.sessionId,
-        deviceId: emailOtpEvidence.deviceId,
-        operation: emailOtpEvidence.operation,
-        laneDigest: emailOtpEvidence.laneDigest,
-        intentDigest: emailOtpEvidence.intentDigest,
-        displayDigest: emailOtpEvidence.displayDigest,
-      });
-      expect(passkeyEvidence.evidence[0].evidenceKind).toBe('passkey_assertion');
-      expect(emailOtpEvidence.evidence[0].evidenceKind).toBe('email_otp');
-      expect(passkeyEvidence.assurance).toBe('step_up');
-      expect(emailOtpEvidence.assurance).toBe('step_up');
-      await expect(rowCount(temporary.database, 'verified_grant_evidence_sets')).resolves.toBe(2);
-      expect(
-        parseVerifiedAuthorizationEvidenceSetFromPersistence(
-          JSON.parse(JSON.stringify(passkeyEvidence)),
-        ),
-      ).toMatchObject({
-        evidenceSetId: passkeyEvidence.evidenceSetId,
-        evidenceSetDigest: passkeyEvidence.evidenceSetDigest,
-      });
-    } finally {
-      cleanupTemporaryD1Database(temporary.tempDir);
-    }
-  });
-
-  test('rejects a verified factor bound to a different operation digest', async () => {
-    const temporary = createTemporaryD1Database();
-    try {
-      await applyD1MigrationFiles(temporary.database, signerMigrations);
-      const service = createService(temporary.database, 'factor-evidence-mismatch');
-      const fixture = await buildPasskeyVerifiedFactorFixture();
-      await service.recordActiveSession(fixture.authorization.session);
-      const mismatchedOperation = operationWithIntentDigest(
-        fixture.authorization.authorizedOperation.operation,
-        testDigest(31),
-      );
-      await expect(
-        service.recordVerifiedFactorEvidenceSet({
-          session: fixture.authorization.session,
-          operation: mismatchedOperation,
-          evidenceId: fixture.evidenceId,
-          evidenceSetId: fixture.evidenceSetId,
-          factor: fixture.factor,
-        }),
-      ).rejects.toThrow('verified factor does not match the capability operation');
-      await expect(rowCount(temporary.database, 'verified_grant_evidence_sets')).resolves.toBe(0);
-    } finally {
-      cleanupTemporaryD1Database(temporary.tempDir);
-    }
-  });
 });
 
 function createService(
@@ -1129,8 +1064,8 @@ async function rowCount(
   table:
     | 'authorization_wallet_session_quotas'
     | 'reusable_wallet_sessions'
-    | 'authorization_sessions'
-    | 'verified_grant_evidence_sets'
+    | 'opaque_wallet_session_tokens'
+    | 'verified_wallet_operation_evidence_sets'
     | 'authorized_operations',
 ): Promise<number> {
   const row = await database
@@ -1189,9 +1124,7 @@ function testDigest(fill: number) {
   return parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(fill)));
 }
 
-function authorizedOperationInput(
-  operation: AuthorizedOperation,
-): Extract<
+function authorizedOperationInput(operation: AuthorizedOperation): Extract<
   AuthorizedOperationInput,
   {
     readonly authorization: { readonly kind: 'authorization_grant' };

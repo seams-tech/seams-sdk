@@ -10,7 +10,9 @@ test.describe('D1 wallet registration ECDSA key-handle guard', () => {
       ),
     ).toBe(false);
 
-    expect(hasEcdsaKeyHandleSetMismatch(['ederivation-key-shared'], ['ederivation-key-shared'])).toBe(false);
+    expect(
+      hasEcdsaKeyHandleSetMismatch(['ederivation-key-shared'], ['ederivation-key-shared']),
+    ).toBe(false);
   });
 
   test('rejects genuinely different key handles', () => {

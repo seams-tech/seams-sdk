@@ -8,7 +8,6 @@ import {
   buildEcdsaRoleLocalReadyRecord,
   buildRelayerKeyId,
   buildSecureEnclaveWrappedSecretSource,
-  buildWebAuthnPrfFirstSecretSourceFromParts,
   createBrowserPlatformRuntime,
   type AuthenticatorPort,
   type DurableRecordStore,
@@ -31,7 +30,12 @@ import {
 } from '@/core/signingEngine/session/identity/emailOtpEcdsaDerivationIdentity';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import { SignerWorkerOperationError } from '@/core/signingEngine/workerManager/workerTypes';
-import { WorkerRequestType, WorkerResponseType } from '@/core/types/signer-worker';
+import {
+  EcdsaDerivationClientCustomRequestType,
+  EcdsaDerivationClientCustomResponseType,
+} from '@/core/signingEngine/workerManager/workerTypes';
+import { buildThresholdPrfXClientBaseSecretSource } from '@/core/platform/secretSources';
+import { fixtureEcdsaRoleLocalPublicCapability } from './helpers/ecdsaBootstrap.fixtures';
 
 type BrowserRuntimeDeps = NonNullable<Parameters<typeof createBrowserPlatformRuntime>[0]>;
 
@@ -121,10 +125,10 @@ function prepareInputFor(wallet = walletId) {
       relayerParticipantId: 2 as const,
       participantIds: [1, 2] as const,
     },
-    secretSource: buildWebAuthnPrfFirstSecretSourceFromParts({
-      prfFirstB64u: bytesB64u(32, 5),
-      rpId,
-      credentialIdB64u,
+    /* One legal ECDSA source: the threshold PRF x-client base. The PRF
+       credential is consumed upstream of this port. */
+    secretSource: buildThresholdPrfXClientBaseSecretSource({
+      xClientBaseB64u: bytesB64u(32, 5),
     }),
   };
 }
@@ -238,7 +242,10 @@ function createBrowserAuthenticatorConformancePort(): AuthenticatorPort {
 function createBrowserSignerCryptoConformancePort(): SignerCryptoPort {
   const workerCtx: WorkerOperationContext = {
     async requestWorkerOperation({ request }) {
-      if (request.type === WorkerRequestType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap) {
+      if (
+        request.type ===
+        EcdsaDerivationClientCustomRequestType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrap
+      ) {
         const payload = request.payload as typeof prepareInput;
         if (payload.context.applicationBindingDigestB64u === timeoutApplicationBindingDigestB64u) {
           throw new SignerWorkerOperationError({
@@ -252,12 +259,13 @@ function createBrowserSignerCryptoConformancePort(): SignerCryptoPort {
         ) {
           throw new SignerWorkerOperationError({
             code: 'WORKER_RUNTIME_ERROR',
-            message: 'ECDSA client WASM initialization failed: failed to instantiate module_or_path',
+            message:
+              'ECDSA client WASM initialization failed: failed to instantiate module_or_path',
             workerKind: 'ecdsaDerivationClient',
           });
         }
         return {
-          type: WorkerResponseType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrapSuccess,
+          type: EcdsaDerivationClientCustomResponseType.PrepareThresholdEcdsaDerivationRoleLocalClientBootstrapSuccess,
           payload: {
             pendingStateBlob,
             clientBootstrap: {
@@ -273,9 +281,12 @@ function createBrowserSignerCryptoConformancePort(): SignerCryptoPort {
           },
         };
       }
-      if (request.type === WorkerRequestType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap) {
+      if (
+        request.type ===
+        EcdsaDerivationClientCustomRequestType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrap
+      ) {
         return {
-          type: WorkerResponseType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapSuccess,
+          type: EcdsaDerivationClientCustomResponseType.FinalizeThresholdEcdsaDerivationRoleLocalClientBootstrapSuccess,
           payload: {
             stateBlob: readyStateBlob,
             publicFacts: {
@@ -357,6 +368,16 @@ function createPublicFacts(): EcdsaRoleLocalPublicFacts {
     groupPublicKey33B64u,
     ethereumAddress,
     contextBinding32B64u: bytesB64u(32, 11),
+    publicCapability: fixtureEcdsaRoleLocalPublicCapability({
+      walletId,
+      evmFamilySigningKeySlotId: String(walletKeyId),
+      ecdsaThresholdKeyId: String(ecdsaThresholdKeyId),
+      signingRootId: String(signingRootId),
+      signingRootVersion: String(signingRootVersion),
+      clientVerifyingShareB64u: derivationClientSharePublicKey33B64u,
+      thresholdEcdsaPublicKeyB64u: groupPublicKey33B64u,
+      ethereumAddress,
+    }),
   });
 }
 
@@ -378,6 +399,7 @@ function relayerPublicIdentity(): EcdsaRelayerPublicIdentity {
     relayerPublicKey33B64u: publicFacts.relayerPublicKey33B64u,
     groupPublicKey33B64u: publicFacts.groupPublicKey33B64u,
     ethereumAddress: publicFacts.ethereumAddress,
+    relayerShareRetryCounter: 0,
   };
 }
 
@@ -523,33 +545,18 @@ export function runSignerCryptoPortConformance(factory: () => SignerCryptoPort):
         code: 'native_binding_failure',
       });
     });
-
-    test('returns unsupported secret-source command failure', async () => {
-      const result = await factory().prepareEcdsaClientBootstrap({
-        ...prepareInput,
-        secretSource: buildSecureEnclaveWrappedSecretSource({
-          keyId: 'secure-key',
-          accessGroup: 'group',
-        }),
-      });
-
-      expect(result).toMatchObject({
-        ok: false,
-        failure: 'command',
-        code: 'unsupported_secret_source',
-      });
-    });
   });
 }
 
 export function runDurableRecordStoreConformance(factory: () => DurableRecordStore): void {
   test.describe('DurableRecordStore conformance', () => {
     test('loads missing records as not_found', async () => {
-      await expect(factory().loadEcdsaRoleLocalReadyRecord(storageKeyFacts)).resolves
-        .toMatchObject({
+      await expect(factory().loadEcdsaRoleLocalReadyRecord(storageKeyFacts)).resolves.toMatchObject(
+        {
           ok: true,
           value: { kind: 'not_found' },
-        });
+        },
+      );
     });
 
     test('persists, loads, and cleans up a valid ready record', async () => {
@@ -608,14 +615,15 @@ export function runDurableRecordStoreConformance(factory: () => DurableRecordSto
           record: { kind: 'ecdsa_role_local_ready_passkey_v1' },
         },
       });
-      await expect(store.loadEcdsaRoleLocalReadyRecord(emailOtpStorageKeyFacts)).resolves
-        .toMatchObject({
-          ok: true,
-          value: {
-            kind: 'found',
-            record: { kind: 'ecdsa_role_local_ready_email_otp_v1' },
-          },
-        });
+      await expect(
+        store.loadEcdsaRoleLocalReadyRecord(emailOtpStorageKeyFacts),
+      ).resolves.toMatchObject({
+        ok: true,
+        value: {
+          kind: 'found',
+          record: { kind: 'ecdsa_role_local_ready_email_otp_v1' },
+        },
+      });
     });
 
     test('rejects pending or raw record writes', async () => {

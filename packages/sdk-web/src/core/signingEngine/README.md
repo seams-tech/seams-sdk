@@ -147,7 +147,6 @@ sequenceDiagram
 | `walletSession` | Server-issued reusable Wallet Session authorization identity.                       | `session/lifecycle/*`, `session/availability/*` |
 | `thresholdSession`     | Cryptographic threshold-protocol authorization session.                             | `threshold/*`, sealed-runtime boundaries        |
 | `emailOtpSession`      | Email OTP step-up session and warm-session coordination.                            | `session/emailOtp/*`                            |
-| `appSession`           | Outer application JWT/policy used to authorize wallet operations.                   | `stepUpConfirmation/*`, relayer clients         |
 
 ## EVM/Tempo Signing
 

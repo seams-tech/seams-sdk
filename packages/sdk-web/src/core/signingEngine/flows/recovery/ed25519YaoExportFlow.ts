@@ -15,20 +15,15 @@ import {
   type KeyExportEventCallback,
 } from './keyExportFlow';
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { walletSessionRefFromSession } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { base58Encode } from '@shared/utils/base58';
-import type { EmailOtpWalletSessionExportAuthorizationDeps } from './keyExportConfirmation';
+import type { EmailOtpExportAuthorizationDeps } from './keyExportConfirmation';
 import {
   isExportViewerSessionOpen,
   removeExportViewerHostIfPresent,
   requestEmailOtpEd25519KeyExportAuthorization,
   showEd25519ExportViewer,
 } from './keyExportConfirmation';
-import type { ResolvedEmailOtpEd25519YaoExportV1 } from '../../session/emailOtp/ed25519YaoSealedRecovery';
-import {
-  resolveEmailOtpAuthLane,
-  type EmailOtpSigningSessionAuthLane,
-} from '../../stepUpConfirmation/otpPrompt/authLane';
+import type { ResolvedWalletCustodyEd25519ExportV1 } from '../../session/emailOtp/ed25519ExportContext';
 import type {
   PasskeyEd25519YaoExportContextResolutionV1,
   PasskeyEd25519YaoExportContextV1,
@@ -39,7 +34,7 @@ import {
   mpcMaterialActivationRefsEqual,
   type MpcMaterialActivationRef,
 } from '@shared/utils/domainIds';
-import { walletSessionJwtForCurve } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import { walletSessionTokenForCurve } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 
 export type Ed25519YaoExportFlowDeps = {
   touchConfirm: Pick<UiConfirmRuntimeBridgePort, 'initialize' | 'requestUserConfirmation'>;
@@ -55,15 +50,15 @@ export type Ed25519YaoExportFlowDeps = {
     task: () => Promise<T>;
   }) => Promise<T>;
   emailOtp: {
-    requestExportChallenge: EmailOtpWalletSessionExportAuthorizationDeps['requestExportChallenge'];
+    requestExportChallenge: EmailOtpExportAuthorizationDeps['requestExportChallenge'];
     resolveExportContext: (args: {
       laneIdentity: ExactEd25519ExportMaterialIdentity<EmailOtpEd25519LaneAuth>;
       materialActivation: MpcMaterialActivationRef;
-    }) => Promise<ResolvedEmailOtpEd25519YaoExportV1>;
+    }) => Promise<ResolvedWalletCustodyEd25519ExportV1>;
     exportSeedWithFreshAuthorization: (args: {
       challengeId: string;
       otpCode: string;
-      exportContext: ResolvedEmailOtpEd25519YaoExportV1;
+      exportContext: ResolvedWalletCustodyEd25519ExportV1;
     }) => Promise<{
       artifactKind: 'near-ed25519-seed-v1';
       publicKey: string;
@@ -86,32 +81,11 @@ export type ExportEd25519YaoKeyArgs = {
   onEvent?: KeyExportEventCallback;
 };
 
-function emailOtpExportAuthLane(
-  context: ResolvedEmailOtpEd25519YaoExportV1,
-): Extract<EmailOtpSigningSessionAuthLane, { curve: 'ed25519' }> {
-  const walletSessionJwt = walletSessionJwtForCurve(context.authorization, 'ed25519');
-  if (!walletSessionJwt) {
-    throw new Error(
-      '[SigningEngine][ed25519-export] active Wallet Session authorization is unavailable',
-    );
-  }
-  const authLane = resolveEmailOtpAuthLane({
-    routeAuth: {
-      kind: 'wallet_session',
-      jwt: walletSessionJwt,
-    },
-    curve: 'ed25519',
-  });
-  if (authLane?.kind !== 'signing_session' || authLane.curve !== 'ed25519') {
-    throw new Error('[SigningEngine][ed25519-export] canonical Email OTP auth lane is invalid');
-  }
-  return authLane;
-}
-
 type ResolvedPasskeyEd25519YaoExportContext = {
   laneIdentity: ExactEd25519ExportMaterialIdentity<PasskeyEd25519LaneAuth>;
   relayerUrl: string;
-  walletSessionJwt: string;
+  walletSessionToken: string;
+  walletCustodyEnvelope: PasskeyEd25519YaoExportContextV1['walletCustodyEnvelope'];
   capability: RouterAbEd25519YaoExportWorkerPayloadV1['capability'];
 };
 
@@ -119,7 +93,7 @@ function passkeyEd25519ExportMaterialActivation(resolved: ResolvedPasskeyEd25519
   return resolved.capability.materialActivation;
 }
 
-function emailOtpEd25519ExportMaterialActivation(context: ResolvedEmailOtpEd25519YaoExportV1) {
+function emailOtpEd25519ExportMaterialActivation(context: ResolvedWalletCustodyEd25519ExportV1) {
   return context.material.materialActivation;
 }
 
@@ -213,8 +187,8 @@ function requireDurablePasskeyExportContext(args: {
   ) {
     throw new Error('[SigningEngine][ed25519-export] durable Yao context activation mismatch');
   }
-  const walletSessionJwt = walletSessionJwtForCurve(args.context.authorization, 'ed25519');
-  if (!walletSessionJwt) {
+  const walletSessionToken = walletSessionTokenForCurve(args.context.authorization, 'ed25519');
+  if (!walletSessionToken) {
     throw new Error(
       '[SigningEngine][ed25519-export] active Wallet Session authorization is unavailable',
     );
@@ -223,7 +197,8 @@ function requireDurablePasskeyExportContext(args: {
   return {
     laneIdentity: args.selectedLaneIdentity,
     relayerUrl: args.context.relayerUrl,
-    walletSessionJwt,
+    walletSessionToken,
+    walletCustodyEnvelope: args.context.walletCustodyEnvelope,
     capability: {
       materialActivation: descriptor.capability.materialActivation,
       scope: {
@@ -276,7 +251,7 @@ async function resolveExactEmailOtpExportContext(
   deps: Ed25519YaoExportFlowDeps,
   args: ExportEd25519YaoKeyArgs,
 ): Promise<{
-  context: ResolvedEmailOtpEd25519YaoExportV1;
+  context: ResolvedWalletCustodyEd25519ExportV1;
   laneIdentity: ExactEd25519ExportMaterialIdentity<EmailOtpEd25519LaneAuth>;
 }> {
   const laneIdentity = requireEmailOtpExportLaneIdentity(args);
@@ -305,8 +280,8 @@ function buildWorkerPayload(args: {
     nearAccountId: String(args.input.nearAccountId),
     relayerUrl: args.resolved.relayerUrl,
     authorization: {
-      kind: 'wallet_session',
-      walletSessionJwt: args.resolved.walletSessionJwt,
+      kind: 'opaque_wallet_session',
+      walletSessionToken: args.resolved.walletSessionToken,
     },
     flowId: args.input.flowId,
     viewerSessionId: args.viewerSessionId,
@@ -316,6 +291,7 @@ function buildWorkerPayload(args: {
       credentialIdB64u: args.resolved.laneIdentity.auth.credentialIdB64u,
       materialActivation: passkeyEd25519ExportMaterialActivation(args.resolved),
     },
+    walletCustodyEnvelope: args.resolved.walletCustodyEnvelope,
     capability: args.resolved.capability,
     variant: args.input.options.variant,
     theme: args.input.options.theme ?? args.theme,
@@ -456,15 +432,11 @@ async function exportEd25519YaoKeyWithFreshEmailOtp(
       requestExportChallenge: deps.emailOtp.requestExportChallenge,
     },
     {
-      kind: 'wallet_session_ed25519_export_auth',
-      walletSession: walletSessionRefFromSession({
-        walletId: args.walletId,
-        walletSessionUserId: args.walletId,
-      }),
+      kind: 'email_otp_ed25519_export_auth',
+      walletId: args.walletId,
       nearAccountId: String(args.nearAccountId),
       nearEd25519SigningKeyId: String(resolved.laneIdentity.signer.nearEd25519SigningKeyId),
       signerSlot: resolved.laneIdentity.signer.signerSlot,
-      authLane: emailOtpExportAuthLane(resolved.context),
       publicKey,
       curve: 'ed25519',
       chain: 'near',
@@ -501,7 +473,7 @@ async function exportEd25519YaoKeyWithFreshEmailOtp(
         materialActivation: emailOtpEd25519ExportMaterialActivation(resolved.context),
       }),
       nearAccountId: args.nearAccountId,
-      enabled: true,
+      enabled: resolved.context.material.kind === 'active_capability',
       task: () =>
         deps.emailOtp.exportSeedWithFreshAuthorization({
           challengeId: authorization.challengeId,

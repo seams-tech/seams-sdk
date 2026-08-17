@@ -18,7 +18,9 @@ import {
 } from '@/core/walletRuntimePaths/multichainWorkers';
 import { resolveWorkerUrl } from '@/core/walletRuntimePaths';
 import { resolveEmailOtpWorkerUrl } from '@/core/walletRuntimePaths/emailOtpWorker';
+import { resolveWalletCustodyCeremonyWorkerUrl } from '@/core/walletRuntimePaths/walletCustodyCeremonyWorker';
 import { EcdsaClientWorkerControlKind } from './ecdsaClientWorkerChannels';
+import { clearAllRouterAbEcdsaDerivationClientPresignatures } from '../routerAb/ecdsaDerivation/presignaturePool';
 import type {
   EcdsaDerivationWorkerOperationRequest,
   EcdsaDerivationWorkerOperationResult,
@@ -131,6 +133,13 @@ type AnyWorkerOperationArgs =
         'ecdsaOnlineClient',
         SignerWorkerOperationType<'ecdsaOnlineClient'>
       >;
+    }
+  | {
+      kind: 'walletCustodyCeremony';
+      request: SignerWorkerOperationRequest<
+        'walletCustodyCeremony',
+        SignerWorkerOperationType<'walletCustodyCeremony'>
+      >;
     };
 
 const SIGNER_WORKER_KINDS: readonly SignerWorkerKind[] = [
@@ -139,6 +148,7 @@ const SIGNER_WORKER_KINDS: readonly SignerWorkerKind[] = [
   'evmCrypto',
   'tempoSigner',
   'emailOtp',
+  'walletCustodyCeremony',
 ];
 const MULTICHAIN_WORKER_DEFAULT_TIMEOUT_MS = 20_000;
 
@@ -151,6 +161,47 @@ function isReadyFrame(value: unknown): boolean {
     (value as { type?: unknown })?.type === WorkerControlMessage.WORKER_READY ||
     (value as { ready?: unknown })?.ready === true
   );
+}
+
+type WasmPrewarmWorkerKind = 'evmCrypto' | 'tempoSigner';
+
+type WorkerReadiness = {
+  readonly promise: Promise<void>;
+  readonly resolve: () => void;
+  readonly reject: (error: Error) => void;
+  settled: boolean;
+};
+
+function isWasmPrewarmWorkerKind(kind: SignerWorkerKind): kind is WasmPrewarmWorkerKind {
+  return kind === 'evmCrypto' || kind === 'tempoSigner';
+}
+
+function createWorkerReadiness(): WorkerReadiness {
+  let resolvePromise: () => void = () => {};
+  let rejectPromise: (error: Error) => void = () => {};
+  const promise = new Promise<void>((resolve, reject) => {
+    resolvePromise = resolve;
+    rejectPromise = reject;
+  });
+  void promise.catch(() => {});
+  return {
+    promise,
+    resolve: resolvePromise,
+    reject: rejectPromise,
+    settled: false,
+  };
+}
+
+function resolveWorkerReadiness(readiness: WorkerReadiness): void {
+  if (readiness.settled) return;
+  readiness.settled = true;
+  readiness.resolve();
+}
+
+function rejectWorkerReadiness(readiness: WorkerReadiness, error: Error): void {
+  if (readiness.settled) return;
+  readiness.settled = true;
+  readiness.reject(error);
 }
 
 function isNearRpcProgressFrame(value: unknown): value is NearRpcProgressFrame {
@@ -215,11 +266,12 @@ function isRpcProgressFrame(value: unknown): value is RpcProgressFrame {
 export class WorkerTransport implements SignerWorkerTransportProtocol {
   private workerBaseOrigin: string | undefined;
   private readonly workers = new Map<SignerWorkerKind, Worker>();
+  private readonly workerReadiness = new Map<WasmPrewarmWorkerKind, WorkerReadiness>();
   private readonly pendingByKind = new Map<SignerWorkerKind, Map<string, PendingEntry>>();
   private readonly messageHandlers = new Map<SignerWorkerKind, (event: MessageEvent) => void>();
   private readonly errorHandlers = new Map<SignerWorkerKind, (event: ErrorEvent) => void>();
   private derivationPresignConnected = false;
-  private emailOtpPresignConnected = false;
+  private presignOnlineConnected = false;
   private ecdsaRegistrationCryptoPrewarmPromise: Promise<{
     kind: 'succeeded' | 'failed';
     wasmInitMs: number;
@@ -240,6 +292,16 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
     for (const kind of SIGNER_WORKER_KINDS) {
       this.getOrCreateWorker(kind);
     }
+    await Promise.all([
+      this.requireWorkerReadiness('evmCrypto'),
+      this.requireWorkerReadiness('tempoSigner'),
+    ]);
+  }
+
+  private requireWorkerReadiness(kind: WasmPrewarmWorkerKind): Promise<void> {
+    const readiness = this.workerReadiness.get(kind);
+    if (!readiness) throw new Error(`${kind} worker readiness was not initialized`);
+    return readiness.promise;
   }
 
   /**
@@ -249,13 +311,19 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
    * cold vs 88 ms warm on `ecdsaRegistrationClientCreateMs`). Fire-and-forget
    * safe: failure leaves the lazy init path exactly as it was.
    */
-  async prewarmEcdsaRegistrationCrypto(): Promise<{ kind: 'succeeded' | 'failed'; wasmInitMs: number }> {
+  async prewarmEcdsaRegistrationCrypto(): Promise<{
+    kind: 'succeeded' | 'failed';
+    wasmInitMs: number;
+  }> {
     const existing = this.ecdsaRegistrationCryptoPrewarmPromise;
     if (existing) return await existing;
     const prewarmPromise = this.requestEcdsaRegistrationCryptoPrewarm();
     this.ecdsaRegistrationCryptoPrewarmPromise = prewarmPromise;
     const outcome = await prewarmPromise;
-    if (outcome.kind === 'failed' && this.ecdsaRegistrationCryptoPrewarmPromise === prewarmPromise) {
+    if (
+      outcome.kind === 'failed' &&
+      this.ecdsaRegistrationCryptoPrewarmPromise === prewarmPromise
+    ) {
       this.ecdsaRegistrationCryptoPrewarmPromise = null;
     }
     return outcome;
@@ -370,6 +438,10 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
     | NearWorkerOperationResult<NearWorkerOperationType>
     | EcdsaDerivationWorkerOperationResult<EcdsaDerivationWorkerOperationType>
     | SignerWorkerOperationResult<'emailOtp', SignerWorkerOperationType<'emailOtp'>>
+    | SignerWorkerOperationResult<
+        'walletCustodyCeremony',
+        SignerWorkerOperationType<'walletCustodyCeremony'>
+      >
     | MultichainWorkerOperationResult<
         MultichainWorkerKind,
         MultichainOperationType<MultichainWorkerKind>
@@ -386,6 +458,7 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
       return await this.requestRpcOperation('ecdsaPresignClient', args.request);
     }
     if (args.kind === 'ecdsaOnlineClient') {
+      this.connectPresignOnlineChannel();
       return await this.requestRpcOperation('ecdsaOnlineClient', args.request);
     }
     if (args.kind === 'evmCrypto') {
@@ -393,6 +466,11 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
     }
     if (args.kind === 'tempoSigner') {
       return await this.requestRpcOperation('tempoSigner', args.request);
+    }
+    // Narrowed explicitly so the fall-through keeps a single remaining member:
+    // TypeScript cannot correlate `kind` with `request` across a wider union.
+    if (args.kind === 'walletCustodyCeremony') {
+      return await this.requestRpcOperation('walletCustodyCeremony', args.request);
     }
     return await this.requestRpcOperation(args.kind, args.request);
   }
@@ -557,6 +635,9 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
     if (existing) return existing;
 
     const worker = this.createWorker(kind);
+    if (isWasmPrewarmWorkerKind(kind)) {
+      this.workerReadiness.set(kind, createWorkerReadiness());
+    }
     const messageHandler = (event: MessageEvent): void => {
       this.handleWorkerMessage(kind, event);
     };
@@ -586,8 +667,7 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
       case 'role_local_derivation_handle':
         this.connectDerivationPresignChannel(presignWorker);
         return;
-      case 'email_otp_worker_session':
-        this.connectEmailOtpPresignChannel(presignWorker);
+      case 'linked_holder_signing_material':
         return;
       default:
         authorityKind satisfies never;
@@ -596,21 +676,36 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
 
   private parsePresignAuthorityKind(
     payload: unknown,
-  ): 'role_local_derivation_handle' | 'email_otp_worker_session' {
+  ): 'role_local_derivation_handle' | 'linked_holder_signing_material' {
     if (!isObject(payload) || !isObject(payload.authority)) {
       throw new Error('ECDSA presign init authority is required');
     }
     switch (payload.authority.kind) {
       case 'role_local_derivation_handle':
-      case 'email_otp_worker_session':
+      case 'linked_holder_signing_material':
         return payload.authority.kind;
       default:
         throw new Error('ECDSA presign init authority kind is invalid');
     }
   }
 
+  createLinkedHolderPresignAuthorityPortV1(): MessagePort {
+    const presignWorker = this.getOrCreateWorker('ecdsaPresignClient');
+    clearAllRouterAbEcdsaDerivationClientPresignatures();
+    const channel = new MessageChannel();
+    presignWorker.postMessage(
+      {
+        kind: EcdsaClientWorkerControlKind.AttachLinkedHolderToPresign,
+        port: channel.port1,
+      },
+      [channel.port1],
+    );
+    return channel.port2;
+  }
+
   private connectDerivationPresignChannel(presignWorker: Worker): void {
     if (this.derivationPresignConnected) return;
+    clearAllRouterAbEcdsaDerivationClientPresignatures();
     const derivationWorker = this.getOrCreateWorker('ecdsaDerivationClient');
     const channel = new MessageChannel();
     derivationWorker.postMessage(
@@ -630,25 +725,20 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
     this.derivationPresignConnected = true;
   }
 
-  private connectEmailOtpPresignChannel(presignWorker: Worker): void {
-    if (this.emailOtpPresignConnected) return;
-    const emailOtpWorker = this.getOrCreateWorker('emailOtp');
+  private connectPresignOnlineChannel(): void {
+    if (this.presignOnlineConnected) return;
+    const presignWorker = this.getOrCreateWorker('ecdsaPresignClient');
+    const onlineWorker = this.getOrCreateWorker('ecdsaOnlineClient');
     const channel = new MessageChannel();
-    emailOtpWorker.postMessage(
-      {
-        kind: EcdsaClientWorkerControlKind.AttachEmailOtpToPresign,
-        port: channel.port1,
-      },
+    presignWorker.postMessage(
+      { kind: EcdsaClientWorkerControlKind.AttachPresignToOnline, port: channel.port1 },
       [channel.port1],
     );
-    presignWorker.postMessage(
-      {
-        kind: EcdsaClientWorkerControlKind.AttachEmailOtpToPresign,
-        port: channel.port2,
-      },
+    onlineWorker.postMessage(
+      { kind: EcdsaClientWorkerControlKind.AttachPresignToOnline, port: channel.port2 },
       [channel.port2],
     );
-    this.emailOtpPresignConnected = true;
+    this.presignOnlineConnected = true;
   }
 
   private createWorker(kind: SignerWorkerKind): Worker {
@@ -702,6 +792,12 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
         });
         return new Worker(workerUrl, { type: 'module', name: 'email-otp-worker' });
       }
+      if (kind === 'walletCustodyCeremony') {
+        const workerUrl = resolveWalletCustodyCeremonyWorkerUrl({
+          baseOrigin: this.workerBaseOrigin,
+        });
+        return new Worker(workerUrl, { type: 'module', name: 'wallet-custody-ceremony-worker' });
+      }
 
       const workerUrl = resolveMultichainWorkerUrl(kind, {
         baseOrigin: this.workerBaseOrigin,
@@ -715,7 +811,13 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
 
   private handleWorkerMessage(kind: SignerWorkerKind, event: MessageEvent): void {
     const data = event.data as unknown;
-    if (isReadyFrame(data)) return;
+    if (isReadyFrame(data)) {
+      if (isWasmPrewarmWorkerKind(kind)) {
+        const readiness = this.workerReadiness.get(kind);
+        if (readiness) resolveWorkerReadiness(readiness);
+      }
+      return;
+    }
 
     if (kind === 'nearSigner') {
       this.handleNearWorkerMessage(data);
@@ -956,6 +1058,10 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
       code: 'WORKER_RUNTIME_ERROR',
       workerKind: kind,
     });
+    if (isWasmPrewarmWorkerKind(kind)) {
+      const readiness = this.workerReadiness.get(kind);
+      if (readiness) rejectWorkerReadiness(readiness, runtimeError);
+    }
     this.rejectAllPending(kind, runtimeError);
     this.resetWorker(kind);
   }
@@ -1002,13 +1108,38 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
       this.resetWorker('ecdsaPresignClient');
     } else if (kind === 'ecdsaPresignClient') {
       this.derivationPresignConnected = false;
-      this.emailOtpPresignConnected = false;
-    } else if (kind === 'emailOtp') {
-      this.emailOtpPresignConnected = false;
-      this.resetWorker('ecdsaPresignClient');
+      this.presignOnlineConnected = false;
+      this.resetWorker('ecdsaOnlineClient');
+      this.terminateWorkerOnly('ecdsaDerivationClient');
+    } else if (kind === 'ecdsaOnlineClient') {
+      this.presignOnlineConnected = false;
     }
+    if (
+      kind === 'ecdsaDerivationClient' ||
+      kind === 'ecdsaPresignClient' ||
+      kind === 'ecdsaOnlineClient'
+    ) {
+      clearAllRouterAbEcdsaDerivationClientPresignatures();
+    }
+    this.terminateWorkerOnly(kind);
+  }
+
+  private terminateWorkerOnly(kind: SignerWorkerKind): void {
     const worker = this.workers.get(kind);
-    if (!worker) return;
+    const readiness = this.readinessForWorker(kind);
+    if (!worker) {
+      if (readiness) {
+        rejectWorkerReadiness(readiness, new Error(`${kind} worker was reset`));
+        this.deleteWorkerReadiness(kind);
+      }
+      return;
+    }
+
+    this.rejectAllPending(kind, new Error(`${kind} worker was reset`));
+    if (readiness) {
+      rejectWorkerReadiness(readiness, new Error(`${kind} worker was reset`));
+      this.deleteWorkerReadiness(kind);
+    }
 
     const messageHandler = this.messageHandlers.get(kind);
     const errorHandler = this.errorHandlers.get(kind);
@@ -1019,6 +1150,16 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
     this.workers.delete(kind);
     this.messageHandlers.delete(kind);
     this.errorHandlers.delete(kind);
+  }
+
+  private readinessForWorker(kind: SignerWorkerKind): WorkerReadiness | undefined {
+    if (!isWasmPrewarmWorkerKind(kind)) return undefined;
+    return this.workerReadiness.get(kind);
+  }
+
+  private deleteWorkerReadiness(kind: SignerWorkerKind): void {
+    if (!isWasmPrewarmWorkerKind(kind)) return;
+    this.workerReadiness.delete(kind);
   }
 }
 
