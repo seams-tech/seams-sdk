@@ -9,7 +9,6 @@ import type {
   Device1LinkingFlowPortsV1,
   LinkSessionAuthenticationV1,
 } from '../../packages/sdk-web/src/SeamsWeb/operations/devices/deviceLinkingPorts';
-import type { LinkedDeviceOwnerCustodyHoldV1 } from '../../packages/sdk-web/src/SeamsWeb/operations/devices/deviceLinkingOwnerCustody';
 import { scanAndLinkDevice } from '../../packages/sdk-web/src/SeamsWeb/operations/devices/scanDevice';
 import {
   buildR103DeviceLinkFixture,
@@ -18,25 +17,8 @@ import {
 import {
   buildLinkedDeviceCustodyTransferPackageFixtureV1,
   buildLinkedDeviceCustodyTransferRecipientFixtureV1,
+  buildLinkedDeviceOwnerCustodyHoldStubV1,
 } from './helpers/linkedDeviceCustodyTransfer.fixtures';
-import { passkeyCustodyEnvelope } from './helpers/passkeyCustodyEnvelope.fixtures';
-
-function createHeldCustodyMaterial(): LinkedDeviceOwnerCustodyHoldV1 {
-  let released = false;
-  return {
-    sealOnceV1: async (seal) => {
-      if (released) throw new Error('held custody was already released');
-      released = true;
-      return await seal({
-        existingEnvelope: passkeyCustodyEnvelope(),
-        existingFactorSecret: new Uint8Array(32).fill(7),
-      });
-    },
-    discardV1: () => {
-      released = true;
-    },
-  };
-}
 
 test('seals once and replays the exact package after a lost first submission', async () => {
   const fixture = buildR103DeviceLinkFixture();
@@ -106,7 +88,7 @@ test('seals once and replays the exact package after a lost first submission', a
       }),
       startOwnerEnrollmentCeremonyV1: async () => ({
         ceremony: buildR103OwnerEnrollmentCeremonyV1({ expiresAtMs: now + 30_000 }),
-        custodyHold: createHeldCustodyMaterial(),
+        custodyHold: buildLinkedDeviceOwnerCustodyHoldStubV1(),
       }),
     },
     transport: {
