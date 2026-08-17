@@ -251,8 +251,8 @@ export default defineConfig({
   },
   markdown: {
     theme: {
-      light: 'one-light',
-      dark: 'vitesse-dark',
+      light: 'github-light',
+      dark: 'github-dark',
     },
     languageAlias: {
       caddy: 'nginx',
