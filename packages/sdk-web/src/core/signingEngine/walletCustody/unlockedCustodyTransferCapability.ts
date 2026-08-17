@@ -23,6 +23,42 @@ import type { WalletCustodyCeremonyTransportPort } from './ceremonyStepRunner';
 import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 
 let currentCapability: UnlockedWalletCustodyTransferCapabilityV1 | null = null;
+let currentCapabilityTransport: WalletCustodyCeremonyTransportPort | null = null;
+let currentCapabilityExpiryTimer: ReturnType<typeof setTimeout> | null = null;
+
+const MAX_EXPIRY_TIMER_DELAY_MS = 2_147_483_647;
+
+function clearCurrentCapabilityExpiryTimer(): void {
+  if (currentCapabilityExpiryTimer === null) return;
+  clearTimeout(currentCapabilityExpiryTimer);
+  currentCapabilityExpiryTimer = null;
+}
+
+function clearCurrentCapabilityReference(): void {
+  clearCurrentCapabilityExpiryTimer();
+  currentCapability = null;
+  currentCapabilityTransport = null;
+}
+
+function scheduleCurrentCapabilityExpiry(
+  capability: UnlockedWalletCustodyTransferCapabilityV1,
+  transport: WalletCustodyCeremonyTransportPort,
+): void {
+  clearCurrentCapabilityExpiryTimer();
+  const delayMs = Math.max(0, capability.expiresAtMs - Date.now());
+  currentCapabilityExpiryTimer = setTimeout(() => {
+    currentCapabilityExpiryTimer = null;
+    if (currentCapability !== capability || currentCapabilityTransport !== transport) return;
+    if (capability.expiresAtMs > Date.now()) {
+      scheduleCurrentCapabilityExpiry(capability, transport);
+      return;
+    }
+    void destroyUnlockedWalletCustodyTransferCapabilitiesV1(transport, {
+      kind: 'capability',
+      capabilityHandleId: capability.capabilityHandleId,
+    });
+  }, Math.min(delayMs, MAX_EXPIRY_TIMER_DELAY_MS));
+}
 
 /**
  * The canonical identity of the passkey auth method that issued a custody
@@ -99,7 +135,10 @@ export async function establishUnlockedWalletCustodyTransferCapabilityV1(
   if (!isCapabilityReference(established)) {
     throw new Error('unlocked custody capability worker returned no reference');
   }
+  clearCurrentCapabilityExpiryTimer();
   currentCapability = established;
+  currentCapabilityTransport = transport;
+  scheduleCurrentCapabilityExpiry(established, transport);
   return established;
 }
 
@@ -114,7 +153,15 @@ export function readUnlockedWalletCustodyTransferCapabilityV1(
   if (!capability) return undefined;
   if (capability.walletId !== walletId) return undefined;
   if (capability.expiresAtMs <= Date.now()) {
-    currentCapability = null;
+    const transport = currentCapabilityTransport;
+    if (transport) {
+      void destroyUnlockedWalletCustodyTransferCapabilitiesV1(transport, {
+        kind: 'capability',
+        capabilityHandleId: capability.capabilityHandleId,
+      });
+    } else {
+      clearCurrentCapabilityReference();
+    }
     return undefined;
   }
   return capability;
@@ -127,7 +174,7 @@ export function readUnlockedWalletCustodyTransferCapabilityV1(
  * handle that no longer exists.
  */
 export function dropUnlockedWalletCustodyTransferCapabilityReferenceV1(): void {
-  currentCapability = null;
+  clearCurrentCapabilityReference();
 }
 
 /**
@@ -148,7 +195,7 @@ export async function destroyUnlockedWalletCustodyTransferCapabilitiesV1(
       (scope.kind === 'capability' && scope.capabilityHandleId === capability.capabilityHandleId) ||
       (scope.kind === 'wallet' && scope.walletId === capability.walletId) ||
       (scope.kind === 'wallet_session' && scope.walletSessionId === capability.walletSessionId));
-  if (localMatches) currentCapability = null;
+  if (localMatches) clearCurrentCapabilityReference();
   try {
     await transport.requestOperation({
       kind: 'walletCustodyCeremony',
