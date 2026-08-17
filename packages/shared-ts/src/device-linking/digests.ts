@@ -5,6 +5,7 @@ import type {
   LinkedDeviceApprovalV1,
   LinkedDeviceEnrollmentKeyBindingV1,
   LinkedDeviceOwnerAuthorizationSourceV1,
+  LinkedDeviceOwnerEnrollmentCeremonyV1,
   LinkedDeviceProtocolVersionV1,
   LinkedDeviceProvisioningDeliveriesV1,
   LinkedDeviceSessionClaimV1,
@@ -143,6 +144,59 @@ function encodeKeyBinding(value: LinkedDeviceEnrollmentKeyBindingV1): Uint8Array
   ]);
 }
 
+/**
+ * The owner ceremony, bound by identity *and* by the exact registration
+ * options it minted.
+ *
+ * Binding the id alone would leave the WebAuthn parameters unbound: a
+ * substituted challenge or relying party would produce the same digest, and
+ * Device 2 would create a credential against something the approval never
+ * covered. Encoding the options field-by-field rather than hashing their JSON
+ * keeps the digest independent of key order and of any field a future version
+ * adds without meaning to.
+ */
+function encodeOwnerEnrollmentCeremony(value: LinkedDeviceOwnerEnrollmentCeremonyV1): Uint8Array {
+  const registration = value.registration;
+  const excludeCredentials = registration.excludeCredentials.map((entry) =>
+    concat([
+      text(entry.type, 'excludeCredentials.type'),
+      text(entry.id, 'excludeCredentials.id'),
+    ]),
+  );
+  return concat([
+    text(value.kind, 'ownerEnrollment.kind'),
+    text(value.addAuthMethodCeremonyId, 'ownerEnrollment.addAuthMethodCeremonyId'),
+    u64(value.expiresAtMs, 'ownerEnrollment.expiresAtMs'),
+    text(registration.kind, 'registration.kind'),
+    text(registration.challengeId, 'registration.challengeId'),
+    text(registration.challengeB64u, 'registration.challengeB64u'),
+    text(registration.rpId, 'registration.rpId'),
+    text(registration.user.idB64u, 'registration.user.idB64u'),
+    text(registration.user.name, 'registration.user.name'),
+    text(registration.user.displayName, 'registration.user.displayName'),
+    u32(registration.pubKeyCredParams.length, 'registration.pubKeyCredParams'),
+    ...registration.pubKeyCredParams.map((entry) =>
+      lp32(
+        concat([
+          text(entry.type, 'pubKeyCredParams.type'),
+          // Two's-complement is irrelevant here: the algorithms are fixed
+          // negative COSE identifiers, so their decimal spelling is stable.
+          text(String(entry.alg), 'pubKeyCredParams.alg'),
+        ]),
+        'registration.pubKeyCredParams.item',
+      ),
+    ),
+    text(registration.authenticatorSelection.residentKey, 'registration.residentKey'),
+    text(registration.authenticatorSelection.userVerification, 'registration.userVerification'),
+    u64(registration.timeoutMs, 'registration.timeoutMs'),
+    text(registration.attestation, 'registration.attestation'),
+    text(registration.extensions.prf.eval.firstB64u, 'registration.prf.firstB64u'),
+    text(registration.extensions.prf.eval.secondB64u, 'registration.prf.secondB64u'),
+    u32(excludeCredentials.length, 'registration.excludeCredentials'),
+    ...excludeCredentials.map((entry) => lp32(entry, 'registration.excludeCredentials.item')),
+  ]);
+}
+
 function encodeProtocolVersion(value: LinkedDeviceProtocolVersionV1): Uint8Array {
   return concat([
     text(value.keyFamily, 'protocolVersion.keyFamily'),
@@ -201,6 +255,7 @@ export function encodeLinkedDeviceApprovalV1(value: LinkedDeviceApprovalV1): Uin
     text(value.permission.administrationScope, 'permission.administrationScope'),
     text(value.permission.localUserPresence, 'permission.localUserPresence'),
     lp32(encodeOwnerAuthorization(value.ownerAuthorization), 'ownerAuthorization'),
+    lp32(encodeOwnerEnrollmentCeremony(value.ownerEnrollment), 'ownerEnrollment'),
     rawDigest(value.policyDigestB64u, 'policyDigestB64u'),
     text(value.operationId, 'operationId'),
     text(value.idempotencyKey, 'idempotencyKey'),
@@ -230,9 +285,7 @@ export function encodeLinkedDeviceTargetPreparationV1(
     text(value.walletId, 'walletId'),
     text(value.enrollmentId, 'enrollmentId'),
     text(value.deviceId, 'deviceId'),
-    text(value.rpId, 'rpId'),
-    lp32(rawPublicKey(value.userHandleB64u, 'userHandleB64u'), 'userHandleB64u'),
-    rawDigest(value.challengeB64u, 'challengeB64u'),
+    lp32(encodeOwnerEnrollmentCeremony(value.ownerEnrollment), 'ownerEnrollment'),
     u32(children.length, 'orderedChildren'),
     ...children.map((entry) => lp32(entry, 'orderedChildren.item')),
     u64(value.issuedAtMs, 'issuedAtMs'),

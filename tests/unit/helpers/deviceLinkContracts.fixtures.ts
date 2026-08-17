@@ -1,5 +1,6 @@
 import {
   buildLinkedDeviceApprovalV1,
+  parseLinkedDeviceOwnerEnrollmentCeremonyV1,
   buildLinkedDeviceEnrollmentChildReceiptV1,
   buildLinkedDeviceEnrollmentReceiptV1,
   buildLinkedDeviceEnrollmentTranscriptV1,
@@ -16,6 +17,7 @@ import {
   parseLinkedDeviceWalletSessionDeliveryV1,
 } from '../../../packages/shared-ts/src/device-linking/parsers';
 import type {
+  LinkedDeviceOwnerEnrollmentCeremonyV1,
   LinkedDeviceApprovalV1,
   LinkedDeviceEnrollmentKeyBindingV1,
   LinkedDeviceEnrollmentReceiptV1,
@@ -128,6 +130,57 @@ export type R103MixedPlannerFixture = {
   readonly sourceJobs: readonly [RotatableSigningLaneJobV1, RotatableSigningLaneJobV1];
 };
 
+
+/**
+ * The canonical owner add-auth-method ceremony a linked enrollment finalizes.
+ *
+ * Built here rather than inline per test so the registration options every
+ * fixture carries stay the ones the canonical parser accepts — the preparation
+ * digest binds them field by field.
+ */
+export function buildR103OwnerEnrollmentCeremonyV1(
+  overrides: {
+    readonly addAuthMethodCeremonyId?: string;
+    readonly rpId?: string;
+    readonly expiresAtMs?: number;
+  } = {},
+): LinkedDeviceOwnerEnrollmentCeremonyV1 {
+  const rpId = overrides.rpId ?? 'wallet.example.test';
+  return parseLinkedDeviceOwnerEnrollmentCeremonyV1({
+    kind: 'linked_device_owner_enrollment_ceremony_v1',
+    addAuthMethodCeremonyId:
+      overrides.addAuthMethodCeremonyId ?? 'add-auth-method-ceremony:r103p8',
+    registration: {
+      kind: 'webauthn_add_auth_method_registration_v1',
+      challengeId: 'add-auth-method-challenge:r103p8',
+      challengeB64u: base64UrlEncode(new Uint8Array(32).fill(11)),
+      rpId,
+      user: {
+        idB64u: base64UrlEncode(new Uint8Array(32).fill(10)),
+        name: 'linked-device',
+        displayName: 'linked-device',
+      },
+      pubKeyCredParams: [
+        { type: 'public-key', alg: -7 },
+        { type: 'public-key', alg: -257 },
+      ],
+      authenticatorSelection: { residentKey: 'required', userVerification: 'preferred' },
+      timeoutMs: 120_000,
+      attestation: 'none',
+      extensions: {
+        prf: {
+          eval: {
+            firstB64u: base64UrlEncode(new Uint8Array(32).fill(12)),
+            secondB64u: base64UrlEncode(new Uint8Array(32).fill(13)),
+          },
+        },
+      },
+      excludeCredentials: [],
+    },
+    expiresAtMs: overrides.expiresAtMs ?? 9_000_000_000_000,
+  });
+}
+
 /** Mixed-curve owner source and target registration facts for R103 planner tests. */
 export async function buildR103MixedPlannerFixture(): Promise<R103MixedPlannerFixture> {
   const base = buildR103DeviceLinkFixture({ linkSessionId: 'link-session:r103-mixed' });
@@ -147,6 +200,7 @@ export async function buildR103MixedPlannerFixture(): Promise<R103MixedPlannerFi
     devicePublicKeyB64u: base.approval.devicePublicKeyB64u,
     permission: base.approval.permission,
     ownerAuthorization: base.approval.ownerAuthorization,
+    ownerEnrollment: base.approval.ownerEnrollment,
     policyDigestB64u: base.approval.policyDigestB64u,
     operationId: base.approval.operationId,
     idempotencyKey: base.approval.idempotencyKey,
@@ -185,9 +239,7 @@ export async function buildR103MixedPlannerFixture(): Promise<R103MixedPlannerFi
     walletId: approval.walletId,
     enrollmentId: approval.enrollmentId,
     deviceId: approval.deviceId,
-    rpId,
-    userHandleB64u: base64UrlEncode(new Uint8Array(32).fill(10)),
-    challengeB64u: approval.policyDigestB64u,
+    ownerEnrollment: approval.ownerEnrollment,
     orderedChildren: [
       buildMixedPreparationChild(ed25519),
       buildMixedPreparationChild(ecdsa),
@@ -548,9 +600,7 @@ export async function buildR103TargetCredentialFixture(
     walletId: fixture.approval.walletId,
     enrollmentId: fixture.approval.enrollmentId,
     deviceId: fixture.approval.deviceId,
-    rpId,
-    userHandleB64u: PUBLIC_KEY,
-    challengeB64u: fixture.approval.policyDigestB64u,
+    ownerEnrollment: fixture.approval.ownerEnrollment,
     orderedChildren: [
       {
         kind: 'linked_device_target_preparation_child_v1',
@@ -710,7 +760,10 @@ export function buildR103DeviceLinkFixture(
     approvedAtMs: 2_000,
     expiresAtMs: 20_000,
   };
-  const approval = buildLinkedDeviceApprovalV1(common);
+  const approval = buildLinkedDeviceApprovalV1({
+    ...common,
+    ownerEnrollment: buildR103OwnerEnrollmentCeremonyV1(),
+  });
   const transcript = buildLinkedDeviceEnrollmentTranscriptV1(common);
   const childReceipt = buildLinkedDeviceEnrollmentChildReceiptV1({
     enrollmentId,

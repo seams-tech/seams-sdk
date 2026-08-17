@@ -27,7 +27,6 @@ import type { LinkedDeviceSessionRecordV1 } from './linkedDeviceSession';
 export type LinkedOwnerEnrollmentAdmissionDeniedV1 =
   | 'session_not_claimed'
   | 'session_has_no_key_manifest'
-  | 'owner_ceremony_not_started'
   | 'ceremony_does_not_match_enrollment'
   | 'preparation_does_not_match_session'
   | 'preparation_expired';
@@ -85,11 +84,11 @@ export function admitLinkedOwnerEnrollmentFinalizeV1(input: {
     return { ok: false, reason: 'preparation_expired' };
   }
 
-  const ownerEnrollment = preparation.ownerEnrollment;
-  if (!ownerEnrollment) return { ok: false, reason: 'owner_ceremony_not_started' };
   // The whole point of this module: the submitted ceremony must be the one
   // Device 1 started for this exact enrollment, not merely a ceremony that
-  // exists.
+  // exists. A preparation always carries one — it is minted from the approval
+  // that authorized it — so the only question left is whether it is this one.
+  const ownerEnrollment = preparation.ownerEnrollment;
   if (ownerEnrollment.addAuthMethodCeremonyId !== input.addAuthMethodCeremonyId) {
     return { ok: false, reason: 'ceremony_does_not_match_enrollment' };
   }

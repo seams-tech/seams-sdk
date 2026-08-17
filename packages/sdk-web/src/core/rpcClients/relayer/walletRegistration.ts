@@ -775,36 +775,14 @@ export type WalletAddAuthMethodAuthority =
       webauthnRegistration?: never;
     };
 
-export type WalletAddAuthMethodRegistrationOptions = {
-  readonly kind: 'webauthn_add_auth_method_registration_v1';
-  readonly challengeId: string;
-  readonly challengeB64u: string;
-  readonly rpId: WebAuthnRpId;
-  readonly user: {
-    readonly idB64u: string;
-    readonly name: string;
-    readonly displayName: string;
-  };
-  readonly pubKeyCredParams: readonly [
-    { readonly type: 'public-key'; readonly alg: -7 },
-    { readonly type: 'public-key'; readonly alg: -257 },
-  ];
-  readonly authenticatorSelection: {
-    readonly residentKey: 'required';
-    readonly userVerification: 'preferred';
-  };
-  readonly timeoutMs: number;
-  readonly attestation: 'none';
-  readonly extensions: {
-    readonly prf: {
-      readonly eval: {
-        readonly firstB64u: string;
-        readonly secondB64u: string;
-      };
-    };
-  };
-  readonly excludeCredentials: readonly { readonly type: 'public-key'; readonly id: string }[];
-};
+/**
+ * Declared once in the shared package. The server mints these options, this
+ * client hands them to `navigator.credentials.create`, and the linked-device
+ * target preparation carries them to Device 2 — one declaration, so none of
+ * the three can drift from the ceremony.
+ */
+import type { WalletAddAuthMethodRegistrationOptions } from '@shared/utils/addAuthMethodRegistration';
+export type { WalletAddAuthMethodRegistrationOptions };
 
 export type WalletAddAuthMethodStartResponse =
   | {
@@ -813,6 +791,8 @@ export type WalletAddAuthMethodStartResponse =
       intent: AddAuthMethodIntentV1;
       custodyEnvelope: PasskeyCustodyEnvelopeRecord;
       registration: WalletAddAuthMethodRegistrationOptions;
+      /** When the ceremony itself stops being finalizable. */
+      addAuthMethodCeremonyExpiresAtMs: number;
     }
   | {
       ok: true;
@@ -820,6 +800,7 @@ export type WalletAddAuthMethodStartResponse =
       intent: AddAuthMethodIntentV1;
       custodyEnvelope?: never;
       registration?: never;
+      addAuthMethodCeremonyExpiresAtMs?: never;
     };
 
 export type WalletAddAuthMethodFinalizeResponse =

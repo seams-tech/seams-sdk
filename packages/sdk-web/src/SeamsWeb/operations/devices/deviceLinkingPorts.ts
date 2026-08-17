@@ -1,6 +1,7 @@
 import type {
   LinkedDeviceProvisioningChildV1,
   LinkedDeviceApprovalV1,
+  LinkedDeviceOwnerEnrollmentCeremonyV1,
   LinkedDeviceApprovalResultV1,
   LinkedDeviceEnrollmentKeyBindingV1,
   LinkedDeviceEnrollmentReceiptV1,
@@ -226,6 +227,20 @@ export type DeviceLinkingKeyMaterialPortV1 = {
 };
 
 export type DeviceLinkingOwnerAuthorizationPortV1 = {
+  /**
+   * Starts the canonical owner add-auth-method ceremony that the linked device
+   * will finalize.
+   *
+   * It belongs to Device 1's owner authority, not to the link session: Device 2
+   * has no owner authority and cannot start one. Approval is the single
+   * owner-authenticated step in the flow, so the ceremony is started here and
+   * carried by the approval that authorizes it.
+   */
+  startOwnerEnrollmentCeremonyV1(input: {
+    readonly linkSessionId: LinkDeviceSessionId;
+    readonly walletId: WalletId;
+    readonly requestedAtMs: number;
+  }): Promise<LinkedDeviceOwnerEnrollmentCeremonyV1>;
   authenticateOwnerForLinkingV1(input: {
     readonly payload: QrLinkedDeviceSessionPayloadV4;
     readonly requestedAtMs: number;

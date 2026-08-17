@@ -160,6 +160,14 @@ export async function scanAndLinkDevice(
     ) {
       throw new Error('linked-device claim does not match the scanned QR payload');
     }
+    // Started here, under Device 1's owner authority, so the approval that
+    // authorizes this enrollment and the ceremony that will mint its owner
+    // credential are the same decision rather than two that could diverge.
+    const ownerEnrollment = await ports.ownerAuthorization.startOwnerEnrollmentCeremonyV1({
+      linkSessionId: claim.linkSessionId,
+      walletId: claim.walletId,
+      requestedAtMs: Date.now(),
+    });
     const approvedAtMs = Date.now();
     const approval = buildLinkedDeviceApprovalV1({
       linkSessionId: claim.linkSessionId,
@@ -170,6 +178,7 @@ export async function scanAndLinkDevice(
       devicePublicKeyB64u: claim.devicePublicKeyB64u,
       permission: parsedQrData.requestedPermission,
       ownerAuthorization: owner.ownerAuthorization,
+      ownerEnrollment,
       policyDigestB64u: owner.policyDigestB64u,
       operationId: owner.operationId,
       idempotencyKey: owner.idempotencyKey,

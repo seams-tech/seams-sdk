@@ -51,6 +51,7 @@ export async function buildR103ActiveLinkedDeviceSessionRecordV1(
     devicePublicKeyB64u: fixture.approval.devicePublicKeyB64u,
     permission: fixture.approval.permission,
     ownerAuthorization: fixture.approval.ownerAuthorization,
+    ownerEnrollment: fixture.approval.ownerEnrollment,
     policyDigestB64u: fixture.approval.policyDigestB64u,
     operationId: fixture.approval.operationId,
     idempotencyKey: fixture.approval.idempotencyKey,

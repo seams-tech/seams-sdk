@@ -228,39 +228,13 @@ export type WalletAddAuthMethodStartRequest = {
   authority: WalletAddAuthMethodAuthorityInput;
 };
 
-export type WalletAddAuthMethodRegistrationOptions = {
-  readonly kind: 'webauthn_add_auth_method_registration_v1';
-  readonly challengeId: string;
-  readonly challengeB64u: string;
-  readonly rpId: string;
-  readonly user: {
-    readonly idB64u: string;
-    readonly name: string;
-    readonly displayName: string;
-  };
-  readonly pubKeyCredParams: readonly [
-    { readonly type: 'public-key'; readonly alg: -7 },
-    { readonly type: 'public-key'; readonly alg: -257 },
-  ];
-  readonly authenticatorSelection: {
-    readonly residentKey: 'required';
-    readonly userVerification: 'preferred';
-  };
-  readonly timeoutMs: number;
-  readonly attestation: 'none';
-  readonly extensions: {
-    readonly prf: {
-      readonly eval: {
-        readonly firstB64u: string;
-        readonly secondB64u: string;
-      };
-    };
-  };
-  readonly excludeCredentials: readonly {
-    readonly type: 'public-key';
-    readonly id: string;
-  }[];
-};
+/**
+ * Declared once in the shared package: the server mints it, the browser calls
+ * `navigator.credentials.create` with it, and the linked-device target
+ * preparation carries it to Device 2.
+ */
+import type { WalletAddAuthMethodRegistrationOptions } from '@shared/utils/addAuthMethodRegistration';
+export type { WalletAddAuthMethodRegistrationOptions };
 
 export type WalletAddAuthMethodStartResponse =
   | {
@@ -271,6 +245,15 @@ export type WalletAddAuthMethodStartResponse =
       };
       custodyEnvelope: PasskeyCustodyEnvelopeRecord;
       registration: WalletAddAuthMethodRegistrationOptions;
+      /**
+       * When the ceremony stops being finalizable.
+       *
+       * A linked device carries this to Device 2, and every expiry downstream
+       * of it — the approval, the target preparation — is clamped to it. A
+       * preparation that outlived its ceremony would send Device 2 to create a
+       * credential nothing could finalize.
+       */
+      addAuthMethodCeremonyExpiresAtMs: number;
     }
   | {
       ok: true;
@@ -280,6 +263,7 @@ export type WalletAddAuthMethodStartResponse =
       };
       custodyEnvelope?: never;
       registration?: never;
+      addAuthMethodCeremonyExpiresAtMs?: never;
     }
   | {
       ok: false;

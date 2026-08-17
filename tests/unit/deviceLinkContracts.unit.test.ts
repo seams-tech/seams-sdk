@@ -95,6 +95,9 @@ test.describe('R103 shared linked-device contracts', () => {
     const authorities = createWalletHostOwnerAuthoritiesV1({
       http,
       relayerUrl: 'https://relay.example.test',
+    startOwnerEnrollmentCeremonyV1: async () => {
+      throw new Error('owner enrollment ceremony is not exercised by this test');
+    },
       walletSessions: {
         read: async () => ({ kind: 'missing' as const }),
         readActiveForWallet: async () => ({ kind: 'found' as const, projection }),
@@ -142,6 +145,9 @@ test.describe('R103 shared linked-device contracts', () => {
         },
       },
       relayerUrl: 'https://relay.example.test',
+    startOwnerEnrollmentCeremonyV1: async () => {
+      throw new Error('owner enrollment ceremony is not exercised by this test');
+    },
       walletSessions: {
         read: async () => ({ kind: 'missing' as const }),
         readActiveForWallet: async () => {

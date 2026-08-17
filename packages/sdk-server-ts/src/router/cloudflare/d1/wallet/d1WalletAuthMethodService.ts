@@ -1,3 +1,4 @@
+import { parseWalletAddAuthMethodRegistrationOptions } from '@shared/utils/addAuthMethodRegistration';
 import {
   parseChallengeSubjectId,
   parseEmailOtpChallengeId,
@@ -428,6 +429,7 @@ export class CloudflareD1WalletAuthMethodService {
           intent: passkeyIntent,
           custodyEnvelope: envelopeLookup.envelope,
           registration,
+          addAuthMethodCeremonyExpiresAtMs: expiresAtMs,
         };
       }
 
@@ -969,7 +971,10 @@ export class CloudflareD1WalletAuthMethodService {
   }): WalletAddAuthMethodRegistrationOptions {
     const challengeId = secureRandomBase64Url(16, 'add-auth-method registration challenge id');
     const challengeB64u = secureRandomBase64Url(32, 'add-auth-method registration challenge');
-    return {
+    // Minted through the canonical parser so the options this ceremony hands
+    // out are the same shape every reader — including a linked Device 2 —
+    // validates them back into.
+    return parseWalletAddAuthMethodRegistrationOptions({
       kind: 'webauthn_add_auth_method_registration_v1',
       challengeId,
       challengeB64u,
@@ -1000,7 +1005,7 @@ export class CloudflareD1WalletAuthMethodService {
             method.kind === 'passkey' && method.rpId === input.rpId,
         )
         .map((method) => ({ type: 'public-key' as const, id: method.credentialIdB64u })),
-    };
+    });
   }
 
   async revokeWalletAuthMethod(

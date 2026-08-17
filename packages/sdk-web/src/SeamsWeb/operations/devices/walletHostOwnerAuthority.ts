@@ -56,10 +56,39 @@ export function createWalletHostOwnerAuthoritiesV1(input: {
   readonly readWalletAuthenticationState: () => WalletAuthenticationState;
   readonly hasLinkedDeviceSigningSession: (walletId: WalletId) => boolean;
   readonly readOwnerSourceLaneHintsV1: WalletHostOwnerSourceLaneHintsReaderV1;
+  /**
+   * Starts the owner add-auth-method ceremony a linked device will finalize.
+   *
+   * Injected rather than built here: it needs the wallet's relying party,
+   * managed-scope credentials, and a fresh passkey assertion, all of which the
+   * composition root already holds.
+   */
+  readonly startOwnerEnrollmentCeremonyV1: DeviceLinkingOwnerAuthorizationPortV1['startOwnerEnrollmentCeremonyV1'];
 }): WalletHostOwnerAuthoritiesV1 {
   const context = normalizeContext(input);
+  // One ceremony per link session. Approval is retried whenever the scan flow
+  // is re-entered, and a second ceremony would both orphan the first and be
+  // refused by the server as a conflicting approval — so the first result is
+  // held and replayed for the life of this wallet host.
+  const ownerEnrollmentCeremonies = new Map<
+    string,
+    ReturnType<DeviceLinkingOwnerAuthorizationPortV1['startOwnerEnrollmentCeremonyV1']>
+  >();
   return {
     ownerAuthorization: {
+      startOwnerEnrollmentCeremonyV1: async (request) => {
+        const key = String(request.linkSessionId);
+        const started =
+          ownerEnrollmentCeremonies.get(key) ?? input.startOwnerEnrollmentCeremonyV1(request);
+        ownerEnrollmentCeremonies.set(key, started);
+        try {
+          return await started;
+        } catch (error: unknown) {
+          // A failed start is not a ceremony; let the next attempt mint one.
+          ownerEnrollmentCeremonies.delete(key);
+          throw error;
+        }
+      },
       authenticateOwnerForLinkingV1: async (request) =>
         await authorizeOwnerForLinkingV1(context, request),
     },

@@ -1,3 +1,4 @@
+import { parseWalletAddAuthMethodRegistrationOptions } from '@shared/utils/addAuthMethodRegistration';
 import type {
   CloudflareDurableObjectNamespaceLike,
   EcdsaDerivationServerBootstrapResponse,
@@ -1793,87 +1794,18 @@ function addAuthMethodCustodyFactorMatches(
   }
 }
 
+/**
+ * Nullable wrapper over the canonical parser. Reading these options a second,
+ * looser way here is what would let a stored ceremony and a live one disagree.
+ */
 function parseStoredWalletAddAuthMethodRegistrationOptions(
   value: unknown,
 ): WalletAddAuthMethodRegistrationOptions | null {
-  if (!isRecord(value) || value.kind !== 'webauthn_add_auth_method_registration_v1') {
+  try {
+    return parseWalletAddAuthMethodRegistrationOptions(value);
+  } catch {
     return null;
   }
-  const challengeId = trimString(value.challengeId);
-  const challengeB64u = trimString(value.challengeB64u);
-  const rpId = trimString(value.rpId);
-  const user = isRecord(value.user) ? value.user : null;
-  const userIdB64u = trimString(user?.idB64u);
-  const userName = trimString(user?.name);
-  const userDisplayName = trimString(user?.displayName);
-  const parameters = Array.isArray(value.pubKeyCredParams) ? value.pubKeyCredParams : null;
-  const firstParameter = parameters && isRecord(parameters[0]) ? parameters[0] : null;
-  const secondParameter = parameters && isRecord(parameters[1]) ? parameters[1] : null;
-  const selection = isRecord(value.authenticatorSelection) ? value.authenticatorSelection : null;
-  const extensions = isRecord(value.extensions) ? value.extensions : null;
-  const prf = isRecord(extensions?.prf) ? extensions.prf : null;
-  const evalRecord = isRecord(prf?.eval) ? prf.eval : null;
-  const excludeCredentials = Array.isArray(value.excludeCredentials)
-    ? value.excludeCredentials
-        .map((entry) => {
-          if (!isRecord(entry) || entry.type !== 'public-key') return null;
-          const id = trimString(entry.id);
-          return id ? { type: 'public-key' as const, id } : null;
-        })
-        .filter(
-          (entry): entry is { readonly type: 'public-key'; readonly id: string } => entry !== null,
-        )
-    : null;
-  const timeoutMs = Number(value.timeoutMs);
-  if (
-    !challengeId ||
-    !challengeB64u ||
-    !rpId ||
-    !userIdB64u ||
-    !userName ||
-    !userDisplayName ||
-    !parameters ||
-    parameters.length !== 2 ||
-    firstParameter?.type !== 'public-key' ||
-    Number(firstParameter.alg) !== -7 ||
-    secondParameter?.type !== 'public-key' ||
-    Number(secondParameter.alg) !== -257 ||
-    selection?.residentKey !== 'required' ||
-    selection?.userVerification !== 'preferred' ||
-    !Number.isSafeInteger(timeoutMs) ||
-    timeoutMs <= 0 ||
-    value.attestation !== 'none' ||
-    typeof evalRecord?.firstB64u !== 'string' ||
-    !evalRecord.firstB64u.trim() ||
-    typeof evalRecord?.secondB64u !== 'string' ||
-    !evalRecord.secondB64u.trim() ||
-    !excludeCredentials
-  ) {
-    return null;
-  }
-  return {
-    kind: 'webauthn_add_auth_method_registration_v1',
-    challengeId,
-    challengeB64u,
-    rpId,
-    user: { idB64u: userIdB64u, name: userName, displayName: userDisplayName },
-    pubKeyCredParams: [
-      { type: 'public-key', alg: -7 },
-      { type: 'public-key', alg: -257 },
-    ],
-    authenticatorSelection: { residentKey: 'required', userVerification: 'preferred' },
-    timeoutMs,
-    attestation: 'none',
-    extensions: {
-      prf: {
-        eval: {
-          firstB64u: evalRecord.firstB64u,
-          secondB64u: evalRecord.secondB64u,
-        },
-      },
-    },
-    excludeCredentials,
-  };
 }
 
 function parseStoredWalletAddAuthMethodCeremony(

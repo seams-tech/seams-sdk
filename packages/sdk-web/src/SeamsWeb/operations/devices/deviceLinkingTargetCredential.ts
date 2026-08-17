@@ -67,14 +67,24 @@ export function createDeviceLinkingTargetCredentialPortV1(args: {
 }): DeviceLinkingTargetCredentialPortV1 {
   return {
     async createTargetCredentialV1(input) {
+      // Every registration parameter comes from the owner ceremony this
+      // credential will finalize. Device 2 creates its passkey against exactly
+      // what the server will verify and finalize against, so there is no second
+      // set of parameters to fall out of step.
+      const registration = input.preparation.ownerEnrollment.registration;
+      // The relying party, challenge, and user handle all come from the
+      // ceremony this credential will finalize, so Device 2 creates against
+      // exactly what the server verifies. The display strings do not: WebAuthn
+      // never verifies them, and the linked device labels itself distinctly so
+      // the two credentials are tellable apart in the authenticator.
       const passkeyName = linkedDevicePasskeyName(String(input.preparation.walletId));
       const credential = await args.authenticator.run({
         kind: 'create_passkey',
-        rpId: toRpId(input.preparation.rpId),
-        userHandleB64u: input.preparation.userHandleB64u,
+        rpId: toRpId(registration.rpId),
+        userHandleB64u: registration.user.idB64u,
         userName: passkeyName,
         userDisplayName: passkeyName,
-        challengeB64u: input.preparation.challengeB64u,
+        challengeB64u: registration.challengeB64u,
         requirePrfFirst: true,
         authenticatorOptions: { userVerification: 'required' },
       });

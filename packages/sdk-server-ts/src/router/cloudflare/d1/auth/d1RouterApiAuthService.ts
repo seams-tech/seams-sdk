@@ -65,6 +65,7 @@ import { capabilityPolicyPort } from '../../../../authorization/capabilityPolicy
 import { CloudflareD1AuthorizationStore } from '../authorization/d1AuthorizationStore';
 import { parseTenantId } from '@shared/authorization/capabilityKinds';
 import { CloudflareD1RegistrationCeremonyIntentStore } from '../registration/d1RegistrationCeremonyStore';
+import type { LinkedOwnerEnrollmentCeremonyReaderV1 } from '../../../../core/deviceLinking/linkedOwnerEnrollmentProvenance';
 import { isRecordValue, sha256BytesPortable } from './d1RouterApiAuthBoundary';
 import { CloudflareD1NearPublicKeyStore } from '../near/d1NearPublicKeyStore';
 import { CloudflareD1WebAuthnStore } from '../webauthn/d1WebAuthnStore';
@@ -328,6 +329,12 @@ function createD1LinkedDeviceComposition(input: {
     CloudflareD1AuthorizationStore,
     'readClaimedLinkedDeviceWalletSessionAuthorization'
   >;
+  /**
+   * The registration ceremony store, read back so an approval's owner
+   * enrollment is proved to be the server's own ceremony before its digest
+   * seals it.
+   */
+  readonly ownerEnrollmentCeremonies: LinkedOwnerEnrollmentCeremonyReaderV1;
   readonly authorizationService: Pick<
     AuthorizationService,
     | 'getLinkedDeviceWalletSessionStatus'
@@ -397,7 +404,6 @@ function createD1LinkedDeviceComposition(input: {
       walletRegistration: input.walletRegistration,
       metadata: ownerMetadata,
       targetPlanner: {
-        rpId: config.execution.rpId,
         targetDeploymentDescriptorProvider: config.session.targetDeploymentDescriptorProvider,
       },
       planningWriter: ownerPlanningWriter,
@@ -458,6 +464,7 @@ function createD1LinkedDeviceComposition(input: {
       tenantId: tenantId.value,
       authorizationService: input.authorizationService,
       ownerAuthorization: ownerAuthorizationProvider.ownerAuthorization,
+      ownerEnrollmentCeremonies: input.ownerEnrollmentCeremonies,
       authenticateOwnerRequestV1: ownerRequestAuthenticator,
       linkedDeviceLocalPresence,
       targetCredential,
@@ -532,6 +539,7 @@ function createD1LinkedDeviceComposition(input: {
       database: input.options.database,
       scope,
       ownerAuthorization: config.gateway.ownerAuthorization,
+      ownerEnrollmentCeremonies: input.ownerEnrollmentCeremonies,
       laneLifecycle,
       nowV1: config.execution.nowV1,
       authenticateGatewayRequestV1: config.gateway.authenticateGatewayRequestV1,
@@ -1555,6 +1563,7 @@ function createCloudflareD1RouterApiAuthAssembly(
     listWalletEcdsaCustodyContinuity: walletStore.listEcdsaSignersForWallet.bind(walletStore),
   };
   const linkedDeviceComposition = createD1LinkedDeviceComposition({
+    ownerEnrollmentCeremonies: getRegistrationCeremonyIntentStore(),
     options,
     authorizationSessions: createD1AuthorizationSessionRouteService({
       authorizationService,

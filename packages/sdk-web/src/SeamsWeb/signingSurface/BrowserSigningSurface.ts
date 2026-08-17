@@ -206,6 +206,11 @@ import {
   type ActiveWalletExecutionLaneHydration,
 } from '@/core/signingEngine/session/lanes/walletExecutionLaneHydration';
 import { IndexedDBManager, walletSessionAuthorizations } from '@/core/indexedDB';
+import { startLinkedDeviceOwnerEnrollmentCeremonyV1 } from '../operations/devices/deviceLinkingOwnerEnrollmentStart';
+import type { LinkedDeviceOwnerEnrollmentCeremonyV1 } from '@shared/device-linking/contracts';
+import { parseWebAuthnRpId } from '@shared/utils/domainIds';
+import { collectAuthenticationCredentialForChallengeB64u } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
+import { resolveManagedRuntimeScopeBootstrap } from '@/core/config/managedRuntimeScope';
 import {
   parseReusableWalletSessionMintId,
   parseWalletSessionAuthorizationId,
@@ -2975,6 +2980,7 @@ export class BrowserSigningSurface {
       readWalletAuthenticationState: () => this.walletAuthenticationState,
       hasLinkedDeviceSigningSession: (walletId) => this.hasLinkedDeviceSigningSession(walletId),
       readOwnerSourceLaneHintsV1: this.readWalletHostOwnerSourceLaneHintsV1.bind(this),
+      startOwnerEnrollmentCeremonyV1: this.startLinkedDeviceOwnerEnrollmentCeremonyV1.bind(this),
     });
     const ownerTransport = createWalletHostOwnerApprovalTransportV1(ownerAuthorities.ownerRequest);
     const sourceLanePorts = createWalletHostSourceLanePortsV1({
@@ -3007,6 +3013,62 @@ export class BrowserSigningSurface {
       nowMs: () => Date.now(),
       pollIntervalMs: 250,
     };
+  }
+
+  /**
+   * Starts the owner add-auth-method ceremony that a linked Device 2 finalizes.
+   *
+   * Device 1 holds the owner authority, so the ceremony is minted here during
+   * approval. Only its identity and registration options travel onward — the
+   * custody envelope the start returns is deliberately left behind, because the
+   * wallet custody seed reaches Device 2 through the sealed custody transfer.
+   */
+  private async startLinkedDeviceOwnerEnrollmentCeremonyV1(input: {
+    readonly linkSessionId: LinkDeviceSessionId;
+    readonly walletId: WalletId;
+    readonly requestedAtMs: number;
+  }): Promise<LinkedDeviceOwnerEnrollmentCeremonyV1> {
+    const authentication = this.walletAuthenticationState;
+    if (authentication.kind !== 'authenticated') {
+      throw new Error('Linked-device owner enrollment requires an authenticated wallet');
+    }
+    if (authentication.authMethod !== 'passkey') {
+      throw new Error('Linked-device owner enrollment currently requires a passkey owner factor');
+    }
+    if (String(authentication.walletId) !== String(input.walletId)) {
+      throw new Error('Linked-device owner enrollment wallet does not match the signed-in wallet');
+    }
+    // The relying party comes from the wallet's own stored passkey factor, not
+    // from ambient page state, so the ceremony is scoped to the same relying
+    // party the wallet already authenticates against.
+    const localMethods = await IndexedDBManager.listWalletAuthMethodsForWallet(
+      String(input.walletId),
+    );
+    const passkeyRpId = localMethods.find((method) => method.kind === 'passkey')?.rpId;
+    const rpId = parseWebAuthnRpId(passkeyRpId);
+    if (!rpId.ok) {
+      throw new Error('Linked-device owner enrollment could not resolve the wallet relying party');
+    }
+    const managedRuntimeScope = await resolveManagedRuntimeScopeBootstrap(this.seamsWebConfigs);
+    if (!managedRuntimeScope) {
+      throw new Error('Linked-device owner enrollment requires a managed runtime scope');
+    }
+    return await startLinkedDeviceOwnerEnrollmentCeremonyV1(
+      {
+        relayerUrl: String(this.seamsWebConfigs.network.relayer?.url || '').trim(),
+        rpId: rpId.value,
+        publishableKey: managedRuntimeScope.publishableKey,
+        projectEnvironmentId: managedRuntimeScope.projectEnvironmentId,
+        collectOwnerAssertionV1: async (assertion) =>
+          await collectAuthenticationCredentialForChallengeB64u({
+            credentialStore: IndexedDBManager,
+            touchIdPrompt: this.touchIdPrompt,
+            nearAccountId: String(assertion.walletId),
+            challengeB64u: assertion.challengeB64u,
+          }),
+      },
+      { walletId: input.walletId },
+    );
   }
 
   private async readWalletHostOwnerSourceLaneHintsV1(input: {

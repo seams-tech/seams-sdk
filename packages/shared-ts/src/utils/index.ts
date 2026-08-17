@@ -13,6 +13,7 @@ export * from './recoveryDomain';
 export * from './paillier';
 export * from './signingSessionSeal';
 export * from './emailOtpRecoveryKey';
+export * from './addAuthMethodRegistration';
 export * from './registrationIntent';
 export * from './webauthnDeviceInfo';
 export * from './walletCapabilityBindings';
