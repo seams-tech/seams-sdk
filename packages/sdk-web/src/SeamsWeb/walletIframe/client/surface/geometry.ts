@@ -261,11 +261,9 @@ function centeredGeometry(
 
 export function anchorWalletIframeModalGeometry(
   geometry: WalletIframeModalGeometry,
-  viewportInput: WalletIframeSurfaceViewport,
   anchor: WalletIframeSurfaceAnchorRect,
 ): WalletIframeModalGeometry {
   if (geometry.kind === 'viewport_fallback') return geometry;
-  const viewport = normalizedViewport(viewportInput);
   if (
     !isFiniteNumber(anchor.topCssPx) ||
     !isFiniteNumber(anchor.leftCssPx) ||
@@ -275,17 +273,16 @@ export function anchorWalletIframeModalGeometry(
     return geometry;
   }
 
-  const viewportLeft = viewport.offsetLeftCssPx + WALLET_IFRAME_SURFACE_INSET_CSS_PX;
-  const viewportRight =
-    viewport.offsetLeftCssPx + viewport.widthCssPx - WALLET_IFRAME_SURFACE_INSET_CSS_PX;
-  const widthCssPx = Math.min(anchor.widthCssPx, viewportRight - viewportLeft);
-  const idealLeft = anchor.leftCssPx + (anchor.widthCssPx - widthCssPx) / 2;
-
+  // Mirror the anchor exactly, with no visual-viewport clamp. The anchor is
+  // in-flow host content: browser zoom shrinks the viewport's CSS px while the
+  // anchor keeps its CSS size, so clamping width against the viewport made the
+  // menu reflow under zoom instead of scaling with the page. If the anchor
+  // overflows the viewport, the page scrolls — like any inline content.
   return {
     kind: geometry.kind,
-    widthCssPx: roundCssPx(widthCssPx),
+    widthCssPx: roundCssPx(anchor.widthCssPx),
     heightCssPx: roundCssPx(geometry.heightCssPx),
-    leftCssPx: roundCssPx(clamp(idealLeft, viewportLeft, viewportRight - widthCssPx)),
+    leftCssPx: roundSignedCssPx(anchor.leftCssPx),
     topCssPx: roundSignedCssPx(anchor.topCssPx),
   };
 }

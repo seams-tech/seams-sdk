@@ -323,8 +323,11 @@ export function setDialogGeometry(
   const height = `min(${cssPx(rect.heightCssPx)},max(1px,calc(100dvh - ${safeTop} - ${safeBottom} - ${inset} - ${inset})))`;
   // An auth-menu rect arrives from the router already in DOCUMENT coordinates
   // (the dialog is position:absolute), so it must escape the base rule's
-  // viewport-inset clamps on both axes. Scrolling re-derives an identical rect,
-  // and the stylesheet manager skips the rewrite.
+  // viewport-inset clamps on both position AND size. Size matters under
+  // browser zoom: the viewport's CSS px shrink while the anchored rect keeps
+  // its CSS size, so the base rule's 100vw/100dvh clamps would shrink the menu
+  // instead of letting it scale with the page. Scrolling re-derives an
+  // identical rect, and the stylesheet manager skips the rewrite.
   dialog.classList.add(CLASS_HAS_GEOMETRY);
   // Three separately addressable rules rather than one packed string: an
   // auth-menu resize repoints these on every frame the surface reports, and a
@@ -353,6 +356,7 @@ export function setDialogGeometry(
     {
       top: signedCssPx(rect.topCssPx),
       left: signedCssPx(rect.leftCssPx),
+      width: cssPx(rect.widthCssPx),
       height: cssPx(rect.heightCssPx),
       transform: `scale(${cssScale(authMenuVisualScale)})`,
     },

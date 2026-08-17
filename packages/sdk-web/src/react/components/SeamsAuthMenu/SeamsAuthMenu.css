@@ -10,9 +10,12 @@
   --w3a-seams-auth-menu-padding-top: calc(var(--w3a-spacing-lg) + 4px);
   position: relative;
   /* relative position to anchor back button */
-  width: min(100dvw, 420px);
-  max-width: 100dvw;
-  min-width: 330px;
+  /* Container-relative, not viewport-relative: dvw shrinks in CSS px under
+     browser zoom, which made the card reflow under zoom instead of scaling
+     with the page like sibling content. */
+  width: min(100%, 420px);
+  max-width: 100%;
+  min-width: min(330px, 100%);
   min-height: 250px;
   color: var(--w3a-colors-textPrimary);
   font-family: var(
@@ -974,13 +977,7 @@
     padding: 1rem;
     padding-top: var(--w3a-seams-auth-menu-padding-top);
     border-radius: min(var(--w3a-shape-card, 16px), 2rem);
-    max-width: calc(100dvw - 0.25rem);
-  }
-
-  @supports (width: 1dvw) {
-    .w3a-signup-menu-root {
-      max-width: calc(100dvw - 0.25rem);
-    }
+    max-width: calc(100% - 0.25rem);
   }
 
   .w3a-title {

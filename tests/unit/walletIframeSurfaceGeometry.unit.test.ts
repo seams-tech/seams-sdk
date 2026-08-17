@@ -45,12 +45,6 @@ test.describe('wallet iframe surface geometry', () => {
             leftCssPx: 37,
           },
           {
-            widthCssPx: 451,
-            heightCssPx: 768,
-            offsetLeftCssPx: 0,
-            offsetTopCssPx: 0,
-          },
-          {
             topCssPx: 600,
             leftCssPx: 37,
             widthCssPx: 377,
@@ -60,15 +54,27 @@ test.describe('wallet iframe surface geometry', () => {
         const scrolledAnchoredAuthMenu = geometry.anchorWalletIframeModalGeometry(
           anchoredAuthMenu,
           {
-            widthCssPx: 451,
-            heightCssPx: 768,
-            offsetLeftCssPx: 0,
-            offsetTopCssPx: 0,
-          },
-          {
             topCssPx: -120,
             leftCssPx: 37,
             widthCssPx: 377,
+            heightCssPx: 450,
+          },
+        );
+        // Browser zoom shrinks the viewport's CSS px while the in-flow anchor
+        // keeps its CSS size; the anchored menu must mirror the anchor rather
+        // than clamp to the (now smaller) viewport.
+        const zoomedAnchoredAuthMenu = geometry.anchorWalletIframeModalGeometry(
+          {
+            kind: 'centered_modal',
+            widthCssPx: 420,
+            heightCssPx: 390,
+            topCssPx: 189,
+            leftCssPx: 37,
+          },
+          {
+            topCssPx: 600,
+            leftCssPx: 20,
+            widthCssPx: 420,
             heightCssPx: 450,
           },
         );
@@ -149,6 +155,7 @@ test.describe('wallet iframe surface geometry', () => {
           measuredGrowingModal,
           anchoredAuthMenu,
           scrolledAnchoredAuthMenu,
+          zoomedAnchoredAuthMenu,
           measuredDrawer,
           compactMeasuredDrawer,
           smallViewport,
@@ -206,6 +213,13 @@ test.describe('wallet iframe surface geometry', () => {
       leftCssPx: 37,
     });
     expect(result.scrolledAnchoredAuthMenu.topCssPx).toBe(-120);
+    expect(result.zoomedAnchoredAuthMenu).toEqual({
+      kind: 'centered_modal',
+      widthCssPx: 420,
+      heightCssPx: 390,
+      topCssPx: 600,
+      leftCssPx: 20,
+    });
     expect(result.measuredDrawer).toEqual({
       kind: 'bottom_drawer',
       edge: 'bottom',
