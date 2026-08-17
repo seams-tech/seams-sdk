@@ -454,6 +454,9 @@ html[data-w3a-theme='light'] .navbar-static__shell.is-scrolled {
 .navbar-static__menu-highlight:hover,
 .navbar-static__menu-highlight:focus-visible {
   filter: brightness(1.06);
+  /* the global `a:hover` brand color outranks the card's own white, and the
+     title inherits it; hold white so the card keeps its one text color */
+  color: #ffffff;
 }
 
 .navbar-static__menu-highlight-title {
@@ -515,7 +518,6 @@ html[data-w3a-theme='light'] .navbar-static {
   --navbar-access-divider: color-mix(in srgb, var(--navbar-border) 46%, transparent);
   --navbar-access-muted: color-mix(in srgb, var(--site-text-secondary) 92%, var(--navbar-text) 8%);
 }
-
 
 .navbar-static__actions {
   display: flex;
