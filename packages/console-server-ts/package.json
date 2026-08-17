@@ -19,6 +19,7 @@
   },
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json && rm -rf dist/types/sdk-server-ts && rolldown -c rolldown.config.ts",
+    "build:types": "tsc -p tsconfig.build.json",
     "d1:local:ensure-wasm": "node ./scripts/ensure-d1-local-wasm.mjs",
     "d1:local:dev": "pnpm run d1:local:prepare && pnpm run d1:local:serve",
     "d1:local:serve": "pnpm run d1:local:ensure-wasm && node ./scripts/d1-local-dev.mjs",
