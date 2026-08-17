@@ -473,6 +473,7 @@ function parseOwnerContext(raw: unknown): DeviceLinkingOwnerWalletSessionContext
     'owner.authorizationId',
   );
   const expiresAtMs = requiredPositiveInteger(record.expiresAtMs, 'owner.expiresAtMs');
+  const keyManifestDigestB64u = parseDigestB64u(record.keyManifestDigestB64u);
   if (record.curve === 'ed25519') {
     const authority = parseWalletAuthAuthority(record.authority);
     const authorityScope = parseThresholdEd25519AuthorityScope(record.authorityScope);
@@ -488,6 +489,7 @@ function parseOwnerContext(raw: unknown): DeviceLinkingOwnerWalletSessionContext
       walletSessionId,
       authorizationId,
       expiresAtMs,
+      keyManifestDigestB64u,
       curve: 'ed25519',
       authority,
       authorityScope,
@@ -508,6 +510,7 @@ function parseOwnerContext(raw: unknown): DeviceLinkingOwnerWalletSessionContext
       walletSessionId,
       authorizationId,
       expiresAtMs,
+      keyManifestDigestB64u,
       curve: 'ecdsa',
       walletAuthAuthorityRef,
       authSource,

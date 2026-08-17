@@ -139,12 +139,15 @@ test('refuses a public revoke plan whose lane command does not bind the requeste
   });
 
   await expect(
-    service.revokeLinkedDeviceV1({
-      kind: 'linked_device_revoke_request_v1',
-      walletId,
-      deviceId: target.summary.deviceId,
-      requestedAtMs: 4_000,
-    }, ownerForWallet(walletId)),
+    service.revokeLinkedDeviceV1(
+      {
+        kind: 'linked_device_revoke_request_v1',
+        walletId,
+        deviceId: target.summary.deviceId,
+        requestedAtMs: 4_000,
+      },
+      ownerForWallet(walletId),
+    ),
   ).rejects.toThrow('linked-device revocation plan does not match its target');
   expect(aggregateCalls).toBe(0);
 });
@@ -252,12 +255,15 @@ test('fences every linked Wallet Session before retiring child lanes', async () 
     localStateInvalidation: neverLocalInvalidation(),
   });
 
-  const result = await service.revokeLinkedDeviceV1({
-    kind: 'linked_device_revoke_request_v1',
-    walletId,
-    deviceId: target.summary.deviceId,
-    requestedAtMs: 4_000,
-  }, ownerForWallet(walletId));
+  const result = await service.revokeLinkedDeviceV1(
+    {
+      kind: 'linked_device_revoke_request_v1',
+      walletId,
+      deviceId: target.summary.deviceId,
+      requestedAtMs: 4_000,
+    },
+    ownerForWallet(walletId),
+  );
 
   expect(result).toEqual({ kind: 'conflict' });
   expect(order).toEqual(['enrollment_fence', 'wallet_session', 'wallet_session', 'aggregate']);
@@ -334,7 +340,11 @@ async function buildManagementTarget(): Promise<LinkedDeviceManagementTargetV1> 
     },
     revision: 3,
     claimTranscript: { digestB64u: claimDigestB64u, value: claim },
-    approvalTranscript: { digestB64u: approvalDigestB64u, value: fixture.approval },
+    approvalTranscript: {
+      digestB64u: approvalDigestB64u,
+      value: fixture.approval,
+      sourceKeyManifestDigestB64u: fixture.receipt.manifestDigestB64u,
+    },
     createdAtMs: 2_000,
     updatedAtMs: 2_002,
   });

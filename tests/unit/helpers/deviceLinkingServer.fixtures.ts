@@ -114,6 +114,7 @@ export async function buildR103ActiveLinkedDeviceSessionRecordV1(
     approvalTranscript: {
       digestB64u: await computeLinkedDeviceApprovalDigestV1(approval),
       value: approval,
+      sourceKeyManifestDigestB64u: receipt.manifestDigestB64u,
     },
     aggregateReceipt: receipt,
     createdAtMs: fixture.payload.issuedAtMs,

@@ -12,11 +12,10 @@
  * persisted target preparation, and the submitted ceremony id, and returns
  * either the exact enrollment facts the binding needs or a named reason.
  *
- * Ordering matters and is enforced here: the finalize is admitted only from a
- * session state that carries a verified key-manifest digest. The binding
- * records which key manifest the new owner credential is bound to, so
- * admitting one before the manifest exists would publish a claim nothing had
- * established.
+ * The binding records which key manifest the new owner credential is bound to.
+ * That manifest arrives with the approval — read from the owner Wallet Session
+ * that authorized it — so it exists from `awaiting_target_passkey` onward and
+ * the finalize no longer has to wait for a signing lane to commit one.
  */
 import type { LinkedDeviceTargetPreparationV1 } from '@shared/device-linking/contracts';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
@@ -26,7 +25,7 @@ import type { LinkedDeviceSessionRecordV1 } from './linkedDeviceSession';
 
 export type LinkedOwnerEnrollmentAdmissionDeniedV1 =
   | 'session_not_claimed'
-  | 'session_has_no_key_manifest'
+  | 'session_not_approved'
   | 'ceremony_does_not_match_enrollment'
   | 'preparation_does_not_match_session'
   | 'preparation_expired';
@@ -45,15 +44,16 @@ export type LinkedOwnerEnrollmentAdmissionResultV1 =
   | { readonly ok: false; readonly reason: LinkedOwnerEnrollmentAdmissionDeniedV1 };
 
 /**
- * The only session states a linked owner finalize may be admitted from.
- *
- * Both carry the verified key-manifest digest. `awaiting_target_passkey` does
- * not, which is why it is absent: at that point the R102 children have not
- * committed and there is no manifest for the credential to be bound to.
+ * The session states a linked owner finalize may be admitted from: every state
+ * an approval has been recorded in. `awaiting_target_passkey` is the state
+ * Device 2 is actually in when it finalizes, and it is admissible because the
+ * approval it already holds carries the manifest.
  */
 type AdmissibleSessionStateV1 = Extract<
   LinkedDeviceSessionRecordV1['state'],
-  { readonly state: 'provisioning' | 'committed_completion_required' }
+  {
+    readonly state: 'awaiting_target_passkey' | 'provisioning' | 'committed_completion_required';
+  }
 >;
 
 export function admitLinkedOwnerEnrollmentFinalizeV1(input: {
@@ -65,8 +65,11 @@ export function admitLinkedOwnerEnrollmentFinalizeV1(input: {
   const claim = input.session.claimTranscript?.value;
   if (!claim) return { ok: false, reason: 'session_not_claimed' };
 
+  const approval = input.session.approvalTranscript;
+  if (!approval) return { ok: false, reason: 'session_not_approved' };
+
   const state = admissibleState(input.session.state);
-  if (!state) return { ok: false, reason: 'session_has_no_key_manifest' };
+  if (!state) return { ok: false, reason: 'session_not_approved' };
   if (state.walletId !== claim.walletId || state.enrollmentId !== claim.enrollmentId) {
     return { ok: false, reason: 'session_not_claimed' };
   }
@@ -99,7 +102,7 @@ export function admitLinkedOwnerEnrollmentFinalizeV1(input: {
       walletId: claim.walletId,
       enrollmentId: claim.enrollmentId,
       deviceId: claim.deviceId,
-      keyManifestDigestB64u: state.keyManifestDigestB64u,
+      keyManifestDigestB64u: approval.sourceKeyManifestDigestB64u,
       addAuthMethodCeremonyId: ownerEnrollment.addAuthMethodCeremonyId,
     },
   };
@@ -109,12 +112,12 @@ function admissibleState(
   state: LinkedDeviceSessionRecordV1['state'],
 ): AdmissibleSessionStateV1 | null {
   switch (state.state) {
+    case 'awaiting_target_passkey':
     case 'provisioning':
     case 'committed_completion_required':
       return state;
     case 'displaying_qr':
     case 'claimed_by_owner':
-    case 'awaiting_target_passkey':
     case 'active':
     case 'expired_unclaimed':
     case 'expired_claimed':

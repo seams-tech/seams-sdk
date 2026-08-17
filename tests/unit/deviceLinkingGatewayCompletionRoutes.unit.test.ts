@@ -247,7 +247,11 @@ async function buildCompletionRecords(fixture: ReturnType<typeof buildR103Device
   const approvalDigestB64u = await computeLinkedDeviceApprovalDigestV1(approval);
   const transcript = {
     claimTranscript: { digestB64u: claimDigestB64u, value: claim },
-    approvalTranscript: { digestB64u: approvalDigestB64u, value: approval },
+    approvalTranscript: {
+      digestB64u: approvalDigestB64u,
+      value: approval,
+      sourceKeyManifestDigestB64u: fixture.receipt.manifestDigestB64u,
+    },
   } as const;
   const committed = parseLinkedDeviceSessionRecordV1({
     version: 'linked_device_session_v1',
