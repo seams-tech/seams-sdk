@@ -203,6 +203,12 @@ export type LinkedDeviceClaimTranscriptV1 = {
 export type LinkedDeviceApprovalTranscriptV1 = {
   readonly digestB64u: DigestB64u;
   readonly value: LinkedDeviceApprovalV1;
+  /**
+   * Taken from the owner Wallet Session that authorized this approval, never
+   * from the approval body. The digest seals what Device 1 sent; only the
+   * session says which key set that device actually holds.
+   */
+  readonly sourceKeyManifestDigestB64u: DigestB64u;
 };
 
 export type LinkedDeviceRecoveryContinuationV1 = {
@@ -242,6 +248,12 @@ export type LinkedDeviceOwnerAuthorizationContextV1 = {
   readonly authorizationId: WalletSessionAuthorizationId;
   readonly expiresAtMs: number;
   readonly curve: 'ed25519' | 'ecdsa';
+  /**
+   * The manifest the source device's key set for this curve was registered
+   * against. This is one key set's manifest, not a wallet-wide one — a wallet
+   * may hold several, each established by its own registration.
+   */
+  readonly keyManifestDigestB64u: DigestB64u;
 };
 
 export type LinkedDeviceOwnerAuthorizationPortV1 = {
@@ -598,7 +610,11 @@ export class LinkedDeviceSessionServiceV1 {
       const nextRecord = replaceSessionRecordV1(existing, {
         state: nextState,
         revision: existing.revision + 1,
-        approvalTranscript: { digestB64u: approvalDigestB64u, value: approval },
+        approvalTranscript: {
+          digestB64u: approvalDigestB64u,
+          value: approval,
+          sourceKeyManifestDigestB64u: input.owner.keyManifestDigestB64u,
+        },
         updatedAtMs: input.nowMs,
       });
       return await this.store.recordOwnerApprovalV1({
@@ -1621,10 +1637,14 @@ function parseClaimTranscriptV1(raw: unknown): LinkedDeviceClaimTranscriptV1 {
 
 function parseApprovalTranscriptV1(raw: unknown): LinkedDeviceApprovalTranscriptV1 {
   const record = requireRecord(raw, 'approval transcript');
-  requireExactKeys(record, ['digestB64u', 'value']);
+  requireExactKeys(record, ['digestB64u', 'value', 'sourceKeyManifestDigestB64u']);
   return {
     digestB64u: requireDigest(record.digestB64u, 'approval transcript digest'),
     value: parseLinkedDeviceApprovalV1(record.value),
+    sourceKeyManifestDigestB64u: requireDigest(
+      record.sourceKeyManifestDigestB64u,
+      'approval transcript source key manifest digest',
+    ),
   };
 }
 

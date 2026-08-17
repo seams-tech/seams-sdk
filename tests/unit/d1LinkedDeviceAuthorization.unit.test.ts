@@ -815,6 +815,7 @@ async function buildActiveLinkedDeviceSession(
     approvalTranscript: {
       digestB64u: await computeLinkedDeviceApprovalDigestV1(fixture.approval),
       value: fixture.approval,
+      sourceKeyManifestDigestB64u: fixture.receipt.manifestDigestB64u,
     },
     aggregateReceipt: receipt,
     createdAtMs: fixture.payload.issuedAtMs,

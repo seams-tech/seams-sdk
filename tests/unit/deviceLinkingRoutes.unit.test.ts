@@ -1,6 +1,11 @@
 import { expect, test } from '@playwright/test';
 import { parseLinkedDeviceEnrollmentId, parseLinkedDeviceId } from '@shared/signing-lanes';
 import { parseAuthorizedOperationId } from '@shared/authorization/capabilityKinds';
+import {
+  parseWalletSessionId,
+  parseWalletSessionAuthorizationId,
+} from '../../packages/shared-ts/src/authorization/capabilityKinds';
+import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
 import { parseWalletId } from '@shared/utils/domainIds';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { base64UrlEncode } from '@shared/utils/base64';
@@ -126,6 +131,7 @@ test('projects the claimed device identity after owner claim', async () => {
     authenticateOwnerRequestV1: async ({ request, method, pathname, bodyDigestB64u }) => ({
       kind: 'authorized' as const,
       body: method === 'GET' ? null : await request.json(),
+      owner: ownerRequestContext(),
       binding: requestBinding(method, pathname, bodyDigestB64u, 3_000),
     }),
   });
@@ -249,6 +255,7 @@ test('owner target-ready GET authenticates before parsing and returns the exact 
       return {
         kind: 'authorized' as const,
         body: method === 'GET' ? null : await request.json(),
+        owner: ownerRequestContext(),
         binding: requestBinding(method, pathname, bodyDigestB64u, 3_000),
       };
     },
@@ -306,6 +313,7 @@ test('authenticates owner before parsing claim and returns no session secrets', 
       return {
         kind: 'authorized' as const,
         body: await request.json(),
+        owner: ownerRequestContext(),
         binding: requestBinding(method, pathname, bodyDigestB64u, 3_000),
       };
     },
@@ -359,6 +367,7 @@ test('rejects a replayed device signature when the authenticated request body ch
       return {
         kind: 'authorized' as const,
         body: await request.json(),
+        owner: ownerRequestContext(),
         // Simulates a verifier that signs one request and incorrectly reuses that proof.
         proof: verifiedProof,
       };
@@ -494,6 +503,7 @@ test('operator recovery is a separate authority and stays fail-closed without it
           return {
             kind: 'authorized' as const,
             body: await request.json(),
+            owner: ownerRequestContext(),
             binding: {
               kind: 'linked_device_operator_request_binding_v1' as const,
               method: method as 'POST',
@@ -545,6 +555,7 @@ test('operator recovery binds a fresh proof key before retrying committed delive
     approvalTranscript: {
       digestB64u: await computeLinkedDeviceApprovalDigestV1(fixture.approval),
       value: fixture.approval,
+      sourceKeyManifestDigestB64u: fixture.receipt.manifestDigestB64u,
     },
     createdAtMs: 1_000,
     updatedAtMs: 4_000,
@@ -585,6 +596,7 @@ test('operator recovery binds a fresh proof key before retrying committed delive
         ? {
             kind: 'authorized' as const,
             body: method === 'GET' ? null : await request.json(),
+            owner: ownerRequestContext(),
             proof,
           }
         : {
@@ -601,6 +613,7 @@ test('operator recovery binds a fresh proof key before retrying committed delive
       }) => ({
         kind: 'authorized' as const,
         body: await request.json(),
+        owner: ownerRequestContext(),
         binding: {
           kind: 'linked_device_operator_request_binding_v1' as const,
           method: method as 'POST',
@@ -702,6 +715,7 @@ function routeServiceFor(
     authenticateOwnerRequestV1: async ({ request, method, pathname, bodyDigestB64u }) => ({
       kind: 'authorized' as const,
       body: await request.json(),
+      owner: ownerRequestContext(),
       binding: requestBinding(method, pathname, 'link-session:r103', bodyDigestB64u, nowMs),
     }),
     authenticateDeviceRequestV1: async ({ proof }) => ({
@@ -850,6 +864,22 @@ function sessionServiceForRecord(
       throw new Error('session cancellation is outside the active delivery fixture');
     },
     getSessionV1: async () => record,
+  };
+}
+
+/**
+ * The verified owner Wallet Session context the routes authenticate with.
+ * Approval reads the source key manifest from here, so a stub that omits it no
+ * longer stands in for a real owner request.
+ */
+function ownerRequestContext() {
+  return {
+    walletId: parseWalletId('wallet:r103').value,
+    walletSessionId: parseWalletSessionId('ws:r103').value,
+    authorizationId: parseWalletSessionAuthorizationId('wsa:r103').value,
+    expiresAtMs: 9_000,
+    keyManifestDigestB64u: parseDigestB64u('Lcwi4R-zFWWooZJB2zonKJtBMlynySPIjt55tietXWE'),
+    curve: 'ed25519' as const,
   };
 }
 

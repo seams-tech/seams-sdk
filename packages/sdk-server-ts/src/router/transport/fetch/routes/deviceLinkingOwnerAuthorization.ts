@@ -25,19 +25,13 @@ import type {
   WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
 import type { WalletExecutionLaneAuthSource } from '../../../../core/signingLanes/WalletExecutionLaneProjection';
-import type {
-  LaneOperationId,
-  LaneOperationIdempotencyKey,
-} from '@shared/signing-lanes/ids';
+import type { LaneOperationId, LaneOperationIdempotencyKey } from '@shared/signing-lanes/ids';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { sha256Bytes } from '@shared/utils/digests';
 import type { RouterApiAuthorizationSessionService } from '../../../framework/authServicePort';
 import type { FetchRouterApiContext } from '../createFetchRouter';
-import type {
-  DeviceLinkingAuthDeniedV1,
-  DeviceLinkingOwnerRequestInputV1,
-} from './deviceLinking';
+import type { DeviceLinkingAuthDeniedV1, DeviceLinkingOwnerRequestInputV1 } from './deviceLinking';
 import { json, readJson } from '../../../framework/http';
 import {
   validateRouterAbEcdsaDerivationWalletSessionInputs,
@@ -77,6 +71,8 @@ export type DeviceLinkingOwnerWalletSessionContextV1 =
       readonly walletSessionId: WalletSessionId;
       readonly authorizationId: WalletSessionAuthorizationId;
       readonly expiresAtMs: number;
+      /** The manifest this owner session's key set was registered against. */
+      readonly keyManifestDigestB64u: DigestB64u;
       readonly curve: 'ed25519';
       readonly authority: WalletAuthAuthority;
       readonly authorityScope: ThresholdEd25519AuthorityScope;
@@ -88,6 +84,8 @@ export type DeviceLinkingOwnerWalletSessionContextV1 =
       readonly walletSessionId: WalletSessionId;
       readonly authorizationId: WalletSessionAuthorizationId;
       readonly expiresAtMs: number;
+      /** The manifest this owner session's key set was registered against. */
+      readonly keyManifestDigestB64u: DigestB64u;
       readonly curve: 'ecdsa';
       readonly walletAuthAuthorityRef: WalletAuthAuthorityRef;
       readonly authSource: WalletExecutionLaneAuthSource;
@@ -293,6 +291,7 @@ async function validateOwnerWalletSessionV1(input: {
         walletSessionId,
         authorizationId,
         expiresAtMs: ed25519.walletSessionAuth.expiresAtMs,
+        keyManifestDigestB64u: ed25519.binding.keyManifestDigestB64u,
         curve: 'ed25519',
         authority: ed25519.binding.authority,
         authorityScope: ed25519.binding.authorityScope,
@@ -322,6 +321,7 @@ async function validateOwnerWalletSessionV1(input: {
         walletSessionId,
         authorizationId,
         expiresAtMs: ecdsa.walletSessionAuth.expiresAtMs,
+        keyManifestDigestB64u: ecdsa.binding.keyManifestDigestB64u,
         curve: 'ecdsa',
         walletAuthAuthorityRef: ecdsa.binding.walletAuthAuthorityRef,
         authSource: ecdsa.binding.authSource,
@@ -361,7 +361,9 @@ function parseWalletSessionIdBoundary(raw: unknown): WalletSessionId | null {
   return parsed.ok ? parsed.value : null;
 }
 
-function parseWalletSessionAuthorizationIdBoundary(raw: unknown): WalletSessionAuthorizationId | null {
+function parseWalletSessionAuthorizationIdBoundary(
+  raw: unknown,
+): WalletSessionAuthorizationId | null {
   const parsed = parseWalletSessionAuthorizationId(raw);
   return parsed.ok ? parsed.value : null;
 }
@@ -377,7 +379,9 @@ function methodNotAllowedResponse(): Response {
   return json({ ok: false, code: 'method_not_allowed' }, { status: 405 });
 }
 
-function authDeniedResponse(value: Extract<OwnerValidationResultV1, { readonly kind: 'denied' }>): Response {
+function authDeniedResponse(
+  value: Extract<OwnerValidationResultV1, { readonly kind: 'denied' }>,
+): Response {
   const status = value.code === 'expired' ? 401 : value.code === 'invalid' ? 403 : 401;
   return json({ ok: false, code: value.code, message: value.message }, { status });
 }
