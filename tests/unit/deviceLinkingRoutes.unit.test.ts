@@ -223,6 +223,7 @@ test('owner finalize retry replays the canonical finalize response', async () =>
     },
   };
   let finalizeCalls = 0;
+  let finalizedRegistration: unknown;
   const store = new D1LinkedDeviceSessionStoreV1({ database: temporary.database, scope });
   const sessionService = new LinkedDeviceSessionServiceV1({
     ownerEnrollmentCeremonies: buildR103OwnerEnrollmentCeremonyReaderV1(fixture.approval),
@@ -248,8 +249,9 @@ test('owner finalize retry replays the canonical finalize response', async () =>
         throw new Error('target credential registration is not used by owner finalize');
       },
     },
-    finalizeLinkedOwnerEnrollmentV1: async () => {
+    finalizeLinkedOwnerEnrollmentV1: async (input) => {
       finalizeCalls += 1;
+      finalizedRegistration = input.webauthnRegistration;
       return { outcome: 'finalized' as const, response: finalized };
     },
   });
@@ -290,6 +292,18 @@ test('owner finalize retry replays the canonical finalize response', async () =>
   expect(retry.status).toBe(200);
   expect(await retry.json()).toEqual(firstBody);
   expect(finalizeCalls).toBe(2);
+  expect(finalizedRegistration).toEqual({
+    id: String(credential.credentialIdB64u),
+    rawId: String(credential.credentialIdB64u),
+    type: 'public-key',
+    authenticatorAttachment: 'platform',
+    response: {
+      clientDataJSON: credential.clientDataJsonB64u,
+      attestationObject: credential.attestationObjectB64u,
+      transports: ['internal'],
+    },
+    clientExtensionResults: {},
+  });
 
   // The session advance is no longer a second call this route makes; it commits
   // inside the finalize, in the same batch as the credential. A stub for that

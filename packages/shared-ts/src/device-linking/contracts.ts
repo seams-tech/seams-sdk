@@ -820,7 +820,7 @@ export function assertNeverLinkedDeviceSessionState(value: never): never {
 export type LinkedDeviceOwnerFinalizeRequestV1 = {
   readonly kind: 'linked_device_owner_finalize_request_v1';
   readonly addAuthMethodCeremonyId: string;
-  readonly webauthnRegistration: unknown;
+  readonly webauthnRegistration: LinkedDeviceWebAuthnRegistrationV1;
   readonly custodyEnvelope: PasskeyCustodyEnvelopeRecord;
 };
 

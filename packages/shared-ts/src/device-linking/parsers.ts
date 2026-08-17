@@ -3201,7 +3201,9 @@ export function parseLinkedDeviceOwnerFinalizeRequestV1(
   return {
     kind: 'linked_device_owner_finalize_request_v1',
     addAuthMethodCeremonyId,
-    webauthnRegistration: record.webauthnRegistration,
+    webauthnRegistration: parseLinkedDeviceWebAuthnRegistrationV1(
+      record.webauthnRegistration,
+    ),
     custodyEnvelope: parsePasskeyCustodyEnvelopeRecord(record.custodyEnvelope),
   };
 }

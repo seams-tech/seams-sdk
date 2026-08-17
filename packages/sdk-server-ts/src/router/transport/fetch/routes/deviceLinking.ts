@@ -1,4 +1,7 @@
-import type { LinkedDeviceLocalAccountProjectionV1 } from '@shared/device-linking';
+import type {
+  LinkedDeviceLocalAccountProjectionV1,
+  LinkedDeviceWebAuthnRegistrationV1,
+} from '@shared/device-linking';
 import type {
   LinkedDeviceApprovalV1,
   LinkedDeviceEnrollmentReceiptV1,
@@ -920,7 +923,9 @@ async function handleOwnerFinalize(
   // owner credential.
   const finalized = await service.finalizeLinkedOwnerEnrollmentV1({
     addAuthMethodCeremonyId: request.addAuthMethodCeremonyId,
-    webauthnRegistration: request.webauthnRegistration,
+    webauthnRegistration: linkedDeviceWebAuthnRegistrationCredentialV1(
+      request.webauthnRegistration,
+    ),
     custodyEnvelope: request.custodyEnvelope,
     admission: admitted.admission,
     linkSessionId: session.linkSessionId,
@@ -945,6 +950,25 @@ async function handleOwnerFinalize(
     default:
       return assertNever(finalized);
   }
+}
+
+function linkedDeviceWebAuthnRegistrationCredentialV1(
+  registration: LinkedDeviceWebAuthnRegistrationV1,
+): Record<string, unknown> {
+  return {
+    id: registration.credentialIdB64u,
+    rawId: registration.credentialIdB64u,
+    type: 'public-key',
+    ...(registration.authenticatorAttachment === null
+      ? {}
+      : { authenticatorAttachment: registration.authenticatorAttachment }),
+    response: {
+      clientDataJSON: registration.clientDataJsonB64u,
+      attestationObject: registration.attestationObjectB64u,
+      transports: [...registration.transports],
+    },
+    clientExtensionResults: {},
+  };
 }
 
 function linkedOwnerEnrollmentCompletionFailureResponse(
