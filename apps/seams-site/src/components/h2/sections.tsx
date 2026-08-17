@@ -471,7 +471,8 @@ export function SplitKeyVisual(): React.JSX.Element {
           d="M84 114 L152 148 L84 182 L16 148 Z"
           fill="url(#h2sk-slab-c)"
           stroke="#ffffff"
-          strokeWidth="2"
+          strokeWidth="1"
+          vectorEffect="non-scaling-stroke"
           strokeLinejoin="round"
         />
         <path d="M84 68 L152 102 L84 136 L16 102 Z" fill="#8a8379" />
@@ -479,7 +480,8 @@ export function SplitKeyVisual(): React.JSX.Element {
           d="M84 60 L152 94 L84 128 L16 94 Z"
           fill="url(#h2sk-slab-b)"
           stroke="#ffffff"
-          strokeWidth="2"
+          strokeWidth="1"
+          vectorEffect="non-scaling-stroke"
           strokeLinejoin="round"
         />
         <path d="M84 14 L152 48 L84 82 L16 48 Z" fill="#b0a9a1" />
@@ -487,7 +489,8 @@ export function SplitKeyVisual(): React.JSX.Element {
           d="M84 6 L152 40 L84 74 L16 40 Z"
           fill="url(#h2sk-slab-a)"
           stroke="#ffffff"
-          strokeWidth="2"
+          strokeWidth="1"
+          vectorEffect="non-scaling-stroke"
           strokeLinejoin="round"
         />
       </svg>
