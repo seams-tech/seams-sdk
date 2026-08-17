@@ -1,4 +1,6 @@
 import type { HttpTransport } from '@/core/platform/http';
+import { DeviceLinkingError, DeviceLinkingErrorCode } from '@/core/types/linkDevice';
+import type { UnlockedWalletCustodyTransferCapabilityV1 } from '@/core/signingEngine/workerManager/workerTypes';
 import {
   walletSessionAuthorizationIdForCurve,
   walletSessionTokenForCurve,
@@ -57,18 +59,28 @@ export function createWalletHostOwnerAuthoritiesV1(input: {
   readonly hasLinkedDeviceSigningSession: (walletId: WalletId) => boolean;
   readonly readOwnerSourceLaneHintsV1: WalletHostOwnerSourceLaneHintsReaderV1;
   /**
+   * R103 zero-prompt handoff: reads the worker-held unlocked custody transfer
+   * capability for a wallet, or undefined when none exists. Reading never
+   * prompts.
+   */
+  readonly readUnlockedCustodyCapabilityV1: (
+    walletId: WalletId,
+  ) => UnlockedWalletCustodyTransferCapabilityV1 | undefined;
+  /**
    * Starts the owner add-auth-method ceremony a linked device will finalize.
    *
    * Injected rather than built here: it needs the wallet's relying party,
-   * managed-scope credentials, and a fresh passkey assertion, all of which the
-   * composition root already holds.
+   * managed-scope credentials, and the owner Wallet Session token, all of
+   * which the composition root already holds. Zero-prompt: starting collects
+   * no assertion.
    */
   readonly startOwnerEnrollmentCeremonyV1: DeviceLinkingOwnerAuthorizationPortV1['startOwnerEnrollmentCeremonyV1'];
 }): WalletHostOwnerAuthoritiesV1 {
   const context = normalizeContext(input);
   // Approval is retried whenever the scan flow is re-entered, so one ceremony
-  // is reused while its live custody hold exists. The hold evicts this entry
-  // when it seals or is discarded; a released hold never reaches a retry.
+  // is reused while it remains startable. Nothing secret rides the cache —
+  // the ceremony is public protocol state — so the only eviction rules are
+  // expiry and failure.
   const ownerEnrollmentCeremonies = new Map<
     string,
     ReturnType<DeviceLinkingOwnerAuthorizationPortV1['startOwnerEnrollmentCeremonyV1']>
@@ -78,18 +90,18 @@ export function createWalletHostOwnerAuthoritiesV1(input: {
       startOwnerEnrollmentCeremonyV1: async (request) => {
         const key = String(request.linkSessionId);
         const cached = ownerEnrollmentCeremonies.get(key);
-        if (cached) return await cached;
-        const started: ReturnType<
-          DeviceLinkingOwnerAuthorizationPortV1['startOwnerEnrollmentCeremonyV1']
-        > = input.startOwnerEnrollmentCeremonyV1(request).then(
-          (value) => attachCustodyHoldEvictionV1(key, value, ownerEnrollmentCeremonies, started),
-          (error: unknown) => {
-            if (ownerEnrollmentCeremonies.get(key) === started) {
-              ownerEnrollmentCeremonies.delete(key);
-            }
-            throw error;
-          },
-        );
+        if (cached) {
+          try {
+            const value = await cached;
+            if (value.ceremony.expiresAtMs > Date.now()) return value;
+          } catch {
+            // A failed start is not reusable; fall through to a fresh one.
+          }
+          if (ownerEnrollmentCeremonies.get(key) === cached) {
+            ownerEnrollmentCeremonies.delete(key);
+          }
+        }
+        const started = input.startOwnerEnrollmentCeremonyV1(request);
         ownerEnrollmentCeremonies.set(key, started);
         try {
           return await started;
@@ -112,45 +124,6 @@ export function createWalletHostOwnerAuthoritiesV1(input: {
   };
 }
 
-function attachCustodyHoldEvictionV1(
-  key: string,
-  started: Awaited<
-    ReturnType<DeviceLinkingOwnerAuthorizationPortV1['startOwnerEnrollmentCeremonyV1']>
-  >,
-  cache: Map<
-    string,
-    ReturnType<DeviceLinkingOwnerAuthorizationPortV1['startOwnerEnrollmentCeremonyV1']>
-  >,
-  cachedPromise: ReturnType<
-    DeviceLinkingOwnerAuthorizationPortV1['startOwnerEnrollmentCeremonyV1']
-  >,
-): Awaited<ReturnType<DeviceLinkingOwnerAuthorizationPortV1['startOwnerEnrollmentCeremonyV1']>> {
-  const evict = (): void => {
-    if (cache.get(key) === cachedPromise) cache.delete(key);
-  };
-  const custodyHold = started.custodyHold;
-  let released = false;
-  return {
-    ceremony: started.ceremony,
-    custodyHold: {
-      sealOnceV1: async (seal) => {
-        try {
-          return await custodyHold.sealOnceV1(seal);
-        } finally {
-          released = true;
-          evict();
-        }
-      },
-      discardV1: () => {
-        if (released) return;
-        released = true;
-        evict();
-        custodyHold.discardV1();
-      },
-    },
-  };
-}
-
 type WalletHostOwnerAuthorityContextV1 = {
   readonly http: HttpTransport;
   readonly baseUrl: string;
@@ -161,6 +134,9 @@ type WalletHostOwnerAuthorityContextV1 = {
   readonly readWalletAuthenticationState: () => WalletAuthenticationState;
   readonly hasLinkedDeviceSigningSession: (walletId: WalletId) => boolean;
   readonly readOwnerSourceLaneHintsV1: WalletHostOwnerSourceLaneHintsReaderV1;
+  readonly readUnlockedCustodyCapabilityV1: (
+    walletId: WalletId,
+  ) => UnlockedWalletCustodyTransferCapabilityV1 | undefined;
 };
 
 function normalizeContext(input: {
@@ -173,6 +149,9 @@ function normalizeContext(input: {
   readonly readWalletAuthenticationState: () => WalletAuthenticationState;
   readonly hasLinkedDeviceSigningSession: (walletId: WalletId) => boolean;
   readonly readOwnerSourceLaneHintsV1: WalletHostOwnerSourceLaneHintsReaderV1;
+  readonly readUnlockedCustodyCapabilityV1: (
+    walletId: WalletId,
+  ) => UnlockedWalletCustodyTransferCapabilityV1 | undefined;
 }): WalletHostOwnerAuthorityContextV1 {
   const baseUrl = String(input.relayerUrl || '')
     .trim()
@@ -181,16 +160,43 @@ function normalizeContext(input: {
   return { ...input, baseUrl };
 }
 
+/**
+ * The R103 fail-closed preflight, exact result `wallet_unlock_required`.
+ *
+ * Runs before the owner-authorization request, the QR claim, and everything
+ * after them: a Device 1 that is locked, whose owner Wallet Session is gone,
+ * or whose worker no longer holds the unlocked custody capability gets this
+ * one result, and the flow creates no claim, approval, credential, recipient
+ * package, or authenticator prompt. Unlocking is the user's explicit act on
+ * the wallet surface — never a side effect of scanning a QR.
+ */
+function walletUnlockRequiredV1(): DeviceLinkingError {
+  return new DeviceLinkingError(
+    'wallet_unlock_required',
+    DeviceLinkingErrorCode.WALLET_UNLOCK_REQUIRED,
+    'authorization',
+  );
+}
+
 async function authorizeOwnerForLinkingV1(
   context: WalletHostOwnerAuthorityContextV1,
   input: Parameters<DeviceLinkingOwnerAuthorizationPortV1['authenticateOwnerForLinkingV1']>[0],
 ): ReturnType<DeviceLinkingOwnerAuthorizationPortV1['authenticateOwnerForLinkingV1']> {
   const state = context.readWalletAuthenticationState();
   if (state.kind !== 'authenticated') {
-    throw new Error('Device linking requires an authenticated owner wallet');
+    throw walletUnlockRequiredV1();
   }
   assertOwnerDeviceManagementAuthorityV1(context, state.walletId);
   const projection = await requireActiveWalletSessionForWalletV1(context, state.walletId);
+  const custodyTransferCapability = context.readUnlockedCustodyCapabilityV1(state.walletId);
+  if (
+    !custodyTransferCapability ||
+    custodyTransferCapability.walletId !== String(state.walletId) ||
+    custodyTransferCapability.walletSessionId !== String(projection.walletSessionId) ||
+    custodyTransferCapability.expiresAtMs <= Date.now()
+  ) {
+    throw walletUnlockRequiredV1();
+  }
   const orderedOwnerSourceLaneHints = await context.readOwnerSourceLaneHintsV1({
     projection,
   });
@@ -208,7 +214,10 @@ async function authorizeOwnerForLinkingV1(
   if (response.status < 200 || response.status >= 300) {
     throw new Error(ownerRequestFailureMessage(response));
   }
-  return parseOwnerAuthorizationResponseV1(response.body, projection);
+  return {
+    ...parseOwnerAuthorizationResponseV1(response.body, projection),
+    custodyTransferCapability,
+  };
 }
 
 async function requestAsAuthorizedOwnerV1(
@@ -263,9 +272,7 @@ async function requireActiveWalletSessionForWalletV1(
     case 'found':
       break;
     case 'missing':
-      throw new Error(
-        'An active owner Wallet Session is required — unlock this wallet, then retry',
-      );
+      throw walletUnlockRequiredV1();
     case 'corrupt':
       throw new Error(
         'Stored owner Wallet Session state is corrupt for this wallet — lock and unlock to replace it',
@@ -277,7 +284,7 @@ async function requireActiveWalletSessionForWalletV1(
       throw new Error('Unsupported owner Wallet Session read result');
   }
   if (read.projection.status !== 'active' || read.projection.expiresAtMs <= Date.now()) {
-    throw new Error('The owner Wallet Session has expired — unlock this wallet, then retry');
+    throw walletUnlockRequiredV1();
   }
   return read.projection;
 }
@@ -325,7 +332,10 @@ function projectionContainsAuthorizationId(
 function parseOwnerAuthorizationResponseV1(
   raw: unknown,
   projection: ActiveWalletSessionAuthorizationProjection,
-): Awaited<ReturnType<DeviceLinkingOwnerAuthorizationPortV1['authenticateOwnerForLinkingV1']>> {
+): Omit<
+  Awaited<ReturnType<DeviceLinkingOwnerAuthorizationPortV1['authenticateOwnerForLinkingV1']>>,
+  'custodyTransferCapability'
+> {
   const record = exactRecord(raw, [
     'authentication',
     'walletId',
