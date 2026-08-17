@@ -5,17 +5,9 @@ import { useSiteRouter } from '@/app/router/useSiteRouter';
 import '@/styles/h2.css';
 import './styles.css';
 
-const DASHBOARD_AUTH_OPEN_EVENT = 'seams:dashboard-auth-open';
-
 export function PricingPage(): React.JSX.Element {
   const { linkProps } = useSiteRouter();
-  const dashboardProps = linkProps('/dashboard');
-
-  const handleGetStarted = React.useCallback((event: React.MouseEvent<HTMLAnchorElement>) => {
-    event.preventDefault();
-    if (typeof window === 'undefined') return;
-    window.dispatchEvent(new CustomEvent(DASHBOARD_AUTH_OPEN_EVENT));
-  }, []);
+  const docsProps = linkProps('/docs/');
 
   return (
     <div className="h2-page">
@@ -58,8 +50,7 @@ export function PricingPage(): React.JSX.Element {
                 </div>
                 <a
                   className="pricing-button pricing-button--solid pricing-button--full"
-                  href={dashboardProps.href}
-                  onClick={handleGetStarted}
+                  {...docsProps}
                 >
                   Get started
                 </a>
