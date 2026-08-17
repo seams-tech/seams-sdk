@@ -83,8 +83,8 @@ export function H2DemoHero({
   const activePreset =
     DEMO_THEME_PRESETS.find((theme) => theme.id === demoTheme) ?? DEMO_THEME_PRESETS[0];
   const activeWalletId = loginState?.isLoggedIn ? loginState.walletId || '' : '';
-  const startProps = linkProps('/docs/concepts/');
-  const authProps = linkProps('/docs/concepts/auth-methods/');
+  const startProps = linkProps('/docs/');
+  const authProps = linkProps('/docs/guides/authentication');
 
   React.useEffect(() => {
     try {
