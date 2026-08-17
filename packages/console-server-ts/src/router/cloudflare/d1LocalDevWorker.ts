@@ -643,6 +643,7 @@ const SIGNER_READY_TABLES = Object.freeze([
   'linked_device_wallet_session_authorizations',
   'linked_device_wallet_session_quotas',
   'linked_device_sessions',
+  'linked_device_session_cas_guard',
   'linked_device_session_transcripts',
   'linked_device_request_proof_nonces',
   'linked_device_target_credentials',

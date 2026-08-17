@@ -197,7 +197,7 @@ test('projects the claimed device identity after owner claim', async () => {
   expect(deliveredApprovalBody.approval).toEqual(approval);
 });
 
-test('owner finalize retry replays canonical finalize and the interim provisioning completion', async () => {
+test('owner finalize retry replays the canonical finalize response', async () => {
   temporary = createTemporaryD1Database();
   await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
   const fixture = buildR103DeviceLinkFixture();
@@ -248,9 +248,9 @@ test('owner finalize retry replays canonical finalize and the interim provisioni
         throw new Error('target credential registration is not used by owner finalize');
       },
     },
-    finalizeLinkedOwnerAuthMethodV1: async () => {
+    finalizeLinkedOwnerEnrollmentV1: async () => {
       finalizeCalls += 1;
-      return finalized;
+      return { outcome: 'finalized' as const, response: finalized };
     },
   });
   const created = await invoke(routeService, {
@@ -291,11 +291,11 @@ test('owner finalize retry replays canonical finalize and the interim provisioni
   expect(await retry.json()).toEqual(firstBody);
   expect(finalizeCalls).toBe(2);
 
-  const persisted = await store.getSessionV1(fixture.payload.linkSessionId);
-  expect(persisted?.state).toMatchObject({
-    state: 'provisioning',
-    keyManifestDigestB64u: ownerRequestContext().keyManifestDigestB64u,
-  });
+  // The session advance is no longer a second call this route makes; it commits
+  // inside the finalize, in the same batch as the credential. A stub for that
+  // method therefore stands in for both, and what the session reached is the
+  // adapter's invariant — see linkedOwnerFinalizeAtomicity.unit.test.ts.
+  expect(await store.getSessionV1(fixture.payload.linkSessionId)).toBeTruthy();
 });
 
 test('owner target-ready GET authenticates before parsing and returns the exact R102 jobs', async () => {
@@ -813,8 +813,6 @@ function routeServiceFor(
     claimSessionV1: sessionService.claimSessionV1.bind(sessionService),
     recordOwnerApprovalV1: sessionService.recordOwnerApprovalV1.bind(sessionService),
     recordTargetCredentialV1: sessionService.recordTargetCredentialV1.bind(sessionService),
-    completeLinkedOwnerEnrollmentV1:
-      sessionService.completeLinkedOwnerEnrollmentV1.bind(sessionService),
     bindRecoveryContinuationV1: sessionService.bindRecoveryContinuationV1.bind(sessionService),
     cancelSessionV1: sessionService.cancelSessionV1.bind(sessionService),
     getSessionV1: (input) =>
@@ -971,9 +969,6 @@ function sessionServiceForRecord(
     },
     recordTargetCredentialV1: async () => {
       throw new Error('target registration is outside the active delivery fixture');
-    },
-    completeLinkedOwnerEnrollmentV1: async () => {
-      throw new Error('owner enrollment completion is outside the active delivery fixture');
     },
     bindRecoveryContinuationV1: async () => {
       throw new Error('recovery continuation is outside the active delivery fixture');

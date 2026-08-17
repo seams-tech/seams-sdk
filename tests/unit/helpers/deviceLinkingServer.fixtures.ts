@@ -126,6 +126,60 @@ export async function buildR103ActiveLinkedDeviceSessionRecordV1(
   return record;
 }
 
+/**
+ * A claimed and approved session sitting in the one state a linked owner
+ * finalize may commit from, or in any state reached from there.
+ *
+ * `state` and `revision` are the two things tests of that transition vary — a
+ * terminal state to prove the finalize is refused, a bumped revision to prove a
+ * stale CAS loses. Everything else comes from the same approval and claim the
+ * active-record fixture uses, through the same parser, so a caller cannot
+ * assemble a record the production reader would reject.
+ */
+export async function buildR103AwaitingTargetPasskeySessionRecordV1(
+  fixture: R103DeviceLinkFixture,
+  overrides: {
+    readonly state?: LinkedDeviceSessionRecordV1['state'];
+    readonly revision?: number;
+    readonly credentialDeadlineMs?: number;
+  } = {},
+): Promise<LinkedDeviceSessionRecordV1> {
+  const approval = fixture.approval;
+  const claim = buildLinkedDeviceSessionClaimV1({
+    linkSessionId: fixture.payload.linkSessionId,
+    walletId: approval.walletId,
+    enrollmentId: approval.enrollmentId,
+    deviceId: approval.deviceId,
+    devicePublicKeyB64u: fixture.payload.devicePublicKeyB64u,
+    claimedAtMs: 1_500,
+    claimExpiresAtMs: fixture.payload.expiresAtMs,
+  });
+  return parseLinkedDeviceSessionRecordV1({
+    version: 'linked_device_session_v1',
+    linkSessionId: fixture.payload.linkSessionId,
+    qrPayload: fixture.payload,
+    state: overrides.state ?? {
+      state: 'awaiting_target_passkey',
+      linkSessionId: fixture.payload.linkSessionId,
+      walletId: approval.walletId,
+      enrollmentId: approval.enrollmentId,
+      credentialDeadlineMs: overrides.credentialDeadlineMs ?? fixture.payload.expiresAtMs,
+    },
+    revision: overrides.revision ?? 3,
+    claimTranscript: {
+      digestB64u: await computeLinkedDeviceSessionClaimDigestV1(claim),
+      value: claim,
+    },
+    approvalTranscript: {
+      digestB64u: await computeLinkedDeviceApprovalDigestV1(approval),
+      value: approval,
+      sourceKeyManifestDigestB64u: fixture.receipt.manifestDigestB64u,
+    },
+    createdAtMs: fixture.payload.issuedAtMs,
+    updatedAtMs: fixture.payload.issuedAtMs + 1,
+  });
+}
+
 function isActiveSessionRecord(
   record: LinkedDeviceSessionRecordV1,
 ): record is Extract<

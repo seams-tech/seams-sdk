@@ -59,7 +59,7 @@ import type {
   LinkedDeviceSessionServiceResultV1,
   LinkedDeviceSessionServiceV1,
   LinkedDeviceRecoveryContinuationV1,
-  LinkedOwnerEnrollmentCompletionResultV1,
+  LinkedOwnerEnrollmentCompletionRefusalV1,
 } from '../../../../core/deviceLinking/linkedDeviceSession';
 import type { LinkedDeviceOwnerAuthorizationContextV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
 import type { IssuedLinkedDeviceWalletSession } from '../../../../authorization/service';
@@ -282,7 +282,6 @@ export type DeviceLinkingRouteServiceV1 = {
     | 'claimSessionV1'
     | 'recordOwnerApprovalV1'
     | 'recordTargetCredentialV1'
-    | 'completeLinkedOwnerEnrollmentV1'
     | 'bindRecoveryContinuationV1'
     | 'cancelSessionV1'
     | 'getSessionV1'
@@ -322,12 +321,21 @@ export type DeviceLinkingRouteServiceV1 = {
    * The admission is passed rather than a whole command so the tenant stays the
    * implementation's own: the route never names a tenant it could get wrong.
    */
-  finalizeLinkedOwnerAuthMethodV1(input: {
+  finalizeLinkedOwnerEnrollmentV1(input: {
     readonly addAuthMethodCeremonyId: string;
     readonly webauthnRegistration: unknown;
     readonly custodyEnvelope: PasskeyCustodyEnvelopeRecord;
     readonly admission: LinkedOwnerEnrollmentAdmissionV1;
-  }): Promise<WalletAddAuthMethodFinalizeResponse>;
+    readonly linkSessionId: LinkDeviceSessionId;
+    readonly expectedRevision: number;
+    readonly nowMs: number;
+  }): Promise<
+    | { readonly outcome: 'finalized'; readonly response: WalletAddAuthMethodFinalizeResponse }
+    | {
+        readonly outcome: 'completion_refused';
+        readonly completion: LinkedOwnerEnrollmentCompletionRefusalV1;
+      }
+  >;
   acknowledgeReceiptV1(input: {
     readonly acknowledgement: LinkedDeviceReceiptAcknowledgementV1;
     readonly session: LinkedDeviceSessionRecordV1;
@@ -896,40 +904,35 @@ async function handleOwnerFinalize(
       { status: 403 },
     );
   }
-  const finalized = await service.finalizeLinkedOwnerAuthMethodV1({
+  // One call, one transaction. The credential and the session advance commit
+  // together or neither does, so a cancel or an expiry racing this request can
+  // no longer land between them and leave a terminal session holding a live
+  // owner credential.
+  const finalized = await service.finalizeLinkedOwnerEnrollmentV1({
     addAuthMethodCeremonyId: request.addAuthMethodCeremonyId,
     webauthnRegistration: request.webauthnRegistration,
     custodyEnvelope: request.custodyEnvelope,
     admission: admitted.admission,
-  });
-  if (!finalized.ok) return json(finalized, { status: 400 });
-  // The lane cutover still owns terminal activation; this CAS records the
-  // canonical finalize in the existing provisioning lifecycle first.
-  const completed = await service.sessionService.completeLinkedOwnerEnrollmentV1({
     linkSessionId: session.linkSessionId,
     expectedRevision: session.revision,
-    keyManifestDigestB64u: admitted.admission.keyManifestDigestB64u,
     nowMs,
   });
-  switch (completed.outcome) {
-    case 'applied':
-    case 'replayed':
-      return json(finalized, { status: 200 });
-    case 'conflict':
-    case 'expired':
-    case 'invalid_state':
-    case 'invalid_input':
-      return linkedOwnerEnrollmentCompletionFailureResponse(completed);
+  switch (finalized.outcome) {
+    case 'completion_refused':
+      // Refused before the credential was created, so there is nothing
+      // outstanding to reconcile.
+      return linkedOwnerEnrollmentCompletionFailureResponse(finalized.completion);
+    case 'finalized':
+      return finalized.response.ok
+        ? json(finalized.response, { status: 200 })
+        : json(finalized.response, { status: 400 });
     default:
-      return assertNever(completed);
+      return assertNever(finalized);
   }
 }
 
 function linkedOwnerEnrollmentCompletionFailureResponse(
-  result: Exclude<
-    LinkedOwnerEnrollmentCompletionResultV1,
-    { readonly outcome: 'applied' | 'replayed' }
-  >,
+  result: LinkedOwnerEnrollmentCompletionRefusalV1,
 ): Response {
   switch (result.outcome) {
     case 'conflict':
