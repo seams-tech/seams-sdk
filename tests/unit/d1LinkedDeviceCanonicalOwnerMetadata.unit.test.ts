@@ -17,7 +17,10 @@ import {
   insertWalletAuthMethod,
   insertWebAuthn,
 } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
-import { buildLinkedOwnerPasskeyBindingFixtureV1 } from './helpers/linkedOwnerAuthBinding.fixtures';
+import {
+  buildLinkedOwnerEmailOtpBindingFixtureV1,
+  buildLinkedOwnerPasskeyBindingFixtureV1,
+} from './helpers/linkedOwnerAuthBinding.fixtures';
 
 const scope: D1LinkedDeviceSessionScopeV1 = {
   namespace: 'signer',
@@ -88,6 +91,54 @@ test('projects one linked enrollment through its exact canonical passkey binding
       walletAuthMethodId: binding.walletAuthMethodId,
       credentialIdB64u: binding.factor.credentialIdB64u,
       device,
+    });
+  } finally {
+    cleanupTemporaryD1Database(temporary.tempDir);
+  }
+});
+
+test('projects an Email OTP owner binding without WebAuthn metadata', async () => {
+  const temporary = createTemporaryD1Database();
+  try {
+    await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+    const binding = buildLinkedOwnerEmailOtpBindingFixtureV1();
+    if (binding.factor.kind !== 'email_otp') throw new Error('expected Email OTP binding');
+    await insertWalletAuthMethod({
+      database: temporary.database,
+      ...scope,
+      record: {
+        version: 'wallet_auth_method_v1',
+        kind: 'email_otp',
+        status: 'active',
+        walletId: String(binding.walletId),
+        emailHashHex: binding.factor.emailHashHex,
+        registrationAuthorityId: binding.factor.registrationAuthorityId,
+        createdAtMs: binding.createdAtMs,
+        updatedAtMs: binding.updatedAtMs,
+      },
+    });
+    const bindingStore = new D1LinkedDeviceOwnerAuthBindingStoreV1({
+      database: temporary.database,
+      scope,
+    });
+    assertOwnerAuthBindingBatchApplied(
+      await temporary.database.batch<D1ResultLike>([bindingStore.buildInsertV1(binding).statement]),
+      1,
+    );
+
+    const metadata = await new D1LinkedDeviceCanonicalOwnerAuthMetadataSourceV1({
+      database: temporary.database,
+      scope,
+      tenantId: binding.tenantId,
+    }).readLinkedDeviceMetadataV1({
+      walletId: binding.walletId,
+      enrollmentId: binding.enrollmentId,
+      deviceId: binding.deviceId,
+    });
+
+    expect(metadata).toEqual({
+      kind: 'email_otp',
+      walletAuthMethodId: binding.walletAuthMethodId,
     });
   } finally {
     cleanupTemporaryD1Database(temporary.tempDir);
