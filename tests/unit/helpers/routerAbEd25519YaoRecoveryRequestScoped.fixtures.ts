@@ -14,14 +14,17 @@ import {
   type RouterAbEd25519YaoRecoveryAdmissionRequestV1,
 } from '@shared/utils/routerAbEd25519Yao';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
-import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
+import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
+import { walletIdFromString } from '@shared/utils/registrationIntent';
+import {
+  parseMpcWalletSigningQuotaId,
+  parseWalletSessionId,
+} from '../../../packages/sdk-server-ts/src/authorization/domain';
+import { parseWalletSessionAuthorizationId } from '@shared/authorization/capabilityKinds';
 import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { VersionedJsonRecordReadResult } from '../../../packages/sdk-server-ts/src/router/framework/versionedJsonRecordStore';
-import {
-  isRouterAbEd25519OwnerWalletSessionClaims,
-  parseRouterAbEd25519WalletSessionClaims,
-  thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
-} from '../../../packages/sdk-server-ts/src/core/ThresholdService/validation';
+import { thresholdEd25519AuthorityScopeFromWalletAuthAuthority } from '../../../packages/sdk-server-ts/src/core/ThresholdService/validation';
+import type { OpaqueOwnerWalletSessionBinding } from '../../../packages/sdk-server-ts/src/authorization/service';
 import {
   createRouterAbEd25519YaoProductRegistrationStateV1,
   type RouterAbEd25519YaoProductRegistrationStateV1,
@@ -47,6 +50,7 @@ import {
 import type { WalletEd25519YaoActiveCapabilityRecord } from '../../../packages/sdk-server-ts/src/core/WalletStore';
 
 const ROOT_SHARE_EPOCH = 'root-recovery-v1';
+const RECOVERY_KEY_MANIFEST_DIGEST_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const RUNTIME_POLICY_SCOPE = {
   orgId: 'org-recovery',
   projectId: 'project-recovery',
@@ -230,16 +234,16 @@ class UnavailableRecoveryBackend implements RouterAbEd25519YaoRecoveryBackend {
 }
 
 class AllowRecoveryAuthorization implements RouterAbEd25519YaoRecoveryAuthorizationAdapter {
-  private readonly claims;
+  private readonly binding: ReturnType<typeof recoveryOwnerBinding>;
 
   constructor(identity: RecoveryFixtureIdentity) {
-    this.claims = recoveryClaims(identity);
+    this.binding = recoveryOwnerBinding(identity);
   }
 
   authorize(
     _input: RouterAbEd25519YaoRecoveryAuthorizationInput,
   ): RouterAbEd25519YaoRecoveryAuthorizationResult {
-    return { ok: true, claims: { kind: 'wallet_session', value: this.claims } };
+    return { ok: true, authorization: { kind: 'wallet_session', binding: this.binding } };
   }
 }
 
@@ -635,38 +639,44 @@ function publicReceipt(
   };
 }
 
-function recoveryClaims(identity: RecoveryFixtureIdentity) {
+/**
+ * The owner authorization the recovery adapter hands back.
+ *
+ * Owner wallet sessions are opaque: the authorization is a server-side binding,
+ * not JWT claims a caller can parse. This builds that binding directly, which is
+ * what the adapter contract now takes.
+ */
+function recoveryOwnerBinding(
+  identity: RecoveryFixtureIdentity,
+): Extract<OpaqueOwnerWalletSessionBinding, { readonly curve: 'ed25519' }> {
   const authority = buildPasskeyWalletAuthAuthority({
     walletId: identity.walletId,
     rpId: 'router.example.test',
     credentialIdB64u: identity.credentialId,
   });
-  const claims = parseRouterAbEd25519WalletSessionClaims({
-    kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-    authorizationKind: 'owner_wallet_session',
-    sub: identity.walletId,
-    walletId: identity.walletId,
+  return {
+    kind: 'opaque_owner_wallet_session_binding_v1',
+    curve: 'ed25519',
+    walletId: walletIdFromString(identity.walletId),
+    thresholdSessionId: identity.thresholdSessionId,
+    authorizationId: requireParsed(parseWalletSessionAuthorizationId(identity.authorizationId)),
+    walletSessionId: requireParsed(parseWalletSessionId(identity.walletSessionId)),
+    quotaId: requireParsed(parseMpcWalletSigningQuotaId(identity.quotaId)),
+    relayerKeyId: identity.signingWorkerId,
+    participantIds: [1, 2],
+    thresholdExpiresAtMs: Date.now() + 60_000,
+    subjectId: identity.walletId,
+    keyManifestDigestB64u: parseDigestB64u(RECOVERY_KEY_MANIFEST_DIGEST_B64U),
     nearAccountId: identity.nearAccountId,
     nearEd25519SigningKeyId: identity.nearSigningKeyId,
-    authorizationId: identity.authorizationId,
-    walletSessionId: identity.walletSessionId,
-    quotaId: identity.quotaId,
-    thresholdSessionId: identity.thresholdSessionId,
-    relayerKeyId: identity.signingWorkerId,
     authority,
     authorityScope: thresholdEd25519AuthorityScopeFromWalletAuthAuthority(authority),
     runtimePolicyScope: RUNTIME_POLICY_SCOPE,
-    thresholdExpiresAtMs: Date.now() + 60_000,
-    participantIds: [1, 2],
     routerAbNormalSigning: {
       kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
       signingWorkerId: identity.signingWorkerId,
     },
-  });
-  if (!claims || !isRouterAbEd25519OwnerWalletSessionClaims(claims)) {
-    throw new Error('recovery fixture Wallet Session claims are invalid');
-  }
-  return claims;
+  };
 }
 
 function unavailableRecoveryBackend(): RouterAbEd25519YaoRecoveryBackend {
