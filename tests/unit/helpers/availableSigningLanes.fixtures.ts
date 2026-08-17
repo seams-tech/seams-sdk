@@ -12,7 +12,6 @@ import { toAccountId } from '@/core/types/accountIds';
 import type { ActiveEvmFamilyWalletSessionAuthorization } from '@/core/signingEngine/session/material/ecdsaSigningCapability';
 import {
   parseMpcWalletSigningQuotaId,
-  parseSeamsSessionId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
@@ -21,7 +20,12 @@ import {
   type ActiveWalletSessionAuthorizationProjection,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import { buildWalletAuthAuthorityRefFixture } from './ecdsaMaterialRef.fixtures';
-import { parseRootShareEpoch, type RootShareEpoch } from '@shared/utils/domainIds';
+import {
+  parseRootShareEpoch,
+  parseThresholdEcdsaSessionId,
+  parseThresholdEd25519SessionId,
+  type RootShareEpoch,
+} from '@shared/utils/domainIds';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
@@ -157,12 +161,6 @@ export function availableLaneEd25519Authorization(args: {
   return {
     recordVersion: WALLET_SESSION_AUTHORIZATION_RECORD_VERSION,
     walletId: toWalletId(args.walletId),
-    seamsSessionId: requireAvailableLaneId(
-      parseSeamsSessionId(`available-lane-authorization-session:${args.identitySeed}`),
-    ),
-    authorizationId: requireAvailableLaneId(
-      parseWalletSessionAuthorizationId(`available-lane-authorization:${args.identitySeed}`),
-    ),
     walletSessionId: requireAvailableLaneId(
       parseWalletSessionId(`available-lane-wallet-session:${args.identitySeed}`),
     ),
@@ -176,7 +174,13 @@ export function availableLaneEd25519Authorization(args: {
     walletSessionTokens: {
       kind: 'near_ed25519',
       ed25519: {
-        walletSessionJwt: `fixture-wallet-session-jwt:${args.identitySeed}` as never,
+        authorizationId: requireAvailableLaneId(
+          parseWalletSessionAuthorizationId(`available-lane-authorization:${args.identitySeed}`),
+        ),
+        walletSessionToken: `fixture-wallet-session-jwt:${args.identitySeed}` as never,
+        thresholdSessionId: requireAvailableLaneId(
+          parseThresholdEd25519SessionId(`available-lane-threshold-ed25519:${args.identitySeed}`),
+        ),
       },
     },
   };
@@ -202,12 +206,6 @@ function availableLaneEcdsaAuthorization(args: {
     projection: {
       recordVersion: WALLET_SESSION_AUTHORIZATION_RECORD_VERSION,
       walletId: toWalletId(args.walletId),
-      seamsSessionId: requireAvailableLaneId(
-        parseSeamsSessionId(`available-lane-authorization-session:${args.identitySeed}`),
-      ),
-      authorizationId: requireAvailableLaneId(
-        parseWalletSessionAuthorizationId(`available-lane-authorization:${args.identitySeed}`),
-      ),
       walletSessionId,
       quotaId,
       authMethod: args.authMethod,
@@ -217,7 +215,13 @@ function availableLaneEcdsaAuthorization(args: {
       walletSessionTokens: {
         kind: 'evm_family_ecdsa',
         ecdsa: {
-          walletSessionJwt: `fixture-wallet-session-jwt:${args.identitySeed}` as never,
+          authorizationId: requireAvailableLaneId(
+            parseWalletSessionAuthorizationId(`available-lane-authorization:${args.identitySeed}`),
+          ),
+          walletSessionToken: `fixture-wallet-session-jwt:${args.identitySeed}` as never,
+          thresholdSessionId: requireAvailableLaneId(
+            parseThresholdEcdsaSessionId(`available-lane-threshold-ecdsa:${args.identitySeed}`),
+          ),
         },
       },
     },
