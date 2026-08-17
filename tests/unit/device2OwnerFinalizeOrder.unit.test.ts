@@ -25,8 +25,6 @@ test('finalizes owner custody before registering the temporary target credential
           walletId: 'mismatched.testnet',
           nearAccountId: 'mismatched.testnet',
           signerSlot: 4,
-          operationalPublicKey: base64UrlEncode(new Uint8Array(32).fill(11)),
-          nearEd25519SigningKeyId: 'mismatched.testnet',
         },
         response: {
           ok: true,
