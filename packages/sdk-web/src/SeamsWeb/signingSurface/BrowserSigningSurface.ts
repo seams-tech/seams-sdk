@@ -211,7 +211,7 @@ import {
   type LinkedDeviceOwnerEnrollmentStartV1,
 } from '../operations/devices/deviceLinkingOwnerEnrollmentStart';
 import { parseWebAuthnRpId } from '@shared/utils/domainIds';
-import { collectAuthenticationCredentialForChallengeB64u } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
+import { collectAuthenticationCredentialForWalletChallengeB64u } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import { resolveManagedRuntimeScopeBootstrap } from '@/core/config/managedRuntimeScope';
 import {
   parseReusableWalletSessionMintId,
@@ -3071,10 +3071,10 @@ export class BrowserSigningSurface {
         publishableKey: managedRuntimeScope.publishableKey,
         projectEnvironmentId: managedRuntimeScope.projectEnvironmentId,
         collectOwnerAssertionV1: async (assertion) =>
-          await collectAuthenticationCredentialForChallengeB64u({
+          await collectAuthenticationCredentialForWalletChallengeB64u({
             credentialStore: IndexedDBManager,
             touchIdPrompt: this.touchIdPrompt,
-            nearAccountId: String(assertion.walletId),
+            walletId: assertion.walletId,
             challengeB64u: assertion.challengeB64u,
           }),
       },
