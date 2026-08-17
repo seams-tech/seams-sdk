@@ -327,7 +327,7 @@ test.describe('Seams wallet repositories', () => {
           profileId: walletId,
           status: 'active',
         });
-        const nearProfileId = `profile-near:${nearAccountId}`;
+        const nearProfileId = `near-profile:${nearAccountId}`;
         const nearSigners = await db.listAccountSignersByProfile({
           profileId: nearProfileId,
           status: 'active',
@@ -344,7 +344,7 @@ test.describe('Seams wallet repositories', () => {
 
     expect(result.walletSignerIds).toEqual(['ed25519:sync-projection']);
     expect(result.nearSigner).toMatchObject({
-      profileId: 'profile-near:sync-projection.testnet',
+      profileId: 'near-profile:sync-projection.testnet',
       chainIdKey: 'near:testnet',
       accountAddress: 'sync-projection.testnet',
       signerId: 'sync-credential',
@@ -355,9 +355,106 @@ test.describe('Seams wallet repositories', () => {
       },
     });
     expect(result.lastProfileState).toMatchObject({
-      profileId: 'profile-near:sync-projection.testnet',
+      profileId: 'near-profile:sync-projection.testnet',
       activeSignerSlot: 4,
     });
+  });
+
+  test('moves an exact legacy wallet-scoped NEAR signer into its account profile', async ({
+    page,
+  }) => {
+    const result = await page.evaluate(
+      async ({ paths }) => {
+        const { UnifiedIndexedDBManager, SeamsWalletDBManager, createSeamsTestWalletDbName } =
+          await import(paths.indexedDB);
+        const { storeUserData } = await import(paths.accountLifecycle);
+        const seamsWalletDB = new SeamsWalletDBManager();
+        seamsWalletDB.setDbName(
+          createSeamsTestWalletDbName(`repo_legacy_near_owner_${crypto.randomUUID()}`),
+        );
+        const db = new UnifiedIndexedDBManager({ seamsWalletDB });
+
+        const walletId = 'wallet_legacy_near_owner';
+        const nearAccountId = '4ce81d7c611e0756e202a4105532fbdf164fddd238589a4d000919ddd841468c';
+        const signerId = '73k94l_9rNKvqyIxg6rB0Q';
+        const nearEd25519SigningKeyId = 'near-ed25519:legacy-near-owner';
+        const operationalPublicKey = 'ed25519:legacy-near-owner';
+        const signerSlot = 4;
+        const metadata = {
+          walletId,
+          nearAccountId,
+          nearEd25519SigningKeyId,
+          operationalPublicKey,
+          passkeyCredentialId: signerId,
+          passkeyCredentialRawId: signerId,
+        };
+
+        await db.upsertProfile({ profileId: walletId, defaultSignerSlot: signerSlot });
+        await db.activateAccountSigner({
+          account: {
+            profileId: walletId,
+            chainIdKey: 'near:mainnet',
+            accountAddress: nearAccountId,
+            accountModel: 'near-native',
+          },
+          signer: {
+            signerId,
+            signerType: 'threshold',
+            signerKind: 'threshold-ed25519',
+            signerAuthMethod: 'passkey',
+            signerSource: 'passkey_registration',
+            metadata,
+          },
+          activationPolicy: { mode: 'fail_if_occupied', signerSlot },
+          mutation: { routeThroughOutbox: false },
+        });
+
+        await storeUserData(
+          { accountStore: db },
+          {
+            walletId,
+            nearAccountId,
+            signerSlot,
+            operationalPublicKey,
+            nearEd25519SigningKeyId,
+            lastUpdated: Date.now(),
+            passkeyCredential: { id: signerId, rawId: signerId },
+            version: 2,
+          },
+        );
+
+        const signer = await db.getAccountSigner({
+          chainIdKey: 'near:mainnet',
+          accountAddress: nearAccountId,
+          signerId,
+        });
+        const legacyProfileSigners = await db.listAccountSignersByProfile({
+          profileId: walletId,
+          status: 'active',
+        });
+        return {
+          signer,
+          legacyProfileSignerIds: legacyProfileSigners.map(
+            (entry: { signerId: string }) => entry.signerId,
+          ),
+        };
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    expect(result.signer).toMatchObject({
+      profileId: 'near-profile:4ce81d7c611e0756e202a4105532fbdf164fddd238589a4d000919ddd841468c',
+      chainIdKey: 'near:mainnet',
+      accountAddress: '4ce81d7c611e0756e202a4105532fbdf164fddd238589a4d000919ddd841468c',
+      signerId: '73k94l_9rNKvqyIxg6rB0Q',
+      signerSlot: 4,
+      metadata: {
+        walletId: 'wallet_legacy_near_owner',
+        nearEd25519SigningKeyId: 'near-ed25519:legacy-near-owner',
+        operationalPublicKey: 'ed25519:legacy-near-owner',
+      },
+    });
+    expect(result.legacyProfileSignerIds).toEqual([]);
   });
 
   test('rejects active ECDSA signers missing direct keyHandle', async ({ page }) => {
