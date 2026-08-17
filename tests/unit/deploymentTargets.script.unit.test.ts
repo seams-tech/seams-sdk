@@ -378,6 +378,9 @@ test('production workflows supply selectable provider credentials as protected s
     'deploy-production-mainnet-backend.yml',
   ]) {
     const workflow = readFileSync(path.join(repoRoot, '.github/workflows', workflowName), 'utf8');
+    expect(workflow).toContain(
+      'CONSOLE_INITIAL_OWNER_EMAIL: ${{ secrets.CONSOLE_INITIAL_OWNER_EMAIL }}',
+    );
     expect(workflow).toContain('RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}');
     expect(workflow).toContain(
       'EMAIL_OTP_SES_ACCESS_KEY_ID: ${{ secrets.EMAIL_OTP_SES_ACCESS_KEY_ID }}',

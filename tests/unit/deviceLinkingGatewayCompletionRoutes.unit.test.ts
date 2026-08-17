@@ -262,6 +262,7 @@ async function buildCompletionRecords(fixture: ReturnType<typeof buildR103Device
       linkSessionId: fixture.payload.linkSessionId,
       walletId: fixture.approval.walletId,
       enrollmentId: fixture.approval.enrollmentId,
+      keyManifestDigestB64u: fixture.receipt.manifestDigestB64u,
       transcriptSetDigestB64u: fixture.approval.policyDigestB64u,
     },
     revision: 3,

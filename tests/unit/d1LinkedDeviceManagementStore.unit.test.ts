@@ -4,7 +4,11 @@ import {
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
+import {
+  buildR103DeviceLinkFixture,
+  buildR103OwnerApprovalContextV1,
+  buildR103OwnerEnrollmentCeremonyReaderV1,
+} from './helpers/deviceLinkContracts.fixtures';
 import {
   LinkedDeviceSessionServiceV1,
   type LinkedDeviceAggregateActivationVerifierV1,
@@ -54,6 +58,7 @@ test('uses the core session clock before projecting management rows', async () =
     scope,
   });
   const sessionService = new LinkedDeviceSessionServiceV1({
+    ownerEnrollmentCeremonies: buildR103OwnerEnrollmentCeremonyReaderV1(fixture.approval),
     store: sessionStore,
     authorization: {
       authorizeOwnerClaimV1: async () => ({
@@ -77,9 +82,15 @@ test('uses the core session clock before projecting management rows', async () =
     (await sessionService.claimSessionV1({ payload: fixture.payload, nowMs: 3_001 })).outcome,
   ).toBe('applied');
   const approval = { ...fixture.approval, expiresAtMs: 9_000 };
-  expect((await sessionService.recordOwnerApprovalV1({ approval, nowMs: 3_002 })).outcome).toBe(
-    'applied',
-  );
+  expect(
+    (
+      await sessionService.recordOwnerApprovalV1({
+        owner: buildR103OwnerApprovalContextV1(approval),
+        approval,
+        nowMs: 3_002,
+      })
+    ).outcome,
+  ).toBe('applied');
 
   // A corrupt session for another wallet stays outside this projection query.
   await temporary.database
@@ -239,6 +250,7 @@ test('projects multiple wallet sessions with a bounded D1 query set', async () =
   const secondFixture = buildR103DeviceLinkFixture({ linkSessionId: 'link-session:r103-second' });
   const sessionStore = new D1LinkedDeviceSessionStoreV1({ database: countedDatabase, scope });
   const sessionService = new LinkedDeviceSessionServiceV1({
+    ownerEnrollmentCeremonies: buildR103OwnerEnrollmentCeremonyReaderV1(fixture.approval),
     store: sessionStore,
     authorization: {
       authorizeOwnerClaimV1: async ({ payload, requestedAtMs }) => ({
@@ -266,6 +278,7 @@ test('projects multiple wallet sessions with a bounded D1 query set', async () =
         authorizationId: parseWalletSessionAuthorizationId('authorization:r103').value,
         expiresAtMs: 10_000,
         curve: 'ed25519',
+        keyManifestDigestB64u: item.receipt.manifestDigestB64u,
       },
     });
   }

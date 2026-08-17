@@ -24,6 +24,9 @@ import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import {
   buildR103DeviceLinkFixture,
+  buildR103OwnerEnrollmentCeremonyV1,
+  buildR103OwnerApprovalContextV1,
+  buildR103OwnerEnrollmentCeremonyReaderV1,
   buildR103ProvisioningFixture,
 } from './helpers/deviceLinkContracts.fixtures';
 import { buildR102ProtocolCommitReceipt } from './helpers/r102LaneGateway.fixtures';
@@ -64,6 +67,7 @@ test('persists exact target-ready input, accepts one delivery submission, and re
   const approval = { ...fixture.approval, expiresAtMs: 9_000 };
   const store = new D1LinkedDeviceSessionStoreV1({ database: temporary.database, scope });
   const service = new LinkedDeviceSessionServiceV1({
+    ownerEnrollmentCeremonies: buildR103OwnerEnrollmentCeremonyReaderV1(fixture.approval),
     store,
     authorization: ownerAuthorization(),
     aggregateActivationVerifier: {
@@ -76,7 +80,15 @@ test('persists exact target-ready input, accepts one delivery submission, and re
   expect(
     (await service.claimSessionV1({ payload: fixture.claimRequest.payload, nowMs: 3_000 })).outcome,
   ).toBe('applied');
-  expect((await service.recordOwnerApprovalV1({ approval, nowMs: 3_000 })).outcome).toBe('applied');
+  expect(
+    (
+      await service.recordOwnerApprovalV1({
+        owner: buildR103OwnerApprovalContextV1(approval),
+        approval,
+        nowMs: 3_000,
+      })
+    ).outcome,
+  ).toBe('applied');
   const session = await service.getSessionV1({
     linkSessionId: fixture.approval.linkSessionId,
     nowMs: 3_000,
@@ -217,7 +229,11 @@ test('delivery submission replay heals a persisted-output crash gap', async () =
       requestedAtMs: 3_011,
     }),
   ).resolves.toEqual(scenario.submission);
-  await expectCommittedDigest(scenario.store, scenario.approval.linkSessionId, deliveriesDigestB64u);
+  await expectCommittedDigest(
+    scenario.store,
+    scenario.approval.linkSessionId,
+    deliveriesDigestB64u,
+  );
 });
 
 test('provision replay heals a persisted-output crash gap', async () => {
@@ -237,7 +253,11 @@ test('provision replay heals a persisted-output crash gap', async () => {
       requestedAtMs: 3_011,
     }),
   ).resolves.toEqual(scenario.handoff.deliveries);
-  await expectCommittedDigest(scenario.store, scenario.approval.linkSessionId, deliveriesDigestB64u);
+  await expectCommittedDigest(
+    scenario.store,
+    scenario.approval.linkSessionId,
+    deliveriesDigestB64u,
+  );
 });
 
 test('holder delivery heals a persisted-output crash gap', async () => {
@@ -258,7 +278,11 @@ test('holder delivery heals a persisted-output crash gap', async () => {
       requestedAtMs: 3_012,
     }),
   ).resolves.toEqual(scenario.receipt);
-  await expectCommittedDigest(scenario.store, scenario.approval.linkSessionId, deliveriesDigestB64u);
+  await expectCommittedDigest(
+    scenario.store,
+    scenario.approval.linkSessionId,
+    deliveriesDigestB64u,
+  );
 });
 
 test('cancellation heals a persisted-output crash gap and preserves committed recovery', async () => {
@@ -279,7 +303,11 @@ test('cancellation heals a persisted-output crash gap and preserves committed re
     outcome: 'invalid_state',
     state: 'committed_completion_required',
   });
-  await expectCommittedDigest(scenario.store, scenario.approval.linkSessionId, deliveriesDigestB64u);
+  await expectCommittedDigest(
+    scenario.store,
+    scenario.approval.linkSessionId,
+    deliveriesDigestB64u,
+  );
 });
 
 test('expiry heals a persisted-output crash gap and preserves committed recovery', async () => {
@@ -300,7 +328,11 @@ test('expiry heals a persisted-output crash gap and preserves committed recovery
     outcome: 'invalid_state',
     state: 'committed_completion_required',
   });
-  await expectCommittedDigest(scenario.store, scenario.approval.linkSessionId, deliveriesDigestB64u);
+  await expectCommittedDigest(
+    scenario.store,
+    scenario.approval.linkSessionId,
+    deliveriesDigestB64u,
+  );
 });
 
 test('delivery replay rejects a parent commitment digest mismatch', async () => {
@@ -332,6 +364,7 @@ test('waits for deliveries submitted after provisioning preparation starts', asy
   const approval = { ...fixture.approval, expiresAtMs: 9_000 };
   const store = new D1LinkedDeviceSessionStoreV1({ database: temporary.database, scope });
   const service = new LinkedDeviceSessionServiceV1({
+    ownerEnrollmentCeremonies: buildR103OwnerEnrollmentCeremonyReaderV1(fixture.approval),
     store,
     authorization: ownerAuthorization(),
     aggregateActivationVerifier: {
@@ -344,7 +377,15 @@ test('waits for deliveries submitted after provisioning preparation starts', asy
   expect(
     (await service.claimSessionV1({ payload: fixture.claimRequest.payload, nowMs: 3_000 })).outcome,
   ).toBe('applied');
-  expect((await service.recordOwnerApprovalV1({ approval, nowMs: 3_000 })).outcome).toBe('applied');
+  expect(
+    (
+      await service.recordOwnerApprovalV1({
+        owner: buildR103OwnerApprovalContextV1(approval),
+        approval,
+        nowMs: 3_000,
+      })
+    ).outcome,
+  ).toBe('applied');
   const session = await service.getSessionV1({
     linkSessionId: fixture.approval.linkSessionId,
     nowMs: 3_000,
@@ -428,6 +469,7 @@ async function createProvisioningHandoffScenario() {
   const approval = { ...fixture.approval, expiresAtMs: 9_000 };
   const store = new D1LinkedDeviceSessionStoreV1({ database: temporary.database, scope });
   const service = new LinkedDeviceSessionServiceV1({
+    ownerEnrollmentCeremonies: buildR103OwnerEnrollmentCeremonyReaderV1(fixture.approval),
     store,
     authorization: ownerAuthorization(),
     aggregateActivationVerifier: {
@@ -436,7 +478,11 @@ async function createProvisioningHandoffScenario() {
   });
   await service.createUnclaimedSessionV1({ payload: fixture.payload, nowMs: 3_000 });
   await service.claimSessionV1({ payload: fixture.claimRequest.payload, nowMs: 3_001 });
-  const approved = await service.recordOwnerApprovalV1({ approval, nowMs: 3_002 });
+  const approved = await service.recordOwnerApprovalV1({
+    owner: buildR103OwnerApprovalContextV1(approval),
+    approval,
+    nowMs: 3_002,
+  });
   if (approved.outcome !== 'applied') throw new Error('expected approved session');
   const handoff = await buildSourceHandoffFixture(approval);
   await persistRegisteredTargetCredential(temporary.database, handoff);
@@ -730,16 +776,15 @@ async function persistRegisteredTargetCredential(
   database: TemporaryD1Database['database'],
   handoff: Awaited<ReturnType<typeof buildSourceHandoffFixture>>,
 ): Promise<void> {
-  const rpId = parseWebAuthnRpId('wallet.example.test');
-  if (!rpId.ok) throw new Error(rpId.error.message);
+  // The preparation no longer carries its own rpId, user handle, or challenge:
+  // the canonical add-auth-method ceremony is the sole source of WebAuthn
+  // registration parameters.
   const preparation = buildLinkedDeviceTargetPreparationV1({
     linkSessionId: handoff.targetReady.linkSessionId,
     walletId: handoff.targetReady.walletId,
     enrollmentId: handoff.targetReady.enrollmentId,
     deviceId: handoff.targetReady.deviceId,
-    rpId: rpId.value,
-    userHandleB64u: base64UrlEncode(new Uint8Array([1, 2, 3])),
-    challengeB64u: handoff.targetReady.manifest.authorization.linkedDevicePermissionDigestB64u,
+    ownerEnrollment: buildR103OwnerEnrollmentCeremonyV1(),
     orderedChildren: [
       {
         kind: 'linked_device_target_preparation_child_v1',

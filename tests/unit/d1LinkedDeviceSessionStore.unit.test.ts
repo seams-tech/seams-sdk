@@ -9,7 +9,11 @@ import { parseWalletId } from '@shared/utils/domainIds';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import { LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1 } from '@shared/device-linking/requestProof';
-import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
+import {
+  buildR103DeviceLinkFixture,
+  buildR103OwnerEnrollmentCeremonyReaderV1,
+  buildR103OwnerApprovalContextV1,
+} from './helpers/deviceLinkContracts.fixtures';
 import {
   D1LinkedDeviceSessionStoreV1,
   type D1LinkedDeviceSessionScopeV1,
@@ -48,12 +52,18 @@ test.afterEach(() => {
   temporary = undefined;
 });
 
+/** Every fixture in this file shares one ceremony, so one reader serves all. */
+function ownerEnrollmentCeremonies() {
+  return buildR103OwnerEnrollmentCeremonyReaderV1(buildR103DeviceLinkFixture().approval);
+}
+
 test('claims exactly once, replays the exact claim, and never writes identity before claim', async () => {
   temporary = createTemporaryD1Database();
   await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
   const store = new D1LinkedDeviceSessionStoreV1({ database: temporary.database, scope });
   const auth = ownerAuth();
   const service = new LinkedDeviceSessionServiceV1({
+    ownerEnrollmentCeremonies: ownerEnrollmentCeremonies(),
     store,
     authorization: auth,
     aggregateActivationVerifier,
@@ -82,6 +92,7 @@ test('expires an unclaimed session through the read projection and preserves ter
   await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
   const store = new D1LinkedDeviceSessionStoreV1({ database: temporary.database, scope });
   const service = new LinkedDeviceSessionServiceV1({
+    ownerEnrollmentCeremonies: ownerEnrollmentCeremonies(),
     store,
     authorization: ownerAuth(),
     aggregateActivationVerifier,
@@ -102,6 +113,7 @@ test('accepts QR issuance within clock skew and rejects a larger future offset',
   await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
   const store = new D1LinkedDeviceSessionStoreV1({ database: temporary.database, scope });
   const service = new LinkedDeviceSessionServiceV1({
+    ownerEnrollmentCeremonies: ownerEnrollmentCeremonies(),
     store,
     authorization: ownerAuth(),
     aggregateActivationVerifier,
@@ -136,6 +148,7 @@ test('records owner approval exactly once, rejects a conflicting transcript, and
   const fixture = buildR103DeviceLinkFixture();
   const store = new D1LinkedDeviceSessionStoreV1({ database: temporary.database, scope });
   const service = new LinkedDeviceSessionServiceV1({
+    ownerEnrollmentCeremonies: ownerEnrollmentCeremonies(),
     store,
     authorization: ownerAuthForFixture(),
     aggregateActivationVerifier,
@@ -148,12 +161,21 @@ test('records owner approval exactly once, rejects a conflicting transcript, and
   const claimed = await service.claimSessionV1({ payload: fixture.payload, nowMs: 3_001 });
   expect(claimed.outcome).toBe('applied');
   const approval = { ...fixture.approval, expiresAtMs: 8_000 };
-  const approved = await service.recordOwnerApprovalV1({ approval, nowMs: 3_002 });
+  const approved = await service.recordOwnerApprovalV1({
+    owner: buildR103OwnerApprovalContextV1(approval),
+    approval,
+    nowMs: 3_002,
+  });
   expect(approved.outcome).toBe('applied');
   if (approved.outcome !== 'applied') throw new Error('expected approval');
-  const replayed = await service.recordOwnerApprovalV1({ approval, nowMs: 3_002 });
+  const replayed = await service.recordOwnerApprovalV1({
+    owner: buildR103OwnerApprovalContextV1(approval),
+    approval,
+    nowMs: 3_002,
+  });
   expect(replayed.outcome).toBe('replayed');
   const conflicting = await service.recordOwnerApprovalV1({
+    owner: buildR103OwnerApprovalContextV1(approval),
     approval: { ...approval, approvedAtMs: 2_001 },
     nowMs: 3_002,
   });
@@ -188,6 +210,7 @@ test('keeps committed sessions resumable after cancellation and expiry, then rep
   const fixture = buildR103DeviceLinkFixture();
   const store = new D1LinkedDeviceSessionStoreV1({ database: temporary.database, scope });
   const service = new LinkedDeviceSessionServiceV1({
+    ownerEnrollmentCeremonies: ownerEnrollmentCeremonies(),
     store,
     authorization: ownerAuthForFixture(),
     aggregateActivationVerifier,
@@ -195,7 +218,11 @@ test('keeps committed sessions resumable after cancellation and expiry, then rep
   await service.createUnclaimedSessionV1({ payload: fixture.payload, nowMs: 3_000 });
   await service.claimSessionV1({ payload: fixture.payload, nowMs: 3_001 });
   const approval = { ...fixture.approval, expiresAtMs: 8_000 };
-  const approved = await service.recordOwnerApprovalV1({ approval, nowMs: 3_002 });
+  const approved = await service.recordOwnerApprovalV1({
+    owner: buildR103OwnerApprovalContextV1(approval),
+    approval,
+    nowMs: 3_002,
+  });
   expect(approved.outcome).toBe('applied');
   if (approved.outcome !== 'applied') throw new Error('expected approval');
   const provisioning = await service.recordTargetCredentialV1({
@@ -255,6 +282,7 @@ test('rejects aggregate activation unless the approved manifest and child set ma
   const fixture = buildR103DeviceLinkFixture();
   const store = new D1LinkedDeviceSessionStoreV1({ database: temporary.database, scope });
   const service = new LinkedDeviceSessionServiceV1({
+    ownerEnrollmentCeremonies: ownerEnrollmentCeremonies(),
     store,
     authorization: ownerAuthForFixture(),
     aggregateActivationVerifier,
@@ -262,7 +290,11 @@ test('rejects aggregate activation unless the approved manifest and child set ma
   await service.createUnclaimedSessionV1({ payload: fixture.payload, nowMs: 3_000 });
   await service.claimSessionV1({ payload: fixture.payload, nowMs: 3_001 });
   const approval = { ...fixture.approval, expiresAtMs: 8_000 };
-  const approved = await service.recordOwnerApprovalV1({ approval, nowMs: 3_002 });
+  const approved = await service.recordOwnerApprovalV1({
+    owner: buildR103OwnerApprovalContextV1(approval),
+    approval,
+    nowMs: 3_002,
+  });
   expect(approved.outcome).toBe('applied');
   if (approved.outcome !== 'applied') throw new Error('expected approval');
   const provisioning = await service.recordTargetCredentialV1({
@@ -360,6 +392,7 @@ test('rejects tampered durable record and transcript rows', async () => {
   const fixture = buildR103DeviceLinkFixture();
   const store = new D1LinkedDeviceSessionStoreV1({ database: temporary.database, scope });
   const service = new LinkedDeviceSessionServiceV1({
+    ownerEnrollmentCeremonies: ownerEnrollmentCeremonies(),
     store,
     authorization: ownerAuthForFixture(),
     aggregateActivationVerifier,

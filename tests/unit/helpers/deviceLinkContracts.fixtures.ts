@@ -67,6 +67,11 @@ import { base64UrlEncode } from '../../../packages/shared-ts/src/utils/base64';
 import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '../../../packages/shared-ts/src/utils/sessionTokens';
 import { DEFAULT_WALLET_SESSION_REMAINING_USES } from '../../../packages/shared-ts/src/threshold/sessionPolicy';
 import { parseDigestB64u } from '../../../packages/shared-ts/src/utils/canonicalPrimitives';
+import type { DigestB64u } from '../../../packages/shared-ts/src/utils/canonicalPrimitives';
+import {
+  parseWalletSessionAuthorizationId,
+  parseWalletSessionId,
+} from '../../../packages/shared-ts/src/authorization/capabilityKinds';
 import {
   buildR102HolderDeliveryReceipt,
   buildR102LaneJob,
@@ -130,7 +135,6 @@ export type R103MixedPlannerFixture = {
   readonly sourceJobs: readonly [RotatableSigningLaneJobV1, RotatableSigningLaneJobV1];
 };
 
-
 /**
  * The canonical owner add-auth-method ceremony a linked enrollment finalizes.
  *
@@ -148,8 +152,7 @@ export function buildR103OwnerEnrollmentCeremonyV1(
   const rpId = overrides.rpId ?? 'wallet.example.test';
   return parseLinkedDeviceOwnerEnrollmentCeremonyV1({
     kind: 'linked_device_owner_enrollment_ceremony_v1',
-    addAuthMethodCeremonyId:
-      overrides.addAuthMethodCeremonyId ?? 'add-auth-method-ceremony:r103p8',
+    addAuthMethodCeremonyId: overrides.addAuthMethodCeremonyId ?? 'add-auth-method-ceremony:r103p8',
     registration: {
       kind: 'webauthn_add_auth_method_registration_v1',
       challengeId: 'add-auth-method-challenge:r103p8',
@@ -802,3 +805,60 @@ export function buildR103DeviceLinkFixture(
 void DIGEST;
 void PUBLIC_KEY;
 void buildLinkedDeviceEnrollmentReceiptV1;
+
+/**
+ * The ceremony reader the session service checks approval provenance against.
+ *
+ * Returns the ceremony the server would have minted for this exact approval,
+ * so a test exercises the provenance check rather than bypassing it. Tests that
+ * want a denial pass a mismatched approval instead of stubbing this away.
+ */
+export function buildR103OwnerEnrollmentCeremonyReaderV1(approval: LinkedDeviceApprovalV1) {
+  return {
+    getAddAuthMethodCeremony: async (addAuthMethodCeremonyId: string) =>
+      addAuthMethodCeremonyId === approval.ownerEnrollment.addAuthMethodCeremonyId
+        ? ({
+            kind: 'passkey',
+            addAuthMethodCeremonyId: approval.ownerEnrollment.addAuthMethodCeremonyId,
+            intent: { walletId: approval.walletId },
+            digestB64u: 'digest',
+            orgId: 'org',
+            expiresAtMs: approval.ownerEnrollment.expiresAtMs,
+            auth: {
+              kind: 'webauthn_assertion',
+              rpId: String(approval.ownerEnrollment.registration.rpId),
+              credentialIdB64u: 'cred',
+            },
+            passkeyRegistration: {
+              rpId: String(approval.ownerEnrollment.registration.rpId),
+              challengeB64u: approval.ownerEnrollment.registration.challengeB64u,
+              options: approval.ownerEnrollment.registration,
+            },
+            custodyEnvelope: {},
+          } as never)
+        : null,
+  };
+}
+
+/**
+ * The verified owner Wallet Session context an approval is recorded under.
+ *
+ * Approval reads the source key manifest from here rather than from the
+ * approval body, so a call that omits it is not standing in for a real
+ * owner-authenticated request.
+ */
+export function buildR103OwnerApprovalContextV1(
+  approval: LinkedDeviceApprovalV1,
+  overrides: { readonly keyManifestDigestB64u?: DigestB64u } = {},
+) {
+  return {
+    walletId: approval.walletId,
+    walletSessionId: parseWalletSessionId('ws:r103').value!,
+    authorizationId: parseWalletSessionAuthorizationId('wsa:r103').value!,
+    expiresAtMs: approval.expiresAtMs,
+    curve: 'ed25519' as const,
+    keyManifestDigestB64u:
+      overrides.keyManifestDigestB64u ??
+      parseDigestB64u('Lcwi4R-zFWWooZJB2zonKJtBMlynySPIjt55tietXWE'),
+  };
+}
