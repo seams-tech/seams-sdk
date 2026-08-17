@@ -213,7 +213,10 @@ async function fulfillArcRpc(route: Route): Promise<void> {
 
 function linkedDeviceConsoleDiagnostic(message: ConsoleMessage): string | null {
   const text = message.text().replace(/\s+/g, ' ').trim().slice(0, 400);
-  if (message.type() === 'error' || /camera|device linking|linked-device|qr|r102/i.test(text)) {
+  if (
+    message.type() === 'error' ||
+    /camera|custody|device linking|linked-device|qr|r102/i.test(text)
+  ) {
     return `[owner:${message.type()}] ${text}`;
   }
   return null;
