@@ -231,6 +231,7 @@ import {
   anchorWalletIframeModalGeometry,
   isWalletIframeModalGeometry,
   resolveWalletIframeSurfaceGeometry,
+  WALLET_IFRAME_SURFACE_PROVISIONAL_HEIGHT_CSS_PX,
   type WalletIframeModalGeometry,
   type WalletIframeSurfaceMeasurementState,
   type WalletIframeSurfaceViewport,
@@ -1609,8 +1610,30 @@ export class WalletIframeRouter {
       surface.kind === 'modal_auth_menu' &&
       anchorMetrics &&
       isWalletIframeModalGeometry(resolvedGeometry) &&
-      resolvedGeometry.kind !== 'viewport_fallback'
+      !(
+        resolvedGeometry.kind === 'viewport_fallback' &&
+        resolvedGeometry.reason === 'measurement_unavailable'
+      )
     ) {
+      // The anchored menu is inline content, so the visual viewport never
+      // sizes it: browser zoom shrinks the viewport's CSS px, and deriving
+      // height (or taking the small_visual_viewport fallback) from it made the
+      // menu reflow under zoom while the rest of the page just scaled. Height
+      // comes from the child's own measurement; only measurement_unavailable
+      // (a child that never reported) still falls back to the viewport box.
+      const measuredHeightCssPx = this.activeSurfaceMeasurement?.heightCssPx;
+      const anchoredBase: WalletIframeModalGeometry =
+        resolvedGeometry.kind === 'viewport_fallback'
+          ? {
+              kind: measuredHeightCssPx != null ? 'centered_modal' : 'provisional_centered_modal',
+              widthCssPx: resolvedGeometry.widthCssPx,
+              heightCssPx: measuredHeightCssPx ?? WALLET_IFRAME_SURFACE_PROVISIONAL_HEIGHT_CSS_PX,
+              topCssPx: resolvedGeometry.topCssPx,
+              leftCssPx: resolvedGeometry.leftCssPx,
+            }
+          : measuredHeightCssPx != null
+            ? { ...resolvedGeometry, heightCssPx: measuredHeightCssPx }
+            : resolvedGeometry;
       // The menu paints from a <body>-level dialog, so it reserves no layout
       // space of its own. Publish its height to the host anchor, which does sit
       // in the page flow, so following content is pushed down instead of being
@@ -1622,10 +1645,10 @@ export class WalletIframeRouter {
       // animate its height now and its top on a later tick, reading as two
       // separate movements instead of one in-place resize. Height does not
       // depend on the anchor, so this settles in a single pass.
-      publishHostedAuthMenuAnchorHeight(anchor, resolvedGeometry.heightCssPx);
+      publishHostedAuthMenuAnchorHeight(anchor, anchoredBase.heightCssPx);
       anchorMetrics = hostedAuthMenuAnchorMetrics(anchor) ?? anchorMetrics;
       authMenuVisualScale = anchorMetrics.visualScale;
-      geometry = anchorWalletIframeModalGeometry(resolvedGeometry, viewport, {
+      geometry = anchorWalletIframeModalGeometry(anchoredBase, {
         topCssPx: anchorMetrics.topCssPx,
         leftCssPx: anchorMetrics.leftCssPx,
         widthCssPx: anchorMetrics.layoutWidthCssPx,
