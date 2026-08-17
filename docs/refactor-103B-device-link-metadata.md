@@ -1,8 +1,9 @@
 # Refactor 103B — Canonical Device-Link Metadata
 
-Status: active implementation. Phase 1 and the independent account-menu work
-are complete. Phase 2 and Phase 4 await the live Refactor 103 Phase 8
-owner-credential cutover.
+Status: implementation Phases 1–4 are complete. The completion gate remains
+blocked on the Refactor 103 Phase 8 intended-behavior path: Device 2 still uses
+the human linked-session activation and signing dispatch, and canonical owner
+revocation has not landed.
 
 Last reconciled: August 17, 2026.
 
@@ -321,6 +322,12 @@ fallback.
   the same display label.
 
 ### Intended behavior
+
+Prerequisite status: blocked on Refactor 103 Phase 8 canonical unlock,
+ordinary owner signing/step-up dispatch, and canonical credential revocation.
+The focused metadata slice passes independently; the contract below must use
+the real two-device operating path after those cuts land. A mocked metadata
+contract does not satisfy this lifecycle gate.
 
 Add one Phase 8 two-device contract that proves:
 
