@@ -1,5 +1,8 @@
 export const SEAMS_WALLET_DB_NAME = 'seams_wallet' as const;
-export const SEAMS_WALLET_DB_VERSION = 19 as const;
+// Bumped past 20 deliberately. A dist built from an uncommitted change already
+// opened local databases at 20, so a database sitting at 20 will never re-run
+// the upgrade and would keep the stale unique owner-signer indexes forever.
+export const SEAMS_WALLET_DB_VERSION = 21 as const;
 
 export const SEAMS_WALLET_STORES = {
   appState: 'app_state',
@@ -159,15 +162,24 @@ export const SEAMS_WALLET_SCHEMA_MANIFEST = [
         keyPath: ['wallet_id', 'kind'],
         unique: false,
       },
+      // Refactor 103 Phase 8: not unique. A wallet's NEAR account has one
+      // Ed25519 key created in one slot, and every owner device signs for that
+      // same key in that same slot — the slot is inherited from the wallet key,
+      // not allocated per device. Once a second device enrolls as an owner,
+      // these rows differ only by their credential, which the store's own
+      // primary key already separates. Enforcing uniqueness here encoded
+      // "one owner device per wallet" and rejected the second device's
+      // projection at write time, surfacing as a login that cannot open the
+      // wallet.
       {
         name: SEAMS_WALLET_INDEXES.walletKindNearSignerSlot,
         keyPath: ['wallet_id', 'kind', 'near_signer_slot'],
-        unique: true,
+        unique: false,
       },
       {
         name: SEAMS_WALLET_INDEXES.walletKindNearEd25519SigningKeyId,
         keyPath: ['wallet_id', 'kind', 'near_ed25519_signing_key_id'],
-        unique: true,
+        unique: false,
       },
       {
         name: SEAMS_WALLET_INDEXES.walletKindChainTargetKeyHandle,
