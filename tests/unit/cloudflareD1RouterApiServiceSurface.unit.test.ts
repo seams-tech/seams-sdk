@@ -15,6 +15,27 @@ import {
   insertNearPublicKey,
 } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
 import { UnusedSessionAdapter } from './helpers/routerAbEd25519YaoRegistrationBridge.fixtures';
+import {
+  CloudflareD1WebAuthnAuthService,
+  type D1WebAuthnWalletManifestSource,
+} from '../../packages/sdk-server-ts/src/router/cloudflare/d1/webauthn/d1WebAuthnAuthService';
+import { CloudflareD1WebAuthnStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/webauthn/d1WebAuthnStore';
+
+const SYNC_KEY_MANIFEST_DIGEST_B64U = Buffer.alloc(32, 21).toString('base64url');
+const SYNC_SIGNER_SLOT = 4;
+
+class RecordingWalletManifestSource implements D1WebAuthnWalletManifestSource {
+  readonly requests: Parameters<
+    D1WebAuthnWalletManifestSource['getEd25519KeyManifestBySlot']
+  >[0][] = [];
+
+  async getEd25519KeyManifestBySlot(
+    input: Parameters<D1WebAuthnWalletManifestSource['getEd25519KeyManifestBySlot']>[0],
+  ): Promise<{ readonly custodyKeyManifestDigestB64u: string }> {
+    this.requests.push(input);
+    return { custodyKeyManifestDigestB64u: SYNC_KEY_MANIFEST_DIGEST_B64U };
+  }
+}
 
 test('Cloudflare D1 WebAuthn login options require and return registered credentials', async () => {
   const { database, tempDir } = createTemporaryD1Database();
@@ -74,17 +95,17 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       envId: 'env-a',
       userId: 'wallet-a',
     };
-    await insertIdentity({ database, ...scope, subject: 'google:alice' });
-    await insertIdentity({ database, ...scope, orgId: 'org-b', subject: 'google:bob' });
-    await insertIdentity({
-      database,
-      ...scope,
-      userId: 'linked.testnet',
-      subject: 'wallet:oidc:linked',
+    const manifestSource = new RecordingWalletManifestSource();
+    const syncWebAuthnService = new CloudflareD1WebAuthnAuthService({
+      webAuthnStore: new CloudflareD1WebAuthnStore({
+        database,
+        namespace: scope.namespace,
+        orgId: scope.orgId,
+        projectId: scope.projectId,
+        envId: scope.envId,
+      }),
+      walletManifestSource: manifestSource,
     });
-    await insertWebAuthn({ database, ...scope });
-    await insertNearPublicKey({ database, ...scope });
-
     const service = createCloudflareD1RouterApiAuthService({
       database,
       namespace: scope.namespace,
@@ -101,6 +122,16 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       },
       accountIdDerivationSecret: 'test-account-id-derivation-secret',
     });
+    await insertIdentity({ database, ...scope, subject: 'google:alice' });
+    await insertIdentity({ database, ...scope, orgId: 'org-b', subject: 'google:bob' });
+    await insertIdentity({
+      database,
+      ...scope,
+      userId: 'linked.testnet',
+      subject: 'wallet:oidc:linked',
+    });
+    await insertWebAuthn({ database, ...scope });
+    await insertNearPublicKey({ database, ...scope });
 
     await expect(service.identity.listIdentities({ userId: scope.userId })).resolves.toEqual({
       ok: true,
@@ -216,7 +247,7 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       ...scope,
       credentialIdB64u: webAuthnFixture.credentialIdB64u,
       credentialPublicKeyB64u: webAuthnFixture.credentialPublicKeyB64u,
-      signerSlot: 4,
+      signerSlot: SYNC_SIGNER_SLOT,
     });
     const loginOptions = await service.webAuthn.createWebAuthnLoginOptions({
       userId: scope.userId,
@@ -228,10 +259,7 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
     const loginChallengeId = String(loginOptions.challengeId || '');
     expect(loginChallengeId).not.toBe('');
     expect(loginOptions.challengeB64u).toEqual(expect.any(String));
-    expect(loginOptions.credentialIds).toEqual([
-      'credential-a',
-      webAuthnFixture.credentialIdB64u,
-    ]);
+    expect(loginOptions.credentialIds).toEqual(['credential-a', webAuthnFixture.credentialIdB64u]);
     expect(loginOptions.expiresAtMs).toBeGreaterThan(Date.now());
     const loginChallengeRow = await readWebAuthnChallengeRow({
       database,
@@ -298,7 +326,7 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       code: 'unknown_credential',
       message: 'Wallet has no registered passkey credential',
     });
-    const syncOptions = await service.webAuthn.createWebAuthnSyncAccountOptions({
+    const syncOptions = await syncWebAuthnService.createWebAuthnSyncAccountOptions({
       rp_id: 'example.com',
       account_id: scope.userId,
       ttl_ms: 60_000,
@@ -345,7 +373,7 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       counter: 2,
     });
     await expect(
-      service.webAuthn.verifyWebAuthnSyncAccount({
+      syncWebAuthnService.verifyWebAuthnSyncAccount({
         challengeId: syncChallengeId,
         webauthn_authentication: syncAssertion,
         expected_origin: 'https://example.com',
@@ -357,12 +385,16 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       walletId: scope.userId,
       nearAccountId: 'near.testnet',
       nearEd25519SigningKeyId: 'ed25519:key',
+      custodyKeyManifestDigestB64u: SYNC_KEY_MANIFEST_DIGEST_B64U,
       rpId: 'example.com',
-      signerSlot: 4,
+      signerSlot: SYNC_SIGNER_SLOT,
       publicKey: 'ed25519:public',
       credentialIdB64u: webAuthnFixture.credentialIdB64u,
       credentialPublicKeyB64u: webAuthnFixture.credentialPublicKeyB64u,
     });
+    expect(manifestSource.requests).toEqual([
+      { walletId: scope.userId, signerSlot: SYNC_SIGNER_SLOT },
+    ]);
     await expect(
       readWebAuthnAuthenticatorRow({
         database,
@@ -372,7 +404,7 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
       }),
     ).resolves.toMatchObject({ counter: 2 });
     await expect(
-      service.webAuthn.createWebAuthnSyncAccountOptions({
+      syncWebAuthnService.createWebAuthnSyncAccountOptions({
         account_id: scope.userId,
       }),
     ).resolves.toMatchObject({

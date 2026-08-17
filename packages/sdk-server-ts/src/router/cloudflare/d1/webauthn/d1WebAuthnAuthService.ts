@@ -1,10 +1,9 @@
-import { parseWebAuthnRpId } from '@shared/utils/domainIds';
+import { parseWebAuthnRpId, type WalletId } from '@shared/utils/domainIds';
+import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import type { RouterApiWebAuthnService } from '../../../framework/authServicePort';
-import {
-  d1HostIsWithinWebAuthnRpId,
-} from '../wallet/d1WalletAuthMethodBoundary';
+import { d1HostIsWithinWebAuthnRpId } from '../wallet/d1WalletAuthMethodBoundary';
 import {
   webAuthnCredentialIdB64uFromCredential,
   webAuthnOriginHostnameOrEmpty,
@@ -29,6 +28,13 @@ import {
   type WebAuthnSyncChallengeRecord,
   type WebAuthnSyncWalletBinding,
 } from './d1WebAuthnRecords';
+
+export type D1WebAuthnWalletManifestSource = {
+  getEd25519KeyManifestBySlot(input: {
+    readonly walletId: WalletId;
+    readonly signerSlot: number;
+  }): Promise<{ readonly custodyKeyManifestDigestB64u: string } | null>;
+};
 
 type ListWebAuthnAuthenticatorsInput = Parameters<
   RouterApiWebAuthnService['listWebAuthnAuthenticatorsForUser']
@@ -77,9 +83,14 @@ function errorMessage(error: unknown): string {
 
 export class CloudflareD1WebAuthnAuthService {
   private readonly webAuthnStore: CloudflareD1WebAuthnStore;
+  private readonly walletManifestSource: D1WebAuthnWalletManifestSource;
 
-  constructor(input: { readonly webAuthnStore: CloudflareD1WebAuthnStore }) {
+  constructor(input: {
+    readonly webAuthnStore: CloudflareD1WebAuthnStore;
+    readonly walletManifestSource: D1WebAuthnWalletManifestSource;
+  }) {
     this.webAuthnStore = input.webAuthnStore;
+    this.walletManifestSource = input.walletManifestSource;
   }
 
   async listWebAuthnAuthenticatorsForUser(
@@ -664,6 +675,27 @@ export class CloudflareD1WebAuthnAuthService {
           message: 'Credential binding is missing wallet identity fields',
         };
       }
+      const walletId = parseD1BoundaryWalletId(walletBinding.walletId);
+      if (!walletId) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'internal',
+          message: 'Credential binding contains an invalid wallet ID',
+        };
+      }
+      const ed25519Manifest = await this.walletManifestSource.getEd25519KeyManifestBySlot({
+        walletId,
+        signerSlot: walletBinding.signerSlot,
+      });
+      if (!ed25519Manifest) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'ed25519_not_provisioned',
+          message: 'Wallet has no Ed25519 signer yet; NEAR provisioning has not completed',
+        };
+      }
       const thresholdEd25519 =
         binding.relayerKeyId && binding.publicKey
           ? {
@@ -693,6 +725,7 @@ export class CloudflareD1WebAuthnAuthService {
         walletId: walletBinding.walletId,
         nearAccountId: walletBinding.nearAccountId,
         nearEd25519SigningKeyId: walletBinding.nearEd25519SigningKeyId,
+        custodyKeyManifestDigestB64u: parseDigestB64u(ed25519Manifest.custodyKeyManifestDigestB64u),
         walletBinding,
         rpId: walletBinding.rpId,
         signerSlot: walletBinding.signerSlot,
