@@ -38,13 +38,19 @@ test('docs onboarding, examples, search, appearance, and responsive navigation s
   await expect(page).toHaveURL(/\/getting-started\/create-wallet$/);
   await expect(page.getByRole('heading', { name: 'Create a wallet', level: 1 })).toBeVisible();
 
-  await page
-    .getByRole('navigation', { name: 'Main Navigation' })
-    .getByRole('link', { name: 'Examples', exact: true })
-    .click();
+  const sidebar = page.getByRole('navigation', { name: 'Sidebar Navigation' });
+  await sidebar.getByRole('button', { name: 'Examples' }).click();
+  await sidebar.locator('a[href="/examples/"]').click();
   await expect(page).toHaveURL(/\/examples\/$/);
   await expect(page.getByRole('heading', { name: 'Examples', level: 1 })).toBeVisible();
   await expect(page.locator('.vp-doc div[class*="language-"]').first()).toBeVisible();
+
+  await page
+    .getByRole('navigation', { name: 'Main Navigation' })
+    .getByRole('link', { name: 'SDK reference', exact: true })
+    .click();
+  await expect(page).toHaveURL(/\/reference\/$/);
+  await expect(page.getByRole('heading', { name: 'SDK reference', level: 1 })).toBeVisible();
 
   await page.getByRole('button', { name: 'Search' }).click();
   await page.getByPlaceholder('Search').fill('wallet sessions');
@@ -77,6 +83,6 @@ test('docs onboarding, examples, search, appearance, and responsive navigation s
   await mobileNavigation.click();
   await expect(mobileNavigation).toHaveAttribute('aria-expanded', 'true');
   await expect(
-    page.locator('#VPNavScreen').getByRole('link', { name: 'Examples', exact: true }),
+    page.locator('#VPNavScreen').getByRole('link', { name: 'SDK reference', exact: true }),
   ).toBeVisible();
 });
