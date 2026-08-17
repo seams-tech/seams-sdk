@@ -461,7 +461,7 @@ function profileRow(input: UpsertProfileInput, existing?: ProfileRecord): Wallet
     defaultSignerSlot: input.defaultSignerSlot ?? existing?.defaultSignerSlot ?? 1,
     ...(passkeyCredential ? { passkeyCredential } : {}),
     preferences: input.preferences ?? existing?.preferences,
-    ...((input.nearProvisioning ?? existing?.nearProvisioning)
+    ...(input.nearProvisioning ?? existing?.nearProvisioning
       ? { nearProvisioning: input.nearProvisioning ?? existing?.nearProvisioning }
       : {}),
     createdAt: existing?.createdAt ?? now,
@@ -1111,49 +1111,6 @@ function parseAccountSignerRow(value: unknown): AccountSignerRecord | null {
   if (row.status !== record.status) return null;
   if (row.updated_at !== record.updatedAt) return null;
   return record;
-}
-
-/**
- * Supersedes an earlier Ed25519 signer mirror that now collides on a unique index.
- *
- * `wallet_signer_id` is derived from the chain, account, and signer id, while the
- * unique indexes key on the NEAR signing key id and the signer slot. Those can
- * disagree: the same wallet key re-projected under a different signer id — which
- * is what a second device enrolling against an existing wallet produces — yields
- * a new row that collides with the old one on the NEAR key it still names. The
- * unique index rejects the write, and the failure surfaces far from its cause as
- * a login that cannot open the wallet.
- *
- * The newest projection wins, matching how threshold ECDSA rows are already
- * reconciled here. Only rows that actually collide on a unique mirror are
- * removed, so two genuinely distinct signers for one wallet both survive.
- */
-export async function deleteConflictingNearEd25519SignerRows(args: {
-  store: any;
-  nextRow: WalletSignerRow;
-}): Promise<void> {
-  const row = args.nextRow;
-  if (row.status === 'revoked') return;
-  if (!row.near_ed25519_signing_key_id && row.near_signer_slot == null) return;
-
-  const walletRows = (await args.store
-    .index(SEAMS_WALLET_INDEXES.walletId)
-    .getAll(row.wallet_id)) as Partial<WalletSignerRow>[] | undefined;
-  const conflictingRowIds = new Set<string>();
-  for (const existing of walletRows || []) {
-    const existingRowId = toTrimmedString(existing?.wallet_signer_id || '');
-    if (!existingRowId || existingRowId === row.wallet_signer_id) continue;
-    if (existing?.kind !== row.kind) continue;
-    const collidesOnNearKey =
-      row.near_ed25519_signing_key_id !== undefined &&
-      existing?.near_ed25519_signing_key_id === row.near_ed25519_signing_key_id;
-    const collidesOnSlot =
-      row.near_signer_slot != null && existing?.near_signer_slot === row.near_signer_slot;
-    if (collidesOnNearKey || collidesOnSlot) conflictingRowIds.add(existingRowId);
-  }
-  for (const rowId of conflictingRowIds) {
-    await args.store.delete(rowId);
-  }
 }
 
 async function deleteConflictingThresholdEcdsaSignerRows(args: {
@@ -2239,7 +2196,6 @@ export class SeamsWalletRepositories {
     });
     const signerRow = accountSignerRow(signer);
     await deleteConflictingThresholdEcdsaSignerRows({ store: signerStore, nextRow: signerRow });
-    await deleteConflictingNearEd25519SignerRows({ store: signerStore, nextRow: signerRow });
     await signerStore.put(signerRow);
     if (input.selectAsActive ?? true) {
       await ctx.store(SEAMS_WALLET_STORES.appState).put({
@@ -2520,7 +2476,6 @@ export class SeamsWalletRepositories {
         });
         const signerRow = accountSignerRow(signer);
         await deleteConflictingThresholdEcdsaSignerRows({ store: signerStore, nextRow: signerRow });
-        await deleteConflictingNearEd25519SignerRows({ store: signerStore, nextRow: signerRow });
         await signerStore.put(signerRow);
         if (input.mutation?.routeThroughOutbox ?? false) {
           const opId =
