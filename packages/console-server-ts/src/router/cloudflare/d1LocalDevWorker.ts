@@ -19,7 +19,12 @@ import {
   type CloudflareD1RouterApiAuthServiceOptions,
 } from '@seams/sdk-server/cloud-host';
 import { loadCloudflareSignerWasmModule } from './d1SignerWasm';
-import { createEd25519SessionAdapter } from './d1StagingSession';
+import {
+  createConsoleSessionAuthAdapter,
+  createEd25519SessionAdapter,
+  createHmacSessionAdapter,
+} from './d1StagingSession';
+import { HostedConsoleAuthHandler } from './d1RouterApiStagingWorker';
 import {
   resolveSponsoredEvmCallConfigFromWorkerEnv,
   resolveSponsoredEvmWorkerExecutionAdapter,
@@ -132,6 +137,10 @@ interface LocalD1DevEnv extends RouterAbServiceBindingEnv {
   readonly SESSION_COOKIE_NAME?: string;
   readonly RELAY_SESSION_ISSUER?: string;
   readonly RELAY_SESSION_AUDIENCE?: string;
+  readonly CONSOLE_SESSION_HMAC_SECRET?: string;
+  readonly CONSOLE_SESSION_COOKIE_NAME?: string;
+  readonly CONSOLE_SESSION_ISSUER?: string;
+  readonly CONSOLE_SESSION_AUDIENCE?: string;
   readonly ROUTER_AB_NORMAL_SIGNING_WORKER_ID?: string;
   readonly SIGNING_WORKER_ID?: string;
   readonly DERIVER_A_ED25519_YAO_INPUT_PUBLIC_KEY?: string;
@@ -189,6 +198,11 @@ type ReadyAdmissionResult = {
 const DEFAULT_LOCAL_CONSOLE_USER_ID = 'local-console-user';
 const DEFAULT_LOCAL_CONSOLE_PROJECT_ID = 'local-smoke-project';
 const DEFAULT_LOCAL_CONSOLE_ENVIRONMENT_ID = 'local';
+const DEFAULT_LOCAL_CONSOLE_SESSION_HMAC_SECRET =
+  'seams-local-console-session-secret-change-before-shared-dev';
+const DEFAULT_LOCAL_CONSOLE_SESSION_COOKIE_NAME = 'seams-console-jwt';
+const DEFAULT_LOCAL_CONSOLE_SESSION_ISSUER = 'https://localhost:9444/console';
+const DEFAULT_LOCAL_CONSOLE_SESSION_AUDIENCE = 'seams-console-session';
 const DEFAULT_LOCAL_ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET = 'dev-router-ab-internal-service-auth';
 const DEFAULT_LOCAL_LINKED_DEVICE_OPERATOR_RECOVERY_SECRET =
   'dev-linked-device-operator-recovery-secret';
@@ -689,13 +703,19 @@ function localTenantStorageNamespace(env: LocalD1DevEnv): string {
 }
 
 class LocalD1DevConsoleAuthAdapter implements ConsoleAuthAdapter {
-  constructor(private readonly env: LocalD1DevEnv) {}
+  constructor(
+    private readonly env: LocalD1DevEnv,
+    private readonly sessionAuth: ConsoleAuthAdapter,
+  ) {}
 
-  authenticate(headers: HeaderRecord): { readonly ok: true; readonly claims: ConsoleAuthClaims } {
-    return {
-      ok: true,
-      claims: localConsoleAuthClaims(this.env, headers),
-    };
+  async authenticate(headers: HeaderRecord) {
+    if (headerString(headers, 'x-console-user-id')) {
+      return {
+        ok: true as const,
+        claims: localConsoleAuthClaims(this.env, headers),
+      };
+    }
+    return await this.sessionAuth.authenticate(headers);
   }
 }
 
@@ -754,6 +774,21 @@ function localGithubOAuthConfig(env: LocalD1DevEnv) {
 
 function localRouterApiSessionCookieName(env: LocalD1DevEnv): string | undefined {
   return normalizeLocalString(env.SESSION_COOKIE_NAME) || undefined;
+}
+
+function localConsoleSession(env: LocalD1DevEnv): SessionAdapter {
+  return createHmacSessionAdapter({
+    secret:
+      normalizeLocalString(env.CONSOLE_SESSION_HMAC_SECRET) ||
+      DEFAULT_LOCAL_CONSOLE_SESSION_HMAC_SECRET,
+    cookieName:
+      normalizeLocalString(env.CONSOLE_SESSION_COOKIE_NAME) ||
+      DEFAULT_LOCAL_CONSOLE_SESSION_COOKIE_NAME,
+    issuer:
+      normalizeLocalString(env.CONSOLE_SESSION_ISSUER) || DEFAULT_LOCAL_CONSOLE_SESSION_ISSUER,
+    audience:
+      normalizeLocalString(env.CONSOLE_SESSION_AUDIENCE) || DEFAULT_LOCAL_CONSOLE_SESSION_AUDIENCE,
+  });
 }
 
 function localEmailOtpServerSealConfig(
@@ -924,6 +959,12 @@ function createLocalReadyCheck(env: LocalD1DevEnv): () => Promise<void> {
 }
 
 async function createLocalConsoleHandler(env: LocalD1DevEnv): Promise<FetchHandler> {
+  const scope = {
+    namespace: localTenantStorageNamespace(env),
+    orgId: await resolveLocalRouterOrganizationId(env),
+    projectId: localConsoleProjectId(env),
+    envId: localConsoleEnvironmentId(env),
+  };
   const sponsoredEvmCallConfig = await resolveSponsoredEvmCallConfigFromWorkerEnv(env);
   const billingProviders = localBillingProviderAdapters(env);
   const bundle = await createCloudflareD1ConsoleServiceBundle({
@@ -942,14 +983,35 @@ async function createLocalConsoleHandler(env: LocalD1DevEnv): Promise<FetchHandl
       billingEmailConsoleBaseUrl: String(env.CONSOLE_BASE_URL || '').trim() || 'https://localhost',
     },
   });
-  return createCloudflareConsoleRouter({
+  const session = localConsoleSession(env);
+  const sessionAuth = createConsoleSessionAuthAdapter({
+    session,
+    organizationAccess: bundle.organizationAccess,
+    defaultOrgId: scope.orgId,
+    defaultProjectId: scope.projectId,
+    defaultEnvironmentId: scope.envId,
+  });
+  const handler = createCloudflareConsoleRouter({
     ...bundle.consoleRouterOptions,
     healthz: true,
     readyz: true,
-    auth: new LocalD1DevConsoleAuthAdapter(env),
+    corsOrigins: [...LOCAL_ROUTER_API_CORS_ORIGINS],
+    auth: new LocalD1DevConsoleAuthAdapter(env, sessionAuth),
+    session,
     readyCheck: createLocalReadyCheck(env),
     billingStripeWebhookSigningSecret: String(env.STRIPE_WEBHOOK_SECRET || '').trim() || undefined,
   });
+  const consoleAuthHandler = new HostedConsoleAuthHandler({
+    handler,
+    identity: createLocalD1RouterApiAuthService(env, scope.orgId).identity,
+    session,
+    organizationAccess: bundle.organizationAccess,
+    orgProjectEnv: bundle.orgProjectEnv,
+    scope,
+    initialOwner: { kind: 'first_verified_google' },
+    corsOrigins: [...LOCAL_ROUTER_API_CORS_ORIGINS],
+  });
+  return consoleAuthHandler.fetch.bind(consoleAuthHandler);
 }
 
 function localConsoleHandler(env: LocalD1DevEnv): Promise<FetchHandler> {
