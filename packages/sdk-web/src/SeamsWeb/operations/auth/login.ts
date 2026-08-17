@@ -3454,6 +3454,18 @@ async function openAndActivatePasskeyEd25519CustodyLogin(
       }),
       materialActivation: activated.materialActivation,
     });
+    /* R103 zero-prompt handoff. The passkey factor was presented for this
+       unlock and the owner Wallet Session persisted above is active, so this
+       is where the linking capability is established — the linking flow itself
+       never prompts and never opens the envelope again. Runs last: everything
+       above has succeeded, so a failed unlock never leaves a capability. */
+    await input.signingEngine.establishUnlockedWalletCustodyTransferCapabilityV1({
+      existingEnvelope: input.custody.envelope,
+      passkeyPrfFirstB64u: input.passkeyPrfFirstB64u,
+      walletId: String(input.walletBinding.walletId),
+      walletSessionId: String(input.walletSession.walletSessionId),
+      expiresAtMs: input.walletSession.expiresAtMs,
+    });
   } catch (error) {
     activeClient?.dispose();
     throw error;

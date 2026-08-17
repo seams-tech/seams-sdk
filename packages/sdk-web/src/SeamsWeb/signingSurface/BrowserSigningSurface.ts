@@ -413,6 +413,14 @@ import type {
 } from '@shared/utils/routerAbEd25519Yao';
 import { readPasskeyCustodySessionEnvelope } from '@/core/signingEngine/session/passkey/passkeyCustodySessionCache';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
+import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
+import type { WalletCustodyCeremonyTransportPort } from '@/core/signingEngine/walletCustody/ceremonyStepRunner';
+import type { UnlockedWalletCustodyCapabilityDestroyScopeV1 } from '@/core/signingEngine/workerManager/workerTypes';
+import {
+  custodyEnvelopePasskeyAuthMethodIdV1,
+  destroyUnlockedWalletCustodyTransferCapabilitiesV1 as destroyUnlockedCustodyCapabilitiesWithWorkerV1,
+  establishUnlockedWalletCustodyTransferCapabilityV1 as establishUnlockedCustodyCapabilityWithWorkerV1,
+} from '@/core/signingEngine/walletCustody/unlockedCustodyTransferCapability';
 import { base58Encode } from '@shared/utils/base58';
 import { __isWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode';
 import {
@@ -2495,13 +2503,11 @@ export class BrowserSigningSurface {
     }
     const nowMs = Date.now();
     if (authorization.expiresAtMs <= nowMs) {
-      await walletSessionAuthorizations.write(
-        retireWalletSessionAuthorizationProjection({
+      await this.retireWalletSessionAuthorizationV1({
           active: authorization,
           reason: 'expired',
           retiredAtMs: nowMs,
-        }),
-      );
+        });
       return {
         kind: 'expired',
         walletId: exactWalletId,
@@ -2566,13 +2572,11 @@ export class BrowserSigningSurface {
           expiresAtMs: status.expiresAtMs,
         };
       case 'expired':
-        await walletSessionAuthorizations.write(
-          retireWalletSessionAuthorizationProjection({
+        await this.retireWalletSessionAuthorizationV1({
             active: authorization,
             reason: 'expired',
             retiredAtMs: Math.max(nowMs, status.expiresAtMs),
-          }),
-        );
+          });
         return {
           kind: 'expired',
           walletId: exactWalletId,
@@ -2583,13 +2587,11 @@ export class BrowserSigningSurface {
           detectedAtMs: nowMs,
         };
       case 'missing':
-        await walletSessionAuthorizations.write(
-          retireWalletSessionAuthorizationProjection({
+        await this.retireWalletSessionAuthorizationV1({
             active: authorization,
             reason: 'invalidated',
             retiredAtMs: nowMs,
-          }),
-        );
+          });
         return {
           kind: 'missing',
           walletId: exactWalletId,
@@ -2598,13 +2600,11 @@ export class BrowserSigningSurface {
           authMethod: authorization.authMethod,
         };
       case 'superseded':
-        await walletSessionAuthorizations.write(
-          retireWalletSessionAuthorizationProjection({
+        await this.retireWalletSessionAuthorizationV1({
             active: authorization,
             reason: 'replaced',
             retiredAtMs: nowMs,
-          }),
-        );
+          });
         // Replaced, not broken. The caller discards this session and resolves
         // current state again; reporting `invalid` sent it to an error path.
         return {
@@ -2616,15 +2616,32 @@ export class BrowserSigningSurface {
           detectedAtMs: nowMs,
         };
       case 'invalid':
-        await walletSessionAuthorizations.write(
-          retireWalletSessionAuthorizationProjection({
+        await this.retireWalletSessionAuthorizationV1({
             active: authorization,
             reason: 'invalidated',
             retiredAtMs: nowMs,
-          }),
-        );
+          });
         return { kind: 'invalid', walletId: exactWalletId, reason: 'identity_mismatch' };
     }
+  }
+
+  /**
+   * Retires an owner Wallet Session projection and destroys the unlocked
+   * custody transfer capability it authorized (R103): a retired, replaced, or
+   * expired session must not leave a sealing capability behind.
+   */
+  private async retireWalletSessionAuthorizationV1(input: {
+    readonly active: ActiveWalletSessionAuthorizationProjection;
+    readonly reason: 'expired' | 'invalidated' | 'replaced';
+    readonly retiredAtMs: number;
+  }): Promise<void> {
+    await walletSessionAuthorizations.write(
+      retireWalletSessionAuthorizationProjection(input),
+    );
+    void this.destroyUnlockedWalletCustodyTransferCapabilitiesV1({
+      kind: 'wallet_session',
+      walletSessionId: String(input.active.walletSessionId),
+    });
   }
 
   readWalletAuthenticationState(): WalletAuthenticationState {
@@ -2652,6 +2669,16 @@ export class BrowserSigningSurface {
   setWalletAuthenticated(
     state: Extract<WalletAuthenticationState, { kind: 'authenticated' }>,
   ): void {
+    // R103 zero-prompt handoff: switching wallets ends the previous wallet's
+    // authority here without passing through clearWalletAuthentication, so its
+    // unlocked custody capability is destroyed at the switch itself.
+    const previous = this.walletAuthenticationState;
+    if (previous.kind === 'authenticated' && String(previous.walletId) !== String(state.walletId)) {
+      void this.destroyUnlockedWalletCustodyTransferCapabilitiesV1({
+        kind: 'wallet',
+        walletId: String(previous.walletId),
+      });
+    }
     this.walletAuthenticationRestoreGeneration += 1;
     this.applyAuthenticatedWalletState(state);
   }
@@ -2746,6 +2773,78 @@ export class BrowserSigningSurface {
     }
     this.walletAuthenticationRestoreGeneration += 1;
     this.walletAuthenticationState = { kind: 'signed_out' };
+    // R103 zero-prompt handoff: logout and wallet switch both land here, and
+    // both end the authority the unlocked custody capability was scoped to.
+    void this.destroyUnlockedWalletCustodyTransferCapabilitiesV1({ kind: 'all' });
+  }
+
+  /**
+   * The wallet custody ceremony worker as the small structural port the
+   * custody modules take, so they can be exercised without a worker.
+   */
+  private walletCustodyCeremonyTransportV1(): WalletCustodyCeremonyTransportPort {
+    return {
+      requestOperation: async (operation: {
+        readonly kind: 'walletCustodyCeremony';
+        readonly request: unknown;
+      }) =>
+        await this.getSignerWorkerContext().requestWorkerOperation({
+          kind: operation.kind,
+          request: operation.request as never,
+        }),
+    };
+  }
+
+  /**
+   * Refactor 103 zero-prompt handoff: parks the wallet custody seed inside the
+   * ceremony worker for the lifetime of the just-activated owner Wallet
+   * Session, reusing the factor secret this registration or unlock already
+   * collected. Failure is absorbed: the wallet stays usable, and device
+   * linking fails closed with `wallet_unlock_required` until the next unlock.
+   */
+  async establishUnlockedWalletCustodyTransferCapabilityV1(input: {
+    readonly existingEnvelope: PasskeyCustodyEnvelopeRecord;
+    readonly passkeyPrfFirstB64u: string;
+    readonly walletId: string;
+    readonly walletSessionId: string;
+    readonly expiresAtMs: number;
+  }): Promise<void> {
+    try {
+      const factor = input.existingEnvelope.factor;
+      if (factor.kind !== 'passkey') {
+        throw new Error('unlocked custody capability requires a passkey envelope factor');
+      }
+      const existingFactorSecret = base64UrlDecode(input.passkeyPrfFirstB64u);
+      try {
+        await establishUnlockedCustodyCapabilityWithWorkerV1(
+          this.walletCustodyCeremonyTransportV1(),
+          {
+            existingEnvelope: input.existingEnvelope,
+            existingFactorSecret,
+            walletId: input.walletId,
+            walletAuthMethodId: custodyEnvelopePasskeyAuthMethodIdV1(factor),
+            walletSessionId: input.walletSessionId,
+            expiresAtMs: input.expiresAtMs,
+          },
+        );
+      } finally {
+        existingFactorSecret.fill(0);
+      }
+    } catch (error: unknown) {
+      console.warn(
+        '[BrowserSigningSurface] unlocked custody transfer capability was not established:',
+        error instanceof Error ? error.message : String(error || 'unknown error'),
+      );
+    }
+  }
+
+  async destroyUnlockedWalletCustodyTransferCapabilitiesV1(
+    scope: UnlockedWalletCustodyCapabilityDestroyScopeV1,
+  ): Promise<void> {
+    await destroyUnlockedCustodyCapabilitiesWithWorkerV1(
+      this.walletCustodyCeremonyTransportV1(),
+      scope,
+    );
   }
 
   private async runWarmCriticalResources(

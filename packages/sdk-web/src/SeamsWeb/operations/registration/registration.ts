@@ -3653,16 +3653,34 @@ async function registerPasskeyEd25519YaoWalletOnly(args: {
       ),
       signerSlot: finalized.ed25519.signerSlot,
     });
-    await persistActiveWalletSessionAuthorizationFromRegistration(walletSessionAuthorizations, {
-      authority: await walletAuthAuthorityRef({
-        authority: passkeyWalletAuthAuthorityFromCredential({
-          walletId: finalized.walletId,
-          rpId: finalizedPasskey.rpId,
-          credential: passkeyAuthority.credential,
+    const registrationAuthorization = await persistActiveWalletSessionAuthorizationFromRegistration(
+      walletSessionAuthorizations,
+      {
+        authority: await walletAuthAuthorityRef({
+          authority: passkeyWalletAuthAuthorityFromCredential({
+            walletId: finalized.walletId,
+            rpId: finalizedPasskey.rpId,
+            credential: passkeyAuthority.credential,
+          }),
         }),
+        authMethod: 'passkey',
+        session: finalized.registrationEstablishedSession,
+      },
+    );
+    /* R103 zero-prompt handoff. The owner factor was presented for this
+       registration and the owner Wallet Session persisted above is active, so
+       the linking capability is established here from the envelope this
+       ceremony just sealed — never later, and never from the linking flow. */
+    await context.signingEngine.establishUnlockedWalletCustodyTransferCapabilityV1({
+      existingEnvelope: passkeyCustodyEnvelopeFromRegistrationCommit({
+        commit: established.commitPayload,
+        walletId: String(finalized.walletId),
+        activatedAtMs: Date.now(),
       }),
-      authMethod: 'passkey',
-      session: finalized.registrationEstablishedSession,
+      passkeyPrfFirstB64u: passkeyAuthority.prfFirstB64u,
+      walletId: String(finalized.walletId),
+      walletSessionId: String(registrationAuthorization.walletSessionId),
+      expiresAtMs: registrationAuthorization.expiresAtMs,
     });
     emitRegistrationEvent(options.onEvent, eventAccountId, {
       authMethod: 'passkey',

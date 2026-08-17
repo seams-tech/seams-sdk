@@ -1637,6 +1637,37 @@ export type EcdsaDerivationRoleLocalMaterialOperationRequest<
   T extends EcdsaDerivationRoleLocalMaterialOperationType,
 > = EcdsaDerivationWorkerOperationRequest<T>;
 /**
+ * Refactor 103 zero-prompt handoff — the public reference to an unlocked
+ * wallet custody transfer capability.
+ *
+ * The worker owns the opened custody-seed handle; this reference carries only
+ * the opaque handle id and the binding facts the worker will re-verify before
+ * sealing: exact wallet, issuing auth method, owner Wallet Session, and
+ * expiry. It is volatile by construction — nothing here can be used to reopen
+ * an envelope after the worker destroys the handle, so persisting it grants
+ * nothing.
+ */
+export type UnlockedWalletCustodyTransferCapabilityV1 = {
+  readonly kind: 'unlocked_wallet_custody_transfer_capability_v1';
+  readonly capabilityHandleId: string;
+  readonly walletId: string;
+  readonly walletAuthMethodId: string;
+  readonly walletSessionId: string;
+  readonly expiresAtMs: number;
+};
+
+/**
+ * What a destroy call invalidates. Lock and logout destroy by wallet, session
+ * retirement or replacement by Wallet Session, failed activation by capability
+ * handle, and worker reset or page teardown destroys all.
+ */
+export type UnlockedWalletCustodyCapabilityDestroyScopeV1 =
+  | { readonly kind: 'capability'; readonly capabilityHandleId: string }
+  | { readonly kind: 'wallet'; readonly walletId: string }
+  | { readonly kind: 'wallet_session'; readonly walletSessionId: string }
+  | { readonly kind: 'all' };
+
+/**
  * One wallet custody ceremony run, one operation per step.
  *
  * A run provisions exactly one key set. It either *establishes* custody — the
@@ -1806,15 +1837,45 @@ export interface WalletCustodyCeremonyWorkerOperationMap {
     result: { recipientHandleId: string; recipientPublicKeyB64u: string };
   };
   /**
-   * Device 1: opens its own custody envelope and reseals the seed for one
-   * approved linked device. The seed, the owner PRF, and the derived transfer
-   * key never leave the worker; the result is ciphertext plus public routing
-   * facts.
+   * Refactor 103 zero-prompt handoff: opens the wallet custody seed envelope
+   * with the factor secret already present in registration or ordinary unlock,
+   * and parks the opened handle inside this worker for the lifetime of the
+   * owner Wallet Session that authorized it. The result is the public
+   * reference only — no seed bytes, and no serializable secret.
+   *
+   * At most one capability exists per wallet and owner Wallet Session;
+   * establishing a new one destroys the previous handle first.
    */
-  sealWalletCustodySeedForLinkedDevice: {
+  establishUnlockedWalletCustodyTransferCapability: {
     payload: {
       existingEnvelope: PasskeyCustodyEnvelopeRecord;
       existingFactorSecret: ArrayBuffer;
+      walletId: string;
+      walletAuthMethodId: string;
+      walletSessionId: string;
+      expiresAtMs: number;
+    };
+    result: UnlockedWalletCustodyTransferCapabilityV1;
+  };
+  /**
+   * Destroys unlocked custody transfer capabilities. Wired into lock, logout,
+   * wallet switch, Wallet Session retirement or replacement, expiry, failed
+   * activation, and page teardown; `all` is the worker-reset scope.
+   */
+  destroyUnlockedWalletCustodyTransferCapabilities: {
+    payload: { scope: UnlockedWalletCustodyCapabilityDestroyScopeV1 };
+    result: { destroyedCount: number };
+  };
+  /**
+   * Device 1: seals the wallet custody seed for one approved linked device
+   * from the worker-held unlocked capability. The seed and the derived
+   * transfer key never leave the worker; a wallet, auth-method, Wallet
+   * Session, or expiry mismatch fails before any ciphertext exists. Each call
+   * draws a fresh X25519 ephemeral key and nonce.
+   */
+  sealWalletCustodySeedForLinkedDevice: {
+    payload: {
+      capability: UnlockedWalletCustodyTransferCapabilityV1;
       transferBindingJson: string;
     };
     result: {
