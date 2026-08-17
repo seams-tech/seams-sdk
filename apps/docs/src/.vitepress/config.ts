@@ -1,6 +1,9 @@
 import { defineConfig, type DefaultTheme } from 'vitepress';
 
 const docsOrigin = (process.env.VITE_DOCS_ORIGIN || 'https://docs.seams.sh').replace(/\/$/, '');
+// The deploy script hands both origins to this build; `pnpm dev` falls back to
+// the local Caddy host so the brand still leads back to the running site.
+const siteOrigin = (process.env.VITE_SITE_ORIGIN || 'https://seams.sh').replace(/\/$/, '');
 
 function pageUrl(page: string): string {
   const route = page.replace(/(?:^|\/)index\.md$/, '').replace(/\.md$/, '');
@@ -221,7 +224,7 @@ const documentationSidebar: DefaultTheme.SidebarItem[] = [
 export default defineConfig({
   base: '/',
   cleanUrls: true,
-  appearance: false,
+  appearance: true,
   lastUpdated: true,
   title: 'Seams',
   description: 'Key and credential infrastructure for policy-bound digital authority',
@@ -247,7 +250,10 @@ export default defineConfig({
     ];
   },
   markdown: {
-    theme: 'github-light-high-contrast',
+    theme: {
+      light: 'vitesse-light',
+      dark: 'vitesse-dark',
+    },
     languageAlias: {
       caddy: 'nginx',
     },
@@ -255,9 +261,11 @@ export default defineConfig({
   themeConfig: {
     siteTitle: 'docs',
     logo: {
-      src: '/seams-v9/svg/seams-wordmark-hanken-dark.svg',
+      light: '/seams-v9/svg/seams-wordmark-hanken-dark.svg',
+      dark: '/seams-v9/svg/seams-wordmark-hanken-white.svg',
       alt: 'Seams',
     },
+    logoLink: `${siteOrigin}/wallet`,
     lastUpdated: { text: 'Last updated' },
     outline: [2, 3],
     search: { provider: 'local' },
