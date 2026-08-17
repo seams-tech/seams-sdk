@@ -114,6 +114,7 @@ import {
   type LinkedDeviceTargetCredentialRegistrationV1,
   type LinkedDeviceTargetHolderRegistrationV1,
   type LinkedDeviceTargetPreparationChildV1,
+  type LinkedDeviceOwnerEnrollmentCeremonyV1,
   type LinkedDeviceTargetPreparationV1,
   type LinkedDeviceTargetReadyR102InputV1,
   type LinkedDeviceWebAuthnRegistrationV1,
@@ -339,6 +340,19 @@ const TARGET_PREPARATION_FIELDS = [
   'orderedChildren',
   'issuedAtMs',
   'expiresAtMs',
+] as const;
+/**
+ * `ownerEnrollment` is absent until Device 1 starts the owner ceremony, so it
+ * is allowed but not required. Everything else stays mandatory.
+ */
+const TARGET_PREPARATION_ALLOWED_FIELDS = [
+  ...TARGET_PREPARATION_FIELDS,
+  'ownerEnrollment',
+] as const;
+const OWNER_ENROLLMENT_CEREMONY_FIELDS = [
+  'kind',
+  'addAuthMethodCeremonyId',
+  'registration',
 ] as const;
 const TARGET_PREPARATION_CHILD_FIELDS = [
   'kind',
@@ -2303,10 +2317,52 @@ function parseTargetPreparationChild(
   };
 }
 
+/**
+ * The owner ceremony Device 2 will finalize.
+ *
+ * `registration` stays opaque: it is the server's own
+ * `WalletAddAuthMethodRegistrationOptions`, and re-validating its shape here
+ * would fork the canonical add-passkey contract. What this boundary owns is
+ * that the ceremony is named and that nothing else rides along with it.
+ */
+export function parseLinkedDeviceOwnerEnrollmentCeremonyV1(
+  raw: unknown,
+): LinkedDeviceOwnerEnrollmentCeremonyV1 {
+  const record = exactRecord(
+    raw,
+    OWNER_ENROLLMENT_CEREMONY_FIELDS,
+    'LinkedDeviceOwnerEnrollmentCeremonyV1',
+  );
+  if (record.kind !== 'linked_device_owner_enrollment_ceremony_v1') {
+    throw new Error('LinkedDeviceOwnerEnrollmentCeremonyV1.kind is invalid');
+  }
+  return {
+    kind: 'linked_device_owner_enrollment_ceremony_v1',
+    addAuthMethodCeremonyId: parseNonEmptyToken(
+      record.addAuthMethodCeremonyId,
+      'LinkedDeviceOwnerEnrollmentCeremonyV1.addAuthMethodCeremonyId',
+    ),
+    registration: requireRecord(
+      record.registration,
+      'LinkedDeviceOwnerEnrollmentCeremonyV1.registration',
+    ),
+  };
+}
+
 export function parseLinkedDeviceTargetPreparationV1(
   raw: unknown,
 ): LinkedDeviceTargetPreparationV1 {
-  const record = exactRecord(raw, TARGET_PREPARATION_FIELDS, 'LinkedDeviceTargetPreparationV1');
+  const record = requireRecord(raw, 'LinkedDeviceTargetPreparationV1');
+  rejectUnknownFields(
+    record,
+    TARGET_PREPARATION_ALLOWED_FIELDS,
+    'LinkedDeviceTargetPreparationV1',
+  );
+  for (const field of TARGET_PREPARATION_FIELDS) {
+    if (record[field] === undefined) {
+      throw new Error(`LinkedDeviceTargetPreparationV1.${field} is required`);
+    }
+  }
   if (record.kind !== 'linked_device_target_preparation_v1') {
     throw new Error('LinkedDeviceTargetPreparationV1.kind is invalid');
   }
@@ -2326,8 +2382,13 @@ export function parseLinkedDeviceTargetPreparationV1(
   if (expiresAtMs <= issuedAtMs) {
     throw new Error('LinkedDeviceTargetPreparationV1.expiresAtMs must follow issuedAtMs');
   }
+  const ownerEnrollment =
+    record.ownerEnrollment === undefined
+      ? null
+      : parseLinkedDeviceOwnerEnrollmentCeremonyV1(record.ownerEnrollment);
   return {
     kind: 'linked_device_target_preparation_v1',
+    ...(ownerEnrollment ? { ownerEnrollment } : {}),
     linkSessionId: parseSessionId(
       record.linkSessionId,
       'LinkedDeviceTargetPreparationV1.linkSessionId',
