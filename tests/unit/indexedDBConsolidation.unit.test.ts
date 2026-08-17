@@ -21,7 +21,7 @@ const ECDSA_CAPABILITY_STORE_SOURCE = new URL(
 test.describe('IndexedDB consolidation', () => {
   test('canonical wallet schema names use one Seams-prefixed DB and unprefixed snake_case stores', () => {
     expect(SEAMS_WALLET_DB_NAME).toBe('seams_wallet');
-    expect(SEAMS_WALLET_DB_VERSION).toBe(19);
+    expect(SEAMS_WALLET_DB_VERSION).toBe(21);
     expect(Object.values(SEAMS_WALLET_STORES).every((name) => !name.startsWith('seams_'))).toBe(
       true,
     );
@@ -284,9 +284,106 @@ test.describe('IndexedDB consolidation', () => {
     });
   });
 
-  test('unified repositories persist profile, chain account, and app state', async ({
-    page,
-  }) => {
+  test('schema upgrade lets one wallet key carry several owner devices', async ({ page }) => {
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
+    const result = await page.evaluate(async () => {
+      const schemaNames = await import('/_test-sdk/esm/core/indexedDB/schemaNames.js');
+      const managerModule = await import('/_test-sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
+      const dbName = schemaNames.createSeamsTestWalletDbName(
+        `owner_signer_index_upgrade_${crypto.randomUUID()}`,
+      );
+      await new Promise<void>((resolve) => {
+        const request = indexedDB.deleteDatabase(dbName);
+        request.onsuccess = () => resolve();
+        request.onerror = () => resolve();
+        request.onblocked = () => resolve();
+      });
+      // The pre-cutover schema: both mirrors unique, which permits exactly one
+      // owner Ed25519 signer per wallet.
+      await new Promise<void>((resolve, reject) => {
+        const request = indexedDB.open(dbName, 4);
+        request.onupgradeneeded = () => {
+          const store = request.result.createObjectStore(
+            schemaNames.SEAMS_WALLET_STORES.walletSigners,
+            { keyPath: 'wallet_signer_id' },
+          );
+          store.createIndex(
+            schemaNames.SEAMS_WALLET_INDEXES.walletKindNearEd25519SigningKeyId,
+            ['wallet_id', 'kind', 'near_ed25519_signing_key_id'],
+            { unique: true },
+          );
+          store.createIndex(
+            schemaNames.SEAMS_WALLET_INDEXES.walletKindNearSignerSlot,
+            ['wallet_id', 'kind', 'near_signer_slot'],
+            { unique: true },
+          );
+        };
+        request.onsuccess = () => {
+          request.result.close();
+          resolve();
+        };
+        request.onerror = () => reject(request.error);
+      });
+
+      const manager = new managerModule.SeamsWalletDBManager();
+      manager.setDbName(dbName);
+      const db = await manager.getDB();
+
+      // Two owner devices on one wallet: same NEAR key, same inherited slot,
+      // different credentials. Both must land.
+      const row = (credentialId: string) => ({
+        wallet_signer_id: `near:testnet/alice.testnet/${credentialId}`,
+        wallet_id: 'profile-near:alice.testnet',
+        kind: 'threshold_ed25519',
+        near_ed25519_signing_key_id: 'ed25519:shared-wallet-key',
+        near_signer_slot: 4,
+        status: 'active',
+        updated_at: 1,
+        record: { profileId: 'profile-near:alice.testnet', signerId: credentialId },
+      });
+      const writeTx = db.transaction(schemaNames.SEAMS_WALLET_STORES.walletSigners, 'readwrite');
+      const writeStore = writeTx.objectStore(schemaNames.SEAMS_WALLET_STORES.walletSigners);
+      let writeError: string | null = null;
+      try {
+        await writeStore.put(row('device-1-credential'));
+        await writeStore.put(row('device-2-credential'));
+        await writeTx.done;
+      } catch (error: unknown) {
+        writeError = error instanceof Error ? error.message : String(error);
+      }
+
+      const readTx = db.transaction(schemaNames.SEAMS_WALLET_STORES.walletSigners, 'readonly');
+      const readStore = readTx.objectStore(schemaNames.SEAMS_WALLET_STORES.walletSigners);
+      const observed = {
+        version: db.version,
+        nearKeyUnique: readStore.index(
+          schemaNames.SEAMS_WALLET_INDEXES.walletKindNearEd25519SigningKeyId,
+        ).unique,
+        slotUnique: readStore.index(schemaNames.SEAMS_WALLET_INDEXES.walletKindNearSignerSlot)
+          .unique,
+        rowCount: await readStore.count(),
+        writeError,
+      };
+      manager.close();
+      await new Promise<void>((resolve) => {
+        const request = indexedDB.deleteDatabase(dbName);
+        request.onsuccess = () => resolve();
+        request.onerror = () => resolve();
+        request.onblocked = () => resolve();
+      });
+      return observed;
+    });
+
+    expect(result).toEqual({
+      version: SEAMS_WALLET_DB_VERSION,
+      nearKeyUnique: false,
+      slotUnique: false,
+      rowCount: 2,
+      writeError: null,
+    });
+  });
+
+  test('unified repositories persist profile, chain account, and app state', async ({ page }) => {
     await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
     const result = await page.evaluate(async () => {
       const schemaNames = await import('/_test-sdk/esm/core/indexedDB/schemaNames.js');
