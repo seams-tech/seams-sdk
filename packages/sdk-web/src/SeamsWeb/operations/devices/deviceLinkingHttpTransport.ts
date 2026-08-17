@@ -37,16 +37,20 @@ import type {
   LinkSessionOwnerTransportPortV1,
   LinkSessionTransportPortV1,
 } from './deviceLinkingPorts';
+import type { WalletAddAuthMethodFinalizeResponse } from '@/core/rpcClients/relayer/walletRegistration';
+import { parseWebAuthnAuthenticatorDeviceInfo } from '@shared/utils/webauthnDeviceInfo';
+import {
+  parseWebAuthnCredentialIdB64u,
+  parseWebAuthnRpId,
+  parseWalletId,
+} from '@shared/utils/domainIds';
 
 export const LINKED_DEVICE_SESSION_HTTP_BASE_PATH_V1 = '/wallet/device-linking/v1/sessions';
 
 const LINKED_DEVICE_POLL_MAX_DELAY_MS = 4_000;
 
 /** Keep long-lived session polling responsive without creating a tight request loop. */
-export function nextLinkedDevicePollingDelayMsV1(
-  baseDelayMs: number,
-  attempt: number,
-): number {
+export function nextLinkedDevicePollingDelayMsV1(baseDelayMs: number, attempt: number): number {
   const boundedBaseDelayMs = Math.min(baseDelayMs, LINKED_DEVICE_POLL_MAX_DELAY_MS);
   const boundedAttempt = Math.min(Math.max(attempt, 0), 5);
   const exponentialDelayMs = Math.min(
@@ -172,6 +176,17 @@ export function createDeviceLinkingAuthenticatedSessionTransportV1(
         linkSessionId: registration.linkSessionId,
         body: registration,
       });
+    },
+    finalizeOwnerAuthMethodV1: async ({ linkSessionId, request }) => {
+      const response = await requestDeviceV1({
+        options,
+        baseUrl,
+        method: 'POST',
+        canonicalPath: sessionActionPath(linkSessionId, 'owner-finalize'),
+        linkSessionId,
+        body: request,
+      });
+      return parseLinkedDeviceOwnerFinalizeResponseV1(response.body);
     },
     registerCustodyTransferRecipientV1: async ({ recipient }) => {
       const linkSessionId = requireLinkSessionId(recipient.linkSessionId);
@@ -450,6 +465,64 @@ function parseHttpFailureMessageV1(response: DeviceRequestResponseV1): string {
   return `linked-device request failed with HTTP ${response.status}`;
 }
 
+function parseLinkedDeviceOwnerFinalizeResponseV1(
+  raw: unknown,
+): WalletAddAuthMethodFinalizeResponse {
+  if (!isRecord(raw) || raw.ok !== true) {
+    throw new Error('linked-device owner finalize response is invalid');
+  }
+  const walletId = parseRequiredDomainId(parseWalletId(raw.walletId), 'walletId');
+  const rpId = parseRequiredDomainId(parseWebAuthnRpId(raw.rpId), 'rpId');
+  if (!isRecord(raw.authMethod)) {
+    throw new Error('linked-device owner finalize response omitted auth method');
+  }
+  const authMethod = raw.authMethod;
+  if (authMethod.kind !== 'passkey' || authMethod.status !== 'active') {
+    throw new Error('linked-device owner finalize response is not an active passkey');
+  }
+  const credentialIdB64u = parseRequiredDomainId(
+    parseWebAuthnCredentialIdB64u(authMethod.credentialIdB64u),
+    'authMethod.credentialIdB64u',
+  );
+  if (
+    typeof authMethod.credentialPublicKeyB64u !== 'string' ||
+    !authMethod.credentialPublicKeyB64u.trim()
+  ) {
+    throw new Error('linked-device owner finalize response omitted credential public key');
+  }
+  const counter = authMethod.counter;
+  if (typeof counter !== 'number' || !Number.isSafeInteger(counter) || counter < 0) {
+    throw new Error('linked-device owner finalize response has an invalid counter');
+  }
+  const device = parseWebAuthnAuthenticatorDeviceInfo(authMethod.device);
+  if (!device) {
+    throw new Error('linked-device owner finalize response has invalid device metadata');
+  }
+  return {
+    ok: true,
+    walletId,
+    rpId,
+    authMethod: {
+      kind: 'passkey',
+      status: 'active',
+      credentialIdB64u,
+      credentialPublicKeyB64u: authMethod.credentialPublicKeyB64u,
+      counter,
+      device,
+    },
+  };
+}
+
+function parseRequiredDomainId<T>(
+  parsed:
+    | { readonly ok: true; readonly value: T }
+    | { readonly ok: false; readonly error: { readonly message: string } },
+  label: string,
+): T {
+  if (!parsed.ok) throw new Error(`linked-device owner finalize ${label} ${parsed.error.message}`);
+  return parsed.value;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -478,6 +551,7 @@ function sessionActionPath(
     | 'approval'
     | 'wallet-session'
     | 'target-preparation'
+    | 'owner-finalize'
     | 'provision'
     | 'holder-receipts'
     | 'credential'

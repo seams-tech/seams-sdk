@@ -33,6 +33,7 @@ import type {
   LinkedDeviceTargetCredentialRegistrationV1,
   LinkedDeviceTargetPreparationV1,
   LinkedDeviceWalletSessionDeliveryV1,
+  LinkedDeviceOwnerFinalizeRequestV1,
   QrLinkedDeviceSessionPayloadV4,
 } from '@shared/device-linking';
 import { parseLinkDeviceSessionId } from '@shared/signing-lanes/ids';
@@ -45,6 +46,7 @@ import type {
   DeviceLinkingAuthenticatedTransportPortV1,
   DeviceLinkingFlowPortsV1,
   DeviceLinkingKeyMaterialHandleV1,
+  DeviceLinkingTargetCredentialPortV1,
   LinkSessionSubscriptionV1,
 } from './deviceLinkingPorts';
 import { createDeviceLinkingLaneProvisioningHandoffV1 } from './deviceLinkingPorts';
@@ -60,6 +62,7 @@ import {
 import type { DeviceLinkingCustodyTransferRecipientHandleV1 } from './deviceLinkingCustodyTransfer';
 import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
+import { persistFinalizedPasskeyAuthMethodV1 } from '../authMethods/passkey/localPasskeyProjection';
 
 type EmitLinkDeviceEventInput = Omit<CreateLinkDeviceFlowEventInput, 'flowId' | 'accountId'> & {
   readonly accountId?: string;
@@ -711,13 +714,16 @@ export class LinkDeviceFlow {
     // Nothing awaits it until after the prompt; this keeps an early rejection
     // from being reported as unhandled. It is re-raised at the await below.
     recipientPublish.catch(() => undefined);
-    // This is the first operation after the UI click so WebAuthn receives transient user activation.
-    const credential = await this.ports.targetCredential.createTargetCredentialV1({
-      preparation,
-      keyMaterial: this.keyMaterialHandle,
-    });
+    let credential: Awaited<
+      ReturnType<DeviceLinkingTargetCredentialPortV1['createTargetCredentialV1']>
+    > | null = null;
     let recipient: DeviceLinkingCustodyTransferRecipientHandleV1 | null = null;
     try {
+      // This is the first operation after the UI click so WebAuthn receives transient user activation.
+      credential = await this.ports.targetCredential.createTargetCredentialV1({
+        preparation,
+        keyMaterial: this.keyMaterialHandle,
+      });
       recipient = await recipientPublish;
       this.assertCurrentRun(runEpoch);
       // The wallet custody seed, resealed under the passkey just created. Held
@@ -740,6 +746,8 @@ export class LinkDeviceFlow {
         assertCurrentRun: () => this.assertCurrentRun(runEpoch),
         waitForPollV1: waitForSessionStateRetry,
       });
+      // The worker consumes and frees the recipient during every accept attempt.
+      recipient = null;
       this.assertCurrentRun(runEpoch);
       const targetPreparationDigestB64u =
         await computeLinkedDeviceTargetPreparationDigestV1(preparation);
@@ -753,6 +761,22 @@ export class LinkDeviceFlow {
         orderedHolderRegistrations: credential.orderedHolderRegistrations,
         registeredAtMs: Date.now(),
       });
+      const resealedCustodyEnvelope = this.resealedCustodyEnvelope;
+      if (!resealedCustodyEnvelope) {
+        throw new Error('linked-device custody transfer did not produce a resealed envelope');
+      }
+      await this.finalizeLinkedOwnerAuthMethodV1({
+        authenticatedTransport,
+        state,
+        preparation,
+        credential,
+        custodyEnvelope: resealedCustodyEnvelope,
+        runEpoch,
+      });
+      this.resealedCustodyEnvelope = null;
+      // The canonical owner finalize advances the session to provisioning.
+      // The R102 credential registration below is deliberately replay-safe in
+      // that state and records the same target preparation binding.
       await authenticatedTransport.registerTargetCredentialV1({
         registration,
       });
@@ -808,13 +832,68 @@ export class LinkDeviceFlow {
       await this.ensureWalletSessionDeliveryPersistedV1({ state, runEpoch, deviceId });
       return credential.factorSecret;
     } catch (error: unknown) {
-      zeroizeLiveBytes(credential.factorSecret);
+      if (credential) zeroizeLiveBytes(credential.factorSecret);
+      // If WebAuthn rejected before returning a credential, the publication
+      // still owns a worker recipient. Await it so that cancellation cannot
+      // strand that handle after this method exits.
+      if (!recipient) {
+        try {
+          recipient = await recipientPublish;
+        } catch {
+          // Publication failure already discards its own worker recipient.
+        }
+      }
       // A recipient nobody will seal to is a live private key in the worker.
       if (recipient) {
         await discardLinkedDeviceCustodyRecipientV1(this.ports.custodyTransfer, recipient);
       }
       throw error;
     }
+  }
+
+  private async finalizeLinkedOwnerAuthMethodV1(input: {
+    readonly authenticatedTransport: DeviceLinkingAuthenticatedTransportPortV1;
+    readonly state: Extract<LinkedDeviceSessionState, { state: 'awaiting_target_passkey' }>;
+    readonly preparation: LinkedDeviceTargetPreparationV1;
+    readonly credential: Awaited<
+      ReturnType<DeviceLinkingTargetCredentialPortV1['createTargetCredentialV1']>
+    >;
+    readonly custodyEnvelope: PasskeyCustodyEnvelopeRecord;
+    readonly runEpoch: number;
+  }): Promise<void> {
+    const request: LinkedDeviceOwnerFinalizeRequestV1 = {
+      kind: 'linked_device_owner_finalize_request_v1',
+      addAuthMethodCeremonyId: input.preparation.ownerEnrollment.addAuthMethodCeremonyId,
+      webauthnRegistration: input.credential.webauthnRegistration,
+      custodyEnvelope: input.custodyEnvelope,
+    };
+    const finalized = await input.authenticatedTransport.finalizeOwnerAuthMethodV1({
+      linkSessionId: input.state.linkSessionId,
+      request,
+    });
+    this.assertCurrentRun(input.runEpoch);
+    if (finalized.authMethod.kind !== 'passkey' || finalized.authMethod.status !== 'active') {
+      throw new Error('linked-device owner finalize returned a non-passkey auth method');
+    }
+    if (typeof finalized.rpId !== 'string') {
+      throw new Error('linked-device owner finalize omitted the passkey relying party');
+    }
+    if (
+      String(finalized.walletId) !== String(input.state.walletId) ||
+      String(finalized.rpId) !== String(input.preparation.ownerEnrollment.registration.rpId) ||
+      String(finalized.authMethod.credentialIdB64u) !==
+        String(input.credential.webauthnRegistration.credentialIdB64u)
+    ) {
+      throw new Error('linked-device owner finalize returned a mismatched auth method');
+    }
+    await persistFinalizedPasskeyAuthMethodV1({
+      walletId: finalized.walletId,
+      rpId: finalized.rpId,
+      credentialIdB64u: finalized.authMethod.credentialIdB64u,
+      credentialPublicKeyB64u: finalized.authMethod.credentialPublicKeyB64u,
+      counter: finalized.authMethod.counter,
+    });
+    this.assertCurrentRun(input.runEpoch);
   }
 
   private async waitForPreparedDeliveryCommitV1(input: {
