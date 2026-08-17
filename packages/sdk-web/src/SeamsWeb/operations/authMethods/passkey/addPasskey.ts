@@ -18,7 +18,8 @@ import {
 import { base64UrlDecode } from '@shared/utils/base64';
 import { toError } from '@shared/utils/errors';
 import { resolveManagedRuntimeScopeBootstrap } from '@/core/config/managedRuntimeScope';
-import { IndexedDBManager, type LocalWalletAuthMethodRecord } from '@/core/indexedDB';
+import { IndexedDBManager } from '@/core/indexedDB';
+import { persistFinalizedPasskeyAuthMethodV1 } from './localPasskeyProjection';
 import type { WebAuthnAllowCredential } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import {
   passkeyCredentialIdB64uFromAuthentication,
@@ -45,43 +46,6 @@ export type AddPasskeyHooksOptions = Omit<RegistrationHooksOptions, 'afterCall'>
   readonly afterCall?: AfterCall<AddPasskeyResult>;
 };
 
-function localPasskeyAuthMethodFromFinalize(args: {
-  readonly walletId: WalletId;
-  readonly rpId: string;
-  readonly credentialIdB64u: string;
-  readonly credentialPublicKeyB64u: string;
-  readonly counter: number;
-}): LocalWalletAuthMethodRecord & { kind: 'passkey' } {
-  const parsedRpId = parseWebAuthnRpId(args.rpId);
-  if (!parsedRpId.ok) throw new Error(parsedRpId.error.message);
-  const parsedCredentialId = parseWebAuthnCredentialIdB64u(args.credentialIdB64u);
-  if (!parsedCredentialId.ok) throw new Error(parsedCredentialId.error.message);
-  const credentialPublicKeyB64u = String(args.credentialPublicKeyB64u || '').trim();
-  if (!credentialPublicKeyB64u) {
-    throw new Error('Wallet add-passkey finalize omitted credential public key');
-  }
-  if (base64UrlDecode(credentialPublicKeyB64u).byteLength === 0) {
-    throw new Error('Wallet add-passkey finalize returned an empty credential public key');
-  }
-  if (!Number.isSafeInteger(args.counter) || args.counter < 0) {
-    throw new Error('Wallet add-passkey finalize returned an invalid credential counter');
-  }
-  const nowMs = Date.now();
-  return {
-    version: 'wallet_auth_method_v1',
-    kind: 'passkey',
-    status: 'active',
-    localStatus: 'synced',
-    walletId: args.walletId,
-    rpId: parsedRpId.value,
-    credentialIdB64u: parsedCredentialId.value,
-    credentialPublicKeyB64u,
-    counter: args.counter,
-    createdAtMs: nowMs,
-    updatedAtMs: nowMs,
-  };
-}
-
 async function persistAddedPasskey(args: {
   readonly walletId: WalletId;
   readonly rpId: string;
@@ -95,14 +59,13 @@ async function persistAddedPasskey(args: {
   ) {
     throw new Error('Wallet add-passkey finalize returned a mismatched auth method');
   }
-  const authMethod = localPasskeyAuthMethodFromFinalize({
+  await persistFinalizedPasskeyAuthMethodV1({
     walletId: args.finalized.walletId,
     rpId: args.finalized.rpId,
     credentialIdB64u: args.finalized.authMethod.credentialIdB64u,
     credentialPublicKeyB64u: args.finalized.authMethod.credentialPublicKeyB64u,
     counter: args.finalized.authMethod.counter,
   });
-  await IndexedDBManager.upsertWalletAuthMethod(authMethod);
   return {
     ok: true,
     walletId: args.finalized.walletId,
