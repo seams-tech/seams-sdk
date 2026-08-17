@@ -1,3 +1,4 @@
+import type { LinkedOwnerEnrollmentCeremonyReaderV1 } from '../../../../core/deviceLinking/linkedOwnerEnrollmentProvenance';
 import type { LinkedDeviceOwnerAuthorizationPortV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
 import type { LaneLifecycleStore } from '../../../../core/signingLanes/LaneLifecycleStore';
 import type { D1DatabaseLike } from '../../../../storage/tenantRoute';
@@ -14,6 +15,8 @@ export type D1LinkedDeviceGatewayCompletionServiceOptionsV1 = {
   readonly database: D1DatabaseLike;
   readonly scope: D1LinkedDeviceSessionScopeV1;
   readonly ownerAuthorization: LinkedDeviceOwnerAuthorizationPortV1;
+  /** Reads back the add-auth-method ceremony an approval names, for provenance. */
+  readonly ownerEnrollmentCeremonies: LinkedOwnerEnrollmentCeremonyReaderV1;
   readonly laneLifecycle: Pick<
     LaneLifecycleStore,
     'getEnrollment' | 'getProtocol' | 'listEnrollmentProductEpochs'
@@ -38,6 +41,7 @@ export function createD1LinkedDeviceGatewayCompletionServiceV1(
     database: options.database,
     scope: options.scope,
     ownerAuthorization: options.ownerAuthorization,
+    ownerEnrollmentCeremonies: options.ownerEnrollmentCeremonies,
     laneLifecycle: options.laneLifecycle,
     nowV1: options.nowV1,
   });

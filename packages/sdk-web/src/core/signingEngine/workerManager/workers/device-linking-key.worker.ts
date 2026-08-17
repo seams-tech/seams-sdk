@@ -898,7 +898,7 @@ function envelopeBindingJson(
 ): string {
   const job = delivery.job;
   const factor = buildPasskeyEnvelopeFactor({
-    rpId: target.preparation.rpId,
+    rpId: target.preparation.ownerEnrollment.registration.rpId,
     credentialIdB64u: target.credentialIdB64u,
   });
   switch (job.kind) {

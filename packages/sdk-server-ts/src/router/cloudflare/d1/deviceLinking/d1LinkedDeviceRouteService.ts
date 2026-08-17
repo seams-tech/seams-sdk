@@ -1,3 +1,4 @@
+import type { LinkedOwnerEnrollmentCeremonyReaderV1 } from '../../../../core/deviceLinking/linkedOwnerEnrollmentProvenance';
 import { parseLinkDeviceSessionId, type LinkDeviceSessionId } from '@shared/signing-lanes/ids';
 import { readJson } from '../../../../router/framework/http';
 import { LinkedDeviceRequestProofVerifierV1 } from '../../../../core/deviceLinking/requestProof';
@@ -50,6 +51,8 @@ export type D1LinkedDeviceRouteServiceOptionsV1 = {
   >;
   readonly linkedDeviceLocalPresence: LinkedDeviceLocalPresenceVerifierPortV1;
   readonly ownerAuthorization: LinkedDeviceOwnerAuthorizationPortV1;
+  /** Reads back the add-auth-method ceremony an approval names, for provenance. */
+  readonly ownerEnrollmentCeremonies: LinkedOwnerEnrollmentCeremonyReaderV1;
   readonly authenticateOwnerRequestV1: (
     input: DeviceLinkingOwnerRequestInputV1,
   ) => Promise<DeviceLinkingAuthenticatedRequestV1 | DeviceLinkingAuthDeniedV1>;
@@ -78,6 +81,7 @@ export function createD1LinkedDeviceRouteServiceV1(
     database: options.database,
     scope: options.scope,
     ownerAuthorization: options.ownerAuthorization,
+    ownerEnrollmentCeremonies: options.ownerEnrollmentCeremonies,
     laneLifecycle,
     nowV1,
   });

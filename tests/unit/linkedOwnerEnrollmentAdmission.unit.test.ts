@@ -7,6 +7,7 @@ import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPri
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import {
   buildR103DeviceLinkFixture,
+  buildR103OwnerEnrollmentCeremonyV1,
   buildR103TargetCredentialFixture,
 } from './helpers/deviceLinkContracts.fixtures';
 
@@ -30,11 +31,10 @@ async function preparation(
     ...base,
     issuedAtMs: NOW_MS - 1_000,
     expiresAtMs: NOW_MS + 60_000,
-    ownerEnrollment: {
-      kind: 'linked_device_owner_enrollment_ceremony_v1',
+    ownerEnrollment: buildR103OwnerEnrollmentCeremonyV1({
       addAuthMethodCeremonyId: CEREMONY_ID,
-      registration: { kind: 'webauthn_add_auth_method_registration_v1' },
-    },
+      expiresAtMs: NOW_MS + 120_000,
+    }),
     ...overrides,
   });
 }
@@ -102,18 +102,6 @@ test('refuses a ceremony this enrollment was never approved for', async () => {
       requestedAtMs: NOW_MS,
     }),
   ).toEqual({ ok: false, reason: 'ceremony_does_not_match_enrollment' });
-});
-
-test('refuses before Device 1 has started the ceremony', async () => {
-  const prepared = await preparation({ ownerEnrollment: undefined });
-  expect(
-    admitLinkedOwnerEnrollmentFinalizeV1({
-      session: session(prepared),
-      preparation: prepared,
-      addAuthMethodCeremonyId: CEREMONY_ID,
-      requestedAtMs: NOW_MS,
-    }),
-  ).toEqual({ ok: false, reason: 'owner_ceremony_not_started' });
 });
 
 test('refuses before the key manifest exists', async () => {

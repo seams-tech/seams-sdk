@@ -1,3 +1,4 @@
+import { buildR103OwnerEnrollmentCeremonyV1 } from './helpers/deviceLinkContracts.fixtures';
 import { expect, test } from '@playwright/test';
 import { base64UrlDecode, base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { parseLinkedDeviceTargetPreparationV1 } from '../../packages/shared-ts/src/device-linking';
@@ -53,9 +54,7 @@ function targetPreparation() {
     walletId: 'wallet-1',
     enrollmentId: 'linked-enrollment-1',
     deviceId: 'linked-device-1',
-    rpId: 'wallet.example.test',
-    userHandleB64u: base64UrlEncode(new Uint8Array(32).fill(4)),
-    challengeB64u: digest(5),
+    ownerEnrollment: buildR103OwnerEnrollmentCeremonyV1(),
     orderedChildren: [
       {
         kind: 'linked_device_target_preparation_child_v1',
@@ -637,7 +636,7 @@ test.describe('device-linking key worker', () => {
           },
           credentialIdB64u,
           rawIdB64u: credentialIdB64u,
-          rpId: toRpId(preparation.rpId),
+          rpId: toRpId(preparation.ownerEnrollment.registration.rpId),
           prf: { kind: 'required', prfFirstB64u },
         };
       },
@@ -689,7 +688,7 @@ test.describe('device-linking key worker', () => {
     expect(createPasskeyOperation).toMatchObject({
       userName: `${String(preparation.walletId)} (2)`,
       userDisplayName: `${String(preparation.walletId)} (2)`,
-      userHandleB64u: preparation.userHandleB64u,
+      userHandleB64u: preparation.ownerEnrollment.registration.user.idB64u,
     });
     expect(transferredFactorSecret).toEqual(new Uint8Array(32).fill(11));
     expect(result.factorSecret).toEqual(new Uint8Array(32).fill(11));

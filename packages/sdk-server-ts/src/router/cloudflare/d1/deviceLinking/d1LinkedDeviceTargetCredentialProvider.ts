@@ -73,9 +73,12 @@ export class LinkedDeviceWebAuthnRegistrationVerifierV1 implements LinkedDeviceT
         },
         clientExtensionResults: {},
       },
-      expectedChallenge: input.preparation.challengeB64u,
+      // The ceremony that will finalize this credential is the only source of
+      // the challenge and relying party, so verification cannot be checking
+      // one set of parameters while Device 2 created against another.
+      expectedChallenge: input.preparation.ownerEnrollment.registration.challengeB64u,
       expectedOrigin: this.expectedOrigin,
-      rpId: input.preparation.rpId,
+      rpId: input.preparation.ownerEnrollment.registration.rpId,
     });
     return verification.ok
       ? { kind: 'verified', credential: verification.credential }

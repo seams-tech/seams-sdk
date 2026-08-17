@@ -32,6 +32,7 @@ import type {
   WebAuthnRpId,
 } from '../utils/domainIds';
 import type { DigestB64u } from '../utils/canonicalPrimitives';
+import type { WalletAddAuthMethodRegistrationOptions } from '../utils/addAuthMethodRegistration';
 import type {
   LaneHolderDeliveryReceiptV1,
   LaneHolderPackageWireV1,
@@ -323,6 +324,18 @@ export type LinkedDeviceApprovalV1 = {
   readonly devicePublicKeyB64u: LinkDevicePublicKeyB64u;
   readonly permission: QrLinkedDevicePermissionRequest;
   readonly ownerAuthorization: LinkedDeviceOwnerAuthorizationSourceV1;
+  /**
+   * Refactor 103 Phase 8: the canonical owner add-auth-method ceremony this
+   * enrollment will finalize.
+   *
+   * Device 2 has no owner authority and cannot start one. Device 1 does, and
+   * approval is the one owner-authenticated step in the flow, so the ceremony
+   * is started there and travels with the approval that authorizes it. An
+   * approval is already immutable once recorded and replayed by digest, which
+   * is exactly the lifecycle this binding needs: the same approval returns the
+   * same ceremony, and a conflicting retry is refused.
+   */
+  readonly ownerEnrollment: LinkedDeviceOwnerEnrollmentCeremonyV1;
   readonly policyDigestB64u: DigestB64u;
   readonly operationId: LaneOperationId;
   readonly idempotencyKey: LaneOperationIdempotencyKey;
@@ -486,37 +499,52 @@ export type LinkedDeviceTargetPreparationChildV1 = {
  * ceremony. Device 2 then finalizes it under link-session device
  * authentication rather than owner authentication.
  *
- * The registration options are carried opaquely: they are the server's own
- * `WalletAddAuthMethodRegistrationOptions`, echoed to the browser that will
- * call `navigator.credentials.create`. Re-declaring their shape here would
- * fork the canonical add-passkey contract.
+ * The registration options are the canonical `WalletAddAuthMethodRegistrationOptions`
+ * the ceremony itself minted — the same declaration, not a copy of its shape.
+ * They are the sole source of Device 2's WebAuthn registration parameters:
+ * relying party, challenge, and user handle all come from here, so the
+ * credential Device 2 creates cannot drift from the ceremony that must
+ * finalize it.
  */
 export type LinkedDeviceOwnerEnrollmentCeremonyV1 = {
   readonly kind: 'linked_device_owner_enrollment_ceremony_v1';
   readonly addAuthMethodCeremonyId: string;
-  readonly registration: unknown;
+  readonly registration: WalletAddAuthMethodRegistrationOptions;
+  /**
+   * When the ceremony stops being finalizable.
+   *
+   * Every expiry downstream of it is clamped to this: an approval or a target
+   * preparation that outlived its ceremony would send Device 2 to create a
+   * credential nothing could finalize.
+   */
+  readonly expiresAtMs: number;
 };
 
-/** Server-owned challenge and exact R102 child identities required before Device 2 creates keys. */
+/**
+ * The owner ceremony and exact R102 child identities required before Device 2
+ * creates keys.
+ *
+ * `ownerEnrollment` is required, not optional: a preparation exists only once
+ * Device 1 has started the ceremony during owner-authenticated approval, so a
+ * preparation Device 2 cannot finalize is unrepresentable rather than merely
+ * unexpected. "Ceremony not ready" is the absence of the whole record.
+ *
+ * The relying party, challenge, and user handle deliberately do not appear
+ * here. They live in `ownerEnrollment.registration`, which is the ceremony's
+ * own registration options — one source, so target passkey creation and its
+ * later verification cannot disagree about what was signed.
+ */
 export type LinkedDeviceTargetPreparationV1 = {
   readonly kind: 'linked_device_target_preparation_v1';
   readonly linkSessionId: LinkDeviceSessionId;
   readonly walletId: WalletId;
   readonly enrollmentId: LinkedDeviceEnrollmentId;
   readonly deviceId: LinkedDeviceId;
-  readonly rpId: WebAuthnRpId;
-  readonly userHandleB64u: string;
-  readonly challengeB64u: DigestB64u;
+  readonly ownerEnrollment: LinkedDeviceOwnerEnrollmentCeremonyV1;
   readonly orderedChildren: readonly [
     LinkedDeviceTargetPreparationChildV1,
     ...LinkedDeviceTargetPreparationChildV1[],
   ];
-  /**
-   * Absent until Device 1 has started the owner ceremony. Its absence is what
-   * tells Device 2 to keep waiting rather than to create a passkey that no
-   * ceremony can finalize.
-   */
-  readonly ownerEnrollment?: LinkedDeviceOwnerEnrollmentCeremonyV1;
   readonly issuedAtMs: number;
   readonly expiresAtMs: number;
 };

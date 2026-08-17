@@ -1,3 +1,4 @@
+import { parseWalletAddAuthMethodRegistrationOptions } from '../utils/addAuthMethodRegistration';
 import {
   parseAuthorizationEvidenceSetId,
   parseLinkedDeviceWalletSessionAuthorizationId,
@@ -334,25 +335,16 @@ const TARGET_PREPARATION_FIELDS = [
   'walletId',
   'enrollmentId',
   'deviceId',
-  'rpId',
-  'userHandleB64u',
-  'challengeB64u',
+  'ownerEnrollment',
   'orderedChildren',
   'issuedAtMs',
   'expiresAtMs',
-] as const;
-/**
- * `ownerEnrollment` is absent until Device 1 starts the owner ceremony, so it
- * is allowed but not required. Everything else stays mandatory.
- */
-const TARGET_PREPARATION_ALLOWED_FIELDS = [
-  ...TARGET_PREPARATION_FIELDS,
-  'ownerEnrollment',
 ] as const;
 const OWNER_ENROLLMENT_CEREMONY_FIELDS = [
   'kind',
   'addAuthMethodCeremonyId',
   'registration',
+  'expiresAtMs',
 ] as const;
 const TARGET_PREPARATION_CHILD_FIELDS = [
   'kind',
@@ -1714,6 +1706,10 @@ function parseEnrollmentCore(record: UnknownRecord, label: string): EnrollmentCo
   const approvedAtMs = parseUnixTime(record.approvedAtMs, `${label}.approvedAtMs`);
   const expiresAtMs = parseUnixTime(record.expiresAtMs, `${label}.expiresAtMs`);
   assertExpiryAfterIssued(approvedAtMs, expiresAtMs, label);
+  const ownerEnrollment = parseLinkedDeviceOwnerEnrollmentCeremonyV1(record.ownerEnrollment);
+  if (expiresAtMs > ownerEnrollment.expiresAtMs) {
+    throw new Error(`${label}.expiresAtMs must not outlive its owner enrollment ceremony`);
+  }
   return {
     linkSessionId: parseSessionId(record.linkSessionId, `${label}.linkSessionId`),
     walletId: parseWallet(record.walletId, `${label}.walletId`),
@@ -1726,6 +1722,7 @@ function parseEnrollmentCore(record: UnknownRecord, label: string): EnrollmentCo
       record.ownerAuthorization,
       `${label}.ownerAuthorization`,
     ),
+    ownerEnrollment,
     policyDigestB64u: parseDigest(record.policyDigestB64u, `${label}.policyDigestB64u`),
     operationId: parseOperation(record.operationId, `${label}.operationId`),
     idempotencyKey: parseIdempotencyKey(record.idempotencyKey, `${label}.idempotencyKey`),
@@ -2320,10 +2317,10 @@ function parseTargetPreparationChild(
 /**
  * The owner ceremony Device 2 will finalize.
  *
- * `registration` stays opaque: it is the server's own
- * `WalletAddAuthMethodRegistrationOptions`, and re-validating its shape here
- * would fork the canonical add-passkey contract. What this boundary owns is
- * that the ceremony is named and that nothing else rides along with it.
+ * `registration` is validated against the canonical add-auth-method options
+ * rather than re-declared here, so this boundary cannot drift from the
+ * ceremony that mints it. What it owns beyond that is that the ceremony is
+ * named and that nothing else rides along with it.
  */
 export function parseLinkedDeviceOwnerEnrollmentCeremonyV1(
   raw: unknown,
@@ -2342,9 +2339,10 @@ export function parseLinkedDeviceOwnerEnrollmentCeremonyV1(
       record.addAuthMethodCeremonyId,
       'LinkedDeviceOwnerEnrollmentCeremonyV1.addAuthMethodCeremonyId',
     ),
-    registration: requireRecord(
-      record.registration,
-      'LinkedDeviceOwnerEnrollmentCeremonyV1.registration',
+    registration: parseWalletAddAuthMethodRegistrationOptions(record.registration),
+    expiresAtMs: parseUnixTime(
+      record.expiresAtMs,
+      'LinkedDeviceOwnerEnrollmentCeremonyV1.expiresAtMs',
     ),
   };
 }
@@ -2352,17 +2350,7 @@ export function parseLinkedDeviceOwnerEnrollmentCeremonyV1(
 export function parseLinkedDeviceTargetPreparationV1(
   raw: unknown,
 ): LinkedDeviceTargetPreparationV1 {
-  const record = requireRecord(raw, 'LinkedDeviceTargetPreparationV1');
-  rejectUnknownFields(
-    record,
-    TARGET_PREPARATION_ALLOWED_FIELDS,
-    'LinkedDeviceTargetPreparationV1',
-  );
-  for (const field of TARGET_PREPARATION_FIELDS) {
-    if (record[field] === undefined) {
-      throw new Error(`LinkedDeviceTargetPreparationV1.${field} is required`);
-    }
-  }
+  const record = exactRecord(raw, TARGET_PREPARATION_FIELDS, 'LinkedDeviceTargetPreparationV1');
   if (record.kind !== 'linked_device_target_preparation_v1') {
     throw new Error('LinkedDeviceTargetPreparationV1.kind is invalid');
   }
@@ -2382,13 +2370,15 @@ export function parseLinkedDeviceTargetPreparationV1(
   if (expiresAtMs <= issuedAtMs) {
     throw new Error('LinkedDeviceTargetPreparationV1.expiresAtMs must follow issuedAtMs');
   }
-  const ownerEnrollment =
-    record.ownerEnrollment === undefined
-      ? null
-      : parseLinkedDeviceOwnerEnrollmentCeremonyV1(record.ownerEnrollment);
+  const ownerEnrollment = parseLinkedDeviceOwnerEnrollmentCeremonyV1(record.ownerEnrollment);
+  if (expiresAtMs > ownerEnrollment.expiresAtMs) {
+    throw new Error(
+      'LinkedDeviceTargetPreparationV1.expiresAtMs must not outlive its owner enrollment ceremony',
+    );
+  }
   return {
     kind: 'linked_device_target_preparation_v1',
-    ...(ownerEnrollment ? { ownerEnrollment } : {}),
+    ownerEnrollment,
     linkSessionId: parseSessionId(
       record.linkSessionId,
       'LinkedDeviceTargetPreparationV1.linkSessionId',
@@ -2399,15 +2389,6 @@ export function parseLinkedDeviceTargetPreparationV1(
       'LinkedDeviceTargetPreparationV1.enrollmentId',
     ),
     deviceId: parseDeviceId(record.deviceId, 'LinkedDeviceTargetPreparationV1.deviceId'),
-    rpId: parseId(parseWebAuthnRpId, record.rpId, 'LinkedDeviceTargetPreparationV1.rpId'),
-    userHandleB64u: parseCanonicalBase64UrlBytes(
-      record.userHandleB64u,
-      'LinkedDeviceTargetPreparationV1.userHandleB64u',
-    ),
-    challengeB64u: parseDigest(
-      record.challengeB64u,
-      'LinkedDeviceTargetPreparationV1.challengeB64u',
-    ),
     orderedChildren,
     issuedAtMs,
     expiresAtMs,

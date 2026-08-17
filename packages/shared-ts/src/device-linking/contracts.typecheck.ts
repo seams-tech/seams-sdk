@@ -1,5 +1,6 @@
 import type {
   LinkedDeviceApprovalV1,
+  LinkedDeviceOwnerEnrollmentCeremonyV1,
   LinkedDeviceEnrollmentChildReceiptV1,
   LinkedDeviceEnrollmentReceiptV1,
   LinkedDeviceReceiptAcknowledgementV1,
@@ -190,6 +191,33 @@ const invalidOwnerAuthorization: LinkedDeviceOwnerAuthorizationSourceV1 = {
   stepUpEvidenceSetId: digest,
 };
 
+/**
+ * The canonical owner ceremony that Device 2's single WebAuthn creation
+ * finalizes. Its registration options are the sole source of the relying
+ * party, challenge, and user handle.
+ */
+const ownerEnrollment: LinkedDeviceOwnerEnrollmentCeremonyV1 = {
+  kind: 'linked_device_owner_enrollment_ceremony_v1',
+  addAuthMethodCeremonyId: 'add-auth-method-ceremony:typecheck',
+  registration: {
+    kind: 'webauthn_add_auth_method_registration_v1',
+    challengeId: 'challenge:typecheck',
+    challengeB64u: 'Y2hhbGxlbmdl',
+    rpId,
+    user: { idB64u: 'AQ', name: 'linked', displayName: 'linked' },
+    pubKeyCredParams: [
+      { type: 'public-key', alg: -7 },
+      { type: 'public-key', alg: -257 },
+    ],
+    authenticatorSelection: { residentKey: 'required', userVerification: 'preferred' },
+    timeoutMs: 120_000,
+    attestation: 'none',
+    extensions: { prf: { eval: { firstB64u: 'AQ', secondB64u: 'Ag' } } },
+    excludeCredentials: [],
+  },
+  expiresAtMs: 1_800_000_600_000,
+};
+
 const approval: LinkedDeviceApprovalV1 = {
   kind: 'linked_device_approval_v1',
   linkSessionId,
@@ -198,6 +226,7 @@ const approval: LinkedDeviceApprovalV1 = {
   deviceId,
   linkPublicKeyB64u: payload.linkPublicKeyB64u,
   devicePublicKeyB64u: payload.devicePublicKeyB64u,
+  ownerEnrollment,
   permission: payload.requestedPermission,
   ownerAuthorization,
   policyDigestB64u: digest,
@@ -300,9 +329,7 @@ const targetPreparation: LinkedDeviceTargetPreparationV1 = {
   walletId,
   enrollmentId,
   deviceId,
-  rpId,
-  userHandleB64u: 'AQ',
-  challengeB64u: digest,
+  ownerEnrollment,
   orderedChildren: [
     {
       kind: 'linked_device_target_preparation_child_v1',

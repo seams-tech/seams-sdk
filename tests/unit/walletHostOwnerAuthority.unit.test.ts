@@ -13,6 +13,9 @@ test('blocks linked-device sessions before owner management session lookup', asy
       },
     },
     relayerUrl: 'https://relay.example.test',
+    startOwnerEnrollmentCeremonyV1: async () => {
+      throw new Error('owner enrollment ceremony is not exercised by this test');
+    },
     walletSessions: {
       read: async () => {
         throw new Error('linked-device management must stop before session lookup');

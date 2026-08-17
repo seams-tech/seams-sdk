@@ -64,6 +64,11 @@ import type {
   QrLinkedDeviceSessionPayloadV4,
 } from '@shared/device-linking/contracts';
 import { parseOwnerLaneParticipantContinuityV1 } from '@shared/signing-lanes/ownerContinuity';
+import { parseLinkedDeviceOwnerEnrollmentCeremonyV1 } from '@shared/device-linking/parsers';
+import {
+  admitLinkedOwnerEnrollmentProvenanceV1,
+  type LinkedOwnerEnrollmentCeremonyReaderV1,
+} from './linkedOwnerEnrollmentProvenance';
 import type { SigningLaneKind } from '@shared/signing-lanes/records';
 
 type LinkedDeviceClaimV1 = LinkedDeviceSessionClaimV1;
@@ -427,15 +432,18 @@ export class LinkedDeviceSessionServiceV1 {
   private readonly store: LinkedDeviceSessionStoreV1;
   private readonly authorization: LinkedDeviceOwnerAuthorizationPortV1;
   private readonly aggregateActivationVerifier: LinkedDeviceAggregateActivationVerifierV1;
+  private readonly ownerEnrollmentCeremonies: LinkedOwnerEnrollmentCeremonyReaderV1;
 
   constructor(input: {
     readonly store: LinkedDeviceSessionStoreV1;
     readonly authorization: LinkedDeviceOwnerAuthorizationPortV1;
     readonly aggregateActivationVerifier: LinkedDeviceAggregateActivationVerifierV1;
+    readonly ownerEnrollmentCeremonies: LinkedOwnerEnrollmentCeremonyReaderV1;
   }) {
     this.store = input.store;
     this.authorization = input.authorization;
     this.aggregateActivationVerifier = input.aggregateActivationVerifier;
+    this.ownerEnrollmentCeremonies = input.ownerEnrollmentCeremonies;
   }
 
   async createUnclaimedSessionV1(
@@ -558,6 +566,21 @@ export class LinkedDeviceSessionServiceV1 {
         return { outcome: 'expired', record: existing };
       }
       validateApprovalMatchesSession(existing, approval, input.nowMs);
+      // Provenance before immutability: the approval digest would otherwise
+      // seal whatever ceremony the caller named, including one belonging to
+      // another wallet.
+      const provenance = await admitLinkedOwnerEnrollmentProvenanceV1({
+        approval,
+        ceremonies: this.ownerEnrollmentCeremonies,
+        requestedAtMs: input.nowMs,
+      });
+      if (!provenance.ok) {
+        return {
+          outcome: 'unauthorized',
+          code: 'linked_device_owner_enrollment_rejected',
+          message: `linked-device owner enrollment ceremony rejected: ${provenance.reason}`,
+        };
+      }
       const authorization = await this.authorization.authorizeOwnerApprovalV1({
         session: existing,
         approval,
@@ -1483,6 +1506,7 @@ function parseLinkedDeviceApprovalV1(raw: unknown): LinkedDeviceApprovalV1 {
     'devicePublicKeyB64u',
     'permission',
     'ownerAuthorization',
+    'ownerEnrollment',
     'policyDigestB64u',
     'operationId',
     'idempotencyKey',
@@ -1515,6 +1539,10 @@ function parseLinkedDeviceApprovalV1(raw: unknown): LinkedDeviceApprovalV1 {
     ),
     permission: parsePermissionV1(record.permission),
     ownerAuthorization: parseOwnerAuthorizationV1(record.ownerAuthorization),
+    // The ceremony is read back through its own canonical parser rather than
+    // re-validated here: the transcript must round-trip the exact registration
+    // options the approval digest covers.
+    ownerEnrollment: parseLinkedDeviceOwnerEnrollmentCeremonyV1(record.ownerEnrollment),
     policyDigestB64u: requireDigest(record.policyDigestB64u, 'approval.policyDigestB64u'),
     operationId: parseId(record.operationId, parseLaneOperationId, 'approval.operationId'),
     idempotencyKey: parseId(

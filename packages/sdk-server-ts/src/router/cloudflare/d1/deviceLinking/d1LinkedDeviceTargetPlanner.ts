@@ -147,7 +147,6 @@ export type LinkedDeviceOwnerSourceChildResolverV1 = {
 };
 
 export type D1LinkedDeviceTargetPlannerOptionsV1 = {
-  readonly rpId: WebAuthnRpId;
   readonly resolveOwnerSourceChildV1: LinkedDeviceOwnerSourceChildResolverV1['resolveOwnerSourceChildV1'];
   readonly targetDeploymentDescriptorProvider: LinkedDeviceTargetDeploymentDescriptorProviderV1;
   readonly preparationTtlMs?: number;
@@ -158,13 +157,11 @@ export type D1LinkedDeviceTargetPlannerOptionsV1 = {
  * after Device 2 returns its verified credential and holder records.
  */
 export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV1 {
-  private readonly rpId: WebAuthnRpId;
   private readonly resolveOwnerSourceChildV1: LinkedDeviceOwnerSourceChildResolverV1['resolveOwnerSourceChildV1'];
   private readonly targetDeploymentDescriptorProvider: LinkedDeviceTargetDeploymentDescriptorProviderV1;
   private readonly preparationTtlMs: number;
 
   constructor(input: D1LinkedDeviceTargetPlannerOptionsV1) {
-    this.rpId = parseRequired(parseWebAuthnRpId(input.rpId), 'rpId');
     this.resolveOwnerSourceChildV1 = input.resolveOwnerSourceChildV1;
     this.targetDeploymentDescriptorProvider = input.targetDeploymentDescriptorProvider;
     const ttlMs = input.preparationTtlMs ?? DEFAULT_TARGET_PREPARATION_TTL_MS;
@@ -180,8 +177,12 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
     readonly requestedAtMs: number;
   }): Promise<LinkedDeviceTargetPreparationV1> {
     assertPreparationInput(input.session, input.approval, input.requestedAtMs);
+    // Clamped to the ceremony as well as the approval: a preparation that
+    // outlived its ceremony would send Device 2 to create a credential nothing
+    // could finalize.
     const expiresAtMs = Math.min(
       input.approval.expiresAtMs,
+      input.approval.ownerEnrollment.expiresAtMs,
       input.requestedAtMs + this.preparationTtlMs,
     );
     if (expiresAtMs <= input.requestedAtMs) {
@@ -225,11 +226,11 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
       walletId: input.approval.walletId,
       enrollmentId: input.approval.enrollmentId,
       deviceId: input.approval.deviceId,
-      rpId: this.rpId,
-      userHandleB64u: secureRandomBase64Url(32, 'linked-device target WebAuthn user handle'),
-      challengeB64u: parseDigestB64u(
-        secureRandomBase64Url(32, 'linked-device target WebAuthn challenge'),
-      ),
+      // The planner no longer mints a relying party, challenge, or user handle
+      // of its own. They come from the ceremony Device 1 started during
+      // owner-authenticated approval, which is the only registration Device 2
+      // can finalize — a second set here could only ever disagree with it.
+      ownerEnrollment: input.approval.ownerEnrollment,
       orderedChildren: requireNonEmpty(children, 'linked-device target preparation children'),
       issuedAtMs: input.requestedAtMs,
       expiresAtMs,

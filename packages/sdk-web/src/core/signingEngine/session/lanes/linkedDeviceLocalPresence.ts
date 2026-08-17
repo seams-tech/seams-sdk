@@ -151,7 +151,7 @@ export async function authenticateLinkedDeviceLocalPresenceV1(input: {
   });
   const authentication = await input.authenticator.run({
     kind: 'get_passkey',
-    rpId: toRpId(input.bundle.targetPreparation.rpId),
+    rpId: toRpId(input.bundle.targetPreparation.ownerEnrollment.registration.rpId),
     credentialIdB64u,
     challengeB64u: challengeDigestB64u,
     requirePrfFirst: true,
@@ -172,7 +172,7 @@ export async function authenticateLinkedDeviceLocalPresenceV1(input: {
     returnedCredentialIdB64u: authentication.credentialIdB64u,
     expectedCredentialIdB64u: credentialIdB64u,
     returnedRpId: authentication.rpId,
-    expectedRpId: input.bundle.targetPreparation.rpId,
+    expectedRpId: input.bundle.targetPreparation.ownerEnrollment.registration.rpId,
   });
   const factorSecret = base64UrlDecode(authentication.prf.prfFirstB64u);
   if (factorSecret.length !== 32) {

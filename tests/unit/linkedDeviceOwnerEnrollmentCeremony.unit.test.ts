@@ -5,6 +5,7 @@ import {
 } from '../../packages/shared-ts/src/device-linking/parsers';
 import {
   buildR103DeviceLinkFixture,
+  buildR103OwnerEnrollmentCeremonyV1,
   buildR103TargetCredentialFixture,
 } from './helpers/deviceLinkContracts.fixtures';
 
@@ -16,35 +17,36 @@ import {
  * here.
  */
 function ceremony(overrides: Record<string, unknown> = {}) {
-  return {
-    kind: 'linked_device_owner_enrollment_ceremony_v1',
-    addAuthMethodCeremonyId: 'add-auth-method-ceremony:r103p8',
-    registration: {
-      kind: 'webauthn_add_auth_method_registration_v1',
-      challengeB64u: 'Y2hhbGxlbmdl',
-      rpId: 'wallet.example.localhost',
-    },
-    ...overrides,
-  };
+  return { ...buildR103OwnerEnrollmentCeremonyV1(), ...overrides };
 }
 
-test('a preparation without the owner ceremony still parses', async () => {
-  // Absence is the signal that Device 1 has not started the ceremony yet. It
-  // is what tells Device 2 to keep waiting rather than create a passkey no
-  // ceremony can finalize.
-  const preparation = (await buildR103TargetCredentialFixture(buildR103DeviceLinkFixture())).preparation;
-  const parsed = parseLinkedDeviceTargetPreparationV1(preparation);
-  expect('ownerEnrollment' in parsed).toBe(false);
+test('a preparation without the owner ceremony does not exist', async () => {
+  // A preparation is minted from the approval that started the ceremony, so
+  // "not started yet" is the absence of the whole record rather than a
+  // preparation Device 2 could act on but never finalize.
+  const { ownerEnrollment: _dropped, ...rest } = (
+    await buildR103TargetCredentialFixture(buildR103DeviceLinkFixture())
+  ).preparation;
+  expect(() => parseLinkedDeviceTargetPreparationV1(rest)).toThrow(/ownerEnrollment/);
 });
 
 test('a preparation carrying the owner ceremony round-trips it', async () => {
-  const preparation = {
-    ...(await buildR103TargetCredentialFixture(buildR103DeviceLinkFixture())).preparation,
-    ownerEnrollment: ceremony(),
-  };
+  const preparation = (await buildR103TargetCredentialFixture(buildR103DeviceLinkFixture()))
+    .preparation;
   const parsed = parseLinkedDeviceTargetPreparationV1(preparation);
-  expect(parsed.ownerEnrollment).toEqual(ceremony());
+  expect(parsed.ownerEnrollment).toEqual(preparation.ownerEnrollment);
   expect(parseLinkedDeviceTargetPreparationV1(parsed)).toEqual(parsed);
+});
+
+test('a preparation may not outlive the ceremony it will be finalized by', async () => {
+  const preparation = (await buildR103TargetCredentialFixture(buildR103DeviceLinkFixture()))
+    .preparation;
+  expect(() =>
+    parseLinkedDeviceTargetPreparationV1({
+      ...preparation,
+      expiresAtMs: preparation.ownerEnrollment.expiresAtMs + 1,
+    }),
+  ).toThrow(/must not outlive its owner enrollment ceremony/);
 });
 
 test('the ceremony must name itself and its add-auth-method ceremony', () => {
@@ -56,7 +58,7 @@ test('the ceremony must name itself and its add-auth-method ceremony', () => {
   ).toThrow(/addAuthMethodCeremonyId/);
   expect(() =>
     parseLinkedDeviceOwnerEnrollmentCeremonyV1(ceremony({ registration: 'not-an-object' })),
-  ).toThrow(/registration must be an object/);
+  ).toThrow(/must be an object/);
 });
 
 test('nothing rides along beside the ceremony', async () => {
@@ -79,7 +81,7 @@ test('nothing rides along beside the ceremony', async () => {
 
 test('a preparation still requires every field the R102 children need', async () => {
   const preparation = (await buildR103TargetCredentialFixture(buildR103DeviceLinkFixture())).preparation;
-  for (const omitted of ['challengeB64u', 'rpId', 'orderedChildren', 'deviceId'] as const) {
+  for (const omitted of ['ownerEnrollment', 'orderedChildren', 'deviceId'] as const) {
     const { [omitted]: _dropped, ...rest } = preparation;
     expect(() => parseLinkedDeviceTargetPreparationV1(rest)).toThrow(
       new RegExp(`${omitted} is required`),
