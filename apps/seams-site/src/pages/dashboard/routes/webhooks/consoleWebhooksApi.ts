@@ -1,7 +1,7 @@
 import {
   normalizeConsoleWebhookEventCategory,
   type ConsoleWebhookEventCategory,
-} from '@seams-internal/console-shared/webhookEventCategories';
+} from '@seams-internal/wallet-console-shared/webhookEventCategories';
 import {
   buildConsoleAcceptHeaders,
   buildConsoleJsonHeaders,

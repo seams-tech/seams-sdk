@@ -1,5 +1,5 @@
-export type { ConsoleWebhookEventCategory } from '@seams-internal/console-shared/webhookEventCategories';
-import type { ConsoleWebhookEventCategory } from '@seams-internal/console-shared/webhookEventCategories';
+export type { ConsoleWebhookEventCategory } from '@seams-internal/wallet-console-shared/webhookEventCategories';
+import type { ConsoleWebhookEventCategory } from '@seams-internal/wallet-console-shared/webhookEventCategories';
 
 export type ConsoleWebhookEndpointStatus = 'ACTIVE' | 'DISABLED';
 

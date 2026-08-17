@@ -3,7 +3,7 @@ import type { WebhookDispatchRequest, WebhookDispatchResult } from './service';
 import {
   normalizeConsoleWebhookEventCategory,
   type ConsoleWebhookEventCategory,
-} from '@seams-internal/console-shared/webhookEventCategories';
+} from '@seams-internal/wallet-console-shared/webhookEventCategories';
 
 export const DELIVERY_RESPONSE_BODY_MAX_LEN = 2_048;
 const WEBHOOK_DISPATCH_TIMEOUT_MS = 10_000;

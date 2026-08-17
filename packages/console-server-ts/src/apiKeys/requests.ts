@@ -3,7 +3,7 @@ import {
   API_CREDENTIAL_SCOPES,
   isApiCredentialScope,
   type ApiCredentialScope,
-} from "@seams-internal/console-shared/apiKeyScopes";
+} from "@seams-internal/wallet-console-shared/apiKeyScopes";
 import {
   readOptionalStringField as readOptionalString,
   readRequiredStringField as readRequiredString,

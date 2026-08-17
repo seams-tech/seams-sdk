@@ -7,11 +7,7 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./apiKeyScopes": "./src/apiKeyScopes.ts",
-    "./gasSponsorshipChains": "./src/gasSponsorshipChains.ts",
-    "./gasSponsorshipSpendCapTargets": "./src/gasSponsorshipSpendCapTargets.ts",
-    "./organizationIdentity": "./src/organizationIdentity.ts",
-    "./webhookEventCategories": "./src/webhookEventCategories.ts"
+    "./organizationIdentity": "./src/organizationIdentity.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit"

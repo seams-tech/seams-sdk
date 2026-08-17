@@ -35,7 +35,7 @@ import {
   API_CREDENTIAL_SCOPE_OPTIONS,
   isApiCredentialScope,
   type ApiCredentialScope,
-} from '@seams-internal/console-shared/apiKeyScopes';
+} from '@seams-internal/wallet-console-shared/apiKeyScopes';
 
 const DEFAULT_RATE_LIMIT_BUCKET = 'default_web_v1';
 const DEFAULT_QUOTA_BUCKET = 'free_registrations_v1';

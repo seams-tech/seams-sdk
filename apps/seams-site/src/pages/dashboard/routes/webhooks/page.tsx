@@ -3,7 +3,7 @@ import { formatDashboardTimestamp } from '../../utils/timestamps';
 import {
   CONSOLE_WEBHOOK_EVENT_CATEGORIES,
   type ConsoleWebhookEventCategory,
-} from '@seams-internal/console-shared/webhookEventCategories';
+} from '@seams-internal/wallet-console-shared/webhookEventCategories';
 import {
   DashboardTable,
   DashboardTableActionButton,
