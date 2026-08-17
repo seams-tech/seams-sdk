@@ -128,6 +128,25 @@ test('read is wallet-exact and expiry-aware, never a stale reference', async () 
   expect(readUnlockedWalletCustodyTransferCapabilityV1(expired.walletId)).toBeUndefined();
 });
 
+test('expiry destroys the worker-held capability without a later read', async () => {
+  const expired = establishedReference({ expiresAtMs: Date.now() - 1 });
+  const worker = fakeWorker(() => expired);
+  await establishUnlockedWalletCustodyTransferCapabilitiesReplacement(worker.transport, expired);
+
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+  const destroyCall = worker.calls.find(
+    (call) => call.type === 'destroyUnlockedWalletCustodyTransferCapabilities',
+  );
+  expect(destroyCall?.payload).toEqual({
+    scope: {
+      kind: 'capability',
+      capabilityHandleId: expired.capabilityHandleId,
+    },
+  });
+  expect(readUnlockedWalletCustodyTransferCapabilityV1(expired.walletId)).toBeUndefined();
+});
+
 async function establishUnlockedWalletCustodyTransferCapabilitiesReplacement(
   transport: WalletCustodyCeremonyTransportPort,
   reference: ReturnType<typeof establishedReference>,
