@@ -79,10 +79,9 @@ export function createWalletHostOwnerAuthoritiesV1(input: {
         const key = String(request.linkSessionId);
         const cached = ownerEnrollmentCeremonies.get(key);
         if (cached) return await cached;
-        let started: ReturnType<
+        const started: ReturnType<
           DeviceLinkingOwnerAuthorizationPortV1['startOwnerEnrollmentCeremonyV1']
-        >;
-        started = input.startOwnerEnrollmentCeremonyV1(request).then(
+        > = input.startOwnerEnrollmentCeremonyV1(request).then(
           (value) => attachCustodyHoldEvictionV1(key, value, ownerEnrollmentCeremonies, started),
           (error: unknown) => {
             if (ownerEnrollmentCeremonies.get(key) === started) {
@@ -225,10 +224,7 @@ async function requestAsAuthorizedOwnerV1(
   }
   const projection = read.projection;
   if (
-    !projectionContainsAuthorizationId(
-      projection,
-      input.authentication.source.authorizationId,
-    ) ||
+    !projectionContainsAuthorizationId(projection, input.authentication.source.authorizationId) ||
     projection.expiresAtMs <= Date.now()
   ) {
     throw new Error('Owner Wallet Session identity is invalid or expired');

@@ -2447,6 +2447,7 @@ function parseIdentityString(raw: unknown, field: string): string {
     typeof raw !== 'string' ||
     raw.length === 0 ||
     raw.trim() !== raw ||
+    // eslint-disable-next-line no-control-regex
     /[\s\u0000-\u001f\u007f]/.test(raw)
   )
     throw new Error(`${field} is invalid`);

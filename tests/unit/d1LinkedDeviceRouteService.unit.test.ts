@@ -21,6 +21,8 @@ import {
   buildR102HolderDeliveryReceipt,
   buildR102ManifestChild,
   buildR102ProtocolCommitReceipt,
+  buildR102CommittedProtocolAdmissionRecordFixture,
+  buildR102PreparingEnrollmentAdmissionRecordFixture,
 } from './helpers/r102LaneGateway.fixtures';
 import {
   buildLaneEnrollmentManifestV1,
@@ -29,10 +31,6 @@ import {
 import { encodeLaneProtocolCommitReceiptV1 } from '../../packages/shared-ts/src/signing-lanes/rotationDigests';
 import { sha256Bytes } from '../../packages/shared-ts/src/utils/digests';
 import { parseLinkedDeviceProvisioningDeliveriesV1 } from '../../packages/shared-ts/src/device-linking/parsers';
-import type {
-  LaneEnrollmentAdmissionRecord,
-  LaneProtocolAdmissionRecord,
-} from '../../packages/sdk-server-ts/src/core/signingLanes/LaneLifecycleStore';
 import { parseTenantId } from '@shared/authorization/capabilityKinds';
 import {
   applyD1MigrationFiles,
@@ -94,32 +92,15 @@ test('binds deliveries and holder receipts to the persisted child operation', as
     createdAtMs: 1_000,
     expiresAtMs: 100_000,
   });
-  const enrollment: LaneEnrollmentAdmissionRecord = {
-    value: {
-      manifest,
-      lifecycle: {
-        state: 'preparing',
-        manifestDigestB64u: fixture.receipt.manifestDigestB64u,
-        startedAtMs: 1_000,
-      },
-    },
-    version: 1,
-    commandDigestB64u: fixture.receipt.manifestDigestB64u,
-  };
-  const protocol: LaneProtocolAdmissionRecord = {
-    value: {
-      job,
-      lifecycle: {
-        state: 'committed_awaiting_holder_delivery',
-        startedAtMs: 1_000,
-        committedAtMs: 2_000,
-        transcriptHashB64u: receipt.transcriptHashB64u,
-        protocolCommitReceiptDigestB64u: receiptDigestB64u,
-      },
-    },
-    version: 2,
-    commandDigestB64u: receiptDigestB64u,
-  };
+  const enrollment = buildR102PreparingEnrollmentAdmissionRecordFixture(
+    manifest,
+    fixture.receipt.manifestDigestB64u,
+  );
+  const protocol = buildR102CommittedProtocolAdmissionRecordFixture(
+    job,
+    receipt.transcriptHashB64u,
+    receiptDigestB64u,
+  );
   const verifier = new D1LinkedDeviceProvisioningVerifierV1({
     lifecycleStore: {
       getEnrollment: async () => enrollment,

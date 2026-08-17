@@ -5,6 +5,9 @@ import {
   buildLaneHolderDeliveryReceiptV1,
   buildLaneProtocolCommitReceiptV1,
   buildLaneServerActivationReceiptV1,
+  buildLaneProtocolRecordV1,
+  parseLaneEnrollmentLifecycleV1,
+  parseLaneProtocolLifecycleV1,
   parseRotatableSigningLaneJobV1,
 } from '../../../packages/shared-ts/src/signing-lanes/rotationParsers';
 import type {
@@ -53,7 +56,10 @@ import type {
   WalletKeyId,
 } from '../../../packages/shared-ts/src/signing-lanes/ids';
 import type { LaneEffectRecordV1 } from '../../../packages/sdk-server-ts/src/core/signingLanes/LaneEffectJournalStore';
-import type { LaneEnrollmentAdmissionRecord } from '../../../packages/sdk-server-ts/src/core/signingLanes/LaneLifecycleStore';
+import type {
+  LaneEnrollmentAdmissionRecord,
+  LaneProtocolAdmissionRecord,
+} from '../../../packages/sdk-server-ts/src/core/signingLanes/LaneLifecycleStore';
 import {
   parseLaneSealedHolderRecordV1,
   type LaneSealedHolderRecordV1,
@@ -192,18 +198,85 @@ export async function buildR102EnrollmentAdmissionRecordFixture(
   fixture: R102LaneEnrollmentFixture,
 ): Promise<LaneEnrollmentAdmissionRecord> {
   const manifestDigestB64u = await computeLaneEnrollmentManifestDigestV1(fixture.manifest);
+  return buildR102ActiveEnrollmentAdmissionRecordFixture(fixture.manifest, manifestDigestB64u);
+}
+
+export function buildR102ActiveEnrollmentAdmissionRecordFixture(
+  manifest: LaneEnrollmentManifestV1,
+  manifestDigestB64u: string,
+): LaneEnrollmentAdmissionRecord {
   return {
     value: {
-      manifest: fixture.manifest,
-      lifecycle: {
+      manifest,
+      lifecycle: parseLaneEnrollmentLifecycleV1({
         state: 'active',
         manifestDigestB64u,
         aggregateReceiptDigestB64u: DIGEST_B64U,
         activatedAtMs: 4_000,
-      },
+      }),
     },
     version: 1,
     commandDigestB64u: DIGEST_B64U,
+  };
+}
+
+export function buildR102PreparingEnrollmentAdmissionRecordFixture(
+  manifest: LaneEnrollmentManifestV1,
+  manifestDigestB64u: string,
+): LaneEnrollmentAdmissionRecord {
+  return {
+    value: {
+      manifest,
+      lifecycle: parseLaneEnrollmentLifecycleV1({
+        state: 'preparing',
+        manifestDigestB64u,
+        startedAtMs: 1_000,
+      }),
+    },
+    version: 1,
+    commandDigestB64u: manifestDigestB64u,
+  };
+}
+
+export function buildR102ActiveProtocolAdmissionRecordFixture(
+  job: RotatableSigningLaneJobV1,
+): LaneProtocolAdmissionRecord {
+  return {
+    version: 1,
+    commandDigestB64u: DIGEST_B64U,
+    value: buildLaneProtocolRecordV1({
+      job,
+      lifecycle: parseLaneProtocolLifecycleV1({
+        state: 'active',
+        transcriptHashB64u: DIGEST_B64U,
+        protocolCommitReceiptDigestB64u: DIGEST_B64U,
+        holderDeliveryReceiptDigestB64u: DIGEST_B64U,
+        serverActivationReceiptDigestB64u: DIGEST_B64U,
+        aggregateActivationReceiptDigestB64u: DIGEST_B64U,
+        activatedAtMs: 4_000,
+      }),
+    }),
+  };
+}
+
+export function buildR102CommittedProtocolAdmissionRecordFixture(
+  job: RotatableSigningLaneJobV1,
+  transcriptHashB64u: string,
+  receiptDigestB64u: string,
+): LaneProtocolAdmissionRecord {
+  return {
+    version: 2,
+    commandDigestB64u: receiptDigestB64u,
+    value: buildLaneProtocolRecordV1({
+      job,
+      lifecycle: parseLaneProtocolLifecycleV1({
+        state: 'committed_awaiting_holder_delivery',
+        startedAtMs: 1_000,
+        committedAtMs: 2_000,
+        transcriptHashB64u,
+        protocolCommitReceiptDigestB64u: receiptDigestB64u,
+      }),
+    }),
   };
 }
 
