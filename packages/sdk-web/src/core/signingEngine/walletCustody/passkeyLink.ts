@@ -24,9 +24,7 @@ import {
   type AddAuthMethodAuth,
   type WalletAddAuthMethodRegistrationOptions,
 } from '@/core/rpcClients/relayer/walletRegistration';
-import {
-  serializeRegistrationCredentialWithPRF,
-} from '../webauthnAuth/credentials/helpers';
+import { serializeRegistrationCredentialWithPRF } from '../webauthnAuth/credentials/helpers';
 import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
 import { getPrfFirstB64uFromCredential } from '../webauthnAuth/credentials/credentialExtensions';
 import type { WalletCustodyCeremonyTransportPort } from './ceremonyStepRunner';
@@ -99,7 +97,8 @@ function requireResealedEnvelope(value: unknown): {
 
 function requireCredentialId(value: string): WebAuthnCredentialIdB64u {
   const parsed = parseWebAuthnCredentialIdB64u(value);
-  if (!parsed.ok) throw new Error(`Passkey registration credential id is invalid: ${parsed.error.message}`);
+  if (!parsed.ok)
+    throw new Error(`Passkey registration credential id is invalid: ${parsed.error.message}`);
   return parsed.value;
 }
 
@@ -204,21 +203,26 @@ export async function createPasskeyCustodyLinkEnvelope(input: {
  *
  * So this half stops at the ceremony. It creates the intent, proves owner
  * authority freshly against that intent's digest, starts the ceremony, and
- * returns its identity. It deliberately does not create a credential, does not
- * touch the custody envelope the start hands back, and never accepts an
- * existing factor secret: the seed reaches Device 2 by the sealed custody
- * transfer, not through this function's caller.
+ * returns its identity — plus the custody envelope the start hands back, which
+ * Device 1 holds and later seals for the linked device. It deliberately does
+ * not create a credential and never accepts an existing factor secret: the
+ * secret that opens that envelope is PRF.first from the assertion the caller
+ * already collected, and the seed reaches Device 2 by the sealed custody
+ * transfer rather than through this function.
  */
 export async function startWalletPasskeyAddAuthMethodCeremony(input: {
   readonly relayerUrl: string;
   readonly walletId: Parameters<typeof startWalletAddAuthMethod>[0]['walletId'];
-  readonly addAuthMethodIntentGrant: Parameters<typeof startWalletAddAuthMethod>[0]['addAuthMethodIntentGrant'];
+  readonly addAuthMethodIntentGrant: Parameters<
+    typeof startWalletAddAuthMethod
+  >[0]['addAuthMethodIntentGrant'];
   readonly addAuthMethodIntentDigestB64u: string;
   readonly intent: Parameters<typeof startWalletAddAuthMethod>[0]['intent'];
   readonly auth: AddAuthMethodAuth;
 }): Promise<{
   readonly addAuthMethodCeremonyId: string;
   readonly registration: WalletAddAuthMethodRegistrationOptions;
+  readonly custodyEnvelope: PasskeyCustodyEnvelopeRecord;
   readonly expiresAtMs: number;
 }> {
   const started = await startWalletAddAuthMethod({
@@ -230,12 +234,19 @@ export async function startWalletPasskeyAddAuthMethodCeremony(input: {
     auth: input.auth,
     authority: { kind: 'passkey' },
   });
-  if (!started.registration || started.addAuthMethodCeremonyExpiresAtMs === undefined) {
-    throw new Error('Passkey add-auth-method start omitted registration options or expiry');
+  if (
+    !started.registration ||
+    !started.custodyEnvelope ||
+    started.addAuthMethodCeremonyExpiresAtMs === undefined
+  ) {
+    throw new Error(
+      'Passkey add-auth-method start omitted registration options, custody envelope, or expiry',
+    );
   }
   return {
     addAuthMethodCeremonyId: started.addAuthMethodCeremonyId,
     registration: started.registration,
+    custodyEnvelope: started.custodyEnvelope,
     expiresAtMs: started.addAuthMethodCeremonyExpiresAtMs,
   };
 }
@@ -244,7 +255,9 @@ export async function startWalletPasskeyAddAuthMethodCeremony(input: {
 export async function linkWalletPasskeyCustody(input: {
   readonly relayerUrl: string;
   readonly walletId: Parameters<typeof startWalletAddAuthMethod>[0]['walletId'];
-  readonly addAuthMethodIntentGrant: Parameters<typeof startWalletAddAuthMethod>[0]['addAuthMethodIntentGrant'];
+  readonly addAuthMethodIntentGrant: Parameters<
+    typeof startWalletAddAuthMethod
+  >[0]['addAuthMethodIntentGrant'];
   readonly addAuthMethodIntentDigestB64u: string;
   readonly intent: Parameters<typeof startWalletAddAuthMethod>[0]['intent'];
   readonly auth: AddAuthMethodAuth;
@@ -268,7 +281,9 @@ export async function linkWalletPasskeyCustody(input: {
     authority: { kind: 'passkey' },
   });
   if (!started.custodyEnvelope || !started.registration) {
-    throw new Error('Passkey add-auth-method start omitted custody envelope or registration options');
+    throw new Error(
+      'Passkey add-auth-method start omitted custody envelope or registration options',
+    );
   }
   const linked = await createPasskeyCustodyLinkEnvelope({
     registration: started.registration,

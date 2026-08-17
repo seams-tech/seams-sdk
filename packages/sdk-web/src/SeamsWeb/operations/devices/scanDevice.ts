@@ -22,6 +22,7 @@ import type {
   LinkSessionOwnerTransportPortV1,
   LinkSessionSubscriptionV1,
 } from './deviceLinkingPorts';
+import type { LinkedDeviceOwnerCustodyHoldV1 } from './deviceLinkingOwnerCustody';
 import { errorMessage } from '@shared/utils/errors';
 import { computeLaneEnrollmentManifestDigestV1 } from '@shared/signing-lanes/rotationDigests';
 import { alphabetizeStringify } from '@shared/utils/digests';
@@ -134,6 +135,9 @@ export async function scanAndLinkDevice(
   ports: Device1LinkingFlowPortsV1,
 ): Promise<LinkDeviceResult> {
   let parsedQrData: QrLinkedDeviceSessionPayloadV4 | null = null;
+  // Live wallet key material once approval starts one. Any exit that is not a
+  // completed seal has to wipe it, so it is tracked at the level that can.
+  let custodyHold: LinkedDeviceOwnerCustodyHoldV1 | null = null;
   emitScannerEvent(options.onEvent, parsedQrData, {
     phase: LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED,
     status: 'started',
@@ -168,6 +172,7 @@ export async function scanAndLinkDevice(
       walletId: claim.walletId,
       requestedAtMs: Date.now(),
     });
+    custodyHold = ownerEnrollment.custodyHold;
     const approvedAtMs = Date.now();
     const approval = buildLinkedDeviceApprovalV1({
       linkSessionId: claim.linkSessionId,
@@ -178,7 +183,7 @@ export async function scanAndLinkDevice(
       devicePublicKeyB64u: claim.devicePublicKeyB64u,
       permission: parsedQrData.requestedPermission,
       ownerAuthorization: owner.ownerAuthorization,
-      ownerEnrollment,
+      ownerEnrollment: ownerEnrollment.ceremony,
       policyDigestB64u: owner.policyDigestB64u,
       operationId: owner.operationId,
       idempotencyKey: owner.idempotencyKey,
@@ -202,11 +207,20 @@ export async function scanAndLinkDevice(
       transport: ports.transport,
       linkSessionId: claim.linkSessionId,
       authentication: owner.authentication,
-      expiresAtMs: Math.min(owner.expiresAtMs, claim.claimExpiresAtMs),
+      // Also bounded by the ceremony: past its expiry the seed could still be
+      // sealed but the credential it is for could never be minted, so waiting
+      // on beyond that point only keeps key material alive for nothing.
+      expiresAtMs: Math.min(
+        owner.expiresAtMs,
+        claim.claimExpiresAtMs,
+        ownerEnrollment.ceremony.expiresAtMs,
+      ),
       walletId: claim.walletId,
       enrollmentId: claim.enrollmentId,
       deviceId: claim.deviceId,
       sourcePreparation: ports.sourcePreparation,
+      custodyTransfer: ports.custodyTransfer,
+      custodyHold: ownerEnrollment.custodyHold,
     });
     const result: LinkDeviceResult = {
       success: true,
@@ -240,6 +254,10 @@ export async function scanAndLinkDevice(
     notifyError(options.onError, failure);
     await options.afterCall?.(false, undefined, failure);
     throw failure;
+  } finally {
+    // The one exit every path passes through. Idempotent, and safe after a
+    // completed seal, so it needs to know nothing about which path got here.
+    custodyHold?.discardV1();
   }
 }
 
@@ -285,11 +303,14 @@ async function awaitActiveApprovalResult(input: {
   readonly enrollmentId: Device1TargetReadySourceInputV1['enrollmentId'];
   readonly deviceId: Device1TargetReadySourceInputV1['deviceId'];
   readonly sourcePreparation: Device1LinkingFlowPortsV1['sourcePreparation'];
+  readonly custodyTransfer: Device1LinkingFlowPortsV1['custodyTransfer'];
+  readonly custodyHold: LinkedDeviceOwnerCustodyHoldV1;
 }): Promise<ActiveApprovalResult> {
   const immediate = activeApprovalFromResult(input.result);
   if (immediate) return immediate;
   let latestResult: LinkedDeviceApprovalResultV1 | null = input.result;
   let sourceHandoffComplete = false;
+  let custodySealComplete = false;
   let pollAttempt = 0;
   const onApprovalResult = (result: LinkedDeviceApprovalResultV1): void => {
     latestResult = result;
@@ -312,6 +333,12 @@ async function awaitActiveApprovalResult(input: {
           sourceHandoffComplete = await preparePendingSourceHandoffV1(input, observed);
         }
       }
+      // Independent of the approval state: Device 2 publishes its recipient
+      // before prompting for its own passkey, so this is ready to seal while
+      // the target device is still waiting on its user.
+      if (!custodySealComplete) {
+        custodySealComplete = await sealCustodyForPublishedRecipientV1(input);
+      }
       await waitForApprovalPollV1(pollAttempt);
       pollAttempt += 1;
     }
@@ -319,6 +346,56 @@ async function awaitActiveApprovalResult(input: {
   } finally {
     await subscription?.close();
   }
+}
+
+/**
+ * Releases the held wallet custody seed to the device that published a
+ * recipient for it.
+ *
+ * The recipient is read back from the session rather than taken on trust: it
+ * has to name the same wallet, enrollment, device, and session the owner
+ * approved. A relay that answered with someone else's recipient would otherwise
+ * get the seed sealed to a key the owner never approved. The recipient key
+ * itself is authenticated one step earlier — Device 2 registers it under the
+ * device key whose public half was in the scanned QR.
+ *
+ * Returns false while no recipient has been published yet, which is the normal
+ * state for as long as the target device is still preparing.
+ */
+async function sealCustodyForPublishedRecipientV1(
+  input: Parameters<typeof awaitActiveApprovalResult>[0],
+): Promise<boolean> {
+  const recipient = await input.transport.getCustodyTransferRecipientV1({
+    linkSessionId: input.linkSessionId,
+    authentication: input.authentication,
+  });
+  if (!recipient) return false;
+  if (
+    String(recipient.linkSessionId) !== String(input.linkSessionId) ||
+    String(recipient.walletId) !== String(input.walletId) ||
+    String(recipient.enrollmentId) !== String(input.enrollmentId) ||
+    String(recipient.deviceId) !== String(input.deviceId)
+  ) {
+    throw new Error('custody transfer recipient differs from the approved linked-device session');
+  }
+  const sealedPackage = await input.custodyHold.sealOnceV1(
+    async (material) =>
+      await input.custodyTransfer.sealForLinkedDeviceV1({
+        recipient,
+        existingEnvelope: material.existingEnvelope,
+        existingFactorSecret: material.existingFactorSecret,
+        sealedAtMs: Date.now(),
+      }),
+  );
+  await input.transport.submitCustodyTransferPackageV1({
+    submission: {
+      kind: 'linked_device_custody_transfer_submission_v1',
+      linkSessionId: String(input.linkSessionId),
+      package: sealedPackage,
+    },
+    authentication: input.authentication,
+  });
+  return true;
 }
 
 async function preparePendingSourceHandoffV1(
