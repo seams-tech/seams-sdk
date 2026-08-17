@@ -781,7 +781,10 @@ export type WalletAddAuthMethodAuthority =
  * target preparation carries them to Device 2 — one declaration, so none of
  * the three can drift from the ceremony.
  */
-import type { WalletAddAuthMethodRegistrationOptions } from '@shared/utils/addAuthMethodRegistration';
+import {
+  parseWalletAddAuthMethodRegistrationOptions,
+  type WalletAddAuthMethodRegistrationOptions,
+} from '@shared/utils/addAuthMethodRegistration';
 export type { WalletAddAuthMethodRegistrationOptions };
 
 export type WalletAddAuthMethodStartResponse =
@@ -853,6 +856,50 @@ export type WalletRevokeAuthMethodResponse =
       };
       rpId?: never;
     };
+
+export function parseWalletAddAuthMethodStartResponse(args: {
+  readonly value: unknown;
+  readonly expectedIntent: AddAuthMethodIntentV1;
+}): WalletAddAuthMethodStartResponse {
+  const responseName = 'Wallet add-auth-method start';
+  const record = requireResponseRecord({ responseName, field: 'body', value: args.value });
+  if (record.ok !== true) throw new Error(`${responseName} response is not successful`);
+  const addAuthMethodCeremonyId = requireResponseString({
+    responseName,
+    field: 'addAuthMethodCeremonyId',
+    value: record.addAuthMethodCeremonyId,
+  });
+  const intent = requireExactAddAuthMethodIntent(record.intent, args.expectedIntent);
+  if (args.expectedIntent.authMethod.kind === 'email_otp') {
+    assertExactResponseKeys(record, ['ok', 'addAuthMethodCeremonyId', 'intent'], responseName);
+    return { ok: true, addAuthMethodCeremonyId, intent };
+  }
+  assertExactResponseKeys(
+    record,
+    [
+      'ok',
+      'addAuthMethodCeremonyId',
+      'intent',
+      'custodyEnvelope',
+      'registration',
+      'addAuthMethodCeremonyExpiresAtMs',
+    ],
+    responseName,
+  );
+  return {
+    ok: true,
+    addAuthMethodCeremonyId,
+    intent,
+    custodyEnvelope: parsePasskeyCustodyEnvelopeRecord(record.custodyEnvelope),
+    registration: parseWalletAddAuthMethodRegistrationOptions(record.registration),
+    addAuthMethodCeremonyExpiresAtMs: requireResponseSafeInteger({
+      responseName,
+      field: 'addAuthMethodCeremonyExpiresAtMs',
+      value: record.addAuthMethodCeremonyExpiresAtMs,
+      minimum: 1,
+    }),
+  };
+}
 
 type WalletAddSignerStartResponseBase = {
   ok: true;
@@ -977,6 +1024,16 @@ function requireExactAddSignerIntent(
 ): AddSignerIntentV1 {
   if (alphabetizeStringify(value) !== alphabetizeStringify(expected)) {
     throw new Error('Wallet add-signer start response changed the admitted intent');
+  }
+  return expected;
+}
+
+function requireExactAddAuthMethodIntent(
+  value: unknown,
+  expected: AddAuthMethodIntentV1,
+): AddAuthMethodIntentV1 {
+  if (alphabetizeStringify(value) !== alphabetizeStringify(expected)) {
+    throw new Error('Wallet add-auth-method start response changed the admitted intent');
   }
   return expected;
 }
@@ -3451,7 +3508,7 @@ export async function startWalletAddAuthMethod(args: {
 }): Promise<WalletAddAuthMethodStartResponse> {
   const walletId = String(args.walletId || '').trim();
   if (!walletId) throw new Error('walletId is required for add-auth-method start');
-  return await postJson<WalletAddAuthMethodStartResponse>({
+  const value = await postJson<unknown>({
     relayerUrl: args.relayerUrl,
     path: `/wallets/${encodeURIComponent(walletId)}/auth-methods/start`,
     body: {
@@ -3462,6 +3519,7 @@ export async function startWalletAddAuthMethod(args: {
       ...addAuthMethodAuthorityBody(args.authority),
     },
   });
+  return parseWalletAddAuthMethodStartResponse({ value, expectedIntent: args.intent });
 }
 
 export async function respondWalletAddSignerEcdsa(args: {

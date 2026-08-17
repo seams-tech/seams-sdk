@@ -84,20 +84,32 @@ export function captureLinkedDeviceOwnerCustodyHoldV1(input: {
     throw new Error('linked-device owner approval assertion did not return PRF.first');
   }
 
-  const existingFactorSecret = base64UrlDecode(prfFirstB64u);
+  let heldEnvelope: PasskeyCustodyEnvelopeRecord | null = envelope;
+  let existingFactorSecret: Uint8Array | null = base64UrlDecode(prfFirstB64u);
   let released = false;
   const wipe = (): void => {
     released = true;
-    existingFactorSecret.fill(0);
+    existingFactorSecret?.fill(0);
+    existingFactorSecret = null;
+    heldEnvelope = null;
   };
   return {
     sealOnceV1: async (seal) => {
-      if (released) throw new Error('linked-device owner custody material was already released');
+      if (released || heldEnvelope === null || existingFactorSecret === null) {
+        throw new Error('linked-device owner custody material was already released');
+      }
       released = true;
+      const envelopeToSeal = heldEnvelope;
+      const factorSecretToSeal = existingFactorSecret;
+      heldEnvelope = null;
+      existingFactorSecret = null;
       try {
-        return await seal({ existingEnvelope: envelope, existingFactorSecret });
+        return await seal({
+          existingEnvelope: envelopeToSeal,
+          existingFactorSecret: factorSecretToSeal,
+        });
       } finally {
-        existingFactorSecret.fill(0);
+        factorSecretToSeal.fill(0);
       }
     },
     discardV1: wipe,

@@ -121,7 +121,9 @@ function parseOwnerResponseV1<T>(
   parse: (raw: unknown) => T,
 ): T {
   if (response.status < 200 || response.status >= 300) {
-    throw new Error(parseOwnerFailureMessageV1(response));
+    throw Object.assign(new Error(parseOwnerFailureMessageV1(response)), {
+      status: response.status,
+    });
   }
   return parse(response.body);
 }

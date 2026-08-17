@@ -8,6 +8,7 @@ import {
 } from '@shared/device-linking';
 import type {
   LinkedDeviceOwnerAuthorizationSourceV1,
+  LinkedDeviceCustodyTransferPackageV1,
   QrLinkedDeviceSessionPayloadV4,
 } from '@shared/device-linking';
 import {
@@ -310,7 +311,8 @@ async function awaitActiveApprovalResult(input: {
   if (immediate) return immediate;
   let latestResult: LinkedDeviceApprovalResultV1 | null = input.result;
   let sourceHandoffComplete = false;
-  let custodySealComplete = false;
+  let custodyTransferSubmitted = false;
+  let sealedCustodyPackage: LinkedDeviceCustodyTransferPackageV1 | null = null;
   let pollAttempt = 0;
   const onApprovalResult = (result: LinkedDeviceApprovalResultV1): void => {
     latestResult = result;
@@ -325,20 +327,31 @@ async function awaitActiveApprovalResult(input: {
     while (Date.now() < input.expiresAtMs) {
       const observed = latestResult;
       latestResult = null;
+      let active: ActiveApprovalResult | null = null;
       if (observed) {
         pollAttempt = 0;
-        const active = activeApprovalFromResult(observed);
-        if (active) return active;
-        if (!sourceHandoffComplete) {
+        active = activeApprovalFromResult(observed);
+        if (!active && !sourceHandoffComplete) {
           sourceHandoffComplete = await preparePendingSourceHandoffV1(input, observed);
         }
       }
       // Independent of the approval state: Device 2 publishes its recipient
       // before prompting for its own passkey, so this is ready to seal while
       // the target device is still waiting on its user.
-      if (!custodySealComplete) {
-        custodySealComplete = await sealCustodyForPublishedRecipientV1(input);
+      if (!custodyTransferSubmitted) {
+        if (!sealedCustodyPackage) {
+          sealedCustodyPackage = await sealCustodyForPublishedRecipientV1(input);
+        }
+        if (sealedCustodyPackage) {
+          try {
+            await submitCustodyTransferPackageV1(input, sealedCustodyPackage);
+            custodyTransferSubmitted = true;
+          } catch (error: unknown) {
+            if (!isRetryableCustodyTransferSubmissionFailureV1(error)) throw error;
+          }
+        }
       }
+      if (active && custodyTransferSubmitted) return active;
       await waitForApprovalPollV1(pollAttempt);
       pollAttempt += 1;
     }
@@ -359,17 +372,17 @@ async function awaitActiveApprovalResult(input: {
  * itself is authenticated one step earlier — Device 2 registers it under the
  * device key whose public half was in the scanned QR.
  *
- * Returns false while no recipient has been published yet, which is the normal
+ * Returns null while no recipient has been published yet, which is the normal
  * state for as long as the target device is still preparing.
  */
 async function sealCustodyForPublishedRecipientV1(
   input: Parameters<typeof awaitActiveApprovalResult>[0],
-): Promise<boolean> {
+): Promise<LinkedDeviceCustodyTransferPackageV1 | null> {
   const recipient = await input.transport.getCustodyTransferRecipientV1({
     linkSessionId: input.linkSessionId,
     authentication: input.authentication,
   });
-  if (!recipient) return false;
+  if (!recipient) return null;
   if (
     String(recipient.linkSessionId) !== String(input.linkSessionId) ||
     String(recipient.walletId) !== String(input.walletId) ||
@@ -387,6 +400,13 @@ async function sealCustodyForPublishedRecipientV1(
         sealedAtMs: Date.now(),
       }),
   );
+  return sealedPackage;
+}
+
+async function submitCustodyTransferPackageV1(
+  input: Parameters<typeof awaitActiveApprovalResult>[0],
+  sealedPackage: LinkedDeviceCustodyTransferPackageV1,
+): Promise<void> {
   await input.transport.submitCustodyTransferPackageV1({
     submission: {
       kind: 'linked_device_custody_transfer_submission_v1',
@@ -395,7 +415,18 @@ async function sealCustodyForPublishedRecipientV1(
     },
     authentication: input.authentication,
   });
-  return true;
+}
+
+function isRetryableCustodyTransferSubmissionFailureV1(error: unknown): boolean {
+  const status = readErrorStatusV1(error);
+  if (status === null) return true;
+  return status === 408 || status === 429 || status >= 500;
+}
+
+function readErrorStatusV1(error: unknown): number | null {
+  if (typeof error !== 'object' || error === null || Array.isArray(error)) return null;
+  const status = Reflect.get(error, 'status');
+  return typeof status === 'number' && Number.isSafeInteger(status) ? status : null;
 }
 
 async function preparePendingSourceHandoffV1(
