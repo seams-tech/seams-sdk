@@ -306,6 +306,7 @@ export type OpaqueOwnerWalletSessionBinding =
       readonly participantIds: readonly number[];
       readonly thresholdExpiresAtMs: number;
       readonly subjectId: string;
+      readonly keyManifestDigestB64u: DigestB64u;
       readonly nearAccountId: string;
       readonly nearEd25519SigningKeyId: string;
       readonly authority: WalletAuthAuthority;
@@ -326,6 +327,7 @@ export type OpaqueOwnerWalletSessionBinding =
       readonly participantIds: readonly number[];
       readonly thresholdExpiresAtMs: number;
       readonly subjectId: string;
+      readonly keyManifestDigestB64u: DigestB64u;
       readonly keyHandle: string;
       readonly walletAuthAuthorityRef: WalletAuthAuthorityRef;
       readonly authSource:
@@ -360,6 +362,7 @@ function parseOpaqueBindingBase(value: Record<string, unknown>): {
   participantIds: readonly number[];
   thresholdExpiresAtMs: number;
   subjectId: string;
+  keyManifestDigestB64u: DigestB64u;
 } | null {
   const walletId = parseWalletId(value.walletId);
   const authorizationId = parseWalletSessionAuthorizationId(value.authorizationId);
@@ -371,6 +374,16 @@ function parseOpaqueBindingBase(value: Record<string, unknown>): {
   const thresholdExpiresAtMs = value.thresholdExpiresAtMs;
   const participantIds = value.participantIds;
   const normalizedParticipantIds = normalizeThresholdEd25519ParticipantIds(participantIds);
+  // The key manifest this session's key set was registered against. Owner
+  // custody seals no manifest into the seed — each key set records its own at
+  // registration — so the session claim is where a verified manifest becomes
+  // addressable per curve.
+  let keyManifestDigestB64u: DigestB64u;
+  try {
+    keyManifestDigestB64u = parseDigestB64u(value.keyManifestDigestB64u);
+  } catch {
+    return null;
+  }
   if (
     !walletId.ok ||
     !authorizationId.ok ||
@@ -400,6 +413,7 @@ function parseOpaqueBindingBase(value: Record<string, unknown>): {
     participantIds: normalizedParticipantIds,
     thresholdExpiresAtMs,
     subjectId,
+    keyManifestDigestB64u,
   };
 }
 

@@ -1,7 +1,6 @@
 import type { FetchRouterApiContext } from '../createFetchRouter';
 import { json, readJson } from '../../../framework/http';
-import {
-} from '../../../../core/ThresholdService/validation';
+import {} from '../../../../core/ThresholdService/validation';
 import type { OpaqueOwnerWalletSessionBinding } from '../../../../authorization/service';
 type OpaqueOwnerEcdsaWalletSessionBinding = Extract<
   OpaqueOwnerWalletSessionBinding,
@@ -456,7 +455,7 @@ async function handleRouterAbEcdsaDerivationNormalSigningRoute(input: {
       input.phase === 'prepare'
         ? parseRouterAbEcdsaDerivationEvmDigestSigningRequestV1(input.body)
         : parseRouterAbEcdsaDerivationEvmDigestSigningFinalizeRequestV1(input.body);
-  const operation = await admitRouterAbEcdsaReusableWalletSessionOperation({
+    const operation = await admitRouterAbEcdsaReusableWalletSessionOperation({
       request,
       materialActivation: authorization.admission.materialActivation,
       binding: authorization.validated.binding,
@@ -465,41 +464,41 @@ async function handleRouterAbEcdsaDerivationNormalSigningRoute(input: {
         input.ctx.service.walletRegistration.resolveEcdsaMaterialActivation.bind(
           input.ctx.service.walletRegistration,
         ),
-  });
-  if (!operation.ok) {
-    const failureBody = operation.error.body;
-    const failureCode =
-      typeof failureBody === 'object' &&
-      failureBody !== null &&
-      'code' in failureBody &&
-      typeof failureBody.code === 'string'
-        ? failureBody.code
-        : 'authorization_unavailable';
-    const failureMessage =
-      typeof failureBody === 'object' &&
-      failureBody !== null &&
-      'message' in failureBody &&
-      typeof failureBody.message === 'string'
-        ? failureBody.message
-        : 'ECDSA operation authorization is unavailable';
-    const stepUp =
-      input.phase === 'prepare'
-          ? buildRouterAbEcdsaOwnerOperationStepUpPreparation({
+    });
+    if (!operation.ok) {
+      const failureBody = operation.error.body;
+      const failureCode =
+        typeof failureBody === 'object' &&
+        failureBody !== null &&
+        'code' in failureBody &&
+        typeof failureBody.code === 'string'
+          ? failureBody.code
+          : 'authorization_unavailable';
+      const failureMessage =
+        typeof failureBody === 'object' &&
+        failureBody !== null &&
+        'message' in failureBody &&
+        typeof failureBody.message === 'string'
+          ? failureBody.message
+          : 'ECDSA operation authorization is unavailable';
+      const stepUp =
+        input.phase === 'prepare'
+          ? (buildRouterAbEcdsaOwnerOperationStepUpPreparation({
               request: parseRouterAbEcdsaDerivationEvmDigestSigningRequestV1(input.body),
               keyHandle: authorization.validated.binding.keyHandle,
               relayerKeyId: authorization.validated.binding.relayerKeyId,
-      participantIds: [...authorization.validated.binding.participantIds],
-            }) ?? undefined
-        : undefined;
-    const decision = routerAbEcdsaOwnerOperationFailureResult({
-      status: operation.error.status,
-      code: failureCode,
-      message: failureMessage,
-      phase: input.phase,
-      stepUp,
-    });
-    return json(decision.body, { status: decision.status });
-  }
+              participantIds: [...authorization.validated.binding.participantIds],
+            }) ?? undefined)
+          : undefined;
+      const decision = routerAbEcdsaOwnerOperationFailureResult({
+        status: operation.error.status,
+        code: failureCode,
+        message: failureMessage,
+        phase: input.phase,
+        stepUp,
+      });
+      return json(decision.body, { status: decision.status });
+    }
     if (operation.admission.kind === 'operation_in_progress' && input.phase === 'prepare') {
       const failure = routerAbEcdsaOperationInProgressResult();
       return json(failure.body, { status: failure.status });
@@ -1953,8 +1952,7 @@ async function admitStrictEcdsaExportOperationStepUp(
     existing.operation.capabilityId !== input.materialActivation.capability ||
     existing.operation.operation.capabilityKind !== 'evm_ecdsa_mpc_signing' ||
     existing.operation.operation.operationKind !== 'evm.export_key' ||
-    existing.operation.digests.laneDigest !==
-      input.operation.operation_digests.lane_digest_b64u ||
+    existing.operation.digests.laneDigest !== input.operation.operation_digests.lane_digest_b64u ||
     existing.operation.digests.intentDigest !==
       input.operation.operation_digests.intent_digest_b64u ||
     existing.operation.digests.displayDigest !==
@@ -2308,8 +2306,7 @@ async function authorizeStrictEcdsaSessionActivationFromOpaqueEd25519Session(inp
     input.proof.tenantId !== resolved.authorization.tenantId ||
     input.proof.walletId !== resolved.authorization.walletId ||
     input.proof.principalId !== resolved.authorization.principalId ||
-    String(input.proof.authority.authorityDigest) !==
-      String(resolved.authorization.authorityDigest)
+    String(input.proof.authority.authorityDigest) !== String(resolved.authorization.authorityDigest)
   ) {
     return walletSessionFailure(WALLET_SESSION_FAILURE_CODES.scopeMismatch);
   }
@@ -2404,7 +2401,7 @@ async function authorizeStrictEcdsaSessionActivation(input: {
       readonly authorizationSessionId: EcdsaAuthorizationSessionId;
       readonly authority: WalletAuthAuthorityRef;
       readonly authSource: OpaqueOwnerEcdsaWalletSessionBinding['authSource'];
-  }
+    }
   | StrictEcdsaReusableWalletSessionAuthorization
 > {
   if (String(input.proof.walletId) !== input.walletId) {
@@ -2572,6 +2569,7 @@ export async function handleStrictEcdsaSessionActivation(
       expiresAtMs,
       participantIds: walletKey.participantIds,
       runtimePolicyScope: request.session_policy.runtime_policy_scope,
+      keyManifestDigestB64u: activated.keyManifestDigestB64u,
       keyHandle: walletKey.keyHandle,
       stableKeyContext: {
         walletId: walletKey.walletId,

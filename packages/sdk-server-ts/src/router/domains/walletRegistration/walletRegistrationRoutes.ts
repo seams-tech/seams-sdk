@@ -122,9 +122,7 @@ import {
   normalizeRuntimePolicyScope,
   type RuntimePolicyScope,
 } from '@shared/threshold/signingRootScope';
-import {
-  isEmailOtpWalletAuthAuthority,
-} from '@shared/utils/walletAuthAuthority';
+import { isEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import {
   parseRouterAbTraceContextV1,
   ROUTER_AB_TRACE_ID_HEADER_V1,
@@ -272,6 +270,7 @@ function buildPasskeyWalletRegistrationFinalizeRouteSuccess(
         rpId: result.rpId,
         authMethod: result.authMethod,
         ...(result.walletCustody ? { walletCustody: result.walletCustody } : {}),
+        custodyKeyManifestDigestB64u: result.custodyKeyManifestDigestB64u,
         kind: result.kind,
         authorityScope: result.authorityScope,
         accountProvisioning: result.accountProvisioning,
@@ -287,6 +286,7 @@ function buildPasskeyWalletRegistrationFinalizeRouteSuccess(
         rpId: result.rpId,
         authMethod: result.authMethod,
         ...(result.walletCustody ? { walletCustody: result.walletCustody } : {}),
+        custodyKeyManifestDigestB64u: result.custodyKeyManifestDigestB64u,
         kind: result.kind,
         ecdsa: result.ecdsa,
       };
@@ -1256,8 +1256,7 @@ function parseWalletAddSignerCustodyKeySet(
   if (!custodyKeySet) {
     return { ok: false, code: 'invalid_body', message: 'custodyKeySet is required' };
   }
-  const expectedKind =
-    kind === 'near_ed25519' ? 'near_ed25519_v1' : 'evm_family_ecdsa_v1';
+  const expectedKind = kind === 'near_ed25519' ? 'near_ed25519_v1' : 'evm_family_ecdsa_v1';
   if (custodyKeySet.kind !== expectedKind) {
     return {
       ok: false,
@@ -1499,10 +1498,7 @@ function parseWalletAddSignerFinalizeRequest(
     }
     const ecdsa = parseWalletRegistrationEcdsaFinalize(body.ecdsa);
     if (!ecdsa.ok) return ecdsa;
-    const custodyKeySet = parseWalletAddSignerCustodyKeySet(
-      body.custodyKeySet,
-      'evm_family_ecdsa',
-    );
+    const custodyKeySet = parseWalletAddSignerCustodyKeySet(body.custodyKeySet, 'evm_family_ecdsa');
     if (!custodyKeySet.ok) return custodyKeySet;
     return {
       ok: true,
@@ -2326,10 +2322,7 @@ export async function handleRouterApiWalletAddAuthMethodStart(
   if (!walletId) {
     return routeError(400, 'invalid_body', 'walletId is required');
   }
-  const parsedBody = await parseWalletAddAuthMethodStartBody(
-    input.body,
-    walletId,
-  );
+  const parsedBody = await parseWalletAddAuthMethodStartBody(input.body, walletId);
   if (!parsedBody.ok) return routeError(400, parsedBody.code, parsedBody.message);
   if (parsedBody.value.auth.kind === 'webauthn_assertion') {
     const origin = requireWebAuthnExpectedOrigin(input);

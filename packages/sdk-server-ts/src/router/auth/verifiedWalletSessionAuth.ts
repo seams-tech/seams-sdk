@@ -39,6 +39,13 @@ type BaseVerifiedWalletSessionAuth = {
 type OwnerVerifiedWalletSessionAuth = BaseVerifiedWalletSessionAuth & {
   authorizationKind: 'owner_wallet_session';
   authorizationId: WalletSessionAuthorizationId;
+  /**
+   * The manifest the wallet's key set for this curve was registered against.
+   * Linked-device claims have always carried one; owner claims now do too, so
+   * an owner-authenticated decision can name a verified manifest without
+   * reaching into a signing lane's enrollment to find one.
+   */
+  keyManifestDigestB64u: DigestB64u;
   linkedDevice?: never;
 };
 
@@ -94,7 +101,10 @@ export type VerifiedEcdsaWalletSessionAuth =
 export type VerifiedOwnerEd25519WalletSessionAuth = OwnerVerifiedWalletSessionAuth & {
   curve: 'ed25519';
   authority: WalletAuthAuthority;
-  authorityScope: Extract<OpaqueOwnerWalletSessionBinding, { readonly curve: 'ed25519' }>['authorityScope'];
+  authorityScope: Extract<
+    OpaqueOwnerWalletSessionBinding,
+    { readonly curve: 'ed25519' }
+  >['authorityScope'];
   ed25519RelayerKeyId: string;
   rpId?: never;
   keyHandle?: never;
@@ -182,6 +192,7 @@ export function buildVerifiedEcdsaWalletSessionAuth(
     relayerKeyId: session.relayerKeyId,
     participantIds: session.participantIds,
     expiresAtMs: Math.floor(Number(session.thresholdExpiresAtMs) || 0),
+    keyManifestDigestB64u: session.keyManifestDigestB64u,
     keyHandle: session.keyHandle,
     walletAuthAuthorityRef: session.walletAuthAuthorityRef,
     authSource: session.authSource,
@@ -220,6 +231,7 @@ export function buildVerifiedEd25519WalletSessionAuth(
     relayerKeyId: session.relayerKeyId,
     participantIds: session.participantIds,
     expiresAtMs: Math.floor(Number(session.thresholdExpiresAtMs) || 0),
+    keyManifestDigestB64u: session.keyManifestDigestB64u,
     ed25519RelayerKeyId: session.relayerKeyId,
   };
 }

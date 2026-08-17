@@ -370,10 +370,7 @@ export type WalletSessionIssuanceResult =
 type WalletSessionIssuanceFailure = Extract<WalletSessionIssuanceResult, { ok: false }>;
 
 type RouterAbOpaqueWalletSessionSigningInput = {
-  opaqueWalletSessions: Pick<
-    RouterApiAuthorizationSessionService,
-    'issueOpaqueWalletSessionToken'
-  >;
+  opaqueWalletSessions: Pick<RouterApiAuthorizationSessionService, 'issueOpaqueWalletSessionToken'>;
   tenantId: TenantId;
   userId: unknown;
   relayerKeyId: unknown;
@@ -386,6 +383,7 @@ type RouterAbOpaqueWalletSessionSigningInput = {
     expiresAtMs?: unknown;
     participantIds?: unknown;
     runtimePolicyScope?: unknown;
+    keyManifestDigestB64u: unknown;
   };
   fallbackParticipantIds?: unknown;
   invalidPayloadErrorMessage: string;
@@ -417,20 +415,21 @@ type RouterAbLinkedDeviceWalletSessionJwtSigningBaseInput = {
   };
 };
 
-export type RouterAbEd25519OpaqueWalletSessionSigningInput = RouterAbOpaqueWalletSessionSigningInput & {
-  proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
-  authority: WalletAuthAuthority;
-  sessionInfo: RouterAbOpaqueWalletSessionSigningInput['sessionInfo'] & {
-    sessionKind: 'opaque';
-    authorizationKind: 'owner_wallet_session';
-    walletId: unknown;
-    authorizationId: unknown;
-    nearAccountId: unknown;
-    nearEd25519SigningKeyId: unknown;
-    runtimePolicyScope: unknown;
-    routerAbNormalSigning: unknown;
+export type RouterAbEd25519OpaqueWalletSessionSigningInput =
+  RouterAbOpaqueWalletSessionSigningInput & {
+    proof: Extract<VerifiedOwnerProof, { readonly purpose: 'wallet_session' }>;
+    authority: WalletAuthAuthority;
+    sessionInfo: RouterAbOpaqueWalletSessionSigningInput['sessionInfo'] & {
+      sessionKind: 'opaque';
+      authorizationKind: 'owner_wallet_session';
+      walletId: unknown;
+      authorizationId: unknown;
+      nearAccountId: unknown;
+      nearEd25519SigningKeyId: unknown;
+      runtimePolicyScope: unknown;
+      routerAbNormalSigning: unknown;
+    };
   };
-};
 
 export type RouterAbEd25519LinkedDeviceWalletSessionJwtSigningInput =
   RouterAbLinkedDeviceWalletSessionJwtSigningBaseInput;
@@ -463,6 +462,7 @@ type NormalizedRouterAbWalletSessionSigningBase = {
   quotaId: MpcWalletSigningQuotaId;
   thresholdExpiresAtMs: number;
   participantIds: number[];
+  keyManifestDigestB64u: DigestB64u;
 };
 
 export type RouterAbEcdsaDerivationLinkedDeviceWalletSessionJwtSigningInput =
@@ -470,9 +470,7 @@ export type RouterAbEcdsaDerivationLinkedDeviceWalletSessionJwtSigningInput =
 
 function normalizeRouterAbOpaqueWalletSessionSigningBase(
   args: RouterAbOpaqueWalletSessionSigningInput,
-):
-  | { ok: true; value: NormalizedRouterAbWalletSessionSigningBase }
-  | WalletSessionIssuanceFailure {
+): { ok: true; value: NormalizedRouterAbWalletSessionSigningBase } | WalletSessionIssuanceFailure {
   const userId = String(args.userId || '').trim();
   const relayerKeyId = String(args.relayerKeyId || '').trim();
   const thresholdSessionId = String(args.sessionInfo?.thresholdSessionId || '').trim();
@@ -483,6 +481,20 @@ function normalizeRouterAbOpaqueWalletSessionSigningBase(
   const participantIds =
     normalizeThresholdEd25519ParticipantIds(args.sessionInfo?.participantIds) ||
     normalizeThresholdEd25519ParticipantIds(args.fallbackParticipantIds);
+  // Registration verified this manifest against the wallet's key set and
+  // recorded it on the signer record. Carrying it here is what lets a later
+  // owner-authenticated decision name a manifest without re-deriving one.
+  let keyManifestDigestB64u: DigestB64u;
+  try {
+    keyManifestDigestB64u = parseDigestB64u(args.sessionInfo?.keyManifestDigestB64u);
+  } catch {
+    return {
+      ok: false,
+      status: 500,
+      code: 'internal',
+      message: args.invalidPayloadErrorMessage,
+    };
+  }
 
   if (
     !userId ||
@@ -515,13 +527,12 @@ function normalizeRouterAbOpaqueWalletSessionSigningBase(
       quotaId: quotaId.value,
       thresholdExpiresAtMs,
       participantIds,
+      keyManifestDigestB64u,
     },
   };
 }
 
-function rejectInvalidRouterAbEd25519Binding(
-  args: RouterAbEd25519OpaqueWalletSessionSigningInput,
-):
+function rejectInvalidRouterAbEd25519Binding(args: RouterAbEd25519OpaqueWalletSessionSigningInput):
   | {
       ok: true;
       walletId: string;
@@ -985,6 +996,7 @@ function buildRouterAbEd25519WalletSessionBinding(
     routerAbNormalSigning: input.binding.routerAbNormalSigning,
     participantIds: input.base.participantIds,
     thresholdExpiresAtMs: input.base.thresholdExpiresAtMs,
+    keyManifestDigestB64u: input.base.keyManifestDigestB64u,
   };
   return binding;
 }
@@ -1011,6 +1023,7 @@ function buildRouterAbEcdsaDerivationWalletSessionBinding(
     routerAbEcdsaDerivationNormalSigning: input.binding.normalSigning,
     participantIds: input.base.participantIds,
     thresholdExpiresAtMs: input.base.thresholdExpiresAtMs,
+    keyManifestDigestB64u: input.base.keyManifestDigestB64u,
   };
   return input.runtimePolicyScope
     ? { ...binding, runtimePolicyScope: input.runtimePolicyScope }
@@ -1074,7 +1087,10 @@ async function issueOpaqueWalletSessionToken(args: {
   readonly binding: OpaqueOwnerWalletSessionBinding;
   readonly invalidPayloadErrorMessage: string;
 }): Promise<WalletSessionIssuanceResult> {
-  const runtimePolicyScope = args.binding.curve === 'ecdsa' ? args.binding.runtimePolicyScope : args.binding.runtimePolicyScope;
+  const runtimePolicyScope =
+    args.binding.curve === 'ecdsa'
+      ? args.binding.runtimePolicyScope
+      : args.binding.runtimePolicyScope;
   const tenantId = runtimePolicyScope
     ? parseTenantId(runtimePolicyScope.orgId)
     : { ok: true as const, value: args.tenantId };

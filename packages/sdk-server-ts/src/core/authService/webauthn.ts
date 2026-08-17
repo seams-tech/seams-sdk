@@ -26,6 +26,9 @@ import {
   type ResolvedEd25519WalletBinding,
 } from './webauthnWalletBinding';
 import { passkeyThresholdEd25519AuthorityScope, requireWebAuthnRpId } from './webauthnAuthority';
+import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
+import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
+import { walletIdFromString, type WalletId } from '@shared/utils/registrationIntent';
 import {
   decodeBase64UrlOrBase64,
   isHostWithinRpId,
@@ -108,6 +111,8 @@ export type WebAuthnSyncAccountVerificationResult =
       walletId: string;
       nearAccountId: string;
       nearEd25519SigningKeyId: string;
+      /** The manifest recorded on this wallet's Ed25519 signer at registration. */
+      custodyKeyManifestDigestB64u: DigestB64u;
       walletBinding: ResolvedEd25519WalletBinding;
       rpId: string;
       signerSlot: number;
@@ -831,11 +836,23 @@ export async function createWebAuthnSyncAccountOptionsWithStores(input: {
   }
 }
 
+/**
+ * The one signer read sync needs. Shaped as the wallet store's own reader so
+ * the existing store satisfies it structurally, with no adapter.
+ */
+export type SyncAccountEd25519SignerReader = {
+  getEd25519SignerBySlot(input: {
+    walletId: WalletId;
+    signerSlot: number;
+  }): Promise<{ readonly custodyKeyManifestDigestB64u: string } | null>;
+};
+
 export async function verifyWebAuthnSyncAccountWithStores(input: {
   request: WebAuthnSyncAccountVerificationRequest;
   syncChallengeStore: WebAuthnSyncChallengeStore;
   credentialBindingStore: WebAuthnCredentialBindingStore;
   authenticatorStore: WebAuthnAuthenticatorStore;
+  walletStore: SyncAccountEd25519SignerReader;
   logger: NormalizedLogger;
 }): Promise<WebAuthnSyncAccountVerificationResult> {
   try {
@@ -943,6 +960,22 @@ export async function verifyWebAuthnSyncAccountWithStores(input: {
         message: 'Wallet has no Ed25519 signer yet; NEAR provisioning has not completed',
       };
     }
+    // Sync mints an owner Wallet Session, and that session names the manifest
+    // its key set was registered against. The signer record is the only place
+    // that manifest is recorded, and the same "not provisioned yet" outcome
+    // already covers a wallet whose signer has not settled.
+    const ed25519Signer = await input.walletStore.getEd25519SignerBySlot({
+      walletId: walletIdFromString(walletBinding.walletId),
+      signerSlot: walletBinding.signerSlot,
+    });
+    if (!ed25519Signer) {
+      return {
+        ok: false,
+        verified: false,
+        code: 'ed25519_not_provisioned',
+        message: 'Wallet has no Ed25519 signer yet; NEAR provisioning has not completed',
+      };
+    }
     const walletBindingAuthorityScope = passkeyThresholdEd25519AuthorityScope(
       requireWebAuthnRpId(walletBinding.rpId, 'sync credential binding rpId'),
     );
@@ -974,6 +1007,7 @@ export async function verifyWebAuthnSyncAccountWithStores(input: {
       walletId: walletBinding.walletId,
       nearAccountId: walletBinding.nearAccountId,
       nearEd25519SigningKeyId: walletBinding.nearEd25519SigningKeyId,
+      custodyKeyManifestDigestB64u: parseDigestB64u(ed25519Signer.custodyKeyManifestDigestB64u),
       walletBinding,
       rpId: walletBinding.rpId,
       signerSlot: walletBinding.signerSlot,
@@ -1051,8 +1085,7 @@ export async function verifyWebAuthnLoginWithStores(input: {
       };
     }
 
-    const credential = input.request
-      .webauthn_authentication as WebAuthnAuthenticationCredential;
+    const credential = input.request.webauthn_authentication as WebAuthnAuthenticationCredential;
     const credentialIdB64u = String(credential.rawId || credential.id || '').trim();
     const binding = credentialIdB64u
       ? await input.credentialBindingStore.get(record.rpId, credentialIdB64u)
