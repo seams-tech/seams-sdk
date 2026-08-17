@@ -3,6 +3,7 @@ import type { SeamsWebContext } from '@/SeamsWeb/signingSurface/types';
 import {
   cancelHostedPasskeyPreparation,
   prepareHostedPasskeyAccountSync,
+  prepareHostedPasskeyLogin,
   startHostedPasskeyAccountSyncCredential,
 } from '@/SeamsWeb/walletIframe/host/auth-menu/passkey';
 import { loginAccountOptions } from '@/SeamsWeb/walletIframe/host/auth-menu/account-options';
@@ -18,6 +19,7 @@ import { walletIdFromString } from '@shared/utils/registrationIntent';
 import type { AppearanceConfig } from '@/core/types/seams';
 import type { GoogleEmailOtpWalletAuthLoginFlow } from '@/SeamsWeb/publicApi/types';
 import { createLinkDeviceFlowEvent, LinkDeviceEventPhase } from '@/core/types/sdkSentEvents';
+import { IndexedDBManager } from '@/core/indexedDB';
 
 type AuthMenuSessionArgs = ConstructorParameters<typeof AuthMenuSession>[0];
 type StartDeviceLinkingCallbacks = Parameters<AuthMenuSessionArgs['startDeviceLinking']>[0];
@@ -125,6 +127,59 @@ function contextForPreparedAccountSync(calls: unknown[]): SeamsWebContext {
 }
 
 test.describe('hosted auth-menu passkey continuation', () => {
+  test('uses verified account sync when a recent local wallet has no readable capability subject', async () => {
+    const originalFetch = globalThis.fetch;
+    const originalListActiveWalletSigners = IndexedDBManager.listActiveWalletSigners;
+    const walletId = 'river-garden-2fprg7';
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({
+          ok: true,
+          challengeId: 'sync-challenge-local-repair',
+          challengeB64u: 'sync-challenge-local-repair-b64u',
+          credentialIds: ['credential-local-repair'],
+          walletBinding: {
+            walletId,
+            nearAccountId: `${walletId}.testnet`,
+            nearEd25519SigningKeyId: 'ed25519ks_local_repair',
+            rpId: 'wallet.example.test',
+            credentialIdB64u: 'credential-local-repair',
+            signerSlot: 4,
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    IndexedDBManager.listActiveWalletSigners = async () => {
+      throw new Error('local capability projection is unavailable');
+    };
+    try {
+      const authMenuSessionId = hostedAuthMenuSessionIdFromBoundary('auth-menu-local-repair-test');
+      if (!authMenuSessionId) throw new Error('auth-menu session fixture is invalid');
+      const prepared = await prepareHostedPasskeyLogin({
+        context: contextForPreparedAccountSync([]),
+        walletId,
+        authMenuSessionId,
+        requestId: walletIframeRequestIdFromBoundary('auth-menu-local-repair-request'),
+        cancellation: { kind: 'abort_signal', signal: new AbortController().signal },
+      });
+
+      expect(prepared).toMatchObject({
+        kind: 'hosted_passkey_account_sync_prepared_v1',
+        challenge: {
+          walletId,
+          syncOptions: {
+            challengeId: 'sync-challenge-local-repair',
+            credentialIds: ['credential-local-repair'],
+          },
+        },
+      });
+      cancelHostedPasskeyPreparation(prepared);
+    } finally {
+      IndexedDBManager.listActiveWalletSigners = originalListActiveWalletSigners;
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test('prepares sync options before the CTA and starts credential collection inline', async () => {
     const originalFetch = globalThis.fetch;
     const calls: unknown[] = [];
