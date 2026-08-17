@@ -224,6 +224,9 @@ export async function buildR103MixedPlannerFixture(): Promise<R103MixedPlannerFi
     devicePublicKeyB64u: approval.devicePublicKeyB64u,
     permission: approval.permission,
     ownerAuthorization: approval.ownerAuthorization,
+    // The transcript is the durable record of the approval, so it carries the
+    // same ceremony the approval authorized.
+    ownerEnrollment: approval.ownerEnrollment,
     policyDigestB64u: approval.policyDigestB64u,
     operationId: approval.operationId,
     idempotencyKey: approval.idempotencyKey,
@@ -767,7 +770,10 @@ export function buildR103DeviceLinkFixture(
     ...common,
     ownerEnrollment: buildR103OwnerEnrollmentCeremonyV1(),
   });
-  const transcript = buildLinkedDeviceEnrollmentTranscriptV1(common);
+  const transcript = buildLinkedDeviceEnrollmentTranscriptV1({
+    ...common,
+    ownerEnrollment: approval.ownerEnrollment,
+  });
   const childReceipt = buildLinkedDeviceEnrollmentChildReceiptV1({
     enrollmentId,
     walletId,

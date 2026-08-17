@@ -12,6 +12,7 @@ import {
   parseMpcMaterialActivationId,
   parseMpcMaterialOwnerRef,
   parseMpcSigningWorkerRef,
+  parseWalletAuthMethodId,
   parseWalletAuthorityBindingDigest,
   type DomainIdParseResult,
   type MpcMaterialActivationRef,
@@ -40,6 +41,10 @@ export function buildWalletAuthAuthorityRefFixture(args: {
     authorityDigest: unwrapDomainId(
       parseWalletAuthorityBindingDigest(`authority:${args.label ?? args.walletId}`),
     ),
+    // R103B: the ref names the auth method it was minted for.
+    walletAuthMethodId: unwrapDomainId(
+      parseWalletAuthMethodId(`auth-method:${args.label ?? args.walletId}`),
+    ),
   });
   if (!authority) throw new Error('invalid wallet authority fixture');
   return authority;
@@ -61,6 +66,7 @@ export function buildWalletAuthAuthorityRefForAuthorityFixture(
     kind: 'wallet_auth_authority_ref',
     walletId: authority.walletId,
     authorityDigest,
+    walletAuthMethodId: authority.bindingId,
   });
   if (!ref) throw new Error('invalid wallet authority fixture ref');
   return ref;
@@ -93,8 +99,6 @@ export function buildMpcMaterialActivationRefFixture(
     materialOwner: unwrapDomainId(parseMpcMaterialOwnerRef(materialOwner ?? `owner:${label}`)),
     keyBinding: unwrapDomainId(parseMpcKeyBindingRef(keyBinding ?? `key:${label}`)),
     lifecycleBinding: unwrapDomainId(parseMpcLifecycleBindingRef(`lifecycle:${label}`)),
-    signingWorker: unwrapDomainId(
-      parseMpcSigningWorkerRef(signingWorker ?? `worker:${label}`),
-    ),
+    signingWorker: unwrapDomainId(parseMpcSigningWorkerRef(signingWorker ?? `worker:${label}`)),
   });
 }

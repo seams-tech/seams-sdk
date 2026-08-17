@@ -32,7 +32,10 @@ import {
 } from '../../packages/shared-ts/src/device-linking';
 import type { HttpTransport } from '../../packages/sdk-web/src/core/platform/http';
 import { createWalletHostOwnerAuthoritiesV1 } from '../../packages/sdk-web/src/SeamsWeb/operations/devices/walletHostOwnerAuthority';
-import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
+import {
+  buildR103DeviceLinkFixture,
+  buildR103OwnerEnrollmentCeremonyV1,
+} from './helpers/deviceLinkContracts.fixtures';
 import { buildOwnerWalletExecutionEvidenceFixture } from './helpers/walletExecutionLane.fixtures';
 import { availableLaneEd25519Authorization } from './helpers/availableSigningLanes.fixtures';
 import {
@@ -95,9 +98,9 @@ test.describe('R103 shared linked-device contracts', () => {
     const authorities = createWalletHostOwnerAuthoritiesV1({
       http,
       relayerUrl: 'https://relay.example.test',
-    startOwnerEnrollmentCeremonyV1: async () => {
-      throw new Error('owner enrollment ceremony is not exercised by this test');
-    },
+      startOwnerEnrollmentCeremonyV1: async () => {
+        throw new Error('owner enrollment ceremony is not exercised by this test');
+      },
       walletSessions: {
         read: async () => ({ kind: 'missing' as const }),
         readActiveForWallet: async () => ({ kind: 'found' as const, projection }),
@@ -145,9 +148,9 @@ test.describe('R103 shared linked-device contracts', () => {
         },
       },
       relayerUrl: 'https://relay.example.test',
-    startOwnerEnrollmentCeremonyV1: async () => {
-      throw new Error('owner enrollment ceremony is not exercised by this test');
-    },
+      startOwnerEnrollmentCeremonyV1: async () => {
+        throw new Error('owner enrollment ceremony is not exercised by this test');
+      },
       walletSessions: {
         read: async () => ({ kind: 'missing' as const }),
         readActiveForWallet: async () => {
@@ -203,7 +206,9 @@ test.describe('R103 shared linked-device contracts', () => {
     });
     const approvalDigest = await computeLinkedDeviceApprovalDigestV1(fixture.approval);
     expect(claimDigest).toBe('FgZvqK0Fekq89xChB3UoQBKz0nlTcbBvkxXAa6v6_EA');
-    expect(approvalDigest).toBe('bHlUJYZw2MvCe50tNFocxCy4KPlHKGzEXZuEqkXWiZQ');
+    // Phase 8 moved the owner enrollment ceremony inside the approval, so the
+    // ceremony is part of what the owner's digest commits to.
+    expect(approvalDigest).toBe('yGPMEOkQQlA9EKdkuzHI6eVsNkmqGuCvvrJiUevVoy0');
   });
 
   test('rejects dormant QR permissions, unknown fields, non-canonical keys, and invalid expiry', () => {
@@ -500,18 +505,16 @@ test.describe('R103 shared linked-device contracts', () => {
   test('binds verified target attestation and public holder records to one preparation', async () => {
     const fixture = buildR103DeviceLinkFixture();
     const job = buildR102LaneJob('target-preparation');
-    const rpId = parseWebAuthnRpId('wallet.example.test');
     const credentialId = parseWebAuthnCredentialIdB64u('AQID');
-    if (!rpId.ok) throw new Error(rpId.error.message);
     if (!credentialId.ok) throw new Error(credentialId.error.message);
+    // Phase 8: the WebAuthn registration parameters live inside the owner
+    // enrollment ceremony the preparation carries, not beside it.
     const preparation = buildLinkedDeviceTargetPreparationV1({
       linkSessionId: fixture.approval.linkSessionId,
       walletId: fixture.approval.walletId,
       enrollmentId: fixture.approval.enrollmentId,
       deviceId: fixture.approval.deviceId,
-      rpId: rpId.value,
-      userHandleB64u: 'AQID',
-      challengeB64u: fixture.approval.policyDigestB64u,
+      ownerEnrollment: buildR103OwnerEnrollmentCeremonyV1({ expiresAtMs: 2_000 }),
       orderedChildren: [
         {
           kind: 'linked_device_target_preparation_child_v1',

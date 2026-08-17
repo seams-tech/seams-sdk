@@ -411,7 +411,6 @@ export class LinkDeviceFlow {
             break;
           case 'claimed_by_owner':
           case 'awaiting_target_passkey':
-          case 'provisioning':
             await authenticatedTransport.cancelSessionV1({
               request: buildLinkedDeviceSessionCancelClaimedRequestV1({
                 linkSessionId: session.linkSessionId,
@@ -433,6 +432,13 @@ export class LinkDeviceFlow {
             break;
           case 'committed_completion_required':
             // Once protocol commitment exists, cancellation is completion recovery.
+            break;
+          case 'provisioning':
+            // Refactor 103 Phase 8: the canonical finalize has committed — the
+            // owner credential and its local records exist. Cancelling the
+            // session now would record a cancelled enrollment around a live
+            // credential; undoing a completed enrollment is revocation, not
+            // cancellation. Local teardown only.
             break;
           case 'active':
           case 'expired_unclaimed':
