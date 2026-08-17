@@ -169,6 +169,8 @@ export function createD1LinkedDeviceRouteServiceV1(
     claimSessionV1: sessionService.claimSessionV1.bind(sessionService),
     recordOwnerApprovalV1: sessionService.recordOwnerApprovalV1.bind(sessionService),
     recordTargetCredentialV1: sessionService.recordTargetCredentialV1.bind(sessionService),
+    completeLinkedOwnerEnrollmentV1:
+      sessionService.completeLinkedOwnerEnrollmentV1.bind(sessionService),
     bindRecoveryContinuationV1: sessionService.bindRecoveryContinuationV1.bind(sessionService),
     cancelSessionV1: sessionService.cancelSessionV1.bind(sessionService),
     // A string input is the pre-proof, read-only QR lookup. Authenticated reads

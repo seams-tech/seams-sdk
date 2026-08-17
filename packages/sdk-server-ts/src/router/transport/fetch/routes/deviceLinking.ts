@@ -59,6 +59,7 @@ import type {
   LinkedDeviceSessionServiceResultV1,
   LinkedDeviceSessionServiceV1,
   LinkedDeviceRecoveryContinuationV1,
+  LinkedOwnerEnrollmentCompletionResultV1,
 } from '../../../../core/deviceLinking/linkedDeviceSession';
 import type { LinkedDeviceOwnerAuthorizationContextV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
 import type { IssuedLinkedDeviceWalletSession } from '../../../../authorization/service';
@@ -281,6 +282,7 @@ export type DeviceLinkingRouteServiceV1 = {
     | 'claimSessionV1'
     | 'recordOwnerApprovalV1'
     | 'recordTargetCredentialV1'
+    | 'completeLinkedOwnerEnrollmentV1'
     | 'bindRecoveryContinuationV1'
     | 'cancelSessionV1'
     | 'getSessionV1'
@@ -900,7 +902,82 @@ async function handleOwnerFinalize(
     custodyEnvelope: request.custodyEnvelope,
     admission: admitted.admission,
   });
-  return json(finalized, { status: finalized.ok ? 200 : 400 });
+  if (!finalized.ok) return json(finalized, { status: 400 });
+  // The lane cutover still owns terminal activation; this CAS records the
+  // canonical finalize in the existing provisioning lifecycle first.
+  const completed = await service.sessionService.completeLinkedOwnerEnrollmentV1({
+    linkSessionId: session.linkSessionId,
+    expectedRevision: session.revision,
+    keyManifestDigestB64u: admitted.admission.keyManifestDigestB64u,
+    nowMs,
+  });
+  switch (completed.outcome) {
+    case 'applied':
+    case 'replayed':
+      return json(finalized, { status: 200 });
+    case 'conflict':
+    case 'expired':
+    case 'invalid_state':
+    case 'invalid_input':
+      return linkedOwnerEnrollmentCompletionFailureResponse(completed);
+    default:
+      return assertNever(completed);
+  }
+}
+
+function linkedOwnerEnrollmentCompletionFailureResponse(
+  result: Exclude<
+    LinkedOwnerEnrollmentCompletionResultV1,
+    { readonly outcome: 'applied' | 'replayed' }
+  >,
+): Response {
+  switch (result.outcome) {
+    case 'conflict':
+      return json(
+        {
+          ok: false,
+          code: 'completion_conflict',
+          message: 'linked owner enrollment finalized but session completion conflicted',
+          outcome: result.outcome,
+          expectedRevision: result.expectedRevision,
+          actualRevision: result.actualRevision,
+        },
+        { status: 409 },
+      );
+    case 'expired':
+      return json(
+        {
+          ok: false,
+          code: 'completion_expired',
+          message: 'linked owner enrollment finalized but the link session expired',
+          outcome: result.outcome,
+        },
+        { status: 410 },
+      );
+    case 'invalid_state':
+      return json(
+        {
+          ok: false,
+          code: 'completion_invalid_state',
+          message: 'linked owner enrollment finalized but the session cannot complete',
+          outcome: result.outcome,
+          state: result.state,
+        },
+        { status: 409 },
+      );
+    case 'invalid_input':
+      return json(
+        {
+          ok: false,
+          code: 'completion_invalid_input',
+          message: result.message,
+          outcome: result.outcome,
+        },
+        { status: 400 },
+      );
+    default:
+      return assertNever(result);
+  }
 }
 
 function awaitTargetPreparation(
