@@ -28,7 +28,7 @@ test('docs onboarding, examples, search, appearance, and responsive navigation s
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Start here', level: 1 })).toBeVisible();
   await expect(
-    page.getByRole('navigation', { name: 'Sidebar Navigation' }).getByText('Overview and install'),
+    page.getByRole('navigation', { name: 'Sidebar Navigation' }).getByText('Installation'),
   ).toBeVisible();
 
   await page
