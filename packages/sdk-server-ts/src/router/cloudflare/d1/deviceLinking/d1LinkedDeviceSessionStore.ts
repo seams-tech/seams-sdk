@@ -48,6 +48,21 @@ const SESSION_TABLE = 'linked_device_sessions';
 const TRANSCRIPT_TABLE = 'linked_device_session_transcripts';
 const SOURCE_HANDOFF_TABLE = 'linked_device_source_handoffs';
 
+/**
+ * Turns a lost session CAS into a failed batch.
+ *
+ * A D1 batch does not roll back on an `UPDATE` that matches nothing — zero rows
+ * changed is a successful statement. When the session CAS is riding in another
+ * service's batch, that silence is the bug: the batch would commit its own
+ * writes against a session that had already moved on. Following the update with
+ * an insert that only runs on `changes() = 0`, into a table whose single row
+ * already exists, converts the miss into a constraint violation that takes the
+ * batch down.
+ */
+const SESSION_CAS_GUARD_SQL = `INSERT INTO linked_device_session_cas_guard (guard_id)
+SELECT 1
+ WHERE changes() = 0`;
+
 type CommittedSourceHandoffRowV1 = {
   readonly deliveries_digest_b64u?: unknown;
 };
@@ -124,13 +139,11 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
     return parsed.record;
   }
 
-  async listSessionsForWalletV1(
-    input: {
-      readonly walletId: WalletId;
-      readonly limit: number;
-      readonly cursor: LinkedDeviceSessionListCursorV1 | null;
-    },
-  ): Promise<LinkedDeviceSessionListPageV1> {
+  async listSessionsForWalletV1(input: {
+    readonly walletId: WalletId;
+    readonly limit: number;
+    readonly cursor: LinkedDeviceSessionListCursorV1 | null;
+  }): Promise<LinkedDeviceSessionListPageV1> {
     if (!Number.isSafeInteger(input.limit) || input.limit < 1) {
       throw new Error('linked-device session list limit is invalid');
     }
@@ -323,6 +336,37 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
     });
   }
 
+  /**
+   * The session CAS as statements, for a caller that must commit it with its
+   * own writes or not at all.
+   *
+   * Device 2's owner finalize is the only caller. Its credential write is
+   * irreversible, so the session advance cannot be a second round trip that a
+   * cancel or an expiry could win in between — the two go into one batch, and
+   * the guard makes a lost CAS fail the batch rather than pass unnoticed.
+   *
+   * Preconditions are the caller's to check against the record it read; these
+   * statements only enforce the one thing a reader cannot: that the session has
+   * not moved since it was read.
+   */
+  buildTargetCredentialCasStatementsV1(input: {
+    readonly linkSessionId: LinkDeviceSessionId;
+    readonly expectedRevision: number;
+    readonly nextRecord: LinkedDeviceSessionRecordV1;
+    readonly nowMs: number;
+  }): readonly D1PreparedStatementLike[] {
+    return [
+      this.updateStatement({
+        kind: 'state',
+        linkSessionId: input.linkSessionId,
+        expectedRevision: input.expectedRevision,
+        nextRecord: input.nextRecord,
+        nowMs: input.nowMs,
+      }),
+      this.database.prepare(SESSION_CAS_GUARD_SQL),
+    ];
+  }
+
   async recordAggregateActivationV1(input: {
     readonly linkSessionId: LinkDeviceSessionId;
     readonly expectedRevision: number;
@@ -417,7 +461,12 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
       expectedRevision: input.expectedRevision,
       nextRecord: input.nextRecord,
       nowMs: input.nowMs,
-      expectedStates: ['displaying_qr', 'claimed_by_owner', 'awaiting_target_passkey', 'provisioning'],
+      expectedStates: [
+        'displaying_qr',
+        'claimed_by_owner',
+        'awaiting_target_passkey',
+        'provisioning',
+      ],
       replay: (current) =>
         (current.state.state === 'cancelled_unclaimed' ||
           current.state.state === 'cancelled_claimed_precommit') &&

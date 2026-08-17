@@ -508,8 +508,25 @@ export class CloudflareD1WalletAuthMethodService {
     );
   }
 
+  /**
+   * `atomicCompanionStatements` ride in the same batch as the credential, the
+   * custody envelope, and the owner binding.
+   *
+   * Device 2's linked finalize is the reason this exists. Its link session has
+   * to advance exactly when the credential commits, and a caller cannot get
+   * that by making two calls: finalize is irreversible, so a cancel or an expiry
+   * winning in between would leave a terminal session holding a live owner
+   * credential. Statements passed here either commit with it or the whole
+   * finalize fails, which is the only pair of outcomes that keeps those two
+   * facts in agreement.
+   *
+   * They are a separate argument rather than part of the command because the
+   * command is the wire contract every caller shares, and no wire request may
+   * describe database writes.
+   */
   async finalizeWalletAddAuthMethod(
     request: FinalizeWalletAddAuthMethodInput,
+    atomicCompanionStatements: readonly D1PreparedStatementLike[] = [],
   ): Promise<FinalizeWalletAddAuthMethodResult> {
     try {
       const store = this.getRegistrationCeremonyIntentStore();
@@ -720,6 +737,9 @@ export class CloudflareD1WalletAuthMethodService {
             ...this.getWalletAuthMethodStore().preparePasskeyRegistrationStatements(authMethod),
             ...linkedDeviceBinding.statements,
             ...replayStatements,
+            // Last, so the session CAS guard sees `changes()` from its own
+            // update rather than from a statement that follows it.
+            ...atomicCompanionStatements,
           ],
         });
         if (link.kind === 'version_mismatch' || link.kind === 'conflict') {

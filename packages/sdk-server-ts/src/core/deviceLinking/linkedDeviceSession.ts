@@ -449,6 +449,50 @@ export type LinkedOwnerEnrollmentCompletionResultV1 =
   | LinkedDeviceSessionMutationResultV1
   | { readonly outcome: 'invalid_input'; readonly message: string };
 
+/**
+ * A completion that has passed its preconditions but has not been written.
+ *
+ * Device 2's owner finalize commits a credential it cannot take back, so the
+ * session advance has to share that commit rather than follow it. This is the
+ * half a transport-agnostic service can produce: the validated next record and
+ * the revision it must still be at. Turning it into a write belongs to the
+ * store, which is the only layer that knows what a batch is.
+ *
+ * `replayed` is separated from `prepared` because a replay has nothing to
+ * write — the session already reached this state — and must not contribute a
+ * CAS that would then fail against its own completed work.
+ */
+export type LinkedOwnerEnrollmentCompletionPlanV1 =
+  | {
+      readonly outcome: 'prepared';
+      readonly linkSessionId: LinkDeviceSessionId;
+      readonly expectedRevision: number;
+      readonly nextRecord: LinkedDeviceSessionRecordV1;
+      readonly nowMs: number;
+    }
+  | { readonly outcome: 'replayed'; readonly record: LinkedDeviceSessionRecordV1 }
+  | LinkedOwnerEnrollmentCompletionRefusalV1;
+
+/**
+ * Why a completion cannot be written. Spelled out rather than subtracted from
+ * the mutation result, because a plan can only ever be refused for a reason a
+ * reader could see — it never reports `applied`, having written nothing.
+ */
+export type LinkedOwnerEnrollmentCompletionRefusalV1 =
+  | {
+      readonly outcome: 'conflict';
+      readonly expectedRevision: number;
+      readonly actualRevision: number | null;
+      readonly record: LinkedDeviceSessionRecordV1 | null;
+    }
+  | {
+      readonly outcome: 'invalid_state';
+      readonly state: LinkedDeviceSessionState['state'];
+      readonly record: LinkedDeviceSessionRecordV1;
+    }
+  | { readonly outcome: 'expired'; readonly record: LinkedDeviceSessionRecordV1 }
+  | { readonly outcome: 'invalid_input'; readonly message: string };
+
 export type LinkedDeviceSessionAggregateActivationInputV1 = {
   readonly linkSessionId: LinkDeviceSessionId;
   readonly expectedRevision: number;
@@ -801,10 +845,50 @@ export class LinkedDeviceSessionServiceV1 {
     }
   }
 
-  async completeLinkedOwnerEnrollmentV1(
+  /**
+   * Validates the completion and returns it as a plan, without writing.
+   *
+   * Same preconditions as `recordTargetCredentialV1` — that is the point, since
+   * both describe the one legal transition out of `awaiting_target_passkey` —
+   * but stopping short of the store leaves the write available to a caller that
+   * has to make it atomic with something else.
+   */
+  async prepareLinkedOwnerEnrollmentCompletionV1(
     input: LinkedOwnerEnrollmentCompletionInputV1,
-  ): Promise<LinkedOwnerEnrollmentCompletionResultV1> {
-    return await this.recordTargetCredentialV1(input);
+  ): Promise<LinkedOwnerEnrollmentCompletionPlanV1> {
+    try {
+      requireTimestamp(input.nowMs, 'nowMs');
+      const keyManifestDigestB64u = requireDigest(
+        input.keyManifestDigestB64u,
+        'keyManifestDigestB64u',
+      );
+      const existing = await this.requireSession(input.linkSessionId);
+      if (
+        existing.state.state === 'provisioning' &&
+        existing.state.keyManifestDigestB64u === keyManifestDigestB64u
+      ) {
+        return { outcome: 'replayed', record: existing };
+      }
+      if (existing.state.state !== 'awaiting_target_passkey') {
+        return { outcome: 'invalid_state', state: existing.state.state, record: existing };
+      }
+      if (input.nowMs >= existing.state.credentialDeadlineMs) {
+        return { outcome: 'expired', record: existing };
+      }
+      return {
+        outcome: 'prepared',
+        linkSessionId: input.linkSessionId,
+        expectedRevision: input.expectedRevision,
+        nextRecord: replaceSessionRecordV1(existing, {
+          state: provisioningStateV1(existing, keyManifestDigestB64u),
+          revision: existing.revision + 1,
+          updatedAtMs: input.nowMs,
+        }),
+        nowMs: input.nowMs,
+      };
+    } catch (error: unknown) {
+      return { outcome: 'invalid_input', message: errorMessage(error) };
+    }
   }
 
   async recordAggregateActivationV1(

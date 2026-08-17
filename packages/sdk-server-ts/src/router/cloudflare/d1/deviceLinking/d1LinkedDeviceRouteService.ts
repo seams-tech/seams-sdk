@@ -5,7 +5,7 @@ import { parseLinkDeviceSessionId, type LinkDeviceSessionId } from '@shared/sign
 import { readJson } from '../../../../router/framework/http';
 import { LinkedDeviceRequestProofVerifierV1 } from '../../../../core/deviceLinking/requestProof';
 import { type LinkedDeviceOwnerAuthorizationPortV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
-import type { D1DatabaseLike } from '../../../../storage/tenantRoute';
+import type { D1DatabaseLike, D1PreparedStatementLike } from '../../../../storage/tenantRoute';
 import { D1LinkedDeviceRequestProofNonceStoreV1 } from './d1LinkedDeviceRequestProofNonceStore';
 import { type D1LinkedDeviceSessionScopeV1 } from './d1LinkedDeviceSessionStore';
 import { CloudflareD1LaneLifecycleStore } from '../signingLanes/d1LaneLifecycleStore';
@@ -46,8 +46,13 @@ export type D1LinkedDeviceRouteServiceOptionsV1 = {
   readonly tenantId: TenantId;
   /** The canonical add-auth-method service; the linked finalize reuses it. */
   readonly walletAuthMethods: {
+    /**
+     * The second argument is how the linked finalize stays atomic: the session
+     * CAS travels in the same batch as the credential it belongs to.
+     */
     finalizeWalletAddAuthMethod(
       command: FinalizeWalletAddAuthMethodCommand,
+      atomicCompanionStatements?: readonly D1PreparedStatementLike[],
     ): Promise<WalletAddAuthMethodFinalizeResponse>;
   };
   readonly authorizationService: Pick<
@@ -169,8 +174,6 @@ export function createD1LinkedDeviceRouteServiceV1(
     claimSessionV1: sessionService.claimSessionV1.bind(sessionService),
     recordOwnerApprovalV1: sessionService.recordOwnerApprovalV1.bind(sessionService),
     recordTargetCredentialV1: sessionService.recordTargetCredentialV1.bind(sessionService),
-    completeLinkedOwnerEnrollmentV1:
-      sessionService.completeLinkedOwnerEnrollmentV1.bind(sessionService),
     bindRecoveryContinuationV1: sessionService.bindRecoveryContinuationV1.bind(sessionService),
     cancelSessionV1: sessionService.cancelSessionV1.bind(sessionService),
     // A string input is the pre-proof, read-only QR lookup. Authenticated reads
@@ -186,21 +189,41 @@ export function createD1LinkedDeviceRouteServiceV1(
     nowV1,
     // Same finalizer the owner add-auth-method route calls. The tenant is this
     // service's own, so the route never names one.
-    finalizeLinkedOwnerAuthMethodV1: async (input) =>
-      await options.walletAuthMethods.finalizeWalletAddAuthMethod({
-        addAuthMethodCeremonyId: input.addAuthMethodCeremonyId,
-        webauthnRegistration: input.webauthnRegistration,
-        custodyEnvelope: input.custodyEnvelope,
-        subject: {
-          kind: 'wallet_auth_method_management',
-          walletId: input.admission.walletId,
+    finalizeLinkedOwnerEnrollmentV1: async (input) => {
+      // Prepared first, so the credential write below carries the session
+      // advance with it. Anything other than `prepared` means the session
+      // cannot legally reach `provisioning`, and the credential must not be
+      // created at all — this is the only place that decision is still free.
+      const plan = await sessionService.prepareLinkedOwnerEnrollmentCompletionV1({
+        linkSessionId: input.linkSessionId,
+        expectedRevision: input.expectedRevision,
+        keyManifestDigestB64u: input.admission.keyManifestDigestB64u,
+        nowMs: input.nowMs,
+      });
+      if (plan.outcome !== 'prepared' && plan.outcome !== 'replayed') {
+        return { outcome: 'completion_refused', completion: plan };
+      }
+      const response = await options.walletAuthMethods.finalizeWalletAddAuthMethod(
+        {
+          addAuthMethodCeremonyId: input.addAuthMethodCeremonyId,
+          webauthnRegistration: input.webauthnRegistration,
+          custodyEnvelope: input.custodyEnvelope,
+          subject: {
+            kind: 'wallet_auth_method_management',
+            walletId: input.admission.walletId,
+          },
+          authorization: {
+            kind: 'linked_device',
+            tenantId: options.tenantId,
+            admission: input.admission,
+          },
         },
-        authorization: {
-          kind: 'linked_device',
-          tenantId: options.tenantId,
-          admission: input.admission,
-        },
-      }),
+        // A replay has already advanced the session; contributing a CAS for a
+        // transition that has happened would fail against its own past work.
+        plan.outcome === 'prepared' ? sessionStore.buildTargetCredentialCasStatementsV1(plan) : [],
+      );
+      return { outcome: 'finalized', response };
+    },
     verifyPublicSessionProofV1: async (input) => {
       const result = await proofVerifier.verifyPublicCreateV1({
         proof: input.proof,
