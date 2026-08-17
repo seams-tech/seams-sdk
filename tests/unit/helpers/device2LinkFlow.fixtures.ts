@@ -25,6 +25,68 @@ import {
   buildR103DeviceLinkFixture,
   buildR103TargetCredentialFixture,
 } from './deviceLinkContracts.fixtures';
+import { IndexedDBManager } from '@/core/indexedDB';
+
+/** Every local write canonical unlock later reads, in the order they happened. */
+export type CapturedLocalWritesV1 = {
+  readonly profiles: Array<{ readonly profileId: string; readonly defaultSignerSlot?: number }>;
+  readonly authenticators: Array<{
+    readonly profileId: string;
+    readonly signerSlot: number;
+    readonly credentialId: string;
+  }>;
+  readonly authMethods: Array<{
+    readonly walletId: string;
+    readonly credentialIdB64u: string;
+    readonly status: string;
+  }>;
+};
+
+/**
+ * Replaces the three local stores for one test and records what was written.
+ *
+ * All three together, never one at a time: they are a single recoverable unit,
+ * and swapping only one would leave the others writing to real storage — which
+ * both pollutes the environment and stops the test measuring the unit.
+ *
+ * `hooks` can throw to model a store that is failing.
+ */
+export async function withCapturedLocalWritesV1(
+  hooks: {
+    readonly onProfile?: () => void;
+    readonly onAuthenticator?: () => void;
+    readonly onAuthMethod?: (record: { readonly credentialIdB64u: string }) => void;
+  },
+  body: (captured: CapturedLocalWritesV1) => Promise<void>,
+): Promise<CapturedLocalWritesV1> {
+  const captured: CapturedLocalWritesV1 = { profiles: [], authenticators: [], authMethods: [] };
+  const original = {
+    profile: IndexedDBManager.upsertProfile,
+    authenticator: IndexedDBManager.upsertProfileAuthenticator,
+    authMethod: IndexedDBManager.upsertWalletAuthMethod,
+  };
+  IndexedDBManager.upsertProfile = (async (input: never) => {
+    captured.profiles.push(input);
+    hooks.onProfile?.();
+    return input;
+  }) as never;
+  IndexedDBManager.upsertProfileAuthenticator = (async (record: never) => {
+    captured.authenticators.push(record);
+    hooks.onAuthenticator?.();
+  }) as never;
+  IndexedDBManager.upsertWalletAuthMethod = (async (record: never) => {
+    captured.authMethods.push(record);
+    hooks.onAuthMethod?.(record);
+  }) as never;
+  try {
+    await body(captured);
+  } finally {
+    IndexedDBManager.upsertProfile = original.profile;
+    IndexedDBManager.upsertProfileAuthenticator = original.authenticator;
+    IndexedDBManager.upsertWalletAuthMethod = original.authMethod;
+  }
+  return captured;
+}
 
 /**
  * Device 2's linking flow, driven to the point where its user has clicked
@@ -260,7 +322,10 @@ export async function buildDevice2LinkFlowHarnessV1(
     targetCredential,
     custodyTransfer,
     sessionActivation: {
+      // Recorded before throwing, so a test can assert the canonical route never
+      // reaches it rather than relying on the throw to notice.
       async activateLinkedDeviceSigningSessionV1() {
+        calls.push('session-activation');
         throw new Error('session activation is outside this harness');
       },
     },
