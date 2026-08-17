@@ -1082,6 +1082,23 @@ contract with its prompt counters
 (`tests/e2e/linked-device.operating-path.test.ts`, already extended with
 zero-Device-1-prompt and exactly-one-Device-2-passkey assertions).
 
+Independent verification of the five cutover commits (`44e7fbfdf`..`4cc6156d3`):
+the focused suites pass on re-run (34 tests), the full device-linking unit
+group passes 224 with the six known failures in the retired R102 lane surfaces
+proven byte-identical at the pre-cutover baseline `f58250b34`, and both
+`sdk-web` and `sdk-server-ts` type-check clean.
+
+First composed run of the two-device contract (`SEAMS_LINKED_DEVICE_E2E=1`,
+freshly built dist): Device 1's scan fails closed at the preflight with
+`wallet_unlock_required` before any HTTP request, so the contract stalls
+waiting for the claim. Two candidate causes, not yet separated: the
+registration branch the contract's Device 1 takes may not reach the establish
+site that seeds the capability, and the running workerd predated
+`289a926d0`, so its ceremony start does not yet accept `wallet_session`
+authority — the stack must be restarted before the next attempt can be
+attributed to client code. The fail-closed behaviour itself worked exactly as
+specified: no prompt, no approval, no credential, no package.
+
 #### Owner Credential Enrollment
 
 - [ ] Replace the human-device permission request with the canonical owner
