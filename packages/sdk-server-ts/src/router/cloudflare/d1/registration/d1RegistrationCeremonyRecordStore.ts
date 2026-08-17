@@ -154,9 +154,7 @@ export class D1RegistrationCeremonyRecordStore {
   async claimEcdsaRegistrationBranch(input: {
     readonly scope: string;
     readonly id: string;
-    readonly expectedKind:
-      | 'evm_family_ecdsa_prepared'
-      | 'evm_family_ecdsa_pending_activation';
+    readonly expectedKind: 'evm_family_ecdsa_prepared' | 'evm_family_ecdsa_pending_activation';
     readonly binding:
       | {
           readonly kind: 'strict_registration';
@@ -292,10 +290,28 @@ export class D1RegistrationCeremonyRecordStore {
     return await this.deleteVersion(key, current.version);
   }
 
-  async putManyExact(mutations: readonly D1RegistrationCeremonyRecordMutation[]): Promise<void> {
-    if (mutations.length < 2) {
-      throw new Error('Registration ceremony atomic batch requires at least two records');
+  /**
+   * The statements `putManyExact` would run, for callers that need these records
+   * to land in someone else's batch rather than their own.
+   *
+   * Returns nothing when every record is already stored exactly as given, which
+   * is the same "already done" outcome `putManyExact` treats as success.
+   */
+  async buildPutManyExactStatements(
+    mutations: readonly D1RegistrationCeremonyRecordMutation[],
+  ): Promise<readonly D1PreparedStatementLike[]> {
+    const prepared = await this.prepareExactMutations(mutations);
+    const statements: D1PreparedStatementLike[] = [];
+    for (const mutation of prepared) {
+      statements.push(this.prepareInsert(mutation.key, mutation.value));
+      statements.push(this.database.prepare(CAS_GUARD_SQL));
     }
+    return statements;
+  }
+
+  private async prepareExactMutations(
+    mutations: readonly D1RegistrationCeremonyRecordMutation[],
+  ): Promise<readonly PreparedBatchMutation[]> {
     const prepared: PreparedBatchMutation[] = [];
     for (const mutation of mutations) {
       const key = this.normalizeKey(mutation.scope, mutation.id);
@@ -307,15 +323,19 @@ export class D1RegistrationCeremonyRecordStore {
       }
       prepared.push({ key, value });
     }
-    if (prepared.length === 0) return;
+    if (prepared.length === 0) return [];
     if (prepared.length !== mutations.length) {
       throw conflict('Registration ceremony atomic batch is only partially stored');
     }
-    const statements: D1PreparedStatementLike[] = [];
-    for (const mutation of prepared) {
-      statements.push(this.prepareInsert(mutation.key, mutation.value));
-      statements.push(this.database.prepare(CAS_GUARD_SQL));
+    return prepared;
+  }
+
+  async putManyExact(mutations: readonly D1RegistrationCeremonyRecordMutation[]): Promise<void> {
+    if (mutations.length < 2) {
+      throw new Error('Registration ceremony atomic batch requires at least two records');
     }
+    const statements = await this.buildPutManyExactStatements(mutations);
+    if (statements.length === 0) return;
     try {
       assertBatchSucceeded(await this.database.batch<D1ResultLike>(statements), statements.length);
     } catch (error: unknown) {

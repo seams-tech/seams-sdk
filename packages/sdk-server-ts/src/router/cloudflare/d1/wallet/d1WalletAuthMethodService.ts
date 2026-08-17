@@ -1,3 +1,4 @@
+import { alphabetizeStringify } from '@shared/utils/digests';
 import { parseWalletAddAuthMethodRegistrationOptions } from '@shared/utils/addAuthMethodRegistration';
 import {
   parseChallengeSubjectId,
@@ -97,6 +98,9 @@ import type {
 
 type StartWalletAddAuthMethodInput = StartWalletAddAuthMethodCommand;
 type StartWalletAddAuthMethodResult = WalletAddAuthMethodStartResponse;
+/** Long enough for a device to retry across a reload, short of ceremony scale. */
+const ADD_AUTH_METHOD_FINALIZE_REPLAY_TTL_MS = 24 * 60 * 60 * 1000;
+
 type FinalizeWalletAddAuthMethodInput = FinalizeWalletAddAuthMethodCommand;
 type FinalizeWalletAddAuthMethodResult = WalletAddAuthMethodFinalizeResponse;
 type RevokeWalletAuthMethodInput = RevokeWalletAuthMethodCommand;
@@ -479,11 +483,51 @@ export class CloudflareD1WalletAuthMethodService {
     }
   }
 
+  /**
+   * What an exact retry has to match: the ceremony, the request as sent, and
+   * the authorization branch with any linked admission.
+   *
+   * Substituting a credential, an envelope, or any admitted identity — wallet,
+   * device, enrollment, key manifest — changes this digest, so one comparison
+   * separates a retry from a different finalize wearing the same ceremony id.
+   */
+  private async finalizeReplayDigestB64u(
+    request: FinalizeWalletAddAuthMethodInput,
+  ): Promise<string> {
+    return base64UrlEncode(
+      await this.sha256Bytes(
+        new TextEncoder().encode(
+          alphabetizeStringify({
+            addAuthMethodCeremonyId: request.addAuthMethodCeremonyId,
+            webauthnRegistration: request.webauthnRegistration ?? null,
+            custodyEnvelope: request.custodyEnvelope ?? null,
+            authorization: request.authorization,
+          }),
+        ),
+      ),
+    );
+  }
+
   async finalizeWalletAddAuthMethod(
     request: FinalizeWalletAddAuthMethodInput,
   ): Promise<FinalizeWalletAddAuthMethodResult> {
     try {
       const store = this.getRegistrationCeremonyIntentStore();
+      // Before the ceremony lookup: finalize consumes its ceremony, so a retry
+      // arrives after it is gone and would otherwise read as not_found.
+      const replayDigestB64u = await this.finalizeReplayDigestB64u(request);
+      const priorFinalize = await store.getAddAuthMethodFinalizeReplay(
+        request.addAuthMethodCeremonyId,
+      );
+      if (priorFinalize) {
+        return priorFinalize.requestDigestB64u === replayDigestB64u
+          ? priorFinalize.response
+          : {
+              ok: false,
+              code: 'conflict',
+              message: 'add-auth-method ceremony was already finalized with a different request',
+            };
+      }
       const ceremony = await store.getAddAuthMethodCeremony(request.addAuthMethodCeremonyId);
       if (!ceremony) {
         return { ok: false, code: 'not_found', message: 'add-auth-method ceremony not found' };
@@ -636,6 +680,28 @@ export class CloudflareD1WalletAuthMethodService {
             message: 'linked-device admission and add-auth-method ceremony name different wallets',
           };
         }
+        const response: Extract<WalletAddAuthMethodFinalizeResponse, { ok: true }> = {
+          ok: true,
+          walletId,
+          authority: walletAuthAuthorityFromRegistrationAuthority(authority),
+          rpId: requireStoredRpId(ceremony.passkeyRegistration.rpId),
+          authMethod: {
+            kind: 'passkey',
+            status: 'active',
+            credentialIdB64u: credential.credentialIdB64u,
+            credentialPublicKeyB64u: credential.credentialPublicKeyB64u,
+            counter: credential.counter,
+            device: credential.device,
+          },
+        };
+        const replayStatements = await store.buildAddAuthMethodFinalizeReplayStatements({
+          kind: 'wallet_add_auth_method_finalize_replay_v1',
+          addAuthMethodCeremonyId: ceremony.addAuthMethodCeremonyId,
+          requestDigestB64u: replayDigestB64u,
+          response,
+          createdAtMs: now,
+          expiresAtMs: now + ADD_AUTH_METHOD_FINALIZE_REPLAY_TTL_MS,
+        });
         const link = await this.passkeyCustodyEnvelopes.linkPasskeyFactorAtomically({
           envelope: replacementEnvelope,
           additionalStatements: [
@@ -653,6 +719,7 @@ export class CloudflareD1WalletAuthMethodService {
             this.webAuthnStore.prepareCredentialBindingInsertStatement(binding),
             ...this.getWalletAuthMethodStore().preparePasskeyRegistrationStatements(authMethod),
             ...linkedDeviceBinding.statements,
+            ...replayStatements,
           ],
         });
         if (link.kind === 'version_mismatch' || link.kind === 'conflict') {
@@ -663,20 +730,7 @@ export class CloudflareD1WalletAuthMethodService {
           };
         }
         await store.takeAddAuthMethodCeremony(ceremony.addAuthMethodCeremonyId);
-        return {
-          ok: true,
-          walletId,
-          authority: walletAuthAuthorityFromRegistrationAuthority(authority),
-          rpId: requireStoredRpId(ceremony.passkeyRegistration.rpId),
-          authMethod: {
-            kind: 'passkey',
-            status: 'active',
-            credentialIdB64u: credential.credentialIdB64u,
-            credentialPublicKeyB64u: credential.credentialPublicKeyB64u,
-            counter: credential.counter,
-            device: credential.device,
-          },
-        };
+        return response;
       }
 
       const duplicate = await this.findDuplicateAuthority(ceremony.authority);

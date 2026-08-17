@@ -1,3 +1,4 @@
+import type { WalletAddAuthMethodFinalizeResponse } from '../../../../core/registrationContracts';
 import { parseWalletAddAuthMethodRegistrationOptions } from '@shared/utils/addAuthMethodRegistration';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import {
@@ -130,6 +131,7 @@ import {
   StoredWalletAddAuthMethodCeremony,
   StoredWalletAddSignerCeremony,
   StoredWalletAddSignerFinalizeReplay,
+  StoredWalletAddAuthMethodFinalizeReplay,
   StoredWalletAddSignerFinalizeRequest,
   StoredWalletRegistrationCeremony,
   StoredWalletRegistrationCeremonyAuthorityState,
@@ -418,6 +420,82 @@ function parseD1WalletRegistrationCeremonyAuthorityState(
     default:
       return null;
   }
+}
+
+export function parseD1StoredWalletAddAuthMethodFinalizeReplay(
+  raw: unknown,
+): StoredWalletAddAuthMethodFinalizeReplay | null {
+  const record = toRecordValue(raw);
+  if (!record || record.kind !== 'wallet_add_auth_method_finalize_replay_v1') return null;
+  const addAuthMethodCeremonyId = toOptionalTrimmedString(record.addAuthMethodCeremonyId);
+  const requestDigestB64u = toOptionalTrimmedString(record.requestDigestB64u);
+  const createdAtMs = safeInteger(record.createdAtMs);
+  const expiresAtMs = safeInteger(record.expiresAtMs);
+  const response = parseD1WalletAddAuthMethodFinalizeReplayResponse(record.response);
+  if (
+    !addAuthMethodCeremonyId ||
+    !requestDigestB64u ||
+    createdAtMs == null ||
+    expiresAtMs == null ||
+    expiresAtMs <= createdAtMs ||
+    !response
+  ) {
+    return null;
+  }
+  return {
+    kind: 'wallet_add_auth_method_finalize_replay_v1',
+    addAuthMethodCeremonyId,
+    requestDigestB64u,
+    response,
+    createdAtMs,
+    expiresAtMs,
+  };
+}
+
+function parseD1WalletAddAuthMethodFinalizeReplayResponse(
+  raw: unknown,
+): Extract<WalletAddAuthMethodFinalizeResponse, { ok: true }> | null {
+  const record = toRecordValue(raw);
+  if (!record || record.ok !== true) return null;
+  const walletId = parseWalletIdForIntent(record.walletId);
+  const authority = parseWalletAuthAuthority(record.authority);
+  if (!walletId || !authority || authority.walletId !== walletId) return null;
+  const authMethod = toRecordValue(record.authMethod);
+  if (!authMethod || authMethod.status !== 'active') return null;
+  if (authMethod.kind === 'email_otp') {
+    return { ok: true, walletId, authority, authMethod: { kind: 'email_otp', status: 'active' } };
+  }
+  const parsedRpId = parseWebAuthnRpId(record.rpId);
+  const rpId = parsedRpId.ok ? parsedRpId.value : null;
+  const credentialIdB64u = toOptionalTrimmedString(authMethod.credentialIdB64u);
+  const credentialPublicKeyB64u = toOptionalTrimmedString(authMethod.credentialPublicKeyB64u);
+  const counter = Number(authMethod.counter);
+  if (
+    authMethod.kind !== 'passkey' ||
+    !rpId ||
+    !credentialIdB64u ||
+    !credentialPublicKeyB64u ||
+    !Number.isSafeInteger(counter) ||
+    counter < 0
+  ) {
+    return null;
+  }
+  return {
+    ok: true,
+    walletId,
+    authority,
+    rpId,
+    authMethod: {
+      kind: 'passkey',
+      status: 'active',
+      credentialIdB64u,
+      credentialPublicKeyB64u,
+      counter,
+      device:
+        parseWebAuthnAuthenticatorDeviceInfo(authMethod.device) ??
+        unknownWebAuthnAuthenticatorDeviceInfo(),
+    },
+  };
 }
 
 export function parseD1StoredWalletAddSignerFinalizeReplay(

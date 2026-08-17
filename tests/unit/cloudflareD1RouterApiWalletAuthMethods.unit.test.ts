@@ -362,6 +362,9 @@ test('passkey Ed25519 budget refresh accepts current session identity independen
       signingRootVersion: runtimePolicyScope.signingRootVersion,
       runtimePolicyScope,
       activeYaoCapability: activeYao.capability,
+      // The signer records the manifest its key set was registered against;
+      // the parser has required it since custody commits became mandatory.
+      custodyKeyManifestDigestB64u: 'Lcwi4R-zFWWooZJB2zonKJtBMlynySPIjt55tietXWE',
       createdAtMs: 1_000,
       updatedAtMs: 1_000,
     });
