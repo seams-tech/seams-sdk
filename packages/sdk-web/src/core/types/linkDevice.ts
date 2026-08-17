@@ -26,6 +26,24 @@ export type DeviceLinkingSession = {
 export type LinkDeviceResult =
   | {
       readonly success: true;
+      /**
+       * Refactor 103 Phase 8. The canonical owner finalize committed Device 2's
+       * credential and advanced the session in one transaction, which is the
+       * whole of the handoff. There is no lane enrollment on this path and so no
+       * aggregate receipt to report.
+       */
+      readonly kind: 'owner_handoff_complete';
+      readonly walletId: WalletId;
+      readonly enrollmentId: LinkedDeviceEnrollmentId;
+      readonly deviceId: LinkedDeviceId;
+      readonly manifestDigestB64u?: never;
+      readonly receipt?: never;
+      readonly error?: never;
+    }
+  | {
+      readonly success: true;
+      /** The temporary R102 lane enrollment, reached only by a resumed session. */
+      readonly kind: 'lane_enrollment_complete';
       readonly walletId: WalletId;
       readonly enrollmentId: LinkedDeviceEnrollmentId;
       readonly deviceId: LinkedDeviceId;
@@ -34,6 +52,7 @@ export type LinkDeviceResult =
       readonly error?: never;
     }
   | (Extract<ActionResult, { success: false }> & {
+      readonly kind?: never;
       readonly walletId?: never;
       readonly enrollmentId?: never;
       readonly deviceId?: never;

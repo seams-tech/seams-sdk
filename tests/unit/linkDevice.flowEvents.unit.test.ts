@@ -693,7 +693,7 @@ test.describe('linked-device browser orchestration', () => {
     ]);
   });
 
-  test('Device 1 prepares and persists exact R102 deliveries once the target is ready', async () => {
+  test('Device 1 prepares R102 deliveries only for a session resumed from before the cutover', async () => {
     const calls: string[] = [];
     const fixture = buildR103DeviceLinkFixture();
     const source = buildR103TargetReadySourceFixture(fixture);
@@ -702,13 +702,16 @@ test.describe('linked-device browser orchestration', () => {
       calls,
       undefined,
       undefined,
+      // A session resumed from before the Phase 8 cutover, which still finishes
+      // through the lane enrollment. On the canonical path the owner finalize
+      // completes the handoff and Device 1 never prepares deliveries at all.
       () => ({
         outcome: 'pending',
-        state: buildProvisioningLinkedDeviceSessionState({
+        state: buildCommittedCompletionRequiredLinkedDeviceSessionState({
           linkSessionId: fixture.approval.linkSessionId,
           walletId: fixture.approval.walletId,
           enrollmentId: fixture.approval.enrollmentId,
-          keyManifestDigestB64u: fixture.receipt.manifestDigestB64u,
+          committedAtMs: Date.now(),
         }),
       }),
       undefined,
@@ -861,14 +864,12 @@ test.describe('linked-device browser orchestration', () => {
     expect(acknowledgement?.receipt).toEqual(active.deviceLink.receipt);
   });
 
-  test('Device 2 finishes target provisioning before accepting the active state', async () => {
+  test('Device 2 ends linking at the canonical owner finalize', async () => {
     const calls: string[] = [];
     const events: string[] = [];
     const fixture = buildR103DeviceLinkFixture();
-    const active = await buildR103ActiveExecutionFixture();
     let emitSessionEvent: ((event: LinkedDeviceSessionTransportEventV1) => void) | undefined;
     let authenticatedTransport: DeviceLinkingAuthenticatedTransportPortV1 | undefined;
-    let aggregateAcknowledgement: LinkedDeviceReceiptAcknowledgementV1 | undefined;
     let targetPasskeyActivation: LinkedDeviceTargetPasskeyActivationV1 | null = null;
     let sessionActivations = 0;
     const ports = createPorts(
@@ -881,19 +882,13 @@ test.describe('linked-device browser orchestration', () => {
       (handler) => {
         emitSessionEvent = handler;
       },
-      (value) => {
-        aggregateAcknowledgement = value;
-      },
+      undefined,
       undefined,
       undefined,
       () => {
         sessionActivations += 1;
       },
     );
-    // Linking now writes the local records canonical unlock reads, and the
-    // unit environment has no IndexedDB. Capturing the three stores keeps this
-    // test about ordering rather than about storage, and lets it assert that
-    // the enrollment landed exactly once.
     const captured = await withCapturedLocalWritesV1({}, async () => {
       const flow = new LinkDeviceFlow(
         {
@@ -910,93 +905,23 @@ test.describe('linked-device browser orchestration', () => {
       );
       const generated = await flow.generateQR();
       if (!authenticatedTransport) throw new Error('authenticated transport was not bound');
-      let sessionReads = 0;
+      // The canonical finalize advances the session in the same transaction that
+      // commits the credential, so the state that follows the passkey prompt is
+      // the completion signal rather than the start of lane provisioning.
       Object.assign(authenticatedTransport, {
-        getSessionV1: async () => {
-          calls.push('get');
-          sessionReads += 1;
-          const state =
-            sessionReads <= 2
-              ? buildProvisioningLinkedDeviceSessionState({
-                  linkSessionId: generated.qrData.linkSessionId,
-                  walletId: fixture.approval.walletId,
-                  enrollmentId: fixture.approval.enrollmentId,
-                  provisioningStartedAtMs: Date.now(),
-                })
-              : buildCommittedCompletionRequiredLinkedDeviceSessionState({
-                  linkSessionId: generated.qrData.linkSessionId,
-                  walletId: fixture.approval.walletId,
-                  enrollmentId: fixture.approval.enrollmentId,
-                  committedAtMs: Date.now(),
-                });
-          return { state, deviceId: fixture.approval.deviceId };
-        },
-        requestProvisioningDeliveriesV1: async () => {
-          calls.push('provision-deliveries');
-          return active.provisioning.deliveries;
-        },
-        acknowledgeHolderDeliveriesV1: async () => {
-          calls.push('holder-receipts');
-          return active.deviceLink.receipt;
-        },
-        getWalletSessionDeliveryV1: async () => {
-          calls.push('get-wallet-session');
+        registerTargetCredentialV1: async () => {
+          calls.push('credential');
           emitSessionEvent?.({
             kind: 'linked_device_session_event_v1',
             linkSessionId: generated.qrData.linkSessionId,
-            state: buildActiveLinkedDeviceSessionState({
+            state: buildProvisioningLinkedDeviceSessionState({
               linkSessionId: generated.qrData.linkSessionId,
               walletId: fixture.approval.walletId,
               enrollmentId: fixture.approval.enrollmentId,
-              activatedAtMs: active.deviceLink.receipt.activatedAtMs,
+              provisioningStartedAtMs: Date.now(),
             }),
             emittedAtMs: Date.now(),
           });
-          return active.walletSession;
-        },
-      });
-      Object.assign(ports.laneProvisioning, {
-        prepareLinkedDeviceLanesV1: async (
-          handoff: Parameters<typeof ports.laneProvisioning.prepareLinkedDeviceLanesV1>[0],
-        ) => {
-          calls.push('prepare-lanes');
-          return await handoff.acknowledgeHolderDeliveriesV1(
-            buildLinkedDeviceHolderDeliveryAcknowledgementV1({
-              linkSessionId: handoff.approval.linkSessionId,
-              enrollmentId: handoff.approval.enrollmentId,
-              deviceId: handoff.approval.deviceId,
-              orderedHolderDeliveryReceipts:
-                active.provisioning.acknowledgement.orderedHolderDeliveryReceipts,
-              acknowledgedAtMs: Date.now(),
-            }),
-          );
-        },
-      });
-      const persistExecutionEvidence = ports.executionEvidence.putExactProvisionedEvidenceV1.bind(
-        ports.executionEvidence,
-      );
-      let releaseExecutionEvidencePersistence: (() => void) | undefined;
-      const executionEvidencePersistenceGate = new Promise<void>((resolve) => {
-        releaseExecutionEvidencePersistence = resolve;
-      });
-      Object.assign(ports.executionEvidence, {
-        putExactProvisionedEvidenceV1: async (
-          evidence: LinkedDeviceProvisionedExecutionEvidenceV1,
-        ) => {
-          calls.push('persist-execution-evidence-started');
-          emitSessionEvent?.({
-            kind: 'linked_device_session_event_v1',
-            linkSessionId: generated.qrData.linkSessionId,
-            state: buildActiveLinkedDeviceSessionState({
-              linkSessionId: generated.qrData.linkSessionId,
-              walletId: fixture.approval.walletId,
-              enrollmentId: fixture.approval.enrollmentId,
-              activatedAtMs: active.deviceLink.receipt.activatedAtMs,
-            }),
-            emittedAtMs: Date.now(),
-          });
-          await executionEvidencePersistenceGate;
-          return await persistExecutionEvidence(evidence);
         },
       });
       emitSessionEvent?.({
@@ -1015,52 +940,48 @@ test.describe('linked-device browser orchestration', () => {
         .toBe('linked_device_target_passkey_activation_v1');
       expect(calls).not.toContain('target-passkey');
       if (!targetPasskeyActivation) throw new Error('target passkey activation was not published');
-      const activation = targetPasskeyActivation.createPasskey();
-      await expect.poll(() => calls).toContain('persist-execution-evidence-started');
-      expect(events).not.toContain('Linked device active');
-      expect(calls).not.toContain('get-wallet-session');
-      releaseExecutionEvidencePersistence?.();
-      await activation;
-      await expect(targetPasskeyActivation.createPasskey()).rejects.toThrow(
-        'activation has already completed',
-      );
-      await expect
-        .poll(() => calls.slice(-22), { timeout: 5_000 })
-        .toEqual([
-          'get',
-          'target-preparation',
-          // The recipient publish is started before the passkey prompt and its
-          // network leg lands after: a WebAuthn creation must be the first thing
-          // the click reaches, or the transient user activation is already spent
-          // by the time `navigator.credentials.create` runs.
-          'recipient-create',
-          'target-passkey',
-          'recipient-register',
-          'package',
-          'accept-custody',
-          'finalize',
-          'credential',
-          'get-approval',
-          'get',
-          'get',
-          'provision-deliveries',
-          'prepare-lanes',
-          'holder-receipts',
-          'persist-execution-evidence-started',
-          'persist-execution-evidence',
-          'ack',
-          'get-wallet-session',
-          'persist-wallet-session',
-          'close',
-          'key-discard',
-        ]);
-      expect(aggregateAcknowledgement?.receipt).toEqual(active.deviceLink.receipt);
+      await targetPasskeyActivation.createPasskey();
+      await expect.poll(() => calls).toContain('key-discard');
     });
 
-    // Device 2 finishes linking as an ordinary owner, so the enrollment ends in
-    // the three local records rather than in a warm linked signing session. The
-    // activation port is still wired and still throws; nothing reaches it.
+    // Linking ends at the finalize. Everything the R102 lane enrollment used to
+    // do after it is gone, and each of these would be a network round trip on a
+    // path Device 2 no longer uses.
+    for (const retired of [
+      'provision-deliveries',
+      'prepare-lanes',
+      'holder-receipts',
+      'persist-execution-evidence',
+      'ack',
+      'get-wallet-session',
+      'persist-wallet-session',
+    ]) {
+      expect(calls).not.toContain(retired);
+    }
+    // Nor a warm linked signing session: Device 2 is an ordinary owner, and the
+    // activation port is still wired and still throws.
     expect(sessionActivations).toBe(0);
+
+    // What it does do, in order, ending in the terminal cleanup.
+    expect(calls.slice(-11)).toEqual([
+      'get',
+      'target-preparation',
+      // Created before the passkey prompt and registered after it: WebAuthn
+      // creation has to be the first thing the click reaches, or the transient
+      // user activation is already spent.
+      'recipient-create',
+      'target-passkey',
+      'recipient-register',
+      'package',
+      'accept-custody',
+      'finalize',
+      'credential',
+      // Terminal: the subscription closes and the bootstrap key material is
+      // discarded. Nothing runs between the finalize and the teardown.
+      'close',
+      'key-discard',
+    ]);
+    expect(events).toContain('Linked device active');
     expect(captured.profiles.length).toBe(1);
     expect(captured.authenticators.length).toBe(1);
     expect(captured.authMethods.length).toBe(1);
