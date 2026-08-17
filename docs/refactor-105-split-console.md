@@ -126,6 +126,19 @@ plans. Reconcile those items at the gate: complete anything that can still
 change an R105-owned path, and explicitly defer unrelated follow-ups. Do not
 carry an ambiguous "active" prerequisite into the ownership freeze.
 
+The gate classification is:
+
+- Refactor 100's clean lifecycle rerun and zero-Deriver ordinary Ed25519
+  signing evidence are blockers because they exercise public Wallet runtime and
+  browser state. The development OTP reset is operational clean-state work.
+  Compromise-triggered lane refresh remains a deferred lane-protocol follow-up.
+- Refactor 101's intended-behavior, source-guard, and wallet-iframe gate is a
+  blocker because it owns normal-signing resolution and browser lane hydration.
+- Refactor 102's Rust/TypeScript Ed25519 owner-source vector reconciliation is a
+  blocker because it can change shared encoders and lane bindings. Wallet-key
+  root refresh remains deferred, and public device bootstrap belongs to
+  Refactor 103.
+
 Immediately after those gates close:
 
 1. freeze the stabilized route, service, table, migration, job, binding, UI, and
@@ -146,6 +159,11 @@ Immediately after those gates close:
 
 The public Wallet package rename remains one atomic late phase. Do not introduce
 forwarding packages, aliases, or dual import paths while preparing it.
+
+During implementation, use narrow static checks and focused tests while editing.
+Run each phase's full build once after its source changes are complete. Do not
+start, stop, rebuild beneath, or leave behind the developer's manual-testing
+services unless the developer explicitly asks for runtime verification.
 
 Refactors 113 and 114 are proposed Wallet follow-ups. Refactor 130B is deferred.
 They do not block Refactor 105 unless they enter implementation before this gate
