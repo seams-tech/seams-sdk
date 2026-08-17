@@ -10,9 +10,12 @@ import type { SigningSessionSealRoutesOptions } from '@seams/sdk-server/cloud-ho
 import { createCloudflareRouter } from '@seams/sdk-server/cloud-host';
 import { createCloudflareConsoleRouter } from './createCloudflareConsoleRouter';
 import {
+  consoleCoreServicesFromBundle,
   createCloudflareD1ConsoleServiceBundle,
   createCloudflareD1RouterApiRouteExtensions,
+  walletConsoleServicesFromBundle,
 } from './d1ConsoleServices';
+import { composeHostedConsoleRouterOptions } from '../consoleComposition';
 import {
   createCloudflareD1RouterApiAuthService,
   type CloudflareD1EmailOtpServerSealConfig,
@@ -993,16 +996,22 @@ async function createLocalConsoleHandler(env: LocalD1DevEnv): Promise<FetchHandl
     defaultProjectId: scope.projectId,
     defaultEnvironmentId: scope.envId,
   });
-  const handler = createCloudflareConsoleRouter({
-    ...bundle.consoleRouterOptions,
-    healthz: true,
-    readyz: true,
-    corsOrigins: [...LOCAL_ROUTER_API_CORS_ORIGINS],
-    auth: new LocalD1DevConsoleAuthAdapter(env, sessionAuth),
-    session,
-    readyCheck: createLocalReadyCheck(env),
-    billingStripeWebhookSigningSecret: String(env.STRIPE_WEBHOOK_SECRET || '').trim() || undefined,
-  });
+  const handler = createCloudflareConsoleRouter(
+    composeHostedConsoleRouterOptions({
+      core: consoleCoreServicesFromBundle(bundle),
+      walletConsole: walletConsoleServicesFromBundle(bundle),
+      tenantStorage: {
+        resolver: bundle.tenantStorageRouteResolver,
+        namespace: bundle.tenantStorageNamespace,
+      },
+      corsOrigins: [...LOCAL_ROUTER_API_CORS_ORIGINS],
+      auth: new LocalD1DevConsoleAuthAdapter(env, sessionAuth),
+      session,
+      readyCheck: createLocalReadyCheck(env),
+      billingStripeWebhookSigningSecret:
+        String(env.STRIPE_WEBHOOK_SECRET || '').trim() || undefined,
+    }),
+  );
   const consoleAuthHandler = new HostedConsoleAuthHandler({
     handler,
     identity: createLocalD1RouterApiAuthService(env, scope.orgId).identity,

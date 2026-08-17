@@ -1,4 +1,8 @@
 import { normalizeLogger, type Logger } from '@seams/sdk-server/cloud-host';
+import type {
+  ConsoleCoreRouterServices,
+  WalletConsoleRouterServices,
+} from '../consoleComposition';
 import { createD1ConsoleAccountService } from '@seams-internal/console-server/account/d1';
 import type { ConsoleAccountService } from '@seams-internal/console-server/account/service';
 import { createD1ConsoleApiKeyService } from '@seams-internal/console-server/apiKeys/d1';
@@ -251,6 +255,42 @@ export type CloudflareD1ConsoleOnlyServiceBundle = Omit<
 > & {
   readonly consoleRouterOptions: ConsoleRouterOptions;
 };
+
+type ConsoleBranchServiceFields = Pick<
+  CloudflareD1ConsoleServiceBundle,
+  keyof ConsoleCoreRouterServices | keyof WalletConsoleRouterServices
+>;
+
+export function consoleCoreServicesFromBundle(
+  bundle: ConsoleBranchServiceFields,
+): ConsoleCoreRouterServices {
+  return {
+    orgProjectEnv: bundle.orgProjectEnv,
+    organizationAccess: bundle.organizationAccess,
+    account: bundle.account,
+    apiKeys: bundle.apiKeys,
+    audit: bundle.audit,
+    billing: bundle.billing,
+    prepaidReservations: bundle.prepaidReservations,
+    webhooks: bundle.webhooks,
+    observability: bundle.observability,
+    observabilityIngestion: bundle.observabilityIngestion,
+    onboarding: bundle.onboarding,
+  };
+}
+
+export function walletConsoleServicesFromBundle(
+  bundle: ConsoleBranchServiceFields,
+): WalletConsoleRouterServices {
+  return {
+    policies: bundle.policies,
+    wallets: bundle.wallets,
+    approvals: bundle.approvals,
+    keyExports: bundle.keyExports,
+    sponsoredCalls: bundle.sponsoredCalls,
+    runtimeSnapshots: bundle.runtimeSnapshots,
+  };
+}
 
 export function createCloudflareD1RouterApiRouteExtensions(
   bundle: CloudflareD1ConsoleServiceBundle,

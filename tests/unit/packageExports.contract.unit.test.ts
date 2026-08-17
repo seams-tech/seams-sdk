@@ -217,10 +217,13 @@ test.describe('package export contracts', () => {
     expect(fs.existsSync(path.join(repoRoot, 'packages/shared-ts/src/console'))).toBe(false);
     expect(readJson('packages/console-shared-ts/package.json').exports).toEqual({
       '.': './src/index.ts',
+      './organizationIdentity': './src/organizationIdentity.ts',
+    });
+    expect(readJson('packages/wallet-console-shared-ts/package.json').exports).toEqual({
+      '.': './src/index.ts',
       './apiKeyScopes': './src/apiKeyScopes.ts',
       './gasSponsorshipChains': './src/gasSponsorshipChains.ts',
       './gasSponsorshipSpendCapTargets': './src/gasSponsorshipSpendCapTargets.ts',
-      './organizationIdentity': './src/organizationIdentity.ts',
       './webhookEventCategories': './src/webhookEventCategories.ts',
     });
     expect(resolveSdkServerPath(exportsMap['.'].import)).toContain('packages/sdk-server-ts');
