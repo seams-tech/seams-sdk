@@ -2633,14 +2633,15 @@ body:has(.h2-page) {
   white-space: nowrap;
 }
 
-/* hairline connectors reaching back toward the slab vertices */
+/* hairline connectors reaching back toward the slab vertices; white like the
+   slab edges so they stand out from the taupe panel */
 .h2-splitkey__chip::before {
   content: '';
   position: absolute;
   right: 100%;
   top: 50%;
   height: 1px;
-  background: var(--h2-stone);
+  background: #ffffff;
 }
 
 .h2-splitkey__chip:nth-child(1)::before {
