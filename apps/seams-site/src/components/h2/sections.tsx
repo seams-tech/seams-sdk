@@ -51,6 +51,71 @@ const productForks = [
   { label: 'API', to: '/docs/concepts/', chip: 'h2-fork__chip--api' },
 ];
 
+/* Grab-and-drag horizontal scrolling for a single-line chip row. Dragging only
+   engages past a small threshold, so a plain click still selects a chip; the
+   click that trails a real drag is swallowed on the way up. */
+function useDragScroll<T extends HTMLElement>(): React.RefObject<T | null> {
+  const ref = React.useRef<T>(null);
+
+  React.useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    let startX = 0;
+    let startScroll = 0;
+    let down = false;
+    let dragging = false;
+
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.button !== 0) return;
+      down = true;
+      dragging = false;
+      startX = event.clientX;
+      startScroll = el.scrollLeft;
+    };
+
+    const onPointerMove = (event: PointerEvent) => {
+      if (!down) return;
+      const dx = event.clientX - startX;
+      if (!dragging) {
+        if (Math.abs(dx) < 4) return;
+        dragging = true;
+        el.classList.add('is-dragging');
+        el.setPointerCapture(event.pointerId);
+      }
+      el.scrollLeft = startScroll - dx;
+    };
+
+    const onPointerEnd = (event: PointerEvent) => {
+      if (dragging) {
+        const swallowClick = (click: MouseEvent) => {
+          click.stopPropagation();
+          click.preventDefault();
+        };
+        el.addEventListener('click', swallowClick, true);
+        window.setTimeout(() => el.removeEventListener('click', swallowClick, true), 0);
+      }
+      if (el.hasPointerCapture(event.pointerId)) el.releasePointerCapture(event.pointerId);
+      down = false;
+      dragging = false;
+      el.classList.remove('is-dragging');
+    };
+
+    el.addEventListener('pointerdown', onPointerDown);
+    el.addEventListener('pointermove', onPointerMove);
+    el.addEventListener('pointerup', onPointerEnd);
+    el.addEventListener('pointercancel', onPointerEnd);
+    return () => {
+      el.removeEventListener('pointerdown', onPointerDown);
+      el.removeEventListener('pointermove', onPointerMove);
+      el.removeEventListener('pointerup', onPointerEnd);
+      el.removeEventListener('pointercancel', onPointerEnd);
+    };
+  }, []);
+
+  return ref;
+}
+
 export type H2DemoHeroProps = {
   title?: React.ReactNode;
   sub?: React.ReactNode;
@@ -80,6 +145,7 @@ export function H2DemoHero({
   const [demoTheme, setDemoTheme] = React.useState<DemoThemeId>('paper');
   // Corner shape is independent from the selected color palette.
   const [demoShape, setDemoShape] = React.useState<WalletShapeId>('square');
+  const themeTrackRef = useDragScroll<HTMLDivElement>();
   const activePreset =
     DEMO_THEME_PRESETS.find((theme) => theme.id === demoTheme) ?? DEMO_THEME_PRESETS[0];
   const activeWalletId = loginState?.isLoggedIn ? loginState.walletId || '' : '';
@@ -159,19 +225,27 @@ export function H2DemoHero({
               )}
             </div>
           </Theme>
-          <div className="h2-themeswitch" role="group" aria-label="Preview theme">
-            {DEMO_THEME_PRESETS.map((theme) => (
-              <button
-                key={theme.id}
-                type="button"
-                className={`h2-themeswitch__btn${demoTheme === theme.id ? ' is-active' : ''}`}
-                aria-pressed={demoTheme === theme.id}
-                onClick={() => setDemoTheme(theme.id)}
-              >
-                <span className="h2-themeswitch__swatch" style={{ background: theme.swatch }} />
-                {theme.label}
-              </button>
-            ))}
+          <div className="h2-themeswitch">
+            <span className="h2-themeswitch__label">Themes</span>
+            <div
+              ref={themeTrackRef}
+              className="h2-themeswitch__track"
+              role="group"
+              aria-label="Preview theme"
+            >
+              {DEMO_THEME_PRESETS.map((theme) => (
+                <button
+                  key={theme.id}
+                  type="button"
+                  className={`h2-themeswitch__btn${demoTheme === theme.id ? ' is-active' : ''}`}
+                  aria-pressed={demoTheme === theme.id}
+                  onClick={() => setDemoTheme(theme.id)}
+                >
+                  <span className="h2-themeswitch__swatch" style={{ background: theme.swatch }} />
+                  {theme.label}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="h2-shapeswitch" role="group" aria-label="Corner shape">
             <span className="h2-shapeswitch__label">Corners</span>
