@@ -967,7 +967,7 @@ remains available for Refactor 104's separately authorized delegated execution.
 - [x] Reuse Device 1's first approval-time Passkey prompt to retain the current
       custody envelope and PRF output locally until the recipient arrives;
       seal once and zeroize on completion or failure.
-- [ ] Wire Device 2 recipient publication, transfer acceptance, canonical
+- [x] Wire Device 2 recipient publication, transfer acceptance, canonical
       finalize, local projection persistence, and idempotent session completion
       into one working browser flow.
 - [ ] Prove Device 2 canonical unlock before removing any human linked-session
