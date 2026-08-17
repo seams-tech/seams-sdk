@@ -335,8 +335,6 @@ async function buildLinkedDeviceLocalAccountProjectionV1(
     walletId: String(walletId),
     nearAccountId: signer.nearAccountId,
     signerSlot: signer.signerSlot,
-    operationalPublicKey: signer.publicKey,
-    nearEd25519SigningKeyId: signer.nearEd25519SigningKeyId,
   });
 }
 

@@ -112,8 +112,6 @@ export async function buildDevice2LinkFlowHarnessV1(
           // is supplied, so a fixture using 1 would pass whether or not the real
           // slot is carried through.
           signerSlot: LINKED_OWNER_SIGNER_SLOT_V1,
-          operationalPublicKey: base64UrlEncode(new Uint8Array(32).fill(11)),
-          nearEd25519SigningKeyId: 'linked-owner.testnet',
         },
         response: {
           ok: true,

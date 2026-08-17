@@ -3211,8 +3211,6 @@ const LOCAL_ACCOUNT_PROJECTION_FIELDS = [
   'walletId',
   'nearAccountId',
   'signerSlot',
-  'operationalPublicKey',
-  'nearEd25519SigningKeyId',
 ] as const;
 
 export function parseLinkedDeviceLocalAccountProjectionV1(
@@ -3243,13 +3241,5 @@ export function parseLinkedDeviceLocalAccountProjectionV1(
     walletId: walletId.value,
     nearAccountId,
     signerSlot: Number(record.signerSlot),
-    operationalPublicKey: parseNonEmptyToken(
-      record.operationalPublicKey,
-      'LinkedDeviceLocalAccountProjectionV1.operationalPublicKey',
-    ),
-    nearEd25519SigningKeyId: parseNonEmptyToken(
-      record.nearEd25519SigningKeyId,
-      'LinkedDeviceLocalAccountProjectionV1.nearEd25519SigningKeyId',
-    ),
   };
 }
