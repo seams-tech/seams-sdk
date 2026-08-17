@@ -29,7 +29,6 @@ const APPROVAL_DOMAIN = 'seams/linked-device/owner-approval/v1';
 const TARGET_PREPARATION_DOMAIN = 'seams/linked-device/target-preparation/v1';
 const LOCAL_PRESENCE_DOMAIN = 'seams/linked-device/local-presence/v1';
 const WALLET_SESSION_RENEWAL_DOMAIN = 'seams/linked-device/wallet-session-renewal/v1';
-const CUSTODY_TRANSFER_DOMAIN = 'seams/linked-device/custody-transfer/v1';
 const TEXT_ENCODER = new TextEncoder();
 
 export async function computeLinkedDeviceProvisioningDeliveriesDigestV1(
@@ -397,54 +396,4 @@ export async function assertLinkedDeviceTargetCredentialRegistrationMatchesPrepa
       throw new Error(`linked-device holder registration ${index} differs from its R102 child`);
     }
   }
-}
-
-/**
- * What Device 1's owner assertion authorizes when it releases custody material.
- *
- * The PRF assertion behind a seal unlocks the wallet custody seed, so the
- * challenge has to say exactly which transfer it is for. Every field a
- * substitution could target is bound: the wallet whose seed this is, the link
- * session and enrollment it belongs to, the device that will receive it, the
- * recipient public key the seed will be sealed to, and the ceremony that will
- * mint the credential on the far side.
- *
- * Binding `recipientPublicKeyB64u` is the load-bearing part. Without it a relay
- * could hand Device 1 an assertion collected for one transfer and a recipient
- * key of its own choosing, and the seed would be sealed to a key the owner
- * never approved.
- */
-export type LinkedDeviceCustodyTransferChallengeV1 = {
-  readonly kind: 'linked_device_custody_transfer_challenge_v1';
-  readonly walletId: string;
-  readonly linkSessionId: string;
-  readonly enrollmentId: string;
-  readonly deviceId: string;
-  readonly recipientPublicKeyB64u: string;
-  readonly addAuthMethodCeremonyId: string;
-};
-
-export function encodeLinkedDeviceCustodyTransferChallengeV1(
-  value: LinkedDeviceCustodyTransferChallengeV1,
-): Uint8Array {
-  return concat([
-    text(CUSTODY_TRANSFER_DOMAIN, 'domain'),
-    text(value.walletId, 'walletId'),
-    text(value.linkSessionId, 'linkSessionId'),
-    text(value.enrollmentId, 'enrollmentId'),
-    text(value.deviceId, 'deviceId'),
-    lp32(
-      rawPublicKey(value.recipientPublicKeyB64u, 'recipientPublicKeyB64u'),
-      'recipientPublicKeyB64u',
-    ),
-    text(value.addAuthMethodCeremonyId, 'addAuthMethodCeremonyId'),
-  ]);
-}
-
-export async function computeLinkedDeviceCustodyTransferChallengeDigestV1(
-  value: LinkedDeviceCustodyTransferChallengeV1,
-): Promise<DigestB64u> {
-  return parseDigestB64u(
-    base64UrlEncode(await sha256Bytes(encodeLinkedDeviceCustodyTransferChallengeV1(value))),
-  );
 }

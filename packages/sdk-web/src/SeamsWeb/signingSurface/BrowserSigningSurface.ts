@@ -206,8 +206,10 @@ import {
   type ActiveWalletExecutionLaneHydration,
 } from '@/core/signingEngine/session/lanes/walletExecutionLaneHydration';
 import { IndexedDBManager, walletSessionAuthorizations } from '@/core/indexedDB';
-import { startLinkedDeviceOwnerEnrollmentCeremonyV1 } from '../operations/devices/deviceLinkingOwnerEnrollmentStart';
-import type { LinkedDeviceOwnerEnrollmentCeremonyV1 } from '@shared/device-linking/contracts';
+import {
+  startLinkedDeviceOwnerEnrollmentCeremonyV1,
+  type LinkedDeviceOwnerEnrollmentStartV1,
+} from '../operations/devices/deviceLinkingOwnerEnrollmentStart';
 import { parseWebAuthnRpId } from '@shared/utils/domainIds';
 import { collectAuthenticationCredentialForChallengeB64u } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import { resolveManagedRuntimeScopeBootstrap } from '@/core/config/managedRuntimeScope';
@@ -3028,15 +3030,15 @@ export class BrowserSigningSurface {
    * Starts the owner add-auth-method ceremony that a linked Device 2 finalizes.
    *
    * Device 1 holds the owner authority, so the ceremony is minted here during
-   * approval. Only its identity and registration options travel onward — the
-   * custody envelope the start returns is deliberately left behind, because the
-   * wallet custody seed reaches Device 2 through the sealed custody transfer.
+   * approval. Its identity and registration options travel onward in the
+   * approval; the custody material that same prompt produced stays on this
+   * device, held until there is a recipient to seal the wallet custody seed for.
    */
   private async startLinkedDeviceOwnerEnrollmentCeremonyV1(input: {
     readonly linkSessionId: LinkDeviceSessionId;
     readonly walletId: WalletId;
     readonly requestedAtMs: number;
-  }): Promise<LinkedDeviceOwnerEnrollmentCeremonyV1> {
+  }): Promise<LinkedDeviceOwnerEnrollmentStartV1> {
     const authentication = this.walletAuthenticationState;
     if (authentication.kind !== 'authenticated') {
       throw new Error('Linked-device owner enrollment requires an authenticated wallet');

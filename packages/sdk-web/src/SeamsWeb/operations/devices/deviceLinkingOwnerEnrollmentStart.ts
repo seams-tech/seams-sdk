@@ -6,15 +6,20 @@
  * so the ceremony is started here, during approval, and travels with the
  * approval that authorizes it.
  *
- * This is the start half only. It creates the intent, proves owner authority
+ * This is the start half only: it creates the intent, proves owner authority
  * freshly against that intent's digest, and starts the ceremony. It never
- * creates a credential, never touches the custody envelope the start returns,
- * and never handles a factor secret — the wallet custody seed reaches Device 2
- * through the sealed custody transfer instead.
+ * creates a credential — the wallet custody seed reaches Device 2 through the
+ * sealed custody transfer instead.
+ *
+ * That transfer's inputs are both produced right here, so they are captured
+ * rather than collected again later. The assertion that authorizes the ceremony
+ * carries PRF.first, which is the factor secret, and the ceremony start returns
+ * the envelope that secret opens. Capturing them makes this the wallet's only
+ * passkey prompt in the whole linking flow. They are held until Device 2
+ * publishes a recipient to seal for; see the hold's own contract for how the
+ * secret is wiped.
  */
-import {
-  createWalletAddAuthMethodIntent,
-} from '@/core/rpcClients/relayer/walletRegistration';
+import { createWalletAddAuthMethodIntent } from '@/core/rpcClients/relayer/walletRegistration';
 import { startWalletPasskeyAddAuthMethodCeremony } from '@/core/signingEngine/walletCustody/passkeyLink';
 import {
   computeAddAuthMethodIntentDigestB64u,
@@ -25,6 +30,10 @@ import type { WebAuthnRpId } from '@shared/utils/domainIds';
 import { parseLinkedDeviceOwnerEnrollmentCeremonyV1 } from '@shared/device-linking/parsers';
 import { collectAuthenticationCredentialForChallengeB64u } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import { redactCredentialExtensionOutputs } from '@/core/signingEngine/webauthnAuth/credentials/credentialExtensions';
+import {
+  captureLinkedDeviceOwnerCustodyHoldV1,
+  type LinkedDeviceOwnerCustodyHoldV1,
+} from './deviceLinkingOwnerCustody';
 
 export type DeviceLinkingOwnerEnrollmentStartCollaboratorsV1 = {
   readonly relayerUrl: string;
@@ -38,10 +47,16 @@ export type DeviceLinkingOwnerEnrollmentStartCollaboratorsV1 = {
   }) => ReturnType<typeof collectAuthenticationCredentialForChallengeB64u>;
 };
 
+/** The ceremony the approval carries, and the material Device 1 keeps back. */
+export type LinkedDeviceOwnerEnrollmentStartV1 = {
+  readonly ceremony: LinkedDeviceOwnerEnrollmentCeremonyV1;
+  readonly custodyHold: LinkedDeviceOwnerCustodyHoldV1;
+};
+
 export async function startLinkedDeviceOwnerEnrollmentCeremonyV1(
   collaborators: DeviceLinkingOwnerEnrollmentStartCollaboratorsV1,
   input: { readonly walletId: WalletId },
-): Promise<LinkedDeviceOwnerEnrollmentCeremonyV1> {
+): Promise<LinkedDeviceOwnerEnrollmentStartV1> {
   const intentResponse = await createWalletAddAuthMethodIntent({
     relayerUrl: collaborators.relayerUrl,
     walletId: input.walletId,
@@ -88,10 +103,18 @@ export async function startLinkedDeviceOwnerEnrollmentCeremonyV1(
     },
   });
 
-  return parseLinkedDeviceOwnerEnrollmentCeremonyV1({
-    kind: 'linked_device_owner_enrollment_ceremony_v1',
-    addAuthMethodCeremonyId: started.addAuthMethodCeremonyId,
-    registration: started.registration,
-    expiresAtMs: started.expiresAtMs,
-  });
+  return {
+    ceremony: parseLinkedDeviceOwnerEnrollmentCeremonyV1({
+      kind: 'linked_device_owner_enrollment_ceremony_v1',
+      addAuthMethodCeremonyId: started.addAuthMethodCeremonyId,
+      registration: started.registration,
+      expiresAtMs: started.expiresAtMs,
+    }),
+    custodyHold: captureLinkedDeviceOwnerCustodyHoldV1({
+      walletId: input.walletId,
+      rpId: collaborators.rpId,
+      existingEnvelope: started.custodyEnvelope,
+      ownerAssertion: credential,
+    }),
+  };
 }

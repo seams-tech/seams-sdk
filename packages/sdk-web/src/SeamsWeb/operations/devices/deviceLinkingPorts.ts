@@ -1,8 +1,8 @@
 import type { DeviceLinkingCustodyTransferPortV1 } from './deviceLinkingCustodyTransfer';
+import type { LinkedDeviceOwnerEnrollmentStartV1 } from './deviceLinkingOwnerEnrollmentStart';
 import type {
   LinkedDeviceProvisioningChildV1,
   LinkedDeviceApprovalV1,
-  LinkedDeviceOwnerEnrollmentCeremonyV1,
   LinkedDeviceApprovalResultV1,
   LinkedDeviceEnrollmentKeyBindingV1,
   LinkedDeviceEnrollmentReceiptV1,
@@ -236,12 +236,15 @@ export type DeviceLinkingOwnerAuthorizationPortV1 = {
    * has no owner authority and cannot start one. Approval is the single
    * owner-authenticated step in the flow, so the ceremony is started here and
    * carried by the approval that authorizes it.
+   *
+   * It also returns the custody material that same prompt produced, held for
+   * the seal that happens once Device 2 publishes a recipient.
    */
   startOwnerEnrollmentCeremonyV1(input: {
     readonly linkSessionId: LinkDeviceSessionId;
     readonly walletId: WalletId;
     readonly requestedAtMs: number;
-  }): Promise<LinkedDeviceOwnerEnrollmentCeremonyV1>;
+  }): Promise<LinkedDeviceOwnerEnrollmentStartV1>;
   authenticateOwnerForLinkingV1(input: {
     readonly payload: QrLinkedDeviceSessionPayloadV4;
     readonly requestedAtMs: number;

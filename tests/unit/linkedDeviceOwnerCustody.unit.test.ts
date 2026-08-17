@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { collectLinkedDeviceOwnerCustodyMaterialV1 } from '../../packages/sdk-web/src/SeamsWeb/operations/devices/deviceLinkingOwnerCustody';
-import { computeLinkedDeviceCustodyTransferChallengeDigestV1 } from '../../packages/shared-ts/src/device-linking/digests';
+import { captureLinkedDeviceOwnerCustodyHoldV1 } from '../../packages/sdk-web/src/SeamsWeb/operations/devices/deviceLinkingOwnerCustody';
+import { base64UrlDecode } from '../../packages/shared-ts/src/utils/base64';
 import {
   passkeyCustodyEnvelope,
   rawPasskeyFactor,
@@ -11,88 +11,89 @@ import {
 } from './helpers/passkeyCustodyEnvelope.fixtures';
 
 /**
- * Device 1 releases the factor secret that opens the wallet custody envelope.
- * The two ways that goes wrong are releasing it for an envelope it does not
- * open, and leaving it in memory when nothing consumed it. These own both.
+ * Device 1 holds the factor secret that opens the wallet custody envelope
+ * across a network wait, so the two ways that goes wrong are holding it for an
+ * envelope it does not open, and leaving it in memory afterwards. These own
+ * both.
  */
-function recipient(overrides: Record<string, unknown> = {}) {
-  return {
-    kind: 'linked_device_custody_transfer_recipient_v1' as const,
-    linkSessionId: 'link-session:custody',
+const PRF_FIRST_B64U = 'F2gjmLHjMV2Xrfs2Z4A-Wa-HNdXVcZ0JvVowpZ-EdYg';
+
+function capture(overrides: Record<string, unknown> = {}) {
+  return captureLinkedDeviceOwnerCustodyHoldV1({
     walletId: WALLET_ID,
-    enrollmentId: 'enrollment:custody',
-    deviceId: 'device:custody',
-    transferAlg: 'linked_device_custody_transfer_hpke_v1',
-    recipientPublicKeyB64u: 'F2gjmLHjMV2Xrfs2Z4A-Wa-HNdXVcZ0JvVowpZ-EdYg',
-    registeredAtMs: 1_800_000_000_000,
-    ...overrides,
-  } as never;
-}
-
-function collaborators(resolved: Record<string, unknown>, secret: Uint8Array) {
-  return {
-    resolveOwnerCustodyForCredentialV1: async () => ({
-      envelope: passkeyCustodyEnvelope(),
-      credentialIdB64u: CREDENTIAL_ID_B64U,
-      rpId: RP_ID,
-      factorSecret: secret,
-      ...resolved,
-    }),
-  };
-}
-
-test('binds the released material to the exact transfer it was collected for', async () => {
-  const secret = new Uint8Array(32).fill(9);
-  const material = await collectLinkedDeviceOwnerCustodyMaterialV1(collaborators({}, secret), {
-    recipient: recipient(),
-    addAuthMethodCeremonyId: 'ceremony:custody',
-  });
-  expect(material.operationChallengeDigestB64u).toBe(
-    await computeLinkedDeviceCustodyTransferChallengeDigestV1({
-      kind: 'linked_device_custody_transfer_challenge_v1',
-      walletId: WALLET_ID,
-      linkSessionId: 'link-session:custody',
-      enrollmentId: 'enrollment:custody',
-      deviceId: 'device:custody',
-      recipientPublicKeyB64u: 'F2gjmLHjMV2Xrfs2Z4A-Wa-HNdXVcZ0JvVowpZ-EdYg',
-      addAuthMethodCeremonyId: 'ceremony:custody',
-    }),
-  );
-  // A different recipient key is a different operation, so a different digest.
-  const substituted = await collectLinkedDeviceOwnerCustodyMaterialV1(
-    collaborators({}, new Uint8Array(32).fill(9)),
-    {
-      recipient: recipient({
-        recipientPublicKeyB64u: 'z3KMzouSmH9mU3LnG8sW6h4muhYGNtxFD3G67ivvDxU',
-      }),
-      addAuthMethodCeremonyId: 'ceremony:custody',
+    rpId: RP_ID,
+    existingEnvelope: passkeyCustodyEnvelope(),
+    ownerAssertion: {
+      rawId: CREDENTIAL_ID_B64U,
+      clientExtensionResults: { prf: { results: { first: PRF_FIRST_B64U } } },
     },
-  );
-  expect(substituted.operationChallengeDigestB64u).not.toBe(material.operationChallengeDigestB64u);
+    ...overrides,
+  } as never);
+}
+
+test('holds the PRF the approval already produced, and releases it exactly once', async () => {
+  const hold = capture();
+  const seen: Uint8Array[] = [];
+  const sealed = await hold.sealOnceV1(async (material) => {
+    seen.push(material.existingFactorSecret);
+    expect([...material.existingFactorSecret]).toEqual([...base64UrlDecode(PRF_FIRST_B64U)]);
+    expect(String(material.existingEnvelope.walletId)).toBe(WALLET_ID);
+    return 'sealed';
+  });
+  expect(sealed).toBe('sealed');
+  // The seal has consumed it, so it must not still be readable.
+  expect([...(seen[0] ?? new Uint8Array([1]))].every((byte) => byte === 0)).toBe(true);
+  // A second release would seal an all-zero seed, so it is refused outright.
+  await expect(hold.sealOnceV1(async () => 'again')).rejects.toThrow('already released');
+  // Discarding after a completed seal is not an error; the caller cannot know.
+  expect(() => hold.discardV1()).not.toThrow();
 });
 
-test('refuses an envelope the asserted credential does not open, and zeroizes', async () => {
-  for (const mismatch of [
-    { envelope: passkeyCustodyEnvelope({ walletId: OTHER_WALLET_ID }) },
-    {
-      envelope: passkeyCustodyEnvelope({
-        factor: rawPasskeyFactor({ credentialIdB64u: 'Y3JlZGVudGlhbC1vdGhlcg' }),
-      }),
-    },
-    {
-      envelope: passkeyCustodyEnvelope({
-        factor: rawPasskeyFactor({ rpId: 'attacker.example.localhost' }),
-      }),
-    },
-  ]) {
-    const secret = new Uint8Array(32).fill(9);
-    await expect(
-      collectLinkedDeviceOwnerCustodyMaterialV1(collaborators(mismatch, secret), {
-        recipient: recipient(),
-        addAuthMethodCeremonyId: 'ceremony:custody',
-      }),
-    ).rejects.toThrow();
-    // Nothing downstream received it, so it must not still be readable.
-    expect([...secret].every((byte) => byte === 0)).toBe(true);
+test('wipes the secret when the seal throws, and when nothing seals at all', async () => {
+  const failing = capture();
+  let heldDuringSeal: Uint8Array | null = null;
+  await expect(
+    failing.sealOnceV1(async (material) => {
+      heldDuringSeal = material.existingFactorSecret;
+      throw new Error('worker refused the seal');
+    }),
+  ).rejects.toThrow('worker refused the seal');
+  expect([...(heldDuringSeal ?? new Uint8Array([1]))].every((byte) => byte === 0)).toBe(true);
+
+  // The abandoned-flow path: approval happened, no recipient ever arrived.
+  const discarded = capture();
+  discarded.discardV1();
+  await expect(discarded.sealOnceV1(async () => 'unreachable')).rejects.toThrow('already released');
+});
+
+test('refuses material that does not belong together', async () => {
+  const mismatches: Array<[string, Record<string, unknown>]> = [
+    ['another wallet', { existingEnvelope: passkeyCustodyEnvelope({ walletId: OTHER_WALLET_ID }) }],
+    [
+      'another credential',
+      {
+        existingEnvelope: passkeyCustodyEnvelope({
+          factor: rawPasskeyFactor({ credentialIdB64u: 'Y3JlZGVudGlhbC1vdGhlcg' }),
+        }),
+      },
+    ],
+    [
+      'another relying party',
+      {
+        existingEnvelope: passkeyCustodyEnvelope({
+          factor: rawPasskeyFactor({ rpId: 'attacker.example.localhost' }),
+        }),
+      },
+    ],
+    [
+      'an assertion without PRF',
+      { ownerAssertion: { rawId: CREDENTIAL_ID_B64U, clientExtensionResults: {} } },
+    ],
+  ];
+  for (const [label, override] of mismatches) {
+    expect(() => capture(override), label).toThrow();
   }
+  // The unmodified capture still succeeds, so the refusals above are about the
+  // mismatch and not a fixture that never captures.
+  expect(() => capture()).not.toThrow();
 });
