@@ -20,12 +20,9 @@ export type RecoveryCodeReservationId = string & {
   readonly __recoveryCodeReservationIdBrand: 'RecoveryCodeReservationId';
 };
 
-export type WalletRecoveryKeySetId =
-  | `near_ed25519:${string}`
-  | `evm_family_ecdsa:${string}`;
+export type WalletRecoveryKeySetId = `near_ed25519:${string}` | `evm_family_ecdsa:${string}`;
 
-const WALLET_RECOVERY_KEY_LIFECYCLE_DOMAIN_V1 =
-  'seams/wallet-recovery/key-lifecycle/v1' as const;
+const WALLET_RECOVERY_KEY_LIFECYCLE_DOMAIN_V1 = 'seams/wallet-recovery/key-lifecycle/v1' as const;
 
 /** One protocol lifecycle below a wallet-scoped recovery reservation. */
 export async function deriveWalletRecoveryKeyLifecycleId(input: {
@@ -64,6 +61,7 @@ export function parseRecoveryCodeReservationId(value: unknown): RecoveryCodeRese
     value.length === 0 ||
     value.length > 512 ||
     value.trim() !== value ||
+    // eslint-disable-next-line no-control-regex
     /[\s\u0000-\u001f\u007f]/.test(value)
   ) {
     throw new Error('recovery code reservation id must be a compact opaque identifier');

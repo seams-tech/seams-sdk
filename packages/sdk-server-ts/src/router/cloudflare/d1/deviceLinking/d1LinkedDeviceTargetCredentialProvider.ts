@@ -879,6 +879,7 @@ function requiredScope(value: string, field: string): string {
     typeof value !== 'string' ||
     value.length === 0 ||
     value.trim() !== value ||
+    // eslint-disable-next-line no-control-regex
     /[\u0000-\u001f\u007f]/.test(value)
   ) {
     throw new Error(`${field} is invalid`);

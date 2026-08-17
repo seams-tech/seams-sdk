@@ -25,6 +25,7 @@ export default [
       'crates/**/build/**',
       'crates/**/bundled/**',
       'crates/**/wasm-bench/pkg*/**',
+      'crates/**/pkg/**',
       'crates/**/_build/**',
       'tools/**/target/**',
       'wasm/**/pkg/**',

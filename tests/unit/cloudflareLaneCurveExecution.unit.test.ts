@@ -17,7 +17,8 @@ import {
   buildR102ServerActivationReceipt,
   buildR102ActiveProductEpoch,
   buildR102LaneEnrollmentFixture,
-  buildR102EnrollmentAdmissionRecordFixture,
+  buildR102ActiveEnrollmentAdmissionRecordFixture,
+  buildR102ActiveProtocolAdmissionRecordFixture,
   buildR102RevokedProductEpoch,
 } from './helpers/r102LaneGateway.fixtures';
 import { buildRevokeSigningLaneV1 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
@@ -25,7 +26,6 @@ import {
   parseCorrelationId,
   parseDigestB64u,
 } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
-import type { LaneProtocolAdmissionRecord } from '../../packages/sdk-server-ts/src/core/signingLanes/LaneLifecycleStore';
 import {
   buildR102Ed25519LaneMaterialIdentityFixture,
   buildR102Ed25519ServerRetirementReceiptFixture,
@@ -132,33 +132,11 @@ async function activeLaneResolverFixture(curve: 'ed25519' | 'ecdsa_secp256k1') {
       : buildR102EcdsaLaneJob('normal-resolver-ecdsa');
   const product = await buildR102ActiveProductEpoch(job);
   const enrollmentFixture = buildR102LaneEnrollmentFixture();
-  const enrollmentRecord = await buildR102EnrollmentAdmissionRecordFixture(enrollmentFixture);
-  const enrollment = {
-    ...enrollmentRecord,
-    value: {
-      ...enrollmentRecord.value,
-      lifecycle: {
-        ...enrollmentRecord.value.lifecycle,
-        manifestDigestB64u: product.aggregateManifestDigestB64u,
-      },
-    },
-  };
-  const protocol: LaneProtocolAdmissionRecord = {
-    version: 1,
-    commandDigestB64u: DIGEST_B64U,
-    value: {
-      job,
-      lifecycle: {
-        state: 'active',
-        transcriptHashB64u: DIGEST_B64U,
-        protocolCommitReceiptDigestB64u: DIGEST_B64U,
-        holderDeliveryReceiptDigestB64u: DIGEST_B64U,
-        serverActivationReceiptDigestB64u: DIGEST_B64U,
-        aggregateActivationReceiptDigestB64u: DIGEST_B64U,
-        activatedAtMs: 4_000,
-      },
-    },
-  };
+  const enrollment = buildR102ActiveEnrollmentAdmissionRecordFixture(
+    enrollmentFixture.manifest,
+    product.aggregateManifestDigestB64u,
+  );
+  const protocol = buildR102ActiveProtocolAdmissionRecordFixture(job);
   return { job, product, enrollment, protocol };
 }
 
