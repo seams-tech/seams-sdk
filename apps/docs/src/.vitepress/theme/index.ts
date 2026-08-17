@@ -8,7 +8,9 @@ import './custom.css';
 function createMermaidRenderer() {
   let mermaidRef: Mermaid | null = null;
 
-  const themeVariables = (): MermaidConfig['themeVariables'] => ({
+  const isDark = () => document.documentElement.classList.contains('dark');
+
+  const lightVariables = (): MermaidConfig['themeVariables'] => ({
     primaryColor: '#edf3fa',
     primaryTextColor: '#0a0a0a',
     primaryBorderColor: '#4a6fa5',
@@ -32,6 +34,35 @@ function createMermaidRenderer() {
     edgeLabelBackground: '#ffffff',
     fontFamily: "'Inter', ui-sans-serif, system-ui, sans-serif",
   });
+
+  const darkVariables = (): MermaidConfig['themeVariables'] => ({
+    background: '#121110',
+    primaryColor: '#1f2a3a',
+    primaryTextColor: '#f1ede8',
+    primaryBorderColor: '#9db8e3',
+    secondaryColor: '#221f1c',
+    secondaryTextColor: '#b5aea5',
+    secondaryBorderColor: '#4a453f',
+    tertiaryColor: '#16291f',
+    tertiaryTextColor: '#f1ede8',
+    tertiaryBorderColor: '#6ec7a4',
+    lineColor: '#857e76',
+    textColor: '#f1ede8',
+    actorTextColor: '#f1ede8',
+    labelTextColor: '#f1ede8',
+    noteTextColor: '#f1ede8',
+    actorBkg: '#1f2a3a',
+    actorBorder: '#9db8e3',
+    noteBkgColor: '#2c231a',
+    noteBorderColor: '#e0ac68',
+    clusterBkg: '#1a1917',
+    clusterBorder: '#2d2a27',
+    edgeLabelBackground: '#1a1917',
+    fontFamily: "'Inter', ui-sans-serif, system-ui, sans-serif",
+  });
+
+  const themeVariables = (): MermaidConfig['themeVariables'] =>
+    isDark() ? darkVariables() : lightVariables();
 
   const configure = async () => {
     if (!mermaidRef) {
@@ -167,6 +198,16 @@ const theme: Theme = {
         void rerender();
       }, 0);
     };
+
+    // Diagram colors are baked into the rendered SVG, so redraw them whenever
+    // the appearance toggle flips the root class.
+    let wasDark = document.documentElement.classList.contains('dark');
+    new MutationObserver(() => {
+      const isDark = document.documentElement.classList.contains('dark');
+      if (isDark === wasDark) return;
+      wasDark = isDark;
+      void rerender();
+    }).observe(document.documentElement, { attributeFilter: ['class'] });
   },
 };
 

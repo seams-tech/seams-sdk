@@ -8,9 +8,15 @@ const year = new Date().getFullYear();
       <div class="seams-docs-footer__brand">
         <a class="seams-docs-footer__brand-link" href="https://seams.sh" rel="noreferrer">
           <img
-            class="seams-docs-footer__wordmark"
+            class="seams-docs-footer__wordmark seams-docs-footer__wordmark--light"
             src="/seams-v9/svg/seams-wordmark-hanken-dark.svg"
             alt="Seams"
+          />
+          <img
+            class="seams-docs-footer__wordmark seams-docs-footer__wordmark--dark"
+            src="/seams-v9/svg/seams-wordmark-hanken-white.svg"
+            alt=""
+            aria-hidden="true"
           />
         </a>
         <p class="seams-docs-footer__legal">© {{ year }} Seams, Inc.</p>

@@ -59,7 +59,26 @@ test('docs onboarding, examples, search, appearance, and responsive navigation s
   await expect(page).toHaveURL(/\/concepts\/sessions\/wallet-sessions#wallet-sessions$/);
 
   await page.goto('/');
-  await expect(page.getByRole('switch', { name: /theme/i })).toHaveCount(0);
+  const appearanceSwitch = page.getByRole('switch', { name: /appearance|theme/i });
+  await expect(appearanceSwitch).toBeVisible();
+  await expect
+    .poll(async () => page.evaluate(readDocsAppearance))
+    .toEqual({
+      colorScheme: 'light',
+      canvas: '#ffffff',
+      hasDarkClass: false,
+    });
+
+  await appearanceSwitch.click();
+  await expect
+    .poll(async () => page.evaluate(readDocsAppearance))
+    .toEqual({
+      colorScheme: 'dark',
+      canvas: '#121110',
+      hasDarkClass: true,
+    });
+
+  await appearanceSwitch.click();
   await expect
     .poll(async () => page.evaluate(readDocsAppearance))
     .toEqual({
