@@ -1,3 +1,4 @@
+import type { WalletAuthMethodId } from '@shared/utils/domainIds';
 import type {
   ActiveWalletSessionQuota,
   AuthorizedOperation,
@@ -535,6 +536,14 @@ export type ResolvedOpaqueWalletSessionToken = {
     readonly principalId: PrincipalId;
     readonly walletId: WalletId;
     readonly authorityDigest: DigestB64u;
+    /**
+     * Which wallet auth method issued this session, when the row records one.
+     *
+     * Null for sessions minted before provenance was persisted: they are
+     * unattributed and cannot be fenced by binding, so they run out on their
+     * own clock instead. Everything minted since carries its issuer.
+     */
+    readonly walletAuthMethodId: WalletAuthMethodId | null;
     readonly authorizationId: WalletSessionAuthorizationId;
     readonly walletSessionId: WalletSessionId;
     readonly quotaId: MpcWalletSigningQuotaId;

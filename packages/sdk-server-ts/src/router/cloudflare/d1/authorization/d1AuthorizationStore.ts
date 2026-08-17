@@ -1,3 +1,4 @@
+import { parseWalletAuthMethodId, type WalletAuthMethodId } from '@shared/utils/domainIds';
 import {
   CAPABILITY_KINDS,
   parseAuthorizationAuditEventId,
@@ -153,6 +154,34 @@ type LinkedDeviceAuthorizationPersistenceRows = {
   readonly quotaLifecycleKind: 'active' | 'exhausted' | 'revoked';
   readonly quotaExpiresAtMs: number;
 };
+
+
+/**
+ * The issuing auth method recorded on a stored session row, if any.
+ *
+ * The column is nullable because sessions minted before provenance existed have
+ * no issuer to record. Absence means unattributed, not "matches anything" — the
+ * comparison helper below is what decides whether that is acceptable.
+ */
+function storedAuthMethodId(raw: unknown): WalletAuthMethodId | null {
+  if (raw === null || raw === undefined) return null;
+  const parsed = parseWalletAuthMethodId(raw);
+  if (!parsed.ok) throw new Error('stored Wallet Session auth-method identity is invalid');
+  return parsed.value;
+}
+
+/**
+ * Whether a stored session may be read back under this authority.
+ *
+ * A recorded issuer must match exactly: persisting provenance is only worth
+ * anything if a mismatch is refused, so a session issued by one credential can
+ * never be replayed under another. A row with no recorded issuer predates the
+ * column and is allowed through — it simply cannot be fenced by binding.
+ */
+function storedAuthMethodMatches(raw: unknown, authority: WalletAuthAuthorityRef): boolean {
+  const stored = storedAuthMethodId(raw);
+  return stored === null || stored === authority.walletAuthMethodId;
+}
 
 export class CloudflareD1AuthorizationStore
   implements
@@ -594,9 +623,6 @@ export class CloudflareD1AuthorizationStore
         input.session.tenantId,
         input.session.walletId,
         input.session.authority.authorityDigest,
-        // Recorded so pausing or revoking this credential can select every
-        // session it issued, rather than recomputing a digest per candidate.
-        input.session.authority.walletAuthMethodId,
         input.session.mintId,
       );
     const retireSessionStatement = this.database
@@ -689,6 +715,9 @@ export class CloudflareD1AuthorizationStore
         input.session.principalId,
         input.session.walletId,
         input.session.authority.authorityDigest,
+        // Recorded so pausing or revoking this credential can select every
+        // session it issued, rather than recomputing a digest per candidate.
+        input.session.authority.walletAuthMethodId,
         input.session.mintId,
         input.session.quotaId,
         requirePositiveInteger(input.session.createdAtMs, 'session.createdAtMs'),
@@ -738,6 +767,7 @@ export class CloudflareD1AuthorizationStore
            session.principal_id AS session_principal_id,
            session.wallet_id AS session_wallet_id,
            session.authority_digest AS session_authority_digest,
+           session.wallet_auth_method_id AS session_wallet_auth_method_id,
            session.mint_id AS session_mint_id,
            session.authorization_id AS session_authorization_id,
            session.wallet_session_id AS session_wallet_session_id,
@@ -827,6 +857,9 @@ export class CloudflareD1AuthorizationStore
       sessionPrincipalId !== input.principalId ||
       sessionWalletId !== input.walletId ||
       row.session_authority_digest !== input.authority.authorityDigest ||
+      // Provenance is only worth persisting if a mismatch is refused. A stored
+      // session issued by one credential must never be replayed under another.
+      !storedAuthMethodMatches(row.session_wallet_auth_method_id, input.authority) ||
       sessionMintId !== input.mintId ||
       quotaTenantId !== sessionTenantId ||
       quotaPrincipalId !== sessionPrincipalId ||
@@ -929,6 +962,7 @@ export class CloudflareD1AuthorizationStore
            session.principal_id AS session_principal_id,
            session.wallet_id AS session_wallet_id,
            session.authority_digest AS session_authority_digest,
+           session.wallet_auth_method_id AS session_wallet_auth_method_id,
            session.authorization_id AS session_authorization_id,
            session.wallet_session_id AS session_wallet_session_id,
            session.quota_id AS session_quota_id,
@@ -1046,6 +1080,7 @@ export class CloudflareD1AuthorizationStore
         principalId,
         walletId,
         authorityDigest,
+        walletAuthMethodId: storedAuthMethodId(row.session_wallet_auth_method_id),
         authorizationId,
         walletSessionId,
         quotaId,
@@ -2708,6 +2743,7 @@ function reusableWalletSessionReadbackMatches(
     session.principal_id === input.session.principalId &&
     session.wallet_id === input.session.walletId &&
     session.authority_digest === input.session.authority.authorityDigest &&
+    storedAuthMethodMatches(session.wallet_auth_method_id, input.session.authority) &&
     session.mint_id === input.session.mintId &&
     session.quota_id === input.session.quotaId &&
     session.lifecycle_kind === 'active' &&
@@ -2737,6 +2773,7 @@ function reusableWalletSessionReplayReadbackMatches(
     session.principal_id !== input.session.principalId ||
     session.wallet_id !== input.session.walletId ||
     session.authority_digest !== input.session.authority.authorityDigest ||
+    !storedAuthMethodMatches(session.wallet_auth_method_id, input.session.authority) ||
     session.mint_id !== input.session.mintId ||
     session.quota_id !== input.session.quotaId ||
     session.lifecycle_kind !== 'active' ||
