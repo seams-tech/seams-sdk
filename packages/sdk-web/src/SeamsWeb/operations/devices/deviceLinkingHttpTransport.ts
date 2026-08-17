@@ -26,6 +26,8 @@ import { base64UrlEncode } from '@shared/utils/base64';
 import { sha256Bytes } from '@shared/utils/digests';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { parseLinkDeviceSessionId, type LinkDeviceSessionId } from '@shared/signing-lanes/ids';
+import { parseLinkedDeviceLocalAccountProjectionV1 } from '@shared/device-linking';
+import type { LinkedDeviceLocalAccountProjectionV1 } from '@shared/device-linking';
 import { parseLinkedDeviceCustodyTransferPackageV1 } from '@shared/device-linking/custodyTransfer';
 import type { HttpTransport } from '@/core/platform/http';
 import type {
@@ -465,9 +467,19 @@ function parseHttpFailureMessageV1(response: DeviceRequestResponseV1): string {
   return `linked-device request failed with HTTP ${response.status}`;
 }
 
-function parseLinkedDeviceOwnerFinalizeResponseV1(
-  raw: unknown,
-): WalletAddAuthMethodFinalizeResponse {
+/**
+ * The finalize response, plus the local account identity that rides with it.
+ *
+ * Kept as a distinct return type rather than widened onto the canonical finalize
+ * response: only the linked route carries this, because only a device that never
+ * registered locally needs it.
+ */
+export type LinkedDeviceOwnerFinalizeResultV1 = {
+  readonly response: WalletAddAuthMethodFinalizeResponse;
+  readonly localAccount: LinkedDeviceLocalAccountProjectionV1;
+};
+
+function parseLinkedDeviceOwnerFinalizeResponseV1(raw: unknown): LinkedDeviceOwnerFinalizeResultV1 {
   if (!isRecord(raw) || raw.ok !== true) {
     throw new Error('linked-device owner finalize response is invalid');
   }
@@ -498,18 +510,27 @@ function parseLinkedDeviceOwnerFinalizeResponseV1(
   if (!device) {
     throw new Error('linked-device owner finalize response has invalid device metadata');
   }
+  // Required, not optional: a linked finalize that omitted it would leave this
+  // device unable to unlock, and failing here names the cause.
+  const localAccount = parseLinkedDeviceLocalAccountProjectionV1(raw.localAccount);
+  if (String(localAccount.walletId) !== String(walletId)) {
+    throw new Error('linked-device owner finalize response local account names another wallet');
+  }
   return {
-    ok: true,
-    walletId,
-    rpId,
-    authMethod: {
-      kind: 'passkey',
-      status: 'active',
-      credentialIdB64u,
-      credentialPublicKeyB64u: authMethod.credentialPublicKeyB64u,
-      counter,
-      device,
+    response: {
+      ok: true,
+      walletId,
+      rpId,
+      authMethod: {
+        kind: 'passkey',
+        status: 'active',
+        credentialIdB64u,
+        credentialPublicKeyB64u: authMethod.credentialPublicKeyB64u,
+        counter,
+        device,
+      },
     },
+    localAccount,
   };
 }
 

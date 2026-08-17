@@ -63,7 +63,7 @@ import type { DeviceLinkingCustodyTransferRecipientHandleV1 } from './deviceLink
 import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 import {
-  persistFinalizedPasskeyAuthMethodV1,
+  persistFinalizedLinkedOwnerPasskeyV1,
   type FinalizedPasskeyAuthMethodV1,
 } from '../authMethods/passkey/localPasskeyProjection';
 
@@ -188,7 +188,7 @@ const LINKED_OWNER_ENROLLMENT_PERSIST_ATTEMPTS_V1 = 3;
 /** A committed owner finalize, held until its local writes have landed. */
 type RetainedLinkedOwnerFinalizeV1 = {
   readonly request: LinkedDeviceOwnerFinalizeRequestV1;
-  readonly response: Awaited<
+  readonly finalized: Awaited<
     ReturnType<DeviceLinkingAuthenticatedTransportPortV1['finalizeOwnerAuthMethodV1']>
   >;
 };
@@ -202,7 +202,7 @@ type RetainedLinkedOwnerFinalizeV1 = {
  * proved the response is a passkey for this wallet and this credential.
  */
 function requireFinalizedOwnerPasskeyV1(
-  finalized: RetainedLinkedOwnerFinalizeV1['response'],
+  finalized: RetainedLinkedOwnerFinalizeV1['finalized']['response'],
   expected: {
     readonly state: Extract<LinkedDeviceSessionState, { state: 'awaiting_target_passkey' }>;
     readonly preparation: LinkedDeviceTargetPreparationV1;
@@ -951,18 +951,24 @@ export class LinkDeviceFlow {
     // never has to unwind far enough to ask.
     const retained: RetainedLinkedOwnerFinalizeV1 = {
       request,
-      response: await input.authenticatedTransport.finalizeOwnerAuthMethodV1({
+      finalized: await input.authenticatedTransport.finalizeOwnerAuthMethodV1({
         linkSessionId: input.state.linkSessionId,
         request,
       }),
     };
     this.assertCurrentRun(input.runEpoch);
-    const projection = requireFinalizedOwnerPasskeyV1(retained.response, input);
+    const credential = requireFinalizedOwnerPasskeyV1(retained.finalized.response, input);
     let attempt = 0;
     for (;;) {
       try {
         this.assertCurrentRun(input.runEpoch);
-        await persistFinalizedPasskeyAuthMethodV1(projection);
+        // All three local records this device needs to unlock as an ordinary
+        // owner, inside the retried unit: a partial set reads as a revoked
+        // device rather than an incomplete write.
+        await persistFinalizedLinkedOwnerPasskeyV1({
+          credential,
+          localAccount: retained.finalized.localAccount,
+        });
         // The canonical owner finalize advances the session to provisioning.
         // The R102 credential registration is deliberately replay-safe in that
         // state and records the same target preparation binding.

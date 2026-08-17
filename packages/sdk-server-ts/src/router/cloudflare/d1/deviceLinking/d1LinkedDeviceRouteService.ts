@@ -6,6 +6,11 @@ import { readJson } from '../../../../router/framework/http';
 import { LinkedDeviceRequestProofVerifierV1 } from '../../../../core/deviceLinking/requestProof';
 import { type LinkedDeviceOwnerAuthorizationPortV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
 import type { D1DatabaseLike, D1PreparedStatementLike } from '../../../../storage/tenantRoute';
+import type { WalletId } from '@shared/utils/domainIds';
+import {
+  parseLinkedDeviceLocalAccountProjectionV1,
+  type LinkedDeviceLocalAccountProjectionV1,
+} from '@shared/device-linking';
 import { D1LinkedDeviceRequestProofNonceStoreV1 } from './d1LinkedDeviceRequestProofNonceStore';
 import { type D1LinkedDeviceSessionScopeV1 } from './d1LinkedDeviceSessionStore';
 import { CloudflareD1LaneLifecycleStore } from '../signingLanes/d1LaneLifecycleStore';
@@ -222,7 +227,17 @@ export function createD1LinkedDeviceRouteServiceV1(
         // transition that has happened would fail against its own past work.
         plan.outcome === 'prepared' ? sessionStore.buildTargetCredentialCasStatementsV1(plan) : [],
       );
-      return { outcome: 'finalized', response };
+      if (!response.ok) return { outcome: 'finalized', response };
+      // Read after the finalize committed, so it reflects the wallet Device 2 is
+      // now an owner of rather than a snapshot taken before it joined.
+      return {
+        outcome: 'finalized',
+        response,
+        localAccount: await buildLinkedDeviceLocalAccountProjectionV1(
+          walletStore,
+          input.admission.walletId,
+        ),
+      };
     },
     verifyPublicSessionProofV1: async (input) => {
       const result = await proofVerifier.verifyPublicCreateV1({
@@ -278,24 +293,51 @@ async function resolveNearAccountIdForEd25519WalletKeyV1(
   walletStore: D1WalletStore,
   input: Parameters<DeviceLinkingRouteServiceV1['resolveNearAccountIdForEd25519WalletKeyV1']>[0],
 ): Promise<string> {
-  const signers = await walletStore.listEd25519SignersForWallet({ walletId: input.walletId });
-  const matches = [];
-  for (const signer of signers) {
-    if (
-      `wallet-key:ed25519:${signer.walletId}:${signer.nearEd25519SigningKeyId}` ===
-      String(input.walletKeyId)
-    ) {
-      matches.push(signer);
-    }
-  }
-  if (matches.length !== 1) {
+  return (await requireCanonicalEd25519SignerV1(walletStore, input.walletId)).nearAccountId;
+}
+
+/**
+ * The wallet's one canonical Ed25519 signer.
+ *
+ * Exactly one, cross-checked against its own active Yao capability: this signer
+ * is the source of the identity Device 2 persists locally, and a wallet with two
+ * of them or with a capability naming a different account has no single answer
+ * to give.
+ */
+async function requireCanonicalEd25519SignerV1(walletStore: D1WalletStore, walletId: WalletId) {
+  const signers = await walletStore.listEd25519SignersForWallet({ walletId });
+  if (signers.length !== 1) {
     throw new Error('authoritative linked-device NEAR account identity is unavailable');
   }
-  const signer = matches[0]!;
+  const signer = signers[0]!;
   if (signer.activeYaoCapability.nearAccountId !== signer.nearAccountId) {
     throw new Error('authoritative linked-device NEAR account identity changed');
   }
-  return signer.nearAccountId;
+  return signer;
+}
+
+/**
+ * The local account identity a finalized linked device needs.
+ *
+ * `signerSlot` is the canonical signer's own slot, which is what
+ * `keyCreationSignerSlot` is derived from everywhere else in the server. It is
+ * not allocated per device or per auth method — Device 2 adds a factor to one
+ * existing wallet key rather than creating a key — and it deliberately does not
+ * come from the temporary R102 target child, which the lane cutover removes.
+ */
+async function buildLinkedDeviceLocalAccountProjectionV1(
+  walletStore: D1WalletStore,
+  walletId: WalletId,
+): Promise<LinkedDeviceLocalAccountProjectionV1> {
+  const signer = await requireCanonicalEd25519SignerV1(walletStore, walletId);
+  return parseLinkedDeviceLocalAccountProjectionV1({
+    kind: 'linked_device_local_account_projection_v1',
+    walletId: String(walletId),
+    nearAccountId: signer.nearAccountId,
+    signerSlot: signer.signerSlot,
+    operationalPublicKey: signer.publicKey,
+    nearEd25519SigningKeyId: signer.nearEd25519SigningKeyId,
+  });
 }
 
 async function acknowledgeReceiptAndIssueWalletSessionV1(
