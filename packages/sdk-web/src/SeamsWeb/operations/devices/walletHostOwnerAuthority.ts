@@ -66,10 +66,9 @@ export function createWalletHostOwnerAuthoritiesV1(input: {
   readonly startOwnerEnrollmentCeremonyV1: DeviceLinkingOwnerAuthorizationPortV1['startOwnerEnrollmentCeremonyV1'];
 }): WalletHostOwnerAuthoritiesV1 {
   const context = normalizeContext(input);
-  // One ceremony per link session. Approval is retried whenever the scan flow
-  // is re-entered, and a second ceremony would both orphan the first and be
-  // refused by the server as a conflicting approval — so the first result is
-  // held and replayed for the life of this wallet host.
+  // Approval is retried whenever the scan flow is re-entered, so one ceremony
+  // is reused while its live custody hold exists. The hold evicts this entry
+  // when it seals or is discarded; a released hold never reaches a retry.
   const ownerEnrollmentCeremonies = new Map<
     string,
     ReturnType<DeviceLinkingOwnerAuthorizationPortV1['startOwnerEnrollmentCeremonyV1']>
@@ -78,14 +77,27 @@ export function createWalletHostOwnerAuthoritiesV1(input: {
     ownerAuthorization: {
       startOwnerEnrollmentCeremonyV1: async (request) => {
         const key = String(request.linkSessionId);
-        const started =
-          ownerEnrollmentCeremonies.get(key) ?? input.startOwnerEnrollmentCeremonyV1(request);
+        const cached = ownerEnrollmentCeremonies.get(key);
+        if (cached) return await cached;
+        let started: ReturnType<
+          DeviceLinkingOwnerAuthorizationPortV1['startOwnerEnrollmentCeremonyV1']
+        >;
+        started = input.startOwnerEnrollmentCeremonyV1(request).then(
+          (value) => attachCustodyHoldEvictionV1(key, value, ownerEnrollmentCeremonies, started),
+          (error: unknown) => {
+            if (ownerEnrollmentCeremonies.get(key) === started) {
+              ownerEnrollmentCeremonies.delete(key);
+            }
+            throw error;
+          },
+        );
         ownerEnrollmentCeremonies.set(key, started);
         try {
           return await started;
         } catch (error: unknown) {
-          // A failed start is not a ceremony; let the next attempt mint one.
-          ownerEnrollmentCeremonies.delete(key);
+          if (ownerEnrollmentCeremonies.get(key) === started) {
+            ownerEnrollmentCeremonies.delete(key);
+          }
           throw error;
         }
       },
@@ -97,6 +109,45 @@ export function createWalletHostOwnerAuthoritiesV1(input: {
     },
     managementRequest: {
       request: async (request) => await requestManagementAsOwnerV1(context, request),
+    },
+  };
+}
+
+function attachCustodyHoldEvictionV1(
+  key: string,
+  started: Awaited<
+    ReturnType<DeviceLinkingOwnerAuthorizationPortV1['startOwnerEnrollmentCeremonyV1']>
+  >,
+  cache: Map<
+    string,
+    ReturnType<DeviceLinkingOwnerAuthorizationPortV1['startOwnerEnrollmentCeremonyV1']>
+  >,
+  cachedPromise: ReturnType<
+    DeviceLinkingOwnerAuthorizationPortV1['startOwnerEnrollmentCeremonyV1']
+  >,
+): Awaited<ReturnType<DeviceLinkingOwnerAuthorizationPortV1['startOwnerEnrollmentCeremonyV1']>> {
+  const evict = (): void => {
+    if (cache.get(key) === cachedPromise) cache.delete(key);
+  };
+  const custodyHold = started.custodyHold;
+  let released = false;
+  return {
+    ceremony: started.ceremony,
+    custodyHold: {
+      sealOnceV1: async (seal) => {
+        try {
+          return await custodyHold.sealOnceV1(seal);
+        } finally {
+          released = true;
+          evict();
+        }
+      },
+      discardV1: () => {
+        if (released) return;
+        released = true;
+        evict();
+        custodyHold.discardV1();
+      },
     },
   };
 }
