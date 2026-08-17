@@ -20,21 +20,31 @@ test('finalizes owner custody before registering the temporary target credential
     finalizeOwnerAuthMethodV1: async () => {
       harness.calls.push('finalize');
       return {
-        ok: true,
-        walletId: 'mismatched.testnet',
-        rpId: 'wallet.example.localhost',
-        authMethod: {
-          kind: 'passkey' as const,
-          status: 'active' as const,
-          credentialIdB64u: base64UrlEncode(new Uint8Array(32).fill(9)),
-          credentialPublicKeyB64u: base64UrlEncode(new Uint8Array(32).fill(10)),
-          counter: 0,
-          device: {
-            label: 'Chrome on macOS',
-            browser: 'chrome' as const,
-            os: 'macos' as const,
-            synced: false,
-            transports: ['internal'],
+        localAccount: {
+          kind: 'linked_device_local_account_projection_v1',
+          walletId: 'mismatched.testnet',
+          nearAccountId: 'mismatched.testnet',
+          signerSlot: 4,
+          operationalPublicKey: base64UrlEncode(new Uint8Array(32).fill(11)),
+          nearEd25519SigningKeyId: 'mismatched.testnet',
+        },
+        response: {
+          ok: true,
+          walletId: 'mismatched.testnet',
+          rpId: 'wallet.example.localhost',
+          authMethod: {
+            kind: 'passkey' as const,
+            status: 'active' as const,
+            credentialIdB64u: base64UrlEncode(new Uint8Array(32).fill(9)),
+            credentialPublicKeyB64u: base64UrlEncode(new Uint8Array(32).fill(10)),
+            counter: 0,
+            device: {
+              label: 'Chrome on macOS',
+              browser: 'chrome' as const,
+              os: 'macos' as const,
+              synced: false,
+              transports: ['internal'],
+            },
           },
         },
       } as never;

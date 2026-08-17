@@ -28,6 +28,7 @@ import type {
   LinkDevicePublicKeyB64u,
   QrLinkedDeviceSessionPayloadV4,
   LinkedDeviceOwnerFinalizeRequestV1,
+  LinkedDeviceLocalAccountProjectionV1,
 } from '@shared/device-linking';
 import type { WalletAddAuthMethodFinalizeResponse } from '@/core/rpcClients/relayer/walletRegistration';
 import type { SealedLaneHolderMaterialV1 } from '@shared/signing-lanes/rotation';
@@ -96,10 +97,17 @@ export type DeviceLinkingAuthenticatedTransportPortV1 = {
   registerTargetCredentialV1(input: {
     readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
   }): Promise<void>;
+  /**
+   * Returns the local account identity alongside the finalize, because a device
+   * that never registered here cannot unlock without it.
+   */
   finalizeOwnerAuthMethodV1(input: {
     readonly linkSessionId: LinkDeviceSessionId;
     readonly request: LinkedDeviceOwnerFinalizeRequestV1;
-  }): Promise<WalletAddAuthMethodFinalizeResponse>;
+  }): Promise<{
+    readonly response: WalletAddAuthMethodFinalizeResponse;
+    readonly localAccount: LinkedDeviceLocalAccountProjectionV1;
+  }>;
   /**
    * Refactor 103 Phase 8. Device 2 publishes where the wallet custody seed
    * should be sealed, then collects the sealed package once Device 1 has

@@ -40,6 +40,14 @@ import {
  * tests assert on, because the invariants here are about what ran, how often,
  * and in which order.
  */
+/**
+ * The signer slot the harness's wallet key was created in.
+ *
+ * Not 1, so any test that reaches unlock proves the slot travelled from the
+ * server rather than landing on the profile writer's default.
+ */
+export const LINKED_OWNER_SIGNER_SLOT_V1 = 4;
+
 export type Device2LinkFlowHarnessV1 = {
   readonly flow: LinkDeviceFlow;
   /** Ordering-relevant steps, in the order they happened. */
@@ -96,21 +104,34 @@ export async function buildDevice2LinkFlowHarnessV1(
     async () => {
       calls.push('finalize');
       return {
-        ok: true,
-        walletId: fixture.approval.walletId,
-        rpId: String(preparationRef.current?.ownerEnrollment.registration.rpId),
-        authMethod: {
-          kind: 'passkey' as const,
-          status: 'active' as const,
-          credentialIdB64u: String(target.registration.webauthnRegistration.credentialIdB64u),
-          credentialPublicKeyB64u: base64UrlEncode(new Uint8Array(32).fill(10)),
-          counter: 0,
-          device: {
-            label: 'Chrome on macOS',
-            browser: 'chrome' as const,
-            os: 'macos' as const,
-            synced: false,
-            transports: ['internal'],
+        localAccount: {
+          kind: 'linked_device_local_account_projection_v1' as const,
+          walletId: fixture.approval.walletId,
+          nearAccountId: 'linked-owner.testnet',
+          // Deliberately not 1. The profile writer defaults to slot 1 when none
+          // is supplied, so a fixture using 1 would pass whether or not the real
+          // slot is carried through.
+          signerSlot: LINKED_OWNER_SIGNER_SLOT_V1,
+          operationalPublicKey: base64UrlEncode(new Uint8Array(32).fill(11)),
+          nearEd25519SigningKeyId: 'linked-owner.testnet',
+        },
+        response: {
+          ok: true,
+          walletId: fixture.approval.walletId,
+          rpId: String(preparationRef.current?.ownerEnrollment.registration.rpId),
+          authMethod: {
+            kind: 'passkey' as const,
+            status: 'active' as const,
+            credentialIdB64u: String(target.registration.webauthnRegistration.credentialIdB64u),
+            credentialPublicKeyB64u: base64UrlEncode(new Uint8Array(32).fill(10)),
+            counter: 0,
+            device: {
+              label: 'Chrome on macOS',
+              browser: 'chrome' as const,
+              os: 'macos' as const,
+              synced: false,
+              transports: ['internal'],
+            },
           },
         },
       };

@@ -1,3 +1,4 @@
+import type { LinkedDeviceLocalAccountProjectionV1 } from '@shared/device-linking';
 import type {
   LinkedDeviceApprovalV1,
   LinkedDeviceEnrollmentReceiptV1,
@@ -330,7 +331,16 @@ export type DeviceLinkingRouteServiceV1 = {
     readonly expectedRevision: number;
     readonly nowMs: number;
   }): Promise<
-    | { readonly outcome: 'finalized'; readonly response: WalletAddAuthMethodFinalizeResponse }
+    | {
+        readonly outcome: 'finalized';
+        readonly response: WalletAddAuthMethodFinalizeResponse;
+        /**
+         * Present only on success. Device 2 cannot discover these by unlocking —
+         * unlock is fail-closed on the local records they build — so they travel
+         * with the finalize that made the credential.
+         */
+        readonly localAccount?: LinkedDeviceLocalAccountProjectionV1;
+      }
     | {
         readonly outcome: 'completion_refused';
         readonly completion: LinkedOwnerEnrollmentCompletionRefusalV1;
@@ -924,7 +934,13 @@ async function handleOwnerFinalize(
       return linkedOwnerEnrollmentCompletionFailureResponse(finalized.completion);
     case 'finalized':
       return finalized.response.ok
-        ? json(finalized.response, { status: 200 })
+        ? json(
+            {
+              ...finalized.response,
+              ...(finalized.localAccount ? { localAccount: finalized.localAccount } : {}),
+            },
+            { status: 200 },
+          )
         : json(finalized.response, { status: 400 });
     default:
       return assertNever(finalized);

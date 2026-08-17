@@ -823,3 +823,32 @@ export type LinkedDeviceOwnerFinalizeRequestV1 = {
   readonly webauthnRegistration: unknown;
   readonly custodyEnvelope: PasskeyCustodyEnvelopeRecord;
 };
+
+/**
+ * The wallet identity Device 2 needs to become an ordinary owner locally.
+ *
+ * Canonical unlock is fail-closed on three local records — a wallet profile, a
+ * profile authenticator, and an active auth method — and it refuses to prompt
+ * before it consults the server's credential allow-list. So the facts those
+ * records need cannot be discovered by unlocking; they have to arrive with the
+ * finalize that created the credential.
+ *
+ * Every field is server-verified against the canonical Ed25519 signer, and
+ * `signerSlot` is that signer's own slot rather than a per-device or
+ * per-auth-method allocation: Device 2 is a new factor on one existing wallet
+ * key, not a new key. It is deliberately not sourced from the temporary R102
+ * target child, which the lane cutover deletes.
+ *
+ * Narrow on purpose. This is identity a linked device may already infer from the
+ * wallet it just enrolled into, and nothing here is secret — but widening it
+ * would make the linked route a general wallet-state reader, which it is not.
+ */
+export type LinkedDeviceLocalAccountProjectionV1 = {
+  readonly kind: 'linked_device_local_account_projection_v1';
+  readonly walletId: WalletId;
+  readonly nearAccountId: string;
+  /** The canonical Ed25519 key's creation slot. Never assume 1. */
+  readonly signerSlot: number;
+  readonly operationalPublicKey: string;
+  readonly nearEd25519SigningKeyId: string;
+};

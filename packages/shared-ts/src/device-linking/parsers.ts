@@ -124,6 +124,7 @@ import {
   type LinkDevicePublicKeyB64u,
   type QrLinkedDevicePermissionRequest,
   type QrLinkedDeviceSessionPayloadV4,
+  type LinkedDeviceLocalAccountProjectionV1,
   type LinkedDeviceOwnerFinalizeRequestV1,
 } from './contracts';
 
@@ -3202,5 +3203,53 @@ export function parseLinkedDeviceOwnerFinalizeRequestV1(
     addAuthMethodCeremonyId,
     webauthnRegistration: record.webauthnRegistration,
     custodyEnvelope: parsePasskeyCustodyEnvelopeRecord(record.custodyEnvelope),
+  };
+}
+
+const LOCAL_ACCOUNT_PROJECTION_FIELDS = [
+  'kind',
+  'walletId',
+  'nearAccountId',
+  'signerSlot',
+  'operationalPublicKey',
+  'nearEd25519SigningKeyId',
+] as const;
+
+export function parseLinkedDeviceLocalAccountProjectionV1(
+  raw: unknown,
+): LinkedDeviceLocalAccountProjectionV1 {
+  const record = exactRecord(
+    raw,
+    LOCAL_ACCOUNT_PROJECTION_FIELDS,
+    'LinkedDeviceLocalAccountProjectionV1',
+  );
+  if (record.kind !== 'linked_device_local_account_projection_v1') {
+    throw new Error('LinkedDeviceLocalAccountProjectionV1.kind is invalid');
+  }
+  const walletId = parseWalletId(record.walletId);
+  if (!walletId.ok) throw new Error(walletId.error.message);
+  const nearAccountId = parseNonEmptyToken(
+    record.nearAccountId,
+    'LinkedDeviceLocalAccountProjectionV1.nearAccountId',
+  );
+  // Unlock parses this with a minimum of 1 and fails closed, so a slot that is
+  // absent or zero has to be refused here rather than defaulted to something
+  // that would unlock the wrong signer.
+  if (!Number.isSafeInteger(record.signerSlot) || Number(record.signerSlot) < 1) {
+    throw new Error('LinkedDeviceLocalAccountProjectionV1.signerSlot must be an integer >= 1');
+  }
+  return {
+    kind: 'linked_device_local_account_projection_v1',
+    walletId: walletId.value,
+    nearAccountId,
+    signerSlot: Number(record.signerSlot),
+    operationalPublicKey: parseNonEmptyToken(
+      record.operationalPublicKey,
+      'LinkedDeviceLocalAccountProjectionV1.operationalPublicKey',
+    ),
+    nearEd25519SigningKeyId: parseNonEmptyToken(
+      record.nearEd25519SigningKeyId,
+      'LinkedDeviceLocalAccountProjectionV1.nearEd25519SigningKeyId',
+    ),
   };
 }
