@@ -1,4 +1,5 @@
 import {
+  buildDisplayingQrLinkedDeviceSessionState,
   buildLinkedDeviceApprovalV1,
   buildLinkedDeviceEnrollmentChildReceiptV1,
   buildLinkedDeviceEnrollmentReceiptV1,
@@ -127,6 +128,30 @@ export async function buildR103ActiveLinkedDeviceSessionRecordV1(
 }
 
 /**
+ * A freshly created session, before anyone has claimed it.
+ *
+ * This is the only record the store will accept through its insert path, so
+ * tests that need a real row start here and drive it forward rather than
+ * inventing a row the reader would reject.
+ */
+export function buildR103UnclaimedLinkedDeviceSessionRecordV1(
+  fixture: R103DeviceLinkFixture,
+): LinkedDeviceSessionRecordV1 {
+  return parseLinkedDeviceSessionRecordV1({
+    version: 'linked_device_session_v1',
+    linkSessionId: fixture.payload.linkSessionId,
+    qrPayload: fixture.payload,
+    state: buildDisplayingQrLinkedDeviceSessionState({
+      linkSessionId: fixture.payload.linkSessionId,
+      expiresAtMs: fixture.payload.expiresAtMs,
+    }),
+    revision: 1,
+    createdAtMs: fixture.payload.issuedAtMs,
+    updatedAtMs: fixture.payload.issuedAtMs,
+  });
+}
+
+/**
  * A claimed and approved session sitting in the one state a linked owner
  * finalize may commit from, or in any state reached from there.
  *
@@ -142,6 +167,12 @@ export async function buildR103AwaitingTargetPasskeySessionRecordV1(
     readonly state?: LinkedDeviceSessionRecordV1['state'];
     readonly revision?: number;
     readonly credentialDeadlineMs?: number;
+    /**
+     * Must equal the `nowMs` of any CAS that writes this record: the store sets
+     * `updated_at_ms` from the clock and the reader rejects a row whose column
+     * disagrees with its own JSON.
+     */
+    readonly updatedAtMs?: number;
   } = {},
 ): Promise<LinkedDeviceSessionRecordV1> {
   const approval = fixture.approval;
@@ -176,7 +207,7 @@ export async function buildR103AwaitingTargetPasskeySessionRecordV1(
       sourceKeyManifestDigestB64u: fixture.receipt.manifestDigestB64u,
     },
     createdAtMs: fixture.payload.issuedAtMs,
-    updatedAtMs: fixture.payload.issuedAtMs + 1,
+    updatedAtMs: overrides.updatedAtMs ?? fixture.payload.issuedAtMs + 1,
   });
 }
 
