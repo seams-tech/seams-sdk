@@ -433,6 +433,22 @@ export type LinkedDeviceSessionTargetCredentialInputV1 = {
   readonly nowMs: number;
 };
 
+/**
+ * Phase 8 keeps the existing R102 provisioning state until the lane cutover
+ * removes the human linked-session path. This operation records the canonical
+ * finalize at that boundary without activating a lane or inventing a receipt.
+ */
+export type LinkedOwnerEnrollmentCompletionInputV1 = {
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly expectedRevision: number;
+  readonly keyManifestDigestB64u: DigestB64u;
+  readonly nowMs: number;
+};
+
+export type LinkedOwnerEnrollmentCompletionResultV1 =
+  | LinkedDeviceSessionMutationResultV1
+  | { readonly outcome: 'invalid_input'; readonly message: string };
+
 export type LinkedDeviceSessionAggregateActivationInputV1 = {
   readonly linkSessionId: LinkDeviceSessionId;
   readonly expectedRevision: number;
@@ -783,6 +799,12 @@ export class LinkedDeviceSessionServiceV1 {
     } catch (error: unknown) {
       return { outcome: 'invalid_input', message: errorMessage(error) };
     }
+  }
+
+  async completeLinkedOwnerEnrollmentV1(
+    input: LinkedOwnerEnrollmentCompletionInputV1,
+  ): Promise<LinkedOwnerEnrollmentCompletionResultV1> {
+    return await this.recordTargetCredentialV1(input);
   }
 
   async recordAggregateActivationV1(

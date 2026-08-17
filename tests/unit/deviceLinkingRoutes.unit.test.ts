@@ -23,11 +23,15 @@ import {
   ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
   decodeJwtPayloadRecord,
 } from '@shared/utils/sessionTokens';
+import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import { unknownWebAuthnAuthenticatorDeviceInfo } from '@shared/utils/webauthnDeviceInfo';
 import {
   buildR103DeviceLinkFixture,
+  buildR103TargetCredentialFixture,
   buildR103OwnerEnrollmentCeremonyReaderV1,
   buildR103ProvisioningFixture,
 } from './helpers/deviceLinkContracts.fixtures';
+import { passkeyCustodyEnvelope } from './helpers/passkeyCustodyEnvelope.fixtures';
 import {
   LinkedDeviceSessionServiceV1,
   type LinkedDeviceAggregateActivationVerifierV1,
@@ -191,6 +195,107 @@ test('projects the claimed device identity after owner claim', async () => {
   const deliveredApprovalBody = await deliveredApproval.json();
   expect(deliveredApprovalBody.kind).toBe('linked_device_approval_delivery_v1');
   expect(deliveredApprovalBody.approval).toEqual(approval);
+});
+
+test('owner finalize retry replays canonical finalize and the interim provisioning completion', async () => {
+  temporary = createTemporaryD1Database();
+  await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+  const fixture = buildR103DeviceLinkFixture();
+  const target = await buildR103TargetCredentialFixture(fixture);
+  const credential = target.registration.webauthnRegistration;
+  const rpId = target.preparation.ownerEnrollment.registration.rpId;
+  const finalized = {
+    ok: true as const,
+    walletId: fixture.approval.walletId,
+    authority: buildPasskeyWalletAuthAuthority({
+      walletId: fixture.approval.walletId,
+      rpId,
+      credentialIdB64u: credential.credentialIdB64u,
+    }),
+    rpId,
+    authMethod: {
+      kind: 'passkey' as const,
+      status: 'active' as const,
+      credentialIdB64u: credential.credentialIdB64u,
+      credentialPublicKeyB64u: 'public-key-r103',
+      counter: 0,
+      device: unknownWebAuthnAuthenticatorDeviceInfo(),
+    },
+  };
+  let finalizeCalls = 0;
+  const store = new D1LinkedDeviceSessionStoreV1({ database: temporary.database, scope });
+  const sessionService = new LinkedDeviceSessionServiceV1({
+    ownerEnrollmentCeremonies: buildR103OwnerEnrollmentCeremonyReaderV1(fixture.approval),
+    store,
+    authorization: ownerAuthorization(),
+    aggregateActivationVerifier,
+  });
+  const routeService = routeServiceFor(sessionService, 3_000, {
+    authenticateOwnerRequestV1: async ({ request, method, pathname, bodyDigestB64u }) => ({
+      kind: 'authorized' as const,
+      body: method === 'GET' ? null : await request.json(),
+      owner: ownerRequestContext(),
+      binding: requestBinding(method, pathname, bodyDigestB64u, 3_000),
+    }),
+    authenticateDeviceRequestV1: async ({ request, method, proof }) => ({
+      kind: 'authorized' as const,
+      body: method === 'GET' ? null : await request.json(),
+      proof,
+    }),
+    targetCredential: {
+      getTargetPreparationV1: async () => target.preparation,
+      registerTargetCredentialV1: async () => {
+        throw new Error('target credential registration is not used by owner finalize');
+      },
+    },
+    finalizeLinkedOwnerAuthMethodV1: async () => {
+      finalizeCalls += 1;
+      return finalized;
+    },
+  });
+  const created = await invoke(routeService, {
+    method: 'POST',
+    pathname: '/wallet/device-linking/v1/sessions',
+    body: {
+      kind: 'linked_device_session_create_request_v1',
+      payload: fixture.payload,
+    },
+  });
+  const claimed = await invoke(routeService, {
+    method: 'POST',
+    pathname: `/wallet/device-linking/v1/sessions/${fixture.payload.linkSessionId}/claim`,
+    body: fixture.claimRequest,
+  });
+  const approval = { ...fixture.approval, expiresAtMs: 9_000 };
+  const approved = await invoke(routeService, {
+    method: 'POST',
+    pathname: `/wallet/device-linking/v1/sessions/${fixture.payload.linkSessionId}/approval`,
+    body: approval,
+  });
+  expect(created.status).toBe(200);
+  expect(claimed.status).toBe(200);
+  expect(approved.status).toBe(200);
+  const finalizeRequest = {
+    kind: 'linked_device_owner_finalize_request_v1' as const,
+    addAuthMethodCeremonyId: approval.ownerEnrollment.addAuthMethodCeremonyId,
+    webauthnRegistration: credential,
+    custodyEnvelope: passkeyCustodyEnvelope({ walletId: String(fixture.approval.walletId) }),
+  };
+  const pathname = `/wallet/device-linking/v1/sessions/${fixture.payload.linkSessionId}/owner-finalize`;
+  const first = await invoke(routeService, { method: 'POST', pathname, body: finalizeRequest });
+  expect(first.status).toBe(200);
+  const firstBody = await first.json();
+
+  const retry = await invoke(routeService, { method: 'POST', pathname, body: finalizeRequest });
+  expect(retry.status).toBe(200);
+  expect(await retry.json()).toEqual(firstBody);
+  expect(finalizeCalls).toBe(2);
+
+  const persisted = await store.getSessionV1(fixture.payload.linkSessionId);
+  expect(persisted?.state).toMatchObject({
+    state: 'provisioning',
+    keyManifestDigestB64u: ownerRequestContext().keyManifestDigestB64u,
+  });
 });
 
 test('owner target-ready GET authenticates before parsing and returns the exact R102 jobs', async () => {
@@ -708,6 +813,8 @@ function routeServiceFor(
     claimSessionV1: sessionService.claimSessionV1.bind(sessionService),
     recordOwnerApprovalV1: sessionService.recordOwnerApprovalV1.bind(sessionService),
     recordTargetCredentialV1: sessionService.recordTargetCredentialV1.bind(sessionService),
+    completeLinkedOwnerEnrollmentV1:
+      sessionService.completeLinkedOwnerEnrollmentV1.bind(sessionService),
     bindRecoveryContinuationV1: sessionService.bindRecoveryContinuationV1.bind(sessionService),
     cancelSessionV1: sessionService.cancelSessionV1.bind(sessionService),
     getSessionV1: (input) =>
@@ -864,6 +971,9 @@ function sessionServiceForRecord(
     },
     recordTargetCredentialV1: async () => {
       throw new Error('target registration is outside the active delivery fixture');
+    },
+    completeLinkedOwnerEnrollmentV1: async () => {
+      throw new Error('owner enrollment completion is outside the active delivery fixture');
     },
     bindRecoveryContinuationV1: async () => {
       throw new Error('recovery continuation is outside the active delivery fixture');
