@@ -12,6 +12,7 @@ import {
   type LinkedDeviceLocalAccountProjectionV1,
 } from '@shared/device-linking';
 import { D1LinkedDeviceRequestProofNonceStoreV1 } from './d1LinkedDeviceRequestProofNonceStore';
+import { D1LinkedDeviceCustodyTransferStoreV1 } from './d1LinkedDeviceCustodyTransferStore';
 import { type D1LinkedDeviceSessionScopeV1 } from './d1LinkedDeviceSessionStore';
 import { CloudflareD1LaneLifecycleStore } from '../signingLanes/d1LaneLifecycleStore';
 import { createD1LinkedDeviceSessionServiceV1 } from './d1LinkedDeviceSessionService';
@@ -192,6 +193,13 @@ export function createD1LinkedDeviceRouteServiceV1(
   return {
     sessionService: routeSessionService,
     nowV1,
+    // Refactor 103 Phase 8: Device 1 seals the wallet custody seed to the
+    // recipient Device 2 publishes, through this store. Left unwired, the
+    // routes answer 501 and linking dies after the owner has already asserted.
+    custodyTransfer: new D1LinkedDeviceCustodyTransferStoreV1({
+      database: options.database,
+      scope: options.scope,
+    }),
     // Same finalizer the owner add-auth-method route calls. The tenant is this
     // service's own, so the route never names one.
     finalizeLinkedOwnerEnrollmentV1: async (input) => {

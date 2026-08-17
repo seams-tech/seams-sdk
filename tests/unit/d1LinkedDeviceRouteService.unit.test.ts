@@ -197,6 +197,11 @@ test('composes D1 session and proof stores and authenticates before reading JSON
   });
   expect(result.kind).toBe('authorized');
   if (result.kind === 'authorized') expect(result.body).toEqual({ ok: true });
+  // Refactor 103 Phase 8: the composition wires the custody transfer store.
+  // Without it the routes answer 501 and linking dies after the owner has
+  // already asserted — the port is optional in the type, so only this proves
+  // the D1 composition actually provides it.
+  expect(routeService.custodyTransfer).toBeDefined();
 });
 
 test('forwards authenticated session reads through core expiry projection', async () => {
