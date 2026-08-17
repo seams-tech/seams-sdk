@@ -39,6 +39,142 @@
   --vp-c-text-3: #6d675f;
 }
 
+/* Nav bar: wordmark brand sized like the marketing site header, with the two
+   nav links sitting immediately left of centre instead of at the far right. */
+:root {
+  --vp-nav-logo-height: 20px;
+}
+
+.VPNavBarTitle .title {
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.VPNavBarTitle .title .logo {
+  margin-right: 0;
+  width: auto;
+}
+
+.VPNavBarTitle .title > span {
+  color: var(--vp-c-text-2);
+  letter-spacing: 0.01em;
+}
+
+@media (min-width: 960px) {
+  .VPNavBar .content-body {
+    justify-content: flex-start;
+  }
+
+  .VPNavBar .content-body .menu {
+    order: -1;
+  }
+
+  .VPNavBar .content-body .search {
+    flex-grow: 0;
+    margin-left: auto;
+    padding-left: 24px;
+  }
+}
+
+/* The default theme paints a fixed gradient strip over the bottom of the
+   outline column; it covers the footer instead of fading the outline. */
+.VPDoc .aside .aside-curtain {
+  display: none;
+}
+
+/* Site footer. The sidebar is fixed to the viewport, so the footer has to be
+   inset by its width on wide screens or its first column is clipped. */
+.seams-docs-footer {
+  border-top: 1px solid var(--vp-c-divider);
+  background-color: var(--vp-c-bg-alt);
+  padding: 20px 24px;
+}
+
+@media (min-width: 768px) {
+  .seams-docs-footer {
+    padding-inline: 32px;
+  }
+}
+
+@media (min-width: 960px) {
+  .seams-docs-footer {
+    padding-left: calc(var(--vp-sidebar-width) + 32px);
+  }
+}
+
+@media (min-width: 1440px) {
+  .seams-docs-footer {
+    padding-right: calc((100vw - var(--vp-layout-max-width)) / 2 + 32px);
+    padding-left: calc((100vw - var(--vp-layout-max-width)) / 2 + var(--vp-sidebar-width) + 32px);
+  }
+}
+
+.seams-docs-footer__inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px 40px;
+  margin: 0 auto;
+  max-width: 1104px;
+}
+
+.seams-docs-footer__brand {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.seams-docs-footer__brand-link {
+  display: inline-flex;
+  align-items: center;
+}
+
+.seams-docs-footer__wordmark {
+  display: block;
+  width: auto;
+  height: 16px;
+}
+
+.seams-docs-footer__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 40px;
+}
+
+.seams-docs-footer__group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.seams-docs-footer__group h2 {
+  margin: 0 0 2px;
+  color: var(--vp-c-text-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.seams-docs-footer__group a {
+  color: var(--vp-c-text-2);
+  font-size: 13px;
+  line-height: 1.5;
+  text-decoration: none;
+}
+
+.seams-docs-footer__group a:hover {
+  color: var(--vp-c-brand-1);
+}
+
+.seams-docs-footer__legal {
+  margin: 0;
+  color: var(--vp-c-text-3);
+  font-size: 12px;
+}
+
 /* Mermaid is generated after VitePress renders the page. These rules provide
    the layout behavior that the default theme cannot supply. */
 .mermaid-figure {

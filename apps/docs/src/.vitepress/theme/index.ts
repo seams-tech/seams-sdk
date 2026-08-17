@@ -1,6 +1,8 @@
 import DefaultTheme from 'vitepress/theme';
 import type { Theme } from 'vitepress';
 import type { Mermaid, MermaidConfig } from 'mermaid';
+import { h } from 'vue';
+import SeamsFooter from './SeamsFooter.vue';
 import './custom.css';
 
 function createMermaidRenderer() {
@@ -149,6 +151,10 @@ function createMermaidRenderer() {
 
 const theme: Theme = {
   ...DefaultTheme,
+  Layout: () =>
+    h(DefaultTheme.Layout, null, {
+      'layout-bottom': () => h(SeamsFooter),
+    }),
   enhanceApp: async (ctx) => {
     await DefaultTheme.enhanceApp?.(ctx);
     if (import.meta.env.SSR || typeof window === 'undefined') return;
