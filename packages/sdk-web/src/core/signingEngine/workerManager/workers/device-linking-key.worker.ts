@@ -1,39 +1,17 @@
 import {
-  parseLinkedDeviceTargetPreparationV1,
-  parseLinkedDeviceProvisioningChildV1,
   encodeLinkedDeviceRequestProofV1,
   LINKED_DEVICE_REQUEST_PROOF_MAX_TTL_MS_V1,
   LINKED_DEVICE_REQUEST_PROOF_NONCE_BYTES_V1,
   LINKED_DEVICE_REQUEST_PROOF_SIGNATURE_BYTES_V1,
   parseLinkDevicePublicKeyB64u,
   type LinkedDeviceRequestProofV1,
-  type LinkedDeviceProvisioningChildV1,
-  type LinkedDeviceTargetHolderRegistrationV1,
-  type LinkedDeviceTargetPreparationV1,
-  type LinkedDeviceWebAuthnRegistrationV1,
   type LinkDevicePublicKeyB64u,
 } from '@shared/device-linking';
-import {
-  buildEcdsaLaneHolderShareBinding,
-  buildEd25519LaneHolderShareBinding,
-  buildPasskeyEnvelopeFactor,
-  parseEd25519PublicKeyB64u,
-  parseSecp256k1CompressedPublicKeyB64u,
-} from '@shared/passkey-custody';
-import { buildLaneHolderParticipantRecordWithDigestV1 } from '@shared/signing-lanes/participantDigest';
-import {
-  parseHpkePublicKeyB64u,
-  parseLaneCustodyBindingDigestB64u,
-  parseLaneHolderCustodyBindingId,
-  parseSigningWorkerRecipientKeyDigestB64u,
-  type LaneHolderParticipantRecordV1,
-} from '@shared/signing-lanes/participants';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
   mpcMaterialActivationRefsEqual,
   parseMpcMaterialActivationRef,
-  parseWebAuthnCredentialIdB64u,
   type MpcMaterialActivationRef,
 } from '@shared/utils/domainIds';
 import { parseLinkDeviceSessionId, type LinkDeviceSessionId } from '@shared/signing-lanes/ids';
@@ -56,8 +34,6 @@ import {
 } from '../ecdsaClientWorkerChannels';
 import { parseEcdsaClientPresignPoolIdentity } from '../ecdsaPresignPoolIdentity';
 import initEd25519YaoClient, {
-  WasmLaneCustodySealV1,
-  WasmLaneHolderRecipientV1,
   WasmLaneHolderSigningMaterialV1,
 } from '../../../../../../../crates/router-ab-ed25519-yao-client/pkg/router_ab_ed25519_yao_client.js';
 import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
@@ -71,44 +47,15 @@ import {
  * public bytes and an opaque slot id; private CryptoKeys are non-extractable
  * and never appear in a structured-clone message.
  */
-type DeviceLinkingTargetMaterialV1 =
-  | { readonly state: 'unprepared' }
-  | {
-      readonly state: 'prepared';
-      readonly preparation: LinkedDeviceTargetPreparationV1;
-      readonly credentialIdB64u: LinkedDeviceWebAuthnRegistrationV1['credentialIdB64u'];
-      readonly factorSecret: Uint8Array;
-      readonly recipients: Map<string, DeviceLinkingPreparedRecipientV1>;
-    };
-
-type DeviceLinkingPreparedRecipientV1 =
-  | {
-      readonly state: 'open';
-      readonly recipient: DeviceLinkingLaneRecipientV1;
-      readonly holderParticipant: LaneHolderParticipantRecordV1;
-    }
-  | {
-      readonly state: 'sealed';
-      readonly deliveryJson: string;
-      readonly holderParticipant: LaneHolderParticipantRecordV1;
-      readonly output: ReturnType<typeof sealedHolderOutput>;
-    };
-
 type DeviceLinkingKeySlotV1 = {
   readonly identityPrivateKey: CryptoKey;
   readonly linkPrivateKey: CryptoKey;
   readonly devicePublicKeyB64u: LinkDevicePublicKeyB64u;
   readonly linkPublicKeyB64u: LinkDevicePublicKeyB64u;
-  targetMaterial: DeviceLinkingTargetMaterialV1;
 };
 
 type DeviceLinkingKeyWorkerRequestV1 =
   | { readonly kind: 'device_linking_key_material_create_v1' }
-  | {
-      readonly kind: 'device_linking_target_holder_open_seal_v1';
-      readonly handleId: string;
-      readonly delivery: LinkedDeviceProvisioningChildV1;
-    }
   | {
       readonly kind: 'device_linking_request_sign_v1';
       readonly handleId: string;
@@ -120,13 +67,6 @@ type DeviceLinkingKeyWorkerRequestV1 =
       readonly challengeB64u: string;
       readonly issuedAtMs: number;
       readonly expiresAtMs: number;
-    }
-  | {
-      readonly kind: 'device_linking_target_holders_prepare_v1';
-      readonly handleId: string;
-      readonly preparation: LinkedDeviceTargetPreparationV1;
-      readonly credentialIdB64u: LinkedDeviceWebAuthnRegistrationV1['credentialIdB64u'];
-      readonly factorSecret: ArrayBuffer;
     }
   | {
       readonly kind: 'device_linking_holder_signing_material_open_v1';
@@ -162,17 +102,6 @@ type DeviceLinkingKeyWorkerResponseV1 =
       readonly devicePublicKeyB64u: LinkDevicePublicKeyB64u;
     }
   | {
-      readonly sealedHolderMaterialB64u: string;
-      readonly sealedHolderRecordDigestB64u: DigestB64u;
-      readonly verifiedHolderCiphertextDigestSetB64u: DigestB64u;
-    }
-  | {
-      readonly orderedHolderRegistrations: readonly [
-        LinkedDeviceTargetHolderRegistrationV1,
-        ...LinkedDeviceTargetHolderRegistrationV1[],
-      ];
-    }
-  | {
       readonly handleId: string;
       readonly keyFamily: 'ed25519' | 'ecdsa_secp256k1';
     }
@@ -199,24 +128,6 @@ export type DeviceLinkingKeyWorkerScopeV1 = {
 
 export type InstalledDeviceLinkingKeyWorkerV1 = {
   close(): Promise<void>;
-};
-
-export type DeviceLinkingLaneRecipientV1 = {
-  hpke_public_key_b64u(): string;
-  hpke_public_key_digest_b64u(): string;
-  open_and_seal(
-    custody: DeviceLinkingLaneCustodySealV1,
-    jobJson: string,
-    receiptJson: string,
-    holderPackageJson: string,
-    nonce12: Uint8Array,
-  ): unknown;
-  destroy(): void;
-  free(): void;
-};
-
-export type DeviceLinkingLaneCustodySealV1 = {
-  free(): void;
 };
 
 export type DeviceLinkingLaneSigningMaterialV1 = {
@@ -248,17 +159,7 @@ type DeviceLinkingHolderSigningMaterialSlotV1 = {
   readonly materialActivation: MpcMaterialActivationRef;
 };
 
-export type DeviceLinkingLaneRecipientFactoryV1 = {
-  createRecipient(input: {
-    readonly operationId: string;
-    readonly keyMaterial: Uint8Array;
-  }): DeviceLinkingLaneRecipientV1 | Promise<DeviceLinkingLaneRecipientV1>;
-  createCustodySeal(input: {
-    readonly factorSecret: Uint8Array;
-    readonly envelopeBindingJson: string;
-    readonly custodyBindingId: string;
-    readonly custodyBindingDigestB64u: string;
-  }): DeviceLinkingLaneCustodySealV1 | Promise<DeviceLinkingLaneCustodySealV1>;
+export type DeviceLinkingHolderSigningMaterialFactoryV1 = {
   openSigningMaterial(input: {
     readonly factorSecret: Uint8Array;
     readonly sealedHolderMaterialB64u: string;
@@ -294,21 +195,7 @@ async function initializeLaneRecipientWasm(): Promise<void> {
   return await laneRecipientInitPromise;
 }
 
-const productionLaneRecipientFactory: DeviceLinkingLaneRecipientFactoryV1 = {
-  async createRecipient(input) {
-    await initializeLaneRecipientWasm();
-    return new WasmLaneHolderRecipientV1(input.operationId, input.keyMaterial);
-  },
-  async createCustodySeal(input) {
-    await initializeLaneRecipientWasm();
-    return new WasmLaneCustodySealV1(
-      'passkey',
-      input.factorSecret,
-      input.envelopeBindingJson,
-      input.custodyBindingId,
-      input.custodyBindingDigestB64u,
-    );
-  },
+const productionHolderSigningMaterialFactory: DeviceLinkingHolderSigningMaterialFactoryV1 = {
   async openSigningMaterial(input) {
     await initializeLaneRecipientWasm();
     return new WasmLaneHolderSigningMaterialV1(
@@ -395,25 +282,6 @@ function parseFixedBase64Url(value: unknown, length: number, label: string): str
   }
   bytes.fill(0);
   return encoded;
-}
-
-function parseCanonicalBase64Url(value: unknown, label: string): string {
-  const encoded = requireNonEmptyString(value, label);
-  if (!/^[A-Za-z0-9_-]+$/.test(encoded)) throw new Error(`${label} is invalid`);
-  let bytes: Uint8Array;
-  try {
-    bytes = base64UrlDecode(encoded);
-  } catch {
-    throw new Error(`${label} is invalid`);
-  }
-  try {
-    if (bytes.length === 0 || base64UrlEncode(bytes) !== encoded) {
-      throw new Error(`${label} must be canonical base64url`);
-    }
-    return encoded;
-  } finally {
-    bytes.fill(0);
-  }
 }
 
 function parseDigest(value: unknown, label: string): DigestB64u {
@@ -591,32 +459,6 @@ function parseRequest(value: unknown): DeviceLinkingKeyWorkerRequestV1 {
     const parsed = parseSignRequest(record);
     return { kind: 'device_linking_request_sign_v1', ...parsed };
   }
-  if (record.kind === 'device_linking_target_holders_prepare_v1') {
-    const transferredSecret =
-      record.factorSecret instanceof ArrayBuffer ? new Uint8Array(record.factorSecret) : null;
-    try {
-      const parsed = exactRecord(
-        record,
-        ['kind', 'handleId', 'preparation', 'credentialIdB64u', 'factorSecret'],
-        'device-linking target holder request',
-      );
-      if (!(parsed.factorSecret instanceof ArrayBuffer) || parsed.factorSecret.byteLength !== 32) {
-        throw new Error('device-linking target holder factorSecret must be 32 bytes');
-      }
-      const credentialId = parseWebAuthnCredentialIdB64u(parsed.credentialIdB64u);
-      if (!credentialId.ok) throw new Error(credentialId.error.message);
-      return {
-        kind: 'device_linking_target_holders_prepare_v1',
-        handleId: parseHandleId(parsed.handleId),
-        preparation: parseLinkedDeviceTargetPreparationV1(parsed.preparation),
-        credentialIdB64u: credentialId.value,
-        factorSecret: parsed.factorSecret,
-      };
-    } catch (error) {
-      transferredSecret?.fill(0);
-      throw error;
-    }
-  }
   if (record.kind === 'device_linking_holder_signing_material_open_v1') {
     const transferredSecret =
       record.factorSecret instanceof ArrayBuffer ? new Uint8Array(record.factorSecret) : null;
@@ -655,18 +497,6 @@ function parseRequest(value: unknown): DeviceLinkingKeyWorkerRequestV1 {
       throw error;
     }
   }
-  if (record.kind === 'device_linking_target_holder_open_seal_v1') {
-    const parsed = exactRecord(
-      record,
-      ['kind', 'handleId', 'delivery'],
-      'device-linking target holder open request',
-    );
-    return {
-      kind: 'device_linking_target_holder_open_seal_v1',
-      handleId: parseHandleId(parsed.handleId),
-      delivery: parseLinkedDeviceProvisioningChildV1(parsed.delivery),
-    };
-  }
   throw new Error('device-linking worker request kind is unsupported');
 }
 
@@ -700,7 +530,6 @@ async function generateKeySlot(): Promise<{
       linkPrivateKey: linkPair.privateKey,
       devicePublicKeyB64u,
       linkPublicKeyB64u,
-      targetMaterial: { state: 'unprepared' },
     };
     return {
       slot,
@@ -709,335 +538,6 @@ async function generateKeySlot(): Promise<{
   } finally {
     identityPublicBytes.fill(0);
     linkPublicBytes.fill(0);
-  }
-}
-
-function randomBytes(length: number): Uint8Array {
-  const bytes = new Uint8Array(length);
-  globalThis.crypto.getRandomValues(bytes);
-  return bytes;
-}
-
-function requiredParsed<T>(
-  result:
-    | { readonly ok: true; readonly value: T }
-    | { readonly ok: false; readonly error: { readonly message: string } },
-): T {
-  if (result.ok) return result.value;
-  throw new Error(result.error.message);
-}
-
-async function prepareTargetHolders(
-  request: Extract<
-    DeviceLinkingKeyWorkerRequestV1,
-    { readonly kind: 'device_linking_target_holders_prepare_v1' }
-  >,
-  recipientFactory: DeviceLinkingLaneRecipientFactoryV1,
-): Promise<{
-  readonly orderedHolderRegistrations: readonly [
-    LinkedDeviceTargetHolderRegistrationV1,
-    ...LinkedDeviceTargetHolderRegistrationV1[],
-  ];
-}> {
-  const slot = keySlots.get(request.handleId);
-  if (!slot) {
-    new Uint8Array(request.factorSecret).fill(0);
-    throw new Error('device-linking key handle is unknown or discarded');
-  }
-  if (slot.targetMaterial.state !== 'unprepared') {
-    new Uint8Array(request.factorSecret).fill(0);
-    throw new Error('device-linking target holders are already prepared');
-  }
-  const recipients = new Map<string, DeviceLinkingPreparedRecipientV1>();
-  const registrations: LinkedDeviceTargetHolderRegistrationV1[] = [];
-  try {
-    for (const child of request.preparation.orderedChildren) {
-      const recipientKeyMaterial = randomBytes(32);
-      let recipient: DeviceLinkingLaneRecipientV1;
-      try {
-        recipient = await recipientFactory.createRecipient({
-          operationId: child.operationId,
-          keyMaterial: recipientKeyMaterial,
-        });
-      } finally {
-        recipientKeyMaterial.fill(0);
-      }
-      const custodyIdBytes = randomBytes(24);
-      const custodyDigestBytes = randomBytes(32);
-      try {
-        const custodyBindingId = requiredParsed(
-          parseLaneHolderCustodyBindingId(
-            `linked-device-lane-custody-${base64UrlEncode(custodyIdBytes)}`,
-          ),
-        );
-        const custodyBindingDigestB64u = requiredParsed(
-          parseLaneCustodyBindingDigestB64u(base64UrlEncode(custodyDigestBytes)),
-        );
-        const hpkePublicKeyB64u = requiredParsed(
-          parseHpkePublicKeyB64u(recipient.hpke_public_key_b64u()),
-        );
-        const hpkePublicKeyDigestB64u = requiredParsed(
-          parseSigningWorkerRecipientKeyDigestB64u(recipient.hpke_public_key_digest_b64u()),
-        );
-        const holderParticipant = await buildLaneHolderParticipantRecordWithDigestV1({
-          participantId: child.targetHolderParticipantId,
-          custody: {
-            kind: 'lane_holder_custody_identity_v1',
-            custodyBindingId,
-            custodyBindingDigestB64u,
-          },
-          hpkePublicKeyB64u,
-          hpkePublicKeyDigestB64u,
-        });
-        recipients.set(String(child.operationId), {
-          state: 'open',
-          recipient,
-          holderParticipant,
-        });
-        registrations.push({
-          kind: 'linked_device_target_holder_registration_v1',
-          operationId: child.operationId,
-          walletKeyId: child.walletKeyId,
-          keyFamily: child.keyFamily,
-          targetLaneId: child.targetLaneId,
-          targetLaneShareEpoch: child.targetLaneShareEpoch,
-          targetMaterialActivationId: child.targetMaterialActivationId,
-          holderParticipant,
-        });
-      } catch (error) {
-        recipient.destroy();
-        recipient.free();
-        throw error;
-      } finally {
-        custodyIdBytes.fill(0);
-        custodyDigestBytes.fill(0);
-      }
-    }
-    const first = registrations[0];
-    if (!first) throw new Error('device-linking target preparation has no children');
-    if (keySlots.get(request.handleId) !== slot) {
-      new Uint8Array(request.factorSecret).fill(0);
-      throw new Error('device-linking key handle was discarded during target preparation');
-    }
-    const retainedFactorSecret = new Uint8Array(new Uint8Array(request.factorSecret));
-    new Uint8Array(request.factorSecret).fill(0);
-    const orderedHolderRegistrations = [first, ...registrations.slice(1)] as const;
-    slot.targetMaterial = {
-      state: 'prepared',
-      preparation: request.preparation,
-      credentialIdB64u: request.credentialIdB64u,
-      factorSecret: retainedFactorSecret,
-      recipients,
-    };
-    return { orderedHolderRegistrations };
-  } catch (error) {
-    new Uint8Array(request.factorSecret).fill(0);
-    for (const prepared of recipients.values()) {
-      if (prepared.state === 'open') {
-        prepared.recipient.destroy();
-        prepared.recipient.free();
-      }
-    }
-    throw error;
-  }
-}
-
-function destroySlot(slot: DeviceLinkingKeySlotV1): void {
-  if (slot.targetMaterial.state !== 'prepared') return;
-  slot.targetMaterial.factorSecret.fill(0);
-  for (const prepared of slot.targetMaterial.recipients.values()) {
-    if (prepared.state === 'open') {
-      prepared.recipient.destroy();
-      prepared.recipient.free();
-    }
-  }
-  slot.targetMaterial = { state: 'unprepared' };
-}
-
-function assertDeliveryMatchesPreparedTarget(
-  target: Extract<DeviceLinkingTargetMaterialV1, { readonly state: 'prepared' }>,
-  delivery: LinkedDeviceProvisioningChildV1,
-  prepared: DeviceLinkingPreparedRecipientV1,
-): void {
-  const job = delivery.job;
-  const child = target.preparation.orderedChildren.find(
-    (candidate) => candidate.operationId === job.operationId,
-  );
-  if (
-    !child ||
-    String(job.enrollmentId) !== String(target.preparation.enrollmentId) ||
-    job.walletId !== target.preparation.walletId ||
-    job.walletKeyId !== child.walletKeyId ||
-    job.keyFamily !== child.keyFamily ||
-    job.target.laneId !== child.targetLaneId ||
-    job.target.laneShareEpoch !== child.targetLaneShareEpoch ||
-    job.targetMaterialActivationId !== child.targetMaterialActivationId ||
-    job.targetHolder.participantId !== child.targetHolderParticipantId ||
-    job.targetHolder.participantId !== prepared.holderParticipant.participantId ||
-    job.targetHolder.custodyBindingId !== prepared.holderParticipant.custodyBindingId ||
-    job.targetHolder.custodyBindingDigestB64u !==
-      prepared.holderParticipant.custodyBindingDigestB64u ||
-    job.targetHolder.hpkePublicKeyB64u !== prepared.holderParticipant.hpkePublicKeyB64u ||
-    job.targetHolder.hpkePublicKeyDigestB64u !==
-      prepared.holderParticipant.hpkePublicKeyDigestB64u ||
-    job.targetHolder.participantBindingDigestB64u !==
-      prepared.holderParticipant.participantBindingDigestB64u ||
-    job.target.operation !== 'create_lane' ||
-    job.target.laneKind !== 'linked_device' ||
-    job.authorization.kind !== 'linked_device_enrollment' ||
-    job.authorization.linkedDeviceEnrollmentId !== target.preparation.enrollmentId
-  ) {
-    throw new Error('device-linking holder delivery changed its prepared R102 child');
-  }
-}
-
-function envelopeBindingJson(
-  target: Extract<DeviceLinkingTargetMaterialV1, { readonly state: 'prepared' }>,
-  delivery: LinkedDeviceProvisioningChildV1,
-  holderParticipant: LaneHolderParticipantRecordV1,
-): string {
-  const job = delivery.job;
-  const factor = buildPasskeyEnvelopeFactor({
-    rpId: target.preparation.ownerEnrollment.registration.rpId,
-    credentialIdB64u: target.credentialIdB64u,
-  });
-  switch (job.kind) {
-    case 'ed25519_yao_lane_job_v1':
-      return JSON.stringify({
-        walletId: job.walletId,
-        envelopeId: holderParticipant.custodyBindingId,
-        factor,
-        envelopeRevision: 1,
-        binding: buildEd25519LaneHolderShareBinding({
-          walletKeyId: job.walletKeyId,
-          laneId: job.target.laneId,
-          laneShareEpoch: job.target.laneShareEpoch,
-          nearEd25519SigningKeyId: job.nearEd25519SigningKeyId,
-          registeredPublicKeyB64u: parseEd25519PublicKeyB64u(job.registeredPublicKeyB64u),
-          participantBindingDigestB64u: holderParticipant.participantBindingDigestB64u,
-        }),
-      });
-    case 'ecdsa_additive_lane_job_v1': {
-      const thresholdSession = job.targetCapability.orderedThresholdSessions[0];
-      return JSON.stringify({
-        walletId: job.walletId,
-        envelopeId: holderParticipant.custodyBindingId,
-        factor,
-        envelopeRevision: 1,
-        binding: buildEcdsaLaneHolderShareBinding({
-          walletKeyId: job.walletKeyId,
-          laneId: job.target.laneId,
-          laneShareEpoch: job.target.laneShareEpoch,
-          evmFamilySigningKeySlotId: job.evmFamilySigningKeySlotId,
-          thresholdSessionId: thresholdSession.thresholdSessionId,
-          thresholdPublicKey33B64u: parseSecp256k1CompressedPublicKeyB64u(
-            job.thresholdPublicKey33B64u,
-          ),
-        }),
-      });
-    }
-    default:
-      job satisfies never;
-      throw new Error('device-linking holder delivery curve is unsupported');
-  }
-}
-
-function sealedHolderOutput(value: unknown): {
-  readonly sealedHolderMaterialB64u: string;
-  readonly sealedHolderRecordDigestB64u: DigestB64u;
-  readonly verifiedHolderCiphertextDigestSetB64u: DigestB64u;
-} {
-  const record = exactRecord(
-    value,
-    [
-      'sealedHolderMaterialB64u',
-      'sealedHolderRecordDigestB64u',
-      'verifiedHolderCiphertextDigestSetB64u',
-    ],
-    'device-linking sealed holder output',
-  );
-  return {
-    sealedHolderMaterialB64u: parseCanonicalBase64Url(
-      record.sealedHolderMaterialB64u,
-      'sealedHolderMaterialB64u',
-    ),
-    sealedHolderRecordDigestB64u: parseDigest(
-      record.sealedHolderRecordDigestB64u,
-      'sealedHolderRecordDigestB64u',
-    ),
-    verifiedHolderCiphertextDigestSetB64u: parseDigest(
-      record.verifiedHolderCiphertextDigestSetB64u,
-      'verifiedHolderCiphertextDigestSetB64u',
-    ),
-  };
-}
-
-async function openAndSealTargetHolder(
-  request: Extract<
-    DeviceLinkingKeyWorkerRequestV1,
-    { readonly kind: 'device_linking_target_holder_open_seal_v1' }
-  >,
-  recipientFactory: DeviceLinkingLaneRecipientFactoryV1,
-): Promise<ReturnType<typeof sealedHolderOutput>> {
-  const slot = keySlots.get(request.handleId);
-  if (!slot || slot.targetMaterial.state !== 'prepared') {
-    throw new Error('device-linking target holder material is unavailable');
-  }
-  const key = String(request.delivery.job.operationId);
-  const prepared = slot.targetMaterial.recipients.get(key);
-  if (!prepared) throw new Error('device-linking target holder recipient is unknown or consumed');
-  assertDeliveryMatchesPreparedTarget(slot.targetMaterial, request.delivery, prepared);
-  const deliveryJson = JSON.stringify(request.delivery);
-  if (prepared.state === 'sealed') {
-    if (prepared.deliveryJson !== deliveryJson) {
-      throw new Error('device-linking sealed holder replay changed its exact delivery');
-    }
-    return prepared.output;
-  }
-  let custody: DeviceLinkingLaneCustodySealV1 | undefined;
-  let nonce: Uint8Array | undefined;
-  try {
-    custody = await recipientFactory.createCustodySeal({
-      factorSecret: slot.targetMaterial.factorSecret,
-      envelopeBindingJson: envelopeBindingJson(
-        slot.targetMaterial,
-        request.delivery,
-        prepared.holderParticipant,
-      ),
-      custodyBindingId: prepared.holderParticipant.custodyBindingId,
-      custodyBindingDigestB64u: prepared.holderParticipant.custodyBindingDigestB64u,
-    });
-    nonce = randomBytes(12);
-    const output = sealedHolderOutput(
-      prepared.recipient.open_and_seal(
-        custody,
-        JSON.stringify(request.delivery.job),
-        JSON.stringify(request.delivery.protocolCommitReceipt),
-        JSON.stringify(request.delivery.holderPackage),
-        nonce,
-      ),
-    );
-    if (
-      output.verifiedHolderCiphertextDigestSetB64u !==
-      request.delivery.protocolCommitReceipt.targetHolderCiphertextDigestSetB64u
-    ) {
-      throw new Error('device-linking holder package changed its committed ciphertext digest');
-    }
-    slot.targetMaterial.recipients.set(key, {
-      state: 'sealed',
-      deliveryJson,
-      holderParticipant: prepared.holderParticipant,
-      output,
-    });
-    return output;
-  } finally {
-    if (slot.targetMaterial.recipients.get(key) === prepared && prepared.state === 'open') {
-      slot.targetMaterial.recipients.delete(key);
-    }
-    nonce?.fill(0);
-    custody?.free();
-    prepared.recipient.destroy();
-    prepared.recipient.free();
   }
 }
 
@@ -1117,7 +617,7 @@ async function openPersistedHolderSigningMaterial(
     DeviceLinkingKeyWorkerRequestV1,
     { readonly kind: 'device_linking_holder_signing_material_open_v1' }
   >,
-  recipientFactory: DeviceLinkingLaneRecipientFactoryV1,
+  signingMaterialFactory: DeviceLinkingHolderSigningMaterialFactoryV1,
 ): Promise<{
   readonly handleId: string;
   readonly keyFamily: 'ed25519' | 'ecdsa_secp256k1';
@@ -1131,7 +631,7 @@ async function openPersistedHolderSigningMaterial(
       materialActivation: request.materialActivation,
       record: request.holderRecord,
     });
-    material = await recipientFactory.openSigningMaterial({
+    material = await signingMaterialFactory.openSigningMaterial({
       factorSecret,
       sealedHolderMaterialB64u: request.holderRecord.sealedHolderMaterialB64u,
       expectedRecordDigestB64u: request.holderRecord.sealedHolderRecordDigestB64u,
@@ -1547,7 +1047,7 @@ async function signRequest(
 
 async function handleRequest(
   rawRequest: unknown,
-  recipientFactory: DeviceLinkingLaneRecipientFactoryV1,
+  signingMaterialFactory: DeviceLinkingHolderSigningMaterialFactoryV1,
 ): Promise<DeviceLinkingKeyWorkerResponseV1 | undefined> {
   const request = parseRequest(rawRequest);
   switch (request.kind) {
@@ -1558,12 +1058,8 @@ async function handleRequest(
     }
     case 'device_linking_request_sign_v1':
       return await signRequest(request);
-    case 'device_linking_target_holders_prepare_v1':
-      return await prepareTargetHolders(request, recipientFactory);
-    case 'device_linking_target_holder_open_seal_v1':
-      return await openAndSealTargetHolder(request, recipientFactory);
     case 'device_linking_holder_signing_material_open_v1':
-      return await openPersistedHolderSigningMaterial(request, recipientFactory);
+      return await openPersistedHolderSigningMaterial(request, signingMaterialFactory);
     case 'device_linking_holder_ed25519_sign_v1':
       return createEd25519HolderSigningShare(request);
     case 'device_linking_holder_signing_material_discard_v1':
@@ -1571,8 +1067,6 @@ async function handleRequest(
       return undefined;
     case 'device_linking_key_material_discard_v1':
       {
-        const slot = keySlots.get(request.handleId);
-        if (slot) destroySlot(slot);
         keySlots.delete(request.handleId);
       }
       return undefined;
@@ -1590,7 +1084,8 @@ function workerError(error: unknown): string {
 
 export function installDeviceLinkingKeyWorkerV1(
   scope: DeviceLinkingKeyWorkerScopeV1,
-  recipientFactory: DeviceLinkingLaneRecipientFactoryV1 = productionLaneRecipientFactory,
+  signingMaterialFactory: DeviceLinkingHolderSigningMaterialFactoryV1 =
+    productionHolderSigningMaterialFactory,
 ): InstalledDeviceLinkingKeyWorkerV1 {
   let closed = false;
   let queue: Promise<void> = Promise.resolve();
@@ -1607,7 +1102,7 @@ export function installDeviceLinkingKeyWorkerV1(
         try {
           const frame = parseFrame(event.data);
           id = frame.id;
-          const result = await handleRequest(frame.request, recipientFactory);
+          const result = await handleRequest(frame.request, signingMaterialFactory);
           if (closed) return;
           scope.postMessage({ id, ok: true, result });
         } catch (error) {
@@ -1627,7 +1122,6 @@ export function installDeviceLinkingKeyWorkerV1(
           linkedHolderPresignPort?.close();
           linkedHolderPresignPort = null;
           linkedHolderOpaquePresignAuthority.close();
-          for (const slot of keySlots.values()) destroySlot(slot);
           keySlots.clear();
           for (const handleId of holderSigningMaterialSlots.keys()) {
             discardHolderSigningMaterial(handleId);

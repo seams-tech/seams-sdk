@@ -5,13 +5,9 @@ import type {
   QrLinkedDeviceSessionPayloadV4,
 } from '@shared/device-linking';
 import {
-  parseLinkedDeviceApprovalDeliveryV1,
-  parseLinkedDeviceEnrollmentReceiptV1,
-  parseLinkedDeviceProvisioningDeliveriesV1,
   parseLinkedDeviceSessionProjectionV1,
   parseLinkedDeviceSessionTransportEventV1,
   parseLinkedDeviceTargetPreparationV1,
-  parseLinkedDeviceWalletSessionDeliveryV1,
 } from '@shared/device-linking';
 import {
   computeLinkedDevicePublicKeyDigestV1,
@@ -117,26 +113,6 @@ export function createDeviceLinkingAuthenticatedSessionTransportV1(
     },
     getSessionV1: async ({ linkSessionId }) =>
       await requestSessionV1({ options, baseUrl, linkSessionId }),
-    getApprovalV1: async ({ linkSessionId }) => {
-      const response = await requestDeviceV1({
-        options,
-        baseUrl,
-        method: 'GET',
-        canonicalPath: sessionActionPath(linkSessionId, 'approval'),
-        linkSessionId,
-      });
-      return parseLinkedDeviceApprovalDeliveryV1(response.body).approval;
-    },
-    getWalletSessionDeliveryV1: async ({ linkSessionId }) => {
-      const response = await requestDeviceV1({
-        options,
-        baseUrl,
-        method: 'GET',
-        canonicalPath: sessionActionPath(linkSessionId, 'wallet-session'),
-        linkSessionId,
-      });
-      return parseLinkedDeviceWalletSessionDeliveryV1(response.body);
-    },
     getTargetPreparationV1: async ({ linkSessionId }) => {
       const response = await requestDeviceV1({
         options,
@@ -146,38 +122,6 @@ export function createDeviceLinkingAuthenticatedSessionTransportV1(
         linkSessionId,
       });
       return parseLinkedDeviceTargetPreparationV1(response.body);
-    },
-    requestProvisioningDeliveriesV1: async ({ command }) => {
-      const response = await requestDeviceV1({
-        options,
-        baseUrl,
-        method: 'POST',
-        canonicalPath: sessionActionPath(command.linkSessionId, 'provision'),
-        linkSessionId: command.linkSessionId,
-        body: command,
-      });
-      return parseLinkedDeviceProvisioningDeliveriesV1(response.body);
-    },
-    acknowledgeHolderDeliveriesV1: async ({ acknowledgement }) => {
-      const response = await requestDeviceV1({
-        options,
-        baseUrl,
-        method: 'POST',
-        canonicalPath: sessionActionPath(acknowledgement.linkSessionId, 'holder-receipts'),
-        linkSessionId: acknowledgement.linkSessionId,
-        body: acknowledgement,
-      });
-      return parseLinkedDeviceEnrollmentReceiptV1(response.body);
-    },
-    registerTargetCredentialV1: async ({ registration }) => {
-      await requestMutationV1({
-        options,
-        baseUrl,
-        method: 'POST',
-        canonicalPath: sessionActionPath(registration.linkSessionId, 'credential'),
-        linkSessionId: registration.linkSessionId,
-        body: registration,
-      });
     },
     finalizeOwnerAuthMethodV1: async ({ linkSessionId, request }) => {
       const response = await requestDeviceV1({
@@ -213,26 +157,6 @@ export function createDeviceLinkingAuthenticatedSessionTransportV1(
       // Device 1 has not sealed yet. Normal while the owner is approving.
       if (response.status === 404) return null;
       return parseLinkedDeviceCustodyTransferPackageV1(response.body);
-    },
-    acknowledgeReceiptV1: async ({ acknowledgement }) => {
-      await requestMutationV1({
-        options,
-        baseUrl,
-        method: 'POST',
-        canonicalPath: sessionActionPath(acknowledgement.linkSessionId, 'receipt'),
-        linkSessionId: acknowledgement.linkSessionId,
-        body: acknowledgement,
-      });
-    },
-    retryCommittedDeliveryV1: async ({ request }) => {
-      await requestMutationV1({
-        options,
-        baseUrl,
-        method: 'POST',
-        canonicalPath: sessionActionPath(request.linkSessionId, 'retry'),
-        linkSessionId: request.linkSessionId,
-        body: request,
-      });
     },
     cancelSessionV1: async ({ request }) => {
       await requestMutationV1({
