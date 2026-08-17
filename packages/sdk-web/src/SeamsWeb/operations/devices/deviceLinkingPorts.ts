@@ -1,3 +1,4 @@
+import type { DeviceLinkingCustodyTransferPortV1 } from './deviceLinkingCustodyTransfer';
 import type {
   LinkedDeviceProvisioningChildV1,
   LinkedDeviceApprovalV1,
@@ -336,6 +337,8 @@ export type Device2LinkingFlowPortsV1 = {
   readonly transport: LinkSessionTransportPortV1;
   readonly keyMaterial: DeviceLinkingKeyMaterialPortV1;
   readonly targetCredential: DeviceLinkingTargetCredentialPortV1;
+  /** Refactor 103 Phase 8: Device 2's half of the wallet custody seed transfer. */
+  readonly custodyTransfer: DeviceLinkingCustodyTransferPortV1;
   readonly sessionActivation: DeviceLinkingSessionActivationPortV1;
   readonly laneProvisioning: DeviceLinkingLaneProvisioningPortV1;
   readonly walletSessions: DeviceLinkingWalletSessionStorePortV1;
@@ -345,6 +348,8 @@ export type Device2LinkingFlowPortsV1 = {
 export type Device1LinkingFlowPortsV1 = {
   readonly transport: LinkSessionOwnerTransportPortV1;
   readonly ownerAuthorization: DeviceLinkingOwnerAuthorizationPortV1;
+  /** Refactor 103 Phase 8: Device 1's half of the wallet custody seed transfer. */
+  readonly custodyTransfer: DeviceLinkingCustodyTransferPortV1;
   readonly sourcePreparation: Device1SourcePreparationPortV1;
 };
 

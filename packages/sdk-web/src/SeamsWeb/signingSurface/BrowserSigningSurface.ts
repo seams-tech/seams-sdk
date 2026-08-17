@@ -447,10 +447,7 @@ import type {
 } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/webauthnPromptCoordinator';
 
 type LinkedDeviceSigningSessionActivationWithAuthenticatorV1 =
-  | Extract<
-      LinkedDeviceSigningSessionActivationV1,
-      { readonly kind: 'target_passkey_creation' }
-    >
+  | Extract<LinkedDeviceSigningSessionActivationV1, { readonly kind: 'target_passkey_creation' }>
   | (Extract<
       LinkedDeviceSigningSessionActivationV1,
       { readonly kind: 'existing_target_passkey' }
@@ -3010,6 +3007,18 @@ export class BrowserSigningSurface {
           }),
       },
       sourceLanePorts,
+      // The wallet custody worker, which both devices drive for the seed
+      // transfer: Device 2 creates a recipient and reseals, Device 1 seals.
+      custodyCeremonyTransport: {
+        requestOperation: async (operation: {
+          readonly kind: 'walletCustodyCeremony';
+          readonly request: unknown;
+        }) =>
+          await this.getSignerWorkerContext().requestWorkerOperation({
+            kind: operation.kind,
+            request: operation.request as never,
+          }),
+      },
       nowMs: () => Date.now(),
       pollIntervalMs: 250,
     };

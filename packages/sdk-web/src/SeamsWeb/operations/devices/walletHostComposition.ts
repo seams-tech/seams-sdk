@@ -1,3 +1,4 @@
+import type { WalletCustodyCeremonyTransportPort } from '@/core/signingEngine/walletCustody/ceremonyStepRunner';
 import type { AuthenticatorPort } from '@/core/platform';
 import type { HttpTransport } from '@/core/platform/http';
 import type { LaneOperationSourcePortsV1 } from '@/core/signingEngine/session/lanes/operations/ports';
@@ -41,6 +42,8 @@ export type WalletHostCompositionDependenciesV1 = {
   readonly ownerRequest: LinkSessionOwnerAuthenticatedRequestPortV1;
   readonly ownerApprovalUpdates: LinkSessionOwnerApprovalUpdatesPortV1;
   readonly ownerAuthorization: DeviceLinkingOwnerAuthorizationPortV1;
+  /** The wallet custody worker both devices drive for the seed transfer. */
+  readonly custodyCeremonyTransport: WalletCustodyCeremonyTransportPort;
   readonly managementRequest: WalletHostManagementRequestV1;
   readonly repository: LaneSealedHolderMaterialRepositoryV1;
   readonly walletSessionRepository: Pick<

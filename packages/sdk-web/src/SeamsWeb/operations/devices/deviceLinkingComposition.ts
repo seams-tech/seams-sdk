@@ -1,3 +1,5 @@
+import type { WalletCustodyCeremonyTransportPort } from '@/core/signingEngine/walletCustody/ceremonyStepRunner';
+import { createDeviceLinkingCustodyTransferPortV1 } from './deviceLinkingCustodyTransfer';
 import type { AuthenticatorPort } from '@/core/platform';
 import type { HttpTransport } from '@/core/platform/http';
 import type { LaneOperationSourcePortsV1 } from '@/core/signingEngine/session/lanes/operations/ports';
@@ -57,6 +59,8 @@ export type DeviceLinkingFlowPortsAssemblyOptionsV1 = {
     'putExactProvisionedEvidenceV1' | 'readForEnrollmentV1'
   >;
   readonly sourceLanePorts: LaneOperationSourcePortsV1;
+  /** The wallet custody worker both devices drive for the seed transfer. */
+  readonly custodyCeremonyTransport: WalletCustodyCeremonyTransportPort;
   readonly workerEndpoint?: DeviceLinkingWorkerEndpointV1;
   readonly workerTimeoutMs?: number;
   readonly nowMs: () => number;
@@ -150,6 +154,9 @@ export function createDeviceLinkingFlowPortsV1(
     repository: args.repository,
     nowMs: args.nowMs,
   });
+  // Both devices drive the same worker port: Device 2 creates the recipient and
+  // reseals, Device 1 seals to it.
+  const custodyTransfer = createDeviceLinkingCustodyTransferPortV1(args.custodyCeremonyTransport);
   const sourcePreparation = createDevice1SourcePreparationPortV1({
     sourceLanePorts: args.sourceLanePorts,
   });
@@ -159,6 +166,7 @@ export function createDeviceLinkingFlowPortsV1(
     sessionActivation: args.sessionActivation,
     keyMaterial,
     targetCredential,
+    custodyTransfer,
     laneProvisioning,
     walletSessions: {
       putExactActiveDeliveryV1: async (delivery) => {
