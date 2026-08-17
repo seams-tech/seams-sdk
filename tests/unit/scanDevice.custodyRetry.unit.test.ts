@@ -17,7 +17,7 @@ import {
 import {
   buildLinkedDeviceCustodyTransferPackageFixtureV1,
   buildLinkedDeviceCustodyTransferRecipientFixtureV1,
-  buildLinkedDeviceOwnerCustodyHoldStubV1,
+  buildUnlockedCustodyCapabilityFixtureV1,
 } from './helpers/linkedDeviceCustodyTransfer.fixtures';
 
 test('seals once and replays the exact package after a lost first submission', async () => {
@@ -85,10 +85,13 @@ test('seals once and replays the exact package after a lost first submission', a
         orderedKeyBindings: fixture.approval.orderedKeyBindings,
         protocolVersions: fixture.approval.protocolVersions,
         expiresAtMs: now + 30_000,
+        custodyTransferCapability: buildUnlockedCustodyCapabilityFixtureV1({
+          walletId: String(fixture.approval.walletId),
+          expiresAtMs: now + 30_000,
+        }),
       }),
       startOwnerEnrollmentCeremonyV1: async () => ({
         ceremony: buildR103OwnerEnrollmentCeremonyV1({ expiresAtMs: now + 30_000 }),
-        custodyHold: buildLinkedDeviceOwnerCustodyHoldStubV1(),
       }),
     },
     transport: {

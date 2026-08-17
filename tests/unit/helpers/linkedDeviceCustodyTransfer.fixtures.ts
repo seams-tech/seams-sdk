@@ -11,9 +11,8 @@ import {
   type LinkedDeviceCustodyTransferPackageV1,
   type LinkedDeviceCustodyTransferRecipientV1,
 } from '../../../packages/shared-ts/src/device-linking/custodyTransfer';
-import type { LinkedDeviceOwnerCustodyHoldV1 } from '../../../packages/sdk-web/src/SeamsWeb/operations/devices/deviceLinkingOwnerCustody';
+import type { UnlockedWalletCustodyTransferCapabilityV1 } from '../../../packages/sdk-web/src/core/signingEngine/workerManager/workerTypes';
 import { base64UrlEncode } from '../../../packages/shared-ts/src/utils/base64';
-import { passkeyCustodyEnvelope } from './passkeyCustodyEnvelope.fixtures';
 
 function publicKey(fill: number): string {
   return base64UrlEncode(new Uint8Array(32).fill(fill));
@@ -31,27 +30,22 @@ const CIPHERTEXT_DIGEST_B64U = base64UrlEncode(new Uint8Array(32).fill(6));
 export const LINKED_DEVICE_TRANSFER_SEALED_AT_MS = 1_800_000_000_000;
 
 /**
- * Device 1's held custody material, with the production hold's once-only rule.
- *
- * The real hold releases the wallet custody seed exactly once and zeroizes it,
- * so a stub that could be sealed twice would let a test pass a flow that seals
- * on every poll. Refusing the second seal here is what makes "sealed once"
- * assertable at all.
+ * R103 zero-prompt handoff: Device 1's unlocked custody transfer capability
+ * reference. Opaque by construction — a plain record whose facts the worker
+ * re-verifies — so the fixture is a literal aligned with the shared session
+ * fixtures rather than a parser round-trip.
  */
-export function buildLinkedDeviceOwnerCustodyHoldStubV1(): LinkedDeviceOwnerCustodyHoldV1 {
-  let released = false;
+export function buildUnlockedCustodyCapabilityFixtureV1(
+  overrides: Partial<UnlockedWalletCustodyTransferCapabilityV1> = {},
+): UnlockedWalletCustodyTransferCapabilityV1 {
   return {
-    sealOnceV1: async (seal) => {
-      if (released) throw new Error('held custody was already released');
-      released = true;
-      return await seal({
-        existingEnvelope: passkeyCustodyEnvelope(),
-        existingFactorSecret: new Uint8Array(32).fill(7),
-      });
-    },
-    discardV1: () => {
-      released = true;
-    },
+    kind: 'unlocked_wallet_custody_transfer_capability_v1',
+    capabilityHandleId: 'unlocked-custody-capability-fixture',
+    walletId: 'alice.testnet',
+    walletAuthMethodId: 'passkey wallet.example.test Y3JlZGVudGlhbC1maXJzdA',
+    walletSessionId: 'available-lane-wallet-session:owner-authorization',
+    expiresAtMs: LINKED_DEVICE_TRANSFER_SEALED_AT_MS,
+    ...overrides,
   };
 }
 

@@ -52,7 +52,7 @@ import {
 import {
   buildLinkedDeviceCustodyTransferPackageFixtureV1,
   buildLinkedDeviceCustodyTransferRecipientFixtureV1,
-  buildLinkedDeviceOwnerCustodyHoldStubV1,
+  buildUnlockedCustodyCapabilityFixtureV1,
 } from './helpers/linkedDeviceCustodyTransfer.fixtures';
 import { parseWebAuthnCredentialIdB64u } from '../../packages/shared-ts/src/utils/domainIds';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
@@ -399,10 +399,7 @@ function createPorts(
     ownerAuthorization: {
       async startOwnerEnrollmentCeremonyV1() {
         calls.push('start-owner-ceremony');
-        return {
-          ceremony: ownerEnrollmentCeremony,
-          custodyHold: buildLinkedDeviceOwnerCustodyHoldStubV1(),
-        };
+        return { ceremony: ownerEnrollmentCeremony };
       },
       async authenticateOwnerForLinkingV1() {
         calls.push('authenticate');
@@ -416,6 +413,10 @@ function createPorts(
           orderedKeyBindings: fixture.approval.orderedKeyBindings,
           protocolVersions: fixture.approval.protocolVersions,
           expiresAtMs: now + 30_000,
+          custodyTransferCapability: buildUnlockedCustodyCapabilityFixtureV1({
+            walletId: String(fixture.approval.walletId),
+            expiresAtMs: now + 30_000,
+          }),
         };
       },
     },
