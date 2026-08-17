@@ -78,14 +78,12 @@ seams-auth-menu-surface {
   background: var(--w3a-colors-colorBackground);
   border: 1px solid var(--w3a-colors-borderPrimary);
   border-radius: var(--w3a-shape-card, 16px);
-  /* The iframe surface only extends 16px past the card (surface inset), so
-     the shadow's reach (offset + blur - |spread|) must stay under that or the
-     bottom corners clip at the iframe edge. */
-  box-shadow: var(
-    --w3a-seams-auth-menu-shadow,
-    0 1px 3px -2px rgba(15, 23, 42, 0.1),
-    0 8px 18px -16px rgba(15, 23, 42, 0.22)
-  );
+  /* No box-shadow here: the iframe clips it at its layout edge (the surface
+     only extends 16px past the card). The elevation is painted by the host
+     page instead — a drop-shadow on the wallet iframe in overlay-styles.ts —
+     which follows the card's silhouette and can extend past the iframe. The
+     variable remains as an escape hatch for embedders. */
+  box-shadow: var(--w3a-seams-auth-menu-shadow, none);
   padding: var(--w3a-spacing-lg);
   padding-top: var(--w3a-seams-auth-menu-padding-top);
   position: relative;
