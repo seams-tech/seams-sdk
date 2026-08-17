@@ -2622,7 +2622,7 @@ body:has(.h2-page) {
   gap: 8px;
   padding: 8px 14px 8px 10px;
   border-radius: 12px;
-  border: 1px solid var(--h2-stone);
+  border: 1px solid #ffffff;
   background: #ffffff;
   box-shadow:
     0 10px 24px -14px rgba(40, 36, 32, 0.28),
