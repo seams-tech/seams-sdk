@@ -15,6 +15,23 @@ export type SigningLaneAuthBinding =
       credentialIdB64u?: never;
     };
 
+/**
+ * R103C: the exact owner an authenticated human operation acts as. Derived
+ * from the active Wallet Session authority through the active wallet auth
+ * method — never assembled from independently supplied wallet, credential,
+ * and slot values. A Passkey owner carries the signer slot of its one local
+ * authenticator; Email OTP has no local authenticator and no slot.
+ */
+export type OwnerLaneScope =
+  | {
+      auth: Extract<SigningLaneAuthBinding, { kind: typeof SIGNER_AUTH_METHODS.passkey }>;
+      signerSlot: number;
+    }
+  | {
+      auth: Extract<SigningLaneAuthBinding, { kind: typeof SIGNER_AUTH_METHODS.emailOtp }>;
+      signerSlot?: never;
+    };
+
 export function signingLaneAuthMethod(auth: SigningLaneAuthBinding): SignerAuthMethod {
   switch (auth.kind) {
     case SIGNER_AUTH_METHODS.passkey:
