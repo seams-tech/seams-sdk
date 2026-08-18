@@ -169,21 +169,19 @@ required = ["CONSOLE_SESSION_HMAC_SECRET", "STRIPE_API_SK", "STRIPE_WEBHOOK_SECR
 export function validD1GatewayStagingConfig(): string {
   return `
 name = "seams-sdk-d1-gateway-staging"
-main = "../wallet-console-server-ts/src/router/cloudflare/d1RouterApiStagingWorker.ts"
+main = "../wallet-console-server-ts/src/router/cloudflare/d1GatewayWorker.ts"
 compatibility_date = "2026-04-17"
 compatibility_flags = ["nodejs_compat"]
-
-[[d1_databases]]
-binding = "CONSOLE_DB"
-database_name = "seams-console-staging-nrt"
-database_id = "11111111-1111-4111-8111-111111111111"
-migrations_dir = "../wallet-console-server-ts/migrations/d1-console"
 
 [[d1_databases]]
 binding = "SIGNER_DB"
 database_name = "seams-signer-staging-nrt"
 database_id = "22222222-2222-4222-8222-222222222222"
 migrations_dir = "../wallet-console-server-ts/node_modules/@seams/wallet-server/migrations/d1-signer"
+
+[[services]]
+binding = "WALLET_CONSOLE"
+service = "seams-sdk-d1-console-staging"
 
 [[services]]
 binding = "SIGNING_WORKER"
