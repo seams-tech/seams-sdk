@@ -1,6 +1,12 @@
 import type { D1DatabaseLike } from '@seams/wallet-server/cloud-host';
 import { createWalletConsoleRouter } from '../consoleComposition';
 import { HostedConsoleAuthHandler } from './d1RouterApiStagingWorker';
+import { createWalletConsoleOpsHandler } from '../../serviceBinding/walletConsoleOpsHandler';
+import {
+  createRouterApiBillingUsageMeterAdapter,
+  createRouterApiKeyAuthAdapter,
+  createRouterApiPublishableKeyAuthAdapter,
+} from '@seams-internal/wallet-console-server/router/routerApiKeyAuth';
 import {
   createConsoleProviderIdentity,
   type ConsoleGithubOAuthConfig,
@@ -143,10 +149,25 @@ async function createConsoleHandler(env: CloudflareD1ConsoleStagingEnv): Promise
     readyCheck: createConsoleReadyCheck(env),
     billingStripeWebhookSigningSecret: requireEnvString(env, 'STRIPE_WEBHOOK_SECRET'),
   });
+  // Private service-binding target: exactly the three declared Wallet Console
+  // operations, served ahead of the console router.
+  const opsHandler = createWalletConsoleOpsHandler({
+    apiKeyAuth: createRouterApiKeyAuthAdapter(bundle.apiKeys),
+    publishableKeyAuth: createRouterApiPublishableKeyAuthAdapter(bundle.apiKeys),
+    usageMeter: createRouterApiBillingUsageMeterAdapter(bundle.billing, {
+      orgProjectEnv: bundle.orgProjectEnv,
+      wallets: bundle.wallets,
+    }),
+  });
+  const routerWithOps: FetchHandler = async (request, workerEnv, ctx) => {
+    const opsResponse = await opsHandler(request);
+    if (opsResponse) return opsResponse;
+    return await router(request, workerEnv, ctx);
+  };
   // The Console Worker owns /console/auth/* end-to-end: provider verification
   // is Console-owned (no signer D1, Wasm, or identity-link store involved).
   const authHandler = new HostedConsoleAuthHandler({
-    handler: router,
+    handler: routerWithOps,
     identity: createConsoleProviderIdentity({
       googleOidcClientId: readEnvString(env, 'GOOGLE_OIDC_CLIENT_ID'),
       githubOAuth: consoleGithubOAuthConfig(env),
