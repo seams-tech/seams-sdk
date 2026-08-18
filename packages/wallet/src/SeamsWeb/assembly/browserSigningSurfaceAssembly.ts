@@ -102,57 +102,21 @@ function omitPasskeyRestoreAuthMethod(
   return passkeyRestore;
 }
 
-type ExactWalletAuthAuthorityStore = Pick<
-  BrowserSealedSigningSessionStorePorts,
-  'listEcdsaSealedSessionsForWallet'
->;
-
 type ExactWalletAuthMethodStore = Pick<
   SigningEngineStorePorts['walletProfileAndSignerRecords']['accountStore'],
   'listWalletAuthMethodsForWallet'
 >;
 
-type ExactWalletAuthMethods = Awaited<
-  ReturnType<ExactWalletAuthMethodStore['listWalletAuthMethodsForWallet']>
->;
-
+/**
+ * R103C: the active wallet auth-method store is the one source that resolves
+ * an authority reference to its full authority. Sealed-session restores and
+ * loose authenticator lists are history and hints; matching against them let
+ * a stale or sibling credential answer for the active authority.
+ */
 export async function resolveExactWalletAuthAuthority(
   authorityRef: WalletAuthAuthorityRef,
-  sealedSigningSessionStore: ExactWalletAuthAuthorityStore,
   walletAuthMethodStore: ExactWalletAuthMethodStore,
-  passkeyAuthenticatorStore: SigningEngineStorePorts['walletProfileAndSignerRecords']['passkeyAuthenticatorStore'],
-  currentRpId: string,
 ): Promise<WalletAuthAuthority> {
-  const sealedRecords = await sealedSigningSessionStore.listEcdsaSealedSessionsForWallet({
-    walletId: authorityRef.walletId,
-    filter: { curve: 'ecdsa' },
-  });
-  for (const sealedRecord of sealedRecords) {
-    const restore = sealedRecord.ecdsaRestore;
-    if (!restore || restore.authority.authorityDigest !== authorityRef.authorityDigest) continue;
-    if (restore.source === 'email_otp') {
-      const candidateRef = await walletAuthAuthorityRef({ authority: restore.emailOtpAuthority });
-      if (
-        candidateRef.walletId === authorityRef.walletId &&
-        candidateRef.authorityDigest === authorityRef.authorityDigest
-      ) {
-        return restore.emailOtpAuthority;
-      }
-      continue;
-    }
-    const authority = buildPasskeyWalletAuthAuthority({
-      walletId: authorityRef.walletId,
-      rpId: restore.rpId,
-      credentialIdB64u: restore.credentialIdB64u,
-    });
-    const candidateRef = await walletAuthAuthorityRef({ authority });
-    if (
-      candidateRef.walletId === authorityRef.walletId &&
-      candidateRef.authorityDigest === authorityRef.authorityDigest
-    ) {
-      return authority;
-    }
-  }
   const authMethods = await walletAuthMethodStore.listWalletAuthMethodsForWallet(
     authorityRef.walletId,
   );
@@ -166,25 +130,6 @@ export async function resolveExactWalletAuthAuthority(
             rpId: authMethod.rpId,
             credentialIdB64u: authMethod.credentialIdB64u,
           });
-    const candidateRef = await walletAuthAuthorityRef({ authority });
-    if (
-      candidateRef.walletId === authorityRef.walletId &&
-      candidateRef.authorityDigest === authorityRef.authorityDigest
-    ) {
-      return authority;
-    }
-  }
-  const rpId = String(currentRpId || '').trim();
-  if (!rpId) throw new Error('Exact wallet authentication authority requires an RP ID');
-  const authenticators = await passkeyAuthenticatorStore.listWalletPasskeyAuthenticators(
-    authorityRef.walletId,
-  );
-  for (const authenticator of authenticators) {
-    const authority = buildPasskeyWalletAuthAuthority({
-      walletId: authorityRef.walletId,
-      rpId,
-      credentialIdB64u: authenticator.credentialId,
-    });
     const candidateRef = await walletAuthAuthorityRef({ authority });
     if (
       candidateRef.walletId === authorityRef.walletId &&
@@ -375,10 +320,7 @@ async function resolveBrowserCanonicalEcdsaSigningCapability(
   const capability = await buildCanonicalEvmFamilyEcdsaSigningCapability({
     authority: await resolveExactWalletAuthAuthority(
       manifest.signer.authority,
-      args.sealedSigningSessionStore,
       args.stores.walletProfileAndSignerRecords.accountStore,
-      args.stores.walletProfileAndSignerRecords.passkeyAuthenticatorStore,
-      args.touchIdPrompt.getRpId(),
     ),
     manifest,
     material: buildPersistedEcdsaRoleLocalMaterial({

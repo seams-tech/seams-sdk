@@ -2888,7 +2888,13 @@ export class SeamsWalletRepositories {
     walletId: string;
     credentialId: string;
   }): Promise<ProfileAuthenticatorRecord | null> {
-    return await this.getProfileAuthenticatorByCredentialId(args.walletId, args.credentialId);
+    // Same wallet/NEAR-profile pivot as listWalletPasskeyAuthenticators: an
+    // authenticator registered through a NEAR-account flow lives under the
+    // NEAR profile, and a direct wallet-profile lookup misses it.
+    const credentialId = toTrimmedString(args.credentialId || '');
+    if (!credentialId) return null;
+    const records = await this.listWalletPasskeyAuthenticators(args.walletId);
+    return records.find((record) => record.credentialId === credentialId) ?? null;
   }
 
   async upsertProfileAuthenticator(record: ProfileAuthenticatorRecord): Promise<void> {
