@@ -310,7 +310,7 @@ jobs:
 
   deploy_console:
     name: Deploy / staging-testnet / console
-    needs: migrate_databases
+    needs: [build, preflight, migrate]
     runs-on: ubuntu-latest
     timeout-minutes: 25
     environment:
