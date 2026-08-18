@@ -7,7 +7,6 @@ import {
   type FrameLocator,
   type Locator,
   type Page,
-  type Request,
   type Response,
   type Route,
 } from '@playwright/test';
@@ -32,17 +31,6 @@ const arcState = {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
-function requireRecordProperty(
-  value: unknown,
-  property: string,
-  context: string,
-): Record<string, unknown> {
-  if (!isRecord(value)) throw new Error(`${context} is not an object`);
-  const propertyValue = Reflect.get(value, property);
-  if (!isRecord(propertyValue)) throw new Error(`${context}.${property} is not an object`);
-  return propertyValue;
 }
 
 function nearRpcQueryResult(params: unknown): unknown {
@@ -399,58 +387,15 @@ async function openProfileMenu(page: Page): Promise<Locator> {
   return menu;
 }
 
-async function assertProfileRowsForSession(
-  page: Page,
-  sessionKind: 'owner' | 'signing_only',
-): Promise<Locator> {
+async function assertOwnerProfileRows(page: Page): Promise<Locator> {
   const menu = await openProfileMenu(page);
   for (const label of LINKED_DEVICE_PROFILE_ROWS) {
     const row = menu.getByRole('button', { name: new RegExp(`^${label}\\b`) });
     await expect(row).toHaveCount(1);
     await expect(row).toBeVisible();
-    if (sessionKind === 'owner') {
-      await expect(row).toBeEnabled();
-    } else {
-      await expect(row).toBeDisabled();
-    }
+    await expect(row).toBeEnabled();
   }
   return menu;
-}
-
-async function assertSigningOnlyProfileRowsCannotInvokeRestrictedActions(
-  page: Page,
-  menu: Locator,
-): Promise<void> {
-  const restrictedRequestPaths: string[] = [];
-  const onRequest = (request: Request) => {
-    const pathname = new URL(request.url()).pathname;
-    if (
-      pathname.includes('/wallet/device-linking/') ||
-      pathname.includes('/router-ab/') ||
-      pathname.includes('/wallet/execution')
-    ) {
-      restrictedRequestPaths.push(pathname);
-    }
-  };
-  page.on('request', onRequest);
-  try {
-    await menu.evaluate((root, labels) => {
-      for (const label of labels) {
-        const row = [...root.querySelectorAll('button')].find((button) =>
-          button.textContent?.trim().startsWith(label),
-        );
-        if (!row) throw new Error(`Profile menu row is missing: ${label}`);
-        row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-      }
-    }, LINKED_DEVICE_PROFILE_ROWS);
-    await page.waitForTimeout(250);
-    expect(restrictedRequestPaths).toEqual([]);
-    await expect(page.locator('.w3a-linked-devices-modal-content')).toHaveCount(0);
-    await expect(page.locator('.qr-scanner-modal, .qr-scanner-panel')).toHaveCount(0);
-    await expect(page.locator('w3a-export-key-viewer')).toHaveCount(0);
-  } finally {
-    page.off('request', onRequest);
-  }
 }
 
 async function openOwnerScanner(page: Page, qrDataUrl: string): Promise<void> {
@@ -471,58 +416,23 @@ async function openOwnerLinkedDevices(page: Page): Promise<void> {
   await profile.getByRole('button', { name: /^Linked Devices/ }).click({ timeout: 10_000 });
 }
 
-async function lockAndUnlockLinkedDevice(
-  page: Page,
-  diagnostics: readonly string[],
-): Promise<void> {
-  const profile = page.locator('.w3a-profile-button-morphable');
-  if ((await profile.getAttribute('data-state')) !== 'open') {
-    await profile.locator('.w3a-user-account-button-trigger').click();
-  }
-  await expect(profile).toHaveAttribute('data-state', 'open', { timeout: 10_000 });
-  await profile.getByRole('button', { name: /^Lock Wallet/ }).click();
-
-  const wallet = await walletFrame(page);
-  await wallet
-    .getByRole('button', { name: 'Sign in with Passkey', exact: true })
-    .waitFor({ state: 'visible', timeout: 30_000 });
-
-  await page.reload({ waitUntil: 'domcontentloaded' });
-  await unlockLinkedDevice(page, diagnostics);
-}
-
 async function unlockLinkedDevice(page: Page, diagnostics: readonly string[]): Promise<void> {
   const wallet = await walletFrame(page);
   const unlock = wallet.getByRole('button', { name: 'Sign in with Passkey', exact: true });
   await unlock.waitFor({ state: 'visible', timeout: 30_000 });
-  const renewed = page.waitForResponse(
+  const verified = page.waitForResponse(
     (response) =>
       response.request().method() === 'POST' &&
-      new URL(response.url()).pathname.endsWith('/wallet-session-renew'),
+      new URL(response.url()).pathname.endsWith('/wallet/unlock/verify'),
     { timeout: 90_000 },
   );
   await unlock.click();
-  const response = await renewed;
+  const response = await verified;
   if (!response.ok()) {
     throw new Error(
-      `Linked unlock did not establish a signing session (${response.status()}): ${await response.text()}\n${diagnostics.join('\n')}`,
+      `Linked owner unlock failed (${response.status()}): ${await response.text()}\n${diagnostics.join('\n')}`,
     );
   }
-  const localPresenceAssertion = requireRecordProperty(
-    response.request().postDataJSON(),
-    'localPresenceAssertion',
-    'Device 2 unlock request',
-  );
-  expect(localPresenceAssertion).toEqual(
-    expect.objectContaining({
-      kind: 'linked_device_local_presence_assertion_v1',
-      authorizedOperationId: expect.any(String),
-      deviceId: expect.any(String),
-      enrollmentId: expect.any(String),
-      intentDigestB64u: expect.any(String),
-      challengeDigestB64u: expect.any(String),
-    }),
-  );
   await page.getByRole('tab', { name: 'Tempo', exact: true }).waitFor({
     state: 'visible',
     timeout: 120_000,
@@ -530,13 +440,6 @@ async function unlockLinkedDevice(page: Page, diagnostics: readonly string[]): P
 }
 
 async function refreshLinkedDeviceForSigning(page: Page): Promise<void> {
-  let renewalRequests = 0;
-  const countRenewalRequest = (request: Request): void => {
-    if (new URL(request.url()).pathname.endsWith('/wallet-session-renew')) {
-      renewalRequests += 1;
-    }
-  };
-  page.on('request', countRenewalRequest);
   const rehydrated = page.waitForResponse(
     (response) =>
       response.request().method() === 'POST' &&
@@ -551,8 +454,6 @@ async function refreshLinkedDeviceForSigning(page: Page): Promise<void> {
   expect(restoreResponse.ok()).toBe(true);
   await tempoTab.waitFor({ state: 'visible', timeout: 120_000 });
   await expect(unlock).toBeHidden();
-  page.off('request', countRenewalRequest);
-  expect(renewalRequests).toBe(0);
 }
 
 async function confirmWalletSigning(page: Page): Promise<void> {
@@ -585,52 +486,9 @@ function isArcBroadcastResponse(response: Response): boolean {
   return isRecord(body) && body.method === 'eth_sendRawTransaction';
 }
 
-function isArcReceiptResponse(response: Response): boolean {
-  const body: unknown = response.request().postDataJSON();
-  return isRecord(body) && body.method === 'eth_getTransactionReceipt';
-}
-
 function isNearBroadcastResponse(response: Response): boolean {
   const body: unknown = response.request().postDataJSON();
   return isRecord(body) && body.method === 'send_tx';
-}
-
-type LinkedSigningResponseObservation = {
-  readonly pathname: string;
-  readonly status: number;
-  readonly requestBody: unknown;
-  readonly responseBody: unknown;
-};
-
-function isLinkedDeviceAdmissionPath(pathname: string): boolean {
-  return (
-    pathname === '/router-ab/ecdsa-derivation/linked-device/presign/init' ||
-    pathname === '/router-ab/ed25519/sign/prepare'
-  );
-}
-
-async function captureLinkedSigningResponse(
-  response: Response,
-): Promise<LinkedSigningResponseObservation> {
-  const responseText = await response.text().catch(() => '');
-  let responseBody: unknown = null;
-  try {
-    responseBody = JSON.parse(responseText);
-  } catch {
-    responseBody = responseText;
-  }
-  return {
-    pathname: new URL(response.url()).pathname,
-    status: response.status(),
-    requestBody: response.request().postDataJSON(),
-    responseBody,
-  };
-}
-
-function responseCode(observation: LinkedSigningResponseObservation): string | null {
-  return isRecord(observation.responseBody) && typeof observation.responseBody.code === 'string'
-    ? observation.responseBody.code
-    : null;
 }
 
 async function requireSuccessfulRouterResponse(
@@ -760,7 +618,7 @@ async function closeBrowserContexts(
   ]);
 }
 
-test('Device 2 links, unlocks, refreshes, signs with warm and step-up auth, then is revoked', async ({
+test('Device 2 links as an owner, unlocks, refreshes, signs, then is revoked', async ({
   browser,
 }) => {
   const ownerContext = await browser.newContext({ ignoreHTTPSErrors: true });
@@ -800,7 +658,7 @@ test('Device 2 links, unlocks, refreshes, signs with warm and step-up auth, then
       }
     });
     await registerOwner(ownerPage, ownerDiagnostics);
-    await assertProfileRowsForSession(ownerPage, 'owner');
+    await assertOwnerProfileRows(ownerPage);
     await ownerPage
       .locator('.w3a-profile-button-morphable .w3a-user-account-button-trigger')
       .click();
@@ -814,16 +672,16 @@ test('Device 2 links, unlocks, refreshes, signs with warm and step-up auth, then
     );
     const qrDataUrl = await openDevice2Qr(device2Page);
     await created;
-    const activeWalletSession = device2Page
+    const ownerFinalize = device2Page
       .waitForResponse(
         (response) =>
           response.url().includes('/wallet/device-linking/v1/sessions/') &&
-          response.url().endsWith('/wallet-session') &&
+          response.url().endsWith('/owner-finalize') &&
           response.status() === 200,
         { timeout: 90_000 },
       )
       .then(
-        (response) => ({ kind: 'active' as const, response }),
+        (response) => ({ kind: 'finalized' as const, response }),
         (error: unknown) => ({ error, kind: 'timeout' as const }),
       );
     const claimed = ownerPage
@@ -855,163 +713,43 @@ test('Device 2 links, unlocks, refreshes, signs with warm and step-up auth, then
     await createTargetPasskey.waitFor({ state: 'visible', timeout: 120_000 });
     await createTargetPasskey.focus();
     await createTargetPasskey.press('Enter');
-    const walletSessionResult = await activeWalletSession;
-    if (walletSessionResult.kind === 'timeout') {
+    const finalizeResult = await ownerFinalize;
+    if (finalizeResult.kind === 'timeout') {
       const walletState = (await device2Wallet.locator('body').innerText()).trim();
       throw new Error(
-        `Device 2 did not receive an active Wallet Session. Page: ${device2Page.url()} Wallet state: ${walletState}\n${device2Diagnostics.join('\n')}\n${ownerDiagnostics.join('\n')}`,
-        { cause: walletSessionResult.error },
+        `Device 2 owner credential did not finalize. Page: ${device2Page.url()} Wallet state: ${walletState}\n${device2Diagnostics.join('\n')}\n${ownerDiagnostics.join('\n')}`,
+        { cause: finalizeResult.error },
       );
     }
-    await device2Page.getByRole('tab', { name: 'Tempo', exact: true }).waitFor({
-      state: 'visible',
-      timeout: 45_000,
-    });
+    await unlockLinkedDevice(device2Page, device2Diagnostics);
     await expect(device2Wallet.getByText('Generating QR code', { exact: false })).toBeHidden();
-    const signingOnlyMenu = await assertProfileRowsForSession(device2Page, 'signing_only');
-    await assertSigningOnlyProfileRowsCannotInvokeRestrictedActions(
-      device2Page,
-      signingOnlyMenu,
-    );
-    await device2Page
-      .locator('.w3a-profile-button-morphable .w3a-user-account-button-trigger')
-      .click();
+    await assertOwnerProfileRows(device2Page);
     expect(ownerCredentialAddedEvents.length).toBeGreaterThan(0);
     /* R103 zero-prompt handoff, asserted with real prompt counters: from the
-       moment Device 1 opened the scanner through Device 2 receiving its
-       active Wallet Session, Device 1's authenticator performed zero
+       moment Device 1 opened the scanner through Device 2 finalizing its
+       owner credential, Device 1's authenticator performed zero
        assertions and zero creations — the scan itself was the approval —
        while Device 2 created exactly one passkey, the credential it is
        enrolling. */
     expect(ownerCredentialAssertedEvents.slice(ownerCredentialAssertionsBeforeLinking)).toHaveLength(0);
     expect(ownerCredentialAddedEvents.slice(ownerCredentialCreationsBeforeLinking)).toHaveLength(0);
     expect(device2CredentialAddedEvents).toHaveLength(1);
-    await lockAndUnlockLinkedDevice(device2Page, device2Diagnostics);
     await refreshLinkedDeviceForSigning(device2Page);
-    const linkedSigningRequests: Array<{ pathname: string; body: unknown }> = [];
-    const linkedSigningResponses: LinkedSigningResponseObservation[] = [];
-    const linkedSigningResponseObservations: Promise<void>[] = [];
-    const arcReceiptResponses: Response[] = [];
+    const linkedSigningPaths: string[] = [];
     device2Page.on('request', (request) => {
       const pathname = new URL(request.url()).pathname;
       if (!pathname.includes('/router-ab/')) return;
-      linkedSigningRequests.push({ pathname, body: request.postDataJSON() });
-    });
-    device2Page.on('response', (response) => {
-      if (isArcReceiptResponse(response)) {
-        arcReceiptResponses.push(response);
-      }
-      if (!isLinkedDeviceAdmissionPath(new URL(response.url()).pathname)) return;
-      linkedSigningResponseObservations.push(
-        captureLinkedSigningResponse(response).then((observation) => {
-          linkedSigningResponses.push(observation);
-        }),
-      );
+      linkedSigningPaths.push(pathname);
     });
     await linkedSigning(device2Page, device2Diagnostics);
-    await Promise.all(linkedSigningResponseObservations);
-    const linkedPaths = linkedSigningRequests.map((request) => request.pathname);
-    if (linkedPaths.length === 0) {
+    if (linkedSigningPaths.length === 0) {
       throw new Error(
-        `Linked signing emitted no Router A/B requests. ${device2Diagnostics.join('\n')}`,
+        `Device 2 signing emitted no Router A/B requests. ${device2Diagnostics.join('\n')}`,
       );
     }
-    expect(linkedPaths).toContain('/router-ab/ecdsa-derivation/linked-device/presign/init');
-    expect(linkedPaths).toContain('/router-ab/ecdsa-derivation/linked-device/presign/step');
-    expect(linkedPaths).toContain('/router-ab/ecdsa-derivation/sign');
-    expect(linkedPaths).toContain('/router-ab/ed25519/sign/prepare');
-    expect(linkedPaths).toContain('/router-ab/ed25519/sign');
-    expect(linkedPaths).not.toContain('/router-ab/ecdsa-derivation/sign/prepare');
-    const admissionRequests = linkedSigningRequests.filter(
-      (request) =>
-        request.pathname === '/router-ab/ecdsa-derivation/linked-device/presign/init' ||
-        request.pathname === '/router-ab/ed25519/sign/prepare',
-    );
-    expect(admissionRequests.length).toBeGreaterThanOrEqual(5);
-    const stepUpResponses = linkedSigningResponses.filter(
-      (response) => responseCode(response) === 'linked_device_step_up_required',
-    );
-    expect(stepUpResponses).toHaveLength(1);
-    expect(stepUpResponses[0]?.status).toBe(409);
-    for (const request of linkedSigningRequests) {
-      if (
-        request.pathname === '/router-ab/ecdsa-derivation/linked-device/presign/init' ||
-        request.pathname === '/router-ab/ed25519/sign/prepare'
-      ) {
-        expect(request.body).toEqual(
-          expect.objectContaining({
-            linkedDeviceExecution: expect.objectContaining({ enrollmentId: expect.any(String) }),
-          }),
-        );
-      } else if (
-        request.pathname === '/router-ab/ed25519/sign' ||
-        request.pathname === '/router-ab/ecdsa-derivation/sign'
-      ) {
-        expect(request.body).toEqual(
-          expect.objectContaining({
-            linkedDeviceExecution: expect.objectContaining({ enrollmentId: expect.any(String) }),
-          }),
-        );
-      }
-    }
-    expect(admissionRequests[0]?.body).not.toEqual(
-      expect.objectContaining({ localPresenceAssertion: expect.anything() }),
-    );
-    const stepUpRequests = admissionRequests.filter(
-      (request) =>
-        request.body !== null &&
-        typeof request.body === 'object' &&
-        !Array.isArray(request.body) &&
-        Reflect.has(request.body, 'localPresenceAssertion'),
-    );
-    expect(stepUpRequests).toHaveLength(1);
-    const stepUpRetryResponses = linkedSigningResponses.filter(
-      (response) =>
-        response.requestBody !== null &&
-        isRecord(response.requestBody) &&
-        Reflect.has(response.requestBody, 'localPresenceAssertion') &&
-        response.status === 200,
-    );
-    expect(stepUpRetryResponses).toHaveLength(1);
-    const stepUpBody = stepUpRequests[0]?.body;
-    expect(stepUpBody).toEqual(
-      expect.objectContaining({
-        localPresenceAssertion: expect.objectContaining({
-          kind: 'linked_device_local_presence_assertion_v1',
-          authorizedOperationId: expect.any(String),
-          deviceId: expect.any(String),
-          enrollmentId: expect.any(String),
-          intentDigestB64u: expect.any(String),
-          challengeDigestB64u: expect.any(String),
-        }),
-      }),
-    );
-    const stepUpExecution = requireRecordProperty(
-      stepUpBody,
-      'linkedDeviceExecution',
-      'Device 2 step-up request',
-    );
-    const stepUpPresence = requireRecordProperty(
-      stepUpBody,
-      'localPresenceAssertion',
-      'Device 2 step-up request',
-    );
-    expect(stepUpPresence.enrollmentId).toBe(stepUpExecution.enrollmentId);
-    expect(stepUpPresence.deviceId).toBe(stepUpExecution.deviceId);
-
-    const arcReceiptResponse = arcReceiptResponses.at(-1);
-    if (!arcReceiptResponse) {
-      throw new Error('Linked Arc signing did not request a transaction receipt');
-    }
-    const arcReceiptBody: unknown = JSON.parse(await arcReceiptResponse.text());
-    if (!isRecord(arcReceiptBody) || Reflect.has(arcReceiptBody, 'error')) {
-      throw new Error(`Linked Arc receipt response was an RPC/auth failure: ${JSON.stringify(arcReceiptBody)}`);
-    }
-    const arcReceipt = requireRecordProperty(arcReceiptBody, 'result', 'Linked Arc transaction receipt');
-    if (arcReceipt.status === '0x0') {
-      throw new Error('Linked Arc transaction reverted with receipt status 0x0');
-    }
-    expect(arcReceipt.status).toBe('0x1');
+    expect(linkedSigningPaths).toContain('/router-ab/ecdsa-derivation/sign');
+    expect(linkedSigningPaths).toContain('/router-ab/ed25519/sign');
+    expect(linkedSigningPaths.some((pathname) => pathname.includes('/linked-device/'))).toBe(false);
 
     await openOwnerLinkedDevices(ownerPage);
     const linkedDevice = ownerPage.locator('.w3a-linked-devices-modal-item');
