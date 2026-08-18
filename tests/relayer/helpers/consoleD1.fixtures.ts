@@ -1,3 +1,4 @@
+import { WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION } from '@seams-internal/wallet-console-shared/webhookEventCategories';
 import { expect } from '@playwright/test';
 import type { ConsoleAccountContext } from '../../../packages/console-server-ts/src/account/service';
 import {
@@ -428,7 +429,7 @@ export class D1WebhookRetryRaceHarness implements WebhookDispatchAdapter {
 
   async dispatch(request: WebhookDispatchRequest): Promise<WebhookDispatchResult> {
     this.requests.push(request);
-    this.competitorResult = await runD1ConsoleWebhookRetryDispatch({
+    this.competitorResult = await runD1ConsoleWebhookRetryDispatch({ categoryValidation: WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
       database: this.input.database,
       namespace: this.input.namespace,
       orgIds: [this.input.orgId],

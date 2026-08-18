@@ -1,5 +1,10 @@
-export type { ConsoleWebhookEventCategory } from '@seams-internal/wallet-console-shared/webhookEventCategories';
-import type { ConsoleWebhookEventCategory } from '@seams-internal/wallet-console-shared/webhookEventCategories';
+/**
+ * Product-supplied webhook category vocabulary. Core delivery stores and
+ * matches normalized category strings; the composed product owns the catalog.
+ */
+export interface WebhookEventCategoryValidation {
+  normalizeCategory(value: unknown): string | null;
+}
 
 export type ConsoleWebhookEndpointStatus = 'ACTIVE' | 'DISABLED';
 
@@ -14,7 +19,7 @@ export interface ConsoleWebhookEndpoint {
   id: string;
   orgId: string;
   url: string;
-  eventCategories: ConsoleWebhookEventCategory[];
+  eventCategories: string[];
   status: ConsoleWebhookEndpointStatus;
   secretVersion: number;
   secretPreview: string;
@@ -75,13 +80,13 @@ export interface ConsoleWebhookPage<T> {
 
 export interface CreateConsoleWebhookEndpointRequest {
   url: string;
-  eventCategories: ConsoleWebhookEventCategory[];
+  eventCategories: string[];
   status?: ConsoleWebhookEndpointStatus;
 }
 
 export interface UpdateConsoleWebhookEndpointRequest {
   url?: string;
-  eventCategories?: ConsoleWebhookEventCategory[];
+  eventCategories?: string[];
   status?: ConsoleWebhookEndpointStatus;
 }
 

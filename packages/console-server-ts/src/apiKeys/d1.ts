@@ -8,10 +8,7 @@ import {
   type D1Row,
 } from '../boundary';
 import type { D1DatabaseLike } from '../boundary';
-import {
-  isApiCredentialScope,
-  type ApiCredentialScope,
-} from '@seams-internal/wallet-console-shared/apiKeyScopes';
+
 import { ConsoleApiKeyError } from './errors';
 import { isIpAllowlistMatch } from './ipAllowlist';
 import { buildPublishableKeyOriginBlockedMessage } from './originMessage';
@@ -39,6 +36,7 @@ import type {
   UpdateConsoleApiKeyRequest,
 } from './types';
 import type { ConsoleApiKeysContext, ConsoleApiKeyService } from './service';
+import type { ApiCredentialScopeValidation } from './types';
 
 
 interface StoredApiKey extends ConsoleApiKey {
@@ -50,6 +48,7 @@ interface D1ConsoleApiKeyState {
   readonly database: D1DatabaseLike;
   readonly namespace: string;
   readonly now: () => Date;
+  readonly scopeValidation: ApiCredentialScopeValidation;
 }
 
 type ApiKeySecretFingerprint = {
@@ -76,6 +75,7 @@ export interface D1ConsoleApiKeysSchemaOptions {
 
 export interface D1ConsoleApiKeysServiceOptions {
   readonly database: D1DatabaseLike;
+  readonly scopeValidation: ApiCredentialScopeValidation;
   readonly namespace?: string;
   readonly ensureSchema?: boolean;
   readonly now?: () => Date;
@@ -174,6 +174,7 @@ export async function createD1ConsoleApiKeyService(
     database: options.database,
     namespace: ensureNamespace(options.namespace),
     now: options.now || defaultNow,
+    scopeValidation: options.scopeValidation,
   };
   if (options.ensureSchema !== false) {
     await ensureConsoleApiKeysD1Schema({ database: state.database });
@@ -229,11 +230,14 @@ function parseStringArray(raw: unknown): string[] {
   return out;
 }
 
-function parseApiCredentialScopes(raw: unknown): ApiCredentialScope[] {
+function parseApiCredentialScopes(
+  raw: unknown,
+  scopeValidation: ApiCredentialScopeValidation,
+): string[] {
   const scopes = parseStringArray(raw);
-  const out: ApiCredentialScope[] = [];
+  const out: string[] = [];
   for (const scope of scopes) {
-    if (!isApiCredentialScope(scope)) {
+    if (!scopeValidation.isKnownScope(scope)) {
       throw new Error(`Unexpected persisted API credential scope: ${scope}`);
     }
     out.push(scope);
@@ -241,14 +245,17 @@ function parseApiCredentialScopes(raw: unknown): ApiCredentialScope[] {
   return out;
 }
 
-function normalizeApiCredentialScopes(input: readonly string[] | undefined): ApiCredentialScope[] {
+function normalizeApiCredentialScopes(
+  input: readonly string[] | undefined,
+  scopeValidation: ApiCredentialScopeValidation,
+): string[] {
   if (!Array.isArray(input)) return [];
-  const out: ApiCredentialScope[] = [];
+  const out: string[] = [];
   const seen = new Set<string>();
   for (const raw of input) {
     const value = normalizeString(raw);
     if (!value) continue;
-    if (!isApiCredentialScope(value)) {
+    if (!scopeValidation.isKnownScope(value)) {
       throw new ConsoleApiKeyError('invalid_body', 400, `Invalid secret_key scope: ${value}`);
     }
     const dedupeKey = value.toLowerCase();
@@ -309,7 +316,7 @@ function parseApiKeyStatus(value: unknown): ConsoleApiKeyStatus {
   }
 }
 
-function parseApiKeyRow(row: D1Row): StoredApiKey {
+function parseApiKeyRow(row: D1Row, scopeValidation: ApiCredentialScopeValidation): StoredApiKey {
   const kind = parseApiKeyKind(row.kind);
   const common = {
     id: normalizeString(row.id),
@@ -351,7 +358,7 @@ function parseApiKeyRow(row: D1Row): StoredApiKey {
   }
   return {
     ...common,
-    scopes: parseApiCredentialScopes(row.scopes_json),
+    scopes: parseApiCredentialScopes(row.scopes_json, scopeValidation),
     ipAllowlist: parseStringArray(row.ip_allowlist_json),
   };
 }
@@ -405,8 +412,8 @@ function hasAnyDefinedField(input: UpdateConsoleApiKeyRequest): boolean {
 }
 
 function hasRequiredScopes(
-  scopes: readonly ApiCredentialScope[],
-  requiredScopes: readonly ApiCredentialScope[],
+  scopes: readonly string[],
+  requiredScopes: readonly string[],
 ): boolean {
   if (!requiredScopes.length) return true;
   const available = new Set(
@@ -463,6 +470,7 @@ function applyApiKeyUpdate(
   apiKey: StoredApiKey,
   request: UpdateConsoleApiKeyRequest,
   updatedAt: string,
+  scopeValidation: ApiCredentialScopeValidation,
 ): StoredApiKey {
   const expiresAt = request.expiresAt === undefined ? apiKey.expiresAt : request.expiresAt;
   if (apiKey.kind === 'publishable_key') {
@@ -513,7 +521,7 @@ function applyApiKeyUpdate(
     name: request.name !== undefined ? request.name : apiKey.name,
     scopes:
       request.scopes !== undefined
-        ? normalizeApiCredentialScopes(request.scopes)
+        ? normalizeApiCredentialScopes(request.scopes, scopeValidation)
         : [...(apiKey.scopes || [])],
     ipAllowlist:
       request.ipAllowlist !== undefined
@@ -557,7 +565,9 @@ class D1ConsoleApiKeyServiceImpl implements ConsoleApiKeyService {
       )
       .bind(this.state.namespace, ctx.orgId)
       .all<D1Row>();
-    return (out.results || []).map((row) => toPublicApiKey(parseApiKeyRow(row)));
+    return (out.results || []).map((row) =>
+      toPublicApiKey(parseApiKeyRow(row, this.state.scopeValidation)),
+    );
   }
 
   async createApiKey(
@@ -683,7 +693,12 @@ class D1ConsoleApiKeyServiceImpl implements ConsoleApiKeyService {
     if (!current) return null;
     if (!hasAnyDefinedField(request)) return toPublicApiKey(current);
 
-    const updated = applyApiKeyUpdate(current, request, toIso(nowMs(this.state.now())));
+    const updated = applyApiKeyUpdate(
+      current,
+      request,
+      toIso(nowMs(this.state.now())),
+      this.state.scopeValidation,
+    );
     await this.updateStoredApiKey(updated);
     const refreshed = await this.findApiKey(ctx.orgId, apiKeyId);
     return refreshed ? toPublicApiKey(refreshed) : toPublicApiKey(updated);
@@ -945,7 +960,7 @@ class D1ConsoleApiKeyServiceImpl implements ConsoleApiKeyService {
     return {
       ...base,
       kind: 'secret_key',
-      scopes: normalizeApiCredentialScopes(input.request.scopes),
+      scopes: normalizeApiCredentialScopes(input.request.scopes, this.state.scopeValidation),
       ipAllowlist: input.request.ipAllowlist ? [...input.request.ipAllowlist] : [],
     };
   }
@@ -1021,7 +1036,7 @@ class D1ConsoleApiKeyServiceImpl implements ConsoleApiKeyService {
       )
       .bind(this.state.namespace, orgId, apiKeyId)
       .first<D1Row>();
-    return row ? parseApiKeyRow(row) : null;
+    return row ? parseApiKeyRow(row, this.state.scopeValidation) : null;
   }
 
   private async findApiKeyBySecretFingerprint(
@@ -1039,7 +1054,7 @@ class D1ConsoleApiKeyServiceImpl implements ConsoleApiKeyService {
       )
       .bind(this.state.namespace, input.kind, input.keyPrefix, input.secretHash)
       .first<D1Row>();
-    return row ? parseApiKeyRow(row) : null;
+    return row ? parseApiKeyRow(row, this.state.scopeValidation) : null;
   }
 
   private async appendAnomalyFlag(

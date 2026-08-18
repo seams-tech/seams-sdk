@@ -84,7 +84,19 @@ function isWalletPackageImport(specifier) {
   if (specifier === '@seams/wallet' || specifier.startsWith('@seams/wallet/')) return true;
   if (specifier === '@seams/wallet-server' || specifier.startsWith('@seams/wallet-server/'))
     return true;
-  return /(?:^|\/)(?:sdk-web|sdk-server-ts|wallet-server)\/(?:src|dist)(?:\/|$)/.test(specifier);
+  if (
+    specifier === '@seams-internal/wallet-console-shared' ||
+    specifier.startsWith('@seams-internal/wallet-console-shared/')
+  )
+    return true;
+  if (
+    specifier === '@seams-internal/wallet-console-server' ||
+    specifier.startsWith('@seams-internal/wallet-console-server/')
+  )
+    return true;
+  return /(?:^|\/)(?:sdk-web|sdk-server-ts|wallet-server|wallet-console-shared-ts|wallet-console-server-ts)\/(?:src|dist)(?:\/|$)/.test(
+    specifier,
+  );
 }
 
 function collectConsoleCoreFiles() {

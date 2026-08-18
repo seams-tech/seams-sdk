@@ -1,3 +1,5 @@
+import { WALLET_API_CREDENTIAL_SCOPE_VALIDATION } from '@seams-internal/wallet-console-shared/apiKeyScopes';
+import { WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION } from '@seams-internal/wallet-console-shared/webhookEventCategories';
 import { test, expect } from '@playwright/test';
 import { createHmac } from 'node:crypto';
 import {
@@ -1062,7 +1064,7 @@ test.describe('console router (express)', () => {
   test('GET /console/onboarding/telemetry requires admin or ops role', async () => {
     const onboarding = createInMemoryConsoleOnboardingService({
       orgProjectEnv: createInMemoryConsoleOrgProjectEnvService(),
-      apiKeys: createInMemoryConsoleApiKeyService(),
+      apiKeys: createInMemoryConsoleApiKeyService({ scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION }),
       billing: createInMemoryConsoleBillingService(),
       organizationAccess: createInMemoryConsoleOrganizationAccessService(),
     });
@@ -1089,7 +1091,7 @@ test.describe('console router (express)', () => {
   test('GET /console/onboarding/telemetry validates windowMinutes query', async () => {
     const onboarding = createInMemoryConsoleOnboardingService({
       orgProjectEnv: createInMemoryConsoleOrgProjectEnvService(),
-      apiKeys: createInMemoryConsoleApiKeyService(),
+      apiKeys: createInMemoryConsoleApiKeyService({ scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION }),
       billing: createInMemoryConsoleBillingService(),
       organizationAccess: createInMemoryConsoleOrganizationAccessService(),
     });
@@ -1120,7 +1122,7 @@ test.describe('console router (express)', () => {
 
     const approvals = createInMemoryConsoleApprovalService();
     const billing = createInMemoryConsoleBillingService();
-    const webhooks = createInMemoryConsoleWebhookService({
+    const webhooks = createInMemoryConsoleWebhookService({ categoryValidation: WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
       dispatcher: {
         async dispatch() {
           return {
@@ -1135,7 +1137,7 @@ test.describe('console router (express)', () => {
     const enterpriseIsolation = createInMemoryConsoleEnterpriseIsolationService();
     const onboarding = createInMemoryConsoleOnboardingService({
       orgProjectEnv: createInMemoryConsoleOrgProjectEnvService(),
-      apiKeys: createInMemoryConsoleApiKeyService(),
+      apiKeys: createInMemoryConsoleApiKeyService({ scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION }),
       billing,
       organizationAccess: createInMemoryConsoleOrganizationAccessService(),
     });
@@ -1201,7 +1203,7 @@ test.describe('console router (express)', () => {
     const actorUserId = 'user-ops-cockpit-summary-role-express';
     const onboarding = createInMemoryConsoleOnboardingService({
       orgProjectEnv: createInMemoryConsoleOrgProjectEnvService(),
-      apiKeys: createInMemoryConsoleApiKeyService(),
+      apiKeys: createInMemoryConsoleApiKeyService({ scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION }),
       billing: createInMemoryConsoleBillingService(),
       organizationAccess: createInMemoryConsoleOrganizationAccessService(),
     });
@@ -1235,7 +1237,7 @@ test.describe('console router (express)', () => {
       ),
       onboarding: createInMemoryConsoleOnboardingService({
         orgProjectEnv: createInMemoryConsoleOrgProjectEnvService(),
-        apiKeys: createInMemoryConsoleApiKeyService(),
+        apiKeys: createInMemoryConsoleApiKeyService({ scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION }),
         billing: createInMemoryConsoleBillingService(),
         organizationAccess: createInMemoryConsoleOrganizationAccessService(),
       }),
@@ -1254,7 +1256,7 @@ test.describe('console router (express)', () => {
 
   test('onboarding organization and project steps are idempotent and auditable', async () => {
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
-    const apiKeys = createInMemoryConsoleApiKeyService();
+    const apiKeys = createInMemoryConsoleApiKeyService({ scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION });
     const billing = createInMemoryConsoleBillingService();
     const organizationAccess = createInMemoryConsoleOrganizationAccessService();
     const audit: ConsoleAuditService = createInMemoryConsoleAuditService({ seedDemoData: false });
@@ -1351,7 +1353,7 @@ test.describe('console router (express)', () => {
 
   test('onboarding organization step configures org profile and is idempotent', async () => {
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
-    const apiKeys = createInMemoryConsoleApiKeyService();
+    const apiKeys = createInMemoryConsoleApiKeyService({ scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION });
     const organizationAccess = createInMemoryConsoleOrganizationAccessService();
     const onboarding = createInMemoryConsoleOnboardingService({
       orgProjectEnv,
@@ -1407,7 +1409,7 @@ test.describe('console router (express)', () => {
 
   test('onboarding project step creates default development environment without billing', async () => {
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
-    const apiKeys = createInMemoryConsoleApiKeyService();
+    const apiKeys = createInMemoryConsoleApiKeyService({ scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION });
     const billing = createInMemoryConsoleBillingService();
     const organizationAccess = createInMemoryConsoleOrganizationAccessService();
     const onboarding = createInMemoryConsoleOnboardingService({
@@ -2370,7 +2372,7 @@ test.describe('console router (express)', () => {
 
   test('approval queue mutations emit approval lifecycle webhook events when webhook endpoint is configured', async () => {
     const approvals = createInMemoryConsoleApprovalService();
-    const webhooks = createInMemoryConsoleWebhookService({
+    const webhooks = createInMemoryConsoleWebhookService({ categoryValidation: WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
       dispatcher: {
         dispatch: async () => ({
           ok: true,
@@ -3199,7 +3201,7 @@ test.describe('console router (express)', () => {
   });
 
   test('new console endpoint mutations enforce role gates', async () => {
-    const apiKeys = createInMemoryConsoleApiKeyService();
+    const apiKeys = createInMemoryConsoleApiKeyService({ scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION });
     const auditExports = createInMemoryConsoleAuditExportsService();
     const billing = createInMemoryConsoleBillingService();
     const enterpriseIsolation = createInMemoryConsoleEnterpriseIsolationService();
@@ -4640,7 +4642,7 @@ test.describe('console router (express)', () => {
   });
 
   test('API key lifecycle works and secrets are reveal-once on create/rotate', async () => {
-    const apiKeys = createInMemoryConsoleApiKeyService();
+    const apiKeys = createInMemoryConsoleApiKeyService({ scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION });
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
     const environmentId = 'default-project:prod';
     await seedOrgProjectEnvironment(orgProjectEnv, {
@@ -4723,7 +4725,7 @@ test.describe('console router (express)', () => {
   });
 
   test('API key create validates environment scope against caller org', async () => {
-    const apiKeys = createInMemoryConsoleApiKeyService();
+    const apiKeys = createInMemoryConsoleApiKeyService({ scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION });
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
     const router = createConsoleRouter({
       auth: makeConsoleAuthAdapter(
@@ -4754,7 +4756,7 @@ test.describe('console router (express)', () => {
   });
 
   test('API key create rejects non-future expiresAt timestamp', async () => {
-    const apiKeys = createInMemoryConsoleApiKeyService();
+    const apiKeys = createInMemoryConsoleApiKeyService({ scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION });
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
     const router = createConsoleRouter({
       auth: makeConsoleAuthAdapter(
@@ -4787,7 +4789,7 @@ test.describe('console router (express)', () => {
 
   test('API key mutation routes require project editor access', async () => {
     const orgId = 'org-api-key-rbac';
-    const apiKeys = createInMemoryConsoleApiKeyService();
+    const apiKeys = createInMemoryConsoleApiKeyService({ scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION });
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
     const created = await apiKeys.createApiKey(
       { orgId, actorUserId: 'seed-admin' },
@@ -4843,7 +4845,7 @@ test.describe('console router (express)', () => {
 
   test('webhook endpoint CRUD, deliveries, and replay flow works', async () => {
     let dispatchCalls = 0;
-    const webhooks = createInMemoryConsoleWebhookService({
+    const webhooks = createInMemoryConsoleWebhookService({ categoryValidation: WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
       dispatcher: {
         dispatch: async () => {
           dispatchCalls += 1;
@@ -5074,7 +5076,7 @@ test.describe('console router (express)', () => {
 
   test('webhook endpoint create, update, delete, and replay append audit rows', async () => {
     let dispatchCalls = 0;
-    const webhooks = createInMemoryConsoleWebhookService({
+    const webhooks = createInMemoryConsoleWebhookService({ categoryValidation: WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
       dispatcher: {
         dispatch: async () => {
           dispatchCalls += 1;
@@ -5260,7 +5262,7 @@ test.describe('console router (express)', () => {
       ingestCtx: Record<string, unknown>;
       event: Record<string, unknown>;
     }> = [];
-    const webhooks = createInMemoryConsoleWebhookService({
+    const webhooks = createInMemoryConsoleWebhookService({ categoryValidation: WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
       observabilityIngestion: makeObservabilityIngestionCollector(ingested),
       endpointDegradedThreshold: 2,
       dispatcher: {
@@ -5331,7 +5333,7 @@ test.describe('console router (express)', () => {
   });
 
   test('webhook mutations require console config mutation role', async () => {
-    const webhooks = createInMemoryConsoleWebhookService();
+    const webhooks = createInMemoryConsoleWebhookService({ categoryValidation: WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION });
     const adminRouter = createConsoleRouter({
       auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
       webhooks,
@@ -5432,7 +5434,7 @@ test.describe('console router (express)', () => {
   test('webhook list endpoints reject malformed cursor', async () => {
     const router = createConsoleRouter({
       auth: makeConsoleAuthAdapter(CONSOLE_AUTH_OWNER),
-      webhooks: createInMemoryConsoleWebhookService(),
+      webhooks: createInMemoryConsoleWebhookService({ categoryValidation: WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION }),
     });
     const srv = await startExpressRouter(router);
     try {
@@ -6115,7 +6117,7 @@ test.describe('console router (express)', () => {
         idempotencyKey: 'seed-balance-transition-express',
       },
     );
-    const webhooks = createInMemoryConsoleWebhookService({
+    const webhooks = createInMemoryConsoleWebhookService({ categoryValidation: WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
       dispatcher: {
         dispatch: async () => ({
           ok: true,
@@ -6939,7 +6941,7 @@ test.describe('console router (express)', () => {
 
   test('billing document generation emits webhook events when webhook endpoint is configured', async () => {
     const billing = createInMemoryConsoleBillingService();
-    const webhooks = createInMemoryConsoleWebhookService({
+    const webhooks = createInMemoryConsoleWebhookService({ categoryValidation: WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
       dispatcher: {
         dispatch: async () => ({
           ok: true,

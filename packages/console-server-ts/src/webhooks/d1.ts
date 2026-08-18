@@ -1,8 +1,5 @@
 import { base64UrlDecode, base64UrlEncode } from '../boundary';
-import {
-  normalizeConsoleWebhookEventCategory,
-  type ConsoleWebhookEventCategory,
-} from '@seams-internal/wallet-console-shared/webhookEventCategories';
+
 import type { NormalizedLogger } from '../boundary';
 import {
   d1Integer as toNumber,
@@ -12,6 +9,7 @@ import {
   queryD1One as queryFirstRow,
   type D1Row,
 } from '../boundary';
+import type { WebhookEventCategoryValidation } from './types';
 import type { D1DatabaseLike } from '../boundary';
 import { ConsoleWebhookError } from './errors';
 import {
@@ -130,6 +128,7 @@ interface D1ConsoleWebhookState {
   readonly secretCipher: ConsoleWebhookSecretCipher;
   readonly observabilityOptions: ConsoleWebhookObservabilityOptions;
   readonly endpointDegradedThreshold: number;
+  readonly categoryValidation: WebhookEventCategoryValidation;
 }
 
 export const CONSOLE_WEBHOOKS_D1_RUNTIME = Symbol('consoleWebhooksD1Runtime');
@@ -151,6 +150,7 @@ export interface D1ConsoleWebhookSchemaOptions {
 export interface D1ConsoleWebhookServiceOptions extends ConsoleWebhookObservabilityOptions {
   readonly database: D1DatabaseLike;
   readonly secretCipher: ConsoleWebhookSecretCipher;
+  readonly categoryValidation: WebhookEventCategoryValidation;
   readonly namespace?: string;
   readonly ensureSchema?: boolean;
   readonly now?: () => Date;
@@ -158,6 +158,7 @@ export interface D1ConsoleWebhookServiceOptions extends ConsoleWebhookObservabil
 }
 
 export interface D1ConsoleWebhookRetryDispatchOptions extends ConsoleWebhookObservabilityOptions {
+  readonly categoryValidation: WebhookEventCategoryValidation;
   readonly database: D1DatabaseLike;
   readonly secretCipher: ConsoleWebhookSecretCipher;
   readonly namespace?: string;
@@ -398,6 +399,7 @@ export async function createD1ConsoleWebhookService(
     now: options.now || defaultNow,
     dispatcher: options.dispatcher || { dispatch: defaultDispatchWebhook },
     secretCipher: options.secretCipher,
+    categoryValidation: options.categoryValidation,
     endpointDegradedThreshold,
     observabilityOptions: {
       observabilityIngestion: options.observabilityIngestion,
@@ -534,11 +536,12 @@ function parsePayload(raw: unknown): Record<string, unknown> {
 
 function normalizeEventCategories(
   input: readonly unknown[] | undefined,
-): ConsoleWebhookEventCategory[] {
-  const out: ConsoleWebhookEventCategory[] = [];
+  categoryValidation: WebhookEventCategoryValidation,
+): string[] {
+  const out: string[] = [];
   const seen = new Set<string>();
   for (const entry of Array.isArray(input) ? input : []) {
-    const value = normalizeConsoleWebhookEventCategory(entry);
+    const value = categoryValidation.normalizeCategory(entry);
     if (!value || seen.has(value)) continue;
     seen.add(value);
     out.push(value);
@@ -548,7 +551,7 @@ function normalizeEventCategories(
 
 function parseEndpointRow(input: {
   readonly row: D1Row;
-  readonly eventCategories: readonly ConsoleWebhookEventCategory[];
+  readonly eventCategories: readonly string[];
 }): StoredWebhookEndpoint {
   const createdAtMs = toNumber(input.row.created_at_ms);
   const updatedAtMs = toNumber(input.row.updated_at_ms);
@@ -861,7 +864,8 @@ async function listEndpointCategories(input: {
   readonly namespace: string;
   readonly orgId: string;
   readonly endpointId: string;
-}): Promise<ConsoleWebhookEventCategory[]> {
+  readonly categoryValidation: WebhookEventCategoryValidation;
+}): Promise<string[]> {
   const rows = await queryRows(
     input.database,
     `SELECT category
@@ -872,13 +876,17 @@ async function listEndpointCategories(input: {
       ORDER BY category ASC`,
     [input.namespace, input.orgId, input.endpointId],
   );
-  return normalizeEventCategories(rows.map((row) => row.category));
+  return normalizeEventCategories(
+    rows.map((row) => row.category),
+    input.categoryValidation,
+  );
 }
 
 async function parseEndpointFromRow(input: {
   readonly database: D1DatabaseLike;
   readonly namespace: string;
   readonly row: D1Row;
+  readonly categoryValidation: WebhookEventCategoryValidation;
 }): Promise<StoredWebhookEndpoint> {
   const orgId = String(input.row.org_id || '');
   const endpointId = String(input.row.id || '');
@@ -887,6 +895,7 @@ async function parseEndpointFromRow(input: {
     namespace: input.namespace,
     orgId,
     endpointId,
+    categoryValidation: input.categoryValidation,
   });
   return parseEndpointRow({
     row: input.row,
@@ -899,6 +908,7 @@ async function findEndpoint(input: {
   readonly namespace: string;
   readonly orgId: string;
   readonly endpointId: string;
+  readonly categoryValidation: WebhookEventCategoryValidation;
 }): Promise<StoredWebhookEndpoint | null> {
   const row = await queryFirstRow(
     input.database,
@@ -914,6 +924,7 @@ async function findEndpoint(input: {
     database: input.database,
     namespace: input.namespace,
     row,
+    categoryValidation: input.categoryValidation,
   });
 }
 
@@ -1236,6 +1247,7 @@ async function listD1WebhookRetryEndpoints(input: {
   readonly database: D1DatabaseLike;
   readonly namespace: string;
   readonly orgId: string;
+  readonly categoryValidation: WebhookEventCategoryValidation;
 }): Promise<Map<string, StoredWebhookEndpoint>> {
   const rows = await queryRows(
     input.database,
@@ -1252,6 +1264,7 @@ async function listD1WebhookRetryEndpoints(input: {
       database: input.database,
       namespace: input.namespace,
       row,
+      categoryValidation: input.categoryValidation,
     });
     endpoints.set(endpoint.id, endpoint);
   }
@@ -1393,6 +1406,7 @@ export async function runD1ConsoleWebhookRetryDispatch(
     now: nowFn,
     dispatcher,
     secretCipher: options.secretCipher,
+    categoryValidation: options.categoryValidation,
     endpointDegradedThreshold,
     observabilityOptions,
   };
@@ -1415,6 +1429,7 @@ export async function runD1ConsoleWebhookRetryDispatch(
     const nowForQuery = nowFn();
     const nowForQueryMs = nowMs(nowForQuery);
     const endpoints = await listD1WebhookRetryEndpoints({
+      categoryValidation: options.categoryValidation,
       database: options.database,
       namespace,
       orgId,
@@ -1543,6 +1558,7 @@ async function requireEndpoint(input: {
   readonly endpointId: string;
 }): Promise<StoredWebhookEndpoint> {
   const endpoint = await findEndpoint({
+    categoryValidation: input.state.categoryValidation,
     database: input.state.database,
     namespace: input.state.namespace,
     orgId: input.orgId,
@@ -1597,6 +1613,7 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
             database: this.state.database,
             namespace: this.state.namespace,
             row,
+            categoryValidation: this.state.categoryValidation,
           }),
         ),
       );
@@ -1616,7 +1633,10 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
       endpointId,
       plaintextSecret: signingSecret,
     });
-    const eventCategories = normalizeEventCategories(request.eventCategories);
+    const eventCategories = normalizeEventCategories(
+      request.eventCategories,
+      this.state.categoryValidation,
+    );
     const createdAtMs = nowMs(now);
     await this.state.database.batch([
       this.state.database
@@ -1653,6 +1673,7 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
       ),
     ]);
     const endpoint = await findEndpoint({
+      categoryValidation: this.state.categoryValidation,
       database: this.state.database,
       namespace: this.state.namespace,
       orgId: ctx.orgId,
@@ -1670,6 +1691,7 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
     request: UpdateConsoleWebhookEndpointRequest,
   ): Promise<ConsoleWebhookEndpoint | null> {
     const current = await findEndpoint({
+      categoryValidation: this.state.categoryValidation,
       database: this.state.database,
       namespace: this.state.namespace,
       orgId: ctx.orgId,
@@ -1682,7 +1704,7 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
     const nextStatus = request.status !== undefined ? request.status : current.status;
     const nextEventCategories =
       request.eventCategories !== undefined
-        ? normalizeEventCategories(request.eventCategories)
+        ? normalizeEventCategories(request.eventCategories, this.state.categoryValidation)
         : current.eventCategories;
     const statements = [
       this.state.database
@@ -1717,6 +1739,7 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
     ];
     await this.state.database.batch(statements);
     const updated = await findEndpoint({
+      categoryValidation: this.state.categoryValidation,
       database: this.state.database,
       namespace: this.state.namespace,
       orgId: ctx.orgId,
@@ -1730,6 +1753,7 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
     endpointId: string,
   ): Promise<{ removed: boolean; endpoint: ConsoleWebhookEndpoint | null }> {
     const current = await findEndpoint({
+      categoryValidation: this.state.categoryValidation,
       database: this.state.database,
       namespace: this.state.namespace,
       orgId: ctx.orgId,
@@ -1947,6 +1971,7 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
     request: ReplayConsoleWebhookDeliveryRequest,
   ): Promise<ReplayConsoleWebhookDeliveryResult> {
     const endpoint = await findEndpoint({
+      categoryValidation: this.state.categoryValidation,
       database: this.state.database,
       namespace: this.state.namespace,
       orgId: ctx.orgId,
@@ -2023,7 +2048,7 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
       throw new ConsoleWebhookError('invalid_payload', 400, 'payload must be a JSON object');
     }
 
-    const category = normalizeEventCategory(eventType);
+    const category = normalizeEventCategory(eventType, this.state.categoryValidation);
     const eventId = String(request.eventId || '').trim() || makeId('wevt', this.state.now());
     if (!category) {
       return {
@@ -2056,6 +2081,7 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
           database: this.state.database,
           namespace: this.state.namespace,
           row,
+          categoryValidation: this.state.categoryValidation,
         }),
       );
     }

@@ -1,3 +1,5 @@
+import { WALLET_API_CREDENTIAL_SCOPE_VALIDATION } from '@seams-internal/wallet-console-shared/apiKeyScopes';
+import { WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION } from '@seams-internal/wallet-console-shared/webhookEventCategories';
 import { expect, test } from '@playwright/test';
 import { createD1ConsoleAccountService } from '../../packages/console-server-ts/src/account/d1';
 import { createD1ConsoleApiKeyService } from '../../packages/console-server-ts/src/apiKeys/d1';
@@ -1539,7 +1541,7 @@ test.describe('D1 adapter contracts', () => {
     const temp = createTemporaryD1Database();
     try {
       let nowMsValue = Date.parse('2026-06-27T01:00:00.000Z');
-      const service = await createD1ConsoleApiKeyService({
+      const service = await createD1ConsoleApiKeyService({ scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
         database: temp.database,
         namespace: 'd1-contracts',
         ensureSchema: true,
@@ -2062,7 +2064,7 @@ test.describe('D1 adapter contracts', () => {
     try {
       const clock = new TestMutableClock('2026-06-27T02:50:00.000Z');
       const dispatcher = new D1WebhookDispatchHarness();
-      const service = await createD1ConsoleWebhookService({
+      const service = await createD1ConsoleWebhookService({ categoryValidation: WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
         database: temp.database,
         namespace: 'd1-contracts',
         ensureSchema: true,
@@ -2259,7 +2261,7 @@ test.describe('D1 adapter contracts', () => {
       const orgId = 'org-d1-webhook-retry';
       const secretCipher = createD1WebhookTestSecretCipher();
       const initialDispatcher = new D1WebhookDispatchHarness();
-      const service = await createD1ConsoleWebhookService({
+      const service = await createD1ConsoleWebhookService({ categoryValidation: WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
         database: temp.database,
         namespace,
         ensureSchema: true,
@@ -2311,7 +2313,7 @@ test.describe('D1 adapter contracts', () => {
         secretCipher,
         now: clock.now,
       });
-      const retryResult = await runD1ConsoleWebhookRetryDispatch({
+      const retryResult = await runD1ConsoleWebhookRetryDispatch({ categoryValidation: WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
         database: temp.database,
         namespace,
         orgIds: [orgId],

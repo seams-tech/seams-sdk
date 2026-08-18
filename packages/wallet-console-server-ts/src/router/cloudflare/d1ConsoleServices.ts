@@ -1,3 +1,5 @@
+import { WALLET_API_CREDENTIAL_SCOPE_VALIDATION } from '@seams-internal/wallet-console-shared/apiKeyScopes';
+import { WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION } from '@seams-internal/wallet-console-shared/webhookEventCategories';
 import { normalizeLogger, type Logger } from '@seams/sdk-server/cloud-host';
 import type {
   ConsoleCoreRouterServices,
@@ -756,6 +758,7 @@ async function createCloudflareD1ApiKeys(
   options: NormalizedCloudflareD1ConsoleCommonOptions,
 ): Promise<ConsoleApiKeyService> {
   return await createD1ConsoleApiKeyService({
+    scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
     database: options.consoleDatabase,
     namespace: options.namespace,
     ensureSchema: options.ensureSchema,
@@ -819,6 +822,7 @@ async function createCloudflareD1Webhooks(input: {
   if (!options.webhookSecretCipher) return null;
   const logger = normalizeLogger(options.logger);
   return await createD1ConsoleWebhookService({
+    categoryValidation: WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
     database: options.consoleDatabase,
     namespace: options.namespace,
     ensureSchema: options.ensureSchema,

@@ -1,3 +1,5 @@
+import { WALLET_API_CREDENTIAL_SCOPE_VALIDATION } from '@seams-internal/wallet-console-shared/apiKeyScopes';
+import { WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION } from '@seams-internal/wallet-console-shared/webhookEventCategories';
 import { buildCorsOrigins, normalizeCorsOrigin } from '@seams/sdk-server/cloud-host';
 import type { ConsoleBillingService } from '@seams-internal/console-server/billing/service';
 import {
@@ -2352,7 +2354,7 @@ async function handleConsoleApiKeys(ctx: CloudflareConsoleContext): Promise<Resp
     if (ctx.method === 'POST' && ctx.pathname === '/console/api-keys') {
       const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
       if (routePolicy) return routePolicy;
-      const request = parseCreateConsoleApiKeyRequest(await readJson(ctx.request));
+      const request = parseCreateConsoleApiKeyRequest(await readJson(ctx.request), WALLET_API_CREDENTIAL_SCOPE_VALIDATION);
       const validEnvironment = await requireActiveApiKeyEnvironmentForCreate(
         ctx,
         auth.claims,
@@ -2464,7 +2466,7 @@ async function handleConsoleApiKeys(ctx: CloudflareConsoleContext): Promise<Resp
       const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
       if (routePolicy) return routePolicy;
       const apiKeyId = decodePathPart(apiKeyPathMatch[1]);
-      const request = parseUpdateConsoleApiKeyRequest(await readJson(ctx.request));
+      const request = parseUpdateConsoleApiKeyRequest(await readJson(ctx.request), WALLET_API_CREDENTIAL_SCOPE_VALIDATION);
       const updated = await apiKeys.updateApiKey(apiKeyCtx, apiKeyId, request);
       if (!updated) {
         return json(
@@ -3723,7 +3725,7 @@ async function handleConsoleWebhooks(ctx: CloudflareConsoleContext): Promise<Res
     if (ctx.method === 'POST' && ctx.pathname === '/console/webhooks') {
       const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
       if (routePolicy) return routePolicy;
-      const request = parseCreateConsoleWebhookEndpointRequest(await readJson(ctx.request));
+      const request = parseCreateConsoleWebhookEndpointRequest(await readJson(ctx.request), WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION);
       const endpoint = await webhooks.createEndpoint(webhookCtx, request);
       const auditEvent = buildConsoleWebhookEndpointAuditEvent({
         action: 'webhook.endpoint.create',
@@ -3742,7 +3744,7 @@ async function handleConsoleWebhooks(ctx: CloudflareConsoleContext): Promise<Res
       const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
       if (routePolicy) return routePolicy;
       const endpointId = decodePathPart(endpointMatch[1]);
-      const request = parseUpdateConsoleWebhookEndpointRequest(await readJson(ctx.request));
+      const request = parseUpdateConsoleWebhookEndpointRequest(await readJson(ctx.request), WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION);
       const endpoint = await webhooks.updateEndpoint(webhookCtx, endpointId, request);
       if (!endpoint) {
         return json(

@@ -1,3 +1,4 @@
+import { WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION } from '@seams-internal/wallet-console-shared/webhookEventCategories';
 import {
   runD1ConsoleBillingMonthlyFinalization,
   type D1ConsoleBillingMonthlyFinalizationOptions,
@@ -618,6 +619,7 @@ export function createCloudflareCron(opts: CloudflareCronOptions = {}): Schedule
       } else {
         const runner = webhookRetryDispatch?.runner || runD1ConsoleWebhookRetryDispatch;
         const result = await runner({
+          categoryValidation: WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
           database: d1Database,
           secretCipher: d1SecretCipher,
           namespace: webhookRetryDispatch?.namespace,

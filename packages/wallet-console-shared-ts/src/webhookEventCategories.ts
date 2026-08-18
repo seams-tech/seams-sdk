@@ -26,3 +26,8 @@ export function isConsoleWebhookEventCategory(
 ): value is ConsoleWebhookEventCategory {
   return normalizeConsoleWebhookEventCategory(value) !== null;
 }
+
+export const WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION = {
+  normalizeCategory: normalizeConsoleWebhookEventCategory,
+  describeAllowedCategories: (): string => CONSOLE_WEBHOOK_EVENT_CATEGORIES.join(', '),
+};
