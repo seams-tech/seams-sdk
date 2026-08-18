@@ -168,6 +168,7 @@ import {
 import { D1LinkedDeviceExecutionAdmissionResolverV1 } from '../deviceLinking/d1LinkedDeviceExecutionAdmissionResolver';
 import { D1LinkedDeviceLocalStateInvalidationV1 } from '../deviceLinking/d1LinkedDeviceLocalStateInvalidation';
 import { D1LinkedDeviceOperatorRecoveryProviderV1 } from '../deviceLinking/d1LinkedDeviceOperatorRecoveryProvider';
+import { D1LinkedDeviceOwnerAuthBindingStoreV1 } from '../deviceLinking/d1LinkedDeviceOwnerAuthBindingStore';
 import { CloudflareD1LaneEnrollmentGateway } from '../signingLanes/d1LaneEnrollmentGateway';
 import { createCloudflareD1LaneAggregateRevocationApplicationService } from '../signingLanes/d1LaneAggregateRevocationApplicationService';
 import { createCloudflareD1LaneLifecycleApplicationService } from '../signingLanes/d1LaneLifecycleApplicationService';
@@ -1675,6 +1676,15 @@ function createCloudflareD1RouterApiAuthAssembly(
     getRegistrationCeremonyIntentStore,
     getWalletAuthMethodStore,
     googleEmailOtpRegistrationAttempts,
+    linkedDeviceOwnerAuthBindings: new D1LinkedDeviceOwnerAuthBindingStoreV1({
+      database: options.database,
+      scope: {
+        namespace: options.namespace,
+        orgId: options.orgId,
+        projectId: options.projectId,
+        envId: options.envId,
+      },
+    }),
     passkeyCustodyEnvelopes,
     sha256Bytes: sha256BytesPortable,
     webAuthnStore,
