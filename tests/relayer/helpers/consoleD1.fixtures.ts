@@ -429,7 +429,8 @@ export class D1WebhookRetryRaceHarness implements WebhookDispatchAdapter {
 
   async dispatch(request: WebhookDispatchRequest): Promise<WebhookDispatchResult> {
     this.requests.push(request);
-    this.competitorResult = await runD1ConsoleWebhookRetryDispatch({ categoryValidation: WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
+    this.competitorResult = await runD1ConsoleWebhookRetryDispatch({
+      categoryValidation: WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
       database: this.input.database,
       namespace: this.input.namespace,
       orgIds: [this.input.orgId],
@@ -1413,11 +1414,11 @@ export async function insertRawD1BillingMonthlyActiveWalletRecord(
 ): Promise<void> {
   await database
     .prepare(
-      `INSERT INTO billing_monthly_active_wallets (
+      `INSERT INTO billing_monthly_active_resources (
         namespace,
         org_id,
         month_utc,
-        wallet_id,
+        resource_id,
         source_event_id,
         created_at_ms
       ) VALUES (?, ?, ?, ?, ?, ?)`,
@@ -2121,15 +2122,6 @@ export async function expectRawD1WebhookEndpointInsertRejected(
   input: RawD1WebhookEndpointInsertInput,
 ): Promise<void> {
   await expect(insertRawD1WebhookEndpointRecord(database, input)).rejects.toThrow(
-    /CHECK constraint failed/,
-  );
-}
-
-export async function expectRawD1WebhookEndpointCategoryInsertRejected(
-  database: D1DatabaseLike,
-  input: RawD1WebhookEndpointCategoryInsertInput,
-): Promise<void> {
-  await expect(insertRawD1WebhookEndpointCategoryRecord(database, input)).rejects.toThrow(
     /CHECK constraint failed/,
   );
 }

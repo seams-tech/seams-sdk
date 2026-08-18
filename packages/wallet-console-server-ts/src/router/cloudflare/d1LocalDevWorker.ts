@@ -2,7 +2,11 @@ import type { RouterAbNormalSigningAdmissionInput } from '@seams/wallet-server/c
 import type { D1DatabaseLike } from '@seams/wallet-server/cloud-host';
 import { createCloudflareD1RouterAbNormalSigningAdmissionStore } from '@seams/wallet-server/cloud-host';
 import { createRouterAbNormalSigningAdmissionAdapter } from '@seams/wallet-server/cloud-host';
-import type { ConsoleAuthAdapter, ConsoleAuthClaims, HeaderRecord } from '@seams-internal/console-server/router/consoleAuth';
+import type {
+  ConsoleAuthAdapter,
+  ConsoleAuthClaims,
+  HeaderRecord,
+} from '@seams-internal/console-server/router/consoleAuth';
 import type { CfEnv, CfExecutionContext, FetchHandler } from '@seams/wallet-server/cloud-host';
 import { createSigningSessionSealOptions } from '@seams/wallet-server/cloud-host';
 import { RouterAbEcdsaPresignRuntime } from '@seams/wallet-server/cloud-host';
@@ -607,7 +611,7 @@ const CONSOLE_READY_TABLES = Object.freeze([
   'billing_accounts',
   'billing_ledger_entries',
   'billing_ledger_postings',
-  'billing_monthly_active_wallets',
+  'billing_monthly_active_resources',
   'billing_credit_purchases',
   'invoices',
   'invoice_line_items',
@@ -1006,8 +1010,7 @@ async function createLocalConsoleHandler(env: LocalD1DevEnv): Promise<FetchHandl
     auth: new LocalD1DevConsoleAuthAdapter(env, sessionAuth),
     session,
     readyCheck: createLocalReadyCheck(env),
-    billingStripeWebhookSigningSecret:
-      String(env.STRIPE_WEBHOOK_SECRET || '').trim() || undefined,
+    billingStripeWebhookSigningSecret: String(env.STRIPE_WEBHOOK_SECRET || '').trim() || undefined,
   });
   const consoleAuthHandler = new HostedConsoleAuthHandler({
     handler,

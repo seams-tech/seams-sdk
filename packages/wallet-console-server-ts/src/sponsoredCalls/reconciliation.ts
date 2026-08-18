@@ -1,5 +1,8 @@
-import type { ConsoleBillingContext, ConsoleBillingService } from '@seams-internal/console-server/billing/service';
-import type { BillingSponsoredExecutionDebitEntry } from '@seams-internal/console-server/billing/types';
+import type {
+  ConsoleBillingContext,
+  ConsoleBillingService,
+} from '@seams-internal/console-server/billing/service';
+import type { BillingProductExecutionDebitEntry } from '@seams-internal/console-server/billing/types';
 import type { ConsoleSponsoredCallService } from './service';
 import type {
   ConsoleSponsoredCallReconciliationEntry,
@@ -11,7 +14,7 @@ import type {
 
 function buildReconciliationEntry(
   record: ConsoleSponsoredCallRecord,
-  billingDebit: BillingSponsoredExecutionDebitEntry | null,
+  billingDebit: BillingProductExecutionDebitEntry | null,
 ): ConsoleSponsoredCallReconciliationEntry {
   const mismatchReasons: string[] = [];
   if (record.charged) {
@@ -76,12 +79,17 @@ export async function listConsoleSponsoredCallReconciliationPage(input: {
         .filter((entryId) => entryId.length > 0),
     ),
   );
-  const billingDebits = await input.billing.getSponsoredExecutionDebitsByIds(input.ctx, ledgerEntryIds);
+  const billingDebits = await input.billing.getProductExecutionDebitsByIds(
+    input.ctx,
+    ledgerEntryIds,
+  );
   const billingDebitById = new Map(billingDebits.map((entry) => [entry.id, entry] as const));
   const items = page.items.map((record) =>
     buildReconciliationEntry(
       record,
-      record.billingLedgerEntryId ? billingDebitById.get(record.billingLedgerEntryId) || null : null,
+      record.billingLedgerEntryId
+        ? billingDebitById.get(record.billingLedgerEntryId) || null
+        : null,
     ),
   );
 
@@ -91,10 +99,15 @@ export async function listConsoleSponsoredCallReconciliationPage(input: {
     summary: {
       matchedCount: items.filter((item) => item.status === 'matched').length,
       notChargedCount: items.filter((item) => item.status === 'not_charged').length,
-      missingBillingDebitCount: items.filter((item) => item.status === 'missing_billing_debit').length,
+      missingBillingDebitCount: items.filter((item) => item.status === 'missing_billing_debit')
+        .length,
       amountMismatchCount: items.filter((item) => item.status === 'amount_mismatch').length,
-      unexpectedBillingDebitCount: items.filter((item) => item.status === 'unexpected_billing_debit').length,
-      mismatchCount: items.filter((item) => item.status !== 'matched' && item.status !== 'not_charged').length,
+      unexpectedBillingDebitCount: items.filter(
+        (item) => item.status === 'unexpected_billing_debit',
+      ).length,
+      mismatchCount: items.filter(
+        (item) => item.status !== 'matched' && item.status !== 'not_charged',
+      ).length,
     },
   };
 }

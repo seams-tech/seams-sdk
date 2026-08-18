@@ -4,7 +4,10 @@ import type {
   ConsolePolicyAssignment,
   CreateConsolePolicyAssignmentInput,
 } from '@seams-internal/wallet-console-server/policies/index';
-import type { ConsoleWebhookDelivery, ConsoleWebhookEndpoint } from '@seams-internal/console-server/webhooks/index';
+import type {
+  ConsoleWebhookDelivery,
+  ConsoleWebhookEndpoint,
+} from '@seams-internal/console-server/webhooks/index';
 
 type PolicyAssignmentScopeInput = Pick<CreateConsolePolicyAssignmentInput, 'scopeType' | 'scopeId'>;
 
@@ -12,9 +15,7 @@ function normalizeString(raw: unknown): string {
   return String(raw || '').trim();
 }
 
-function readPolicyScopeFromRules(
-  policy: ConsolePolicy,
-): {
+function readPolicyScopeFromRules(policy: ConsolePolicy): {
   projectId?: string;
   environmentId?: string;
   metadata: Record<string, unknown>;
@@ -46,9 +47,7 @@ function readPolicyScopeFromRules(
   };
 }
 
-function readAssignmentScope(
-  assignment: PolicyAssignmentScopeInput | undefined,
-): {
+function readAssignmentScope(assignment: PolicyAssignmentScopeInput | undefined): {
   projectId?: string;
   environmentId?: string;
   metadata: Record<string, unknown>;
@@ -181,9 +180,9 @@ export function buildConsoleBillingInvoiceGeneratedAuditEvent(input: {
       amountPaidMinor: input.generation.invoice.amountPaidMinor,
       ...(input.generation.invoice.dueAt ? { dueAt: input.generation.invoice.dueAt } : {}),
       generated: input.generation.generated,
-      monthlyActiveWallets: input.generation.monthlyActiveWallets,
+      monthlyActiveResources: input.generation.monthlyActiveResources,
       lineItemCount: input.generation.lineItems.length,
-      mawUnitPriceMinor: input.generation.pricing.mawUnitPriceMinor,
+      activeResourceUnitPriceMinor: input.generation.pricing.activeResourceUnitPriceMinor,
     },
   };
 }

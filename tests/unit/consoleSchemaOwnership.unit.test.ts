@@ -27,6 +27,7 @@ const CONSOLE_CORE_TABLES = [
   'billing_disputes',
   'billing_ledger_entries',
   'billing_ledger_postings',
+  'billing_monthly_active_resources',
   'billing_refunds',
   'billing_stripe_post_processing_outbox',
   'console_email_deliveries',
@@ -57,7 +58,6 @@ const CONSOLE_CORE_TABLES = [
 
 const WALLET_CONSOLE_TABLES = [
   'approvals',
-  'billing_monthly_active_wallets',
   'billing_prepaid_reservation_summaries',
   'billing_prepaid_reservations',
   'key_exports',
@@ -105,15 +105,34 @@ test('core and wallet ownership sets are disjoint', () => {
 });
 
 test('composed schema embeds the core section verbatim before the wallet section', () => {
+  const core = fs.readFileSync(CONSOLE_CORE_SCHEMA, 'utf8');
   const composed = fs.readFileSync(COMPOSED_SCHEMA, 'utf8');
   const marker = '-- ===== Wallet Console section (owner: wallet-console) =====';
   expect(composed).toContain(marker);
   const [coreSection, walletSection] = composed.split(marker);
+  const canonicalMarker = '-- Canonical D1 schema.';
+  expect(coreSection.slice(coreSection.indexOf(canonicalMarker)).trim()).toBe(
+    core.slice(core.indexOf(canonicalMarker)).trim(),
+  );
   for (const table of WALLET_CONSOLE_TABLES) {
     expect(coreSection).not.toContain(`CREATE TABLE "${table}"`);
     expect(coreSection).not.toContain(`CREATE TABLE ${table} `);
   }
   for (const table of ['organizations', 'billing_accounts', 'webhook_endpoints']) {
     expect(walletSection).not.toContain(`CREATE TABLE "${table}"`);
+  }
+});
+
+test('Console-core schema contains no Wallet product vocabulary', () => {
+  const core = fs.readFileSync(CONSOLE_CORE_SCHEMA, 'utf8');
+  for (const forbidden of [
+    'wallet',
+    'signing_root',
+    'sponsored_execution',
+    'maw_',
+    'key_export',
+    'runtime_snapshot',
+  ]) {
+    expect(core.toLowerCase()).not.toContain(forbidden);
   }
 });

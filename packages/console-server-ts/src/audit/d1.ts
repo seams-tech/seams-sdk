@@ -24,7 +24,6 @@ import type {
   ListConsoleAuditEvidenceRequest,
 } from './types';
 
-
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 
@@ -109,7 +108,6 @@ export const CONSOLE_AUDIT_D1_SCHEMA_SQL = Object.freeze([
       created_at_ms INTEGER NOT NULL,
       PRIMARY KEY (namespace, org_id, id),
       CHECK (actor_type IN ('USER', 'SYSTEM')),
-      CHECK (category IN ('POLICY', 'SETTINGS', 'KEY_EXPORT', 'BILLING', 'WEBHOOK', 'API_KEY', 'TEAM', 'APPROVAL', 'ORG_PROJECT_ENV', 'RUNTIME_SNAPSHOT', 'SYSTEM')),
       CHECK (outcome IN ('SUCCESS', 'FAILURE', 'PENDING')),
       CHECK (json_valid(metadata_json))
     )
@@ -140,7 +138,6 @@ export const CONSOLE_AUDIT_D1_SCHEMA_SQL = Object.freeze([
       references_json TEXT NOT NULL,
       created_at_ms INTEGER NOT NULL,
       PRIMARY KEY (namespace, org_id, id),
-      CHECK (domain IN ('POLICY', 'BILLING', 'KEY_EXPORT', 'SECURITY')),
       CHECK (json_valid(event_ids_json)),
       CHECK (json_valid(references_json))
     )
@@ -204,7 +201,6 @@ function nowMs(now: Date): number {
 function toIso(ms: number): string {
   return new Date(ms).toISOString();
 }
-
 
 function normalizeString(raw: unknown): string {
   return String(raw || '').trim();

@@ -14,7 +14,7 @@ export type {
   CreateConsoleEnvironmentRequest,
   UpdateConsoleEnvironmentRequest,
 } from './types';
-export { DEFAULT_CONSOLE_SIGNING_ROOT_VERSION } from './types';
+export { DEFAULT_CONSOLE_RUNTIME_VERSION } from './types';
 
 export type {
   ConsoleOrgProjectEnvContext,

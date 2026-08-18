@@ -20,9 +20,7 @@ export class SqliteCliD1Database implements D1DatabaseLike {
     return new SqliteCliD1PreparedStatement(this.databasePath, query, []);
   }
 
-  async batch<T = unknown>(
-    statements: readonly D1PreparedStatementLike[],
-  ): Promise<readonly T[]> {
+  async batch<T = unknown>(statements: readonly D1PreparedStatementLike[]): Promise<readonly T[]> {
     const sqlStatements = statements.map(sqlFromD1PreparedStatement);
     const sql = `BEGIN IMMEDIATE; ${sqlStatements
       .map(sqlStatementWithBatchReadback)
@@ -106,11 +104,15 @@ export function cleanupTemporaryD1Database(tempDir: string): void {
   rmSync(tempDir, { recursive: true, force: true });
 }
 
-export type D1MigrationDirectoryName = 'd1-console' | 'd1-signer';
+export type D1MigrationDirectoryName = 'd1-console-core' | 'd1-console' | 'd1-signer';
 
 export function listD1MigrationFiles(directoryName: D1MigrationDirectoryName): readonly string[] {
   const packageRoot =
-    directoryName === 'd1-console' ? 'packages/console-server-ts' : 'packages/wallet-server';
+    directoryName === 'd1-console-core'
+      ? 'packages/console-server-ts'
+      : directoryName === 'd1-console'
+        ? 'packages/wallet-console-server-ts'
+        : 'packages/wallet-server';
   const migrationsDir = path.join(repoRoot, packageRoot, 'migrations', directoryName);
   const files: string[] = [];
   for (const fileName of readdirSync(migrationsDir)) {
@@ -180,10 +182,7 @@ function buildD1BatchResults(
     }
     cursor += 1;
     const statementRows: SqliteJsonRow[] = [];
-    while (
-      cursor < rows.length &&
-      !('__d1_batch_end' in (rows[cursor] || {}))
-    ) {
+    while (cursor < rows.length && !('__d1_batch_end' in (rows[cursor] || {}))) {
       const row = rows[cursor];
       if (row) statementRows.push(row);
       cursor += 1;

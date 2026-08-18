@@ -2,18 +2,12 @@ import { secureRandomBase36 } from '@seams/wallet-server/cloud-host';
 import type { ConsoleBillingService } from '@seams-internal/console-server/billing/service';
 import type { ConsoleBillingD1Runtime } from '@seams-internal/console-server/billing/d1';
 import {
-  createSponsoredExecutionDebitD1Statements,
+  createProductExecutionDebitD1Statements,
   getConsoleBillingD1Runtime,
 } from '@seams-internal/console-server/billing/d1';
-import type {
-  ConsoleBillingPrepaidReservation,
-} from '../billingPrepaidReservations/types';
-import type {
-  ConsoleBillingPrepaidReservationD1Runtime,
-} from '../billingPrepaidReservations/d1';
-import type {
-  ConsoleBillingPrepaidReservationService,
-} from '../billingPrepaidReservations/service';
+import type { ConsoleBillingPrepaidReservation } from '../billingPrepaidReservations/types';
+import type { ConsoleBillingPrepaidReservationD1Runtime } from '../billingPrepaidReservations/d1';
+import type { ConsoleBillingPrepaidReservationService } from '../billingPrepaidReservations/service';
 import {
   createReleaseConsoleBillingPrepaidReservationD1Statement,
   createSettleConsoleBillingPrepaidReservationD1Statement,
@@ -181,19 +175,14 @@ export async function recordSponsoredExecution(
   const sponsoredCallsD1Runtime = getConsoleSponsoredCallD1Runtime(input.ledger);
   const canUseAtomicD1Path = Boolean(
     billingD1Runtime &&
-      prepaidD1Runtime &&
-      sponsoredCallsD1Runtime &&
-      billingD1Runtime.database === prepaidD1Runtime.database &&
-      billingD1Runtime.database === sponsoredCallsD1Runtime.database &&
-      billingD1Runtime.namespace === prepaidD1Runtime.namespace &&
-      billingD1Runtime.namespace === sponsoredCallsD1Runtime.namespace,
+    prepaidD1Runtime &&
+    sponsoredCallsD1Runtime &&
+    billingD1Runtime.database === prepaidD1Runtime.database &&
+    billingD1Runtime.database === sponsoredCallsD1Runtime.database &&
+    billingD1Runtime.namespace === prepaidD1Runtime.namespace &&
+    billingD1Runtime.namespace === sponsoredCallsD1Runtime.namespace,
   );
-  if (
-    !canUseAtomicD1Path ||
-    !billingD1Runtime ||
-    !prepaidD1Runtime ||
-    !sponsoredCallsD1Runtime
-  ) {
+  if (!canUseAtomicD1Path || !billingD1Runtime || !prepaidD1Runtime || !sponsoredCallsD1Runtime) {
     throw new Error(
       'D1 sponsored settlement requires D1-backed billing, prepaidReservations, and sponsoredCalls services sharing one database and namespace',
     );
@@ -311,9 +300,9 @@ const D1_PREVIOUS_STATEMENT_CHANGED_ONE_INSERT_GUARD: D1PreviousStatementInsertG
   kind: 'previous_statement_changed_one',
 };
 
-function normalizeRequiredSponsoredRecordIdempotencyKey(
-  request: { idempotencyKey: string },
-): string {
+function normalizeRequiredSponsoredRecordIdempotencyKey(request: {
+  idempotencyKey: string;
+}): string {
   const idempotencyKey = request.idempotencyKey.trim();
   if (!idempotencyKey) {
     throw new Error('Atomic D1 sponsored settlement requires a sponsored-call idempotency key');
@@ -443,9 +432,7 @@ async function recordSponsoredExecutionD1(
 ): Promise<ConsoleSponsoredCallRecord> {
   const prepaidSettlementInput = input.input.prepaidSettlementInput;
   if (!prepaidSettlementInput?.reservation) {
-    throw new Error(
-      'Atomic D1 sponsored settlement requires an active prepaid reservation handle',
-    );
+    throw new Error('Atomic D1 sponsored settlement requires an active prepaid reservation handle');
   }
   const initialRequest = input.input.buildRecord({
     prepaidSettlement: null,
@@ -704,13 +691,13 @@ async function buildSettledD1PrepaidSettlement(
   if (input.quote.settledSpendMinor > 0) {
     billingLedgerEntryId = `ble_${input.recordId}`;
     const occurredAtMs = parseD1SponsoredDebitOccurredAtMs(input.occurredAt, input.settledAtMs);
-    const debitStatements = await createSponsoredExecutionDebitD1Statements({
+    const debitStatements = await createProductExecutionDebitD1Statements({
       runtime: input.billingRuntime,
       ctx: input.billingContext,
       request: {
         amountMinor: input.quote.settledSpendMinor,
         sourceEventId: `${input.billingSourceEventIdPrefix}:${input.reservation.sourceEventId}`,
-        walletId: input.walletId,
+        resourceId: input.walletId,
         occurredAt: new Date(occurredAtMs).toISOString(),
         txOrExecutionRef: input.prepaidSettlementInput.txOrExecutionRef,
         pricingVersion: input.quote.pricingVersion,

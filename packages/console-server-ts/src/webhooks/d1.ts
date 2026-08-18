@@ -34,10 +34,7 @@ import {
   toDispatchHeaders,
   truncateResponseBody,
 } from './shared';
-import type {
-  ConsoleWebhookService,
-  WebhookDispatchAdapter,
-} from './service';
+import type { ConsoleWebhookService, WebhookDispatchAdapter } from './service';
 import type {
   ConsoleWebhooksContext,
   ConsoleWebhookDelivery,
@@ -57,7 +54,6 @@ import type {
   ReplayConsoleWebhookDeliveryResult,
   UpdateConsoleWebhookEndpointRequest,
 } from './types';
-
 
 const WEBHOOK_SECRET_ENVELOPE_VERSION = 'console-webhook-secret:aes-gcm:v1';
 const WEBHOOK_SECRET_AAD_DOMAIN = 'seams/console-webhook-secret/aes-gcm/v1';
@@ -230,7 +226,6 @@ export const CONSOLE_WEBHOOKS_D1_SCHEMA_SQL = Object.freeze([
       CHECK (length(namespace) > 0),
       CHECK (length(org_id) > 0),
       CHECK (length(endpoint_id) > 0),
-      CHECK (category IN ('wallet', 'policy', 'auth', 'tx', 'billing', 'session')),
       FOREIGN KEY (namespace, org_id, endpoint_id)
         REFERENCES webhook_endpoints(namespace, org_id, id)
         ON DELETE CASCADE
@@ -431,7 +426,6 @@ function toIso(ms: number | null): string | null {
   return new Date(ms).toISOString();
 }
 
-
 function toNullableNumber(value: unknown): number | null {
   if (value === null || value === undefined) return null;
   const parsed = typeof value === 'number' ? value : Number(value);
@@ -461,7 +455,6 @@ function normalizeWebhookRetryOrgIds(orgIds: readonly string[] | undefined): str
   }
   return out;
 }
-
 
 function computeWebhookRetryBackoffMs(input: {
   readonly attemptCount: number;
@@ -792,9 +785,7 @@ class AesGcmConsoleWebhookSecretCipher implements ConsoleWebhookSecretCipher {
       ),
     );
     return {
-      ciphertextB64u: base64UrlEncode(
-        concatBytes([WEBHOOK_SECRET_SEAL_MAGIC, nonce, ciphertext]),
-      ),
+      ciphertextB64u: base64UrlEncode(concatBytes([WEBHOOK_SECRET_SEAL_MAGIC, nonce, ciphertext])),
       keyId: this.keyId,
       envelopeVersion: WEBHOOK_SECRET_ENVELOPE_VERSION,
     };
@@ -808,8 +799,7 @@ class AesGcmConsoleWebhookSecretCipher implements ConsoleWebhookSecretCipher {
       throw new Error(`webhook secret keyId ${input.sealedSecret.keyId} is not configured`);
     }
     const envelope = base64UrlDecode(input.sealedSecret.ciphertextB64u);
-    const minLength =
-      WEBHOOK_SECRET_SEAL_MAGIC.byteLength + WEBHOOK_SECRET_NONCE_LENGTH + 16;
+    const minLength = WEBHOOK_SECRET_SEAL_MAGIC.byteLength + WEBHOOK_SECRET_NONCE_LENGTH + 16;
     if (envelope.byteLength < minLength) throw new Error('webhook secret envelope is too short');
     for (let i = 0; i < WEBHOOK_SECRET_SEAL_MAGIC.byteLength; i += 1) {
       if (envelope[i] !== WEBHOOK_SECRET_SEAL_MAGIC[i]) {
@@ -1213,8 +1203,7 @@ async function persistDeliveryAttempt(
         failedAttempts: updated.attemptCount,
         lastResponseStatus: input.attemptResult.responseStatus,
         lastErrorMessage: input.attemptResult.errorMessage,
-        movedToDlqAt:
-          toIso(input.attemptResult.attemptedAtMs) || new Date(0).toISOString(),
+        movedToDlqAt: toIso(input.attemptResult.attemptedAtMs) || new Date(0).toISOString(),
       });
     }
     if (
@@ -1365,7 +1354,8 @@ function buildD1WebhookRetryExhaustedSignal(input: {
     maxAttempts: input.maxAttempts,
     lastResponseStatus: input.delivery.responseStatus,
     lastErrorMessage: input.delivery.errorMessage,
-    exhaustedAt: input.delivery.lastAttemptAt || toIso(input.nowMs) || new Date(input.nowMs).toISOString(),
+    exhaustedAt:
+      input.delivery.lastAttemptAt || toIso(input.nowMs) || new Date(input.nowMs).toISOString(),
   };
 }
 
@@ -2040,11 +2030,7 @@ class D1ConsoleWebhookServiceImpl implements ConsoleWebhookD1Service {
     if (!eventType) {
       throw new ConsoleWebhookError('invalid_event_type', 400, 'eventType is required');
     }
-    if (
-      !request.payload ||
-      typeof request.payload !== 'object' ||
-      Array.isArray(request.payload)
-    ) {
+    if (!request.payload || typeof request.payload !== 'object' || Array.isArray(request.payload)) {
       throw new ConsoleWebhookError('invalid_payload', 400, 'payload must be a JSON object');
     }
 

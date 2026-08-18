@@ -57,7 +57,9 @@ class ConsoleRouterApiKeyAuthAdapter implements RouterApiKeyAuthAdapter {
   constructor(apiKeys: ConsoleApiKeyService) {
     const authenticateApiKey = apiKeys.authenticateApiKey;
     if (typeof authenticateApiKey !== 'function') {
-      throw new Error('ConsoleApiKeyService.authenticateApiKey is required for Router API key auth');
+      throw new Error(
+        'ConsoleApiKeyService.authenticateApiKey is required for Router API key auth',
+      );
     }
     this.authenticateApiKey = authenticateApiKey.bind(apiKeys);
   }
@@ -111,9 +113,8 @@ class ConsoleRouterApiBillingUsageMeterAdapter implements RouterApiUsageMeterAda
         actorUserId: 'relay-api-key',
       },
       {
-        walletId: input.walletId,
-        action: input.action,
-        succeeded: input.succeeded,
+        resourceId: input.walletId,
+        shouldCount: input.action !== 'wallet_created' && input.succeeded,
         ...(input.occurredAt ? { occurredAt: input.occurredAt } : {}),
         ...(input.sourceEventId ? { sourceEventId: input.sourceEventId } : {}),
       },

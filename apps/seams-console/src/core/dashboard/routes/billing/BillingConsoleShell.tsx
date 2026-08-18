@@ -16,7 +16,7 @@ import {
   formatUsdMinor,
   getDashboardBillingInvoice,
   getDashboardBillingInvoiceActivity,
-  getDashboardBillingMonthlyActiveWallets,
+  getDashboardBillingMonthlyActiveResources,
   getDashboardBillingOverview,
   listDashboardBillingInvoiceLineItems,
   listDashboardBillingInvoices,
@@ -234,7 +234,7 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
     const [overviewResult, usageResult, historyResult, reconciliationResult, refundsResult] =
       await Promise.allSettled([
         getDashboardBillingOverview(),
-        getDashboardBillingMonthlyActiveWallets(),
+        getDashboardBillingMonthlyActiveResources(),
         listDashboardSponsoredExecutionHistory({
           ...(environmentId ? { environmentId } : {}),
           limit: 12,
@@ -600,7 +600,7 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
       },
       {
         label: 'Monthly active wallets',
-        value: String(usage?.monthlyActiveWallets ?? overview?.monthlyActiveWallets ?? 0),
+        value: String(usage?.monthlyActiveResources ?? overview?.monthlyActiveResources ?? 0),
         hint: usage?.monthUtc ? `Billing month ${usage.monthUtc}` : 'No usage data',
       },
       {

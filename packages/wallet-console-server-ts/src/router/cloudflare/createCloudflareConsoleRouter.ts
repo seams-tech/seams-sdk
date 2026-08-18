@@ -17,10 +17,10 @@ import {
   parseBillingInvoiceListRequest,
   parseBillingManualAdjustmentRequest,
   parseStripeCheckoutSessionReconcileRequest,
-  parseBillingUsageEventRequest,
   parseGenerateMonthlyInvoiceRequest,
   parseStripeCheckoutSessionRequest,
 } from '@seams-internal/console-server/billing/requests';
+import { parseWalletBillingUsageEventRequest } from '../walletBillingUsage';
 import { verifyAndParseStripeWebhookRequest } from '@seams-internal/console-server/billing/stripeWebhook';
 import {
   ConsoleBillingError,
@@ -209,7 +209,10 @@ import {
   emitSponsorshipBalanceTransitionEvents,
   readSponsorshipBillingBalanceSnapshot,
 } from '@seams-internal/wallet-console-server/router/sponsorshipBillingEvents';
-import { attachConsoleRouteSurface, resolveConsoleRouteSurface } from '@seams-internal/console-server/router/consoleRouteSurface';
+import {
+  attachConsoleRouteSurface,
+  resolveConsoleRouteSurface,
+} from '@seams-internal/console-server/router/consoleRouteSurface';
 import {
   authorizeConsoleRouteRequest,
   hasConsoleProjectAccess,
@@ -2354,7 +2357,10 @@ async function handleConsoleApiKeys(ctx: CloudflareConsoleContext): Promise<Resp
     if (ctx.method === 'POST' && ctx.pathname === '/console/api-keys') {
       const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
       if (routePolicy) return routePolicy;
-      const request = parseCreateConsoleApiKeyRequest(await readJson(ctx.request), WALLET_API_CREDENTIAL_SCOPE_VALIDATION);
+      const request = parseCreateConsoleApiKeyRequest(
+        await readJson(ctx.request),
+        WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+      );
       const validEnvironment = await requireActiveApiKeyEnvironmentForCreate(
         ctx,
         auth.claims,
@@ -2466,7 +2472,10 @@ async function handleConsoleApiKeys(ctx: CloudflareConsoleContext): Promise<Resp
       const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
       if (routePolicy) return routePolicy;
       const apiKeyId = decodePathPart(apiKeyPathMatch[1]);
-      const request = parseUpdateConsoleApiKeyRequest(await readJson(ctx.request), WALLET_API_CREDENTIAL_SCOPE_VALIDATION);
+      const request = parseUpdateConsoleApiKeyRequest(
+        await readJson(ctx.request),
+        WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+      );
       const updated = await apiKeys.updateApiKey(apiKeyCtx, apiKeyId, request);
       if (!updated) {
         return json(
@@ -3725,7 +3734,10 @@ async function handleConsoleWebhooks(ctx: CloudflareConsoleContext): Promise<Res
     if (ctx.method === 'POST' && ctx.pathname === '/console/webhooks') {
       const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
       if (routePolicy) return routePolicy;
-      const request = parseCreateConsoleWebhookEndpointRequest(await readJson(ctx.request), WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION);
+      const request = parseCreateConsoleWebhookEndpointRequest(
+        await readJson(ctx.request),
+        WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
+      );
       const endpoint = await webhooks.createEndpoint(webhookCtx, request);
       const auditEvent = buildConsoleWebhookEndpointAuditEvent({
         action: 'webhook.endpoint.create',
@@ -3744,7 +3756,10 @@ async function handleConsoleWebhooks(ctx: CloudflareConsoleContext): Promise<Res
       const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
       if (routePolicy) return routePolicy;
       const endpointId = decodePathPart(endpointMatch[1]);
-      const request = parseUpdateConsoleWebhookEndpointRequest(await readJson(ctx.request), WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION);
+      const request = parseUpdateConsoleWebhookEndpointRequest(
+        await readJson(ctx.request),
+        WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
+      );
       const endpoint = await webhooks.updateEndpoint(webhookCtx, endpointId, request);
       if (!endpoint) {
         return json(
@@ -4082,14 +4097,14 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
       if (routePolicy) return routePolicy;
       const monthUtcRaw = String(ctx.url.searchParams.get('monthUtc') || '').trim();
       const monthUtc = monthUtcRaw || undefined;
-      const usage = await billing.getMonthlyActiveWallets(billingCtx, monthUtc);
+      const usage = await billing.getMonthlyActiveResources(billingCtx, monthUtc);
       return json({ ok: true, usage }, { status: 200 });
     }
 
     if (ctx.method === 'POST' && ctx.pathname === '/console/billing/usage/events') {
       const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
       if (routePolicy) return routePolicy;
-      const request = parseBillingUsageEventRequest(await readJson(ctx.request));
+      const request = parseWalletBillingUsageEventRequest(await readJson(ctx.request));
       const result = await billing.recordUsageEvent(billingCtx, request);
       return json({ ok: true, result }, { status: 200 });
     }
@@ -4111,7 +4126,7 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
           invoiceId: generation.invoice.id,
           periodMonthUtc: generation.invoice.periodMonthUtc,
           generated: generation.generated,
-          monthlyActiveWallets: generation.monthlyActiveWallets,
+          monthlyActiveResources: generation.monthlyActiveResources,
           amountDueMinor: generation.invoice.amountDueMinor,
           lineItemCount: generation.lineItems.length,
         },
@@ -4379,10 +4394,7 @@ async function handleConsoleBilling(ctx: CloudflareConsoleContext): Promise<Resp
       return json({ ok: true, result }, { status: result.created ? 201 : 200 });
     }
 
-    if (
-      ctx.method === 'POST' &&
-      ctx.pathname === '/console/platform/billing/refunds/reconcile'
-    ) {
+    if (ctx.method === 'POST' && ctx.pathname === '/console/platform/billing/refunds/reconcile') {
       const routePolicy = requireConsoleRoutePolicy(ctx, auth.claims);
       if (routePolicy) return routePolicy;
       const request = parsePlatformBillingRefundReconcileRequest(await readJson(ctx.request));

@@ -138,14 +138,14 @@ export function describeAccountActivityType(input: DashboardBillingAccountActivi
   }
   if (input.type === 'CREDIT_PURCHASE') return 'Credit purchase settled';
   if (input.type === 'USAGE_DEBIT') return 'Usage debit recorded';
-  if (input.type === 'SPONSORED_EXECUTION_DEBIT') return 'Sponsored execution debit recorded';
+  if (input.type === 'PRODUCT_EXECUTION_DEBIT') return 'Sponsored execution debit recorded';
   return input.type;
 }
 
 function getAccountActivityTone(input: DashboardBillingAccountActivityEntry) {
   if (
     input.type === 'USAGE_DEBIT' ||
-    input.type === 'SPONSORED_EXECUTION_DEBIT' ||
+    input.type === 'PRODUCT_EXECUTION_DEBIT' ||
     (input.type === 'MANUAL_ADJUSTMENT' && input.amountMinor < 0)
   ) {
     return 'warning' as const;

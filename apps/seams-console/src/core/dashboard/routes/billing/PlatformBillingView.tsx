@@ -29,7 +29,7 @@ const PLATFORM_BILLING_EVENT_TYPE_OPTIONS: Array<{
   { value: 'all', label: 'All events' },
   { value: 'CREDIT_PURCHASE', label: 'Credit purchases' },
   { value: 'USAGE_DEBIT', label: 'Usage debits' },
-  { value: 'SPONSORED_EXECUTION_DEBIT', label: 'Sponsored execution debits' },
+  { value: 'PRODUCT_EXECUTION_DEBIT', label: 'Sponsored execution debits' },
   { value: 'MANUAL_ADJUSTMENT', label: 'Manual adjustments' },
   { value: 'REFUND', label: 'Refunds' },
   { value: 'DISPUTE_OPENED', label: 'Disputes opened' },
@@ -703,7 +703,7 @@ export function PlatformBillingView(): React.JSX.Element {
       },
       {
         label: 'Monthly active wallets',
-        value: String(overview.monthlyActiveWallets || 0),
+        value: String(overview.monthlyActiveResources || 0),
         hint: `Billing month ${overview.currentMonthUtc}`,
       },
       {

@@ -199,9 +199,9 @@ test.describe('dashboard billing prepaid console api wiring', () => {
           await fulfillJson(route, {
             ok: true,
             overview: {
-              usageMetricVersion: 'maw_v1',
+              usageMetricVersion: 'active_resource_v1',
               currentMonthUtc: '2026-03',
-              monthlyActiveWallets: 42,
+              monthlyActiveResources: 42,
               creditBalanceMinor,
               lowBalanceThresholdMinor: 2000,
               recentUsageDebitMinor: 12600,
@@ -216,9 +216,9 @@ test.describe('dashboard billing prepaid console api wiring', () => {
           await fulfillJson(route, {
             ok: true,
             usage: {
-              usageMetricVersion: 'maw_v1',
+              usageMetricVersion: 'active_resource_v1',
               monthUtc: '2026-03',
-              monthlyActiveWallets: 42,
+              monthlyActiveResources: 42,
             },
           });
           return true;
@@ -324,7 +324,7 @@ test.describe('dashboard billing prepaid console api wiring', () => {
                   billingDebit: {
                     id: 'ble_dash_billing_prepaid_1',
                     orgId: org.id,
-                    type: 'SPONSORED_EXECUTION_DEBIT',
+                    type: 'PRODUCT_EXECUTION_DEBIT',
                     amountMinor: 21,
                     currency: 'USD',
                     description: 'Sponsored execution debit',
@@ -722,9 +722,9 @@ test.describe('dashboard billing prepaid console api wiring', () => {
               },
               project: null,
               overview: {
-                usageMetricVersion: 'maw_v1',
+                usageMetricVersion: 'active_resource_v1',
                 currentMonthUtc: '2026-03',
-                monthlyActiveWallets: 2,
+                monthlyActiveResources: 2,
                 creditBalanceMinor,
                 lowBalanceThresholdMinor: 2000,
                 recentUsageDebitMinor: 300,
@@ -998,9 +998,9 @@ test.describe('dashboard billing prepaid console api wiring', () => {
               organization,
               project: null,
               overview: {
-                usageMetricVersion: 'maw_v1',
+                usageMetricVersion: 'active_resource_v1',
                 currentMonthUtc: '2026-03',
-                monthlyActiveWallets: organization.id === 'org_watchbook' ? 14 : 9,
+                monthlyActiveResources: organization.id === 'org_watchbook' ? 14 : 9,
                 creditBalanceMinor: organization.id === 'org_watchbook' ? 2200 : 4100,
                 lowBalanceThresholdMinor: 2000,
                 recentUsageDebitMinor: organization.id === 'org_watchbook' ? 800 : 500,
@@ -1101,9 +1101,9 @@ test.describe('dashboard billing prepaid console api wiring', () => {
           await fulfillJson(route, {
             ok: true,
             overview: {
-              usageMetricVersion: 'maw_v1',
+              usageMetricVersion: 'active_resource_v1',
               currentMonthUtc: '2026-03',
-              monthlyActiveWallets: 0,
+              monthlyActiveResources: 0,
               creditBalanceMinor: 3000,
               lowBalanceThresholdMinor: 2000,
               recentUsageDebitMinor: 0,
@@ -1118,9 +1118,9 @@ test.describe('dashboard billing prepaid console api wiring', () => {
           await fulfillJson(route, {
             ok: true,
             usage: {
-              usageMetricVersion: 'maw_v1',
+              usageMetricVersion: 'active_resource_v1',
               monthUtc: '2026-03',
-              monthlyActiveWallets: 0,
+              monthlyActiveResources: 0,
             },
           });
           return true;
@@ -1241,9 +1241,9 @@ test.describe('dashboard billing prepaid console api wiring', () => {
           await fulfillJson(route, {
             ok: true,
             overview: {
-              usageMetricVersion: 'maw_v1',
+              usageMetricVersion: 'active_resource_v1',
               currentMonthUtc: '2026-03',
-              monthlyActiveWallets: 42,
+              monthlyActiveResources: 42,
               creditBalanceMinor: 7400,
               lowBalanceThresholdMinor: 2000,
               recentUsageDebitMinor: 12600,
@@ -1258,7 +1258,11 @@ test.describe('dashboard billing prepaid console api wiring', () => {
           usageRequestCount += 1;
           await fulfillJson(route, {
             ok: true,
-            usage: { usageMetricVersion: 'maw_v1', monthUtc: '2026-03', monthlyActiveWallets: 42 },
+            usage: {
+              usageMetricVersion: 'active_resource_v1',
+              monthUtc: '2026-03',
+              monthlyActiveResources: 42,
+            },
           });
           return true;
         }
@@ -1332,7 +1336,7 @@ test.describe('dashboard billing prepaid console api wiring', () => {
                   {
                     id: 'li_stmt_1',
                     invoiceId,
-                    itemType: 'MAW_USAGE_DEBIT',
+                    itemType: 'ACTIVE_RESOURCE_USAGE_DEBIT',
                     description: 'Monthly Active Wallet usage (2026-03)',
                     quantity: 42,
                     unitAmountMinor: 300,

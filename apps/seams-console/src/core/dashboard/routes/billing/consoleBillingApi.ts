@@ -9,7 +9,7 @@ import {
 export interface DashboardBillingOverview {
   usageMetricVersion: string;
   currentMonthUtc: string;
-  monthlyActiveWallets: number;
+  monthlyActiveResources: number;
   creditBalanceMinor: number;
   lowBalanceThresholdMinor: number;
   liveEnvironmentState: 'HEALTHY' | 'LOW_BALANCE' | 'BLOCKED';
@@ -27,7 +27,7 @@ export interface DashboardBillingOverview {
 export interface DashboardBillingUsage {
   usageMetricVersion: string;
   monthUtc: string;
-  monthlyActiveWallets: number;
+  monthlyActiveResources: number;
 }
 
 export interface DashboardBillingInvoice {
@@ -200,7 +200,7 @@ export interface DashboardSponsoredExecutionHistoryRequest {
 export type DashboardBillingAccountActivityEventType =
   | 'CREDIT_PURCHASE'
   | 'USAGE_DEBIT'
-  | 'SPONSORED_EXECUTION_DEBIT'
+  | 'PRODUCT_EXECUTION_DEBIT'
   | 'MANUAL_ADJUSTMENT'
   | 'REFUND'
   | 'DISPUTE_OPENED'
@@ -534,9 +534,9 @@ function decodeOverview(raw: unknown): DashboardBillingOverview | null {
     .trim()
     .toUpperCase();
   return {
-    usageMetricVersion: String(row.usageMetricVersion || '').trim() || 'maw_v1',
+    usageMetricVersion: String(row.usageMetricVersion || '').trim() || 'active_resource_v1',
     currentMonthUtc,
-    monthlyActiveWallets: Number(row.monthlyActiveWallets || 0),
+    monthlyActiveResources: Number(row.monthlyActiveResources || 0),
     creditBalanceMinor,
     lowBalanceThresholdMinor,
     liveEnvironmentState:
@@ -565,9 +565,9 @@ function decodeUsage(raw: unknown): DashboardBillingUsage | null {
   const monthUtc = String(row.monthUtc || '').trim();
   if (!monthUtc) return null;
   return {
-    usageMetricVersion: String(row.usageMetricVersion || '').trim() || 'maw_v1',
+    usageMetricVersion: String(row.usageMetricVersion || '').trim() || 'active_resource_v1',
     monthUtc,
-    monthlyActiveWallets: Number(row.monthlyActiveWallets || 0),
+    monthlyActiveResources: Number(row.monthlyActiveResources || 0),
   };
 }
 
@@ -909,7 +909,7 @@ function decodeAccountActivityEntry(raw: unknown): DashboardBillingAccountActivi
     type:
       eventType === 'CREDIT_PURCHASE' ||
       eventType === 'USAGE_DEBIT' ||
-      eventType === 'SPONSORED_EXECUTION_DEBIT' ||
+      eventType === 'PRODUCT_EXECUTION_DEBIT' ||
       eventType === 'REFUND' ||
       eventType === 'DISPUTE_OPENED' ||
       eventType === 'DISPUTE_WON'
@@ -1248,7 +1248,7 @@ export async function getDashboardBillingOverview(): Promise<DashboardBillingOve
   return overview;
 }
 
-export async function getDashboardBillingMonthlyActiveWallets(
+export async function getDashboardBillingMonthlyActiveResources(
   monthUtc?: string,
 ): Promise<DashboardBillingUsage> {
   const params = new URLSearchParams();
@@ -1314,9 +1314,10 @@ export async function createDashboardPlatformBillingRefund(
   return result;
 }
 
-export async function reconcileDashboardPlatformBillingRefund(
-  input: { orgId: string; refundId: string },
-): Promise<DashboardBillingRefundResult> {
+export async function reconcileDashboardPlatformBillingRefund(input: {
+  orgId: string;
+  refundId: string;
+}): Promise<DashboardBillingRefundResult> {
   const base = requireConsoleBaseUrl();
   const response = await fetch(`${base}/console/platform/billing/refunds/reconcile`, {
     method: 'POST',

@@ -1636,7 +1636,7 @@ test.describe('dashboard console config page api wiring', () => {
             overview: {
               usageMetricVersion: 'v1',
               currentMonthUtc: '2026-03',
-              monthlyActiveWallets: 12,
+              monthlyActiveResources: 12,
               creditBalanceMinor: 125000,
               lowBalanceThresholdMinor: 10000,
               recentUsageDebitMinor: 3200,
@@ -1895,7 +1895,7 @@ test.describe('dashboard console config page api wiring', () => {
             overview: {
               usageMetricVersion: 'v1',
               currentMonthUtc: '2026-03',
-              monthlyActiveWallets: 1,
+              monthlyActiveResources: 1,
               creditBalanceMinor: 1000,
               lowBalanceThresholdMinor: 100,
               recentUsageDebitMinor: 0,
@@ -2403,7 +2403,7 @@ test.describe('dashboard console config page api wiring', () => {
             overview: {
               usageMetricVersion: 'v1',
               currentMonthUtc: '2026-03',
-              monthlyActiveWallets: activeOrgId === 'org_watchbook' ? 9 : 3,
+              monthlyActiveResources: activeOrgId === 'org_watchbook' ? 9 : 3,
               creditBalanceMinor: activeOrgId === 'org_watchbook' ? 37500 : 12000,
               lowBalanceThresholdMinor: 1000,
               recentUsageDebitMinor: activeOrgId === 'org_watchbook' ? 1800 : 600,
@@ -2424,7 +2424,7 @@ test.describe('dashboard console config page api wiring', () => {
             usage: {
               usageMetricVersion: 'v1',
               monthUtc: '2026-03',
-              monthlyActiveWallets: activeOrgId === 'org_watchbook' ? 9 : 3,
+              monthlyActiveResources: activeOrgId === 'org_watchbook' ? 9 : 3,
             },
           }),
         });
@@ -3566,7 +3566,7 @@ test.describe('dashboard console config page api wiring', () => {
             overview: {
               usageMetricVersion: 'v1',
               currentMonthUtc: '2026-03',
-              monthlyActiveWallets: isTargetOrg ? 9 : 4,
+              monthlyActiveResources: isTargetOrg ? 9 : 4,
               creditBalanceMinor: isTargetOrg ? 275000 : 150000,
               lowBalanceThresholdMinor: 10000,
               recentUsageDebitMinor: isTargetOrg ? 6400 : 2400,
@@ -3589,7 +3589,7 @@ test.describe('dashboard console config page api wiring', () => {
             usage: {
               usageMetricVersion: 'v1',
               monthUtc: '2026-03',
-              monthlyActiveWallets: isTargetOrg ? 9 : 4,
+              monthlyActiveResources: isTargetOrg ? 9 : 4,
             },
           }),
         });
@@ -3867,7 +3867,7 @@ test.describe('dashboard console config page api wiring', () => {
             overview: {
               usageMetricVersion: 'v1',
               currentMonthUtc: '2026-03',
-              monthlyActiveWallets: 1,
+              monthlyActiveResources: 1,
               creditBalanceMinor: 0,
               lowBalanceThresholdMinor: 10000,
               recentUsageDebitMinor: 0,
@@ -4272,9 +4272,9 @@ test.describe('dashboard console config page api wiring', () => {
           body: JSON.stringify({
             ok: true,
             overview: {
-              usageMetricVersion: 'maw_v1',
+              usageMetricVersion: 'active_resource_v1',
               currentMonthUtc: '2026-03',
-              monthlyActiveWallets: 0,
+              monthlyActiveResources: 0,
               creditBalanceMinor: 0,
               lowBalanceThresholdMinor: 2000,
               recentUsageDebitMinor: 0,
@@ -4307,9 +4307,9 @@ test.describe('dashboard console config page api wiring', () => {
           body: JSON.stringify({
             ok: true,
             usage: {
-              usageMetricVersion: 'maw_v1',
+              usageMetricVersion: 'active_resource_v1',
               monthUtc: '2026-03',
-              monthlyActiveWallets: 0,
+              monthlyActiveResources: 0,
             },
           }),
         });
@@ -5899,9 +5899,9 @@ test.describe('dashboard console config page api wiring', () => {
           body: JSON.stringify({
             ok: true,
             overview: {
-              usageMetricVersion: 'maw_v1',
+              usageMetricVersion: 'active_resource_v1',
               currentMonthUtc: '2026-03',
-              monthlyActiveWallets: 4,
+              monthlyActiveResources: 4,
               creditBalanceMinor: 0,
               lowBalanceThresholdMinor: 2000,
               reservedSponsorshipMinor: 1250,

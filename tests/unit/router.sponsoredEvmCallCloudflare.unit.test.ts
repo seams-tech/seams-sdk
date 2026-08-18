@@ -48,7 +48,9 @@ function makeRouterApiServiceBagFixture(): RouterApiServiceBag {
 }
 
 function makeSponsoredOptions() {
-  const apiKeys = createInMemoryConsoleApiKeyService({ scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION });
+  const apiKeys = createInMemoryConsoleApiKeyService({
+    scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+  });
   const sponsorAddress = '0x2222222222222222222222222222222222222222' as const;
   const sponsorPrivateKeyHex =
     '0x1111111111111111111111111111111111111111111111111111111111111111' as const;
@@ -61,10 +63,10 @@ function makeSponsoredOptions() {
           accepted: true,
           counted: true,
           monthUtc: '2026-03',
-          monthlyActiveWallets: 1,
+          monthlyActiveResources: 1,
         };
       },
-      async recordSponsoredExecutionDebit() {
+      async recordProductExecutionDebit() {
         return {
           accepted: true,
           debitAppliedMinor: 0,

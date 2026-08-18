@@ -1,10 +1,7 @@
 import { WALLET_API_CREDENTIAL_SCOPE_VALIDATION } from '@seams-internal/wallet-console-shared/apiKeyScopes';
 import { WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION } from '@seams-internal/wallet-console-shared/webhookEventCategories';
 import { normalizeLogger, type Logger } from '@seams/wallet-server/cloud-host';
-import type {
-  ConsoleCoreRouterServices,
-  WalletConsoleRouterServices,
-} from '../consoleComposition';
+import type { ConsoleCoreRouterServices, WalletConsoleRouterServices } from '../consoleComposition';
 import { createD1ConsoleAccountService } from '@seams-internal/console-server/account/d1';
 import type { ConsoleAccountService } from '@seams-internal/console-server/account/service';
 import { createD1ConsoleApiKeyService } from '@seams-internal/console-server/apiKeys/d1';
@@ -80,8 +77,10 @@ import type {
   RouterApiKeyAuthAdapter,
   RouterApiPublishableKeyAuthAdapter,
   RouterApiOptions,
+  RouterApiProjectEnvironmentResolver,
   RouterApiUsageMeterAdapter,
 } from '@seams/wallet-server/cloud-host';
+import { createWalletProjectEnvironmentResolver } from '../projectEnvironmentAdapter';
 import type { ConsoleRouterOptions } from '@seams-internal/wallet-console-server/router/console';
 import {
   createRouterApiKeyAuthAdapter,
@@ -184,10 +183,7 @@ export interface CloudflareD1ConsoleServiceBundleOptions {
 export interface CloudflareD1ConsoleOnlyServiceBundleOptions {
   readonly bindings: CloudflareD1ConsoleOnlyStorageBindings;
   readonly route: Pick<CloudflareD1ConsoleRouteOptions, 'namespace'>;
-  readonly adapters?: Omit<
-    CloudflareD1ConsoleAdapterOptions,
-    'sponsorshipPricing' | 'sponsoredEvmCallConfig' | 'resolveSponsoredEvmExecutionAdapter'
-  >;
+  readonly adapters?: CloudflareD1ConsoleAdapterOptions;
 }
 
 export interface CloudflareD1ConsoleRouterStorageOptions {
@@ -216,7 +212,7 @@ export interface CloudflareD1RouterApiStorageOptions {
   readonly apiKeyAuth: RouterApiKeyAuthAdapter;
   readonly publishableKeyAuth: RouterApiPublishableKeyAuthAdapter;
   readonly apiKeyUsageMeter: RouterApiUsageMeterAdapter;
-  readonly orgProjectEnv: ConsoleOrgProjectEnvService;
+  readonly orgProjectEnv: RouterApiProjectEnvironmentResolver;
   readonly routeExtensions: NonNullable<RouterApiOptions['routeExtensions']>;
   readonly routerAbNormalSigningAdmission: RouterAbNormalSigningAdmissionAdapter;
 }
@@ -249,11 +245,7 @@ export interface CloudflareD1ConsoleServiceBundle {
 
 export type CloudflareD1ConsoleOnlyServiceBundle = Omit<
   CloudflareD1ConsoleServiceBundle,
-  | 'tenantStorageRouteResolver'
-  | 'spendCaps'
-  | 'sponsorshipPricing'
-  | 'routerApiRouterOptions'
-  | 'consoleRouterOptions'
+  'tenantStorageRouteResolver' | 'routerApiRouterOptions' | 'consoleRouterOptions'
 > & {
   readonly consoleRouterOptions: ConsoleRouterOptions;
 };
@@ -345,6 +337,9 @@ interface NormalizedCloudflareD1ConsoleCommonOptions {
   readonly runtimeSnapshotRetentionTtlMs?: number;
   readonly runtimeSnapshotRetentionPruneIntervalMs?: number;
   readonly runtimeSnapshotRetentionBatchSize?: number;
+  readonly sponsorshipPricing?: SponsorshipSpendPricingService | null;
+  readonly sponsoredEvmCallConfig?: SponsoredEvmCallExecutorConfig | null;
+  readonly resolveSponsoredEvmExecutionAdapter?: SponsoredEvmExecutionAdapterResolver | null;
 }
 
 interface NormalizedCloudflareD1ConsoleServiceBundleOptions extends NormalizedCloudflareD1ConsoleCommonOptions {
@@ -356,9 +351,6 @@ interface NormalizedCloudflareD1ConsoleServiceBundleOptions extends NormalizedCl
   readonly consoleDatabaseName: D1DatabaseName;
   readonly signerMetadataBindingName: D1BindingName;
   readonly signerMetadataDatabaseName: D1DatabaseName;
-  readonly sponsorshipPricing?: SponsorshipSpendPricingService | null;
-  readonly sponsoredEvmCallConfig?: SponsoredEvmCallExecutorConfig | null;
-  readonly resolveSponsoredEvmExecutionAdapter?: SponsoredEvmExecutionAdapterResolver | null;
 }
 
 interface CloudflareD1ConsoleCommonServices {
@@ -650,6 +642,9 @@ function normalizeCloudflareD1ConsoleOnlyServiceBundleOptions(
     runtimeSnapshotRetentionPruneIntervalMs:
       options.adapters?.runtimeSnapshotRetentionPruneIntervalMs,
     runtimeSnapshotRetentionBatchSize: options.adapters?.runtimeSnapshotRetentionBatchSize,
+    sponsorshipPricing: options.adapters?.sponsorshipPricing,
+    sponsoredEvmCallConfig: options.adapters?.sponsoredEvmCallConfig,
+    resolveSponsoredEvmExecutionAdapter: options.adapters?.resolveSponsoredEvmExecutionAdapter,
   };
 }
 
@@ -1046,7 +1041,7 @@ function createCloudflareD1RouterApiStorageOptions(input: {
       orgProjectEnv: input.orgProjectEnv,
       wallets: input.wallets,
     }),
-    orgProjectEnv: input.orgProjectEnv,
+    orgProjectEnv: createWalletProjectEnvironmentResolver(input.orgProjectEnv),
     routeExtensions: createConsoleRouterApiRouteExtensions({
       apiKeyAuth,
       ...(sponsoredEvmCallConfig
@@ -1073,7 +1068,7 @@ function createCloudflareD1RouterApiStorageOptions(input: {
 }
 
 async function createCloudflareD1RouterApiSponsorshipPricing(
-  options: NormalizedCloudflareD1ConsoleServiceBundleOptions,
+  options: NormalizedCloudflareD1ConsoleCommonOptions,
 ): Promise<SponsorshipSpendPricingService | null> {
   if (options.sponsorshipPricing === null) return null;
   if (!options.sponsoredEvmCallConfig) return options.sponsorshipPricing || null;
@@ -1150,9 +1145,13 @@ export async function createCloudflareD1ConsoleOnlyServiceBundle(
 ): Promise<CloudflareD1ConsoleOnlyServiceBundle> {
   const normalized = normalizeCloudflareD1ConsoleOnlyServiceBundleOptions(options);
   const services = await createCloudflareD1ConsoleCommonServices(normalized);
+  const spendCaps = await createCloudflareD1SpendCaps(normalized);
+  const sponsorshipPricing = await createCloudflareD1RouterApiSponsorshipPricing(normalized);
   return {
     tenantStorageNamespace: normalized.namespace,
     ...services,
+    spendCaps,
+    sponsorshipPricing,
     consoleRouterOptions: {
       ...services,
     },
