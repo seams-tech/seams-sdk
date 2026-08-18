@@ -3,8 +3,8 @@ import {
   createSigningSessionSealShamir3PassCipherAdapter,
   encodeSigningSessionSealServerLockContext,
   type SigningSessionSealShamir3PassRuntime,
-} from '../../packages/sdk-server-ts/src/threshold/session/signingSessionSeal/crypto/cipher';
-import { parseSigningSessionSealRootConfig } from '../../packages/sdk-server-ts/src/threshold/session/signingSessionSeal/options';
+} from '../../packages/wallet-server/src/threshold/session/signingSessionSeal/crypto/cipher';
+import { parseSigningSessionSealRootConfig } from '../../packages/wallet-server/src/threshold/session/signingSessionSeal/options';
 import {
   SIGNING_SESSION_SEAL_ALG,
   SIGNING_SESSION_SEAL_GROUP_ID,

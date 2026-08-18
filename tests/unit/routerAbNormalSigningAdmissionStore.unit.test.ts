@@ -4,7 +4,7 @@ import {
   createRouterAbNormalSigningAdmissionAdapter,
   type RouterAbNormalSigningAdmissionInput,
 } from '@server/router/express-adaptor';
-import { createCloudflareD1RouterAbNormalSigningAdmissionStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/signingAdmission/d1RouterAbNormalSigningAdmissionStore';
+import { createCloudflareD1RouterAbNormalSigningAdmissionStore } from '../../packages/wallet-server/src/router/cloudflare/d1/signingAdmission/d1RouterAbNormalSigningAdmissionStore';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,

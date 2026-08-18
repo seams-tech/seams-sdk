@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import type { FetchHandler } from '../../packages/sdk-server-ts/src/router/cloudflare/runtime/cloudflare.types';
+import type { FetchHandler } from '../../packages/wallet-server/src/router/cloudflare/runtime/cloudflare.types';
 import {
   dispatchHostedGatewayRequest,
   stagingSigningSessionSealOptions,

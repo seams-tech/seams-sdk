@@ -1,6 +1,6 @@
 import { WALLET_API_CREDENTIAL_SCOPE_VALIDATION } from '@seams-internal/wallet-console-shared/apiKeyScopes';
 import { WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION } from '@seams-internal/wallet-console-shared/webhookEventCategories';
-import { normalizeLogger, type Logger } from '@seams/sdk-server/cloud-host';
+import { normalizeLogger, type Logger } from '@seams/wallet-server/cloud-host';
 import type {
   ConsoleCoreRouterServices,
   WalletConsoleRouterServices,
@@ -69,7 +69,7 @@ import { createD1ConsoleWalletService } from '@seams-internal/wallet-console-ser
 import type { ConsoleWalletService } from '@seams-internal/wallet-console-server/wallets/service';
 import { createD1ConsoleRuntimeSnapshotService } from '@seams-internal/wallet-console-server/runtimeSnapshots/d1';
 import type { ConsoleRuntimeSnapshotService } from '@seams-internal/wallet-console-server/runtimeSnapshots/service';
-import type { CloudflareD1RouterApiAuthService } from '@seams/sdk-server/cloud-host';
+import type { CloudflareD1RouterApiAuthService } from '@seams/wallet-server/cloud-host';
 import {
   DEFAULT_TEMPO_ONBOARDING_CONTRACT,
   TEMPO_TESTNET_CHAIN_ID,
@@ -81,7 +81,7 @@ import type {
   RouterApiPublishableKeyAuthAdapter,
   RouterApiOptions,
   RouterApiUsageMeterAdapter,
-} from '@seams/sdk-server/cloud-host';
+} from '@seams/wallet-server/cloud-host';
 import type { ConsoleRouterOptions } from '@seams-internal/wallet-console-server/router/console';
 import {
   createRouterApiKeyAuthAdapter,
@@ -92,11 +92,11 @@ import {
   createConsoleRouterApiRouteExtensions,
   DEFAULT_SIGNED_DELEGATE_ROUTE,
 } from '@seams-internal/wallet-console-server/router/routeExtensions';
-import type { RouterAbNormalSigningAdmissionAdapter } from '@seams/sdk-server/cloud-host';
+import type { RouterAbNormalSigningAdmissionAdapter } from '@seams/wallet-server/cloud-host';
 import {
   createCloudflareD1RouterAbNormalSigningAdmissionStore,
   createRouterAbNormalSigningAdmissionAdapter,
-} from '@seams/sdk-server/cloud-host';
+} from '@seams/wallet-server/cloud-host';
 import type {
   SponsoredEvmCallExecutorConfig,
   SponsoredEvmExecutionAdapterResolver,
@@ -109,7 +109,7 @@ import type {
   D1DatabaseLike,
   D1DatabaseName,
   TenantDataJurisdiction,
-} from '@seams/sdk-server/cloud-host';
+} from '@seams/wallet-server/cloud-host';
 import {
   createStaticCloudflareTenantStorageRouteResolverFromBindings,
   type CloudflareTenantStorageRoute,

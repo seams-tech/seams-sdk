@@ -1,4 +1,4 @@
-import type { SeamsWeb } from '@seams/sdk';
+import type { SeamsWeb } from '@seams/wallet';
 
 type StartResult = Awaited<ReturnType<SeamsWeb['auth']['beginGoogleEmailOtpWalletAuth']>>;
 type AuthFlow = Extract<StartResult, { ok: true }>['value'];

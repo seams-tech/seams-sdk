@@ -2,11 +2,11 @@ import { expect, test } from '@playwright/test';
 import {
   OpaqueEcdsaPresignAuthorityV1,
   type OpaqueEcdsaPresignSessionV1,
-} from '../../packages/sdk-web/src/core/signingEngine/workerManager/workers/opaqueEcdsaPresignAuthority';
+} from '../../packages/wallet/src/core/signingEngine/workerManager/workers/opaqueEcdsaPresignAuthority';
 import {
   FIXED_ECDSA_PRESIGN_PROTOCOL_ID,
   parseEcdsaClientPresignPoolIdentity,
-} from '../../packages/sdk-web/src/core/signingEngine/workerManager/ecdsaPresignPoolIdentity';
+} from '../../packages/wallet/src/core/signingEngine/workerManager/ecdsaPresignPoolIdentity';
 
 function poolIdentity() {
   return parseEcdsaClientPresignPoolIdentity({

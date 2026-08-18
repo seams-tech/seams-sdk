@@ -3,7 +3,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 const MODULE_URL = `/@fs${resolve(
   process.cwd(),
-  '../packages/sdk-web/src/SeamsWeb/operations/recovery/walletRecoveryCodeBackup.ts',
+  '../packages/wallet/src/SeamsWeb/operations/recovery/walletRecoveryCodeBackup.ts',
 )}`;
 
 function request(

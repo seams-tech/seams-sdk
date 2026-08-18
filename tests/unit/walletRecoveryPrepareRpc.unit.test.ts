@@ -3,7 +3,7 @@ import {
   buildWalletRecoveryCeremonyCustodyJson,
   prepareWalletRecovery,
   type WalletRecoveryPrepareResult,
-} from '../../packages/sdk-web/src/core/rpcClients/relayer/walletRecoveryPrepare';
+} from '../../packages/wallet/src/core/rpcClients/relayer/walletRecoveryPrepare';
 
 /**
  * The client's reading of recovery preparation.

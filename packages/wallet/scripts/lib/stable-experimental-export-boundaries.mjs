@@ -21,9 +21,9 @@ function collectRegexLineMatches(source, regex, patternLabel) {
 }
 
 export function findStableExperimentalExportBoundaryViolations(repoRoot) {
-  const rootIndexPath = path.join(repoRoot, 'packages/sdk-web/src/index.ts');
-  const experimentalDirPath = path.join(repoRoot, 'packages/sdk-web/src/experimental');
-  const sdkPackagePath = path.join(repoRoot, 'packages/sdk-web/package.json');
+  const rootIndexPath = path.join(repoRoot, 'packages/wallet/src/index.ts');
+  const experimentalDirPath = path.join(repoRoot, 'packages/wallet/src/experimental');
+  const sdkPackagePath = path.join(repoRoot, 'packages/wallet/package.json');
 
   if (!fs.existsSync(rootIndexPath)) {
     return {
@@ -69,7 +69,7 @@ export function findStableExperimentalExportBoundaryViolations(repoRoot) {
         {
           file: toPosixPath(path.relative(repoRoot, experimentalDirPath)),
           line: null,
-          pattern: 'packages/sdk-web/src/experimental must not exist',
+          pattern: 'packages/wallet/src/experimental must not exist',
           text: 'remove experimental directory and expose stable APIs via explicit subpaths',
         },
       ]
@@ -93,17 +93,17 @@ export function findStableExperimentalExportBoundaryViolations(repoRoot) {
       {
         id: 'root-forbidden-internal-signing-exports',
         description:
-          'Root packages/sdk-web/src/index.ts must not export signing internals or threshold subpath modules',
+          'Root packages/wallet/src/index.ts must not export signing internals or threshold subpath modules',
         violations: rootForbiddenMatches,
       },
       {
         id: 'experimental-directory-removed',
-        description: 'packages/sdk-web/src/experimental directory must be removed',
+        description: 'packages/wallet/src/experimental directory must be removed',
         violations: experimentalDirViolations,
       },
       {
         id: 'package-no-experimental-exports',
-        description: 'packages/sdk-web/package.json must not export ./experimental* subpaths',
+        description: 'packages/wallet/package.json must not export ./experimental* subpaths',
         violations: experimentalExportViolations,
       },
     ],

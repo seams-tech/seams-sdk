@@ -247,8 +247,8 @@ Pages credentials.
 
 The workflow copies SDK runtime assets into the Pages output:
 
-- `packages/sdk-web/dist/esm/sdk/*` -> `apps/seams-site/dist/sdk/*`
-- `packages/sdk-web/dist/workers/*` -> `apps/seams-site/dist/sdk/workers/*`
+- `packages/wallet/dist/esm/sdk/*` -> `apps/seams-site/dist/sdk/*`
+- `packages/wallet/dist/workers/*` -> `apps/seams-site/dist/sdk/workers/*`
 
 That means Pages serves the same runtime assets at `/sdk/*` that were built
 for the commit being deployed.
@@ -447,7 +447,7 @@ target is D1/DO/R2, with no mixed Postgres runtime.
 | Domain                       | Cloudflare binding | Source of schema/state                                      |
 | ---------------------------- | ------------------ | ----------------------------------------------------------- |
 | console/control-plane        | `CONSOLE_DB`       | `packages/console-server-ts/migrations/d1-console`          |
-| signer/runtime metadata      | `SIGNER_DB`        | `packages/sdk-server-ts/migrations/d1-signer`               |
+| signer/runtime metadata      | `SIGNER_DB`        | `packages/wallet-server/migrations/d1-signer`               |
 | threshold/session/admission  | `THRESHOLD_STORE`  | `ThresholdStoreDurableObject` SQLite Durable Object storage |
 | dashboard and recovery files | R2                 | backup/export jobs                                          |
 

@@ -198,7 +198,7 @@ exercise invalid construction belong in `*.typecheck.ts` fixtures with
 
 ECDSA wallet-scoped operations should use `WalletIdentity` directly. ECDSA
 lane-scoped operations must use the canonical exact-lane identity from
-`packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity.ts`.
+`packages/wallet/src/core/signingEngine/session/identity/exactSigningLaneIdentity.ts`.
 Refactor 79 owns that type; this refactor must not introduce a second public
 ECDSA lane identity.
 
@@ -901,65 +901,65 @@ packages/shared-ts/src/utils/registrationIntent.ts
 packages/shared-ts/src/utils/registrationIntent.typecheck.ts
 packages/shared-ts/src/signing-lanes/records.ts
 packages/shared-ts/src/signing-lanes/intents.ts
-packages/sdk-web/src/core/types/seams.ts
-packages/sdk-web/src/react/types.ts
-packages/sdk-web/src/react/context/useLoginStateRefresher.ts
-packages/sdk-web/src/react/context/useWalletIframeLifecycle.ts
-packages/sdk-web/src/react/context/useSeamsContextValue.ts
-packages/sdk-web/src/react/components/AccountMenuButton/index.tsx
-packages/sdk-web/src/react/components/AccountMenuButton/RecoveryCodesModal.tsx
-packages/sdk-web/src/react/components/AccountMenuButton/RecoveryCodesModalState.ts
-packages/sdk-web/src/react/components/AccountMenuButton/LinkedDevicesModal.tsx
-packages/sdk-web/src/core/signingEngine/flows/recovery/exportLaneSelection.ts
-packages/sdk-web/src/core/signingEngine/flows/recovery/exportKeypairOperation.ts
-packages/sdk-web/src/core/signingEngine/flows/recovery/nearEd25519ExportFlow.ts
-packages/sdk-web/src/core/signingEngine/flows/recovery/nearEd25519HssExport.ts
-packages/sdk-web/src/SeamsWeb/operations/recovery/syncAccount.ts
-packages/sdk-web/src/SeamsWeb/operations/recovery/emailRecovery.ts
-packages/sdk-web/src/SeamsWeb/operations/auth/login.ts
-packages/sdk-web/src/SeamsWeb/SeamsWeb.ts
-packages/sdk-web/src/core/signingEngine/session/passkey/ed25519SessionProvision.ts
-packages/sdk-web/src/core/signingEngine/session/passkey/ed25519Provisioner.ts
-packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaKeyFactsInventory.ts
-packages/sdk-web/src/SeamsWeb/publicApi/types.ts
-packages/sdk-web/src/SeamsWeb/publicApi/auth.ts
-packages/sdk-web/src/SeamsWeb/walletIframe/coordinator.ts
-packages/sdk-web/src/SeamsWeb/walletIframe/client/router.ts
-packages/sdk-web/src/SeamsWeb/walletIframe/shared/messages.ts
-packages/sdk-web/src/core/types/sdkSentEvents.ts
-packages/sdk-web/src/core/types/sdkPublicResults.ts
-packages/sdk-web/src/SeamsWeb/operations/auth/walletAuth.ts
-packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts
-packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity.ts
-packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity.typecheck.ts
-packages/sdk-web/src/core/signingEngine/session/identity/laneIdentity.ts
-packages/sdk-web/src/core/signingEngine/session/lanes/laneRecords.ts
-packages/sdk-web/src/core/signingEngine/session/lanes/laneReference.ts
-packages/sdk-web/src/core/signingEngine/session/lanes/laneWarmSessionBinding.ts
-packages/sdk-web/src/core/signingEngine/session/persistence/records.ts
-packages/sdk-web/src/core/signingEngine/session/budget/budgetStatusReader.ts
-packages/sdk-web/src/core/signingEngine/session/warmCapabilities/public.ts
-packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts
-packages/sdk-web/src/core/signingEngine/uiConfirm/UiConfirmManager.ts
-packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519Warmup.ts
-packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaLogin.ts
-packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaEnrollment.ts
-packages/sdk-web/src/core/signingEngine/session/emailOtp/appSessionJwtCache.ts
-packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaPublication.ts
-packages/sdk-web/src/core/signingEngine/session/emailOtp/persistedSnapshot.ts
-packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp.worker.ts
-packages/sdk-server-ts/src/core/AuthService.ts
-packages/sdk-server-ts/src/core/WalletAuthMethodStore.ts
-packages/sdk-server-ts/src/core/WalletStore.ts
-packages/sdk-server-ts/src/core/RegistrationCeremonyStore.ts
-packages/sdk-server-ts/src/core/EmailOtpStores.ts
-packages/sdk-server-ts/src/router/relayWalletRegistration.ts
-packages/sdk-server-ts/src/router/walletUnlockRouteHandlers.ts
-packages/sdk-server-ts/src/router/commonRouterUtils.ts
-packages/sdk-server-ts/src/core/ThresholdService/validation.ts
-packages/sdk-server-ts/src/core/ThresholdService/stores/KeyStore.ts
-packages/sdk-server-ts/src/core/ThresholdService/stores/SessionStore.ts
-packages/sdk-server-ts/src/core/ThresholdService/stores/WalletSessionStore.ts
+packages/wallet/src/core/types/seams.ts
+packages/wallet/src/react/types.ts
+packages/wallet/src/react/context/useLoginStateRefresher.ts
+packages/wallet/src/react/context/useWalletIframeLifecycle.ts
+packages/wallet/src/react/context/useSeamsContextValue.ts
+packages/wallet/src/react/components/AccountMenuButton/index.tsx
+packages/wallet/src/react/components/AccountMenuButton/RecoveryCodesModal.tsx
+packages/wallet/src/react/components/AccountMenuButton/RecoveryCodesModalState.ts
+packages/wallet/src/react/components/AccountMenuButton/LinkedDevicesModal.tsx
+packages/wallet/src/core/signingEngine/flows/recovery/exportLaneSelection.ts
+packages/wallet/src/core/signingEngine/flows/recovery/exportKeypairOperation.ts
+packages/wallet/src/core/signingEngine/flows/recovery/nearEd25519ExportFlow.ts
+packages/wallet/src/core/signingEngine/flows/recovery/nearEd25519HssExport.ts
+packages/wallet/src/SeamsWeb/operations/recovery/syncAccount.ts
+packages/wallet/src/SeamsWeb/operations/recovery/emailRecovery.ts
+packages/wallet/src/SeamsWeb/operations/auth/login.ts
+packages/wallet/src/SeamsWeb/SeamsWeb.ts
+packages/wallet/src/core/signingEngine/session/passkey/ed25519SessionProvision.ts
+packages/wallet/src/core/signingEngine/session/passkey/ed25519Provisioner.ts
+packages/wallet/src/core/signingEngine/session/passkey/ecdsaKeyFactsInventory.ts
+packages/wallet/src/SeamsWeb/publicApi/types.ts
+packages/wallet/src/SeamsWeb/publicApi/auth.ts
+packages/wallet/src/SeamsWeb/walletIframe/coordinator.ts
+packages/wallet/src/SeamsWeb/walletIframe/client/router.ts
+packages/wallet/src/SeamsWeb/walletIframe/shared/messages.ts
+packages/wallet/src/core/types/sdkSentEvents.ts
+packages/wallet/src/core/types/sdkPublicResults.ts
+packages/wallet/src/SeamsWeb/operations/auth/walletAuth.ts
+packages/wallet/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts
+packages/wallet/src/core/signingEngine/session/identity/exactSigningLaneIdentity.ts
+packages/wallet/src/core/signingEngine/session/identity/exactSigningLaneIdentity.typecheck.ts
+packages/wallet/src/core/signingEngine/session/identity/laneIdentity.ts
+packages/wallet/src/core/signingEngine/session/lanes/laneRecords.ts
+packages/wallet/src/core/signingEngine/session/lanes/laneReference.ts
+packages/wallet/src/core/signingEngine/session/lanes/laneWarmSessionBinding.ts
+packages/wallet/src/core/signingEngine/session/persistence/records.ts
+packages/wallet/src/core/signingEngine/session/budget/budgetStatusReader.ts
+packages/wallet/src/core/signingEngine/session/warmCapabilities/public.ts
+packages/wallet/src/core/signingEngine/session/availability/availableSigningLanes.ts
+packages/wallet/src/core/signingEngine/uiConfirm/UiConfirmManager.ts
+packages/wallet/src/core/signingEngine/session/emailOtp/ed25519Warmup.ts
+packages/wallet/src/core/signingEngine/session/emailOtp/ecdsaLogin.ts
+packages/wallet/src/core/signingEngine/session/emailOtp/ecdsaEnrollment.ts
+packages/wallet/src/core/signingEngine/session/emailOtp/appSessionJwtCache.ts
+packages/wallet/src/core/signingEngine/session/emailOtp/ecdsaPublication.ts
+packages/wallet/src/core/signingEngine/session/emailOtp/persistedSnapshot.ts
+packages/wallet/src/core/signingEngine/workerManager/workers/email-otp.worker.ts
+packages/wallet-server/src/core/AuthService.ts
+packages/wallet-server/src/core/WalletAuthMethodStore.ts
+packages/wallet-server/src/core/WalletStore.ts
+packages/wallet-server/src/core/RegistrationCeremonyStore.ts
+packages/wallet-server/src/core/EmailOtpStores.ts
+packages/wallet-server/src/router/relayWalletRegistration.ts
+packages/wallet-server/src/router/walletUnlockRouteHandlers.ts
+packages/wallet-server/src/router/commonRouterUtils.ts
+packages/wallet-server/src/core/ThresholdService/validation.ts
+packages/wallet-server/src/core/ThresholdService/stores/KeyStore.ts
+packages/wallet-server/src/core/ThresholdService/stores/SessionStore.ts
+packages/wallet-server/src/core/ThresholdService/stores/WalletSessionStore.ts
 ```
 
 ## Acceptance Criteria
@@ -998,8 +998,8 @@ Run targeted type and unit checks first:
 
 ```sh
 pnpm -C packages/shared-ts exec tsc -p tsconfig.json --noEmit
-pnpm -C packages/sdk-web exec tsc -p tsconfig.json --noEmit
-pnpm -C packages/sdk-server-ts exec tsc -p tsconfig.json --noEmit
+pnpm -C packages/wallet exec tsc -p tsconfig.json --noEmit
+pnpm -C packages/wallet-server exec tsc -p tsconfig.json --noEmit
 pnpm -C tests test:unit --grep "capability|walletId|implicit|export|recovery|warm|email otp|budget|availability|event"
 ```
 
@@ -1090,7 +1090,7 @@ Validation notes:
 
 - [x] `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/walletCapabilityBindings.sourceGuard.unit.test.ts --reporter=line` passed.
 - [x] `git diff --check` passed for the wallet/NEAR identity cleanup files.
-- [ ] `pnpm -C packages/sdk-web -s type-check --pretty false` is blocked by
+- [ ] `pnpm -C packages/wallet -s type-check --pretty false` is blocked by
       current working-tree errors in the parallel Ed25519 material-state branch
-      plus existing missing `express` declarations from `packages/sdk-server-ts`
+      plus existing missing `express` declarations from `packages/wallet-server`
       imports.

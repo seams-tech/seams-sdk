@@ -1,13 +1,13 @@
 # Seams Site Dev Server
 
-This app runs a dedicated wallet/service origin for local development. The app Vite server owns only the demo application, while Caddy serves the hosted wallet asset tree from the installed `@seams/sdk` package.
+This app runs a dedicated wallet/service origin for local development. The app Vite server owns only the demo application, while Caddy serves the hosted wallet asset tree from the installed `@seams/wallet` package.
 
 - Dev server: `http://localhost:3600`
 - Docs origin (via Caddy): `https://docs.localhost`
 - Wallet origin (via Caddy): `https://localhost:8443`
 - Router API origin (via Caddy): `https://localhost:9444`
 - Service path: `/wallet-service`
-- SDK assets base: `/sdk/*` (served from `node_modules/@seams/sdk/dist/public/sdk`)
+- SDK assets base: `/sdk/*` (served from `node_modules/@seams/wallet/dist/public/sdk`)
 
 ## Usage
 
@@ -34,7 +34,7 @@ assets stay on the same release.
 
 ## Notes
 
-- The route `/wallet-service` is served by Caddy from `node_modules/@seams/sdk/dist/public/wallet-service/index.html` and loads `/sdk/wallet-iframe-host-runtime.js` from the same wallet origin.
+- The route `/wallet-service` is served by Caddy from `node_modules/@seams/wallet/dist/public/wallet-service/index.html` and loads `/sdk/wallet-iframe-host-runtime.js` from the same wallet origin.
 - App-origin requests for `/sdk/*`, `/wallet-service`, and `/export-viewer` return 404 through Caddy to catch accidental app-hosted wallet asset dependencies.
 - The wallet origin does not use app COOP, COEP, CORP, or Permissions-Policy defaults for SDK assets. Document routes keep the local `frame-ancestors` policy emitted in the static header manifest.
 - Keep the SDK build current by re-running `pnpm build:sdk` after wallet runtime changes.

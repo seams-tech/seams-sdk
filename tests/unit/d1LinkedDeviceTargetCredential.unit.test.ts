@@ -4,19 +4,19 @@ import {
   LinkedDeviceSessionServiceV1,
   type LinkedDeviceAggregateActivationVerifierV1,
   type LinkedDeviceOwnerAuthorizationPortV1,
-} from '../../packages/sdk-server-ts/src/core/deviceLinking/linkedDeviceSession';
+} from '../../packages/wallet-server/src/core/deviceLinking/linkedDeviceSession';
 import {
   D1LinkedDeviceSessionStoreV1,
   type D1LinkedDeviceSessionScopeV1,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceSessionStore';
-import { D1LinkedDeviceTargetCredentialProviderV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceTargetCredentialProvider';
-import { D1LinkedDeviceSourceHandoffProviderV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceSourceHandoffProvider';
-import { D1LinkedDeviceProvisioningProviderV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceProvisioningProvider';
-import { createLinkedDeviceR102ProvisioningExecutionV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/linkedDeviceR102ProvisioningExecution';
+} from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceSessionStore';
+import { D1LinkedDeviceTargetCredentialProviderV1 } from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceTargetCredentialProvider';
+import { D1LinkedDeviceSourceHandoffProviderV1 } from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceSourceHandoffProvider';
+import { D1LinkedDeviceProvisioningProviderV1 } from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceProvisioningProvider';
+import { createLinkedDeviceR102ProvisioningExecutionV1 } from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/linkedDeviceR102ProvisioningExecution';
 import {
   createD1LinkedDeviceCredentialResolverV1,
   D1LinkedDeviceTargetAuthenticatorStoreV1,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceTargetAuthenticatorStore';
+} from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceTargetAuthenticatorStore';
 import {
   buildR103DeviceLinkFixture,
   buildR103OwnerApprovalContextV1,

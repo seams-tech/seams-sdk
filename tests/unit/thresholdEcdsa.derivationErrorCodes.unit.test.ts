@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import type { EcdsaDerivationErrorCode } from '../../packages/sdk-server-ts/src/core/types';
+import type { EcdsaDerivationErrorCode } from '../../packages/wallet-server/src/core/types';
 
 const ECDSA_DERIVATION_ERROR_CODES = [
   'invalid_body',

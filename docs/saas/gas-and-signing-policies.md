@@ -120,7 +120,7 @@ Code references:
 Code references:
 
 - [packages/console-server-ts/src/runtimeSnapshots/types.ts](../../packages/console-server-ts/src/runtimeSnapshots/types.ts)
-- [packages/sdk-server-ts/src/router/runtimeSnapshotPayload.ts](../../packages/sdk-server-ts/src/router/runtimeSnapshotPayload.ts)
+- [packages/wallet-server/src/router/runtimeSnapshotPayload.ts](../../packages/wallet-server/src/router/runtimeSnapshotPayload.ts)
 
 ## Entry Points
 
@@ -143,8 +143,8 @@ Cloudflare router exposes the same policy surface.
 
 Code references:
 
-- [packages/sdk-server-ts/src/router/express/createConsoleRouter.ts](../../packages/sdk-server-ts/src/router/express/createConsoleRouter.ts)
-- [packages/sdk-server-ts/src/router/cloudflare/createCloudflareConsoleRouter.ts](../../packages/sdk-server-ts/src/router/cloudflare/createCloudflareConsoleRouter.ts)
+- [packages/wallet-server/src/router/express/createConsoleRouter.ts](../../packages/wallet-server/src/router/express/createConsoleRouter.ts)
+- [packages/wallet-server/src/router/cloudflare/createCloudflareConsoleRouter.ts](../../packages/wallet-server/src/router/cloudflare/createCloudflareConsoleRouter.ts)
 
 ### Approval flow
 
@@ -162,8 +162,8 @@ For policy publish, the approval operation type is `POLICY_PUBLISH`. Approval pa
 
 Code references:
 
-- [packages/sdk-server-ts/src/router/express/createConsoleRouter.ts](../../packages/sdk-server-ts/src/router/express/createConsoleRouter.ts)
-- [packages/sdk-server-ts/src/router/cloudflare/createCloudflareConsoleRouter.ts](../../packages/sdk-server-ts/src/router/cloudflare/createCloudflareConsoleRouter.ts)
+- [packages/wallet-server/src/router/express/createConsoleRouter.ts](../../packages/wallet-server/src/router/express/createConsoleRouter.ts)
+- [packages/wallet-server/src/router/cloudflare/createCloudflareConsoleRouter.ts](../../packages/wallet-server/src/router/cloudflare/createCloudflareConsoleRouter.ts)
 
 ### Runtime publication
 
@@ -175,9 +175,9 @@ This reads current live policy state, resolves the effective payload for an envi
 
 Code references:
 
-- [packages/sdk-server-ts/src/router/runtimeSnapshotPayload.ts](../../packages/sdk-server-ts/src/router/runtimeSnapshotPayload.ts)
-- [packages/sdk-server-ts/src/router/express/createConsoleRouter.ts](../../packages/sdk-server-ts/src/router/express/createConsoleRouter.ts)
-- [packages/sdk-server-ts/src/router/cloudflare/createCloudflareConsoleRouter.ts](../../packages/sdk-server-ts/src/router/cloudflare/createCloudflareConsoleRouter.ts)
+- [packages/wallet-server/src/router/runtimeSnapshotPayload.ts](../../packages/wallet-server/src/router/runtimeSnapshotPayload.ts)
+- [packages/wallet-server/src/router/express/createConsoleRouter.ts](../../packages/wallet-server/src/router/express/createConsoleRouter.ts)
+- [packages/wallet-server/src/router/cloudflare/createCloudflareConsoleRouter.ts](../../packages/wallet-server/src/router/cloudflare/createCloudflareConsoleRouter.ts)
 
 ### Sponsored call execution
 
@@ -246,7 +246,7 @@ Relevant code:
 
 Relevant code:
 
-- [packages/sdk-server-ts/src/router/runtimeSnapshotPayload.ts](../../packages/sdk-server-ts/src/router/runtimeSnapshotPayload.ts)
+- [packages/wallet-server/src/router/runtimeSnapshotPayload.ts](../../packages/wallet-server/src/router/runtimeSnapshotPayload.ts)
 - [packages/console-server-ts/src/gasSponsorship/service.ts](../../packages/console-server-ts/src/gasSponsorship/service.ts)
 - [packages/console-server-ts/src/gasSponsorship/onboarding.ts](../../packages/console-server-ts/src/gasSponsorship/onboarding.ts)
 

@@ -15,7 +15,7 @@ binding = "SIGNER_DB"
 database_name = "seams-signer"
 database_id = "00000000-0000-0000-0000-000000000201"
 preview_database_id = "00000000-0000-0000-0000-000000000202"
-migrations_dir = "../wallet-console-server-ts/node_modules/@seams/sdk-server/migrations/d1-signer"
+migrations_dir = "../wallet-console-server-ts/node_modules/@seams/wallet-server/migrations/d1-signer"
 
 [[services]]
 binding = "MPC_ROUTER"

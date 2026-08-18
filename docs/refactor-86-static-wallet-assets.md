@@ -98,7 +98,7 @@ These invariants must hold before removing the plugin from app usage:
 - Browser wallet capabilities must run through hosted iframe mode. Direct
   browser worker mode is outside the normal integration contract and must not be
   selected silently when `walletOrigin` is missing.
-- App-origin package imports such as `@seams/sdk/react/styles` must continue to
+- App-origin package imports such as `@seams/wallet/react/styles` must continue to
   resolve through package exports. Removing the Vite plugin must not require app
   aliases or direct `dist/*` imports.
 - The app-side SDK version and the hosted wallet runtime version must be
@@ -114,14 +114,14 @@ These invariants must hold before removing the plugin from app usage:
 
 The SDK build already emits the important runtime pieces:
 
-- `packages/sdk-web/dist/esm/sdk/*.js`
-- `packages/sdk-web/dist/esm/sdk/*.css`
-- `packages/sdk-web/dist/workers/*.worker.js`
-- `packages/sdk-web/dist/workers/*.wasm`
+- `packages/wallet/dist/esm/sdk/*.js`
+- `packages/wallet/dist/esm/sdk/*.css`
+- `packages/wallet/dist/workers/*.worker.js`
+- `packages/wallet/dist/workers/*.wasm`
 
 The Vite plugin currently also:
 
-- serves `/sdk/*` from `@seams/sdk/dist`;
+- serves `/sdk/*` from `@seams/wallet/dist`;
 - serves `/wallet-service` HTML;
 - serves virtual `wallet-shims.js` and `wallet-service.css`;
 - forces `.wasm` MIME type;
@@ -205,13 +205,13 @@ flows fail.
 | --- | --- | --- |
 | App-origin warmup constructs workers or loads WASM before iframe routing. | Move worker/WASM warmup behind wallet-host execution. Keep app-origin warmup to `preconnect`, `prefetch`, and iframe boot hints only. | Phase 1, Phase 7 |
 | Missing `walletOrigin` silently selects direct browser worker mode. | Make hosted iframe mode the browser wallet capability contract. Throw a clear config/use-boundary error when browser wallet capability code runs without `walletOrigin`. Keep any direct mode as explicit internal/test-only code. | Phase 1, Phase 5, Phase 7 |
-| Local Caddy proxies wallet origin to app Vite, masking app-origin `/sdk/*` use. | Serve `packages/sdk-web/dist/public` directly from `https://localhost:8443` during repo-local smoke. The app Vite server should never satisfy wallet asset requests. | Phase 3 |
+| Local Caddy proxies wallet origin to app Vite, masking app-origin `/sdk/*` use. | Serve `packages/wallet/dist/public` directly from `https://localhost:8443` during repo-local smoke. The app Vite server should never satisfy wallet asset requests. | Phase 3 |
 | Build constants copy or reference `apps/seams-site/src/public/sdk`. | Delete those constants/scripts when unused. If a test still needs them temporarily, quarantine them under test-only naming and block production/app examples from using them. | Phase 2, Phase 7 |
 | Export viewer has both hosted-page and `srcdoc` paths. | Keep the current wallet-origin `srcdoc` runtime and delete the hosted `/export-viewer` route. Prove export works while app-origin `/sdk/*` returns 404. | Phase 1, Phase 3 |
 | Lit component CSS falls back to app-origin `/sdk/*`. | Ensure wallet-hosted flows set an absolute SDK base before Lit/export components load. Add a smoke where app-origin `/sdk/*` returns 404 and confirmation/export styling still loads. | Phase 1, Phase 7 |
 | Header tests still assert plugin-era CSP/COOP/COEP/CORP behavior. | Replace them with hosted wallet `headers.manifest.json` tests and browser smokes. Keep strict-isolation tests only under an explicit optional profile. | Phase 7 |
-| `@seams/sdk/plugins/vite` and `@seams/sdk/plugins/next` keep teaching app-owned runtime hosting. | Remove app-facing examples. Keep only package-internal/static-build helpers that emit hosted wallet artifacts, or delete plugin exports after consumers stop importing them. | Phase 5, Phase 6, Phase 7 |
-| App package imports depended on Vite plugin aliases or direct dist paths. | Add package export smoke for `@seams/sdk/react`, `@seams/sdk/react/provider`, `@seams/sdk/react/styles`, and `@seams/sdk/advanced` with a minimal app Vite config. | Phase 2, Phase 3 |
+| `@seams/wallet/plugins/vite` and `@seams/wallet/plugins/next` keep teaching app-owned runtime hosting. | Remove app-facing examples. Keep only package-internal/static-build helpers that emit hosted wallet artifacts, or delete plugin exports after consumers stop importing them. | Phase 5, Phase 6, Phase 7 |
+| App package imports depended on Vite plugin aliases or direct dist paths. | Add package export smoke for `@seams/wallet/react`, `@seams/wallet/react/provider`, `@seams/wallet/react/styles`, and `@seams/wallet/advanced` with a minimal app Vite config. | Phase 2, Phase 3 |
 | `/.well-known/webauthn` disappears with the plugin. | It is the WebAuthn Related Origin Requests file, served at the RP ID origin — app-platform configuration in production (the app's domain, not Router/API). Router/auth dev helper serves it only in local dev where `rpId=localhost`. | Phase 1, Phase 6 |
 | App SDK version and hosted wallet runtime version drift apart, breaking the postMessage protocol under older app SDKs. | Version the asset tree (`/v{sdkVersion}/sdk/*` pinned through `sdkBasePath`) and/or add an iframe boot protocol-version handshake that fails closed with a typed error. Decide with the cache/naming strategy. | Phase 1, Phase 2, Phase 7 |
 | Arbitrary origins embed `/wallet-service` and clickjack or context-spoof the confirm UI. | Default embedding control on the wallet-service document (`frame-ancestors` or equivalent), driven by the per-tenant embedding-authorization model. postMessage origin checks protect the channel, not the rendered UI. | Phase 1, Phase 7 |
@@ -254,7 +254,7 @@ Remaining decisions:
 - [x] Make the first implementation slice the harsh local smoke:
       - app origin has no Seams SDK Vite plugin;
       - app origin returns 404 for `/sdk/*` and `/wallet-service`;
-      - wallet origin serves `packages/sdk-web/dist/public` directly;
+      - wallet origin serves `packages/wallet/dist/public` directly;
       - registration, unlock, NEAR signing, ECDSA signing, and export pass
         through the hosted wallet origin.
 - [x] Enforce direct-mode policy before removing plugin routes:
@@ -272,7 +272,7 @@ Remaining decisions:
 Seams wallet host deployment artifact:
 
 ```txt
-@seams/sdk/dist/public/
+@seams/wallet/dist/public/
   sdk/
     wallet-shims.js
     wallet-service.css
@@ -376,8 +376,8 @@ Tasks:
       direct mode for browser wallet capabilities or make it an explicit
       internal/test-only mode that cannot be selected by missing `walletOrigin`.
 - [x] Inventory package-level imports that app code uses without the plugin:
-      `@seams/sdk/react`, `@seams/sdk/react/provider`,
-      `@seams/sdk/react/styles`, and `@seams/sdk/advanced`.
+      `@seams/wallet/react`, `@seams/wallet/react/provider`,
+      `@seams/wallet/react/styles`, and `@seams/wallet/advanced`.
 - [x] Decide the version-skew contract (see Remaining decisions): versioned
       asset paths pinned through `sdkBasePath`, an iframe boot
       protocol-version handshake that fails closed with a typed error, or
@@ -459,7 +459,7 @@ Acceptance:
 
 ### Phase 2: Build-Owned Static Asset Tree
 
-Goal: make `@seams/sdk` publish the wallet runtime as static files for the
+Goal: make `@seams/wallet` publish the wallet runtime as static files for the
 hosted wallet origin deploy.
 
 Tasks:
@@ -492,14 +492,14 @@ Tasks:
       app-origin `/sdk/workers/` authority assumptions outside wallet-hosted
       entrypoints.
 - [x] Add a package export smoke that imports:
-      - `@seams/sdk/react`;
-      - `@seams/sdk/react/provider`;
-      - `@seams/sdk/react/styles`;
-      - `@seams/sdk/advanced`.
+      - `@seams/wallet/react`;
+      - `@seams/wallet/react/provider`;
+      - `@seams/wallet/react/styles`;
+      - `@seams/wallet/advanced`.
 
 Acceptance:
 
-- [x] `pnpm -C packages/sdk-web build:sdk` creates a complete
+- [x] `pnpm -C packages/wallet build:sdk` creates a complete
       `dist/public` tree.
 - [x] The hosted wallet deploy can publish `dist/public` directly.
 - [x] The static tree is a packaging copy of existing build output, with no new
@@ -513,13 +513,13 @@ Goal: prove hosted-origin static serving before shrinking SDK plugins.
 
 Tasks:
 
-- [x] Add `packages/sdk-web/scripts/checks/assert-static-wallet-assets.mjs`.
+- [x] Add `packages/wallet/scripts/checks/assert-static-wallet-assets.mjs`.
 - [x] Make the smoke check read `wallet-assets.manifest.json` and verify file
       existence, content type expectations, and required header metadata.
 - [x] Serve wallet assets for `pnpm site` through a Seams-owned Caddy/static
-      wallet origin from `packages/sdk-web/dist/public`.
+      wallet origin from `packages/wallet/dist/public`.
 - [x] Change repo-local Caddy so `https://localhost:8443` serves
-      `packages/sdk-web/dist/public` directly instead of reverse-proxying the
+      `packages/wallet/dist/public` directly instead of reverse-proxying the
       app Vite server.
 - [x] Remove `seamsWallet(...)` from `apps/seams-site/vite.config.ts`.
 - [x] Keep app-origin Vite config limited to React, aliases, and app-owned
@@ -544,7 +544,7 @@ Tasks:
 Acceptance:
 
 - [x] `apps/seams-site/vite.config.ts` no longer imports
-      `@seams/sdk/plugins/vite` for wallet hosting.
+      `@seams/wallet/plugins/vite` for wallet hosting.
 - [x] The app can register, unlock, and sign by importing SDK code in React only.
 - [x] Static smoke test passes against `dist/public`.
 - [x] Manual registration, unlock, NEAR signing, and EVM signing load wallet
@@ -561,7 +561,7 @@ Tasks:
 - [x] Make Rolldown/static build and Vite dev serving read the same generated
       files.
 - [x] Delete duplicate `WALLET_SHIM_SOURCE` and `WALLET_SURFACE_CSS`
-      definitions from `packages/sdk-web/src/plugins/vite.ts` if the files can
+      definitions from `packages/wallet/src/plugins/vite.ts` if the files can
       be read from `dist/public/sdk`.
 - [x] Prefer normal source files for `wallet-shims.js` and `wallet-service.css`
       if that is shorter than generated string content.
@@ -589,10 +589,10 @@ Tasks:
       leaves repeated setup in more than one Seams-owned local-dev consumer.
 - [x] Remove app/runtime dependence on `seamsWallet()`, `seamsServeSdk()`,
       `seamsWalletService()`, and `seamsWasmMime()`.
-- [x] Remove public app-facing `@seams/sdk/plugins/vite` usage from examples and
+- [x] Remove public app-facing `@seams/wallet/plugins/vite` usage from examples and
       app docs. Keep only package-internal/static-build helpers that are still
       needed to emit the hosted wallet artifact.
-- [x] Review `@seams/sdk/plugins/next`; remove or rewrite any guidance that
+- [x] Review `@seams/wallet/plugins/next`; remove or rewrite any guidance that
       makes app frameworks responsible for wallet asset hosting or default CSP
       headers.
 - [x] Make browser wallet capability setup require hosted iframe mode. Missing
@@ -605,13 +605,13 @@ Tasks:
 - [x] Remove `seamsWasmMime()` if static file serving sets MIME correctly
       through the shared static mount.
 - [x] Remove default `Cross-Origin-Embedder-Policy` emission from
-      `packages/sdk-web/src/plugins/vite.ts`.
+      `packages/wallet/src/plugins/vite.ts`.
 - [x] Remove default `Cross-Origin-Opener-Policy` emission from
-      `packages/sdk-web/src/plugins/vite.ts`.
+      `packages/wallet/src/plugins/vite.ts`.
 - [x] Remove default `Cross-Origin-Resource-Policy` emission from
-      `packages/sdk-web/src/plugins/vite.ts`.
+      `packages/wallet/src/plugins/vite.ts`.
 - [x] Remove default `Content-Security-Policy` emission from
-      `packages/sdk-web/src/plugins/vite.ts`.
+      `packages/wallet/src/plugins/vite.ts`.
 - [x] Keep any remaining COOP/COEP/CORP code behind an explicit strict-isolation
       option, or delete it if no current test/runtime path needs it.
 - [x] Keep any remaining wallet HTML CSP generation behind an explicit hardening
@@ -622,7 +622,7 @@ Tasks:
 
 Acceptance:
 
-- [x] Host app Vite config uses no `@seams/sdk/plugins/vite` import.
+- [x] Host app Vite config uses no `@seams/wallet/plugins/vite` import.
 - [x] Local wallet-origin dev can still mount the static wallet assets with one
       Seams-owned plain static mount.
 - [x] Wallet runtime delivery succeeds with no Seams SDK Vite plugin, on the
@@ -656,7 +656,7 @@ Phase 6b, deliberately deferred so public docs are not written against the
 
 Tasks:
 
-- [x] Update `packages/sdk-web/src/plugins/README.md` to state app developers use
+- [x] Update `packages/wallet/src/plugins/README.md` to state app developers use
       the hosted wallet origin and do not configure SDK Vite plugins.
 - [x] Update `docs/saas/self-hosted-migration.md` to remove app-owned wallet
       asset hosting from the normal integration path.
@@ -681,7 +681,7 @@ Tasks:
       conditional `Permissions-Policy` requirement; Router/auth dev helper
       ownership is local-dev-only (`rpId=localhost`).
 - [x] Document that app developers should not serve or reverse-proxy
-      `@seams/sdk/dist/public`.
+      `@seams/wallet/dist/public`.
 - [x] Document that app developers should not run a wallet static server in
       local development.
 - [x] Update stale runtime-path comments and docs that still describe COOP,
@@ -724,9 +724,9 @@ Tasks:
 - [x] Add a source guard that rejects app examples requiring `seamsWallet()` for
       ordinary app pages.
 - [x] Add a source guard that rejects app examples importing
-      `@seams/sdk/plugins/vite` for wallet runtime hosting.
+      `@seams/wallet/plugins/vite` for wallet runtime hosting.
 - [x] Add a source guard that rejects app framework examples importing
-      `@seams/sdk/plugins/next` for wallet runtime hosting.
+      `@seams/wallet/plugins/next` for wallet runtime hosting.
 - [x] Add a source guard that rejects app examples serving `/sdk/*` or
       `/wallet-service` from app-owned infrastructure.
 - [x] Add a source guard that rejects app examples instructing developers to run
@@ -762,7 +762,7 @@ Tasks:
       back to direct app-origin worker mode when `walletOrigin` is omitted.
 - [x] Delete stale docs that recommend broad `seamsWallet()` app integration.
 - [x] Delete `seamsWasmMime()` if no remaining route needs it.
-- [x] Delete virtual shim/CSS middleware from `packages/sdk-web/src/plugins/vite.ts`
+- [x] Delete virtual shim/CSS middleware from `packages/wallet/src/plugins/vite.ts`
       after static files serve those assets.
 - [x] Delete default debug routes from app examples.
 - [x] Add a source guard that rejects default COOP/COEP/CORP emission in app or
@@ -804,8 +804,8 @@ Acceptance:
 ## Validation Plan
 
 ```sh
-pnpm -C packages/sdk-web build:sdk
-node packages/sdk-web/scripts/checks/assert-static-wallet-assets.mjs
+pnpm -C packages/wallet build:sdk
+node packages/wallet/scripts/checks/assert-static-wallet-assets.mjs
 pnpm site
 ```
 
@@ -821,8 +821,8 @@ Manual checks:
 - fetch `https://localhost:8443/sdk/workers/wasm_signer_worker_bg.wasm` and
   confirm `Content-Type: application/wasm`;
 - confirm `https://localhost:8443` serves static wallet assets from
-  `packages/sdk-web/dist/public`, not the app Vite server;
-- import `@seams/sdk/react/styles` from the app with no SDK Vite plugin;
+  `packages/wallet/dist/public`, not the app Vite server;
+- import `@seams/wallet/react/styles` from the app with no SDK Vite plugin;
 - verify app responses do not include SDK-generated `Permissions-Policy`;
 - verify wallet iframe contains `allow` entries for
   `publickey-credentials-get` and `publickey-credentials-create`;

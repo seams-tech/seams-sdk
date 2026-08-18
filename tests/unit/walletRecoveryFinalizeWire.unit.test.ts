@@ -2,8 +2,8 @@ import { expect, test } from '@playwright/test';
 import {
   createRouterApiRouteDefinitions,
   findRouteDefinitionById,
-} from '../../packages/sdk-server-ts/src/router/framework/routeDefinitions';
-import { finalizeWalletRecovery } from '../../packages/sdk-web/src/core/rpcClients/relayer/walletRecoveryFinalize';
+} from '../../packages/wallet-server/src/router/framework/routeDefinitions';
+import { finalizeWalletRecovery } from '../../packages/wallet/src/core/rpcClients/relayer/walletRecoveryFinalize';
 
 /**
  * The recovery-finalization client boundary.

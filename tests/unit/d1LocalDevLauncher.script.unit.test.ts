@@ -30,13 +30,13 @@ async function loadD1LocalDevLauncherModule(): Promise<D1LocalDevLauncherModule>
 function createTempLocalDevTree(): { readonly root: string; readonly consolePackageRoot: string } {
   const root = mkdtempSync(path.join(tmpdir(), 'seams-d1-local-dev-'));
   const consolePackageRoot = path.join(root, 'packages/console-server-ts');
-  mkdirSync(path.join(root, 'packages/sdk-server-ts'), { recursive: true });
+  mkdirSync(path.join(root, 'packages/wallet-server'), { recursive: true });
   mkdirSync(consolePackageRoot, { recursive: true });
   return { root, consolePackageRoot };
 }
 
 function writeSdkDevVars(root: string): string {
-  const filePath = path.join(root, 'packages/sdk-server-ts/.dev.vars');
+  const filePath = path.join(root, 'packages/wallet-server/.dev.vars');
   writeFileSync(filePath, 'RELAYER_PRIVATE_KEY=ed25519:sdk\n');
   return filePath;
 }
@@ -81,7 +81,7 @@ test('D1 local dev launcher omits env-file args when no real secret file exists'
   ]);
 });
 
-test('D1 local dev launcher loads sdk-server-ts and console .dev.vars in override order', async () => {
+test('D1 local dev launcher loads wallet-server and console .dev.vars in override order', async () => {
   const module = await launcherModulePromise;
   const tree = createTempLocalDevTree();
   const sdkDevVars = writeSdkDevVars(tree.root);

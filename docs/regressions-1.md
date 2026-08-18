@@ -726,37 +726,37 @@ full intended matrix after the final code commit.
 
 ### Browser Persistence
 
-- `packages/sdk-web/src/core/indexedDB/schemaNames.ts`
-- `packages/sdk-web/src/core/indexedDB/seamsWalletDB/manager.ts`
-- `packages/sdk-web/src/core/indexedDB/seamsWalletDB/repositories.ts`
-- `packages/sdk-web/src/core/indexedDB/seamsWalletDB/ecdsaRoleLocalSessionMaterialStore.ts`
-- `packages/sdk-web/src/core/indexedDB/seamsWalletDB/ecdsaPresignMaterialStore.ts`
+- `packages/wallet/src/core/indexedDB/schemaNames.ts`
+- `packages/wallet/src/core/indexedDB/seamsWalletDB/manager.ts`
+- `packages/wallet/src/core/indexedDB/seamsWalletDB/repositories.ts`
+- `packages/wallet/src/core/indexedDB/seamsWalletDB/ecdsaRoleLocalSessionMaterialStore.ts`
+- `packages/wallet/src/core/indexedDB/seamsWalletDB/ecdsaPresignMaterialStore.ts`
 - a narrow migration module under
-  `packages/sdk-web/src/core/indexedDB/seamsWalletDB/`
+  `packages/wallet/src/core/indexedDB/seamsWalletDB/`
 
 ### SDK Lifecycle
 
-- `packages/sdk-web/src/SeamsWeb/operations/auth/login.ts`
-- `packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts`
-- `packages/sdk-web/src/core/rpcClients/relayer/walletRegistration.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/readySecp256k1Material.ts`
-- `packages/sdk-web/src/core/signingEngine/threshold/ecdsa/postRegistrationSessionActivation.ts`
-- `packages/sdk-web/src/core/signingEngine/session/persistence/records.ts`
-- `packages/sdk-web/src/core/signingEngine/session/persistence/ecdsaRoleLocalRecords.ts`
-- `packages/sdk-web/src/core/signingEngine/session/identity/ecdsaCapabilityHydration.ts`
-- `packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaKeyFactsInventory.ts`
+- `packages/wallet/src/SeamsWeb/operations/auth/login.ts`
+- `packages/wallet/src/SeamsWeb/operations/registration/registration.ts`
+- `packages/wallet/src/core/rpcClients/relayer/walletRegistration.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/readySecp256k1Material.ts`
+- `packages/wallet/src/core/signingEngine/threshold/ecdsa/postRegistrationSessionActivation.ts`
+- `packages/wallet/src/core/signingEngine/session/persistence/records.ts`
+- `packages/wallet/src/core/signingEngine/session/persistence/ecdsaRoleLocalRecords.ts`
+- `packages/wallet/src/core/signingEngine/session/identity/ecdsaCapabilityHydration.ts`
+- `packages/wallet/src/core/signingEngine/session/passkey/ecdsaKeyFactsInventory.ts`
 - ECDSA worker channels and derivation worker implementation
 
 ### Gateway And Server
 
-- `packages/sdk-server-ts/src/core/WalletStore.ts`
-- `packages/sdk-server-ts/src/core/d1WalletStore.ts`
-- `packages/sdk-server-ts/src/core/authService/thresholdEcdsaKeyInventory.ts`
-- `packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaDerivationPoolFillHandlers.ts`
-- `packages/sdk-server-ts/src/core/routerAbSigning/RouterAbEcdsaPresignRuntime.ts`
-- `packages/sdk-server-ts/src/core/routerAbSigning/RouterAbNormalSigningRuntime.ts`
-- `packages/sdk-server-ts/src/router/cloudflare/d1EvmFamilyEcdsaRegistrationBranch.ts`
-- `packages/sdk-server-ts/src/router/cloudflare/d1WalletRegistrationService.ts`
+- `packages/wallet-server/src/core/WalletStore.ts`
+- `packages/wallet-server/src/core/d1WalletStore.ts`
+- `packages/wallet-server/src/core/authService/thresholdEcdsaKeyInventory.ts`
+- `packages/wallet-server/src/core/ThresholdService/routerAb/ecdsaDerivationPoolFillHandlers.ts`
+- `packages/wallet-server/src/core/routerAbSigning/RouterAbEcdsaPresignRuntime.ts`
+- `packages/wallet-server/src/core/routerAbSigning/RouterAbNormalSigningRuntime.ts`
+- `packages/wallet-server/src/router/cloudflare/d1EvmFamilyEcdsaRegistrationBranch.ts`
+- `packages/wallet-server/src/router/cloudflare/d1WalletRegistrationService.ts`
 - registration and threshold-ECDSA route boundary parsers
 
 ### Cloudflare Worker
@@ -769,8 +769,8 @@ full intended matrix after the final code commit.
 
 ### Deletion Candidates
 
-- `packages/sdk-web/src/core/signingEngine/workerManager/workers/ecdsaRoleLocalSessionMaterialStore.ts`
-- `packages/sdk-web/src/core/signingEngine/workerManager/workers/ecdsaPresignMaterialStore.ts`
+- `packages/wallet/src/core/signingEngine/workerManager/workers/ecdsaRoleLocalSessionMaterialStore.ts`
+- `packages/wallet/src/core/signingEngine/workerManager/workers/ecdsaPresignMaterialStore.ts`
 - obsolete strict ECDSA derivation recovery SDK/WASM paths identified in
   Refactor 90A
 - the Gateway-local ECDSA presign key-material fallback

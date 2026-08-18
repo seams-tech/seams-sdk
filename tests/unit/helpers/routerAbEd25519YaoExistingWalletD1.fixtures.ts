@@ -1,12 +1,12 @@
-import type { WalletEd25519YaoActiveCapabilityRecord } from '../../../packages/sdk-server-ts/src/core/WalletStore';
-import { D1WalletStore } from '../../../packages/sdk-server-ts/src/core/d1WalletStore';
+import type { WalletEd25519YaoActiveCapabilityRecord } from '../../../packages/wallet-server/src/core/WalletStore';
+import { D1WalletStore } from '../../../packages/wallet-server/src/core/d1WalletStore';
 import {
   buildYaoEd25519WalletSignerRecord,
   ed25519NearPublicKeyFromBytes,
-} from '../../../packages/sdk-server-ts/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoWalletSigner';
-import { createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1 } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoProductRegistrationPartitionedStateStore';
-import { createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1 } from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationRequestScopedRuntime';
-import type { RouterAbEd25519YaoActiveCapabilityLookupV1 } from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
+} from '../../../packages/wallet-server/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoWalletSigner';
+import { createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1 } from '../../../packages/wallet-server/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoProductRegistrationPartitionedStateStore';
+import { createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1 } from '../../../packages/wallet-server/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationRequestScopedRuntime';
+import type { RouterAbEd25519YaoActiveCapabilityLookupV1 } from '../../../packages/wallet-server/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
 import { parseWalletId } from '../../../packages/shared-ts/src/utils/domainIds';
 import {
   cleanupTemporaryD1Database,

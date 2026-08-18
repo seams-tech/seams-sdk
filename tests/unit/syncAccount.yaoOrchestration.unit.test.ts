@@ -1,37 +1,37 @@
 import { expect, test } from '@playwright/test';
-import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '../../packages/sdk-web/src/core/config/defaultConfigs';
-import type { ClientUserData } from '../../packages/sdk-web/src/core/accountData/near/nearAccountData.types';
-import { IndexedDBManager } from '../../packages/sdk-web/src/core/indexedDB';
+import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '../../packages/wallet/src/core/config/defaultConfigs';
+import type { ClientUserData } from '../../packages/wallet/src/core/accountData/near/nearAccountData.types';
+import { IndexedDBManager } from '../../packages/wallet/src/core/indexedDB';
 import type {
   KeyMaterialKind,
   KeyMaterialRecord,
-} from '../../packages/sdk-web/src/core/indexedDB/keyMaterial.types';
-import type { NearEd25519YaoOperationMaterial } from '../../packages/sdk-web/src/core/signingEngine/interfaces/near';
-import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { WorkerOperationContext } from '../../packages/sdk-web/src/core/signingEngine/workerManager/executeWorkerOperation';
+} from '../../packages/wallet/src/core/indexedDB/keyMaterial.types';
+import type { NearEd25519YaoOperationMaterial } from '../../packages/wallet/src/core/signingEngine/interfaces/near';
+import { toWalletId } from '../../packages/wallet/src/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { WorkerOperationContext } from '../../packages/wallet/src/core/signingEngine/workerManager/executeWorkerOperation';
 import {
   parseEcdsaRoleLocalBindingDigest,
   parseEcdsaRoleLocalDurableMaterialRef,
-} from '../../packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands';
-import { nearEd25519YaoMaterialActivationFromMetadata } from '../../packages/sdk-web/src/core/signingEngine/session/material/nearEd25519YaoMaterialActivation';
+} from '../../packages/wallet/src/core/signingEngine/session/keyMaterialBrands';
+import { nearEd25519YaoMaterialActivationFromMetadata } from '../../packages/wallet/src/core/signingEngine/session/material/nearEd25519YaoMaterialActivation';
 import {
   ROUTER_AB_ED25519_YAO_ACTIVE_CLIENT_KIND_V1,
   RouterAbEd25519YaoClientV1,
   type RouterAbEd25519YaoSealableActiveClientV1,
-} from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/yaoClient';
-import { MinimalNearClient } from '../../packages/sdk-web/src/core/rpcClients/near/NearClient';
+} from '../../packages/wallet/src/core/signingEngine/threshold/ed25519/yaoClient';
+import { MinimalNearClient } from '../../packages/wallet/src/core/rpcClients/near/NearClient';
 import type {
   AccountSyncSigningSurface,
   AccountSyncWebContext,
-} from '../../packages/sdk-web/src/SeamsWeb/signingSurface/types';
-import type { Ed25519YaoPublicCapabilityLaneReferenceV1 } from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
-import { syncAccount } from '../../packages/sdk-web/src/SeamsWeb/operations/recovery/syncAccount';
-import type { WebAuthnAuthenticationCredential } from '../../packages/sdk-web/src/core/types/webauthn';
+} from '../../packages/wallet/src/SeamsWeb/signingSurface/types';
+import type { Ed25519YaoPublicCapabilityLaneReferenceV1 } from '../../packages/wallet/src/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
+import { syncAccount } from '../../packages/wallet/src/SeamsWeb/operations/recovery/syncAccount';
+import type { WebAuthnAuthenticationCredential } from '../../packages/wallet/src/core/types/webauthn';
 import type {
   SeamsConfigsReadonly,
   WalletAuthenticationState,
-} from '../../packages/sdk-web/src/core/types/seams';
-import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
+} from '../../packages/wallet/src/core/types/seams';
+import { toAccountId } from '../../packages/wallet/src/core/types/accountIds';
 import { base58Encode } from '../../packages/shared-ts/src/utils/base58';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '../../packages/shared-ts/src/utils/signingSessionSeal';

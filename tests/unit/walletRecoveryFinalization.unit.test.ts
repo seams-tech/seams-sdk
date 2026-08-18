@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { finalizeRecoveredWalletCredentialV1 } from '../../packages/sdk-server-ts/src/router/domains/passkeyCustody/walletRecoveryFinalization';
+import { finalizeRecoveredWalletCredentialV1 } from '../../packages/wallet-server/src/router/domains/passkeyCustody/walletRecoveryFinalization';
 
 /**
  * Promoting the credential a recovery enrolled.

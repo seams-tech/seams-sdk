@@ -3,8 +3,8 @@ import {
   parseWalletCustodyRegistrationOutcome,
   walletCustodyCeremonyCommitPayloadFromWire,
 } from '../../packages/shared-ts/src/passkey-custody';
-import { commitRegistrationCustody } from '../../packages/sdk-server-ts/src/router/domains/passkeyCustody/registrationCustodyOutcome';
-import { CloudflareD1WalletCustodyCommitStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
+import { commitRegistrationCustody } from '../../packages/wallet-server/src/router/domains/passkeyCustody/registrationCustodyOutcome';
+import { CloudflareD1WalletCustodyCommitStore } from '../../packages/wallet-server/src/router/cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
 import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 import type { WalletId } from '../../packages/shared-ts/src/utils/domainIds';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';

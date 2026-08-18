@@ -20,7 +20,7 @@ import {
   parseWalletAuthMethodId,
   parseWalletId,
 } from '../../../packages/shared-ts/src/utils/domainIds';
-import type { OwnerWalletExecutionEvidence } from '../../../packages/sdk-server-ts/src/router/domains/signingOperations/walletExecutionAdmission';
+import type { OwnerWalletExecutionEvidence } from '../../../packages/wallet-server/src/router/domains/signingOperations/walletExecutionAdmission';
 
 function parsed<T>(
   result:

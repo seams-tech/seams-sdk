@@ -1,11 +1,11 @@
 ---
 title: Custom signing runtime
-description: Ports and factories exported from @seams/sdk/runtime for applications that own a complete signing runtime.
+description: Ports and factories exported from @seams/wallet/runtime for applications that own a complete signing runtime.
 ---
 
 # Custom signing runtime
 
-`@seams/sdk/runtime` is for hosts that supply the platform around the signing
+`@seams/wallet/runtime` is for hosts that supply the platform around the signing
 engine. It is a lower-level integration than `SeamsWeb`.
 
 The entrypoint exports `createSigningRuntime`,

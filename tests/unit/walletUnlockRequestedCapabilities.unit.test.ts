@@ -3,7 +3,7 @@ import {
   EMAIL_OTP_ED25519_YAO_REQUESTED_CAPABILITIES_KIND,
   EMAIL_OTP_NO_REQUESTED_CAPABILITIES_KIND,
   parseWalletUnlockRequestedCapabilitiesRequest,
-} from '../../packages/sdk-server-ts/src/router/domains/walletUnlock/walletUnlockRequestedCapabilitiesValidation';
+} from '../../packages/wallet-server/src/router/domains/walletUnlock/walletUnlockRequestedCapabilitiesValidation';
 
 const BASE_BODY = {
   unlockBackend: 'email_otp',

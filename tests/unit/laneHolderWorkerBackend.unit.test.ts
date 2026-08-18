@@ -4,7 +4,7 @@ import {
   createConcreteLaneHolderWorkerV1,
   loadLaneCustodySealV1,
   type LaneHolderWasmFactoryV1,
-} from '../../packages/sdk-web/src/core/signingEngine/workerManager/workers/laneHolderWorkerBackend';
+} from '../../packages/wallet/src/core/signingEngine/workerManager/workers/laneHolderWorkerBackend';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { passkeyCustodyEnvelope } from './helpers/passkeyCustodyEnvelope.fixtures';
 import {

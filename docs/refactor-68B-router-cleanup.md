@@ -43,7 +43,7 @@ The single Router server binds `127.0.0.1:9090`. Caddy forwards the whole
 
 The codebase previously had two local concepts using Router-like language:
 
-- `apps/web-server` / `packages/sdk-server-ts` owns the public wallet/session API
+- `apps/web-server` / `packages/wallet-server` owns the public wallet/session API
   surface.
 - `crates/router-ab-dev` also started a Rust `router` worker on
   `127.0.0.1:9090` for strict Router A/B protocol work.
@@ -100,7 +100,7 @@ upstreams behind one HTTPS origin.
 ## Phase 3: Choose The Single Router Runtime
 
 Decision: the main Router runtime is the SDK server route layer
-(`packages/sdk-server-ts` plus `apps/web-server`) because it already owns wallet
+(`packages/wallet-server` plus `apps/web-server`) because it already owns wallet
 auth, sessions, registration, WebAuthn, Wallet Session seal, budget, and console
 surfaces. Router A/B strict protocol code must move behind this route layer.
 
@@ -175,20 +175,20 @@ surfaces. Router A/B strict protocol code must move behind this route layer.
             `crates/router-ab-dev/src/lib.rs`.
       - [x] Main Router route layer has a typed normal-signing admission
             boundary for project-policy, quota, and abuse decisions:
-            `packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker.ts`.
+            `packages/wallet-server/src/router/routerAbPrivateSigningWorker.ts`.
       - [x] Ed25519 and ECDSA-HSS prepare/finalize route handlers evaluate that
             boundary before private SigningWorker configuration, material, or
             forwarding is read:
-            `packages/sdk-server-ts/src/router/express/routes/thresholdEd25519.ts`,
-            `packages/sdk-server-ts/src/router/express/routes/thresholdEcdsa.ts`,
-            `packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519.ts`,
-            and `packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEcdsa.ts`.
+            `packages/wallet-server/src/router/express/routes/thresholdEd25519.ts`,
+            `packages/wallet-server/src/router/express/routes/thresholdEcdsa.ts`,
+            `packages/wallet-server/src/router/cloudflare/routes/thresholdEd25519.ts`,
+            and `packages/wallet-server/src/router/cloudflare/routes/thresholdEcdsa.ts`.
       - [x] Focused route tests cover quota saturation and abuse rejection
             before private SigningWorker forwarding:
             `tests/relayer/router-ab-normal-signing-auth-boundary.test.ts`.
       - [x] Durable quota and abuse admission-store parity is implemented in the
             main Router route layer:
-            `packages/sdk-server-ts/src/router/routerAbNormalSigningAdmissionStore.ts`
+            `packages/wallet-server/src/router/routerAbNormalSigningAdmissionStore.ts`
             defines strict project-policy, quota, and abuse decision unions,
             in-memory local state, and Postgres-backed admission tables.
       - [x] The app server wires the concrete admission adapter whenever Router

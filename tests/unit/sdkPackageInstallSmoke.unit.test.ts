@@ -6,8 +6,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const sdkWebRoot = path.join(repoRoot, 'packages/sdk-web');
-const sdkServerRoot = path.join(repoRoot, 'packages/sdk-server-ts');
+const sdkWebRoot = path.join(repoRoot, 'packages/wallet');
+const sdkServerRoot = path.join(repoRoot, 'packages/wallet-server');
 
 function run(command: string, args: readonly string[], cwd: string): string {
   try {
@@ -78,7 +78,7 @@ test.describe('SDK package install smoke', () => {
           private: true,
           type: 'module',
           dependencies: {
-            '@seams/sdk': `file:${tarball}`,
+            '@seams/wallet': `file:${tarball}`,
           },
         }),
       );
@@ -103,21 +103,21 @@ test.describe('SDK package install smoke', () => {
             throw new Error(specifier + ' still resolves');
           }
 
-          const runtime = await import('@seams/sdk/runtime');
+          const runtime = await import('@seams/wallet/runtime');
           if (typeof runtime.createSigningRuntime !== 'function') {
             throw new Error('missing createSigningRuntime');
           }
           if (typeof runtime.createSigningRuntimeStatePorts !== 'function') {
             throw new Error('missing createSigningRuntimeStatePorts');
           }
-          const root = await import('@seams/sdk');
+          const root = await import('@seams/wallet');
           if (typeof root.SeamsWeb !== 'function') {
             throw new Error('missing SeamsWeb export');
           }
-          expectMissingSubpath('@seams/sdk/server');
-          expectMissingSubpath('@seams/sdk/worker');
-          expectMissingSubpath('@seams/sdk/wasm');
-          expectMissingSubpath('@seams/sdk/wasm-js');
+          expectMissingSubpath('@seams/wallet/server');
+          expectMissingSubpath('@seams/wallet/worker');
+          expectMissingSubpath('@seams/wallet/wasm');
+          expectMissingSubpath('@seams/wallet/wasm-js');
         `,
       );
       run(process.execPath, ['import-browser-subpaths.mjs'], tmpRoot);
@@ -140,7 +140,7 @@ test.describe('SDK package install smoke', () => {
           private: true,
           type: 'module',
           dependencies: {
-            '@seams/sdk-server': `file:${tarball}`,
+            '@seams/wallet-server': `file:${tarball}`,
           },
         }),
       );
@@ -154,7 +154,7 @@ test.describe('SDK package install smoke', () => {
       fs.writeFileSync(
         path.join(tmpRoot, 'import-server-subpaths.mjs'),
         `
-          const server = await import('@seams/sdk-server');
+          const server = await import('@seams/wallet-server');
           if (typeof server.AuthService !== 'function') {
             throw new Error('missing AuthService export');
           }
@@ -166,19 +166,19 @@ test.describe('SDK package install smoke', () => {
           }
 
           try {
-            import.meta.resolve('@seams/sdk-server/console');
+            import.meta.resolve('@seams/wallet-server/console');
             throw new Error('server console subpath still resolves');
           } catch (error) {
             if (!error || error.code !== 'ERR_PACKAGE_PATH_NOT_EXPORTED') throw error;
           }
           try {
-            import.meta.resolve('@seams/sdk-server/internal/storage/tenantRoute');
+            import.meta.resolve('@seams/wallet-server/internal/storage/tenantRoute');
             throw new Error('server internal wildcard subpath still resolves');
           } catch (error) {
             if (!error || error.code !== 'ERR_PACKAGE_PATH_NOT_EXPORTED') throw error;
           }
 
-          const expressRouter = await import('@seams/sdk-server/router/express');
+          const expressRouter = await import('@seams/wallet-server/router/express');
           if (typeof expressRouter.createRouterApiRouter !== 'function') {
             throw new Error('missing createRouterApiRouter export');
           }
@@ -186,7 +186,7 @@ test.describe('SDK package install smoke', () => {
             throw new Error('unexpected createConsoleRouter export');
           }
 
-          const cloudflareRouter = await import('@seams/sdk-server/router/cloudflare');
+          const cloudflareRouter = await import('@seams/wallet-server/router/cloudflare');
           if (typeof cloudflareRouter.createCloudflareRouter !== 'function') {
             throw new Error('missing createCloudflareRouter export');
           }
@@ -194,7 +194,7 @@ test.describe('SDK package install smoke', () => {
             throw new Error('unexpected createCloudflareConsoleRouter export');
           }
 
-          const tenantStorage = await import('@seams/sdk-server/storage/tenant-route');
+          const tenantStorage = await import('@seams/wallet-server/storage/tenant-route');
           if (typeof tenantStorage.createConsoleD1StorageTarget !== 'undefined') {
             throw new Error('unexpected public console storage target export');
           }

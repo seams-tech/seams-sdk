@@ -11,7 +11,7 @@ import {
   walletIdFromString,
   type RegistrationIntentV1,
 } from '@shared/utils/registrationIntent';
-import { InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationAdapter } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/registration/routerAbEd25519YaoRegistrationIntentAuthorization';
+import { InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationAdapter } from '../../packages/wallet-server/src/router/domains/ed25519Yao/registration/routerAbEd25519YaoRegistrationIntentAuthorization';
 
 type RouterAbEd25519YaoRegistrationBindingV1 =
   RouterAbEd25519YaoActivationBindingV1<'registration'>;

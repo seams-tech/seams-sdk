@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { openOrRejoinWalletCustodyEd25519V1 } from '../../packages/sdk-web/src/core/signingEngine/walletCustody/openCustodyCache';
+import { openOrRejoinWalletCustodyEd25519V1 } from '../../packages/wallet/src/core/signingEngine/walletCustody/openCustodyCache';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 /**

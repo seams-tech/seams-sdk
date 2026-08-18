@@ -1,10 +1,10 @@
 import { expect, test } from '@playwright/test';
-import { LaneLifecycleApplicationService } from '../../packages/sdk-server-ts/src/core/signingLanes/LaneLifecycleApplicationService';
+import { LaneLifecycleApplicationService } from '../../packages/wallet-server/src/core/signingLanes/LaneLifecycleApplicationService';
 import type {
   LaneLifecycleAuthorizationPortV1,
   LaneLifecycleCurveExecutionPortsV1,
   LaneLifecycleRetirementExecutionV1,
-} from '../../packages/sdk-server-ts/src/core/signingLanes/LaneLifecycleApplicationService';
+} from '../../packages/wallet-server/src/core/signingLanes/LaneLifecycleApplicationService';
 import type {
   LaneEnrollmentGatewayV1,
   LaneHolderDeliveryReceiptV1,

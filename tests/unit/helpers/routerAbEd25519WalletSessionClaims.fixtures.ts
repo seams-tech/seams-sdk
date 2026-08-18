@@ -2,7 +2,7 @@ import {
   parseRouterAbEd25519WalletSessionClaims,
   thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
   type RouterAbEd25519WalletSessionClaims,
-} from '../../../packages/sdk-server-ts/src/core/ThresholdService/validation';
+} from '../../../packages/wallet-server/src/core/ThresholdService/validation';
 import type { RuntimePolicyScope } from '../../../packages/shared-ts/src/threshold/signingRootScope';
 import type { RouterAbEd25519NormalSigningState } from '../../../packages/shared-ts/src/utils/signingSessionSeal';
 import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '../../../packages/shared-ts/src/utils/sessionTokens';

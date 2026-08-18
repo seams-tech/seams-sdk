@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { prepareWalletRecoveryWithCodeV1 } from '../../packages/sdk-server-ts/src/router/domains/passkeyCustody/walletRecoveryAttempt';
+import { prepareWalletRecoveryWithCodeV1 } from '../../packages/wallet-server/src/router/domains/passkeyCustody/walletRecoveryAttempt';
 import { deriveWalletRecoveryKeyIdFromBytes } from '../../packages/shared-ts/src/wallet-recovery/recoveryCodes';
 
 /**

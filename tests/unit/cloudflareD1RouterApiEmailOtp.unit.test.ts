@@ -1,28 +1,28 @@
 import { expect, test } from '@playwright/test';
 import { isoCBOR } from '@simplewebauthn/server/helpers';
 import { createHash } from 'node:crypto';
-import type { D1DatabaseLike } from '../../packages/sdk-server-ts/src/storage/tenantRoute';
+import type { D1DatabaseLike } from '../../packages/wallet-server/src/storage/tenantRoute';
 import type {
   CloudflareDurableObjectNamespaceLike,
   CloudflareDurableObjectStubLike,
   EcdsaDerivationClientBootstrapRequest,
   EcdsaDerivationServerBootstrapResponse,
-} from '../../packages/sdk-server-ts/src/core/types';
+} from '../../packages/wallet-server/src/core/types';
 import type {
   WalletRegistrationEcdsaClientBootstrap,
   WalletRegistrationEcdsaPreparePayload,
-} from '../../packages/sdk-server-ts/src/core/registrationContracts';
+} from '../../packages/wallet-server/src/core/registrationContracts';
 import type {
   CloudflareD1EmailOtpDeliveryProviderInput,
   CloudflareD1EmailOtpDeliveryProviderResult,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
-import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
-import { emailOtpChallengeResponseBody } from '../../packages/sdk-server-ts/src/router/domains/emailOtp/emailOtpSessionRouteHelpers';
+} from '../../packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
+import { createCloudflareD1RouterApiAuthService } from '../../packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
+import { emailOtpChallengeResponseBody } from '../../packages/wallet-server/src/router/domains/emailOtp/emailOtpSessionRouteHelpers';
 import {
   parseGoogleEmailOtpRegistrationAttemptRecord,
   parseGoogleEmailOtpRegistrationAttemptRow,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/d1/emailOtp/d1GoogleEmailOtpRegistrationRecords';
-import { parseD1RegistrationIntent } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1RegistrationCeremonyRecords';
+} from '../../packages/wallet-server/src/router/cloudflare/d1/emailOtp/d1GoogleEmailOtpRegistrationRecords';
+import { parseD1RegistrationIntent } from '../../packages/wallet-server/src/router/cloudflare/d1/registration/d1RegistrationCeremonyRecords';
 import { base64UrlDecode, base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
 import {
   parseOrgId,
@@ -36,7 +36,7 @@ import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/ut
 import {
   secp256k1PrivateKey32ToPublicKey33,
   signSecp256k1Recoverable,
-} from '../../packages/sdk-server-ts/src/core/ThresholdService/evmCryptoWasm';
+} from '../../packages/wallet-server/src/core/ThresholdService/evmCryptoWasm';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,

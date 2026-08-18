@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   createRouterApiRouteDefinitions,
   findRouteDefinitionById,
-} from '../../packages/sdk-server-ts/src/router/framework/routeDefinitions';
+} from '../../packages/wallet-server/src/router/framework/routeDefinitions';
 
 test('the admitted prepare route is registered without a consume-first route', () => {
   const routeDefinitions = createRouterApiRouteDefinitions();

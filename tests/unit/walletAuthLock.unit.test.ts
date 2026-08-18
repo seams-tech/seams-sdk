@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   lockDomain,
   type WalletLockDomainDeps,
-} from '../../packages/sdk-web/src/SeamsWeb/operations/auth/walletAuth';
+} from '../../packages/wallet/src/SeamsWeb/operations/auth/walletAuth';
 
 type LockFixture = {
   deps: WalletLockDomainDeps;

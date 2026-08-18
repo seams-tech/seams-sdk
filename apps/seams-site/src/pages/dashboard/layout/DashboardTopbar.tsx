@@ -1,5 +1,5 @@
 import React from 'react';
-import { MoonIcon, SunIcon } from '@seams/sdk/react';
+import { MoonIcon, SunIcon } from '@seams/wallet/react';
 import SeamsLogo from '@/components/icons/SeamsLogo';
 import DashboardSidebarToggleIcon from '../icons/DashboardSidebarToggleIcon';
 import type { TopbarContextState, TopbarMenuKey, TopbarOption } from '../types';

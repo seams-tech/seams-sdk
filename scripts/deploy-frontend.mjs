@@ -15,7 +15,7 @@ const SITE_ROOT = path.join(REPOSITORY_ROOT, 'apps', 'seams-site');
 const SITE_OUTPUT = path.join(SITE_ROOT, 'dist');
 const DOCS_ROOT = path.join(REPOSITORY_ROOT, 'apps', 'docs');
 const DOCS_OUTPUT = path.join(DOCS_ROOT, 'dist');
-const SDK_OUTPUT = path.join(REPOSITORY_ROOT, 'packages', 'sdk-web', 'dist');
+const SDK_OUTPUT = path.join(REPOSITORY_ROOT, 'packages', 'wallet', 'dist');
 const FRONTEND_SMOKE_PATHS = Object.freeze({
   site: ['/', '/sdk/workers/near-signer.worker.js'],
   docs: ['/', '/concepts/', '/concepts/auth-methods/', '/concepts/policy/mandates'],
@@ -129,7 +129,7 @@ function formatLaneProvisioning(lanes) {
 function buildFrontend(site) {
   const buildEnvironment = buildFrontendEnvironment(site);
   runCommand('pnpm', ['install', '--frozen-lockfile']);
-  runCommand('pnpm', ['-C', 'packages/sdk-web', 'run', 'build:prod'], {
+  runCommand('pnpm', ['-C', 'packages/wallet', 'run', 'build:prod'], {
     env: buildEnvironment,
   });
   runCommand('pnpm', ['-C', 'apps/seams-site', 'exec', 'vite', 'build'], {

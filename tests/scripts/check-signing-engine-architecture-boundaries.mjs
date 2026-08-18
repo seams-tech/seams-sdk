@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, '../..');
-const signingEngineRoot = path.join(repoRoot, 'packages/sdk-web/src/core/signingEngine');
+const signingEngineRoot = path.join(repoRoot, 'packages/wallet/src/core/signingEngine');
 
 const targetTopLevelFolders = [
   'assembly',
@@ -34,15 +34,15 @@ const targetContractFolders = [
 ];
 
 const allowedSessionFlowImports = new Set([
-  'packages/sdk-web/src/core/signingEngine/session/emailOtp/companionSessions.ts -> ../../flows/signEvmFamily/ecdsaMaterialState',
-  'packages/sdk-web/src/core/signingEngine/session/emailOtp/companionSessions.ts -> ../../flows/signEvmFamily/ecdsaSelection',
-  'packages/sdk-web/src/core/signingEngine/session/emailOtp/coordinatorRuntime.ts -> ../../flows/signEvmFamily/ecdsaSelection',
-  'packages/sdk-web/src/core/signingEngine/session/emailOtp/coordinatorRuntime.ts -> ../../flows/recovery/ecdsaExportMaterial',
-  'packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaLogin.ts -> ../../flows/signEvmFamily/ecdsaSelection',
-  'packages/sdk-web/src/core/signingEngine/session/emailOtp/exportRecovery.ts -> ../../flows/recovery/ecdsaExportMaterial',
-  'packages/sdk-web/src/core/signingEngine/session/emailOtp/exportRecovery.ts -> ../../flows/recovery/ecdsaDerivationExport',
-  'packages/sdk-web/src/core/signingEngine/session/emailOtp/exportRecoveryRuntime.ts -> ../../flows/recovery/ecdsaExportMaterial',
-  'packages/sdk-web/src/core/signingEngine/session/passkey/ed25519YaoWarmRecovery.ts -> @/core/signingEngine/flows/recovery/passkeyEd25519YaoRecovery',
+  'packages/wallet/src/core/signingEngine/session/emailOtp/companionSessions.ts -> ../../flows/signEvmFamily/ecdsaMaterialState',
+  'packages/wallet/src/core/signingEngine/session/emailOtp/companionSessions.ts -> ../../flows/signEvmFamily/ecdsaSelection',
+  'packages/wallet/src/core/signingEngine/session/emailOtp/coordinatorRuntime.ts -> ../../flows/signEvmFamily/ecdsaSelection',
+  'packages/wallet/src/core/signingEngine/session/emailOtp/coordinatorRuntime.ts -> ../../flows/recovery/ecdsaExportMaterial',
+  'packages/wallet/src/core/signingEngine/session/emailOtp/ecdsaLogin.ts -> ../../flows/signEvmFamily/ecdsaSelection',
+  'packages/wallet/src/core/signingEngine/session/emailOtp/exportRecovery.ts -> ../../flows/recovery/ecdsaExportMaterial',
+  'packages/wallet/src/core/signingEngine/session/emailOtp/exportRecovery.ts -> ../../flows/recovery/ecdsaDerivationExport',
+  'packages/wallet/src/core/signingEngine/session/emailOtp/exportRecoveryRuntime.ts -> ../../flows/recovery/ecdsaExportMaterial',
+  'packages/wallet/src/core/signingEngine/session/passkey/ed25519YaoWarmRecovery.ts -> @/core/signingEngine/flows/recovery/passkeyEd25519YaoRecovery',
 ]);
 
 const allowedSessionFlowImportFiles = new Set();
@@ -95,15 +95,15 @@ function extractImportSpecifiers(source) {
 
 function resolveSigningEngineImport(fromRelativePath, specifier) {
   if (specifier === '@/SeamsWeb/signingSurface/BrowserSigningSurface') {
-    return 'packages/sdk-web/src/SeamsWeb/assembly/BrowserSigningSurface';
+    return 'packages/wallet/src/SeamsWeb/assembly/BrowserSigningSurface';
   }
   if (specifier.startsWith('@/core/signingEngine/')) {
-    return `packages/sdk-web/src/core/signingEngine/${specifier.slice(
+    return `packages/wallet/src/core/signingEngine/${specifier.slice(
       '@/core/signingEngine/'.length,
     )}`;
   }
   if (specifier === '@/core/signingEngine') {
-    return 'packages/sdk-web/src/core/signingEngine';
+    return 'packages/wallet/src/core/signingEngine';
   }
   if (!specifier.startsWith('.')) {
     return null;
@@ -111,17 +111,17 @@ function resolveSigningEngineImport(fromRelativePath, specifier) {
 
   const resolved = path.resolve(path.join(repoRoot, path.dirname(fromRelativePath)), specifier);
   const relative = path.relative(repoRoot, resolved).split(path.sep).join('/');
-  if (relative === 'packages/sdk-web/src/SeamsWeb/assembly/BrowserSigningSurface') {
+  if (relative === 'packages/wallet/src/SeamsWeb/assembly/BrowserSigningSurface') {
     return relative;
   }
-  if (!relative.startsWith('packages/sdk-web/src/core/signingEngine')) {
+  if (!relative.startsWith('packages/wallet/src/core/signingEngine')) {
     return null;
   }
   return relative;
 }
 
 function signingEngineTopLevel(relativePath) {
-  const prefix = 'packages/sdk-web/src/core/signingEngine/';
+  const prefix = 'packages/wallet/src/core/signingEngine/';
   if (!relativePath.startsWith(prefix)) {
     return null;
   }
@@ -177,7 +177,7 @@ function assertNoOffenders(offenders, context) {
 
 function checkSharedSigningStateMachineOwnsRunner() {
   const source = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/flows/shared/signingStateMachine.ts',
+    'packages/wallet/src/core/signingEngine/flows/shared/signingStateMachine.ts',
   );
 
   for (const marker of [
@@ -198,13 +198,13 @@ function checkSharedSigningStateMachineOwnsRunner() {
 
 function checkEvmRuntimeCommandTracingUsesSharedMachinePort() {
   const runtime = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signingFlowRuntime.ts',
+    'packages/wallet/src/core/signingEngine/flows/signEvmFamily/signingFlowRuntime.ts',
   );
   const uiConfirmFlow = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signingFlow.ts',
+    'packages/wallet/src/core/signingEngine/flows/signEvmFamily/signingFlow.ts',
   );
   const stateMachine = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/flows/shared/signingStateMachine.ts',
+    'packages/wallet/src/core/signingEngine/flows/shared/signingStateMachine.ts',
   );
 
   assertNotContains(runtime, "from '../passkey/runtimeCommandExecutor'", 'signingFlowRuntime.ts');
@@ -221,9 +221,9 @@ function checkEvmRuntimeCommandTracingUsesSharedMachinePort() {
 
 function checkNearSigningFlowsUseSharedMachineCommandSteps() {
   const flowPaths = [
-    'packages/sdk-web/src/core/signingEngine/flows/signNear/signTransactions.ts',
-    'packages/sdk-web/src/core/signingEngine/flows/signNear/signDelegate.ts',
-    'packages/sdk-web/src/core/signingEngine/flows/signNear/signNep413.ts',
+    'packages/wallet/src/core/signingEngine/flows/signNear/signTransactions.ts',
+    'packages/wallet/src/core/signingEngine/flows/signNear/signDelegate.ts',
+    'packages/wallet/src/core/signingEngine/flows/signNear/signNep413.ts',
   ];
   const flowSources = [];
   for (const relativePath of flowPaths) {
@@ -276,13 +276,13 @@ function checkAvailableSigningLanesOwnAvailabilityTerminology() {
 
 function checkConfirmationContractsOwnedOutsideUiRuntimeInternals() {
   const confirmationChannelTypes = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/stepUpConfirmation/channel/confirmTypes.ts',
+    'packages/wallet/src/core/signingEngine/stepUpConfirmation/channel/confirmTypes.ts',
   );
   const signingConfirmation = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/flows/shared/signingConfirmation.ts',
+    'packages/wallet/src/core/signingEngine/flows/shared/signingConfirmation.ts',
   );
   const emailOtpCoordinator = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator.ts',
+    'packages/wallet/src/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator.ts',
   );
 
   assertNotContains(
@@ -329,7 +329,7 @@ function checkConfirmationContractsOwnedOutsideUiRuntimeInternals() {
 
 function checkEvmThresholdAdmissionLivesUnderFlows() {
   const admission = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/thresholdAdmission.ts',
+    'packages/wallet/src/core/signingEngine/flows/signEvmFamily/thresholdAdmission.ts',
   );
 
   assertNotMatches(admission, /from ['"][./]+api\//, 'thresholdAdmission.ts');
@@ -345,11 +345,11 @@ function checkOperationModulesAvoidSigningEngineAssemblyConstruction() {
     for (const specifier of extractImportSpecifiers(source)) {
       const resolved = resolveSigningEngineImport(relativePath, specifier);
       if (
-        resolved === 'packages/sdk-web/src/core/signingEngine' ||
-        resolved === 'packages/sdk-web/src/core/signingEngine/SigningEngine' ||
-        resolved === 'packages/sdk-web/src/core/signingEngine/SigningEngine.ts' ||
-        resolved === 'packages/sdk-web/src/SeamsWeb/assembly/BrowserSigningSurface' ||
-        resolved?.startsWith('packages/sdk-web/src/core/signingEngine/assembly')
+        resolved === 'packages/wallet/src/core/signingEngine' ||
+        resolved === 'packages/wallet/src/core/signingEngine/SigningEngine' ||
+        resolved === 'packages/wallet/src/core/signingEngine/SigningEngine.ts' ||
+        resolved === 'packages/wallet/src/SeamsWeb/assembly/BrowserSigningSurface' ||
+        resolved?.startsWith('packages/wallet/src/core/signingEngine/assembly')
       ) {
         offenders.push(`${relativePath} -> ${specifier}`);
       }
@@ -361,7 +361,7 @@ function checkOperationModulesAvoidSigningEngineAssemblyConstruction() {
 
 function checkAssemblyCreatePortsStaysThinAggregator() {
   const aggregator = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/assembly/createPorts.ts',
+    'packages/wallet/src/core/signingEngine/assembly/createPorts.ts',
   );
   const operationSpecificMarkers = [
     'resolveThresholdEd25519SessionId',
@@ -511,8 +511,8 @@ function checkAuthPromptAndUiRuntimeBoundariesStayOneWay() {
 
 function checkOperationFlowsUseUiConfirmThroughRuntimePorts() {
   const allowedUiConfirmImports = [
-    'packages/sdk-web/src/core/signingEngine/uiConfirm/uiConfirm.types',
-    'packages/sdk-web/src/core/signingEngine/uiConfirm/ui/export-viewer-host',
+    'packages/wallet/src/core/signingEngine/uiConfirm/uiConfirm.types',
+    'packages/wallet/src/core/signingEngine/uiConfirm/ui/export-viewer-host',
   ];
   const offenders = [];
 
@@ -520,7 +520,7 @@ function checkOperationFlowsUseUiConfirmThroughRuntimePorts() {
     const source = readRepoSource(relativePath);
     for (const specifier of extractImportSpecifiers(source)) {
       const resolved = resolveSigningEngineImport(relativePath, specifier);
-      if (!resolved?.startsWith('packages/sdk-web/src/core/signingEngine/uiConfirm')) {
+      if (!resolved?.startsWith('packages/wallet/src/core/signingEngine/uiConfirm')) {
         continue;
       }
       if (!allowedUiConfirmImports.includes(resolved)) {
@@ -559,7 +559,7 @@ function checkAuthMethodPromptBuildersStayUnderPromptFolders() {
 function checkEcdsaChainTargetPrimitivesLiveInInterfaces() {
   const offenders = [];
 
-  for (const relativePath of listProductionTypeScriptFiles(path.join(repoRoot, 'packages/sdk-web/src'))) {
+  for (const relativePath of listProductionTypeScriptFiles(path.join(repoRoot, 'packages/wallet/src'))) {
     const source = readRepoSource(relativePath);
     if (source.includes('signingEngine/session/operationState/ecdsaChainTarget')) {
       offenders.push(relativePath);
@@ -571,25 +571,25 @@ function checkEcdsaChainTargetPrimitivesLiveInInterfaces() {
 
 function checkSelectedLanesAndOperationStatesAvoidOptionalLifecycleFields() {
   const identity = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/session/identity/laneIdentity.ts',
+    'packages/wallet/src/core/signingEngine/session/identity/laneIdentity.ts',
   );
   const signingLanes = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/session/operationState/lanes.ts',
+    'packages/wallet/src/core/signingEngine/session/operationState/lanes.ts',
   );
   const signingTypes = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/session/operationState/types.ts',
+    'packages/wallet/src/core/signingEngine/session/operationState/types.ts',
   );
   const signingStateMachine = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/flows/shared/signingStateMachine.ts',
+    'packages/wallet/src/core/signingEngine/flows/shared/signingStateMachine.ts',
   );
   const planner = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/session/planning/planner.ts',
+    'packages/wallet/src/core/signingEngine/session/planning/planner.ts',
   );
   const restoreTypes = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/session/sealedRecovery/sealedRecovery.types.ts',
+    'packages/wallet/src/core/signingEngine/session/sealedRecovery/sealedRecovery.types.ts',
   );
   const restoreCoordinator = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/session/sealedRecovery/restoreCoordinator.ts',
+    'packages/wallet/src/core/signingEngine/session/sealedRecovery/restoreCoordinator.ts',
   );
 
   for (const typeName of [
@@ -611,7 +611,7 @@ function checkSelectedLanesAndOperationStatesAvoidOptionalLifecycleFields() {
 
   const sharedFlowFiles = listProductionTypeScriptFiles(path.join(signingEngineRoot, 'flows/shared'));
   assertTrue(
-    !sharedFlowFiles.includes('packages/sdk-web/src/core/signingEngine/flows/shared/operationState.ts'),
+    !sharedFlowFiles.includes('packages/wallet/src/core/signingEngine/flows/shared/operationState.ts'),
     'flows/shared/operationState.ts must stay deleted',
   );
   assertNotContains(signingStateMachine, 'PreparedOperation', 'signingStateMachine.ts');
@@ -668,7 +668,7 @@ function checkSelectedLaneConstructionStaysInSessionIdentity() {
     if (isTypeFixture(relativePath)) {
       continue;
     }
-    if (relativePath === 'packages/sdk-web/src/core/signingEngine/session/identity/laneIdentity.ts') {
+    if (relativePath === 'packages/wallet/src/core/signingEngine/session/identity/laneIdentity.ts') {
       continue;
     }
     const source = readRepoSource(relativePath);
@@ -682,13 +682,13 @@ function checkSelectedLaneConstructionStaysInSessionIdentity() {
 
 function checkSigningExecutionBoundariesAvoidCandidatesAndRawRecords() {
   const executionFiles = [
-    'packages/sdk-web/src/core/signingEngine/flows/signNear/signTransactions.ts',
-    'packages/sdk-web/src/core/signingEngine/flows/signNear/signDelegate.ts',
-    'packages/sdk-web/src/core/signingEngine/flows/signNear/signNep413.ts',
-    'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/transactionExecutor.ts',
-    'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signingFlow.ts',
-    'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signEvmWithUiConfirm.ts',
-    'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signEvmFamilyWithUiConfirmForTempo.ts',
+    'packages/wallet/src/core/signingEngine/flows/signNear/signTransactions.ts',
+    'packages/wallet/src/core/signingEngine/flows/signNear/signDelegate.ts',
+    'packages/wallet/src/core/signingEngine/flows/signNear/signNep413.ts',
+    'packages/wallet/src/core/signingEngine/flows/signEvmFamily/transactionExecutor.ts',
+    'packages/wallet/src/core/signingEngine/flows/signEvmFamily/signingFlow.ts',
+    'packages/wallet/src/core/signingEngine/flows/signEvmFamily/signEvmWithUiConfirm.ts',
+    'packages/wallet/src/core/signingEngine/flows/signEvmFamily/signEvmFamilyWithUiConfirmForTempo.ts',
   ];
   const forbiddenMarkers = [
     'LaneCandidate',
@@ -745,7 +745,7 @@ function checkDeletedDuplicateLaneNamesStayDeleted() {
 function checkThresholdSessionKindHasOneSigningEngineOwner() {
   const offenders = [];
 
-  for (const relativePath of listProductionTypeScriptFiles(path.join(repoRoot, 'packages/sdk-web/src'))) {
+  for (const relativePath of listProductionTypeScriptFiles(path.join(repoRoot, 'packages/wallet/src'))) {
     const source = readRepoSource(relativePath);
     if (
       source.includes('Ed25519SessionKind') ||
@@ -765,10 +765,10 @@ function checkThresholdSessionKindHasOneSigningEngineOwner() {
 
 function checkThresholdProtocolEntrypointsTakeProtocolMaterial() {
   const protocolFiles = [
-    'packages/sdk-web/src/core/signingEngine/threshold/ecdsa/activation.ts',
-    'packages/sdk-web/src/core/signingEngine/threshold/ecdsa/bootstrapSession.ts',
-    'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaDerivation/presignaturePool.ts',
-    'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaDerivation/poolFillRoutes.ts',
+    'packages/wallet/src/core/signingEngine/threshold/ecdsa/activation.ts',
+    'packages/wallet/src/core/signingEngine/threshold/ecdsa/bootstrapSession.ts',
+    'packages/wallet/src/core/signingEngine/routerAb/ecdsaDerivation/presignaturePool.ts',
+    'packages/wallet/src/core/signingEngine/routerAb/ecdsaDerivation/poolFillRoutes.ts',
   ];
   const broadShapeMarkers = [
     'ThresholdEd25519SessionRecord',
@@ -788,7 +788,7 @@ function checkThresholdProtocolEntrypointsTakeProtocolMaterial() {
 
 function checkEd25519WalletSessionMintHelperHasNoLifecycleCache() {
   const source = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/threshold/ed25519/walletSession.ts',
+    'packages/wallet/src/core/signingEngine/threshold/ed25519/walletSession.ts',
   );
 
   for (const marker of [
@@ -804,7 +804,7 @@ function checkEd25519WalletSessionMintHelperHasNoLifecycleCache() {
 
 function checkEd25519ConnectSessionLeavesPersistenceToCallers() {
   const source = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/threshold/ed25519/connectSession.ts',
+    'packages/wallet/src/core/signingEngine/threshold/ed25519/connectSession.ts',
   );
 
   for (const marker of [
@@ -862,15 +862,15 @@ function checkThresholdProtocolModulesDoNotWriteWarmSessionCacheMaterial() {
 function checkSessionChildDomainsDeclareOwnershipReadmes() {
   const requiredHeadings = ['## Owns', '## May Import', '## Must Not Import', '## Entrypoints'];
   const readmePaths = [
-    'packages/sdk-web/src/core/signingEngine/session/identity/README.md',
-    'packages/sdk-web/src/core/signingEngine/session/availability/README.md',
-    'packages/sdk-web/src/core/signingEngine/session/persistence/README.md',
-    'packages/sdk-web/src/core/signingEngine/session/sealedRecovery/README.md',
-    'packages/sdk-web/src/core/signingEngine/session/warmCapabilities/README.md',
-    'packages/sdk-web/src/core/signingEngine/session/passkey/README.md',
-    'packages/sdk-web/src/core/signingEngine/session/emailOtp/README.md',
-    'packages/sdk-web/src/core/signingEngine/session/operationState/README.md',
-    'packages/sdk-web/src/core/signingEngine/session/planning/README.md',
+    'packages/wallet/src/core/signingEngine/session/identity/README.md',
+    'packages/wallet/src/core/signingEngine/session/availability/README.md',
+    'packages/wallet/src/core/signingEngine/session/persistence/README.md',
+    'packages/wallet/src/core/signingEngine/session/sealedRecovery/README.md',
+    'packages/wallet/src/core/signingEngine/session/warmCapabilities/README.md',
+    'packages/wallet/src/core/signingEngine/session/passkey/README.md',
+    'packages/wallet/src/core/signingEngine/session/emailOtp/README.md',
+    'packages/wallet/src/core/signingEngine/session/operationState/README.md',
+    'packages/wallet/src/core/signingEngine/session/planning/README.md',
   ];
 
   for (const relativePath of readmePaths) {
@@ -917,7 +917,7 @@ function checkTargetChildFoldersDoNotImportTargetFlowsModules() {
     const source = readRepoSource(relativePath);
     for (const specifier of extractImportSpecifiers(source)) {
       const resolved = resolveSigningEngineImport(relativePath, specifier);
-      if (resolved?.startsWith('packages/sdk-web/src/core/signingEngine/flows')) {
+      if (resolved?.startsWith('packages/wallet/src/core/signingEngine/flows')) {
         const offender = `${relativePath} -> ${specifier}`;
         if (!allowedSessionFlowImports.has(offender)) {
           offenders.push(offender);
@@ -931,15 +931,15 @@ function checkTargetChildFoldersDoNotImportTargetFlowsModules() {
 
 function checkSessionChildDomainsAvoidFlowAndAssemblyImports() {
   const domains = [
-    'packages/sdk-web/src/core/signingEngine/session/identity',
-    'packages/sdk-web/src/core/signingEngine/session/availability',
-    'packages/sdk-web/src/core/signingEngine/session/planning',
-    'packages/sdk-web/src/core/signingEngine/session/persistence',
-    'packages/sdk-web/src/core/signingEngine/session/sealedRecovery',
-    'packages/sdk-web/src/core/signingEngine/session/operationState',
-    'packages/sdk-web/src/core/signingEngine/session/warmCapabilities',
-    'packages/sdk-web/src/core/signingEngine/session/passkey',
-    'packages/sdk-web/src/core/signingEngine/session/emailOtp',
+    'packages/wallet/src/core/signingEngine/session/identity',
+    'packages/wallet/src/core/signingEngine/session/availability',
+    'packages/wallet/src/core/signingEngine/session/planning',
+    'packages/wallet/src/core/signingEngine/session/persistence',
+    'packages/wallet/src/core/signingEngine/session/sealedRecovery',
+    'packages/wallet/src/core/signingEngine/session/operationState',
+    'packages/wallet/src/core/signingEngine/session/warmCapabilities',
+    'packages/wallet/src/core/signingEngine/session/passkey',
+    'packages/wallet/src/core/signingEngine/session/emailOtp',
   ];
   const forbiddenMarkers = [
     '/flows/',
@@ -973,7 +973,7 @@ function checkSessionChildDomainsAvoidFlowAndAssemblyImports() {
 function checkSealedRecoveryStaysFreeOfMethodFoldersFlowsAndAssembly() {
   const domainRoot = path.join(
     repoRoot,
-    'packages/sdk-web/src/core/signingEngine/session/sealedRecovery',
+    'packages/wallet/src/core/signingEngine/session/sealedRecovery',
   );
   const offenders = [];
 
@@ -985,11 +985,11 @@ function checkSealedRecoveryStaysFreeOfMethodFoldersFlowsAndAssembly() {
         continue;
       }
       if (
-        resolved.startsWith('packages/sdk-web/src/core/signingEngine/session/passkey/') ||
-        resolved.startsWith('packages/sdk-web/src/core/signingEngine/session/emailOtp/') ||
-        resolved.startsWith('packages/sdk-web/src/core/signingEngine/flows/') ||
-        resolved.startsWith('packages/sdk-web/src/core/signingEngine/assembly/') ||
-        resolved === 'packages/sdk-web/src/SeamsWeb/assembly/BrowserSigningSurface'
+        resolved.startsWith('packages/wallet/src/core/signingEngine/session/passkey/') ||
+        resolved.startsWith('packages/wallet/src/core/signingEngine/session/emailOtp/') ||
+        resolved.startsWith('packages/wallet/src/core/signingEngine/flows/') ||
+        resolved.startsWith('packages/wallet/src/core/signingEngine/assembly/') ||
+        resolved === 'packages/wallet/src/SeamsWeb/assembly/BrowserSigningSurface'
       ) {
         offenders.push(`${relativePath} -> ${specifier}`);
       }
@@ -1088,7 +1088,7 @@ function checkSessionChildDomainsUseAllowedSiblingDomains() {
   for (const [sourceDomain, allowedTargets] of Object.entries(allowedSiblingDomains)) {
     const domainRoot = path.join(
       repoRoot,
-      `packages/sdk-web/src/core/signingEngine/session/${sourceDomain}`,
+      `packages/wallet/src/core/signingEngine/session/${sourceDomain}`,
     );
 
     for (const relativePath of listProductionTypeScriptFiles(domainRoot)) {
@@ -1098,11 +1098,11 @@ function checkSessionChildDomainsUseAllowedSiblingDomains() {
       const source = readRepoSource(relativePath);
       for (const specifier of extractImportSpecifiers(source)) {
         const resolved = resolveSigningEngineImport(relativePath, specifier);
-        if (!resolved?.startsWith('packages/sdk-web/src/core/signingEngine/session/')) {
+        if (!resolved?.startsWith('packages/wallet/src/core/signingEngine/session/')) {
           continue;
         }
 
-        const tail = resolved.slice('packages/sdk-web/src/core/signingEngine/session/'.length);
+        const tail = resolved.slice('packages/wallet/src/core/signingEngine/session/'.length);
         const targetDomain = tail.split('/')[0];
         if (!targetDomain || targetDomain === sourceDomain || targetDomain === 'public.ts') {
           continue;
@@ -1130,13 +1130,13 @@ function checkChildSessionDomainsDoNotImportCoordinator() {
     'passkey',
     'emailOtp',
   ];
-  const coordinatorPath = 'packages/sdk-web/src/core/signingEngine/session/SigningSessionCoordinator.ts';
+  const coordinatorPath = 'packages/wallet/src/core/signingEngine/session/SigningSessionCoordinator.ts';
   const offenders = [];
 
   for (const domain of childDomains) {
     const domainRoot = path.join(
       repoRoot,
-      `packages/sdk-web/src/core/signingEngine/session/${domain}`,
+      `packages/wallet/src/core/signingEngine/session/${domain}`,
     );
     for (const relativePath of listProductionTypeScriptFiles(domainRoot)) {
       const source = readRepoSource(relativePath);
@@ -1154,21 +1154,21 @@ function checkChildSessionDomainsDoNotImportCoordinator() {
 
 function checkCoordinatorStaysFreeOfMethodSpecificSessionDomains() {
   const source = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/session/SigningSessionCoordinator.ts',
+    'packages/wallet/src/core/signingEngine/session/SigningSessionCoordinator.ts',
   );
   const offenders = [];
 
   for (const specifier of extractImportSpecifiers(source)) {
     const resolved = resolveSigningEngineImport(
-      'packages/sdk-web/src/core/signingEngine/session/SigningSessionCoordinator.ts',
+      'packages/wallet/src/core/signingEngine/session/SigningSessionCoordinator.ts',
       specifier,
     );
-    if (!resolved?.startsWith('packages/sdk-web/src/core/signingEngine/session/')) {
+    if (!resolved?.startsWith('packages/wallet/src/core/signingEngine/session/')) {
       continue;
     }
     if (
-      resolved.startsWith('packages/sdk-web/src/core/signingEngine/session/passkey/') ||
-      resolved.startsWith('packages/sdk-web/src/core/signingEngine/session/emailOtp/')
+      resolved.startsWith('packages/wallet/src/core/signingEngine/session/passkey/') ||
+      resolved.startsWith('packages/wallet/src/core/signingEngine/session/emailOtp/')
     ) {
       offenders.push(`${specifier} -> ${resolved}`);
     }
@@ -1178,7 +1178,7 @@ function checkCoordinatorStaysFreeOfMethodSpecificSessionDomains() {
 }
 
 function checkCoordinatorOnlyImportsOrchestrationSessionDomains() {
-  const relativePath = 'packages/sdk-web/src/core/signingEngine/session/SigningSessionCoordinator.ts';
+  const relativePath = 'packages/wallet/src/core/signingEngine/session/SigningSessionCoordinator.ts';
   const source = readRepoSource(relativePath);
   const allowedSessionDomains = new Set([
     'planning',
@@ -1194,10 +1194,10 @@ function checkCoordinatorOnlyImportsOrchestrationSessionDomains() {
 
   for (const specifier of extractImportSpecifiers(source)) {
     const resolved = resolveSigningEngineImport(relativePath, specifier);
-    if (!resolved?.startsWith('packages/sdk-web/src/core/signingEngine/session/')) {
+    if (!resolved?.startsWith('packages/wallet/src/core/signingEngine/session/')) {
       continue;
     }
-    const tail = resolved.slice('packages/sdk-web/src/core/signingEngine/session/'.length);
+    const tail = resolved.slice('packages/wallet/src/core/signingEngine/session/'.length);
     const targetDomain = tail.split('/')[0];
     if (!targetDomain || targetDomain === 'SigningSessionCoordinator.ts') {
       continue;
@@ -1216,13 +1216,13 @@ function checkCoordinatorOnlyImportsOrchestrationSessionDomains() {
 function checkSigningFlowsOnlyImportCoordinatorAsSessionCoordinator() {
   const offenders = [];
   const allowedCoordinatorPrefix =
-    'packages/sdk-web/src/core/signingEngine/session/SigningSessionCoordinator';
+    'packages/wallet/src/core/signingEngine/session/SigningSessionCoordinator';
 
   for (const relativePath of listProductionTypeScriptFiles(path.join(signingEngineRoot, 'flows'))) {
     const source = readRepoSource(relativePath);
     for (const specifier of extractImportSpecifiers(source)) {
       const resolved = resolveSigningEngineImport(relativePath, specifier);
-      if (!resolved?.startsWith('packages/sdk-web/src/core/signingEngine/session/')) {
+      if (!resolved?.startsWith('packages/wallet/src/core/signingEngine/session/')) {
         continue;
       }
       if (!resolved.includes('Coordinator')) {

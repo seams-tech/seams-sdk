@@ -20,8 +20,8 @@ of every Console package.
 Rename the public Wallet packages during this refactor:
 
 ```text
-@seams/sdk        -> @seams/wallet
-@seams/sdk-server -> @seams/wallet-server
+@seams/wallet        -> @seams/wallet
+@seams/wallet-server -> @seams/wallet-server
 ```
 
 After the boundary and rename pass, split the monorepo into two repositories:
@@ -180,8 +180,8 @@ ownership inventory and package movement begin.
 
 The repository already has a useful first boundary:
 
-- `@seams/sdk` contains the browser wallet runtime and has no Console dependency.
-- `@seams/sdk-server` contains the signer runtime and exposes a curated
+- `@seams/wallet` contains the browser wallet runtime and has no Console dependency.
+- `@seams/wallet-server` contains the signer runtime and exposes a curated
   `cloud-host` composition surface.
 - `@seams-internal/console-server` and `@seams-internal/console-shared` are
   separate workspace packages.
@@ -189,9 +189,9 @@ The repository already has a useful first boundary:
 
 The remaining coupling prevents the Console from standing on its own:
 
-- `@seams-internal/console-server` directly depends on `@seams/sdk-server`.
+- `@seams-internal/console-server` directly depends on `@seams/wallet-server`.
 - Console modules import wallet-owned D1, logger, random-ID, HTTP, session, and
-  Router API types from `@seams/sdk-server/cloud-host`.
+  Router API types from `@seams/wallet-server/cloud-host`.
 - the Console router is one large optional service bag containing customer
   administration, wallets, sponsorship, policies, key export, billing, and
   platform observability;
@@ -215,7 +215,7 @@ Moving folders alone will not establish the intended boundary.
 ### `refactor-87-signer-console-split.md`
 
 [Refactor 87](./refactor-87-signer-console-split.md) is the completed foundation
-for this work. It moved Console implementation out of `@seams/sdk-server`, made
+for this work. It moved Console implementation out of `@seams/wallet-server`, made
 the signer package free of Console imports, split signer and Console migrations,
 and introduced supported composition exports.
 
@@ -606,7 +606,7 @@ composition root.
 
 ## Removing The `cloud-host` Dependency From Console Core
 
-The current `@seams/sdk-server/cloud-host` entrypoint becomes
+The current `@seams/wallet-server/cloud-host` entrypoint becomes
 `@seams/wallet-server/cloud-host` during the package rename. It remains a
 supported Wallet Console integration surface. Generic Console modules stop
 consuming it for incidental utilities.
@@ -749,7 +749,7 @@ Move platform routes according to Refactor 99B before completing the extraction:
       authorization-session, or legacy email-recovery tables.
 - [ ] Record the current route surfaces for Gateway, Console, and Admin.
 - [ ] Record imports from `console-server-ts` to
-      `@seams/sdk-server/cloud-host` by domain and symbol.
+      `@seams/wallet-server/cloud-host` by domain and symbol.
 - [ ] Record the Console Worker's current signer database, Durable Object, Wasm,
       and key-related bindings.
 - [ ] Classify the root local commands, `router-ab-dev` runtime, combined local
@@ -810,7 +810,7 @@ Exit:
       has a non-Wallet caller; otherwise move it with Wallet sponsorship.
 - [ ] Move Wallet route definitions, request parsers, policy rules, webhook event
       vocabulary, and billing meters with their domains.
-- [ ] Keep supported `@seams/sdk-server/cloud-host` imports inside this package or
+- [ ] Keep supported `@seams/wallet-server/cloud-host` imports inside this package or
       the final composition root until Phase 7 renames the public package.
 - [ ] Define a narrow `WalletControlPort` for commands that cross from the
       Console Worker to the Wallet runtime.
@@ -823,7 +823,7 @@ Exit:
       binding.
 - [ ] Add `createWalletConsoleRouter` with required Wallet services.
 - [ ] Delete moved exports and compatibility aliases from `console-server-ts`.
-- [ ] Remove `@seams/sdk-server` from `console-server-ts/package.json` after its
+- [ ] Remove `@seams/wallet-server` from `console-server-ts/package.json` after its
       last core import is gone.
 
 Exit:
@@ -960,10 +960,10 @@ Exit:
 Perform the rename as one atomic breaking change after the domain boundary is
 stable:
 
-- [ ] Rename package `@seams/sdk` to `@seams/wallet`.
-- [ ] Rename package `@seams/sdk-server` to `@seams/wallet-server`.
-- [ ] Rename `packages/sdk-web` to `packages/wallet` and
-      `packages/sdk-server-ts` to `packages/wallet-server`.
+- [ ] Rename package `@seams/wallet` to `@seams/wallet`.
+- [ ] Rename package `@seams/wallet-server` to `@seams/wallet-server`.
+- [ ] Rename `packages/wallet` to `packages/wallet` and
+      `packages/wallet-server` to `packages/wallet-server`.
 - [ ] Update every manifest, import, export map, declaration rewrite, build
       script, test, example, migration resolver, generated artifact, and document.
 - [ ] Preserve existing runtime class, protocol, route, and storage names unless
@@ -984,7 +984,7 @@ stable:
 
 Exit:
 
-- the repository contains no `@seams/sdk` or `@seams/sdk-server` package or
+- the repository contains no `@seams/wallet` or `@seams/wallet-server` package or
   import;
 - `@seams/wallet` and `@seams/wallet-server` pass clean packed builds;
 - the private hosted composition consumes only exact packed versions;
@@ -1118,7 +1118,7 @@ builds with workspace links and source aliases disabled are the exit gate.
   gate before Refactor 105 moved or renamed their Wallet-owned paths.
 - `@seams/wallet` and `@seams/wallet-server` contain no Console source or
   dependency.
-- `@seams/sdk` and `@seams/sdk-server` no longer exist as packages, imports,
+- `@seams/wallet` and `@seams/wallet-server` no longer exist as packages, imports,
   aliases, or compatibility paths.
 - `@seams-internal/console-shared` and
   `@seams-internal/console-server` build without Wallet SDK packages present.

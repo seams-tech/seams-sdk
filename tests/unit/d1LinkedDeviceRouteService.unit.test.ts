@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
-import { computeLinkedDevicePublicKeyDigestV1 } from '../../packages/sdk-server-ts/src/core/deviceLinking/requestProof';
-import { createD1LinkedDeviceRouteServiceV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking';
-import { D1LinkedDeviceAggregateActivationVerifierV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceAggregateActivationVerifier';
-import { D1LinkedDeviceProvisioningVerifierV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceProvisioningVerifier';
-import type { LinkedDeviceOwnerAuthorizationPortV1 } from '../../packages/sdk-server-ts/src/core/deviceLinking/linkedDeviceSession';
+import { computeLinkedDevicePublicKeyDigestV1 } from '../../packages/wallet-server/src/core/deviceLinking/requestProof';
+import { createD1LinkedDeviceRouteServiceV1 } from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking';
+import { D1LinkedDeviceAggregateActivationVerifierV1 } from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceAggregateActivationVerifier';
+import { D1LinkedDeviceProvisioningVerifierV1 } from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceProvisioningVerifier';
+import type { LinkedDeviceOwnerAuthorizationPortV1 } from '../../packages/wallet-server/src/core/deviceLinking/linkedDeviceSession';
 import {
   parseLinkedDeviceEnrollmentId,
   parseLinkedDeviceId,

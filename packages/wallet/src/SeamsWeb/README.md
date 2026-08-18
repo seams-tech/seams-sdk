@@ -20,7 +20,7 @@ Move shared result types, config types, and browser bridge constants into core
 when core logic needs them.
 
 The embedded SDK implementation lives outside this TypeScript package as a Rust
-crate. Keep native signing-surface scaffolds out of `packages/sdk-web/src`.
+crate. Keep native signing-surface scaffolds out of `packages/wallet/src`.
 
 ## Layout
 

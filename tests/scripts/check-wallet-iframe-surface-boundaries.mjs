@@ -8,7 +8,7 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, '../..');
 const clientRoot = path.join(
   repoRoot,
-  'packages/sdk-web/src/SeamsWeb/walletIframe/client',
+  'packages/wallet/src/SeamsWeb/walletIframe/client',
 );
 const routerPath = path.join(clientRoot, 'router.ts');
 const rendererPath = path.join(clientRoot, 'surface/renderer.ts');

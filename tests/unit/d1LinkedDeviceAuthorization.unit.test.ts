@@ -2,15 +2,15 @@ import { expect, test } from '@playwright/test';
 import {
   AuthorizationService,
   deriveLinkedDeviceWalletSessionIdentityV1,
-} from '../../packages/sdk-server-ts/src/authorization/service';
-import { D1LinkedDeviceWalletSessionIssuerV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceWalletSessionIssuer';
-import { D1LinkedDeviceExecutionAdmissionResolverV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceExecutionAdmissionResolver';
-import { parseLinkedDeviceSessionRecordV1 } from '../../packages/sdk-server-ts/src/core/deviceLinking/linkedDeviceSession';
-import { CloudflareD1AuthorizationStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/authorization/d1AuthorizationStore';
-import { CloudflareD1LaneEnrollmentGateway } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/signingLanes/d1LaneEnrollmentGateway';
-import { CloudflareD1LaneLifecycleStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/signingLanes/d1LaneLifecycleStore';
-import { capabilityPolicyPort } from '../../packages/sdk-server-ts/src/authorization/capabilityPolicy';
-import { buildLinkedDevicePrincipalId } from '../../packages/sdk-server-ts/src/authorization/domain';
+} from '../../packages/wallet-server/src/authorization/service';
+import { D1LinkedDeviceWalletSessionIssuerV1 } from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceWalletSessionIssuer';
+import { D1LinkedDeviceExecutionAdmissionResolverV1 } from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceExecutionAdmissionResolver';
+import { parseLinkedDeviceSessionRecordV1 } from '../../packages/wallet-server/src/core/deviceLinking/linkedDeviceSession';
+import { CloudflareD1AuthorizationStore } from '../../packages/wallet-server/src/router/cloudflare/d1/authorization/d1AuthorizationStore';
+import { CloudflareD1LaneEnrollmentGateway } from '../../packages/wallet-server/src/router/cloudflare/d1/signingLanes/d1LaneEnrollmentGateway';
+import { CloudflareD1LaneLifecycleStore } from '../../packages/wallet-server/src/router/cloudflare/d1/signingLanes/d1LaneLifecycleStore';
+import { capabilityPolicyPort } from '../../packages/wallet-server/src/authorization/capabilityPolicy';
+import { buildLinkedDevicePrincipalId } from '../../packages/wallet-server/src/authorization/domain';
 import {
   parseAuthorizationAuditEventId,
   parseAuthorizedOperationId,
@@ -52,7 +52,7 @@ import {
   createTemporaryD1Database,
   listD1MigrationFiles,
 } from '../helpers/sqliteD1';
-import type { D1DatabaseLike } from '../../packages/sdk-server-ts/src/storage/tenantRoute';
+import type { D1DatabaseLike } from '../../packages/wallet-server/src/storage/tenantRoute';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { sha256Bytes } from '../../packages/shared-ts/src/utils/digests';
 import {

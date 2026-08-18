@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * Assert that all colors from packages/sdk-web/src/theme/palette.json exist as CSS variables
+ * Assert that all colors from packages/wallet/src/theme/palette.json exist as CSS variables
  * in the generated w3a-components.css.
  *
  * Usage:
- *   node packages/sdk-web/scripts/checks/assert-palette-css.mjs [path/to/w3a-components.css]
- * Default cssPath: packages/sdk-web/dist/esm/sdk/w3a-components.css
+ *   node packages/wallet/scripts/checks/assert-palette-css.mjs [path/to/w3a-components.css]
+ * Default cssPath: packages/wallet/dist/esm/sdk/w3a-components.css
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -16,8 +16,8 @@ function resolveSdkRoot() {
   const fromSdk = path.join(cwd, 'src', 'theme', 'palette.json');
   if (fs.existsSync(fromSdk)) return cwd;
 
-  const fromRepo = path.join(cwd, 'packages', 'sdk-web', 'src', 'theme', 'palette.json');
-  if (fs.existsSync(fromRepo)) return path.join(cwd, 'packages', 'sdk-web');
+  const fromRepo = path.join(cwd, 'packages', 'wallet', 'src', 'theme', 'palette.json');
+  if (fs.existsSync(fromRepo)) return path.join(cwd, 'packages', 'wallet');
 
   return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 }

@@ -1,7 +1,7 @@
 # React Entrypoint
 
 `react` exposes the browser React integration for SeamsWeb. The public package
-root is `@seams/sdk/react`.
+root is `@seams/wallet/react`.
 
 ## Exports
 

@@ -144,8 +144,8 @@ Exit criteria:
   - `parseStripeSetupIntentRequest` (if removed)
   - `parseStripeCustomerPortalSessionRequest` (if removed)
 - Remove endpoint handlers from:
-  - `packages/sdk-server-ts/src/router/express/createConsoleRouter.ts`
-  - `packages/sdk-server-ts/src/router/cloudflare/createCloudflareConsoleRouter.ts`
+  - `packages/wallet-server/src/router/express/createConsoleRouter.ts`
+  - `packages/wallet-server/src/router/cloudflare/createCloudflareConsoleRouter.ts`
 - Remove now-unused role guard text/functions related to card actions.
 
 Exit criteria:
@@ -180,8 +180,8 @@ Exit criteria:
 
 - Remove stale exports from:
   - `packages/console-server-ts/src/billing/index.ts`
-  - `packages/sdk-server-ts/src/router/express-adaptor.ts`
-  - `packages/sdk-server-ts/src/router/cloudflare-adaptor.ts`
+  - `packages/wallet-server/src/router/express-adaptor.ts`
+  - `packages/wallet-server/src/router/cloudflare-adaptor.ts`
 - Remove frontend API functions still referencing removed endpoints.
 
 Exit criteria:
@@ -203,7 +203,7 @@ Exit criteria:
 
 ## Verification Checklist
 
-- `rg -n "payment-method|payment_methods|setup-intent|customer-portal|listPaymentMethods|addCardPaymentMethod|removeCardPaymentMethod|setDefaultCardPaymentMethod" packages/sdk-server-ts/src tests apps/seams-site -S` returns only intentional docs/history references.
+- `rg -n "payment-method|payment_methods|setup-intent|customer-portal|listPaymentMethods|addCardPaymentMethod|removeCardPaymentMethod|setDefaultCardPaymentMethod" packages/wallet-server/src tests apps/seams-site -S` returns only intentional docs/history references.
 - Typecheck and tests pass for:
   - SDK server billing modules
   - router suites
@@ -218,11 +218,11 @@ Exit criteria:
 - Completed: backend/service/router/schema cleanup and prepaid readiness refactor.
 - Completed: frontend billing account view and API client no longer reference payment methods, setup intents, or customer portal.
 - Completed: dashboard billing prepaid e2e wiring is back to green on the canonical `/dashboard/billing/account` and `/dashboard/invoices` routes.
-- Completed: final cleanup grep across `packages/sdk-server-ts/src`, `tests`, and `apps/seams-site` now returns only intentional migration/history references.
+- Completed: final cleanup grep across `packages/wallet-server/src`, `tests`, and `apps/seams-site` now returns only intentional migration/history references.
 - Completed: legacy billing plan doc `docs/billing-console.md` was removed so the repo no longer carries a contradictory subscription/payment-method plan.
 - Verification:
   - `pnpm -C apps/seams-site exec tsc --noEmit` passed.
-  - `pnpm --dir packages/sdk-server-ts type-check` passed.
+  - `pnpm --dir packages/wallet-server type-check` passed.
   - Refactor 82 update: live-Postgres relayer suites were deleted. Current billing/router validation lives in `./relayer/console-billing.service.test.ts`, `./relayer/console-d1-adapters.test.ts`, `./relayer/router-api-keys.test.ts`, and `./relayer/console-router.test.ts`.
   - `pnpm -C tests exec playwright test ./e2e/dashboard.billing.console.apiWiring.test.ts --reporter=line` passed (`4 passed`).
   - `pnpm -C tests exec playwright test ./e2e/dashboard.consoleConfigPages.apiWiring.test.ts --reporter=line` is still outside billing scope and may fail due unrelated dashboard UI expectation drift.

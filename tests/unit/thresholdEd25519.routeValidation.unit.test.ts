@@ -7,7 +7,7 @@ import {
 import {
   parseThresholdEd25519OperationStepUpGrantRequest,
   parseThresholdEd25519SessionRouteRequest,
-} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/session/thresholdEd25519RequestValidation';
+} from '../../packages/wallet-server/src/router/domains/ed25519Yao/session/thresholdEd25519RequestValidation';
 
 function validWebAuthnAuthentication(): Record<string, unknown> {
   return {

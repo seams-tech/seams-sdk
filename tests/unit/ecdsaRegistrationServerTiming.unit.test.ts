@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { parseYaoServerTimingBuckets } from '../../packages/sdk-web/src/SeamsWeb/operations/registration/registration';
-import { mergeRouterServerTiming } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1WalletRegistrationService';
+import { parseYaoServerTimingBuckets } from '../../packages/wallet/src/SeamsWeb/operations/registration/registration';
+import { mergeRouterServerTiming } from '../../packages/wallet-server/src/router/cloudflare/d1/registration/d1WalletRegistrationService';
 
 /*
  * Refactor 94B Phase 0. Gateway ECDSA boundary timings ride a `Server-Timing`

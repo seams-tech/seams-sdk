@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { createDeviceLinkingCustodyTransferPortV1 } from '../../packages/sdk-web/src/SeamsWeb/operations/devices/deviceLinkingCustodyTransfer';
-import type { WalletCustodyCeremonyTransportPort } from '../../packages/sdk-web/src/core/signingEngine/walletCustody/ceremonyStepRunner';
+import { createDeviceLinkingCustodyTransferPortV1 } from '../../packages/wallet/src/SeamsWeb/operations/devices/deviceLinkingCustodyTransfer';
+import type { WalletCustodyCeremonyTransportPort } from '../../packages/wallet/src/core/signingEngine/walletCustody/ceremonyStepRunner';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import {
   LINKED_DEVICE_TRANSFER_EPHEMERAL_PUBLIC_KEY_B64U,

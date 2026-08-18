@@ -477,24 +477,24 @@ secret, zero Shamir frontend variables, and no manual exponent or prime setup.
 ### Shared Protocol And Server Crypto
 
 - `packages/shared-ts/src/utils/signingSessionSeal.ts`
-- `packages/sdk-server-ts/package.json`
-- `packages/sdk-server-ts/src/core/types.ts`
-- `packages/sdk-server-ts/src/core/keyMaterialBrands.ts`
-- `packages/sdk-server-ts/src/threshold/session/signingSessionSeal/crypto/cipher.ts`
-- `packages/sdk-server-ts/src/threshold/session/signingSessionSeal/options.ts`
-- `packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthConfig.ts`
-- `packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpServerSealRuntime.ts`
+- `packages/wallet-server/package.json`
+- `packages/wallet-server/src/core/types.ts`
+- `packages/wallet-server/src/core/keyMaterialBrands.ts`
+- `packages/wallet-server/src/threshold/session/signingSessionSeal/crypto/cipher.ts`
+- `packages/wallet-server/src/threshold/session/signingSessionSeal/options.ts`
+- `packages/wallet-server/src/router/cloudflare/d1RouterApiAuthConfig.ts`
+- `packages/wallet-server/src/router/cloudflare/d1EmailOtpServerSealRuntime.ts`
 
 ### Browser And Wasm
 
 - `wasm/shamir3pass_runtime/src/lib.rs`
-- `packages/sdk-web/src/core/signingEngine/workerManager/workers/shamir3pass.worker.ts`
-- `packages/sdk-web/src/core/signingEngine/workerManager/workers/shamir3pass/runtime.ts`
-- `packages/sdk-web/src/core/rpcClients/relayer/sealedRefreshCapabilities.ts`
-- `packages/sdk-web/src/core/config/configBuilder.ts`
-- `packages/sdk-web/src/core/types/seams.ts`
-- `packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore.ts`
-- `packages/sdk-web/src/core/indexedDB/seamsWalletDB/emailOtpDeviceEnrollmentEscrows.ts`
+- `packages/wallet/src/core/signingEngine/workerManager/workers/shamir3pass.worker.ts`
+- `packages/wallet/src/core/signingEngine/workerManager/workers/shamir3pass/runtime.ts`
+- `packages/wallet/src/core/rpcClients/relayer/sealedRefreshCapabilities.ts`
+- `packages/wallet/src/core/config/configBuilder.ts`
+- `packages/wallet/src/core/types/seams.ts`
+- `packages/wallet/src/core/signingEngine/session/persistence/sealedSessionStore.ts`
+- `packages/wallet/src/core/indexedDB/seamsWalletDB/emailOtpDeviceEnrollmentEscrows.ts`
 
 ### Hosted And Local Deployment
 

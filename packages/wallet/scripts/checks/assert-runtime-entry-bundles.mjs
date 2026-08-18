@@ -36,7 +36,7 @@ const forbiddenWalletIframeHostPathPatterns = [
   /(^|\/)react(?:\/|[-.]|$)/i,
   /(^|\/)react-dom(?:\/|[-.]|$)/i,
   /(^|\/)lucide-react(?:\/|[-.]|$)/i,
-  /(?:^|\/)packages\/sdk-web\/src\/react(?:\/|$)/i,
+  /(?:^|\/)packages\/wallet\/src\/react(?:\/|$)/i,
 ];
 const forbiddenWalletIframeHostSourcePatterns = [
   /(?:^|\r?\n)\s*\/\/#region\s+(?:(?:\.\.\/|[^/\r\n]+[\\/]))*src[\\/]react(?:[\\/]|$)/i,
@@ -219,16 +219,16 @@ export function collectRuntimeEntryGraphOffenders(entries = entryFiles, root = d
 async function assertPublicRuntimeValueExports() {
   let runtimeModule;
   try {
-    runtimeModule = await import('@seams/sdk/runtime');
+    runtimeModule = await import('@seams/wallet/runtime');
   } catch (error) {
-    fail(`Failed to import @seams/sdk/runtime from the built package: ${error.message}`);
+    fail(`Failed to import @seams/wallet/runtime from the built package: ${error.message}`);
   }
 
   const missing = expectedRuntimeValueExports.filter(
     (exportName) => typeof runtimeModule[exportName] !== 'function',
   );
   if (missing.length > 0) {
-    fail(`Missing @seams/sdk/runtime value export(s): ${missing.join(', ')}`);
+    fail(`Missing @seams/wallet/runtime value export(s): ${missing.join(', ')}`);
   }
 }
 

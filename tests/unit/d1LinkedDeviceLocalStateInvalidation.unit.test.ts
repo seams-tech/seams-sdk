@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import type { LinkedDeviceManagementTargetV1 } from '../../packages/sdk-server-ts/src/core/deviceLinking/linkedDeviceManagement';
-import { D1LinkedDeviceLocalStateInvalidationV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceLocalStateInvalidation';
+import type { LinkedDeviceManagementTargetV1 } from '../../packages/wallet-server/src/core/deviceLinking/linkedDeviceManagement';
+import { D1LinkedDeviceLocalStateInvalidationV1 } from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceLocalStateInvalidation';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
 import {
   parseLinkedDeviceEnrollmentId,

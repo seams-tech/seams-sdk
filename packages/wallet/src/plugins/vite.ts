@@ -80,7 +80,7 @@ function walletStaticAssetCandidates(fileName: WalletStaticAssetName): string[] 
     path.resolve(MODULE_DIR, '../sdk', fileName),
     path.resolve(MODULE_DIR, '../../public/sdk', fileName),
     path.resolve(process.cwd(), 'src/static/wallet-assets', fileName),
-    path.resolve(process.cwd(), 'packages/sdk-web/src/static/wallet-assets', fileName),
+    path.resolve(process.cwd(), 'packages/wallet/src/static/wallet-assets', fileName),
   ];
 }
 

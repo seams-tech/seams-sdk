@@ -11,7 +11,7 @@ import {
 } from '../../packages/shared-ts/src/utils/routerAbEd25519Yao';
 import { base64UrlDecode, base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { routerAbMpcMaterialActivationRefToWire } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
-import { assertEd25519YaoLaneCeremonyBindingParityV1 } from '../../packages/sdk-web/src/core/signingEngine/threshold/crypto/ed25519YaoLaneWasm';
+import { assertEd25519YaoLaneCeremonyBindingParityV1 } from '../../packages/wallet/src/core/signingEngine/threshold/crypto/ed25519YaoLaneWasm';
 import { buildR102LaneJob } from './helpers/r102LaneGateway.fixtures';
 
 const RECIPIENT_KEY_B64U = base64UrlEncode(new Uint8Array(32).fill(7));

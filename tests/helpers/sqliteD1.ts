@@ -7,7 +7,7 @@ import type {
   D1DatabaseLike,
   D1PreparedStatementLike,
   D1ResultLike,
-} from '../../packages/sdk-server-ts/src/storage/tenantRoute';
+} from '../../packages/wallet-server/src/storage/tenantRoute';
 
 type SqliteJsonRow = Record<string, unknown>;
 
@@ -110,7 +110,7 @@ export type D1MigrationDirectoryName = 'd1-console' | 'd1-signer';
 
 export function listD1MigrationFiles(directoryName: D1MigrationDirectoryName): readonly string[] {
   const packageRoot =
-    directoryName === 'd1-console' ? 'packages/console-server-ts' : 'packages/sdk-server-ts';
+    directoryName === 'd1-console' ? 'packages/console-server-ts' : 'packages/wallet-server';
   const migrationsDir = path.join(repoRoot, packageRoot, 'migrations', directoryName);
   const files: string[] = [];
   for (const fileName of readdirSync(migrationsDir)) {

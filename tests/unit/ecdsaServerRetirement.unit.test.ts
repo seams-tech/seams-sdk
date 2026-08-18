@@ -3,8 +3,8 @@ import {
   buildEcdsaServerRetirementRequestV1,
   parseAndVerifyEcdsaServerRetirementEffectV1,
   type EcdsaServerRetirementExpectationV1,
-} from '../../packages/sdk-server-ts/src/core/signingLanes/ecdsaServerRetirement';
-import type { EcdsaSigningWorkerLaneMaterialIdentityV1 } from '../../packages/sdk-server-ts/src/core/signingLanes/signingWorkerLaneMaterialIdentity';
+} from '../../packages/wallet-server/src/core/signingLanes/ecdsaServerRetirement';
+import type { EcdsaSigningWorkerLaneMaterialIdentityV1 } from '../../packages/wallet-server/src/core/signingLanes/signingWorkerLaneMaterialIdentity';
 import type { EcdsaServerRetirementReceiptV1 } from '../../packages/shared-ts/src/signing-lanes';
 import {
   buildRevokeSigningLaneV1,

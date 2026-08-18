@@ -8,11 +8,11 @@ import {
   handleDeviceLinkingGatewayCompletion,
   LINKED_DEVICE_GATEWAY_COMPLETION_BASE_V1,
   type DeviceLinkingGatewayCompletionServiceV1,
-} from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/deviceLinkingGateway';
-import { parseLinkedDeviceSessionRecordV1 } from '../../packages/sdk-server-ts/src/core/deviceLinking/linkedDeviceSession';
-import type { FetchRouterApiContext } from '../../packages/sdk-server-ts/src/router/transport/fetch/fetchRouter.types';
-import type { RouterApiServiceBag } from '../../packages/sdk-server-ts/src/router/framework/authServicePort';
-import { createFetchRouter } from '../../packages/sdk-server-ts/src/router/transport/fetch/createFetchRouter';
+} from '../../packages/wallet-server/src/router/transport/fetch/routes/deviceLinkingGateway';
+import { parseLinkedDeviceSessionRecordV1 } from '../../packages/wallet-server/src/core/deviceLinking/linkedDeviceSession';
+import type { FetchRouterApiContext } from '../../packages/wallet-server/src/router/transport/fetch/fetchRouter.types';
+import type { RouterApiServiceBag } from '../../packages/wallet-server/src/router/framework/authServicePort';
+import { createFetchRouter } from '../../packages/wallet-server/src/router/transport/fetch/createFetchRouter';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
 
 test('authenticates the Gateway before parsing completion JSON', async () => {

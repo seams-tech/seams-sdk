@@ -5,7 +5,7 @@ import { expect, test } from '@playwright/test';
 import {
   buildWalletCustodyRegistrationRecords,
   type WalletCustodyCeremonyCommitPayload,
-} from '../../packages/sdk-server-ts/src/router/domains/passkeyCustody/walletCustodyRegistrationCommit';
+} from '../../packages/wallet-server/src/router/domains/passkeyCustody/walletCustodyRegistrationCommit';
 import {
   buildEmailOtpEnvelopeFactor,
   buildPasskeyEnvelopeFactor,

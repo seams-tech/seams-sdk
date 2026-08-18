@@ -14,7 +14,7 @@ function parseArguments(argv) {
     includeUntracked: false,
     output: '',
     sdkServerTarball: '',
-    sdkWebTarball: '',
+    walletTarball: '',
   };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
@@ -32,8 +32,8 @@ function parseArguments(argv) {
       index += 1;
       continue;
     }
-    if (argument === '--sdk-web-tarball') {
-      options.sdkWebTarball = path.resolve(argv[index + 1] || '');
+    if (argument === '--wallet-tarball') {
+      options.walletTarball = path.resolve(argv[index + 1] || '');
       index += 1;
       continue;
     }
@@ -97,11 +97,11 @@ function publicRootPackage() {
     type: 'module',
     packageManager: packageManagerVersion(),
     scripts: {
-      'build:wasm': 'pnpm -C packages/sdk-web build:wasm',
+      'build:wasm': 'pnpm -C packages/wallet build:wasm',
       build:
-        'pnpm run build:wasm && pnpm -C packages/sdk-server-ts build && pnpm -C packages/sdk-web build:sdk',
+        'pnpm run build:wasm && pnpm -C packages/wallet-server build && pnpm -C packages/wallet build:sdk',
       'type-check':
-        'pnpm run build:wasm && pnpm -C packages/sdk-server-ts type-check && pnpm -C packages/sdk-web type-check',
+        'pnpm run build:wasm && pnpm -C packages/wallet-server type-check && pnpm -C packages/wallet type-check',
       'build:self-host':
         'pnpm -C examples/self-host-cloudflare-worker exec wrangler deploy --dry-run',
     },
@@ -144,8 +144,8 @@ function repositoryReadme(repositoryName) {
       '',
       'Published packages:',
       '',
-      '- `@seams/sdk`',
-      '- `@seams/sdk-server`',
+      '- `@seams/wallet`',
+      '- `@seams/wallet-server`',
       '',
       'The hosted dashboard, organization management, billing, email, and policy',
       'management services are maintained separately.',
@@ -178,10 +178,10 @@ function writeRootFiles(repositoryName, repository, destination) {
 }
 
 function publicDependencyValue(packageName, options) {
-  if (packageName === '@seams/sdk' && options.sdkWebTarball) {
-    return `file:${options.sdkWebTarball}`;
+  if (packageName === '@seams/wallet' && options.walletTarball) {
+    return `file:${options.walletTarball}`;
   }
-  if (packageName === '@seams/sdk-server' && options.sdkServerTarball) {
+  if (packageName === '@seams/wallet-server' && options.sdkServerTarball) {
     return `file:${options.sdkServerTarball}`;
   }
   return manifest.publicSdkVersion;
@@ -196,7 +196,7 @@ function pinPrivatePublicDependencies(destination, options) {
   for (const relativePath of packageFiles) {
     const packagePath = path.join(destination, relativePath);
     const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
-    for (const dependencyName of ['@seams/sdk', '@seams/sdk-server']) {
+    for (const dependencyName of ['@seams/wallet', '@seams/wallet-server']) {
       if (!packageJson.dependencies?.[dependencyName]) continue;
       packageJson.dependencies[dependencyName] = publicDependencyValue(dependencyName, options);
     }

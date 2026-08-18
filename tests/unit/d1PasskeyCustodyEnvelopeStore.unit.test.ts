@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { CloudflareD1PasskeyCustodyEnvelopeStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/passkeyCustody/d1PasskeyCustodyEnvelopeStore';
-import type { D1DatabaseLike } from '../../packages/sdk-server-ts/src/storage/tenantRoute';
+import { CloudflareD1PasskeyCustodyEnvelopeStore } from '../../packages/wallet-server/src/router/cloudflare/d1/passkeyCustody/d1PasskeyCustodyEnvelopeStore';
+import type { D1DatabaseLike } from '../../packages/wallet-server/src/storage/tenantRoute';
 import type {
   PasskeyEnvelopeId,
   WalletId,

@@ -49,7 +49,7 @@ const fixtureTargets = Object.freeze([
     configField: 'gatewayConfigPath',
     fixtureField: 'signerFixturePath',
     allowedTableNames: readD1MigrationTableNames(
-      '../wallet-console-server-ts/node_modules/@seams/sdk-server/migrations/d1-signer',
+      '../wallet-console-server-ts/node_modules/@seams/wallet-server/migrations/d1-signer',
     ),
   }),
 ]);

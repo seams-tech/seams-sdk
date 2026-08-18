@@ -1,22 +1,22 @@
 import { expect, test } from '@playwright/test';
-import type { AuthenticatorPort } from '../../packages/sdk-web/src/core/platform';
-import type { HttpTransport } from '../../packages/sdk-web/src/core/platform/http';
+import type { AuthenticatorPort } from '../../packages/wallet/src/core/platform';
+import type { HttpTransport } from '../../packages/wallet/src/core/platform/http';
 import {
   createDeviceLinkingFlowPortsV1,
   type DeviceLinkingFlowPortsAssemblyOptionsV1,
-} from '../../packages/sdk-web/src/SeamsWeb/operations/devices/deviceLinkingComposition';
+} from '../../packages/wallet/src/SeamsWeb/operations/devices/deviceLinkingComposition';
 import {
   createDeviceLinkingKeyMaterialPortV1,
   type DeviceLinkingWorkerEndpointV1,
-} from '../../packages/sdk-web/src/SeamsWeb/operations/devices/deviceLinkingWorkerChannels';
+} from '../../packages/wallet/src/SeamsWeb/operations/devices/deviceLinkingWorkerChannels';
 import {
   resolveWalletHostInternalOptionsV1,
-} from '../../packages/sdk-web/src/SeamsWeb/walletIframe/host/context';
-import type { DeviceLinkingOwnerAuthorizationPortV1 } from '../../packages/sdk-web/src/SeamsWeb/operations/devices/deviceLinkingPorts';
+} from '../../packages/wallet/src/SeamsWeb/walletIframe/host/context';
+import type { DeviceLinkingOwnerAuthorizationPortV1 } from '../../packages/wallet/src/SeamsWeb/operations/devices/deviceLinkingPorts';
 import type {
   LinkSessionOwnerApprovalUpdatesPortV1,
   LinkSessionOwnerAuthenticatedRequestPortV1,
-} from '../../packages/sdk-web/src/SeamsWeb/operations/devices/deviceLinkingOwnerTransport';
+} from '../../packages/wallet/src/SeamsWeb/operations/devices/deviceLinkingOwnerTransport';
 
 class IdleWorkerEndpoint {
   addEventListener(): void {}

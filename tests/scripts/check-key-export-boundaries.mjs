@@ -6,17 +6,17 @@ import { fileURLToPath } from 'node:url';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, '../..');
-const accountMenuPath = 'packages/sdk-web/src/react/components/AccountMenuButton/index.tsx';
+const accountMenuPath = 'packages/wallet/src/react/components/AccountMenuButton/index.tsx';
 const exportKeysSectionPath =
-  'packages/sdk-web/src/react/components/AccountMenuButton/ExportKeysSection.tsx';
-const reactStylesPath = 'packages/sdk-web/src/react/styles.css';
-const keyExportFlowPath = 'packages/sdk-web/src/core/signingEngine/flows/recovery/keyExportFlow.ts';
+  'packages/wallet/src/react/components/AccountMenuButton/ExportKeysSection.tsx';
+const reactStylesPath = 'packages/wallet/src/react/styles.css';
+const keyExportFlowPath = 'packages/wallet/src/core/signingEngine/flows/recovery/keyExportFlow.ts';
 const ed25519YaoExportFlowPath =
-  'packages/sdk-web/src/core/signingEngine/flows/recovery/ed25519YaoExportFlow.ts';
+  'packages/wallet/src/core/signingEngine/flows/recovery/ed25519YaoExportFlow.ts';
 const ed25519YaoClientPath =
-  'packages/sdk-web/src/core/signingEngine/threshold/ed25519/yaoClient.ts';
+  'packages/wallet/src/core/signingEngine/threshold/ed25519/yaoClient.ts';
 const passkeyMpcExportRuntimePath =
-  'packages/sdk-web/src/core/signingEngine/workerManager/workers/passkeyMpcExportRuntime.ts';
+  'packages/wallet/src/core/signingEngine/workerManager/workers/passkeyMpcExportRuntime.ts';
 
 function absolutePath(relativePath) {
   return path.join(repoRoot, relativePath);

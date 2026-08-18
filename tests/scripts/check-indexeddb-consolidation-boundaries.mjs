@@ -9,7 +9,7 @@ const repoRoot = path.resolve(scriptDir, '../..');
 
 const rawIndexedDbPattern =
   /\bIDB(?:Database|Transaction|ObjectStore|Request|OpenDBRequest|Factory|Index|KeyRange)\b|indexedDB\.open\(/;
-const allowedRuntimePrefixes = ['packages/sdk-web/src/core/indexedDB/'];
+const allowedRuntimePrefixes = ['packages/wallet/src/core/indexedDB/'];
 const directClientDbPattern =
   /\b(?:IndexedDBManager|deps\.indexedDB|args\.indexedDB|args\.deps\.indexedDB|ctx\.indexedDB)\.clientDB\b/;
 
@@ -48,12 +48,12 @@ function collectCanonicalWalletDbConstantViolations() {
   }
 
   const repositorySource = readRepoSource(
-    'packages/sdk-web/src/core/indexedDB/seamsWalletDB/signingSessionSeals.ts',
+    'packages/wallet/src/core/indexedDB/seamsWalletDB/signingSessionSeals.ts',
   );
   for (const forbidden of ['SIGNING_SESSION_SEAL_DB_NAME', 'SIGNING_SESSION_SEAL_DB_VERSION']) {
     if (repositorySource.includes(forbidden)) {
       violations.push(
-        `packages/sdk-web/src/core/indexedDB/seamsWalletDB/signingSessionSeals.ts: contains ${forbidden}`,
+        `packages/wallet/src/core/indexedDB/seamsWalletDB/signingSessionSeals.ts: contains ${forbidden}`,
       );
     }
   }
@@ -63,7 +63,7 @@ function collectCanonicalWalletDbConstantViolations() {
 
 function collectRawIndexedDbViolations() {
   const sourceFiles = [
-    ...listTypeScriptFiles('packages/sdk-web/src'),
+    ...listTypeScriptFiles('packages/wallet/src'),
     ...listTypeScriptFiles('packages/shared-ts/src'),
   ];
 
@@ -74,9 +74,9 @@ function collectRawIndexedDbViolations() {
 }
 
 function collectDirectClientDbViolations() {
-  return listTypeScriptFiles('packages/sdk-web/src')
+  return listTypeScriptFiles('packages/wallet/src')
     .filter(
-      (relativePath) => relativePath !== 'packages/sdk-web/src/core/indexedDB/unifiedIndexedDBManager.ts',
+      (relativePath) => relativePath !== 'packages/wallet/src/core/indexedDB/unifiedIndexedDBManager.ts',
     )
     .filter((relativePath) => directClientDbPattern.test(readRepoSource(relativePath)));
 }

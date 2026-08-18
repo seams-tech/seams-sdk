@@ -1,13 +1,13 @@
 import { expect, test } from '@playwright/test';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
 import { buildR102EcdsaLaneJob, buildR102LaneJob } from './helpers/r102LaneGateway.fixtures';
-import type { ActiveOwnerWalletExecutionLaneProjection } from '../../packages/sdk-server-ts/src/core/signingLanes/WalletExecutionLaneProjection';
-import type { D1LinkedDeviceOwnerPlanningSnapshotInputV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceOwnerPlanningSnapshotStore';
-import { D1LinkedDeviceOwnerPlanningSnapshotWriterV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceOwnerPlanningSnapshotWriter';
+import type { ActiveOwnerWalletExecutionLaneProjection } from '../../packages/wallet-server/src/core/signingLanes/WalletExecutionLaneProjection';
+import type { D1LinkedDeviceOwnerPlanningSnapshotInputV1 } from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceOwnerPlanningSnapshotStore';
+import { D1LinkedDeviceOwnerPlanningSnapshotWriterV1 } from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceOwnerPlanningSnapshotWriter';
 import type {
   D1LinkedDeviceOwnerPlanningDeploymentChildV1,
   D1LinkedDeviceOwnerPlanningDeploymentPlanV1,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceOwnerPlanningSnapshotWriter';
+} from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceOwnerPlanningSnapshotWriter';
 import {
   buildEd25519WalletKeyRecord,
   buildEvmFamilyWalletKeyRecord,

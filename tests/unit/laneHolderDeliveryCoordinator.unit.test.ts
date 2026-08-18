@@ -1,24 +1,24 @@
 import { expect, test } from '@playwright/test';
-import { deliverLaneHolderPackageV1 } from '../../packages/sdk-web/src/core/signingEngine/session/lanes/operations/holderDeliveryCoordinator';
+import { deliverLaneHolderPackageV1 } from '../../packages/wallet/src/core/signingEngine/session/lanes/operations/holderDeliveryCoordinator';
 import {
   prepareLaneHolderRecipientV1,
   sealLaneHolderMaterialV1,
-} from '../../packages/sdk-web/src/core/signingEngine/session/lanes/operations/recipientPreparation';
+} from '../../packages/wallet/src/core/signingEngine/session/lanes/operations/recipientPreparation';
 import type {
   LaneEnrollmentGatewayV1,
   LaneHolderPackageWireV1,
   LaneHolderRecipientWorkerV1,
   LaneProtocolCasResultV1,
 } from '../../packages/shared-ts/src/signing-lanes/rotation';
-import type { LaneSealedHolderRecordV1 } from '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
+import type { LaneSealedHolderRecordV1 } from '../../packages/wallet/src/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
 import {
   LaneSealedHolderMaterialRepository,
   laneSealedHolderStoreKeyV1,
-} from '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
+} from '../../packages/wallet/src/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
 import {
   SigningSessionSealsRepository,
   type StoredRawSealedRecordEntry,
-} from '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/signingSessionSeals';
+} from '../../packages/wallet/src/core/indexedDB/seamsWalletDB/signingSessionSeals';
 import { parseLaneHolderPackageWireV1 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
 import { parseLaneHolderRecipientHandleV1 } from '../../packages/shared-ts/src/utils/domainIds';
 import {

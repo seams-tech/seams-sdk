@@ -1,5 +1,5 @@
-import type { SeamsWeb } from '@seams/sdk';
-import { SeamsAuthMenu, SHAPE_PRESETS, Theme } from '@seams/sdk/react';
+import type { SeamsWeb } from '@seams/wallet';
+import { SeamsAuthMenu, SHAPE_PRESETS, Theme } from '@seams/wallet/react';
 
 const colors = {
   colorBackground: '#ffffff',

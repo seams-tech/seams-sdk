@@ -35,15 +35,15 @@ import * as ts from 'typescript';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const standaloneCheckerPath = 'tests/scripts/check-cloudflare-d1-runtime-boundaries.mjs';
 const cloudflareRuntimeRoots = [
-  'packages/sdk-server-ts/src/router/cloudflare-adaptor.ts',
-  ...listTypeScriptFiles('packages/sdk-server-ts/src/router/cloudflare'),
+  'packages/wallet-server/src/router/cloudflare-adaptor.ts',
+  ...listTypeScriptFiles('packages/wallet-server/src/router/cloudflare'),
 ].filter(isRuntimeSourceFile);
 const routerAbLocalDevScriptRoot = 'crates/router-ab-dev/scripts';
 const ciWorkflowPath = '.github/workflows/validate-repository.yml';
 const gitignorePath = '.gitignore';
 const refactor82PlanPath = 'docs/refactor-82-cloudflare-D1-migration.md';
 const sdkServerReadmePath = 'packages/console-server-ts/README.md';
-const sdkServerTsconfigPath = 'packages/sdk-server-ts/tsconfig.json';
+const sdkServerTsconfigPath = 'packages/wallet-server/tsconfig.json';
 const webServerPackagePath = 'apps/web-server/package.json';
 const accountSettingsDocPath = 'docs/saas/account-settings.md';
 const apiKeysDocPath = 'docs/saas/api-keys.md';
@@ -64,30 +64,30 @@ const observabilityDocPaths = [
   'docs/saas/observability-events-3.md',
   'docs/saas/observability-events-4.md',
 ];
-const authServicePath = 'packages/sdk-server-ts/src/core/AuthService.ts';
+const authServicePath = 'packages/wallet-server/src/core/AuthService.ts';
 const walletRegistrationRoutesPath =
-  'packages/sdk-server-ts/src/router/domains/walletRegistration/walletRegistrationRoutes.ts';
+  'packages/wallet-server/src/router/domains/walletRegistration/walletRegistrationRoutes.ts';
 const syncAccountRequestValidationPath =
-  'packages/sdk-server-ts/src/router/domains/syncAccount/syncAccountRequestValidation.ts';
-const authServicePortPath = 'packages/sdk-server-ts/src/router/framework/authServicePort.ts';
-const authServiceWebAuthnPath = 'packages/sdk-server-ts/src/core/authService/webauthn.ts';
+  'packages/wallet-server/src/router/domains/syncAccount/syncAccountRequestValidation.ts';
+const authServicePortPath = 'packages/wallet-server/src/router/framework/authServicePort.ts';
+const authServiceWebAuthnPath = 'packages/wallet-server/src/core/authService/webauthn.ts';
 const d1WebAuthnAuthServicePath =
-  'packages/sdk-server-ts/src/router/cloudflare/d1/webauthn/d1WebAuthnAuthService.ts';
-const sdkWebSyncAccountPath = 'packages/sdk-web/src/SeamsWeb/operations/recovery/syncAccount.ts';
-const sdkServerCoreTypesPath = 'packages/sdk-server-ts/src/core/types.ts';
-const routeDefinitionsPath = 'packages/sdk-server-ts/src/router/framework/routeDefinitions.ts';
+  'packages/wallet-server/src/router/cloudflare/d1/webauthn/d1WebAuthnAuthService.ts';
+const sdkWebSyncAccountPath = 'packages/wallet/src/SeamsWeb/operations/recovery/syncAccount.ts';
+const sdkServerCoreTypesPath = 'packages/wallet-server/src/core/types.ts';
+const routeDefinitionsPath = 'packages/wallet-server/src/router/framework/routeDefinitions.ts';
 const routeExecutionContextPath =
-  'packages/sdk-server-ts/src/router/framework/routeExecutionContext.ts';
+  'packages/wallet-server/src/router/framework/routeExecutionContext.ts';
 const d1RegistrationIntentServicePath =
-  'packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1RegistrationIntentService.ts';
+  'packages/wallet-server/src/router/cloudflare/d1/registration/d1RegistrationIntentService.ts';
 const d1WalletRegistrationServicePath =
-  'packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1WalletRegistrationService.ts';
+  'packages/wallet-server/src/router/cloudflare/d1/registration/d1WalletRegistrationService.ts';
 const d1RegistrationCeremonyRecordsPath =
-  'packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1RegistrationCeremonyRecords.ts';
+  'packages/wallet-server/src/router/cloudflare/d1/registration/d1RegistrationCeremonyRecords.ts';
 const d1RegistrationCeremonyStorePath =
-  'packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1RegistrationCeremonyStore.ts';
+  'packages/wallet-server/src/router/cloudflare/d1/registration/d1RegistrationCeremonyStore.ts';
 const d1RegistrationCeremonyDoPath =
-  'packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyDo.ts';
+  'packages/wallet-server/src/router/cloudflare/d1RegistrationCeremonyDo.ts';
 const forbiddenCloudflarePostgresEnvTokens = [
   'POSTGRES_URL',
   'CONSOLE_POSTGRES_URL',
@@ -180,7 +180,7 @@ const forbiddenSdkServerTsconfigPostgresPatterns = [
 const staleBillingCleanupValidationPatterns = [
   {
     pattern: /\bserver\/src\b/,
-    message: 'references the old server/src tree instead of packages/sdk-server-ts/src',
+    message: 'references the old server/src tree instead of packages/wallet-server/src',
   },
   {
     pattern: /\bexamples\/seams-site\b/,
@@ -454,7 +454,7 @@ const staleGeneralizedGasSponsorshipDocPatterns = [
   },
   {
     pattern: /(^|[\s([`])server\/src\b/,
-    message: 'references the old server/src tree instead of packages/sdk-server-ts/src',
+    message: 'references the old server/src tree instead of packages/wallet-server/src',
   },
   {
     pattern: /\bexamples\/seams-site\b/,
@@ -473,7 +473,7 @@ const staleGeneralizedGasSponsorshipDocPatterns = [
     message: 'references the deleted signed delegate relay route filename',
   },
   {
-    pattern: /\b(?:web|relay)-packages\/sdk-server-ts\b/,
+    pattern: /\b(?:web|relay)-packages\/wallet-server\b/,
     message: 'contains a bad chained path replacement from the old relay-server path',
   },
   {
@@ -488,7 +488,7 @@ const staleGasAndSigningPoliciesDocPatterns = [
   },
   {
     pattern: /\]\(.*\bserver\/src\//,
-    message: 'links to the old server/src tree instead of packages/sdk-server-ts/src',
+    message: 'links to the old server/src tree instead of packages/wallet-server/src',
   },
   {
     pattern: /\]\(.*\bexamples\/seams-site\//,
@@ -502,7 +502,7 @@ const stalePolicyEngineDocPatterns = [
   },
   {
     pattern: /\]\(.*\bserver\/src\//,
-    message: 'links to the old server/src tree instead of packages/sdk-server-ts/src',
+    message: 'links to the old server/src tree instead of packages/wallet-server/src',
   },
   {
     pattern: /\]\(.*\bexamples\/seams-site\//,
@@ -544,7 +544,7 @@ const staleSponsorshipPolicyDocPatterns = [
   },
   {
     pattern: /\]\(.*\bserver\/src\//,
-    message: 'links to the old server/src tree instead of packages/sdk-server-ts/src',
+    message: 'links to the old server/src tree instead of packages/wallet-server/src',
   },
   {
     pattern: /\]\(.*\bexamples\/seams-site\//,
@@ -554,7 +554,7 @@ const staleSponsorshipPolicyDocPatterns = [
 const staleObservabilityDocPatterns = [
   {
     pattern: /\bserver\/src\b/,
-    message: 'references the old server/src tree instead of packages/sdk-server-ts/src',
+    message: 'references the old server/src tree instead of packages/wallet-server/src',
   },
   {
     pattern: /\bexamples\/seams-site\b/,
@@ -580,7 +580,7 @@ const staleSaasFrontendDocPatterns = [
     message: 'references the removed VitePress site config instead of the React app router',
   },
 ];
-const sharedD1HelperPath = 'packages/sdk-server-ts/src/storage/d1Sql.ts';
+const sharedD1HelperPath = 'packages/wallet-server/src/storage/d1Sql.ts';
 const sharedSqliteD1TestHelperPath = 'tests/helpers/sqliteD1.ts';
 const cloudflareD1ConsoleServicesPath =
   'packages/console-server-ts/src/router/cloudflare/d1ConsoleServices.ts';
@@ -591,12 +591,12 @@ const cloudflareD1LocalDevWorkerPath =
 const cloudflareD1RouterApiStagingWorkerPath =
   'packages/console-server-ts/src/router/cloudflare/d1RouterApiStagingWorker.ts';
 const cloudflareD1RouterApiAuthServicePath =
-  'packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthService.ts';
+  'packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthService.ts';
 const cloudflareD1EmailOtpRecoveryServicePath =
-  'packages/sdk-server-ts/src/router/cloudflare/d1/emailOtp/d1EmailOtpRecoveryService.ts';
-const authServiceEmailOtpGrantPath = 'packages/sdk-server-ts/src/core/authService/emailOtpGrant.ts';
+  'packages/wallet-server/src/router/cloudflare/d1/emailOtp/d1EmailOtpRecoveryService.ts';
+const authServiceEmailOtpGrantPath = 'packages/wallet-server/src/core/authService/emailOtpGrant.ts';
 const oldCloudflareD1RelayStagingWorkerPath =
-  'packages/sdk-server-ts/src/router/cloudflare/d1RelayStagingWorker.ts';
+  'packages/wallet-server/src/router/cloudflare/d1RelayStagingWorker.ts';
 const oldRelayApiKeysTestPath = 'tests/relayer/relay-api-keys.test.ts';
 const oldRouterApiHarnessScriptPaths = [
   'tests/scripts/provision-relay-server.mjs',
@@ -606,7 +606,7 @@ const oldWebServerTestPaths = [
   'tests/unit/relayServer.consoleConfig.unit.test.ts',
   'tests/unit/relayServer.stripeBillingProvider.unit.test.ts',
 ];
-const oldExpressTypeShimPath = 'packages/sdk-server-ts/src/router/express-shim.d.ts';
+const oldExpressTypeShimPath = 'packages/wallet-server/src/router/express-shim.d.ts';
 const deletedDuplicateTestSetupMockPaths = [
   'tests/setup/route-mocks.ts',
   'tests/setup/intercepts.ts',
@@ -629,15 +629,15 @@ const activeRouterApiTextPaths = [
   'docs/auth-provider-integrations/google-oidc.md',
   'docs/auth-provider-integrations/okta.md',
   'docs/auth-provider-integrations/quickstarts-clerk-supabase-firebase.md',
-  'packages/sdk-server-ts/src/README.md',
+  'packages/wallet-server/src/README.md',
   'packages/console-server-ts/README.md',
-  'packages/sdk-web/README.md',
+  'packages/wallet/README.md',
   'tests/README.md',
-  'packages/sdk-server-ts/src/core/routerAbSigning/createCloudflareDurableObjectRouterAbSigningRuntimes.ts',
-  'packages/sdk-server-ts/src/core/defaultConfigsServer.ts',
+  'packages/wallet-server/src/core/routerAbSigning/createCloudflareDurableObjectRouterAbSigningRuntimes.ts',
+  'packages/wallet-server/src/core/defaultConfigsServer.ts',
   'packages/console-server-ts/src/router/cloudflare/d1ConsoleServices.ts',
-  'packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1RegistrationCeremonyStore.ts',
-  'packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthConfig.ts',
+  'packages/wallet-server/src/router/cloudflare/d1/registration/d1RegistrationCeremonyStore.ts',
+  'packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthConfig.ts',
   'docs/saas/bring-you-own-auth.md',
   'tests/unit/cloudflareD1ConsoleServices.unit.test.ts',
   'tests/unit/cloudflareD1RouterApiEmailOtp.unit.test.ts',
@@ -818,23 +818,23 @@ const d1StagingCliHelperScripts = listJavaScriptFiles('packages/console-server-t
 );
 const publicRegistrationRequestConstructionFiles = [
   ...listTypeScriptLikeFiles('apps/seams-site/src'),
-  'packages/sdk-web/src/SeamsWeb/SeamsWeb.ts',
-  'packages/sdk-web/src/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow.ts',
-  'packages/sdk-web/src/SeamsWeb/operations/evm/index.ts',
-  'packages/sdk-web/src/SeamsWeb/operations/near/index.ts',
-  'packages/sdk-web/src/SeamsWeb/operations/registration/registrationSignerSet.ts',
-  'packages/sdk-web/src/SeamsWeb/publicInputs.typecheck.ts',
-  'packages/sdk-web/src/SeamsWeb/walletIframe/SeamsWebIframe.ts',
+  'packages/wallet/src/SeamsWeb/SeamsWeb.ts',
+  'packages/wallet/src/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow.ts',
+  'packages/wallet/src/SeamsWeb/operations/evm/index.ts',
+  'packages/wallet/src/SeamsWeb/operations/near/index.ts',
+  'packages/wallet/src/SeamsWeb/operations/registration/registrationSignerSet.ts',
+  'packages/wallet/src/SeamsWeb/publicInputs.typecheck.ts',
+  'packages/wallet/src/SeamsWeb/walletIframe/SeamsWebIframe.ts',
 ];
 const publicRegistrationTypeSurfaceFiles = [
-  'packages/sdk-web/src/index.ts',
-  'packages/sdk-web/src/react/index.ts',
-  'packages/sdk-web/src/SeamsWeb/publicApi/types.ts',
-  'packages/sdk-web/src/SeamsWeb/walletIframe/shared/messages.ts',
+  'packages/wallet/src/index.ts',
+  'packages/wallet/src/react/index.ts',
+  'packages/wallet/src/SeamsWeb/publicApi/types.ts',
+  'packages/wallet/src/SeamsWeb/walletIframe/shared/messages.ts',
 ];
 const removedRegistrationSignerSelectionFileBasename = `registrationSigner${'Selection'}`;
 const registrationSignerFilenameScanRoots = [
-  'packages/sdk-web/src/SeamsWeb/operations/registration',
+  'packages/wallet/src/SeamsWeb/operations/registration',
   'tests/unit',
 ];
 const forbiddenPublicRegistrationLegacySelectionTokens = [
@@ -1128,7 +1128,7 @@ const forbiddenD1StagingCliHelperPatterns = [
     message: 'defines local Wrangler R2 command formatting instead of d1-staging-config',
   },
   {
-    pattern: /pnpm --dir packages\/sdk-server-ts exec wrangler/,
+    pattern: /pnpm --dir packages\/wallet-server exec wrangler/,
     message: 'formats Wrangler package commands outside d1-staging-config',
   },
   {
@@ -1223,13 +1223,13 @@ const forbiddenSdkServerPostgresRuntimePatterns = [
   },
 ];
 const coreOrchestrationPortOnlyFiles = [
-  'packages/sdk-server-ts/src/core/AuthService.ts',
-  'packages/sdk-server-ts/src/core/SessionService.ts',
-  'packages/sdk-server-ts/src/core/routerAbSigning/RouterAbNormalSigningRuntime.ts',
-  'packages/sdk-server-ts/src/core/routerAbSigning/RouterAbEcdsaPresignRuntime.ts',
-  'packages/sdk-server-ts/src/core/routerAbSigning/createRouterAbSigningRuntimes.ts',
-  'packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaDerivationPoolFillHandlers.ts',
-  'packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaDerivationPresignBridge.ts',
+  'packages/wallet-server/src/core/AuthService.ts',
+  'packages/wallet-server/src/core/SessionService.ts',
+  'packages/wallet-server/src/core/routerAbSigning/RouterAbNormalSigningRuntime.ts',
+  'packages/wallet-server/src/core/routerAbSigning/RouterAbEcdsaPresignRuntime.ts',
+  'packages/wallet-server/src/core/routerAbSigning/createRouterAbSigningRuntimes.ts',
+  'packages/wallet-server/src/core/ThresholdService/routerAb/ecdsaDerivationPoolFillHandlers.ts',
+  'packages/wallet-server/src/core/ThresholdService/routerAb/ecdsaDerivationPresignBridge.ts',
 ];
 const forbiddenCoreOrchestrationPersistencePatterns = [
   {
@@ -1312,7 +1312,7 @@ function listJavaScriptFiles(relativeDir) {
   return files.sort();
 }
 function listRouterRuntimeFiles() {
-  return listTypeScriptFiles('packages/sdk-server-ts/src/router').filter(isRuntimeSourceFile);
+  return listTypeScriptFiles('packages/wallet-server/src/router').filter(isRuntimeSourceFile);
 }
 function readSource(relativePath) {
   return fs.readFileSync(toAbsolutePath(relativePath), 'utf8');
@@ -1427,19 +1427,19 @@ function resolveRelativeModule(importer, specifier) {
   return null;
 }
 function forbiddenRuntimeReason(resolvedPath) {
-  if (resolvedPath === 'packages/sdk-server-ts/src/storage/postgres.ts') {
+  if (resolvedPath === 'packages/wallet-server/src/storage/postgres.ts') {
     return 'imports the Postgres storage driver';
   }
-  if (/^packages\/sdk-server-ts\/src\/console\/shared\/postgres.*\.ts$/.test(resolvedPath)) {
+  if (/^packages\/wallet-server\/src\/console\/shared\/postgres.*\.ts$/.test(resolvedPath)) {
     return 'imports a console Postgres shared helper';
   }
-  if (resolvedPath === 'packages/sdk-server-ts/src/threshold/session/signingSessionSeal/index.ts') {
+  if (resolvedPath === 'packages/wallet-server/src/threshold/session/signingSessionSeal/index.ts') {
     return 'imports the mixed session-seal barrel instead of Cloudflare runtime leaf modules';
   }
-  if (/^packages\/sdk-server-ts\/src\/console\/[^/]+\/index\.ts$/.test(resolvedPath)) {
+  if (/^packages\/wallet-server\/src\/console\/[^/]+\/index\.ts$/.test(resolvedPath)) {
     return 'imports a mixed console barrel instead of leaf modules';
   }
-  if (/^packages\/sdk-server-ts\/src\/console\/.*\/postgres\.ts$/.test(resolvedPath)) {
+  if (/^packages\/wallet-server\/src\/console\/.*\/postgres\.ts$/.test(resolvedPath)) {
     return 'imports a console Postgres adapter';
   }
   return null;
@@ -1461,7 +1461,7 @@ function cloudflareRuntimeDependencyViolations() {
           `${dependency.importer}:${dependency.line} ${dependency.specifier} -> ${resolved}: ${reason}`,
         );
       }
-      if (resolved.startsWith('packages/sdk-server-ts/src/')) pending.push(resolved);
+      if (resolved.startsWith('packages/wallet-server/src/')) pending.push(resolved);
     }
   }
   return violations.sort();
@@ -1578,11 +1578,11 @@ function staleRefactor82NameViolations() {
   }
   for (const relativePath of [
     ...listTypeScriptFiles('apps/web-server/src'),
-    ...listTypeScriptFiles('packages/sdk-server-ts/src'),
-    ...listTypeScriptFiles('packages/sdk-web/src'),
+    ...listTypeScriptFiles('packages/wallet-server/src'),
+    ...listTypeScriptFiles('packages/wallet/src'),
     ...listTypeScriptFiles('tests'),
     ...listJavaScriptFiles('apps/web-server/scripts'),
-    ...listJavaScriptFiles('packages/sdk-server-ts/scripts'),
+    ...listJavaScriptFiles('packages/wallet-server/scripts'),
     ...listJavaScriptFiles('packages/console-server-ts/scripts'),
     ...activeRouterApiTextPaths,
   ]) {
@@ -1622,7 +1622,7 @@ function staleRefactor82NameViolations() {
 }
 function staleRefactor82ScaffoldingViolations() {
   const violations = [];
-  for (const relativePath of listTypeScriptFiles('packages/sdk-server-ts/src')) {
+  for (const relativePath of listTypeScriptFiles('packages/wallet-server/src')) {
     const source = readSource(relativePath);
     if (source.includes('scaffolding')) {
       violations.push(`${relativePath}: describes current production code as scaffolding`);
@@ -1658,7 +1658,7 @@ function duplicatedD1StagingCliHelperViolations() {
 }
 function localD1HelperDuplicationViolations() {
   const violations = [];
-  for (const relativePath of listTypeScriptFiles('packages/sdk-server-ts/src')) {
+  for (const relativePath of listTypeScriptFiles('packages/wallet-server/src')) {
     if (!isRuntimeSourceFile(relativePath) || relativePath === sharedD1HelperPath) continue;
     const source = readSource(relativePath);
     for (const { pattern, message } of forbiddenLocalD1HelperPatterns) {
@@ -1680,7 +1680,7 @@ function sqliteD1HarnessDuplicationViolations() {
 }
 function sdkServerRuntimePostgresImplementationViolations() {
   const violations = [];
-  for (const relativePath of listTypeScriptFiles('packages/sdk-server-ts/src')) {
+  for (const relativePath of listTypeScriptFiles('packages/wallet-server/src')) {
     if (!isRuntimeSourceFile(relativePath)) continue;
     if (path.basename(relativePath).toLowerCase().includes('postgres')) {
       violations.push(`${relativePath}: Postgres runtime implementation file exists`);
@@ -1783,13 +1783,13 @@ function d1WorkerRouterApiHandlerLifetimeViolations() {
   const localWorker = readSource(cloudflareD1LocalDevWorkerPath);
   const stagingWorker = readSource(cloudflareD1RouterApiStagingWorkerPath);
   const ecdsaPoolFill = readSource(
-    'packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaDerivationPoolFillHandlers.ts',
+    'packages/wallet-server/src/core/ThresholdService/routerAb/ecdsaDerivationPoolFillHandlers.ts',
   );
   const thresholdStore = readSource(
-    'packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore.ts',
+    'packages/wallet-server/src/router/cloudflare/durableObjects/thresholdStore.ts',
   );
   const thresholdStoreClient = readSource(
-    'packages/sdk-server-ts/src/core/ThresholdService/stores/CloudflareDurableObjectStore.ts',
+    'packages/wallet-server/src/core/ThresholdService/stores/CloudflareDurableObjectStore.ts',
   );
   if (localWorker.includes('localRouterApiEcdsaPoolFillLiveSessions')) {
     violations.push(
@@ -1824,7 +1824,7 @@ function d1WorkerRouterApiHandlerLifetimeViolations() {
   }
   if (ecdsaPoolFill.includes('fetch.bind(globalThis)')) {
     violations.push(
-      'packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaDerivationPoolFillHandlers.ts: caches a request-context fetch binding',
+      'packages/wallet-server/src/core/ThresholdService/routerAb/ecdsaDerivationPoolFillHandlers.ts: caches a request-context fetch binding',
     );
   }
   for (const token of [
@@ -1835,7 +1835,7 @@ function d1WorkerRouterApiHandlerLifetimeViolations() {
   ]) {
     if (!thresholdStore.includes(token)) {
       violations.push(
-        `packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore.ts: missing ${token}`,
+        `packages/wallet-server/src/router/cloudflare/durableObjects/thresholdStore.ts: missing ${token}`,
       );
     }
   }
@@ -1845,12 +1845,12 @@ function d1WorkerRouterApiHandlerLifetimeViolations() {
     )
   ) {
     violations.push(
-      'packages/sdk-server-ts/src/core/ThresholdService/stores/CloudflareDurableObjectStore.ts: missing DO-backed ECDSA pool-fill live-session owner',
+      'packages/wallet-server/src/core/ThresholdService/stores/CloudflareDurableObjectStore.ts: missing DO-backed ECDSA pool-fill live-session owner',
     );
   }
   if (!thresholdStoreClient.includes(':ecdsa-pool-fill:${id}')) {
     violations.push(
-      'packages/sdk-server-ts/src/core/ThresholdService/stores/CloudflareDurableObjectStore.ts: ECDSA pool-fill live-session owner must route live WASM state by presignSessionId',
+      'packages/wallet-server/src/core/ThresholdService/stores/CloudflareDurableObjectStore.ts: ECDSA pool-fill live-session owner must route live WASM state by presignSessionId',
     );
   }
   return violations.sort();
@@ -1879,7 +1879,7 @@ function authServiceLegacyRegistrationModeViolations() {
 }
 function routerApiAuthServiceCouplingViolations() {
   const violations = [];
-  for (const relativePath of listTypeScriptFiles('packages/sdk-server-ts/src/router')) {
+  for (const relativePath of listTypeScriptFiles('packages/wallet-server/src/router')) {
     const source = readSource(relativePath);
     for (const { pattern, message } of forbiddenRouterApiAuthServiceCouplingPatterns) {
       if (pattern.test(source)) violations.push(`${relativePath}: ${message}`);
@@ -1891,7 +1891,7 @@ function routerApiAuthServiceMountViolations() {
   const violations = [];
   for (const relativePath of [
     ...listTypeScriptFiles('apps/web-server/src'),
-    ...listTypeScriptFiles('packages/sdk-server-ts/src/router'),
+    ...listTypeScriptFiles('packages/wallet-server/src/router'),
   ]) {
     const source = readSource(relativePath);
     for (const { pattern, message } of forbiddenRouterApiAuthServiceMountPatterns) {
@@ -1934,7 +1934,7 @@ function authServiceRouterApiHarnessViolations() {
       );
     }
   }
-  const scannedRoots = ['apps', 'packages/sdk-server-ts/src', 'tests/relayer', 'tests/unit'];
+  const scannedRoots = ['apps', 'packages/wallet-server/src', 'tests/relayer', 'tests/unit'];
   for (const root of scannedRoots) {
     for (const relativePath of listTypeScriptLikeFiles(root)) {
       const source = readSource(relativePath);
@@ -2049,8 +2049,8 @@ function productionCombinedRegistrationStateViolations() {
   for (const relativePath of [
     ...listTypeScriptLikeFiles('apps/seams-site/src'),
     ...listTypeScriptFiles('packages/shared-ts/src'),
-    ...listTypeScriptFiles('packages/sdk-server-ts/src'),
-    ...listTypeScriptFiles('packages/sdk-web/src'),
+    ...listTypeScriptFiles('packages/wallet-server/src'),
+    ...listTypeScriptFiles('packages/wallet/src'),
   ]) {
     if (!isRuntimeSourceFile(relativePath)) continue;
     const source = readSource(relativePath);

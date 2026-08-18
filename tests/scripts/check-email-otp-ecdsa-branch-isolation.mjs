@@ -8,11 +8,11 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, '../..');
 
 const emailOtpEcdsaSourcePaths = [
-  'packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaLogin.ts',
-  'packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaPublication.ts',
-  'packages/sdk-web/src/core/signingEngine/session/emailOtp/exportRecovery.ts',
-  'packages/sdk-web/src/core/signingEngine/session/emailOtp/workerRequests.ts',
-  'packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaBootstrapCommit.ts',
+  'packages/wallet/src/core/signingEngine/session/emailOtp/ecdsaLogin.ts',
+  'packages/wallet/src/core/signingEngine/session/emailOtp/ecdsaPublication.ts',
+  'packages/wallet/src/core/signingEngine/session/emailOtp/exportRecovery.ts',
+  'packages/wallet/src/core/signingEngine/session/emailOtp/workerRequests.ts',
+  'packages/wallet/src/core/signingEngine/session/emailOtp/ecdsaBootstrapCommit.ts',
 ];
 
 const temporaryDiagnosticStrings = [
@@ -40,7 +40,7 @@ function listSourceFiles(relativeDir) {
 }
 
 function listActiveSourceFiles() {
-  return ['packages/sdk-web/src', 'packages/sdk-server-ts/src', 'packages/shared-ts/src'].flatMap(
+  return ['packages/wallet/src', 'packages/wallet-server/src', 'packages/shared-ts/src'].flatMap(
     listSourceFiles,
   );
 }
@@ -90,7 +90,7 @@ function collectPasskeyPrfPersistenceViolations() {
 }
 
 function collectWalletSubjectVocabularyViolations() {
-  const allowedFiles = new Set(['packages/sdk-web/src/core/indexedDB/seamsWalletDB/schema.ts']);
+  const allowedFiles = new Set(['packages/wallet/src/core/indexedDB/seamsWalletDB/schema.ts']);
 
   return listActiveSourceFiles()
     .filter((relativePath) => !allowedFiles.has(relativePath))

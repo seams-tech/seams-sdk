@@ -1,11 +1,11 @@
-import type { RouterApiKeyAuthAdapter } from '@seams/sdk-server/cloud-host';
-import { resolveSourceIpFromFetchHeaders } from '@seams/sdk-server/cloud-host';
-import type { NormalizedRouterLogger } from '@seams/sdk-server/cloud-host';
-import type { RouteDefinition } from '@seams/sdk-server/cloud-host';
-import { routeJson, toFetchRouteResponse } from '@seams/sdk-server/cloud-host';
-import type { RouterApiRouteExtension } from '@seams/sdk-server/cloud-host';
-import { readJson } from '@seams/sdk-server/cloud-host';
-import type { RouterApiPublishableKeyAuthAdapter } from '@seams/sdk-server/cloud-host';
+import type { RouterApiKeyAuthAdapter } from '@seams/wallet-server/cloud-host';
+import { resolveSourceIpFromFetchHeaders } from '@seams/wallet-server/cloud-host';
+import type { NormalizedRouterLogger } from '@seams/wallet-server/cloud-host';
+import type { RouteDefinition } from '@seams/wallet-server/cloud-host';
+import { routeJson, toFetchRouteResponse } from '@seams/wallet-server/cloud-host';
+import type { RouterApiRouteExtension } from '@seams/wallet-server/cloud-host';
+import { readJson } from '@seams/wallet-server/cloud-host';
+import type { RouterApiPublishableKeyAuthAdapter } from '@seams/wallet-server/cloud-host';
 import type { ConsoleBillingService } from '@seams-internal/console-server/billing/index';
 import type { ConsoleBillingPrepaidReservationService } from '../billingPrepaidReservations';
 import type { ConsoleObservabilityIngestionService } from '@seams-internal/console-server/observability/index';
@@ -20,7 +20,7 @@ import type { SponsorshipSpendPricingService } from '../sponsorship/spendCaps';
 import type { ConsoleSponsorshipSpendCapService } from '../sponsorshipSpendCaps';
 import type { ConsoleWebhookService } from '@seams-internal/console-server/webhooks/index';
 import type { ConsoleWalletService } from '../wallets/service';
-import { ensureLeadingSlash } from '@seams/sdk-server/cloud-host';
+import { ensureLeadingSlash } from '@seams/wallet-server/cloud-host';
 import {
   handleRouterApiSignedDelegate,
   type SignedDelegateRouterApiAuthService,

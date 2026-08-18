@@ -4,19 +4,19 @@ import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import {
   createEcdsaLaneDerivationWorkerWasmV1,
   parseEcdsaAdditiveLaneHolderPreparationV1,
-} from '../../packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaLaneWasm';
-import type { WorkerOperationContext } from '../../packages/sdk-web/src/core/signingEngine/workerManager/executeWorkerOperation';
+} from '../../packages/wallet/src/core/signingEngine/threshold/crypto/ecdsaLaneWasm';
+import type { WorkerOperationContext } from '../../packages/wallet/src/core/signingEngine/workerManager/executeWorkerOperation';
 import {
   EcdsaDerivationClientCustomRequestType,
   EcdsaDerivationClientCustomResponseType,
-} from '../../packages/sdk-web/src/core/signingEngine/workerManager/workerTypes';
-import { parsePrepareEcdsaAdditiveLaneHolderRequestV1 } from '../../packages/sdk-web/src/core/signingEngine/workerManager/ecdsaClientWorkerChannels';
+} from '../../packages/wallet/src/core/signingEngine/workerManager/workerTypes';
+import { parsePrepareEcdsaAdditiveLaneHolderRequestV1 } from '../../packages/wallet/src/core/signingEngine/workerManager/ecdsaClientWorkerChannels';
 import {
   prepareEcdsaLaneHolderInWorkerV1,
   resolveExactEcdsaLaneSourceMaterialV1,
   type EcdsaLaneHolderSessionFactoryV1,
   type EcdsaLaneHolderSessionPortV1,
-} from '../../packages/sdk-web/src/core/signingEngine/workerManager/workers/ecdsaLaneHolderWorkerRuntime';
+} from '../../packages/wallet/src/core/signingEngine/workerManager/workers/ecdsaLaneHolderWorkerRuntime';
 import { buildR102EcdsaLaneJob } from './helpers/r102LaneGateway.fixtures';
 
 const DIGEST_B64U = base64UrlEncode(new Uint8Array(32));

@@ -36,19 +36,19 @@ import {
   D1EmailOtpRegistrationAttemptStore,
   D1EmailOtpUnlockChallengeStore,
   D1EmailOtpWalletEnrollmentStore,
-} from '../../packages/sdk-server-ts/src/core/EmailOtpStores';
-import { D1WebAuthnAuthenticatorStore } from '../../packages/sdk-server-ts/src/core/WebAuthnAuthenticatorStore';
+} from '../../packages/wallet-server/src/core/EmailOtpStores';
+import { D1WebAuthnAuthenticatorStore } from '../../packages/wallet-server/src/core/WebAuthnAuthenticatorStore';
 import {
   deriveWebAuthnAuthenticatorDeviceInfo,
   unknownWebAuthnAuthenticatorDeviceInfo,
 } from '../../packages/shared-ts/src/utils/webauthnDeviceInfo';
-import { D1WebAuthnCredentialBindingStore } from '../../packages/sdk-server-ts/src/core/WebAuthnCredentialBindingStore';
-import { D1WebAuthnLoginChallengeStore } from '../../packages/sdk-server-ts/src/core/WebAuthnLoginChallengeStore';
-import { D1WebAuthnSyncChallengeStore } from '../../packages/sdk-server-ts/src/core/WebAuthnSyncChallengeStore';
-import { D1IdentityStore } from '../../packages/sdk-server-ts/src/core/IdentityStore';
-import { D1NearPublicKeyStore } from '../../packages/sdk-server-ts/src/core/NearPublicKeyStore';
-import { D1WalletAuthMethodStore } from '../../packages/sdk-server-ts/src/core/WalletAuthMethodStore';
-import { D1WalletStore } from '../../packages/sdk-server-ts/src/core/WalletStore';
+import { D1WebAuthnCredentialBindingStore } from '../../packages/wallet-server/src/core/WebAuthnCredentialBindingStore';
+import { D1WebAuthnLoginChallengeStore } from '../../packages/wallet-server/src/core/WebAuthnLoginChallengeStore';
+import { D1WebAuthnSyncChallengeStore } from '../../packages/wallet-server/src/core/WebAuthnSyncChallengeStore';
+import { D1IdentityStore } from '../../packages/wallet-server/src/core/IdentityStore';
+import { D1NearPublicKeyStore } from '../../packages/wallet-server/src/core/NearPublicKeyStore';
+import { D1WalletAuthMethodStore } from '../../packages/wallet-server/src/core/WalletAuthMethodStore';
+import { D1WalletStore } from '../../packages/wallet-server/src/core/WalletStore';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import { recordSponsoredExecution } from '../../packages/wallet-console-server-ts/src/router/sponsorshipExecution';

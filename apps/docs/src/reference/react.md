@@ -1,15 +1,15 @@
 ---
 title: React SDK
-description: Providers, hooks, components, hosted auth surfaces, and theme exports available from @seams/sdk/react.
+description: Providers, hooks, components, hosted auth surfaces, and theme exports available from @seams/wallet/react.
 ---
 
 # React SDK
 
-Import React integrations from `@seams/sdk/react` and place consumers inside a
+Import React integrations from `@seams/wallet/react` and place consumers inside a
 `SeamsWebProvider` or `SeamsContextProvider`.
 
 ```tsx [Import example]
-import { SeamsWebProvider, SeamsAuthMenu, useSeams } from '@seams/sdk/react';
+import { SeamsWebProvider, SeamsAuthMenu, useSeams } from '@seams/wallet/react';
 ```
 
 ## Providers and hooks
@@ -33,11 +33,11 @@ experience.
 Focused entrypoints are available for applications that need smaller or
 SSR-specific imports:
 
-- `@seams/sdk/react/provider`;
-- `@seams/sdk/react/profile`;
-- `@seams/sdk/react/seams-auth-menu` plus `/client`, `/skeleton`, and `/preload`;
-- `@seams/sdk/react/hosted-seams-auth-menu`;
-- `@seams/sdk/react/styles`.
+- `@seams/wallet/react/provider`;
+- `@seams/wallet/react/profile`;
+- `@seams/wallet/react/seams-auth-menu` plus `/client`, `/skeleton`, and `/preload`;
+- `@seams/wallet/react/hosted-seams-auth-menu`;
+- `@seams/wallet/react/styles`.
 
 ## Appearance
 

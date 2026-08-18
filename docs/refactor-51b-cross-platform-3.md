@@ -236,7 +236,7 @@ The web build may import:
 - `client/src/core/WalletIframe/**`;
 - React packages through `client/src/react/**`.
 
-The web build owns the default `@seams/sdk` export until native packages exist:
+The web build owns the default `@seams/wallet` export until native packages exist:
 
 ```ts
 export { SeamsWeb } from './SeamsWeb';

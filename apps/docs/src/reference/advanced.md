@@ -1,11 +1,11 @@
 ---
 title: Advanced helpers
-description: Low-level identity builders, RPC clients, encoding helpers, and Tempo utilities exported from @seams/sdk/advanced.
+description: Low-level identity builders, RPC clients, encoding helpers, and Tempo utilities exported from @seams/wallet/advanced.
 ---
 
 # Advanced helpers
 
-`@seams/sdk/advanced` exposes low-level tools for integrations that already own
+`@seams/wallet/advanced` exposes low-level tools for integrations that already own
 their lifecycle and trust boundaries.
 
 ```ts [Import example]
@@ -13,7 +13,7 @@ import {
   nearAccountRefFromAccountId,
   thresholdEcdsaChainTargetFromConfig,
   walletSessionRefFromSession,
-} from '@seams/sdk/advanced';
+} from '@seams/wallet/advanced';
 ```
 
 ## Identity builders

@@ -3,9 +3,9 @@ import { base64UrlEncode } from '@shared/utils/base64';
 import {
   secp256k1PrivateKey32ToPublicKey33,
   signSecp256k1Recoverable,
-} from '../../packages/sdk-server-ts/src/core/ThresholdService/evmCryptoWasm';
-import { verifyEcdsaClientRootProof } from '../../packages/sdk-server-ts/src/core/ThresholdService/ecdsaClientRootProof';
-import type { EcdsaDerivationClientRootProof } from '../../packages/sdk-server-ts/src/core/types';
+} from '../../packages/wallet-server/src/core/ThresholdService/evmCryptoWasm';
+import { verifyEcdsaClientRootProof } from '../../packages/wallet-server/src/core/ThresholdService/ecdsaClientRootProof';
+import type { EcdsaDerivationClientRootProof } from '../../packages/wallet-server/src/core/types';
 
 test('client root proof rejects verification against an ECDSA derivation client-share public key', async () => {
   const digest32 = Uint8Array.from(Array.from({ length: 32 }, (_, index) => index));

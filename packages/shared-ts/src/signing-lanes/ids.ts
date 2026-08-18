@@ -25,8 +25,8 @@ export type EcdsaManifestIdentity = {
   manifestRevision: EcdsaCapabilityManifestRevision;
 };
 
-// Shared-ts cannot depend on sdk-web's platform module. Keep the chain target
-// structural so sdk-web's ThresholdEcdsaChainTarget remains assignable.
+// Shared-ts cannot depend on the wallet package's platform module. Keep the
+// chain target structural so its ThresholdEcdsaChainTarget remains assignable.
 export type ThresholdEcdsaChainTarget =
   | {
       kind: 'evm';

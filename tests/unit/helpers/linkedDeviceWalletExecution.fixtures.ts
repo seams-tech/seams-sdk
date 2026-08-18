@@ -17,7 +17,7 @@ import {
   buildAuthorizedOperation,
   type LinkedDeviceWalletSessionAuthorizationV1,
   type AuthorizedOperation,
-} from '../../../packages/sdk-server-ts/src/authorization/domain';
+} from '../../../packages/wallet-server/src/authorization/domain';
 import { buildLinkedDeviceSigningLaneRecord } from '../../../packages/shared-ts/src/signing-lanes/recordParsers';
 import { parseLinkedDeviceEcdsaNormalSigningScopeV1 } from '../../../packages/shared-ts/src/signing-lanes/linkedEcdsaScope';
 import { buildLaneProductEpochActiveV1 } from '../../../packages/shared-ts/src/signing-lanes/rotationParsers';
@@ -51,12 +51,12 @@ import type {
   ActiveLinkedDeviceExecutionProjectionV1,
   ActiveLinkedDeviceEnrollmentExecutionRecordV1,
   LinkedDeviceLocalPresenceEvidenceV1,
-} from '../../../packages/sdk-server-ts/src/router/domains/signingOperations/walletExecutionAdmission';
+} from '../../../packages/wallet-server/src/router/domains/signingOperations/walletExecutionAdmission';
 import type { WalletId, WalletKeyId } from '../../../packages/shared-ts/src/utils/domainIds';
 import { requireEvmFamilySigningKeySlotId } from '../../../packages/shared-ts/src/signing-lanes/evmFamilySigningKeySlotId';
 import { parseSecp256k1CompressedPublicKeyB64u } from '../../../packages/shared-ts/src/passkey-custody/primitives';
 import { parseWalletKeyVersion } from '../../../packages/shared-ts/src/signing-lanes/recordParsers';
-import type { RouterAbNormalSigningMaterialSourceV1 } from '../../../packages/sdk-server-ts/src/router/domains/signingOperations/routerAbPrivateSigningWorker';
+import type { RouterAbNormalSigningMaterialSourceV1 } from '../../../packages/wallet-server/src/router/domains/signingOperations/routerAbPrivateSigningWorker';
 
 const FIXTURE_NOW_MS = 1_900_000_000_000;
 const DIGEST = parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(9)));

@@ -18,8 +18,8 @@
         "crates",
         "examples/self-host-cloudflare-worker",
         "justfile",
-        "packages/sdk-server-ts",
-        "packages/sdk-web",
+        "packages/wallet-server",
+        "packages/wallet",
         "packages/shared-ts",
         "tools",
         "voiceId",
@@ -38,8 +38,8 @@
         "crates/ed25519-yao-cloudflare-bench",
         "crates/router-ab-cloudflare",
         "examples/self-host-cloudflare-worker",
-        "packages/sdk-server-ts",
-        "packages/sdk-web",
+        "packages/wallet-server",
+        "packages/wallet",
         "packages/shared-ts",
         "voiceId"
       ]

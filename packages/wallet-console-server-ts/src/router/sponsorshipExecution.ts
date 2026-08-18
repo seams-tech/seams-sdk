@@ -1,4 +1,4 @@
-import { secureRandomBase36 } from '@seams/sdk-server/cloud-host';
+import { secureRandomBase36 } from '@seams/wallet-server/cloud-host';
 import type { ConsoleBillingService } from '@seams-internal/console-server/billing/service';
 import type { ConsoleBillingD1Runtime } from '@seams-internal/console-server/billing/d1';
 import {
@@ -38,8 +38,8 @@ import {
 import type { ConsoleBillingContext } from '@seams-internal/console-server/billing/service';
 import type { ConsoleBillingPrepaidReservationContext } from '../billingPrepaidReservations/service';
 import type { ConsoleSponsoredCallContext } from '../sponsoredCalls/service';
-import type { D1PreparedStatementLike, D1ResultLike } from '@seams/sdk-server/cloud-host';
-import type { RouteResponse } from '@seams/sdk-server/cloud-host';
+import type { D1PreparedStatementLike, D1ResultLike } from '@seams/wallet-server/cloud-host';
+import type { RouteResponse } from '@seams/wallet-server/cloud-host';
 import type { SponsorshipSpendPricingService } from '../sponsorship/spendCaps';
 import type {
   SponsoredPrepaidReservationHandle,

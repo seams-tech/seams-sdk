@@ -6,7 +6,7 @@
     "dev": "VITE_SITE_ORIGIN=${VITE_SITE_ORIGIN:-https://localhost} VITE_DOCS_ORIGIN=${VITE_DOCS_ORIGIN:-https://docs.localhost} vitepress dev src --port 5222",
     "build": "vitepress build src --outDir dist",
     "preview": "vite preview --outDir dist --port 5222",
-    "type-check": "pnpm -C ../../packages/sdk-web build:types && tsc --noEmit"
+    "type-check": "pnpm -C ../../packages/wallet build:types && tsc --noEmit"
   },
   "devDependencies": {
     "@types/react": "^19.1.12",

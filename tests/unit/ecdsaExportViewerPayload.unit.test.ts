@@ -5,17 +5,17 @@ import {
   requestThresholdEcdsaExportAuthorization,
   showEd25519ExportViewer,
   showThresholdEcdsaExportViewer,
-} from '../../packages/sdk-web/src/core/signingEngine/flows/recovery/keyExportConfirmation';
+} from '../../packages/wallet/src/core/signingEngine/flows/recovery/keyExportConfirmation';
 import {
   toWalletId,
   type ThresholdEcdsaChainTarget,
-} from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { WebAuthnAuthenticationCredential } from '../../packages/sdk-web/src/core/types/webauthn';
-import { resolveEmailOtpAuthLane } from '../../packages/sdk-web/src/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
+} from '../../packages/wallet/src/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { WebAuthnAuthenticationCredential } from '../../packages/wallet/src/core/types/webauthn';
+import { resolveEmailOtpAuthLane } from '../../packages/wallet/src/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 import {
   KeyExportEventPhase,
   type KeyExportFlowEvent,
-} from '../../packages/sdk-web/src/core/types/sdkSentEvents';
+} from '../../packages/wallet/src/core/types/sdkSentEvents';
 
 const EVM_TARGET: ThresholdEcdsaChainTarget = {
   kind: 'evm',

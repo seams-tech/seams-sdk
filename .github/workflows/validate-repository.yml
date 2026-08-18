@@ -122,7 +122,7 @@ jobs:
 
       - name: Build server packages for type checking
         run: |
-          pnpm -C packages/sdk-server-ts build
+          pnpm -C packages/wallet-server build
           pnpm -C packages/console-server-ts build
 
       - name: Check lint, types, Rust, and architecture
@@ -150,10 +150,10 @@ jobs:
       - name: Build SDK (production)
         env:
           WASM_SDK_USE_PREBUILT: '1'
-        run: pnpm -C packages/sdk-web run build:prod
+        run: pnpm -C packages/wallet run build:prod
 
       - name: Assert generated palette CSS
-        run: node packages/sdk-web/scripts/checks/assert-palette-css.mjs
+        run: node packages/wallet/scripts/checks/assert-palette-css.mjs
 
       - name: Run signer runtime gates
         run: pnpm -C tests exec playwright test ./unit/walletSessionReadiness.gate.unit.test.ts ./unit/thresholdEcdsa.commitQueue.unit.test.ts ./unit/walletIframeHost.signTempoCancel.unit.test.ts --reporter=line
@@ -212,10 +212,10 @@ jobs:
         run: pnpm -C tests exec playwright install --with-deps chromium
 
       - name: Build SDK (production)
-        run: pnpm -C packages/sdk-web run build:prod
+        run: pnpm -C packages/wallet run build:prod
 
       - name: Smoke check EVM crypto runtime loading (Node + Workers)
-        run: pnpm -C packages/sdk-web smoke:evm-crypto:runtimes
+        run: pnpm -C packages/wallet smoke:evm-crypto:runtimes
 
       - name: Run threshold signing core suites
         run: pnpm test:threshold-core
@@ -227,5 +227,5 @@ jobs:
           name: threshold-core-artifacts-${{ github.run_id }}-${{ github.run_attempt }}
           if-no-files-found: ignore
           path: |
-            packages/sdk-web/playwright-report
-            packages/sdk-web/test-results
+            packages/wallet/playwright-report
+            packages/wallet/test-results

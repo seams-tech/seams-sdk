@@ -5,7 +5,7 @@ import type {
   RouterAbEd25519YaoExportAuthorizationCommitInputV1,
   RouterAbEd25519YaoExportExecuteClaimV1,
   RouterAbEd25519YaoExportExecuteCommitInputV1,
-} from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/export/routerAbEd25519YaoExport';
+} from '../../../packages/wallet-server/src/router/domains/ed25519Yao/export/routerAbEd25519YaoExport';
 
 type AssertNever<T extends never> = T;
 

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { admitEnvelopeRevocation } from '../../packages/sdk-server-ts/src/router/domains/passkeyCustody/envelopeRevocationAdmission';
-import { CloudflareD1PasskeyCustodyEnvelopeStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/passkeyCustody/d1PasskeyCustodyEnvelopeStore';
+import { admitEnvelopeRevocation } from '../../packages/wallet-server/src/router/domains/passkeyCustody/envelopeRevocationAdmission';
+import { CloudflareD1PasskeyCustodyEnvelopeStore } from '../../packages/wallet-server/src/router/cloudflare/d1/passkeyCustody/d1PasskeyCustodyEnvelopeStore';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
 import { applySignerMigrations } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
 import {

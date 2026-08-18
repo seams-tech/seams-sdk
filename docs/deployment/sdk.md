@@ -2,8 +2,8 @@
 
 The SDK has two deployment outputs:
 
-- npm package `@seams/sdk`
-- runtime bundles from `packages/sdk-web/dist` served by Pages at `/sdk/*`
+- npm package `@seams/wallet`
+- runtime bundles from `packages/wallet/dist` served by Pages at `/sdk/*`
 
 The runtime bundles are commit-built artifacts. Keep the Pages deployment on the
 same commit when changing wallet iframe, workers, WASM, or SDK asset loading.
@@ -19,10 +19,10 @@ pnpm build:sdk-prod
 
 Main outputs:
 
-- `packages/sdk-web/dist/esm/sdk/*`
-- `packages/sdk-web/dist/workers/*`
-- `packages/sdk-web/dist/esm/wasm/*`
-- `packages/sdk-web/dist/esm/server/*`
+- `packages/wallet/dist/esm/sdk/*`
+- `packages/wallet/dist/workers/*`
+- `packages/wallet/dist/esm/wasm/*`
+- `packages/wallet/dist/esm/server/*`
 
 ## Pages Runtime Assets
 
@@ -37,8 +37,8 @@ pnpm -C apps/seams-site exec vite build
 Then it copies runtime assets into the Pages output:
 
 ```bash
-packages/sdk-web/dist/esm/sdk/       -> apps/seams-site/dist/sdk/
-packages/sdk-web/dist/workers/       -> apps/seams-site/dist/sdk/workers/
+packages/wallet/dist/esm/sdk/       -> apps/seams-site/dist/sdk/
+packages/wallet/dist/workers/       -> apps/seams-site/dist/sdk/workers/
 ```
 
 Use `VITE_SDK_BASE_PATH=/sdk` unless you intentionally serve the SDK under a
@@ -59,7 +59,7 @@ SDK runtime deploy path for the same commit.
 ```bash
 pnpm install --frozen-lockfile
 pnpm build:sdk-prod
-cd packages/sdk-web
+cd packages/wallet
 npm publish --access public
 ```
 
@@ -89,7 +89,7 @@ Pages rollback:
 npm rollback:
 
 ```bash
-npm deprecate @seams/sdk@X.Y.Z "Use X.Y.Z+1"
+npm deprecate @seams/wallet@X.Y.Z "Use X.Y.Z+1"
 ```
 
 Use `npm unpublish` only inside npm's allowed unpublish window and only when

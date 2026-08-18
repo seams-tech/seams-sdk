@@ -40,7 +40,7 @@ Key-choice guidance for embedded robotics signers lives in
 
 ## Exclusions
 
-Embedded Rust SDK code must not depend on npm `@seams/sdk` entry points for
+Embedded Rust SDK code must not depend on npm `@seams/wallet` entry points for
 runtime behavior. It must not mirror browser concepts such as:
 
 - `client/src/SeamsWeb/**`;

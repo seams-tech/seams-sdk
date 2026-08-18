@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { CloudflareD1WalletAuthMethodService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/wallet/d1WalletAuthMethodService';
+import { CloudflareD1WalletAuthMethodService } from '../../packages/wallet-server/src/router/cloudflare/d1/wallet/d1WalletAuthMethodService';
 import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';

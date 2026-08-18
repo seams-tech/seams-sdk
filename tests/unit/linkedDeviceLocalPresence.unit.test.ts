@@ -2,8 +2,8 @@ import { expect, test } from '@playwright/test';
 import { parseAuthorizedOperationId } from '../../packages/shared-ts/src/authorization/capabilityKinds';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
-import { buildActiveLinkedDeviceExecutionBundleV1 } from '../../packages/sdk-web/src/core/signingEngine/session/lanes/linkedDeviceExecutionBundle';
-import { authorizeAndOpenLinkedDeviceHolderV1 } from '../../packages/sdk-web/src/SeamsWeb/operations/devices/linkedDeviceLocalPresence';
+import { buildActiveLinkedDeviceExecutionBundleV1 } from '../../packages/wallet/src/core/signingEngine/session/lanes/linkedDeviceExecutionBundle';
+import { authorizeAndOpenLinkedDeviceHolderV1 } from '../../packages/wallet/src/SeamsWeb/operations/devices/linkedDeviceLocalPresence';
 import { buildR103ActiveExecutionFixture } from './helpers/deviceLinkContracts.fixtures';
 import { buildR103SealedHolderRecord } from './helpers/r102LaneGateway.fixtures';
 

@@ -1252,7 +1252,7 @@ families cannot be reused.
 
 ### Subagent 3: Gateway Persistence And Aggregate Lifecycle
 
-Own `packages/sdk-server-ts/src/core/signingLanes/`, new isolated D1 store
+Own `packages/wallet-server/src/core/signingLanes/`, new isolated D1 store
 modules, and their focused tests.
 
 - replace blind-write scaffolds with versioned CAS stores and exact replay;
@@ -1268,11 +1268,11 @@ modules, and their focused tests.
 Primary owned modules:
 
 - lifecycle, effect-journal, aggregate activation, and revocation ports under
-  `packages/sdk-server-ts/src/core/signingLanes/`;
+  `packages/wallet-server/src/core/signingLanes/`;
 - one normalized D1 migration for enrollment, operation, product-epoch,
   receipt, effect-journal, and lock records;
 - isolated D1 implementations under
-  `packages/sdk-server-ts/src/router/cloudflare/d1/signingLanes/`;
+  `packages/wallet-server/src/router/cloudflare/d1/signingLanes/`;
 - focused CAS, crash-reconciliation, atomic-visibility, and revocation tests.
 
 Build against typed fake curve receipts from the contract seed. The atomic
@@ -1295,7 +1295,7 @@ focused tests.
 Primary owned modules:
 
 - isolated coordinators under
-  `packages/sdk-web/src/core/signingEngine/session/lanes/operations/`;
+  `packages/wallet/src/core/signingEngine/session/lanes/operations/`;
 - isolated `laneWorkerChannels.ts` and curve-specific lane WASM adapters;
 - lane-scoped sealed holder persistence;
 - narrow linked-lane support in `walletExecutionLaneHydration.ts`;

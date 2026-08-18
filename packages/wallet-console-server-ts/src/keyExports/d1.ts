@@ -1,4 +1,4 @@
-import { secureRandomBase36 } from '@seams/sdk-server/cloud-host';
+import { secureRandomBase36 } from '@seams/wallet-server/cloud-host';
 import {
   d1Integer as toNumber,
   d1ChangedRows,
@@ -6,8 +6,8 @@ import {
   parseD1JsonArrayColumn as parseJsonArray,
   parseD1JsonObjectColumn as parseJsonObject,
   type D1Row,
-} from '@seams/sdk-server/cloud-host';
-import type { D1DatabaseLike } from '@seams/sdk-server/cloud-host';
+} from '@seams/wallet-server/cloud-host';
+import type { D1DatabaseLike } from '@seams/wallet-server/cloud-host';
 import { ConsoleKeyExportError } from './errors';
 import type { ConsoleKeyExportService, ConsoleKeyExportsContext } from './service';
 import type {

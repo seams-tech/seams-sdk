@@ -28,10 +28,10 @@ classification pass. A mechanical replacement is incorrect.
 Run these from the repo root before and after implementation:
 
 ```sh
-rg "WalletSigningSessionId|walletSigningSessionId|wallet_signing_session_id|wallet-signing-session" packages/sdk-server-ts/src packages/sdk-web/src packages/shared-ts/src tests docs --glob '!**/target/**' --glob '!**/node_modules/**' --stats
-rg "ThresholdSessionId|thresholdSessionId|threshold_session_id|threshold-session" packages/sdk-server-ts/src packages/sdk-web/src packages/shared-ts/src tests docs --glob '!**/target/**' --glob '!**/node_modules/**' --stats
-rg "\bsessionId\b" packages/sdk-server-ts/src packages/sdk-web/src packages/shared-ts/src tests docs wasm crates apps voiceId --glob '!**/target/**' --glob '!**/node_modules/**'
-rg "signingGrantId|SigningGrantId|signing_grant_id|signing-grant" packages/sdk-server-ts/src packages/sdk-web/src packages/shared-ts/src tests docs --glob '!**/target/**' --glob '!**/node_modules/**'
+rg "WalletSigningSessionId|walletSigningSessionId|wallet_signing_session_id|wallet-signing-session" packages/wallet-server/src packages/wallet/src packages/shared-ts/src tests docs --glob '!**/target/**' --glob '!**/node_modules/**' --stats
+rg "ThresholdSessionId|thresholdSessionId|threshold_session_id|threshold-session" packages/wallet-server/src packages/wallet/src packages/shared-ts/src tests docs --glob '!**/target/**' --glob '!**/node_modules/**' --stats
+rg "\bsessionId\b" packages/wallet-server/src packages/wallet/src packages/shared-ts/src tests docs wasm crates apps voiceId --glob '!**/target/**' --glob '!**/node_modules/**'
+rg "signingGrantId|SigningGrantId|signing_grant_id|signing-grant" packages/wallet-server/src packages/wallet/src packages/shared-ts/src tests docs --glob '!**/target/**' --glob '!**/node_modules/**'
 ```
 
 Initial baseline:
@@ -64,10 +64,10 @@ Current Agent C audit:
 Post-grant rename slice evidence:
 
 - `pnpm -C packages/shared-ts type-check`
-- `pnpm -C packages/sdk-server-ts type-check`
-- `pnpm -C packages/sdk-web type-check`
+- `pnpm -C packages/wallet-server type-check`
+- `pnpm -C packages/wallet type-check`
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/domainIds.boundary.unit.test.ts ./unit/thresholdSessionClaims.unit.test.ts ./unit/signingBudgetStatus.parser.unit.test.ts ./unit/walletSessionBudgetReservation.store.unit.test.ts ./unit/routerAbEd25519BudgetRouteCore.unit.test.ts --reporter=line`
-- `rg "WalletSigningSessionId|parseWalletSigningSessionId|walletSigningSessionId|wallet_signing_session_id|wallet-signing-session" packages/shared-ts/src packages/sdk-server-ts/src packages/sdk-web/src tests -g '*.ts'`
+- `rg "WalletSigningSessionId|parseWalletSigningSessionId|walletSigningSessionId|wallet_signing_session_id|wallet-signing-session" packages/shared-ts/src packages/wallet-server/src packages/wallet/src tests -g '*.ts'`
 
 ## Boundary Decisions
 
@@ -111,39 +111,39 @@ Expected edits:
 
 Primary server boundary files:
 
-- `packages/sdk-server-ts/src/router/commonRouterUtils.ts`
-- `packages/sdk-server-ts/src/core/ThresholdService/validation.ts`
-- `packages/sdk-server-ts/src/core/types.ts`
-- `packages/sdk-server-ts/src/router/signingBudgetStatus.ts`
-- `packages/sdk-server-ts/src/router/signingBudgetStatus.typecheck.ts`
-- `packages/sdk-server-ts/src/router/emailOtpSessionRouteHelpers.ts`
-- `packages/sdk-server-ts/src/router/relayWalletRegistration.ts`
+- `packages/wallet-server/src/router/commonRouterUtils.ts`
+- `packages/wallet-server/src/core/ThresholdService/validation.ts`
+- `packages/wallet-server/src/core/types.ts`
+- `packages/wallet-server/src/router/signingBudgetStatus.ts`
+- `packages/wallet-server/src/router/signingBudgetStatus.typecheck.ts`
+- `packages/wallet-server/src/router/emailOtpSessionRouteHelpers.ts`
+- `packages/wallet-server/src/router/relayWalletRegistration.ts`
 
 Express and Cloudflare route files:
 
-- `packages/sdk-server-ts/src/router/express/routes/sessions.ts`
-- `packages/sdk-server-ts/src/router/express/routes/thresholdEd25519.ts`
-- `packages/sdk-server-ts/src/router/express/routes/thresholdEcdsa.ts`
-- `packages/sdk-server-ts/src/router/cloudflare/routes/sessions.ts`
-- `packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519.ts`
-- `packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEcdsa.ts`
-- `packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore.ts`
-- `packages/sdk-server-ts/src/router/cloudflare/createSelfHostedCloudflareSigningWorker.ts`
+- `packages/wallet-server/src/router/express/routes/sessions.ts`
+- `packages/wallet-server/src/router/express/routes/thresholdEd25519.ts`
+- `packages/wallet-server/src/router/express/routes/thresholdEcdsa.ts`
+- `packages/wallet-server/src/router/cloudflare/routes/sessions.ts`
+- `packages/wallet-server/src/router/cloudflare/routes/thresholdEd25519.ts`
+- `packages/wallet-server/src/router/cloudflare/routes/thresholdEcdsa.ts`
+- `packages/wallet-server/src/router/cloudflare/durableObjects/thresholdStore.ts`
+- `packages/wallet-server/src/router/cloudflare/createSelfHostedCloudflareSigningWorker.ts`
 
 Related server stores and services:
 
-- `packages/sdk-server-ts/src/core/AuthService.ts`
-- `packages/sdk-server-ts/src/core/DeviceLinkingSessionStore.ts`
-- `packages/sdk-server-ts/src/core/EmailRecoveryPreparationStore.ts`
-- `packages/sdk-server-ts/src/core/RegistrationCeremonyStore.typecheck.ts`
-- `packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts`
-- `packages/sdk-server-ts/src/core/ThresholdService/walletSigningBudget.ts`
-- `packages/sdk-server-ts/src/core/ThresholdService/stores/SessionStore.ts`
-- `packages/sdk-server-ts/src/core/ThresholdService/stores/CloudflareDurableObjectStore.ts`
-- `packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts`
-- `packages/sdk-server-ts/src/threshold/session/signingSessionSeal/policy/sessionPolicy.ts`
-- `packages/sdk-server-ts/src/threshold/session/signingSessionSeal/service.ts`
-- `packages/sdk-server-ts/src/threshold/session/signingSessionSeal/types.ts`
+- `packages/wallet-server/src/core/AuthService.ts`
+- `packages/wallet-server/src/core/DeviceLinkingSessionStore.ts`
+- `packages/wallet-server/src/core/EmailRecoveryPreparationStore.ts`
+- `packages/wallet-server/src/core/RegistrationCeremonyStore.typecheck.ts`
+- `packages/wallet-server/src/core/ThresholdService/ThresholdSigningService.ts`
+- `packages/wallet-server/src/core/ThresholdService/walletSigningBudget.ts`
+- `packages/wallet-server/src/core/ThresholdService/stores/SessionStore.ts`
+- `packages/wallet-server/src/core/ThresholdService/stores/CloudflareDurableObjectStore.ts`
+- `packages/wallet-server/src/core/ThresholdService/thresholdPrfWasm.ts`
+- `packages/wallet-server/src/threshold/session/signingSessionSeal/policy/sessionPolicy.ts`
+- `packages/wallet-server/src/threshold/session/signingSessionSeal/service.ts`
+- `packages/wallet-server/src/threshold/session/signingSessionSeal/types.ts`
 
 Expected edits:
 
@@ -159,14 +159,14 @@ Expected edits:
 
 Persistence schema and record boundaries:
 
-- `packages/sdk-web/src/core/indexedDB/schemaNames.ts`
-- `packages/sdk-web/src/core/signingEngine/session/persistence/records.ts`
-- `packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore.ts`
-- `packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/sealedRecovery/recoveryRecord.ts`
-- `packages/sdk-web/src/core/signingEngine/session/sealedRecovery/restoreCoordinator.ts`
-- `packages/sdk-web/src/core/signingEngine/session/sealedRecovery/types.ts`
-- `packages/sdk-web/src/core/signingEngine/session/sealedRecovery/exactRecordLookup.ts`
+- `packages/wallet/src/core/indexedDB/schemaNames.ts`
+- `packages/wallet/src/core/signingEngine/session/persistence/records.ts`
+- `packages/wallet/src/core/signingEngine/session/persistence/sealedSessionStore.ts`
+- `packages/wallet/src/core/signingEngine/session/persistence/sealedSessionStore.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/sealedRecovery/recoveryRecord.ts`
+- `packages/wallet/src/core/signingEngine/session/sealedRecovery/restoreCoordinator.ts`
+- `packages/wallet/src/core/signingEngine/session/sealedRecovery/types.ts`
+- `packages/wallet/src/core/signingEngine/session/sealedRecovery/exactRecordLookup.ts`
 
 Expected edits:
 
@@ -180,36 +180,36 @@ Expected edits:
 
 Budget and spend state:
 
-- `packages/sdk-web/src/core/signingEngine/session/budget/budget.ts`
-- `packages/sdk-web/src/core/signingEngine/session/budget/budget.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/budget/budgetProjection.ts`
+- `packages/wallet/src/core/signingEngine/session/budget/budget.ts`
+- `packages/wallet/src/core/signingEngine/session/budget/budget.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/budget/budgetProjection.ts`
   - Closed: internal projection state uses `signingGrantId`; `sessionId` remains
     only at the existing `SigningSessionStatus` boundary.
-- `packages/sdk-web/src/core/signingEngine/session/budget/budgetProjection.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/budget/budgetProjection.typecheck.ts`
   - Closed: type fixtures reject old internal `sessionId` object shapes.
-- `packages/sdk-web/src/core/signingEngine/session/budget/budgetFinalizer.ts`
-- `packages/sdk-web/src/core/signingEngine/session/budget/budgetStatusReader.ts`
-- `packages/sdk-web/src/core/signingEngine/session/budget/BudgetCoordinator.ts`
+- `packages/wallet/src/core/signingEngine/session/budget/budgetFinalizer.ts`
+- `packages/wallet/src/core/signingEngine/session/budget/budgetStatusReader.ts`
+- `packages/wallet/src/core/signingEngine/session/budget/BudgetCoordinator.ts`
 
 Session and lane availability:
 
-- `packages/sdk-web/src/core/signingEngine/session/public.ts`
-- `packages/sdk-web/src/core/signingEngine/session/SigningSessionCoordinator.ts`
-- `packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession.ts`
-- `packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts`
-- `packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/availability/persistedAvailableSigningLanes.ts`
-- `packages/sdk-web/src/core/signingEngine/session/availability/readiness.ts`
-- `packages/sdk-web/src/core/signingEngine/session/availability/readiness.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/operationState/lanes.ts`
-- `packages/sdk-web/src/core/signingEngine/session/operationState/lanes.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/operationState/postSignPolicy.ts`
-- `packages/sdk-web/src/core/signingEngine/session/operationState/postSignPolicy.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/operationState/stepUpFreshness.ts`
-- `packages/sdk-web/src/core/signingEngine/session/operationState/stepUpFreshness.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/operationState/transactionState.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/operationState/types.ts`
-- `packages/sdk-web/src/core/signingEngine/session/operationState/types.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/public.ts`
+- `packages/wallet/src/core/signingEngine/session/SigningSessionCoordinator.ts`
+- `packages/wallet/src/core/signingEngine/session/routerAbSigningWalletSession.ts`
+- `packages/wallet/src/core/signingEngine/session/availability/availableSigningLanes.ts`
+- `packages/wallet/src/core/signingEngine/session/availability/availableSigningLanes.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/availability/persistedAvailableSigningLanes.ts`
+- `packages/wallet/src/core/signingEngine/session/availability/readiness.ts`
+- `packages/wallet/src/core/signingEngine/session/availability/readiness.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/operationState/lanes.ts`
+- `packages/wallet/src/core/signingEngine/session/operationState/lanes.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/operationState/postSignPolicy.ts`
+- `packages/wallet/src/core/signingEngine/session/operationState/postSignPolicy.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/operationState/stepUpFreshness.ts`
+- `packages/wallet/src/core/signingEngine/session/operationState/stepUpFreshness.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/operationState/transactionState.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/operationState/types.ts`
+- `packages/wallet/src/core/signingEngine/session/operationState/types.typecheck.ts`
 
 Expected edits:
 
@@ -222,25 +222,25 @@ Expected edits:
 
 Identity files:
 
-- `packages/sdk-web/src/core/signingEngine/session/identity/laneIdentity.ts`
-- `packages/sdk-web/src/core/signingEngine/session/identity/laneIdentity.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity.ts`
-- `packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.ts`
-- `packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/identity/emailOtpHssIdentity.ts`
-- `packages/sdk-web/src/core/signingEngine/session/identity/emailOtpHssIdentity.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/identity/selectLane.ts`
-- `packages/sdk-web/src/core/signingEngine/session/identity/subjectIdentityCleanup.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/identity/laneIdentity.ts`
+- `packages/wallet/src/core/signingEngine/session/identity/laneIdentity.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/identity/exactSigningLaneIdentity.ts`
+- `packages/wallet/src/core/signingEngine/session/identity/exactSigningLaneIdentity.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.ts`
+- `packages/wallet/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/identity/emailOtpHssIdentity.ts`
+- `packages/wallet/src/core/signingEngine/session/identity/emailOtpHssIdentity.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/identity/selectLane.ts`
+- `packages/wallet/src/core/signingEngine/session/identity/subjectIdentityCleanup.typecheck.ts`
 
 Step-up and confirmation files:
 
-- `packages/sdk-web/src/core/signingEngine/stepUpConfirmation/otpPrompt/authLane.ts`
-- `packages/sdk-web/src/core/signingEngine/stepUpConfirmation/types.ts`
-- `packages/sdk-web/src/core/signingEngine/stepUpConfirmation/channel/webauthnChallenge.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/uiConfirm/UiConfirmManager.ts`
-- `packages/sdk-web/src/core/signingEngine/uiConfirm/handlers/flows/adapters/request.ts`
-- `packages/sdk-web/src/core/signingEngine/uiConfirm/handlers/flows/signing.ts`
+- `packages/wallet/src/core/signingEngine/stepUpConfirmation/otpPrompt/authLane.ts`
+- `packages/wallet/src/core/signingEngine/stepUpConfirmation/types.ts`
+- `packages/wallet/src/core/signingEngine/stepUpConfirmation/channel/webauthnChallenge.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/uiConfirm/UiConfirmManager.ts`
+- `packages/wallet/src/core/signingEngine/uiConfirm/handlers/flows/adapters/request.ts`
+- `packages/wallet/src/core/signingEngine/uiConfirm/handlers/flows/signing.ts`
 
 Watch for compound names:
 
@@ -252,61 +252,61 @@ Watch for compound names:
 
 Email OTP surfaces:
 
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/companionSessions.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaBootstrapCommit.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaEnrollment.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaLogin.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaPublication.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaRecovery.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519Recovery.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519Warmup.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/exportRecovery.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/persistedSnapshot.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/provisioning.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/routePlan.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/routePlan.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/sealedRestoreOrchestrator.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/sealedSigningSessionAuth.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/workerRequests.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/appSessionJwtCache.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/companionSessions.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/ecdsaBootstrapCommit.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/ecdsaEnrollment.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/ecdsaLogin.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/ecdsaPublication.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/ecdsaRecovery.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/ed25519Recovery.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/ed25519Warmup.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/exportRecovery.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/persistedSnapshot.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/provisioning.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/routePlan.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/routePlan.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/sealedRestoreOrchestrator.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/sealedSigningSessionAuth.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/workerRequests.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/appSessionJwtCache.typecheck.ts`
 
 Passkey surfaces:
 
-- `packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaBootstrap.ts`
-- `packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaBootstrap.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaRecovery.ts`
-- `packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaSessionProvision.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaWarmCapabilityBootstrap.ts`
-- `packages/sdk-web/src/core/signingEngine/session/passkey/ed25519Recovery.ts`
-- `packages/sdk-web/src/core/signingEngine/session/passkey/ed25519SessionProvision.ts`
-- `packages/sdk-web/src/core/signingEngine/session/passkey/ed25519SessionProvision.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/passkey/runtime.ts`
-- `packages/sdk-web/src/core/signingEngine/session/passkey/unlockEcdsaWarmupPlanner.ts`
+- `packages/wallet/src/core/signingEngine/session/passkey/ecdsaBootstrap.ts`
+- `packages/wallet/src/core/signingEngine/session/passkey/ecdsaBootstrap.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/passkey/ecdsaRecovery.ts`
+- `packages/wallet/src/core/signingEngine/session/passkey/ecdsaSessionProvision.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/passkey/ecdsaWarmCapabilityBootstrap.ts`
+- `packages/wallet/src/core/signingEngine/session/passkey/ed25519Recovery.ts`
+- `packages/wallet/src/core/signingEngine/session/passkey/ed25519SessionProvision.ts`
+- `packages/wallet/src/core/signingEngine/session/passkey/ed25519SessionProvision.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/passkey/runtime.ts`
+- `packages/wallet/src/core/signingEngine/session/passkey/unlockEcdsaWarmupPlanner.ts`
 
 Warm capability surfaces:
 
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/capabilityReaderCore.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/ecdsaCapabilityReadiness.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/persistence.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/persistence.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/persistencePorts.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/persistencePorts.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/public.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/readModel.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/routerAbEcdsaWalletSessionAuth.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/statusReader.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/types.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/capabilityReaderCore.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/ecdsaCapabilityReadiness.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/persistence.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/persistence.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/persistencePorts.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/persistencePorts.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/public.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/readModel.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/routerAbEcdsaWalletSessionAuth.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/statusReader.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/types.ts`
 
 ### SDK Web RPC, Threshold, Worker, And Use-Case Boundaries
 
 Relayer RPC clients:
 
-- `packages/sdk-web/src/core/rpcClients/relayer/ecdsaUseCaseClient.ts`
-- `packages/sdk-web/src/core/rpcClients/relayer/thresholdEcdsa.ts`
-- `packages/sdk-web/src/core/rpcClients/relayer/thresholdEcdsa.typecheck.ts`
-- `packages/sdk-web/src/core/rpcClients/relayer/walletRegistration.ts`
+- `packages/wallet/src/core/rpcClients/relayer/ecdsaUseCaseClient.ts`
+- `packages/wallet/src/core/rpcClients/relayer/thresholdEcdsa.ts`
+- `packages/wallet/src/core/rpcClients/relayer/thresholdEcdsa.typecheck.ts`
+- `packages/wallet/src/core/rpcClients/relayer/walletRegistration.ts`
   - Closed: ECDSA registration prepare/client bootstrap now uses
     `thresholdSessionId`.
   - Closed: nested Ed25519 registration session response now uses
@@ -314,80 +314,80 @@ Relayer RPC clients:
 
 Threshold protocol surfaces:
 
-- `packages/sdk-web/src/core/signingEngine/threshold/sessionPolicy.ts`
-- `packages/sdk-web/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts`
-- `packages/sdk-web/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/threshold/ecdsa/activation.ts`
-- `packages/sdk-web/src/core/signingEngine/threshold/ecdsa/bootstrapSession.ts`
-- `packages/sdk-web/src/core/signingEngine/threshold/ed25519/connectSession.ts`
-- `packages/sdk-web/src/core/signingEngine/threshold/ed25519/presignPool.ts`
-- `packages/sdk-web/src/core/signingEngine/threshold/ed25519/walletSession.ts`
+- `packages/wallet/src/core/signingEngine/threshold/sessionPolicy.ts`
+- `packages/wallet/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts`
+- `packages/wallet/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/threshold/ecdsa/activation.ts`
+- `packages/wallet/src/core/signingEngine/threshold/ecdsa/bootstrapSession.ts`
+- `packages/wallet/src/core/signingEngine/threshold/ed25519/connectSession.ts`
+- `packages/wallet/src/core/signingEngine/threshold/ed25519/presignPool.ts`
+- `packages/wallet/src/core/signingEngine/threshold/ed25519/walletSession.ts`
 
 Worker and public type surfaces:
 
-- `packages/sdk-web/src/core/signingEngine/workerManager/workerTypes.ts`
-- `packages/sdk-web/src/core/signingEngine/workerManager/workerTypes.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp.worker.ts`
-- `packages/sdk-web/src/core/types/secure-confirm-worker.ts`
-- `packages/sdk-web/src/core/platform/ports.ts`
+- `packages/wallet/src/core/signingEngine/workerManager/workerTypes.ts`
+- `packages/wallet/src/core/signingEngine/workerManager/workerTypes.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/workerManager/workers/email-otp.worker.ts`
+- `packages/wallet/src/core/types/secure-confirm-worker.ts`
+- `packages/wallet/src/core/platform/ports.ts`
 
 Use-case and SeamsWeb surfaces:
 
-- `packages/sdk-web/src/core/signingEngine/useCases/lifecycle.ts`
-- `packages/sdk-web/src/core/signingEngine/useCases/lifecycle.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/useCases/provisionEcdsa.ts`
-- `packages/sdk-web/src/core/signingEngine/useCases/provisionEcdsa.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/useCases/provisionEcdsaSession.ts`
-- `packages/sdk-web/src/SeamsWeb/operations/auth/login.ts`
-- `packages/sdk-web/src/SeamsWeb/operations/devices/linkDevice.ts`
-- `packages/sdk-web/src/SeamsWeb/operations/recovery/emailRecovery.ts`
-- `packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts`
+- `packages/wallet/src/core/signingEngine/useCases/lifecycle.ts`
+- `packages/wallet/src/core/signingEngine/useCases/lifecycle.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/useCases/provisionEcdsa.ts`
+- `packages/wallet/src/core/signingEngine/useCases/provisionEcdsa.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/useCases/provisionEcdsaSession.ts`
+- `packages/wallet/src/SeamsWeb/operations/auth/login.ts`
+- `packages/wallet/src/SeamsWeb/operations/devices/linkDevice.ts`
+- `packages/wallet/src/SeamsWeb/operations/recovery/emailRecovery.ts`
+- `packages/wallet/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts`
 
 ### SDK Web Signing And Recovery Flows
 
 NEAR signing:
 
-- `packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519PresignFinalize.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signNear/shared/routerAbEd25519WalletSessionState.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signNear/shared/routerAbWalletSessionCredential.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signNear/shared/routerAbWalletSessionCredential.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signNear/shared/signingSessionAuthMode.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signNear/signDelegate.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signNear/signNear.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signNear/signNep413.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signNear/signTransactions.ts`
+- `packages/wallet/src/core/signingEngine/flows/signNear/shared/ed25519PresignFinalize.ts`
+- `packages/wallet/src/core/signingEngine/flows/signNear/shared/routerAbEd25519WalletSessionState.ts`
+- `packages/wallet/src/core/signingEngine/flows/signNear/shared/routerAbWalletSessionCredential.ts`
+- `packages/wallet/src/core/signingEngine/flows/signNear/shared/routerAbWalletSessionCredential.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/flows/signNear/shared/signingSessionAuthMode.ts`
+- `packages/wallet/src/core/signingEngine/flows/signNear/signDelegate.ts`
+- `packages/wallet/src/core/signingEngine/flows/signNear/signNear.ts`
+- `packages/wallet/src/core/signingEngine/flows/signNear/signNep413.ts`
+- `packages/wallet/src/core/signingEngine/flows/signNear/signTransactions.ts`
 
 EVM-family signing:
 
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/budgetSpending.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaLanes.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaMaterialState.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaMaterialState.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaReadiness.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaReadiness.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaSelection.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaSelection.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/emailOtpRefresh.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/preparedSigning.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/provisionPlan.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signingFlowRuntime.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/thresholdAdmission.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/budgetSpending.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/ecdsaLanes.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/ecdsaMaterialState.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/ecdsaMaterialState.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/ecdsaReadiness.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/ecdsaReadiness.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/ecdsaSelection.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/ecdsaSelection.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/emailOtpRefresh.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/preparedSigning.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/provisionPlan.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/signingFlowRuntime.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/thresholdAdmission.ts`
 
 Recovery and export:
 
-- `packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaExportFlow.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaExportMaterial.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaHssExport.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/recovery/exportKeypairOperation.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/recovery/exportLaneSelection.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/recovery/nearEd25519ExportFlow.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/registration/services/ecdsaRegistrationSessions.ts`
-- `packages/sdk-web/src/core/signingEngine/assembly/ports/near.ts`
-- `packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget.ts`
-- `packages/sdk-web/src/core/signingEngine/interfaces/near.ts`
-- `packages/sdk-web/src/core/signingEngine/interfaces/operationDeps.ts`
-- `packages/sdk-web/src/core/signingEngine/interfaces/signing.ts`
+- `packages/wallet/src/core/signingEngine/flows/recovery/ecdsaExportFlow.ts`
+- `packages/wallet/src/core/signingEngine/flows/recovery/ecdsaExportMaterial.ts`
+- `packages/wallet/src/core/signingEngine/flows/recovery/ecdsaHssExport.ts`
+- `packages/wallet/src/core/signingEngine/flows/recovery/exportKeypairOperation.ts`
+- `packages/wallet/src/core/signingEngine/flows/recovery/exportLaneSelection.ts`
+- `packages/wallet/src/core/signingEngine/flows/recovery/nearEd25519ExportFlow.ts`
+- `packages/wallet/src/core/signingEngine/flows/registration/services/ecdsaRegistrationSessions.ts`
+- `packages/wallet/src/core/signingEngine/assembly/ports/near.ts`
+- `packages/wallet/src/core/signingEngine/interfaces/ecdsaChainTarget.ts`
+- `packages/wallet/src/core/signingEngine/interfaces/near.ts`
+- `packages/wallet/src/core/signingEngine/interfaces/operationDeps.ts`
+- `packages/wallet/src/core/signingEngine/interfaces/signing.ts`
 
 ### Rust, Wasm, Apps, And Docs Outside SDK Packages
 
@@ -514,184 +514,184 @@ files below:
 - `packages/shared-ts/src/utils/domainIds.typecheck.ts`
 - `packages/shared-ts/src/utils/signingSessionSeal.ts`
 - `packages/shared-ts/src/threshold/ecdsaHssRoleLocalBootstrap.ts`
-- `packages/sdk-server-ts/src/core/AuthService.ts`
-- `packages/sdk-server-ts/src/core/DeviceLinkingSessionStore.ts`
-- `packages/sdk-server-ts/src/core/EmailRecoveryPreparationStore.ts`
-- `packages/sdk-server-ts/src/core/RegistrationCeremonyStore.typecheck.ts`
-- `packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts`
-- `packages/sdk-server-ts/src/core/ThresholdService/stores/CloudflareDurableObjectStore.ts`
-- `packages/sdk-server-ts/src/core/ThresholdService/stores/SessionStore.ts`
-- `packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts`
-- `packages/sdk-server-ts/src/core/ThresholdService/validation.ts`
-- `packages/sdk-server-ts/src/core/ThresholdService/walletSigningBudget.ts`
-- `packages/sdk-server-ts/src/core/types.ts`
-- `packages/sdk-server-ts/src/router/cloudflare/createSelfHostedCloudflareSigningWorker.ts`
-- `packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore.ts`
-- `packages/sdk-server-ts/src/router/cloudflare/routes/sessions.ts`
-- `packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEcdsa.ts`
-- `packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519.ts`
-- `packages/sdk-server-ts/src/router/commonRouterUtils.ts`
-- `packages/sdk-server-ts/src/router/emailOtpSessionRouteHelpers.ts`
-- `packages/sdk-server-ts/src/router/express/routes/sessions.ts`
-- `packages/sdk-server-ts/src/router/express/routes/thresholdEcdsa.ts`
-- `packages/sdk-server-ts/src/router/express/routes/thresholdEd25519.ts`
-- `packages/sdk-server-ts/src/router/relayWalletRegistration.ts`
-- `packages/sdk-server-ts/src/router/signingBudgetStatus.ts`
-- `packages/sdk-server-ts/src/router/signingBudgetStatus.typecheck.ts`
-- `packages/sdk-server-ts/src/threshold/session/signingSessionSeal/policy/sessionPolicy.ts`
-- `packages/sdk-server-ts/src/threshold/session/signingSessionSeal/service.ts`
-- `packages/sdk-server-ts/src/threshold/session/signingSessionSeal/types.ts`
-- `packages/sdk-web/src/SeamsWeb/operations/auth/login.ts`
-- `packages/sdk-web/src/SeamsWeb/operations/devices/linkDevice.ts`
-- `packages/sdk-web/src/SeamsWeb/operations/recovery/emailRecovery.ts`
-- `packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts`
-- `packages/sdk-web/src/core/indexedDB/schemaNames.ts`
-- `packages/sdk-web/src/core/platform/ports.ts`
-- `packages/sdk-web/src/core/rpcClients/relayer/ecdsaUseCaseClient.ts`
-- `packages/sdk-web/src/core/rpcClients/relayer/thresholdEcdsa.ts`
-- `packages/sdk-web/src/core/rpcClients/relayer/thresholdEcdsa.typecheck.ts`
-- `packages/sdk-web/src/core/rpcClients/relayer/walletRegistration.ts`
-- `packages/sdk-web/src/core/signingEngine/assembly/ports/near.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaExportFlow.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaExportMaterial.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaHssExport.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/recovery/exportKeypairOperation.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/recovery/exportLaneSelection.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/recovery/nearEd25519ExportFlow.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/registration/services/ecdsaRegistrationSessions.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/budgetSpending.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaLanes.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaMaterialState.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaMaterialState.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaReadiness.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaReadiness.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaSelection.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaSelection.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/emailOtpRefresh.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/preparedSigning.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/provisionPlan.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signingFlowRuntime.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/thresholdAdmission.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519PresignFinalize.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signNear/shared/routerAbEd25519WalletSessionState.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signNear/shared/routerAbWalletSessionCredential.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signNear/shared/routerAbWalletSessionCredential.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signNear/shared/signingSessionAuthMode.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signNear/signDelegate.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signNear/signNear.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signNear/signNep413.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signNear/signTransactions.ts`
-- `packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget.ts`
-- `packages/sdk-web/src/core/signingEngine/interfaces/near.ts`
-- `packages/sdk-web/src/core/signingEngine/interfaces/operationDeps.ts`
-- `packages/sdk-web/src/core/signingEngine/interfaces/signing.ts`
-- `packages/sdk-web/src/core/signingEngine/session/SigningSessionCoordinator.ts`
-- `packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts`
-- `packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/availability/persistedAvailableSigningLanes.ts`
-- `packages/sdk-web/src/core/signingEngine/session/availability/readiness.ts`
-- `packages/sdk-web/src/core/signingEngine/session/availability/readiness.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/budget/BudgetCoordinator.ts`
-- `packages/sdk-web/src/core/signingEngine/session/budget/budget.ts`
-- `packages/sdk-web/src/core/signingEngine/session/budget/budget.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/budget/budgetFinalizer.ts`
-- `packages/sdk-web/src/core/signingEngine/session/budget/budgetProjection.ts`
-- `packages/sdk-web/src/core/signingEngine/session/budget/budgetProjection.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/budget/budgetStatusReader.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/appSessionJwtCache.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/companionSessions.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaBootstrapCommit.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaEnrollment.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaLogin.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaPublication.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaRecovery.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519Recovery.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519Warmup.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/exportRecovery.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/persistedSnapshot.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/provisioning.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/routePlan.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/routePlan.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/sealedRestoreOrchestrator.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/sealedSigningSessionAuth.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/workerRequests.ts`
-- `packages/sdk-web/src/core/signingEngine/session/identity/emailOtpHssIdentity.ts`
-- `packages/sdk-web/src/core/signingEngine/session/identity/emailOtpHssIdentity.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.ts`
-- `packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity.ts`
-- `packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/identity/laneIdentity.ts`
-- `packages/sdk-web/src/core/signingEngine/session/identity/laneIdentity.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/identity/selectLane.ts`
-- `packages/sdk-web/src/core/signingEngine/session/identity/subjectIdentityCleanup.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/lanes/laneWarmSessionBinding.ts`
-- `packages/sdk-web/src/core/signingEngine/session/operationState/lanes.ts`
-- `packages/sdk-web/src/core/signingEngine/session/operationState/lanes.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/operationState/postSignPolicy.ts`
-- `packages/sdk-web/src/core/signingEngine/session/operationState/postSignPolicy.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/operationState/stepUpFreshness.ts`
-- `packages/sdk-web/src/core/signingEngine/session/operationState/stepUpFreshness.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/operationState/transactionState.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/operationState/types.ts`
-- `packages/sdk-web/src/core/signingEngine/session/operationState/types.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaBootstrap.ts`
-- `packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaBootstrap.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaRecovery.ts`
-- `packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaSessionProvision.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaWarmCapabilityBootstrap.ts`
-- `packages/sdk-web/src/core/signingEngine/session/passkey/ed25519Recovery.ts`
-- `packages/sdk-web/src/core/signingEngine/session/passkey/ed25519SessionProvision.ts`
-- `packages/sdk-web/src/core/signingEngine/session/passkey/ed25519SessionProvision.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/passkey/runtime.ts`
-- `packages/sdk-web/src/core/signingEngine/session/passkey/unlockEcdsaWarmupPlanner.ts`
-- `packages/sdk-web/src/core/signingEngine/session/persistence/records.ts`
-- `packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore.ts`
-- `packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/postconditions/runtimePostconditions.ts`
-- `packages/sdk-web/src/core/signingEngine/session/public.ts`
-- `packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession.ts`
-- `packages/sdk-web/src/core/signingEngine/session/sealedRecovery/exactRecordLookup.ts`
-- `packages/sdk-web/src/core/signingEngine/session/sealedRecovery/recoveryRecord.ts`
-- `packages/sdk-web/src/core/signingEngine/session/sealedRecovery/restoreCoordinator.ts`
-- `packages/sdk-web/src/core/signingEngine/session/sealedRecovery/types.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/capabilityReaderCore.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/ecdsaCapabilityReadiness.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/persistence.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/persistence.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/persistencePorts.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/persistencePorts.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/public.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/readModel.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/routerAbEcdsaWalletSessionAuth.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/statusReader.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/types.ts`
-- `packages/sdk-web/src/core/signingEngine/stepUpConfirmation/channel/webauthnChallenge.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/stepUpConfirmation/otpPrompt/authLane.ts`
-- `packages/sdk-web/src/core/signingEngine/stepUpConfirmation/types.ts`
-- `packages/sdk-web/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts`
-- `packages/sdk-web/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/threshold/ecdsa/activation.ts`
-- `packages/sdk-web/src/core/signingEngine/threshold/ecdsa/bootstrapSession.ts`
-- `packages/sdk-web/src/core/signingEngine/threshold/ed25519/connectSession.ts`
-- `packages/sdk-web/src/core/signingEngine/threshold/ed25519/presignPool.ts`
-- `packages/sdk-web/src/core/signingEngine/threshold/ed25519/walletSession.ts`
-- `packages/sdk-web/src/core/signingEngine/threshold/sessionPolicy.ts`
-- `packages/sdk-web/src/core/signingEngine/uiConfirm/UiConfirmManager.ts`
-- `packages/sdk-web/src/core/signingEngine/uiConfirm/handlers/flows/adapters/request.ts`
-- `packages/sdk-web/src/core/signingEngine/uiConfirm/handlers/flows/signing.ts`
-- `packages/sdk-web/src/core/signingEngine/useCases/lifecycle.ts`
-- `packages/sdk-web/src/core/signingEngine/useCases/lifecycle.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/useCases/provisionEcdsa.ts`
-- `packages/sdk-web/src/core/signingEngine/useCases/provisionEcdsa.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/useCases/provisionEcdsaSession.ts`
-- `packages/sdk-web/src/core/signingEngine/workerManager/workerTypes.ts`
-- `packages/sdk-web/src/core/signingEngine/workerManager/workerTypes.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp.worker.ts`
-- `packages/sdk-web/src/core/types/secure-confirm-worker.ts`
+- `packages/wallet-server/src/core/AuthService.ts`
+- `packages/wallet-server/src/core/DeviceLinkingSessionStore.ts`
+- `packages/wallet-server/src/core/EmailRecoveryPreparationStore.ts`
+- `packages/wallet-server/src/core/RegistrationCeremonyStore.typecheck.ts`
+- `packages/wallet-server/src/core/ThresholdService/ThresholdSigningService.ts`
+- `packages/wallet-server/src/core/ThresholdService/stores/CloudflareDurableObjectStore.ts`
+- `packages/wallet-server/src/core/ThresholdService/stores/SessionStore.ts`
+- `packages/wallet-server/src/core/ThresholdService/thresholdPrfWasm.ts`
+- `packages/wallet-server/src/core/ThresholdService/validation.ts`
+- `packages/wallet-server/src/core/ThresholdService/walletSigningBudget.ts`
+- `packages/wallet-server/src/core/types.ts`
+- `packages/wallet-server/src/router/cloudflare/createSelfHostedCloudflareSigningWorker.ts`
+- `packages/wallet-server/src/router/cloudflare/durableObjects/thresholdStore.ts`
+- `packages/wallet-server/src/router/cloudflare/routes/sessions.ts`
+- `packages/wallet-server/src/router/cloudflare/routes/thresholdEcdsa.ts`
+- `packages/wallet-server/src/router/cloudflare/routes/thresholdEd25519.ts`
+- `packages/wallet-server/src/router/commonRouterUtils.ts`
+- `packages/wallet-server/src/router/emailOtpSessionRouteHelpers.ts`
+- `packages/wallet-server/src/router/express/routes/sessions.ts`
+- `packages/wallet-server/src/router/express/routes/thresholdEcdsa.ts`
+- `packages/wallet-server/src/router/express/routes/thresholdEd25519.ts`
+- `packages/wallet-server/src/router/relayWalletRegistration.ts`
+- `packages/wallet-server/src/router/signingBudgetStatus.ts`
+- `packages/wallet-server/src/router/signingBudgetStatus.typecheck.ts`
+- `packages/wallet-server/src/threshold/session/signingSessionSeal/policy/sessionPolicy.ts`
+- `packages/wallet-server/src/threshold/session/signingSessionSeal/service.ts`
+- `packages/wallet-server/src/threshold/session/signingSessionSeal/types.ts`
+- `packages/wallet/src/SeamsWeb/operations/auth/login.ts`
+- `packages/wallet/src/SeamsWeb/operations/devices/linkDevice.ts`
+- `packages/wallet/src/SeamsWeb/operations/recovery/emailRecovery.ts`
+- `packages/wallet/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts`
+- `packages/wallet/src/core/indexedDB/schemaNames.ts`
+- `packages/wallet/src/core/platform/ports.ts`
+- `packages/wallet/src/core/rpcClients/relayer/ecdsaUseCaseClient.ts`
+- `packages/wallet/src/core/rpcClients/relayer/thresholdEcdsa.ts`
+- `packages/wallet/src/core/rpcClients/relayer/thresholdEcdsa.typecheck.ts`
+- `packages/wallet/src/core/rpcClients/relayer/walletRegistration.ts`
+- `packages/wallet/src/core/signingEngine/assembly/ports/near.ts`
+- `packages/wallet/src/core/signingEngine/flows/recovery/ecdsaExportFlow.ts`
+- `packages/wallet/src/core/signingEngine/flows/recovery/ecdsaExportMaterial.ts`
+- `packages/wallet/src/core/signingEngine/flows/recovery/ecdsaHssExport.ts`
+- `packages/wallet/src/core/signingEngine/flows/recovery/exportKeypairOperation.ts`
+- `packages/wallet/src/core/signingEngine/flows/recovery/exportLaneSelection.ts`
+- `packages/wallet/src/core/signingEngine/flows/recovery/nearEd25519ExportFlow.ts`
+- `packages/wallet/src/core/signingEngine/flows/registration/services/ecdsaRegistrationSessions.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/budgetSpending.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/ecdsaLanes.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/ecdsaMaterialState.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/ecdsaMaterialState.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/ecdsaReadiness.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/ecdsaReadiness.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/ecdsaSelection.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/ecdsaSelection.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/emailOtpRefresh.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/preparedSigning.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/provisionPlan.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/signingFlowRuntime.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/thresholdAdmission.ts`
+- `packages/wallet/src/core/signingEngine/flows/signNear/shared/ed25519PresignFinalize.ts`
+- `packages/wallet/src/core/signingEngine/flows/signNear/shared/routerAbEd25519WalletSessionState.ts`
+- `packages/wallet/src/core/signingEngine/flows/signNear/shared/routerAbWalletSessionCredential.ts`
+- `packages/wallet/src/core/signingEngine/flows/signNear/shared/routerAbWalletSessionCredential.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/flows/signNear/shared/signingSessionAuthMode.ts`
+- `packages/wallet/src/core/signingEngine/flows/signNear/signDelegate.ts`
+- `packages/wallet/src/core/signingEngine/flows/signNear/signNear.ts`
+- `packages/wallet/src/core/signingEngine/flows/signNear/signNep413.ts`
+- `packages/wallet/src/core/signingEngine/flows/signNear/signTransactions.ts`
+- `packages/wallet/src/core/signingEngine/interfaces/ecdsaChainTarget.ts`
+- `packages/wallet/src/core/signingEngine/interfaces/near.ts`
+- `packages/wallet/src/core/signingEngine/interfaces/operationDeps.ts`
+- `packages/wallet/src/core/signingEngine/interfaces/signing.ts`
+- `packages/wallet/src/core/signingEngine/session/SigningSessionCoordinator.ts`
+- `packages/wallet/src/core/signingEngine/session/availability/availableSigningLanes.ts`
+- `packages/wallet/src/core/signingEngine/session/availability/availableSigningLanes.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/availability/persistedAvailableSigningLanes.ts`
+- `packages/wallet/src/core/signingEngine/session/availability/readiness.ts`
+- `packages/wallet/src/core/signingEngine/session/availability/readiness.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/budget/BudgetCoordinator.ts`
+- `packages/wallet/src/core/signingEngine/session/budget/budget.ts`
+- `packages/wallet/src/core/signingEngine/session/budget/budget.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/budget/budgetFinalizer.ts`
+- `packages/wallet/src/core/signingEngine/session/budget/budgetProjection.ts`
+- `packages/wallet/src/core/signingEngine/session/budget/budgetProjection.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/budget/budgetStatusReader.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/appSessionJwtCache.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/companionSessions.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/ecdsaBootstrapCommit.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/ecdsaEnrollment.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/ecdsaLogin.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/ecdsaPublication.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/ecdsaRecovery.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/ed25519Recovery.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/ed25519Warmup.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/exportRecovery.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/persistedSnapshot.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/provisioning.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/routePlan.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/routePlan.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/sealedRestoreOrchestrator.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/sealedSigningSessionAuth.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/workerRequests.ts`
+- `packages/wallet/src/core/signingEngine/session/identity/emailOtpHssIdentity.ts`
+- `packages/wallet/src/core/signingEngine/session/identity/emailOtpHssIdentity.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.ts`
+- `packages/wallet/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/identity/exactSigningLaneIdentity.ts`
+- `packages/wallet/src/core/signingEngine/session/identity/exactSigningLaneIdentity.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/identity/laneIdentity.ts`
+- `packages/wallet/src/core/signingEngine/session/identity/laneIdentity.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/identity/selectLane.ts`
+- `packages/wallet/src/core/signingEngine/session/identity/subjectIdentityCleanup.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/lanes/laneWarmSessionBinding.ts`
+- `packages/wallet/src/core/signingEngine/session/operationState/lanes.ts`
+- `packages/wallet/src/core/signingEngine/session/operationState/lanes.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/operationState/postSignPolicy.ts`
+- `packages/wallet/src/core/signingEngine/session/operationState/postSignPolicy.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/operationState/stepUpFreshness.ts`
+- `packages/wallet/src/core/signingEngine/session/operationState/stepUpFreshness.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/operationState/transactionState.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/operationState/types.ts`
+- `packages/wallet/src/core/signingEngine/session/operationState/types.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/passkey/ecdsaBootstrap.ts`
+- `packages/wallet/src/core/signingEngine/session/passkey/ecdsaBootstrap.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/passkey/ecdsaRecovery.ts`
+- `packages/wallet/src/core/signingEngine/session/passkey/ecdsaSessionProvision.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/passkey/ecdsaWarmCapabilityBootstrap.ts`
+- `packages/wallet/src/core/signingEngine/session/passkey/ed25519Recovery.ts`
+- `packages/wallet/src/core/signingEngine/session/passkey/ed25519SessionProvision.ts`
+- `packages/wallet/src/core/signingEngine/session/passkey/ed25519SessionProvision.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/passkey/runtime.ts`
+- `packages/wallet/src/core/signingEngine/session/passkey/unlockEcdsaWarmupPlanner.ts`
+- `packages/wallet/src/core/signingEngine/session/persistence/records.ts`
+- `packages/wallet/src/core/signingEngine/session/persistence/sealedSessionStore.ts`
+- `packages/wallet/src/core/signingEngine/session/persistence/sealedSessionStore.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/postconditions/runtimePostconditions.ts`
+- `packages/wallet/src/core/signingEngine/session/public.ts`
+- `packages/wallet/src/core/signingEngine/session/routerAbSigningWalletSession.ts`
+- `packages/wallet/src/core/signingEngine/session/sealedRecovery/exactRecordLookup.ts`
+- `packages/wallet/src/core/signingEngine/session/sealedRecovery/recoveryRecord.ts`
+- `packages/wallet/src/core/signingEngine/session/sealedRecovery/restoreCoordinator.ts`
+- `packages/wallet/src/core/signingEngine/session/sealedRecovery/types.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/capabilityReaderCore.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/ecdsaCapabilityReadiness.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/persistence.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/persistence.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/persistencePorts.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/persistencePorts.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/public.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/readModel.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/routerAbEcdsaWalletSessionAuth.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/statusReader.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/types.ts`
+- `packages/wallet/src/core/signingEngine/stepUpConfirmation/channel/webauthnChallenge.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/stepUpConfirmation/otpPrompt/authLane.ts`
+- `packages/wallet/src/core/signingEngine/stepUpConfirmation/types.ts`
+- `packages/wallet/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts`
+- `packages/wallet/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/threshold/ecdsa/activation.ts`
+- `packages/wallet/src/core/signingEngine/threshold/ecdsa/bootstrapSession.ts`
+- `packages/wallet/src/core/signingEngine/threshold/ed25519/connectSession.ts`
+- `packages/wallet/src/core/signingEngine/threshold/ed25519/presignPool.ts`
+- `packages/wallet/src/core/signingEngine/threshold/ed25519/walletSession.ts`
+- `packages/wallet/src/core/signingEngine/threshold/sessionPolicy.ts`
+- `packages/wallet/src/core/signingEngine/uiConfirm/UiConfirmManager.ts`
+- `packages/wallet/src/core/signingEngine/uiConfirm/handlers/flows/adapters/request.ts`
+- `packages/wallet/src/core/signingEngine/uiConfirm/handlers/flows/signing.ts`
+- `packages/wallet/src/core/signingEngine/useCases/lifecycle.ts`
+- `packages/wallet/src/core/signingEngine/useCases/lifecycle.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/useCases/provisionEcdsa.ts`
+- `packages/wallet/src/core/signingEngine/useCases/provisionEcdsa.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/useCases/provisionEcdsaSession.ts`
+- `packages/wallet/src/core/signingEngine/workerManager/workerTypes.ts`
+- `packages/wallet/src/core/signingEngine/workerManager/workerTypes.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/workerManager/workers/email-otp.worker.ts`
+- `packages/wallet/src/core/types/secure-confirm-worker.ts`
 
 ### Tests
 
@@ -845,21 +845,21 @@ Classify plain `sessionId` hits into these buckets before renaming:
 
 High-risk `sessionId` files to inspect first:
 
-- `packages/sdk-server-ts/src/router/commonRouterUtils.ts`
-- `packages/sdk-server-ts/src/core/ThresholdService/validation.ts`
-- `packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts`
-- `packages/sdk-server-ts/src/router/signingBudgetStatus.ts`
-- `packages/sdk-server-ts/src/router/relayWalletRegistration.ts`
-- `packages/sdk-web/src/core/rpcClients/relayer/walletRegistration.ts`
-- `packages/sdk-web/src/core/signingEngine/threshold/ecdsa/bootstrapSession.ts`
-- `packages/sdk-web/src/core/signingEngine/threshold/ed25519/walletSession.ts`
-- `packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signNear/shared/routerAbWalletSessionCredential.ts`
-- `packages/sdk-web/src/core/signingEngine/session/budget/budgetStatusReader.ts`
-- `packages/sdk-web/src/core/signingEngine/session/availability/readiness.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/routePlan.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/statusReader.ts`
-- `packages/sdk-web/src/core/signingEngine/workerManager/workerTypes.ts`
+- `packages/wallet-server/src/router/commonRouterUtils.ts`
+- `packages/wallet-server/src/core/ThresholdService/validation.ts`
+- `packages/wallet-server/src/core/ThresholdService/ThresholdSigningService.ts`
+- `packages/wallet-server/src/router/signingBudgetStatus.ts`
+- `packages/wallet-server/src/router/relayWalletRegistration.ts`
+- `packages/wallet/src/core/rpcClients/relayer/walletRegistration.ts`
+- `packages/wallet/src/core/signingEngine/threshold/ecdsa/bootstrapSession.ts`
+- `packages/wallet/src/core/signingEngine/threshold/ed25519/walletSession.ts`
+- `packages/wallet/src/core/signingEngine/session/routerAbSigningWalletSession.ts`
+- `packages/wallet/src/core/signingEngine/flows/signNear/shared/routerAbWalletSessionCredential.ts`
+- `packages/wallet/src/core/signingEngine/session/budget/budgetStatusReader.ts`
+- `packages/wallet/src/core/signingEngine/session/availability/readiness.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/routePlan.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/statusReader.ts`
+- `packages/wallet/src/core/signingEngine/workerManager/workerTypes.ts`
 - `wasm/near_signer/src/handlers/handle_threshold_ed25519_derive_client_verifying_share.rs`
 - `wasm/near_signer/src/handlers/handle_threshold_ed25519_derive_hss_client_inputs.rs`
 - `apps/web-client/src/flows/demo/hooks/useDemoSigningSession.ts`
@@ -886,8 +886,8 @@ After implementation, these should return no current-code hits outside the
 inventory, historical docs, or intentional boundary parsers:
 
 ```sh
-rg "WalletSigningSessionId|walletSigningSessionId|wallet_signing_session_id|wallet-signing-session" packages/sdk-server-ts/src packages/sdk-web/src packages/shared-ts/src tests docs --glob '!**/target/**' --glob '!**/node_modules/**'
-rg "\bsessionId\b" packages/sdk-server-ts/src packages/sdk-web/src packages/shared-ts/src tests --glob '!**/target/**' --glob '!**/node_modules/**'
+rg "WalletSigningSessionId|walletSigningSessionId|wallet_signing_session_id|wallet-signing-session" packages/wallet-server/src packages/wallet/src packages/shared-ts/src tests docs --glob '!**/target/**' --glob '!**/node_modules/**'
+rg "\bsessionId\b" packages/wallet-server/src packages/wallet/src packages/shared-ts/src tests --glob '!**/target/**' --glob '!**/node_modules/**'
 ```
 
 The second guard needs an allowlist because unrelated app/recovery/worker

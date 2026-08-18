@@ -168,7 +168,7 @@ pnpm test:intended:ci
 
 Local `test:intended` is fastest for refactor work and assumes the services are
 already running. CI mode resets local Router/D1 state, builds
-`packages/sdk-web/dist`, starts router/site, then runs the same four contracts.
+`packages/wallet/dist`, starts router/site, then runs the same four contracts.
 Intended commands and mutation preflight run `ensure:intended-google-token`
 before Playwright/readiness checks: a still-valid token is accepted, and an
 expired/missing token is refreshed through

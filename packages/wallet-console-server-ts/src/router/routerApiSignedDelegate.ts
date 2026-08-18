@@ -34,19 +34,19 @@ import {
   createSponsoredNearDelegateExecutionAdapter,
   type SponsoredNearDelegateAuthService,
 } from '../sponsorship/nearExecutionAdapter';
-import { applyRouteMetering } from '@seams/sdk-server/cloud-host';
+import { applyRouteMetering } from '@seams/wallet-server/cloud-host';
 import {
   enforceRoutePolicy,
   type RoutePolicyResolutionResult,
-} from '@seams/sdk-server/cloud-host';
-import type { NormalizedRouterLogger } from '@seams/sdk-server/cloud-host';
-import { resolvePublishableKeyApiCredentialAuth } from '@seams/sdk-server/cloud-host';
-import { extractRouterApiEnvironmentId } from '@seams/sdk-server/cloud-host';
-import type { HeaderRecord, RouteResponse } from '@seams/sdk-server/cloud-host';
-import type { RouteDefinition } from '@seams/sdk-server/cloud-host';
-import type { RouteErrorBody } from '@seams/sdk-server/cloud-host';
-import { routeJson } from '@seams/sdk-server/cloud-host';
-import type { RouterApiPublishableKeyAuthAdapter } from '@seams/sdk-server/cloud-host';
+} from '@seams/wallet-server/cloud-host';
+import type { NormalizedRouterLogger } from '@seams/wallet-server/cloud-host';
+import { resolvePublishableKeyApiCredentialAuth } from '@seams/wallet-server/cloud-host';
+import { extractRouterApiEnvironmentId } from '@seams/wallet-server/cloud-host';
+import type { HeaderRecord, RouteResponse } from '@seams/wallet-server/cloud-host';
+import type { RouteDefinition } from '@seams/wallet-server/cloud-host';
+import type { RouteErrorBody } from '@seams/wallet-server/cloud-host';
+import { routeJson } from '@seams/wallet-server/cloud-host';
+import type { RouterApiPublishableKeyAuthAdapter } from '@seams/wallet-server/cloud-host';
 import {
   runSponsorshipExecution,
   type SponsorshipExecutionAssessment,
@@ -66,7 +66,7 @@ import {
   emitSponsorshipBlockedObservabilityEvent,
   readSponsorshipBillingBalanceSnapshot,
 } from './sponsorshipBillingEvents';
-import { isPlainObject } from '@seams/sdk-server/cloud-host';
+import { isPlainObject } from '@seams/wallet-server/cloud-host';
 
 interface SignedDelegateRequestBody {
   hash: string;

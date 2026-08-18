@@ -21,7 +21,7 @@ import {
 import type {
   D1DatabaseLike,
   D1PreparedStatementLike,
-} from '../../packages/sdk-server-ts/src/storage/tenantRoute';
+} from '../../packages/wallet-server/src/storage/tenantRoute';
 
 class RejectingOrganizationEmailBatchDatabase implements D1DatabaseLike {
   readonly batches: string[][] = [];

@@ -2,19 +2,19 @@ import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
 import { parseLinkedDeviceId } from '../../packages/shared-ts/src/signing-lanes/ids';
-import { buildActiveLinkedDeviceExecutionBundleV1 } from '../../packages/sdk-web/src/core/signingEngine/session/lanes/linkedDeviceExecutionBundle';
-import { SigningSessionIds } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/types';
+import { buildActiveLinkedDeviceExecutionBundleV1 } from '../../packages/wallet/src/core/signingEngine/session/lanes/linkedDeviceExecutionBundle';
+import { SigningSessionIds } from '../../packages/wallet/src/core/signingEngine/session/operationState/types';
 import {
   deriveRouterAbNormalSigningAdmissionMaterialV2,
   type RouterAbNormalSigningPrepareResponseV1Wire,
   type RouterAbNormalSigningResponseV1Wire,
-} from '../../packages/sdk-web/src/core/rpcClients/relayer/routerAbNormalSigning';
+} from '../../packages/wallet/src/core/rpcClients/relayer/routerAbNormalSigning';
 import {
   executeLinkedDeviceEd25519NormalSigningV1,
   type LinkedDeviceEd25519NormalSigningFinalizeRequestV1,
   type LinkedDeviceEd25519NormalSigningPrepareRequestV1,
   type LinkedDeviceEd25519NormalSigningTransportV1,
-} from '../../packages/sdk-web/src/core/signingEngine/flows/signNear/shared/linkedDeviceEd25519NormalSigning';
+} from '../../packages/wallet/src/core/signingEngine/flows/signNear/shared/linkedDeviceEd25519NormalSigning';
 import { buildR103ActiveExecutionFixture } from './helpers/deviceLinkContracts.fixtures';
 import { buildR103SealedHolderRecord } from './helpers/r102LaneGateway.fixtures';
 

@@ -16,7 +16,7 @@
     "@radix-ui/react-select": "^2.0.0",
     "@seams-internal/console-shared": "workspace:*",
     "@seams-internal/wallet-console-shared": "workspace:*",
-    "@seams/sdk": "workspace:*",
+    "@seams/wallet": "workspace:*",
     "@tanstack/react-query": "^5.76.1",
     "borsh": "^2.0.0",
     "bs58": "^6.0.0",

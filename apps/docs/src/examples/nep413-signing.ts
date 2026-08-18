@@ -1,5 +1,5 @@
-import type { SeamsWeb, SignNEP413MessageResult, SigningFlowEvent } from '@seams/sdk';
-import { nearAccountRefFromAccountId, walletSessionRefFromSession } from '@seams/sdk/advanced';
+import type { SeamsWeb, SignNEP413MessageResult, SigningFlowEvent } from '@seams/wallet';
+import { nearAccountRefFromAccountId, walletSessionRefFromSession } from '@seams/wallet/advanced';
 
 function logSigningEvent(event: SigningFlowEvent): void {
   console.log(event.phase, event.status, event.message);

@@ -1,11 +1,11 @@
 import { expect, test } from '@playwright/test';
-import { AuthorizationService } from '../../packages/sdk-server-ts/src/authorization/service';
-import type { EcdsaMaterialActivationScope } from '../../packages/sdk-server-ts/src/authorization/service';
-import { CloudflareD1AuthorizationStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/authorization/d1AuthorizationStore';
+import { AuthorizationService } from '../../packages/wallet-server/src/authorization/service';
+import type { EcdsaMaterialActivationScope } from '../../packages/wallet-server/src/authorization/service';
+import { CloudflareD1AuthorizationStore } from '../../packages/wallet-server/src/router/cloudflare/d1/authorization/d1AuthorizationStore';
 import {
   D1WalletStore,
   type D1WalletStoreScope,
-} from '../../packages/sdk-server-ts/src/core/d1WalletStore';
+} from '../../packages/wallet-server/src/core/d1WalletStore';
 import { createWalletEcdsaSignerRecord } from './helpers/walletRegistrationSigner.fixtures';
 import {
   applyD1MigrationFiles,
@@ -21,7 +21,7 @@ import {
 import {
   parseHostedWalletSeamsSessionExchangeNonce,
   parseSessionOrigin,
-} from '../../packages/sdk-server-ts/src/authorization/domain';
+} from '../../packages/wallet-server/src/authorization/domain';
 import {
   buildCapabilityOperationEnvelope,
   type CapabilityOperationEnvelope,
@@ -29,13 +29,13 @@ import {
 import type {
   AuthorizedOperation,
   AuthorizedOperationInput,
-} from '../../packages/sdk-server-ts/src/authorization/domain';
-import { admitRouterAbEcdsaReusableWalletSessionOperation } from '../../packages/sdk-server-ts/src/router/domains/signingOperations/routerAbPrivateSigningWorker';
+} from '../../packages/wallet-server/src/authorization/domain';
+import { admitRouterAbEcdsaReusableWalletSessionOperation } from '../../packages/wallet-server/src/router/domains/signingOperations/routerAbPrivateSigningWorker';
 import { buildRouterAbEcdsaWalletSessionClaimsFixture } from './helpers/routerAbEcdsaWalletSessionClaims.fixtures';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
 import { parseProviderSubject } from '../../packages/shared-ts/src/utils/domainIds';
-import { capabilityPolicyPort } from '../../packages/sdk-server-ts/src/authorization/capabilityPolicy';
+import { capabilityPolicyPort } from '../../packages/wallet-server/src/authorization/capabilityPolicy';
 import {
   buildEvmEcdsaMpcOperationRef,
   parseAuthorizationAuditEventId,

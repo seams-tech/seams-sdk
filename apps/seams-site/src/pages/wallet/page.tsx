@@ -1,5 +1,5 @@
 import React from 'react';
-import { AuthMenuMode } from '@seams/sdk/react';
+import { AuthMenuMode } from '@seams/wallet/react';
 import NavbarCompact from '@/components/Navbar/NavbarCompact';
 import { H2DemoHero, H2Footer, H2Networks, H2Security, H2Start } from '@/components/h2/sections';
 import '@/styles/h2.css';

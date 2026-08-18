@@ -205,7 +205,7 @@ function buildPublishableKeyManagedSnippet(
   const allowedOrigin = allowedOrigins[0] || 'https://app.example.com';
   const hostedWalletOrigin = String(walletOrigin || '').trim() || 'https://wallet.example.com';
   return [
-    "import { SeamsWeb } from '@seams/sdk';",
+    "import { SeamsWeb } from '@seams/wallet';",
     '',
     'const seams = new SeamsWeb({',
     "  relayer: { url: '$RELAYER_URL' },",

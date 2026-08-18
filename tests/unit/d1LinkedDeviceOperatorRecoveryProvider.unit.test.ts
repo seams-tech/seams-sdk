@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   D1LinkedDeviceOperatorRecoveryProviderV1,
   LINKED_DEVICE_OPERATOR_SECRET_HEADER_V1,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceOperatorRecoveryProvider';
+} from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceOperatorRecoveryProvider';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
 import { sha256Bytes } from '../../packages/shared-ts/src/utils/digests';

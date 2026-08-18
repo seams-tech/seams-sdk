@@ -30,7 +30,7 @@ export const BUILD_PATHS = {
       'src/react',
       'src/static',
       'src/utils',
-      '../sdk-server-ts/src',
+      '../wallet-server/src',
       '../shared-ts/src',
       '../../crates/router-ab-ed25519-yao-client',
       '../../wasm/near_signer',

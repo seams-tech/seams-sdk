@@ -1,14 +1,14 @@
 import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import type { AccountKeyMaterialStorePort } from '../../packages/sdk-web/src/core/indexedDB/accountKeyMaterial';
+import type { AccountKeyMaterialStorePort } from '../../packages/wallet/src/core/indexedDB/accountKeyMaterial';
 import type {
   KeyMaterialKind,
   KeyMaterialRecord,
-} from '../../packages/sdk-web/src/core/indexedDB/keyMaterial.types';
+} from '../../packages/wallet/src/core/indexedDB/keyMaterial.types';
 import {
   openEd25519YaoRecoverySourceV1,
   sealEd25519YaoRecoverySourceV1,
-} from '../../packages/sdk-web/src/core/signingEngine/session/passkey/ed25519YaoRecoverySource';
+} from '../../packages/wallet/src/core/signingEngine/session/passkey/ed25519YaoRecoverySource';
 import {
   buildPreparedNearEd25519YaoRecoveryJournalV1,
   finalizeCancelledPromotedNearEd25519YaoRecoveryV1,
@@ -19,7 +19,7 @@ import {
   readNearEd25519YaoRecoveryJournalV1,
   requestCancelNearEd25519YaoRecoveryV1,
   type NearEd25519YaoRecoveryJournalStorePort,
-} from '../../packages/sdk-web/src/core/signingEngine/session/passkey/ed25519YaoRecoveryJournal';
+} from '../../packages/wallet/src/core/signingEngine/session/passkey/ed25519YaoRecoveryJournal';
 import {
   createRouterAbEd25519YaoActivationEntropyV1,
   RouterAbEd25519YaoClientV1,
@@ -27,8 +27,8 @@ import {
   type RouterAbEd25519YaoRecoveryTransportRequestV1,
   type RouterAbEd25519YaoRecoveryTransportV1,
   type RouterAbEd25519YaoRegistrationTransportResultV1,
-} from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/yaoClient';
-import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
+} from '../../packages/wallet/src/core/signingEngine/threshold/ed25519/yaoClient';
+import { toAccountId } from '../../packages/wallet/src/core/types/accountIds';
 import { parseMpcMaterialOwnerRef } from '@shared/utils/domainIds';
 import {
   parseRouterAbEd25519YaoRecoveryAdmissionRequestV1,

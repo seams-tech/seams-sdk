@@ -51,7 +51,7 @@ The flagship examples already disagree with the current public API:
   `apps/docs/src/getting-started/sign-with-policy.md` omit the required
   `walletSession` input.
 - Markdown fences are rendered and highlighted, but runnable TypeScript and
-  TSX examples are not compiled against `@seams/sdk`.
+  TSX examples are not compiled against `@seams/wallet`.
 
 These failures make the shortest integration path unusable. Fix them before
 expanding coverage or adding visual polish.
@@ -175,11 +175,11 @@ navbar implementation or creating a parallel router inside the docs app.
 
 ### SDK reference
 
-- `@seams/sdk`
-- `@seams/sdk/react`
-- `@seams/sdk/advanced`
-- `@seams/sdk/threshold`
-- `@seams/sdk/runtime`
+- `@seams/wallet`
+- `@seams/wallet/react`
+- `@seams/wallet/advanced`
+- `@seams/wallet/threshold`
+- `@seams/wallet/runtime`
 - Configuration
 - Registration and auth
 - Wallet and signing capabilities
@@ -364,7 +364,7 @@ Checklist markers: `[ ]` open, `[~]` partial, `[x]` complete.
 
 Validation:
 
-- all runnable examples compile against the workspace `@seams/sdk`;
+- all runnable examples compile against the workspace `@seams/wallet`;
 - the focused wallet smoke passes;
 - `pnpm -C apps/docs type-check`;
 - `pnpm -C apps/docs build`.

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
-import { normalizeLogger } from '../../packages/sdk-server-ts/src/core/logger';
+import { createCloudflareD1RouterApiAuthService } from '../../packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
+import { normalizeLogger } from '../../packages/wallet-server/src/core/logger';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
 import {
@@ -18,8 +18,8 @@ import { UnusedSessionAdapter } from './helpers/routerAbEd25519YaoRegistrationBr
 import {
   CloudflareD1WebAuthnAuthService,
   type D1WebAuthnWalletManifestSource,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/d1/webauthn/d1WebAuthnAuthService';
-import { CloudflareD1WebAuthnStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/webauthn/d1WebAuthnStore';
+} from '../../packages/wallet-server/src/router/cloudflare/d1/webauthn/d1WebAuthnAuthService';
+import { CloudflareD1WebAuthnStore } from '../../packages/wallet-server/src/router/cloudflare/d1/webauthn/d1WebAuthnStore';
 
 const SYNC_KEY_MANIFEST_DIGEST_B64U = Buffer.alloc(32, 21).toString('base64url');
 const SYNC_SIGNER_SLOT = 4;

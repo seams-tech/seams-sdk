@@ -1,7 +1,7 @@
 import type { ConsoleRouterOptions } from '@seams-internal/wallet-console-server/router/console';
-import type { RouterApiOptions } from '@seams/sdk-server/cloud-host';
-import type { D1DatabaseLike, D1PreparedStatementLike } from '@seams/sdk-server/cloud-host';
-import { parseOrgId, type OrgId } from '@seams/sdk-server/cloud-host';
+import type { RouterApiOptions } from '@seams/wallet-server/cloud-host';
+import type { D1DatabaseLike, D1PreparedStatementLike } from '@seams/wallet-server/cloud-host';
+import { parseOrgId, type OrgId } from '@seams/wallet-server/cloud-host';
 import {
   createStaticCloudflareTenantStorageRouteResolverFromBindings,
 } from './tenantStorageRoute';

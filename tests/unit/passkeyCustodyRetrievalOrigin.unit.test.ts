@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { handlePasskeyCustody } from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/passkeyCustody';
-import { createRouterApiRouteDefinitions } from '../../packages/sdk-server-ts/src/router/framework/routeDefinitions';
+import { handlePasskeyCustody } from '../../packages/wallet-server/src/router/transport/fetch/routes/passkeyCustody';
+import { createRouterApiRouteDefinitions } from '../../packages/wallet-server/src/router/framework/routeDefinitions';
 
 /**
  * Where `expectedOrigin` comes from on the custody retrieval route.

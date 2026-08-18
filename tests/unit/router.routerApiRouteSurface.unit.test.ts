@@ -1,19 +1,19 @@
 import { expect, test } from '@playwright/test';
-import type { RouterApiServiceBag } from '../../packages/sdk-server-ts/src/router/framework/authServicePort';
-import { createFetchRouter } from '../../packages/sdk-server-ts/src/router/transport/fetch/createFetchRouter';
+import type { RouterApiServiceBag } from '../../packages/wallet-server/src/router/framework/authServicePort';
+import { createFetchRouter } from '../../packages/wallet-server/src/router/transport/fetch/createFetchRouter';
 import {
   createRouterAbEd25519YaoProductRegistrationCompositionFromPortsV1,
   createRouterApiRouter,
   type RouterAbEd25519YaoProductRegistrationPortsV1,
-} from '@seams/sdk-server/router/express';
-import { createCloudflareRouter } from '../../packages/sdk-server-ts/src/router/cloudflare/runtime/createCloudflareRouter';
-import { createRouterApiModule } from '../../packages/sdk-server-ts/src/router/framework/modules';
+} from '@seams/wallet-server/router/express';
+import { createCloudflareRouter } from '../../packages/wallet-server/src/router/cloudflare/runtime/createCloudflareRouter';
+import { createRouterApiModule } from '../../packages/wallet-server/src/router/framework/modules';
 import type {
   RouterApiFetchRouteExtensionInput,
   RouterApiRouteExtension,
-} from '../../packages/sdk-server-ts/src/router/framework/routeExtensions';
-import { defineRoute } from '../../packages/sdk-server-ts/src/router/framework/routeDefinitions';
-import { getRouterApiRouteSurface } from '../../packages/sdk-server-ts/src/router/framework/routerApiRouteSurface';
+} from '../../packages/wallet-server/src/router/framework/routeExtensions';
+import { defineRoute } from '../../packages/wallet-server/src/router/framework/routeDefinitions';
+import { getRouterApiRouteSurface } from '../../packages/wallet-server/src/router/framework/routerApiRouteSurface';
 import {
   parseRouterAbPublicKeysetV2,
   ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,

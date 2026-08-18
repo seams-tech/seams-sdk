@@ -745,8 +745,8 @@ Recommended package split:
 | Package area | Responsibility |
 | --- | --- |
 | `packages/shared-ts/src/virtual-cards` | Provider-neutral domain types, result unions, control plan types, event enums, type fixtures. |
-| `packages/sdk-server-ts/src/virtual-cards` | Compiler, adaptor registry, provider profiles, webhook verification, authorization responder, reconciliation service. |
-| `packages/sdk-server-ts/src/virtual-cards/providers/*` | Provider-specific raw request builders, response parsers, webhook normalizers, and API clients. |
+| `packages/wallet-server/src/virtual-cards` | Compiler, adaptor registry, provider profiles, webhook verification, authorization responder, reconciliation service. |
+| `packages/wallet-server/src/virtual-cards/providers/*` | Provider-specific raw request builders, response parsers, webhook normalizers, and API clients. |
 | `apps/web-server/src` | Route wiring, credentials, concrete storage, external webhook endpoints, and environment config. |
 | `tests/unit/virtual-cards` | Type fixtures, compiler tests, fake adaptor conformance suite, provider webhook normalization tests. |
 

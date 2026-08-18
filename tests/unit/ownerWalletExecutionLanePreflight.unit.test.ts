@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { buildOwnerWalletExecutionEvidenceFixture } from './helpers/walletExecutionLane.fixtures';
-import { parseOwnerWalletExecutionLaneProjectionResponseV1 } from '../../packages/sdk-web/src/core/rpcClients/relayer/ownerWalletExecutionLanePreflight';
+import { parseOwnerWalletExecutionLaneProjectionResponseV1 } from '../../packages/wallet/src/core/rpcClients/relayer/ownerWalletExecutionLanePreflight';
 
 test('parses the exact authoritative owner execution-lane projection', async () => {
   const evidence = await buildOwnerWalletExecutionEvidenceFixture();

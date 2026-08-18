@@ -31,7 +31,7 @@ extension types are intentionally replaced by Fetch-owned types.
 
 ## Problem
 
-`packages/sdk-server-ts/src/router` currently has 143 TypeScript files:
+`packages/wallet-server/src/router` currently has 143 TypeScript files:
 
 - 71 files are flat at the router root (68 modules plus three public adaptor
   entry points).
@@ -218,7 +218,7 @@ source tree still matches `c0bcbc6e9`.
 
 The 2026-08-05 preflight evidence is:
 
-- `pnpm -C packages/sdk-server-ts type-check` passes.
+- `pnpm -C packages/wallet-server type-check` passes.
 - The focused Phase 1–2 set has 108 tests: 107 pass, with the pre-existing
   `cloudflareD1RouterApiWalletAuthMethods.unit.test.ts:549` strict ECDSA
   add-signer lifecycle failure (`add-signer ceremony not found`).
@@ -345,7 +345,7 @@ contain no logic edits; extraction phases must not mix unrelated renames.
 - Land this document as a plan-only checkpoint, then create the integration
   and worker worktrees from that exact commit. Confirm the SDK and test source
   trees have no implementation diff in any worktree.
-- Record `pnpm -C packages/sdk-server-ts type-check`,
+- Record `pnpm -C packages/wallet-server type-check`,
   `pnpm -C tests type-check:unit`, `pnpm check`, `pnpm test:unit`, and
   `pnpm test:source-guards` before moving anything. Root `pnpm check` does not
   replace the explicit SDK-server type-check.
@@ -463,7 +463,7 @@ zero-file scan is invalid. Update its hardcoded `d1WebAuthnRecords` and
 `d1NearPublicKeyStore` paths. Inventory the move with:
 
 ```sh
-rg --glob '*.{ts,tsx,mjs}' 'packages/sdk-server-ts/src/router/' tests packages
+rg --glob '*.{ts,tsx,mjs}' 'packages/wallet-server/src/router/' tests packages
 rg '@server/router/' tests
 ```
 
@@ -539,7 +539,7 @@ for this reorganisation.
 
 ## Blast radius
 
-- `packages/sdk-server-ts/src/cloud-host.ts` has 36 router re-export paths;
+- `packages/wallet-server/src/cloud-host.ts` has 36 router re-export paths;
   `cloudflare-adaptor.ts` has 15 Cloudflare import paths; `src/index.ts` has
   five router import paths. Update these mechanically, including the deleted
   normal-signing barrel and the moved ROR provider.
@@ -562,7 +562,7 @@ for this reorganisation.
 - `rolldown` recursively discovers `src` and receives explicit adaptor inputs;
   `tsconfig.build.json` covers `src/**/*`. No bundler or TypeScript config
   path edits are expected.
-- `packages/console-server-ts` consumes only `@seams/sdk-server/cloud-host`
+- `packages/console-server-ts` consumes only `@seams/wallet-server/cloud-host`
   and has no source-path dependency on this layout.
 
 ## Validation gates
@@ -577,8 +577,8 @@ git status --short
 pnpm check
 pnpm test:unit
 pnpm test:source-guards
-pnpm -C packages/sdk-server-ts type-check
-pnpm -C packages/sdk-server-ts build
+pnpm -C packages/wallet-server type-check
+pnpm -C packages/wallet-server build
 pnpm -C tests type-check:unit
 ```
 
@@ -608,7 +608,7 @@ pnpm -C tests exec playwright test -c playwright.unit.config.ts \
   ./unit/routerAbEd25519YaoRegistrationBridge.unit.test.ts \
   ./unit/router.routerApiRouteSurface.unit.test.ts \
   --reporter=line
-pnpm -C packages/sdk-server-ts type-check
+pnpm -C packages/wallet-server type-check
 ```
 
 The extraction gate also confirms that Express and `transport/fetch/**` have no
@@ -623,8 +623,8 @@ After the four move-only shards are merged and the four repair lanes are
 merged, run:
 
 ```sh
-pnpm -C packages/sdk-server-ts type-check
-pnpm -C packages/sdk-server-ts build
+pnpm -C packages/wallet-server type-check
+pnpm -C packages/wallet-server build
 pnpm check
 pnpm test:unit
 pnpm -C tests exec playwright test -c playwright.unit.config.ts \

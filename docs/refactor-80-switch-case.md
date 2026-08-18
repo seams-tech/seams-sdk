@@ -42,7 +42,7 @@ planning, and Email OTP flows must sit behind canonical exact lane identity.
 The canonical exact-lane type lives in:
 
 ```text
-packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity.ts
+packages/wallet/src/core/signingEngine/session/identity/exactSigningLaneIdentity.ts
 ```
 
 Rules:
@@ -118,19 +118,19 @@ imports.
 Use co-located domain modules:
 
 ```text
-packages/sdk-web/src/core/signingEngine/session/planning/planning.types.ts
-packages/sdk-web/src/core/signingEngine/session/budget/budget.types.ts
-packages/sdk-web/src/core/signingEngine/session/sealedRecovery/sealedRecovery.types.ts
-packages/sdk-web/src/core/signingEngine/session/emailOtp/emailOtpSession.types.ts
-packages/sdk-web/src/core/signingEngine/nonce/nonceLifecycle.types.ts
-packages/sdk-web/src/core/signingEngine/stepUpConfirmation/confirmationDecision.types.ts
-packages/sdk-web/src/core/signingEngine/flows/signNear/shared/nearSigning.types.ts
-packages/sdk-web/src/core/types/confirmationConfig.ts
-packages/sdk-web/src/core/types/sdkPublicResults.types.ts
-packages/sdk-web/src/SeamsWeb/operations/auth/login.types.ts
-packages/sdk-web/src/SeamsWeb/walletIframe/client/walletIframe.types.ts
-packages/sdk-web/src/react/reactDisplayState.types.ts
-packages/sdk-server-ts/src/router/routerCommand.types.ts
+packages/wallet/src/core/signingEngine/session/planning/planning.types.ts
+packages/wallet/src/core/signingEngine/session/budget/budget.types.ts
+packages/wallet/src/core/signingEngine/session/sealedRecovery/sealedRecovery.types.ts
+packages/wallet/src/core/signingEngine/session/emailOtp/emailOtpSession.types.ts
+packages/wallet/src/core/signingEngine/nonce/nonceLifecycle.types.ts
+packages/wallet/src/core/signingEngine/stepUpConfirmation/confirmationDecision.types.ts
+packages/wallet/src/core/signingEngine/flows/signNear/shared/nearSigning.types.ts
+packages/wallet/src/core/types/confirmationConfig.ts
+packages/wallet/src/core/types/sdkPublicResults.types.ts
+packages/wallet/src/SeamsWeb/operations/auth/login.types.ts
+packages/wallet/src/SeamsWeb/walletIframe/client/walletIframe.types.ts
+packages/wallet/src/react/reactDisplayState.types.ts
+packages/wallet-server/src/router/routerCommand.types.ts
 ```
 
 Guidelines:
@@ -144,7 +144,7 @@ Guidelines:
 - Avoid exporting internal lifecycle unions from the public SDK API unless the
   public surface genuinely needs them.
 - Domain modules such as
-  `packages/sdk-web/src/core/signingEngine/flows/signNear/shared/nearSigning.types.ts`
+  `packages/wallet/src/core/signingEngine/flows/signNear/shared/nearSigning.types.ts`
   may define operation lifecycle unions, but must import canonical exact-lane
   identity types instead of defining competing lane identity structs.
 - Server route command unions should live next to the route family that owns the
@@ -186,9 +186,9 @@ unions.
 Files:
 
 ```text
-packages/sdk-web/src/core/signingEngine/session/planning/planner.ts
-packages/sdk-web/src/core/signingEngine/flows/signNear/shared/signingSessionAuthMode.ts
-packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/authPlanning.ts
+packages/wallet/src/core/signingEngine/session/planning/planner.ts
+packages/wallet/src/core/signingEngine/flows/signNear/shared/signingSessionAuthMode.ts
+packages/wallet/src/core/signingEngine/flows/signEvmFamily/authPlanning.ts
 ```
 
 Current risk:
@@ -217,10 +217,10 @@ Acceptance:
 Files:
 
 ```text
-packages/sdk-web/src/core/signingEngine/session/budget/BudgetCoordinator.ts
-packages/sdk-web/src/core/signingEngine/session/budget/budgetStatusReader.ts
-packages/sdk-web/src/core/signingEngine/session/budget/budget.ts
-packages/sdk-web/src/core/signingEngine/session/operationState/transactionState.ts
+packages/wallet/src/core/signingEngine/session/budget/BudgetCoordinator.ts
+packages/wallet/src/core/signingEngine/session/budget/budgetStatusReader.ts
+packages/wallet/src/core/signingEngine/session/budget/budget.ts
+packages/wallet/src/core/signingEngine/session/operationState/transactionState.ts
 ```
 
 Current risk:
@@ -266,11 +266,11 @@ Acceptance:
 Files:
 
 ```text
-packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519SigningMaterialReadiness.ts
-packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519PreConfirmMaterialReadiness.ts
-packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519MaterialRestoreAuthorization.ts
-packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession.ts
-packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts
+packages/wallet/src/core/signingEngine/flows/signNear/shared/ed25519SigningMaterialReadiness.ts
+packages/wallet/src/core/signingEngine/flows/signNear/shared/ed25519PreConfirmMaterialReadiness.ts
+packages/wallet/src/core/signingEngine/flows/signNear/shared/ed25519MaterialRestoreAuthorization.ts
+packages/wallet/src/core/signingEngine/session/routerAbSigningWalletSession.ts
+packages/wallet/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts
 ```
 
 Current risk:
@@ -306,10 +306,10 @@ Acceptance:
 Files:
 
 ```text
-packages/sdk-web/src/core/signingEngine/flows/signNear/signTransactions.ts
-packages/sdk-web/src/core/signingEngine/flows/signNear/signNep413.ts
-packages/sdk-web/src/core/signingEngine/flows/signNear/signDelegate.ts
-packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519PresignFinalize.ts
+packages/wallet/src/core/signingEngine/flows/signNear/signTransactions.ts
+packages/wallet/src/core/signingEngine/flows/signNear/signNep413.ts
+packages/wallet/src/core/signingEngine/flows/signNear/signDelegate.ts
+packages/wallet/src/core/signingEngine/flows/signNear/shared/ed25519PresignFinalize.ts
 ```
 
 Current risk:
@@ -371,15 +371,15 @@ Acceptance:
 Files:
 
 ```text
-packages/sdk-web/src/core/types/signer-worker.ts
-packages/sdk-web/src/core/signingEngine/stepUpConfirmation/channel/confirmTypes.ts
-packages/sdk-web/src/core/signingEngine/stepUpConfirmation/types.ts
-packages/sdk-web/src/core/signingEngine/stepUpConfirmation/confirmOperation.ts
-packages/sdk-web/src/core/signingEngine/uiConfirm/handlers/determineConfirmationConfig.ts
-packages/sdk-web/src/core/signingEngine/uiConfirm/handlers/flowOrchestrator.ts
-packages/sdk-web/src/core/signingEngine/uiConfirm/handlers/flows/adapters/adapters.ts
-packages/sdk-web/src/core/signingEngine/uiConfirm/ui/confirm-ui.ts
-packages/sdk-web/src/SeamsWeb/walletIframe/host/handlers/preferences.ts
+packages/wallet/src/core/types/signer-worker.ts
+packages/wallet/src/core/signingEngine/stepUpConfirmation/channel/confirmTypes.ts
+packages/wallet/src/core/signingEngine/stepUpConfirmation/types.ts
+packages/wallet/src/core/signingEngine/stepUpConfirmation/confirmOperation.ts
+packages/wallet/src/core/signingEngine/uiConfirm/handlers/determineConfirmationConfig.ts
+packages/wallet/src/core/signingEngine/uiConfirm/handlers/flowOrchestrator.ts
+packages/wallet/src/core/signingEngine/uiConfirm/handlers/flows/adapters/adapters.ts
+packages/wallet/src/core/signingEngine/uiConfirm/ui/confirm-ui.ts
+packages/wallet/src/SeamsWeb/walletIframe/host/handlers/preferences.ts
 ```
 
 Current risk:
@@ -442,11 +442,11 @@ Acceptance:
 Files:
 
 ```text
-packages/sdk-web/src/core/signingEngine/nonce/NonceCoordinator.ts
-packages/sdk-web/src/core/signingEngine/nonce/nonceTypes.ts
-packages/sdk-web/src/core/signingEngine/nonce/nonceLeaseState.ts
-packages/sdk-web/src/core/signingEngine/nonce/nearNonceLane.ts
-packages/sdk-web/src/core/signingEngine/nonce/evmNonceLane.ts
+packages/wallet/src/core/signingEngine/nonce/NonceCoordinator.ts
+packages/wallet/src/core/signingEngine/nonce/nonceTypes.ts
+packages/wallet/src/core/signingEngine/nonce/nonceLeaseState.ts
+packages/wallet/src/core/signingEngine/nonce/nearNonceLane.ts
+packages/wallet/src/core/signingEngine/nonce/evmNonceLane.ts
 ```
 
 Current risk:
@@ -490,11 +490,11 @@ Acceptance:
 Files:
 
 ```text
-packages/sdk-web/src/core/signingEngine/session/passkey/prfClaim.ts
-packages/sdk-web/src/core/signingEngine/session/passkey/prfCache.ts
-packages/sdk-web/src/core/signingEngine/session/passkey/ed25519Recovery.ts
-packages/sdk-web/src/core/signingEngine/session/passkey/ed25519SessionProvision.ts
-packages/sdk-web/src/core/signingEngine/session/passkey/warmSessionHydration.ts
+packages/wallet/src/core/signingEngine/session/passkey/prfClaim.ts
+packages/wallet/src/core/signingEngine/session/passkey/prfCache.ts
+packages/wallet/src/core/signingEngine/session/passkey/ed25519Recovery.ts
+packages/wallet/src/core/signingEngine/session/passkey/ed25519SessionProvision.ts
+packages/wallet/src/core/signingEngine/session/passkey/warmSessionHydration.ts
 ```
 
 Current risk:
@@ -525,12 +525,12 @@ Acceptance:
 Files:
 
 ```text
-packages/sdk-web/src/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator.ts
-packages/sdk-web/src/core/signingEngine/session/emailOtp/coordinatorRuntime.ts
-packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519Warmup.ts
-packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaRecovery.ts
-packages/sdk-web/src/core/signingEngine/session/emailOtp/companionSessions.ts
-packages/sdk-web/src/core/signingEngine/session/emailOtp/sealedSessionRegistry.ts
+packages/wallet/src/core/signingEngine/session/emailOtp/EmailOtpWalletSessionCoordinator.ts
+packages/wallet/src/core/signingEngine/session/emailOtp/coordinatorRuntime.ts
+packages/wallet/src/core/signingEngine/session/emailOtp/ed25519Warmup.ts
+packages/wallet/src/core/signingEngine/session/emailOtp/ecdsaRecovery.ts
+packages/wallet/src/core/signingEngine/session/emailOtp/companionSessions.ts
+packages/wallet/src/core/signingEngine/session/emailOtp/sealedSessionRegistry.ts
 ```
 
 Current risk:
@@ -580,10 +580,10 @@ Acceptance:
 Files:
 
 ```text
-packages/sdk-web/src/core/signingEngine/session/sealedRecovery/recoveryRecord.ts
-packages/sdk-web/src/core/signingEngine/session/sealedRecovery/exactRecordLookup.ts
-packages/sdk-web/src/core/signingEngine/session/sealedRecovery/restoreCoordinator.ts
-packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore.ts
+packages/wallet/src/core/signingEngine/session/sealedRecovery/recoveryRecord.ts
+packages/wallet/src/core/signingEngine/session/sealedRecovery/exactRecordLookup.ts
+packages/wallet/src/core/signingEngine/session/sealedRecovery/restoreCoordinator.ts
+packages/wallet/src/core/signingEngine/session/persistence/sealedSessionStore.ts
 ```
 
 Current risk:
@@ -635,10 +635,10 @@ Acceptance:
 Files:
 
 ```text
-packages/sdk-web/src/SeamsWeb/operations/auth/login.ts
-packages/sdk-web/src/SeamsWeb/operations/auth/walletAuth.ts
-packages/sdk-web/src/SeamsWeb/operations/session/restoreLocalLoginState.ts
-packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts
+packages/wallet/src/SeamsWeb/operations/auth/login.ts
+packages/wallet/src/SeamsWeb/operations/auth/walletAuth.ts
+packages/wallet/src/SeamsWeb/operations/session/restoreLocalLoginState.ts
+packages/wallet/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts
 ```
 
 Current risk:
@@ -670,12 +670,12 @@ Acceptance:
 Files:
 
 ```text
-packages/sdk-web/src/react/types.ts
-packages/sdk-web/src/react/context/useSDKFlowRuntime.ts
-packages/sdk-web/src/react/context/useLoginStateRefresher.ts
-packages/sdk-web/src/react/context/useWalletIframeLifecycle.ts
-packages/sdk-web/src/react/components/AccountMenuButton
-packages/sdk-web/src/react/components/SeamsAuthMenu
+packages/wallet/src/react/types.ts
+packages/wallet/src/react/context/useSDKFlowRuntime.ts
+packages/wallet/src/react/context/useLoginStateRefresher.ts
+packages/wallet/src/react/context/useWalletIframeLifecycle.ts
+packages/wallet/src/react/components/AccountMenuButton
+packages/wallet/src/react/components/SeamsAuthMenu
 ```
 
 Current risk:
@@ -709,10 +709,10 @@ Acceptance:
 Files:
 
 ```text
-packages/sdk-web/src/SeamsWeb/walletIframe/client/router.ts
-packages/sdk-web/src/SeamsWeb/walletIframe/host/requestRouter.ts
-packages/sdk-web/src/SeamsWeb/walletIframe/host/runtimeLoader.ts
-packages/sdk-web/src/SeamsWeb/walletIframe/coordinator.ts
+packages/wallet/src/SeamsWeb/walletIframe/client/router.ts
+packages/wallet/src/SeamsWeb/walletIframe/host/requestRouter.ts
+packages/wallet/src/SeamsWeb/walletIframe/host/runtimeLoader.ts
+packages/wallet/src/SeamsWeb/walletIframe/coordinator.ts
 ```
 
 Current risk:
@@ -739,10 +739,10 @@ Acceptance:
 Files:
 
 ```text
-packages/sdk-web/src/core/signingEngine/flows/signEvmFamily
-packages/sdk-web/src/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan.ts
-packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.ts
-packages/sdk-web/src/core/signingEngine/threshold/ecdsa
+packages/wallet/src/core/signingEngine/flows/signEvmFamily
+packages/wallet/src/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan.ts
+packages/wallet/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.ts
+packages/wallet/src/core/signingEngine/threshold/ecdsa
 ```
 
 Current risk:
@@ -773,13 +773,13 @@ Acceptance:
 Files:
 
 ```text
-packages/sdk-web/src/core/types/seams.ts
-packages/sdk-web/src/core/types/sdkPublicResults.ts
-packages/sdk-web/src/SeamsWeb/publicApi/types.ts
-packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts
-packages/sdk-web/src/SeamsWeb/operations/auth/login.ts
-packages/sdk-web/src/SeamsWeb/operations/near
-packages/sdk-web/src/SeamsWeb/operations/recovery
+packages/wallet/src/core/types/seams.ts
+packages/wallet/src/core/types/sdkPublicResults.ts
+packages/wallet/src/SeamsWeb/publicApi/types.ts
+packages/wallet/src/SeamsWeb/operations/registration/registration.ts
+packages/wallet/src/SeamsWeb/operations/auth/login.ts
+packages/wallet/src/SeamsWeb/operations/near
+packages/wallet/src/SeamsWeb/operations/recovery
 ```
 
 Current risk:
@@ -811,11 +811,11 @@ Acceptance:
 Files:
 
 ```text
-packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker.ts
-packages/sdk-server-ts/src/router/emailOtpRouteHandlers.ts
-packages/sdk-server-ts/src/router/signingBudgetStatus.ts
-packages/sdk-server-ts/src/core/AuthService.ts
-packages/sdk-server-ts/src/core/ThresholdService
+packages/wallet-server/src/router/routerAbPrivateSigningWorker.ts
+packages/wallet-server/src/router/emailOtpRouteHandlers.ts
+packages/wallet-server/src/router/signingBudgetStatus.ts
+packages/wallet-server/src/core/AuthService.ts
+packages/wallet-server/src/core/ThresholdService
 ```
 
 Current risk:
@@ -865,13 +865,13 @@ Initial grep terms:
 
 ```bash
 rg -n "\\bif \\(|else if|\\.kind ===|\\.kind !==|\\.status ===|\\.status !==|\\?\\?|\\?\\.|as any|catch \\(.*\\).*return|candidates\\[0\\]|\\|\\| .*record|policyHint" \
-  packages/sdk-web/src/core/signingEngine \
-  packages/sdk-web/src/SeamsWeb/operations/auth \
-  packages/sdk-web/src/SeamsWeb/operations/session \
-  packages/sdk-web/src/SeamsWeb/walletIframe \
-  packages/sdk-web/src/react \
-  packages/sdk-server-ts/src/router \
-  packages/sdk-server-ts/src/core/ThresholdService \
+  packages/wallet/src/core/signingEngine \
+  packages/wallet/src/SeamsWeb/operations/auth \
+  packages/wallet/src/SeamsWeb/operations/session \
+  packages/wallet/src/SeamsWeb/walletIframe \
+  packages/wallet/src/react \
+  packages/wallet-server/src/router \
+  packages/wallet-server/src/core/ThresholdService \
   -g '*.ts'
 ```
 
@@ -888,7 +888,7 @@ Audit existing `assertNever` helpers. Either:
 - add one tiny internal helper:
 
 ```text
-packages/sdk-web/src/core/types/assertNever.ts
+packages/wallet/src/core/types/assertNever.ts
 ```
 
 Do not export it publicly.
@@ -915,7 +915,7 @@ Tasks:
 Validation:
 
 ```bash
-pnpm -C packages/sdk-web exec tsc --noEmit --pretty false
+pnpm -C packages/wallet exec tsc --noEmit --pretty false
 pnpm -C tests exec playwright test --reporter=line \
   unit/confirmTxFlow.defensivePaths.test.ts \
   unit/walletIframe.preferences.unit.test.ts
@@ -934,7 +934,7 @@ Tasks:
 Validation:
 
 ```bash
-pnpm -C packages/sdk-web exec tsc --noEmit --pretty false
+pnpm -C packages/wallet exec tsc --noEmit --pretty false
 pnpm -C tests exec playwright test --reporter=line \
   unit/walletSessionReadiness.gate.unit.test.ts \
   unit/walletSessionBudgetReservation.store.unit.test.ts
@@ -1102,7 +1102,7 @@ Tasks:
 Validation:
 
 ```bash
-pnpm -C packages/sdk-web exec tsc --noEmit --pretty false
+pnpm -C packages/wallet exec tsc --noEmit --pretty false
 pnpm -C tests exec playwright test --reporter=line \
   unit/sdkPublicResults.typecheck.test.ts \
   unit/walletRegistration.typecheck.test.ts
@@ -1123,7 +1123,7 @@ Tasks:
 Validation:
 
 ```bash
-pnpm -C packages/sdk-server-ts run type-check
+pnpm -C packages/wallet-server run type-check
 pnpm -C tests exec playwright test --reporter=line \
   unit/routerAbEd25519.walletSessionState.unit.test.ts \
   unit/emailSubjectParsing.test.ts
@@ -1140,7 +1140,7 @@ Tasks:
 Suggested grep:
 
 ```bash
-rg -n "from '.*\\.types'|from \\\".*\\.types\\\"" packages/sdk-web/src -g '*.ts'
+rg -n "from '.*\\.types'|from \\\".*\\.types\\\"" packages/wallet/src -g '*.ts'
 ```
 
 Expected:
@@ -1163,7 +1163,7 @@ Tasks:
 Validation:
 
 ```bash
-pnpm -C packages/sdk-web exec tsc --noEmit --pretty false
+pnpm -C packages/wallet exec tsc --noEmit --pretty false
 pnpm -C tests exec playwright test --reporter=line unit/refactor80SwitchCase.guard.unit.test.ts
 ```
 
@@ -1172,20 +1172,20 @@ pnpm -C tests exec playwright test --reporter=line unit/refactor80SwitchCase.gua
 Add or extend fixtures:
 
 ```text
-packages/sdk-web/src/core/signingEngine/session/planning/planning.typecheck.ts
-packages/sdk-web/src/core/signingEngine/session/budget/budget.typecheck.ts
-packages/sdk-web/src/core/types/confirmationConfig.typecheck.ts
-packages/sdk-web/src/core/signingEngine/stepUpConfirmation/confirmationDecision.typecheck.ts
-packages/sdk-web/src/core/signingEngine/flows/signNear/shared/nearSigning.typecheck.ts
-packages/sdk-web/src/core/signingEngine/nonce/nonceLifecycle.typecheck.ts
-packages/sdk-web/src/core/signingEngine/session/emailOtp/companionSessions.typecheck.ts
-packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaRecovery.typecheck.ts
-packages/sdk-web/src/core/signingEngine/session/sealedRecovery/sealedRecovery.typecheck.ts
-packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/evmSigningLifecycle.typecheck.ts
-packages/sdk-web/src/core/types/sdkPublicResults.typecheck.ts
-packages/sdk-web/src/SeamsWeb/walletIframe/client/walletIframe.typecheck.ts
-packages/sdk-web/src/react/reactDisplayState.typecheck.ts
-packages/sdk-server-ts/src/router/routerCommand.typecheck.ts
+packages/wallet/src/core/signingEngine/session/planning/planning.typecheck.ts
+packages/wallet/src/core/signingEngine/session/budget/budget.typecheck.ts
+packages/wallet/src/core/types/confirmationConfig.typecheck.ts
+packages/wallet/src/core/signingEngine/stepUpConfirmation/confirmationDecision.typecheck.ts
+packages/wallet/src/core/signingEngine/flows/signNear/shared/nearSigning.typecheck.ts
+packages/wallet/src/core/signingEngine/nonce/nonceLifecycle.typecheck.ts
+packages/wallet/src/core/signingEngine/session/emailOtp/companionSessions.typecheck.ts
+packages/wallet/src/core/signingEngine/session/emailOtp/ecdsaRecovery.typecheck.ts
+packages/wallet/src/core/signingEngine/session/sealedRecovery/sealedRecovery.typecheck.ts
+packages/wallet/src/core/signingEngine/flows/signEvmFamily/evmSigningLifecycle.typecheck.ts
+packages/wallet/src/core/types/sdkPublicResults.typecheck.ts
+packages/wallet/src/SeamsWeb/walletIframe/client/walletIframe.typecheck.ts
+packages/wallet/src/react/reactDisplayState.typecheck.ts
+packages/wallet-server/src/router/routerCommand.typecheck.ts
 ```
 
 Fixture rules:
@@ -1240,14 +1240,14 @@ Fixture rules:
 Guard inventory must cover:
 
 ```text
-packages/sdk-web/src/core/signingEngine
-packages/sdk-web/src/core/types
-packages/sdk-web/src/SeamsWeb/operations
-packages/sdk-web/src/SeamsWeb/publicApi
-packages/sdk-web/src/SeamsWeb/walletIframe
-packages/sdk-web/src/react
-packages/sdk-server-ts/src/router
-packages/sdk-server-ts/src/core/ThresholdService
+packages/wallet/src/core/signingEngine
+packages/wallet/src/core/types
+packages/wallet/src/SeamsWeb/operations
+packages/wallet/src/SeamsWeb/publicApi
+packages/wallet/src/SeamsWeb/walletIframe
+packages/wallet/src/react
+packages/wallet-server/src/router
+packages/wallet-server/src/core/ThresholdService
 ```
 
 Parser-boundary allowlists must be narrow and named. Acceptable boundary names
@@ -1292,8 +1292,8 @@ Implemented:
 Validation run:
 
 ```bash
-pnpm -C packages/sdk-web -s type-check
-pnpm -C packages/sdk-server-ts -s type-check
+pnpm -C packages/wallet -s type-check
+pnpm -C packages/wallet-server -s type-check
 pnpm -C tests exec playwright test --reporter=line unit/refactor80SwitchCase.guard.unit.test.ts
 pnpm -C tests exec playwright test -c playwright.relayer.config.ts --reporter=line \
   relayer/express-router.test.ts \

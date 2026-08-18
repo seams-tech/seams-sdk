@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { rotateWalletRecoveryCodesV1 } from '../../packages/sdk-server-ts/src/router/domains/passkeyCustody/walletRecoveryRotation';
+import { rotateWalletRecoveryCodesV1 } from '../../packages/wallet-server/src/router/domains/passkeyCustody/walletRecoveryRotation';
 import {
   rawManifestKekWrap,
   rawWalletRecoveryEnvelopeSet,

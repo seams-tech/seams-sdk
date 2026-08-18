@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { parseOpaqueOwnerWalletSessionBinding } from '../../packages/sdk-server-ts/src/authorization/service';
+import { parseOpaqueOwnerWalletSessionBinding } from '../../packages/wallet-server/src/authorization/service';
 import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '../../packages/shared-ts/src/utils/signingSessionSeal';
 

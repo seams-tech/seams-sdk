@@ -1,6 +1,6 @@
 import { WALLET_API_CREDENTIAL_SCOPE_VALIDATION } from '@seams-internal/wallet-console-shared/apiKeyScopes';
 import { WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION } from '@seams-internal/wallet-console-shared/webhookEventCategories';
-import { buildCorsOrigins, normalizeCorsOrigin } from '@seams/sdk-server/cloud-host';
+import { buildCorsOrigins, normalizeCorsOrigin } from '@seams/wallet-server/cloud-host';
 import type { ConsoleBillingService } from '@seams-internal/console-server/billing/service';
 import {
   buildConsoleBillingInvoicePdf,
@@ -202,8 +202,8 @@ import {
   searchPlatformBillingOrganizations,
 } from '../platformBilling';
 import { resolveConsoleRuntimeSnapshotPayload } from '../runtimeSnapshotPayload';
-import type { NormalizedRouterLogger } from '@seams/sdk-server/cloud-host';
-import { coerceRouterLogger } from '@seams/sdk-server/cloud-host';
+import type { NormalizedRouterLogger } from '@seams/wallet-server/cloud-host';
+import { coerceRouterLogger } from '@seams/wallet-server/cloud-host';
 import { buildConsoleOpsCockpitSummary } from '../opsCockpitSummary';
 import {
   emitSponsorshipBalanceTransitionEvents,
@@ -216,15 +216,15 @@ import {
 } from '@seams-internal/console-server/router/consoleRoutePolicy';
 import type { ConsoleRouteDefinition } from '@seams-internal/console-server/router/consoleRouteDefinitions';
 import { handleConsoleObservabilityRoutes } from './consoleObservabilityRoutes';
-import type { CfEnv, CfExecutionContext, FetchHandler } from '@seams/sdk-server/cloud-host';
-import { headersToRecord, json, readJson } from '@seams/sdk-server/cloud-host';
+import type { CfEnv, CfExecutionContext, FetchHandler } from '@seams/wallet-server/cloud-host';
+import { headersToRecord, json, readJson } from '@seams/wallet-server/cloud-host';
 import {
   tenantStorageRouteDiagnostic,
   type CloudflareTenantStorageRoute,
   type TenantStorageRouteResolver,
 } from './tenantStorageRoute';
-import type { TenantStorageRouteDiagnostic } from '@seams/sdk-server/cloud-host';
-import { parseOrgId } from '@seams/sdk-server/cloud-host';
+import type { TenantStorageRouteDiagnostic } from '@seams/wallet-server/cloud-host';
+import { parseOrgId } from '@seams/wallet-server/cloud-host';
 import { dispatchBillingStripePostProcessingEvent } from '@seams-internal/console-server/router/stripePostProcessing';
 
 export interface CloudflareConsoleContext {

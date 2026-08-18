@@ -250,7 +250,7 @@ const requireCjs = createRequire(import.meta.url);
 
 export function resolveSdkDistRoot(explicit?: string): string {
   if (explicit) return path.resolve(explicit);
-  const pkgPath = requireCjs.resolve('@seams/sdk/package.json');
+  const pkgPath = requireCjs.resolve('@seams/wallet/package.json');
   const pkgDir = path.dirname(pkgPath);
   try {
     const pkgJson = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as { module?: string };

@@ -5,8 +5,8 @@ Date created: June 18, 2026
 Status: complete for the current branch package/runtime scope. Runtime value
 exports, hard server-dependency removal from browser installs, and
 branch-specific runtime dependency narrowing for this branch are implemented.
-The current branch publishes server APIs from `@seams/sdk-server`; the old
-optional-peer `@seams/sdk/server` subpaths are deleted.
+The current branch publishes server APIs from `@seams/wallet-server`; the old
+optional-peer `@seams/wallet/server` subpaths are deleted.
 
 Primary source of truth:
 
@@ -19,7 +19,7 @@ Primary source of truth:
 Finish the package/runtime cleanup discovered during the Refactor 69C diff
 audit. The current implementation deleted the tiny private
 `packages/sdk-runtime-ts` package and folded its files into
-`packages/sdk-web/src/core/runtime`, which is the right direction for reducing
+`packages/wallet/src/core/runtime`, which is the right direction for reducing
 internal package bloat. The follow-up work is to preserve the intended public
 runtime export, reduce the larger browser-package dependency bloat, and make the
 runtime boundary honest.
@@ -28,7 +28,7 @@ runtime boundary honest.
 
 - Keep `packages/sdk-runtime-ts` deleted.
 - Keep `packages/shared-ts` as the cross-package shared source boundary.
-- Keep `packages/sdk-server-ts` as the public `@seams/sdk-server` source and
+- Keep `packages/wallet-server` as the public `@seams/wallet-server` source and
   package boundary.
 - Do not introduce compatibility aliases for `@seams-internal/runtime`.
 - Keep compatibility handling at package import/request boundaries only.
@@ -39,9 +39,9 @@ runtime boundary honest.
 
 ### P2: Public Runtime Subpath Lost Value Exports
 
-Status: resolved locally on June 18, 2026. `@seams/sdk/runtime` now exports
+Status: resolved locally on June 18, 2026. `@seams/wallet/runtime` now exports
 `createSigningRuntime` and `createSigningRuntimeStatePorts` from
-`packages/sdk-web/src/runtime.ts`, and the runtime-entry bundle check imports
+`packages/wallet/src/runtime.ts`, and the runtime-entry bundle check imports
 the built package subpath to verify those value exports.
 
 Impact:
@@ -53,17 +53,17 @@ Impact:
 
 Implemented fix:
 
-- `packages/sdk-web/src/runtime.ts` exports the intended runtime values.
-- `packages/sdk-web/scripts/checks/assert-runtime-entry-bundles.mjs` checks the
-  built `@seams/sdk/runtime` value exports.
-- `packages/sdk-web/src/runtime.typecheck.ts` covers the public runtime types and
+- `packages/wallet/src/runtime.ts` exports the intended runtime values.
+- `packages/wallet/scripts/checks/assert-runtime-entry-bundles.mjs` checks the
+  built `@seams/wallet/runtime` value exports.
+- `packages/wallet/src/runtime.typecheck.ts` covers the public runtime types and
   constructors.
 
 Implementation checklist:
 
-- [x] Export the intended runtime values from `packages/sdk-web/src/runtime.ts`,
+- [x] Export the intended runtime values from `packages/wallet/src/runtime.ts`,
       or delete the public `./runtime` export.
-- [x] Add a unit/build smoke test for `@seams/sdk/runtime` value exports.
+- [x] Add a unit/build smoke test for `@seams/wallet/runtime` value exports.
 - [x] Add a type fixture for `SigningRuntime`, `SigningRuntimeDeps`,
       `SigningRuntimeConfig`, and the runtime state-port types.
 - [x] Add a source guard that fails if `@seams-internal/runtime` or
@@ -80,7 +80,7 @@ Tasks:
 
 - [x] Remove stale docs that imply `sdk-runtime-ts` remains an independent
       package.
-- [x] Keep `packages/sdk-web/rolldown.config.ts` aliases pointed at
+- [x] Keep `packages/wallet/rolldown.config.ts` aliases pointed at
       `src/core/runtime`.
 - [x] Keep root workspace/package guards proving `packages/sdk-runtime-ts` is
       absent.
@@ -97,63 +97,63 @@ Validation:
 
 ## Phase 2: Split Browser And Server Package Dependency Surfaces
 
-`packages/sdk-web` now owns browser/runtime/react exports only. The server
-source package publishes as `@seams/sdk-server`, owns server dependencies, and
+`packages/wallet` now owns browser/runtime/react exports only. The server
+source package publishes as `@seams/wallet-server`, owns server dependencies, and
 exports the root server API, router adapters, Postgres storage helpers, and
-server WASM signer subpath. The old `@seams/sdk/server` subpaths are deleted.
+server WASM signer subpath. The old `@seams/wallet/server` subpaths are deleted.
 
 Tasks:
 
 - [x] Decide the public package shape for this branch:
-      keep `@seams/sdk` browser-first and create a separate server package, or
+      keep `@seams/wallet` browser-first and create a separate server package, or
       keep one published package with truly optional server dependency loading.
 - [x] Record the target public server package split and its sequencing:
       implement it after the Router A/B signing/session cleanup stabilizes.
 
 Server-package split tasks:
 
-- [x] Make `packages/sdk-server-ts` publish as `@seams/sdk-server`. Candidate
+- [x] Make `packages/wallet-server` publish as `@seams/wallet-server`. Candidate
       shape:
-      `@seams/sdk` for browser/runtime/react exports and `@seams/sdk-server` for
+      `@seams/wallet` for browser/runtime/react exports and `@seams/wallet-server` for
       root server APIs, router adapters, Postgres stores, and server WebAuthn
       helpers.
 - [x] If the server package split is deferred, move `pg` and
       `@simplewebauthn/server` out of hard browser dependencies and enforce
       dynamic import failure messages at server-only boundaries.
-- [x] Move server export maps from `packages/sdk-web/package.json` to the server
+- [x] Move server export maps from `packages/wallet/package.json` to the server
       package when the split lands.
-- [x] Delete the old `@seams/sdk/server` subpaths when `@seams/sdk-server`
+- [x] Delete the old `@seams/wallet/server` subpaths when `@seams/wallet-server`
       lands. Breaking changes are acceptable during development.
-- [x] Move server dependencies from optional peers in `@seams/sdk` to normal
-      dependencies or peers in `@seams/sdk-server`.
-- [x] Update app and test imports from `@seams/sdk/server` to
-      `@seams/sdk-server`.
+- [x] Move server dependencies from optional peers in `@seams/wallet` to normal
+      dependencies or peers in `@seams/wallet-server`.
+- [x] Update app and test imports from `@seams/wallet/server` to
+      `@seams/wallet-server`.
 - [x] Add package export guard coverage proving `pg` and
       `@simplewebauthn/server` stay out of hard browser dependencies.
 - [x] Add browser-only package install/import smoke tests proving an install
       without `pg`, `@simplewebauthn/server`, Express, or Node-only builtins can
       import browser/runtime subpaths.
 - [x] Replace current-branch server subpath smoke tests with package split
-      smokes proving `@seams/sdk/server` no longer resolves.
-- [x] Add `@seams/sdk-server` package smoke tests when the separate public
+      smokes proving `@seams/wallet/server` no longer resolves.
+- [x] Add `@seams/wallet-server` package smoke tests when the separate public
       server package split lands. Required clean-room smokes: browser install of
-      `@seams/sdk` has no server dependencies, and server install of
-      `@seams/sdk-server` imports routers, storage, and WebAuthn server paths.
+      `@seams/wallet` has no server dependencies, and server install of
+      `@seams/wallet-server` imports routers, storage, and WebAuthn server paths.
 
 Validation:
 
-- [x] `rtk pnpm -C packages/sdk-web build:rolldown`
+- [x] `rtk pnpm -C packages/wallet build:rolldown`
       Passed again on June 20, 2026 after removing web-package server build
       entries.
-- [x] `rtk pnpm -C packages/sdk-web type-check`
-- [x] `rtk pnpm -C packages/sdk-server-ts build`
-- [x] `rtk pnpm -C packages/sdk-server-ts type-check`
+- [x] `rtk pnpm -C packages/wallet type-check`
+- [x] `rtk pnpm -C packages/wallet-server build`
+- [x] `rtk pnpm -C packages/wallet-server type-check`
 - [x] Package export guard coverage without hard `pg` and
       `@simplewebauthn/server`.
 - [x] Browser-only package install/import smoke test without `pg`,
       `@simplewebauthn/server`, Express, or Node-only builtins.
-- [x] Package split smoke test proves `@seams/sdk/server` no longer resolves and
-      `@seams/sdk-server` imports root server APIs, router adapters, and
+- [x] Package split smoke test proves `@seams/wallet/server` no longer resolves and
+      `@seams/wallet-server` imports root server APIs, router adapters, and
       Postgres storage helpers.
 
 ## Phase 3: Make `core/runtime` An Honest Boundary
@@ -205,9 +205,9 @@ Inventory result:
 
 Tasks:
 
-- [x] Update docs to describe `packages/sdk-web/src/core/runtime` as the
+- [x] Update docs to describe `packages/wallet/src/core/runtime` as the
       `sdk-web` TypeScript composition root.
-- [x] Inventory every import in `packages/sdk-web/src/core/runtime/types.ts` and
+- [x] Inventory every import in `packages/wallet/src/core/runtime/types.ts` and
       classify it as:
       `platform_port`, `runtime_service`, `signing_flow_port`, `state_port`, or
       `web_internal`.
@@ -236,13 +236,13 @@ Validation:
       `./unit/refactor51bPackageExports.unit.test.ts` after the runtime UI deps
       narrowing.
 - [x] `rtk pnpm -C tests exec playwright test -c playwright.source.config.ts ./unit/refactor51bPlatformBoundaries.guard.unit.test.ts ./unit/refactor54Simplify.guard.unit.test.ts --reporter=line`
-- [x] `rtk pnpm -C packages/sdk-web type-check`
+- [x] `rtk pnpm -C packages/wallet type-check`
       Passed again on June 18, 2026 after the runtime UI deps narrowing.
 
 ## Completion Criteria
 
 - [x] `packages/sdk-runtime-ts` is gone and guarded against reintroduction.
-- [x] `@seams/sdk/runtime` has an explicit public contract backed by tests.
+- [x] `@seams/wallet/runtime` has an explicit public contract backed by tests.
 - [x] Browser package installs do not hard-require server-only dependencies.
 - [x] The remaining server-subpath coupling is documented as an explicit
       packaging follow-up with a split plan.

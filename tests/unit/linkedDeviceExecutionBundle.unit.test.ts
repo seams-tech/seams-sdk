@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   buildActiveLinkedDeviceExecutionBundleV1,
   buildLinkedDeviceProvisionedExecutionEvidenceV1,
-} from '../../packages/sdk-web/src/core/signingEngine/session/lanes/linkedDeviceExecutionBundle';
+} from '../../packages/wallet/src/core/signingEngine/session/lanes/linkedDeviceExecutionBundle';
 import { base64UrlDecode, base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { buildR103ActiveExecutionFixture } from './helpers/deviceLinkContracts.fixtures';
 

@@ -278,12 +278,12 @@ crates/signer-core and browser WASM
   explicit seed export reconstruction and verification
   client Ed25519 and ECDSA signing material
 
-packages/sdk-web
+packages/wallet
   public lifecycle orchestration
   worker handles and public metadata
   no raw crypto material
 
-packages/sdk-server-ts
+packages/wallet-server
   application auth integration and scoped Router grant issuance
   no threshold signing or hidden-evaluation service
 ```
@@ -1323,7 +1323,7 @@ Goal: move every Ed25519 product caller to the strict Rust Router A/B protocol.
       derivation, A/B splitting, HPKE envelope construction, recipient-share
       opening, and result verification.
 - [ ] Replace
-      `packages/sdk-web/src/core/signingEngine/threshold/ed25519/hssLifecycle.ts`
+      `packages/wallet/src/core/signingEngine/threshold/ed25519/hssLifecycle.ts`
       with one strict Router client lifecycle.
 - [ ] Keep raw client roots, `y_client`, `tau_client`, output shares, and `d`
       inside Rust/WASM-owned secret types.
@@ -1521,7 +1521,7 @@ Goal: leave one strict production architecture and no compatibility path.
 ### Generic Service Deletion TODO
 
 - [ ] Delete
-      `packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts`.
+      `packages/wallet-server/src/core/ThresholdService/ThresholdSigningService.ts`.
 - [ ] Delete `createThresholdSigningService.ts` and
       `createCloudflareDurableObjectThresholdSigningService.ts`.
 - [ ] Delete `d1ThresholdSigningRuntime.ts` and remove it from Router/service
@@ -1537,10 +1537,10 @@ Goal: leave one strict production architecture and no compatibility path.
 ### Ed25519 Deletion TODO
 
 - [x] Delete Ed25519 HSS cases from
-      `packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519.ts`.
+      `packages/wallet-server/src/router/cloudflare/routes/thresholdEd25519.ts`.
 - [x] Delete old prepare/respond/advance/finalize route definitions and constants.
 - [x] Delete
-      `packages/sdk-server-ts/src/core/ThresholdService/ed25519HssWasm.ts`.
+      `packages/wallet-server/src/core/ThresholdService/ed25519HssWasm.ts`.
 - [x] Delete Ed25519 server-input combine code from `thresholdPrfWasm.ts` and
       `signingRootShareResolver.ts`.
 - [x] Delete legacy registration, add-signer, recovery, and export ceremony

@@ -10,8 +10,8 @@ import {
   buildLinkedDeviceTargetDeploymentDescriptorV1,
   buildLinkedDeviceTargetDeploymentDescriptorRequestV1,
 } from '@shared/device-linking/targetDeploymentDescriptor';
-import { D1LinkedDeviceTargetPlannerV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceTargetPlanner';
-import type { VerifiedLinkedDeviceWebAuthnCredentialV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceTargetCredentialProvider';
+import { D1LinkedDeviceTargetPlannerV1 } from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceTargetPlanner';
+import type { VerifiedLinkedDeviceWebAuthnCredentialV1 } from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceTargetCredentialProvider';
 import {
   buildR103MixedPlannerFixture,
   buildR103ActiveExecutionFixture,

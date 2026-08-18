@@ -46,8 +46,8 @@ an application session, and the outer application never receives the token.
 It does not authorize wallet ownership.
 
 ```ts
-import { createRouterApiRouter } from '@seams/sdk-server/router/express';
-import { createSigningSessionSealOptions } from '@seams/sdk-server';
+import { createRouterApiRouter } from '@seams/wallet-server/router/express';
+import { createSigningSessionSealOptions } from '@seams/wallet-server';
 
 const signingSessionSeal = createSigningSessionSealOptions({
   rootSecretB64u: process.env.SIGNING_SESSION_SEAL_ROOT_SECRET_B64U!,

@@ -77,8 +77,8 @@ function resolveDefaultPortalTarget(
  *
  * @example
  * ```tsx
- * import { PasskeyProvider } from '@seams/sdk/react';
- * import { AccountMenuButton } from '@seams/sdk/react';
+ * import { PasskeyProvider } from '@seams/wallet/react';
+ * import { AccountMenuButton } from '@seams/wallet/react';
  *
  * function App() {
  *   return (

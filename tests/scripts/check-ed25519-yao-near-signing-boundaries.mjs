@@ -44,18 +44,18 @@ function listSourceFiles(relativeDirectory, filePattern = /\.(?:ts|tsx|js|mjs)$/
 }
 
 const signingFlows = [
-  'packages/sdk-web/src/core/signingEngine/flows/signNear/signTransactions.ts',
-  'packages/sdk-web/src/core/signingEngine/flows/signNear/signNep413.ts',
-  'packages/sdk-web/src/core/signingEngine/flows/signNear/signDelegate.ts',
+  'packages/wallet/src/core/signingEngine/flows/signNear/signTransactions.ts',
+  'packages/wallet/src/core/signingEngine/flows/signNear/signNep413.ts',
+  'packages/wallet/src/core/signingEngine/flows/signNear/signDelegate.ts',
 ];
 const executorPath =
-  'packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519YaoNormalSigning.ts';
+  'packages/wallet/src/core/signingEngine/flows/signNear/shared/ed25519YaoNormalSigning.ts';
 const executor = readRepoSource(executorPath);
 const registrationOperationPath =
-  'packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts';
+  'packages/wallet/src/SeamsWeb/operations/registration/registration.ts';
 const registrationOperation = readRepoSource(registrationOperationPath);
 const ed25519AddSignerPath =
-  'packages/sdk-web/src/core/signingEngine/flows/registration/services/passkeyEd25519YaoAddSigner.ts';
+  'packages/wallet/src/core/signingEngine/flows/registration/services/passkeyEd25519YaoAddSigner.ts';
 const ed25519AddSigner = readRepoSource(ed25519AddSignerPath);
 
 for (const marker of [
@@ -144,18 +144,18 @@ for (const relativePath of [
   'benchmarks/ed25519-hss-tail',
   'benchmarks/ed25519-hss-wasm',
   'packages/shared-ts/src/threshold/ed25519HssBinding.ts',
-  'packages/sdk-web/src/core/signingEngine/session/ed25519MaterialAdvance.ts',
-  'packages/sdk-web/src/core/signingEngine/session/ed25519MaterialAuthority.ts',
-  'packages/sdk-web/src/core/signingEngine/threshold/ed25519/hssClientBase.ts',
-  'packages/sdk-web/src/core/signingEngine/threshold/ed25519/hssLifecycle.ts',
-  'packages/sdk-web/src/core/signingEngine/threshold/ed25519/workerMaterialHandle.ts',
-  'packages/sdk-web/src/core/signingEngine/threshold/ed25519/presignPool.ts',
-  'packages/sdk-server-ts/src/core/ThresholdService/ed25519PresignRound1.ts',
-  'packages/sdk-server-ts/src/core/ThresholdService/ed25519PresignRound2.ts',
-  'packages/sdk-server-ts/src/core/ThresholdService/cosigners.ts',
-  'packages/sdk-web/src/core/signingEngine/flows/recovery/nearEd25519ExportFlow.ts',
-  'packages/sdk-web/src/core/signingEngine/flows/recovery/nearEd25519HssExport.ts',
-  'packages/sdk-web/src/core/signingEngine/flows/recovery/nearEd25519SeedReportExport.ts',
+  'packages/wallet/src/core/signingEngine/session/ed25519MaterialAdvance.ts',
+  'packages/wallet/src/core/signingEngine/session/ed25519MaterialAuthority.ts',
+  'packages/wallet/src/core/signingEngine/threshold/ed25519/hssClientBase.ts',
+  'packages/wallet/src/core/signingEngine/threshold/ed25519/hssLifecycle.ts',
+  'packages/wallet/src/core/signingEngine/threshold/ed25519/workerMaterialHandle.ts',
+  'packages/wallet/src/core/signingEngine/threshold/ed25519/presignPool.ts',
+  'packages/wallet-server/src/core/ThresholdService/ed25519PresignRound1.ts',
+  'packages/wallet-server/src/core/ThresholdService/ed25519PresignRound2.ts',
+  'packages/wallet-server/src/core/ThresholdService/cosigners.ts',
+  'packages/wallet/src/core/signingEngine/flows/recovery/nearEd25519ExportFlow.ts',
+  'packages/wallet/src/core/signingEngine/flows/recovery/nearEd25519HssExport.ts',
+  'packages/wallet/src/core/signingEngine/flows/recovery/nearEd25519SeedReportExport.ts',
   'wasm/near_signer/src/handlers/handle_threshold_ed25519_derive_hss_client_inputs.rs',
   'docs/hss-threshold-ed25519.md',
   'docs/hss-separate-wasm.md',
@@ -167,7 +167,7 @@ for (const relativePath of [
 }
 
 const ed25519ExportOperationPath =
-  'packages/sdk-web/src/core/signingEngine/flows/recovery/ed25519YaoExportFlow.ts';
+  'packages/wallet/src/core/signingEngine/flows/recovery/ed25519YaoExportFlow.ts';
 const ed25519ExportOperation = readRepoSource(ed25519ExportOperationPath);
 for (const marker of [
   'exportEd25519YaoKeyWithFreshAuthorization',
@@ -195,7 +195,7 @@ for (const forbidden of [
 }
 
 const ed25519ExportWorkerPath =
-  'packages/sdk-web/src/core/signingEngine/workerManager/workers/passkeyMpcExportRuntime.ts';
+  'packages/wallet/src/core/signingEngine/workerManager/workers/passkeyMpcExportRuntime.ts';
 const ed25519ExportWorker = readRepoSource(ed25519ExportWorkerPath);
 for (const marker of [
   'runEd25519YaoExportWithUi',
@@ -209,10 +209,10 @@ for (const marker of [
   );
 }
 
-for (const relativePath of listSourceFiles('packages/sdk-web/src')) {
+for (const relativePath of listSourceFiles('packages/wallet/src')) {
   if (
     relativePath === ed25519ExportWorkerPath ||
-    relativePath === 'packages/sdk-web/src/core/signingEngine/threshold/ed25519/yaoClient.ts'
+    relativePath === 'packages/wallet/src/core/signingEngine/threshold/ed25519/yaoClient.ts'
   ) {
     continue;
   }
@@ -266,8 +266,8 @@ for (const relativePath of [
 
 for (const relativeDirectory of [
   'packages/shared-ts/src',
-  'packages/sdk-server-ts/src',
-  'packages/sdk-web/src',
+  'packages/wallet-server/src',
+  'packages/wallet/src',
   'tests/unit',
 ]) {
   for (const relativePath of listSourceFiles(relativeDirectory)) {
@@ -298,8 +298,8 @@ const retiredSplitDerivationActiveFiles = [
   ...listSourceFiles('crates/router-ab-cloudflare/src', /\.rs$/),
   ...listSourceFiles('crates/router-ab-dev/src', /\.rs$/),
   ...listSourceFiles('packages/shared-ts/src'),
-  ...listSourceFiles('packages/sdk-server-ts/src'),
-  ...listSourceFiles('packages/sdk-web/src'),
+  ...listSourceFiles('packages/wallet-server/src'),
+  ...listSourceFiles('packages/wallet/src'),
   ...listSourceFiles('apps/docs/src', /\.(?:ts|tsx|js|mjs|md|mdx)$/),
   'crates/router-ab-cloudflare/Cargo.toml',
   'crates/router-ab-cloudflare/package.json',

@@ -46,7 +46,7 @@ const external = [
   'crypto',
   'util',
   /^node:.*/,
-  /^@seams\/sdk-server(?:\/.*)?$/,
+  /^@seams\/wallet-server(?:\/.*)?$/,
   'bs58',
   'express',
   'tslib',

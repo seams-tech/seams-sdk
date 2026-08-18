@@ -25,7 +25,7 @@ the coordinated Rust/TypeScript claim-verifier cutover.
 Validation after resolution:
 
 - `pnpm -C packages/shared-ts exec tsc --noEmit`
-- `pnpm -C packages/sdk-server-ts type-check`
+- `pnpm -C packages/wallet-server type-check`
 - `pnpm -C tests run type-check:unit`
 - `git diff --check`
 

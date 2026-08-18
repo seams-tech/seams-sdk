@@ -1,13 +1,13 @@
 import { expect, test } from '@playwright/test';
 
-import type { WarmSessionSealTransportInput } from '../../packages/sdk-web/src/core/types/secure-confirm-worker';
-import { resolveExactEcdsaSealedRuntime } from '../../packages/sdk-web/src/core/signingEngine/session/material/ecdsaSealedRuntime';
-import { restorePasskeyEcdsaSealedRecordForWallet } from '../../packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaRecovery';
-import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { WarmSessionSealTransportInput } from '../../packages/wallet/src/core/types/secure-confirm-worker';
+import { resolveExactEcdsaSealedRuntime } from '../../packages/wallet/src/core/signingEngine/session/material/ecdsaSealedRuntime';
+import { restorePasskeyEcdsaSealedRecordForWallet } from '../../packages/wallet/src/core/signingEngine/session/passkey/ecdsaRecovery';
+import { toWalletId } from '../../packages/wallet/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   normalizeSealedRecoveryRecord,
   type PasskeyEcdsaSealedRecoveryRecord,
-} from '../../packages/sdk-web/src/core/signingEngine/session/sealedRecovery/recoveryRecord';
+} from '../../packages/wallet/src/core/signingEngine/session/sealedRecovery/recoveryRecord';
 import { walletAuthAuthorityRef } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 import { canonicalEvmFamilyEcdsaSigningCapabilityFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
 import { buildPasskeyEcdsaSealedRuntimeRecordFixture } from './helpers/sealedSigningSession.fixtures';

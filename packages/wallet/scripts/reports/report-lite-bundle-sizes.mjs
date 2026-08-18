@@ -4,8 +4,8 @@
  *
  * Usage:
  *   pnpm build:sdk-prod
- *   pnpm -C packages/sdk-web size:lite
- *   pnpm -C packages/sdk-web size:lite:check
+ *   pnpm -C packages/wallet size:lite
+ *   pnpm -C packages/wallet size:lite:check
  */
 import fs from 'node:fs';
 import path from 'node:path';

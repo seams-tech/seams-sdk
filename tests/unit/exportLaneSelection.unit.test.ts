@@ -3,24 +3,24 @@ import {
   resolveExactKeyExportLane,
   resolveEcdsaSessionForExport,
   type ExportLaneSelectionDeps,
-} from '../../packages/sdk-web/src/core/signingEngine/flows/recovery/exportLaneSelection';
+} from '../../packages/wallet/src/core/signingEngine/flows/recovery/exportLaneSelection';
 import {
   thresholdEcdsaChainTargetKey,
   nearAccountRefFromAccountId,
   toWalletId,
   walletSessionRefFromSession,
   type ThresholdEcdsaChainTarget,
-} from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
+} from '../../packages/wallet/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   AvailableSigningLanes,
   ConcreteAvailableEd25519SigningLane,
   ConcreteAvailableEcdsaSigningLane,
-} from '../../packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes';
+} from '../../packages/wallet/src/core/signingEngine/session/availability/availableSigningLanes';
 import {
   buildEvmFamilyEcdsaSignerBinding,
   exactEcdsaSigningLaneIdentity,
-} from '../../packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity';
-import { toRpId } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+} from '../../packages/wallet/src/core/signingEngine/session/identity/exactSigningLaneIdentity';
+import { toRpId } from '../../packages/wallet/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import {
   authorizationRequiredCanonicalEcdsaAvailableLane,

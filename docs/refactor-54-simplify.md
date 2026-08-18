@@ -1065,7 +1065,7 @@ Rules:
 
 1. Do not create TypeScript `SeamsIOS`, `IoSSigningSurface`,
    `SeamsEmbedded`, or `EmbeddedSigningSurface` classes in `client/src`.
-2. Do not publish `@seams/sdk/ios` or `@seams/sdk/embedded` npm subpaths as
+2. Do not publish `@seams/wallet/ios` or `@seams/wallet/embedded` npm subpaths as
    native SDK contract packages.
 3. Remove `client/src/ios.ts` and `client/src/embedded.ts` package-entry files
    unless they are repurposed as internal build-only fixtures outside the
@@ -1097,11 +1097,11 @@ Tasks:
       `client/src/**/SeamsIOS*`, `client/src/**/IoSSigningSurface*`,
       `client/src/**/SeamsEmbedded*`, and
       `client/src/**/EmbeddedSigningSurface*` implementation scaffolds.
-- [x] Update package export guards to reject `@seams/sdk/ios` and
-      `@seams/sdk/embedded` npm entry points.
+- [x] Update package export guards to reject `@seams/wallet/ios` and
+      `@seams/wallet/embedded` npm entry points.
 - [x] Add a short external-native-SDK note to the plan or platform READMEs
       describing the intended package split:
-      npm `@seams/sdk` for web/server TypeScript, Swift Package Manager for
+      npm `@seams/wallet` for web/server TypeScript, Swift Package Manager for
       iOS, Cargo for embedded Rust.
 - [x] Run `pnpm -C sdk type-check`, native package export guards,
       platform-boundary guards, refactor-54 guard, and `git diff --check`.
@@ -1110,7 +1110,7 @@ Acceptance:
 
 - [x] There are no TypeScript native facade folders or placeholder native
       signing surfaces in `client/src`.
-- [x] `@seams/sdk/ios` and `@seams/sdk/embedded` are not npm package entry
+- [x] `@seams/wallet/ios` and `@seams/wallet/embedded` are not npm package entry
       points.
 - [x] No npm package docs imply that Swift or embedded Rust SDKs are installed
       through npm.

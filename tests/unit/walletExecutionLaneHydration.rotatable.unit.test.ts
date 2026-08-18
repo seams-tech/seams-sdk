@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { hydrateRotatableWalletExecutionLaneV1 } from '../../packages/sdk-web/src/core/signingEngine/session/lanes/walletExecutionLaneHydration';
+import { hydrateRotatableWalletExecutionLaneV1 } from '../../packages/wallet/src/core/signingEngine/session/lanes/walletExecutionLaneHydration';
 import {
   buildLaneHolderCustodyIdentityV1,
   buildSigningWorkerRecipientIdentityV1,

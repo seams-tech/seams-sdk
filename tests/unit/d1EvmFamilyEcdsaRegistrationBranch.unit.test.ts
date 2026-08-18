@@ -1,16 +1,16 @@
 import { expect, test } from '@playwright/test';
 
-import { buildD1EvmFamilyEcdsaRegistrationPrepare } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1EvmFamilyEcdsaRegistrationBranch';
-import { registrationPreparationIdFromString } from '../../packages/sdk-server-ts/src/core/registrationContracts';
+import { buildD1EvmFamilyEcdsaRegistrationPrepare } from '../../packages/wallet-server/src/router/cloudflare/d1/registration/d1EvmFamilyEcdsaRegistrationBranch';
+import { registrationPreparationIdFromString } from '../../packages/wallet-server/src/core/registrationContracts';
 import type {
   ThresholdEcdsaChainTarget,
   ThresholdRuntimePolicyScope,
-} from '../../packages/sdk-server-ts/src/core/types';
+} from '../../packages/wallet-server/src/core/types';
 import type {
   RouterAbEcdsaStrictRegistrationPort,
   RouterAbEcdsaStrictRegistrationTopology,
-} from '../../packages/sdk-server-ts/src/router/domains/ecdsa/routerAbEcdsaStrictRegistration';
-import { routerAbEcdsaStrictRegistrationRequestBindingJson } from '../../packages/sdk-server-ts/src/router/domains/ecdsa/routerAbEcdsaStrictRegistration';
+} from '../../packages/wallet-server/src/router/domains/ecdsa/routerAbEcdsaStrictRegistration';
+import { routerAbEcdsaStrictRegistrationRequestBindingJson } from '../../packages/wallet-server/src/router/domains/ecdsa/routerAbEcdsaStrictRegistration';
 import type {
   RouterAbEcdsaRegistrationRequestFactsV1,
   RouterAbEcdsaRegistrationRequestV1,

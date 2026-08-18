@@ -80,9 +80,9 @@ without becoming part of the main application.
 
 Demo runtime and tooling may depend on:
 
-- `@seams/sdk-server`;
-- `@seams/sdk-server/router/cloudflare`;
-- other documented public `@seams/sdk-server` exports;
+- `@seams/wallet-server`;
+- `@seams/wallet-server/router/cloudflare`;
+- other documented public `@seams/wallet-server` exports;
 - Cloudflare OAuth and Cloudflare's public REST APIs;
 - Wrangler for local development and CI dry runs;
 - content-addressed Router A/B Worker artifacts produced by the release build.

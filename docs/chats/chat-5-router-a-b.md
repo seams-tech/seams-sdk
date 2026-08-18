@@ -534,8 +534,8 @@ Router A/B work, keep commits scoped to:
 - `docs/router-A-B-signer*.md`
 - `docs/router-ab/local-development.md`
 - `packages/shared-ts`
-- `packages/sdk-server-ts`
-- `packages/sdk-web`
+- `packages/wallet-server`
+- `packages/wallet`
 - root `package.json` command wrappers
 
 Avoid mixing VoiceID, threshold-prf t-of-N refactor, or SDK-server changes into

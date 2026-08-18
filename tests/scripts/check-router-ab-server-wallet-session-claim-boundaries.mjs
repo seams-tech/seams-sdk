@@ -46,7 +46,7 @@ function collectForbiddenMarkerOffenders(paths, forbiddenMarkers) {
 }
 
 function checkRouterAbServerWalletSessionIssuerUsesExactClaimBuilders() {
-  const source = readRepoFile('packages/sdk-server-ts/src/router/auth/commonRouterUtils.ts');
+  const source = readRepoFile('packages/wallet-server/src/router/auth/commonRouterUtils.ts');
   const forbiddenMarkers = [
     'extraClaims',
     'allowedSessionKinds',
@@ -84,8 +84,8 @@ function checkRouterAbServerWalletSessionIssuerUsesExactClaimBuilders() {
 function checkRouterAbEcdsaDerivationScopeComparisonUsesCanonicalProtocolBytes() {
   const guardedFiles = [
     'packages/shared-ts/src/utils/routerAbEcdsaDerivation.ts',
-    'packages/sdk-server-ts/src/router/domains/signingOperations/routerAbPrivateSigningWorker.ts',
-    'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaDerivation/presignaturePool.ts',
+    'packages/wallet-server/src/router/domains/signingOperations/routerAbPrivateSigningWorker.ts',
+    'packages/wallet/src/core/signingEngine/routerAb/ecdsaDerivation/presignaturePool.ts',
   ];
   const forbiddenMarkers = [
     'JSON.stringify(left) === JSON.stringify(right)',
@@ -106,13 +106,13 @@ function checkRouterAbEcdsaDerivationScopeComparisonUsesCanonicalProtocolBytes()
   );
   assert.ok(
     readRepoFile(
-      'packages/sdk-server-ts/src/router/domains/signingOperations/routerAbPrivateSigningWorker.ts',
+      'packages/wallet-server/src/router/domains/signingOperations/routerAbPrivateSigningWorker.ts',
     ).includes('sameRouterAbEcdsaDerivationNormalSigningScopeV1'),
     'routerAbPrivateSigningWorker.ts missing canonical scope comparison',
   );
   assert.ok(
     readRepoFile(
-      'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaDerivation/presignaturePool.ts',
+      'packages/wallet/src/core/signingEngine/routerAb/ecdsaDerivation/presignaturePool.ts',
     ).includes('routerAbEcdsaDerivationNormalSigningScopeCanonicalBytesV1'),
     'presignaturePool.ts missing canonical-byte helper',
   );
@@ -120,8 +120,8 @@ function checkRouterAbEcdsaDerivationScopeComparisonUsesCanonicalProtocolBytes()
 
 function checkRouterAbPrivateServiceJsonCallsUseSharedInternalAuthHelper() {
   const guardedFiles = [
-    'packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaDerivationPresignBridge.ts',
-    'packages/sdk-server-ts/src/router/domains/signingOperations/routerAbPrivateSigningWorker.ts',
+    'packages/wallet-server/src/core/ThresholdService/routerAb/ecdsaDerivationPresignBridge.ts',
+    'packages/wallet-server/src/router/domains/signingOperations/routerAbPrivateSigningWorker.ts',
   ];
   const forbiddenMarkers = [
     '[ROUTER_AB_INTERNAL_SERVICE_AUTH_HEADER_V1]:',

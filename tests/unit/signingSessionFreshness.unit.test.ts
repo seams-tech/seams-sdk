@@ -1,23 +1,23 @@
 import { expect, test } from '@playwright/test';
-import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
+import { toAccountId } from '../../packages/wallet/src/core/types/accountIds';
 import {
   thresholdEcdsaChainTargetKey,
   toWalletId,
-} from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
+} from '../../packages/wallet/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   toRpId,
   toEvmFamilyEcdsaKeyHandle,
-} from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+} from '../../packages/wallet/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
   exactSigningLaneIdentityFromSelectedLane,
   exactSigningLaneIdentityKey,
-} from '../../packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity';
+} from '../../packages/wallet/src/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import {
   buildEcdsaEmailOtpSigningLane,
   buildNearTransactionSigningLane,
-} from '../../packages/sdk-web/src/core/signingEngine/session/operationState/lanes';
-import { SigningSessionIds } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/types';
+} from '../../packages/wallet/src/core/signingEngine/session/operationState/lanes';
+import { SigningSessionIds } from '../../packages/wallet/src/core/signingEngine/session/operationState/types';
 import {
   assertFreshnessMatchesLane,
   buildFreshStepUpRequired,
@@ -25,7 +25,7 @@ import {
   buildStepUpFreshnessFromRestoredSealedRecord,
   buildStepUpFreshnessFromTrustedSessionStatus,
   stepUpFreshnessDiagnostics,
-} from '../../packages/sdk-web/src/core/signingEngine/session/operationState/stepUpFreshness';
+} from '../../packages/wallet/src/core/signingEngine/session/operationState/stepUpFreshness';
 import { nearEd25519SigningKeyIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { deriveEvmFamilySigningKeySlotId } from '../../packages/shared-ts/src/signing-lanes/evmFamilySigningKeySlotId';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';

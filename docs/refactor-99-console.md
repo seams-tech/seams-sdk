@@ -25,8 +25,8 @@ This plan replaces conflicting organization, role, billing, refund, and notifica
 
 The repository is partially modular today. Package dependency direction is healthy: the private console packages depend on the public SDK packages, and the SDK packages do not import the console packages. The boundary is still too porous for a clean repository split:
 
-- `packages/sdk-server-ts` contains console roles, authentication, route definitions, and console-aware tenant storage types.
-- `packages/console-server-ts` imports many `@seams/sdk-server/internal/*` modules.
+- `packages/wallet-server` contains console roles, authentication, route definitions, and console-aware tenant storage types.
+- `packages/console-server-ts` imports many `@seams/wallet-server/internal/*` modules.
 - `apps/seams-site` builds the dashboard, marketing site, wallet demos, and SDK examples as one frontend.
 - `apps/web-server` and the hosted Cloudflare gateway compose the public signer with private console services.
 
@@ -36,8 +36,8 @@ The self-hosted signing worker already proves the intended open-source core. It 
 
 The open-source `seams-wallet-sdk` repository owns:
 
-- `packages/sdk-web`
-- `packages/sdk-server-ts`
+- `packages/wallet`
+- `packages/wallet-server`
 - SDK-only shared utilities and required Rust/Wasm crates
 - signer storage migrations
 - `examples/self-host-cloudflare-worker`
@@ -56,17 +56,17 @@ The private `seams-cloud` repository owns:
 
 Moving the whole site to the private repository is the lean frontend split. The public repository keeps SDK documentation and self-host examples; carving marketing pages into another application is deferred.
 
-Each repository has its own workspace manifest, lockfile, versioning, CI, release process, issue tracker, and access controls. The public repository produces the versioned `@seams/sdk` and `@seams/sdk-server` packages. The private repository produces its internal console packages and deployable cloud applications.
+Each repository has its own workspace manifest, lockfile, versioning, CI, release process, issue tracker, and access controls. The public repository produces the versioned `@seams/wallet` and `@seams/wallet-server` packages. The private repository produces its internal console packages and deployable cloud applications.
 
 ### Dependency Rules
 
 - Dependency direction is private cloud to public SDK only.
 - The public SDK contains no console roles, console routes, billing, organization membership, or dashboard implementation.
-- The private repository imports supported SDK package exports. It never imports `@seams/sdk-server/internal/*`.
+- The private repository imports supported SDK package exports. It never imports `@seams/wallet-server/internal/*`.
 - Add one narrow public server extension surface for the hosted gateway. Promote only the contracts the private composition actually needs.
 - Keep signer-side cryptographic, session, recovery, and admission invariants open source. The private policy system supplies typed decisions or signed runtime snapshots through the public extension contract.
 - A self-hosted operator can use safe local defaults or implement the public policy provider.
-- Published package artifacts are the integration boundary. `seams-cloud` pins released versions of `@seams/sdk` and `@seams/sdk-server`.
+- Published package artifacts are the integration boundary. `seams-cloud` pins released versions of `@seams/wallet` and `@seams/wallet-server`.
 - Cross-repository builds do not use workspace links, source-path imports, Git submodules, copied source, or shared unpublished packages.
 
 Clean the boundary in the current monorepo first, then perform the physical extraction as the final phase. This avoids maintaining compatibility paths or duplicating code during the cutover.
@@ -79,9 +79,9 @@ The required SDK source changes are limited to:
 
 1. Move console authentication, console principals, and console route definitions into `packages/console-server-ts`.
 2. Move the combined console-and-signer tenant composition into the private repository, leaving the public SDK storage model signer-only.
-3. Add one supported `@seams/sdk-server/cloud-host` entrypoint that exports the existing signer composition primitives required by `seams-cloud`.
-4. Replace private `@seams/sdk-server/internal/*` imports with that supported entrypoint, then remove the wildcard internal package export.
-5. Ship signer migrations and existing built Wasm assets with `@seams/sdk-server` so private hosted scripts consume the installed package instead of SDK source paths.
+3. Add one supported `@seams/wallet-server/cloud-host` entrypoint that exports the existing signer composition primitives required by `seams-cloud`.
+4. Replace private `@seams/wallet-server/internal/*` imports with that supported entrypoint, then remove the wildcard internal package export.
+5. Ship signer migrations and existing built Wasm assets with `@seams/wallet-server` so private hosted scripts consume the installed package instead of SDK source paths.
 6. Remove the private repository's dependency on unpublished `packages/shared-ts` source by moving console-only helpers private and exposing only the few genuinely shared host contracts through supported SDK exports.
 
 The `cloud-host` entrypoint is a curated export surface over existing SDK primitives. This phase does not redesign those primitives or change their runtime behavior.
@@ -565,7 +565,7 @@ Exit:
 
 ### Phase 2: Route And Dashboard Cutover
 
-- [x] Move console authentication, principals, route definitions, and route policies from `packages/sdk-server-ts` to `packages/console-server-ts`.
+- [x] Move console authentication, principals, route definitions, and route policies from `packages/wallet-server` to `packages/console-server-ts`.
 - [x] Make the public SDK route definition and tenant-storage models signer-only.
 - [x] Replace route roles with the lean policy matrix.
 - [x] Add one shared policy evaluator for Express and Cloudflare.
@@ -642,12 +642,12 @@ Exit:
 - [x] Delete incomplete refund state paths.
 - [x] Delete direct balance mutation and non-posting writers.
 - [x] Delete tests and fixtures that preserve obsolete behavior.
-- [x] Inventory the private cloud's actual `@seams/sdk-server/internal/*` imports; do not turn the wildcard surface into a public API.
-- [x] Add the `@seams/sdk-server/cloud-host` entrypoint with only the existing signer composition primitives required by the hosted gateway.
-- [x] Replace private `@seams/sdk-server/internal/*` imports with supported public exports.
+- [x] Inventory the private cloud's actual `@seams/wallet-server/internal/*` imports; do not turn the wildcard surface into a public API.
+- [x] Add the `@seams/wallet-server/cloud-host` entrypoint with only the existing signer composition primitives required by the hosted gateway.
+- [x] Replace private `@seams/wallet-server/internal/*` imports with supported public exports.
 - [x] Remove the public SDK `internal/*` wildcard export after all private consumers use supported exports.
 - [x] Eliminate private imports of unpublished `packages/shared-ts` source; do not create a third public shared package.
-- [x] Include signer migrations and existing built Wasm assets in `@seams/sdk-server` and make private migration/deployment scripts resolve them from the installed package.
+- [x] Include signer migrations and existing built Wasm assets in `@seams/wallet-server` and make private migration/deployment scripts resolve them from the installed package.
 - [ ] Define public and private path allowlists, including required root configuration, shared utilities, Rust/Wasm crates, migrations, tests, and assets.
 - [x] Strengthen the boundary guard to reject console concepts anywhere in public SDK source and package artifacts.
 - [ ] Add a standalone build that installs the packed public SDK into the self-host example.
@@ -659,7 +659,7 @@ Exit:
 
 - Repository search finds no legacy console role model or old ownership-transfer path.
 - Public package tarballs contain no console, billing, organization-membership, or dashboard implementation.
-- The private packages build without workspace links, source imports, or `@seams/sdk-server/internal/*`.
+- The private packages build without workspace links, source imports, or `@seams/wallet-server/internal/*`.
 - The self-host example builds from packed public packages alone.
 - The private hosted migration and deployment checks run from installed SDK assets without a sibling SDK checkout.
 - Wallet SDK runtime behavior, public API behavior, signer schemas, and self-host deployment behavior are unchanged.
@@ -691,7 +691,7 @@ Remaining cutover gates:
 
 #### 6.3 Publish And Connect
 
-- [ ] Publish the first independent `@seams/sdk` and `@seams/sdk-server` release from `seams-wallet-sdk`.
+- [ ] Publish the first independent `@seams/wallet` and `@seams/wallet-server` release from `seams-wallet-sdk`.
 - [ ] Replace `workspace:*` SDK dependencies in `seams-cloud` with that exact released version.
 - [ ] Generate and commit the independent lockfiles.
 - [ ] Build and deploy the hosted console and gateway from `seams-cloud` to staging.
@@ -763,7 +763,7 @@ During implementation, run the narrow tests for the touched phase. The final cut
 
 ```bash
 pnpm -C packages/console-server-ts type-check
-pnpm -C packages/sdk-server-ts type-check
+pnpm -C packages/wallet-server type-check
 pnpm -C apps/seams-site typecheck
 pnpm -C packages/console-server-ts d1:local:migrate:console
 
@@ -781,7 +781,7 @@ pnpm -C tests exec playwright test \
   --reporter=line
 
 pnpm -C packages/console-server-ts build
-pnpm -C packages/sdk-server-ts build
+pnpm -C packages/wallet-server build
 pnpm -C apps/seams-site build
 ```
 

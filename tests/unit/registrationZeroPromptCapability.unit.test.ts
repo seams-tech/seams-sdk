@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
 import {
   establishPasskeyRegistrationCustodyTransferCapability,
-} from '../../packages/sdk-web/src/SeamsWeb/operations/registration/registration';
-import type { RegistrationWebContext } from '../../packages/sdk-web/src/SeamsWeb/signingSurface/types';
+} from '../../packages/wallet/src/SeamsWeb/operations/registration/registration';
+import type { RegistrationWebContext } from '../../packages/wallet/src/SeamsWeb/signingSurface/types';
 import { buildWalletCustodyCommitPayloadFixture } from './helpers/passkeyCustodyEnvelope.fixtures';
 
 test('establishes the zero-prompt capability after passkey ECDSA registration', async () => {

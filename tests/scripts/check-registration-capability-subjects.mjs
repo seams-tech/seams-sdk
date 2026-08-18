@@ -6,9 +6,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const SDK_WEB_SRC = 'packages/sdk-web/src';
+const SDK_WEB_SRC = 'packages/wallet/src';
 const ECDSA_HANDLE_MODULE =
-  'packages/sdk-web/src/core/signingEngine/session/identity/ecdsaDerivationSigningMaterialHandle.ts';
+  'packages/wallet/src/core/signingEngine/session/identity/ecdsaDerivationSigningMaterialHandle.ts';
 
 function absolutePath(relativePath) {
   return path.join(repoRoot, relativePath);
@@ -59,7 +59,7 @@ function checkRoleLocalEcdsaMaterialHandlesAreIdentityLocal() {
 }
 
 function checkWalletScopedUnlockAvoidsCollapsedNearBindingError() {
-  const walletAuth = readRepoSource('packages/sdk-web/src/SeamsWeb/operations/auth/walletAuth.ts');
+  const walletAuth = readRepoSource('packages/wallet/src/SeamsWeb/operations/auth/walletAuth.ts');
   assertNotContains(
     walletAuth,
     'wallet-scoped auth requires a resolved NEAR account binding',
@@ -70,7 +70,7 @@ function checkWalletScopedUnlockAvoidsCollapsedNearBindingError() {
 
 function checkRegistrationTimingUsesSpanCoverage() {
   const registration = readRepoSource(
-    'packages/sdk-web/src/SeamsWeb/operations/registration/registrationTiming.ts',
+    'packages/wallet/src/SeamsWeb/operations/registration/registrationTiming.ts',
   );
   assertNotContains(registration, 'registration_timing_summary_v1', 'registration timing schema');
   assertContains(registration, 'registration_timing_summary_v2', 'registration timing schema');

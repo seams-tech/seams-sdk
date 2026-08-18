@@ -2,19 +2,19 @@ import { expect, test } from '@playwright/test';
 import {
   handleOwnerWalletExecutionLanePreflight,
   OWNER_WALLET_EXECUTION_LANE_PREFLIGHT_PATH,
-} from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/walletExecutionLanePreflight';
+} from '../../packages/wallet-server/src/router/transport/fetch/routes/walletExecutionLanePreflight';
 import {
   resolveActiveOwnerWalletExecutionLane,
   type WalletExecutionLaneProjectionSource,
-} from '../../packages/sdk-server-ts/src/core/signingLanes/WalletExecutionLaneProjection';
-import type { RouterApiWalletRegistrationService } from '../../packages/sdk-server-ts/src/router/framework/authServicePort';
-import type { SessionAdapter } from '../../packages/sdk-server-ts/src/router/framework/routerApi';
-import type { FetchRouterApiContext } from '../../packages/sdk-server-ts/src/router/transport/fetch/createFetchRouter';
-import { normalizeWalletAuthMethod } from '../../packages/sdk-server-ts/src/core/d1WalletAuthMethodStore';
+} from '../../packages/wallet-server/src/core/signingLanes/WalletExecutionLaneProjection';
+import type { RouterApiWalletRegistrationService } from '../../packages/wallet-server/src/router/framework/authServicePort';
+import type { SessionAdapter } from '../../packages/wallet-server/src/router/framework/routerApi';
+import type { FetchRouterApiContext } from '../../packages/wallet-server/src/router/transport/fetch/createFetchRouter';
+import { normalizeWalletAuthMethod } from '../../packages/wallet-server/src/core/d1WalletAuthMethodStore';
 import {
   buildYaoEd25519WalletSignerRecord,
   ed25519NearPublicKeyFromBytes,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoWalletSigner';
+} from '../../packages/wallet-server/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoWalletSigner';
 import { walletAuthMethodRecordId } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { parseWalletId } from '../../packages/shared-ts/src/utils/domainIds';
 import { routerAbMpcMaterialActivationRefFromWire } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';

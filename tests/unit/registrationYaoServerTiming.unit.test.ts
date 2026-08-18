@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { parseYaoServerTimingBuckets } from '../../packages/sdk-web/src/SeamsWeb/operations/registration/registration';
+import { parseYaoServerTimingBuckets } from '../../packages/wallet/src/SeamsWeb/operations/registration/registration';
 
 test('parses the Router Yao Server-Timing breakdown into timing buckets', () => {
   const header = [

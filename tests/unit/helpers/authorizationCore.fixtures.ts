@@ -55,13 +55,13 @@ import {
   type WalletSessionAuthorization,
   type AuthorizedOperation,
   type AuthorizedOperationReplayResponse,
-} from '../../../packages/sdk-server-ts/src/authorization/domain';
+} from '../../../packages/wallet-server/src/authorization/domain';
 import {
   buildVerifiedWalletOperationPasskeyFactorResult,
   buildVerifiedWalletOperationFactorEvidenceSet,
   type VerifiedAuthorizationEvidenceSet,
   type VerifiedWalletOperationPasskeyFactorResult,
-} from '../../../packages/sdk-server-ts/src/authorization/factorEvidence';
+} from '../../../packages/wallet-server/src/authorization/factorEvidence';
 
 const FIXTURE_NOW_MS = 1_900_000_000_000;
 

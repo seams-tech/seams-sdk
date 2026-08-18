@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { toast } from 'sonner';
 
-import { useSeams } from '@seams/sdk/react';
+import { useSeams } from '@seams/wallet/react';
 
 import { AnimatedHeight } from '@/components/AnimatedHeight';
 import { useSetGreeting } from '@/shared/hooks/useSetGreeting';

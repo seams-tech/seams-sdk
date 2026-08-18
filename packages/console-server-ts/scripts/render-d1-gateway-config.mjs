@@ -123,7 +123,7 @@ function buildConfig(
         database_id: resources.signerD1.id,
         migrations_dir: path.join(
           packageRoot,
-          '../wallet-console-server-ts/node_modules/@seams/sdk-server/migrations/d1-signer',
+          '../wallet-console-server-ts/node_modules/@seams/wallet-server/migrations/d1-signer',
         ),
       },
     ],

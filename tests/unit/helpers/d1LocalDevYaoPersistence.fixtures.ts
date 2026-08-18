@@ -34,19 +34,19 @@ import {
 import {
   parseRouterAbEd25519WalletSessionClaims,
   thresholdEd25519AuthorityScopeFromWalletAuthAuthority,
-} from '../../../packages/sdk-server-ts/src/core/ThresholdService/validation';
-import type { WalletEd25519YaoActiveCapabilityRecord } from '../../../packages/sdk-server-ts/src/core/WalletStore';
-import { D1WalletStore } from '../../../packages/sdk-server-ts/src/core/d1WalletStore';
+} from '../../../packages/wallet-server/src/core/ThresholdService/validation';
+import type { WalletEd25519YaoActiveCapabilityRecord } from '../../../packages/wallet-server/src/core/WalletStore';
+import { D1WalletStore } from '../../../packages/wallet-server/src/core/d1WalletStore';
 import {
   buildYaoEd25519WalletSignerRecord,
   ed25519NearPublicKeyFromBytes,
-} from '../../../packages/sdk-server-ts/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoWalletSigner';
-import type { CfExecutionContext } from '../../../packages/sdk-server-ts/src/router/cloudflare/runtime/cloudflare.types';
+} from '../../../packages/wallet-server/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoWalletSigner';
+import type { CfExecutionContext } from '../../../packages/wallet-server/src/router/cloudflare/runtime/cloudflare.types';
 import { createEd25519SessionAdapter } from '../../../packages/wallet-console-server-ts/src/router/cloudflare/d1StagingSession';
-import { buildRouterAbEd25519YaoRegistrationCapabilityRecordV1 } from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
-import { createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1 } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoProductRegistrationPartitionedStateStore';
-import { createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1 } from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationRequestScopedRuntime';
-import type { D1DatabaseLike } from '../../../packages/sdk-server-ts/src/storage/tenantRoute';
+import { buildRouterAbEd25519YaoRegistrationCapabilityRecordV1 } from '../../../packages/wallet-server/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
+import { createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1 } from '../../../packages/wallet-server/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoProductRegistrationPartitionedStateStore';
+import { createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1 } from '../../../packages/wallet-server/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationRequestScopedRuntime';
+import type { D1DatabaseLike } from '../../../packages/wallet-server/src/storage/tenantRoute';
 import type { CloudflareServiceBindingFetcher } from '../../../packages/wallet-console-server-ts/src/router/cloudflare/routerAbServiceBindings';
 import localD1DevWorker from '../../../packages/wallet-console-server-ts/src/router/cloudflare/d1LocalDevWorker';
 import {

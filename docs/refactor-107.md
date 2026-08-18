@@ -110,24 +110,24 @@ keeps those boundaries while deleting the redundant wallet app-session plane.
 
 Concrete implementation evidence:
 
-- `packages/sdk-server-ts/src/authorization/domain.ts` already defines the
+- `packages/wallet-server/src/authorization/domain.ts` already defines the
   disjoint `AuthorizationGrant`, `OperationAuthorizationSource`, and
   `AuthorizedOperation` unions.
-- `packages/sdk-server-ts/src/authorization/factorEvidence.ts` still contains
+- `packages/wallet-server/src/authorization/factorEvidence.ts` still contains
   wallet paths that bind evidence to `ActiveAuthorizationSession`, copy its
   session and device IDs, and clamp evidence expiry to the app session. R107
   replaces those wallet paths with operation-bound evidence and deletes the
   obsolete session-bound records after vault and administration move.
-- `packages/sdk-web/src/core/types/seams.ts` projects authentication,
+- `packages/wallet/src/core/types/seams.ts` projects authentication,
   `ReusableWalletSessionState`, capability readiness, and linked-device state
   as separate lifecycle unions. R107 preserves that separation.
-- `packages/sdk-web/src/core/signingEngine/session/operationState/authorizationAdmission.ts`
+- `packages/wallet/src/core/signingEngine/session/operationState/authorizationAdmission.ts`
   and the NEAR/EVM signing flows already implement client-side retry decisions.
   R107 replaces those policy decisions with rendering of a server decision.
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signingFlow.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/signingFlow.ts`
   already models owner and linked-device authorization as a discriminated
   union. R107 keeps those branches explicit.
-- `packages/sdk-web/src/core/signingEngine/session/lanes/linkedDeviceExecutionBundle.ts`
+- `packages/wallet/src/core/signingEngine/session/lanes/linkedDeviceExecutionBundle.ts`
   binds a linked session to its enrollment, device, wallet keys, child lanes,
   activations, permission, and revocation epoch. Owner fallback must never
   manufacture or replace that bundle.

@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   fetchPasskeyCustodyEnvelope,
   type PasskeyCustodyEnvelopeFetchResult,
-} from '../../packages/sdk-web/src/core/rpcClients/relayer/passkeyCustodyEnvelope';
+} from '../../packages/wallet/src/core/rpcClients/relayer/passkeyCustodyEnvelope';
 
 /**
  * The client's reading of each server status.

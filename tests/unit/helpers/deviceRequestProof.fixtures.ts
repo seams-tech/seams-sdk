@@ -4,7 +4,7 @@ import {
   encodeLinkedDeviceRequestProofV1,
   parseLinkedDeviceRequestProofV1,
   type LinkedDeviceRequestProofV1,
-} from '../../../packages/sdk-server-ts/src/core/deviceLinking/requestProof';
+} from '../../../packages/wallet-server/src/core/deviceLinking/requestProof';
 import type { LinkDeviceSessionId } from '../../../packages/shared-ts/src/signing-lanes/ids';
 import { base64UrlEncode } from '../../../packages/shared-ts/src/utils/base64';
 import { parseDigestB64u } from '../../../packages/shared-ts/src/utils/canonicalPrimitives';

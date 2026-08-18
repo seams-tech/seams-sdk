@@ -253,7 +253,7 @@
   "generatedWorkerBundleEvidence": [
     {
       "id": "ed25519Signer",
-      "path": "packages/sdk-web/dist/workers/near-signer.worker.js",
+      "path": "packages/wallet/dist/workers/near-signer.worker.js",
       "sizes": {
         "raw": 60088,
         "gzip": 12079,
@@ -269,7 +269,7 @@
     },
     {
       "id": "ecdsaDerivationClient",
-      "path": "packages/sdk-web/dist/workers/ecdsa-derivation-client.worker.js",
+      "path": "packages/wallet/dist/workers/ecdsa-derivation-client.worker.js",
       "sizes": {
         "raw": 39489,
         "gzip": 9414,
@@ -285,7 +285,7 @@
     },
     {
       "id": "ecdsaPresignClient",
-      "path": "packages/sdk-web/dist/workers/ecdsa-presign-client.worker.js",
+      "path": "packages/wallet/dist/workers/ecdsa-presign-client.worker.js",
       "sizes": {
         "raw": 36953,
         "gzip": 9232,
@@ -301,7 +301,7 @@
     },
     {
       "id": "ecdsaOnlineClient",
-      "path": "packages/sdk-web/dist/workers/ecdsa-online-client.worker.js",
+      "path": "packages/wallet/dist/workers/ecdsa-online-client.worker.js",
       "sizes": {
         "raw": 21793,
         "gzip": 6309,
@@ -317,7 +317,7 @@
     },
     {
       "id": "emailOtp",
-      "path": "packages/sdk-web/dist/workers/email-otp.worker.js",
+      "path": "packages/wallet/dist/workers/email-otp.worker.js",
       "sizes": {
         "raw": 567538,
         "gzip": 91370,

@@ -3,7 +3,7 @@ import { WALLET_API_CREDENTIAL_SCOPE_VALIDATION } from '@seams-internal/wallet-c
 import { WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION } from '@seams-internal/wallet-console-shared/webhookEventCategories';
 import { Buffer } from 'node:buffer';
 import type { IncomingMessage } from 'node:http';
-import { AuthService, requireEnvVar, type ThresholdStoreConfigInput } from '@seams/sdk-server';
+import { AuthService, requireEnvVar, type ThresholdStoreConfigInput } from '@seams/wallet-server';
 import {
   createInMemoryConsoleSponsorshipSpendCapService,
   createConsoleOrgProjectEnvServiceWithTempoOnboardingSponsorship,

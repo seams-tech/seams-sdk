@@ -1,7 +1,7 @@
 /*
   AUTO-GENERATED FILE – DO NOT EDIT.
-  Source: packages/sdk-web/src/theme/palette.json + mappings from packages/sdk-web/src/theme/base-styles.js (createThemeTokens)
-  Run: node packages/sdk-web/scripts/codegen/generate-w3a-components-css.mjs
+  Source: packages/wallet/src/theme/palette.json + mappings from packages/wallet/src/theme/base-styles.js (createThemeTokens)
+  Run: node packages/wallet/scripts/codegen/generate-w3a-components-css.mjs
 */
 
 :root {

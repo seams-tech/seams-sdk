@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { createD1PasskeyCustodyRouteService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/passkeyCustody/d1PasskeyCustodyRouteService';
-import { normalizeLogger } from '../../packages/sdk-server-ts/src/core/logger';
+import { createD1PasskeyCustodyRouteService } from '../../packages/wallet-server/src/router/cloudflare/d1/passkeyCustody/d1PasskeyCustodyRouteService';
+import { normalizeLogger } from '../../packages/wallet-server/src/core/logger';
 
 /**
  * The port's own decisions — the ones made before the retrieval gate runs.

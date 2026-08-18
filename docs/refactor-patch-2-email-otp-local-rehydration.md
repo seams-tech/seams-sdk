@@ -345,27 +345,27 @@ identity or stable custody bindings.
 
 Use these existing boundaries rather than creating parallel coordinators:
 
-- `packages/sdk-web/src/SeamsWeb/SeamsWeb.ts`
+- `packages/wallet/src/SeamsWeb/SeamsWeb.ts`
   - owns the current Email OTP unlock orchestration and timing summary;
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/walletUnlock.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/walletUnlock.ts`
   - owns typed worker unlock requests;
-- `packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp.worker.ts`
+- `packages/wallet/src/core/signingEngine/workerManager/workers/email-otp.worker.ts`
   - owns `S`, enrollment-escrow unsealing, possession proofs, and temporary
     client material;
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaLogin.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/ecdsaLogin.ts`
   - owns ECDSA session provisioning after Email OTP authorization;
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaRecovery.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/ecdsaRecovery.ts`
   - owns current Email OTP ECDSA sealed-session rehydration;
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519YaoSealedRecovery.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/ed25519YaoSealedRecovery.ts`
   - owns current Email OTP Ed25519 sealed-session recovery;
-- `packages/sdk-web/src/core/signingEngine/session/passkey/ed25519YaoLocalMaterial.ts`
+- `packages/wallet/src/core/signingEngine/session/passkey/ed25519YaoLocalMaterial.ts`
   - provides the existing local Ed25519 envelope pattern to generalize;
-- `packages/sdk-web/src/core/signingEngine/session/persistence/records.ts` and
+- `packages/wallet/src/core/signingEngine/session/persistence/records.ts` and
   `sealedSessionStore.ts`
   - own canonical persisted material and rotating session projections;
-- `packages/sdk-server-ts/src/router/walletUnlockRouteHandlers.ts`
+- `packages/wallet-server/src/router/walletUnlockRouteHandlers.ts`
   - owns OTP unlock verification and the current recovery augmentation;
-- `packages/sdk-server-ts/src/router/routerAbEd25519YaoRecovery.ts`
+- `packages/wallet-server/src/router/routerAbEd25519YaoRecovery.ts`
   - remains the explicit missing-Ed25519-material recovery implementation.
 
 Do not add a second unlock coordinator, ECDSA material resolver, active-client

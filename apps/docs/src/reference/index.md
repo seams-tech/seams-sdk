@@ -11,11 +11,11 @@ when your integration owns the corresponding runtime or protocol responsibility.
 
 | Import path                                    | Use it for                                                                                                    |
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| [`@seams/sdk`](/reference/core)                | Browser SDK configuration, registration, authentication, signing, recovery, devices, and public result types. |
-| [`@seams/sdk/react`](/reference/react)         | Providers, hooks, auth and profile components, QR flows, and theme tokens.                                    |
-| [`@seams/sdk/advanced`](/reference/advanced)   | Exact identity builders, RPC clients, encoders, and other low-level integration helpers.                      |
-| [`@seams/sdk/threshold`](/reference/threshold) | Stable threshold session-policy and cryptographic constants.                                                  |
-| [`@seams/sdk/runtime`](/reference/runtime)     | Building a custom signing runtime from explicit platform ports.                                               |
+| [`@seams/wallet`](/reference/core)                | Browser SDK configuration, registration, authentication, signing, recovery, devices, and public result types. |
+| [`@seams/wallet/react`](/reference/react)         | Providers, hooks, auth and profile components, QR flows, and theme tokens.                                    |
+| [`@seams/wallet/advanced`](/reference/advanced)   | Exact identity builders, RPC clients, encoders, and other low-level integration helpers.                      |
+| [`@seams/wallet/threshold`](/reference/threshold) | Stable threshold session-policy and cryptographic constants.                                                  |
+| [`@seams/wallet/runtime`](/reference/runtime)     | Building a custom signing runtime from explicit platform ports.                                               |
 
 The package also publishes focused React component subpaths and the hosted
 wallet HTML asset. Those surfaces are documented on the [React

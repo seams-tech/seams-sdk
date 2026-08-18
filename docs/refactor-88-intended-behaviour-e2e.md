@@ -407,7 +407,7 @@ pnpm test:intended
 
 CI-managed startup:
 
-- build fresh SDK artifacts into `packages/sdk-web/dist`
+- build fresh SDK artifacts into `packages/wallet/dist`
 - reset local D1 and Router A/B local state
 - run local D1 migrations through the existing `pnpm router` startup path
 - seed local org/project/env/API key through the local D1 dev worker defaults
@@ -957,7 +957,7 @@ Current live validation:
   passed.
 - Re-run after mounting local D1 Email Recovery prepare/respond routes through
   a structural prepare-only `RouterApiOptions.emailRecovery` service:
-  `pnpm -C packages/sdk-server-ts run build` passed;
+  `pnpm -C packages/wallet-server run build` passed;
   `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/cloudflareD1ConsoleServices.unit.test.ts --reporter=line`
   passed 15/15; `pnpm -C tests run check:refactor88-test-ledger:complete`
   reported `scope=442 ledger_existing=442 ledger_deleted=19 missing=0`;
@@ -1089,7 +1089,7 @@ Current live validation:
   deleted the retired JSON allowlist after wallet-scoped ECDSA and Email OTP
   flow events moved from `accountId` payloads to `walletId`; `pnpm -C tests run
   check:wallet-capability-bindings-source-guard` and `pnpm -C
-  packages/sdk-web type-check` passed, and `pnpm -C tests run
+  packages/wallet type-check` passed, and `pnpm -C tests run
   check:refactor88-test-ledger:complete` reported
   `scope=413 ledger_existing=413 ledger_deleted=53 missing=0`. `pnpm -C tests
   run test:source-guards` also passed with all standalone checks and 190/190
@@ -1098,8 +1098,8 @@ Current live validation:
   `build:sdk-full` before standalone source scripts, retrying fresh WASM output
   existence checks in `build-wasm.sh`, and removing the public signer-worker
   type entry's runtime import of generated NEAR signer JS. `pnpm -C
-  packages/sdk-web exec tsc -p tsconfig.json --noEmit --pretty false` passed;
-  `pnpm -C packages/sdk-web run build:sdk-full` passed; `pnpm -C tests run
+  packages/wallet exec tsc -p tsconfig.json --noEmit --pretty false` passed;
+  `pnpm -C packages/wallet run build:sdk-full` passed; `pnpm -C tests run
   test:source-guards` passed with 408/408 source-profile tests; `pnpm -C tests
   run check:refactor88-test-ledger:complete` reported
   `scope=420 ledger_existing=420 ledger_deleted=44 missing=0`; and `git diff
@@ -1151,7 +1151,7 @@ the gate is declared mandatory. Record the results in this plan.
 
 Run these mutation checks with a fresh SDK build and restarted site/router
 services, or through `pnpm test:intended:ci`. Long-running local site processes
-can serve a cached/prebundled SDK from `packages/sdk-web/dist`; source or `dist`
+can serve a cached/prebundled SDK from `packages/wallet/dist`; source or `dist`
 edits against that stale process can make a seeded mutation appear to pass.
 The current local stack is already occupying `https://localhost`,
 `https://localhost:8443`, and `https://localhost:9444`, so CI-managed mutation
@@ -1538,7 +1538,7 @@ Initial audit:
 | `tests/unit/indexedDBConsolidation.guard.unit.test.ts` | deleted | Deleted 64-line IndexedDB consolidation Playwright source guard after browser-backed `tests/unit/indexedDBConsolidation.unit.test.ts` owned schema/repository behavior and the remaining raw IndexedDB/clientDB escape checks moved into `tests/scripts/check-indexeddb-consolidation-boundaries.mjs`, wired through `pnpm -C tests run check:indexeddb-consolidation-boundaries` and `pnpm -C tests run test:source-guards`. |
 | `tests/unit/keyExport.behavior.guard.unit.test.ts` | deleted | Deleted 66-line key-export Playwright source guard after intended contracts owned public exact-lane export success and the remaining AccountMenuButton/export-modal source-boundary checks moved into `tests/scripts/check-key-export-boundaries.mjs`, wired through `pnpm -C tests run check:key-export-boundaries` and `pnpm -C tests run test:source-guards`. |
 | `tests/unit/nonceCoordinator.durableArchitecture.guard.unit.test.ts` | keep | Durable nonce coordinator architecture guard retained by Refactor 88B. It protects nonce-lane storage/import boundaries unless package-boundary and nonce-lane repository tests replace the same invariant. |
-| `tests/unit/seamsAuthMenuPublicEntry.guard.unit.test.ts` | deleted | Deleted 37-line SeamsAuthMenu public-entrypoint source guard after pre-delete `rg` found no product/test use of `seamsAuthMenuCompat` outside the guard and `tests/unit/packageExports.contract.unit.test.ts` took ownership of the SSR-safe `./react/seams-auth-menu` public subpath plus compat-key rejection. `SeamsAuthMenu` shell CSS now stays behind the explicit `@seams/sdk/react/styles` entrypoint so the public subpath imports in Node SSR. Replacement coverage: package export contract plus `tests/unit/seamsAuthMenu.ssr.unit.test.ts`. |
+| `tests/unit/seamsAuthMenuPublicEntry.guard.unit.test.ts` | deleted | Deleted 37-line SeamsAuthMenu public-entrypoint source guard after pre-delete `rg` found no product/test use of `seamsAuthMenuCompat` outside the guard and `tests/unit/packageExports.contract.unit.test.ts` took ownership of the SSR-safe `./react/seams-auth-menu` public subpath plus compat-key rejection. `SeamsAuthMenu` shell CSS now stays behind the explicit `@seams/wallet/react/styles` entrypoint so the public subpath imports in Node SSR. Replacement coverage: package export contract plus `tests/unit/seamsAuthMenu.ssr.unit.test.ts`. |
 | `tests/unit/passkeyRegistrationRollback.guard.unit.test.ts` | deleted | Deleted 61-line passkey-registration rollback Playwright source guard after preserving its rollback-state, signer-set registration, and deleted continuation-auth checks in `tests/scripts/check-passkey-registration-rollback-boundaries.mjs`, wired through `pnpm -C tests run check:passkey-registration-rollback-boundaries` and `pnpm -C tests run test:source-guards`. |
 | `tests/unit/packageExports.contract.unit.test.ts` | keep | Package export contract coverage. It verifies public package surfaces and is durable API coverage, not a mocked lifecycle fixture. |
 | `tests/unit/sdkPackageInstallSmoke.unit.test.ts` | keep | Package install smoke coverage. It verifies package consumability and remains outside the wallet lifecycle contract matrix. |
@@ -1565,7 +1565,7 @@ Initial audit:
 | `tests/unit/routerAbNormalSigningSdk.guard.unit.test.ts` | deleted | Deleted 1,181-line Router A/B normal-signing SDK Playwright source guard after moving local topology, Wallet Session request-builder, active material/readiness, route-core, legacy-route, and budget/reconciliation source checks into `tests/scripts/check-router-ab-normal-signing-sdk-boundaries.mjs`, wired through `pnpm -C tests run check:router-ab-normal-signing-sdk-boundaries` and `pnpm -C tests run test:source-guards`. |
 | `tests/unit/routerAbServerWalletSessionClaimBoundary.guard.unit.test.ts` | deleted | Deleted 139-line Router A/B wallet-session claim boundary Playwright source guard after moving legacy claim-kind bans, exact claim-builder checks, canonical ECDSA-HSS scope comparison checks, and internal-auth helper checks into `tests/scripts/check-router-ab-server-wallet-session-claim-boundaries.mjs`, wired through `test:source-guards`. |
 | `tests/unit/signer-worker.guards.test.ts` | keep | Durable signer-worker protocol coverage. Refactor 88B classified the surviving invariants as worker secret-field rejection checks; the file stays under explicit browser/unit validation, not the source-guard profile. |
-| `tests/unit/signerDomain.guard.unit.test.ts` | deleted | Deleted 46-line signer-domain source guard after folding its wallet/signer shared-constant checks into account signer lifecycle coverage. Those checks now live in `tests/scripts/check-account-signer-lifecycle-boundaries.mjs`, including the `packages/sdk-web/src/core/types/seams.ts` coverage that was unique to the deleted guard. |
+| `tests/unit/signerDomain.guard.unit.test.ts` | deleted | Deleted 46-line signer-domain source guard after folding its wallet/signer shared-constant checks into account signer lifecycle coverage. Those checks now live in `tests/scripts/check-account-signer-lifecycle-boundaries.mjs`, including the `packages/wallet/src/core/types/seams.ts` coverage that was unique to the deleted guard. |
 | `tests/unit/signingEngineArchitecture.flows.guard.unit.test.ts` | deleted | Deleted 380-line signing-engine flow architecture Playwright source guard after moving the source-boundary checks into `tests/scripts/check-signing-engine-architecture-boundaries.mjs`, wired through `pnpm -C tests run check:signing-engine-architecture-boundaries` and `pnpm -C tests run test:source-guards`. |
 | `tests/unit/signingEngineArchitecture.ownership.guard.unit.test.ts` | deleted | Deleted 297-line signing-engine ownership architecture Playwright source guard after moving the README, session-domain, coordinator, and sibling-import checks into `tests/scripts/check-signing-engine-architecture-boundaries.mjs`, wired through `pnpm -C tests run check:signing-engine-architecture-boundaries` and `pnpm -C tests run test:source-guards`. |
 | `tests/unit/signingEngineArchitecture.state.guard.unit.test.ts` | deleted | Deleted 244-line signing-engine state architecture Playwright source guard after moving the selected-lane, lifecycle-state, execution-boundary, and duplicate-shape checks into `tests/scripts/check-signing-engine-architecture-boundaries.mjs`, wired through `pnpm -C tests run check:signing-engine-architecture-boundaries` and `pnpm -C tests run test:source-guards`. |
@@ -2185,7 +2185,7 @@ Completed setup cleanup:
 - [x] Guard the intended page and harness against private SDK, signing-engine,
   threshold-service, legacy threshold-Ed25519, and Router route imports.
 - [x] Move the intended page's wallet-id normalization onto the public
-  `@seams/sdk/advanced` surface and replace demo ECDSA chain-target helpers
+  `@seams/wallet/advanced` surface and replace demo ECDSA chain-target helpers
   with local typed intended-contract targets; guard the page and harness
   against internal package and demo-helper imports.
 - [x] Guard the intended page and harness action-result unions so the nine
@@ -2352,7 +2352,7 @@ Phase exit:
 - Intended e2e tests have one setup entrypoint and cannot import mocked setup
   helpers.
 - Current supporting validation, July 5, 2026:
-  `pnpm -C packages/sdk-web type-check`,
+  `pnpm -C packages/wallet type-check`,
   `pnpm -C apps/seams-site run typecheck`,
   `pnpm -C tests run test:intended:ci`,
   `pnpm -C tests run check:intended-mutation-self-check:complete`,

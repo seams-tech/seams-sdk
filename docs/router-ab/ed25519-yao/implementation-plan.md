@@ -2061,11 +2061,11 @@ SigningWorker
   active Ed25519 server share
   normal signing with zero Deriver calls
 
-packages/sdk-web
+packages/wallet
   lifecycle orchestration and worker handles
   no raw Yao state or 2 MiB transport
 
-packages/sdk-server-ts
+packages/wallet-server
   application authentication and Router grant issuance
   no threshold signing or secure-computation service
 ```
@@ -5279,10 +5279,10 @@ cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --target wasm
 cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --target wasm32-unknown-unknown --features strict-worker-signing-worker-entrypoint
 cargo check --manifest-path wasm/near_signer/Cargo.toml --target wasm32-unknown-unknown
 
-pnpm -C packages/sdk-web type-check
-pnpm -C packages/sdk-server-ts type-check
+pnpm -C packages/wallet type-check
+pnpm -C packages/wallet-server type-check
 pnpm -C packages/shared-ts type-check
-pnpm -C packages/sdk-web build:wasm
+pnpm -C packages/wallet build:wasm
 pnpm test:source-guards
 pnpm router:deploy:check
 ```

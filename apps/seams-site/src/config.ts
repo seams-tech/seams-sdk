@@ -1,10 +1,10 @@
-import type { SeamsConfigsInput } from '@seams/sdk/react';
+import type { SeamsConfigsInput } from '@seams/wallet/react';
 import {
   DEFAULT_WALLET_SESSION_REMAINING_USES,
   DEFAULT_WALLET_SESSION_TTL_MS,
   MAX_WALLET_SESSION_REMAINING_USES,
   MAX_WALLET_SESSION_TTL_MS,
-} from '@seams/sdk/advanced';
+} from '@seams/wallet/advanced';
 
 const DEFAULT_NEAR_RPC_URL = 'https://test.rpc.fastnear.com,https://rpc.testnet.near.org';
 const DEFAULT_NEAR_EXPLORER_URL = 'https://testnet.nearblocks.io';

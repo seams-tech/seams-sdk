@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
-import type { ClientUserData } from '../../packages/sdk-web/src/core/accountData/near/nearAccountData.types';
-import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
-import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
-import { Ed25519YaoPageLifecycleOwner } from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/yaoPageLifecycleOwner';
+import type { ClientUserData } from '../../packages/wallet/src/core/accountData/near/nearAccountData.types';
+import { toAccountId } from '../../packages/wallet/src/core/types/accountIds';
+import { toWalletId } from '../../packages/wallet/src/core/signingEngine/interfaces/ecdsaChainTarget';
+import { Ed25519YaoPageLifecycleOwner } from '../../packages/wallet/src/core/signingEngine/threshold/ed25519/yaoPageLifecycleOwner';
 import {
   ED25519_YAO_PUBLIC_CAPABILITY_LANES_KIND_V1,
   ED25519_YAO_PUBLIC_CAPABILITY_REFERENCES_KIND_V1,
@@ -10,15 +10,15 @@ import {
   parseEd25519YaoPublicCapabilityLanesV1,
   parseEd25519YaoPublicCapabilityReferencesV1,
   publishEd25519YaoPublicCapabilityReferenceAndLane,
-} from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
+} from '../../packages/wallet/src/core/signingEngine/threshold/ed25519/yaoPublicCapabilityReferences';
 import {
   buildMpcMaterialActivationRefFixture,
   buildWalletAuthAuthorityRefFixture,
 } from './helpers/ecdsaMaterialRef.fixtures';
 import { nearEd25519SigningKeyIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { parseThresholdEd25519SessionId } from '../../packages/shared-ts/src/utils/domainIds';
-import { toRpId } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
-import { nearEd25519PublicLocatorObservation } from '../../packages/sdk-web/src/SeamsWeb/signingSurface/BrowserSigningSurface';
+import { toRpId } from '../../packages/wallet/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import { nearEd25519PublicLocatorObservation } from '../../packages/wallet/src/SeamsWeb/signingSurface/BrowserSigningSurface';
 import { passkeyEd25519YaoLaneReferenceFromRecovery } from '@/core/signingEngine/flows/recovery/passkeyEd25519YaoRecovery';
 import {
   buildPasskeyEd25519AuthorizationProjectionFixture,
@@ -26,9 +26,9 @@ import {
 } from './helpers/sealedSigningSession.fixtures';
 import { parseExactEd25519SealedSessionRuntime } from '@/core/signingEngine/session/warmCapabilities/ed25519SealedSessionRuntime';
 import { buildRouterAbEd25519WalletSessionStateFromExactRuntime } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
-import { resolveNearEd25519YaoCapabilityHydrationV1 } from '../../packages/sdk-web/src/core/signingEngine/session/material/nearEd25519YaoMaterialActivation';
-import { buildRestorableMpcMaterialRefInternal } from '../../packages/sdk-web/src/core/signingEngine/session/material/restorableMpcMaterialRef.internal';
-import { resolveEmailOtpEd25519YaoColdRecoveryV1 } from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519YaoLogin';
+import { resolveNearEd25519YaoCapabilityHydrationV1 } from '../../packages/wallet/src/core/signingEngine/session/material/nearEd25519YaoMaterialActivation';
+import { buildRestorableMpcMaterialRefInternal } from '../../packages/wallet/src/core/signingEngine/session/material/restorableMpcMaterialRef.internal';
+import { resolveEmailOtpEd25519YaoColdRecoveryV1 } from '../../packages/wallet/src/core/signingEngine/session/emailOtp/ed25519YaoLogin';
 
 const APP_STATE_KEY = 'ed25519YaoPublicCapabilityReferencesV1';
 const LANES_APP_STATE_KEY = 'ed25519YaoPublicCapabilityLanesV1';

@@ -21,7 +21,7 @@ import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds'
 import {
   computeAddSignerIntentDigest,
   computeRegistrationIntentDigest,
-} from '../../packages/sdk-web/src/utils/intentDigest';
+} from '../../packages/wallet/src/utils/intentDigest';
 
 const runtimePolicyScope: RuntimePolicyScopeLike = {
   orgId: 'org_1',

@@ -1,78 +1,78 @@
 {
-  "name": "@seams/sdk",
+  "name": "@seams/wallet",
   "version": "0.5.0",
   "type": "module",
   "description": "Seams web and runtime TypeScript SDK for NEAR and EVM-family wallets",
   "main": "./dist/esm/index.js",
   "module": "./dist/esm/index.js",
-  "types": "./dist/types/sdk-web/src/index.d.ts",
+  "types": "./dist/types/wallet/src/index.d.ts",
   "exports": {
     "./package.json": "./package.json",
     ".": {
       "import": "./dist/esm/index.js",
       "default": "./dist/esm/index.js",
-      "types": "./dist/types/sdk-web/src/index.d.ts"
+      "types": "./dist/types/wallet/src/index.d.ts"
     },
     "./advanced": {
       "import": "./dist/esm/advanced.js",
       "default": "./dist/esm/advanced.js",
-      "types": "./dist/types/sdk-web/src/advanced.d.ts"
+      "types": "./dist/types/wallet/src/advanced.d.ts"
     },
     "./threshold": {
       "import": "./dist/esm/threshold.js",
       "default": "./dist/esm/threshold.js",
-      "types": "./dist/types/sdk-web/src/threshold.d.ts"
+      "types": "./dist/types/wallet/src/threshold.d.ts"
     },
     "./runtime": {
       "import": "./dist/esm/runtime.js",
       "default": "./dist/esm/runtime.js",
-      "types": "./dist/types/sdk-web/src/runtime.d.ts"
+      "types": "./dist/types/wallet/src/runtime.d.ts"
     },
     "./react": {
       "import": "./dist/esm/react/index.js",
       "default": "./dist/esm/react/index.js",
-      "types": "./dist/types/sdk-web/src/react/index.d.ts"
+      "types": "./dist/types/wallet/src/react/index.d.ts"
     },
     "./react/profile": {
       "import": "./dist/esm/react/components/AccountMenuButton/index.js",
       "default": "./dist/esm/react/components/AccountMenuButton/index.js",
-      "types": "./dist/types/sdk-web/src/react/components/AccountMenuButton/index.d.ts"
+      "types": "./dist/types/wallet/src/react/components/AccountMenuButton/index.d.ts"
     },
     "./react/seams-auth-menu": {
       "import": "./dist/esm/react/components/SeamsAuthMenu/public.js",
       "default": "./dist/esm/react/components/SeamsAuthMenu/public.js",
-      "types": "./dist/types/sdk-web/src/react/components/SeamsAuthMenu/public.d.ts"
+      "types": "./dist/types/wallet/src/react/components/SeamsAuthMenu/public.d.ts"
     },
     "./react/seams-auth-menu/client": {
       "import": "./dist/esm/react/components/SeamsAuthMenu/client.js",
       "default": "./dist/esm/react/components/SeamsAuthMenu/client.js",
-      "types": "./dist/types/sdk-web/src/react/components/SeamsAuthMenu/client.d.ts"
+      "types": "./dist/types/wallet/src/react/components/SeamsAuthMenu/client.d.ts"
     },
     "./react/seams-auth-menu/skeleton": {
       "import": "./dist/esm/react/components/SeamsAuthMenu/skeleton.js",
       "default": "./dist/esm/react/components/SeamsAuthMenu/skeleton.js",
-      "types": "./dist/types/sdk-web/src/react/components/SeamsAuthMenu/skeleton.d.ts"
+      "types": "./dist/types/wallet/src/react/components/SeamsAuthMenu/skeleton.d.ts"
     },
     "./react/seams-auth-menu/preload": {
       "import": "./dist/esm/react/components/SeamsAuthMenu/preload.js",
       "default": "./dist/esm/react/components/SeamsAuthMenu/preload.js",
-      "types": "./dist/types/sdk-web/src/react/components/SeamsAuthMenu/preload.d.ts"
+      "types": "./dist/types/wallet/src/react/components/SeamsAuthMenu/preload.d.ts"
     },
     "./react/hosted-seams-auth-menu": {
       "import": "./dist/esm/react/components/HostedSeamsAuthMenu/public.js",
       "default": "./dist/esm/react/components/HostedSeamsAuthMenu/public.js",
-      "types": "./dist/types/sdk-web/src/react/components/HostedSeamsAuthMenu/public.d.ts"
+      "types": "./dist/types/wallet/src/react/components/HostedSeamsAuthMenu/public.d.ts"
     },
     "./react/provider": {
       "import": "./dist/esm/react/context/SeamsWebProvider.js",
       "default": "./dist/esm/react/context/SeamsWebProvider.js",
-      "types": "./dist/types/sdk-web/src/react/context/SeamsWebProvider.d.ts"
+      "types": "./dist/types/wallet/src/react/context/SeamsWebProvider.d.ts"
     },
     "./react/styles": "./dist/esm/react/styles/styles.css",
     "./web/wallet-iframe-client-html": {
       "import": "./dist/esm/SeamsWeb/walletIframe/client/html.js",
       "default": "./dist/esm/SeamsWeb/walletIframe/client/html.js",
-      "types": "./dist/types/sdk-web/src/SeamsWeb/walletIframe/client/html.d.ts"
+      "types": "./dist/types/wallet/src/SeamsWeb/walletIframe/client/html.d.ts"
     }
   },
   "files": [
@@ -85,19 +85,19 @@
   "typesVersions": {
     "*": {
       "threshold": [
-        "dist/types/sdk-web/src/threshold.d.ts"
+        "dist/types/wallet/src/threshold.d.ts"
       ],
       "advanced": [
-        "dist/types/sdk-web/src/advanced.d.ts"
+        "dist/types/wallet/src/advanced.d.ts"
       ],
       "runtime": [
-        "dist/types/sdk-web/src/runtime.d.ts"
+        "dist/types/wallet/src/runtime.d.ts"
       ],
       "react": [
-        "dist/types/sdk-web/src/react/index.d.ts"
+        "dist/types/wallet/src/react/index.d.ts"
       ],
       "react/*": [
-        "dist/types/sdk-web/src/react/*"
+        "dist/types/wallet/src/react/*"
       ]
     }
   },

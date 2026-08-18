@@ -74,7 +74,7 @@ Email OTP behavior.
 
 ### 1. Server domain and route removal
 
-- [ ] Delete `packages/sdk-server-ts/src/email-recovery/`, including RFC822
+- [ ] Delete `packages/wallet-server/src/email-recovery/`, including RFC822
       parsing, Outlayer encryption, EmailDKIMVerifier lookup, EmailRecoverer
       action construction, WASM adapters, RPC calls, and test helpers.
 - [ ] Delete the `/email-recovery/prepare` and `/recover-email` handlers, request
@@ -89,7 +89,7 @@ Email OTP behavior.
       `router/domains/emailRecovery/recoveryExecutionTracking.ts`.
 - [ ] Remove construction and exposure of the retired services from
       `AuthService`, its store registry, D1 router assembly, router options, and
-      `@seams/sdk-server` exports.
+      `@seams/wallet-server` exports.
 - [ ] Delete server defaults and SDK configuration for the DKIM verifier,
       Outlayer worker secret, recovery recipient, and any other setting whose
       only consumer was the retired flow.
@@ -126,7 +126,7 @@ Email OTP behavior.
 - [ ] Remove `PM_GET_RECOVERY_EMAILS` and `PM_SET_RECOVERY_EMAILS` from wallet
       iframe message unions, payloads, client methods, host handlers, request
       routing, runtime contexts, and fixtures.
-- [ ] Delete `packages/sdk-web/src/utils/emailRecovery/`.
+- [ ] Delete `packages/wallet/src/utils/emailRecovery/`.
 - [ ] Remove on-chain recovery-email hash reads and writes, recovery-email
       account data, legacy lifecycle events, and account-replacement branches
       only after their callers are confirmed to belong to this retired path.

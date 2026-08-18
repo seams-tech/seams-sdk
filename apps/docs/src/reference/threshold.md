@@ -1,11 +1,11 @@
 ---
 title: Threshold APIs
-description: Stable threshold session-policy helpers, PRF salts, and intent digest exports from @seams/sdk/threshold.
+description: Stable threshold session-policy helpers, PRF salts, and intent digest exports from @seams/wallet/threshold.
 ---
 
 # Threshold APIs
 
-`@seams/sdk/threshold` is the stable protocol-facing surface for applications
+`@seams/wallet/threshold` is the stable protocol-facing surface for applications
 that must reproduce threshold session-policy inputs or registration digests.
 
 It exports:

@@ -5,7 +5,7 @@ import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
   D1LinkedDeviceRequestProofNonceStoreV1,
   type D1LinkedDeviceSessionScopeV1,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking';
+} from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,

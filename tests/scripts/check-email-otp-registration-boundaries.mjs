@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const LEGACY_REROLL_FIELD = /rerollRegistrationAttempt|reroll_registration_attempt/;
 const GOOGLE_EMAIL_OTP_FLOW_PATH =
-  'packages/sdk-web/src/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow.ts';
+  'packages/wallet/src/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow.ts';
 
 function readRepoFile(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
@@ -67,7 +67,7 @@ function checkGoogleSsoEmailOtpRegistrationDoesNotIssueLoginChallenges() {
 
 function checkDirectGoogleSsoEmailOtpRegistrationBackupDoesNotManufactureChallengeId() {
   const source = readRepoFile(
-    'packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts',
+    'packages/wallet/src/SeamsWeb/operations/registration/registration.ts',
   );
   assertDoesNotMatch(
     source,
@@ -107,13 +107,13 @@ function checkGoogleSsoEmailOtpRegistrationRerollStaysLocalToActiveOffer() {
 
 function checkLegacyRegisterModeRerollFlagStaysOutOfClientAndServiceSurfaces() {
   const checkedPaths = [
-    'packages/sdk-web/src/SeamsWeb/operations/authMethods/emailOtp/challenge.ts',
+    'packages/wallet/src/SeamsWeb/operations/authMethods/emailOtp/challenge.ts',
     GOOGLE_EMAIL_OTP_FLOW_PATH,
-    'packages/sdk-web/src/SeamsWeb/SeamsWeb.ts',
-    'packages/sdk-web/src/SeamsWeb/publicApi/types.ts',
-    'packages/sdk-web/src/SeamsWeb/walletIframe/client/router.ts',
-    'packages/sdk-web/src/SeamsWeb/walletIframe/shared/messages.ts',
-    'packages/sdk-server-ts/src/core/AuthService.ts',
+    'packages/wallet/src/SeamsWeb/SeamsWeb.ts',
+    'packages/wallet/src/SeamsWeb/publicApi/types.ts',
+    'packages/wallet/src/SeamsWeb/walletIframe/client/router.ts',
+    'packages/wallet/src/SeamsWeb/walletIframe/shared/messages.ts',
+    'packages/wallet-server/src/core/AuthService.ts',
   ];
 
   const offenders = [];
@@ -129,7 +129,7 @@ function checkLegacyRegisterModeRerollFlagStaysOutOfClientAndServiceSurfaces() {
 
 function checkOtpOnlyRegistrationOfferParserRejectsMixedProtocolFields() {
   const source = readRepoFile(
-    'packages/sdk-web/src/SeamsWeb/operations/authMethods/emailOtp/registrationOffer.ts',
+    'packages/wallet/src/SeamsWeb/operations/authMethods/emailOtp/registrationOffer.ts',
   );
   const requiredMarkers = [
     "'webauthn'",

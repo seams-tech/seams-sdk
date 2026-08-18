@@ -2,7 +2,7 @@ import { SESv2Client, SendEmailCommand, type SendEmailCommandOutput } from '@aws
 import type {
   CloudflareD1EmailOtpDeliveryProvider,
   CloudflareD1EmailOtpDeliveryProviderResult,
-} from '@seams/sdk-server/cloud-host';
+} from '@seams/wallet-server/cloud-host';
 import {
   createEmailOtpDeliveryAdapter,
   type EmailOtpMessage,

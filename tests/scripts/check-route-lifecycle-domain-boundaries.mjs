@@ -81,22 +81,22 @@ function sourceFrom(source, startNeedle) {
 
 function routeLifecycleAuthorityFiles() {
   const roots = [
-    'packages/sdk-web/src/core/signingEngine',
-    'packages/sdk-web/src/core/types',
-    'packages/sdk-web/src/SeamsWeb/operations',
-    'packages/sdk-web/src/SeamsWeb/publicApi',
-    'packages/sdk-web/src/SeamsWeb/walletIframe',
-    'packages/sdk-web/src/react',
-    'packages/sdk-server-ts/src/router',
-    'packages/sdk-server-ts/src/core/ThresholdService',
+    'packages/wallet/src/core/signingEngine',
+    'packages/wallet/src/core/types',
+    'packages/wallet/src/SeamsWeb/operations',
+    'packages/wallet/src/SeamsWeb/publicApi',
+    'packages/wallet/src/SeamsWeb/walletIframe',
+    'packages/wallet/src/react',
+    'packages/wallet-server/src/router',
+    'packages/wallet-server/src/core/ThresholdService',
   ];
   return roots.flatMap((root) => listTypeScriptFiles(path.join(repoRoot, root)));
 }
 
 function signingSessionLifecycleFiles() {
   const roots = [
-    'packages/sdk-web/src/core/signingEngine',
-    'packages/sdk-server-ts/src/core/ThresholdService',
+    'packages/wallet/src/core/signingEngine',
+    'packages/wallet-server/src/core/ThresholdService',
   ];
   return roots.flatMap((root) => listTypeScriptFiles(path.join(repoRoot, root)));
 }
@@ -117,7 +117,7 @@ check('route/lifecycle boundary code avoids unsafe any casts', () => {
 });
 
 check('route/lifecycle boundary normalized confirmation config keeps silent mode branch-specific', () => {
-  const runtimeSource = readRepoSource('packages/sdk-web/src/core/types/confirmationConfig.ts');
+  const runtimeSource = readRepoSource('packages/wallet/src/core/types/confirmationConfig.ts');
   const silentBranch = sourceRange(
     runtimeSource,
     'export type SilentConfirmationConfig = {',
@@ -134,11 +134,11 @@ check('route/lifecycle boundary normalized confirmation config keeps silent mode
 check('route/lifecycle boundary confirmation core consumes normalized config after boundary parsing', () => {
   const violations = [];
   const guardedFiles = [
-    'packages/sdk-web/src/core/signingEngine/uiConfirm/handlers/handlePromptFromWorker.ts',
-    'packages/sdk-web/src/core/signingEngine/uiConfirm/handlers/flows/adapters/adapters.ts',
-    'packages/sdk-web/src/core/signingEngine/uiConfirm/handlers/flows/signing.ts',
-    'packages/sdk-web/src/core/signingEngine/uiConfirm/handlers/flows/registration.ts',
-    'packages/sdk-web/src/core/signingEngine/uiConfirm/handlers/flows/localOnly.ts',
+    'packages/wallet/src/core/signingEngine/uiConfirm/handlers/handlePromptFromWorker.ts',
+    'packages/wallet/src/core/signingEngine/uiConfirm/handlers/flows/adapters/adapters.ts',
+    'packages/wallet/src/core/signingEngine/uiConfirm/handlers/flows/signing.ts',
+    'packages/wallet/src/core/signingEngine/uiConfirm/handlers/flows/registration.ts',
+    'packages/wallet/src/core/signingEngine/uiConfirm/handlers/flows/localOnly.ts',
   ];
 
   for (const relativePath of guardedFiles) {
@@ -175,13 +175,13 @@ check('route/lifecycle boundary type-only modules are imported with import type'
 
 check('route/lifecycle boundary nonce lifecycle uses branch-specific lane and transition state', () => {
   const nearLaneSource = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/nonce/nearNonceLane.ts',
+    'packages/wallet/src/core/signingEngine/nonce/nearNonceLane.ts',
   );
   const leaseStateSource = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/nonce/nonceLeaseState.ts',
+    'packages/wallet/src/core/signingEngine/nonce/nonceLeaseState.ts',
   );
   const nonceTypeSource = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/nonce/nonceTypes.ts',
+    'packages/wallet/src/core/signingEngine/nonce/nonceTypes.ts',
   );
   const nearStateRange = sourceRange(
     nearLaneSource,
@@ -204,7 +204,7 @@ check('route/lifecycle boundary nonce lifecycle uses branch-specific lane and tr
 });
 
 check('route/lifecycle boundary React SDK flow display state is a discriminated union', () => {
-  const reactTypesSource = readRepoSource('packages/sdk-web/src/react/types.ts');
+  const reactTypesSource = readRepoSource('packages/wallet/src/react/types.ts');
   const sdkFlowRange = sourceRange(
     reactTypesSource,
     'export type SDKFlowState =',
@@ -221,12 +221,12 @@ check('route/lifecycle boundary React SDK flow display state is a discriminated 
 });
 
 check('route/lifecycle boundary public result types use success-specific branches', () => {
-  const seamsTypesSource = readRepoSource('packages/sdk-web/src/core/types/seams.ts');
+  const seamsTypesSource = readRepoSource('packages/wallet/src/core/types/seams.ts');
   const sdkPublicResultsSource = readRepoSource(
-    'packages/sdk-web/src/core/types/sdkPublicResults.ts',
+    'packages/wallet/src/core/types/sdkPublicResults.ts',
   );
   const signNearSource = readRepoSource(
-    'packages/sdk-web/src/core/signingEngine/flows/signNear/signNear.ts',
+    'packages/wallet/src/core/signingEngine/flows/signNear/signNear.ts',
   );
   const loginRange = sourceRange(
     seamsTypesSource,
@@ -274,10 +274,10 @@ check('route/lifecycle boundary public result types use success-specific branche
 
 check('route/lifecycle boundary sync-account routes parse request bodies at the boundary', () => {
   const parserSource = readRepoSource(
-    'packages/sdk-server-ts/src/router/domains/syncAccount/syncAccountRequestValidation.ts',
+    'packages/wallet-server/src/router/domains/syncAccount/syncAccountRequestValidation.ts',
   );
   const guardedFiles = [
-    'packages/sdk-server-ts/src/router/transport/fetch/routes/syncAccount.ts',
+    'packages/wallet-server/src/router/transport/fetch/routes/syncAccount.ts',
   ];
 
   expect(parserSource).toContain('export function parseSyncAccountOptionsRequest');
@@ -294,10 +294,10 @@ check('route/lifecycle boundary sync-account routes parse request bodies at the 
 
 check('route/lifecycle boundary auth provider routes parse request bodies at the boundary', () => {
   const parserSource = readRepoSource(
-    'packages/sdk-server-ts/src/router/auth/authRequestValidation.ts',
+    'packages/wallet-server/src/router/auth/authRequestValidation.ts',
   );
   const cloudflareSource = readRepoSource(
-    'packages/sdk-server-ts/src/router/transport/fetch/routes/auth.ts',
+    'packages/wallet-server/src/router/transport/fetch/routes/auth.ts',
   );
   const cloudflareProviderRoute = sourceRange(
     cloudflareSource,
@@ -330,7 +330,7 @@ check('route/lifecycle boundary auth provider routes parse request bodies at the
 
 check('route/lifecycle boundary auth identity mutation routes parse request bodies at the boundary', () => {
   const cloudflareSource = readRepoSource(
-    'packages/sdk-server-ts/src/router/transport/fetch/routes/auth.ts',
+    'packages/wallet-server/src/router/transport/fetch/routes/auth.ts',
   );
   const cloudflareMutationRoute = sourceRange(
     cloudflareSource,
@@ -345,7 +345,7 @@ check('route/lifecycle boundary auth identity mutation routes parse request bodi
 
 check('route/lifecycle boundary threshold ECDSA key-identity inventory has one wallet boundary', () => {
   const walletRegistrationSource = readRepoSource(
-    'packages/sdk-server-ts/src/router/domains/walletRegistration/walletRegistrationRoutes.ts',
+    'packages/wallet-server/src/router/domains/walletRegistration/walletRegistrationRoutes.ts',
   );
 
   expect(walletRegistrationSource).toContain('handleRouterApiWalletEcdsaKeyFactsInventory');
@@ -353,23 +353,23 @@ check('route/lifecycle boundary threshold ECDSA key-identity inventory has one w
 
 check('route/lifecycle boundary threshold routes parse commands before services', () => {
   const ed25519Parser = readRepoSource(
-    'packages/sdk-server-ts/src/router/domains/ed25519Yao/session/thresholdEd25519RequestValidation.ts',
+    'packages/wallet-server/src/router/domains/ed25519Yao/session/thresholdEd25519RequestValidation.ts',
   );
   const ecdsaParser = readRepoSource(
-    'packages/sdk-server-ts/src/router/domains/ecdsa/thresholdEcdsaRequestValidation.ts',
+    'packages/wallet-server/src/router/domains/ecdsa/thresholdEcdsaRequestValidation.ts',
   );
   const routeValidation = readRepoSource(
-    'packages/sdk-server-ts/src/router/framework/routeRequestValidation.ts',
+    'packages/wallet-server/src/router/framework/routeRequestValidation.ts',
   );
-  const coreTypes = readRepoSource('packages/sdk-server-ts/src/core/types.ts');
+  const coreTypes = readRepoSource('packages/wallet-server/src/core/types.ts');
   const normalSigningRuntime = readRepoSource(
-    'packages/sdk-server-ts/src/core/routerAbSigning/RouterAbNormalSigningRuntime.ts',
+    'packages/wallet-server/src/core/routerAbSigning/RouterAbNormalSigningRuntime.ts',
   );
   const cloudflareEd25519 = readRepoSource(
-    'packages/sdk-server-ts/src/router/transport/fetch/routes/thresholdEd25519.ts',
+    'packages/wallet-server/src/router/transport/fetch/routes/thresholdEd25519.ts',
   );
   const cloudflareEcdsa = readRepoSource(
-    'packages/sdk-server-ts/src/router/transport/fetch/routes/thresholdEcdsa.ts',
+    'packages/wallet-server/src/router/transport/fetch/routes/thresholdEcdsa.ts',
   );
 
   expect(ed25519Parser).toContain('parseThresholdEd25519SessionRouteRequest');

@@ -40,7 +40,7 @@ does not change.
 ## Hosted Wallet Asset Contract
 
 The SDK package build emits the wallet-origin artifact at
-`packages/sdk-web/dist/public`:
+`packages/wallet/dist/public`:
 
 - `sdk/*`
 - `sdk/workers/*`
@@ -86,8 +86,8 @@ plugin serving.
 
 Do not add app examples that use:
 
-- `@seams/sdk/plugins/vite` for normal wallet runtime hosting;
-- `@seams/sdk/plugins/next` for normal wallet runtime hosting;
+- `@seams/wallet/plugins/vite` for normal wallet runtime hosting;
+- `@seams/wallet/plugins/next` for normal wallet runtime hosting;
 - `seamsWallet()`, `seamsServeSdk()`, `seamsWalletService()`, or
   other SDK static-serving helpers on an app origin;
 - app-owned `/sdk/*` or `/wallet-service` routes.

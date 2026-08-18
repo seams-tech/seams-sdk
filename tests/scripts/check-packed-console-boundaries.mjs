@@ -20,14 +20,14 @@ const walletConsolePackages = [
 ];
 
 const forbiddenInConsoleCore = [
-  '@seams/sdk',
-  '@seams/sdk-server',
+  '@seams/wallet',
+  '@seams/wallet-server',
   '@seams/wallet',
   '@seams/wallet-server',
   '@seams-internal/wallet-console-shared',
   '@seams-internal/wallet-console-server',
-  'packages/sdk-web',
-  'packages/sdk-server-ts',
+  'packages/wallet',
+  'packages/wallet-server',
   'packages/wallet-console-shared-ts',
   'packages/wallet-console-server-ts',
 ];
@@ -180,8 +180,8 @@ for (const dep of ['tslib', 'bs58', 'express', '@aws-sdk/client-sesv2']) {
 }
 linkIntoNodeModules(
   composedNodeModules,
-  '@seams/sdk-server',
-  path.join(repoRoot, 'packages', 'sdk-server-ts'),
+  '@seams/wallet-server',
+  path.join(repoRoot, 'packages', 'wallet-server'),
 );
 
 const composedSmoke = path.join(composedWorkspace, 'smoke.mjs');

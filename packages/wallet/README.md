@@ -16,11 +16,11 @@ Featuring:
 Install the published package:
 
 ```bash
-npm install @seams/sdk
+npm install @seams/wallet
 # or
-pnpm add @seams/sdk
+pnpm add @seams/wallet
 # or
-yarn add @seams/sdk
+yarn add @seams/wallet
 ```
 
 ### For SDK Developers
@@ -33,14 +33,14 @@ pnpm install
 pnpm build:wasm       # Builds Rust/WASM packages
 pnpm build:sdk        # Builds SDK dist from existing WASM outputs
 pnpm build:sdk-full   # Builds WASM packages + SDK dist
-pnpm -C packages/sdk-web dev       # Watch mode
+pnpm -C packages/wallet dev       # Watch mode
 ```
 
 **Test**:
 
 ```bash
-pnpm -C packages/sdk-web test           # Playwright tests
-pnpm -C packages/sdk-web run type-check # TypeScript validation
+pnpm -C packages/wallet test           # Playwright tests
+pnpm -C packages/wallet run type-check # TypeScript validation
 ```
 
 ## Quick Start
@@ -50,7 +50,7 @@ pnpm -C packages/sdk-web run type-check # TypeScript validation
 The easiest way to get started with React (React 18+)
 
 ```tsx
-import { SeamsWebProvider, useSeams } from '@seams/sdk/react';
+import { SeamsWebProvider, useSeams } from '@seams/wallet/react';
 
 function App() {
   return (
@@ -95,7 +95,7 @@ Identity token acquisition and the SDK owns wallet registration, unlock,
 challenge routing, signing-session readiness, and wallet-iframe routing.
 
 ```tsx
-import { SeamsAuthMenu } from '@seams/sdk/react';
+import { SeamsAuthMenu } from '@seams/wallet/react';
 
 function AuthMenu() {
   const seams = useSeams();
@@ -180,7 +180,7 @@ const config = {
 ```
 
 The Seams-operated wallet origin serves `/wallet-service`, `/sdk/*`, and
-`/sdk/workers/*` from `@seams/sdk/dist/public`. Private-key export uses a
+`/sdk/workers/*` from `@seams/wallet/dist/public`. Private-key export uses a
 wallet-origin inline viewer document that loads its support files from `/sdk/*`.
 App origins should not route those paths.
 
@@ -190,12 +190,12 @@ if hosted-origin browser smokes prove a supported browser requires it.
 
 ## Stable API Surfaces
 
-Use `@seams/sdk` for the main surface (for example `SeamsWeb` and core types).
+Use `@seams/wallet` for the main surface (for example `SeamsWeb` and core types).
 
 Threshold APIs are stable under an explicit subpath:
 
 ```ts
-import { keygenEcdsa } from '@seams/sdk/threshold';
+import { keygenEcdsa } from '@seams/wallet/threshold';
 ```
 
 ## Configuration Options
@@ -260,8 +260,8 @@ repo/
 │   ├── web-server/               # Deployable Router API server app
 │   └── docs/                     # Documentation app
 ├── packages/
-│   ├── sdk-web/                  # Browser SDK package and build output
-│   ├── sdk-server-ts/            # Server library source
+│   ├── wallet/                  # Browser SDK package and build output
+│   ├── wallet-server/            # Server library source
 │   └── shared-ts/                # Shared TypeScript utils/types
 ├── crates/
 │   ├── signer-core/              # Shared signer core primitives

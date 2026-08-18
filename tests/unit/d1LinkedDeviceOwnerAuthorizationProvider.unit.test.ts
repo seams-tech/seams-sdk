@@ -15,8 +15,8 @@ import {
 } from '@shared/device-linking/parsers';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
 import { buildR103ActiveLinkedDeviceSessionRecordV1 } from './helpers/deviceLinkingServer.fixtures';
-import type { DeviceLinkingOwnerWalletSessionContextV1 } from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/deviceLinkingOwnerAuthorization';
-import { createD1LinkedDeviceOwnerAuthorizationProviderV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceOwnerAuthorizationProvider';
+import type { DeviceLinkingOwnerWalletSessionContextV1 } from '../../packages/wallet-server/src/router/transport/fetch/routes/deviceLinkingOwnerAuthorization';
+import { createD1LinkedDeviceOwnerAuthorizationProviderV1 } from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceOwnerAuthorizationProvider';
 
 function required<T>(
   result:

@@ -2,7 +2,7 @@ import type { NormalizedLogger } from '../logger';
 
 // Built package location for signer glue imported by AuthService.
 const SIGNER_WASM_PACKAGE_DIST_PATH = '../../wasm/near_signer/pkg/wasm_signer_worker_bg.wasm';
-// Source-tree location when executed directly from packages/sdk-server-ts/src/core/authService.
+// Source-tree location when executed directly from packages/wallet-server/src/core/authService.
 const SIGNER_WASM_SOURCE_PATH = '../../../../../wasm/near_signer/pkg/wasm_signer_worker_bg.wasm';
 
 export function getSignerWasmUrls(logger: NormalizedLogger): URL[] {

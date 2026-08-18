@@ -22,7 +22,7 @@ import {
   parseWalletId,
 } from '../../packages/shared-ts/src/utils/domainIds';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
-import { parseD1BoundaryWalletIdResult } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthBoundary';
+import { parseD1BoundaryWalletIdResult } from '../../packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthBoundary';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 const parsers = [

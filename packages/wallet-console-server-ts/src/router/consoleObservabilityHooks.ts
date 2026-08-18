@@ -5,7 +5,7 @@ import {
 } from '@seams-internal/console-server/observability/adapters';
 import type { ConsoleObservabilityIngestionService } from '@seams-internal/console-server/observability/ingestionService';
 import type { ConsoleAuthClaims } from '@seams-internal/console-server/router/consoleAuth';
-import type { NormalizedRouterLogger } from '@seams/sdk-server/cloud-host';
+import type { NormalizedRouterLogger } from '@seams/wallet-server/cloud-host';
 
 type ConsoleObservabilityIngestContext = Parameters<
   ConsoleObservabilityIngestionService['appendEvent']

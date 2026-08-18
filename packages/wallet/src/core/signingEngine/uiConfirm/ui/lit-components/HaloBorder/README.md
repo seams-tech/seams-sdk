@@ -89,7 +89,7 @@ HTML (plain Web Component):
 React (via @lit/react wrappers):
 
 ```tsx
-import { LitHaloBorder, LitPasskeyHaloLoading } from '@seams/sdk/react';
+import { LitHaloBorder, LitPasskeyHaloLoading } from '@seams/wallet/react';
 
 <LitHaloBorder
   animated

@@ -98,12 +98,12 @@ Do not infer animation state from CSS classes or diagnostics. Normalize the disp
 
 ## Implementation plan
 
-1. In `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/ExportPrivateKey/viewer.ts`, extract the existing masking calculation into a standalone function that returns a plain display string. Reuse that result for both static rendering and the settle target.
+1. In `packages/wallet/src/core/signingEngine/uiConfirm/ui/lit-components/ExportPrivateKey/viewer.ts`, extract the existing masking calculation into a standalone function that returns a plain display string. Reuse that result for both static rendering and the settle target.
 2. Add standalone helpers for scheme-specific reel alphabets, loading scaffolds, cosmetic glyph selection, stagger timing, and exhaustive state transitions. Keep animation lifecycle methods on the element small and avoid nested function declarations.
 3. Start the spinning state for each loading key row. Detect the existing `loading: true` to `loading: false` transition after the ready `keys` payload has arrived, then begin settling. Ready-on-mount entries stay static.
 4. Schedule all reel updates through a single animation-frame owner on `ExportPrivateKeyViewer`. Request a Lit update only when one or more visible glyphs change. Cancel the frame on completion, error, reset, and `disconnectedCallback`.
 5. Render one fixed-width span per visual slot, with the stable prefix outside the moving slot group. Keep animation output inaccessible to assistive technology and add a stable status label for the row.
-6. In `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/css/export-viewer.css`, add the slot layout, settled/unsettled opacity treatment, and reduced-motion rules. Use the existing monospace font and theme tokens.
+6. In `packages/wallet/src/core/signingEngine/uiConfirm/ui/lit-components/css/export-viewer.css`, add the slot layout, settled/unsettled opacity treatment, and reduced-motion rules. Use the existing monospace font and theme tokens.
 7. Leave `iframe-host.ts`, `iframe-export-bootstrap-script.ts`, worker messages, and export-domain payloads unchanged unless an implementation test demonstrates an ordering gap. The current session upsert already sends the ready `keys` payload and clears `loading` on the same mounted viewer.
 
 ## Verification

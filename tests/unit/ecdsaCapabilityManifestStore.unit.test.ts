@@ -17,7 +17,7 @@ import {
 
 const STORE_SOURCE = fileURLToPath(
   new URL(
-    '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore.ts',
+    '../../packages/wallet/src/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore.ts',
     import.meta.url,
   ),
 );
@@ -26,13 +26,13 @@ const STORE_MODULE = '/__ecdsa-capability-manifest-store-test.mjs';
 const REPOSITORY_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const DERIVATION_WORKER_PATH = path.join(
   REPOSITORY_ROOT,
-  'packages/sdk-web/dist/workers/ecdsa-derivation-client.worker.js',
+  'packages/wallet/dist/workers/ecdsa-derivation-client.worker.js',
 );
 const DERIVATION_WORKER_URL =
   'https://wallet.example.localhost/sdk/workers/ecdsa-derivation-client.worker.js?refactor90-reconciliation';
 const ECDSA_REGISTRATION_CLIENT_WASM_PATH = path.join(
   REPOSITORY_ROOT,
-  'packages/sdk-web/dist/workers/ecdsa_registration_client_bg.wasm',
+  'packages/wallet/dist/workers/ecdsa_registration_client_bg.wasm',
 );
 const ECDSA_REGISTRATION_CLIENT_WASM_URL =
   'https://wallet.example.localhost/sdk/workers/ecdsa_registration_client_bg.wasm';

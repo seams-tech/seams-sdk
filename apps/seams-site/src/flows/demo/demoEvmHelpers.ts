@@ -9,7 +9,7 @@ import {
   normalizeLowercaseString,
   normalizeTrimmedString,
   type EvmClient,
-} from '@seams/sdk/advanced';
+} from '@seams/wallet/advanced';
 
 import { FRONTEND_CONFIG } from '@/config';
 import faucetAbi from '@/assets/abis/Faucet.json';

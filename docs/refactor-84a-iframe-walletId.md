@@ -88,7 +88,7 @@ the mismatch being fixed is the visible wallet ID shown before WebAuthn.
 
 Validation evidence:
 
-- [x] `pnpm -C packages/sdk-web build:sdk`
+- [x] `pnpm -C packages/wallet build:sdk`
 - [x] targeted `git diff --check`
 
 ## Phase 1: Introduce Registration Draft
@@ -130,20 +130,20 @@ type CreatePasskeyRegistrationActivationSurfaceArgs = {
 };
 ```
 
-- [x] Update `packages/sdk-web/src/SeamsWeb/publicApi/types.ts` so
+- [x] Update `packages/wallet/src/SeamsWeb/publicApi/types.ts` so
   `CreatePasskeyRegistrationActivationSurfaceArgs.wallet` is required.
-- [x] Update `packages/sdk-web/src/SeamsWeb/walletIframe/shared/messages.ts` so
+- [x] Update `packages/wallet/src/SeamsWeb/walletIframe/shared/messages.ts` so
   `PMRegistrationActivationPreparePayload.wallet` is required.
-- [x] Update `packages/sdk-web/src/react/components/SeamsAuthMenu/client.tsx`
+- [x] Update `packages/wallet/src/react/components/SeamsAuthMenu/client.tsx`
   and controller code to pass the draft wallet directly.
-- [x] Update `packages/sdk-web/src/SeamsWeb/SeamsWeb.ts` activation setup to call
+- [x] Update `packages/wallet/src/SeamsWeb/SeamsWeb.ts` activation setup to call
   `initWalletIframe(String(args.wallet.walletId))` and
   `requireRouter(String(args.wallet.walletId))`.
-- [x] Update `packages/sdk-web/src/SeamsWeb/walletIframe/SeamsWebIframe.ts` and
-  `packages/sdk-web/src/SeamsWeb/walletIframe/client/router.ts` so activation
+- [x] Update `packages/wallet/src/SeamsWeb/walletIframe/SeamsWebIframe.ts` and
+  `packages/wallet/src/SeamsWeb/walletIframe/client/router.ts` so activation
   prepare always sends the provided wallet.
 - [x] Add a host-side parser for `PM_REGISTRATION_ACTIVATION_PREPARE` in
-  `packages/sdk-web/src/SeamsWeb/walletIframe/host/handlers/near.ts`.
+  `packages/wallet/src/SeamsWeb/walletIframe/host/handlers/near.ts`.
 - [x] The host parser rejects missing wallet, `server_allocated`, non-object
   wallet values, invalid `walletId`, and provided wallet IDs that do not parse as
   `WalletId`.
@@ -167,9 +167,9 @@ type ExpectedPasskeyRegistrationUser = {
   confirmation for visible passkey registration.
 - [x] Replace `derivePasskeyRegistrationIntendedUserName(walletId)` with exact
   wallet ID usage in
-  `packages/sdk-web/src/core/signingEngine/uiConfirm/handlers/flows/registration.ts`.
+  `packages/wallet/src/core/signingEngine/uiConfirm/handlers/flows/registration.ts`.
 - [x] In
-  `packages/sdk-web/src/core/signingEngine/stepUpConfirmation/passkeyPrompt/touchIdPrompt.ts`,
+  `packages/wallet/src/core/signingEngine/stepUpConfirmation/passkeyPrompt/touchIdPrompt.ts`,
   construct `PublicKeyCredentialCreationOptions.user.name` and
   `user.displayName` exactly from `ExpectedPasskeyRegistrationUser.walletId`.
 - [x] Reject before `navigator.credentials.create()` if `user.name` or
@@ -181,14 +181,14 @@ type ExpectedPasskeyRegistrationUser = {
 
 ## Phase 4: Server Route Assertions
 
-- [x] In `packages/sdk-server-ts/src/router/walletRegistrationRoutes.ts`, keep
+- [x] In `packages/wallet-server/src/router/walletRegistrationRoutes.ts`, keep
   request parsing strict: normalized request intent wallet ID, digest, and grant
   must match.
 - [x] In the active route-service implementations, verify passkey registration
   with `intent.walletId`, the intent digest challenge, expected origin, and
   passkey rpId before constructing registration authority.
 - [x] In
-  `packages/sdk-server-ts/src/router/cloudflare/d1WalletRegistrationService.ts`,
+  `packages/wallet-server/src/router/cloudflare/d1WalletRegistrationService.ts`,
   apply the same checks on the D1 path before consuming ceremony state.
 - [x] Assert stored intent, stored preparation, and stored ceremony wallet IDs
   match the request intent wallet ID.
@@ -277,7 +277,7 @@ type ExpectedPasskeyRegistrationUser = {
 - [x] Added runtime, type-fixture, lit, and source-guard coverage for the visible
       wallet-binding invariant.
 - [x] Validation:
-      `pnpm -C packages/sdk-web build:sdk`;
+      `pnpm -C packages/wallet build:sdk`;
       `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/registrationCapabilitySubjects.guard.unit.test.ts unit/walletIframeHost.registrationActivation.unit.test.ts --reporter=line`;
       `pnpm -C tests exec playwright test wallet-iframe/router.registrationActivation.test.ts --reporter=line`;
       `pnpm -C tests exec playwright test lit-components/passkey-registration-btn.test.ts --reporter=line`;
@@ -295,7 +295,7 @@ type ExpectedPasskeyRegistrationUser = {
 - [x] Validation:
       `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/relayWalletRegistration.intentModes.unit.test.ts --reporter=line`;
       `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts -g "stores wallet registration intents" --reporter=line`;
-      `pnpm -C packages/sdk-web build:sdk`;
+      `pnpm -C packages/wallet build:sdk`;
       `pnpm -C apps/seams-site -s typecheck`;
       `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/seamsAuthMenu.fouc.unit.test.ts -g "Passkey implicit registration shows generated wallet input" --reporter=line`;
       `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/registrationCapabilitySubjects.guard.unit.test.ts --reporter=line`;

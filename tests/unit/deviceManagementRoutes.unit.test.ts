@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
 import { parseWalletId } from '@shared/utils/domainIds';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
-import { handleDeviceManagement, LINKED_DEVICE_MANAGEMENT_BASE_V1 } from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/deviceManagement';
-import type { DeviceManagementRouteServiceV1 } from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/deviceManagement';
-import type { FetchRouterApiContext } from '../../packages/sdk-server-ts/src/router/transport/fetch/fetchRouter.types';
+import { handleDeviceManagement, LINKED_DEVICE_MANAGEMENT_BASE_V1 } from '../../packages/wallet-server/src/router/transport/fetch/routes/deviceManagement';
+import type { DeviceManagementRouteServiceV1 } from '../../packages/wallet-server/src/router/transport/fetch/routes/deviceManagement';
+import type { FetchRouterApiContext } from '../../packages/wallet-server/src/router/transport/fetch/fetchRouter.types';
 
 const walletId = parseWalletId('wallet:r103').value;
 const otherWalletId = parseWalletId('wallet:other').value;

@@ -1,4 +1,4 @@
-import type { KeyMaterialRecord } from '../../../packages/sdk-web/src/core/indexedDB/keyMaterial.types';
+import type { KeyMaterialRecord } from '../../../packages/wallet/src/core/indexedDB/keyMaterial.types';
 import type { RouterAbMpcMaterialActivationRefWire } from '../../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
 
 function requireFixtureRecord(value: unknown, label: string): Record<string, unknown> {

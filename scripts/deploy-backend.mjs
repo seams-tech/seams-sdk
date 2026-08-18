@@ -273,16 +273,16 @@ function buildBackend(lane) {
       env: routerEnvironment,
     });
   }
-  runCommand('bash', ['packages/sdk-web/scripts/build/install-ci-wasm-tooling.sh']);
+  runCommand('bash', ['packages/wallet/scripts/build/install-ci-wasm-tooling.sh']);
   const sdkWasmEnvironment = buildEnvironment({
     DEPLOYMENT_LANE: lane.id,
     WASM_SDK_BUILD_MODE: 'prod',
     WASM_SDK_BUILD_TARGET: 'all',
   });
-  runCommand('pnpm', ['-C', 'packages/sdk-web', 'run', 'build:wasm'], {
+  runCommand('pnpm', ['-C', 'packages/wallet', 'run', 'build:wasm'], {
     env: sdkWasmEnvironment,
   });
-  runCommand('pnpm', ['-C', 'packages/sdk-server-ts', 'build']);
+  runCommand('pnpm', ['-C', 'packages/wallet-server', 'build']);
   runCommand('pnpm', ['-C', 'packages/console-server-ts', 'run', 'd1:local:ensure-wasm'], {
     env: sdkWasmEnvironment,
   });
@@ -544,7 +544,7 @@ function migrateBackend(lane) {
     },
     {
       database: 'SIGNER_DB',
-      directory: path.join(GATEWAY_ROOT, '..', 'sdk-server-ts', 'migrations', 'd1-signer'),
+      directory: path.join(GATEWAY_ROOT, '..', 'wallet-server', 'migrations', 'd1-signer'),
     },
   ];
   for (const migration of migrations) {

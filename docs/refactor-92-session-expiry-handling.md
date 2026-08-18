@@ -495,7 +495,7 @@ expiry checks.
 
 Evidence recorded July 23, 2026:
 
-- `packages/sdk-web/src/core/signingEngine/session/identity/clientSessionPersistenceState.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/identity/clientSessionPersistenceState.typecheck.ts`
   rejects expired, missing, unavailable, and invalid authorization at the
   active-only boundary through the SDK build typecheck.
 - `tests/unit/walletSessionExpiry.boundaryAndServer.unit.test.ts` covers deterministic

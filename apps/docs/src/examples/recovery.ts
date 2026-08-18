@@ -1,4 +1,4 @@
-import type { SeamsWeb } from '@seams/sdk';
+import type { SeamsWeb } from '@seams/wallet';
 
 type SyncAccountResult = Awaited<ReturnType<SeamsWeb['recovery']['syncAccount']>>;
 

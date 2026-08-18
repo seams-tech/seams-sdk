@@ -10,12 +10,12 @@ import {
 import {
   D1LinkedDeviceOwnerAuthBindingStoreV1,
   assertOwnerAuthBindingBatchApplied,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceOwnerAuthBindingStore';
-import type { D1LinkedDeviceSessionScopeV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceSessionStore';
+} from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceOwnerAuthBindingStore';
+import type { D1LinkedDeviceSessionScopeV1 } from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceSessionStore';
 import type {
   D1DatabaseLike,
   D1ResultLike,
-} from '../../packages/sdk-server-ts/src/storage/tenantRoute';
+} from '../../packages/wallet-server/src/storage/tenantRoute';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,

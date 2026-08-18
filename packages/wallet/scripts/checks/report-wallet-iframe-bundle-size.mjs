@@ -4,8 +4,8 @@
  *
  * Usage:
  *   pnpm build:sdk-prod
- *   pnpm -C packages/sdk-web check:bundle-size
- *   pnpm -C packages/sdk-web check:bundle-size -- --budget walletHostGzip=100000 --budget ecdsaWasmGzip=1500000
+ *   pnpm -C packages/wallet check:bundle-size
+ *   pnpm -C packages/wallet check:bundle-size -- --budget walletHostGzip=100000 --budget ecdsaWasmGzip=1500000
  */
 import fs from 'node:fs';
 import path from 'node:path';

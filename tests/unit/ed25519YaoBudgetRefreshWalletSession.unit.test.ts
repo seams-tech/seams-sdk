@@ -5,19 +5,19 @@ import {
   walletAuthAuthorityRef,
 } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
-import type { WebAuthnAuthenticationCredential } from '../../packages/sdk-web/src/core/types/webauthn';
-import type { Ed25519SessionPolicy } from '../../packages/sdk-web/src/core/signingEngine/threshold/sessionPolicy';
+import type { WebAuthnAuthenticationCredential } from '../../packages/wallet/src/core/types/webauthn';
+import type { Ed25519SessionPolicy } from '../../packages/wallet/src/core/signingEngine/threshold/sessionPolicy';
 import type {
   ThresholdCredentialStorePort,
   ThresholdWebAuthnPromptPort,
-} from '../../packages/sdk-web/src/core/signingEngine/threshold/crypto/webauthn';
-import { connectEd25519Session } from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/connectSession';
+} from '../../packages/wallet/src/core/signingEngine/threshold/crypto/webauthn';
+import { connectEd25519Session } from '../../packages/wallet/src/core/signingEngine/threshold/ed25519/connectSession';
 import {
   buildThresholdEd25519WebAuthnPrfSecretSource,
   issueEd25519OperationStepUpAuthorization,
   mintEd25519WalletSession,
-} from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/walletSession';
-import { buildRouterAbEd25519NearTransactionPrepareRequestV2 } from '../../packages/sdk-web/src/core/rpcClients/relayer/routerAbNormalSigning';
+} from '../../packages/wallet/src/core/signingEngine/threshold/ed25519/walletSession';
+import { buildRouterAbEd25519NearTransactionPrepareRequestV2 } from '../../packages/wallet/src/core/rpcClients/relayer/routerAbNormalSigning';
 
 const PUBLISHABLE_KEY = 'pk_test_refresh';
 const PRF_FIRST_B64U = 'cHJmLWZpcnN0LXNlY3JldA';

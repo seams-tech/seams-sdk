@@ -29,7 +29,7 @@ function resolveDefaultFrontendUrlNoCaddy(): string {
     const __filename = fileURLToPath(import.meta.url);
     const __dirname = path.dirname(__filename);
     const expectedSdkDistRoot = fs.realpathSync(
-      path.resolve(path.join(__dirname, '../packages/sdk-web/dist')),
+      path.resolve(path.join(__dirname, '../packages/wallet/dist')),
     );
     const script = `
       const fs = require('node:fs');
@@ -154,7 +154,7 @@ try {
 } catch {}
 try {
   process.env.W3A_SDK_DIST_ROOT = fs.realpathSync(
-    path.resolve(path.join(__dirname, '../packages/sdk-web/dist')),
+    path.resolve(path.join(__dirname, '../packages/wallet/dist')),
   );
 } catch {}
 function resolveExamplesFrontendDir(): string {

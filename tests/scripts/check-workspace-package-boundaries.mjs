@@ -11,8 +11,8 @@ const ignoredDirectories = new Set(['.vite', 'dist', 'node_modules']);
 const requiredWorkspacePackages = [
   'packages/console-shared-ts',
   'packages/console-server-ts',
-  'packages/sdk-web',
-  'packages/sdk-server-ts',
+  'packages/wallet',
+  'packages/wallet-server',
   'packages/shared-ts',
   'apps/seams-site',
   'apps/web-server',
@@ -106,31 +106,31 @@ function escapeRegExp(value) {
 
 function collectPackageTypePathViolations() {
   const violations = [];
-  const webPackageJson = readJson('packages/sdk-web/package.json');
-  const serverPackageJson = readJson('packages/sdk-server-ts/package.json');
+  const webPackageJson = readJson('packages/wallet/package.json');
+  const serverPackageJson = readJson('packages/wallet-server/package.json');
 
   for (const forbidden of [
     'dist/types/client/src',
     'dist/types/server/src',
-    'dist/types/sdk-server-ts/src',
+    'dist/types/wallet-server/src',
   ]) {
     if (jsonContains(webPackageJson, forbidden)) {
-      violations.push(`packages/sdk-web/package.json: forbidden type path ${forbidden}`);
+      violations.push(`packages/wallet/package.json: forbidden type path ${forbidden}`);
     }
   }
 
-  if (!jsonContains(webPackageJson, 'dist/types/sdk-web/src')) {
-    violations.push('packages/sdk-web/package.json: missing dist/types/sdk-web/src type path');
+  if (!jsonContains(webPackageJson, 'dist/types/wallet/src')) {
+    violations.push('packages/wallet/package.json: missing dist/types/wallet/src type path');
   }
 
   for (const forbidden of ['dist/types/client/src', 'dist/types/server/src']) {
     if (jsonContains(serverPackageJson, forbidden)) {
-      violations.push(`packages/sdk-server-ts/package.json: forbidden type path ${forbidden}`);
+      violations.push(`packages/wallet-server/package.json: forbidden type path ${forbidden}`);
     }
   }
 
-  if (!jsonContains(serverPackageJson, 'dist/types/sdk-server-ts/src')) {
-    violations.push('packages/sdk-server-ts/package.json: missing dist/types/sdk-server-ts/src type path');
+  if (!jsonContains(serverPackageJson, 'dist/types/wallet-server/src')) {
+    violations.push('packages/wallet-server/package.json: missing dist/types/wallet-server/src type path');
   }
 
   return violations;
@@ -139,8 +139,8 @@ function collectPackageTypePathViolations() {
 function collectGeneratedArtifactViolations() {
   const violations = [];
   const forbiddenArtifacts = [
-    'packages/sdk-server-ts/dist/types/console-shared-ts',
-    'packages/console-server-ts/dist/types/sdk-server-ts',
+    'packages/wallet-server/dist/types/console-shared-ts',
+    'packages/console-server-ts/dist/types/wallet-server',
   ];
   for (const artifactPath of forbiddenArtifacts) {
     if (fs.existsSync(absolutePath(artifactPath))) {
@@ -154,7 +154,7 @@ function collectDeployableImportViolations() {
   const violations = [];
   for (const file of sourceFilesInRoots(deployableAppRoots)) {
     const source = readText(file);
-    if (/\.\.\/(?:\.\.\/)*packages\/(?:sdk-web|sdk-server-ts|shared-ts)\/src/.test(source)) {
+    if (/\.\.\/(?:\.\.\/)*packages\/(?:wallet|wallet-server|shared-ts)\/src/.test(source)) {
       violations.push(`${file}: imports package implementation source`);
     }
     if (/\.\.\/(?:\.\.\/)*(?:client|server|shared)\/src/.test(source)) {
@@ -168,7 +168,7 @@ function collectNativeImportViolations() {
   const violations = [];
   for (const file of sourceFilesInRoots(nativeRoots)) {
     const source = readText(file);
-    if (/packages\/(?:sdk-web|sdk-server-ts|shared-ts)\/src/.test(source)) {
+    if (/packages\/(?:wallet|wallet-server|shared-ts)\/src/.test(source)) {
       violations.push(`${file}: imports package implementation source`);
     }
     if (/(?:client|server|shared)\/src/.test(source)) {

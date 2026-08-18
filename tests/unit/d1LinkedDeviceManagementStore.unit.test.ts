@@ -12,17 +12,17 @@ import {
 import {
   LinkedDeviceSessionServiceV1,
   type LinkedDeviceAggregateActivationVerifierV1,
-} from '../../packages/sdk-server-ts/src/core/deviceLinking/linkedDeviceSession';
+} from '../../packages/wallet-server/src/core/deviceLinking/linkedDeviceSession';
 import {
   D1LinkedDeviceManagementStoreV1,
   D1LinkedDeviceCanonicalOwnerAuthMetadataSourceV1,
   D1LinkedDeviceSigningActivitySourceV1,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceManagementStore';
+} from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceManagementStore';
 import { parseTenantId } from '../../packages/shared-ts/src/authorization/capabilityKinds';
 import {
   D1LinkedDeviceSessionStoreV1,
   type D1LinkedDeviceSessionScopeV1,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceSessionStore';
+} from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceSessionStore';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,
@@ -30,7 +30,7 @@ import {
   listD1MigrationFiles,
   type TemporaryD1Database,
 } from '../helpers/sqliteD1';
-import type { D1DatabaseLike } from '../../packages/sdk-server-ts/src/storage/tenantRoute';
+import type { D1DatabaseLike } from '../../packages/wallet-server/src/storage/tenantRoute';
 
 const scope: D1LinkedDeviceSessionScopeV1 = {
   namespace: 'signer',
