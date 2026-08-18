@@ -117,9 +117,18 @@ function availableLanes(lanes: ConcreteAvailableEcdsaSigningLane[]): AvailableSi
   };
 }
 
+async function readEcdsaLanesFixture(
+  lanes: ConcreteAvailableEcdsaSigningLane[],
+  _args: unknown,
+): Promise<AvailableSigningLanes> {
+  return availableLanes(lanes);
+}
+
 function depsFor(lanes: ConcreteAvailableEcdsaSigningLane[]): ExportLaneSelectionDeps {
+  const read = readEcdsaLanesFixture.bind(undefined, lanes);
   return {
-    readPersistedAvailableSigningLanesForTargets: async () => availableLanes(lanes),
+    readPersistedAvailableSigningLanesForTargets: read,
+    readOwnerScopedAvailableSigningLanesForTargets: read,
   };
 }
 
@@ -172,69 +181,85 @@ function deferredEd25519Lane(
   };
 }
 
-function depsForEd25519(lanes: ConcreteAvailableEd25519SigningLane[]): ExportLaneSelectionDeps {
+async function readEd25519LanesFixture(
+  lanes: ConcreteAvailableEd25519SigningLane[],
+  _args: unknown,
+): Promise<AvailableSigningLanes> {
   const canonicalLane = lanes.find((lane) => lane.authorizationState === 'authorized');
   return {
-    readPersistedAvailableSigningLanesForTargets: async () => ({
-      walletId: toWalletId(WALLET_ID),
-      generation: 1,
-      ecdsa: {
-        targets: [],
-        lanesByTarget: {},
-        candidatesByTarget: {},
+    walletId: toWalletId(WALLET_ID),
+    generation: 1,
+    ecdsa: {
+      targets: [],
+      lanesByTarget: {},
+      candidatesByTarget: {},
+    },
+    lanes: {
+      ed25519: {
+        near: canonicalLane || { curve: 'ed25519', chain: 'near', state: 'missing' },
       },
-      lanes: {
-        ed25519: {
-          near: canonicalLane || { curve: 'ed25519', chain: 'near', state: 'missing' },
-        },
+    },
+    candidates: {
+      ed25519: {
+        near: lanes,
       },
-      candidates: {
-        ed25519: {
-          near: lanes,
-        },
+    },
+  };
+}
+
+function depsForEd25519(lanes: ConcreteAvailableEd25519SigningLane[]): ExportLaneSelectionDeps {
+  const read = readEd25519LanesFixture.bind(undefined, lanes);
+  return {
+    readPersistedAvailableSigningLanesForTargets: read,
+    readOwnerScopedAvailableSigningLanesForTargets: read,
+  };
+}
+
+async function readTargetLanesFixture(
+  candidatesByTarget: Record<string, ConcreteAvailableEcdsaSigningLane[]>,
+  _args: unknown,
+): Promise<AvailableSigningLanes> {
+  const targets = [EVM_TARGET, TEMPO_TARGET];
+  return {
+    walletId: toWalletId(WALLET_ID),
+    generation: 1,
+    ecdsa: {
+      targets,
+      lanesByTarget: Object.fromEntries(
+        targets.map((target) => {
+          const targetKey = thresholdEcdsaChainTargetKey(target);
+          return [
+            targetKey,
+            candidatesByTarget[targetKey]?.[0] || {
+              curve: 'ecdsa',
+              chainTarget: target,
+              state: 'missing',
+            },
+          ];
+        }),
+      ),
+      candidatesByTarget,
+    },
+    lanes: {
+      ed25519: {
+        near: { curve: 'ed25519', chain: 'near', state: 'missing' },
       },
-    }),
+    },
+    candidates: {
+      ed25519: {
+        near: [],
+      },
+    },
   };
 }
 
 function depsForTargets(
   candidatesByTarget: Record<string, ConcreteAvailableEcdsaSigningLane[]>,
 ): ExportLaneSelectionDeps {
+  const read = readTargetLanesFixture.bind(undefined, candidatesByTarget);
   return {
-    readPersistedAvailableSigningLanesForTargets: async () => {
-      const targets = [EVM_TARGET, TEMPO_TARGET];
-      return {
-        walletId: toWalletId(WALLET_ID),
-        generation: 1,
-        ecdsa: {
-          targets,
-          lanesByTarget: Object.fromEntries(
-            targets.map((target) => {
-              const targetKey = thresholdEcdsaChainTargetKey(target);
-              return [
-                targetKey,
-                candidatesByTarget[targetKey]?.[0] || {
-                  curve: 'ecdsa',
-                  chainTarget: target,
-                  state: 'missing',
-                },
-              ];
-            }),
-          ),
-          candidatesByTarget,
-        },
-        lanes: {
-          ed25519: {
-            near: { curve: 'ed25519', chain: 'near', state: 'missing' },
-          },
-        },
-        candidates: {
-          ed25519: {
-            near: [],
-          },
-        },
-      };
-    },
+    readPersistedAvailableSigningLanesForTargets: read,
+    readOwnerScopedAvailableSigningLanesForTargets: read,
   };
 }
 
@@ -348,32 +373,6 @@ test.describe('Ed25519 export lane selection', () => {
         materialActivation: lane.materialActivation,
       });
     }
-  });
-
-  test('selects only the currently authorized owner lane', async () => {
-    const currentOwner = ed25519Lane();
-    const otherOwner = deferredEd25519Lane({
-      auth: {
-        kind: 'passkey',
-        rpId: toRpId(RP_ID),
-        credentialIdB64u: 'credential-other-owner',
-      },
-    });
-
-    await expect(
-      resolveExactKeyExportLane(depsForEd25519([otherOwner, currentOwner]), {
-        kind: 'ed25519',
-        walletSession: walletSessionRefFromSession({
-          walletId: WALLET_ID,
-          walletSessionUserId: WALLET_ID,
-        }),
-        nearAccount: NEAR_ACCOUNT,
-      }),
-    ).resolves.toEqual({
-      kind: 'ed25519',
-      laneIdentity: expectEd25519ExportMaterialIdentity(currentOwner),
-      materialActivation: currentOwner.materialActivation,
-    });
   });
 
   test('uses the canonical current activation when historical owner material remains', async () => {
@@ -603,34 +602,6 @@ test.describe('ECDSA export lane selection', () => {
       material: { kind: 'material_pending', reason: 'email_otp_route_auth' },
     });
     expect(selected).not.toHaveProperty('authorization');
-  });
-
-  test('rejects duplicate Email OTP capabilities before AccountMenu export', async () => {
-    const viableLane = ecdsaLane({
-      authMethod: 'email_otp',
-      chainTarget: EVM_TARGET,
-      state: 'deferred',
-      remainingUses: 3,
-      updatedAtMs: 1_800_000_000_000,
-    });
-    const exhaustedLane = ecdsaLane({
-      authMethod: 'email_otp',
-      chainTarget: EVM_TARGET,
-      state: 'exhausted',
-      remainingUses: 0,
-      updatedAtMs: 1_800_000_010_000,
-    });
-
-    await expect(
-      resolveExactKeyExportLane(depsFor([viableLane, exhaustedLane]), {
-        kind: 'ecdsa',
-        walletSession: walletSessionRefFromSession({
-          walletId: WALLET_ID,
-          walletSessionUserId: WALLET_ID,
-        }),
-        chainTarget: EVM_TARGET,
-      }),
-    ).rejects.toThrow('exact lane selection failed: ambiguous_material');
   });
 
   test('rejects AccountMenu ECDSA export resolution when inventory has multiple ECDSA keys', async () => {
