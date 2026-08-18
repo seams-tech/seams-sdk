@@ -204,9 +204,6 @@ const useCasesSection: DefaultTheme.SidebarItem = {
   items: [
     { text: 'Overview', link: '/use-cases/' },
     { text: 'Ecommerce agents', link: '/use-cases/ecommerce-agents' },
-    { text: 'iPhone access passes', link: '/use-cases/iphone-access-passes' },
-    { text: 'Shipping agent credentials', link: '/use-cases/shipping-agent-credentials' },
-    { text: 'Embedded device credentials', link: '/use-cases/embedded-device-credentials' },
   ],
 };
 
