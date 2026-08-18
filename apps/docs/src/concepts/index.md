@@ -42,7 +42,6 @@ deploy to Cloudflare.
 6. [Sessions](/concepts/sessions/) for signing lanes and bounded runtime authority.
 7. [Auth Methods](/concepts/auth-methods/) for passkeys, Email OTP, and VoiceID.
 8. [Delegation](/concepts/delegation/) for linked devices, agents, and rotation.
-9. [Advanced](/concepts/advanced/) for protocol, ceremony, and deployment details.
 
 ## Short version
 
