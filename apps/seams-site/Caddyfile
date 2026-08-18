@@ -17,6 +17,14 @@ localhost {
 	handle @app_wallet_assets {
 		respond 404
 	}
+	# R105 Phase 5: the customer Console is its own application; public
+	# /dashboard/* and /platform/* URLs are preserved through routing.
+	@console_app {
+		path /dashboard /dashboard/* /platform/*
+	}
+	handle @console_app {
+		reverse_proxy localhost:3601
+	}
 	handle {
 		reverse_proxy localhost:3600
 	}
