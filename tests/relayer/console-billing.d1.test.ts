@@ -80,7 +80,7 @@ async function listBillingEmailRows(
 test('D1 billing reconstructs balanced credit and persists provider-backed refunds and disputes', async () => {
   const temporary = createTemporaryD1Database();
   try {
-    await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-console'));
+    await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-console-core'));
     await seedBillingEmailOwners(temporary.database);
     const billing = await createD1ConsoleBillingService({
       database: temporary.database,
@@ -97,9 +97,7 @@ test('D1 billing reconstructs balanced credit and persists provider-backed refun
     });
     expect(settled.purchase?.status).toBe('SETTLED');
     expect(
-      await billing.getStripePostProcessingOutboxItem(
-        `stripe_checkout_reconcile:${checkout.id}`,
-      ),
+      await billing.getStripePostProcessingOutboxItem(`stripe_checkout_reconcile:${checkout.id}`),
     ).toBeNull();
     if (!settled.purchase || settled.purchase.status !== 'SETTLED') {
       throw new Error('Expected settled D1 purchase');
@@ -153,9 +151,8 @@ test('D1 billing reconstructs balanced credit and persists provider-backed refun
     );
 
     await billing.recordUsageEvent(SUPPORT_CONTEXT, {
-      walletId: 'd1-refund-wallet',
-      action: 'transfer',
-      succeeded: true,
+      resourceId: 'd1-refund-wallet',
+      shouldCount: true,
       sourceEventId: 'd1-refund-wallet-usage',
     });
     const firstInvoicePage = await billing.listInvoicesPage(SUPPORT_CONTEXT, { limit: 1 });
@@ -252,7 +249,7 @@ test('D1 billing reserves refund capacity before awaiting Stripe', async () => {
   const temporary = createTemporaryD1Database();
   let releaseFirstRefund: (() => void) | null = null;
   try {
-    await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-console'));
+    await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-console-core'));
     const defaults = createDefaultBillingProviderAdapters();
     let notifyFirstRefundStarted: (() => void) | null = null;
     const firstRefundStarted = new Promise<void>((resolve) => {
@@ -324,7 +321,7 @@ test('D1 billing reserves refund capacity before awaiting Stripe', async () => {
 test('D1 billing matches the exact checkout session and retries an ambiguous refund request', async () => {
   const temporary = createTemporaryD1Database();
   try {
-    await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-console'));
+    await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-console-core'));
     const defaults = createDefaultBillingProviderAdapters();
     let refundAttempts = 0;
     const billing = await createD1ConsoleBillingService({
@@ -391,9 +388,7 @@ test('D1 billing matches the exact checkout session and retries an ambiguous ref
       paymentStatus: 'paid',
     });
     expect(replayed.accepted).toBe(false);
-    expect(
-      await billing.listPendingStripePostProcessingOutboxItems(10),
-    ).toHaveLength(1);
+    expect(await billing.listPendingStripePostProcessingOutboxItems(10)).toHaveLength(1);
     await billing.recordStripePostProcessingFailure({
       eventId: 'evt_d1_exact_checkout',
       error: 'simulated delivery failure',

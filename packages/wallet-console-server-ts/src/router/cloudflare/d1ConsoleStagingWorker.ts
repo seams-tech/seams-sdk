@@ -2,6 +2,20 @@ import type { D1DatabaseLike } from '@seams/wallet-server/cloud-host';
 import { createWalletConsoleRouter } from '../consoleComposition';
 import { HostedConsoleAuthHandler } from '../hostedConsoleAuth';
 import { createWalletConsoleOpsHandler } from '../../serviceBinding/walletConsoleOpsHandler';
+import { createWalletRuntimeOpsClient } from '../../serviceBinding/walletRuntimeOpsClient';
+import type { WalletRuntimeServiceBinding } from '../../serviceBinding/walletRuntimeOps';
+import { createWalletConsoleRelayHandler } from '../../serviceBinding/walletConsoleRelay';
+import {
+  createConsoleRouterApiRouteExtensions,
+  DEFAULT_SIGNED_DELEGATE_ROUTE,
+} from '../routeExtensions';
+import { DEFAULT_SPONSORED_EVM_CALL_ROUTE } from '../../sponsorship/evmRoutes';
+import {
+  resolveSponsoredEvmCallConfigFromWorkerEnv,
+  resolveSponsoredEvmWorkerExecutionAdapter,
+} from '../../sponsorship/evmWorkerExecutionAdapter';
+import { resolveSponsoredExecutionPricingFromEnv } from '../../sponsorship/pricing';
+import { createWalletProjectEnvironmentResolver } from '../projectEnvironmentAdapter';
 import {
   createRouterApiBillingUsageMeterAdapter,
   createRouterApiKeyAuthAdapter,
@@ -36,6 +50,7 @@ import type { RouterApiCloudflareConsoleWorkerEnv } from './cloudflareConsole.ty
 interface CloudflareD1ConsoleStagingEnv
   extends CloudflareD1StagingSessionEnv, RouterApiCloudflareConsoleWorkerEnv {
   readonly CONSOLE_DB: D1DatabaseLike;
+  readonly WALLET_RUNTIME: WalletRuntimeServiceBinding;
   readonly SEAMS_TENANT_STORAGE_NAMESPACE?: string;
   readonly CONSOLE_BASE_URL?: string;
   readonly CONSOLE_SESSION_HMAC_SECRET?: string;
@@ -55,6 +70,9 @@ interface CloudflareD1ConsoleStagingEnv
   readonly GITHUB_OAUTH_CLIENT_SECRET?: string;
   readonly GITHUB_OAUTH_CALLBACK_URL?: string;
   readonly CONSOLE_CORS_ORIGINS?: string;
+  readonly SPONSORED_EVM_EXECUTORS_JSON?: string;
+  readonly SPONSORED_EXECUTION_REAL_PRICING_JSON?: string;
+  readonly SPONSORED_EXECUTION_STATIC_PRICING_JSON?: string;
 }
 
 function consoleGithubOAuthConfig(
@@ -110,6 +128,7 @@ async function createConsoleHandler(env: CloudflareD1ConsoleStagingEnv): Promise
   if (!invitationSecretCipher) {
     throw new Error('Console invitation email cipher was not configured');
   }
+  const sponsoredEvmCallConfig = await resolveSponsoredEvmCallConfigFromWorkerEnv(env);
   const bundle = await createCloudflareD1ConsoleOnlyServiceBundle({
     bindings: {
       consoleDatabase: env.CONSOLE_DB,
@@ -125,6 +144,9 @@ async function createConsoleHandler(env: CloudflareD1ConsoleStagingEnv): Promise
         invitationSecretCipher,
         consoleBaseUrl: requireEnvString(env, 'CONSOLE_BASE_URL'),
       },
+      sponsoredEvmCallConfig,
+      resolveSponsoredEvmExecutionAdapter: resolveSponsoredEvmWorkerExecutionAdapter,
+      sponsorshipPricing: resolveSponsoredExecutionPricingFromEnv(env),
     },
   });
   const session = createHmacSessionAdapterFromEnv({
@@ -149,7 +171,45 @@ async function createConsoleHandler(env: CloudflareD1ConsoleStagingEnv): Promise
     readyCheck: createConsoleReadyCheck(env),
     billingStripeWebhookSigningSecret: requireEnvString(env, 'STRIPE_WEBHOOK_SECRET'),
   });
-  // Private service-binding target: exactly the three declared Wallet Console
+  const walletRuntime = createWalletRuntimeOpsClient(env.WALLET_RUNTIME);
+  const relayHandler = createWalletConsoleRelayHandler(
+    createConsoleRouterApiRouteExtensions({
+      apiKeyAuth: createRouterApiKeyAuthAdapter(bundle.apiKeys),
+      wallets: bundle.wallets,
+      signedDelegate: {
+        route: DEFAULT_SIGNED_DELEGATE_ROUTE,
+        authService: walletRuntime,
+        billing: bundle.billing,
+        ledger: bundle.sponsoredCalls,
+        runtimeSnapshots: bundle.runtimeSnapshots,
+        publishableKeyAuth: createRouterApiPublishableKeyAuthAdapter(bundle.apiKeys),
+        observabilityIngestion: bundle.observabilityIngestion,
+        prepaidReservations: bundle.prepaidReservations,
+        pricing: bundle.sponsorshipPricing,
+        spendCaps: bundle.spendCaps,
+        webhooks: bundle.webhooks,
+      },
+      ...(sponsoredEvmCallConfig
+        ? {
+            sponsoredEvmCall: {
+              route: DEFAULT_SPONSORED_EVM_CALL_ROUTE,
+              publishableKeyAuth: createRouterApiPublishableKeyAuthAdapter(bundle.apiKeys),
+              billing: bundle.billing,
+              ledger: bundle.sponsoredCalls,
+              runtimeSnapshots: bundle.runtimeSnapshots,
+              config: sponsoredEvmCallConfig,
+              resolveExecutionAdapter: resolveSponsoredEvmWorkerExecutionAdapter,
+              observabilityIngestion: bundle.observabilityIngestion,
+              prepaidReservations: bundle.prepaidReservations,
+              pricing: bundle.sponsorshipPricing,
+              spendCaps: bundle.spendCaps,
+              webhooks: bundle.webhooks,
+            },
+          }
+        : {}),
+    }),
+  );
+  // Private service-binding target: exactly the four declared Wallet Console
   // operations, served ahead of the console router.
   const opsHandler = createWalletConsoleOpsHandler({
     apiKeyAuth: createRouterApiKeyAuthAdapter(bundle.apiKeys),
@@ -158,11 +218,13 @@ async function createConsoleHandler(env: CloudflareD1ConsoleStagingEnv): Promise
       orgProjectEnv: bundle.orgProjectEnv,
       wallets: bundle.wallets,
     }),
-    projectEnvironments: bundle.orgProjectEnv,
+    projectEnvironments: createWalletProjectEnvironmentResolver(bundle.orgProjectEnv),
   });
   const routerWithOps: FetchHandler = async (request, workerEnv, ctx) => {
     const opsResponse = await opsHandler(request);
     if (opsResponse) return opsResponse;
+    const relayResponse = await relayHandler(request, ctx);
+    if (relayResponse) return relayResponse;
     return await router(request, workerEnv, ctx);
   };
   // The Console Worker owns /console/auth/* end-to-end: provider verification

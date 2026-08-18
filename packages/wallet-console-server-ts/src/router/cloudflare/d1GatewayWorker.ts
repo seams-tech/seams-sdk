@@ -1,6 +1,6 @@
 import type { CfExecutionContext, CfScheduledEvent } from '@seams/wallet-server/cloud-host';
 import {
-  createSplitGatewayRouterHandler,
+  handleSplitGatewayRequest,
   runRouterAbPrewarmScheduled,
   type CloudflareD1GatewayEnv,
 } from './d1RouterApiStagingWorker';
@@ -15,8 +15,7 @@ async function fetch(
   env: CloudflareD1GatewayEnv,
   ctx: CfExecutionContext,
 ): Promise<Response> {
-  const handler = await createSplitGatewayRouterHandler(env);
-  return await handler(request, env, ctx);
+  return await handleSplitGatewayRequest(request, env, ctx);
 }
 
 async function scheduled(

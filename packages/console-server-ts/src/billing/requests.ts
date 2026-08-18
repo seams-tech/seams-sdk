@@ -16,7 +16,6 @@ import type {
   BillingManualAdjustmentRequest,
   BillingRefundReconcileRequest,
   BillingRefundRequest,
-  BillingUsageEventRequest,
   GenerateMonthlyInvoiceRequest,
   StripeCheckoutSessionReconcileRequest,
   StripeCheckoutSessionRequest,
@@ -31,7 +30,7 @@ const BILLING_DOCUMENT_TYPES = new Set(['PURCHASE_RECEIPT', 'USAGE_STATEMENT']);
 const BILLING_LEDGER_ENTRY_TYPES = new Set([
   'CREDIT_PURCHASE',
   'USAGE_DEBIT',
-  'SPONSORED_EXECUTION_DEBIT',
+  'PRODUCT_EXECUTION_DEBIT',
   'MANUAL_ADJUSTMENT',
   'REFUND',
   'DISPUTE_OPENED',
@@ -180,19 +179,6 @@ export function parseBillingManualAdjustmentRequest(body: unknown): BillingManua
   };
 }
 
-function parseOptionalIsoDate(value: string | undefined, field: string): string | undefined {
-  if (value === undefined) return undefined;
-  const parsed = Date.parse(value);
-  if (!Number.isFinite(parsed)) {
-    throw new ConsoleBillingError(
-      'invalid_body',
-      400,
-      `Field ${field} must be a valid ISO-8601 datetime`,
-    );
-  }
-  return new Date(parsed).toISOString();
-}
-
 export function parseStripeCheckoutSessionRequest(body: unknown): StripeCheckoutSessionRequest {
   const obj = requireObject(body, createParseError);
   const creditPackId = readRequiredString(obj, 'creditPackId', createParseError);
@@ -243,45 +229,6 @@ export function parseStripeCheckoutSessionReconcileRequest(
   const obj = requireObject(body, createParseError);
   return {
     checkoutSessionId: readRequiredString(obj, 'checkoutSessionId', createParseError),
-  };
-}
-
-export function parseBillingUsageEventRequest(body: unknown): BillingUsageEventRequest {
-  const obj = requireObject(body, createParseError);
-  const walletId = readRequiredString(obj, 'walletId', createParseError);
-  const action = readRequiredString(obj, 'action', createParseError).toLowerCase();
-  const succeededRaw = obj.succeeded;
-  if (typeof succeededRaw !== 'boolean') {
-    throw new ConsoleBillingError('invalid_body', 400, 'Field succeeded must be boolean');
-  }
-
-  const validActions = new Set(['transfer', 'swap', 'approve', 'contract_call', 'wallet_created']);
-  if (!validActions.has(action)) {
-    throw new ConsoleBillingError('invalid_body', 400, `Unsupported action: ${action}`);
-  }
-
-  const isSimulation = obj.isSimulation;
-  if (isSimulation !== undefined && typeof isSimulation !== 'boolean') {
-    throw new ConsoleBillingError('invalid_body', 400, 'Field isSimulation must be boolean');
-  }
-
-  const isInternalRetry = obj.isInternalRetry;
-  if (isInternalRetry !== undefined && typeof isInternalRetry !== 'boolean') {
-    throw new ConsoleBillingError('invalid_body', 400, 'Field isInternalRetry must be boolean');
-  }
-
-  return {
-    walletId,
-    action: action as BillingUsageEventRequest['action'],
-    succeeded: succeededRaw,
-    ...(isSimulation === undefined ? {} : { isSimulation }),
-    ...(isInternalRetry === undefined ? {} : { isInternalRetry }),
-    ...(readOptionalString(obj, 'sourceEventId')
-      ? { sourceEventId: readOptionalString(obj, 'sourceEventId') }
-      : {}),
-    ...(parseOptionalIsoDate(readOptionalString(obj, 'occurredAt'), 'occurredAt')
-      ? { occurredAt: parseOptionalIsoDate(readOptionalString(obj, 'occurredAt'), 'occurredAt') }
-      : {}),
   };
 }
 

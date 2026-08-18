@@ -1,11 +1,11 @@
 // The exact private service-binding surface between the Wallet Gateway and
-// the Wallet Console deployment (R105 Phase 4). Three operations cross the
-// binding — API-key validation, publishable-key validation, and idempotent
-// usage-event ingestion — plus the WalletControlPort for custody-sensitive
-// commands in the opposite direction. There is no generic SQL or query
+// the Wallet Console deployment (R105 Phase 4). Four operations cross the
+// binding: API-key validation, publishable-key validation, idempotent
+// usage-event ingestion, and project-environment lookup. There is no generic SQL or query
 // operation, and the Gateway never receives the Console database.
 
 export const WALLET_CONSOLE_OPS_BASE_PATH_V1 = '/internal/wallet-console/v1';
+export const WALLET_CONSOLE_SERVICE_ORIGIN_V1 = 'https://wallet-console.internal';
 
 export const WALLET_CONSOLE_OP_PATHS_V1 = {
   secretKeyAuth: `${WALLET_CONSOLE_OPS_BASE_PATH_V1}/secret-key-auth`,
@@ -17,7 +17,7 @@ export const WALLET_CONSOLE_OP_PATHS_V1 = {
 export interface WalletConsoleSecretKeyAuthRequestV1 {
   readonly secret: string;
   readonly endpoint: string;
-  readonly requiredScopes: readonly string[];
+  readonly requiredScopes: ApiCredentialScope[];
   readonly sourceIp?: string;
   readonly environmentId?: string;
 }
@@ -28,7 +28,7 @@ export interface WalletConsolePrincipalV1 {
   readonly projectId?: string;
   readonly envId?: string;
   readonly environmentId: string;
-  readonly scopes: readonly string[];
+  readonly scopes: readonly ApiCredentialScope[];
 }
 
 export type WalletConsoleSecretKeyAuthResponseV1 =
@@ -70,7 +70,7 @@ export interface WalletConsoleUsageEventsResponseV1 {
 /**
  * Custody-sensitive commands the Console sends to the Wallet runtime. The
  * Console never receives signer custody storage; each command crosses the
- * private binding to the Wallet Gateway, which performs the custody work
+ * private binding to the Wallet Runtime, which performs the custody work
  * inside its own trust boundary. Key-export authorization is the first exact
  * command; new commands are added here, never as generic passthroughs.
  */
@@ -82,8 +82,7 @@ export interface WalletControlPort {
     readonly keyExportId: string;
     readonly approvedBy: string;
   }): Promise<
-    | { readonly ok: true }
-    | { readonly ok: false; readonly code: string; readonly message: string }
+    { readonly ok: true } | { readonly ok: false; readonly code: string; readonly message: string }
   >;
 }
 
@@ -112,3 +111,4 @@ export interface WalletConsoleProjectEnvironmentsResponseV1 {
   readonly code?: string;
   readonly message?: string;
 }
+import type { ApiCredentialScope } from '@seams-internal/wallet-console-shared/apiKeyScopes';

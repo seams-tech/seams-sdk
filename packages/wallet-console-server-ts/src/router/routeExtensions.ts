@@ -199,6 +199,16 @@ function consoleRouterApiRoutes(
   return routes;
 }
 
+export function walletConsoleRelayRouteDefinitions(): readonly RouteDefinition[] {
+  return Object.freeze([
+    apiWalletListRoute(),
+    apiWalletSearchRoute(),
+    apiWalletGetRoute(),
+    signedDelegateRoute(DEFAULT_SIGNED_DELEGATE_ROUTE),
+    sponsoredEvmCallRoute(DEFAULT_SPONSORED_EVM_CALL_ROUTE),
+  ]);
+}
+
 async function handleConsoleApiWalletRoute(input: {
   readonly request: Request;
   readonly route: RouteDefinition;
@@ -339,10 +349,7 @@ export function createConsoleRouterApiRouteExtensions(
       routes,
       async handleFetchRoute(input) {
         const logger = input.logger;
-        if (
-          input.route.id === ROUTER_API_SPONSORED_EVM_CALL_ROUTE_ID &&
-          options.sponsoredEvmCall
-        ) {
+        if (input.route.id === ROUTER_API_SPONSORED_EVM_CALL_ROUTE_ID && options.sponsoredEvmCall) {
           return await handleConsoleSponsoredEvmCallRoute({
             request: input.request,
             route: input.route,
@@ -351,10 +358,7 @@ export function createConsoleRouterApiRouteExtensions(
           });
         }
 
-        if (
-          input.route.id === ROUTER_API_SIGNED_DELEGATE_ROUTE_ID &&
-          options.signedDelegate
-        ) {
+        if (input.route.id === ROUTER_API_SIGNED_DELEGATE_ROUTE_ID && options.signedDelegate) {
           return await handleConsoleSignedDelegateRoute({
             request: input.request,
             route: input.route,

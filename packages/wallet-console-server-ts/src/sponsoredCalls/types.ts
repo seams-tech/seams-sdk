@@ -1,4 +1,4 @@
-import type { BillingSponsoredExecutionDebitEntry } from '@seams-internal/console-server/billing/types';
+import type { BillingProductExecutionDebitEntry } from '@seams-internal/console-server/billing/types';
 
 export type ConsoleSponsoredCallApiKeyKind = 'secret_key' | 'publishable_key';
 export type ConsoleSponsoredCallChainFamily = 'evm' | 'near';
@@ -74,7 +74,7 @@ export type ConsoleSponsoredCallReconciliationStatus =
 
 export interface ConsoleSponsoredCallReconciliationEntry {
   record: ConsoleSponsoredCallRecord;
-  billingDebit: BillingSponsoredExecutionDebitEntry | null;
+  billingDebit: BillingProductExecutionDebitEntry | null;
   status: ConsoleSponsoredCallReconciliationStatus;
   mismatchReasons: string[];
 }

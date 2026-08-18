@@ -7,6 +7,8 @@ import {
 } from '@seams-internal/wallet-console-server/router/routerApiKeyAuth';
 import { createWalletConsoleOpsHandler } from '@seams-internal/wallet-console-server/serviceBinding/walletConsoleOpsHandler';
 import { createWalletConsoleOpsClient } from '@seams-internal/wallet-console-server/serviceBinding/walletConsoleOpsClient';
+import { createWalletConsoleRelayProxyExtension } from '@seams-internal/wallet-console-server/serviceBinding/walletConsoleRelay';
+import { createWalletRuntimeOpsHandler } from '@seams-internal/wallet-console-server/serviceBinding/walletRuntimeOpsHandler';
 import type { RouterApiUsageMeterEvent } from '@seams/wallet-server/cloud-host';
 
 const CTX = {
@@ -27,6 +29,11 @@ function bindingHarness() {
     usageMeter: {
       async recordEvent(event) {
         recorded.push(event);
+      },
+    },
+    projectEnvironments: {
+      async listEnvironments() {
+        return [];
       },
     },
   });
@@ -130,4 +137,64 @@ test('unknown internal operations are rejected, never forwarded', async () => {
       succeeded: true,
     }),
   ).rejects.toThrow(/usage ingestion failed/);
+});
+
+test('public Console origins cannot invoke service-binding operations', async () => {
+  const handler = createWalletConsoleOpsHandler({
+    apiKeyAuth: {
+      async authenticate() {
+        throw new Error('must not run');
+      },
+    },
+    publishableKeyAuth: {
+      async authenticate() {
+        throw new Error('must not run');
+      },
+    },
+    usageMeter: {
+      async recordEvent() {
+        throw new Error('must not run');
+      },
+    },
+    projectEnvironments: {
+      async listEnvironments() {
+        throw new Error('must not run');
+      },
+    },
+  });
+  const response = await handler(
+    new Request('https://staging.console.seams.sh/internal/wallet-console/v1/usage-events', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    }),
+  );
+  expect(response).toBeNull();
+});
+
+test('split Gateway proxy preserves the complete Wallet Console relay surface', () => {
+  const extension = createWalletConsoleRelayProxyExtension({
+    async fetch() {
+      return new Response(null, { status: 204 });
+    },
+  });
+  expect(extension.routes.map((route) => `${route.method} ${route.path}`)).toEqual([
+    'GET /v1/wallets',
+    'GET /v1/wallets/search',
+    'GET /v1/wallets/:id',
+    'POST /signed-delegate',
+    'POST /sponsorships/evm/call',
+  ]);
+});
+
+test('Wallet runtime operations reject public Gateway origins', async () => {
+  const handler = createWalletRuntimeOpsHandler(async () => {
+    throw new Error('must not resolve public requests');
+  });
+  const response = await handler(
+    new Request('https://staging.api.seams.sh/internal/wallet-runtime/v1/relayer-account', {
+      method: 'POST',
+    }),
+  );
+  expect(response).toBeNull();
 });

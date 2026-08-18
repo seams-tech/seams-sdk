@@ -26,7 +26,7 @@ function requireEntryDirection(type: BillingLedgerEntryType, amountMinor: number
       if (amountMinor > 0) return;
       break;
     case 'USAGE_DEBIT':
-    case 'SPONSORED_EXECUTION_DEBIT':
+    case 'PRODUCT_EXECUTION_DEBIT':
     case 'REFUND':
     case 'DISPUTE_OPENED':
       if (amountMinor < 0) return;
@@ -50,8 +50,8 @@ function counterpartAccount(type: BillingLedgerEntryType): BillingLedgerAccountC
       return 'stripe_cash_clearing';
     case 'USAGE_DEBIT':
       return 'revenue_usage';
-    case 'SPONSORED_EXECUTION_DEBIT':
-      return 'revenue_sponsored_execution';
+    case 'PRODUCT_EXECUTION_DEBIT':
+      return 'revenue_product_execution';
     case 'MANUAL_ADJUSTMENT':
       return 'manual_adjustment_clearing';
     case 'DISPUTE_OPENED':

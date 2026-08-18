@@ -16,12 +16,12 @@ import {
   parseBillingInvoiceListRequest,
   parseBillingManualAdjustmentRequest,
   parseStripeCheckoutSessionReconcileRequest,
-  parseBillingUsageEventRequest,
   parseGenerateMonthlyInvoiceRequest,
   parseStripeCheckoutSessionRequest,
   verifyAndParseStripeWebhookRequest,
   type ConsoleBillingService,
 } from '@seams-internal/console-server/billing/index';
+import { parseWalletBillingUsageEventRequest } from '../walletBillingUsage';
 import type { ConsoleBillingPrepaidReservationService } from '@seams-internal/wallet-console-server/billingPrepaidReservations/index';
 import {
   isConsoleSponsoredCallError,
@@ -204,7 +204,10 @@ import {
   emitSponsorshipBalanceTransitionEvents,
   readSponsorshipBillingBalanceSnapshot,
 } from '@seams-internal/wallet-console-server/router/sponsorshipBillingEvents';
-import { attachConsoleRouteSurface, resolveConsoleRouteSurface } from '@seams-internal/console-server/router/consoleRouteSurface';
+import {
+  attachConsoleRouteSurface,
+  resolveConsoleRouteSurface,
+} from '@seams-internal/console-server/router/consoleRouteSurface';
 import {
   authorizeConsoleRouteRequest,
   hasConsoleProjectAccess,
@@ -1114,11 +1117,13 @@ async function projectApprovalResponse(
   };
 }
 
-async function projectApprovalResponses<T extends {
-  resourceType: string | null;
-  resourceId: string | null;
-  metadata: Record<string, unknown>;
-}>(
+async function projectApprovalResponses<
+  T extends {
+    resourceType: string | null;
+    resourceId: string | null;
+    metadata: Record<string, unknown>;
+  },
+>(
   ctx: ExpressConsoleContext,
   claims: ConsoleAuthClaims,
   rows: readonly T[],
@@ -1144,10 +1149,16 @@ async function enrichPolicyApprovalCreateRequest(
   request: CreateConsoleApprovalRequest,
 ): Promise<CreateConsoleApprovalRequest> {
   if (request.operationType !== 'POLICY_PUBLISH') return request;
-  const resourceType = String(request.resourceType || '').trim().toUpperCase();
+  const resourceType = String(request.resourceType || '')
+    .trim()
+    .toUpperCase();
   const resourceId = String(request.resourceId || '').trim();
   if (resourceType !== 'POLICY' || !resourceId) return request;
-  const policy = await resolveConsolePolicyPresentation(ctx.policies, toBillingContext(claims), resourceId);
+  const policy = await resolveConsolePolicyPresentation(
+    ctx.policies,
+    toBillingContext(claims),
+    resourceId,
+  );
   const metadata =
     request.metadata && typeof request.metadata === 'object' && !Array.isArray(request.metadata)
       ? { ...request.metadata }
@@ -1161,9 +1172,11 @@ async function enrichPolicyApprovalCreateRequest(
   };
 }
 
-async function projectAuditEventResponses<T extends {
-  metadata: Record<string, unknown>;
-}>(
+async function projectAuditEventResponses<
+  T extends {
+    metadata: Record<string, unknown>;
+  },
+>(
   ctx: ExpressConsoleContext,
   claims: ConsoleAuthClaims,
   rows: readonly T[],
@@ -1207,7 +1220,9 @@ async function resolveWalletPolicyPresentationByWalletId(
   const out: Record<string, ConsolePolicyPresentation> = {};
   for (const wallet of walletRows) {
     const policyIdRaw =
-      resolvedPolicyIds[wallet.id] === undefined ? wallet.policyId || null : resolvedPolicyIds[wallet.id];
+      resolvedPolicyIds[wallet.id] === undefined
+        ? wallet.policyId || null
+        : resolvedPolicyIds[wallet.id];
     const policyId = String(policyIdRaw || '').trim() || null;
     const policy = policyId ? policyPresentationLookup[policyId] : undefined;
     out[wallet.id] = {
@@ -1220,7 +1235,9 @@ async function resolveWalletPolicyPresentationByWalletId(
 }
 
 function consoleClaimsEmail(claims: ConsoleAuthClaims): string {
-  const claimed = String(claims.email ?? '').trim().toLowerCase();
+  const claimed = String(claims.email ?? '')
+    .trim()
+    .toLowerCase();
   if (claimed) return claimed;
   const emailUser = claims.userId.toLowerCase().replace(/[^a-z0-9._+-]/gu, '_');
   return `${emailUser || 'user'}@console.local`;
@@ -1408,7 +1425,9 @@ function requireConsoleRoutePolicy(
   const authz = authorizeConsoleRouteRequest({
     claims,
     definitions: ctx.routeDefinitions,
-    method: String((req as any)?.method || '').trim().toUpperCase(),
+    method: String((req as any)?.method || '')
+      .trim()
+      .toUpperCase(),
     pathname: readRoutePattern(req),
     projectId: readRequestProjectId(req, claims),
   });
@@ -1422,11 +1441,7 @@ function readRequestProjectId(req: Request, claims: ConsoleAuthClaims): string {
   const query = (req as any)?.query;
   const params = (req as any)?.params;
   return String(
-    body?.projectId ||
-      query?.projectId ||
-      params?.projectId ||
-      claims.projectId ||
-      '',
+    body?.projectId || query?.projectId || params?.projectId || claims.projectId || '',
   ).trim();
 }
 
@@ -2265,10 +2280,7 @@ function registerConsoleOrganizationAccessRoutes(
     if (!organizationAccess) return;
     try {
       const request = parseInviteOrganizationMemberRequest((req as any).body || {});
-      const issued = await organizationAccess.invite(
-        toOrganizationAccessContext(claims),
-        request,
-      );
+      const issued = await organizationAccess.invite(toOrganizationAccessContext(claims), request);
       res.status(201).json({ ok: true, invitation: issued.invitation });
     } catch (error: unknown) {
       sendOrganizationAccessError(res, error);
@@ -2775,7 +2787,9 @@ function registerConsoleAuditRoutes(router: ExpressRouter, ctx: ExpressConsoleCo
     try {
       const request = parseListConsoleAuditEventsRequest((req as any).query || {});
       const events = await audit.listEvents(toAuditContext(claims), request);
-      res.status(200).json({ ok: true, events: await projectAuditEventResponses(ctx, claims, events) });
+      res
+        .status(200)
+        .json({ ok: true, events: await projectAuditEventResponses(ctx, claims, events) });
     } catch (error: unknown) {
       sendAuditError(res, error);
     }
@@ -3565,7 +3579,10 @@ function registerConsoleApiKeyRoutes(router: ExpressRouter, ctx: ExpressConsoleC
     const apiKeys = requireApiKeyService(res, ctx);
     if (!apiKeys) return;
     try {
-      const request = parseCreateConsoleApiKeyRequest((req as any).body, WALLET_API_CREDENTIAL_SCOPE_VALIDATION);
+      const request = parseCreateConsoleApiKeyRequest(
+        (req as any).body,
+        WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+      );
       const validEnvironment = await requireActiveApiKeyEnvironmentForCreate(
         res,
         ctx,
@@ -3690,7 +3707,10 @@ function registerConsoleApiKeyRoutes(router: ExpressRouter, ctx: ExpressConsoleC
       return;
     }
     try {
-      const request = parseUpdateConsoleApiKeyRequest((req as any).body, WALLET_API_CREDENTIAL_SCOPE_VALIDATION);
+      const request = parseUpdateConsoleApiKeyRequest(
+        (req as any).body,
+        WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+      );
       const updated = await apiKeys.updateApiKey(toBillingContext(claims), apiKeyId, request);
       if (!updated) {
         res.status(404).json({
@@ -3786,7 +3806,10 @@ function registerConsoleWebhookRoutes(router: ExpressRouter, ctx: ExpressConsole
     const webhooks = requireWebhookService(res, ctx);
     if (!webhooks) return;
     try {
-      const request = parseCreateConsoleWebhookEndpointRequest((req as any).body, WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION);
+      const request = parseCreateConsoleWebhookEndpointRequest(
+        (req as any).body,
+        WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
+      );
       const endpoint = await webhooks.createEndpoint(toBillingContext(claims), request);
       const auditEvent = buildConsoleWebhookEndpointAuditEvent({
         action: 'webhook.endpoint.create',
@@ -3818,7 +3841,10 @@ function registerConsoleWebhookRoutes(router: ExpressRouter, ctx: ExpressConsole
       return;
     }
     try {
-      const request = parseUpdateConsoleWebhookEndpointRequest((req as any).body, WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION);
+      const request = parseUpdateConsoleWebhookEndpointRequest(
+        (req as any).body,
+        WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
+      );
       const endpoint = await webhooks.updateEndpoint(toBillingContext(claims), endpointId, request);
       if (!endpoint) {
         res.status(404).json({
@@ -4136,31 +4162,34 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
     }
   });
 
-  router.get('/console/billing/sponsored-executions/reconciliation', async (req: Request, res: Response) => {
-    const claims = await requireConsoleAuth(req, res, ctx);
-    if (!claims) return;
-    if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
-    const sponsoredCalls = requireSponsoredCallService(res, ctx);
-    if (!sponsoredCalls) return;
-    const billing = requireBillingService(res, ctx);
-    if (!billing) return;
-    try {
-      const request = parseListConsoleSponsoredCallRecordsRequest((req as any).query);
-      const page = await listConsoleSponsoredCallReconciliationPage({
-        sponsoredCalls,
-        billing,
-        ctx: toBillingContext(claims),
-        request,
-      });
-      res.status(200).json({ ok: true, page });
-    } catch (error: unknown) {
-      if (isConsoleSponsoredCallError(error)) {
-        sendSponsoredCallError(res, error);
-        return;
+  router.get(
+    '/console/billing/sponsored-executions/reconciliation',
+    async (req: Request, res: Response) => {
+      const claims = await requireConsoleAuth(req, res, ctx);
+      if (!claims) return;
+      if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
+      const sponsoredCalls = requireSponsoredCallService(res, ctx);
+      if (!sponsoredCalls) return;
+      const billing = requireBillingService(res, ctx);
+      if (!billing) return;
+      try {
+        const request = parseListConsoleSponsoredCallRecordsRequest((req as any).query);
+        const page = await listConsoleSponsoredCallReconciliationPage({
+          sponsoredCalls,
+          billing,
+          ctx: toBillingContext(claims),
+          request,
+        });
+        res.status(200).json({ ok: true, page });
+      } catch (error: unknown) {
+        if (isConsoleSponsoredCallError(error)) {
+          sendSponsoredCallError(res, error);
+          return;
+        }
+        sendBillingError(res, error);
       }
-      sendBillingError(res, error);
-    }
-  });
+    },
+  );
 
   router.get('/console/platform/billing/search', async (req: Request, res: Response) => {
     const claims = await requireConsoleAuth(req, res, ctx);
@@ -4216,7 +4245,7 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
       const monthUtcRaw = String((req as any)?.query?.monthUtc || '').trim();
       const monthUtc = monthUtcRaw || undefined;
       try {
-        const usage = await billing.getMonthlyActiveWallets(toBillingContext(claims), monthUtc);
+        const usage = await billing.getMonthlyActiveResources(toBillingContext(claims), monthUtc);
         res.status(200).json({ ok: true, usage });
       } catch (error: unknown) {
         sendBillingError(res, error);
@@ -4231,7 +4260,7 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
     const billing = requireBillingService(res, ctx);
     if (!billing) return;
     try {
-      const request = parseBillingUsageEventRequest((req as any).body);
+      const request = parseWalletBillingUsageEventRequest((req as any).body);
       const result = await billing.recordUsageEvent(toBillingContext(claims), request);
       res.status(200).json({ ok: true, result });
     } catch (error: unknown) {
@@ -4258,7 +4287,7 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
           invoiceId: generation.invoice.id,
           periodMonthUtc: generation.invoice.periodMonthUtc,
           generated: generation.generated,
-          monthlyActiveWallets: generation.monthlyActiveWallets,
+          monthlyActiveResources: generation.monthlyActiveResources,
           amountDueMinor: generation.invoice.amountDueMinor,
           lineItemCount: generation.lineItems.length,
         },
@@ -4295,11 +4324,11 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
         const beforeBalanceState = await readSponsorshipBillingBalanceSnapshot(billing, billingCtx);
         const result = await billing.grantManualSupportCredit(billingCtx, request);
         await emitSponsorshipBalanceTransitionEvents({
-        services: {
-          logger: ctx.logger,
-          webhooks: ctx.webhooks,
-          observabilityIngestion: ctx.observabilityIngestion,
-        },
+          services: {
+            logger: ctx.logger,
+            webhooks: ctx.webhooks,
+            observabilityIngestion: ctx.observabilityIngestion,
+          },
           ctx: billingCtx,
           before: beforeBalanceState,
           billing,
@@ -4358,11 +4387,11 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
         const beforeBalanceState = await readSponsorshipBillingBalanceSnapshot(billing, billingCtx);
         const result = await billing.grantManualSupportCredit(billingCtx, adjustmentRequest);
         await emitSponsorshipBalanceTransitionEvents({
-        services: {
-          logger: ctx.logger,
-          webhooks: ctx.webhooks,
-          observabilityIngestion: ctx.observabilityIngestion,
-        },
+          services: {
+            logger: ctx.logger,
+            webhooks: ctx.webhooks,
+            observabilityIngestion: ctx.observabilityIngestion,
+          },
           ctx: billingCtx,
           before: beforeBalanceState,
           billing,
@@ -4412,28 +4441,28 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
     const claims = await requireConsoleAuth(req, res, ctx);
     if (!claims) return;
     if (!requireConsoleRoutePolicy(req, res, ctx, claims)) return;
-      const billing = requireBillingService(res, ctx);
-      if (!billing) return;
-      try {
-        const request = parseBillingManualAdjustmentRequest((req as any).body);
-        const billingCtx = toBillingContext(claims);
-        const beforeBalanceState = await readSponsorshipBillingBalanceSnapshot(billing, billingCtx);
-        const result = await billing.appendManualAdminDebit(billingCtx, request);
-        await emitSponsorshipBalanceTransitionEvents({
+    const billing = requireBillingService(res, ctx);
+    if (!billing) return;
+    try {
+      const request = parseBillingManualAdjustmentRequest((req as any).body);
+      const billingCtx = toBillingContext(claims);
+      const beforeBalanceState = await readSponsorshipBillingBalanceSnapshot(billing, billingCtx);
+      const result = await billing.appendManualAdminDebit(billingCtx, request);
+      await emitSponsorshipBalanceTransitionEvents({
         services: {
           logger: ctx.logger,
           webhooks: ctx.webhooks,
           observabilityIngestion: ctx.observabilityIngestion,
         },
-          ctx: billingCtx,
-          before: beforeBalanceState,
-          billing,
-          trigger: {
-            kind: 'manual_admin_debit',
-            adjustmentId: result.adjustment.id,
-            sourceEventId: result.adjustment.idempotencyKey,
-          },
-        });
+        ctx: billingCtx,
+        before: beforeBalanceState,
+        billing,
+        trigger: {
+          kind: 'manual_admin_debit',
+          adjustmentId: result.adjustment.id,
+          sourceEventId: result.adjustment.idempotencyKey,
+        },
+      });
       await emitConsoleAuditEvent(ctx, claims, {
         category: 'BILLING',
         action: 'billing.adjustment.admin_debit',
@@ -4480,16 +4509,13 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
           actorUserId: claims.userId,
         };
         const beforeBalanceState = await readSponsorshipBillingBalanceSnapshot(billing, billingCtx);
-        const result = await billing.appendManualAdminDebit(
-          billingCtx,
-          adjustmentRequest,
-        );
+        const result = await billing.appendManualAdminDebit(billingCtx, adjustmentRequest);
         await emitSponsorshipBalanceTransitionEvents({
-        services: {
-          logger: ctx.logger,
-          webhooks: ctx.webhooks,
-          observabilityIngestion: ctx.observabilityIngestion,
-        },
+          services: {
+            logger: ctx.logger,
+            webhooks: ctx.webhooks,
+            observabilityIngestion: ctx.observabilityIngestion,
+          },
           ctx: billingCtx,
           before: beforeBalanceState,
           billing,
@@ -4811,17 +4837,14 @@ function registerConsoleBillingRoutes(router: ExpressRouter, ctx: ExpressConsole
         checkoutSessionId = request.checkoutSessionId;
         const billingCtx = toBillingContext(claims);
         const beforeBalanceState = await readSponsorshipBillingBalanceSnapshot(billing, billingCtx);
-        const result = await billing.reconcileStripeCheckoutSession(
-          billingCtx,
-          request,
-        );
+        const result = await billing.reconcileStripeCheckoutSession(billingCtx, request);
         if (result.settledNow) {
           await emitSponsorshipBalanceTransitionEvents({
-          services: {
-            logger: ctx.logger,
-            webhooks: ctx.webhooks,
-            observabilityIngestion: ctx.observabilityIngestion,
-          },
+            services: {
+              logger: ctx.logger,
+              webhooks: ctx.webhooks,
+              observabilityIngestion: ctx.observabilityIngestion,
+            },
             ctx: billingCtx,
             before: beforeBalanceState,
             billing,
@@ -4888,8 +4911,7 @@ export function createConsoleRouter(opts: ConsoleRouterOptions = {}): ExpressRou
   const webhooks = opts.webhooks === undefined ? null : opts.webhooks;
   const keyExports = opts.keyExports === undefined ? null : opts.keyExports;
   const runtimeSnapshots = opts.runtimeSnapshots === undefined ? null : opts.runtimeSnapshots;
-  const organizationAccess =
-    opts.organizationAccess === undefined ? null : opts.organizationAccess;
+  const organizationAccess = opts.organizationAccess === undefined ? null : opts.organizationAccess;
   const approvals = opts.approvals === undefined ? null : opts.approvals;
   const audit = opts.audit === undefined ? null : opts.audit;
   const auditExports = opts.auditExports === undefined ? null : opts.auditExports;

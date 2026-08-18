@@ -1,17 +1,17 @@
-export type BillingUsageMetricVersion = 'maw_v1';
+export type BillingUsageMetricVersion = 'active_resource_v1';
 export type BillingDocumentType = 'PURCHASE_RECEIPT' | 'USAGE_STATEMENT';
 export type InvoiceStatus = 'OPEN' | 'PAID' | 'VOID' | 'UNCOLLECTIBLE';
 export type BillingInvoiceLineItemType =
   | 'CREDIT_TOP_UP'
-  | 'MAW_USAGE_DEBIT'
-  | 'SPONSORED_EXECUTION_DEBIT'
+  | 'ACTIVE_RESOURCE_USAGE_DEBIT'
+  | 'PRODUCT_EXECUTION_DEBIT'
   | 'MANUAL_ADJUSTMENT';
 export type BillingCreditPackId = 'usd_10' | 'usd_25' | 'usd_50';
 export type BillingLiveEnvironmentState = 'HEALTHY' | 'LOW_BALANCE' | 'BLOCKED';
 export type BillingLedgerEntryType =
   | 'CREDIT_PURCHASE'
   | 'USAGE_DEBIT'
-  | 'SPONSORED_EXECUTION_DEBIT'
+  | 'PRODUCT_EXECUTION_DEBIT'
   | 'MANUAL_ADJUSTMENT'
   | 'REFUND'
   | 'DISPUTE_OPENED'
@@ -21,7 +21,7 @@ export type BillingLedgerAccountCode =
   | 'org_prepaid_liability'
   | 'stripe_cash_clearing'
   | 'revenue_usage'
-  | 'revenue_sponsored_execution'
+  | 'revenue_product_execution'
   | 'manual_adjustment_clearing'
   | 'stripe_dispute_clearing';
 
@@ -114,14 +114,14 @@ export interface BillingLedgerEntry {
   createdAt: string;
 }
 
-export interface BillingSponsoredExecutionDebitEntry extends BillingLedgerEntry {
-  type: 'SPONSORED_EXECUTION_DEBIT';
+export interface BillingProductExecutionDebitEntry extends BillingLedgerEntry {
+  type: 'PRODUCT_EXECUTION_DEBIT';
 }
 
 export interface BillingOverview {
   usageMetricVersion: BillingUsageMetricVersion;
   currentMonthUtc: string;
-  monthlyActiveWallets: number;
+  monthlyActiveResources: number;
   creditBalanceMinor: number;
   lowBalanceThresholdMinor: number;
   liveEnvironmentState: BillingLiveEnvironmentState;
@@ -130,19 +130,9 @@ export interface BillingOverview {
   documentCount: number;
 }
 
-export type BillingUsageAction =
-  | 'transfer'
-  | 'swap'
-  | 'approve'
-  | 'contract_call'
-  | 'wallet_created';
-
 export interface BillingUsageEventRequest {
-  walletId: string;
-  action: BillingUsageAction;
-  succeeded: boolean;
-  isSimulation?: boolean;
-  isInternalRetry?: boolean;
+  resourceId: string;
+  shouldCount: boolean;
   occurredAt?: string;
   sourceEventId?: string;
 }
@@ -151,23 +141,23 @@ export interface BillingUsageEventResult {
   accepted: boolean;
   counted: boolean;
   monthUtc: string;
-  monthlyActiveWallets: number;
+  monthlyActiveResources: number;
   debitAppliedMinor: number;
   creditBalanceMinor: number;
   statementId: string | null;
 }
 
-export interface BillingSponsoredExecutionDebitRequest {
+export interface BillingProductExecutionDebitRequest {
   amountMinor: number;
   sourceEventId: string;
-  walletId: string;
+  resourceId: string;
   occurredAt?: string;
   txOrExecutionRef?: string | null;
   pricingVersion?: string | null;
   note?: string | null;
 }
 
-export interface BillingSponsoredExecutionDebitResult {
+export interface BillingProductExecutionDebitResult {
   accepted: boolean;
   debitAppliedMinor: number;
   ledgerEntryId: string | null;
@@ -176,10 +166,10 @@ export interface BillingSponsoredExecutionDebitResult {
   statementId: string | null;
 }
 
-export interface BillingMonthlyActiveWallets {
+export interface BillingMonthlyActiveResources {
   usageMetricVersion: BillingUsageMetricVersion;
   monthUtc: string;
-  monthlyActiveWallets: number;
+  monthlyActiveResources: number;
 }
 
 export interface BillingInvoice {
@@ -243,9 +233,9 @@ export interface GenerateMonthlyInvoiceResult {
   generated: boolean;
   invoice: BillingInvoice;
   lineItems: BillingInvoiceLineItem[];
-  monthlyActiveWallets: number;
+  monthlyActiveResources: number;
   pricing: {
-    mawUnitPriceMinor: number;
+    activeResourceUnitPriceMinor: number;
   };
 }
 

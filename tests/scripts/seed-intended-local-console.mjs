@@ -222,7 +222,7 @@ ON CONFLICT(namespace, id) DO UPDATE SET
 
 function buildEnvironmentStatement(config) {
   return `INSERT INTO environments
-  (namespace, id, org_id, project_id, env_key, signing_root_version, name, status, created_at_ms, updated_at_ms)
+  (namespace, id, org_id, project_id, env_key, runtime_version, name, status, created_at_ms, updated_at_ms)
 VALUES
   (${sqlString(config.namespace)}, ${sqlString(config.environmentId)}, ${sqlString(config.orgId)},
    ${sqlString(config.projectId)}, ${sqlString(config.environmentKey)}, 'default',
@@ -231,7 +231,7 @@ ON CONFLICT(namespace, id) DO UPDATE SET
   org_id = excluded.org_id,
   project_id = excluded.project_id,
   env_key = excluded.env_key,
-  signing_root_version = excluded.signing_root_version,
+  runtime_version = excluded.runtime_version,
   name = excluded.name,
   status = excluded.status,
   updated_at_ms = excluded.updated_at_ms;`;

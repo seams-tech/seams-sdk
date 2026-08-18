@@ -5,7 +5,12 @@ import type {
   RouterApiUsageMeterAdapter,
 } from '@seams/wallet-server/cloud-host';
 import {
+  isApiCredentialScope,
+  type ApiCredentialScope,
+} from '@seams-internal/wallet-console-shared/apiKeyScopes';
+import {
   WALLET_CONSOLE_OP_PATHS_V1,
+  WALLET_CONSOLE_SERVICE_ORIGIN_V1,
   type WalletConsoleSecretKeyAuthRequestV1,
   type WalletConsolePublishableKeyAuthRequestV1,
   type WalletConsoleUsageEventV1,
@@ -35,30 +40,50 @@ function stringField(body: Record<string, unknown>, field: string): string {
   return String(body[field] ?? '').trim();
 }
 
+function parseRequiredScopes(value: unknown): ApiCredentialScope[] | null {
+  if (!Array.isArray(value)) return null;
+  const scopes: ApiCredentialScope[] = [];
+  for (const candidate of value) {
+    if (typeof candidate !== 'string') return null;
+    const scope = candidate.trim();
+    if (!isApiCredentialScope(scope)) return null;
+    scopes.push(scope);
+  }
+  return scopes;
+}
+
 /**
  * Console-side target of the private Wallet Console service binding. Serves
- * exactly the three declared operations; every other path under the internal
+ * exactly the four declared operations; every other path under the internal
  * prefix is a 404 so the surface cannot grow silently.
  */
 export function createWalletConsoleOpsHandler(
   services: WalletConsoleOpsHandlerServices,
 ): (request: Request) => Promise<Response | null> {
   return async (request: Request): Promise<Response | null> => {
-    const pathname = new URL(request.url).pathname;
+    const url = new URL(request.url);
+    const pathname = url.pathname;
     if (!pathname.startsWith('/internal/wallet-console/')) return null;
+    if (url.origin !== WALLET_CONSOLE_SERVICE_ORIGIN_V1) return null;
     if (request.method !== 'POST') {
       return json({ ok: false, code: 'method_not_allowed', message: 'Method not allowed' }, 405);
     }
 
     if (pathname === WALLET_CONSOLE_OP_PATHS_V1.secretKeyAuth) {
       const body = await readJsonBody(request);
-      if (!body) return json({ ok: false, code: 'invalid_body', message: 'JSON body required' }, 400);
+      if (!body)
+        return json({ ok: false, code: 'invalid_body', message: 'JSON body required' }, 400);
+      const requiredScopes = parseRequiredScopes(body.requiredScopes);
+      if (!requiredScopes) {
+        return json(
+          { ok: false, code: 'invalid_body', message: 'requiredScopes must contain known scopes' },
+          400,
+        );
+      }
       const input: WalletConsoleSecretKeyAuthRequestV1 = {
         secret: stringField(body, 'secret'),
         endpoint: stringField(body, 'endpoint'),
-        requiredScopes: Array.isArray(body.requiredScopes)
-          ? body.requiredScopes.map((scope) => String(scope ?? '').trim()).filter(Boolean)
-          : [],
+        requiredScopes,
         ...(stringField(body, 'sourceIp') ? { sourceIp: stringField(body, 'sourceIp') } : {}),
         ...(stringField(body, 'environmentId')
           ? { environmentId: stringField(body, 'environmentId') }
@@ -67,7 +92,7 @@ export function createWalletConsoleOpsHandler(
       const result = await services.apiKeyAuth.authenticate({
         secret: input.secret,
         endpoint: input.endpoint,
-        requiredScopes: input.requiredScopes as never,
+        requiredScopes: input.requiredScopes,
         ...(input.sourceIp ? { sourceIp: input.sourceIp } : {}),
         ...(input.environmentId ? { environmentId: input.environmentId } : {}),
       });
@@ -76,7 +101,8 @@ export function createWalletConsoleOpsHandler(
 
     if (pathname === WALLET_CONSOLE_OP_PATHS_V1.publishableKeyAuth) {
       const body = await readJsonBody(request);
-      if (!body) return json({ ok: false, code: 'invalid_body', message: 'JSON body required' }, 400);
+      if (!body)
+        return json({ ok: false, code: 'invalid_body', message: 'JSON body required' }, 400);
       const input: WalletConsolePublishableKeyAuthRequestV1 = {
         secret: stringField(body, 'secret'),
         origin: stringField(body, 'origin'),
@@ -88,7 +114,8 @@ export function createWalletConsoleOpsHandler(
 
     if (pathname === WALLET_CONSOLE_OP_PATHS_V1.usageEvents) {
       const body = await readJsonBody(request);
-      if (!body) return json({ ok: false, code: 'invalid_body', message: 'JSON body required' }, 400);
+      if (!body)
+        return json({ ok: false, code: 'invalid_body', message: 'JSON body required' }, 400);
       const event: WalletConsoleUsageEventV1 = {
         orgId: stringField(body, 'orgId'),
         environmentId: stringField(body, 'environmentId'),
@@ -139,7 +166,9 @@ export function createWalletConsoleOpsHandler(
             ? { projectId: stringField(context, 'projectId') }
             : {}),
         },
-        filters && stringField(filters, 'status') ? { status: stringField(filters, 'status') } : undefined,
+        filters && stringField(filters, 'status')
+          ? { status: stringField(filters, 'status') }
+          : undefined,
       );
       return json({ ok: true, environments });
     }

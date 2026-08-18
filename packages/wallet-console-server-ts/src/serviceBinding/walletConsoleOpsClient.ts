@@ -4,7 +4,7 @@ import type {
   RouterApiProjectEnvironmentResolver,
   RouterApiUsageMeterAdapter,
 } from '@seams/wallet-server/cloud-host';
-import { WALLET_CONSOLE_OP_PATHS_V1 } from './walletConsoleOps';
+import { WALLET_CONSOLE_OP_PATHS_V1, WALLET_CONSOLE_SERVICE_ORIGIN_V1 } from './walletConsoleOps';
 
 /** The shape of a Cloudflare service binding (`Fetcher`). */
 export interface WalletConsoleServiceBinding {
@@ -20,14 +20,12 @@ export interface WalletConsoleOpsClient {
 
 // The origin is never routable: service bindings dispatch on the bound Worker,
 // not DNS. It only namespaces the internal request URL.
-const INTERNAL_ORIGIN = 'https://wallet-console.internal';
-
 async function postJson(
   service: WalletConsoleServiceBinding,
   path: string,
   body: unknown,
 ): Promise<{ status: number; body: Record<string, unknown> }> {
-  const response = await service.fetch(`${INTERNAL_ORIGIN}${path}`, {
+  const response = await service.fetch(`${WALLET_CONSOLE_SERVICE_ORIGIN_V1}${path}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),

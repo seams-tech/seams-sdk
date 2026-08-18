@@ -130,7 +130,6 @@ import {
   expectRawD1RuntimeSnapshotInsertRejected,
   expectRawD1RuntimeSnapshotOutboxInsertRejected,
   expectRawD1WebhookEndpointInsertRejected,
-  expectRawD1WebhookEndpointCategoryInsertRejected,
   expectRawD1WalletInsertRejected,
   expectRawD1WalletSignerInsertRejected,
   expectRawD1WalletAuthMethodInsertRejected,
@@ -682,12 +681,6 @@ test.describe('D1 migration smoke', () => {
         temp.database,
         buildRawD1WebhookEndpointInsertInput({}),
       );
-      await expectRawD1WebhookEndpointCategoryInsertRejected(
-        temp.database,
-        buildRawD1WebhookEndpointCategoryInsertInput({
-          category: 'unsupported',
-        }),
-      );
       await insertRawD1WebhookEndpointCategoryRecord(
         temp.database,
         buildRawD1WebhookEndpointCategoryInsertInput({}),
@@ -876,7 +869,7 @@ test.describe('D1 migration smoke', () => {
       await expectRawD1BillingLedgerEntryInsertRejected(
         temp.database,
         buildRawD1BillingLedgerEntryInsertInput({
-          entryType: 'SPONSORED_EXECUTION_DEBIT',
+          entryType: 'PRODUCT_EXECUTION_DEBIT',
           amountMinor: 100,
         }),
       );
@@ -958,10 +951,10 @@ test.describe('D1 migration smoke', () => {
         .prepare('SELECT COUNT(*) AS record_count FROM billing_ledger_postings')
         .first<{ record_count?: unknown }>();
       const walletRow = await temp.database
-        .prepare('SELECT COUNT(*) AS record_count FROM billing_monthly_active_wallets')
+        .prepare('SELECT COUNT(*) AS record_count FROM billing_monthly_active_resources')
         .first<{ record_count?: unknown }>();
       expect(Number(ledgerRow?.record_count || 0)).toBe(1);
-      expect(Number(postingRow?.record_count || 0)).toBe(1);
+      expect(Number(postingRow?.record_count || 0)).toBe(3);
       expect(Number(walletRow?.record_count || 0)).toBe(1);
     } finally {
       cleanupTemporaryD1Database(temp.tempDir);
@@ -1149,10 +1142,10 @@ test.describe('D1 adapter contracts', () => {
       ]);
 
       const prodEnvironment = await service.updateEnvironment(primaryCtx, 'project-d1-org:prod', {
-        signingRootVersion: 'signing-root-d1-v2',
+        runtimeVersion: 'runtime-d1-v2',
         name: 'Production Root',
       });
-      expect(prodEnvironment?.signingRootVersion).toBe('signing-root-d1-v2');
+      expect(prodEnvironment?.runtimeVersion).toBe('runtime-d1-v2');
 
       await service.upsertOrganization(secondaryCtx, {
         name: 'D1 Secondary Org',
@@ -1541,7 +1534,8 @@ test.describe('D1 adapter contracts', () => {
     const temp = createTemporaryD1Database();
     try {
       let nowMsValue = Date.parse('2026-06-27T01:00:00.000Z');
-      const service = await createD1ConsoleApiKeyService({ scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+      const service = await createD1ConsoleApiKeyService({
+        scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
         database: temp.database,
         namespace: 'd1-contracts',
         ensureSchema: true,
@@ -2064,7 +2058,8 @@ test.describe('D1 adapter contracts', () => {
     try {
       const clock = new TestMutableClock('2026-06-27T02:50:00.000Z');
       const dispatcher = new D1WebhookDispatchHarness();
-      const service = await createD1ConsoleWebhookService({ categoryValidation: WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
+      const service = await createD1ConsoleWebhookService({
+        categoryValidation: WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
         database: temp.database,
         namespace: 'd1-contracts',
         ensureSchema: true,
@@ -2261,7 +2256,8 @@ test.describe('D1 adapter contracts', () => {
       const orgId = 'org-d1-webhook-retry';
       const secretCipher = createD1WebhookTestSecretCipher();
       const initialDispatcher = new D1WebhookDispatchHarness();
-      const service = await createD1ConsoleWebhookService({ categoryValidation: WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
+      const service = await createD1ConsoleWebhookService({
+        categoryValidation: WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
         database: temp.database,
         namespace,
         ensureSchema: true,
@@ -2313,7 +2309,8 @@ test.describe('D1 adapter contracts', () => {
         secretCipher,
         now: clock.now,
       });
-      const retryResult = await runD1ConsoleWebhookRetryDispatch({ categoryValidation: WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
+      const retryResult = await runD1ConsoleWebhookRetryDispatch({
+        categoryValidation: WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
         database: temp.database,
         namespace,
         orgIds: [orgId],
@@ -3229,8 +3226,8 @@ test.describe('D1 adapter contracts', () => {
 
       await temp.database
         .prepare(
-          `INSERT INTO billing_monthly_active_wallets
-            (namespace, org_id, month_utc, wallet_id, source_event_id, created_at_ms)
+          `INSERT INTO billing_monthly_active_resources
+            (namespace, org_id, month_utc, resource_id, source_event_id, created_at_ms)
            VALUES
             (?, ?, ?, ?, ?, ?)`,
         )
@@ -3275,7 +3272,7 @@ test.describe('D1 adapter contracts', () => {
       const lineItems = await billing.listInvoiceLineItems(ctx, invoices.invoices[0]?.id || '');
       expect(lineItems).toEqual([
         expect.objectContaining({
-          itemType: 'MAW_USAGE_DEBIT',
+          itemType: 'ACTIVE_RESOURCE_USAGE_DEBIT',
           quantity: 1,
           unitAmountMinor: 300,
           amountMinor: 300,
@@ -3414,7 +3411,7 @@ test.describe('D1 adapter contracts', () => {
       expect(summary.reservedMinor).toBe(0);
       expect(summary.activeReservationCount).toBe(0);
 
-      const debits = await billing.getSponsoredExecutionDebitsByIds(ctx, [
+      const debits = await billing.getProductExecutionDebitsByIds(ctx, [
         record.billingLedgerEntryId || '',
       ]);
       expect(debits).toHaveLength(1);
@@ -3462,7 +3459,7 @@ test.describe('D1 adapter contracts', () => {
       expect(duplicate.id).toBe(record.id);
 
       const sponsoredDebitActivity = await billing.listAccountActivity(ctx, {
-        eventType: 'SPONSORED_EXECUTION_DEBIT',
+        eventType: 'PRODUCT_EXECUTION_DEBIT',
         limit: 10,
       });
       expect(sponsoredDebitActivity.entries).toHaveLength(1);
@@ -3620,7 +3617,7 @@ test.describe('D1 adapter contracts', () => {
         creditBalanceMinor: 1000,
       });
       const sponsoredDebitActivity = await billing.listAccountActivity(ctx, {
-        eventType: 'SPONSORED_EXECUTION_DEBIT',
+        eventType: 'PRODUCT_EXECUTION_DEBIT',
         limit: 10,
       });
       expect(sponsoredDebitActivity.entries).toHaveLength(0);

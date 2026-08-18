@@ -2,7 +2,7 @@ export type ConsoleOrganizationStatus = 'ACTIVE';
 export type ConsoleProjectStatus = 'ACTIVE' | 'ARCHIVED';
 export type ConsoleEnvironmentStatus = 'ACTIVE' | 'DISABLED' | 'ARCHIVED';
 
-export const DEFAULT_CONSOLE_SIGNING_ROOT_VERSION = 'default';
+export const DEFAULT_CONSOLE_RUNTIME_VERSION = 'default';
 
 export interface ConsoleOrganization {
   id: string;
@@ -29,7 +29,7 @@ export interface ConsoleEnvironment {
   orgId: string;
   projectId: string;
   key: 'dev' | 'staging' | 'prod';
-  signingRootVersion: string;
+  runtimeVersion: string;
   name: string;
   status: ConsoleEnvironmentStatus;
   createdAt: string;
@@ -69,12 +69,12 @@ export interface CreateConsoleEnvironmentRequest {
   id?: string;
   projectId: string;
   key: ConsoleEnvironment['key'];
-  signingRootVersion?: string;
+  runtimeVersion?: string;
   name?: string;
   status?: Exclude<ConsoleEnvironmentStatus, 'ARCHIVED'>;
 }
 
 export interface UpdateConsoleEnvironmentRequest {
   name?: string;
-  signingRootVersion?: string;
+  runtimeVersion?: string;
 }

@@ -77,13 +77,13 @@ interface SignedDelegateExecutionAssessment extends SponsorshipExecutionAssessme
   gasBurnt: string | null;
 }
 
-export type SignedDelegateRouterApiAuthService = SponsoredNearDelegateAuthService &
-  {
-    getRelayerAccount(): Promise<{ accountId: string; publicKey: string }>;
-  };
+export type SignedDelegateRouterApiAuthService = SponsoredNearDelegateAuthService & {
+  getRelayerAccount(): Promise<{ accountId: string; publicKey: string }>;
+};
 
-type MatchedSponsoredNearDelegate =
-  NonNullable<ReturnType<typeof matchResolvedSponsoredNearDelegatePolicy>>;
+type MatchedSponsoredNearDelegate = NonNullable<
+  ReturnType<typeof matchResolvedSponsoredNearDelegatePolicy>
+>;
 
 interface RouterApiSignedDelegateServices {
   signedDelegateAuth: SignedDelegateRouterApiAuthService;
@@ -240,9 +240,10 @@ function resolveNearOutcomeFailure(outcome: unknown): {
   const transactionOutcome = isPlainObject(outcome.transaction_outcome)
     ? (outcome.transaction_outcome as Record<string, unknown>)
     : null;
-  const rootOutcome = transactionOutcome && isPlainObject(transactionOutcome.outcome)
-    ? (transactionOutcome.outcome as Record<string, unknown>)
-    : null;
+  const rootOutcome =
+    transactionOutcome && isPlainObject(transactionOutcome.outcome)
+      ? (transactionOutcome.outcome as Record<string, unknown>)
+      : null;
   const rootFailure = readNearFailureDetail(rootOutcome?.status);
   if (rootFailure) return rootFailure;
 
@@ -305,8 +306,7 @@ function resolveSignedDelegateAssessment(result: {
   }
 
   const responseCode = String(result.code || '').trim() || 'delegate_execution_failed';
-  const responseMessage =
-    String(result.error || '').trim() || 'Failed to execute delegate action';
+  const responseMessage = String(result.error || '').trim() || 'Failed to execute delegate action';
   const receiptStatus: ConsoleSponsoredCallReceiptStatus = transactionHash
     ? 'broadcast_failed'
     : 'rpc_rejected';
@@ -333,16 +333,13 @@ function resolveThrownSignedDelegateAssessment(error: unknown): SignedDelegateEx
   return resolveSignedDelegateAssessment({
     ok: false,
     code: String(row.code || '').trim() || undefined,
-    error:
-      String(row.error || row.message || '').trim() || 'Failed to execute delegate action',
+    error: String(row.error || row.message || '').trim() || 'Failed to execute delegate action',
     outcome: row.outcome,
     transactionHash: String(row.transactionHash || row.txHash || '').trim() || undefined,
   });
 }
 
-function summarizeNearExecutionOutcome(
-  outcome: unknown,
-): {
+function summarizeNearExecutionOutcome(outcome: unknown): {
   feeAmountYoctoNear: string;
   gasBurnt: string | null;
 } {
@@ -351,9 +348,10 @@ function summarizeNearExecutionOutcome(
     const transactionOutcome = isPlainObject(outcome.transaction_outcome)
       ? (outcome.transaction_outcome as Record<string, unknown>)
       : null;
-    const rootOutcome = transactionOutcome && isPlainObject(transactionOutcome.outcome)
-      ? (transactionOutcome.outcome as Record<string, unknown>)
-      : null;
+    const rootOutcome =
+      transactionOutcome && isPlainObject(transactionOutcome.outcome)
+        ? (transactionOutcome.outcome as Record<string, unknown>)
+        : null;
     if (rootOutcome) rows.push(rootOutcome);
     if (Array.isArray((outcome as Record<string, unknown>).receipts_outcome)) {
       for (const entry of (outcome as Record<string, unknown>).receipts_outcome as unknown[]) {
@@ -390,7 +388,9 @@ function summarizeNearExecutionOutcome(
   };
 }
 
-function buildPrepaidFailureResponse(error: unknown): RouteResponse<Record<string, unknown>> | null {
+function buildPrepaidFailureResponse(
+  error: unknown,
+): RouteResponse<Record<string, unknown>> | null {
   if (!isSponsorshipPrepaidBalanceEnforcementError(error)) return null;
   return routeJson(error.status, {
     ok: false,
@@ -503,14 +503,18 @@ async function meterSignedDelegate(input: {
   await applyRouteMetering({
     context: input.routeContext,
     route: input.route,
-    response: routeJson(input.assessment.succeeded ? 200 : 502, { ok: input.assessment.succeeded }, {
-      usage: {
-        ...(input.assessment.gasBurnt ? { gasUsed: input.assessment.gasBurnt } : {}),
-        ...(input.assessment.txOrExecutionRef
-          ? { transactionHash: input.assessment.txOrExecutionRef }
-          : {}),
+    response: routeJson(
+      input.assessment.succeeded ? 200 : 502,
+      { ok: input.assessment.succeeded },
+      {
+        usage: {
+          ...(input.assessment.gasBurnt ? { gasUsed: input.assessment.gasBurnt } : {}),
+          ...(input.assessment.txOrExecutionRef
+            ? { transactionHash: input.assessment.txOrExecutionRef }
+            : {}),
+        },
       },
-    }),
+    ),
     handlers: {
       gas: async ({ context, ledger, response, route }) => {
         if (ledger !== 'near_delegate') return;
@@ -541,10 +545,10 @@ async function meterSignedDelegate(input: {
         ) {
           const billing = input.services.billing;
           if (!billing) return;
-          const debit = await billing.recordSponsoredExecutionDebit(sponsorshipCtx, {
+          const debit = await billing.recordProductExecutionDebit(sponsorshipCtx, {
             amountMinor: input.prepaidSettlement.settledSpendMinor,
             sourceEventId: `signed_delegate_debit:${input.prepaidSettlement.sourceEventId}`,
-            walletId: senderId,
+            resourceId: senderId,
             occurredAt: input.prepaidSettlement.settledAt,
             ...(input.assessment.txOrExecutionRef
               ? { txOrExecutionRef: input.assessment.txOrExecutionRef }
@@ -607,8 +611,8 @@ async function meterSignedDelegate(input: {
           prepaidReservationId: input.prepaidSettlement?.reservationId || null,
           charged: Boolean(
             input.prepaidSettlement &&
-              !input.prepaidSettlement.released &&
-              input.prepaidSettlement.settledSpendMinor > 0,
+            !input.prepaidSettlement.released &&
+            input.prepaidSettlement.settledSpendMinor > 0,
           ),
           chargedReason: input.prepaidSettlement
             ? input.prepaidSettlement.released
@@ -641,24 +645,21 @@ export async function handleRouterApiSignedDelegate(
       // enforceRoutePolicy looks up services by that exact name.
       signedDelegateAuth: input.services.signedDelegateAuth,
       ...(input.services.billing ? { billing: input.services.billing } : {}),
-      ...(publishableKeyAuth
-        ? { publishableKeyAuth }
+      ...(publishableKeyAuth ? { publishableKeyAuth } : {}),
+      ...(input.services.runtimeSnapshots
+        ? { runtimeSnapshots: input.services.runtimeSnapshots }
         : {}),
-      ...(input.services.runtimeSnapshots ? { runtimeSnapshots: input.services.runtimeSnapshots } : {}),
-      ...(input.services.sponsoredCalls
-        ? { sponsoredCalls: input.services.sponsoredCalls }
-        : {}),
+      ...(input.services.sponsoredCalls ? { sponsoredCalls: input.services.sponsoredCalls } : {}),
     },
     resolvers: publishableKeyAuth
-        ? {
+      ? {
           apiCredentials: async () =>
             await resolvePublishableKeyApiCredentialAuth({
               environmentId: extractRouterApiEnvironmentId(input.headers) || undefined,
               headers: input.headers,
               missingEnvironmentMessage:
                 'Environment header is required for signed delegate execution',
-              missingOriginMessage:
-                'Origin header is required and must be a valid exact origin',
+              missingOriginMessage: 'Origin header is required and must be a valid exact origin',
               missingPublishableKeyMessage: 'Missing publishable key',
               origin: input.origin,
               publishableKeyAuth,
@@ -763,8 +764,7 @@ export async function handleRouterApiSignedDelegate(
       return routeJson(500, {
         ok: false,
         code: 'sponsorship_pricing_misconfigured',
-        message:
-          'NEAR sponsorship requires the matched policy to resolve to a concrete network',
+        message: 'NEAR sponsorship requires the matched policy to resolve to a concrete network',
       });
     }
     const spendCapSourceEventId = buildSponsoredSpendCapSourceEventId({
@@ -851,8 +851,7 @@ export async function handleRouterApiSignedDelegate(
       return routeJson(500, {
         ok: false,
         code: 'internal',
-        message:
-          error instanceof Error ? error.message : 'Failed to reserve sponsored spend cap',
+        message: error instanceof Error ? error.message : 'Failed to reserve sponsored spend cap',
       });
     }
     try {
@@ -881,12 +880,15 @@ export async function handleRouterApiSignedDelegate(
             ctx: sponsorshipRuntime.sponsorshipCtx,
           });
         } catch (releaseError: unknown) {
-          input.logger.warn('[router-api][signed-delegate] spend-cap release after prepaid failure failed', {
-            route: input.route.id,
-            policyId: matched.policy.policyId,
-            idempotencyKey,
-            error: releaseError instanceof Error ? releaseError.message : String(releaseError),
-          });
+          input.logger.warn(
+            '[router-api][signed-delegate] spend-cap release after prepaid failure failed',
+            {
+              route: input.route.id,
+              policyId: matched.policy.policyId,
+              idempotencyKey,
+              error: releaseError instanceof Error ? releaseError.message : String(releaseError),
+            },
+          );
         }
       }
       if (isSponsorshipPrepaidBalanceEnforcementError(error)) {
@@ -934,26 +936,23 @@ export async function handleRouterApiSignedDelegate(
         ),
       assessResult: resolveSignedDelegateAssessment,
       assessThrownError: resolveThrownSignedDelegateAssessment,
-      onResult: async ({
-        result,
-        assessment,
-      }): Promise<RouteResponse<Record<string, unknown>>> => {
-        let spendCapSettlement: (SponsorshipSpendCapSettlement & {
-          sourceEventId: string;
-          estimatedSpendMinor: number;
-        }) | null = null;
-        let prepaidSettlement:
-          | {
-              reservationId: string | null;
-              settledAt: string;
+      onResult: async ({ result, assessment }): Promise<RouteResponse<Record<string, unknown>>> => {
+        let spendCapSettlement:
+          | (SponsorshipSpendCapSettlement & {
               sourceEventId: string;
               estimatedSpendMinor: number;
-              settledSpendMinor: number;
-              pricingVersion: string;
-              usedEstimatedFallback: boolean;
-              released: boolean;
-            }
+            })
           | null = null;
+        let prepaidSettlement: {
+          reservationId: string | null;
+          settledAt: string;
+          sourceEventId: string;
+          estimatedSpendMinor: number;
+          settledSpendMinor: number;
+          pricingVersion: string;
+          usedEstimatedFallback: boolean;
+          released: boolean;
+        } | null = null;
         try {
           const settled = await settleSponsoredSpendCap({
             reservation: spendCapReservation,
@@ -1068,16 +1067,13 @@ export async function handleRouterApiSignedDelegate(
         }
 
         if (!assessment.succeeded) {
-          return routeJson(
-            assessment.receiptStatus === 'rpc_rejected' ? 400 : 502,
-            {
-              ok: false,
-              code: assessment.responseCode,
-              message: assessment.responseMessage,
-              relayerTxHash: assessment.txOrExecutionRef,
-              outcome: result.outcome ?? null,
-            },
-          );
+          return routeJson(assessment.receiptStatus === 'rpc_rejected' ? 400 : 502, {
+            ok: false,
+            code: assessment.responseCode,
+            message: assessment.responseMessage,
+            relayerTxHash: assessment.txOrExecutionRef,
+            outcome: result.outcome ?? null,
+          });
         }
 
         return routeJson(200, {
@@ -1091,18 +1087,16 @@ export async function handleRouterApiSignedDelegate(
         error,
         assessment,
       }): Promise<RouteResponse<Record<string, unknown>>> => {
-        let prepaidSettlement:
-          | {
-              reservationId: string | null;
-              settledAt: string;
-              sourceEventId: string;
-              estimatedSpendMinor: number;
-              settledSpendMinor: number;
-              pricingVersion: string;
-              usedEstimatedFallback: boolean;
-              released: boolean;
-            }
-          | null = null;
+        let prepaidSettlement: {
+          reservationId: string | null;
+          settledAt: string;
+          sourceEventId: string;
+          estimatedSpendMinor: number;
+          settledSpendMinor: number;
+          pricingVersion: string;
+          usedEstimatedFallback: boolean;
+          released: boolean;
+        } | null = null;
         try {
           const settled = await settleSponsoredSpendCap({
             reservation: spendCapReservation,
@@ -1201,7 +1195,9 @@ export async function handleRouterApiSignedDelegate(
                   ? (error as { outcome?: unknown }).outcome
                   : undefined,
               transactionHash:
-                typeof assessment.txOrExecutionRef === 'string' ? assessment.txOrExecutionRef : undefined,
+                typeof assessment.txOrExecutionRef === 'string'
+                  ? assessment.txOrExecutionRef
+                  : undefined,
             },
             route: input.route,
             routeContext: sponsorshipRuntime.context,
@@ -1223,7 +1219,7 @@ export async function handleRouterApiSignedDelegate(
           relayerTxHash: assessment.txOrExecutionRef,
           outcome:
             error && typeof error === 'object' && 'outcome' in error
-              ? (error as { outcome?: unknown }).outcome ?? null
+              ? ((error as { outcome?: unknown }).outcome ?? null)
               : null,
         });
       },
@@ -1234,13 +1230,15 @@ export async function handleRouterApiSignedDelegate(
       return routeJson(400, {
         ok: false,
         code: 'invalid_body',
-        message: message.slice('invalid_body:'.length).trim() || 'Expected { hash, signedDelegate }',
+        message:
+          message.slice('invalid_body:'.length).trim() || 'Expected { hash, signedDelegate }',
       });
     }
     return routeJson(500, {
       ok: false,
       code: 'internal',
-      message: error instanceof Error ? error.message : 'Internal error while executing delegate action',
+      message:
+        error instanceof Error ? error.message : 'Internal error while executing delegate action',
     });
   }
 }

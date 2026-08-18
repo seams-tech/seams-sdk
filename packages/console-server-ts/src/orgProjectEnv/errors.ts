@@ -5,12 +5,7 @@ export class ConsoleOrgProjectEnvError extends Error {
 
   readonly details?: Record<string, unknown>;
 
-  constructor(
-    code: string,
-    status: number,
-    message: string,
-    details?: Record<string, unknown>,
-  ) {
+  constructor(code: string, status: number, message: string, details?: Record<string, unknown>) {
     super(message);
     this.name = 'ConsoleOrgProjectEnvError';
     this.code = code;

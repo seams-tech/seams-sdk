@@ -21,6 +21,8 @@ import {
   createWalletConsoleOpsClient,
   type WalletConsoleServiceBinding,
 } from '../../serviceBinding/walletConsoleOpsClient';
+import { createWalletConsoleRelayProxyExtension } from '../../serviceBinding/walletConsoleRelay';
+import { createWalletRuntimeOpsHandler } from '../../serviceBinding/walletRuntimeOpsHandler';
 import {
   createCloudflareD1RouterAbNormalSigningAdmissionStore,
   createRouterAbNormalSigningAdmissionAdapter,
@@ -109,10 +111,7 @@ import type { RouterApiCloudflareConsoleWorkerEnv } from './cloudflareConsole.ty
 import { resolveEmailOtpDeliveryProviderFromEnv } from '../../email/otp/emailOtpProviders';
 
 export interface CloudflareD1GatewayBaseEnv
-  extends
-    CloudflareD1StagingSessionEnv,
-    RouterAbServiceBindingEnv,
-    RouterApiCloudflareConsoleWorkerEnv {
+  extends CloudflareD1StagingSessionEnv, RouterAbServiceBindingEnv {
   readonly SIGNER_DB: D1DatabaseLike;
   readonly SEAMS_TENANT_STORAGE_NAMESPACE?: string;
   readonly SEAMS_STAGING_ORG_ID?: string;
@@ -173,25 +172,26 @@ export interface CloudflareD1GatewayBaseEnv
   readonly EMAIL_OTP_LOCKOUT_TTL_MS?: string;
   readonly EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_MAX?: string;
   readonly EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS?: string;
-  readonly SPONSORED_EVM_EXECUTORS_JSON?: string;
-  readonly SPONSORED_EXECUTION_REAL_PRICING_JSON?: string;
-  readonly SPONSORED_EXECUTION_STATIC_PRICING_JSON?: string;
-  readonly STRIPE_API_SK?: string;
-  readonly STRIPE_WEBHOOK_SECRET?: string;
-  readonly STRIPE_API_BASE_URL?: string;
-  readonly STRIPE_API_TIMEOUT_MS?: string;
-  readonly CONSOLE_INITIAL_OWNER_EMAIL?: string;
-  readonly CONSOLE_PLATFORM_SUPPORT_EMAILS?: string;
-  readonly CONSOLE_BASE_URL?: string;
-  readonly CONSOLE_SESSION_HMAC_SECRET: string;
-  readonly CONSOLE_SESSION_COOKIE_NAME: string;
-  readonly CONSOLE_SESSION_ISSUER: string;
-  readonly CONSOLE_SESSION_AUDIENCE: string;
 }
 
-interface CloudflareD1RouterApiStagingEnv extends CloudflareD1GatewayBaseEnv {
-  readonly CONSOLE_DB: D1DatabaseLike;
-}
+type CloudflareD1RouterApiStagingEnv = CloudflareD1GatewayBaseEnv &
+  RouterApiCloudflareConsoleWorkerEnv & {
+    readonly CONSOLE_DB: D1DatabaseLike;
+    readonly SPONSORED_EVM_EXECUTORS_JSON?: string;
+    readonly SPONSORED_EXECUTION_REAL_PRICING_JSON?: string;
+    readonly SPONSORED_EXECUTION_STATIC_PRICING_JSON?: string;
+    readonly STRIPE_API_SK?: string;
+    readonly STRIPE_WEBHOOK_SECRET?: string;
+    readonly STRIPE_API_BASE_URL?: string;
+    readonly STRIPE_API_TIMEOUT_MS?: string;
+    readonly CONSOLE_INITIAL_OWNER_EMAIL?: string;
+    readonly CONSOLE_PLATFORM_SUPPORT_EMAILS?: string;
+    readonly CONSOLE_BASE_URL?: string;
+    readonly CONSOLE_SESSION_HMAC_SECRET: string;
+    readonly CONSOLE_SESSION_COOKIE_NAME: string;
+    readonly CONSOLE_SESSION_ISSUER: string;
+    readonly CONSOLE_SESSION_AUDIENCE: string;
+  };
 
 export interface CloudflareD1GatewayEnv extends CloudflareD1GatewayBaseEnv {
   readonly WALLET_CONSOLE: WalletConsoleServiceBinding;
@@ -486,7 +486,6 @@ async function createRouterApiHandler(env: CloudflareD1RouterApiStagingEnv): Pro
   );
 }
 
-
 /**
  * The split Wallet Gateway (R105 Phase 4 cutover target): serves the Wallet
  * runtime only, holds no Console database binding, and reaches the Wallet
@@ -517,7 +516,7 @@ export async function createSplitGatewayRouterHandler(
     apiKeyUsageMeter: ops.usageMeter,
     orgProjectEnv: ops.projectEnvironments,
     routerAbNormalSigningAdmission: createRouterAbNormalSigningAdmissionAdapter(admissionStore),
-    routeExtensions: [],
+    routeExtensions: [createWalletConsoleRelayProxyExtension(env.WALLET_CONSOLE)],
     healthz: true,
     readyz: true,
     corsOrigins: readCsvList(env.RELAY_CORS_ORIGINS),
@@ -539,6 +538,46 @@ export async function createSplitGatewayRouterHandler(
     signingSessionSeal: stagingSigningSessionSealOptions(env),
     routerAbEd25519YaoProduct: yaoRuntime,
   });
+}
+
+export async function handleSplitGatewayWalletRuntimeRequest(
+  request: Request,
+  env: CloudflareD1GatewayBaseEnv,
+): Promise<Response | null> {
+  const handler = createWalletRuntimeOpsHandler(async () => {
+    const scope = stagingTenantScope(env);
+    const session = stagingSessionAdapter(env);
+    const yaoRuntime = createStagingYaoRequestScopedRuntime(env);
+    const { service } = await createStagingRouterApiAuthComposition(
+      env,
+      scope,
+      session,
+      yaoRuntime,
+    );
+    return {
+      executeSignedDelegate: service.executeSignedDelegate.bind(service),
+      getRelayerAccount: service.router.getRelayerAccount.bind(service.router),
+    };
+  });
+  return await handler(request);
+}
+
+export async function handleSplitGatewayRequest(
+  request: Request,
+  env: CloudflareD1GatewayEnv,
+  ctx: CfExecutionContext,
+): Promise<Response> {
+  if (request.method === 'GET' && new URL(request.url).pathname === ROUTER_AB_CEREMONY_JWKS_PATH) {
+    return routerAbCeremonyJwksResponse(env);
+  }
+  const operation = yaoDirectOperationForRequest(request);
+  if (operation !== null) {
+    const response = await handlePartitionedD1Operation(env, request, operation);
+    withCors(response.headers, { corsOrigins: readCsvList(env.RELAY_CORS_ORIGINS) }, request);
+    return response;
+  }
+  const handler = await createSplitGatewayRouterHandler(env);
+  return await handler(request, env, ctx);
 }
 
 function stagingLinkedDeviceExecution(env: CloudflareD1GatewayBaseEnv) {
@@ -1115,9 +1154,7 @@ export default { fetch, scheduled };
  * is constructed here against request-scoped state instead of runtime-held
  * state, which is the dependency Refactor 93 exists to remove.
  */
-export function createStagingRecoveryRequestScopedDependencies(
-  env: CloudflareD1GatewayBaseEnv,
-): {
+export function createStagingRecoveryRequestScopedDependencies(env: CloudflareD1GatewayBaseEnv): {
   readonly store: ReturnType<typeof createStagingYaoPartitionedStateStore>;
   readonly backend: ReturnType<typeof createStagingEd25519YaoBackend>;
   readonly authorization: RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter;

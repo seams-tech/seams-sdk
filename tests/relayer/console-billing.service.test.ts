@@ -512,9 +512,8 @@ test.describe('console billing service prepaid model', () => {
     };
     const settled = await settleCreditPurchase(service, ctx, 'usd_10');
     await service.recordUsageEvent(ctx, {
-      walletId: 'refund-pending-wallet',
-      action: 'transfer',
-      succeeded: true,
+      resourceId: 'refund-pending-wallet',
+      shouldCount: true,
       sourceEventId: 'refund-pending-usage',
     });
     await expect(
@@ -555,9 +554,8 @@ test.describe('console billing service prepaid model', () => {
     };
     const settled = await settleCreditPurchase(service, ctx, 'usd_10');
     await service.recordUsageEvent(ctx, {
-      walletId: 'external-refund-wallet',
-      action: 'transfer',
-      succeeded: true,
+      resourceId: 'external-refund-wallet',
+      shouldCount: true,
       sourceEventId: 'external-refund-usage',
     });
 
@@ -711,64 +709,59 @@ test.describe('console billing service prepaid model', () => {
     };
 
     const first = await service.recordUsageEvent(ctx, {
-      walletId: 'wallet_mem_1',
-      action: 'transfer',
-      succeeded: true,
+      resourceId: 'wallet_mem_1',
+      shouldCount: true,
       sourceEventId: 'maw_mem_evt_1',
     });
     expect(first.accepted).toBe(true);
     expect(first.counted).toBe(true);
-    expect(first.monthlyActiveWallets).toBe(1);
+    expect(first.monthlyActiveResources).toBe(1);
     expect(first.debitAppliedMinor).toBe(300);
     expect(first.creditBalanceMinor).toBe(-300);
     expect(first.statementId).toBeTruthy();
 
     const secondSameWallet = await service.recordUsageEvent(ctx, {
-      walletId: 'wallet_mem_1',
-      action: 'swap',
-      succeeded: true,
+      resourceId: 'wallet_mem_1',
+      shouldCount: true,
       sourceEventId: 'maw_mem_evt_2',
     });
     expect(secondSameWallet.accepted).toBe(true);
     expect(secondSameWallet.counted).toBe(true);
-    expect(secondSameWallet.monthlyActiveWallets).toBe(1);
+    expect(secondSameWallet.monthlyActiveResources).toBe(1);
     expect(secondSameWallet.debitAppliedMinor).toBe(0);
 
     const excluded = await service.recordUsageEvent(ctx, {
-      walletId: 'wallet_mem_2',
-      action: 'wallet_created',
-      succeeded: true,
+      resourceId: 'wallet_mem_2',
+      shouldCount: false,
       sourceEventId: 'maw_mem_evt_3',
     });
     expect(excluded.accepted).toBe(true);
     expect(excluded.counted).toBe(false);
-    expect(excluded.monthlyActiveWallets).toBe(1);
+    expect(excluded.monthlyActiveResources).toBe(1);
 
     const thirdDistinct = await service.recordUsageEvent(ctx, {
-      walletId: 'wallet_mem_3',
-      action: 'contract_call',
-      succeeded: true,
+      resourceId: 'wallet_mem_3',
+      shouldCount: true,
       sourceEventId: 'maw_mem_evt_4',
     });
     expect(thirdDistinct.accepted).toBe(true);
     expect(thirdDistinct.counted).toBe(true);
-    expect(thirdDistinct.monthlyActiveWallets).toBe(2);
+    expect(thirdDistinct.monthlyActiveResources).toBe(2);
     expect(thirdDistinct.debitAppliedMinor).toBe(300);
 
     const duplicate = await service.recordUsageEvent(ctx, {
-      walletId: 'wallet_mem_3',
-      action: 'contract_call',
-      succeeded: true,
+      resourceId: 'wallet_mem_3',
+      shouldCount: true,
       sourceEventId: 'maw_mem_evt_4',
     });
     expect(duplicate.accepted).toBe(false);
     expect(duplicate.counted).toBe(false);
-    expect(duplicate.monthlyActiveWallets).toBe(2);
+    expect(duplicate.monthlyActiveResources).toBe(2);
 
-    const usage = await service.getMonthlyActiveWallets(ctx, first.monthUtc);
-    expect(usage.usageMetricVersion).toBe('maw_v1');
+    const usage = await service.getMonthlyActiveResources(ctx, first.monthUtc);
+    expect(usage.usageMetricVersion).toBe('active_resource_v1');
     expect(usage.monthUtc).toBe(first.monthUtc);
-    expect(usage.monthlyActiveWallets).toBe(2);
+    expect(usage.monthlyActiveResources).toBe(2);
   });
 
   test('in-memory service records sponsored execution debits idempotently and projects them into statements', async () => {
@@ -780,10 +773,10 @@ test.describe('console billing service prepaid model', () => {
 
     await settleCreditPurchase(service, ctx, 'usd_25');
 
-    const first = await service.recordSponsoredExecutionDebit(ctx, {
+    const first = await service.recordProductExecutionDebit(ctx, {
       amountMinor: 125,
       sourceEventId: 'sponsored_mem_evt_1',
-      walletId: 'alice.testnet',
+      resourceId: 'alice.testnet',
       occurredAt: '2026-03-12T00:00:00.000Z',
       txOrExecutionRef: 'tx_mem_123',
       pricingVersion: 'pricing-mem-v1',
@@ -793,10 +786,10 @@ test.describe('console billing service prepaid model', () => {
     expect(first.creditBalanceMinor).toBe(2375);
     expect(first.statementId).toBeTruthy();
 
-    const duplicate = await service.recordSponsoredExecutionDebit(ctx, {
+    const duplicate = await service.recordProductExecutionDebit(ctx, {
       amountMinor: 125,
       sourceEventId: 'sponsored_mem_evt_1',
-      walletId: 'alice.testnet',
+      resourceId: 'alice.testnet',
       occurredAt: '2026-03-12T00:00:00.000Z',
     });
     expect(duplicate.accepted).toBe(false);
@@ -807,9 +800,9 @@ test.describe('console billing service prepaid model', () => {
     expect(overview.creditBalanceMinor).toBe(2375);
 
     const accountActivity = await service.listAccountActivity(ctx, { limit: 5 });
-    expect(
-      accountActivity.entries.some((entry) => entry.type === 'SPONSORED_EXECUTION_DEBIT'),
-    ).toBe(true);
+    expect(accountActivity.entries.some((entry) => entry.type === 'PRODUCT_EXECUTION_DEBIT')).toBe(
+      true,
+    );
 
     const statementId = String(first.statementId || '');
     const statement = await service.getInvoice(ctx, statementId);
@@ -817,15 +810,15 @@ test.describe('console billing service prepaid model', () => {
     expect(statement?.amountDueMinor).toBe(125);
 
     const lineItems = await service.listInvoiceLineItems(ctx, statementId);
-    expect(lineItems.some((item) => item.itemType === 'SPONSORED_EXECUTION_DEBIT')).toBe(true);
-    expect(
-      lineItems.find((item) => item.itemType === 'SPONSORED_EXECUTION_DEBIT')?.amountMinor,
-    ).toBe(125);
+    expect(lineItems.some((item) => item.itemType === 'PRODUCT_EXECUTION_DEBIT')).toBe(true);
+    expect(lineItems.find((item) => item.itemType === 'PRODUCT_EXECUTION_DEBIT')?.amountMinor).toBe(
+      125,
+    );
 
     const activity = await service.getInvoiceActivity(ctx, statementId);
     expect(
       activity?.entries.some(
-        (entry) => entry.type === 'LEDGER' && entry.toState === 'SPONSORED_EXECUTION_DEBIT',
+        (entry) => entry.type === 'LEDGER' && entry.toState === 'PRODUCT_EXECUTION_DEBIT',
       ),
     ).toBe(true);
   });
@@ -872,23 +865,20 @@ test.describe('console billing service prepaid model', () => {
     };
 
     await service.recordUsageEvent(ctx, {
-      walletId: 'wallet_a',
-      action: 'transfer',
-      succeeded: true,
+      resourceId: 'wallet_a',
+      shouldCount: true,
       occurredAt: '2026-01-05T01:00:00.000Z',
       sourceEventId: 'invoice_gen_mem_1',
     });
     await service.recordUsageEvent(ctx, {
-      walletId: 'wallet_b',
-      action: 'swap',
-      succeeded: true,
+      resourceId: 'wallet_b',
+      shouldCount: true,
       occurredAt: '2026-01-06T01:00:00.000Z',
       sourceEventId: 'invoice_gen_mem_2',
     });
     await service.recordUsageEvent(ctx, {
-      walletId: 'wallet_c',
-      action: 'wallet_created',
-      succeeded: true,
+      resourceId: 'wallet_c',
+      shouldCount: false,
       occurredAt: '2026-01-07T01:00:00.000Z',
       sourceEventId: 'invoice_gen_mem_3',
     });
@@ -897,20 +887,20 @@ test.describe('console billing service prepaid model', () => {
       periodMonthUtc: '2026-01',
     });
     expect(generation.generated).toBe(false);
-    expect(generation.monthlyActiveWallets).toBe(2);
-    expect(generation.pricing.mawUnitPriceMinor).toBe(300);
+    expect(generation.monthlyActiveResources).toBe(2);
+    expect(generation.pricing.activeResourceUnitPriceMinor).toBe(300);
     expect(generation.invoice.periodMonthUtc).toBe('2026-01');
     expect(generation.invoice.documentType).toBe('USAGE_STATEMENT');
     expect(generation.invoice.amountDueMinor).toBe(600);
     expect(generation.invoice.amountPaidMinor).toBe(600);
     expect(generation.lineItems.length).toBe(1);
-    expect(generation.lineItems[0]?.itemType).toBe('MAW_USAGE_DEBIT');
+    expect(generation.lineItems[0]?.itemType).toBe('ACTIVE_RESOURCE_USAGE_DEBIT');
     expect(generation.lineItems[0]?.quantity).toBe(2);
     expect(generation.lineItems[0]?.amountMinor).toBe(600);
 
     const listed = await service.listInvoiceLineItems(ctx, generation.invoice.id);
     expect(listed.length).toBe(1);
-    expect(listed[0]?.itemType).toBe('MAW_USAGE_DEBIT');
+    expect(listed[0]?.itemType).toBe('ACTIVE_RESOURCE_USAGE_DEBIT');
 
     const secondRun = await service.generateMonthlyInvoice(ctx, {
       periodMonthUtc: '2026-01',
@@ -930,27 +920,24 @@ test.describe('console billing service prepaid model', () => {
     };
 
     await service.recordUsageEvent(ctx, {
-      walletId: 'wallet_january_1',
-      action: 'transfer',
-      succeeded: true,
+      resourceId: 'wallet_january_1',
+      shouldCount: true,
       sourceEventId: 'usage_january_1',
       occurredAt: '2026-01-09T00:00:00.000Z',
     });
     await service.generateMonthlyInvoice(ctx, { periodMonthUtc: '2026-01' });
     current = new Date('2026-02-20T00:00:00.000Z');
     await service.recordUsageEvent(ctx, {
-      walletId: 'wallet_february_1',
-      action: 'transfer',
-      succeeded: true,
+      resourceId: 'wallet_february_1',
+      shouldCount: true,
       sourceEventId: 'usage_february_1',
       occurredAt: '2026-02-11T00:00:00.000Z',
     });
     await service.generateMonthlyInvoice(ctx, { periodMonthUtc: '2026-02' });
     current = new Date('2026-03-20T00:00:00.000Z');
     await service.recordUsageEvent(ctx, {
-      walletId: 'wallet_march_1',
-      action: 'transfer',
-      succeeded: true,
+      resourceId: 'wallet_march_1',
+      shouldCount: true,
       sourceEventId: 'usage_march_1',
       occurredAt: '2026-03-15T00:00:00.000Z',
     });
@@ -1016,9 +1003,8 @@ test.describe('console billing service prepaid model', () => {
     };
 
     const usage = await service.recordUsageEvent(ctx, {
-      walletId: 'wallet_projection_1',
-      action: 'transfer',
-      succeeded: true,
+      resourceId: 'wallet_projection_1',
+      shouldCount: true,
       sourceEventId: 'projection_mem_usage_1',
       occurredAt: '2026-03-09T00:00:00.000Z',
     });
@@ -1036,7 +1022,7 @@ test.describe('console billing service prepaid model', () => {
 
     const statementItems = await service.listInvoiceLineItems(ctx, String(usage.statementId || ''));
     expect(statementItems.length).toBe(1);
-    expect(statementItems[0]?.itemType).toBe('MAW_USAGE_DEBIT');
+    expect(statementItems[0]?.itemType).toBe('ACTIVE_RESOURCE_USAGE_DEBIT');
     expect(statementItems[0]?.amountMinor).toBe(300);
 
     const receiptItems = await service.listInvoiceLineItems(ctx, receipt.invoice.id);

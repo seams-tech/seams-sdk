@@ -15,14 +15,13 @@ export type {
   BillingLedgerCreditPosting,
   BillingBalancedPostings,
   BillingLedgerEntry,
-  BillingSponsoredExecutionDebitEntry,
+  BillingProductExecutionDebitEntry,
   BillingOverview,
-  BillingSponsoredExecutionDebitRequest,
-  BillingSponsoredExecutionDebitResult,
-  BillingUsageAction,
+  BillingProductExecutionDebitRequest,
+  BillingProductExecutionDebitResult,
   BillingUsageEventRequest,
   BillingUsageEventResult,
-  BillingMonthlyActiveWallets,
+  BillingMonthlyActiveResources,
   BillingInvoice,
   BillingInvoiceActivity,
   BillingInvoiceActivityEntry,
@@ -114,9 +113,9 @@ export {
   CONSOLE_BILLING_D1_RUNTIME,
   createD1BillingLedgerEntryInsertStatement,
   createD1ConsoleBillingService,
-  createSponsoredExecutionDebitD1Statements,
+  createProductExecutionDebitD1Statements,
   getConsoleBillingD1Runtime,
-  recordSponsoredExecutionDebitD1,
+  recordProductExecutionDebitD1,
   runD1ConsoleBillingMonthlyFinalization,
 } from './d1';
 
@@ -137,7 +136,6 @@ export {
   parseBillingRefundReconcileRequest,
   parseStripeCheckoutSessionReconcileRequest,
   parseStripeCheckoutSessionRequest,
-  parseBillingUsageEventRequest,
   parseGenerateMonthlyInvoiceRequest,
 } from './requests';
 export type { StripeWebhookVerificationInput } from './stripeWebhook';
