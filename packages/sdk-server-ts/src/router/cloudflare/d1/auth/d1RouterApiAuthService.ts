@@ -473,6 +473,7 @@ function createD1LinkedDeviceComposition(input: {
       database: input.options.database,
       scope,
       tenantId: tenantId.value,
+      expectedOrigin: config.execution.expectedOrigin,
       walletAuthMethods: input.walletAuthMethods,
       authorizationService: input.authorizationService,
       ownerAuthorization: ownerAuthorizationProvider.ownerAuthorization,

@@ -258,6 +258,7 @@ function linkedAuthorizationNotConfigured() {
   if (!tenantId.ok) throw new Error(tenantId.error.message);
   return {
     tenantId: tenantId.value,
+    expectedOrigin: 'https://wallet.example.test',
     authorizationService: {
       getLinkedDeviceWalletSessionStatus: async () => {
         throw new Error('linked authorization adapter not configured');
