@@ -88,6 +88,34 @@ function notifyError(callback: ((error: Error) => void) | undefined, error: Erro
   }
 }
 
+function logDevice2LinkingStageV1(input: {
+  readonly flowId: string;
+  readonly linkSessionId: string;
+  readonly stage: string;
+  readonly details?: Readonly<Record<string, unknown>>;
+}): void {
+  console.info('[Device2Linking]', {
+    flowId: input.flowId,
+    linkSessionId: input.linkSessionId,
+    stage: input.stage,
+    ...input.details,
+  });
+}
+
+function logDevice2LinkingFailureV1(input: {
+  readonly flowId: string;
+  readonly linkSessionId: string;
+  readonly state: LinkedDeviceSessionState['state'];
+  readonly error: unknown;
+}): void {
+  console.error('[Device2Linking] failed', {
+    flowId: input.flowId,
+    linkSessionId: input.linkSessionId,
+    state: input.state,
+    error: errorMessage(input.error),
+  });
+}
+
 function resolveSessionStateRetry(resolve: () => void, attempt: number): void {
   setTimeout(resolve, nextLinkedDevicePollingDelayMsV1(250, attempt));
 }
@@ -325,6 +353,11 @@ export class LinkDeviceFlow {
       });
       this.authenticatedTransport = authenticatedTransport;
       this.session = { linkSessionId, state, qrData };
+      logDevice2LinkingStageV1({
+        flowId: this.flowId,
+        linkSessionId,
+        stage: 'session_create_started',
+      });
       await authenticatedTransport.createUnclaimedSessionV1({
         payload: qrData,
         state,
@@ -339,6 +372,11 @@ export class LinkDeviceFlow {
         throw new LinkDeviceFlowSupersededError();
       }
       this.subscription = subscription;
+      logDevice2LinkingStageV1({
+        flowId: this.flowId,
+        linkSessionId,
+        stage: 'session_subscription_ready',
+      });
       const qrCodeDataURL = await generateQrCodeDataUrlV1(
         serializeQrLinkedDeviceSessionPayloadV4(qrData),
       );
@@ -513,12 +551,30 @@ export class LinkDeviceFlow {
   private async handleSessionEvent(event: LinkedDeviceSessionTransportEventV1): Promise<void> {
     if (this.cancelled || !this.session || event.linkSessionId !== this.session.linkSessionId)
       return;
+    logDevice2LinkingStageV1({
+      flowId: this.flowId,
+      linkSessionId: event.linkSessionId,
+      stage: 'session_event_received',
+      details: {
+        state: event.state.state,
+        emittedAtMs: event.emittedAtMs,
+        runEpoch: this.runEpoch,
+      },
+    });
     const runEpoch = this.runEpoch;
     if (event.state.state !== 'active') {
       if (this.session.state.state === 'active') return;
       this.session = { ...this.session, state: event.state };
     }
-    if (this.handledStates.has(event.state.state)) return;
+    if (this.handledStates.has(event.state.state)) {
+      logDevice2LinkingStageV1({
+        flowId: this.flowId,
+        linkSessionId: event.linkSessionId,
+        stage: 'session_event_already_handled',
+        details: { state: event.state.state },
+      });
+      return;
+    }
     this.handledStates.add(event.state.state);
     switch (event.state.state) {
       case 'displaying_qr':
@@ -544,10 +600,20 @@ export class LinkDeviceFlow {
         await this.provisionLinkedDeviceLanesV1(event.state, runEpoch);
         return;
       case 'committed_completion_required':
-        // A committed event can be queued behind provisioning. The normal
-        // provisioning handler owns that completion; only recover when it was
-        // never observed or its handler failed.
+        // Polling can skip the short provisioning state. A live flow still
+        // owns the recipient key and must seal any missing holder records
+        // before durable recovery can reconcile them.
         if (this.handledStates.has('provisioning')) return;
+        await this.waitForTargetCredentialActivation();
+        this.assertCurrentRun(runEpoch);
+        if (
+          this.keyMaterialHandle &&
+          this.targetPreparationForProvisioning &&
+          this.targetCredentialRegistrationForProvisioning
+        ) {
+          await this.provisionLinkedDeviceLanesV1(event.state, runEpoch);
+          return;
+        }
         await this.resumeCommittedDelivery(event.state, runEpoch);
         return;
       case 'active': {
@@ -777,6 +843,11 @@ export class LinkDeviceFlow {
     if (!this.keyMaterialHandle || !this.session)
       throw new Error('device-link key material is unavailable');
     const authenticatedTransport = this.requireAuthenticatedTransport();
+    logDevice2LinkingStageV1({
+      flowId: this.flowId,
+      linkSessionId: state.linkSessionId,
+      stage: 'target_passkey_prompt_started',
+    });
     // Started, not awaited. Device 1 cannot seal the wallet custody seed until
     // a recipient exists, and the owner is already waiting there, so publishing
     // one now lets that seal happen while this device's user is still at the
@@ -806,6 +877,11 @@ export class LinkDeviceFlow {
         preparation,
         keyMaterial: this.keyMaterialHandle,
       });
+      logDevice2LinkingStageV1({
+        flowId: this.flowId,
+        linkSessionId: state.linkSessionId,
+        stage: 'target_passkey_created',
+      });
       this.emit({
         phase: LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED,
         status: 'running',
@@ -814,6 +890,11 @@ export class LinkDeviceFlow {
         interaction: { kind: 'qr_display', overlay: 'show' },
       });
       recipient = await recipientPublish;
+      logDevice2LinkingStageV1({
+        flowId: this.flowId,
+        linkSessionId: state.linkSessionId,
+        stage: 'custody_recipient_published',
+      });
       this.assertCurrentRun(runEpoch);
       // The wallet custody seed is resealed under the passkey just created.
       // The canonical finalize registers that credential as a peer owner before
@@ -834,6 +915,11 @@ export class LinkDeviceFlow {
         ),
         assertCurrentRun: () => this.assertCurrentRun(runEpoch),
         waitForPollV1: waitForSessionStateRetry,
+      });
+      logDevice2LinkingStageV1({
+        flowId: this.flowId,
+        linkSessionId: state.linkSessionId,
+        stage: 'custody_transfer_accepted',
       });
       // The worker consumes and frees the recipient during every accept attempt.
       recipient = null;
@@ -866,6 +952,11 @@ export class LinkDeviceFlow {
         custodyEnvelope: resealedCustodyEnvelope,
         registration,
         runEpoch,
+      });
+      logDevice2LinkingStageV1({
+        flowId: this.flowId,
+        linkSessionId: state.linkSessionId,
+        stage: 'owner_enrollment_committed',
       });
       this.resealedCustodyEnvelope = null;
       this.assertCurrentRun(runEpoch);
@@ -1011,6 +1102,11 @@ export class LinkDeviceFlow {
     runEpoch: number,
   ): Promise<void> {
     const authenticatedTransport = this.requireAuthenticatedTransport();
+    logDevice2LinkingStageV1({
+      flowId: this.flowId,
+      linkSessionId: state.linkSessionId,
+      stage: 'committed_delivery_retry_started',
+    });
     const deviceId = await this.requireDeviceId(state);
     this.assertCurrentRun(runEpoch);
     await authenticatedTransport.retryCommittedDeliveryV1({
@@ -1074,13 +1170,26 @@ export class LinkDeviceFlow {
     });
     this.assertCurrentRun(runEpoch);
     await this.ensureWalletSessionDeliveryPersistedV1({ state, runEpoch, deviceId });
+    logDevice2LinkingStageV1({
+      flowId: this.flowId,
+      linkSessionId: state.linkSessionId,
+      stage: 'committed_delivery_retry_completed',
+    });
   }
 
   private async provisionLinkedDeviceLanesV1(
-    state: Extract<LinkedDeviceSessionState, { readonly state: 'provisioning' }>,
+    state: Extract<
+      LinkedDeviceSessionState,
+      { readonly state: 'provisioning' | 'committed_completion_required' }
+    >,
     runEpoch: number,
   ): Promise<void> {
     const authenticatedTransport = this.requireAuthenticatedTransport();
+    logDevice2LinkingStageV1({
+      flowId: this.flowId,
+      linkSessionId: state.linkSessionId,
+      stage: 'lane_provisioning_started',
+    });
     const deviceId = await this.requireDeviceId(state);
     this.assertCurrentRun(runEpoch);
     const approval = await authenticatedTransport.getApprovalV1({
@@ -1089,12 +1198,23 @@ export class LinkDeviceFlow {
     this.assertCurrentRun(runEpoch);
     this.assertCommittedApprovalMatchesSession({ approval, state, deviceId });
     this.provisioningApproval = approval;
+    logDevice2LinkingStageV1({
+      flowId: this.flowId,
+      linkSessionId: state.linkSessionId,
+      stage: 'lane_provisioning_approval_loaded',
+    });
     if (!this.session) throw new Error('device-link session is unavailable');
     const deliveryState = await this.waitForPreparedDeliveryCommitV1({
       authenticatedTransport,
       linkSessionId: state.linkSessionId,
       expiresAtMs: this.session.qrData.expiresAtMs,
       runEpoch,
+    });
+    logDevice2LinkingStageV1({
+      flowId: this.flowId,
+      linkSessionId: state.linkSessionId,
+      stage: 'source_delivery_commit_observed',
+      details: { state: deliveryState },
     });
     if (deliveryState === 'active') return;
     const deliveries = await authenticatedTransport.requestProvisioningDeliveriesV1({
@@ -1153,6 +1273,17 @@ export class LinkDeviceFlow {
       this.assertCurrentRun(input.runEpoch);
       const snapshot = await input.authenticatedTransport.getSessionV1({
         linkSessionId: input.linkSessionId,
+      });
+      logDevice2LinkingStageV1({
+        flowId: this.flowId,
+        linkSessionId: input.linkSessionId,
+        stage: 'source_delivery_commit_poll',
+        details: {
+          attempt,
+          state: snapshot.state.state,
+          revision: snapshot.revision,
+          updatedAtMs: snapshot.updatedAtMs,
+        },
       });
       switch (snapshot.state.state) {
         case 'committed_completion_required':
@@ -1410,6 +1541,12 @@ export class LinkDeviceFlow {
     error: unknown,
   ): Promise<void> {
     if (error instanceof LinkDeviceFlowSupersededError) return;
+    logDevice2LinkingFailureV1({
+      flowId: this.flowId,
+      linkSessionId: event.linkSessionId,
+      state: event.state.state,
+      error,
+    });
     this.handledStates.delete(event.state.state);
     const failure = errorForFailure(error, 'registration');
     this.error = failure;
