@@ -19,11 +19,6 @@ const CONSOLE_ROOT = path.join(REPOSITORY_ROOT, 'apps', 'seams-console');
 const CONSOLE_OUTPUT = path.join(CONSOLE_ROOT, 'dist');
 const DOCS_ROOT = path.join(REPOSITORY_ROOT, 'apps', 'docs');
 const DOCS_OUTPUT = path.join(DOCS_ROOT, 'dist');
-const requireFromSite = createRequire(path.join(SITE_ROOT, 'package.json'));
-const SDK_OUTPUT = path.join(
-  path.dirname(requireFromSite.resolve('@seams/wallet/package.json')),
-  'dist',
-);
 const FRONTEND_SMOKE_PATHS = Object.freeze({
   site: ['/', '/dashboard/', '/dashboard/login', '/sdk/workers/near-signer.worker.js'],
   docs: ['/', '/concepts/', '/concepts/auth-methods/', '/concepts/policy/mandates'],
@@ -228,11 +223,16 @@ function assertLaneProjectEnvironmentId(lane, variableName, environment) {
 }
 
 function copySdkAssets() {
-  const sdkEsm = path.join(SDK_OUTPUT, 'esm', 'sdk');
-  const sdkWorkers = path.join(SDK_OUTPUT, 'workers');
-  const walletAssetsManifest = path.join(SDK_OUTPUT, 'public', 'wallet-assets.manifest.json');
-  const walletHeadersManifest = path.join(SDK_OUTPUT, 'public', 'headers.manifest.json');
-  const walletService = path.join(SDK_OUTPUT, 'public', 'wallet-service');
+  const requireFromSite = createRequire(path.join(SITE_ROOT, 'package.json'));
+  const sdkOutput = path.join(
+    path.dirname(requireFromSite.resolve('@seams/wallet/package.json')),
+    'dist',
+  );
+  const sdkEsm = path.join(sdkOutput, 'esm', 'sdk');
+  const sdkWorkers = path.join(sdkOutput, 'workers');
+  const walletAssetsManifest = path.join(sdkOutput, 'public', 'wallet-assets.manifest.json');
+  const walletHeadersManifest = path.join(sdkOutput, 'public', 'headers.manifest.json');
+  const walletService = path.join(sdkOutput, 'public', 'wallet-service');
   assertDirectory(sdkEsm, 'SDK ESM output');
   assertFile(walletAssetsManifest, 'SDK wallet assets manifest');
   assertFile(walletHeadersManifest, 'SDK wallet headers manifest');
