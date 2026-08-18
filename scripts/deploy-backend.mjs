@@ -5,6 +5,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { spawnSync } from 'node:child_process';
 import { createPrivateKey, createPublicKey } from 'node:crypto';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import {
   BACKEND_COMPONENTS,
@@ -14,13 +15,21 @@ import {
 import { readMigrationSet } from './migration-fingerprint.mjs';
 import { formatFailedCheck, isFailedCheck, runReadinessChecks } from './deployment-smoke.mjs';
 import {
+  consoleOriginFor,
   GATEWAY_WORKER_COMPATIBILITY_DATE,
   GATEWAY_WORKER_COMPATIBILITY_FLAGS,
 } from '../packages/console-server-ts/scripts/gateway-deployment-config.mjs';
 
 const SCRIPT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = path.resolve(SCRIPT_DIRECTORY, '..');
-const ROUTER_ROOT = path.join(REPOSITORY_ROOT, 'crates', 'router-ab-cloudflare');
+const requireFromWalletConsole = createRequire(
+  path.join(REPOSITORY_ROOT, 'packages', 'wallet-console-server-ts', 'package.json'),
+);
+const WALLET_SERVER_ROOT = resolveWalletServerRoot();
+const SOURCE_ROUTER_ROOT = path.join(REPOSITORY_ROOT, 'crates', 'router-ab-cloudflare');
+const PACKAGED_ROUTER_ROOT = path.join(WALLET_SERVER_ROOT, 'cloudflare-router-ab');
+const RELEASE_ROUTER_ROOT = path.join(REPOSITORY_ROOT, '.release-artifacts', 'router-ab-runtime');
+const ROUTER_ROOT = resolveRouterRuntimeRoot();
 const GATEWAY_ROOT = path.join(REPOSITORY_ROOT, 'packages', 'console-server-ts');
 const GATEWAY_BUILD_CONFIG = path.join(
   GATEWAY_ROOT,
@@ -36,16 +45,21 @@ const GATEWAY_BUNDLE = path.join(
   'payload',
   'd1GatewayWorker.js',
 );
-const CONSOLE_BUILD_CONFIG = path.join(
-  GATEWAY_GENERATED_ROOT,
-  'console-build.jsonc',
-);
+const CONSOLE_BUILD_CONFIG = path.join(GATEWAY_GENERATED_ROOT, 'console-build.jsonc');
 const CONSOLE_BUNDLE = path.join(
   REPOSITORY_ROOT,
   '.release-artifacts',
   'console',
   'payload',
   'd1ConsoleStagingWorker.js',
+);
+const WALLET_RUNTIME_BUILD_CONFIG = path.join(GATEWAY_GENERATED_ROOT, 'wallet-runtime-build.jsonc');
+const WALLET_RUNTIME_BUNDLE = path.join(
+  REPOSITORY_ROOT,
+  '.release-artifacts',
+  'wallet-runtime',
+  'payload',
+  'd1WalletRuntimeWorker.js',
 );
 const BACKEND_SMOKE_PATHS = Object.freeze([
   '/readyz',
@@ -103,6 +117,16 @@ const PRIVATE_D1_DEPLOYMENTS = Object.freeze({
 
 if (isDirectInvocation()) {
   main(process.argv.slice(2)).catch(handleFailure);
+}
+
+function resolveWalletServerRoot() {
+  try {
+    return path.dirname(requireFromWalletConsole.resolve('@seams/wallet-server/package.json'));
+  } catch {
+    const workspacePackage = path.join(REPOSITORY_ROOT, 'packages', 'wallet-server');
+    if (fs.existsSync(path.join(workspacePackage, 'package.json'))) return workspacePackage;
+    throw new Error('@seams/wallet-server must be installed for hosted deployment');
+  }
 }
 
 function isDirectInvocation() {
@@ -233,13 +257,15 @@ function printPlan(lane) {
     '',
     'Order:',
     '  1. build all backend components once and require the lane branch',
-    '  2. preflight all five backend custody components',
+    '  2. preflight all seven backend components',
     `  3. migrate ${lane.resources.gateway.consoleD1Name} (console D1)`,
     `  4. migrate ${lane.resources.gateway.signerD1Name} (signer D1)`,
     '  5. migrate and deploy signing-worker, deriver-a, and deriver-b concurrently',
     '  6. deploy router after all three workers complete',
-    '  7. deploy gateway',
-    '  8. smoke Gateway and Router A/B endpoints',
+    '  7. deploy wallet-runtime after router',
+    '  8. deploy console after wallet-runtime',
+    '  9. deploy gateway after router and console',
+    '  10. smoke Gateway, Console, and Router A/B endpoints',
   ];
   process.stdout.write(`${lines.join('\n')}\n`);
 }
@@ -274,26 +300,36 @@ function formatCapabilities(lane) {
 function buildBackend(lane) {
   process.stdout.write(`Building backend lane ${lane.id} (${lane.network})\n`);
   runCommand('pnpm', ['install', '--frozen-lockfile']);
-  runCommand('pnpm', ['-C', 'crates/router-ab-cloudflare', 'run', 'worker-build:install']);
-  const routerEnvironment = buildEnvironment({
-    DEPLOYMENT_LANE: lane.id,
-    ROUTER_AB_WORKER_BUILD_PROFILE: 'release',
-  });
-  for (const role of ['signing-worker', 'deriver-a', 'deriver-b', 'router']) {
-    runCommand('pnpm', ['-C', 'crates/router-ab-cloudflare', 'run', `build:${role}`], {
-      env: routerEnvironment,
+  if (hasRouterSource()) {
+    runCommand('pnpm', ['-C', 'crates/router-ab-cloudflare', 'run', 'worker-build:install']);
+    const routerEnvironment = buildEnvironment({
+      DEPLOYMENT_LANE: lane.id,
+      ROUTER_AB_WORKER_BUILD_PROFILE: 'release',
     });
+    for (const role of ['signing-worker', 'deriver-a', 'deriver-b', 'router']) {
+      runCommand('pnpm', ['-C', 'crates/router-ab-cloudflare', 'run', `build:${role}`], {
+        env: routerEnvironment,
+      });
+    }
+    runCommand('pnpm', ['-C', 'packages/wallet-server', 'run', 'package:cloudflare-runtime']);
   }
-  runCommand('bash', ['packages/wallet/scripts/build/install-ci-wasm-tooling.sh']);
+  stageRouterRuntimeArtifact();
+  runCommand('pnpm', [
+    '--filter',
+    '@seams/wallet',
+    'exec',
+    'bash',
+    'scripts/build/install-ci-wasm-tooling.sh',
+  ]);
   const sdkWasmEnvironment = buildEnvironment({
     DEPLOYMENT_LANE: lane.id,
     WASM_SDK_BUILD_MODE: 'prod',
     WASM_SDK_BUILD_TARGET: 'all',
   });
-  runCommand('pnpm', ['-C', 'packages/wallet', 'run', 'build:wasm'], {
+  runCommand('pnpm', ['--filter', '@seams/wallet', 'run', 'build:wasm'], {
     env: sdkWasmEnvironment,
   });
-  runCommand('pnpm', ['-C', 'packages/wallet-server', 'build']);
+  runCommand('pnpm', ['--filter', '@seams/wallet-server', 'run', 'build']);
   runCommand('pnpm', ['-C', 'packages/console-server-ts', 'run', 'build']);
   runCommand('pnpm', ['-C', 'packages/wallet-console-server-ts', 'run', 'build']);
   runCommand('pnpm', ['-C', 'packages/console-server-ts', 'run', 'd1:local:ensure-wasm'], {
@@ -337,6 +373,62 @@ function buildBackend(lane) {
     { cwd: GATEWAY_ROOT },
   );
   assertFile(CONSOLE_BUNDLE, 'Console build entry');
+  writeWalletRuntimeBuildConfig(lane.id);
+  fs.mkdirSync(path.dirname(WALLET_RUNTIME_BUNDLE), { recursive: true });
+  runCommand(
+    'pnpm',
+    [
+      'exec',
+      'wrangler',
+      'deploy',
+      '--dry-run',
+      '--config',
+      WALLET_RUNTIME_BUILD_CONFIG,
+      '--outdir',
+      path.dirname(WALLET_RUNTIME_BUNDLE),
+      '--metafile',
+      path.join(path.dirname(WALLET_RUNTIME_BUNDLE), 'worker-meta.json'),
+    ],
+    { cwd: GATEWAY_ROOT },
+  );
+  assertFile(WALLET_RUNTIME_BUNDLE, 'Wallet Runtime build entry');
+}
+
+function hasRouterSource() {
+  return (
+    fs.existsSync(path.join(SOURCE_ROUTER_ROOT, 'Cargo.toml')) &&
+    fs.existsSync(path.join(SOURCE_ROUTER_ROOT, 'package.json'))
+  );
+}
+
+function isRouterRuntimeRoot(directory) {
+  return ['router', 'deriver-a', 'deriver-b', 'signing-worker'].every((role) =>
+    fs.existsSync(path.join(directory, 'build', role, 'worker', 'shim.mjs')),
+  );
+}
+
+function resolveRouterRuntimeRoot() {
+  for (const candidate of [RELEASE_ROUTER_ROOT, PACKAGED_ROUTER_ROOT, SOURCE_ROUTER_ROOT]) {
+    if (isRouterRuntimeRoot(candidate)) return candidate;
+  }
+  if (fs.existsSync(path.join(SOURCE_ROUTER_ROOT, 'wrangler.router.toml'))) {
+    return SOURCE_ROUTER_ROOT;
+  }
+  return PACKAGED_ROUTER_ROOT;
+}
+
+function stageRouterRuntimeArtifact() {
+  if (!isRouterRuntimeRoot(PACKAGED_ROUTER_ROOT)) {
+    throw new Error(
+      `@seams/wallet-server is missing its packaged Cloudflare runtime at ${PACKAGED_ROUTER_ROOT}`,
+    );
+  }
+  fs.rmSync(RELEASE_ROUTER_ROOT, { recursive: true, force: true });
+  fs.cpSync(PACKAGED_ROUTER_ROOT, RELEASE_ROUTER_ROOT, { recursive: true });
+}
+
+function routerConfigPath(resource) {
+  return path.join(ROUTER_ROOT, path.basename(resource.configPath));
 }
 
 function writeGatewayBuildConfig(laneId) {
@@ -371,6 +463,22 @@ function writeConsoleBuildConfig(laneId) {
   });
 }
 
+function writeWalletRuntimeBuildConfig(laneId) {
+  const config = {
+    name: `seams-sdk-d1-wallet-runtime-build-${laneId}`,
+    main: path.join(
+      REPOSITORY_ROOT,
+      'packages/wallet-console-server-ts/src/router/cloudflare/d1WalletRuntimeWorker.ts',
+    ),
+    compatibility_date: GATEWAY_WORKER_COMPATIBILITY_DATE,
+    compatibility_flags: GATEWAY_WORKER_COMPATIBILITY_FLAGS,
+  };
+  fs.mkdirSync(path.dirname(WALLET_RUNTIME_BUILD_CONFIG), { recursive: true });
+  fs.writeFileSync(WALLET_RUNTIME_BUILD_CONFIG, `${JSON.stringify(config, null, 2)}\n`, {
+    mode: 0o600,
+  });
+}
+
 function preflightBackend(lane, component, environment = process.env) {
   assertLaneResourceBindings(lane, component);
   const requiredNames = ['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID'];
@@ -378,7 +486,7 @@ function preflightBackend(lane, component, environment = process.env) {
   for (const name of componentRuntimeRequirements(lane, component)) {
     requiredNames.push(name);
   }
-  if (component === 'gateway') {
+  if (component === 'gateway' || component === 'wallet-runtime') {
     const config = requireProvisionedLane(lane);
     if (config.optional.nearRelayer) requiredNames.push('RELAYER_PRIVATE_KEY');
   }
@@ -388,7 +496,7 @@ function preflightBackend(lane, component, environment = process.env) {
 }
 
 function assertLaneResourceBindings(lane, component) {
-  if (component === 'gateway' || component === 'console') return;
+  if (component === 'gateway' || component === 'console' || component === 'wallet-runtime') return;
   const resourceKey = {
     'signing-worker': 'signingWorker',
     'deriver-a': 'deriverA',
@@ -397,7 +505,7 @@ function assertLaneResourceBindings(lane, component) {
   }[component];
   if (!resourceKey) throw new Error(`Unsupported backend component: ${component}`);
   const resource = lane.resources[resourceKey];
-  const configPath = path.resolve(REPOSITORY_ROOT, resource.configPath);
+  const configPath = routerConfigPath(resource);
   assertFile(configPath, `Wrangler config for ${resource.workerName}`);
   const section = readWranglerWorkerSection(
     fs.readFileSync(configPath, 'utf8'),
@@ -578,6 +686,8 @@ function componentRuntimeRequirements(lane, component) {
         ...(lane.network === 'mainnet' ? ['ROUTER_AB_PROJECT_POLICY_BOOTSTRAP_JSON'] : []),
       ];
     case 'gateway':
+    case 'wallet-runtime':
+    case 'console':
       return [];
     default:
       throw new Error(`Unsupported backend component: ${component}`);
@@ -587,15 +697,25 @@ function componentRuntimeRequirements(lane, component) {
 function migrateBackend(lane) {
   requireEnvironmentValues(['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID']);
   const gatewayConfig = gatewayConfigPath(lane.id);
+  const consoleConfig = consoleConfigPath(lane.id);
   renderGatewayConfig(lane.id, gatewayConfig);
+  renderConsoleConfig(lane.id, consoleConfig);
   const migrations = [
     {
       database: 'CONSOLE_DB',
-      directory: path.join(GATEWAY_ROOT, 'migrations', 'd1-console'),
+      config: consoleConfig,
+      directory: path.join(
+        REPOSITORY_ROOT,
+        'packages',
+        'wallet-console-server-ts',
+        'migrations',
+        'd1-console',
+      ),
     },
     {
       database: 'SIGNER_DB',
-      directory: path.join(GATEWAY_ROOT, '..', 'wallet-server', 'migrations', 'd1-signer'),
+      config: gatewayConfig,
+      directory: path.join(WALLET_SERVER_ROOT, 'migrations', 'd1-signer'),
     },
   ];
   for (const migration of migrations) {
@@ -605,7 +725,7 @@ function migrateBackend(lane) {
       '--database',
       migration.database,
       '--config',
-      gatewayConfig,
+      migration.config,
       '--migrations-dir',
       migration.directory,
       '--expected-fingerprint',
@@ -630,6 +750,9 @@ function deployBackend(lane, component) {
       return;
     case 'router':
       deployMpcRouter(lane);
+      return;
+    case 'wallet-runtime':
+      deployWalletRuntime(lane);
       return;
     case 'gateway':
       deployGateway(lane);
@@ -688,6 +811,8 @@ export function validateDeploymentKeyPairs(component, environment = process.env)
       return;
     case 'gateway':
     case 'router':
+    case 'console':
+    case 'wallet-runtime':
       return;
     default:
       throw new Error(`Unsupported backend component: ${component}`);
@@ -811,15 +936,30 @@ function consoleSecretsPath(laneId) {
   return path.join(GATEWAY_GENERATED_ROOT, `console-secrets.${laneId}.json`);
 }
 
-// The Console Worker deploys before the Gateway so the WALLET_CONSOLE service
-// binding resolves. Wrangler bundles the TS entry directly; the console
-// packages' dists must be built first (the build step does this).
+function walletRuntimeConfigPath(laneId) {
+  return path.join(GATEWAY_GENERATED_ROOT, `wallet-runtime.${laneId}.jsonc`);
+}
+
+function walletRuntimeSecretsPath(laneId) {
+  return path.join(GATEWAY_GENERATED_ROOT, `wallet-runtime-secrets.${laneId}.json`);
+}
+
+// Wallet Runtime deploys before Console, and Console deploys before Gateway,
+// so each service-binding target exists before its caller is uploaded.
 function deployConsole(lane) {
   const consoleConfig = consoleConfigPath(lane.id);
   const consoleSecrets = consoleSecretsPath(lane.id);
   runCommand(
     'node',
-    ['scripts/render-d1-gateway-config.mjs', '--lane', lane.id, '--worker', 'console', '--output', consoleConfig],
+    [
+      'scripts/render-d1-gateway-config.mjs',
+      '--lane',
+      lane.id,
+      '--worker',
+      'console',
+      '--output',
+      consoleConfig,
+    ],
     { cwd: GATEWAY_ROOT },
   );
   runCommand(
@@ -843,6 +983,34 @@ function deployConsole(lane) {
       consoleConfig,
       '--secrets-file',
       consoleSecrets,
+      '--message',
+      process.env.DEPLOY_SHA || `runtime-${lane.id}`,
+    ],
+    { cwd: GATEWAY_ROOT },
+  );
+}
+
+function deployWalletRuntime(lane) {
+  const runtimeConfig = walletRuntimeConfigPath(lane.id);
+  const runtimeSecrets = walletRuntimeSecretsPath(lane.id);
+  renderWalletRuntimeConfig(lane.id, runtimeConfig);
+  assertFile(WALLET_RUNTIME_BUNDLE, 'Wallet Runtime build entry');
+  runCommand('node', ['scripts/write-gateway-secrets-file.mjs', '--output', runtimeSecrets], {
+    cwd: GATEWAY_ROOT,
+    env: buildEnvironment({ DEPLOYMENT_LANE: lane.id }),
+  });
+  runCommand(
+    'pnpm',
+    [
+      'exec',
+      'wrangler',
+      'deploy',
+      WALLET_RUNTIME_BUNDLE,
+      '--no-bundle',
+      '--config',
+      runtimeConfig,
+      '--secrets-file',
+      runtimeSecrets,
       '--message',
       process.env.DEPLOY_SHA || `runtime-${lane.id}`,
     ],
@@ -879,7 +1047,7 @@ function deployGateway(lane) {
 }
 
 function workerDeployArguments(resource, renderedConfigPath) {
-  const configPath = renderedConfigPath || path.resolve(REPOSITORY_ROOT, resource.configPath);
+  const configPath = renderedConfigPath || routerConfigPath(resource);
   assertFile(configPath, `Wrangler config for ${resource.workerName}`);
   const args = ['exec', 'wrangler', 'deploy', '--config', configPath];
   if (resource.deploymentEnvironment.kind === 'named') {
@@ -891,7 +1059,7 @@ function workerDeployArguments(resource, renderedConfigPath) {
 function renderPrivateD1WorkerConfig(lane, resource, component) {
   const deployment = PRIVATE_D1_DEPLOYMENTS[component];
   if (!deployment) throw new Error(`Private D1 deployment is missing for ${component}`);
-  const sourcePath = path.resolve(REPOSITORY_ROOT, resource.configPath);
+  const sourcePath = routerConfigPath(resource);
   assertFile(sourcePath, `Wrangler config for ${resource.workerName}`);
   const placeholder = deployment.placeholders[lane.id];
   if (!placeholder) {
@@ -948,15 +1116,7 @@ function migratePrivateD1(resource, configPath, component) {
 }
 
 function putWorkerSecret(resource, name) {
-  const args = [
-    'exec',
-    'wrangler',
-    'secret',
-    'put',
-    name,
-    '--config',
-    path.resolve(REPOSITORY_ROOT, resource.configPath),
-  ];
+  const args = ['exec', 'wrangler', 'secret', 'put', name, '--config', routerConfigPath(resource)];
   if (resource.deploymentEnvironment.kind === 'named') {
     args.push('--env', resource.deploymentEnvironment.name);
   }
@@ -969,6 +1129,7 @@ function runRouterCommand(args) {
 
 async function smokeBackend(lane) {
   const checks = [];
+  const consoleOrigin = consoleOriginFor(lane.gatewayOrigin);
   for (const requestPath of BACKEND_SMOKE_PATHS) {
     checks.push({
       name: requestPath,
@@ -976,8 +1137,12 @@ async function smokeBackend(lane) {
     });
   }
   checks.push({
+    name: 'Console /readyz',
+    url: new URL('/readyz', consoleOrigin).toString(),
+  });
+  checks.push({
     name: '/console/session CORS preflight',
-    url: new URL('/console/session', lane.gatewayOrigin).toString(),
+    url: new URL('/console/session', consoleOrigin).toString(),
     request: {
       method: 'OPTIONS',
       headers: {
@@ -1017,6 +1182,38 @@ function renderGatewayConfig(laneId, outputPath) {
   runCommand(
     'node',
     ['scripts/render-d1-gateway-config.mjs', '--lane', laneId, '--output', outputPath],
+    { cwd: GATEWAY_ROOT },
+  );
+}
+
+function renderConsoleConfig(laneId, outputPath) {
+  runCommand(
+    'node',
+    [
+      'scripts/render-d1-gateway-config.mjs',
+      '--lane',
+      laneId,
+      '--worker',
+      'console',
+      '--output',
+      outputPath,
+    ],
+    { cwd: GATEWAY_ROOT },
+  );
+}
+
+function renderWalletRuntimeConfig(laneId, outputPath) {
+  runCommand(
+    'node',
+    [
+      'scripts/render-d1-gateway-config.mjs',
+      '--lane',
+      laneId,
+      '--worker',
+      'wallet-runtime',
+      '--output',
+      outputPath,
+    ],
     { cwd: GATEWAY_ROOT },
   );
 }

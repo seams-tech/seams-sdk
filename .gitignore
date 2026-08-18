@@ -30,6 +30,7 @@ packages/console-server-ts/wrangler.d1-staging-console.toml
 packages/console-server-ts/wrangler.d1-staging-gateway.toml
 sqlite/
 packages/wallet-server/.wrangler/
+packages/wallet-server/cloudflare-router-ab/
 
 
 # Playwright artifacts

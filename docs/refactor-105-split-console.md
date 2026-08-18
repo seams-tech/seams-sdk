@@ -17,12 +17,9 @@ product-neutral core. Move wallet-specific Console behavior behind an explicit
 Wallet Console integration. Keep the Wallet SDK and signer runtime independent
 of every Console package.
 
-Rename the public Wallet packages during this refactor:
-
-```text
-@seams/wallet        -> @seams/wallet
-@seams/wallet-server -> @seams/wallet-server
-```
+The public Wallet packages use the final names `@seams/wallet` and
+`@seams/wallet-server`. Refactor 105 treats that already-applied rename as an
+atomic breaking change and adds no aliases or compatibility packages.
 
 After the boundary and rename pass, split the monorepo into two repositories:
 
@@ -525,8 +522,8 @@ explicit command.
     policy/sponsorship, and usage integration crosses a narrow internal service
     binding owned by the private Wallet Console deployment.
 11. Cross-package integration uses exported, typed contracts. Source-path aliases,
-   wildcard internals, and workspace-only imports are forbidden at the final
-   boundary gate.
+    wildcard internals, and workspace-only imports are forbidden at the final
+    boundary gate.
 
 ## Authentication Boundary
 
@@ -606,23 +603,22 @@ composition root.
 
 ## Removing The `cloud-host` Dependency From Console Core
 
-The current `@seams/wallet-server/cloud-host` entrypoint becomes
-`@seams/wallet-server/cloud-host` during the package rename. It remains a
-supported Wallet Console integration surface. Generic Console modules stop
-consuming it for incidental utilities.
+The `@seams/wallet-server/cloud-host` entrypoint remains a supported Wallet
+Console integration surface. Generic Console modules stop consuming it for
+incidental utilities.
 
 Move each dependency according to its ownership:
 
-| Current import | Target |
-| --- | --- |
-| `SessionAdapter` and session claims | Console-owned session contract and implementation |
-| D1 structural types and SQL result parsing | Console-owned D1 boundary module |
-| logger types and normalization | Console-owned minimal logger contract |
-| HTTP request/response helpers | Console router transport module |
-| random IDs and base64url | small Console-owned Web Crypto utilities |
-| string and request normalization | parse once in Console request/storage boundaries |
-| wallet IDs, signing routes, wallet stores, signer Wasm | Wallet Console package or Wallet Gateway |
-| wallet host composition primitives | Wallet Console composition root only |
+| Current import                                         | Target                                            |
+| ------------------------------------------------------ | ------------------------------------------------- |
+| `SessionAdapter` and session claims                    | Console-owned session contract and implementation |
+| D1 structural types and SQL result parsing             | Console-owned D1 boundary module                  |
+| logger types and normalization                         | Console-owned minimal logger contract             |
+| HTTP request/response helpers                          | Console router transport module                   |
+| random IDs and base64url                               | small Console-owned Web Crypto utilities          |
+| string and request normalization                       | parse once in Console request/storage boundaries  |
+| wallet IDs, signing routes, wallet stores, signer Wasm | Wallet Console package or Wallet Gateway          |
+| wallet host composition primitives                     | Wallet Console composition root only              |
 
 Do not create a third public utility package. Small platform adapters belong to
 the product that owns their persistence and request boundary.
@@ -650,6 +646,7 @@ Console core tables
   audit and evidence
   webhook transport
   billing ledger, purchases, refunds, invoices
+  billing_monthly_active_resources
   email outbox and deliveries
 
 Wallet Console tables and projections
@@ -658,7 +655,6 @@ Wallet Console tables and projections
   wallet policy and runtime snapshots
   sponsorship caps, reservations, pricing, and call records
   wallet-specific approval payloads
-  billing_monthly_active_wallets
 
 Signer database
   wallet custody, signers, authenticators, sessions
@@ -778,7 +774,7 @@ Exit:
       the deployed session implementation yet.
 - [ ] Split product scope catalogs from generic API credential lifecycle.
 - [ ] Split product event catalogs from generic webhook delivery.
-- [ ] Split Wallet meters from the billing ledger and account model.
+- [ ] Normalize Wallet meters into the product-neutral active-resource billing model.
 - [ ] Remove Wallet-only `CHECK` catalogs from Console-core storage contracts.
       Keep normalized product identifiers in generic transport rows and validate
       Wallet scope, event, approval, policy, meter, and webhook-category values
@@ -804,7 +800,7 @@ Exit:
 - [ ] Move ownership of `wallet_index`, `key_exports`, `policies`,
       `policy_versions`, `policy_assignments`, `approvals`, `runtime_snapshots`,
       `runtime_snapshot_outbox`, sponsorship pricing/cap/call tables, and
-      `billing_monthly_active_wallets` to the Wallet Console package.
+      Wallet-specific billing request parsing to the Wallet Console package.
 - [ ] Decide the mixed billing reservation tables by their current behavior:
       keep a product-neutral reservation mechanism in Console core only if it
       has a non-Wallet caller; otherwise move it with Wallet sponsorship.
@@ -957,13 +953,10 @@ Exit:
 
 ### Phase 7: Rename The Public Wallet Packages And Re-run Boundary Proofs
 
-Perform the rename as one atomic breaking change after the domain boundary is
-stable:
+Verify the atomic breaking rename after the domain boundary is stable:
 
-- [ ] Rename package `@seams/wallet` to `@seams/wallet`.
-- [ ] Rename package `@seams/wallet-server` to `@seams/wallet-server`.
-- [ ] Rename `packages/wallet` to `packages/wallet` and
-      `packages/wallet-server` to `packages/wallet-server`.
+- [ ] Verify the final package names and directories are `@seams/wallet` in
+      `packages/wallet` and `@seams/wallet-server` in `packages/wallet-server`.
 - [ ] Update every manifest, import, export map, declaration rewrite, build
       script, test, example, migration resolver, generated artifact, and document.
 - [ ] Preserve existing runtime class, protocol, route, and storage names unless
@@ -975,6 +968,9 @@ stable:
       with workspace links and source aliases disabled.
 - [ ] Build and run the public local reference Wallet runtime from packed
       packages and packaged signer migrations.
+- [ ] Package the versioned Router A/B Cloudflare runtime inside
+      `@seams/wallet-server`; build the extracted private deployment from that
+      package artifact without compiling public-repository Rust sources.
 - [ ] Verify a normal Wallet-only runtime restart preserves signer and Wallet
       state, while the explicit reset command deletes only its resolved local
       persistence root.
@@ -984,8 +980,6 @@ stable:
 
 Exit:
 
-- the repository contains no `@seams/wallet` or `@seams/wallet-server` package or
-  import;
 - `@seams/wallet` and `@seams/wallet-server` pass clean packed builds;
 - the private hosted composition consumes only exact packed versions;
 - the public local runtime exercises registration, unlock, signing, recovery,
@@ -1118,8 +1112,8 @@ builds with workspace links and source aliases disabled are the exit gate.
   gate before Refactor 105 moved or renamed their Wallet-owned paths.
 - `@seams/wallet` and `@seams/wallet-server` contain no Console source or
   dependency.
-- `@seams/wallet` and `@seams/wallet-server` no longer exist as packages, imports,
-  aliases, or compatibility paths.
+- the public Wallet packages have one canonical name and no aliases or
+  compatibility paths;
 - `@seams-internal/console-shared` and
   `@seams-internal/console-server` build without Wallet SDK packages present.
 - `@seams-internal/console-server` has no `@seams/wallet-server` dependency.

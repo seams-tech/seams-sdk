@@ -13,7 +13,6 @@
       "visibility": "public",
       "sourcePaths": [
         ".cargo",
-        "apps/docs",
         "benchmarks",
         "crates",
         "examples/self-host-cloudflare-worker",
@@ -34,7 +33,6 @@
         "tools/ed25519-yao-generator/artifact-fs-policy/target"
       ],
       "workspacePackages": [
-        "apps/docs",
         "crates/ed25519-yao-cloudflare-bench",
         "crates/router-ab-cloudflare",
         "examples/self-host-cloudflare-worker",
@@ -47,11 +45,14 @@
     "seams-cloud": {
       "visibility": "private",
       "sourcePaths": [
-        ".github/workflows/deploy-production-backend.yml",
+        ".github/workflows/deploy-production-mainnet-backend.yml",
+        ".github/workflows/deploy-production-testnet-backend.yml",
         ".github/workflows/deploy-production-frontend.yml",
         ".github/workflows/deploy-staging-backend.yml",
         ".github/workflows/deploy-staging-frontend.yml",
         "AGENTS.md",
+        "apps/docs",
+        "apps/seams-console",
         "apps/seams-site",
         "apps/web-server",
         "crates/router-ab-cloudflare/env/deployment-values.example.env",
@@ -76,6 +77,8 @@
       ],
       "excludePaths": [],
       "workspacePackages": [
+        "apps/docs",
+        "apps/seams-console",
         "apps/seams-site",
         "apps/web-server",
         "packages/console-server-ts",

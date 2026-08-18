@@ -23,6 +23,7 @@ export const BACKEND_COMPONENTS = Object.freeze([
   'deriver-a',
   'deriver-b',
   'router',
+  'wallet-runtime',
   'gateway',
   'console',
 ]);
@@ -37,7 +38,6 @@ const DEPLOYMENT_RESOURCE_NAMES = Object.freeze([
   'signingWorker',
 ]);
 const GATEWAY_BASE_SECRET_NAMES = Object.freeze([
-  'CONSOLE_SESSION_HMAC_SECRET',
   'ACCOUNT_ID_DERIVATION_SECRET',
   'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
   'LINKED_DEVICE_OPERATOR_RECOVERY_SECRET',
@@ -126,6 +126,17 @@ export function gatewaySecretNames(lane) {
   return unique(names, 'gateway secret requirements');
 }
 
+export function consoleSecretNames(lane) {
+  const names = [
+    'CONSOLE_INITIAL_OWNER_EMAIL',
+    'CONSOLE_SESSION_HMAC_SECRET',
+    'STRIPE_API_SK',
+    'STRIPE_WEBHOOK_SECRET',
+  ];
+  if (lane.release === 'production') names.push('RESEND_API_KEY');
+  return unique(names, 'console secret requirements');
+}
+
 function emailOtpProviderSecretNames(provider) {
   switch (provider.kind) {
     case 'resend':
@@ -140,9 +151,10 @@ function emailOtpProviderSecretNames(provider) {
 export function componentSecretNames(lane, component) {
   switch (component) {
     case 'gateway':
+    case 'wallet-runtime':
       return gatewaySecretNames(lane);
     case 'console':
-      return ['CONSOLE_SESSION_HMAC_SECRET', 'STRIPE_API_SK'];
+      return consoleSecretNames(lane);
     case 'signing-worker':
       return [
         'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',

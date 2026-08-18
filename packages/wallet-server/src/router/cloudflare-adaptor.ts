@@ -54,7 +54,14 @@ export type {
   RouterApiRouteExtension,
   RouterApiRouteExtensionTransport,
 } from './framework/routeExtensions';
-export type { RouterApiModule, RouterApiModuleKind, RouterApiModuleOptions } from './framework/modules';
+export { getRouterApiRouteExtensionRoutes } from './framework/routeExtensions';
+export { matchesRouteDefinitionRequest } from './framework/routeDefinitions';
+export { coerceRouterLogger } from './framework/logger';
+export type {
+  RouterApiModule,
+  RouterApiModuleKind,
+  RouterApiModuleOptions,
+} from './framework/modules';
 export { createRouterApiModule } from './framework/modules';
 export { CloudflareD1WebAuthnStore } from './cloudflare/d1/webauthn/d1WebAuthnStore';
 export { CloudflareD1WebAuthnAuthService } from './cloudflare/d1/webauthn/d1WebAuthnAuthService';
@@ -225,12 +232,8 @@ export type {
   RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
   RouterAbEd25519YaoProductRegistrationPartitionedStateV1,
 } from './domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
-export {
-  createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1,
-} from './cloudflare/d1/ed25519Yao/d1Ed25519YaoProductRegistrationPartitionedStateStore';
-export type {
-  RouterAbEd25519YaoProductRegistrationPartitionedStateD1OptionsV1,
-} from './cloudflare/d1/ed25519Yao/d1Ed25519YaoProductRegistrationPartitionedStateStore';
+export { createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1 } from './cloudflare/d1/ed25519Yao/d1Ed25519YaoProductRegistrationPartitionedStateStore';
+export type { RouterAbEd25519YaoProductRegistrationPartitionedStateD1OptionsV1 } from './cloudflare/d1/ed25519Yao/d1Ed25519YaoProductRegistrationPartitionedStateStore';
 export { runRouterAbEd25519YaoProductRegistrationRequestScopedV1 } from './domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationRequestScopedRunner';
 export type {
   RouterAbEd25519YaoProductRegistrationRequestScopedExecutionV1,
