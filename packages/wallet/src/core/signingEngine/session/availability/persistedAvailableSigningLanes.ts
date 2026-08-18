@@ -1,4 +1,8 @@
 import { SIGNER_AUTH_METHODS, type SignerAuthMethod } from '@shared/utils/signerDomain';
+import {
+  signingLaneAuthMethod,
+  type OwnerLaneScope,
+} from '../identity/signingLaneAuthBinding';
 import type {
   ThresholdEcdsaChainTarget,
   WalletId,
@@ -142,6 +146,29 @@ export async function readPersistedAvailableSigningLanes(
   return await readPersistedAvailableSigningLanesForTargets(deps, {
     ...args,
     ecdsaChainTargets,
+  });
+}
+
+/**
+ * R103C human operational read: lanes for one exact owner. The auth-method
+ * narrowing and the owner filter both derive from the scope — callers supply
+ * nothing the scope does not already carry.
+ */
+export async function readOwnerScopedAvailableSigningLanes(
+  deps: PersistedAvailableSigningLanesDeps,
+  args: {
+    readonly walletId: WalletId | string;
+    readonly ownerScope: OwnerLaneScope;
+    readonly ecdsaChainTargets: readonly ThresholdEcdsaChainTarget[];
+    readonly nowMs?: number;
+  },
+): Promise<AvailableSigningLanes> {
+  return await readPersistedAvailableSigningLanesForTargets(deps, {
+    walletId: args.walletId,
+    authMethod: signingLaneAuthMethod(args.ownerScope.auth),
+    ownerScope: args.ownerScope,
+    ecdsaChainTargets: args.ecdsaChainTargets,
+    ...(args.nowMs !== undefined ? { nowMs: args.nowMs } : {}),
   });
 }
 

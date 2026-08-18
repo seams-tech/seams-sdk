@@ -79,6 +79,9 @@ export function buildPasskeyEd25519SealedSessionRecordFixture(
     materialActivation?: MpcMaterialActivationRef;
     expiresAtMs?: number;
     remainingUses?: number;
+    /** R103C sibling-owner coverage: a second owner is a different credential and slot. */
+    credentialIdB64u?: string;
+    signerSlot?: number;
   } = {},
 ): CurrentEd25519SealedSessionRecord {
   const walletId = args.walletId ?? 'ed25519-sealed-runtime-wallet';
@@ -105,7 +108,7 @@ export function buildPasskeyEd25519SealedSessionRecordFixture(
       nearAccountId,
       nearEd25519SigningKeyId,
       rpId: 'wallet.example.test',
-      credentialIdB64u: 'ed25519-sealed-runtime-credential',
+      credentialIdB64u: args.credentialIdB64u ?? 'ed25519-sealed-runtime-credential',
       materialActivation:
         args.materialActivation ??
         buildMpcMaterialActivationRefFixture('ed25519-sealed-runtime-material', walletId),
@@ -117,7 +120,7 @@ export function buildPasskeyEd25519SealedSessionRecordFixture(
         envId: 'test',
         signingRootVersion: 'v1',
       },
-      signerSlot: 1,
+      signerSlot: args.signerSlot ?? 1,
       routerAbNormalSigning: {
         kind: 'router_ab_ed25519_normal_signing_v1',
         signingWorkerId: 'ed25519-sealed-runtime-worker',

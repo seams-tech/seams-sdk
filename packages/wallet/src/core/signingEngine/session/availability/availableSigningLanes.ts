@@ -34,6 +34,7 @@ import {
 import {
   signingLaneAuthBindingKey,
   signingLaneAuthMethod,
+  type OwnerLaneScope,
   type SigningLaneAuthBinding,
 } from '../identity/signingLaneAuthBinding';
 import {
@@ -518,6 +519,13 @@ export type ReadAvailableSigningLanesInput = {
   subjectId?: never;
   ecdsaChainTargets: readonly ThresholdEcdsaChainTarget[];
   authMethod?: 'email_otp' | 'passkey';
+  /**
+   * R103C: when present, candidates are filtered to this exact owner before
+   * canonicalization. Sibling owner lanes and lanes on other signer slots
+   * never reach selection. Omitted only for persistence maintenance,
+   * normalization, and diagnostics reads.
+   */
+  ownerScope?: OwnerLaneScope;
   nowMs?: number;
 };
 
@@ -1646,6 +1654,28 @@ function suppressPublicEd25519CandidatesWithDurablePolicy(
   });
 }
 
+/**
+ * R103C owner-scope matching. Ed25519 lanes bind an owner's credential AND
+ * signer slot; ECDSA lanes bind the credential alone. State stays untouched:
+ * the scope decides whose lane it is, never whether it is usable.
+ */
+export function ed25519LaneMatchesOwnerScope(
+  lane: AvailableEd25519SigningLane,
+  scope: OwnerLaneScope,
+): boolean {
+  if (lane.state === 'missing') return false;
+  if (signingLaneAuthBindingKey(lane.auth) !== signingLaneAuthBindingKey(scope.auth)) return false;
+  return scope.auth.kind === 'email_otp' || lane.signerSlot === scope.signerSlot;
+}
+
+export function ecdsaLaneMatchesOwnerScope(
+  lane: AvailableEcdsaSigningLane,
+  scope: OwnerLaneScope,
+): boolean {
+  if (lane.state === 'missing') return false;
+  return signingLaneAuthBindingKey(lane.auth) === signingLaneAuthBindingKey(scope.auth);
+}
+
 export async function readAvailableSigningLanes(
   input: ReadAvailableSigningLanesInput,
   ports: ReadAvailableSigningLanesPorts,
@@ -1721,8 +1751,23 @@ export async function readAvailableSigningLanes(
     });
   }
 
+  // R103C: filter to the exact owner BEFORE canonicalization. A sibling
+  // owner's lanes must not participate in duplicate collapse, priority
+  // ordering, or canonical fact grouping for this owner's operation.
+  const ownerScope = input.ownerScope;
+  const ownerScopedEd25519Candidates = ownerScope
+    ? ed25519Candidates.filter((lane) => ed25519LaneMatchesOwnerScope(lane, ownerScope))
+    : ed25519Candidates;
+  if (ownerScope) {
+    for (const targetKey of Object.keys(ecdsaCandidatesByTarget)) {
+      ecdsaCandidatesByTarget[targetKey] = (ecdsaCandidatesByTarget[targetKey] || []).filter(
+        (lane) => ecdsaLaneMatchesOwnerScope(lane, ownerScope),
+      );
+    }
+  }
+
   const policyBoundEd25519Candidates = suppressPublicEd25519CandidatesWithDurablePolicy(
-    ed25519Candidates,
+    ownerScopedEd25519Candidates,
   );
   const normalizedEd25519Candidates = collapseExactDuplicateAvailableLanes(
     policyBoundEd25519Candidates,
