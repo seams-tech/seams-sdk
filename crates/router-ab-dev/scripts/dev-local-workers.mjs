@@ -939,7 +939,36 @@ async function waitForProductionWorkers() {
   }
   const keysetUrl = `${strictRuntime.mpcRouterUrl}/.well-known/router-ab/keyset`;
   await waitForUrlStatus(keysetUrl, 90_000);
+  const routerSecret = readEnvFile(strictRuntime.configs[0].secretPath).get(
+    'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
+  );
+  if (!routerSecret) {
+    throw new Error('strict Router service-auth secret is unavailable');
+  }
+  await waitForAuthenticatedRouterPrewarm(
+    `${strictRuntime.mpcRouterUrl}/internal/prewarm`,
+    routerSecret,
+    90_000,
+  );
   appendLine(workerPanes[0], 'production topology ready');
+}
+
+async function waitForAuthenticatedRouterPrewarm(url, secret, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const status = await requestStatus(url, 750, {
+        method: 'POST',
+        headers: { 'x-router-ab-internal-service-auth': secret },
+      });
+      if (status.statusCode === 200) return;
+    } catch {
+      // A service binding can lag behind its Worker's listening socket.
+    }
+    await sleep(250);
+  }
+  const status = await describeUrlStatus(url);
+  throw new Error(`Router A/B service bindings did not become ready (${status})`);
 }
 
 function printProductionReadySummary() {
@@ -1204,15 +1233,17 @@ async function describeUrlStatus(url) {
   }
 }
 
-function requestStatus(urlInput, timeoutMs) {
+function requestStatus(urlInput, timeoutMs, requestInit = {}) {
   return new Promise((resolve, reject) => {
     const url = urlInput instanceof URL ? urlInput : new URL(urlInput);
     const transport = url.protocol === 'https:' ? https : http;
-    const request = transport.get(
+    const request = transport.request(
       url,
       {
         timeout: timeoutMs,
         rejectUnauthorized: false,
+        method: requestInit.method ?? 'GET',
+        headers: requestInit.headers,
       },
       (response) => {
         response.resume();
@@ -1221,6 +1252,7 @@ function requestStatus(urlInput, timeoutMs) {
     );
     request.on('timeout', () => request.destroy(new Error('timeout')));
     request.on('error', reject);
+    request.end();
   });
 }
 
