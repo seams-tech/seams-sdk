@@ -292,6 +292,54 @@ export type ImportCommittedWalletCustodyEcdsaActivationInput = {
   readonly committedAt: IsoTimestamp;
 };
 
+function activeManifestMatchesWalletCustodyImport(input: {
+  readonly manifest: ActiveEcdsaCapabilityManifest;
+  readonly activationBinding: EcdsaActivationBinding;
+  readonly serverActivation: EcdsaServerActivationCommit;
+  readonly registeredPublicFacts: VerifiedEcdsaPublicFacts;
+  readonly roleLocalPublicFacts: EcdsaRoleLocalPublicFacts;
+  readonly routerAbEcdsaDerivationNormalSigning: RouterAbEcdsaDerivationNormalSigningStateV1;
+  readonly runtimePolicyScope: RuntimePolicyScope;
+}): boolean {
+  const manifest = input.manifest;
+  const binding = input.activationBinding;
+  return (
+    canonicalValuesMatch(manifest.signer.authority, binding.signer.authority) &&
+    canonicalValuesMatch(manifest.signer.scope, binding.signer.scope) &&
+    manifest.signer.walletId === binding.signer.walletId &&
+    manifest.signer.capability === binding.signer.capability &&
+    manifest.signer.materialOwner === binding.signer.materialOwner &&
+    manifest.signer.signingRootId === binding.signer.signingRootId &&
+    manifest.signer.signingRootVersion === binding.signer.signingRootVersion &&
+    canonicalValuesMatch(manifest.signer.registeredPublicFacts, input.registeredPublicFacts) &&
+    canonicalValuesMatch(manifest.activation.serverActivation, input.serverActivation) &&
+    mpcMaterialActivationRefsEqual(
+      manifest.activation.materialActivation,
+      routerAbMpcMaterialActivationRefFromWire(
+        input.serverActivation.serverActivationReceipt.protocolReceipt.ecdsa_activation
+          .material_activation,
+      ),
+    ) &&
+    canonicalValuesMatch(
+      manifest.durableMaterial.roleLocalBinding,
+      binding.roleLocalBinding,
+    ) &&
+    manifest.durableMaterial.bindingDigest === binding.bindingDigest &&
+    canonicalValuesMatch(
+      manifest.durableMaterial.roleLocalPublicFacts,
+      input.roleLocalPublicFacts,
+    ) &&
+    canonicalValuesMatch(
+      manifest.durableMaterial.routerAbEcdsaDerivationNormalSigning,
+      input.routerAbEcdsaDerivationNormalSigning,
+    ) &&
+    canonicalValuesMatch(
+      manifest.durableMaterial.runtimePolicyScope,
+      normalizeRuntimePolicyScope(input.runtimePolicyScope),
+    )
+  );
+}
+
 export type EcdsaPreparedActivationOpenResult =
   | {
       readonly kind: 'found';
@@ -2503,6 +2551,31 @@ export class IndexedDbEcdsaCapabilityManifestStore {
       capability: input.activationBinding.signer.capability,
       authority: input.activationBinding.signer.authority,
     };
+    const existing = await this.lookup(selector);
+    if (existing.kind === 'active') {
+      if (
+        activeManifestMatchesWalletCustodyImport({
+          manifest: existing.manifest,
+          activationBinding: input.activationBinding,
+          serverActivation,
+          registeredPublicFacts: input.registeredPublicFacts,
+          roleLocalPublicFacts: input.roleLocalPublicFacts,
+          routerAbEcdsaDerivationNormalSigning: input.routerAbEcdsaDerivationNormalSigning,
+          runtimePolicyScope: input.runtimePolicyScope,
+        })
+      ) {
+        return { kind: 'committed', manifest: existing.manifest, material: existing.material };
+      }
+      return {
+        kind: 'exact_record_conflict',
+        selector,
+        conflictDigest: await persistenceDigest(
+          'custody_import_conflict',
+          selector,
+          'ECDSA custody import conflicts with the active manifest',
+        ),
+      };
+    }
     const sealingKeyId = parseEcdsaMaterialSealingKeyId(
       secureRandomId('ecdsa-material-sealing-key', 32, 'ECDSA material sealing key identities'),
     );
@@ -2569,6 +2642,21 @@ export class IndexedDbEcdsaCapabilityManifestStore {
       return { kind: 'committed', manifest: activeManifest, material: readyMaterial };
     } catch (error: unknown) {
       if (error instanceof FinalizationControlError || isConstraintError(error)) {
+        const replay = await this.lookup(selector);
+        if (
+          replay.kind === 'active' &&
+          activeManifestMatchesWalletCustodyImport({
+            manifest: replay.manifest,
+            activationBinding: input.activationBinding,
+            serverActivation,
+            registeredPublicFacts: input.registeredPublicFacts,
+            roleLocalPublicFacts: input.roleLocalPublicFacts,
+            routerAbEcdsaDerivationNormalSigning: input.routerAbEcdsaDerivationNormalSigning,
+            runtimePolicyScope: input.runtimePolicyScope,
+          })
+        ) {
+          return { kind: 'committed', manifest: replay.manifest, material: replay.material };
+        }
         return {
           kind: 'exact_record_conflict',
           selector,
