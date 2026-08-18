@@ -144,6 +144,9 @@ importers:
       '@seams-internal/wallet-console-server':
         specifier: workspace:*
         version: link:../../packages/wallet-console-server-ts
+      '@seams-internal/wallet-console-shared':
+        specifier: workspace:*
+        version: link:../../packages/wallet-console-shared-ts
       '@seams/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk-web
@@ -203,9 +206,6 @@ importers:
       '@seams-internal/console-shared':
         specifier: workspace:*
         version: link:../console-shared-ts
-      '@seams-internal/wallet-console-shared':
-        specifier: workspace:*
-        version: link:../wallet-console-shared-ts
       bs58:
         specifier: ^6.0.0
         version: 6.0.0

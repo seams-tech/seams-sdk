@@ -1,6 +1,7 @@
 import { ConsoleWebhookError } from './errors';
 import type {
   ConsoleWebhooksContext,
+  WebhookEventCategoryValidation,
   ConsoleWebhookDelivery,
   ConsoleWebhookDeliveryAttempt,
   ConsoleWebhookDeadLetter,
@@ -79,6 +80,7 @@ export interface WebhookDispatchAdapter {
 }
 
 export interface InMemoryConsoleWebhookServiceOptions extends ConsoleWebhookObservabilityOptions {
+  categoryValidation: WebhookEventCategoryValidation;
   now?: () => Date;
   dispatcher?: WebhookDispatchAdapter;
 }
@@ -212,7 +214,7 @@ function sortDeadLettersByNewest(items: StoredWebhookDeadLetter[]): StoredWebhoo
 }
 
 export function createInMemoryConsoleWebhookService(
-  opts: InMemoryConsoleWebhookServiceOptions = {},
+  opts: InMemoryConsoleWebhookServiceOptions,
 ): ConsoleWebhookService {
   const now = opts.now || (() => new Date());
   const dispatchAdapter: WebhookDispatchAdapter = opts.dispatcher || {
@@ -302,7 +304,7 @@ export function createInMemoryConsoleWebhookService(
 
   function shouldDeliverToEndpoint(endpoint: StoredWebhookEndpoint, eventType: string): boolean {
     if (endpoint.status !== 'ACTIVE') return false;
-    const category = normalizeEventCategory(eventType);
+    const category = normalizeEventCategory(eventType, opts.categoryValidation);
     if (!category) return false;
     return endpoint.eventCategories.includes(category);
   }

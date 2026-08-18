@@ -1,3 +1,5 @@
+import { WALLET_API_CREDENTIAL_SCOPE_VALIDATION } from '@seams-internal/wallet-console-shared/apiKeyScopes';
+import { WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION } from '@seams-internal/wallet-console-shared/webhookEventCategories';
 import type { Request, Response, Router as ExpressRouter } from 'express';
 import express from 'express';
 import { buildCorsOrigins, normalizeCorsOrigin } from '@seams/sdk-server/cloud-host';
@@ -3563,7 +3565,7 @@ function registerConsoleApiKeyRoutes(router: ExpressRouter, ctx: ExpressConsoleC
     const apiKeys = requireApiKeyService(res, ctx);
     if (!apiKeys) return;
     try {
-      const request = parseCreateConsoleApiKeyRequest((req as any).body);
+      const request = parseCreateConsoleApiKeyRequest((req as any).body, WALLET_API_CREDENTIAL_SCOPE_VALIDATION);
       const validEnvironment = await requireActiveApiKeyEnvironmentForCreate(
         res,
         ctx,
@@ -3688,7 +3690,7 @@ function registerConsoleApiKeyRoutes(router: ExpressRouter, ctx: ExpressConsoleC
       return;
     }
     try {
-      const request = parseUpdateConsoleApiKeyRequest((req as any).body);
+      const request = parseUpdateConsoleApiKeyRequest((req as any).body, WALLET_API_CREDENTIAL_SCOPE_VALIDATION);
       const updated = await apiKeys.updateApiKey(toBillingContext(claims), apiKeyId, request);
       if (!updated) {
         res.status(404).json({
@@ -3784,7 +3786,7 @@ function registerConsoleWebhookRoutes(router: ExpressRouter, ctx: ExpressConsole
     const webhooks = requireWebhookService(res, ctx);
     if (!webhooks) return;
     try {
-      const request = parseCreateConsoleWebhookEndpointRequest((req as any).body);
+      const request = parseCreateConsoleWebhookEndpointRequest((req as any).body, WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION);
       const endpoint = await webhooks.createEndpoint(toBillingContext(claims), request);
       const auditEvent = buildConsoleWebhookEndpointAuditEvent({
         action: 'webhook.endpoint.create',
@@ -3816,7 +3818,7 @@ function registerConsoleWebhookRoutes(router: ExpressRouter, ctx: ExpressConsole
       return;
     }
     try {
-      const request = parseUpdateConsoleWebhookEndpointRequest((req as any).body);
+      const request = parseUpdateConsoleWebhookEndpointRequest((req as any).body, WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION);
       const endpoint = await webhooks.updateEndpoint(toBillingContext(claims), endpointId, request);
       if (!endpoint) {
         res.status(404).json({

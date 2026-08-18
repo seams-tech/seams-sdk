@@ -1,3 +1,4 @@
+import { isApiCredentialScope } from '@seams-internal/wallet-console-shared/apiKeyScopes';
 import type { ConsoleApiKeyService } from '@seams-internal/console-server/apiKeys/index';
 import type {
   AuthenticateConsoleApiKeyResult,
@@ -24,7 +25,7 @@ function toPrincipal(apiKey: ConsoleApiKey): RouterApiKeyPrincipal {
     apiKeyId: apiKey.id,
     orgId: apiKey.orgId,
     environmentId: apiKey.environmentId,
-    scopes: [...(apiKey.scopes || [])],
+    scopes: (apiKey.scopes || []).filter(isApiCredentialScope),
   };
 }
 

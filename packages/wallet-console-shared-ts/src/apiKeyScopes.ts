@@ -46,3 +46,8 @@ const API_CREDENTIAL_SCOPE_SET = new Set<string>(API_CREDENTIAL_SCOPES);
 export function isApiCredentialScope(value: string): value is ApiCredentialScope {
   return API_CREDENTIAL_SCOPE_SET.has(value);
 }
+
+export const WALLET_API_CREDENTIAL_SCOPE_VALIDATION = {
+  isKnownScope: isApiCredentialScope,
+  describeAllowedScopes: (): string => API_CREDENTIAL_SCOPES.join(', '),
+};

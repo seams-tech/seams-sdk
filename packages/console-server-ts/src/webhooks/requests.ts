@@ -1,9 +1,5 @@
 import { ConsoleWebhookError } from './errors';
-import {
-  CONSOLE_WEBHOOK_EVENT_CATEGORIES,
-  normalizeConsoleWebhookEventCategory,
-  type ConsoleWebhookEventCategory,
-} from '@seams-internal/wallet-console-shared/webhookEventCategories';
+
 import {
   readOptionalQueryBooleanField as readOptionalQueryBoolean,
   readOptionalQueryPositiveIntegerField as readOptionalQueryInteger,
@@ -14,6 +10,7 @@ import {
   requireQueryObject,
 } from '../shared/requestParse';
 import type {
+  WebhookEventCategoryValidation,
   ConsoleWebhookEndpointStatus,
   CreateConsoleWebhookEndpointRequest,
   ListConsoleWebhookDeliveriesRequest,
@@ -23,9 +20,6 @@ import type {
   UpdateConsoleWebhookEndpointRequest,
 } from './types';
 
-const WEBHOOK_EVENT_CATEGORIES: Set<ConsoleWebhookEventCategory> = new Set(
-  CONSOLE_WEBHOOK_EVENT_CATEGORIES,
-);
 
 const WEBHOOK_ENDPOINT_STATUSES: Set<ConsoleWebhookEndpointStatus> = new Set([
   'ACTIVE',
@@ -57,7 +51,10 @@ function normalizeWebhookUrlOrThrow(value: string, fieldName: string): string {
   return parsed.toString();
 }
 
-function parseWebhookEventCategoriesOrThrow(raw: unknown): ConsoleWebhookEventCategory[] {
+function parseWebhookEventCategoriesOrThrow(
+  raw: unknown,
+  categoryValidation: WebhookEventCategoryValidation,
+): string[] {
   if (!Array.isArray(raw) || raw.length === 0) {
     throw new ConsoleWebhookError(
       'invalid_body',
@@ -65,11 +62,11 @@ function parseWebhookEventCategoriesOrThrow(raw: unknown): ConsoleWebhookEventCa
       'Field eventCategories must be a non-empty array',
     );
   }
-  const out: ConsoleWebhookEventCategory[] = [];
+  const out: string[] = [];
   const seen = new Set<string>();
   for (const item of raw) {
-    const value = normalizeConsoleWebhookEventCategory(item);
-    if (!value || !WEBHOOK_EVENT_CATEGORIES.has(value)) {
+    const value = categoryValidation.normalizeCategory(item);
+    if (!value) {
       throw new ConsoleWebhookError(
         'invalid_body',
         400,
@@ -101,10 +98,11 @@ function parseWebhookStatusOrThrow(
 
 export function parseCreateConsoleWebhookEndpointRequest(
   body: unknown,
+  categoryValidation: WebhookEventCategoryValidation,
 ): CreateConsoleWebhookEndpointRequest {
   const obj = requireObject(body, createParseError);
   const url = normalizeWebhookUrlOrThrow(readRequiredString(obj, 'url', createParseError), 'url');
-  const eventCategories = parseWebhookEventCategoriesOrThrow(obj.eventCategories);
+  const eventCategories = parseWebhookEventCategoriesOrThrow(obj.eventCategories, categoryValidation);
   const statusRaw = obj.status;
   const status =
     statusRaw === undefined ? undefined : parseWebhookStatusOrThrow(statusRaw, 'status');
@@ -117,6 +115,7 @@ export function parseCreateConsoleWebhookEndpointRequest(
 
 export function parseUpdateConsoleWebhookEndpointRequest(
   body: unknown,
+  categoryValidation: WebhookEventCategoryValidation,
 ): UpdateConsoleWebhookEndpointRequest {
   const obj = requireObject(body, createParseError);
   const urlRaw = readOptionalString(obj, 'url');
@@ -128,7 +127,7 @@ export function parseUpdateConsoleWebhookEndpointRequest(
     out.url = normalizeWebhookUrlOrThrow(urlRaw, 'url');
   }
   if (eventCategoriesRaw !== undefined) {
-    out.eventCategories = parseWebhookEventCategoriesOrThrow(eventCategoriesRaw);
+    out.eventCategories = parseWebhookEventCategoriesOrThrow(eventCategoriesRaw, categoryValidation);
   }
   if (statusRaw !== undefined) {
     out.status = parseWebhookStatusOrThrow(statusRaw, 'status');

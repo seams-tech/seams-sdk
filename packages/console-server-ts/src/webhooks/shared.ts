@@ -1,9 +1,6 @@
 import { secureRandomBase36 } from '../boundary';
 import type { WebhookDispatchRequest, WebhookDispatchResult } from './service';
-import {
-  normalizeConsoleWebhookEventCategory,
-  type ConsoleWebhookEventCategory,
-} from '@seams-internal/wallet-console-shared/webhookEventCategories';
+import type { WebhookEventCategoryValidation } from './types';
 
 export const DELIVERY_RESPONSE_BODY_MAX_LEN = 2_048;
 const WEBHOOK_DISPATCH_TIMEOUT_MS = 10_000;
@@ -32,14 +29,17 @@ export function makeSigningSecret(now: Date): string {
   return `whsec_${makeId('secret', now)}`;
 }
 
-export function normalizeEventCategory(eventType: string): ConsoleWebhookEventCategory | null {
+export function normalizeEventCategory(
+  eventType: string,
+  categoryValidation: WebhookEventCategoryValidation,
+): string | null {
   const value = String(eventType || '')
     .trim()
     .toLowerCase();
   if (!value) return null;
   const idx = value.indexOf('.');
   const category = idx === -1 ? value : value.slice(0, idx);
-  return normalizeConsoleWebhookEventCategory(category);
+  return categoryValidation.normalizeCategory(category);
 }
 
 export async function signPayload(secret: string, message: string): Promise<string> {

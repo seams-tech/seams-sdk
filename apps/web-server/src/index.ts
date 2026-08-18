@@ -1,4 +1,6 @@
 import express, { Express, type RequestHandler } from 'express';
+import { WALLET_API_CREDENTIAL_SCOPE_VALIDATION } from '@seams-internal/wallet-console-shared/apiKeyScopes';
+import { WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION } from '@seams-internal/wallet-console-shared/webhookEventCategories';
 import { Buffer } from 'node:buffer';
 import type { IncomingMessage } from 'node:http';
 import { AuthService, requireEnvVar, type ThresholdStoreConfigInput } from '@seams/sdk-server';
@@ -754,7 +756,9 @@ async function main() {
   });
   const consoleOrgProjectEnvBase: ConsoleOrgProjectEnvService =
     createInMemoryConsoleOrgProjectEnvService();
-  const consoleApiKeys: ConsoleApiKeyService = createInMemoryConsoleApiKeyService();
+  const consoleApiKeys: ConsoleApiKeyService = createInMemoryConsoleApiKeyService({
+    scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION,
+  });
   const consolePolicies: ConsolePolicyService = createInMemoryConsolePolicyService();
   const consoleApprovals: ConsoleApprovalService = createInMemoryConsoleApprovalService();
   const consoleRuntimeSnapshots: ConsoleRuntimeSnapshotService =
@@ -798,6 +802,7 @@ async function main() {
     createInMemoryConsoleObservabilityService();
   const consoleObservabilityIngestion: ConsoleObservabilityIngestionService | null = null;
   const consoleWebhooks: ConsoleWebhookService = createInMemoryConsoleWebhookService({
+    categoryValidation: WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION,
     observabilityIngestion: consoleObservabilityIngestion,
     observabilityLogger: console as any,
   } as any);

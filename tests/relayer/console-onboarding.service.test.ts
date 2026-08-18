@@ -1,3 +1,4 @@
+import { WALLET_API_CREDENTIAL_SCOPE_VALIDATION } from '@seams-internal/wallet-console-shared/apiKeyScopes';
 import { expect, test } from '@playwright/test';
 import { createInMemoryConsoleApiKeyService } from '../../packages/console-server-ts/src/apiKeys/service';
 import { createInMemoryConsoleOnboardingService } from '../../packages/console-server-ts/src/onboarding/service';
@@ -22,7 +23,7 @@ test('organization onboarding persists the organization before bootstrapping its
   const onboarding = createInMemoryConsoleOnboardingService({
     orgProjectEnv,
     organizationAccess,
-    apiKeys: createInMemoryConsoleApiKeyService(),
+    apiKeys: createInMemoryConsoleApiKeyService({ scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION }),
   });
   const ctx = {
     orgId: 'org_onboarding_owner',
@@ -58,7 +59,7 @@ test('project onboarding requests a welcome email after the organization and pro
   const onboarding = createInMemoryConsoleOnboardingService({
     orgProjectEnv: createInMemoryConsoleOrgProjectEnvService(),
     organizationAccess: createInMemoryConsoleOrganizationAccessService(),
-    apiKeys: createInMemoryConsoleApiKeyService(),
+    apiKeys: createInMemoryConsoleApiKeyService({ scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION }),
     welcomeEmail,
   });
   const ctx = {

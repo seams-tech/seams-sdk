@@ -1,3 +1,4 @@
+import { WALLET_API_CREDENTIAL_SCOPE_VALIDATION } from '@seams-internal/wallet-console-shared/apiKeyScopes';
 import { expect, test } from '@playwright/test';
 import { createInMemoryConsoleApiKeyService } from '../../packages/console-server-ts/src/apiKeys';
 import { createInMemoryConsoleRuntimeSnapshotService } from '../../packages/wallet-console-server-ts/src/runtimeSnapshots';
@@ -47,7 +48,7 @@ function makeRouterApiServiceBagFixture(): RouterApiServiceBag {
 }
 
 function makeSponsoredOptions() {
-  const apiKeys = createInMemoryConsoleApiKeyService();
+  const apiKeys = createInMemoryConsoleApiKeyService({ scopeValidation: WALLET_API_CREDENTIAL_SCOPE_VALIDATION });
   const sponsorAddress = '0x2222222222222222222222222222222222222222' as const;
   const sponsorPrivateKeyHex =
     '0x1111111111111111111111111111111111111111111111111111111111111111' as const;
