@@ -1,6 +1,9 @@
 import { configuredThresholdEcdsaChainTargets } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { readPersistedAvailableSigningLanesForTargets } from '../../session/availability/persistedAvailableSigningLanes';
+import {
+  readOwnerScopedAvailableSigningLanes,
+  readPersistedAvailableSigningLanesForTargets,
+} from '../../session/availability/persistedAvailableSigningLanes';
 import type {
   PasskeyMpcExportPort,
   PasskeyMpcSessionPort,
@@ -22,6 +25,7 @@ import type { PersistedAvailableSigningLanesDeps } from '../../session/availabil
 import type { EcdsaExportFlowDeps } from '../../flows/recovery/ecdsaExportFlow';
 import type { Ed25519YaoExportFlowDeps } from '../../flows/recovery/ed25519YaoExportFlow';
 import type { EmailOtpWarmMaterialTarget } from '../../workerManager/workerTypes';
+import type { OwnerLaneScope } from '../../session/identity/signingLaneAuthBinding';
 
 export function createRecoveryPublicDeps(args: {
   seamsWebConfigs: CreateSigningEnginePortsArgs['seamsWebConfigs'];
@@ -35,6 +39,7 @@ export function createRecoveryPublicDeps(args: {
   ed25519YaoPublicCapabilityLanes: PersistedAvailableSigningLanesDeps['ed25519YaoPublicCapabilityLanes'];
   isEd25519YaoPublicCapabilityActive: PersistedAvailableSigningLanesDeps['isEd25519YaoPublicCapabilityActive'];
   listEcdsaSigningCapabilitiesForWallet: PersistedAvailableSigningLanesDeps['listEcdsaSigningCapabilitiesForWallet'];
+  resolveOwnerLaneScope(walletId: string): Promise<OwnerLaneScope>;
   touchConfirm: UiConfirmRuntimeBridgePort;
   passkeyMpcExport: PasskeyMpcExportPort;
   passkeyMpcSession: PasskeyMpcSessionPort;
@@ -89,6 +94,19 @@ export function createRecoveryPublicDeps(args: {
             listEcdsaSigningCapabilitiesForWallet: args.listEcdsaSigningCapabilitiesForWallet,
           },
           completeConfiguredEcdsaTargets(availableLanesArgs),
+        ),
+      readOwnerScopedAvailableSigningLanesForTargets: async (availableLanesArgs) =>
+        await readOwnerScopedAvailableSigningLanes(
+          {
+            ed25519YaoPublicCapabilityLanes: args.ed25519YaoPublicCapabilityLanes,
+            isEd25519YaoPublicCapabilityActive: args.isEd25519YaoPublicCapabilityActive,
+            readActiveWalletSessionAuthorization: args.readActiveWalletSessionAuthorization,
+            listEcdsaSigningCapabilitiesForWallet: args.listEcdsaSigningCapabilitiesForWallet,
+          },
+          {
+            ...completeConfiguredEcdsaTargets(availableLanesArgs),
+            ownerScope: await args.resolveOwnerLaneScope(String(availableLanesArgs.walletId)),
+          },
         ),
     },
     ecdsa: {

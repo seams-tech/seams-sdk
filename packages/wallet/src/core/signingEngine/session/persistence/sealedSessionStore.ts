@@ -55,6 +55,7 @@ import {
   type EmailOtpWalletAuthAuthority,
   type WalletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
+import { alphabetizeStringify } from '@shared/utils/digests';
 
 export type SigningSessionRestoreLease = {
   v: 1;
@@ -857,6 +858,76 @@ function sealedRecordsHaveSamePurpose(
   return true;
 }
 
+type PersistedCurrentEd25519Record = {
+  readonly primaryKey: string;
+  readonly record: CurrentEd25519SealedSessionRecord;
+};
+
+function exactEd25519PublicIdentityKey(record: CurrentEd25519SealedSessionRecord): string {
+  return alphabetizeStringify({
+    storeKey: record.storeKey,
+    walletId: record.walletId,
+    authMethod: record.authMethod,
+    signingRootId: record.signingRootId ?? null,
+    signingRootVersion: record.signingRootVersion ?? null,
+    restore: record.ed25519Restore,
+  });
+}
+
+function persistedEd25519Record(
+  entry: StoredRawSealedRecordEntry,
+  record: CurrentEd25519SealedSessionRecord,
+): PersistedCurrentEd25519Record {
+  if (typeof entry.primaryKey !== 'string' || !entry.primaryKey.trim()) {
+    throw new Error('[SigningSessionSealedStore] exact Ed25519 record key is invalid');
+  }
+  return { primaryKey: entry.primaryKey, record };
+}
+
+function preferredExactEd25519Record(
+  left: PersistedCurrentEd25519Record,
+  right: PersistedCurrentEd25519Record,
+): PersistedCurrentEd25519Record {
+  if (left.record.updatedAtMs !== right.record.updatedAtMs) {
+    return left.record.updatedAtMs > right.record.updatedAtMs ? left : right;
+  }
+  if (left.primaryKey === left.record.storeKey) return left;
+  if (right.primaryKey === right.record.storeKey) return right;
+  return left.primaryKey.localeCompare(right.primaryKey) <= 0 ? left : right;
+}
+
+async function compactExactEd25519Records(
+  matches: readonly PersistedCurrentEd25519Record[],
+  options: { readonly writeCanonical: boolean } = { writeCanonical: false },
+): Promise<CurrentEd25519SealedSessionRecord | null> {
+  const first = matches[0];
+  if (!first) return null;
+  const exactIdentity = exactEd25519PublicIdentityKey(first.record);
+  for (const match of matches.slice(1)) {
+    if (exactEd25519PublicIdentityKey(match.record) !== exactIdentity) {
+      throw new Error(
+        '[SigningSessionSealedStore] exact Ed25519 material has conflicting public identity facts',
+      );
+    }
+  }
+  const selected = matches.reduce(preferredExactEd25519Record);
+  const canonicalStoreKey = selected.record.storeKey;
+  const staleStoreKeys = [...new Set(matches.map((match) => match.primaryKey))].filter(
+    (primaryKey) => primaryKey !== canonicalStoreKey,
+  );
+  if (
+    options.writeCanonical ||
+    staleStoreKeys.length > 0 ||
+    selected.primaryKey !== canonicalStoreKey
+  ) {
+    await signingSessionSealsRepository.replaceSealedRecord({
+      row: sealedRecordStorageRow(selected.record),
+      staleStoreKeys,
+    });
+  }
+  return selected.record;
+}
+
 function normalizeParticipantIds(value: unknown): number[] {
   if (!Array.isArray(value)) return [];
   return value
@@ -1577,12 +1648,16 @@ async function readRecordByThresholdSessionId(
   const entries = await collectRawSealedRecordEntriesByThresholdSessionId(thresholdSessionId);
 
   let selected: CurrentSealedSessionRecord | null = null;
+  const exactEd25519Matches: PersistedCurrentEd25519Record[] = [];
   const deletePrimaryKeys: unknown[] = [];
   for (const entry of entries) {
     const classification = await classifyPersistedSealedRecord(entry);
     if (classification.kind === 'current') {
       if (recordMatchesFilter(classification.record, thresholdSessionId, filter)) {
         selected = classification.record;
+        if (classification.record.curve === 'ed25519') {
+          exactEd25519Matches.push(persistedEd25519Record(entry, classification.record));
+        }
       }
       continue;
     }
@@ -1596,6 +1671,9 @@ async function readRecordByThresholdSessionId(
     }
   }
   await signingSessionSealsRepository.deleteSealedRecords(deletePrimaryKeys);
+  if (exactEd25519Matches.length > 0) {
+    return await compactExactEd25519Records(exactEd25519Matches);
+  }
   return selected;
 }
 
@@ -1610,7 +1688,7 @@ async function deleteRecordByThresholdSessionId(
       const classification = await classifyPersistedSealedRecord(entry);
       const record = classification.kind === 'current' ? classification.record : null;
       if (record?.storeKey && recordMatchesFilter(record, thresholdSessionId, filter)) {
-        deletePrimaryKeys.push(record.storeKey);
+        deletePrimaryKeys.push(entry.primaryKey);
       }
     }
     await signingSessionSealsRepository.deleteSealedRecords(deletePrimaryKeys);
@@ -1670,7 +1748,7 @@ export async function readExactEd25519SealedSession(
 ): Promise<CurrentEd25519SealedSessionRecord | null> {
   const entries = await signingSessionSealsRepository.collectAllRawSealedRecordEntries();
   const deletePrimaryKeys: unknown[] = [];
-  const matches: CurrentEd25519SealedSessionRecord[] = [];
+  const matches: PersistedCurrentEd25519Record[] = [];
   for (const entry of entries) {
     const classification = await classifyPersistedSealedRecord(entry);
     if (classification.kind === 'current') {
@@ -1683,7 +1761,7 @@ export async function readExactEd25519SealedSession(
           locator.materialActivation,
         )
       ) {
-        matches.push(record);
+        matches.push(persistedEd25519Record(entry, record));
       }
       continue;
     }
@@ -1700,12 +1778,7 @@ export async function readExactEd25519SealedSession(
     }
   }
   await signingSessionSealsRepository.deleteSealedRecords(deletePrimaryKeys);
-  if (matches.length > 1) {
-    throw new Error(
-      '[SigningSessionSealedStore] exact Ed25519 material activation is ambiguous',
-    );
-  }
-  return matches[0] ?? null;
+  return await compactExactEd25519Records(matches);
 }
 
 export async function listExactSealedSessionsForWallet(args: {
@@ -1721,6 +1794,7 @@ export async function listExactSealedSessionsForWallet(args: {
   try {
     const records: CurrentSealedSessionRecord[] = [];
     const seen = new Set<string>();
+    const ed25519RecordsByCanonicalKey = new Map<string, PersistedCurrentEd25519Record[]>();
     for (const value of values) {
       const classification = await classifyPersistedSealedRecord(value);
       if (classification.kind !== 'current') {
@@ -1748,9 +1822,19 @@ export async function listExactSealedSessionsForWallet(args: {
       ) {
         continue;
       }
+      if (record.curve === 'ed25519') {
+        const exactRecords = ed25519RecordsByCanonicalKey.get(record.storeKey) ?? [];
+        exactRecords.push(persistedEd25519Record(value, record));
+        ed25519RecordsByCanonicalKey.set(record.storeKey, exactRecords);
+        continue;
+      }
       if (seen.has(record.storeKey)) continue;
       seen.add(record.storeKey);
       records.push(record);
+    }
+    for (const exactRecords of ed25519RecordsByCanonicalKey.values()) {
+      const compacted = await compactExactEd25519Records(exactRecords);
+      if (compacted) records.push(compacted);
     }
     await signingSessionSealsRepository.deleteSealedRecords(deletePrimaryKeys);
     return records;
@@ -1827,6 +1911,25 @@ export async function writeExactSealedSession(record: CurrentSealedSessionRecord
     return;
   }
   const currentRecord = classification.record;
+
+  if (currentRecord.curve === 'ed25519') {
+    const matches: PersistedCurrentEd25519Record[] = [
+      { primaryKey: currentRecord.storeKey, record: currentRecord },
+    ];
+    const entries = await signingSessionSealsRepository.collectAllRawSealedRecordEntries();
+    for (const entry of entries) {
+      const persisted = await classifyPersistedSealedRecord(entry);
+      if (
+        persisted.kind === 'current' &&
+        persisted.record.curve === 'ed25519' &&
+        persisted.record.storeKey === currentRecord.storeKey
+      ) {
+        matches.push(persistedEd25519Record(entry, persisted.record));
+      }
+    }
+    await compactExactEd25519Records(matches, { writeCanonical: true });
+    return;
+  }
 
   const staleRecords = await listSameScopeRecords(currentRecord);
   const replacedInactiveMaterialStoreKey = inactiveMaterialStoreKeyReplacedByCurrent(currentRecord);

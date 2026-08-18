@@ -345,6 +345,7 @@ export type DeviceLinkingLaneProvisioningPortV1 = {
       LinkedDeviceSessionState,
       { readonly state: 'committed_completion_required' }
     >;
+    readonly keyMaterial: DeviceLinkingKeyMaterialHandleV1;
     readonly refetchApprovalV1: () => Promise<LinkedDeviceApprovalV1>;
     readonly refetchProvisioningDeliveriesV1: () => Promise<LinkedDeviceProvisioningDeliveriesV1>;
     readonly acknowledgeHolderDeliveriesV1: (

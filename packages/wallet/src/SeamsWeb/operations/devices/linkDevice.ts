@@ -1108,6 +1108,12 @@ export class LinkDeviceFlow {
       stage: 'committed_delivery_retry_started',
     });
     const deviceId = await this.requireDeviceId(state);
+    const keyMaterial = this.keyMaterialHandle;
+    if (!keyMaterial) {
+      throw new Error(
+        'committed linked-device delivery cannot recover without its live recipient key handle',
+      );
+    }
     this.assertCurrentRun(runEpoch);
     await authenticatedTransport.retryCommittedDeliveryV1({
       request: buildLinkedDeviceSessionRetryCommittedDeliveryRequestV1({
@@ -1122,6 +1128,7 @@ export class LinkDeviceFlow {
     let replayDeliveries: LinkedDeviceProvisioningDeliveriesV1 | null = null;
     const receipt = await this.ports.laneProvisioning.resumeCommittedDeliveryV1({
       state,
+      keyMaterial,
       refetchApprovalV1: async () => {
         const approval = await authenticatedTransport.getApprovalV1({
           linkSessionId: state.linkSessionId,

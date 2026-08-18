@@ -97,6 +97,10 @@ export type SigningEngineStorePorts = {
   walletProfileAndSignerRecords: {
     accountStore: RegistrationAccountLifecycleDeps['accountStore'] & {
       listWalletAuthMethodsForWallet: (walletId: string) => Promise<LocalWalletAuthMethodRecord[]>;
+      getWalletPasskeyAuthenticator: (args: {
+        walletId: string;
+        credentialId: string;
+      }) => Promise<{ readonly credentialId: string; readonly signerSlot: number } | null>;
     };
     walletSignerStore: EvmFamilySigningDeps['walletSignerStore'];
     passkeyAuthenticatorStore: EvmFamilySigningDeps['passkeyAuthenticatorStore'];

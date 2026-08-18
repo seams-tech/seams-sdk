@@ -59,6 +59,14 @@ export type ExportLaneSelectionDeps = {
       ecdsaChainTargets: readonly ThresholdEcdsaChainTarget[];
     },
   ) => Promise<AvailableSigningLanes>;
+  readOwnerScopedAvailableSigningLanesForTargets: (
+    args: Omit<
+      ReadAvailableSigningLanesInput,
+      'authMethod' | 'ecdsaChainTargets' | 'ownerScope'
+    > & {
+      ecdsaChainTargets: readonly ThresholdEcdsaChainTarget[];
+    },
+  ) => Promise<AvailableSigningLanes>;
 };
 
 function summarizeExportAvailableLane(
@@ -278,7 +286,7 @@ async function resolveEcdsaExportLane(
 }
 
 export async function resolveExactKeyExportLane(
-  deps: Pick<ExportLaneSelectionDeps, 'readPersistedAvailableSigningLanesForTargets'>,
+  deps: Pick<ExportLaneSelectionDeps, 'readOwnerScopedAvailableSigningLanesForTargets'>,
   input: SigningEngineResolveExactKeyExportLaneInput,
 ): Promise<SigningEngineResolveExactKeyExportLaneResult> {
   switch (input.kind) {
@@ -290,11 +298,11 @@ export async function resolveExactKeyExportLane(
 }
 
 async function resolveExactEcdsaKeyExportLane(
-  deps: Pick<ExportLaneSelectionDeps, 'readPersistedAvailableSigningLanesForTargets'>,
+  deps: Pick<ExportLaneSelectionDeps, 'readOwnerScopedAvailableSigningLanesForTargets'>,
   input: Extract<SigningEngineResolveExactKeyExportLaneInput, { kind: 'ecdsa' }>,
 ): Promise<Extract<SigningEngineResolveExactKeyExportLaneResult, { kind: 'ecdsa' }>> {
   const walletId = String(toWalletId(input.walletSession.walletId));
-  const targetAvailableLanes = await deps.readPersistedAvailableSigningLanesForTargets({
+  const targetAvailableLanes = await deps.readOwnerScopedAvailableSigningLanesForTargets({
     walletId,
     ecdsaChainTargets: [input.chainTarget],
   });
@@ -357,12 +365,12 @@ function ed25519ExportOwnerIdentityKey(lane: ConcreteAvailableEd25519SigningLane
 }
 
 async function resolveExactEd25519KeyExportLane(
-  deps: Pick<ExportLaneSelectionDeps, 'readPersistedAvailableSigningLanesForTargets'>,
+  deps: Pick<ExportLaneSelectionDeps, 'readOwnerScopedAvailableSigningLanesForTargets'>,
   input: Extract<SigningEngineResolveExactKeyExportLaneInput, { kind: 'ed25519' }>,
 ): Promise<Extract<SigningEngineResolveExactKeyExportLaneResult, { kind: 'ed25519' }>> {
   const walletId = String(toWalletId(input.walletSession.walletId));
   const nearAccountId = String(input.nearAccount.accountId);
-  const available = await deps.readPersistedAvailableSigningLanesForTargets({
+  const available = await deps.readOwnerScopedAvailableSigningLanesForTargets({
     walletId,
     ecdsaChainTargets: [],
   });
