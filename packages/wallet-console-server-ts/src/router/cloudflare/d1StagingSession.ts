@@ -1,5 +1,5 @@
 import { base64UrlDecode, base64UrlEncode } from '@seams/wallet-server/cloud-host';
-import { SessionService } from '@seams/wallet-server/cloud-host';
+import { ConsoleSessionService } from '@seams-internal/console-server/boundary/session';
 import type {
   ActiveOrganizationAuthorization,
   ConsoleOrganizationAccessService,
@@ -499,7 +499,7 @@ export function createHmacSessionAdapter(options: HmacSessionAdapterOptions): Se
     cookieName,
     normalizeTtlSeconds(options.ttlSeconds),
   );
-  return new SessionService({
+  return new ConsoleSessionService({
     jwt: {
       signToken: jwt.signToken.bind(jwt),
       verifyToken: jwt.verifyToken.bind(jwt),
@@ -519,7 +519,7 @@ export function createEd25519SessionAdapter(options: Ed25519SessionAdapterOption
     cookieName,
     normalizeTtlSeconds(options.ttlSeconds),
   );
-  return new SessionService({
+  return new ConsoleSessionService({
     jwt: {
       signToken: jwt.signToken.bind(jwt),
       verifyToken: jwt.verifyToken.bind(jwt),
