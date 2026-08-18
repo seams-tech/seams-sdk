@@ -806,6 +806,13 @@ export class LinkDeviceFlow {
         preparation,
         keyMaterial: this.keyMaterialHandle,
       });
+      this.emit({
+        phase: LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED,
+        status: 'running',
+        message: 'Finishing linked-device setup',
+        data: { role: 'display' },
+        interaction: { kind: 'qr_display', overlay: 'show' },
+      });
       recipient = await recipientPublish;
       this.assertCurrentRun(runEpoch);
       // The wallet custody seed is resealed under the passkey just created.
