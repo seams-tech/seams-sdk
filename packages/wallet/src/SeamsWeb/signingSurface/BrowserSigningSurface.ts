@@ -3366,6 +3366,7 @@ export class BrowserSigningSurface {
         relayServerUrl: String(this.seamsWebConfigs.network.relayer?.url || ''),
         chains: this.seamsWebConfigs.network.chains,
         nonceCoordinator: this.nonceCoordinator,
+        nearClient: this.nearClient,
         touchConfirm: this.touchConfirm,
         rpcCall: request.args.rpcCall,
         ...(request.args.confirmationConfigOverride

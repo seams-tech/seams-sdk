@@ -63,6 +63,7 @@ import {
   resolveActiveRuntimePolicyScopeForEnvironment,
   resolveOpaqueOwnerWalletSessionAdmission,
 } from '../../auth/commonRouterUtils';
+import { parseLinkedDeviceWalletSessionForCurve } from '../signingOperations/linkedDeviceNormalSigning';
 import { extractBearerCredential } from '../../auth/routerApiKeyAuth';
 import { enforceRoutePolicy } from '../../framework/enforceRoutePolicy';
 import type { NormalizedRouterLogger } from '../../framework/logger';
@@ -813,6 +814,77 @@ async function resolveRouteOpaqueOwnerWalletSession(
   } catch {
     return null;
   }
+}
+
+type NearFundingWalletSessionAdmission =
+  | {
+      readonly kind: 'owner';
+      readonly walletId: string;
+      readonly nearAccountId: string;
+    }
+  | {
+      readonly kind: 'linked_device';
+      readonly walletId: string;
+    };
+
+function linkedDevicePermissionsMatch(
+  left: {
+    readonly kind: string;
+    readonly administrationScope: string;
+    readonly localUserPresence: string;
+  },
+  right: {
+    readonly kind: string;
+    readonly administrationScope: string;
+    readonly localUserPresence: string;
+  },
+): boolean {
+  return (
+    left.kind === right.kind &&
+    left.administrationScope === right.administrationScope &&
+    left.localUserPresence === right.localUserPresence
+  );
+}
+
+async function resolveRouteNearFundingWalletSession(
+  input: RouterApiWalletRegistrationInput,
+): Promise<NearFundingWalletSessionAdmission | null> {
+  const owner = await resolveRouteOpaqueOwnerWalletSession(input, 'ed25519');
+  if (owner?.curve === 'ed25519') {
+    return {
+      kind: 'owner',
+      walletId: String(owner.binding.walletId),
+      nearAccountId: owner.binding.nearAccountId,
+    };
+  }
+  const linked = await parseLinkedDeviceWalletSessionForCurve({
+    curve: 'ed25519',
+    session: input.services.session,
+    headers: input.headers,
+  });
+  if (linked.kind !== 'linked_device') return null;
+  const persisted =
+    await input.services.authorizationSessions.readLinkedDeviceWalletSessionAuthorization({
+      tenantId: linked.claims.tenantId,
+      deviceId: linked.claims.deviceId,
+      authorizationId: linked.claims.authorizationId,
+      walletSessionId: linked.claims.walletSessionId,
+      quotaId: linked.claims.quotaId,
+      nowMs: Date.now(),
+    });
+  const authorization = persisted?.authorization;
+  if (
+    !authorization ||
+    authorization.walletId !== linked.claims.walletId ||
+    authorization.enrollmentId !== linked.claims.enrollmentId ||
+    authorization.deviceId !== linked.claims.deviceId ||
+    authorization.keyManifestDigestB64u !== linked.claims.keyManifestDigestB64u ||
+    authorization.revocationEpoch !== linked.claims.revocationEpoch ||
+    !linkedDevicePermissionsMatch(authorization.permission, linked.claims.permission)
+  ) {
+    return null;
+  }
+  return { kind: 'linked_device', walletId: linked.claims.walletId };
 }
 
 async function parseWalletAddSignerStartBody(
@@ -2555,14 +2627,14 @@ export async function handleRouterApiWalletNearImplicitAccountFund(
   const parsedBody = parseFundImplicitNearAccountBody(input.body, walletId);
   if (!parsedBody.ok) return routeError(400, parsedBody.code, parsedBody.message);
 
-  const admission = await resolveRouteOpaqueOwnerWalletSession(input, 'ed25519');
-  if (!admission || admission.curve !== 'ed25519') {
-    return routeError(401, 'unauthorized', 'Opaque Ed25519 Wallet Session is unavailable');
+  const admission = await resolveRouteNearFundingWalletSession(input);
+  if (!admission) {
+    return routeError(401, 'unauthorized', 'Ed25519 Wallet Session is unavailable');
   }
-  if (admission.binding.walletId !== parsedBody.value.walletId) {
+  if (admission.walletId !== parsedBody.value.walletId) {
     return routeError(403, 'forbidden', 'Wallet session does not match walletId');
   }
-  if (admission.binding.nearAccountId !== parsedBody.value.nearAccountId) {
+  if (admission.kind === 'owner' && admission.nearAccountId !== parsedBody.value.nearAccountId) {
     return routeError(403, 'forbidden', 'Wallet session does not match nearAccountId');
   }
 

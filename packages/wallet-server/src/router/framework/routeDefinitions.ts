@@ -778,7 +778,8 @@ export function createRouterApiRouteDefinitions(
       {
         plane: 'public',
         proof: 'challenge_exchange',
-        rationale: 'An opaque Ed25519 Wallet Session authorizes local NEAR funding.',
+        rationale:
+          'An active owner or linked-device Ed25519 Wallet Session authorizes local NEAR funding.',
       },
       ROUTER_API_WALLET_REGISTRATION_SERVICES,
     ),
