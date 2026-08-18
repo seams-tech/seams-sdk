@@ -86,18 +86,17 @@ const conceptsSection: DefaultTheme.SidebarItem = {
   items: [
     { text: 'Overview', link: '/concepts/' },
     { text: 'Architecture', link: '/concepts/architecture' },
-    { text: 'Auth planes', link: '/concepts/auth-planes' },
-    { text: 'Glossary', link: '/concepts/glossary' },
     {
       text: 'Wallet infrastructure comparison',
       link: '/concepts/wallet-infrastructure-comparison',
     },
+    { text: 'Glossary', link: '/concepts/glossary' },
     {
       text: 'Auth methods',
       link: '/concepts/auth-methods/',
       collapsed: true,
       items: [
-        { text: 'Overview', link: '/concepts/auth-methods/' },
+        { text: 'Auth planes', link: '/concepts/auth-planes' },
         { text: 'Passkeys', link: '/concepts/auth-methods/passkeys' },
         { text: 'Email OTP', link: '/concepts/auth-methods/email-otp' },
         { text: 'VoiceID', link: '/concepts/auth-methods/voiceid' },
@@ -108,7 +107,6 @@ const conceptsSection: DefaultTheme.SidebarItem = {
       link: '/concepts/policy/',
       collapsed: true,
       items: [
-        { text: 'Overview', link: '/concepts/policy/' },
         { text: 'Mandates', link: '/concepts/policy/mandates' },
         { text: 'Credentials and proofs', link: '/concepts/policy/credentials-and-proofs' },
       ],
@@ -118,7 +116,6 @@ const conceptsSection: DefaultTheme.SidebarItem = {
       link: '/concepts/custody/',
       collapsed: true,
       items: [
-        { text: 'Overview', link: '/concepts/custody/' },
         { text: 'Wallet iframe', link: '/concepts/custody/wallet-iframe' },
         { text: 'Recovery and export', link: '/concepts/custody/recovery-and-export' },
       ],
@@ -128,7 +125,6 @@ const conceptsSection: DefaultTheme.SidebarItem = {
       link: '/concepts/sessions/',
       collapsed: true,
       items: [
-        { text: 'Overview', link: '/concepts/sessions/' },
         { text: 'Signing lanes', link: '/concepts/sessions/signing-lanes' },
         { text: 'Wallet sessions', link: '/concepts/sessions/wallet-sessions' },
         { text: 'Sealed refresh', link: '/concepts/sessions/sealed-refresh' },
@@ -140,8 +136,8 @@ const conceptsSection: DefaultTheme.SidebarItem = {
       link: '/concepts/threshold-signing/',
       collapsed: true,
       items: [
-        { text: 'Overview', link: '/concepts/threshold-signing/' },
         { text: 'Router A/B', link: '/concepts/threshold-signing/router-ab' },
+        { text: 'Router A/B protocol', link: '/concepts/advanced/router-ab-protocol' },
         { text: 'Streaming Yao A/B', link: '/concepts/threshold-signing/streaming-yao-ab' },
         {
           text: 'Blind deterministic derivation',
@@ -160,27 +156,13 @@ const conceptsSection: DefaultTheme.SidebarItem = {
       link: '/concepts/delegation/',
       collapsed: true,
       items: [
-        { text: 'Overview', link: '/concepts/delegation/' },
         { text: 'Key rotation', link: '/concepts/delegation/key-rotation' },
+        { text: 'Rotation ceremonies', link: '/concepts/advanced/rotation-ceremonies' },
         { text: 'Linked devices', link: '/concepts/delegation/linked-devices' },
         { text: 'Delegated agents', link: '/concepts/delegation/delegated-agents' },
       ],
     },
-    {
-      text: 'Advanced protocol',
-      link: '/concepts/advanced/',
-      collapsed: true,
-      items: [
-        { text: 'Overview', link: '/concepts/advanced/' },
-        {
-          text: 'Route auth and deployment',
-          link: '/concepts/advanced/route-auth-and-deployment',
-        },
-        { text: 'Router A/B protocol', link: '/concepts/advanced/router-ab-protocol' },
-        { text: 'Rotation ceremonies', link: '/concepts/advanced/rotation-ceremonies' },
-        { text: 'Diagram sources', link: '/concepts/advanced/diagram-sources' },
-      ],
-    },
+    { text: 'Diagram sources', link: '/concepts/advanced/diagram-sources' },
   ],
 };
 
@@ -194,6 +176,7 @@ const deployAndOperateSection: DefaultTheme.SidebarItem = {
     { text: 'Environment', link: '/deploy-and-operate/environment' },
     { text: 'Production checklist', link: '/deploy-and-operate/production-checklist' },
     { text: 'Observability and audit', link: '/deploy-and-operate/observability-and-audit' },
+    { text: 'Route auth and deployment', link: '/concepts/advanced/route-auth-and-deployment' },
     { text: 'Troubleshooting', link: '/deploy-and-operate/troubleshooting' },
   ],
 };

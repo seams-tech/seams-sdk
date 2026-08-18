@@ -16,6 +16,7 @@ model.
 
 Read next:
 
+- [Auth planes](/concepts/auth-planes)
 - [Passkeys](/concepts/auth-methods/passkeys)
 - [Email OTP](/concepts/auth-methods/email-otp)
 - [VoiceID](/concepts/auth-methods/voiceid)
