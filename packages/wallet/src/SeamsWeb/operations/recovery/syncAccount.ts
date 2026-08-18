@@ -78,6 +78,7 @@ import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import type { ThresholdEcdsaChainTarget } from '@/core/platform/types';
 import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { alphabetizeStringify } from '@shared/utils/digests';
+import { persistFinalizedPasskeyAuthMethodV1 } from '@/SeamsWeb/operations/authMethods/passkey/localPasskeyProjection';
 
 export type { SyncAccountResult };
 
@@ -961,18 +962,40 @@ async function persistRecoveredPasskey(input: {
     ) {
       throw new Error('Stored linked passkey authenticator does not match account sync');
     }
-    return;
+  } else {
+    await input.context.signingEngine.storeAuthenticator({
+      nearAccountId: parsed.nearAccountId,
+      credentialId: parsed.credentialIdB64u,
+      credentialPublicKey,
+      transports: [],
+      name: `Passkey for ${String(parsed.walletId)}`,
+      registered: new Date().toISOString(),
+      syncedAt: new Date().toISOString(),
+      signerSlot: parsed.signerSlot,
+    });
   }
-  await input.context.signingEngine.storeAuthenticator({
-    nearAccountId: parsed.nearAccountId,
-    credentialId: parsed.credentialIdB64u,
-    credentialPublicKey,
-    transports: [],
-    name: `Passkey for ${String(parsed.walletId)}`,
-    registered: new Date().toISOString(),
-    syncedAt: new Date().toISOString(),
-    signerSlot: parsed.signerSlot,
+
+  await persistFinalizedPasskeyAuthMethodV1({
+    walletId: parsed.walletId,
+    rpId: input.context.signingEngine.getRpId(),
+    credentialIdB64u: parsed.credentialIdB64u,
+    credentialPublicKeyB64u: parsed.credentialPublicKeyB64u,
+    counter: authenticationCredentialCounter(input.credential),
   });
+}
+
+function authenticationCredentialCounter(credential: WebAuthnAuthenticationCredential): number {
+  const authenticatorData = base64UrlDecode(credential.response.authenticatorData);
+  const counterOffset = 33;
+  const counterByteLength = 4;
+  if (authenticatorData.byteLength < counterOffset + counterByteLength) {
+    throw new Error('Account sync assertion authenticator data has no signature counter');
+  }
+  return new DataView(
+    authenticatorData.buffer,
+    authenticatorData.byteOffset,
+    authenticatorData.byteLength,
+  ).getUint32(counterOffset, false);
 }
 
 async function persistRecoveredNearThresholdKeyMaterial(

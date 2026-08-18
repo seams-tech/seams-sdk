@@ -1,11 +1,13 @@
 import { expect, test } from '@playwright/test';
 import {
   ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
-  ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
 } from '@shared/utils/sessionTokens';
 import { setupBasicPasskeyTest } from '../setup';
 import { canonicalEvmFamilyEcdsaSigningCapabilityFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
-import { buildPasskeyEcdsaSealedRuntimeRecordFixture } from './helpers/sealedSigningSession.fixtures';
+import {
+  buildPasskeyEcdsaSealedRuntimeRecordFixture,
+  buildPasskeyEd25519SealedSessionRecordFixture,
+} from './helpers/sealedSigningSession.fixtures';
 import {
   buildEvmFamilyEcdsaKeyIdentity,
   toThresholdOwnerAddress,
@@ -81,37 +83,6 @@ function routerAbEcdsaWalletSessionJwt(args: {
     keyHandle: args.keyHandle,
     chainTarget: args.chainTarget,
     thresholdSessionId: args.thresholdSessionId,
-  });
-}
-
-function thresholdEd25519SessionJwt(args: {
-  walletId: string;
-  thresholdSessionId: string;
-  nearAccountId: string;
-  nearEd25519SigningKeyId: string;
-}): string {
-  return unsignedJwt({
-    kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-    authorizationKind: 'owner_wallet_session',
-    sub: args.walletId,
-    walletId: args.walletId,
-    nearAccountId: args.nearAccountId,
-    nearEd25519SigningKeyId: args.nearEd25519SigningKeyId,
-    thresholdSessionId: args.thresholdSessionId,
-    relayerKeyId: 'relayer-key-ed25519-expiry-anchor',
-    rpId: 'example.localhost',
-    thresholdExpiresAtMs: Date.now() + 60_000,
-    participantIds: [1, 2],
-    runtimePolicyScope: {
-      orgId: 'org-test',
-      projectId: 'sr-test',
-      envId: 'dev',
-      signingRootVersion: 'default',
-    },
-    routerAbNormalSigning: {
-      kind: 'router_ab_ed25519_normal_signing_v1',
-      signingWorkerId: 'signing-worker-ed25519-expiry-anchor',
-    },
   });
 }
 
@@ -1021,14 +992,18 @@ test.describe('UserConfirm worker router', () => {
   test('sealed mode retains expired passkey Ed25519 policy as an exact reauth anchor', async ({
     page,
   }) => {
-    const walletSessionJwt = thresholdEd25519SessionJwt({
+    const initialRecord = buildPasskeyEd25519SealedSessionRecordFixture({
       walletId: 'alice.testnet',
       thresholdSessionId: 'session-ed25519-expiry-anchor',
       nearAccountId: 'alice.testnet',
       nearEd25519SigningKeyId: 'near-ed25519-key-expiry-anchor',
+      credentialIdB64u: 'credential-ed25519-expiry-anchor',
+      signerSlot: 1,
+      expiresAtMs: Date.now() + 60_000,
+      remainingUses: 3,
     });
     const result = await page.evaluate(
-      async ({ paths, walletSessionJwt }) => {
+      async ({ paths, initialRecord }) => {
         const mod = await import(paths.touchConfirmManager);
         const sealedStoreMod = await import(paths.sealedSessionStore);
         const availableLanesMod = await import(paths.availableSigningLanes);
@@ -1042,49 +1017,10 @@ test.describe('UserConfirm worker router', () => {
         });
 
         const thresholdSessionId = 'session-ed25519-expiry-anchor';
-        const nowMs = Date.now();
-        const ed25519Restore = {
-          nearAccountId: 'alice.testnet',
-          nearEd25519SigningKeyId: 'near-ed25519-key-expiry-anchor',
-          rpId: 'example.localhost',
-          credentialIdB64u: 'credential-ed25519-expiry-anchor',
-          relayerKeyId: 'relayer-key-ed25519-expiry-anchor',
-          participantIds: [1, 2],
-          sessionKind: 'jwt' as const,
-          walletSessionJwt,
-          signerSlot: 1,
-          routerAbNormalSigning: {
-            kind: 'router_ab_ed25519_normal_signing_v1' as const,
-            signingWorkerId: 'signing-worker-ed25519-expiry-anchor',
-          },
-          runtimePolicyScope: {
-            orgId: 'org-test',
-            projectId: 'sr-test',
-            envId: 'dev',
-            signingRootVersion: 'default',
-          },
-        };
-        const initialRecord = sealedStoreMod.buildCurrentSealedSessionRecord({
-          thresholdSessionId,
-          thresholdSessionIds: { ed25519: thresholdSessionId },
-          curve: 'ed25519',
-          authMethod: 'passkey',
-          walletId: 'alice.testnet',
-          relayerUrl: 'https://relay.example',
-          sealedSecretB64u: 'sealed-secret-ed25519-expiry-anchor',
-          keyVersion: 'signing-session-seal-kek-test-r1',
-          shamirPrimeB64u: 'prime-b64u',
-          ed25519Restore,
-          issuedAtMs: nowMs - 1_000,
-          expiresAtMs: nowMs + 60_000,
-          remainingUses: 3,
-          updatedAtMs: nowMs,
-        });
-        if (!initialRecord) throw new Error('invalid Ed25519 expiry-anchor fixture');
         await sealedStoreMod.writeExactSealedSession(initialRecord);
-        const initialStored = await sealedStoreMod.readExactSealedSession(thresholdSessionId, {
+        const initialStored = await sealedStoreMod.readExactEd25519SealedSession({
           authMethod: 'passkey',
-          curve: 'ed25519',
+          materialActivation: initialRecord.ed25519Restore.materialActivation,
         });
         if (!initialStored) throw new Error('Ed25519 expiry-anchor fixture was not persisted');
 
@@ -1150,9 +1086,9 @@ test.describe('UserConfirm worker router', () => {
           });
         }
         const consumeResult = await consumePromise;
-        const retained = await sealedStoreMod.readExactSealedSession(thresholdSessionId, {
+        const retained = await sealedStoreMod.readExactEd25519SealedSession({
           authMethod: 'passkey',
-          curve: 'ed25519',
+          materialActivation: initialRecord.ed25519Restore.materialActivation,
         });
         const availableLanes = await availableLanesMod.readAvailableSigningLanes(
           {
@@ -1201,7 +1137,7 @@ test.describe('UserConfirm worker router', () => {
           observedExpiredAtMs,
         };
       },
-      { paths: IMPORT_PATHS, walletSessionJwt },
+      { paths: IMPORT_PATHS, initialRecord },
     );
 
     expect(result.postedType).toBe('WARM_SESSION_MATERIAL_CONSUME');
@@ -1213,7 +1149,7 @@ test.describe('UserConfirm worker router', () => {
       curve: 'ed25519',
       authMethod: 'passkey',
       remainingUses: 3,
-      sealedSecretB64u: 'sealed-secret-ed25519-expiry-anchor',
+      sealedSecretB64u: 'ed25519-sealed-runtime-secret',
     });
     expect(result.availableEd25519Candidates).toHaveLength(1);
     expect(result.availableEd25519Candidates[0]).toMatchObject({

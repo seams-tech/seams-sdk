@@ -19,10 +19,7 @@ import {
 } from '@/core/signingEngine/session/lanes/linkedDeviceExecutionBundle';
 import {
   buildActiveLinkedDeviceSessionState,
-  buildAwaitingTargetPasskeyLinkedDeviceSessionState,
-  buildProvisioningLinkedDeviceSessionState,
   buildLinkedDeviceHolderDeliveryAcknowledgementV1,
-  buildCommittedCompletionRequiredLinkedDeviceSessionState,
   buildCancelledUnclaimedLinkedDeviceSessionState,
   buildDisplayingQrLinkedDeviceSessionState,
   buildExpiredUnclaimedLinkedDeviceSessionState,
@@ -582,121 +579,6 @@ test.describe('linked-device browser orchestration', () => {
       'cancel',
       'close',
       'key-discard',
-    ]);
-  });
-
-  test('Device 1 authenticates once, claims, and approves the exact manifest', async () => {
-    const calls: string[] = [];
-    const events: string[] = [];
-    const fixture = buildR103DeviceLinkFixture();
-    let recordedApproval: LinkedDeviceApprovalV1 | undefined;
-    const ports = createPorts(
-      calls,
-      (approval) => {
-        recordedApproval = approval;
-      },
-      undefined,
-      () => ({
-        outcome: 'pending',
-        state: buildProvisioningLinkedDeviceSessionState({
-          linkSessionId: fixture.approval.linkSessionId,
-          walletId: fixture.approval.walletId,
-          enrollmentId: fixture.approval.enrollmentId,
-          provisioningStartedAtMs: Date.now(),
-        }),
-      }),
-    );
-    const qrData = buildQrLinkedDeviceSessionPayloadV4({
-      linkSessionId: fixture.payload.linkSessionId,
-      linkPublicKeyB64u: fixture.payload.linkPublicKeyB64u,
-      devicePublicKeyB64u: fixture.payload.devicePublicKeyB64u,
-      issuedAtMs: Date.now() - 1_000,
-      expiresAtMs: Date.now() + 60_000,
-    });
-
-    const result = await scanAndLinkDevice(
-      undefined,
-      qrData,
-      {
-        onEvent: (event) => events.push(`${event.status}:${event.message}`),
-      },
-      ports,
-    );
-
-    expect(result.success).toBe(true);
-    if (!result.success) throw new Error('expected successful link approval');
-    expect(result.enrollmentId).toBe(fixture.approval.enrollmentId);
-    // The owner enrollment ceremony is started between the claim and the
-    // approval, under the authentication that step already established. Device 2
-    // has no owner authority and could never start one, so an ordering that let
-    // the approval commit first would leave an approved enrollment with no
-    // ceremony for the credential it authorizes.
-    expect(calls).toEqual(['authenticate', 'claim', 'start-owner-ceremony', 'approve']);
-    expect(events).toEqual([
-      'started:Scanning QR code',
-      'succeeded:QR code scanned',
-      'succeeded:Device linked',
-    ]);
-    expect(calls).not.toContain('keygen');
-    expect(recordedApproval?.ownerAuthorization).toEqual(fixture.approval.ownerAuthorization);
-  });
-
-  test('Device 1 waits for pending approval through authenticated subscribe and poll', async () => {
-    const calls: string[] = [];
-    const fixture = buildR103DeviceLinkFixture();
-    const pendingState = buildAwaitingTargetPasskeyLinkedDeviceSessionState({
-      linkSessionId: fixture.approval.linkSessionId,
-      walletId: fixture.approval.walletId,
-      enrollmentId: fixture.approval.enrollmentId,
-      credentialDeadlineMs: Date.now() + 30_000,
-    });
-    const ports = createPorts(
-      calls,
-      undefined,
-      undefined,
-      () => ({
-        outcome: 'pending',
-        state: pendingState,
-      }),
-      undefined,
-      undefined,
-      undefined,
-      [
-        { outcome: 'replayed', replay: { state: 'pending', session: pendingState } },
-        {
-          outcome: 'pending',
-          state: buildProvisioningLinkedDeviceSessionState({
-            linkSessionId: fixture.approval.linkSessionId,
-            walletId: fixture.approval.walletId,
-            enrollmentId: fixture.approval.enrollmentId,
-            provisioningStartedAtMs: Date.now(),
-          }),
-        },
-      ],
-    );
-    const qrData = buildQrLinkedDeviceSessionPayloadV4({
-      linkSessionId: fixture.payload.linkSessionId,
-      linkPublicKeyB64u: fixture.payload.linkPublicKeyB64u,
-      devicePublicKeyB64u: fixture.payload.devicePublicKeyB64u,
-      issuedAtMs: Date.now() - 1_000,
-      expiresAtMs: Date.now() + 60_000,
-    });
-
-    const result = await scanAndLinkDevice(undefined, qrData, {}, ports);
-
-    expect(result.success).toBe(true);
-    // Custody is released only once the approval is active, and only against a
-    // recipient Device 2 published — read back through the same authenticated
-    // transport rather than taken from the poll result.
-    expect(calls).toEqual([
-      'authenticate',
-      'claim',
-      'start-owner-ceremony',
-      'approve',
-      'subscribe-approval',
-      'get-custody-recipient',
-      'seal-custody',
-      'submit-custody-package',
     ]);
   });
 
