@@ -273,6 +273,7 @@ test.describe('confirmTxFlow – success paths', () => {
           summary: {},
           payload: {
             subject: { kind: 'near_wallet', nearAccountId: 'alice.testnet' },
+            credentialIdB64u: 'test-passkey',
             publicKey: 'pk',
           },
         };
@@ -405,6 +406,7 @@ test.describe('confirmTxFlow – success paths', () => {
             summary: {},
             payload: {
               subject: { kind: 'near_wallet', nearAccountId: 'alice.testnet' },
+              credentialIdB64u: 'test-passkey',
               publicKey: 'pk',
             },
           } as any;

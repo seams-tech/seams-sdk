@@ -143,8 +143,19 @@ function assertManagementSuccess(
   operation: string,
 ): void {
   if (response.status < 200 || response.status >= 300) {
-    throw new Error(`linked-device ${operation} failed with HTTP ${response.status}`);
+    const detail = managementFailureDetail(response.body);
+    throw new Error(
+      detail
+        ? `linked-device ${operation} failed with HTTP ${response.status}: ${detail}`
+        : `linked-device ${operation} failed with HTTP ${response.status}`,
+    );
   }
+}
+
+function managementFailureDetail(raw: unknown): string | null {
+  if (!isRecord(raw)) return null;
+  const message = raw.message;
+  return typeof message === 'string' && message.trim() ? message : null;
 }
 
 function stripOkField(raw: unknown): unknown {

@@ -1,6 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import type { QrLinkedDeviceSessionPayloadV4 } from '@shared/device-linking';
-import type { LinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
+import {
+  classifyLinkDeviceFlowEvent,
+  type LinkDeviceFlowEvent,
+} from '@/core/types/sdkSentEvents';
 import { useQRCamera, QRScanMode } from '../hooks/useQRCamera';
 import { useDeviceLinking } from '../hooks/useDeviceLinking';
 import { Theme, useTheme } from './theme';
@@ -38,15 +41,16 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
   );
 
   const scannedPayloadRef = React.useRef<QrLinkedDeviceSessionPayloadV4 | null>(null);
-  const approvalReportedRef = React.useRef(false);
+  const completionReportedRef = React.useRef(false);
 
   const handleLinkDeviceEvent = React.useCallback(
     (event: LinkDeviceFlowEvent) => {
       onEvent?.(event);
-      if (event.status !== 'succeeded' || approvalReportedRef.current) return;
+      const outcome = classifyLinkDeviceFlowEvent(event);
+      if (outcome.kind !== 'active' || completionReportedRef.current) return;
       const scannedPayload = scannedPayloadRef.current;
       if (!scannedPayload) return;
-      approvalReportedRef.current = true;
+      completionReportedRef.current = true;
       onQRCodeScanned?.(scannedPayload);
     },
     [onEvent, onQRCodeScanned],
@@ -75,7 +79,7 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
     if (isOpen) {
       setIsVideoReady(false);
       scannedPayloadRef.current = null;
-      approvalReportedRef.current = false;
+      completionReportedRef.current = false;
     }
   }, [isOpen]);
 

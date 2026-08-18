@@ -96,6 +96,7 @@ import {
   type LinkedDeviceEnrollmentTranscriptV1,
   type LinkedDeviceListRequestV1,
   type LinkedDeviceListResultV1,
+  type OwnerDeviceSummaryV1,
   type LinkedDeviceRevokeRequestV1,
   type LinkedDeviceRevokeResultV1,
   type LinkedDeviceSummaryV1,
@@ -428,7 +429,13 @@ const LINKED_OWNER_PASSKEY_CREDENTIAL_FIELDS = [
 ] as const;
 const LINKED_OWNER_EMAIL_OTP_CREDENTIAL_FIELDS = ['kind', 'walletAuthMethodId'] as const;
 const LINKED_DEVICE_LIST_REQUEST_FIELDS = ['kind', 'walletId', 'limit', 'cursor'] as const;
-const LINKED_DEVICE_LIST_RESULT_FIELDS = ['devices', 'nextCursor'] as const;
+const OWNER_DEVICE_SUMMARY_FIELDS = [
+  'walletId',
+  'credential',
+  'createdAtMs',
+  'lastActivityAtMs',
+] as const;
+const LINKED_DEVICE_LIST_RESULT_FIELDS = ['devices', 'ownerDevices', 'nextCursor'] as const;
 const LINKED_DEVICE_REVOKE_REQUEST_FIELDS = [
   'kind',
   'walletId',
@@ -804,22 +811,43 @@ export function buildLinkedDeviceListRequestV1(args: {
   });
 }
 
+export function parseOwnerDeviceSummaryV1(raw: unknown): OwnerDeviceSummaryV1 {
+  const record = exactRecord(raw, OWNER_DEVICE_SUMMARY_FIELDS, 'OwnerDeviceSummaryV1');
+  return {
+    walletId: parseWallet(record.walletId, 'OwnerDeviceSummaryV1.walletId'),
+    credential: parseLinkedOwnerCredentialMetadata(
+      record.credential,
+      'OwnerDeviceSummaryV1.credential',
+    ),
+    createdAtMs: parseUnixTime(record.createdAtMs, 'OwnerDeviceSummaryV1.createdAtMs'),
+    lastActivityAtMs: parseUnixTime(
+      record.lastActivityAtMs,
+      'OwnerDeviceSummaryV1.lastActivityAtMs',
+    ),
+  };
+}
+
 export function parseLinkedDeviceListResultV1(raw: unknown): LinkedDeviceListResultV1 {
   const record = exactRecord(raw, LINKED_DEVICE_LIST_RESULT_FIELDS, 'LinkedDeviceListResultV1');
   if (!Array.isArray(record.devices))
     throw new Error('LinkedDeviceListResultV1.devices is invalid');
+  if (!Array.isArray(record.ownerDevices))
+    throw new Error('LinkedDeviceListResultV1.ownerDevices is invalid');
   return {
     devices: record.devices.map(parseLinkedDeviceSummaryV1),
+    ownerDevices: record.ownerDevices.map(parseOwnerDeviceSummaryV1),
     nextCursor: parseNullableCursor(record.nextCursor, 'LinkedDeviceListResultV1.nextCursor'),
   };
 }
 
 export function buildLinkedDeviceListResultV1(args: {
   readonly devices: readonly LinkedDeviceSummaryV1[];
+  readonly ownerDevices: readonly OwnerDeviceSummaryV1[];
   readonly nextCursor: string | null;
 }): LinkedDeviceListResultV1 {
   return parseLinkedDeviceListResultV1({
     devices: args.devices,
+    ownerDevices: args.ownerDevices,
     nextCursor: args.nextCursor,
   });
 }

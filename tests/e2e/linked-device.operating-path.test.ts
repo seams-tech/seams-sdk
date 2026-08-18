@@ -831,12 +831,11 @@ type BrowserPasskeyRevocationResult = {
   readonly status: number;
 };
 
-function isFailedWalletAuthenticationResponse(response: Response): boolean {
-  const pathname = new URL(response.url()).pathname;
+function isRevokedWalletUnlockResponse(response: Response): boolean {
   return (
     response.request().method() === 'POST' &&
-    ['/sync-account/verify', '/wallet/unlock/verify'].includes(pathname) &&
-    !response.ok()
+    new URL(response.url()).pathname === '/wallet/unlock/verify' &&
+    response.status() === 409
   );
 }
 
@@ -1046,17 +1045,17 @@ async function assertRevokedOwnerCannotUnlock(page: Page): Promise<void> {
   const wallet = await walletFrame(page);
   const unlock = wallet.getByRole('button', { name: 'Sign in with Passkey', exact: true });
   await unlock.waitFor({ state: 'visible', timeout: 30_000 });
-  const rejected = page.waitForResponse(isFailedWalletAuthenticationResponse, {
+  const rejected = page.waitForResponse(isRevokedWalletUnlockResponse, {
     timeout: 90_000,
   });
   await unlock.click();
   const response = await rejected;
-  const body = await response.text();
-  if (!body.trim()) throw new Error('Revoked owner unlock failed without an error response');
-  const failure = requireRecord(JSON.parse(body), 'revoked owner sync-account response');
-  if (failure.ok !== false) {
-    throw new Error('Revoked owner sync-account response did not reject authentication');
-  }
+  const failure = requireRecord(await response.json(), 'revoked owner wallet unlock response');
+  expect(failure).toMatchObject({
+    ok: false,
+    code: 'custody_envelope_unavailable',
+    message: 'Passkey wallet custody is unavailable',
+  });
   await expect(page.locator('.w3a-profile-button-morphable')).toBeHidden();
   await expect(unlock).toBeVisible();
 }

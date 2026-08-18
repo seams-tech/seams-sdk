@@ -272,6 +272,8 @@ export function parsePasskeyMpcExportRequestPayload(
   const parsedWalletId = parseWalletId(payload.walletId);
   if (!parsedWalletId.ok) return null;
   const walletId = String(parsedWalletId.value);
+  const credentialIdB64u = normalizeOptionalNonEmptyString(payload.credentialIdB64u);
+  if (!credentialIdB64u) return null;
   if (artifactKind === 'ecdsa-derivation-secp256k1-export') {
     const publicKeyHex = normalizeOptionalNonEmptyString(payload.publicKeyHex);
     const privateKeyHex = normalizeOptionalNonEmptyString(payload.privateKeyHex);
@@ -281,6 +283,7 @@ export function parsePasskeyMpcExportRequestPayload(
     }
     return {
       walletId,
+      credentialIdB64u,
       chainTarget: target.chainTarget,
       artifactKind,
       publicKeyHex,
@@ -295,6 +298,7 @@ export function parsePasskeyMpcExportRequestPayload(
   }
   return {
     walletId,
+    credentialIdB64u,
     chainTarget: target.chainTarget,
     variant,
     theme,
@@ -509,6 +513,7 @@ async function runEd25519YaoExportWithUi(
       },
       payload: {
         subject,
+        credentialIdB64u: payload.exactLane.credentialIdB64u,
         publicKey,
         challengeB64u: base64UrlEncode(Uint8Array.from(confirmationDigest)),
       },
@@ -755,6 +760,7 @@ export async function runPasskeyMpcExportWithUi(
       },
       payload: {
         subject: localOnlySubject,
+        credentialIdB64u: payload.credentialIdB64u,
         publicKey: exportPublicKey,
       },
       intentDigest,

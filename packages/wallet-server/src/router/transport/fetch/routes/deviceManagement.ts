@@ -87,7 +87,15 @@ async function handleList(
     nowMs,
   );
   if ('kind' in result) return unauthorizedResponse();
-  return json({ ok: true, devices: result.devices, nextCursor: result.nextCursor }, { status: 200 });
+  return json(
+    {
+      ok: true,
+      devices: result.devices,
+      ownerDevices: result.ownerDevices,
+      nextCursor: result.nextCursor,
+    },
+    { status: 200 },
+  );
 }
 
 async function handleRevoke(

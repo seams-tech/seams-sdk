@@ -1,5 +1,7 @@
 import {
   readAvailableSigningLanes,
+  type AvailableSigningLanes,
+  type ConcreteAvailableEd25519SigningLane,
   type ConcreteAvailableEcdsaSigningLane,
 } from '@/core/signingEngine/session/availability/availableSigningLanes';
 import {
@@ -24,6 +26,7 @@ import {
   parseRootShareEpoch,
   parseThresholdEcdsaSessionId,
   parseThresholdEd25519SessionId,
+  type MpcMaterialActivationRef,
   type RootShareEpoch,
 } from '@shared/utils/domainIds';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
@@ -183,6 +186,53 @@ export function availableLaneEd25519Authorization(args: {
         ),
       },
     },
+  };
+}
+
+export function authorizedPasskeyEd25519AvailableLane(args: {
+  authorization: ActiveWalletSessionAuthorizationProjection;
+  materialActivation: MpcMaterialActivationRef;
+  signerSlot?: number;
+}): Extract<ConcreteAvailableEd25519SigningLane, { authorizationState: 'authorized' }> {
+  const token = args.authorization.walletSessionTokens;
+  if (token.kind === 'evm_family_ecdsa') {
+    throw new Error('Ed25519 lane fixture requires an Ed25519 Wallet Session token');
+  }
+  return {
+    auth: {
+      kind: 'passkey',
+      rpId: toRpId(AVAILABLE_LANES_ECDSA_RP_ID),
+      credentialIdB64u: AVAILABLE_LANES_PASSKEY_CREDENTIAL_ID,
+    },
+    curve: 'ed25519',
+    chain: 'near',
+    materialActivation: args.materialActivation,
+    walletId: args.authorization.walletId,
+    nearAccountId: AVAILABLE_LANES_ED25519_NEAR_ACCOUNT_ID,
+    nearEd25519SigningKeyId: AVAILABLE_LANES_ED25519_KEY_SCOPE_ID,
+    signerSlot: args.signerSlot ?? 1,
+    thresholdSessionId: token.ed25519.thresholdSessionId,
+    state: 'ready',
+    source: 'durable_sealed_record',
+    authorizationState: 'authorized',
+    authorization: args.authorization,
+  };
+}
+
+export function availableEd25519Inventory(args: {
+  primary: Extract<ConcreteAvailableEd25519SigningLane, { authorizationState: 'authorized' }>;
+  candidates: ConcreteAvailableEd25519SigningLane[];
+}): AvailableSigningLanes {
+  return {
+    walletId: args.primary.walletId,
+    generation: 1,
+    ecdsa: {
+      targets: [],
+      lanesByTarget: {},
+      candidatesByTarget: {},
+    },
+    lanes: { ed25519: { near: args.primary } },
+    candidates: { ed25519: { near: args.candidates } },
   };
 }
 

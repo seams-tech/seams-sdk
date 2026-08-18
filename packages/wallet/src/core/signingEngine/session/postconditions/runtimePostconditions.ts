@@ -6,12 +6,16 @@ import {
 import type {
   AvailableSigningLanes,
   AvailableEd25519SigningLane,
+  AvailableEcdsaSigningLane,
 } from '../availability/availableSigningLanes';
 import {
   availableEd25519SigningLaneAuthMethod,
   availableEcdsaSigningLaneAuthMethod,
 } from '../availability/availableSigningLanes';
-import { laneCandidateAuthMethod } from '../identity/laneIdentity';
+import {
+  signingLaneAuthBindingKey,
+  type SigningLaneAuthBinding,
+} from '../identity/signingLaneAuthBinding';
 import type { NearEd25519TransactionReadyLane } from '../identity/selectLane';
 import { listNearEd25519TransactionReadyLanes } from '../identity/selectLane';
 import type { SigningSessionSealAuthMethod } from '@shared/utils/signingSessionSeal';
@@ -35,6 +39,16 @@ export type RuntimeLaneMaterial =
   | { kind: 'canonical_capability'; sourceChainTarget?: never };
 
 export type RuntimePostconditionLaneState = 'ready' | 'restorable';
+
+export type RuntimePostconditionLaneOwner =
+  | {
+      auth: Extract<SigningLaneAuthBinding, { kind: 'passkey' }>;
+      signerSlot: number;
+    }
+  | {
+      auth: Extract<SigningLaneAuthBinding, { kind: 'email_otp' }>;
+      signerSlot?: never;
+    };
 
 export type UsableRuntimeLane =
   | {
@@ -151,13 +165,32 @@ function concreteEd25519CandidatesForAuth(args: {
   return matches;
 }
 
-function transactionReadyEd25519CandidatesForAuth(args: {
+function ed25519LaneMatchesOwner(args: {
+  lane: AvailableEd25519SigningLane;
+  owner: RuntimePostconditionLaneOwner;
+}): boolean {
+  if (args.lane.state === 'missing') return false;
+  if (signingLaneAuthBindingKey(args.lane.auth) !== signingLaneAuthBindingKey(args.owner.auth)) {
+    return false;
+  }
+  return args.owner.auth.kind === 'email_otp' || args.lane.signerSlot === args.owner.signerSlot;
+}
+
+function ecdsaLaneMatchesOwner(args: {
+  lane: AvailableEcdsaSigningLane;
+  owner: RuntimePostconditionLaneOwner;
+}): boolean {
+  if (args.lane.state === 'missing') return false;
+  return signingLaneAuthBindingKey(args.lane.auth) === signingLaneAuthBindingKey(args.owner.auth);
+}
+
+function transactionReadyEd25519CandidatesForOwner(args: {
   candidates: readonly NearEd25519TransactionReadyLane[];
-  authMethod: SigningSessionSealAuthMethod;
+  owner: RuntimePostconditionLaneOwner;
 }): NearEd25519TransactionReadyLane[] {
   const matches: NearEd25519TransactionReadyLane[] = [];
   for (const candidate of args.candidates) {
-    if (laneCandidateAuthMethod(candidate.candidate) === args.authMethod) {
+    if (ed25519LaneMatchesOwner({ lane: candidate.availableLane, owner: args.owner })) {
       matches.push(candidate);
     }
   }
@@ -175,29 +208,37 @@ function hasEd25519TransactionReadyState(
 
 function readReadyEd25519Lane(args: {
   lanes: AvailableSigningLanes;
-  authMethod: SigningSessionSealAuthMethod;
+  owner: RuntimePostconditionLaneOwner;
   nowMs: number;
 }): UsableRuntimeLane | WalletRuntimePostconditionFailureCode {
   const candidates = args.lanes.candidates.ed25519.near;
   const readyCandidates = listNearEd25519TransactionReadyLanes(candidates);
-  const authReadyCandidates = transactionReadyEd25519CandidatesForAuth({
+  const ownerReadyCandidates = transactionReadyEd25519CandidatesForOwner({
     candidates: readyCandidates,
-    authMethod: args.authMethod,
+    owner: args.owner,
   });
-  if (authReadyCandidates.length > 1) return 'lane_inventory_mismatch';
-  const [lane] = authReadyCandidates;
+  const [lane] = ownerReadyCandidates;
   if (!lane) {
+    const authMethod = args.owner.auth.kind;
+    if (
+      readyCandidates.some(
+        (candidate) =>
+          availableEd25519SigningLaneAuthMethod(candidate.availableLane) === authMethod,
+      )
+    ) {
+      return 'lane_inventory_mismatch';
+    }
     if (readyCandidates.length > 0) return 'auth_method_route_mismatch';
     const authCandidates = concreteEd25519CandidatesForAuth({
       candidates,
-      authMethod: args.authMethod,
+      authMethod,
     });
     if (hasEd25519TransactionReadyState(authCandidates)) {
       return 'lane_material_missing';
     }
     const aggregateLane = args.lanes.lanes.ed25519.near;
     if (aggregateLane.state !== 'missing') {
-      if (availableEd25519SigningLaneAuthMethod(aggregateLane) !== args.authMethod) {
+      if (availableEd25519SigningLaneAuthMethod(aggregateLane) !== authMethod) {
         return 'auth_method_route_mismatch';
       }
       if (aggregateLane.state === 'ready' || aggregateLane.state === 'restorable') {
@@ -223,7 +264,7 @@ function readReadyEd25519Lane(args: {
   if (!material) return 'lane_material_missing';
   return {
     state: availableLane.state === 'restorable' ? 'restorable' : 'ready',
-    authMethod: args.authMethod,
+    authMethod: args.owner.auth.kind,
     target: { curve: 'ed25519' },
     walletSessionId: availableLane.authorization.walletSessionId,
     quotaId: availableLane.authorization.quotaId,
@@ -237,13 +278,16 @@ function readReadyEd25519Lane(args: {
 function readEcdsaUseCaseReadyLane(args: {
   lanes: AvailableSigningLanes;
   chainTarget: ThresholdEcdsaChainTarget;
-  authMethod: SigningSessionSealAuthMethod;
+  owner: RuntimePostconditionLaneOwner;
   nowMs: number;
 }): UsableRuntimeLane | WalletRuntimePostconditionFailureCode {
   const targetKey = thresholdEcdsaChainTargetKey(args.chainTarget);
-  const lane = args.lanes.ecdsa.lanesByTarget[targetKey];
+  const candidates = args.lanes.ecdsa.candidatesByTarget[targetKey] || [];
+  const lane = candidates.find((candidate) =>
+    ecdsaLaneMatchesOwner({ lane: candidate, owner: args.owner }),
+  );
   if (!lane || lane.state === 'missing') return 'ecdsa_lane_missing';
-  if (availableEcdsaSigningLaneAuthMethod(lane) !== args.authMethod) {
+  if (availableEcdsaSigningLaneAuthMethod(lane) !== args.owner.auth.kind) {
     return 'auth_method_route_mismatch';
   }
   if (lane.state !== 'ready') return 'ecdsa_lane_missing';
@@ -259,7 +303,7 @@ function readEcdsaUseCaseReadyLane(args: {
   if (!authorizationId) return 'lane_inventory_mismatch';
   return {
     state: lane.state,
-    authMethod: args.authMethod,
+    authMethod: args.owner.auth.kind,
     target: { curve: 'ecdsa', chainTarget: args.chainTarget },
     authorizationId,
     materialActivationId: String(lane.materialActivation.activationId),
@@ -272,7 +316,7 @@ function readEcdsaUseCaseReadyLane(args: {
 export async function readWalletRuntimePostconditions(args: {
   source: RuntimePostconditionSource;
   walletId: string | WalletId;
-  authMethod: SigningSessionSealAuthMethod;
+  owner: RuntimePostconditionLaneOwner;
   requiredTargets: readonly RuntimePostconditionTarget[];
   readPersistedAvailableSigningLanes: ReadPersistedAvailableSigningLanes;
   nowMs?: number;
@@ -283,7 +327,7 @@ export async function readWalletRuntimePostconditions(args: {
   }
   const lanes = await args.readPersistedAvailableSigningLanes({
     walletId,
-    authMethod: args.authMethod,
+    authMethod: args.owner.auth.kind,
   });
   const nowMs = args.nowMs ?? Date.now();
   let ed25519: UsableRuntimeLane | undefined;
@@ -292,7 +336,7 @@ export async function readWalletRuntimePostconditions(args: {
     if (target.curve === 'ed25519') {
       const readyLane = readReadyEd25519Lane({
         lanes,
-        authMethod: args.authMethod,
+        owner: args.owner,
         nowMs,
       });
       if (typeof readyLane === 'string') {
@@ -302,7 +346,7 @@ export async function readWalletRuntimePostconditions(args: {
           details: {
             source: args.source,
             walletId,
-            authMethod: args.authMethod,
+            authMethod: args.owner.auth.kind,
             curve: 'ed25519',
             state: lanes.lanes.ed25519.near.state,
             candidateCount: lanes.candidates.ed25519.near.length,
@@ -315,7 +359,7 @@ export async function readWalletRuntimePostconditions(args: {
     const readyLane = readEcdsaUseCaseReadyLane({
       lanes,
       chainTarget: target.chainTarget,
-      authMethod: args.authMethod,
+      owner: args.owner,
       nowMs,
     });
     if (typeof readyLane === 'string') {
@@ -326,7 +370,7 @@ export async function readWalletRuntimePostconditions(args: {
         details: {
           source: args.source,
           walletId,
-          authMethod: args.authMethod,
+          authMethod: args.owner.auth.kind,
           curve: 'ecdsa',
           targetKey,
           state: lanes.ecdsa.lanesByTarget[targetKey]?.state || 'missing',
@@ -340,7 +384,7 @@ export async function readWalletRuntimePostconditions(args: {
     ok: true,
     inventory: {
       walletId,
-      authMethod: args.authMethod,
+      authMethod: args.owner.auth.kind,
       ...(ed25519 ? { ed25519 } : {}),
       ecdsaByTarget,
     },
@@ -455,7 +499,7 @@ export function compareWalletRuntimeInventories(args: {
 export async function assertWalletRuntimePostconditions(args: {
   source: RuntimePostconditionSource;
   walletId: string | WalletId;
-  authMethod: SigningSessionSealAuthMethod;
+  owner: RuntimePostconditionLaneOwner;
   requiredTargets: readonly RuntimePostconditionTarget[];
   readPersistedAvailableSigningLanes: ReadPersistedAvailableSigningLanes;
   nowMs?: number;

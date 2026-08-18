@@ -306,6 +306,7 @@ export type LocalOnlyExportSubject =
 
 export interface DecryptPrivateKeyWithPrfPayload {
   subject: LocalOnlyExportSubject;
+  credentialIdB64u: string;
   publicKey: string;
   challengeB64u?: string;
 }

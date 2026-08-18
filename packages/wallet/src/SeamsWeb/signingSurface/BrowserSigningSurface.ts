@@ -154,10 +154,12 @@ import {
 } from '@/core/signingEngine/flows/signNear/signNear';
 import {
   isConcreteAvailableSigningLane,
+  type AvailableEcdsaSigningLane,
   type AvailableEd25519SigningLane,
   type ConcreteAvailableEd25519SigningLane,
   type ConcreteAvailableEcdsaSigningLane,
 } from '@/core/signingEngine/session/availability/availableSigningLanes';
+import type { ActiveEvmFamilyWalletSessionAuthorization } from '@/core/signingEngine/session/material/ecdsaSigningCapability';
 import { resolvePasskeyEd25519YaoExportContextV1 } from '@/core/signingEngine/session/passkey/ed25519YaoWarmRecovery';
 import {
   nearEd25519YaoOperationMaterialFacts,
@@ -457,7 +459,10 @@ import type {
 } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/webauthnPromptCoordinator';
 
 type LinkedDeviceSigningSessionActivationWithAuthenticatorV1 =
-  | Extract<LinkedDeviceSigningSessionActivationV1, { readonly kind: 'target_passkey_creation' }>
+  | Extract<
+      LinkedDeviceSigningSessionActivationV1,
+      { readonly kind: 'target_passkey_creation' | 'verified_owner_unlock' }
+    >
   | (Extract<
       LinkedDeviceSigningSessionActivationV1,
       { readonly kind: 'existing_target_passkey' }
@@ -603,25 +608,22 @@ type WalletHostOwnerSourceLaneCandidateV1 =
       readonly manifestRevision: ConcreteAvailableEcdsaSigningLane['capability']['manifest']['identity']['manifestRevision'];
     };
 
-function ownerSourceLaneCandidates(
+export function selectWalletHostOwnerSourceLaneCandidatesV1(
   available: AvailableSigningLanes,
+  authorization: ActiveWalletSessionAuthorizationProjection,
 ): readonly WalletHostOwnerSourceLaneCandidateV1[] {
   const candidates: WalletHostOwnerSourceLaneCandidateV1[] = [];
   const seen = new Set<string>();
-  const ed25519Lanes = [...available.candidates.ed25519.near, available.lanes.ed25519.near];
-  for (const lane of ed25519Lanes) {
-    if (!isConcreteAvailableSigningLane(lane) || lane.curve !== 'ed25519') continue;
+  const ed25519Lane = available.lanes.ed25519.near;
+  if (isEd25519LaneAuthorizedByWalletSession(ed25519Lane, authorization)) {
     appendOwnerSourceLaneCandidate(candidates, seen, {
       curve: 'ed25519',
-      materialActivation: lane.materialActivation,
+      materialActivation: ed25519Lane.materialActivation,
     });
   }
-  const ecdsaLanes = [
-    ...Object.values(available.ecdsa.candidatesByTarget).flat(),
-    ...Object.values(available.ecdsa.lanesByTarget),
-  ];
+  const ecdsaLanes = Object.values(available.ecdsa.lanesByTarget);
   for (const lane of ecdsaLanes) {
-    if (!isConcreteAvailableSigningLane(lane) || lane.curve !== 'ecdsa') continue;
+    if (!isEcdsaLaneAuthorizedByWalletSession(lane, authorization)) continue;
     appendOwnerSourceLaneCandidate(candidates, seen, {
       curve: 'ecdsa_secp256k1',
       materialActivation: lane.materialActivation,
@@ -630,6 +632,79 @@ function ownerSourceLaneCandidates(
     });
   }
   return candidates;
+}
+
+export function selectWalletHostEd25519SourceLaneV1(
+  available: AvailableSigningLanes,
+  input: {
+    readonly walletId: WalletId;
+    readonly nearEd25519SigningKeyId: Ed25519YaoLaneJobV1['nearEd25519SigningKeyId'];
+    readonly materialActivation: MpcMaterialActivationRef;
+  },
+): Extract<ConcreteAvailableEd25519SigningLane, { readonly authorizationState: 'authorized' }> {
+  const matches: Extract<
+    ConcreteAvailableEd25519SigningLane,
+    { readonly authorizationState: 'authorized' }
+  >[] = [];
+  for (const lane of available.candidates.ed25519.near) {
+    if (
+      !isConcreteAvailableSigningLane(lane) ||
+      lane.curve !== 'ed25519' ||
+      String(lane.walletId) !== String(input.walletId) ||
+      String(lane.nearEd25519SigningKeyId) !== String(input.nearEd25519SigningKeyId) ||
+      !mpcMaterialActivationRefsEqual(lane.materialActivation, input.materialActivation) ||
+      lane.auth.kind !== WALLET_AUTH_METHODS.passkey ||
+      lane.authorizationState !== 'authorized'
+    ) {
+      continue;
+    }
+    matches.push(lane);
+  }
+  if (matches.length !== 1) {
+    throw new Error(
+      matches.length === 0
+        ? 'Wallet-host Ed25519 source lane is unavailable'
+        : 'Wallet-host Ed25519 source lane is ambiguous',
+    );
+  }
+  return matches[0];
+}
+
+function walletSessionIdentityMatches(
+  left: ActiveWalletSessionAuthorizationProjection,
+  right: ActiveWalletSessionAuthorizationProjection,
+): boolean {
+  return (
+    left.walletId === right.walletId &&
+    left.walletSessionId === right.walletSessionId &&
+    left.authority.authorityDigest === right.authority.authorityDigest
+  );
+}
+
+function isEd25519LaneAuthorizedByWalletSession(
+  lane: AvailableEd25519SigningLane,
+  authorization: ActiveWalletSessionAuthorizationProjection,
+): lane is Extract<ConcreteAvailableEd25519SigningLane, { authorizationState: 'authorized' }> {
+  return (
+    isConcreteAvailableSigningLane(lane) &&
+    lane.curve === 'ed25519' &&
+    lane.authorizationState === 'authorized' &&
+    walletSessionIdentityMatches(lane.authorization, authorization)
+  );
+}
+
+function isEcdsaLaneAuthorizedByWalletSession(
+  lane: AvailableEcdsaSigningLane,
+  authorization: ActiveWalletSessionAuthorizationProjection,
+): lane is ConcreteAvailableEcdsaSigningLane & {
+  readonly authorization: ActiveEvmFamilyWalletSessionAuthorization;
+} {
+  return (
+    isConcreteAvailableSigningLane(lane) &&
+    lane.curve === 'ecdsa' &&
+    lane.authorization !== undefined &&
+    walletSessionIdentityMatches(lane.authorization.projection, authorization)
+  );
 }
 
 function appendOwnerSourceLaneCandidate(
@@ -1179,9 +1254,9 @@ async function requireExactEd25519SealedRuntimeForLane(args: {
   return resolution.runtime;
 }
 
-async function requireExactEd25519SealedRuntimeForExport(args: {
+async function requireExactEd25519SealedRuntimeForMaterialActivation(args: {
   walletId: WalletId;
-  laneIdentity: ExactEd25519ExportMaterialIdentity;
+  laneIdentity: ExactEd25519SigningLaneIdentity | ExactEd25519ExportMaterialIdentity;
   materialActivation: MpcMaterialActivationRef;
 }): Promise<ExactEd25519SealedSessionRuntime> {
   const record = await readExactEd25519SealedSession(
@@ -2691,6 +2766,7 @@ export class BrowserSigningSurface {
     let activation: LinkedDeviceSigningSessionActivationWithAuthenticatorV1;
     switch (input.activation.kind) {
       case 'target_passkey_creation':
+      case 'verified_owner_unlock':
         activation = input.activation;
         break;
       case 'existing_target_passkey': {
@@ -2952,36 +3028,16 @@ export class BrowserSigningSurface {
       walletId: args.job.walletId,
       curve: 'ed25519',
     });
-    const matches: ConcreteAvailableEd25519SigningLane[] = [];
-    for (const lane of available.candidates.ed25519.near) {
-      if (!isConcreteAvailableSigningLane(lane) || lane.curve !== 'ed25519') continue;
-      if (
-        String(lane.walletId) !== String(args.job.walletId) ||
-        String(lane.nearEd25519SigningKeyId) !== String(args.job.nearEd25519SigningKeyId) ||
-        !mpcMaterialActivationRefsEqual(lane.materialActivation, args.job.source.materialActivation)
-      ) {
-        continue;
-      }
-      if (
-        lane.auth.kind !== WALLET_AUTH_METHODS.passkey ||
-        lane.authorizationState !== 'authorized'
-      ) {
-        continue;
-      }
-      matches.push(lane);
-    }
-    if (matches.length !== 1) {
-      throw new Error(
-        matches.length === 0
-          ? 'Wallet-host Ed25519 source lane is unavailable'
-          : 'Wallet-host Ed25519 source lane is ambiguous',
-      );
-    }
-    const lane = matches[0];
+    const lane = selectWalletHostEd25519SourceLaneV1(available, {
+      walletId: args.job.walletId,
+      nearEd25519SigningKeyId: args.job.nearEd25519SigningKeyId,
+      materialActivation: args.job.source.materialActivation,
+    });
     const laneIdentity = exactEd25519LaneIdentityFromAvailableLane(lane);
-    const runtime = await requireExactEd25519SealedRuntimeForLane({
+    const runtime = await requireExactEd25519SealedRuntimeForMaterialActivation({
       walletId: args.job.walletId,
       laneIdentity,
+      materialActivation: args.job.source.materialActivation,
     });
     if (runtime.factor.kind !== WALLET_AUTH_METHODS.passkey) {
       throw new Error('Wallet-host Ed25519 source lane requires a passkey runtime');
@@ -2993,7 +3049,9 @@ export class BrowserSigningSurface {
       walletSessionState,
       materialActivation,
     });
-    if (!claim.ok) throw new Error(`Wallet-host Ed25519 PRF is unavailable: ${claim.code}`);
+    if (!claim.ok) {
+      throw new Error(`Wallet-host Ed25519 PRF is unavailable: ${claim.code}: ${claim.message}`);
+    }
     const envelope = await readPasskeyCustodySessionEnvelope({
       walletId: String(runtime.walletId),
       credentialIdB64u: runtime.factor.credentialIdB64u,
@@ -3019,8 +3077,19 @@ export class BrowserSigningSurface {
       signerSlot: lane.signerSlot,
       expectedRegisteredPublicKeyB64u: base64UrlEncode(metadata.registeredPublicKey),
     });
-    if (loaded.kind !== 'found') {
-      throw new Error('Wallet-host Ed25519 sealed source material is unavailable');
+    switch (loaded.kind) {
+      case 'found':
+        break;
+      case 'absent':
+        throw new Error(
+          'Wallet-host Ed25519 sealed source material is absent from the local custody cache',
+        );
+      case 'unusable':
+        throw new Error(
+          `Wallet-host Ed25519 sealed source material is unusable: ${loaded.reason}`,
+        );
+      default:
+        loaded satisfies never;
     }
     await assertEd25519YaoLaneCeremonyBindingParityV1({
       job: args.job,
@@ -3076,7 +3145,6 @@ export class BrowserSigningSurface {
       relayerUrl,
       walletSessions: walletSessionAuthorizations,
       readWalletAuthenticationState: () => this.walletAuthenticationState,
-      hasLinkedDeviceSigningSession: (walletId) => this.hasLinkedDeviceSigningSession(walletId),
       readOwnerSourceLaneHintsV1: this.readWalletHostOwnerSourceLaneHintsV1.bind(this),
       readUnlockedCustodyCapabilityV1: (walletId) =>
         readUnlockedWalletCustodyTransferCapabilityV1(String(walletId)),
@@ -3192,7 +3260,10 @@ export class BrowserSigningSurface {
     const available = await this.readPersistedAvailableSigningLanes({
       walletId: input.projection.walletId,
     });
-    const candidates = ownerSourceLaneCandidates(available);
+    const candidates = selectWalletHostOwnerSourceLaneCandidatesV1(
+      available,
+      input.projection,
+    );
     const hintsByIdentity = new Map<string, LinkedDeviceOwnerSourceLaneV1>();
     for (const candidate of candidates) {
       const walletSessionToken = walletSessionTokenForCurve(
@@ -4411,7 +4482,7 @@ export class BrowserSigningSurface {
     if (!relayerUrl) {
       throw new Error('[SigningEngine][ed25519-export] passkey export requires relayerUrl');
     }
-    const runtime = await requireExactEd25519SealedRuntimeForExport({
+    const runtime = await requireExactEd25519SealedRuntimeForMaterialActivation({
       walletId: toWalletId(String(args.laneIdentity.signer.account.wallet.walletId)),
       laneIdentity: args.laneIdentity,
       materialActivation: args.materialActivation,
@@ -4590,7 +4661,7 @@ export class BrowserSigningSurface {
     }
     let runtime: ExactEd25519SealedSessionRuntime;
     if (subject.kind === 'export_exact_lane') {
-      runtime = await requireExactEd25519SealedRuntimeForExport({
+      runtime = await requireExactEd25519SealedRuntimeForMaterialActivation({
         walletId: subject.walletId,
         laneIdentity: subject.laneIdentity,
         materialActivation: subject.materialActivation,

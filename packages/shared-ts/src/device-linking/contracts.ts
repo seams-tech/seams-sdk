@@ -728,8 +728,23 @@ export type LinkedDeviceListRequestV1 = {
   readonly cursor: string | null;
 };
 
+/**
+ * An active owner credential with no linked-device enrollment: a device that
+ * registered or recovered the wallet directly rather than joining through
+ * linking. It has no deviceId or enrollmentId — removal goes through
+ * auth-method revocation, not linked-device revocation.
+ */
+export type OwnerDeviceSummaryV1 = {
+  readonly walletId: WalletId;
+  readonly credential: LinkedOwnerCredentialMetadataV1;
+  readonly createdAtMs: number;
+  readonly lastActivityAtMs: number;
+};
+
 export type LinkedDeviceListResultV1 = {
   readonly devices: readonly LinkedDeviceSummaryV1[];
+  /** Founding owner devices; served with the first page only (cursor === null). */
+  readonly ownerDevices: readonly OwnerDeviceSummaryV1[];
   readonly nextCursor: string | null;
 };
 

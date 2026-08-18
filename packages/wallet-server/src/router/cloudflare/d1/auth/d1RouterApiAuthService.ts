@@ -146,6 +146,7 @@ import {
 } from '../deviceLinking/d1LinkedDeviceManagementStore';
 import {
   AuthorizationServiceLinkedDeviceWalletSessionRevocationV1,
+  D1LinkedDeviceOwnerCredentialRevocationV1,
   D1LinkedDeviceRevocationPreparationV1,
   D1LinkedDeviceWalletSessionAuthorizationMetadataSourceV1,
 } from '../deviceLinking/d1LinkedDeviceManagementComposition';
@@ -345,7 +346,13 @@ function createD1LinkedDeviceComposition(input: {
   readonly walletAuthMethods: {
     finalizeWalletAddAuthMethod(
       command: FinalizeWalletAddAuthMethodCommand,
+      atomicCompanionStatements: readonly D1PreparedStatementLike[],
     ): Promise<WalletAddAuthMethodFinalizeResponse>;
+    revokeWalletAuthMethodForOwnerSessionV1(input: {
+      readonly walletId: import('@shared/utils/domainIds').WalletId;
+      readonly walletAuthMethodId: import('@shared/utils/domainIds').WalletAuthMethodId;
+      readonly requestedAtMs: number;
+    }): Promise<{ readonly kind: 'applied' | 'replayed' | 'conflict' }>;
   };
   readonly authorizationService: Pick<
     AuthorizationService,
@@ -540,6 +547,9 @@ function createD1LinkedDeviceComposition(input: {
         ...laneStoreOptions,
         ...laneRuntime.laneLifecycle,
       }),
+      ownerCredentialRevocation: new D1LinkedDeviceOwnerCredentialRevocationV1(
+        input.walletAuthMethods,
+      ),
       walletSessionRevocation,
       localStateInvalidation: new D1LinkedDeviceLocalStateInvalidationV1({
         projection: managementProjection,
@@ -1601,8 +1611,10 @@ function createCloudflareD1RouterApiAuthAssembly(
     // Deferred: the auth-method service is built below, and the linked finalize
     // only reaches it at request time.
     walletAuthMethods: {
-      finalizeWalletAddAuthMethod: (command) =>
-        walletAuthMethods.finalizeWalletAddAuthMethod(command),
+      finalizeWalletAddAuthMethod: (command, atomicCompanionStatements) =>
+        walletAuthMethods.finalizeWalletAddAuthMethod(command, atomicCompanionStatements),
+      revokeWalletAuthMethodForOwnerSessionV1: (command) =>
+        walletAuthMethods.revokeWalletAuthMethodForOwnerSessionV1(command),
     },
     options,
     authorizationSessions: createD1AuthorizationSessionRouteService({
@@ -1671,20 +1683,35 @@ function createCloudflareD1RouterApiAuthAssembly(
       envId: options.envId,
     },
   });
+  const authorizationTenantId = parseTenantId(options.orgId);
+  if (!authorizationTenantId.ok) {
+    throw new Error(
+      `orgId cannot identify an authorization tenant: ${authorizationTenantId.error.message}`,
+    );
+  }
+  const linkedDeviceOwnerAuthBindingStore = new D1LinkedDeviceOwnerAuthBindingStoreV1({
+    database: options.database,
+    scope: {
+      namespace: options.namespace,
+      orgId: options.orgId,
+      projectId: options.projectId,
+      envId: options.envId,
+    },
+  });
   const walletAuthMethods = new CloudflareD1WalletAuthMethodService({
     emailOtpChallengeVerifier,
     getRegistrationCeremonyIntentStore,
     getWalletAuthMethodStore,
     googleEmailOtpRegistrationAttempts,
-    linkedDeviceOwnerAuthBindings: new D1LinkedDeviceOwnerAuthBindingStoreV1({
-      database: options.database,
-      scope: {
-        namespace: options.namespace,
-        orgId: options.orgId,
-        projectId: options.projectId,
-        envId: options.envId,
-      },
-    }),
+    linkedDeviceOwnerAuthBindings: linkedDeviceOwnerAuthBindingStore,
+    linkedDeviceOwnerAuthBindingStore,
+    revokeOwnerWalletSessions: (sessionInput) =>
+      authorizationService.revokeReusableWalletSessionsForAuthMethod({
+        tenantId: authorizationTenantId.value,
+        walletId: sessionInput.walletId,
+        walletAuthMethodId: sessionInput.walletAuthMethodId,
+        nowMs: sessionInput.requestedAtMs,
+      }),
     passkeyCustodyEnvelopes,
     sha256Bytes: sha256BytesPortable,
     webAuthnStore,
@@ -1706,12 +1733,6 @@ function createCloudflareD1RouterApiAuthAssembly(
     },
   });
   const signedDelegateExecutor = new CloudflareD1SignedDelegateExecutor(options);
-  const authorizationTenantId = parseTenantId(options.orgId);
-  if (!authorizationTenantId.ok) {
-    throw new Error(
-      `orgId cannot identify an authorization tenant: ${authorizationTenantId.error.message}`,
-    );
-  }
   const walletRegistrations = new CloudflareD1WalletRegistrationService({
     authorizationService,
     authorizationTenantId: authorizationTenantId.value,

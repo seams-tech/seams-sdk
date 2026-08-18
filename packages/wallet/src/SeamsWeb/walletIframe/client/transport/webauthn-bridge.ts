@@ -123,6 +123,7 @@ async function handleWebAuthnGet(req: GetReq, e: MessageEvent): Promise<void> {
     return;
   }
   try {
+    console.info('[WebAuthnPrompt] parent executing authentication', { requestId });
     const src = req.publicKey as PublicKeyCredentialRequestOptions;
     const rpId = src.rpId || window.location.hostname;
     const pub: PublicKeyCredentialRequestOptions = { ...src, rpId };

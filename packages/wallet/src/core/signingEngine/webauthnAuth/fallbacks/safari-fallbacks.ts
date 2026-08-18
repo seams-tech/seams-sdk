@@ -49,8 +49,6 @@ interface OrchestratorDepsBase {
   inIframe: boolean;
   timeoutMs?: number;
   bridgeClient?: ParentDomainWebAuthnClient;
-  // Gate for ancestor-error on GET; bridges for focus errors are always allowed when in iframe.
-  permitGetBridgeOnAncestorError?: boolean;
   // Optional AbortSignal to cancel native navigator.credentials operations.
   // Note: parent-bridge path may not be abortable.
   abortSignal?: AbortSignal;
@@ -73,23 +71,7 @@ export class WalletOriginWebAuthnUnavailableError extends Error {
   }
 }
 
-/**
- * Execute a WebAuthn operation with Safari-aware fallbacks.
- *
- * Steps:
- * 1) Try native WebAuthn via navigator.credentials.{create|get}
- * Registration surfaces a typed wallet-origin error for iframe restrictions. Authentication
- * keeps the established Safari bridge behavior described below.
- * 2) If GET matches Safari's ancestor-origin restriction and we are in an iframe,
- *    ask the parent/top-level window to perform the WebAuthn operation (bridge). If the
- *    parent reports a user cancellation, throw NotAllowedError; if it times out, continue.
- * 3) If the failure matches Safari's "document not focused" path, first attempt to refocus
- *    and retry native once; if still blocked and in an iframe, ask the parent window to handle it.
- * 4) Generic GET fallback: when in an iframe, attempt the parent
- *    WebAuthn once even if the error wasn't recognized as a Safari-specific case. If the parent
- *    path times out, surface a deterministic timeout error without re-trying native again.
- * 5) Otherwise, rethrow the original error.
- */
+/** Execute WebAuthn once on the wallet origin. */
 export function executeWebAuthnWithParentFallbacksSafari(
   kind: 'create',
   publicKey: PublicKeyCredentialCreationOptions,
@@ -105,162 +87,25 @@ export async function executeWebAuthnWithParentFallbacksSafari(
   publicKey: AnyPublicKeyOptions,
   deps: RegistrationOrchestratorDeps | AuthenticationOrchestratorDeps,
 ): Promise<PublicKeyCredential | unknown> {
-  const { inIframe, timeoutMs = 60000, permitGetBridgeOnAncestorError = true } = deps;
-  const bridgeClient = deps.bridgeClient || new WindowParentDomainWebAuthnClient();
-
-  const isTestForceNativeFail = (): boolean => {
-    const g = globalThis as typeof globalThis & { __W3A_TEST_FORCE_NATIVE_FAIL?: unknown };
-    const w =
-      typeof window !== 'undefined'
-        ? (window as Window & { __W3A_TEST_FORCE_NATIVE_FAIL?: unknown })
-        : undefined;
-    return !!g.__W3A_TEST_FORCE_NATIVE_FAIL || !!w?.__W3A_TEST_FORCE_NATIVE_FAIL;
-  };
-  const bumpCounter = (key: string) => {
-    const g = globalThis as Record<string, unknown>;
-    const current = typeof g[key] === 'number' ? (g[key] as number) : 0;
-    g[key] = current + 1;
-  };
-
-  // Test harness fast-path: when explicitly forcing native fail, skip native and go straight to bridge.
-  // Still bump native attempt counters for determinism in tests.
-  if (isTestForceNativeFail()) {
-    if (kind === 'create') bumpCounter('__W3A_TEST_NATIVE_CREATE_ATTEMPTS');
-    else bumpCounter('__W3A_TEST_NATIVE_GET_ATTEMPTS');
+  const publicKeyForAttempt = clonePublicKeyOptions(kind, publicKey);
+  try {
     if (kind === 'create') {
-      throw new WalletOriginWebAuthnUnavailableError(
-        'Wallet-origin WebAuthn registration is unavailable in this browsing context',
-      );
-    }
-    try {
-      const bridged = await requestParentDomainWebAuthn(kind, publicKey, bridgeClient, timeoutMs);
-      if (bridged?.ok) return bridged.credential;
-      if (bridged && !bridged.timeout) {
-        throw notAllowedError(bridged.error || 'WebAuthn cancelled or failed (bridge)');
-      }
-      throw new Error('WebAuthn bridge timeout');
-    } catch (be: unknown) {
-      // Ensure consistent error type for unit tests
-      throw notAllowedError(safeMessage(be) || 'WebAuthn bridge failed');
-    }
-  }
-
-  const tryNative = async () => {
-    const publicKeyForAttempt = clonePublicKeyOptions(kind, publicKey);
-    if (kind === 'create') {
-      bumpCounter('__W3A_TEST_NATIVE_CREATE_ATTEMPTS');
-      if (isTestForceNativeFail()) throw notAllowedError('Forced native fail (create)');
-      // Build options with optional AbortSignal
       return await navigator.credentials.create({
         publicKey: publicKeyForAttempt as PublicKeyCredentialCreationOptions,
         ...(deps.abortSignal ? { signal: deps.abortSignal } : {}),
       });
-    } else {
-      bumpCounter('__W3A_TEST_NATIVE_GET_ATTEMPTS');
-      if (isTestForceNativeFail()) throw notAllowedError('Forced native fail (get)');
-      return await navigator.credentials.get({
-        publicKey: publicKeyForAttempt as PublicKeyCredentialRequestOptions,
-        ...(deps.abortSignal ? { signal: deps.abortSignal } : {}),
-      });
     }
-  };
-
-  // Step 1: native attempt
-  try {
-    return await tryNative();
-  } catch (e: unknown) {
-    // If the user explicitly cancelled (generic NotAllowedError without Safari-specific hints),
-    // do not attempt any bridge fallbacks that would re-prompt Touch ID. Propagate immediately.
-    // This avoids double prompts when a user cancels the native sheet.
-    const name = safeName(e);
-    if (name === 'NotAllowedError' && !isAncestorOriginError(e) && !isDocumentNotFocusedError(e)) {
-      throw e;
+    return await navigator.credentials.get({
+      publicKey: publicKeyForAttempt as PublicKeyCredentialRequestOptions,
+      ...(deps.abortSignal ? { signal: deps.abortSignal } : {}),
+    });
+  } catch (error: unknown) {
+    if (kind === 'create' && (isAncestorOriginError(error) || isDocumentNotFocusedError(error))) {
+      throw new WalletOriginWebAuthnUnavailableError(
+        `Wallet-origin WebAuthn registration is unavailable: ${safeMessage(error)}`,
+      );
     }
-
-    if (kind === 'create') {
-      if (isAncestorOriginError(e) || isDocumentNotFocusedError(e)) {
-        throw new WalletOriginWebAuthnUnavailableError(
-          `Wallet-origin WebAuthn registration is unavailable: ${safeMessage(e)}`,
-        );
-      }
-      throw e;
-    }
-
-    // Step 2: ancestor-origin restriction → parent bridge (when in iframe)
-    if (isAncestorOriginError(e) && inIframe) {
-      if (kind === 'get' && !permitGetBridgeOnAncestorError) {
-        throw e;
-      }
-      try {
-        const bridgedCredentials = await requestParentDomainWebAuthn(
-          kind,
-          publicKey,
-          bridgeClient,
-          timeoutMs,
-        );
-        if (bridgedCredentials?.ok) return bridgedCredentials.credential;
-        if (bridgedCredentials && !bridgedCredentials.timeout) {
-          throw notAllowedError(
-            bridgedCredentials.error || 'WebAuthn get cancelled or failed (bridge)',
-          );
-        }
-      } catch (be: unknown) {
-        throw notAllowedError(safeMessage(be) || 'WebAuthn bridge failed');
-      }
-    }
-
-    // Step 3: document-not-focused → refocus + retry native; then parent bridge if still blocked
-    if (isDocumentNotFocusedError(e)) {
-      const focused = await attemptRefocus();
-      if (focused) {
-        try {
-          return await tryNative();
-        } catch {}
-      }
-      if (inIframe) {
-        try {
-          const bridgedCredentials = await requestParentDomainWebAuthn(
-            kind,
-            publicKey,
-            bridgeClient,
-            timeoutMs,
-          );
-          if (bridgedCredentials?.ok) return bridgedCredentials.credential;
-          if (bridgedCredentials && !bridgedCredentials.timeout) {
-            throw notAllowedError(
-              bridgedCredentials.error || 'WebAuthn get cancelled or failed (bridge)',
-            );
-          }
-        } catch (be: unknown) {
-          throw notAllowedError(safeMessage(be) || 'WebAuthn bridge failed');
-        }
-      }
-    }
-
-    // Step 4: generic last-resort bridge path for constrained iframe contexts
-    if (inIframe) {
-      try {
-        const bridgedCredentials = await requestParentDomainWebAuthn(
-          kind,
-          publicKey,
-          bridgeClient,
-          timeoutMs,
-        );
-        if (bridgedCredentials?.ok) return bridgedCredentials.credential;
-        if (bridgedCredentials && !bridgedCredentials.timeout) {
-          throw notAllowedError(
-            bridgedCredentials.error || 'WebAuthn cancelled or failed (bridge)',
-          );
-        }
-        // Timeout: surface an explicit error without re‑trying native again
-        throw new Error('WebAuthn bridge timeout');
-      } catch (be: unknown) {
-        throw notAllowedError(safeMessage(be) || 'WebAuthn bridge failed');
-      }
-    }
-
-    // Step 5: not an iframe or no recognized fallback – rethrow original error
-    throw e;
+    throw error;
   }
 }
 
@@ -456,24 +301,6 @@ function safeMessage(err: unknown): string {
 }
 
 function safeName(err: unknown): string {
-  const n = (err as { name?: unknown })?.name;
-  return typeof n === 'string' ? n : '';
-}
-
-// Private: focus utility to mitigate Safari focus issues
-async function attemptRefocus(maxRetries = 2, delays: number[] = [50, 120]): Promise<boolean> {
-  window.focus?.();
-  if (document?.body) {
-    document.body.focus?.();
-  }
-
-  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
-  const total = Math.max(0, maxRetries);
-  for (let i = 0; i <= total; i++) {
-    const d = delays[i] ?? delays[delays.length - 1] ?? 80;
-    await wait(d);
-    if (document.hasFocus()) return true;
-    window.focus?.();
-  }
-  return document.hasFocus();
+  const name = (err as { name?: unknown })?.name;
+  return typeof name === 'string' ? name : '';
 }

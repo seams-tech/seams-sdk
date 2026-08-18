@@ -18,6 +18,10 @@ import {
   D1LinkedDeviceCanonicalOwnerAuthMetadataSourceV1,
   D1LinkedDeviceSigningActivitySourceV1,
 } from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceManagementStore';
+import {
+  assertOwnerAuthBindingBatchApplied,
+  D1LinkedDeviceOwnerAuthBindingStoreV1,
+} from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceOwnerAuthBindingStore';
 import { parseTenantId } from '../../packages/shared-ts/src/authorization/capabilityKinds';
 import {
   D1LinkedDeviceSessionStoreV1,
@@ -30,7 +34,15 @@ import {
   listD1MigrationFiles,
   type TemporaryD1Database,
 } from '../helpers/sqliteD1';
-import type { D1DatabaseLike } from '../../packages/wallet-server/src/storage/tenantRoute';
+import type {
+  D1DatabaseLike,
+  D1ResultLike,
+} from '../../packages/wallet-server/src/storage/tenantRoute';
+import { buildLinkedOwnerPasskeyBindingFixtureV1 } from './helpers/linkedOwnerAuthBinding.fixtures';
+import {
+  insertWalletAuthMethod,
+  insertWebAuthn,
+} from './helpers/cloudflareD1RouterApiAuthService.fixtures';
 
 const scope: D1LinkedDeviceSessionScopeV1 = {
   namespace: 'signer',
@@ -136,6 +148,7 @@ test('uses the core session clock before projecting management rows', async () =
     metadata: {
       readLinkedDeviceMetadataV1: async () => null,
       readLinkedDeviceMetadataBatchV1: async () => new Map(),
+      listUnlinkedOwnerDeviceSummariesV1: async () => [],
     },
   });
 
@@ -144,7 +157,7 @@ test('uses the core session clock before projecting management rows', async () =
     limit: 10,
     cursor: null,
   });
-  expect(result).toEqual({ devices: [], nextCursor: null });
+  expect(result).toEqual({ devices: [], ownerDevices: [], nextCursor: null });
   expect(reads).toHaveLength(1);
   expect(reads[0].nowMs).toBe(12_000);
   expect(String(reads[0].linkSessionId)).toBe(String(fixture.payload.linkSessionId));
@@ -232,7 +245,7 @@ test('reads only exact scope and device signing activity from authorization audi
   ).resolves.toBe(8_000);
 });
 
-test('fails closed on missing owner bindings with a bounded D1 query set', async () => {
+test('omits linked sessions without owner bindings from the management projection', async () => {
   temporary = createTemporaryD1Database();
   await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
   let queryCount = 0;
@@ -324,6 +337,80 @@ test('fails closed on missing owner bindings with a bounded D1 query set', async
       limit: 10,
       cursor: null,
     }),
-  ).rejects.toThrow('linked-device owner auth binding is missing');
+  ).resolves.toEqual({ devices: [], ownerDevices: [], nextCursor: null });
   expect(queryCount).toBeLessThanOrEqual(8);
+});
+
+test('keeps canonical metadata for bound identities while omitting orphan identities', async () => {
+  temporary = createTemporaryD1Database();
+  await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+  const fixture = buildR103DeviceLinkFixture();
+  const binding = buildLinkedOwnerPasskeyBindingFixtureV1({
+    walletId: String(fixture.approval.walletId),
+    enrollmentId: String(fixture.approval.enrollmentId),
+    deviceId: String(fixture.approval.deviceId),
+    rpId: 'wallet.example.test',
+    credentialIdB64u: 'credential-r103-bound',
+  });
+  if (binding.factor.kind !== 'passkey') throw new Error('expected passkey binding');
+  await insertWalletAuthMethod({
+    database: temporary.database,
+    ...scope,
+    record: {
+      version: 'wallet_auth_method_v1',
+      kind: 'passkey',
+      status: 'active',
+      walletId: String(binding.walletId),
+      rpId: String(binding.factor.rpId),
+      credentialIdB64u: String(binding.factor.credentialIdB64u),
+      credentialPublicKeyB64u: 'credential-public-key',
+      counter: 0,
+      createdAtMs: binding.createdAtMs,
+      updatedAtMs: binding.updatedAtMs,
+    },
+  });
+  await insertWebAuthn({
+    database: temporary.database,
+    ...scope,
+    userId: String(binding.walletId),
+    rpId: String(binding.factor.rpId),
+    credentialIdB64u: String(binding.factor.credentialIdB64u),
+    credentialPublicKeyB64u: 'credential-public-key',
+  });
+  const bindingStore = new D1LinkedDeviceOwnerAuthBindingStoreV1({
+    database: temporary.database,
+    scope,
+  });
+  assertOwnerAuthBindingBatchApplied(
+    await temporary.database.batch<D1ResultLike>([bindingStore.buildInsertV1(binding).statement]),
+    1,
+  );
+
+  const orphan = buildR103DeviceLinkFixture({
+    enrollmentId: 'enrollment:r103-orphan',
+    deviceId: 'device:r103-orphan',
+  });
+  const metadata = await new D1LinkedDeviceCanonicalOwnerAuthMetadataSourceV1({
+    database: temporary.database,
+    scope,
+    tenantId: binding.tenantId,
+  }).readLinkedDeviceMetadataBatchV1([
+    {
+      walletId: fixture.approval.walletId,
+      enrollmentId: fixture.approval.enrollmentId,
+      deviceId: fixture.approval.deviceId,
+    },
+    {
+      walletId: orphan.approval.walletId,
+      enrollmentId: orphan.approval.enrollmentId,
+      deviceId: orphan.approval.deviceId,
+    },
+  ]);
+
+  expect(
+    metadata.get(
+      `${String(fixture.approval.walletId)}\u0000${String(fixture.approval.enrollmentId)}\u0000${String(fixture.approval.deviceId)}`,
+    ),
+  ).toBeDefined();
+  expect(metadata.size).toBe(1);
 });

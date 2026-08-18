@@ -97,8 +97,8 @@ export class D1LinkedDeviceCommittedDeliveryRetryV1 {
     }
     const approval = input.session.approvalTranscript?.value;
     const recovery = input.session.recovery;
-    if (!approval || !recovery || recovery.kind !== 'bound') {
-      return { outcome: 'invalid_input', message: 'committed delivery recovery is not bound' };
+    if (!approval || !recovery) {
+      return { outcome: 'invalid_input', message: 'committed delivery recovery is missing' };
     }
     if (
       input.request.linkSessionId !== input.session.linkSessionId ||
@@ -107,12 +107,14 @@ export class D1LinkedDeviceCommittedDeliveryRetryV1 {
     ) {
       return { outcome: 'invalid_input', message: 'committed delivery retry identity differs' };
     }
-    if (
-      recovery.continuation.linkSessionId !== input.session.linkSessionId ||
-      recovery.continuation.enrollmentId !== approval.enrollmentId ||
-      recovery.continuation.deviceId !== approval.deviceId
-    ) {
-      return { outcome: 'invalid_input', message: 'committed delivery recovery binding differs' };
+    if (recovery.kind === 'bound') {
+      if (
+        recovery.continuation.linkSessionId !== input.session.linkSessionId ||
+        recovery.continuation.enrollmentId !== approval.enrollmentId ||
+        recovery.continuation.deviceId !== approval.deviceId
+      ) {
+        return { outcome: 'invalid_input', message: 'committed delivery recovery binding differs' };
+      }
     }
     const deliveries = await this.sourceHandoff.prepareProvisioningDeliveriesV1({
       command: buildLinkedDeviceProvisioningCommandV1({

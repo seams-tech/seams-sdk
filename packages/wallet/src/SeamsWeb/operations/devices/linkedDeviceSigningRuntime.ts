@@ -115,7 +115,7 @@ type LinkedDeviceSealTransportV1 = Extract<
 type LinkedDeviceWarmSigningActivationV1 =
   | Extract<
       LinkedDeviceSigningSessionActivationV1,
-      { readonly kind: 'target_passkey_creation' }
+      { readonly kind: 'target_passkey_creation' | 'verified_owner_unlock' }
     >
   | (Extract<
       LinkedDeviceSigningSessionActivationV1,
@@ -340,8 +340,9 @@ export async function openLinkedDeviceWarmSigningSessionV1(input: {
   let factorSecret: Uint8Array | null = null;
   const holderMaterial = createDeviceLinkingKeyMaterialPortV1();
   try {
-    if (input.activation.kind === 'target_passkey_creation') {
-      // Creation required user verification; reuse its PRF for the initial seal.
+    if (input.activation.kind !== 'existing_target_passkey') {
+      // Creation and owner unlock already verified this passkey. Reuse that
+      // ceremony's PRF instead of asking the authenticator a second time.
       const stored = await linkedDeviceWalletSessions.readActiveForEnrollmentV1({
         enrollmentId: resolved.bundle.enrollmentId,
         nowMs,

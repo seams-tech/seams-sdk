@@ -47,6 +47,7 @@ import type {
 import type { PersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocalMaterialResolver';
 import { walletSessionAuthorizations } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import { persistActiveWalletSessionAuthorizationFromEcdsaBootstrap } from '../persistence/walletSessionAuthorizationProjection';
+import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 
 export type ExistingEcdsaBootstrapKeyIntent = {
   kind: 'existing_ecdsa_key';
@@ -149,6 +150,7 @@ export type PasskeyEcdsaExportBootstrapRequest = EcdsaExplicitExportBootstrapReq
 export type PasskeyPreauthorizedEcdsaBootstrapRequest = EcdsaBootstrapExactRequestBase &
   PasskeyCredentialBootstrapAuth & {
     kind: 'passkey_preauthorized_ecdsa_bootstrap';
+    authorizationAuthority: WalletAuthAuthorityRef;
     sessionActivation: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
     routeAuth?: never;
     emailOtpAuthContext?: never;
@@ -156,6 +158,7 @@ export type PasskeyPreauthorizedEcdsaBootstrapRequest = EcdsaBootstrapExactReque
 
 export type WalletSessionReconnectEcdsaBootstrapRequest = EcdsaBootstrapExactRequestBase & {
   kind: 'wallet_session_reconnect_ecdsa_bootstrap';
+  authorizationAuthority: WalletAuthAuthorityRef;
   routeAuth: Extract<
     WalletSessionRouteAuth,
     { kind: 'opaque_wallet_session' }
@@ -267,6 +270,19 @@ function ecdsaBootstrapSignerAuth(
     authMethod: SIGNER_AUTH_METHODS.passkey,
     signerSource: SIGNER_SOURCES.passkeyRegistration,
   };
+}
+
+function ecdsaBootstrapAuthorizationAuthority(
+  request: Exclude<EcdsaBootstrapRequest, ReuseWarmEcdsaBootstrapRequest>,
+): WalletAuthAuthorityRef {
+  switch (request.kind) {
+    case 'passkey_preauthorized_ecdsa_bootstrap':
+    case 'wallet_session_reconnect_ecdsa_bootstrap':
+      return request.authorizationAuthority;
+    case 'passkey_fresh_ecdsa_bootstrap':
+    case 'email_otp_ecdsa_bootstrap':
+      return request.existingRoleLocalMaterial.authority;
+  }
 }
 
 function toActivateEcdsaSessionRequest(
@@ -386,7 +402,7 @@ export async function bootstrapEcdsaSessionValue(
       '[SigningEngine][ecdsa] reuse_warm bootstrap must resolve an existing exact material request before activation',
     );
   }
-  const authority = request.existingRoleLocalMaterial.authority;
+  const authority = ecdsaBootstrapAuthorizationAuthority(request);
   const walletId = toWalletId(ecdsaBootstrapWalletId(request));
   const chainTarget = ecdsaBootstrapChainTarget(request);
   const relayerUrl = resolveRelayerUrl(request.relayerUrl, deps.defaultRelayerUrl);

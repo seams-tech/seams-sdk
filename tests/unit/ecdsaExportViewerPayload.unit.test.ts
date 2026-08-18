@@ -134,6 +134,7 @@ test.describe('threshold ECDSA export viewer payload', () => {
   test('accepts server-allocated wallet ids for passkey export authorization', async () => {
     let capturedSummaryAccountId = '';
     let capturedIntentDigest = '';
+    let capturedCredentialIdB64u = '';
 
     const authorization = await requestThresholdEcdsaExportAuthorization(
       {
@@ -143,6 +144,9 @@ test.describe('threshold ECDSA export viewer payload', () => {
               (request.summary as { accountId?: unknown }).accountId || '',
             );
             capturedIntentDigest = String(request.intentDigest || '');
+            capturedCredentialIdB64u = String(
+              (request.payload as { credentialIdB64u?: unknown }).credentialIdB64u || '',
+            );
             return {
               requestId: request.requestId,
               confirmed: true,
@@ -153,6 +157,7 @@ test.describe('threshold ECDSA export viewer payload', () => {
       },
       {
         walletSessionUserId: 'frost-vermillion-k7p9m2',
+        credentialIdB64u: 'device-2-credential',
         publicKey: '0x02abcdef',
         chainTarget: EVM_TARGET,
         flowId: 'key-export-flow-1',
@@ -162,6 +167,7 @@ test.describe('threshold ECDSA export viewer payload', () => {
     expect(authorization.walletSessionUserId).toBe('frost-vermillion-k7p9m2');
     expect(capturedSummaryAccountId).toBe('frost-vermillion-k7p9m2');
     expect(capturedIntentDigest).toContain('frost-vermillion-k7p9m2');
+    expect(capturedCredentialIdB64u).toBe('device-2-credential');
   });
 
   test('accepts server-allocated wallet ids for Email OTP export authorization', async () => {

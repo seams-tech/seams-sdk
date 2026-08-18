@@ -310,6 +310,10 @@ export type LinkedDeviceSigningSessionActivationV1 =
       readonly factorSecret: Uint8Array;
     }
   | {
+      readonly kind: 'verified_owner_unlock';
+      readonly factorSecret: Uint8Array;
+    }
+  | {
       readonly kind: 'existing_target_passkey';
     };
 

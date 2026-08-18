@@ -48,8 +48,8 @@ test('lists wallet-scoped linked devices only after owner authorization', async 
     projection: {
       listLinkedDevicesV1: async ({ walletId }) =>
         walletId === target.summary.walletId
-          ? { devices: [target.summary], nextCursor: null }
-          : { devices: [], nextCursor: null },
+          ? { devices: [target.summary], ownerDevices: [], nextCursor: null }
+          : { devices: [], ownerDevices: [], nextCursor: null },
       getLinkedDeviceV1: async () => target,
     },
     preparation: neverPreparation(),
@@ -69,7 +69,7 @@ test('lists wallet-scoped linked devices only after owner authorization', async 
     ownerForWallet(target.summary.walletId),
     4_000,
   );
-  expect(result).toEqual({ devices: [target.summary], nextCursor: null });
+  expect(result).toEqual({ devices: [target.summary], ownerDevices: [], nextCursor: null });
 });
 
 test('refuses a public revoke plan whose lane command does not bind the requested wallet', async () => {
@@ -105,7 +105,7 @@ test('refuses a public revoke plan whose lane command does not bind the requeste
   let aggregateCalls = 0;
   const service = new LinkedDeviceManagementServiceV1({
     projection: {
-      listLinkedDevicesV1: async () => ({ devices: [target.summary], nextCursor: null }),
+      listLinkedDevicesV1: async () => ({ devices: [target.summary], ownerDevices: [], nextCursor: null }),
       getLinkedDeviceV1: async () => target,
     },
     preparation: {
@@ -197,7 +197,7 @@ test('fences every linked Wallet Session before retiring child lanes', async () 
   });
   const service = new LinkedDeviceManagementServiceV1({
     projection: {
-      listLinkedDevicesV1: async () => ({ devices: [target.summary], nextCursor: null }),
+      listLinkedDevicesV1: async () => ({ devices: [target.summary], ownerDevices: [], nextCursor: null }),
       getLinkedDeviceV1: async () => target,
     },
     preparation: {

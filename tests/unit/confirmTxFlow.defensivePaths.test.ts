@@ -783,7 +783,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
     expect(result.stillMounted).toBe(true);
   });
 
-  test('DECRYPT_PRIVATE_KEY_WITH_PRF uses filtered authenticators for the current device', async ({
+  test('DECRYPT_PRIVATE_KEY_WITH_PRF uses only the exact credential selected by the export lane', async ({
     page,
   }) => {
     const result = await page.evaluate(
@@ -850,6 +850,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
           summary: {},
           payload: {
             subject: { kind: 'near_wallet', nearAccountId: 'alice.testnet' },
+            credentialIdB64u: 'cred-new',
             publicKey: 'ed25519:test',
           },
         } as any;
@@ -917,9 +918,9 @@ test.describe('confirmTxFlow – defensive paths', () => {
             }: any) => {
               capturedChallengeB64u = String(challengeB64u || '');
               return {
-                id: 'cred-new',
+                id: 'test-passkey',
                 type: 'public-key',
-                rawId: 'cred-new',
+                rawId: 'test-passkey',
                 response: {
                   clientDataJSON: 'AQ',
                   authenticatorData: 'Ag',
@@ -942,6 +943,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
           summary: {},
           payload: {
             subject: { kind: 'near_wallet', nearAccountId: 'alice.testnet' },
+            credentialIdB64u: 'test-passkey',
             publicKey: 'ed25519:recovery-key',
             challengeB64u: 'bound-export-challenge-b64u',
           },
