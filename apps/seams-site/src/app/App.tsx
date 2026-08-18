@@ -7,8 +7,6 @@ import { EcommercePage } from '@/pages/ecommerce/page';
 import { PricingPage } from '@/pages/pricing/page';
 import { CompanyPage } from '@/pages/company/page';
 import { ContactPage } from '@/pages/contact/page';
-import { DashboardPage } from '@/pages/dashboard/page';
-import { DashboardLoginPage } from '@/pages/dashboard/login/page';
 import { IntendedBehaviourE2EPage } from '@/pages/intended-e2e/page';
 import { NearLoginPage } from '@/pages/near-login/page';
 import { NotFoundPage } from '@/pages/not-found/page';
@@ -117,18 +115,9 @@ const AppRuntimeBoundary: React.FC = () => {
         return <CompanyPage />;
       case '/contact':
         return <ContactPage />;
-      case '/dashboard/login':
-        return <DashboardLoginPage />;
       case '/__intended-e2e':
         return FRONTEND_CONFIG.enableIntendedE2E ? <IntendedBehaviourE2EPage /> : <NotFoundPage />;
       default:
-        if (
-          pathname === '/dashboard' ||
-          pathname.startsWith('/dashboard/') ||
-          pathname.startsWith('/platform/')
-        ) {
-          return <DashboardPage pathname={pathname} />;
-        }
         return <NotFoundPage />;
     }
   }, [pathname]);
@@ -142,12 +131,7 @@ const AppRuntimeBoundary: React.FC = () => {
     );
   }
 
-  const dashboardRoute =
-    pathname === '/dashboard/login' ||
-    pathname === '/dashboard' ||
-    pathname.startsWith('/dashboard/') ||
-    pathname.startsWith('/platform/');
-  const sdkNetwork = dashboardRoute ? runtime.selectedNetwork : 'testnet';
+  const sdkNetwork = 'testnet';
 
   return (
     <FrontendSdkProvider

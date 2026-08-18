@@ -10,6 +10,7 @@ packages:
   - voiceId
   - apps/web-server
   - apps/seams-site
+  - apps/seams-console
   - apps/docs
   - crates/router-ab-cloudflare
   - examples/self-host-cloudflare-worker
