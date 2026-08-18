@@ -196,6 +196,32 @@ export type HostedConsoleIdentityService = ReturnType<
   typeof createCloudflareD1RouterApiAuthService
 >['identity'];
 
+// Structural port for /console/auth/*: exactly the two provider verifications
+// the handler performs. Satisfied by the Wallet identity service (combined
+// worker) and by the Console-owned provider identity (Console Worker).
+export interface HostedConsoleIdentityPort {
+  verifyGoogleLogin(input: { idToken: string }): Promise<{
+    readonly ok: boolean;
+    readonly verified?: boolean;
+    readonly userId?: string;
+    readonly code?: string;
+    readonly message?: string;
+    readonly email?: string;
+    readonly name?: string;
+    readonly emailVerified?: boolean;
+    readonly hostedDomain?: string;
+  }>;
+  verifyGithubOAuthCode(input: { code: string }): Promise<{
+    readonly ok: boolean;
+    readonly verified?: boolean;
+    readonly userId?: string;
+    readonly code?: string;
+    readonly message?: string;
+    readonly email?: string;
+    readonly name?: string;
+  }>;
+}
+
 type HostedConsoleLoginIdentity =
   | {
       readonly kind: 'google';
@@ -223,7 +249,7 @@ export type HostedConsoleInitialOwnerPolicy =
 
 export interface HostedConsoleAuthHandlerOptions {
   readonly handler: FetchHandler;
-  readonly identity: HostedConsoleIdentityService;
+  readonly identity: HostedConsoleIdentityPort;
   readonly session: SessionAdapter;
   readonly organizationAccess: ConsoleOrganizationAccessService;
   readonly orgProjectEnv: ConsoleOrgProjectEnvService;
