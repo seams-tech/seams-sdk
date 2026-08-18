@@ -24,14 +24,12 @@
     "paths": {
       "@seams-internal/console-shared": ["../console-shared-ts/src/index.ts"],
       "@seams-internal/console-shared/*": ["../console-shared-ts/src/*"],
-      "@seams-internal/wallet-console-shared": ["../wallet-console-shared-ts/src/index.ts"],
-      "@seams-internal/wallet-console-shared/*": ["../wallet-console-shared-ts/src/*"],
       "@seams-internal/console-server": ["src/index.ts"],
       "@seams-internal/console-server/*": ["src/*"],
       "express": ["./node_modules/@types/express/index.d.ts"],
       "*": ["./node_modules/*", "../node_modules/*", "../../node_modules/*"]
     }
   },
-  "include": ["src/**/*", "../console-shared-ts/src/**/*", "../wallet-console-shared-ts/src/**/*"],
+  "include": ["src/**/*", "../console-shared-ts/src/**/*"],
   "exclude": ["node_modules", "dist"]
 }

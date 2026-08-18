@@ -7,6 +7,7 @@
     "check:auth-secret-terminology": "node scripts/check-auth-secret-terminology.mjs",
     "check:cloudflare-d1-runtime-boundaries": "node scripts/check-cloudflare-d1-runtime-boundaries.mjs",
     "check:console-core-wallet-import-boundaries": "node scripts/check-console-core-wallet-import-boundaries.mjs",
+    "check:packed-console-boundaries": "node scripts/check-packed-console-boundaries.mjs",
     "check:cross-platform-boundaries": "node scripts/check-cross-platform-boundaries.mjs",
     "check:email-otp-ecdsa-branch-isolation": "node scripts/check-email-otp-ecdsa-branch-isolation.mjs",
     "check:email-otp-device-escrow-boundaries": "node scripts/check-email-otp-device-escrow-boundaries.mjs",
