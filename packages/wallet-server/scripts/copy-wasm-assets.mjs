@@ -38,3 +38,44 @@ function copyAsset(asset) {
 for (const asset of assets) {
   copyAsset(asset);
 }
+
+rewriteBuiltWasmImports(path.join(serverRoot, 'dist', 'esm'));
+
+function rewriteBuiltWasmImports(esmRoot) {
+  for (const filePath of listJavaScriptFiles(esmRoot)) {
+    const source = fs.readFileSync(filePath, 'utf8');
+    const rewritten = rewriteWasmImportsInFile(source, filePath, esmRoot);
+    if (rewritten !== source) fs.writeFileSync(filePath, rewritten);
+  }
+}
+
+function rewriteWasmImportsInFile(source, filePath, esmRoot) {
+  const pattern =
+    /(?:\.\.\/)+wasm\/(near_signer|evm_crypto|router_ab_ecdsa_signing_worker|shamir3pass_runtime)\/pkg\/([A-Za-z0-9_]+\.wasm)/gu;
+  let rewritten = '';
+  let cursor = 0;
+  for (const match of source.matchAll(pattern)) {
+    rewritten += source.slice(cursor, match.index);
+    rewritten += relativeModulePath(
+      path.dirname(filePath),
+      path.join(esmRoot, 'wasm', match[1], 'pkg', match[2]),
+    );
+    cursor = match.index + match[0].length;
+  }
+  return cursor === 0 ? source : rewritten + source.slice(cursor);
+}
+
+function listJavaScriptFiles(directory) {
+  const files = [];
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) files.push(...listJavaScriptFiles(entryPath));
+    if (entry.isFile() && entry.name.endsWith('.js')) files.push(entryPath);
+  }
+  return files;
+}
+
+function relativeModulePath(fromDirectory, targetPath) {
+  const relativePath = path.relative(fromDirectory, targetPath).split(path.sep).join('/');
+  return relativePath.startsWith('.') ? relativePath : `./${relativePath}`;
+}

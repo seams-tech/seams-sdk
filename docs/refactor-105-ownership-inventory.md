@@ -36,18 +36,18 @@ is named inline and executes in Phases 1-2 (contracts/services) or Phase 6
 
 ## Workspace Packages And Applications
 
-| Path | Owner | Notes |
-| --- | --- | --- |
-| `packages/console-shared-ts` | console-core | MIXED: wallet vocabulary moves to `wallet-console-shared-ts` in Phase 1 (see vocabulary inventory) |
-| `packages/console-server-ts` | console-core | MIXED: wallet services move to `wallet-console-server-ts` in Phase 2 (see service inventory) |
-| `packages/wallet` | wallet | public `@seams/wallet`; renamed `packages/wallet` in Phase 7 |
-| `packages/wallet-server` | wallet | public `@seams/wallet-server`; renamed `packages/wallet-server` in Phase 7 |
-| `packages/shared-ts` | wallet | shared browser/server contracts consumed by the Wallet packages (see shared-ts note) |
-| `packages/wasm` | wallet | signer/browser Wasm assets |
-| `apps/seams-site` | MIXED | marketing + demos stay; `/dashboard/*` extracts to `apps/seams-console` in Phase 5 |
-| `apps/web-server` | composition | Express in-memory console-only dev server (NOT the gateway; the hosted gateway entrypoints live in `console-server-ts/src/router/cloudflare/`) |
-| `apps/docs` | wallet | SDK documentation site |
-| `crates/*`, `wasm/*` | wallet | signer runtime and protocol crates |
+| Path                         | Owner        | Notes                                                                                                                                          |
+| ---------------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/console-shared-ts` | console-core | MIXED: wallet vocabulary moves to `wallet-console-shared-ts` in Phase 1 (see vocabulary inventory)                                             |
+| `packages/console-server-ts` | console-core | MIXED: wallet services move to `wallet-console-server-ts` in Phase 2 (see service inventory)                                                   |
+| `packages/wallet`            | wallet       | public `@seams/wallet`; renamed `packages/wallet` in Phase 7                                                                                   |
+| `packages/wallet-server`     | wallet       | public `@seams/wallet-server`; renamed `packages/wallet-server` in Phase 7                                                                     |
+| `packages/shared-ts`         | wallet       | shared browser/server contracts consumed by the Wallet packages (see shared-ts note)                                                           |
+| `packages/wasm`              | wallet       | signer/browser Wasm assets                                                                                                                     |
+| `apps/seams-site`            | MIXED        | marketing + demos stay; `/dashboard/*` extracts to `apps/seams-console` in Phase 5                                                             |
+| `apps/web-server`            | composition  | Express in-memory console-only dev server (NOT the gateway; the hosted gateway entrypoints live in `console-server-ts/src/router/cloudflare/`) |
+| `apps/docs`                  | wallet       | SDK documentation site                                                                                                                         |
+| `crates/*`, `wasm/*`         | wallet       | signer runtime and protocol crates                                                                                                             |
 
 ## Console D1 Tables (49)
 
@@ -56,63 +56,63 @@ schema section in Phase 6. `MIXED` core tables stay core with their Wallet
 vocabulary (CHECK catalogs, enum values) relocated to Wallet Console
 validation.
 
-| # | Table | Owner | Notes |
-| --- | --- | --- | --- |
-| 1 | `api_keys` | console-core | MIXED: wallet/signing scope CHECK catalog moves to Wallet Console validation |
-| 2 | `approvals` | wallet-console | wallet approval payloads |
-| 3 | `audit_events` | console-core | MIXED: wallet event vocabulary in payloads/categories |
-| 4 | `audit_evidence` | console-core | MIXED: wallet evidence details |
-| 5 | `billing_accounts` | console-core | |
-| 6 | `billing_credit_purchases` | console-core | |
-| 7 | `billing_disputes` | console-core | |
-| 8 | `billing_ledger_entries` | console-core | MIXED: wallet usage enums in posting vocabulary |
-| 9 | `billing_ledger_postings` | console-core | MIXED: wallet usage enums |
-| 10 | `billing_monthly_active_wallets` | wallet-console | wallet usage meter |
-| 11 | `billing_prepaid_reservation_summaries` | wallet-console | decided in Phase 2: no non-wallet caller; moved with sponsorship |
-| 12 | `billing_prepaid_reservations` | wallet-console | decided in Phase 2: moved with sponsorship |
-| 13 | `billing_refunds` | console-core | |
-| 14 | `billing_stripe_post_processing_outbox` | console-core | |
-| 15 | `console_email_deliveries` | console-core | |
-| 16 | `console_email_outbox` | console-core | |
-| 17 | `environments` | console-core | |
-| 18 | `invoice_line_items` | console-core | |
-| 19 | `invoices` | console-core | |
-| 20 | `key_exports` | wallet-console | |
-| 21 | `observability_event_dedup` | console-core | MIXED: fleet/platform slices move to mpc-admin under R99B |
-| 22 | `observability_events` | console-core | MIXED: same |
-| 23 | `observability_ingest_windows` | console-core | MIXED: same |
-| 24 | `observability_request_rollups_minute` | console-core | MIXED: same |
-| 25 | `organization_admin_permissions` | console-core | |
-| 26 | `organization_invitations` | console-core | |
-| 27 | `organization_memberships` | console-core | |
-| 28 | `organization_owner_events` | console-core | |
-| 29 | `organizations` | console-core | |
-| 30 | `policies` | wallet-console | |
-| 31 | `policy_assignments` | wallet-console | |
-| 32 | `policy_versions` | wallet-console | |
-| 33 | `project_member_access` | console-core | |
-| 34 | `projects` | console-core | |
-| 35 | `runtime_snapshot_outbox` | wallet-console | |
-| 36 | `runtime_snapshots` | wallet-console | |
-| 37 | `sponsored_call_records` | wallet-console | |
-| 38 | `sponsorship_pricing_rules` | wallet-console | |
-| 39 | `sponsorship_spend_cap_reservations` | wallet-console | |
-| 40 | `sponsorship_spend_cap_windows` | wallet-console | |
-| 41 | `stripe_webhook_events` | console-core | |
-| 42 | `user_backup_emails` | console-core | |
-| 43 | `user_profiles` | console-core | |
-| 44 | `wallet_index` | wallet-console | |
-| 45 | `webhook_attempts` | console-core | delivery transport |
-| 46 | `webhook_dead_letters` | console-core | delivery transport |
-| 47 | `webhook_deliveries` | console-core | delivery transport |
-| 48 | `webhook_endpoint_categories` | console-core | MIXED: wallet event category catalog moves to Wallet Console validation |
-| 49 | `webhook_endpoints` | console-core | |
+| #   | Table                                   | Owner          | Notes                                                                        |
+| --- | --------------------------------------- | -------------- | ---------------------------------------------------------------------------- |
+| 1   | `api_keys`                              | console-core   | MIXED: wallet/signing scope CHECK catalog moves to Wallet Console validation |
+| 2   | `approvals`                             | wallet-console | wallet approval payloads                                                     |
+| 3   | `audit_events`                          | console-core   | MIXED: wallet event vocabulary in payloads/categories                        |
+| 4   | `audit_evidence`                        | console-core   | MIXED: wallet evidence details                                               |
+| 5   | `billing_accounts`                      | console-core   |                                                                              |
+| 6   | `billing_credit_purchases`              | console-core   |                                                                              |
+| 7   | `billing_disputes`                      | console-core   |                                                                              |
+| 8   | `billing_ledger_entries`                | console-core   | MIXED: wallet usage enums in posting vocabulary                              |
+| 9   | `billing_ledger_postings`               | console-core   | MIXED: wallet usage enums                                                    |
+| 10  | `billing_monthly_active_resources`      | console-core   | product-neutral active-resource meter                                        |
+| 11  | `billing_prepaid_reservation_summaries` | wallet-console | decided in Phase 2: no non-wallet caller; moved with sponsorship             |
+| 12  | `billing_prepaid_reservations`          | wallet-console | decided in Phase 2: moved with sponsorship                                   |
+| 13  | `billing_refunds`                       | console-core   |                                                                              |
+| 14  | `billing_stripe_post_processing_outbox` | console-core   |                                                                              |
+| 15  | `console_email_deliveries`              | console-core   |                                                                              |
+| 16  | `console_email_outbox`                  | console-core   |                                                                              |
+| 17  | `environments`                          | console-core   |                                                                              |
+| 18  | `invoice_line_items`                    | console-core   |                                                                              |
+| 19  | `invoices`                              | console-core   |                                                                              |
+| 20  | `key_exports`                           | wallet-console |                                                                              |
+| 21  | `observability_event_dedup`             | console-core   | MIXED: fleet/platform slices move to mpc-admin under R99B                    |
+| 22  | `observability_events`                  | console-core   | MIXED: same                                                                  |
+| 23  | `observability_ingest_windows`          | console-core   | MIXED: same                                                                  |
+| 24  | `observability_request_rollups_minute`  | console-core   | MIXED: same                                                                  |
+| 25  | `organization_admin_permissions`        | console-core   |                                                                              |
+| 26  | `organization_invitations`              | console-core   |                                                                              |
+| 27  | `organization_memberships`              | console-core   |                                                                              |
+| 28  | `organization_owner_events`             | console-core   |                                                                              |
+| 29  | `organizations`                         | console-core   |                                                                              |
+| 30  | `policies`                              | wallet-console |                                                                              |
+| 31  | `policy_assignments`                    | wallet-console |                                                                              |
+| 32  | `policy_versions`                       | wallet-console |                                                                              |
+| 33  | `project_member_access`                 | console-core   |                                                                              |
+| 34  | `projects`                              | console-core   |                                                                              |
+| 35  | `runtime_snapshot_outbox`               | wallet-console |                                                                              |
+| 36  | `runtime_snapshots`                     | wallet-console |                                                                              |
+| 37  | `sponsored_call_records`                | wallet-console |                                                                              |
+| 38  | `sponsorship_pricing_rules`             | wallet-console |                                                                              |
+| 39  | `sponsorship_spend_cap_reservations`    | wallet-console |                                                                              |
+| 40  | `sponsorship_spend_cap_windows`         | wallet-console |                                                                              |
+| 41  | `stripe_webhook_events`                 | console-core   |                                                                              |
+| 42  | `user_backup_emails`                    | console-core   |                                                                              |
+| 43  | `user_profiles`                         | console-core   |                                                                              |
+| 44  | `wallet_index`                          | wallet-console |                                                                              |
+| 45  | `webhook_attempts`                      | console-core   | delivery transport                                                           |
+| 46  | `webhook_dead_letters`                  | console-core   | delivery transport                                                           |
+| 47  | `webhook_deliveries`                    | console-core   | delivery transport                                                           |
+| 48  | `webhook_endpoint_categories`           | console-core   | MIXED: wallet event category catalog moves to Wallet Console validation      |
+| 49  | `webhook_endpoints`                     | console-core   |                                                                              |
 
-Wallet Console total: 15 tables (`wallet_index`, `key_exports`, `policies`,
+Wallet Console total: 14 tables (`wallet_index`, `key_exports`, `policies`,
 `policy_versions`, `policy_assignments`, `approvals`, `runtime_snapshots`,
 `runtime_snapshot_outbox`, four sponsorship tables, `sponsored_call_records`,
-`billing_monthly_active_wallets`, and both prepaid-reservation tables per the
-Phase 2 caller decision). Console core total: 34.
+and both prepaid-reservation tables per the Phase 2 caller decision). Console
+core total: 35, including the generic active-resource billing meter.
 
 Phase 6 cutover (landed): the composed baseline is now
 `packages/wallet-console-server-ts/migrations/d1-console/0001_wallet_console_initial.sql`
@@ -194,22 +194,22 @@ undeclared: `/console/healthz`, `/console/readyz`, and the signature-verified
 
 Route-group ownership:
 
-| Route group | Owner | Notes |
-| --- | --- | --- |
-| session, account, org/project/env, memberships, invitations, onboarding, isolation | console-core | |
-| api-keys lifecycle | console-core | scope catalog values are wallet vocabulary (Phase 1) |
-| audit, audit exports | console-core | |
-| webhooks CRUD/deliveries/replay | console-core | category catalog is mixed |
-| billing overview/invoices/refunds/checkout | console-core | `GET /console/billing/usage/monthly-active-wallets` is a wallet-console meter |
-| observability summary/events/timeseries/services | console-core | tenant-scoped reads |
-| wallets, wallets/search, wallets/:id | wallet-console | |
-| policies (CRUD/versions/assignments/simulate/publish) | wallet-console | |
-| key-exports | wallet-console | |
-| approvals | console-core mechanism | current operation types (`POLICY_PUBLISH`, `KEY_EXPORT`) are both wallet-console; payload vocabulary moves, queue mechanism stays |
-| runtime-snapshots | wallet-console | |
-| insights (`/console/policy/coverage`, `/console/gas/readiness`, `/console/export/governance`) | wallet-console | |
-| `platform.support` routes (ops-cockpit summary, `/console/platform/billing/*`, usage-event/invoice-generate/adjustment admin ops) | mpc-admin | leaves customer Console under R99B |
-| `/console/auth/google`, `/console/auth/github`, `/console/auth/revoke` | console-core | currently implemented in the composed worker entrypoint (`d1RouterApiStagingWorker.ts` `HostedConsoleAuthHandler`); moves to the Console Worker in Phase 4 |
+| Route group                                                                                                                       | Owner                  | Notes                                                                                                                                                      |
+| --------------------------------------------------------------------------------------------------------------------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| session, account, org/project/env, memberships, invitations, onboarding, isolation                                                | console-core           |                                                                                                                                                            |
+| api-keys lifecycle                                                                                                                | console-core           | scope catalog values are wallet vocabulary (Phase 1)                                                                                                       |
+| audit, audit exports                                                                                                              | console-core           |                                                                                                                                                            |
+| webhooks CRUD/deliveries/replay                                                                                                   | console-core           | category catalog is mixed                                                                                                                                  |
+| billing overview/invoices/refunds/checkout                                                                                        | console-core           | `GET /console/billing/usage/monthly-active-wallets` is a wallet-console meter                                                                              |
+| observability summary/events/timeseries/services                                                                                  | console-core           | tenant-scoped reads                                                                                                                                        |
+| wallets, wallets/search, wallets/:id                                                                                              | wallet-console         |                                                                                                                                                            |
+| policies (CRUD/versions/assignments/simulate/publish)                                                                             | wallet-console         |                                                                                                                                                            |
+| key-exports                                                                                                                       | wallet-console         |                                                                                                                                                            |
+| approvals                                                                                                                         | console-core mechanism | current operation types (`POLICY_PUBLISH`, `KEY_EXPORT`) are both wallet-console; payload vocabulary moves, queue mechanism stays                          |
+| runtime-snapshots                                                                                                                 | wallet-console         |                                                                                                                                                            |
+| insights (`/console/policy/coverage`, `/console/gas/readiness`, `/console/export/governance`)                                     | wallet-console         |                                                                                                                                                            |
+| `platform.support` routes (ops-cockpit summary, `/console/platform/billing/*`, usage-event/invoice-generate/adjustment admin ops) | mpc-admin              | leaves customer Console under R99B                                                                                                                         |
+| `/console/auth/google`, `/console/auth/github`, `/console/auth/revoke`                                                            | console-core           | currently implemented in the composed worker entrypoint (`d1RouterApiStagingWorker.ts` `HostedConsoleAuthHandler`); moves to the Console Worker in Phase 4 |
 
 Router-API relay routes owned by this package (registered as
 `RouterApiRouteExtension`s in `src/router/routeExtensions.ts`, mounted by the
@@ -227,25 +227,25 @@ compositions.
 
 ### Service modules
 
-| Modules (under `packages/console-server-ts/src/`) | Owner |
-| --- | --- |
-| `orgProjectEnv/`, `teamRbac/`, `account/`, `apiKeys/`, `audit/`, `auditExports/`, `email/` (+`otp/`), `webhooks/`, `billing/` (ledger, Stripe, PDF, readiness, adjustments, credit packs), `enterpriseIsolation/`, `onboarding/`, `observability/`, `shared/requestParse.ts` | console-core |
-| `wallets/`, `policies/`, `gasSponsorship/`, `sponsorship/`, `sponsorshipSpendCaps/`, `sponsorshipPricing/`, `sponsoredCalls/`, `billingPrepaidReservations/`, `runtimeSnapshots/`, `keyExports/` | wallet-console |
-| `router/routerApiWallets.ts`, `routerApiSignedDelegate.ts`, `routerApiSponsoredEvmCall.ts`, `sponsorshipRuntime.ts`, `sponsorshipExecution.ts`, `sponsorshipBillingEvents.ts`, `sponsorshipSpendCapObservability.ts`, `runtimeSnapshotPayload.ts`, `policyPresentation.ts`, `consoleInsights.ts`, `routerApiKeyAuth.ts` | wallet-console (routerApiKeyAuth is the CC/WC auth boundary) |
-| `router/opsCockpitSummary.ts`, `router/platformBilling.ts` | mpc-admin |
-| `router/console.ts`, `consoleAuth.ts`, `consoleAppSessionAuth.ts`, `consoleSessionContext.ts`, `consoleRouteDefinitions.ts`, `consoleRouteSurface.ts`, `consoleRoutePolicy.ts`, `consoleAuditMetadata.ts`, `consoleObservabilityHooks.ts`, `routeExtensions.ts`, `stripePostProcessing.ts`, both `createC*Router.ts` assemblies, `express-adaptor.ts`, `cloudflare-adaptor.ts` | composition (route/auth mechanism is console-core; wallet route mounting separates in Phase 2) |
-| `router/cloudflare/` workers (`d1LocalDevWorker.ts`, `d1RouterApiStagingWorker.ts`, `d1ConsoleStagingWorker.ts`, `d1RouterApiWorker.ts`, `d1ConsoleServices.ts`, `d1StagingSession.ts`, `tenantStorageRoute.ts`, `cloudflareConsole.types.ts`, `cron.ts`, `d1SignerWasm.ts`, `routerAbServiceBindings.ts`) | composition (the composed-worker files carry the bulk wallet imports; the console-only staging worker is the Phase 4 Console Worker seed) |
+| Modules (under `packages/console-server-ts/src/`)                                                                                                                                                                                                                                                                                                                              | Owner                                                                                                                                     |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `orgProjectEnv/`, `teamRbac/`, `account/`, `apiKeys/`, `audit/`, `auditExports/`, `email/` (+`otp/`), `webhooks/`, `billing/` (ledger, Stripe, PDF, readiness, adjustments, credit packs), `enterpriseIsolation/`, `onboarding/`, `observability/`, `shared/requestParse.ts`                                                                                                   | console-core                                                                                                                              |
+| `wallets/`, `policies/`, `gasSponsorship/`, `sponsorship/`, `sponsorshipSpendCaps/`, `sponsorshipPricing/`, `sponsoredCalls/`, `billingPrepaidReservations/`, `runtimeSnapshots/`, `keyExports/`                                                                                                                                                                               | wallet-console                                                                                                                            |
+| `router/routerApiWallets.ts`, `routerApiSignedDelegate.ts`, `routerApiSponsoredEvmCall.ts`, `sponsorshipRuntime.ts`, `sponsorshipExecution.ts`, `sponsorshipBillingEvents.ts`, `sponsorshipSpendCapObservability.ts`, `runtimeSnapshotPayload.ts`, `policyPresentation.ts`, `consoleInsights.ts`, `routerApiKeyAuth.ts`                                                        | wallet-console (routerApiKeyAuth is the CC/WC auth boundary)                                                                              |
+| `router/opsCockpitSummary.ts`, `router/platformBilling.ts`                                                                                                                                                                                                                                                                                                                     | mpc-admin                                                                                                                                 |
+| `router/console.ts`, `consoleAuth.ts`, `consoleAppSessionAuth.ts`, `consoleSessionContext.ts`, `consoleRouteDefinitions.ts`, `consoleRouteSurface.ts`, `consoleRoutePolicy.ts`, `consoleAuditMetadata.ts`, `consoleObservabilityHooks.ts`, `routeExtensions.ts`, `stripePostProcessing.ts`, both `createC*Router.ts` assemblies, `express-adaptor.ts`, `cloudflare-adaptor.ts` | composition (route/auth mechanism is console-core; wallet route mounting separates in Phase 2)                                            |
+| `router/cloudflare/` workers (`d1LocalDevWorker.ts`, `d1RouterApiStagingWorker.ts`, `d1ConsoleStagingWorker.ts`, `d1RouterApiWorker.ts`, `d1ConsoleServices.ts`, `d1StagingSession.ts`, `tenantStorageRoute.ts`, `cloudflareConsole.types.ts`, `cron.ts`, `d1SignerWasm.ts`, `routerAbServiceBindings.ts`)                                                                     | composition (the composed-worker files carry the bulk wallet imports; the console-only staging worker is the Phase 4 Console Worker seed) |
 
 ### Scheduled jobs
 
 Factory `createCloudflareCron` (`src/router/cloudflare/cron.ts:430`), wired
 into both staging workers' `scheduled` handlers (none locally):
 
-| Job | Owner |
-| --- | --- |
-| `billingMonthlyFinalization` (`billing/d1.ts`) | console-core |
-| `webhookRetryDispatch` (`webhooks/d1.ts`) | console-core |
-| `consoleEmailDispatch` (`email/d1.ts`) | console-core |
+| Job                                                | Owner          |
+| -------------------------------------------------- | -------------- |
+| `billingMonthlyFinalization` (`billing/d1.ts`)     | console-core   |
+| `webhookRetryDispatch` (`webhooks/d1.ts`)          | console-core   |
+| `consoleEmailDispatch` (`email/d1.ts`)             | console-core   |
 | `runtimeSnapshotOutbox` (`runtimeSnapshots/d1.ts`) | wallet-console |
 
 Inline (non-cron) outbox drain: Stripe post-processing dispatch from the
@@ -275,12 +275,12 @@ composition root in Phase 6).
 
 ### Worker entrypoints
 
-| Entrypoint | File (`packages/console-server-ts/src/router/cloudflare/`) | Owner |
-| --- | --- | --- |
-| deployed combined gateway | `d1RouterApiWorker.ts` (re-export of the staging worker) | composition |
-| combined gateway impl (`fetch` + `scheduled`) | `d1RouterApiStagingWorker.ts` | composition |
-| local dev combined worker (`fetch` only, no cron) | `d1LocalDevWorker.ts` | composition |
-| console-only worker (the Phase 4 Console Worker seed) | `d1ConsoleStagingWorker.ts` | console-core |
+| Entrypoint                                            | File (`packages/console-server-ts/src/router/cloudflare/`) | Owner        |
+| ----------------------------------------------------- | ---------------------------------------------------------- | ------------ |
+| deployed combined gateway                             | `d1RouterApiWorker.ts` (re-export of the staging worker)   | composition  |
+| combined gateway impl (`fetch` + `scheduled`)         | `d1RouterApiStagingWorker.ts`                              | composition  |
+| local dev combined worker (`fetch` only, no cron)     | `d1LocalDevWorker.ts`                                      | composition  |
+| console-only worker (the Phase 4 Console Worker seed) | `d1ConsoleStagingWorker.ts`                                | console-core |
 
 Console dispatch: `dispatchHostedGatewayRequest`
 (`d1RouterApiStagingWorker.ts:856`) sends `/console/*` to the console handler
@@ -297,11 +297,11 @@ routing behavior the local worker no longer has).
 
 ### Route namespaces served by the combined gateway
 
-| Namespace | Owner |
-| --- | --- |
+| Namespace                                                                                                                                                                                                                                        | Owner                                                    |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------- |
 | `/healthz`, `/readyz`, `/.well-known/*`, `/auth/*`, `/near/public-keys`, `/sync-account/*`, `/wallet/*`, `/wallets/*`, `/webauthn/*`, `/wallet-session/seal/*`, `/router-ab/*`, `/internal/gateway/device-linking/v1/*`, `/relay/*` (local only) | wallet (defined in `packages/wallet-server/src/router/`) |
-| `/signed-delegate`, `/v1/wallets*`, `/sponsorships/evm/call` (route extensions mounted into the Router API handler) | wallet-console |
-| `/console/*` (~75 routes + `/console/auth/*`) | console (Phase 4: leaves the Gateway) |
+| `/signed-delegate`, `/v1/wallets*`, `/sponsorships/evm/call` (route extensions mounted into the Router API handler)                                                                                                                              | wallet-console                                           |
+| `/console/*` (~75 routes + `/console/auth/*`)                                                                                                                                                                                                    | console (Phase 4: leaves the Gateway)                    |
 
 No `/admin/*` surface exists yet (R99B).
 
@@ -310,11 +310,11 @@ No `/admin/*` surface exists yet (R99B).
 Declared in `wrangler.d1-local.toml`, `wrangler.d1-staging-gateway.toml`, and
 `scripts/render-d1-gateway-config.mjs`:
 
-| Binding | Type | Owner |
-| --- | --- | --- |
-| `CONSOLE_DB` | D1 `seams-console` | console (Phase 4 removes from the Gateway) |
-| `SIGNER_DB` | D1 `seams-signer` | wallet |
-| `MPC_ROUTER`, `SIGNING_WORKER` | service bindings to the private Router A/B Workers | wallet |
+| Binding                        | Type                                               | Owner                                      |
+| ------------------------------ | -------------------------------------------------- | ------------------------------------------ |
+| `CONSOLE_DB`                   | D1 `seams-console`                                 | console (Phase 4 removes from the Gateway) |
+| `SIGNER_DB`                    | D1 `seams-signer`                                  | wallet                                     |
+| `MPC_ROUTER`, `SIGNING_WORKER` | service bindings to the private Router A/B Workers | wallet                                     |
 
 No KV. No live Durable Objects on the gateway — `wrangler.d1-staging-gateway.toml`
 carries create-then-delete migration tags for `ThresholdStoreDurableObject`
@@ -353,16 +353,16 @@ the current generator no longer emits — untracked, ignore.
 
 By domain (Phase 1 target from the plan's ownership table):
 
-| Domain | Files | Symbols (representative) | Phase 1 disposition |
-| --- | --- | --- | --- |
-| random-ID / base64url / hash | ~40 | `secureRandomBase36`, `secureRandomBase64Url`, `base64UrlEncode/Decode`, `sha256Bytes`, `keccak256Bytes` | pass-through re-exports of `@seams-internal/shared-ts` (`packages/wallet-server/src/cloud-host.ts:133-178`); repoint to shared-ts or a Console-owned Web Crypto module |
-| D1 types / SQL parsing | 20 | `D1DatabaseLike`, `D1Row`, `queryD1All/One`, `formatD1ExecStatement`, `d1Integer/Number/ChangedRows`, `parseD1Json*Column` | Console-owned D1 boundary module |
-| logger | 14 | `Logger`, `NormalizedLogger`, `RouterLogger`, `NormalizedRouterLogger`, `normalizeLogger`, `coerceRouterLogger` | Console-owned minimal logger contract |
-| normalization | 9 | `normalizeCorsOrigin`, `normalizeSourceIp`, `normalizeBoundedPositiveInteger`, `resolveSourceIp*` | mostly shared-ts pass-throughs; source-IP helpers live in wallet router auth and need a Console-owned copy |
-| session adapter | 7 | `SessionAdapter`, `SessionClaims`, `SessionService` | Console-owned session contract (`consoleSessionContext.ts`, `consoleAppSessionAuth.ts`, `console.ts`, `express/createConsoleRouter.ts`, `cloudflare/d1StagingSession.ts`, both dev/staging workers) |
-| HTTP helpers | ~14 | `routeJson`, `readJson`, `toFetchRouteResponse`, `RouteDefinition`, `CfEnv`, `FetchHandler`, `ScheduledHandler` | Console router transport module |
-| host composition | ~14 | `RouterApiKeyAuthAdapter`, `RouterApiUsageMeterAdapter`, `CloudflareD1RouterApiAuthService`, tenant-storage routing, `CloudflareD1EmailOtpDeliveryProvider*`, route policy/metering | Wallet Console package or composition root |
-| wallet domain | 9 + barrel | signer Wasm secp256k1/EIP-1559 ops (`sponsorship/evmWorkerSignerWasm.ts`, `evmRelay.ts`), NEAR delegate actions (`sponsorship/near.ts`, `nearExecutionAdapter.ts`), bulk RouterAb/Yao/linked-device/signing composition (`router/cloudflare/d1LocalDevWorker.ts`, `d1RouterApiStagingWorker.ts`), signer storage targets (`tenantStorageRoute.ts`, `cloudflareConsole.types.ts`, `d1ConsoleServices.ts`), signer worker env re-exports (`cloudflare-adaptor.ts`) | Wallet Console package or Wallet Gateway |
+| Domain                       | Files      | Symbols (representative)                                                                                                                                                                                                                                                                                                                                                                                                                                         | Phase 1 disposition                                                                                                                                                                                 |
+| ---------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| random-ID / base64url / hash | ~40        | `secureRandomBase36`, `secureRandomBase64Url`, `base64UrlEncode/Decode`, `sha256Bytes`, `keccak256Bytes`                                                                                                                                                                                                                                                                                                                                                         | pass-through re-exports of `@seams-internal/shared-ts` (`packages/wallet-server/src/cloud-host.ts:133-178`); repoint to shared-ts or a Console-owned Web Crypto module                              |
+| D1 types / SQL parsing       | 20         | `D1DatabaseLike`, `D1Row`, `queryD1All/One`, `formatD1ExecStatement`, `d1Integer/Number/ChangedRows`, `parseD1Json*Column`                                                                                                                                                                                                                                                                                                                                       | Console-owned D1 boundary module                                                                                                                                                                    |
+| logger                       | 14         | `Logger`, `NormalizedLogger`, `RouterLogger`, `NormalizedRouterLogger`, `normalizeLogger`, `coerceRouterLogger`                                                                                                                                                                                                                                                                                                                                                  | Console-owned minimal logger contract                                                                                                                                                               |
+| normalization                | 9          | `normalizeCorsOrigin`, `normalizeSourceIp`, `normalizeBoundedPositiveInteger`, `resolveSourceIp*`                                                                                                                                                                                                                                                                                                                                                                | mostly shared-ts pass-throughs; source-IP helpers live in wallet router auth and need a Console-owned copy                                                                                          |
+| session adapter              | 7          | `SessionAdapter`, `SessionClaims`, `SessionService`                                                                                                                                                                                                                                                                                                                                                                                                              | Console-owned session contract (`consoleSessionContext.ts`, `consoleAppSessionAuth.ts`, `console.ts`, `express/createConsoleRouter.ts`, `cloudflare/d1StagingSession.ts`, both dev/staging workers) |
+| HTTP helpers                 | ~14        | `routeJson`, `readJson`, `toFetchRouteResponse`, `RouteDefinition`, `CfEnv`, `FetchHandler`, `ScheduledHandler`                                                                                                                                                                                                                                                                                                                                                  | Console router transport module                                                                                                                                                                     |
+| host composition             | ~14        | `RouterApiKeyAuthAdapter`, `RouterApiUsageMeterAdapter`, `CloudflareD1RouterApiAuthService`, tenant-storage routing, `CloudflareD1EmailOtpDeliveryProvider*`, route policy/metering                                                                                                                                                                                                                                                                              | Wallet Console package or composition root                                                                                                                                                          |
+| wallet domain                | 9 + barrel | signer Wasm secp256k1/EIP-1559 ops (`sponsorship/evmWorkerSignerWasm.ts`, `evmRelay.ts`), NEAR delegate actions (`sponsorship/near.ts`, `nearExecutionAdapter.ts`), bulk RouterAb/Yao/linked-device/signing composition (`router/cloudflare/d1LocalDevWorker.ts`, `d1RouterApiStagingWorker.ts`), signer storage targets (`tenantStorageRoute.ts`, `cloudflareConsole.types.ts`, `d1ConsoleServices.ts`), signer worker env re-exports (`cloudflare-adaptor.ts`) | Wallet Console package or Wallet Gateway                                                                                                                                                            |
 
 Concentration: `d1LocalDevWorker.ts` and `d1RouterApiStagingWorker.ts` carry
 roughly 85% of the wallet symbol imports; those two plus the four
@@ -376,25 +376,21 @@ The exact per-file allowlist is the temporary list inside
 Five source files; all real consumers use per-module subpath exports, so the
 subpaths (not the barrel) are the breaking surface.
 
-| File | Verdict | Phase 1 disposition |
-| --- | --- | --- |
-| `src/gasSponsorshipSpendCapTargets.ts` | pure wallet | moves wholesale to `wallet-console-shared-ts` (NEAR spend-cap chain-id sentinels) |
-| `src/gasSponsorshipChains.ts` | pure wallet | moves wholesale (chain matrix: NEAR/Ethereum/Arc Circle/Tempo) |
-| `src/organizationIdentity.ts` | pure core | stays |
-| `src/apiKeyScopes.ts` | MIXED | catalog contents are 100% wallet scopes (`accounts.create`, `wallets.read`, `wallets.auth_methods.create`, `wallets.signers.create`) and move; core keeps the generic `ApiCredentialScopeOption` machinery |
-| `src/webhookEventCategories.ts` | MIXED | categories `wallet`, `policy`, `tx`, `session` move; `auth`, `billing` and the normalizer machinery stay, re-parameterized over a composed catalog |
+| File                                   | Verdict     | Phase 1 disposition                                                                                                                                                                                        |
+| -------------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/gasSponsorshipSpendCapTargets.ts` | pure wallet | moves wholesale to `wallet-console-shared-ts` (NEAR spend-cap chain-id sentinels)                                                                                                                          |
+| `src/gasSponsorshipChains.ts`          | pure wallet | moves wholesale (chain matrix: NEAR/Ethereum/Arc Circle/Tempo)                                                                                                                                             |
+| `src/organizationIdentity.ts`          | pure core   | stays                                                                                                                                                                                                      |
+| `src/apiKeyScopes.ts`                  | MIXED       | catalog contents are 100% wallet scopes (`accounts.create`, `wallets.read`, `wallets.auth_methods.create`, `wallets.signers.create`) and move; core keeps the generic `ApiCredentialScopeOption` machinery |
+| `src/webhookEventCategories.ts`        | MIXED       | categories `wallet`, `policy`, `tx`, `session` move; `auth`, `billing` and the normalizer machinery stay, re-parameterized over a composed catalog                                                         |
 
-Absent from `console-shared-ts` (they live in `console-server-ts` and move
-with their Phase 2 services): billing meters (`billing_monthly_active_wallets`
-vocabulary is embedded in `src/billing/*` — a mixed module needing its own
-split), policy payload types (`src/policies/*`), approval vocabulary
-(`src/approvals/`), key-export contracts (`src/keyExports/`), server-side
-sponsorship contracts (`src/sponsorship*/`, `src/sponsoredCalls/`,
-`src/gasSponsorship/`).
+Wallet billing inputs are normalized into the generic active-resource and
+product-execution vocabulary in `src/billing/*`. Policy payloads, approval
+vocabulary, key-export contracts, and sponsorship contracts live in the
+Wallet Console packages.
 
-`repository-split.json` assigns both console packages wholesale to the private
-repo and anticipates no `wallet-console-shared-ts`; it needs new entries when
-the packages exist (Phase 8 input).
+`repository-split.json` assigns the Console core and Wallet Console integration
+packages to the private repository.
 
 ## UI Routes
 
@@ -402,23 +398,23 @@ the packages exist (Phase 8 input).
 `src/app/App.tsx` with dashboard sub-routes declared in
 `src/pages/dashboard/dashboardConfig.tsx`.
 
-| Route | Owner | Notes |
-| --- | --- | --- |
-| `/`, `/home2`, `/wallet`, `/ecommerce`, `/pricing`, `/company`, `/contact`, not-found | seams-site (marketing) | `/pricing` CTA links to `/dashboard/login` — cross-app URL after Phase 5 |
-| `/near-login`, `/__intended-e2e`, `src/flows/demo/**` (mounted in marketing sections) | seams-site (wallet demos / intended examples) | |
-| `/dashboard/login` | console-core | with `src/shared/auth/` OAuth helpers |
-| `/dashboard/account-settings`, `/dashboard/team-members`, `/dashboard/api-keys`, `/dashboard/webhooks`, `/dashboard/audit`, `/dashboard/billing/*`, `/dashboard/invoices`, `/dashboard/onboarding` | console-core | move to `apps/seams-console` `core/` |
-| `/dashboard/overview` | console-core | MIXED: renders `OpsCockpitPage` + `consoleOpsCockpitApi`; the tenant overview stays, the ops-cockpit slices move to mpc-admin under R99B |
-| `/dashboard/observability` | console-core | tenant-scoped; fleet/platform slices → mpc-admin |
-| `/dashboard/wallets-list`, `/dashboard/gas-sponsorship`, `/dashboard/policy-engine` (+ page-less `routes/approvals/consoleApprovalsApi.ts`, `routes/wallets/consoleWalletApi.ts`) | wallet-console | move to `apps/seams-console` `products/wallet/` |
-| `/platform/billing`, `/platform/*` (gated on `platformSupport`) | mpc-admin | |
-| Dashboard shell (`page.tsx`, `consoleSession.tsx`, `consoleHttp.ts`, layout, components, icons, drafts, utils) | console-core | moves wholesale |
+| Route                                                                                                                                                                                              | Owner                                         | Notes                                                                                                                                    |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `/`, `/home2`, `/wallet`, `/ecommerce`, `/pricing`, `/company`, `/contact`, not-found                                                                                                              | seams-site (marketing)                        | `/pricing` CTA links to `/dashboard/login` — cross-app URL after Phase 5                                                                 |
+| `/near-login`, `/__intended-e2e`, `src/flows/demo/**` (mounted in marketing sections)                                                                                                              | seams-site (wallet demos / intended examples) |                                                                                                                                          |
+| `/dashboard/login`                                                                                                                                                                                 | console-core                                  | with `src/shared/auth/` OAuth helpers                                                                                                    |
+| `/dashboard/account-settings`, `/dashboard/team-members`, `/dashboard/api-keys`, `/dashboard/webhooks`, `/dashboard/audit`, `/dashboard/billing/*`, `/dashboard/invoices`, `/dashboard/onboarding` | console-core                                  | move to `apps/seams-console` `core/`                                                                                                     |
+| `/dashboard/overview`                                                                                                                                                                              | console-core                                  | MIXED: renders `OpsCockpitPage` + `consoleOpsCockpitApi`; the tenant overview stays, the ops-cockpit slices move to mpc-admin under R99B |
+| `/dashboard/observability`                                                                                                                                                                         | console-core                                  | tenant-scoped; fleet/platform slices → mpc-admin                                                                                         |
+| `/dashboard/wallets-list`, `/dashboard/gas-sponsorship`, `/dashboard/policy-engine` (+ page-less `routes/approvals/consoleApprovalsApi.ts`, `routes/wallets/consoleWalletApi.ts`)                  | wallet-console                                | move to `apps/seams-console` `products/wallet/`                                                                                          |
+| `/platform/billing`, `/platform/*` (gated on `platformSupport`)                                                                                                                                    | mpc-admin                                     |                                                                                                                                          |
+| Dashboard shell (`page.tsx`, `consoleSession.tsx`, `consoleHttp.ts`, layout, components, icons, drafts, utils)                                                                                     | console-core                                  | moves wholesale                                                                                                                          |
 
 Cross-boundary UI leaks to fix in Phase 5:
 
 - core pages importing wallet APIs: `routes/audit/page.tsx` and
   `routes/ops-cockpit/page.tsx` import `consoleApprovalsApi`;
-  `consoleBillingApi.ts` embeds the `maw_v1` monthly-active-wallets metric
+  `consoleBillingApi.ts` embeds the `active_resource_v1` monthly-active-wallets metric
   and endpoint.
 - SDK/theme coupling: `SeamsWebProvider` wraps every route including
   `/dashboard/*` (`src/context/frontendRuntime.tsx`, `src/app/App.tsx`;
@@ -436,15 +432,16 @@ Cross-boundary UI leaks to fix in Phase 5:
 All console tests run under the shared `tests/playwright.config.ts` /
 `playwright.unit.config.ts`; no console-specific config exists. The shared
 `webServer` block boots the seams-site dev server with `VITE_CONSOLE_BASE_URL`
-+ `VITE_WALLET_ORIGIN` together — a Phase 5 coupling point.
 
-| Group | Files | Owner |
-| --- | --- | --- |
-| dashboard UI | `tests/e2e/dashboard.billing.console.apiWiring.test.ts`, `dashboard.consoleConfigPages.apiWiring.test.ts`, `dashboard.webhooks.apiWiring.test.ts`; `tests/unit/dashboard.*` (4 files) | console-core |
-| console server/router | `tests/unit/router.consoleRouteSurface.unit.test.ts`, `cloudflareD1ConsoleServices.unit.test.ts`, `consoleApiKeys.secretFormat.unit.test.ts`, `consoleServer.stripeBillingProvider.unit.test.ts`, `webServer.consoleConfig.unit.test.ts`, `githubOAuth.unit.test.ts` | console-core |
-| sponsorship (wallet feature implemented in console package) | `tests/unit/sponsorship.*.unit.test.ts`, `sponsorshipPricing.d1.unit.test.ts`, `router.sponsoredEvmCallCloudflare.unit.test.ts` | wallet-console |
-| mixed — split later | `tests/e2e/pricing.checkout.apiWiring.test.ts`, `tests/unit/packageExports.contract.unit.test.ts`, `frontendRuntimeState.unit.test.ts`, the `d1Staging*`/`d1LocalDev*`/`d1HostedGatewayRouting`/`migrationFingerprint`/`signingRootScope`/`intendedYaoFault` script tests (import console-server-ts while testing wallet/signer behavior), OTP provider tests, shared fixtures (`tests/helpers/sqliteD1.ts`, staging fixtures) | composition |
-| everything else (~460 files: `wallet-iframe/`, `lit-components/`, `e2e/intended-behaviours/`, `relayer/`, wallet unit families) | | wallet |
+- `VITE_WALLET_ORIGIN` together — a Phase 5 coupling point.
+
+| Group                                                                                                                           | Files                                                                                                                                                                                                                                                                                                                                                                                                                          | Owner          |
+| ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------- |
+| dashboard UI                                                                                                                    | `tests/e2e/dashboard.billing.console.apiWiring.test.ts`, `dashboard.consoleConfigPages.apiWiring.test.ts`, `dashboard.webhooks.apiWiring.test.ts`; `tests/unit/dashboard.*` (4 files)                                                                                                                                                                                                                                          | console-core   |
+| console server/router                                                                                                           | `tests/unit/router.consoleRouteSurface.unit.test.ts`, `cloudflareD1ConsoleServices.unit.test.ts`, `consoleApiKeys.secretFormat.unit.test.ts`, `consoleServer.stripeBillingProvider.unit.test.ts`, `webServer.consoleConfig.unit.test.ts`, `githubOAuth.unit.test.ts`                                                                                                                                                           | console-core   |
+| sponsorship (wallet feature implemented in console package)                                                                     | `tests/unit/sponsorship.*.unit.test.ts`, `sponsorshipPricing.d1.unit.test.ts`, `router.sponsoredEvmCallCloudflare.unit.test.ts`                                                                                                                                                                                                                                                                                                | wallet-console |
+| mixed — split later                                                                                                             | `tests/e2e/pricing.checkout.apiWiring.test.ts`, `tests/unit/packageExports.contract.unit.test.ts`, `frontendRuntimeState.unit.test.ts`, the `d1Staging*`/`d1LocalDev*`/`d1HostedGatewayRouting`/`migrationFingerprint`/`signingRootScope`/`intendedYaoFault` script tests (import console-server-ts while testing wallet/signer behavior), OTP provider tests, shared fixtures (`tests/helpers/sqliteD1.ts`, staging fixtures) | composition    |
+| everything else (~460 files: `wallet-iframe/`, `lit-components/`, `e2e/intended-behaviours/`, `relayer/`, wallet unit families) |                                                                                                                                                                                                                                                                                                                                                                                                                                | wallet         |
 
 Boundary guards needing updates at each split: `tests/scripts/check-signer-console-module-boundaries.mjs`, `check-workspace-package-boundaries.mjs`, and the new `check-console-core-wallet-import-boundaries.mjs`.
 
@@ -458,12 +455,12 @@ via `d1:local:prepare`, then serves the combined local worker on :9090), and
 fronts it with Caddy on :9444. Ownership split for the public/private
 repositories:
 
-| Piece | Owner |
-| --- | --- |
-| Router A/B workers, `router_ab_local_*` cargo binaries, role-private D1 state, `router:*` scripts | wallet (public local reference runtime) |
-| Combined local worker (`d1LocalDevWorker.ts`), console+signer migration chaining (`d1:local:prepare`), Caddy topology, `gateway:server`, seeding (`seed-intended-local-console.mjs`) | composition (private composed development) |
-| `apps/web-server` Express in-memory console server (`gateway:server:threshold-3nodes`, `gateway:server:iphone`) | composition (console-in-the-loop dev path) |
-| State-preserving startup (canonical-schema SHA check renames drifted state; `router:reset` renames, never deletes; `d1:local:reset` is the explicit destructive command) | split: the Wallet-only local runtime keeps the preserve/reset semantics per the plan; the console halves move with composition |
+| Piece                                                                                                                                                                                | Owner                                                                                                                          |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| Router A/B workers, `router_ab_local_*` cargo binaries, role-private D1 state, `router:*` scripts                                                                                    | wallet (public local reference runtime)                                                                                        |
+| Combined local worker (`d1LocalDevWorker.ts`), console+signer migration chaining (`d1:local:prepare`), Caddy topology, `gateway:server`, seeding (`seed-intended-local-console.mjs`) | composition (private composed development)                                                                                     |
+| `apps/web-server` Express in-memory console server (`gateway:server:threshold-3nodes`, `gateway:server:iphone`)                                                                      | composition (console-in-the-loop dev path)                                                                                     |
+| State-preserving startup (canonical-schema SHA check renames drifted state; `router:reset` renames, never deletes; `d1:local:reset` is the explicit destructive command)             | split: the Wallet-only local runtime keeps the preserve/reset semantics per the plan; the console halves move with composition |
 
 `packages/shared-ts` (`@seams-internal/shared-ts`) is consumed exclusively by
 the Wallet packages and tests via the `@shared/*` alias (446 files in

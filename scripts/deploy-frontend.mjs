@@ -4,20 +4,28 @@ import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { readFrontendSite } from './deployment-targets.mjs';
 import { formatFailedCheck, isFailedCheck, runReadinessChecks } from './deployment-smoke.mjs';
+import { consoleOriginFor } from '../packages/console-server-ts/scripts/gateway-deployment-config.mjs';
 
 const SCRIPT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = path.resolve(SCRIPT_DIRECTORY, '..');
 const ROUTER_ROOT = path.join(REPOSITORY_ROOT, 'crates', 'router-ab-cloudflare');
 const SITE_ROOT = path.join(REPOSITORY_ROOT, 'apps', 'seams-site');
 const SITE_OUTPUT = path.join(SITE_ROOT, 'dist');
+const CONSOLE_ROOT = path.join(REPOSITORY_ROOT, 'apps', 'seams-console');
+const CONSOLE_OUTPUT = path.join(CONSOLE_ROOT, 'dist');
 const DOCS_ROOT = path.join(REPOSITORY_ROOT, 'apps', 'docs');
 const DOCS_OUTPUT = path.join(DOCS_ROOT, 'dist');
-const SDK_OUTPUT = path.join(REPOSITORY_ROOT, 'packages', 'wallet', 'dist');
+const requireFromSite = createRequire(path.join(SITE_ROOT, 'package.json'));
+const SDK_OUTPUT = path.join(
+  path.dirname(requireFromSite.resolve('@seams/wallet/package.json')),
+  'dist',
+);
 const FRONTEND_SMOKE_PATHS = Object.freeze({
-  site: ['/', '/sdk/workers/near-signer.worker.js'],
+  site: ['/', '/dashboard/', '/dashboard/login', '/sdk/workers/near-signer.worker.js'],
   docs: ['/', '/concepts/', '/concepts/auth-methods/', '/concepts/policy/mandates'],
   wallet: [
     '/',
@@ -103,11 +111,11 @@ function printPlan(site) {
     ...formatLaneProvisioning(site.lanes),
     '',
     'Order:',
-    '  1. build the production SDK, app Pages output, and VitePress docs output',
-    '  2. deploy the app Pages project',
+    '  1. build the Wallet SDK, marketing site, Console app, and VitePress docs',
+    '  2. mount the Console build at /dashboard and deploy the site Pages project',
     '  3. deploy the docs Pages project and bind its custom domain',
     '  4. deploy one wallet Pages project for every declared network',
-    '  5. smoke app, docs, SDK, and every wallet origin',
+    '  5. smoke site, Console routes, docs, SDK, and every Wallet origin',
   ];
   process.stdout.write(`${lines.join('\n')}\n`);
 }
@@ -129,17 +137,22 @@ function formatLaneProvisioning(lanes) {
 function buildFrontend(site) {
   const buildEnvironment = buildFrontendEnvironment(site);
   runCommand('pnpm', ['install', '--frozen-lockfile']);
-  runCommand('pnpm', ['-C', 'packages/wallet', 'run', 'build:prod'], {
+  runCommand('pnpm', ['--filter', '@seams/wallet', 'run', 'build:prod'], {
     env: buildEnvironment,
   });
   runCommand('pnpm', ['-C', 'apps/seams-site', 'exec', 'vite', 'build'], {
+    env: buildEnvironment,
+  });
+  runCommand('pnpm', ['-C', 'apps/seams-console', 'run', 'build'], {
     env: buildEnvironment,
   });
   runCommand('pnpm', ['-C', 'apps/docs', 'run', 'build'], {
     env: buildEnvironment,
   });
   copySdkAssets();
+  copyDirectory(CONSOLE_OUTPUT, path.join(SITE_OUTPUT, 'dashboard'));
   assertDirectory(SITE_OUTPUT, 'Pages build output');
+  assertFile(path.join(SITE_OUTPUT, 'dashboard', 'index.html'), 'Console dashboard entry');
   assertFile(path.join(SITE_OUTPUT, 'wallet-service', 'index.html'), 'wallet-service entry');
   assertDirectory(DOCS_OUTPUT, 'VitePress Pages build output');
   assertFile(path.join(DOCS_OUTPUT, 'concepts', 'index.html'), 'concepts docs entry');
@@ -163,7 +176,7 @@ function buildFrontendEnvironment(site) {
   for (const lane of site.lanes) {
     const prefix = site.id === 'production' ? `VITE_${lane.network.toUpperCase()}_` : 'VITE_';
     environment[`${prefix}RELAYER_URL`] = lane.gatewayOrigin;
-    environment[`${prefix}CONSOLE_BASE_URL`] = lane.gatewayOrigin;
+    environment[`${prefix}CONSOLE_BASE_URL`] = consoleOriginFor(lane.gatewayOrigin);
     environment[`${prefix}WALLET_ORIGIN`] = lane.walletOrigin;
     environment[`${prefix}RP_ID_BASE`] = new URL(lane.walletOrigin).hostname;
     environment[`${prefix}ROUTER_AB_NORMAL_SIGNING_WORKER_ID`] =

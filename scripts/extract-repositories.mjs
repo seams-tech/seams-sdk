@@ -99,11 +99,12 @@ function publicRootPackage() {
     scripts: {
       'build:wasm': 'pnpm -C packages/wallet build:wasm',
       build:
-        'pnpm run build:wasm && pnpm -C packages/wallet-server build && pnpm -C packages/wallet build:sdk',
+        'pnpm run build:wasm && pnpm -C crates/router-ab-cloudflare worker-build:install && pnpm -C crates/router-ab-cloudflare build:signing-worker && pnpm -C crates/router-ab-cloudflare build:deriver-a && pnpm -C crates/router-ab-cloudflare build:deriver-b && pnpm -C crates/router-ab-cloudflare build:router && pnpm -C packages/wallet-server build && pnpm -C packages/wallet-server package:cloudflare-runtime && pnpm -C packages/wallet build:sdk',
       'type-check':
         'pnpm run build:wasm && pnpm -C packages/wallet-server type-check && pnpm -C packages/wallet type-check',
       'build:self-host':
         'pnpm -C examples/self-host-cloudflare-worker exec wrangler deploy --dry-run',
+      'dev:self-host': 'pnpm run build && pnpm -C examples/self-host-cloudflare-worker dev',
     },
   };
 }
@@ -116,9 +117,9 @@ function privateRootPackage() {
     packageManager: packageManagerVersion(),
     scripts: {
       build:
-        'pnpm -C packages/console-server-ts build && pnpm -C packages/wallet-console-server-ts build && pnpm -C apps/web-server build && pnpm -C apps/seams-site build',
+        'pnpm -C packages/console-server-ts build && pnpm -C packages/wallet-console-server-ts build && pnpm -C apps/web-server build && pnpm -C apps/seams-site build && pnpm -C apps/seams-console build && pnpm -C apps/docs build',
       'type-check':
-        'pnpm -C packages/console-shared-ts type-check && pnpm -C packages/wallet-console-shared-ts type-check && pnpm -C packages/console-server-ts type-check && pnpm -C packages/wallet-console-server-ts type-check && pnpm -C apps/web-server build',
+        'pnpm -C packages/console-shared-ts type-check && pnpm -C packages/wallet-console-shared-ts type-check && pnpm -C packages/console-server-ts build && pnpm -C packages/wallet-console-server-ts build && pnpm -C apps/web-server build && pnpm -C apps/seams-console typecheck',
       'deploy:backend': 'node ./scripts/deploy-backend.mjs',
       'deploy:frontend': 'node ./scripts/deploy-frontend.mjs',
     },
@@ -130,7 +131,17 @@ function workspaceManifest(workspacePackages) {
   for (const workspacePackage of workspacePackages) {
     lines.push(`  - ${workspacePackage}`);
   }
-  lines.push('nodeLinker: hoisted', 'verifyDepsBeforeRun: false', '');
+  lines.push(
+    'nodeLinker: hoisted',
+    'verifyDepsBeforeRun: false',
+    'allowBuilds:',
+    '  bufferutil: true',
+    '  esbuild: true',
+    '  sharp: true',
+    '  utf-8-validate: true',
+    '  workerd: true',
+    '',
+  );
   return lines.join('\n');
 }
 
@@ -140,7 +151,7 @@ function repositoryReadme(repositoryName) {
       '# Seams Wallet SDK',
       '',
       'Open-source browser and server wallet SDKs, signer runtimes, Rust/Wasm crates,',
-      'documentation, and the self-hosted Cloudflare Worker example.',
+      'and the self-hosted Cloudflare Worker example.',
       '',
       'Published packages:',
       '',
@@ -177,6 +188,13 @@ function writeRootFiles(repositoryName, repository, destination) {
   fs.writeFileSync(path.join(destination, 'README.md'), repositoryReadme(repositoryName));
 }
 
+function writeRepositoryLockfile(destination) {
+  execFileSync('pnpm', ['install', '--lockfile-only', '--ignore-scripts', '--no-frozen-lockfile'], {
+    cwd: destination,
+    stdio: 'inherit',
+  });
+}
+
 function publicDependencyValue(packageName, options) {
   if (packageName === '@seams/wallet' && options.walletTarball) {
     return `file:${options.walletTarball}`;
@@ -189,6 +207,8 @@ function publicDependencyValue(packageName, options) {
 
 function pinPrivatePublicDependencies(destination, options) {
   const packageFiles = [
+    'apps/docs/package.json',
+    'apps/seams-console/package.json',
     'apps/seams-site/package.json',
     'apps/web-server/package.json',
     'packages/console-server-ts/package.json',
@@ -222,6 +242,7 @@ function materializeRepository(repositoryName, repository, outputRoot, options) 
   if (repositoryName === 'seams-cloud') {
     pinPrivatePublicDependencies(destination, options);
   }
+  writeRepositoryLockfile(destination);
   return { destination, fileCount: files.length };
 }
 

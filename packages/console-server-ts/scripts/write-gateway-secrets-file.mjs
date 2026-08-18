@@ -1,7 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import { gatewaySecretNames, readBackendLane } from '../../../scripts/deployment-targets.mjs';
+import {
+  consoleSecretNames,
+  gatewaySecretNames,
+  readBackendLane,
+} from '../../../scripts/deployment-targets.mjs';
 
 const OPTIONAL_SECRET_NAMES = [
   'GITHUB_OAUTH_CALLBACK_URL',
@@ -12,12 +16,6 @@ const OPTIONAL_SECRET_NAMES = [
   'SPONSORED_EVM_EXECUTORS_JSON',
 ];
 
-const CONSOLE_REQUIRED_SECRET_NAMES = [
-  'CONSOLE_INITIAL_OWNER_EMAIL',
-  'CONSOLE_SESSION_HMAC_SECRET',
-  'STRIPE_API_SK',
-];
-
 function main() {
   const { outputPath, profile } = readArguments(process.argv.slice(2));
   const laneId = readLaneId();
@@ -25,8 +23,8 @@ function main() {
   requireProvisionedLane(laneId, lane.provisioning);
   const secrets =
     profile === 'console'
-      ? readRequiredSecrets(CONSOLE_REQUIRED_SECRET_NAMES)
-      : readRequiredSecrets(['CONSOLE_INITIAL_OWNER_EMAIL', ...gatewaySecretNames(lane)]);
+      ? readRequiredSecrets(consoleSecretNames(lane))
+      : readRequiredSecrets(gatewaySecretNames(lane));
   addOptionalSecrets(secrets);
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.writeFileSync(outputPath, `${JSON.stringify(secrets)}\n`, {
@@ -50,7 +48,9 @@ function readArguments(args) {
       index += 1;
       continue;
     }
-    throw new Error('usage: write-gateway-secrets-file.mjs --output <path> [--profile gateway|console]');
+    throw new Error(
+      'usage: write-gateway-secrets-file.mjs --output <path> [--profile gateway|console]',
+    );
   }
   if (!output) throw new Error('--output requires a value');
   if (profile !== 'gateway' && profile !== 'console') {

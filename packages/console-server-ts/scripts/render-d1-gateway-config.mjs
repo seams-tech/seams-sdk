@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import process from 'node:process';
 import {
@@ -15,28 +16,47 @@ import {
   DEFAULT_SESSION_COOKIE_NAME,
   GATEWAY_WORKER_COMPATIBILITY_DATE,
   GATEWAY_WORKER_COMPATIBILITY_FLAGS,
+  consoleOriginFor,
   gatewayRuntimeProfileNearNetwork,
 } from './gateway-deployment-config.mjs';
 import { readBackendLane } from '../../../scripts/deployment-targets.mjs';
 
 const VALID_LANES = new Set(['staging-testnet', 'production-testnet', 'production-mainnet']);
 
+function walletServerMigrationsDirectory(packageRoot) {
+  const requireFromWalletConsole = createRequire(
+    path.join(packageRoot, '../wallet-console-server-ts/package.json'),
+  );
+  const walletServerRoot = path.dirname(
+    requireFromWalletConsole.resolve('@seams/wallet-server/package.json'),
+  );
+  return path.join(walletServerRoot, 'migrations', 'd1-signer');
+}
+
 function main() {
   const options = parseArguments(process.argv.slice(2));
   const lane = readBackendLane(options.lane);
   const deployment = requireProvisionedGatewayDeploymentConfig(options.lane, lane.provisioning);
-  assertNearRelayerSecretConsistency(deployment.optional.nearRelayer);
   const config =
     options.worker === 'console'
       ? buildConsoleConfig(deployment, lane.site.origin, lane.emailOtpDelivery, process.cwd())
-      : buildConfig(
-          deployment,
-          lane.site.origin,
-          lane.walletOrigin,
-          lane.emailOtpDelivery,
-          lane.site.docsOrigin,
-          process.cwd(),
-        );
+      : options.worker === 'wallet-runtime'
+        ? buildWalletRuntimeConfig(
+            deployment,
+            lane.site.origin,
+            lane.walletOrigin,
+            lane.emailOtpDelivery,
+            lane.site.docsOrigin,
+            process.cwd(),
+          )
+        : buildConfig(
+            deployment,
+            lane.site.origin,
+            lane.walletOrigin,
+            lane.emailOtpDelivery,
+            lane.site.docsOrigin,
+            process.cwd(),
+          );
   writePrivateJson(options.output, config);
   process.stdout.write(`${path.resolve(process.cwd(), options.output)}\n`);
 }
@@ -79,8 +99,8 @@ function parseArguments(args) {
     throw new Error('--lane must be staging-testnet, production-testnet, or production-mainnet');
   }
   if (!output) throw new Error('--output is required');
-  if (worker !== 'gateway' && worker !== 'console') {
-    throw new Error('--worker must be gateway or console');
+  if (!['gateway', 'console', 'wallet-runtime'].includes(worker)) {
+    throw new Error('--worker must be gateway, console, or wallet-runtime');
   }
   return { lane, output, worker };
 }
@@ -97,7 +117,6 @@ function writePrivateJson(relativePath, value) {
   fs.writeFileSync(outputPath, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
 }
 
-
 export function consoleWorkerNameFor(gatewayWorkerName) {
   if (!gatewayWorkerName.includes('gateway')) {
     throw new Error(`cannot derive console worker name from ${gatewayWorkerName}`);
@@ -105,16 +124,11 @@ export function consoleWorkerNameFor(gatewayWorkerName) {
   return gatewayWorkerName.replace('gateway', 'console');
 }
 
-export function consoleOriginFor(gatewayOrigin) {
-  const url = new URL(gatewayOrigin);
-  if (!url.hostname.split('.').includes('api')) {
-    throw new Error(`cannot derive console origin from ${gatewayOrigin}`);
+export function walletRuntimeWorkerNameFor(gatewayWorkerName) {
+  if (!gatewayWorkerName.includes('gateway')) {
+    throw new Error(`cannot derive wallet runtime worker name from ${gatewayWorkerName}`);
   }
-  const hostname = url.hostname
-    .split('.')
-    .map((label) => (label === 'api' ? 'console' : label))
-    .join('.');
-  return `${url.protocol}//${hostname}`;
+  return gatewayWorkerName.replace('gateway', 'wallet-runtime');
 }
 
 // The Console Worker (R105 Phase 4): its own origin, session plane, cron, and
@@ -135,6 +149,13 @@ function buildConsoleConfig(deployment, siteOrigin, emailOtpDelivery, packageRoo
     CONSOLE_SESSION_ISSUER: `${consoleOrigin}/console`,
     CONSOLE_SESSION_AUDIENCE: DEFAULT_CONSOLE_SESSION_AUDIENCE,
   };
+  addOptionalStringVar(vars, 'GOOGLE_OIDC_CLIENT_ID', deployment.optional.googleOidcClientId);
+  vars.SPONSORED_EXECUTION_REAL_PRICING_JSON = JSON.stringify(
+    buildOutlayerSponsoredExecutionPricingConfig(deployment.runtimeProfile),
+  );
+  vars.SPONSORED_EXECUTION_STATIC_PRICING_JSON = JSON.stringify(
+    buildStaticSponsoredExecutionPricingConfig(deployment.runtimeProfile),
+  );
   if (production) {
     vars.CONSOLE_EMAIL_RUNTIME_PROFILE = 'PRODUCTION';
     vars.CONSOLE_EMAIL_PROVIDER = 'RESEND';
@@ -167,6 +188,12 @@ function buildConsoleConfig(deployment, siteOrigin, emailOtpDelivery, packageRoo
         migrations_dir: path.join(packageRoot, '../wallet-console-server-ts/migrations/d1-console'),
       },
     ],
+    services: [
+      {
+        binding: 'WALLET_RUNTIME',
+        service: walletRuntimeWorkerNameFor(resources.workerName),
+      },
+    ],
     triggers: {
       crons: ['* * * * *'],
     },
@@ -177,6 +204,44 @@ function buildConsoleConfig(deployment, siteOrigin, emailOtpDelivery, packageRoo
       },
     },
     vars,
+  };
+}
+
+function buildWalletRuntimeConfig(
+  deployment,
+  siteOrigin,
+  walletOrigin,
+  emailOtpDelivery,
+  docsOrigin,
+  packageRoot,
+) {
+  const resources = deployment.resources;
+  return {
+    name: walletRuntimeWorkerNameFor(resources.workerName),
+    main: path.join(
+      packageRoot,
+      '../wallet-console-server-ts/src/router/cloudflare/d1WalletRuntimeWorker.ts',
+    ),
+    compatibility_date: GATEWAY_WORKER_COMPATIBILITY_DATE,
+    compatibility_flags: GATEWAY_WORKER_COMPATIBILITY_FLAGS,
+    workers_dev: false,
+    d1_databases: [
+      {
+        binding: 'SIGNER_DB',
+        database_name: resources.signerD1.name,
+        database_id: resources.signerD1.id,
+        migrations_dir: walletServerMigrationsDirectory(packageRoot),
+      },
+    ],
+    services: [
+      { binding: 'SIGNING_WORKER', service: deployment.serviceNames.signingWorker },
+      { binding: 'MPC_ROUTER', service: deployment.serviceNames.mpcRouter },
+    ],
+    observability: {
+      enabled: true,
+      logs: { enabled: true },
+    },
+    vars: buildWorkerVars(deployment, siteOrigin, walletOrigin, emailOtpDelivery, docsOrigin),
   };
 }
 
@@ -195,7 +260,10 @@ function buildConfig(
   const vars = buildWorkerVars(deployment, siteOrigin, walletOrigin, emailOtpDelivery, docsOrigin);
   return {
     name: resources.workerName,
-    main: path.join(packageRoot, '../wallet-console-server-ts/src/router/cloudflare/d1GatewayWorker.ts'),
+    main: path.join(
+      packageRoot,
+      '../wallet-console-server-ts/src/router/cloudflare/d1GatewayWorker.ts',
+    ),
     compatibility_date: GATEWAY_WORKER_COMPATIBILITY_DATE,
     compatibility_flags: GATEWAY_WORKER_COMPATIBILITY_FLAGS,
     workers_dev: true,
@@ -212,10 +280,7 @@ function buildConfig(
         binding: 'SIGNER_DB',
         database_name: resources.signerD1.name,
         database_id: resources.signerD1.id,
-        migrations_dir: path.join(
-          packageRoot,
-          '../wallet-console-server-ts/node_modules/@seams/wallet-server/migrations/d1-signer',
-        ),
+        migrations_dir: walletServerMigrationsDirectory(packageRoot),
       },
     ],
     services: [
@@ -270,10 +335,6 @@ function buildWorkerVars(deployment, siteOrigin, walletOrigin, emailOtpDelivery,
     RELAY_SESSION_ISSUER: deployment.session.issuer,
     RELAY_SESSION_AUDIENCE: DEFAULT_RELAY_SESSION_AUDIENCE,
     RELAY_CORS_ORIGINS: deployment.origins.allowedCors.join(','),
-    CONSOLE_BASE_URL: deployment.origins.allowedCors[0],
-    CONSOLE_SESSION_COOKIE_NAME: DEFAULT_CONSOLE_SESSION_COOKIE_NAME,
-    CONSOLE_SESSION_ISSUER: `${deployment.origins.gateway}/console`,
-    CONSOLE_SESSION_AUDIENCE: DEFAULT_CONSOLE_SESSION_AUDIENCE,
     SESSION_COOKIE_NAME: DEFAULT_SESSION_COOKIE_NAME,
     SIGNING_SESSION_SEAL_CURRENT_KEY_VERSION: deployment.signingSessionSeal.currentKeyVersion,
     SIGNING_SESSION_SEAL_ACCEPTED_WARM_KEY_VERSIONS:
@@ -294,12 +355,6 @@ function buildWorkerVars(deployment, siteOrigin, walletOrigin, emailOtpDelivery,
       DEFAULT_EMAIL_OTP_SENSITIVE_ATTEMPT_RATE_LIMIT_MAX,
     EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS:
       DEFAULT_EMAIL_OTP_RATE_LIMIT_WINDOW_MS,
-    SPONSORED_EXECUTION_REAL_PRICING_JSON: JSON.stringify(
-      buildOutlayerSponsoredExecutionPricingConfig(deployment.runtimeProfile),
-    ),
-    SPONSORED_EXECUTION_STATIC_PRICING_JSON: JSON.stringify(
-      buildStaticSponsoredExecutionPricingConfig(deployment.runtimeProfile),
-    ),
   };
   if (production) {
     if (emailOtpDelivery.kind === 'demo_code_response') {
@@ -373,21 +428,6 @@ function addNearRelayerVars(vars, nearRelayer) {
 function addOptionalStringVar(vars, name, value) {
   if (value === null) return;
   vars[name] = value;
-}
-
-function addOptionalObjectVar(vars, name, value) {
-  if (value === null) return;
-  vars[name] = JSON.stringify(value);
-}
-
-function assertNearRelayerSecretConsistency(nearRelayer) {
-  const hasPrivateKey = Boolean(String(process.env.RELAYER_PRIVATE_KEY || '').trim());
-  if (nearRelayer && !hasPrivateKey) {
-    throw new Error('RELAYER_PRIVATE_KEY is required when optional.nearRelayer is configured');
-  }
-  if (!nearRelayer && hasPrivateKey) {
-    throw new Error('RELAYER_PRIVATE_KEY must be absent when optional.nearRelayer is null');
-  }
 }
 
 main();

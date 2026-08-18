@@ -117,7 +117,9 @@ test('backend plan runs without deployment secrets and prints the complete lane 
     'deriver-a',
     'deriver-b',
     'router',
-    'gateway',
+    'deploy wallet-runtime',
+    'deploy console',
+    'deploy gateway',
     'smoke',
   ]);
 });
@@ -278,6 +280,11 @@ test('backend deployment rejects an HPKE private key that does not match its pub
   );
 });
 
+test('backend deployment accepts components that do not own deployment key pairs', () => {
+  expect(() => validateDeploymentKeyPairs('wallet-runtime', {})).not.toThrow();
+  expect(() => validateDeploymentKeyPairs('console', {})).not.toThrow();
+});
+
 test('backend service binding validation rejects a wrong service hidden by a later block', () => {
   const lane = {
     id: 'production-testnet',
@@ -348,6 +355,8 @@ test('backend workflows deploy independent workers concurrently before router', 
     'deploy_deriver_a',
     'deploy_deriver_b',
     'deploy_router',
+    'deploy_wallet_runtime',
+    'deploy_console',
     'deploy_gateway',
   ];
   const planLabels = [
@@ -358,7 +367,9 @@ test('backend workflows deploy independent workers concurrently before router', 
     'deriver-a',
     'deriver-b',
     'router',
-    'gateway',
+    'deploy wallet-runtime',
+    'deploy console',
+    'deploy gateway',
     'smoke',
   ];
 
@@ -421,7 +432,9 @@ test('backend workflows deploy independent workers concurrently before router', 
       'deploy_deriver_a',
       'deploy_deriver_b',
     ]);
-    expect(needsOf('deploy_gateway')).toEqual(['deploy_router']);
+    expect(needsOf('deploy_wallet_runtime')).toEqual(['deploy_router', 'migrate']);
+    expect(needsOf('deploy_console')).toEqual(['deploy_wallet_runtime']);
+    expect(needsOf('deploy_gateway')).toEqual(['deploy_router', 'deploy_console']);
   }
 
   expect(existsSync(path.join(repoRoot, '.github/workflows/deploy-production-backend.yml'))).toBe(

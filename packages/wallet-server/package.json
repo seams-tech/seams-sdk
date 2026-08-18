@@ -46,6 +46,7 @@
     "./migrations/d1-signer/*": "./migrations/d1-signer/*"
   },
   "files": [
+    "cloudflare-router-ab/",
     "dist/",
     "migrations/d1-signer/",
     "src/README.md"
@@ -55,6 +56,8 @@
   },
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json && node ./scripts/rewrite-declaration-imports.mjs && rolldown -c rolldown.config.ts && node ./scripts/copy-wasm-assets.mjs",
+    "package:cloudflare-runtime": "node ./scripts/copy-cloudflare-router-runtime.mjs",
+    "prepack": "pnpm run package:cloudflare-runtime",
     "type-check": "tsc --noEmit"
   },
   "keywords": [
