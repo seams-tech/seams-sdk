@@ -131,7 +131,7 @@ jobs:
           node-version: '24'
           cache: pnpm
       - name: Install deployment dependencies
-        run: pnpm install --frozen-lockfile --filter @seams-internal/console-server...
+        run: pnpm install --frozen-lockfile --filter @seams-internal/console-server... --filter @seams-internal/wallet-console-server...
       - name: Download backend artifact
         uses: actions/download-artifact@v8
         with:
@@ -341,7 +341,7 @@ jobs:
           node-version: '24'
           cache: pnpm
       - name: Install deployment dependencies
-        run: pnpm install --frozen-lockfile --filter @seams-internal/console-server...
+        run: pnpm install --frozen-lockfile --filter @seams-internal/console-server... --filter @seams-internal/wallet-console-server...
       - name: Download backend artifact
         uses: actions/download-artifact@v8
         with:
@@ -382,7 +382,7 @@ jobs:
           node-version: '24'
           cache: pnpm
       - name: Install deployment dependencies
-        run: pnpm install --frozen-lockfile --filter @seams-internal/console-server...
+        run: pnpm install --frozen-lockfile --filter @seams-internal/console-server... --filter @seams-internal/wallet-console-server...
       - name: Download backend artifact
         uses: actions/download-artifact@v8
         with:
@@ -422,7 +422,7 @@ jobs:
           node-version: '24'
           cache: pnpm
       - name: Install deployment dependencies
-        run: pnpm install --frozen-lockfile --filter @seams-internal/console-server...
+        run: pnpm install --frozen-lockfile --filter @seams-internal/console-server... --filter @seams-internal/wallet-console-server...
       - name: Download backend artifact
         uses: actions/download-artifact@v8
         with:
