@@ -450,7 +450,10 @@ export type RouterAbEd25519YaoActiveCapabilityDescriptorV1 = {
         readonly admissionReceipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
         readonly activationTranscript: readonly number[];
       }
-    | { readonly kind: 'recovery' };
+    | {
+        readonly kind: 'recovery';
+        readonly activationTranscript: readonly number[];
+      };
 };
 
 export type RouterAbEd25519YaoActiveCapabilityLookupResultV1 =
@@ -1514,7 +1517,12 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
                   ...matched.persisted.activationResult.public_receipt.transcript,
                 ],
               }
-            : { kind: 'recovery' },
+            : {
+                kind: 'recovery',
+                activationTranscript: [
+                  ...matched.persisted.activationResult.public_receipt.transcript,
+                ],
+              },
       },
     };
   }

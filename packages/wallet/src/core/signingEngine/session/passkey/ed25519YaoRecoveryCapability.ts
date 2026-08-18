@@ -68,7 +68,10 @@ export type ParsedYaoRecoveryCapabilityV1 = {
         readonly admissionReceipt: RouterAbEd25519YaoActivationAdmissionReceiptV1<'registration'>;
         readonly activationTranscript: readonly number[];
       }
-    | { readonly kind: 'recovery' };
+    | {
+        readonly kind: 'recovery';
+        readonly activationTranscript: readonly number[];
+      };
 };
 
 function requireRecord(value: unknown, label: string): Record<string, unknown> {
@@ -143,7 +146,15 @@ function parseRegistrationContinuity(
   value: unknown,
 ): ParsedYaoRecoveryCapabilityV1['registrationContinuity'] {
   const record = requireRecord(value, 'capability.registrationContinuity');
-  if (record.kind === 'recovery') return { kind: 'recovery' };
+  if (record.kind === 'recovery') {
+    return {
+      kind: 'recovery',
+      activationTranscript: requireBytes(
+        record.activationTranscript,
+        'capability.registrationContinuity.activationTranscript',
+      ),
+    };
+  }
   if (record.kind !== 'registration') {
     throw new Error('capability.registrationContinuity kind is invalid');
   }

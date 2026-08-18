@@ -12,10 +12,7 @@ import type {
   LinkSessionAuthenticationV1,
   LinkSessionTransportPortV1,
 } from '@/SeamsWeb/operations/devices/deviceLinkingPorts';
-import {
-  DeviceLinkingErrorCode,
-  type LinkedDeviceTargetPasskeyActivationV1,
-} from '@/core/types/linkDevice';
+import { DeviceLinkingErrorCode } from '@/core/types/linkDevice';
 import {
   buildLinkedDeviceProvisionedExecutionEvidenceV1,
   type LinkedDeviceProvisionedExecutionEvidenceV1,
@@ -58,7 +55,6 @@ import { parseWebAuthnCredentialIdB64u } from '../../packages/shared-ts/src/util
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { computeLaneEnrollmentManifestDigestV1 } from '../../packages/shared-ts/src/signing-lanes/rotationDigests';
 import { LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1 } from '../../packages/shared-ts/src/device-linking/requestProof';
-import { withCapturedLocalWritesV1 } from './helpers/device2LinkFlow.fixtures';
 
 function createPorts(
   calls: string[],
@@ -594,9 +590,22 @@ test.describe('linked-device browser orchestration', () => {
     const events: string[] = [];
     const fixture = buildR103DeviceLinkFixture();
     let recordedApproval: LinkedDeviceApprovalV1 | undefined;
-    const ports = createPorts(calls, (approval) => {
-      recordedApproval = approval;
-    });
+    const ports = createPorts(
+      calls,
+      (approval) => {
+        recordedApproval = approval;
+      },
+      undefined,
+      () => ({
+        outcome: 'pending',
+        state: buildProvisioningLinkedDeviceSessionState({
+          linkSessionId: fixture.approval.linkSessionId,
+          walletId: fixture.approval.walletId,
+          enrollmentId: fixture.approval.enrollmentId,
+          provisioningStartedAtMs: Date.now(),
+        }),
+      }),
+    );
     const qrData = buildQrLinkedDeviceSessionPayloadV4({
       linkSessionId: fixture.payload.linkSessionId,
       linkPublicKeyB64u: fixture.payload.linkPublicKeyB64u,
@@ -617,7 +626,6 @@ test.describe('linked-device browser orchestration', () => {
     expect(result.success).toBe(true);
     if (!result.success) throw new Error('expected successful link approval');
     expect(result.enrollmentId).toBe(fixture.approval.enrollmentId);
-    expect(result.manifestDigestB64u).toBe(fixture.receipt.manifestDigestB64u);
     // The owner enrollment ceremony is started between the claim and the
     // approval, under the authentication that step already established. Device 2
     // has no owner authority and could never start one, so an ordering that let
@@ -656,15 +664,13 @@ test.describe('linked-device browser orchestration', () => {
       [
         { outcome: 'replayed', replay: { state: 'pending', session: pendingState } },
         {
-          outcome: 'active',
-          state: buildActiveLinkedDeviceSessionState({
+          outcome: 'pending',
+          state: buildProvisioningLinkedDeviceSessionState({
             linkSessionId: fixture.approval.linkSessionId,
             walletId: fixture.approval.walletId,
             enrollmentId: fixture.approval.enrollmentId,
-            activatedAtMs: Date.now(),
+            provisioningStartedAtMs: Date.now(),
           }),
-          manifestDigestB64u: fixture.receipt.manifestDigestB64u,
-          receipt: fixture.receipt,
         },
       ],
     );
@@ -692,300 +698,6 @@ test.describe('linked-device browser orchestration', () => {
       'seal-custody',
       'submit-custody-package',
     ]);
-  });
-
-  test('Device 1 prepares R102 deliveries only for a session resumed from before the cutover', async () => {
-    const calls: string[] = [];
-    const fixture = buildR103DeviceLinkFixture();
-    const source = buildR103TargetReadySourceFixture(fixture);
-    let submitted: LinkedDeviceProvisioningDeliveriesSubmissionV1 | null = null;
-    const ports = createPorts(
-      calls,
-      undefined,
-      undefined,
-      // A session resumed from before the Phase 8 cutover, which still finishes
-      // through the lane enrollment. On the canonical path the owner finalize
-      // completes the handoff and Device 1 never prepares deliveries at all.
-      () => ({
-        outcome: 'pending',
-        state: buildCommittedCompletionRequiredLinkedDeviceSessionState({
-          linkSessionId: fixture.approval.linkSessionId,
-          walletId: fixture.approval.walletId,
-          enrollmentId: fixture.approval.enrollmentId,
-          committedAtMs: Date.now(),
-        }),
-      }),
-      undefined,
-      undefined,
-      {
-        targetReady: source.targetReady,
-        onSubmission: (value) => {
-          submitted = value;
-        },
-      },
-    );
-    const qrData = buildQrLinkedDeviceSessionPayloadV4({
-      linkSessionId: fixture.payload.linkSessionId,
-      linkPublicKeyB64u: fixture.payload.linkPublicKeyB64u,
-      devicePublicKeyB64u: fixture.payload.devicePublicKeyB64u,
-      issuedAtMs: Date.now() - 1_000,
-      expiresAtMs: Date.now() + 60_000,
-    });
-
-    await scanAndLinkDevice(undefined, qrData, {}, ports);
-
-    expect(calls).toContain('get-target-ready');
-    expect(calls).toContain('prepare-source-deliveries');
-    expect(calls).toContain('submit-prepared-deliveries');
-    expect(submitted?.deliveries).toEqual(source.deliveries);
-    expect(submitted?.manifestDigestB64u).toBe(
-      await computeLaneEnrollmentManifestDigestV1(source.targetReady.manifest),
-    );
-  });
-
-  test('Device 1 accepts a committed approval replay only with its receipt', async () => {
-    const calls: string[] = [];
-    const fixture = buildR103DeviceLinkFixture();
-    const ports = createPorts(calls, undefined, undefined, (state) => ({
-      outcome: 'replayed',
-      replay: {
-        state: 'active',
-        session:
-          state.state === 'active'
-            ? state
-            : buildActiveLinkedDeviceSessionState({
-                linkSessionId: fixture.approval.linkSessionId,
-                walletId: fixture.approval.walletId,
-                enrollmentId: fixture.approval.enrollmentId,
-                activatedAtMs: fixture.approval.approvedAtMs,
-              }),
-        manifestDigestB64u: fixture.receipt.manifestDigestB64u,
-        receipt: fixture.receipt,
-      },
-    }));
-    const qrData = buildQrLinkedDeviceSessionPayloadV4({
-      linkSessionId: fixture.payload.linkSessionId,
-      linkPublicKeyB64u: fixture.payload.linkPublicKeyB64u,
-      devicePublicKeyB64u: fixture.payload.devicePublicKeyB64u,
-      issuedAtMs: Date.now() - 1_000,
-      expiresAtMs: Date.now() + 60_000,
-    });
-
-    const result = await scanAndLinkDevice(undefined, qrData, {}, ports);
-
-    expect(result.success).toBe(true);
-    if (!result.success) throw new Error('expected replayed approval success');
-    expect(result.receipt).toEqual(fixture.receipt);
-  });
-
-  test('Device 2 retries committed delivery before acknowledging the full receipt', async () => {
-    const calls: string[] = [];
-    const fixture = buildR103DeviceLinkFixture();
-    let emitSessionEvent: ((event: LinkedDeviceSessionTransportEventV1) => void) | undefined;
-    let acknowledgement: LinkedDeviceReceiptAcknowledgementV1 | undefined;
-    let authenticatedTransport: DeviceLinkingAuthenticatedTransportPortV1 | undefined;
-    const ports = createPorts(
-      calls,
-      undefined,
-      (transport) => {
-        authenticatedTransport = transport;
-      },
-      undefined,
-      (handler) => {
-        emitSessionEvent = handler;
-      },
-      (value) => {
-        acknowledgement = value;
-      },
-    );
-    const flow = new LinkDeviceFlow({}, ports);
-    const generated = await flow.generateQR();
-    const active = await buildR103ActiveExecutionFixture({
-      linkSessionId: String(generated.qrData.linkSessionId),
-    });
-    const evidence = await buildLinkedDeviceProvisionedExecutionEvidenceV1({
-      approval: active.deviceLink.approval,
-      targetPreparation: active.targetCredential.preparation,
-      targetCredentialRegistration: active.targetCredential.registration,
-      provisioningDeliveries: active.provisioning.deliveries,
-      enrollmentReceipt: active.deviceLink.receipt,
-    });
-    if (!authenticatedTransport) throw new Error('authenticated transport was not bound');
-    Object.assign(authenticatedTransport, {
-      requestProvisioningDeliveriesV1: async () => {
-        calls.push('provision-deliveries');
-        return active.provisioning.deliveries;
-      },
-      getWalletSessionDeliveryV1: async () => {
-        calls.push('get-wallet-session');
-        return active.walletSession;
-      },
-    });
-    Object.assign(ports.executionEvidence, {
-      readForEnrollmentV1: async () => {
-        calls.push('read-execution-evidence');
-        return { kind: 'found', evidence } as const;
-      },
-    });
-    Object.assign(ports.laneProvisioning, {
-      resumeCommittedDeliveryV1: async (
-        input: Parameters<typeof ports.laneProvisioning.resumeCommittedDeliveryV1>[0],
-      ) => {
-        calls.push('resume-delivery');
-        await input.refetchApprovalV1();
-        await input.refetchProvisioningDeliveriesV1();
-        return active.deviceLink.receipt;
-      },
-    });
-    emitSessionEvent?.({
-      kind: 'linked_device_session_event_v1',
-      linkSessionId: generated.qrData.linkSessionId,
-      state: buildCommittedCompletionRequiredLinkedDeviceSessionState({
-        linkSessionId: generated.qrData.linkSessionId,
-        walletId: fixture.approval.walletId,
-        enrollmentId: fixture.approval.enrollmentId,
-        keyManifestDigestB64u: fixture.receipt.manifestDigestB64u,
-        transcriptSetDigestB64u: fixture.receipt.manifestDigestB64u,
-      }),
-      emittedAtMs: Date.now(),
-    });
-    await expect
-      .poll(() => calls.slice(-9), { timeout: 5_000 })
-      .toEqual([
-        'retry',
-        'resume-delivery',
-        'get-approval',
-        'provision-deliveries',
-        'read-execution-evidence',
-        'persist-execution-evidence',
-        'ack',
-        'get-wallet-session',
-        'persist-wallet-session',
-      ]);
-    expect(acknowledgement?.receipt).toEqual(active.deviceLink.receipt);
-  });
-
-  test('Device 2 ends linking at the canonical owner finalize', async () => {
-    const calls: string[] = [];
-    const events: string[] = [];
-    const fixture = buildR103DeviceLinkFixture();
-    let emitSessionEvent: ((event: LinkedDeviceSessionTransportEventV1) => void) | undefined;
-    let authenticatedTransport: DeviceLinkingAuthenticatedTransportPortV1 | undefined;
-    let targetPasskeyActivation: LinkedDeviceTargetPasskeyActivationV1 | null = null;
-    let sessionActivations = 0;
-    const ports = createPorts(
-      calls,
-      undefined,
-      (transport) => {
-        authenticatedTransport = transport;
-      },
-      undefined,
-      (handler) => {
-        emitSessionEvent = handler;
-      },
-      undefined,
-      undefined,
-      undefined,
-      () => {
-        sessionActivations += 1;
-      },
-    );
-    const captured = await withCapturedLocalWritesV1({}, async () => {
-      const flow = new LinkDeviceFlow(
-        {
-          options: {
-            onTargetPasskeyRequired: (activation) => {
-              targetPasskeyActivation = activation;
-            },
-            onEvent: (event) => {
-              events.push(event.message);
-            },
-          },
-        },
-        ports,
-      );
-      const generated = await flow.generateQR();
-      if (!authenticatedTransport) throw new Error('authenticated transport was not bound');
-      // The canonical finalize advances the session in the same transaction that
-      // commits the credential, so the state that follows the passkey prompt is
-      // the completion signal rather than the start of lane provisioning.
-      Object.assign(authenticatedTransport, {
-        registerTargetCredentialV1: async () => {
-          calls.push('credential');
-          emitSessionEvent?.({
-            kind: 'linked_device_session_event_v1',
-            linkSessionId: generated.qrData.linkSessionId,
-            state: buildProvisioningLinkedDeviceSessionState({
-              linkSessionId: generated.qrData.linkSessionId,
-              walletId: fixture.approval.walletId,
-              enrollmentId: fixture.approval.enrollmentId,
-              provisioningStartedAtMs: Date.now(),
-            }),
-            emittedAtMs: Date.now(),
-          });
-        },
-      });
-      emitSessionEvent?.({
-        kind: 'linked_device_session_event_v1',
-        linkSessionId: generated.qrData.linkSessionId,
-        state: buildAwaitingTargetPasskeyLinkedDeviceSessionState({
-          linkSessionId: generated.qrData.linkSessionId,
-          walletId: fixture.approval.walletId,
-          enrollmentId: fixture.approval.enrollmentId,
-          credentialDeadlineMs: Date.now() + 30_000,
-        }),
-        emittedAtMs: Date.now(),
-      });
-      await expect
-        .poll(() => targetPasskeyActivation?.kind)
-        .toBe('linked_device_target_passkey_activation_v1');
-      expect(calls).not.toContain('target-passkey');
-      if (!targetPasskeyActivation) throw new Error('target passkey activation was not published');
-      await targetPasskeyActivation.createPasskey();
-      await expect.poll(() => calls).toContain('key-discard');
-    });
-
-    // Linking ends at the finalize. Everything the R102 lane enrollment used to
-    // do after it is gone, and each of these would be a network round trip on a
-    // path Device 2 no longer uses.
-    for (const retired of [
-      'provision-deliveries',
-      'prepare-lanes',
-      'holder-receipts',
-      'persist-execution-evidence',
-      'ack',
-      'get-wallet-session',
-      'persist-wallet-session',
-    ]) {
-      expect(calls).not.toContain(retired);
-    }
-    // Nor a warm linked signing session: Device 2 is an ordinary owner, and the
-    // activation port is still wired and still throws.
-    expect(sessionActivations).toBe(0);
-
-    // What it does do, in order, ending in the terminal cleanup.
-    expect(calls.slice(-11)).toEqual([
-      'get',
-      'target-preparation',
-      // Created before the passkey prompt and registered after it: WebAuthn
-      // creation has to be the first thing the click reaches, or the transient
-      // user activation is already spent.
-      'recipient-create',
-      'target-passkey',
-      'recipient-register',
-      'package',
-      'accept-custody',
-      'finalize',
-      'credential',
-      // Terminal: the subscription closes and the bootstrap key material is
-      // discarded. Nothing runs between the finalize and the teardown.
-      'close',
-      'key-discard',
-    ]);
-    expect(events).toContain('Linked device active');
-    expect(captured.profiles.length).toBe(1);
-    expect(captured.authenticators.length).toBe(1);
-    expect(captured.authMethods.length).toBe(1);
   });
 
   test('Device 2 closes polling and discards its worker key for every terminal session', async () => {

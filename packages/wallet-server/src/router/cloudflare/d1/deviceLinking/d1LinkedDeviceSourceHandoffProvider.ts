@@ -156,7 +156,6 @@ export class D1LinkedDeviceSourceHandoffProviderV1
     if (targetRegistration.keyManifestDigestB64u !== manifestDigestB64u) {
       throw new Error('R102 target-ready manifest differs from registered credential manifest');
     }
-    assertManifestDigestMatchesSession(manifestDigestB64u, input.session);
     const persisted = await this.readV1(input.session.linkSessionId);
     if (persisted) {
       assertPersistedIdentity(
@@ -648,26 +647,6 @@ function assertTargetHolderRegistrationBindings(
     ) {
       throw new Error('R102 target-ready job differs from registered holder participant');
     }
-  }
-}
-
-function assertManifestDigestMatchesSession(
-  manifestDigestB64u: DigestB64u,
-  session: LinkedDeviceSessionRecordV1,
-): void {
-  if (
-    (session.state.state === 'provisioning' ||
-      session.state.state === 'committed_completion_required') &&
-    session.state.keyManifestDigestB64u !== manifestDigestB64u
-  ) {
-    throw new Error('R102 target-ready manifest differs from the persisted session manifest');
-  }
-  if (
-    session.state.state === 'active' &&
-    (!session.aggregateReceipt ||
-      session.aggregateReceipt.manifestDigestB64u !== manifestDigestB64u)
-  ) {
-    throw new Error('R102 target-ready manifest differs from the active aggregate receipt');
   }
 }
 

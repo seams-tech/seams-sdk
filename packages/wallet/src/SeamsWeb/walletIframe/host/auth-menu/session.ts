@@ -52,7 +52,7 @@ import {
   type HostedPasskeyLoginOutcome,
   type HostedPasskeyPrepared,
 } from './passkey';
-import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
+import { parseWalletId } from '@shared/utils/domainIds';
 import { createReadableWalletId } from '@shared/utils/registrationIntent';
 import {
   classifyLinkDeviceFlowEvent,
@@ -343,18 +343,6 @@ function linkDeviceViewModel(base: AuthMenuViewModel): AuthMenuLinkDeviceViewMod
     mode: base.mode,
     linkDevice: { kind: 'loading', message: 'Generating QR code...' },
   };
-}
-
-function loginOptionsWithLinkedWallet(
-  options: readonly AuthMenuAccountOption[],
-  walletId: string,
-): readonly AuthMenuAccountOption[] {
-  const next: AuthMenuAccountOption[] = [];
-  for (const option of options) {
-    if (option.walletId !== walletId) next.push(option);
-  }
-  next.push({ walletId, displayName: walletId });
-  return next;
 }
 
 export class AuthMenuSession {
@@ -1154,7 +1142,12 @@ export class AuthMenuSession {
       case 'active':
         if (this.linkedDeviceActivationInProgress) return;
         this.linkedDeviceActivationInProgress = true;
-        this.continueWithLinkedOwnerLogin(outcome.walletId);
+        this.complete({
+          kind: 'authenticated',
+          authMenuSessionId: this.identity.authMenuSessionId,
+          walletId: outcome.walletId,
+          method: 'passkey',
+        });
         return;
       case 'invalid_active':
         this.showLinkedDeviceActivationError(
@@ -1302,24 +1295,6 @@ export class AuthMenuSession {
       },
     };
     this.updateElement();
-  }
-
-  private continueWithLinkedOwnerLogin(walletId: WalletId): void {
-    const state = this.stateValue;
-    if (state.kind !== 'link_device') return;
-    const selectedWalletId = String(walletId);
-    this.deviceLinkGeneration += 1;
-    this.targetPasskeyActivation = null;
-    this.loginAccountOptions = loginOptionsWithLinkedWallet(
-      this.loginAccountOptions,
-      selectedWalletId,
-    );
-    this.selectedLoginWalletId = selectedWalletId;
-    this.stateValue = state.returnState;
-    this.updateLoginSelectionViewModel();
-    this.preparePasskey = this.prepareSelectedLogin;
-    this.updateElement();
-    this.startPasskeyPreparation();
   }
 
   private closeLinkDevice(): void {

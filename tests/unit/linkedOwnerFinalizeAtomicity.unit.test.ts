@@ -5,11 +5,10 @@ import { buildR103AwaitingTargetPasskeySessionRecordV1 } from './helpers/deviceL
 import {
   buildCancelledClaimedPrecommitLinkedDeviceSessionState,
   buildExpiredClaimedLinkedDeviceSessionState,
-  buildProvisioningLinkedDeviceSessionState,
 } from '../../packages/shared-ts/src/device-linking/parsers';
 
 /**
- * Finalizing Device 2's owner credential and advancing its link session must be
+ * Finalizing Device 2's owner credential and reserving its link session must be
  * one commit.
  *
  * Finalize is irreversible — one transaction registers the passkey, the custody
@@ -19,7 +18,7 @@ import {
  * with nothing downstream accounting for it.
  *
  * These own the decision half of closing that window: whether the session may
- * advance is settled before any credential exists, and a legal advance is
+ * be reserved is settled before any credential exists, and a legal reservation is
  * prepared against the exact revision it was read at, so the CAS the store
  * builds from it fails the batch if the session moved in between.
  */
@@ -33,12 +32,11 @@ async function planFor(
   return await service.prepareLinkedOwnerEnrollmentCompletionV1({
     linkSessionId: record.linkSessionId,
     expectedRevision: input.expectedRevision,
-    keyManifestDigestB64u: record.approvalTranscript?.sourceKeyManifestDigestB64u as never,
     nowMs: input.nowMs,
   });
 }
 
-test('a session that cannot advance is refused before any credential exists', async () => {
+test('a session that cannot be reserved is refused before any credential exists', async () => {
   const fixture = buildR103DeviceLinkFixture();
   const base = await buildR103AwaitingTargetPasskeySessionRecordV1(fixture);
   // Each of these has already left the only state a linked owner finalize may
@@ -66,7 +64,7 @@ test('a session that cannot advance is refused before any credential exists', as
   expect((await planFor(stale, { expectedRevision: 3, nowMs: 2_500 })).outcome).toBe('expired');
 });
 
-test('a legal advance is prepared against the revision it was read at', async () => {
+test('a legal reservation preserves state and advances only the revision', async () => {
   const fixture = buildR103DeviceLinkFixture();
   const record = await buildR103AwaitingTargetPasskeySessionRecordV1(fixture, {
     credentialDeadlineMs: 9_000,
@@ -78,28 +76,21 @@ test('a legal advance is prepared against the revision it was read at', async ()
   // concurrent cancel or expiry fail the whole batch instead of being ignored.
   expect(plan.expectedRevision).toBe(record.revision);
   expect(plan.nextRecord.revision).toBe(record.revision + 1);
-  expect(plan.nextRecord.state).toMatchObject({
-    state: 'provisioning',
-    keyManifestDigestB64u: record.approvalTranscript?.sourceKeyManifestDigestB64u,
-  });
+  expect(plan.nextRecord.state).toEqual(record.state);
 });
 
-test('an already-completed session replays without contributing a second advance', async () => {
+test('a lost finalize response can retry against the current awaiting revision', async () => {
   const fixture = buildR103DeviceLinkFixture();
   const base = await buildR103AwaitingTargetPasskeySessionRecordV1(fixture);
-  const completed = await buildR103AwaitingTargetPasskeySessionRecordV1(fixture, {
+  const reserved = await buildR103AwaitingTargetPasskeySessionRecordV1(fixture, {
     revision: base.revision + 1,
-    state: buildProvisioningLinkedDeviceSessionState({
-      linkSessionId: base.linkSessionId,
-      walletId: fixture.approval.walletId,
-      enrollmentId: fixture.approval.enrollmentId,
-      keyManifestDigestB64u: base.approvalTranscript?.sourceKeyManifestDigestB64u as never,
-    }),
   });
-  const plan = await planFor(completed, { expectedRevision: base.revision, nowMs: 2_000 });
-  // Replay deliberately carries no nextRecord. A retry that contributed a CAS
-  // for a transition already made would fail the batch against its own past
-  // work, turning a safe retry into a spurious conflict.
-  expect(plan.outcome).toBe('replayed');
-  expect('nextRecord' in plan).toBe(false);
+  const plan = await planFor(reserved, {
+    expectedRevision: reserved.revision,
+    nowMs: 2_000,
+  });
+  if (plan.outcome !== 'prepared') throw new Error(`expected prepared, got ${plan.outcome}`);
+  expect(plan.expectedRevision).toBe(reserved.revision);
+  expect(plan.nextRecord.state).toEqual(reserved.state);
+  expect(plan.nextRecord.revision).toBe(reserved.revision + 1);
 });

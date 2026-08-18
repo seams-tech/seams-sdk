@@ -10,10 +10,7 @@ import { base64UrlDecode, base64UrlEncode } from '../../packages/shared-ts/src/u
 import { createDeviceLinkingAuthenticatedSessionTransportV1 } from '../../packages/wallet/src/SeamsWeb/operations/devices/deviceLinkingHttpTransport';
 import type { DeviceLinkingKeyMaterialPortV1 } from '../../packages/wallet/src/SeamsWeb/operations/devices/deviceLinkingPorts';
 import type { HttpTransport } from '../../packages/wallet/src/core/platform/http';
-import {
-  buildR103DeviceLinkFixture,
-  buildR103LinkedWalletSessionDeliveryFixture,
-} from './helpers/deviceLinkContracts.fixtures';
+import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
 
 function responseBody(fixture: ReturnType<typeof buildR103DeviceLinkFixture>): {
   readonly ok: true;
@@ -142,15 +139,14 @@ test.describe('R103 authenticated linked-device browser transport', () => {
     expect(JSON.stringify(projection)).not.toContain('private');
   });
 
-  test('retrieves Wallet Session delivery through the Device2 proof boundary', async () => {
+  test('treats an unsealed custody transfer as pending without an HTTP error', async () => {
     const fixture = buildR103DeviceLinkFixture();
-    const delivery = buildR103LinkedWalletSessionDeliveryFixture(fixture);
     let requestedPath = '';
     const http: HttpTransport = {
       kind: 'http_transport',
       async request(input) {
         requestedPath = new URL(input.url).pathname;
-        return { ok: true, value: { status: 200, body: delivery } };
+        return { ok: true, value: { status: 204, body: null } };
       },
     };
     const keyMaterial: DeviceLinkingKeyMaterialPortV1 = {
@@ -182,10 +178,10 @@ test.describe('R103 authenticated linked-device browser transport', () => {
     });
 
     await expect(
-      transport.getWalletSessionDeliveryV1({ linkSessionId: fixture.payload.linkSessionId }),
-    ).resolves.toEqual(delivery);
+      transport.getCustodyTransferPackageV1({ linkSessionId: fixture.payload.linkSessionId }),
+    ).resolves.toBeNull();
     expect(requestedPath).toBe(
-      `/wallet/device-linking/v1/sessions/${fixture.payload.linkSessionId}/wallet-session`,
+      `/wallet/device-linking/v1/sessions/${fixture.payload.linkSessionId}/custody-transfer`,
     );
   });
 

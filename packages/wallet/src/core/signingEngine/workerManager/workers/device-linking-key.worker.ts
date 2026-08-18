@@ -4,7 +4,13 @@ import {
   LINKED_DEVICE_REQUEST_PROOF_NONCE_BYTES_V1,
   LINKED_DEVICE_REQUEST_PROOF_SIGNATURE_BYTES_V1,
   parseLinkDevicePublicKeyB64u,
+  parseLinkedDeviceProvisioningChildV1,
+  parseLinkedDeviceTargetPreparationV1,
+  type LinkedDeviceProvisioningChildV1,
   type LinkedDeviceRequestProofV1,
+  type LinkedDeviceTargetHolderRegistrationV1,
+  type LinkedDeviceTargetPreparationChildV1,
+  type LinkedDeviceTargetPreparationV1,
   type LinkDevicePublicKeyB64u,
 } from '@shared/device-linking';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
@@ -12,6 +18,7 @@ import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimiti
 import {
   mpcMaterialActivationRefsEqual,
   parseMpcMaterialActivationRef,
+  parseWebAuthnCredentialIdB64u,
   type MpcMaterialActivationRef,
 } from '@shared/utils/domainIds';
 import { parseLinkDeviceSessionId, type LinkDeviceSessionId } from '@shared/signing-lanes/ids';
@@ -19,6 +26,24 @@ import type {
   LaneProtocolCommitReceiptV1,
   RotatableSigningLaneJobV1,
 } from '@shared/signing-lanes/rotation';
+import {
+  buildEd25519LaneHolderShareBinding,
+  buildEcdsaLaneHolderShareBinding,
+  buildPasskeyEnvelopeFactor,
+  parseEd25519PublicKeyB64u,
+  parseSecp256k1CompressedPublicKeyB64u,
+  type PasskeyCustodySecretBinding,
+} from '@shared/passkey-custody';
+import {
+  buildLaneHolderCustodyIdentityV1,
+  buildLaneHolderParticipantRecordV1,
+  parseHpkePublicKeyB64u,
+  parseLaneCustodyBindingDigestB64u,
+  parseLaneHolderCustodyBindingId,
+  parseSigningWorkerRecipientKeyDigestB64u,
+  type LaneHolderParticipantRecordV1,
+} from '@shared/signing-lanes/participants';
+import { computeLaneHolderParticipantBindingDigestV1 } from '@shared/signing-lanes/participantDigest';
 import {
   parseLaneProtocolCommitReceiptV1,
   parseRotatableSigningLaneJobV1,
@@ -34,6 +59,8 @@ import {
 } from '../ecdsaClientWorkerChannels';
 import { parseEcdsaClientPresignPoolIdentity } from '../ecdsaPresignPoolIdentity';
 import initEd25519YaoClient, {
+  WasmLaneCustodySealV1,
+  WasmLaneHolderRecipientV1,
   WasmLaneHolderSigningMaterialV1,
 } from '../../../../../../../crates/router-ab-ed25519-yao-client/pkg/router_ab_ed25519_yao_client.js';
 import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
@@ -56,6 +83,18 @@ type DeviceLinkingKeySlotV1 = {
 
 type DeviceLinkingKeyWorkerRequestV1 =
   | { readonly kind: 'device_linking_key_material_create_v1' }
+  | {
+      readonly kind: 'device_linking_target_holders_prepare_v1';
+      readonly handleId: string;
+      readonly preparation: LinkedDeviceTargetPreparationV1;
+      readonly credentialIdB64u: string;
+      readonly factorSecret: ArrayBuffer;
+    }
+  | {
+      readonly kind: 'device_linking_target_holder_open_seal_v1';
+      readonly handleId: string;
+      readonly delivery: LinkedDeviceProvisioningChildV1;
+    }
   | {
       readonly kind: 'device_linking_request_sign_v1';
       readonly handleId: string;
@@ -112,6 +151,17 @@ type DeviceLinkingKeyWorkerResponseV1 =
       };
       readonly clientVerifyingShareB64u: string;
       readonly clientSignatureShareB64u: string;
+    }
+  | {
+      readonly orderedHolderRegistrations: readonly [
+        LinkedDeviceTargetHolderRegistrationV1,
+        ...LinkedDeviceTargetHolderRegistrationV1[],
+      ];
+    }
+  | {
+      readonly sealedHolderMaterialB64u: string;
+      readonly sealedHolderRecordDigestB64u: string;
+      readonly verifiedHolderCiphertextDigestSetB64u: string;
     }
   | { readonly signatureB64u: string };
 
@@ -172,6 +222,21 @@ export type DeviceLinkingHolderSigningMaterialFactoryV1 = {
 
 const keySlots = new Map<string, DeviceLinkingKeySlotV1>();
 const holderSigningMaterialSlots = new Map<string, DeviceLinkingHolderSigningMaterialSlotV1>();
+type PreparedTargetHolderV1 = {
+  readonly child: LinkedDeviceTargetPreparationChildV1;
+  readonly participant: LaneHolderParticipantRecordV1;
+  readonly recipient: WasmLaneHolderRecipientV1;
+};
+
+type PreparedTargetHolderGroupV1 = {
+  readonly walletId: LinkedDeviceTargetPreparationV1['walletId'];
+  readonly rpId: LinkedDeviceTargetPreparationV1['ownerEnrollment']['registration']['rpId'];
+  readonly credentialIdB64u: string;
+  readonly factorSecret: Uint8Array;
+  readonly holdersByOperationId: Map<string, PreparedTargetHolderV1>;
+};
+
+const preparedTargetHolderGroups = new Map<string, PreparedTargetHolderGroupV1>();
 let linkedHolderPresignPort: MessagePort | null = null;
 const linkedHolderOpaquePresignAuthority = new OpaqueEcdsaPresignAuthorityV1();
 const laneRecipientWasmUrl = resolveWasmUrl(
@@ -418,6 +483,42 @@ function parseRequest(value: unknown): DeviceLinkingKeyWorkerRequestV1 {
     return {
       kind: 'device_linking_key_material_discard_v1',
       handleId: parseHandleId(parsed.handleId),
+    };
+  }
+  if (record.kind === 'device_linking_target_holders_prepare_v1') {
+    const factorSecret =
+      record.factorSecret instanceof ArrayBuffer ? new Uint8Array(record.factorSecret) : null;
+    try {
+      const parsed = exactRecord(
+        record,
+        ['kind', 'handleId', 'preparation', 'credentialIdB64u', 'factorSecret'],
+        'device-linking target holders prepare request',
+      );
+      if (!(parsed.factorSecret instanceof ArrayBuffer) || parsed.factorSecret.byteLength !== 32) {
+        throw new Error('device-linking target holder factorSecret must be 32 bytes');
+      }
+      return {
+        kind: 'device_linking_target_holders_prepare_v1',
+        handleId: parseHandleId(parsed.handleId),
+        preparation: parseLinkedDeviceTargetPreparationV1(parsed.preparation),
+        credentialIdB64u: requireNonEmptyString(parsed.credentialIdB64u, 'credentialIdB64u'),
+        factorSecret: parsed.factorSecret,
+      };
+    } catch (error) {
+      factorSecret?.fill(0);
+      throw error;
+    }
+  }
+  if (record.kind === 'device_linking_target_holder_open_seal_v1') {
+    const parsed = exactRecord(
+      record,
+      ['kind', 'handleId', 'delivery'],
+      'device-linking target holder open-and-seal request',
+    );
+    return {
+      kind: 'device_linking_target_holder_open_seal_v1',
+      handleId: parseHandleId(parsed.handleId),
+      delivery: parseLinkedDeviceProvisioningChildV1(parsed.delivery),
     };
   }
   if (record.kind === 'device_linking_holder_signing_material_discard_v1') {
@@ -1045,6 +1146,339 @@ async function signRequest(
   }
 }
 
+function secureRandomBytes(length: number, label: string): Uint8Array {
+  if (!globalThis.crypto || typeof globalThis.crypto.getRandomValues !== 'function') {
+    throw new Error(`secure randomness is unavailable for ${label}`);
+  }
+  const bytes = new Uint8Array(length);
+  do {
+    globalThis.crypto.getRandomValues(bytes);
+  } while (bytes.every((byte) => byte === 0));
+  return bytes;
+}
+
+function requiredDomainValue<T>(
+  parsed:
+    | { readonly ok: true; readonly value: T }
+    | { readonly ok: false; readonly error: { readonly message: string } },
+): T {
+  if (parsed.ok) return parsed.value;
+  throw new Error(parsed.error.message);
+}
+
+function createTargetCustodyBindingId() {
+  const random = secureRandomBytes(24, 'linked-device lane custody binding');
+  try {
+    return requiredDomainValue(
+      parseLaneHolderCustodyBindingId(`linked-device-lane-custody-${base64UrlEncode(random)}`),
+    );
+  } finally {
+    random.fill(0);
+  }
+}
+
+async function computeTargetCustodyBindingDigest(input: {
+  readonly custodyBindingId: string;
+  readonly preparation: LinkedDeviceTargetPreparationV1;
+  readonly child: LinkedDeviceTargetPreparationChildV1;
+  readonly credentialIdB64u: string;
+}) {
+  const canonical = new TextEncoder().encode(
+    JSON.stringify([
+      'seams/linked-device/lane-custody-binding/v1',
+      input.custodyBindingId,
+      input.preparation.walletId,
+      input.preparation.enrollmentId,
+      input.child.operationId,
+      input.child.walletKeyId,
+      input.child.targetLaneId,
+      input.child.targetLaneShareEpoch,
+      input.child.targetMaterialActivationId,
+      input.credentialIdB64u,
+    ]),
+  );
+  try {
+    const digest = new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256', canonical));
+    try {
+      return requiredDomainValue(parseLaneCustodyBindingDigestB64u(base64UrlEncode(digest)));
+    } finally {
+      digest.fill(0);
+    }
+  } finally {
+    canonical.fill(0);
+  }
+}
+
+function destroyPreparedTargetHolder(holder: PreparedTargetHolderV1): void {
+  holder.recipient.destroy();
+  holder.recipient.free();
+}
+
+function destroyPreparedTargetHolderGroup(handleId: string): void {
+  const group = preparedTargetHolderGroups.get(handleId);
+  if (!group) return;
+  preparedTargetHolderGroups.delete(handleId);
+  for (const holder of group.holdersByOperationId.values()) {
+    destroyPreparedTargetHolder(holder);
+  }
+  group.holdersByOperationId.clear();
+  group.factorSecret.fill(0);
+}
+
+async function createPreparedTargetHolder(input: {
+  readonly preparation: LinkedDeviceTargetPreparationV1;
+  readonly child: LinkedDeviceTargetPreparationChildV1;
+  readonly credentialIdB64u: string;
+}): Promise<PreparedTargetHolderV1> {
+  const recipientKeyMaterial = secureRandomBytes(32, 'linked-device lane recipient');
+  let recipient: WasmLaneHolderRecipientV1;
+  try {
+    recipient = new WasmLaneHolderRecipientV1(String(input.child.operationId), recipientKeyMaterial);
+  } finally {
+    recipientKeyMaterial.fill(0);
+  }
+  try {
+    const custodyBindingId = createTargetCustodyBindingId();
+    const custodyBindingDigestB64u = await computeTargetCustodyBindingDigest({
+      custodyBindingId,
+      preparation: input.preparation,
+      child: input.child,
+      credentialIdB64u: input.credentialIdB64u,
+    });
+    const hpkePublicKeyB64u = requiredDomainValue(
+      parseHpkePublicKeyB64u(recipient.hpke_public_key_b64u()),
+    );
+    const hpkePublicKeyDigestB64u = requiredDomainValue(
+      parseSigningWorkerRecipientKeyDigestB64u(recipient.hpke_public_key_digest_b64u()),
+    );
+    const custody = buildLaneHolderCustodyIdentityV1({
+      custodyBindingId,
+      custodyBindingDigestB64u,
+    });
+    const participantBindingDigestB64u = await computeLaneHolderParticipantBindingDigestV1({
+      participantId: input.child.targetHolderParticipantId,
+      custody,
+      hpkePublicKeyB64u,
+      hpkePublicKeyDigestB64u,
+    });
+    return {
+      child: input.child,
+      recipient,
+      participant: buildLaneHolderParticipantRecordV1({
+        participantId: input.child.targetHolderParticipantId,
+        custody,
+        hpkePublicKeyB64u,
+        hpkePublicKeyDigestB64u,
+        participantBindingDigestB64u,
+      }),
+    };
+  } catch (error) {
+    recipient.destroy();
+    recipient.free();
+    throw error;
+  }
+}
+
+async function prepareTargetHolders(
+  request: Extract<
+    DeviceLinkingKeyWorkerRequestV1,
+    { readonly kind: 'device_linking_target_holders_prepare_v1' }
+  >,
+): Promise<Extract<DeviceLinkingKeyWorkerResponseV1, { readonly orderedHolderRegistrations: unknown }>> {
+  if (!keySlots.has(request.handleId)) {
+    new Uint8Array(request.factorSecret).fill(0);
+    throw new Error('device-linking key handle is unknown or discarded');
+  }
+  if (preparedTargetHolderGroups.has(request.handleId)) {
+    new Uint8Array(request.factorSecret).fill(0);
+    throw new Error('device-linking target holders are already prepared');
+  }
+  await initializeLaneRecipientWasm();
+  const credentialIdB64u = requiredDomainValue(
+    parseWebAuthnCredentialIdB64u(request.credentialIdB64u),
+  );
+  const factorSecret = new Uint8Array(request.factorSecret);
+  const holdersByOperationId = new Map<string, PreparedTargetHolderV1>();
+  try {
+    const registrations: LinkedDeviceTargetHolderRegistrationV1[] = [];
+    for (const child of request.preparation.orderedChildren) {
+      const operationId = String(child.operationId);
+      if (holdersByOperationId.has(operationId)) {
+        throw new Error('device-linking target preparation repeats an operation');
+      }
+      const holder = await createPreparedTargetHolder({
+        preparation: request.preparation,
+        child,
+        credentialIdB64u,
+      });
+      holdersByOperationId.set(operationId, holder);
+      registrations.push({
+        kind: 'linked_device_target_holder_registration_v1',
+        operationId: child.operationId,
+        walletKeyId: child.walletKeyId,
+        keyFamily: child.keyFamily,
+        targetLaneId: child.targetLaneId,
+        targetLaneShareEpoch: child.targetLaneShareEpoch,
+        targetMaterialActivationId: child.targetMaterialActivationId,
+        holderParticipant: holder.participant,
+      });
+    }
+    const first = registrations[0];
+    if (!first) throw new Error('device-linking target preparation has no holders');
+    preparedTargetHolderGroups.set(request.handleId, {
+      walletId: request.preparation.walletId,
+      rpId: request.preparation.ownerEnrollment.registration.rpId,
+      credentialIdB64u,
+      factorSecret,
+      holdersByOperationId,
+    });
+    return {
+      orderedHolderRegistrations: [first, ...registrations.slice(1)],
+    };
+  } catch (error) {
+    for (const holder of holdersByOperationId.values()) {
+      destroyPreparedTargetHolder(holder);
+    }
+    factorSecret.fill(0);
+    throw error;
+  }
+}
+
+function assertDeliveryMatchesPreparedHolder(
+  delivery: LinkedDeviceProvisioningChildV1,
+  group: PreparedTargetHolderGroupV1,
+  holder: PreparedTargetHolderV1,
+): void {
+  const job = delivery.job;
+  const child = holder.child;
+  const participant = holder.participant;
+  if (
+    job.walletId !== group.walletId ||
+    job.operationId !== child.operationId ||
+    job.walletKeyId !== child.walletKeyId ||
+    job.keyFamily !== child.keyFamily ||
+    job.target.laneId !== child.targetLaneId ||
+    job.target.laneShareEpoch !== child.targetLaneShareEpoch ||
+    job.targetMaterialActivationId !== child.targetMaterialActivationId ||
+    job.targetHolder.participantId !== participant.participantId ||
+    job.targetHolder.custodyBindingId !== participant.custodyBindingId ||
+    job.targetHolder.custodyBindingDigestB64u !== participant.custodyBindingDigestB64u ||
+    job.targetHolder.hpkePublicKeyB64u !== participant.hpkePublicKeyB64u ||
+    job.targetHolder.hpkePublicKeyDigestB64u !== participant.hpkePublicKeyDigestB64u ||
+    job.targetHolder.participantBindingDigestB64u !== participant.participantBindingDigestB64u
+  ) {
+    throw new Error('device-linking holder delivery changed its prepared target identity');
+  }
+}
+
+function laneCustodyBindingForJob(job: RotatableSigningLaneJobV1): PasskeyCustodySecretBinding {
+  if (job.kind === 'ed25519_yao_lane_job_v1') {
+    return buildEd25519LaneHolderShareBinding({
+      walletKeyId: job.walletKeyId,
+      laneId: job.target.laneId,
+      laneShareEpoch: job.target.laneShareEpoch,
+      nearEd25519SigningKeyId: job.nearEd25519SigningKeyId,
+      registeredPublicKeyB64u: parseEd25519PublicKeyB64u(job.registeredPublicKeyB64u),
+      participantBindingDigestB64u: job.targetHolder.participantBindingDigestB64u,
+    });
+  }
+  const thresholdSession = job.targetCapability.orderedThresholdSessions[0];
+  return buildEcdsaLaneHolderShareBinding({
+    walletKeyId: job.walletKeyId,
+    laneId: job.target.laneId,
+    laneShareEpoch: job.target.laneShareEpoch,
+    evmFamilySigningKeySlotId: job.evmFamilySigningKeySlotId,
+    thresholdSessionId: thresholdSession.thresholdSessionId,
+    thresholdPublicKey33B64u: parseSecp256k1CompressedPublicKeyB64u(
+      job.thresholdPublicKey33B64u,
+    ),
+  });
+}
+
+function parseTargetSealOutput(value: unknown): Extract<
+  DeviceLinkingKeyWorkerResponseV1,
+  { readonly sealedHolderMaterialB64u: string }
+> {
+  const record = exactRecord(
+    value,
+    [
+      'sealedHolderMaterialB64u',
+      'sealedHolderRecordDigestB64u',
+      'verifiedHolderCiphertextDigestSetB64u',
+    ],
+    'device-linking target holder seal output',
+  );
+  return {
+    sealedHolderMaterialB64u: requireNonEmptyString(
+      record.sealedHolderMaterialB64u,
+      'sealedHolderMaterialB64u',
+    ),
+    sealedHolderRecordDigestB64u: parseDigest(
+      record.sealedHolderRecordDigestB64u,
+      'sealedHolderRecordDigestB64u',
+    ),
+    verifiedHolderCiphertextDigestSetB64u: parseDigest(
+      record.verifiedHolderCiphertextDigestSetB64u,
+      'verifiedHolderCiphertextDigestSetB64u',
+    ),
+  };
+}
+
+function openAndSealTargetHolder(
+  request: Extract<
+    DeviceLinkingKeyWorkerRequestV1,
+    { readonly kind: 'device_linking_target_holder_open_seal_v1' }
+  >,
+): Extract<DeviceLinkingKeyWorkerResponseV1, { readonly sealedHolderMaterialB64u: string }> {
+  const group = preparedTargetHolderGroups.get(request.handleId);
+  if (!group) throw new Error('device-linking target holders are not prepared');
+  const operationId = String(request.delivery.job.operationId);
+  const holder = group.holdersByOperationId.get(operationId);
+  if (!holder) throw new Error('device-linking target holder is unknown or consumed');
+  assertDeliveryMatchesPreparedHolder(request.delivery, group, holder);
+  const factor = buildPasskeyEnvelopeFactor({
+    rpId: group.rpId,
+    credentialIdB64u: requiredDomainValue(
+      parseWebAuthnCredentialIdB64u(group.credentialIdB64u),
+    ),
+  });
+  const envelopeBinding = {
+    walletId: group.walletId,
+    envelopeId: holder.participant.custodyBindingId,
+    factor,
+    envelopeRevision: 1,
+    binding: laneCustodyBindingForJob(request.delivery.job),
+  };
+  const custody = new WasmLaneCustodySealV1(
+    'passkey',
+    group.factorSecret,
+    JSON.stringify(envelopeBinding),
+    String(holder.participant.custodyBindingId),
+    String(holder.participant.custodyBindingDigestB64u),
+  );
+  const nonce = secureRandomBytes(12, 'linked-device lane custody seal');
+  group.holdersByOperationId.delete(operationId);
+  try {
+    return parseTargetSealOutput(
+      holder.recipient.open_and_seal(
+        custody,
+        JSON.stringify(request.delivery.job),
+        JSON.stringify(request.delivery.protocolCommitReceipt),
+        JSON.stringify(request.delivery.holderPackage),
+        nonce,
+      ),
+    );
+  } finally {
+    nonce.fill(0);
+    custody.free();
+    destroyPreparedTargetHolder(holder);
+    if (group.holdersByOperationId.size === 0) {
+      preparedTargetHolderGroups.delete(request.handleId);
+      group.factorSecret.fill(0);
+    }
+  }
+}
+
 async function handleRequest(
   rawRequest: unknown,
   signingMaterialFactory: DeviceLinkingHolderSigningMaterialFactoryV1,
@@ -1056,6 +1490,10 @@ async function handleRequest(
       keySlots.set(generated.result.handleId, generated.slot);
       return generated.result;
     }
+    case 'device_linking_target_holders_prepare_v1':
+      return await prepareTargetHolders(request);
+    case 'device_linking_target_holder_open_seal_v1':
+      return openAndSealTargetHolder(request);
     case 'device_linking_request_sign_v1':
       return await signRequest(request);
     case 'device_linking_holder_signing_material_open_v1':
@@ -1067,6 +1505,7 @@ async function handleRequest(
       return undefined;
     case 'device_linking_key_material_discard_v1':
       {
+        destroyPreparedTargetHolderGroup(request.handleId);
         keySlots.delete(request.handleId);
       }
       return undefined;
@@ -1122,6 +1561,9 @@ export function installDeviceLinkingKeyWorkerV1(
           linkedHolderPresignPort?.close();
           linkedHolderPresignPort = null;
           linkedHolderOpaquePresignAuthority.close();
+          for (const handleId of preparedTargetHolderGroups.keys()) {
+            destroyPreparedTargetHolderGroup(handleId);
+          }
           keySlots.clear();
           for (const handleId of holderSigningMaterialSlots.keys()) {
             discardHolderSigningMaterial(handleId);

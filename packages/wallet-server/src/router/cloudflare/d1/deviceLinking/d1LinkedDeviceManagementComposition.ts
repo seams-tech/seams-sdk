@@ -35,12 +35,14 @@ import {
 import type {
   LinkedDeviceLocalStateInvalidationPortV1,
   LinkedDeviceManagementTargetV1,
+  LinkedDeviceOwnerCredentialRevocationPortV1,
   LinkedDeviceRevocationPlanV1,
   LinkedDeviceRevocationPreparationPortV1,
   LinkedDeviceWalletSessionRevocationTargetV1,
   LinkedDeviceWalletSessionRevocationPortV1,
 } from '../../../../core/deviceLinking/linkedDeviceManagement';
 import type { AuthorizationService } from '../../../../authorization/service';
+import type { CloudflareD1WalletAuthMethodService } from '../wallet/d1WalletAuthMethodService';
 import type { DeviceLinkingRouteServiceV1 } from '../../../transport/fetch/routes/deviceLinking';
 import type { DeviceManagementRouteServiceV1 } from '../../../transport/fetch/routes/deviceManagement';
 import type { LaneAggregateRevocationRequestV1 } from '../../../../core/signingLanes/LaneAggregateRevocationApplicationService';
@@ -309,6 +311,30 @@ export class AuthorizationServiceLinkedDeviceWalletSessionRevocationV1 implement
       default:
         return assertNeverLinkedDeviceWalletSessionStatus(status);
     }
+  }
+}
+
+/** Reuses the canonical wallet-auth-method mutation for an authenticated owner. */
+export class D1LinkedDeviceOwnerCredentialRevocationV1
+  implements LinkedDeviceOwnerCredentialRevocationPortV1
+{
+  constructor(
+    private readonly walletAuthMethods: Pick<
+      CloudflareD1WalletAuthMethodService,
+      'revokeWalletAuthMethodForOwnerSessionV1'
+    >,
+  ) {}
+
+  async revokeLinkedDeviceOwnerCredentialV1(input: {
+    readonly target: LinkedDeviceManagementTargetV1;
+    readonly requestedAtMs: number;
+  }): Promise<{ readonly kind: 'applied' | 'replayed' | 'conflict' }> {
+    const result = await this.walletAuthMethods.revokeWalletAuthMethodForOwnerSessionV1({
+      walletId: input.target.summary.walletId,
+      walletAuthMethodId: input.target.summary.credential.walletAuthMethodId,
+      requestedAtMs: input.requestedAtMs,
+    });
+    return result;
   }
 }
 

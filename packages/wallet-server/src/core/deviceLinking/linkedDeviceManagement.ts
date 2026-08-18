@@ -48,7 +48,7 @@ export const MAX_LINKED_DEVICE_LIST_LIMIT_V1 = 50;
  */
 export type LinkedDeviceManagementOwnerV1 = Pick<
   LinkedDeviceOwnerAuthorizationContextV1,
-  'walletId' | 'expiresAtMs'
+  'walletId' | 'walletSessionId' | 'authorizationId' | 'expiresAtMs'
 >;
 
 export type LinkedDeviceManagementProjectionPortV1 = {
@@ -122,10 +122,19 @@ export type LinkedDeviceLocalStateInvalidationPortV1 = {
   }): Promise<{ readonly kind: 'applied' | 'replayed' | 'conflict' }>;
 };
 
+export type LinkedDeviceOwnerCredentialRevocationPortV1 = {
+  revokeLinkedDeviceOwnerCredentialV1(input: {
+    readonly target: LinkedDeviceManagementTargetV1;
+    readonly owner: LinkedDeviceManagementOwnerV1;
+    readonly requestedAtMs: number;
+  }): Promise<{ readonly kind: 'applied' | 'replayed' | 'conflict' }>;
+};
+
 export type LinkedDeviceManagementServiceOptionsV1 = {
   readonly projection: LinkedDeviceManagementProjectionPortV1;
   readonly preparation: LinkedDeviceRevocationPreparationPortV1;
   readonly aggregateRevocation: LinkedDeviceAggregateRevocationPortV1;
+  readonly ownerCredentialRevocation: LinkedDeviceOwnerCredentialRevocationPortV1;
   readonly walletSessionRevocation: LinkedDeviceWalletSessionRevocationPortV1;
   readonly localStateInvalidation: LinkedDeviceLocalStateInvalidationPortV1;
 };
@@ -178,6 +187,14 @@ export class LinkedDeviceManagementServiceV1 {
     });
     if (prepared.kind === 'not_found' || prepared.kind === 'conflict') return prepared;
     assertRevocationPlanMatchesRequest(prepared.plan, request);
+
+    const ownerCredential =
+      await this.options.ownerCredentialRevocation.revokeLinkedDeviceOwnerCredentialV1({
+        target: prepared.plan.target,
+        owner,
+        requestedAtMs: request.requestedAtMs,
+      });
+    if (ownerCredential.kind === 'conflict') return { kind: 'conflict' };
 
     const fence = await this.options.aggregateRevocation.fenceLaneEnrollmentV1(
       prepared.plan.aggregate.command,

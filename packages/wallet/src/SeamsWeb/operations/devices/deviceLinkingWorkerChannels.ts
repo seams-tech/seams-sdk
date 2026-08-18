@@ -1,11 +1,18 @@
 import {
   encodeLinkedDeviceRequestProofV1,
+  parseLinkedDeviceProvisioningChildV1,
+  parseLinkedDeviceTargetPreparationV1,
+  parseLinkedDeviceTargetCredentialRegistrationV1,
   parseLinkDevicePublicKeyB64u,
+  type LinkedDeviceTargetHolderRegistrationV1,
+  type LinkedDeviceProvisioningChildV1,
+  type LinkedDeviceTargetPreparationV1,
   type LinkedDeviceRequestProofV1,
 } from '@shared/device-linking';
 import type {
   LaneProtocolCommitReceiptV1,
   RotatableSigningLaneJobV1,
+  SealedLaneHolderMaterialV1,
 } from '@shared/signing-lanes/rotation';
 import {
   parseLaneProtocolCommitReceiptV1,
@@ -50,6 +57,18 @@ export type DeviceLinkingWorkerKeyMaterialPortV1 = DeviceLinkingKeyMaterialPortV
 
 type DeviceLinkingWorkerRequestV1 =
   | { readonly kind: 'device_linking_key_material_create_v1' }
+  | {
+      readonly kind: 'device_linking_target_holder_open_seal_v1';
+      readonly handleId: string;
+      readonly delivery: LinkedDeviceProvisioningChildV1;
+    }
+  | {
+      readonly kind: 'device_linking_target_holders_prepare_v1';
+      readonly handleId: string;
+      readonly preparation: LinkedDeviceTargetPreparationV1;
+      readonly credentialIdB64u: string;
+      readonly factorSecret: ArrayBuffer;
+    }
   | {
       readonly kind: 'device_linking_holder_signing_material_open_v1';
       readonly factorSecret: ArrayBuffer;
@@ -102,7 +121,6 @@ type PendingRequestV1 = {
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
-
 function requireRecord(value: unknown, label: string): Record<string, unknown> {
   if (!isRecord(value)) throw new Error(`${label} must be an object`);
   return value;
@@ -259,6 +277,85 @@ function parseSignatureResult(value: unknown): { readonly signatureB64u: string 
   const record = exactRecord(value, ['signatureB64u'], 'device-linking request signature response');
   return {
     signatureB64u: parseFixedB64u(record.signatureB64u, 64, 'signatureB64u'),
+  };
+}
+
+function parseTargetHolderResult(
+  value: unknown,
+  preparation: LinkedDeviceTargetPreparationV1,
+  credentialIdB64u: string,
+): {
+  readonly orderedHolderRegistrations: readonly [
+    LinkedDeviceTargetHolderRegistrationV1,
+    ...LinkedDeviceTargetHolderRegistrationV1[],
+  ];
+} {
+  const record = exactRecord(
+    value,
+    ['orderedHolderRegistrations'],
+    'device-linking target holder response',
+  );
+  const registration = parseLinkedDeviceTargetCredentialRegistrationV1({
+    kind: 'linked_device_target_credential_registration_v1',
+    linkSessionId: preparation.linkSessionId,
+    walletId: preparation.walletId,
+    enrollmentId: preparation.enrollmentId,
+    deviceId: preparation.deviceId,
+    targetPreparationDigestB64u: base64UrlEncode(new Uint8Array(32)),
+    webauthnRegistration: {
+      kind: 'linked_device_webauthn_registration_v1',
+      credentialIdB64u,
+      authenticatorAttachment: null,
+      clientDataJsonB64u: base64UrlEncode(new Uint8Array([1])),
+      attestationObjectB64u: base64UrlEncode(new Uint8Array([1])),
+      transports: [],
+    },
+    orderedHolderRegistrations: record.orderedHolderRegistrations,
+    registeredAtMs: 1,
+  });
+  if (registration.orderedHolderRegistrations.length !== preparation.orderedChildren.length) {
+    throw new Error('device-linking worker returned the wrong holder child count');
+  }
+  for (let index = 0; index < preparation.orderedChildren.length; index += 1) {
+    const child = preparation.orderedChildren[index];
+    const holder = registration.orderedHolderRegistrations[index];
+    if (
+      !child ||
+      !holder ||
+      holder.operationId !== child.operationId ||
+      holder.walletKeyId !== child.walletKeyId ||
+      holder.keyFamily !== child.keyFamily ||
+      holder.targetLaneId !== child.targetLaneId ||
+      holder.targetLaneShareEpoch !== child.targetLaneShareEpoch ||
+      holder.targetMaterialActivationId !== child.targetMaterialActivationId ||
+      holder.holderParticipant.participantId !== child.targetHolderParticipantId
+    ) {
+      throw new Error('device-linking worker changed an admitted holder child');
+    }
+  }
+  return { orderedHolderRegistrations: registration.orderedHolderRegistrations };
+}
+
+function parseSealedHolderResult(value: unknown): SealedLaneHolderMaterialV1 {
+  const record = exactRecord(
+    value,
+    [
+      'sealedHolderMaterialB64u',
+      'sealedHolderRecordDigestB64u',
+      'verifiedHolderCiphertextDigestSetB64u',
+    ],
+    'device-linking sealed holder response',
+  );
+  return {
+    sealedHolderMaterialB64u: nonEmpty(record.sealedHolderMaterialB64u, 'sealedHolderMaterialB64u'),
+    sealedHolderRecordDigestB64u: parseDigest(
+      record.sealedHolderRecordDigestB64u,
+      'sealedHolderRecordDigestB64u',
+    ),
+    verifiedHolderCiphertextDigestSetB64u: parseDigest(
+      record.verifiedHolderCiphertextDigestSetB64u,
+      'verifiedHolderCiphertextDigestSetB64u',
+    ),
   };
 }
 
@@ -472,6 +569,45 @@ export function createDeviceLinkingKeyMaterialPortV1(
     async discardKeyMaterialV1(input) {
       const handle = parseHandle(input.handle);
       await request({ kind: 'device_linking_key_material_discard_v1', handleId: handle.handleId });
+    },
+    async prepareTargetHolderRegistrationsV1(input) {
+      const handle = parseHandle(input.handle);
+      const preparation = parseLinkedDeviceTargetPreparationV1(input.preparation);
+      if (!(input.factorSecret instanceof ArrayBuffer) || input.factorSecret.byteLength !== 32) {
+        throw new Error('device-linking target holder factorSecret must be 32 bytes');
+      }
+      return parseTargetHolderResult(
+        await request(
+          {
+            kind: 'device_linking_target_holders_prepare_v1',
+            handleId: handle.handleId,
+            preparation,
+            credentialIdB64u: input.credentialIdB64u,
+            factorSecret: input.factorSecret,
+          },
+          [input.factorSecret],
+        ),
+        preparation,
+        input.credentialIdB64u,
+      );
+    },
+    async openAndSealTargetHolderDeliveryV1(input) {
+      const handle = parseHandle(input.handle);
+      const delivery = parseLinkedDeviceProvisioningChildV1(input.delivery);
+      const output = parseSealedHolderResult(
+        await request({
+          kind: 'device_linking_target_holder_open_seal_v1',
+          handleId: handle.handleId,
+          delivery,
+        }),
+      );
+      if (
+        output.verifiedHolderCiphertextDigestSetB64u !==
+        delivery.protocolCommitReceipt.targetHolderCiphertextDigestSetB64u
+      ) {
+        throw new Error('device-linking worker returned the wrong holder ciphertext digest');
+      }
+      return output;
     },
     async openPersistedHolderSigningMaterialV1(input) {
       if (!(input.factorSecret instanceof ArrayBuffer) || input.factorSecret.byteLength !== 32) {

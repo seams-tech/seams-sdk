@@ -154,7 +154,8 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
   const canManageLinkedDevices = accountMenuCapabilities.canManageLinkedDevices;
   const handleQrCodeScanned = useCallback(() => {
     setShowQRScanner(false);
-  }, []);
+    handleClose();
+  }, [handleClose]);
 
   useEffect(() => {
     if (!canShowRecoveryCodes) {
@@ -361,10 +362,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
         id: PROFILE_MENU_ITEM_IDS.EXPORT_KEYS,
         icon: exportLoadingChain ? <SpinnerIcon /> : <KeyIcon />,
         label: 'Export Keys',
-        description:
-          accountMenuCapabilities.kind === 'signing_only'
-            ? 'Unavailable on signing-only devices'
-            : 'Export wallet signing keys',
+        description: 'Export wallet signing keys',
         disabled: !accountMenuCapabilities.canExportKeys,
         onClick: () => {
           setExportKeysOpen((v) => !v);
@@ -387,15 +385,12 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
 
     if (accountMenuCapabilities.kind !== 'signed_out') {
       const canManageLinkedDevices = accountMenuCapabilities.canManageLinkedDevices;
-      const linkedDeviceDescription = canManageLinkedDevices
-        ? 'Scan QR to link a device'
-        : 'Available on the owner device';
       items.push(
         {
           id: PROFILE_MENU_ITEM_IDS.SCAN_LINK_DEVICE,
           icon: <ScanIcon />,
           label: 'Scan and Link Device',
-          description: linkedDeviceDescription,
+          description: 'Scan QR to link a device',
           disabled: !canManageLinkedDevices,
           onClick: () => {
             setShowQRScanner(true);
@@ -406,9 +401,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
           id: PROFILE_MENU_ITEM_IDS.LINKED_DEVICES,
           icon: <LinkIcon />,
           label: 'Linked Devices',
-          description: canManageLinkedDevices
-            ? 'See devices using this wallet'
-            : linkedDeviceDescription,
+          description: 'See devices using this wallet',
           disabled: !canManageLinkedDevices,
           onClick: () => setShowLinkedDevices(true),
           keepOpenOnClick: true,
@@ -520,10 +513,12 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
             onError={(error) => {
               deviceLinkingScannerParams?.onError?.(error);
               setShowQRScanner(false);
+              handleClose();
             }}
             onClose={() => {
               deviceLinkingScannerParams?.onClose?.();
               setShowQRScanner(false);
+              handleClose();
             }}
             onEvent={(event) => deviceLinkingScannerParams?.onEvent?.(event)}
           />,

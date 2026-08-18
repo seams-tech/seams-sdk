@@ -434,15 +434,10 @@ export type LinkedDeviceSessionTargetCredentialInputV1 = {
   readonly nowMs: number;
 };
 
-/**
- * Phase 8 keeps the existing R102 provisioning state until the lane cutover
- * removes the human linked-session path. This operation records the canonical
- * finalize at that boundary without activating a lane or inventing a receipt.
- */
+/** Reserves the current session revision for the owner-credential commit. */
 export type LinkedOwnerEnrollmentCompletionInputV1 = {
   readonly linkSessionId: LinkDeviceSessionId;
   readonly expectedRevision: number;
-  readonly keyManifestDigestB64u: DigestB64u;
   readonly nowMs: number;
 };
 
@@ -454,14 +449,10 @@ export type LinkedOwnerEnrollmentCompletionResultV1 =
  * A completion that has passed its preconditions but has not been written.
  *
  * Device 2's owner finalize commits a credential it cannot take back, so the
- * session advance has to share that commit rather than follow it. This is the
+ * session reservation has to share that commit rather than follow it. This is the
  * half a transport-agnostic service can produce: the validated next record and
  * the revision it must still be at. Turning it into a write belongs to the
  * store, which is the only layer that knows what a batch is.
- *
- * `replayed` is separated from `prepared` because a replay has nothing to
- * write — the session already reached this state — and must not contribute a
- * CAS that would then fail against its own completed work.
  */
 export type LinkedOwnerEnrollmentCompletionPlanV1 =
   | {
@@ -471,7 +462,6 @@ export type LinkedOwnerEnrollmentCompletionPlanV1 =
       readonly nextRecord: LinkedDeviceSessionRecordV1;
       readonly nowMs: number;
     }
-  | { readonly outcome: 'replayed'; readonly record: LinkedDeviceSessionRecordV1 }
   | LinkedOwnerEnrollmentCompletionRefusalV1;
 
 /**
@@ -859,17 +849,7 @@ export class LinkedDeviceSessionServiceV1 {
   ): Promise<LinkedOwnerEnrollmentCompletionPlanV1> {
     try {
       requireTimestamp(input.nowMs, 'nowMs');
-      const keyManifestDigestB64u = requireDigest(
-        input.keyManifestDigestB64u,
-        'keyManifestDigestB64u',
-      );
       const existing = await this.requireSession(input.linkSessionId);
-      if (
-        existing.state.state === 'provisioning' &&
-        existing.state.keyManifestDigestB64u === keyManifestDigestB64u
-      ) {
-        return { outcome: 'replayed', record: existing };
-      }
       if (existing.state.state !== 'awaiting_target_passkey') {
         return { outcome: 'invalid_state', state: existing.state.state, record: existing };
       }
@@ -881,7 +861,7 @@ export class LinkedDeviceSessionServiceV1 {
         linkSessionId: input.linkSessionId,
         expectedRevision: input.expectedRevision,
         nextRecord: replaceSessionRecordV1(existing, {
-          state: provisioningStateV1(existing, keyManifestDigestB64u),
+          state: existing.state,
           revision: existing.revision + 1,
           updatedAtMs: input.nowMs,
         }),

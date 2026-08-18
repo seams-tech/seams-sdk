@@ -106,7 +106,10 @@ function activeCapabilityFixture(
       signingWorkerId: SIGNING_WORKER_ID,
     },
     stateEpoch: 2,
-    registrationContinuity: { kind: 'recovery' },
+    registrationContinuity: {
+      kind: 'recovery',
+      activationTranscript: bytes32(81),
+    },
   };
 }
 

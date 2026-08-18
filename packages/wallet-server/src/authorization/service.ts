@@ -131,6 +131,12 @@ export interface AuthorizationEvidencePort {
 }
 
 export interface AuthorizationGrantPort {
+  revokeReusableWalletSessionsForAuthMethod(input: {
+    readonly tenantId: TenantId;
+    readonly walletId: WalletId;
+    readonly walletAuthMethodId: WalletAuthMethodId;
+    readonly nowMs: number;
+  }): Promise<void>;
   putWalletSessionAuthorization(input: {
     readonly session: WalletSessionAuthorization;
     readonly quota: ActiveWalletSessionQuota;
@@ -605,6 +611,15 @@ export class AuthorizationService {
     readonly nowMs: number;
   }): Promise<ReusableWalletSessionStatus> {
     return await this.ports.sessions.readReusableWalletSessionStatus(input);
+  }
+
+  async revokeReusableWalletSessionsForAuthMethod(input: {
+    readonly tenantId: TenantId;
+    readonly walletId: WalletId;
+    readonly walletAuthMethodId: WalletAuthMethodId;
+    readonly nowMs: number;
+  }): Promise<void> {
+    await this.ports.grants.revokeReusableWalletSessionsForAuthMethod(input);
   }
 
   async mintHostedWalletSeamsSessionExchange(input: {

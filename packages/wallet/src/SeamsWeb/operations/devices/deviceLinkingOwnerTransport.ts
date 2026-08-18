@@ -1,9 +1,13 @@
 import {
   parseLinkedDeviceApprovalResultV1,
+  parseLinkedDeviceProvisioningDeliveriesSubmissionV1,
   parseLinkedDeviceSessionClaimV1,
+  parseLinkedDeviceTargetReadyR102InputV1,
 } from '@shared/device-linking';
 import type {
   LinkedDeviceApprovalResultV1,
+  LinkedDeviceProvisioningDeliveriesSubmissionV1,
+  LinkedDeviceTargetReadyR102InputV1,
 } from '@shared/device-linking';
 import { parseLinkDeviceSessionId, type LinkDeviceSessionId } from '@shared/signing-lanes/ids';
 import { parseLinkedDeviceCustodyTransferRecipientV1 } from '@shared/device-linking/custodyTransfer';
@@ -68,6 +72,24 @@ export function createDeviceLinkingOwnerTransportV1(
       return parseOwnerResponseV1(response, parseLinkedDeviceApprovalResultV1);
     },
     getApprovalV1: options.approvalUpdates.getApprovalV1,
+    getTargetReadyV1: async (input) => {
+      const response = await options.request.requestOwnerV1({
+        method: 'GET',
+        canonicalPath: `${sessionPath(input.linkSessionId)}/target-ready`,
+        authentication: input.authentication,
+      });
+      if (response.status === 404) return null;
+      return parseOwnerResponseV1(response, parseLinkedDeviceTargetReadyR102InputV1);
+    },
+    submitPreparedProvisioningDeliveriesV1: async (input) => {
+      const response = await options.request.requestOwnerV1({
+        method: 'POST',
+        canonicalPath: `${sessionPath(input.submission.linkSessionId)}/prepared-deliveries`,
+        body: input.submission,
+        authentication: input.authentication,
+      });
+      return parseOwnerResponseV1(response, parseLinkedDeviceProvisioningDeliveriesSubmissionV1);
+    },
     getCustodyTransferRecipientV1: async (input) => {
       const response = await options.request.requestOwnerV1({
         method: 'GET',
@@ -76,7 +98,7 @@ export function createDeviceLinkingOwnerTransportV1(
       });
       // Device 2 has not published a recipient key yet. Normal while the
       // target device is still preparing, so it is a value rather than a throw.
-      if (response.status === 404) return null;
+      if (response.status === 204) return null;
       return parseOwnerResponseV1(response, parseLinkedDeviceCustodyTransferRecipientV1);
     },
     submitCustodyTransferPackageV1: async (input) => {

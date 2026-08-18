@@ -1124,7 +1124,7 @@ async function handleCustodyTransferRecipient(
     const owner = await authenticateOwnerForSession(ctx, service, rawLinkSessionId, nowMs);
     if (owner.kind !== 'authorized') return ownerSessionAuthResponse(owner);
     const transfer = await custodyTransfer.readTransferV1(owner.linkSessionId);
-    if (!transfer) return notFoundResponse();
+    if (!transfer) return new Response(null, { status: 204 });
     return json(transfer.recipient, { status: 200 });
   }
   if (ctx.method !== 'POST') return methodNotAllowedResponse();
@@ -1172,7 +1172,7 @@ async function handleCustodyTransfer(
     if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
     if (authenticated.kind === 'not_found') return notFoundResponse();
     const transfer = await custodyTransfer.readTransferV1(authenticated.linkSessionId);
-    if (!transfer || transfer.state !== 'sealed') return notFoundResponse();
+    if (!transfer || transfer.state !== 'sealed') return new Response(null, { status: 204 });
     return json(transfer.package, { status: 200 });
   }
   if (ctx.method !== 'POST') return methodNotAllowedResponse();

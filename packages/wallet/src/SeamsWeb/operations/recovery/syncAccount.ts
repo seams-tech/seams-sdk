@@ -24,8 +24,15 @@ import {
 } from '@/core/signingEngine/flows/recovery/passkeyEd25519YaoRecovery';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { errorMessage } from '@shared/utils/errors';
-import { walletIdFromString } from '@shared/utils/registrationIntent';
-import { parseThresholdEd25519SessionId, parseWebAuthnRpId } from '@shared/utils/domainIds';
+import {
+  nearEd25519SigningKeyIdFromString,
+  walletIdFromString,
+} from '@shared/utils/registrationIntent';
+import {
+  parseThresholdEd25519SessionId,
+  parseWebAuthnCredentialIdB64u,
+  parseWebAuthnRpId,
+} from '@shared/utils/domainIds';
 import { isPlainObject } from '@shared/utils/validation';
 import { IndexedDBManager, walletSessionAuthorizations } from '@/core/indexedDB';
 import { storeNearThresholdKeyMaterial } from '@/core/accountData/near/keyMaterial';
@@ -33,7 +40,7 @@ import { persistPasskeyEd25519YaoSignerMaterialV1 } from '@/core/signingEngine/s
 import { persistActiveWalletSessionAuthorizationCurve } from '@/core/signingEngine/session/persistence/walletSessionAuthorizationProjection';
 import { buildThresholdEd25519Participants2pV1 } from '@shared/threshold/participants';
 import {
-  assertSameRecoveryResolvedWalletBinding,
+  assertSameRecoveryWalletIdentity,
   parseRecoveryResolvedWalletBindingFromResponse,
   type RecoveryResolvedWalletBinding,
 } from './recoveryWalletBinding';
@@ -461,7 +468,7 @@ function assertRecoveredCapabilityBinding(input: {
   readonly selectedCredentialId: string;
 }): void {
   if (input.optionsBinding) {
-    assertSameRecoveryResolvedWalletBinding(
+    assertSameRecoveryWalletIdentity(
       input.optionsBinding,
       input.verifiedBinding,
       'sync-account/verify',
@@ -503,9 +510,6 @@ function walletCustodyActivationFacts(
   parsed: ParsedPasskeyEd25519YaoSyncResponseV1,
 ): WalletCustodyActivationFactsV1 {
   const continuity = parsed.capability.registrationContinuity;
-  if (continuity.kind !== 'registration') {
-    throw new Error('wallet custody cold unlock requires registration continuity');
-  }
   return {
     materialActivation: parsed.capability.materialActivation,
     lifecycleId: parsed.capability.lifecycle.lifecycleId,
@@ -943,6 +947,22 @@ async function persistRecoveredPasskey(input: {
     status: 'near_ready',
     nearAccountId: parsed.nearAccountId,
   });
+  const walletAuthenticators = await IndexedDBManager.listWalletPasskeyAuthenticators(
+    String(parsed.walletId),
+  );
+  const existingAuthenticator = walletAuthenticators.find(
+    (authenticator) => authenticator.credentialId === parsed.credentialIdB64u,
+  );
+  if (existingAuthenticator) {
+    if (
+      existingAuthenticator.signerSlot !== parsed.signerSlot ||
+      base64UrlEncode(existingAuthenticator.credentialPublicKey) !==
+        parsed.credentialPublicKeyB64u
+    ) {
+      throw new Error('Stored linked passkey authenticator does not match account sync');
+    }
+    return;
+  }
   await input.context.signingEngine.storeAuthenticator({
     nearAccountId: parsed.nearAccountId,
     credentialId: parsed.credentialIdB64u,

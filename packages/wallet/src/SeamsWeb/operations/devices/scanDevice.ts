@@ -3,14 +3,16 @@ import { DeviceLinkingError, DeviceLinkingErrorCode } from '@/core/types/linkDev
 import {
   buildLinkedDeviceApprovalV1,
   buildLinkedDeviceSessionClaimRequestV1,
+  parseLinkedDeviceProvisioningDeliveriesSubmissionV1,
   parseQrLinkedDeviceSessionPayloadV4,
 } from '@shared/device-linking';
 import type {
-  LinkedDeviceSessionClaimV1,
+  LinkedDeviceEnrollmentReceiptV1,
   LinkedDeviceOwnerAuthorizationSourceV1,
   LinkedDeviceCustodyTransferPackageV1,
   QrLinkedDeviceSessionPayloadV4,
 } from '@shared/device-linking';
+import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
   createLinkDeviceFlowEvent,
   LinkDeviceEventPhase,
@@ -18,12 +20,15 @@ import {
 } from '@/core/types/sdkSentEvents';
 import type {
   Device1LinkingFlowPortsV1,
+  Device1TargetReadySourceInputV1,
   LinkedDeviceApprovalResultV1,
   LinkSessionOwnerTransportPortV1,
   LinkSessionSubscriptionV1,
 } from './deviceLinkingPorts';
 import { errorMessage } from '@shared/utils/errors';
 import type { UnlockedWalletCustodyTransferCapabilityV1 } from '@/core/signingEngine/workerManager/workerTypes';
+import { computeLaneEnrollmentManifestDigestV1 } from '@shared/signing-lanes/rotationDigests';
+import { alphabetizeStringify } from '@shared/utils/digests';
 import { nextLinkedDevicePollingDelayMsV1 } from './deviceLinkingHttpTransport';
 import { LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1 } from '@shared/device-linking/requestProof';
 
@@ -186,7 +191,11 @@ export async function scanAndLinkDevice(
       orderedKeyBindings: owner.orderedKeyBindings,
       protocolVersions: owner.protocolVersions,
       approvedAtMs,
-      expiresAtMs: Math.min(owner.expiresAtMs, claim.claimExpiresAtMs),
+      expiresAtMs: Math.min(
+        owner.expiresAtMs,
+        claim.claimExpiresAtMs,
+        ownerEnrollment.ceremony.expiresAtMs,
+      ),
     });
     const recorded = await ports.transport.recordOwnerApprovalV1({
       approval,
@@ -214,6 +223,7 @@ export async function scanAndLinkDevice(
       walletId: claim.walletId,
       enrollmentId: claim.enrollmentId,
       deviceId: claim.deviceId,
+      sourcePreparation: ports.sourcePreparation,
       custodyTransfer: ports.custodyTransfer,
       custodyTransferCapability: owner.custodyTransferCapability,
     });
@@ -223,7 +233,12 @@ export async function scanAndLinkDevice(
       enrollmentId: claim.enrollmentId,
       deviceId: claim.deviceId,
     } as const;
-    const result: LinkDeviceResult = { ...identity, kind: completion.kind };
+    const result: LinkDeviceResult = {
+      ...identity,
+      kind: 'lane_enrollment_complete',
+      manifestDigestB64u: completion.manifestDigestB64u,
+      receipt: completion.receipt,
+    };
     emitScannerEvent(options.onEvent, parsedQrData, {
       phase: LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED,
       status: 'succeeded',
@@ -254,53 +269,40 @@ export async function scanAndLinkDevice(
 /**
  * How the enrollment this scanner authorized finished.
  *
- * Refactor 103 Phase 8: the canonical owner finalize commits Device 2's
- * credential and advances the link session in one transaction, so the moment
- * the session leaves `awaiting_target_passkey` the handoff is done. Device 1
- * has nothing left to contribute and must not wait on the R102 lane enrollment
- * that used to follow — on the canonical path it never runs, so waiting on it
- * would hold the scanner open until the session expired.
+ * Device 1 completes only after the target's per-device lanes have reached the
+ * aggregate receipt. The canonical owner finalize advances the session to
+ * `provisioning`; it does not replace the additive lane enrollment.
  */
-type CompletedApprovalResult = { readonly kind: 'owner_handoff_complete' };
+type CompletedApprovalResult = {
+  readonly kind: 'lane_enrollment_complete';
+  readonly manifestDigestB64u: DigestB64u;
+  readonly receipt: LinkedDeviceEnrollmentReceiptV1;
+};
 
 function completedApprovalFromResult(
   result: LinkedDeviceApprovalResultV1,
 ): CompletedApprovalResult | null {
   switch (result.outcome) {
     case 'active':
-      throw new Error('linked-device approval returned the retired active state');
+      return {
+        kind: 'lane_enrollment_complete',
+        manifestDigestB64u: result.receipt.manifestDigestB64u,
+        receipt: result.receipt,
+      };
     case 'pending':
-      return ownerHandoffFromPendingState(result.state);
+      return null;
     case 'replayed':
       if (result.replay.state === 'active') {
-        throw new Error('linked-device approval replay returned the retired active state');
+        return {
+          kind: 'lane_enrollment_complete',
+          manifestDigestB64u: result.replay.receipt.manifestDigestB64u,
+          receipt: result.replay.receipt,
+        };
       }
-      return ownerHandoffFromPendingState(result.replay.session);
+      return null;
     default: {
       const exhaustive: never = result;
       throw new Error(`unsupported approval result: ${String(exhaustive)}`);
-    }
-  }
-}
-
-/**
- * A session still reported as pending, read for whether the owner finalize has
- * already landed. `provisioning` is the state that finalize advances to, and it
- * is only reachable through it.
- */
-function ownerHandoffFromPendingState(
-  state: Extract<LinkedDeviceApprovalResultV1, { readonly outcome: 'pending' }>['state'],
-): CompletedApprovalResult | null {
-  switch (state.state) {
-    case 'provisioning':
-      return { kind: 'owner_handoff_complete' };
-    case 'awaiting_target_passkey':
-      return null;
-    case 'committed_completion_required':
-      throw new Error('linked-device session is in the retired committed state');
-    default: {
-      const exhaustive: never = state;
-      throw new Error(`unsupported pending session state: ${String(exhaustive)}`);
     }
   }
 }
@@ -313,15 +315,17 @@ async function awaitApprovalCompletionV1(input: {
     LinkSessionOwnerTransportPortV1['getApprovalV1']
   >[0]['authentication'];
   readonly expiresAtMs: number;
-  readonly walletId: LinkedDeviceSessionClaimV1['walletId'];
-  readonly enrollmentId: LinkedDeviceSessionClaimV1['enrollmentId'];
-  readonly deviceId: LinkedDeviceSessionClaimV1['deviceId'];
+  readonly walletId: Device1TargetReadySourceInputV1['walletId'];
+  readonly enrollmentId: Device1TargetReadySourceInputV1['enrollmentId'];
+  readonly deviceId: Device1TargetReadySourceInputV1['deviceId'];
+  readonly sourcePreparation: Device1LinkingFlowPortsV1['sourcePreparation'];
   readonly custodyTransfer: Device1LinkingFlowPortsV1['custodyTransfer'];
   readonly custodyTransferCapability: UnlockedWalletCustodyTransferCapabilityV1;
 }): Promise<CompletedApprovalResult> {
   const immediate = completedApprovalFromResult(input.result);
   if (immediate) return immediate;
   let latestResult: LinkedDeviceApprovalResultV1 | null = input.result;
+  let sourceHandoffComplete = false;
   let custodyTransferSubmitted = false;
   let sealedCustodyPackage: LinkedDeviceCustodyTransferPackageV1 | null = null;
   let pollAttempt = 0;
@@ -342,6 +346,9 @@ async function awaitApprovalCompletionV1(input: {
       if (observed) {
         pollAttempt = 0;
         completed = completedApprovalFromResult(observed);
+        if (!completed && !sourceHandoffComplete) {
+          sourceHandoffComplete = await preparePendingSourceHandoffV1(input, observed);
+        }
       }
       // Independent of the approval state: Device 2 publishes its recipient
       // before prompting for its own passkey, so this is ready to seal while
@@ -433,6 +440,55 @@ function readErrorStatusV1(error: unknown): number | null {
   return typeof status === 'number' && Number.isSafeInteger(status) ? status : null;
 }
 
+async function preparePendingSourceHandoffV1(
+  input: Parameters<typeof awaitApprovalCompletionV1>[0],
+  result: LinkedDeviceApprovalResultV1,
+): Promise<boolean> {
+  const state = pendingApprovalStateV1(result);
+  if (!state || state === 'awaiting_target_passkey') return false;
+  const targetReady = await input.transport.getTargetReadyV1({
+    linkSessionId: input.linkSessionId,
+    authentication: input.authentication,
+  });
+  if (!targetReady) return false;
+  if (
+    targetReady.linkSessionId !== input.linkSessionId ||
+    targetReady.walletId !== input.walletId ||
+    targetReady.enrollmentId !== input.enrollmentId ||
+    targetReady.deviceId !== input.deviceId
+  ) {
+    throw new Error('R102 target-ready input differs from the approved linked-device session');
+  }
+  const deliveries = await input.sourcePreparation.prepareTargetReadyDeliveriesV1(targetReady);
+  const submission = parseLinkedDeviceProvisioningDeliveriesSubmissionV1({
+    kind: 'linked_device_provisioning_deliveries_submission_v1',
+    linkSessionId: targetReady.linkSessionId,
+    walletId: targetReady.walletId,
+    enrollmentId: targetReady.enrollmentId,
+    deviceId: targetReady.deviceId,
+    manifestDigestB64u: await computeLaneEnrollmentManifestDigestV1(targetReady.manifest),
+    deliveries,
+  });
+  const persisted = await input.transport.submitPreparedProvisioningDeliveriesV1({
+    submission,
+    authentication: input.authentication,
+  });
+  if (alphabetizeStringify(persisted) !== alphabetizeStringify(submission)) {
+    throw new Error('persisted R102 deliveries differ from the prepared source handoff');
+  }
+  return true;
+}
+
+function pendingApprovalStateV1(
+  result: LinkedDeviceApprovalResultV1,
+): 'awaiting_target_passkey' | 'provisioning' | 'committed_completion_required' | null {
+  if (result.outcome === 'pending') return result.state.state;
+  if (result.outcome === 'replayed' && result.replay.state === 'pending') {
+    return result.replay.session.state;
+  }
+  return null;
+}
+
 function resolveApprovalPollV1(resolve: () => void, attempt: number): void {
   setTimeout(resolve, nextLinkedDevicePollingDelayMsV1(250, attempt));
 }
@@ -443,7 +499,7 @@ async function waitForApprovalPollV1(attempt: number): Promise<void> {
 
 function approvalWaitExpired(): DeviceLinkingError {
   return new DeviceLinkingError(
-    'Device-link approval expired before owner handoff completed',
+    'Device-link approval expired before target provisioning completed',
     DeviceLinkingErrorCode.SESSION_EXPIRED,
     'registration',
   );
