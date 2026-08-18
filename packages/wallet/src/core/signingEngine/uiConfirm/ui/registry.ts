@@ -31,11 +31,16 @@ export const W3A_EXPORT_VIEWER_IFRAME_ID = 'w3a-export-viewer-iframe';
 export const W3A_EXPORT_KEY_VIEWER_ID = 'w3a-export-key-viewer';
 export const EXPORT_VIEWER_BUNDLE = 'export-private-key-viewer.js';
 
+// Wallet recovery-code backup dialog (direct-mount host + content viewer).
+export const W3A_RECOVERY_CODE_BACKUP_HOST_ID = 'w3a-recovery-code-backup-host';
+export const W3A_RECOVERY_CODE_BACKUP_VIEWER_ID = 'w3a-recovery-code-backup-viewer';
+
 // Consolidated loaders for known W3A custom elements that may be used across runtimes.
 // This allows dev tooling to auto-ensure definitions for common elements when possible.
 export const TAG_LOADERS: Record<string, () => Promise<unknown>> = {
   [W3A_TX_CONFIRMER_ID]: () => import('./lit-components/IframeTxConfirmer/tx-confirmer-wrapper'),
   [W3A_EXPORT_VIEWER_IFRAME_ID]: () => import('./lit-components/ExportPrivateKey/iframe-host'),
+  [W3A_RECOVERY_CODE_BACKUP_HOST_ID]: () => import('./lit-components/RecoveryCodeBackup/host'),
 };
 
 /**

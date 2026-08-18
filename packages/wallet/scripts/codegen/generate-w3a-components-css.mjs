@@ -135,6 +135,8 @@ const hostSelectorsArr = [
   'w3a-passkey-halo-loading',
   // Export Private Key viewer host (responds to theme + tokens)
   'w3a-export-key-viewer',
+  // Recovery-code backup viewer (light-DOM card inside the backup dialog)
+  'w3a-recovery-code-backup-viewer',
 ];
 const hostSelectors = hostSelectorsArr.join(',\n');
 

@@ -204,6 +204,7 @@ const W3A_COMPONENT_HOSTS = [
   'w3a-tx-confirm-content',
   'w3a-halo-border',
   'w3a-passkey-halo-loading',
+  'w3a-recovery-code-backup-viewer',
 ] as const;
 
 const emitW3AThemeAliases = (vars: any, indent = '  '): string[] => [
@@ -365,6 +366,17 @@ const emitWalletServiceStaticAssets = async (sdkRoot = process.cwd()): Promise<v
   copyIfMissing(
     path.join(sdkRoot, 'src/core/signingEngine/uiConfirm/ui/lit-components/css/export-iframe.css'),
     path.join(sdkDir, 'export-iframe.css'),
+  );
+  copyIfMissing(
+    path.join(sdkRoot, 'src/core/signingEngine/uiConfirm/ui/lit-components/css/copy-icon.css'),
+    path.join(sdkDir, 'copy-icon.css'),
+  );
+  copyIfMissing(
+    path.join(
+      sdkRoot,
+      'src/core/signingEngine/uiConfirm/ui/lit-components/css/recovery-code-backup.css',
+    ),
+    path.join(sdkDir, 'recovery-code-backup.css'),
   );
   console.log('✅ Emitted /sdk wallet-shims.js, wallet-service.css, and auth-menu.css');
 };

@@ -1,10 +1,11 @@
-import { resolve } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
+import { injectImportMap } from '../setup/bootstrap';
+import { SDK_ESM_BASE_PATH } from '../setup/sdkEsmPaths';
 
-const MODULE_URL = `/@fs${resolve(
-  process.cwd(),
-  '../packages/wallet/src/SeamsWeb/operations/recovery/walletRecoveryCodeBackup.ts',
-)}`;
+// Built dist, not raw source over /@fs: the dialog is a lit component whose
+// import graph relies on the SDK's path aliases, which only the build
+// resolves. Same module the sibling RecoveryCodesModal test loads.
+const MODULE_URL = '/_test-sdk/esm/SeamsWeb/operations/recovery/walletRecoveryCodeBackup.js';
 
 function request(
   continuation: 'registration_may_defer' | 'pending_backup_must_finish' = 'registration_may_defer',
@@ -25,6 +26,16 @@ async function openDialog(
   continuation: 'registration_may_defer' | 'pending_backup_must_finish' = 'registration_may_defer',
 ): Promise<void> {
   await page.goto('/');
+  // injectImportMap re-serves the *current* document with the map injected, so
+  // it must follow the navigation — navigating afterwards would discard it.
+  await injectImportMap(page);
+  // The dialog loads its stylesheets from the SDK asset base. The example app's
+  // dev server does not serve /sdk/* here, so point the base at the built dist
+  // the test ESM route already serves; the dialog then styles itself exactly as
+  // it does in the wallet iframe.
+  await page.evaluate((base) => {
+    (window as unknown as { __W3A_WALLET_SDK_BASE__?: string }).__W3A_WALLET_SDK_BASE__ = base;
+  }, `${SDK_ESM_BASE_PATH}/sdk/`);
   await page.evaluate(
     async ({ moduleUrl, backupRequest }) => {
       const module = await import(moduleUrl);
