@@ -48,6 +48,17 @@ async function hydrateLinkedOwnerExportMaterial(input: {
   }
 }
 
+async function hydrateAfterMissingLinkedExportLane(input: {
+  readonly error: unknown;
+  readonly seams: SeamsWeb;
+  readonly walletId: string;
+  readonly linkedSession: boolean;
+}): Promise<void> {
+  const message = formatExportKeyErrorMessage(input.error);
+  if (!input.linkedSession || !message.includes('no_candidate')) throw input.error;
+  await hydrateLinkedOwnerExportMaterial(input);
+}
+
 async function resolveNearAccountIdForExport(input: {
   readonly walletId: string;
   readonly sessionNearAccountId: string | null | undefined;
@@ -250,11 +261,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
 
       setExportLoadingChain(chain);
       try {
-        await hydrateLinkedOwnerExportMaterial({
-          seams,
-          walletId,
-          linkedSession: loginState.currentAuthMethod.kind === 'none',
-        });
+        const linkedSession = loginState.currentAuthMethod.kind === 'none';
         if (chain === 'near') {
           const exportNearAccountId = await resolveNearAccountIdForExport({
             walletId,
@@ -262,11 +269,26 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
             getNearProvisioningState: seams.registration.getNearProvisioningState,
           });
           const nearAccount = nearAccountRefFromAccountId(exportNearAccountId);
-          const resolvedLane = await seams.keys.resolveExactKeyExportLane({
-            kind: 'ed25519',
-            walletSession,
-            nearAccount,
-          });
+          let resolvedLane;
+          try {
+            resolvedLane = await seams.keys.resolveExactKeyExportLane({
+              kind: 'ed25519',
+              walletSession,
+              nearAccount,
+            });
+          } catch (error: unknown) {
+            await hydrateAfterMissingLinkedExportLane({
+              error,
+              seams,
+              walletId,
+              linkedSession,
+            });
+            resolvedLane = await seams.keys.resolveExactKeyExportLane({
+              kind: 'ed25519',
+              walletSession,
+              nearAccount,
+            });
+          }
           if (resolvedLane.kind !== 'ed25519') {
             throw new Error('Ed25519 export lane resolution returned the wrong curve.');
           }
@@ -285,11 +307,26 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
         const chainTarget = thresholdEcdsaChainTargetFromConfig(
           requirePrimaryChainByFamily(seams.configs.network.chains, 'evm'),
         );
-        const resolvedLane = await seams.keys.resolveExactKeyExportLane({
-          kind: 'ecdsa',
-          walletSession,
-          chainTarget,
-        });
+        let resolvedLane;
+        try {
+          resolvedLane = await seams.keys.resolveExactKeyExportLane({
+            kind: 'ecdsa',
+            walletSession,
+            chainTarget,
+          });
+        } catch (error: unknown) {
+          await hydrateAfterMissingLinkedExportLane({
+            error,
+            seams,
+            walletId,
+            linkedSession,
+          });
+          resolvedLane = await seams.keys.resolveExactKeyExportLane({
+            kind: 'ecdsa',
+            walletSession,
+            chainTarget,
+          });
+        }
         if (resolvedLane.kind !== 'ecdsa') {
           throw new Error('ECDSA export lane resolution returned the wrong curve.');
         }

@@ -122,7 +122,6 @@ async function collectLocalOnlyExportCredentialWithPRF(args: {
   switch (args.payload.subject.kind) {
     case 'near_wallet':
       return await collectAuthenticationCredentialForExactNearChallengeB64u({
-        credentialStore: args.ctx.webauthnCredentialStore,
         touchIdPrompt: args.ctx.touchIdPrompt,
         nearAccountId: args.payload.subject.nearAccountId,
         credentialIdB64u: args.payload.credentialIdB64u,
@@ -131,7 +130,6 @@ async function collectLocalOnlyExportCredentialWithPRF(args: {
       });
     case 'evm_wallet':
       return await collectAuthenticationCredentialForExactWalletChallengeB64u({
-        credentialStore: args.ctx.webauthnCredentialStore,
         touchIdPrompt: args.ctx.touchIdPrompt,
         walletId: args.payload.subject.walletId,
         credentialIdB64u: args.payload.credentialIdB64u,
