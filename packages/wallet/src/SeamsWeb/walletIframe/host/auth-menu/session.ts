@@ -345,6 +345,18 @@ function linkDeviceViewModel(base: AuthMenuViewModel): AuthMenuLinkDeviceViewMod
   };
 }
 
+function loginOptionsWithLinkedWallet(
+  options: readonly AuthMenuAccountOption[],
+  walletId: string,
+): readonly AuthMenuAccountOption[] {
+  const next: AuthMenuAccountOption[] = [];
+  for (const option of options) {
+    if (option.walletId !== walletId) next.push(option);
+  }
+  next.push({ walletId, displayName: walletId });
+  return next;
+}
+
 export class AuthMenuSession {
   readonly identity: AuthMenuSessionIdentity;
   readonly request: HostedAuthMenuOpenRequest;
@@ -1142,12 +1154,7 @@ export class AuthMenuSession {
       case 'active':
         if (this.linkedDeviceActivationInProgress) return;
         this.linkedDeviceActivationInProgress = true;
-        this.complete({
-          kind: 'authenticated',
-          authMenuSessionId: this.identity.authMenuSessionId,
-          walletId: outcome.walletId,
-          method: 'passkey',
-        });
+        this.continueWithLinkedOwnerLogin(outcome.walletId);
         return;
       case 'invalid_active':
         this.showLinkedDeviceActivationError(
@@ -1295,6 +1302,24 @@ export class AuthMenuSession {
       },
     };
     this.updateElement();
+  }
+
+  private continueWithLinkedOwnerLogin(walletId: WalletId): void {
+    const state = this.stateValue;
+    if (state.kind !== 'link_device') return;
+    const selectedWalletId = String(walletId);
+    this.deviceLinkGeneration += 1;
+    this.targetPasskeyActivation = null;
+    this.loginAccountOptions = loginOptionsWithLinkedWallet(
+      this.loginAccountOptions,
+      selectedWalletId,
+    );
+    this.selectedLoginWalletId = selectedWalletId;
+    this.stateValue = state.returnState;
+    this.updateLoginSelectionViewModel();
+    this.preparePasskey = this.prepareSelectedLogin;
+    this.updateElement();
+    this.startPasskeyPreparation();
   }
 
   private closeLinkDevice(): void {
