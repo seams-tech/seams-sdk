@@ -1,5 +1,6 @@
 import type { AuthenticatorPort } from '@/core/platform';
-import { SignedTransaction } from '@/core/rpcClients/near/NearClient';
+import { SignedTransaction, type NearClient } from '@/core/rpcClients/near/NearClient';
+import { fundImplicitNearAccountForTesting } from '@/core/rpcClients/relayer/walletRegistration';
 import { buildNearTransactionSigningPayload } from '@/core/signingEngine/chains/near/payloads';
 import {
   buildThresholdEd25519NearTxUnsignedBorshWasm,
@@ -7,7 +8,13 @@ import {
   finalizeThresholdEd25519NearTxFromSignatureWasm,
 } from '@/core/signingEngine/chains/near/nearSignerWasm';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
-import type { NonceCoordinator } from '@/core/signingEngine/nonce/NonceCoordinator';
+import {
+  buildNearNonceLane,
+  nonceLeaseToRef,
+  type NearFundingRequest,
+  type NearTransactionReadiness,
+  type NonceCoordinator,
+} from '@/core/signingEngine/nonce/NonceCoordinator';
 import type { NonceLeaseRef } from '@/core/signingEngine/interfaces/nonceLease';
 import {
   SigningOperationIntent,
@@ -140,6 +147,138 @@ export type ActiveLinkedDeviceCurveSigningContextV1<TFamily extends 'ed25519' | 
       { readonly keyFamily: TFamily }
     >;
   };
+
+const LINKED_NEAR_ACCESS_KEY_POLL_DELAYS_MS = [
+  120, 180, 250, 350, 500, 700, 1_000, 1_000, 1_500, 1_500, 2_000,
+] as const;
+
+function delayLinkedNearAccessKeyPoll(delayMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, delayMs);
+  });
+}
+
+function assertLinkedNearFundingRequest(args: {
+  readonly request: NearFundingRequest;
+  readonly walletId: WalletId;
+  readonly nearAccountId: string;
+  readonly nearPublicKeyStr: string;
+  readonly operationId: SigningOperationId;
+  readonly operationFingerprint: string;
+}): void {
+  const operation = args.request.operation;
+  if (
+    String(args.request.subject.walletId) !== String(args.walletId) ||
+    String(args.request.subject.nearAccountId) !== args.nearAccountId ||
+    args.request.subject.nearPublicKeyStr !== args.nearPublicKeyStr ||
+    String(operation.operationId) !== String(args.operationId) ||
+    String(operation.operationFingerprint) !== args.operationFingerprint ||
+    operation.intent !== SigningOperationIntent.TransactionSign ||
+    operation.accountId !== args.nearAccountId ||
+    args.request.signatureUses !== 1
+  ) {
+    throw new Error('linked-device NEAR funding request does not match the signing operation');
+  }
+}
+
+async function reserveLinkedNearContextAfterFunding(args: {
+  readonly request: NearFundingRequest;
+  readonly chains: readonly SeamsChainConfig[];
+  readonly nonceCoordinator: NonceCoordinator;
+  readonly nearClient: NearClient;
+}): Promise<Extract<NearTransactionReadiness, { readonly kind: 'context_ready' }>> {
+  const lane = buildNearNonceLane({
+    chains: args.chains,
+    walletId: String(args.request.subject.walletId),
+    nearAccountId: String(args.request.subject.nearAccountId),
+    nearPublicKeyStr: args.request.subject.nearPublicKeyStr,
+  });
+  let latestError: unknown;
+  for (const delayMs of LINKED_NEAR_ACCESS_KEY_POLL_DELAYS_MS) {
+    try {
+      const reserved = await args.nonceCoordinator.reserveNearContext({
+        lane,
+        operation: args.request.operation,
+        count: args.request.signatureUses,
+        nearClient: args.nearClient,
+      });
+      return {
+        kind: 'context_ready',
+        transactionContext: reserved.context,
+        nonceLeases: reserved.leases.map(nonceLeaseToRef),
+      };
+    } catch (error: unknown) {
+      latestError = error;
+      await delayLinkedNearAccessKeyPoll(delayMs);
+    }
+  }
+  try {
+    const reserved = await args.nonceCoordinator.reserveNearContext({
+      lane,
+      operation: args.request.operation,
+      count: args.request.signatureUses,
+      nearClient: args.nearClient,
+    });
+    return {
+      kind: 'context_ready',
+      transactionContext: reserved.context,
+      nonceLeases: reserved.leases.map(nonceLeaseToRef),
+    };
+  } catch (error: unknown) {
+    latestError = error;
+  }
+  throw latestError instanceof Error
+    ? latestError
+    : new Error('Funded linked-device NEAR access key did not become available');
+}
+
+async function resolveLinkedNearTransactionReadiness(args: {
+  readonly readiness: NearTransactionReadiness;
+  readonly walletId: WalletId;
+  readonly nearAccountId: string;
+  readonly nearPublicKeyStr: string;
+  readonly operationId: SigningOperationId;
+  readonly operationFingerprint: string;
+  readonly walletSessionToken: string;
+  readonly relayServerUrl: string;
+  readonly chains: readonly SeamsChainConfig[];
+  readonly nonceCoordinator: NonceCoordinator;
+  readonly nearClient: NearClient;
+}): Promise<Extract<NearTransactionReadiness, { readonly kind: 'context_ready' }>> {
+  switch (args.readiness.kind) {
+    case 'context_ready':
+      return args.readiness;
+    case 'funding_required': {
+      assertLinkedNearFundingRequest({
+        request: args.readiness.request,
+        walletId: args.walletId,
+        nearAccountId: args.nearAccountId,
+        nearPublicKeyStr: args.nearPublicKeyStr,
+        operationId: args.operationId,
+        operationFingerprint: args.operationFingerprint,
+      });
+      const funded = await fundImplicitNearAccountForTesting({
+        relayerUrl: args.relayServerUrl,
+        walletId: args.walletId,
+        nearAccountId: args.nearAccountId,
+        nearPublicKeyStr: args.nearPublicKeyStr,
+        walletSessionToken: args.walletSessionToken,
+      });
+      if (!funded.ok) {
+        throw new Error(funded.message || funded.code || 'Failed to fund linked-device NEAR account');
+      }
+      return await reserveLinkedNearContextAfterFunding({
+        request: args.readiness.request,
+        chains: args.chains,
+        nonceCoordinator: args.nonceCoordinator,
+        nearClient: args.nearClient,
+      });
+    }
+    default:
+      args.readiness satisfies never;
+      throw new Error('Unsupported linked-device NEAR transaction readiness');
+  }
+}
 
 function requireWarmHandle<TFamily extends 'ed25519' | 'ecdsa_secp256k1'>(
   session: LinkedDeviceWarmSigningSessionV1,
@@ -578,6 +717,7 @@ export async function signLinkedDeviceNearTransactionV1(input: {
   readonly relayServerUrl: string;
   readonly chains: readonly SeamsChainConfig[];
   readonly nonceCoordinator: NonceCoordinator;
+  readonly nearClient: NearClient;
   readonly touchConfirm: UiConfirmRuntimeBridgePort;
   readonly rpcCall: RpcCallPayload;
   readonly confirmationConfigOverride?: Partial<ConfirmationConfig>;
@@ -663,15 +803,25 @@ export async function signLinkedDeviceNearTransactionV1(input: {
         ...(input.body ? { body: input.body } : {}),
       },
     });
-    if (confirmation.readiness.kind !== 'context_ready') {
-      throw new Error('linked-device NEAR transaction context is unavailable');
-    }
-    const nonceLease = confirmation.readiness.nonceLeases[0];
+    const confirmedReadiness = await resolveLinkedNearTransactionReadiness({
+      readiness: confirmation.readiness,
+      walletId: input.walletId,
+      nearAccountId: input.nearAccountId,
+      nearPublicKeyStr: publicKey,
+      operationId,
+      operationFingerprint: planningOperationFingerprint,
+      walletSessionToken: linked.walletSession.token.walletSessionJwt,
+      relayServerUrl: input.relayServerUrl,
+      chains: input.chains,
+      nonceCoordinator: input.nonceCoordinator,
+      nearClient: input.nearClient,
+    });
+    const nonceLease = confirmedReadiness.nonceLeases[0];
     if (!nonceLease) throw new Error('linked-device NEAR nonce reservation is missing');
     try {
       const unsigned = await buildThresholdEd25519NearTxUnsignedBorshWasm({
         txSigningRequest,
-        transactionContext: confirmation.readiness.transactionContext,
+        transactionContext: confirmedReadiness.transactionContext,
         workerCtx: input.workerCtx,
       });
       const operationFingerprint = SigningSessionIds.signingOperationFingerprint(
