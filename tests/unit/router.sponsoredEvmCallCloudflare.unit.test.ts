@@ -1,11 +1,11 @@
 import { expect, test } from '@playwright/test';
 import { createInMemoryConsoleApiKeyService } from '../../packages/console-server-ts/src/apiKeys';
-import { createInMemoryConsoleRuntimeSnapshotService } from '../../packages/console-server-ts/src/runtimeSnapshots';
-import { createInMemoryConsoleSponsoredCallService } from '../../packages/console-server-ts/src/sponsoredCalls';
+import { createInMemoryConsoleRuntimeSnapshotService } from '../../packages/wallet-console-server-ts/src/runtimeSnapshots';
+import { createInMemoryConsoleSponsoredCallService } from '../../packages/wallet-console-server-ts/src/sponsoredCalls';
 import type { RouterApiServiceBag } from '../../packages/sdk-server-ts/src/router/framework/authServicePort';
 import { createCloudflareRouter } from '../../packages/sdk-server-ts/src/router/cloudflare/runtime/createCloudflareRouter';
-import { createConsoleRouterApiRouteExtensions } from '../../packages/console-server-ts/src/router/routeExtensions';
-import { createRouterApiPublishableKeyAuthAdapter } from '../../packages/console-server-ts/src/router/routerApiKeyAuth';
+import { createConsoleRouterApiRouteExtensions } from '../../packages/wallet-console-server-ts/src/router/routeExtensions';
+import { createRouterApiPublishableKeyAuthAdapter } from '../../packages/wallet-console-server-ts/src/router/routerApiKeyAuth';
 import { callCf } from '../relayer/helpers';
 
 function makeUnexpectedRouterApiServiceValue(path: string): unknown {

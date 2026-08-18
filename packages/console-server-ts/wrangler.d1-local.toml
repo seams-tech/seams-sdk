@@ -1,5 +1,5 @@
 name = "seams-sdk-d1-local"
-main = "src/router/cloudflare/d1LocalDevWorker.ts"
+main = "../wallet-console-server-ts/src/router/cloudflare/d1LocalDevWorker.ts"
 compatibility_date = "2026-04-17"
 compatibility_flags = ["nodejs_compat"]
 
@@ -15,7 +15,7 @@ binding = "SIGNER_DB"
 database_name = "seams-signer"
 database_id = "00000000-0000-0000-0000-000000000201"
 preview_database_id = "00000000-0000-0000-0000-000000000202"
-migrations_dir = "node_modules/@seams/sdk-server/migrations/d1-signer"
+migrations_dir = "../wallet-console-server-ts/node_modules/@seams/sdk-server/migrations/d1-signer"
 
 [[services]]
 binding = "MPC_ROUTER"

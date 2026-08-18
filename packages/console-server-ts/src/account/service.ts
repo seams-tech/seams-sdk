@@ -10,7 +10,6 @@ import type {
   ConsoleOrganizationAccessService,
   OrganizationMembershipWithAccess,
 } from '../teamRbac';
-import type { ConsoleWalletService } from '../wallets';
 import { ConsoleAccountError } from './errors';
 import type {
   ConsoleAccountOrganizationAccess,
@@ -22,6 +21,18 @@ import type {
   SwitchConsoleAccountOrganizationContextResult,
   UpdateConsoleAccountOrganizationRequest,
 } from './types';
+
+/**
+ * Structural subset of the Wallet Console inventory service. Core only checks
+ * emptiness before organization deletion; the composed product supplies the
+ * implementation.
+ */
+export interface AccountWalletInventoryPort {
+  listWallets(
+    ctx: { orgId: string; actorUserId: string },
+    request?: { limit?: number },
+  ): Promise<{ items: readonly unknown[] }>;
+}
 
 interface ConsoleAccountIdentityContext {
   readonly userId: string;
@@ -67,7 +78,7 @@ export interface InMemoryConsoleAccountServiceOptions {
   readonly orgProjectEnv: ConsoleOrgProjectEnvService;
   readonly organizationAccess: ConsoleOrganizationAccessService;
   readonly onboarding?: ConsoleOnboardingService | null;
-  readonly wallets?: ConsoleWalletService | null;
+  readonly wallets?: AccountWalletInventoryPort | null;
   readonly now?: () => Date;
 }
 

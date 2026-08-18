@@ -4,14 +4,14 @@ import {
   CONSOLE_BILLING_PREPAID_RESERVATION_D1_RUNTIME,
   getConsoleBillingPrepaidReservationD1Runtime,
   type ConsoleBillingPrepaidReservationD1Runtime,
-} from '../../../packages/console-server-ts/src/billingPrepaidReservations/d1';
-import type { ConsoleBillingPrepaidReservationService } from '../../../packages/console-server-ts/src/billingPrepaidReservations/service';
-import type { ConsoleBillingPrepaidReservation } from '../../../packages/console-server-ts/src/billingPrepaidReservations/types';
+} from '../../../packages/wallet-console-server-ts/src/billingPrepaidReservations/d1';
+import type { ConsoleBillingPrepaidReservationService } from '../../../packages/wallet-console-server-ts/src/billingPrepaidReservations/service';
+import type { ConsoleBillingPrepaidReservation } from '../../../packages/wallet-console-server-ts/src/billingPrepaidReservations/types';
 import {
   runD1ConsoleRuntimeSnapshotOutboxDispatch,
   type D1ConsoleRuntimeSnapshotOutboxDispatchResult,
-} from '../../../packages/console-server-ts/src/runtimeSnapshots/d1';
-import type { ConsoleRuntimeSnapshotOutboxEvent } from '../../../packages/console-server-ts/src/runtimeSnapshots/types';
+} from '../../../packages/wallet-console-server-ts/src/runtimeSnapshots/d1';
+import type { ConsoleRuntimeSnapshotOutboxEvent } from '../../../packages/wallet-console-server-ts/src/runtimeSnapshots/types';
 import {
   createAesGcmConsoleWebhookSecretCipher,
   runD1ConsoleWebhookRetryDispatch,
@@ -37,13 +37,13 @@ import {
   WALLET_EMAIL_OTP_ACTIONS,
   WALLET_EMAIL_OTP_UNLOCK_OPERATION,
 } from '../../../packages/shared-ts/src/utils/emailOtpDomain';
-import type { RecordSponsoredExecutionInput } from '../../../packages/console-server-ts/src/router/sponsorshipExecution';
+import type { RecordSponsoredExecutionInput } from '../../../packages/wallet-console-server-ts/src/router/sponsorshipExecution';
 import type {
   SponsorshipSpendPricingEstimateInput,
   SponsorshipSpendPricingFinalizeInput,
   SponsorshipSpendPricingQuote,
   SponsorshipSpendPricingService,
-} from '../../../packages/console-server-ts/src/sponsorship/spendCaps';
+} from '../../../packages/wallet-console-server-ts/src/sponsorship/spendCaps';
 import {
   applyD1MigrationFiles,
   type D1MigrationDirectoryName,

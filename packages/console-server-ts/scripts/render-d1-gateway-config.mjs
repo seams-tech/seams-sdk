@@ -100,7 +100,7 @@ function buildConfig(
   const vars = buildWorkerVars(deployment, siteOrigin, walletOrigin, emailOtpDelivery, docsOrigin);
   return {
     name: resources.workerName,
-    main: path.join(packageRoot, 'src/router/cloudflare/d1RouterApiWorker.ts'),
+    main: path.join(packageRoot, '../wallet-console-server-ts/src/router/cloudflare/d1RouterApiWorker.ts'),
     compatibility_date: GATEWAY_WORKER_COMPATIBILITY_DATE,
     compatibility_flags: GATEWAY_WORKER_COMPATIBILITY_FLAGS,
     workers_dev: true,
@@ -123,7 +123,7 @@ function buildConfig(
         database_id: resources.signerD1.id,
         migrations_dir: path.join(
           packageRoot,
-          'node_modules/@seams/sdk-server/migrations/d1-signer',
+          '../wallet-console-server-ts/node_modules/@seams/sdk-server/migrations/d1-signer',
         ),
       },
     ],

@@ -3,7 +3,7 @@ import type { RouterAbNormalSigningAdmissionInput } from '../../packages/sdk-ser
 import {
   createCloudflareD1ConsoleOnlyServiceBundle,
   createCloudflareD1ConsoleServiceBundle,
-} from '../../packages/console-server-ts/src/router/cloudflare/d1ConsoleServices';
+} from '../../packages/wallet-console-server-ts/src/router/cloudflare/d1ConsoleServices';
 import type {
   D1DatabaseLike,
   D1PreparedStatementLike,
@@ -12,9 +12,9 @@ import type {
 import type { CfExecutionContext } from '../../packages/sdk-server-ts/src/router/cloudflare/runtime/cloudflare.types';
 import localD1DevWorker, {
   buildLocalRouterRequest,
-} from '../../packages/console-server-ts/src/router/cloudflare/d1LocalDevWorker';
-import type { SponsoredEvmCallExecutorConfig } from '../../packages/console-server-ts/src/sponsorship/evmExecutorTypes';
-import { resolveStaticSponsoredExecutionPricingFromEnv } from '../../packages/console-server-ts/src/sponsorship/pricing';
+} from '../../packages/wallet-console-server-ts/src/router/cloudflare/d1LocalDevWorker';
+import type { SponsoredEvmCallExecutorConfig } from '../../packages/wallet-console-server-ts/src/sponsorship/evmExecutorTypes';
+import { resolveStaticSponsoredExecutionPricingFromEnv } from '../../packages/wallet-console-server-ts/src/sponsorship/pricing';
 import { getNearSpendCapChainId } from '../../packages/wallet-console-shared-ts/src/gasSponsorshipSpendCapTargets';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import {

@@ -1,28 +1,28 @@
 import { expect, test } from '@playwright/test';
 import { createD1ConsoleAccountService } from '../../packages/console-server-ts/src/account/d1';
 import { createD1ConsoleApiKeyService } from '../../packages/console-server-ts/src/apiKeys/d1';
-import { createD1ConsoleApprovalService } from '../../packages/console-server-ts/src/approvals/d1';
+import { createD1ConsoleApprovalService } from '../../packages/wallet-console-server-ts/src/approvals/d1';
 import { createD1ConsoleAuditService } from '../../packages/console-server-ts/src/audit/d1';
 import {
   createD1ConsoleBillingService,
   runD1ConsoleBillingMonthlyFinalization,
 } from '../../packages/console-server-ts/src/billing/d1';
-import { createD1ConsoleBillingPrepaidReservationService } from '../../packages/console-server-ts/src/billingPrepaidReservations/d1';
-import { createD1ConsoleKeyExportService } from '../../packages/console-server-ts/src/keyExports/d1';
+import { createD1ConsoleBillingPrepaidReservationService } from '../../packages/wallet-console-server-ts/src/billingPrepaidReservations/d1';
+import { createD1ConsoleKeyExportService } from '../../packages/wallet-console-server-ts/src/keyExports/d1';
 import {
   createD1ConsoleObservabilityIngestionService,
   createD1ConsoleObservabilityService,
 } from '../../packages/console-server-ts/src/observability/d1';
 import { createD1ConsoleOrgProjectEnvService } from '../../packages/console-server-ts/src/orgProjectEnv/d1';
-import { createD1ConsolePolicyService } from '../../packages/console-server-ts/src/policies/d1';
+import { createD1ConsolePolicyService } from '../../packages/wallet-console-server-ts/src/policies/d1';
 import {
   createD1ConsoleRuntimeSnapshotService,
   runD1ConsoleRuntimeSnapshotOutboxDispatch,
-} from '../../packages/console-server-ts/src/runtimeSnapshots/d1';
-import { createD1ConsoleSponsoredCallService } from '../../packages/console-server-ts/src/sponsoredCalls/d1';
-import { createD1ConsoleSponsorshipSpendCapService } from '../../packages/console-server-ts/src/sponsorshipSpendCaps/d1';
+} from '../../packages/wallet-console-server-ts/src/runtimeSnapshots/d1';
+import { createD1ConsoleSponsoredCallService } from '../../packages/wallet-console-server-ts/src/sponsoredCalls/d1';
+import { createD1ConsoleSponsorshipSpendCapService } from '../../packages/wallet-console-server-ts/src/sponsorshipSpendCaps/d1';
 import { createD1ConsoleOrganizationAccessService } from '../../packages/console-server-ts/src/teamRbac/d1';
-import { createD1ConsoleWalletService } from '../../packages/console-server-ts/src/wallets/d1';
+import { createD1ConsoleWalletService } from '../../packages/wallet-console-server-ts/src/wallets/d1';
 import {
   createD1ConsoleWebhookService,
   runD1ConsoleWebhookRetryDispatch,
@@ -49,7 +49,7 @@ import { D1WalletAuthMethodStore } from '../../packages/sdk-server-ts/src/core/W
 import { D1WalletStore } from '../../packages/sdk-server-ts/src/core/WalletStore';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
-import { recordSponsoredExecution } from '../../packages/console-server-ts/src/router/sponsorshipExecution';
+import { recordSponsoredExecution } from '../../packages/wallet-console-server-ts/src/router/sponsorshipExecution';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,

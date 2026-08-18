@@ -1,0 +1,299 @@
+import { ConsolePolicyError } from './errors';
+import {
+  normalizeConsolePolicyContractAddress,
+  normalizeConsolePolicyFunctionIdentifier,
+  parseConsolePolicyRulesInput,
+} from './rules';
+import {
+  readOptionalStringField as readOptionalString,
+  readRequiredStringField as readRequiredString,
+  requireBodyObject as requireObject,
+} from '@seams-internal/console-server/shared/requestParse';
+import type {
+  CreateConsolePolicyRequest,
+  ListConsolePoliciesRequest,
+  ListConsolePolicyAssignmentsRequest,
+  SimulateConsolePolicyRequest,
+  UpsertConsolePolicyAssignmentRequest,
+  UpdateConsolePolicyRequest,
+} from './types';
+
+const RESOURCE_ID_PATTERN = /^[A-Za-z0-9:_-]+$/;
+const ASSIGNMENT_SCOPE_TYPES = new Set(['ORG', 'PROJECT', 'ENVIRONMENT', 'WALLET']);
+
+function createParseError(code: string, status: number, message: string): ConsolePolicyError {
+  return new ConsolePolicyError(code, status, message);
+}
+
+function readOptionalPolicyKind(
+  raw: unknown,
+  input: { code: 'invalid_body' | 'invalid_query'; field: string },
+): 'TRANSACTION' | 'GAS_SPONSORSHIP' | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const value = String(raw || '')
+    .trim()
+    .toUpperCase();
+  if (!value) return undefined;
+  if (value !== 'TRANSACTION' && value !== 'GAS_SPONSORSHIP') {
+    throw new ConsolePolicyError(
+      input.code,
+      400,
+      `Field ${input.field} must be TRANSACTION or GAS_SPONSORSHIP`,
+    );
+  }
+  return value;
+}
+
+function readOptionalRules(
+  body: Record<string, unknown>,
+  key: string,
+  kind: 'TRANSACTION' | 'GAS_SPONSORSHIP',
+): CreateConsolePolicyRequest['rules'] | undefined {
+  const raw = body[key];
+  if (raw === undefined || raw === null) return undefined;
+  return parseConsolePolicyRulesInput(raw, kind);
+}
+
+function readRawOptionalRules(
+  body: Record<string, unknown>,
+  key: string,
+): UpdateConsolePolicyRequest['rules'] | undefined {
+  const raw = body[key];
+  if (raw === undefined || raw === null) return undefined;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new ConsolePolicyError('invalid_body', 400, 'Field rules must be a JSON object');
+  }
+  return raw as UpdateConsolePolicyRequest['rules'];
+}
+
+function readOptionalAssignment(
+  body: Record<string, unknown>,
+): CreateConsolePolicyRequest['assignment'] | undefined {
+  const raw = body.assignment;
+  if (raw === undefined || raw === null) return undefined;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new ConsolePolicyError('invalid_body', 400, 'Field assignment must be a JSON object');
+  }
+  const row = raw as Record<string, unknown>;
+  const scopeType = String(readRequiredString(row, 'scopeType', createParseError) || '')
+    .trim()
+    .toUpperCase();
+  if (!ASSIGNMENT_SCOPE_TYPES.has(scopeType)) {
+    throw new ConsolePolicyError(
+      'invalid_body',
+      400,
+      'Field assignment.scopeType must be one of ORG, PROJECT, ENVIRONMENT, WALLET',
+    );
+  }
+  const scopeId = readRequiredString(row, 'scopeId', createParseError);
+  if (!RESOURCE_ID_PATTERN.test(scopeId)) {
+    throw new ConsolePolicyError(
+      'invalid_body',
+      400,
+      'Field assignment.scopeId may only contain letters, numbers, colon, underscore, and hyphen',
+    );
+  }
+  return {
+    scopeType: scopeType as NonNullable<CreateConsolePolicyRequest['assignment']>['scopeType'],
+    scopeId,
+  };
+}
+
+function readOptionalInteger(
+  body: Record<string, unknown>,
+  key: string,
+): number | undefined {
+  const raw = body[key];
+  if (raw === undefined || raw === null) return undefined;
+  const n = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isInteger(n)) {
+    throw new ConsolePolicyError('invalid_body', 400, `Field ${key} must be an integer`);
+  }
+  return n;
+}
+
+export function parseCreateConsolePolicyRequest(body: unknown): CreateConsolePolicyRequest {
+  const obj = requireObject(body, createParseError);
+  if (Object.prototype.hasOwnProperty.call(obj, 'id')) {
+    throw new ConsolePolicyError(
+      'invalid_body',
+      400,
+      'Field id is not allowed when creating a policy',
+    );
+  }
+  const kind = readOptionalPolicyKind(obj.kind, { code: 'invalid_body', field: 'kind' });
+  const normalizedKind = kind || 'TRANSACTION';
+  const name = readRequiredString(obj, 'name', createParseError);
+  const description = readOptionalString(obj, 'description');
+  const rules = readOptionalRules(obj, 'rules', normalizedKind);
+  const assignment = readOptionalAssignment(obj);
+  if (normalizedKind === 'GAS_SPONSORSHIP' && assignment) {
+    throw new ConsolePolicyError(
+      'invalid_body',
+      400,
+      'Field assignment is not supported for GAS_SPONSORSHIP policies',
+    );
+  }
+  return {
+    ...(kind ? { kind } : {}),
+    name,
+    ...(description ? { description } : {}),
+    ...(rules ? { rules } : {}),
+    ...(assignment ? { assignment } : {}),
+  };
+}
+
+export function parseListConsolePoliciesRequest(query: unknown): ListConsolePoliciesRequest {
+  if (!query || typeof query !== 'object' || Array.isArray(query)) return {};
+  const row = query as Record<string, unknown>;
+  const kind = readOptionalPolicyKind(row.kind, { code: 'invalid_query', field: 'kind' });
+  return {
+    ...(kind ? { kind } : {}),
+  };
+}
+
+export function parseUpdateConsolePolicyRequest(body: unknown): UpdateConsolePolicyRequest {
+  const obj = requireObject(body, createParseError);
+  const name = readOptionalString(obj, 'name');
+  const description = readOptionalString(obj, 'description');
+  const rules = readRawOptionalRules(obj, 'rules');
+  if (!name && !description && !rules) {
+    throw new ConsolePolicyError(
+      'invalid_body',
+      400,
+      'At least one mutable field is required',
+    );
+  }
+  return {
+    ...(name ? { name } : {}),
+    ...(description ? { description } : {}),
+    ...(rules ? { rules } : {}),
+  };
+}
+
+export function parseSimulateConsolePolicyRequest(body: unknown): SimulateConsolePolicyRequest {
+  const obj = requireObject(body, createParseError);
+  const action = readRequiredString(obj, 'action', createParseError);
+  const chain = readOptionalString(obj, 'chain');
+  const amountMinor = readOptionalInteger(obj, 'amountMinor');
+  const contractAddressRaw = readOptionalString(obj, 'contractAddress');
+  const functionSelectorRaw = readOptionalString(obj, 'functionSelector');
+  if (amountMinor !== undefined && amountMinor < 0) {
+    throw new ConsolePolicyError('invalid_body', 400, 'Field amountMinor must be >= 0');
+  }
+  const contractAddress = contractAddressRaw
+    ? normalizeConsolePolicyContractAddress(contractAddressRaw)
+    : null;
+  if (contractAddressRaw && !contractAddress) {
+    throw new ConsolePolicyError(
+      'invalid_body',
+      400,
+      'Field contractAddress must be a 20-byte hex address',
+    );
+  }
+  const functionSelector = functionSelectorRaw
+    ? normalizeConsolePolicyFunctionIdentifier(functionSelectorRaw)
+    : null;
+  if (functionSelectorRaw && !functionSelector) {
+    throw new ConsolePolicyError(
+      'invalid_body',
+      400,
+      'Field functionSelector must be a 4-byte selector or function signature',
+    );
+  }
+  const metadataRaw = obj.metadata;
+  if (
+    metadataRaw !== undefined &&
+    metadataRaw !== null &&
+    (!metadataRaw || typeof metadataRaw !== 'object' || Array.isArray(metadataRaw))
+  ) {
+    throw new ConsolePolicyError('invalid_body', 400, 'Field metadata must be a JSON object');
+  }
+  return {
+    action,
+    ...(chain ? { chain } : {}),
+    ...(amountMinor !== undefined ? { amountMinor } : {}),
+    ...(contractAddress ? { contractAddress } : {}),
+    ...(functionSelector ? { functionSelector } : {}),
+    ...(metadataRaw && typeof metadataRaw === 'object' && !Array.isArray(metadataRaw)
+      ? { metadata: metadataRaw as Record<string, unknown> }
+      : {}),
+  };
+}
+
+function readOptionalScopeType(raw: unknown): string | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const value = String(raw || '')
+    .trim()
+    .toUpperCase();
+  if (!value) return undefined;
+  if (!ASSIGNMENT_SCOPE_TYPES.has(value)) {
+    throw new ConsolePolicyError(
+      'invalid_query',
+      400,
+      'Field scopeType must be one of ORG, PROJECT, ENVIRONMENT, WALLET',
+    );
+  }
+  return value;
+}
+
+export function parseListConsolePolicyAssignmentsRequest(
+  query: unknown,
+): ListConsolePolicyAssignmentsRequest {
+  if (!query || typeof query !== 'object' || Array.isArray(query)) return {};
+  const row = query as Record<string, unknown>;
+  const scopeType = readOptionalScopeType(row.scopeType);
+  const scopeIdRaw = row.scopeId;
+  const scopeId = scopeIdRaw == null ? undefined : String(scopeIdRaw || '').trim() || undefined;
+  if (scopeId && !RESOURCE_ID_PATTERN.test(scopeId)) {
+    throw new ConsolePolicyError(
+      'invalid_query',
+      400,
+      'Field scopeId may only contain letters, numbers, colon, underscore, and hyphen',
+    );
+  }
+  if (scopeId && !scopeType) {
+    throw new ConsolePolicyError('invalid_query', 400, 'scopeType is required when scopeId is provided');
+  }
+  return {
+    ...(scopeType ? { scopeType: scopeType as ListConsolePolicyAssignmentsRequest['scopeType'] } : {}),
+    ...(scopeId ? { scopeId } : {}),
+  };
+}
+
+export function parseUpsertConsolePolicyAssignmentRequest(
+  body: unknown,
+): UpsertConsolePolicyAssignmentRequest {
+  const obj = requireObject(body, createParseError);
+  const scopeType = String(readRequiredString(obj, 'scopeType', createParseError) || '')
+    .trim()
+    .toUpperCase();
+  if (!ASSIGNMENT_SCOPE_TYPES.has(scopeType)) {
+    throw new ConsolePolicyError(
+      'invalid_body',
+      400,
+      'Field scopeType must be one of ORG, PROJECT, ENVIRONMENT, WALLET',
+    );
+  }
+  const scopeId = readRequiredString(obj, 'scopeId', createParseError);
+  if (!RESOURCE_ID_PATTERN.test(scopeId)) {
+    throw new ConsolePolicyError(
+      'invalid_body',
+      400,
+      'Field scopeId may only contain letters, numbers, colon, underscore, and hyphen',
+    );
+  }
+  const policyId = readRequiredString(obj, 'policyId', createParseError);
+  if (!RESOURCE_ID_PATTERN.test(policyId)) {
+    throw new ConsolePolicyError(
+      'invalid_body',
+      400,
+      'Field policyId may only contain letters, numbers, colon, underscore, and hyphen',
+    );
+  }
+  return {
+    scopeType: scopeType as UpsertConsolePolicyAssignmentRequest['scopeType'],
+    scopeId,
+    policyId,
+  };
+}

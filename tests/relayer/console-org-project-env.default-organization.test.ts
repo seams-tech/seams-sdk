@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { createInMemoryConsoleOrgProjectEnvService } from '@seams-internal/console-server/orgProjectEnv';
+import { createInMemoryConsoleOrgProjectEnvService } from '@seams-internal/console-server/orgProjectEnv/index';
 
 test.describe('console org/project/environment default organization resolution', () => {
   test('in-memory service returns the only persisted organization', async () => {

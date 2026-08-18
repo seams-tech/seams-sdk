@@ -9,7 +9,7 @@ import {
   createInMemoryConsoleSponsoredCallService,
   createInMemoryConsoleSponsorshipSpendCapService,
   type ConsoleApiKeyService,
-} from '@seams-internal/console-server/router/express-adaptor';
+} from '@seams-internal/wallet-console-server/router/express-adaptor';
 import { createD1ConsoleBillingService } from '../../packages/console-server-ts/src/billing/d1';
 import type {
   ConsoleBillingContext,
@@ -19,10 +19,10 @@ import type {
   BillingSponsoredExecutionDebitRequest,
   BillingUsageEventRequest,
 } from '../../packages/console-server-ts/src/billing/types';
-import { createD1ConsoleBillingPrepaidReservationService } from '../../packages/console-server-ts/src/billingPrepaidReservations/d1';
-import type { ConsoleBillingPrepaidReservationService } from '../../packages/console-server-ts/src/billingPrepaidReservations/service';
-import { createD1ConsoleSponsoredCallService } from '../../packages/console-server-ts/src/sponsoredCalls/d1';
-import type { ConsoleSponsoredCallService } from '../../packages/console-server-ts/src/sponsoredCalls/service';
+import { createD1ConsoleBillingPrepaidReservationService } from '../../packages/wallet-console-server-ts/src/billingPrepaidReservations/d1';
+import type { ConsoleBillingPrepaidReservationService } from '../../packages/wallet-console-server-ts/src/billingPrepaidReservations/service';
+import { createD1ConsoleSponsoredCallService } from '../../packages/wallet-console-server-ts/src/sponsoredCalls/d1';
+import type { ConsoleSponsoredCallService } from '../../packages/wallet-console-server-ts/src/sponsoredCalls/service';
 import { fetchJson, randomNamespace, startExpressRouter } from './helpers';
 import { registerSponsoredEvmCallRoute } from '@server';
 import {

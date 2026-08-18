@@ -17,9 +17,12 @@ import type {
   ConsoleOrganizationAccessService,
   OrganizationMembershipWithAccess,
 } from '../teamRbac';
-import type { ConsoleWalletService } from '../wallets';
 import { ConsoleAccountError } from './errors';
-import type { ConsoleAccountContext, ConsoleAccountService } from './service';
+import type {
+  AccountWalletInventoryPort,
+  ConsoleAccountContext,
+  ConsoleAccountService,
+} from './service';
 import type {
   ConsoleAccountBackupEmail,
   ConsoleAccountOrganization,
@@ -56,7 +59,7 @@ export interface D1ConsoleAccountServiceOptions {
   readonly orgProjectEnv: ConsoleOrgProjectEnvService;
   readonly organizationAccess: ConsoleOrganizationAccessService;
   readonly onboarding?: ConsoleOnboardingService | null;
-  readonly wallets?: ConsoleWalletService | null;
+  readonly wallets?: AccountWalletInventoryPort | null;
 }
 
 interface AccountOrganizationRow {
@@ -363,7 +366,7 @@ class D1ConsoleAccountServiceImpl implements ConsoleAccountD1Service {
   readonly orgProjectEnv: ConsoleOrgProjectEnvService;
   readonly organizationAccess: ConsoleOrganizationAccessService;
   readonly onboarding: ConsoleOnboardingService | null;
-  readonly wallets: ConsoleWalletService | null;
+  readonly wallets: AccountWalletInventoryPort | null;
   readonly [CONSOLE_ACCOUNT_D1_RUNTIME]: ConsoleAccountD1Runtime;
 
   constructor(options: D1ConsoleAccountServiceOptions) {

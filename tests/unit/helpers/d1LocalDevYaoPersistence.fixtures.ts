@@ -42,13 +42,13 @@ import {
   ed25519NearPublicKeyFromBytes,
 } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoWalletSigner';
 import type { CfExecutionContext } from '../../../packages/sdk-server-ts/src/router/cloudflare/runtime/cloudflare.types';
-import { createEd25519SessionAdapter } from '../../../packages/console-server-ts/src/router/cloudflare/d1StagingSession';
+import { createEd25519SessionAdapter } from '../../../packages/wallet-console-server-ts/src/router/cloudflare/d1StagingSession';
 import { buildRouterAbEd25519YaoRegistrationCapabilityRecordV1 } from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
 import { createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1 } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoProductRegistrationPartitionedStateStore';
 import { createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1 } from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationRequestScopedRuntime';
 import type { D1DatabaseLike } from '../../../packages/sdk-server-ts/src/storage/tenantRoute';
-import type { CloudflareServiceBindingFetcher } from '../../../packages/console-server-ts/src/router/cloudflare/routerAbServiceBindings';
-import localD1DevWorker from '../../../packages/console-server-ts/src/router/cloudflare/d1LocalDevWorker';
+import type { CloudflareServiceBindingFetcher } from '../../../packages/wallet-console-server-ts/src/router/cloudflare/routerAbServiceBindings';
+import localD1DevWorker from '../../../packages/wallet-console-server-ts/src/router/cloudflare/d1LocalDevWorker';
 import {
   UnavailableRouterAbEd25519YaoRegistrationBackend,
   UnusedSessionAdapter,

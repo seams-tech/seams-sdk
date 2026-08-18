@@ -1,5 +1,5 @@
 name = "seams-sdk-d1-console-staging"
-main = "src/router/cloudflare/d1ConsoleStagingWorker.ts"
+main = "../wallet-console-server-ts/src/router/cloudflare/d1ConsoleStagingWorker.ts"
 compatibility_date = "2026-04-17"
 compatibility_flags = ["nodejs_compat"]
 

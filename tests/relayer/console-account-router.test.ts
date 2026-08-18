@@ -11,8 +11,8 @@ import {
   type ConsoleAuthClaims,
   type ConsoleOrganizationAccessService,
   type ConsoleOrgProjectEnvService,
-} from '@seams-internal/console-server/router/express-adaptor';
-import { createCloudflareConsoleRouter } from '@seams-internal/console-server/router/cloudflare-adaptor';
+} from '@seams-internal/wallet-console-server/router/express-adaptor';
+import { createCloudflareConsoleRouter } from '@seams-internal/wallet-console-server/router/cloudflare-adaptor';
 import type { SessionAdapter } from '@seams/sdk-server/router/express';
 import { callCf, fetchJson, makeConsoleAuthAdapter, startExpressRouter } from './helpers';
 

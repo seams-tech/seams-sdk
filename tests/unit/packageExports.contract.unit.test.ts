@@ -209,7 +209,7 @@ test.describe('package export contracts', () => {
       },
     });
     const consoleCloudflareTypes = readRepoFile(
-      'packages/console-server-ts/src/router/cloudflare/cloudflareConsole.types.ts',
+      'packages/wallet-console-server-ts/src/router/cloudflare/cloudflareConsole.types.ts',
     );
     expect(consoleCloudflareTypes).toContain('RouterApiCloudflareConsoleWorkerEnv');
     expect(consoleCloudflareTypes).toContain('SeamsD1ConsoleTenantStorageWorkerEnv');

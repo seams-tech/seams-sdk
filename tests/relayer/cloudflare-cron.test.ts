@@ -2,11 +2,11 @@ import { test, expect } from '@playwright/test';
 import {
   createCloudflareCron,
   resolveCloudflareConsoleEmailDispatchCronOptions,
-} from '@seams-internal/console-server/router/cloudflare/cron';
+} from '@seams-internal/wallet-console-server/router/cloudflare/cron';
 import type {
   ConsoleEmailProvider,
   ConsoleInvitationSecretCipher,
-} from '@seams-internal/console-server/email';
+} from '@seams-internal/console-server/email/index';
 
 const fakeD1Database = {} as any;
 const fakeWebhookSecretCipher = {} as any;

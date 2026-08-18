@@ -9,63 +9,9 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 
 const consoleCoreRoots = ['packages/console-server-ts/src', 'packages/console-shared-ts/src'];
 
-const cloudHost = '@seams/sdk-server/cloud-host';
-
-// Temporary R105 Phase 0 allowlist. Every entry is an inventoried pre-split
-// import that Phases 1-2 either replace with a Console-owned module or move to
-// wallet-console-server-ts. Entries may only be deleted, never added; a stale
-// entry (file gone or import gone) fails this guard until it is removed.
-const temporaryAllowedWalletImports = buildAllowedImportSet([
-  ['packages/console-server-ts/src/router/cloudflare/d1SignerWasm.ts', '@seams/sdk-server/wasm/signer'],
-  ...[
-  'packages/console-server-ts/src/email/otp/amazonSesEmailOtpProvider.ts',
-  'packages/console-server-ts/src/email/otp/emailOtpDeliveryAdapter.ts',
-  'packages/console-server-ts/src/email/otp/emailOtpProviders.ts',
-  'packages/console-server-ts/src/email/otp/resendEmailOtpProvider.ts',
-  'packages/console-server-ts/src/keyExports/d1.ts',
-  'packages/console-server-ts/src/keyExports/service.ts',
-  'packages/console-server-ts/src/policies/d1.ts',
-  'packages/console-server-ts/src/policies/rules.ts',
-  'packages/console-server-ts/src/policies/service.ts',
-  'packages/console-server-ts/src/router/cloudflare-adaptor.ts',
-  'packages/console-server-ts/src/router/cloudflare/cloudflareConsole.types.ts',
-  'packages/console-server-ts/src/router/cloudflare/createCloudflareConsoleRouter.ts',
-  'packages/console-server-ts/src/router/cloudflare/cron.ts',
-  'packages/console-server-ts/src/router/cloudflare/d1ConsoleServices.ts',
-  'packages/console-server-ts/src/router/cloudflare/d1ConsoleStagingWorker.ts',
-  'packages/console-server-ts/src/router/cloudflare/d1LocalDevWorker.ts',
-  'packages/console-server-ts/src/router/cloudflare/d1RouterApiStagingWorker.ts',
-  'packages/console-server-ts/src/router/cloudflare/d1StagingSession.ts',
-  'packages/console-server-ts/src/router/cloudflare/tenantStorageRoute.ts',
-  'packages/console-server-ts/src/router/consoleObservabilityHooks.ts',
-  'packages/console-server-ts/src/router/express-adaptor.ts',
-  'packages/console-server-ts/src/router/express/createConsoleRouter.ts',
-  'packages/console-server-ts/src/router/opsCockpitSummary.ts',
-  'packages/console-server-ts/src/router/routeExtensions.ts',
-  'packages/console-server-ts/src/router/routerApiKeyAuth.ts',
-  'packages/console-server-ts/src/router/routerApiSignedDelegate.ts',
-  'packages/console-server-ts/src/router/routerApiSponsoredEvmCall.ts',
-  'packages/console-server-ts/src/router/routerApiWallets.ts',
-  'packages/console-server-ts/src/router/sponsorshipBillingEvents.ts',
-  'packages/console-server-ts/src/router/sponsorshipExecution.ts',
-  'packages/console-server-ts/src/router/sponsorshipRuntime.ts',
-  'packages/console-server-ts/src/router/sponsorshipSpendCapObservability.ts',
-  'packages/console-server-ts/src/router/stripePostProcessing.ts',
-  'packages/console-server-ts/src/runtimeSnapshots/d1.ts',
-  'packages/console-server-ts/src/runtimeSnapshots/service.ts',
-  'packages/console-server-ts/src/sponsoredCalls/d1.ts',
-  'packages/console-server-ts/src/sponsoredCalls/service.ts',
-  'packages/console-server-ts/src/sponsorship/evmRelay.ts',
-  'packages/console-server-ts/src/sponsorship/evmWorkerSignerWasm.ts',
-  'packages/console-server-ts/src/sponsorship/near.ts',
-  'packages/console-server-ts/src/sponsorship/nearExecutionAdapter.ts',
-  'packages/console-server-ts/src/sponsorshipPricing/d1.ts',
-  'packages/console-server-ts/src/sponsorshipSpendCaps/d1.ts',
-  'packages/console-server-ts/src/sponsorshipSpendCaps/service.ts',
-  'packages/console-server-ts/src/wallets/d1.ts',
-  'packages/console-server-ts/src/wallets/normalization.ts',
-  ].map((file) => [file, cloudHost]),
-]);
+// The R105 Phase 0-2 allowlist burned down to empty: console packages import
+// no Wallet package at all. Keep it empty; new entries are forbidden.
+const temporaryAllowedWalletImports = buildAllowedImportSet([]);
 
 function buildAllowedImportSet(entries) {
   const allowed = new Set();

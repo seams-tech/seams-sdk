@@ -4,7 +4,7 @@ import {
   createOutlayerSponsoredExecutionPricingService,
   isSponsorshipSpendCapEnforcementError,
   resolveSponsoredExecutionPricingFromEnv,
-} from '../../packages/console-server-ts/src/sponsorship';
+} from '../../packages/wallet-console-server-ts/src/sponsorship';
 
 const NEAR_RPC_URL = 'https://free.rpc.fastnear.com';
 const EVM_RPC_URL = 'https://rpc.moderato.tempo.xyz';

@@ -33,8 +33,8 @@ import {
   type ConsoleWebhookService,
   type OrganizationAdminPermission,
   type ProjectAccessAssignment,
-} from '@seams-internal/console-server/router/express-adaptor';
-import { createCloudflareConsoleRouter } from '@seams-internal/console-server/router/cloudflare-adaptor';
+} from '@seams-internal/wallet-console-server/router/express-adaptor';
+import { createCloudflareConsoleRouter } from '@seams-internal/wallet-console-server/router/cloudflare-adaptor';
 import {
   callCf,
   fetchJson,
@@ -45,7 +45,7 @@ import {
 import type {
   PostgresTenantStorageRoute,
   TenantStorageRouteResolver,
-} from '../../packages/console-server-ts/src/router/cloudflare/tenantStorageRoute';
+} from '../../packages/wallet-console-server-ts/src/router/cloudflare/tenantStorageRoute';
 import { parseOrgId, type OrgId } from '../../packages/shared-ts/src/utils/domainIds';
 
 function stripeSignatureHeader(secret: string, rawBody: string): string {

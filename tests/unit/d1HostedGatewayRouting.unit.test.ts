@@ -3,7 +3,7 @@ import type { FetchHandler } from '../../packages/sdk-server-ts/src/router/cloud
 import {
   dispatchHostedGatewayRequest,
   stagingSigningSessionSealOptions,
-} from '../../packages/console-server-ts/src/router/cloudflare/d1RouterApiStagingWorker';
+} from '../../packages/wallet-console-server-ts/src/router/cloudflare/d1RouterApiStagingWorker';
 
 const SIGNING_SESSION_SEAL_ENV = {
   SIGNING_SESSION_SEAL_ROOT_SECRET_B64U: Buffer.alloc(32, 0x42).toString('base64url'),
