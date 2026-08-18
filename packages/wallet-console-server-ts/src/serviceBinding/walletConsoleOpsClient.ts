@@ -1,6 +1,7 @@
 import type {
   RouterApiKeyAuthAdapter,
   RouterApiPublishableKeyAuthAdapter,
+  RouterApiProjectEnvironmentResolver,
   RouterApiUsageMeterAdapter,
 } from '@seams/wallet-server/cloud-host';
 import { WALLET_CONSOLE_OP_PATHS_V1 } from './walletConsoleOps';
@@ -14,6 +15,7 @@ export interface WalletConsoleOpsClient {
   readonly apiKeyAuth: RouterApiKeyAuthAdapter;
   readonly publishableKeyAuth: RouterApiPublishableKeyAuthAdapter;
   readonly usageMeter: RouterApiUsageMeterAdapter;
+  readonly projectEnvironments: RouterApiProjectEnvironmentResolver;
 }
 
 // The origin is never routable: service bindings dispatch on the bound Worker,
@@ -84,6 +86,23 @@ export function createWalletConsoleOpsClient(
           return { ok: true, principal: body.principal as never };
         }
         return failureFrom(status, body, 'publishable_key_invalid');
+      },
+    },
+    projectEnvironments: {
+      async listEnvironments(context, filters) {
+        const { status, body } = await postJson(
+          service,
+          WALLET_CONSOLE_OP_PATHS_V1.projectEnvironments,
+          { context, ...(filters ? { filters } : {}) },
+        );
+        if (body.ok !== true || !Array.isArray(body.environments)) {
+          throw new Error(
+            `Wallet Console environment resolution failed (HTTP ${status}): ${String(
+              body.message || body.code || 'unknown error',
+            )}`,
+          );
+        }
+        return body.environments as never;
       },
     },
     usageMeter: {

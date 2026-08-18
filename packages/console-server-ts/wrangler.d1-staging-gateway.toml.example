@@ -1,19 +1,17 @@
 name = "seams-sdk-d1-gateway-staging"
-main = "../wallet-console-server-ts/src/router/cloudflare/d1RouterApiStagingWorker.ts"
+main = "../wallet-console-server-ts/src/router/cloudflare/d1GatewayWorker.ts"
 compatibility_date = "2026-04-17"
 compatibility_flags = ["nodejs_compat"]
-
-[[d1_databases]]
-binding = "CONSOLE_DB"
-database_name = "seams-console-staging-nrt"
-database_id = "<remote-console-d1-database-id>"
-migrations_dir = "../wallet-console-server-ts/migrations/d1-console"
 
 [[d1_databases]]
 binding = "SIGNER_DB"
 database_name = "seams-signer-staging-nrt"
 database_id = "<remote-signer-d1-database-id>"
 migrations_dir = "node_modules/@seams/wallet-server/migrations/d1-signer"
+
+[[services]]
+binding = "WALLET_CONSOLE"
+service = "seams-sdk-d1-console-staging"
 
 [[services]]
 binding = "SIGNING_WORKER"

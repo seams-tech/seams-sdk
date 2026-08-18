@@ -1,6 +1,6 @@
 import type { D1DatabaseLike } from '@seams/wallet-server/cloud-host';
 import { createWalletConsoleRouter } from '../consoleComposition';
-import { HostedConsoleAuthHandler } from './d1RouterApiStagingWorker';
+import { HostedConsoleAuthHandler } from '../hostedConsoleAuth';
 import { createWalletConsoleOpsHandler } from '../../serviceBinding/walletConsoleOpsHandler';
 import {
   createRouterApiBillingUsageMeterAdapter,
@@ -158,6 +158,7 @@ async function createConsoleHandler(env: CloudflareD1ConsoleStagingEnv): Promise
       orgProjectEnv: bundle.orgProjectEnv,
       wallets: bundle.wallets,
     }),
+    projectEnvironments: bundle.orgProjectEnv,
   });
   const routerWithOps: FetchHandler = async (request, workerEnv, ctx) => {
     const opsResponse = await opsHandler(request);
@@ -176,7 +177,6 @@ async function createConsoleHandler(env: CloudflareD1ConsoleStagingEnv): Promise
     organizationAccess: bundle.organizationAccess,
     orgProjectEnv: bundle.orgProjectEnv,
     scope: {
-      namespace,
       orgId: requireEnvString(env, 'CONSOLE_DEFAULT_ORG_ID'),
       projectId: requireEnvString(env, 'CONSOLE_DEFAULT_PROJECT_ID'),
       envId: requireEnvString(env, 'CONSOLE_DEFAULT_ENVIRONMENT_ID'),

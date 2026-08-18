@@ -38,25 +38,23 @@ const signerD1Database = Object.freeze({
 });
 const requiredD1DatabasesByProfile = Object.freeze({
   console: Object.freeze([consoleD1Database]),
-  gateway: Object.freeze([consoleD1Database, signerD1Database]),
+  gateway: Object.freeze([signerD1Database]),
 });
 
 const stagingProfiles = Object.freeze(['console', 'gateway']);
 const expectedMainByProfile = Object.freeze({
   console: '../wallet-console-server-ts/src/router/cloudflare/d1ConsoleStagingWorker.ts',
-  gateway: '../wallet-console-server-ts/src/router/cloudflare/d1RouterApiStagingWorker.ts',
+  gateway: '../wallet-console-server-ts/src/router/cloudflare/d1GatewayWorker.ts',
 });
 const requiredSecretVarsByProfile = Object.freeze({
   console: Object.freeze(['CONSOLE_SESSION_HMAC_SECRET', 'STRIPE_API_SK']),
   gateway: Object.freeze([
-    'CONSOLE_SESSION_HMAC_SECRET',
     'ROUTER_AB_CEREMONY_JWT_PRIVATE_JWK',
     'ACCOUNT_ID_DERIVATION_SECRET',
     'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',
     'LINKED_DEVICE_OPERATOR_RECOVERY_SECRET',
     'LINKED_DEVICE_TARGET_DESCRIPTOR_HMAC_SECRET',
     'SPONSORED_EVM_EXECUTORS_JSON',
-    'STRIPE_API_SK',
   ]),
 });
 const requiredVarsByProfile = Object.freeze({

@@ -11,6 +11,7 @@ export const WALLET_CONSOLE_OP_PATHS_V1 = {
   secretKeyAuth: `${WALLET_CONSOLE_OPS_BASE_PATH_V1}/secret-key-auth`,
   publishableKeyAuth: `${WALLET_CONSOLE_OPS_BASE_PATH_V1}/publishable-key-auth`,
   usageEvents: `${WALLET_CONSOLE_OPS_BASE_PATH_V1}/usage-events`,
+  projectEnvironments: `${WALLET_CONSOLE_OPS_BASE_PATH_V1}/project-environments`,
 } as const;
 
 export interface WalletConsoleSecretKeyAuthRequestV1 {
@@ -84,4 +85,30 @@ export interface WalletControlPort {
     | { readonly ok: true }
     | { readonly ok: false; readonly code: string; readonly message: string }
   >;
+}
+
+export interface WalletConsoleProjectEnvironmentsRequestV1 {
+  readonly context: {
+    readonly orgId: string;
+    readonly actorUserId: string;
+    readonly roles: readonly string[];
+    readonly environmentId?: string;
+    readonly projectId?: string;
+  };
+  readonly filters?: { readonly status?: string };
+}
+
+export interface WalletConsoleProjectEnvironmentV1 {
+  readonly id: string;
+  readonly projectId: string;
+  readonly key: string;
+  readonly signingRootVersion: string;
+  readonly status?: string;
+}
+
+export interface WalletConsoleProjectEnvironmentsResponseV1 {
+  readonly ok: boolean;
+  readonly environments?: readonly WalletConsoleProjectEnvironmentV1[];
+  readonly code?: string;
+  readonly message?: string;
 }

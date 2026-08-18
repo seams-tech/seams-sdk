@@ -100,7 +100,7 @@ function buildConfig(
   const vars = buildWorkerVars(deployment, siteOrigin, walletOrigin, emailOtpDelivery, docsOrigin);
   return {
     name: resources.workerName,
-    main: path.join(packageRoot, '../wallet-console-server-ts/src/router/cloudflare/d1RouterApiWorker.ts'),
+    main: path.join(packageRoot, '../wallet-console-server-ts/src/router/cloudflare/d1GatewayWorker.ts'),
     compatibility_date: GATEWAY_WORKER_COMPATIBILITY_DATE,
     compatibility_flags: GATEWAY_WORKER_COMPATIBILITY_FLAGS,
     workers_dev: true,
@@ -111,12 +111,8 @@ function buildConfig(
       },
     ],
     d1_databases: [
-      {
-        binding: 'CONSOLE_DB',
-        database_name: resources.consoleD1.name,
-        database_id: resources.consoleD1.id,
-        migrations_dir: path.join(packageRoot, '../wallet-console-server-ts/migrations/d1-console'),
-      },
+      // R105 Phase 4 cutover: the Gateway holds no Console database binding.
+      // Console data crosses the private WALLET_CONSOLE service binding only.
       {
         binding: 'SIGNER_DB',
         database_name: resources.signerD1.name,
@@ -130,6 +126,7 @@ function buildConfig(
     services: [
       { binding: 'SIGNING_WORKER', service: deployment.serviceNames.signingWorker },
       { binding: 'MPC_ROUTER', service: deployment.serviceNames.mpcRouter },
+      { binding: 'WALLET_CONSOLE', service: resources.consoleWorkerName || `${resources.workerName}-console` },
     ],
     triggers: {
       crons: ['* * * * *'],

@@ -26,7 +26,7 @@ import {
   createEd25519SessionAdapter,
   createHmacSessionAdapter,
 } from './d1StagingSession';
-import { HostedConsoleAuthHandler } from './d1RouterApiStagingWorker';
+import { HostedConsoleAuthHandler } from '../hostedConsoleAuth';
 import {
   resolveSponsoredEvmCallConfigFromWorkerEnv,
   resolveSponsoredEvmWorkerExecutionAdapter,

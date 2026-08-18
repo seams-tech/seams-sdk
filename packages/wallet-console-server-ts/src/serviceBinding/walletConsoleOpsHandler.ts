@@ -1,6 +1,7 @@
 import type {
   RouterApiKeyAuthAdapter,
   RouterApiPublishableKeyAuthAdapter,
+  RouterApiProjectEnvironmentResolver,
   RouterApiUsageMeterAdapter,
 } from '@seams/wallet-server/cloud-host';
 import {
@@ -14,6 +15,7 @@ export interface WalletConsoleOpsHandlerServices {
   readonly apiKeyAuth: RouterApiKeyAuthAdapter;
   readonly publishableKeyAuth: RouterApiPublishableKeyAuthAdapter;
   readonly usageMeter: RouterApiUsageMeterAdapter;
+  readonly projectEnvironments: RouterApiProjectEnvironmentResolver;
 }
 
 function json(body: unknown, status = 200): Response {
@@ -108,6 +110,38 @@ export function createWalletConsoleOpsHandler(
       }
       await services.usageMeter.recordEvent(event);
       return json({ ok: true });
+    }
+
+    if (pathname === WALLET_CONSOLE_OP_PATHS_V1.projectEnvironments) {
+      const body = await readJsonBody(request);
+      const context =
+        body && body.context && typeof body.context === 'object' && !Array.isArray(body.context)
+          ? (body.context as Record<string, unknown>)
+          : null;
+      if (!body || !context) {
+        return json({ ok: false, code: 'invalid_body', message: 'JSON body required' }, 400);
+      }
+      const filters =
+        body.filters && typeof body.filters === 'object' && !Array.isArray(body.filters)
+          ? (body.filters as Record<string, unknown>)
+          : undefined;
+      const environments = await services.projectEnvironments.listEnvironments(
+        {
+          orgId: stringField(context, 'orgId'),
+          actorUserId: stringField(context, 'actorUserId'),
+          roles: Array.isArray(context.roles)
+            ? context.roles.map((role) => String(role ?? '').trim()).filter(Boolean)
+            : [],
+          ...(stringField(context, 'environmentId')
+            ? { environmentId: stringField(context, 'environmentId') }
+            : {}),
+          ...(stringField(context, 'projectId')
+            ? { projectId: stringField(context, 'projectId') }
+            : {}),
+        },
+        filters && stringField(filters, 'status') ? { status: stringField(filters, 'status') } : undefined,
+      );
+      return json({ ok: true, environments });
     }
 
     return json({ ok: false, code: 'not_found', message: 'Unknown wallet-console operation' }, 404);
