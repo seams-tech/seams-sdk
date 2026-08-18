@@ -287,7 +287,7 @@ restarts by reading it from the existing generated config.
 The SDK Router's Wrangler process also loads these files when present:
 
 ```text
-packages/sdk-server-ts/.dev.vars
+packages/wallet-server/.dev.vars
 packages/console-server-ts/.dev.vars
 ```
 
@@ -297,7 +297,7 @@ Router A/B role files.
 ### 5. Caddy environment
 
 Caddy receives `SEAMS_WALLET_PUBLIC_ROOT`, which points at
-`packages/sdk-web/dist/public`. Router A/B secrets are not passed to Caddy.
+`packages/wallet/dist/public`. Router A/B secrets are not passed to Caddy.
 Caddy uses `tls internal` and attempts to trust its local CA before startup.
 
 ## Local Persistence

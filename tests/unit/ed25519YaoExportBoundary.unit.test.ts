@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { RouterAbEd25519YaoExportAdmissionRequestV1 } from '@shared/utils/routerAbEd25519Yao';
-import { buildRouterAbEd25519YaoExportAdmissionBodyV1 } from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/yaoClient';
-import type { WebAuthnAuthenticationCredential } from '../../packages/sdk-web/src/core/types/webauthn';
+import { buildRouterAbEd25519YaoExportAdmissionBodyV1 } from '../../packages/wallet/src/core/signingEngine/threshold/ed25519/yaoClient';
+import type { WebAuthnAuthenticationCredential } from '../../packages/wallet/src/core/types/webauthn';
 
 const PARTICIPANT_IDS = [11, 29] as const;
 

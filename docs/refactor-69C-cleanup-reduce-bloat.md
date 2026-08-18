@@ -6,7 +6,7 @@ Status: complete for the current Router A/B flow-audit and slimming scope.
 The concrete 69B cleanup slices through Phase 8 are complete. Package folding,
 server tsconfig isolation, package-export guard validation, hard
 server-dependency removal from the browser package, and the public
-`@seams/sdk-server` split are implemented. Remaining adjacent work is tracked in
+`@seams/wallet-server` split are implemented. Remaining adjacent work is tracked in
 the follow-up plans called out below, not in Refactor 69C.
 
 Follow-up ownership:
@@ -214,8 +214,8 @@ Prioritize these during the audit.
 
 Likely targets:
 
-- `packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts`
-- `packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp.worker.ts`
+- `packages/wallet-server/src/core/ThresholdService/ThresholdSigningService.ts`
+- `packages/wallet/src/core/signingEngine/workerManager/workers/email-otp.worker.ts`
 - shared session/warm-capability modules that mix persistence, planning,
   readiness, and route transport
 - route files that duplicate Express and Cloudflare logic
@@ -450,7 +450,7 @@ Validation:
 Status: complete on June 18, 2026. Runtime package folding,
 `sdk-server-ts` tsconfig isolation, shared type moves, public runtime value
 exports, package-export guard updates, hard server-dependency removal from
-browser installs, and the later `@seams/sdk-server` package split are
+browser installs, and the later `@seams/wallet-server` package split are
 implemented.
 
 Delete only the stale direct generic prepare path. The active strict
@@ -690,27 +690,27 @@ Status: complete for the current branch package/runtime scope on June 19, 2026.
 
 Implementation notes:
 
-- `packages/sdk-runtime-ts` has been folded into `packages/sdk-web`.
+- `packages/sdk-runtime-ts` has been folded into `packages/wallet`.
 - Neutral NEAR action/delegate and WebAuthn option shapes now live in
   `packages/shared-ts`.
-- `packages/sdk-server-ts` owns server-local NEAR and EVM RPC helpers instead
+- `packages/wallet-server` owns server-local NEAR and EVM RPC helpers instead
   of importing browser SDK clients.
-- `packages/sdk-server-ts/tsconfig.json` no longer extends
-  `packages/sdk-web/tsconfig.json` and no longer has an `@/*` web alias.
-- Current packaging decision: `@seams/sdk` is browser/runtime/react only, and
-  `packages/sdk-server-ts` publishes as `@seams/sdk-server` for root server APIs,
+- `packages/wallet-server/tsconfig.json` no longer extends
+  `packages/wallet/tsconfig.json` and no longer has an `@/*` web alias.
+- Current packaging decision: `@seams/wallet` is browser/runtime/react only, and
+  `packages/wallet-server` publishes as `@seams/wallet-server` for root server APIs,
   router adapters, Postgres stores, and server WebAuthn helpers. The old
-  `@seams/sdk/server` subpaths have been deleted.
+  `@seams/wallet/server` subpaths have been deleted.
 - The server package owns server dependencies such as `pg`, Express, and
-  `@simplewebauthn/server`. Browser installs of `@seams/sdk` no longer carry
+  `@simplewebauthn/server`. Browser installs of `@seams/wallet` no longer carry
   server dependencies or optional server peers.
 - Package export guard validation now asserts the canonical
-  `dist/types/sdk-web/...` declaration paths and the public
-  `@seams/sdk/runtime` value exports. It also asserts `pg` and
+  `dist/types/wallet/...` declaration paths and the public
+  `@seams/wallet/runtime` value exports. It also asserts `pg` and
   `@simplewebauthn/server` stay out of hard browser dependencies.
 - Package install smoke validation now covers browser/runtime imports without
-  server dependencies, verifies the old `@seams/sdk/server` subpath is gone, and
-  verifies `@seams/sdk-server` imports root server APIs, router adapters, and
+  server dependencies, verifies the old `@seams/wallet/server` subpath is gone, and
+  verifies `@seams/wallet-server` imports root server APIs, router adapters, and
   Postgres storage helpers.
 - The `core/runtime` import inventory is recorded in
   `docs/refactor-69D-cleanup-2.md`; current imports are sdk-web composition
@@ -721,8 +721,8 @@ Implementation notes:
 The TypeScript workspace currently has two public packages and one private
 shared source package:
 
-- `packages/sdk-web`: public `@seams/sdk` package and browser SDK source
-- `packages/sdk-server-ts`: public `@seams/sdk-server` package and server SDK
+- `packages/wallet`: public `@seams/wallet` package and browser SDK source
+- `packages/wallet-server`: public `@seams/wallet-server` package and server SDK
   source
 - `packages/shared-ts`: private shared utility/protocol package
 
@@ -733,54 +733,54 @@ separate package, so it has been folded back into `sdk-web`.
 Todo:
 
 - [x] Move `packages/sdk-runtime-ts/src/runtime` to
-      `packages/sdk-web/src/core/runtime`.
-- [x] Keep the public `@seams/sdk/runtime` export working from
-      `packages/sdk-web/src/runtime.ts`.
+      `packages/wallet/src/core/runtime`.
+- [x] Keep the public `@seams/wallet/runtime` export working from
+      `packages/wallet/src/runtime.ts`.
 - [x] Delete `packages/sdk-runtime-ts/package.json`,
       `packages/sdk-runtime-ts/tsconfig.json`, and its `pnpm-workspace.yaml` entry.
 - [x] Remove runtime aliases for `@seams-internal/runtime` and
-      `@/core/runtime` that point outside `packages/sdk-web`.
-- [x] Update `packages/sdk-web/rolldown.config.ts`, `tsconfig*.json`, and
+      `@/core/runtime` that point outside `packages/wallet`.
+- [x] Update `packages/wallet/rolldown.config.ts`, `tsconfig*.json`, and
       `tests/tsconfig.playwright.json` after the runtime move.
-- [x] Keep or strengthen the runtime-entry guard so `@seams/sdk/runtime` still
+- [x] Keep or strengthen the runtime-entry guard so `@seams/wallet/runtime` still
       avoids React, DOM, iframe, IndexedDB, and browser adapter imports.
 - [x] Keep `packages/shared-ts` as a separate internal package. It is the real
       shared protocol/utility boundary used by web, server, tests, and the app.
-- [x] Keep `packages/sdk-server-ts` as a separate source package, then isolate
+- [x] Keep `packages/wallet-server` as a separate source package, then isolate
       it from the web package by giving it a server-oriented tsconfig instead of
-      extending `packages/sdk-web/tsconfig.json`.
-- [x] Remove server imports from `packages/sdk-web/src/core` by moving the small
+      extending `packages/wallet/tsconfig.json`.
+- [x] Remove server imports from `packages/wallet/src/core` by moving the small
       shared NEAR action/client types into `packages/shared-ts` or server-local
       modules.
-- [x] Remove the `@/*` web alias from `packages/sdk-server-ts/tsconfig.json`
+- [x] Remove the `@/*` web alias from `packages/wallet-server/tsconfig.json`
       once the server no longer imports web-core files.
-- [x] Move server exports to the separate public `@seams/sdk-server` package.
+- [x] Move server exports to the separate public `@seams/wallet-server` package.
 - [x] Move server-only runtime dependencies out of hard browser installs.
       Browser consumers should not hard-install `pg` or
       `@simplewebauthn/server`.
 - [x] Fix `tests/unit/refactor51bPackageExports.unit.test.ts` so it asserts the
-      canonical `dist/types/sdk-web/...` declaration paths and keeps
-      `@seams/sdk/runtime` value exports covered.
+      canonical `dist/types/wallet/...` declaration paths and keeps
+      `@seams/wallet/runtime` value exports covered.
 - [x] Update package docs that describe the four-package layout.
 
 Keep:
 
-- public browser exports from `@seams/sdk`
-- public React exports from `@seams/sdk/react`
-- public runtime export from `@seams/sdk/runtime`
-- public server exports from `@seams/sdk-server`
+- public browser exports from `@seams/wallet`
+- public React exports from `@seams/wallet/react`
+- public runtime export from `@seams/wallet/runtime`
+- public server exports from `@seams/wallet-server`
 - shared domain parsers, constants, and wire helpers in `shared-ts`
 
 Validation:
 
 - `rtk rg "@seams-internal/runtime|\\.\\./sdk-runtime-ts|RUNTIME_SRC_ROOT_ABS" packages tests`
-- `rtk pnpm -C packages/sdk-web type-check`
+- `rtk pnpm -C packages/wallet type-check`
 - `rtk pnpm -C packages/shared-ts type-check`
-- `rtk pnpm -C packages/sdk-server-ts type-check`
+- `rtk pnpm -C packages/wallet-server type-check`
 - `rtk pnpm -C tests test:source-guards`
 - `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/refactor51bPackageExports.unit.test.ts --reporter=line`
 - `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/refactor51bPackageInstallSmoke.unit.test.ts --reporter=line`
-- `rtk pnpm -C packages/sdk-web build:prepare`
+- `rtk pnpm -C packages/wallet build:prepare`
 
 Current validation note: the targeted Phase 8 package/runtime checks pass. The
 full `rtk pnpm -C tests test:source-guards` suite still fails on broader guard
@@ -824,8 +824,8 @@ cleanup and can land separately from the Rust Router A/B cuts.
 - `packages/sdk-runtime-ts` is gone or replaced by a real independent runtime
   package with no web/server alias leakage.
 - Browser installs no longer hard-require `pg` or `@simplewebauthn/server`.
-- Server APIs are published from `@seams/sdk-server`; old
-  `@seams/sdk/server` subpaths are gone.
+- Server APIs are published from `@seams/wallet-server`; old
+  `@seams/wallet/server` subpaths are gone.
 
 ## Typing And Compile-Time Guard Opportunities
 
@@ -926,7 +926,7 @@ deleted, or an invalid import direction can be guarded.
 Proposed target shape:
 
 ```text
-packages/sdk-web/src/core/signingEngine/routerAb/
+packages/wallet/src/core/signingEngine/routerAb/
   shared/
     credential.ts
     routeAuth.ts
@@ -963,7 +963,7 @@ packages/sdk-web/src/core/signingEngine/routerAb/
 ```
 
 ```text
-packages/sdk-server-ts/src/routerAb/
+packages/wallet-server/src/routerAb/
   http/
     express/
       adapters.ts
@@ -1109,10 +1109,10 @@ Resolved findings:
 - [x] Record the Phase 3 type-model targets in the audit artifact.
 - [x] Split persisted compatibility records from signable in-memory records.
       Current progress: - [x] Added
-      `packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession.ts`
+      `packages/wallet/src/core/signingEngine/session/routerAbSigningWalletSession.ts`
       as the Router A/B persisted-record classifier and strict
       signable Wallet Session boundary for Ed25519 and ECDSA-HSS. - [x] Added
-      `packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession.typecheck.ts`
+      `packages/wallet/src/core/signingEngine/session/routerAbSigningWalletSession.typecheck.ts`
       to reject missing auth/session/signing-root/material fields and
       raw material on signable Wallet Session records. - [x] Added
       `tests/unit/signingCapabilityStrictRecords.unit.test.ts` to prove
@@ -1181,7 +1181,7 @@ Resolved findings:
       Wallet Session auth at the active NEAR signing boundary.
 - [x] Add type fixtures for known escape hatches.
       Current progress: - [x] Added
-      `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signers/ecdsaHssClientSigningMaterialSource.typecheck.ts`
+      `packages/wallet/src/core/signingEngine/flows/signEvmFamily/signers/ecdsaHssClientSigningMaterialSource.typecheck.ts`
       to prove the final ECDSA-HSS signing material boundary rejects raw
       `role_local_ready_state_blob` client-share material after worker
       handle loading. - [x] Added resolved Ed25519 Wallet Session state fixtures rejecting
@@ -1193,28 +1193,28 @@ Resolved findings:
 Validation:
 
 ```sh
-rtk pnpm -C packages/sdk-web run type-check
-rtk pnpm -C packages/sdk-server-ts run type-check
+rtk pnpm -C packages/wallet run type-check
+rtk pnpm -C packages/wallet-server run type-check
 ```
 
 Latest focused validation for the Ed25519 raw-material boundary slice:
 
 ```sh
-pnpm -C packages/sdk-web type-check
-pnpm -C packages/sdk-web build:prepare
+pnpm -C packages/wallet type-check
+pnpm -C packages/wallet build:prepare
 pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/routerAbEd25519.walletSessionState.unit.test.ts unit/signingCapabilityStrictRecords.unit.test.ts unit/thresholdEd25519.hssMaterialHandle.unit.test.ts --reporter=line
-git diff --check -- packages/sdk-web/src/core/signingEngine/threshold/ed25519/hssMaterialBinding.ts packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession.ts packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession.typecheck.ts packages/sdk-web/src/core/signingEngine/interfaces/near.ts packages/sdk-web/src/core/signingEngine/flows/signNear/shared/routerAbEd25519WalletSessionState.ts packages/sdk-web/src/core/signingEngine/flows/signNear/shared/routerAbWalletSessionCredential.ts packages/sdk-web/src/core/signingEngine/flows/signNear/shared/routerAbWalletSessionCredential.typecheck.ts packages/sdk-web/src/core/signingEngine/flows/signNear/signTransactions.ts packages/sdk-web/src/core/signingEngine/flows/signNear/signDelegate.ts packages/sdk-web/src/core/signingEngine/flows/signNear/signNep413.ts packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519PresignFinalize.ts tests/unit/routerAbEd25519.walletSessionState.unit.test.ts
+git diff --check -- packages/wallet/src/core/signingEngine/threshold/ed25519/hssMaterialBinding.ts packages/wallet/src/core/signingEngine/session/routerAbSigningWalletSession.ts packages/wallet/src/core/signingEngine/session/routerAbSigningWalletSession.typecheck.ts packages/wallet/src/core/signingEngine/interfaces/near.ts packages/wallet/src/core/signingEngine/flows/signNear/shared/routerAbEd25519WalletSessionState.ts packages/wallet/src/core/signingEngine/flows/signNear/shared/routerAbWalletSessionCredential.ts packages/wallet/src/core/signingEngine/flows/signNear/shared/routerAbWalletSessionCredential.typecheck.ts packages/wallet/src/core/signingEngine/flows/signNear/signTransactions.ts packages/wallet/src/core/signingEngine/flows/signNear/signDelegate.ts packages/wallet/src/core/signingEngine/flows/signNear/signNep413.ts packages/wallet/src/core/signingEngine/flows/signNear/shared/ed25519PresignFinalize.ts tests/unit/routerAbEd25519.walletSessionState.unit.test.ts
 ```
 
 Phase 3 validation completed so far:
 
 ```sh
-rtk pnpm -C packages/sdk-web type-check
-rtk pnpm -C packages/sdk-web build:prepare
+rtk pnpm -C packages/wallet type-check
+rtk pnpm -C packages/wallet build:prepare
 rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/signingCapabilityStrictRecords.unit.test.ts --reporter=line
 rtk pnpm -C tests exec playwright test -c playwright.source.config.ts unit/routerAbNormalSigningSdk.guard.unit.test.ts --reporter=line
-pnpm -C packages/sdk-web type-check
-pnpm -C packages/sdk-web build:prepare
+pnpm -C packages/wallet type-check
+pnpm -C packages/wallet build:prepare
 pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/evmFamilyEcdsaIdentity.unit.test.ts unit/ecdsaMaterialState.unit.test.ts unit/signingFlow.readySigner.unit.test.ts --reporter=line
 pnpm -C tests exec playwright test -c playwright.source.config.ts unit/routerAbNormalSigningSdk.guard.unit.test.ts --reporter=line
 ```
@@ -1222,8 +1222,8 @@ pnpm -C tests exec playwright test -c playwright.source.config.ts unit/routerAbN
 Phase 3 type-fixture validation completed so far:
 
 ```sh
-rtk pnpm -C packages/sdk-web type-check
-pnpm -C packages/sdk-web type-check
+rtk pnpm -C packages/wallet type-check
+pnpm -C packages/wallet type-check
 pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/routerAbEd25519.walletSessionState.unit.test.ts unit/warmSessionStore.invariants.unit.test.ts unit/warmSessionTransitions.unit.test.ts --reporter=line
 ```
 
@@ -1240,25 +1240,25 @@ Task list:
 - [x] Identify duplicated SDK route-client and auth-header helpers.
 
 Large-module inventory from
-`rtk rg --files packages/sdk-web/src packages/sdk-server-ts/src | xargs wc -l | sort -nr | head -80`:
+`rtk rg --files packages/wallet/src packages/wallet-server/src | xargs wc -l | sort -nr | head -80`:
 
 | File                                                                            | Lines | Ownership note                                                                                                                        |
 | ------------------------------------------------------------------------------- | ----: | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `packages/sdk-server-ts/src/core/AuthService.ts`                                | 16464 | Broad server auth/account service. Leave out of Router A/B cleanup unless a route/auth boundary task needs a narrow parser or issuer. |
-| `packages/sdk-server-ts/src/router/express/createConsoleRouter.ts`              |  4667 | Console route assembly; separate from Router A/B signing cleanup.                                                                     |
-| `packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts`   |  4599 | Mixed threshold-era service surface. Extract only when active Router A/B handlers need narrower service ports.                        |
-| `packages/sdk-server-ts/src/router/cloudflare/createCloudflareConsoleRouter.ts` |  4522 | Console route assembly; keep out of signing cleanup.                                                                                  |
-| `packages/sdk-web/src/core/signingEngine/session/persistence/records.ts`        |  3074 | Persistence boundary for legacy/current records. Phase 15.11 owns strict signable-state split.                                        |
-| `packages/sdk-server-ts/src/router/routeDefinitions.ts`                         |  2182 | Route metadata mixes public, console, API, and threshold-era signing labels. Phase 15.17 owns auth metadata cleanup.                  |
-| `packages/sdk-server-ts/src/router/express/routes/sessions.ts`                  |  1900 | Duplicated with Cloudflare sessions route; server auth/session boundary cleanup owns extraction.                                      |
-| `packages/sdk-server-ts/src/router/cloudflare/routes/sessions.ts`               |  1895 | Duplicated with Express sessions route; extract shared validation only after auth semantics are pinned.                               |
-| `packages/sdk-server-ts/src/router/express/routes/thresholdEcdsa.ts`            |  1111 | Active Router A/B ECDSA-HSS routes live in a threshold-named adapter file.                                                            |
-| `packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEcdsa.ts`         |   816 | Cloudflare duplicate of active Router A/B ECDSA-HSS route behavior.                                                                   |
-| `packages/sdk-server-ts/src/router/express/routes/thresholdEd25519.ts`          |   837 | Active Router A/B Ed25519 normal-signing routes live in a threshold-named adapter file.                                               |
-| `packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519.ts`       |   745 | Cloudflare duplicate of active Router A/B Ed25519 route behavior.                                                                     |
-| `packages/sdk-web/src/core/rpcClients/relayer/walletRegistration.ts`            |  1514 | SDK route client mixes registration calls, local POST helper, auth headers, and Router A/B bootstrap response parsing.                |
-| `packages/sdk-web/src/core/rpcClients/relayer/routerAbNormalSigning.ts`         |  1087 | SDK Router A/B signing client owns canonical request/digest construction plus local POST helper.                                      |
-| `packages/sdk-web/src/core/rpcClients/relayer/thresholdEcdsa.ts`                |   702 | ECDSA-HSS bootstrap client still carries threshold-era naming and separate bearer/fetch helpers.                                      |
+| `packages/wallet-server/src/core/AuthService.ts`                                | 16464 | Broad server auth/account service. Leave out of Router A/B cleanup unless a route/auth boundary task needs a narrow parser or issuer. |
+| `packages/wallet-server/src/router/express/createConsoleRouter.ts`              |  4667 | Console route assembly; separate from Router A/B signing cleanup.                                                                     |
+| `packages/wallet-server/src/core/ThresholdService/ThresholdSigningService.ts`   |  4599 | Mixed threshold-era service surface. Extract only when active Router A/B handlers need narrower service ports.                        |
+| `packages/wallet-server/src/router/cloudflare/createCloudflareConsoleRouter.ts` |  4522 | Console route assembly; keep out of signing cleanup.                                                                                  |
+| `packages/wallet/src/core/signingEngine/session/persistence/records.ts`        |  3074 | Persistence boundary for legacy/current records. Phase 15.11 owns strict signable-state split.                                        |
+| `packages/wallet-server/src/router/routeDefinitions.ts`                         |  2182 | Route metadata mixes public, console, API, and threshold-era signing labels. Phase 15.17 owns auth metadata cleanup.                  |
+| `packages/wallet-server/src/router/express/routes/sessions.ts`                  |  1900 | Duplicated with Cloudflare sessions route; server auth/session boundary cleanup owns extraction.                                      |
+| `packages/wallet-server/src/router/cloudflare/routes/sessions.ts`               |  1895 | Duplicated with Express sessions route; extract shared validation only after auth semantics are pinned.                               |
+| `packages/wallet-server/src/router/express/routes/thresholdEcdsa.ts`            |  1111 | Active Router A/B ECDSA-HSS routes live in a threshold-named adapter file.                                                            |
+| `packages/wallet-server/src/router/cloudflare/routes/thresholdEcdsa.ts`         |   816 | Cloudflare duplicate of active Router A/B ECDSA-HSS route behavior.                                                                   |
+| `packages/wallet-server/src/router/express/routes/thresholdEd25519.ts`          |   837 | Active Router A/B Ed25519 normal-signing routes live in a threshold-named adapter file.                                               |
+| `packages/wallet-server/src/router/cloudflare/routes/thresholdEd25519.ts`       |   745 | Cloudflare duplicate of active Router A/B Ed25519 route behavior.                                                                     |
+| `packages/wallet/src/core/rpcClients/relayer/walletRegistration.ts`            |  1514 | SDK route client mixes registration calls, local POST helper, auth headers, and Router A/B bootstrap response parsing.                |
+| `packages/wallet/src/core/rpcClients/relayer/routerAbNormalSigning.ts`         |  1087 | SDK Router A/B signing client owns canonical request/digest construction plus local POST helper.                                      |
+| `packages/wallet/src/core/rpcClients/relayer/thresholdEcdsa.ts`                |   702 | ECDSA-HSS bootstrap client still carries threshold-era naming and separate bearer/fetch helpers.                                      |
 
 Mixed-responsibility findings and extraction targets:
 
@@ -1309,10 +1309,10 @@ Implementation sequencing:
 Validation:
 
 ```sh
-rtk rg --files packages/sdk-web/src packages/sdk-server-ts/src | xargs wc -l | sort -nr | head -80
-wc -l packages/sdk-server-ts/src/router/express/routes/thresholdEd25519.ts packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519.ts packages/sdk-server-ts/src/router/express/routes/thresholdEcdsa.ts packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEcdsa.ts packages/sdk-server-ts/src/router/express/routes/sessions.ts packages/sdk-server-ts/src/router/cloudflare/routes/sessions.ts packages/sdk-server-ts/src/router/emailOtpRouteHandlers.ts packages/sdk-server-ts/src/router/routeDefinitions.ts packages/sdk-web/src/core/rpcClients/relayer/walletRegistration.ts packages/sdk-web/src/core/rpcClients/relayer/routerAbNormalSigning.ts packages/sdk-web/src/core/rpcClients/relayer/thresholdEcdsa.ts
-rtk rg -n 'function .*post|async function .*post|const .*post|Authorization:|credentials:|stripTrailingSlashes|resolveBearerToken|fetch\(' packages/sdk-web/src/core/rpcClients/relayer
-rtk rg -n "register.*Route|findRouteDefinitionById|thresholdSessionRoute|RouteAuthPolicy|handleRouterAb|routerAb.*status|parse.*WalletSession|hadBearerSessionSignal|hasBearerSessionSignal" packages/sdk-server-ts/src/router/express/routes packages/sdk-server-ts/src/router/cloudflare/routes packages/sdk-server-ts/src/router/routeDefinitions.ts packages/sdk-server-ts/src/router/routeAuthPolicy.ts
+rtk rg --files packages/wallet/src packages/wallet-server/src | xargs wc -l | sort -nr | head -80
+wc -l packages/wallet-server/src/router/express/routes/thresholdEd25519.ts packages/wallet-server/src/router/cloudflare/routes/thresholdEd25519.ts packages/wallet-server/src/router/express/routes/thresholdEcdsa.ts packages/wallet-server/src/router/cloudflare/routes/thresholdEcdsa.ts packages/wallet-server/src/router/express/routes/sessions.ts packages/wallet-server/src/router/cloudflare/routes/sessions.ts packages/wallet-server/src/router/emailOtpRouteHandlers.ts packages/wallet-server/src/router/routeDefinitions.ts packages/wallet/src/core/rpcClients/relayer/walletRegistration.ts packages/wallet/src/core/rpcClients/relayer/routerAbNormalSigning.ts packages/wallet/src/core/rpcClients/relayer/thresholdEcdsa.ts
+rtk rg -n 'function .*post|async function .*post|const .*post|Authorization:|credentials:|stripTrailingSlashes|resolveBearerToken|fetch\(' packages/wallet/src/core/rpcClients/relayer
+rtk rg -n "register.*Route|findRouteDefinitionById|thresholdSessionRoute|RouteAuthPolicy|handleRouterAb|routerAb.*status|parse.*WalletSession|hadBearerSessionSignal|hasBearerSessionSignal" packages/wallet-server/src/router/express/routes packages/wallet-server/src/router/cloudflare/routes packages/wallet-server/src/router/routeDefinitions.ts packages/wallet-server/src/router/routeAuthPolicy.ts
 ```
 
 ### Phase 5: Test And Fixture Audit
@@ -1426,7 +1426,7 @@ Task list:
 
 - [x] Shared route handler extraction.
       Current progress: - [x] Extracted the Router A/B Ed25519 normal-signing route core into
-      `packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker.ts`
+      `packages/wallet-server/src/router/routerAbPrivateSigningWorker.ts`
       so Express and Cloudflare share Wallet Session validation,
       request-scope admission, quota/admission evaluation, replay
       reservation, private SigningWorker path resolution, and forwarding.
@@ -1436,7 +1436,7 @@ Task list:
       reservation, and success-path tests assert the exact private
       SigningWorker URL for prepare, presign-pool prepare, normal
       finalize, and presign-pool finalize. - [x] Extracted the remaining duplicated Router A/B ECDSA-HSS route core
-      into `packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker.ts`.
+      into `packages/wallet-server/src/router/routerAbPrivateSigningWorker.ts`.
       Express and Cloudflare now share Wallet Session validation,
       request-scope admission, quota/admission evaluation, prepare replay,
       final-signing budget consumption, private body construction, and
@@ -1445,7 +1445,7 @@ Task list:
       request-boundary semantics.
 - [x] SDK Router A/B credential and route-client consolidation.
       Current progress: - [x] Browser relayer clients share
-      `packages/sdk-web/src/core/rpcClients/relayer/relayerHttp.ts` for
+      `packages/wallet/src/core/rpcClients/relayer/relayerHttp.ts` for
       base URL normalization, JSON request init, `credentials: 'omit'`,
       and bearer `Authorization` header construction. Protocol-specific
       request bodies, digest construction, response parsers, and error
@@ -1514,7 +1514,7 @@ Validation completed for the worker operation, ECDSA identity, and import-guard
 slice:
 
 ```sh
-pnpm -C packages/sdk-web type-check
+pnpm -C packages/wallet type-check
 pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/evmFamilyEcdsaIdentity.unit.test.ts --reporter=line
 pnpm -C tests exec playwright test -c playwright.source.config.ts unit/routerAbNormalSigningSdk.guard.unit.test.ts --reporter=line
 ```
@@ -1522,7 +1522,7 @@ pnpm -C tests exec playwright test -c playwright.source.config.ts unit/routerAbN
 Validation completed for the SDK route-client helper slice:
 
 ```sh
-rtk pnpm -C packages/sdk-web type-check
+rtk pnpm -C packages/wallet type-check
 rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/routerAbPublicKeyset.unit.test.ts unit/routerAbNormalSigningValidation.unit.test.ts unit/walletRegistrationEcdsaRouterAbBootstrap.unit.test.ts unit/routerAbNormalSigningVectors.unit.test.ts --reporter=line
 rtk pnpm -C tests exec playwright test -c playwright.source.config.ts unit/routerAbNormalSigningSdk.guard.unit.test.ts unit/routerAbServerWalletSessionClaimBoundary.guard.unit.test.ts --reporter=line
 rtk git diff --check
@@ -1531,7 +1531,7 @@ rtk git diff --check
 Validation completed for the shared Ed25519 route-core extraction:
 
 ```sh
-rtk pnpm -C packages/sdk-server-ts type-check
+rtk pnpm -C packages/wallet-server type-check
 rtk pnpm -C tests exec playwright test -c playwright.relayer.config.ts relayer/router-ab-normal-signing-auth-boundary.test.ts --reporter=line
 rtk pnpm -C tests exec playwright test -c playwright.source.config.ts unit/routerAbNormalSigningSdk.guard.unit.test.ts unit/routerAbServerWalletSessionClaimBoundary.guard.unit.test.ts --reporter=line
 ```
@@ -1539,7 +1539,7 @@ rtk pnpm -C tests exec playwright test -c playwright.source.config.ts unit/route
 Validation completed for the shared ECDSA-HSS route-core extraction:
 
 ```sh
-pnpm -C packages/sdk-server-ts type-check
+pnpm -C packages/wallet-server type-check
 pnpm -C tests exec playwright test -c playwright.relayer.config.ts relayer/router-ab-normal-signing-auth-boundary.test.ts --reporter=line
 ```
 
@@ -1548,7 +1548,7 @@ Validation completed for the SDK route-client follow-up fixes:
 ```sh
 rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/routerAbNormalSigningValidation.unit.test.ts unit/routerAbEcdsaHssNormalSigning.unit.test.ts --reporter=line
 rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/routerAbPublicKeyset.unit.test.ts unit/routerAbNormalSigningValidation.unit.test.ts unit/walletRegistrationEcdsaRouterAbBootstrap.unit.test.ts unit/routerAbNormalSigningVectors.unit.test.ts unit/routerAbEcdsaHssNormalSigning.unit.test.ts --reporter=line
-rtk pnpm -C packages/sdk-web type-check
+rtk pnpm -C packages/wallet type-check
 rtk pnpm -C tests exec playwright test -c playwright.source.config.ts unit/routerAbNormalSigningSdk.guard.unit.test.ts unit/routerAbServerWalletSessionClaimBoundary.guard.unit.test.ts --reporter=line
 rtk git diff --check
 ```
@@ -1563,7 +1563,7 @@ Task list:
 
 - [x] Resolve threshold-era active Router A/B route-core ownership.
       Closure evidence: - Active Ed25519 and ECDSA-HSS normal-signing core code now lives in
-      `packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker.ts`. - Express and Cloudflare `thresholdEd25519.ts` / `thresholdEcdsa.ts`
+      `packages/wallet-server/src/router/routerAbPrivateSigningWorker.ts`. - Express and Cloudflare `thresholdEd25519.ts` / `thresholdEcdsa.ts`
       files stay threshold-named because they still own threshold-era
       request-boundary routes and framework response serialization. - `tests/unit/routerAbNormalSigningSdk.guard.unit.test.ts` now proves
       normal-signing admission, request validation, private body
@@ -1616,9 +1616,9 @@ Completed rename map:
 
 | Old path                                                                   | New path                                                                                      | Reason                                                                                                                                                                                                |
 | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `packages/sdk-server-ts/src/core/ThresholdService/schemes/types.ts`        | `packages/sdk-server-ts/src/core/ThresholdService/schemes/thresholdServiceSchemes.types.ts`   | Mechanical Refactor 73 type-module rename for the server threshold scheme registry. Exported scheme IDs and real cryptographic threshold names remain unchanged.                                      |
-| `packages/sdk-server-ts/src/router/cloudflare/types.ts`                    | `packages/sdk-server-ts/src/router/cloudflare/cloudflare.types.ts`                            | Mechanical Refactor 73 type-module rename for Cloudflare adapter boundary types after Refactor 70 core budget work stabilized. Runtime bindings and route handling remain unchanged.                  |
-| `packages/sdk-server-ts/src/threshold/session/signingSessionSeal/types.ts` | `packages/sdk-server-ts/src/threshold/session/signingSessionSeal/signingSessionSeal.types.ts` | Mechanical Refactor 73 type-module rename for signing-session seal boundary types after Refactor 70 core budget work stabilized. Seal policy, auth, budget, and transport semantics remain unchanged. |
+| `packages/wallet-server/src/core/ThresholdService/schemes/types.ts`        | `packages/wallet-server/src/core/ThresholdService/schemes/thresholdServiceSchemes.types.ts`   | Mechanical Refactor 73 type-module rename for the server threshold scheme registry. Exported scheme IDs and real cryptographic threshold names remain unchanged.                                      |
+| `packages/wallet-server/src/router/cloudflare/types.ts`                    | `packages/wallet-server/src/router/cloudflare/cloudflare.types.ts`                            | Mechanical Refactor 73 type-module rename for Cloudflare adapter boundary types after Refactor 70 core budget work stabilized. Runtime bindings and route handling remain unchanged.                  |
+| `packages/wallet-server/src/threshold/session/signingSessionSeal/types.ts` | `packages/wallet-server/src/threshold/session/signingSessionSeal/signingSessionSeal.types.ts` | Mechanical Refactor 73 type-module rename for signing-session seal boundary types after Refactor 70 core budget work stabilized. Seal policy, auth, budget, and transport semantics remain unchanged. |
 
 Validation completed for the Phase 7 route-core ownership guard:
 
@@ -1631,8 +1631,8 @@ Suggested validation:
 ```sh
 pnpm -C tests exec playwright test -c playwright.source.config.ts unit/routerAbNormalSigningSdk.guard.unit.test.ts --reporter=line
 pnpm -C tests exec playwright test -c playwright.relayer.config.ts relayer/router-ab-normal-signing-auth-boundary.test.ts --reporter=line
-pnpm -C packages/sdk-web type-check
-pnpm -C packages/sdk-server-ts type-check
+pnpm -C packages/wallet type-check
+pnpm -C packages/wallet-server type-check
 git diff --check
 ```
 
@@ -1647,9 +1647,9 @@ Validation completed for the Phase 7 server budget slice:
 
 ```sh
 pnpm -C tests exec playwright test -c playwright.relayer.config.ts relayer/router-ab-normal-signing-auth-boundary.test.ts --reporter=line
-pnpm -C packages/sdk-server-ts type-check
+pnpm -C packages/wallet-server type-check
 pnpm -C tests exec playwright test -c playwright.source.config.ts unit/routerAbNormalSigningSdk.guard.unit.test.ts --reporter=line
-pnpm -C packages/sdk-web type-check
+pnpm -C packages/wallet type-check
 git diff --check
 ```
 
@@ -1660,14 +1660,14 @@ Run the cheapest check that covers the changed slice.
 ### SDK Web
 
 ```sh
-rtk pnpm -C packages/sdk-web run type-check
+rtk pnpm -C packages/wallet run type-check
 rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/routerAbNormalSigningSdk.guard.unit.test.ts ./unit/routerAbEcdsaHssNormalSigning.unit.test.ts ./unit/thresholdEd25519.presignPool.unit.test.ts --reporter=line
 ```
 
 ### SDK Server
 
 ```sh
-rtk pnpm -C packages/sdk-server-ts run type-check
+rtk pnpm -C packages/wallet-server run type-check
 rtk pnpm -C tests exec playwright test -c playwright.relayer.config.ts ./relayer/router-ab-keyset-routes.test.ts ./relayer/signing-session-seal-router.test.ts --reporter=line
 ```
 

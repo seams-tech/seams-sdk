@@ -2,7 +2,7 @@ import type {
   CloudflareD1EmailOtpDeliveryProvider,
   CloudflareD1EmailOtpDeliveryProviderInput,
   CloudflareD1EmailOtpDeliveryProviderResult,
-} from '@seams/sdk-server/cloud-host';
+} from '@seams/wallet-server/cloud-host';
 
 export type EmailOtpMessage = {
   readonly deliveryId: string;

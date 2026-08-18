@@ -2,7 +2,7 @@ import {
   parseRouterAbEcdsaDerivationWalletSessionClaims,
   type RouterAbEcdsaDerivationOwnerWalletSessionClaims,
   type RouterAbEcdsaDerivationWalletSessionClaims,
-} from '../../../packages/sdk-server-ts/src/core/ThresholdService/validation';
+} from '../../../packages/wallet-server/src/core/ThresholdService/validation';
 import type { RuntimePolicyScope } from '../../../packages/shared-ts/src/threshold/signingRootScope';
 import type { RouterAbEcdsaDerivationNormalSigningScopeV1 } from '../../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
 import { ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1 } from '../../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';

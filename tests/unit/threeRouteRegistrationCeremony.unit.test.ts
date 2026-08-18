@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { runEcdsaEnabledThreeRouteRegistrationCeremony } from '../../packages/sdk-web/src/SeamsWeb/operations/registration/registration';
+import { runEcdsaEnabledThreeRouteRegistrationCeremony } from '../../packages/wallet/src/SeamsWeb/operations/registration/registration';
 import { buildFixtureRespondEd25519DeferredWork } from '../helpers/ed25519YaoAdmissionFixtures';
 import { initialEcdsaCapabilityActivationFixture } from './helpers/initialEcdsaCapabilityActivation.fixtures';
 

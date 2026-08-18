@@ -319,7 +319,7 @@ ROUTER_API_KEY_AUTH_ENABLED=1
 ### Persistence
 
 Staging-required local development uses the Cloudflare D1/DO Worker from the
-installed `@seams/sdk-server` package:
+installed `@seams/wallet-server` package:
 
 ```bash
 pnpm -C packages/console-server-ts run d1:local:prepare

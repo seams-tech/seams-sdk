@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { prepareAndCommitSourceLaneOperationV1 } from '../../packages/sdk-web/src/core/signingEngine/session/lanes/operations/sourceLaneOperationCoordinator';
-import type { LaneOperationSourcePortsV1 } from '../../packages/sdk-web/src/core/signingEngine/session/lanes/operations/ports';
+import { prepareAndCommitSourceLaneOperationV1 } from '../../packages/wallet/src/core/signingEngine/session/lanes/operations/sourceLaneOperationCoordinator';
+import type { LaneOperationSourcePortsV1 } from '../../packages/wallet/src/core/signingEngine/session/lanes/operations/ports';
 import { encodeLaneProtocolCommitReceiptV1 } from '../../packages/shared-ts/src/signing-lanes/rotationDigests';
 import type {
   EcdsaAdditiveLaneHolderRoundV1,

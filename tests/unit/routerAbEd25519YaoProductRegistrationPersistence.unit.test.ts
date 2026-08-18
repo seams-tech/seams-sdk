@@ -4,12 +4,12 @@ import {
   encodeRouterAbEd25519YaoProductRegistrationStateV1,
   parseRouterAbEd25519YaoProductRegistrationStateJsonV1,
   resolveRouterAbEd25519YaoCeremonyKeyFromRequestV1,
-} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPersistence';
-import { createRouterAbEd25519YaoProductRegistrationStateV1 } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
+} from '../../packages/wallet-server/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPersistence';
+import { createRouterAbEd25519YaoProductRegistrationStateV1 } from '../../packages/wallet-server/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 import {
   mergeRouterAbEd25519YaoProductRegistrationStatePartitionV1,
   partitionRouterAbEd25519YaoProductRegistrationStateV1,
-} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPartitioning';
+} from '../../packages/wallet-server/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPartitioning';
 import {
   ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1,
   ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,

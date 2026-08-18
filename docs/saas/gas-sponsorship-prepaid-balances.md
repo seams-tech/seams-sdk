@@ -87,7 +87,7 @@ Implemented today:
   `packages/console-server-ts/src/billingPrepaidReservations/d1.ts`
 - atomic settlement now requires prepaid reservation settlement, billing ledger
   debit, and sponsored call linkage to complete through the shared D1/SQLite
-  mutation path in `packages/sdk-server-ts/src/router/sponsorshipExecution.ts`
+  mutation path in `packages/wallet-server/src/router/sponsorshipExecution.ts`
 - sponsored execution records carry explicit billing linkage fields such as
   `billingLedgerEntryId`, `prepaidReservationId`, `charged`, `chargedReason`,
   `settledSpendMinor`, `pricingVersion`, and `pricingSource`
@@ -95,16 +95,16 @@ Implemented today:
   naturally blocking future sponsorship until the org refills
 - last-90-days sponsored execution history and reconciliation are queryable
   through the Express and Cloudflare console routers:
-  `packages/sdk-server-ts/src/router/express/createConsoleRouter.ts` and
-  `packages/sdk-server-ts/src/router/cloudflare/createCloudflareConsoleRouter.ts`
+  `packages/wallet-server/src/router/express/createConsoleRouter.ts` and
+  `packages/wallet-server/src/router/cloudflare/createCloudflareConsoleRouter.ts`
 - the dashboard billing API client and UI surface sponsored execution history,
   reconciliation, reserved sponsorship, and sponsored-spend summary through
   `apps/seams-site/src/pages/dashboard/routes/billing/consoleBillingApi.ts` and
   `apps/seams-site/src/pages/dashboard/routes/billing/BillingConsoleShell.tsx`
 - sponsorship balance state transitions emit billing-category webhook and
   observability events from
-  `packages/sdk-server-ts/src/router/sponsorshipBillingEvents.ts` and
-  `packages/sdk-server-ts/src/router/sponsorshipExecution.ts`
+  `packages/wallet-server/src/router/sponsorshipBillingEvents.ts` and
+  `packages/wallet-server/src/router/sponsorshipExecution.ts`
 - sponsorship reserve failures emit `billing.sponsorship.blocked`
   observability events through the shared sponsorship execution path and
   `packages/console-server-ts/src/observability/adapters.ts`

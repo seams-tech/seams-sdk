@@ -12,7 +12,7 @@ import type {
 } from '@seams-internal/console-server/onboarding/index';
 import type { ConsoleWebhookDeadLetter, ConsoleWebhookService } from '@seams-internal/console-server/webhooks/index';
 import type { ConsoleAuthClaims } from '@seams-internal/console-server/router/consoleAuth';
-import type { NormalizedRouterLogger } from '@seams/sdk-server/cloud-host';
+import type { NormalizedRouterLogger } from '@seams/wallet-server/cloud-host';
 
 type ConsoleOpsCockpitSectionState = 'ok' | 'not_configured' | 'forbidden' | 'error';
 

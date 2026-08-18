@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { QRScanMode, useDeviceLinking, useSeams } from '@seams/sdk/react';
-import type { LinkDeviceFlowEvent, QrLinkedDeviceSessionPayloadV4 } from '@seams/sdk';
+import { QRScanMode, useDeviceLinking, useSeams } from '@seams/wallet/react';
+import type { LinkDeviceFlowEvent, QrLinkedDeviceSessionPayloadV4 } from '@seams/wallet';
 
 function logLinkEvent(event: LinkDeviceFlowEvent): void {
   console.log(event.phase, event.status, event.message);

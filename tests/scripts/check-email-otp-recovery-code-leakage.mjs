@@ -8,15 +8,15 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, '../..');
 
 const sourceRoots = [
-  'packages/sdk-web/src',
-  'packages/sdk-server-ts/src',
+  'packages/wallet/src',
+  'packages/wallet-server/src',
   'packages/shared-ts/src',
 ];
 
 const recoveryKeysAllowedSourceFiles = new Set([
-  'packages/sdk-web/src/SeamsWeb/googleEmailOtpWalletAuth.typecheck.ts',
-  'packages/sdk-web/src/SeamsWeb/operations/authMethods/emailOtp/registrationOffer.ts',
-  'packages/sdk-web/src/SeamsWeb/walletIframe/client/router.ts',
+  'packages/wallet/src/SeamsWeb/googleEmailOtpWalletAuth.typecheck.ts',
+  'packages/wallet/src/SeamsWeb/operations/authMethods/emailOtp/registrationOffer.ts',
+  'packages/wallet/src/SeamsWeb/walletIframe/client/router.ts',
 ]);
 
 const retainedBackupRecordAllowedSourceFiles = new Set();
@@ -77,7 +77,7 @@ function collectBackupSecretKindViolations(sourceFiles) {
 
 function collectServerRecoveryKeyViolations() {
   const violations = [];
-  for (const relativePath of listTypeScriptFiles('packages/sdk-server-ts/src')) {
+  for (const relativePath of listTypeScriptFiles('packages/wallet-server/src')) {
     const source = readRepoSource(relativePath);
     if (!/\brecoveryKeys\b/.test(source)) continue;
     const patterns = [
@@ -96,9 +96,9 @@ function collectServerRecoveryKeyViolations() {
 
 function collectWalletIframeExposureViolations() {
   const guardedFiles = [
-    'packages/sdk-web/src/SeamsWeb/walletIframe/shared/messages.ts',
-    'packages/sdk-web/src/SeamsWeb/walletIframe/host/requestRouter.ts',
-    'packages/sdk-web/src/SeamsWeb/walletIframe/client/progress/on-events-progress-bus.ts',
+    'packages/wallet/src/SeamsWeb/walletIframe/shared/messages.ts',
+    'packages/wallet/src/SeamsWeb/walletIframe/host/requestRouter.ts',
+    'packages/wallet/src/SeamsWeb/walletIframe/client/progress/on-events-progress-bus.ts',
   ];
 
   return guardedFiles
@@ -125,7 +125,7 @@ function collectLogAndTelemetryViolations(sourceFiles) {
 
 function collectStorageViolations() {
   return [...recoveryKeysAllowedSourceFiles]
-    .filter((relativePath) => relativePath.startsWith('packages/sdk-web/src/'))
+    .filter((relativePath) => relativePath.startsWith('packages/wallet/src/'))
     .filter((relativePath) => fs.existsSync(absolutePath(relativePath)))
     .filter((relativePath) => /\b(?:localStorage|sessionStorage)\b/.test(readRepoSource(relativePath)))
     .map((relativePath) => `${relativePath}: recoveryKeys boundary uses localStorage/sessionStorage`);

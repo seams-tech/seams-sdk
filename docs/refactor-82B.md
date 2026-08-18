@@ -394,7 +394,7 @@ This is the working inventory for implementation. Update it as files are edited.
 
 Update:
 
-- `packages/sdk-server-ts/src/core/types.ts`
+- `packages/wallet-server/src/core/types.ts`
   - `ThresholdEd25519AuthorityScope`
   - session/key record types carrying `authorityScope`
   - `WalletRegistrationStartAuthority`
@@ -405,11 +405,11 @@ Update:
   - `registrationEd25519AuthorityScope`
   - registration intent parser branches carrying `challengeId` or
     `googleEmailOtpRegistration*` IDs
-- `packages/sdk-server-ts/src/core/ThresholdService/validation.ts`
+- `packages/wallet-server/src/core/ThresholdService/validation.ts`
   - `parseThresholdEd25519AuthorityScope`
   - `thresholdEd25519AuthorityScopesMatch`
   - key/session parsers that currently parse `authorityScope`
-- `packages/sdk-web/src/core/signingEngine/threshold/sessionPolicy.ts`
+- `packages/wallet/src/core/signingEngine/threshold/sessionPolicy.ts`
   - `Ed25519AuthorityScope`
   - `Ed25519SessionPolicyAuthority`
   - `ed25519AuthorityScopeFromPolicyAuthority`
@@ -427,25 +427,25 @@ Target:
 
 Update:
 
-- `packages/sdk-server-ts/src/router/cloudflare/d1NearEd25519RegistrationBranch.ts`
+- `packages/wallet-server/src/router/cloudflare/d1NearEd25519RegistrationBranch.ts`
   - `d1ThresholdEd25519AuthorityScopeFromRegistrationScope`
   - `d1RegistrationIntentThresholdEd25519AuthorityScope`
   - `validateD1WalletRegistrationRequestedSessionPolicy`
   - `parseD1WalletRegistrationReadyEd25519Session`
-- `packages/sdk-server-ts/src/router/cloudflare/d1WalletRegistrationService.ts`
+- `packages/wallet-server/src/router/cloudflare/d1WalletRegistrationService.ts`
   - Ed25519 authority construction around registration prepare/start/finalize
   - `walletRegistrationFinalizeAuthMethodFromAuthority` call sites
   - candidate wallet validation for OTP reroll
-- `packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyRecords.ts`
+- `packages/wallet-server/src/router/cloudflare/d1RegistrationCeremonyRecords.ts`
   - `parseD1RegistrationAuthority`
   - `parseD1PasskeyRegistrationAuthority`
   - `parseD1EmailOtpRegistrationAuthority`
   - `parseD1GoogleSsoEmailOtpRegistrationAuthority`
   - ceremony record parsing that currently stores `authorityScope`
-- `packages/sdk-server-ts/src/core/RegistrationCeremonyStore.ts`
+- `packages/wallet-server/src/core/RegistrationCeremonyStore.ts`
   - legacy ceremony parsing and equality helpers using
     `RegistrationEd25519AuthorityScope`
-- `packages/sdk-server-ts/src/core/AuthService.ts`
+- `packages/wallet-server/src/core/AuthService.ts`
   - stale AuthService registration authority helpers
   - passkey-only session-policy validation still reachable from current tests
 
@@ -461,52 +461,52 @@ Target:
 
 Update:
 
-- `packages/sdk-server-ts/src/router/thresholdEd25519RequestValidation.ts`
+- `packages/wallet-server/src/router/thresholdEd25519RequestValidation.ts`
   - `parseEd25519AuthorityScope`
   - `parseThresholdEd25519SessionPolicyBody`
-- `packages/sdk-server-ts/src/router/commonRouterUtils.ts`
+- `packages/wallet-server/src/router/commonRouterUtils.ts`
   - wallet session auth parsing and session policy builders
-- `packages/sdk-server-ts/src/router/verifiedWalletSessionAuth.ts`
+- `packages/wallet-server/src/router/verifiedWalletSessionAuth.ts`
   - `VerifiedWalletSessionAuth.authorityScope`
-- `packages/sdk-server-ts/src/router/routerApi.ts`
+- `packages/wallet-server/src/router/routerApi.ts`
   - Router API request/response types carrying `rpId`, `authorityScope`, or
     optional Email OTP subject fields
-- `packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker.ts`
+- `packages/wallet-server/src/router/routerAbPrivateSigningWorker.ts`
   - private worker request types carrying `authorityScope`
-- `packages/sdk-server-ts/src/router/routerAbNormalSigningAdmissionCore.ts`
+- `packages/wallet-server/src/router/routerAbNormalSigningAdmissionCore.ts`
   - `ed25519AdmissionAuthorityScopeKey`
-- `packages/sdk-server-ts/src/router/bootstrapGrantBroker.ts`
+- `packages/wallet-server/src/router/bootstrapGrantBroker.ts`
   - bootstrap grant authority payload parsing
   - July 3 progress: bootstrap grant issue parsing now requires an explicit
     authority branch. Passkey grants carry `rpId` only inside
     `authority: { kind: 'passkey_rp', rpId }`; wallet-auth grants carry
     `authority: { kind: 'wallet_auth' }`, and stale root `rpId` request bodies
     are rejected at the route boundary.
-- `packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519.ts`
+- `packages/wallet-server/src/router/cloudflare/routes/thresholdEd25519.ts`
   - Ed25519 route session policy parsing
-- `packages/sdk-server-ts/src/router/express/routes/thresholdEd25519.ts`
+- `packages/wallet-server/src/router/express/routes/thresholdEd25519.ts`
   - Express equivalent
-- `packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEcdsa.ts`
+- `packages/wallet-server/src/router/cloudflare/routes/thresholdEcdsa.ts`
   - passkey-only authority checks at ECDSA inventory/session routes
-- `packages/sdk-server-ts/src/router/express/routes/thresholdEcdsa.ts`
+- `packages/wallet-server/src/router/express/routes/thresholdEcdsa.ts`
   - Express equivalent
-- `packages/sdk-server-ts/src/router/cloudflare/routes/syncAccount.ts`
+- `packages/wallet-server/src/router/cloudflare/routes/syncAccount.ts`
   - passkey authority construction
-- `packages/sdk-server-ts/src/router/express/routes/syncAccount.ts`
+- `packages/wallet-server/src/router/express/routes/syncAccount.ts`
   - Express equivalent
-- `packages/sdk-server-ts/src/threshold/session/signingSessionSeal/signingSessionSeal.types.ts`
+- `packages/wallet-server/src/threshold/session/signingSessionSeal/signingSessionSeal.types.ts`
   - sealed session policy authority branch
-- `packages/sdk-server-ts/src/threshold/session/signingSessionSeal/policy/sessionPolicy.ts`
+- `packages/wallet-server/src/threshold/session/signingSessionSeal/policy/sessionPolicy.ts`
   - sealed session policy parser
-- `packages/sdk-server-ts/src/core/EmailRecoveryPreparationStore.ts`
+- `packages/wallet-server/src/core/EmailRecoveryPreparationStore.ts`
   - persisted recovery authority parsing
-- `packages/sdk-server-ts/src/core/ThresholdService/stores/KeyStore.ts`
+- `packages/wallet-server/src/core/ThresholdService/stores/KeyStore.ts`
   - stored key identity shape
-- `packages/sdk-server-ts/src/core/ThresholdService/stores/SessionStore.ts`
+- `packages/wallet-server/src/core/ThresholdService/stores/SessionStore.ts`
   - stored threshold session identity shape
-- `packages/sdk-server-ts/src/core/ThresholdService/stores/WalletSessionStore.ts`
+- `packages/wallet-server/src/core/ThresholdService/stores/WalletSessionStore.ts`
   - wallet budget/session authority shape
-- `packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore.ts`
+- `packages/wallet-server/src/router/cloudflare/durableObjects/thresholdStore.ts`
   - DO persisted session and budget projection authority fields
 
 Target:
@@ -521,22 +521,22 @@ Target:
 
 Update:
 
-- `packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts`
+- `packages/wallet/src/SeamsWeb/operations/registration/registration.ts`
   - `thresholdEd25519AuthorityScopeFromRegistrationScope`
   - `registrationEd25519SessionPolicyAuthority`
   - `registrationAuthorityScopeKey`
   - `registrationBootstrapGrantAuthority`
   - registration finalize payload construction
-- `packages/sdk-web/src/SeamsWeb/operations/registration/createAccountRouterApiServer.ts`
+- `packages/wallet/src/SeamsWeb/operations/registration/createAccountRouterApiServer.ts`
   - managed bootstrap grant payload identity
-- `packages/sdk-web/src/SeamsWeb/operations/auth/login.ts`
+- `packages/wallet/src/SeamsWeb/operations/auth/login.ts`
   - Email OTP/Passkey login wallet binding authority
   - Ed25519 login material resolution
-- `packages/sdk-web/src/SeamsWeb/operations/recovery/syncAccount.ts`
+- `packages/wallet/src/SeamsWeb/operations/recovery/syncAccount.ts`
   - passkey authority assumptions
-- `packages/sdk-web/src/SeamsWeb/operations/recovery/emailRecovery.ts`
+- `packages/wallet/src/SeamsWeb/operations/recovery/emailRecovery.ts`
   - recovery authority session construction
-- `packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts`
+- `packages/wallet/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts`
   - `ThresholdEd25519WorkerMaterialRestoreContext`
   - `ThresholdEd25519LoginMaterialPendingSessionRecord`
   - `Ed25519ReusableWorkerMaterialSelector`
@@ -557,9 +557,9 @@ Target:
 
 Update:
 
-- `packages/sdk-web/src/core/signingEngine/session/identity/laneIdentity.ts`
+- `packages/wallet/src/core/signingEngine/session/identity/laneIdentity.ts`
   - `ThresholdEcdsaEmailOtpAuthContext`
-- `packages/sdk-web/src/core/signingEngine/session/persistence/records.ts`
+- `packages/wallet/src/core/signingEngine/session/persistence/records.ts`
   - `EmailOtpEcdsaSessionRecord`
   - `thresholdEcdsaEmailOtpAuthContext`
   - `normalizeThresholdEcdsaEmailOtpAuthContext`
@@ -568,38 +568,38 @@ Update:
   - `consumeSingleUseEmailOtpEcdsaLane`
   - `markThresholdEd25519EmailOtpSessionConsumedForWallet`
   - ECDSA session upsert/restore helpers carrying `emailOtpAuthContext`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaBootstrapCommit.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/ecdsaBootstrapCommit.ts`
   - `CommitEmailOtpThresholdEcdsaSessionArgs`
   - `CommitEmailOtpEvmFamilyThresholdEcdsaSessionsArgs`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaLogin.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/ecdsaLogin.ts`
   - `EmailOtpEcdsaLoginReconnectInput`
   - `EmailOtpEcdsaTransactionStepUpInput`
   - login/step-up context builders
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaRecovery.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/ecdsaRecovery.ts`
   - `EmailOtpEcdsaSealedRecoveryRecordInput`
   - restore source selection
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519Recovery.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/ed25519Recovery.ts`
   - companion ECDSA context copy
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/exportRecovery.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/exportRecovery.ts`
   - fresh export step-up inputs
   - `resolveEmailOtpEcdsaFreshLoginExportStepUpInput`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/exportRecoveryRuntime.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/exportRecoveryRuntime.ts`
   - `ExportEcdsaKeyWithFreshEmailOtpLaneArgs`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/ports.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/ports.ts`
   - `EmailOtpEcdsaSessionPorts`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/emailOtpPublic.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/emailOtpPublic.ts`
   - public Email OTP ECDSA login/enroll bridge functions
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/readySecp256k1Material.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/readySecp256k1Material.ts`
   - single-use consumed checks
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts`
   - Email OTP ECDSA step-up and post-sign consumption
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/authPlanning.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/authPlanning.ts`
   - budget readiness and auth planning inputs
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/preparedSigning.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/preparedSigning.ts`
   - prepared budget/auth state
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/clientSecretSource.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/clientSecretSource.ts`
   - `authSubjectId` digest inputs
-- `packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp.worker.ts`
+- `packages/wallet/src/core/signingEngine/workerManager/workers/email-otp.worker.ts`
   - worker-local Email OTP handle authority fields
 
 Target:
@@ -615,24 +615,24 @@ Target:
 
 Update:
 
-- `packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession.ts`
+- `packages/wallet/src/core/signingEngine/session/routerAbSigningWalletSession.ts`
   - `RouterAbEd25519RestorableWorkerMaterialIdentity`
   - `Ed25519WorkerMaterialValidationKey`
   - `routerAbEd25519WorkerMaterialIdentityFromPersistedState`
   - `classifyRouterAbEd25519PersistedSigningRecord`
   - `hasEd25519SealedWorkerMaterial`
   - runtime validation helpers
-- `packages/sdk-web/src/core/signingEngine/session/persistence/records.ts`
+- `packages/wallet/src/core/signingEngine/session/persistence/records.ts`
   - `ThresholdEd25519SessionRecord`
   - `ThresholdEd25519MaterialReadySessionRecord`
   - `ThresholdEd25519MaterialPendingSessionRecord`
   - material field normalizers and upsert helpers
-- `packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore.ts`
+- `packages/wallet/src/core/signingEngine/session/persistence/sealedSessionStore.ts`
   - `CurrentEd25519RestoreMetadata`
   - `CurrentEd25519SealedSessionRecord`
   - `CurrentEcdsaSealedSessionRecord`
   - sealed restore parsing/building
-- `packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519SigningMaterialReadiness.ts`
+- `packages/wallet/src/core/signingEngine/flows/signNear/shared/ed25519SigningMaterialReadiness.ts`
   - `RouterAbEd25519WorkerMaterialRestoreAuthorization`
   - `RouterAbEd25519ReadySigningMaterialState`
   - `requireLoadedOrRestoreRouterAbEd25519SigningMaterial`
@@ -640,22 +640,22 @@ Update:
   - `restoreRouterAbEd25519SigningMaterial`
   - `buildExpectedWorkerMaterialBindingForRestore`
   - `sealedMaterialTransportFromRecord`
-- `packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519MaterialRestoreAuthorization.ts`
+- `packages/wallet/src/core/signingEngine/flows/signNear/shared/ed25519MaterialRestoreAuthorization.ts`
   - `resolveRouterAbEd25519WorkerMaterialRestoreAuthorizationForPasskeyCredential`
   - `resolveRouterAbEd25519WorkerMaterialRestoreAuthorizationForStepUp`
-- `packages/sdk-web/src/core/signingEngine/flows/signNear/signNear.ts`
+- `packages/wallet/src/core/signingEngine/flows/signNear/signNear.ts`
   - selected exact lane material checks
-- `packages/sdk-web/src/core/signingEngine/flows/recovery/exportLaneSelection.ts`
+- `packages/wallet/src/core/signingEngine/flows/recovery/exportLaneSelection.ts`
   - `ed25519MaterialRestoreIdentityForExportLane`
-- `packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts`
+- `packages/wallet/src/core/signingEngine/session/availability/availableSigningLanes.ts`
   - material availability in lane candidates
-- `packages/sdk-web/src/core/signingEngine/session/availability/persistedAvailableSigningLanes.ts`
+- `packages/wallet/src/core/signingEngine/session/availability/persistedAvailableSigningLanes.ts`
   - persisted Ed25519 lane construction
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/readModel.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/readModel.ts`
   - warm-session material state projection
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/persistence.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/persistence.ts`
   - warm capability persistence builders
-- `packages/sdk-web/src/core/signingEngine/interfaces/near.ts`
+- `packages/wallet/src/core/signingEngine/interfaces/near.ts`
   - Ed25519 session/material public internal interface
 
 Target:
@@ -668,52 +668,52 @@ Target:
 
 Update:
 
-- `packages/sdk-server-ts/src/router/signingBudgetStatus.ts`
+- `packages/wallet-server/src/router/signingBudgetStatus.ts`
   - `WalletSigningBudgetStatusRequest`
   - `parseWalletSigningBudgetStatusExpectations`
   - `parseEcdsaWalletSigningBudgetStatusRequest`
   - `parseEd25519WalletSigningBudgetStatusRequest`
   - `parseWalletSigningBudgetStatusRequest`
-- `packages/sdk-server-ts/src/router/cloudflare/routes/sessions.ts`
+- `packages/wallet-server/src/router/cloudflare/routes/sessions.ts`
   - `handleSigningBudgetStatus`
   - `VerifiedSigningBudgetStatus`
-- `packages/sdk-server-ts/src/router/express/routes/sessions.ts`
+- `packages/wallet-server/src/router/express/routes/sessions.ts`
   - Express equivalent
-- `packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore.ts`
+- `packages/wallet-server/src/router/cloudflare/durableObjects/thresholdStore.ts`
   - `authBudgetProjection`
   - `parseAuthBudgetReserveInput`
   - `parseAuthBudgetCommitInput`
   - reserve/commit/release handlers
-- `packages/sdk-web/src/core/signingEngine/session/budget/budget.ts`
+- `packages/wallet/src/core/signingEngine/session/budget/budget.ts`
   - `SigningBudgetFinalizationResult`
   - `SigningSessionBudgetReserveResult`
   - `SigningSessionBudgetStatusCheck`
   - `SigningSessionBudgetStatusReader`
   - `SigningSessionBudgetStatusAuth`
-- `packages/sdk-web/src/core/signingEngine/session/budget/BudgetCoordinator.ts`
+- `packages/wallet/src/core/signingEngine/session/budget/BudgetCoordinator.ts`
   - `reserve`
   - `getAvailableStatus`
   - `recordSuccess`
   - `syncStatusForSuccessfulSpend`
   - `budgetStatusUnavailable`
-- `packages/sdk-web/src/core/signingEngine/session/budget/budgetStatusReader.ts`
+- `packages/wallet/src/core/signingEngine/session/budget/budgetStatusReader.ts`
   - HTTP response parser
-- `packages/sdk-web/src/core/signingEngine/session/budget/budgetProjection.ts`
+- `packages/wallet/src/core/signingEngine/session/budget/budgetProjection.ts`
   - client-side projection state
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts`
   - `EcdsaBudgetAdmissionAuthority`
   - `trustedBudgetStatusAuthFromBudgetAdmissionAuthority`
   - `trustedBudgetStatusAuthForEcdsaBudgetOperation`
   - `assertPreparedEcdsaBudgetAdmitted`
   - budget reservation and finalization call sites
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/budgetSpending.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/budgetSpending.ts`
   - `reserveEvmFamilySigningGrantBudget`
   - `createEvmFamilyTransactionBudgetFinalizer`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/preparedSigning.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/preparedSigning.ts`
   - prepared budget state and `budget_unknown` branches
-- `packages/sdk-web/src/core/signingEngine/flows/signNear/shared/signingSessionAuthMode.ts`
+- `packages/wallet/src/core/signingEngine/flows/signNear/shared/signingSessionAuthMode.ts`
   - Ed25519 budget readiness state
-- `packages/sdk-web/src/core/signingEngine/flows/signNear/signTransactions.ts`
+- `packages/wallet/src/core/signingEngine/flows/signNear/signTransactions.ts`
   - Ed25519 transaction budget finalizer
 
 Target:
@@ -734,25 +734,25 @@ Target:
 Update or add:
 
 - Server authority/type fixtures:
-  - `packages/sdk-server-ts/src/core/ThresholdService/thresholdEd25519AuthorityScope.typecheck.ts`
-  - `packages/sdk-server-ts/src/router/verifiedWalletSessionAuth.typecheck.ts`
-  - `packages/sdk-server-ts/src/router/signingBudgetStatus.typecheck.ts`
-  - `packages/sdk-server-ts/src/core/RegistrationCeremonyStore.typecheck.ts`
-  - `packages/sdk-server-ts/src/core/registrationRequests.typecheck.ts`
+  - `packages/wallet-server/src/core/ThresholdService/thresholdEd25519AuthorityScope.typecheck.ts`
+  - `packages/wallet-server/src/router/verifiedWalletSessionAuth.typecheck.ts`
+  - `packages/wallet-server/src/router/signingBudgetStatus.typecheck.ts`
+  - `packages/wallet-server/src/core/RegistrationCeremonyStore.typecheck.ts`
+  - `packages/wallet-server/src/core/registrationRequests.typecheck.ts`
 - Web authority/session fixtures:
-  - `packages/sdk-web/src/core/signingEngine/threshold/sessionPolicy.typecheck.ts` if
+  - `packages/wallet/src/core/signingEngine/threshold/sessionPolicy.typecheck.ts` if
     absent, add it.
-  - `packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.typecheck.ts`
-  - `packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaLogin.typecheck.ts`
-  - `packages/sdk-web/src/core/signingEngine/session/emailOtp/exportRecovery.typecheck.ts`
-  - `packages/sdk-web/src/core/signingEngine/session/identity/emailOtpHssIdentity.typecheck.ts`
-  - `packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.typecheck.ts`
-  - `packages/sdk-web/src/core/signingEngine/session/persistence/records.typecheck.ts` if
+  - `packages/wallet/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.typecheck.ts`
+  - `packages/wallet/src/core/signingEngine/session/emailOtp/ecdsaLogin.typecheck.ts`
+  - `packages/wallet/src/core/signingEngine/session/emailOtp/exportRecovery.typecheck.ts`
+  - `packages/wallet/src/core/signingEngine/session/identity/emailOtpHssIdentity.typecheck.ts`
+  - `packages/wallet/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.typecheck.ts`
+  - `packages/wallet/src/core/signingEngine/session/persistence/records.typecheck.ts` if
     absent, add it.
-  - `packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession.typecheck.ts`
-  - `packages/sdk-web/src/core/signingEngine/session/budget/budget.typecheck.ts`
-  - `packages/sdk-web/src/core/signingEngine/session/budget/budgetFinalizer.typecheck.ts`
-  - `packages/sdk-web/src/core/signingEngine/session/budget/budgetProjection.typecheck.ts`
+  - `packages/wallet/src/core/signingEngine/session/routerAbSigningWalletSession.typecheck.ts`
+  - `packages/wallet/src/core/signingEngine/session/budget/budget.typecheck.ts`
+  - `packages/wallet/src/core/signingEngine/session/budget/budgetFinalizer.typecheck.ts`
+  - `packages/wallet/src/core/signingEngine/session/budget/budgetProjection.typecheck.ts`
 - Runtime regression tests:
   - `tests/unit/registrationIntentDigest.unit.test.ts`
   - `tests/unit/relayWalletRegistration.boundary.unit.test.ts`
@@ -1728,12 +1728,12 @@ Do:
   parsing exists.
 - Keep request compatibility parsing at route/persistence boundaries only.
 - Update:
-  - `packages/sdk-server-ts/src/core/types.ts`
-  - `packages/sdk-server-ts/src/core/ThresholdService/validation.ts`
-  - `packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts`
-  - `packages/sdk-server-ts/src/router/thresholdEd25519RequestValidation.ts`
-  - `packages/sdk-web/src/core/signingEngine/threshold/sessionPolicy.ts`
-  - `packages/sdk-web/src/core/signingEngine/threshold/ed25519/connectSession.ts`
+  - `packages/wallet-server/src/core/types.ts`
+  - `packages/wallet-server/src/core/ThresholdService/validation.ts`
+  - `packages/wallet-server/src/core/ThresholdService/ThresholdSigningService.ts`
+  - `packages/wallet-server/src/router/thresholdEd25519RequestValidation.ts`
+  - `packages/wallet/src/core/signingEngine/threshold/sessionPolicy.ts`
+  - `packages/wallet/src/core/signingEngine/threshold/ed25519/connectSession.ts`
   - Ed25519 warm-session bootstrap and recovery callers.
 - Replace "passkey authority" checks with exhaustive switches over authority.
 - Rename passkey-only helpers so their names say `Passkey`.
@@ -1905,7 +1905,7 @@ AuthService-shaped facade" --reporter=line` passes.
       need deletion or public-facade ownership review.
 - [x] Keep routes on the public AuthService facade during the mechanical
       module split; route-source scan for `core/authService/*` imports under
-      `packages/sdk-server-ts/src/router` returns no hits.
+      `packages/wallet-server/src/router` returns no hits.
 - [x] Record split AuthService internals that remain as D1 cleanup delete
       candidates: `authService/walletRegistrationPlanning.ts`,
       `authService/registrationThresholdHelpers.ts`,
@@ -2152,8 +2152,8 @@ Do:
   - rename and restrict it as passkey-only
   - delete it if obsolete
 - Start with:
-  - `packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEcdsa.ts`
-  - `packages/sdk-server-ts/src/router/express/routes/thresholdEcdsa.ts`
+  - `packages/wallet-server/src/router/cloudflare/routes/thresholdEcdsa.ts`
+  - `packages/wallet-server/src/router/express/routes/thresholdEcdsa.ts`
   - sync-account routes
   - wallet unlock routes
   - key export routes
@@ -2504,7 +2504,7 @@ Tracking:
 - [x] Record current validation evidence for the SDK-side committed-lane slice
       (moved to the journal).
 - [x] Record current validation evidence for the wallet-bound Email OTP
-      authority slice: `pnpm --dir packages/sdk-web exec tsc -p tsconfig.json
+      authority slice: `pnpm --dir packages/wallet exec tsc -p tsconfig.json
 --noEmit --pretty false`, `pnpm -C tests exec playwright test -c
 playwright.unit.config.ts ./unit/walletAuthAuthority.shared.unit.test.ts
 --reporter=line`, and `pnpm build:sdk` pass on July 3, 2026.

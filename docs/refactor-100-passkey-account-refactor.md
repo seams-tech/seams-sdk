@@ -842,12 +842,12 @@ root derivation after random-root registration lands.
       time-bounded holds so an abandoned recovery cannot strand a code.
 - [x] Implement the server-side opaque passkey-envelope store with exact
       credential, wallet, lifecycle, revision, and digest lookup results
-      (`packages/sdk-server-ts/src/router/cloudflare/d1/passkeyCustody/`).
+      (`packages/wallet-server/src/router/cloudflare/d1/passkeyCustody/`).
       Built on `CloudflareD1VersionedJsonRecordStore`; revoked rows are retained
       as credential tombstones and excluded from active retrieval.
 - [x] Implement authenticated envelope retrieval that verifies the WebAuthn
       assertion while keeping PRF output inside the secure worker
-      (`packages/sdk-server-ts/src/router/domains/passkeyCustody/`). Retrieval
+      (`packages/wallet-server/src/router/domains/passkeyCustody/`). Retrieval
       rejects an assertion that still carries any WebAuthn extension output
       before verification runs, so a leaked PRF result fails loudly instead of
       being silently sanitized and served.

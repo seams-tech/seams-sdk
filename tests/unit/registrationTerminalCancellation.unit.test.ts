@@ -3,7 +3,7 @@ import type { RouterAbEcdsaRegistrationRequestV1 } from '../../packages/shared-t
 import {
   createRouterAbEcdsaStrictRegistrationPort,
   parseStoredRouterAbEcdsaPendingActivationV1,
-} from '../../packages/sdk-server-ts/src/router/domains/ecdsa/routerAbEcdsaStrictRegistration';
+} from '../../packages/wallet-server/src/router/domains/ecdsa/routerAbEcdsaStrictRegistration';
 import { parseCorrelationId } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
 import { parseRouterAbMpcMaterialActivationRef } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
 import { createRouterAbTraceContextV1 } from '../../packages/shared-ts/src/utils/routerAbTraceContext';

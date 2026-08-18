@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
-import { handleWalletRecoveryStatus } from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/passkeyCustody';
+import { handleWalletRecoveryStatus } from '../../packages/wallet-server/src/router/transport/fetch/routes/passkeyCustody';
 import {
   createRouterApiRouteDefinitions,
   findRouteDefinitionById,
-} from '../../packages/sdk-server-ts/src/router/framework/routeDefinitions';
+} from '../../packages/wallet-server/src/router/framework/routeDefinitions';
 
 /** Recovery status is a narrow Origin-bound public read. */
 

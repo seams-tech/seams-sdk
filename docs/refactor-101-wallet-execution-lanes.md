@@ -498,8 +498,8 @@ git diff --check
 
 Owns:
 
-- `packages/sdk-server-ts/src/core/signingLanes/*`;
-- new `packages/sdk-server-ts/src/router/cloudflare/d1/signingLanes/*`;
+- `packages/wallet-server/src/core/signingLanes/*`;
+- new `packages/wallet-server/src/router/cloudflare/d1/signingLanes/*`;
 - narrow read-only additions to `WalletStore.ts` and `d1WalletStore.ts` when an
   existing exact lookup is unavailable;
 - dedicated D1 projection tests and fixtures.
@@ -525,7 +525,7 @@ record can project as active.
 Agent gate:
 
 ```bash
-pnpm -C packages/sdk-server-ts type-check
+pnpm -C packages/wallet-server type-check
 pnpm -C tests exec playwright test -c playwright.lite.config.ts unit/d1WalletExecutionLaneProjection.unit.test.ts
 git diff --check
 ```
@@ -534,7 +534,7 @@ git diff --check
 
 Owns:
 
-- `packages/sdk-web/src/core/signingEngine/session/lanes/*`;
+- `packages/wallet/src/core/signingEngine/session/lanes/*`;
 - dedicated sdk-web type fixtures and hydration tests.
 
 Delivers:
@@ -557,7 +557,7 @@ instead of maintaining a second record shape.
 Agent gate:
 
 ```bash
-pnpm -C packages/sdk-web type-check
+pnpm -C packages/wallet type-check
 pnpm -C tests exec playwright test -c playwright.lite.config.ts unit/walletExecutionLaneHydration.unit.test.ts
 git diff --check
 ```
@@ -566,8 +566,8 @@ git diff --check
 
 Owns:
 
-- new `packages/sdk-server-ts/src/router/domains/signingLanes/*`;
-- new `packages/sdk-server-ts/src/router/domains/signingOperations/walletExecutionAdmission.ts`;
+- new `packages/wallet-server/src/router/domains/signingLanes/*`;
+- new `packages/wallet-server/src/router/domains/signingOperations/walletExecutionAdmission.ts`;
 - the narrow admission call sites in
   `routerAbPrivateSigningWorker.ts`, `thresholdEcdsa.ts`, and
   `thresholdEd25519.ts`;
@@ -592,7 +592,7 @@ encodings. It exposes narrow adapter ports for R102–R104.
 Agent gate:
 
 ```bash
-pnpm -C packages/sdk-server-ts type-check
+pnpm -C packages/wallet-server type-check
 pnpm -C tests exec playwright test -c playwright.lite.config.ts unit/walletExecutionAdmission.unit.test.ts
 git diff --check
 ```
@@ -689,8 +689,8 @@ Integrator validation:
 
 ```bash
 pnpm -C packages/shared-ts type-check
-pnpm -C packages/sdk-server-ts type-check
-pnpm -C packages/sdk-web type-check
+pnpm -C packages/wallet-server type-check
+pnpm -C packages/wallet type-check
 pnpm test:intended
 pnpm test:source-guards
 pnpm test:wallet-iframe

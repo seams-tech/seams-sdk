@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { normalizeRegistrationSignerPlan } from '../../packages/shared-ts/src/utils/registrationIntent';
-import { registrationSignerSetRequestSelection } from '../../packages/sdk-web/src/core/rpcClients/relayer/registrationSignerSetRequest';
+import { registrationSignerSetRequestSelection } from '../../packages/wallet/src/core/rpcClients/relayer/registrationSignerSetRequest';
 
 const EVM_CHAIN_TARGET = { chain: 'tempo', chainId: 978 };
 

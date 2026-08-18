@@ -16,7 +16,7 @@ import {
 } from './authMenuTypes';
 
 /**
- * SSR-safe entrypoint for `@seams/sdk/react/seams-auth-menu`.
+ * SSR-safe entrypoint for `@seams/wallet/react/seams-auth-menu`.
  *
  * This imports only shell, skeleton, and type exports so SSR can load the
  * public module without browser-only client dependencies.

@@ -6,7 +6,7 @@ import {
   parseLinkedDeviceTargetDeploymentDescriptorRequestV1,
   parseLinkedDeviceTargetDeploymentDescriptorUnsignedV1,
 } from '../../packages/shared-ts/src/device-linking/targetDeploymentDescriptor';
-import { D1LinkedDeviceTargetDeploymentDescriptorProviderV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceTargetDeploymentDescriptorProvider';
+import { D1LinkedDeviceTargetDeploymentDescriptorProviderV1 } from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceTargetDeploymentDescriptorProvider';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,

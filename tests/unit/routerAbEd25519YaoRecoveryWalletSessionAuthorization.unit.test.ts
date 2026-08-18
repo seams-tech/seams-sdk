@@ -12,17 +12,17 @@ import {
 import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
-import { thresholdEd25519AuthorityScopeFromWalletAuthAuthority } from '../../packages/sdk-server-ts/src/core/ThresholdService/validation';
+import { thresholdEd25519AuthorityScopeFromWalletAuthAuthority } from '../../packages/wallet-server/src/core/ThresholdService/validation';
 import type {
   SessionParseFailureReason,
   SessionParseResult,
-} from '../../packages/sdk-server-ts/src/core/sessionValidation';
+} from '../../packages/wallet-server/src/core/sessionValidation';
 import type {
   SessionAdapter,
   SessionClaims,
-} from '../../packages/sdk-server-ts/src/router/framework/routerApi';
-import type { RouterAbEd25519YaoRecoveryAuthorizationInput } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
-import { RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter } from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecoveryWalletSessionAuthorization';
+} from '../../packages/wallet-server/src/router/framework/routerApi';
+import type { RouterAbEd25519YaoRecoveryAuthorizationInput } from '../../packages/wallet-server/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
+import { RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter } from '../../packages/wallet-server/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecoveryWalletSessionAuthorization';
 
 type RecoveryExecuteRequest = RouterAbEd25519YaoActivationExecuteRequestV1<'recovery'>;
 type AuthorizationPhase = RouterAbEd25519YaoRecoveryAuthorizationInput['kind'];

@@ -11,7 +11,7 @@ source "$SDK_ROOT/build-paths.sh"
 source "$SCRIPT_DIR/build-output-lock.sh"
 cd "$SDK_ROOT"
 
-echo "Starting SDK build for @seams/sdk..."
+echo "Starting SDK build for @seams/wallet..."
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'

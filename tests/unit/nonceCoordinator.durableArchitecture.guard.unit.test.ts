@@ -33,7 +33,7 @@ function importsNonceModule(source: string, moduleName: string): boolean {
 test.describe('nonce coordinator durable architecture guards', () => {
   test('NonceCoordinator does not own a localStorage durable lease mirror', () => {
     const source = readRepoSource(
-      'packages/sdk-web/src/core/signingEngine/nonce/NonceCoordinator.ts',
+      'packages/wallet/src/core/signingEngine/nonce/NonceCoordinator.ts',
     );
 
     expect(source).not.toContain('localStorage');
@@ -43,21 +43,21 @@ test.describe('nonce coordinator durable architecture guards', () => {
   });
 
   test('durable nonce leases live in the canonical seams wallet schema', () => {
-    const schemaNames = readRepoSource('packages/sdk-web/src/core/indexedDB/schemaNames.ts');
+    const schemaNames = readRepoSource('packages/wallet/src/core/indexedDB/schemaNames.ts');
     const repositories = readRepoSource(
-      'packages/sdk-web/src/core/indexedDB/seamsWalletDB/repositories.ts',
+      'packages/wallet/src/core/indexedDB/seamsWalletDB/repositories.ts',
     );
     const managerAssembly = readRepoSource(
-      'packages/sdk-web/src/core/signingEngine/assembly/createManagers.ts',
+      'packages/wallet/src/core/signingEngine/assembly/createManagers.ts',
     );
     const signingEngine = readRepoSource(
-      'packages/sdk-web/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts',
+      'packages/wallet/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts',
     );
     const browserSigningStores = readRepoSource(
-      'packages/sdk-web/src/SeamsWeb/assembly/createBrowserSigningStores.ts',
+      'packages/wallet/src/SeamsWeb/assembly/createBrowserSigningStores.ts',
     );
     const store = readRepoSource(
-      'packages/sdk-web/src/core/indexedDB/nonceLaneCoordinationStore.ts',
+      'packages/wallet/src/core/indexedDB/nonceLaneCoordinationStore.ts',
     );
 
     expect(schemaNames).toContain("nonceLaneLeases: 'nonce_lane_leases'");
@@ -76,11 +76,11 @@ test.describe('nonce coordinator durable architecture guards', () => {
 
   test('transaction signing flows do not import durable nonce storage directly', () => {
     const transactionFiles = [
-      'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/transactionExecutor.ts',
-      'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signEvmWithUiConfirm.ts',
-      'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signEvmFamilyWithUiConfirmForTempo.ts',
-      'packages/sdk-web/src/core/signingEngine/flows/signNear/signTransactions.ts',
-      'packages/sdk-web/src/core/signingEngine/flows/signNear/signNear.ts',
+      'packages/wallet/src/core/signingEngine/flows/signEvmFamily/transactionExecutor.ts',
+      'packages/wallet/src/core/signingEngine/flows/signEvmFamily/signEvmWithUiConfirm.ts',
+      'packages/wallet/src/core/signingEngine/flows/signEvmFamily/signEvmFamilyWithUiConfirmForTempo.ts',
+      'packages/wallet/src/core/signingEngine/flows/signNear/signTransactions.ts',
+      'packages/wallet/src/core/signingEngine/flows/signNear/signNear.ts',
     ];
 
     for (const relativePath of transactionFiles) {
@@ -103,12 +103,12 @@ test.describe('nonce coordinator durable architecture guards', () => {
       'nonceUtils',
     ];
     const allowedCallers = new Set([
-      'packages/sdk-web/src/core/signingEngine/nonce/NonceCoordinator.ts',
+      'packages/wallet/src/core/signingEngine/nonce/NonceCoordinator.ts',
     ]);
-    const offenders = listSourceFiles('packages/sdk-web/src')
+    const offenders = listSourceFiles('packages/wallet/src')
       .filter(
         (relativePath) =>
-          !relativePath.startsWith('packages/sdk-web/src/core/signingEngine/nonce/'),
+          !relativePath.startsWith('packages/wallet/src/core/signingEngine/nonce/'),
       )
       .filter((relativePath) => !allowedCallers.has(relativePath))
       .filter((relativePath) => {
@@ -130,7 +130,7 @@ test.describe('nonce coordinator durable architecture guards', () => {
       'restoreCoordinator',
       'availableSigningLanes',
     ];
-    const offenders = listSourceFiles('packages/sdk-web/src/core/signingEngine/nonce').filter(
+    const offenders = listSourceFiles('packages/wallet/src/core/signingEngine/nonce').filter(
       (relativePath) => {
         const source = readRepoSource(relativePath);
         return forbiddenImports.some((forbiddenImport) => source.includes(forbiddenImport));
@@ -142,19 +142,19 @@ test.describe('nonce coordinator durable architecture guards', () => {
 
   test('nonce internals use encoded lane keys and keep raw EVM-family chain strings at boundaries', () => {
     const rawLaneKeyOffenders = listSourceFiles(
-      'packages/sdk-web/src/core/signingEngine/nonce',
+      'packages/wallet/src/core/signingEngine/nonce',
     ).filter((relativePath) => {
       const source = readRepoSource(relativePath);
       return source.includes(".join(':')") || source.includes('.join(":")');
     });
     expect(rawLaneKeyOffenders).toEqual([]);
 
-    const rawChainBranchOffenders = listSourceFiles('packages/sdk-web/src/core/signingEngine/nonce')
+    const rawChainBranchOffenders = listSourceFiles('packages/wallet/src/core/signingEngine/nonce')
       .filter(
         (relativePath) =>
           !relativePath.endsWith('.typecheck.ts') &&
-          relativePath !== 'packages/sdk-web/src/core/signingEngine/nonce/nonceLaneKeys.ts' &&
-          relativePath !== 'packages/sdk-web/src/core/signingEngine/nonce/nonceTypes.ts',
+          relativePath !== 'packages/wallet/src/core/signingEngine/nonce/nonceLaneKeys.ts' &&
+          relativePath !== 'packages/wallet/src/core/signingEngine/nonce/nonceTypes.ts',
       )
       .filter((relativePath) => {
         const source = readRepoSource(relativePath);
@@ -171,7 +171,7 @@ test.describe('nonce coordinator durable architecture guards', () => {
 
   test('nonce lane-key helpers stay pure and leave durable parsing at boundaries', () => {
     const laneKeys = readRepoSource(
-      'packages/sdk-web/src/core/signingEngine/nonce/nonceLaneKeys.ts',
+      'packages/wallet/src/core/signingEngine/nonce/nonceLaneKeys.ts',
     );
 
     expect(laneKeys).not.toContain('normalizeRequiredString');
@@ -182,7 +182,7 @@ test.describe('nonce coordinator durable architecture guards', () => {
   });
 
   test('legacy nonce lane-key support is removed from nonce internals', () => {
-    const sourceOffenders = listSourceFiles('packages/sdk-web/src/core/signingEngine/nonce').filter(
+    const sourceOffenders = listSourceFiles('packages/wallet/src/core/signingEngine/nonce').filter(
       (relativePath) => readRepoSource(relativePath).includes('legacyNonceLaneKeys'),
     );
 
@@ -191,11 +191,11 @@ test.describe('nonce coordinator durable architecture guards', () => {
 
   test('transaction flows do not import nonce durable boundary parsers', () => {
     const transactionFiles = [
-      'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/transactionExecutor.ts',
-      'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signEvmWithUiConfirm.ts',
-      'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signEvmFamilyWithUiConfirmForTempo.ts',
-      'packages/sdk-web/src/core/signingEngine/flows/signNear/signTransactions.ts',
-      'packages/sdk-web/src/core/signingEngine/flows/signNear/signNear.ts',
+      'packages/wallet/src/core/signingEngine/flows/signEvmFamily/transactionExecutor.ts',
+      'packages/wallet/src/core/signingEngine/flows/signEvmFamily/signEvmWithUiConfirm.ts',
+      'packages/wallet/src/core/signingEngine/flows/signEvmFamily/signEvmFamilyWithUiConfirmForTempo.ts',
+      'packages/wallet/src/core/signingEngine/flows/signNear/signTransactions.ts',
+      'packages/wallet/src/core/signingEngine/flows/signNear/signNear.ts',
     ];
 
     for (const relativePath of transactionFiles) {
@@ -208,10 +208,10 @@ test.describe('nonce coordinator durable architecture guards', () => {
 
   test('raw durable nonce parsing stays at the persistence boundary', () => {
     const allowedParserCallers = new Set([
-      'packages/sdk-web/src/core/indexedDB/nonceLaneCoordinationStore.ts',
-      'packages/sdk-web/src/core/signingEngine/nonce/nonceCoordinationRecordBoundary.ts',
+      'packages/wallet/src/core/indexedDB/nonceLaneCoordinationStore.ts',
+      'packages/wallet/src/core/signingEngine/nonce/nonceCoordinationRecordBoundary.ts',
     ]);
-    const parserCallers = listSourceFiles('packages/sdk-web/src')
+    const parserCallers = listSourceFiles('packages/wallet/src')
       .filter((relativePath) => !relativePath.endsWith('.typecheck.ts'))
       .filter((relativePath) => {
         const source = readRepoSource(relativePath);
@@ -228,9 +228,9 @@ test.describe('nonce coordinator durable architecture guards', () => {
 
   test('nonce branch helpers use concrete lease variants instead of lane intersections', () => {
     const nonceModules = [
-      'packages/sdk-web/src/core/signingEngine/nonce/NonceCoordinator.ts',
-      'packages/sdk-web/src/core/signingEngine/nonce/evmNonceLane.ts',
-      'packages/sdk-web/src/core/signingEngine/nonce/nearNonceLane.ts',
+      'packages/wallet/src/core/signingEngine/nonce/NonceCoordinator.ts',
+      'packages/wallet/src/core/signingEngine/nonce/evmNonceLane.ts',
+      'packages/wallet/src/core/signingEngine/nonce/nearNonceLane.ts',
     ];
 
     for (const relativePath of nonceModules) {
@@ -243,7 +243,7 @@ test.describe('nonce coordinator durable architecture guards', () => {
 
   test('durable nonce parser accepts persisted decimal strings instead of in-memory bigint values', () => {
     const parser = readRepoSource(
-      'packages/sdk-web/src/core/signingEngine/nonce/nonceCoordinationRecordBoundary.ts',
+      'packages/wallet/src/core/signingEngine/nonce/nonceCoordinationRecordBoundary.ts',
     );
 
     expect(parser).toContain("typeof value !== 'string'");
@@ -252,9 +252,9 @@ test.describe('nonce coordinator durable architecture guards', () => {
 
   test('nonce operation and EVM reservation types use prepared concrete identity', () => {
     const nonceTypes = readRepoSource(
-      'packages/sdk-web/src/core/signingEngine/nonce/nonceTypes.ts',
+      'packages/wallet/src/core/signingEngine/nonce/nonceTypes.ts',
     );
-    const nonceBackend = readRepoSource('packages/sdk-web/src/core/rpcClients/evm/nonceBackend.ts');
+    const nonceBackend = readRepoSource('packages/wallet/src/core/rpcClients/evm/nonceBackend.ts');
 
     const preparedOperationStart = nonceTypes.indexOf('export type PreparedNonceOperationContext');
     const preparedOperationEnd = nonceTypes.indexOf(
@@ -290,7 +290,7 @@ test.describe('nonce coordinator durable architecture guards', () => {
 
   test('startup recovery cannot spend budget or rebroadcast raw signed transactions', () => {
     const source = readRepoSource(
-      'packages/sdk-web/src/core/signingEngine/nonce/NonceCoordinator.ts',
+      'packages/wallet/src/core/signingEngine/nonce/NonceCoordinator.ts',
     );
     const recoveryStart = source.indexOf('const recoverDurableLeases = async');
     const recoveryEnd = source.indexOf('const reserveNearNonceBatchUnlocked = async');
@@ -307,14 +307,14 @@ test.describe('nonce coordinator durable architecture guards', () => {
 
   test('durable recovery is only invoked from startup, unlock, or signing boundaries', () => {
     const allowedCallers = new Set([
-      'packages/sdk-web/src/core/signingEngine/assembly/createManagers.ts',
-      'packages/sdk-web/src/SeamsWeb/operations/auth/login.ts',
-      'packages/sdk-web/src/core/signingEngine/nonce/NonceCoordinator.ts',
-      'packages/sdk-web/src/core/signingEngine/nonce/nonceTypes.ts',
-      'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/transactionExecutor.ts',
-      'packages/sdk-web/src/core/signingEngine/flows/signNear/signTransactions.ts',
+      'packages/wallet/src/core/signingEngine/assembly/createManagers.ts',
+      'packages/wallet/src/SeamsWeb/operations/auth/login.ts',
+      'packages/wallet/src/core/signingEngine/nonce/NonceCoordinator.ts',
+      'packages/wallet/src/core/signingEngine/nonce/nonceTypes.ts',
+      'packages/wallet/src/core/signingEngine/flows/signEvmFamily/transactionExecutor.ts',
+      'packages/wallet/src/core/signingEngine/flows/signNear/signTransactions.ts',
     ]);
-    const callers = listSourceFiles('packages/sdk-web/src')
+    const callers = listSourceFiles('packages/wallet/src')
       .filter((relativePath) => readRepoSource(relativePath).includes('recoverDurableLeases('))
       .filter((relativePath) => !allowedCallers.has(relativePath));
 

@@ -1,13 +1,13 @@
 import { expect, test } from '@playwright/test';
-import { proxyNormalSigningRequestToMpcRouter } from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/normalSigningRouterProxy';
+import { proxyNormalSigningRequestToMpcRouter } from '../../packages/wallet-server/src/router/transport/fetch/routes/normalSigningRouterProxy';
 import {
   buildEd25519ReplayResponse,
   decideEd25519NormalSigningExecution,
   decideEd25519OperationStepUpExecution,
   isRouterAbEd25519OperationInProgressResponse,
   requireCompletedEd25519OperationResponse,
-} from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/thresholdEd25519';
-import { decideRouterAbEcdsaOperationStepUpExecution } from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/thresholdEcdsa';
+} from '../../packages/wallet-server/src/router/transport/fetch/routes/thresholdEd25519';
+import { decideRouterAbEcdsaOperationStepUpExecution } from '../../packages/wallet-server/src/router/transport/fetch/routes/thresholdEcdsa';
 import {
   buildCompletedAuthorizedOperationFixture,
   buildReusableAuthorizationCoreFixture,
@@ -17,7 +17,7 @@ import {
   routerAbEcdsaOperationInProgressResult,
   routerAbEcdsaReplayHttpResponse,
   routerAbEcdsaReplayResult,
-} from '../../packages/sdk-server-ts/src/router/domains/signingOperations/routerAbPrivateSigningWorker';
+} from '../../packages/wallet-server/src/router/domains/signingOperations/routerAbPrivateSigningWorker';
 
 test('normal-signing proxy preserves authorization and source-binding headers', async () => {
   let forwarded: Request | null = null;

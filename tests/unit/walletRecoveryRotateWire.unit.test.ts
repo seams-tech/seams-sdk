@@ -1,10 +1,10 @@
 import { expect, test } from '@playwright/test';
-import { handleWalletRecoveryRotate } from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/passkeyCustody';
+import { handleWalletRecoveryRotate } from '../../packages/wallet-server/src/router/transport/fetch/routes/passkeyCustody';
 import {
   createRouterApiRouteDefinitions,
   findRouteDefinitionById,
-} from '../../packages/sdk-server-ts/src/router/framework/routeDefinitions';
-import { rotateWalletRecoveryCodes } from '../../packages/sdk-web/src/core/rpcClients/relayer/walletRecoveryRotate';
+} from '../../packages/wallet-server/src/router/framework/routeDefinitions';
+import { rotateWalletRecoveryCodes } from '../../packages/wallet/src/core/rpcClients/relayer/walletRecoveryRotate';
 
 /**
  * The rotation wire, both ends.

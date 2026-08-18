@@ -10,7 +10,7 @@ function readRepoFile(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
 
-function listProductionCoreFiles(dir = path.join(repoRoot, 'packages/sdk-web/src/core')) {
+function listProductionCoreFiles(dir = path.join(repoRoot, 'packages/wallet/src/core')) {
   const files = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const entryPath = path.join(dir, entry.name);
@@ -26,7 +26,7 @@ function listProductionCoreFiles(dir = path.join(repoRoot, 'packages/sdk-web/src
 }
 
 function listProductionCloudflareD1Files() {
-  return listProductionServerTypeScriptFiles('packages/sdk-server-ts/src/router/cloudflare/d1');
+  return listProductionServerTypeScriptFiles('packages/wallet-server/src/router/cloudflare/d1');
 }
 
 function listProductionServerTypeScriptFiles(relativeDir) {
@@ -48,7 +48,7 @@ function listProductionServerTypeScriptFiles(relativeDir) {
 function listWalletPersistenceParserGuardFiles() {
   const files = new Set();
   for (const relativePath of listProductionServerTypeScriptFiles(
-    'packages/sdk-server-ts/src/core',
+    'packages/wallet-server/src/core',
   )) {
     files.add(relativePath);
   }
@@ -78,7 +78,7 @@ function collectD1NearAccountPredicateViolations() {
 
 function collectCoreWalletNearAccountPredicateViolations() {
   const violations = [];
-  const checkedFiles = ['packages/sdk-server-ts/src/core/AuthService.ts'];
+  const checkedFiles = ['packages/wallet-server/src/core/AuthService.ts'];
   for (const relativePath of checkedFiles) {
     const source = readRepoFile(relativePath);
     const matches = source.matchAll(
@@ -94,8 +94,8 @@ function collectCoreWalletNearAccountPredicateViolations() {
 function collectNearPublicKeyRootPasskeyFieldViolations() {
   const violations = [];
   const checkedFiles = [
-    'packages/sdk-server-ts/src/core/NearPublicKeyStore.ts',
-    'packages/sdk-server-ts/src/router/cloudflare/d1/webauthn/d1WebAuthnRecords.ts',
+    'packages/wallet-server/src/core/NearPublicKeyStore.ts',
+    'packages/wallet-server/src/router/cloudflare/d1/webauthn/d1WebAuthnRecords.ts',
   ];
   for (const relativePath of checkedFiles) {
     const source = readRepoFile(relativePath);
@@ -118,7 +118,7 @@ function collectNearPublicKeyRootPasskeyFieldViolations() {
   }
 
   const relayListSource = readRepoFile(
-    'packages/sdk-server-ts/src/router/cloudflare/d1/near/d1NearPublicKeyStore.ts',
+    'packages/wallet-server/src/router/cloudflare/d1/near/d1NearPublicKeyStore.ts',
   );
   if (/\brecord\.(rpId|credentialIdB64u)\b/.test(relayListSource)) {
     violations.push('Cloudflare D1 NEAR public-key list response flattens passkey fields');
@@ -163,10 +163,10 @@ function checkProductionWalletPathsAvoidNearProjectionHelpers() {
 
 function checkEcdsaWalletScopedFilesRejectNearAccountProjection() {
   const ecdsaWalletScopedFiles = [
-    'packages/sdk-web/src/SeamsWeb/operations/auth/walletUnlockEcdsaSubject.ts',
-    'packages/sdk-web/src/core/signingEngine/threshold/ecdsa/activation.ts',
-    'packages/sdk-web/src/core/signingEngine/session/availability/persistedAvailableSigningLanes.ts',
-    'packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget.ts',
+    'packages/wallet/src/SeamsWeb/operations/auth/walletUnlockEcdsaSubject.ts',
+    'packages/wallet/src/core/signingEngine/threshold/ecdsa/activation.ts',
+    'packages/wallet/src/core/signingEngine/session/availability/persistedAvailableSigningLanes.ts',
+    'packages/wallet/src/core/signingEngine/interfaces/ecdsaChainTarget.ts',
   ];
   const forbiddenPatterns = [
     /toAccountId\s*\([^)]*walletId[^)]*\)/,
@@ -194,7 +194,7 @@ function checkEcdsaWalletScopedFilesRejectNearAccountProjection() {
 
 function checkEcdsaBootstrapPersistenceAvoidsNearCompatibilityMappingApis() {
   const source = readRepoFile(
-    'packages/sdk-web/src/core/signingEngine/session/warmCapabilities/ecdsaBootstrapPersistence.ts',
+    'packages/wallet/src/core/signingEngine/session/warmCapabilities/ecdsaBootstrapPersistence.ts',
   );
   const violations = [];
   for (const token of ['upsertChainAccount', 'setLastProfileStateForProfile', 'near:testnet']) {
@@ -208,10 +208,10 @@ function checkEcdsaBootstrapPersistenceAvoidsNearCompatibilityMappingApis() {
 
 function checkCoreNearAccountAuthenticatorLookupHasExplicitApiOnly() {
   const lifecycle = readRepoFile(
-    'packages/sdk-web/src/core/signingEngine/flows/registration/accountLifecycle.ts',
+    'packages/wallet/src/core/signingEngine/flows/registration/accountLifecycle.ts',
   );
   const publicApi = readRepoFile(
-    'packages/sdk-web/src/core/signingEngine/flows/registration/public.ts',
+    'packages/wallet/src/core/signingEngine/flows/registration/public.ts',
   );
   const violations = [];
   if (lifecycle.includes('export async function getAuthenticatorsByUser')) {

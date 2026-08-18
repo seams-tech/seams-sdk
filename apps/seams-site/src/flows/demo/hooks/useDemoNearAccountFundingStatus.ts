@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import { MinimalNearClient } from '@seams/sdk/advanced';
+import { MinimalNearClient } from '@seams/wallet/advanced';
 
 import { FRONTEND_CONFIG } from '@/config';
 import {

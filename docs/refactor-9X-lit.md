@@ -32,11 +32,11 @@ paths from earlier plans.
 
 Primary source paths:
 
-- `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/`
-- `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/`
-- `packages/sdk-web/src/SeamsWeb/`
-- `packages/sdk-web/src/react/`
-- `packages/sdk-web/scripts/`
+- `packages/wallet/src/core/signingEngine/uiConfirm/ui/`
+- `packages/wallet/src/core/signingEngine/uiConfirm/ui/lit-components/`
+- `packages/wallet/src/SeamsWeb/`
+- `packages/wallet/src/react/`
+- `packages/wallet/scripts/`
 - `tests/lit-components/`
 - `tests/wallet-iframe/`
 - `tests/types/`
@@ -45,12 +45,12 @@ Primary source paths:
 Primary validation commands:
 
 ```sh
-pnpm -C packages/sdk-web type-check
+pnpm -C packages/wallet type-check
 pnpm -C tests test:lit-components
 pnpm -C tests test:wallet-iframe
-pnpm -C packages/sdk-web build:prod
-pnpm -C packages/sdk-web check:bundle-size
-pnpm -C packages/sdk-web size:lite:check
+pnpm -C packages/wallet build:prod
+pnpm -C packages/wallet check:bundle-size
+pnpm -C packages/wallet size:lite:check
 ```
 
 ## Non-Goals
@@ -143,7 +143,7 @@ every phase.
 Create the final module layout under:
 
 ```text
-packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/
+packages/wallet/src/core/signingEngine/uiConfirm/ui/lit-components/
   base/
     LitElementWithProps.ts
     asset-base.ts
@@ -288,12 +288,12 @@ Prepare the refactor without changing runtime behavior.
 Tasks:
 
 1. [ ] Inventory current custom-element definitions from:
-   - `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/registry.ts`
-   - `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/**`
+   - `packages/wallet/src/core/signingEngine/uiConfirm/ui/registry.ts`
+   - `packages/wallet/src/core/signingEngine/uiConfirm/ui/lit-components/**`
 2. [ ] Record production Lit asset sizes after:
 
 ```sh
-pnpm -C packages/sdk-web build:prod
+pnpm -C packages/wallet build:prod
 ```
 
 3. [ ] Record raw, gzip, and brotli sizes for current Lit JS and CSS assets.
@@ -334,7 +334,7 @@ Allowlist shape:
 {
   "allow": [
     {
-      "file": "packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/ExportPrivateKey/iframe-host.ts",
+      "file": "packages/wallet/src/core/signingEngine/uiConfirm/ui/lit-components/ExportPrivateKey/iframe-host.ts",
       "pattern": "postMessage",
       "count": 1,
       "reason": "Phase 1 replaces export-key iframe messaging with a typed channel.",
@@ -456,18 +456,18 @@ Exact parser contract:
 
 Target files:
 
-- `packages/sdk-web/src/core/types/seams.ts`
-- `packages/sdk-web/src/core/config/configBuilder.ts`
-- `packages/sdk-web/src/core/config/configHelpers.ts`
-- `packages/sdk-web/src/SeamsWeb/SeamsWeb.ts`
-- `packages/sdk-web/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts`
-- `packages/sdk-web/src/SeamsWeb/walletIframe/client/router.ts`
-- `packages/sdk-web/src/SeamsWeb/walletIframe/host/context.ts`
-- `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/styles/appearance-state.ts`
-- `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/styles/appearance-parser.ts`
-- `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/styles/apply-appearance.ts`
-- `packages/sdk-web/src/react/context/SeamsWebProvider.tsx`
-- `packages/sdk-web/src/react/components/theme/**`
+- `packages/wallet/src/core/types/seams.ts`
+- `packages/wallet/src/core/config/configBuilder.ts`
+- `packages/wallet/src/core/config/configHelpers.ts`
+- `packages/wallet/src/SeamsWeb/SeamsWeb.ts`
+- `packages/wallet/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts`
+- `packages/wallet/src/SeamsWeb/walletIframe/client/router.ts`
+- `packages/wallet/src/SeamsWeb/walletIframe/host/context.ts`
+- `packages/wallet/src/core/signingEngine/uiConfirm/ui/lit-components/styles/appearance-state.ts`
+- `packages/wallet/src/core/signingEngine/uiConfirm/ui/lit-components/styles/appearance-parser.ts`
+- `packages/wallet/src/core/signingEngine/uiConfirm/ui/lit-components/styles/apply-appearance.ts`
+- `packages/wallet/src/react/context/SeamsWebProvider.tsx`
+- `packages/wallet/src/react/components/theme/**`
 
 Tasks:
 
@@ -524,12 +524,12 @@ Treat private-key display as the highest-risk Lit surface.
 
 Target files:
 
-- `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/export-key/protocol/export-key-messages.ts`
-- `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/export-key/protocol/export-key-message-parser.ts`
-- `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/export-key/protocol/export-key-channel.ts`
-- `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/export-key/components/export-key-iframe-host-element.ts`
-- `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/export-key/components/export-key-viewer.ts`
-- `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/export-key/entrypoints/*`
+- `packages/wallet/src/core/signingEngine/uiConfirm/ui/lit-components/export-key/protocol/export-key-messages.ts`
+- `packages/wallet/src/core/signingEngine/uiConfirm/ui/lit-components/export-key/protocol/export-key-message-parser.ts`
+- `packages/wallet/src/core/signingEngine/uiConfirm/ui/lit-components/export-key/protocol/export-key-channel.ts`
+- `packages/wallet/src/core/signingEngine/uiConfirm/ui/lit-components/export-key/components/export-key-iframe-host-element.ts`
+- `packages/wallet/src/core/signingEngine/uiConfirm/ui/lit-components/export-key/components/export-key-viewer.ts`
+- `packages/wallet/src/core/signingEngine/uiConfirm/ui/lit-components/export-key/entrypoints/*`
 - `tests/lit-components/*export*`
 - `tests/wallet-iframe/*export*` if wallet-host behavior is affected
 
@@ -641,11 +641,11 @@ rendering.
 
 Target files:
 
-- `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/confirm-ui-types.ts`
-- `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/confirm-ui.ts`
-- `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/tx-confirm/state/*`
-- `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/tx-confirm/entrypoints/*`
-- `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/tx-confirm/containers/*`
+- `packages/wallet/src/core/signingEngine/uiConfirm/ui/confirm-ui-types.ts`
+- `packages/wallet/src/core/signingEngine/uiConfirm/ui/confirm-ui.ts`
+- `packages/wallet/src/core/signingEngine/uiConfirm/ui/lit-components/tx-confirm/state/*`
+- `packages/wallet/src/core/signingEngine/uiConfirm/ui/lit-components/tx-confirm/entrypoints/*`
+- `packages/wallet/src/core/signingEngine/uiConfirm/ui/lit-components/tx-confirm/containers/*`
 - `tests/lit-components/confirm-ui.handle.test.ts`
 - `tests/types/lit-components/*confirm*`
 
@@ -719,11 +719,11 @@ and node-specific unions.
 
 Target files:
 
-- `packages/sdk-web/src/core/signingEngine/interfaces/display.ts`
+- `packages/wallet/src/core/signingEngine/interfaces/display.ts`
 - chain-specific display builders outside Lit
-- `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/tx-confirm/display/*`
-- `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/tx-confirm/tree/*`
-- `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/tx-confirm/abi/*`
+- `packages/wallet/src/core/signingEngine/uiConfirm/ui/lit-components/tx-confirm/display/*`
+- `packages/wallet/src/core/signingEngine/uiConfirm/ui/lit-components/tx-confirm/tree/*`
+- `packages/wallet/src/core/signingEngine/uiConfirm/ui/lit-components/tx-confirm/abi/*`
 - `tests/types/lit-components/*tx-display*`
 - `tests/lit-components/*tx-tree*`
 
@@ -812,9 +812,9 @@ pieces, and small controllers.
 
 Target files:
 
-- `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/tx-confirm/components/*`
-- `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/tx-confirm/containers/*`
-- `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/tx-confirm/controllers/*`
+- `packages/wallet/src/core/signingEngine/uiConfirm/ui/lit-components/tx-confirm/components/*`
+- `packages/wallet/src/core/signingEngine/uiConfirm/ui/lit-components/tx-confirm/containers/*`
+- `packages/wallet/src/core/signingEngine/uiConfirm/ui/lit-components/tx-confirm/controllers/*`
 
 Tasks:
 
@@ -870,9 +870,9 @@ Make repeated mount/unmount safe for drawers, dialogs, and transaction trees.
 
 Target files:
 
-- `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/primitives/drawer/*`
-- `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/tx-confirm/tree/tx-tree-element.ts`
-- `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/tx-confirm/controllers/lifecycle-timers.ts`
+- `packages/wallet/src/core/signingEngine/uiConfirm/ui/lit-components/primitives/drawer/*`
+- `packages/wallet/src/core/signingEngine/uiConfirm/ui/lit-components/tx-confirm/tree/tx-tree-element.ts`
+- `packages/wallet/src/core/signingEngine/uiConfirm/ui/lit-components/tx-confirm/controllers/lifecycle-timers.ts`
 - `tests/lit-components/*lifecycle*`
 
 Tasks:
@@ -900,15 +900,15 @@ load-time wins.
 
 Target files:
 
-- `packages/sdk-web/scripts/build/build-prod.sh`
-- `packages/sdk-web/scripts/build/build-sdk.sh`
-- `packages/sdk-web/scripts/build/emit-static-wallet-assets.mjs`
-- `packages/sdk-web/scripts/checks/assert-static-wallet-assets.mjs`
-- `packages/sdk-web/scripts/checks/report-wallet-iframe-bundle-size.mjs`
-- `packages/sdk-web/scripts/reports/report-lite-bundle-sizes.mjs`
-- `packages/sdk-web/rolldown.config.ts`
-- `packages/sdk-web/package.json`
-- Lit entrypoints under `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/**/entrypoints/`
+- `packages/wallet/scripts/build/build-prod.sh`
+- `packages/wallet/scripts/build/build-sdk.sh`
+- `packages/wallet/scripts/build/emit-static-wallet-assets.mjs`
+- `packages/wallet/scripts/checks/assert-static-wallet-assets.mjs`
+- `packages/wallet/scripts/checks/report-wallet-iframe-bundle-size.mjs`
+- `packages/wallet/scripts/reports/report-lite-bundle-sizes.mjs`
+- `packages/wallet/rolldown.config.ts`
+- `packages/wallet/package.json`
+- Lit entrypoints under `packages/wallet/src/core/signingEngine/uiConfirm/ui/lit-components/**/entrypoints/`
 
 Tasks:
 
@@ -962,12 +962,12 @@ cost where the wrapper surface is simple.
 
 Target files:
 
-- `packages/sdk-web/src/react/components/LitDrawer.tsx`
-- `packages/sdk-web/src/react/components/LitHaloBorder.tsx`
-- `packages/sdk-web/src/react/components/LitPasskeyHaloLoading.tsx`
-- `packages/sdk-web/src/react/components/AccountMenuButton/PasskeyHaloLoading.tsx`
-- `packages/sdk-web/src/react/index.ts`
-- `packages/sdk-web/package.json`
+- `packages/wallet/src/react/components/LitDrawer.tsx`
+- `packages/wallet/src/react/components/LitHaloBorder.tsx`
+- `packages/wallet/src/react/components/LitPasskeyHaloLoading.tsx`
+- `packages/wallet/src/react/components/AccountMenuButton/PasskeyHaloLoading.tsx`
+- `packages/wallet/src/react/index.ts`
+- `packages/wallet/package.json`
 
 Tasks:
 
@@ -1006,8 +1006,8 @@ Tasks:
 2. [ ] Delete obsolete tests and fixtures for optional-bag confirm state.
 3. [ ] Remove source-guard allowlist entries whose old paths are gone.
 4. [ ] Update:
-   - `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/README-lit-elements.md`
-   - `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/css/README-css-vars.md`
+   - `packages/wallet/src/core/signingEngine/uiConfirm/ui/lit-components/README-lit-elements.md`
+   - `packages/wallet/src/core/signingEngine/uiConfirm/ui/lit-components/css/README-css-vars.md`
    - public SDK React docs where wrappers change
 5. [ ] Document wallet-origin customization limits:
    - typed appearance data
@@ -1016,11 +1016,11 @@ Tasks:
    - no HTML strings
    - no scriptable templates
 6. [ ] Document future public UI subpaths as candidates only:
-   - `@seams/sdk/ui/tx-tree`
-   - `@seams/sdk/ui/drawer`
-   - `@seams/sdk/ui/halo-border`
-   - `@seams/sdk/ui/confirm-shell`
-   - `@seams/sdk/ui/types`
+   - `@seams/wallet/ui/tx-tree`
+   - `@seams/wallet/ui/drawer`
+   - `@seams/wallet/ui/halo-border`
+   - `@seams/wallet/ui/confirm-shell`
+   - `@seams/wallet/ui/types`
 7. [ ] For each deleted old folder, prove cutover with:
    - no production imports from the old folder
    - no tests importing the old folder
@@ -1043,13 +1043,13 @@ Use the cheapest check that covers the changed phase.
 Phase 0:
 
 ```sh
-pnpm -C packages/sdk-web type-check
+pnpm -C packages/wallet type-check
 ```
 
 Phase 0A:
 
 ```sh
-pnpm -C packages/sdk-web type-check
+pnpm -C packages/wallet type-check
 pnpm -C tests test:lit-components
 pnpm -C tests test:wallet-iframe
 ```
@@ -1057,7 +1057,7 @@ pnpm -C tests test:wallet-iframe
 Phase 1:
 
 ```sh
-pnpm -C packages/sdk-web type-check
+pnpm -C packages/wallet type-check
 pnpm -C tests test:lit-components
 pnpm -C tests test:wallet-iframe
 ```
@@ -1065,40 +1065,40 @@ pnpm -C tests test:wallet-iframe
 Phases 2 and 3:
 
 ```sh
-pnpm -C packages/sdk-web type-check
+pnpm -C packages/wallet type-check
 pnpm -C tests test:lit-components
 ```
 
 Phases 4 and 5:
 
 ```sh
-pnpm -C packages/sdk-web type-check
+pnpm -C packages/wallet type-check
 pnpm -C tests test:lit-components
 ```
 
 Phase 6:
 
 ```sh
-pnpm -C packages/sdk-web build:prod
-pnpm -C packages/sdk-web check:bundle-size
-pnpm -C packages/sdk-web size:lite:check
-pnpm -C packages/sdk-web check:static-wallet-assets
+pnpm -C packages/wallet build:prod
+pnpm -C packages/wallet check:bundle-size
+pnpm -C packages/wallet size:lite:check
+pnpm -C packages/wallet check:static-wallet-assets
 ```
 
 Phase 7:
 
 ```sh
-pnpm -C packages/sdk-web type-check
+pnpm -C packages/wallet type-check
 pnpm -C tests test:lit-components
 ```
 
 Phase 8:
 
 ```sh
-pnpm -C packages/sdk-web type-check
+pnpm -C packages/wallet type-check
 pnpm -C tests test:lit-components
 pnpm -C tests test:wallet-iframe
-pnpm -C packages/sdk-web build:prod
+pnpm -C packages/wallet build:prod
 ```
 
 Run `pnpm -C tests test:source-guards` when changing source guards or deleting

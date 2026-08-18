@@ -3,7 +3,7 @@ import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import {
   parseCurrentRouterAbEcdsaDerivationPoolFillSessionRow,
   parseCurrentThresholdEd25519KeyRecord,
-} from '../../packages/sdk-server-ts/src/core/ThresholdService/persistedRecords';
+} from '../../packages/wallet-server/src/core/ThresholdService/persistedRecords';
 
 const ed25519AuthorityScope = { kind: 'passkey_rp' as const, rpId: 'example.localhost' };
 

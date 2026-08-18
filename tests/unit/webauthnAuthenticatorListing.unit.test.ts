@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
-import { listWebAuthnAuthenticatorsForUserWithStores } from '../../packages/sdk-server-ts/src/core/authService/webauthn';
-import { handleWebAuthnAuthenticators } from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/webauthnAuthenticators';
-import type { FetchRouterApiContext } from '../../packages/sdk-server-ts/src/router/transport/fetch/fetchRouter.types';
-import type { RouterApiServiceBag } from '../../packages/sdk-server-ts/src/router/framework/authServicePort';
-import { coerceRouterLogger } from '../../packages/sdk-server-ts/src/router/framework/logger';
+import { listWebAuthnAuthenticatorsForUserWithStores } from '../../packages/wallet-server/src/core/authService/webauthn';
+import { handleWebAuthnAuthenticators } from '../../packages/wallet-server/src/router/transport/fetch/routes/webauthnAuthenticators';
+import type { FetchRouterApiContext } from '../../packages/wallet-server/src/router/transport/fetch/fetchRouter.types';
+import type { RouterApiServiceBag } from '../../packages/wallet-server/src/router/framework/authServicePort';
+import { coerceRouterLogger } from '../../packages/wallet-server/src/router/framework/logger';
 import {
   cleanupTemporaryD1Database,
 } from '../helpers/sqliteD1';

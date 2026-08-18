@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const VITE_HELPER_PATH = 'packages/sdk-web/src/plugins/vite.ts';
+const VITE_HELPER_PATH = 'packages/wallet/src/plugins/vite.ts';
 
 function readRepoSource(relativePath) {
   return fs.readFileSync(path.join(REPO_ROOT, relativePath), 'utf8');

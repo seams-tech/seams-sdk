@@ -801,13 +801,13 @@ wallet assumptions as each call site moves.
 
 ### `AuthService` Monolith
 
-`packages/sdk-server-ts/src/core/AuthService.ts` currently combines auth,
+`packages/wallet-server/src/core/AuthService.ts` currently combines auth,
 wallet registration, WebAuthn, Email OTP, identity links, recovery,
 threshold-signing service access, stores, and signer runtime concerns. The
 router also imports this shape through `CloudflareRouterApiAuthService`, which is a
 large `Pick<AuthService, ...>`.
 
-`packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService.ts` is the
+`packages/wallet-server/src/router/cloudflare/d1RouterApiAuthService.ts` is the
 second monolith to split. It is already closer to the target shape because it
 delegates to smaller D1 services, but its public facade still presents one
 auth/wallet/session/signing surface to Cloudflare route assembly. Treat it as
@@ -1082,7 +1082,7 @@ identity remains active.
 
 ### Signing-Centered Grant-Evidence UI
 
-`packages/sdk-web/src/core/signingEngine/stepUpConfirmation/types.ts` uses the
+`packages/wallet/src/core/signingEngine/stepUpConfirmation/types.ts` uses the
 capability-centered grant plan and challenge model. Browser confirmation can
 therefore serve MPC signing, vault access, and IdP high-risk scope issuance
 without carrying reusable-session identity in operation-grant payloads.
@@ -1129,14 +1129,14 @@ transaction or key export is the requested operation.
 
 ### Eager Cloudflare Router Assembly
 
-`packages/sdk-server-ts/src/router/cloudflare/createCloudflareRouter.ts` mounts
+`packages/wallet-server/src/router/cloudflare/createCloudflareRouter.ts` mounts
 wallet, threshold, session, OTP, seal, and recovery routes in one static handler
 list. Capability lazy-loading requires route registration to come from enabled
 modules.
 
 Existing module decision:
 
-`packages/sdk-server-ts/src/router/modules.ts` already defines `RouterApiModule`
+`packages/wallet-server/src/router/modules.ts` already defines `RouterApiModule`
 and route-extension resolution. Evolve that mechanism instead of creating a
 parallel plugin registry. The current module shape is extension-only; the target
 module manifest should own route definitions, required service ports, capability
@@ -1260,7 +1260,7 @@ same manifest contract tests.
 
 ### Route Auth Policy Planes
 
-`packages/sdk-server-ts/src/router/routeAuthPolicy.ts` has
+`packages/wallet-server/src/router/routeAuthPolicy.ts` has
 `console`, `api_credentials`, `user_session`, `threshold_session`, and `public`
 planes. The target route policy should distinguish management access, normal
 session access, and exact capability grants. Threshold-session details belong to
@@ -2224,7 +2224,7 @@ import {
   passkeyAuth,
   nearEd25519MpcSigning,
   evmFamilyEcdsaMpcSigning,
-} from "@seams/sdk";
+} from "@seams/wallet";
 
 const config = createSeamsConfig({
   environmentId: "env_...",

@@ -1,11 +1,11 @@
 import { expect, test } from '@playwright/test';
-import { projectActiveOwnerWalletExecutionLane } from '../../packages/sdk-server-ts/src/core/signingLanes/WalletExecutionLaneProjection';
-import { normalizeWalletAuthMethod } from '../../packages/sdk-server-ts/src/core/d1WalletAuthMethodStore';
+import { projectActiveOwnerWalletExecutionLane } from '../../packages/wallet-server/src/core/signingLanes/WalletExecutionLaneProjection';
+import { normalizeWalletAuthMethod } from '../../packages/wallet-server/src/core/d1WalletAuthMethodStore';
 import {
   buildYaoEd25519WalletSignerRecord,
   ed25519NearPublicKeyFromBytes,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoWalletSigner';
-import { D1LinkedDeviceOwnerPlanningDeploymentV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceOwnerPlanningDeployment';
+} from '../../packages/wallet-server/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoWalletSigner';
+import { D1LinkedDeviceOwnerPlanningDeploymentV1 } from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceOwnerPlanningDeployment';
 import { walletAuthMethodRecordId } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { parseWalletId, parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import {

@@ -1,5 +1,5 @@
-import type { LoginAndCreateSessionResult, UnlockFlowEvent } from '@seams/sdk';
-import type { SeamsContextType } from '@seams/sdk/react';
+import type { LoginAndCreateSessionResult, UnlockFlowEvent } from '@seams/wallet';
+import type { SeamsContextType } from '@seams/wallet/react';
 
 type UnlockWallet = SeamsContextType['unlock'];
 

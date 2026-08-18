@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   respondWalletRegistration,
   activateWalletRegistration,
-} from '../../packages/sdk-web/src/core/rpcClients/relayer/walletRegistration';
+} from '../../packages/wallet/src/core/rpcClients/relayer/walletRegistration';
 import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 
 /**

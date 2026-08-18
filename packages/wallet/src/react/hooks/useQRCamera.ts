@@ -13,8 +13,8 @@ import { ScanQRCodeFlow, enumerateVideoDevices, detectFrontCamera } from '@/util
  *
  * @example
  * ```tsx
- * import { PasskeyProvider } from '@seams/sdk/react';
- * import { useQRCamera } from '@seams/sdk/react';
+ * import { PasskeyProvider } from '@seams/wallet/react';
+ * import { useQRCamera } from '@seams/wallet/react';
  *
  * function QRScanner() {
  *   const qrCamera = useQRCamera({

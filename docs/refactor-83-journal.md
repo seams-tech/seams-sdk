@@ -32,7 +32,7 @@ Validation:
 - `pnpm -C tests exec playwright test -c playwright.intended.config.ts
   --reporter=line
   e2e/intended-behaviours/passkey.registration.contract.test.ts` passed 1/1
-  after the Wrangler runtime config moved out of `packages/sdk-server-ts`.
+  after the Wrangler runtime config moved out of `packages/wallet-server`.
 - `pnpm -C tests run test:intended:ci` completed with
   `tests/test-results/.last-run.json` reporting
   `{ "status": "passed", "failedTests": [] }`.
@@ -158,8 +158,8 @@ existing Ed25519 capability login path:
 
 Validation:
 
-- `pnpm -C packages/sdk-web run build:sdk` passes.
-- `SEAMS_D1_LOCAL_WASM_AUTO_BUILD=0 pnpm -C packages/sdk-server-ts run d1:local:ensure-wasm` passes after restoring generated WASM package outputs.
+- `pnpm -C packages/wallet run build:sdk` passes.
+- `SEAMS_D1_LOCAL_WASM_AUTO_BUILD=0 pnpm -C packages/wallet-server run d1:local:ensure-wasm` passes after restoring generated WASM package outputs.
 - The first `SEAMS_INTENDED_PERSIST_TRACE=1
   SEAMS_INTENDED_EMAIL_OTP_ECDSA_TARGET_PROFILE=none pnpm -C tests exec
   playwright test -c playwright.intended.benchmark.config.ts
@@ -191,9 +191,9 @@ Hardened the startup boundary:
 Validation:
 
 - `node --check tests/scripts/start-intended-services.mjs` passes.
-- `node --check packages/sdk-server-ts/scripts/ensure-d1-local-wasm.mjs` passes.
+- `node --check packages/wallet-server/scripts/ensure-d1-local-wasm.mjs` passes.
 - `node tests/scripts/start-intended-services.mjs --check` passes.
-- `SEAMS_D1_LOCAL_WASM_AUTO_BUILD=0 pnpm -C packages/sdk-server-ts run d1:local:ensure-wasm` passes after generated WASM package outputs are present.
+- `SEAMS_D1_LOCAL_WASM_AUTO_BUILD=0 pnpm -C packages/wallet-server run d1:local:ensure-wasm` passes after generated WASM package outputs are present.
 
 ## SDK WASM Package-Output Build Lock — July 5, 2026
 
@@ -214,8 +214,8 @@ by:
 
 Validation:
 
-- `bash -n packages/sdk-web/scripts/build/build-output-lock.sh packages/sdk-web/scripts/build/build-wasm.sh packages/sdk-web/scripts/build/build-sdk.sh packages/sdk-web/scripts/build/build-full.sh packages/sdk-web/scripts/build/build-prod.sh` passes.
-- `pnpm -C packages/sdk-web run build:wasm` passes, including a real wait for a pre-existing build lock holder.
+- `bash -n packages/wallet/scripts/build/build-output-lock.sh packages/wallet/scripts/build/build-wasm.sh packages/wallet/scripts/build/build-sdk.sh packages/wallet/scripts/build/build-full.sh packages/wallet/scripts/build/build-prod.sh` passes.
+- `pnpm -C packages/wallet run build:wasm` passes, including a real wait for a pre-existing build lock holder.
 - `SEAMS_INTENDED_PERSIST_TRACE=1 SEAMS_INTENDED_EMAIL_OTP_ECDSA_TARGET_PROFILE=none pnpm -C tests exec playwright test -c playwright.intended.benchmark.ci.config.ts e2e/intended-behaviours/email-otp.registration.benchmark.test.ts --reporter=line` passes 1/1 after the lock change and token refresh.
 
 ## Email OTP Multi-Target ECDSA Registration Handles — July 5, 2026
@@ -245,7 +245,7 @@ scoped:
 
 Validation:
 
-- `pnpm -C packages/sdk-web run build:sdk` passes.
+- `pnpm -C packages/wallet run build:sdk` passes.
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/googleEmailOtpWalletAuthFlow.unit.test.ts --reporter=line` passes 25/25, including a two-target registration prewarm assertion.
 - A later intended Email OTP combined benchmark passed after hardening the
   intended-services startup and refreshing the target summary model:
@@ -272,13 +272,13 @@ old implicit invariant that every Email OTP registration had an ECDSA target,
 while keeping ECDSA bootstrap strict.
 
 Deleted the unused legacy
-`packages/sdk-web/src/SeamsWeb/operations/authMethods/emailOtp/enrollment.ts`
+`packages/wallet/src/SeamsWeb/operations/authMethods/emailOtp/enrollment.ts`
 wrapper because it still sent the old worker payload shape and had no active
 imports.
 
 Validation:
 
-- `pnpm -C packages/sdk-web run build:sdk` passes.
+- `pnpm -C packages/wallet run build:sdk` passes.
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/googleEmailOtpWalletAuthFlow.unit.test.ts ./unit/emailOtpRegistrationRoute.unit.test.ts ./unit/intendedBehaviourContracts.guard.unit.test.ts --reporter=line` passes 85/85.
 
 Attempted the Email OTP Ed25519-only intended benchmark with:
@@ -366,10 +366,10 @@ latency design.
 
 Validation:
 
-- `pnpm -C packages/sdk-web run type-check` passes.
-- `pnpm -C packages/sdk-server-ts run type-check` passes.
-- `pnpm -C packages/sdk-web run build:wasm` passes.
-- `pnpm -C packages/sdk-web run build:sdk` passes.
+- `pnpm -C packages/wallet run type-check` passes.
+- `pnpm -C packages/wallet-server run type-check` passes.
+- `pnpm -C packages/wallet run build:wasm` passes.
+- `pnpm -C packages/wallet run build:sdk` passes.
 - The passkey registration benchmark above passes 1/1.
 
 Email OTP benchmark note: a later July 5 run refreshed the intended Google
@@ -415,11 +415,11 @@ Validation:
 
 - `pnpm -C apps/seams-site exec tsc --noEmit`
 - `pnpm -C tests exec tsc -p tsconfig.playwright.json --noEmit`
-- `pnpm -C packages/sdk-web exec tsc --noEmit`
+- `pnpm -C packages/wallet exec tsc --noEmit`
 - `git diff --check -- apps/seams-site/src/pages/intended-e2e/page.tsx
   tests/e2e/intended-behaviours/harness.ts
-  packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts
-  packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts
+  packages/wallet/src/SeamsWeb/operations/registration/registration.ts
+  packages/wallet/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts
   docs/refactor-83-journal.md`
 
 Evidence gap at this point: recapture the Phase 1 and Phase 7B matrices with
@@ -496,7 +496,7 @@ source guard rejects reintroducing that event.
 Validation:
 
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/registrationCapabilitySubjects.guard.unit.test.ts --reporter=line` passes 11/11.
-- `pnpm --dir packages/sdk-web exec tsc -p tsconfig.json --noEmit --pretty false` passes.
+- `pnpm --dir packages/wallet exec tsc -p tsconfig.json --noEmit --pretty false` passes.
 
 ## Phase 8 Registration Cleanup Sweep — July 4, 2026
 
@@ -526,7 +526,7 @@ authority and bearer JWT before unlock success is logged.
 
 Validation:
 
-- `pnpm --dir packages/sdk-web exec tsc -p tsconfig.json --noEmit --pretty false` passes.
+- `pnpm --dir packages/wallet exec tsc -p tsconfig.json --noEmit --pretty false` passes.
 
 ## Phase 7B Unlock Prewarm Trace Context — July 4, 2026
 
@@ -544,7 +544,7 @@ removal.
 
 Validation:
 
-- `pnpm --dir packages/sdk-web exec tsc -p tsconfig.json --noEmit --pretty false` passes.
+- `pnpm --dir packages/wallet exec tsc -p tsconfig.json --noEmit --pretty false` passes.
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/registrationCapabilitySubjects.guard.unit.test.ts --reporter=line` passes 11/11.
 
 ## Phase 1/7B Parseable Timing Trace Lines — July 4, 2026
@@ -557,7 +557,7 @@ argument rendering.
 
 Validation:
 
-- `pnpm --dir packages/sdk-web exec tsc -p tsconfig.json --noEmit --pretty false` passes.
+- `pnpm --dir packages/wallet exec tsc -p tsconfig.json --noEmit --pretty false` passes.
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/addWalletSigner.orchestration.unit.test.ts --grep "combined Ed25519 and ECDSA wallet registration" --reporter=line` passes 1/1.
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/registrationCapabilitySubjects.guard.unit.test.ts --reporter=line` passes 11/11 after rerunning serially. An earlier parallel run failed before tests started because the unit web server port 3600 was already in use.
 
@@ -611,7 +611,7 @@ Validation:
 
 - Source inventory only; no code change in this slice.
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/registrationCapabilitySubjects.guard.unit.test.ts --reporter=line` passes 11/11.
-- `pnpm --dir packages/sdk-web exec tsc -p tsconfig.json --noEmit --pretty false` passes.
+- `pnpm --dir packages/wallet exec tsc -p tsconfig.json --noEmit --pretty false` passes.
 - `git diff --check -- docs/refactor-83-journal.md` passes.
 - `pnpm build:sdk` passes.
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/registrationCapabilitySubjects.guard.unit.test.ts --reporter=line` passes 9/9 after SDK build regenerated the local Vite plugin bundle.
@@ -630,7 +630,7 @@ inventory to stay attached to the plan.
 
 Validation:
 
-- `pnpm --dir packages/sdk-web exec tsc -p tsconfig.json --noEmit --pretty false` passes.
+- `pnpm --dir packages/wallet exec tsc -p tsconfig.json --noEmit --pretty false` passes.
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/registrationCapabilitySubjects.guard.unit.test.ts --reporter=line` passes 7/7 after rerunning serially; the first attempt hit a stale generated SDK plugin resolution failure before test execution.
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/addWalletSigner.orchestration.unit.test.ts --grep "combined Ed25519 and ECDSA wallet registration|Email OTP enrollment material|per-call disabled ECDSA provisioning|scope mismatch diagnostics" --reporter=line` passes 4/4.
 - `pnpm build:sdk` passes.
@@ -653,7 +653,7 @@ Validation:
   `email_otp_unlock_timing_summary_v1`; lower-level seal, restore, and
   persistence sub-buckets remain explicit Phase 7B follow-up work.
 - `pnpm build:wasm` passes and restores both NEAR signer WASM package targets.
-- `pnpm --dir packages/sdk-web exec tsc -p tsconfig.json --noEmit --pretty false` passes.
+- `pnpm --dir packages/wallet exec tsc -p tsconfig.json --noEmit --pretty false` passes.
 - `pnpm build:sdk` passes.
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/registrationCapabilitySubjects.guard.unit.test.ts --reporter=line` passes 6/6.
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/addWalletSigner.orchestration.unit.test.ts --grep "combined Ed25519 and ECDSA wallet registration|Email OTP enrollment material|per-call disabled ECDSA provisioning|scope mismatch diagnostics" --reporter=line` passes 4/4 after rerunning serially; the first parallel attempt collided on Playwright port 3600.
@@ -670,7 +670,7 @@ combined Ed25519+ECDSA registration still fetches `/router-ab/keyset`.
 Validation:
 
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/addWalletSigner.orchestration.unit.test.ts --grep "per-call disabled ECDSA provisioning|combined Ed25519 and ECDSA wallet registration" --reporter=line` passes 2/2.
-- `pnpm --dir packages/sdk-web exec tsc -p tsconfig.json --noEmit --pretty false` passes.
+- `pnpm --dir packages/wallet exec tsc -p tsconfig.json --noEmit --pretty false` passes.
 
 ## Phase 5 Active Runtime State Test Coverage — July 4, 2026
 
@@ -695,7 +695,7 @@ Validation:
 - `pnpm build:sdk` passes.
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/addWalletSigner.orchestration.unit.test.ts --grep "combined Ed25519 and ECDSA wallet registration|Email OTP enrollment material|per-call disabled ECDSA provisioning|scope mismatch diagnostics" --reporter=line` passes 4/4.
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/registrationCapabilitySubjects.guard.unit.test.ts --reporter=line` passes 5/5.
-- `pnpm --dir packages/sdk-web exec tsc -p tsconfig.json --noEmit --pretty false` passes.
+- `pnpm --dir packages/wallet exec tsc -p tsconfig.json --noEmit --pretty false` passes.
 - `git diff --check` passes.
 
 ## Phase 1 And Phase 6 Diagnostics — July 4, 2026
@@ -712,7 +712,7 @@ client bootstrap preparation is not invoked.
 Validation:
 
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/addWalletSigner.orchestration.unit.test.ts --grep "per-call disabled ECDSA provisioning|combined Ed25519 and ECDSA wallet registration|scope mismatch diagnostics" --reporter=line` passes 3/3.
-- `pnpm --dir packages/sdk-web exec tsc -p tsconfig.json --noEmit --pretty false` passes.
+- `pnpm --dir packages/wallet exec tsc -p tsconfig.json --noEmit --pretty false` passes.
 - `git diff --check` passes.
 
 ## Phase 2 Stored Signer Plan Package Slice — July 4, 2026
@@ -732,7 +732,7 @@ Validation:
 
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/registrationCeremonyStore.unit.test.ts --reporter=line` passes 8/8.
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "registration" --reporter=line` passes 17/17.
-- `pnpm --dir packages/sdk-server-ts exec tsc -p tsconfig.json --noEmit --pretty false` passes.
+- `pnpm --dir packages/wallet-server exec tsc -p tsconfig.json --noEmit --pretty false` passes.
 
 ## Phase 3 Direct Passkey Ed25519 Material Persistence — July 4, 2026
 
@@ -747,7 +747,7 @@ and sync flows.
 
 Validation:
 
-- `pnpm --dir packages/sdk-web exec tsc -p tsconfig.json --noEmit --pretty false` passes.
+- `pnpm --dir packages/wallet exec tsc -p tsconfig.json --noEmit --pretty false` passes.
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/seamsWeb.unlockCancellationEvents.unit.test.ts --reporter=line` passes 5/5 after updating the fixture Ed25519 session record to include current Router A/B normal-signing state.
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/googleEmailOtpWalletAuthFlow.unit.test.ts --reporter=line` passes 25/25.
 - `git diff --check` passes.
@@ -767,7 +767,7 @@ Validation:
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/seamsWeb.unlockCancellationEvents.unit.test.ts --reporter=line` passes 5/5 after updating the fixture Ed25519 session record to include current Router A/B normal-signing state.
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/googleEmailOtpWalletAuthFlow.unit.test.ts --reporter=line` passes 25/25.
 - `git diff --check` passes.
-- `pnpm build:sdk` passes and refreshes `packages/sdk-web/dist/esm` for browser tests.
+- `pnpm build:sdk` passes and refreshes `packages/wallet/dist/esm` for browser tests.
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/thresholdEd25519.registrationWarmSession.unit.test.ts --reporter=line` passes 5/5.
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/addWalletSigner.orchestration.unit.test.ts --grep "per-call disabled ECDSA provisioning|combined Ed25519 and ECDSA wallet registration|scope mismatch diagnostics" --reporter=line` passes 3/3.
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/refactor74LoginNoHss.guard.unit.test.ts --grep "sealed worker material|durable refresh" --reporter=line` passes 1/1.
@@ -788,7 +788,7 @@ updated so old preparation/ceremony shapes without prepared context are rejected
 
 Validation:
 
-- `pnpm --dir packages/sdk-server-ts exec tsc -p tsconfig.json --noEmit --pretty false` passes.
+- `pnpm --dir packages/wallet-server exec tsc -p tsconfig.json --noEmit --pretty false` passes.
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/registrationCeremonyStore.unit.test.ts --reporter=line` passes 8/8.
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "registration" --reporter=line` passes 17/17.
 
@@ -815,7 +815,7 @@ manual validation close the active Phase 4/5 criteria.
 
 Validation:
 
-- `pnpm --dir packages/sdk-web exec tsc -p tsconfig.json --noEmit --pretty false` passes.
+- `pnpm --dir packages/wallet exec tsc -p tsconfig.json --noEmit --pretty false` passes.
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/thresholdEd25519.registrationWarmSession.unit.test.ts --reporter=line` passes 5/5.
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/addWalletSigner.orchestration.unit.test.ts --grep "per-call disabled ECDSA provisioning|combined Ed25519 and ECDSA wallet registration|scope mismatch diagnostics" --reporter=line` passes 3/3 after rerunning serially; an earlier parallel run collided on Playwright port 3600.
 
@@ -834,7 +834,7 @@ only place that turns that backup result into a single-use
 
 Validation:
 
-- `pnpm --dir packages/sdk-web exec tsc -p tsconfig.json --noEmit --pretty false` passes.
+- `pnpm --dir packages/wallet exec tsc -p tsconfig.json --noEmit --pretty false` passes.
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/addWalletSigner.orchestration.unit.test.ts --grep "per-call disabled ECDSA provisioning|combined Ed25519 and ECDSA wallet registration|scope mismatch diagnostics" --reporter=line` passes 3/3 on rerun. The first run failed before tests started because the unit web server briefly could not import the generated NEAR signer WASM worker; the file was present on inspection and the same command passed immediately after.
 - `git diff --check` passes.
 
@@ -848,7 +848,7 @@ entirely remains open.
 
 Validation:
 
-- `pnpm --dir packages/sdk-web exec tsc -p tsconfig.json --noEmit --pretty false` passes.
+- `pnpm --dir packages/wallet exec tsc -p tsconfig.json --noEmit --pretty false` passes.
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/addWalletSigner.orchestration.unit.test.ts --grep "per-call disabled ECDSA provisioning|combined Ed25519 and ECDSA wallet registration|scope mismatch diagnostics" --reporter=line` passes 3/3.
 - `git diff --check` passes.
 
@@ -883,7 +883,7 @@ and runtime postconditions, preserving the Refactor 88 contract.
 
 Validation:
 
-- `pnpm --dir packages/sdk-web exec tsc -p tsconfig.json --noEmit --pretty false` passes.
+- `pnpm --dir packages/wallet exec tsc -p tsconfig.json --noEmit --pretty false` passes.
 
 ## Phase 7B Unlock Activation And Commit Boundary — July 4, 2026
 
@@ -902,7 +902,7 @@ fact upserts. Any broader IndexedDB transaction collapse remains trace-gated.
 
 Validation:
 
-- `pnpm --dir packages/sdk-web exec tsc -p tsconfig.json --noEmit --pretty false` passes.
+- `pnpm --dir packages/wallet exec tsc -p tsconfig.json --noEmit --pretty false` passes.
 - `pnpm build:sdk` passes and restores the SDK plugin dist used by the unit web server.
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/registrationCapabilitySubjects.guard.unit.test.ts --reporter=line` passes 11/11 after rebuilding the SDK dist.
 
@@ -982,7 +982,7 @@ later action failed. The full contract is not green from this run.
 
 Validation in this slice:
 
-- `pnpm --dir packages/sdk-web exec tsc -p tsconfig.json --noEmit --pretty false` passes.
+- `pnpm --dir packages/wallet exec tsc -p tsconfig.json --noEmit --pretty false` passes.
 - `pnpm -C tests exec tsc -p tsconfig.playwright.json --noEmit --pretty false` passes.
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/registrationCapabilitySubjects.guard.unit.test.ts --reporter=line` passes 11/11.
 - `pnpm -C tests exec playwright test -c playwright.intended.ci.config.ts e2e/intended-behaviours/email-otp.registration.contract.test.ts e2e/intended-behaviours/email-otp.unlock.contract.test.ts --reporter=line` passed 2/2 once after the unlock bearer-JWT postcondition fix, but that run did not persist timing traces.
@@ -1005,10 +1005,10 @@ restore implementations.
 
 Validation:
 
-- `pnpm --dir packages/sdk-web exec tsc -p tsconfig.json --noEmit --pretty false` passes.
+- `pnpm --dir packages/wallet exec tsc -p tsconfig.json --noEmit --pretty false` passes.
 - `pnpm -C tests exec tsc -p tsconfig.playwright.json --noEmit --pretty false` passes.
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/registrationCapabilitySubjects.guard.unit.test.ts --reporter=line` passes 11/11.
-- `pnpm -C packages/sdk-web run build:sdk-full` passes.
+- `pnpm -C packages/wallet run build:sdk-full` passes.
 
 Post-change intended timing rerun:
 
@@ -1067,7 +1067,7 @@ Validation:
 - `pnpm -C apps/seams-site exec tsc --noEmit` passes.
 - `pnpm -C tests exec tsc -p tsconfig.playwright.json --noEmit` passes after
   the generated `wasm/near_signer/pkg-server` output settled.
-- `pnpm -C packages/sdk-server-ts run type-check` passes.
+- `pnpm -C packages/wallet-server run type-check` passes.
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "registration" --reporter=line` passes 17/17.
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/registrationCapabilitySubjects.guard.unit.test.ts --reporter=line` passes 11/11 after rerunning serially; the first parallel attempt collided on Playwright port 3600.
 - The intended registration contract above passes 1/1.
@@ -1107,8 +1107,8 @@ Implemented the Phase 3 correction:
 
 Validation so far:
 
-- `pnpm -C packages/sdk-web exec tsc --noEmit` passes.
-- `pnpm -C packages/sdk-server-ts run type-check` passes.
+- `pnpm -C packages/wallet exec tsc --noEmit` passes.
+- `pnpm -C packages/wallet-server run type-check` passes.
 - `pnpm -C tests exec tsc -p tsconfig.playwright.json --noEmit` passes.
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/thresholdEd25519.registrationWarmSession.unit.test.ts --reporter=line` passes 5/5.
 - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/registrationCapabilitySubjects.guard.unit.test.ts --reporter=line` passes 11/11.

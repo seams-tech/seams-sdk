@@ -10,7 +10,7 @@ import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtur
 import { buildR102LaneJob, buildR102EcdsaLaneJob } from './helpers/r102LaneGateway.fixtures';
 import { parseRotatableSigningLaneJobV1 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
 import type { WalletId } from '../../packages/shared-ts/src/utils/domainIds';
-import type { ActiveOwnerWalletExecutionLaneProjection } from '../../packages/sdk-server-ts/src/core/signingLanes/WalletExecutionLaneProjection';
+import type { ActiveOwnerWalletExecutionLaneProjection } from '../../packages/wallet-server/src/core/signingLanes/WalletExecutionLaneProjection';
 import {
   buildEd25519WalletKeyRecord,
   buildEvmFamilyWalletKeyRecord,
@@ -49,9 +49,9 @@ import {
 import { parseNearEd25519SigningKeyId } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { parseEvmFamilySigningKeySlotId } from '../../packages/shared-ts/src/signing-lanes/evmFamilySigningKeySlotId';
 import { parseLinkedDeviceOwnerSourceLaneV1 } from '../../packages/shared-ts/src/device-linking/parsers';
-import type { D1LinkedDeviceOwnerPlanningSnapshotInputV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceOwnerPlanningSnapshotStore';
-import { D1LinkedDeviceOwnerPlanningSnapshotStoreV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceOwnerPlanningSnapshotStore';
-import { createD1LinkedDeviceLaneLifecycleAuthorizationV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceLaneLifecycleAuthorization';
+import type { D1LinkedDeviceOwnerPlanningSnapshotInputV1 } from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceOwnerPlanningSnapshotStore';
+import { D1LinkedDeviceOwnerPlanningSnapshotStoreV1 } from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceOwnerPlanningSnapshotStore';
+import { createD1LinkedDeviceLaneLifecycleAuthorizationV1 } from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceLaneLifecycleAuthorization';
 
 const digest = parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(9)));
 const walletId = required(parseWalletId('wallet:mixed-planning'));
@@ -284,7 +284,7 @@ async function fixture(): Promise<{
   const database = createTemporaryD1Database();
   await applyD1MigrationFiles(database.database, [
     path.resolve(
-      '../packages/sdk-server-ts/migrations/d1-signer/0001_signer_d1_initial.sql',
+      '../packages/wallet-server/migrations/d1-signer/0001_signer_d1_initial.sql',
     ),
   ]);
   const registrations = new Map([

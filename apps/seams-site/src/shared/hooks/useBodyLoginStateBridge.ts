@@ -1,5 +1,5 @@
 import React from 'react';
-import { useSeams } from '@seams/sdk/react';
+import { useSeams } from '@seams/wallet/react';
 
 // Reflects auth state to <body> dataset and emits a window event for external consumers.
 export function useBodyLoginStateBridge() {

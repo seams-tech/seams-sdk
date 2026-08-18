@@ -9,18 +9,18 @@ import {
   storeWalletEmailOtpMixedRegistrationData,
   storeWalletMixedRegistrationData,
   type StoreWalletEcdsaWalletKey,
-} from '../../packages/sdk-web/src/core/signingEngine/flows/registration/accountLifecycle';
+} from '../../packages/wallet/src/core/signingEngine/flows/registration/accountLifecycle';
 import type {
   AccountRef,
   AccountSignerRecord,
   ProfileRecord,
-} from '../../packages/sdk-web/src/core/indexedDB/passkeyClientDB.types';
-import type { StoreWalletRegistrationFinalizeBatchInput } from '../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/repositories';
+} from '../../packages/wallet/src/core/indexedDB/passkeyClientDB.types';
+import type { StoreWalletRegistrationFinalizeBatchInput } from '../../packages/wallet/src/core/indexedDB/seamsWalletDB/repositories';
 import type {
   WebAuthnAuthenticationCredential,
   WebAuthnRegistrationCredential,
-} from '../../packages/sdk-web/src/core/types/webauthn';
-import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
+} from '../../packages/wallet/src/core/types/webauthn';
+import { toAccountId } from '../../packages/wallet/src/core/types/accountIds';
 import {
   nearEd25519SigningKeyIdFromString,
   walletIdFromString,

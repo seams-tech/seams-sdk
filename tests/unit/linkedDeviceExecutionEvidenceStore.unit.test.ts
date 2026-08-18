@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { buildLinkedDeviceProvisionedExecutionEvidenceV1 } from '../../packages/sdk-web/src/core/signingEngine/session/lanes/linkedDeviceExecutionBundle';
+import { buildLinkedDeviceProvisionedExecutionEvidenceV1 } from '../../packages/wallet/src/core/signingEngine/session/lanes/linkedDeviceExecutionBundle';
 import { setupBasicPasskeyTest } from '../setup';
 import { buildR103ActiveExecutionFixture } from './helpers/deviceLinkContracts.fixtures';
 

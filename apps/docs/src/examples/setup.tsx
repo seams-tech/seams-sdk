@@ -1,4 +1,4 @@
-import { SeamsWebProvider, useSeams, type SeamsConfigsInput } from '@seams/sdk/react';
+import { SeamsWebProvider, useSeams, type SeamsConfigsInput } from '@seams/wallet/react';
 
 const seamsConfig = {
   iframeWallet: {

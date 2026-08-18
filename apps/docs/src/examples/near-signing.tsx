@@ -1,7 +1,7 @@
-import { ActionType, TxExecutionStatus, useSeams } from '@seams/sdk/react';
-import type { FunctionCallAction } from '@seams/sdk/react';
-import type { SeamsWeb, SigningFlowEvent } from '@seams/sdk';
-import { nearAccountRefFromAccountId, walletSessionRefFromSession } from '@seams/sdk/advanced';
+import { ActionType, TxExecutionStatus, useSeams } from '@seams/wallet/react';
+import type { FunctionCallAction } from '@seams/wallet/react';
+import type { SeamsWeb, SigningFlowEvent } from '@seams/wallet';
+import { nearAccountRefFromAccountId, walletSessionRefFromSession } from '@seams/wallet/advanced';
 
 function logSigningEvent(event: SigningFlowEvent): void {
   console.log(event.phase, event.status, event.message);

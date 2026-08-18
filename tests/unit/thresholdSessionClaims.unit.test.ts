@@ -5,16 +5,16 @@ import {
 } from '@server/core/ThresholdService/validation';
 import {
   buildRouterAbEcdsaDerivationNormalSigningStateForBootstrap,
-} from '../../packages/sdk-server-ts/src/router/auth/commonRouterUtils';
+} from '../../packages/wallet-server/src/router/auth/commonRouterUtils';
 import {
   validateRouterAbEd25519NormalSigningRequestScope,
   validateRouterAbEcdsaDerivationNormalSigningFinalizeRequest,
   validateRouterAbEcdsaDerivationNormalSigningPrepareRequest,
-} from '../../packages/sdk-server-ts/src/router/domains/signingOperations/routerAbPrivateSigningWorker';
+} from '../../packages/wallet-server/src/router/domains/signingOperations/routerAbPrivateSigningWorker';
 import {
   buildVerifiedEcdsaWalletSessionAuth,
   buildVerifiedEd25519WalletSessionAuth,
-} from '../../packages/sdk-server-ts/src/router/auth/verifiedWalletSessionAuth';
+} from '../../packages/wallet-server/src/router/auth/verifiedWalletSessionAuth';
 import type { EcdsaDerivationServerBootstrapResponse } from '@server/core/types';
 import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
 import { base64UrlEncode } from '@shared/utils/encoders';

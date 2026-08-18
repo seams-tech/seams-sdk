@@ -2,10 +2,10 @@ import { expect, test } from '@playwright/test';
 import {
   thresholdEcdsaDerivationRoleLocalBootstrap,
   type ThresholdEcdsaDerivationRoleLocalBootstrapRequest,
-} from '../../packages/sdk-web/src/core/rpcClients/relayer/thresholdEcdsa';
+} from '../../packages/wallet/src/core/rpcClients/relayer/thresholdEcdsa';
 import type { DerivationClientSharePublicKey33B64u } from '@shared/threshold/ecdsaDerivationRoleLocalBootstrap';
-import { toEcdsaDerivationThresholdKeyId } from '../../packages/sdk-web/src/core/signingEngine/session/identity/emailOtpEcdsaDerivationIdentity';
-import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
+import { toEcdsaDerivationThresholdKeyId } from '../../packages/wallet/src/core/signingEngine/session/identity/emailOtpEcdsaDerivationIdentity';
+import { toWalletId } from '../../packages/wallet/src/core/signingEngine/interfaces/ecdsaChainTarget';
 
 function toDerivationClientSharePublicKey33B64uForTest(
   value: string,

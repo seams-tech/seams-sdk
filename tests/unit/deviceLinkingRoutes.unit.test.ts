@@ -37,18 +37,18 @@ import {
   type LinkedDeviceAggregateActivationVerifierV1,
   type LinkedDeviceOwnerAuthorizationPortV1,
   parseLinkedDeviceSessionRecordV1,
-} from '../../packages/sdk-server-ts/src/core/deviceLinking/linkedDeviceSession';
+} from '../../packages/wallet-server/src/core/deviceLinking/linkedDeviceSession';
 import {
   D1LinkedDeviceSessionStoreV1,
   type D1LinkedDeviceSessionScopeV1,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceSessionStore';
+} from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceSessionStore';
 import {
   DEVICE_LINKING_REQUEST_PROOF_HEADER_V1,
   handleDeviceLinking,
   type DeviceLinkingRouteServiceV1,
   type DeviceLinkingRequestProofV1,
-} from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/deviceLinking';
-import type { FetchRouterApiContext } from '../../packages/sdk-server-ts/src/router/transport/fetch/fetchRouter.types';
+} from '../../packages/wallet-server/src/router/transport/fetch/routes/deviceLinking';
+import type { FetchRouterApiContext } from '../../packages/wallet-server/src/router/transport/fetch/fetchRouter.types';
 import {
   buildLaneEnrollmentManifestV1,
   parseRotatableSigningLaneJobV1,

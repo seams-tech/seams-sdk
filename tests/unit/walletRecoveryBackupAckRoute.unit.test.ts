@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
-import { handleWalletRecoveryBackupAcknowledge } from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/passkeyCustody';
+import { handleWalletRecoveryBackupAcknowledge } from '../../packages/wallet-server/src/router/transport/fetch/routes/passkeyCustody';
 import {
   createRouterApiRouteDefinitions,
   findRouteDefinitionById,
-} from '../../packages/sdk-server-ts/src/router/framework/routeDefinitions';
+} from '../../packages/wallet-server/src/router/framework/routeDefinitions';
 
 /**
  * The acknowledgement route.

@@ -1,10 +1,10 @@
 import { expect, test } from '@playwright/test';
-import { createWalletStore } from '../../packages/sdk-server-ts/src/core/WalletStore';
-import { normalizeLogger } from '../../packages/sdk-server-ts/src/core/logger';
-import type { FetchRouterApiContext } from '../../packages/sdk-server-ts/src/router/transport/fetch/fetchRouter.types';
-import { handleThresholdEcdsa } from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/thresholdEcdsa';
-import { buildVerifiedWalletOperationFactorEvidenceSet } from '../../packages/sdk-server-ts/src/authorization/factorEvidence';
-import { buildAuthorizedOperation } from '../../packages/sdk-server-ts/src/authorization/domain';
+import { createWalletStore } from '../../packages/wallet-server/src/core/WalletStore';
+import { normalizeLogger } from '../../packages/wallet-server/src/core/logger';
+import type { FetchRouterApiContext } from '../../packages/wallet-server/src/router/transport/fetch/fetchRouter.types';
+import { handleThresholdEcdsa } from '../../packages/wallet-server/src/router/transport/fetch/routes/thresholdEcdsa';
+import { buildVerifiedWalletOperationFactorEvidenceSet } from '../../packages/wallet-server/src/authorization/factorEvidence';
+import { buildAuthorizedOperation } from '../../packages/wallet-server/src/authorization/domain';
 import { parseWalletId } from '../../packages/shared-ts/src/utils/domainIds';
 import {
   parseRouterAbMpcMaterialActivationRef,

@@ -30,14 +30,14 @@ import {
   buildR103ProvisioningFixture,
 } from './helpers/deviceLinkContracts.fixtures';
 import { buildR102ProtocolCommitReceipt } from './helpers/r102LaneGateway.fixtures';
-import { LinkedDeviceSessionServiceV1 } from '../../packages/sdk-server-ts/src/core/deviceLinking/linkedDeviceSession';
-import { D1LinkedDeviceSessionStoreV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceSessionStore';
-import { D1LinkedDeviceSourceHandoffProviderV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceSourceHandoffProvider';
-import { D1LinkedDeviceProvisioningProviderV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceProvisioningProvider';
+import { LinkedDeviceSessionServiceV1 } from '../../packages/wallet-server/src/core/deviceLinking/linkedDeviceSession';
+import { D1LinkedDeviceSessionStoreV1 } from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceSessionStore';
+import { D1LinkedDeviceSourceHandoffProviderV1 } from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceSourceHandoffProvider';
+import { D1LinkedDeviceProvisioningProviderV1 } from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceProvisioningProvider';
 import type {
   D1DatabaseLike,
   D1PreparedStatementLike,
-} from '../../packages/sdk-server-ts/src/storage/tenantRoute';
+} from '../../packages/wallet-server/src/storage/tenantRoute';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,

@@ -18,7 +18,7 @@ import type {
   RouterApiPublishableKeyAuthResult,
   RouterApiUsageMeterAdapter,
   RouterApiUsageMeterEvent,
-} from '@seams/sdk-server/cloud-host';
+} from '@seams/wallet-server/cloud-host';
 
 function toPrincipal(apiKey: ConsoleApiKey): RouterApiKeyPrincipal {
   return {

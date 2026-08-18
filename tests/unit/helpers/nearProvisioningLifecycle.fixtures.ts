@@ -1,5 +1,5 @@
-import type { ProfileRecord } from '../../../packages/sdk-web/src/core/indexedDB/passkeyClientDB.types';
-import type { NearProvisioningState } from '../../../packages/sdk-web/src/core/types/seams';
+import type { ProfileRecord } from '../../../packages/wallet/src/core/indexedDB/passkeyClientDB.types';
+import type { NearProvisioningState } from '../../../packages/wallet/src/core/types/seams';
 
 export function createNearProvisioningProfileRecordFixture(input: {
   readonly profileId: string;

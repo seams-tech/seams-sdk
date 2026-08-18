@@ -126,11 +126,11 @@ const ecdsaDerivationClientPackageWasmPath = join(
   'router_ab_ecdsa_client_bg.wasm',
 );
 const ecdsaDerivationClientSdkWasmPaths = [
-  join(repoRoot, 'packages', 'sdk-web', 'dist', 'workers', 'router_ab_ecdsa_client_bg.wasm'),
+  join(repoRoot, 'packages', 'wallet', 'dist', 'workers', 'router_ab_ecdsa_client_bg.wasm'),
   join(
     repoRoot,
     'packages',
-    'sdk-web',
+    'wallet',
     'dist',
     'public',
     'sdk',
@@ -140,7 +140,7 @@ const ecdsaDerivationClientSdkWasmPaths = [
   join(
     repoRoot,
     'packages',
-    'sdk-web',
+    'wallet',
     'dist',
     'esm',
     'wasm',
@@ -855,7 +855,7 @@ function seedLocalConsoleIdentity() {
 function canonicalGatewayD1SchemaDigest() {
   const migrationDirectories = [
     join(repoRoot, 'packages', 'wallet-console-server-ts', 'migrations', 'd1-console'),
-    join(repoRoot, 'packages', 'sdk-server-ts', 'migrations', 'd1-signer'),
+    join(repoRoot, 'packages', 'wallet-server', 'migrations', 'd1-signer'),
   ];
   const migrationPaths = [];
   for (const directory of migrationDirectories) {

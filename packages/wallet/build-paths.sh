@@ -30,7 +30,7 @@ CRITICAL_DIRS=(
     "src/react"
     "src/static"
     "src/utils"
-    "../sdk-server-ts/src"
+    "../wallet-server/src"
     "../shared-ts/src"
     "../../crates/signer-core"
     "../../crates/router-ab-ed25519-yao-client"

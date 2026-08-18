@@ -26,17 +26,17 @@ export { authenticateConsoleRequest } from '@seams-internal/console-server/route
 export type {
   RouterApiRuntimeSnapshotPublishedUpdate,
   InMemoryRouterApiRuntimeSnapshotConsumer,
-} from '@seams/sdk-server/cloud-host';
+} from '@seams/wallet-server/cloud-host';
 export {
   createInMemoryRouterApiRuntimeSnapshotConsumer,
   validateRuntimeSnapshotExpectation,
-} from '@seams/sdk-server/cloud-host';
+} from '@seams/wallet-server/cloud-host';
 export {
   extractBearerCredential,
   extractRouterApiEnvironmentId,
   resolveSourceIpFromExpressRequest,
   resolveSourceIpFromFetchHeaders,
-} from '@seams/sdk-server/cloud-host';
+} from '@seams/wallet-server/cloud-host';
 
 export type { ConsoleRouterOptions } from './console';
 export type {

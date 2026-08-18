@@ -12,7 +12,7 @@ const PACKAGE_JSON_PATH = path.join(SDK_ROOT, 'package.json');
 const SCAN_ENTRIES = [
   'apps',
   'examples',
-  'packages/sdk-web/README.md',
+  'packages/wallet/README.md',
   'docs/saas/self-hosted-migration.md',
 ];
 
@@ -39,7 +39,7 @@ const IGNORED_DIRS = new Set([
 
 const FORBIDDEN_APP_PATTERNS = [
   {
-    pattern: /@seams\/sdk\/plugins\/(?:vite|next|headers)\b/,
+    pattern: /@seams\/wallet\/plugins\/(?:vite|next|headers)\b/,
     message: 'app-facing surfaces must not import or recommend Seams SDK plugins for wallet hosting',
   },
   {
@@ -65,12 +65,12 @@ const PLUGIN_README_PATH = path.join(SDK_ROOT, 'src/plugins/README.md');
 const FORBIDDEN_PACKAGE_EXPORTS = ['./plugins/headers', './plugins/next', './plugins/vite'];
 const SOURCE_GUARD_RULES = [
   {
-    file: 'packages/sdk-web/src/plugins/vite.ts',
+    file: 'packages/wallet/src/plugins/vite.ts',
     pattern: /\bWALLET_SHIM_SOURCE\b|\bWALLET_SURFACE_CSS\b/,
     message: 'wallet shim and CSS sources must live in src/static/wallet-assets',
   },
   {
-    file: 'packages/sdk-web/src/plugins/vite.ts',
+    file: 'packages/wallet/src/plugins/vite.ts',
     pattern:
       /configuredBase\s*\+\s*['"]\/wallet-shims\.js['"]|configuredBase\s*\+\s*['"]\/wallet-service\.css['"]/,
     message: 'Vite helper must serve built wallet static files instead of virtual shim/CSS routes',
@@ -98,7 +98,7 @@ const PLUGIN_README_REQUIRED_PATTERNS = [
 
 const PLUGIN_README_FORBIDDEN_PATTERNS = [
   {
-    pattern: /\bimport\b[\s\S]{0,180}\bfrom\s+['"]@seams\/sdk\/plugins\/(?:vite|next|headers)['"]/,
+    pattern: /\bimport\b[\s\S]{0,180}\bfrom\s+['"]@seams\/wallet\/plugins\/(?:vite|next|headers)['"]/,
     message: 'plugin README must not include app import examples for plugin helpers',
   },
   {

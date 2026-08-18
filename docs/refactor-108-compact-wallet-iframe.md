@@ -30,18 +30,18 @@ documents communicate through the existing authenticated wallet-iframe bridge.
 The compact renderer now owns the complete surface union and calls the native
 dialog controller for every active surface:
 
-- `packages/sdk-web/src/SeamsWeb/walletIframe/client/surface/domain.ts`
-- `packages/sdk-web/src/SeamsWeb/walletIframe/client/surface/renderer.ts`
-- `packages/sdk-web/src/SeamsWeb/walletIframe/client/router.ts`
-- `packages/sdk-web/src/SeamsWeb/walletIframe/client/overlay/overlay-controller.ts`
-- `packages/sdk-web/src/SeamsWeb/walletIframe/client/overlay/overlay-styles.ts`
-- `packages/sdk-web/src/SeamsWeb/walletIframe/client/transport/iframe-transport-dom.ts`
+- `packages/wallet/src/SeamsWeb/walletIframe/client/surface/domain.ts`
+- `packages/wallet/src/SeamsWeb/walletIframe/client/surface/renderer.ts`
+- `packages/wallet/src/SeamsWeb/walletIframe/client/router.ts`
+- `packages/wallet/src/SeamsWeb/walletIframe/client/overlay/overlay-controller.ts`
+- `packages/wallet/src/SeamsWeb/walletIframe/client/overlay/overlay-styles.ts`
+- `packages/wallet/src/SeamsWeb/walletIframe/client/transport/iframe-transport-dom.ts`
 
 The wallet host has two relevant mounting paths:
 
-- `packages/sdk-web/src/SeamsWeb/walletIframe/host/lit-ui/iframe-lit-elem-mounter.ts`
+- `packages/wallet/src/SeamsWeb/walletIframe/host/lit-ui/iframe-lit-elem-mounter.ts`
   supports `iframe` and `viewport` anchoring and owns generic registry mounts;
-- `packages/sdk-web/src/SeamsWeb/walletIframe/host/auth-menu/session.ts` mounts
+- `packages/wallet/src/SeamsWeb/walletIframe/host/auth-menu/session.ts` mounts
   `seams-auth-menu-surface` directly. Refactor 110 owns this path, so the auth
   menu remains outside `WalletUIRegistry` while reusing
   `host/lit-ui/surface-measurement-reporter.ts`.
@@ -455,7 +455,7 @@ reporter; do not create per-surface overlay systems.
 Run the smallest relevant checks during each phase:
 
 ```text
-pnpm -C packages/sdk-web type-check
+pnpm -C packages/wallet type-check
 pnpm -C tests exec playwright test unit/walletIframeSurfaceDomain.unit.test.ts unit/overlayController.test.ts --reporter=line
 pnpm -C tests exec playwright test lit-components/auth-menu.surface.test.ts --reporter=line
 pnpm -C tests exec playwright test wallet-iframe/auth-menu.host.integration.test.ts --reporter=line

@@ -2,15 +2,15 @@ import { expect, test } from '@playwright/test';
 import type {
   WalletEcdsaSignerRecord,
   WalletEd25519SignerRecord,
-} from '../../packages/sdk-server-ts/src/core/WalletStore';
+} from '../../packages/wallet-server/src/core/WalletStore';
 import {
   resolveWalletRecoveryKeyManifestV1,
   verifyWalletRecoveryKeyActivationsV1,
-} from '../../packages/sdk-server-ts/src/router/domains/passkeyCustody/walletRecoveryKeyManifest';
+} from '../../packages/wallet-server/src/router/domains/passkeyCustody/walletRecoveryKeyManifest';
 import {
   buildYaoEd25519WalletSignerRecord,
   ed25519NearPublicKeyFromBytes,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoWalletSigner';
+} from '../../packages/wallet-server/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoWalletSigner';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 import {
   deriveWalletRecoveryKeyLifecycleId,

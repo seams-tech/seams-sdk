@@ -6,7 +6,7 @@ test('UserConfirm worker forwards prompt progress envelopes back to the host lis
   const workerSource = fs.readFileSync(
     path.resolve(
       process.cwd(),
-      '../packages/sdk-web/src/core/signingEngine/workerManager/workers/passkey-confirm.worker.ts',
+      '../packages/wallet/src/core/signingEngine/workerManager/workers/passkey-confirm.worker.ts',
     ),
     'utf8',
   );

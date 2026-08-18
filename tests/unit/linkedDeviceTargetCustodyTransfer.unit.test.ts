@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   acceptLinkedDeviceCustodyTransferV1,
   publishLinkedDeviceCustodyRecipientV1,
-} from '../../packages/sdk-web/src/SeamsWeb/operations/devices/deviceLinkingTargetCustodyTransfer';
+} from '../../packages/wallet/src/SeamsWeb/operations/devices/deviceLinkingTargetCustodyTransfer';
 import {
   parseWebAuthnCredentialIdB64u,
   parseWebAuthnRpId,

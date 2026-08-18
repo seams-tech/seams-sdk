@@ -6,43 +6,43 @@ import {
   buildStoredWalletRegistrationNearEd25519YaoAuthorizedBranch,
   buildStoredWalletRegistrationPreparedContext,
   type StoredWalletRegistrationCeremony,
-} from '../../../packages/sdk-server-ts/src/core/RegistrationCeremonyStore';
-import type { WalletRegistrationFinalizeRequest } from '../../../packages/sdk-server-ts/src/core/registrationContracts';
+} from '../../../packages/wallet-server/src/core/RegistrationCeremonyStore';
+import type { WalletRegistrationFinalizeRequest } from '../../../packages/wallet-server/src/core/registrationContracts';
 import {
   createCloudflareD1RouterApiAuthService,
   type CloudflareD1RouterApiAuthService,
-} from '../../../packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
-import { buildRegistrationIntent } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1RegistrationCeremonyRecords';
-import { CloudflareD1RegistrationCeremonyIntentStore } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1RegistrationCeremonyStore';
+} from '../../../packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
+import { buildRegistrationIntent } from '../../../packages/wallet-server/src/router/cloudflare/d1/registration/d1RegistrationCeremonyRecords';
+import { CloudflareD1RegistrationCeremonyIntentStore } from '../../../packages/wallet-server/src/router/cloudflare/d1/registration/d1RegistrationCeremonyStore';
 import type {
   D1DatabaseLike,
   D1PreparedStatementLike,
-} from '../../../packages/sdk-server-ts/src/storage/tenantRoute';
+} from '../../../packages/wallet-server/src/storage/tenantRoute';
 import {
   createRouterAbEd25519YaoProductRegistrationCompositionFromPortsV1,
   createRouterAbEd25519YaoProductRegistrationStateV1,
   type RouterAbEd25519YaoProductRegistrationRuntimeV1,
-} from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
+} from '../../../packages/wallet-server/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 import {
   InMemoryRouterAbEd25519YaoRegistrationService,
   type RouterAbEd25519YaoRegistrationBackend,
   type RouterAbEd25519YaoRegistrationBackendResult,
-} from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/registration/routerAbEd25519YaoRegistration';
-import { InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationAdapter } from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/registration/routerAbEd25519YaoRegistrationIntentAuthorization';
+} from '../../../packages/wallet-server/src/router/domains/ed25519Yao/registration/routerAbEd25519YaoRegistration';
+import { InMemoryRouterAbEd25519YaoRegistrationIntentAuthorizationAdapter } from '../../../packages/wallet-server/src/router/domains/ed25519Yao/registration/routerAbEd25519YaoRegistrationIntentAuthorization';
 import {
   InMemoryRouterAbEd25519YaoRecoveryService,
   type RouterAbEd25519YaoCapabilityPersistenceV1,
   type RouterAbEd25519YaoCapabilityPersistenceResultV1,
   type RouterAbEd25519YaoRecoveryBackend,
-} from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
-import { RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter } from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecoveryWalletSessionAuthorization';
+} from '../../../packages/wallet-server/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
+import { RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter } from '../../../packages/wallet-server/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecoveryWalletSessionAuthorization';
 import {
   InMemoryRouterAbEd25519YaoExportService,
   type RouterAbEd25519YaoExportBackend,
   type RouterAbEd25519YaoExportAuthorizationAdapter,
   type RouterAbEd25519YaoExportAuthorizationInput,
-} from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/export/routerAbEd25519YaoExport';
-import type { RouterAbEcdsaStrictRegistrationPort } from '../../../packages/sdk-server-ts/src/router/domains/ecdsa/routerAbEcdsaStrictRegistration';
+} from '../../../packages/wallet-server/src/router/domains/ed25519Yao/export/routerAbEd25519YaoExport';
+import type { RouterAbEcdsaStrictRegistrationPort } from '../../../packages/wallet-server/src/router/domains/ecdsa/routerAbEcdsaStrictRegistration';
 import {
   implicitNearAccountProvisioning,
   registrationNearEd25519BranchKey,

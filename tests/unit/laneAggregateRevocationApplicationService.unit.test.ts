@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { LaneAggregateRevocationApplicationService } from '../../packages/sdk-server-ts/src/core/signingLanes/LaneAggregateRevocationApplicationService';
+import { LaneAggregateRevocationApplicationService } from '../../packages/wallet-server/src/core/signingLanes/LaneAggregateRevocationApplicationService';
 import type { LaneEnrollmentRevocationResultV1 } from '../../packages/shared-ts/src/signing-lanes';
 import {
   buildRevokeLaneEnrollmentV1,
@@ -17,8 +17,8 @@ import {
   buildR102MixedLaneEnrollmentFixture,
   buildR102RevokedProductEpoch,
 } from './helpers/r102LaneGateway.fixtures';
-import { resolveActiveOwnerWalletExecutionLane } from '../../packages/sdk-server-ts/src/core/signingLanes/WalletExecutionLaneProjection';
-import { normalizeWalletAuthMethod } from '../../packages/sdk-server-ts/src/core/d1WalletAuthMethodStore';
+import { resolveActiveOwnerWalletExecutionLane } from '../../packages/wallet-server/src/core/signingLanes/WalletExecutionLaneProjection';
+import { normalizeWalletAuthMethod } from '../../packages/wallet-server/src/core/d1WalletAuthMethodStore';
 import { createWalletEcdsaSignerRecord } from './helpers/walletRegistrationSigner.fixtures';
 import { walletAuthMethodRecordId } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { routerAbMpcMaterialActivationRefFromWire } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';

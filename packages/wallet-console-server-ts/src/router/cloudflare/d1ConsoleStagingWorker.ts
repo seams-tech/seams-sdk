@@ -1,4 +1,4 @@
-import type { D1DatabaseLike } from '@seams/sdk-server/cloud-host';
+import type { D1DatabaseLike } from '@seams/wallet-server/cloud-host';
 import { createWalletConsoleRouter } from '../consoleComposition';
 import {
   consoleCoreServicesFromBundle,
@@ -10,7 +10,7 @@ import type {
   CfScheduledEvent,
   FetchHandler,
   ScheduledHandler,
-} from '@seams/sdk-server/cloud-host';
+} from '@seams/wallet-server/cloud-host';
 import {
   createConsoleSessionAuthAdapter,
   createHmacSessionAdapterFromEnv,

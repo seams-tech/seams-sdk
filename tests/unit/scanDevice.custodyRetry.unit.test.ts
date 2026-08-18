@@ -8,8 +8,8 @@ import {
 import type {
   Device1LinkingFlowPortsV1,
   LinkSessionAuthenticationV1,
-} from '../../packages/sdk-web/src/SeamsWeb/operations/devices/deviceLinkingPorts';
-import { scanAndLinkDevice } from '../../packages/sdk-web/src/SeamsWeb/operations/devices/scanDevice';
+} from '../../packages/wallet/src/SeamsWeb/operations/devices/deviceLinkingPorts';
+import { scanAndLinkDevice } from '../../packages/wallet/src/SeamsWeb/operations/devices/scanDevice';
 import {
   buildR103DeviceLinkFixture,
   buildR103OwnerEnrollmentCeremonyV1,

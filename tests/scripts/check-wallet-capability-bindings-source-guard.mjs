@@ -116,12 +116,12 @@ const FORBIDDEN_UNIT_FIXTURE_PATTERNS = [
 ];
 
 const CORE_COMMAND_IDENTITY_GUARD_DIRS = [
-  'packages/sdk-web/src/core/signingEngine/flows/signNear',
-  'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily',
-  'packages/sdk-web/src/core/signingEngine/flows/recovery',
-  'packages/sdk-web/src/core/signingEngine/session/emailOtp',
-  'packages/sdk-web/src/core/signingEngine/session/passkey',
-  'packages/sdk-web/src/core/signingEngine/interfaces',
+  'packages/wallet/src/core/signingEngine/flows/signNear',
+  'packages/wallet/src/core/signingEngine/flows/signEvmFamily',
+  'packages/wallet/src/core/signingEngine/flows/recovery',
+  'packages/wallet/src/core/signingEngine/session/emailOtp',
+  'packages/wallet/src/core/signingEngine/session/passkey',
+  'packages/wallet/src/core/signingEngine/interfaces',
 ];
 
 const OPTIONAL_CORE_IDENTITY_FIELD_PATTERN = {
@@ -141,7 +141,7 @@ const BOUNDARY_EXEMPTIONS = [
     reason: 'shared capability builder constructs NearAccountBinding branches from typed inputs',
   },
   {
-    file: 'packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget.ts',
+    file: 'packages/wallet/src/core/signingEngine/interfaces/ecdsaChainTarget.ts',
     pattern: 'core-optional-identity-field',
     reason: 'boundary parser accepts raw wallet-session values before normalizing to WalletSessionRef',
   },
@@ -289,8 +289,8 @@ check('wallet capability binding source guard blocks identity fallback patterns'
   assertAllowlistEntriesAreDocumented(allowlist);
   const sourceFiles = [
     path.join(root, 'packages/shared-ts/src'),
-    path.join(root, 'packages/sdk-server-ts/src'),
-    path.join(root, 'packages/sdk-web/src'),
+    path.join(root, 'packages/wallet-server/src'),
+    path.join(root, 'packages/wallet/src'),
   ].flatMap(listSourceFiles);
 
   const violations = collectPatternViolations({
@@ -309,8 +309,8 @@ check('wallet capability binding source guard rejects stale allowlist entries', 
   assertAllowlistEntriesAreDocumented(allowlist);
   const sourceFiles = [
     path.join(root, 'packages/shared-ts/src'),
-    path.join(root, 'packages/sdk-server-ts/src'),
-    path.join(root, 'packages/sdk-web/src'),
+    path.join(root, 'packages/wallet-server/src'),
+    path.join(root, 'packages/wallet/src'),
   ].flatMap(listSourceFiles);
   const coreSourceFiles = CORE_COMMAND_IDENTITY_GUARD_DIRS.flatMap((dir) =>
     listSourceFiles(path.join(root, dir)),
@@ -338,8 +338,8 @@ check('wallet capability binding source guard uses every built-in boundary exemp
   const root = currentRepoRoot();
   const sourceFiles = [
     path.join(root, 'packages/shared-ts/src'),
-    path.join(root, 'packages/sdk-server-ts/src'),
-    path.join(root, 'packages/sdk-web/src'),
+    path.join(root, 'packages/wallet-server/src'),
+    path.join(root, 'packages/wallet/src'),
   ].flatMap(listSourceFiles);
   const coreSourceFiles = CORE_COMMAND_IDENTITY_GUARD_DIRS.flatMap((dir) =>
     listSourceFiles(path.join(root, dir)),

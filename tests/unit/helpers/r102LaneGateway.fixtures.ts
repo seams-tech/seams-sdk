@@ -55,15 +55,15 @@ import type {
   LaneEnrollmentId,
   WalletKeyId,
 } from '../../../packages/shared-ts/src/signing-lanes/ids';
-import type { LaneEffectRecordV1 } from '../../../packages/sdk-server-ts/src/core/signingLanes/LaneEffectJournalStore';
+import type { LaneEffectRecordV1 } from '../../../packages/wallet-server/src/core/signingLanes/LaneEffectJournalStore';
 import type {
   LaneEnrollmentAdmissionRecord,
   LaneProtocolAdmissionRecord,
-} from '../../../packages/sdk-server-ts/src/core/signingLanes/LaneLifecycleStore';
+} from '../../../packages/wallet-server/src/core/signingLanes/LaneLifecycleStore';
 import {
   parseLaneSealedHolderRecordV1,
   type LaneSealedHolderRecordV1,
-} from '../../../packages/sdk-web/src/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
+} from '../../../packages/wallet/src/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
 
 function requiredId<T>(
   parser: (raw: unknown) => { ok: true; value: T } | { ok: false; error: { message: string } },

@@ -1,19 +1,19 @@
 import { test, expect } from '@playwright/test';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { base64UrlEncode } from '@shared/utils/encoders';
-import { createEcdsaWalletSessionStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/WalletSessionStore';
+import { createEcdsaWalletSessionStore } from '../../packages/wallet-server/src/core/ThresholdService/stores/WalletSessionStore';
 import {
   createThresholdEcdsaSigningStores,
   type RouterAbEcdsaDerivationPoolFillSessionRecord,
-} from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/EcdsaSigningStore';
+} from '../../packages/wallet-server/src/core/ThresholdService/stores/EcdsaSigningStore';
 import {
   CloudflareDurableObjectRouterAbEcdsaDerivationPoolFillLiveSessionOwner,
-} from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/CloudflareDurableObjectStore';
+} from '../../packages/wallet-server/src/core/ThresholdService/stores/CloudflareDurableObjectStore';
 import type {
   CloudflareDurableObjectNamespaceLike,
   CloudflareDurableObjectStubLike,
-} from '../../packages/sdk-server-ts/src/core/types';
-import { ThresholdStoreDurableObject } from '../../packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore';
+} from '../../packages/wallet-server/src/core/types';
+import { ThresholdStoreDurableObject } from '../../packages/wallet-server/src/router/cloudflare/durableObjects/thresholdStore';
 
 const EXPORT_REPLAY_GUARD_CLOCK_SKEW_MS = 5 * 60_000;
 const testLogger = {

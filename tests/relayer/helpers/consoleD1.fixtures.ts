@@ -30,9 +30,9 @@ import {
   type EmailOtpGrantRecord,
   type EmailOtpWalletEnrollmentRecord,
   type GoogleEmailOtpRegistrationAttemptRecord,
-} from '../../../packages/sdk-server-ts/src/core/EmailOtpStores';
-import type { NearPublicKeyRecord } from '../../../packages/sdk-server-ts/src/core/NearPublicKeyStore';
-import type { D1DatabaseLike } from '../../../packages/sdk-server-ts/src/storage/tenantRoute';
+} from '../../../packages/wallet-server/src/core/EmailOtpStores';
+import type { NearPublicKeyRecord } from '../../../packages/wallet-server/src/core/NearPublicKeyStore';
+import type { D1DatabaseLike } from '../../../packages/wallet-server/src/storage/tenantRoute';
 import {
   EMAIL_OTP_CHANNEL,
   WALLET_EMAIL_OTP_ACTIONS,

@@ -7,7 +7,7 @@ import {
   LinkedDeviceRequestProofVerifierV1,
   type LinkedDeviceRequestProofNonceStoreV1,
   type LinkedDeviceRequestProofV1,
-} from '../../packages/sdk-server-ts/src/core/deviceLinking/requestProof';
+} from '../../packages/wallet-server/src/core/deviceLinking/requestProof';
 import { parseLinkDeviceSessionId } from '@shared/signing-lanes/ids';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';

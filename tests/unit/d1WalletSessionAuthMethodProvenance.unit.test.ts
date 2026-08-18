@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
-import { AuthorizationService } from '../../packages/sdk-server-ts/src/authorization/service';
-import { CloudflareD1AuthorizationStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/authorization/d1AuthorizationStore';
-import { capabilityPolicyPort } from '../../packages/sdk-server-ts/src/authorization/capabilityPolicy';
+import { AuthorizationService } from '../../packages/wallet-server/src/authorization/service';
+import { CloudflareD1AuthorizationStore } from '../../packages/wallet-server/src/router/cloudflare/d1/authorization/d1AuthorizationStore';
+import { capabilityPolicyPort } from '../../packages/wallet-server/src/authorization/capabilityPolicy';
 import { parseReusableWalletSessionMintId } from '../../packages/shared-ts/src/authorization/capabilityKinds';
 import { parseWalletAuthMethodId } from '../../packages/shared-ts/src/utils/domainIds';
 import {

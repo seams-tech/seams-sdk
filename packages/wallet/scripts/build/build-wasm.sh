@@ -15,7 +15,7 @@ source "$SCRIPT_DIR/wasm-toolchain.sh"
 source "$SCRIPT_DIR/build-output-lock.sh"
 cd "$SDK_ROOT"
 
-echo "Starting WASM build for @seams/sdk..."
+echo "Starting WASM build for @seams/wallet..."
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'

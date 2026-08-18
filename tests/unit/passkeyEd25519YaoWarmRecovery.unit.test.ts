@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
-import type { CurrentEd25519SealedSessionRecord } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore';
+import type { CurrentEd25519SealedSessionRecord } from '../../packages/wallet/src/core/signingEngine/session/persistence/sealedSessionStore';
 import {
   requirePasskeyEd25519RestoreAuthorization,
   resolvePasskeyEd25519YaoExportContextWithRuntimeV1,
-} from '../../packages/sdk-web/src/core/signingEngine/session/passkey/ed25519YaoWarmRecovery';
+} from '../../packages/wallet/src/core/signingEngine/session/passkey/ed25519YaoWarmRecovery';
 import {
   buildPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,

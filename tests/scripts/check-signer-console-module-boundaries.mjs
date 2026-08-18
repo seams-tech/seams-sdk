@@ -8,39 +8,39 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 const signerCoreRoots = [
-  'packages/sdk-server-ts/src/core',
-  'packages/sdk-server-ts/src/threshold',
-  'packages/sdk-server-ts/src/wasm',
-  'packages/sdk-server-ts/src/storage',
-  'packages/sdk-server-ts/src/delegateAction',
+  'packages/wallet-server/src/core',
+  'packages/wallet-server/src/threshold',
+  'packages/wallet-server/src/wasm',
+  'packages/wallet-server/src/storage',
+  'packages/wallet-server/src/delegateAction',
 ];
 
 const signerRouterFiles = [
-  'packages/sdk-server-ts/src/router/framework/routerApi.ts',
-  'packages/sdk-server-ts/src/router/auth/commonRouterUtils.ts',
-  'packages/sdk-server-ts/src/router/auth/routerApiKeyAuth.ts',
-  'packages/sdk-server-ts/src/router/auth/routerApiCredentialAuth.ts',
-  'packages/sdk-server-ts/src/router/domains/walletRegistration/walletRegistrationRoutes.ts',
-  'packages/sdk-server-ts/src/router/framework/routeDefinitions.ts',
-  'packages/sdk-server-ts/src/router/framework/routeAuthPolicy.ts',
-  'packages/sdk-server-ts/src/router/cloudflare/runtime/createCloudflareRouter.ts',
-  'packages/sdk-server-ts/src/router/transport/fetch/routes/thresholdEcdsa.ts',
-  'packages/sdk-server-ts/src/router/cloudflare/runtime/cloudflare.types.ts',
+  'packages/wallet-server/src/router/framework/routerApi.ts',
+  'packages/wallet-server/src/router/auth/commonRouterUtils.ts',
+  'packages/wallet-server/src/router/auth/routerApiKeyAuth.ts',
+  'packages/wallet-server/src/router/auth/routerApiCredentialAuth.ts',
+  'packages/wallet-server/src/router/domains/walletRegistration/walletRegistrationRoutes.ts',
+  'packages/wallet-server/src/router/framework/routeDefinitions.ts',
+  'packages/wallet-server/src/router/framework/routeAuthPolicy.ts',
+  'packages/wallet-server/src/router/cloudflare/runtime/createCloudflareRouter.ts',
+  'packages/wallet-server/src/router/transport/fetch/routes/thresholdEcdsa.ts',
+  'packages/wallet-server/src/router/cloudflare/runtime/cloudflare.types.ts',
 ];
 
 const signerPackageConfigFiles = [
-  'packages/sdk-server-ts/tsconfig.json',
-  'packages/sdk-server-ts/tsconfig.build.json',
-  'packages/sdk-server-ts/rolldown.config.ts',
+  'packages/wallet-server/tsconfig.json',
+  'packages/wallet-server/tsconfig.build.json',
+  'packages/wallet-server/rolldown.config.ts',
 ];
 
 const publicSdkSourceRoots = [
-  'packages/sdk-web/src',
-  'packages/sdk-server-ts/src',
+  'packages/wallet/src',
+  'packages/wallet-server/src',
   'packages/shared-ts/src',
 ];
 
-const publicSdkArtifactRoots = ['packages/sdk-web/dist', 'packages/sdk-server-ts/dist'];
+const publicSdkArtifactRoots = ['packages/wallet/dist', 'packages/wallet-server/dist'];
 
 const forbiddenPublicConceptPatterns = [
   {

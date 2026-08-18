@@ -9,12 +9,12 @@ import { buildPasskeyEcdsaSealedRuntimeRecordFixture } from './helpers/sealedSig
 import {
   buildEvmFamilyEcdsaKeyIdentity,
   toThresholdOwnerAddress,
-} from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+} from '../../packages/wallet/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
   buildEvmFamilyEcdsaSignerBinding,
   exactEcdsaSigningLaneIdentity,
-} from '../../packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity';
-import type { CurrentEcdsaSealedSessionRecord } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore';
+} from '../../packages/wallet/src/core/signingEngine/session/identity/exactSigningLaneIdentity';
+import type { CurrentEcdsaSealedSessionRecord } from '../../packages/wallet/src/core/signingEngine/session/persistence/sealedSessionStore';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 
 const IMPORT_PATHS = {

@@ -3,12 +3,12 @@ import { parseCorrelationId } from '@shared/utils/canonicalPrimitives';
 import {
   D1WalletStore,
   parseWalletEd25519SignerRecord,
-} from '../../packages/sdk-server-ts/src/core/d1WalletStore';
-import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
+} from '../../packages/wallet-server/src/core/d1WalletStore';
+import { createCloudflareD1RouterApiAuthService } from '../../packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
 import type {
   RouterAbEd25519YaoProductRegistrationRuntimeV1,
   RouterAbEd25519YaoWalletSessionMintInputV1,
-} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
+} from '../../packages/wallet-server/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 import { normalizeRuntimePolicyScope } from '../../packages/shared-ts/src/threshold/signingRootScope';
 import {
   registrationNearEd25519BranchKey,
@@ -17,7 +17,7 @@ import {
 import type { RouterAbEd25519YaoRegistrationAdmissionRequestV1 } from '../../packages/shared-ts/src/utils/routerAbEd25519Yao';
 import { type RouterAbEcdsaVerifiedClientActivationFactsV1 } from '../../packages/shared-ts/src/utils/routerAbEcdsaDerivation';
 import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
-import type { D1DatabaseLike } from '../../packages/sdk-server-ts/src/storage/tenantRoute';
+import type { D1DatabaseLike } from '../../packages/wallet-server/src/storage/tenantRoute';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
 import { buildEd25519YaoCapabilityFixture } from '../helpers/ed25519YaoCapabilityFixtures';
 import {

@@ -9,8 +9,8 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, '../..');
 
 const sourceRoots = [
-  'packages/sdk-server-ts/src',
-  'packages/sdk-web/src',
+  'packages/wallet-server/src',
+  'packages/wallet/src',
   'packages/shared-ts/src',
   'tests',
 ];
@@ -36,19 +36,19 @@ const allowedTypesTsFiles = new Set([
   'packages/console-server-ts/src/teamRbac/types.ts',
   'packages/console-server-ts/src/wallets/types.ts',
   'packages/console-server-ts/src/webhooks/types.ts',
-  'packages/sdk-server-ts/src/core/types.ts',
-  'packages/sdk-web/src/SeamsWeb/publicApi/types.ts',
-  'packages/sdk-web/src/SeamsWeb/signingSurface/types.ts',
-  'packages/sdk-web/src/core/platform/types.ts',
-  'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/types.ts',
-  'packages/sdk-web/src/core/signingEngine/session/operationState/types.ts',
-  'packages/sdk-web/src/core/signingEngine/session/warmCapabilities/types.ts',
-  'packages/sdk-web/src/core/signingEngine/stepUpConfirmation/types.ts',
-  'packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/TxTree/renderers/types.ts',
-  'packages/sdk-web/src/react/components/AccountMenuButton/types.ts',
-  'packages/sdk-web/src/react/components/HostedSeamsAuthMenu/types.ts',
-  'packages/sdk-web/src/react/components/SeamsAuthMenu/types.ts',
-  'packages/sdk-web/src/react/types.ts',
+  'packages/wallet-server/src/core/types.ts',
+  'packages/wallet/src/SeamsWeb/publicApi/types.ts',
+  'packages/wallet/src/SeamsWeb/signingSurface/types.ts',
+  'packages/wallet/src/core/platform/types.ts',
+  'packages/wallet/src/core/signingEngine/flows/signEvmFamily/types.ts',
+  'packages/wallet/src/core/signingEngine/session/operationState/types.ts',
+  'packages/wallet/src/core/signingEngine/session/warmCapabilities/types.ts',
+  'packages/wallet/src/core/signingEngine/stepUpConfirmation/types.ts',
+  'packages/wallet/src/core/signingEngine/uiConfirm/ui/lit-components/TxTree/renderers/types.ts',
+  'packages/wallet/src/react/components/AccountMenuButton/types.ts',
+  'packages/wallet/src/react/components/HostedSeamsAuthMenu/types.ts',
+  'packages/wallet/src/react/components/SeamsAuthMenu/types.ts',
+  'packages/wallet/src/react/types.ts',
   'tests/setup/types.ts',
 ]);
 

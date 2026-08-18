@@ -342,7 +342,7 @@ function applyRuntimePaths(source, repoRoot, outputConfigPath) {
   );
   const signerMigrationsPath = relativeTomlPath(
     outputDirectory,
-    path.join(repoRoot, 'packages/sdk-server-ts/migrations/d1-signer'),
+    path.join(repoRoot, 'packages/wallet-server/migrations/d1-signer'),
   );
   return replaceExactLine(
     replaceExactLine(
@@ -354,7 +354,7 @@ function applyRuntimePaths(source, repoRoot, outputConfigPath) {
       'migrations_dir = "../wallet-console-server-ts/migrations/d1-console"',
       `migrations_dir = ${JSON.stringify(consoleMigrationsPath)}`,
     ),
-    'migrations_dir = "../wallet-console-server-ts/node_modules/@seams/sdk-server/migrations/d1-signer"',
+    'migrations_dir = "../wallet-console-server-ts/node_modules/@seams/wallet-server/migrations/d1-signer"',
     `migrations_dir = ${JSON.stringify(signerMigrationsPath)}`,
   );
 }

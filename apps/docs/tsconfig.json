@@ -10,8 +10,8 @@
     "types": ["vite/client", "react", "react-dom"],
     "baseUrl": ".",
     "paths": {
-      "@seams/sdk": ["../../packages/sdk-web/dist/types/sdk-web/src/index.d.ts"],
-      "@seams/sdk/*": ["../../packages/sdk-web/dist/types/sdk-web/src/*"]
+      "@seams/wallet": ["../../packages/wallet/dist/types/wallet/src/index.d.ts"],
+      "@seams/wallet/*": ["../../packages/wallet/dist/types/wallet/src/*"]
     }
   },
   "include": [

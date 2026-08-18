@@ -20,16 +20,16 @@ import {
 import {
   buildActiveWalletSessionQuota,
   buildLinkedDeviceWalletSessionAuthorization,
-} from '../../../packages/sdk-server-ts/src/authorization/domain';
+} from '../../../packages/wallet-server/src/authorization/domain';
 import {
   deriveLinkedDeviceWalletSessionIdentityV1,
   type IssuedLinkedDeviceWalletSession,
-} from '../../../packages/sdk-server-ts/src/authorization/service';
+} from '../../../packages/wallet-server/src/authorization/service';
 import {
   parseLinkedDeviceSessionRecordV1,
   type LinkedDeviceSessionRecordV1,
-} from '../../../packages/sdk-server-ts/src/core/deviceLinking/linkedDeviceSession';
-import type { SessionAdapter } from '../../../packages/sdk-server-ts/src/router/framework/routerApi';
+} from '../../../packages/wallet-server/src/core/deviceLinking/linkedDeviceSession';
+import type { SessionAdapter } from '../../../packages/wallet-server/src/router/framework/routerApi';
 import { base64UrlEncode } from '../../../packages/shared-ts/src/utils/base64';
 import type { R103DeviceLinkFixture } from './deviceLinkContracts.fixtures';
 

@@ -17,13 +17,13 @@ import {
 import {
   D1LinkedDeviceSessionStoreV1,
   type D1LinkedDeviceSessionScopeV1,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceSessionStore';
+} from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceSessionStore';
 import {
   LinkedDeviceSessionServiceV1,
   parseLinkedDeviceSessionRecordV1,
   type LinkedDeviceAggregateActivationVerifierV1,
   type LinkedDeviceOwnerAuthorizationPortV1,
-} from '../../packages/sdk-server-ts/src/core/deviceLinking/linkedDeviceSession';
+} from '../../packages/wallet-server/src/core/deviceLinking/linkedDeviceSession';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,

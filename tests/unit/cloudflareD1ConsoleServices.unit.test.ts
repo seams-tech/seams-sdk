@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import type { RouterAbNormalSigningAdmissionInput } from '../../packages/sdk-server-ts/src/router/domains/signingOperations/routerAbPrivateSigningWorker';
+import type { RouterAbNormalSigningAdmissionInput } from '../../packages/wallet-server/src/router/domains/signingOperations/routerAbPrivateSigningWorker';
 import {
   createCloudflareD1ConsoleOnlyServiceBundle,
   createCloudflareD1ConsoleServiceBundle,
@@ -8,8 +8,8 @@ import type {
   D1DatabaseLike,
   D1PreparedStatementLike,
   D1ResultLike,
-} from '../../packages/sdk-server-ts/src/storage/tenantRoute';
-import type { CfExecutionContext } from '../../packages/sdk-server-ts/src/router/cloudflare/runtime/cloudflare.types';
+} from '../../packages/wallet-server/src/storage/tenantRoute';
+import type { CfExecutionContext } from '../../packages/wallet-server/src/router/cloudflare/runtime/cloudflare.types';
 import localD1DevWorker, {
   buildLocalRouterRequest,
 } from '../../packages/wallet-console-server-ts/src/router/cloudflare/d1LocalDevWorker';

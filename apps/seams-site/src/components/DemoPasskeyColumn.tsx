@@ -1,6 +1,6 @@
 import React from 'react';
 import NavbarProfileOverlay from './Navbar/NavbarProfileOverlay';
-import { useSeams, useTheme, type AuthMenuMode } from '@seams/sdk/react';
+import { useSeams, useTheme, type AuthMenuMode } from '@seams/wallet/react';
 
 import { GlassBorder } from './GlassBorder';
 import { DemoTxCardSkeleton } from './DemoTxCardSkeleton';

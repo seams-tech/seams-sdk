@@ -1,5 +1,5 @@
 import React from 'react';
-import { useSeams, PROFILE_MENU_ITEM_IDS } from '@seams/sdk/react';
+import { useSeams, PROFILE_MENU_ITEM_IDS } from '@seams/wallet/react';
 import { toast } from 'sonner';
 import { LoadingButton } from '@/components/LoadingButton';
 import { GlassBorder } from '@/components/GlassBorder';

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Production build script for @seams/sdk
+# Production build script for @seams/wallet
 # - Builds WASM in release mode (wasm-pack --release)
 # - Bundles with rolldown in NODE_ENV=production (better treeshaking, prod React)
 # - Minifies worker JS via Bun
@@ -14,7 +14,7 @@ source "$SDK_ROOT/build-paths.sh"
 source "$SCRIPT_DIR/build-output-lock.sh"
 cd "$SDK_ROOT"
 
-echo "Starting production build for @seams/sdk..."
+echo "Starting production build for @seams/wallet..."
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'

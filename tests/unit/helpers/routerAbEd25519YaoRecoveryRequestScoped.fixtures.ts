@@ -19,16 +19,16 @@ import { walletIdFromString } from '@shared/utils/registrationIntent';
 import {
   parseMpcWalletSigningQuotaId,
   parseWalletSessionId,
-} from '../../../packages/sdk-server-ts/src/authorization/domain';
+} from '../../../packages/wallet-server/src/authorization/domain';
 import { parseWalletSessionAuthorizationId } from '@shared/authorization/capabilityKinds';
 import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
-import type { VersionedJsonRecordReadResult } from '../../../packages/sdk-server-ts/src/router/framework/versionedJsonRecordStore';
-import { thresholdEd25519AuthorityScopeFromWalletAuthAuthority } from '../../../packages/sdk-server-ts/src/core/ThresholdService/validation';
-import type { OpaqueOwnerWalletSessionBinding } from '../../../packages/sdk-server-ts/src/authorization/service';
+import type { VersionedJsonRecordReadResult } from '../../../packages/wallet-server/src/router/framework/versionedJsonRecordStore';
+import { thresholdEd25519AuthorityScopeFromWalletAuthAuthority } from '../../../packages/wallet-server/src/core/ThresholdService/validation';
+import type { OpaqueOwnerWalletSessionBinding } from '../../../packages/wallet-server/src/authorization/service';
 import {
   createRouterAbEd25519YaoProductRegistrationStateV1,
   type RouterAbEd25519YaoProductRegistrationStateV1,
-} from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
+} from '../../../packages/wallet-server/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 import {
   createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
   type RouterAbEd25519YaoProductRegistrationPartitionBatchResultV1,
@@ -36,7 +36,7 @@ import {
   type RouterAbEd25519YaoProductRegistrationPartitionRecordStoreV1,
   type RouterAbEd25519YaoProductRegistrationPartitionRecordV1,
   type RouterAbEd25519YaoProductRegistrationPartitionedStateStoreV1,
-} from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
+} from '../../../packages/wallet-server/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistrationPartitionedStateStore';
 import {
   InMemoryRouterAbEd25519YaoRecoveryService,
   type RouterAbEd25519YaoRecoveryAdmissionCommitInputV1,
@@ -46,8 +46,8 @@ import {
   type RouterAbEd25519YaoRecoveryBackend,
   type RouterAbEd25519YaoRecoveryBackendResult,
   type RouterAbEd25519YaoRecoveryExecuteCommitInputV1,
-} from '../../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
-import type { WalletEd25519YaoActiveCapabilityRecord } from '../../../packages/sdk-server-ts/src/core/WalletStore';
+} from '../../../packages/wallet-server/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
+import type { WalletEd25519YaoActiveCapabilityRecord } from '../../../packages/wallet-server/src/core/WalletStore';
 
 const ROOT_SHARE_EPOCH = 'root-recovery-v1';
 const RECOVERY_KEY_MANIFEST_DIGEST_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';

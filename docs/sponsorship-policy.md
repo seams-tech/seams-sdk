@@ -48,12 +48,12 @@ Out of scope for this plan:
 What already exists:
 
 - EVM sponsorship config exists in [packages/console-server-ts/src/gasSponsorship/types.ts](../packages/console-server-ts/src/gasSponsorship/types.ts)
-- runtime snapshots already publish resolved EVM `sponsoredCallPolicies` in [packages/sdk-server-ts/src/router/runtimeSnapshotPayload.ts](../packages/sdk-server-ts/src/router/runtimeSnapshotPayload.ts)
-- the shared server package now owns the EVM sponsorship route and execution path in [packages/console-server-ts/src/sponsorship/evmRelay.ts](../packages/console-server-ts/src/sponsorship/evmRelay.ts) and [packages/sdk-server-ts/src/router/express/routes/sponsoredEvmCall.ts](../packages/sdk-server-ts/src/router/express/routes/sponsoredEvmCall.ts)
+- runtime snapshots already publish resolved EVM `sponsoredCallPolicies` in [packages/wallet-server/src/router/runtimeSnapshotPayload.ts](../packages/wallet-server/src/router/runtimeSnapshotPayload.ts)
+- the shared server package now owns the EVM sponsorship route and execution path in [packages/console-server-ts/src/sponsorship/evmRelay.ts](../packages/console-server-ts/src/sponsorship/evmRelay.ts) and [packages/wallet-server/src/router/express/routes/sponsoredEvmCall.ts](../packages/wallet-server/src/router/express/routes/sponsoredEvmCall.ts)
 - shared onboarding seeding now lives in [packages/console-server-ts/src/gasSponsorship/seeding.ts](../packages/console-server-ts/src/gasSponsorship/seeding.ts)
 - shared EVM sponsorship parsing and matching primitives exist in [packages/console-server-ts/src/sponsorship/evm.ts](../packages/console-server-ts/src/sponsorship/evm.ts)
 - exact sponsored spend is stored through a chain-aware ledger model in [packages/console-server-ts/src/sponsoredCalls/types.ts](../packages/console-server-ts/src/sponsoredCalls/types.ts)
-- NEAR delegate validation and relaying primitives already exist in [packages/sdk-server-ts/src/delegateAction/index.ts](../packages/sdk-server-ts/src/delegateAction/index.ts)
+- NEAR delegate validation and relaying primitives already exist in [packages/wallet-server/src/delegateAction/index.ts](../packages/wallet-server/src/delegateAction/index.ts)
 
 What is still missing:
 
@@ -350,9 +350,9 @@ Todo:
 - [ ] Add `POST /sponsorships/near/delegate`
 - [ ] Validate API key and environment binding through the shared engine
 - [ ] Resolve the applicable `near_delegate` policy from the runtime snapshot
-- [ ] Reuse `validateDelegateExpiryAndNonce` from [packages/sdk-server-ts/src/delegateAction/index.ts](../packages/sdk-server-ts/src/delegateAction/index.ts)
-- [ ] Reuse `enforceDelegatePolicy` from [packages/sdk-server-ts/src/delegateAction/index.ts](../packages/sdk-server-ts/src/delegateAction/index.ts)
-- [ ] Reuse `executeSignedDelegateWithRelayer` from [packages/sdk-server-ts/src/delegateAction/index.ts](../packages/sdk-server-ts/src/delegateAction/index.ts)
+- [ ] Reuse `validateDelegateExpiryAndNonce` from [packages/wallet-server/src/delegateAction/index.ts](../packages/wallet-server/src/delegateAction/index.ts)
+- [ ] Reuse `enforceDelegatePolicy` from [packages/wallet-server/src/delegateAction/index.ts](../packages/wallet-server/src/delegateAction/index.ts)
+- [ ] Reuse `executeSignedDelegateWithRelayer` from [packages/wallet-server/src/delegateAction/index.ts](../packages/wallet-server/src/delegateAction/index.ts)
 - [ ] Add replay protection keyed to delegate signer identity and nonce
 - [ ] Reject transfer-like value movement unless the policy explicitly allows it
 - [ ] Record finalized NEAR relayer spend in the generic ledger

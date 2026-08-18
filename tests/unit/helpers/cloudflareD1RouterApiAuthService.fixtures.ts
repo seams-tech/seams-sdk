@@ -1,22 +1,22 @@
 import { expect } from '@playwright/test';
 import { isoCBOR } from '@simplewebauthn/server/helpers';
-import type { D1DatabaseLike } from '../../../packages/sdk-server-ts/src/storage/tenantRoute';
+import type { D1DatabaseLike } from '../../../packages/wallet-server/src/storage/tenantRoute';
 import type {
   CloudflareDurableObjectNamespaceLike,
   CloudflareDurableObjectStubLike,
   EcdsaDerivationServerBootstrapResponse,
-} from '../../../packages/sdk-server-ts/src/core/types';
+} from '../../../packages/wallet-server/src/core/types';
 import type {
   WalletRegistrationEcdsaClientBootstrap,
   WalletRegistrationEcdsaPreparePayload,
-} from '../../../packages/sdk-server-ts/src/core/registrationContracts';
+} from '../../../packages/wallet-server/src/core/registrationContracts';
 import type {
   CloudflareD1EmailOtpDeliveryProviderInput,
   CloudflareD1EmailOtpDeliveryProviderResult,
-} from '../../../packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
-import { createCloudflareD1RouterApiAuthService } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
-import { parseGoogleEmailOtpRegistrationAttemptRecord } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1/emailOtp/d1GoogleEmailOtpRegistrationRecords';
-import { parseD1RegistrationIntent } from '../../../packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1RegistrationCeremonyRecords';
+} from '../../../packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
+import { createCloudflareD1RouterApiAuthService } from '../../../packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
+import { parseGoogleEmailOtpRegistrationAttemptRecord } from '../../../packages/wallet-server/src/router/cloudflare/d1/emailOtp/d1GoogleEmailOtpRegistrationRecords';
+import { parseD1RegistrationIntent } from '../../../packages/wallet-server/src/router/cloudflare/d1/registration/d1RegistrationCeremonyRecords';
 import { base64UrlDecode, base64UrlEncode } from '../../../packages/shared-ts/src/utils/encoders';
 import { parseWebAuthnRpId } from '../../../packages/shared-ts/src/utils/domainIds';
 import type { WebAuthnAuthenticatorDeviceInfo } from '../../../packages/shared-ts/src/utils/webauthnDeviceInfo';
@@ -30,8 +30,8 @@ import { buildPasskeyWalletAuthAuthority } from '../../../packages/shared-ts/src
 import {
   secp256k1PrivateKey32ToPublicKey33,
   signSecp256k1Recoverable,
-} from '../../../packages/sdk-server-ts/src/core/ThresholdService/evmCryptoWasm';
-import { ensureSigningSessionSealShamir3PassWasm } from '../../../packages/sdk-server-ts/src/threshold/session/signingSessionSeal/crypto/shamir3PassWasm';
+} from '../../../packages/wallet-server/src/core/ThresholdService/evmCryptoWasm';
+import { ensureSigningSessionSealShamir3PassWasm } from '../../../packages/wallet-server/src/threshold/session/signingSessionSeal/crypto/shamir3PassWasm';
 import {
   shamir3pass_add_lock,
   shamir3pass_destroy_lock_key_handle,

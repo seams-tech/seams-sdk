@@ -11,7 +11,7 @@ import {
   updateDashboardPolicy,
   type DashboardConsolePolicy,
 } from '../policy-engine/consolePoliciesApi';
-import { keccak256Bytes } from '@seams/sdk/advanced';
+import { keccak256Bytes } from '@seams/wallet/advanced';
 
 export interface DashboardGasSponsorshipAllowedCall {
   chainId: number;

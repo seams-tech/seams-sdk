@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { LinkedDeviceSessionServiceV1 } from '../../packages/sdk-server-ts/src/core/deviceLinking/linkedDeviceSession';
+import { LinkedDeviceSessionServiceV1 } from '../../packages/wallet-server/src/core/deviceLinking/linkedDeviceSession';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
 import { buildR103AwaitingTargetPasskeySessionRecordV1 } from './helpers/deviceLinkingServer.fixtures';
 import {

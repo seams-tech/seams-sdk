@@ -52,10 +52,10 @@ TypeScript:
 
 - `packages/shared-ts/src/passkey-custody`, `.../wallet-recovery` — records and
   parsers.
-- `packages/sdk-server-ts/.../d1WalletCustodyCommitStore.ts` — atomic commit of
+- `packages/wallet-server/.../d1WalletCustodyCommitStore.ts` — atomic commit of
   envelope + recovery set in one D1 transaction.
 - `.../walletCustodyRegistrationCommit.ts` — payload → records adapter.
-- `packages/sdk-web/.../workers/wallet-custody-ceremony.worker.ts` and
+- `packages/wallet/.../workers/wallet-custody-ceremony.worker.ts` and
   `.../walletCustody/ceremonyDriver.ts` — worker and driver.
 
 Verification: signer-core 9 suites, 24 tests in the ceremony crate (12 output
@@ -157,7 +157,7 @@ is the only constructor for that origin and it requires a successful open.
   reachable through its rlib dependencies. That leaked the Yao client's seed
   export into the ceremony package, and it was caught only by reading the
   generated `.js`. The other half of this is now covered —
-  `pnpm -C packages/sdk-web check:wasm-import-drift` fails on an import naming
+  `pnpm -C packages/wallet check:wasm-import-drift` fails on an import naming
   something a generated wrapper does not export, and runs in the source-guard
   chain — but nothing yet asserts the *outbound* surface, i.e. that a package
   exports only what it means to. `check:wasm-exports` reports it; read it when

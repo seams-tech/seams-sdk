@@ -9,7 +9,7 @@
  *
  * @example
  * ```tsx
- * import { SeamsWebProvider, QRCodeScanner, AccountMenuButton } from '@seams/sdk/react';
+ * import { SeamsWebProvider, QRCodeScanner, AccountMenuButton } from '@seams/wallet/react';
  *
  * function App() {
  *   return (

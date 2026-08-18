@@ -4,7 +4,7 @@ import {
   buildLinkedDeviceTargetSigningWorkerV1,
   createLinkedDeviceTargetDeploymentDescriptorSignerV1,
   createLinkedDeviceTargetDeploymentDescriptorVerifierV1,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceTargetDeploymentDescriptorRuntime';
+} from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceTargetDeploymentDescriptorRuntime';
 import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { sha256Bytes } from '../../packages/shared-ts/src/utils/digests';

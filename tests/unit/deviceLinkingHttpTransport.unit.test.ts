@@ -7,9 +7,9 @@ import {
 } from '../../packages/shared-ts/src/device-linking';
 import type { LinkedDeviceSessionProjectionV1 } from '../../packages/shared-ts/src/device-linking';
 import { base64UrlDecode, base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
-import { createDeviceLinkingAuthenticatedSessionTransportV1 } from '../../packages/sdk-web/src/SeamsWeb/operations/devices/deviceLinkingHttpTransport';
-import type { DeviceLinkingKeyMaterialPortV1 } from '../../packages/sdk-web/src/SeamsWeb/operations/devices/deviceLinkingPorts';
-import type { HttpTransport } from '../../packages/sdk-web/src/core/platform/http';
+import { createDeviceLinkingAuthenticatedSessionTransportV1 } from '../../packages/wallet/src/SeamsWeb/operations/devices/deviceLinkingHttpTransport';
+import type { DeviceLinkingKeyMaterialPortV1 } from '../../packages/wallet/src/SeamsWeb/operations/devices/deviceLinkingPorts';
+import type { HttpTransport } from '../../packages/wallet/src/core/platform/http';
 import {
   buildR103DeviceLinkFixture,
   buildR103LinkedWalletSessionDeliveryFixture,

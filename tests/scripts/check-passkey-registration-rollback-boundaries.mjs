@@ -6,14 +6,14 @@ import { fileURLToPath } from 'node:url';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, '../..');
-const registrationPath = 'packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts';
-const seamsWebPath = 'packages/sdk-web/src/SeamsWeb/SeamsWeb.ts';
+const registrationPath = 'packages/wallet/src/SeamsWeb/operations/registration/registration.ts';
+const seamsWebPath = 'packages/wallet/src/SeamsWeb/SeamsWeb.ts';
 const productionContinuationScanPaths = [
-  'packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts',
-  'packages/sdk-web/src/core/rpcClients/relayer/thresholdEcdsa.ts',
-  'packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaBootstrap.ts',
-  'packages/sdk-server-ts/src/core/types.ts',
-  'packages/sdk-server-ts/src/router/auth/commonRouterUtils.ts',
+  'packages/wallet/src/SeamsWeb/operations/registration/registration.ts',
+  'packages/wallet/src/core/rpcClients/relayer/thresholdEcdsa.ts',
+  'packages/wallet/src/core/signingEngine/session/passkey/ecdsaBootstrap.ts',
+  'packages/wallet-server/src/core/types.ts',
+  'packages/wallet-server/src/router/auth/commonRouterUtils.ts',
 ];
 
 function absolutePath(relativePath) {

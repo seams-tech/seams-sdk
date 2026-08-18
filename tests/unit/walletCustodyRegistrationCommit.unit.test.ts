@@ -1,11 +1,11 @@
 import { expect, test } from '@playwright/test';
-import { CloudflareD1WalletCustodyCommitStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
-import { CloudflareD1PasskeyCustodyEnvelopeStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/passkeyCustody/d1PasskeyCustodyEnvelopeStore';
+import { CloudflareD1WalletCustodyCommitStore } from '../../packages/wallet-server/src/router/cloudflare/d1/passkeyCustody/d1WalletCustodyCommitStore';
+import { CloudflareD1PasskeyCustodyEnvelopeStore } from '../../packages/wallet-server/src/router/cloudflare/d1/passkeyCustody/d1PasskeyCustodyEnvelopeStore';
 import {
   buildWalletCustodyRegistrationRecords,
   commitWalletCustodyRegistration,
   type WalletCustodyCeremonyCommitPayload,
-} from '../../packages/sdk-server-ts/src/router/domains/passkeyCustody/walletCustodyRegistrationCommit';
+} from '../../packages/wallet-server/src/router/domains/passkeyCustody/walletCustodyRegistrationCommit';
 import type { WalletId } from '../../packages/shared-ts/src/utils/domainIds';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
 import { applySignerMigrations } from './helpers/cloudflareD1RouterApiAuthService.fixtures';

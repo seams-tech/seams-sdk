@@ -1,13 +1,13 @@
 import { expect, test } from '@playwright/test';
 import { base64UrlDecode, base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
-import { installDeviceLinkingKeyWorkerV1 } from '../../packages/sdk-web/src/core/signingEngine/workerManager/workers/device-linking-key.worker';
+import { installDeviceLinkingKeyWorkerV1 } from '../../packages/wallet/src/core/signingEngine/workerManager/workers/device-linking-key.worker';
 import {
   buildR102EcdsaLaneJob,
   buildR102ProtocolCommitReceipt,
   buildR102ServerActivationReceipt,
   buildR103SealedHolderRecord,
 } from './helpers/r102LaneGateway.fixtures';
-import { EcdsaClientWorkerControlKind } from '../../packages/sdk-web/src/core/signingEngine/workerManager/ecdsaClientWorkerChannels';
+import { EcdsaClientWorkerControlKind } from '../../packages/wallet/src/core/signingEngine/workerManager/ecdsaClientWorkerChannels';
 
 class FakeWorkerScope {
   readonly responses: unknown[] = [];

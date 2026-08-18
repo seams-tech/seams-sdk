@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { admitLinkedOwnerEnrollmentFinalizeV1 } from '../../packages/sdk-server-ts/src/core/deviceLinking/linkedOwnerEnrollmentAdmission';
-import type { LinkedDeviceSessionRecordV1 } from '../../packages/sdk-server-ts/src/core/deviceLinking/linkedDeviceSession';
+import { admitLinkedOwnerEnrollmentFinalizeV1 } from '../../packages/wallet-server/src/core/deviceLinking/linkedOwnerEnrollmentAdmission';
+import type { LinkedDeviceSessionRecordV1 } from '../../packages/wallet-server/src/core/deviceLinking/linkedDeviceSession';
 import type { LinkedDeviceTargetPreparationV1 } from '../../packages/shared-ts/src/device-linking/contracts';
 import { parseLinkedDeviceTargetPreparationV1 } from '../../packages/shared-ts/src/device-linking/parsers';
 import { parseDigestB64u } from '../../packages/shared-ts/src/utils/canonicalPrimitives';

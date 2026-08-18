@@ -63,8 +63,8 @@ It complements `docs/saas/observability-events-3.md`, which covers the observabi
 
 ## TODO: Backend implementation
 
-- [x] Add the missing audit emitters in `packages/sdk-server-ts/src/router/express/createConsoleRouter.ts`.
-- [x] Keep Cloudflare parity by adding the same emitters in `packages/sdk-server-ts/src/router/cloudflare/createCloudflareConsoleRouter.ts`.
+- [x] Add the missing audit emitters in `packages/wallet-server/src/router/express/createConsoleRouter.ts`.
+- [x] Keep Cloudflare parity by adding the same emitters in `packages/wallet-server/src/router/cloudflare/createCloudflareConsoleRouter.ts`.
 - [ ] Extend audit response typing and row rendering to support the new action families.
 - [x] Extend observability builders and policy definitions in `packages/console-server-ts/src/observability`.
 - [x] Ensure Stripe settlement writes audit rows even when the actor is system-driven.
@@ -89,8 +89,8 @@ It complements `docs/saas/observability-events-3.md`, which covers the observabi
 
 ## Likely touch points
 
-- `packages/sdk-server-ts/src/router/express/createConsoleRouter.ts`
-- `packages/sdk-server-ts/src/router/cloudflare/createCloudflareConsoleRouter.ts`
+- `packages/wallet-server/src/router/express/createConsoleRouter.ts`
+- `packages/wallet-server/src/router/cloudflare/createCloudflareConsoleRouter.ts`
 - `packages/console-server-ts/src/observability/policy.ts`
 - `packages/console-server-ts/src/observability/types.ts`
 - `packages/console-server-ts/src/audit/types.ts`

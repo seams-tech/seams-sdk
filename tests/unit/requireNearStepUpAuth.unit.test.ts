@@ -1,16 +1,16 @@
 import { expect, test } from '@playwright/test';
-import { requireNearStepUpAuth } from '../../packages/sdk-web/src/core/signingEngine/flows/signNear/requireNearStepUpAuth';
+import { requireNearStepUpAuth } from '../../packages/wallet/src/core/signingEngine/flows/signNear/requireNearStepUpAuth';
 import {
   buildEd25519EmailOtpSigningLane,
   buildEd25519PasskeySigningLane,
-} from '../../packages/sdk-web/src/core/signingEngine/session/operationState/lanes';
-import { SigningSessionIds } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/types';
-import { SigningAuthPlanKind } from '../../packages/sdk-web/src/core/signingEngine/stepUpConfirmation/types';
-import { ActionType } from '../../packages/sdk-web/src/core/types/actions';
-import { requiredNearTransactionSignatureUses } from '../../packages/sdk-web/src/core/signingEngine/flows/signNear/signatureUses';
-import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
-import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
-import { toRpId } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+} from '../../packages/wallet/src/core/signingEngine/session/operationState/lanes';
+import { SigningSessionIds } from '../../packages/wallet/src/core/signingEngine/session/operationState/types';
+import { SigningAuthPlanKind } from '../../packages/wallet/src/core/signingEngine/stepUpConfirmation/types';
+import { ActionType } from '../../packages/wallet/src/core/types/actions';
+import { requiredNearTransactionSignatureUses } from '../../packages/wallet/src/core/signingEngine/flows/signNear/signatureUses';
+import { toAccountId } from '../../packages/wallet/src/core/types/accountIds';
+import { toWalletId } from '../../packages/wallet/src/core/signingEngine/interfaces/ecdsaChainTarget';
+import { toRpId } from '../../packages/wallet/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { nearEd25519SigningKeyIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { buildPasskeyWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 

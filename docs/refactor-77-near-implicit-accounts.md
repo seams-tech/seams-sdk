@@ -66,13 +66,13 @@ creation.
 Relevant files:
 
 ```text
-packages/sdk-web/src/SeamsWeb/operations/registration/registrationSignerSelection.ts
+packages/wallet/src/SeamsWeb/operations/registration/registrationSignerSelection.ts
 packages/shared-ts/src/utils/registrationIntent.ts
-packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts
-packages/sdk-web/src/core/types/accountIds.ts
-packages/sdk-server-ts/src/core/AuthService.ts
-packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts
-packages/sdk-web/src/core/signingEngine/threshold/ed25519/hssLifecycle.ts
+packages/wallet/src/SeamsWeb/operations/registration/registration.ts
+packages/wallet/src/core/types/accountIds.ts
+packages/wallet-server/src/core/AuthService.ts
+packages/wallet-server/src/core/ThresholdService/ThresholdSigningService.ts
+packages/wallet/src/core/signingEngine/threshold/ed25519/hssLifecycle.ts
 ```
 
 Original behavior:
@@ -113,7 +113,7 @@ has several deeper `nearAccountId` assumptions that must be specified before
 implementation:
 
 - client registration currently builds session policy inputs before finalize in
-  `packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts`; the
+  `packages/wallet/src/SeamsWeb/operations/registration/registration.ts`; the
   implicit account ID is unavailable at that point;
 - server combined and Ed25519-only finalize paths duplicate the same
   `createAccount()` and persistence logic in `AuthService.ts`;
@@ -901,8 +901,8 @@ Cheap checks during implementation:
 
 ```text
 pnpm -C packages/shared-ts exec tsc -p tsconfig.json --noEmit
-pnpm -C packages/sdk-web exec tsc -p tsconfig.build.json --noEmit
-pnpm -C packages/sdk-server-ts exec tsc -p tsconfig.json --noEmit
+pnpm -C packages/wallet exec tsc -p tsconfig.build.json --noEmit
+pnpm -C packages/wallet-server exec tsc -p tsconfig.json --noEmit
 pnpm -C tests exec playwright test -c playwright.unit.config.ts tests/unit/registrationIntentDigest.unit.test.ts --reporter=line
 ```
 

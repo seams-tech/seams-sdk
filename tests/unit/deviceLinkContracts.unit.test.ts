@@ -30,8 +30,8 @@ import {
   parseQrLinkedDeviceSessionPayloadV4,
   serializeQrLinkedDeviceSessionPayloadV4,
 } from '../../packages/shared-ts/src/device-linking';
-import type { HttpTransport } from '../../packages/sdk-web/src/core/platform/http';
-import { createWalletHostOwnerAuthoritiesV1 } from '../../packages/sdk-web/src/SeamsWeb/operations/devices/walletHostOwnerAuthority';
+import type { HttpTransport } from '../../packages/wallet/src/core/platform/http';
+import { createWalletHostOwnerAuthoritiesV1 } from '../../packages/wallet/src/SeamsWeb/operations/devices/walletHostOwnerAuthority';
 import { buildUnlockedCustodyCapabilityFixtureV1 } from './helpers/linkedDeviceCustodyTransfer.fixtures';
 import {
   buildR103DeviceLinkFixture,

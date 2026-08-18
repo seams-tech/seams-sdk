@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import type {
   RouterApiServiceBag,
   RouterApiWebAuthnService,
-} from '../../packages/sdk-server-ts/src/router/framework/authServicePort';
+} from '../../packages/wallet-server/src/router/framework/authServicePort';
 import {
   parseThresholdEd25519SessionId,
   parseWebAuthnRpId,
@@ -13,20 +13,20 @@ import {
   buildPasskeyWalletAuthAuthority,
   walletAuthAuthorityRef,
 } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
-import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
-import { createCloudflareRouter } from '../../packages/sdk-server-ts/src/router/cloudflare/runtime/createCloudflareRouter';
-import type { SessionAdapter } from '../../packages/sdk-server-ts/src/router/framework/routerApi';
+import { createCloudflareD1RouterApiAuthService } from '../../packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
+import { createCloudflareRouter } from '../../packages/wallet-server/src/router/cloudflare/runtime/createCloudflareRouter';
+import type { SessionAdapter } from '../../packages/wallet-server/src/router/framework/routerApi';
 import {
   mintRouterAbEd25519YaoWalletSessionV1,
   type RouterAbEd25519YaoProductRegistrationRuntimeV1,
   type RouterAbEd25519YaoWalletSessionMintInputV1,
   type RouterAbEd25519YaoWalletSessionMintResultV1,
-} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
+} from '../../packages/wallet-server/src/router/domains/ed25519Yao/capabilityLifecycle/routerAbEd25519YaoProductRegistration';
 import type {
   RouterAbEd25519YaoActiveCapabilityDescriptorV1,
   RouterAbEd25519YaoActiveCapabilityLookupResultV1,
   RouterAbEd25519YaoActiveCapabilityLookupV1,
-} from '../../packages/sdk-server-ts/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
+} from '../../packages/wallet-server/src/router/domains/ed25519Yao/recovery/routerAbEd25519YaoRecovery';
 
 function parseFixtureThresholdSessionId(value: string): ThresholdEd25519SessionId {
   const parsed = parseThresholdEd25519SessionId(value);

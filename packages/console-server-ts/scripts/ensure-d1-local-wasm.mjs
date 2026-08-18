@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 const require = createRequire(
   new URL('../../wallet-console-server-ts/package.json', import.meta.url),
 );
-const sdkServerRoot = dirname(require.resolve('@seams/sdk-server/package.json'));
+const sdkServerRoot = dirname(require.resolve('@seams/wallet-server/package.json'));
 const requiredArtifacts = [
   'dist/esm/wasm/near_signer/pkg/wasm_signer_worker.js',
   'dist/esm/wasm/near_signer/pkg/wasm_signer_worker_bg.wasm',
@@ -22,7 +22,7 @@ const missingArtifacts = requiredArtifacts.filter(
 );
 
 if (missingArtifacts.length > 0) {
-  console.error('[d1-local] The installed @seams/sdk-server package is missing WASM assets:');
+  console.error('[d1-local] The installed @seams/wallet-server package is missing WASM assets:');
   for (const artifact of missingArtifacts) {
     console.error(`[d1-local] - ${artifact}`);
   }

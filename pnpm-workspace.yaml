@@ -4,8 +4,8 @@ packages:
   - packages/wallet-console-shared-ts
   - packages/console-server-ts
   - packages/wallet-console-server-ts
-  - packages/sdk-web
-  - packages/sdk-server-ts
+  - packages/wallet
+  - packages/wallet-server
   - packages/shared-ts
   - voiceId
   - apps/web-server

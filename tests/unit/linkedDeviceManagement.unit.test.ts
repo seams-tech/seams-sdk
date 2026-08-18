@@ -29,12 +29,12 @@ import {
   parseWalletId,
 } from '../../packages/shared-ts/src/utils/domainIds';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
-import type { LaneAggregateRevocationRequestV1 } from '../../packages/sdk-server-ts/src/core/signingLanes/LaneAggregateRevocationApplicationService';
+import type { LaneAggregateRevocationRequestV1 } from '../../packages/wallet-server/src/core/signingLanes/LaneAggregateRevocationApplicationService';
 import {
   LinkedDeviceManagementServiceV1,
   type LinkedDeviceManagementTargetV1,
-} from '../../packages/sdk-server-ts/src/core/deviceLinking/linkedDeviceManagement';
-import { parseLinkedDeviceSessionRecordV1 } from '../../packages/sdk-server-ts/src/core/deviceLinking/linkedDeviceSession';
+} from '../../packages/wallet-server/src/core/deviceLinking/linkedDeviceManagement';
+import { parseLinkedDeviceSessionRecordV1 } from '../../packages/wallet-server/src/core/deviceLinking/linkedDeviceSession';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
 import { buildLinkedOwnerPasskeyBindingFixtureV1 } from './helpers/linkedOwnerAuthBinding.fixtures';
 import { unknownWebAuthnAuthenticatorDeviceInfo } from '../../packages/shared-ts/src/utils/webauthnDeviceInfo';

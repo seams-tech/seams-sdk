@@ -22,7 +22,7 @@ is named inline and executes in Phases 1-2 (contracts/services) or Phase 6
 
 - Console D1 baseline: `packages/console-server-ts/migrations/d1-console/0001_console_d1_initial.sql`
   — 49 tables (clean-slate consolidation, August 17).
-- Signer D1 baseline: `packages/sdk-server-ts/migrations/d1-signer/0001_signer_d1_initial.sql`
+- Signer D1 baseline: `packages/wallet-server/migrations/d1-signer/0001_signer_d1_initial.sql`
   — 52 tables.
 - Refactor 130A's legacy inbound-email recovery paths are absent from this
   tree; they are not inventoried. No Refactor 113/114 implementation has
@@ -30,7 +30,7 @@ is named inline and executes in Phases 1-2 (contracts/services) or Phase 6
 - `apps/seams-admin` and `platform-admin-server-ts` (Refactor 99B) do not
   exist yet; the Gateway still serves the routes destined for them.
 - Concurrent R103 zero-prompt work is in flight in
-  `packages/sdk-web/src/SeamsWeb/operations/devices/`, `registration.ts`, and
+  `packages/wallet/src/SeamsWeb/operations/devices/`, `registration.ts`, and
   the linked-device tests. Those files are Wallet-runtime owned and outside
   every boundary this inventory freezes; Phase 0-3 does not touch them.
 
@@ -40,8 +40,8 @@ is named inline and executes in Phases 1-2 (contracts/services) or Phase 6
 | --- | --- | --- |
 | `packages/console-shared-ts` | console-core | MIXED: wallet vocabulary moves to `wallet-console-shared-ts` in Phase 1 (see vocabulary inventory) |
 | `packages/console-server-ts` | console-core | MIXED: wallet services move to `wallet-console-server-ts` in Phase 2 (see service inventory) |
-| `packages/sdk-web` | wallet | public `@seams/sdk`; renamed `packages/wallet` in Phase 7 |
-| `packages/sdk-server-ts` | wallet | public `@seams/sdk-server`; renamed `packages/wallet-server` in Phase 7 |
+| `packages/wallet` | wallet | public `@seams/wallet`; renamed `packages/wallet` in Phase 7 |
+| `packages/wallet-server` | wallet | public `@seams/wallet-server`; renamed `packages/wallet-server` in Phase 7 |
 | `packages/shared-ts` | wallet | shared browser/server contracts consumed by the Wallet packages (see shared-ts note) |
 | `packages/wasm` | wallet | signer/browser Wasm assets |
 | `apps/seams-site` | MIXED | marketing + demos stay; `/dashboard/*` extracts to `apps/seams-console` in Phase 5 |
@@ -173,12 +173,12 @@ signing-worker) are Wallet runtime ownership.
 
 `tests/scripts/check-console-core-wallet-import-boundaries.mjs`
 (`pnpm -C tests run check:console-core-wallet-import-boundaries`, part of
-`test:source-guards`) forbids every `@seams/sdk`, `@seams/sdk-server`,
+`test:source-guards`) forbids every `@seams/wallet`, `@seams/wallet-server`,
 `@seams/wallet`, `@seams/wallet-server`, or relative Wallet-source import in
 `packages/console-server-ts/src` and `packages/console-shared-ts/src`, beyond
 a temporary allowlist of the 80 inventoried pre-split imports (79 files x
-`@seams/sdk-server/cloud-host` plus `router/cloudflare/d1SignerWasm.ts` x
-`@seams/sdk-server/wasm/signer`). Allowlist entries may only be deleted;
+`@seams/wallet-server/cloud-host` plus `router/cloudflare/d1SignerWasm.ts` x
+`@seams/wallet-server/wasm/signer`). Allowlist entries may only be deleted;
 stale entries fail the guard. `console-shared-ts` has zero entries and must
 stay clean.
 
@@ -267,7 +267,7 @@ internalization target. Owner: console-core.
 `d1:local:prepare`, `d1:local:ensure-wasm` (signer Wasm), `d1:staging:migrate`
 (profile `signer`), `d1:staging:smoke` (signer custody healthz),
 `d1:staging:signer-custody`. Signer migrations are consumed from
-`@seams/sdk-server/migrations/d1-signer` — none are checked into the console
+`@seams/wallet-server/migrations/d1-signer` — none are checked into the console
 package (correct ownership already; the orchestration moves to the
 composition root in Phase 6).
 
@@ -299,7 +299,7 @@ routing behavior the local worker no longer has).
 
 | Namespace | Owner |
 | --- | --- |
-| `/healthz`, `/readyz`, `/.well-known/*`, `/auth/*`, `/near/public-keys`, `/sync-account/*`, `/wallet/*`, `/wallets/*`, `/webauthn/*`, `/wallet-session/seal/*`, `/router-ab/*`, `/internal/gateway/device-linking/v1/*`, `/relay/*` (local only) | wallet (defined in `packages/sdk-server-ts/src/router/`) |
+| `/healthz`, `/readyz`, `/.well-known/*`, `/auth/*`, `/near/public-keys`, `/sync-account/*`, `/wallet/*`, `/wallets/*`, `/webauthn/*`, `/wallet-session/seal/*`, `/router-ab/*`, `/internal/gateway/device-linking/v1/*`, `/relay/*` (local only) | wallet (defined in `packages/wallet-server/src/router/`) |
 | `/signed-delegate`, `/v1/wallets*`, `/sponsorships/evm/call` (route extensions mounted into the Router API handler) | wallet-console |
 | `/console/*` (~75 routes + `/console/auth/*`) | console (Phase 4: leaves the Gateway) |
 
@@ -321,7 +321,7 @@ carries create-then-delete migration tags for `ThresholdStoreDurableObject`
 and `RouterApiRuntimeDurableObject` whose source classes still exist in
 `sdk-server-ts` (dead-binding freeze candidates). Signer Wasm is not a
 wrangler binding; it is an ESM import (`d1SignerWasm.ts` →
-`@seams/sdk-server/wasm/signer`). The only live DO in the system is
+`@seams/wallet-server/wasm/signer`). The only live DO in the system is
 `RouterAbSigningWorkerPresignSessionDurableObject` on the wallet-owned
 `router-ab-signing-worker`.
 
@@ -345,17 +345,17 @@ the current generator no longer emits — untracked, ignore.
 
 ## cloud-host Import Inventory
 
-`packages/console-server-ts` imports `@seams/sdk-server` from 81 source files
+`packages/console-server-ts` imports `@seams/wallet-server` from 81 source files
 (235 imports + 9 re-exports). Every specifier is
-`@seams/sdk-server/cloud-host` except one dynamic
-`@seams/sdk-server/wasm/signer` import in
+`@seams/wallet-server/cloud-host` except one dynamic
+`@seams/wallet-server/wasm/signer` import in
 `src/router/cloudflare/d1SignerWasm.ts`. `console-shared-ts` has zero.
 
 By domain (Phase 1 target from the plan's ownership table):
 
 | Domain | Files | Symbols (representative) | Phase 1 disposition |
 | --- | --- | --- | --- |
-| random-ID / base64url / hash | ~40 | `secureRandomBase36`, `secureRandomBase64Url`, `base64UrlEncode/Decode`, `sha256Bytes`, `keccak256Bytes` | pass-through re-exports of `@seams-internal/shared-ts` (`packages/sdk-server-ts/src/cloud-host.ts:133-178`); repoint to shared-ts or a Console-owned Web Crypto module |
+| random-ID / base64url / hash | ~40 | `secureRandomBase36`, `secureRandomBase64Url`, `base64UrlEncode/Decode`, `sha256Bytes`, `keccak256Bytes` | pass-through re-exports of `@seams-internal/shared-ts` (`packages/wallet-server/src/cloud-host.ts:133-178`); repoint to shared-ts or a Console-owned Web Crypto module |
 | D1 types / SQL parsing | 20 | `D1DatabaseLike`, `D1Row`, `queryD1All/One`, `formatD1ExecStatement`, `d1Integer/Number/ChangedRows`, `parseD1Json*Column` | Console-owned D1 boundary module |
 | logger | 14 | `Logger`, `NormalizedLogger`, `RouterLogger`, `NormalizedRouterLogger`, `normalizeLogger`, `coerceRouterLogger` | Console-owned minimal logger contract |
 | normalization | 9 | `normalizeCorsOrigin`, `normalizeSourceIp`, `normalizeBoundedPositiveInteger`, `resolveSourceIp*` | mostly shared-ts pass-throughs; source-IP helpers live in wallet router auth and need a Console-owned copy |
@@ -423,10 +423,10 @@ Cross-boundary UI leaks to fix in Phase 5:
 - SDK/theme coupling: `SeamsWebProvider` wraps every route including
   `/dashboard/*` (`src/context/frontendRuntime.tsx`, `src/app/App.tsx`;
   only `/near-login` escapes); `App.tsx` bridges `--w3a-*` theme tokens from
-  `@seams/sdk/react` onto the document; direct dashboard imports are
+  `@seams/wallet/react` onto the document; direct dashboard imports are
   `layout/DashboardTopbar.tsx` (`MoonIcon`/`SunIcon`) and
   `routes/gas-sponsorship/consoleGasSponsorshipApi.ts` (`keccak256Bytes` from
-  `@seams/sdk/advanced`); global hooks `useBodyLoginStateBridge` /
+  `@seams/wallet/advanced`); global hooks `useBodyLoginStateBridge` /
   `useExportKeyCancelToast` mount on dashboard routes too.
 - no key-export dashboard page exists (key export appears only in the wallet
   demo profile settings).

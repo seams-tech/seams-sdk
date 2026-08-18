@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, '../..');
-const seamsWebImplementationPath = 'packages/sdk-web/src/SeamsWeb/SeamsWeb.ts';
+const seamsWebImplementationPath = 'packages/wallet/src/SeamsWeb/SeamsWeb.ts';
 
 const topLevelWalletSessionMethods = [
   'unlock',
@@ -72,10 +72,10 @@ const deletedLifecycleNames = [
 ];
 
 const allowedCoreWalletIframePrimitiveFiles = [
-  'packages/sdk-web/src/core/browser/walletIframe/csp-stylesheet.ts',
-  'packages/sdk-web/src/core/browser/walletIframe/events.ts',
-  'packages/sdk-web/src/core/browser/walletIframe/host-mode.ts',
-  'packages/sdk-web/src/core/browser/walletIframe/hostVariant.ts',
+  'packages/wallet/src/core/browser/walletIframe/csp-stylesheet.ts',
+  'packages/wallet/src/core/browser/walletIframe/events.ts',
+  'packages/wallet/src/core/browser/walletIframe/host-mode.ts',
+  'packages/wallet/src/core/browser/walletIframe/hostVariant.ts',
 ];
 
 function absolutePath(relativePath) {
@@ -116,12 +116,12 @@ function assert(condition, message) {
 
 function collectWebModulesRuntimeServiceViolations() {
   const allowedPrefixes = [
-    'packages/sdk-web/src/SeamsWeb/assembly/',
-    'packages/sdk-web/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts',
+    'packages/wallet/src/SeamsWeb/assembly/',
+    'packages/wallet/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts',
   ];
   const sourceFiles = [
-    ...listTypeScriptFiles('packages/sdk-web/src/SeamsWeb'),
-    ...listTypeScriptFiles('packages/sdk-web/src/SeamsWeb/walletIframe'),
+    ...listTypeScriptFiles('packages/wallet/src/SeamsWeb'),
+    ...listTypeScriptFiles('packages/wallet/src/SeamsWeb/walletIframe'),
   ].filter((relativePath) => !allowedPrefixes.some((prefix) => relativePath.startsWith(prefix)));
 
   return sourceFiles
@@ -131,7 +131,7 @@ function collectWebModulesRuntimeServiceViolations() {
 
 function collectSigningRuntimeEscapeViolations() {
   const violations = [];
-  const interfacesSource = readRepoSource('packages/sdk-web/src/SeamsWeb/signingSurface/types.ts');
+  const interfacesSource = readRepoSource('packages/wallet/src/SeamsWeb/signingSurface/types.ts');
   const contextBlock = sourceBlock(
     interfacesSource,
     /export type SeamsWebContext\s*=[^;]+;/m,
@@ -151,7 +151,7 @@ function collectSigningRuntimeEscapeViolations() {
   }
 
   const assemblySource = readRepoSource(
-    'packages/sdk-web/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts',
+    'packages/wallet/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts',
   );
   if (/^\s*readonly\s+signingRuntime\b/m.test(assemblySource)) {
     violations.push('BrowserSigningSurface exposes signingRuntime as a public readonly field');
@@ -161,12 +161,12 @@ function collectSigningRuntimeEscapeViolations() {
   }
 
   const sourceFiles = [
-    ...listTypeScriptFiles('packages/sdk-web/src/SeamsWeb'),
-    ...listTypeScriptFiles('packages/sdk-web/src/SeamsWeb/walletIframe'),
+    ...listTypeScriptFiles('packages/wallet/src/SeamsWeb'),
+    ...listTypeScriptFiles('packages/wallet/src/SeamsWeb/walletIframe'),
   ].filter(
     (relativePath) =>
-      !relativePath.startsWith('packages/sdk-web/src/SeamsWeb/assembly/') &&
-      relativePath !== 'packages/sdk-web/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts',
+      !relativePath.startsWith('packages/wallet/src/SeamsWeb/assembly/') &&
+      relativePath !== 'packages/wallet/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts',
   );
 
   for (const relativePath of sourceFiles) {
@@ -185,7 +185,7 @@ function collectSigningRuntimeEscapeViolations() {
 function collectInternalRegistrationMethodViolations() {
   const violations = [];
   const legacyRegistrationMethodPattern = new RegExp(`\\bregisterPasskey${'Internal'}\\b`);
-  const interfacesSource = readRepoSource('packages/sdk-web/src/SeamsWeb/publicApi/types.ts');
+  const interfacesSource = readRepoSource('packages/wallet/src/SeamsWeb/publicApi/types.ts');
   const registrationCapabilityBlock = sourceBlock(
     interfacesSource,
     /export interface RegistrationCapability\s*{[\s\S]*?^}/m,
@@ -198,7 +198,7 @@ function collectInternalRegistrationMethodViolations() {
 
   for (const relativePath of [
     seamsWebImplementationPath,
-    'packages/sdk-web/src/SeamsWeb/walletIframe/SeamsWebIframe.ts',
+    'packages/wallet/src/SeamsWeb/walletIframe/SeamsWebIframe.ts',
   ]) {
     if (legacyRegistrationMethodPattern.test(readRepoSource(relativePath))) {
       violations.push(`${relativePath}: references legacy internal registration method`);
@@ -230,7 +230,7 @@ function collectMethodNamespaceViolations(input) {
   const violations = [];
   const seamsWebSource = readRepoSource(seamsWebImplementationPath);
   const iframeFacadeSource = readRepoSource(
-    'packages/sdk-web/src/SeamsWeb/walletIframe/SeamsWebIframe.ts',
+    'packages/wallet/src/SeamsWeb/walletIframe/SeamsWebIframe.ts',
   );
 
   for (const methodName of input.methods) {
@@ -255,7 +255,7 @@ function collectMethodNamespaceViolations(input) {
 function collectEmailOtpNamespaceViolations() {
   const violations = [];
   const seamsWebSource = readRepoSource(seamsWebImplementationPath);
-  const interfacesSource = readRepoSource('packages/sdk-web/src/SeamsWeb/publicApi/types.ts');
+  const interfacesSource = readRepoSource('packages/wallet/src/SeamsWeb/publicApi/types.ts');
   const authCapabilityBlock = sourceBlock(
     interfacesSource,
     /export interface AuthCapability\s*{[\s\S]*?^}/m,
@@ -294,7 +294,7 @@ function collectEmailOtpNamespaceViolations() {
 function collectDeviceNamespaceViolations() {
   const violations = [];
   const seamsWebSource = readRepoSource(seamsWebImplementationPath);
-  const interfacesSource = readRepoSource('packages/sdk-web/src/SeamsWeb/publicApi/types.ts');
+  const interfacesSource = readRepoSource('packages/wallet/src/SeamsWeb/publicApi/types.ts');
   const recoveryCapabilityBlock = sourceBlock(
     interfacesSource,
     /export interface RecoveryCapability\s*{[\s\S]*?^}/m,
@@ -328,7 +328,7 @@ function collectPreferenceNamespaceViolations() {
   const violations = [];
   const seamsWebSource = readRepoSource(seamsWebImplementationPath);
   const iframeFacadeSource = readRepoSource(
-    'packages/sdk-web/src/SeamsWeb/walletIframe/SeamsWebIframe.ts',
+    'packages/wallet/src/SeamsWeb/walletIframe/SeamsWebIframe.ts',
   );
 
   for (const methodName of preferencesMethodFragments) {
@@ -354,9 +354,9 @@ function collectPreferenceNamespaceViolations() {
 
 function collectAdvancedExportViolations() {
   const violations = [];
-  const rootSource = readRepoSource('packages/sdk-web/src/index.ts');
-  const advancedSource = readRepoSource('packages/sdk-web/src/advanced.ts');
-  const packageJson = readRepoJson('packages/sdk-web/package.json');
+  const rootSource = readRepoSource('packages/wallet/src/index.ts');
+  const advancedSource = readRepoSource('packages/wallet/src/advanced.ts');
+  const packageJson = readRepoJson('packages/wallet/package.json');
 
   for (const symbol of advancedSymbols) {
     if (rootSource.includes(symbol)) {
@@ -374,19 +374,19 @@ function collectAdvancedExportViolations() {
 }
 
 function collectRpcFacadeImportViolations() {
-  return listTypeScriptFiles('packages/sdk-web/src/core/rpcClients')
+  return listTypeScriptFiles('packages/wallet/src/core/rpcClients')
     .filter((relativePath) => /from\s+['"]@\/SeamsWeb(?:['"/])/.test(readRepoSource(relativePath)))
     .map((relativePath) => `${relativePath}: imports SeamsWeb facade types`);
 }
 
 function collectLocalSignerClassViolations() {
   const sourceFiles = [
-    ...listTypeScriptFiles('packages/sdk-web/src/SeamsWeb/operations/near'),
-    ...listTypeScriptFiles('packages/sdk-web/src/SeamsWeb/operations/tempo'),
-    ...listTypeScriptFiles('packages/sdk-web/src/SeamsWeb/operations/evm'),
-    'packages/sdk-web/src/SeamsWeb/publicApi/near.ts',
-    'packages/sdk-web/src/SeamsWeb/publicApi/tempo.ts',
-    'packages/sdk-web/src/SeamsWeb/publicApi/evm.ts',
+    ...listTypeScriptFiles('packages/wallet/src/SeamsWeb/operations/near'),
+    ...listTypeScriptFiles('packages/wallet/src/SeamsWeb/operations/tempo'),
+    ...listTypeScriptFiles('packages/wallet/src/SeamsWeb/operations/evm'),
+    'packages/wallet/src/SeamsWeb/publicApi/near.ts',
+    'packages/wallet/src/SeamsWeb/publicApi/tempo.ts',
+    'packages/wallet/src/SeamsWeb/publicApi/evm.ts',
   ];
 
   return sourceFiles
@@ -399,8 +399,8 @@ function collectLocalSignerClassViolations() {
 function collectLifecycleNameViolations() {
   const violations = [];
   const sourceFiles = [
-    ...listTypeScriptFiles('packages/sdk-web/src/SeamsWeb'),
-    ...listTypeScriptFiles('packages/sdk-web/src/core/signingEngine/flows/registration'),
+    ...listTypeScriptFiles('packages/wallet/src/SeamsWeb'),
+    ...listTypeScriptFiles('packages/wallet/src/core/signingEngine/flows/registration'),
   ];
   for (const relativePath of sourceFiles) {
     const source = readRepoSource(relativePath);
@@ -412,7 +412,7 @@ function collectLifecycleNameViolations() {
   }
 
   const browserSurfaceSource = readRepoSource(
-    'packages/sdk-web/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts',
+    'packages/wallet/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts',
   );
   if (!/\basync\s+signEvmFamily\s*\(/.test(browserSurfaceSource)) {
     violations.push('BrowserSigningSurface missing signEvmFamily method');
@@ -421,7 +421,7 @@ function collectLifecycleNameViolations() {
     violations.push('BrowserSigningSurface reintroduced signTempo method');
   }
 
-  const tempoCapabilitySource = readRepoSource('packages/sdk-web/src/SeamsWeb/publicApi/tempo.ts');
+  const tempoCapabilitySource = readRepoSource('packages/wallet/src/SeamsWeb/publicApi/tempo.ts');
   if (!tempoCapabilitySource.includes('TempoSigningSurface')) {
     violations.push('tempo public API no longer uses TempoSigningSurface');
   }
@@ -440,15 +440,15 @@ function collectLifecycleNameViolations() {
 
 function collectBroadDependencyViolations() {
   const violations = [];
-  for (const relativePath of listTypeScriptFiles('packages/sdk-web/src/SeamsWeb')) {
+  for (const relativePath of listTypeScriptFiles('packages/wallet/src/SeamsWeb')) {
     if (/SeamsWebContext\['signingEngine'\]/.test(readRepoSource(relativePath))) {
       violations.push(`${relativePath}: uses broad SeamsWebContext signingEngine dependency`);
     }
   }
 
   const operationRoots = [
-    'packages/sdk-web/src/SeamsWeb/operations',
-    'packages/sdk-web/src/SeamsWeb/publicApi',
+    'packages/wallet/src/SeamsWeb/operations',
+    'packages/wallet/src/SeamsWeb/publicApi',
   ];
   for (const root of operationRoots) {
     for (const relativePath of listTypeScriptFiles(root)) {
@@ -462,10 +462,10 @@ function collectBroadDependencyViolations() {
   }
 
   const signingSurfaceTypes = readRepoSource(
-    'packages/sdk-web/src/SeamsWeb/signingSurface/types.ts',
+    'packages/wallet/src/SeamsWeb/signingSurface/types.ts',
   );
   const signingSurfacePorts = readRepoSource(
-    'packages/sdk-web/src/SeamsWeb/signingSurface/ports.ts',
+    'packages/wallet/src/SeamsWeb/signingSurface/ports.ts',
   );
   const aggregateMatch =
     signingSurfaceTypes.match(/export interface SeamsWebSigningSurface[\s\S]*?^}/m)?.[0] ?? '';
@@ -502,14 +502,14 @@ function collectRawContextViolations() {
   const violations = [];
   const allowedFiles = [
     seamsWebImplementationPath,
-    'packages/sdk-web/src/SeamsWeb/signingSurface/types.ts',
+    'packages/wallet/src/SeamsWeb/signingSurface/types.ts',
   ];
   const rawContextPatterns = [
     /\bcontext\s*:\s*SeamsWebContext\b/,
     /\bgetContext\s*:\s*\(\)\s*=>\s*SeamsWebContext\b/,
   ];
 
-  for (const relativePath of listTypeScriptFiles('packages/sdk-web/src/SeamsWeb')) {
+  for (const relativePath of listTypeScriptFiles('packages/wallet/src/SeamsWeb')) {
     if (allowedFiles.includes(relativePath)) continue;
     const source = readRepoSource(relativePath);
     for (const pattern of rawContextPatterns) {
@@ -529,23 +529,23 @@ function collectImportDirectionViolations() {
   const violations = [];
 
   violations.push(
-    ...listTypeScriptFiles('packages/sdk-web/src/core')
+    ...listTypeScriptFiles('packages/wallet/src/core')
       .filter((relativePath) =>
         /from\s+['"](?:@\/web\/|\.\.?\/.*web\/)/.test(readRepoSource(relativePath)),
       )
       .map((relativePath) => `${relativePath}: core imports web layer`),
   );
   violations.push(
-    ...listTypeScriptFiles('packages/sdk-web/src/SeamsWeb/operations')
+    ...listTypeScriptFiles('packages/wallet/src/SeamsWeb/operations')
       .filter((relativePath) =>
         /from\s+['"](?:@\/SeamsWeb\/facade\/|\.\.?\/.*facade\/)/.test(readRepoSource(relativePath)),
       )
       .map((relativePath) => `${relativePath}: operations import facade layer`),
   );
   violations.push(
-    ...listTypeScriptFiles('packages/sdk-web/src/SeamsWeb/signingSurface')
+    ...listTypeScriptFiles('packages/wallet/src/SeamsWeb/signingSurface')
       .filter(
-        (relativePath) => relativePath !== 'packages/sdk-web/src/SeamsWeb/signingSurface/types.ts',
+        (relativePath) => relativePath !== 'packages/wallet/src/SeamsWeb/signingSurface/types.ts',
       )
       .filter((relativePath) =>
         /from\s+['"](?:@\/SeamsWeb\/publicApi\/|\.\.?\/.*publicApi\/)/.test(
@@ -555,7 +555,7 @@ function collectImportDirectionViolations() {
       .map((relativePath) => `${relativePath}: signing surface imports public API implementation`),
   );
   violations.push(
-    ...listTypeScriptFiles('packages/sdk-web/src/SeamsWeb/publicApi')
+    ...listTypeScriptFiles('packages/wallet/src/SeamsWeb/publicApi')
       .filter((relativePath) =>
         /from\s+['"](?:@\/SeamsWeb\/assembly\/|\.\.?\/.*assembly\/)/.test(
           readRepoSource(relativePath),
@@ -564,11 +564,11 @@ function collectImportDirectionViolations() {
       .map((relativePath) => `${relativePath}: public API imports assembly layer`),
   );
 
-  if (fs.existsSync(absolutePath('packages/sdk-web/src/core/WalletIframe'))) {
-    violations.push('packages/sdk-web/src/core/WalletIframe exists');
+  if (fs.existsSync(absolutePath('packages/wallet/src/core/WalletIframe'))) {
+    violations.push('packages/wallet/src/core/WalletIframe exists');
   }
-  if (!fs.existsSync(absolutePath('packages/sdk-web/src/SeamsWeb/walletIframe'))) {
-    violations.push('packages/sdk-web/src/SeamsWeb/walletIframe missing');
+  if (!fs.existsSync(absolutePath('packages/wallet/src/SeamsWeb/walletIframe'))) {
+    violations.push('packages/wallet/src/SeamsWeb/walletIframe missing');
   }
 
   return violations;
@@ -577,7 +577,7 @@ function collectImportDirectionViolations() {
 function collectCoreWalletIframePrimitiveViolations() {
   const violations = [];
   const primitiveFiles = listTypeScriptFiles(
-    'packages/sdk-web/src/core/browser/walletIframe',
+    'packages/wallet/src/core/browser/walletIframe',
   ).sort();
   if (JSON.stringify(primitiveFiles) !== JSON.stringify(allowedCoreWalletIframePrimitiveFiles)) {
     violations.push(
@@ -608,8 +608,8 @@ function collectCoreWalletIframePrimitiveViolations() {
 function collectAuthMethodFolderViolations() {
   const violations = [];
   for (const relativePath of [
-    'packages/sdk-web/src/SeamsWeb/operations/authMethods/emailOtp',
-    'packages/sdk-web/src/SeamsWeb/operations/authMethods/passkey',
+    'packages/wallet/src/SeamsWeb/operations/authMethods/emailOtp',
+    'packages/wallet/src/SeamsWeb/operations/authMethods/passkey',
   ]) {
     if (!fs.existsSync(absolutePath(relativePath))) {
       violations.push(`${relativePath}: missing auth method root`);
@@ -617,9 +617,9 @@ function collectAuthMethodFolderViolations() {
   }
 
   for (const relativePath of [
-    'packages/sdk-web/src/SeamsWeb/operations/emailOtp',
-    'packages/sdk-web/src/SeamsWeb/operations/registration/emailOtpRegistrationAuthority.ts',
-    'packages/sdk-web/src/SeamsWeb/operations/registration/passkeyRegistrationAuthority.ts',
+    'packages/wallet/src/SeamsWeb/operations/emailOtp',
+    'packages/wallet/src/SeamsWeb/operations/registration/emailOtpRegistrationAuthority.ts',
+    'packages/wallet/src/SeamsWeb/operations/registration/passkeyRegistrationAuthority.ts',
   ]) {
     if (fs.existsSync(absolutePath(relativePath))) {
       violations.push(`${relativePath}: deleted auth method path returned`);
@@ -630,7 +630,7 @@ function collectAuthMethodFolderViolations() {
     /from\s+['"]@\/SeamsWeb\/operations\/emailOtp\//,
     /from\s+['"]@\/SeamsWeb\/operations\/registration\/(?:emailOtpRegistrationAuthority|passkeyRegistrationAuthority)['"]/,
   ];
-  for (const relativePath of listTypeScriptFiles('packages/sdk-web/src/SeamsWeb')) {
+  for (const relativePath of listTypeScriptFiles('packages/wallet/src/SeamsWeb')) {
     const source = readRepoSource(relativePath);
     for (const pattern of forbiddenImportPatterns) {
       if (pattern.test(source)) {
@@ -645,21 +645,21 @@ function collectAuthMethodFolderViolations() {
 function collectDeletedForwarderViolations() {
   const violations = [];
   for (const relativePath of [
-    'packages/sdk-web/src/SeamsWeb/publicApi/keys.ts',
-    'packages/sdk-web/src/SeamsWeb/publicApi/registration.ts',
-    'packages/sdk-web/src/SeamsWeb/publicApi/walletIframe.ts',
+    'packages/wallet/src/SeamsWeb/publicApi/keys.ts',
+    'packages/wallet/src/SeamsWeb/publicApi/registration.ts',
+    'packages/wallet/src/SeamsWeb/publicApi/walletIframe.ts',
   ]) {
     if (fs.existsSync(absolutePath(relativePath))) {
       violations.push(`${relativePath}: pure public API forwarder returned`);
     }
   }
 
-  const createPublicApiPath = 'packages/sdk-web/src/SeamsWeb/publicApi/createPublicApi.ts';
+  const createPublicApiPath = 'packages/wallet/src/SeamsWeb/publicApi/createPublicApi.ts';
   if (!fs.existsSync(absolutePath(createPublicApiPath))) {
     violations.push(`${createPublicApiPath}: missing`);
   }
-  if (fs.existsSync(absolutePath('packages/sdk-web/src/SeamsWeb/createPublicApi.ts'))) {
-    violations.push('packages/sdk-web/src/SeamsWeb/createPublicApi.ts: deleted path returned');
+  if (fs.existsSync(absolutePath('packages/wallet/src/SeamsWeb/createPublicApi.ts'))) {
+    violations.push('packages/wallet/src/SeamsWeb/createPublicApi.ts: deleted path returned');
   }
 
   return violations;
@@ -667,7 +667,7 @@ function collectDeletedForwarderViolations() {
 
 function collectNativeFacadeViolations() {
   const violations = [];
-  const packageJson = readRepoJson('packages/sdk-web/package.json');
+  const packageJson = readRepoJson('packages/wallet/package.json');
   if (packageJson.exports['./embedded'] !== undefined)
     violations.push('package exports ./embedded');
   if (packageJson.typesVersions?.['*']?.embedded !== undefined) {
@@ -678,8 +678,8 @@ function collectNativeFacadeViolations() {
     violations.push('package keyword embedded returned');
 
   for (const relativePath of [
-    'packages/sdk-web/src/embedded',
-    'packages/sdk-web/src/embedded.ts',
+    'packages/wallet/src/embedded',
+    'packages/wallet/src/embedded.ts',
   ]) {
     if (fs.existsSync(absolutePath(relativePath))) {
       violations.push(`${relativePath}: TypeScript native facade returned`);
@@ -687,13 +687,13 @@ function collectNativeFacadeViolations() {
   }
 
   const forbiddenNativeFacadeNamePattern = /(?:SeamsEmbedded|EmbeddedSigningSurface)/;
-  for (const relativePath of listTypeScriptFiles('packages/sdk-web/src')) {
+  for (const relativePath of listTypeScriptFiles('packages/wallet/src')) {
     if (forbiddenNativeFacadeNamePattern.test(relativePath)) {
       violations.push(`${relativePath}: fake native facade file`);
     }
   }
 
-  const runtimePortsSource = readRepoSource('packages/sdk-web/src/core/platform/runtime.ts');
+  const runtimePortsSource = readRepoSource('packages/wallet/src/core/platform/runtime.ts');
   if (!runtimePortsSource.includes("export type RuntimePortsKind = 'browser';")) {
     violations.push('runtime ports no longer restrict RuntimePortsKind to browser');
   }
@@ -703,7 +703,7 @@ function collectNativeFacadeViolations() {
     }
   }
 
-  const runtimeEntrySource = readRepoSource('packages/sdk-web/src/runtime.ts');
+  const runtimeEntrySource = readRepoSource('packages/wallet/src/runtime.ts');
   if (runtimeEntrySource.includes('EmbeddedPlatformRuntime')) {
     violations.push('runtime entry reintroduced EmbeddedPlatformRuntime');
   }

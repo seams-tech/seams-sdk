@@ -7,13 +7,13 @@ import { parseEcdsaAdditiveLaneHolderRoundV1 } from '../../packages/shared-ts/sr
 import type {
   LaneLifecycleAuthorizationPortV1,
   LaneLifecycleCurveExecutionPortsV1,
-} from '../../packages/sdk-server-ts/src/core/signingLanes/LaneLifecycleApplicationService';
+} from '../../packages/wallet-server/src/core/signingLanes/LaneLifecycleApplicationService';
 import {
   CloudflareEd25519LaneProtocolTransportV1,
   CloudflareLaneProtocolCommitterV1,
   type CloudflareLaneServiceBindingV1,
   type Ed25519YaoLaneBindingResolverPortV1,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/signingLanes/cloudflareLaneProtocolCommitter';
+} from '../../packages/wallet-server/src/router/cloudflare/signingLanes/cloudflareLaneProtocolCommitter';
 import {
   buildR102EcdsaLaneJob,
   buildR102LaneJob,

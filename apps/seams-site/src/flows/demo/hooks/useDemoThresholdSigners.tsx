@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { useSeams } from '@seams/sdk/react';
+import { useSeams } from '@seams/wallet/react';
 
 import type { FrontendConfig } from '@/config';
 import { isTempoAlphaUsdFeeToken } from '../demoEvmHelpers';

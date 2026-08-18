@@ -1,6 +1,6 @@
 # Seams SDK
 
-Monorepo for `@seams/sdk`: an embedded passkey wallet SDK and
+Monorepo for `@seams/wallet`: an embedded passkey wallet SDK and
 self-hostable signing infrastructure.
 
 ## Getting Started
@@ -34,9 +34,9 @@ pnpm router
 - `apps/seams-site`: local app, wallet origin, and Caddy config.
 - `apps/web-server`: Gateway runtime.
 - `apps/docs`: documentation site.
-- `packages/sdk-web`: browser SDK package.
-- `packages/sdk-server-ts`: server-side Router helpers.
-- `packages/sdk-web/src/core/runtime`: shared runtime composition code.
+- `packages/wallet`: browser SDK package.
+- `packages/wallet-server`: server-side Router helpers.
+- `packages/wallet/src/core/runtime`: shared runtime composition code.
 - `packages/shared-ts`: shared TypeScript utilities.
 - `crates`: Rust protocol, signer, HSS, and Router A/B crates.
 - `wasm`: signer WASM packages.

@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
-import { walletSessionRefFromSession } from '@seams/sdk/advanced';
-import { SigningEventPhase, type SigningFlowEvent, useSeams } from '@seams/sdk/react';
+import { walletSessionRefFromSession } from '@seams/wallet/advanced';
+import { SigningEventPhase, type SigningFlowEvent, useSeams } from '@seams/wallet/react';
 import { toast } from 'sonner';
 
 import { FRONTEND_CONFIG } from '@/config';

@@ -33,10 +33,10 @@ import type {
   ConsoleEmailDispatchResult,
   ConsoleEmailProvider,
 } from '@seams-internal/console-server/email/types';
-import type { D1DatabaseLike } from '@seams/sdk-server/cloud-host';
-import type { ScheduledHandler } from '@seams/sdk-server/cloud-host';
-import type { RouterLogger } from '@seams/sdk-server/cloud-host';
-import { base64UrlDecode, coerceRouterLogger } from '@seams/sdk-server/cloud-host';
+import type { D1DatabaseLike } from '@seams/wallet-server/cloud-host';
+import type { ScheduledHandler } from '@seams/wallet-server/cloud-host';
+import type { RouterLogger } from '@seams/wallet-server/cloud-host';
+import { base64UrlDecode, coerceRouterLogger } from '@seams/wallet-server/cloud-host';
 import type { RouterApiCloudflareConsoleWorkerEnv } from './cloudflareConsole.types';
 
 type BillingMonthlyFinalizationRunner = (

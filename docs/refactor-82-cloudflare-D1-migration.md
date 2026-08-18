@@ -295,13 +295,13 @@ Line-count cleanup baseline:
       route-scope exclusions. The D1 factory now returns the concrete
       `CloudflareD1RouterApiAuthMetadataService` directly, TypeScript proves it
       satisfies `CloudflareRouterApiAuthService`, and
-      `packages/sdk-server-ts/src/router/cloudflare/disabledRelayAuthService.ts`
+      `packages/wallet-server/src/router/cloudflare/disabledRelayAuthService.ts`
       was deleted. Line count: `d1RouterApiAuthService.ts` dropped from 12,790 to
       12,722 lines and deleting `disabledRelayAuthService.ts` removed another 147
       lines, a net-negative 215-line cleanup.
 - [x] Email OTP rate-limit D1 store split recorded: rate-limit SQL moved from
       `d1RouterApiAuthService.ts` into
-      `packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpRateLimitStore.ts`.
+      `packages/wallet-server/src/router/cloudflare/d1EmailOtpRateLimitStore.ts`.
       The same-slice deletion pass removed the service-local
       `consumeEmailOtpRateLimit` and `consumeEmailOtpRateLimitKey` helpers, leaving
       the Router API service with orchestration-only calls to `emailOtpRateLimits`.
@@ -311,7 +311,7 @@ Line-count cleanup baseline:
 - [x] Email OTP enrollment/auth-state D1 store split recorded: wallet-enrollment,
       auth-state, and canonical signer-wallet existence SQL moved from
       `d1RouterApiAuthService.ts` into
-      `packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpEnrollmentStore.ts`.
+      `packages/wallet-server/src/router/cloudflare/d1EmailOtpEnrollmentStore.ts`.
       The same-slice deletion pass removed the service-local
       `readEmailOtpWalletEnrollment`, `readEmailOtpWalletEnrollmentByProviderUserId`,
       `signerWalletExists`, `deleteEmailOtpWalletEnrollment`,
@@ -324,7 +324,7 @@ Line-count cleanup baseline:
 - [x] Email OTP recovery-escrow D1 store split recorded: recovery-wrapped
       enrollment escrow list/read/consume/upsert SQL moved from
       `d1RouterApiAuthService.ts` into
-      `packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpRecoveryEscrowStore.ts`.
+      `packages/wallet-server/src/router/cloudflare/d1EmailOtpRecoveryEscrowStore.ts`.
       The same-slice deletion pass removed the service-local
       `listEmailOtpRecoveryEscrowsForEnrollment`, `readEmailOtpRecoveryEscrow`,
       `consumeEmailOtpRecoveryEscrow`, `putEmailOtpRecoveryEscrows`, and
@@ -335,7 +335,7 @@ Line-count cleanup baseline:
 - [x] Email OTP challenge/unlock D1 store split recorded: login/registration/device
       recovery challenge SQL and unlock-challenge SQL moved from
       `d1RouterApiAuthService.ts` into
-      `packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpChallengeStore.ts`.
+      `packages/wallet-server/src/router/cloudflare/d1EmailOtpChallengeStore.ts`.
       The same-slice deletion pass removed the service-local
       `pruneExpiredEmailOtpChallenges`, `readEmailOtpChallenge`,
       `findLatestActiveEmailOtpChallenge`, `countActiveEmailOtpChallenges`,
@@ -353,7 +353,7 @@ Line-count cleanup baseline:
       319 lines, and `d1EmailOtpDeliveryRuntime.ts` is 61 lines.
 - [x] NEAR public-key D1 store split recorded: tenant-scoped
       `signer_near_public_keys` listing moved from `d1RouterApiAuthService.ts` into
-      `packages/sdk-server-ts/src/router/cloudflare/d1NearPublicKeyStore.ts`. The
+      `packages/wallet-server/src/router/cloudflare/d1NearPublicKeyStore.ts`. The
       same-slice deletion pass removed the direct service-local NEAR public-key SQL
       from `listNearPublicKeysForUser`; the Router API service keeps only request
       validation and response projection. Line count: `d1RouterApiAuthService.ts`
@@ -362,7 +362,7 @@ Line-count cleanup baseline:
 - [x] D1 identity store Worker-safe leaf split recorded: D1 identity-link and
       app-session-version persistence moved out of the mixed
       `core/IdentityStore.ts` module into
-      `packages/sdk-server-ts/src/core/d1IdentityStore.ts`, and the Cloudflare D1
+      `packages/wallet-server/src/core/d1IdentityStore.ts`, and the Cloudflare D1
       router-api now imports that D1 leaf directly. The same-slice deletion pass removed
       the D1 schema/options/class/helpers from the mixed identity factory module;
       `core/IdentityStore.ts` is now 1,386 lines, `core/d1IdentityStore.ts` is
@@ -528,8 +528,8 @@ new_sqlite_classes = ["ThresholdStoreDurableObject"]
 Local commands:
 
 ```bash
-pnpm --dir packages/sdk-server-ts run d1:local:prepare
-pnpm --dir packages/sdk-server-ts run d1:local:dev
+pnpm --dir packages/wallet-server run d1:local:prepare
+pnpm --dir packages/wallet-server run d1:local:dev
 curl http://127.0.0.1:9090/readyz
 curl http://127.0.0.1:9090/console/readyz
 curl http://127.0.0.1:9090/router-api/healthz
@@ -543,7 +543,7 @@ the SDK package and mirrors the production binding names: `CONSOLE_DB`,
 Inspection:
 
 - Open local SQLite files under
-  `packages/sdk-server-ts/.wrangler/state/seams-d1` in TablePlus with the
+  `packages/wallet-server/.wrangler/state/seams-d1` in TablePlus with the
   SQLite driver.
 - Treat TablePlus as read-only.
 - Remote D1 has no TablePlus TCP endpoint. Use `wrangler d1 execute`,
@@ -628,13 +628,13 @@ Current and former Postgres coupling is concentrated in:
 - Former `packages/console-server-ts/src/shared/postgresTenantContext.ts`
   and `postgresNormalize.ts` shared helpers. These were deleted with the partial
   console Postgres adapters.
-- Former `packages/sdk-server-ts/src/storage/postgres.ts` generic pool/read
+- Former `packages/wallet-server/src/storage/postgres.ts` generic pool/read
   helper. This was deleted during Phase 7 so Postgres remains a typed future
   full-family route contract, not a partial public driver subpath.
-- `packages/sdk-server-ts/src/core/**/*Store.ts`
-- `packages/sdk-server-ts/src/core/ThresholdService/stores/*Store.ts`
-- `packages/sdk-server-ts/src/router/routerAbNormalSigningAdmissionStore.ts`
-- `packages/sdk-server-ts/src/threshold/session/signingSessionSeal/idempotencyBackends.ts`
+- `packages/wallet-server/src/core/**/*Store.ts`
+- `packages/wallet-server/src/core/ThresholdService/stores/*Store.ts`
+- `packages/wallet-server/src/router/routerAbNormalSigningAdmissionStore.ts`
+- `packages/wallet-server/src/threshold/session/signingSessionSeal/idempotencyBackends.ts`
 
 ### Console Table Ownership
 
@@ -1058,12 +1058,12 @@ D1 reliability plan:
   cutover.
 - Capture `wrangler d1 time-travel info DB_NAME` bookmarks before migrations,
   imports, tenant moves, route switches, and destructive maintenance.
-- Run `pnpm --dir packages/sdk-server-ts run d1:local:restore:drill` before
+- Run `pnpm --dir packages/wallet-server run d1:local:restore:drill` before
   staging imports or D1 migration changes. This local drill backs up the
   Miniflare console and signer SQLite databases, restores SQL dumps into fresh
   SQLite files, verifies `PRAGMA integrity_check`, validates the expected table
   counts, and writes an ignored manifest under
-  `packages/sdk-server-ts/.wrangler/d1-local-restore-drills`.
+  `packages/wallet-server/.wrangler/d1-local-restore-drills`.
 - Keep weekly exports of `CONSOLE_DB` and `SIGNER_DB` in R2.
 - Add weekly exports for `TENANT_ROUTE_DB` after the registry exists.
 - Add weekly exports for every dedicated tenant D1.
@@ -1311,7 +1311,7 @@ Completed:
       `executionService`, while `kind: 'prepare_only'` carries only the auth
       service and omits the `/recover-email` route. The D1 local worker smoke
       test proves the recovery route is absent. Validation passed:
-      `pnpm --dir packages/sdk-server-ts type-check`,
+      `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
 unit/router.relayRouteSurface.unit.test.ts
 unit/router.routeDefinitions.unit.test.ts --reporter=line`,
@@ -1320,7 +1320,7 @@ relayer/cloudflare-router.test.ts relayer/express-router.test.ts --grep
 "recover-email" --reporter=line`,
       `pnpm --dir tests exec playwright test -c playwright.relayer.config.ts
 relayer/email-recovery.prepare.test.ts --reporter=line`,
-      `pnpm --dir packages/sdk-server-ts build`,
+      `pnpm --dir packages/wallet-server build`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
 unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`, and
       `git diff --check`.
@@ -1462,9 +1462,9 @@ Work:
 - [x] Keep the default SDK local console and sponsored-gas Router API path on
       Wrangler/Miniflare D1 and local Durable Object storage for staging-required
       flows.
-- [x] Use `pnpm --dir packages/sdk-server-ts run d1:local:prepare` for local
+- [x] Use `pnpm --dir packages/wallet-server run d1:local:prepare` for local
       migrations plus table smoke, and
-      `pnpm --dir packages/sdk-server-ts run d1:local:dev` for Wrangler dev.
+      `pnpm --dir packages/wallet-server run d1:local:dev` for Wrangler dev.
 - [x] Use `GET /readyz` on the local Worker as the exact readiness gate. It must
       report `backend: "cloudflare_d1_do"`, 40 console tables, 21 signer tables,
       and a configured Durable Object admission reservation.
@@ -1481,10 +1481,10 @@ Work:
 - [x] Keep Docker Postgres available only for legacy tests and unfinished
       non-staging paths while those paths are removed from the default workflow.
 - [x] Reset clean local state by deleting
-      `packages/sdk-server-ts/.wrangler/state/seams-d1`; add a fixture seed/import
+      `packages/wallet-server/.wrangler/state/seams-d1`; add a fixture seed/import
       command only after the staging fixture format is chosen.
 - [x] Document read-only TablePlus inspection of local SQLite files under
-      `packages/sdk-server-ts/.wrangler/state/seams-d1`.
+      `packages/wallet-server/.wrangler/state/seams-d1`.
 - [x] Add automated local Worker workflow smoke coverage for dashboard readiness,
       signer passkey-options flow, idempotent support-credit billing, billing
       overview/activity, sponsored execution history, and reconciliation using
@@ -1494,7 +1494,7 @@ Work:
       mounting with `SPONSORED_EVM_EXECUTORS_JSON`, and reconciliation using only
       local D1, local Durable Object storage, and local secret/KMS configuration.
 - [x] Run the full local workflow smoke from a clean
-      `packages/sdk-server-ts/.wrangler/state/seams-d1` state and record the exact
+      `packages/wallet-server/.wrangler/state/seams-d1` state and record the exact
       commands plus expected responses.
 - [x] Verify the local workflow does not require Docker Postgres, `POSTGRES_URL`,
       `CONSOLE_POSTGRES_URL`, or Postgres migration scripts.
@@ -1520,19 +1520,19 @@ Exit criteria:
 
 Validation evidence:
 
-- [x] `pnpm --dir packages/sdk-server-ts run d1:local:prepare` passed with
+- [x] `pnpm --dir packages/wallet-server run d1:local:prepare` passed with
       Wrangler `4.105.0`, applying local D1 migrations and confirming 40
       console tables plus 21 signer tables. Re-run on June 29, 2026: no pending
       local migrations, console smoke returned `table_count: 40`, and signer smoke
       returned `table_count: 21`.
-- [x] `pnpm --dir packages/sdk-server-ts run d1:local:dev` starts the local
+- [x] `pnpm --dir packages/wallet-server run d1:local:dev` starts the local
       Worker after `packages/console-server-ts/wrangler.d1-local.toml` enables
       `nodejs_compat`, with local `CONSOLE_DB`, `SIGNER_DB`, and `THRESHOLD_STORE`
       bindings.
-- [x] `packages/sdk-server-ts` owns its local D1 CLI dependency through
-      `wrangler@4.105.0`, and `pnpm --dir packages/sdk-server-ts run d1:local:dev`
+- [x] `packages/wallet-server` owns its local D1 CLI dependency through
+      `wrangler@4.105.0`, and `pnpm --dir packages/wallet-server run d1:local:dev`
       starts without the previous compatibility-date fallback warning.
-- [x] `packages/sdk-server-ts/package.json` orders `types` before runtime export
+- [x] `packages/wallet-server/package.json` orders `types` before runtime export
       conditions, so Wrangler dev starts without unreachable-export-condition
       warnings.
 - [x] Live local HTTP smoke returned `200` for `GET /readyz`, reporting
@@ -1556,10 +1556,10 @@ dashboard" --reporter=line` passed. The smoke applies the D1 console and
       deterministic `SPONSORED_EVM_EXECUTORS_JSON` entry. The key is documented as
       a dev smoke key and must never be funded.
 - [x] Clean-state live local workflow smoke passed after deleting
-      `packages/sdk-server-ts/.wrangler/state/seams-d1`, running
-      `env -u POSTGRES_URL -u CONSOLE_POSTGRES_URL pnpm --dir packages/sdk-server-ts
+      `packages/wallet-server/.wrangler/state/seams-d1`, running
+      `env -u POSTGRES_URL -u CONSOLE_POSTGRES_URL pnpm --dir packages/wallet-server
 run d1:local:prepare`, and starting `env -u POSTGRES_URL -u
-CONSOLE_POSTGRES_URL pnpm --dir packages/sdk-server-ts run d1:local:dev`.
+CONSOLE_POSTGRES_URL pnpm --dir packages/wallet-server run d1:local:dev`.
       HTTP smoke results: `GET /readyz` returned `200` with
       `backend: "cloudflare_d1_do"`, 40 console tables, 21 signer tables, and a
       Durable Object admission reservation; `GET /console/readyz` returned `200`;
@@ -1607,7 +1607,7 @@ Work:
 
 Exit criteria:
 
-- [x] `pnpm --dir packages/sdk-server-ts type-check` passes.
+- [x] `pnpm --dir packages/wallet-server type-check` passes.
 - [x] Local D1 adapter contract tests pass.
 - [x] Local Wrangler/Miniflare smoke proves all required D1 tables exist.
 - [x] Durable Object coordination tests pass for hot signer state.
@@ -1662,7 +1662,7 @@ tenant scope" --reporter=line` passed, proving the D1 Router API auth service re
       playwright.unit.config.ts unit/authService.ecdsaKeyIdentityInventory.unit.test.ts
       --reporter=line` passed after deleting the stale expectation that ECDSA
       threshold key metadata lookup receives `rpId`.
-- [x] `pnpm --dir packages/sdk-web type-check` passes after updating Refactor 82
+- [x] `pnpm --dir packages/wallet type-check` passes after updating Refactor 82
       D1/DO test fixtures to the current branded wallet/RP ID types, current
       D1 batch result shape, required registration-prepare route service branch,
       D1 observability ingestion metric contract, and sponsorship pricing quote
@@ -1772,8 +1772,8 @@ Work:
   playwright.unit.config.ts
   unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`
       with 43 tests, and `node --check` for
-      `packages/sdk-server-ts/scripts/d1-staging-*.mjs` plus
-      `packages/sdk-server-ts/scripts/d1-local-backup-restore-drill.mjs`. This is
+      `packages/wallet-server/scripts/d1-staging-*.mjs` plus
+      `packages/wallet-server/scripts/d1-local-backup-restore-drill.mjs`. This is
       pre-staging evidence only; the live Phase 6 tasks below stay open until the
       real staging Wrangler configs replace placeholder resource IDs and remote
       manifests are captured.
@@ -1811,7 +1811,7 @@ Exit criteria:
 
 Phase 6 staging-readiness decisions:
 
-- The staging preflight command is `pnpm --dir packages/sdk-server-ts run
+- The staging preflight command is `pnpm --dir packages/wallet-server run
 d1:staging:check`. It checks both
   `packages/console-server-ts/wrangler.d1-staging-console.toml` and
   `packages/console-server-ts/wrangler.d1-staging-router-api.toml`. Copy the matching
@@ -1841,7 +1841,7 @@ d1:staging:check`. It checks both
   routes create and approve metadata only; signer custody execution stays behind
   the Router API/signer profile.
 - The live Phase 6 deployment log is generated only after static readiness passes:
-  `pnpm --dir packages/sdk-server-ts run d1:staging:runbook -- --output
+  `pnpm --dir packages/wallet-server run d1:staging:runbook -- --output
 ../../docs/deployment/refactor-82-staging-log.md --r2-bucket
 <staging-r2-backup-bucket> --console-origin <https-console-staging-origin>
 --router-api-origin <https-router-api-staging-origin>`. The generator fails closed if the
@@ -1852,20 +1852,20 @@ d1:staging:check`. It checks both
   capture, fixture import, Worker deploy, staging smoke, and R2 export/restore
   drills.
 - Resource inventory capture uses
-  `pnpm --dir packages/sdk-server-ts run d1:staging:resources`. Run `--mode
+  `pnpm --dir packages/wallet-server run d1:staging:resources`. Run `--mode
 dry-run` first to record config-derived resource IDs and exact remote metadata
   commands, then `--mode remote` to record `wrangler d1 info --json` and
   `wrangler deployments status --json` output. Secrets Store evidence remains
   metadata-only; the inventory records secret names and binding names, never
   secret values.
 - Staging D1 migration apply uses
-  `pnpm --dir packages/sdk-server-ts run d1:staging:migrate`. The first run must
+  `pnpm --dir packages/wallet-server run d1:staging:migrate`. The first run must
   be `--mode dry-run` to record the migration file hashes and exact Wrangler
   list/apply/list commands. The live run uses `--mode remote`; apply commands run
   with `CI=true` so Wrangler skips the interactive confirmation path while still
   taking its automatic D1 backup after apply.
 - Time Travel bookmark capture uses
-  `pnpm --dir packages/sdk-server-ts run d1:staging:bookmark`. For each purpose,
+  `pnpm --dir packages/wallet-server run d1:staging:bookmark`. For each purpose,
   run `--mode dry-run` first, then `--mode remote`: use
   `--purpose before_fixture_import` before fixture import and
   `--purpose before_route_switch` before route changes. The script captures console
@@ -1873,14 +1873,14 @@ dry-run` first to record config-derived resource IDs and exact remote metadata
   files under `.wrangler/d1-staging-bookmarks`, and records a manifest for the
   deployment log.
 - Hosted signer KEK metadata checks use
-  `pnpm --dir packages/sdk-server-ts run d1:staging:kek-check`. Run
+  `pnpm --dir packages/wallet-server run d1:staging:kek-check`. Run
   `--mode dry-run` first, then `--mode remote`. The script parses
   `SIGNING_ROOT_KEK_IDS` and `[[secrets_store_secrets]]` from the Router API
   staging config, lists remote Cloudflare Secrets Store metadata, and records only
   KEK ids, binding names, store IDs, secret names, and command status. Do not
   retrieve or record secret values in the Phase 6 deployment log.
 - Staging D1 fixture import uses
-  `pnpm --dir packages/sdk-server-ts run d1:staging:import-fixtures`. The first
+  `pnpm --dir packages/wallet-server run d1:staging:import-fixtures`. The first
   run must be `--mode dry-run` to produce the manifest and exact Wrangler import
   commands; the live run uses `--mode remote` after the pre-import Time Travel
   bookmarks are recorded. Fixture SQL is validated against table allowlists
@@ -1891,7 +1891,7 @@ dry-run` first to record config-derived resource IDs and exact remote metadata
   admin tool. Remote mode fails closed on the first nonzero Wrangler command
   status.
 - Staging readiness smoke uses
-  `pnpm --dir packages/sdk-server-ts run d1:staging:smoke`. Run `--mode dry-run`
+  `pnpm --dir packages/wallet-server run d1:staging:smoke`. Run `--mode dry-run`
   first, then `--mode remote`, with `--console-origin
 <https-console-staging-origin>` and `--router-api-origin
 <https-router-api-staging-origin>`. The console Worker does not expose a root `/readyz`;
@@ -1902,14 +1902,14 @@ dry-run` first to record config-derived resource IDs and exact remote metadata
   requires HTTPS console and Router API origins; HTTP origins are dry-run/local
   planning only.
 - Read-only D1 reconciliation uses
-  `pnpm --dir packages/sdk-server-ts run d1:staging:reconcile`. Run
+  `pnpm --dir packages/wallet-server run d1:staging:reconcile`. Run
   `--mode dry-run` first to record the exact remote D1 `SELECT` commands, then
   `--mode remote` after staging smoke passes. The script must return zero rows
   for every mismatch query before dashboard reconciliation and sponsored billing
   are considered clean. The signer checks verify persisted sealed-share KEK and
   lifecycle integrity only.
 - Fixture-backed signer custody drills use
-  `pnpm --dir packages/sdk-server-ts run d1:staging:signer-custody`. Run
+  `pnpm --dir packages/wallet-server run d1:staging:signer-custody`. Run
   `--mode dry-run` first with `--router-api-origin` and `--export-share-fixture
 ./staging/fixtures/ecdsa-export-share.json`, plus
   `--missing-kek-fixture ./staging/fixtures/ecdsa-export-share-missing-kek.json`,
@@ -1931,15 +1931,15 @@ SEAMS_STAGING_MISSING_KEK_WALLET_SESSION_JWT`,
   verifier requires `ecdsa_export_share_missing_kek_fail_closed` in the signer
   custody manifest.
 - Remote R2 restore drills use
-  `pnpm --dir packages/sdk-server-ts run d1:staging:r2-restore-drill`. Run
+  `pnpm --dir packages/wallet-server run d1:staging:r2-restore-drill`. Run
   `--mode dry-run` first to record timestamped export paths, R2 object keys, and
   restore database names, then `--mode remote` to perform the D1 export, R2
   upload/download, restore database import, and integrity checks. The script
   writes its manifest under
-  `packages/sdk-server-ts/.wrangler/d1-staging-r2-restore-drills`. Remote mode
+  `packages/wallet-server/.wrangler/d1-staging-r2-restore-drills`. Remote mode
   fails closed on the first nonzero Wrangler command status.
 - Final Phase 6 evidence verification uses
-  `pnpm --dir packages/sdk-server-ts run d1:staging:evidence`. Pass the remote
+  `pnpm --dir packages/wallet-server run d1:staging:evidence`. Pass the remote
   manifest paths from resource inventory, KEK metadata, migrations, both Time
   Travel bookmark captures, fixture import, staging smoke, reconciliation, signer
   custody, and R2 restore drill. The verifier rejects dry-run manifests, failed
@@ -1952,10 +1952,10 @@ SEAMS_STAGING_MISSING_KEK_WALLET_SESSION_JWT`,
 
 Validation evidence:
 
-- [x] Added `packages/sdk-server-ts/scripts/d1-staging-readiness-check.mjs`,
+- [x] Added `packages/wallet-server/scripts/d1-staging-readiness-check.mjs`,
       `packages/console-server-ts/wrangler.d1-staging-console.toml.example`,
       `packages/console-server-ts/wrangler.d1-staging-router-api.toml.example`, and
-      `pnpm --dir packages/sdk-server-ts run d1:staging:check`.
+      `pnpm --dir packages/wallet-server run d1:staging:check`.
 - [x] Gitignored the concrete staging Wrangler configs
       `packages/console-server-ts/wrangler.d1-staging-console.toml` and
       `packages/console-server-ts/wrangler.d1-staging-router-api.toml` while keeping
@@ -1964,8 +1964,8 @@ Validation evidence:
       configs to source control. The Refactor 82 guard now checks the ignore
       entries, and direct `git check-ignore -v` confirms both concrete paths are
       ignored.
-- [x] Added `packages/sdk-server-ts/scripts/d1-staging-runbook.mjs`,
-      `pnpm --dir packages/sdk-server-ts run d1:staging:runbook`, and
+- [x] Added `packages/wallet-server/scripts/d1-staging-runbook.mjs`,
+      `pnpm --dir packages/wallet-server run d1:staging:runbook`, and
       `docs/deployment/refactor-82-staging-log.md` so Phase 6 has a
       credential-free deployment log, resource inventory, exact command runbook,
       and evidence checklist before live staging work starts. The runbook
@@ -1974,8 +1974,8 @@ Validation evidence:
       the signer-custody drill commands explicit about both JWT env bindings and
       the console request `Origin`, so operators do not depend on script defaults
       for the success export-share JWT or miss the cross-origin route behavior.
-- [x] Added `packages/sdk-server-ts/scripts/d1-staging-resource-inventory.mjs`
-      and `pnpm --dir packages/sdk-server-ts run d1:staging:resources` so Phase
+- [x] Added `packages/wallet-server/scripts/d1-staging-resource-inventory.mjs`
+      and `pnpm --dir packages/wallet-server run d1:staging:resources` so Phase
       6 can capture config-derived resource IDs, remote D1 info JSON, Worker
       deployment status JSON, Durable Object binding metadata, and Secrets Store
       metadata without recording secret values. Remote inventory now rejects
@@ -1984,15 +1984,15 @@ Validation evidence:
   playwright test -c playwright.unit.config.ts
   unit/d1StagingResourceInventory.script.unit.test.ts --reporter=line` with
       6 tests, `node --check
-  packages/sdk-server-ts/scripts/d1-staging-resource-inventory.mjs`, `pnpm
+  packages/wallet-server/scripts/d1-staging-resource-inventory.mjs`, `pnpm
   --dir tests exec tsc -p tsconfig.playwright.json --noEmit`, and `git diff
   --check`.
-- [x] Added `packages/sdk-server-ts/scripts/d1-staging-fixture-import.mjs` and
-      `pnpm --dir packages/sdk-server-ts run d1:staging:import-fixtures` so Phase
+- [x] Added `packages/wallet-server/scripts/d1-staging-fixture-import.mjs` and
+      `pnpm --dir packages/wallet-server run d1:staging:import-fixtures` so Phase
       6 fixture import has a dry-run manifest, remote import mode, readiness
       gating, fixture hash recording, and data-only console/signer table checks.
-- [x] Added `packages/sdk-server-ts/scripts/d1-staging-smoke.mjs` and
-      `pnpm --dir packages/sdk-server-ts run d1:staging:smoke` so Phase 6 can
+- [x] Added `packages/wallet-server/scripts/d1-staging-smoke.mjs` and
+      `pnpm --dir packages/wallet-server run d1:staging:smoke` so Phase 6 can
       capture readiness evidence from the real console and Router API staging
       endpoints after deploy, including threshold Ed25519 and ECDSA signer route
       health configured checks.
@@ -2000,10 +2000,10 @@ Validation evidence:
 playwright.unit.config.ts unit/d1StagingSmoke.script.unit.test.ts
 --reporter=line`; the full Phase 6 staging script cluster with 44 tests;
       `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`; Node
-      `--check` for `packages/sdk-server-ts/scripts/d1-staging-*.mjs`; `git diff
+      `--check` for `packages/wallet-server/scripts/d1-staging-*.mjs`; `git diff
 --check`; and a dry-run smoke CLI with console/router-api example origins.
-- [x] Added `packages/sdk-server-ts/scripts/d1-staging-time-travel-bookmark.mjs`
-      and `pnpm --dir packages/sdk-server-ts run d1:staging:bookmark` so Phase 6
+- [x] Added `packages/wallet-server/scripts/d1-staging-time-travel-bookmark.mjs`
+      and `pnpm --dir packages/wallet-server run d1:staging:bookmark` so Phase 6
       bookmark capture has dry-run planning, remote execution, readiness gating,
       lower-snake purpose validation, console/signer bookmark JSON files, and
       manifest evidence. Remote mode now parses bookmark artifact JSON before
@@ -2014,27 +2014,27 @@ playwright.unit.config.ts unit/d1StagingSmoke.script.unit.test.ts
   exec playwright test -c playwright.unit.config.ts
   unit/d1StagingTimeTravelBookmark.script.unit.test.ts
   unit/d1StagingEvidenceVerify.script.unit.test.ts --reporter=line` with 61
-      tests, `node --check packages/sdk-server-ts/scripts/d1-staging-config.mjs`,
+      tests, `node --check packages/wallet-server/scripts/d1-staging-config.mjs`,
       `node --check
-  packages/sdk-server-ts/scripts/d1-staging-time-travel-bookmark.mjs`, `node
-  --check packages/sdk-server-ts/scripts/d1-staging-evidence-verify.mjs`,
+  packages/wallet-server/scripts/d1-staging-time-travel-bookmark.mjs`, `node
+  --check packages/wallet-server/scripts/d1-staging-evidence-verify.mjs`,
       `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`, and
       `git diff --check`.
-- [x] Added `packages/sdk-server-ts/scripts/d1-staging-kek-check.mjs` and
-      `pnpm --dir packages/sdk-server-ts run d1:staging:kek-check` so hosted
+- [x] Added `packages/wallet-server/scripts/d1-staging-kek-check.mjs` and
+      `pnpm --dir packages/wallet-server run d1:staging:kek-check` so hosted
       signer KEK setup has dry-run planning, remote metadata verification,
       exact Secrets Store secret-name presence checks, failed remote-command
       rejection, and metadata-only manifests. The checker parses JSON-shaped and
       current Wrangler text/table output into explicit secret-name sets, so
       substring-only names cannot satisfy KEK readiness.
-- [x] Added `packages/sdk-server-ts/scripts/d1-staging-migrate.mjs` and
-      `pnpm --dir packages/sdk-server-ts run d1:staging:migrate` so remote D1
+- [x] Added `packages/wallet-server/scripts/d1-staging-migrate.mjs` and
+      `pnpm --dir packages/wallet-server run d1:staging:migrate` so remote D1
       migration application has dry-run planning, local migration hash evidence,
       readiness gating, noninteractive remote apply commands, and command
       manifests. Remote migration now rejects failed list/apply/list commands
       before writing a clean migration manifest.
-- [x] Added `packages/sdk-server-ts/scripts/d1-staging-reconciliation.mjs` and
-      `pnpm --dir packages/sdk-server-ts run d1:staging:reconcile` so dashboard
+- [x] Added `packages/wallet-server/scripts/d1-staging-reconciliation.mjs` and
+      `pnpm --dir packages/wallet-server run d1:staging:reconcile` so dashboard
       billing reconciliation, sponsored-EVM prepaid billing linkage, settlement
       amount matching, and signer sealed-share metadata integrity have dry-run
       planning, remote read-only D1 checks, mismatch failure behavior, and
@@ -2045,12 +2045,12 @@ playwright.unit.config.ts unit/d1StagingSmoke.script.unit.test.ts
   unit/d1StagingResourceInventory.script.unit.test.ts
   unit/d1StagingReconciliation.script.unit.test.ts --reporter=line` with 13
       tests, `node --check
-  packages/sdk-server-ts/scripts/d1-staging-resource-inventory.mjs`, `node
-  --check packages/sdk-server-ts/scripts/d1-staging-reconciliation.mjs`,
+  packages/wallet-server/scripts/d1-staging-resource-inventory.mjs`, `node
+  --check packages/wallet-server/scripts/d1-staging-reconciliation.mjs`,
       `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`, and
       `git diff --check`.
-- [x] Added `packages/sdk-server-ts/scripts/d1-staging-signer-custody.mjs` and
-      `pnpm --dir packages/sdk-server-ts run d1:staging:signer-custody` so
+- [x] Added `packages/wallet-server/scripts/d1-staging-signer-custody.mjs` and
+      `pnpm --dir packages/wallet-server run d1:staging:signer-custody` so
       fixture-backed signer custody route drills have dry-run planning, remote
       route execution, JWT-from-env handling, production route allowlisting,
       configured threshold health checks, export-share presence assertions,
@@ -2060,7 +2060,7 @@ playwright.unit.config.ts unit/d1StagingSmoke.script.unit.test.ts
 playwright.unit.config.ts unit/d1StagingSignerCustody.script.unit.test.ts
 --reporter=line`; the full Phase 6 staging script cluster with 48 tests;
       `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`; Node
-      `--check` for `packages/sdk-server-ts/scripts/d1-staging-*.mjs`; `git diff
+      `--check` for `packages/wallet-server/scripts/d1-staging-*.mjs`; `git diff
 --check`; and a dry-run signer-custody CLI with a temporary export-share
       fixture.
 - [x] Aligned the SDK server staging README with the signer-custody runbook. The
@@ -2087,7 +2087,7 @@ playwright.unit.config.ts unit/d1StagingSignerCustody.script.unit.test.ts
       passed: `pnpm --dir tests exec playwright test -c
   playwright.unit.config.ts unit/d1StagingRunbook.script.unit.test.ts
   --reporter=line` with 6 tests passing, `node --check
-  packages/sdk-server-ts/scripts/d1-staging-runbook.mjs`, `pnpm --dir tests
+  packages/wallet-server/scripts/d1-staging-runbook.mjs`, `pnpm --dir tests
   exec tsc -p tsconfig.playwright.json --noEmit`, and `git diff --check`.
 - [x] Reconciled the Phase 6 fixture-import decision text with the implemented
       importer. The plan now describes migration-derived table allowlists from
@@ -2126,7 +2126,7 @@ unit/d1StagingSignerCustody.script.unit.test.ts --reporter=line` with 6
       only `<redacted>` for server export shares, private keys, signing shares,
       authorization headers, JWTs, and tokens, and fails the run if a raw value
       appears in a remote manifest. Validation passed:
-      `node --check packages/sdk-server-ts/scripts/d1-staging-evidence-verify.mjs`,
+      `node --check packages/wallet-server/scripts/d1-staging-evidence-verify.mjs`,
       `./node_modules/.bin/playwright test -c playwright.source.config.ts
 unit/d1StagingEvidenceVerify.script.unit.test.ts --reporter=line` with 19
       tests, the full `unit/d1Staging*.script.unit.test.ts` cluster with 85
@@ -2138,7 +2138,7 @@ unit/d1StagingEvidenceVerify.script.unit.test.ts --reporter=line` with 19
       to use that same origin. This prevents combining a signer-custody manifest
       from another deployed router-api with otherwise valid staging evidence.
       Validation passed:
-      `node --check packages/sdk-server-ts/scripts/d1-staging-evidence-verify.mjs`,
+      `node --check packages/wallet-server/scripts/d1-staging-evidence-verify.mjs`,
       `./node_modules/.bin/playwright test -c playwright.source.config.ts
 unit/d1StagingEvidenceVerify.script.unit.test.ts --reporter=line` with 20
       tests, the full `unit/d1Staging*.script.unit.test.ts` cluster with 86
@@ -2148,7 +2148,7 @@ unit/d1StagingEvidenceVerify.script.unit.test.ts --reporter=line` with 20
       and `staging_smoke.checks.router_api_readyz` to come from distinct Worker
       origins, so the final evidence cannot prove both readiness checks against a
       single deployed Worker. Validation passed:
-      `node --check packages/sdk-server-ts/scripts/d1-staging-evidence-verify.mjs`,
+      `node --check packages/wallet-server/scripts/d1-staging-evidence-verify.mjs`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
   unit/d1StagingEvidenceVerify.script.unit.test.ts --reporter=line` with 54
       tests, and `git diff --check`.
@@ -2160,7 +2160,7 @@ unit/d1StagingEvidenceVerify.script.unit.test.ts --reporter=line` with 20
       `/router-ab/ecdsa-derivation/export/share`, with no query string or fragment.
       This prevents a manifest from proving a generic healthy route while
       claiming signer-custody or readiness evidence. Validation passed:
-      `node --check packages/sdk-server-ts/scripts/d1-staging-evidence-verify.mjs`,
+      `node --check packages/wallet-server/scripts/d1-staging-evidence-verify.mjs`,
       `./node_modules/.bin/playwright test -c playwright.source.config.ts
 unit/d1StagingEvidenceVerify.script.unit.test.ts --reporter=line` with 22
       tests, the full `unit/d1Staging*.script.unit.test.ts` cluster with 88
@@ -2171,7 +2171,7 @@ unit/d1StagingEvidenceVerify.script.unit.test.ts --reporter=line` with 22
       readiness, router-api readiness, router-api health, threshold health, and the ECDSA
       export-share success check. This prevents a manifest from passing with
       `ok: true` while hiding a non-200 response. Validation passed:
-      `node --check packages/sdk-server-ts/scripts/d1-staging-evidence-verify.mjs`,
+      `node --check packages/wallet-server/scripts/d1-staging-evidence-verify.mjs`,
       `./node_modules/.bin/playwright test -c playwright.source.config.ts
 unit/d1StagingEvidenceVerify.script.unit.test.ts --reporter=line` with 24
       tests, the full `unit/d1Staging*.script.unit.test.ts` cluster with 90
@@ -2184,7 +2184,7 @@ unit/d1StagingEvidenceVerify.script.unit.test.ts --reporter=line` with 24
       Validation passed: `pnpm --dir tests exec playwright test -c
   playwright.unit.config.ts unit/d1StagingEvidenceVerify.script.unit.test.ts
   --reporter=line` with 55 tests, `node --check
-  packages/sdk-server-ts/scripts/d1-staging-evidence-verify.mjs`, `pnpm
+  packages/wallet-server/scripts/d1-staging-evidence-verify.mjs`, `pnpm
   --dir tests exec tsc -p tsconfig.playwright.json --noEmit`, and `git diff
   --check`.
 - [x] Made the missing-KEK signer-custody drill mandatory final evidence. The
@@ -2194,9 +2194,9 @@ unit/d1StagingEvidenceVerify.script.unit.test.ts --reporter=line` with 24
       and redaction checks. The generated runbook now includes the missing-KEK
       fixture, JWT env var, expected status, and expected error-code flags in the
       required signer-custody commands. Validation passed:
-      `node --check packages/sdk-server-ts/scripts/d1-staging-evidence-verify.mjs`,
-      `node --check packages/sdk-server-ts/scripts/d1-staging-signer-custody.mjs`,
-      `node --check packages/sdk-server-ts/scripts/d1-staging-runbook.mjs`,
+      `node --check packages/wallet-server/scripts/d1-staging-evidence-verify.mjs`,
+      `node --check packages/wallet-server/scripts/d1-staging-signer-custody.mjs`,
+      `node --check packages/wallet-server/scripts/d1-staging-runbook.mjs`,
       `./node_modules/.bin/playwright test -c playwright.source.config.ts
 unit/d1StagingEvidenceVerify.script.unit.test.ts
 unit/d1StagingSignerCustody.script.unit.test.ts
@@ -2247,7 +2247,7 @@ service`; VoiceID's current server adapter moved from
       Follow-up cleanup also replaced the active SDK web README example host
       `router-api-server.example.com` with `router-api.example.com` while preserving
       the public `relayer.url` config field. The stale-name guard now scans
-      `packages/sdk-web/README.md` and rejects the old example host. Validation
+      `packages/wallet/README.md` and rejects the old example host. Validation
       passed: `pnpm --dir tests exec playwright test -c
       playwright.unit.config.ts unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
       --reporter=line` with 43 tests, `pnpm --dir tests exec tsc -p
@@ -2272,8 +2272,8 @@ service`; VoiceID's current server adapter moved from
       enforcement, broker redemption, bootstrap-token redemption, testing
       parity, and self-hosted deployment notes; the server-only curl example now
       uses `https://router-api.example.com`; and SDK comments in
-      `packages/sdk-web/src/react/types.ts` and
-      `packages/sdk-web/src/core/types/signer-worker.ts` now describe the Router
+      `packages/wallet/src/react/types.ts` and
+      `packages/wallet/src/core/types/signer-worker.ts` now describe the Router
       API server while preserving current `relayer`/`relayerUrl` field names.
       The stale-name guard now scans the API-key doc and rejects
       `router-api.example.com` plus `relayer server`. Validation passed: focused
@@ -2300,12 +2300,12 @@ service`; VoiceID's current server adapter moved from
       `prepared router-api state`, `router-api metadata`, `router-api verification`,
       `router-api publishable key auth`, `router-api app session mint`, `sent to the router-api`,
       `override Router API URL`, and `must use Router API surface`. Validation passed:
-      focused stale scans over `packages/sdk-server-ts/src` and
-      `packages/sdk-web/src`, `pnpm --dir tests exec playwright test -c
+      focused stale scans over `packages/wallet-server/src` and
+      `packages/wallet/src`, `pnpm --dir tests exec playwright test -c
       playwright.unit.config.ts unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
       --reporter=line` with 43 tests, `pnpm --dir tests exec tsc -p
-      tsconfig.playwright.json --noEmit`, `pnpm --dir packages/sdk-server-ts
-      type-check`, `pnpm --dir packages/sdk-web type-check`, and
+      tsconfig.playwright.json --noEmit`, `pnpm --dir packages/wallet-server
+      type-check`, `pnpm --dir packages/wallet type-check`, and
       `git diff --check`.
       Follow-up cleanup removed the live `RELAY_API_KEY_AUTH_ENABLED` app-server
       flag. `apps/web-server/src/index.ts`, `apps/web-server/.env.example`, and
@@ -2330,7 +2330,7 @@ tsc -p tsconfig.playwright.json --noEmit`, `git diff --check`, and focused
       still pointed at the old simple-threshold-signer workspace, server-local
       Postgres adapters, Postgres settlement wording, and `examples/seams-site`
       dashboard paths. The doc now describes the current D1/SQLite atomic
-      settlement path, current `packages/sdk-server-ts` console/router modules,
+      settlement path, current `packages/wallet-server` console/router modules,
       and current `apps/seams-site` billing surfaces. The Refactor 82 guard now
       rejects those stale sponsorship/prepaid doc strings so the old Postgres
       settlement story cannot return. Validation passed:
@@ -2341,7 +2341,7 @@ unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line` with 30
       path, Postgres adapter paths, and Postgres settlement/index wording.
 - [x] Replaced stale gas-and-signing policy doc links that still pointed at the
       old simple-threshold-signer workspace and `server/src` tree. The doc now
-      links to the current `packages/sdk-server-ts/src` policy, gas-sponsorship,
+      links to the current `packages/wallet-server/src` policy, gas-sponsorship,
       runtime snapshot, console-router, and EVM sponsorship modules. The Refactor
       82 guard now rejects old absolute workspace links plus `server/src` and
       `examples/seams-site` link targets in that doc. Validation passed:
@@ -2373,7 +2373,7 @@ tsconfig.playwright.json --noEmit`, and `git diff --check`.
 - [x] Replaced stale policy-engine plan references that still described current
       policy storage as Postgres-backed and pointed at deleted
       `server/src/**/postgres.ts` paths. The doc now names D1 policy storage,
-      current `packages/sdk-server-ts` policy/gas-sponsorship modules, current
+      current `packages/wallet-server` policy/gas-sponsorship modules, current
       `apps/seams-site` dashboard paths, and local relative sponsorship-policy
       links. The Refactor 82 guard now rejects old absolute workspace links,
       `server/src` / `examples/seams-site` link targets, and active
@@ -2385,7 +2385,7 @@ unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line` with 33
       doc links and Postgres policy phrases.
 - [x] Replaced stale sponsorship-policy plan links that still pointed at the old
       simple-threshold-signer workspace and `server/src` sponsorship modules. The
-      plan now links to current `packages/sdk-server-ts` gas-sponsorship,
+      plan now links to current `packages/wallet-server` gas-sponsorship,
       runtime-snapshot, sponsored-call, delegate-action, and EVM sponsorship
       modules. The Refactor 82 guard now rejects old absolute workspace links and
       old `server/src` / `examples/seams-site` link targets in that doc.
@@ -2396,7 +2396,7 @@ tsconfig.playwright.json --noEmit`, `git diff --check`, plus a direct targeted
       `rg` scan for the stale sponsorship-policy links.
 - [x] Replaced stale billing-cleanup plan references that still used old
       `server/src` and `examples/seams-site` paths. The doc now names current
-      `packages/sdk-server-ts` router/billing/onboarding/adaptor paths,
+      `packages/wallet-server` router/billing/onboarding/adaptor paths,
       `apps/seams-site` dashboard validation, and D1 schema cleanup wording. The
       existing billing-cleanup guard now also rejects old `server/src` and
       `examples/seams-site` references in that doc. Validation passed:
@@ -2475,8 +2475,8 @@ unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line` with 42
 unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line` with 42
       tests, `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
       `git diff --check`, plus a direct targeted router-api-label scan.
-- [x] Added `packages/sdk-server-ts/scripts/d1-staging-r2-restore-drill.mjs` and
-      `pnpm --dir packages/sdk-server-ts run d1:staging:r2-restore-drill` so Phase
+- [x] Added `packages/wallet-server/scripts/d1-staging-r2-restore-drill.mjs` and
+      `pnpm --dir packages/wallet-server run d1:staging:r2-restore-drill` so Phase
       6 remote restore drills have dry-run planning, remote execution, R2 object
       key evidence, restore database names, command output capture, export
       artifact hashes, and integrity-check command evidence. Remote mode now
@@ -2488,14 +2488,14 @@ unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line` with 42
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
   unit/d1StagingR2RestoreDrill.script.unit.test.ts
   unit/d1StagingEvidenceVerify.script.unit.test.ts --reporter=line` with 61
-      tests, `node --check packages/sdk-server-ts/scripts/d1-staging-config.mjs`,
+      tests, `node --check packages/wallet-server/scripts/d1-staging-config.mjs`,
       `node --check
-  packages/sdk-server-ts/scripts/d1-staging-r2-restore-drill.mjs`, `node
-  --check packages/sdk-server-ts/scripts/d1-staging-evidence-verify.mjs`,
+  packages/wallet-server/scripts/d1-staging-r2-restore-drill.mjs`, `node
+  --check packages/wallet-server/scripts/d1-staging-evidence-verify.mjs`,
       `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`, and
       `git diff --check`.
-- [x] Added `packages/sdk-server-ts/scripts/d1-staging-evidence-verify.mjs` and
-      `pnpm --dir packages/sdk-server-ts run d1:staging:evidence` so Phase 6 has
+- [x] Added `packages/wallet-server/scripts/d1-staging-evidence-verify.mjs` and
+      `pnpm --dir packages/wallet-server run d1:staging:evidence` so Phase 6 has
       a final manifest-level gate before production planning. The verifier checks
       every remote staging artifact family, proves the artifacts belong to one
       staging environment/config/tenant/run sequence, verifies configured KEK IDs
@@ -2545,11 +2545,11 @@ unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line` with 42
 playwright.unit.config.ts unit/d1StagingEvidenceVerify.script.unit.test.ts
 --reporter=line` with 53 tests; the full Phase 6 staging script/session cluster with 126 tests;
       `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`;
-      `node --check packages/sdk-server-ts/scripts/d1-staging-evidence-verify.mjs`;
+      `node --check packages/wallet-server/scripts/d1-staging-evidence-verify.mjs`;
       and `git diff --check`.
-- [x] Added `packages/sdk-server-ts/src/router/cloudflare/d1ConsoleStagingWorker.ts`,
-      `packages/sdk-server-ts/src/router/cloudflare/d1RouterApiStagingWorker.ts`,
-      and `packages/sdk-server-ts/src/router/cloudflare/d1StagingSession.ts` so
+- [x] Added `packages/wallet-server/src/router/cloudflare/d1ConsoleStagingWorker.ts`,
+      `packages/wallet-server/src/router/cloudflare/d1RouterApiStagingWorker.ts`,
+      and `packages/wallet-server/src/router/cloudflare/d1StagingSession.ts` so
       staging uses concrete Worker entrypoints, Worker-native HMAC session
       boundaries, hosted signer KEK env parsing, and router-api `/readyz` D1/DO
       checks.
@@ -2562,10 +2562,10 @@ playwright.unit.config.ts unit/d1StagingEvidenceVerify.script.unit.test.ts
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
 unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`; the
       full Phase 6 staging script/session cluster with 110 tests; `pnpm --dir
-packages/sdk-server-ts type-check`; `pnpm --dir tests exec tsc -p
+packages/wallet-server type-check`; `pnpm --dir tests exec tsc -p
 tsconfig.playwright.json --noEmit`; `node --check
-packages/sdk-server-ts/scripts/d1-staging-readiness-check.mjs`;
-      `pnpm --dir packages/sdk-server-ts build`; and `git diff --check`.
+packages/wallet-server/scripts/d1-staging-readiness-check.mjs`;
+      `pnpm --dir packages/wallet-server build`; and `git diff --check`.
 - [x] Re-mounted Ed25519 registration prepare on the D1 local and Router API
       staging Workers after adding a real D1 implicit-account implementation. The
       Refactor 82 runtime guard now requires structural
@@ -2598,7 +2598,7 @@ unit/d1StagingResourceInventory.script.unit.test.ts --reporter=line` with 5
       79 tests, Node `--check` for every `d1-staging-*.mjs` script and the local
       D1 restore drill script, and `git diff --check`.
 - [x] Consolidated duplicated staging Wrangler/TOML helper code into
-      `packages/sdk-server-ts/scripts/d1-staging-config.mjs`. The Phase 6 script
+      `packages/wallet-server/scripts/d1-staging-config.mjs`. The Phase 6 script
       set now has one owner for environment-section selection, table parsing,
       string/array reads, placeholder detection, shell quoting, command execution,
       command failure formatting, command success enforcement, and repo-relative
@@ -2676,13 +2676,13 @@ bundle wires|sponsored EVM" --reporter=line` passed with 4 tests.
 - [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
 unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`
       passed with 13 source-guard tests.
-- [x] `pnpm --dir packages/sdk-server-ts type-check`, `pnpm --dir tests exec
+- [x] `pnpm --dir packages/wallet-server type-check`, `pnpm --dir tests exec
 tsc -p tsconfig.playwright.json --noEmit`, and `git diff --check` passed.
-- [x] `pnpm --dir packages/sdk-server-ts build` passed after adding the concrete
+- [x] `pnpm --dir packages/wallet-server build` passed after adding the concrete
       console and router-api Cloudflare D1 staging Worker entrypoints.
 - [x] Current credential-free Phase 6 pre-deploy validation passed:
-      `node --check` for every `packages/sdk-server-ts/scripts/d1-staging-*.mjs`
-      script and `packages/sdk-server-ts/scripts/d1-local-backup-restore-drill.mjs`,
+      `node --check` for every `packages/wallet-server/scripts/d1-staging-*.mjs`
+      script and `packages/wallet-server/scripts/d1-local-backup-restore-drill.mjs`,
       plus `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
   unit/d1StagingEvidenceVerify.script.unit.test.ts
   unit/d1StagingFixtureImport.script.unit.test.ts
@@ -2699,7 +2699,7 @@ tsc -p tsconfig.playwright.json --noEmit`, and `git diff --check` passed.
   unit/d1StagingTimeTravelBookmark.script.unit.test.ts --reporter=line`, which
       passed with 126 staging script/session tests. The latest focused runbook
       validation passed with 6 tests, `node --check
-  packages/sdk-server-ts/scripts/d1-staging-runbook.mjs`, `pnpm --dir tests
+  packages/wallet-server/scripts/d1-staging-runbook.mjs`, `pnpm --dir tests
   exec tsc -p tsconfig.playwright.json --noEmit`, and `git diff --check`.
 - [x] Hardened hosted signer missing-KEK behavior end to end. The signer KEK
       provider now raises a typed `missing_signing_root_kek` error for missing
@@ -2714,10 +2714,10 @@ tsc -p tsconfig.playwright.json --noEmit`, and `git diff --check` passed.
   tests/unit/thresholdStatusCodes.unit.test.ts
   tests/unit/d1StagingRunbook.script.unit.test.ts
   tests/unit/d1StagingEvidenceVerify.script.unit.test.ts` with 66 tests;
-      `pnpm --dir packages/sdk-server-ts type-check`;
+      `pnpm --dir packages/wallet-server type-check`;
       `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`;
-      `node --check packages/sdk-server-ts/scripts/d1-staging-runbook.mjs`;
-      `node --check packages/sdk-server-ts/scripts/d1-staging-evidence-verify.mjs`;
+      `node --check packages/wallet-server/scripts/d1-staging-runbook.mjs`;
+      `node --check packages/wallet-server/scripts/d1-staging-evidence-verify.mjs`;
       the full Phase 6 staging script/session/signing-root cluster with 155
       tests; and `git diff --check`.
 - [ ] Live Phase 6 deployment remains open because only
@@ -2788,23 +2788,23 @@ Work:
       `git diff --shortstat 20af682856f1417abdab6ec39dc7793176d35bd0 --
 ':!docs/**' ':!**/*.md'`, and
       `git diff --shortstat 20af682856f1417abdab6ec39dc7793176d35bd0 --
-'packages/sdk-server-ts/src/**' ':!**/*.typecheck.ts'`.
+'packages/wallet-server/src/**' ':!**/*.typecheck.ts'`.
 - [x] Build a top-growth inventory with `git diff --numstat` grouped by
       production path. Prioritize the largest positive files before touching small
       cosmetic debt.
 - [x] Run the runtime-source slimming track against the current measured
-      `packages/sdk-server-ts/src` growth. The June 29 checkpoint reports
+      `packages/wallet-server/src` growth. The June 29 checkpoint reports
       `52,329` runtime-source additions, `34,158` runtime-source deletions, and
       `18,171` net new runtime-source lines, with almost all growth under
-      `packages/sdk-server-ts/src`.
+      `packages/wallet-server/src`.
       The June 30 tracked refresh after local D1/registration/signing integration
       fixes reports `55,766` runtime-source additions, `31,047` runtime-source
       deletions, and `24,719` net new runtime-source lines under
-      `packages/sdk-server-ts/src` excluding `*.typecheck.ts`. Treat this as the
+      `packages/wallet-server/src` excluding `*.typecheck.ts`. Treat this as the
       active Phase 7 slimming baseline until the next cleanup slice records a newer
       count. - [x] Refresh the runtime-source count before each cleanup slice:
       `git diff --shortstat 20af682856f1417abdab6ec39dc7793176d35bd0 --
-          'packages/sdk-server-ts/src/**' ':!**/*.typecheck.ts'`. - [x] Classify the top 20 runtime-growth files into four buckets:
+          'packages/wallet-server/src/**' ':!**/*.typecheck.ts'`. - [x] Classify the top 20 runtime-growth files into four buckets:
       required product logic, duplicated adapter plumbing, test/local/staging
       support that can move out of runtime source, and obsolete migration
       scaffolding that should be deleted. - [x] Classify the June 30 post-82 integration files separately from
@@ -2850,7 +2850,7 @@ Work:
       files. `docs/refactor-83-iframe-walletId.md`,
       `docs/refactor-84-trim-hss.md`, and Refactor 85 plan/spec docs are
       follow-up planning artifacts, not Phase 7 runtime bloat. - [x] Every runtime-slimming slice records before/after counts for
-      `packages/sdk-server-ts/src` and must be net-negative unless it fixes a
+      `packages/wallet-server/src` and must be net-negative unless it fixes a
       concrete Phase 6 staging blocker. - [x] Phase 7 exit target: reduce the tracked runtime-source delta from the
       June 30 `+24,719` net lines to below `+10,000`, or record a named
       product reason and owner for each remaining positive runtime block.
@@ -2869,10 +2869,10 @@ Work:
       implementation, exports, docs, tests, and fixtures if there is no concrete
       trigger.
       Evidence: Postgres remains only as a future full-family route contract in
-      `packages/sdk-server-ts/src/storage/tenantRoute.ts`, its type fixture, the
+      `packages/wallet-server/src/storage/tenantRoute.ts`, its type fixture, the
       migration playbook, package-export negative tests, and the Cloudflare console
       route rejection test for Postgres tenant routes. There are no
-      `*postgres*` runtime files under `packages/sdk-server-ts/src`, no runtime
+      `*postgres*` runtime files under `packages/wallet-server/src`, no runtime
       `pg` imports, no `new Pool`, no `getPostgresPool`, no live
       `createPostgres*Service` factory, and no `postgresRecords` helpers. The
       Refactor 82 runtime guard now rejects those paths while preserving the typed
@@ -2880,7 +2880,7 @@ Work:
       `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
 unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`,
-      direct `find packages/sdk-server-ts/src -iname '*postgres*'`, and direct
+      direct `find packages/wallet-server/src -iname '*postgres*'`, and direct
       stale-symbol scans for `pg` runtime imports and Postgres service factories.
 - [x] Delete Cloudflare runtime imports of mixed console/signer barrels when a
       narrower D1 module exists.
@@ -2913,19 +2913,19 @@ unit/cloudflareD1RouterApiAuthService.unit.test.ts --reporter=line`, a direct
 unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`
       and a direct duplicate-helper scan that found the SQLite-backed D1 harness
       only in `tests/helpers/sqliteD1.ts`, and the D1 runtime helpers only in
-      `packages/sdk-server-ts/src/storage/d1Sql.ts`.
+      `packages/wallet-server/src/storage/d1Sql.ts`.
 - [x] Consolidate repeated D1 statement plumbing into tiny helpers only where the
       helper deletes repeated code immediately: `queryOne`, `queryMany`, `execute`,
       `parseJsonColumn`, `requireChangedOne`, and corrupt-row mapping are the
       expected helper ceiling.
       Evidence: repeated D1 row-query helpers, mutation-count helpers, D1 database
       resolver helpers, and JSON-column parsers are centralized in
-      `packages/sdk-server-ts/src/storage/d1Sql.ts`. The latest cleanup deleted
+      `packages/wallet-server/src/storage/d1Sql.ts`. The latest cleanup deleted
       seven local `parseD1RecordJson` bodies from core D1-backed signer stores
       while keeping domain-specific record validation local to each store. The
       Refactor 82 runtime guard now rejects reintroduced local `parseD1RecordJson`,
       D1 mutation-count helpers, and D1 database resolver helpers outside the
-      storage boundary. Validation passed: `pnpm --dir packages/sdk-server-ts
+      storage boundary. Validation passed: `pnpm --dir packages/wallet-server
 type-check`, `pnpm --dir tests exec tsc -p tsconfig.playwright.json
 --noEmit`, `pnpm --dir tests exec playwright test -c
 	playwright.unit.config.ts unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
@@ -2954,9 +2954,9 @@ type-check`, `pnpm --dir tests exec tsc -p tsconfig.playwright.json
       fixtures while excluding docs and route IDs. A strict scan for the original
       D1 object names found no exact hits outside docs. Local `.wrangler/state/seams-d1`
       was deleted and recreated from migrations. Validation passed:
-      `pnpm --dir packages/sdk-server-ts type-check`,
-      `pnpm --dir packages/sdk-server-ts run d1:local:prepare`,
-      `pnpm --dir packages/sdk-server-ts run d1:local:restore:drill -- --skip-prepare`,
+      `pnpm --dir packages/wallet-server type-check`,
+      `pnpm --dir packages/wallet-server run d1:local:prepare`,
+      `pnpm --dir packages/wallet-server run d1:local:restore:drill -- --skip-prepare`,
       `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
       `pnpm --dir tests exec playwright test -c playwright.relayer.config.ts
   relayer/console-d1-adapters.test.ts --reporter=line`,
@@ -2973,7 +2973,7 @@ type-check`, `pnpm --dir tests exec tsc -p tsconfig.playwright.json
       D1 schema helper and D1 console migrations. The migration smoke suite now
       directly inserts corrupt raw sponsored-call rows and proves D1 rejects them
       while still accepting a valid raw row. Validation passed:
-      `pnpm --dir packages/sdk-server-ts type-check`,
+      `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec playwright test -c playwright.relayer.config.ts
 relayer/console-d1-adapters.test.ts --grep
 "D1 migration smoke|sponsored call idempotency" --reporter=line`,
@@ -2991,7 +2991,7 @@ relayer/console-d1-adapters.test.ts --grep
       corrupt raw prepaid reservation rows, proves D1 rejects them while accepting a
       valid raw row, and the trigger-atomic reservation contract still proves
       duplicate source events and insufficient balance do not double-reserve.
-      Validation passed: `pnpm --dir packages/sdk-server-ts type-check`,
+      Validation passed: `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec playwright test -c playwright.relayer.config.ts
 relayer/console-d1-adapters.test.ts -g "prepaid-reservation migration|billing
 reservations are trigger-atomic" --reporter=line`, and
@@ -3008,7 +3008,7 @@ reservations are trigger-atomic" --reporter=line`, and
       The migration smoke suite now inserts corrupt raw webhook endpoint/category
       rows, proves D1 rejects them while accepting valid raw rows, and verifies
       the upgrade migration preserves existing endpoint category rows. Validation
-      passed: `pnpm --dir packages/sdk-server-ts type-check`, `pnpm --dir tests
+      passed: `pnpm --dir packages/wallet-server type-check`, `pnpm --dir tests
 exec playwright test -c playwright.relayer.config.ts
 relayer/console-d1-adapters.test.ts --grep "D1 migration smoke|webhook"
 --reporter=line`, `pnpm --dir tests exec tsc -p
@@ -3024,12 +3024,12 @@ tsconfig.playwright.json --noEmit`, and `git diff --check`.
       non-empty optional storage/rotation references when present, positive
       creation timestamps, and monotonic update/rotation/retirement timestamps.
       These checks live in the runtime D1 schema helper, the fresh
-      `packages/sdk-server-ts/migrations/d1-signer/0001_signer_d1_initial.sql`
+      `packages/wallet-server/migrations/d1-signer/0001_signer_d1_initial.sql`
       schema, and upgrade migration
-      `packages/sdk-server-ts/migrations/d1-signer/0010_signer_constraint_hardening.sql`.
+      `packages/wallet-server/migrations/d1-signer/0010_signer_constraint_hardening.sql`.
       The migration smoke suite now inserts corrupt raw custody rows and proves D1
       rejects them while accepting a valid raw sealed-share row. Validation passed:
-      `pnpm --dir packages/sdk-server-ts type-check`, `pnpm --dir tests exec
+      `pnpm --dir packages/wallet-server type-check`, `pnpm --dir tests exec
 playwright test -c playwright.relayer.config.ts
 relayer/console-d1-adapters.test.ts --grep
 "D1 migration smoke|signer sealed shares" --reporter=line`, `pnpm --dir
@@ -3038,7 +3038,7 @@ tests exec tsc -p tsconfig.playwright.json --noEmit`, and
       Progress: signer wallet auth-method rows now enforce branch-specific
       invariants in the runtime D1 schema helper, fresh signer metadata migration,
       and combined wallet metadata constraint migration
-      `packages/sdk-server-ts/migrations/d1-signer/0010_signer_constraint_hardening.sql`.
+      `packages/wallet-server/migrations/d1-signer/0010_signer_constraint_hardening.sql`.
       Passkey rows must carry RP ID, credential ID, public key, deterministic auth
       identifier, and deterministic `wallet_auth_method_id`, while Email OTP rows
       must carry no RP/passkey fields and must carry email hash, registration
@@ -3046,7 +3046,7 @@ tests exec tsc -p tsconfig.playwright.json --noEmit`, and
       `wallet_auth_method_id`. The migration smoke suite now inserts corrupt raw
       signer auth-method rows and proves D1 rejects invalid branch combinations
       while accepting valid passkey and Email OTP rows. Validation passed:
-      `pnpm --dir packages/sdk-server-ts type-check`,
+      `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec playwright test -c playwright.relayer.config.ts
 relayer/console-d1-adapters.test.ts --grep
 "D1 migration smoke|signer wallet metadata and auth methods"
@@ -3055,12 +3055,12 @@ relayer/console-d1-adapters.test.ts --grep
       Progress: base signer wallet rows now enforce JSON identity in the runtime
       D1 schema helper, fresh signer metadata migration, and combined wallet
       metadata constraint migration
-      `packages/sdk-server-ts/migrations/d1-signer/0010_signer_constraint_hardening.sql`.
+      `packages/wallet-server/migrations/d1-signer/0010_signer_constraint_hardening.sql`.
       Wallet rows must carry `wallet_v1` JSON envelopes and the JSON `walletId`
       must match the indexed `wallet_id`. The migration smoke suite now inserts
       raw wallet rows with mismatched or missing JSON identity and proves D1 rejects
       them while accepting a valid wallet row. Validation passed:
-      `pnpm --dir packages/sdk-server-ts type-check`,
+      `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec playwright test -c playwright.relayer.config.ts
 relayer/console-d1-adapters.test.ts --grep
 "D1 migration smoke|signer wallet metadata and auth methods"
@@ -3069,7 +3069,7 @@ relayer/console-d1-adapters.test.ts --grep
       Progress: signer wallet signer rows now enforce branch-specific indexed
       identity in the runtime D1 schema helper, fresh signer metadata migration,
       and combined wallet metadata constraint migration
-      `packages/sdk-server-ts/migrations/d1-signer/0010_signer_constraint_hardening.sql`.
+      `packages/wallet-server/migrations/d1-signer/0010_signer_constraint_hardening.sql`.
       Ed25519 signer rows must carry no chain target, use the `ed25519:` signer ID
       prefix, and match the JSON `walletId`/`signerId` envelope. ECDSA signer rows
       must carry a non-empty chain target, use deterministic `ecdsa:${chainTargetKey}`
@@ -3077,7 +3077,7 @@ relayer/console-d1-adapters.test.ts --grep
       fields. The migration smoke suite now inserts corrupt raw signer rows and
       proves D1 rejects invalid branch combinations while accepting valid Ed25519
       and ECDSA signer rows. Validation passed:
-      `pnpm --dir packages/sdk-server-ts type-check`,
+      `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec playwright test -c playwright.relayer.config.ts
 relayer/console-d1-adapters.test.ts --grep
 "D1 migration smoke|signer wallet metadata and auth methods"
@@ -3085,7 +3085,7 @@ relayer/console-d1-adapters.test.ts --grep
 --noEmit`, and `git diff --check`.
       Deletion pass: the three interim signer wallet metadata upgrade migrations
       were collapsed into the combined
-      `packages/sdk-server-ts/migrations/d1-signer/0010_signer_constraint_hardening.sql`
+      `packages/wallet-server/migrations/d1-signer/0010_signer_constraint_hardening.sql`
       migration. This deleted the separate signer auth-method, signer row, and
       wallet identity constraint migrations. Follow-up cleanup folded sealed
       signing-root secret share constraints into that same signer hardening
@@ -3106,7 +3106,7 @@ relayer/console-d1-adapters.test.ts --grep
       dead-letter outbox rows. Validation passed:
       `pnpm --dir tests exec playwright test -c playwright.relayer.config.ts
 relayer/console-d1-adapters.test.ts --grep "D1 migration smoke|runtime
-snapshot" --reporter=line`, `pnpm --dir packages/sdk-server-ts
+snapshot" --reporter=line`, `pnpm --dir packages/wallet-server
 type-check`, `pnpm --dir tests exec tsc -p tsconfig.playwright.json
 --noEmit`, and `git diff --check`.
       Deletion pass: the runtime snapshot/outbox upgrade was folded into
@@ -3135,11 +3135,11 @@ type-check`, `pnpm --dir tests exec tsc -p tsconfig.playwright.json
       fields, allowed recovery statuses, monotonic timestamps, and email-recovery
       wallet-binding consistency at the D1 boundary. These checks live in the
       runtime D1 schema helpers, fresh signer migrations
-      `packages/sdk-server-ts/migrations/d1-signer/0004_signer_identity.sql`,
-      `packages/sdk-server-ts/migrations/d1-signer/0005_signer_recovery.sql`,
-      `packages/sdk-server-ts/migrations/d1-signer/0007_signer_email_recovery_preparations.sql`,
+      `packages/wallet-server/migrations/d1-signer/0004_signer_identity.sql`,
+      `packages/wallet-server/migrations/d1-signer/0005_signer_recovery.sql`,
+      `packages/wallet-server/migrations/d1-signer/0007_signer_email_recovery_preparations.sql`,
       and existing combined signer constraint migration
-      `packages/sdk-server-ts/migrations/d1-signer/0010_signer_constraint_hardening.sql`.
+      `packages/wallet-server/migrations/d1-signer/0010_signer_constraint_hardening.sql`.
       The migration smoke suite now inserts corrupt raw identity, app-session,
       recovery-session, recovery-execution, and email-recovery-preparation rows and
       proves D1 rejects scope gaps, JSON identity mismatches, invalid statuses,
@@ -3155,10 +3155,10 @@ type-check`, `pnpm --dir tests exec tsc -p tsconfig.playwright.json
       registration-offer array shape, monotonic timestamps, and positive
       rate-limit windows at the D1 boundary. These checks live in fresh signer
       migrations
-      `packages/sdk-server-ts/migrations/d1-signer/0008_signer_email_otp.sql`,
-      `packages/sdk-server-ts/migrations/d1-signer/0009_signer_email_otp_rate_limits.sql`,
+      `packages/wallet-server/migrations/d1-signer/0008_signer_email_otp.sql`,
+      `packages/wallet-server/migrations/d1-signer/0009_signer_email_otp_rate_limits.sql`,
       and existing combined signer constraint migration
-      `packages/sdk-server-ts/migrations/d1-signer/0010_signer_constraint_hardening.sql`.
+      `packages/wallet-server/migrations/d1-signer/0010_signer_constraint_hardening.sql`.
       The migration smoke suite now inserts corrupt raw Email OTP rows and proves
       D1 rejects scope gaps, invalid actions, JSON identity mismatches, invalid
       escrow lifecycle fields, malformed registration offer JSON, and invalid
@@ -3171,19 +3171,19 @@ type-check`, `pnpm --dir tests exec tsc -p tsconfig.playwright.json
       and the combined hardening migrations
       `packages/console-server-ts/migrations/d1-console/0018_console_constraint_hardening.sql`
       plus
-      `packages/sdk-server-ts/migrations/d1-signer/0010_signer_constraint_hardening.sql`.
+      `packages/wallet-server/migrations/d1-signer/0010_signer_constraint_hardening.sql`.
       Invariants that require multi-row ordering, request authorization, secret
       access, or serialized signer mutation stay in adapters or Durable Object
       methods. Future signer auth methods must add their own schema checks as part
       of a complete route slice.
 - [x] Run a split-identity cleanup inventory across the new D1 modules:
       `rg "isValidAccountId\\((walletId|userId|linkedWalletId|enrollment\\.walletId)"
-packages/sdk-server-ts/src/router/cloudflare packages/sdk-server-ts/src/core`.
+packages/wallet-server/src/router/cloudflare packages/wallet-server/src/core`.
       Wallet identity must parse as wallet identity. NEAR-shaped hosted-account
       requirements need a branch-specific predicate.
 - [x] Run an RP-scope cleanup inventory across generic wallet/NEAR paths:
       `rg "\\brpId\\b" packages/shared-ts/src/utils/registrationIntent.ts
-packages/sdk-server-ts/src/core packages/sdk-server-ts/src/router/cloudflare`.
+packages/wallet-server/src/core packages/wallet-server/src/router/cloudflare`.
       RP ID should appear only in passkey/WebAuthn auth-method branches or in
       explicitly documented request-boundary compatibility code.
       Cleanup completed for NEAR public-key metadata, signing-root
@@ -3220,17 +3220,17 @@ Adapter replacement ledger:
 | Console team-RBAC D1 adapter: `packages/console-server-ts/src/teamRbac/d1.ts`                                                                                                                                                                                                                                           | Deleted `packages/console-server-ts/src/teamRbac/postgres.ts`                                                                                                                                                                            | Complete |
 | Console wallet-index D1 adapter: `packages/console-server-ts/src/wallets/d1.ts`                                                                                                                                                                                                                                         | Deleted `packages/console-server-ts/src/wallets/postgres.ts`                                                                                                                                                                             | Complete |
 | Console webhook D1 adapter: `packages/console-server-ts/src/webhooks/d1.ts`                                                                                                                                                                                                                                             | Deleted `packages/console-server-ts/src/webhooks/postgres.ts`                                                                                                                                                                            | Complete |
-| Shared D1 SQL helpers: `packages/sdk-server-ts/src/storage/d1Sql.ts`                                                                                                                                                                                                                                                        | Replaces the deleted generic Postgres helper `packages/sdk-server-ts/src/storage/postgres.ts` on the Cloudflare path                                                                                                                         | Complete |
-| D1 wallet, wallet auth-method, and identity stores: `d1WalletStore.ts`, `d1WalletAuthMethodStore.ts`, and `d1IdentityStore.ts`                                                                                                                                                                                              | Replaces the deleted wallet/auth-method/identity blocks from `packages/sdk-server-ts/src/storage/postgres.ts`                                                                                                                                | Complete |
-| D1 WebAuthn stores and auth service: `d1WebAuthnStore.ts`, `d1WebAuthnRecords.ts`, and `d1WebAuthnAuthService.ts`                                                                                                                                                                                                           | Replaces the deleted WebAuthn storage blocks from `packages/sdk-server-ts/src/storage/postgres.ts`                                                                                                                                           | Complete |
-| D1 registration ceremony store and Durable Object owner: `d1RegistrationCeremonyStore.ts`, `d1RegistrationCeremonyRecords.ts`, and `d1RegistrationCeremonyDo.ts`                                                                                                                                                            | Replaces the deleted registration ceremony blocks from `packages/sdk-server-ts/src/storage/postgres.ts` and the deleted disabled D1 auth scaffold                                                                                            | Complete |
-| D1 Email OTP record/store/service family: `d1EmailOtp*.ts` and `d1GoogleEmailOtp*.ts`                                                                                                                                                                                                                                       | Replaces deleted `packages/sdk-server-ts/src/core/EmailOtpPostgresRecords.ts` and the deleted Email OTP blocks from `packages/sdk-server-ts/src/storage/postgres.ts`; provider/OIDC service leaves are first D1-only staging implementations | Complete |
-| D1 session/recovery service family: `d1SessionStore.ts`, `d1SessionRecords.ts`, `d1SessionService.ts`, and `d1EmailOtpRecoveryService.ts`                                                                                                                                                                                   | Replaces deleted recovery/session blocks from `packages/sdk-server-ts/src/storage/postgres.ts`; `/recover-email` execution remains outside first D1 staging scope                                                                            | Complete |
-| D1 NEAR public-key and signing-root secret stores: `d1NearPublicKeyStore.ts` and `SigningRootSecretStore.d1.ts`                                                                                                                                                                                                             | Replaces deleted `ThresholdService/postgresRecords.ts` metadata helpers and deleted signing-root secret blocks from `packages/sdk-server-ts/src/storage/postgres.ts`                                                                         | Complete |
-| D1 signing-session seal idempotency records: `signingSessionSeal/idempotencyRecords.ts`                                                                                                                                                                                                                                     | Replaces deleted `packages/sdk-server-ts/src/threshold/session/signingSessionSeal/postgresRecords.ts`                                                                                                                                        | Complete |
-| D1 Router API auth service leaves and boundary/config modules: `d1RouterApiAuthService.ts`, `d1RouterApiAuthBoundary.ts`, `d1RouterApiAuthConfig.ts`, `d1WalletAuthMethodService.ts`, `d1RegistrationIntentService.ts`, `d1WalletRegistrationService.ts`, `d1WalletAddSignerService.ts`, and `d1ThresholdSigningRuntime.ts` | Replace deleted `packages/sdk-server-ts/src/router/cloudflare/disabledRelayAuthService.ts`; unsupported route branches are absent or opt-in structural route dependencies                                                                    | Complete |
-| Local D1 Worker: `packages/sdk-server-ts/src/router/cloudflare/d1LocalDevWorker.ts`                                                                                                                                                                                                                                         | Replaces deleted local Docker Postgres scripts under `apps/web-server/scripts/postgres-*.mjs`, the deleted Docker compose file, and deleted live Postgres relayer runners                                                                    | Complete |
-| Durable Object threshold and ceremony coordination: `packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore.ts` plus D1 ceremony DO records                                                                                                                                                             | Replaces partial Postgres threshold session, wallet-session, presign, admission, budget, replay, and registration-finalization paths; future Postgres support must re-enter as the full-family adapter contract                              | Complete |
+| Shared D1 SQL helpers: `packages/wallet-server/src/storage/d1Sql.ts`                                                                                                                                                                                                                                                        | Replaces the deleted generic Postgres helper `packages/wallet-server/src/storage/postgres.ts` on the Cloudflare path                                                                                                                         | Complete |
+| D1 wallet, wallet auth-method, and identity stores: `d1WalletStore.ts`, `d1WalletAuthMethodStore.ts`, and `d1IdentityStore.ts`                                                                                                                                                                                              | Replaces the deleted wallet/auth-method/identity blocks from `packages/wallet-server/src/storage/postgres.ts`                                                                                                                                | Complete |
+| D1 WebAuthn stores and auth service: `d1WebAuthnStore.ts`, `d1WebAuthnRecords.ts`, and `d1WebAuthnAuthService.ts`                                                                                                                                                                                                           | Replaces the deleted WebAuthn storage blocks from `packages/wallet-server/src/storage/postgres.ts`                                                                                                                                           | Complete |
+| D1 registration ceremony store and Durable Object owner: `d1RegistrationCeremonyStore.ts`, `d1RegistrationCeremonyRecords.ts`, and `d1RegistrationCeremonyDo.ts`                                                                                                                                                            | Replaces the deleted registration ceremony blocks from `packages/wallet-server/src/storage/postgres.ts` and the deleted disabled D1 auth scaffold                                                                                            | Complete |
+| D1 Email OTP record/store/service family: `d1EmailOtp*.ts` and `d1GoogleEmailOtp*.ts`                                                                                                                                                                                                                                       | Replaces deleted `packages/wallet-server/src/core/EmailOtpPostgresRecords.ts` and the deleted Email OTP blocks from `packages/wallet-server/src/storage/postgres.ts`; provider/OIDC service leaves are first D1-only staging implementations | Complete |
+| D1 session/recovery service family: `d1SessionStore.ts`, `d1SessionRecords.ts`, `d1SessionService.ts`, and `d1EmailOtpRecoveryService.ts`                                                                                                                                                                                   | Replaces deleted recovery/session blocks from `packages/wallet-server/src/storage/postgres.ts`; `/recover-email` execution remains outside first D1 staging scope                                                                            | Complete |
+| D1 NEAR public-key and signing-root secret stores: `d1NearPublicKeyStore.ts` and `SigningRootSecretStore.d1.ts`                                                                                                                                                                                                             | Replaces deleted `ThresholdService/postgresRecords.ts` metadata helpers and deleted signing-root secret blocks from `packages/wallet-server/src/storage/postgres.ts`                                                                         | Complete |
+| D1 signing-session seal idempotency records: `signingSessionSeal/idempotencyRecords.ts`                                                                                                                                                                                                                                     | Replaces deleted `packages/wallet-server/src/threshold/session/signingSessionSeal/postgresRecords.ts`                                                                                                                                        | Complete |
+| D1 Router API auth service leaves and boundary/config modules: `d1RouterApiAuthService.ts`, `d1RouterApiAuthBoundary.ts`, `d1RouterApiAuthConfig.ts`, `d1WalletAuthMethodService.ts`, `d1RegistrationIntentService.ts`, `d1WalletRegistrationService.ts`, `d1WalletAddSignerService.ts`, and `d1ThresholdSigningRuntime.ts` | Replace deleted `packages/wallet-server/src/router/cloudflare/disabledRelayAuthService.ts`; unsupported route branches are absent or opt-in structural route dependencies                                                                    | Complete |
+| Local D1 Worker: `packages/wallet-server/src/router/cloudflare/d1LocalDevWorker.ts`                                                                                                                                                                                                                                         | Replaces deleted local Docker Postgres scripts under `apps/web-server/scripts/postgres-*.mjs`, the deleted Docker compose file, and deleted live Postgres relayer runners                                                                    | Complete |
+| Durable Object threshold and ceremony coordination: `packages/wallet-server/src/router/cloudflare/durableObjects/thresholdStore.ts` plus D1 ceremony DO records                                                                                                                                                             | Replaces partial Postgres threshold session, wallet-session, presign, admission, budget, replay, and registration-finalization paths; future Postgres support must re-enter as the full-family adapter contract                              | Complete |
 
 Phase 7 cleanup evidence:
 
@@ -3238,7 +3238,7 @@ Phase 7 cleanup evidence:
       `git diff --shortstat 20af682856f1417abdab6ec39dc7793176d35bd0 --`
       reports 261 files changed, 51,541 insertions, and 15,101 deletions.
       The non-doc slice reports 247 files changed, 48,540 insertions, and
-      7,881 deletions. The `packages/sdk-server-ts/src` production slice,
+      7,881 deletions. The `packages/wallet-server/src` production slice,
       excluding typecheck fixtures, reports 134 files changed, 31,509 insertions,
       and 3,854 deletions.
 - [x] Added the D1/DO adapter replacement ledger above. It names the deleted
@@ -3261,7 +3261,7 @@ Phase 7 cleanup evidence:
 unit/d1Staging*.script.unit.test.ts --reporter=line` with 84 tests, plus
       `git diff --check`.
 - [x] Consolidated duplicated Phase 6 staging-script JSON manifest writing into
-      `writeJsonManifest()` in `packages/sdk-server-ts/scripts/d1-staging-config.mjs`.
+      `writeJsonManifest()` in `packages/wallet-server/scripts/d1-staging-config.mjs`.
       The cleanup removed repeated manifest-directory creation and JSON formatting
       blocks from the fixture import, KEK metadata, migration, R2 restore drill,
       reconciliation, resource inventory, signer custody, smoke, Time Travel
@@ -3274,7 +3274,7 @@ unit/d1Staging*.script.unit.test.ts --reporter=line` with 84 tests, plus
       verifier test file with 26 tests passing, direct duplicate manifest-write
       scan, and `git diff --check`.
 - [x] Consolidated duplicated Phase 6 staging-script common helpers into
-      `packages/sdk-server-ts/scripts/d1-staging-config.mjs`: CLI argument
+      `packages/wallet-server/scripts/d1-staging-config.mjs`: CLI argument
       parsing with shared string and boolean flag parsing, package-relative path
       formatting, manifest output path resolution, generated-at manifest
       stamping, dry-run/remote mode parsing, and readiness failure formatting,
@@ -3320,7 +3320,7 @@ unit/d1Staging*.script.unit.test.ts --reporter=line` with 84 tests, plus
       result-printing, JSON endpoint, origin, timeout, staging config default,
       console/router-api option-normalization, manifest-default, CLI-error, and
       stamped-manifest cleanup brought
-      `packages/sdk-server-ts/scripts/d1-staging-*.mjs` to 4,913 total lines,
+      `packages/wallet-server/scripts/d1-staging-*.mjs` to 4,913 total lines,
       down from the prior 4,995-line, 5,010-line, 5,033-line, 5,423-line,
       5,643-line, and 5,687-line Phase 7 helper checkpoints. The local D1
       backup/restore drill also reuses the shared
@@ -3341,12 +3341,12 @@ unit/d1Staging*.script.unit.test.ts --reporter=line` with 84 tests, plus
       the full Refactor 82 runtime guard with 28 tests passing,
       `pnpm --dir tests exec tsc -p
   tsconfig.playwright.json --noEmit`,
-      `pnpm --dir packages/sdk-server-ts run d1:local:restore:drill --
+      `pnpm --dir packages/wallet-server run d1:local:restore:drill --
   --skip-prepare`, and `git diff --check`.
       A later follow-up deleted the redundant `parseStringFlagArgs()` wrapper
       from `d1-staging-config.mjs`; staging scripts now import and call the single
       `parseFlagArgs()` helper directly. Current line count for
-      `packages/sdk-server-ts/scripts/d1-staging-*.mjs` plus
+      `packages/wallet-server/scripts/d1-staging-*.mjs` plus
       `d1-local-backup-restore-drill.mjs` is 6,108 lines after the wrapper
       deletion. Validation passed: `node --check` over all staging scripts plus
       the local backup/restore drill, the full 12-file Phase 6 staging script
@@ -3622,7 +3622,7 @@ unit/d1Staging*.script.unit.test.ts --reporter=line` with 84 tests, plus
       Refactor 82 guard now rejects the removed D1 helper, the removed
       `AuthService` wrapper, and the exact passkey-only RP ID error string in
       active registration code.
-      Validation passed: `pnpm --dir packages/sdk-server-ts type-check`,
+      Validation passed: `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
   unit/cloudflareD1RouterApiAuthService.unit.test.ts
   unit/relayWalletRegistration.intentModes.unit.test.ts --reporter=line`
@@ -3635,7 +3635,7 @@ unit/d1Staging*.script.unit.test.ts --reporter=line` with 84 tests, plus
       success tests now put an unexpected handle before the real handle, covering
       combined D1 registration, ECDSA-only D1 registration, D1 ECDSA add-signer,
       generic combined registration, generic ECDSA-only registration, and generic
-      ECDSA add-signer. Validation passed: `pnpm --dir packages/sdk-server-ts
+      ECDSA add-signer. Validation passed: `pnpm --dir packages/wallet-server
   type-check`, `pnpm --dir tests exec playwright test -c
   playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts
   --grep "combined Ed25519 and ECDSA registration|ECDSA add-signer"
@@ -3655,7 +3655,7 @@ unit/d1Staging*.script.unit.test.ts --reporter=line` with 84 tests, plus
       actual console D1 tables such as `organizations`, while signer fixtures
       validate against actual signer D1 tables such as `wallets`; cross-domain
       fixture writes still fail before any remote command runs. Validation passed:
-      `node --check packages/sdk-server-ts/scripts/d1-staging-fixture-import.mjs`,
+      `node --check packages/wallet-server/scripts/d1-staging-fixture-import.mjs`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
   unit/d1StagingFixtureImport.script.unit.test.ts --reporter=line` with 6
       tests passing, and the full 12-file Phase 6 staging script cluster with 93
@@ -3721,11 +3721,11 @@ relayer names" --reporter=line`, direct stale-name `rg` scan excluding the guard
       deletions include the two route files, 5 public route definitions, the
       83-line relayer test, and the obsolete core service methods.
 - [x] Deleted disabled delegation route status placeholders from
-      `packages/sdk-server-ts/src/router/delegation`. The static
+      `packages/wallet-server/src/router/delegation`. The static
       `enabled: false` agent-lane, delegated-signing, and linked-device lane
       exports had no importers and only preserved a disabled route surface. Slice
       diff: 30 deletions across 4 files. Validation passed: no dangling
-      delegation references, `pnpm --dir packages/sdk-server-ts type-check`,
+      delegation references, `pnpm --dir packages/wallet-server type-check`,
       `pnpm -s type-check:router-server`, and `git diff --check`.
 - [x] Removed generic cron enable flags from the Cloudflare scheduled handler.
       `createCloudflareCron` now accepts only structural job options: providing
@@ -3734,9 +3734,9 @@ relayer names" --reporter=line`, direct stale-name `rg` scan excluding the guard
       `cronExpressions` remains the per-job schedule filter. The cleanup also
       deleted the unused service argument from the factory and removed test-only
       `enabled: true` scaffolding. Slice diff: 13 insertions and 59 deletions
-      across `packages/sdk-server-ts/src/router/cloudflare/cron.ts` and
+      across `packages/wallet-server/src/router/cloudflare/cron.ts` and
       `tests/relayer/cloudflare-cron.test.ts`. Validation passed:
-      `pnpm --dir packages/sdk-server-ts type-check`,
+      `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec playwright test -c playwright.relayer.config.ts
 relayer/cloudflare-cron.test.ts --reporter=line`, stale scan for cron
       `enabled` patterns, and `git diff --check`.
@@ -3749,7 +3749,7 @@ relayer/cloudflare-cron.test.ts --reporter=line`, stale scan for cron
       deletions across the helper and ten adapter files; the global Refactor 82
       aggregate dropped by another 126 added lines because these D1 adapters are
       new relative to the baseline. Validation passed:
-      `pnpm --dir packages/sdk-server-ts type-check`,
+      `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec playwright test -c playwright.relayer.config.ts
 relayer/console-d1-adapters.test.ts --reporter=line`, stale scan for
       remaining local `queryOne`/`queryAll` helpers in console D1 adapters, and
@@ -3764,7 +3764,7 @@ relayer/console-d1-adapters.test.ts --reporter=line`, stale scan for
       `runChanges` or `d1Changes` copies. The combined D1 SQL helper cleanup now
       reports a selected-file tracked diff of 154 insertions and 282 deletions
       across the helper and 13 adapter files. Validation passed:
-      `pnpm --dir packages/sdk-server-ts type-check`,
+      `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec playwright test -c playwright.relayer.config.ts
 relayer/console-d1-adapters.test.ts --reporter=line`, stale scan for
       local D1 change-count helpers in console D1 adapters, and `git diff --check`.
@@ -3772,8 +3772,8 @@ relayer/console-d1-adapters.test.ts --reporter=line`, stale scan for
       helpers from `EmailOtpStores.ts` and `d1IdentityStore.ts` onto the same
       shared helper, while preserving the `rows_written` fallback for D1 mocks.
       The current stale scan for local D1 change-count helper definitions under
-      `packages/sdk-server-ts/src` is clean. Validation passed:
-      `pnpm --dir packages/sdk-server-ts type-check`,
+      `packages/wallet-server/src` is clean. Validation passed:
+      `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
 unit/cloudflareD1RouterApiAuthService.unit.test.ts --reporter=line`, and
       `git diff --check`.
@@ -3784,7 +3784,7 @@ unit/cloudflareD1RouterApiAuthService.unit.test.ts --reporter=line`, and
       recovery preparation stores. The stale scan for local
       `isD1DatabaseLike`/`resolveD1DatabaseFromConfig` definitions now finds only
       the shared helper in `storage/d1Sql.ts`. Validation passed:
-      `pnpm --dir packages/sdk-server-ts type-check`,
+      `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
 unit/cloudflareD1RouterApiAuthService.unit.test.ts
 unit/walletAuthMethodStore.unit.test.ts
@@ -3799,7 +3799,7 @@ unit/walletScopedLookups.guard.unit.test.ts --reporter=line`, and
       record-specific domain parsers. Remaining direct D1 JSON parsing is scoped
       to route request boundaries, cursors, webhooks, WebAuthn record parsing, or
       local-dev request parsing. Validation passed:
-      `pnpm --dir packages/sdk-server-ts type-check`,
+      `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec playwright test -c playwright.relayer.config.ts
 relayer/console-d1-adapters.test.ts --reporter=line`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
@@ -3814,7 +3814,7 @@ unit/walletScopedLookups.guard.unit.test.ts --reporter=line`, and
       to `*.persistedRecords`. The Ed25519 fixtures now include split wallet and
       hosted NEAR identity fields required by the current parser.
 - [x] Deleted the partial Postgres NEAR public-key metadata backend from
-      `packages/sdk-server-ts/src/core/NearPublicKeyStore.ts` and removed the
+      `packages/wallet-server/src/core/NearPublicKeyStore.ts` and removed the
       unused `near_public_keys` table from the shared Postgres schema bootstrap.
       The signer metadata factory now rejects Postgres selection until the
       full-family Postgres escape hatch exists, while D1 `signer_near_public_keys`
@@ -3878,7 +3878,7 @@ unit/walletScopedLookups.guard.unit.test.ts --reporter=line`, and
       test already proves unsupported kinds fail closed, and active config no longer
       names Postgres as a selectable kind. The same cleanup renamed the remaining
       backend-neutral row parser error in
-      `packages/sdk-server-ts/src/router/routerAbNormalSigningAdmissionCore.ts`
+      `packages/wallet-server/src/router/routerAbNormalSigningAdmissionCore.ts`
       from a Postgres-specific message to `Storage row must be an object`.
 - [x] Deleted disabled sponsored EVM route placeholders from the Node runner and
       Cloudflare D1 local route surface. The Node web-server no longer mounts
@@ -3897,7 +3897,7 @@ unit/walletScopedLookups.guard.unit.test.ts --reporter=line`, and
       carry a ready `publishableKeyAuth` adapter, and the legacy Express helper
       validates `ConsoleApiKeyService.authenticatePublishableKey` at route
       registration through the shared adapter constructor. Validation passed:
-      `pnpm --dir packages/sdk-server-ts type-check`, `pnpm -C apps/web-server
+      `pnpm --dir packages/wallet-server type-check`, `pnpm -C apps/web-server
 exec tsc --noEmit`, `pnpm --dir apps/seams-site run typecheck`,
       `unit/cloudflareD1ConsoleServices.unit.test.ts`,
       `unit/router.sponsoredEvmCallCloudflare.unit.test.ts`,
@@ -3912,7 +3912,7 @@ exec tsc --noEmit`, `pnpm --dir apps/seams-site run typecheck`,
       simplified Cloudflare/Express transports and route-surface generation,
       removed enabled flags from route-surface tests, and added type fixtures
       rejecting the old `signingSessionSeal.enabled` route shape and helper input.
-      Validation passed: `pnpm --dir packages/sdk-server-ts type-check`,
+      Validation passed: `pnpm --dir packages/wallet-server type-check`,
       `unit/router.relayRouteSurface.unit.test.ts`,
       `unit/router.routeDefinitions.unit.test.ts`,
       `relayer/signing-session-seal-router.test.ts`, and
@@ -3924,74 +3924,74 @@ exec tsc --noEmit`, `pnpm --dir apps/seams-site run typecheck`,
       present and omits them when the key material is absent; partial key material
       remains a startup configuration error. Focused validation passed:
       `pnpm -C apps/web-server exec tsc --noEmit`, `pnpm --dir
-packages/sdk-server-ts type-check`, focused route-surface and web-server
+packages/wallet-server type-check`, focused route-surface and web-server
       console-config guard tests, focused signing-session seal relayer tests, and a
       stale-symbol scan proving `SIGNING_SESSION_SEAL_ENABLED` has no source or doc
       references outside this historical plan note.
 - [x] Deleted the partial Postgres registration-finalization transaction branch
-      from `packages/sdk-server-ts/src/core/AuthService.ts`. Wallet registration,
+      from `packages/wallet-server/src/core/AuthService.ts`. Wallet registration,
       add-signer, and add-auth-method finalization now consume ceremonies through
       the domain-store path only; the future Postgres escape hatch must arrive as
       a full-family adapter instead of an embedded core transaction branch. The
       same pass deleted the unused
       `putGoogleEmailOtpRegistrationAttemptWithExecutor` helper and
-      `PgQueryExecutor` import from `packages/sdk-server-ts/src/core/EmailOtpStores.ts`
+      `PgQueryExecutor` import from `packages/wallet-server/src/core/EmailOtpStores.ts`
       and updated the Google SSO Email OTP registration guard to assert the single
       store-backed finalization path. Slice diff before this doc update: 36
       insertions and 458 deletions across `AuthService.ts`, `EmailOtpStores.ts`,
       and `tests/unit/refactor58OtpRegistrationSlim.guard.unit.test.ts`.
 - [x] Deleted the partial Postgres wallet identity and wallet auth-method stores
-      from `packages/sdk-server-ts/src/core/WalletStore.ts` and
-      `packages/sdk-server-ts/src/core/WalletAuthMethodStore.ts`. D1 and DO
+      from `packages/wallet-server/src/core/WalletStore.ts` and
+      `packages/wallet-server/src/core/WalletAuthMethodStore.ts`. D1 and DO
       remain the staging-capable persistent paths. The same pass removed the
       `wallets`, `wallet_signers`, and `wallet_auth_methods` bootstrap blocks
-      from `packages/sdk-server-ts/src/storage/postgres.ts` and deleted the
-      public executor exports from `packages/sdk-server-ts/src/index.ts`.
+      from `packages/wallet-server/src/storage/postgres.ts` and deleted the
+      public executor exports from `packages/wallet-server/src/index.ts`.
       Selected-path tracked diff from the Refactor 82 baseline is 291 insertions
       and 703 deletions across the modified wallet/auth-method/index/Postgres
       schema files. The later selector cleanup below removed the temporary
       Postgres-shaped rejection fixtures and branches.
 - [x] Deleted the partial Postgres WebAuthn store family from
-      `packages/sdk-server-ts/src/core/WebAuthnAuthenticatorStore.ts`,
-      `packages/sdk-server-ts/src/core/WebAuthnCredentialBindingStore.ts`,
-      `packages/sdk-server-ts/src/core/WebAuthnLoginChallengeStore.ts`, and
-      `packages/sdk-server-ts/src/core/WebAuthnSyncChallengeStore.ts`. The same pass
-      removed the WebAuthn executor exports from `packages/sdk-server-ts/src/index.ts`
+      `packages/wallet-server/src/core/WebAuthnAuthenticatorStore.ts`,
+      `packages/wallet-server/src/core/WebAuthnCredentialBindingStore.ts`,
+      `packages/wallet-server/src/core/WebAuthnLoginChallengeStore.ts`, and
+      `packages/wallet-server/src/core/WebAuthnSyncChallengeStore.ts`. The same pass
+      removed the WebAuthn executor exports from `packages/wallet-server/src/index.ts`
       and deleted the old unprefixed `webauthn_authenticators`,
       `webauthn_credential_bindings`, and `webauthn_challenges` bootstrap blocks
-      from `packages/sdk-server-ts/src/storage/postgres.ts`. Store/index diff:
+      from `packages/wallet-server/src/storage/postgres.ts`. Store/index diff:
       24 insertions and 472 deletions. The later selector cleanup below removed
       the temporary Postgres-shaped rejection fixture and branches.
 - [x] Deleted the partial Postgres recovery store family from
-      `packages/sdk-server-ts/src/core/RecoverySessionStore.ts`,
-      `packages/sdk-server-ts/src/core/RecoveryExecutionStore.ts`, and
-      `packages/sdk-server-ts/src/core/EmailRecoveryPreparationStore.ts`. The same
+      `packages/wallet-server/src/core/RecoverySessionStore.ts`,
+      `packages/wallet-server/src/core/RecoveryExecutionStore.ts`, and
+      `packages/wallet-server/src/core/EmailRecoveryPreparationStore.ts`. The same
       pass removed the old
       `email_recovery_preparations`, `recovery_sessions`, and
       `recovery_executions` bootstrap blocks from
-      `packages/sdk-server-ts/src/storage/postgres.ts`. Store/schema tracked diff:
+      `packages/wallet-server/src/storage/postgres.ts`. Store/schema tracked diff:
       18 insertions and 707 deletions across the modified production files; the
       later selector cleanup below removed the temporary Postgres-shaped rejection
       fixture and branches.
 - [x] Deleted the partial Postgres identity store from
-      `packages/sdk-server-ts/src/core/IdentityStore.ts`. The same pass removed the exported identity executor
-      helper from `packages/sdk-server-ts/src/index.ts` and deleted the old
+      `packages/wallet-server/src/core/IdentityStore.ts`. The same pass removed the exported identity executor
+      helper from `packages/wallet-server/src/index.ts` and deleted the old
       `identity_links` and `app_session_versions` bootstrap blocks from
-      `packages/sdk-server-ts/src/storage/postgres.ts`. Selected production tracked
+      `packages/wallet-server/src/storage/postgres.ts`. Selected production tracked
       diff from the Refactor 82 baseline is 21 insertions and 1,414 deletions across
       the modified identity/index/Postgres schema files. The later selector cleanup
       below removed the temporary Postgres-shaped rejection fixture and branch.
 - [x] Deleted the partial Postgres registration ceremony store from
-      `packages/sdk-server-ts/src/core/RegistrationCeremonyStore.ts`. Cloudflare
+      `packages/wallet-server/src/core/RegistrationCeremonyStore.ts`. Cloudflare
       Durable Object remains the durable staging path. The same pass removed the old
       `wallet_registration_intents` and `wallet_registration_ceremonies` bootstrap
-      blocks from `packages/sdk-server-ts/src/storage/postgres.ts`. Selected-file
+      blocks from `packages/wallet-server/src/storage/postgres.ts`. Selected-file
       tracked diff from the Refactor 82 baseline is 167 insertions and 1,172
       deletions across the ceremony store, shared Postgres schema, and focused
       ceremony store tests. The later selector cleanup below removed the temporary
       Postgres-shaped rejection fixture and branch.
 - [x] Deleted the partial Postgres signing-root secret store from
-      `packages/sdk-server-ts/src/core/ThresholdService/stores/SigningRootSecretStore.ts`.
+      `packages/wallet-server/src/core/ThresholdService/stores/SigningRootSecretStore.ts`.
       The threshold service barrel no longer exports `PostgresSigningRootSecretStore`,
       and the old unprefixed `signing_root_secret_shares` bootstrap/reset references
       are gone from the shared Postgres schema and local reset runbook. D1
@@ -3999,19 +3999,19 @@ packages/sdk-server-ts type-check`, focused route-surface and web-server
       future Postgres escape hatch must implement the full signer-family backend
       before it can be selected.
 - [x] Deleted the partial Postgres threshold key-store backend from
-      `packages/sdk-server-ts/src/core/ThresholdService/stores/KeyStore.ts`. The
+      `packages/wallet-server/src/core/ThresholdService/stores/KeyStore.ts`. The
       first deletion pass removed the old `threshold_ed25519_keys` and
       `threshold_ecdsa_keys` bootstrap/reset references plus the obsolete
       `tests/unit/thresholdEcdsa.postgresKeyStoreBackfill.unit.test.ts` suite.
       The later threshold config cleanup below removed the temporary
       Postgres-shaped selection surface.
 - [x] Deleted the partial Postgres threshold session-store backend from
-      `packages/sdk-server-ts/src/core/ThresholdService/stores/SessionStore.ts`.
+      `packages/wallet-server/src/core/ThresholdService/stores/SessionStore.ts`.
       The first deletion pass kept existing in-memory presign/session behavior
       covered while removing the partial Postgres backend. The later threshold
       config cleanup below removed the temporary Postgres-shaped selection surface.
 - [x] Deleted the partial Postgres wallet-session backend from
-      `packages/sdk-server-ts/src/core/ThresholdService/stores/WalletSessionStore.ts`.
+      `packages/wallet-server/src/core/ThresholdService/stores/WalletSessionStore.ts`.
       The first deletion pass removed the `threshold_ed25519_sessions`,
       `threshold_wallet_session_consumptions`, and
       `threshold_wallet_session_budget_reservations` bootstrap/reset references.
@@ -4019,7 +4019,7 @@ packages/sdk-server-ts type-check`, focused route-surface and web-server
       the suite was retired by the ECDSA presign deletion pass. The later threshold
       config cleanup below removed the temporary Postgres-shaped selection surface.
 - [x] Deleted the partial Postgres ECDSA presign backend from
-      `packages/sdk-server-ts/src/core/ThresholdService/stores/EcdsaSigningStore.ts`.
+      `packages/wallet-server/src/core/ThresholdService/stores/EcdsaSigningStore.ts`.
       The first deletion pass removed the `threshold_ecdsa_presign_sessions` and
       `threshold_ecdsa_presignatures` bootstrap/reset references and deleted
       the obsolete `tests/unit/thresholdPostgresMalformedCleanup.unit.test.ts`
@@ -4036,7 +4036,7 @@ packages/sdk-server-ts type-check`, focused route-surface and web-server
       threshold config is rejected at compile time. Selected slice diff from
       `HEAD`: 241 insertions and 3,103 deletions in tracked core/test files, plus
       59 new helper/type-fixture lines. Validation passed: `pnpm --dir
-packages/sdk-server-ts type-check`, `pnpm -s type-check:router-server`,
+packages/wallet-server type-check`, `pnpm -s type-check:router-server`,
       the focused threshold store/D1 runtime Playwright unit slice, stale
       threshold Postgres scans excluding typecheck fixtures, and `git diff --check`.
 - [x] Deleted stale signer metadata and Email OTP partial-Postgres selector guards
@@ -4049,19 +4049,19 @@ packages/sdk-server-ts type-check`, `pnpm -s type-check:router-server`,
       WebAuthn, recovery, identity, NEAR public-key, registration ceremony, and
       Email OTP tests. Selected slice diff from `HEAD`: 173 insertions and 3,990
       deletions across tracked core/test files. Validation passed: `pnpm --dir
-packages/sdk-server-ts type-check`, `pnpm -s type-check:router-server`, the
+packages/wallet-server type-check`, `pnpm -s type-check:router-server`, the
       focused Email OTP/wallet-auth-method/registration-ceremony/D1 runtime
       Playwright unit slice, source-level stale partial-Postgres scans, and
       `git diff --check`.
 - [x] Deleted the partial Postgres normal-signing admission backend from
-      `packages/sdk-server-ts/src/router/routerAbNormalSigningAdmissionStore.ts`.
+      `packages/wallet-server/src/router/routerAbNormalSigningAdmissionStore.ts`.
       The facade and public SDK exports now expose only Durable Object and
       in-memory admission stores. A type fixture rejects the old
       `PostgresRouterAbNormalSigningAdmissionStoreOptions` export so quota,
       project-policy, and abuse admission cannot silently reintroduce a partial
       Postgres hot path.
 - [x] Deleted the unused shared Postgres schema initializer and the remaining
-      generic `packages/sdk-server-ts/src/storage/postgres.ts` public helper.
+      generic `packages/wallet-server/src/storage/postgres.ts` public helper.
       Removed the last `AuthService` warmup call that created shared Postgres
       tables. Future Postgres support now lives only in the full-family
       `TenantStorageRoute` adapter contract and migration playbook. The stale
@@ -4136,7 +4136,7 @@ unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line` with 35
 - [x] Rewrote the active observability architecture and event-surfacing docs to
       the D1-era module layout. `docs/saas/observability-events-3.md` and
       `docs/saas/observability-events-4.md` now point at
-      `packages/sdk-server-ts/src`, `apps/seams-site`, the D1 observability
+      `packages/wallet-server/src`, `apps/seams-site`, the D1 observability
       migration, `d1.ts`, `policy.ts`, `requestRollups.ts`, `redaction.ts`, and
       shared router hooks instead of deleted `server/src`,
       `examples/seams-site`, `postgres.ts`, and `console_observability_*`
@@ -4150,7 +4150,7 @@ unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line` with 36
       `git diff --check`.
 - [x] Rewrote `docs/saas/generalized-gas-sponsorship.md` links to the current
       sponsorship, policy, dashboard, and app-server modules. The doc now points
-      at `packages/sdk-server-ts/src`, `apps/seams-site`, `apps/web-server`, and
+      at `packages/wallet-server/src`, `apps/seams-site`, `apps/web-server`, and
       current Cloudflare route filenames
       `router/cloudflare/routes/sponsoredEvmCall.ts` and
       `router/cloudflare/routes/signedDelegate.ts`. The Refactor 82 guard now
@@ -4209,7 +4209,7 @@ unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line` with 39
       targeted stale scan for the billing/sponsorship table-name patterns, and
       `git diff --check`.
 - [x] Deleted legacy threshold-session parser compatibility exports from
-      `packages/sdk-server-ts/src/core/ThresholdService/validation.ts`. The
+      `packages/wallet-server/src/core/ThresholdService/validation.ts`. The
       obsolete `parseThresholdEd25519SessionClaims`,
       `parseThresholdEcdsaSessionClaims`, and `LegacyThreshold*SessionClaims`
       types were only supporting historical acceptance tests; active Router A/B
@@ -4220,7 +4220,7 @@ unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line` with 39
       allowlist for `validation.ts`, and updated the Router A/B issuer guard to
       assert the current claim-builder functions. Slice diff before this plan
       update: 10 insertions and 118 deletions across the parser and two unit
-      guard files. Validation passed: `pnpm --dir packages/sdk-server-ts
+      guard files. Validation passed: `pnpm --dir packages/wallet-server
 type-check`, `pnpm --dir tests exec playwright test -c
 playwright.unit.config.ts unit/thresholdSessionClaims.unit.test.ts
 unit/routerAbServerWalletSessionClaimBoundary.guard.unit.test.ts
@@ -4261,7 +4261,7 @@ unit/routerAbServerWalletSessionClaimBoundary.guard.unit.test.ts
       the package smoke test, the D1 runtime guard, and the stale dashboard backend
       note. The same pass removed the obsolete `authService.initStorage()` startup
       warmup from the Node app-server example.
-- [x] Validation passed: `pnpm --dir packages/sdk-server-ts type-check`,
+- [x] Validation passed: `pnpm --dir packages/wallet-server type-check`,
       `pnpm -s type-check:router-server`, `pnpm -C apps/web-server exec tsc
 --noEmit`, and `pnpm --dir tests exec playwright test -c
 playwright.unit.config.ts unit/refactor51bPackageInstallSmoke.unit.test.ts
@@ -4271,7 +4271,7 @@ unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`.
       or `PostgresConsole*` source symbols outside the tenant-route type fixture,
       package smoke absence assertions, and historical Refactor 82 notes.
 - [x] Split console authentication out of the broad console router module into
-      `packages/sdk-server-ts/src/router/consoleAuth.ts` and repointed
+      `packages/wallet-server/src/router/consoleAuth.ts` and repointed
       Cloudflare and Express runtime imports at that leaf. `router/console.ts`
       still owns `ConsoleRouterOptions` and re-exports the auth surface for public
       API continuity, while Worker runtime code now imports
@@ -4281,15 +4281,15 @@ unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`.
       app-session console auth, Cloudflare local D1 dev, and both console routers
       off the broad module. The stale runtime-import scan
       `rg -n -P "^import(?!\\s+type).*from ['\\\"]\\.\\./console['\\\"]"
-packages/sdk-server-ts/src/router/cloudflare
-packages/sdk-server-ts/src/router/express --glob '*.ts'` now returns no
+packages/wallet-server/src/router/cloudflare
+packages/wallet-server/src/router/express --glob '*.ts'` now returns no
       matches. Type-only `ConsoleRouterOptions` imports remain intentional because
       the router option shape is the current request-boundary contract, and they
       are erased from Worker runtime output. The validation run also exposed a
       stale webhook delivery-order assertion that depended on same-millisecond
       ordering; the test now verifies the delivered event set and keeps
       observability ingestion as the chronological balance-transition assertion.
-      Validation passed: `pnpm --dir packages/sdk-server-ts type-check`,
+      Validation passed: `pnpm --dir packages/wallet-server type-check`,
       `pnpm -s type-check:router-server`, `pnpm --dir tests exec tsc -p
 tsconfig.playwright.json --noEmit`, `pnpm --dir tests exec playwright test
 -c playwright.relayer.config.ts relayer/console-router.test.ts
@@ -4309,7 +4309,7 @@ tsconfig.playwright.json --noEmit`, `pnpm --dir tests exec playwright test
       `AuthService.ts`; the hosted-account privacy fixture was updated to include
       the current runtime-policy scope rather than stale resumable-attempt
       behavior. Validation passed:
-      `pnpm --dir packages/sdk-server-ts type-check`,
+      `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
 unit/walletScopedLookups.guard.unit.test.ts
@@ -4328,7 +4328,7 @@ relayer/email-otp.authservice.test.ts --reporter=line`, the
       RP-scope inventory was threshold Ed25519 session policy plus signing-root
       migration/context records; the later signing-root cleanup below narrows the
       remaining work to live threshold Ed25519 session policy. Validation passed:
-      `pnpm --dir packages/sdk-server-ts type-check`,
+      `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
 unit/walletScopedLookups.guard.unit.test.ts --grep "D1 auth and recovery
@@ -4348,7 +4348,7 @@ metadata is scoped in D1" --reporter=line`, and `git diff --check`.
       entries. Self-host and Durable Object signing-root fixtures now import the
       new authority-scope shape. Remaining RP-scope cleanup is narrowed to live
       threshold Ed25519 session policy and presign/session records. Validation
-      passed: `pnpm --dir packages/sdk-server-ts type-check`,
+      passed: `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
 unit/signingRootRecords.script.unit.test.ts
@@ -4366,7 +4366,7 @@ playwright.unit.config.ts unit/cloudflareSelfHostedSigningWorker.script.unit.tes
       root `rpId` construction for the changed domain objects. The web
       `buildEd25519SessionPolicy` builder now validates its passkey RP input and
       emits the authority-scope shape. Validation passed: `pnpm --dir
-packages/sdk-server-ts type-check`, `pnpm --dir packages/sdk-web type-check`,
+packages/wallet-server type-check`, `pnpm --dir packages/wallet type-check`,
       `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`, and
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
 unit/thresholdEd25519.sessionPolicyDigest.unit.test.ts
@@ -4383,7 +4383,7 @@ unit/walletSessionBudgetReservation.store.unit.test.ts --reporter=line`.
       before comparing with persisted key identity. The parser rejects stale root
       `rpId` key records, and `thresholdEd25519AuthorityScope.typecheck.ts`
       rejects direct root `rpId` construction for key-store records. Validation
-      passed: `pnpm --dir packages/sdk-server-ts type-check`,
+      passed: `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`, `pnpm
 --dir tests exec playwright test -c playwright.unit.config.ts
 unit/thresholdEcdsa.persistedRecords.unit.test.ts
@@ -4402,51 +4402,51 @@ unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`,
       stale scans for `createPostgresConsoleBillingService` in the billing service
       test and direct `isValidAccountId` usage in production Cloudflare `d1*.ts`
       modules.
-- [x] Validation passed: `pnpm --dir packages/sdk-web type-check`,
-      `pnpm --dir packages/sdk-server-ts type-check`, and
+- [x] Validation passed: `pnpm --dir packages/wallet type-check`,
+      `pnpm --dir packages/wallet-server type-check`, and
       `pnpm --dir tests exec playwright test -c playwright.relayer.config.ts
 relayer/console-router.test.ts --grep "GET /console/webhooks rejects
 Postgres tenant routes|GET /console/healthz works|cloudflare POST
 /console/projects auto-provisions" --reporter=line`.
-- [x] Validation passed: `pnpm --dir packages/sdk-web type-check`,
-      `pnpm --dir packages/sdk-server-ts type-check`, and
+- [x] Validation passed: `pnpm --dir packages/wallet type-check`,
+      `pnpm --dir packages/wallet-server type-check`, and
       `pnpm --dir tests exec playwright test -c playwright.relayer.config.ts
 relayer/console-sponsored-calls.history.test.ts
 relayer/console-billing-prepaid-reservations.test.ts --reporter=line`.
-- [x] Validation passed: `pnpm --dir packages/sdk-web type-check`,
-      `pnpm --dir packages/sdk-server-ts type-check`, `pnpm --dir tests exec
+- [x] Validation passed: `pnpm --dir packages/wallet type-check`,
+      `pnpm --dir packages/wallet-server type-check`, `pnpm --dir tests exec
 playwright test -c playwright.relayer.config.ts
 relayer/threshold-ecdsa.durable-stores.test.ts --reporter=line`, and
       `git diff --check`.
-- [x] Validation passed: `pnpm --dir packages/sdk-server-ts type-check`,
+- [x] Validation passed: `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
 unit/walletSessionBudgetReservation.store.unit.test.ts --reporter=line`,
       and `git diff --check`.
-- [x] Validation passed: `pnpm --dir packages/sdk-server-ts type-check`,
+- [x] Validation passed: `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec playwright test -c playwright.relayer.config.ts
 relayer/console-sponsorship-spend-caps.test.ts --reporter=line`, and
       `git diff --check`.
-- [x] Validation passed: `pnpm --dir packages/sdk-server-ts type-check`,
-      `pnpm --dir packages/sdk-web type-check`,
+- [x] Validation passed: `pnpm --dir packages/wallet-server type-check`,
+      `pnpm --dir packages/wallet type-check`,
       `pnpm --dir tests exec playwright test -c playwright.relayer.config.ts
 relayer/sponsored-evm-call.test.ts --reporter=line`,
       `pnpm --dir tests exec playwright test -c playwright.relayer.config.ts
 relayer/console-d1-adapters.test.ts --grep "sponsored gas settlement writes
 reservation|sponsored gas settlement rejects stale" --reporter=line`, and
       `git diff --check`.
-- [x] Validation passed: `pnpm --dir packages/sdk-server-ts type-check`,
-      `pnpm --dir packages/sdk-web type-check`,
+- [x] Validation passed: `pnpm --dir packages/wallet-server type-check`,
+      `pnpm --dir packages/wallet type-check`,
       `pnpm --dir tests exec playwright test -c playwright.relayer.config.ts
 relayer/console-observability.ingestion.test.ts --reporter=line`, and
       `git diff --check`.
-- [x] Validation passed: `pnpm --dir packages/sdk-server-ts type-check`,
-      `pnpm --dir packages/sdk-web type-check`,
+- [x] Validation passed: `pnpm --dir packages/wallet-server type-check`,
+      `pnpm --dir packages/wallet type-check`,
       `pnpm --dir tests exec playwright test -c playwright.relayer.config.ts
 relayer/console-d1-adapters.test.ts --grep "bootstrap token
 adapter|webhook adapter stores|webhook D1 retry dispatch|policy adapter
 bootstraps" --reporter=line`, and `git diff --check`.
-- [x] Validation passed: `pnpm --dir packages/sdk-server-ts type-check`,
-      `pnpm --dir packages/sdk-web type-check`, `node -e
+- [x] Validation passed: `pnpm --dir packages/wallet-server type-check`,
+      `pnpm --dir packages/wallet type-check`, `node -e
 "JSON.parse(require('fs').readFileSync('tests/package.json','utf8'));
 console.log('tests/package.json ok')"`, `pnpm --dir tests exec playwright
 test -c playwright.relayer.config.ts relayer/console-d1-adapters.test.ts
@@ -4454,8 +4454,8 @@ test -c playwright.relayer.config.ts relayer/console-d1-adapters.test.ts
 are trigger-atomic|billing credit purchases settle|billing monthly
 finalization|runtime snapshot outbox claim lease" --reporter=line`, and
       `git diff --check`.
-- [x] Validation passed: `pnpm --dir packages/sdk-server-ts type-check`,
-      `pnpm --dir packages/sdk-web type-check`,
+- [x] Validation passed: `pnpm --dir packages/wallet-server type-check`,
+      `pnpm --dir packages/wallet type-check`,
       `pnpm --dir tests exec playwright test -c playwright.relayer.config.ts
 relayer/signing-session-seal-router.test.ts --grep "idempotency env
 resolver" --reporter=line`, `pnpm --dir tests exec playwright test -c
@@ -4463,17 +4463,17 @@ playwright.unit.config.ts unit/signingSessionSeal.idempotencyRecords.unit.test.t
 unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
 unit/refactor76BrandedKeys.guard.unit.test.ts --reporter=line`, and
       `git diff --check`.
-- [x] Validation passed: `pnpm --dir packages/sdk-server-ts type-check`,
+- [x] Validation passed: `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
 unit/refactor58OtpRegistrationSlim.guard.unit.test.ts
 unit/emailOtpRecoveryWrappedEnrollmentEscrowStore.unit.test.ts
 --reporter=line`, `rg -n
 "putGoogleEmailOtpRegistrationAttemptWithExecutor|PgQueryExecutor|postgresRegistrationPersistenceConfig|writeRegistrationPersistenceWithExecutor|writeAddAuthMethodPersistenceWithExecutor|writeEmailOtpRegistrationEnrollmentWithExecutor|persistGoogleEmailOtpRegistrationActivationWithExecutor|Postgres finalization requires|getPostgresPool\\("
-packages/sdk-server-ts/src/core/AuthService.ts
-packages/sdk-server-ts/src/core/EmailOtpStores.ts
+packages/wallet-server/src/core/AuthService.ts
+packages/wallet-server/src/core/EmailOtpStores.ts
 tests/unit/refactor58OtpRegistrationSlim.guard.unit.test.ts`, and
       `git diff --check`.
-- [x] Validation passed: `pnpm --dir packages/sdk-server-ts type-check`,
+- [x] Validation passed: `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
 unit/walletStore.unit.test.ts unit/walletAuthMethodStore.unit.test.ts
 unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`,
@@ -4481,7 +4481,7 @@ unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`,
 relayer/console-d1-adapters.test.ts --grep "signer wallet metadata and auth
 methods are scoped by tenant environment" --reporter=line`, and the stale
       wallet Postgres symbol/schema inventories returned no matches.
-- [x] Validation passed: `pnpm --dir packages/sdk-server-ts type-check`,
+- [x] Validation passed: `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
 unit/webauthnStoreFactories.unit.test.ts
 unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`,
@@ -4489,7 +4489,7 @@ unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`,
 unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "reads signer metadata
 with tenant scope" --reporter=line`, and the stale WebAuthn Postgres
       symbol/schema inventories returned no matches.
-- [x] Validation passed: `pnpm --dir packages/sdk-server-ts type-check`,
+- [x] Validation passed: `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
 unit/recoveryStoreFactories.unit.test.ts unit/recoverySessionStore.unit.test.ts
 unit/recoveryExecutionStore.unit.test.ts
@@ -4498,11 +4498,11 @@ unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`,
 unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "tracks recovery
 sessions and executions" --reporter=line`, and the stale recovery Postgres
       symbol/schema inventories returned no matches.
-- [x] Validation passed: `pnpm --dir packages/sdk-server-ts type-check`,
+- [x] Validation passed: `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
 unit/identityStore.unit.test.ts --reporter=line`, `git diff --check`, and
       the stale identity Postgres helper/table inventories returned no matches.
-- [x] Validation passed: `pnpm --dir packages/sdk-server-ts type-check`,
+- [x] Validation passed: `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
 unit/registrationCeremonyStore.unit.test.ts --reporter=line`, `pnpm --dir
 tests exec playwright test -c playwright.unit.config.ts
@@ -4566,7 +4566,7 @@ unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`,
       `packages/console-server-ts/wrangler.d1-staging-router-api.toml.example`, the
       guard rejects the old staging CLI/config symbols, and no compatibility
       aliases were added. Validation passed: `node --check
-packages/sdk-server-ts/scripts/d1-staging-readiness-check.mjs`, `pnpm --dir
+packages/wallet-server/scripts/d1-staging-readiness-check.mjs`, `pnpm --dir
 tests exec playwright test -c playwright.unit.config.ts
 unit/d1StagingResourceInventory.script.unit.test.ts
 unit/d1StagingEvidenceVerify.script.unit.test.ts
@@ -4608,7 +4608,7 @@ unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line` with 43
 - [x] Removed stale "legacy prefix" wording from the active server default-config
       comments. The default remains unchanged; the comment now describes the
       current published threshold keyspace prefix. The Refactor 82 guard now scans
-      `packages/sdk-server-ts/src/core/defaultConfigsServer.ts` for the old phrase.
+      `packages/wallet-server/src/core/defaultConfigsServer.ts` for the old phrase.
       Validation passed: `pnpm --dir tests exec playwright test -c
 playwright.unit.config.ts unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
 --reporter=line` with 43 tests passing, a focused stale-prefix scan, and
@@ -4648,28 +4648,28 @@ playwright.unit.config.ts unit/emailEncryptionOutlayerInteroperability.test.ts
 --reporter=line`; its 3 cases still skip through the pre-existing unavailable
       helper path in this environment.
 - [x] Deleted the ambient Express type shim at
-      `packages/sdk-server-ts/src/router/express-shim.d.ts`. The package now uses
+      `packages/wallet-server/src/router/express-shim.d.ts`. The package now uses
       the declared `@types/express` dependency through an explicit TypeScript path
       for `express`, and `createConsoleRouter.ts` stores request-scoped console
       auth claims in a `WeakMap<Request, ConsoleAuthClaims>` instead of mutating
       the request object through a broad record cast. The Refactor 82 guard now
       rejects the old shim path. Validation passed:
-      `pnpm --dir packages/sdk-server-ts exec tsc -p tsconfig.json --noEmit
---pretty false`, `pnpm --dir packages/sdk-server-ts exec tsc -p
+      `pnpm --dir packages/wallet-server exec tsc -p tsconfig.json --noEmit
+--pretty false`, `pnpm --dir packages/wallet-server exec tsc -p
 tsconfig.build.json --pretty false`, `pnpm --dir tests exec playwright test -c
 playwright.unit.config.ts unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
 --reporter=line` with 43 tests passing, a direct old-path absence check, and
       `git diff --check`.
 - [x] Deleted stale "scaffolding" comments from the current Threshold Ed25519
       Express routes and threshold signing service factory. The Refactor 82 guard
-      now rejects `scaffolding` wording in `packages/sdk-server-ts/src`
+      now rejects `scaffolding` wording in `packages/wallet-server/src`
       production source so current runtime code is not described as temporary
       migration scaffolding. Validation passed: `pnpm --dir tests exec playwright
   test -c playwright.unit.config.ts
   unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`
       with 45 tests passing, `pnpm --dir tests exec tsc -p
   tsconfig.playwright.json --noEmit`, a direct `rg "scaffolding"
-  packages/sdk-server-ts/src` scan, and `git diff --check`.
+  packages/wallet-server/src` scan, and `git diff --check`.
 
 Exit criteria:
 
@@ -4678,18 +4678,18 @@ Exit criteria:
       Evidence: outside this Refactor 82 plan, the exact env-token inventory now
       returns only `tests/unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts`,
       `tests/unit/webServer.consoleConfig.unit.test.ts`, and
-      `packages/sdk-server-ts/src/core/ThresholdService/stores/ThresholdStoreConfig.typecheck.ts`.
+      `packages/wallet-server/src/core/ThresholdService/stores/ThresholdStoreConfig.typecheck.ts`.
       There are no app, package, crate, local-dev script, or architecture-doc
       references to those runtime env keys.
 - [x] Cloudflare runtime and staging-required code paths have no legacy fallback
       branches.
-      Evidence: the stale-name guard now scans `packages/sdk-server-ts/src`,
-      `packages/sdk-web/src`, `tests`, `packages/sdk-server-ts/src/README.md`,
-      `packages/sdk-server-ts/README.md`, `apps/web-server/README.md`,
+      Evidence: the stale-name guard now scans `packages/wallet-server/src`,
+      `packages/wallet/src`, `tests`, `packages/wallet-server/src/README.md`,
+      `packages/wallet-server/README.md`, `apps/web-server/README.md`,
       `docs/registrations-top-up.md`,
       `docs/refactor-90-modular-auth-capabilities-SPEC.md`,
       `docs/saas/bring-you-own-auth.md`,
-      `packages/sdk-server-ts/scripts`, `apps/web-server/src`, and the Wrangler
+      `packages/wallet-server/scripts`, `apps/web-server/src`, and the Wrangler
       staging templates for
       the old Router API staging Worker filename, the `routerApier` typo path, and the
       stale Relay-to-RouterApi route-surface names. A narrowed runtime scan for
@@ -4700,7 +4700,7 @@ Exit criteria:
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
 unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`; the
       full Phase 6 staging script/session cluster with 110 tests; `pnpm --dir
-packages/sdk-server-ts type-check`; `pnpm --dir tests exec tsc -p
+packages/wallet-server type-check`; `pnpm --dir tests exec tsc -p
 tsconfig.playwright.json --noEmit`; and `git diff --check`.
       Follow-up stale-name cleanup after the RouterApi rename updated the sample
       app README, the registration top-up plan, and the Refactor 85 spec; the
@@ -4714,7 +4714,7 @@ tsconfig.playwright.json --noEmit`; and `git diff --check`.
       `emailRecovery: { enabled: true }`, `ed25519RegistrationPrepare:
 { enabled: true }`, and `signingSessionSeal: { enabled: true }` route
       capability shapes. The old shapes survive only in
-      `packages/sdk-server-ts/src/router/relayRouteOptions.typecheck.ts` as
+      `packages/wallet-server/src/router/relayRouteOptions.typecheck.ts` as
       `@ts-expect-error` fixtures. The remaining `unavailable` strings are
       runtime capability, crypto, or request-source result codes rather than
       legacy disabled-service route options.
@@ -4732,7 +4732,7 @@ tsconfig.playwright.json --noEmit`; and `git diff --check`.
 - [x] The final cleanup pass records why the working tree remains net-positive
       after deleting legacy staging/runtime paths.
 - [x] Final Phase 7 counts are recorded for all files, non-doc files, and
-      `packages/sdk-server-ts/src` production files. Any remaining positive
+      `packages/wallet-server/src` production files. Any remaining positive
       production delta has a named product reason and follow-up owner.
 
 ### Phase 8: Signer-Set Registration Model
@@ -4796,7 +4796,7 @@ Current progress:
 - [x] Validation for the signer-set boundary slice passed:
       `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
       `pnpm --dir packages/shared-ts type-check`,
-      `pnpm --dir packages/sdk-server-ts type-check`, focused Playwright unit
+      `pnpm --dir packages/wallet-server type-check`, focused Playwright unit
       tests for registration signer normalization, wallet-registration intent
       modes, and D1 registration-intent storage, plus `git diff --check`.
 - [x] Added `signer_set_registration` ceremony state with branch-specific
@@ -4810,7 +4810,7 @@ Current progress:
 - [x] Validation for the D1 signer-set ceremony-state slice passed:
       `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
       `pnpm --dir packages/shared-ts type-check`,
-      `pnpm --dir packages/sdk-server-ts type-check`, focused Playwright unit
+      `pnpm --dir packages/wallet-server type-check`, focused Playwright unit
       tests for registration signer normalization, wallet-registration intent
       modes, D1 registration-intent storage, and combined D1 registration
       start/respond, plus `git diff --check`.
@@ -4902,7 +4902,7 @@ Current progress:
       `buildD1EcdsaRegistrationRespondedCeremony()` helper was deleted in the
       same cleanup pass.
 - [x] Validation for the single-branch signer-set D1 service slice passed:
-      `pnpm --dir packages/sdk-server-ts type-check`,
+      `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
       focused Playwright unit tests for ECDSA-only start/respond/finalize,
       Ed25519-only start/respond, and combined start/respond, plus
@@ -5021,22 +5021,22 @@ type StoredWalletRegistrationSignerSetState = {
 Service/module split:
 
 - [x] Rename or split
-      `packages/sdk-server-ts/src/router/cloudflare/d1EcdsaCeremonyService.ts`.
+      `packages/wallet-server/src/router/cloudflare/d1EcdsaCeremonyService.ts`.
       The old mixed file was renamed to
-      `packages/sdk-server-ts/src/router/cloudflare/d1WalletRegistrationService.ts`
+      `packages/wallet-server/src/router/cloudflare/d1WalletRegistrationService.ts`
       after NEAR Ed25519 branch helpers, EVM-family ECDSA prepare helpers, and
       add-signer route orchestration were split out.
 - [x] Extract the EVM-family ECDSA wallet-registration branch prepare helper into
-      `packages/sdk-server-ts/src/router/cloudflare/d1EvmFamilyEcdsaRegistrationBranch.ts`.
+      `packages/wallet-server/src/router/cloudflare/d1EvmFamilyEcdsaRegistrationBranch.ts`.
       The mixed ceremony service imports the branch helper and no longer defines
       the wallet-registration ECDSA prepare builder inline.
 - [x] Extract the NEAR Ed25519 wallet-registration branch mechanics into
-      `packages/sdk-server-ts/src/router/cloudflare/d1NearEd25519RegistrationBranch.ts`.
+      `packages/wallet-server/src/router/cloudflare/d1NearEd25519RegistrationBranch.ts`.
       The mixed ceremony service imports branch-specific signing-root, authority
       scope, HSS prepare/respond, signer-record, and session-policy helpers instead
       of defining those mechanics inline.
 - [x] Extract D1 wallet add-signer route orchestration into
-      `packages/sdk-server-ts/src/router/cloudflare/d1WalletAddSignerService.ts`.
+      `packages/wallet-server/src/router/cloudflare/d1WalletAddSignerService.ts`.
       The top-level D1 auth service delegates add-signer start/respond/finalize to
       the dedicated service, and the mixed ceremony service no longer owns
       add-signer route methods.
@@ -5108,7 +5108,7 @@ Tests and guards:
       `ecdsa_only`.
 - [x] Add the production combined-state source guard slice: production
       TypeScript/TSX under `apps/seams-site/src`, `packages/shared-ts/src`,
-      `packages/sdk-server-ts/src`, and `packages/sdk-web/src` cannot reference
+      `packages/wallet-server/src`, and `packages/wallet/src` cannot reference
       `combined_registration`.
 - [x] Add the public/demo request-construction source guard slice: converted SDK
       public builders, wallet iframe, public fixture, and demo app source cannot
@@ -5131,8 +5131,8 @@ Exit criteria:
       signers from the signer-set request shape.
 - [x] The D1 backend has no core dependency on the two-signer cross-product mode.
 - [x] D1 combined finalize is covered by a targeted unit test.
-- [x] `pnpm --dir packages/sdk-server-ts type-check`,
-      `pnpm --dir packages/sdk-web type-check`, focused D1 registration tests,
+- [x] `pnpm --dir packages/wallet-server type-check`,
+      `pnpm --dir packages/wallet type-check`, focused D1 registration tests,
       registration intent allocation tests, and `git diff --check` pass.
 
 Phase 8 SDK public/iframe boundary validation evidence:
@@ -5146,13 +5146,13 @@ unit/registrationSignerSetNormalization.unit.test.ts
       conversion test for signer-set wire shape and internal mode normalization.
 - [x] Browser iframe runtime assertion is added in
       `tests/unit/seamsWeb.passkeyIframe.flowEvents.unit.test.ts` and now has
-      reproducible validation after rebuilding `packages/sdk-web/dist/esm`. The
+      reproducible validation after rebuilding `packages/wallet/dist/esm`. The
       assertion expects `PM_REGISTER_WALLET` to receive `kind: 'signer_set'` with
       `near_ed25519` and `evm_family_ecdsa` signer branches.
-- [x] `pnpm --dir packages/sdk-web run build:sdk` passed; the previous
+- [x] `pnpm --dir packages/wallet run build:sdk` passed; the previous
       `TS2688: Cannot find type definition file for '@playwright/test'` blocker is
       no longer present in the current workspace.
-- [x] `pnpm --dir packages/sdk-web run build:rolldown` passed; the previous
+- [x] `pnpm --dir packages/wallet run build:rolldown` passed; the previous
       Rolldown CSS bundling blocker is no longer present in the current workspace.
 - [x] `W3A_TEST_FRONTEND_URL=http://127.0.0.1:3799 pnpm --dir tests exec
   playwright test -c playwright.unit.config.ts
@@ -5209,13 +5209,13 @@ construction|public registration type surfaces" --reporter=line` passed with 3
 - [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
 unit/registrationSignerSetNormalization.unit.test.ts --reporter=line` passed
       with 9 signer-set normalization tests under the renamed test filename.
-- [x] `pnpm --dir packages/sdk-web run type-check` and `pnpm --dir tests exec
+- [x] `pnpm --dir packages/wallet run type-check` and `pnpm --dir tests exec
   tsc -p tsconfig.playwright.json --noEmit` passed after the helper/test
       rename.
-- [x] `pnpm --dir packages/sdk-web run build:sdk` passed after the source
+- [x] `pnpm --dir packages/wallet run build:sdk` passed after the source
       filename changed and emitted the new `registrationSignerSet` SDK output.
 - [x] `git diff --check` passed for the touched signer-set cleanup slice, and
-      `find packages/sdk-web/src tests -name '*SignerSelection*' -o -name
+      `find packages/wallet/src tests -name '*SignerSelection*' -o -name
   '*signerSelection*'` returned no stale helper/test filenames.
 
 Phase 8 signer-set type-fixture validation evidence:
@@ -5229,7 +5229,7 @@ Phase 8 D1 wallet-registration branch-plan validation evidence:
 
 - [x] `pnpm --dir packages/shared-ts type-check` passed after adding exported
       signer-plan branch helper functions.
-- [x] `pnpm --dir packages/sdk-server-ts type-check` passed after moving
+- [x] `pnpm --dir packages/wallet-server type-check` passed after moving
       `d1WalletRegistrationService.ts` wallet-registration decisions to branch-plan
       helpers.
 - [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
@@ -5238,7 +5238,7 @@ unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "starts ECDSA wallet r
 - [x] `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit` passed
       after the branch-plan service update.
 - [x] Source scan over
-      `packages/sdk-server-ts/src/router/cloudflare/d1WalletRegistrationService.ts`
+      `packages/wallet-server/src/router/cloudflare/d1WalletRegistrationService.ts`
       shows no remaining `ed25519_only`, `ecdsa_only`, `ed25519_and_ecdsa`, or
       `combined_registration` wallet-registration mode references. Remaining
       `signerSelection.mode` references in that file are add-signer
@@ -5246,7 +5246,7 @@ unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "starts ECDSA wallet r
 
 Phase 8 D1 registration-intent allocation gate validation evidence:
 
-- [x] `pnpm --dir packages/sdk-server-ts type-check` passed after changing D1
+- [x] `pnpm --dir packages/wallet-server type-check` passed after changing D1
       registration-intent wallet allocation to use signer-plan branch presence.
 - [x] `pnpm --dir packages/shared-ts type-check` passed after the allocation gate
       reused the exported signer-plan helper.
@@ -5256,7 +5256,7 @@ unit/registrationSignerSetNormalization.unit.test.ts
 unit/relayWalletRegistration.intentModes.unit.test.ts --grep "stores wallet registration intents|creates registration intents from signer-set request input|accepts signer-set registration intent input|creates an implicit Ed25519 registration intent with a server-allocated wallet ID"
 --reporter=line` passed with 4 focused registration-intent tests.
 - [x] Source scan over
-      `packages/sdk-server-ts/src/router/cloudflare/d1RegistrationIntentService.ts`
+      `packages/wallet-server/src/router/cloudflare/d1RegistrationIntentService.ts`
       shows no remaining direct legacy registration-mode checks or legacy
       plan-to-intent conversion.
 - [x] `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit` passed
@@ -5267,11 +5267,11 @@ Phase 8 durable registration-intent state validation evidence:
 - [x] `pnpm --dir packages/shared-ts type-check` passed after widening
       `RegistrationIntentV1.signerSelection` to include signer-set state and adding
       type fixtures for signer-set registration intents.
-- [x] `pnpm --dir packages/sdk-server-ts type-check` passed after generic
+- [x] `pnpm --dir packages/wallet-server type-check` passed after generic
       AuthService and the D1 registration-intent service switched from
       `legacyRegistrationSignerSelectionFromPlan()` to
       `registrationSignerSetSelectionFromPlan()`.
-- [x] `pnpm --dir packages/sdk-web type-check` and `pnpm --dir tests exec tsc -p
+- [x] `pnpm --dir packages/wallet type-check` and `pnpm --dir tests exec tsc -p
   tsconfig.playwright.json --noEmit` passed after SDK-web normalized durable
       signer-set intents once at its internal registration boundary.
 - [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
@@ -5296,10 +5296,10 @@ Phase 8 durable registration-intent state validation evidence:
   unit/relayWalletRegistration.intentModes.unit.test.ts --reporter=line`
       passed with 7 route intent-mode tests after legacy request bodies started
       returning signer-set intents.
-- [x] `pnpm --dir packages/sdk-web type-check` and `pnpm --dir tests exec tsc -p
+- [x] `pnpm --dir packages/wallet type-check` and `pnpm --dir tests exec tsc -p
   tsconfig.playwright.json --noEmit` passed after public SDK registration
       surfaces narrowed to signer-set only.
-- [x] `pnpm --dir packages/sdk-web type-check` and `pnpm --dir tests exec tsc -p
+- [x] `pnpm --dir packages/wallet type-check` and `pnpm --dir tests exec tsc -p
   tsconfig.playwright.json --noEmit` passed after SDK registration
       orchestration and RPC request helpers stopped accepting
       `RegistrationSignerSelection`.
@@ -5324,7 +5324,7 @@ unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --grep "legacy registratio
 
 Phase 8 generic AuthService branch-plan validation evidence:
 
-- [x] `pnpm --dir packages/sdk-server-ts type-check` passed after moving
+- [x] `pnpm --dir packages/wallet-server type-check` passed after moving
       generic wallet-registration allocation, prepare, start, respond, and
       finalize control flow off `ed25519_only`, `ecdsa_only`, and
       `ed25519_and_ecdsa`.
@@ -5341,7 +5341,7 @@ unit/registrationSignerSetNormalization.unit.test.ts --reporter=line`
 unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --grep "AuthService wallet registration|legacy registration modes"
 --reporter=line` passed after adding the `AuthService` legacy-mode guard.
 - [x] `rg -n "ed25519_and_ecdsa|ed25519_only|ecdsa_only"
-packages/sdk-server-ts/src/core/AuthService.ts` returned no matches.
+packages/wallet-server/src/core/AuthService.ts` returned no matches.
 - [x] `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit` and
       `git diff --check` passed after the generic `AuthService` branch-plan
       cleanup.
@@ -5352,7 +5352,7 @@ Phase 8 legacy registration-mode API deletion evidence:
   "RegistrationSignerSelection|legacyRegistrationSignerSelectionFromPlan|normalizeRegistrationSignerSelection|mode:
   'ed25519_only'|mode: 'ecdsa_only'|mode: 'ed25519_and_ecdsa'|
   ed25519_and_ecdsa|ecdsa_only|ed25519_only"
-  packages/shared-ts/src packages/sdk-server-ts/src tests/relayer
+  packages/shared-ts/src packages/wallet-server/src tests/relayer
   tests/e2e/cancel_overlay_specs.test.ts
   tests/wallet-iframe/router.cancellationProgress.test.ts
   tests/unit/addWalletSigner.orchestration.unit.test.ts
@@ -5389,8 +5389,8 @@ Phase 8 legacy registration-mode API deletion evidence:
 - [x] `pnpm --dir tests exec playwright test
   e2e/cancel_overlay_specs.test.ts --reporter=line` passed.
 - [x] `pnpm --dir packages/shared-ts type-check`,
-      `pnpm --dir packages/sdk-server-ts type-check`,
-      `pnpm --dir packages/sdk-web type-check`,
+      `pnpm --dir packages/wallet-server type-check`,
+      `pnpm --dir packages/wallet type-check`,
       `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`, and
       `git diff --check` passed after the deletion pass.
 - [x] Added explicit `express` and `@types/express` dev dependencies to the test
@@ -5405,7 +5405,7 @@ Phase 8 legacy registration-mode API deletion evidence:
 Phase 8 signer-set ceremony-state deletion evidence:
 
 - [x] `StoredCombinedRegistrationState` was deleted from
-      `packages/sdk-server-ts/src/core/RegistrationCeremonyStore.ts`. The generic
+      `packages/wallet-server/src/core/RegistrationCeremonyStore.ts`. The generic
       `StoredWalletRegistrationSignerState` union now uses
       `StoredWalletRegistrationSignerSetState` for multi-branch registration
       progress.
@@ -5417,7 +5417,7 @@ Phase 8 signer-set ceremony-state deletion evidence:
       replacement helpers from `RegistrationCeremonyStore.ts`; the duplicate
       helper block in `d1EcdsaCeremonyService.ts` was deleted as the same-slice
       cleanup pass.
-- [x] `pnpm --dir packages/sdk-server-ts type-check` and
+- [x] `pnpm --dir packages/wallet-server type-check` and
       `pnpm --dir packages/shared-ts type-check` passed after deleting the
       combined-state type.
 - [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
@@ -5432,7 +5432,7 @@ unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "starts ECDSA wallet r
 unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --grep "combined registration state|legacy registration modes|AuthService wallet registration"
 --reporter=line` passed after adding the production combined-state guard.
 - [x] `rg -n "combined_registration|StoredCombinedRegistrationState"
-packages/sdk-server-ts/src packages/shared-ts/src -g '*.{ts,tsx}'` returned no
+packages/wallet-server/src packages/shared-ts/src -g '*.{ts,tsx}'` returned no
       matches.
 - [x] `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit` and
       `git diff --check` passed after the signer-set ceremony-state deletion.
@@ -5440,23 +5440,23 @@ packages/sdk-server-ts/src packages/shared-ts/src -g '*.{ts,tsx}'` returned no
 Phase 8 registration branch split evidence:
 
 - [x] Added
-      `packages/sdk-server-ts/src/router/cloudflare/d1EvmFamilyEcdsaRegistrationBranch.ts`
+      `packages/wallet-server/src/router/cloudflare/d1EvmFamilyEcdsaRegistrationBranch.ts`
       with `buildD1EvmFamilyEcdsaRegistrationPrepare`. The module is 79 lines and
       owns EVM-family wallet-key derivation, threshold key IDs, signing grant IDs,
       and the branch-specific prepare payload.
 - [x] Added
-      `packages/sdk-server-ts/src/router/cloudflare/d1NearEd25519RegistrationBranch.ts`
+      `packages/wallet-server/src/router/cloudflare/d1NearEd25519RegistrationBranch.ts`
       with the NEAR Ed25519 registration signing-root, signing-key ID,
       authority-scope, HSS prepare/respond, wallet-signer-record, bootstrap-session,
       and session-policy helpers. The module is 445 lines.
 - [x] Deleted the inline wallet-registration ECDSA prepare builder from
-      `packages/sdk-server-ts/src/router/cloudflare/d1WalletRegistrationService.ts`.
+      `packages/wallet-server/src/router/cloudflare/d1WalletRegistrationService.ts`.
       Also deleted the inline NEAR Ed25519 HSS branch helpers from that mixed
       service. The later add-signer extraction and module rename deleted the old
       `d1EcdsaCeremonyService.ts` path; `d1WalletRegistrationService.ts` is 1,333
       lines and add-signer route orchestration no longer lives there.
 - [x] Added
-      `packages/sdk-server-ts/src/router/cloudflare/d1WalletAddSignerService.ts`
+      `packages/wallet-server/src/router/cloudflare/d1WalletAddSignerService.ts`
       for D1 add-signer start/respond/finalize. The module is 375 lines, reuses
       `buildD1EvmFamilyEcdsaRegistrationPrepare()` for EVM-family add-signer
       prepare payload construction, and owns add-signer ceremony cleanup plus
@@ -5476,7 +5476,7 @@ Phase 8 registration branch split evidence:
       preparations, ceremony branches, respond transitions, and finalize requests.
       Test threshold fakes now return D1-parseable persisted server-state payloads
       instead of relying on process-local ceremony state.
-- [x] Validation passed: `pnpm --dir packages/sdk-server-ts type-check`;
+- [x] Validation passed: `pnpm --dir packages/wallet-server type-check`;
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
 unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "starts ECDSA wallet registration|starts and responds to combined Ed25519 and ECDSA registration|starts and responds to Ed25519-only signer-set registration|responds to ECDSA wallet registration|finalizes ECDSA wallet registration"
 --reporter=line` with 5 focused D1 lifecycle tests;
@@ -5507,8 +5507,8 @@ tsconfig.playwright.json --noEmit`; and `git diff --check`.
       ran both Playwright commands in parallel and failed to start one web server
       because port 5180 was already in use; the command passed when rerun alone.
 - [x] Current SDK iframe/build validation passed:
-      `pnpm --dir packages/sdk-web run build:sdk`,
-      `pnpm --dir packages/sdk-web run build:rolldown`, and
+      `pnpm --dir packages/wallet run build:sdk`,
+      `pnpm --dir packages/wallet run build:rolldown`, and
       `W3A_TEST_FRONTEND_URL=http://127.0.0.1:3799 pnpm --dir tests exec
   playwright test -c playwright.unit.config.ts
   unit/seamsWeb.passkeyIframe.flowEvents.unit.test.ts --reporter=line`.
@@ -5606,22 +5606,22 @@ State and failure semantics:
 
 Implementation inventory:
 
-- [x] `packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaHssPoolFillHandlers.ts`
+- [x] `packages/wallet-server/src/core/ThresholdService/routerAb/ecdsaHssPoolFillHandlers.ts`
       moves live-session creation/advancement behind a DO command surface. Keep
       pure parsing/result helpers if they still remove real duplication.
-- [x] `packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts`
+- [x] `packages/wallet-server/src/core/ThresholdService/ThresholdSigningService.ts`
       stops accepting `ecdsaPoolFillLiveSessions` from Cloudflare Worker
       factories.
-- [x] `packages/sdk-server-ts/src/core/ThresholdService/createCloudflareDurableObjectThresholdSigningService.ts`
+- [x] `packages/wallet-server/src/core/ThresholdService/createCloudflareDurableObjectThresholdSigningService.ts`
       stops threading Worker-owned ECDSA pool-fill live stores.
-- [x] `packages/sdk-server-ts/src/router/cloudflare/d1ThresholdSigningRuntime.ts`,
+- [x] `packages/wallet-server/src/router/cloudflare/d1ThresholdSigningRuntime.ts`,
       `d1RouterApiAuthConfig.ts`, and `d1RouterApiAuthService.ts` stop accepting
       or passing `ecdsaPoolFillLiveSessions`.
-- [x] `packages/sdk-server-ts/src/router/cloudflare/d1LocalDevWorker.ts` deletes
+- [x] `packages/wallet-server/src/router/cloudflare/d1LocalDevWorker.ts` deletes
       `localRouterApiEcdsaPoolFillLiveSessionsCache`.
-- [x] `packages/sdk-server-ts/src/router/cloudflare/d1RouterApiStagingWorker.ts`
+- [x] `packages/wallet-server/src/router/cloudflare/d1RouterApiStagingWorker.ts`
       deletes `routerApiStagingEcdsaPoolFillLiveSessionsCache`.
-- [x] `packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore.ts`
+- [x] `packages/wallet-server/src/router/cloudflare/durableObjects/thresholdStore.ts`
       owns the live session map and live create/step/delete commands. Durable
       metadata and completed-presignature writes continue through the existing
       DO-backed pool-fill session and presignature pool stores.
@@ -5660,7 +5660,7 @@ Exit criteria:
 - [x] D1 stores no live WASM session internals.
 - [x] The typed stale-session path is covered and user-facing retry behavior is
       clear.
-- [x] `pnpm --dir packages/sdk-server-ts type-check` passes.
+- [x] `pnpm --dir packages/wallet-server type-check` passes.
 - [x] Focused Refactor 82 runtime guard passes.
 - [x] `git diff --check` passes.
 
@@ -5669,7 +5669,7 @@ Validation evidence: July 3, 2026 focused local D1/DO route smoke passed:
 
 July 3, 2026 validation evidence:
 
-- [x] `pnpm --dir packages/sdk-server-ts type-check`.
+- [x] `pnpm --dir packages/wallet-server type-check`.
 - [x] Focused local D1/DO route smoke:
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts unit/cloudflareD1ConsoleServices.unit.test.ts --grep "ECDSA derivation pool-fill routes" --reporter=line`.
 - [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
@@ -5687,7 +5687,7 @@ unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
 unit/thresholdEcdsa.presignPoolRefill.unit.test.ts --reporter=line` with 64
 tests, `pnpm --dir tests exec playwright test -c playwright.relayer.config.ts
 relayer/threshold-ecdsa.durable-stores.test.ts --reporter=line` with 7 passed
-and 6 skipped external Redis/Upstash cases, `pnpm --dir packages/sdk-server-ts
+and 6 skipped external Redis/Upstash cases, `pnpm --dir packages/wallet-server
 type-check`, and `git diff --check`.
 
 ### Phase 10: Console-Owned Sponsored Spend Pricing
@@ -5790,7 +5790,7 @@ Cleanup inventory:
       only when sponsored EVM execution is explicitly enabled. Missing pricing
       must not make normal EVM signer readiness fail.
 - [x] Add a Refactor 82 guard that rejects env-pricing reads in
-      `packages/sdk-server-ts/src/router/cloudflare/**` and request-time
+      `packages/wallet-server/src/router/cloudflare/**` and request-time
       pricing backfill helpers.
 
 Tests and validation:
@@ -5822,7 +5822,7 @@ Exit criteria:
 - [x] No request path can create, infer, or backfill sponsored spend pricing.
 - [x] Focused disabled-route/static-schema sponsorship MVP tests pass.
 - [x] Refactor 82 runtime guard passes.
-- [x] `pnpm --dir packages/sdk-server-ts type-check` passes.
+- [x] `pnpm --dir packages/wallet-server type-check` passes.
 - [x] `git diff --check` passes.
 
 ### Phase 11: Router API Service Port Cleanup
@@ -5855,14 +5855,14 @@ Goal:
 
 Acceptance scans:
 
-- [x] `rg "Pick<AuthService" packages/sdk-server-ts/src/router` returns no
+- [x] `rg "Pick<AuthService" packages/wallet-server/src/router` returns no
       runtime hits.
 - [x] `rg "createRouterApiRouter\\(authService|createCloudflareRouter\\(authService" apps packages tests`
       returns no active Router API service mounting hits.
-- [x] `rg "new AuthService\\(" packages/sdk-server-ts/src/router` returns no
+- [x] `rg "new AuthService\\(" packages/wallet-server/src/router` returns no
       Router API service construction. The web-server console may still use
       `AuthService` for console sign-in, but Router API routes must not mount it.
-- [x] `rg "createRegistrationIntent|prepareWalletRegistration|startWalletRegistration|respondWalletRegistrationHss|finalizeWalletRegistration|createAddSignerIntent|createAddAuthMethodIntent|startWalletAddSigner|finalizeWalletAddSigner|startWalletAddAuthMethod|finalizeWalletAddAuthMethod" packages/sdk-server-ts/src/core/AuthService.ts`
+- [x] `rg "createRegistrationIntent|prepareWalletRegistration|startWalletRegistration|respondWalletRegistrationHss|finalizeWalletRegistration|createAddSignerIntent|createAddAuthMethodIntent|startWalletAddSigner|finalizeWalletAddSigner|startWalletAddAuthMethod|finalizeWalletAddAuthMethod" packages/wallet-server/src/core/AuthService.ts`
       has no Router API lifecycle implementation hits.
 - [x] `tests/unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts` rejects the
       old port derivation, old route mounting, and duplicate non-D1 lifecycle
@@ -5874,10 +5874,10 @@ Boundary rule:
   be a full-family adapter implementing `RouterApiAuthService`; it must not reuse
   `AuthService` or reintroduce partial Postgres paths.
 
-Validation evidence: July 3, 2026 `packages/sdk-server-ts/src/router/authServicePort.ts`
+Validation evidence: July 3, 2026 `packages/wallet-server/src/router/authServicePort.ts`
 now defines explicit Router API method request/response contracts without
 importing or deriving from `AuthService`. Validation passed:
-`pnpm --dir packages/sdk-server-ts type-check`, `pnpm --dir tests exec
+`pnpm --dir packages/wallet-server type-check`, `pnpm --dir tests exec
 playwright test -c playwright.unit.config.ts
 unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line` with 52
 tests, and `git diff --check`.
@@ -5895,7 +5895,7 @@ of a flat auth-service-shaped object. The D1 factory now assembles route-family
 service objects directly and no longer has a monolithic D1 implementation class.
 July 3 follow-up: the mechanical `AuthService` split is complete, and the
 current route-source scan for `core/authService/*` imports under
-`packages/sdk-server-ts/src/router` returns no hits. Remaining split
+`packages/wallet-server/src/router` returns no hits. Remaining split
 `authService/*` helpers are delete candidates for D1/AuthService cleanup rather
 than route dependencies.
 
@@ -6006,10 +6006,10 @@ Goal:
       `core/types.ts` into route or domain-specific modules. Core threshold types
       may remain in `core`. July 3 82B status review: wallet-registration,
       add-signer, add-auth-method, and registration-intent route request/response
-      contracts now live in `packages/sdk-server-ts/src/core/registrationContracts.ts`.
+      contracts now live in `packages/wallet-server/src/core/registrationContracts.ts`.
       `core/types.ts` keeps shared threshold/domain types such as
       `RegistrationPreparationId`. Validation passed:
-      `pnpm --dir packages/sdk-server-ts type-check`,
+      `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`, and
       source scans for the moved route contracts in `core/types.ts`.
 - [x] Keep future Postgres support as a service-bag implementation plan. Do not
@@ -6060,30 +6060,30 @@ Goal:
 
 Known old-shape inventory to remove or narrow:
 
-- [x] `packages/sdk-server-ts/src/router/authServicePort.ts`: split the god port
+- [x] `packages/wallet-server/src/router/authServicePort.ts`: split the god port
       into narrow route-family interfaces. July 3 progress: the port no longer
       imports or derives from `AuthService`, the old `RouterApiAuthService` name
       is deleted, the old `any` method aliases are replaced by explicit method
       contracts, and route registration code now uses nested route-family
       service properties.
-- [x] `packages/sdk-server-ts/src/router/walletRegistrationRoutes.ts`: replace
+- [x] `packages/wallet-server/src/router/walletRegistrationRoutes.ts`: replace
       `input.services.authService.*` with wallet registration/auth-method service
       properties.
-- [x] `packages/sdk-server-ts/src/router/emailOtpRouteHandlers.ts`: replace
+- [x] `packages/wallet-server/src/router/emailOtpRouteHandlers.ts`: replace
       `RouterApiAuthService` with an Email OTP service interface containing only
       the methods used by each handler group.
-- [x] `packages/sdk-server-ts/src/router/walletUnlockRouteHandlers.ts`: replace
+- [x] `packages/wallet-server/src/router/walletUnlockRouteHandlers.ts`: replace
       `RouterApiAuthService` with a wallet-unlock service interface.
-- [x] `packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService.ts`:
+- [x] `packages/wallet-server/src/router/cloudflare/d1RouterApiAuthService.ts`:
       delete the AuthService-shaped facade and expose composed D1 service
       modules through the new service bag. July 3 progress: the factory returns
       `RouterApiServiceBag`, no longer imports old `RouterApiInput`/
       `RouterApiResult` facade reflection, and no longer has a flat
       AuthService-shaped D1 implementation class. Route-family builders bind
       directly to the D1 leaf services and shared threshold runtime.
-- [x] `packages/sdk-server-ts/src/core/AuthService.ts`: delete current Router API
+- [x] `packages/wallet-server/src/core/AuthService.ts`: delete current Router API
       lifecycle implementations and their AuthService-only helpers.
-- [x] `packages/sdk-server-ts/src/core/AuthService.ts`: delete the obsolete
+- [x] `packages/wallet-server/src/core/AuthService.ts`: delete the obsolete
       Email OTP recovery-grant binding checks in `consumeEmailOtpGrant`,
       `consumeEmailOtpRecoveryKey`, and `recordEmailOtpRecoveryKeyAttemptFailure`
       that still require matching `sessionHash` and `appSessionVersion`. The
@@ -6098,40 +6098,40 @@ Known old-shape inventory to remove or narrow:
       guarded by `AuthService Email OTP grants bind to stable authority fields`,
       which scans the relevant helper functions for `sessionHash`,
       `appSessionVersion`, and the obsolete current-app-session error.
-- [x] `packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts`:
+- [x] `packages/wallet-server/src/core/ThresholdService/ThresholdSigningService.ts`:
       audit passkey-specific helpers. Keep passkey verification in passkey-only
       branches, and require stable `ThresholdEd25519AuthorityScope` for shared
       session/key authority. July 3 audit: passkey verification is isolated to
       the `passkey_challenge_response` branch, `sessionPolicy.rpId` is rejected
       at the request/session boundary, and shared Ed25519 session reuse compares
       `authorityScope` rather than a root passkey RP ID.
-- [x] `packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts`:
+- [x] `packages/wallet-server/src/core/ThresholdService/ThresholdSigningService.ts`:
       remove `maybeRepairRelayerKeyMaterialFromSessionHssFinalize(...)` and any
       "self-heal" call sites. Model the HSS finalize result as either a complete
       registration/session material write or a hard invalid-state failure.
-- [x] `packages/sdk-server-ts/src/core/ThresholdService/stores/KeyStore.ts` and
-      `packages/sdk-server-ts/src/core/ThresholdService/validation.ts`: keep
+- [x] `packages/wallet-server/src/core/ThresholdService/stores/KeyStore.ts` and
+      `packages/wallet-server/src/core/ThresholdService/validation.ts`: keep
       `ThresholdEd25519KeyRecord` strict. Do not introduce nullable router-share
       fields to support self-heal.
-- [x] `packages/sdk-server-ts/src/core/ThresholdService/stores/KeyStore.ts` and
-      `packages/sdk-server-ts/src/core/ThresholdService/validation.ts`: add
+- [x] `packages/wallet-server/src/core/ThresholdService/stores/KeyStore.ts` and
+      `packages/wallet-server/src/core/ThresholdService/validation.ts`: add
       branch-specific builders/parsers for `ThresholdEd25519ProvisioningKeyRecord`
       and `ThresholdEd25519ReadyKeyRecord`. Raw database rows are normalized once
       into one branch.
-- [x] `packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts`:
+- [x] `packages/wallet-server/src/core/ThresholdService/ThresholdSigningService.ts`:
       change all Ed25519 session mint/sign/export/recovery paths to require
       `ThresholdEd25519ReadyKeyRecord`, never the broad union.
 - [x] `tests/types` or the existing ThresholdService typecheck fixture: add
       `@ts-expect-error` cases rejecting ready records without router material,
       provisioning records with router material, and core signing/session calls
       that pass a broad `ThresholdEd25519KeyRecord`.
-- [x] `packages/sdk-server-ts/src/core/ThresholdService/stores/SessionStore.ts`
-      and `packages/sdk-server-ts/src/core/ThresholdService/validation.ts`:
+- [x] `packages/wallet-server/src/core/ThresholdService/stores/SessionStore.ts`
+      and `packages/wallet-server/src/core/ThresholdService/validation.ts`:
       replace optional Ed25519 signing-session share fields with branch-specific
       `signingShare` material. The embedded cosigner branch requires
       `relayerSigningShareB64u`; the key-store branch carries no embedded share.
-- [x] `packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEcdsa.ts` and
-      `packages/sdk-server-ts/src/router/express/routes/thresholdEcdsa.ts`: audit
+- [x] `packages/wallet-server/src/router/cloudflare/routes/thresholdEcdsa.ts` and
+      `packages/wallet-server/src/router/express/routes/thresholdEcdsa.ts`: audit
       passkey-only wallet-session checks. Move passkey-only behavior into the
       WebAuthn branch and keep Email OTP ECDSA paths on stable wallet authority.
       July 3 progress: deleted the obsolete generic Router A/B ECDSA
@@ -6139,9 +6139,9 @@ Known old-shape inventory to remove or narrow:
       definitions, route parser fixtures, and relayer cookie-mode tests. The
       current ECDSA key-facts inventory boundary is the wallet-scoped
       `wallet_ecdsa_key_facts_inventory` route. The acceptance scan
-      `rg "authorityScope\\.kind !== 'passkey_rp'|must be passkey_rp|requires passkey authority|requires passkey wallet-session authority" packages/sdk-server-ts/src packages/sdk-web/src`
+      `rg "authorityScope\\.kind !== 'passkey_rp'|must be passkey_rp|requires passkey authority|requires passkey wallet-session authority" packages/wallet-server/src packages/wallet/src`
       now returns only the passkey-specific SDK login assertion.
-- [x] `packages/sdk-server-ts/src/router/bootstrapGrantBroker.ts`: ensure
+- [x] `packages/wallet-server/src/router/bootstrapGrantBroker.ts`: ensure
       bootstrap grants bind to the current registration intent authority instead
       of preserving an rpId-first passkey-era shape.
       July 3 progress: bootstrap grant issue bodies now require an explicit
@@ -6152,8 +6152,8 @@ Known old-shape inventory to remove or narrow:
       branch-specific authority object. Validation passed:
       `pnpm --dir tests exec playwright test -c playwright.relayer.config.ts
     relayer/bootstrap-grants.test.ts --reporter=line` and `git diff --check`.
-- [x] `packages/sdk-server-ts/src/router/emailOtpRouteHandlers.ts` and
-      `packages/sdk-server-ts/src/router/cloudflare/d1GoogleEmailOtpSessionResolver.ts`:
+- [x] `packages/wallet-server/src/router/emailOtpRouteHandlers.ts` and
+      `packages/wallet-server/src/router/cloudflare/d1GoogleEmailOtpSessionResolver.ts`:
       allow Google Email OTP registration rerolls by validating the submitted
       wallet ID against the signed registration attempt's active offer candidates.
       The app-session wallet remains the initially issued wallet, while rerolled
@@ -6166,48 +6166,48 @@ Known old-shape inventory to remove or narrow:
 
 Acceptance scans:
 
-- [x] `rg "interface RouterApiAuthService|type RouterApiAsyncMethod|type RouterApiEmailOtpAsyncMethod" packages/sdk-server-ts/src/router`
+- [x] `rg "interface RouterApiAuthService|type RouterApiAsyncMethod|type RouterApiEmailOtpAsyncMethod" packages/wallet-server/src/router`
       returns no runtime hits. July 3 review: scan returned no matches after the
       route composite was renamed to `RouterApiServiceBag` and method helpers
       were renamed over the explicit method-contract map.
-- [x] `rg "RouterApiInput<|RouterApiResult<" packages/sdk-server-ts/src/router/cloudflare packages/sdk-server-ts/src/router`
+- [x] `rg "RouterApiInput<|RouterApiResult<" packages/wallet-server/src/router/cloudflare packages/wallet-server/src/router`
       returns no runtime hits. July 3 review: scan returned no matches after the
       D1 facade switched to exported method-contract aliases.
-- [x] `rg "RouterApiMethod(Input|Result|Handler)" packages/sdk-server-ts/src/router packages/sdk-server-ts/src/core tests apps -g '*.ts'`
+- [x] `rg "RouterApiMethod(Input|Result|Handler)" packages/wallet-server/src/router packages/wallet-server/src/core tests apps -g '*.ts'`
       returns no hits. July 3 follow-up: route-family ports use direct method
       signatures, D1 service modules consume concrete route/domain contracts or
       capability-specific service interfaces, and the Refactor 82 runtime guard
       rejects restoring the generic helpers under router source.
-- [x] `rg --pcre2 "ctx\\.service\\.(?!walletRegistration|walletAuthMethods|walletUnlock|emailOtp|webAuthn|identity|sessionVersions|thresholdRuntime|nearFunding|recovery|router)|input\\.ctx\\.service\\.(?!walletRegistration|walletAuthMethods|walletUnlock|emailOtp|webAuthn|identity|sessionVersions|thresholdRuntime|nearFunding|recovery|router)|service\\.getThresholdSigningService\\(|service\\.getRelayerAccount\\(|service\\.createRegistrationIntent\\(|service\\.verifyGoogleLogin\\(" packages/sdk-server-ts/src/router -g '*.ts'`
+- [x] `rg --pcre2 "ctx\\.service\\.(?!walletRegistration|walletAuthMethods|walletUnlock|emailOtp|webAuthn|identity|sessionVersions|thresholdRuntime|nearFunding|recovery|router)|input\\.ctx\\.service\\.(?!walletRegistration|walletAuthMethods|walletUnlock|emailOtp|webAuthn|identity|sessionVersions|thresholdRuntime|nearFunding|recovery|router)|service\\.getThresholdSigningService\\(|service\\.getRelayerAccount\\(|service\\.createRegistrationIntent\\(|service\\.verifyGoogleLogin\\(" packages/wallet-server/src/router -g '*.ts'`
       returns no broad service-object route calls. July 3 review: the only hit
       is `emailOtpRouteHandlers.ts`, where `input.service` is the narrow
       `RouterApiEmailOtpRouteService`.
-- [x] `rg "createRegistrationIntent|prepareWalletRegistration|startWalletRegistration|respondWalletRegistrationHss|finalizeWalletRegistration|createAddSignerIntent|startWalletAddSigner|respondWalletAddSignerHss|finalizeWalletAddSigner|createAddAuthMethodIntent|startWalletAddAuthMethod|finalizeWalletAddAuthMethod|revokeWalletAuthMethod" packages/sdk-server-ts/src/core/AuthService.ts`
+- [x] `rg "createRegistrationIntent|prepareWalletRegistration|startWalletRegistration|respondWalletRegistrationHss|finalizeWalletRegistration|createAddSignerIntent|startWalletAddSigner|respondWalletAddSignerHss|finalizeWalletAddSigner|createAddAuthMethodIntent|startWalletAddAuthMethod|finalizeWalletAddAuthMethod|revokeWalletAuthMethod" packages/wallet-server/src/core/AuthService.ts`
       returns no current Router API lifecycle implementation hits. July 3
       review: scan returned no matches.
-- [x] `rg "authorityScope\\.kind !== 'passkey_rp'|must be passkey_rp|requires passkey authority|requires passkey wallet-session authority" packages/sdk-server-ts/src packages/sdk-web/src`
+- [x] `rg "authorityScope\\.kind !== 'passkey_rp'|must be passkey_rp|requires passkey authority|requires passkey wallet-session authority" packages/wallet-server/src packages/wallet/src`
       returns only passkey/WebAuthn-specific modules or typecheck fixtures.
       July 3 review: scan returned only
-      `packages/sdk-web/src/SeamsWeb/operations/auth/login.ts`, where passkey
+      `packages/wallet/src/SeamsWeb/operations/auth/login.ts`, where passkey
       session-policy assertion intentionally requires passkey authority.
-- [x] `rg "self-heal|self heal|maybeRepairRelayerKeyMaterialFromSessionHssFinalize" packages/sdk-server-ts/src`
+- [x] `rg "self-heal|self heal|maybeRepairRelayerKeyMaterialFromSessionHssFinalize" packages/wallet-server/src`
       returns no runtime hits. July 3 review: scan returned no matches.
-- [x] `rg "relayerSigningShareB64u\\?:|relayerVerifyingShareB64u\\?:" packages/sdk-server-ts/src/core/ThresholdService`
+- [x] `rg "relayerSigningShareB64u\\?:|relayerVerifyingShareB64u\\?:" packages/wallet-server/src/core/ThresholdService`
       returns no key-record or session-material lifecycle hits. July 3 review:
       scan returned no matches after Ed25519 signing-session share material moved
       to the `signingShare` discriminated union.
-- [x] `rg "ThresholdEd25519KeyRecord" packages/sdk-server-ts/src/core/ThresholdService`
+- [x] `rg "ThresholdEd25519KeyRecord" packages/wallet-server/src/core/ThresholdService`
       shows ready-only inputs in session mint, signing, export, and recovery
       code. Broad union usage is allowed only at persistence/request boundaries
       and branch-normalization helpers. July 3 review: scan returned only the
       typecheck fixture, public exports, persistence-store parsers, and current
       record parser/branch-normalization files.
-- [x] `rg "kind: 'ready'|kind: 'provisioning'" packages/sdk-server-ts/src/core/ThresholdService`
+- [x] `rg "kind: 'ready'|kind: 'provisioning'" packages/wallet-server/src/core/ThresholdService`
       shows the Ed25519 key lifecycle is modeled as a discriminated union rather
       than nullable router-material fields. July 3 review: scan shows
       `ThresholdEd25519ProvisioningKeyRecord`, `ThresholdEd25519ReadyKeyRecord`,
       parser branches, and ready-record builders.
-- [x] `rg "new AuthService\\(" tests packages/sdk-server-ts/src apps -g '*.ts'`
+- [x] `rg "new AuthService\\(" tests packages/wallet-server/src apps -g '*.ts'`
       returns no tests for current Router API D1 flows. Any remaining hits must
       name the non-Router behavior they cover. July 3 review: the scan still
       finds AuthService-specific tests plus larger Email OTP and threshold route
@@ -6222,7 +6222,7 @@ Acceptance scans:
 
 Validation:
 
-- [x] `pnpm --dir packages/sdk-server-ts type-check`
+- [x] `pnpm --dir packages/wallet-server type-check`
 - [x] `pnpm build:sdk`
 - [x] `pnpm --dir tests exec playwright test -c playwright.unit.config.ts unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`
       July 3 follow-up: the full guard passes 56 tests after deleting the
@@ -6302,7 +6302,7 @@ Exit criteria:
 
 Minimum checks before first D1 staging deploy:
 
-- [x] `pnpm --dir packages/sdk-server-ts type-check`
+- [x] `pnpm --dir packages/wallet-server type-check`
 - [x] D1 schema smoke tests for every migration.
 - [x] Billing reservation atomic duplicate and insufficient-balance tests.
 - [x] Sponsored settlement idempotency and replay tests.
@@ -6336,21 +6336,21 @@ Minimum checks before first D1 staging deploy:
 - [x] Local D1 backup/restore drill:
 
 ```bash
-pnpm --dir packages/sdk-server-ts run d1:local:restore:drill
+pnpm --dir packages/wallet-server run d1:local:restore:drill
 ```
 
 Validation evidence: the drill passed on June 27, 2026. It ran local D1
 prepare, backed up and restored `seams-console` and `seams-signer`, verified
 `PRAGMA integrity_check = ok`, and confirmed 40 console tables with 18 applied
 migrations plus 21 signer tables with 10 applied migrations. Re-run on June 29,
-2026: `pnpm --dir packages/sdk-server-ts run d1:local:restore:drill` passed and
+2026: `pnpm --dir packages/wallet-server run d1:local:restore:drill` passed and
 wrote `.wrangler/d1-local-restore-drills/2026-06-28T23-20-08-539Z/manifest.json`.
 
 - [x] Local Wrangler D1/DO smoke:
 
 ```bash
-pnpm --dir packages/sdk-server-ts run d1:local:prepare
-pnpm --dir packages/sdk-server-ts run d1:local:dev
+pnpm --dir packages/wallet-server run d1:local:prepare
+pnpm --dir packages/wallet-server run d1:local:dev
 curl http://127.0.0.1:9090/readyz
 curl http://127.0.0.1:9090/console/readyz
 curl http://127.0.0.1:9090/router-api/healthz
@@ -6360,8 +6360,8 @@ The local `/readyz` response must confirm `cloudflare_d1_do`, 40 console
 tables, 21 signer tables, `CONSOLE_DB`, `SIGNER_DB`, `THRESHOLD_STORE`, and a
 successful Durable Object normal-signing admission reservation.
 
-Validation evidence: `pnpm --dir packages/sdk-server-ts run d1:local:prepare`
-passed under Wrangler `4.105.0`, `pnpm --dir packages/sdk-server-ts run
+Validation evidence: `pnpm --dir packages/wallet-server run d1:local:prepare`
+passed under Wrangler `4.105.0`, `pnpm --dir packages/wallet-server run
 d1:local:dev` started with local D1/DO bindings and no compatibility-date
 fallback warning, and live local HTTP smoke returned `200` for `GET /readyz`,
 `GET /console/readyz`, and `GET /router-api/healthz`.
@@ -6432,8 +6432,8 @@ branches, except at explicit request or persistence boundaries.
       tracked-plus-untracked counts separately. The final June 30 snapshot records
       118,475 tracked additions and 72,918 tracked deletions, plus 6,516 untracked
       text lines across 18 files. It also records the non-doc and
-      `packages/sdk-server-ts/src` slices, including the 1,497 untracked lines under
-      `packages/sdk-server-ts/src`.
+      `packages/wallet-server/src` slices, including the 1,497 untracked lines under
+      `packages/wallet-server/src`.
 - [x] P3: Refactor 82 status text was inconsistent about Phase 6.
       Fix: the status header, phased first-cut plan, Phase 6 section, and
       immediate tracker now all say Phase 6 is the staging deployment phase with
@@ -6456,15 +6456,15 @@ branches, except at explicit request or persistence boundaries.
       not carry `rpId` at the root. Parse route bodies into the exact branch at the
       Cloudflare/Express boundary before core logic sees the intent.
       Evidence: fixed in `packages/shared-ts/src/utils/registrationIntent.ts`,
-      `packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService.ts`,
-      `packages/sdk-server-ts/src/router/walletRegistrationRoutes.ts`,
-      `packages/sdk-server-ts/src/core/AuthService.ts`, and SDK-web registration
+      `packages/wallet-server/src/router/cloudflare/d1RouterApiAuthService.ts`,
+      `packages/wallet-server/src/router/walletRegistrationRoutes.ts`,
+      `packages/wallet-server/src/core/AuthService.ts`, and SDK-web registration
       request builders. Type fixtures now reject root `rpId` on registration,
       add-signer, and add-auth-method intents. D1 Router API unit tests assert passkey,
       Email OTP, ECDSA registration, ECDSA add-signer, and Email OTP add-auth
       intents do not carry root `rpId` while passkey branches keep their RP scope.
       Validation passed: `pnpm --dir packages/shared-ts type-check`,
-      `pnpm --dir packages/sdk-server-ts type-check`,
+      `pnpm --dir packages/wallet-server type-check`,
       `unit/cloudflareD1RouterApiAuthService.unit.test.ts`,
       `unit/registrationIntentAllocation.unit.test.ts`, and
       `unit/addWalletSigner.orchestration.unit.test.ts`.
@@ -6473,12 +6473,12 @@ branches, except at explicit request or persistence boundaries.
       NEAR account ownership proves control of the NEAR account/public key for
       the wallet; WebAuthn RP scope belongs only to passkey auth branches.
       Evidence: fixed in `packages/shared-ts/src/utils/registrationIntent.ts`
-      and `packages/sdk-server-ts/src/core/AuthService.ts`. Type fixtures now
+      and `packages/wallet-server/src/core/AuthService.ts`. Type fixtures now
       accept NEAR ownership proofs without `rpId` and reject adding `rpId` to the
       proof message. The runtime normalizer rejects stale raw proof payloads that
       still include `message.rpId`. Registration allocation tests build proof
       messages without RP scope. Validation passed: `pnpm --dir packages/shared-ts
-type-check`, `pnpm --dir packages/sdk-server-ts type-check`,
+type-check`, `pnpm --dir packages/wallet-server type-check`,
       `unit/registrationIntentAllocation.unit.test.ts` focused on NEAR account
       ownership, and `unit/registrationIntentDigest.unit.test.ts`.
 - [x] P1: D1 wallet persistence must reject RP-scoped wallet identity.
@@ -6486,14 +6486,14 @@ type-check`, `pnpm --dir packages/sdk-server-ts type-check`,
       types before D1 staging deploy. Store `rpId` only on passkey/WebAuthn
       auth-method, credential, challenge, or session records where it is part of
       authentication authority.
-      Evidence: fixed in `packages/sdk-server-ts/src/core/WalletStore.ts`,
-      `packages/sdk-server-ts/src/core/d1WalletStore.ts`,
-      `packages/sdk-server-ts/migrations/d1-signer/0002_signer_wallet_metadata.sql`.
+      Evidence: fixed in `packages/wallet-server/src/core/WalletStore.ts`,
+      `packages/wallet-server/src/core/d1WalletStore.ts`,
+      `packages/wallet-server/migrations/d1-signer/0002_signer_wallet_metadata.sql`.
       Wallet identity and Ed25519 signer metadata reject `rpId` through
-      `packages/sdk-server-ts/src/core/WalletStore.typecheck.ts`, and D1 migration
+      `packages/wallet-server/src/core/WalletStore.typecheck.ts`, and D1 migration
       smoke asserts `signer_wallets` has no RP column while auth-method rows keep
       their passkey RP column. Remaining `rp_id` columns are passkey/WebAuthn
-      auth-method, bootstrap-token, recovery, or session authority rows. Validation passed: `pnpm --dir packages/sdk-server-ts
+      auth-method, bootstrap-token, recovery, or session authority rows. Validation passed: `pnpm --dir packages/wallet-server
 type-check`, `unit/cloudflareD1RouterApiAuthService.unit.test.ts`,
       `unit/registrationIntentAllocation.unit.test.ts`,
       `unit/registrationCeremonyStore.unit.test.ts`, and
@@ -6503,16 +6503,16 @@ type-check`, `unit/cloudflareD1RouterApiAuthService.unit.test.ts`,
       Fix: parse wallet identity with `parseWalletId()` at persistence/request
       boundaries and reject corrupt rows before core logic sees branded wallet
       state. Do not use `as WalletId` in wallet persistence/parser code.
-      Evidence: fixed in `packages/sdk-server-ts/src/core/d1WalletStore.ts`,
-      `packages/sdk-server-ts/src/core/WalletStore.ts`,
-      `packages/sdk-server-ts/src/core/RegistrationCeremonyStore.ts`, and
-      `packages/sdk-server-ts/src/core/AuthService.ts`. `parseWalletId()` now
+      Evidence: fixed in `packages/wallet-server/src/core/d1WalletStore.ts`,
+      `packages/wallet-server/src/core/WalletStore.ts`,
+      `packages/wallet-server/src/core/RegistrationCeremonyStore.ts`, and
+      `packages/wallet-server/src/core/AuthService.ts`. `parseWalletId()` now
       rejects embedded whitespace and control characters after boundary trimming,
       so corrupt persistence rows such as `alice testnet` cannot enter core wallet
       state. The wallet-scope guard now rejects `as WalletId` across
-      `packages/sdk-server-ts/src/core` and production Cloudflare D1 parser/store
+      `packages/wallet-server/src/core` and production Cloudflare D1 parser/store
       modules. Validation passed:
-      `pnpm --dir packages/sdk-server-ts type-check`, `pnpm --dir tests exec
+      `pnpm --dir packages/wallet-server type-check`, `pnpm --dir tests exec
 playwright test -c playwright.unit.config.ts
 unit/walletScopedLookups.guard.unit.test.ts
 unit/registrationCeremonyStore.unit.test.ts
@@ -6525,7 +6525,7 @@ unit/walletAuthMethodStore.unit.test.ts --reporter=line`, and a direct
       rejects reintroducing `HssWalletId`. Validation passed:
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
       unit/cloudflareSelfHostedSigningWorker.script.unit.test.ts --reporter=line`
-      with 6 tests, `pnpm --dir packages/sdk-server-ts type-check`,
+      with 6 tests, `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
       unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`
       with 43 tests, `pnpm --dir tests exec tsc -p
@@ -6537,12 +6537,12 @@ unit/walletAuthMethodStore.unit.test.ts --reporter=line`, and a direct
       Apply `isValidAccountId` only inside the hosted NEAR relayer-account branch,
       where the value is explicitly a hosted relayer account ID.
       Evidence: fixed in
-      `packages/sdk-server-ts/src/router/cloudflare/d1WebAuthnAuthService.ts`,
-      `packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpRecoveryService.ts`,
-      `packages/sdk-server-ts/src/router/cloudflare/d1GoogleEmailOtpSessionResolver.ts`,
-      `packages/sdk-server-ts/src/router/cloudflare/d1IdentityService.ts`, and
+      `packages/wallet-server/src/router/cloudflare/d1WebAuthnAuthService.ts`,
+      `packages/wallet-server/src/router/cloudflare/d1EmailOtpRecoveryService.ts`,
+      `packages/wallet-server/src/router/cloudflare/d1GoogleEmailOtpSessionResolver.ts`,
+      `packages/wallet-server/src/router/cloudflare/d1IdentityService.ts`, and
       the D1-era identity paths still owned by
-      `packages/sdk-server-ts/src/core/AuthService.ts`.
+      `packages/wallet-server/src/core/AuthService.ts`.
       Latest cleanup also routes Email OTP recovery status, grant consumption,
       recovery-key consumption/failure, recovery-key rotation, and Google
       registration-attempt completion through `parseD1BoundaryWalletIdResult`
@@ -6558,7 +6558,7 @@ unit/walletAuthMethodStore.unit.test.ts --reporter=line`, and a direct
       modules no longer call `isValidAccountId` directly. AuthService keeps
       `isValidAccountId` only for the NEAR account creation request and the
       hosted-account parser internals. Validation passed:
-      `pnpm --dir packages/sdk-server-ts type-check`,
+      `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
 unit/walletScopedLookups.guard.unit.test.ts
@@ -6568,13 +6568,13 @@ relayer/email-otp.authservice.test.ts --reporter=line`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
 unit/registrationIntentDigest.unit.test.ts --reporter=line`,
       `pnpm --dir packages/shared-ts type-check`,
-      `pnpm --dir packages/sdk-web type-check`, and `git diff --check`.
+      `pnpm --dir packages/wallet type-check`, and `git diff --check`.
 - [x] P2: Server-allocated wallet ID reservations must be wallet-scoped.
       Fix: reserve server-allocated wallet IDs by tenant/runtime scope plus `walletId`, or
       by an explicit branch-specific authority scope. Do not use WebAuthn `rpId` as
       the universal wallet-name reservation namespace.
-      Evidence: fixed in `packages/sdk-server-ts/src/core/RegistrationCeremonyStore.ts`,
-      `packages/sdk-server-ts/src/core/AuthService.ts`, and the D1 registration
+      Evidence: fixed in `packages/wallet-server/src/core/RegistrationCeremonyStore.ts`,
+      `packages/wallet-server/src/core/AuthService.ts`, and the D1 registration
       ceremony Durable Object path. The D1/DO path reserves
       `server-allocated-wallet-reservation:{walletId}` inside the tenant-scoped
       registration ceremony DO prefix; it does not accept or persist `rpId` for
@@ -6590,7 +6590,7 @@ unit/registrationIntentDigest.unit.test.ts --reporter=line`,
       `settled | duplicate | missing | invalid_state` result from one atomic path,
       and insert sponsored-call or ledger records only from the successful
       transition branch.
-      Evidence: fixed in `packages/sdk-server-ts/src/router/sponsorshipExecution.ts`,
+      Evidence: fixed in `packages/wallet-server/src/router/sponsorshipExecution.ts`,
       `packages/console-server-ts/src/billing/d1.ts`,
       `packages/console-server-ts/src/sponsoredCalls/d1.ts`, and
       `tests/relayer/console-d1-adapters.test.ts`. Reservation settlement/release
@@ -6598,7 +6598,7 @@ unit/registrationIntentDigest.unit.test.ts --reporter=line`,
       sponsored-call inserts are guarded by SQLite `changes() = 1`, and the route
       converts stale or already-final reservations to `invalid_state` unless the
       original sponsored-call idempotency key already has a record. Validation
-      passed: `pnpm --dir packages/sdk-server-ts type-check` and
+      passed: `pnpm --dir packages/wallet-server type-check` and
       `pnpm --dir tests exec playwright test -c playwright.relayer.config.ts
 relayer/console-d1-adapters.test.ts --grep "sponsored gas settlement|sponsored
 call idempotency" --reporter=line`.
@@ -6616,7 +6616,7 @@ call idempotency" --reporter=line`.
       The service request and record types now require `idempotencyKey`, adapters
       reject missing keys, fresh D1 schema uses `idempotency_key NOT NULL`, and
       the D1 migration rebuilds the table with a non-partial unique index.
-      Validation passed: `pnpm --dir packages/sdk-server-ts type-check`,
+      Validation passed: `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec playwright test -c playwright.relayer.config.ts
 relayer/console-d1-adapters.test.ts --grep "sponsored gas settlement|sponsored
 call idempotency" --reporter=line`, `git diff --check`, and a SQLite smoke
@@ -6629,14 +6629,14 @@ call idempotency" --reporter=line`, `git diff --check`, and a SQLite smoke
       Keep core domain inputs exact and avoid adding wrapper abstractions that only
       move the same broad state around.
       Progress: shared raw-record boundary parsing moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthBoundary.ts`, and
+      `packages/wallet-server/src/router/cloudflare/d1RouterApiAuthBoundary.ts`, and
       registration-ceremony Durable Object config/transport moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyDo.ts`.
+      `packages/wallet-server/src/router/cloudflare/d1RegistrationCeremonyDo.ts`.
       Persisted registration/add-signer/add-auth-method ceremony record parsers
       moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyRecords.ts`.
+      `packages/wallet-server/src/router/cloudflare/d1RegistrationCeremonyRecords.ts`.
       The DO-backed registration ceremony store moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyStore.ts`.
+      `packages/wallet-server/src/router/cloudflare/d1RegistrationCeremonyStore.ts`.
       This deleted the local boundary, parser, DO transport, and DO store copies
       from `d1RouterApiAuthService.ts`. Parser extraction line count:
       `d1RouterApiAuthService.ts` dropped from 14,345 to 13,462 lines while the new
@@ -6645,12 +6645,12 @@ call idempotency" --reporter=line`, `git diff --check`, and a SQLite smoke
       the new store module added 356 lines, a near-neutral +22-line split.
       Wallet-auth revoke request parsing and WebAuthn authentication credential
       parsing moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1WalletAuthMethodBoundary.ts`,
+      `packages/wallet-server/src/router/cloudflare/d1WalletAuthMethodBoundary.ts`,
       and persisted WebAuthn authenticator, binding, login-challenge, and
       sync-challenge parsing moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1WebAuthnRecords.ts`.
+      `packages/wallet-server/src/router/cloudflare/d1WebAuthnRecords.ts`.
       The same pass moved integer normalization helpers into
-      `packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthBoundary.ts`.
+      `packages/wallet-server/src/router/cloudflare/d1RouterApiAuthBoundary.ts`.
       The revoke-auth-method request contract is now branch-specific: passkey
       targets and WebAuthn assertion auth carry `rpId`; Email OTP targets and
       app-session Email OTP revoke requests reject root `rpId`, and Email OTP
@@ -6662,7 +6662,7 @@ call idempotency" --reporter=line`, `git diff --check`, and a SQLite smoke
       growth added 429 lines, a near-neutral +91-line split. Remaining split
       targets: Email OTP/OIDC, wallet auth method orchestration, ECDSA ceremonies,
       and threshold/session storage. Validation passed: `pnpm --dir
-packages/shared-ts type-check`, `pnpm --dir packages/sdk-server-ts
+packages/shared-ts type-check`, `pnpm --dir packages/wallet-server
 type-check`, `pnpm --dir tests exec playwright test -c
 playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts
 unit/registrationIntentAllocation.unit.test.ts
@@ -6673,23 +6673,23 @@ unit/registrationCeremonyStore.unit.test.ts --reporter=line`, and `git diff
 --check`. Factory cleanup line count:
       `d1RouterApiAuthService.ts` dropped from 12,790 to 12,722 lines and deleting
       `disabledRelayAuthService.ts` removed another 147 lines, a net-negative
-      215-line cleanup. Validation passed: `pnpm --dir packages/sdk-server-ts
+      215-line cleanup. Validation passed: `pnpm --dir packages/wallet-server
 type-check`, `pnpm --dir tests exec playwright test -c
 playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts
 unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`, and
       `git diff --check`. Persisted Email OTP wallet enrollment, auth-state,
       challenge, grant, unlock-challenge, and recovery-escrow row parsers/builders
       moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpRecords.ts`; shared
+      `packages/wallet-server/src/router/cloudflare/d1EmailOtpRecords.ts`; shared
       JSON/base64url boundary helpers moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthBoundary.ts`. The
+      `packages/wallet-server/src/router/cloudflare/d1RouterApiAuthBoundary.ts`. The
       same pass deleted the duplicate local Email OTP record helpers from
       `d1RouterApiAuthService.ts`. Email OTP record extraction line count:
       `d1RouterApiAuthService.ts` dropped from 12,722 to 12,071 lines while the new
       Email OTP record module plus boundary helper growth total 740 lines, a
       near-neutral +58-line split from the former local monolith shape. Validation
       passed: `pnpm --dir packages/shared-ts type-check`, `pnpm --dir
-packages/sdk-server-ts type-check`, `pnpm --dir tests exec playwright test -c
+packages/wallet-server type-check`, `pnpm --dir tests exec playwright test -c
 playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts
 --grep "Email OTP|Google Email OTP|recovery-key|recovery keys|server
 seal|unlock|server-allocated wallet" --reporter=line`, `pnpm --dir tests exec
@@ -6701,28 +6701,28 @@ unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`, and
       `git diff --check`. Google Email OTP registration-attempt row parsing,
       runtime-scope matching, offer response shaping, and attempt lifecycle record
       builders moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1GoogleEmailOtpRegistrationRecords.ts`.
+      `packages/wallet-server/src/router/cloudflare/d1GoogleEmailOtpRegistrationRecords.ts`.
       The same pass deleted the duplicate local Google registration-attempt record
       helpers from `d1RouterApiAuthService.ts`. Google registration-attempt extraction
       line count: `d1RouterApiAuthService.ts` dropped from 12,071 to 11,447 lines while
       the new leaf module added 658 lines, a near-neutral +34-line split from the
       former local monolith shape. Remaining split targets: Email OTP/OIDC
       orchestration, wallet auth method orchestration, ECDSA ceremonies, and
-      threshold/session storage. Validation passed: `pnpm --dir packages/sdk-server-ts
+      threshold/session storage. Validation passed: `pnpm --dir packages/wallet-server
 type-check`, `pnpm --dir tests exec playwright test -c
 playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts
 --grep "Google Email OTP registration attempts|rate-limits Google Email OTP
 registration attempts|ECDSA wallet registration ceremonies" --reporter=line`,
       and `git diff --check`. App-session row helpers plus recovery-session and
       recovery-execution D1 row parsing/status builders moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1SessionRecords.ts`. The same
+      `packages/wallet-server/src/router/cloudflare/d1SessionRecords.ts`. The same
       pass deleted the duplicate local app-session/recovery record helpers from
       `d1RouterApiAuthService.ts`. Session/recovery record extraction line count:
       `d1RouterApiAuthService.ts` dropped from 11,447 to 11,222 lines while the new
       leaf module added 248 lines, a near-neutral +23-line split from the former
       local monolith shape. Remaining split targets: Email OTP/OIDC orchestration,
       wallet auth method orchestration, ECDSA ceremonies, and threshold signing
-      storage. Validation passed: `pnpm --dir packages/sdk-server-ts type-check`,
+      storage. Validation passed: `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
 unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "recovery session|recovery
 execution|app session|Email OTP recovery-key|recovery-key" --reporter=line`,
@@ -6730,7 +6730,7 @@ execution|app session|Email OTP recovery-key|recovery-key" --reporter=line`,
       request shaping, responded-ceremony builders, finalized wallet-key material
       builders, wallet record builders, and ECDSA selection comparison helpers
       moved into
-      `packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyRecords.ts`.
+      `packages/wallet-server/src/router/cloudflare/d1RegistrationCeremonyRecords.ts`.
       The same pass deleted the duplicate local ECDSA helper block from
       `d1RouterApiAuthService.ts`. ECDSA ceremony helper extraction line count:
       `d1RouterApiAuthService.ts` dropped from 11,222 to 10,957 lines while the
@@ -6738,14 +6738,14 @@ execution|app session|Email OTP recovery-key|recovery-key" --reporter=line`,
       also replaces the old loose missing-field scan with a typed complete-bootstrap
       boundary check. Remaining split targets: Email OTP/OIDC orchestration, wallet
       auth method orchestration, and threshold signing storage. Validation passed:
-      `pnpm --dir packages/sdk-server-ts type-check`, `pnpm --dir tests exec
+      `pnpm --dir packages/wallet-server type-check`, `pnpm --dir tests exec
 playwright test -c playwright.unit.config.ts
 unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "ECDSA wallet
 registration ceremonies|ECDSA add-signer ceremonies" --reporter=line`, and
       `git diff --check`. WebAuthn request-boundary helpers for
       base64url/base64 decoding, clientDataJSON parsing, RP-origin checks, and
       credential ID extraction moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1WalletAuthMethodBoundary.ts`
+      `packages/wallet-server/src/router/cloudflare/d1WalletAuthMethodBoundary.ts`
       beside the existing WebAuthn authentication credential parser. Wallet
       auth-method record builders for active/revoked records and registration
       finalize responses moved to the same boundary module. The same pass deleted
@@ -6755,7 +6755,7 @@ registration ceremonies|ECDSA add-signer ceremonies" --reporter=line`, and
       lines, a near-neutral +33-line split from the former local monolith shape.
       Remaining split targets: Email OTP/OIDC orchestration, wallet auth method
       orchestration, and threshold signing storage. Validation passed: `pnpm --dir
-packages/sdk-server-ts type-check`, `pnpm --dir tests exec playwright test -c
+packages/wallet-server type-check`, `pnpm --dir tests exec playwright test -c
 playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts
 --grep "stores D1 Router API auth records|revokes wallet auth methods|adds Email
 OTP wallet auth methods" --reporter=line`, `pnpm --dir tests exec playwright
@@ -6764,21 +6764,21 @@ test -c playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.tes
       Email OTP challenge binding checks, attempt-count updates, recovery escrow
       active/revoked/consumed transitions, recovery challenge redaction, recovery
       escrow active counts, and auth-state patch builders moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpRecords.ts`. The same
+      `packages/wallet-server/src/router/cloudflare/d1EmailOtpRecords.ts`. The same
       pass deleted the duplicate local record-transition helpers from
       `d1RouterApiAuthService.ts`. Email OTP record-transition extraction line count:
       `d1RouterApiAuthService.ts` dropped from 10,783 to 10,474 lines while the Email
       OTP record module grew from 694 to 1,016 lines, a near-neutral +13-line split
       from the former local monolith shape. Remaining split targets: Email OTP/OIDC
       orchestration, wallet auth method orchestration, and threshold signing
-      storage. Validation passed: `pnpm --dir packages/sdk-server-ts type-check`,
+      storage. Validation passed: `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
 unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "Email OTP|recovery-key|recovery
 keys|unlock|registration Email OTP|device recovery" --reporter=line`, and
       `git diff --check`. OIDC exchange config normalization, issuer matching,
       JWT audience parsing, cache-control max-age parsing, Google JWKS parsing, and
       generic OIDC JWKS parsing moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1OidcBoundary.ts`. The local
+      `packages/wallet-server/src/router/cloudflare/d1OidcBoundary.ts`. The local
       D1 dev Worker now imports OIDC config types from that boundary module instead
       of from the Router API service. The same pass deleted the duplicate local OIDC
       helpers from `d1RouterApiAuthService.ts`. OIDC boundary extraction line count:
@@ -6786,19 +6786,19 @@ keys|unlock|registration Email OTP|device recovery" --reporter=line`, and
       OIDC boundary module added 196 lines, a +42-line split from the former local
       monolith shape. Remaining split targets: Email OTP/OIDC orchestration, wallet
       auth method orchestration, and threshold signing storage. Validation passed:
-      `pnpm --dir packages/sdk-server-ts type-check`, `pnpm --dir tests exec
+      `pnpm --dir packages/wallet-server type-check`, `pnpm --dir tests exec
 playwright test -c playwright.unit.config.ts
 unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "Google OIDC|generic
 OIDC exchange" --reporter=line`, and `git diff --check`.
       WebAuthn sync wallet-binding shaping and NEAR public-key row parsing moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1WebAuthnRecords.ts`. The same
+      `packages/wallet-server/src/router/cloudflare/d1WebAuthnRecords.ts`. The same
       pass deleted the duplicate local helpers from `d1RouterApiAuthService.ts` after the
       extraction had landed. WebAuthn/Near helper extraction line count:
       `d1RouterApiAuthService.ts` dropped from 10,320 to 10,261 lines while
       `d1WebAuthnRecords.ts` grew from 193 to 254 lines, a near-neutral +2-line
       split from the former local monolith shape. Remaining split targets: Email
       OTP/OIDC orchestration, wallet auth method orchestration, and threshold
-      signing storage. Validation passed: `pnpm --dir packages/sdk-server-ts
+      signing storage. Validation passed: `pnpm --dir packages/wallet-server
 type-check`, `pnpm --dir tests exec playwright test -c
 playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts
 --grep "stores wallet registration intents|starts ECDSA wallet registration|adds
@@ -6809,9 +6809,9 @@ ceremonies" --reporter=line`, and `git diff --check`.
       Identity-link row typing, identity record building, stale Google Email OTP
       identity mapping, wallet-subject collision checks, and link-conflict result
       builders moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1IdentityRecords.ts`. Generic
+      `packages/wallet-server/src/router/cloudflare/d1IdentityRecords.ts`. Generic
       D1 count and mutation-change parsing moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthBoundary.ts` so the
+      `packages/wallet-server/src/router/cloudflare/d1RouterApiAuthBoundary.ts` so the
       identity module only owns identity behavior. The same pass deleted the
       duplicate local helpers from `d1RouterApiAuthService.ts`. Identity boundary
       extraction line count: `d1RouterApiAuthService.ts` dropped from 10,261 to 10,184
@@ -6819,16 +6819,16 @@ ceremonies" --reporter=line`, and `git diff --check`.
       grew from 46 to 63 lines, a +28-line split from the former local monolith
       shape. Remaining split targets: Email OTP/OIDC orchestration, wallet auth
       method orchestration, and threshold signing storage. Validation passed:
-      `pnpm --dir packages/sdk-server-ts type-check`, `pnpm --dir tests exec
+      `pnpm --dir packages/wallet-server type-check`, `pnpm --dir tests exec
 playwright test -c playwright.unit.config.ts
 unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "reads signer
 metadata|Google Email OTP|Google OIDC|generic OIDC exchange" --reporter=line`,
       and `git diff --check`.
       RS256 JWT segment parsing, JWT signature verification, and boolean JWT claim
-      parsing moved to `packages/sdk-server-ts/src/router/cloudflare/d1OidcBoundary.ts`
+      parsing moved to `packages/wallet-server/src/router/cloudflare/d1OidcBoundary.ts`
       beside the existing JWKS and OIDC issuer normalization code. Generic
       `Uint8Array` to `ArrayBuffer` conversion moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthBoundary.ts` so the
+      `packages/wallet-server/src/router/cloudflare/d1RouterApiAuthBoundary.ts` so the
       Router API service and OIDC verifier share one byte-boundary helper. The same pass
       deleted the duplicate local JWT helper block from `d1RouterApiAuthService.ts`.
       RS256/OIDC extraction line count: `d1RouterApiAuthService.ts` dropped from 10,184
@@ -6836,14 +6836,14 @@ metadata|Google Email OTP|Google OIDC|generic OIDC exchange" --reporter=line`,
       `d1RouterApiAuthBoundary.ts` grew from 63 to 69 lines, a near-neutral +8-line
       split from the former local monolith shape. Remaining split targets: Email
       OTP/OIDC orchestration, wallet auth method orchestration, and threshold
-      signing storage. Validation passed: `pnpm --dir packages/sdk-server-ts
+      signing storage. Validation passed: `pnpm --dir packages/wallet-server
 type-check`, `pnpm --dir tests exec playwright test -c
 playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts
 --grep "Google OIDC|generic OIDC exchange" --reporter=line`, and
       `git diff --check`.
       Email OTP recovery-key rotation escrow validation and active escrow record
       construction moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpRecords.ts` beside the
+      `packages/wallet-server/src/router/cloudflare/d1EmailOtpRecords.ts` beside the
       existing Email OTP recovery escrow parsers. The same pass deleted the duplicate
       service-local rotation helper block from `d1RouterApiAuthService.ts`; the router-api
       service now passes its portable SHA-256 boundary helper into the Email OTP
@@ -6852,7 +6852,7 @@ playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts
       `d1EmailOtpRecords.ts` grew from 1,016 to 1,166 lines, a +24-line split from
       the former local monolith shape. Remaining split targets: Email OTP/OIDC
       orchestration, wallet auth method orchestration, and threshold signing
-      storage. Validation passed: `pnpm --dir packages/sdk-server-ts type-check`,
+      storage. Validation passed: `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
 unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "rotates Email OTP
 recovery keys|rejects stale Email OTP recovery-key rotation|rejects invalid
@@ -6860,7 +6860,7 @@ Email OTP recovery-key rotation" --reporter=line`, and `git diff --check`.
       Registration/add-signer/add-auth intent construction, server-allocated wallet ID
       allocation, runtime-scope inference from signing roots, and intent-policy
       matchers moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyRecords.ts`
+      `packages/wallet-server/src/router/cloudflare/d1RegistrationCeremonyRecords.ts`
       beside the D1 ceremony record parsers. The same pass deleted the duplicate
       service-local ceremony helper block from `d1RouterApiAuthService.ts`; the router-api
       service now imports those domain helpers from the ceremony records module.
@@ -6869,14 +6869,14 @@ Email OTP recovery-key rotation" --reporter=line`, and `git diff --check`.
       to 1,504 lines, a +15-line split from the former local monolith shape.
       Remaining split targets: Email OTP/OIDC orchestration, wallet auth method
       orchestration, and threshold signing storage. Validation passed: `pnpm --dir
-packages/sdk-server-ts type-check`, `pnpm --dir tests exec playwright test -c
+packages/wallet-server type-check`, `pnpm --dir tests exec playwright test -c
 playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts
 --grep "stores wallet registration intents|starts ECDSA wallet
 registration|starts ECDSA add-signer ceremonies|adds Email OTP wallet auth
 methods" --reporter=line`, and `git diff --check`.
       Email OTP enrollment-material boundary validation and recovery-wrapped escrow
       set validation moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpRecords.ts`. The same
+      `packages/wallet-server/src/router/cloudflare/d1EmailOtpRecords.ts`. The same
       pass deleted the duplicate private validation methods from
       `d1RouterApiAuthService.ts`; the Router API service now injects its portable SHA-256
       and secp256k1 public-key validators into the Email OTP boundary helper while
@@ -6886,12 +6886,12 @@ methods" --reporter=line`, and `git diff --check`.
       1,415 lines, a +28-line split from the former local monolith shape.
       Remaining split targets: Email OTP/OIDC orchestration, wallet auth method
       orchestration, and threshold signing storage. Validation passed: `pnpm --dir
-packages/sdk-server-ts type-check`, `pnpm --dir tests exec playwright test -c
+packages/wallet-server type-check`, `pnpm --dir tests exec playwright test -c
 playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts
 --grep "finalizes ECDSA wallet registration ceremonies|verifies registration
 Email OTP enrollment" --reporter=line`, and `git diff --check`.
       Email OTP utility and rate-limit boundary helpers moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpRecords.ts`: masked
+      `packages/wallet-server/src/router/cloudflare/d1EmailOtpRecords.ts`: masked
       email hints, numeric OTP generation, unlock TTL clamping, fixed-size
       base64url decoding, constant-work byte comparison, rate-limit key shaping,
       and rate-limit failure shaping. The same pass deleted the duplicate
@@ -6901,7 +6901,7 @@ Email OTP enrollment" --reporter=line`, and `git diff --check`.
       `d1EmailOtpRecords.ts` grew from 1,415 to 1,524 lines, a +13-line split from
       the former local monolith shape. Remaining split targets: Email OTP/OIDC
       orchestration, wallet auth method orchestration, and threshold signing
-      storage. Validation passed: `pnpm --dir packages/sdk-server-ts type-check`,
+      storage. Validation passed: `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
 unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "delivers Email OTP
 through configured provider|fails closed when Email OTP provider is
@@ -6909,7 +6909,7 @@ missing|rate-limits Google Email OTP registration attempts|enforces Email OTP
 challenge rate limits|verifies Email OTP unlock proofs once" --reporter=line`,
       and `git diff --check`.
       Google OIDC `id_token` claim validation moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1OidcBoundary.ts`. The same
+      `packages/wallet-server/src/router/cloudflare/d1OidcBoundary.ts`. The same
       pass deleted the duplicate private `validateGoogleIdTokenClaims` method and
       local failure type from `d1RouterApiAuthService.ts`, keeping JWT parsing and
       claim normalization at the OIDC boundary while the service retains JWKS cache,
@@ -6921,14 +6921,14 @@ challenge rate limits|verifies Email OTP unlock proofs once" --reporter=line`,
       `@noble/hashes/sha2.js`, restoring the built Vite plugin required by the
       Playwright unit web server. Remaining split targets: Email OTP/OIDC
       orchestration, wallet auth method orchestration, and threshold signing
-      storage. Validation passed: `pnpm --dir packages/sdk-server-ts type-check`,
-      `pnpm -C packages/sdk-web run build:sdk`, and `pnpm --dir tests exec
+      storage. Validation passed: `pnpm --dir packages/wallet-server type-check`,
+      `pnpm -C packages/wallet run build:sdk`, and `pnpm --dir tests exec
 playwright test -c playwright.unit.config.ts
 unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "verifies Google OIDC
 tokens and links identity" --reporter=line`.
       Generic OIDC JWT exchange issuer/audience/subject/profile claim parsing and
       post-signature temporal claim validation moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1OidcBoundary.ts`. The router-api
+      `packages/wallet-server/src/router/cloudflare/d1OidcBoundary.ts`. The router-api
       service now keeps only OIDC exchange orchestration: parse JWT, fetch the
       issuer JWKS, verify the RS256 signature, then link the normalized identity
       subject. OIDC boundary extraction line count: `d1RouterApiAuthService.ts` dropped
@@ -6936,27 +6936,27 @@ tokens and links identity" --reporter=line`.
       lines, a +65-line split from the former local monolith shape. Remaining split
       targets: Email OTP/OIDC orchestration, wallet auth method orchestration, and
       threshold signing storage. Validation passed: `pnpm --dir
-packages/sdk-server-ts type-check` and `pnpm --dir tests exec playwright test
+packages/wallet-server type-check` and `pnpm --dir tests exec playwright test
 -c playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts
 --grep "verifies generic OIDC exchange tokens|verifies Google OIDC tokens"
 --reporter=line`.
       D1 Router API auth option normalization, Email OTP delivery provider public types,
       Email OTP runtime rate-limit defaults, and Email OTP server-seal config
-      parsing moved to `packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthConfig.ts`.
+      parsing moved to `packages/wallet-server/src/router/cloudflare/d1RouterApiAuthConfig.ts`.
       The service keeps the existing public type re-exports, plus the normalized
       options object it consumes at construction time. Config boundary split line
       count: `d1RouterApiAuthService.ts` dropped from 9,218 to 8,804 lines while
       `d1RouterApiAuthConfig.ts` added 444 lines, a near-neutral +30-line split from the
       former local monolith shape. Remaining split targets: Email OTP/OIDC
       orchestration, wallet auth method orchestration, and threshold signing
-      storage. Validation passed: `pnpm --dir packages/sdk-server-ts type-check`
+      storage. Validation passed: `pnpm --dir packages/wallet-server type-check`
       and `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
 unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "delivers Email OTP
 through configured provider|fails closed when Email OTP provider is
 missing|applies and removes Email OTP server seals|verifies generic OIDC
 exchange tokens|verifies Google OIDC tokens" --reporter=line`.
       Google and generic OIDC JWKS cache/fetch state moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1OidcBoundary.ts` through
+      `packages/wallet-server/src/router/cloudflare/d1OidcBoundary.ts` through
       `CloudflareD1OidcJwksCache`. The Router API service now asks the boundary cache
       for Google and issuer JWKS sets instead of owning cache maps, in-flight fetch
       promises, HTTP response parsing, and cache-control handling. JWKS boundary
@@ -6964,13 +6964,13 @@ exchange tokens|verifies Google OIDC tokens" --reporter=line`.
       while `d1OidcBoundary.ts` grew from 631 to 724 lines, a near-neutral +8-line
       split from the former local monolith shape. Remaining split targets: Email
       OTP/OIDC orchestration, wallet auth method orchestration, and threshold
-      signing storage. Validation passed: `pnpm --dir packages/sdk-server-ts
+      signing storage. Validation passed: `pnpm --dir packages/wallet-server
 type-check` and `pnpm --dir tests exec playwright test -c
 playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts
 --grep "verifies generic OIDC exchange tokens|verifies Google OIDC tokens"
 --reporter=line`.
       Email OTP dev outbox and delivery side effects moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpDeliveryRuntime.ts`.
+      `packages/wallet-server/src/router/cloudflare/d1EmailOtpDeliveryRuntime.ts`.
       The Router API service now owns challenge orchestration through the D1 challenge
       store and calls the delivery runtime for provider delivery or local
       development logging. Development OTP readback comes from D1 challenge rows.
@@ -6978,7 +6978,7 @@ playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts
       to 8,624 lines while `d1EmailOtpDeliveryRuntime.ts` added 142 lines, a
       +47-line split from the former local monolith shape. Remaining split targets:
       Email OTP/OIDC orchestration, wallet auth method orchestration, and threshold
-      signing storage. Validation passed: `pnpm --dir packages/sdk-server-ts
+      signing storage. Validation passed: `pnpm --dir packages/wallet-server
 type-check` and `pnpm --dir tests exec playwright test -c
 playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts
 --grep "Email OTP wallet auth methods|issues and verifies login Email OTP
@@ -6996,8 +6996,8 @@ Email OTP enrollment|delivers Email OTP through configured provider|fails
       `consumeEmailOtpChallengeAndOutbox` helpers. Current line count:
       `d1EmailOtpDeliveryRuntime.ts` is 61 lines and
       `d1RouterApiAuthService.ts` is 6,576 lines. Validation passed:
-      `pnpm --dir packages/sdk-server-ts type-check`, `pnpm --dir
-      packages/sdk-server-ts build`, `pnpm --dir tests exec playwright test -c
+      `pnpm --dir packages/wallet-server type-check`, `pnpm --dir
+      packages/wallet-server build`, `pnpm --dir tests exec playwright test -c
       playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts
       --grep "starts ECDSA wallet registration ceremonies through Durable
       Objects|responds to ECDSA wallet registration ceremonies through Durable
@@ -7010,7 +7010,7 @@ Email OTP enrollment|delivers Email OTP through configured provider|fails
       unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`, and
       `git diff --check`.
       Email OTP server-seal cipher creation moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpServerSealRuntime.ts`.
+      `packages/wallet-server/src/router/cloudflare/d1EmailOtpServerSealRuntime.ts`.
       The Router API service now calls the seal runtime for apply/remove operations and
       no longer imports the Shamir cipher adapter or owns the seal-cipher result
       union. Server-seal runtime split line count: `d1RouterApiAuthService.ts` dropped
@@ -7018,12 +7018,12 @@ Email OTP enrollment|delivers Email OTP through configured provider|fails
       lines, a near-neutral +11-line split from the former local monolith shape.
       Remaining split targets: Email OTP/OIDC orchestration, wallet auth method
       orchestration, and threshold signing storage. Validation passed: `pnpm --dir
-packages/sdk-server-ts type-check` and `pnpm --dir tests exec playwright test
+packages/wallet-server type-check` and `pnpm --dir tests exec playwright test
 -c playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts
 --grep "applies and removes Email OTP server seals|fails closed when Email OTP
 server seal is unconfigured" --reporter=line`.
       Threshold-signing lazy resolution moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1ThresholdSigningRuntime.ts`.
+      `packages/wallet-server/src/router/cloudflare/d1ThresholdSigningRuntime.ts`.
       The Router API service keeps the public `getThresholdSigningService()` method, but
       no longer owns the cached threshold-service field, initialized flag, Durable
       Object threshold factory call, or unsupported NEAR fallback stubs. Threshold
@@ -7031,7 +7031,7 @@ server seal is unconfigured" --reporter=line`.
       lines while `d1ThresholdSigningRuntime.ts` added 53 lines, a +33-line split
       from the former local monolith shape. Remaining split targets: Email OTP/OIDC
       orchestration and wallet auth method orchestration. Validation passed:
-      `pnpm --dir packages/sdk-server-ts type-check` and `pnpm --dir tests exec
+      `pnpm --dir packages/wallet-server type-check` and `pnpm --dir tests exec
 playwright test -c playwright.unit.config.ts
 unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "wires threshold
 signing from Durable Object config|responds to ECDSA wallet registration
@@ -7039,7 +7039,7 @@ ceremonies through Durable Objects|responds to and finalizes ECDSA add-signer
 ceremonies through Durable Objects" --reporter=line`.
       D1 recovery-session, recovery-execution, and app-session-version SQL
       persistence moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1SessionStore.ts`. The router-api
+      `packages/wallet-server/src/router/cloudflare/d1SessionStore.ts`. The router-api
       service now validates request/domain inputs and delegates tenant-scoped D1
       record round-tripping to the session store, deleting the old private SQL
       helpers from the monolith in the same pass. Session store split line count:
@@ -7047,7 +7047,7 @@ ceremonies through Durable Objects" --reporter=line`.
       `d1SessionStore.ts` added 248 lines, a near-neutral +29-line split from the
       former local monolith shape. Remaining split targets: Email OTP/OIDC
       orchestration and wallet auth method orchestration. Validation passed:
-      `pnpm --dir packages/sdk-server-ts type-check`, `pnpm --dir tests exec
+      `pnpm --dir packages/wallet-server type-check`, `pnpm --dir tests exec
 playwright test -c playwright.unit.config.ts
 unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "reads signer metadata
 with tenant scope|tracks recovery sessions and executions" --reporter=line`,
@@ -7056,7 +7056,7 @@ relayer/cloudflare-router.test.ts relayer/express-router.test.ts --grep
 "recover-email" --reporter=line`.
       Wallet auth-method revoke policy validation, WebAuthn authorization lookup,
       and target-record resolution moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1WalletAuthMethodBoundary.ts`.
+      `packages/wallet-server/src/router/cloudflare/d1WalletAuthMethodBoundary.ts`.
       The Router API service now keeps the high-level revoke workflow while the
       branch-specific passkey/Email OTP revoke boundary owns target equality,
       app-session policy errors, WebAuthn authorization credential lookup, and
@@ -7068,7 +7068,7 @@ relayer/cloudflare-router.test.ts relayer/express-router.test.ts --grep
       `d1WalletAuthMethodBoundary.ts` grew from 419 to 513 lines, a +38-line split
       from the former local monolith shape. Remaining split targets: Email OTP/OIDC
       orchestration and wallet auth method orchestration beyond revoke. Validation
-      passed: `pnpm --dir packages/sdk-server-ts type-check`, `pnpm --dir tests
+      passed: `pnpm --dir packages/wallet-server type-check`, `pnpm --dir tests
 exec playwright test -c playwright.unit.config.ts
 unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "revokes wallet auth
 methods" --reporter=line`, `pnpm --dir tests exec playwright test -c
@@ -7078,7 +7078,7 @@ playwright test -c playwright.unit.config.ts
 unit/registrationIntentAllocation.unit.test.ts --grep "revokes one auth
 method|rejects revoking the last active auth method" --reporter=line`.
       Existing-auth resolution for add-signer and add-auth-method ceremonies moved
-      to `packages/sdk-server-ts/src/router/cloudflare/d1WalletAuthMethodBoundary.ts`.
+      to `packages/wallet-server/src/router/cloudflare/d1WalletAuthMethodBoundary.ts`.
       The boundary now owns app-session policy wallet/method/selection/runtime-scope
       checks and WebAuthn authorization credential lookup for those wallet
       auth-method orchestration paths. The same pass deleted the duplicate private
@@ -7089,7 +7089,7 @@ method|rejects revoking the last active auth method" --reporter=line`.
       from the former local monolith shape. Remaining split target: Email OTP/OIDC
       orchestration, plus any smaller wallet auth-method authority helpers that
       still prove worth extracting during Phase 7. Validation passed: `pnpm --dir
-packages/sdk-server-ts type-check`, `pnpm --dir tests exec playwright test -c
+packages/wallet-server type-check`, `pnpm --dir tests exec playwright test -c
 playwright.unit.config.ts unit/registrationIntentAllocation.unit.test.ts
 --grep "starts and finalizes passkey add-auth-method|starts and finalizes
 Email OTP add-auth-method|runs Ed25519 add-signer|runs ECDSA add-signer|rejects
@@ -7109,7 +7109,7 @@ ECDSA add-signer ceremonies" --reporter=line`.
       `d1RouterApiAuthService.ts` dropped from 8,118 to 7,886 lines while
       `IdentityStore.ts` grew from 1,895 to 1,968 lines, a net-negative 159-line
       cleanup. Remaining split target: Email OTP/OIDC orchestration. Validation
-      passed: `pnpm --dir packages/sdk-server-ts type-check`, `pnpm --dir tests
+      passed: `pnpm --dir packages/wallet-server type-check`, `pnpm --dir tests
 exec playwright test -c playwright.relayer.config.ts
 relayer/console-d1-adapters.test.ts --grep "signer identity links"
 --reporter=line`, `pnpm --dir tests exec playwright test -c
@@ -7120,7 +7120,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       --grep "Google OIDC|generic OIDC exchange|Google Email OTP" --reporter=line`,
       and `git diff --check`.
       Google Email OTP registration-attempt D1 persistence moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1GoogleEmailOtpRegistrationAttemptStore.ts`.
+      `packages/wallet-server/src/router/cloudflare/d1GoogleEmailOtpRegistrationAttemptStore.ts`.
       The store now owns tenant-scoped cleanup, create/read/write/delete, live
       wallet-offer collision checks, started-attempt refresh, malformed-row
       cleanup, replacement abandonment, and runtime-org write validation. The router-api
@@ -7139,7 +7139,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       `d1GoogleEmailOtpRegistrationAttemptStore.ts` added 307 lines, a +33-line
       split from the former local monolith shape. Remaining split target: broader
       Email OTP/OIDC orchestration. Validation passed: `pnpm --dir
-      packages/sdk-server-ts type-check`, `pnpm --dir tests exec playwright test
+      packages/wallet-server type-check`, `pnpm --dir tests exec playwright test
       -c playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts
       --grep "Google Email OTP registration attempts|rate-limits Google Email OTP
       registration attempts|verifies Google OIDC|generic OIDC exchange"
@@ -7148,7 +7148,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       --grep "identity mapping|Google Email OTP registration|Google Email OTP
       login|dev cleanup" --reporter=line`, and `git diff --check`.
       Google Email OTP session resolution moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1GoogleEmailOtpSessionResolver.ts`.
+      `packages/wallet-server/src/router/cloudflare/d1GoogleEmailOtpSessionResolver.ts`.
       The resolver now owns login/registration branching, stale mapping repair,
       HMAC-readable account derivation, registration-offer allocation, registration
       attempt completion, and development cleanup for Google Email OTP wallet
@@ -7168,8 +7168,8 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       lines, a +144-line split from the former local monolith shape. Remaining
       split target: non-Google Email OTP challenge/enrollment/recovery
       orchestration and any non-store helper cleanup candidates. Validation passed:
-      `pnpm --dir packages/sdk-server-ts type-check`, `pnpm --dir
-      packages/sdk-server-ts build`, `pnpm --dir tests exec playwright test -c
+      `pnpm --dir packages/wallet-server type-check`, `pnpm --dir
+      packages/wallet-server build`, `pnpm --dir tests exec playwright test -c
       playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts
       --grep "Google Email OTP registration attempts|rate-limits Google Email OTP
       registration attempts|verifies Google OIDC|generic OIDC exchange"
@@ -7181,7 +7181,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`, and
       `git diff --check`.
       WebAuthn D1 persistence moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1WebAuthnStore.ts`. The store
+      `packages/wallet-server/src/router/cloudflare/d1WebAuthnStore.ts`. The store
       now owns tenant-scoped WebAuthn challenge write/consume, authenticator
       read/write/counter update, credential-binding lookup, and parsed binding-row
       listing. The Router API service keeps WebAuthn option construction,
@@ -7196,7 +7196,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       `d1RouterApiAuthService.ts` dropped from 7,612 to 7,386 lines while
       `d1WebAuthnStore.ts` added 268 lines, a +42-line split from the former local
       monolith shape. Remaining split target: broader Email OTP/OIDC
-      orchestration. Validation passed: `pnpm --dir packages/sdk-server-ts
+      orchestration. Validation passed: `pnpm --dir packages/wallet-server
       type-check`, `pnpm --dir tests exec playwright test -c
       playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts
       --grep "reads signer metadata with tenant scope" --reporter=line`,
@@ -7208,7 +7208,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       records|adds Email OTP wallet auth methods" --reporter=line`, and `git diff
       --check`.
       Email OTP grant D1 persistence moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpGrantStore.ts`. The
+      `packages/wallet-server/src/router/cloudflare/d1EmailOtpGrantStore.ts`. The
       store now owns tenant-scoped grant insert, consume, read, and delete
       operations. The Router API service keeps challenge verification, grant binding
       checks, recovery failure reporting, and recovery-key consumption behavior.
@@ -7219,7 +7219,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       lines while `d1EmailOtpGrantStore.ts` added 86 lines, a +13-line split from
       the former local monolith shape. Remaining split target: broader Email
       OTP/OIDC orchestration and remaining Email OTP challenge/enrollment/recovery
-      persistence. Validation passed: `pnpm --dir packages/sdk-server-ts
+      persistence. Validation passed: `pnpm --dir packages/wallet-server
       type-check`, `pnpm --dir tests exec playwright test -c
       playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts
       --grep "reads signer metadata with tenant scope" --reporter=line`, `pnpm
@@ -7228,7 +7228,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       device recovery Email OTP challenges" --reporter=line`, and `git diff
       --check`.
       Email OTP rate-limit D1 persistence moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpRateLimitStore.ts`.
+      `packages/wallet-server/src/router/cloudflare/d1EmailOtpRateLimitStore.ts`.
       The store now owns tenant-scoped fixed-window key derivation and atomic
       `INSERT ... ON CONFLICT ... WHERE ... RETURNING` consumption for challenge,
       verify, grant, recovery-key-attempt, and Google registration-attempt
@@ -7241,13 +7241,13 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       +22-line split from the former local monolith shape. Remaining split target:
       broader Email OTP/OIDC orchestration and remaining Email OTP
       challenge/enrollment/recovery persistence. Validation passed: `pnpm --dir
-      packages/sdk-server-ts type-check`, `pnpm --dir tests exec playwright test
+      packages/wallet-server type-check`, `pnpm --dir tests exec playwright test
       -c playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts
       --grep "rate-limits Google Email OTP registration attempts|enforces Email
       OTP challenge rate limits|issues and verifies device recovery Email OTP
       challenges" --reporter=line`, and `git diff --check`.
       Email OTP enrollment/auth-state D1 persistence moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpEnrollmentStore.ts`.
+      `packages/wallet-server/src/router/cloudflare/d1EmailOtpEnrollmentStore.ts`.
       The store now owns tenant-scoped wallet enrollment read/write/delete,
       provider-user enrollment lookup, signer-wallet existence checks, auth-state
       read/write, enrollment-bound auth-state validation, auth-state reset, and
@@ -7264,7 +7264,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       `d1EmailOtpEnrollmentStore.ts` added 258 lines, a +15-line split from the
       former local monolith shape. Remaining split target: broader Email OTP/OIDC
       orchestration and remaining Email OTP challenge/recovery persistence.
-      Validation passed: `pnpm --dir packages/sdk-server-ts type-check`, `pnpm
+      Validation passed: `pnpm --dir packages/wallet-server type-check`, `pnpm
       --dir tests exec playwright test -c playwright.unit.config.ts
       unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "adds Email OTP wallet
       auth methods|issues and verifies login Email OTP challenges|issues
@@ -7273,7 +7273,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       Email OTP recovery keys after fresh auth|starts, reuses, and restarts Google
       Email OTP registration attempts" --reporter=line`, and `git diff --check`.
       Email OTP recovery escrow D1 persistence moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpRecoveryEscrowStore.ts`.
+      `packages/wallet-server/src/router/cloudflare/d1EmailOtpRecoveryEscrowStore.ts`.
       The store now owns tenant-scoped recovery-wrapped enrollment escrow listing,
       single recovery-key lookup, active-key consumption, and batched
       active/consumed/revoked escrow upserts. The Router API service keeps recovery-key
@@ -7287,7 +7287,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       lines, a +45-line split from the former local monolith shape. Remaining
       split target: broader Email OTP/OIDC orchestration and remaining Email OTP
       challenge/unlock persistence. Validation passed: `pnpm --dir
-      packages/sdk-server-ts type-check`, `pnpm --dir tests exec playwright test
+      packages/wallet-server type-check`, `pnpm --dir tests exec playwright test
       -c playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts
       --grep "verifies registration Email OTP enrollment|issues and verifies
       device recovery Email OTP challenges|rotates Email OTP recovery keys after
@@ -7295,7 +7295,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       Email OTP recovery-key rotation payloads|adds Email OTP wallet auth methods"
       --reporter=line`, and `git diff --check`.
       Email OTP challenge/unlock D1 persistence moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpChallengeStore.ts`.
+      `packages/wallet-server/src/router/cloudflare/d1EmailOtpChallengeStore.ts`.
       The store now owns tenant-scoped login, registration, and device-recovery
       challenge read/write/consume/delete, expired challenge pruning, active
       challenge overflow deletion, attempt-count updates, and unlock-challenge
@@ -7315,7 +7315,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       6,850 to 6,596 lines while `d1EmailOtpChallengeStore.ts` added 319 lines, a
       +65-line split from the former local monolith shape. Remaining split target:
       broader Email OTP/OIDC orchestration and non-Email-OTP persistence cleanup
-      candidates. Validation passed: `pnpm --dir packages/sdk-server-ts
+      candidates. Validation passed: `pnpm --dir packages/wallet-server
       type-check`, `pnpm --dir tests exec playwright test -c
       playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts
       --grep "issues and verifies login Email OTP challenges|issues registration
@@ -7325,7 +7325,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       configured provider|fails closed when Email OTP provider is missing"
       --reporter=line`, and `git diff --check`.
       NEAR public-key D1 listing moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1NearPublicKeyStore.ts`. The
+      `packages/wallet-server/src/router/cloudflare/d1NearPublicKeyStore.ts`. The
       store now owns tenant-scoped `signer_near_public_keys` reads and row parsing
       while the Router API service keeps request validation and public response
       projection. The same pass deleted the direct service-local NEAR public-key SQL
@@ -7334,19 +7334,19 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       `d1NearPublicKeyStore.ts` added 36 lines, a +26-line split from the former
       local monolith shape. Remaining split target: broader Email OTP/OIDC
       orchestration and any remaining non-store helper cleanup candidates.
-      Validation passed: `pnpm --dir packages/sdk-server-ts type-check`, `pnpm
+      Validation passed: `pnpm --dir packages/wallet-server type-check`, `pnpm
       --dir tests exec playwright test -c playwright.unit.config.ts
       unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "reads signer metadata
       with tenant scope" --reporter=line`, and `git diff --check`.
       D1 identity persistence moved to
-      `packages/sdk-server-ts/src/core/d1IdentityStore.ts` and
+      `packages/wallet-server/src/core/d1IdentityStore.ts` and
       `d1RouterApiAuthService.ts` now imports the D1 leaf instead of the mixed
       `core/IdentityStore.ts` module. The mixed factory still re-exports the D1
       adapter for public API compatibility, but Cloudflare runtime no longer walks
       through the module that owns Postgres construction. The same pass deleted the
       D1 schema/options/class/helper block from `core/IdentityStore.ts` and
       strengthened the Refactor 82 runtime guard to follow dynamic `import()`
-      dependencies. Validation passed: `pnpm --dir packages/sdk-server-ts
+      dependencies. Validation passed: `pnpm --dir packages/wallet-server
       type-check`, `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
       unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`, and
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
@@ -7354,9 +7354,9 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       tokens and links identity|starts, reuses, and restarts Google Email OTP
       registration attempts|rotates Email OTP recovery keys after fresh auth|issues
       and verifies login Email OTP challenges|adds Email OTP wallet auth methods"
-      --reporter=line`, and `pnpm --dir packages/sdk-server-ts build`.
+      --reporter=line`, and `pnpm --dir packages/wallet-server build`.
       Email OTP registration-enrollment finalization moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpRegistrationEnrollmentFinalizer.ts`.
+      `packages/wallet-server/src/router/cloudflare/d1EmailOtpRegistrationEnrollmentFinalizer.ts`.
       The finalizer now owns wallet-registration finalize enrollment material
       validation, backup-ack binding, provider-enrollment moves, recovery-wrapped
       escrow upserts, active escrow count verification, auth-state reset, and the
@@ -7371,7 +7371,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       finalizer module added 394 lines, a near-neutral +21-line split from the
       former local monolith shape. Remaining split target: non-registration Email
       OTP challenge/recovery orchestration and any small non-store helper cleanup
-      candidates. Validation passed: `pnpm --dir packages/sdk-server-ts
+      candidates. Validation passed: `pnpm --dir packages/wallet-server
       type-check`, `pnpm --dir tests exec playwright test -c
       playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts
       --grep "finalizes ECDSA wallet registration ceremonies|verifies
@@ -7380,12 +7380,12 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       playwright test -c playwright.relayer.config.ts
       relayer/oidc-exchange.authservice.test.ts --grep "identity mapping|Google
       Email OTP registration|completed Google Email OTP registration|dev cleanup"
-      --reporter=line`, `pnpm --dir packages/sdk-server-ts build`, `pnpm --dir
+      --reporter=line`, `pnpm --dir packages/wallet-server build`, `pnpm --dir
       tests exec playwright test -c playwright.unit.config.ts
       unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`, and
       `git diff --check`.
       Email OTP challenge verification moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpChallengeVerifier.ts`.
+      `packages/wallet-server/src/router/cloudflare/d1EmailOtpChallengeVerifier.ts`.
       The verifier now owns existing-login/device-recovery challenge verification,
       registration challenge verification, verify-scope rate-limit consumption,
       challenge binding checks, OTP lockout enforcement, invalid-attempt auth-state
@@ -7400,19 +7400,19 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       verifier module added 470 lines, a +78-line split from the former local
       monolith shape. Remaining split target: Email OTP challenge issuance,
       grant/recovery-key consumption, and any small non-store helper cleanup
-      candidates. Validation passed: `pnpm --dir packages/sdk-server-ts
+      candidates. Validation passed: `pnpm --dir packages/wallet-server
       type-check`, `pnpm --dir tests exec playwright test -c
       playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts
       --grep "issues and verifies login Email OTP challenges|issues registration
       Email OTP challenges|verifies registration Email OTP enrollment|issues and
       verifies device recovery Email OTP challenges|enforces Email OTP challenge
       rate limits|adds Email OTP wallet auth methods" --reporter=line`,
-      `pnpm --dir packages/sdk-server-ts build`, `pnpm --dir tests exec
+      `pnpm --dir packages/wallet-server build`, `pnpm --dir tests exec
       playwright test -c playwright.unit.config.ts
       unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`, and
       `git diff --check`.
       Email OTP challenge issuance moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpChallengeIssuer.ts`.
+      `packages/wallet-server/src/router/cloudflare/d1EmailOtpChallengeIssuer.ts`.
       The issuer now owns challenge request validation, registration/login/device
       recovery purpose checks, active-enrollment lookup for non-registration
       challenges, issue-scope rate-limit consumption, active challenge reuse,
@@ -7426,7 +7426,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       5,294 to 5,067 lines while the new issuer module added 327 lines, a +100-line
       split from the former local monolith shape. Remaining split targets:
       grant/recovery-key handling and any small non-store helper cleanup
-      candidates. Validation passed: `pnpm --dir packages/sdk-server-ts
+      candidates. Validation passed: `pnpm --dir packages/wallet-server
       type-check`, `pnpm --dir tests exec playwright test -c
       playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts
       --grep "issues and verifies login Email OTP challenges|issues registration
@@ -7434,11 +7434,11 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       verifies device recovery Email OTP challenges|enforces Email OTP challenge
       rate limits|delivers Email OTP through configured provider|fails closed when
       Email OTP provider is missing" --reporter=line`, `pnpm --dir
-      packages/sdk-server-ts build`, `pnpm --dir tests exec playwright test -c
+      packages/wallet-server build`, `pnpm --dir tests exec playwright test -c
       playwright.unit.config.ts unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
       --reporter=line`, and `git diff --check`.
       Email OTP recovery and grant handling moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpRecoveryService.ts`.
+      `packages/wallet-server/src/router/cloudflare/d1EmailOtpRecoveryService.ts`.
       The recovery service now owns recovery-code status reads, device-recovery
       OTP verification response assembly, recovery consume-grant issuance, unlock
       challenge creation, unlock-proof verification, atomic login-grant
@@ -7456,7 +7456,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       recovery module added 1,152 lines, a +414-line split from the former local
       monolith shape. Remaining split target: small non-store helper cleanup and
       broader wallet/OIDC orchestration still tracked by this phase. Validation
-      passed: `pnpm --dir packages/sdk-server-ts type-check`, `pnpm --dir tests
+      passed: `pnpm --dir packages/wallet-server type-check`, `pnpm --dir tests
       exec playwright test -c playwright.unit.config.ts
       unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "issues and verifies
       login Email OTP challenges|rotates Email OTP recovery keys after fresh
@@ -7464,12 +7464,12 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       recovery-key rotation payloads|issues and verifies device recovery Email OTP
       challenges|enforces Email OTP challenge rate limits|verifies Email OTP
       unlock proofs once|verifies registration Email OTP enrollment"
-      --reporter=line`, `pnpm --dir packages/sdk-server-ts build`, `pnpm --dir
+      --reporter=line`, `pnpm --dir packages/wallet-server build`, `pnpm --dir
       tests exec playwright test -c playwright.unit.config.ts
       unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`, and
       `git diff --check`.
       Google and generic OIDC verification orchestration moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1OidcVerificationService.ts`.
+      `packages/wallet-server/src/router/cloudflare/d1OidcVerificationService.ts`.
       The verifier now owns Google OIDC public config shaping, Google `id_token`
       verification, generic OIDC exchange JWT verification, JWKS cache use,
       WebCrypto signature verification calls, temporal claim enforcement, and
@@ -7483,18 +7483,18 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       verifier module added 268 lines, a +76-line split from the former local
       monolith shape. Remaining split target: wallet auth method orchestration,
       ECDSA ceremony orchestration, and threshold/session storage cleanup.
-      Validation passed: `pnpm --dir packages/sdk-server-ts type-check`, `pnpm
+      Validation passed: `pnpm --dir packages/wallet-server type-check`, `pnpm
       --dir tests exec playwright test -c playwright.unit.config.ts
       unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "verifies Google OIDC
       tokens and links identity|verifies generic OIDC exchange tokens"
       --reporter=line`, `pnpm --dir tests exec playwright test -c
       playwright.relayer.config.ts relayer/oidc-exchange.authservice.test.ts
-      --reporter=line`, `pnpm --dir packages/sdk-server-ts build`, `pnpm --dir
+      --reporter=line`, `pnpm --dir packages/wallet-server build`, `pnpm --dir
       tests exec playwright test -c playwright.unit.config.ts
       unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`, and
       `git diff --check`.
       App-session, recovery-session, and recovery-execution orchestration moved
-      to `packages/sdk-server-ts/src/router/cloudflare/d1SessionService.ts`.
+      to `packages/wallet-server/src/router/cloudflare/d1SessionService.ts`.
       The session service now owns app-session creation, rotation, validation,
       recovery-session reads/status updates, and recovery-execution upserts over
       the D1 session store. The Router API service keeps only the public
@@ -7507,7 +7507,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       session module added 232 lines, a +90-line split from the former local
       monolith shape. Remaining split target: wallet auth method orchestration,
       ECDSA ceremony orchestration, and threshold signing storage cleanup.
-      Validation passed: `pnpm --dir packages/sdk-server-ts type-check`, `pnpm
+      Validation passed: `pnpm --dir packages/wallet-server type-check`, `pnpm
       --dir tests exec playwright test -c playwright.unit.config.ts
       unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "tracks recovery
       sessions and executions" --reporter=line`, `pnpm --dir tests exec
@@ -7516,14 +7516,14 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       metadata" --reporter=line`, `pnpm --dir tests exec playwright test -c
       playwright.relayer.config.ts relayer/oidc-exchange.authservice.test.ts
       --grep "returns invalid_session_version for stale app session version"
-      --reporter=line`, `pnpm --dir packages/sdk-server-ts build`, `pnpm --dir
+      --reporter=line`, `pnpm --dir packages/wallet-server build`, `pnpm --dir
       tests exec playwright test -c playwright.unit.config.ts
       unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`, and
       `git diff --check`.
       WebAuthn login, authenticator listing, sync-account option construction,
       authentication assertion verification, login verification, and sync-account
       verification moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1WebAuthnAuthService.ts`.
+      `packages/wallet-server/src/router/cloudflare/d1WebAuthnAuthService.ts`.
       The Router API service keeps the public `CloudflareRouterApiAuthService` methods and
       delegates WebAuthn login/sync behavior to the focused service. The same pass
       deleted the duplicate method bodies, login/sync challenge TTL helper,
@@ -7536,16 +7536,16 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       former local monolith shape and a 567-line router-api deletion in this pass.
       Remaining split target: wallet auth method orchestration, ECDSA ceremony
       orchestration, and threshold signing storage cleanup. Validation passed:
-      `pnpm --dir packages/sdk-server-ts type-check`, `pnpm --dir tests exec
+      `pnpm --dir packages/wallet-server type-check`, `pnpm --dir tests exec
       playwright test -c playwright.unit.config.ts
       unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep
       "WebAuthn|authenticator|sync account|reads signer metadata" --reporter=line`,
-      `pnpm --dir packages/sdk-server-ts build`, `pnpm --dir tests exec
+      `pnpm --dir packages/wallet-server build`, `pnpm --dir tests exec
       playwright test -c playwright.unit.config.ts
       unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`, and
       `git diff --check`.
       Wallet auth-method orchestration moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1WalletAuthMethodService.ts`.
+      `packages/wallet-server/src/router/cloudflare/d1WalletAuthMethodService.ts`.
       The focused service now owns add-signer/add-auth existing-authorization
       resolution, passkey and Email OTP authority verification, duplicate
       authority detection, wallet auth-method persistence, and revoke policy
@@ -7558,7 +7558,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       wallet auth-method module is 763 lines, a +60-line split from the former
       local monolith shape and a 703-line router-api deletion in this pass. Remaining
       split targets: ECDSA ceremony orchestration and threshold signing storage
-      cleanup. Validation passed: `pnpm --dir packages/sdk-server-ts type-check`,
+      cleanup. Validation passed: `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec playwright test -c playwright.relayer.config.ts
       ./relayer/cloudflare-router.test.ts --grep "recover-email"
       --reporter=line`, `pnpm --dir tests exec playwright test -c
@@ -7573,11 +7573,11 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep
       "registration|add-auth|revoke|auth method|WebAuthn|Email OTP|signer
       metadata|add signer" --reporter=line`,
-      `pnpm --dir packages/sdk-server-ts build`, and `git diff --check`.
+      `pnpm --dir packages/wallet-server build`, and `git diff --check`.
       D1 wallet-registration orchestration moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1WalletRegistrationService.ts`,
+      `packages/wallet-server/src/router/cloudflare/d1WalletRegistrationService.ts`,
       and D1 add-signer orchestration moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1WalletAddSignerService.ts`.
+      `packages/wallet-server/src/router/cloudflare/d1WalletAddSignerService.ts`.
       The router-api keeps the public `CloudflareRouterApiAuthService` methods and
       delegates those method families to the focused services. The same pass deleted the
       copied ceremony method bodies, stale ECDSA helper imports, local ECDSA helper
@@ -7587,18 +7587,18 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       ECDSA ceremony module is 831 lines, a +131-line split from the former local
       monolith shape and a 700-line router-api deletion in this pass. Remaining split
       target: threshold signing storage cleanup. Validation passed: `pnpm --dir
-      packages/sdk-server-ts type-check`, `pnpm --dir tests exec playwright test
+      packages/wallet-server type-check`, `pnpm --dir tests exec playwright test
       -c playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts
       --grep "ECDSA wallet registration|wallet registration ceremonies|add-signer
       ceremonies|finalizes ECDSA|responds to ECDSA|starts ECDSA|add signer"
-      --reporter=line`, `pnpm --dir packages/sdk-server-ts build`, `pnpm --dir
+      --reporter=line`, `pnpm --dir packages/wallet-server build`, `pnpm --dir
       tests exec playwright test -c playwright.unit.config.ts
       unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`, and
       `git diff --check`.
       Threshold signing facade cleanup moved D1 relayer metadata, D1 empty ECDSA
       key-inventory responses, HSS bootstrap forwarding, client-root-proof
       forwarding, and export-share forwarding into
-      `packages/sdk-server-ts/src/router/cloudflare/d1ThresholdSigningRuntime.ts`.
+      `packages/wallet-server/src/router/cloudflare/d1ThresholdSigningRuntime.ts`.
       The router-api keeps the public `CloudflareRouterApiAuthService` methods and delegates
       the threshold-facing methods to the runtime. The same pass deleted the local
       relayer default constants, empty-inventory helpers, and direct threshold
@@ -7608,15 +7608,15 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       of the runtime facade. Remaining split target: review whether any thin public
       router-api delegations should stay in the route-facing auth port or move behind a
       narrower threshold route service during Phase 7. Validation passed:
-      `pnpm --dir packages/sdk-server-ts type-check`, `pnpm --dir tests exec
+      `pnpm --dir packages/wallet-server type-check`, `pnpm --dir tests exec
       playwright test -c playwright.unit.config.ts
       unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep
       "threshold|key facts|relayer|signer metadata" --reporter=line`, `pnpm --dir
-      packages/sdk-server-ts build`, `pnpm --dir tests exec playwright test -c
+      packages/wallet-server build`, `pnpm --dir tests exec playwright test -c
       playwright.unit.config.ts unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
       --reporter=line`, and `git diff --check`.
       Registration-intent allocation moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1RegistrationIntentService.ts`.
+      `packages/wallet-server/src/router/cloudflare/d1RegistrationIntentService.ts`.
       The focused service now owns wallet ID allocation, server-allocated-wallet
       collision checks, registration/add-signer/add-auth-method intent building,
       grant issuance, digest computation, and Durable Object intent persistence.
@@ -7628,17 +7628,17 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       registration-intent module is 324 lines, a +58-line split from the former
       local monolith shape and a 266-line router-api deletion across the combined
       extraction. Remaining split target: review any thin public router-api delegations
-      during Phase 7. Validation passed: `pnpm --dir packages/sdk-server-ts
+      during Phase 7. Validation passed: `pnpm --dir packages/wallet-server
       type-check`, `pnpm --dir tests exec playwright test -c
       playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts
       unit/registrationIntentAllocation.unit.test.ts --grep "stores wallet
       registration intents|registration intent|add-signer intent|add-auth-method
-      intent|server-allocated wallet" --reporter=line`, `pnpm --dir packages/sdk-server-ts
+      intent|server-allocated wallet" --reporter=line`, `pnpm --dir packages/wallet-server
       build`, `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
       unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`, and
       `git diff --check`.
       Add-auth-method ceremony start/finalize moved into
-      `packages/sdk-server-ts/src/router/cloudflare/d1WalletAuthMethodService.ts`.
+      `packages/wallet-server/src/router/cloudflare/d1WalletAuthMethodService.ts`.
       The wallet-auth service now owns add-auth-method grant consumption, digest
       verification, existing-auth resolution, authority verification, ceremony DO
       persistence, duplicate-authority checks, and final auth-method persistence.
@@ -7650,17 +7650,17 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       grew from 763 to 921 lines, a +26-line split from the former local monolith
       shape and a 132-line router-api deletion in this pass. Remaining split target:
       review thin public router-api delegations and small Email OTP response-shaping
-      bodies during Phase 7. Validation passed: `pnpm --dir packages/sdk-server-ts
+      bodies during Phase 7. Validation passed: `pnpm --dir packages/wallet-server
       type-check`, `pnpm --dir tests exec playwright test -c
       playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts
       unit/registrationIntentAllocation.unit.test.ts --grep "add-auth-method|adds
       Email OTP wallet auth methods|wallet auth methods" --reporter=line`,
-      `pnpm --dir packages/sdk-server-ts build`, `pnpm --dir tests exec
+      `pnpm --dir packages/wallet-server build`, `pnpm --dir tests exec
       playwright test -c playwright.unit.config.ts
       unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`, and
       `git diff --check`.
       Email OTP challenge-facing orchestration moved to
-      `packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpChallengeService.ts`.
+      `packages/wallet-server/src/router/cloudflare/d1EmailOtpChallengeService.ts`.
       The focused service now owns login, registration-enrollment, and
       device-recovery challenge creation; enrollment and login challenge
       verification; registration finalization through the Email OTP finalizer; and
@@ -7673,7 +7673,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       challenge service added 429 lines, a +147-line split from the former local
       monolith shape and a 282-line router-api deletion in this pass. Remaining split
       target: review thin public router-api delegations during Phase 7. Validation
-      passed: `pnpm --dir packages/sdk-server-ts build`, `pnpm --dir tests exec
+      passed: `pnpm --dir packages/wallet-server build`, `pnpm --dir tests exec
       playwright test -c playwright.unit.config.ts
       unit/cloudflareD1RouterApiAuthService.unit.test.ts
       unit/registrationIntentAllocation.unit.test.ts --grep "Near account
@@ -7687,19 +7687,19 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       per-method input/result alias block without changing the route-facing
       `CloudflareRouterApiAuthService` contract. Facade cleanup line count:
       `d1RouterApiAuthService.ts` dropped from 1,196 to 932 lines, a net-negative
-      264-line cleanup. Validation passed: `pnpm --dir packages/sdk-server-ts
+      264-line cleanup. Validation passed: `pnpm --dir packages/wallet-server
       type-check`.
       Email OTP enrollment reads and strong-auth state moved from the router-api facade
-      into `packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpRecoveryService.ts`,
+      into `packages/wallet-server/src/router/cloudflare/d1EmailOtpRecoveryService.ts`,
       which already owns the D1 enrollment/auth-state stores and recovery flows.
       The same cleanup removed the recovery service's callback into the router-api and
       collapsed duplicated local D1 wallet parsers into
-      `packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthBoundary.ts`.
+      `packages/wallet-server/src/router/cloudflare/d1RouterApiAuthBoundary.ts`.
       The D1 boundary parser rejects missing, whitespace-bearing, and control-byte
       wallet IDs without treating wallet IDs as NEAR account IDs. Facade cleanup
       line count: `d1RouterApiAuthService.ts` dropped from 932 to 868 lines, a tracked
       64-line router-api deletion and a 64-line non-doc tracked diff reduction in this
-      pass. Validation passed: `pnpm --dir packages/sdk-server-ts type-check`,
+      pass. Validation passed: `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
       unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "reads signer
       metadata with tenant scope|rotates Email OTP recovery keys|verifies Email
@@ -7715,42 +7715,42 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       no route or test caller uses the router-api facade method. Facade cleanup line
       count: `d1RouterApiAuthService.ts` dropped from 868 to 861 lines, a 7-line
       router-api deletion. Validation passed: `rg -n "getThresholdRelayerAccount"
-      packages/sdk-server-ts/src tests apps`, `pnpm --dir packages/sdk-server-ts
+      packages/wallet-server/src tests apps`, `pnpm --dir packages/wallet-server
       type-check`, and `git diff --check`.
       Email OTP server-seal apply/remove operations moved from the router-api facade
-      into `packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpServerSealRuntime.ts`.
+      into `packages/wallet-server/src/router/cloudflare/d1EmailOtpServerSealRuntime.ts`.
       The router-api now delegates both public methods to the focused runtime, and the
       runtime's cipher creation is a private implementation detail. Facade cleanup
       line count: `d1RouterApiAuthService.ts` dropped from 861 to 801 lines, a 60-line
-      router-api deletion. Validation passed: `pnpm --dir packages/sdk-server-ts
+      router-api deletion. Validation passed: `pnpm --dir packages/wallet-server
       type-check`, `pnpm --dir tests exec playwright test -c
       playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts
       --grep "server seal" --reporter=line`, and `git diff --check`.
       Google Email OTP registration-attempt rate-limit parsing moved from the
       router-api facade into
-      `packages/sdk-server-ts/src/router/cloudflare/d1GoogleEmailOtpSessionResolver.ts`,
+      `packages/wallet-server/src/router/cloudflare/d1GoogleEmailOtpSessionResolver.ts`,
       which already owns Google Email OTP session identity parsing and
       registration-attempt lifecycle decisions. Facade cleanup line count:
       `d1RouterApiAuthService.ts` dropped from 801 to 751 lines, a 50-line router-api
-      deletion. Validation passed: `pnpm --dir packages/sdk-server-ts
+      deletion. Validation passed: `pnpm --dir packages/wallet-server
       type-check`, `pnpm --dir tests exec playwright test -c
       playwright.unit.config.ts unit/cloudflareD1RouterApiAuthService.unit.test.ts
       --grep "rate-limits Google Email OTP registration attempts|Google Email OTP
       registration attempts" --reporter=line`, and `git diff --check`.
       NEAR public-key route response shaping moved from the router-api facade into
-      `packages/sdk-server-ts/src/router/cloudflare/d1NearPublicKeyStore.ts`, while
+      `packages/wallet-server/src/router/cloudflare/d1NearPublicKeyStore.ts`, while
       the Cloudflare runtime continues to avoid the mixed core NEAR key store that
       also imports Postgres fallback code. Facade cleanup line count:
       `d1RouterApiAuthService.ts` dropped from 751 to 723 lines, a 28-line router-api
-      deletion. Validation passed: `pnpm --dir packages/sdk-server-ts type-check`,
+      deletion. Validation passed: `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
       unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "reads signer metadata
       with tenant scope" --reporter=line`, and `git diff --check`.
       Portable SHA-256 runtime plumbing moved from the router-api facade into
-      `packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthBoundary.ts`, next to
+      `packages/wallet-server/src/router/cloudflare/d1RouterApiAuthBoundary.ts`, next to
       the `toArrayBufferCopy` utility it depends on. Facade cleanup line count:
       `d1RouterApiAuthService.ts` dropped from 723 to 711 lines, a 12-line router-api
-      deletion. Validation passed: `pnpm --dir packages/sdk-server-ts type-check`,
+      deletion. Validation passed: `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
       unit/cloudflareD1RouterApiAuthService.unit.test.ts --grep "reads signer metadata
       with tenant scope|add-auth-method|Email OTP recovery keys|unlock proofs"
@@ -7759,7 +7759,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       type imports from `d1RouterApiAuthService.ts`, using the existing `RelayResult`
       helper for all route-facing method annotations instead. Facade cleanup line
       count: `d1RouterApiAuthService.ts` dropped from 706 to 689 lines, a 17-line
-      router-api deletion. Validation passed: `pnpm --dir packages/sdk-server-ts
+      router-api deletion. Validation passed: `pnpm --dir packages/wallet-server
       type-check` and `git diff --check`.
       Final facade cleanup removed the old `emailRecovery = null` property from
       `d1RouterApiAuthService.ts` and removed `emailRecovery` from the
@@ -7768,7 +7768,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       structural `opts.emailRecovery` branches. Current `d1RouterApiAuthService.ts`
       is 688 lines and contains only constructor composition, thin public
       delegations, lazy D1 store construction, and tenant-scoped D1 statement
-      binding. Validation passed: `pnpm --dir packages/sdk-server-ts type-check`,
+      binding. Validation passed: `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
       unit/cloudflareD1RouterApiAuthService.unit.test.ts
       unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`, and
@@ -7782,16 +7782,16 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       boundary. Slice diff for the three touched files: 411 additions and 323
       deletions, with `recoverEmail.ts` route files reduced to 87 Cloudflare lines
       and 93 Express lines. Validation passed: `pnpm --dir
-      packages/sdk-server-ts type-check`, `pnpm --dir tests exec tsc -p
+      packages/wallet-server type-check`, `pnpm --dir tests exec tsc -p
       tsconfig.playwright.json --noEmit`, `pnpm --dir tests exec playwright test
       -c playwright.relayer.config.ts relayer/cloudflare-router.test.ts
       relayer/express-router.test.ts --grep "recover-email" --reporter=line`,
       route inline-callback scan, and `git diff --check`.
       Follow-up public-surface cleanup removed the recovery tracking re-export
-      block from `packages/sdk-server-ts/src/index.ts` and made low-level recovery
+      block from `packages/wallet-server/src/index.ts` and made low-level recovery
       mutation helpers module-private. `resolveTrackedNearRecoveryExecution`
       remains exported only from its implementation file for the focused unit
-      test. Validation passed: `pnpm --dir packages/sdk-server-ts type-check`,
+      test. Validation passed: `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
       `pnpm --dir tests exec playwright test -c playwright.unit.config.ts
       unit/recoveryExecutionTracking.unit.test.ts
@@ -7811,7 +7811,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       The immediate code-growth warning is resolved; Phase 7 cleanup/count closure
       is now recorded, and Phase 6 owns remaining staging validation.
       Latest evidence: the Email OTP partial Postgres store implementation was
-      deleted from `packages/sdk-server-ts/src/core/EmailOtpStores.ts`; store
+      deleted from `packages/wallet-server/src/core/EmailOtpStores.ts`; store
       factories now reject partial Postgres selection and require the future
       full-family Postgres backend instead. The same pass deleted the skipped
       Email OTP Postgres durable-store test block and added focused coverage for
@@ -7884,7 +7884,7 @@ login|dev cleanup" --reporter=line`, `pnpm --dir tests exec playwright test
       `*.persistedRecords.unit.test.ts`. Current D1 signing-root stores and shared
       threshold stores no longer import a Postgres-branded parser module, and the
       Ed25519 parser fixtures now prove split wallet/hosted-NEAR identity fields
-      are required. Validation passed: `pnpm --dir packages/sdk-server-ts
+      are required. Validation passed: `pnpm --dir packages/wallet-server
 type-check` and `pnpm --dir tests exec playwright test -c
 playwright.unit.config.ts unit/thresholdEd25519.persistedRecords.unit.test.ts
 unit/thresholdEcdsa.persistedRecords.unit.test.ts
@@ -7893,7 +7893,7 @@ unit/signingRootSecretShare.persistedRecords.unit.test.ts --reporter=line`.
       backend and the unused `near_public_keys` Postgres schema bootstrap block.
       `createNearPublicKeyStore` now rejects Postgres selection until a full-family
       backend exists, while D1 `signer_near_public_keys` behavior remains covered.
-      Validation passed: `pnpm --dir packages/sdk-server-ts type-check`, `pnpm
+      Validation passed: `pnpm --dir packages/wallet-server type-check`, `pnpm
 --dir tests exec playwright test -c playwright.unit.config.ts
 unit/nearPublicKeyStore.unit.test.ts
 unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`, and
@@ -7905,7 +7905,7 @@ is scoped in D1" --reporter=line`.
       blocks. Wallet store factories now reject `kind: "postgres"` and
       env-shaped `POSTGRES_URL` until a full-family backend exists, while D1/DO
       remain the staging persistent paths. Validation passed: `pnpm --dir
-packages/sdk-server-ts type-check`, the focused wallet store unit tests, the
+packages/wallet-server type-check`, the focused wallet store unit tests, the
       D1 wallet metadata/auth-method tenant-scoping relayer test, and stale symbol
       inventories.
       The next cleanup deleted the partial Postgres WebAuthn store family:
@@ -7914,7 +7914,7 @@ packages/sdk-server-ts type-check`, the focused wallet store unit tests, the
       WebAuthn executor exports are gone, and the unprefixed WebAuthn Postgres
       bootstrap blocks were removed from the shared schema. Store/index diff:
       24 insertions and 472 deletions, with a 109-line rejection fixture.
-      Validation passed: `pnpm --dir packages/sdk-server-ts type-check`, the
+      Validation passed: `pnpm --dir packages/wallet-server type-check`, the
       focused WebAuthn factory rejection test, the D1 runtime guard, and the D1
       router-api auth signer metadata tenant-scope test that exercises WebAuthn login
       and sync storage.
@@ -7925,7 +7925,7 @@ packages/sdk-server-ts type-check`, the focused wallet store unit tests, the
       bootstrap blocks are gone from the shared Postgres schema. Store/schema
       tracked diff: 18 insertions and 707 deletions across production files, plus
       an 83-line focused factory rejection fixture. Validation passed: `pnpm --dir
-packages/sdk-server-ts type-check`, the focused recovery factory/session/
+packages/wallet-server type-check`, the focused recovery factory/session/
       execution tests, the D1 runtime guard, the D1 Router API auth recovery smoke, and
       stale recovery Postgres symbol/schema inventories.
       The next cleanup deleted the partial Postgres identity store and its exported
@@ -7934,7 +7934,7 @@ packages/sdk-server-ts type-check`, the focused recovery factory/session/
       gone from the shared Postgres schema. Selected production tracked diff from
       the Refactor 82 baseline is 21 insertions and 1,414 deletions across the
       modified identity/index/schema files, plus a 31-line focused factory
-      rejection fixture. Validation passed: `pnpm --dir packages/sdk-server-ts
+      rejection fixture. Validation passed: `pnpm --dir packages/wallet-server
 type-check`, the focused identity factory test, `git diff --check`, and stale
       identity Postgres helper/table inventories.
       The next cleanup deleted the partial Postgres registration ceremony store.
@@ -7943,13 +7943,13 @@ type-check`, the focused identity factory test, `git diff --check`, and stale
       bootstrap blocks are gone from the shared Postgres schema. Selected tracked
       diff from the Refactor 82 baseline is 167 insertions and 1,172 deletions
       across the ceremony store, schema, and test files. Validation passed: `pnpm
---dir packages/sdk-server-ts type-check`, the focused registration ceremony
+--dir packages/wallet-server type-check`, the focused registration ceremony
       suite, the D1 runtime guard, `git diff --check`, and stale ceremony Postgres
       helper/table inventories.
       The next cleanup deleted the partial Postgres signing-root secret store and
       removed the old unprefixed `signing_root_secret_shares` bootstrap/reset
       references. The D1 signer table `signer_signing_root_secret_shares` remains the
-      sealed-share staging owner. Validation passed: `pnpm --dir packages/sdk-server-ts
+      sealed-share staging owner. Validation passed: `pnpm --dir packages/wallet-server
 type-check`, the focused wallet-scope/registration-intent/signing-root/refactor82
       guard tests, `git diff --check`, and an exact stale-symbol inventory for
       `PostgresSigningRootSecretStore` plus the old unprefixed table name.
@@ -7958,7 +7958,7 @@ type-check`, the focused wallet-scope/registration-intent/signing-root/refactor8
       selection, the old `threshold_ed25519_keys` and `threshold_ecdsa_keys`
       bootstrap/reset references are gone from the active schema/runbook, and the
       Postgres key-store backfill test was deleted. Validation passed: `pnpm --dir
-  packages/sdk-server-ts type-check`, the focused threshold persisted-record/D1
+  packages/wallet-server type-check`, the focused threshold persisted-record/D1
       runtime guard tests, `git diff --check`, and stale key-store symbol/table
       inventories.
       The next cleanup deleted the partial Postgres threshold session-store
@@ -7966,7 +7966,7 @@ type-check`, the focused wallet-scope/registration-intent/signing-root/refactor8
       `kind: "postgres"` and env-shaped `POSTGRES_URL` selection until the
       full-family Postgres backend exists, while Durable Object/Redis/in-memory
       paths remain the only active selections. Focused validation passed:
-      `pnpm --dir packages/sdk-server-ts type-check`, `pnpm --dir tests exec
+      `pnpm --dir packages/wallet-server type-check`, `pnpm --dir tests exec
   playwright test -c playwright.unit.config.ts
   unit/thresholdEd25519.presignStore.unit.test.ts
       unit/walletScopedLookups.guard.unit.test.ts
@@ -7977,7 +7977,7 @@ type-check`, the focused wallet-scope/registration-intent/signing-root/refactor8
       its table bootstrap/reset references. The Ed25519 wallet-session, ECDSA
       wallet-session, and wallet signing-budget factories now reject partial
       Postgres selection until the full-family backend exists. Focused validation
-      passed: `pnpm --dir packages/sdk-server-ts type-check`, `pnpm --dir tests
+      passed: `pnpm --dir packages/wallet-server type-check`, `pnpm --dir tests
     exec playwright test -c playwright.unit.config.ts
     unit/walletSessionBudgetReservation.store.unit.test.ts
     unit/thresholdEcdsa.persistedRecords.unit.test.ts
@@ -7988,7 +7988,7 @@ type-check`, the focused wallet-scope/registration-intent/signing-root/refactor8
       obsolete malformed-cleanup test suite. `createThresholdEcdsaSigningStores`
       now rejects explicit and env-shaped Postgres selection until a
       full-family backend exists. Focused validation passed:
-      `pnpm --dir packages/sdk-server-ts type-check`, `pnpm --dir tests exec
+      `pnpm --dir packages/wallet-server type-check`, `pnpm --dir tests exec
     playwright test -c playwright.unit.config.ts
     unit/thresholdEcdsa.persistedRecords.unit.test.ts
     unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
@@ -8001,7 +8001,7 @@ type-check`, the focused wallet-scope/registration-intent/signing-root/refactor8
       backend and removed its SDK/Express exports. The facade now exposes
       Durable Object and in-memory admission stores only, with a type fixture
       rejecting the old Postgres options export. Focused validation passed:
-      `pnpm --dir packages/sdk-server-ts type-check`, `pnpm --dir tests exec
+      `pnpm --dir packages/wallet-server type-check`, `pnpm --dir tests exec
       playwright test -c playwright.unit.config.ts
       unit/routerAbNormalSigningAdmissionStore.unit.test.ts
       unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`,
@@ -8010,7 +8010,7 @@ type-check`, the focused wallet-scope/registration-intent/signing-root/refactor8
       the stale `AuthService` startup schema warmup, and the obsolete local
       Postgres reset runbook. Deployment docs describe D1/DO/R2 as the
       staging data plane. Focused
-      validation passed: `pnpm --dir packages/sdk-server-ts type-check`,
+      validation passed: `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir packages/shared-ts type-check`, `pnpm --dir tests exec
       playwright test -c playwright.unit.config.ts
           unit/walletScopedLookups.guard.unit.test.ts
@@ -8024,14 +8024,14 @@ type-check`, the focused wallet-scope/registration-intent/signing-root/refactor8
       `storageInitPromise`, `initStorage(`, `threshold-postgres-reset`, and
       direct D1 `isValidAccountId` usage outside `hostedAccountIds.ts`.
       The next cleanup deleted the generic `storage/postgres.ts` helper,
-      removed the public `@seams/sdk-server/storage/postgres` package
+      removed the public `@seams/wallet-server/storage/postgres` package
       subpath, removed the Rolldown entry and TypeScript aliases, dropped
       direct `pg` and `@types/pg` workspace dependencies, and deleted the
       orphaned `postgresReadHelpers` unit test. Postgres now remains only
       in `TenantStorageRoute` as the future full-family backend contract
       and in negative package-export tests. Focused validation passed:
       `pnpm install --lockfile-only --ignore-scripts`, package manifest
-      JSON parsing, stale scans for `@seams/sdk-server/storage/postgres`,
+      JSON parsing, stale scans for `@seams/wallet-server/storage/postgres`,
       `parsePostgresRow`, and `getPostgresPool`, plus `git diff --check`.
       A follow-up guard cleanup also renamed the core login unlock request
       type away from iframe-specific vocabulary and branded the tenant
@@ -8046,7 +8046,7 @@ type-check`, the focused wallet-scope/registration-intent/signing-root/refactor8
       Postgres remains an explicit console-only boundary. Selected slice
       diff: 44 insertions and 1,578 deletions across app scripts, docs,
       package scripts, and focused tests. Focused validation passed:
-      `pnpm -s type-check:router-server`, `pnpm --dir packages/sdk-server-ts
+      `pnpm -s type-check:router-server`, `pnpm --dir packages/wallet-server
           type-check`, `pnpm --dir tests exec playwright test -c
       playwright.unit.config.ts unit/webServer.consoleConfig.unit.test.ts
       unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
@@ -8127,7 +8127,7 @@ type-check`, the focused wallet-scope/registration-intent/signing-root/refactor8
       unit/webServer.stripeBillingProvider.unit.test.ts
       unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts --reporter=line`
       with 49 tests, `pnpm --dir tests exec tsc -p tsconfig.playwright.json
-      --noEmit`, `pnpm --dir packages/sdk-server-ts type-check`, a focused
+      --noEmit`, `pnpm --dir packages/wallet-server type-check`, a focused
       Refactor 82 guard rerun with 43 tests, stale web-server naming scans, and
       `git diff --check`.
       The next cleanup finished the remaining console-router fixture rewrite:
@@ -8140,12 +8140,12 @@ type-check`, the focused wallet-scope/registration-intent/signing-root/refactor8
       preserving compatibility with obsolete request and snapshot shapes.
       Validation passed: `pnpm --dir tests exec playwright test -c
 playwright.relayer.config.ts relayer/console-router.test.ts
---reporter=line` with 209 tests passing, `pnpm --dir packages/sdk-web
+--reporter=line` with 209 tests passing, `pnpm --dir packages/wallet
 type-check`, and `git diff --check`.
       The next cleanup removed the last route-surface wording that described
       optional routes as enabled/disabled flags and added a runtime source guard
       that rejects the old `enabled: true` capability shapes outside typecheck
-      fixtures. Validation passed: `pnpm --dir packages/sdk-server-ts
+      fixtures. Validation passed: `pnpm --dir packages/wallet-server
 type-check`, `pnpm --dir tests exec playwright test -c
 playwright.unit.config.ts unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
 unit/router.relayRouteSurface.unit.test.ts
@@ -8158,7 +8158,7 @@ unit/router.routeDefinitions.unit.test.ts --reporter=line` with 19 tests
       `unit/refactor80SwitchCase.guard.unit.test.ts` asserts the helper and
       custom rejection string stay absent. Slice diff:
       16 additions and 90 deletions across the two Ed25519 route handlers and
-      the guard test. Validation passed: `pnpm --dir packages/sdk-server-ts
+      the guard test. Validation passed: `pnpm --dir packages/wallet-server
 type-check` and `pnpm --dir tests exec playwright test -c
 playwright.unit.config.ts unit/refactor80SwitchCase.guard.unit.test.ts
 unit/walletScopedLookups.guard.unit.test.ts
@@ -8205,28 +8205,28 @@ relayer/email-otp.bootstrap-integration.test.ts -g
 "wallet-budget/status: stale|app-session routes reject wallet-session"
 --reporter=line` with 3 tests passing, `pnpm --dir tests exec tsc -p
 tsconfig.playwright.json --noEmit`, the focused D1 wallet/ownership guard
-      tests, `pnpm --dir packages/sdk-server-ts type-check`,
+      tests, `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir packages/shared-ts type-check`, and `git diff --check`.
       Final Phase 7 cleanup/count closure on June 30, 2026:
       `git diff --shortstat 20af682856f1417abdab6ec39dc7793176d35bd0 --`
       reports 908 tracked files changed, 118,475 insertions, and 72,918
       deletions, net `+45,557`. The non-doc tracked slice reports 838 files
       changed, 105,979 insertions, and 67,038 deletions, net `+38,941`. The
-      `packages/sdk-server-ts/src` tracked slice reports 313 files changed,
+      `packages/wallet-server/src` tracked slice reports 313 files changed,
       57,970 insertions, and 31,568 deletions, net `+26,402`; excluding
       typecheck fixtures, it reports 296 files changed, 56,428 insertions, and
       31,527 deletions, net `+24,901`.
 
           Current untracked text adds 6,516 lines across 18 files, including 2,324
-          non-doc lines and 1,497 lines under `packages/sdk-server-ts/src`. The
-          production-only untracked `packages/sdk-server-ts/src` slice, excluding
+          non-doc lines and 1,497 lines under `packages/wallet-server/src`. The
+          production-only untracked `packages/wallet-server/src` slice, excluding
           typecheck fixtures, is also 1,497 lines. The final tracked-plus-untracked
           working-tree count is therefore 124,991 additions and 72,918 deletions
           across all text files, net `+52,073`; 108,303 additions and 67,038
           deletions for non-doc text, net `+41,265`; 59,467 additions and 31,568
-          deletions for all `packages/sdk-server-ts/src` text, net `+27,899`; and
+          deletions for all `packages/wallet-server/src` text, net `+27,899`; and
           57,925 additions and 31,527 deletions for production-only
-          `packages/sdk-server-ts/src`, net `+26,398`.
+          `packages/wallet-server/src`, net `+26,398`.
 
           The remaining positive production blocks have explicit owners:
           D1 console adapters (`console/**/d1.ts`) are required product runtime
@@ -8261,14 +8261,14 @@ tsconfig.playwright.json --noEmit`, the focused D1 wallet/ownership guard
       wiring.
       Evidence: chose the explicit D1/Postgres route union at the generic resolver
       boundary while keeping Cloudflare runtime D1/DO-only. Fixed in
-      `packages/sdk-server-ts/src/storage/tenantRoute.ts`,
-      `packages/sdk-server-ts/src/router/cloudflare/createCloudflareConsoleRouter.ts`,
-      `packages/sdk-server-ts/src/storage/tenantRoute.typecheck.ts`, and
+      `packages/wallet-server/src/storage/tenantRoute.ts`,
+      `packages/wallet-server/src/router/cloudflare/createCloudflareConsoleRouter.ts`,
+      `packages/wallet-server/src/storage/tenantRoute.typecheck.ts`, and
       `tests/relayer/console-router.test.ts`. `TenantStorageRouteResolver` now
       returns `TenantStorageRoute`, route types still reject mixed console/signer
       backends, and the Cloudflare console router rejects Postgres routes with
       `tenant_storage_backend_not_supported_in_cloudflare_runtime`. Validation
-      passed: `pnpm --dir packages/sdk-server-ts type-check`,
+      passed: `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec playwright test -c playwright.relayer.config.ts
 relayer/console-router.test.ts --grep "rejects Postgres tenant routes"
 --reporter=line`, and `git diff --check`.
@@ -8295,7 +8295,7 @@ relayer/console-router.test.ts --grep "rejects Postgres tenant routes"
       tokens, and Postgres service containers. Slice diff: 167 insertions and 57
       deletions across the guard and CI workflow, with 54 CI lines deleted.
       The next cleanup removed stale `pg` compiler scaffolding from
-      `packages/sdk-server-ts/tsconfig.json`; direct `pg` and `@types/pg`
+      `packages/wallet-server/tsconfig.json`; direct `pg` and `@types/pg`
       package dependencies had already been deleted. The runtime guard now scans
       the SDK server TypeScript config so `pg` ambient types and path aliases do
       not return while Postgres remains a future full-family contract.
@@ -8307,7 +8307,7 @@ relayer/console-router.test.ts --grep "rejects Postgres tenant routes"
       Validation passed: `pnpm --dir tests exec playwright test -c
 playwright.unit.config.ts unit/cloudflareD1RuntimeBoundaries.guard.unit.test.ts
 unit/router.relayRouteSurface.unit.test.ts unit/router.routeDefinitions.unit.test.ts
---reporter=line`, `pnpm --dir packages/sdk-server-ts type-check`,
+--reporter=line`, `pnpm --dir packages/wallet-server type-check`,
       `pnpm --dir tests exec tsc -p tsconfig.playwright.json --noEmit`,
       `cargo test --manifest-path crates/router-ab-core/Cargo.toml --test local
 local_persistence`,

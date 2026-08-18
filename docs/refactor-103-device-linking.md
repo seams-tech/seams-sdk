@@ -728,9 +728,9 @@ cost before authorizing an architectural split.
 Use the repository production path for both revisions:
 
 ```bash
-WASM_SDK_BUILD_MODE=prod pnpm -C packages/sdk-web run build:wasm
+WASM_SDK_BUILD_MODE=prod pnpm -C packages/wallet run build:wasm
 pnpm build:sdk-prod
-pnpm -C packages/sdk-web run size:lite -- --json
+pnpm -C packages/wallet run size:lite -- --json
 ```
 
 The conclusion uses precise terms:

@@ -3,12 +3,12 @@ import type {
   D1DatabaseLike,
   D1PreparedStatementLike,
   D1ResultLike,
-} from '../../packages/sdk-server-ts/src/storage/tenantRoute';
+} from '../../packages/wallet-server/src/storage/tenantRoute';
 import {
   createCloudflareD1VersionedJsonRecordStore,
   type CloudflareD1VersionedJsonRecordScopeV1,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/d1/versionedJson/d1VersionedJsonRecordStore';
-import type { VersionedJsonObject } from '../../packages/sdk-server-ts/src/router/framework/versionedJsonRecordStore';
+} from '../../packages/wallet-server/src/router/cloudflare/d1/versionedJson/d1VersionedJsonRecordStore';
+import type { VersionedJsonObject } from '../../packages/wallet-server/src/router/framework/versionedJsonRecordStore';
 
 type RecordValue = {
   readonly kind: 'test_d1_record_v1';

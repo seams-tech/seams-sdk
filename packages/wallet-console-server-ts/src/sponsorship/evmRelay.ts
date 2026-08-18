@@ -18,13 +18,13 @@ import {
   secp256k1PublicKey33ToEthereumAddress,
   signSecp256k1Recoverable,
   encodeEip1559SignedTxFromSignature65,
-} from '@seams/sdk-server/cloud-host';
+} from '@seams/wallet-server/cloud-host';
 import type { SponsorshipSpendPricingService } from './spendCaps';
 import { createRouterApiPublishableKeyAuthAdapter } from '../router/routerApiKeyAuth';
-import { coerceRouterLogger, type RouterLogger } from '@seams/sdk-server/cloud-host';
+import { coerceRouterLogger, type RouterLogger } from '@seams/wallet-server/cloud-host';
 import { handleRouterApiSponsoredEvmCall } from '../router/routerApiSponsoredEvmCall';
-import type { RouteDefinition } from '@seams/sdk-server/cloud-host';
-import { sendExpressRouteResponse } from '@seams/sdk-server/cloud-host';
+import type { RouteDefinition } from '@seams/wallet-server/cloud-host';
+import { sendExpressRouteResponse } from '@seams/wallet-server/cloud-host';
 import {
   normalizeEvmAddress,
   type SponsoredEvmCall,

@@ -8,20 +8,20 @@ import {
 } from '../../packages/shared-ts/src/signing-lanes/recordParsers';
 import { parseRotatableSigningLaneJobV1 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
 import { parseSecp256k1CompressedPublicKeyB64u } from '../../packages/shared-ts/src/passkey-custody/primitives';
-import { buildActiveLinkedDeviceExecutionBundleV1 } from '../../packages/sdk-web/src/core/signingEngine/session/lanes/linkedDeviceExecutionBundle';
+import { buildActiveLinkedDeviceExecutionBundleV1 } from '../../packages/wallet/src/core/signingEngine/session/lanes/linkedDeviceExecutionBundle';
 import {
   EcdsaOnlineClientRequestType,
   EcdsaOnlineClientResponseType,
   EcdsaPresignClientRequestType,
   EcdsaPresignClientResponseType,
   type WorkerOperationContext,
-} from '../../packages/sdk-web/src/core/signingEngine/workerManager/workerTypes';
-import type { AuthenticatorPort } from '../../packages/sdk-web/src/core/platform';
+} from '../../packages/wallet/src/core/signingEngine/workerManager/workerTypes';
+import type { AuthenticatorPort } from '../../packages/wallet/src/core/platform';
 import {
   LinkedDeviceEcdsaHttpError,
   executeLinkedDeviceEcdsaNormalSigningV1,
   type LinkedDeviceEcdsaNormalSigningTransportV1,
-} from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/shared/linkedDeviceEcdsaNormalSigning';
+} from '../../packages/wallet/src/core/signingEngine/flows/signEvmFamily/shared/linkedDeviceEcdsaNormalSigning';
 import { requireEvmFamilySigningKeySlotId } from '../../packages/shared-ts/src/signing-lanes/evmFamilySigningKeySlotId';
 import { buildR103ActiveExecutionFixture } from './helpers/deviceLinkContracts.fixtures';
 import {

@@ -3,11 +3,11 @@ import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import {
   classifyEvmFamilyFreshAuthRetry,
   type EvmFamilyFreshAuthRetryDecision,
-} from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/freshAuthRetryPolicy';
+} from '../../packages/wallet/src/core/signingEngine/flows/signEvmFamily/freshAuthRetryPolicy';
 import {
   WALLET_SESSION_QUOTA_EXHAUSTED_ERROR,
   WALLET_SESSION_QUOTA_IN_FLIGHT_ERROR,
-} from '../../packages/sdk-web/src/core/signingEngine/session/operationState/authorizationAdmission';
+} from '../../packages/wallet/src/core/signingEngine/session/operationState/authorizationAdmission';
 
 function classifyBudgetRetry(
   error: Error,

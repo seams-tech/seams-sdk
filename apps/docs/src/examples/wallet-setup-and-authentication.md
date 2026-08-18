@@ -10,7 +10,7 @@ register a wallet, and create a wallet session before signing.
 
 ## Prerequisites
 
-Install `@seams/sdk`, serve the configured wallet origin, and provide the
+Install `@seams/wallet`, serve the configured wallet origin, and provide the
 registration and relayer environment variables shown in the setup example.
 
 ## Configure the provider

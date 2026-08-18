@@ -11,7 +11,7 @@ import {
   type LinkedDeviceCustodyTransferPackageV1,
   type LinkedDeviceCustodyTransferRecipientV1,
 } from '../../../packages/shared-ts/src/device-linking/custodyTransfer';
-import type { UnlockedWalletCustodyTransferCapabilityV1 } from '../../../packages/sdk-web/src/core/signingEngine/workerManager/workerTypes';
+import type { UnlockedWalletCustodyTransferCapabilityV1 } from '../../../packages/wallet/src/core/signingEngine/workerManager/workerTypes';
 import { base64UrlEncode } from '../../../packages/shared-ts/src/utils/base64';
 
 function publicKey(fill: number): string {

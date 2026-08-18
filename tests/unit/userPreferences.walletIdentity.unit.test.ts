@@ -1,13 +1,13 @@
 import { expect, test } from '@playwright/test';
-import { UserPreferencesManager } from '../../packages/sdk-web/src/core/signingEngine/session/userPreferences';
+import { UserPreferencesManager } from '../../packages/wallet/src/core/signingEngine/session/userPreferences';
 import type {
   AccountSignerRecord,
   ChainAccountRecord,
   IndexedDBEvent,
   LastProfileState,
   UserPreferences,
-} from '../../packages/sdk-web/src/core/indexedDB';
-import type { WalletId } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
+} from '../../packages/wallet/src/core/indexedDB';
+import type { WalletId } from '../../packages/wallet/src/core/signingEngine/interfaces/ecdsaChainTarget';
 
 function activeNearSigner(profileId: string, walletId: string): AccountSignerRecord {
   return {

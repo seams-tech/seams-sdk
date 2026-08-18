@@ -1,14 +1,14 @@
 ---
 title: Core browser SDK
-description: Public classes, capabilities, builders, and result types exported from the main @seams/sdk entrypoint.
+description: Public classes, capabilities, builders, and result types exported from the main @seams/wallet entrypoint.
 ---
 
 # Core browser SDK
 
-Import the framework-neutral browser API from `@seams/sdk`.
+Import the framework-neutral browser API from `@seams/wallet`.
 
 ```ts [Import example]
-import { SeamsWeb, type SeamsConfigsInput } from '@seams/sdk';
+import { SeamsWeb, type SeamsConfigsInput } from '@seams/wallet';
 ```
 
 ## Primary surface
@@ -28,7 +28,7 @@ explicit:
 
 Signing functions require an exact wallet-session reference and chain or
 account subject. Create those references with the builders from
-[`@seams/sdk/advanced`](/reference/advanced); avoid passing raw identity strings
+[`@seams/wallet/advanced`](/reference/advanced); avoid passing raw identity strings
 through an application.
 
 ## Public values and types

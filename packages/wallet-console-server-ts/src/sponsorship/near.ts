@@ -1,5 +1,5 @@
-import { ActionType } from '@seams/sdk-server/cloud-host';
-import type { DelegateActionPolicy } from '@seams/sdk-server/cloud-host';
+import { ActionType } from '@seams/wallet-server/cloud-host';
+import type { DelegateActionPolicy } from '@seams/wallet-server/cloud-host';
 import type { ResolvedGasSponsorshipNearPolicy } from '../gasSponsorship/types';
 
 function isObject(value: unknown): value is Record<string, unknown> {

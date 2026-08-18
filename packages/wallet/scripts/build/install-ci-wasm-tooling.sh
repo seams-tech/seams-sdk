@@ -10,7 +10,7 @@ fi
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 wasm_pack_version="0.13.1"
 wasm_pack_sha256="c539d91ccab2591a7e975bcf82c82e1911b03335c80aa83d67ad25ed2ad06539"
-tooling_root="$repo_root/packages/sdk-web/.tooling/wasm-bindgen"
+tooling_root="$repo_root/packages/wallet/.tooling/wasm-bindgen"
 temp_dir="$(mktemp -d)"
 
 cleanup() {

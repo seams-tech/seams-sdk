@@ -34,7 +34,7 @@ const consoleD1Database = Object.freeze({
 const signerD1Database = Object.freeze({
   binding: 'SIGNER_DB',
   databaseName: 'seams-signer-staging-nrt',
-  migrationsDir: '../wallet-console-server-ts/node_modules/@seams/sdk-server/migrations/d1-signer',
+  migrationsDir: '../wallet-console-server-ts/node_modules/@seams/wallet-server/migrations/d1-signer',
 });
 const requiredD1DatabasesByProfile = Object.freeze({
   console: Object.freeze([consoleD1Database]),

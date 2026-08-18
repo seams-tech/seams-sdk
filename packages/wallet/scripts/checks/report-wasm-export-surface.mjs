@@ -7,7 +7,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const sdkRoot = path.resolve(path.join(__dirname, '../..'));
 /**
- * `sdkRoot` is `packages/sdk-web`, so the repo root is two levels up, not one.
+ * `sdkRoot` is `packages/wallet`, so the repo root is two levels up, not one.
  * It read as one for as long as this script existed and still found the wasm
  * packages, because `packages/wasm` is a symlink to `../wasm` — so the only
  * visible symptom was that no source root resolved and every export looked
@@ -77,7 +77,7 @@ function walkFiles(rootAbs, include) {
 
 function categoryForFile(relPath) {
   if (relPath.startsWith('tests/') || relPath.startsWith('benchmarks/')) return 'test';
-  if (relPath.startsWith('packages/sdk-web/scripts/') || relPath.endsWith('rolldown.config.ts')) return 'build';
+  if (relPath.startsWith('packages/wallet/scripts/') || relPath.endsWith('rolldown.config.ts')) return 'build';
   return 'runtime';
 }
 

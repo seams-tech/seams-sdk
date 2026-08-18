@@ -1,15 +1,15 @@
 import { expect, test } from '@playwright/test';
-import { CloudflareD1PasskeyCustodyEnvelopeStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/passkeyCustody/d1PasskeyCustodyEnvelopeStore';
+import { CloudflareD1PasskeyCustodyEnvelopeStore } from '../../packages/wallet-server/src/router/cloudflare/d1/passkeyCustody/d1PasskeyCustodyEnvelopeStore';
 import {
   retrievePasskeyCustodyEnvelope,
   type PasskeyCustodyEnvelopeRetrievalRequest,
-} from '../../packages/sdk-server-ts/src/router/domains/passkeyCustody/passkeyCustodyEnvelopeRetrieval';
+} from '../../packages/wallet-server/src/router/domains/passkeyCustody/passkeyCustodyEnvelopeRetrieval';
 import type {
   WebAuthnAuthenticatorRecord,
   WebAuthnAuthenticatorStore,
-} from '../../packages/sdk-server-ts/src/core/WebAuthnAuthenticatorStore';
-import type { NormalizedLogger } from '../../packages/sdk-server-ts/src/core/logger';
-import type { WebAuthnAuthenticationCredential } from '../../packages/sdk-server-ts/src/core/types';
+} from '../../packages/wallet-server/src/core/WebAuthnAuthenticatorStore';
+import type { NormalizedLogger } from '../../packages/wallet-server/src/core/logger';
+import type { WebAuthnAuthenticationCredential } from '../../packages/wallet-server/src/core/types';
 import type {
   PasskeyEnvelopeId,
   WalletId,

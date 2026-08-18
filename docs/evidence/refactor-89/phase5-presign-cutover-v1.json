@@ -32,8 +32,8 @@
     "crossWasm": "pnpm -C tests exec playwright test -c playwright.lite.config.ts ./unit/thresholdEcdsa.presignDistributed.unit.test.ts --reporter=line",
     "crossWasmResult": "10 passed",
     "productionDependencyGuard": "cargo test --offline --locked --manifest-path crates/router-ab-ecdsa-near-oracle-tests/Cargo.toml --test production_boundaries",
-    "sdkWebTypecheck": "pnpm -C packages/sdk-web type-check",
-    "sdkServerTypecheck": "pnpm -C packages/sdk-server-ts type-check"
+    "sdkWebTypecheck": "pnpm -C packages/wallet type-check",
+    "sdkServerTypecheck": "pnpm -C packages/wallet-server type-check"
   },
   "boundedClaims": {
     "productionPresignBackend": "purpose-built fixed 2-of-2",

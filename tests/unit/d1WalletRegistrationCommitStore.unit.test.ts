@@ -1,16 +1,16 @@
 import { expect, test } from '@playwright/test';
-import { D1WalletStore } from '../../packages/sdk-server-ts/src/core/d1WalletStore';
+import { D1WalletStore } from '../../packages/wallet-server/src/core/d1WalletStore';
 import type {
   WalletEd25519SignerRecord,
   WalletEcdsaSignerRecord,
   WalletRecord,
-} from '../../packages/sdk-server-ts/src/core/WalletStore';
-import { CloudflareD1WalletRegistrationCommitStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1WalletRegistrationCommitStore';
-import { CloudflareD1WebAuthnStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/webauthn/d1WebAuthnStore';
-import { CloudflareD1EmailOtpEnrollmentStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/emailOtp/d1EmailOtpEnrollmentStore';
-import type { D1EmailOtpRegistrationCommitPlan } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/emailOtp/d1EmailOtpRegistrationEnrollmentFinalizer';
-import type { EmailOtpWalletEnrollmentRecord } from '../../packages/sdk-server-ts/src/core/EmailOtpStores';
-import type { D1DatabaseLike } from '../../packages/sdk-server-ts/src/storage/tenantRoute';
+} from '../../packages/wallet-server/src/core/WalletStore';
+import { CloudflareD1WalletRegistrationCommitStore } from '../../packages/wallet-server/src/router/cloudflare/d1/registration/d1WalletRegistrationCommitStore';
+import { CloudflareD1WebAuthnStore } from '../../packages/wallet-server/src/router/cloudflare/d1/webauthn/d1WebAuthnStore';
+import { CloudflareD1EmailOtpEnrollmentStore } from '../../packages/wallet-server/src/router/cloudflare/d1/emailOtp/d1EmailOtpEnrollmentStore';
+import type { D1EmailOtpRegistrationCommitPlan } from '../../packages/wallet-server/src/router/cloudflare/d1/emailOtp/d1EmailOtpRegistrationEnrollmentFinalizer';
+import type { EmailOtpWalletEnrollmentRecord } from '../../packages/wallet-server/src/core/EmailOtpStores';
+import type { D1DatabaseLike } from '../../packages/wallet-server/src/storage/tenantRoute';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import {
   walletIdFromString,

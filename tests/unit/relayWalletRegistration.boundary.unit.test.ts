@@ -9,12 +9,12 @@ import {
   handleRouterApiWalletAddSignerStart,
   handleRouterApiWalletEcdsaKeyFactsInventory,
   handleRouterApiWalletRegistrationNearProvisioning,
-} from '../../packages/sdk-server-ts/src/router/domains/walletRegistration/walletRegistrationRoutes';
+} from '../../packages/wallet-server/src/router/domains/walletRegistration/walletRegistrationRoutes';
 import {
   createRouterApiRouteDefinitions,
   findRouteDefinitionById,
   type RouteDefinition,
-} from '../../packages/sdk-server-ts/src/router/framework/routeDefinitions';
+} from '../../packages/wallet-server/src/router/framework/routeDefinitions';
 import { computeWalletEcdsaKeyFactsInventoryChallengeDigestB64u } from '../../packages/shared-ts/src/utils/ecdsaKeyFactsInventory';
 import { ROUTER_AB_PUBLIC_KEYSET_VERSION_V2 } from '../../packages/shared-ts/src/utils/routerAbPublicKeyset';
 import {
@@ -26,7 +26,7 @@ import {
 } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { parseWebAuthnRpId, type WebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import { deriveEvmFamilySigningKeySlotId } from '../../packages/shared-ts/src/signing-lanes';
-import { thresholdEcdsaChainTargetKey } from '../../packages/sdk-server-ts/src/core/thresholdEcdsaChainTarget';
+import { thresholdEcdsaChainTargetKey } from '../../packages/wallet-server/src/core/thresholdEcdsaChainTarget';
 import { buildEmailOtpWalletAuthAuthority } from '../../packages/shared-ts/src/utils/walletAuthAuthority';
 
 const routeDefinitions = createRouterApiRouteDefinitions({

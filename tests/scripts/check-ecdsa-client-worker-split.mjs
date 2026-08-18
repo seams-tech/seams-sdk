@@ -16,25 +16,25 @@ function requireAbsent(source, fragment, label) {
 }
 
 const channels = read(
-  'packages/sdk-web/src/core/signingEngine/workerManager/ecdsaClientWorkerChannels.ts',
+  'packages/wallet/src/core/signingEngine/workerManager/ecdsaClientWorkerChannels.ts',
 );
 const presignWorker = read(
-  'packages/sdk-web/src/core/signingEngine/workerManager/workers/ecdsa-presign-client.worker.ts',
+  'packages/wallet/src/core/signingEngine/workerManager/workers/ecdsa-presign-client.worker.ts',
 );
 const onlineWorker = read(
-  'packages/sdk-web/src/core/signingEngine/workerManager/workers/ecdsa-online-client.worker.ts',
+  'packages/wallet/src/core/signingEngine/workerManager/workers/ecdsa-online-client.worker.ts',
 );
 const opaqueAuthority = read(
-  'packages/sdk-web/src/core/signingEngine/workerManager/workers/opaqueEcdsaPresignAuthority.ts',
+  'packages/wallet/src/core/signingEngine/workerManager/workers/opaqueEcdsaPresignAuthority.ts',
 );
 const derivationWorker = read(
-  'packages/sdk-web/src/core/signingEngine/workerManager/workers/ecdsa-derivation-client.worker.ts',
+  'packages/wallet/src/core/signingEngine/workerManager/workers/ecdsa-derivation-client.worker.ts',
 );
 const emailOtpWorker = read(
-  'packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp.worker.ts',
+  'packages/wallet/src/core/signingEngine/workerManager/workers/email-otp.worker.ts',
 );
 const linkedHolderWorker = read(
-  'packages/sdk-web/src/core/signingEngine/workerManager/workers/device-linking-key.worker.ts',
+  'packages/wallet/src/core/signingEngine/workerManager/workers/device-linking-key.worker.ts',
 );
 const roleLocalTypes = read('wasm/router_ab_ecdsa_client/pkg/router_ab_ecdsa_client.d.ts');
 const linkedHolderTypes = read(

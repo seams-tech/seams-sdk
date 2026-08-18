@@ -86,9 +86,9 @@ importers:
       '@seams-internal/wallet-console-shared':
         specifier: workspace:*
         version: link:../../packages/wallet-console-shared-ts
-      '@seams/sdk':
+      '@seams/wallet':
         specifier: workspace:*
-        version: link:../../packages/sdk-web
+        version: link:../../packages/wallet
       '@tanstack/react-query':
         specifier: ^5.76.1
         version: 5.87.1(react@18.3.1)
@@ -147,12 +147,12 @@ importers:
       '@seams-internal/wallet-console-shared':
         specifier: workspace:*
         version: link:../../packages/wallet-console-shared-ts
-      '@seams/sdk':
+      '@seams/wallet':
         specifier: workspace:*
-        version: link:../../packages/sdk-web
-      '@seams/sdk-server':
+        version: link:../../packages/wallet
+      '@seams/wallet-server':
         specifier: workspace:*
-        version: link:../../packages/sdk-server-ts
+        version: link:../../packages/wallet-server
       cors:
         specifier: ^2.8.5
         version: 2.8.5
@@ -190,12 +190,12 @@ importers:
 
   examples/self-host-cloudflare-worker:
     dependencies:
-      '@seams/sdk':
+      '@seams/wallet':
         specifier: workspace:*
-        version: link:../../packages/sdk-web
-      '@seams/sdk-server':
+        version: link:../../packages/wallet
+      '@seams/wallet-server':
         specifier: workspace:*
-        version: link:../../packages/sdk-server-ts
+        version: link:../../packages/wallet-server
     devDependencies:
       wrangler:
         specifier: 4.111.0
@@ -231,7 +231,7 @@ importers:
 
   packages/console-shared-ts: {}
 
-  packages/sdk-server-ts:
+  packages/wallet-server:
     dependencies:
       '@simplewebauthn/server':
         specifier: ^13.2.2
@@ -262,7 +262,7 @@ importers:
         specifier: ^5.8.3
         version: 5.8.3
 
-  packages/sdk-web:
+  packages/wallet:
     dependencies:
       '@lit/react':
         specifier: ^1.0.8
@@ -352,9 +352,9 @@ importers:
       '@seams-internal/wallet-console-shared':
         specifier: workspace:*
         version: link:../wallet-console-shared-ts
-      '@seams/sdk-server':
+      '@seams/wallet-server':
         specifier: workspace:*
-        version: link:../sdk-server-ts
+        version: link:../wallet-server
       bs58:
         specifier: ^6.0.0
         version: 6.0.0

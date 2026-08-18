@@ -2,8 +2,8 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 const checkedRoots = [
-  '../packages/sdk-server-ts/src/core',
-  '../packages/sdk-server-ts/src/router',
+  '../packages/wallet-server/src/core',
+  '../packages/wallet-server/src/router',
 ];
 
 const forbidden = [

@@ -11,7 +11,7 @@ function readSource(relativePath: string): string {
 
 test.describe('confirmation config normalization', () => {
   test('normalizer accepts raw silent config with either behavior and strips ignored fields', () => {
-    const source = readSource('packages/sdk-web/src/core/types/confirmationConfig.ts');
+    const source = readSource('packages/wallet/src/core/types/confirmationConfig.ts');
 
     expect(source).toContain("if (input?.uiMode === 'none')");
     expect(source).toContain("kind: 'silent'");

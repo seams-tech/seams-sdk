@@ -625,7 +625,7 @@ Recommended scripts:
 
 ```json
 {
-  "test:unit": "pnpm -C ../packages/sdk-server-ts run build && pnpm -C .. build:sdk-full && playwright test -c playwright.unit.config.ts --reporter=line",
+  "test:unit": "pnpm -C ../packages/wallet-server run build && pnpm -C .. build:sdk-full && playwright test -c playwright.unit.config.ts --reporter=line",
   "test:source-guards": "pnpm -C .. build:sdk-full && playwright test -c playwright.source.config.ts --reporter=line",
   "test:integration:signing": "pnpm -C .. build:sdk-full && playwright test -c playwright.integration.config.ts --reporter=line"
 }

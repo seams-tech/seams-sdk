@@ -7,7 +7,7 @@ import type { AddressInfo } from 'node:net';
 
 const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(TEST_DIR, '../..');
-const PUBLIC_ROOT = path.join(REPO_ROOT, 'packages/sdk-web/dist/public');
+const PUBLIC_ROOT = path.join(REPO_ROOT, 'packages/wallet/dist/public');
 const ASSETS_MANIFEST_PATH = path.join(PUBLIC_ROOT, 'wallet-assets.manifest.json');
 
 type StaticAsset = {

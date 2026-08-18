@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   buildEd25519ServerRetirementRequestV1,
   parseAndVerifyEd25519ServerRetirementEffectV1,
-} from '../../packages/sdk-server-ts/src/core/signingLanes/ed25519ServerRetirement';
+} from '../../packages/wallet-server/src/core/signingLanes/ed25519ServerRetirement';
 import { buildRevokeSigningLaneV1 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
 import {
   parseCorrelationId,

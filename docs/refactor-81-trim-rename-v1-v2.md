@@ -149,10 +149,10 @@ Route strings must have no active `/v1/`, `/v2/`, `/router-ab/v1`,
   - [x] `crates/router-ab-cloudflare/src/durable_object/*`
   - [x] `crates/router-ab-dev/src/*`
   - [x] `packages/shared-ts/src/utils/routerAbEcdsaDerivation.ts`
-  - [x] `packages/sdk-server-ts/src/router/**`
-  - [x] `packages/sdk-server-ts/src/core/ThresholdService/routerAb/**`
-  - [x] `packages/sdk-web/src/core/rpcClients/relayer/**`
-  - [x] `packages/sdk-web/src/core/signingEngine/routerAb/**`
+  - [x] `packages/wallet-server/src/router/**`
+  - [x] `packages/wallet-server/src/core/ThresholdService/routerAb/**`
+  - [x] `packages/wallet/src/core/rpcClients/relayer/**`
+  - [x] `packages/wallet/src/core/signingEngine/routerAb/**`
   - [x] `tests/**`
 - [x] Classify each `V1`/`V2` symbol as one of:
   - [x] route-level naming to remove;
@@ -315,8 +315,8 @@ cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test source_
 cargo test --manifest-path crates/router-ab-dev/Cargo.toml --test cloudflare_parity
 cargo test --manifest-path crates/router-ab-dev/Cargo.toml --test local_worker_env
 pnpm -C packages/shared-ts exec tsc -p tsconfig.json --noEmit
-pnpm -C packages/sdk-server-ts exec tsc -p tsconfig.json --noEmit
-pnpm -C packages/sdk-web -s type-check
+pnpm -C packages/wallet-server exec tsc -p tsconfig.json --noEmit
+pnpm -C packages/wallet -s type-check
 pnpm -C tests exec playwright test tests/unit/routerAbNormalSigningSdk.guard.unit.test.ts tests/unit/router.routeDefinitions.unit.test.ts tests/unit/refactor80SwitchCase.guard.unit.test.ts --reporter=line
 git diff --check
 ```
@@ -458,7 +458,7 @@ touching Durable Object behavior.
   - `cargo test --manifest-path crates/router-ab-dev/Cargo.toml --test local_worker_env`
   - `cargo test --manifest-path crates/router-ab-dev/Cargo.toml --test local_worker_http`
   - `pnpm -C packages/shared-ts exec tsc -p tsconfig.json --noEmit`
-  - `pnpm -C packages/sdk-server-ts exec tsc -p tsconfig.json --noEmit`
-  - `pnpm -C packages/sdk-web -s type-check`
+  - `pnpm -C packages/wallet-server exec tsc -p tsconfig.json --noEmit`
+  - `pnpm -C packages/wallet -s type-check`
   - `pnpm -C tests exec playwright test tests/unit/routerAbNormalSigningSdk.guard.unit.test.ts tests/unit/router.routeDefinitions.unit.test.ts tests/unit/refactor80SwitchCase.guard.unit.test.ts --reporter=line`
   - `git diff --check`

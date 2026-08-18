@@ -1,17 +1,17 @@
 import { expect, test } from '@playwright/test';
-import { D1WalletStore } from '../../packages/sdk-server-ts/src/core/d1WalletStore';
+import { D1WalletStore } from '../../packages/wallet-server/src/core/d1WalletStore';
 import type {
   D1DatabaseLike,
   D1PreparedStatementLike,
-} from '../../packages/sdk-server-ts/src/storage/tenantRoute';
+} from '../../packages/wallet-server/src/storage/tenantRoute';
 import {
   CloudflareD1RouterAbEd25519YaoCapabilityPersistence,
   ROUTER_AB_ED25519_YAO_CAPABILITY_REPLACEMENT_TABLE_V1,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoCapabilityPersistence';
+} from '../../packages/wallet-server/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoCapabilityPersistence';
 import {
   buildYaoEd25519WalletSignerRecord,
   ed25519NearPublicKeyFromBytes,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoWalletSigner';
+} from '../../packages/wallet-server/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoWalletSigner';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
 import { applySignerMigrations } from './helpers/cloudflareD1RouterApiAuthService.fixtures';

@@ -71,7 +71,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
       - name: Install pinned WASM tooling
-        run: bash packages/sdk-web/scripts/build/install-ci-wasm-tooling.sh
+        run: bash packages/wallet/scripts/build/install-ci-wasm-tooling.sh
       - name: Build frontend
         run: pnpm deploy:frontend build --site "$DEPLOY_SITE"
       - name: Deploy Pages

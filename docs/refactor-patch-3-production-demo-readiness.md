@@ -23,7 +23,7 @@ testnet. Mainnet deployments must reject every demo-only capability.
 
 Passkey and Email OTP registration have different authentication steps, then
 join the same mixed signer-provisioning path in
-`packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts`.
+`packages/wallet/src/SeamsWeb/operations/registration/registration.ts`.
 
 That shared path:
 
@@ -266,12 +266,12 @@ Acceptance:
 
 ## Likely Files
 
-- `packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts`
-- `packages/sdk-server-ts/src/router/authServicePort.ts`
-- `packages/sdk-server-ts/src/router/cloudflare/d1EmailOtpDeliveryRuntime.ts`
-- `packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthConfig.ts`
-- `packages/sdk-server-ts/src/router/cloudflare/d1RouterApiAuthService.ts`
-- `packages/sdk-server-ts/src/router/emailOtpSessionRouteHelpers.ts`
+- `packages/wallet/src/SeamsWeb/operations/registration/registration.ts`
+- `packages/wallet-server/src/router/authServicePort.ts`
+- `packages/wallet-server/src/router/cloudflare/d1EmailOtpDeliveryRuntime.ts`
+- `packages/wallet-server/src/router/cloudflare/d1RouterApiAuthConfig.ts`
+- `packages/wallet-server/src/router/cloudflare/d1RouterApiAuthService.ts`
+- `packages/wallet-server/src/router/emailOtpSessionRouteHelpers.ts`
 - `packages/console-server-ts/scripts/gateway-deployment-config.mjs`
 - `packages/console-server-ts/scripts/render-d1-gateway-config.mjs`
 - `crates/router-ab-cloudflare/scripts/generate-github-env-values.mjs`

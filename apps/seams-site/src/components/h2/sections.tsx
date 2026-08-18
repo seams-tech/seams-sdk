@@ -16,7 +16,7 @@ import {
   Twitter,
   Wallet,
 } from 'lucide-react';
-import { Theme, useSeams, type AuthMenuMode, type WalletShapeId } from '@seams/sdk/react';
+import { Theme, useSeams, type AuthMenuMode, type WalletShapeId } from '@seams/wallet/react';
 import SeamsWordmark from '@/components/icons/SeamsWordmark';
 import { EcosystemLattice } from '@/components/h2/EcosystemLattice';
 import { NETWORK_MARKS, NetworkMarkLockup } from '@/components/icons/NetworkMarks';
@@ -1202,7 +1202,7 @@ export function H2Start(): React.JSX.Element {
           <div className="h2-code h2-code--lg" aria-label="Register a wallet with the SDK">
             <span className="tok-kw">import</span>
             {' { SeamsClient } '}
-            <span className="tok-kw">from</span> <span className="tok-str">'@seams/sdk'</span>
+            <span className="tok-kw">from</span> <span className="tok-str">'@seams/wallet'</span>
             {';\n\n'}
             <span className="tok-kw">const</span>
             {' seams = '}

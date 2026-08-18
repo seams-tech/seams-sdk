@@ -7,8 +7,8 @@ import {
   useTheme,
   type KeyExportFlowEvent,
   type LinkDeviceFlowEvent,
-} from '@seams/sdk/react';
-import { AccountMenuButton } from '@seams/sdk/react/profile';
+} from '@seams/wallet/react';
+import { AccountMenuButton } from '@seams/wallet/react/profile';
 import { useProfileMenuControl } from '@/context/ProfileMenuControl';
 import {
   dismissDemoEmailOtpToast,

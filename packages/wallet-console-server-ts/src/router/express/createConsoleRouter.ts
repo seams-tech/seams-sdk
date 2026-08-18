@@ -2,7 +2,7 @@ import { WALLET_API_CREDENTIAL_SCOPE_VALIDATION } from '@seams-internal/wallet-c
 import { WALLET_CONSOLE_WEBHOOK_EVENT_CATEGORY_VALIDATION } from '@seams-internal/wallet-console-shared/webhookEventCategories';
 import type { Request, Response, Router as ExpressRouter } from 'express';
 import express from 'express';
-import { buildCorsOrigins, normalizeCorsOrigin } from '@seams/sdk-server/cloud-host';
+import { buildCorsOrigins, normalizeCorsOrigin } from '@seams/wallet-server/cloud-host';
 import {
   buildConsoleBillingInvoicePdf,
   buildConsoleBillingInvoicePdfFilename,
@@ -196,10 +196,10 @@ import {
   searchPlatformBillingOrganizations,
 } from '../platformBilling';
 import { resolveConsoleRuntimeSnapshotPayload } from '../runtimeSnapshotPayload';
-import type { NormalizedRouterLogger } from '@seams/sdk-server/cloud-host';
-import { coerceRouterLogger } from '@seams/sdk-server/cloud-host';
+import type { NormalizedRouterLogger } from '@seams/wallet-server/cloud-host';
+import { coerceRouterLogger } from '@seams/wallet-server/cloud-host';
 import { buildConsoleOpsCockpitSummary } from '../opsCockpitSummary';
-import type { SessionAdapter } from '@seams/sdk-server/cloud-host';
+import type { SessionAdapter } from '@seams/wallet-server/cloud-host';
 import {
   emitSponsorshipBalanceTransitionEvents,
   readSponsorshipBillingBalanceSnapshot,

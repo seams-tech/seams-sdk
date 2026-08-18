@@ -1,5 +1,5 @@
-import { SigningEventPhase } from '@seams/sdk/react';
-import type { SigningFlowEvent } from '@seams/sdk/react';
+import { SigningEventPhase } from '@seams/wallet/react';
+import type { SigningFlowEvent } from '@seams/wallet/react';
 import { toast } from 'sonner';
 import {
   dismissDemoEmailOtpToast as dismissDemoEmailOtpToastById,

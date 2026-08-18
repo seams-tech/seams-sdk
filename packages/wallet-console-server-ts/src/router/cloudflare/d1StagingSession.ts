@@ -1,11 +1,11 @@
-import { base64UrlDecode, base64UrlEncode } from '@seams/sdk-server/cloud-host';
-import { SessionService } from '@seams/sdk-server/cloud-host';
+import { base64UrlDecode, base64UrlEncode } from '@seams/wallet-server/cloud-host';
+import { SessionService } from '@seams/wallet-server/cloud-host';
 import type {
   ActiveOrganizationAuthorization,
   ConsoleOrganizationAccessService,
 } from '@seams-internal/console-server/teamRbac/index';
 import type { ConsoleAuthAdapter, ConsoleAuthAdapterResult, HeaderRecord } from '@seams-internal/console-server/router/consoleAuth';
-import type { SessionAdapter } from '@seams/sdk-server/cloud-host';
+import type { SessionAdapter } from '@seams/wallet-server/cloud-host';
 
 export type CloudflareD1StagingSessionEnv = Readonly<Record<string, unknown>>;
 

@@ -42,7 +42,7 @@ checks `PRAGMA integrity_check`, verifies expected table counts, and writes a
 manifest under `.wrangler/d1-local-restore-drills`. `d1:local:dev` starts the
 minimal local Worker from `wrangler.d1-local.toml` with persistent state under
 `.wrangler/state/seams-d1`. It loads local Wrangler secrets from
-`../sdk-server-ts/.dev.vars` and then `.dev.vars` when those files exist. Use
+`../wallet-server/.dev.vars` and then `.dev.vars` when those files exist. Use
 `dev.vars` in this package as the checked-in template for either secret file.
 To enable GitHub dashboard sign-in, register a GitHub OAuth App with
 `https://localhost/dashboard/login` as its callback URL, then set

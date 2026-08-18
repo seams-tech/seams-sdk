@@ -3,7 +3,7 @@ import {
   buildWalletCustodyEd25519MaterialRecordV1,
   WALLET_CUSTODY_ED25519_MATERIAL_KEY_KIND,
   type WalletCustodyEd25519MaterialBindingV1,
-} from '../../packages/sdk-web/src/core/signingEngine/walletCustody/ed25519SeedMaterial';
+} from '../../packages/wallet/src/core/signingEngine/walletCustody/ed25519SeedMaterial';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
 
 /**

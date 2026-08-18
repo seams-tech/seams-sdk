@@ -27,7 +27,7 @@ const repoRoot = resolve(packageRoot, '../..');
 /* `never` forces tsc to name each type; a degraded one reports `any`, which is
    the failure this exists to catch. */
 const CONSUMER_SOURCE = `
-import type { SeamsWeb, NearProvisioningState } from '@seams/sdk';
+import type { SeamsWeb, NearProvisioningState } from '@seams/wallet';
 type ProvisioningStatus = NearProvisioningState['status'];
 type LaneRegistration = SeamsWeb['registration'];
 declare const status: ProvisioningStatus;
@@ -42,7 +42,7 @@ const workspace = await mkdtemp(join(tmpdir(), 'seams-decl-check-'));
 try {
   await mkdir(join(workspace, 'node_modules/@seams'), { recursive: true });
   const { symlink } = await import('node:fs/promises');
-  await symlink(packageRoot, join(workspace, 'node_modules/@seams/sdk'), 'dir');
+  await symlink(packageRoot, join(workspace, 'node_modules/@seams/wallet'), 'dir');
   /* React types are a peer dependency of the declarations. */
   await symlink(
     join(repoRoot, 'node_modules/@types'),

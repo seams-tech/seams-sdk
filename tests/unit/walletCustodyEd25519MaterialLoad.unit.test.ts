@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   loadWalletCustodyEd25519MaterialV1,
   WALLET_CUSTODY_ED25519_MATERIAL_KEY_KIND,
-} from '../../packages/sdk-web/src/core/signingEngine/walletCustody/ed25519SeedMaterial';
+} from '../../packages/wallet/src/core/signingEngine/walletCustody/ed25519SeedMaterial';
 
 /**
  * Reading the same-device continuity cache.

@@ -7,7 +7,7 @@ import {
   joinNearEd25519CustodyV1,
   rejoinNearEd25519CustodyV1,
   walletCustodyCommitPayloadForWire,
-} from '../../packages/sdk-web/src/core/signingEngine/walletCustody/registrationCeremony';
+} from '../../packages/wallet/src/core/signingEngine/walletCustody/registrationCeremony';
 import { base64UrlDecode } from '../../packages/shared-ts/src/utils/encoders';
 import { normalizeWalletRecoveryCode } from '../../packages/shared-ts/src/wallet-recovery/recoveryCodes';
 import { buildWalletCustodyCommitPayloadFixture } from './helpers/passkeyCustodyEnvelope.fixtures';

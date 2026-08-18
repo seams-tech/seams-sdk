@@ -45,7 +45,7 @@
     },
     {
       "role": "derivation-client-worker",
-      "path": "packages/sdk-web/dist/workers/ecdsa-derivation-client.worker.js",
+      "path": "packages/wallet/dist/workers/ecdsa-derivation-client.worker.js",
       "sha256": "847fbd297964303bafb5711562c907b0fd50d287cceff9f85b4a411459e1d637",
       "rawBytes": 20267,
       "gzip9Bytes": 6906,
@@ -53,7 +53,7 @@
     },
     {
       "role": "presign-client-worker",
-      "path": "packages/sdk-web/dist/workers/ecdsa-presign-client.worker.js",
+      "path": "packages/wallet/dist/workers/ecdsa-presign-client.worker.js",
       "sha256": "8e8d324652bb7adb163e03172c7006b2c8b3bbcf7b5df5cf98abf84c70f596bc",
       "rawBytes": 39377,
       "gzip9Bytes": 11124,
@@ -61,7 +61,7 @@
     },
     {
       "role": "online-client-worker",
-      "path": "packages/sdk-web/dist/workers/ecdsa-online-client.worker.js",
+      "path": "packages/wallet/dist/workers/ecdsa-online-client.worker.js",
       "sha256": "25c2cb8601e9835a44752821bb9ad610a751de737508af5bc20005cf4a41fcce",
       "rawBytes": 28733,
       "gzip9Bytes": 8312,

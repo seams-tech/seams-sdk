@@ -1,9 +1,9 @@
-import type { KeyExportFlowEvent, SeamsWeb } from '@seams/sdk';
+import type { KeyExportFlowEvent, SeamsWeb } from '@seams/wallet';
 import {
   nearAccountRefFromAccountId,
   thresholdEcdsaChainTargetFromConfig,
   walletSessionRefFromSession,
-} from '@seams/sdk/advanced';
+} from '@seams/wallet/advanced';
 
 function logExportEvent(event: KeyExportFlowEvent): void {
   console.log(event.phase, event.status, event.message);

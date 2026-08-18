@@ -62,7 +62,7 @@ with staleness risk under refactor:
    `tests/helpers/`) — own focused component invariants: error paths, store semantics,
    edge cases the E2E suite never reaches. Low staleness risk; fixtures track the types.
 4. **Unit tests with inline hand-written record literals, and source-guard scripts**
-   (`tests/scripts/check-*.mjs`, `packages/sdk-web/scripts/checks/`) — highest staleness
+   (`tests/scripts/check-*.mjs`, `packages/wallet/scripts/checks/`) — highest staleness
    risk: they assert snapshots of past type shapes or source text and break on
    legitimate refactors.
 

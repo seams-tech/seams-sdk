@@ -1,12 +1,12 @@
 import { expect, test } from '@playwright/test';
-import { buildLinkedDevicePrincipalId } from '../../packages/sdk-server-ts/src/authorization/domain';
+import { buildLinkedDevicePrincipalId } from '../../packages/wallet-server/src/authorization/domain';
 import {
   AuthorizationServiceLinkedDeviceWalletSessionRevocationV1,
   createCloudflareD1LinkedDeviceManagementCompositionV1,
   D1LinkedDeviceWalletSessionAuthorizationMetadataSourceV1,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceManagementComposition';
-import type { AuthorizationService } from '../../packages/sdk-server-ts/src/authorization/service';
-import type { LinkedDeviceWalletSessionStatus } from '../../packages/sdk-server-ts/src/authorization/domain';
+} from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceManagementComposition';
+import type { AuthorizationService } from '../../packages/wallet-server/src/authorization/service';
+import type { LinkedDeviceWalletSessionStatus } from '../../packages/wallet-server/src/authorization/domain';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
 import { buildLinkedOwnerPasskeyBindingFixtureV1 } from './helpers/linkedOwnerAuthBinding.fixtures';
 import { unknownWebAuthnAuthenticatorDeviceInfo } from '../../packages/shared-ts/src/utils/webauthnDeviceInfo';

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { checkAuthMethodDomainBoundaries } from './check-auth-method-domain-boundaries.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const clientSrcRoot = path.join(repoRoot, 'packages/sdk-web/src');
+const clientSrcRoot = path.join(repoRoot, 'packages/wallet/src');
 
 function readRepoFile(relativePath) {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
@@ -87,14 +87,14 @@ function checkProductionSignerLifecycleWritesCarryRequiredDomainFields() {
 
 function checkProductionSignerAndWalletDomainCodeUsesSharedConstants() {
   const guardedFiles = [
-    'packages/sdk-web/src/core/types/seams.ts',
-    'packages/sdk-web/src/core/indexedDB/accountSignerLifecycle.ts',
-    'packages/sdk-web/src/core/indexedDB/passkeyClientDB.types.ts',
-    'packages/sdk-web/src/core/indexedDB/unifiedIndexedDBManager.ts',
-    'packages/sdk-web/src/core/accountData/near/accountProjection.ts',
-    'packages/sdk-web/src/SeamsWeb/operations/devices/linkDevice.ts',
-    'packages/sdk-web/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts',
-    'packages/sdk-web/src/core/signingEngine/flows/registration/accountLifecycle.ts',
+    'packages/wallet/src/core/types/seams.ts',
+    'packages/wallet/src/core/indexedDB/accountSignerLifecycle.ts',
+    'packages/wallet/src/core/indexedDB/passkeyClientDB.types.ts',
+    'packages/wallet/src/core/indexedDB/unifiedIndexedDBManager.ts',
+    'packages/wallet/src/core/accountData/near/accountProjection.ts',
+    'packages/wallet/src/SeamsWeb/operations/devices/linkDevice.ts',
+    'packages/wallet/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts',
+    'packages/wallet/src/core/signingEngine/flows/registration/accountLifecycle.ts',
   ];
   const forbiddenPatterns = [
     /export\s+type\s+WalletAuthMethod\s*=\s*['"]passkey['"]/,

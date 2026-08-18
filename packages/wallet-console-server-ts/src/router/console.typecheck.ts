@@ -3,12 +3,12 @@ import type {
   D1DatabaseLike,
   D1PreparedStatementLike,
   ResolveTenantStorageRouteInput,
-} from '@seams/sdk-server/cloud-host';
+} from '@seams/wallet-server/cloud-host';
 import type {
   CloudflareTenantStorageRoute,
   TenantStorageRouteResolver,
 } from './cloudflare/tenantStorageRoute';
-import { parseOrgId, type OrgId } from '@seams/sdk-server/cloud-host';
+import { parseOrgId, type OrgId } from '@seams/wallet-server/cloud-host';
 
 const preparedStatement: D1PreparedStatementLike = {
   bind(): D1PreparedStatementLike {

@@ -86,7 +86,7 @@ Relevant implementation points:
   - `finalize_recovery_client_bootstrap`
 - `packages/shared-ts/src/utils/routerAbEcdsaDerivation.ts`
   - `parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1`
-- `packages/sdk-web/src/core/signingEngine/threshold/ecdsa/postRegistrationSessionActivation.ts`
+- `packages/wallet/src/core/signingEngine/threshold/ecdsa/postRegistrationSessionActivation.ts`
   - `activateStrictEcdsaPostRegistrationSession`
 
 The public capability comparison is an essential identity-continuity check.
@@ -799,13 +799,13 @@ Primary implementation surfaces:
 - `crates/router-ab-cloudflare/src/strict_worker/deriver.rs`
 - `wasm/router_ab_ecdsa_derivation_client/src/ceremony.rs`
 - `packages/shared-ts/src/utils/routerAbEcdsaDerivation.ts`
-- `packages/sdk-web/src/core/signingEngine/threshold/ecdsa/`
-- `packages/sdk-web/src/core/signingEngine/workerManager/`
-- `packages/sdk-web/src/core/rpcClients/relayer/thresholdEcdsa.ts`
-- `packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEcdsa.ts`
-- `packages/sdk-server-ts/src/router/cloudflare/d1WalletRegistrationService.ts`
-- `packages/sdk-server-ts/src/router/authServicePort.ts`
-- `packages/sdk-server-ts/src/router/routeDefinitions.ts`
+- `packages/wallet/src/core/signingEngine/threshold/ecdsa/`
+- `packages/wallet/src/core/signingEngine/workerManager/`
+- `packages/wallet/src/core/rpcClients/relayer/thresholdEcdsa.ts`
+- `packages/wallet-server/src/router/cloudflare/routes/thresholdEcdsa.ts`
+- `packages/wallet-server/src/router/cloudflare/d1WalletRegistrationService.ts`
+- `packages/wallet-server/src/router/authServicePort.ts`
+- `packages/wallet-server/src/router/routeDefinitions.ts`
 
 The implementation should narrow this inventory as recovery-only symbols are
 identified. Unrelated Email OTP, recovery-code, Ed25519 Yao, export, and

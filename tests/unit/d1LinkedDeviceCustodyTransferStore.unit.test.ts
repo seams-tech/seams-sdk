@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
 import { parseLinkDeviceSessionId } from '../../packages/shared-ts/src/signing-lanes/ids';
-import { D1LinkedDeviceCustodyTransferStoreV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceCustodyTransferStore';
-import type { D1LinkedDeviceSessionScopeV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceSessionStore';
-import type { D1DatabaseLike } from '../../packages/sdk-server-ts/src/storage/tenantRoute';
+import { D1LinkedDeviceCustodyTransferStoreV1 } from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceCustodyTransferStore';
+import type { D1LinkedDeviceSessionScopeV1 } from '../../packages/wallet-server/src/router/cloudflare/d1/deviceLinking/d1LinkedDeviceSessionStore';
+import type { D1DatabaseLike } from '../../packages/wallet-server/src/storage/tenantRoute';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,

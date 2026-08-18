@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 import {
   normalizeSealedRecoveryRecord,
   type RawSigningSessionSealedStoreRecord,
-} from '../../packages/sdk-web/src/core/signingEngine/session/sealedRecovery/recoveryRecord';
+} from '../../packages/wallet/src/core/signingEngine/session/sealedRecovery/recoveryRecord';
 import { ecdsaCapabilityActivationLookupFixture } from './helpers/ecdsaCapabilityManifest.fixtures';
 import { buildEmailOtpEcdsaSealedRuntimeRecordFixture } from './helpers/sealedSigningSession.fixtures';
 

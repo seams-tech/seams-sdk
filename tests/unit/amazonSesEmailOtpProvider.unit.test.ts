@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { SendEmailCommand, SendEmailCommandOutput } from '@aws-sdk/client-sesv2';
-import type { CloudflareD1EmailOtpDeliveryProviderInput } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthConfig';
+import type { CloudflareD1EmailOtpDeliveryProviderInput } from '../../packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthConfig';
 import {
   createAmazonSesEmailOtpDeliveryProvider,
   parseAmazonSesEmailOtpProviderConfig,

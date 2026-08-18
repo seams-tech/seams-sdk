@@ -29,18 +29,18 @@ import { computeLinkedDeviceLocalPresenceChallengeDigestV1 } from '../../package
 import {
   handleLinkedDeviceEcdsaNormalSigning,
   handleLinkedDeviceEd25519NormalSigning,
-} from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/linkedDeviceNormalSigning';
-import type { FetchRouterApiContext } from '../../packages/sdk-server-ts/src/router/transport/fetch/fetchRouter.types';
-import type { SessionAdapter } from '../../packages/sdk-server-ts/src/router/framework/routerApi';
-import type { RouterApiAuthorizedOperationService } from '../../packages/sdk-server-ts/src/router/framework/authServicePort';
-import { buildRouterAbEd25519NearTransactionPrepareRequestV2 } from '../../packages/sdk-web/src/core/rpcClients/relayer/routerAbNormalSigning';
+} from '../../packages/wallet-server/src/router/transport/fetch/routes/linkedDeviceNormalSigning';
+import type { FetchRouterApiContext } from '../../packages/wallet-server/src/router/transport/fetch/fetchRouter.types';
+import type { SessionAdapter } from '../../packages/wallet-server/src/router/framework/routerApi';
+import type { RouterApiAuthorizedOperationService } from '../../packages/wallet-server/src/router/framework/authServicePort';
+import { buildRouterAbEd25519NearTransactionPrepareRequestV2 } from '../../packages/wallet/src/core/rpcClients/relayer/routerAbNormalSigning';
 import { routerAbMpcMaterialActivationRefToWire } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
 import {
   buildAuthorizedOperation,
   buildLinkedDevicePrincipalId,
   type AuthorizedOperation,
-} from '../../packages/sdk-server-ts/src/authorization/domain';
-import { buildRouterAbEd25519AcceptedAuthorizedOperationV1 } from '../../packages/sdk-server-ts/src/router/domains/signingOperations/routerAbPrivateSigningWorker';
+} from '../../packages/wallet-server/src/authorization/domain';
+import { buildRouterAbEd25519AcceptedAuthorizedOperationV1 } from '../../packages/wallet-server/src/router/domains/signingOperations/routerAbPrivateSigningWorker';
 import { buildLinkedDeviceWalletExecutionFixture } from './helpers/linkedDeviceWalletExecution.fixtures';
 
 type AuthorizedOperationAdmissionInput = Parameters<

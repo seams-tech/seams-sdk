@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Generate w3a-components.css from the single source of truth:
- * - packages/sdk-web/src/theme/palette.json (all base scales + gradients)
+ * - packages/wallet/src/theme/palette.json (all base scales + gradients)
  * - Mappings used by DARK_THEME/LIGHT_THEME in base-styles.ts for surfaces/text/borders
  *
  * This eliminates hardcoded palette numbers in CSS and prevents drift.
@@ -15,8 +15,8 @@ function resolveSdkRoot() {
   const fromSdk = path.join(cwd, 'src', 'theme', 'palette.json');
   if (fs.existsSync(fromSdk)) return cwd;
 
-  const fromRepo = path.join(cwd, 'packages', 'sdk-web', 'src', 'theme', 'palette.json');
-  if (fs.existsSync(fromRepo)) return path.join(cwd, 'packages', 'sdk-web');
+  const fromRepo = path.join(cwd, 'packages', 'wallet', 'src', 'theme', 'palette.json');
+  if (fs.existsSync(fromRepo)) return path.join(cwd, 'packages', 'wallet');
 
   return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 }
@@ -113,7 +113,7 @@ ${emitChroma()}
 ${emitGradients()}
 }`;
 
-// Use centralized theme maps from packages/sdk-web/src/theme/base-styles.js
+// Use centralized theme maps from packages/wallet/src/theme/base-styles.js
 const baseStylesPath = path.join(sdkRoot, 'src', 'theme', 'base-styles.js');
 const base = await import(pathToFileURL(baseStylesPath).href);
 const { createThemeTokens } = base;
@@ -121,8 +121,8 @@ const { DARK_THEME: DARK_VARS, LIGHT_THEME: LIGHT_VARS } = createThemeTokens(pal
 
 const header = `/*
   AUTO-GENERATED FILE – DO NOT EDIT.
-  Source: packages/sdk-web/src/theme/palette.json + mappings from packages/sdk-web/src/theme/base-styles.js (createThemeTokens)
-  Run: node packages/sdk-web/scripts/codegen/generate-w3a-components-css.mjs
+  Source: packages/wallet/src/theme/palette.json + mappings from packages/wallet/src/theme/base-styles.js (createThemeTokens)
+  Run: node packages/wallet/scripts/codegen/generate-w3a-components-css.mjs
 */`;
 
 const hostSelectorsArr = [

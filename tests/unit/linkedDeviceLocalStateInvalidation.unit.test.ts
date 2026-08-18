@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { buildLinkedDeviceRevokeResultV1 } from '@shared/device-linking';
-import { buildLinkedDeviceProvisionedExecutionEvidenceV1 } from '../../packages/sdk-web/src/core/signingEngine/session/lanes/linkedDeviceExecutionBundle';
-import { createLinkedDeviceLocalStateInvalidationPortV1 } from '../../packages/sdk-web/src/SeamsWeb/operations/devices/linkedDeviceLocalStateInvalidation';
+import { buildLinkedDeviceProvisionedExecutionEvidenceV1 } from '../../packages/wallet/src/core/signingEngine/session/lanes/linkedDeviceExecutionBundle';
+import { createLinkedDeviceLocalStateInvalidationPortV1 } from '../../packages/wallet/src/SeamsWeb/operations/devices/linkedDeviceLocalStateInvalidation';
 import { buildR103ActiveExecutionFixture } from './helpers/deviceLinkContracts.fixtures';
 import { buildR103SealedHolderRecord } from './helpers/r102LaneGateway.fixtures';
 

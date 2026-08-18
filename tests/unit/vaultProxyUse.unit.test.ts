@@ -1,16 +1,16 @@
 import { expect, test } from '@playwright/test';
-import { capabilityPolicyPort } from '../../packages/sdk-server-ts/src/authorization/capabilityPolicy';
-import { AuthorizationService } from '../../packages/sdk-server-ts/src/authorization/service';
+import { capabilityPolicyPort } from '../../packages/wallet-server/src/authorization/capabilityPolicy';
+import { AuthorizationService } from '../../packages/wallet-server/src/authorization/service';
 import {
   LocalWorkerVaultProxyGateway,
   VaultProxyUseService,
   createVaultProxyUseRouteExtension,
   type VaultProxySecretRef,
   type VaultProxySecretStore,
-} from '../../packages/sdk-server-ts/src/authorization/vaultProxyUse';
-import { CloudflareD1AuthorizationStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/authorization/d1AuthorizationStore';
-import { CloudflareD1VaultProxyStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/authorization/d1VaultProxyStore';
-import { coerceRouterLogger } from '../../packages/sdk-server-ts/src/router/framework/logger';
+} from '../../packages/wallet-server/src/authorization/vaultProxyUse';
+import { CloudflareD1AuthorizationStore } from '../../packages/wallet-server/src/router/cloudflare/d1/authorization/d1AuthorizationStore';
+import { CloudflareD1VaultProxyStore } from '../../packages/wallet-server/src/router/cloudflare/d1/authorization/d1VaultProxyStore';
+import { coerceRouterLogger } from '../../packages/wallet-server/src/router/framework/logger';
 import {
   applyD1MigrationFiles,
   cleanupTemporaryD1Database,

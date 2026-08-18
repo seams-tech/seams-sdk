@@ -1,8 +1,8 @@
-import type { SeamsWeb, SigningFlowEvent } from '@seams/sdk';
+import type { SeamsWeb, SigningFlowEvent } from '@seams/wallet';
 import {
   thresholdEcdsaChainTargetFromConfig,
   walletSessionRefFromSession,
-} from '@seams/sdk/advanced';
+} from '@seams/wallet/advanced';
 
 function logSigningEvent(event: SigningFlowEvent): void {
   console.log(event.phase, event.status, event.message);

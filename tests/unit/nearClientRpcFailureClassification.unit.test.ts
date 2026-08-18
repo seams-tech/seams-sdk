@@ -4,7 +4,7 @@ import {
   MinimalNearClient,
   NearRpcError,
   SignedTransaction,
-} from '../../packages/sdk-server-ts/src/core/rpcClients/near/NearClient';
+} from '../../packages/wallet-server/src/core/rpcClients/near/NearClient';
 
 const originalFetch = globalThis.fetch;
 

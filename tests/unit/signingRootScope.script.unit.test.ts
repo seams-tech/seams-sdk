@@ -6,7 +6,7 @@ import {
   signingRootScopeFromRuntimePolicyScope,
 } from '../../packages/shared-ts/src/threshold/signingRootScope';
 import { createInMemoryConsoleOrgProjectEnvService } from '../../packages/console-server-ts/src/orgProjectEnv';
-import { resolveThresholdRuntimePolicyScope } from '../../packages/sdk-server-ts/src/router/auth/commonRouterUtils';
+import { resolveThresholdRuntimePolicyScope } from '../../packages/wallet-server/src/router/auth/commonRouterUtils';
 
 test('deriveSigningRootId composes projectId and envId without orgId', () => {
   expect(deriveSigningRootId({ projectId: 'proj_alpha', envId: 'dev' })).toBe('proj_alpha:dev');

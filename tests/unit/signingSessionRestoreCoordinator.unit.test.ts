@@ -1,27 +1,27 @@
 import { expect, test } from '@playwright/test';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
 import { deriveSigningRootId } from '@shared/threshold/signingRootScope';
-import type { SigningSessionSealedStoreRecord } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore';
-import type { SealedRecoveryRecord } from '../../packages/sdk-web/src/core/signingEngine/session/sealedRecovery/recoveryRecord';
+import type { SigningSessionSealedStoreRecord } from '../../packages/wallet/src/core/signingEngine/session/persistence/sealedSessionStore';
+import type { SealedRecoveryRecord } from '../../packages/wallet/src/core/signingEngine/session/sealedRecovery/recoveryRecord';
 import {
   createSigningSessionRestoreCache,
   discoverPersistedSessionsForWalletCommand,
   restorePersistedSessionForSigningCommand,
-} from '../../packages/sdk-web/src/core/signingEngine/session/sealedRecovery/restoreCoordinator';
-import type { RestorePersistedSessionForSigningInput } from '../../packages/sdk-web/src/core/signingEngine/session/sealedRecovery/sealedRecovery.types';
+} from '../../packages/wallet/src/core/signingEngine/session/sealedRecovery/restoreCoordinator';
+import type { RestorePersistedSessionForSigningInput } from '../../packages/wallet/src/core/signingEngine/session/sealedRecovery/sealedRecovery.types';
 import {
   buildEvmFamilyEcdsaKeyIdentity,
   toEvmFamilyEcdsaKeyHandle,
   toThresholdOwnerAddress,
-} from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+} from '../../packages/wallet/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
   buildEvmFamilyEcdsaSignerBinding,
   exactEcdsaSigningLaneIdentity,
-} from '../../packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity';
+} from '../../packages/wallet/src/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
-import { toRpId } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
-import { buildCurrentSealedSessionRecord } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore';
-import { ecdsaSealedRecordStoreKey } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/ecdsaSealedRecordKey';
+import { toRpId } from '../../packages/wallet/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import { buildCurrentSealedSessionRecord } from '../../packages/wallet/src/core/signingEngine/session/persistence/sealedSessionStore';
+import { ecdsaSealedRecordStoreKey } from '../../packages/wallet/src/core/signingEngine/session/persistence/ecdsaSealedRecordKey';
 import {
   createThresholdEcdsaBootstrapFixture,
   thresholdEcdsaBootstrapPublicFactsFixture,

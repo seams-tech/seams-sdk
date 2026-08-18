@@ -83,9 +83,9 @@ target-specific. A per-target record currently carries both kinds of facts.
 Availability can then project a session from one target into another based on
 the shared key:
 
-- `packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts:2563`
-- `packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts:2578`
-- `packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts:2614`
+- `packages/wallet/src/core/signingEngine/session/availability/availableSigningLanes.ts:2563`
+- `packages/wallet/src/core/signingEngine/session/availability/availableSigningLanes.ts:2578`
+- `packages/wallet/src/core/signingEngine/session/availability/availableSigningLanes.ts:2614`
 
 That projection copies Wallet Session/quota identity and `thresholdSessionId`. The model
 needs an explicit server-authorized capability scope before this copy is safe:
@@ -114,8 +114,8 @@ type EcdsaCapabilityScope =
 `persistThresholdEcdsaBootstrapForWalletTarget` writes profile and account
 signer data:
 
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/ecdsaBootstrapPersistence.ts:90`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/ecdsaBootstrapPersistence.ts:208`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/ecdsaBootstrapPersistence.ts:90`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/ecdsaBootstrapPersistence.ts:208`
 
 This record contains durable public key facts and target membership. It does
 not contain the active threshold-session capability or the durable encrypted
@@ -125,7 +125,7 @@ material reference.
 
 The signing runtime creates fresh maps:
 
-- `packages/sdk-web/src/core/runtime/createSigningRuntime.ts:23`
+- `packages/wallet/src/core/runtime/createSigningRuntime.ts:23`
 
 `recordsByLane` and the module-level ECDSA record index are runtime state. A
 page refresh recreates them.
@@ -134,8 +134,8 @@ page refresh recreates them.
 writing to `recordsByLane`, retains the durable material reference, and keeps a
 full copy in another in-memory map:
 
-- `packages/sdk-web/src/core/signingEngine/session/persistence/records.ts:3222`
-- `packages/sdk-web/src/core/signingEngine/session/persistence/records.ts:3235`
+- `packages/wallet/src/core/signingEngine/session/persistence/records.ts:3222`
+- `packages/wallet/src/core/signingEngine/session/persistence/records.ts:3235`
 
 The name `durableThresholdEcdsaSessionRecord` describes the shape of the value.
 The destination remains a `Map`, so the descriptor does not survive a page
@@ -146,13 +146,13 @@ refresh.
 The browser platform can persist an `EcdsaRoleLocalReadyRecord` through the
 general app-state IndexedDB store:
 
-- `packages/sdk-web/src/core/platform/browser/createBrowserPlatformRuntime.ts:290`
-- `packages/sdk-web/src/core/platform/browser/createBrowserPlatformRuntime.ts:350`
+- `packages/wallet/src/core/platform/browser/createBrowserPlatformRuntime.ts:290`
+- `packages/wallet/src/core/platform/browser/createBrowserPlatformRuntime.ts:350`
 
 The common passkey provisioning path requires and persists this record:
 
-- `packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaSessionProvision.ts:616`
-- `packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaSessionProvision.ts:635`
+- `packages/wallet/src/core/signingEngine/session/passkey/ecdsaSessionProvision.ts:616`
+- `packages/wallet/src/core/signingEngine/session/passkey/ecdsaSessionProvision.ts:635`
 
 The current registration worker-handle path produces no
 `ecdsaRoleLocalReadyRecord`. Registration therefore bypasses the durable record
@@ -173,15 +173,15 @@ finalized role-local state in the shared wallet database:
 
 See:
 
-- `packages/sdk-web/src/core/indexedDB/schemaNames.ts`
-- `packages/sdk-web/src/core/indexedDB/seamsWalletDB/ecdsaRoleLocalSessionMaterialStore.ts`
+- `packages/wallet/src/core/indexedDB/schemaNames.ts`
+- `packages/wallet/src/core/indexedDB/seamsWalletDB/ecdsaRoleLocalSessionMaterialStore.ts`
 
 Registration finalization writes the encrypted record and publishes a hot
 worker handle:
 
-- `packages/sdk-web/src/core/signingEngine/workerManager/workers/ecdsa-derivation-client.worker.ts:555`
-- `packages/sdk-web/src/core/signingEngine/workerManager/workers/ecdsa-derivation-client.worker.ts:633`
-- `packages/sdk-web/src/core/signingEngine/workerManager/workers/ecdsa-derivation-client.worker.ts:644`
+- `packages/wallet/src/core/signingEngine/workerManager/workers/ecdsa-derivation-client.worker.ts:555`
+- `packages/wallet/src/core/signingEngine/workerManager/workers/ecdsa-derivation-client.worker.ts:633`
+- `packages/wallet/src/core/signingEngine/workerManager/workers/ecdsa-derivation-client.worker.ts:644`
 
 Rehydration requires all of:
 
@@ -191,7 +191,7 @@ Rehydration requires all of:
 
 See:
 
-- `packages/sdk-web/src/core/signingEngine/workerManager/workers/ecdsa-derivation-client.worker.ts:1244`
+- `packages/wallet/src/core/signingEngine/workerManager/workers/ecdsa-derivation-client.worker.ts:1244`
 
 The encrypted material can therefore survive while its addressing descriptor
 is lost.
@@ -227,7 +227,7 @@ authority.
 active session authority, budget, public facts, volatile worker handles,
 durable material references, ready records, seal parameters, and provenance:
 
-- `packages/sdk-web/src/core/signingEngine/session/persistence/records.ts:142`
+- `packages/wallet/src/core/signingEngine/session/persistence/records.ts:142`
 
 Many lifecycle-bearing fields remain optional. Examples include:
 
@@ -253,15 +253,15 @@ Auth method is also derived through two independent fields. Record source
 determines the top-level auth method, while `ecdsaRoleLocalAuthMethod.kind`
 describes the material owner:
 
-- `packages/sdk-web/src/core/signingEngine/session/persistence/records.ts:543`
-- `packages/sdk-web/src/core/signingEngine/session/persistence/records.ts:552`
+- `packages/wallet/src/core/signingEngine/session/persistence/records.ts:543`
+- `packages/wallet/src/core/signingEngine/session/persistence/records.ts:552`
 
 The passkey-source type does not statically require passkey role-local auth.
 Core helpers discover that mismatch by throwing.
 
 Unknown or missing persisted `source` values normalize to `manual-bootstrap`:
 
-- `packages/sdk-web/src/core/signingEngine/session/persistence/records.ts:1414`
+- `packages/wallet/src/core/signingEngine/session/persistence/records.ts:1414`
 
 Because source later participates in material priority, malformed boundary data
 can change an authority-bearing choice.
@@ -269,7 +269,7 @@ can change an authority-bearing choice.
 `buildOperationUsableThresholdEcdsaSessionRecord` brands a record after checking
 session id, grant id, JWT presence, remaining uses, and generation:
 
-- `packages/sdk-web/src/core/signingEngine/session/persistence/records.ts:3183`
+- `packages/wallet/src/core/signingEngine/session/persistence/records.ts:3183`
 
 It does not prove coherent material residency, exact material binding, runtime
 validation, or current expiry. The branded result overstates the guarantee.
@@ -289,7 +289,7 @@ Current passkey ECDSA registration:
 
 See:
 
-- `packages/sdk-web/src/core/signingEngine/flows/registration/services/ecdsaRegistrationSessions.ts:201`
+- `packages/wallet/src/core/signingEngine/flows/registration/services/ecdsaRegistrationSessions.ts:201`
 
 Immediate signing uses the live runtime. After authorization expiry or
 exhaustion, the inactive sealed-material record keeps the exact encrypted
@@ -304,11 +304,11 @@ plans and provisions warm sessions through passkey/session provisioning.
 
 Relevant entry points include:
 
-- `packages/sdk-web/src/SeamsWeb/operations/auth/login.ts:3098`
-- `packages/sdk-web/src/SeamsWeb/operations/auth/login.ts:3236`
-- `packages/sdk-web/src/SeamsWeb/operations/auth/login.ts:3264`
-- `packages/sdk-web/src/SeamsWeb/operations/auth/login.ts:3385`
-- `packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaSessionProvision.ts:635`
+- `packages/wallet/src/SeamsWeb/operations/auth/login.ts:3098`
+- `packages/wallet/src/SeamsWeb/operations/auth/login.ts:3236`
+- `packages/wallet/src/SeamsWeb/operations/auth/login.ts:3264`
+- `packages/wallet/src/SeamsWeb/operations/auth/login.ts:3385`
+- `packages/wallet/src/core/signingEngine/session/passkey/ecdsaSessionProvision.ts:635`
 
 This path persists a role-local ready record and may persist a sealed session.
 It reaches sign-ready state through a different orchestration and persistence
@@ -319,22 +319,22 @@ There are two additional ownership gaps inside unlock:
 1. `resolvePersistedEcdsaPublicCapabilityForLogin` reads the supposedly
    persisted public capability from runtime threshold-session records and picks
    the newest candidate:
-   - `packages/sdk-web/src/SeamsWeb/operations/auth/login.ts:2201`
-   - `packages/sdk-web/src/SeamsWeb/operations/auth/login.ts:2720`
+   - `packages/wallet/src/SeamsWeb/operations/auth/login.ts:2201`
+   - `packages/wallet/src/SeamsWeb/operations/auth/login.ts:2720`
 2. Profile-continuity warmup planning is invoked with
    `localSessionRecords: []`, even though durable local role-material records
    may exist:
-   - `packages/sdk-web/src/SeamsWeb/operations/auth/login.ts:3436`
+   - `packages/wallet/src/SeamsWeb/operations/auth/login.ts:3436`
 
 Unlock also creates a fresh threshold session per configured target:
 
-- `packages/sdk-web/src/SeamsWeb/operations/auth/login.ts:2704`
+- `packages/wallet/src/SeamsWeb/operations/auth/login.ts:2704`
 
 Seal persistence is mandatory only for reconnect requests. A fresh unlock can
 finish successfully when seal persistence is unavailable:
 
-- `packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaSessionProvision.ts:641`
-- `packages/sdk-web/src/core/signingEngine/session/passkey/runtime.ts:22`
+- `packages/wallet/src/core/signingEngine/session/passkey/ecdsaSessionProvision.ts:641`
+- `packages/wallet/src/core/signingEngine/session/passkey/runtime.ts:22`
 
 This creates a valid `ready` state whose refresh recovery postcondition is
 weaker than the reconnect path.
@@ -361,15 +361,15 @@ Refactor 90 removed the ECDSA anchor branch. Inactive sealed material is now a
 durable material fact and cannot construct an authorized or restorable signing
 lane by itself.
 
-- `packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts:2727`
-- `packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts:2810`
-- `packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts:2863`
-- `packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts:3099`
+- `packages/wallet/src/core/signingEngine/session/availability/availableSigningLanes.ts:2727`
+- `packages/wallet/src/core/signingEngine/session/availability/availableSigningLanes.ts:2810`
+- `packages/wallet/src/core/signingEngine/session/availability/availableSigningLanes.ts:2863`
+- `packages/wallet/src/core/signingEngine/session/availability/availableSigningLanes.ts:3099`
 
 A full sealed recovery record is also mapped to `state: 'restorable'`:
 
-- `packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts:1373`
-- `packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts:1465`
+- `packages/wallet/src/core/signingEngine/session/availability/availableSigningLanes.ts:1373`
+- `packages/wallet/src/core/signingEngine/session/availability/availableSigningLanes.ts:1465`
 
 The remaining distinction is explicit: an active sealed-session record may
 restore session-scoped runtime state, while inactive sealed material requires
@@ -391,7 +391,7 @@ Availability builds a lane candidate first. EVM-family signing then separately:
 
 See:
 
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaSelection.ts:1413`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/ecdsaSelection.ts:1413`
 
 Passkey material enumeration uses this priority:
 
@@ -403,13 +403,13 @@ registration
 
 See:
 
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaSelection.ts:87`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaSelection.ts:965`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaSelection.ts:1028`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/ecdsaSelection.ts:87`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/ecdsaSelection.ts:965`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/ecdsaSelection.ts:1028`
 
 The source lookup catches every error and converts it to an absent candidate:
 
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaLanes.ts:428`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/ecdsaLanes.ts:428`
 
 Duplicate or ambiguous authority can therefore enter the fallback path as
 “missing,” allowing another provenance source to win.
@@ -424,7 +424,7 @@ constants:
 
 See:
 
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaSelection.ts:538`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/ecdsaSelection.ts:538`
 
 Lifecycle provenance is therefore influencing an authority-bearing material
 decision. Registration and unlock naturally produce different source labels,
@@ -434,8 +434,8 @@ key identity is unchanged.
 Availability also applies source priority and stable tie breaks during
 canonicalization:
 
-- `packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts:2370`
-- `packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts:2413`
+- `packages/wallet/src/core/signingEngine/session/availability/availableSigningLanes.ts:2370`
+- `packages/wallet/src/core/signingEngine/session/availability/availableSigningLanes.ts:2413`
 
 This contradicts the exact-lane design in
 `docs/refactor-79-exact-signing-lane.md`, which requires ambiguity to fail

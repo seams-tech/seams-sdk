@@ -23,7 +23,7 @@ const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const typesRoot = join(packageRoot, 'dist/types');
 /* Each alias maps to a package `src` that tsc emits under its own subtree. */
 const ALIAS_ROOTS = [
-  { prefix: '@/', root: join(typesRoot, 'sdk-web/src') },
+  { prefix: '@/', root: join(typesRoot, 'wallet/src') },
   { prefix: '@shared/', root: join(typesRoot, 'shared-ts/src') },
 ];
 

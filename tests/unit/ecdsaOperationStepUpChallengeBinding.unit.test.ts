@@ -3,8 +3,8 @@ import {
   buildEcdsaOperationStepUpPreparation,
   issueEcdsaOperationStepUpAuthorization,
   prepareEcdsaOperationStepUp,
-} from '../../packages/sdk-web/src/core/signingEngine/threshold/ecdsa/operationStepUp';
-import { WalletSessionFailureError } from '../../packages/sdk-web/src/core/signingEngine/session/lifecycle/walletSessionFailure';
+} from '../../packages/wallet/src/core/signingEngine/threshold/ecdsa/operationStepUp';
+import { WalletSessionFailureError } from '../../packages/wallet/src/core/signingEngine/session/lifecycle/walletSessionFailure';
 import {
   computeRouterAbEcdsaOperationStepUpChallengeB64u,
   parseRouterAbEcdsaExplicitExportForwardedResponseV1,
@@ -27,7 +27,7 @@ import {
   attachRouterAbEcdsaExplicitExportOperationV1,
   projectRouterAbEcdsaExplicitExportRequestForWasmV1,
   type RouterAbEcdsaExplicitExportRequestFactsV1,
-} from '../../packages/sdk-web/src/core/signingEngine/workerManager/ecdsaClientWorkerChannels';
+} from '../../packages/wallet/src/core/signingEngine/workerManager/ecdsaClientWorkerChannels';
 
 // The Passkey challenge must be the canonical digest of the exact prepared
 // operation, and the server recomputes it from the parsed preparation with the

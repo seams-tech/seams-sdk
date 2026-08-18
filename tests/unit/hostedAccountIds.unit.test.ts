@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   deriveHostedNearAccountId,
   parseHostedHmacReadableRelayerWalletId,
-} from '../../packages/sdk-server-ts/src/core/hostedAccountIds';
+} from '../../packages/wallet-server/src/core/hostedAccountIds';
 
 const BASE_INPUT = {
   accountIdDerivationSecret: 'unit-test-account-id-secret',

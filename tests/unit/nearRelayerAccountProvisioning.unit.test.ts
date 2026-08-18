@@ -20,13 +20,13 @@ import {
   prepareSponsoredNearAccountCreationWithRelayer,
   preparedSponsoredNearAccountCreationArtifactFingerprint,
   type PreparedSponsoredNearAccountCreationV1,
-} from '../../packages/sdk-server-ts/src/core/nearRelayerAccountProvisioning';
+} from '../../packages/wallet-server/src/core/nearRelayerAccountProvisioning';
 import {
   NearRpcError,
   type NearClient,
   type NearRpcFailureKind,
   SignedTransaction,
-} from '../../packages/sdk-server-ts/src/core/rpcClients/near/NearClient';
+} from '../../packages/wallet-server/src/core/rpcClients/near/NearClient';
 
 const ACCOUNT_ID = 'alice.testnet';
 const RELAYER_ACCOUNT_ID = 'relayer.testnet';

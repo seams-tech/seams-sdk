@@ -1,9 +1,9 @@
-import { useSeams } from '@seams/sdk/react';
+import { useSeams } from '@seams/wallet/react';
 import type {
   RegistrationHooksOptions,
   RegistrationResult,
   SeamsContextType,
-} from '@seams/sdk/react';
+} from '@seams/wallet/react';
 
 type RegisterPasskey = SeamsContextType['registerPasskey'];
 

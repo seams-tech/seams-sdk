@@ -1,10 +1,10 @@
 import { expect, test } from '@playwright/test';
-import { SigningAuthPlanKind } from '../../packages/sdk-web/src/core/signingEngine/stepUpConfirmation/types';
+import { SigningAuthPlanKind } from '../../packages/wallet/src/core/signingEngine/stepUpConfirmation/types';
 import {
   requireEvmFamilyStepUpAuth,
   type EvmFamilyReusableAuthorizationState,
   type EvmFamilyThresholdEcdsaStepUp,
-} from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/requireEvmFamilyStepUpAuth';
+} from '../../packages/wallet/src/core/signingEngine/flows/signEvmFamily/requireEvmFamilyStepUpAuth';
 import {
   evmFamilyThresholdEcdsaOperationFixture,
   evmFamilyThresholdEcdsaStepUpRuntimeFixture,

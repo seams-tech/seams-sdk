@@ -3,7 +3,7 @@ import {
   parseLinkedDeviceLocalPresenceAssertionV1,
   verifyLinkedDeviceLocalPresenceV1,
   type LinkedDeviceLocalPresenceAssertionV1,
-} from '../../packages/sdk-server-ts/src/router/auth/linkedDeviceLocalPresenceVerifier';
+} from '../../packages/wallet-server/src/router/auth/linkedDeviceLocalPresenceVerifier';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 
 function digest(fill: number): string {

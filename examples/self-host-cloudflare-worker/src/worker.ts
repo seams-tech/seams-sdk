@@ -1,11 +1,11 @@
 import {
   AuthService,
   type ThresholdStoreConfigInput,
-} from '@seams/sdk-server';
-import { createSelfHostedCloudflareSigningWorker } from '@seams/sdk-server/router/cloudflare';
-import signerWasmModule from '@seams/sdk-server/wasm/signer';
+} from '@seams/wallet-server';
+import { createSelfHostedCloudflareSigningWorker } from '@seams/wallet-server/router/cloudflare';
+import signerWasmModule from '@seams/wallet-server/wasm/signer';
 
-export { ThresholdStoreDurableObject } from '@seams/sdk-server/router/cloudflare';
+export { ThresholdStoreDurableObject } from '@seams/wallet-server/router/cloudflare';
 
 type DurableObjectNamespace = {
   idFromName(name: string): unknown;

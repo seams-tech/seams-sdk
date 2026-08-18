@@ -17,8 +17,8 @@ import {
 import {
   createD1LinkedDeviceLaneGatewayRouteServiceV1,
   type D1LinkedDeviceLaneProtocolCommitterV1,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/d1/signingLanes/d1LinkedDeviceLaneOwnerAuthorization';
-import type { DeviceLinkingOwnerWalletSessionContextV1 } from '../../packages/sdk-server-ts/src/router/transport/fetch/routes/deviceLinkingOwnerAuthorization';
+} from '../../packages/wallet-server/src/router/cloudflare/d1/signingLanes/d1LinkedDeviceLaneOwnerAuthorization';
+import type { DeviceLinkingOwnerWalletSessionContextV1 } from '../../packages/wallet-server/src/router/transport/fetch/routes/deviceLinkingOwnerAuthorization';
 
 function required<T>(result: { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: { readonly message: string } }): T {
   if (!result.ok) throw new Error(result.error.message);

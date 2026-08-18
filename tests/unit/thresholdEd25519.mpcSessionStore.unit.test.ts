@@ -1,11 +1,11 @@
 import { expect, test } from '@playwright/test';
-import { createThresholdEd25519SessionStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/SessionStore';
+import { createThresholdEd25519SessionStore } from '../../packages/wallet-server/src/core/ThresholdService/stores/SessionStore';
 import {
   parseEd25519WalletSessionRecord,
   parseThresholdEd25519MpcSessionRecord,
-} from '../../packages/sdk-server-ts/src/core/ThresholdService/validation';
-import type { ThresholdEd25519MpcSessionRecord } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/SessionStore';
-import type { NormalizedLogger } from '../../packages/sdk-server-ts/src/core/logger';
+} from '../../packages/wallet-server/src/core/ThresholdService/validation';
+import type { ThresholdEd25519MpcSessionRecord } from '../../packages/wallet-server/src/core/ThresholdService/stores/SessionStore';
+import type { NormalizedLogger } from '../../packages/wallet-server/src/core/logger';
 import { parseWebAuthnRpId } from '@shared/utils/domainIds';
 
 const noopLogger: NormalizedLogger = {

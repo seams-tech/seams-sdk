@@ -33,7 +33,7 @@ Avoid new `*.typings.ts` files. Rename existing `*.typings.ts` files to
 Before adding a domain type, search the type surfaces first:
 
 ```sh
-rg --files packages/sdk-web/src packages/sdk-server-ts/src packages/shared-ts/src tests \
+rg --files packages/wallet/src packages/wallet-server/src packages/shared-ts/src tests \
   | rg '(^|/)types/|\.types\.ts$|\.typecheck\.ts$|(^|/)types\.ts$'
 ```
 
@@ -41,7 +41,7 @@ Then search the specific domain terms:
 
 ```sh
 rg "LoginHooksOptions|WalletIframeUnlockRequest|SigningSessionStatus|WalletEmailOtpLoginOperation" \
-  packages/sdk-web/src packages/sdk-server-ts/src packages/shared-ts/src tests \
+  packages/wallet/src packages/wallet-server/src packages/shared-ts/src tests \
   -g '*.types.ts' -g 'types.ts' -g '*.typecheck.ts'
 ```
 
@@ -51,8 +51,8 @@ Replace the terms with the target domain words for the current refactor.
 
 Rename dedicated type modules across:
 
-- `packages/sdk-web/src`
-- `packages/sdk-server-ts/src`
+- `packages/wallet/src`
+- `packages/wallet-server/src`
 - `packages/shared-ts/src`
 - `tests`
 
@@ -116,17 +116,17 @@ of: `public-barrel`, `mixed-runtime`, or `external-contract`.
 
 Observed naming families before Phase 1:
 
-- Renamed `*.typings.ts`: `packages/sdk-web/src/core/types/login.typings.ts`
-  is now `packages/sdk-web/src/core/types/login.types.ts`.
+- Renamed `*.typings.ts`: `packages/wallet/src/core/types/login.typings.ts`
+  is now `packages/wallet/src/core/types/login.types.ts`.
 - Existing compliant `*.types.ts` examples:
-  - `packages/sdk-web/src/core/indexedDB/keyMaterial.types.ts`
-  - `packages/sdk-web/src/core/indexedDB/passkeyClientDB.types.ts`
+  - `packages/wallet/src/core/indexedDB/keyMaterial.types.ts`
+  - `packages/wallet/src/core/indexedDB/passkeyClientDB.types.ts`
 - Current type-surface examples:
-  - `packages/sdk-web/src/core/types/seams.ts`
-  - `packages/sdk-web/src/core/types/sdkSentEvents.ts`
-  - `packages/sdk-web/src/SeamsWeb/publicApi/types.ts`
-  - `packages/sdk-web/src/SeamsWeb/signingSurface/types.ts`
-  - `packages/sdk-web/src/react/types.ts`
+  - `packages/wallet/src/core/types/seams.ts`
+  - `packages/wallet/src/core/types/sdkSentEvents.ts`
+  - `packages/wallet/src/SeamsWeb/publicApi/types.ts`
+  - `packages/wallet/src/SeamsWeb/signingSurface/types.ts`
+  - `packages/wallet/src/react/types.ts`
   - many `packages/console-server-ts/src/*/types.ts` files
 
 ## Implementation Plan
@@ -135,13 +135,13 @@ Observed naming families before Phase 1:
 
 Status: complete.
 
-- [x] Rename `packages/sdk-web/src/core/types/login.typings.ts` to
-      `packages/sdk-web/src/core/types/login.types.ts`.
-- [x] Rename `packages/sdk-web/src/core/types/login.typings.typecheck.ts` to
-      `packages/sdk-web/src/core/types/login.types.typecheck.ts`.
+- [x] Rename `packages/wallet/src/core/types/login.typings.ts` to
+      `packages/wallet/src/core/types/login.types.ts`.
+- [x] Rename `packages/wallet/src/core/types/login.typings.typecheck.ts` to
+      `packages/wallet/src/core/types/login.types.typecheck.ts`.
 - [x] Update imports and exports.
 - [x] Run SDK web type-check and focused tests:
-  - `pnpm -C packages/sdk-web type-check`
+  - `pnpm -C packages/wallet type-check`
   - `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/walletIframeUnlockOptions.unit.test.ts --reporter=line`
     because `unit/walletIframeUnlock.unit.test.ts` does not exist, and this is
     the nearest wallet iframe unlock option fixture
@@ -161,7 +161,7 @@ Created an inventory of `types.ts` files and classified each as:
 Use this command as the starting point:
 
 ```sh
-rg --files packages/sdk-web/src packages/sdk-server-ts/src packages/shared-ts/src tests \
+rg --files packages/wallet/src packages/wallet-server/src packages/shared-ts/src tests \
   | rg '(^|/)types\.ts$'
 ```
 
@@ -190,19 +190,19 @@ Inventory captured on June 19, 2026:
 | `packages/console-server-ts/src/teamRbac/types.ts`                                          | `mixed-runtime`                             |
 | `packages/console-server-ts/src/wallets/types.ts`                                           | `external-contract`                         |
 | `packages/console-server-ts/src/webhooks/types.ts`                                          | `external-contract`                         |
-| `packages/sdk-server-ts/src/core/types.ts`                                                      | `mixed-runtime`                             |
-| `packages/sdk-server-ts/src/email-recovery/types.ts`                                            | `external-contract`                         |
-| `packages/sdk-web/src/SeamsWeb/publicApi/types.ts`                                              | `public-barrel`                             |
-| `packages/sdk-web/src/SeamsWeb/signingSurface/types.ts`                                         | `public-barrel`                             |
-| `packages/sdk-web/src/core/platform/types.ts`                                                   | `mixed-runtime`                             |
-| `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/types.ts`                          | `mixed-runtime`                             |
-| `packages/sdk-web/src/core/signingEngine/session/operationState/types.ts`                       | `mixed-runtime`                             |
-| `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/types.ts`                     | `mixed-runtime`                             |
-| `packages/sdk-web/src/core/signingEngine/stepUpConfirmation/types.ts`                           | `mixed-runtime`                             |
-| `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/TxTree/renderers/types.ts` | `mixed-runtime`                             |
-| `packages/sdk-web/src/react/components/AccountMenuButton/types.ts`                              | `mixed-runtime`                             |
-| `packages/sdk-web/src/react/components/SeamsAuthMenu/types.ts`                                | `mixed-runtime`                             |
-| `packages/sdk-web/src/react/types.ts`                                                           | `public-barrel`                             |
+| `packages/wallet-server/src/core/types.ts`                                                      | `mixed-runtime`                             |
+| `packages/wallet-server/src/email-recovery/types.ts`                                            | `external-contract`                         |
+| `packages/wallet/src/SeamsWeb/publicApi/types.ts`                                              | `public-barrel`                             |
+| `packages/wallet/src/SeamsWeb/signingSurface/types.ts`                                         | `public-barrel`                             |
+| `packages/wallet/src/core/platform/types.ts`                                                   | `mixed-runtime`                             |
+| `packages/wallet/src/core/signingEngine/flows/signEvmFamily/types.ts`                          | `mixed-runtime`                             |
+| `packages/wallet/src/core/signingEngine/session/operationState/types.ts`                       | `mixed-runtime`                             |
+| `packages/wallet/src/core/signingEngine/session/warmCapabilities/types.ts`                     | `mixed-runtime`                             |
+| `packages/wallet/src/core/signingEngine/stepUpConfirmation/types.ts`                           | `mixed-runtime`                             |
+| `packages/wallet/src/core/signingEngine/uiConfirm/ui/lit-components/TxTree/renderers/types.ts` | `mixed-runtime`                             |
+| `packages/wallet/src/react/components/AccountMenuButton/types.ts`                              | `mixed-runtime`                             |
+| `packages/wallet/src/react/components/SeamsAuthMenu/types.ts`                                | `mixed-runtime`                             |
+| `packages/wallet/src/react/types.ts`                                                           | `public-barrel`                             |
 | `tests/setup/types.ts`                                                                          | `external-contract`                         |
 
 ### Phase 3: Rename High-Value Shared Typing Surfaces
@@ -223,37 +223,37 @@ Current result: the active `.typings.ts` module was renamed in Phase 1. The
 remaining `types.ts` files are explicit public barrels, external contracts, or
 mixed runtime/type modules.
 
-`packages/sdk-web/src/core/platform/types.ts` is a runtime barrel today. Split
+`packages/wallet/src/core/platform/types.ts` is a runtime barrel today. Split
 its type-only exports into a dedicated `platform.types.ts` before any filename
 rename.
 
 Agent D progress, June 19-20, 2026:
 
-- [x] Renamed `packages/sdk-web/src/core/runtime/types.ts` to
-      `packages/sdk-web/src/core/runtime/runtime.types.ts` and updated import
+- [x] Renamed `packages/wallet/src/core/runtime/types.ts` to
+      `packages/wallet/src/core/runtime/runtime.types.ts` and updated import
       specifiers without changing signing, material-restore, or budget semantics.
 - [x] Renamed
-  `packages/sdk-server-ts/src/core/ThresholdService/schemes/types.ts` to
-  `packages/sdk-server-ts/src/core/ThresholdService/schemes/thresholdServiceSchemes.types.ts`
+  `packages/wallet-server/src/core/ThresholdService/schemes/types.ts` to
+  `packages/wallet-server/src/core/ThresholdService/schemes/thresholdServiceSchemes.types.ts`
   and updated imports without changing scheme IDs or cryptographic threshold
   protocol semantics.
-- [x] Renamed `packages/sdk-server-ts/src/router/cloudflare/types.ts` to
-  `packages/sdk-server-ts/src/router/cloudflare/cloudflare.types.ts` and updated
+- [x] Renamed `packages/wallet-server/src/router/cloudflare/types.ts` to
+  `packages/wallet-server/src/router/cloudflare/cloudflare.types.ts` and updated
   Cloudflare adapter imports without changing runtime bindings or request
   handling.
 - [x] Renamed
-  `packages/sdk-server-ts/src/threshold/session/signingSessionSeal/types.ts` to
-  `packages/sdk-server-ts/src/threshold/session/signingSessionSeal/signingSessionSeal.types.ts`
+  `packages/wallet-server/src/threshold/session/signingSessionSeal/types.ts` to
+  `packages/wallet-server/src/threshold/session/signingSessionSeal/signingSessionSeal.types.ts`
   and updated imports without changing seal policy, auth, budget, or transport
   semantics.
 - [x] Renamed the remaining SDK-owned type-only `types.ts` modules to
   `*.types.ts`:
-  - `packages/sdk-web/src/SeamsWeb/walletIframe/host/handlers/walletIframeHandler.types.ts`
-  - `packages/sdk-web/src/core/accountData/near/nearAccountData.types.ts`
-  - `packages/sdk-web/src/core/signingEngine/chains/evm/evmSigning.types.ts`
-  - `packages/sdk-web/src/core/signingEngine/chains/tempo/tempoSigning.types.ts`
-  - `packages/sdk-web/src/core/signingEngine/session/sealedRecovery/sealedRecovery.types.ts`
-  - `packages/sdk-web/src/core/signingEngine/uiConfirm/uiConfirm.types.ts`
+  - `packages/wallet/src/SeamsWeb/walletIframe/host/handlers/walletIframeHandler.types.ts`
+  - `packages/wallet/src/core/accountData/near/nearAccountData.types.ts`
+  - `packages/wallet/src/core/signingEngine/chains/evm/evmSigning.types.ts`
+  - `packages/wallet/src/core/signingEngine/chains/tempo/tempoSigning.types.ts`
+  - `packages/wallet/src/core/signingEngine/session/sealedRecovery/sealedRecovery.types.ts`
+  - `packages/wallet/src/core/signingEngine/uiConfirm/uiConfirm.types.ts`
   The changes are import-specifier-only and do not alter wallet iframe, NEAR,
   EVM, Tempo, sealed recovery, or UI confirmation behavior.
 
@@ -292,7 +292,7 @@ Updated `README.md` so future agents know:
 For each rename slice:
 
 ```sh
-pnpm -C packages/sdk-web type-check
+pnpm -C packages/wallet type-check
 pnpm -C tests exec playwright test -c playwright.unit.config.ts <focused-test> --reporter=line
 ```
 

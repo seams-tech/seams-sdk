@@ -4,13 +4,13 @@ import {
   resolveActiveOwnerWalletExecutionLane,
   resolveWalletAuthMethodIdForAuthority,
   type WalletExecutionLaneProjectionSource,
-} from '../../packages/sdk-server-ts/src/core/signingLanes/WalletExecutionLaneProjection';
-import { normalizeWalletAuthMethod } from '../../packages/sdk-server-ts/src/core/d1WalletAuthMethodStore';
-import type { WalletSignerRecord } from '../../packages/sdk-server-ts/src/core/WalletStore';
+} from '../../packages/wallet-server/src/core/signingLanes/WalletExecutionLaneProjection';
+import { normalizeWalletAuthMethod } from '../../packages/wallet-server/src/core/d1WalletAuthMethodStore';
+import type { WalletSignerRecord } from '../../packages/wallet-server/src/core/WalletStore';
 import {
   buildYaoEd25519WalletSignerRecord,
   ed25519NearPublicKeyFromBytes,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoWalletSigner';
+} from '../../packages/wallet-server/src/router/cloudflare/d1/ed25519Yao/d1Ed25519YaoWalletSigner';
 import { walletAuthMethodRecordId } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { parseProviderSubject, parseWalletId } from '../../packages/shared-ts/src/utils/domainIds';
 import { routerAbMpcMaterialActivationRefFromWire } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';

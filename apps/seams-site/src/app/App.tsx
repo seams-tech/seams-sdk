@@ -1,5 +1,5 @@
 import React from 'react';
-import { useTheme } from '@seams/sdk/react';
+import { useTheme } from '@seams/wallet/react';
 
 import { Home2Page, HomePage } from '@/pages/home2/page';
 import { WalletPage } from '@/pages/wallet/page';

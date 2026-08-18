@@ -1,6 +1,6 @@
 import { ConsolePolicyError } from './errors';
 import { getNearSpendCapChainId } from '@seams-internal/wallet-console-shared/gasSponsorshipSpendCapTargets';
-import { keccak256Bytes } from '@seams/sdk-server/cloud-host';
+import { keccak256Bytes } from '@seams/wallet-server/cloud-host';
 import type {
   ConsoleGasSponsorshipExecutionMode,
   ConsoleGasSponsorshipPolicyEvmAllowedCall,

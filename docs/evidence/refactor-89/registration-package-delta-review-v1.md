@@ -79,7 +79,7 @@ The generated online worker and the two expected registration boundary guards
 also changed. They are evidence/artifact entries rather than the blocking
 cause:
 
-- `packages/sdk-web/dist/public/sdk/workers/ecdsa-online-client.worker.js`:
+- `packages/wallet/dist/public/sdk/workers/ecdsa-online-client.worker.js`:
   `25c2cb86…` to `8de3c8cb…`;
 - `tests/scripts/check-ecdsa-client-worker-split.mjs`: `7b19a96e…` to
   `7cccbfbf…`; and
@@ -115,19 +115,19 @@ The records below are bytewise sorted before hashing. The SHA-256 of the
 The review document itself is excluded.
 
 ```text
-cb6cacba5daa4b99fe23f6863d96743126d9d325fdfeebc872174903f3050bfb  packages/sdk-web/dist/workers/ecdsa-derivation-client.worker.js
-3aea1b0067e668f51a3cae16005a3ebb68ab83a75e6d54cca155b4872bbbf83f  packages/sdk-web/dist/workers/ecdsa_registration_client_bg.wasm
-f9dfcdccf840ecf5c97214d25dc78a066f9798597c2f1dc22bb742d95ef264fd  packages/sdk-web/dist/workers/router_ab_ecdsa_derivation_client_bg.wasm
-da56c2bae4fb8d602ebb2035791a55975ea9608c0d6bdf313085615b31ee4783  packages/sdk-web/build-paths.sh
-3a4dea874c2ab5dd9b9a7a5ae81aa40097d268a73b013d53406cd06f411fcc45  packages/sdk-web/build-paths.ts
-ae88972c9ee2cc73b2331db28013f152ef086db9b3b21cf97b475943f5262c3e  packages/sdk-web/rolldown.config.ts
-ac949e668514178c412be17ebe1cfc28f2bf9f04e505eed691a2d3c0e14cce28  packages/sdk-web/scripts/build/build-prod.sh
-5e9fe779a041e2642ba31e1e7b704ef6605c67dcb3332af86b8087fc93cde35e  packages/sdk-web/scripts/build/build-sdk.sh
-346465b8452205cb0d45f1fc25551dc09626f6f2dc58850b64db1490e2e0d416  packages/sdk-web/scripts/build/build-wasm.sh
-e79066a1ba43bebae808e6247affd81c9e36ff29cbbc8ec77f0c3644391038f6  packages/sdk-web/scripts/checks/assert-static-wallet-assets.mjs
-d111d0219d2bd84fe1f0c5e2be0b466121377a55a8a3b6394ff195e5fe2d8dd7  packages/sdk-web/scripts/checks/report-wallet-iframe-bundle-size.mjs
-eff46c150c3c9684805cf8d96fb5b69cc6e432b703e3e6e329a0e53caca36872  packages/sdk-web/src/core/signingEngine/workerManager/workers/ecdsa-derivation-client.worker.ts
-379f42afd8b7a06326b2630af9b8a3dec06c22b62413fa98e6b4fb1e8fe113b3  packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp.worker.ts
+cb6cacba5daa4b99fe23f6863d96743126d9d325fdfeebc872174903f3050bfb  packages/wallet/dist/workers/ecdsa-derivation-client.worker.js
+3aea1b0067e668f51a3cae16005a3ebb68ab83a75e6d54cca155b4872bbbf83f  packages/wallet/dist/workers/ecdsa_registration_client_bg.wasm
+f9dfcdccf840ecf5c97214d25dc78a066f9798597c2f1dc22bb742d95ef264fd  packages/wallet/dist/workers/router_ab_ecdsa_derivation_client_bg.wasm
+da56c2bae4fb8d602ebb2035791a55975ea9608c0d6bdf313085615b31ee4783  packages/wallet/build-paths.sh
+3a4dea874c2ab5dd9b9a7a5ae81aa40097d268a73b013d53406cd06f411fcc45  packages/wallet/build-paths.ts
+ae88972c9ee2cc73b2331db28013f152ef086db9b3b21cf97b475943f5262c3e  packages/wallet/rolldown.config.ts
+ac949e668514178c412be17ebe1cfc28f2bf9f04e505eed691a2d3c0e14cce28  packages/wallet/scripts/build/build-prod.sh
+5e9fe779a041e2642ba31e1e7b704ef6605c67dcb3332af86b8087fc93cde35e  packages/wallet/scripts/build/build-sdk.sh
+346465b8452205cb0d45f1fc25551dc09626f6f2dc58850b64db1490e2e0d416  packages/wallet/scripts/build/build-wasm.sh
+e79066a1ba43bebae808e6247affd81c9e36ff29cbbc8ec77f0c3644391038f6  packages/wallet/scripts/checks/assert-static-wallet-assets.mjs
+d111d0219d2bd84fe1f0c5e2be0b466121377a55a8a3b6394ff195e5fe2d8dd7  packages/wallet/scripts/checks/report-wallet-iframe-bundle-size.mjs
+eff46c150c3c9684805cf8d96fb5b69cc6e432b703e3e6e329a0e53caca36872  packages/wallet/src/core/signingEngine/workerManager/workers/ecdsa-derivation-client.worker.ts
+379f42afd8b7a06326b2630af9b8a3dec06c22b62413fa98e6b4fb1e8fe113b3  packages/wallet/src/core/signingEngine/workerManager/workers/email-otp.worker.ts
 f3df77683200c972d802724bd84c5d335583191b2d1fec206cec6132918151b1  tests/helpers/thresholdEcdsaClientBootstrap.ts
 7cccbfbfe36599e0e86b2860264175109e29cbdae5d6247a31604cda20427522  tests/scripts/check-ecdsa-client-worker-split.mjs
 f50f279ecc9bd00d3601fb4fd6e35d0665a7c835de2176f6de02c452c9faf67b  tests/scripts/check-ed25519-yao-near-signing-boundaries.mjs

@@ -23,7 +23,7 @@ Use this guide when creating or revising UI in `apps/seams-site`. The SDK themin
 | Navigation structure and light appearance                             | [`apps/seams-site/src/components/Navbar/Navbar.css`](../../apps/seams-site/src/components/Navbar/Navbar.css)                         |
 | Console palette, shell, forms, tables, and responsive behavior        | [`apps/seams-site/src/pages/dashboard/styles.css`](../../apps/seams-site/src/pages/dashboard/styles.css)                             |
 | SDK Paper theme and other demo presets                                | [`apps/seams-site/src/context/app-themes.ts`](../../apps/seams-site/src/context/app-themes.ts)                                       |
-| SDK geometry presets                                                  | [`packages/sdk-web/src/react/components/theme/design-tokens.ts`](../../packages/sdk-web/src/react/components/theme/design-tokens.ts) |
+| SDK geometry presets                                                  | [`packages/wallet/src/react/components/theme/design-tokens.ts`](../../packages/wallet/src/react/components/theme/design-tokens.ts) |
 | ElevenLabs-inspired gradient assets                                   | [`apps/seams-site/src/public/gradients/README.md`](../../apps/seams-site/src/public/gradients/README.md)                             |
 
 Prefer the variables and component patterns already defined in these files. Add a semantic token only when no existing role describes the value.

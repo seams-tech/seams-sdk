@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { joinCustodyWireFromEnvelopeRecord } from '../../packages/sdk-web/src/core/signingEngine/walletCustody/joinCustodyWire';
+import { joinCustodyWireFromEnvelopeRecord } from '../../packages/wallet/src/core/signingEngine/walletCustody/joinCustodyWire';
 
 /**
  * The projection a cold unlock hands to the wasm boundary.

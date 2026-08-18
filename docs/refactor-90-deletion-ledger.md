@@ -251,7 +251,7 @@ Inventory command (rerun before each Unit 3c deletion slice):
 
 ```sh
 rg -l 'SigningGrantId|signingGrantId|signing_grant_id' \
-  packages/sdk-server-ts/src packages/sdk-web/src packages/shared-ts/src \
+  packages/wallet-server/src packages/wallet/src packages/shared-ts/src \
   packages/console-server-ts/src crates/router-ab-cloudflare/src wasm apps \
   --glob '!**/dist/**' --glob '!**/*.typecheck.ts'
 ```
@@ -1203,7 +1203,7 @@ production references reachable.
 The canonical entry-point cutovers removed the final live consumers. The
 production composite family, its public APIs, stores, parsers, readers,
 writers, reconnect paths, and identity adapters are now deleted. A direct scan
-of `packages/sdk-web/src` returns zero matches for
+of `packages/wallet/src` returns zero matches for
 `ThresholdEcdsaSessionRecord*` and `ThresholdEcdsaStoredCapabilityRecord`;
 SDK-web type-checks cleanly. Composite-record builders, stores, imports, and
 mocks are also removed from the test tree; retained Email OTP coordinator

@@ -16,27 +16,27 @@ const reportOutputPath = process.argv[2] ? path.resolve(process.cwd(), process.a
 const workerBundles = [
   {
     id: 'ed25519Signer',
-    path: 'packages/sdk-web/dist/workers/near-signer.worker.js',
+    path: 'packages/wallet/dist/workers/near-signer.worker.js',
     ownedWasmArtifacts: ['wasm_signer_worker_bg.wasm'],
   },
   {
     id: 'ecdsaDerivationClient',
-    path: 'packages/sdk-web/dist/workers/ecdsa-derivation-client.worker.js',
+    path: 'packages/wallet/dist/workers/ecdsa-derivation-client.worker.js',
     ownedWasmArtifacts: ['router_ab_ecdsa_client_bg.wasm'],
   },
   {
     id: 'ecdsaPresignClient',
-    path: 'packages/sdk-web/dist/workers/ecdsa-presign-client.worker.js',
+    path: 'packages/wallet/dist/workers/ecdsa-presign-client.worker.js',
     ownedWasmArtifacts: [],
   },
   {
     id: 'ecdsaOnlineClient',
-    path: 'packages/sdk-web/dist/workers/ecdsa-online-client.worker.js',
+    path: 'packages/wallet/dist/workers/ecdsa-online-client.worker.js',
     ownedWasmArtifacts: [],
   },
   {
     id: 'emailOtp',
-    path: 'packages/sdk-web/dist/workers/email-otp.worker.js',
+    path: 'packages/wallet/dist/workers/email-otp.worker.js',
     ownedWasmArtifacts: ['email_otp_runtime_bg.wasm', 'router_ab_ed25519_yao_client_bg.wasm'],
   },
 ];
@@ -305,7 +305,7 @@ const report = {
   generatedWorkerBundleEvidence: measuredWorkerBundles,
   operationLazyProfiles: measuredLazyProfiles,
   totals: {
-    sdkDistributionRawBytes: recursiveRawBytes('packages/sdk-web/dist'),
+    sdkDistributionRawBytes: recursiveRawBytes('packages/wallet/dist'),
   },
   gates: {
     frozenWasmBudgetsPass: failedBudgets.length === 0,

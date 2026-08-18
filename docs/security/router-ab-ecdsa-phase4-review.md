@@ -216,7 +216,7 @@ code_ir:
     behavior: Makes lifecycle branches distinct types, enforces revisions and bindings, and replaces all used or uncertain material with tombstones.
     confidence: 0.99
   - id: CODE-009
-    surface: packages/sdk-web/.../ecdsaPresignMaterialStore.ts:665-1105
+    surface: packages/wallet/.../ecdsaPresignMaterialStore.ts:665-1105
     entrypoints: [store, reserve, commit, takeForOnline, recover, retirePool]
     behavior: Encrypts 97-byte client material under AES-GCM with identity-bound AAD, performs lifecycle updates in IndexedDB read-write transactions, writes a tombstone before decrypting and returning online material, and destructively recovers ambiguous states.
     confidence: 0.98
@@ -231,7 +231,7 @@ code_ir:
     behavior: Exposes only fixed-role sessions and the client online share operation, uses OsRng in presign, validates fixed byte lengths, and zeroizes copied secret inputs after use.
     confidence: 0.98
   - id: CODE-012
-    surface: router-ab-core/src/protocol/router_ab_ecdsa_derivation.rs:1846-2180; router-ab-cloudflare/src/lib.rs:9607-10083; signing_worker/mod.rs:670-725,942-1014; packages/sdk-web/.../presignaturePool.ts:1087-1245
+    surface: router-ab-core/src/protocol/router_ab_ecdsa_derivation.rs:1846-2180; router-ab-cloudflare/src/lib.rs:9607-10083; signing_worker/mod.rs:670-725,942-1014; packages/wallet/.../presignaturePool.ts:1087-1245
     entrypoints: [prepare commitment and response, finalize opening reconstruction, durable pool reserve/commit/finish, client and SigningWorker online invocations]
     behavior: Client samples and commits C; SigningWorker samples W after admission, persists it before reveal, and returns it; finalize reconstructs the committed prepare digest from C; durable mismatch burns before committed presign material access; both roles XOR C and W and zeroize transient copies.
     confidence: 1.00
@@ -508,24 +508,24 @@ a38e5ed04810cc60f9d6542f65c2b65f3094464b77df24820b39be2194ba355b  crates/router-
 5b86075079103e05b6a79e60469b732f2f0080e5995426e0e02d8f91bcd500fb  docs/evidence/refactor-89/phase-d-bounded-assurance-v1.json
 cc639cbcdf0703dd2bffda44ea771fef70ec8d0feccf15a82d9b8784887ee79e  docs/evidence/refactor-89/phase-e-local-artifacts-v1.json
 b020ed1b9944a7064fcf4ff487d92eddc480ddd50d523bb8a02aebdf726f5e0e  docs/evidence/refactor-89/rar-01-public-coin-remediation-v1.md
-aeb6c9bc2d4afcf67d3a1ca9a8652eadd89d020708e1c9fd8fab3553e869c3ba  packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaDerivationPoolFillHandlers.ts
-f4b660ad791b7aa9dc30889bd4242496f7f49cdfab9fcf8adf701bae3699dd86  packages/sdk-server-ts/src/core/ThresholdService/routerAbEcdsaSigningWorkerWasm.ts
-129f7335820a1f3f6252998e3580ad787afa7cbe42651047cf0eb51959668455  packages/sdk-server-ts/src/core/ThresholdService/stores/EcdsaSigningStore.ts
-25c2cb8601e9835a44752821bb9ad610a751de737508af5bc20005cf4a41fcce  packages/sdk-web/dist/public/sdk/workers/ecdsa-online-client.worker.js
-bbe99f7aaa6943283dc8634fef6923971db629aea71028049e21678d808d9ee7  packages/sdk-web/src/core/rpcClients/relayer/routerAbNormalSigning.ts
-a83170d78fddcd6cc6afc03208cea553a5c92130c600834a66cdd583e6af04e0  packages/sdk-web/src/core/rpcClients/relayer/routerAbNormalSigning.typecheck.ts
-df65dfd15256f3b584545dd886f8b2106ee32d67876174aaff059d536b2ea6a4  packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signers/ecdsaDerivationClientSigningMaterialSource.ts
-b859260a928d85ae641d3ef499a5b200830b1d4996cefc4c6a616f99b831618f  packages/sdk-web/src/core/signingEngine/routerAb/ecdsaDerivation/presignaturePool.ts
-da10ebfb6ba7ee6427fc6b204b36faf556015ba4818fa1bff30e5f712d8298e1  packages/sdk-web/src/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefillSigningMaterialSource.ts
-93cba564ca64dba8337ba4a9b5380542aa57109ceaadd0fd82910a22a0f4da00  packages/sdk-web/src/core/signingEngine/threshold/crypto/ecdsaDerivationClientWasm.ts
-2e33fe417e777786f8305c296cd246e057dcd7c32ac87b4804292f130b12d280  packages/sdk-web/src/core/signingEngine/workerManager/ecdsaClientWorkerChannels.ts
-b0cd1afff00f3a7816206e1999827e8af97820257319d84843dedf65deb689f4  packages/sdk-web/src/core/signingEngine/workerManager/ecdsaPresignPoolIdentity.ts
-b9edd6deedea88e46e864d25f575c7eee978a7416cebc2f024ebda97fa96b8af  packages/sdk-web/src/core/signingEngine/workerManager/workerTransport.ts
-dd350fa4fe40d0c1549f8961a6a66ab85048df339e0919c5573c69715d103012  packages/sdk-web/src/core/signingEngine/workerManager/workerTypes.ts
-84105eaee512d37035eb50a41c8f43e4fa917bcf04088ff5fce5d0e2ca657a3f  packages/sdk-web/src/core/signingEngine/workerManager/workerTypes.typecheck.ts
-3b8e3ba6ba583271ffd70a313918b13e01321d007cdf89247e0ab84414faa1dd  packages/sdk-web/src/core/signingEngine/workerManager/workers/ecdsa-online-client.worker.ts
-c6802cc7c3b28c71fefa46735ebf8d292bfc22a743022979ae17705dbe4efa1e  packages/sdk-web/src/core/signingEngine/workerManager/workers/ecdsa-presign-client.worker.ts
-bf3fb141ab54009073963b5f7d0442ad5451a4176a979f3316b8fe21ad1011a7  packages/sdk-web/src/core/signingEngine/workerManager/workers/ecdsaPresignMaterialStore.ts
+aeb6c9bc2d4afcf67d3a1ca9a8652eadd89d020708e1c9fd8fab3553e869c3ba  packages/wallet-server/src/core/ThresholdService/routerAb/ecdsaDerivationPoolFillHandlers.ts
+f4b660ad791b7aa9dc30889bd4242496f7f49cdfab9fcf8adf701bae3699dd86  packages/wallet-server/src/core/ThresholdService/routerAbEcdsaSigningWorkerWasm.ts
+129f7335820a1f3f6252998e3580ad787afa7cbe42651047cf0eb51959668455  packages/wallet-server/src/core/ThresholdService/stores/EcdsaSigningStore.ts
+25c2cb8601e9835a44752821bb9ad610a751de737508af5bc20005cf4a41fcce  packages/wallet/dist/public/sdk/workers/ecdsa-online-client.worker.js
+bbe99f7aaa6943283dc8634fef6923971db629aea71028049e21678d808d9ee7  packages/wallet/src/core/rpcClients/relayer/routerAbNormalSigning.ts
+a83170d78fddcd6cc6afc03208cea553a5c92130c600834a66cdd583e6af04e0  packages/wallet/src/core/rpcClients/relayer/routerAbNormalSigning.typecheck.ts
+df65dfd15256f3b584545dd886f8b2106ee32d67876174aaff059d536b2ea6a4  packages/wallet/src/core/signingEngine/flows/signEvmFamily/signers/ecdsaDerivationClientSigningMaterialSource.ts
+b859260a928d85ae641d3ef499a5b200830b1d4996cefc4c6a616f99b831618f  packages/wallet/src/core/signingEngine/routerAb/ecdsaDerivation/presignaturePool.ts
+da10ebfb6ba7ee6427fc6b204b36faf556015ba4818fa1bff30e5f712d8298e1  packages/wallet/src/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefillSigningMaterialSource.ts
+93cba564ca64dba8337ba4a9b5380542aa57109ceaadd0fd82910a22a0f4da00  packages/wallet/src/core/signingEngine/threshold/crypto/ecdsaDerivationClientWasm.ts
+2e33fe417e777786f8305c296cd246e057dcd7c32ac87b4804292f130b12d280  packages/wallet/src/core/signingEngine/workerManager/ecdsaClientWorkerChannels.ts
+b0cd1afff00f3a7816206e1999827e8af97820257319d84843dedf65deb689f4  packages/wallet/src/core/signingEngine/workerManager/ecdsaPresignPoolIdentity.ts
+b9edd6deedea88e46e864d25f575c7eee978a7416cebc2f024ebda97fa96b8af  packages/wallet/src/core/signingEngine/workerManager/workerTransport.ts
+dd350fa4fe40d0c1549f8961a6a66ab85048df339e0919c5573c69715d103012  packages/wallet/src/core/signingEngine/workerManager/workerTypes.ts
+84105eaee512d37035eb50a41c8f43e4fa917bcf04088ff5fce5d0e2ca657a3f  packages/wallet/src/core/signingEngine/workerManager/workerTypes.typecheck.ts
+3b8e3ba6ba583271ffd70a313918b13e01321d007cdf89247e0ab84414faa1dd  packages/wallet/src/core/signingEngine/workerManager/workers/ecdsa-online-client.worker.ts
+c6802cc7c3b28c71fefa46735ebf8d292bfc22a743022979ae17705dbe4efa1e  packages/wallet/src/core/signingEngine/workerManager/workers/ecdsa-presign-client.worker.ts
+bf3fb141ab54009073963b5f7d0442ad5451a4176a979f3316b8fe21ad1011a7  packages/wallet/src/core/signingEngine/workerManager/workers/ecdsaPresignMaterialStore.ts
 58c3481b6e479e19ff89d8ef92ae4c0403debb30fa30a28b9b1efb2dc0f8c35f  packages/shared-ts/src/utils/routerAbEcdsaDerivation.ts
 7b19a96e1fbdfad5c7fe729d8e1e12717aea63521c0a5576bc81270a002a3dd7  tests/scripts/check-ecdsa-client-worker-split.mjs
 7c0eb8d36d536afab64dec139bbd20490bd051c7160d6ae07600aed87f209123  tests/scripts/check-router-ab-ecdsa-derivation-boundaries.mjs

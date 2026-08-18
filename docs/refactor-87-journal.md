@@ -78,11 +78,11 @@
   assembly, console route extensions, Cloudflare console workers, B10
   composition harnesses, `CONSOLE_DB` migrations, Wrangler configs, D1 scripts,
   and console dev vars into the package.
-- Removed the interim `@seams/sdk-server/console` export and trimmed signer
+- Removed the interim `@seams/wallet-server/console` export and trimmed signer
   router adapters back to signer-only exports. The console package now owns
   `router/express-adaptor`, `router/cloudflare-adaptor`, and console
   Cloudflare env/composition types.
-- Added the private `@seams/sdk-server/internal/*` subpath so the closed
+- Added the private `@seams/wallet-server/internal/*` subpath so the closed
   console package can consume signer internals needed for composition without
   restoring console code to the signer package.
 - Updated D1 operational docs, web-server imports, source guards, package
@@ -90,7 +90,7 @@
   for the new console package home.
 - Validation:
   - `pnpm -C tests run check:signer-console-module-boundaries`
-  - `pnpm -C packages/sdk-server-ts run build`
+  - `pnpm -C packages/wallet-server run build`
   - `pnpm -C tests exec playwright test -c playwright.unit.config.ts --reporter=line unit/sponsorship.staticPricing.unit.test.ts unit/sponsorship.realPricing.unit.test.ts unit/sponsorship.evmRelayConfig.unit.test.ts unit/cloudflareD1ConsoleServices.unit.test.ts relayer/console-d1-adapters.test.ts`
   - `pnpm -C tests exec playwright test -c playwright.unit.config.ts --reporter=line unit/cloudflareD1ConsoleServices.unit.test.ts unit/relayWalletRegistration.boundary.unit.test.ts unit/router.sponsoredEvmCallCloudflare.unit.test.ts unit/router.routerApiRouteSurface.unit.test.ts`
   - `pnpm -C tests exec playwright test -c playwright.unit.config.ts --reporter=line unit/router.routeDefinitions.unit.test.ts unit/router.routerApiRouteSurface.unit.test.ts unit/cloudflareD1ConsoleServices.unit.test.ts unit/cloudflareSelfHostedSigningWorker.script.unit.test.ts`
@@ -104,8 +104,8 @@
   - `pnpm install --ignore-scripts`
   - `pnpm -C packages/console-shared-ts run type-check`
   - `pnpm -C packages/shared-ts run type-check`
-  - `pnpm -C packages/sdk-server-ts run build`
-  - `pnpm -C packages/sdk-server-ts run type-check`
+  - `pnpm -C packages/wallet-server run build`
+  - `pnpm -C packages/wallet-server run type-check`
   - `pnpm -C packages/console-server-ts run type-check`
   - `pnpm -C packages/console-server-ts run build`
   - `pnpm -C apps/web-server run build`

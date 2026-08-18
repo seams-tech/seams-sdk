@@ -1,11 +1,11 @@
 import { expect, test } from '@playwright/test';
-import { createCloudflareD1RouterApiAuthService } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
-import { CloudflareD1RegistrationCeremonyIntentStore } from '../../packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1RegistrationCeremonyStore';
+import { createCloudflareD1RouterApiAuthService } from '../../packages/wallet-server/src/router/cloudflare/d1/auth/d1RouterApiAuthService';
+import { CloudflareD1RegistrationCeremonyIntentStore } from '../../packages/wallet-server/src/router/cloudflare/d1/registration/d1RegistrationCeremonyStore';
 import {
   computeWalletRegistrationSetupDigestB64u,
   parseWalletRegistrationSetupClaims,
   verifySignedWalletRegistrationSetup,
-} from '../../packages/sdk-server-ts/src/router/domains/walletRegistration/walletRegistrationSetupPayload';
+} from '../../packages/wallet-server/src/router/domains/walletRegistration/walletRegistrationSetupPayload';
 import { parseWebAuthnRpId } from '../../packages/shared-ts/src/utils/domainIds';
 import { implicitNearAccountProvisioning } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
@@ -338,7 +338,7 @@ test('setup prepares ECDSA only for a mixed plan, for either auth method', async
 
 test('the setup route definition accepts a publishable key and nothing else', async () => {
   const { createRouterApiRouteDefinitions } =
-    await import('../../packages/sdk-server-ts/src/router/framework/routeDefinitions');
+    await import('../../packages/wallet-server/src/router/framework/routeDefinitions');
   const routes = createRouterApiRouteDefinitions({});
   const setup = routes.find((route) => route.id === 'wallet_registration_setup');
   if (!setup) throw new Error('Expected the setup route definition');
@@ -353,7 +353,7 @@ test('the setup route definition accepts a publishable key and nothing else', as
 
 test('add-signer intent accepts a publishable key and nothing else', async () => {
   const { createRouterApiRouteDefinitions } =
-    await import('../../packages/sdk-server-ts/src/router/framework/routeDefinitions');
+    await import('../../packages/wallet-server/src/router/framework/routeDefinitions');
   const routes = createRouterApiRouteDefinitions({});
   const addSigner = routes.find((route) => route.id === 'wallet_add_signer_intent');
   if (!addSigner) throw new Error('Expected the add-signer intent route definition');

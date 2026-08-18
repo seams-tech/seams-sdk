@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { admitLinkedOwnerEnrollmentProvenanceV1 } from '../../packages/sdk-server-ts/src/core/deviceLinking/linkedOwnerEnrollmentProvenance';
-import type { LinkedOwnerEnrollmentCeremonyReaderV1 } from '../../packages/sdk-server-ts/src/core/deviceLinking/linkedOwnerEnrollmentProvenance';
+import { admitLinkedOwnerEnrollmentProvenanceV1 } from '../../packages/wallet-server/src/core/deviceLinking/linkedOwnerEnrollmentProvenance';
+import type { LinkedOwnerEnrollmentCeremonyReaderV1 } from '../../packages/wallet-server/src/core/deviceLinking/linkedOwnerEnrollmentProvenance';
 import {
   buildR103DeviceLinkFixture,
   buildR103OwnerEnrollmentCeremonyV1,

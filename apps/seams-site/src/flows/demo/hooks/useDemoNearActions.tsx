@@ -7,13 +7,13 @@ import {
   TxExecutionStatus,
   useSeams,
   type SigningFlowEvent,
-} from '@seams/sdk/react';
+} from '@seams/wallet/react';
 import {
   MinimalNearClient,
   nearAccountRefFromAccountId,
   walletSessionRefFromSession,
-} from '@seams/sdk/advanced';
-import type { ActionArgs, FunctionCallAction } from '@seams/sdk/react';
+} from '@seams/wallet/advanced';
+import type { ActionArgs, FunctionCallAction } from '@seams/wallet/react';
 
 import { FRONTEND_CONFIG } from '@/config';
 import { DEMO_CONTRACT_ID, NEAR_EXPLORER_BASE_URL } from '@/shared/types';

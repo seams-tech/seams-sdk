@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   hydrateWalletExecutionLane,
   type WalletExecutionLaneHydrationInput,
-} from '../../packages/sdk-web/src/core/signingEngine/session/lanes/walletExecutionLaneHydration';
+} from '../../packages/wallet/src/core/signingEngine/session/lanes/walletExecutionLaneHydration';
 import { deriveEvmFamilySigningKeySlotId } from '../../packages/shared-ts/src/signing-lanes/evmFamilySigningKeySlotId';
 import { routerAbMpcMaterialActivationRefToWire } from '../../packages/shared-ts/src/utils/routerAbNormalSigningIdentity';
 import { ecdsaCapabilityActivationLookupFixture } from './helpers/ecdsaCapabilityManifest.fixtures';

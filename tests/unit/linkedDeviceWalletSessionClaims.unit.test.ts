@@ -3,13 +3,13 @@ import {
   parseRouterAbEd25519WalletSessionClaims,
   parseRouterAbEcdsaDerivationWalletSessionClaims,
   type RouterAbEd25519LinkedDeviceWalletSessionClaims,
-} from '../../packages/sdk-server-ts/src/core/ThresholdService/validation';
+} from '../../packages/wallet-server/src/core/ThresholdService/validation';
 import {
   signRouterAbEd25519LinkedDeviceWalletSessionJwt,
   signRouterAbEcdsaDerivationLinkedDeviceWalletSessionJwt,
-} from '../../packages/sdk-server-ts/src/router/auth/commonRouterUtils';
-import type { SessionAdapter } from '../../packages/sdk-server-ts/src/router/framework/routerApi';
-import { buildVerifiedEd25519WalletSessionAuth } from '../../packages/sdk-server-ts/src/router/auth/verifiedWalletSessionAuth';
+} from '../../packages/wallet-server/src/router/auth/commonRouterUtils';
+import type { SessionAdapter } from '../../packages/wallet-server/src/router/framework/routerApi';
+import { buildVerifiedEd25519WalletSessionAuth } from '../../packages/wallet-server/src/router/auth/verifiedWalletSessionAuth';
 import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '../../packages/shared-ts/src/utils/sessionTokens';
 import { ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND } from '../../packages/shared-ts/src/utils/sessionTokens';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { parseEcdsaAdditiveLaneHolderRoundV1 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
-import { CloudflareEd25519LaneProtocolTransportV1 } from '../../packages/sdk-server-ts/src/router/cloudflare/signingLanes/cloudflareLaneProtocolCommitter';
+import { CloudflareEd25519LaneProtocolTransportV1 } from '../../packages/wallet-server/src/router/cloudflare/signingLanes/cloudflareLaneProtocolCommitter';
 import {
   createCloudflareLaneCurveExecutionPortsV1,
   CloudflareSigningWorkerEcdsaLaneTransportV1,
@@ -8,7 +8,7 @@ import {
   LaneLifecycleStoreEcdsaLanePrivateBindingResolverV1,
   LaneLifecycleStoreNormalSigningLaneMaterialResolverV1,
   type SigningWorkerLaneMaterialReceiptPortV1,
-} from '../../packages/sdk-server-ts/src/router/cloudflare/signingLanes/cloudflareLaneCurveExecution';
+} from '../../packages/wallet-server/src/router/cloudflare/signingLanes/cloudflareLaneCurveExecution';
 import {
   buildR102EcdsaLaneJob,
   buildR102LaneJob,

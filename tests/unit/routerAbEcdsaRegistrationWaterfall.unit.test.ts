@@ -6,11 +6,11 @@ const TEST_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const REPOSITORY_ROOT = path.resolve(TEST_DIRECTORY, '../..');
 const DERIVATION_WORKER_PATH = path.join(
   REPOSITORY_ROOT,
-  'packages/sdk-web/dist/workers/ecdsa-derivation-client.worker.js',
+  'packages/wallet/dist/workers/ecdsa-derivation-client.worker.js',
 );
 const REGISTRATION_WASM_PATH = path.join(
   REPOSITORY_ROOT,
-  'packages/sdk-web/dist/workers/ecdsa_registration_client_bg.wasm',
+  'packages/wallet/dist/workers/ecdsa_registration_client_bg.wasm',
 );
 const PAGE_URL = 'https://wallet.example.localhost/__ecdsa-registration-waterfall.html';
 const DERIVATION_WORKER_URL =

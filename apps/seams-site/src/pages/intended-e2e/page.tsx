@@ -3,11 +3,11 @@ import type {
   NearProvisioningState,
   NearProvisioningStateChangedEvent,
   WalletSession,
-} from '@seams/sdk';
+} from '@seams/wallet';
 import {
   buildHostedAuthMenuOpenRequest,
   hostedAuthMenuSessionIdFromBoundary,
-} from '@seams/sdk';
+} from '@seams/wallet';
 import {
   ActionType,
   useSeams,
@@ -16,7 +16,7 @@ import {
   type RegisteredNearEd25519Capability,
   type RegistrationResult,
   type RegistrationSignerSetSelection,
-} from '@seams/sdk/react';
+} from '@seams/wallet/react';
 import {
   encodeSignedTransactionBase64,
   nearAccountRefFromAccountId,
@@ -24,7 +24,7 @@ import {
   toWalletId,
   type ThresholdEcdsaChainTarget,
   walletSessionRefFromSession,
-} from '@seams/sdk/advanced';
+} from '@seams/wallet/advanced';
 import { FRONTEND_CONFIG } from '@/config';
 
 type IntendedActionName =

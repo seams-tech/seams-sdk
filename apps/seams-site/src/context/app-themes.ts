@@ -1,5 +1,5 @@
-import { SHAPE_PRESETS } from '@seams/sdk/react';
-import type { SeamsConfigsInput, ThemeProps, WalletShapeId } from '@seams/sdk/react';
+import { SHAPE_PRESETS } from '@seams/wallet/react';
+import type { SeamsConfigsInput, ThemeProps, WalletShapeId } from '@seams/wallet/react';
 
 type SdkAppearance = NonNullable<SeamsConfigsInput['appearance']>;
 

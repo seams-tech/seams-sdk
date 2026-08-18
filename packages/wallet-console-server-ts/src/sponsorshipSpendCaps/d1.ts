@@ -1,6 +1,6 @@
-import { secureRandomBase36 } from '@seams/sdk-server/cloud-host';
-import { d1Integer as toNumber, d1ChangedRows, formatD1ExecStatement, queryD1One, type D1Row } from '@seams/sdk-server/cloud-host';
-import type { D1DatabaseLike } from '@seams/sdk-server/cloud-host';
+import { secureRandomBase36 } from '@seams/wallet-server/cloud-host';
+import { d1Integer as toNumber, d1ChangedRows, formatD1ExecStatement, queryD1One, type D1Row } from '@seams/wallet-server/cloud-host';
+import type { D1DatabaseLike } from '@seams/wallet-server/cloud-host';
 import { ConsoleSponsorshipSpendCapError } from './errors';
 import {
   buildConsoleSponsorshipSpendCapWindowUsage,

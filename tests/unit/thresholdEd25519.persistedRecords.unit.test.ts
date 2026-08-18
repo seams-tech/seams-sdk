@@ -3,7 +3,7 @@ import {
   parseCurrentThresholdEd25519StoreSessionRow,
   parseCurrentThresholdEd25519SessionRecord,
   parseCurrentThresholdEd25519SessionStatusRow,
-} from '../../packages/sdk-server-ts/src/core/ThresholdService/persistedRecords';
+} from '../../packages/wallet-server/src/core/ThresholdService/persistedRecords';
 
 const authorityScope = { kind: 'passkey_rp' as const, rpId: 'example.localhost' };
 

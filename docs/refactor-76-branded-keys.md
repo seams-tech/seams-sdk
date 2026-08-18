@@ -291,8 +291,8 @@ Create a small key-version type module.
 
 Candidate locations:
 
-- SDK: `packages/sdk-web/src/core/signingEngine/session/keyVersions.ts`
-- Server: `packages/sdk-server-ts/src/core/keyVersions.ts`
+- SDK: `packages/wallet/src/core/signingEngine/session/keyVersions.ts`
+- Server: `packages/wallet-server/src/core/keyVersions.ts`
 
 If there is an existing shared package path that both SDK and server can import without new build churn, use that instead.
 
@@ -313,12 +313,12 @@ Acceptance:
 
 Primary files:
 
-- `packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts`
-- `packages/sdk-web/src/SeamsWeb/operations/devices/linkDevice.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/provisioning.ts`
-- `packages/sdk-web/src/core/types/signer-worker.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/persistence.ts`
-- `packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession.ts`
+- `packages/wallet/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts`
+- `packages/wallet/src/SeamsWeb/operations/devices/linkDevice.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/provisioning.ts`
+- `packages/wallet/src/core/types/signer-worker.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/persistence.ts`
+- `packages/wallet/src/core/signingEngine/session/routerAbSigningWalletSession.ts`
 
 Tasks:
 
@@ -338,12 +338,12 @@ Acceptance:
 
 Primary files:
 
-- `packages/sdk-server-ts/src/core/AuthService.ts`
-- `packages/sdk-server-ts/src/threshold/session/signingSessionSeal/options.ts`
-- `packages/sdk-web/src/core/signingEngine/session/persistence/records.ts`
-- `packages/sdk-web/src/core/signingEngine/uiConfirm/UiConfirmManager.ts`
-- `packages/sdk-web/src/core/types/secure-confirm-worker.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/capabilityReaderCore.ts`
+- `packages/wallet-server/src/core/AuthService.ts`
+- `packages/wallet-server/src/threshold/session/signingSessionSeal/options.ts`
+- `packages/wallet/src/core/signingEngine/session/persistence/records.ts`
+- `packages/wallet/src/core/signingEngine/uiConfirm/UiConfirmManager.ts`
+- `packages/wallet/src/core/types/secure-confirm-worker.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/capabilityReaderCore.ts`
 
 Tasks:
 
@@ -364,11 +364,11 @@ Acceptance:
 
 Primary files:
 
-- `packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts`
-- `packages/sdk-web/src/core/signingEngine/session/persistence/records.ts`
-- `packages/sdk-web/src/core/signingEngine/threshold/ecdsa/activation.ts`
-- `packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaRecovery.ts`
-- `packages/sdk-web/src/core/signingEngine/routerAb/ecdsaHss/*`
+- `packages/wallet-server/src/core/ThresholdService/ThresholdSigningService.ts`
+- `packages/wallet/src/core/signingEngine/session/persistence/records.ts`
+- `packages/wallet/src/core/signingEngine/threshold/ecdsa/activation.ts`
+- `packages/wallet/src/core/signingEngine/session/passkey/ecdsaRecovery.ts`
+- `packages/wallet/src/core/signingEngine/routerAb/ecdsaHss/*`
 
 Tasks:
 
@@ -719,9 +719,9 @@ Postcondition rules:
 
 Files:
 
-- `packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts`
-- `packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts`
-- `packages/sdk-web/src/core/signingEngine/session/postconditions/runtimePostconditions.ts` if the shared-grant check is promoted into a reusable postcondition.
+- `packages/wallet/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts`
+- `packages/wallet/src/SeamsWeb/operations/registration/registration.ts`
+- `packages/wallet/src/core/signingEngine/session/postconditions/runtimePostconditions.ts` if the shared-grant check is promoted into a reusable postcondition.
 - `tests/unit/thresholdWarmSessionPolicyDraft.unit.test.ts`
 - `tests/unit/registrationIntentAllocation.unit.test.ts`
 
@@ -841,13 +841,13 @@ Pick the brand module location before changing call sites.
 SDK brands should live in a core SDK module used by signing/session code:
 
 ```text
-packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands.ts
+packages/wallet/src/core/signingEngine/session/keyMaterialBrands.ts
 ```
 
 Server brands should live in a server core module:
 
 ```text
-packages/sdk-server-ts/src/core/keyMaterialBrands.ts
+packages/wallet-server/src/core/keyMaterialBrands.ts
 ```
 
 If a shared package already exists and does not add build churn, move the tiny shared definitions there. Do not create a new package for these brands.
@@ -855,7 +855,7 @@ If a shared package already exists and does not add build churn, move the tiny s
 Generated command files stay as wire boundaries. Do not manually edit:
 
 ```text
-packages/sdk-web/src/core/platform/generated/signerCoreCommands.ts
+packages/wallet/src/core/platform/generated/signerCoreCommands.ts
 ```
 
 If generated command types need branded wrappers, add adapters next to the handwritten SDK wrapper code. Rust/generator changes can happen later if they reduce boundary code.
@@ -942,41 +942,41 @@ Use this inventory to avoid a half-refactored state. Each phase should either up
 
 Create or update:
 
-- `packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands.ts`
-- `packages/sdk-server-ts/src/core/keyMaterialBrands.ts`
-- `packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/keyMaterialBrands.ts`
+- `packages/wallet-server/src/core/keyMaterialBrands.ts`
+- `packages/wallet/src/core/signingEngine/session/keyMaterialBrands.typecheck.ts`
 - `tests/unit/refactor76BrandedKeys.guard.unit.test.ts`
 
 Existing type fixture patterns to follow:
 
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/types.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/persistence.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/types.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/persistence.typecheck.ts`
 
 ### Ed25519 HSS Version And Worker-Material Paths
 
 Primary files:
 
-- `packages/sdk-web/src/core/types/signer-worker.ts`
-- `packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession.ts`
-- `packages/sdk-web/src/SeamsWeb/operations/devices/linkDevice.ts`
-- `packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/provisioning.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519LocalMetadata.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519Warmup.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/ports.ts`
-- `packages/sdk-web/src/core/signingEngine/threshold/ed25519/workerMaterialBinding.ts`
-- `packages/sdk-web/src/core/signingEngine/threshold/ed25519/workerMaterialHandle.ts`
-- `packages/sdk-web/src/core/signingEngine/threshold/ed25519/clientOutputMask.ts`
-- `packages/sdk-web/src/core/signingEngine/threshold/ed25519/hssLifecycle.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/persistence.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/readModel.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/capabilityReaderCore.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/capabilityReader.ts`
+- `packages/wallet/src/core/types/signer-worker.ts`
+- `packages/wallet/src/core/signingEngine/session/routerAbSigningWalletSession.ts`
+- `packages/wallet/src/SeamsWeb/operations/devices/linkDevice.ts`
+- `packages/wallet/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/provisioning.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/ed25519LocalMetadata.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/ed25519Warmup.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/ports.ts`
+- `packages/wallet/src/core/signingEngine/threshold/ed25519/workerMaterialBinding.ts`
+- `packages/wallet/src/core/signingEngine/threshold/ed25519/workerMaterialHandle.ts`
+- `packages/wallet/src/core/signingEngine/threshold/ed25519/clientOutputMask.ts`
+- `packages/wallet/src/core/signingEngine/threshold/ed25519/hssLifecycle.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/persistence.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/readModel.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/capabilityReaderCore.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/capabilityReader.ts`
 
 Boundary/generated file:
 
-- `packages/sdk-web/src/core/platform/generated/signerCoreCommands.ts`
+- `packages/wallet/src/core/platform/generated/signerCoreCommands.ts`
 
 Relevant tests:
 
@@ -993,27 +993,27 @@ Relevant tests:
 
 Server files:
 
-- `packages/sdk-server-ts/src/core/config.ts`
-- `packages/sdk-server-ts/src/core/types.ts`
-- `packages/sdk-server-ts/src/core/AuthService.ts`
-- `packages/sdk-server-ts/src/threshold/session/signingSessionSeal/options.ts`
-- `packages/sdk-server-ts/src/threshold/session/signingSessionSeal/service.ts`
-- `packages/sdk-server-ts/src/threshold/session/signingSessionSeal/signingSessionSeal.types.ts`
-- `packages/sdk-server-ts/src/threshold/session/signingSessionSeal/transport/shared.ts`
-- `packages/sdk-server-ts/src/threshold/session/signingSessionSeal/postgresRecords.ts`
-- `packages/sdk-server-ts/src/threshold/session/signingSessionSeal/crypto/cipher.ts`
+- `packages/wallet-server/src/core/config.ts`
+- `packages/wallet-server/src/core/types.ts`
+- `packages/wallet-server/src/core/AuthService.ts`
+- `packages/wallet-server/src/threshold/session/signingSessionSeal/options.ts`
+- `packages/wallet-server/src/threshold/session/signingSessionSeal/service.ts`
+- `packages/wallet-server/src/threshold/session/signingSessionSeal/signingSessionSeal.types.ts`
+- `packages/wallet-server/src/threshold/session/signingSessionSeal/transport/shared.ts`
+- `packages/wallet-server/src/threshold/session/signingSessionSeal/postgresRecords.ts`
+- `packages/wallet-server/src/threshold/session/signingSessionSeal/crypto/cipher.ts`
 
 SDK files:
 
-- `packages/sdk-web/src/core/types/secure-confirm-worker.ts`
-- `packages/sdk-web/src/core/types/seams.ts`
-- `packages/sdk-web/src/core/config/configBuilder.ts`
-- `packages/sdk-web/src/core/signingEngine/session/persistence/records.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/persistence.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/readModel.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/capabilityReaderCore.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/capabilityReader.ts`
-- `packages/sdk-web/src/core/signingEngine/uiConfirm/UiConfirmManager.ts`
+- `packages/wallet/src/core/types/secure-confirm-worker.ts`
+- `packages/wallet/src/core/types/seams.ts`
+- `packages/wallet/src/core/config/configBuilder.ts`
+- `packages/wallet/src/core/signingEngine/session/persistence/records.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/persistence.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/readModel.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/capabilityReaderCore.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/capabilityReader.ts`
+- `packages/wallet/src/core/signingEngine/uiConfirm/UiConfirmManager.ts`
 
 Relevant tests and helpers:
 
@@ -1029,48 +1029,48 @@ Relevant tests and helpers:
 
 Server files:
 
-- `packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts`
-- `packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaHssPoolFillHandlers.ts`
-- `packages/sdk-server-ts/src/core/ThresholdService/signingRootRecords.ts`
+- `packages/wallet-server/src/core/ThresholdService/ThresholdSigningService.ts`
+- `packages/wallet-server/src/core/ThresholdService/routerAb/ecdsaHssPoolFillHandlers.ts`
+- `packages/wallet-server/src/core/ThresholdService/signingRootRecords.ts`
 
 SDK files:
 
-- `packages/sdk-web/src/core/signingEngine/threshold/ecdsa/activation.ts`
-- `packages/sdk-web/src/core/signingEngine/threshold/ecdsa/bootstrapSession.ts`
-- `packages/sdk-web/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts`
-- `packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaRecovery.ts`
-- `packages/sdk-web/src/core/signingEngine/session/persistence/records.ts`
-- `packages/sdk-web/src/core/signingEngine/routerAb/ecdsaHss/presignaturePool.ts`
-- `packages/sdk-web/src/core/signingEngine/routerAb/ecdsaHss/signingMaterialRef.ts`
-- `packages/sdk-web/src/core/signingEngine/routerAb/ecdsaHss/clientSigningMaterialBoundary.ts`
-- `packages/sdk-web/src/core/signingEngine/routerAb/ecdsaHss/poolFillRoutes.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signingFlowRuntime.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaLanes.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaMaterialState.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/registration/services/ecdsaRegistrationBootstrap.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/registration/services/ecdsaRegistrationSessions.ts`
-- `packages/sdk-web/src/core/platform/signerCoreCommandAdapters.ts`
+- `packages/wallet/src/core/signingEngine/threshold/ecdsa/activation.ts`
+- `packages/wallet/src/core/signingEngine/threshold/ecdsa/bootstrapSession.ts`
+- `packages/wallet/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts`
+- `packages/wallet/src/core/signingEngine/session/passkey/ecdsaRecovery.ts`
+- `packages/wallet/src/core/signingEngine/session/persistence/records.ts`
+- `packages/wallet/src/core/signingEngine/routerAb/ecdsaHss/presignaturePool.ts`
+- `packages/wallet/src/core/signingEngine/routerAb/ecdsaHss/signingMaterialRef.ts`
+- `packages/wallet/src/core/signingEngine/routerAb/ecdsaHss/clientSigningMaterialBoundary.ts`
+- `packages/wallet/src/core/signingEngine/routerAb/ecdsaHss/poolFillRoutes.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/signingFlowRuntime.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/ecdsaLanes.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/ecdsaMaterialState.ts`
+- `packages/wallet/src/core/signingEngine/flows/registration/services/ecdsaRegistrationBootstrap.ts`
+- `packages/wallet/src/core/signingEngine/flows/registration/services/ecdsaRegistrationSessions.ts`
+- `packages/wallet/src/core/platform/signerCoreCommandAdapters.ts`
 
 Boundary/generated file:
 
-- `packages/sdk-web/src/core/platform/generated/signerCoreCommands.ts`
+- `packages/wallet/src/core/platform/generated/signerCoreCommands.ts`
 
 ### ECDSA Lifecycle Strictness
 
 Primary files:
 
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/types.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan.ts`
-- `packages/sdk-web/src/core/signingEngine/useCases/provisionEcdsaSession.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/provisionPlan.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaReadiness.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signingFlowRuntime.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/types.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan.ts`
+- `packages/wallet/src/core/signingEngine/useCases/provisionEcdsaSession.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/provisionPlan.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/ecdsaReadiness.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/signingFlowRuntime.ts`
 
 Type fixtures:
 
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/types.typecheck.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/types.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan.typecheck.ts`
 
 Relevant tests:
 
@@ -1084,18 +1084,18 @@ Relevant tests:
 
 Primary files:
 
-- `packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts`
-- `packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts`
-- `packages/sdk-web/src/core/signingEngine/session/postconditions/runtimePostconditions.ts`
-- `packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/statusReader.ts`
+- `packages/wallet/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts`
+- `packages/wallet/src/SeamsWeb/operations/registration/registration.ts`
+- `packages/wallet/src/core/signingEngine/session/postconditions/runtimePostconditions.ts`
+- `packages/wallet/src/core/signingEngine/session/availability/availableSigningLanes.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/statusReader.ts`
 
 Server/route files to audit:
 
-- `packages/sdk-server-ts/src/core/AuthService.ts`
-- `packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519.ts`
-- `packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEcdsa.ts`
-- `packages/sdk-server-ts/src/threshold/session/signingSessionSeal/policy/sessionPolicy.ts`
+- `packages/wallet-server/src/core/AuthService.ts`
+- `packages/wallet-server/src/router/cloudflare/routes/thresholdEd25519.ts`
+- `packages/wallet-server/src/router/cloudflare/routes/thresholdEcdsa.ts`
+- `packages/wallet-server/src/threshold/session/signingSessionSeal/policy/sessionPolicy.ts`
 
 Relevant tests:
 
@@ -1119,7 +1119,7 @@ Run these before and after each phase. After a phase lands, every remaining hit 
 ### Key Version Inventory
 
 ```bash
-rg -n "keyVersion: string" packages/sdk-web/src packages/sdk-server-ts/src
+rg -n "keyVersion: string" packages/wallet/src packages/wallet-server/src
 rg -n "THRESHOLD_ED25519_SINGLE_KEY_HSS_KEY_VERSION_V1|EMAIL_OTP_THRESHOLD_ED25519_HSS_KEY_VERSION|threshold-ed25519-hss-v1" packages tests
 rg -n "THRESHOLD_ECDSA_HSS_KEY_VERSION_V1|walletKeyVersion|EcdsaClientBootstrapKeyVersion" packages tests
 rg -n "SIGNING_SESSION_SEAL_KEY_VERSION|signingSessionSealKeyVersion|currentKeyVersion|kek-s-|seal-v1" packages tests docs
@@ -1128,26 +1128,26 @@ rg -n "SIGNING_SESSION_SEAL_KEY_VERSION|signingSessionSealKeyVersion|currentKeyV
 ### Opaque Material And Digest Inventory
 
 ```bash
-rg -n "materialHandle: string|sealedWorkerMaterialRef: string|materialBindingDigest: string|materialKeyId: string" packages/sdk-web/src/core/signingEngine
-rg -n "clientVerifyingShareB64u: string|relayerKeyId: string" packages/sdk-web/src/core/signingEngine packages/sdk-server-ts/src/core/ThresholdService
-rg -n "ecdsaThresholdKeyId|keyHandle|clientAdditiveShareHandle" packages/sdk-web/src packages/sdk-server-ts/src tests
+rg -n "materialHandle: string|sealedWorkerMaterialRef: string|materialBindingDigest: string|materialKeyId: string" packages/wallet/src/core/signingEngine
+rg -n "clientVerifyingShareB64u: string|relayerKeyId: string" packages/wallet/src/core/signingEngine packages/wallet-server/src/core/ThresholdService
+rg -n "ecdsaThresholdKeyId|keyHandle|clientAdditiveShareHandle" packages/wallet/src packages/wallet-server/src tests
 ```
 
 ### ECDSA Lifecycle Inventory
 
 ```bash
-rg -n "getEcdsaSessionProvisionIdentity|recordMatchesPlannedIdentity|provisionPlanRequiresExistingRecordIdentity" packages/sdk-web/src/core/signingEngine tests
-rg -n "existingSessionIdentity|newSessionIdentity|wallet_session_ecdsa_reconnect|passkey_ecdsa_session_provision|email_otp_ecdsa_session_provision" packages/sdk-web/src/core/signingEngine tests/unit
-rg -n "EcdsaSessionProvisionPlan|BuildEcdsaSessionProvisionPlanArgs" packages/sdk-web/src/core/signingEngine tests/unit
+rg -n "getEcdsaSessionProvisionIdentity|recordMatchesPlannedIdentity|provisionPlanRequiresExistingRecordIdentity" packages/wallet/src/core/signingEngine tests
+rg -n "existingSessionIdentity|newSessionIdentity|wallet_session_ecdsa_reconnect|passkey_ecdsa_session_provision|email_otp_ecdsa_session_provision" packages/wallet/src/core/signingEngine tests/unit
+rg -n "EcdsaSessionProvisionPlan|BuildEcdsaSessionProvisionPlanArgs" packages/wallet/src/core/signingEngine tests/unit
 ```
 
 ### Shared Signing-Grant Inventory
 
 ```bash
-rg -n "createThresholdWarmSessionPolicyDraft\\(" packages/sdk-web/src/SeamsWeb packages/sdk-web/src/core tests/unit
-rg -n "shared_signing_grant|generated_signing_grant|signingGrantId" packages/sdk-web/src/SeamsWeb/operations/registration packages/sdk-web/src/SeamsWeb/operations/session tests/unit
-rg -n "assertCombinedRegistrationSharedSigningGrant|requireSharedSigningGrant" packages/sdk-web/src tests/unit
-rg -n "remainingUses|remainingSignatureUses" packages/sdk-web/src/SeamsWeb/operations/registration packages/sdk-web/src/core/signingEngine/session/postconditions tests/unit
+rg -n "createThresholdWarmSessionPolicyDraft\\(" packages/wallet/src/SeamsWeb packages/wallet/src/core tests/unit
+rg -n "shared_signing_grant|generated_signing_grant|signingGrantId" packages/wallet/src/SeamsWeb/operations/registration packages/wallet/src/SeamsWeb/operations/session tests/unit
+rg -n "assertCombinedRegistrationSharedSigningGrant|requireSharedSigningGrant" packages/wallet/src tests/unit
+rg -n "remainingUses|remainingSignatureUses" packages/wallet/src/SeamsWeb/operations/registration packages/wallet/src/core/signingEngine/session/postconditions tests/unit
 ```
 
 After Phase 7 lands, combined-registration code should have one clear shared-grant construction path. Remaining generated-grant calls should be Ed25519-only, add-signer, recovery, link-device, or another explicitly independent wallet-session flow.
@@ -1156,7 +1156,7 @@ After Phase 7 lands, combined-registration code should have one clear shared-gra
 
 These areas may continue to expose raw strings, provided they parse immediately before core use:
 
-- `packages/sdk-web/src/core/platform/generated/signerCoreCommands.ts`
+- `packages/wallet/src/core/platform/generated/signerCoreCommands.ts`
 - Route schema/request/response modules.
 - IndexedDB/server persistence record modules.
 - Config/env parsing modules.
@@ -1203,10 +1203,10 @@ Do not reopen completed key-version, ECDSA lifecycle, shared-budget, or Phase 9 
 
 Files:
 
-- `packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands.ts`
-- `packages/sdk-web/src/core/signingEngine/session/keyMaterialBrands.typecheck.ts`
-- `packages/sdk-server-ts/src/core/keyMaterialBrands.ts`
-- `packages/sdk-server-ts/src/core/keyMaterialBrands.typecheck.ts`
+- `packages/wallet/src/core/signingEngine/session/keyMaterialBrands.ts`
+- `packages/wallet/src/core/signingEngine/session/keyMaterialBrands.typecheck.ts`
+- `packages/wallet-server/src/core/keyMaterialBrands.ts`
+- `packages/wallet-server/src/core/keyMaterialBrands.typecheck.ts`
 
 ### 9B. Parse At Boundaries, Then Pass Brands In Core
 
@@ -1232,15 +1232,15 @@ Acceptance:
 
 Primary files:
 
-- `packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession.ts`
-- `packages/sdk-web/src/core/signingEngine/session/passkey/ed25519Recovery.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/persistence.ts`
-- `packages/sdk-web/src/core/signingEngine/threshold/ed25519/workerMaterialBinding.ts`
-- `packages/sdk-web/src/core/signingEngine/threshold/ed25519/workerMaterialHandle.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519SigningMaterialReadiness.ts`
-- `packages/sdk-web/src/core/signingEngine/chains/near/nearSignerWasm.ts`
-- `packages/sdk-web/src/core/signingEngine/workerManager/workers/near-signer.worker.ts`
-- `packages/sdk-web/src/core/signingEngine/workerManager/workerTypes.ts`
+- `packages/wallet/src/core/signingEngine/session/routerAbSigningWalletSession.ts`
+- `packages/wallet/src/core/signingEngine/session/passkey/ed25519Recovery.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/persistence.ts`
+- `packages/wallet/src/core/signingEngine/threshold/ed25519/workerMaterialBinding.ts`
+- `packages/wallet/src/core/signingEngine/threshold/ed25519/workerMaterialHandle.ts`
+- `packages/wallet/src/core/signingEngine/flows/signNear/shared/ed25519SigningMaterialReadiness.ts`
+- `packages/wallet/src/core/signingEngine/chains/near/nearSignerWasm.ts`
+- `packages/wallet/src/core/signingEngine/workerManager/workers/near-signer.worker.ts`
+- `packages/wallet/src/core/signingEngine/workerManager/workerTypes.ts`
 
 ### 9D. Brand Curve-Specific Relayer Keys And Verifying Shares
 
@@ -1254,15 +1254,15 @@ Primary files:
 
 Primary files:
 
-- `packages/sdk-web/src/core/signingEngine/threshold/ed25519/workerMaterialBinding.ts`
-- `packages/sdk-web/src/core/signingEngine/threshold/ed25519/presignPool.ts`
-- `packages/sdk-web/src/core/signingEngine/session/persistence/records.ts`
-- `packages/sdk-web/src/core/signingEngine/session/identity/ecdsaHssSigningMaterialHandle.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan.ts`
-- `packages/sdk-web/src/core/signingEngine/routerAb/ecdsaHss/presignaturePool.ts`
-- `packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts`
-- `packages/sdk-server-ts/src/core/ThresholdService/routerAb/ecdsaHssPoolFillHandlers.ts`
-- `packages/sdk-server-ts/src/core/ThresholdService/relayerKeyMaterial.ts`
+- `packages/wallet/src/core/signingEngine/threshold/ed25519/workerMaterialBinding.ts`
+- `packages/wallet/src/core/signingEngine/threshold/ed25519/presignPool.ts`
+- `packages/wallet/src/core/signingEngine/session/persistence/records.ts`
+- `packages/wallet/src/core/signingEngine/session/identity/ecdsaHssSigningMaterialHandle.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan.ts`
+- `packages/wallet/src/core/signingEngine/routerAb/ecdsaHss/presignaturePool.ts`
+- `packages/wallet-server/src/core/ThresholdService/ThresholdSigningService.ts`
+- `packages/wallet-server/src/core/ThresholdService/routerAb/ecdsaHssPoolFillHandlers.ts`
+- `packages/wallet-server/src/core/ThresholdService/relayerKeyMaterial.ts`
 
 ### 9E. Brand ECDSA Key Identity Handles
 
@@ -1274,14 +1274,14 @@ Primary files:
 
 Primary files:
 
-- `packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.ts`
-- `packages/sdk-web/src/core/signingEngine/session/identity/ecdsaHssSigningMaterialHandle.ts`
-- `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaReadiness.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/readySecp256k1Material.ts`
-- `packages/sdk-web/src/core/signingEngine/routerAb/ecdsaHss/presignaturePool.ts`
-- `packages/sdk-web/src/core/signingEngine/routerAb/ecdsaHss/clientSigningMaterialBoundary.ts`
-- `packages/sdk-server-ts/src/core/ThresholdService/stores/EcdsaSigningStore.ts`
+- `packages/wallet/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.ts`
+- `packages/wallet/src/core/signingEngine/session/identity/ecdsaHssSigningMaterialHandle.ts`
+- `packages/wallet/src/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/ecdsaReadiness.ts`
+- `packages/wallet/src/core/signingEngine/flows/signEvmFamily/readySecp256k1Material.ts`
+- `packages/wallet/src/core/signingEngine/routerAb/ecdsaHss/presignaturePool.ts`
+- `packages/wallet/src/core/signingEngine/routerAb/ecdsaHss/clientSigningMaterialBoundary.ts`
+- `packages/wallet-server/src/core/ThresholdService/stores/EcdsaSigningStore.ts`
 
 ### 9F. Brand Signing-Session Seal Non-Secret Parameters
 
@@ -1292,8 +1292,8 @@ Primary files:
 
 Primary files:
 
-- `packages/sdk-server-ts/src/threshold/session/signingSessionSeal/options.ts`
-- `packages/sdk-server-ts/src/core/AuthService.ts`
+- `packages/wallet-server/src/threshold/session/signingSessionSeal/options.ts`
+- `packages/wallet-server/src/core/AuthService.ts`
 - `apps/web-server/scripts/generate-signing-session-seal-keys.mjs`
 - `apps/web-server/src/index.ts`
 
@@ -1314,8 +1314,8 @@ Primary files:
 
 Validation:
 
-- [x] `pnpm --dir packages/sdk-web exec tsc --noEmit --pretty false`
-- [x] `pnpm -C packages/sdk-server-ts exec tsc --noEmit --pretty false`
+- [x] `pnpm --dir packages/wallet exec tsc --noEmit --pretty false`
+- [x] `pnpm -C packages/wallet-server exec tsc --noEmit --pretty false`
 - [x] `pnpm -C tests exec playwright test tests/unit/refactor76BrandedKeys.guard.unit.test.ts`
 - [x] `pnpm -C tests exec playwright test tests/unit/thresholdEd25519.registrationWarmSession.unit.test.ts tests/unit/warmSessionEd25519Persistence.unit.test.ts`
 - [x] `pnpm -C tests exec playwright test tests/unit/evmFamilyStepUpProvisionPlan.unit.test.ts tests/unit/sealedRefresh.parity.unit.test.ts`
@@ -1377,15 +1377,15 @@ Primary files:
 - `packages/shared-ts/src/utils/walletCapabilityBindings.ts`
 - `packages/shared-ts/src/utils/registrationIntent.ts`
 - `packages/shared-ts/src/threshold/ed25519HssBinding.ts`
-- `packages/sdk-server-ts/src/core/types.ts`
-- `packages/sdk-server-ts/src/core/AuthService.ts`
-- `packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts`
-- `packages/sdk-server-ts/src/core/ThresholdService/validation.ts`
-- `packages/sdk-server-ts/src/core/WebAuthnCredentialBindingStore.ts`
-- `packages/sdk-server-ts/src/core/WalletStore.ts`
-- `packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity.ts`
-- `packages/sdk-web/src/core/signingEngine/session/persistence/records.ts`
-- `packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts`
+- `packages/wallet-server/src/core/types.ts`
+- `packages/wallet-server/src/core/AuthService.ts`
+- `packages/wallet-server/src/core/ThresholdService/ThresholdSigningService.ts`
+- `packages/wallet-server/src/core/ThresholdService/validation.ts`
+- `packages/wallet-server/src/core/WebAuthnCredentialBindingStore.ts`
+- `packages/wallet-server/src/core/WalletStore.ts`
+- `packages/wallet/src/core/signingEngine/session/identity/exactSigningLaneIdentity.ts`
+- `packages/wallet/src/core/signingEngine/session/persistence/records.ts`
+- `packages/wallet/src/SeamsWeb/operations/registration/registration.ts`
 
 Boundary files:
 
@@ -1404,8 +1404,8 @@ Acceptance:
 
 Validation:
 
-- [x] `pnpm -C packages/sdk-web -s type-check`
-- [x] `pnpm -C packages/sdk-server-ts exec tsc --noEmit --pretty false`
+- [x] `pnpm -C packages/wallet -s type-check`
+- [x] `pnpm -C packages/wallet-server exec tsc --noEmit --pretty false`
 - [x] `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/refactor76BrandedKeys.guard.unit.test.ts --reporter=line`
 - [x] `pnpm -C tests exec playwright test -c playwright.source.config.ts ./unit/refactor79ExactSigningLane.guard.unit.test.ts --reporter=line`
 - [x] `pnpm -C tests exec playwright test -c playwright.source.config.ts ./unit/thresholdEd25519.signingRootResolver.script.unit.test.ts --reporter=line`
@@ -1466,24 +1466,24 @@ Primary files:
 
 - `packages/shared-ts/src/signing-lanes/evmFamilySigningKeySlotId.ts`
 - `packages/shared-ts/src/signing-lanes/index.ts`
-- `packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.ts`
-- `packages/sdk-web/src/core/signingEngine/session/persistence/records.ts`
-- `packages/sdk-web/src/core/platform/ecdsaRoleLocalRecords.ts`
-- `packages/sdk-web/src/core/platform/secretSources.ts`
-- `packages/sdk-web/src/core/signingEngine/useCases/provisionEcdsa.ts`
-- `packages/sdk-web/src/core/signingEngine/threshold/sessionPolicy.ts`
-- `packages/sdk-web/src/core/signingEngine/threshold/ecdsa/bootstrapSession.ts`
-- `packages/sdk-web/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts`
-- `packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp.worker.ts`
-- `packages/sdk-web/src/core/signingEngine/session/sealedRecovery/recoveryRecord.ts`
-- `packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore.ts`
-- `packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaKeyFactsInventory.ts`
-- `packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaRecovery.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaRecovery.ts`
-- `packages/sdk-web/src/core/signingEngine/session/emailOtp/exportRecovery.ts`
-- `packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaHssExport.ts`
-- `packages/sdk-server-ts/src/core/AuthService.ts`
-- `packages/sdk-server-ts/src/router/cloudflare/d1RegistrationCeremonyRecords.ts`
+- `packages/wallet/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.ts`
+- `packages/wallet/src/core/signingEngine/session/persistence/records.ts`
+- `packages/wallet/src/core/platform/ecdsaRoleLocalRecords.ts`
+- `packages/wallet/src/core/platform/secretSources.ts`
+- `packages/wallet/src/core/signingEngine/useCases/provisionEcdsa.ts`
+- `packages/wallet/src/core/signingEngine/threshold/sessionPolicy.ts`
+- `packages/wallet/src/core/signingEngine/threshold/ecdsa/bootstrapSession.ts`
+- `packages/wallet/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts`
+- `packages/wallet/src/core/signingEngine/workerManager/workers/email-otp.worker.ts`
+- `packages/wallet/src/core/signingEngine/session/sealedRecovery/recoveryRecord.ts`
+- `packages/wallet/src/core/signingEngine/session/persistence/sealedSessionStore.ts`
+- `packages/wallet/src/core/signingEngine/session/passkey/ecdsaKeyFactsInventory.ts`
+- `packages/wallet/src/core/signingEngine/session/passkey/ecdsaRecovery.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/ecdsaRecovery.ts`
+- `packages/wallet/src/core/signingEngine/session/emailOtp/exportRecovery.ts`
+- `packages/wallet/src/core/signingEngine/flows/recovery/ecdsaHssExport.ts`
+- `packages/wallet-server/src/core/AuthService.ts`
+- `packages/wallet-server/src/router/cloudflare/d1RegistrationCeremonyRecords.ts`
 - `tests/unit/refactor76BrandedKeys.guard.unit.test.ts`
 
 Acceptance:
@@ -1497,11 +1497,11 @@ Acceptance:
 Validation:
 
 - [x] `pnpm -C packages/shared-ts exec tsc -p tsconfig.json --noEmit`
-- [x] `pnpm -C packages/sdk-server-ts exec tsc --noEmit --pretty false`
+- [x] `pnpm -C packages/wallet-server exec tsc --noEmit --pretty false`
 - [x] `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/refactor76BrandedKeys.guard.unit.test.ts --reporter=line`
 - [x] `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/evmFamilyEcdsaIdentity.unit.test.ts ./unit/ecdsaRoleLocalRecords.unit.test.ts ./unit/provisionEcdsaUseCase.unit.test.ts ./unit/ecdsaBootstrapWarmPersistence.unit.test.ts --reporter=line`
-- [ ] `pnpm -C packages/sdk-web -s type-check`
-  - Current blocker: missing Express declaration files from `../sdk-server-ts/src/router/express/**` imports. No EVM-family wallet-key type errors remain in the reported output.
+- [ ] `pnpm -C packages/wallet -s type-check`
+  - Current blocker: missing Express declaration files from `../wallet-server/src/router/express/**` imports. No EVM-family wallet-key type errors remain in the reported output.
 - [ ] Fresh browser registration evidence showing Tempo/Arc signing consumes the post-registration warm ECDSA session without `ecdsaThresholdKeyId mismatch`.
 
 ## Source Guard Inventory
@@ -1554,8 +1554,8 @@ Full SDK/server type-check is required before the branch is called done because 
 
 Focused checks:
 
-- `pnpm --dir packages/sdk-web exec tsc --noEmit --pretty false`
-- `pnpm -C packages/sdk-server-ts exec tsc --noEmit --pretty false`
+- `pnpm --dir packages/wallet exec tsc --noEmit --pretty false`
+- `pnpm -C packages/wallet-server exec tsc --noEmit --pretty false`
 - Unit tests covering:
   - Ed25519 registration warm-session persistence.
   - Ed25519 durable sealed material restore.

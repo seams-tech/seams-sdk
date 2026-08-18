@@ -9,36 +9,36 @@ import ts from 'typescript';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const sourceRoots = [
   'packages/shared-ts/src',
-  'packages/sdk-web/src',
-  'packages/sdk-server-ts/src',
+  'packages/wallet/src',
+  'packages/wallet-server/src',
 ];
 
 // Temporary Refactor 91 inventory. New occurrences fail; removals must shrink this list.
 const approvedBinaryFallbacks = new Map([
-  ['packages/sdk-web/src/SeamsWeb/assembly/browserSigningSurfaceAssembly.ts', 1],
-  ['packages/sdk-web/src/core/signingEngine/flows/signNear/signTransactions.ts', 1],
-  ['packages/sdk-web/src/core/signingEngine/session/sealedRecovery/recoveryRecord.ts', 1],
+  ['packages/wallet/src/SeamsWeb/assembly/browserSigningSurfaceAssembly.ts', 1],
+  ['packages/wallet/src/core/signingEngine/flows/signNear/signTransactions.ts', 1],
+  ['packages/wallet/src/core/signingEngine/session/sealedRecovery/recoveryRecord.ts', 1],
   [
-    'packages/sdk-server-ts/src/router/cloudflare/d1/registration/d1WalletRegistrationService.ts',
+    'packages/wallet-server/src/router/cloudflare/d1/registration/d1WalletRegistrationService.ts',
     1,
   ],
 ]);
 const approvedLiteralUnions = new Map([
-  ['packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaExportMaterial.ts', 1],
-  ['packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts', 7],
+  ['packages/wallet/src/core/signingEngine/flows/recovery/ecdsaExportMaterial.ts', 1],
+  ['packages/wallet/src/core/signingEngine/session/availability/availableSigningLanes.ts', 7],
   [
-    'packages/sdk-web/src/core/signingEngine/session/persistence/durableSealedSessionCommands.ts',
+    'packages/wallet/src/core/signingEngine/session/persistence/durableSealedSessionCommands.ts',
     4,
   ],
-  ['packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore.ts', 6],
-  ['packages/sdk-web/src/core/signingEngine/session/postconditions/runtimePostconditions.ts', 0],
-  ['packages/sdk-web/src/core/signingEngine/session/sealedRecovery/recoveryRecord.ts', 1],
-  ['packages/sdk-web/src/core/signingEngine/session/sealedRecovery/sealedRecovery.types.ts', 4],
-  ['packages/sdk-web/src/core/signingEngine/session/warmCapabilities/types.ts', 0],
-  ['packages/sdk-web/src/core/signingEngine/stepUpConfirmation/methodRunners.ts', 1],
-  ['packages/sdk-web/src/core/signingEngine/stepUpConfirmation/methodSelection.ts', 1],
-  ['packages/sdk-web/src/core/signingEngine/stepUpConfirmation/requireStepUpAuth.ts', 1],
-  ['packages/sdk-web/src/core/signingEngine/uiConfirm/UiConfirmManager.ts', 0],
+  ['packages/wallet/src/core/signingEngine/session/persistence/sealedSessionStore.ts', 6],
+  ['packages/wallet/src/core/signingEngine/session/postconditions/runtimePostconditions.ts', 0],
+  ['packages/wallet/src/core/signingEngine/session/sealedRecovery/recoveryRecord.ts', 1],
+  ['packages/wallet/src/core/signingEngine/session/sealedRecovery/sealedRecovery.types.ts', 4],
+  ['packages/wallet/src/core/signingEngine/session/warmCapabilities/types.ts', 0],
+  ['packages/wallet/src/core/signingEngine/stepUpConfirmation/methodRunners.ts', 1],
+  ['packages/wallet/src/core/signingEngine/stepUpConfirmation/methodSelection.ts', 1],
+  ['packages/wallet/src/core/signingEngine/stepUpConfirmation/requireStepUpAuth.ts', 1],
+  ['packages/wallet/src/core/signingEngine/uiConfirm/UiConfirmManager.ts', 0],
 ]);
 
 function listTypeScriptFiles(relativeDirectory) {

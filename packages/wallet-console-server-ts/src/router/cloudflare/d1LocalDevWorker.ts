@@ -1,13 +1,13 @@
-import type { RouterAbNormalSigningAdmissionInput } from '@seams/sdk-server/cloud-host';
-import type { D1DatabaseLike } from '@seams/sdk-server/cloud-host';
-import { createCloudflareD1RouterAbNormalSigningAdmissionStore } from '@seams/sdk-server/cloud-host';
-import { createRouterAbNormalSigningAdmissionAdapter } from '@seams/sdk-server/cloud-host';
+import type { RouterAbNormalSigningAdmissionInput } from '@seams/wallet-server/cloud-host';
+import type { D1DatabaseLike } from '@seams/wallet-server/cloud-host';
+import { createCloudflareD1RouterAbNormalSigningAdmissionStore } from '@seams/wallet-server/cloud-host';
+import { createRouterAbNormalSigningAdmissionAdapter } from '@seams/wallet-server/cloud-host';
 import type { ConsoleAuthAdapter, ConsoleAuthClaims, HeaderRecord } from '@seams-internal/console-server/router/consoleAuth';
-import type { CfEnv, CfExecutionContext, FetchHandler } from '@seams/sdk-server/cloud-host';
-import { createSigningSessionSealOptions } from '@seams/sdk-server/cloud-host';
-import { RouterAbEcdsaPresignRuntime } from '@seams/sdk-server/cloud-host';
-import type { SigningSessionSealRoutesOptions } from '@seams/sdk-server/cloud-host';
-import { createCloudflareRouter } from '@seams/sdk-server/cloud-host';
+import type { CfEnv, CfExecutionContext, FetchHandler } from '@seams/wallet-server/cloud-host';
+import { createSigningSessionSealOptions } from '@seams/wallet-server/cloud-host';
+import { RouterAbEcdsaPresignRuntime } from '@seams/wallet-server/cloud-host';
+import type { SigningSessionSealRoutesOptions } from '@seams/wallet-server/cloud-host';
+import { createCloudflareRouter } from '@seams/wallet-server/cloud-host';
 import {
   consoleCoreServicesFromBundle,
   createCloudflareD1ConsoleServiceBundle,
@@ -19,7 +19,7 @@ import {
   createCloudflareD1RouterApiAuthService,
   type CloudflareD1EmailOtpServerSealConfig,
   type CloudflareD1RouterApiAuthServiceOptions,
-} from '@seams/sdk-server/cloud-host';
+} from '@seams/wallet-server/cloud-host';
 import { loadCloudflareSignerWasmModule } from './d1SignerWasm';
 import {
   createConsoleSessionAuthAdapter,
@@ -39,17 +39,17 @@ import {
   parseRouterAbPublicKeysetV2,
   ROUTER_AB_PUBLIC_KEYSET_VERSION_V2,
   type RouterAbPublicKeysetV2,
-} from '@seams/sdk-server/cloud-host';
-import { parseWalletId, parseWebAuthnRpId } from '@seams/sdk-server/cloud-host';
-import { normalizeLogger } from '@seams/sdk-server/cloud-host';
+} from '@seams/wallet-server/cloud-host';
+import { parseWalletId, parseWebAuthnRpId } from '@seams/wallet-server/cloud-host';
+import { normalizeLogger } from '@seams/wallet-server/cloud-host';
 import {
   createRouterAbEd25519YaoProductRegistrationRequestScopedRuntimeV1,
   createRouterAbEd25519YaoProductRegistrationPartitionedStateStoreFromD1V1,
   parseRouterAbEd25519YaoActivationKeysetFromEnvV1,
   type RouterAbEd25519YaoProductRegistrationRuntimeV1,
-} from '@seams/sdk-server/cloud-host';
-import type { SessionAdapter } from '@seams/sdk-server/cloud-host';
-import { D1WalletStore } from '@seams/sdk-server/cloud-host';
+} from '@seams/wallet-server/cloud-host';
+import type { SessionAdapter } from '@seams/wallet-server/cloud-host';
+import { D1WalletStore } from '@seams/wallet-server/cloud-host';
 import {
   createRouterAbEcdsaEd25519CeremonyTokenIssuer,
   createRouterAbEcdsaStrictPostRegistrationPort,
@@ -59,21 +59,21 @@ import {
   type RouterAbEcdsaEd25519PrivateJwk,
   type RouterAbEcdsaStrictPostRegistrationPort,
   type RouterAbEcdsaStrictRegistrationPort,
-} from '@seams/sdk-server/cloud-host';
+} from '@seams/wallet-server/cloud-host';
 import {
   createRouterAbServiceBindingFetch,
   ROUTER_AB_MPC_ROUTER_ORIGIN,
   ROUTER_AB_SIGNING_WORKER_ORIGIN,
   type RouterAbServiceBindingEnv,
 } from './routerAbServiceBindings';
-import { withCors } from '@seams/sdk-server/cloud-host';
-import { createRouterAbEd25519YaoHttpRegistrationBackendFromEnv } from '@seams/sdk-server/cloud-host';
-import { CloudflareD1RouterAbEd25519YaoCapabilityPersistence } from '@seams/sdk-server/cloud-host';
+import { withCors } from '@seams/wallet-server/cloud-host';
+import { createRouterAbEd25519YaoHttpRegistrationBackendFromEnv } from '@seams/wallet-server/cloud-host';
+import { CloudflareD1RouterAbEd25519YaoCapabilityPersistence } from '@seams/wallet-server/cloud-host';
 import type {
   CloudflareD1LinkedDeviceCompositionOptionsV1,
   CloudflareD1LinkedDeviceSessionOptionsV1,
-} from '@seams/sdk-server/cloud-host';
-import { createD1LinkedDeviceTargetDeploymentDescriptorRuntimeV1 } from '@seams/sdk-server/cloud-host';
+} from '@seams/wallet-server/cloud-host';
+import { createD1LinkedDeviceTargetDeploymentDescriptorRuntimeV1 } from '@seams/wallet-server/cloud-host';
 import {
   base64UrlEncode,
   sha256Bytes,
@@ -82,12 +82,12 @@ import {
   parseSigningWorkerParticipantId,
   parseSigningWorkerRecipientKeyDigestB64u,
   parseSigningWorkerRecipientKeyId,
-} from '@seams/sdk-server/cloud-host';
-import { handleRouterAbEd25519YaoRegistrationRequestScopedCloudflareV1 } from '@seams/sdk-server/cloud-host';
-import { handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1 } from '@seams/sdk-server/cloud-host';
-import { handleRouterAbEd25519YaoExportRequestScopedCloudflareV1 } from '@seams/sdk-server/cloud-host';
-import { RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter } from '@seams/sdk-server/cloud-host';
-import { RouterAbEd25519YaoExportOwnerProofAuthorizationAdapter } from '@seams/sdk-server/cloud-host';
+} from '@seams/wallet-server/cloud-host';
+import { handleRouterAbEd25519YaoRegistrationRequestScopedCloudflareV1 } from '@seams/wallet-server/cloud-host';
+import { handleRouterAbEd25519YaoRecoveryRequestScopedCloudflareV1 } from '@seams/wallet-server/cloud-host';
+import { handleRouterAbEd25519YaoExportRequestScopedCloudflareV1 } from '@seams/wallet-server/cloud-host';
+import { RouterAbEd25519YaoRecoveryWalletSessionAuthorizationAdapter } from '@seams/wallet-server/cloud-host';
+import { RouterAbEd25519YaoExportOwnerProofAuthorizationAdapter } from '@seams/wallet-server/cloud-host';
 import {
   ROUTER_AB_ED25519_YAO_EXPORT_ADMISSION_PATH_V1,
   ROUTER_AB_ED25519_YAO_EXPORT_EXECUTE_PATH_V1,
@@ -98,8 +98,8 @@ import {
   ROUTER_AB_ED25519_YAO_REGISTRATION_ADMISSION_PATH_V1,
   ROUTER_AB_ED25519_YAO_REGISTRATION_EXECUTE_PATH_V1,
   ROUTER_AB_ED25519_YAO_WARM_RECOVERY_BOOTSTRAP_PATH_V1,
-} from '@seams/sdk-server/cloud-host';
-import { ROUTER_AB_TRACE_ID_HEADER_V1 } from '@seams/sdk-server/cloud-host';
+} from '@seams/wallet-server/cloud-host';
+import { ROUTER_AB_TRACE_ID_HEADER_V1 } from '@seams/wallet-server/cloud-host';
 
 interface LocalD1DevEnv extends RouterAbServiceBindingEnv {
   readonly CONSOLE_DB: D1DatabaseLike;

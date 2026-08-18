@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { passkeyCustodyEnvelopeRetrievalRouteResponse } from '../../packages/sdk-server-ts/src/router/domains/passkeyCustody/passkeyCustodyEnvelopeRetrievalRoute';
+import { passkeyCustodyEnvelopeRetrievalRouteResponse } from '../../packages/wallet-server/src/router/domains/passkeyCustody/passkeyCustodyEnvelopeRetrievalRoute';
 import { passkeyCustodyEnvelope } from './helpers/passkeyCustodyEnvelope.fixtures';
 
 /**

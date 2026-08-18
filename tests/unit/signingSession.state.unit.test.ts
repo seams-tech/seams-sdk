@@ -75,7 +75,7 @@ test.describe('signing session PRF cache utilities', () => {
     const source = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../packages/sdk-web/src/core/signingEngine/session/warmCapabilities/clearVolatileWarmSigningMaterial.ts',
+        '../packages/wallet/src/core/signingEngine/session/warmCapabilities/clearVolatileWarmSigningMaterial.ts',
       ),
       'utf8',
     );
@@ -90,7 +90,7 @@ test.describe('signing session PRF cache utilities', () => {
     const source = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../packages/sdk-web/src/core/signingEngine/uiConfirm/PasskeyMpcSessionManager.ts',
+        '../packages/wallet/src/core/signingEngine/uiConfirm/PasskeyMpcSessionManager.ts',
       ),
       'utf8',
     );
@@ -111,7 +111,7 @@ test.describe('signing session PRF cache utilities', () => {
     const source = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../packages/sdk-web/src/core/signingEngine/uiConfirm/PasskeyMpcSessionManager.ts',
+        '../packages/wallet/src/core/signingEngine/uiConfirm/PasskeyMpcSessionManager.ts',
       ),
       'utf8',
     );
@@ -128,20 +128,20 @@ test.describe('signing session PRF cache utilities', () => {
 
   test('durable sealed-session delete no longer uses session-id-only worker payloads', () => {
     const workerTypesSource = fs.readFileSync(
-      path.resolve(process.cwd(), '../packages/sdk-web/src/core/types/secure-confirm-worker.ts'),
+      path.resolve(process.cwd(), '../packages/wallet/src/core/types/secure-confirm-worker.ts'),
       'utf8',
     );
     const durableCommandSource = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../packages/sdk-web/src/core/signingEngine/session/persistence/durableSealedSessionCommands.ts',
+        '../packages/wallet/src/core/signingEngine/session/persistence/durableSealedSessionCommands.ts',
       ),
       'utf8',
     );
     const uiConfirmTypesSource = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../packages/sdk-web/src/core/signingEngine/uiConfirm/uiConfirm.types.ts',
+        '../packages/wallet/src/core/signingEngine/uiConfirm/uiConfirm.types.ts',
       ),
       'utf8',
     );
@@ -157,14 +157,14 @@ test.describe('signing session PRF cache utilities', () => {
     const durableCommandSource = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../packages/sdk-web/src/core/signingEngine/session/persistence/durableSealedSessionCommands.ts',
+        '../packages/wallet/src/core/signingEngine/session/persistence/durableSealedSessionCommands.ts',
       ),
       'utf8',
     );
     const volatileCommandSource = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../packages/sdk-web/src/core/signingEngine/session/warmCapabilities/volatileWarmMaterialCommands.ts',
+        '../packages/wallet/src/core/signingEngine/session/warmCapabilities/volatileWarmMaterialCommands.ts',
       ),
       'utf8',
     );
@@ -181,14 +181,14 @@ test.describe('signing session PRF cache utilities', () => {
     const workerSource = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../packages/sdk-web/src/core/signingEngine/workerManager/workers/passkey-mpc-session.worker.ts',
+        '../packages/wallet/src/core/signingEngine/workerManager/workers/passkey-mpc-session.worker.ts',
       ),
       'utf8',
     );
     const volatileCommandSource = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../packages/sdk-web/src/core/signingEngine/session/warmCapabilities/volatileWarmMaterialCommands.ts',
+        '../packages/wallet/src/core/signingEngine/session/warmCapabilities/volatileWarmMaterialCommands.ts',
       ),
       'utf8',
     );
@@ -202,7 +202,7 @@ test.describe('signing session PRF cache utilities', () => {
     const workerSource = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../packages/sdk-web/src/core/signingEngine/workerManager/workers/passkey-mpc-session.worker.ts',
+        '../packages/wallet/src/core/signingEngine/workerManager/workers/passkey-mpc-session.worker.ts',
       ),
       'utf8',
     );
@@ -219,7 +219,7 @@ test.describe('signing session PRF cache utilities', () => {
     const source = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaWarmCapabilityBootstrap.ts',
+        '../packages/wallet/src/core/signingEngine/session/passkey/ecdsaWarmCapabilityBootstrap.ts',
       ),
       'utf8',
     );
