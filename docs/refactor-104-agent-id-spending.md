@@ -2,13 +2,14 @@
 
 Date created: July 22, 2026
 
-Last reconciled: August 12, 2026 (existing-signer simplification)
+Last reconciled: August 18, 2026 (canonical-owner and delegated-lane boundary)
 
 Status: active product and security plan. Independent agent identities,
 owner-signed delegated-spend authorizations, agent-signed spend requests, and
 their admission and revocation stores are unimplemented. Existing dormant
 delegated-lane scaffolds encode a superseded lane-owned identity model and will
-be replaced directly.
+be replaced directly. R101/R102 lane shares, epochs, rotation, fencing, and MPC
+activation primitives remain reusable execution machinery.
 
 ## Goal
 
@@ -44,7 +45,8 @@ This plan consumes:
   the delegated authorization, budget, and replay stores that supply its own
   authorization source;
 - [refactor-101-wallet-execution-lanes.md](./refactor-101-wallet-execution-lanes.md)
-  for stable wallet-key identities and optional delegated-execution lanes;
+  for stable wallet-key identities and the existing
+  `DelegatedExecutionSigningLaneRecord` execution primitive;
 - [refactor-102-rotatable-signing-lanes.md](./refactor-102-rotatable-signing-lanes.md) when a direct
   threshold-wallet adapter provisions an authorization-bound agent runtime
   lane;
@@ -62,6 +64,25 @@ This plan owns:
 - delegated execution admission and audit evidence.
 
 Refactor 103 owns physical device linking and contains no agent types.
+
+### Relationship To Physical Devices And Agent-Owned Wallets
+
+R104 does not reuse the R103 device-linking flow. It creates no link session,
+QR payload, owner passkey, Wallet Session, local profile projection, or wallet
+custody-seed transfer. A delegated execution lane receives only an incomplete
+lane-specific MPC share and never receives the wallet custody seed.
+
+R104 may reuse `DelegatedExecutionSigningLaneRecord` plus curve-agnostic
+R101/R102 provisioning, activation, epoch, rotation, and fencing primitives. It
+must not reuse `LinkedDevice*` records, routes, state machines, receipts, or UI.
+The lane is an execution mechanism; agent identity and authority come
+exclusively from the independent agent key and the owner-signed delegated
+authorization.
+
+An agent that owns a separate wallet registers and operates that wallet through
+the ordinary canonical-owner model. That is not delegated spending and needs no
+R104 execution lane. R104 covers an agent spending from an existing owner's
+wallet under a constrained mandate.
 
 ## Required Invariants
 
@@ -93,6 +114,11 @@ Refactor 103 owns physical device linking and contains no agent types.
     shapes are parsed once at their boundaries.
 13. Old lane-owned mandate types and tests are deleted at cutover. No legacy
     `delegated_agent` compatibility branch enters core logic.
+14. A lane never establishes agent identity, delegated authority, budget, or
+    replay rights. Those facts must verify before lane activation or execution.
+15. Every direct threshold-wallet execution names one authorization-bound lane,
+    its current share epoch, participants, and exact material activation.
+16. No R104 path transfers or reconstructs the owner's wallet custody seed.
 
 ## Trust Boundaries
 
@@ -112,8 +138,8 @@ Refactor 103 owns physical device linking and contains no agent types.
 - protects the key in its declared custody runtime;
 - constructs typed intents from untrusted tool output;
 - signs concrete request envelopes;
-- may hold an incomplete lane-specific MPC share for the direct threshold
-  adapter;
+- holds an incomplete lane-specific MPC share only when an active authorization
+  selects the direct threshold adapter;
 - never receives the owner's complete signing key or an export-capable share.
 
 ### Gateway policy service and Router
@@ -137,8 +163,8 @@ Refactor 103 owns physical device linking and contains no agent types.
 ### Wallet execution participants
 
 - accept only committed prepared admission from the Router;
-- verify exact wallet key, lane, participants, epochs, authorization, request,
-  and transaction digests;
+- for direct threshold execution, verify the exact wallet key, lane,
+  participants, epochs, authorization, request, and transaction digests;
 - sign no broader payload than the admitted final transaction;
 - expose no owner share or export path to the agent runtime.
 
@@ -194,10 +220,11 @@ old key and follow their own expiry or revocation lifecycle.
 ### Existing signer boundary
 
 Agent request signing uses existing Ed25519 Yao or secp256k1 ECDSA signer
-capabilities. Provisioning creates independent agent material through the same
-reviewed capability and lane lifecycle used for other Seams keys. Verification
-uses the corresponding existing public-key verifier over the canonical agent
-request digest.
+capabilities. Provisioning creates independent agent key material through the
+existing signer capability lifecycle. It does not make the identity key a
+wallet lane or derive it from owner material. Verification uses the
+corresponding existing public-key verifier over the canonical agent request
+digest.
 
 This reuse is limited to signer machinery. Agent identity, authorization,
 budget, replay, and revocation remain separate domains from Wallet Sessions and
@@ -224,9 +251,13 @@ type AgentCustodyBindingRecord = {
 };
 ```
 
-An optional `DelegatedExecutionLaneRecord` references this custody binding for
-holder-package delivery. The identity key signs requests; the lane share
-participates only in wallet execution.
+An agent identity can exist without a wallet lane. When an authorization selects
+the direct threshold-wallet adapter, its `DelegatedExecutionSigningLaneRecord`
+is required and references this custody binding for holder-package delivery.
+The existing lane record binds the authorization ID, exact agent identity key,
+custody binding, holder and server participants, share epoch, and authorization
+digest. The identity key signs requests; the lane share participates only in
+wallet execution.
 
 ## Delegated Spend Authorization
 
@@ -474,15 +505,21 @@ type PreparedDelegatedWalletExecution = {
   budgetClaim: Extract<DelegatedBudgetClaimState, { state: 'reserved' }>;
   walletId: WalletId;
   walletKeyId: WalletKeyId;
+  laneId: SigningLaneId;
+  laneShareEpoch: LaneShareEpoch;
+  laneRevocationEpoch: number;
+  participantBindingDigestB64u: LaneParticipantBindingDigestB64u;
+  authorizationBindingDigestB64u: string;
   materialActivation: MpcMaterialActivationRef;
   requestDigestB64u: string;
   finalUnsignedTransactionDigestB64u: string;
 };
 ```
 
-`materialActivation` identifies the exact activated MPC material instance. It
-remains independent from the delegated authorization, budget claim, Wallet
-Session, quota, and operation identities.
+The lane fields identify the exact active delegated execution material,
+participant set, authorization binding, and revocation fence. They remain
+independent from the delegated authorization, budget claim, Wallet Session,
+quota, and operation identities.
 
 ## Authorization Lifecycle
 
@@ -552,9 +589,10 @@ Execute checks in this order:
 9. In the R104 durable-owner transaction, atomically claim the stable replay
    identity, reserve delegated budget, and create or replay one
    `AuthorizedOperationId`.
-10. Resolve the exact `MpcMaterialActivationRef` for a direct wallet adapter
-    and construct one `PreparedDelegatedWalletExecution` with immutable
-    evidence references.
+10. Resolve the exact lane ID, share and revocation epochs, participant and
+    authorization binding digests, and `MpcMaterialActivationRef` for the direct
+    threshold adapter. Construct one `PreparedDelegatedWalletExecution` with
+    immutable evidence references.
 11. Execute through the selected adapter.
 12. Commit the budget and audit receipt on confirmed execution; release only on
     definitive pre-execution failure; retain unknown outcomes for
@@ -568,9 +606,10 @@ The transaction is signed under the owner's existing wallet key. Funds leave
 that wallet directly. The chain generally exposes the wallet signature while
 Seams retains the agent and owner proofs in audit evidence.
 
-An authorization-bound `delegated_execution` lane may give the agent runtime an
-incomplete holder share and Seams a matching policy-controlled server share.
-Both parties are then required for the wallet signature. The lane is an
+The direct threshold-wallet adapter requires an authorization-bound
+`delegated_execution` lane. It gives the agent runtime an incomplete holder
+share and Seams a matching policy-controlled server share. Both parties are
+required for the wallet signature. The lane is an
 execution mechanism keyed by the exact `MpcMaterialActivationRef`; it grants
 no authority without a verified active delegated authorization and signed
 request. Wallet Session and delegated authorization identities remain separate,
@@ -588,14 +627,14 @@ Revocation is one fenced operation:
 2. Reject new requests and budget reservations immediately.
 3. Stop queued operations that have not crossed an irreversible execution
    boundary.
-4. Revoke optional delegated-execution lanes and disable their server
-   participants.
+4. Revoke every delegated-execution lane bound to the authorization and disable
+   its server participants.
 5. Terminate agent sessions and invalidate warm custody handles.
 6. Mark in-flight ambiguous operations `outcome_unknown` for reconciliation.
 7. Emit an authorization revocation receipt and affected-operation inventory.
 
-Owner lanes, wallet keys, funds, and unrelated authorizations remain active.
-Previously completed transactions remain valid.
+Owner auth methods, canonical wallet material, wallet keys, funds, and unrelated
+authorizations remain active. Previously completed transactions remain valid.
 
 ## Audit Evidence
 
@@ -606,7 +645,7 @@ One delegated execution audit chain retains:
 - normalized intent, quote, and final transaction digests;
 - policy version and decision;
 - replay and budget claim IDs and transitions;
-- wallet key, optional execution lane, participants, and epochs;
+- wallet key, execution lane, participants, and epochs;
 - wallet signature and execution receipt;
 - chain, merchant, or payment receipt;
 - denial, revocation, and reconciliation evidence.
@@ -635,23 +674,29 @@ logging surfaces.
 Agent methods use separate request and result unions from physical-device
 linking. No option bag can construct both operations.
 
-## Current Scaffolds To Replace
+## Current Scaffolds To Retain Or Replace
 
-Delete or replace these dormant shapes when the new behavior lands:
+Retain the current `DelegatedExecutionSigningLaneRecord`, participant records,
+lane lifecycle, share epoch, material activation, rotation, and fencing
+primitives. They already model a lane as execution material bound to an
+authorization, agent key, and custody identity.
 
-- `DelegatedAgentSigningLaneRecord`;
+Delete or replace these dormant lane-owned authority shapes when the new
+behavior lands:
+
 - lane-owned `DelegatedMandatePolicy`;
 - the old share-holder-oriented `AgentPrincipalId`; replace it with the
   identity-oriented `AgentId`;
 - unsigned `DelegatedSigningRequest`;
 - lane-derived `DelegatedSigningAuditEvent`;
-- `agentWallets.ts` projections that infer authority from lane ownership;
 - broad rotation jobs shared between device and agent enrollment.
 
 R104 adds Gateway authorization records plus durable-owner delegated budget and
 replay claim integration. No lane-owned budget authority remains. Retain useful
 typed purchase-intent and canonical digest code only after it is adapted to the
-signed authorization and request boundaries.
+signed authorization and request boundaries. Retain curve-agnostic R101/R102
+lane records, epochs, participant bindings, material-activation checks,
+rotation, and fencing. Do not retain a `LinkedDevice*` dependency for R104.
 
 ## Implementation Phases
 
@@ -664,7 +709,8 @@ signed authorization and request boundaries.
 - [ ] Freeze direct-wallet owner proof encoding for Ed25519 and secp256k1.
 - [ ] Freeze the stablecoin-only MVP scope, budget, fee, and quote policy.
 - [ ] Freeze request signature, replay, expiry, and revocation semantics.
-- [ ] Freeze the first execution adapter and custody topology.
+- [ ] Freeze the direct threshold-wallet adapter, including its required
+      authorization-bound lane and custody topology.
 
 ### Phase 1: Identity And Authorization
 
@@ -697,9 +743,11 @@ signed authorization and request boundaries.
 
 ### Phase 4: Direct Wallet Execution
 
-- [ ] Provision optional authorization-bound execution lanes.
+- [ ] Provision one authorization-bound execution lane for each wallet key
+      covered by the direct threshold adapter.
 - [ ] Bind prepared admission to exact wallet capability execution and
-      `MpcMaterialActivationRef`.
+      lane ID, share and revocation epochs, participant and authorization
+      binding digests, and `MpcMaterialActivationRef`.
 - [ ] Sign from the owner wallet without transferring funds to the agent.
 - [ ] Commit budget and execution receipts exactly once.
 
@@ -723,7 +771,8 @@ Static fixtures prove:
 - Ed25519 and secp256k1 ECDSA signatures cannot cross algorithm branches;
 - prepared execution cannot carry unverified raw requests;
 - direct wallet preparation requires an independent
-  `MpcMaterialActivationRef` and `AuthorizedOperationId`;
+  `AuthorizedOperationId`, lane ID, share and revocation epochs, participant
+  and authorization binding digests, and `MpcMaterialActivationRef`;
 - delegated authorization cannot grant export, recovery, or account admin.
 
 Cryptographic tests prove:
@@ -754,7 +803,7 @@ Execution tests prove:
 
 - an authorized purchase spends directly from the owner's wallet;
 - the agent owns no prefunded wallet and receives no owner export material;
-- optional delegated execution requires both agent holder and server
+- direct threshold delegated execution requires both agent holder and server
   participation;
 - owner authorization or agent signature alone cannot execute;
 - revoking one authorization preserves owner and unrelated agent spending;
@@ -764,6 +813,8 @@ Execution tests prove:
 
 - transferring a spending balance into an agent-owned wallet;
 - treating an agent identity key as a wallet key;
+- using the R103 device-linking flow or wallet custody-seed transfer for an
+  agent;
 - relying on prompts or tool arguments as policy evidence;
 - supporting arbitrary contract calls in the MVP;
 - generic fiat valuation without an explicit oracle policy;
