@@ -26,6 +26,11 @@ import {
   withThresholdEd25519CommitQueue,
   type ThresholdEd25519CommitQueueByKey,
 } from '@/core/signingEngine/threshold/ed25519/commitQueue';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  resolveOwnerLaneScope,
+  type OwnerLaneScopeStores,
+} from '@/core/signingEngine/session/identity/ownerLaneScope';
 
 export function createBrowserRecoveryPublicDeps(args: {
   seamsWebConfigs: SeamsConfigsReadonly;
@@ -48,11 +53,12 @@ export function createBrowserRecoveryPublicDeps(args: {
   ed25519YaoPublicCapabilityLanes: PersistedAvailableSigningLanesDeps['ed25519YaoPublicCapabilityLanes'];
   isEd25519YaoPublicCapabilityActive: PersistedAvailableSigningLanesDeps['isEd25519YaoPublicCapabilityActive'];
   listEcdsaSigningCapabilitiesForWallet: PersistedAvailableSigningLanesDeps['listEcdsaSigningCapabilitiesForWallet'];
+  ownerLaneScopeStores: OwnerLaneScopeStores;
 }): RecoveryPublicDeps {
   const readCanonicalWalletSessionStatus = createCanonicalWalletSessionStatusReader({
     relayerUrl: String(args.seamsWebConfigs.network.relayer?.url || '').trim(),
     readAuthorization: async (walletId) => {
-      const read = await walletSessionAuthorizations.readActiveForWallet(walletId);
+      const read = await walletSessionAuthorizations.readActiveForWallet(toWalletId(walletId));
       return read.kind === 'found' ? read.projection : null;
     },
   });
@@ -76,6 +82,16 @@ export function createBrowserRecoveryPublicDeps(args: {
     ed25519YaoPublicCapabilityLanes: args.ed25519YaoPublicCapabilityLanes,
     isEd25519YaoPublicCapabilityActive: args.isEd25519YaoPublicCapabilityActive,
     listEcdsaSigningCapabilitiesForWallet: args.listEcdsaSigningCapabilitiesForWallet,
+    resolveOwnerLaneScope: async (walletId) => {
+      const read = await walletSessionAuthorizations.readActiveForWallet(toWalletId(walletId));
+      if (read.kind !== 'found') {
+        throw new Error('Key export requires an active Wallet Session authorization');
+      }
+      return await resolveOwnerLaneScope({
+        authorityRef: read.projection.authority,
+        stores: args.ownerLaneScopeStores,
+      });
+    },
     touchConfirm: args.touchConfirm,
     passkeyMpcSession: args.passkeyMpcSession,
     passkeyMpcExport: args.passkeyMpcExport,

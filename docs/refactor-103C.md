@@ -2,7 +2,8 @@
 
 ## Status
 
-Proposed correction to Refactor 103 Phase 8.
+Implementation in progress. The three incident gap closures below are
+implemented; focused automated coverage and the real-device gate remain.
 
 R103C fixes owner-lane selection after a wallet has more than one human owner
 credential. It also corrects the linked-device inventory source. Refactor 103B
@@ -25,6 +26,80 @@ This ambiguity caused:
 - `ambiguous_material` during Ed25519 export;
 - stale owner-lane preflight requests during device linking;
 - device-management results coupled to expired link-session history.
+
+## Incident gap-closure plan
+
+The linked-device operating-path incident exposed three production invariants
+that R103C must enforce in addition to owner-scoped reads. These are code
+corrections. Focused tests verify them after the operating path works.
+
+### A. Canonicalize exact sealed records at the persistence boundary
+
+- Derive the persisted primary key from the exact durable material identity.
+- When legacy primary keys normalize to that identity, compare their
+  authenticated public identity facts, keep one current record, and atomically
+  rewrite it under the canonical key.
+- Treat a repeated write for the same identity as an idempotent replacement.
+  Sealed ciphertext is randomized and is not an equality key.
+- Reject records whose public identity facts disagree under one canonical key.
+- Return only physically canonical records to signing, restore, and export
+  readers. In-memory de-duplication alone is insufficient because another
+  exact reader can still observe every legacy row.
+
+Implementation boundary:
+
+- `packages/wallet/src/core/signingEngine/session/persistence/sealedSessionStore.ts`
+- `packages/wallet/src/core/indexedDB/seamsWalletDB/signingSessionSeals.ts`
+
+### B. Reconcile committed holder delivery child by child
+
+- Treat the committed approval plus its ordered deliveries as the exact
+  recovery plan.
+- Index durable holder records by operation, enrollment, lane, epoch, and
+  material activation.
+- Reuse every matching record and seal only missing children while the live
+  worker-owned recipient handle is available.
+- Reject duplicate deliveries, conflicting records, and unapproved holder
+  records before acknowledging the aggregate receipt.
+- Persist execution evidence and Wallet Session delivery idempotently before
+  reporting completion.
+- A committed flow without its worker-owned recipient handle returns a clear
+  terminal recovery error. It must never spin or claim successful recovery.
+
+Implementation boundary:
+
+- `packages/wallet/src/SeamsWeb/operations/devices/deviceLinkingLaneProvisioning.ts`
+- `packages/wallet/src/SeamsWeb/operations/devices/deviceLinkingPorts.ts`
+- `packages/wallet/src/SeamsWeb/operations/devices/linkDevice.ts`
+
+### C. Resolve Device 2 export inside the active owner scope
+
+- Resolve the active Wallet Session authorization to one `OwnerLaneScope`.
+- Require that scope on the first Ed25519 or ECDSA export-lane read.
+- Select the canonical lane only after owner filtering. Sibling owner lanes and
+  linked execution lanes never enter export selection.
+- If the exact owner lane is missing, perform one account hydration and resolve
+  the same owner scope once more.
+- Pass the resolved exact lane identity into execution. Execution does not
+  repeat lane selection or WebAuthn credential discovery.
+
+Implementation boundary:
+
+- `packages/wallet/src/core/signingEngine/assembly/ports/recovery.ts`
+- `packages/wallet/src/SeamsWeb/assembly/createBrowserRecoveryPublicDeps.ts`
+- `packages/wallet/src/core/signingEngine/flows/recovery/exportLaneSelection.ts`
+- `packages/wallet/src/react/components/AccountMenuButton/index.tsx`
+
+### Gap-closure acceptance criteria
+
+1. Multiple legacy Ed25519 rows for one exact material identity become one
+   canonical durable row without comparing ciphertext bytes.
+2. A committed delivery with a mixture of present and missing holder children
+   seals only the missing children and produces one exact aggregate receipt.
+3. Device 2 resolves NEAR and EVM-family export from its active canonical owner
+   lane and receives one Touch ID prompt per export.
+4. Conflicting sealed records or holder records terminate with an exact
+   integrity error instead of falling back to another lane.
 
 ## Correct model
 
@@ -255,9 +330,10 @@ The inventory found no valid reason to change these areas:
 - `packages/shared-ts/src/device-linking/contracts.ts`, its parsers, server
   authorization validation, execution admission, and D1 permission checks keep
   the linked execution grant unchanged.
-- The durable link flow already reports success only after its terminal
-  `active` event. Retained finalize and `resumeCommittedDeliveryV1` already
-  handle interrupted completion.
+- The durable link flow reports success only after its terminal `active` event.
+  Retained finalize and `resumeCommittedDeliveryV1` reconcile interrupted
+  completion while the worker-owned recipient handle remains live. A process
+  loss that discards that handle is a terminal recovery boundary.
 - `selectWalletHostEd25519SourceLaneV1` and exact rehydration paths intentionally
   select a supplied material activation. They may inspect internal candidates.
 - The linked-device execution grant, holder lanes, active delivery, session

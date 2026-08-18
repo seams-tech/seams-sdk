@@ -2009,6 +2009,8 @@ export class BrowserSigningSurface {
           },
           input,
         ),
+      ownerLaneScopeStores:
+        deps.signingEngineStores.walletProfileAndSignerRecords.accountStore,
     });
 
     this.enginePorts = createBrowserSigningSurfaceEnginePorts({

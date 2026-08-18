@@ -190,6 +190,10 @@ async function reconcileCommittedDelivery(input: {
   readonly acknowledgeHolderDeliveriesV1: (
     acknowledgement: LinkedDeviceHolderDeliveryAcknowledgementV1,
   ) => Promise<LinkedDeviceEnrollmentReceiptV1>;
+  readonly keyMaterial: Parameters<
+    DeviceLinkingKeyMaterialPortV1['openAndSealTargetHolderDeliveryV1']
+  >[0]['handle'];
+  readonly worker: DeviceLinkingKeyMaterialPortV1;
   readonly repository: LaneSealedHolderMaterialRepositoryV1;
   readonly nowMs: () => number;
 }): Promise<LinkedDeviceEnrollmentReceiptV1> {
@@ -209,35 +213,47 @@ async function reconcileCommittedDelivery(input: {
     }
     recordsByKey.set(key, record);
   }
-  if (recordsByKey.size !== deliveries.orderedChildren.length) {
-    throw new Error('committed linked-device delivery has incomplete durable holder records');
-  }
-
-  const receipts: LaneHolderDeliveryReceiptV1[] = [];
   const deliveryKeys = new Set<string>();
   for (const delivery of deliveries.orderedChildren) {
     const key = deliveryStoreKey(delivery);
-    if (deliveryKeys.has(key))
+    if (deliveryKeys.has(key)) {
       throw new Error('refetched linked-device deliveries contain a duplicate child');
+    }
     deliveryKeys.add(key);
-    const enumeratedRecord = recordsByKey.get(key);
-    if (!enumeratedRecord) {
-      throw new Error('committed linked-device delivery is missing its exact sealed holder record');
-    }
-    const record = await input.repository.get(lookupForDelivery(delivery));
-    if (!record) {
-      throw new Error('committed linked-device delivery is missing its exact sealed holder record');
-    }
-    if (JSON.stringify(record) !== JSON.stringify(enumeratedRecord)) {
-      throw new Error('durable linked-device holder record changed during recovery');
-    }
-    assertRecordMatchesDelivery(record, delivery);
-    receipts.push(receiptFromRecord(record));
   }
   for (const key of recordsByKey.keys()) {
     if (!deliveryKeys.has(key)) {
       throw new Error('durable linked-device holder records contain an unapproved child');
     }
+  }
+
+  const receipts: LaneHolderDeliveryReceiptV1[] = [];
+  for (const delivery of deliveries.orderedChildren) {
+    const key = deliveryStoreKey(delivery);
+    const enumeratedRecord = recordsByKey.get(key) ?? null;
+    const record = enumeratedRecord
+      ? await input.repository.get(lookupForDelivery(delivery))
+      : null;
+    if (enumeratedRecord && !record) {
+      throw new Error('durable linked-device holder record disappeared during recovery');
+    }
+    if (record && JSON.stringify(record) !== JSON.stringify(enumeratedRecord)) {
+      throw new Error('durable linked-device holder record changed during recovery');
+    }
+    if (record) {
+      assertRecordMatchesDelivery(record, delivery);
+      receipts.push(receiptFromRecord(record));
+      continue;
+    }
+    receipts.push(
+      await sealDelivery({
+        delivery,
+        keyMaterial: input.keyMaterial,
+        worker: input.worker,
+        repository: input.repository,
+        nowMs: input.nowMs,
+      }),
+    );
   }
   const first = receipts[0];
   if (!first) throw new Error('committed linked-device deliveries are empty');
@@ -342,6 +358,7 @@ export function createDeviceLinkingLaneProvisioningPortV1(args: {
     resumeCommittedDeliveryV1: async (input) =>
       await reconcileCommittedDelivery({
         ...input,
+        worker: args.worker,
         repository: args.repository,
         nowMs,
       }),
