@@ -68,8 +68,8 @@ validation.
 | 8 | `billing_ledger_entries` | console-core | MIXED: wallet usage enums in posting vocabulary |
 | 9 | `billing_ledger_postings` | console-core | MIXED: wallet usage enums |
 | 10 | `billing_monthly_active_wallets` | wallet-console | wallet usage meter |
-| 11 | `billing_prepaid_reservation_summaries` | console-core | MIXED: only Wallet sponsorship calls it today; Phase 2 decides by caller |
-| 12 | `billing_prepaid_reservations` | console-core | MIXED: same Phase 2 decision |
+| 11 | `billing_prepaid_reservation_summaries` | wallet-console | decided in Phase 2: no non-wallet caller; moved with sponsorship |
+| 12 | `billing_prepaid_reservations` | wallet-console | decided in Phase 2: moved with sponsorship |
 | 13 | `billing_refunds` | console-core | |
 | 14 | `billing_stripe_post_processing_outbox` | console-core | |
 | 15 | `console_email_deliveries` | console-core | |
@@ -108,10 +108,21 @@ validation.
 | 48 | `webhook_endpoint_categories` | console-core | MIXED: wallet event category catalog moves to Wallet Console validation |
 | 49 | `webhook_endpoints` | console-core | |
 
-Wallet Console total: 13 tables (`wallet_index`, `key_exports`, `policies`,
+Wallet Console total: 15 tables (`wallet_index`, `key_exports`, `policies`,
 `policy_versions`, `policy_assignments`, `approvals`, `runtime_snapshots`,
 `runtime_snapshot_outbox`, four sponsorship tables, `sponsored_call_records`,
-`billing_monthly_active_wallets`).
+`billing_monthly_active_wallets`, and both prepaid-reservation tables per the
+Phase 2 caller decision). Console core total: 34.
+
+Phase 6 cutover (landed): the composed baseline is now
+`packages/wallet-console-server-ts/migrations/d1-console/0001_wallet_console_initial.sql`
+(core section + wallet section, one owner per section); the fresh Console-core
+schema is
+`packages/console-server-ts/migrations/d1-console-core/0001_console_core_initial.sql`.
+`tests/unit/consoleSchemaOwnership.unit.test.ts` holds both fresh schemas to
+exactly these ownership sets. The old `0001_console_d1_initial.sql` is
+deleted; both files apply the identical 49-table schema for the single
+`seams-console` D1 retained during R105.
 
 ## Signer D1 Tables (52)
 

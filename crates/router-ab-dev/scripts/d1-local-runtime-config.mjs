@@ -338,7 +338,7 @@ function applyRuntimePaths(source, repoRoot, outputConfigPath) {
   );
   const consoleMigrationsPath = relativeTomlPath(
     outputDirectory,
-    path.join(repoRoot, 'packages/console-server-ts/migrations/d1-console'),
+    path.join(repoRoot, 'packages/wallet-console-server-ts/migrations/d1-console'),
   );
   const signerMigrationsPath = relativeTomlPath(
     outputDirectory,
@@ -351,7 +351,7 @@ function applyRuntimePaths(source, repoRoot, outputConfigPath) {
         'main = "../wallet-console-server-ts/src/router/cloudflare/d1LocalDevWorker.ts"',
         `main = ${JSON.stringify(mainPath)}`,
       ),
-      'migrations_dir = "migrations/d1-console"',
+      'migrations_dir = "../wallet-console-server-ts/migrations/d1-console"',
       `migrations_dir = ${JSON.stringify(consoleMigrationsPath)}`,
     ),
     'migrations_dir = "../wallet-console-server-ts/node_modules/@seams/sdk-server/migrations/d1-signer"',

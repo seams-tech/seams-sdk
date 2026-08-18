@@ -34,7 +34,7 @@ const migrationTargets = Object.freeze([
     profile: 'console',
     databaseName: 'seams-console-staging-nrt',
     configField: 'consoleConfigPath',
-    migrationsDir: 'migrations/d1-console',
+    migrationsDir: '../wallet-console-server-ts/migrations/d1-console',
   }),
   Object.freeze({
     logicalName: 'signer',

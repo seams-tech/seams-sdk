@@ -146,7 +146,7 @@ export function writeMisScopedConsoleD1StagingConfigFiles(prefix: string): D1Sta
 export function validD1ConsoleStagingConfig(): string {
   return `
 name = "seams-sdk-d1-console-staging"
-main = "src/router/cloudflare/d1ConsoleStagingWorker.ts"
+main = "../wallet-console-server-ts/src/router/cloudflare/d1ConsoleStagingWorker.ts"
 compatibility_date = "2026-04-17"
 compatibility_flags = ["nodejs_compat"]
 
@@ -154,7 +154,7 @@ compatibility_flags = ["nodejs_compat"]
 binding = "CONSOLE_DB"
 database_name = "seams-console-staging-nrt"
 database_id = "11111111-1111-4111-8111-111111111111"
-migrations_dir = "migrations/d1-console"
+migrations_dir = "../wallet-console-server-ts/migrations/d1-console"
 
 [vars]
 SEAMS_TENANT_STORAGE_NAMESPACE = "seams-staging"
@@ -169,7 +169,7 @@ required = ["CONSOLE_SESSION_HMAC_SECRET", "STRIPE_API_SK", "STRIPE_WEBHOOK_SECR
 export function validD1GatewayStagingConfig(): string {
   return `
 name = "seams-sdk-d1-gateway-staging"
-main = "src/router/cloudflare/d1RouterApiStagingWorker.ts"
+main = "../wallet-console-server-ts/src/router/cloudflare/d1RouterApiStagingWorker.ts"
 compatibility_date = "2026-04-17"
 compatibility_flags = ["nodejs_compat"]
 
@@ -177,13 +177,13 @@ compatibility_flags = ["nodejs_compat"]
 binding = "CONSOLE_DB"
 database_name = "seams-console-staging-nrt"
 database_id = "11111111-1111-4111-8111-111111111111"
-migrations_dir = "migrations/d1-console"
+migrations_dir = "../wallet-console-server-ts/migrations/d1-console"
 
 [[d1_databases]]
 binding = "SIGNER_DB"
 database_name = "seams-signer-staging-nrt"
 database_id = "22222222-2222-4222-8222-222222222222"
-migrations_dir = "node_modules/@seams/sdk-server/migrations/d1-signer"
+migrations_dir = "../wallet-console-server-ts/node_modules/@seams/sdk-server/migrations/d1-signer"
 
 [[services]]
 binding = "SIGNING_WORKER"

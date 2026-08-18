@@ -854,7 +854,7 @@ function seedLocalConsoleIdentity() {
 
 function canonicalGatewayD1SchemaDigest() {
   const migrationDirectories = [
-    join(repoRoot, 'packages', 'console-server-ts', 'migrations', 'd1-console'),
+    join(repoRoot, 'packages', 'wallet-console-server-ts', 'migrations', 'd1-console'),
     join(repoRoot, 'packages', 'sdk-server-ts', 'migrations', 'd1-signer'),
   ];
   const migrationPaths = [];

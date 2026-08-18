@@ -7,7 +7,7 @@ compatibility_flags = ["nodejs_compat"]
 binding = "CONSOLE_DB"
 database_name = "seams-console-staging-nrt"
 database_id = "<remote-console-d1-database-id>"
-migrations_dir = "migrations/d1-console"
+migrations_dir = "../wallet-console-server-ts/migrations/d1-console"
 
 [[d1_databases]]
 binding = "SIGNER_DB"

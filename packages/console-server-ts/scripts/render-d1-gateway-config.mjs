@@ -115,7 +115,7 @@ function buildConfig(
         binding: 'CONSOLE_DB',
         database_name: resources.consoleD1.name,
         database_id: resources.consoleD1.id,
-        migrations_dir: path.join(packageRoot, 'migrations/d1-console'),
+        migrations_dir: path.join(packageRoot, '../wallet-console-server-ts/migrations/d1-console'),
       },
       {
         binding: 'SIGNER_DB',
