@@ -282,6 +282,7 @@ test('management composition uses the authenticated owner context', async () => 
         device: unknownWebAuthnAuthenticatorDeviceInfo(),
       }),
       readLinkedDeviceMetadataBatchV1: async () => new Map(),
+      listUnlinkedOwnerDeviceSummariesV1: async () => [],
     },
     preparation: {
       prepareLinkedDeviceRevocationV1: async () => ({ kind: 'conflict' as const }),
@@ -315,5 +316,5 @@ test('management composition uses the authenticated owner context', async () => 
     { walletId: fixture.approval.walletId, expiresAtMs: 3_000 },
     2_000,
   );
-  expect(result).toEqual({ devices: [], nextCursor: null });
+  expect(result).toEqual({ devices: [], ownerDevices: [], nextCursor: null });
 });

@@ -1,5 +1,9 @@
 import React, { useEffect } from 'react';
-import type { LinkedDeviceSummaryV1 } from '@shared/device-linking';
+import type {
+  LinkedDeviceSummaryV1,
+  LinkedOwnerCredentialMetadataV1,
+  OwnerDeviceSummaryV1,
+} from '@shared/device-linking';
 import { Theme, useTheme } from '../theme';
 import { useSeams } from '../../context';
 import './LinkedDevicesModal.css';
@@ -13,8 +17,22 @@ export interface LinkedDevicesModalProps {
 type LinkedDevicesLoadState =
   | { kind: 'idle' }
   | { kind: 'loading' }
-  | { kind: 'loaded'; devices: readonly LinkedDeviceSummaryV1[] }
-  | { kind: 'error' };
+  | { kind: 'loaded'; devices: readonly NumberedWalletDevice[] }
+  | { kind: 'error'; message: string };
+
+/**
+ * One card in the list: either a founding owner passkey (registered or
+ * recovered directly, removable only through auth-method revocation) or a
+ * linked-device enrollment (removable here).
+ */
+type WalletDeviceView =
+  | { readonly kind: 'owner'; readonly owner: OwnerDeviceSummaryV1 }
+  | { readonly kind: 'linked'; readonly device: LinkedDeviceSummaryV1 };
+
+type NumberedWalletDevice = {
+  readonly view: WalletDeviceView;
+  readonly deviceNumber: number;
+};
 
 type RevokeState =
   | { kind: 'idle' }
@@ -22,23 +40,69 @@ type RevokeState =
   | { kind: 'working'; deviceId: string }
   | { kind: 'error'; message: string };
 
-/** Revoked devices are historical records, not devices the owner can manage. */
-function visibleLinkedDevices(
+function viewCreatedAtMs(view: WalletDeviceView): number {
+  return view.kind === 'owner' ? view.owner.createdAtMs : view.device.createdAtMs;
+}
+
+function viewLastActivityAtMs(view: WalletDeviceView): number {
+  return view.kind === 'owner' ? view.owner.lastActivityAtMs : view.device.lastActivityAtMs;
+}
+
+function viewCredential(view: WalletDeviceView): LinkedOwnerCredentialMetadataV1 {
+  return view.kind === 'owner' ? view.owner.credential : view.device.credential;
+}
+
+/**
+ * The card's stable identity for expand/remove state. Linked devices carry a
+ * LinkedDeviceId; founding owners have only their credential.
+ */
+function viewId(view: WalletDeviceView): string {
+  return view.kind === 'owner'
+    ? String(view.owner.credential.walletAuthMethodId)
+    : String(view.device.deviceId);
+}
+
+/** The identifier a person can match against their other device. */
+function viewDisplayId(view: WalletDeviceView): string {
+  return view.kind === 'owner'
+    ? String(view.owner.credential.credentialIdB64u ?? view.owner.credential.walletAuthMethodId)
+    : String(view.device.deviceId);
+}
+
+/**
+ * Founding owners and linked enrollments in one numbered list, oldest first.
+ * Revoked devices are historical records, not devices the owner can manage.
+ */
+function visibleWalletDevices(
+  ownerDevices: readonly OwnerDeviceSummaryV1[],
   devices: readonly LinkedDeviceSummaryV1[],
-): readonly LinkedDeviceSummaryV1[] {
-  return devices.filter((device) => device.state !== 'revoked');
+): readonly NumberedWalletDevice[] {
+  const views: WalletDeviceView[] = [
+    ...ownerDevices.map((owner): WalletDeviceView => ({ kind: 'owner', owner })),
+    ...devices.map((device): WalletDeviceView => ({ kind: 'linked', device })),
+  ];
+  return views
+    .sort(
+      (left, right) =>
+        viewCreatedAtMs(left) - viewCreatedAtMs(right) ||
+        viewId(left).localeCompare(viewId(right)),
+    )
+    .map((view, index) => ({ view, deviceNumber: index + 1 }))
+    .filter(({ view }) => view.kind === 'owner' || view.device.state !== 'revoked');
 }
 
 /**
  * Plain-language state for one device. The wire model carries five states and a
  * revocation epoch; a person only needs to know whether the device can still
- * reach the wallet right now.
+ * reach the wallet right now. Founding owners in the list are active by
+ * construction — the projection only serves active owner credentials.
  */
-function deviceStanding(device: LinkedDeviceSummaryV1): {
+function deviceStanding(view: WalletDeviceView): {
   readonly label: string;
   readonly tone: 'active' | 'pending' | 'off';
 } {
-  switch (device.state) {
+  if (view.kind === 'owner') return { label: 'Can use this wallet', tone: 'active' };
+  switch (view.device.state) {
     case 'active':
       return { label: 'Can use this wallet', tone: 'active' };
     case 'provisioning':
@@ -69,32 +133,33 @@ function friendlyDay(value: number, now: number): string {
   });
 }
 
-function shortDeviceId(deviceId: LinkedDeviceSummaryV1['deviceId']): string {
-  const value = String(deviceId);
+function shortDisplayId(value: string): string {
   return value.length <= 12 ? value : `…${value.slice(-8)}`;
 }
 
 /**
  * The one description the card heading, the removal confirmation, and every
  * live announcement share. Credential labels repeat across cards — two platform
- * passkeys are both "Platform passkey" — so the stable device ID suffix is what
- * makes a sentence name a single card rather than a category of them.
+ * passkeys are both "Platform passkey" — so the stable ID suffix is what makes
+ * a sentence name a single card rather than a category of them.
  */
-function credentialDescription(device: LinkedDeviceSummaryV1): string {
-  switch (device.credential.kind) {
+function credentialDescription(credential: LinkedOwnerCredentialMetadataV1): string {
+  switch (credential.kind) {
     case 'passkey':
-      return device.credential.device.label;
+      return credential.device.label;
     case 'email_otp':
       return 'Email OTP';
   }
 }
 
-function credentialSecondaryDescription(device: LinkedDeviceSummaryV1): string | null {
-  switch (device.credential.kind) {
+function credentialSecondaryDescription(
+  credential: LinkedOwnerCredentialMetadataV1,
+): string | null {
+  switch (credential.kind) {
     case 'email_otp':
       return null;
     case 'passkey': {
-      const metadata = device.credential.device;
+      const metadata = credential.device;
       const provider = metadata.providerLabel ?? metadata.provider;
       const sync = metadata.synced ? 'Synced passkey' : 'Passkey';
       return provider ? `${provider} · ${sync}` : sync;
@@ -102,8 +167,13 @@ function credentialSecondaryDescription(device: LinkedDeviceSummaryV1): string |
   }
 }
 
-function deviceDescription(device: LinkedDeviceSummaryV1): string {
-  return `${credentialDescription(device)} (ID ${shortDeviceId(device.deviceId)})`;
+function deviceDescription(view: WalletDeviceView, deviceNumber: number): string {
+  return `Device ${deviceNumber}, ${credentialDescription(viewCredential(view))} (ID ${shortDisplayId(viewDisplayId(view))})`;
+}
+
+function linkedDevicesLoadErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  return 'Try again.';
 }
 
 function focusableDialogElements(dialog: HTMLElement): HTMLElement[] {
@@ -144,10 +214,15 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
     try {
       const result = await seams.devices.listLinkedDevices({ walletId, limit: 50, cursor: null });
       if (loadSeq.current === seq) {
-        setLoadState({ kind: 'loaded', devices: visibleLinkedDevices(result.devices) });
+        setLoadState({
+          kind: 'loaded',
+          devices: visibleWalletDevices(result.ownerDevices, result.devices),
+        });
       }
-    } catch {
-      if (loadSeq.current === seq) setLoadState({ kind: 'error' });
+    } catch (error: unknown) {
+      if (loadSeq.current === seq) {
+        setLoadState({ kind: 'error', message: linkedDevicesLoadErrorMessage(error) });
+      }
     }
   }, [seams, walletId]);
 
@@ -204,10 +279,10 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
   }, [isOpen, loadDevices]);
 
   const revokeDevice = React.useCallback(
-    async (device: LinkedDeviceSummaryV1) => {
+    async (device: LinkedDeviceSummaryV1, deviceNumber: number) => {
       if (!walletId) return;
       const deviceId = String(device.deviceId);
-      const description = deviceDescription(device);
+      const description = deviceDescription({ kind: 'linked', device }, deviceNumber);
       setRevokeState({ kind: 'working', deviceId });
       setAnnouncement(`Removing ${description}…`);
       try {
@@ -294,8 +369,8 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
             ) : null}
 
             {loadState.kind === 'error' ? (
-              <div className="w3a-linked-devices-modal-placeholder">
-                <span>We couldn&apos;t load your devices.</span>
+              <div className="w3a-linked-devices-modal-placeholder" role="alert">
+                <span>Unable to load your devices: {loadState.message}</span>
                 <button
                   type="button"
                   className="w3a-linked-devices-modal-secondary"
@@ -314,20 +389,24 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
 
             {devices.length > 0 ? (
               <ul className="w3a-linked-devices-modal-list">
-                {devices.map((device) => {
-                  const deviceId = String(device.deviceId);
-                  const secondaryDescription = credentialSecondaryDescription(device);
-                  const standing = deviceStanding(device);
+                {devices.map(({ view, deviceNumber }) => {
+                  const cardId = viewId(view);
+                  const displayId = viewDisplayId(view);
+                  const secondaryDescription = credentialSecondaryDescription(
+                    viewCredential(view),
+                  );
+                  const standing = deviceStanding(view);
                   const confirming =
-                    revokeState.kind === 'confirming' && revokeState.deviceId === deviceId;
+                    revokeState.kind === 'confirming' && revokeState.deviceId === cardId;
                   const working =
-                    revokeState.kind === 'working' && revokeState.deviceId === deviceId;
-                  const fullIdShown = expandedDeviceId === deviceId;
+                    revokeState.kind === 'working' && revokeState.deviceId === cardId;
+                  const fullIdShown = expandedDeviceId === cardId;
                   return (
-                    <li key={deviceId} className="w3a-linked-devices-modal-item">
+                    <li key={cardId} className="w3a-linked-devices-modal-item">
                       <div className="w3a-linked-devices-modal-item-main">
                         <span className="w3a-linked-devices-modal-item-name">
-                          {credentialDescription(device)}
+                          Device {deviceNumber} &middot;{' '}
+                          {credentialDescription(viewCredential(view))}
                         </span>
                         <span className={`w3a-linked-devices-modal-standing tone-${standing.tone}`}>
                           {standing.label}
@@ -337,24 +416,29 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
                         {secondaryDescription ? <span>{secondaryDescription}</span> : null}
                         {secondaryDescription ? <span aria-hidden="true">&middot;</span> : null}
                         <span className="w3a-linked-devices-modal-device-id">
-                          ID {fullIdShown ? deviceId : shortDeviceId(device.deviceId)}
+                          ID {fullIdShown ? displayId : shortDisplayId(displayId)}
                         </span>
                         <button
                           type="button"
                           className="w3a-linked-devices-modal-disclosure"
                           aria-expanded={fullIdShown}
-                          onClick={() => setExpandedDeviceId(fullIdShown ? null : deviceId)}
+                          onClick={() => setExpandedDeviceId(fullIdShown ? null : cardId)}
                         >
                           {fullIdShown ? 'Hide full ID' : 'Show full ID'}
                         </button>
                       </div>
                       <div className="w3a-linked-devices-modal-item-detail">
-                        Last used {friendlyDay(device.lastActivityAtMs, Date.now())}
+                        Last used {friendlyDay(viewLastActivityAtMs(view), Date.now())}
                       </div>
-                      {confirming ? (
+                      {view.kind === 'owner' ? (
+                        <div className="w3a-linked-devices-modal-item-detail">
+                          Original device — manage it from that device&apos;s wallet settings.
+                        </div>
+                      ) : confirming ? (
                         <div className="w3a-linked-devices-modal-confirm">
                           <span>
-                            Remove {deviceDescription(device)}? It will lose access right away.
+                            Remove {deviceDescription(view, deviceNumber)}? It will lose access
+                            right away.
                           </span>
                           <div className="w3a-linked-devices-modal-confirm-actions">
                             <button
@@ -367,7 +451,7 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
                             <button
                               type="button"
                               className="w3a-linked-devices-modal-danger"
-                              onClick={() => void revokeDevice(device)}
+                              onClick={() => void revokeDevice(view.device, deviceNumber)}
                             >
                               Yes, remove
                             </button>
@@ -378,8 +462,8 @@ export const LinkedDevicesModal: React.FC<LinkedDevicesModalProps> = ({
                           type="button"
                           className="w3a-linked-devices-modal-secondary"
                           disabled={working}
-                          aria-label={`Remove ${deviceDescription(device)}`}
-                          onClick={() => setRevokeState({ kind: 'confirming', deviceId })}
+                          aria-label={`Remove ${deviceDescription(view, deviceNumber)}`}
+                          onClick={() => setRevokeState({ kind: 'confirming', deviceId: cardId })}
                         >
                           {working ? 'Removing…' : 'Remove'}
                         </button>

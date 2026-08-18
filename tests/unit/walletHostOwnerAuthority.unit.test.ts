@@ -2,13 +2,21 @@ import { expect, test } from '@playwright/test';
 import { parseWalletId } from '@shared/utils/domainIds';
 import { parseLinkDeviceSessionId } from '@shared/signing-lanes/ids';
 import { createWalletHostOwnerAuthoritiesV1 } from '@/SeamsWeb/operations/devices/walletHostOwnerAuthority';
+import {
+  selectWalletHostOwnerSourceLaneCandidatesV1,
+} from '@/SeamsWeb/signingSurface/BrowserSigningSurface';
 import { DeviceLinkingError, DeviceLinkingErrorCode } from '@/core/types/linkDevice';
 import {
   buildR103DeviceLinkFixture,
   buildR103OwnerEnrollmentCeremonyV1,
 } from './helpers/deviceLinkContracts.fixtures';
 import { buildUnlockedCustodyCapabilityFixtureV1 } from './helpers/linkedDeviceCustodyTransfer.fixtures';
-import { availableLaneEd25519Authorization } from './helpers/availableSigningLanes.fixtures';
+import {
+  authorizedPasskeyEd25519AvailableLane,
+  availableEd25519Inventory,
+  availableLaneEd25519Authorization,
+} from './helpers/availableSigningLanes.fixtures';
+import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 const walletId = parseWalletId('wallet:r103').value;
 
@@ -43,7 +51,6 @@ function stopBeforeHttp(overrides: AuthorityOverrides = {}) {
       walletId,
       authMethod: 'passkey',
     }),
-    hasLinkedDeviceSigningSession: () => false,
     readOwnerSourceLaneHintsV1: async () => {
       throw new Error('owner lane hints are not exercised by this test');
     },
@@ -158,28 +165,6 @@ test('a missing, mismatched, or expired capability fails with wallet_unlock_requ
   }
 });
 
-test('blocks linked-device sessions before owner management session lookup', async () => {
-  const authorities = stopBeforeHttp({
-    walletSessions: {
-      read: async () => {
-        throw new Error('linked-device management must stop before session lookup');
-      },
-      readActiveForWallet: async () => {
-        throw new Error('linked-device management must stop before session lookup');
-      },
-    },
-    hasLinkedDeviceSigningSession: () => true,
-  });
-
-  await expect(
-    authorities.managementRequest.request({
-      walletId,
-      method: 'GET',
-      canonicalPath: '/wallet/device-linking/v1/devices',
-    }),
-  ).rejects.toThrow('Signing-only linked-device sessions cannot manage devices');
-});
-
 test('reuses an unexpired owner enrollment ceremony and restarts an expired one', async () => {
   let startCalls = 0;
   const sessionId = parseLinkDeviceSessionId('link-session:retry');
@@ -209,4 +194,42 @@ test('reuses an unexpired owner enrollment ceremony and restarts an expired one'
   const third = await authorities.ownerAuthorization.startOwnerEnrollmentCeremonyV1(request);
   expect(startCalls).toBe(2);
   expect(third.ceremony).not.toBe(first.ceremony);
+});
+
+test('device-link owner handoff excludes historical Ed25519 candidates', async () => {
+  const currentAuthorization = availableLaneEd25519Authorization({
+    walletId: String(walletId),
+    identitySeed: 'device-link-current-owner',
+    authMethod: 'passkey',
+  });
+  const current = authorizedPasskeyEd25519AvailableLane({
+    authorization: currentAuthorization,
+    materialActivation: buildMpcMaterialActivationRefFixture(
+      'device-link-current-owner',
+      String(walletId),
+    ),
+  });
+  const historical = authorizedPasskeyEd25519AvailableLane({
+    authorization: currentAuthorization,
+    materialActivation: buildMpcMaterialActivationRefFixture(
+      'device-link-historical-owner',
+      String(walletId),
+    ),
+  });
+  const available = availableEd25519Inventory({
+    primary: current,
+    candidates: [historical, current],
+  });
+
+  const selected = selectWalletHostOwnerSourceLaneCandidatesV1(
+    available,
+    currentAuthorization,
+  );
+
+  expect(selected).toEqual([
+    {
+      curve: 'ed25519',
+      materialActivation: current.materialActivation,
+    },
+  ]);
 });

@@ -28,8 +28,8 @@ import {
   type UpsertExportViewerHostArgs,
 } from '../../ui/export-viewer-host';
 import {
-  collectAuthenticationCredentialForChallengeB64u,
-  collectAuthenticationCredentialForWalletChallengeB64u,
+  collectAuthenticationCredentialForExactNearChallengeB64u,
+  collectAuthenticationCredentialForExactWalletChallengeB64u,
 } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 
 function createRandomChallengeB64u(): string {
@@ -121,18 +121,20 @@ async function collectLocalOnlyExportCredentialWithPRF(args: {
 }): Promise<SerializableCredential> {
   switch (args.payload.subject.kind) {
     case 'near_wallet':
-      return await collectAuthenticationCredentialForChallengeB64u({
+      return await collectAuthenticationCredentialForExactNearChallengeB64u({
         credentialStore: args.ctx.webauthnCredentialStore,
         touchIdPrompt: args.ctx.touchIdPrompt,
         nearAccountId: args.payload.subject.nearAccountId,
+        credentialIdB64u: args.payload.credentialIdB64u,
         challengeB64u: args.challengeB64u,
         includeSecondPrfOutput: true,
       });
     case 'evm_wallet':
-      return await collectAuthenticationCredentialForWalletChallengeB64u({
+      return await collectAuthenticationCredentialForExactWalletChallengeB64u({
         credentialStore: args.ctx.webauthnCredentialStore,
         touchIdPrompt: args.ctx.touchIdPrompt,
         walletId: args.payload.subject.walletId,
+        credentialIdB64u: args.payload.credentialIdB64u,
         challengeB64u: args.challengeB64u,
         includeSecondPrfOutput: true,
       });

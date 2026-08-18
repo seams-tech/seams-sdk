@@ -26,7 +26,9 @@ import type {
   LinkedDeviceListResultV1,
   LinkedOwnerCredentialMetadataV1,
   LinkedDeviceSummaryV1,
+  OwnerDeviceSummaryV1,
 } from '@shared/device-linking/contracts';
+import { parseWebAuthnCredentialIdB64u } from '@shared/utils/domainIds';
 import { D1LinkedDeviceOwnerAuthBindingStoreV1 } from './d1LinkedDeviceOwnerAuthBindingStore';
 import type { LinkedDeviceOwnerAuthBindingV1 } from '@shared/device-linking/ownerAuthBinding';
 import type {
@@ -59,6 +61,15 @@ export type D1LinkedDeviceManagementMetadataPortV1 = {
       readonly deviceId: LinkedDeviceId;
     }>,
   ) => Promise<ReadonlyMap<string, D1LinkedDeviceManagementMetadataV1>>;
+  /**
+   * Active owner passkeys that never enrolled through device linking: the
+   * wallet's founding device(s). They have no link session, so the session
+   * projection can never surface them; management lists them alongside the
+   * linked enrollments.
+   */
+  readonly listUnlinkedOwnerDeviceSummariesV1: (input: {
+    readonly walletId: WalletId;
+  }) => Promise<readonly OwnerDeviceSummaryV1[]>;
 };
 
 export class D1LinkedDeviceCanonicalOwnerAuthMetadataSourceV1 implements D1LinkedDeviceManagementMetadataPortV1 {
@@ -112,7 +123,7 @@ export class D1LinkedDeviceCanonicalOwnerAuthMetadataSourceV1 implements D1Linke
     const selectedBindings = new Map<string, LinkedDeviceOwnerAuthBindingV1>();
     for (const identity of identities) {
       const binding = bindings.get(String(identity.deviceId));
-      if (!binding) throw new Error('linked-device owner auth binding is missing');
+      if (!binding) continue;
       assertBindingMatchesIdentity(binding, identity, this.tenantId);
       const key = metadataKey(identity);
       if (selectedBindings.has(key)) {
@@ -120,6 +131,8 @@ export class D1LinkedDeviceCanonicalOwnerAuthMetadataSourceV1 implements D1Linke
       }
       selectedBindings.set(key, binding);
     }
+
+    if (selectedBindings.size === 0) return new Map();
 
     const authMethodIds = [
       ...new Set(
@@ -168,7 +181,7 @@ export class D1LinkedDeviceCanonicalOwnerAuthMetadataSourceV1 implements D1Linke
     const result = new Map<string, D1LinkedDeviceManagementMetadataV1>();
     for (const identity of identities) {
       const binding = selectedBindings.get(metadataKey(identity));
-      if (!binding) throw new Error('linked-device owner auth binding is missing');
+      if (!binding) continue;
       const authMethod = authMethods.get(String(binding.walletAuthMethodId));
       if (!authMethod) throw new Error('linked-device canonical auth method is missing');
       result.set(
@@ -177,6 +190,71 @@ export class D1LinkedDeviceCanonicalOwnerAuthMetadataSourceV1 implements D1Linke
       );
     }
     return result;
+  }
+
+  async listUnlinkedOwnerDeviceSummariesV1(input: {
+    readonly walletId: WalletId;
+  }): Promise<readonly OwnerDeviceSummaryV1[]> {
+    const walletId = String(input.walletId);
+    const bindings = await this.bindings.readBatchForWalletV1(input.walletId);
+    const linkedAuthMethodIds = new Set(
+      [...bindings.values()].map((binding) => String(binding.walletAuthMethodId)),
+    );
+    const rows = await queryD1All(
+      this.database,
+      `SELECT wallet_id, wallet_auth_method_id, record_json
+         FROM ${WALLET_AUTH_METHOD_TABLE}
+        WHERE namespace = ?1 AND org_id = ?2 AND project_id = ?3 AND env_id = ?4
+          AND wallet_id = ?5`,
+      [...scopeValues(this.scope), walletId],
+    );
+    const ownerPasskeys: Extract<WalletAuthMethodRecord, { kind: 'passkey' }>[] = [];
+    for (const row of rows) {
+      const authMethodId = requiredString(
+        field(row, 'wallet_auth_method_id'),
+        'wallet_auth_method_id',
+      );
+      const authMethod = normalizeWalletAuthMethod(parseD1JsonColumn(field(row, 'record_json')));
+      if (!authMethod || String(authMethod.walletId) !== walletId) {
+        throw new Error('owner device auth method is invalid');
+      }
+      if (String(walletAuthMethodRecordId(authMethod)) !== authMethodId) {
+        throw new Error('owner device auth method identity changed');
+      }
+      if (authMethod.kind !== 'passkey' || authMethod.status !== 'active') continue;
+      if (linkedAuthMethodIds.has(authMethodId)) continue;
+      ownerPasskeys.push(authMethod);
+    }
+    if (ownerPasskeys.length === 0) return [];
+    const authenticators = await this.readCanonicalAuthenticatorsV1({
+      walletId,
+      credentialIds: ownerPasskeys.map((authMethod) => authMethod.credentialIdB64u),
+    });
+    const summaries: OwnerDeviceSummaryV1[] = [];
+    for (const authMethod of ownerPasskeys) {
+      const authenticator = authenticators.get(authMethod.credentialIdB64u);
+      if (!authenticator) {
+        throw new Error('owner device canonical passkey authenticator is missing');
+      }
+      summaries.push({
+        walletId: authMethod.walletId,
+        credential: {
+          kind: 'passkey',
+          walletAuthMethodId: walletAuthMethodRecordId(authMethod),
+          credentialIdB64u: requireParsedCredentialId(authMethod.credentialIdB64u),
+          device: authenticator.deviceInfo,
+        },
+        createdAtMs: authMethod.createdAtMs,
+        lastActivityAtMs: Math.max(authMethod.updatedAtMs, authenticator.updatedAtMs),
+      });
+    }
+    return summaries.sort(
+      (left, right) =>
+        left.createdAtMs - right.createdAtMs ||
+        String(left.credential.credentialIdB64u).localeCompare(
+          String(right.credential.credentialIdB64u),
+        ),
+    );
   }
 
   private async readCanonicalAuthenticatorsV1(input: {
@@ -359,8 +437,15 @@ export class D1LinkedDeviceManagementStoreV1 implements LinkedDeviceManagementPr
       if (!target || target.summary.walletId !== input.walletId) continue;
       summaries.push(target.summary);
     }
+    // Founding owner devices ride the first page only; later pages would
+    // otherwise repeat them under every cursor.
+    const ownerDevices =
+      input.cursor === null
+        ? await this.metadata.listUnlinkedOwnerDeviceSummariesV1({ walletId: input.walletId })
+        : [];
     return {
       devices: summaries,
+      ownerDevices,
       nextCursor: sessions.nextCursor ? encodeLinkedDeviceListCursorV1(sessions.nextCursor) : null,
     };
   }
@@ -462,9 +547,7 @@ export class D1LinkedDeviceManagementStoreV1 implements LinkedDeviceManagementPr
         deviceId: claim.deviceId,
       }),
     );
-    if (!credential) {
-      throw new Error('linked-device owner auth metadata is missing');
-    }
+    if (!credential) return null;
     const enrollmentUpdatedAtMs = enrollmentContext.updatedAtMs;
     const signingActivityAtMs =
       context.signingActivity.get(
@@ -624,6 +707,12 @@ function scopeValues(scope: D1LinkedDeviceSessionScopeV1): readonly string[] {
 function parseRequiredLaneEnrollmentId(raw: string): LaneEnrollmentId {
   const parsed = parseLaneEnrollmentId(raw);
   if (!parsed.ok) throw new Error('linked-device management enrollment id is invalid');
+  return parsed.value;
+}
+
+function requireParsedCredentialId(raw: string) {
+  const parsed = parseWebAuthnCredentialIdB64u(raw);
+  if (!parsed.ok) throw new Error('owner device credential id is invalid');
   return parsed.value;
 }
 

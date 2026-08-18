@@ -362,7 +362,9 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
         id: PROFILE_MENU_ITEM_IDS.EXPORT_KEYS,
         icon: exportLoadingChain ? <SpinnerIcon /> : <KeyIcon />,
         label: 'Export Keys',
-        description: 'Export wallet signing keys',
+        description: accountMenuCapabilities.canExportKeys
+          ? 'Export wallet signing keys'
+          : 'Owner key export is not available on this device yet',
         disabled: !accountMenuCapabilities.canExportKeys,
         onClick: () => {
           setExportKeysOpen((v) => !v);

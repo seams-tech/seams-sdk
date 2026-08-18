@@ -218,6 +218,7 @@ type ExportPrivateKeysWithUiWorkerPayloadBase = {
 export type ExportPrivateKeysWithUiWorkerPayload =
   | (ExportPrivateKeysWithUiWorkerPayloadBase & {
       walletId: string;
+      credentialIdB64u: string;
       chainTarget: ThresholdEcdsaChainTarget;
       artifactKind: 'ecdsa-derivation-secp256k1-export';
       publicKeyHex: string;
@@ -226,6 +227,7 @@ export type ExportPrivateKeysWithUiWorkerPayload =
     })
   | (ExportPrivateKeysWithUiWorkerPayloadBase & {
       walletId: string;
+      credentialIdB64u: string;
       chainTarget: ThresholdEcdsaChainTarget;
     })
   | RouterAbEd25519YaoExportWorkerPayloadV1;

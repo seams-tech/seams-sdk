@@ -226,7 +226,6 @@ export class TouchIdPrompt {
         rpId,
         inIframe: TouchIdPrompt._inIframe(),
         timeoutMs: publicKey.timeout as number | undefined,
-        permitGetBridgeOnAncestorError: this.safariGetWebauthnRegistrationFallback,
         abortSignal: this.abortController.signal,
       })) as unknown;
 

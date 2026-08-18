@@ -111,7 +111,6 @@ test.describe('R103 shared linked-device contracts', () => {
         walletId: projection.walletId,
         authMethod: projection.authMethod,
       }),
-      hasLinkedDeviceSigningSession: () => false,
       readOwnerSourceLaneHintsV1: async () => [sourceHint],
       readUnlockedCustodyCapabilityV1: () =>
         buildUnlockedCustodyCapabilityFixtureV1({
@@ -139,19 +138,20 @@ test.describe('R103 shared linked-device contracts', () => {
     expect(JSON.stringify(captured?.body)).not.toContain('privateKey');
   });
 
-  test('signing-only linked-device sessions cannot use owner device operations', async () => {
-    const deviceLink = buildR103DeviceLinkFixture();
+  test('a linked owner Wallet Session can use device management', async () => {
     const owner = await buildOwnerWalletExecutionEvidenceFixture();
     const projection = availableLaneEd25519Authorization({
       walletId: String(owner.walletId),
-      identitySeed: 'linked-device-management-guard',
+      identitySeed: 'linked-owner-management',
       authMethod: 'passkey',
     });
+    let captured: Parameters<HttpTransport['request']>[0] | null = null;
     const authorities = createWalletHostOwnerAuthoritiesV1({
       http: {
         kind: 'http_transport',
-        request: async () => {
-          throw new Error('linked-device owner operations must stop before HTTP');
+        request: async (input) => {
+          captured = input;
+          return { ok: true, value: { status: 200, body: { ok: true, devices: [] } } };
         },
       },
       relayerUrl: 'https://relay.example.test',
@@ -160,37 +160,31 @@ test.describe('R103 shared linked-device contracts', () => {
       },
       walletSessions: {
         read: async () => ({ kind: 'missing' as const }),
-        readActiveForWallet: async () => {
-          throw new Error('linked-device owner operations must stop before session lookup');
-        },
+        readActiveForWallet: async () => ({ kind: 'found' as const, projection }),
       },
       readWalletAuthenticationState: () => ({
         kind: 'authenticated',
         walletId: projection.walletId,
         authMethod: projection.authMethod,
       }),
-      hasLinkedDeviceSigningSession: (walletId) => walletId === projection.walletId,
       readOwnerSourceLaneHintsV1: async () => {
-        throw new Error('linked-device owner operations must stop before source lookup');
+        throw new Error('owner lane hints are not exercised by management requests');
       },
       readUnlockedCustodyCapabilityV1: () => {
-        throw new Error('linked-device owner operations must stop before capability lookup');
+        throw new Error('custody capability is not exercised by management requests');
       },
     });
 
-    await expect(
-      authorities.ownerAuthorization.authenticateOwnerForLinkingV1({
-        payload: deviceLink.payload,
-        requestedAtMs: 2_000,
-      }),
-    ).rejects.toThrow('Signing-only linked-device sessions cannot manage devices');
-    await expect(
-      authorities.managementRequest.request({
-        walletId: projection.walletId,
-        method: 'GET',
-        canonicalPath: '/wallet/device-linking/v1/devices',
-      }),
-    ).rejects.toThrow('Signing-only linked-device sessions cannot manage devices');
+    const result = await authorities.managementRequest.request({
+      walletId: projection.walletId,
+      method: 'GET',
+      canonicalPath: '/wallet/device-linking/v1/devices',
+    });
+
+    expect(result.status).toBe(200);
+    expect(captured?.headers?.authorization).toBe(
+      'Bearer fixture-wallet-session-jwt:linked-owner-management',
+    );
   });
 
   test('round-trips QR, approval, transcript, and receipt projections through strict parsers', async () => {

@@ -16,6 +16,7 @@ import type {
 import type { PersistedEcdsaRoleLocalMaterial } from '../material/ecdsaRoleLocalMaterialResolver';
 import type { EcdsaBootstrapRequest } from './ecdsaBootstrap';
 import { requireOpaqueWalletSessionToken } from '@shared/utils/sessionTokens';
+import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 
 declare const walletId: WalletId;
 declare const subjectId: WalletId;
@@ -31,6 +32,7 @@ declare const passkeyCredentialIdB64u: string;
 declare const publicCapability: RouterAbEcdsaDerivationPublicCapabilityV1;
 declare const sessionActivation: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
 declare const existingRoleLocalMaterial: PersistedEcdsaRoleLocalMaterial;
+declare const authorizationAuthority: WalletAuthAuthorityRef;
 
 const validReuseBootstrap = {
   kind: 'reuse_warm_ecdsa_bootstrap',
@@ -72,6 +74,7 @@ const validPasskeyPreauthorizedBootstrap = {
   lanePolicy,
   publicCapability,
   existingRoleLocalMaterial,
+  authorizationAuthority,
   source: 'login',
   passkeyCredentialIdB64u,
   sessionActivation,
@@ -86,6 +89,7 @@ const invalidPasskeyPreauthorizedBootstrapWithoutActivation: EcdsaBootstrapReque
   lanePolicy,
   publicCapability,
   existingRoleLocalMaterial,
+  authorizationAuthority,
   source: 'login',
   passkeyCredentialIdB64u,
 };
@@ -98,6 +102,7 @@ const invalidPasskeyPreauthorizedBootstrapWithRouteAuth: EcdsaBootstrapRequest =
   lanePolicy,
   publicCapability,
   existingRoleLocalMaterial,
+  authorizationAuthority,
   source: 'login',
   passkeyCredentialIdB64u,
   sessionActivation,
@@ -125,6 +130,7 @@ const validWalletSessionReconnectBootstrap = {
   lanePolicy,
   publicCapability,
   existingRoleLocalMaterial,
+  authorizationAuthority,
   passkeyCredentialIdB64u,
   routeAuth: {
     kind: 'opaque_wallet_session',

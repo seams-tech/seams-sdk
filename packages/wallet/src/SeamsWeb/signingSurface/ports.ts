@@ -659,7 +659,7 @@ export type LoginUnlockSigningSurface = WalletSessionReadSurface &
   EcdsaLoginSessionSurface &
   PasskeyLoginAssertionSurface &
   Pick<EcdsaSessionControlSurface, 'clearVolatileWarmSigningMaterial'> &
-  Pick<UserProfileStoreSurface, 'setLastUser'> &
+  Pick<UserProfileStoreSurface, 'setLastUser' | 'storeUserData'> &
   // Unlock must activate the NEAR account projection, not just write the
   // wallet-profile last-user pointer — see persistSuccessfulLoginState. The
   // restore path (LocalLoginStateSurface) already pairs these two for the same

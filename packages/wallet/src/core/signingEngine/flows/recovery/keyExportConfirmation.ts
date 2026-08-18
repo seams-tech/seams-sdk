@@ -350,6 +350,7 @@ export async function requestThresholdEcdsaExportAuthorization(
   deps: KeyExportConfirmationDeps,
   args: {
     walletSessionUserId: string;
+    credentialIdB64u: string;
     publicKey: string;
     chainTarget: ThresholdEcdsaChainTarget;
     challengeB64u?: string;
@@ -387,6 +388,7 @@ export async function requestThresholdEcdsaExportAuthorization(
           kind: 'evm_wallet',
           walletId: walletIdForUi,
         },
+        credentialIdB64u: args.credentialIdB64u,
         publicKey: args.publicKey,
         ...(args.challengeB64u ? { challengeB64u: args.challengeB64u } : {}),
       },

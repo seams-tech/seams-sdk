@@ -56,7 +56,6 @@ export function createWalletHostOwnerAuthoritiesV1(input: {
     'read' | 'readActiveForWallet'
   >;
   readonly readWalletAuthenticationState: () => WalletAuthenticationState;
-  readonly hasLinkedDeviceSigningSession: (walletId: WalletId) => boolean;
   readonly readOwnerSourceLaneHintsV1: WalletHostOwnerSourceLaneHintsReaderV1;
   /**
    * R103 zero-prompt handoff: reads the worker-held unlocked custody transfer
@@ -132,7 +131,6 @@ type WalletHostOwnerAuthorityContextV1 = {
     'read' | 'readActiveForWallet'
   >;
   readonly readWalletAuthenticationState: () => WalletAuthenticationState;
-  readonly hasLinkedDeviceSigningSession: (walletId: WalletId) => boolean;
   readonly readOwnerSourceLaneHintsV1: WalletHostOwnerSourceLaneHintsReaderV1;
   readonly readUnlockedCustodyCapabilityV1: (
     walletId: WalletId,
@@ -147,7 +145,6 @@ function normalizeContext(input: {
     'read' | 'readActiveForWallet'
   >;
   readonly readWalletAuthenticationState: () => WalletAuthenticationState;
-  readonly hasLinkedDeviceSigningSession: (walletId: WalletId) => boolean;
   readonly readOwnerSourceLaneHintsV1: WalletHostOwnerSourceLaneHintsReaderV1;
   readonly readUnlockedCustodyCapabilityV1: (
     walletId: WalletId,
@@ -186,7 +183,6 @@ async function authorizeOwnerForLinkingV1(
   if (state.kind !== 'authenticated') {
     throw walletUnlockRequiredV1();
   }
-  assertOwnerDeviceManagementAuthorityV1(context, state.walletId);
   const projection = await requireActiveWalletSessionForWalletV1(context, state.walletId);
   const custodyTransferCapability = context.readUnlockedCustodyCapabilityV1(state.walletId);
   if (
@@ -238,7 +234,6 @@ async function requestAsAuthorizedOwnerV1(
   ) {
     throw new Error('Owner Wallet Session identity is invalid or expired');
   }
-  assertOwnerDeviceManagementAuthorityV1(context, projection.walletId);
   return await requestWithProjectionV1(context, projection, input);
 }
 
@@ -246,18 +241,8 @@ async function requestManagementAsOwnerV1(
   context: WalletHostOwnerAuthorityContextV1,
   input: Parameters<WalletHostManagementRequestV1['request']>[0],
 ): ReturnType<WalletHostManagementRequestV1['request']> {
-  assertOwnerDeviceManagementAuthorityV1(context, input.walletId);
   const projection = await requireActiveWalletSessionForWalletV1(context, input.walletId);
   return await requestWithProjectionV1(context, projection, input);
-}
-
-function assertOwnerDeviceManagementAuthorityV1(
-  context: WalletHostOwnerAuthorityContextV1,
-  walletId: WalletId,
-): void {
-  if (context.hasLinkedDeviceSigningSession(walletId)) {
-    throw new Error('Signing-only linked-device sessions cannot manage devices');
-  }
 }
 
 async function requireActiveWalletSessionForWalletV1(

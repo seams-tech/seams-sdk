@@ -57,7 +57,7 @@ test('passes the canonical wallet query to owner authentication', async () => {
   expect(authenticatedPath).toBe(
     `${LINKED_DEVICE_MANAGEMENT_BASE_V1}?walletId=${encodeURIComponent(String(walletId))}&limit=10&cursor=`,
   );
-  expect(await response.json()).toEqual({ ok: true, devices: [], nextCursor: null });
+  expect(await response.json()).toEqual({ ok: true, devices: [], ownerDevices: [], nextCursor: null });
 });
 
 test('rejects a list page larger than the server-owned maximum', async () => {
@@ -85,7 +85,7 @@ function managementRouteService(
     ...overrides,
     nowV1: () => 10_000,
     management: {
-      listLinkedDevicesV1: async () => ({ devices: [], nextCursor: null }),
+      listLinkedDevicesV1: async () => ({ devices: [], ownerDevices: [], nextCursor: null }),
       revokeLinkedDeviceV1: async () => ({ kind: 'not_found' as const }),
     },
   };

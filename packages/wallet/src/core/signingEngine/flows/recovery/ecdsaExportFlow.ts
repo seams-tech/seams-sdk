@@ -558,6 +558,7 @@ async function prepareFreshPasskeyEcdsaExportMaterial(
     { touchConfirm: deps.touchConfirm, theme: deps.theme },
     {
       walletSessionUserId: args.walletId,
+      credentialIdB64u: requirePasskeyEcdsaExportAuth(args.exportLane).credentialIdB64u,
       publicKey: args.exportPublicKey,
       chainTarget: args.exportLane.chainTarget,
       challengeB64u: prepared.challengeB64u,

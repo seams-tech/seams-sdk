@@ -2225,7 +2225,12 @@ export class SeamsWeb {
       const runtimeInventory = await assertWalletRuntimePostconditions({
         source: 'wallet_unlock',
         walletId,
-        authMethod: 'email_otp',
+        owner: {
+          auth: {
+            kind: 'email_otp',
+            providerSubjectId: args.providerIdentity.providerSubjectId,
+          },
+        },
         requiredTargets: [
           ...(ed25519CustodyProjection ? [{ curve: 'ed25519' as const }] : []),
           ...configuredEmailOtpEcdsaSnapshotChainTargets(this.configs).map((target) => ({
