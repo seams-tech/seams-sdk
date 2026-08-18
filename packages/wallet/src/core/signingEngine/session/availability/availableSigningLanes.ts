@@ -21,7 +21,10 @@ import {
   type ResolvedEvmFamilyEcdsaKey,
   type VerifiedEcdsaPublicFacts,
 } from '../identity/evmFamilyEcdsaIdentity';
-import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import {
+  buildPasskeyWalletAuthAuthority,
+  type WalletAuthAuthority,
+} from '@shared/utils/walletAuthAuthority';
 import {
   thresholdEcdsaChainTargetKey,
   toWalletId,
@@ -51,6 +54,7 @@ import type {
   CanonicalEvmFamilyEcdsaSigningCapability,
 } from '../material/ecdsaSigningCapability';
 import {
+  walletSessionThresholdSessionIdForCurve,
   walletSessionTokenForCurve,
   type ActiveWalletSessionAuthorizationProjection,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
@@ -282,6 +286,35 @@ function durableEd25519AuthBinding(
   };
 }
 
+function activeAuthorizationMatchesEd25519Lane(input: {
+  readonly authorization: ActiveWalletSessionAuthorizationProjection;
+  readonly auth: SigningLaneAuthBinding;
+  readonly walletId: string;
+  readonly thresholdSessionId: string;
+}): boolean {
+  if (
+    String(input.authorization.walletId) !== input.walletId ||
+    input.authorization.authMethod !== input.auth.kind ||
+    input.authorization.walletSessionId.length === 0 ||
+    input.authorization.quotaId.length === 0 ||
+    String(walletSessionThresholdSessionIdForCurve(input.authorization, 'ed25519')) !==
+      input.thresholdSessionId
+  ) {
+    return false;
+  }
+  if (input.auth.kind === 'email_otp') return true;
+  try {
+    const authority = buildPasskeyWalletAuthAuthority({
+      walletId: input.walletId,
+      rpId: input.auth.rpId,
+      credentialIdB64u: input.auth.credentialIdB64u,
+    });
+    return input.authorization.authority.walletAuthMethodId === authority.bindingId;
+  } catch {
+    return false;
+  }
+}
+
 function recordToEd25519Lane(
   record: SigningSessionSealedStoreRecord,
   activeAuthorization: ActiveWalletSessionAuthorizationProjection | null,
@@ -309,10 +342,12 @@ function recordToEd25519Lane(
   const authorization =
     activeAuthorization &&
     walletSessionToken &&
-    String(activeAuthorization.walletId) === walletId &&
-    activeAuthorization.authMethod === record.authMethod &&
-    activeAuthorization.walletSessionId.length > 0 &&
-    activeAuthorization.quotaId.length > 0
+    activeAuthorizationMatchesEd25519Lane({
+      authorization: activeAuthorization,
+      auth,
+      walletId,
+      thresholdSessionId,
+    })
       ? activeAuthorization
       : null;
   try {
@@ -372,10 +407,12 @@ function publicCapabilityReferenceToEd25519Lane(
   const authorization =
     activeAuthorization &&
     walletSessionToken &&
-    String(activeAuthorization.walletId) === walletId &&
-    activeAuthorization.authMethod === reference.auth.kind &&
-    activeAuthorization.walletSessionId.length > 0 &&
-    activeAuthorization.quotaId.length > 0
+    activeAuthorizationMatchesEd25519Lane({
+      authorization: activeAuthorization,
+      auth: reference.auth,
+      walletId,
+      thresholdSessionId,
+    })
       ? activeAuthorization
       : null;
   try {

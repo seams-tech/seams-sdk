@@ -8,8 +8,7 @@ import { isWalletSessionReadyForUi } from './walletSessionReadiness';
 
 export type LinkedDeviceManagementPermission =
   | { readonly kind: 'unauthenticated' }
-  | { readonly kind: 'owner' }
-  | { readonly kind: 'signing_only' };
+  | { readonly kind: 'owner' };
 
 export type AccountMenuCapabilities =
   | {
@@ -21,20 +20,12 @@ export type AccountMenuCapabilities =
       readonly kind: 'owner';
       readonly canExportKeys: true;
       readonly canManageLinkedDevices: true;
-    }
-  | {
-      readonly kind: 'signing_only';
-      readonly canExportKeys: false;
-      readonly canManageLinkedDevices: false;
     };
 
 export function linkedDeviceManagementPermissionForLoginState(
   state: LoginState,
 ): LinkedDeviceManagementPermission {
   if (!state.isLoggedIn) return { kind: 'unauthenticated' };
-  if (state.authMethods.length === 0 || state.currentAuthMethod.kind !== 'selected') {
-    return { kind: 'signing_only' };
-  }
   return { kind: 'owner' };
 }
 
@@ -47,8 +38,6 @@ export function accountMenuCapabilitiesForLoginState(
       return { kind: 'signed_out', canExportKeys: false, canManageLinkedDevices: false };
     case 'owner':
       return { kind: 'owner', canExportKeys: true, canManageLinkedDevices: true };
-    case 'signing_only':
-      return { kind: 'signing_only', canExportKeys: false, canManageLinkedDevices: false };
   }
   return assertNeverAccountMenuPermission(management);
 }
@@ -95,7 +84,7 @@ export function buildReactLoggedInLoginStateFromSession(session: WalletSession):
   const matchingAuthMethods = appIdentity.authMethods.filter(
     (binding) => binding.kind === authentication.authMethod,
   );
-  if (matchingAuthMethods.length !== 1) return null;
+  if (matchingAuthMethods.length === 0) return null;
   const currentAuthMethod = buildSelectedCurrentWalletAuthMethod({
     binding: matchingAuthMethods[0],
   });

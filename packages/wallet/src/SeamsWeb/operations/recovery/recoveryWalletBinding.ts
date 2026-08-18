@@ -73,7 +73,8 @@ export function parseRecoveryResolvedWalletBindingFromResponse(
   return parseRecoveryResolvedWalletBinding(bindingSource, context);
 }
 
-export function assertSameRecoveryResolvedWalletBinding(
+// Options may describe any allowed passkey; verification identifies the one the user selected.
+export function assertSameRecoveryWalletIdentity(
   left: RecoveryResolvedWalletBinding,
   right: RecoveryResolvedWalletBinding,
   context: string,
@@ -83,7 +84,6 @@ export function assertSameRecoveryResolvedWalletBinding(
     String(left.nearAccountId) !== String(right.nearAccountId) ||
     String(left.nearEd25519SigningKeyId) !== String(right.nearEd25519SigningKeyId) ||
     left.rpId !== right.rpId ||
-    left.credentialIdB64u !== right.credentialIdB64u ||
     left.signerSlot !== right.signerSlot
   ) {
     throw new Error(`${context} returned mismatched wallet binding`);

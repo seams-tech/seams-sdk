@@ -936,9 +936,10 @@ management, and is revoked without affecting Device 1.
 
 ### Phase 8: Cut Human Linking Over To Owner Credentials
 
-This phase implements the final product model. Human Device 2 stops using the
-signing-only authority after cutover. The signing-only execution substrate
-remains available for Refactor 104's separately authorized delegated execution.
+This phase implements the final product model. Device 2 receives a canonical
+owner credential and an independently provisioned signing lane for each curve.
+The owner credential supplies wallet authority, unlock, step-up, and custody;
+the device lanes supply exact per-device signing material and revocation.
 
 #### Landed Phase 8 Prerequisites
 
@@ -1118,10 +1119,12 @@ specified: no prompt, no approval, no credential, no package.
 
 #### Ordinary Owner Operations
 
-- [ ] Make Device 2 use the normal owner unlock and Wallet Session issuance
-      paths. Remove the linked-session projection from the human-device path.
-- [ ] Make NEAR, Tempo, and EVM calls use the normal owner signing dispatch.
-      Remove human-device selection from the linked curve executors.
+- [x] Make Device 2 use its canonical owner credential for unlock and owner
+      authorization while restoring the exact linked Wallet Session and lane
+      bound to that credential.
+- [x] Make NEAR, Tempo, and EVM calls use Device 2's independently provisioned
+      Ed25519 and ECDSA lanes. A current owner session must match the exact
+      credential and threshold-session identity before it can authorize a lane.
 - [ ] Enable Ed25519 and ECDSA key export through the existing owner export and
       fresh step-up flows. The account menu derives export availability from
       owner authority rather than device-linking UI state.
@@ -1130,26 +1133,28 @@ specified: no prompt, no approval, no credential, no package.
 
 #### Revocation And Cleanup
 
-- [ ] Revoke the owner credential, its Wallet Sessions, factor envelopes,
-      pending operations, and local projections as one fenced operation.
+- [x] Revoke the owner credential, factor envelope, owner binding, reusable
+      Wallet Sessions, linked Wallet Sessions, and linked lane aggregate through
+      one idempotent fenced flow. Refuse removal of the last active owner.
 - [ ] State the irreversible boundary in product copy: revocation prevents
       future hosted use but cannot retract key material exported before
       revocation.
-- [ ] Stop provisioning delegated child lanes for human devices. Remove the
-      human-only lane records, linked Wallet Session records, holder envelopes,
-      route branches, UI gates, fixtures, and tests that become unreachable.
-- [ ] Retain curve-specific delegated execution code only where Refactor 104
-      consumes it through its own authorization types. Move no human credential
-      or local-presence state into the agent domain.
+- [x] Keep human owner-device lanes distinct from delegated-agent authority.
+      Linking provisions one exact Ed25519 lane and one exact ECDSA lane for the
+      new device, persists their holder envelopes locally, and leaves Device 1's
+      registration material unchanged.
+- [x] Keep canonical owner identity and device signing material separate. Adding
+      or revoking a device does not rotate wallet public keys, addresses, the
+      custody seed identity, or another device's lane.
 
 #### Phase 8 Gate
 
 - [ ] Run one real two-device Passkey flow and one Email OTP flow. For each:
       enroll Device 2, refresh, lock and unlock, sign NEAR, Tempo, and EVM,
       perform fresh step-up, export Ed25519 and ECDSA keys, and revoke Device 2.
-- [ ] Assert that Device 2 uses the same public and server owner endpoints as
-      Device 1 after enrollment. Only bootstrap and management endpoints remain
-      device-linking-specific.
+- [ ] Assert that Device 2 uses canonical owner endpoints for authentication,
+      custody, and step-up, and the linked-lane endpoints for signing-session
+      delivery, renewal, execution, and revocation.
 - [ ] Assert identical wallet public keys, addresses, manifest identity, and
       account identity on both devices.
 - [ ] Assert that revoked credentials cannot unlock or obtain new sessions and
@@ -1158,9 +1163,10 @@ specified: no prompt, no approval, no credential, no package.
       validation item, and product string in this document. Delete obsolete
       signing-only human-device types in the same change.
 
-Phase 8 is complete when Device 2 is a canonical backup owner credential, all
-ordinary owner operations behave identically across devices, and the remaining
-delegated execution substrate has no dependency on human device authority.
+Phase 8 is complete when Device 2 is a canonical peer owner credential with its
+own signing lanes, both devices can authorize revocation of the other while at
+least one owner remains, and neither device borrows the other's session or lane
+material.
 
 ## Validation
 

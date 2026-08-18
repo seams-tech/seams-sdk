@@ -9,6 +9,7 @@ import {
   parseWebAuthnRpId,
   type WebAuthnCredentialIdB64u,
   type WebAuthnRpId,
+  type WalletAuthMethodId,
 } from '@shared/utils/domainIds';
 import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
@@ -25,6 +26,7 @@ import {
   type RegistrationAuthority,
   type RegistrationIntentV1,
   type WalletId,
+  walletAuthMethodRecordId,
 } from '@shared/utils/registrationIntent';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
@@ -39,8 +41,14 @@ import {
   type EmailOtpWalletAuthAuthority,
   type PasskeyWalletAuthAuthority,
 } from '@shared/utils/walletAuthAuthority';
-import { buildLinkedOwnerPasskeyAuthBindingV1 } from '@shared/device-linking/ownerAuthBinding';
-import type { LinkedDeviceOwnerAuthBindingWriterV1 } from '../deviceLinking/d1LinkedDeviceOwnerAuthBindingStore';
+import {
+  buildLinkedOwnerPasskeyAuthBindingV1,
+  revokeLinkedOwnerAuthBindingV1,
+} from '@shared/device-linking/ownerAuthBinding';
+import type {
+  LinkedDeviceOwnerAuthBindingPortV1,
+  LinkedDeviceOwnerAuthBindingWriterV1,
+} from '../deviceLinking/d1LinkedDeviceOwnerAuthBindingStore';
 import type { D1PreparedStatementLike } from '../../../../storage/tenantRoute';
 import type {
   D1WalletAuthMethodStore,
@@ -88,6 +96,7 @@ import {
   webAuthnOriginHostnameOrEmpty,
 } from '../../../auth/webAuthnCredentialCodecs';
 import type { CloudflareD1WebAuthnStore } from '../webauthn/d1WebAuthnStore';
+import type { WebAuthnCredentialBindingRecord } from '../../../../core/WebAuthnCredentialBindingStore';
 import type { CloudflareD1PasskeyCustodyEnvelopeStore } from '../passkeyCustody/d1PasskeyCustodyEnvelopeStore';
 import type {
   FinalizeWalletAddAuthMethodCommand,
@@ -105,6 +114,15 @@ type FinalizeWalletAddAuthMethodInput = FinalizeWalletAddAuthMethodCommand;
 type FinalizeWalletAddAuthMethodResult = WalletAddAuthMethodFinalizeResponse;
 type RevokeWalletAuthMethodInput = RevokeWalletAuthMethodCommand;
 type RevokeWalletAuthMethodResult = WalletRevokeAuthMethodResponse;
+export type LinkedOwnerAuthMethodRevocationResultV1 =
+  | { readonly kind: 'applied' }
+  | { readonly kind: 'replayed' }
+  | { readonly kind: 'conflict' };
+type OwnerWalletSessionRevocationV1 = (input: {
+  readonly walletId: WalletId;
+  readonly walletAuthMethodId: WalletAuthMethodId;
+  readonly requestedAtMs: number;
+}) => Promise<void>;
 type WalletAuthMethodError = {
   readonly ok: false;
   readonly code: string;
@@ -219,6 +237,66 @@ async function loadSimpleWebAuthnServer(): Promise<SimpleWebAuthnServerModule> {
   }
 }
 
+async function buildAddedPasskeyCredentialBinding(input: {
+  readonly webAuthnStore: CloudflareD1WebAuthnStore;
+  readonly ceremony: Extract<StoredWalletAddAuthMethodCeremony, { readonly kind: 'passkey' }>;
+  readonly walletId: WalletId;
+  readonly rpId: WebAuthnRpId;
+  readonly credentialIdB64u: string;
+  readonly now: number;
+}): Promise<WebAuthnCredentialBindingRecord> {
+  if (input.ceremony.auth.kind === 'email_otp') {
+    return {
+      version: 'webauthn_credential_binding_v1',
+      rpId: input.rpId,
+      credentialIdB64u: input.credentialIdB64u,
+      userId: String(input.walletId),
+      createdAtMs: input.now,
+      updatedAtMs: input.now,
+    };
+  }
+  const source = await input.webAuthnStore.readBindingByCredential({
+    rpId: input.ceremony.auth.rpId,
+    credentialIdB64u: input.ceremony.auth.credentialIdB64u,
+  });
+  if (
+    !source ||
+    source.userId !== input.walletId ||
+    !source.nearAccountId ||
+    !source.nearEd25519SigningKeyId ||
+    source.signerSlot === undefined ||
+    !source.publicKey
+  ) {
+    throw new Error('Authorizing passkey binding is missing wallet identity fields');
+  }
+  const binding: WebAuthnCredentialBindingRecord = {
+    version: 'webauthn_credential_binding_v1',
+    rpId: input.rpId,
+    credentialIdB64u: input.credentialIdB64u,
+    userId: String(input.walletId),
+    nearAccountId: source.nearAccountId,
+    nearEd25519SigningKeyId: source.nearEd25519SigningKeyId,
+    signerSlot: source.signerSlot,
+    publicKey: source.publicKey,
+    createdAtMs: input.now,
+    updatedAtMs: input.now,
+  };
+  if (source.relayerKeyId) binding.relayerKeyId = source.relayerKeyId;
+  if (source.keyVersion) binding.keyVersion = source.keyVersion;
+  if (typeof source.recoveryExportCapable === 'boolean') {
+    binding.recoveryExportCapable = source.recoveryExportCapable;
+  }
+  if (source.clientParticipantId !== undefined) {
+    binding.clientParticipantId = source.clientParticipantId;
+  }
+  if (source.relayerParticipantId !== undefined) {
+    binding.relayerParticipantId = source.relayerParticipantId;
+  }
+  if (source.participantIds) binding.participantIds = source.participantIds.slice();
+  if (source.runtimePolicyScope) binding.runtimePolicyScope = source.runtimePolicyScope;
+  return binding;
+}
+
 export class CloudflareD1WalletAuthMethodService {
   private readonly emailOtpChallengeVerifier: CloudflareD1EmailOtpChallengeVerifier;
   private readonly getRegistrationCeremonyIntentStore: RegistrationCeremonyStoreProvider;
@@ -229,6 +307,11 @@ export class CloudflareD1WalletAuthMethodService {
   private readonly webAuthnStore: CloudflareD1WebAuthnStore;
 
   private readonly linkedDeviceOwnerAuthBindings?: LinkedDeviceOwnerAuthBindingWriterV1;
+  private readonly linkedDeviceOwnerAuthBindingStore?: Pick<
+    LinkedDeviceOwnerAuthBindingPortV1,
+    'readByAuthMethodV1' | 'buildLifecycleUpdateV1'
+  >;
+  private readonly revokeOwnerWalletSessions?: OwnerWalletSessionRevocationV1;
 
   constructor(input: {
     readonly emailOtpChallengeVerifier: CloudflareD1EmailOtpChallengeVerifier;
@@ -244,6 +327,11 @@ export class CloudflareD1WalletAuthMethodService {
      * writing an owner credential no enrollment points at.
      */
     readonly linkedDeviceOwnerAuthBindings?: LinkedDeviceOwnerAuthBindingWriterV1;
+    readonly linkedDeviceOwnerAuthBindingStore?: Pick<
+      LinkedDeviceOwnerAuthBindingPortV1,
+      'readByAuthMethodV1' | 'buildLifecycleUpdateV1'
+    >;
+    readonly revokeOwnerWalletSessions?: OwnerWalletSessionRevocationV1;
   }) {
     this.emailOtpChallengeVerifier = input.emailOtpChallengeVerifier;
     this.getRegistrationCeremonyIntentStore = input.getRegistrationCeremonyIntentStore;
@@ -253,6 +341,8 @@ export class CloudflareD1WalletAuthMethodService {
     this.sha256Bytes = input.sha256Bytes;
     this.webAuthnStore = input.webAuthnStore;
     this.linkedDeviceOwnerAuthBindings = input.linkedDeviceOwnerAuthBindings;
+    this.linkedDeviceOwnerAuthBindingStore = input.linkedDeviceOwnerAuthBindingStore;
+    this.revokeOwnerWalletSessions = input.revokeOwnerWalletSessions;
   }
 
   /**
@@ -677,14 +767,14 @@ export class CloudflareD1WalletAuthMethodService {
           authority,
           now,
         });
-        const binding = {
-          version: 'webauthn_credential_binding_v1' as const,
+        const binding = await buildAddedPasskeyCredentialBinding({
+          webAuthnStore: this.webAuthnStore,
+          ceremony,
+          walletId,
           rpId: requireStoredRpId(ceremony.passkeyRegistration.rpId),
           credentialIdB64u: credential.credentialIdB64u,
-          userId: String(walletId),
-          createdAtMs: now,
-          updatedAtMs: now,
-        };
+          now,
+        });
         // Refactor 103 Phase 8: when a linked device is the one adding this
         // factor, its owner-auth binding joins the same batch. Writing it
         // afterwards would leave a window where the wallet has an auth method
@@ -1183,56 +1273,11 @@ export class CloudflareD1WalletAuthMethodService {
           message: 'wallet must retain at least one active auth method',
         };
       }
-      const revokedAtMs = Date.now();
-      const revokedRecord = revokedD1WalletAuthMethodRecord({
-        record: targetRecord,
-        updatedAtMs: revokedAtMs,
-      });
-      if (targetRecord.kind === 'passkey') {
-        const custodyResult = await this.passkeyCustodyEnvelopes.revokePasskeyFactorAtomically({
-          walletId: parsed.walletId,
-          factor: {
-            kind: 'passkey',
-            rpId: requireStoredRpId(targetRecord.rpId),
-            credentialIdB64u: requireStoredCredentialId(targetRecord.credentialIdB64u),
-          },
-          revokedAtMs,
-          additionalStatements:
-            walletAuthMethodStore.preparePasskeyRevocationStatements(revokedRecord),
-        });
-        if (custodyResult.kind === 'refused') {
-          return {
-            ok: false,
-            code: 'invalid_state',
-            message: custodyResult.reason,
-          };
-        }
-        if (custodyResult.kind === 'version_mismatch') {
-          return {
-            ok: false,
-            code: 'conflict',
-            message: 'passkey custody changed; retry revocation',
-          };
-        }
-        return {
-          ok: true,
-          walletId: parsed.walletId,
-          authMethod: {
-            kind: 'passkey',
-            status: 'revoked',
-          },
-          rpId: targetRecord.rpId,
-        };
-      }
-      await walletAuthMethodStore.put(revokedRecord);
-      return {
-        ok: true,
+      return await this.revokeWalletAuthMethodRecordV1({
         walletId: parsed.walletId,
-        authMethod: {
-          kind: 'email_otp',
-          status: 'revoked',
-        },
-      };
+        targetRecord,
+        revokedAtMs: Date.now(),
+      });
     } catch (error: unknown) {
       return {
         ok: false,
@@ -1240,6 +1285,133 @@ export class CloudflareD1WalletAuthMethodService {
         message: errorMessage(error) || 'Failed to revoke wallet auth method',
       };
     }
+  }
+
+  /**
+   * The already-authenticated owner Wallet Session path uses the same
+   * canonical auth-method mutation as the assertion route. Its target is an
+   * exact persisted method id, so it cannot substitute a different factor.
+   */
+  async revokeWalletAuthMethodForOwnerSessionV1(input: {
+    readonly walletId: WalletId;
+    readonly walletAuthMethodId: WalletAuthMethodId;
+    readonly requestedAtMs: number;
+  }): Promise<LinkedOwnerAuthMethodRevocationResultV1> {
+    try {
+      const walletAuthMethodStore = this.getWalletAuthMethodStore();
+      const walletMethods = await walletAuthMethodStore.listForWallet({
+        walletId: input.walletId,
+      });
+      const targetRecord = walletMethods.find(
+        (record) => walletAuthMethodRecordId(record) === input.walletAuthMethodId,
+      );
+      if (!targetRecord) return { kind: 'conflict' };
+      if (targetRecord.status === 'revoked') {
+        if (this.revokeOwnerWalletSessions) {
+          await this.revokeOwnerWalletSessions({
+            walletId: input.walletId,
+            walletAuthMethodId: input.walletAuthMethodId,
+            requestedAtMs: input.requestedAtMs,
+          });
+        }
+        return { kind: 'replayed' };
+      }
+      const activeWalletMethods = walletMethods.filter(activeWalletAuthMethodRecord);
+      if (activeWalletMethods.length <= 1) return { kind: 'conflict' };
+      const result = await this.revokeWalletAuthMethodRecordV1({
+        walletId: input.walletId,
+        targetRecord,
+        revokedAtMs: input.requestedAtMs,
+      });
+      return result.ok ? { kind: 'applied' } : { kind: 'conflict' };
+    } catch {
+      return { kind: 'conflict' };
+    }
+  }
+
+  private async revokeWalletAuthMethodRecordV1(input: {
+    readonly walletId: WalletId;
+    readonly targetRecord: WalletAuthMethodRecord;
+    readonly revokedAtMs: number;
+  }): Promise<RevokeWalletAuthMethodResult> {
+    const walletAuthMethodStore = this.getWalletAuthMethodStore();
+    const revokedRecord = revokedD1WalletAuthMethodRecord({
+      record: input.targetRecord,
+      updatedAtMs: input.revokedAtMs,
+    });
+    const binding = this.linkedDeviceOwnerAuthBindingStore
+      ? await this.linkedDeviceOwnerAuthBindingStore.readByAuthMethodV1({
+          walletId: input.walletId,
+          walletAuthMethodId: walletAuthMethodRecordId(input.targetRecord),
+        })
+      : null;
+    const revokedBinding = binding
+      ? revokeLinkedOwnerAuthBindingV1({
+          binding,
+          revokedAtMs: input.revokedAtMs,
+        })
+      : null;
+    if (revokedBinding && !revokedBinding.ok) {
+      return {
+        ok: false,
+        code: 'conflict',
+        message: 'linked owner auth binding cannot be revoked',
+      };
+    }
+    const bindingStatement =
+      revokedBinding?.ok && this.linkedDeviceOwnerAuthBindingStore
+        ? this.linkedDeviceOwnerAuthBindingStore.buildLifecycleUpdateV1(
+            revokedBinding.binding,
+            binding?.revocationEpoch ?? 0,
+          ).statement
+        : null;
+    if (input.targetRecord.kind === 'passkey') {
+      const custodyResult = await this.passkeyCustodyEnvelopes.revokePasskeyFactorAtomically({
+        walletId: input.walletId,
+        factor: {
+          kind: 'passkey',
+          rpId: requireStoredRpId(input.targetRecord.rpId),
+          credentialIdB64u: requireStoredCredentialId(input.targetRecord.credentialIdB64u),
+        },
+        revokedAtMs: input.revokedAtMs,
+        additionalStatements: [
+          ...walletAuthMethodStore.preparePasskeyRevocationStatements(revokedRecord),
+          ...(bindingStatement ? [bindingStatement] : []),
+        ],
+      });
+      if (custodyResult.kind === 'refused') {
+        return { ok: false, code: 'invalid_state', message: custodyResult.reason };
+      }
+      if (custodyResult.kind === 'version_mismatch') {
+        return {
+          ok: false,
+          code: 'conflict',
+          message: 'passkey custody changed; retry revocation',
+        };
+      }
+    } else {
+      await walletAuthMethodStore.put(revokedRecord);
+      if (bindingStatement) await bindingStatement.run();
+    }
+    if (this.revokeOwnerWalletSessions) {
+      await this.revokeOwnerWalletSessions({
+        walletId: input.walletId,
+        walletAuthMethodId: walletAuthMethodRecordId(input.targetRecord),
+        requestedAtMs: input.revokedAtMs,
+      });
+    }
+    return input.targetRecord.kind === 'passkey'
+      ? {
+          ok: true,
+          walletId: input.walletId,
+          authMethod: { kind: 'passkey', status: 'revoked' },
+          rpId: input.targetRecord.rpId,
+        }
+      : {
+          ok: true,
+          walletId: input.walletId,
+          authMethod: { kind: 'email_otp', status: 'revoked' },
+        };
   }
 
   private async verifyRegistrationCredentialForIntent(input: {

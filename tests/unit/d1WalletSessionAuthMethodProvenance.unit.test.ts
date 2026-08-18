@@ -209,3 +209,82 @@ test('refuses Wallet Session readback and replay under a different stored auth m
     cleanupTemporaryD1Database(temporary.tempDir);
   }
 });
+
+test('revokes every reusable Wallet Session issued by one auth method', async () => {
+  const temporary = createTemporaryD1Database();
+  try {
+    await applyD1MigrationFiles(temporary.database, signerMigrations);
+    const namespace = 'wallet-session-auth-method-revocation';
+    const service = createService(temporary.database, namespace);
+    const fixture = await buildPasskeyWalletSessionIssuanceFixture({
+      tenantId: 'tenant-wallet-session-auth-method-revocation',
+      principalId: 'principal-wallet-session-auth-method-revocation',
+      walletId: 'wallet-session-auth-method-revocation-wallet',
+      credentialIdB64u: 'credential-wallet-session-revoked',
+      rpId: 'example.test',
+      origin: 'https://app.example.test',
+      expiresAtMs: 1_900_000_100_000,
+    });
+    const mintId = requiredMintId('unlock:wallet-session-auth-method-revocation');
+    const issuance = {
+      tenantId: fixture.session.tenantId,
+      principalId: fixture.session.principalId,
+      walletId: fixture.authority.walletId,
+      authority: fixture.authorityRef,
+      mintId,
+      remainingUses: 3,
+      issuedAtMs: fixture.session.createdAtMs + 1,
+      expiresAtMs: fixture.session.expiresAtMs,
+    };
+    await service.issueReusableWalletSession(issuance);
+
+    await service.revokeReusableWalletSessionsForAuthMethod({
+      tenantId: fixture.session.tenantId,
+      walletId: fixture.authority.walletId,
+      walletAuthMethodId: fixture.authorityRef.walletAuthMethodId,
+      nowMs: fixture.session.createdAtMs + 2,
+    });
+    await service.revokeReusableWalletSessionsForAuthMethod({
+      tenantId: fixture.session.tenantId,
+      walletId: fixture.authority.walletId,
+      walletAuthMethodId: fixture.authorityRef.walletAuthMethodId,
+      nowMs: fixture.session.createdAtMs + 3,
+    });
+
+    await expect(
+      service.readWalletSessionAuthorizationByMint({
+        ...issuance,
+        nowMs: fixture.session.createdAtMs + 4,
+      }),
+    ).rejects.toThrow();
+    const rows = await temporary.database
+      .prepare(
+        `SELECT session.lifecycle_kind AS session_lifecycle,
+                quota.lifecycle_kind AS quota_lifecycle,
+                quota.remaining_uses
+           FROM reusable_wallet_sessions AS session
+           JOIN authorization_wallet_session_quotas AS quota
+             ON quota.namespace = session.namespace
+            AND quota.tenant_id = session.tenant_id
+            AND quota.wallet_session_id = session.wallet_session_id
+          WHERE session.namespace = ?
+            AND session.tenant_id = ?
+            AND session.wallet_auth_method_id = ?`,
+      )
+      .bind(namespace, fixture.session.tenantId, fixture.authorityRef.walletAuthMethodId)
+      .all<{
+        readonly session_lifecycle: string;
+        readonly quota_lifecycle: string;
+        readonly remaining_uses: number;
+      }>();
+    expect(rows.results).toEqual([
+      {
+        session_lifecycle: 'superseded',
+        quota_lifecycle: 'exhausted',
+        remaining_uses: 0,
+      },
+    ]);
+  } finally {
+    cleanupTemporaryD1Database(temporary.tempDir);
+  }
+});

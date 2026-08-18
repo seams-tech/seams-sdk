@@ -6,6 +6,7 @@ import {
   buildPasskeyEd25519AuthorizationProjectionFixture,
   buildPasskeyEd25519SealedSessionRecordFixture,
 } from './helpers/sealedSigningSession.fixtures';
+import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 const AVAILABLE_SIGNING_LANES_PATH =
   '/_test-sdk/esm/core/signingEngine/session/availability/availableSigningLanes.js';
@@ -192,6 +193,68 @@ test.describe('available signing lane curve isolation', () => {
         thresholdSessionId: currentRecord.thresholdSessionIds.ed25519,
       },
     });
+  });
+
+  test('does not authorize a superseded passkey session with the current session token', async ({
+    page,
+  }) => {
+    const walletId = 'ed25519-session-rotation-wallet';
+    const retiredRecord = buildPasskeyEd25519SealedSessionRecordFixture({
+      walletId,
+      thresholdSessionId: 'ed25519-session-retired',
+      materialActivation: buildMpcMaterialActivationRefFixture(
+        'ed25519-material-retired',
+        walletId,
+      ),
+    });
+    const currentRecord = buildPasskeyEd25519SealedSessionRecordFixture({
+      walletId,
+      thresholdSessionId: 'ed25519-session-current',
+      materialActivation: buildMpcMaterialActivationRefFixture(
+        'ed25519-material-current',
+        walletId,
+      ),
+    });
+    const authorization = buildPasskeyEd25519AuthorizationProjectionFixture(currentRecord);
+    const result = await page.evaluate(
+      async ({ modulePath, retiredRecord, currentRecord, authorization }) => {
+        const { readAvailableSigningLanes } = await import(modulePath);
+        const lanes = await readAvailableSigningLanes(
+          {
+            walletId: currentRecord.walletId,
+            ecdsaChainTargets: [],
+          },
+          {
+            listSealedRecordsForWallet: async () => [retiredRecord, currentRecord],
+            readActiveWalletSessionAuthorization: async () => authorization,
+          },
+        );
+        return lanes.candidates.ed25519.near.map((lane: Record<string, unknown>) => ({
+          authorizationState: lane.authorizationState,
+          state: lane.state,
+          thresholdSessionId: lane.thresholdSessionId,
+        }));
+      },
+      {
+        modulePath: AVAILABLE_SIGNING_LANES_PATH,
+        retiredRecord,
+        currentRecord,
+        authorization,
+      },
+    );
+
+    expect(result).toEqual([
+      {
+        authorizationState: 'authorized',
+        state: 'restorable',
+        thresholdSessionId: 'ed25519-session-current',
+      },
+      {
+        authorizationState: 'authorization_required',
+        state: 'deferred',
+        thresholdSessionId: 'ed25519-session-retired',
+      },
+    ]);
   });
 
   test('prefers a fresh Email OTP unlock capability over exhausted durable policy', async ({

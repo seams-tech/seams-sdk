@@ -1,12 +1,17 @@
 import type { ActionResult } from './seams';
 import type { AfterCall, EventCallback, LinkDeviceFlowEvent } from './sdkSentEvents';
 import type { ConfirmationConfig } from './signer-worker';
-import type { LinkedDeviceSessionState, QrLinkedDeviceSessionPayloadV4 } from '@shared/device-linking';
+import type {
+  LinkedDeviceEnrollmentReceiptV1,
+  LinkedDeviceSessionState,
+  QrLinkedDeviceSessionPayloadV4,
+} from '@shared/device-linking';
 import type {
   LinkedDeviceEnrollmentId,
   LinkedDeviceId,
   LinkDeviceSessionId,
 } from '@shared/signing-lanes/ids';
+import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type { WalletId } from '@shared/utils/domainIds';
 
 export { LinkDeviceEventPhase } from './sdkSentEvents';
@@ -21,18 +26,13 @@ export type DeviceLinkingSession = {
 export type LinkDeviceResult =
   | {
       readonly success: true;
-      /**
-       * Refactor 103 Phase 8. The canonical owner finalize committed Device 2's
-       * credential and advanced the session in one transaction, which is the
-       * whole of the handoff. There is no lane enrollment on this path and so no
-       * aggregate receipt to report.
-       */
-      readonly kind: 'owner_handoff_complete';
+      /** The target's additive Ed25519/ECDSA lane enrollment is active. */
+      readonly kind: 'lane_enrollment_complete';
       readonly walletId: WalletId;
       readonly enrollmentId: LinkedDeviceEnrollmentId;
       readonly deviceId: LinkedDeviceId;
-      readonly manifestDigestB64u?: never;
-      readonly receipt?: never;
+      readonly manifestDigestB64u: DigestB64u;
+      readonly receipt: LinkedDeviceEnrollmentReceiptV1;
       readonly error?: never;
     }
   | (Extract<ActionResult, { success: false }> & {

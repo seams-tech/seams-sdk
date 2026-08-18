@@ -3,6 +3,7 @@ import {
   LinkedDeviceManagementServiceV1,
   type LinkedDeviceAggregateRevocationPortV1,
   type LinkedDeviceLocalStateInvalidationPortV1,
+  type LinkedDeviceOwnerCredentialRevocationPortV1,
   type LinkedDeviceRevocationPreparationPortV1,
   type LinkedDeviceWalletSessionRevocationPortV1,
 } from '../../../../core/deviceLinking/linkedDeviceManagement';
@@ -22,6 +23,7 @@ export type D1LinkedDeviceManagementRouteServiceOptionsV1 = {
   readonly metadata: D1LinkedDeviceManagementMetadataPortV1;
   readonly preparation: LinkedDeviceRevocationPreparationPortV1;
   readonly aggregateRevocation: LinkedDeviceAggregateRevocationPortV1;
+  readonly ownerCredentialRevocation: LinkedDeviceOwnerCredentialRevocationPortV1;
   readonly walletSessionRevocation: LinkedDeviceWalletSessionRevocationPortV1;
   readonly localStateInvalidation: LinkedDeviceLocalStateInvalidationPortV1;
   readonly nowV1: () => number;
@@ -42,6 +44,7 @@ export function createD1LinkedDeviceManagementRouteServiceV1(
     projection,
     preparation: options.preparation,
     aggregateRevocation: options.aggregateRevocation,
+    ownerCredentialRevocation: options.ownerCredentialRevocation,
     walletSessionRevocation: options.walletSessionRevocation,
     localStateInvalidation: options.localStateInvalidation,
   });

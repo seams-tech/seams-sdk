@@ -59,7 +59,7 @@ export type D1LinkedDeviceRouteServiceOptionsV1 = {
      */
     finalizeWalletAddAuthMethod(
       command: FinalizeWalletAddAuthMethodCommand,
-      atomicCompanionStatements?: readonly D1PreparedStatementLike[],
+      atomicCompanionStatements: readonly D1PreparedStatementLike[],
     ): Promise<WalletAddAuthMethodFinalizeResponse>;
   };
   readonly authorizationService: Pick<
@@ -204,17 +204,14 @@ export function createD1LinkedDeviceRouteServiceV1(
     // Same finalizer the owner add-auth-method route calls. The tenant is this
     // service's own, so the route never names one.
     finalizeLinkedOwnerEnrollmentV1: async (input) => {
-      // Prepared first, so the credential write below carries the session
-      // advance with it. Anything other than `prepared` means the session
-      // cannot legally reach `provisioning`, and the credential must not be
-      // created at all — this is the only place that decision is still free.
+      // Reserve the awaiting session revision in the same transaction as the
+      // owner credential. The target-credential route alone starts provisioning.
       const plan = await sessionService.prepareLinkedOwnerEnrollmentCompletionV1({
         linkSessionId: input.linkSessionId,
         expectedRevision: input.expectedRevision,
-        keyManifestDigestB64u: input.admission.keyManifestDigestB64u,
         nowMs: input.nowMs,
       });
-      if (plan.outcome !== 'prepared' && plan.outcome !== 'replayed') {
+      if (plan.outcome !== 'prepared') {
         return { outcome: 'completion_refused', completion: plan };
       }
       const response = await options.walletAuthMethods.finalizeWalletAddAuthMethod(
@@ -233,9 +230,7 @@ export function createD1LinkedDeviceRouteServiceV1(
             expectedOrigin: options.expectedOrigin,
           },
         },
-        // A replay has already advanced the session; contributing a CAS for a
-        // transition that has happened would fail against its own past work.
-        plan.outcome === 'prepared' ? sessionStore.buildTargetCredentialCasStatementsV1(plan) : [],
+        sessionStore.buildTargetCredentialCasStatementsV1(plan),
       );
       if (!response.ok) return { outcome: 'finalized', response };
       // Read after the finalize committed, so it reflects the wallet Device 2 is

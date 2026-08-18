@@ -423,7 +423,7 @@ async function unlockLinkedDevice(page: Page, diagnostics: readonly string[]): P
   const verified = page.waitForResponse(
     (response) =>
       response.request().method() === 'POST' &&
-      new URL(response.url()).pathname.endsWith('/wallet/unlock/verify'),
+      new URL(response.url()).pathname === '/sync-account/verify',
     { timeout: 90_000 },
   );
   await unlock.click();
@@ -433,25 +433,23 @@ async function unlockLinkedDevice(page: Page, diagnostics: readonly string[]): P
       `Linked owner unlock failed (${response.status()}): ${await response.text()}\n${diagnostics.join('\n')}`,
     );
   }
-  await page.getByRole('tab', { name: 'Tempo', exact: true }).waitFor({
-    state: 'visible',
-    timeout: 120_000,
-  });
+  try {
+    await page.getByRole('tab', { name: 'Tempo', exact: true }).waitFor({
+      state: 'visible',
+      timeout: 120_000,
+    });
+  } catch (error) {
+    throw new Error(`Linked owner did not become active\n${diagnostics.join('\n')}`, {
+      cause: error,
+    });
+  }
 }
 
 async function refreshLinkedDeviceForSigning(page: Page): Promise<void> {
-  const rehydrated = page.waitForResponse(
-    (response) =>
-      response.request().method() === 'POST' &&
-      new URL(response.url()).pathname === '/wallet-session/seal/remove-server-seal',
-    { timeout: 120_000 },
-  );
   await page.reload({ waitUntil: 'domcontentloaded' });
   const wallet = await walletFrame(page);
   const tempoTab = page.getByRole('tab', { name: 'Tempo', exact: true });
   const unlock = wallet.getByRole('button', { name: 'Sign in with Passkey', exact: true });
-  const restoreResponse = await rehydrated;
-  expect(restoreResponse.ok()).toBe(true);
   await tempoTab.waitFor({ state: 'visible', timeout: 120_000 });
   await expect(unlock).toBeHidden();
 }
@@ -706,7 +704,9 @@ test('Device 2 links as an owner, unlocks, refreshes, signs, then is revoked', a
       });
     }
     if (!claimResult.response.ok()) {
-      throw new Error(`Device 1 claim failed (${claimResult.response.status()})`);
+      throw new Error(
+        `Device 1 claim failed (${claimResult.response.status()}): ${await claimResult.response.text()}\n${device2Diagnostics.join('\n')}\n${ownerDiagnostics.join('\n')}`,
+      );
     }
     const device2Wallet = await walletFrame(device2Page);
     const createTargetPasskey = device2Wallet.locator('[data-link-device-passkey-action]');

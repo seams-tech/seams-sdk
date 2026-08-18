@@ -576,6 +576,10 @@ async function recoveryPromotesOnlyAfterExactActivation(): Promise<void> {
     ok: true,
     capability: {
       activeCapabilityBinding: bytes(21),
+      registrationContinuity: {
+        kind: 'recovery',
+        activationTranscript: activation.public_receipt.transcript,
+      },
       registeredPublicKey: bytes(12),
       nearAccountId: 'wallet-1.testnet',
       runtimePolicyScope: {
@@ -616,7 +620,14 @@ async function recoveryPromotesOnlyAfterExactActivation(): Promise<void> {
   });
   expect(resolveWalletCapability(rehydrated)).toMatchObject({
     ok: true,
-    capability: { activeCapabilityBinding: bytes(21), stateEpoch: 2 },
+    capability: {
+      activeCapabilityBinding: bytes(21),
+      registrationContinuity: {
+        kind: 'recovery',
+        activationTranscript: activation.public_receipt.transcript,
+      },
+      stateEpoch: 2,
+    },
   });
 
   const stale = await service.admitRecovery(

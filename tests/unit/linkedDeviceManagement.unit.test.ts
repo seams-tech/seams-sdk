@@ -17,6 +17,7 @@ import {
   parseLinkedDeviceWalletSessionAuthorizationId,
   parseMpcWalletSigningQuotaId,
   parseTenantId,
+  parseWalletSessionAuthorizationId,
   parseWalletSessionId,
 } from '../../packages/shared-ts/src/authorization/capabilityKinds';
 import {
@@ -53,6 +54,7 @@ test('lists wallet-scoped linked devices only after owner authorization', async 
     },
     preparation: neverPreparation(),
     aggregateRevocation: neverAggregate(),
+    ownerCredentialRevocation: neverOwnerCredentialRevocation(),
     walletSessionRevocation: neverWalletSessionRevocation(),
     localStateInvalidation: neverLocalInvalidation(),
   });
@@ -137,6 +139,7 @@ test('refuses a public revoke plan whose lane command does not bind the requeste
       },
     },
     walletSessionRevocation: neverWalletSessionRevocation(),
+    ownerCredentialRevocation: neverOwnerCredentialRevocation(),
     localStateInvalidation: neverLocalInvalidation(),
   });
 
@@ -254,6 +257,7 @@ test('fences every linked Wallet Session before retiring child lanes', async () 
         };
       },
     },
+    ownerCredentialRevocation: neverOwnerCredentialRevocation(),
     localStateInvalidation: neverLocalInvalidation(),
   });
 
@@ -276,7 +280,18 @@ test('fences every linked Wallet Session before retiring child lanes', async () 
 });
 
 function ownerForWallet(walletId: ReturnType<typeof parseWalletId>['value']) {
-  return { walletId, expiresAtMs: 10_000 };
+  return {
+    walletId,
+    walletSessionId: parseWalletSessionId('wallet-session:owner').value,
+    authorizationId: parseWalletSessionAuthorizationId('authorization:owner').value,
+    expiresAtMs: 10_000,
+  };
+}
+
+function neverOwnerCredentialRevocation() {
+  return {
+    revokeLinkedDeviceOwnerCredentialV1: async () => ({ kind: 'applied' as const }),
+  };
 }
 
 function neverPreparation() {

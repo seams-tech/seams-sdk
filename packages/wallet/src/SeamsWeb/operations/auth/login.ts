@@ -3233,9 +3233,6 @@ function walletCustodyLoginActivationFacts(
 ): WalletCustodyActivationFactsV1 {
   const capability = custody.ed25519.capability;
   const continuity = capability.registrationContinuity;
-  if (continuity.kind !== 'registration') {
-    throw new Error('[login] wallet custody requires registration continuity');
-  }
   return {
     materialActivation: capability.materialActivation,
     lifecycleId: capability.lifecycle.lifecycleId,
