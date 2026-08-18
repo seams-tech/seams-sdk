@@ -47,12 +47,11 @@
     "seams-cloud": {
       "visibility": "private",
       "sourcePaths": [
-        "AGENTS.md",
-        "eslint.config.mjs",
         ".github/workflows/deploy-production-backend.yml",
         ".github/workflows/deploy-production-frontend.yml",
         ".github/workflows/deploy-staging-backend.yml",
         ".github/workflows/deploy-staging-frontend.yml",
+        "AGENTS.md",
         "apps/seams-site",
         "apps/web-server",
         "crates/router-ab-cloudflare/env/deployment-values.example.env",
@@ -64,8 +63,11 @@
         "docs/deployment",
         "docs/refactor-103-console.md",
         "docs/saas",
+        "eslint.config.mjs",
         "packages/console-server-ts",
         "packages/console-shared-ts",
+        "packages/wallet-console-server-ts",
+        "packages/wallet-console-shared-ts",
         "scripts/deploy-backend.mjs",
         "scripts/deploy-frontend.mjs",
         "scripts/deployment-smoke.mjs",
@@ -77,7 +79,9 @@
         "apps/seams-site",
         "apps/web-server",
         "packages/console-server-ts",
-        "packages/console-shared-ts"
+        "packages/console-shared-ts",
+        "packages/wallet-console-server-ts",
+        "packages/wallet-console-shared-ts"
       ]
     }
   }
