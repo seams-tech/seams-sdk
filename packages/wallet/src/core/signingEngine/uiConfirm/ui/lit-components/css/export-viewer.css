@@ -166,60 +166,12 @@ w3a-export-key-viewer {
   min-width: 0;
 }
 
+/* Crossfade mechanics live in the shared copy-icon.css (adopted alongside
+   this sheet); only the export-specific placement and resting color live
+   here. */
 .copy-icon {
-  position: relative;
-  width: 16px;
-  height: 16px;
   margin: 0 4px 0 auto;
-  flex: 0 0 16px;
   color: var(--w3a-colors-textSecondary, rgba(255, 255, 255, 0.7));
-}
-
-.copy-icon svg {
-  display: block;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.copy-icon-check,
-.copy-icon-copy {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  transition:
-    transform 300ms ease-in-out,
-    opacity 300ms ease-in-out,
-    filter 300ms ease-in-out;
-}
-
-.copy-icon-check {
-  transform: scale(0.25);
-  opacity: 0;
-  filter: blur(2px);
-}
-
-.copy-icon-copy {
-  transform: scale(1);
-  opacity: 1;
-  filter: blur(0);
-}
-
-.copy-field.copied .copy-icon {
-  color: var(--w3a-colors-success, #34d399);
-}
-
-.copy-field.copied .copy-icon-check {
-  transform: scale(1);
-  opacity: 1;
-  filter: blur(0);
-}
-
-.copy-field.copied .copy-icon-copy {
-  transform: scale(0.25);
-  opacity: 0;
-  filter: blur(2px);
 }
 
 .private-key-reel {
@@ -273,9 +225,8 @@ w3a-export-key-viewer {
     animation: none;
   }
 
-  .copy-field,
-  .copy-icon-check,
-  .copy-icon-copy {
+  /* copy-icon transitions are stilled by the shared copy-icon.css */
+  .copy-field {
     transition-duration: 0.01ms;
   }
 }

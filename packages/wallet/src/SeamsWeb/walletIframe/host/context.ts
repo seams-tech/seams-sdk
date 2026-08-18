@@ -30,9 +30,10 @@ const W3A_LIT_HOST_SELECTORS = [
   'w3a-halo-border',
   'w3a-passkey-halo-loading',
   'w3a-export-key-viewer',
+  'w3a-recovery-code-backup-viewer',
   'seams-auth-menu-surface',
   /* host-document dialogs (plain DOM, not lit) that must follow the app
-     palette, e.g. the email-OTP recovery codes backup dialog */
+     palette, e.g. the recovery codes backup dialog shell */
   '.w3a-host-themed-dialog',
 ] as const;
 const W3A_LIT_DARK_SELECTOR = W3A_LIT_HOST_SELECTORS.join(',\n');

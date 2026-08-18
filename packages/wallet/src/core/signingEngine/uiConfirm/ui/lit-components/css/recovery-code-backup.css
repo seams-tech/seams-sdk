@@ -1,0 +1,224 @@
+/*
+  Wallet recovery-code backup dialog + viewer.
+  Reads theme tokens from w3a-components.css (generated from palette.json).
+  Both the native <dialog> shell and the light-DOM viewer content are styled
+  here, at document level, so strict-CSP hosts need no inline styles. Every
+  content rule is scoped under the dialog's data attribute so nothing leaks
+  into host documents.
+*/
+
+w3a-recovery-code-backup-host {
+  display: contents;
+}
+
+w3a-recovery-code-backup-viewer {
+  display: block;
+}
+
+dialog[data-w3a-wallet-recovery-backup-dialog] {
+  box-sizing: border-box;
+  overflow: auto;
+  /* Suppress rubber-band bounce: the card can measure fractionally taller
+     than the frame's whole-px height, leaving a sub-pixel scroll range. */
+  overscroll-behavior: none;
+  /* The UA gives <dialog> a default border; the card floats on its own
+     backdrop, and in the iframe the frame hugs the card exactly, so a border
+     reads as a detached hairline. */
+  border: none;
+  /* The dialog takes programmatic focus on open; a focus ring on the card's
+     own edge reads as a stray border. */
+  outline: none;
+  border-radius: min(var(--w3a-shape-card, 16px), 2rem);
+  background: var(--w3a-colors-colorBackground, oklch(0.2 0.01 240));
+  color: var(--w3a-colors-textPrimary, oklch(0.97 0.002 240));
+  padding: 1.75rem 1.25rem 1.25rem;
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell',
+    sans-serif;
+}
+
+dialog[data-w3a-wallet-recovery-backup-dialog][data-w3a-recovery-surface='standalone'] {
+  width: min(44rem, calc(100vw - 1.5rem));
+  max-height: calc(100vh - 1.5rem);
+  box-shadow: 0 1.5rem 5rem rgba(0, 0, 0, 0.24);
+}
+
+dialog[data-w3a-wallet-recovery-backup-dialog][data-w3a-recovery-surface='standalone']::backdrop {
+  background: oklch(0.2 0.01 240 / 0.6);
+  backdrop-filter: blur(8px);
+}
+
+/* Inside the wallet iframe the host sizes the frame FROM this dialog's
+   measurement, so the dialog must own the whole frame: zero UA centering
+   margins and a max-height of exactly 100vh. Any slack becomes dead space
+   around the card and clips it once the measured height feeds back into the
+   frame. The host dims the page; this surface must paint nothing outside the
+   card — no shadow, no ::backdrop tint. */
+dialog[data-w3a-wallet-recovery-backup-dialog][data-w3a-recovery-surface='wallet-iframe'] {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  max-height: 100vh;
+  box-shadow: none;
+}
+
+dialog[data-w3a-wallet-recovery-backup-dialog][data-w3a-recovery-surface='wallet-iframe']::backdrop {
+  background: transparent;
+}
+
+[data-w3a-wallet-recovery-backup-dialog] .recovery-backup-title {
+  margin: 0 0 0.5rem;
+  font-size: 1.3125rem;
+  line-height: 1.25;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+[data-w3a-wallet-recovery-backup-dialog] .recovery-backup-description {
+  margin: 0 0 1rem;
+  color: var(--w3a-colors-textSecondary, oklch(0.53 0.02 240));
+  line-height: 1.5;
+}
+
+/* auto-fit rather than a fixed two columns: on a narrow surface the grid
+   collapses to one column instead of wrapping every code to three lines. */
+[data-w3a-wallet-recovery-backup-dialog] .recovery-code-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.5rem;
+  margin: 0 0 1rem;
+  padding: 0;
+  list-style: none;
+}
+
+[data-w3a-wallet-recovery-backup-dialog] .recovery-code-item {
+  display: flex;
+  gap: 0.4rem;
+  align-items: baseline;
+  border-radius: var(--w3a-shape-item, 8px);
+  background: var(--w3a-colors-surface2, oklch(0.25 0.0175 240));
+  padding: 0.375rem 0.5rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.71875rem;
+  line-height: 1.4;
+}
+
+[data-w3a-wallet-recovery-backup-dialog] .recovery-code-index {
+  flex: 0 0 2ch;
+  text-align: right;
+  color: var(--w3a-colors-textSecondary, oklch(0.53 0.02 240));
+  user-select: none;
+}
+
+/* user-select: all — one click grabs the whole code, matching how people
+   actually lift these into a password manager. Wraps at the hyphens. */
+[data-w3a-wallet-recovery-backup-dialog] .recovery-code-value {
+  min-width: 0;
+  letter-spacing: 0.01em;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+[data-w3a-wallet-recovery-backup-dialog] .recovery-backup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+/* flex-basis 0, not auto: both columns split the row evenly instead of
+   tracking their label widths. */
+[data-w3a-wallet-recovery-backup-dialog] .recovery-backup-actions > .recovery-backup-button {
+  flex: 1 1 0;
+}
+
+[data-w3a-wallet-recovery-backup-dialog] .recovery-backup-button {
+  min-height: var(--w3a-shape-controlHeight, 44px);
+  border-radius: var(--w3a-shape-control, 10px);
+  padding: 0.625rem 0.875rem;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+[data-w3a-wallet-recovery-backup-dialog] .recovery-backup-button.primary {
+  border: 1px solid transparent;
+  background: var(--w3a-colors-buttonBackground, oklch(0.3 0.02 240));
+  color: var(--w3a-colors-textButton, oklch(0.97 0.002 240));
+}
+
+[data-w3a-wallet-recovery-backup-dialog] .recovery-backup-button.primary:hover {
+  background: var(--w3a-colors-buttonHoverBackground, oklch(0.35 0.018 240));
+}
+
+[data-w3a-wallet-recovery-backup-dialog] .recovery-backup-button.secondary {
+  border: 1px solid var(--w3a-colors-borderPrimary, oklch(0.35 0.018 240));
+  background: transparent;
+  color: inherit;
+}
+
+[data-w3a-wallet-recovery-backup-dialog] .recovery-backup-button.secondary:hover {
+  background: var(--w3a-colors-hover, oklch(0.25 0.0175 240));
+  border-color: var(--w3a-colors-borderHover, oklch(0.4 0.02 240));
+}
+
+[data-w3a-wallet-recovery-backup-dialog] .recovery-backup-button:focus-visible {
+  outline: 2px solid var(--w3a-colors-focus, #3b82f6);
+  outline-offset: 2px;
+}
+
+/* The icon crossfades to a check in place, so it leads the label and the
+   button keeps its width through the transition. */
+[data-w3a-wallet-recovery-backup-dialog] .recovery-backup-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+[data-w3a-wallet-recovery-backup-dialog] .recovery-backup-copy .copy-icon {
+  color: currentColor;
+}
+
+[data-w3a-wallet-recovery-backup-dialog] .recovery-backup-acknowledgement {
+  display: flex;
+  gap: 0.625rem;
+  align-items: flex-start;
+  margin-bottom: 0.75rem;
+  font-size: 0.9375rem;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+[data-w3a-wallet-recovery-backup-dialog] .recovery-backup-acknowledgement input[type='checkbox'] {
+  width: 1.125rem;
+  height: 1.125rem;
+  margin: 0.1rem 0 0;
+  flex: none;
+  accent-color: var(--w3a-colors-primary, #3b82f6);
+}
+
+[data-w3a-wallet-recovery-backup-dialog]
+  .recovery-backup-acknowledgement
+  input[type='checkbox']:focus-visible {
+  outline: 2px solid var(--w3a-colors-focus, #3b82f6);
+  outline-offset: 2px;
+}
+
+[data-w3a-wallet-recovery-backup-dialog] .recovery-backup-status {
+  min-height: 1rem;
+  margin: 0 0 0.5rem;
+  color: var(--w3a-colors-textSecondary, oklch(0.53 0.02 240));
+  font-size: 0.8125rem;
+}
+
+[data-w3a-wallet-recovery-backup-dialog] .recovery-backup-footer {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding-top: 0.5rem;
+  background: var(--w3a-colors-colorBackground, oklch(0.2 0.01 240));
+}

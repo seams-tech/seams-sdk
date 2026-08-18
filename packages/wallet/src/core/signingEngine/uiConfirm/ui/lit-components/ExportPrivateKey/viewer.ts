@@ -339,6 +339,14 @@ export class ExportPrivateKeyViewer extends LitElementWithProps {
     );
     this._stylePromises.push(p1);
     p1.catch(() => {});
+    // Shared copy-affordance crossfade (also used by the recovery-code backup dialog)
+    const pCopyIcon = ensureExternalStyles(
+      root as ShadowRoot | DocumentFragment | HTMLElement,
+      'copy-icon.css',
+      'data-w3a-copy-icon-css',
+    );
+    this._stylePromises.push(pCopyIcon);
+    pCopyIcon.catch(() => {});
     // Also adopt token sheet so color/background vars are available even without host styles
     const p2 = ensureExternalStyles(
       root as ShadowRoot | DocumentFragment | HTMLElement,
