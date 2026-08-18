@@ -13,7 +13,7 @@ function parseArguments(argv) {
   const options = {
     includeUntracked: false,
     output: '',
-    sdkServerTarball: '',
+    walletServerTarball: '',
     walletTarball: '',
   };
   for (let index = 0; index < argv.length; index += 1) {
@@ -27,8 +27,8 @@ function parseArguments(argv) {
       options.includeUntracked = true;
       continue;
     }
-    if (argument === '--sdk-server-tarball') {
-      options.sdkServerTarball = path.resolve(argv[index + 1] || '');
+    if (argument === '--wallet-server-tarball') {
+      options.walletServerTarball = path.resolve(argv[index + 1] || '');
       index += 1;
       continue;
     }
@@ -116,9 +116,9 @@ function privateRootPackage() {
     packageManager: packageManagerVersion(),
     scripts: {
       build:
-        'pnpm -C packages/console-server-ts build && pnpm -C apps/web-server build && pnpm -C apps/seams-site build',
+        'pnpm -C packages/console-server-ts build && pnpm -C packages/wallet-console-server-ts build && pnpm -C apps/web-server build && pnpm -C apps/seams-site build',
       'type-check':
-        'pnpm -C packages/console-shared-ts type-check && pnpm -C packages/console-server-ts type-check && pnpm -C apps/web-server build',
+        'pnpm -C packages/console-shared-ts type-check && pnpm -C packages/wallet-console-shared-ts type-check && pnpm -C packages/console-server-ts type-check && pnpm -C packages/wallet-console-server-ts type-check && pnpm -C apps/web-server build',
       'deploy:backend': 'node ./scripts/deploy-backend.mjs',
       'deploy:frontend': 'node ./scripts/deploy-frontend.mjs',
     },
@@ -181,8 +181,8 @@ function publicDependencyValue(packageName, options) {
   if (packageName === '@seams/wallet' && options.walletTarball) {
     return `file:${options.walletTarball}`;
   }
-  if (packageName === '@seams/wallet-server' && options.sdkServerTarball) {
-    return `file:${options.sdkServerTarball}`;
+  if (packageName === '@seams/wallet-server' && options.walletServerTarball) {
+    return `file:${options.walletServerTarball}`;
   }
   return manifest.publicSdkVersion;
 }
@@ -192,6 +192,7 @@ function pinPrivatePublicDependencies(destination, options) {
     'apps/seams-site/package.json',
     'apps/web-server/package.json',
     'packages/console-server-ts/package.json',
+    'packages/wallet-console-server-ts/package.json',
   ];
   for (const relativePath of packageFiles) {
     const packagePath = path.join(destination, relativePath);
