@@ -50,6 +50,7 @@ export type D1LinkedDeviceRouteServiceOptionsV1 = {
   readonly database: D1DatabaseLike;
   readonly scope: D1LinkedDeviceSessionScopeV1;
   readonly tenantId: TenantId;
+  readonly expectedOrigin: string;
   /** The canonical add-auth-method service; the linked finalize reuses it. */
   readonly walletAuthMethods: {
     /**
@@ -229,6 +230,7 @@ export function createD1LinkedDeviceRouteServiceV1(
             kind: 'linked_device',
             tenantId: options.tenantId,
             admission: input.admission,
+            expectedOrigin: options.expectedOrigin,
           },
         },
         // A replay has already advanced the session; contributing a CAS for a

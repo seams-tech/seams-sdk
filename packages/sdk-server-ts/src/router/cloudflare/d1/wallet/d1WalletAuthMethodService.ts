@@ -579,7 +579,11 @@ export class CloudflareD1WalletAuthMethodService {
             message: 'Passkey add-auth-method finalize requires registration and custody envelope',
           };
         }
-        const expectedOrigin = toOptionalTrimmedString(ceremony.expectedOrigin);
+        const expectedOrigin = toOptionalTrimmedString(
+          request.authorization.kind === 'linked_device'
+            ? request.authorization.expectedOrigin
+            : ceremony.expectedOrigin,
+        );
         if (!expectedOrigin) {
           return {
             ok: false,

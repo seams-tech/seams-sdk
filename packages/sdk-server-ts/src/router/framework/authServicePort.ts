@@ -127,6 +127,7 @@ export type WalletAddAuthMethodFinalizeAuthorizationV1 =
       readonly kind: 'linked_device';
       readonly tenantId: TenantId;
       readonly admission: LinkedOwnerEnrollmentAdmissionV1;
+      readonly expectedOrigin: string;
     };
 
 export type FinalizeWalletAddAuthMethodCommand = Readonly<
