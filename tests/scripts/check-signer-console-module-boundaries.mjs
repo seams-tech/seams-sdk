@@ -45,7 +45,8 @@ const publicSdkArtifactRoots = ['packages/sdk-web/dist', 'packages/sdk-server-ts
 const forbiddenPublicConceptPatterns = [
   {
     label: 'private console package',
-    pattern: /@seams-internal\/console-|packages\/console-(?:server|shared)-ts/,
+    pattern:
+      /@seams-internal\/(?:wallet-)?console-|packages\/(?:wallet-)?console-(?:server|shared)-ts/,
   },
   {
     label: 'console route or server contract',
