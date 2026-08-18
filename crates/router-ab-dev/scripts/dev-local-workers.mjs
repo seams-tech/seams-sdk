@@ -237,7 +237,7 @@ try {
   if (options.mode === 'multiplex' && displayMode === 'logs') {
     console.log('Multiplex mode requires a TTY; using interleaved logs.');
   }
-  startProductionWorkers();
+  await startProductionWorkers();
   await waitForProductionWorkers();
   await ensureGateway();
   if (gatewayD1NeedsBootstrap) seedLocalConsoleIdentity();
@@ -728,62 +728,70 @@ async function productionWorkerPortsAreFree() {
   return true;
 }
 
-function startProductionWorkers() {
-  for (let index = 0; index < strictRuntime.configs.length; index += 1) {
-    const config = strictRuntime.configs[index];
-    const pane = workerPanes[index];
-    pane.url = config.url;
-    pane.status = 'starting';
-    appendLine(pane, `config ${relative(repoRoot, config.configPath)}`);
-    appendLine(pane, `url ${config.url}`);
-
-    const child = spawn(
-      'pnpm',
-      [
-        'exec',
-        'wrangler',
-        'dev',
-        '--config',
-        config.configPath,
-        '--port',
-        String(config.port),
-        '--inspector-port',
-        String(config.port + 100),
-        '--persist-to',
-        join(strictPersistPath, config.role),
-        '--env-file',
-        config.secretPath,
-        '--local',
-        '--show-interactive-dev-session=false',
-      ],
-      {
-        cwd: repoRoot,
-        env: process.env,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        detached: process.platform !== 'win32',
-      },
-    );
-    pane.child = child;
-    pane.pid = child.pid ?? null;
-    pane.killAsGroup = process.platform !== 'win32';
-    pane.exitPromise = new Promise((resolve) => child.once('exit', resolve));
-    child.stdout.on('data', (chunk) => appendChunk(pane, chunk));
-    child.stderr.on('data', (chunk) => appendChunk(pane, chunk, 'stderr: '));
-    child.once('spawn', () => {
-      appendLine(pane, `pid ${child.pid}`);
-      appendProcessStatus(pane, child.pid);
-    });
-    child.once('exit', (code, signal) => {
-      pane.status = signal ? `signal ${signal}` : `exit ${code ?? 'unknown'}`;
-      appendLine(pane, `worker stopped: ${pane.status}`);
-      if (!shutdownStarted) shutdown(exitCodeForChildExit(code, signal));
-    });
-    child.once('error', (error) => {
-      pane.status = 'spawn error';
-      appendLine(pane, `spawn error: ${error.message}`);
-      if (!shutdownStarted) shutdown(1);
-    });
+async function startProductionWorkers() {
+  for (let index = 1; index < strictRuntime.configs.length; index += 1) {
+    startProductionWorker(index);
   }
+  for (let index = 1; index < strictRuntime.configs.length; index += 1) {
+    await waitForUrlResponse(strictRuntime.configs[index].url, 90_000);
+  }
+  startProductionWorker(0);
+}
+
+function startProductionWorker(index) {
+  const config = strictRuntime.configs[index];
+  const pane = workerPanes[index];
+  pane.url = config.url;
+  pane.status = 'starting';
+  appendLine(pane, `config ${relative(repoRoot, config.configPath)}`);
+  appendLine(pane, `url ${config.url}`);
+
+  const child = spawn(
+    'pnpm',
+    [
+      'exec',
+      'wrangler',
+      'dev',
+      '--config',
+      config.configPath,
+      '--port',
+      String(config.port),
+      '--inspector-port',
+      String(config.port + 100),
+      '--persist-to',
+      join(strictPersistPath, config.role),
+      '--env-file',
+      config.secretPath,
+      '--local',
+      '--show-interactive-dev-session=false',
+    ],
+    {
+      cwd: repoRoot,
+      env: process.env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: process.platform !== 'win32',
+    },
+  );
+  pane.child = child;
+  pane.pid = child.pid ?? null;
+  pane.killAsGroup = process.platform !== 'win32';
+  pane.exitPromise = new Promise((resolve) => child.once('exit', resolve));
+  child.stdout.on('data', (chunk) => appendChunk(pane, chunk));
+  child.stderr.on('data', (chunk) => appendChunk(pane, chunk, 'stderr: '));
+  child.once('spawn', () => {
+    appendLine(pane, `pid ${child.pid}`);
+    appendProcessStatus(pane, child.pid);
+  });
+  child.once('exit', (code, signal) => {
+    pane.status = signal ? `signal ${signal}` : `exit ${code ?? 'unknown'}`;
+    appendLine(pane, `worker stopped: ${pane.status}`);
+    if (!shutdownStarted) shutdown(exitCodeForChildExit(code, signal));
+  });
+  child.once('error', (error) => {
+    pane.status = 'spawn error';
+    appendLine(pane, `spawn error: ${error.message}`);
+    if (!shutdownStarted) shutdown(1);
+  });
 }
 
 function applyPrivateD1Migrations() {
@@ -945,7 +953,7 @@ async function waitForProductionWorkers() {
   if (!routerSecret) {
     throw new Error('strict Router service-auth secret is unavailable');
   }
-  await waitForAuthenticatedRouterPrewarm(
+  await assertAuthenticatedRouterPrewarm(
     `${strictRuntime.mpcRouterUrl}/internal/prewarm`,
     routerSecret,
     90_000,
@@ -953,22 +961,14 @@ async function waitForProductionWorkers() {
   appendLine(workerPanes[0], 'production topology ready');
 }
 
-async function waitForAuthenticatedRouterPrewarm(url, secret, timeoutMs) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const status = await requestStatus(url, 750, {
-        method: 'POST',
-        headers: { 'x-router-ab-internal-service-auth': secret },
-      });
-      if (status.statusCode === 200) return;
-    } catch {
-      // A service binding can lag behind its Worker's listening socket.
-    }
-    await sleep(250);
+async function assertAuthenticatedRouterPrewarm(url, secret, timeoutMs) {
+  const status = await requestStatus(url, timeoutMs, {
+    method: 'POST',
+    headers: { 'x-router-ab-internal-service-auth': secret },
+  });
+  if (status.statusCode !== 200) {
+    throw new Error(`Router A/B service bindings did not become ready (HTTP ${status.statusCode})`);
   }
-  const status = await describeUrlStatus(url);
-  throw new Error(`Router A/B service bindings did not become ready (${status})`);
 }
 
 function printProductionReadySummary() {
