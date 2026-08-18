@@ -21,13 +21,9 @@ fi
 
 export SEAMS_WALLET_PUBLIC_ROOT="$WALLET_PUBLIC_ROOT"
 
-caddy stop 2>/dev/null || true
-
+echo "Serving wallet assets from $SEAMS_WALLET_PUBLIC_ROOT"
 echo "Validating Caddyfile..."
 caddy validate --config "$CADDYFILE" --adapter caddyfile
-
-# Best-effort local CA trust for tls internal.
-caddy trust --config "$CADDYFILE" --adapter caddyfile >/dev/null 2>&1 || true
 
 echo "Starting Caddy"
 exec caddy run --config "$CADDYFILE" --adapter caddyfile

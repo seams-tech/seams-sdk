@@ -57,9 +57,9 @@ pnpm router:multiplex
 MPCRouter, Deriver A, Deriver B, and SigningWorker Cloudflare Workers on
 `127.0.0.1:9100-9103`. They start Gateway at
 `127.0.0.1:9090` when it is not already running. They also verify
-`https://localhost:9444/.well-known/webauthn` and start the local Caddy proxy
-when that HTTPS endpoint is absent. Browser account creation still needs the
-local app from `pnpm site`.
+`https://localhost:9444/.well-known/webauthn` and report when the local Caddy
+proxy is unavailable. The local app and Caddy proxy run together under
+`pnpm site`.
 
 Choose the SDK and strict Worker build profile before launching:
 
