@@ -326,9 +326,10 @@ Run those commands in separate terminals. Use `pnpm router:multiplex` for the
 dashboard. `pnpm site` owns
 `https://localhost`; `pnpm router` and `pnpm router:multiplex` start Gateway at
 `127.0.0.1:9090` when it is not already running. They verify
-`https://localhost:9444/.well-known/webauthn` and start the local Caddy proxy
-when that HTTPS endpoint is absent. The production-equivalent Cloudflare
-Workers run on `127.0.0.1:9100-9103` and retain state in
+`https://localhost:9444/.well-known/webauthn` and report whether the proxy from
+`pnpm site` is available. `pnpm site` starts Caddy, the site, the Console, and
+the documentation server. The production-equivalent Cloudflare Workers run on
+`127.0.0.1:9100-9103` and retain state in
 `.local/cloudflare-state/router-ab/<worker-role>`, with one persistence
 directory per production Worker.
 

@@ -5,6 +5,7 @@ import react from '@vitejs/plugin-react';
 export default defineConfig(() => {
   const appSrc = fileURLToPath(new URL('./src', import.meta.url));
   return {
+    base: '/dashboard/',
     plugins: [react()],
     resolve: {
       alias: {

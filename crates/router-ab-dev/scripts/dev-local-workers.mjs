@@ -193,11 +193,6 @@ const gateway = {
   exitPromise: null,
   killAsGroup: false,
 };
-const gatewayHttpsProxy = {
-  child: null,
-  exitPromise: null,
-  killAsGroup: false,
-};
 
 const labelColors = {
   gateway: '\x1b[36m',
@@ -1090,61 +1085,7 @@ async function ensureGatewayHttpsProxy() {
     }
   }
 
-  appendLine(pane, 'Gateway HTTPS proxy not running; starting pnpm caddy...');
-  const child = spawn('pnpm', ['run', 'caddy'], {
-    cwd: repoRoot,
-    env: process.env,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    detached: process.platform !== 'win32',
-  });
-  gatewayHttpsProxy.child = child;
-  gatewayHttpsProxy.killAsGroup = process.platform !== 'win32';
-  gatewayHttpsProxy.exitPromise = new Promise((resolve) => child.once('exit', resolve));
-
-  child.stdout.on('data', (chunk) => appendChunk(pane, chunk, 'caddy: '));
-  child.stderr.on('data', (chunk) => appendChunk(pane, chunk, 'caddy stderr: '));
-  child.once('spawn', () => {
-    appendLine(pane, `Gateway HTTPS proxy pid ${child.pid}`);
-    appendProcessStatus(pane, child.pid);
-  });
-  child.once('exit', (code, signal) => {
-    const status = signal ? `signal ${signal}` : `exit ${code ?? 'unknown'}`;
-    appendLine(pane, `Gateway HTTPS proxy stopped: ${status}`);
-    scheduleRender();
-    handleRouterHttpsProxyExit(child, code, signal);
-  });
-  child.once('error', (error) => {
-    appendLine(pane, `Gateway HTTPS proxy spawn error: ${error.message}`);
-    scheduleRender();
-    if (!shutdownStarted) {
-      shutdown(1);
-    }
-  });
-
-  await waitForUrlStatus(gatewayPublicWellKnownUrl, 90_000);
-  await waitForStableUrlStatus(gatewayPublicWellKnownUrl, 2_000, 15_000);
-  appendLine(pane, `Gateway HTTPS proxy ready at ${gatewayPublicUrl}`);
-}
-
-async function handleRouterHttpsProxyExit(child, code, signal) {
-  if (shutdownStarted) {
-    return;
-  }
-  try {
-    await waitForStableUrlStatus(gatewayPublicWellKnownUrl, 750, 10_000);
-    if (gatewayHttpsProxy.child === child) {
-      gatewayHttpsProxy.child = null;
-      gatewayHttpsProxy.exitPromise = null;
-      gatewayHttpsProxy.killAsGroup = false;
-    }
-    appendLine(
-      getGatewayPane(),
-      `Gateway HTTPS proxy still healthy at ${gatewayPublicUrl}; continuing with external proxy`,
-    );
-    scheduleRender();
-    return;
-  } catch {}
-  shutdown(exitCodeForChildExit(code, signal));
+  appendLine(pane, `Gateway HTTPS proxy unavailable at ${gatewayPublicUrl}; start pnpm site`);
 }
 
 function healthCheck(baseUrl) {
@@ -1288,10 +1229,6 @@ async function shutdown(exitCode) {
     return;
   }
   shutdownStarted = true;
-  if (isChildRunning(gatewayHttpsProxy.child)) {
-    appendLine(getGatewayPane(), 'stopping Gateway HTTPS proxy...');
-    killChild(gatewayHttpsProxy.child, 'SIGTERM', gatewayHttpsProxy.killAsGroup);
-  }
   if (isChildRunning(gateway.child)) {
     appendLine(getGatewayPane(), 'stopping Gateway...');
     killChild(gateway.child, 'SIGTERM', gateway.killAsGroup);
@@ -1307,18 +1244,11 @@ async function shutdown(exitCode) {
 
   await Promise.race([
     Promise.all(
-      [
-        gatewayHttpsProxy.exitPromise,
-        gateway.exitPromise,
-        ...workerPanes.map((pane) => pane.exitPromise),
-      ].filter(Boolean),
+      [gateway.exitPromise, ...workerPanes.map((pane) => pane.exitPromise)].filter(Boolean),
     ),
     sleep(1200),
   ]);
 
-  if (isChildRunning(gatewayHttpsProxy.child)) {
-    killChild(gatewayHttpsProxy.child, 'SIGKILL', gatewayHttpsProxy.killAsGroup);
-  }
   if (isChildRunning(gateway.child)) {
     killChild(gateway.child, 'SIGKILL', gateway.killAsGroup);
   }
@@ -1328,7 +1258,7 @@ async function shutdown(exitCode) {
     }
   }
   restoreTerminal();
-  console.log('Stopped Router A/B local dev workers, Gateway, and HTTPS proxy.');
+  console.log('Stopped Router A/B local dev workers and Gateway.');
   process.exit(exitCode);
 }
 
@@ -1342,16 +1272,9 @@ async function stopStartedChildren() {
   if (isChildRunning(gateway.child)) {
     killChild(gateway.child, 'SIGTERM', gateway.killAsGroup);
   }
-  if (isChildRunning(gatewayHttpsProxy.child)) {
-    killChild(gatewayHttpsProxy.child, 'SIGTERM', gatewayHttpsProxy.killAsGroup);
-  }
   await Promise.race([
     Promise.all(
-      [
-        gatewayHttpsProxy.exitPromise,
-        gateway.exitPromise,
-        ...workerPanes.map((pane) => pane.exitPromise),
-      ].filter(Boolean),
+      [gateway.exitPromise, ...workerPanes.map((pane) => pane.exitPromise)].filter(Boolean),
     ),
     sleep(1200),
   ]);
@@ -1770,7 +1693,7 @@ function usage() {
 
 Runs Gateway, MPCRouter, Deriver A, Deriver B, and SigningWorker in one terminal.
 Also starts the Gateway on 127.0.0.1:9090 when it is not already running.
-Also verifies https://localhost:9444/.well-known/webauthn and starts Caddy when that local HTTPS proxy is absent.
+Reports whether the HTTPS proxy from pnpm site is available at https://localhost:9444/.well-known/webauthn.
 
 Options:
   --root <path>      Local root containing generated env files. Defaults to repo root.
@@ -1781,5 +1704,5 @@ Options:
                     Use an already-running external Gateway on 127.0.0.1:9090.
   --build-only      Build strict Worker artifacts and exit without starting services.
 
-Press Ctrl-C to stop all workers, stop started Gateway/proxy processes, and restore the terminal.`;
+Press Ctrl-C to stop all workers, stop the started Gateway, and restore the terminal.`;
 }
