@@ -30,7 +30,7 @@ const applierPath = path.join(
 );
 const consoleMigrationRoot = path.join(
   repoRoot,
-  'packages/console-server-ts/migrations/d1-console',
+  'packages/wallet-console-server-ts/migrations/d1-console',
 );
 
 test('migration fingerprint output is stable per database and uses sorted framed records', () => {
@@ -128,7 +128,7 @@ test('Console canonical baseline is a single migration and stays fresh-schema sa
     const consoleMigrations = readMigrationFiles(consoleMigrationRoot);
     const migrationFiles = listD1MigrationFiles('d1-console');
     const migrationNames = consoleMigrations.map((migration) => migration.name);
-    expect(migrationNames).toEqual(['0001_console_d1_initial.sql']);
+    expect(migrationNames).toEqual(['0001_wallet_console_initial.sql']);
     expect(migrationFiles.map((file) => path.basename(file))).toEqual(migrationNames);
     const currentFingerprint = digestMigrations(consoleMigrations);
     const appliedMigrationNames = new Set(migrationNames);

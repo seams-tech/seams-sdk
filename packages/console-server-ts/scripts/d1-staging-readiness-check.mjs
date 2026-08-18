@@ -29,7 +29,7 @@ const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}
 const consoleD1Database = Object.freeze({
   binding: 'CONSOLE_DB',
   databaseName: 'seams-console-staging-nrt',
-  migrationsDir: 'migrations/d1-console',
+  migrationsDir: '../wallet-console-server-ts/migrations/d1-console',
 });
 const signerD1Database = Object.freeze({
   binding: 'SIGNER_DB',

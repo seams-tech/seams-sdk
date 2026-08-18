@@ -8,7 +8,7 @@ binding = "CONSOLE_DB"
 database_name = "seams-console"
 database_id = "00000000-0000-0000-0000-000000000101"
 preview_database_id = "00000000-0000-0000-0000-000000000102"
-migrations_dir = "migrations/d1-console"
+migrations_dir = "../wallet-console-server-ts/migrations/d1-console"
 
 [[d1_databases]]
 binding = "SIGNER_DB"

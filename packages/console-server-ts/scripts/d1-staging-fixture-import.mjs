@@ -39,7 +39,7 @@ const fixtureTargets = Object.freeze([
     databaseName: 'seams-console-staging-nrt',
     configField: 'consoleConfigPath',
     fixtureField: 'consoleFixturePath',
-    allowedTableNames: readD1MigrationTableNames('migrations/d1-console'),
+    allowedTableNames: readD1MigrationTableNames('../wallet-console-server-ts/migrations/d1-console'),
   }),
   Object.freeze({
     logicalName: 'signer',
