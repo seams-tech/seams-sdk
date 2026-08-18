@@ -123,8 +123,10 @@
   }
 }
 
-.VPSidebar .group:first-child {
-  padding-top: 36px;
+/* The first group is not the nav's first child (a visually hidden label is),
+   so open the gap on the nav itself. */
+.VPSidebar .nav {
+  padding-top: 44px;
 }
 
 /* The section headings carry the structure on their own, so drop the rules
