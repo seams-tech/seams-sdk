@@ -3,6 +3,7 @@ import {
   buildActiveLinkedDeviceSessionState,
   buildAwaitingTargetPasskeyLinkedDeviceSessionState,
   buildLinkedDeviceSessionClaimV1,
+  buildProvisioningLinkedDeviceSessionState,
   buildQrLinkedDeviceSessionPayloadV4,
 } from '../../packages/shared-ts/src/device-linking';
 import type {
@@ -71,6 +72,7 @@ test('seals once and replays the exact package after a lost first submission', a
       Device1LinkingFlowPortsV1['transport']['submitCustodyTransferPackageV1']
     >[0]['submission']
   > = [];
+  const workOrder: string[] = [];
   let sealCalls = 0;
   let submitAttempts = 0;
   const ports: Device1LinkingFlowPortsV1 = {
@@ -98,17 +100,32 @@ test('seals once and replays the exact package after a lost first submission', a
       claimSessionV1: async () => claim,
       recordOwnerApprovalV1: async () => ({ outcome: 'pending', state: pendingState }),
       getApprovalV1: async () => ({ outcome: 'pending', state: pendingState }),
-      getTargetReadyV1: async () => null,
+      getTargetReadyV1: async () => {
+        workOrder.push('source-handoff');
+        return null;
+      },
       submitPreparedProvisioningDeliveriesV1: async () => {
         throw new Error('source handoff is not part of this test');
       },
-      getCustodyTransferRecipientV1: async () => recipient,
+      getCustodyTransferRecipientV1: async () => {
+        workOrder.push('custody-transfer');
+        return recipient;
+      },
       submitCustodyTransferPackageV1: async (input) => {
         submissions.push(input.submission);
         submitAttempts += 1;
         if (submitAttempts === 1) throw new Error('lost response');
       },
       subscribeApprovalV1: async (input) => {
+        input.onResult({
+          outcome: 'pending',
+          state: buildProvisioningLinkedDeviceSessionState({
+            linkSessionId: fixture.approval.linkSessionId,
+            walletId: fixture.approval.walletId,
+            enrollmentId: fixture.approval.enrollmentId,
+            provisioningStartedAtMs: now,
+          }),
+        });
         setTimeout(() => {
           input.onResult({
             outcome: 'active',
@@ -116,7 +133,7 @@ test('seals once and replays the exact package after a lost first submission', a
             manifestDigestB64u: fixture.receipt.manifestDigestB64u,
             receipt: fixture.receipt,
           });
-        }, 0);
+        }, 100);
         return { close: () => undefined };
       },
     },
@@ -148,4 +165,5 @@ test('seals once and replays the exact package after a lost first submission', a
   expect(submissions[0]?.package).toBe(sealedPackage);
   expect(submissions[1]?.package).toBe(sealedPackage);
   expect(submissions[1]).toEqual(submissions[0]);
+  expect(workOrder.indexOf('custody-transfer')).toBeLessThan(workOrder.indexOf('source-handoff'));
 });

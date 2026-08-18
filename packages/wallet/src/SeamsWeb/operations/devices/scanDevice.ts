@@ -243,6 +243,8 @@ export async function scanAndLinkDevice(
       phase: LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED,
       status: 'succeeded',
       message: 'Device linked',
+      walletId: String(claim.walletId),
+      data: { enrollmentId: String(claim.enrollmentId) },
       interaction: { kind: 'qr_scan', overlay: 'none' },
     });
     await options.afterCall?.(true, result);
@@ -346,13 +348,9 @@ async function awaitApprovalCompletionV1(input: {
       if (observed) {
         pollAttempt = 0;
         completed = completedApprovalFromResult(observed);
-        if (!completed && !sourceHandoffComplete) {
-          sourceHandoffComplete = await preparePendingSourceHandoffV1(input, observed);
-        }
       }
-      // Independent of the approval state: Device 2 publishes its recipient
-      // before prompting for its own passkey, so this is ready to seal while
-      // the target device is still waiting on its user.
+      // Device 2 cannot finish its passkey activation until this package lands.
+      // Send it before preparing the independent signing-lane handoff.
       if (!custodyTransferSubmitted) {
         if (!sealedCustodyPackage) {
           sealedCustodyPackage = await sealCustodyForPublishedRecipientV1(input);
@@ -365,6 +363,9 @@ async function awaitApprovalCompletionV1(input: {
             if (!isRetryableCustodyTransferSubmissionFailureV1(error)) throw error;
           }
         }
+      }
+      if (observed && !completed && !sourceHandoffComplete) {
+        sourceHandoffComplete = await preparePendingSourceHandoffV1(input, observed);
       }
       if (completed && custodyTransferSubmitted) return completed;
       await waitForApprovalPollV1(pollAttempt);

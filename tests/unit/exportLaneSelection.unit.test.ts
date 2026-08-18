@@ -147,7 +147,11 @@ function ed25519Lane(
   };
 }
 
-function deferredEd25519Lane(): Extract<
+function deferredEd25519Lane(
+  overrides: Partial<
+    Extract<ConcreteAvailableEd25519SigningLane, { authorizationState: 'authorization_required' }>
+  > = {},
+): Extract<
   ConcreteAvailableEd25519SigningLane,
   { authorizationState: 'authorization_required' }
 > {
@@ -164,10 +168,12 @@ function deferredEd25519Lane(): Extract<
     thresholdSessionId: 'threshold-session-ed25519-export',
     source: 'durable_sealed_record',
     authorizationState: 'authorization_required',
+    ...overrides,
   };
 }
 
 function depsForEd25519(lanes: ConcreteAvailableEd25519SigningLane[]): ExportLaneSelectionDeps {
+  const canonicalLane = lanes.find((lane) => lane.authorizationState === 'authorized');
   return {
     readPersistedAvailableSigningLanesForTargets: async () => ({
       walletId: toWalletId(WALLET_ID),
@@ -179,7 +185,7 @@ function depsForEd25519(lanes: ConcreteAvailableEd25519SigningLane[]): ExportLan
       },
       lanes: {
         ed25519: {
-          near: lanes[0] || { curve: 'ed25519', chain: 'near', state: 'missing' },
+          near: canonicalLane || { curve: 'ed25519', chain: 'near', state: 'missing' },
         },
       },
       candidates: {
@@ -344,11 +350,18 @@ test.describe('Ed25519 export lane selection', () => {
     }
   });
 
-  test('selects deferred durable material without reusable authorization', async () => {
-    const lane = deferredEd25519Lane();
+  test('selects only the currently authorized owner lane', async () => {
+    const currentOwner = ed25519Lane();
+    const otherOwner = deferredEd25519Lane({
+      auth: {
+        kind: 'passkey',
+        rpId: toRpId(RP_ID),
+        credentialIdB64u: 'credential-other-owner',
+      },
+    });
 
     await expect(
-      resolveExactKeyExportLane(depsForEd25519([lane]), {
+      resolveExactKeyExportLane(depsForEd25519([otherOwner, currentOwner]), {
         kind: 'ed25519',
         walletSession: walletSessionRefFromSession({
           walletId: WALLET_ID,
@@ -358,32 +371,26 @@ test.describe('Ed25519 export lane selection', () => {
       }),
     ).resolves.toEqual({
       kind: 'ed25519',
-      laneIdentity: expectEd25519ExportMaterialIdentity(lane),
-      materialActivation: lane.materialActivation,
+      laneIdentity: expectEd25519ExportMaterialIdentity(currentOwner),
+      materialActivation: currentOwner.materialActivation,
     });
   });
 
-  test('rejects duplicate durable material lanes', async () => {
-    await expect(
-      resolveExactKeyExportLane(depsForEd25519([ed25519Lane(), ed25519Lane()]), {
-        kind: 'ed25519',
-        walletSession: walletSessionRefFromSession({
-          walletId: WALLET_ID,
-          walletSessionUserId: WALLET_ID,
-        }),
-        nearAccount: NEAR_ACCOUNT,
-      }),
-    ).rejects.toThrow('exact Yao lane selection failed');
-  });
-
-  test('rejects same signer and session when material activation differs', async () => {
+  test('uses the canonical current activation when historical owner material remains', async () => {
     const supersededActivation = buildMpcMaterialActivationRefFixture(
       'ed25519-export-lane-superseded',
       WALLET_ID,
     );
+    const currentOwner = ed25519Lane();
     await expect(
       resolveExactKeyExportLane(
-        depsForEd25519([ed25519Lane(), ed25519Lane({ materialActivation: supersededActivation })]),
+        depsForEd25519([
+          currentOwner,
+          deferredEd25519Lane({
+            materialActivation: supersededActivation,
+            thresholdSessionId: 'threshold-session-ed25519-export-superseded',
+          }),
+        ]),
         {
           kind: 'ed25519',
           walletSession: walletSessionRefFromSession({
@@ -393,7 +400,60 @@ test.describe('Ed25519 export lane selection', () => {
           nearAccount: NEAR_ACCOUNT,
         },
       ),
-    ).rejects.toThrow('ambiguous_material');
+    ).resolves.toEqual({
+      kind: 'ed25519',
+      laneIdentity: expectEd25519ExportMaterialIdentity(currentOwner),
+      materialActivation: currentOwner.materialActivation,
+    });
+  });
+
+  test('ignores historical material for the same exact owner credential and signer slot', async () => {
+    const currentOwner = ed25519Lane();
+    const historicalOwner = ed25519Lane({
+      materialActivation: buildMpcMaterialActivationRefFixture(
+        'ed25519-export-lane-historical',
+        WALLET_ID,
+      ),
+      thresholdSessionId: 'threshold-session-ed25519-export-historical',
+      updatedAtMs: 1_700_000_000_000,
+    });
+
+    await expect(
+      resolveExactKeyExportLane(depsForEd25519([currentOwner, historicalOwner]), {
+        kind: 'ed25519',
+        walletSession: walletSessionRefFromSession({
+          walletId: WALLET_ID,
+          walletSessionUserId: WALLET_ID,
+        }),
+        nearAccount: NEAR_ACCOUNT,
+      }),
+    ).resolves.toEqual({
+      kind: 'ed25519',
+      laneIdentity: expectEd25519ExportMaterialIdentity(currentOwner),
+      materialActivation: currentOwner.materialActivation,
+    });
+  });
+
+  test('rejects two authorized owner credentials for the same wallet account', async () => {
+    const currentOwner = ed25519Lane();
+    const otherOwner = ed25519Lane({
+      auth: {
+        kind: 'passkey',
+        rpId: toRpId(RP_ID),
+        credentialIdB64u: 'credential-other-authorized-owner',
+      },
+    });
+
+    await expect(
+      resolveExactKeyExportLane(depsForEd25519([currentOwner, otherOwner]), {
+        kind: 'ed25519',
+        walletSession: walletSessionRefFromSession({
+          walletId: WALLET_ID,
+          walletSessionUserId: WALLET_ID,
+        }),
+        nearAccount: NEAR_ACCOUNT,
+      }),
+    ).rejects.toThrow('exact Yao lane selection failed: ambiguous_material');
   });
 });
 

@@ -35,6 +35,7 @@ import type {
   SigningEngineResolveExactKeyExportLaneResult,
 } from './keyExportFlow';
 import { mpcMaterialActivationRefsEqual } from '@shared/utils/domainIds';
+import { signingLaneAuthBindingKey } from '../../session/identity/signingLaneAuthBinding';
 
 type ConcreteEcdsaExportAvailableLane = ConcreteAvailableEcdsaSigningLane & {
   source: 'canonical_capability';
@@ -323,6 +324,7 @@ function isUsableEd25519ExportLane(args: {
   return (
     String(args.lane.walletId) === args.walletId &&
     String(args.lane.nearAccountId) === args.nearAccountId &&
+    args.lane.authorizationState === 'authorized' &&
     hasRecoverableSource
   );
 }
@@ -342,6 +344,18 @@ function exactEd25519MaterialIdentityForExportLane(
   });
 }
 
+function ed25519ExportOwnerIdentityKey(lane: ConcreteAvailableEd25519SigningLane): string {
+  return [
+    lane.walletId,
+    lane.nearAccountId,
+    lane.nearEd25519SigningKeyId,
+    lane.signerSlot,
+    signingLaneAuthBindingKey(lane.auth),
+  ]
+    .map((part) => String(part))
+    .join('|');
+}
+
 async function resolveExactEd25519KeyExportLane(
   deps: Pick<ExportLaneSelectionDeps, 'readPersistedAvailableSigningLanesForTargets'>,
   input: Extract<SigningEngineResolveExactKeyExportLaneInput, { kind: 'ed25519' }>,
@@ -352,27 +366,36 @@ async function resolveExactEd25519KeyExportLane(
     walletId,
     ecdsaChainTargets: [],
   });
+  const canonicalLane = available.lanes.ed25519.near;
+  if (
+    !isConcreteAvailableSigningLane(canonicalLane) ||
+    canonicalLane.curve !== 'ed25519' ||
+    !isUsableEd25519ExportLane({ lane: canonicalLane, walletId, nearAccountId })
+  ) {
+    throw new Error(
+      '[SigningEngine][ed25519-export-resolve] exact Yao lane selection failed: no_candidate',
+    );
+  }
   const candidates = available.candidates.ed25519.near.filter(
     (lane): lane is ConcreteAvailableEd25519SigningLane =>
       isConcreteAvailableSigningLane(lane) &&
       lane.curve === 'ed25519' &&
       isUsableEd25519ExportLane({ lane, walletId, nearAccountId }),
   );
-  if (candidates.length === 0) {
-    throw new Error(
-      '[SigningEngine][ed25519-export-resolve] exact Yao lane selection failed: no_candidate',
-    );
-  }
-  if (candidates.length !== 1) {
+  const canonicalOwnerIdentityKey = ed25519ExportOwnerIdentityKey(canonicalLane);
+  if (
+    candidates.some(
+      (candidate) => ed25519ExportOwnerIdentityKey(candidate) !== canonicalOwnerIdentityKey,
+    )
+  ) {
     throw new Error(
       '[SigningEngine][ed25519-export-resolve] exact Yao lane selection failed: ambiguous_material',
     );
   }
-  const [selectedLane] = candidates;
   return {
     kind: 'ed25519',
-    laneIdentity: exactEd25519MaterialIdentityForExportLane(selectedLane),
-    materialActivation: selectedLane.materialActivation,
+    laneIdentity: exactEd25519MaterialIdentityForExportLane(canonicalLane),
+    materialActivation: canonicalLane.materialActivation,
   };
 }
 
