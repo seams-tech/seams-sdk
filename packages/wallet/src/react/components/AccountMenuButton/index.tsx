@@ -27,12 +27,25 @@ import {
   walletSessionRefFromSession,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { NearProvisioningState } from '@/core/types/seams';
+import type { SeamsWeb } from '@/SeamsWeb/SeamsWeb';
 import { accountMenuCapabilitiesForLoginState } from '../../context/reactLoginStateBuilders';
 
 function formatExportKeyErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message.trim()) return error.message;
   const message = String(error || '').trim();
   return message || 'Key export is unavailable for this wallet.';
+}
+
+async function hydrateLinkedOwnerExportMaterial(input: {
+  readonly seams: SeamsWeb;
+  readonly walletId: string;
+  readonly linkedSession: boolean;
+}): Promise<void> {
+  if (!input.linkedSession) return;
+  const result = await input.seams.recovery.syncAccount({ walletId: input.walletId });
+  if (!result.success) {
+    throw new Error(result.error || 'Linked-device owner material could not be restored.');
+  }
 }
 
 async function resolveNearAccountIdForExport(input: {
@@ -237,6 +250,11 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
 
       setExportLoadingChain(chain);
       try {
+        await hydrateLinkedOwnerExportMaterial({
+          seams,
+          walletId,
+          linkedSession: loginState.currentAuthMethod.kind === 'none',
+        });
         if (chain === 'near') {
           const exportNearAccountId = await resolveNearAccountIdForExport({
             walletId,
