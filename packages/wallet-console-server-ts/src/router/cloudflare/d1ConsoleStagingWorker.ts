@@ -1,5 +1,10 @@
 import type { D1DatabaseLike } from '@seams/wallet-server/cloud-host';
 import { createWalletConsoleRouter } from '../consoleComposition';
+import { HostedConsoleAuthHandler } from './d1RouterApiStagingWorker';
+import {
+  createConsoleProviderIdentity,
+  type ConsoleGithubOAuthConfig,
+} from '@seams-internal/console-server/boundary/providerIdentity';
 import {
   consoleCoreServicesFromBundle,
   createCloudflareD1ConsoleOnlyServiceBundle,
@@ -39,6 +44,28 @@ interface CloudflareD1ConsoleStagingEnv
   readonly STRIPE_WEBHOOK_SECRET?: string;
   readonly STRIPE_API_BASE_URL?: string;
   readonly STRIPE_API_TIMEOUT_MS?: string;
+  readonly GOOGLE_OIDC_CLIENT_ID?: string;
+  readonly GITHUB_OAUTH_CLIENT_ID?: string;
+  readonly GITHUB_OAUTH_CLIENT_SECRET?: string;
+  readonly GITHUB_OAUTH_CALLBACK_URL?: string;
+  readonly CONSOLE_CORS_ORIGINS?: string;
+}
+
+function consoleGithubOAuthConfig(
+  env: CloudflareD1ConsoleStagingEnv,
+): ConsoleGithubOAuthConfig | undefined {
+  const clientId = readEnvString(env, 'GITHUB_OAUTH_CLIENT_ID');
+  const clientSecret = readEnvString(env, 'GITHUB_OAUTH_CLIENT_SECRET');
+  const callbackUrl = readEnvString(env, 'GITHUB_OAUTH_CALLBACK_URL');
+  if (!clientId || !clientSecret || !callbackUrl) return undefined;
+  return { clientId, clientSecret, callbackUrl };
+}
+
+function consoleCorsOrigins(env: CloudflareD1ConsoleStagingEnv): string[] {
+  return String(env.CONSOLE_CORS_ORIGINS || '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
 }
 
 type ConsoleReadyRow = {
@@ -109,13 +136,39 @@ async function createConsoleHandler(env: CloudflareD1ConsoleStagingEnv): Promise
     defaultEnvironmentId: readEnvString(env, 'CONSOLE_DEFAULT_ENVIRONMENT_ID'),
     platformSupportEmails: readEnvString(env, 'CONSOLE_PLATFORM_SUPPORT_EMAILS'),
   });
-  return createWalletConsoleRouter({
+  const router = createWalletConsoleRouter({
     core: consoleCoreServicesFromBundle(bundle),
     walletConsole: walletConsoleServicesFromBundle(bundle),
     auth,
     readyCheck: createConsoleReadyCheck(env),
     billingStripeWebhookSigningSecret: requireEnvString(env, 'STRIPE_WEBHOOK_SECRET'),
   });
+  // The Console Worker owns /console/auth/* end-to-end: provider verification
+  // is Console-owned (no signer D1, Wasm, or identity-link store involved).
+  const authHandler = new HostedConsoleAuthHandler({
+    handler: router,
+    identity: createConsoleProviderIdentity({
+      googleOidcClientId: readEnvString(env, 'GOOGLE_OIDC_CLIENT_ID'),
+      githubOAuth: consoleGithubOAuthConfig(env),
+    }),
+    session,
+    organizationAccess: bundle.organizationAccess,
+    orgProjectEnv: bundle.orgProjectEnv,
+    scope: {
+      namespace,
+      orgId: requireEnvString(env, 'CONSOLE_DEFAULT_ORG_ID'),
+      projectId: requireEnvString(env, 'CONSOLE_DEFAULT_PROJECT_ID'),
+      envId: requireEnvString(env, 'CONSOLE_DEFAULT_ENVIRONMENT_ID'),
+    },
+    initialOwner: readEnvString(env, 'CONSOLE_INITIAL_OWNER_EMAIL')
+      ? {
+          kind: 'configured_google_email',
+          email: readEnvString(env, 'CONSOLE_INITIAL_OWNER_EMAIL'),
+        }
+      : { kind: 'first_verified_google' },
+    corsOrigins: consoleCorsOrigins(env),
+  });
+  return authHandler.fetch.bind(authHandler);
 }
 
 function consoleHandler(env: CloudflareD1ConsoleStagingEnv): Promise<FetchHandler> {
