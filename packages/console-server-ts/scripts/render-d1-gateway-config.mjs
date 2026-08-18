@@ -26,14 +26,17 @@ function main() {
   const lane = readBackendLane(options.lane);
   const deployment = requireProvisionedGatewayDeploymentConfig(options.lane, lane.provisioning);
   assertNearRelayerSecretConsistency(deployment.optional.nearRelayer);
-  const config = buildConfig(
-    deployment,
-    lane.site.origin,
-    lane.walletOrigin,
-    lane.emailOtpDelivery,
-    lane.site.docsOrigin,
-    process.cwd(),
-  );
+  const config =
+    options.worker === 'console'
+      ? buildConsoleConfig(deployment, lane.site.origin, lane.emailOtpDelivery, process.cwd())
+      : buildConfig(
+          deployment,
+          lane.site.origin,
+          lane.walletOrigin,
+          lane.emailOtpDelivery,
+          lane.site.docsOrigin,
+          process.cwd(),
+        );
   writePrivateJson(options.output, config);
   process.stdout.write(`${path.resolve(process.cwd(), options.output)}\n`);
 }
@@ -52,6 +55,7 @@ function requireProvisionedGatewayDeploymentConfig(laneId, provisioning) {
 function parseArguments(args) {
   let lane = '';
   let output = '';
+  let worker = 'gateway';
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
     if (argument === '--lane') {
@@ -64,13 +68,21 @@ function parseArguments(args) {
       index += 1;
       continue;
     }
+    if (argument === '--worker') {
+      worker = requireArgumentValue(args, index, argument);
+      index += 1;
+      continue;
+    }
     throw new Error(`Unknown argument: ${argument}`);
   }
   if (!VALID_LANES.has(lane)) {
     throw new Error('--lane must be staging-testnet, production-testnet, or production-mainnet');
   }
   if (!output) throw new Error('--output is required');
-  return { lane, output };
+  if (worker !== 'gateway' && worker !== 'console') {
+    throw new Error('--worker must be gateway or console');
+  }
+  return { lane, output, worker };
 }
 
 function requireArgumentValue(args, index, name) {
@@ -83,6 +95,89 @@ function writePrivateJson(relativePath, value) {
   const outputPath = path.resolve(process.cwd(), relativePath);
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.writeFileSync(outputPath, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+}
+
+
+export function consoleWorkerNameFor(gatewayWorkerName) {
+  if (!gatewayWorkerName.includes('gateway')) {
+    throw new Error(`cannot derive console worker name from ${gatewayWorkerName}`);
+  }
+  return gatewayWorkerName.replace('gateway', 'console');
+}
+
+export function consoleOriginFor(gatewayOrigin) {
+  const url = new URL(gatewayOrigin);
+  if (!url.hostname.split('.').includes('api')) {
+    throw new Error(`cannot derive console origin from ${gatewayOrigin}`);
+  }
+  const hostname = url.hostname
+    .split('.')
+    .map((label) => (label === 'api' ? 'console' : label))
+    .join('.');
+  return `${url.protocol}//${hostname}`;
+}
+
+// The Console Worker (R105 Phase 4): its own origin, session plane, cron, and
+// only the Console D1 binding. It is also the private WALLET_CONSOLE service
+// binding target for the split Gateway.
+function buildConsoleConfig(deployment, siteOrigin, emailOtpDelivery, packageRoot) {
+  const resources = deployment.resources;
+  const consoleOrigin = consoleOriginFor(deployment.origins.gateway);
+  const production = deployment.lane !== 'staging-testnet';
+  const vars = {
+    SEAMS_TENANT_STORAGE_NAMESPACE: deployment.tenant.namespace,
+    CONSOLE_DEFAULT_ORG_ID: deployment.tenant.orgId,
+    CONSOLE_DEFAULT_PROJECT_ID: deployment.tenant.projectId,
+    CONSOLE_DEFAULT_ENVIRONMENT_ID: deployment.tenant.environmentId,
+    CONSOLE_BASE_URL: deployment.origins.allowedCors[0],
+    CONSOLE_CORS_ORIGINS: deployment.origins.allowedCors.join(','),
+    CONSOLE_SESSION_COOKIE_NAME: DEFAULT_CONSOLE_SESSION_COOKIE_NAME,
+    CONSOLE_SESSION_ISSUER: `${consoleOrigin}/console`,
+    CONSOLE_SESSION_AUDIENCE: DEFAULT_CONSOLE_SESSION_AUDIENCE,
+  };
+  if (production) {
+    vars.CONSOLE_EMAIL_RUNTIME_PROFILE = 'PRODUCTION';
+    vars.CONSOLE_EMAIL_PROVIDER = 'RESEND';
+    vars.CONSOLE_EMAIL_FROM = `Seams <${emailOtpDelivery.provider.fromAddress}>`;
+    vars.CONSOLE_EMAIL_CRON_EXPRESSIONS = '* * * * *';
+  } else {
+    vars.CONSOLE_EMAIL_RUNTIME_PROFILE = 'DEVELOPMENT';
+    vars.CONSOLE_EMAIL_PROVIDER = 'CAPTURE';
+  }
+  return {
+    name: consoleWorkerNameFor(resources.workerName),
+    main: path.join(
+      packageRoot,
+      '../wallet-console-server-ts/src/router/cloudflare/d1ConsoleStagingWorker.ts',
+    ),
+    compatibility_date: GATEWAY_WORKER_COMPATIBILITY_DATE,
+    compatibility_flags: GATEWAY_WORKER_COMPATIBILITY_FLAGS,
+    workers_dev: false,
+    routes: [
+      {
+        pattern: new URL(consoleOrigin).hostname,
+        custom_domain: true,
+      },
+    ],
+    d1_databases: [
+      {
+        binding: 'CONSOLE_DB',
+        database_name: resources.consoleD1.name,
+        database_id: resources.consoleD1.id,
+        migrations_dir: path.join(packageRoot, '../wallet-console-server-ts/migrations/d1-console'),
+      },
+    ],
+    triggers: {
+      crons: ['* * * * *'],
+    },
+    observability: {
+      enabled: true,
+      logs: {
+        enabled: true,
+      },
+    },
+    vars,
+  };
 }
 
 function buildConfig(
@@ -126,7 +221,7 @@ function buildConfig(
     services: [
       { binding: 'SIGNING_WORKER', service: deployment.serviceNames.signingWorker },
       { binding: 'MPC_ROUTER', service: deployment.serviceNames.mpcRouter },
-      { binding: 'WALLET_CONSOLE', service: resources.consoleWorkerName || `${resources.workerName}-console` },
+      { binding: 'WALLET_CONSOLE', service: consoleWorkerNameFor(resources.workerName) },
     ],
     triggers: {
       crons: ['* * * * *'],

@@ -24,6 +24,7 @@ export const BACKEND_COMPONENTS = Object.freeze([
   'deriver-b',
   'router',
   'gateway',
+  'console',
 ]);
 
 const CAPABILITY_NAMES = Object.freeze(['billing', 'sponsoredExecution', 'signingSessionSeal']);
@@ -140,6 +141,8 @@ export function componentSecretNames(lane, component) {
   switch (component) {
     case 'gateway':
       return gatewaySecretNames(lane);
+    case 'console':
+      return ['CONSOLE_SESSION_HMAC_SECRET', 'STRIPE_API_SK'];
     case 'signing-worker':
       return [
         'ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET',

@@ -34,7 +34,18 @@ const GATEWAY_BUNDLE = path.join(
   '.release-artifacts',
   'gateway',
   'payload',
-  'd1RouterApiWorker.js',
+  'd1GatewayWorker.js',
+);
+const CONSOLE_BUILD_CONFIG = path.join(
+  GATEWAY_GENERATED_ROOT,
+  'console-build.jsonc',
+);
+const CONSOLE_BUNDLE = path.join(
+  REPOSITORY_ROOT,
+  '.release-artifacts',
+  'console',
+  'payload',
+  'd1ConsoleStagingWorker.js',
 );
 const BACKEND_SMOKE_PATHS = Object.freeze([
   '/readyz',
@@ -283,6 +294,8 @@ function buildBackend(lane) {
     env: sdkWasmEnvironment,
   });
   runCommand('pnpm', ['-C', 'packages/wallet-server', 'build']);
+  runCommand('pnpm', ['-C', 'packages/console-server-ts', 'run', 'build']);
+  runCommand('pnpm', ['-C', 'packages/wallet-console-server-ts', 'run', 'build']);
   runCommand('pnpm', ['-C', 'packages/console-server-ts', 'run', 'd1:local:ensure-wasm'], {
     env: sdkWasmEnvironment,
   });
@@ -305,17 +318,55 @@ function buildBackend(lane) {
     { cwd: GATEWAY_ROOT },
   );
   assertFile(GATEWAY_BUNDLE, 'Gateway build entry');
+  writeConsoleBuildConfig(lane.id);
+  fs.mkdirSync(path.dirname(CONSOLE_BUNDLE), { recursive: true });
+  runCommand(
+    'pnpm',
+    [
+      'exec',
+      'wrangler',
+      'deploy',
+      '--dry-run',
+      '--config',
+      CONSOLE_BUILD_CONFIG,
+      '--outdir',
+      path.dirname(CONSOLE_BUNDLE),
+      '--metafile',
+      path.join(path.dirname(CONSOLE_BUNDLE), 'worker-meta.json'),
+    ],
+    { cwd: GATEWAY_ROOT },
+  );
+  assertFile(CONSOLE_BUNDLE, 'Console build entry');
 }
 
 function writeGatewayBuildConfig(laneId) {
   const config = {
     name: `seams-sdk-d1-gateway-build-${laneId}`,
-    main: path.join(GATEWAY_ROOT, 'src/router/cloudflare/d1RouterApiWorker.ts'),
+    main: path.join(
+      REPOSITORY_ROOT,
+      'packages/wallet-console-server-ts/src/router/cloudflare/d1GatewayWorker.ts',
+    ),
     compatibility_date: GATEWAY_WORKER_COMPATIBILITY_DATE,
     compatibility_flags: GATEWAY_WORKER_COMPATIBILITY_FLAGS,
   };
   fs.mkdirSync(path.dirname(GATEWAY_BUILD_CONFIG), { recursive: true });
   fs.writeFileSync(GATEWAY_BUILD_CONFIG, `${JSON.stringify(config, null, 2)}\n`, {
+    mode: 0o600,
+  });
+}
+
+function writeConsoleBuildConfig(laneId) {
+  const config = {
+    name: `seams-sdk-d1-console-build-${laneId}`,
+    main: path.join(
+      REPOSITORY_ROOT,
+      'packages/wallet-console-server-ts/src/router/cloudflare/d1ConsoleStagingWorker.ts',
+    ),
+    compatibility_date: GATEWAY_WORKER_COMPATIBILITY_DATE,
+    compatibility_flags: GATEWAY_WORKER_COMPATIBILITY_FLAGS,
+  };
+  fs.mkdirSync(path.dirname(CONSOLE_BUILD_CONFIG), { recursive: true });
+  fs.writeFileSync(CONSOLE_BUILD_CONFIG, `${JSON.stringify(config, null, 2)}\n`, {
     mode: 0o600,
   });
 }
@@ -337,7 +388,7 @@ function preflightBackend(lane, component, environment = process.env) {
 }
 
 function assertLaneResourceBindings(lane, component) {
-  if (component === 'gateway') return;
+  if (component === 'gateway' || component === 'console') return;
   const resourceKey = {
     'signing-worker': 'signingWorker',
     'deriver-a': 'deriverA',
@@ -583,6 +634,9 @@ function deployBackend(lane, component) {
     case 'gateway':
       deployGateway(lane);
       return;
+    case 'console':
+      deployConsole(lane);
+      return;
     default:
       throw new Error(`Unsupported backend component: ${component}`);
   }
@@ -747,6 +801,53 @@ function deployMpcRouter(lane) {
     );
   }
   runRouterCommand(args);
+}
+
+function consoleConfigPath(laneId) {
+  return path.join(GATEWAY_GENERATED_ROOT, `console.${laneId}.jsonc`);
+}
+
+function consoleSecretsPath(laneId) {
+  return path.join(GATEWAY_GENERATED_ROOT, `console-secrets.${laneId}.json`);
+}
+
+// The Console Worker deploys before the Gateway so the WALLET_CONSOLE service
+// binding resolves. Wrangler bundles the TS entry directly; the console
+// packages' dists must be built first (the build step does this).
+function deployConsole(lane) {
+  const consoleConfig = consoleConfigPath(lane.id);
+  const consoleSecrets = consoleSecretsPath(lane.id);
+  runCommand(
+    'node',
+    ['scripts/render-d1-gateway-config.mjs', '--lane', lane.id, '--worker', 'console', '--output', consoleConfig],
+    { cwd: GATEWAY_ROOT },
+  );
+  runCommand(
+    'node',
+    ['scripts/write-gateway-secrets-file.mjs', '--output', consoleSecrets, '--profile', 'console'],
+    {
+      cwd: GATEWAY_ROOT,
+      env: buildEnvironment({ DEPLOYMENT_LANE: lane.id }),
+    },
+  );
+  assertFile(CONSOLE_BUNDLE, 'Console build entry');
+  runCommand(
+    'pnpm',
+    [
+      'exec',
+      'wrangler',
+      'deploy',
+      CONSOLE_BUNDLE,
+      '--no-bundle',
+      '--config',
+      consoleConfig,
+      '--secrets-file',
+      consoleSecrets,
+      '--message',
+      process.env.DEPLOY_SHA || `runtime-${lane.id}`,
+    ],
+    { cwd: GATEWAY_ROOT },
+  );
 }
 
 function deployGateway(lane) {
