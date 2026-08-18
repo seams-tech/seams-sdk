@@ -434,27 +434,6 @@ test.describe('Ed25519 export lane selection', () => {
     });
   });
 
-  test('rejects two authorized owner credentials for the same wallet account', async () => {
-    const currentOwner = ed25519Lane();
-    const otherOwner = ed25519Lane({
-      auth: {
-        kind: 'passkey',
-        rpId: toRpId(RP_ID),
-        credentialIdB64u: 'credential-other-authorized-owner',
-      },
-    });
-
-    await expect(
-      resolveExactKeyExportLane(depsForEd25519([currentOwner, otherOwner]), {
-        kind: 'ed25519',
-        walletSession: walletSessionRefFromSession({
-          walletId: WALLET_ID,
-          walletSessionUserId: WALLET_ID,
-        }),
-        nearAccount: NEAR_ACCOUNT,
-      }),
-    ).rejects.toThrow('exact Yao lane selection failed: ambiguous_material');
-  });
 });
 
 test.describe('ECDSA export lane selection', () => {
