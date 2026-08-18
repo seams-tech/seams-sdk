@@ -13,7 +13,7 @@ import {
   type ConsoleBillingPrepaidReservationService,
   type ConsoleSponsoredCallService,
   type ConsoleSponsorshipSpendCapService,
-} from '@seams-internal/console-server';
+} from '@seams-internal/wallet-console-server';
 import {
   createConsoleRouter,
   createInMemoryConsoleAccountService,
@@ -47,7 +47,7 @@ import {
   type ConsoleWallet,
   type ConsoleWalletService,
   type ConsoleWebhookService,
-} from '@seams-internal/console-server/router/express-adaptor';
+} from '@seams-internal/wallet-console-server/router/express-adaptor';
 
 import dotenv from 'dotenv';
 import { dirname, resolve } from 'node:path';

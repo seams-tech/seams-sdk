@@ -1,0 +1,24 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist/types",
+    "emitDeclarationOnly": true,
+    "noEmit": false,
+    "strict": true,
+    "rootDir": ".."
+  },
+  "include": [
+    "src/**/*",
+    "../console-shared-ts/src/**/*",
+    "../wallet-console-shared-ts/src/**/*",
+    "../console-server-ts/src/**/*"
+  ],
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "../../examples/",
+    "../../apps/",
+    "../../docs/",
+    "../../tests/"
+  ]
+}

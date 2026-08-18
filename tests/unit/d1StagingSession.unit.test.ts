@@ -5,7 +5,7 @@ import {
   createEd25519SessionAdapter,
   createHmacSessionAdapter,
   type Ed25519SessionAdapterOptions,
-} from '../../packages/console-server-ts/src/router/cloudflare/d1StagingSession';
+} from '../../packages/wallet-console-server-ts/src/router/cloudflare/d1StagingSession';
 import { decodeJwtPayloadRecord } from '../../packages/shared-ts/src/utils/sessionTokens';
 
 const SESSION_SECRET = '0123456789abcdef0123456789abcdef';

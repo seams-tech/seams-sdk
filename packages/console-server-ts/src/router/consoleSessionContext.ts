@@ -1,4 +1,4 @@
-import type { SwitchConsoleAccountOrganizationContextResult } from '@seams-internal/console-server/account';
+import type { SwitchConsoleAccountOrganizationContextResult } from '@seams-internal/console-server/account/index';
 import type { SessionAdapter, SessionClaims } from '../boundary';
 
 const RESERVED_SESSION_CLAIMS = new Set([

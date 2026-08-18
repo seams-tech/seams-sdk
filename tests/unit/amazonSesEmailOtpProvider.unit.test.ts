@@ -5,9 +5,9 @@ import {
   createAmazonSesEmailOtpDeliveryProvider,
   parseAmazonSesEmailOtpProviderConfig,
   type AmazonSesEmailOtpClient,
-} from '../../packages/console-server-ts/src/email/otp/amazonSesEmailOtpProvider';
-import { renderEmailOtpMessage } from '../../packages/console-server-ts/src/email/otp/emailOtpDeliveryAdapter';
-import { resolveEmailOtpDeliveryProviderFromEnv } from '../../packages/console-server-ts/src/email/otp/emailOtpProviders';
+} from '../../packages/wallet-console-server-ts/src/email/otp/amazonSesEmailOtpProvider';
+import { renderEmailOtpMessage } from '../../packages/wallet-console-server-ts/src/email/otp/emailOtpDeliveryAdapter';
+import { resolveEmailOtpDeliveryProviderFromEnv } from '../../packages/wallet-console-server-ts/src/email/otp/emailOtpProviders';
 
 const SES_CONFIG = {
   region: 'ap-southeast-2',

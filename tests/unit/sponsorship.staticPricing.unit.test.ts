@@ -8,7 +8,7 @@ import {
   type SponsorshipSpendPricingFinalizeInput,
   type SponsorshipSpendPricingQuote,
   type SponsorshipSpendPricingService,
-} from '../../packages/console-server-ts/src/sponsorship';
+} from '../../packages/wallet-console-server-ts/src/sponsorship';
 
 class TaggedPricingService implements SponsorshipSpendPricingService {
   readonly operations: string[] = [];

@@ -34,7 +34,7 @@ const consoleD1Database = Object.freeze({
 const signerD1Database = Object.freeze({
   binding: 'SIGNER_DB',
   databaseName: 'seams-signer-staging-nrt',
-  migrationsDir: 'node_modules/@seams/sdk-server/migrations/d1-signer',
+  migrationsDir: '../wallet-console-server-ts/node_modules/@seams/sdk-server/migrations/d1-signer',
 });
 const requiredD1DatabasesByProfile = Object.freeze({
   console: Object.freeze([consoleD1Database]),
@@ -43,8 +43,8 @@ const requiredD1DatabasesByProfile = Object.freeze({
 
 const stagingProfiles = Object.freeze(['console', 'gateway']);
 const expectedMainByProfile = Object.freeze({
-  console: 'src/router/cloudflare/d1ConsoleStagingWorker.ts',
-  gateway: 'src/router/cloudflare/d1RouterApiStagingWorker.ts',
+  console: '../wallet-console-server-ts/src/router/cloudflare/d1ConsoleStagingWorker.ts',
+  gateway: '../wallet-console-server-ts/src/router/cloudflare/d1RouterApiStagingWorker.ts',
 });
 const requiredSecretVarsByProfile = Object.freeze({
   console: Object.freeze(['CONSOLE_SESSION_HMAC_SECRET', 'STRIPE_API_SK']),

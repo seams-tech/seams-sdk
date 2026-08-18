@@ -3,6 +3,7 @@ packages:
   - packages/console-shared-ts
   - packages/wallet-console-shared-ts
   - packages/console-server-ts
+  - packages/wallet-console-server-ts
   - packages/sdk-web
   - packages/sdk-server-ts
   - packages/shared-ts
