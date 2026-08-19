@@ -10,6 +10,7 @@
     "preview": "vite preview --host localhost --port 3601"
   },
   "dependencies": {
+    "@fontsource/hanken-grotesk": "^5.2.8",
     "@seams-internal/console-shared": "workspace:*",
     "@seams-internal/wallet-console-shared": "workspace:*",
     "@seams/wallet": "workspace:*",

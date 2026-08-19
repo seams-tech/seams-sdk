@@ -71,6 +71,9 @@ importers:
 
   apps/seams-console:
     dependencies:
+      '@fontsource/hanken-grotesk':
+        specifier: ^5.2.8
+        version: 5.2.8
       '@seams-internal/console-shared':
         specifier: workspace:*
         version: link:../../packages/console-shared-ts
