@@ -80,53 +80,66 @@
   --vp-c-text-3: #857e76;
 }
 
-/* Nav bar: wordmark brand sized like the marketing site header. */
+/* A soft, fixed page wash: two cool washes and one warm one, all under 10%
+   alpha, so the page reads as white paper with light in it rather than as a
+   colored surface. Content surfaces go transparent to let it through. */
+body {
+  background-color: var(--vp-c-bg);
+  background-image:
+    radial-gradient(1100px 620px at 6% -10%, rgb(122 137 214 / 0.07), transparent 62%),
+    radial-gradient(900px 540px at 98% 4%, rgb(214 186 168 / 0.1), transparent 60%),
+    radial-gradient(1250px 700px at 80% 100%, rgb(126 159 210 / 0.09), transparent 66%);
+  background-attachment: fixed;
+}
+
+.dark body {
+  background-image:
+    radial-gradient(1100px 620px at 6% -10%, rgb(122 137 214 / 0.14), transparent 62%),
+    radial-gradient(900px 540px at 98% 4%, rgb(224 172 104 / 0.06), transparent 60%),
+    radial-gradient(1250px 700px at 80% 100%, rgb(110 199 164 / 0.08), transparent 66%);
+}
+
+.VPContent,
+.VPDoc,
+.VPPage,
+.VPNotFound {
+  background-color: transparent;
+}
+
+.Layout .VPSidebar {
+  background-color: color-mix(in srgb, var(--vp-c-bg-alt) 80%, transparent);
+}
+
+/* The sidebar carries the brand, search, and appearance switch, so the top
+   nav bar has nothing left to show. Zeroing its height collapses the offsets
+   the default theme derives from it. */
 :root {
-  --vp-nav-logo-height: 20px;
+  --vp-nav-height: 0px;
 }
 
-.VPNavBarTitle .title {
-  gap: 8px;
-  font-size: 15px;
-  font-weight: 500;
+.VPNav {
+  display: none;
 }
 
-.VPNavBarTitle .title .logo {
-  margin-right: 0;
-  width: auto;
-}
-
-.VPNavBarTitle .title > span {
-  color: var(--vp-c-text-2);
-  letter-spacing: 0.01em;
-}
-
-/* Sidebar: pull the tree toward the left edge so long entries wrap less, and
-   open up the space above the first heading. */
+/* Sidebar: pull the tree toward the left edge so long entries wrap less. */
 @media (min-width: 960px) {
   .Layout .VPSidebar {
+    padding-top: 24px;
     padding-right: 16px;
     padding-left: 20px;
   }
 
   .Layout .VPSidebar .curtain {
-    margin-right: -16px;
-    margin-left: -20px;
+    display: none;
   }
 
   .Layout .VPSidebar .group {
     width: auto;
   }
-
-  .Layout .VPNavBar .container > .title {
-    padding: 0 20px;
-  }
 }
 
-/* The first group is not the nav's first child (a visually hidden label is),
-   so the gap above the first heading belongs on the nav. */
 .VPSidebar .nav {
-  padding-top: 14px;
+  padding-top: 0;
 }
 
 /* The section headings carry the structure on their own, so drop the rules
@@ -178,6 +191,17 @@
   background-color: var(--vp-c-brand-1);
 }
 
+/* Markdown keeps its H1 so VitePress local search indexes the page title.
+   The layout header renders the visible semantic title. */
+.vp-doc > div > h1:first-child {
+  display: none;
+}
+
+/* The content column starts on body copy; keep it flush with the subtitle. */
+.vp-doc > div > :first-child {
+  margin-top: 0;
+}
+
 /* The default theme paints a fixed gradient strip over the bottom of the
    outline column; it covers the footer instead of fading the outline. */
 .VPDoc .aside .aside-curtain {
@@ -187,8 +211,12 @@
 /* Site footer. The sidebar is fixed to the viewport, so the footer has to be
    inset by its width on wide screens or its first column is clipped. */
 .seams-docs-footer {
+  /* The outline column is fixed and full height, so it sits over the footer's
+     right half and swallows those clicks unless the footer is raised. */
+  position: relative;
+  z-index: 2;
   border-top: 1px solid var(--vp-c-divider);
-  background-color: var(--vp-c-bg-alt);
+  background-color: transparent;
   padding: 20px 24px;
 }
 
@@ -214,7 +242,9 @@
 .seams-docs-footer__inner {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-start;
+  /* The brand and its copyright line sit on the baseline of the tallest
+     column, not at the top of the row. */
+  align-items: flex-end;
   justify-content: space-between;
   gap: 20px 40px;
   margin: 0 auto;
