@@ -489,15 +489,15 @@ export function MpcSplitDiagram(): React.JSX.Element {
       />
 
       {/* The two lanes keep distinct rhythms until their gate terminals. */}
-      <circle className="h2-mpc__terminal" cx="152" cy="86" r="2.5" />
-      <circle className="h2-mpc__terminal" cx="152" cy="228" r="2.5" />
+      <DrawCircle className="h2-mpc__terminal" cx="152" cy="86" r="2.5" />
+      <DrawCircle className="h2-mpc__terminal" cx="152" cy="228" r="2.5" />
       <DrawPath className="h2-mpc__flow h2-mpc__flow--device" d="M152 86 C214 86 226 148 268 151" />
       <DrawPath
         className="h2-mpc__flow h2-mpc__flow--infrastructure"
         d="M152 228 C214 228 226 166 268 159"
       />
-      <circle className="h2-mpc__terminal" cx="268" cy="151" r="2.5" />
-      <circle className="h2-mpc__terminal" cx="268" cy="159" r="2.5" />
+      <DrawCircle className="h2-mpc__terminal" cx="268" cy="151" r="2.5" />
+      <DrawCircle className="h2-mpc__terminal" cx="268" cy="159" r="2.5" />
 
       {/* policy gate */}
       <DrawPath className="h2-mpc__guide" d="M300 112 V196" />
@@ -528,6 +528,9 @@ export function MpcSplitDiagram(): React.JSX.Element {
         d="M450 161 C457 147 463 146 460 161 C469 153 476 148 473 160 C481 153 487 153 492 160 C499 166 506 151 514 157 M451 165 C471 162 493 164 518 161"
         pathLength="1"
       />
+      <text className="h2-mpc__resultlabel" x="484" y="206" textAnchor="middle">
+        Signed transaction
+      </text>
 
       <text className="h2-mpc__note" x="280" y="284" textAnchor="middle">
         2-of-2 threshold {'·'} neither share signs alone
@@ -1282,8 +1285,7 @@ export function H2Security(): React.JSX.Element {
           type="button"
           className="h2-pager__btn"
           aria-label="Previous custody view"
-          disabled={view === 0}
-          onClick={() => setView(0)}
+          onClick={() => setView((currentView) => nextSecurityView(currentView))}
         >
           <ChevronLeft aria-hidden />
         </button>
@@ -1300,8 +1302,7 @@ export function H2Security(): React.JSX.Element {
           type="button"
           className="h2-pager__btn"
           aria-label="Next custody view"
-          disabled={view === 1}
-          onClick={() => setView(1)}
+          onClick={() => setView((currentView) => nextSecurityView(currentView))}
         >
           <ChevronRight aria-hidden />
         </button>
@@ -1324,62 +1325,20 @@ export function H2Start(): React.JSX.Element {
         <div className="h2-eco__head h2-starthead">
           <div>
             <h2 id="h2-start-title" className="h2-display h2-eco__title">
-              Start in the dashboard, or build it into your product
+              Start in the wallet console, or build it into your product
             </h2>
-          </div>
-          <a className="h2-btn h2-btn--outline" href={docsProps.href} onClick={docsProps.onClick}>
-            Explore docs
-          </a>
-        </div>
-      </div>
-
-      {/* row 1: merchant dashboard */}
-      <div className="h2-startrow h2-rule">
-        <div className="h2-shell h2-startrow__grid">
-          <div className="h2-startrow__text">
-            <h3>Merchant dashboard</h3>
-            <p>
-              Create a store account, set policy, and invite staff and agents, no code required.
-              Planning a marketplace or fleet rollout? We&rsquo;ll help.
-            </p>
-            <div className="h2-startrow__ctas">
-              <a
-                className="h2-btn h2-btn--primary"
-                href={dashboardProps.href}
-                onClick={dashboardProps.onClick}
-              >
-                Open dashboard
-              </a>
-              <a
-                className="h2-btn h2-btn--outline"
-                href={contactProps.href}
-                onClick={contactProps.onClick}
-              >
-                Talk to us
-              </a>
-            </div>
-          </div>
-          <div className="h2-startrow__visual">
-            <div className="h2-mockcard h2-mockcard--wide">
-              <p className="h2-mockcard__title">Store overview</p>
-              <div className="h2-mockrow">
-                <span className="h2-mockrow__main">Store policy</span>
-                <span className="h2-chip h2-chip--green">Active</span>
-              </div>
-              <div className="h2-mockrow">
-                <span className="h2-mockrow__main">2 agents · 3 staff</span>
-                <span className="h2-chip h2-chip--plain">Scoped</span>
-              </div>
-              <div className="h2-mockrow">
-                <span className="h2-mockrow__main">Pending approvals</span>
-                <span className="h2-chip h2-chip--amber">1</span>
-              </div>
-            </div>
+            <a
+              className="h2-btn h2-btn--primary h2-starthead__cta"
+              href={docsProps.href}
+              onClick={docsProps.onClick}
+            >
+              Explore documentation
+            </a>
           </div>
         </div>
       </div>
 
-      {/* row 2: accounts & wallets API */}
+      {/* row 1: accounts & wallets API */}
       <div className="h2-startrow h2-rule">
         <div className="h2-shell h2-startrow__grid">
           <div className="h2-startrow__text">
@@ -1422,7 +1381,7 @@ export function H2Start(): React.JSX.Element {
         </div>
       </div>
 
-      {/* row 3: policy & delegation API */}
+      {/* row 2: policy & delegation API */}
       <div className="h2-startrow h2-rule">
         <div className="h2-shell h2-startrow__grid">
           <div className="h2-startrow__text">
@@ -1462,6 +1421,56 @@ export function H2Start(): React.JSX.Element {
             {' seams.approvals.require('}
             <span className="tok-str">'discounts:over-10'</span>
             {');'}
+          </div>
+        </div>
+      </div>
+
+      {/* row 3: wallet console */}
+      <div className="h2-startrow h2-startrow--console h2-rule">
+        <div className="h2-shell h2-startrow__grid">
+          <div className="h2-startrow__text">
+            <h3>Wallet console</h3>
+            <p>
+              Manage wallets, signing policy, team access, and pending approvals from one dashboard.
+              Invite staff and agents without writing code.
+            </p>
+            <div className="h2-startrow__ctas">
+              <a
+                className="h2-btn h2-btn--primary"
+                href={dashboardProps.href}
+                onClick={dashboardProps.onClick}
+              >
+                Open wallet console
+              </a>
+              <a
+                className="h2-btn h2-btn--outline"
+                href={contactProps.href}
+                onClick={contactProps.onClick}
+              >
+                Talk to us
+              </a>
+            </div>
+          </div>
+          <div className="h2-startrow__visual h2-console-preview">
+            <div className="h2-console-preview__frame">
+              <div className="h2-console-preview__chrome" aria-hidden="true">
+                <span className="h2-console-preview__controls">
+                  <span />
+                  <span />
+                  <span />
+                </span>
+                <span className="h2-console-preview__address">seams.sh/dashboard</span>
+              </div>
+              <div className="h2-console-preview__viewport">
+                <img
+                  className="h2-console-preview__image"
+                  src="/wallet-preview/wallet-console-dashboard.png"
+                  alt="Wallet console with policy, API key, sponsorship, and operations controls"
+                  loading="lazy"
+                  decoding="async"
+                />
+              </div>
+            </div>
           </div>
         </div>
       </div>

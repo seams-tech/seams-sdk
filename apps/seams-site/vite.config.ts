@@ -13,10 +13,7 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
 
   /* Production builds must receive the public signing mode and relayer URL from CI. */
-  const requiredEnvKeys = [
-    'VITE_SIGNING_SESSION_PERSISTENCE_MODE',
-    'VITE_RELAYER_URL',
-  ];
+  const requiredEnvKeys = ['VITE_SIGNING_SESSION_PERSISTENCE_MODE', 'VITE_RELAYER_URL'];
   const missingEnvKeys = requiredEnvKeys.filter((key) => !String(env[key] || '').trim());
   if (missingEnvKeys.length > 0) {
     console.warn(
@@ -40,6 +37,7 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 3600,
       host: 'localhost',
+      strictPort: true,
       // Allow access via reverse-proxied hosts (Caddy) and Bonjour (.local)
       // Needed to avoid Vite's DNS‑rebinding protection blocking mDNS hosts
       allowedHosts: ['localhost', 'pta-m4.local'],
