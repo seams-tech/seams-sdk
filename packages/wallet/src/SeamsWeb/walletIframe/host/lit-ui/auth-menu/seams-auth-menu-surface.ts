@@ -512,6 +512,38 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
     this.emitIntent({ kind: 'link_device_create_passkey' });
   };
 
+  private onLinkDeviceFactorChange = (event: Event): void => {
+    if (!(event.currentTarget instanceof HTMLInputElement)) return;
+    const targetFactor =
+      event.currentTarget.value === 'email_otp'
+        ? ({ kind: 'email_otp' } as const)
+        : ({ kind: 'passkey_prf' } as const);
+    this.emitIntent({ kind: 'link_device_factor_selected', targetFactor });
+  };
+
+  private onLinkDeviceStart = (): void => {
+    this.emitIntent({ kind: 'link_device_start' });
+  };
+
+  private onLinkDeviceEmailOtpCodeInput = (event: Event): void => {
+    if (!(event.currentTarget instanceof HTMLInputElement)) return;
+    this.emitIntent({ kind: 'link_device_email_otp_code_changed', code: event.currentTarget.value });
+  };
+
+  private onLinkDeviceEmailOtpKeydown = (event: KeyboardEvent): void => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    this.emitIntent({ kind: 'link_device_email_otp_submit' });
+  };
+
+  private onLinkDeviceEmailOtpResend = (): void => {
+    this.emitIntent({ kind: 'link_device_email_otp_resend' });
+  };
+
+  private onLinkDeviceEmailOtpSubmit = (): void => {
+    this.emitIntent({ kind: 'link_device_email_otp_submit' });
+  };
+
   private emitIntent(intent: AuthMenuIntent): void {
     dispatchAuthMenuIntent(this, intent);
   }
@@ -805,8 +837,14 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
     viewModel: Extract<AuthMenuViewModel, { kind: 'link_device' }>,
   ): TemplateResult {
     const linkDevice = viewModel.linkDevice;
+    if (linkDevice.kind === 'select_factor') {
+      return this.renderLinkDeviceFactorSelection(linkDevice);
+    }
     if (linkDevice.kind === 'passkey_required' || linkDevice.kind === 'creating_passkey') {
       return this.renderLinkDevicePasskeyConfirmation(linkDevice);
+    }
+    if (linkDevice.kind === 'email_otp_required') {
+      return this.renderLinkDeviceEmailOtp(linkDevice);
     }
     if (linkDevice.kind === 'activating') return this.renderLinkedDeviceActivation(linkDevice);
     if (linkDevice.kind === 'error' || linkDevice.kind === 'activation_error') {
@@ -850,6 +888,113 @@ export class SeamsAuthMenuSurfaceElement extends LitElementWithProps {
             </div>
           </div>
         </div>
+      </div>
+    `;
+  }
+
+  private renderLinkDeviceFactorSelection(
+    linkDevice: Extract<AuthMenuLinkDeviceState, { kind: 'select_factor' }>,
+  ): TemplateResult {
+    return html`
+      <div class="w3a-link-device-confirmation">
+        <h2 class="qr-title" id=${AUTH_MENU_TITLE_ID}>Choose how to secure this device</h2>
+        <fieldset class="w3a-link-device-factor-options">
+          <legend class="sr-only">Device security method</legend>
+          <label>
+            <input
+              type="radio"
+              name="linked-device-factor"
+              value="passkey_prf"
+              .checked=${linkDevice.targetFactor.kind === 'passkey_prf'}
+              @change=${this.onLinkDeviceFactorChange}
+            />
+            Passkey
+          </label>
+          <label>
+            <input
+              type="radio"
+              name="linked-device-factor"
+              value="email_otp"
+              .checked=${linkDevice.targetFactor.kind === 'email_otp'}
+              @change=${this.onLinkDeviceFactorChange}
+            />
+            Email code
+          </label>
+        </fieldset>
+        <button
+          class="w3a-link-device-btn w3a-link-device-btn-primary"
+          type="button"
+          data-auth-menu-primary
+          @click=${this.onLinkDeviceStart}
+        >
+          Continue
+        </button>
+      </div>
+    `;
+  }
+
+  private renderLinkDeviceEmailOtp(
+    linkDevice: Extract<AuthMenuLinkDeviceState, { kind: 'email_otp_required' }>,
+  ): TemplateResult {
+    const activation = linkDevice.state;
+    const busy =
+      activation.kind === 'sending' ||
+      activation.kind === 'submitting' ||
+      activation.kind === 'resending';
+    const canSubmit =
+      linkDevice.otpCode.length === 6 &&
+      (activation.kind === 'code_input' || activation.kind === 'incorrect');
+    const hint = 'maskedEmailHint' in activation ? activation.maskedEmailHint : '';
+    const message =
+      activation.kind === 'incorrect' ||
+      activation.kind === 'expired' ||
+      activation.kind === 'unavailable'
+        ? activation.message
+        : busy
+          ? 'Sending or verifying your code…'
+          : activation.kind === 'completed'
+            ? 'Email verified'
+            : `Enter the code sent to ${hint}`;
+    return html`
+      <div class="w3a-link-device-confirmation">
+        <h2 class="qr-title" id=${AUTH_MENU_TITLE_ID}>Verify your email</h2>
+        <p id="w3a-linked-device-otp-status" role="status" aria-live="polite">${message}</p>
+        ${activation.kind === 'completed' || activation.kind === 'unavailable'
+          ? null
+          : html`
+              <input
+                class="w3a-input"
+                type="text"
+                inputmode="numeric"
+                autocomplete="one-time-code"
+                maxlength="6"
+                aria-label="Email verification code"
+                aria-describedby="w3a-linked-device-otp-status"
+                aria-invalid=${activation.kind === 'incorrect' || activation.kind === 'expired'
+                  ? 'true'
+                  : 'false'}
+                .value=${linkDevice.otpCode}
+                ?disabled=${busy || activation.kind === 'expired'}
+                @input=${this.onLinkDeviceEmailOtpCodeInput}
+                @keydown=${this.onLinkDeviceEmailOtpKeydown}
+              />
+              <button
+                class="w3a-link-device-btn w3a-link-device-btn-primary"
+                type="button"
+                ?disabled=${!canSubmit}
+                @click=${this.onLinkDeviceEmailOtpSubmit}
+              >
+                Verify code
+              </button>
+              <button
+                class="w3a-link-device-btn"
+                type="button"
+                ?disabled=${busy}
+                @click=${this.onLinkDeviceEmailOtpResend}
+              >
+                Send another code
+              </button>
+            `}
       </div>
     `;
   }

@@ -3,7 +3,11 @@ import type { WalletUIRegistry } from '../host/lit-ui/iframe-lit-element-registr
 import type { BootstrapThresholdEcdsaSessionArgs } from '@/SeamsWeb/signingSurface/types';
 import { SignedTransaction } from '@/core/rpcClients/near/NearClient';
 import { ActionArgs, TransactionInput } from '@/core/types';
-import type { QrLinkedDeviceSessionPayloadV5 } from '@shared/device-linking';
+import type {
+  LinkedDeviceTargetFactorV1,
+  QrLinkedDeviceSessionPayloadV5,
+} from '@shared/device-linking';
+import type { LinkedDeviceEmailOtpActivationStateV1 } from '@/core/types/linkDevice';
 import type { DelegateActionInput } from '@/core/types/delegate';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type { TempoSigningRequest } from '@/core/signingEngine/chains/tempo/tempoSigning.types';
@@ -918,6 +922,7 @@ export type ParentToChildType =
   | 'PM_REVOKE_LINKED_DEVICE'
   | 'PM_SCAN_AND_LINK_DEVICE'
   | 'PM_START_DEVICE2_LINKING_FLOW'
+  | 'PM_DEVICE_LINK_TARGET_FACTOR_ACTION'
   | 'PM_CANCEL_DEVICE_LINKING'
   | 'PM_SYNC_ACCOUNT_FLOW';
 
@@ -1390,7 +1395,138 @@ export interface PMRevokeLinkedDevicePayload {
   requestedAtMs: number;
 }
 
-export type ProgressPayload = WalletFlowEvent | RegistrationTimingSpanV1;
+export type DeviceLinkTargetFactorActivationProgressV1 =
+  | {
+      readonly event: 'wallet_device_link_target_factor_activation_v1';
+      readonly activationId: string;
+      readonly activation: { readonly kind: 'linked_device_target_passkey_activation_v1' };
+    }
+  | {
+      readonly event: 'wallet_device_link_target_factor_activation_v1';
+      readonly activationId: string;
+      readonly activation: {
+        readonly kind: 'linked_device_target_email_otp_activation_v1';
+        readonly state: LinkedDeviceEmailOtpActivationStateV1;
+      };
+    };
+
+export type DeviceLinkTargetFactorActionV1 =
+  | { readonly kind: 'create_passkey' }
+  | { readonly kind: 'send_email_otp' }
+  | { readonly kind: 'resend_email_otp' }
+  | { readonly kind: 'submit_email_otp'; readonly otpCode: string };
+
+export function parseDeviceLinkTargetFactorActionPayloadV1(value: unknown): {
+  readonly activationId: string;
+  readonly action: DeviceLinkTargetFactorActionV1;
+} | null {
+  if (
+    !isPlainObject(value) ||
+    !hasOnlyKeys(value, ['activationId', 'action']) ||
+    typeof value.activationId !== 'string' ||
+    value.activationId.length === 0 ||
+    !isPlainObject(value.action)
+  ) {
+    return null;
+  }
+  const action = value.action;
+  switch (action.kind) {
+    case 'create_passkey':
+    case 'send_email_otp':
+    case 'resend_email_otp':
+      return hasOnlyKeys(action, ['kind'])
+        ? { activationId: value.activationId, action: { kind: action.kind } }
+        : null;
+    case 'submit_email_otp':
+      return hasOnlyKeys(action, ['kind', 'otpCode']) &&
+        typeof action.otpCode === 'string' &&
+        /^\d{6}$/.test(action.otpCode)
+        ? {
+            activationId: value.activationId,
+            action: { kind: action.kind, otpCode: action.otpCode },
+          }
+        : null;
+    default:
+      return null;
+  }
+}
+
+export type ProgressPayload =
+  | WalletFlowEvent
+  | RegistrationTimingSpanV1
+  | DeviceLinkTargetFactorActivationProgressV1;
+
+export function isDeviceLinkTargetFactorActivationProgressV1(
+  value: ProgressPayload,
+): value is DeviceLinkTargetFactorActivationProgressV1 {
+  if (!isPlainObject(value) || value.event !== 'wallet_device_link_target_factor_activation_v1') {
+    return false;
+  }
+  if (
+    !hasOnlyKeys(value, ['event', 'activationId', 'activation']) ||
+    typeof value.activationId !== 'string' ||
+    value.activationId.length === 0 ||
+    !isPlainObject(value.activation)
+  ) {
+    return false;
+  }
+  if (value.activation.kind === 'linked_device_target_passkey_activation_v1') {
+    return hasOnlyKeys(value.activation, ['kind']);
+  }
+  if (
+    value.activation.kind !== 'linked_device_target_email_otp_activation_v1' ||
+    !hasOnlyKeys(value.activation, ['kind', 'state']) ||
+    !isPlainObject(value.activation.state)
+  ) {
+    return false;
+  }
+  const state = value.activation.state;
+  switch (state.kind) {
+    case 'sending':
+    case 'resending':
+    case 'completed':
+      return (
+        hasOnlyKeys(state, ['kind', 'maskedEmailHint']) &&
+        typeof state.maskedEmailHint === 'string'
+      );
+    case 'code_input':
+    case 'submitting':
+      return (
+        hasOnlyKeys(state, ['kind', 'maskedEmailHint', 'expiresAtMs', 'resendAvailableAtMs']) &&
+        typeof state.maskedEmailHint === 'string' &&
+        typeof state.expiresAtMs === 'number' &&
+        Number.isFinite(state.expiresAtMs) &&
+        typeof state.resendAvailableAtMs === 'number' &&
+        Number.isFinite(state.resendAvailableAtMs)
+      );
+    case 'incorrect':
+      return (
+        hasOnlyKeys(state, [
+          'kind',
+          'maskedEmailHint',
+          'expiresAtMs',
+          'resendAvailableAtMs',
+          'message',
+        ]) &&
+        typeof state.maskedEmailHint === 'string' &&
+        typeof state.expiresAtMs === 'number' &&
+        Number.isFinite(state.expiresAtMs) &&
+        typeof state.resendAvailableAtMs === 'number' &&
+        Number.isFinite(state.resendAvailableAtMs) &&
+        typeof state.message === 'string'
+      );
+    case 'expired':
+      return (
+        hasOnlyKeys(state, ['kind', 'maskedEmailHint', 'message']) &&
+        typeof state.maskedEmailHint === 'string' &&
+        typeof state.message === 'string'
+      );
+    case 'unavailable':
+      return hasOnlyKeys(state, ['kind', 'message']) && typeof state.message === 'string';
+    default:
+      return false;
+  }
+}
 
 export function isRegistrationTimingSpanV1(value: unknown): value is RegistrationTimingSpanV1 {
   if (!isPlainObject(value)) return false;
@@ -1522,12 +1658,20 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<
       'PM_START_DEVICE2_LINKING_FLOW',
       {
+        targetFactor: LinkedDeviceTargetFactorV1;
         ui?: 'modal' | 'inline';
         cameraId?: string;
         options?: {
           confirmationConfig?: Partial<ConfirmationConfig>;
           confirmerText?: { title?: string; body?: string };
         };
+      }
+    >
+  | RpcEnvelope<
+      'PM_DEVICE_LINK_TARGET_FACTOR_ACTION',
+      {
+        activationId: string;
+        action: DeviceLinkTargetFactorActionV1;
       }
     >
   | RpcEnvelope<'PM_CANCEL_DEVICE_LINKING'>

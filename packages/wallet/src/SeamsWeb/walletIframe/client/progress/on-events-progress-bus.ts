@@ -9,7 +9,10 @@
  * - Event Statistics: Tracks counts/timestamps for debugging
  */
 
-import type { ProgressPayload as MessageProgressPayload } from '../../shared/messages';
+import {
+  isDeviceLinkTargetFactorActivationProgressV1,
+  type ProgressPayload as MessageProgressPayload,
+} from '../../shared/messages';
 import { isWalletFlowEvent } from '@/core/types/sdkSentEvents';
 
 export type ProgressPayload = MessageProgressPayload;
@@ -120,7 +123,9 @@ export class OnEventsProgressBus {
             phase: payload.phase,
             status: payload.status,
           }
-        : { requestId, span: payload.span },
+        : isDeviceLinkTargetFactorActivationProgressV1(payload)
+          ? { requestId, event: payload.event, activationKind: payload.activation.kind }
+          : { requestId, span: payload.span },
     );
     return false;
   }

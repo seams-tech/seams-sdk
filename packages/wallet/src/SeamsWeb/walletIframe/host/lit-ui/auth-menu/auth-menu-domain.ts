@@ -4,6 +4,9 @@ import type {
   GoogleEmailOtpWalletAuthDelivery,
   GoogleEmailOtpWalletAuthPromptCopy,
 } from '@/SeamsWeb/publicApi/types';
+import type { LinkedDeviceEmailOtpActivationStateV1 } from '@/core/types/linkDevice';
+import type { LinkedDeviceTargetFactorV1 } from '@shared/device-linking';
+import { isPlainObject } from '@shared/utils/validation';
 
 /**
  * The view model is normalized by the wallet-host controller before it reaches
@@ -119,6 +122,10 @@ export type AuthMenuGoogleRegistrationViewModel = AuthMenuViewModelCommon & {
 };
 
 export type AuthMenuLinkDeviceState =
+  | {
+      readonly kind: 'select_factor';
+      readonly targetFactor: LinkedDeviceTargetFactorV1;
+    }
   | { readonly kind: 'loading'; readonly message: string }
   | {
       readonly kind: 'ready';
@@ -132,6 +139,11 @@ export type AuthMenuLinkDeviceState =
   | {
       readonly kind: 'creating_passkey';
       readonly message: string;
+    }
+  | {
+      readonly kind: 'email_otp_required';
+      readonly state: LinkedDeviceEmailOtpActivationStateV1;
+      readonly otpCode: string;
     }
   | { readonly kind: 'activating'; readonly message: string }
   | { readonly kind: 'error'; readonly message: string }
@@ -171,6 +183,23 @@ export type AuthMenuIntent =
     }
   | {
       readonly kind: 'link_device_create_passkey';
+    }
+  | {
+      readonly kind: 'link_device_factor_selected';
+      readonly targetFactor: LinkedDeviceTargetFactorV1;
+    }
+  | {
+      readonly kind: 'link_device_start';
+    }
+  | {
+      readonly kind: 'link_device_email_otp_code_changed';
+      readonly code: string;
+    }
+  | {
+      readonly kind: 'link_device_email_otp_resend';
+    }
+  | {
+      readonly kind: 'link_device_email_otp_submit';
     }
   | {
       readonly kind: 'registration_reroll';
@@ -231,8 +260,18 @@ export function isAuthMenuIntent(value: unknown): value is AuthMenuIntent {
     case 'back':
     case 'link_device_open':
     case 'link_device_create_passkey':
+    case 'link_device_start':
+    case 'link_device_email_otp_resend':
+    case 'link_device_email_otp_submit':
     case 'registration_reroll':
       return true;
+    case 'link_device_factor_selected':
+      return (
+        isPlainObject(record.targetFactor) &&
+        (record.targetFactor.kind === 'passkey_prf' || record.targetFactor.kind === 'email_otp')
+      );
+    case 'link_device_email_otp_code_changed':
+      return typeof record.code === 'string';
     case 'submit':
       return (
         record.mode === 'login' ||

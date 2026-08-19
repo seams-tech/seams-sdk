@@ -60,9 +60,12 @@ import {
   type LinkDeviceFlowOutcome,
 } from '@/core/types/sdkSentEvents';
 import type {
+  LinkedDeviceTargetEmailOtpActivationV1,
+  LinkedDeviceTargetFactorActivationV1,
   LinkedDeviceTargetPasskeyActivationV1,
   StartDevice2LinkingFlowResults,
 } from '@/core/types/linkDevice';
+import type { LinkedDeviceTargetFactorV1 } from '@shared/device-linking';
 
 type HostedPasskeyMenuPrepared = HostedPasskeyRegistrationPrepared | HostedPasskeyPrepared;
 
@@ -153,13 +156,20 @@ type PrepareLoginPasskey = (
   walletId: string | null,
   cancellation: Extract<WebAuthnPromptCancellation, { kind: 'abort_signal' }>,
 ) => Promise<HostedPasskeyMenuPrepared>;
-type StartDeviceLinking = (callbacks: {
-  readonly onEvent: (event: LinkDeviceFlowEvent) => void;
-  readonly onTargetPasskeyRequired: (activation: LinkedDeviceTargetPasskeyActivationV1) => void;
-}) => Promise<StartDevice2LinkingFlowResults>;
+type StartDeviceLinking = (
+  targetFactor: LinkedDeviceTargetFactorV1,
+  callbacks: {
+    readonly onEvent: (event: LinkDeviceFlowEvent) => void;
+    readonly onTargetFactorRequired: (activation: LinkedDeviceTargetFactorActivationV1) => void;
+  },
+) => Promise<StartDevice2LinkingFlowResults>;
 type CancelDeviceLinking = () => Promise<void>;
 const AUTH_MENU_TAG = 'seams-auth-menu-surface';
 const AUTH_MENU_PASSKEY_PREPARATION_TIMEOUT_MS = 20_000;
+/* A resend that returns in a few dozen ms flashes the busy state and reads as a
+   glitch rather than as progress, so hold it for a legible beat. The request
+   itself still starts immediately; only the settle is deferred. */
+const AUTH_MENU_RESEND_MINIMUM_BUSY_MS = 500;
 const AUTH_MENU_PASSKEY_PREPARATION_TIMEOUT_MESSAGE =
   'Passkey preparation timed out. Retry to continue.';
 
@@ -206,6 +216,17 @@ function createPreparingViewModel(args: {
         passkeyNameLabel: args.request.copy.register.passkeyNameLabel,
       }
     : { ...common, mode, accountOptions: [], selectedWalletId: null };
+}
+
+async function settleAfterMinimumBusy<T>(work: Promise<T>): Promise<T> {
+  const [outcome] = await Promise.allSettled([
+    work,
+    new Promise<void>((resolve) => setTimeout(resolve, AUTH_MENU_RESEND_MINIMUM_BUSY_MS)),
+  ]);
+  /* allSettled so a rejection waits out the beat too — an error that flashes
+     past is as unreadable as a success that does. */
+  if (outcome.status === 'rejected') throw outcome.reason;
+  return outcome.value;
 }
 
 function normalizeHostname(value: string): string {
@@ -341,7 +362,10 @@ function linkDeviceViewModel(base: AuthMenuViewModel): AuthMenuLinkDeviceViewMod
     enabledExternalProviders: base.enabledExternalProviders,
     status: { kind: 'idle', interaction: 'actionable' },
     mode: base.mode,
-    linkDevice: { kind: 'loading', message: 'Generating QR code...' },
+    linkDevice: {
+      kind: 'select_factor',
+      targetFactor: { kind: 'passkey_prf' },
+    },
   };
 }
 
@@ -373,6 +397,9 @@ export class AuthMenuSession {
   private deviceLinkGeneration = 0;
   private linkedDeviceActivationInProgress = false;
   private targetPasskeyActivation: LinkedDeviceTargetPasskeyActivationV1 | null = null;
+  private targetEmailOtpActivation: LinkedDeviceTargetEmailOtpActivationV1 | null = null;
+  private linkedDeviceEmailOtpSendStarted = false;
+  private linkedDeviceTargetFactor: LinkedDeviceTargetFactorV1 = { kind: 'passkey_prf' };
   private preparationDeadlineTimer: ReturnType<typeof setTimeout> | null = null;
   private preparationExpiryTimer: ReturnType<typeof setTimeout> | null = null;
   private lastReportedError: string | null = null;
@@ -514,6 +541,9 @@ export class AuthMenuSession {
   }
 
   cancel(reason: 'close_button' | 'component_unmounted' | 'connection_closed'): void {
+    if (this.stateValue.kind === 'link_device') {
+      console.error('[Device2Linking] auth menu cancelled', { reason });
+    }
     this.invalidatePreparation();
     this.complete({
       kind: 'cancelled',
@@ -964,8 +994,23 @@ export class AuthMenuSession {
       case 'link_device_open':
         this.openLinkDevice();
         return;
+      case 'link_device_factor_selected':
+        this.selectLinkedDeviceTargetFactor(intent.targetFactor);
+        return;
+      case 'link_device_start':
+        this.startSelectedDeviceLinking();
+        return;
       case 'link_device_create_passkey':
         this.createLinkedDevicePasskey();
+        return;
+      case 'link_device_email_otp_code_changed':
+        this.changeLinkedDeviceEmailOtpCode(intent.code);
+        return;
+      case 'link_device_email_otp_resend':
+        this.resendLinkedDeviceEmailOtp();
+        return;
+      case 'link_device_email_otp_submit':
+        this.submitLinkedDeviceEmailOtp();
         return;
       case 'registration_reroll':
         this.rerollRegistrationWallet();
@@ -1117,18 +1162,48 @@ export class AuthMenuSession {
       },
     };
     this.invalidatePreparation();
-    const generation = ++this.deviceLinkGeneration;
     this.linkedDeviceActivationInProgress = false;
     this.targetPasskeyActivation = null;
+    this.targetEmailOtpActivation = null;
+    this.linkedDeviceEmailOtpSendStarted = false;
+    this.linkedDeviceTargetFactor = { kind: 'passkey_prf' };
     this.stateValue = {
       kind: 'link_device',
       returnState,
       viewModel: linkDeviceViewModel(state.viewModel),
     };
     this.updateElement();
-    void this.startDeviceLinking({
+  }
+
+  private selectLinkedDeviceTargetFactor(targetFactor: LinkedDeviceTargetFactorV1): void {
+    const state = this.stateValue;
+    if (state.kind !== 'link_device' || state.viewModel.linkDevice.kind !== 'select_factor') return;
+    this.linkedDeviceTargetFactor = targetFactor;
+    this.stateValue = {
+      ...state,
+      viewModel: {
+        ...state.viewModel,
+        linkDevice: { kind: 'select_factor', targetFactor },
+      },
+    };
+    this.updateElement();
+  }
+
+  private startSelectedDeviceLinking(): void {
+    const state = this.stateValue;
+    if (state.kind !== 'link_device' || state.viewModel.linkDevice.kind !== 'select_factor') return;
+    const generation = ++this.deviceLinkGeneration;
+    this.stateValue = {
+      ...state,
+      viewModel: {
+        ...state.viewModel,
+        linkDevice: { kind: 'loading', message: 'Generating QR code...' },
+      },
+    };
+    this.updateElement();
+    void this.startDeviceLinking(this.linkedDeviceTargetFactor, {
       onEvent: this.onLinkDeviceEvent.bind(this, generation),
-      onTargetPasskeyRequired: this.onTargetPasskeyRequired.bind(this, generation),
+      onTargetFactorRequired: this.onTargetFactorRequired.bind(this, generation),
     })
       .then(this.completeLinkDeviceOpen.bind(this, generation))
       .catch(this.failLinkDeviceOpen.bind(this, generation));
@@ -1146,7 +1221,8 @@ export class AuthMenuSession {
           kind: 'authenticated',
           authMenuSessionId: this.identity.authMenuSessionId,
           walletId: outcome.walletId,
-          method: 'passkey',
+          method:
+            this.linkedDeviceTargetFactor.kind === 'email_otp' ? 'google_email_otp' : 'passkey',
         });
         return;
       case 'invalid_active':
@@ -1166,11 +1242,13 @@ export class AuthMenuSession {
     if (!message) return;
     const current = state.viewModel.linkDevice;
     const linkDevice =
-      current.kind === 'ready' ||
-      current.kind === 'passkey_required' ||
-      current.kind === 'creating_passkey'
-        ? { ...current, message }
-        : { kind: 'loading' as const, message };
+      current.kind === 'email_otp_required'
+        ? current
+        : current.kind === 'ready' ||
+            current.kind === 'passkey_required' ||
+            current.kind === 'creating_passkey'
+          ? { ...current, message }
+          : { kind: 'loading' as const, message };
     this.stateValue = {
       ...state,
       viewModel: { ...state.viewModel, linkDevice },
@@ -1218,7 +1296,23 @@ export class AuthMenuSession {
     this.updateElement();
   }
 
-  private onTargetPasskeyRequired(
+  private onTargetFactorRequired(
+    generation: number,
+    activation: LinkedDeviceTargetFactorActivationV1,
+  ): void {
+    switch (activation.kind) {
+      case 'linked_device_target_passkey_activation_v1':
+        this.onTargetPasskeyActivation(generation, activation);
+        return;
+      case 'linked_device_target_email_otp_activation_v1':
+        this.onTargetEmailOtpActivation(generation, activation);
+        return;
+      default:
+        return assertNeverLinkedDeviceTargetFactorActivation(activation);
+    }
+  }
+
+  private onTargetPasskeyActivation(
     generation: number,
     activation: LinkedDeviceTargetPasskeyActivationV1,
   ): void {
@@ -1237,6 +1331,83 @@ export class AuthMenuSession {
       },
     };
     this.updateElement();
+  }
+
+  private onTargetEmailOtpActivation(
+    generation: number,
+    activation: Extract<
+      LinkedDeviceTargetFactorActivationV1,
+      { readonly kind: 'linked_device_target_email_otp_activation_v1' }
+    >,
+  ): void {
+    const state = this.stateValue;
+    if (generation !== this.deviceLinkGeneration || state.kind !== 'link_device') return;
+    this.targetEmailOtpActivation = activation;
+    this.stateValue = {
+      ...state,
+      viewModel: {
+        ...state.viewModel,
+        linkDevice: {
+          kind: 'email_otp_required',
+          state: activation.state,
+          otpCode:
+            state.viewModel.linkDevice.kind === 'email_otp_required'
+              ? state.viewModel.linkDevice.otpCode
+              : '',
+        },
+      },
+    };
+    this.updateElement();
+    if (activation.state.kind === 'sending' && !this.linkedDeviceEmailOtpSendStarted) {
+      this.linkedDeviceEmailOtpSendStarted = true;
+      void activation.sendCode().catch(this.failLinkedDeviceEmailOtp.bind(this));
+    }
+  }
+
+  private changeLinkedDeviceEmailOtpCode(code: string): void {
+    const state = this.stateValue;
+    if (state.kind !== 'link_device' || state.viewModel.linkDevice.kind !== 'email_otp_required') {
+      return;
+    }
+    this.stateValue = {
+      ...state,
+      viewModel: {
+        ...state.viewModel,
+        linkDevice: {
+          ...state.viewModel.linkDevice,
+          otpCode: code.replace(/\D/g, '').slice(0, 6),
+        },
+      },
+    };
+    this.updateElement();
+  }
+
+  private resendLinkedDeviceEmailOtp(): void {
+    const activation = this.targetEmailOtpActivation;
+    if (!activation) return;
+    void activation.resendCode().catch(this.failLinkedDeviceEmailOtp.bind(this));
+  }
+
+  private submitLinkedDeviceEmailOtp(): void {
+    const state = this.stateValue;
+    const activation = this.targetEmailOtpActivation;
+    if (
+      !activation ||
+      state.kind !== 'link_device' ||
+      state.viewModel.linkDevice.kind !== 'email_otp_required' ||
+      state.viewModel.linkDevice.otpCode.length !== 6
+    ) {
+      return;
+    }
+    void activation
+      .submitCode(state.viewModel.linkDevice.otpCode)
+      .catch(this.failLinkedDeviceEmailOtp.bind(this));
+  }
+
+  private failLinkedDeviceEmailOtp(error: unknown): void {
+    const state = this.stateValue;
+    if (state.kind !== 'link_device') return;
+    this.showLinkedDeviceActivationError(state, error);
   }
 
   private createLinkedDevicePasskey(): void {
@@ -1302,6 +1473,8 @@ export class AuthMenuSession {
     if (state.kind !== 'link_device') return;
     this.deviceLinkGeneration += 1;
     this.targetPasskeyActivation = null;
+    this.targetEmailOtpActivation = null;
+    this.linkedDeviceEmailOtpSendStarted = false;
     void this.cancelDeviceLinking().catch(() => {});
     this.stateValue = state.returnState;
     this.updateElement();
@@ -1406,7 +1579,7 @@ export class AuthMenuSession {
       },
     };
     this.updateElement();
-    void flow.resend().then(
+    void settleAfterMinimumBusy(flow.resend()).then(
       (result) => {
         if (this.stateValue.kind !== 'google_login' || this.stateValue.flow !== flow) {
           if (result.ok) void result.value.cancel().catch(() => {});
@@ -1887,6 +2060,10 @@ function assertNeverAuthMenuIntent(value: never): never {
 
 function assertNeverLinkDeviceFlowOutcome(value: never): never {
   throw new Error(`Unhandled link-device flow outcome: ${String(value)}`);
+}
+
+function assertNeverLinkedDeviceTargetFactorActivation(value: never): never {
+  throw new Error(`Unhandled linked-device target-factor activation: ${String(value)}`);
 }
 
 function assertNeverHostedPasskeyPrepared(value: never): never {

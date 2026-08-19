@@ -549,7 +549,9 @@ seams-auth-menu-surface {
   box-sizing: border-box;
   align-self: center;
   width: min(100%, 360px);
-  padding: 8px 12px;
+  /* rounded shapes inset the label/value further so the corner curve does not
+     crowd them; square keeps the 12px fallback */
+  padding: 8px 12px 8px var(--w3a-shape-boxPaddingInlineStart, 12px);
   border: 1px solid color-mix(in srgb, var(--w3a-colors-borderPrimary), transparent 18%);
   border-radius: var(--w3a-shape-box, 10px);
   background: color-mix(in srgb, var(--w3a-colors-surface), transparent 12%);
@@ -1445,6 +1447,49 @@ seams-auth-menu-surface {
   margin-top: 0.25rem;
 }
 
+.w3a-link-device-factor-options {
+  width: min(100%, 280px);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: grid;
+  gap: 0.5rem;
+  text-align: start;
+}
+
+.w3a-link-device-factor-options label {
+  min-height: 44px;
+  padding: 0.625rem 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  border: 1px solid var(--w3a-colors-borderPrimary, #d7dde5);
+  border-radius: 0.75rem;
+  cursor: pointer;
+}
+
+.w3a-link-device-factor-options input {
+  width: 1rem;
+  height: 1rem;
+}
+
+.w3a-link-device-factor-options input:focus-visible {
+  outline: 2px solid var(--w3a-colors-focusRing, #2563eb);
+  outline-offset: 3px;
+}
+
+.w3a-link-device-confirmation .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* Failure view. Same skeleton as the approved-device confirmation — badge,
    title, copy, one control — so the flow's two end states are the same shape
    and only the colour of the badge changes. */
@@ -1669,7 +1714,8 @@ seams-auth-menu-surface {
   overflow: hidden;
   gap: 0.5rem;
   padding: 0.5rem 1rem;
-  height: calc(var(--w3a-shape-controlHeight, 44px) - 4px);
+  /* match .w3a-auth-method-btn's min-height so stacked options align */
+  height: var(--w3a-shape-controlHeight, 44px);
   width: 100%;
   max-width: 100%;
   background: var(--w3a-colors-surface) !important;
