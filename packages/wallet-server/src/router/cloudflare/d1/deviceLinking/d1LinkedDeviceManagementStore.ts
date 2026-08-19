@@ -20,6 +20,7 @@ import type { D1DatabaseLike } from '../../../../storage/tenantRoute';
 import type {
   LinkedDeviceManagementProjectionPortV1,
   LinkedDeviceManagementTargetV1,
+  LinkedDeviceManagementListCursorV1,
 } from '../../../../core/deviceLinking/linkedDeviceManagement';
 import { encodeLinkedDeviceListCursorV1 } from '../../../../core/deviceLinking/linkedDeviceManagement';
 import type {
@@ -31,13 +32,7 @@ import type {
 import { parseWebAuthnCredentialIdB64u } from '@shared/utils/domainIds';
 import { D1LinkedDeviceOwnerAuthBindingStoreV1 } from './d1LinkedDeviceOwnerAuthBindingStore';
 import type { LinkedDeviceOwnerAuthBindingV1 } from '@shared/device-linking/ownerAuthBinding';
-import type {
-  LinkedDeviceSessionRecordV1,
-  LinkedDeviceSessionListCursorV1,
-  LinkedDeviceSessionListPageV1,
-} from '../../../../core/deviceLinking/linkedDeviceSession';
 import type { D1LinkedDeviceSessionScopeV1 } from './d1LinkedDeviceSessionStore';
-import type { LinkedDeviceSessionServiceV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
 import type { LaneEnrollmentAdmissionRecord } from '../../../../core/signingLanes/LaneLifecycleStore';
 import { parseEnrollmentRow, parseProductEpochRow } from '../signingLanes/d1LaneRecords';
 
@@ -368,26 +363,7 @@ export class D1LinkedDeviceSigningActivitySourceV1 {
 export type D1LinkedDeviceManagementStoreOptionsV1 = {
   readonly database: D1DatabaseLike;
   readonly scope: D1LinkedDeviceSessionScopeV1;
-  readonly sessionService: Pick<
-    LinkedDeviceSessionServiceV1,
-    'getSessionV1' | 'listSessionsForWalletV1'
-  >;
-  readonly nowV1: () => number;
   readonly metadata: D1LinkedDeviceManagementMetadataPortV1;
-};
-
-type ManagementProjectionContextV1 = {
-  readonly enrollments: ReadonlyMap<
-    string,
-    {
-      readonly admission: LaneEnrollmentAdmissionRecord;
-      readonly manifestDigestB64u: string;
-      readonly updatedAtMs: number;
-    }
-  >;
-  readonly products: ReadonlyMap<string, readonly LaneProductEpochRecordV1[]>;
-  readonly metadata: ReadonlyMap<string, D1LinkedDeviceManagementMetadataV1>;
-  readonly signingActivity: ReadonlyMap<string, number>;
 };
 
 type LinkedDeviceManagementIdentityV1 = {
@@ -399,21 +375,19 @@ type LinkedDeviceManagementIdentityV1 = {
 export class D1LinkedDeviceManagementStoreV1 implements LinkedDeviceManagementProjectionPortV1 {
   private readonly database: D1DatabaseLike;
   private readonly scope: D1LinkedDeviceSessionScopeV1;
-  private readonly sessionService: Pick<
-    LinkedDeviceSessionServiceV1,
-    'getSessionV1' | 'listSessionsForWalletV1'
-  >;
-  private readonly nowV1: () => number;
   private readonly metadata: D1LinkedDeviceManagementMetadataPortV1;
   private readonly signingActivity: D1LinkedDeviceSigningActivitySourceV1;
+  private readonly ownerAuthBindings: D1LinkedDeviceOwnerAuthBindingStoreV1;
 
   constructor(options: D1LinkedDeviceManagementStoreOptionsV1) {
     this.database = options.database;
     this.scope = normalizeScope(options.scope);
-    this.sessionService = options.sessionService;
-    this.nowV1 = options.nowV1;
     this.metadata = options.metadata;
     this.signingActivity = new D1LinkedDeviceSigningActivitySourceV1({
+      database: this.database,
+      scope: this.scope,
+    });
+    this.ownerAuthBindings = new D1LinkedDeviceOwnerAuthBindingStoreV1({
       database: this.database,
       scope: this.scope,
     });
@@ -422,19 +396,21 @@ export class D1LinkedDeviceManagementStoreV1 implements LinkedDeviceManagementPr
   async listLinkedDevicesV1(input: {
     readonly walletId: WalletId;
     readonly limit: number;
-    readonly cursor: LinkedDeviceSessionListCursorV1 | null;
+    readonly cursor: LinkedDeviceManagementListCursorV1 | null;
   }): Promise<LinkedDeviceListResultV1> {
-    const sessions = await this.readClaimedSessionsV1({
+    const bindings = await this.ownerAuthBindings.listPageForWalletV1({
       walletId: input.walletId,
-      deviceId: undefined,
       limit: input.limit,
-      cursor: input.cursor,
+      cursor: input.cursor
+        ? {
+            updatedAtMs: input.cursor.updatedAtMs,
+            deviceId: input.cursor.deviceId,
+          }
+        : null,
     });
-    const context = await this.buildProjectionContextV1(sessions.records);
     const summaries: LinkedDeviceSummaryV1[] = [];
-    for (const session of sessions.records) {
-      const target = await this.projectSessionV1(session, context);
-      if (!target || target.summary.walletId !== input.walletId) continue;
+    for (const binding of bindings.records) {
+      const target = await this.projectBindingTargetV1(binding);
       summaries.push(target.summary);
     }
     // Founding owner devices ride the first page only; later pages would
@@ -446,205 +422,129 @@ export class D1LinkedDeviceManagementStoreV1 implements LinkedDeviceManagementPr
     return {
       devices: summaries,
       ownerDevices,
-      nextCursor: sessions.nextCursor ? encodeLinkedDeviceListCursorV1(sessions.nextCursor) : null,
+      nextCursor: bindings.nextCursor
+        ? encodeLinkedDeviceListCursorV1({
+            kind: 'owner_binding_v1',
+            updatedAtMs: bindings.nextCursor.updatedAtMs,
+            deviceId: bindings.nextCursor.deviceId,
+          })
+        : null,
     };
   }
 
-  async getLinkedDeviceV1(input: {
-    readonly walletId: WalletId;
-    readonly deviceId: LinkedDeviceId;
-  }): Promise<LinkedDeviceManagementTargetV1 | null> {
-    const sessions = await this.readClaimedSessionsV1({
-      walletId: input.walletId,
-      deviceId: input.deviceId,
-    });
-    const context = await this.buildProjectionContextV1(sessions.records);
-    for (const session of sessions.records) {
-      const target = await this.projectSessionV1(session, context);
-      if (
-        target &&
-        target.summary.walletId === input.walletId &&
-        target.summary.deviceId === input.deviceId
-      ) {
-        return target;
-      }
+  /** Projects one device from the durable owner binding and lane inventory. */
+  private async projectBindingTargetV1(
+    binding: LinkedDeviceOwnerAuthBindingV1,
+  ): Promise<LinkedDeviceManagementTargetV1> {
+    if (String(binding.walletId).trim().length === 0) {
+      throw new Error('linked-device owner auth binding wallet is missing');
     }
-    return null;
-  }
-
-  private async readClaimedSessionsV1(
-    input:
-      | {
-          readonly walletId: WalletId;
-          readonly deviceId: undefined;
-          readonly limit: number;
-          readonly cursor: LinkedDeviceSessionListCursorV1 | null;
-        }
-      | {
-          readonly walletId: WalletId;
-          readonly deviceId: LinkedDeviceId;
-        },
-  ): Promise<LinkedDeviceSessionListPageV1> {
-    if (input.deviceId === undefined) {
-      return await this.sessionService.listSessionsForWalletV1({
-        walletId: input.walletId,
-        nowMs: this.nowV1(),
-        limit: input.limit,
-        cursor: input.cursor,
-      });
-    }
-    const sessions = await this.sessionService.listSessionsForWalletV1({
-      walletId: input.walletId,
-      nowMs: this.nowV1(),
-      limit: Number.MAX_SAFE_INTEGER - 1,
-      cursor: null,
-    });
-    return {
-      records: sessions.records.filter(
-        (session) => session.claimTranscript?.value.deviceId === input.deviceId,
-      ),
-      nextCursor: sessions.nextCursor,
-    };
-  }
-
-  private async projectSessionV1(
-    session: LinkedDeviceSessionRecordV1,
-    context: ManagementProjectionContextV1,
-  ): Promise<LinkedDeviceManagementTargetV1 | null> {
-    const claim = session.claimTranscript?.value;
-    const approval = session.approvalTranscript?.value;
-    if (!claim || !approval) return null;
-    if (
-      claim.walletId !== approval.walletId ||
-      claim.enrollmentId !== approval.enrollmentId ||
-      claim.deviceId !== approval.deviceId ||
-      claim.devicePublicKeyB64u !== approval.devicePublicKeyB64u
-    ) {
-      throw new Error('linked-device session transcripts disagree on identity');
-    }
-    const laneEnrollmentId = parseRequiredLaneEnrollmentId(claim.enrollmentId);
-    const enrollmentContext = context.enrollments.get(String(laneEnrollmentId));
-    if (!enrollmentContext) return null;
-    const enrollment = enrollmentContext.admission;
-    const manifestDigest = parseDigestB64u(
-      await computeLaneEnrollmentManifestDigestV1(enrollment.value.manifest),
-    );
-    if (enrollmentContext.manifestDigestB64u !== manifestDigest) {
-      throw new Error('lane enrollment manifest digest does not match its columns');
-    }
-    assertManifestMatchesIdentity(
-      enrollment.value.manifest,
-      claim.walletId,
-      laneEnrollmentId,
-      claim.enrollmentId,
-    );
-    const products = context.products.get(String(laneEnrollmentId)) ?? [];
-    assertProductsMatchManifest(products, enrollment.value.manifest, enrollment.value.lifecycle);
-    const credential = context.metadata.get(
-      metadataKey({
-        walletId: claim.walletId,
-        enrollmentId: claim.enrollmentId,
-        deviceId: claim.deviceId,
-      }),
-    );
-    if (!credential) return null;
-    const enrollmentUpdatedAtMs = enrollmentContext.updatedAtMs;
-    const signingActivityAtMs =
-      context.signingActivity.get(
-        metadataKey({
-          walletId: claim.walletId,
-          enrollmentId: claim.enrollmentId,
-          deviceId: claim.deviceId,
-        }),
-      ) ?? null;
-    const lastActivityAtMs = Math.max(
-      session.updatedAtMs,
-      enrollmentUpdatedAtMs,
-      signingActivityAtMs ?? 0,
-      ...products.map(productActivityAtMs),
-    );
-    const summary: LinkedDeviceSummaryV1 = {
-      deviceId: claim.deviceId,
-      enrollmentId: claim.enrollmentId,
-      walletId: claim.walletId,
-      credential,
-      permission: approval.permission,
-      keyManifestDigestB64u: manifestDigest,
-      coveredWalletKeys: enrollment.value.manifest.orderedChildren.map(
-        (child) => child.walletKeyId,
-      ),
-      state: projectState(session, enrollment.value.lifecycle),
-      createdAtMs: session.createdAtMs,
-      lastActivityAtMs,
-      revocationEpoch: products.reduce(
-        (maximum, product) => Math.max(maximum, product.revocationEpoch),
-        0,
-      ),
-    };
-    return { summary, session, enrollment, products };
-  }
-
-  private async buildProjectionContextV1(
-    sessions: readonly LinkedDeviceSessionRecordV1[],
-  ): Promise<ManagementProjectionContextV1> {
-    const identities = uniqueSessionIdentities(sessions);
-    if (identities.length === 0) {
-      return {
-        enrollments: new Map(),
-        products: new Map(),
-        metadata: new Map(),
-        signingActivity: new Map(),
-      };
-    }
-    const enrollmentIds = [...new Set(identities.map((identity) => String(identity.enrollmentId)))];
-    const enrollmentRows = await queryD1All(
+    const laneEnrollmentId = parseRequiredLaneEnrollmentId(String(binding.enrollmentId));
+    const enrollmentRow = await queryD1One(
       this.database,
       `SELECT enrollment_id, wallet_id, manifest_digest_b64u, manifest_json,
               lifecycle_json, version, command_digest_b64u, created_at_ms, updated_at_ms
          FROM ${ENROLLMENT_TABLE}
         WHERE namespace = ?1 AND org_id = ?2 AND project_id = ?3 AND env_id = ?4
-          AND enrollment_id IN (${enrollmentIds.map((_, index) => `?${index + 5}`).join(', ')})`,
-      [...scopeValues(this.scope), ...enrollmentIds],
+          AND enrollment_id = ?5`,
+      [...scopeValues(this.scope), String(laneEnrollmentId)],
     );
-    const enrollments = new Map<
-      string,
-      {
-        readonly admission: LaneEnrollmentAdmissionRecord;
-        readonly manifestDigestB64u: string;
-        readonly updatedAtMs: number;
-      }
-    >();
-    for (const row of enrollmentRows) {
-      const parsed = parseEnrollmentRow(row);
-      enrollments.set(parsed.enrollmentId, {
-        admission: {
-          version: parsed.version,
-          commandDigestB64u: parsed.commandDigestB64u,
-          value: { manifest: parsed.manifest, lifecycle: parsed.lifecycle },
-        },
-        manifestDigestB64u: parsed.manifestDigestB64u,
-        updatedAtMs: parsed.updatedAtMs,
-      });
+    if (!enrollmentRow) {
+      throw new Error('linked-device owner binding enrollment is missing; re-link is required');
+    }
+    const parsed = parseEnrollmentRow(enrollmentRow);
+    if (
+      parsed.walletId !== String(binding.walletId) ||
+      parsed.enrollmentId !== String(laneEnrollmentId)
+    ) {
+      throw new Error('linked-device owner binding enrollment identity is invalid');
+    }
+    assertManifestMatchesIdentity(
+      parsed.manifest,
+      binding.walletId,
+      laneEnrollmentId,
+      binding.enrollmentId,
+    );
+    const manifestDigestB64u = parseDigestB64u(
+      await computeLaneEnrollmentManifestDigestV1(parsed.manifest),
+    );
+    if (
+      parsed.manifestDigestB64u !== manifestDigestB64u ||
+      String(binding.keyManifestDigestB64u) !== manifestDigestB64u
+    ) {
+      throw new Error('linked-device owner binding manifest digest disagrees with its enrollment');
     }
     const productRows = await queryD1All(
       this.database,
       `SELECT enrollment_id, product_json
          FROM lane_product_epochs
         WHERE namespace = ?1 AND org_id = ?2 AND project_id = ?3 AND env_id = ?4
-          AND enrollment_id IN (${enrollmentIds.map((_, index) => `?${index + 5}`).join(', ')})`,
-      [...scopeValues(this.scope), ...enrollmentIds],
+          AND enrollment_id = ?5`,
+      [...scopeValues(this.scope), String(laneEnrollmentId)],
     );
-    const products = new Map<string, LaneProductEpochRecordV1[]>();
-    for (const row of productRows) {
-      const enrollmentId = requiredString(field(row, 'enrollment_id'), 'enrollment_id');
-      const product = parseProductEpochRow(row);
-      const existing = products.get(enrollmentId);
-      if (existing) existing.push(product);
-      else products.set(enrollmentId, [product]);
+    const products: LaneProductEpochRecordV1[] = [];
+    for (const row of productRows) products.push(parseProductEpochRow(row));
+    assertProductsMatchManifest(products, parsed.manifest, parsed.lifecycle, manifestDigestB64u);
+    if (products.length !== parsed.manifest.orderedChildren.length) {
+      throw new Error('linked-device owner binding lane product coverage is incomplete');
     }
-    const metadata = await this.metadata.readLinkedDeviceMetadataBatchV1(identities);
-    const signingActivity = await this.signingActivity.readLastSigningActivityBatchV1(identities);
-    return { enrollments, products, metadata, signingActivity };
+    const revocationEpoch = requireUniformProductRevocationEpochV1(products);
+    if (binding.revocationEpoch !== revocationEpoch) {
+      throw new Error(
+        'linked-device owner binding revocation epoch disagrees with its lane products',
+      );
+    }
+    const enrollment: LaneEnrollmentAdmissionRecord = {
+      version: parsed.version,
+      commandDigestB64u: parsed.commandDigestB64u,
+      value: { manifest: parsed.manifest, lifecycle: parsed.lifecycle },
+    };
+    const credential = await this.metadata.readLinkedDeviceMetadataV1({
+      walletId: binding.walletId,
+      enrollmentId: binding.enrollmentId,
+      deviceId: binding.deviceId,
+    });
+    if (!credential) {
+      throw new Error(
+        'linked-device owner binding canonical credential metadata is missing; re-link is required',
+      );
+    }
+    const signingActivityAtMs = await this.signingActivity.readLastSigningActivityAtMsV1({
+      walletId: binding.walletId,
+      enrollmentId: binding.enrollmentId,
+      deviceId: binding.deviceId,
+    });
+    const summary: LinkedDeviceSummaryV1 = {
+      deviceId: binding.deviceId,
+      enrollmentId: binding.enrollmentId,
+      walletId: binding.walletId,
+      credential,
+      permission: LINKED_OWNER_EXECUTION_PERMISSION_V1,
+      keyManifestDigestB64u: manifestDigestB64u,
+      coveredWalletKeys: parsed.manifest.orderedChildren.map((child) => child.walletKeyId),
+      state: projectBindingState(binding, parsed.lifecycle),
+      createdAtMs: binding.createdAtMs,
+      lastActivityAtMs: Math.max(
+        binding.updatedAtMs,
+        parsed.updatedAtMs,
+        signingActivityAtMs ?? 0,
+        ...products.map(productActivityAtMs),
+      ),
+      revocationEpoch,
+    };
+    return { summary, enrollment, products };
+  }
+
+  async getLinkedDeviceV1(input: {
+    readonly walletId: WalletId;
+    readonly deviceId: LinkedDeviceId;
+  }): Promise<LinkedDeviceManagementTargetV1 | null> {
+    const binding = await this.ownerAuthBindings.readByDeviceV1({
+      walletId: input.walletId,
+      deviceId: input.deviceId,
+    });
+    if (!binding) return null;
+    return await this.projectBindingTargetV1(binding);
   }
 }
 
@@ -671,24 +571,6 @@ function uniqueMetadataIdentities(
       throw new Error('linked-device metadata identity is duplicated');
     }
     identities.set(key, input);
-  }
-  return [...identities.values()];
-}
-
-function uniqueSessionIdentities(
-  sessions: readonly LinkedDeviceSessionRecordV1[],
-): readonly LinkedDeviceManagementIdentityV1[] {
-  const identities = new Map<string, LinkedDeviceManagementIdentityV1>();
-  for (const session of sessions) {
-    const claim = session.claimTranscript?.value;
-    const approval = session.approvalTranscript?.value;
-    if (!claim || !approval) continue;
-    const identity = {
-      walletId: claim.walletId,
-      enrollmentId: claim.enrollmentId,
-      deviceId: claim.deviceId,
-    } satisfies LinkedDeviceManagementIdentityV1;
-    identities.set(metadataKey(identity), identity);
   }
   return [...identities.values()];
 }
@@ -815,6 +697,7 @@ function assertProductsMatchManifest(
   products: readonly LaneProductEpochRecordV1[],
   manifest: LaneEnrollmentManifestV1,
   lifecycle: LaneEnrollmentAdmissionRecord['value']['lifecycle'],
+  manifestDigestB64u: DigestB64u,
 ): void {
   if (
     (lifecycle.state === 'ready_for_visibility' || lifecycle.state === 'active') &&
@@ -847,25 +730,61 @@ function assertProductsMatchManifest(
     ) {
       throw new Error('lane enrollment product does not match its manifest child');
     }
+    if (
+      (product.state === 'pending_visibility' || product.state === 'active') &&
+      product.aggregateManifestDigestB64u !== manifestDigestB64u
+    ) {
+      throw new Error('lane enrollment product manifest digest is invalid');
+    }
+    if (
+      lifecycle.state === 'active' &&
+      (product.state !== 'active' ||
+        product.aggregateActivationReceiptDigestB64u !== lifecycle.aggregateReceiptDigestB64u)
+    ) {
+      throw new Error('active lane enrollment product activation receipt is invalid');
+    }
+    if (lifecycle.state === 'ready_for_visibility' && product.state !== 'pending_visibility') {
+      throw new Error('ready lane enrollment product visibility state is invalid');
+    }
+    if (lifecycle.state === 'revoked' && product.state !== 'revoked') {
+      throw new Error('revoked lane enrollment has a live product');
+    }
   }
 }
 
-function projectState(
-  session: LinkedDeviceSessionRecordV1,
+function requireUniformProductRevocationEpochV1(
+  products: readonly LaneProductEpochRecordV1[],
+): number {
+  const first = products[0];
+  if (!first) throw new Error('linked-device owner binding has no lane products');
+  if (products.some((product) => product.revocationEpoch !== first.revocationEpoch)) {
+    throw new Error('linked-device owner binding lane product revocation epochs disagree');
+  }
+  return first.revocationEpoch;
+}
+
+/**
+ * R103C Phase 4: a device whose link-session workflow history has expired or
+ * been pruned is still a device. Its state comes from the durable owner
+ * binding and lane-enrollment lifecycle alone.
+ */
+function projectBindingState(
+  binding: LinkedDeviceOwnerAuthBindingV1,
   lifecycle: LaneEnrollmentAdmissionRecord['value']['lifecycle'],
 ): LinkedDeviceSummaryV1['state'] {
-  if (lifecycle.state === 'revoked') return 'revoked';
-  if (session.state.state === 'expired_claimed') return 'expired';
-  if (
-    session.state.state === 'cancelled_claimed_precommit' ||
-    session.state.state === 'committed_completion_required' ||
-    lifecycle.state === 'revoking_committed_targets'
-  ) {
+  if (binding.lifecycle.state === 'revoked' || lifecycle.state === 'revoked') return 'revoked';
+  if (binding.lifecycle.state === 'paused' || lifecycle.state === 'revoking_committed_targets') {
     return 'suspended';
   }
-  if (lifecycle.state === 'active' && session.state.state === 'active') return 'active';
-  return 'provisioning';
+  return lifecycle.state === 'active' ? 'active' : 'provisioning';
 }
+
+/** The narrow linked execution grant every Phase 8 linked owner holds. */
+const LINKED_OWNER_EXECUTION_PERMISSION_V1: LinkedDeviceSummaryV1['permission'] = {
+  kind: 'owner_equivalent_signing',
+  administrationScope: 'signing_only',
+  localUserPresence: 'required',
+};
 
 function productActivityAtMs(product: LaneProductEpochRecordV1): number {
   switch (product.state) {

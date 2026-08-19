@@ -3,7 +3,6 @@ import type { WalletAddAuthMethodFinalizeResponse } from '../../../../core/regis
 import {
   parseRouterAbEcdsaDerivationNormalSigningStateV1,
   parseRouterAbEcdsaRegistrationActivationReceiptV1,
-  type RouterAbEcdsaDerivationNormalSigningStateV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
 import type {
   RegistrationEstablishedEcdsaSession,
@@ -522,9 +521,7 @@ function createD1LinkedDeviceComposition(input: {
     const managementProjection = new D1LinkedDeviceManagementStoreV1({
       database: input.options.database,
       scope,
-      sessionService: deviceLinking.sessionService,
       metadata,
-      nowV1: config.execution.nowV1,
     });
     const walletSessionRevocation = new AuthorizationServiceLinkedDeviceWalletSessionRevocationV1(
       input.authorizationService,
@@ -540,7 +537,6 @@ function createD1LinkedDeviceComposition(input: {
     deviceManagement = createD1LinkedDeviceManagementRouteServiceV1({
       database: input.options.database,
       scope,
-      sessionService: deviceLinking.sessionService,
       metadata,
       preparation,
       aggregateRevocation: createCloudflareD1LaneAggregateRevocationApplicationService({

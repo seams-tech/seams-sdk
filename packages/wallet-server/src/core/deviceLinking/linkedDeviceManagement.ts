@@ -10,12 +10,8 @@ import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimiti
 import type { LaneProductEpochRecordV1 } from '@shared/signing-lanes';
 import type { LaneEnrollmentAdmissionRecord } from '../signingLanes/LaneLifecycleStore';
 import type { LaneAggregateRevocationRequestV1 } from '../signingLanes/LaneAggregateRevocationApplicationService';
-import type {
-  LinkedDeviceOwnerAuthorizationContextV1,
-  LinkedDeviceSessionRecordV1,
-  LinkedDeviceSessionListCursorV1,
-} from './linkedDeviceSession';
-import { parseLinkDeviceSessionId } from '@shared/signing-lanes/ids';
+import type { LinkedDeviceOwnerAuthorizationContextV1 } from './linkedDeviceSession';
+import { parseLinkedDeviceId } from '@shared/signing-lanes/ids';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import type { LinkedDeviceEnrollmentId, LinkedDeviceId } from '@shared/signing-lanes/ids';
 import type { WalletId } from '@shared/utils/domainIds';
@@ -30,9 +26,14 @@ import type { RevokeLaneEnrollmentV1 } from '@shared/signing-lanes';
 
 export type LinkedDeviceManagementTargetV1 = {
   readonly summary: LinkedDeviceSummaryV1;
-  readonly session: LinkedDeviceSessionRecordV1;
   readonly enrollment: LaneEnrollmentAdmissionRecord;
   readonly products: readonly LaneProductEpochRecordV1[];
+};
+
+export type LinkedDeviceManagementListCursorV1 = {
+  readonly kind: 'owner_binding_v1';
+  readonly updatedAtMs: number;
+  readonly deviceId: LinkedDeviceId;
 };
 
 export class LinkedDeviceListCursorError extends Error {
@@ -55,7 +56,7 @@ export type LinkedDeviceManagementProjectionPortV1 = {
   listLinkedDevicesV1(input: {
     readonly walletId: WalletId;
     readonly limit: number;
-    readonly cursor: LinkedDeviceSessionListCursorV1 | null;
+    readonly cursor: LinkedDeviceManagementListCursorV1 | null;
   }): Promise<LinkedDeviceListResultV1>;
   getLinkedDeviceV1(input: {
     readonly walletId: WalletId;
@@ -74,10 +75,7 @@ export type LinkedDeviceWalletSessionRevocationTargetV1 = {
 export type LinkedDeviceRevocationPlanV1 = {
   readonly target: LinkedDeviceManagementTargetV1;
   readonly aggregate: LaneAggregateRevocationRequestV1;
-  readonly walletSessions: readonly [
-    LinkedDeviceWalletSessionRevocationTargetV1,
-    ...LinkedDeviceWalletSessionRevocationTargetV1[],
-  ];
+  readonly walletSessions: readonly LinkedDeviceWalletSessionRevocationTargetV1[];
   readonly revocationEpoch: number;
 };
 
@@ -235,19 +233,24 @@ export class LinkedDeviceManagementServiceV1 {
   }
 }
 
-export function encodeLinkedDeviceListCursorV1(
-  cursor: LinkedDeviceSessionListCursorV1,
-): string {
+export function encodeLinkedDeviceListCursorV1(cursor: LinkedDeviceManagementListCursorV1): string {
   if (!Number.isSafeInteger(cursor.updatedAtMs) || cursor.updatedAtMs < 0) {
     throw new LinkedDeviceListCursorError('linked-device list cursor timestamp is invalid');
   }
-  const sessionId = parseLinkDeviceSessionId(String(cursor.linkSessionId));
-  if (!sessionId.ok) {
-    throw new LinkedDeviceListCursorError('linked-device list cursor session id is invalid');
+  if (cursor.kind !== 'owner_binding_v1') {
+    throw new LinkedDeviceListCursorError('linked-device list cursor kind is invalid');
+  }
+  const deviceId = parseLinkedDeviceId(String(cursor.deviceId));
+  if (!deviceId.ok) {
+    throw new LinkedDeviceListCursorError('linked-device list cursor device id is invalid');
   }
   const encoded = base64UrlEncode(
     new TextEncoder().encode(
-      JSON.stringify({ updatedAtMs: cursor.updatedAtMs, linkSessionId: String(sessionId.value) }),
+      JSON.stringify({
+        kind: cursor.kind,
+        updatedAtMs: cursor.updatedAtMs,
+        deviceId: String(deviceId.value),
+      }),
     ),
   );
   return encoded;
@@ -255,13 +258,16 @@ export function encodeLinkedDeviceListCursorV1(
 
 export function decodeLinkedDeviceListCursorV1(
   raw: string | null,
-): LinkedDeviceSessionListCursorV1 | null {
+): LinkedDeviceManagementListCursorV1 | null {
   if (raw === null) return null;
   try {
     const decoded = new TextDecoder().decode(base64UrlDecode(raw));
     const record: unknown = JSON.parse(decoded);
     if (!isLinkedDeviceListCursorRecordV1(record)) {
       throw new Error('invalid cursor shape');
+    }
+    if (record.kind !== 'owner_binding_v1') {
+      throw new Error('invalid cursor kind');
     }
     if (
       typeof record.updatedAtMs !== 'number' ||
@@ -270,12 +276,13 @@ export function decodeLinkedDeviceListCursorV1(
     ) {
       throw new Error('invalid cursor timestamp');
     }
-    const sessionId = parseLinkDeviceSessionId(record.linkSessionId);
-    if (!sessionId.ok) throw new Error('invalid cursor session id');
+    const deviceId = parseLinkedDeviceId(record.deviceId);
+    if (!deviceId.ok) throw new Error('invalid cursor device id');
     const cursor = {
+      kind: 'owner_binding_v1',
       updatedAtMs: record.updatedAtMs,
-      linkSessionId: sessionId.value,
-    } satisfies LinkedDeviceSessionListCursorV1;
+      deviceId: deviceId.value,
+    } satisfies LinkedDeviceManagementListCursorV1;
     if (encodeLinkedDeviceListCursorV1(cursor) !== raw) {
       throw new Error('non-canonical cursor');
     }
@@ -287,14 +294,15 @@ export function decodeLinkedDeviceListCursorV1(
 
 function isLinkedDeviceListCursorRecordV1(
   raw: unknown,
-): raw is { readonly updatedAtMs: unknown; readonly linkSessionId: unknown } {
+): raw is { readonly kind: unknown; readonly updatedAtMs: unknown; readonly deviceId: unknown } {
   return (
     typeof raw === 'object' &&
     raw !== null &&
     !Array.isArray(raw) &&
-    Object.keys(raw).sort().join(',') === 'linkSessionId,updatedAtMs' &&
+    Object.keys(raw).sort().join(',') === 'deviceId,kind,updatedAtMs' &&
+    'kind' in raw &&
     'updatedAtMs' in raw &&
-    'linkSessionId' in raw
+    'deviceId' in raw
   );
 }
 
@@ -316,7 +324,6 @@ function assertRevocationPlanMatchesRequest(
     plan.aggregate.command.walletId !== request.walletId ||
     String(plan.aggregate.command.enrollmentId) !== String(plan.target.summary.enrollmentId) ||
     plan.aggregate.command.requestedAtMs !== request.requestedAtMs ||
-    plan.walletSessions.length === 0 ||
     plan.walletSessions.some((session) => session.deviceId !== request.deviceId) ||
     plan.revocationEpoch < 1
   ) {
