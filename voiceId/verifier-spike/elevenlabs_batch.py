@@ -1864,7 +1864,7 @@ def main() -> None:
     )
     api_key = load_api_key(
         environment=dict(os.environ),
-        env_path=args.plan.parents[1] / ".env",
+        env_path=args.plan.parents[2] / ".env.local",
     )
     manifest, report = generate_plan(
         plan,

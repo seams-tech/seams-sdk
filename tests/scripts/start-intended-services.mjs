@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { prepareRouterAbD1LocalRuntimeConfig } from '../../crates/router-ab-dev/scripts/d1-local-runtime-config.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-dotenv.config({ path: path.join(repoRoot, '.env.intended.local'), override: true });
+dotenv.config({ path: path.join(repoRoot, '.env.local'), override: true });
 const checkOnly = process.argv.includes('--check');
 const appUrl = process.env.SEAMS_INTENDED_APP_URL || 'https://localhost';
 const routerUrl = process.env.SEAMS_INTENDED_ROUTER_URL || 'https://localhost:9444';

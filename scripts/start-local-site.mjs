@@ -5,10 +5,9 @@ import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const localEnvPath = path.join(repoRoot, '.env.intended.local');
+const localEnvPath = path.join(repoRoot, '.env.local');
 
-// The console seed uses the intended-local file as the authority. Load it with
-// the same precedence so the browser cannot authenticate with a different key.
+// The root local env is the sole authority shared by the site and console seed.
 dotenv.config({ path: localEnvPath, override: true });
 
 const child = spawn(

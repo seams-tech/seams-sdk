@@ -28,6 +28,8 @@ pnpm router
 - Internal dev ports: Vite on `http://localhost:3600`, Gateway on `http://127.0.0.1:9090`, and MPCRouter on `http://127.0.0.1:9100`.
 - Browser-managed registration in the local site uses
   `VITE_SEAMS_PROJECT_ENVIRONMENT_ID` and `VITE_SEAMS_PUBLISHABLE_KEY`.
+- Keep all human-edited local configuration in the ignored root `.env.local`.
+  `pnpm router` generates its role-specific env files; do not edit those files.
 
 ## Repo Layout
 

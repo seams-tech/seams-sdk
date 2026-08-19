@@ -167,7 +167,7 @@ complete.
   corpus jobs; the one-job CUDA qualification is complete for the old pin.
 
 Current external gate status (2026-07-31): no working ElevenLabs credential is
-available; the previously supplied credential in ignored `voiceId/.env` returns
+available; the previously supplied credential in ignored root `.env.local` returns
 HTTP 401. One Dia2 1B generation completed on a
 temporary Spot L4 worker; its evidence is recorded in
 `verifier-spike/reports/dia2-one-job-2026-07-31.md`. The worker, temporary

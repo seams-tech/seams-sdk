@@ -668,7 +668,7 @@ path. The flow now carries the canonical operation runtime through fresh
 authorization and preserves the before/after material-activation checks. Its
 focused type and lane-selection gates pass; the full lifecycle contract still
 needs one clean rerun. Local implicit-account funding also requires an explicit
-funded NEAR testnet relayer key in `packages/console-server-ts/.dev.vars`.
+funded NEAR testnet relayer key in the repository root `.env.local`.
 
 **Cold unlock (2026-08-09).** Every piece now exists, is tested, and is
 reachable from JavaScript: the store has a DI site and a service-bag port, the

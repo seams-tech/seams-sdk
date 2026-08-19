@@ -10,7 +10,8 @@ import react from '@vitejs/plugin-react';
  */
 
 export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), '');
+  const workspaceRoot = fileURLToPath(new URL('../..', import.meta.url));
+  const env = loadEnv(mode, workspaceRoot, '');
 
   /* Production builds must receive the public signing mode and relayer URL from CI. */
   const requiredEnvKeys = ['VITE_SIGNING_SESSION_PERSISTENCE_MODE', 'VITE_RELAYER_URL'];
@@ -18,18 +19,18 @@ export default defineConfig(({ mode }) => {
   if (missingEnvKeys.length > 0) {
     console.warn(
       `\n[seams-site] WARNING: missing env vars: ${missingEnvKeys.join(', ')}.\n` +
-        '[seams-site] Copy .env from the source checkout (see env.example) — ' +
+        '[seams-site] Add them to the root .env.local (see apps/seams-site/env.example) — ' +
         'without them, signing-session sealing is disabled.\n',
     );
   }
 
   const appSrc = fileURLToPath(new URL('./src', import.meta.url));
   const appPublic = fileURLToPath(new URL('./src/public', import.meta.url));
-  const workspaceRoot = fileURLToPath(new URL('../..', import.meta.url));
   const workspaceNodeModules = fileURLToPath(new URL('../../node_modules', import.meta.url));
   const cacheDir = env.VITE_CACHE_DIR || undefined;
 
   return {
+    envDir: workspaceRoot,
     clearScreen: false,
     logLevel: 'info',
     cacheDir,
