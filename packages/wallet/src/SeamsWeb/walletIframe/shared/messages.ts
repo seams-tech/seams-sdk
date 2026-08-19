@@ -3,7 +3,7 @@ import type { WalletUIRegistry } from '../host/lit-ui/iframe-lit-element-registr
 import type { BootstrapThresholdEcdsaSessionArgs } from '@/SeamsWeb/signingSurface/types';
 import { SignedTransaction } from '@/core/rpcClients/near/NearClient';
 import { ActionArgs, TransactionInput } from '@/core/types';
-import type { QrLinkedDeviceSessionPayloadV4 } from '@shared/device-linking';
+import type { QrLinkedDeviceSessionPayloadV5 } from '@shared/device-linking';
 import type { DelegateActionInput } from '@/core/types/delegate';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type { TempoSigningRequest } from '@/core/signingEngine/chains/tempo/tempoSigning.types';
@@ -1512,7 +1512,7 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<
       'PM_SCAN_AND_LINK_DEVICE',
       {
-        qrData: QrLinkedDeviceSessionPayloadV4;
+        qrData: QrLinkedDeviceSessionPayloadV5;
         options?: {
           confirmationConfig?: Partial<ConfirmationConfig>;
           confirmerText?: { title?: string; body?: string };

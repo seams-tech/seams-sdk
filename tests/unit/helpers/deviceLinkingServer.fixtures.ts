@@ -190,7 +190,7 @@ export async function buildR103AwaitingTargetPasskeySessionRecordV1(
     linkSessionId: fixture.payload.linkSessionId,
     qrPayload: fixture.payload,
     state: overrides.state ?? {
-      state: 'awaiting_target_passkey',
+      state: 'awaiting_target_factor',
       linkSessionId: fixture.payload.linkSessionId,
       walletId: approval.walletId,
       enrollmentId: approval.enrollmentId,

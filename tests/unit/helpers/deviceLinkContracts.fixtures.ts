@@ -8,10 +8,10 @@ import {
   buildLinkedDeviceTargetPreparationV1,
   buildLinkedDeviceHolderDeliveryAcknowledgementV1,
   buildLinkedDeviceProvisioningCommandV1,
-  buildQrLinkedDeviceSessionPayloadV4,
+  buildQrLinkedDeviceSessionPayloadV5,
   buildStepUpLinkedDeviceOwnerAuthorizationV1,
   parseLinkedDeviceSessionClaimRequestV1,
-  parseQrLinkedDeviceSessionPayloadV4,
+  parseQrLinkedDeviceSessionPayloadV5,
   parseLinkedDeviceProvisioningDeliveriesV1,
   parseLinkedDeviceTargetReadyR102InputV1,
   parseLinkedDeviceWalletSessionDeliveryV1,
@@ -22,7 +22,7 @@ import type {
   LinkedDeviceEnrollmentKeyBindingV1,
   LinkedDeviceEnrollmentReceiptV1,
   LinkedDeviceEnrollmentTranscriptV1,
-  QrLinkedDeviceSessionPayloadV4,
+  QrLinkedDeviceSessionPayloadV5,
   LinkedDeviceTargetCredentialRegistrationV1,
   LinkedDeviceTargetPreparationChildV1,
   LinkedDeviceTargetPreparationV1,
@@ -104,7 +104,7 @@ const R102_RECEIPT_DIGEST = parseDigestB64u(base64UrlEncode(new Uint8Array(32)))
 const PUBLIC_KEY = base64UrlEncode(new Uint8Array(32).fill(8));
 
 export type R103DeviceLinkFixture = {
-  readonly payload: QrLinkedDeviceSessionPayloadV4;
+  readonly payload: QrLinkedDeviceSessionPayloadV5;
   readonly claimRequest: ReturnType<typeof parseLinkedDeviceSessionClaimRequestV1>;
   readonly approval: LinkedDeviceApprovalV1;
   readonly transcript: LinkedDeviceEnrollmentTranscriptV1;
@@ -709,7 +709,7 @@ export function buildR103DeviceLinkFixture(
     custodyKeyManifestDigestB64u: DIGEST,
     sourceIdentityDigestB64u: DIGEST,
   });
-  const payload = parseQrLinkedDeviceSessionPayloadV4({
+  const payload = parseQrLinkedDeviceSessionPayloadV5({
     version: 'v4',
     purpose: 'linked_device_lane_creation',
     linkSessionId,
@@ -797,7 +797,7 @@ export function buildR103DeviceLinkFixture(
   });
   const claimRequest = parseLinkedDeviceSessionClaimRequestV1({
     kind: 'linked_device_session_claim_request_v1',
-    payload: buildQrLinkedDeviceSessionPayloadV4({
+    payload: buildQrLinkedDeviceSessionPayloadV5({
       linkSessionId,
       linkPublicKeyB64u: payload.linkPublicKeyB64u,
       devicePublicKeyB64u: payload.devicePublicKeyB64u,

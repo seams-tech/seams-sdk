@@ -4,7 +4,7 @@ import type { ConfirmationConfig } from './signer-worker';
 import type {
   LinkedDeviceEnrollmentReceiptV1,
   LinkedDeviceSessionState,
-  QrLinkedDeviceSessionPayloadV4,
+  QrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking';
 import type {
   LinkedDeviceEnrollmentId,
@@ -20,7 +20,7 @@ export { LinkDeviceEventPhase } from './sdkSentEvents';
 export type DeviceLinkingSession = {
   readonly linkSessionId: LinkDeviceSessionId;
   readonly state: LinkedDeviceSessionState;
-  readonly qrData: QrLinkedDeviceSessionPayloadV4;
+  readonly qrData: QrLinkedDeviceSessionPayloadV5;
 };
 
 export type LinkDeviceResult =
@@ -77,7 +77,7 @@ export type StartDevice2LinkingFlowArgs = {
 } & StartDeviceLinkingOptionsDevice2;
 
 export interface StartDevice2LinkingFlowResults {
-  readonly qrData: QrLinkedDeviceSessionPayloadV4;
+  readonly qrData: QrLinkedDeviceSessionPayloadV5;
   readonly qrCodeDataURL: string;
 }
 

@@ -3,13 +3,13 @@ import type {
   LinkedDeviceEnrollmentKeyBindingV1,
   LinkedDeviceOwnerSourceLaneV1,
   LinkedDeviceProtocolVersionV1,
-  QrLinkedDeviceSessionPayloadV4,
+  QrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking/contracts';
 import {
   parseLinkedDeviceEnrollmentKeyBindingV1,
   parseLinkedDeviceOwnerSourceLaneV1,
   parseLinkedDeviceProtocolVersionV1,
-  parseQrLinkedDeviceSessionPayloadV4,
+  parseQrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking/parsers';
 import type { DeviceLinkingOwnerWalletSessionContextV1 } from '../../../../router/transport/fetch/routes/deviceLinkingOwnerAuthorization';
 import {
@@ -58,7 +58,7 @@ export type D1LinkedDeviceOwnerPlanningSnapshotV1 = {
   readonly linkSessionId: string;
   readonly walletId: WalletId;
   readonly owner: DeviceLinkingOwnerWalletSessionContextV1;
-  readonly payload: QrLinkedDeviceSessionPayloadV4;
+  readonly payload: QrLinkedDeviceSessionPayloadV5;
   readonly metadata: D1LinkedDeviceOwnerAuthorizationMetadataV1;
   readonly sourceChildren: readonly [
     LinkedDeviceOwnerSourceChildResolutionV1,
@@ -239,7 +239,7 @@ export class D1LinkedDeviceOwnerPlanningSnapshotStoreV1 implements D1LinkedDevic
 
   async readOwnerAuthorizationMetadataV1(input: {
     readonly owner: DeviceLinkingOwnerWalletSessionContextV1;
-    readonly payload: QrLinkedDeviceSessionPayloadV4;
+    readonly payload: QrLinkedDeviceSessionPayloadV5;
   }): Promise<D1LinkedDeviceOwnerAuthorizationMetadataV1 | null> {
     const snapshot = await this.getV1(String(input.payload.linkSessionId));
     if (!snapshot || snapshot.walletId !== input.owner.walletId) return null;
@@ -316,7 +316,7 @@ async function normalizeSnapshot(
   const record = requireRecord(raw, 'owner planning snapshot');
   if (record.kind !== 'linked_device_owner_planning_snapshot_v1')
     throw new Error('owner planning snapshot kind is invalid');
-  const payload = parseQrLinkedDeviceSessionPayloadV4(record.payload);
+  const payload = parseQrLinkedDeviceSessionPayloadV5(record.payload);
   const owner = parseOwnerContext(record.owner);
   const walletId = parseRequired(parseWalletId(record.walletId), 'walletId');
   const linkSessionId = requiredText(record.linkSessionId, 'linkSessionId');
@@ -422,7 +422,7 @@ function assertSourceChildMatchesHint(
 function normalizeMetadata(
   raw: Record<string, unknown>,
   owner: DeviceLinkingOwnerWalletSessionContextV1,
-  payload: QrLinkedDeviceSessionPayloadV4,
+  payload: QrLinkedDeviceSessionPayloadV5,
 ): D1LinkedDeviceOwnerAuthorizationMetadataV1 {
   const walletId = parseRequired(parseWalletId(raw.walletId), 'metadata.walletId');
   const policyDigestB64u = parseDigestB64u(raw.policyDigestB64u);

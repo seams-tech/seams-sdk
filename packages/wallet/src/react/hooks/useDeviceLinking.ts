@@ -1,6 +1,6 @@
 import { useRef, useCallback } from 'react';
 import { useSeams } from '../context';
-import type { QrLinkedDeviceSessionPayloadV4 } from '@shared/device-linking';
+import type { QrLinkedDeviceSessionPayloadV5 } from '@shared/device-linking';
 import type { LinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
 import { QRScanMode } from '@/react/hooks/useQRCamera';
 
@@ -11,7 +11,7 @@ export interface UseDeviceLinkingOptions {
 }
 
 export interface UseDeviceLinkingReturn {
-  linkDevice: (qrData: QrLinkedDeviceSessionPayloadV4, source: QRScanMode) => Promise<void>;
+  linkDevice: (qrData: QrLinkedDeviceSessionPayloadV5, source: QRScanMode) => Promise<void>;
 }
 
 export const useDeviceLinking = (options: UseDeviceLinkingOptions): UseDeviceLinkingReturn => {
@@ -31,7 +31,7 @@ export const useDeviceLinking = (options: UseDeviceLinkingOptions): UseDeviceLin
   };
 
   const linkDevice = useCallback(
-    async (qrData: QrLinkedDeviceSessionPayloadV4, _source: QRScanMode) => {
+    async (qrData: QrLinkedDeviceSessionPayloadV5, _source: QRScanMode) => {
       const { onError, onClose, onEvent } = callbacksRef.current;
       try {
         await seams.devices.scanAndLinkDevice(qrData, {

@@ -27,7 +27,7 @@ import type {
   LinkedDeviceWebAuthnRegistrationV1,
   LinkedDeviceWalletSessionDeliveryV1,
   LinkDevicePublicKeyB64u,
-  QrLinkedDeviceSessionPayloadV4,
+  QrLinkedDeviceSessionPayloadV5,
   LinkedDeviceOwnerFinalizeRequestV1,
   LinkedDeviceLocalAccountProjectionV1,
 } from '@shared/device-linking';
@@ -74,7 +74,7 @@ export type { LinkedDeviceApprovalResultV1 };
  */
 export type DeviceLinkingAuthenticatedTransportPortV1 = {
   createUnclaimedSessionV1(input: {
-    readonly payload: QrLinkedDeviceSessionPayloadV4;
+    readonly payload: QrLinkedDeviceSessionPayloadV5;
     readonly state: Extract<LinkedDeviceSessionState, { readonly state: 'displaying_qr' }>;
   }): Promise<void>;
   getSessionV1(input: {
@@ -261,7 +261,7 @@ export type DeviceLinkingOwnerAuthorizationPortV1 = {
     readonly requestedAtMs: number;
   }): Promise<LinkedDeviceOwnerEnrollmentStartV1>;
   authenticateOwnerForLinkingV1(input: {
-    readonly payload: QrLinkedDeviceSessionPayloadV4;
+    readonly payload: QrLinkedDeviceSessionPayloadV5;
     readonly requestedAtMs: number;
   }): Promise<{
     readonly authentication: LinkSessionAuthenticationV1;

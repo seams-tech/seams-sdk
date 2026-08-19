@@ -16,7 +16,7 @@ import type {
   LinkedDeviceTargetPreparationV1,
   LinkedDeviceTargetReadyR102InputV1,
   LinkedDeviceWalletSessionTokenV1,
-  QrLinkedDeviceSessionPayloadV4,
+  QrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking/contracts';
 import {
   buildLinkedDeviceWalletSessionDeliveryV1,
@@ -34,7 +34,7 @@ import {
   parseLinkedDeviceTargetPreparationV1,
   parseLinkedDeviceTargetReadyR102InputV1,
   parseLinkedDeviceApprovalV1,
-  parseQrLinkedDeviceSessionPayloadV4,
+  parseQrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking/parsers';
 import { assertLinkedDeviceTargetCredentialRegistrationMatchesPreparationV1 } from '@shared/device-linking/digests';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
@@ -188,7 +188,7 @@ export type DeviceLinkingRouteMutationResultV1 =
 type LinkedDevicePendingSessionStateV1 = Extract<
   LinkedDeviceSessionState,
   {
-    readonly state: 'awaiting_target_passkey' | 'provisioning' | 'committed_completion_required';
+    readonly state: 'awaiting_target_factor' | 'provisioning' | 'committed_completion_required';
   }
 >;
 
@@ -294,7 +294,7 @@ export type DeviceLinkingRouteServiceV1 = {
   };
   readonly nowV1: () => number;
   verifyPublicSessionProofV1(input: {
-    readonly payload: QrLinkedDeviceSessionPayloadV4;
+    readonly payload: QrLinkedDeviceSessionPayloadV5;
     readonly proof: DeviceLinkingRequestProofV1;
     readonly method: string;
     readonly canonicalPath: string;
@@ -411,7 +411,7 @@ export type DeviceLinkingRouteServiceV1 = {
 
 type DeviceLinkingCreateRequestV1 = {
   readonly kind: 'linked_device_session_create_request_v1';
-  readonly payload: QrLinkedDeviceSessionPayloadV4;
+  readonly payload: QrLinkedDeviceSessionPayloadV5;
 };
 
 export async function handleDeviceLinking(ctx: FetchRouterApiContext): Promise<Response | null> {
@@ -822,7 +822,7 @@ async function handleCredential(
     return invalidInputResponse('credential registration is from the future');
   const session = authenticated.session;
   if (
-    (session.state.state !== 'awaiting_target_passkey' && session.state.state !== 'provisioning') ||
+    (session.state.state !== 'awaiting_target_factor' && session.state.state !== 'provisioning') ||
     session.state.walletId !== registration.walletId ||
     session.state.enrollmentId !== registration.enrollmentId ||
     session.claimTranscript?.value.deviceId !== registration.deviceId
@@ -1043,14 +1043,14 @@ function assertTargetPreparationMatchesSession(
   nowMs: number,
 ): void {
   if (
-    (session.state.state !== 'awaiting_target_passkey' && session.state.state !== 'provisioning') ||
+    (session.state.state !== 'awaiting_target_factor' && session.state.state !== 'provisioning') ||
     preparation.linkSessionId !== session.linkSessionId ||
     preparation.linkSessionId !== approval.linkSessionId ||
     preparation.walletId !== approval.walletId ||
     preparation.enrollmentId !== approval.enrollmentId ||
     preparation.deviceId !== approval.deviceId ||
     preparation.orderedChildren.length !== approval.orderedKeyBindings.length ||
-    (session.state.state === 'awaiting_target_passkey' && preparation.expiresAtMs <= nowMs)
+    (session.state.state === 'awaiting_target_factor' && preparation.expiresAtMs <= nowMs)
   ) {
     throw new DeviceLinkingInputError(
       'target preparation does not match the approved linked-device session',
@@ -2008,7 +2008,7 @@ function manifestDigestFromSession(session: LinkedDeviceSessionRecordV1): string
       return session.aggregateReceipt.manifestDigestB64u;
     case 'displaying_qr':
     case 'claimed_by_owner':
-    case 'awaiting_target_passkey':
+    case 'awaiting_target_factor':
     case 'expired_unclaimed':
     case 'expired_claimed':
     case 'cancelled_unclaimed':
@@ -2021,7 +2021,7 @@ function manifestDigestFromSession(session: LinkedDeviceSessionRecordV1): string
 
 function isProvisioningSessionState(state: LinkedDeviceSessionState): boolean {
   return (
-    state.state === 'awaiting_target_passkey' ||
+    state.state === 'awaiting_target_factor' ||
     state.state === 'provisioning' ||
     state.state === 'committed_completion_required'
   );
@@ -2104,7 +2104,7 @@ function parseCreateRequest(raw: unknown): DeviceLinkingCreateRequestV1 {
     throw new Error('device-linking create request kind is invalid');
   return {
     kind: 'linked_device_session_create_request_v1',
-    payload: parseQrLinkedDeviceSessionPayloadV4(record.payload),
+    payload: parseQrLinkedDeviceSessionPayloadV5(record.payload),
   };
 }
 
@@ -2225,7 +2225,7 @@ function parseSessionId(raw: string): LinkDeviceSessionId {
 type DeviceLinkingSessionProjectionV1 = {
   readonly kind: 'linked_device_session_projection_v1';
   readonly linkSessionId: LinkDeviceSessionId;
-  readonly qrPayload: QrLinkedDeviceSessionPayloadV4;
+  readonly qrPayload: QrLinkedDeviceSessionPayloadV5;
   readonly revision: number;
   readonly createdAtMs: number;
   readonly updatedAtMs: number;
@@ -2358,7 +2358,7 @@ function isPendingSessionState(
   state: LinkedDeviceSessionState,
 ): state is LinkedDevicePendingSessionStateV1 {
   return (
-    state.state === 'awaiting_target_passkey' ||
+    state.state === 'awaiting_target_factor' ||
     state.state === 'provisioning' ||
     state.state === 'committed_completion_required'
   );

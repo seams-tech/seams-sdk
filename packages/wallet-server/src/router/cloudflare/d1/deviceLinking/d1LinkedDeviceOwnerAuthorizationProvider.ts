@@ -2,13 +2,13 @@ import type {
   LinkedDeviceEnrollmentKeyBindingV1,
   LinkedDeviceOwnerAuthorizationSourceV1,
   LinkedDeviceProtocolVersionV1,
-  QrLinkedDeviceSessionPayloadV4,
+  QrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking/contracts';
 import {
   buildWalletSessionLinkedDeviceOwnerAuthorizationV1,
   parseLinkedDeviceEnrollmentKeyBindingV1,
   parseLinkedDeviceProtocolVersionV1,
-  parseQrLinkedDeviceSessionPayloadV4,
+  parseQrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking/parsers';
 import {
   parseWalletSessionAuthorizationId,
@@ -78,7 +78,7 @@ export type D1LinkedDeviceOwnerAuthorizationMetadataV1 = {
 export type D1LinkedDeviceOwnerAuthorizationMetadataSourceV1 = {
   readOwnerAuthorizationMetadataV1(input: {
     readonly owner: DeviceLinkingOwnerWalletSessionContextV1;
-    readonly payload: QrLinkedDeviceSessionPayloadV4;
+    readonly payload: QrLinkedDeviceSessionPayloadV5;
   }): Promise<D1LinkedDeviceOwnerAuthorizationMetadataV1 | null>;
   readApprovedOwnerContextV1(input: {
     readonly walletId: WalletId;
@@ -145,7 +145,7 @@ export function createD1LinkedDeviceOwnerAuthorizationProviderV1(
 function createOwnerAuthorizationPortV1(nowV1: () => number): LinkedDeviceOwnerAuthorizationPortV1 {
   return {
     authorizeOwnerClaimV1: async (input) => {
-      const payload = parseQrLinkedDeviceSessionPayloadV4(input.payload);
+      const payload = parseQrLinkedDeviceSessionPayloadV5(input.payload);
       const ownerError = validateOwnerContext(input.owner, input.requestedAtMs, nowV1);
       if (ownerError) return ownerError;
       if (input.requestedAtMs < payload.issuedAtMs || input.requestedAtMs >= payload.expiresAtMs) {
@@ -229,7 +229,7 @@ function createOwnerAuthorizationRouteV1(input: {
     authorizeOwnerForLinkingV1: async (request) => {
       const ownerError = validateOwnerContext(request.owner, request.requestedAtMs, input.nowV1);
       if (ownerError) throw new Error(ownerError.message);
-      const payload = parseQrLinkedDeviceSessionPayloadV4(request.payload);
+      const payload = parseQrLinkedDeviceSessionPayloadV5(request.payload);
       await input.planningWriter.writeV1({
         owner: request.owner,
         payload,
@@ -389,7 +389,7 @@ function assertResolutionMatchesOwnerProjectionV1(
 function normalizeOwnerAuthorizationMetadataV1(
   metadata: D1LinkedDeviceOwnerAuthorizationMetadataV1,
   owner: DeviceLinkingOwnerWalletSessionContextV1,
-  payload: QrLinkedDeviceSessionPayloadV4,
+  payload: QrLinkedDeviceSessionPayloadV5,
 ): D1LinkedDeviceOwnerAuthorizationMetadataV1 {
   if (metadata.walletId !== owner.walletId) {
     throw new Error('owner authorization metadata walletId does not match the Wallet Session');

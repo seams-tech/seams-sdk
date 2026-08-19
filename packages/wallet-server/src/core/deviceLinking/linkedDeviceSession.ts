@@ -62,7 +62,7 @@ import type {
   LinkedDeviceSessionState,
   LinkDevicePublicKeyB64u,
   QrLinkedDevicePermissionRequest,
-  QrLinkedDeviceSessionPayloadV4,
+  QrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking/contracts';
 import { parseOwnerLaneParticipantContinuityV1 } from '@shared/signing-lanes/ownerContinuity';
 import { parseLinkedDeviceOwnerEnrollmentCeremonyV1 } from '@shared/device-linking/parsers';
@@ -86,13 +86,13 @@ export type LinkedDeviceSessionListPageV1 = {
 
 export type {
   LinkedDeviceSessionState,
-  QrLinkedDeviceSessionPayloadV4,
+  QrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking/contracts';
 
 type LinkedDeviceSessionRecordBaseV1 = {
   readonly version: 'linked_device_session_v1';
   readonly linkSessionId: LinkDeviceSessionId;
-  readonly qrPayload: QrLinkedDeviceSessionPayloadV4;
+  readonly qrPayload: QrLinkedDeviceSessionPayloadV5;
   readonly revision: number;
   readonly createdAtMs: number;
   readonly updatedAtMs: number;
@@ -121,7 +121,7 @@ type LinkedDeviceSessionApprovedRecordV1 = LinkedDeviceSessionRecordBaseV1 & {
   readonly state: Extract<
     LinkedDeviceSessionState,
     {
-      readonly state: 'awaiting_target_passkey' | 'provisioning';
+      readonly state: 'awaiting_target_factor' | 'provisioning';
     }
   >;
   readonly claimTranscript: LinkedDeviceClaimTranscriptV1;
@@ -259,7 +259,7 @@ export type LinkedDeviceOwnerAuthorizationContextV1 = {
 
 export type LinkedDeviceOwnerAuthorizationPortV1 = {
   authorizeOwnerClaimV1(input: {
-    readonly payload: QrLinkedDeviceSessionPayloadV4;
+    readonly payload: QrLinkedDeviceSessionPayloadV5;
     readonly requestedAtMs: number;
     readonly owner: LinkedDeviceOwnerAuthorizationContextV1;
   }): Promise<
@@ -385,12 +385,12 @@ export type LinkedDeviceTargetCredentialMutationResultV1 =
   | { readonly outcome: 'invalid_input'; readonly message: string };
 
 export type LinkedDeviceSessionCreateInputV1 = {
-  readonly payload: QrLinkedDeviceSessionPayloadV4;
+  readonly payload: QrLinkedDeviceSessionPayloadV5;
   readonly nowMs: number;
 };
 
 export type LinkedDeviceSessionClaimInputV1 = {
-  readonly payload: QrLinkedDeviceSessionPayloadV4;
+  readonly payload: QrLinkedDeviceSessionPayloadV5;
   readonly nowMs: number;
   readonly owner: LinkedDeviceOwnerAuthorizationContextV1;
 };
@@ -813,7 +813,7 @@ export class LinkedDeviceSessionServiceV1 {
       ) {
         return { outcome: 'replayed', record: existing };
       }
-      if (existing.state.state !== 'awaiting_target_passkey') {
+      if (existing.state.state !== 'awaiting_target_factor') {
         return invalidStateResult(existing);
       }
       if (input.nowMs >= existing.state.credentialDeadlineMs) {
@@ -840,7 +840,7 @@ export class LinkedDeviceSessionServiceV1 {
    * Validates the completion and returns it as a plan, without writing.
    *
    * Same preconditions as `recordTargetCredentialV1` — that is the point, since
-   * both describe the one legal transition out of `awaiting_target_passkey` —
+   * both describe the one legal transition out of `awaiting_target_factor` —
    * but stopping short of the store leaves the write available to a caller that
    * has to make it atomic with something else.
    */
@@ -850,7 +850,7 @@ export class LinkedDeviceSessionServiceV1 {
     try {
       requireTimestamp(input.nowMs, 'nowMs');
       const existing = await this.requireSession(input.linkSessionId);
-      if (existing.state.state !== 'awaiting_target_passkey') {
+      if (existing.state.state !== 'awaiting_target_factor') {
         return { outcome: 'invalid_state', state: existing.state.state, record: existing };
       }
       if (input.nowMs >= existing.state.credentialDeadlineMs) {
@@ -1092,7 +1092,7 @@ function isLinkedDeviceApprovalV1(
 }
 
 export function buildUnclaimedSessionRecordV1(
-  payload: QrLinkedDeviceSessionPayloadV4,
+  payload: QrLinkedDeviceSessionPayloadV5,
   nowMs: number,
 ): LinkedDeviceSessionRecordV1 {
   const parsedPayload = parseQrLinkedDeviceSessionPayloadV1(payload);
@@ -1182,7 +1182,7 @@ export function parseLinkedDeviceSessionRecordV1(raw: unknown): LinkedDeviceSess
   });
 }
 
-export function parseQrLinkedDeviceSessionPayloadV1(raw: unknown): QrLinkedDeviceSessionPayloadV4 {
+export function parseQrLinkedDeviceSessionPayloadV1(raw: unknown): QrLinkedDeviceSessionPayloadV5 {
   const record = requireRecord(raw, 'QR payload');
   requireExactKeys(record, [
     'version',
@@ -1217,7 +1217,7 @@ export function parseQrLinkedDeviceSessionPayloadV1(raw: unknown): QrLinkedDevic
 }
 
 function buildClaimV1(
-  payload: QrLinkedDeviceSessionPayloadV4,
+  payload: QrLinkedDeviceSessionPayloadV5,
   identity: LinkedDeviceSessionClaimIdentityV1,
   claimedAtMs: number,
 ): LinkedDeviceClaimV1 {
@@ -1253,11 +1253,11 @@ function claimedByOwnerStateV1(
 function awaitingTargetPasskeyStateV1(
   record: LinkedDeviceSessionRecordV1,
   approval: LinkedDeviceApprovalV1,
-): Extract<LinkedDeviceSessionState, { readonly state: 'awaiting_target_passkey' }> {
+): Extract<LinkedDeviceSessionState, { readonly state: 'awaiting_target_factor' }> {
   if (record.state.state !== 'claimed_by_owner')
     throw new Error('link session is not awaiting owner approval');
   return {
-    state: 'awaiting_target_passkey',
+    state: 'awaiting_target_factor',
     linkSessionId: record.linkSessionId,
     walletId: record.state.walletId,
     enrollmentId: record.state.enrollmentId,
@@ -1269,7 +1269,7 @@ function provisioningStateV1(
   record: LinkedDeviceSessionRecordV1,
   keyManifestDigestB64u: DigestB64u,
 ): Extract<LinkedDeviceSessionState, { readonly state: 'provisioning' }> {
-  if (record.state.state !== 'awaiting_target_passkey') {
+  if (record.state.state !== 'awaiting_target_factor') {
     throw new Error('link session is not awaiting its target credential');
   }
   return {
@@ -1323,7 +1323,7 @@ function cancellationStateV1(
     case 'displaying_qr':
       return { state: 'cancelled_unclaimed', linkSessionId: record.linkSessionId, cancelledAtMs };
     case 'claimed_by_owner':
-    case 'awaiting_target_passkey':
+    case 'awaiting_target_factor':
     case 'provisioning':
       return {
         state: 'cancelled_claimed_precommit',
@@ -1352,7 +1352,7 @@ function expiryStateV1(
     case 'displaying_qr':
       return { state: 'expired_unclaimed', linkSessionId: record.linkSessionId, expiredAtMs };
     case 'claimed_by_owner':
-    case 'awaiting_target_passkey':
+    case 'awaiting_target_factor':
     case 'provisioning':
       return {
         state: 'expired_claimed',
@@ -1379,7 +1379,7 @@ function sessionExpiryMsV1(record: LinkedDeviceSessionRecordV1): number {
       return record.state.expiresAtMs;
     case 'claimed_by_owner':
       return record.state.claimExpiresAtMs;
-    case 'awaiting_target_passkey':
+    case 'awaiting_target_factor':
       return record.state.credentialDeadlineMs;
     case 'provisioning':
       return record.qrPayload.expiresAtMs;
@@ -1406,7 +1406,7 @@ function isTerminalState(state: LinkedDeviceSessionState): boolean {
       return true;
     case 'displaying_qr':
     case 'claimed_by_owner':
-    case 'awaiting_target_passkey':
+    case 'awaiting_target_factor':
     case 'provisioning':
       return false;
     default:
@@ -1452,7 +1452,7 @@ function replaceSessionRecordV1(
 
 function buildSessionRecordV1(input: {
   readonly linkSessionId: LinkDeviceSessionId;
-  readonly qrPayload: QrLinkedDeviceSessionPayloadV4;
+  readonly qrPayload: QrLinkedDeviceSessionPayloadV5;
   readonly state: LinkedDeviceSessionState;
   readonly revision: number;
   readonly claimTranscript: LinkedDeviceClaimTranscriptV1 | undefined;
@@ -1496,7 +1496,7 @@ function buildSessionRecordV1(input: {
         throw new Error('claimed session transcript facts are invalid');
       }
       return { ...base, state: input.state, claimTranscript: input.claimTranscript };
-    case 'awaiting_target_passkey':
+    case 'awaiting_target_factor':
     case 'provisioning':
       if (!input.claimTranscript || !input.approvalTranscript || input.aggregateReceipt) {
         throw new Error('approved session transcript facts are invalid');
@@ -2086,7 +2086,7 @@ function parseSessionStateV1(raw: unknown): LinkedDeviceSessionState {
         ),
         claimExpiresAtMs: requireTimestamp(record.claimExpiresAtMs, 'state.claimExpiresAtMs'),
       };
-    case 'awaiting_target_passkey':
+    case 'awaiting_target_factor':
       requireExactKeys(record, [
         'state',
         'linkSessionId',
@@ -2244,7 +2244,7 @@ function parseSessionStateKind(raw: unknown): LinkedDeviceSessionStateKind {
   switch (value) {
     case 'displaying_qr':
     case 'claimed_by_owner':
-    case 'awaiting_target_passkey':
+    case 'awaiting_target_factor':
     case 'provisioning':
     case 'active':
     case 'expired_unclaimed':
@@ -2273,7 +2273,7 @@ function validateRecordTranscriptState(
   if (!unclaimed && !claimTranscript)
     throw new Error('claimed session is missing claim transcript');
   if (
-    (state.state === 'awaiting_target_passkey' ||
+    (state.state === 'awaiting_target_factor' ||
       state.state === 'provisioning' ||
       state.state === 'active' ||
       state.state === 'committed_completion_required') &&
@@ -2303,8 +2303,8 @@ function normalizeSessionReadInput(
 }
 
 function sameQrPayload(
-  left: QrLinkedDeviceSessionPayloadV4,
-  right: QrLinkedDeviceSessionPayloadV4,
+  left: QrLinkedDeviceSessionPayloadV5,
+  right: QrLinkedDeviceSessionPayloadV5,
 ): boolean {
   return alphabetizeStringify(left) === alphabetizeStringify(right);
 }

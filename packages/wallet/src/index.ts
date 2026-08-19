@@ -127,7 +127,7 @@ export type {
   LinkedDeviceRevokeResultV1,
   LinkedDeviceSummaryV1,
   QrLinkedDevicePermissionRequest,
-  QrLinkedDeviceSessionPayloadV4,
+  QrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking';
 
 // === AccountID Types ===

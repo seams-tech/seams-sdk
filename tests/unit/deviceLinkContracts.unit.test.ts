@@ -26,9 +26,9 @@ import {
   parseLinkedDeviceWalletSessionDeliveryV1,
   parseLinkedDeviceOwnerAuthorizationRequestV1,
   parseLinkedDeviceOwnerSourceLaneV1,
-  parseQrLinkedDeviceSessionTextV4,
-  parseQrLinkedDeviceSessionPayloadV4,
-  serializeQrLinkedDeviceSessionPayloadV4,
+  parseQrLinkedDeviceSessionTextV5,
+  parseQrLinkedDeviceSessionPayloadV5,
+  serializeQrLinkedDeviceSessionPayloadV5,
 } from '../../packages/shared-ts/src/device-linking';
 import type { HttpTransport } from '../../packages/wallet/src/core/platform/http';
 import { createWalletHostOwnerAuthoritiesV1 } from '../../packages/wallet/src/SeamsWeb/operations/devices/walletHostOwnerAuthority';
@@ -189,10 +189,10 @@ test.describe('R103 shared linked-device contracts', () => {
 
   test('round-trips QR, approval, transcript, and receipt projections through strict parsers', async () => {
     const fixture = buildR103DeviceLinkFixture();
-    const serializedQr = serializeQrLinkedDeviceSessionPayloadV4(fixture.payload);
+    const serializedQr = serializeQrLinkedDeviceSessionPayloadV5(fixture.payload);
 
-    expect(parseQrLinkedDeviceSessionPayloadV4(fixture.payload)).toEqual(fixture.payload);
-    expect(parseQrLinkedDeviceSessionTextV4(serializedQr)).toEqual(fixture.payload);
+    expect(parseQrLinkedDeviceSessionPayloadV5(fixture.payload)).toEqual(fixture.payload);
+    expect(parseQrLinkedDeviceSessionTextV5(serializedQr)).toEqual(fixture.payload);
     expect(new TextEncoder().encode(serializedQr).byteLength).toBeLessThan(240);
     expect(parseLinkedDeviceApprovalV1(fixture.approval)).toEqual(fixture.approval);
     expect(parseLinkedDeviceEnrollmentTranscriptV1(fixture.transcript)).toEqual(fixture.transcript);
@@ -219,7 +219,7 @@ test.describe('R103 shared linked-device contracts', () => {
     const fixture = buildR103DeviceLinkFixture();
 
     expect(() =>
-      parseQrLinkedDeviceSessionPayloadV4({
+      parseQrLinkedDeviceSessionPayloadV5({
         ...fixture.payload,
         requestedPermission: {
           kind: 'scoped_signing',
@@ -229,16 +229,16 @@ test.describe('R103 shared linked-device contracts', () => {
       }),
     ).toThrow();
     expect(() =>
-      parseQrLinkedDeviceSessionPayloadV4({ ...fixture.payload, walletId: 'wallet:leak' }),
+      parseQrLinkedDeviceSessionPayloadV5({ ...fixture.payload, walletId: 'wallet:leak' }),
     ).toThrow(/walletId/);
     expect(() =>
-      parseQrLinkedDeviceSessionPayloadV4({
+      parseQrLinkedDeviceSessionPayloadV5({
         ...fixture.payload,
         linkPublicKeyB64u: `${fixture.payload.linkPublicKeyB64u}=`,
       }),
     ).toThrow(/base64url/);
     expect(() =>
-      parseQrLinkedDeviceSessionPayloadV4({
+      parseQrLinkedDeviceSessionPayloadV5({
         ...fixture.payload,
         expiresAtMs: fixture.payload.issuedAtMs,
       }),

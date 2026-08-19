@@ -4,13 +4,13 @@ import {
   buildLinkedDeviceApprovalV1,
   buildLinkedDeviceSessionClaimRequestV1,
   parseLinkedDeviceProvisioningDeliveriesSubmissionV1,
-  parseQrLinkedDeviceSessionPayloadV4,
+  parseQrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking';
 import type {
   LinkedDeviceEnrollmentReceiptV1,
   LinkedDeviceOwnerAuthorizationSourceV1,
   LinkedDeviceCustodyTransferPackageV1,
-  QrLinkedDeviceSessionPayloadV4,
+  QrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import {
@@ -36,7 +36,7 @@ type EmitLinkDeviceEventInput = Omit<CreateLinkDeviceFlowEventInput, 'flowId' | 
   readonly accountId?: string;
 };
 
-function createFlowId(qrData: QrLinkedDeviceSessionPayloadV4 | null): string {
+function createFlowId(qrData: QrLinkedDeviceSessionPayloadV5 | null): string {
   return qrData ? String(qrData.linkSessionId) : 'link-device-scan';
 }
 
@@ -54,7 +54,7 @@ function notifyError(callback: ((error: Error) => void) | undefined, error: Erro
 
 function emitScannerEvent(
   onEvent: ScanAndLinkDeviceOptionsDevice1['onEvent'] | undefined,
-  qrData: QrLinkedDeviceSessionPayloadV4 | null,
+  qrData: QrLinkedDeviceSessionPayloadV5 | null,
   event: EmitLinkDeviceEventInput,
 ): void {
   onEvent?.(
@@ -108,12 +108,12 @@ function classifyFailure(error: unknown): DeviceLinkingError {
 }
 
 /** Strictly parse the only QR payload accepted by this browser. */
-export function validateQrLinkedDeviceSessionPayloadV4(
+export function validateQrLinkedDeviceSessionPayloadV5(
   raw: unknown,
-): QrLinkedDeviceSessionPayloadV4 {
-  let parsed: QrLinkedDeviceSessionPayloadV4;
+): QrLinkedDeviceSessionPayloadV5 {
+  let parsed: QrLinkedDeviceSessionPayloadV5;
   try {
-    parsed = parseQrLinkedDeviceSessionPayloadV4(raw);
+    parsed = parseQrLinkedDeviceSessionPayloadV5(raw);
   } catch (error: unknown) {
     throw createInvalidQrError(errorMessage(error) || 'Invalid linked-device QR payload');
   }
@@ -133,11 +133,11 @@ export function validateQrLinkedDeviceSessionPayloadV4(
 
 export async function scanAndLinkDevice(
   _context: unknown,
-  qrData: QrLinkedDeviceSessionPayloadV4,
+  qrData: QrLinkedDeviceSessionPayloadV5,
   options: ScanAndLinkDeviceOptionsDevice1,
   ports: Device1LinkingFlowPortsV1,
 ): Promise<LinkDeviceResult> {
-  let parsedQrData: QrLinkedDeviceSessionPayloadV4 | null = null;
+  let parsedQrData: QrLinkedDeviceSessionPayloadV5 | null = null;
   emitScannerEvent(options.onEvent, parsedQrData, {
     phase: LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED,
     status: 'started',
@@ -146,7 +146,7 @@ export async function scanAndLinkDevice(
   });
 
   try {
-    parsedQrData = validateQrLinkedDeviceSessionPayloadV4(qrData);
+    parsedQrData = validateQrLinkedDeviceSessionPayloadV5(qrData);
     const now = Date.now();
     const owner = await ports.ownerAuthorization.authenticateOwnerForLinkingV1({
       payload: parsedQrData,
@@ -312,7 +312,7 @@ function completedApprovalFromResult(
 async function awaitApprovalCompletionV1(input: {
   readonly result: LinkedDeviceApprovalResultV1;
   readonly transport: LinkSessionOwnerTransportPortV1;
-  readonly linkSessionId: QrLinkedDeviceSessionPayloadV4['linkSessionId'];
+  readonly linkSessionId: QrLinkedDeviceSessionPayloadV5['linkSessionId'];
   readonly authentication: Parameters<
     LinkSessionOwnerTransportPortV1['getApprovalV1']
   >[0]['authentication'];
@@ -446,7 +446,7 @@ async function preparePendingSourceHandoffV1(
   result: LinkedDeviceApprovalResultV1,
 ): Promise<boolean> {
   const state = pendingApprovalStateV1(result);
-  if (!state || state === 'awaiting_target_passkey') return false;
+  if (!state || state === 'awaiting_target_factor') return false;
   const targetReady = await input.transport.getTargetReadyV1({
     linkSessionId: input.linkSessionId,
     authentication: input.authentication,
@@ -482,7 +482,7 @@ async function preparePendingSourceHandoffV1(
 
 function pendingApprovalStateV1(
   result: LinkedDeviceApprovalResultV1,
-): 'awaiting_target_passkey' | 'provisioning' | 'committed_completion_required' | null {
+): 'awaiting_target_factor' | 'provisioning' | 'committed_completion_required' | null {
   if (result.outcome === 'pending') return result.state.state;
   if (result.outcome === 'replayed' && result.replay.state === 'pending') {
     return result.replay.session.state;

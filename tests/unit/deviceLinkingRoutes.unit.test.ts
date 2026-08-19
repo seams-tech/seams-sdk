@@ -173,7 +173,7 @@ test('projects the claimed device identity after owner claim', async () => {
   expect(approved.status).toBe(200);
   const approvedBody = await approved.json();
   expect(approvedBody.outcome).toBe('pending');
-  expect(approvedBody.state.state).toBe('awaiting_target_passkey');
+  expect(approvedBody.state.state).toBe('awaiting_target_factor');
   expect(approvedBody).not.toHaveProperty('manifestDigestB64u');
 
   const replayedApproval = await invoke(routeService, {
@@ -185,7 +185,7 @@ test('projects the claimed device identity after owner claim', async () => {
   const replayedBody = await replayedApproval.json();
   expect(replayedBody.outcome).toBe('replayed');
   expect(replayedBody.replay.state).toBe('pending');
-  expect(replayedBody.replay.session.state).toBe('awaiting_target_passkey');
+  expect(replayedBody.replay.session.state).toBe('awaiting_target_factor');
 
   const deliveredApproval = await invoke(routeService, {
     method: 'GET',

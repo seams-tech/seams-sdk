@@ -329,7 +329,7 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
       expectedRevision: input.expectedRevision,
       nextRecord: input.nextRecord,
       nowMs: input.nowMs,
-      expectedStates: ['awaiting_target_passkey'],
+      expectedStates: ['awaiting_target_factor'],
       replay: (current) =>
         current.state.state === 'provisioning' &&
         current.state.keyManifestDigestB64u === input.keyManifestDigestB64u,
@@ -464,7 +464,7 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
       expectedStates: [
         'displaying_qr',
         'claimed_by_owner',
-        'awaiting_target_passkey',
+        'awaiting_target_factor',
         'provisioning',
       ],
       replay: (current) =>
@@ -499,7 +499,7 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
       expectedStates: [
         'displaying_qr',
         'claimed_by_owner',
-        'awaiting_target_passkey',
+        'awaiting_target_factor',
         'provisioning',
       ],
       replay: (record) => record.state.state === input.nextRecord.state.state,
@@ -808,7 +808,7 @@ function isExpirableState(state: LinkedDeviceSessionState): boolean {
   switch (state.state) {
     case 'displaying_qr':
     case 'claimed_by_owner':
-    case 'awaiting_target_passkey':
+    case 'awaiting_target_factor':
     case 'provisioning':
       return true;
     case 'active':
@@ -829,7 +829,7 @@ function expiryMs(record: LinkedDeviceSessionRecordV1): number {
       return record.state.expiresAtMs;
     case 'claimed_by_owner':
       return record.state.claimExpiresAtMs;
-    case 'awaiting_target_passkey':
+    case 'awaiting_target_factor':
       return record.state.credentialDeadlineMs;
     case 'provisioning':
       return record.qrPayload.expiresAtMs;

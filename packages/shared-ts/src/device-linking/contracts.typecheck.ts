@@ -12,7 +12,7 @@ import type {
   LinkedDeviceSessionTransportRequestV1,
   LinkedDeviceTargetCredentialRegistrationV1,
   LinkedDeviceTargetPreparationV1,
-  QrLinkedDeviceSessionPayloadV4,
+  QrLinkedDeviceSessionPayloadV5,
 } from './contracts';
 import type { SigningLaneRecord, WalletKeyRecord } from '../signing-lanes/records';
 import type {
@@ -85,7 +85,7 @@ declare const ownerParticipantContinuity: OwnerLaneParticipantContinuityV1;
 declare const manifestId: EcdsaCapabilityManifestId;
 declare const manifestRevision: EcdsaCapabilityManifestRevision;
 
-declare const payload: QrLinkedDeviceSessionPayloadV4;
+declare const payload: QrLinkedDeviceSessionPayloadV5;
 declare const ownerAuthorization: LinkedDeviceOwnerAuthorizationSourceV1;
 
 const ed25519OwnerSource: LinkedDeviceOwnerSourceLaneV1 = {
@@ -166,7 +166,7 @@ const invalidClaimedIdentity: Extract<
 };
 
 // Dormant permission branches are deliberately absent from v4.
-const invalidPermissionPayload: QrLinkedDeviceSessionPayloadV4 = {
+const invalidPermissionPayload: QrLinkedDeviceSessionPayloadV5 = {
   ...payload,
   requestedPermission: {
     // @ts-expect-error dormant scoped signing permission is not supported
@@ -177,7 +177,7 @@ const invalidPermissionPayload: QrLinkedDeviceSessionPayloadV4 = {
   },
 };
 
-const invalidPermissionPresence: QrLinkedDeviceSessionPayloadV4 = {
+const invalidPermissionPresence: QrLinkedDeviceSessionPayloadV5 = {
   ...payload,
   requestedPermission: {
     kind: 'owner_equivalent_signing',
@@ -201,7 +201,8 @@ const invalidOwnerAuthorization: LinkedDeviceOwnerAuthorizationSourceV1 = {
  * party, challenge, and user handle.
  */
 const ownerEnrollment: LinkedDeviceOwnerEnrollmentCeremonyV1 = {
-  kind: 'linked_device_owner_enrollment_ceremony_v1',
+  kind: 'linked_device_passkey_owner_enrollment_v1',
+  targetFactor: { kind: 'passkey_prf' },
   addAuthMethodCeremonyId: 'add-auth-method-ceremony:typecheck',
   registration: {
     kind: 'webauthn_add_auth_method_registration_v1',
@@ -232,6 +233,7 @@ const approval: LinkedDeviceApprovalV1 = {
   devicePublicKeyB64u: payload.devicePublicKeyB64u,
   ownerEnrollment,
   permission: payload.requestedPermission,
+  targetFactor: { kind: 'passkey_prf' },
   ownerAuthorization,
   policyDigestB64u: digest,
   operationId,
@@ -354,6 +356,7 @@ const targetPreparation: LinkedDeviceTargetPreparationV1 = {
   walletId,
   enrollmentId,
   deviceId,
+  targetFactor: { kind: 'passkey_prf' },
   ownerEnrollment,
   orderedChildren: [
     {
@@ -383,6 +386,7 @@ const credentialRegistration: LinkedDeviceTargetCredentialRegistrationV1 = {
   walletId,
   enrollmentId,
   deviceId,
+  targetFactor: { kind: 'passkey_prf' },
   targetPreparationDigestB64u: digest,
   webauthnRegistration: {
     kind: 'linked_device_webauthn_registration_v1',

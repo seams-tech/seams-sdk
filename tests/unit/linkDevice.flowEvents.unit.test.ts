@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { DeviceLinkingDomain, LinkDeviceFlow } from '@/SeamsWeb/operations/devices/linkDevice';
 import {
   scanAndLinkDevice,
-  validateQrLinkedDeviceSessionPayloadV4,
+  validateQrLinkedDeviceSessionPayloadV5,
 } from '@/SeamsWeb/operations/devices/scanDevice';
 import type {
   DeviceLinkingAuthenticatedTransportPortV1,
@@ -23,9 +23,9 @@ import {
   buildCancelledUnclaimedLinkedDeviceSessionState,
   buildDisplayingQrLinkedDeviceSessionState,
   buildExpiredUnclaimedLinkedDeviceSessionState,
-  buildQrLinkedDeviceSessionPayloadV4,
+  buildQrLinkedDeviceSessionPayloadV5,
   buildLinkedDeviceTargetPreparationV1,
-  parseQrLinkedDeviceSessionPayloadV4,
+  parseQrLinkedDeviceSessionPayloadV5,
 } from '../../packages/shared-ts/src/device-linking';
 import type {
   LinkedDeviceApprovalV1,
@@ -73,7 +73,7 @@ function createPorts(
 ): DeviceLinkingFlowPortsV1 {
   const fixture = buildR103DeviceLinkFixture();
   const now = Date.now();
-  const payload = buildQrLinkedDeviceSessionPayloadV4({
+  const payload = buildQrLinkedDeviceSessionPayloadV5({
     linkSessionId: fixture.payload.linkSessionId,
     linkPublicKeyB64u: fixture.payload.linkPublicKeyB64u,
     devicePublicKeyB64u: fixture.payload.devicePublicKeyB64u,
@@ -555,7 +555,7 @@ test.describe('linked-device browser orchestration', () => {
     );
 
     const result = await flow.generateQR();
-    expect(parseQrLinkedDeviceSessionPayloadV4(result.qrData)).toEqual(result.qrData);
+    expect(parseQrLinkedDeviceSessionPayloadV5(result.qrData)).toEqual(result.qrData);
     expect(result.qrData).not.toHaveProperty('walletId');
     expect(calls.slice(0, 4)).toEqual(['keygen', 'bind-transport', 'create', 'subscribe']);
     expect(transportBound).toBe(true);
@@ -675,7 +675,7 @@ test.describe('linked-device browser orchestration', () => {
 
   test('strict QR validation rejects the superseded shape', () => {
     expect(() =>
-      parseQrLinkedDeviceSessionPayloadV4({
+      parseQrLinkedDeviceSessionPayloadV5({
         sessionId: 'legacy-session',
         timestamp: Date.now(),
         version: 'v3',
@@ -690,28 +690,28 @@ test.describe('linked-device browser orchestration', () => {
     Date.now = () => now;
     try {
       const fixture = buildR103DeviceLinkFixture();
-      const accepted = buildQrLinkedDeviceSessionPayloadV4({
+      const accepted = buildQrLinkedDeviceSessionPayloadV5({
         ...fixture.payload,
         issuedAtMs: now + LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1,
         expiresAtMs: now + LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1 + 60_000,
       });
-      expect(validateQrLinkedDeviceSessionPayloadV4(accepted)).toEqual(accepted);
+      expect(validateQrLinkedDeviceSessionPayloadV5(accepted)).toEqual(accepted);
 
-      const rejectedFuture = buildQrLinkedDeviceSessionPayloadV4({
+      const rejectedFuture = buildQrLinkedDeviceSessionPayloadV5({
         ...fixture.payload,
         issuedAtMs: now + LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1 + 1,
         expiresAtMs: now + LINKED_DEVICE_CLOCK_SKEW_TOLERANCE_MS_V1 + 60_001,
       });
-      expect(() => validateQrLinkedDeviceSessionPayloadV4(rejectedFuture)).toThrow(
+      expect(() => validateQrLinkedDeviceSessionPayloadV5(rejectedFuture)).toThrow(
         'QR payload was issued in the future',
       );
 
-      const expiredAtNow = buildQrLinkedDeviceSessionPayloadV4({
+      const expiredAtNow = buildQrLinkedDeviceSessionPayloadV5({
         ...fixture.payload,
         issuedAtMs: now - 60_000,
         expiresAtMs: now,
       });
-      expect(() => validateQrLinkedDeviceSessionPayloadV4(expiredAtNow)).toThrow('QR code expired');
+      expect(() => validateQrLinkedDeviceSessionPayloadV5(expiredAtNow)).toThrow('QR code expired');
     } finally {
       Date.now = originalNow;
     }

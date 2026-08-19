@@ -5,7 +5,7 @@ import {
   parseLinkedDeviceListResultV1,
   parseLinkedDeviceRevokeRequestV1,
   parseLinkedDeviceRevokeResultV1,
-  parseQrLinkedDeviceSessionPayloadV4,
+  parseQrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking';
 
 export function createDeviceLinkWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
@@ -38,7 +38,7 @@ export function createDeviceLinkWalletIframeHandlers(deps: HandlerDeps): Handler
       const { qrData, options } = req.payload!;
       if (deps.respondIfCancelled(req.requestId)) return;
       const result = await pm.devices.scanAndLinkDevice(
-        parseQrLinkedDeviceSessionPayloadV4(qrData),
+        parseQrLinkedDeviceSessionPayloadV5(qrData),
         withProgress(deps, req.requestId, options || {}),
       );
       if (deps.respondIfCancelled(req.requestId)) return;

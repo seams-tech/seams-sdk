@@ -522,7 +522,7 @@ CREATE TABLE linked_device_sessions (
   CHECK (state IN (
     'displaying_qr',
     'claimed_by_owner',
-    'awaiting_target_passkey',
+    'awaiting_target_factor',
     'provisioning',
     'active',
     'expired_unclaimed',

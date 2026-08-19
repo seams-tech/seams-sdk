@@ -93,7 +93,7 @@ test('persists exact target-ready input, accepts one delivery submission, and re
     linkSessionId: fixture.approval.linkSessionId,
     nowMs: 3_000,
   });
-  if (!session || session.state.state !== 'awaiting_target_passkey') {
+  if (!session || session.state.state !== 'awaiting_target_factor') {
     throw new Error('source handoff fixture session is not awaiting a target passkey');
   }
   const handoff = await buildSourceHandoffFixture(approval);
@@ -390,7 +390,7 @@ test('waits for deliveries submitted after provisioning preparation starts', asy
     linkSessionId: fixture.approval.linkSessionId,
     nowMs: 3_000,
   });
-  if (!session || session.state.state !== 'awaiting_target_passkey') {
+  if (!session || session.state.state !== 'awaiting_target_factor') {
     throw new Error('source handoff fixture session is not awaiting a target passkey');
   }
   const handoff = await buildSourceHandoffFixture(approval);

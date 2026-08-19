@@ -109,14 +109,14 @@ test('refuses a ceremony this enrollment was never approved for', async () => {
   ).toEqual({ ok: false, reason: 'ceremony_does_not_match_enrollment' });
 });
 
-test('admits from awaiting_target_passkey, the state Device 2 finalizes in', async () => {
+test('admits from awaiting_target_factor, the state Device 2 finalizes in', async () => {
   // The manifest arrives with the approval rather than with an R102 commit, so
   // this state carries one and no longer has to be excluded.
   const prepared = await preparation();
   const result = admitLinkedOwnerEnrollmentFinalizeV1({
     session: session(prepared, {
       state: {
-        state: 'awaiting_target_passkey',
+        state: 'awaiting_target_factor',
         linkSessionId: prepared.linkSessionId,
         walletId: prepared.walletId,
         enrollmentId: prepared.enrollmentId,

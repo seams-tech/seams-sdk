@@ -4,11 +4,11 @@
  */
 export {
   buildQrLinkedDevicePermissionRequest,
-  buildQrLinkedDeviceSessionPayloadV4,
-  parseQrLinkedDeviceSessionPayloadV4,
+  buildQrLinkedDeviceSessionPayloadV5,
+  parseQrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking';
 export type {
   LinkDevicePublicKeyB64u,
   QrLinkedDevicePermissionRequest,
-  QrLinkedDeviceSessionPayloadV4,
+  QrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking';

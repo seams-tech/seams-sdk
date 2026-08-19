@@ -7,7 +7,7 @@ import type {
   LinkSessionTransportPortV1,
 } from '@/SeamsWeb/operations/devices/deviceLinkingPorts';
 import type { DeviceLinkingCustodyTransferPortV1 } from '@/SeamsWeb/operations/devices/deviceLinkingCustodyTransfer';
-import { buildAwaitingTargetPasskeyLinkedDeviceSessionState } from '@shared/device-linking';
+import { buildAwaitingTargetFactorLinkedDeviceSessionState } from '@shared/device-linking';
 import type { LinkedDeviceSessionTransportEventV1 } from '@shared/device-linking';
 import {
   LINKED_DEVICE_CUSTODY_TRANSFER_ALG_V1,
@@ -203,7 +203,7 @@ export async function buildDevice2LinkFlowHarnessV1(
     },
     async getSessionV1() {
       return {
-        state: buildAwaitingTargetPasskeyLinkedDeviceSessionState({
+        state: buildAwaitingTargetFactorLinkedDeviceSessionState({
           linkSessionId: preparationRef.current?.linkSessionId ?? fixture.payload.linkSessionId,
           walletId: fixture.approval.walletId,
           enrollmentId: fixture.approval.enrollmentId,
@@ -367,7 +367,7 @@ export async function buildDevice2LinkFlowHarnessV1(
     sessionEventHandler?.({
       kind: 'linked_device_session_event_v1',
       linkSessionId,
-      state: buildAwaitingTargetPasskeyLinkedDeviceSessionState({
+      state: buildAwaitingTargetFactorLinkedDeviceSessionState({
         linkSessionId,
         walletId: fixture.approval.walletId,
         enrollmentId: fixture.approval.enrollmentId,
