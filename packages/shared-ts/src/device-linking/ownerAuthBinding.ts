@@ -49,10 +49,18 @@ import { parseDigestB64u, type DigestB64u } from '../utils/canonicalPrimitives';
 import { parseUnixMs, requireRecord, rejectUnknownFields } from '../passkey-custody/primitives';
 
 /**
- * The identity columns the canonical `wallet_auth_methods` row is keyed by.
- * A Passkey branch cannot carry Email OTP identity and an Email OTP branch
- * cannot carry WebAuthn identity — the `never` fields are what stops a
- * spread-built record from smuggling the wrong half across.
+ * The exact factor identity behind one linked-owner credential. A Passkey
+ * branch cannot carry Email OTP identity and an Email OTP branch cannot carry
+ * WebAuthn identity — the `never` fields are what stops a spread-built record
+ * from smuggling the wrong half across.
+ *
+ * The Email OTP branch names two identities on purpose. The *base* factor
+ * (`baseWalletAuthMethodId`, the wallet-wide `email_otp:<wallet>:<hash>` row)
+ * answers which email authority authenticates the wallet; it is shared by
+ * every linked device enrolled through that email and survives each of them.
+ * The derived linked-owner id on the binding is the *principal*: unique per
+ * enrollment, so two devices sharing one email never share owner scope,
+ * lanes, Wallet Sessions, or revocation identity.
  */
 export type LinkedOwnerAuthFactorV1 =
   | {
@@ -61,11 +69,13 @@ export type LinkedOwnerAuthFactorV1 =
       readonly credentialIdB64u: WebAuthnCredentialIdB64u;
       readonly emailHashHex?: never;
       readonly registrationAuthorityId?: never;
+      readonly baseWalletAuthMethodId?: never;
     }
   | {
       readonly kind: 'email_otp';
       readonly emailHashHex: string;
       readonly registrationAuthorityId: string;
+      readonly baseWalletAuthMethodId: WalletAuthMethodId;
       readonly rpId?: never;
       readonly credentialIdB64u?: never;
     };
@@ -136,17 +146,51 @@ const BINDING_FIELDS = [
 ] as const;
 
 const PASSKEY_FACTOR_FIELDS = ['kind', 'rpId', 'credentialIdB64u'] as const;
-const EMAIL_OTP_FACTOR_FIELDS = ['kind', 'emailHashHex', 'registrationAuthorityId'] as const;
+const EMAIL_OTP_FACTOR_FIELDS = [
+  'kind',
+  'emailHashHex',
+  'registrationAuthorityId',
+  'baseWalletAuthMethodId',
+] as const;
 const EMAIL_HASH_HEX_PATTERN = /^[0-9a-f]{64}$/;
 
 /**
+ * The canonical wallet-wide Email OTP auth-method id an email factor is
+ * derived from — the row the linked binding's foreign reference points at.
+ * Routed through the shared formatter so it is byte-identical to the id
+ * wallet registration writes and the `wallet_auth_methods` CHECK recomputes.
+ */
+export function linkedOwnerEmailOtpBaseAuthMethodIdV1(input: {
+  readonly walletId: WalletId;
+  readonly emailHashHex: string;
+  readonly registrationAuthorityId: string;
+}): WalletAuthMethodId {
+  return walletAuthMethodBindingId(
+    buildEmailOtpWalletAuthMethodBinding({
+      wallet: buildWalletIdentity({ walletId: input.walletId }),
+      emailHashHex: input.emailHashHex,
+      registrationAuthorityId: input.registrationAuthorityId,
+    }),
+  );
+}
+
+/**
  * The one place a linked owner credential's `WalletAuthMethodId` is produced.
- * It routes through the shared canonical formatter so the id this refactor
- * writes is byte-identical to the one wallet registration writes and the one
- * the `wallet_auth_methods` CHECK constraint recomputes.
+ *
+ * Passkey ids route through the shared canonical formatter — each credential
+ * is already unique per device, so the credential id is the identity.
+ *
+ * Email OTP ids are derived from the wallet, enrollment, device, and base
+ * factor, mirrored byte-for-byte by the `linked_device_owner_auth_bindings`
+ * CHECK constraint. Wallet + email hash alone is deliberately NOT the
+ * identity: that tuple names the shared base factor, and reusing it would
+ * make two linked devices enrolled through one email a single revocable
+ * principal.
  */
 export function linkedOwnerAuthMethodIdV1(input: {
   readonly walletId: WalletId;
+  readonly enrollmentId: LinkedDeviceEnrollmentId;
+  readonly deviceId: LinkedDeviceId;
   readonly factor: LinkedOwnerAuthFactorV1;
 }): WalletAuthMethodId {
   switch (input.factor.kind) {
@@ -160,17 +204,32 @@ export function linkedOwnerAuthMethodIdV1(input: {
           credentialIdB64u: input.factor.credentialIdB64u,
         }),
       );
-    case 'email_otp':
-      return walletAuthMethodBindingId(
-        buildEmailOtpWalletAuthMethodBinding({
-          wallet: buildWalletIdentity({ walletId: input.walletId }),
-          emailHashHex: input.factor.emailHashHex,
-          registrationAuthorityId: input.factor.registrationAuthorityId,
-        }),
+    case 'email_otp': {
+      const canonicalBase = linkedOwnerEmailOtpBaseAuthMethodIdV1({
+        walletId: input.walletId,
+        emailHashHex: input.factor.emailHashHex,
+        registrationAuthorityId: input.factor.registrationAuthorityId,
+      });
+      if (input.factor.baseWalletAuthMethodId !== canonicalBase) {
+        throw new Error(
+          'LinkedOwnerAuthFactorV1.baseWalletAuthMethodId does not name this wallet email factor',
+        );
+      }
+      return requireLinkedOwnerAuthMethodId(
+        `email_otp_linked:${String(input.walletId)}:${String(input.enrollmentId)}:${String(
+          input.deviceId,
+        )}:${input.factor.emailHashHex}`,
       );
+    }
   }
   input.factor satisfies never;
   throw new Error('LinkedOwnerAuthFactorV1 kind is unsupported');
+}
+
+function requireLinkedOwnerAuthMethodId(raw: string): WalletAuthMethodId {
+  const parsed = parseWalletAuthMethodId(raw);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
 }
 
 type LinkedOwnerAuthBindingIdentityInputV1 = {
@@ -196,7 +255,12 @@ function buildActiveBindingV1(
     walletId: identity.walletId,
     enrollmentId: identity.enrollmentId,
     deviceId: identity.deviceId,
-    walletAuthMethodId: linkedOwnerAuthMethodIdV1({ walletId: identity.walletId, factor }),
+    walletAuthMethodId: linkedOwnerAuthMethodIdV1({
+      walletId: identity.walletId,
+      enrollmentId: identity.enrollmentId,
+      deviceId: identity.deviceId,
+      factor,
+    }),
     factor,
     keyManifestDigestB64u: identity.keyManifestDigestB64u,
     lifecycle: { state: 'active', activatedAtMs },
@@ -223,6 +287,7 @@ export function buildLinkedOwnerEmailOtpAuthBindingV1(
   input: LinkedOwnerAuthBindingIdentityInputV1 & {
     readonly emailHashHex: string;
     readonly registrationAuthorityId: string;
+    readonly baseWalletAuthMethodId: WalletAuthMethodId;
   },
 ): LinkedDeviceOwnerAuthBindingV1 {
   return buildActiveBindingV1(input, {
@@ -232,6 +297,10 @@ export function buildLinkedOwnerEmailOtpAuthBindingV1(
       input.registrationAuthorityId,
       'LinkedOwnerAuthFactorV1.registrationAuthorityId',
     ),
+    // Verified against the canonical wallet-wide derivation inside
+    // linkedOwnerAuthMethodIdV1 — a base id naming another wallet's factor
+    // cannot produce a binding.
+    baseWalletAuthMethodId: input.baseWalletAuthMethodId,
   });
 }
 
@@ -385,12 +454,20 @@ export function parseLinkedDeviceOwnerAuthBindingV1(raw: unknown): LinkedDeviceO
     parseWalletId(record.walletId),
     'LinkedDeviceOwnerAuthBindingV1.walletId',
   );
+  const enrollmentId = requireParsed(
+    parseLinkedDeviceEnrollmentId(record.enrollmentId),
+    'LinkedDeviceOwnerAuthBindingV1.enrollmentId',
+  );
+  const deviceId = requireParsed(
+    parseLinkedDeviceId(record.deviceId),
+    'LinkedDeviceOwnerAuthBindingV1.deviceId',
+  );
   const factor = parseLinkedOwnerAuthFactorV1(record.factor);
   const walletAuthMethodId = requireParsed(
     parseWalletAuthMethodId(record.walletAuthMethodId),
     'LinkedDeviceOwnerAuthBindingV1.walletAuthMethodId',
   );
-  const derived = linkedOwnerAuthMethodIdV1({ walletId, factor });
+  const derived = linkedOwnerAuthMethodIdV1({ walletId, enrollmentId, deviceId, factor });
   if (walletAuthMethodId !== derived) {
     throw new Error(
       'LinkedDeviceOwnerAuthBindingV1.walletAuthMethodId does not match its factor identity',
@@ -413,14 +490,8 @@ export function parseLinkedDeviceOwnerAuthBindingV1(raw: unknown): LinkedDeviceO
       'LinkedDeviceOwnerAuthBindingV1.tenantId',
     ),
     walletId,
-    enrollmentId: requireParsed(
-      parseLinkedDeviceEnrollmentId(record.enrollmentId),
-      'LinkedDeviceOwnerAuthBindingV1.enrollmentId',
-    ),
-    deviceId: requireParsed(
-      parseLinkedDeviceId(record.deviceId),
-      'LinkedDeviceOwnerAuthBindingV1.deviceId',
-    ),
+    enrollmentId,
+    deviceId,
     walletAuthMethodId,
     factor,
     keyManifestDigestB64u: parseKeyManifestDigest(record.keyManifestDigestB64u),
@@ -466,6 +537,10 @@ export function parseLinkedOwnerAuthFactorV1(raw: unknown): LinkedOwnerAuthFacto
         registrationAuthorityId: requireCanonicalToken(
           record.registrationAuthorityId,
           'LinkedOwnerAuthFactorV1.registrationAuthorityId',
+        ),
+        baseWalletAuthMethodId: requireParsed(
+          parseWalletAuthMethodId(record.baseWalletAuthMethodId),
+          'LinkedOwnerAuthFactorV1.baseWalletAuthMethodId',
         ),
       };
     }

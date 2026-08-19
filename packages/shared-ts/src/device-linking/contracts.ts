@@ -178,6 +178,7 @@ export type LinkedDeviceSessionState =
         | {
             readonly state: 'sent';
             readonly challengeId: string;
+            readonly workerEphemeralPublicKey65B64u: string;
             readonly maskedEmailHint: string;
             readonly expiresAtMs: number;
             readonly resendAvailableAtMs: number;
@@ -251,6 +252,7 @@ export type LinkedDeviceSessionClaimV1 = {
   readonly enrollmentId: LinkedDeviceEnrollmentId;
   readonly deviceId: LinkedDeviceId;
   readonly devicePublicKeyB64u: LinkDevicePublicKeyB64u;
+  readonly targetFactor: LinkedDeviceTargetFactorV1;
   readonly claimedAtMs: number;
   readonly claimExpiresAtMs: number;
 };
@@ -344,7 +346,7 @@ export type LinkedDeviceProtocolVersionV1 = {
   readonly version: string;
 };
 
-export type LinkedDeviceApprovalV1 = {
+type LinkedDeviceApprovalBaseV1 = {
   readonly kind: 'linked_device_approval_v1';
   readonly linkSessionId: LinkDeviceSessionId;
   readonly walletId: WalletId;
@@ -353,7 +355,6 @@ export type LinkedDeviceApprovalV1 = {
   readonly linkPublicKeyB64u: LinkDevicePublicKeyB64u;
   readonly devicePublicKeyB64u: LinkDevicePublicKeyB64u;
   readonly permission: QrLinkedDevicePermissionRequest;
-  readonly targetFactor: LinkedDeviceTargetFactorV1;
   readonly ownerAuthorization: LinkedDeviceOwnerAuthorizationSourceV1;
   /**
    * Refactor 103 Phase 8: the canonical owner add-auth-method ceremony this
@@ -366,7 +367,6 @@ export type LinkedDeviceApprovalV1 = {
    * is exactly the lifecycle this binding needs: the same approval returns the
    * same ceremony, and a conflicting retry is refused.
    */
-  readonly ownerEnrollment: LinkedDeviceOwnerEnrollmentCeremonyV1;
   readonly policyDigestB64u: DigestB64u;
   readonly operationId: LaneOperationId;
   readonly idempotencyKey: LaneOperationIdempotencyKey;
@@ -381,6 +381,24 @@ export type LinkedDeviceApprovalV1 = {
   readonly approvedAtMs: number;
   readonly expiresAtMs: number;
 };
+
+export type LinkedDeviceApprovalV1 = LinkedDeviceApprovalBaseV1 &
+  (
+    | {
+        readonly targetFactor: { readonly kind: 'passkey_prf' };
+        readonly ownerEnrollment: Extract<
+          LinkedDeviceOwnerEnrollmentCeremonyV1,
+          { readonly kind: 'linked_device_passkey_owner_enrollment_v1' }
+        >;
+      }
+    | {
+        readonly targetFactor: { readonly kind: 'email_otp' };
+        readonly ownerEnrollment: Extract<
+          LinkedDeviceOwnerEnrollmentCeremonyV1,
+          { readonly kind: 'linked_device_email_otp_owner_enrollment_v1' }
+        >;
+      }
+  );
 
 export type LinkedDeviceProvisioningCommandV1 = {
   readonly kind: 'linked_device_provisioning_command_v1';
@@ -573,14 +591,12 @@ export type LinkedDeviceOwnerEnrollmentCeremonyV1 =
  * own registration options — one source, so target passkey creation and its
  * later verification cannot disagree about what was signed.
  */
-export type LinkedDeviceTargetPreparationV1 = {
+type LinkedDeviceTargetPreparationBaseV1 = {
   readonly kind: 'linked_device_target_preparation_v1';
   readonly linkSessionId: LinkDeviceSessionId;
   readonly walletId: WalletId;
   readonly enrollmentId: LinkedDeviceEnrollmentId;
   readonly deviceId: LinkedDeviceId;
-  readonly targetFactor: LinkedDeviceTargetFactorV1;
-  readonly ownerEnrollment: LinkedDeviceOwnerEnrollmentCeremonyV1;
   readonly orderedChildren: readonly [
     LinkedDeviceTargetPreparationChildV1,
     ...LinkedDeviceTargetPreparationChildV1[],
@@ -588,6 +604,24 @@ export type LinkedDeviceTargetPreparationV1 = {
   readonly issuedAtMs: number;
   readonly expiresAtMs: number;
 };
+
+export type LinkedDeviceTargetPreparationV1 = LinkedDeviceTargetPreparationBaseV1 &
+  (
+    | {
+        readonly targetFactor: { readonly kind: 'passkey_prf' };
+        readonly ownerEnrollment: Extract<
+          LinkedDeviceOwnerEnrollmentCeremonyV1,
+          { readonly kind: 'linked_device_passkey_owner_enrollment_v1' }
+        >;
+      }
+    | {
+        readonly targetFactor: { readonly kind: 'email_otp' };
+        readonly ownerEnrollment: Extract<
+          LinkedDeviceOwnerEnrollmentCeremonyV1,
+          { readonly kind: 'linked_device_email_otp_owner_enrollment_v1' }
+        >;
+      }
+  );
 
 /** Verification-safe WebAuthn registration projection. PRF outputs stay on Device 2. */
 export type LinkedDeviceWebAuthnRegistrationV1 = {
@@ -636,11 +670,60 @@ export type LinkedDeviceEmailOtpVerificationGrantV1 = {
   readonly kind: 'linked_device_email_otp_verification_grant_v1';
   readonly grantId: string;
   readonly grantToken: string;
+  readonly challengeId: string;
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly walletId: WalletId;
+  readonly enrollmentId: LinkedDeviceEnrollmentId;
+  readonly deviceId: LinkedDeviceId;
+  readonly targetPreparationDigestB64u: DigestB64u;
   readonly baseWalletAuthMethodId: WalletAuthMethodId;
   readonly linkedOwnerAuthMethodId: WalletAuthMethodId;
   readonly authorityDigestB64u: DigestB64u;
   readonly issuedAtMs: number;
   readonly expiresAtMs: number;
+};
+
+export type LinkedDeviceEmailOtpFactorReleaseEnvelopeV1 = {
+  readonly kind: 'email_otp_factor_release_v1';
+  readonly challengeId: string;
+  readonly enrollmentId: string;
+  readonly enrollmentSealKeyVersion: string;
+  readonly serverEphemeralPublicKey65B64u: string;
+  readonly nonce12B64u: string;
+  readonly ciphertextB64u: string;
+};
+
+export type LinkedDeviceEmailOtpChallengeStartRequestV1 = {
+  readonly kind: 'linked_device_email_otp_challenge_start_request_v1';
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly workerEphemeralPublicKey65B64u: string;
+};
+
+export type LinkedDeviceEmailOtpChallengeResendRequestV1 = {
+  readonly kind: 'linked_device_email_otp_challenge_resend_request_v1';
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly challengeId: string;
+};
+
+export type LinkedDeviceEmailOtpChallengeVerifyRequestV1 = {
+  readonly kind: 'linked_device_email_otp_challenge_verify_request_v1';
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly challengeId: string;
+  readonly otpCode: string;
+};
+
+export type LinkedDeviceEmailOtpChallengeResultV1 = {
+  readonly kind: 'linked_device_email_otp_challenge_result_v1';
+  readonly challengeId: string;
+  readonly maskedEmailHint: string;
+  readonly expiresAtMs: number;
+  readonly resendAvailableAtMs: number;
+};
+
+export type LinkedDeviceEmailOtpVerificationResultV1 = {
+  readonly kind: 'linked_device_email_otp_verification_result_v1';
+  readonly verificationGrant: LinkedDeviceEmailOtpVerificationGrantV1;
+  readonly factorRelease: LinkedDeviceEmailOtpFactorReleaseEnvelopeV1;
 };
 
 export type LinkedDeviceTargetCredentialRegistrationV1 =
