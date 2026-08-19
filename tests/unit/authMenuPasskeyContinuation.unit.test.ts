@@ -22,7 +22,7 @@ import { createLinkDeviceFlowEvent, LinkDeviceEventPhase } from '@/core/types/sd
 import { IndexedDBManager } from '@/core/indexedDB';
 
 type AuthMenuSessionArgs = ConstructorParameters<typeof AuthMenuSession>[0];
-type StartDeviceLinkingCallbacks = Parameters<AuthMenuSessionArgs['startDeviceLinking']>[0];
+type StartDeviceLinkingCallbacks = Parameters<AuthMenuSessionArgs['startDeviceLinking']>[1];
 
 const APPEARANCE = {
   theme: { id: 'default', mode: 'dark', colors: {} },
@@ -73,6 +73,11 @@ function authMenuSession(
     cancelDeviceLinking: async () => {},
     sendToParent: args.sendToParent ?? (() => {}),
   });
+}
+
+function openAndStartPasskeyDeviceLinking(session: AuthMenuSession): void {
+  Reflect.apply(Reflect.get(session, 'openLinkDevice'), session, []);
+  Reflect.apply(Reflect.get(session, 'startSelectedDeviceLinking'), session, []);
 }
 
 function googleLoginFlow(
@@ -236,7 +241,7 @@ test.describe('hosted auth-menu passkey continuation', () => {
     let onEvent: StartDeviceLinkingCallbacks['onEvent'] | null = null;
     let resolveLinkDevice: ((result: { qrCodeDataURL: string }) => void) | null = null;
     const session = authMenuSession({
-      startDeviceLinking: async (callbacks) => {
+      startDeviceLinking: async (_targetFactor, callbacks) => {
         onEvent = callbacks.onEvent;
         return await new Promise((resolve) => {
           resolveLinkDevice = resolve;
@@ -244,7 +249,7 @@ test.describe('hosted auth-menu passkey continuation', () => {
       },
     });
     const outcome = session.waitForOutcome();
-    Reflect.apply(Reflect.get(session, 'openLinkDevice'), session, []);
+    openAndStartPasskeyDeviceLinking(session);
     if (!onEvent) throw new Error('Device-linking flow did not publish its event callback');
     onEvent(
       createLinkDeviceFlowEvent({
@@ -271,13 +276,13 @@ test.describe('hosted auth-menu passkey continuation', () => {
   test('shows a recoverable error when linked activation omits its wallet identity', async () => {
     let onEvent: StartDeviceLinkingCallbacks['onEvent'] | null = null;
     const session = authMenuSession({
-      startDeviceLinking: async (callbacks) => {
+      startDeviceLinking: async (_targetFactor, callbacks) => {
         onEvent = callbacks.onEvent;
         return await new Promise<never>(() => {});
       },
     });
 
-    Reflect.apply(Reflect.get(session, 'openLinkDevice'), session, []);
+    openAndStartPasskeyDeviceLinking(session);
     if (!onEvent) throw new Error('Device-linking flow did not publish its event callback');
     onEvent(
       createLinkDeviceFlowEvent({
@@ -305,7 +310,7 @@ test.describe('hosted auth-menu passkey continuation', () => {
     let resolveLinkDevice: ((result: { qrCodeDataURL: string }) => void) | null = null;
     let resolvePasskey: (() => void) | null = null;
     const session = authMenuSession({
-      startDeviceLinking: async (nextCallbacks) => {
+      startDeviceLinking: async (_targetFactor, nextCallbacks) => {
         callbacks = nextCallbacks;
         return await new Promise((resolve) => {
           resolveLinkDevice = resolve;
@@ -313,9 +318,10 @@ test.describe('hosted auth-menu passkey continuation', () => {
       },
     });
 
-    Reflect.apply(Reflect.get(session, 'openLinkDevice'), session, []);
+    openAndStartPasskeyDeviceLinking(session);
     if (!callbacks) throw new Error('Device-linking flow did not publish its callbacks');
-    callbacks.onTargetPasskeyRequired({
+    callbacks.onTargetFactorRequired({
+      kind: 'linked_device_target_passkey_activation_v1',
       createPasskey: async () => {
         await new Promise<void>((resolve) => {
           resolvePasskey = resolve;
@@ -342,6 +348,75 @@ test.describe('hosted auth-menu passkey continuation', () => {
     });
     resolvePasskey?.();
     session.cleanup();
+  });
+
+  test('links with Email OTP without starting a Passkey ceremony', async () => {
+    let callbacks: StartDeviceLinkingCallbacks | null = null;
+    let selectedFactor: string | null = null;
+    let sendCalls = 0;
+    const submittedCodes: string[] = [];
+    const session = authMenuSession({
+      startDeviceLinking: async (targetFactor, nextCallbacks) => {
+        selectedFactor = targetFactor.kind;
+        callbacks = nextCallbacks;
+        return await new Promise<never>(() => {});
+      },
+    });
+    const outcome = session.waitForOutcome();
+    Reflect.apply(Reflect.get(session, 'openLinkDevice'), session, []);
+    Reflect.apply(Reflect.get(session, 'selectLinkedDeviceTargetFactor'), session, [
+      { kind: 'email_otp' },
+    ]);
+    Reflect.apply(Reflect.get(session, 'startSelectedDeviceLinking'), session, []);
+    if (!callbacks) throw new Error('Device-linking flow did not publish its callbacks');
+    callbacks.onTargetFactorRequired({
+      kind: 'linked_device_target_email_otp_activation_v1',
+      state: { kind: 'sending', maskedEmailHint: 'a***@example.test' },
+      sendCode: async () => {
+        sendCalls += 1;
+      },
+      resendCode: async () => undefined,
+      submitCode: async (otpCode) => {
+        submittedCodes.push(otpCode);
+      },
+    });
+    await Promise.resolve();
+    callbacks.onTargetFactorRequired({
+      kind: 'linked_device_target_email_otp_activation_v1',
+      state: {
+        kind: 'code_input',
+        maskedEmailHint: 'a***@example.test',
+        expiresAtMs: Date.now() + 60_000,
+        resendAvailableAtMs: Date.now(),
+      },
+      sendCode: async () => undefined,
+      resendCode: async () => undefined,
+      submitCode: async (otpCode) => {
+        submittedCodes.push(otpCode);
+      },
+    });
+    Reflect.apply(Reflect.get(session, 'changeLinkedDeviceEmailOtpCode'), session, ['123456']);
+    Reflect.apply(Reflect.get(session, 'submitLinkedDeviceEmailOtp'), session, []);
+    await Promise.resolve();
+    callbacks.onEvent(
+      createLinkDeviceFlowEvent({
+        flowId: 'linked-device-email-terminal-test',
+        phase: LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED,
+        status: 'succeeded',
+        message: 'Linked device active',
+        walletId: 'wallet-linked-email-device-test',
+        data: { enrollmentId: 'enrollment-linked-email-device-test' },
+      }),
+    );
+
+    expect(selectedFactor).toBe('email_otp');
+    expect(sendCalls).toBe(1);
+    expect(submittedCodes).toEqual(['123456']);
+    await expect(outcome).resolves.toMatchObject({
+      kind: 'authenticated',
+      walletId: 'wallet-linked-email-device-test',
+      method: 'google_email_otp',
+    });
   });
 
   test('does not prepare sponsored registration until its required name is entered', () => {

@@ -107,11 +107,19 @@ test('Email OTP renderer produces operation-specific HTML and plain text without
     expiresAtMs: 400_000,
     nowMs: 100_000,
   });
+  const deviceLink = renderEmailOtpMessage({
+    operation: 'device_link',
+    otpCode: '123456',
+    expiresAtMs: 400_000,
+    nowMs: 100_000,
+  });
 
   expect(registration.subject).toBe('Your Seams registration code');
   expect(unlock.subject).toBe('Your Seams wallet unlock code');
   expect(transaction.subject).toBe('Confirm your Seams transaction');
   expect(keyExport.subject).toBe('Confirm your Seams key export');
+  expect(deviceLink.subject).toBe('Confirm your Seams device link');
+  expect(deviceLink.text).toContain('device you are linking');
   expect(registration.text).toContain('This code expires in 5 minutes.');
   expect(registration.html).toContain('123456');
   expect(keyExport.html).toContain('&lt;123&amp;');

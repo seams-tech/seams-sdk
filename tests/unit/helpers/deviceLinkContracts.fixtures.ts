@@ -18,12 +18,14 @@ import {
 } from '../../../packages/shared-ts/src/device-linking/parsers';
 import type {
   LinkedDeviceOwnerEnrollmentCeremonyV1,
+  LinkedDeviceTargetFactorV1,
   LinkedDeviceApprovalV1,
   LinkedDeviceEnrollmentKeyBindingV1,
   LinkedDeviceEnrollmentReceiptV1,
   LinkedDeviceEnrollmentTranscriptV1,
   QrLinkedDeviceSessionPayloadV5,
   LinkedDeviceTargetCredentialRegistrationV1,
+  LinkedDeviceEmailOtpVerificationGrantV1,
   LinkedDeviceTargetPreparationChildV1,
   LinkedDeviceTargetPreparationV1,
   LinkedDeviceTargetHolderRegistrationV1,
@@ -61,7 +63,6 @@ import {
   parseMpcSigningWorkerRef,
   parseWalletId,
   parseWebAuthnCredentialIdB64u,
-  parseWebAuthnRpId,
 } from '../../../packages/shared-ts/src/utils/domainIds';
 import { base64UrlEncode } from '../../../packages/shared-ts/src/utils/base64';
 import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '../../../packages/shared-ts/src/utils/sessionTokens';
@@ -151,7 +152,8 @@ export function buildR103OwnerEnrollmentCeremonyV1(
 ): LinkedDeviceOwnerEnrollmentCeremonyV1 {
   const rpId = overrides.rpId ?? 'wallet.example.test';
   return parseLinkedDeviceOwnerEnrollmentCeremonyV1({
-    kind: 'linked_device_owner_enrollment_ceremony_v1',
+    kind: 'linked_device_passkey_owner_enrollment_v1',
+    targetFactor: { kind: 'passkey_prf' },
     addAuthMethodCeremonyId: overrides.addAuthMethodCeremonyId ?? 'add-auth-method-ceremony:r103p8',
     registration: {
       kind: 'webauthn_add_auth_method_registration_v1',
@@ -184,6 +186,31 @@ export function buildR103OwnerEnrollmentCeremonyV1(
   });
 }
 
+/**
+ * The Email OTP branch of the ceremony: the server-resolved base factor and
+ * masked destination hint, restating the approval expiry. The base auth-method
+ * id follows the canonical wallet-wide `email_otp:<wallet>:<hash>` form so the
+ * derived-identity checks exercise real derivations rather than test tokens.
+ */
+export function buildR103EmailOtpOwnerEnrollmentCeremonyV1(
+  overrides: {
+    readonly walletId?: string;
+    readonly emailHashHex?: string;
+    readonly maskedEmailHint?: string;
+    readonly expiresAtMs?: number;
+  } = {},
+): LinkedDeviceOwnerEnrollmentCeremonyV1 {
+  const walletId = overrides.walletId ?? 'wallet:r103';
+  const emailHashHex = overrides.emailHashHex ?? 'ab'.repeat(32);
+  return parseLinkedDeviceOwnerEnrollmentCeremonyV1({
+    kind: 'linked_device_email_otp_owner_enrollment_v1',
+    targetFactor: { kind: 'email_otp' },
+    baseWalletAuthMethodId: `email_otp:${walletId}:${emailHashHex}`,
+    maskedEmailHint: overrides.maskedEmailHint ?? 'd***e@e***e.test',
+    expiresAtMs: overrides.expiresAtMs ?? 20_000,
+  });
+}
+
 /** Mixed-curve owner source and target registration facts for R103 planner tests. */
 export async function buildR103MixedPlannerFixture(): Promise<R103MixedPlannerFixture> {
   const base = buildR103DeviceLinkFixture({ linkSessionId: 'link-session:r103-mixed' });
@@ -202,6 +229,7 @@ export async function buildR103MixedPlannerFixture(): Promise<R103MixedPlannerFi
     linkPublicKeyB64u: base.approval.linkPublicKeyB64u,
     devicePublicKeyB64u: base.approval.devicePublicKeyB64u,
     permission: base.approval.permission,
+    targetFactor: base.approval.targetFactor,
     ownerAuthorization: base.approval.ownerAuthorization,
     ownerEnrollment: base.approval.ownerEnrollment,
     policyDigestB64u: base.approval.policyDigestB64u,
@@ -223,6 +251,7 @@ export async function buildR103MixedPlannerFixture(): Promise<R103MixedPlannerFi
     linkPublicKeyB64u: approval.linkPublicKeyB64u,
     devicePublicKeyB64u: approval.devicePublicKeyB64u,
     permission: approval.permission,
+    targetFactor: approval.targetFactor,
     ownerAuthorization: approval.ownerAuthorization,
     // The transcript is the durable record of the approval, so it carries the
     // same ceremony the approval authorized.
@@ -236,7 +265,6 @@ export async function buildR103MixedPlannerFixture(): Promise<R103MixedPlannerFi
     expiresAtMs: approval.expiresAtMs,
   });
   const deviceLink = { ...base, approval, transcript };
-  const rpId = required(parseWebAuthnRpId('wallet.example.test'));
   const credentialIdB64u = required(
     parseWebAuthnCredentialIdB64u(base64UrlEncode(new Uint8Array(32).fill(9))),
   );
@@ -245,6 +273,7 @@ export async function buildR103MixedPlannerFixture(): Promise<R103MixedPlannerFi
     walletId: approval.walletId,
     enrollmentId: approval.enrollmentId,
     deviceId: approval.deviceId,
+    targetFactor: approval.targetFactor,
     ownerEnrollment: approval.ownerEnrollment,
     orderedChildren: [
       buildMixedPreparationChild(ed25519),
@@ -260,6 +289,7 @@ export async function buildR103MixedPlannerFixture(): Promise<R103MixedPlannerFi
     walletId: approval.walletId,
     enrollmentId: approval.enrollmentId,
     deviceId: approval.deviceId,
+    targetFactor: approval.targetFactor,
     targetPreparationDigestB64u,
     webauthnRegistration: {
       kind: 'linked_device_webauthn_registration_v1',
@@ -560,6 +590,7 @@ export function buildR103ProvisioningFixture(
       linkSessionId: fixture.approval.linkSessionId,
       enrollmentId: fixture.approval.enrollmentId,
       deviceId: fixture.approval.deviceId,
+      targetFactor: fixture.approval.targetFactor,
     }),
     deliveries,
     acknowledgement: buildLinkedDeviceHolderDeliveryAcknowledgementV1({
@@ -592,20 +623,17 @@ export function buildR103TargetReadySourceFixture(fixture: R103DeviceLinkFixture
   };
 }
 
-export async function buildR103TargetCredentialFixture(
+export async function buildR103TargetPreparationFixture(
   fixture: R103DeviceLinkFixture,
-): Promise<R103TargetCredentialFixture> {
+): Promise<LinkedDeviceTargetPreparationV1> {
   const binding = fixture.approval.orderedKeyBindings[0];
   const job = buildR103ProvisioningFixture(fixture).deliveries.orderedChildren[0].job;
-  const rpId = required(parseWebAuthnRpId('wallet.example.test'));
-  const credentialIdB64u = required(
-    parseWebAuthnCredentialIdB64u(base64UrlEncode(new Uint8Array(32).fill(6))),
-  );
-  const preparation = buildLinkedDeviceTargetPreparationV1({
+  return buildLinkedDeviceTargetPreparationV1({
     linkSessionId: fixture.approval.linkSessionId,
     walletId: fixture.approval.walletId,
     enrollmentId: fixture.approval.enrollmentId,
     deviceId: fixture.approval.deviceId,
+    targetFactor: fixture.approval.targetFactor,
     ownerEnrollment: fixture.approval.ownerEnrollment,
     orderedChildren: [
       {
@@ -623,11 +651,47 @@ export async function buildR103TargetCredentialFixture(
     issuedAtMs: 3_003,
     expiresAtMs: 7_000,
   });
+}
+
+function buildR103TargetHolderRegistrations(
+  fixture: R103DeviceLinkFixture,
+  preparation: LinkedDeviceTargetPreparationV1,
+): readonly [LinkedDeviceTargetHolderRegistrationV1, ...LinkedDeviceTargetHolderRegistrationV1[]] {
+  const job = buildR103ProvisioningFixture(fixture).deliveries.orderedChildren[0].job;
+  const child = preparation.orderedChildren[0];
+  return [
+    {
+      kind: 'linked_device_target_holder_registration_v1',
+      operationId: child.operationId,
+      walletKeyId: child.walletKeyId,
+      keyFamily: child.keyFamily,
+      targetLaneId: child.targetLaneId,
+      targetLaneShareEpoch: child.targetLaneShareEpoch,
+      targetMaterialActivationId: child.targetMaterialActivationId,
+      holderParticipant: {
+        kind: 'lane_holder_participant_v1',
+        ...job.targetHolder,
+      },
+    },
+  ];
+}
+
+export async function buildR103TargetCredentialFixture(
+  fixture: R103DeviceLinkFixture,
+): Promise<R103TargetCredentialFixture> {
+  if (fixture.approval.targetFactor.kind !== 'passkey_prf') {
+    throw new Error('the Passkey target-credential fixture requires a Passkey approval');
+  }
+  const preparation = await buildR103TargetPreparationFixture(fixture);
+  const credentialIdB64u = required(
+    parseWebAuthnCredentialIdB64u(base64UrlEncode(new Uint8Array(32).fill(6))),
+  );
   const registration = buildLinkedDeviceTargetCredentialRegistrationV1({
     linkSessionId: fixture.approval.linkSessionId,
     walletId: fixture.approval.walletId,
     enrollmentId: fixture.approval.enrollmentId,
     deviceId: fixture.approval.deviceId,
+    targetFactor: { kind: 'passkey_prf' },
     targetPreparationDigestB64u: await computeLinkedDeviceTargetPreparationDigestV1(preparation),
     webauthnRegistration: {
       kind: 'linked_device_webauthn_registration_v1',
@@ -637,22 +701,31 @@ export async function buildR103TargetCredentialFixture(
       attestationObjectB64u: 'BAUG',
       transports: ['internal'],
     },
-    orderedHolderRegistrations: [
-      {
-        kind: 'linked_device_target_holder_registration_v1',
-        operationId: preparation.orderedChildren[0].operationId,
-        walletKeyId: preparation.orderedChildren[0].walletKeyId,
-        keyFamily: preparation.orderedChildren[0].keyFamily,
-        targetLaneId: preparation.orderedChildren[0].targetLaneId,
-        targetLaneShareEpoch: preparation.orderedChildren[0].targetLaneShareEpoch,
-        targetMaterialActivationId: preparation.orderedChildren[0].targetMaterialActivationId,
-        holderParticipant: {
-          kind: 'lane_holder_participant_v1',
-          ...job.targetHolder,
-        },
-      },
-    ],
+    orderedHolderRegistrations: buildR103TargetHolderRegistrations(fixture, preparation),
     registeredAtMs: 3_004,
+  });
+  return { preparation, registration };
+}
+
+export async function buildR103EmailOtpTargetCredentialFixture(input: {
+  readonly fixture: R103DeviceLinkFixture;
+  readonly verificationGrant: LinkedDeviceEmailOtpVerificationGrantV1;
+  readonly registeredAtMs: number;
+}): Promise<R103TargetCredentialFixture> {
+  if (input.fixture.approval.targetFactor.kind !== 'email_otp') {
+    throw new Error('the Email OTP target-credential fixture requires an Email OTP approval');
+  }
+  const preparation = await buildR103TargetPreparationFixture(input.fixture);
+  const registration = buildLinkedDeviceTargetCredentialRegistrationV1({
+    linkSessionId: input.fixture.approval.linkSessionId,
+    walletId: input.fixture.approval.walletId,
+    enrollmentId: input.fixture.approval.enrollmentId,
+    deviceId: input.fixture.approval.deviceId,
+    targetFactor: { kind: 'email_otp' },
+    targetPreparationDigestB64u: await computeLinkedDeviceTargetPreparationDigestV1(preparation),
+    emailOtpVerificationGrant: input.verificationGrant,
+    orderedHolderRegistrations: buildR103TargetHolderRegistrations(input.fixture, preparation),
+    registeredAtMs: input.registeredAtMs,
   });
   return { preparation, registration };
 }
@@ -685,8 +758,11 @@ export function buildR103DeviceLinkFixture(
     readonly linkSessionId?: string;
     readonly enrollmentId?: string;
     readonly deviceId?: string;
+    /** The immutable factor branch; defaults to the recommended Passkey. */
+    readonly targetFactor?: LinkedDeviceTargetFactorV1;
   } = {},
 ): R103DeviceLinkFixture {
+  const targetFactor = input.targetFactor ?? ({ kind: 'passkey_prf' } as const);
   const linkSessionId = required(
     parseLinkDeviceSessionId(input.linkSessionId ?? 'link-session:r103'),
   );
@@ -710,7 +786,7 @@ export function buildR103DeviceLinkFixture(
     sourceIdentityDigestB64u: DIGEST,
   });
   const payload = parseQrLinkedDeviceSessionPayloadV5({
-    version: 'v4',
+    version: 'v5',
     purpose: 'linked_device_lane_creation',
     linkSessionId,
     linkPublicKeyB64u: PUBLIC_KEY,
@@ -720,6 +796,7 @@ export function buildR103DeviceLinkFixture(
       administrationScope: 'signing_only',
       localUserPresence: 'required',
     },
+    targetFactor,
     issuedAtMs: 1_000,
     expiresAtMs: 10_000,
   });
@@ -742,6 +819,7 @@ export function buildR103DeviceLinkFixture(
     linkPublicKeyB64u: payload.linkPublicKeyB64u,
     devicePublicKeyB64u: payload.devicePublicKeyB64u,
     permission: payload.requestedPermission,
+    targetFactor,
     ownerAuthorization,
     policyDigestB64u: DIGEST,
     operationId,
@@ -768,7 +846,14 @@ export function buildR103DeviceLinkFixture(
   };
   const approval = buildLinkedDeviceApprovalV1({
     ...common,
-    ownerEnrollment: buildR103OwnerEnrollmentCeremonyV1(),
+    ownerEnrollment:
+      targetFactor.kind === 'passkey_prf'
+        ? buildR103OwnerEnrollmentCeremonyV1()
+        : buildR103EmailOtpOwnerEnrollmentCeremonyV1({
+            walletId: String(walletId),
+            // The email branch restates the approval expiry as its deadline.
+            expiresAtMs: common.expiresAtMs,
+          }),
   });
   const transcript = buildLinkedDeviceEnrollmentTranscriptV1({
     ...common,
@@ -790,6 +875,7 @@ export function buildR103DeviceLinkFixture(
     enrollmentId,
     walletId,
     deviceId,
+    targetFactor,
     manifestDigestB64u: DIGEST,
     aggregateReceiptDigestB64u: DIGEST,
     orderedChildReceipts: [childReceipt],
@@ -801,6 +887,7 @@ export function buildR103DeviceLinkFixture(
       linkSessionId,
       linkPublicKeyB64u: payload.linkPublicKeyB64u,
       devicePublicKeyB64u: payload.devicePublicKeyB64u,
+      targetFactor,
       issuedAtMs: 1_000,
       expiresAtMs: 10_000,
     }),

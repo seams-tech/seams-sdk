@@ -10,6 +10,7 @@
 import {
   buildLinkedOwnerEmailOtpAuthBindingV1,
   buildLinkedOwnerPasskeyAuthBindingV1,
+  linkedOwnerEmailOtpBaseAuthMethodIdV1,
   type LinkedDeviceOwnerAuthBindingV1,
 } from '../../../packages/shared-ts/src/device-linking/ownerAuthBinding';
 import { parseTenantId } from '../../../packages/shared-ts/src/authorization/capabilityKinds';
@@ -24,6 +25,8 @@ import {
   parseWebAuthnCredentialIdB64u,
   parseWebAuthnRpId,
 } from '../../../packages/shared-ts/src/utils/domainIds';
+import type { WalletAuthMethodRecord } from '../../../packages/shared-ts/src/utils/registrationIntent';
+import { normalizeWalletAuthMethod } from '../../../packages/wallet-server/src/core/d1WalletAuthMethodStore';
 
 const KEY_MANIFEST_DIGEST_B64U = parseDigestB64u(base64UrlEncode(new Uint8Array(32).fill(7)));
 const EMAIL_HASH_HEX = 'b'.repeat(64);
@@ -59,11 +62,46 @@ export function buildLinkedOwnerEmailOtpBindingFixtureV1(
     readonly registrationAuthorityId?: string;
   } = {},
 ): LinkedDeviceOwnerAuthBindingV1 {
+  const identity = bindingIdentity(overrides);
+  const emailHashHex = overrides.emailHashHex ?? EMAIL_HASH_HEX;
+  const registrationAuthorityId = overrides.registrationAuthorityId ?? 'google';
   return buildLinkedOwnerEmailOtpAuthBindingV1({
-    ...bindingIdentity(overrides),
+    ...identity,
+    emailHashHex,
+    registrationAuthorityId,
+    // Derived through the production formatter so the fixture's base reference
+    // is the exact wallet-wide row a real enrollment would point at.
+    baseWalletAuthMethodId: linkedOwnerEmailOtpBaseAuthMethodIdV1({
+      walletId: identity.walletId,
+      emailHashHex,
+      registrationAuthorityId,
+    }),
+  });
+}
+
+export function buildActiveEmailOtpWalletAuthMethodFixtureV1(
+  overrides: {
+    readonly walletId?: string;
+    readonly emailHashHex?: string;
+    readonly registrationAuthorityId?: string;
+    readonly createdAtMs?: number;
+  } = {},
+): Extract<WalletAuthMethodRecord, { readonly kind: 'email_otp'; readonly status: 'active' }> {
+  const createdAtMs = overrides.createdAtMs ?? LINKED_OWNER_BINDING_ACTIVATED_AT_MS;
+  const record = normalizeWalletAuthMethod({
+    version: 'wallet_auth_method_v1',
+    kind: 'email_otp',
+    status: 'active',
+    walletId: overrides.walletId ?? 'wallet:r103p8',
     emailHashHex: overrides.emailHashHex ?? EMAIL_HASH_HEX,
     registrationAuthorityId: overrides.registrationAuthorityId ?? 'google',
+    createdAtMs,
+    updatedAtMs: createdAtMs,
   });
+  if (!record || record.kind !== 'email_otp' || record.status !== 'active') {
+    throw new Error('active Email OTP wallet auth-method fixture is invalid');
+  }
+  return record;
 }
 
 function bindingIdentity(overrides: LinkedOwnerAuthBindingFixtureOverridesV1) {

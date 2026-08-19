@@ -119,7 +119,7 @@ test('creates exact R102 target jobs from owner source resolution', async () => 
   const committed = await planner.commitVerifiedTargetV1({
     preparation: fixture.targetCredential.preparation,
     registration: fixture.targetCredential.registration,
-    credential,
+    evidence: { kind: 'passkey_prf' as const, credential },
     registrationDigestB64u: await registrationDigestV1(fixture.targetCredential.registration),
     requestedAtMs: 4_000,
   });
@@ -172,7 +172,7 @@ test('rejects target commit when the authenticated descriptor is missing', async
     planner.commitVerifiedTargetV1({
       preparation: fixture.targetCredential.preparation,
       registration: fixture.targetCredential.registration,
-      credential,
+      evidence: { kind: 'passkey_prf' as const, credential },
       registrationDigestB64u: await registrationDigestV1(fixture.targetCredential.registration),
       requestedAtMs: 4_000,
     }),
@@ -235,7 +235,7 @@ test('creates exact mixed Ed25519 and ECDSA target jobs from source-only owner f
   const committed = await planner.commitVerifiedTargetV1({
     preparation: fixture.targetCredential.preparation,
     registration: fixture.targetCredential.registration,
-    credential,
+    evidence: { kind: 'passkey_prf' as const, credential },
     registrationDigestB64u: await registrationDigestV1(fixture.targetCredential.registration),
     requestedAtMs: 4_000,
   });
