@@ -96,10 +96,7 @@ test('persists a linked passkey owner binding and resolves it by enrollment, dev
   await seedCanonicalPasskeyAuthMethod(database, binding);
 
   const write = store.buildInsertV1(binding);
-  assertOwnerAuthBindingBatchApplied(
-    await database.batch<D1ResultLike>([write.statement]),
-    1,
-  );
+  assertOwnerAuthBindingBatchApplied(await database.batch<D1ResultLike>([write.statement]), 1);
 
   expect(String(binding.walletAuthMethodId)).toBe(
     'passkey:wallet.example.localhost:credential-device-2',
@@ -125,6 +122,59 @@ test('persists a linked passkey owner binding and resolves it by enrollment, dev
 
   const batch = await store.readBatchForWalletV1(binding.walletId);
   expect([...batch.keys()]).toEqual([String(binding.deviceId)]);
+});
+
+test('pages wallet bindings by durable update time and device identity without duplicates', async () => {
+  const { database, store } = await migratedStore();
+  const bindings = [
+    buildLinkedOwnerPasskeyBindingFixtureV1({
+      enrollmentId: 'enrollment:r103p8:a',
+      deviceId: 'device:r103p8:a',
+      credentialIdB64u: 'credential-device-a',
+      activatedAtMs: 3_000,
+    }),
+    buildLinkedOwnerPasskeyBindingFixtureV1({
+      enrollmentId: 'enrollment:r103p8:b',
+      deviceId: 'device:r103p8:b',
+      credentialIdB64u: 'credential-device-b',
+      activatedAtMs: 3_000,
+    }),
+    buildLinkedOwnerPasskeyBindingFixtureV1({
+      enrollmentId: 'enrollment:r103p8:c',
+      deviceId: 'device:r103p8:c',
+      credentialIdB64u: 'credential-device-c',
+      activatedAtMs: 2_000,
+    }),
+  ];
+  for (const binding of bindings) await seedCanonicalPasskeyAuthMethod(database, binding);
+  assertOwnerAuthBindingBatchApplied(
+    await database.batch<D1ResultLike>(
+      bindings.map((binding) => store.buildInsertV1(binding).statement),
+    ),
+    bindings.length,
+  );
+
+  const first = await store.listPageForWalletV1({
+    walletId: bindings[0].walletId,
+    limit: 2,
+    cursor: null,
+  });
+  expect(first.records.map((binding) => String(binding.deviceId))).toEqual([
+    'device:r103p8:a',
+    'device:r103p8:b',
+  ]);
+  expect(first.nextCursor).toEqual({
+    updatedAtMs: 3_000,
+    deviceId: bindings[1].deviceId,
+  });
+
+  const second = await store.listPageForWalletV1({
+    walletId: bindings[0].walletId,
+    limit: 2,
+    cursor: first.nextCursor,
+  });
+  expect(second.records.map((binding) => String(binding.deviceId))).toEqual(['device:r103p8:c']);
+  expect(second.nextCursor).toBeNull();
 });
 
 test('an Email OTP binding stores no WebAuthn identity and derives its own auth-method id', async () => {
@@ -154,10 +204,12 @@ test('an Email OTP binding stores no WebAuthn identity and derives its own auth-
     registration_authority_id: 'google',
   });
 
-  expect(await store.readByEnrollmentV1({
-    walletId: binding.walletId,
-    enrollmentId: binding.enrollmentId,
-  })).toEqual(binding);
+  expect(
+    await store.readByEnrollmentV1({
+      walletId: binding.walletId,
+      enrollmentId: binding.enrollmentId,
+    }),
+  ).toEqual(binding);
 });
 
 test('one device cannot hold two owner credentials and one credential cannot serve two devices', async () => {
@@ -319,7 +371,14 @@ test('a stored record that points at another credential fails closed at the boun
     /walletAuthMethodId does not match its factor identity/,
   );
 
-  const crossBranch = { ...binding, factor: { kind: 'email_otp' as const, emailHashHex: 'c'.repeat(64), registrationAuthorityId: 'google' } };
+  const crossBranch = {
+    ...binding,
+    factor: {
+      kind: 'email_otp' as const,
+      emailHashHex: 'c'.repeat(64),
+      registrationAuthorityId: 'google',
+    },
+  };
   expect(() => parseLinkedDeviceOwnerAuthBindingV1(crossBranch)).toThrow(
     /walletAuthMethodId does not match its factor identity/,
   );

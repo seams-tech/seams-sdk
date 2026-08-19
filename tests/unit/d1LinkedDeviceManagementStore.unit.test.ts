@@ -5,10 +5,12 @@ import {
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import {
+  buildR103ActiveExecutionFixture,
   buildR103DeviceLinkFixture,
   buildR103OwnerApprovalContextV1,
   buildR103OwnerEnrollmentCeremonyReaderV1,
 } from './helpers/deviceLinkContracts.fixtures';
+import { buildR102ActiveProductEpoch } from './helpers/r102LaneGateway.fixtures';
 import {
   LinkedDeviceSessionServiceV1,
   type LinkedDeviceAggregateActivationVerifierV1,
@@ -43,6 +45,7 @@ import {
   insertWalletAuthMethod,
   insertWebAuthn,
 } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
+import { buildLaneProductEpochActiveV1 } from '../../packages/shared-ts/src/signing-lanes/rotationParsers';
 
 const scope: D1LinkedDeviceSessionScopeV1 = {
   namespace: 'signer',
@@ -62,7 +65,11 @@ test.afterEach(() => {
   temporary = undefined;
 });
 
-test('uses the core session clock before projecting management rows', async () => {
+// R103C: sessions are workflow history. The list projection enumerates durable
+// owner bindings only, so a wallet with claimed, approved, or even corrupt
+// session rows and no binding projects an empty device list — and the session
+// service is never consulted.
+test('ignores session workflow history when projecting a wallet with no owner bindings', async () => {
   temporary = createTemporaryD1Database();
   await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
   const fixture = buildR103DeviceLinkFixture();
@@ -130,21 +137,9 @@ test('uses the core session clock before projecting management rows', async () =
     )
     .run();
 
-  const reads: Array<{ readonly linkSessionId: unknown; readonly nowMs: number }> = [];
   const projection = new D1LinkedDeviceManagementStoreV1({
     database: temporary.database,
     scope,
-    sessionService: {
-      getSessionV1: async (input) => {
-        reads.push(input);
-        return null;
-      },
-      listSessionsForWalletV1: async (input) => {
-        reads.push({ linkSessionId: fixture.payload.linkSessionId, nowMs: input.nowMs });
-        return { records: [], nextCursor: null };
-      },
-    },
-    nowV1: () => 12_000,
     metadata: {
       readLinkedDeviceMetadataV1: async () => null,
       readLinkedDeviceMetadataBatchV1: async () => new Map(),
@@ -158,9 +153,6 @@ test('uses the core session clock before projecting management rows', async () =
     cursor: null,
   });
   expect(result).toEqual({ devices: [], ownerDevices: [], nextCursor: null });
-  expect(reads).toHaveLength(1);
-  expect(reads[0].nowMs).toBe(12_000);
-  expect(String(reads[0].linkSessionId)).toBe(String(fixture.payload.linkSessionId));
 });
 
 test('reads only exact scope and device signing activity from authorization audit rows', async () => {
@@ -267,7 +259,7 @@ test('omits linked sessions without owner bindings from the management projectio
     ownerEnrollmentCeremonies: buildR103OwnerEnrollmentCeremonyReaderV1(fixture.approval),
     store: sessionStore,
     authorization: {
-      authorizeOwnerClaimV1: async ({ payload, requestedAtMs }) => ({
+      authorizeOwnerClaimV1: async ({ payload: _payload, requestedAtMs }) => ({
         kind: 'authorized' as const,
         identity: {
           walletId: fixture.approval.walletId,
@@ -323,8 +315,6 @@ test('omits linked sessions without owner bindings from the management projectio
   const projection = new D1LinkedDeviceManagementStoreV1({
     database: countedDatabase,
     scope,
-    sessionService,
-    nowV1: () => 3_003,
     metadata: new D1LinkedDeviceCanonicalOwnerAuthMetadataSourceV1({
       database: countedDatabase,
       scope,
@@ -414,3 +404,200 @@ test('keeps canonical metadata for bound identities while omitting orphan identi
   ).toBeDefined();
   expect(metadata.size).toBe(1);
 });
+
+test('lists and retrieves a binding-only device from its verified durable lane records', async () => {
+  temporary = createTemporaryD1Database();
+  await applyD1MigrationFiles(temporary.database, listD1MigrationFiles('d1-signer'));
+  const seeded = await seedDurableLinkedDeviceProjection(temporary.database);
+  const projection = new D1LinkedDeviceManagementStoreV1({
+    database: temporary.database,
+    scope,
+    metadata: new D1LinkedDeviceCanonicalOwnerAuthMetadataSourceV1({
+      database: temporary.database,
+      scope,
+      tenantId: seeded.binding.tenantId,
+    }),
+  });
+
+  const listed = await projection.listLinkedDevicesV1({
+    walletId: seeded.binding.walletId,
+    limit: 1,
+    cursor: null,
+  });
+  expect(listed.devices).toHaveLength(1);
+  expect(listed.devices[0]).toMatchObject({
+    deviceId: seeded.binding.deviceId,
+    enrollmentId: seeded.binding.enrollmentId,
+    state: 'active',
+    revocationEpoch: 0,
+  });
+  expect(listed.nextCursor).toBeNull();
+
+  const direct = await projection.getLinkedDeviceV1({
+    walletId: seeded.binding.walletId,
+    deviceId: seeded.binding.deviceId,
+  });
+  expect(direct?.summary).toEqual(listed.devices[0]);
+  expect(direct?.products).toHaveLength(1);
+
+  await temporary.database
+    .prepare(
+      `UPDATE lane_enrollments
+          SET manifest_digest_b64u = ?1
+        WHERE namespace = ?2 AND org_id = ?3 AND project_id = ?4 AND env_id = ?5
+          AND enrollment_id = ?6`,
+    )
+    .bind(
+      'tampered-manifest-digest',
+      scope.namespace,
+      scope.orgId,
+      scope.projectId,
+      scope.envId,
+      String(seeded.binding.enrollmentId),
+    )
+    .run();
+  await expect(
+    projection.getLinkedDeviceV1({
+      walletId: seeded.binding.walletId,
+      deviceId: seeded.binding.deviceId,
+    }),
+  ).rejects.toThrow('manifest digest disagrees');
+});
+
+async function seedDurableLinkedDeviceProjection(database: D1DatabaseLike) {
+  const execution = await buildR103ActiveExecutionFixture();
+  const manifest = execution.provisioning.deliveries.manifest;
+  const manifestDigestB64u = execution.deviceLink.receipt.manifestDigestB64u;
+  const job = execution.provisioning.deliveries.orderedChildren[0].job;
+  const baseProduct = await buildR102ActiveProductEpoch(job);
+  const product = buildLaneProductEpochActiveV1({
+    walletId: baseProduct.walletId,
+    walletKeyId: baseProduct.walletKeyId,
+    laneId: baseProduct.laneId,
+    laneKind: baseProduct.laneKind,
+    laneShareEpoch: baseProduct.laneShareEpoch,
+    keyFamily: baseProduct.keyFamily,
+    enrollmentId: baseProduct.enrollmentId,
+    operationId: baseProduct.operationId,
+    targetMaterialActivationId: baseProduct.targetMaterialActivationId,
+    materialActivation: baseProduct.materialActivation,
+    publicIdentityDigestB64u: baseProduct.publicIdentityDigestB64u,
+    holderParticipant: baseProduct.holderParticipant,
+    signingWorkerParticipant: baseProduct.signingWorkerParticipant,
+    participantSetBindingDigestB64u: baseProduct.participantSetBindingDigestB64u,
+    revocationEpoch: baseProduct.revocationEpoch,
+    createdAtMs: baseProduct.createdAtMs,
+    aggregateManifestDigestB64u: manifestDigestB64u,
+    aggregateActivationReceiptDigestB64u: manifestDigestB64u,
+    activatedAtMs: baseProduct.activatedAtMs,
+  });
+  const binding = buildLinkedOwnerPasskeyBindingFixtureV1({
+    walletId: String(execution.deviceLink.approval.walletId),
+    enrollmentId: String(execution.deviceLink.approval.enrollmentId),
+    deviceId: String(execution.deviceLink.approval.deviceId),
+    rpId: 'wallet.example.test',
+    credentialIdB64u: 'credential-r103-durable-management',
+    keyManifestDigestB64u: String(manifestDigestB64u),
+    activatedAtMs: 5_000,
+  });
+  if (binding.factor.kind !== 'passkey') throw new Error('expected passkey binding');
+  await insertWalletAuthMethod({
+    database,
+    ...scope,
+    record: {
+      version: 'wallet_auth_method_v1',
+      kind: 'passkey',
+      status: 'active',
+      walletId: String(binding.walletId),
+      rpId: String(binding.factor.rpId),
+      credentialIdB64u: String(binding.factor.credentialIdB64u),
+      credentialPublicKeyB64u: 'credential-public-key',
+      counter: 0,
+      createdAtMs: binding.createdAtMs,
+      updatedAtMs: binding.updatedAtMs,
+    },
+  });
+  await insertWebAuthn({
+    database,
+    ...scope,
+    userId: String(binding.walletId),
+    rpId: String(binding.factor.rpId),
+    credentialIdB64u: String(binding.factor.credentialIdB64u),
+    credentialPublicKeyB64u: 'credential-public-key',
+  });
+  const bindingStore = new D1LinkedDeviceOwnerAuthBindingStoreV1({ database, scope });
+  assertOwnerAuthBindingBatchApplied(
+    await database.batch<D1ResultLike>([bindingStore.buildInsertV1(binding).statement]),
+    1,
+  );
+  await database
+    .prepare(
+      `INSERT INTO lane_enrollments (
+         namespace, org_id, project_id, env_id, enrollment_id, wallet_id,
+         manifest_digest_b64u, manifest_json, lifecycle_json, version,
+         command_digest_b64u, created_at_ms, updated_at_ms
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1, ?10, ?11, ?12)`,
+    )
+    .bind(
+      scope.namespace,
+      scope.orgId,
+      scope.projectId,
+      scope.envId,
+      String(manifest.enrollmentId),
+      String(manifest.walletId),
+      String(manifestDigestB64u),
+      JSON.stringify(manifest),
+      JSON.stringify({
+        state: 'active',
+        manifestDigestB64u,
+        aggregateReceiptDigestB64u: manifestDigestB64u,
+        activatedAtMs: product.activatedAtMs,
+      }),
+      String(manifestDigestB64u),
+      manifest.createdAtMs,
+      product.activatedAtMs,
+    )
+    .run();
+  await database
+    .prepare(
+      `INSERT INTO lane_product_epochs (
+         namespace, org_id, project_id, env_id, wallet_id, wallet_key_id,
+         lane_id, lane_share_epoch, enrollment_id, operation_id,
+         target_material_activation_id, material_activation_json,
+         holder_participant_json, signing_worker_participant_json,
+         participant_set_binding_digest_b64u, revocation_epoch, lane_kind,
+         key_family, public_identity_digest_b64u, state, product_json,
+         version, command_digest_b64u, created_at_ms, updated_at_ms
+       ) VALUES (
+         ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
+         ?14, ?15, ?16, ?17, ?18, ?19, 'active', ?20, 1, ?21, ?22, ?23
+       )`,
+    )
+    .bind(
+      scope.namespace,
+      scope.orgId,
+      scope.projectId,
+      scope.envId,
+      String(product.walletId),
+      String(product.walletKeyId),
+      String(product.laneId),
+      String(product.laneShareEpoch),
+      String(product.enrollmentId),
+      String(product.operationId),
+      String(product.targetMaterialActivationId),
+      JSON.stringify(product.materialActivation),
+      JSON.stringify(product.holderParticipant),
+      JSON.stringify(product.signingWorkerParticipant),
+      String(product.participantSetBindingDigestB64u),
+      product.revocationEpoch,
+      product.laneKind,
+      product.keyFamily,
+      String(product.publicIdentityDigestB64u),
+      JSON.stringify(product),
+      String(manifestDigestB64u),
+      product.createdAtMs,
+      product.activatedAtMs,
+    )
+    .run();
+  return { binding };
+}

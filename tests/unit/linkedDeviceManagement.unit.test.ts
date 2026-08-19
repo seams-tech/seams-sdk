@@ -1,12 +1,5 @@
 import { expect, test } from '@playwright/test';
-import {
-  buildLinkedDeviceSessionClaimV1,
-  parseLinkedDeviceSummaryV1,
-} from '../../packages/shared-ts/src/device-linking/parsers';
-import {
-  computeLinkedDeviceApprovalDigestV1,
-  computeLinkedDeviceSessionClaimDigestV1,
-} from '../../packages/shared-ts/src/device-linking/digests';
+import { parseLinkedDeviceSummaryV1 } from '../../packages/shared-ts/src/device-linking/parsers';
 import {
   buildLaneEnrollmentManifestV1,
   buildRevokeLaneEnrollmentV1,
@@ -35,7 +28,6 @@ import {
   LinkedDeviceManagementServiceV1,
   type LinkedDeviceManagementTargetV1,
 } from '../../packages/wallet-server/src/core/deviceLinking/linkedDeviceManagement';
-import { parseLinkedDeviceSessionRecordV1 } from '../../packages/wallet-server/src/core/deviceLinking/linkedDeviceSession';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
 import { buildLinkedOwnerPasskeyBindingFixtureV1 } from './helpers/linkedOwnerAuthBinding.fixtures';
 import { unknownWebAuthnAuthenticatorDeviceInfo } from '../../packages/shared-ts/src/utils/webauthnDeviceInfo';
@@ -105,7 +97,11 @@ test('refuses a public revoke plan whose lane command does not bind the requeste
   let aggregateCalls = 0;
   const service = new LinkedDeviceManagementServiceV1({
     projection: {
-      listLinkedDevicesV1: async () => ({ devices: [target.summary], ownerDevices: [], nextCursor: null }),
+      listLinkedDevicesV1: async () => ({
+        devices: [target.summary],
+        ownerDevices: [],
+        nextCursor: null,
+      }),
       getLinkedDeviceV1: async () => target,
     },
     preparation: {
@@ -197,7 +193,11 @@ test('fences every linked Wallet Session before retiring child lanes', async () 
   });
   const service = new LinkedDeviceManagementServiceV1({
     projection: {
-      listLinkedDevicesV1: async () => ({ devices: [target.summary], ownerDevices: [], nextCursor: null }),
+      listLinkedDevicesV1: async () => ({
+        devices: [target.summary],
+        ownerDevices: [],
+        nextCursor: null,
+      }),
       getLinkedDeviceV1: async () => target,
     },
     preparation: {
@@ -331,40 +331,6 @@ function neverLocalInvalidation() {
 
 async function buildManagementTarget(): Promise<LinkedDeviceManagementTargetV1> {
   const fixture = buildR103DeviceLinkFixture();
-  const claim = buildLinkedDeviceSessionClaimV1({
-    linkSessionId: fixture.payload.linkSessionId,
-    walletId: fixture.approval.walletId,
-    enrollmentId: fixture.approval.enrollmentId,
-    deviceId: fixture.approval.deviceId,
-    devicePublicKeyB64u: fixture.payload.devicePublicKeyB64u,
-    claimedAtMs: 2_001,
-    claimExpiresAtMs: 9_000,
-  });
-  const claimDigestB64u = parseDigestB64u(await computeLinkedDeviceSessionClaimDigestV1(claim));
-  const approvalDigestB64u = parseDigestB64u(
-    await computeLinkedDeviceApprovalDigestV1(fixture.approval),
-  );
-  const session = parseLinkedDeviceSessionRecordV1({
-    version: 'linked_device_session_v1',
-    linkSessionId: fixture.payload.linkSessionId,
-    qrPayload: fixture.payload,
-    state: {
-      state: 'awaiting_target_passkey',
-      linkSessionId: fixture.payload.linkSessionId,
-      walletId: fixture.approval.walletId,
-      enrollmentId: fixture.approval.enrollmentId,
-      credentialDeadlineMs: 12_000,
-    },
-    revision: 3,
-    claimTranscript: { digestB64u: claimDigestB64u, value: claim },
-    approvalTranscript: {
-      digestB64u: approvalDigestB64u,
-      value: fixture.approval,
-      sourceKeyManifestDigestB64u: fixture.receipt.manifestDigestB64u,
-    },
-    createdAtMs: 2_000,
-    updatedAtMs: 2_002,
-  });
   const binding = fixture.approval.orderedKeyBindings[0];
   if (!binding) throw new Error('fixture key binding is missing');
   const laneEnrollmentId = parseLaneEnrollmentId(String(fixture.approval.enrollmentId)).value;
@@ -424,7 +390,6 @@ async function buildManagementTarget(): Promise<LinkedDeviceManagementTargetV1> 
   });
   return {
     summary,
-    session,
     enrollment: {
       version: 1,
       commandDigestB64u: String(DIGEST),
