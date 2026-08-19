@@ -206,7 +206,7 @@ development.
 
 ### 1. Launcher environment
 
-At startup, `dev-local-workers.mjs` loads `.env.intended.local` with `dotenv`.
+At startup, `dev-local-workers.mjs` loads the root `.env.local` with `dotenv`.
 Existing shell environment variables retain their normal process-level
 precedence.
 
@@ -284,15 +284,9 @@ This generated `0600` file contains:
 The ceremony private JWK is generated on first use and retained across ordinary
 restarts by reading it from the existing generated config.
 
-The SDK Router's Wrangler process also loads these files when present:
-
-```text
-packages/wallet-server/.dev.vars
-packages/console-server-ts/.dev.vars
-```
-
-They provide SDK Router secrets and local integration configuration outside the
-Router A/B role files.
+The SDK Router's Wrangler process loads the repository root `.env.local`. It
+contains shared local integration configuration outside the generated Router
+A/B role files.
 
 ### 5. Caddy environment
 

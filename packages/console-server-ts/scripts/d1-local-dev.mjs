@@ -17,12 +17,8 @@ const packageRoot = fileURLToPath(new URL('../', import.meta.url));
 const repoRoot = fileURLToPath(new URL('../../..', import.meta.url));
 
 export function resolveD1LocalDevEnvFiles(input = {}) {
-  const resolvedPackageRoot = input.packageRoot || packageRoot;
   const resolvedRepoRoot = input.repoRoot || repoRoot;
-  const candidates = [
-    path.join(resolvedRepoRoot, 'packages/wallet-server/.dev.vars'),
-    path.join(resolvedPackageRoot, '.dev.vars'),
-  ];
+  const candidates = [path.join(resolvedRepoRoot, '.env.local')];
   const existing = [];
   for (const candidate of candidates) {
     if (existsSync(candidate)) existing.push(candidate);
@@ -78,9 +74,7 @@ export function runD1LocalDev(input = {}) {
     packageRoot: resolvedPackageRoot,
   });
   if (envFiles.length === 0) {
-    console.warn(
-      '[d1-local] No .dev.vars file found; private relayer-key routes will report not_configured.',
-    );
+    console.warn('[d1-local] No root .env.local file found; local secrets are not configured.');
   } else {
     printEnvFiles(envFiles);
   }
@@ -102,7 +96,7 @@ function printFriendlyPaths(linkedDatabases) {
 
 function printEnvFiles(envFiles) {
   for (const envFile of envFiles) {
-    console.log(`[d1-local] Loading Wrangler env file ${path.relative(repoRoot, envFile)}`);
+    console.log(`[d1-local] Loading local env file ${path.relative(repoRoot, envFile)}`);
   }
 }
 

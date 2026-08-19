@@ -336,7 +336,7 @@ The tests should be optimized for local refactor use:
 
 - assume `pnpm router` and `pnpm site` can already be running during local
   debugging
-- auto-load ignored `.env.intended.local` in local intended config, CI-managed
+- auto-load the ignored root `.env.local` in local intended config, CI-managed
   service startup, and mutation preflight
 - run `ensure:intended-google-token` before Playwright so the Email OTP
   contracts have a fresh enough `SEAMS_INTENDED_GOOGLE_ID_TOKEN`; the harness
@@ -535,7 +535,7 @@ A mandatory gate that flakes gets bypassed. Rules:
 - [x] Cover Ed25519 signing, ECDSA signing, step-up, and key export.
 
 Full execution of the Email OTP contracts now runs locally with the ignored
-`.env.intended.local` Google OIDC/service-account token setup and the Router dev
+root `.env.local` Google OIDC/service-account token setup and the Router dev
 outbox. The token remains one-hour generated state; `test:intended` and
 `test:intended:ci` run `ensure:intended-google-token` before Playwright, accept
 a still-valid token, and refresh through the configured service account when
@@ -577,7 +577,7 @@ Current live validation:
   intended env mapping, then `pnpm -C tests test:intended` passed 4/4 in 3.1m
   against the existing local router.
 - Re-run on July 4, 2026 after adding the Google ID-token preflight:
-  `pnpm test:intended:ci` refreshed/accepted `.env.intended.local`, built the
+  `pnpm test:intended:ci` refreshed/accepted the root `.env.local`, built the
   SDK, started CI-managed router/site services, seeded D1, and passed all four
   intended contracts in 3.8m.
 - `passkey.registration.contract.test.ts` passes end to end, including NEAR,
@@ -916,7 +916,7 @@ Current live validation:
   proof instead of letting the blocker go stale.
 - Stabilization checkpoint, July 4, 2026: after backing out the premature
   recovery fifth-spec probe, the stable four-contract suite remains green.
-  `pnpm test:intended:ci` refreshed/accepted `.env.intended.local`, started
+  `pnpm test:intended:ci` refreshed/accepted the root `.env.local`, started
   managed router/site services, and passed the four intended contracts in
   4.3m. `pnpm -C tests exec playwright test -c playwright.unit.config.ts
   ./unit/intendedBehaviourContracts.guard.unit.test.ts --reporter=line` passed
@@ -1516,7 +1516,7 @@ Initial audit:
 | `tests/unit/accountSignerLifecycle.domain.guard.unit.test.ts` | deleted | Deleted 118-line account signer lifecycle Playwright source guard after moving signer lifecycle write-field and shared signer-domain constant checks into `tests/scripts/check-account-signer-lifecycle-boundaries.mjs`, wired through `pnpm -C tests run check:account-signer-lifecycle-boundaries` and `pnpm -C tests run test:source-guards`. |
 | `tests/unit/authSecretTerminology.guard.unit.test.ts` | deleted | Durable auth-neutral docs terminology check moved out of Playwright into `tests/scripts/check-auth-secret-terminology.mjs`, wired through `test:source-guards`. |
 | `tests/unit/crossPlatformBoundaries.guard.unit.test.ts` | deleted | Deleted 455-line cross-platform Playwright source guard after its platform API, secret-material, runtime-port, role-local persistence, signer-command schema, and export-material boundary checks moved into `tests/scripts/check-cross-platform-boundaries.mjs`, wired through `pnpm -C tests run check:cross-platform-boundaries` and `pnpm -C tests run test:source-guards`. |
-| `tests/unit/d1LocalDevLauncher.script.unit.test.ts` | keep | D1 local dev launcher script coverage. It verifies the local D1 Wrangler command omits missing env-file args and loads SDK plus console `.dev.vars` files in override order, outside wallet lifecycle behavior. |
+| `tests/unit/d1LocalDevLauncher.script.unit.test.ts` | keep | D1 local dev launcher script coverage. It verifies the local D1 Wrangler command omits a missing local env file and otherwise loads the root `.env.local`, outside wallet lifecycle behavior. |
 | `tests/unit/d1StagingEvidenceVerify.script.unit.test.ts` | keep | D1 staging evidence verification script coverage. It validates deployment/runbook tooling outside wallet lifecycle contracts. |
 | `tests/unit/d1StagingFixtureImport.script.unit.test.ts` | keep | D1 staging fixture-import script coverage. It validates staging data import tooling outside mocked runtime lifecycle fixtures. |
 | `tests/unit/d1StagingKekCheck.script.unit.test.ts` | keep | D1 staging KEK check script coverage. It protects deployment secret-readiness tooling outside lifecycle success specs. |

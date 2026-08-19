@@ -21,7 +21,7 @@ import { prepareRouterAbStrictLocalRuntimeConfigs } from './strict-local-runtime
 
 const repoRoot = fileURLToPath(new URL('../../..', import.meta.url));
 const ansiSequencePattern = new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, 'g');
-dotenv.config({ path: join(repoRoot, '.env.intended.local') });
+dotenv.config({ path: join(repoRoot, '.env.local') });
 const gatewayHost = '127.0.0.1';
 const gatewayPort = 9090;
 const gatewayBaseUrl = `http://${gatewayHost}:${gatewayPort}`;

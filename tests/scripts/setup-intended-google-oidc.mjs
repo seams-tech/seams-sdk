@@ -75,7 +75,7 @@ Options:
   --client-secret <client-secret>    Google OAuth client secret for local runtime env.
   --service-account <email-or-id>    Service account email or local account id.
   --service-account-id <id>          Local account id to create when --service-account is omitted.
-  --env-file <path>                  Env file to update. Defaults to .env.intended.local.
+  --env-file <path>                  Env file to update. Defaults to .env.local.
   --no-refresh                       Skip minting SEAMS_INTENDED_GOOGLE_ID_TOKEN.
   --help                             Show this help.
 

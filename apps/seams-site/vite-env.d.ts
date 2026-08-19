@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 
 // Project-specific env typings for Vite
-// Note: Keep keys in sync with .env files and CI/Pages envs.
+// Note: Keep keys in sync with the root .env.local and CI/Pages envs.
 interface ImportMetaEnv {
   readonly VITE_SITE_ID?: 'staging' | 'production';
   readonly VITE_SITE_ORIGIN?: string;

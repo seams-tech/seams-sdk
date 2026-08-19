@@ -30,20 +30,13 @@ async function loadD1LocalDevLauncherModule(): Promise<D1LocalDevLauncherModule>
 function createTempLocalDevTree(): { readonly root: string; readonly consolePackageRoot: string } {
   const root = mkdtempSync(path.join(tmpdir(), 'seams-d1-local-dev-'));
   const consolePackageRoot = path.join(root, 'packages/console-server-ts');
-  mkdirSync(path.join(root, 'packages/wallet-server'), { recursive: true });
   mkdirSync(consolePackageRoot, { recursive: true });
   return { root, consolePackageRoot };
 }
 
-function writeSdkDevVars(root: string): string {
-  const filePath = path.join(root, 'packages/wallet-server/.dev.vars');
-  writeFileSync(filePath, 'RELAYER_PRIVATE_KEY=ed25519:sdk\n');
-  return filePath;
-}
-
-function writeConsoleDevVars(consolePackageRoot: string): string {
-  const filePath = path.join(consolePackageRoot, '.dev.vars');
-  writeFileSync(filePath, 'RELAYER_PRIVATE_KEY=ed25519:console\n');
+function writeRootLocalEnv(root: string): string {
+  const filePath = path.join(root, '.env.local');
+  writeFileSync(filePath, 'RELAYER_PRIVATE_KEY=ed25519:local\n');
   return filePath;
 }
 
@@ -81,11 +74,10 @@ test('D1 local dev launcher omits env-file args when no real secret file exists'
   ]);
 });
 
-test('D1 local dev launcher loads wallet-server and console .dev.vars in override order', async () => {
+test('D1 local dev launcher loads the root .env.local file', async () => {
   const module = await launcherModulePromise;
   const tree = createTempLocalDevTree();
-  const sdkDevVars = writeSdkDevVars(tree.root);
-  const consoleDevVars = writeConsoleDevVars(tree.consolePackageRoot);
+  const rootLocalEnv = writeRootLocalEnv(tree.root);
 
   const command = module.buildD1LocalDevWranglerArgs({
     repoRoot: tree.root,
@@ -97,8 +89,8 @@ test('D1 local dev launcher loads wallet-server and console .dev.vars in overrid
     },
   });
 
-  expect(command.envFiles).toEqual([sdkDevVars, consoleDevVars]);
-  expect(envFilesFromArgs(command.args)).toEqual([sdkDevVars, consoleDevVars]);
+  expect(command.envFiles).toEqual([rootLocalEnv]);
+  expect(envFilesFromArgs(command.args)).toEqual([rootLocalEnv]);
   expect(command.args.slice(0, 9)).toEqual([
     'dev',
     '--config',

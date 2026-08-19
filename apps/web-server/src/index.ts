@@ -57,7 +57,7 @@ import { fileURLToPath } from 'node:url';
 import { createJwtSession } from './jwtSession.js';
 import { resolveWebServerConsoleConfig, toOptionalSecret } from './consoleConfig.js';
 const webServerDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const webServerDotenvPath = resolve(webServerDir, '.env');
+const webServerDotenvPath = resolve(webServerDir, '../..', '.env.local');
 dotenv.config({ path: webServerDotenvPath });
 
 let server: ReturnType<Express['listen']> | null = null;

@@ -174,7 +174,7 @@ before Playwright/readiness checks: a still-valid token is accepted, and an
 expired/missing token is refreshed through
 `SEAMS_INTENDED_GOOGLE_SERVICE_ACCOUNT` when service-account impersonation is
 configured. The intended config, mutation preflight, and CI-managed service
-startup load `.env.intended.local` automatically. Restart already-running local
+startup load the root `.env.local` automatically. Restart already-running local
 router/site services after changing Google OIDC env values so the runtime sees
 `GOOGLE_OIDC_CLIENT_ID`.
 
@@ -203,7 +203,7 @@ Threshold ECDSA lane-key queue matrix (Refactor 22):
 - `SEAMS_INTENDED_GOOGLE_PROJECT_ID`, `SEAMS_INTENDED_GOOGLE_CLIENT_ID`,
   `GOOGLE_OIDC_CLIENT_ID`, optional Google OAuth client secret vars, and
   `SEAMS_INTENDED_GOOGLE_SERVICE_ACCOUNT` are kept in ignored
-  `.env.intended.local`. Run `pnpm setup:intended-google-oidc` once, or pass
+  the root `.env.local`. Run `pnpm setup:intended-google-oidc` once, or pass
   `--client-secret=<secret>` when creating a new local env file, then run
   `pnpm refresh:intended-google-token` manually when needed. `pnpm test:intended`
   `pnpm test:intended`, `pnpm test:intended:ci`, and mutation preflight run

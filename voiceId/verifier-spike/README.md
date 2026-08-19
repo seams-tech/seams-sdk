@@ -183,7 +183,7 @@ until such a recovery action is implemented. Starting another campaign can
 duplicate paid work and requires an explicit operator decision.
 
 The batch records resolved voice ids plus request/output hashes and emits
-canonical 16 kHz WAV. The API key stays in the ignored `voiceId/.env`; the
+canonical 16 kHz WAV. The API key stays in the ignored root `.env.local`; the
 runner reads `ELEVENLABS_API_KEY` from the process environment first and then
 falls back to that file. Plans, state, and reports contain no API key.
 

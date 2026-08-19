@@ -23,7 +23,7 @@ const envFile = readEnvFile(envFilePath);
 
 // Opt-out for a clean, unseeded console (e.g. to exercise the real
 // org/project/environment creation flow from scratch). Set it in the shell or
-// in .env.intended.local (SEAMS_SKIP_INTENDED_CONSOLE_SEED=1); when set, the
+// in .env.local (SEAMS_SKIP_INTENDED_CONSOLE_SEED=1); when set, the
 // seed makes no DB or env-file changes.
 if (
   ['1', 'true', 'yes'].includes(

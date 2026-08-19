@@ -80,7 +80,7 @@ function printHelp() {
 Options:
   --service-account <email>  Service account to impersonate.
   --client-id <client-id>    Google OIDC audience. Defaults to the local intended client id.
-  --env-file <path>          Env file to update. Defaults to .env.intended.local.
+  --env-file <path>          Env file to update. Defaults to .env.local.
   --no-include-email         Omit gcloud --include-email.
   --help                     Show this help.
 
