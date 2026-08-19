@@ -134,10 +134,10 @@ Test profiles:
 - Generic e2e scripts exclude `e2e/intended-behaviours/*.contract.test.ts`;
   lifecycle contracts run through `test:intended` or `test:intended:ci`.
   `test:e2e` uses the same generic config and excludes intended contracts.
-- `test:linked-device` is an explicit iteration test. It links Device 2, locks and
-  unlocks its wallet, signs on Tempo, Arc, and NEAR, exhausts reusable authority
-  to exercise passkey step-up, and revokes the enrollment. It is excluded from
-  the routine intended-behaviour command.
+- `test:linked-device` is the focused iteration command for the two-browser
+  contract. The same contract runs in `test:intended` and `test:intended:ci`,
+  where it links Device 2, refreshes, locks and unlocks, signs, exports keys,
+  and verifies revocation against the composed runtime.
 
 - Direct Playwright subset examples:
 

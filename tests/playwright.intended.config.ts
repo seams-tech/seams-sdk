@@ -11,7 +11,10 @@ const APP_URL = process.env.SEAMS_INTENDED_APP_URL || 'https://localhost';
 export default defineConfig({
   tsconfig: './tsconfig.playwright.json',
   testDir: '.',
-  testMatch: ['**/e2e/intended-behaviours/**/*.contract.test.ts'],
+  testMatch: [
+    '**/e2e/intended-behaviours/**/*.contract.test.ts',
+    '**/e2e/linked-device.operating-path.test.ts',
+  ],
   fullyParallel: false,
   workers: 1,
   retries: 0,
