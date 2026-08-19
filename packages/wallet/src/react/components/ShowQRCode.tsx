@@ -1,11 +1,24 @@
-import { useState, useEffect, useRef } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+  type MouseEvent,
+} from 'react';
 
 import { useSeams } from '../context';
 import {
   classifyLinkDeviceFlowEvent,
   type LinkDeviceFlowEvent,
-  type LinkDeviceFlowOutcome,
 } from '../../core/types/sdkSentEvents';
+import type {
+  LinkedDeviceTargetEmailOtpActivationV1,
+  LinkedDeviceTargetFactorActivationV1,
+  LinkedDeviceTargetFactorV1,
+  LinkedDeviceTargetPasskeyActivationV1,
+} from '../../core/types/linkDevice';
 import { toAccountId } from '../../core/types/accountIds';
 import './ShowQRCode.css';
 
@@ -16,39 +29,93 @@ export interface ShowQRCodeProps {
   onError: (error: Error) => void;
 }
 
-function isCompletedDeviceLink(event: LinkDeviceFlowEvent): boolean {
-  const outcome = classifyLinkDeviceFlowEvent(event);
-  switch (outcome.kind) {
-    case 'active':
-      return true;
-    case 'pending':
-    case 'invalid_active':
-    case 'failed':
-    case 'cancelled':
-      return false;
+type Device2LinkingState =
+  | {
+      readonly kind: 'select_factor';
+      readonly targetFactor: LinkedDeviceTargetFactorV1;
+    }
+  | {
+      readonly kind: 'starting';
+      readonly targetFactor: LinkedDeviceTargetFactorV1;
+    }
+  | {
+      readonly kind: 'qr';
+      readonly targetFactor: LinkedDeviceTargetFactorV1;
+      readonly qrCodeDataURL: string;
+      readonly lastPhase?: string;
+      readonly lastMessage?: string;
+    }
+  | {
+      readonly kind: 'passkey_activation';
+      readonly targetFactor: Extract<LinkedDeviceTargetFactorV1, { readonly kind: 'passkey_prf' }>;
+      readonly activation: LinkedDeviceTargetPasskeyActivationV1;
+    }
+  | {
+      readonly kind: 'email_otp_activation';
+      readonly targetFactor: Extract<LinkedDeviceTargetFactorV1, { readonly kind: 'email_otp' }>;
+      readonly activation: LinkedDeviceTargetEmailOtpActivationV1;
+    }
+  | {
+      readonly kind: 'failed';
+      readonly message: string;
+    };
+
+type ActiveDevice2Flow = {
+  readonly sessionId: number;
+  readonly targetFactor: LinkedDeviceTargetFactorV1;
+  cancelled: boolean;
+};
+
+const DEFAULT_TARGET_FACTOR: LinkedDeviceTargetFactorV1 = { kind: 'passkey_prf' };
+const FACTOR_FIELDSET_STYLE = {
+  border: 0,
+  margin: 0,
+  padding: 0,
+  width: '100%',
+};
+
+function targetFactorFromSelection(value: string): LinkedDeviceTargetFactorV1 | null {
+  switch (value) {
+    case 'passkey_prf':
+      return { kind: 'passkey_prf' };
+    case 'email_otp':
+      return { kind: 'email_otp' };
     default:
-      return assertNeverLinkDeviceFlowOutcome(outcome);
+      return null;
   }
 }
 
-function assertNeverLinkDeviceFlowOutcome(value: never): never {
-  throw new Error(`Unhandled link-device flow outcome: ${String(value)}`);
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error || 'Device linking failed');
+}
+
+function stopPropagation(event: MouseEvent<HTMLDivElement>): void {
+  event.stopPropagation();
+}
+
+function updateQrEventState(
+  state: Device2LinkingState,
+  event: LinkDeviceFlowEvent,
+): Device2LinkingState {
+  if (state.kind !== 'qr') return state;
+  return {
+    ...state,
+    lastPhase: String(event.phase),
+    lastMessage: event.message,
+  };
 }
 
 export function ShowQRCode({ isOpen, onClose, onEvent, onError }: ShowQRCodeProps) {
   const { startDevice2LinkingFlow, cancelDeviceLinking, accountInputState, loginState } =
     useSeams();
-
-  const [deviceLinkingState, setDeviceLinkingState] = useState<{
-    mode: 'idle' | 'device1' | 'device2';
-    qrCodeDataURL?: string;
-    isProcessing: boolean;
-    lastPhase?: string;
-    lastMessage?: string;
-  }>({ mode: 'idle', isProcessing: false });
-
-  // Ignore async results from an earlier menu opening.
-  const sessionRef = useRef(0);
+  const [deviceLinkingState, setDeviceLinkingState] = useState<Device2LinkingState>({
+    kind: 'select_factor',
+    targetFactor: DEFAULT_TARGET_FACTOR,
+  });
+  const [isCreatingPasskey, setIsCreatingPasskey] = useState(false);
+  const flowSessionRef = useRef(0);
+  const activeFlowRef = useRef<ActiveDevice2Flow | null>(null);
+  const initialEmailSendSessionRef = useRef<number | null>(null);
   const flowRuntimeRef = useRef({
     startDevice2LinkingFlow,
     cancelDeviceLinking,
@@ -68,129 +135,595 @@ export function ShowQRCode({ isOpen, onClose, onEvent, onError }: ShowQRCodeProp
     onError,
   };
 
-  // One menu opening owns one linking ceremony. Render-time callback changes must
-  // not cancel and restart the one-time QR invitation.
+  const cancelActiveFlow = useCallback(() => {
+    const flow = activeFlowRef.current;
+    if (!flow) return;
+    flow.cancelled = true;
+    activeFlowRef.current = null;
+    flowSessionRef.current += 1;
+    void flowRuntimeRef.current.cancelDeviceLinking().catch(() => undefined);
+  }, []);
+
   useEffect(() => {
     if (!isOpen) return;
 
+    setDeviceLinkingState({
+      kind: 'select_factor',
+      targetFactor: DEFAULT_TARGET_FACTOR,
+    });
+    setIsCreatingPasskey(false);
+    initialEmailSendSessionRef.current = null;
+
+    return cancelActiveFlow;
+  }, [cancelActiveFlow, isOpen]);
+
+  const handleFactorChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    const targetFactor = targetFactorFromSelection(event.target.value);
+    if (!targetFactor) return;
+    setDeviceLinkingState({ kind: 'select_factor', targetFactor });
+  }, []);
+
+  const handleStart = useCallback(() => {
+    if (!isOpen || deviceLinkingState.kind !== 'select_factor') return;
+
     const runtime = flowRuntimeRef.current;
-    const { accountIdRaw } = runtime;
+    const flow: ActiveDevice2Flow = {
+      sessionId: flowSessionRef.current + 1,
+      targetFactor: deviceLinkingState.targetFactor,
+      cancelled: false,
+    };
+    flowSessionRef.current = flow.sessionId;
+    activeFlowRef.current = flow;
+    const targetFactor = deviceLinkingState.targetFactor;
+    setDeviceLinkingState({ kind: 'starting', targetFactor });
 
-    const mySession = ++sessionRef.current;
-    let cancelled = false;
-    setDeviceLinkingState({ mode: 'device2', isProcessing: true });
-
-    (async () => {
+    void (async () => {
       try {
         const { qrCodeDataURL } = await runtime.startDevice2LinkingFlow({
-          ...(accountIdRaw ? { accountId: toAccountId(accountIdRaw) } : {}),
+          targetFactor,
+          ...(runtime.accountIdRaw ? { accountId: toAccountId(runtime.accountIdRaw) } : {}),
           options: {
             onEvent: (event: LinkDeviceFlowEvent) => {
-              if (cancelled) return;
-              if (isCompletedDeviceLink(event)) {
-                cancelled = true;
-                sessionRef.current++;
+              if (flow.cancelled || activeFlowRef.current !== flow) return;
+              const outcome = classifyLinkDeviceFlowEvent(event);
+              if (outcome.kind === 'active') {
+                flow.cancelled = true;
+                activeFlowRef.current = null;
+                flowSessionRef.current += 1;
                 runtime.onEvent(event);
                 runtime.onClose();
                 return;
               }
-              setDeviceLinkingState((prev) => ({
-                ...prev,
-                lastPhase: String(event.phase),
-                lastMessage: event.message,
-              }));
+              if (outcome.kind === 'failed' || outcome.kind === 'invalid_active') {
+                const error = new Error(event.message || 'Device linking failed');
+                flow.cancelled = true;
+                activeFlowRef.current = null;
+                flowSessionRef.current += 1;
+                setDeviceLinkingState({ kind: 'failed', message: error.message });
+                runtime.onEvent(event);
+                runtime.onError(error);
+                return;
+              }
+              if (outcome.kind === 'cancelled') {
+                flow.cancelled = true;
+                activeFlowRef.current = null;
+                flowSessionRef.current += 1;
+                runtime.onEvent(event);
+                runtime.onClose();
+                return;
+              }
+              setDeviceLinkingState((previous) => updateQrEventState(previous, event));
               runtime.onEvent(event);
             },
             onError: (error: Error) => {
-              if (cancelled) return;
-              setDeviceLinkingState({ mode: 'idle', isProcessing: false });
+              if (flow.cancelled || activeFlowRef.current !== flow) return;
+              setDeviceLinkingState({ kind: 'failed', message: error.message });
               runtime.onError(error);
-              try {
-                runtime.onClose();
-              } catch {}
+            },
+            onTargetFactorRequired: (activation: LinkedDeviceTargetFactorActivationV1) => {
+              if (flow.cancelled || activeFlowRef.current !== flow) return;
+              switch (activation.kind) {
+                case 'linked_device_target_passkey_activation_v1':
+                  if (flow.targetFactor.kind !== 'passkey_prf') {
+                    runtime.onError(
+                      new Error('Device-link target factor changed during activation'),
+                    );
+                    return;
+                  }
+                  setDeviceLinkingState({
+                    kind: 'passkey_activation',
+                    targetFactor: { kind: 'passkey_prf' },
+                    activation,
+                  });
+                  return;
+                case 'linked_device_target_email_otp_activation_v1':
+                  if (flow.targetFactor.kind !== 'email_otp') {
+                    runtime.onError(
+                      new Error('Device-link target factor changed during activation'),
+                    );
+                    return;
+                  }
+                  setDeviceLinkingState({
+                    kind: 'email_otp_activation',
+                    targetFactor: { kind: 'email_otp' },
+                    activation,
+                  });
+                  return;
+                default:
+                  return assertNeverTargetFactorActivation(activation);
+              }
             },
           },
         });
-        if (!cancelled && sessionRef.current === mySession) {
-          setDeviceLinkingState((prev) => ({ ...prev, qrCodeDataURL, isProcessing: false }));
-        }
-      } catch (err) {
-        if (!cancelled && sessionRef.current === mySession) {
-          const msg =
-            err instanceof Error ? err.message : String(err || 'Failed to generate QR code');
-          setDeviceLinkingState({ mode: 'device2', isProcessing: false, lastMessage: msg });
-        }
+        if (flow.cancelled || activeFlowRef.current !== flow) return;
+        setDeviceLinkingState((previous) =>
+          previous.kind === 'starting'
+            ? {
+                kind: 'qr',
+                targetFactor,
+                qrCodeDataURL,
+              }
+            : previous,
+        );
+      } catch (error: unknown) {
+        if (flow.cancelled || activeFlowRef.current !== flow) return;
+        const failure = error instanceof Error ? error : new Error(errorMessage(error));
+        setDeviceLinkingState({ kind: 'failed', message: failure.message });
+        runtime.onError(failure);
       }
     })();
+  }, [deviceLinkingState, isOpen]);
 
-    return () => {
-      cancelled = true;
-      sessionRef.current++;
-      try {
-        runtime.cancelDeviceLinking().catch(() => {});
-      } catch {}
-    };
-  }, [isOpen]);
+  useEffect(() => {
+    if (!isOpen || deviceLinkingState.kind !== 'email_otp_activation') return;
+    const activation = deviceLinkingState.activation;
+    if (activation.state.kind !== 'sending') return;
+    const flow = activeFlowRef.current;
+    if (!flow || flow.cancelled || initialEmailSendSessionRef.current === flow.sessionId) return;
+    initialEmailSendSessionRef.current = flow.sessionId;
+    void activation.sendCode().catch((error: unknown) => {
+      setDeviceLinkingState((previous) => {
+        if (previous.kind !== 'email_otp_activation' || previous.activation !== activation) {
+          return previous;
+        }
+        return {
+          ...previous,
+          activation: {
+            ...activation,
+            state: {
+              kind: 'unavailable',
+              message: errorMessage(error),
+            },
+          },
+        };
+      });
+    });
+  }, [deviceLinkingState, isOpen]);
+
+  const handlePasskeyError = useCallback((error: unknown) => {
+    setIsCreatingPasskey(false);
+    setDeviceLinkingState({ kind: 'failed', message: errorMessage(error) });
+  }, []);
+
+  const handleCreatePasskey = useCallback(async () => {
+    if (deviceLinkingState.kind !== 'passkey_activation' || isCreatingPasskey) return;
+    setIsCreatingPasskey(true);
+    try {
+      await deviceLinkingState.activation.createPasskey();
+    } catch (error: unknown) {
+      handlePasskeyError(error);
+    }
+  }, [deviceLinkingState, handlePasskeyError, isCreatingPasskey]);
+
+  const handleEmailActivationError = useCallback(
+    (activation: LinkedDeviceTargetEmailOtpActivationV1, error: unknown) => {
+      setDeviceLinkingState((previous) => {
+        if (previous.kind !== 'email_otp_activation' || previous.activation !== activation) {
+          return previous;
+        }
+        return {
+          ...previous,
+          activation: {
+            ...activation,
+            state: {
+              kind: 'unavailable',
+              message: errorMessage(error),
+            },
+          },
+        };
+      });
+    },
+    [],
+  );
+
+  const handleChooseAnotherFactor = useCallback(() => {
+    cancelActiveFlow();
+    setDeviceLinkingState({
+      kind: 'select_factor',
+      targetFactor: DEFAULT_TARGET_FACTOR,
+    });
+  }, [cancelActiveFlow]);
 
   if (!isOpen) return null;
 
-  const ready = Boolean(deviceLinkingState.qrCodeDataURL);
-  const failed = !ready && !deviceLinkingState.isProcessing;
-
-  if (deviceLinkingState.mode === 'device2' && failed) {
-    return (
-      <div className="w3a-link-device-failure" onClick={(e) => e.stopPropagation()}>
-        <div className="w3a-link-device-failure-icon">
-          <LinkFailedIcon />
-        </div>
-        <h2 className="qr-title">Couldn&apos;t link device</h2>
-        <p className="w3a-link-device-failure-detail" role="alert">
-          {deviceLinkingState.lastMessage || 'Failed to generate QR code'}
-        </p>
-        <button type="button" className="w3a-link-device-btn" onClick={onClose}>
-          Close
-        </button>
-      </div>
-    );
+  switch (deviceLinkingState.kind) {
+    case 'select_factor':
+      return (
+        <FactorSelection
+          targetFactor={deviceLinkingState.targetFactor}
+          onChange={handleFactorChange}
+          onStart={handleStart}
+        />
+      );
+    case 'starting':
+      return <QrDisplay state={deviceLinkingState} />;
+    case 'qr':
+      return <QrDisplay state={deviceLinkingState} />;
+    case 'passkey_activation':
+      return <PasskeyActivation isCreating={isCreatingPasskey} onCreate={handleCreatePasskey} />;
+    case 'email_otp_activation':
+      return (
+        <EmailOtpActivation
+          activation={deviceLinkingState.activation}
+          onError={handleEmailActivationError}
+        />
+      );
+    case 'failed':
+      return (
+        <FailureView
+          message={deviceLinkingState.message}
+          onChooseAnother={handleChooseAnotherFactor}
+        />
+      );
+    default:
+      return assertNeverDevice2LinkingState(deviceLinkingState);
   }
+}
+
+function assertNeverDevice2LinkingState(value: never): never {
+  throw new Error(`Unhandled Device 2 linking state: ${String(value)}`);
+}
+
+function assertNeverTargetFactorActivation(value: never): never {
+  throw new Error(`Unhandled target-factor activation: ${String(value)}`);
+}
+
+function FactorSelection({
+  targetFactor,
+  onChange,
+  onStart,
+}: {
+  readonly targetFactor: LinkedDeviceTargetFactorV1;
+  readonly onChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  readonly onStart: () => void;
+}) {
+  return (
+    <div className="qr-code-container" onClick={stopPropagation}>
+      <div className="qr-body">
+        <div className="w3a-otp-prompt" role="group" aria-labelledby="w3a-device-link-factor-title">
+          <div className="w3a-otp-prompt-copy">
+            <h2 id="w3a-device-link-factor-title" className="w3a-otp-title">
+              Choose a security method
+            </h2>
+            <p className="w3a-otp-description">
+              Choose how the linked device will be secured before creating its one-time QR code.
+            </p>
+          </div>
+          <fieldset style={FACTOR_FIELDSET_STYLE}>
+            <legend className="w3a-field-label">Target factor</legend>
+            <label>
+              <input
+                type="radio"
+                name="w3a-device-link-target-factor"
+                value="passkey_prf"
+                checked={targetFactor.kind === 'passkey_prf'}
+                onChange={onChange}
+              />{' '}
+              Passkey <span>(recommended)</span>
+            </label>
+            <label>
+              <input
+                type="radio"
+                name="w3a-device-link-target-factor"
+                value="email_otp"
+                checked={targetFactor.kind === 'email_otp'}
+                onChange={onChange}
+              />{' '}
+              Email code
+            </label>
+          </fieldset>
+          <p className="w3a-otp-helper">
+            The email destination comes from the wallet. It cannot be entered or changed on this
+            device.
+          </p>
+          <button type="button" className="w3a-link-device-btn" onClick={onStart}>
+            Continue
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function QrDisplay({
+  state,
+}: {
+  readonly state: Extract<Device2LinkingState, { readonly kind: 'starting' | 'qr' }>;
+}) {
+  const ready = state.kind === 'qr';
+  return (
+    <div className="qr-code-container" onClick={stopPropagation}>
+      <div className="qr-body">
+        <div className="qr-code-section">
+          <div className="qr-code-display">
+            {ready ? (
+              <img
+                src={state.qrCodeDataURL}
+                alt="Device Linking QR Code"
+                className="qr-code-image"
+              />
+            ) : (
+              <div className="qr-code-placeholder">
+                <span className="w3a-spinner" aria-hidden="true"></span>
+              </div>
+            )}
+          </div>
+          <div className="qr-header">
+            <h2 className="qr-title">Scan and Link Device</h2>
+          </div>
+          <div className="qr-instruction">
+            {ready
+              ? 'Scan to backup your other device.'
+              : 'Preparing a one-time code for your other device.'}
+          </div>
+          <div className="qr-status" role="status" aria-live="polite">
+            {ready ? state.lastMessage || 'Waiting for device to scan' : 'Generating QR code'}
+            <span className="animated-ellipsis"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PasskeyActivation({
+  isCreating,
+  onCreate,
+}: {
+  readonly isCreating: boolean;
+  readonly onCreate: () => Promise<void>;
+}) {
+  return (
+    <div className="qr-code-container" onClick={stopPropagation}>
+      <div className="qr-body">
+        <div
+          className="w3a-otp-prompt"
+          role="group"
+          aria-labelledby="w3a-device-link-passkey-title"
+        >
+          <div className="w3a-otp-prompt-copy">
+            <h2 id="w3a-device-link-passkey-title" className="w3a-otp-title">
+              Create a passkey
+            </h2>
+            <p className="w3a-otp-description">
+              Confirm on this device to finish linking it to your wallet.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="w3a-link-device-btn"
+            onClick={onCreate}
+            disabled={isCreating}
+            aria-busy={isCreating}
+          >
+            {isCreating ? 'Creating passkey…' : 'Create passkey'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EmailOtpActivation({
+  activation,
+  onError,
+}: {
+  readonly activation: LinkedDeviceTargetEmailOtpActivationV1;
+  readonly onError: (activation: LinkedDeviceTargetEmailOtpActivationV1, error: unknown) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isResending, setIsResending] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  const state = activation.state;
+
+  useEffect(() => {
+    if (state.kind !== 'code_input' && state.kind !== 'incorrect') return;
+    inputRef.current?.focus();
+  }, [activation, state.kind]);
+
+  const handleCodeInput = useCallback(() => {
+    inputRef.current?.setCustomValidity('');
+  }, []);
+
+  const handleSubmit = useCallback(
+    (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const input = inputRef.current;
+      if (!input || isSubmitting) return;
+      const code = input.value.trim();
+      if (!/^\d{6}$/.test(code)) {
+        input.setCustomValidity('Enter the 6-digit email code.');
+        input.reportValidity();
+        return;
+      }
+      input.setCustomValidity('');
+      setIsSubmitting(true);
+      void activation
+        .submitCode(code)
+        .catch((error: unknown) => {
+          onError(activation, error);
+        })
+        .finally(() => {
+          setIsSubmitting(false);
+        });
+    },
+    [activation, isSubmitting, onError],
+  );
+
+  const handleResend = useCallback(() => {
+    if (isResending) return;
+    setIsResending(true);
+    void activation
+      .resendCode()
+      .catch((error: unknown) => {
+        onError(activation, error);
+      })
+      .finally(() => {
+        setIsResending(false);
+      });
+  }, [activation, isResending, onError]);
+
+  const handleRetry = useCallback(() => {
+    if (isSending) return;
+    setIsSending(true);
+    void activation
+      .sendCode()
+      .catch((error: unknown) => {
+        onError(activation, error);
+      })
+      .finally(() => {
+        setIsSending(false);
+      });
+  }, [activation, isSending, onError]);
 
   return (
-    <div className="qr-code-container" onClick={(e) => e.stopPropagation()}>
+    <div className="qr-code-container" onClick={stopPropagation}>
       <div className="qr-body">
-        {deviceLinkingState.mode === 'device2' && (
-          <div className="qr-code-section">
-            {/* The plate keeps its box while the code is generated, so the copy
-                below never shifts once the image lands. */}
-            <div className="qr-code-display">
-              {ready ? (
-                <img
-                  src={deviceLinkingState.qrCodeDataURL}
-                  alt="Device Linking QR Code"
-                  className="qr-code-image"
-                />
-              ) : (
-                <div className="qr-code-placeholder">
-                  <span className="w3a-spinner" aria-hidden="true"></span>
-                </div>
-              )}
-            </div>
-            <div className="qr-header">
-              <h2 className="qr-title">Scan and Link Device</h2>
-            </div>
-            <div className="qr-instruction">
-              {ready
-                ? 'Scan to backup your other device.'
-                : 'Preparing a one-time code for your other device.'}
-            </div>
-            <div className="qr-status" role="status" aria-live="polite">
-              {ready
-                ? deviceLinkingState.lastMessage || 'Waiting for device to scan'
-                : 'Generating QR code'}
-              <span className="animated-ellipsis"></span>
-            </div>
+        <div className="w3a-otp-prompt" role="group" aria-labelledby="w3a-device-link-email-title">
+          <div className="w3a-otp-prompt-copy">
+            <h2 id="w3a-device-link-email-title" className="w3a-otp-title">
+              Confirm with an email code
+            </h2>
+            {state.kind !== 'unavailable' && (
+              <p className="w3a-otp-description">
+                Use the code sent to <strong>{state.maskedEmailHint}</strong>. The destination is
+                managed by your wallet and cannot be changed here.
+              </p>
+            )}
           </div>
-        )}
+          {state.kind === 'sending' && (
+            <div className="qr-status" role="status" aria-live="polite">
+              Sending your email code…
+            </div>
+          )}
+          {state.kind === 'resending' && (
+            <div className="qr-status" role="status" aria-live="polite">
+              Sending a new email code…
+            </div>
+          )}
+          {state.kind === 'completed' && (
+            <div className="qr-status" role="status" aria-live="polite">
+              Email code accepted. Finishing device activation…
+            </div>
+          )}
+          {(state.kind === 'code_input' ||
+            state.kind === 'submitting' ||
+            state.kind === 'incorrect') && (
+            <form className="w3a-otp-code-field" onSubmit={handleSubmit}>
+              <label className="w3a-field-label" htmlFor="w3a-device-link-email-otp">
+                Email code
+              </label>
+              <input
+                ref={inputRef}
+                id="w3a-device-link-email-otp"
+                className="w3a-otp-input"
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="[0-9]{6}"
+                maxLength={6}
+                aria-invalid={state.kind === 'incorrect'}
+                aria-describedby={
+                  state.kind === 'incorrect' ? 'w3a-device-link-email-error' : undefined
+                }
+                disabled={state.kind === 'submitting' || isSubmitting}
+                onChange={handleCodeInput}
+              />
+              {state.kind === 'incorrect' && (
+                <p id="w3a-device-link-email-error" className="w3a-otp-error" role="alert">
+                  {state.message}
+                </p>
+              )}
+              <button
+                type="submit"
+                className="w3a-link-device-btn"
+                disabled={state.kind === 'submitting' || isSubmitting}
+                aria-busy={state.kind === 'submitting' || isSubmitting}
+              >
+                {state.kind === 'submitting' || isSubmitting ? 'Checking code…' : 'Confirm code'}
+              </button>
+            </form>
+          )}
+          {state.kind === 'expired' && (
+            <p className="w3a-otp-error" role="alert">
+              {state.message}
+            </p>
+          )}
+          {state.kind === 'unavailable' && (
+            <>
+              <p className="w3a-otp-error" role="alert">
+                {state.message}
+              </p>
+              <button
+                type="button"
+                className="w3a-link-device-btn"
+                onClick={handleRetry}
+                disabled={isSending}
+                aria-busy={isSending}
+              >
+                {isSending ? 'Trying again…' : 'Send code again'}
+              </button>
+            </>
+          )}
+          {(state.kind === 'code_input' ||
+            state.kind === 'incorrect' ||
+            state.kind === 'expired') && (
+            <button
+              type="button"
+              className="w3a-otp-resend"
+              onClick={handleResend}
+              disabled={isResending}
+              aria-busy={isResending}
+            >
+              {isResending ? 'Sending…' : 'Resend code'}
+            </button>
+          )}
+        </div>
       </div>
+    </div>
+  );
+}
+
+function FailureView({
+  message,
+  onChooseAnother,
+}: {
+  readonly message: string;
+  readonly onChooseAnother: () => void;
+}) {
+  return (
+    <div className="w3a-link-device-failure" onClick={stopPropagation}>
+      <div className="w3a-link-device-failure-icon">
+        <LinkFailedIcon />
+      </div>
+      <h2 className="qr-title">Couldn&apos;t link device</h2>
+      <p className="w3a-link-device-failure-detail" role="alert">
+        {message || 'Device linking failed'}
+      </p>
+      <button type="button" className="w3a-link-device-btn" onClick={onChooseAnother}>
+        Choose another factor
+      </button>
     </div>
   );
 }
@@ -208,7 +741,7 @@ function LinkFailedIcon() {
       strokeLinejoin="round"
       aria-hidden="true"
     >
-      <path d="M9 17H7A5 5 0 0 1 7 7h2" />
+      <path d="M9 17H7A5 5 0 1 1 7 7h2" />
       <path d="M15 7h2a5 5 0 0 1 3.54 8.54" />
       <path d="m2 2 20 20" />
       <path d="M8 12h3" />

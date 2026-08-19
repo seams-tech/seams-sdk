@@ -181,6 +181,12 @@ export interface ShapeTokens {
   /** Field face + border: square is bordered-surface, rounded is a tinted pill */
   fieldBackground: string;
   fieldBorder: string;
+  /**
+   * Inline-start padding for readout boxes. Optional: only shapes whose corner
+   * curve eats into the text edge need to set it (rounded), and leaving it off
+   * keeps the CSS fallback.
+   */
+  boxPaddingInlineStart?: string;
 }
 
 export type WalletShapeId = 'square' | 'rounded';
@@ -193,6 +199,7 @@ export const SHAPE_SQUARE: ShapeTokens = {
   item: '8px',
   controlHeight: '44px',
   fieldHeight: '44px',
+  boxPaddingInlineStart: '12px',
   fieldBackground: 'var(--w3a-colors-surface)',
   fieldBorder: 'var(--w3a-colors-borderPrimary)',
 };
@@ -205,6 +212,8 @@ export const SHAPE_ROUNDED: ShapeTokens = {
   item: '1rem',
   controlHeight: '52px',
   fieldHeight: '54px',
+  // the 1.5rem box curve crowds the label/value, so inset them a further 0.5rem
+  boxPaddingInlineStart: '20px',
   fieldBackground: 'var(--w3a-colors-surface2)',
   fieldBorder: 'color-mix(in srgb, var(--w3a-colors-borderPrimary), transparent 36%)',
 };

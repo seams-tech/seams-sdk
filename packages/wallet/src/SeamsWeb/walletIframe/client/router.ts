@@ -49,6 +49,8 @@ import {
   type PreferencesChangedPayload,
   type PMExportKeypairUiPayload,
   type PMRegistrationAuthMethodInput,
+  isDeviceLinkTargetFactorActivationProgressV1,
+  type DeviceLinkTargetFactorActivationProgressV1,
   HOSTED_AUTH_MENU_ERROR_EVENT,
   parseWalletIframeSurfaceMeasurement,
   parseHostedAuthMenuErrorEvent,
@@ -130,6 +132,7 @@ import {
 import { parseMpcMaterialActivationRef } from '@shared/utils/domainIds';
 import type {
   LinkDeviceResult,
+  LinkedDeviceTargetFactorActivationV1,
   StartDevice2LinkingFlowArgs,
   StartDevice2LinkingFlowResults,
 } from '@/core/types/linkDevice';
@@ -3456,14 +3459,15 @@ export class WalletIframeRouter {
   }
 
   async startDevice2LinkingFlow(
-    payload?: StartDevice2LinkingFlowArgs,
+    payload: StartDevice2LinkingFlowArgs,
   ): Promise<StartDevice2LinkingFlowResults> {
     const res = await this.post<StartDevice2LinkingFlowResults>({
       type: 'PM_START_DEVICE2_LINKING_FLOW',
       payload: {
-        ...(payload?.ui ? { ui: payload.ui } : {}),
-        ...(payload?.cameraId ? { cameraId: payload.cameraId } : {}),
-        ...(payload?.options
+        targetFactor: payload.targetFactor,
+        ...(payload.ui ? { ui: payload.ui } : {}),
+        ...(payload.cameraId ? { cameraId: payload.cameraId } : {}),
+        ...(payload.options
           ? {
               options: {
                 ...(payload.options.confirmationConfig
@@ -3478,10 +3482,75 @@ export class WalletIframeRouter {
       },
       options: {
         sticky: true,
-        onProgress: this.wrapOnEvent(payload?.options?.onEvent, isLinkDeviceFlowEvent),
+        onProgress: this.handleDeviceLinkProgressV1.bind(this, payload.options),
       },
     });
     return res.result as StartDevice2LinkingFlowResults;
+  }
+
+  private handleDeviceLinkProgressV1(
+    options: StartDevice2LinkingFlowArgs['options'],
+    progress: ProgressPayload,
+  ): void {
+    if (isDeviceLinkTargetFactorActivationProgressV1(progress)) {
+      options?.onTargetFactorRequired?.(this.deviceLinkTargetFactorActivationV1(progress));
+      return;
+    }
+    if (isLinkDeviceFlowEvent(progress)) options?.onEvent?.(progress);
+  }
+
+  private deviceLinkTargetFactorActivationV1(
+    progress: DeviceLinkTargetFactorActivationProgressV1,
+  ): LinkedDeviceTargetFactorActivationV1 {
+    switch (progress.activation.kind) {
+      case 'linked_device_target_passkey_activation_v1':
+        return {
+          kind: progress.activation.kind,
+          createPasskey: this.createLinkedDeviceTargetPasskeyV1.bind(this, progress.activationId),
+        };
+      case 'linked_device_target_email_otp_activation_v1':
+        return {
+          kind: progress.activation.kind,
+          state: progress.activation.state,
+          sendCode: this.sendLinkedDeviceTargetEmailOtpV1.bind(this, progress.activationId),
+          submitCode: this.submitLinkedDeviceTargetEmailOtpV1.bind(this, progress.activationId),
+          resendCode: this.resendLinkedDeviceTargetEmailOtpV1.bind(this, progress.activationId),
+        };
+      default:
+        progress.activation satisfies never;
+        throw new Error('Unsupported linked-device target-factor activation');
+    }
+  }
+
+  private async createLinkedDeviceTargetPasskeyV1(activationId: string): Promise<void> {
+    await this.post<void>({
+      type: 'PM_DEVICE_LINK_TARGET_FACTOR_ACTION',
+      payload: { activationId, action: { kind: 'create_passkey' } },
+    });
+  }
+
+  private async sendLinkedDeviceTargetEmailOtpV1(activationId: string): Promise<void> {
+    await this.post<void>({
+      type: 'PM_DEVICE_LINK_TARGET_FACTOR_ACTION',
+      payload: { activationId, action: { kind: 'send_email_otp' } },
+    });
+  }
+
+  private async resendLinkedDeviceTargetEmailOtpV1(activationId: string): Promise<void> {
+    await this.post<void>({
+      type: 'PM_DEVICE_LINK_TARGET_FACTOR_ACTION',
+      payload: { activationId, action: { kind: 'resend_email_otp' } },
+    });
+  }
+
+  private async submitLinkedDeviceTargetEmailOtpV1(
+    activationId: string,
+    otpCode: string,
+  ): Promise<void> {
+    await this.post<void>({
+      type: 'PM_DEVICE_LINK_TARGET_FACTOR_ACTION',
+      payload: { activationId, action: { kind: 'submit_email_otp', otpCode } },
+    });
   }
 
   async cancelDeviceLinking(): Promise<void> {

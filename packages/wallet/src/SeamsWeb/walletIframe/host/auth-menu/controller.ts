@@ -231,13 +231,19 @@ export class AuthMenuController {
     return flow;
   }
 
-  private startDeviceLinking = async (callbacks: {
-    readonly onEvent: (event: LinkDeviceFlowEvent) => void;
-    readonly onTargetPasskeyRequired: NonNullable<
-      NonNullable<StartDevice2LinkingFlowArgs['options']>['onTargetPasskeyRequired']
-    >;
-  }): Promise<StartDevice2LinkingFlowResults> =>
-    await this.deps.getSeamsWeb().devices.startDevice2LinkingFlow({ options: callbacks });
+  private startDeviceLinking = async (
+    targetFactor: StartDevice2LinkingFlowArgs['targetFactor'],
+    callbacks: {
+      readonly onEvent: (event: LinkDeviceFlowEvent) => void;
+      readonly onTargetFactorRequired: NonNullable<
+        NonNullable<StartDevice2LinkingFlowArgs['options']>['onTargetFactorRequired']
+      >;
+    },
+  ): Promise<StartDevice2LinkingFlowResults> =>
+    await this.deps.getSeamsWeb().devices.startDevice2LinkingFlow({
+      targetFactor,
+      options: callbacks,
+    });
 
   private cancelDeviceLinking = async (): Promise<void> =>
     await this.deps.getSeamsWeb().devices.cancelDeviceLinking();

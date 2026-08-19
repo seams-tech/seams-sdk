@@ -37,6 +37,14 @@ import type {
   SigningSessionStatus,
 } from '../core/types/seams';
 import type { StartDevice2LinkingFlowArgs } from '../core/types/linkDevice';
+export type {
+  LinkedDeviceEmailOtpActivationStateV1,
+  LinkedDeviceTargetEmailOtpActivationV1,
+  LinkedDeviceTargetFactorActivationV1,
+  LinkedDeviceTargetFactorV1,
+  LinkedDeviceTargetPasskeyActivationV1,
+  StartDeviceLinkingOptionsDevice2,
+} from '../core/types/linkDevice';
 import type { QrLinkedDeviceSessionPayloadV5 } from '@shared/device-linking';
 import type {
   NearAccountRef,
@@ -222,7 +230,7 @@ export interface SeamsContextType {
   }>;
 
   // Device linking functions
-  startDevice2LinkingFlow: (args?: StartDevice2LinkingFlowArgs) => Promise<{
+  startDevice2LinkingFlow: (args: StartDevice2LinkingFlowArgs) => Promise<{
     qrData: QrLinkedDeviceSessionPayloadV5;
     qrCodeDataURL: string;
   }>;
