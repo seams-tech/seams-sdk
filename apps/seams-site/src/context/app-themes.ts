@@ -211,7 +211,10 @@ export const CARBON_DARK_COLORS: Record<string, string> = {
   surface: '#252f37',
   // chip behind the passkey halo icon: one step down from the slabs
   passkeyHaloBackground: '#1a2329',
-  surface2: '#1a2329',
+  // surface2 is the shared hover step: the Scan-and-Link button takes it
+  // directly, the SSO button via secondaryButtonHoverBackground. Both must
+  // resolve to the same value or the two slabs light up differently.
+  surface2: '#303c45',
   surface3: '#10171c',
   surface4: '#0a1116',
   txDetailsBackground: '#1a2329',

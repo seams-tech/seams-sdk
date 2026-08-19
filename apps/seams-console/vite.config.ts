@@ -7,6 +7,11 @@ export default defineConfig(() => {
   return {
     base: '/dashboard/',
     plugins: [react()],
+    server: {
+      host: 'localhost',
+      port: 3601,
+      strictPort: true,
+    },
     resolve: {
       alias: {
         '@core': `${appSrc}/core`,

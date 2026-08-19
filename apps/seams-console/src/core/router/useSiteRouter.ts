@@ -22,6 +22,17 @@ function navigateInternal(href: string): void {
   if (!target.hash) window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
 }
 
+function requiresDocumentNavigation(href: string): boolean {
+  if (isHttpUrl(href)) return true;
+  const pathname = new URL(href, window.location.origin).pathname;
+  const isConsolePath =
+    pathname === '/dashboard' ||
+    pathname.startsWith('/dashboard/') ||
+    pathname === '/platform' ||
+    pathname.startsWith('/platform/');
+  return !isConsolePath;
+}
+
 export function useSiteRouter(): {
   go: GoFn;
   linkProps: (to: string) => {
@@ -31,7 +42,7 @@ export function useSiteRouter(): {
 } {
   const go = React.useCallback<GoFn>((to: string) => {
     const href = resolveHref(to);
-    if (isHttpUrl(href)) {
+    if (requiresDocumentNavigation(href)) {
       window.location.href = href;
       return;
     }
@@ -46,11 +57,8 @@ export function useSiteRouter(): {
         if (isModifiedClick(e)) return;
         const target = (e.currentTarget.getAttribute('target') || '').toLowerCase();
         if (target && target !== '_self') return;
+        if (requiresDocumentNavigation(href)) return;
         e.preventDefault();
-        if (isHttpUrl(href)) {
-          window.location.href = href;
-          return;
-        }
         navigateInternal(href);
       },
     };

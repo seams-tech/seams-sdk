@@ -2571,7 +2571,8 @@ body:has(.h2-page) {
   stroke-linejoin: round;
 }
 
-.h2-mpc__gatelabel {
+.h2-mpc__gatelabel,
+.h2-mpc__resultlabel {
   font-family: var(--h2-mono);
   font-size: var(--h2-text-lg);
   fill: var(--h2-smoke);
@@ -2703,6 +2704,7 @@ body:has(.h2-page) {
   .h2-security__view.is-active .h2-mpc .h2-mpc__node.h2-draw__overlay:not(.h2-mpc__node--result),
   .h2-security__view.is-active .h2-mpc .h2-mpc__share-key-outline.h2-draw__overlay,
   .h2-security__view.is-active .h2-mpc .h2-mpc__share-key-detail.h2-draw__overlay,
+  .h2-security__view.is-active .h2-mpc .h2-mpc__terminal.h2-draw__overlay,
   .h2-security__view.is-active .h2-mpc .h2-mpc__gate.h2-draw__overlay,
   .h2-security__view.is-active .h2-mpc .h2-mpc__gate-check.h2-draw__overlay,
   .h2-security__view.is-active .h2-mpc .h2-mpc__out.h2-draw__overlay,
@@ -2733,6 +2735,10 @@ body:has(.h2-page) {
   }
 
   .h2-security__view.is-active .h2-mpc .h2-mpc__share-key-outline.h2-draw__overlay {
+    animation-delay: 460ms;
+  }
+
+  .h2-security__view.is-active .h2-mpc .h2-mpc__terminal.h2-draw__overlay {
     animation-delay: 460ms;
   }
 
@@ -2769,6 +2775,7 @@ body:has(.h2-page) {
   }
 
   .h2-mpc__gatelabel,
+  .h2-mpc__resultlabel,
   .h2-mpc__note {
     font-size: var(--h2-text-title);
   }
@@ -3332,14 +3339,20 @@ body:has(.h2-page) {
 
 .h2-security__progress {
   position: absolute;
-  right: 36px;
+  inset-inline-end: 12px;
   bottom: -0.5px;
-  left: calc(50% + 68px);
+  inset-inline-start: calc(50% + 58px);
   z-index: 4;
   height: 1px;
   overflow: hidden;
-  background: var(--h2-line);
+  background: var(--h2-bg);
   pointer-events: none;
+}
+
+@media (max-width: 1160px) {
+  .h2-security__progress {
+    inset-inline-end: 0;
+  }
 }
 
 .h2-security__progress-fill {
@@ -3356,12 +3369,6 @@ body:has(.h2-page) {
     animation-name: h2-security-progress;
     animation-timing-function: linear;
     animation-fill-mode: both;
-  }
-}
-
-@media (max-width: 760px) {
-  .h2-security__progress {
-    right: 22px;
   }
 }
 
@@ -3541,7 +3548,12 @@ body:has(.h2-page) {
 /* ---------- get-started band (stacked two-column rows) ---------- */
 
 .h2-starthead {
+  display: block;
   padding-bottom: 50px;
+}
+
+.h2-starthead__cta {
+  margin-top: 24px;
 }
 
 .h2-startrow__grid {
@@ -3603,6 +3615,142 @@ body:has(.h2-page) {
   justify-items: center;
 }
 
+.h2-startrow--console .h2-startrow__grid {
+  position: relative;
+  overflow: hidden;
+}
+
+/* layered product collage: browser mockup base + floating menu + confirmer */
+.h2-console-collage {
+  position: absolute;
+  inset-inline-end: 0;
+  inset-block-end: 0;
+  width: 407px;
+  height: 254px;
+}
+
+.h2-console-preview {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-start-start-radius: 14px;
+  background: var(--h2-bg);
+  outline: 1px solid oklch(0 0 0 / 0.1);
+  outline-offset: -1px;
+}
+
+.h2-console-preview__chrome {
+  display: flex;
+  flex: 0 0 24px;
+  align-items: center;
+  gap: 8px;
+  padding-inline: 9px;
+  border-bottom: 1px solid var(--h2-stone);
+  background: var(--h2-taupe);
+}
+
+.h2-console-preview__controls {
+  display: flex;
+  gap: 4px;
+}
+
+.h2-console-preview__controls span {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--h2-ash);
+}
+
+.h2-console-preview__controls span:nth-child(2) {
+  opacity: 0.65;
+}
+
+.h2-console-preview__controls span:nth-child(3) {
+  opacity: 0.35;
+}
+
+.h2-console-preview__address {
+  min-width: 0;
+  max-width: 150px;
+  overflow: hidden;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--h2-bg);
+  font-family: var(--h2-mono);
+  font-size: 7px;
+  line-height: 1.2;
+  color: var(--h2-smoke);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.h2-console-preview__viewport {
+  min-height: 0;
+  flex: 1;
+}
+
+.h2-console-preview__image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* crop wrappers frame each screenshot to its card; percentages keep the
+   composition proportional at every collage size */
+.h2-console-collage__menu,
+.h2-console-collage__confirmer {
+  position: absolute;
+  overflow: hidden;
+  background: var(--h2-bg);
+  outline: 1px solid oklch(0 0 0 / 0.12);
+  outline-offset: -1px;
+}
+
+.h2-console-collage__menu img,
+.h2-console-collage__confirmer img {
+  position: absolute;
+  display: block;
+  max-width: none;
+}
+
+.h2-console-collage__menu {
+  inset-inline-start: 14%;
+  inset-block-start: 12%;
+  z-index: 2;
+  width: 30%;
+  aspect-ratio: 528 / 815;
+  border-radius: 8px;
+  box-shadow: 0 10px 26px -12px rgba(15, 23, 42, 0.28);
+}
+
+/* source 592x1270; crop to the menu card, ending at the divider above the
+   confirmer controls: x 47-575, y 30-845 */
+.h2-console-collage__menu img {
+  inset-inline-start: -8.9%;
+  inset-block-start: -3.68%;
+  width: 112.1%;
+}
+
+.h2-console-collage__confirmer {
+  inset-inline-end: 4.5%;
+  inset-block-end: 6%;
+  z-index: 3;
+  width: 56%;
+  aspect-ratio: 831 / 545;
+  border-radius: 13px;
+  box-shadow: 0 16px 36px -14px rgba(15, 23, 42, 0.34);
+}
+
+/* source 928x618; crop to the modal card: x 58-889, y 36-581 */
+.h2-console-collage__confirmer img {
+  inset-inline-start: -6.98%;
+  inset-block-start: -6.6%;
+  width: 111.7%;
+}
+
 .h2-mockcard--wide {
   width: min(360px, 100%);
 }
@@ -3651,6 +3799,23 @@ body:has(.h2-page) {
 
   .h2-starthead {
     padding-bottom: 36px;
+  }
+
+  .h2-console-collage {
+    position: relative;
+    inset: auto;
+    width: min(520px, calc(100% + 36px));
+    height: auto;
+    aspect-ratio: 407 / 254;
+    margin-inline-end: -36px;
+    justify-self: end;
+  }
+}
+
+@media (max-width: 760px) {
+  .h2-console-collage {
+    width: min(520px, calc(100% + 22px));
+    margin-inline-end: -22px;
   }
 }
 
