@@ -29,6 +29,7 @@ import {
   executeWorkerOperation,
   type WorkerOperationContext,
 } from '../../workerManager/executeWorkerOperation';
+import type { UnlockedWalletCustodyTransferCapabilityV1 } from '../../workerManager/workerTypes';
 
 function parseEdJob(value: unknown): Ed25519YaoLaneJobV1 {
   const parsed = parseRotatableSigningLaneJobV1(value);
@@ -241,11 +242,32 @@ export async function openEd25519YaoLaneWorkerSourceV1(args: {
     request: {
       type: 'openEd25519YaoLaneSource',
       payload: {
+        kind: 'factor',
         factorSecret: args.factorSecret,
         envelope: args.envelope,
         applicationBindingDigestB64u: args.applicationBindingDigestB64u,
       },
       transfer: [args.factorSecret],
+    },
+  });
+  return new Ed25519YaoLaneWorkerSource(args.workerCtx, opened.sourceHandle);
+}
+
+export async function openEd25519YaoLaneWorkerSourceFromUnlockedCapabilityV1(args: {
+  readonly workerCtx: WorkerOperationContext;
+  readonly capability: UnlockedWalletCustodyTransferCapabilityV1;
+  readonly applicationBindingDigestB64u: string;
+}): Promise<Ed25519YaoLaneWorkerSourceV1> {
+  const opened = await executeWorkerOperation({
+    ctx: args.workerCtx,
+    kind: 'walletCustodyCeremony',
+    request: {
+      type: 'openEd25519YaoLaneSource',
+      payload: {
+        kind: 'unlocked_custody_capability',
+        capability: args.capability,
+        applicationBindingDigestB64u: args.applicationBindingDigestB64u,
+      },
     },
   });
   return new Ed25519YaoLaneWorkerSource(args.workerCtx, opened.sourceHandle);

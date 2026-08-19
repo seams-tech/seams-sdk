@@ -162,6 +162,16 @@ import type {
   StartDevice2LinkingFlowArgs,
   StartDevice2LinkingFlowResults,
 } from '@/core/types/linkDevice';
+export type {
+  LinkedDeviceEmailOtpActivationStateV1,
+  LinkedDeviceTargetEmailOtpActivationV1,
+  LinkedDeviceTargetFactorActivationV1,
+  LinkedDeviceTargetFactorV1,
+  LinkedDeviceTargetPasskeyActivationV1,
+  StartDevice2LinkingFlowArgs,
+  StartDevice2LinkingFlowResults,
+  StartDeviceLinkingOptionsDevice2,
+} from '@/core/types/linkDevice';
 import type {
   LinkedDeviceListResultV1,
   LinkedDeviceRevokeResultV1,

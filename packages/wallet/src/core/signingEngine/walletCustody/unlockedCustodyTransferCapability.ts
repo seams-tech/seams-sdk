@@ -21,12 +21,31 @@ import type {
 } from '../workerManager/workerTypes';
 import type { WalletCustodyCeremonyTransportPort } from './ceremonyStepRunner';
 import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
+import type { WorkerOperationContext } from '../workerManager/executeWorkerOperation';
 
 let currentCapability: UnlockedWalletCustodyTransferCapabilityV1 | null = null;
 let currentCapabilityTransport: WalletCustodyCeremonyTransportPort | null = null;
 let currentCapabilityExpiryTimer: ReturnType<typeof setTimeout> | null = null;
 
 const MAX_EXPIRY_TIMER_DELAY_MS = 2_147_483_647;
+
+function requestWalletCustodyCeremonyOperation(
+  workerContext: WorkerOperationContext,
+  operation: Parameters<WalletCustodyCeremonyTransportPort['requestOperation']>[0],
+): Promise<unknown> {
+  return workerContext.requestWorkerOperation({
+    kind: operation.kind,
+    request: operation.request as never,
+  });
+}
+
+export function walletCustodyCeremonyTransportFromWorkerContextV1(
+  workerContext: WorkerOperationContext,
+): WalletCustodyCeremonyTransportPort {
+  return {
+    requestOperation: requestWalletCustodyCeremonyOperation.bind(undefined, workerContext),
+  };
+}
 
 function clearCurrentCapabilityExpiryTimer(): void {
   if (currentCapabilityExpiryTimer === null) return;

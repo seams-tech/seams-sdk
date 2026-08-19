@@ -208,16 +208,24 @@ import {
   type ActiveWalletExecutionLaneHydration,
 } from '@/core/signingEngine/session/lanes/walletExecutionLaneHydration';
 import { IndexedDBManager, walletSessionAuthorizations } from '@/core/indexedDB';
+import type { LocalWalletAuthMethodRecord } from '@/core/indexedDB';
+import type { ClientUserData } from '@/core/accountData/near/nearAccountData.types';
 import {
   startLinkedDeviceOwnerEnrollmentCeremonyV1,
   type LinkedDeviceOwnerEnrollmentStartV1,
 } from '../operations/devices/deviceLinkingOwnerEnrollmentStart';
 import { parseWebAuthnRpId } from '@shared/utils/domainIds';
+import type { WalletAuthMethodId } from '@shared/utils/domainIds';
+import {
+  buildEmailOtpWalletAuthAuthority,
+  walletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
 import { resolveManagedRuntimeScopeBootstrap } from '@/core/config/managedRuntimeScope';
 import {
   parseReusableWalletSessionMintId,
   parseWalletSessionAuthorizationId,
 } from '@shared/authorization/capabilityKinds';
+import { walletAuthMethodRecordId } from '@shared/utils/registrationIntent';
 import {
   mpcMaterialActivationRefsEqual,
   parseProviderSubject,
@@ -374,6 +382,7 @@ import {
   restoreLinkedDeviceWarmSigningSessionV1,
   signLinkedDeviceEvmFamilyV1,
   signLinkedDeviceNearTransactionV1,
+  type LinkedDeviceEmailOtpWarmSigningActivationV1,
   type LinkedDeviceWarmSigningSessionV1,
 } from '../operations/devices/linkedDeviceSigningRuntime';
 import type {
@@ -391,6 +400,7 @@ import type { LinkDeviceSessionId } from '@shared/signing-lanes/ids';
 import {
   parseLinkedDeviceApprovalResultV1,
   parseLinkedDeviceApprovalV1,
+  parseLinkedDeviceOwnerEnrollmentCeremonyV1,
 } from '@shared/device-linking';
 import type { LaneOperationSourcePortsV1 } from '@/core/signingEngine/session/lanes/operations/ports';
 import type { LaneSealedHolderMaterialRepositoryV1 } from '@/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
@@ -408,6 +418,8 @@ import {
   assertEd25519YaoLaneCeremonyBindingParityV1,
   createEd25519YaoLaneDerivationWorkerWasmV1,
   openEd25519YaoLaneWorkerSourceV1,
+  openEd25519YaoLaneWorkerSourceFromUnlockedCapabilityV1,
+  type Ed25519YaoLaneWorkerSourceV1,
 } from '@/core/signingEngine/threshold/crypto/ed25519YaoLaneWasm';
 import { createEcdsaLaneDerivationWorkerWasmV1 } from '@/core/signingEngine/threshold/crypto/ecdsaLaneWasm';
 import { reconcileCanonicalEcdsaActivationWasm } from '@/core/signingEngine/threshold/crypto/ecdsaDerivationClientWasm';
@@ -470,10 +482,95 @@ type LinkedDeviceSigningSessionActivationWithAuthenticatorV1 =
   | (Extract<
       LinkedDeviceSigningSessionActivationV1,
       { readonly kind: 'existing_target_passkey' }
-    > & { readonly authenticator: AuthenticatorPort });
+    > & { readonly authenticator: AuthenticatorPort })
+  | LinkedDeviceEmailOtpWarmSigningActivationV1;
 
 function assertNeverLinkedDeviceSigningSessionActivationV1(value: never): never {
   throw new Error(`Unsupported linked-device signing session activation: ${String(value)}`);
+}
+
+function maskLinkedDeviceEmailHintV1(email: string): string {
+  const normalized = email.trim().toLowerCase();
+  const atIndex = normalized.indexOf('@');
+  if (atIndex <= 0 || atIndex === normalized.length - 1) return 'hidden';
+  const local = normalized.slice(0, atIndex);
+  const domain = normalized.slice(atIndex + 1);
+  const maskedLocal =
+    local.length <= 2 ? `${local[0] || '*'}*` : `${local[0]}***${local.slice(-1)}`;
+  const domainParts = domain.split('.');
+  const domainName = domainParts[0] || '';
+  const maskedDomainName =
+    domainName.length <= 2
+      ? `${domainName[0] || '*'}*`
+      : `${domainName[0]}***${domainName.slice(-1)}`;
+  return `${maskedLocal}@${[maskedDomainName, ...domainParts.slice(1)].join('.')}`;
+}
+
+async function resolveLinkedDeviceEmailOtpBaseFactorV1(input: {
+  readonly walletId: WalletId;
+  readonly authMethods: readonly LocalWalletAuthMethodRecord[];
+  readonly users: readonly ClientUserData[];
+}): Promise<{
+  readonly baseWalletAuthMethodId: WalletAuthMethodId;
+  readonly maskedEmailHint: string;
+}> {
+  const activeEmailMethods: Extract<
+    LocalWalletAuthMethodRecord,
+    { readonly kind: 'email_otp' }
+  >[] = [];
+  for (const record of input.authMethods) {
+    if (
+      record.kind === 'email_otp' &&
+      record.status === 'active' &&
+      String(record.walletId) === String(input.walletId)
+    ) {
+      activeEmailMethods.push(record);
+    }
+  }
+  if (activeEmailMethods.length !== 1) {
+    throw new Error('Linked-device Email OTP owner enrollment requires exactly one active local factor');
+  }
+  const [record] = activeEmailMethods;
+  if (!record) {
+    throw new Error('Linked-device Email OTP owner enrollment factor is unavailable');
+  }
+  if (record.authority.verifier.emailHashHex !== record.emailHashHex) {
+    throw new Error('Linked-device Email OTP local factor hash does not match its authority');
+  }
+  const matchingUsers: ClientUserData[] = [];
+  for (const user of input.users) {
+    if (
+      String(user.walletId) !== String(input.walletId) ||
+      user.authMethod !== WALLET_AUTH_METHODS.emailOtp
+    ) {
+      continue;
+    }
+    const email = user.loginDisplayName.trim().toLowerCase();
+    if (!email || !email.includes('@')) continue;
+    if ((await sha256HexUtf8(email)) === record.emailHashHex) matchingUsers.push(user);
+  }
+  if (matchingUsers.length !== 1) {
+    throw new Error(
+      'Linked-device Email OTP owner enrollment requires one matching local account identity',
+    );
+  }
+  const user = matchingUsers[0];
+  if (!user) throw new Error('Linked-device Email OTP local account identity is unavailable');
+  const authority = buildEmailOtpWalletAuthAuthority({
+    walletId: input.walletId,
+    provider: record.authority.factor.provider,
+    providerUserId: record.authority.factor.providerUserId,
+    emailHashHex: record.emailHashHex,
+  });
+  const authorityRef = await walletAuthAuthorityRef({ authority });
+  const recordId = walletAuthMethodRecordId(record);
+  if (authorityRef.walletAuthMethodId !== recordId) {
+    throw new Error('Linked-device Email OTP local factor did not reproduce its canonical id');
+  }
+  return {
+    baseWalletAuthMethodId: authorityRef.walletAuthMethodId,
+    maskedEmailHint: maskLinkedDeviceEmailHintV1(user.loginDisplayName),
+  };
 }
 
 async function resolveActiveEd25519WalletSessionAuthorization(
@@ -657,7 +754,6 @@ export function selectWalletHostEd25519SourceLaneV1(
       String(lane.walletId) !== String(input.walletId) ||
       String(lane.nearEd25519SigningKeyId) !== String(input.nearEd25519SigningKeyId) ||
       !mpcMaterialActivationRefsEqual(lane.materialActivation, input.materialActivation) ||
-      lane.auth.kind !== WALLET_AUTH_METHODS.passkey ||
       lane.authorizationState !== 'authorized'
     ) {
       continue;
@@ -2793,7 +2889,9 @@ export class BrowserSigningSurface {
   async establishLinkedDeviceSigningSession(input: {
     readonly walletId: WalletId;
     readonly enrollmentId: import('@shared/signing-lanes/ids').LinkedDeviceEnrollmentId;
-    readonly activation: LinkedDeviceSigningSessionActivationV1;
+    readonly activation:
+      | LinkedDeviceSigningSessionActivationV1
+      | LinkedDeviceEmailOtpWarmSigningActivationV1;
   }): Promise<void> {
     let activation: LinkedDeviceSigningSessionActivationWithAuthenticatorV1;
     switch (input.activation.kind) {
@@ -2809,6 +2907,9 @@ export class BrowserSigningSurface {
         activation = { kind: 'existing_target_passkey', authenticator };
         break;
       }
+      case 'target_email_otp_activation':
+        activation = input.activation;
+        break;
       default:
         return assertNeverLinkedDeviceSigningSessionActivationV1(input.activation);
     }
@@ -2826,7 +2927,10 @@ export class BrowserSigningSurface {
     this.setWalletAuthenticated({
       kind: 'authenticated',
       walletId: input.walletId,
-      authMethod: 'passkey',
+      authMethod:
+        nextSession.bundle.targetCredentialRegistration.targetFactor.kind === 'email_otp'
+          ? 'email_otp'
+          : 'passkey',
     });
   }
 
@@ -2852,7 +2956,14 @@ export class BrowserSigningSurface {
       closeLinkedDeviceWarmSigningSessionV1(this.linkedDeviceWarmSigningSession);
     }
     this.linkedDeviceWarmSigningSession = nextSession;
-    this.setWalletAuthenticated({ kind: 'authenticated', walletId, authMethod: 'passkey' });
+    this.setWalletAuthenticated({
+      kind: 'authenticated',
+      walletId,
+      authMethod:
+        nextSession.bundle.targetCredentialRegistration.targetFactor.kind === 'email_otp'
+          ? 'email_otp'
+          : 'passkey',
+    });
     return true;
   }
 
@@ -3065,29 +3176,7 @@ export class BrowserSigningSurface {
       materialActivation: args.job.source.materialActivation,
     });
     const laneIdentity = exactEd25519LaneIdentityFromAvailableLane(lane);
-    const runtime = await requireExactEd25519SealedRuntimeForMaterialActivation({
-      walletId: args.job.walletId,
-      laneIdentity,
-      materialActivation: args.job.source.materialActivation,
-    });
-    if (runtime.factor.kind !== WALLET_AUTH_METHODS.passkey) {
-      throw new Error('Wallet-host Ed25519 source lane requires a passkey runtime');
-    }
-    const materialActivation = runtime.sealedRecord.ed25519Restore.materialActivation;
-    const walletSessionState = await walletSessionStateFromExactEd25519Runtime(runtime);
-    const claim = await this.ensurePasskeyEd25519WarmSessionForSigning({
-      runtime,
-      walletSessionState,
-      materialActivation,
-    });
-    if (!claim.ok) {
-      throw new Error(`Wallet-host Ed25519 PRF is unavailable: ${claim.code}: ${claim.message}`);
-    }
-    const envelope = await readPasskeyCustodySessionEnvelope({
-      walletId: String(runtime.walletId),
-      credentialIdB64u: runtime.factor.credentialIdB64u,
-    });
-    if (!envelope) throw new Error('Wallet-host Ed25519 custody envelope is unavailable');
+    const materialActivation = lane.materialActivation;
     const material =
       this.enginePorts.ed25519YaoActiveClients.resolve({
         walletId: lane.walletId,
@@ -3127,13 +3216,71 @@ export class BrowserSigningSurface {
       participantIds: metadata.participantIds,
       applicationBindingDigestB64u: loaded.material.binding.applicationBindingDigestB64u,
     });
-    const factorSecretBytes = base64UrlDecode(claim.prfFirstB64u);
-    const source = await openEd25519YaoLaneWorkerSourceV1({
-      workerCtx: this.getSignerWorkerContext(),
-      factorSecret: factorSecretBytes.slice().buffer,
-      envelope,
-      applicationBindingDigestB64u: loaded.material.binding.applicationBindingDigestB64u,
-    });
+    let source: Ed25519YaoLaneWorkerSourceV1;
+    switch (lane.auth.kind) {
+      case WALLET_AUTH_METHODS.passkey: {
+        const runtime = await requireExactEd25519SealedRuntimeForMaterialActivation({
+          walletId: args.job.walletId,
+          laneIdentity,
+          materialActivation,
+        });
+        if (runtime.factor.kind !== WALLET_AUTH_METHODS.passkey) {
+          throw new Error('Wallet-host Ed25519 source lane factor identity mismatch');
+        }
+        const walletSessionState = await walletSessionStateFromExactEd25519Runtime(runtime);
+        const claim = await this.ensurePasskeyEd25519WarmSessionForSigning({
+          runtime,
+          walletSessionState,
+          materialActivation,
+        });
+        if (!claim.ok) {
+          throw new Error(
+            `Wallet-host Ed25519 PRF is unavailable: ${claim.code}: ${claim.message}`,
+          );
+        }
+        const envelope = await readPasskeyCustodySessionEnvelope({
+          walletId: String(runtime.walletId),
+          credentialIdB64u: runtime.factor.credentialIdB64u,
+        });
+        if (!envelope) throw new Error('Wallet-host Ed25519 custody envelope is unavailable');
+        const factorSecretBytes = base64UrlDecode(claim.prfFirstB64u);
+        try {
+          source = await openEd25519YaoLaneWorkerSourceV1({
+            workerCtx: this.getSignerWorkerContext(),
+            factorSecret: factorSecretBytes.slice().buffer,
+            envelope,
+            applicationBindingDigestB64u: loaded.material.binding.applicationBindingDigestB64u,
+          });
+        } finally {
+          factorSecretBytes.fill(0);
+        }
+        break;
+      }
+      case WALLET_AUTH_METHODS.emailOtp: {
+        const capability = readUnlockedWalletCustodyTransferCapabilityV1(
+          String(args.job.walletId),
+        );
+        if (!capability) {
+          throw new Error('Wallet-host Email OTP custody capability is unavailable');
+        }
+        if (
+          capability.walletAuthMethodId !==
+            String(lane.authorization.authority.walletAuthMethodId) ||
+          capability.walletSessionId !== String(lane.authorization.walletSessionId)
+        ) {
+          throw new Error('Wallet-host Email OTP custody capability identity mismatch');
+        }
+        source = await openEd25519YaoLaneWorkerSourceFromUnlockedCapabilityV1({
+          workerCtx: this.getSignerWorkerContext(),
+          capability,
+          applicationBindingDigestB64u: loaded.material.binding.applicationBindingDigestB64u,
+        });
+        break;
+      }
+      default:
+        lane.auth satisfies never;
+        throw new Error('Wallet-host Ed25519 source lane factor is unsupported');
+    }
     try {
       const client = createEd25519YaoLaneDerivationWorkerWasmV1({
         workerCtx: this.getSignerWorkerContext(),
@@ -3236,51 +3383,87 @@ export class BrowserSigningSurface {
   private async startLinkedDeviceOwnerEnrollmentCeremonyV1(input: {
     readonly linkSessionId: LinkDeviceSessionId;
     readonly walletId: WalletId;
+    readonly targetFactor: import('@shared/device-linking').QrLinkedDeviceSessionPayloadV5['targetFactor'];
+    readonly expiresAtMs: number;
     readonly requestedAtMs: number;
   }): Promise<LinkedDeviceOwnerEnrollmentStartV1> {
     const authentication = this.walletAuthenticationState;
     if (authentication.kind !== 'authenticated') {
       throw new Error('Linked-device owner enrollment requires an authenticated wallet');
     }
-    if (authentication.authMethod !== 'passkey') {
-      throw new Error('Linked-device owner enrollment currently requires a passkey owner factor');
-    }
     if (String(authentication.walletId) !== String(input.walletId)) {
       throw new Error('Linked-device owner enrollment wallet does not match the signed-in wallet');
     }
-    // The relying party comes from the wallet's own stored passkey factor, not
-    // from ambient page state, so the ceremony is scoped to the same relying
-    // party the wallet already authenticates against.
     const localMethods = await IndexedDBManager.listWalletAuthMethodsForWallet(
       String(input.walletId),
     );
-    const passkeyRpId = localMethods.find((method) => method.kind === 'passkey')?.rpId;
-    const rpId = parseWebAuthnRpId(passkeyRpId);
-    if (!rpId.ok) {
-      throw new Error('Linked-device owner enrollment could not resolve the wallet relying party');
+    switch (input.targetFactor.kind) {
+      case 'email_otp': {
+        if (input.expiresAtMs <= input.requestedAtMs) {
+          throw new Error('Linked-device Email OTP owner enrollment expiry is invalid');
+        }
+        const baseFactor = await resolveLinkedDeviceEmailOtpBaseFactorV1({
+          walletId: input.walletId,
+          authMethods: localMethods,
+          users: await this.getAllUsers(),
+        });
+        return {
+          ceremony: parseLinkedDeviceOwnerEnrollmentCeremonyV1({
+            kind: 'linked_device_email_otp_owner_enrollment_v1',
+            targetFactor: { kind: 'email_otp' },
+            baseWalletAuthMethodId: baseFactor.baseWalletAuthMethodId,
+            maskedEmailHint: baseFactor.maskedEmailHint,
+            expiresAtMs: input.expiresAtMs,
+          }),
+        };
+      }
+      case 'passkey_prf': {
+        if (authentication.authMethod !== 'passkey') {
+          throw new Error('Linked-device Passkey owner enrollment requires a Passkey session');
+        }
+        // The relying party comes from the wallet's own stored Passkey factor,
+        // never from ambient page state.
+        const passkeyRpId = localMethods.find((method) => method.kind === 'passkey')?.rpId;
+        const rpId = parseWebAuthnRpId(passkeyRpId);
+        if (!rpId.ok) {
+          throw new Error(
+            'Linked-device owner enrollment could not resolve the wallet relying party',
+          );
+        }
+        const managedRuntimeScope = await resolveManagedRuntimeScopeBootstrap(
+          this.seamsWebConfigs,
+        );
+        if (!managedRuntimeScope) {
+          throw new Error('Linked-device owner enrollment requires a managed runtime scope');
+        }
+        const sessionRead = await walletSessionAuthorizations.readActiveForWallet(input.walletId);
+        if (sessionRead.kind !== 'found' || sessionRead.projection.status !== 'active') {
+          throw new Error('Linked-device owner enrollment requires an active owner Wallet Session');
+        }
+        const ownerWalletSessionToken = walletSessionTokenForCurve(
+          sessionRead.projection,
+          'ed25519',
+        );
+        if (!ownerWalletSessionToken) {
+          throw new Error(
+            'Linked-device owner enrollment requires an Ed25519 Wallet Session token',
+          );
+        }
+        return await startLinkedDeviceOwnerEnrollmentCeremonyV1(
+          {
+            relayerUrl: String(this.seamsWebConfigs.network.relayer?.url || '').trim(),
+            rpId: rpId.value,
+            publishableKey: managedRuntimeScope.publishableKey,
+            projectEnvironmentId: managedRuntimeScope.projectEnvironmentId,
+            ownerWalletSessionToken: String(ownerWalletSessionToken),
+          },
+          { walletId: input.walletId },
+        );
+      }
+      default:
+        input.targetFactor satisfies never;
+        throw new Error('Linked-device owner enrollment target factor is unsupported');
     }
-    const managedRuntimeScope = await resolveManagedRuntimeScopeBootstrap(this.seamsWebConfigs);
-    if (!managedRuntimeScope) {
-      throw new Error('Linked-device owner enrollment requires a managed runtime scope');
-    }
-    const sessionRead = await walletSessionAuthorizations.readActiveForWallet(input.walletId);
-    if (sessionRead.kind !== 'found' || sessionRead.projection.status !== 'active') {
-      throw new Error('Linked-device owner enrollment requires an active owner Wallet Session');
-    }
-    const ownerWalletSessionToken = walletSessionTokenForCurve(sessionRead.projection, 'ed25519');
-    if (!ownerWalletSessionToken) {
-      throw new Error('Linked-device owner enrollment requires an Ed25519 Wallet Session token');
-    }
-    return await startLinkedDeviceOwnerEnrollmentCeremonyV1(
-      {
-        relayerUrl: String(this.seamsWebConfigs.network.relayer?.url || '').trim(),
-        rpId: rpId.value,
-        publishableKey: managedRuntimeScope.publishableKey,
-        projectEnvironmentId: managedRuntimeScope.projectEnvironmentId,
-        ownerWalletSessionToken: String(ownerWalletSessionToken),
-      },
-      { walletId: input.walletId },
-    );
   }
 
   private async readWalletHostOwnerSourceLaneHintsV1(input: {

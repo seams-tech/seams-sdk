@@ -8,6 +8,7 @@ import type {
   EmailOtpWorkerProgressEvent,
   EmailOtpWalletCustodyEd25519MaterialRequest,
   EmailOtpWalletUnlockMaterialRequest,
+  EmailOtpWalletUnlockMaterialResult,
   EmailOtpEcdsaCustodyRestoreV1,
 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { LoadedWalletCustodyEd25519MaterialV1 } from '../../walletCustody/ed25519SeedMaterial';
@@ -67,6 +68,10 @@ export type EmailOtpEd25519YaoUnlockResult =
 export type EmailOtpWalletUnlockCapabilityResults = {
   kind: 'wallet_unlock_capabilities';
   recovery: EmailOtpWalletUnlockRecovery;
+  custodyTransfer: Extract<
+    EmailOtpWalletUnlockMaterialResult,
+    { kind: 'wallet_unlock_capabilities' }
+  >['custodyTransfer'];
   ecdsa: Extract<EmailOtpWalletUnlockResult, { operation: 'wallet_unlock' }>;
   ed25519Yao: EmailOtpEd25519YaoUnlockResult;
 };
@@ -279,6 +284,7 @@ export async function unlockEmailOtpWalletCapabilities(
   return {
     kind: 'wallet_unlock_capabilities',
     recovery: result.recovery,
+    custodyTransfer: result.custodyTransfer,
     ecdsa: {
       kind: 'ecdsa',
       operation: 'wallet_unlock',

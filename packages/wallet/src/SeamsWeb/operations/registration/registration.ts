@@ -102,7 +102,7 @@ import {
   openWalletCustodyEd25519ActiveClientV1,
   type WalletCustodyActivationFactsV1,
 } from '@/core/signingEngine/walletCustody/openCustodyCache';
-import { buildRecoveredPasskeyCustodyEnvelopeRecord } from '@/core/signingEngine/walletCustody/recoveryReplacementEnvelope';
+import { buildRecoveredCustodyEnvelopeRecord } from '@/core/signingEngine/walletCustody/recoveryReplacementEnvelope';
 import { rememberPasskeyCustodySessionEnvelope } from '@/core/signingEngine/session/passkey/passkeyCustodySessionCache';
 import { nearEd25519SignerBindingFromBoundaryFields } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import {
@@ -186,6 +186,10 @@ import type { StoreWalletSignerFinalizeRollbackReceipt } from '@/core/indexedDB/
 import { toAccountId } from '@/core/types/accountIds';
 import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { persistActiveWalletSessionAuthorizationFromRegistration } from '@/core/signingEngine/session/persistence/walletSessionAuthorizationProjection';
+import {
+  establishUnlockedWalletCustodyTransferCapabilityV1,
+  walletCustodyCeremonyTransportFromWorkerContextV1,
+} from '@/core/signingEngine/walletCustody/unlockedCustodyTransferCapability';
 import { deriveImplicitNearAccountIdFromEd25519PublicKey } from '@shared/utils/near';
 import {
   createRouterAbTraceContextV1,
@@ -355,7 +359,7 @@ function walletCustodyCacheEnvelopeFromRegistrationCommit(
   };
 }
 
-function passkeyCustodyEnvelopeFromRegistrationCommit(args: {
+function custodyEnvelopeFromRegistrationCommit(args: {
   readonly commit: WalletCustodyCeremonyCommitPayload;
   readonly walletId: string;
   readonly activatedAtMs: number;
@@ -364,7 +368,7 @@ function passkeyCustodyEnvelopeFromRegistrationCommit(args: {
   if (!established) {
     throw new Error('Passkey registration custody commit is missing its established envelope');
   }
-  return buildRecoveredPasskeyCustodyEnvelopeRecord({
+  return buildRecoveredCustodyEnvelopeRecord({
     expectedWalletId: args.walletId,
     replacement: established,
     activatedAtMs: args.activatedAtMs,
@@ -385,7 +389,7 @@ export async function establishPasskeyRegistrationCustodyTransferCapability(args
   readonly expiresAtMs: number;
 }): Promise<void> {
   await args.signingEngine.establishUnlockedWalletCustodyTransferCapabilityV1({
-    existingEnvelope: passkeyCustodyEnvelopeFromRegistrationCommit({
+    existingEnvelope: custodyEnvelopeFromRegistrationCommit({
       commit: args.commit,
       walletId: args.walletId,
       activatedAtMs: Date.now(),
@@ -397,12 +401,47 @@ export async function establishPasskeyRegistrationCustodyTransferCapability(args
   });
 }
 
+async function establishEmailOtpRegistrationCustodyTransferCapability(args: {
+  readonly context: RegistrationWebContext;
+  readonly commit: WalletCustodyCeremonyCommitPayload;
+  readonly factorSecret32: Uint8Array;
+  readonly emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
+  readonly walletId: string;
+  readonly walletSessionId: string;
+  readonly expiresAtMs: number;
+}): Promise<void> {
+  try {
+    await establishUnlockedWalletCustodyTransferCapabilityV1(
+      walletCustodyCeremonyTransportFromWorkerContextV1(
+        args.context.signingEngine.getSignerWorkerContext(),
+      ),
+      {
+        existingEnvelope: custodyEnvelopeFromRegistrationCommit({
+          commit: args.commit,
+          walletId: args.walletId,
+          activatedAtMs: Date.now(),
+        }),
+        existingFactorSecret: args.factorSecret32,
+        walletId: args.walletId,
+        walletAuthMethodId: String(args.emailOtpAuthContext.authority.bindingId),
+        walletSessionId: args.walletSessionId,
+        expiresAtMs: args.expiresAtMs,
+      },
+    );
+  } catch (error: unknown) {
+    console.warn(
+      '[registration][email-otp] unlocked custody transfer capability was not established:',
+      error instanceof Error ? error.message : String(error || 'unknown error'),
+    );
+  }
+}
+
 async function rememberPasskeyRegistrationCustodyEnvelope(args: {
   readonly commit: WalletCustodyCeremonyCommitPayload;
   readonly walletId: string;
   readonly activatedAtMs: number;
 }): Promise<void> {
-  const envelope = passkeyCustodyEnvelopeFromRegistrationCommit(args);
+  const envelope = custodyEnvelopeFromRegistrationCommit(args);
   if (envelope.factor.kind !== 'passkey') {
     throw new Error('Passkey registration custody commit has a non-passkey factor');
   }
@@ -2610,6 +2649,7 @@ async function registerEcdsaOrMixedWallet(
   const registrationTiming = new RegistrationTimingRecorder(startedAt);
   const traceContext = createRouterAbTraceContextV1();
   let postTouchIdCompletedAt: number | null = null;
+  let emailOtpCustodyCapabilityFactorSecret32: Uint8Array | null = null;
   const initialEventAccountId = registrationEventAccountId(
     wallet.kind === 'provided' ? String(wallet.walletId) : 'wallet-registration',
   );
@@ -2712,6 +2752,7 @@ async function registerEcdsaOrMixedWallet(
     } else {
       const emailOtpAuthMethod = args.authMethod;
       const emailOtpEnrollmentSecret = crypto.getRandomValues(new Uint8Array(32));
+      emailOtpCustodyCapabilityFactorSecret32 = emailOtpEnrollmentSecret.slice();
       emailOtpWalletCustodyFactorSecret = emailOtpEnrollmentSecret.slice().buffer;
       const emailAuthority = await registrationTiming.measure('authProofMs', () =>
         collectEmailOtpRegistrationAuthority({
@@ -2915,6 +2956,23 @@ async function registerEcdsaOrMixedWallet(
         walletSessionId: String(registrationSession.walletSessionId),
         expiresAtMs: registrationSession.expiresAtMs,
       });
+    } else {
+      if (
+        persistenceAuth.kind !== 'email_otp' ||
+        !emailOtpCustodyCapabilityFactorSecret32
+      ) {
+        throw new Error('Email OTP registration has no custody capability material');
+      }
+      const registrationSession = persistencePlan.ecdsa.session.registrationEstablishedSession;
+      await establishEmailOtpRegistrationCustodyTransferCapability({
+        context,
+        commit: ceremony.walletCustody.commitPayload,
+        factorSecret32: emailOtpCustodyCapabilityFactorSecret32,
+        emailOtpAuthContext: persistenceAuth.emailOtpAuthContext,
+        walletId: String(walletId),
+        walletSessionId: String(registrationSession.walletSessionId),
+        expiresAtMs: registrationSession.expiresAtMs,
+      });
     }
     const primaryEcdsaKey = persistencePlan.ecdsa.walletKeys[0];
     /* Commit #2 is deliberately not awaited: registration returns as soon as
@@ -3076,6 +3134,8 @@ async function registerEcdsaOrMixedWallet(
     );
     afterCall?.(false);
     return result;
+  } finally {
+    emailOtpCustodyCapabilityFactorSecret32?.fill(0);
   }
 }
 
@@ -3101,6 +3161,7 @@ async function registerEmailOtpEd25519YaoWalletOnly(
     args.wallet.kind === 'provided' ? String(args.wallet.walletId) : 'wallet-registration',
   );
   const registrationTiming = new RegistrationTimingRecorder(performance.now());
+  let emailOtpCustodyCapabilityFactorSecret32: Uint8Array | null = null;
   emitRegistrationEvent(options.onEvent, initialEventAccountId, {
     authMethod: 'email_otp',
     phase: RegistrationEventPhase.STEP_01_STARTED,
@@ -3135,6 +3196,7 @@ async function registerEmailOtpEd25519YaoWalletOnly(
       }),
     );
     const emailOtpEnrollmentSecret = crypto.getRandomValues(new Uint8Array(32));
+    emailOtpCustodyCapabilityFactorSecret32 = emailOtpEnrollmentSecret.slice();
     const emailOtpWalletCustodyFactorSecret = emailOtpEnrollmentSecret.slice().buffer;
     const enrollmentMaterial = startEmailOtpRegistrationEnrollmentMaterial({
       recorder: registrationTiming,
@@ -3358,6 +3420,18 @@ async function registerEmailOtpEd25519YaoWalletOnly(
       authMethod: 'email_otp',
       session: finalized.registrationEstablishedSession,
     });
+    if (!emailOtpCustodyCapabilityFactorSecret32) {
+      throw new Error('Email OTP registration has no custody capability material');
+    }
+    await establishEmailOtpRegistrationCustodyTransferCapability({
+      context,
+      commit: walletCustodyCommit,
+      factorSecret32: emailOtpCustodyCapabilityFactorSecret32,
+      emailOtpAuthContext: persistenceAuth.emailOtpAuthContext,
+      walletId: String(finalized.walletId),
+      walletSessionId: String(finalized.registrationEstablishedSession.walletSessionId),
+      expiresAtMs: finalized.registrationEstablishedSession.expiresAtMs,
+    });
     emitRegistrationEvent(options.onEvent, eventAccountId, {
       authMethod: 'email_otp',
       phase: RegistrationEventPhase.STEP_08_STORAGE_PERSIST_SUCCEEDED,
@@ -3425,6 +3499,8 @@ async function registerEmailOtpEd25519YaoWalletOnly(
     );
     options.afterCall?.(false);
     return result;
+  } finally {
+    emailOtpCustodyCapabilityFactorSecret32?.fill(0);
   }
 }
 

@@ -314,6 +314,10 @@ export type EmailOtpWalletUnlockMaterialResult =
   | {
       readonly kind: 'wallet_unlock_capabilities';
       readonly operation: 'wallet_unlock';
+      readonly custodyTransfer: {
+        readonly existingEnvelope: PasskeyCustodyEnvelopeRecord;
+        readonly factorSecret32: Uint8Array;
+      };
       readonly ecdsa: {
         readonly emailOtpSessionHandle: EmailOtpEcdsaSessionBootstrapHandlePayload;
         readonly session: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
@@ -1688,11 +1692,18 @@ export type UnlockedWalletCustodyCapabilityDestroyScopeV1 =
  */
 export interface WalletCustodyCeremonyWorkerOperationMap {
   openEd25519YaoLaneSource: {
-    payload: {
-      factorSecret: ArrayBuffer;
-      envelope: PasskeyCustodyEnvelopeRecord;
-      applicationBindingDigestB64u: string;
-    };
+    payload:
+      | {
+          kind: 'factor';
+          factorSecret: ArrayBuffer;
+          envelope: PasskeyCustodyEnvelopeRecord;
+          applicationBindingDigestB64u: string;
+        }
+      | {
+          kind: 'unlocked_custody_capability';
+          capability: UnlockedWalletCustodyTransferCapabilityV1;
+          applicationBindingDigestB64u: string;
+        };
     result: { sourceHandle: string };
   };
   prepareEd25519YaoLane: {

@@ -124,6 +124,14 @@ export type {
 export type {
   DeviceLinkingSession,
   LinkDeviceResult,
+  LinkedDeviceEmailOtpActivationStateV1,
+  LinkedDeviceTargetEmailOtpActivationV1,
+  LinkedDeviceTargetFactorActivationV1,
+  LinkedDeviceTargetFactorV1,
+  LinkedDeviceTargetPasskeyActivationV1,
+  StartDevice2LinkingFlowArgs,
+  StartDevice2LinkingFlowResults,
+  StartDeviceLinkingOptionsDevice2,
 } from '@/core/types/linkDevice';
 export type {
   LinkedDeviceListRequestV1,

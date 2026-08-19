@@ -2289,6 +2289,7 @@ type EmailOtpUnlockCompletionMaterial =
     }
   | {
       kind: 'wallet_unlock_capabilities';
+      walletCustodyEnvelope: PasskeyCustodyEnvelopeRecord;
       ecdsa: {
         session: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
         custody: EmailOtpEcdsaCustodyRestoreV1;
@@ -3136,6 +3137,7 @@ async function completeEmailOtpUnlockFromSecret32(args: {
           return {
             kind: 'wallet_unlock_capabilities',
             ...commonResult,
+            walletCustodyEnvelope: walletCustody.envelope,
             ecdsa: {
               session: requireEmailOtpWorkerEcdsaSessionResponse(ecdsaSession),
               custody: requireEmailOtpWorkerEcdsaCustodyRestore(ecdsaCustodyRestore),
@@ -3154,6 +3156,7 @@ async function completeEmailOtpUnlockFromSecret32(args: {
         return {
           kind: 'wallet_unlock_capabilities',
           ...commonResult,
+          walletCustodyEnvelope: walletCustody.envelope,
           ecdsa: {
             session: requireEmailOtpWorkerEcdsaSessionResponse(ecdsaSession),
             custody: requireEmailOtpWorkerEcdsaCustodyRestore(ecdsaCustodyRestore),
@@ -3433,6 +3436,8 @@ async function loginWithEmailOtpAndUnlockWallet(args: {
       }
     | {
         kind: 'wallet_unlock_capabilities';
+        clientSecret32: Uint8Array;
+        walletCustodyEnvelope: PasskeyCustodyEnvelopeRecord;
         ecdsa: {
           session: RouterAbEcdsaPostRegistrationSessionActivationResponseV1;
           custody: EmailOtpEcdsaCustodyRestoreV1;
@@ -3566,11 +3571,15 @@ async function loginWithEmailOtpAndUnlockWallet(args: {
             ? { walletCustodyEd25519Material: unlocked.walletCustodyEd25519Material }
             : {}),
         };
-      case 'wallet_unlock_capabilities':
+      case 'wallet_unlock_capabilities': {
+        const ownedClientSecret32 = clientSecret32;
+        clientSecret32 = null;
         if (unlocked.ed25519Yao.kind === 'wallet_custody_cache_absent') {
           return {
             kind: 'wallet_unlock_capabilities',
             ...commonResult,
+            clientSecret32: ownedClientSecret32,
+            walletCustodyEnvelope: unlocked.walletCustodyEnvelope,
             ecdsa: unlocked.ecdsa,
             ed25519Yao: {
               kind: 'wallet_custody_cache_absent',
@@ -3581,9 +3590,12 @@ async function loginWithEmailOtpAndUnlockWallet(args: {
         return {
           kind: 'wallet_unlock_capabilities',
           ...commonResult,
+          clientSecret32: ownedClientSecret32,
+          walletCustodyEnvelope: unlocked.walletCustodyEnvelope,
           ecdsa: unlocked.ecdsa,
           ed25519Yao: unlocked.ed25519Yao,
         };
+      }
       default:
         return assertNeverEmailOtpWorker(unlocked);
     }
@@ -6346,6 +6358,7 @@ self.addEventListener('message', async (event: MessageEvent) => {
             return;
           case 'wallet_unlock_capabilities': {
             if (material.kind !== 'wallet_unlock_capabilities') {
+              result.clientSecret32.fill(0);
               if (result.ed25519Yao.kind === 'capability') {
                 removeEmailOtpEd25519YaoActiveClient(result.ed25519Yao.activeClientHandle);
               }
@@ -6361,18 +6374,26 @@ self.addEventListener('message', async (event: MessageEvent) => {
                 session: result.ecdsa.session,
                 custody: result.ecdsa.custody,
               };
-              postToMainThread({
-                id: msg.id,
-                ok: true,
-                result: {
-                  kind: 'wallet_unlock_capabilities',
-                  operation: 'wallet_unlock',
-                  recovery,
-                  ecdsa,
-                  ed25519Yao: result.ed25519Yao,
+              postToMainThread(
+                {
+                  id: msg.id,
+                  ok: true,
+                  result: {
+                    kind: 'wallet_unlock_capabilities',
+                    operation: 'wallet_unlock',
+                    recovery,
+                    custodyTransfer: {
+                      existingEnvelope: result.walletCustodyEnvelope,
+                      factorSecret32: result.clientSecret32,
+                    },
+                    ecdsa,
+                    ed25519Yao: result.ed25519Yao,
+                  },
                 },
-              });
+                [result.clientSecret32.buffer],
+              );
             } catch (error) {
+              if (result.clientSecret32.byteLength > 0) result.clientSecret32.fill(0);
               if (result.ed25519Yao.kind === 'capability') {
                 removeEmailOtpEd25519YaoActiveClient(result.ed25519Yao.activeClientHandle);
                 deleteEmailOtpEd25519YaoWarmFactor(

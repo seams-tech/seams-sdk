@@ -40,6 +40,7 @@ import type {
 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { EcdsaCommittedLane } from '../../flows/signEvmFamily/ecdsaSelection';
 import {
+  WALLET_EMAIL_OTP_DEVICE_LINK_OPERATION,
   WALLET_EMAIL_OTP_EXPORT_OPERATION,
   WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
   WALLET_EMAIL_OTP_UNLOCK_OPERATION,
@@ -70,6 +71,10 @@ import {
   type EmailOtpWalletUnlockResult,
 } from './walletUnlock';
 import { disposeWalletCustodyEd25519ActiveClientV1 } from '../../walletCustody/ed25519ActiveClient';
+import {
+  establishUnlockedWalletCustodyTransferCapabilityV1,
+  walletCustodyCeremonyTransportFromWorkerContextV1,
+} from '../../walletCustody/unlockedCustodyTransferCapability';
 import {
   DEFAULT_THRESHOLD_SESSION_POLICY,
   clampThresholdSessionPolicy,
@@ -236,6 +241,35 @@ function nowMs(): number {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
     ? performance.now()
     : Date.now();
+}
+
+async function establishEmailOtpUnlockedCustodyTransferCapability(args: {
+  readonly workerContext: WorkerOperationContext;
+  readonly unlock: Extract<
+    Awaited<ReturnType<typeof unlockEmailOtpWalletCapabilities>>,
+    { kind: 'wallet_unlock_capabilities' }
+  >;
+  readonly authorization: ActiveWalletSessionAuthorizationProjection;
+  readonly walletAuthMethodId: string;
+}): Promise<void> {
+  try {
+    await establishUnlockedWalletCustodyTransferCapabilityV1(
+      walletCustodyCeremonyTransportFromWorkerContextV1(args.workerContext),
+      {
+        existingEnvelope: args.unlock.custodyTransfer.existingEnvelope,
+        existingFactorSecret: args.unlock.custodyTransfer.factorSecret32,
+        walletId: String(args.authorization.walletId),
+        walletAuthMethodId: args.walletAuthMethodId,
+        walletSessionId: String(args.authorization.walletSessionId),
+        expiresAtMs: args.authorization.expiresAtMs,
+      },
+    );
+  } catch (error: unknown) {
+    console.warn(
+      '[SigningEngine][email-otp] unlocked custody transfer capability was not established:',
+      error instanceof Error ? error.message : String(error || 'unknown error'),
+    );
+  }
 }
 
 function createEmailOtpThresholdEcdsaLoginTimings(): EmailOtpThresholdEcdsaLoginTimings {
@@ -624,6 +658,8 @@ function emailOtpNonUnlockWorkerHandleOperationFromLoginOperation(
       return 'export';
     case WALLET_EMAIL_OTP_UNLOCK_OPERATION:
       throw new Error('Email OTP wallet unlock requires first-session activation');
+    case WALLET_EMAIL_OTP_DEVICE_LINK_OPERATION:
+      throw new Error('Email OTP device linking requires linked-device activation');
     case 'registration':
       throw new Error('Email OTP ECDSA registration requires wallet-registration prepare');
   }
@@ -1535,6 +1571,14 @@ async function runEmailOtpEcdsaCapability(
       },
       publicationPorts,
     );
+    if (unlockResult.kind === 'wallet_unlock_capabilities') {
+      await establishEmailOtpUnlockedCustodyTransferCapability({
+        workerContext: workerCtx,
+        unlock: unlockResult,
+        authorization,
+        walletAuthMethodId: String(emailOtpAuthContext.authority.bindingId),
+      });
+    }
     mergeEmailOtpEcdsaPublicationTimingsIntoLoginTimings(timings, publicationTimings);
     return {
       kind: 'published_signing_session',
@@ -1561,6 +1605,10 @@ async function runEmailOtpEcdsaCapability(
       );
     }
     throw error;
+  } finally {
+    if (unlockResult.kind === 'wallet_unlock_capabilities') {
+      unlockResult.custodyTransfer.factorSecret32.fill(0);
+    }
   }
 }
 

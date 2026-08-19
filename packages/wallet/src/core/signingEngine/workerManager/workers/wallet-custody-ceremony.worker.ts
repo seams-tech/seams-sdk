@@ -31,7 +31,10 @@ import type {
 import { parsePasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { assertEd25519YaoLaneCeremonyBindingParityV1 } from '@/core/signingEngine/threshold/crypto/ed25519YaoLaneWasm';
-import type { WalletCustodyCeremonyWorkerOperationMap } from '../workerTypes';
+import type {
+  UnlockedWalletCustodyTransferCapabilityV1,
+  WalletCustodyCeremonyWorkerOperationMap,
+} from '../workerTypes';
 
 /**
  * One wallet custody ceremony run, driven from a dedicated worker.
@@ -126,6 +129,8 @@ const custodyTransferRecipients = new Map<string, WasmLinkedDeviceCustodyTransfe
 const MAX_ACTIVE_UNLOCKED_CUSTODY_CAPABILITIES = 4;
 type UnlockedCustodyCapabilityRecordV1 = {
   readonly handle: WasmPasskeyCustodyHandleV1;
+  readonly envelope: PasskeyCustodyEnvelopeRecord;
+  readonly factorSecret: Uint8Array;
   readonly walletId: string;
   readonly walletAuthMethodId: string;
   readonly walletSessionId: string;
@@ -137,6 +142,7 @@ function destroyUnlockedCustodyCapabilityEntry(capabilityHandleId: string): bool
   const record = unlockedCustodyCapabilities.get(capabilityHandleId);
   unlockedCustodyCapabilities.delete(capabilityHandleId);
   if (!record) return false;
+  record.factorSecret.fill(0);
   record.handle.destroy();
   record.handle.free();
   return true;
@@ -293,6 +299,42 @@ function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
   return difference === 0;
 }
 
+function requireUnlockedCustodyCapabilityRecord(
+  capability: UnlockedWalletCustodyTransferCapabilityV1,
+): UnlockedCustodyCapabilityRecordV1 {
+  const capabilityHandleId = requireCapabilityFact(
+    capability.capabilityHandleId,
+    'capabilityHandleId',
+  );
+  const record = unlockedCustodyCapabilities.get(capabilityHandleId);
+  if (!record) {
+    throw new Error('unlocked custody capability is unknown or destroyed');
+  }
+  if (
+    String(capability.walletId) !== record.walletId ||
+    String(capability.walletAuthMethodId) !== record.walletAuthMethodId ||
+    String(capability.walletSessionId) !== record.walletSessionId ||
+    capability.expiresAtMs !== record.expiresAtMs
+  ) {
+    throw new Error('unlocked custody capability reference does not match the held handle');
+  }
+  if (record.expiresAtMs <= Date.now()) {
+    destroyUnlockedCustodyCapabilityEntry(capabilityHandleId);
+    throw new Error('unlocked custody capability has expired');
+  }
+  return record;
+}
+
+function openedCustodyCapabilityLaneSourceInput(
+  capability: UnlockedWalletCustodyTransferCapabilityV1,
+): { readonly envelope: PasskeyCustodyEnvelopeRecord; readonly factorSecret: Uint8Array } {
+  const record = requireUnlockedCustodyCapabilityRecord(capability);
+  return {
+    envelope: record.envelope,
+    factorSecret: record.factorSecret.slice(),
+  };
+}
+
 function distinctLaneSealSeeds(): readonly [Uint8Array, Uint8Array] {
   const first = randomNonzero32();
   let second = randomNonzero32();
@@ -310,17 +352,24 @@ async function openEd25519YaoLaneSource(
   if (ed25519YaoLaneSources.size >= MAX_ACTIVE_LANE_SOURCES) {
     throw new Error('Too many Ed25519 Yao lane sources are active');
   }
-  const envelope = parsePasskeyCustodyEnvelopeRecord(request.payload.envelope);
-  const factorSecret = toBytes(request.payload.factorSecret);
+  const payload = request.payload;
+  const opened =
+    payload.kind === 'factor'
+      ? {
+          envelope: parsePasskeyCustodyEnvelopeRecord(payload.envelope),
+          factorSecret: toBytes(payload.factorSecret),
+        }
+      : openedCustodyCapabilityLaneSourceInput(payload.capability);
+  const factorSecret = opened.factorSecret;
   try {
     const source = new WasmEd25519YaoLaneSourceV1(
       factorSecret,
-      custodyEnvelopeBindingJson(envelope),
-      base64UrlDecode(envelope.nonceB64u),
-      base64UrlDecode(envelope.sealedCustodySecretB64u),
-      base64UrlDecode(envelope.aadHashB64u),
-      base64UrlDecode(envelope.ciphertextDigestB64u),
-      base64UrlDecode(request.payload.applicationBindingDigestB64u),
+      custodyEnvelopeBindingJson(opened.envelope),
+      base64UrlDecode(opened.envelope.nonceB64u),
+      base64UrlDecode(opened.envelope.sealedCustodySecretB64u),
+      base64UrlDecode(opened.envelope.aadHashB64u),
+      base64UrlDecode(opened.envelope.ciphertextDigestB64u),
+      base64UrlDecode(payload.applicationBindingDigestB64u),
     );
     const sourceHandle = secureOpaqueHandle('ed25519-yao-lane-source-v1');
     ed25519YaoLaneSources.set(sourceHandle, source);
@@ -716,8 +765,9 @@ async function establishUnlockedWalletCustodyTransferCapability(
   request: EstablishUnlockedCustodyCapabilityRequest,
 ): Promise<unknown> {
   await initializeNearSignerWasm();
-  const envelope = request.payload.existingEnvelope;
+  const envelope = parsePasskeyCustodyEnvelopeRecord(request.payload.existingEnvelope);
   const existingFactorSecret = toBytes(request.payload.existingFactorSecret);
+  let factorSecretStored = false;
   try {
     const walletId = requireCapabilityFact(request.payload.walletId, 'walletId');
     const walletAuthMethodId = requireCapabilityFact(
@@ -754,11 +804,14 @@ async function establishUnlockedWalletCustodyTransferCapability(
     const capabilityHandleId = createUnlockedCustodyCapabilityHandleId();
     unlockedCustodyCapabilities.set(capabilityHandleId, {
       handle,
+      envelope,
+      factorSecret: existingFactorSecret,
       walletId,
       walletAuthMethodId,
       walletSessionId,
       expiresAtMs,
     });
+    factorSecretStored = true;
     return {
       kind: 'unlocked_wallet_custody_transfer_capability_v1',
       capabilityHandleId,
@@ -768,7 +821,7 @@ async function establishUnlockedWalletCustodyTransferCapability(
       expiresAtMs,
     };
   } finally {
-    existingFactorSecret.fill(0);
+    if (!factorSecretStored) existingFactorSecret.fill(0);
   }
 }
 
@@ -807,26 +860,7 @@ async function sealWalletCustodySeedForLinkedDevice(
 ): Promise<unknown> {
   await initializeNearSignerWasm();
   const capability = request.payload.capability;
-  const capabilityHandleId = requireCapabilityFact(
-    capability.capabilityHandleId,
-    'capabilityHandleId',
-  );
-  const record = unlockedCustodyCapabilities.get(capabilityHandleId);
-  if (!record) {
-    throw new Error('unlocked custody capability is unknown or destroyed');
-  }
-  if (
-    String(capability.walletId) !== record.walletId ||
-    String(capability.walletAuthMethodId) !== record.walletAuthMethodId ||
-    String(capability.walletSessionId) !== record.walletSessionId ||
-    capability.expiresAtMs !== record.expiresAtMs
-  ) {
-    throw new Error('unlocked custody capability reference does not match the held handle');
-  }
-  if (record.expiresAtMs <= Date.now()) {
-    destroyUnlockedCustodyCapabilityEntry(capabilityHandleId);
-    throw new Error('unlocked custody capability has expired');
-  }
+  const record = requireUnlockedCustodyCapabilityRecord(capability);
   const sealed = passkey_custody_seal_wallet_seed_for_linked_device_v1(
     record.handle,
     request.payload.transferBindingJson,

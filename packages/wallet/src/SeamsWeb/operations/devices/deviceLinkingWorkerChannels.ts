@@ -7,6 +7,7 @@ import {
   type LinkedDeviceTargetHolderRegistrationV1,
   type LinkedDeviceProvisioningChildV1,
   type LinkedDeviceTargetPreparationV1,
+  type LinkedDeviceEmailOtpVerificationResultV1,
   type LinkedDeviceRequestProofV1,
 } from '@shared/device-linking';
 import type {
@@ -20,10 +21,19 @@ import {
 } from '@shared/signing-lanes/rotationParsers';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
-import { parseLinkDeviceSessionId, type LinkDeviceSessionId } from '@shared/signing-lanes/ids';
+import {
+  parseLinkedDeviceEnrollmentId,
+  parseLinkedDeviceId,
+  parseLinkDeviceSessionId,
+  type LinkDeviceSessionId,
+  type LinkedDeviceEnrollmentId,
+  type LinkedDeviceId,
+} from '@shared/signing-lanes/ids';
 import {
   parseMpcMaterialActivationRef,
+  parseWalletId,
   type MpcMaterialActivationRef,
+  type WalletId,
 } from '@shared/utils/domainIds';
 import { resolveWorkerUrl } from '@/core/walletRuntimePaths';
 import {
@@ -32,6 +42,7 @@ import {
 } from '@/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
 import type {
   DeviceLinkingEd25519SigningShareV1,
+  DeviceLinkingEmailOtpHolderSigningMaterialBatchInputV1,
   DeviceLinkingHolderSigningMaterialHandleV1,
   DeviceLinkingHolderSigningMaterialPortV1,
   DeviceLinkingKeyMaterialHandleV1,
@@ -58,6 +69,10 @@ export type DeviceLinkingWorkerKeyMaterialPortV1 = DeviceLinkingKeyMaterialPortV
 type DeviceLinkingWorkerRequestV1 =
   | { readonly kind: 'device_linking_key_material_create_v1' }
   | {
+      readonly kind: 'device_linking_email_otp_custody_recipient_create_v1';
+      readonly handleId: string;
+    }
+  | {
       readonly kind: 'device_linking_target_holder_open_seal_v1';
       readonly handleId: string;
       readonly delivery: LinkedDeviceProvisioningChildV1;
@@ -70,12 +85,38 @@ type DeviceLinkingWorkerRequestV1 =
       readonly factorSecret: ArrayBuffer;
     }
   | {
+      readonly kind: 'device_linking_email_otp_target_prepare_v1';
+      readonly handleId: string;
+      readonly preparation: LinkedDeviceTargetPreparationV1;
+      readonly verification: LinkedDeviceEmailOtpVerificationResultV1;
+      readonly transferBindingJson: string;
+      readonly ephemeralPublicKeyB64u: string;
+      readonly nonceB64u: string;
+      readonly sealedCustodySecretB64u: string;
+      readonly aadHashB64u: string;
+      readonly ciphertextDigestB64u: string;
+      readonly replacementEnvelopeBindingJson: string;
+    }
+  | {
       readonly kind: 'device_linking_holder_signing_material_open_v1';
       readonly factorSecret: ArrayBuffer;
       readonly job: RotatableSigningLaneJobV1;
       readonly protocolCommitReceipt: LaneProtocolCommitReceiptV1;
       readonly materialActivation: MpcMaterialActivationRef;
       readonly holderRecord: LaneSealedHolderRecordV1;
+    }
+  | {
+      readonly kind: 'device_linking_email_otp_holder_signing_material_batch_open_v1';
+      readonly handleId: string;
+      readonly walletId: WalletId;
+      readonly linkSessionId: LinkDeviceSessionId;
+      readonly enrollmentId: LinkedDeviceEnrollmentId;
+      readonly deviceId: LinkedDeviceId;
+      readonly targetPreparationDigestB64u: DigestB64u;
+      readonly orderedChildren: readonly [
+        DeviceLinkingEmailOtpHolderSigningMaterialBatchChildV1,
+        ...DeviceLinkingEmailOtpHolderSigningMaterialBatchChildV1[],
+      ];
     }
   | {
       readonly kind: 'device_linking_holder_signing_material_discard_v1';
@@ -117,6 +158,30 @@ type PendingRequestV1 = {
   readonly reject: (error: Error) => void;
   readonly timeoutId: ReturnType<typeof setTimeout>;
 };
+
+type EmailOtpTargetPreparationV1 = Extract<
+  LinkedDeviceTargetPreparationV1,
+  { readonly targetFactor: { readonly kind: 'email_otp' } }
+>;
+
+type DeviceLinkingEmailOtpHolderSigningMaterialBatchChildV1 =
+  DeviceLinkingEmailOtpHolderSigningMaterialBatchInputV1['orderedChildren'][number];
+
+type DeviceLinkingHolderSigningMaterialBatchResultV1 = {
+  readonly holderSigningMaterialHandles: readonly [
+    DeviceLinkingHolderSigningMaterialHandleV1,
+    ...DeviceLinkingHolderSigningMaterialHandleV1[],
+  ];
+};
+
+function isEmailOtpTargetPreparation(
+  preparation: LinkedDeviceTargetPreparationV1,
+): preparation is EmailOtpTargetPreparationV1 {
+  return (
+    preparation.targetFactor.kind === 'email_otp' &&
+    preparation.ownerEnrollment.kind === 'linked_device_email_otp_owner_enrollment_v1'
+  );
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -187,7 +252,12 @@ function parseHandle(value: unknown): DeviceLinkingKeyMaterialHandleV1 {
 function parseCreateResult(value: unknown): DeviceLinkingKeyMaterialBundleV1 {
   const record = exactRecord(
     value,
-    ['handleId', 'linkPublicKeyB64u', 'devicePublicKeyB64u'],
+    [
+      'handleId',
+      'linkPublicKeyB64u',
+      'devicePublicKeyB64u',
+      'emailOtpReleasePublicKey65B64u',
+    ],
     'device-linking key create response',
   );
   return {
@@ -197,6 +267,11 @@ function parseCreateResult(value: unknown): DeviceLinkingKeyMaterialBundleV1 {
     },
     linkPublicKeyB64u: parseLinkDevicePublicKeyB64u(record.linkPublicKeyB64u),
     devicePublicKeyB64u: parseLinkDevicePublicKeyB64u(record.devicePublicKeyB64u),
+    emailOtpReleasePublicKey65B64u: parseFixedB64u(
+      record.emailOtpReleasePublicKey65B64u,
+      65,
+      'emailOtpReleasePublicKey65B64u',
+    ),
   };
 }
 
@@ -233,6 +308,42 @@ function parseHolderSigningMaterialHandleInput(
     handleId: record.handleId,
     keyFamily: record.keyFamily,
   });
+}
+
+function parseHolderSigningMaterialBatchResult(
+  value: unknown,
+  children: DeviceLinkingEmailOtpHolderSigningMaterialBatchInputV1['orderedChildren'],
+): DeviceLinkingHolderSigningMaterialBatchResultV1 {
+  const record = exactRecord(
+    value,
+    ['holderSigningMaterialHandles'],
+    'device-linking Email OTP holder signing material batch response',
+  );
+  if (!Array.isArray(record.holderSigningMaterialHandles)) {
+    throw new Error('device-linking Email OTP holder signing material batch response is invalid');
+  }
+  if (record.holderSigningMaterialHandles.length !== children.length) {
+    throw new Error('device-linking Email OTP holder signing material batch count changed');
+  }
+  const handles: DeviceLinkingHolderSigningMaterialHandleV1[] = [];
+  const handleIds = new Set<string>();
+  for (let index = 0; index < children.length; index += 1) {
+    const rawHandle = record.holderSigningMaterialHandles[index];
+    const handle = parseHolderSigningMaterialHandle(rawHandle);
+    const child = children[index];
+    if (!child || handle.keyFamily !== child.job.keyFamily || handleIds.has(handle.handleId)) {
+      throw new Error('device-linking Email OTP holder signing material order changed');
+    }
+    handleIds.add(handle.handleId);
+    handles.push(handle);
+  }
+  const first = handles[0];
+  if (!first) throw new Error('device-linking Email OTP holder signing material batch is empty');
+  return { holderSigningMaterialHandles: nonEmptyTupleV1(first, handles.slice(1)) };
+}
+
+function nonEmptyTupleV1<T>(first: T, rest: readonly T[]): readonly [T, ...T[]] {
+  return [first, ...rest];
 }
 
 function parseCommitments(value: unknown): {
@@ -302,6 +413,7 @@ function parseTargetHolderResult(
     enrollmentId: preparation.enrollmentId,
     deviceId: preparation.deviceId,
     targetPreparationDigestB64u: base64UrlEncode(new Uint8Array(32)),
+    targetFactor: { kind: 'passkey_prf' },
     webauthnRegistration: {
       kind: 'linked_device_webauthn_registration_v1',
       credentialIdB64u,
@@ -334,6 +446,88 @@ function parseTargetHolderResult(
     }
   }
   return { orderedHolderRegistrations: registration.orderedHolderRegistrations };
+}
+
+function parseEmailOtpCustodyRecipientResult(
+  value: unknown,
+): { readonly recipientPublicKeyB64u: string } {
+  const record = exactRecord(
+    value,
+    ['recipientPublicKeyB64u'],
+    'device-linking Email OTP custody recipient response',
+  );
+  return {
+    recipientPublicKeyB64u: parseFixedB64u(
+      record.recipientPublicKeyB64u,
+      32,
+      'recipientPublicKeyB64u',
+    ),
+  };
+}
+
+function parseEmailOtpTargetResult(
+  value: unknown,
+  preparation: Extract<
+    LinkedDeviceTargetPreparationV1,
+    { readonly targetFactor: { readonly kind: 'email_otp' } }
+  >,
+  verification: LinkedDeviceEmailOtpVerificationResultV1,
+): {
+  readonly orderedHolderRegistrations: readonly [
+    LinkedDeviceTargetHolderRegistrationV1,
+    ...LinkedDeviceTargetHolderRegistrationV1[],
+  ];
+  readonly resealedCustodyEnvelope: {
+    readonly nonceB64u: string;
+    readonly sealedCustodySecretB64u: string;
+    readonly aadHashB64u: string;
+    readonly ciphertextDigestB64u: string;
+  };
+} {
+  const record = exactRecord(
+    value,
+    ['emailOtpPrepared', 'orderedHolderRegistrations', 'resealedCustodyEnvelope'],
+    'device-linking Email OTP target response',
+  );
+  if (record.emailOtpPrepared !== true) {
+    throw new Error('device-linking Email OTP target response kind is invalid');
+  }
+  const registration = parseLinkedDeviceTargetCredentialRegistrationV1({
+    kind: 'linked_device_target_credential_registration_v1',
+    linkSessionId: preparation.linkSessionId,
+    walletId: preparation.walletId,
+    enrollmentId: preparation.enrollmentId,
+    deviceId: preparation.deviceId,
+    targetFactor: { kind: 'email_otp' },
+    targetPreparationDigestB64u: verification.verificationGrant.targetPreparationDigestB64u,
+    emailOtpVerificationGrant: verification.verificationGrant,
+    orderedHolderRegistrations: record.orderedHolderRegistrations,
+    registeredAtMs: verification.verificationGrant.issuedAtMs,
+  });
+  if (registration.orderedHolderRegistrations.length !== preparation.orderedChildren.length) {
+    throw new Error('device-linking worker returned the wrong holder child count');
+  }
+  const resealed = exactRecord(
+    record.resealedCustodyEnvelope,
+    ['nonceB64u', 'sealedCustodySecretB64u', 'aadHashB64u', 'ciphertextDigestB64u'],
+    'device-linking Email OTP resealed custody envelope',
+  );
+  return {
+    orderedHolderRegistrations: registration.orderedHolderRegistrations,
+    resealedCustodyEnvelope: {
+      nonceB64u: parseFixedB64u(resealed.nonceB64u, 12, 'resealed nonceB64u'),
+      sealedCustodySecretB64u: nonEmpty(
+        resealed.sealedCustodySecretB64u,
+        'resealed sealedCustodySecretB64u',
+      ),
+      aadHashB64u: parseFixedB64u(resealed.aadHashB64u, 32, 'resealed aadHashB64u'),
+      ciphertextDigestB64u: parseFixedB64u(
+        resealed.ciphertextDigestB64u,
+        32,
+        'resealed ciphertextDigestB64u',
+      ),
+    },
+  };
 }
 
 function parseSealedHolderResult(value: unknown): SealedLaneHolderMaterialV1 {
@@ -566,6 +760,15 @@ export function createDeviceLinkingKeyMaterialPortV1(
     async createBootstrapKeyMaterialV1() {
       return parseCreateResult(await request({ kind: 'device_linking_key_material_create_v1' }));
     },
+    async createEmailOtpCustodyRecipientV1(input) {
+      const handle = parseHandle(input.handle);
+      return parseEmailOtpCustodyRecipientResult(
+        await request({
+          kind: 'device_linking_email_otp_custody_recipient_create_v1',
+          handleId: handle.handleId,
+        }),
+      );
+    },
     async discardKeyMaterialV1(input) {
       const handle = parseHandle(input.handle);
       await request({ kind: 'device_linking_key_material_discard_v1', handleId: handle.handleId });
@@ -589,6 +792,30 @@ export function createDeviceLinkingKeyMaterialPortV1(
         ),
         preparation,
         input.credentialIdB64u,
+      );
+    },
+    async prepareEmailOtpTargetV1(input) {
+      const handle = parseHandle(input.handle);
+      const preparation = parseLinkedDeviceTargetPreparationV1(input.preparation);
+      if (!isEmailOtpTargetPreparation(preparation)) {
+        throw new Error('Email OTP worker preparation requires an Email OTP target');
+      }
+      return parseEmailOtpTargetResult(
+        await request({
+          kind: 'device_linking_email_otp_target_prepare_v1',
+          handleId: handle.handleId,
+          preparation,
+          verification: input.verification,
+          transferBindingJson: input.transferBindingJson,
+          ephemeralPublicKeyB64u: String(input.transferPackage.ephemeralPublicKeyB64u),
+          nonceB64u: String(input.transferPackage.nonceB64u),
+          sealedCustodySecretB64u: String(input.transferPackage.sealedCustodySecretB64u),
+          aadHashB64u: String(input.transferPackage.aadHashB64u),
+          ciphertextDigestB64u: String(input.transferPackage.ciphertextDigestB64u),
+          replacementEnvelopeBindingJson: input.replacementEnvelopeBindingJson,
+        }),
+        preparation,
+        input.verification,
       );
     },
     async openAndSealTargetHolderDeliveryV1(input) {
@@ -634,6 +861,57 @@ export function createDeviceLinkingKeyMaterialPortV1(
           [input.factorSecret],
         ),
       );
+    },
+    async openPersistedEmailOtpHolderSigningMaterialsV1(input) {
+      const handle = parseHandle(input.keyMaterial);
+      const walletId = parseWalletId(input.walletId);
+      if (!walletId.ok) throw new Error(walletId.error.message);
+      const linkSessionId = parseLinkDeviceSessionId(input.linkSessionId);
+      if (!linkSessionId.ok) throw new Error(linkSessionId.error.message);
+      const enrollmentId = parseLinkedDeviceEnrollmentId(input.enrollmentId);
+      if (!enrollmentId.ok) throw new Error(enrollmentId.error.message);
+      const deviceId = parseLinkedDeviceId(input.deviceId);
+      if (!deviceId.ok) throw new Error(deviceId.error.message);
+      if (!Array.isArray(input.orderedChildren) || input.orderedChildren.length === 0) {
+        throw new Error('device-linking Email OTP holder signing material batch is empty');
+      }
+      const orderedChildren: DeviceLinkingEmailOtpHolderSigningMaterialBatchInputV1['orderedChildren'][number][] = [];
+      for (const child of input.orderedChildren) {
+        orderedChildren.push({
+          job: parseRotatableSigningLaneJobV1(
+            child.job,
+            'device-linking Email OTP holder signing material job',
+          ),
+          protocolCommitReceipt: parseLaneProtocolCommitReceiptV1(
+            child.protocolCommitReceipt,
+            'device-linking Email OTP holder signing material protocol receipt',
+          ),
+          materialActivation: parseMaterialActivation(child.materialActivation),
+          holderRecord: parseLaneSealedHolderRecordV1(child.holderRecord),
+        });
+      }
+      const first = orderedChildren[0];
+      if (!first) {
+        throw new Error('device-linking Email OTP holder signing material batch is empty');
+      }
+      const targetPreparationDigestB64u = parseDigest(
+        input.targetPreparationDigestB64u,
+        'targetPreparationDigestB64u',
+      );
+      const parsedChildren = nonEmptyTupleV1(first, orderedChildren.slice(1));
+      return parseHolderSigningMaterialBatchResult(
+        await request({
+          kind: 'device_linking_email_otp_holder_signing_material_batch_open_v1',
+          handleId: handle.handleId,
+          walletId: walletId.value,
+          linkSessionId: linkSessionId.value,
+          enrollmentId: enrollmentId.value,
+          deviceId: deviceId.value,
+          targetPreparationDigestB64u,
+          orderedChildren: parsedChildren,
+        }),
+        parsedChildren,
+      ).holderSigningMaterialHandles;
     },
     async discardHolderSigningMaterialV1(input) {
       const handle = parseHolderSigningMaterialHandleInput(input.handle);

@@ -30,9 +30,20 @@ import type {
   QrLinkedDeviceSessionPayloadV5,
   LinkedDeviceOwnerFinalizeRequestV1,
   LinkedDeviceLocalAccountProjectionV1,
+  LinkedDeviceEmailOtpChallengeStartRequestV1,
+  LinkedDeviceEmailOtpChallengeResendRequestV1,
+  LinkedDeviceEmailOtpChallengeVerifyRequestV1,
+  LinkedDeviceEmailOtpChallengeResultV1,
+  LinkedDeviceEmailOtpVerificationResultV1,
+  LinkedDeviceEmailOtpVerificationGrantV1,
+  LinkedDeviceEmailOtpFactorReleaseEnvelopeV1,
 } from '@shared/device-linking';
 import type { WalletAddAuthMethodFinalizeResponse } from '@/core/rpcClients/relayer/walletRegistration';
-import type { SealedLaneHolderMaterialV1 } from '@shared/signing-lanes/rotation';
+import type {
+  LaneProtocolCommitReceiptV1,
+  RotatableSigningLaneJobV1,
+  SealedLaneHolderMaterialV1,
+} from '@shared/signing-lanes/rotation';
 import type {
   LinkedDeviceCustodyTransferPackageV1,
   LinkedDeviceCustodyTransferRecipientV1,
@@ -42,12 +53,24 @@ import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import type {
   LaneOperationId,
   LaneOperationIdempotencyKey,
-  LinkedDeviceEnrollmentId,
   LinkedDeviceId,
+  LinkedDeviceEnrollmentId,
   LinkDeviceSessionId,
 } from '@shared/signing-lanes/ids';
-import type { WalletId } from '@shared/utils/domainIds';
+import type {
+  MpcMaterialActivationRef,
+  WalletId,
+} from '@shared/utils/domainIds';
+import type { LaneSealedHolderRecordV1 } from '@/core/indexedDB/seamsWalletDB/laneHolderMaterialStore';
 import type { LinkedDeviceExecutionEvidenceRepositoryV1 } from '@/core/indexedDB/seamsWalletDB/linkedDeviceExecutionEvidenceStore';
+import type {
+  DeviceLinkingHolderSigningMaterialHandleV1,
+  DeviceLinkingHolderSigningMaterialPortV1,
+} from '@/core/signingEngine/session/lanes/linkedDevicePorts';
+import type {
+  PasskeyCustodyEnvelopeRecord,
+  WalletCustodyEnvelopeFactor,
+} from '@shared/passkey-custody';
 export type {
   DeviceLinkingEd25519SigningShareV1,
   DeviceLinkingHolderSigningMaterialHandleV1,
@@ -89,6 +112,15 @@ export type DeviceLinkingAuthenticatedTransportPortV1 = {
   getTargetPreparationV1(input: {
     readonly linkSessionId: LinkDeviceSessionId;
   }): Promise<LinkedDeviceTargetPreparationV1>;
+  startTargetEmailOtpChallengeV1(input: {
+    readonly request: LinkedDeviceEmailOtpChallengeStartRequestV1;
+  }): Promise<LinkedDeviceEmailOtpChallengeResultV1>;
+  resendTargetEmailOtpChallengeV1(input: {
+    readonly request: LinkedDeviceEmailOtpChallengeResendRequestV1;
+  }): Promise<LinkedDeviceEmailOtpChallengeResultV1>;
+  verifyTargetEmailOtpChallengeV1(input: {
+    readonly request: LinkedDeviceEmailOtpChallengeVerifyRequestV1;
+  }): Promise<LinkedDeviceEmailOtpVerificationResultV1>;
   requestProvisioningDeliveriesV1(input: {
     readonly command: LinkedDeviceProvisioningCommandV1;
   }): Promise<LinkedDeviceProvisioningDeliveriesV1>;
@@ -208,6 +240,29 @@ export type DeviceLinkingKeyMaterialBundleV1 = {
   readonly linkPublicKeyB64u: LinkDevicePublicKeyB64u;
   /** Ed25519 device identity public key; the private key remains in the worker. */
   readonly devicePublicKeyB64u: LinkDevicePublicKeyB64u;
+  /** Public P-256 recipient for an Email OTP factor release. */
+  readonly emailOtpReleasePublicKey65B64u: string;
+};
+
+export type DeviceLinkingPersistedHolderSigningMaterialChildV1 = {
+  readonly job: RotatableSigningLaneJobV1;
+  readonly protocolCommitReceipt: LaneProtocolCommitReceiptV1;
+  readonly materialActivation: MpcMaterialActivationRef;
+  readonly holderRecord: LaneSealedHolderRecordV1;
+};
+
+export type DeviceLinkingEmailOtpHolderSigningMaterialBatchInputV1 = {
+  /** The worker slot that retained the Email OTP factor during preparation. */
+  readonly keyMaterial: DeviceLinkingKeyMaterialHandleV1;
+  readonly walletId: WalletId;
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly enrollmentId: LinkedDeviceEnrollmentId;
+  readonly deviceId: LinkedDeviceId;
+  readonly targetPreparationDigestB64u: DigestB64u;
+  readonly orderedChildren: readonly [
+    DeviceLinkingPersistedHolderSigningMaterialChildV1,
+    ...DeviceLinkingPersistedHolderSigningMaterialChildV1[],
+  ];
 };
 
 export type DeviceLinkingKeyMaterialPortV1 = {
@@ -223,6 +278,37 @@ export type DeviceLinkingKeyMaterialPortV1 = {
       ...LinkedDeviceTargetHolderRegistrationV1[],
     ];
   }>;
+  createEmailOtpCustodyRecipientV1(input: {
+    readonly handle: DeviceLinkingKeyMaterialHandleV1;
+  }): Promise<{ readonly recipientPublicKeyB64u: string }>;
+  prepareEmailOtpTargetV1(input: {
+    readonly handle: DeviceLinkingKeyMaterialHandleV1;
+    readonly preparation: Extract<
+      LinkedDeviceTargetPreparationV1,
+      { readonly targetFactor: { readonly kind: 'email_otp' } }
+    >;
+    readonly verification: LinkedDeviceEmailOtpVerificationResultV1;
+    readonly transferBindingJson: string;
+    readonly transferPackage: LinkedDeviceCustodyTransferPackageV1;
+    readonly replacementEnvelopeBindingJson: string;
+  }): Promise<{
+    readonly orderedHolderRegistrations: readonly [
+      LinkedDeviceTargetHolderRegistrationV1,
+      ...LinkedDeviceTargetHolderRegistrationV1[],
+    ];
+    readonly resealedCustodyEnvelope: {
+      readonly nonceB64u: string;
+      readonly sealedCustodySecretB64u: string;
+      readonly aadHashB64u: string;
+      readonly ciphertextDigestB64u: string;
+    };
+  }>;
+  openPersistedEmailOtpHolderSigningMaterialsV1(
+    input: DeviceLinkingEmailOtpHolderSigningMaterialBatchInputV1,
+  ): Promise<readonly [
+    DeviceLinkingHolderSigningMaterialHandleV1,
+    ...DeviceLinkingHolderSigningMaterialHandleV1[],
+  ]>;
   openAndSealTargetHolderDeliveryV1(input: {
     readonly handle: DeviceLinkingKeyMaterialHandleV1;
     readonly delivery: LinkedDeviceProvisioningChildV1;
@@ -242,6 +328,16 @@ export type DeviceLinkingKeyMaterialPortV1 = {
   }): Promise<{ readonly signatureB64u: string }>;
 };
 
+export type DeviceLinkingLiveKeyMaterialPortV1 = DeviceLinkingKeyMaterialPortV1 &
+  DeviceLinkingHolderSigningMaterialPortV1;
+
+export type EmailOtpCustodyEnvelopeRecordV1 = Omit<
+  PasskeyCustodyEnvelopeRecord,
+  'factor'
+> & {
+  readonly factor: Extract<WalletCustodyEnvelopeFactor, { readonly kind: 'email_otp' }>;
+};
+
 export type DeviceLinkingOwnerAuthorizationPortV1 = {
   /**
    * Starts the canonical owner add-auth-method ceremony that the linked device
@@ -258,6 +354,8 @@ export type DeviceLinkingOwnerAuthorizationPortV1 = {
   startOwnerEnrollmentCeremonyV1(input: {
     readonly linkSessionId: LinkDeviceSessionId;
     readonly walletId: WalletId;
+    readonly targetFactor: QrLinkedDeviceSessionPayloadV5['targetFactor'];
+    readonly expiresAtMs: number;
     readonly requestedAtMs: number;
   }): Promise<LinkedDeviceOwnerEnrollmentStartV1>;
   authenticateOwnerForLinkingV1(input: {
@@ -291,7 +389,10 @@ export type DeviceLinkingOwnerAuthorizationPortV1 = {
 
 export type DeviceLinkingTargetCredentialPortV1 = {
   createTargetCredentialV1(input: {
-    readonly preparation: LinkedDeviceTargetPreparationV1;
+    readonly preparation: Extract<
+      LinkedDeviceTargetPreparationV1,
+      { readonly targetFactor: { readonly kind: 'passkey_prf' } }
+    >;
     readonly keyMaterial: DeviceLinkingKeyMaterialHandleV1;
   }): Promise<{
     readonly webauthnRegistration: LinkedDeviceWebAuthnRegistrationV1;
@@ -315,6 +416,14 @@ export type LinkedDeviceSigningSessionActivationV1 =
     }
   | {
       readonly kind: 'existing_target_passkey';
+    }
+  | {
+      readonly kind: 'target_email_otp_activation';
+      readonly keyMaterial: DeviceLinkingKeyMaterialHandleV1;
+      readonly holderMaterial: DeviceLinkingLiveKeyMaterialPortV1;
+      readonly resealedCustodyEnvelope: EmailOtpCustodyEnvelopeRecordV1;
+      readonly verificationGrant: LinkedDeviceEmailOtpVerificationGrantV1;
+      readonly factorRelease: LinkedDeviceEmailOtpFactorReleaseEnvelopeV1;
     };
 
 export type DeviceLinkingSessionActivationPortV1 = {
@@ -365,7 +474,7 @@ export type DeviceLinkingExecutionEvidenceStorePortV1 = Pick<
 
 export type Device2LinkingFlowPortsV1 = {
   readonly transport: LinkSessionTransportPortV1;
-  readonly keyMaterial: DeviceLinkingKeyMaterialPortV1;
+  readonly keyMaterial: DeviceLinkingLiveKeyMaterialPortV1;
   readonly targetCredential: DeviceLinkingTargetCredentialPortV1;
   /** Refactor 103 Phase 8: Device 2's half of the wallet custody seed transfer. */
   readonly custodyTransfer: DeviceLinkingCustodyTransferPortV1;
