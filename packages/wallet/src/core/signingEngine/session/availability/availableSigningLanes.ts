@@ -433,9 +433,7 @@ function publicCapabilityReferenceToEd25519Lane(
       return { ...base, state: 'deferred', authorizationState: 'authorization_required' };
     }
     const authorizationExpiresAtMs = Math.floor(Number(authorization.expiresAtMs) || 0);
-    const emailOtpReference = isEmailOtpPublicCapabilityLaneReference(reference)
-      ? reference
-      : null;
+    const emailOtpReference = isEmailOtpPublicCapabilityLaneReference(reference) ? reference : null;
     const expiresAtMs = emailOtpReference
       ? Math.min(emailOtpReference.expiresAtMs, authorizationExpiresAtMs)
       : authorizationExpiresAtMs;
@@ -535,6 +533,7 @@ export type ReadAvailableSigningLanesForSigningInput =
       subjectId?: never;
       curve: 'ed25519';
       authMethod?: 'email_otp' | 'passkey';
+      ownerScope: OwnerLaneScope;
     }
   | {
       walletId: WalletId;
@@ -542,6 +541,7 @@ export type ReadAvailableSigningLanesForSigningInput =
       curve: 'ecdsa';
       ecdsaChainTargets: readonly ThresholdEcdsaChainTarget[];
       authMethod?: 'email_otp' | 'passkey';
+      ownerScope: OwnerLaneScope;
     };
 
 export type ReadAvailableSigningLanesPorts = {

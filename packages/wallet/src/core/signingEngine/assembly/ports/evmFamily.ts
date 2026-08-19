@@ -3,7 +3,6 @@ import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinat
 import type { WarmSessionStatusResult } from '../../uiConfirm/uiConfirm.types';
 import type { CreateSigningEnginePortsArgs } from './shared';
 import type { EmailOtpWarmMaterialTarget } from '../../workerManager/workerTypes';
-import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ExactEcdsaSigningLaneIdentity } from '../../session/identity/exactSigningLaneIdentity';
 import {
   resolveEmailOtpEcdsaSigningSessionAuthorityFromCapability,
@@ -12,7 +11,7 @@ import {
 import { isEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 
 async function resolveDurableEmailOtpEcdsaAuthority(args: {
-  lane: ExactEcdsaSigningLaneIdentity,
+  lane: ExactEcdsaSigningLaneIdentity;
   createArgs: CreateSigningEnginePortsArgs;
 }): Promise<EmailOtpEcdsaSigningSessionAuthority | null> {
   if (args.lane.auth.kind !== 'email_otp') return null;
@@ -54,6 +53,7 @@ export function createEvmFamilySigningDeps(args: {
 }): EvmFamilySigningDeps {
   const { createArgs, signingSessionCoordinator, getEmailOtpWarmSessionStatus } = args;
   return {
+    resolveOwnerLaneScope: createArgs.resolveOwnerLaneScope,
     resolveCanonicalEcdsaSigningCapability: createArgs.resolveCanonicalEcdsaSigningCapability,
     resolveAuthorizedEcdsaSigningCapability: createArgs.resolveAuthorizedEcdsaSigningCapability,
     resolveActiveEcdsaWalletSessionAuthorization:

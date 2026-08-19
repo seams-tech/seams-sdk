@@ -760,6 +760,11 @@ function parseResolveExactKeyExportLaneResult(
   result: ResolveExactKeyExportLaneResult,
 ): ResolveExactKeyExportLaneResult {
   switch (result.kind) {
+    case 'relink_required':
+      return {
+        kind: 'relink_required',
+        reason: result.reason,
+      };
     case 'ecdsa':
       return {
         kind: 'ecdsa',

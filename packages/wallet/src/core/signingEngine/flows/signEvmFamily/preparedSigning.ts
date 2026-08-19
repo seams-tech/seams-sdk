@@ -68,6 +68,7 @@ import {
 } from './ecdsaSelection';
 import type { WalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 import type { EvmFamilySigningTarget } from './types';
+import type { OwnerLaneScope } from '../../session/identity/signingLaneAuthBinding';
 
 export function buildEvmFamilyTransactionSigningIntent(args: {
   walletId: WalletId;
@@ -393,10 +394,11 @@ export type PreparedEvmFamilyEcdsaSigningSession =
   | AuthorizationRequiredEvmFamilyEcdsaSigningSession;
 
 export type PrepareEvmFamilyEcdsaSigningDeps = EvmFamilyEcdsaSigningSelectionDeps & {
-    readAvailableSigningLanesForSigning: (
-      args: Extract<ReadAvailableSigningLanesForSigningInput, { curve: 'ecdsa' }>,
-    ) => Promise<AvailableSigningLanes>;
-  };
+  resolveOwnerLaneScope: (walletId: WalletId) => Promise<OwnerLaneScope>;
+  readAvailableSigningLanesForSigning: (
+    args: Extract<ReadAvailableSigningLanesForSigningInput, { curve: 'ecdsa' }>,
+  ) => Promise<AvailableSigningLanes>;
+};
 
 export async function prepareEvmFamilyEcdsaSigningSession(args: {
   deps: PrepareEvmFamilyEcdsaSigningDeps;
@@ -410,6 +412,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
   const chainTarget = args.signingTarget;
   const chain = chainTarget.kind;
   const walletId = toWalletId(args.walletSession.walletId);
+  const ownerScope = await args.deps.resolveOwnerLaneScope(walletId);
 
   // Material selection runs ahead of the reusable-session planner. The planner
   // is selected-lane-only, and a selected lane exists only where a reusable
@@ -419,6 +422,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
     walletId,
     curve: 'ecdsa',
     ecdsaChainTargets: [chainTarget],
+    ownerScope,
   });
   const laneReadDiagnostic = {
     walletId,
@@ -561,6 +565,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
           curve: 'ecdsa',
           ecdsaChainTargets: [chainTarget],
           authMethod: committedSelectionAuthMethod,
+          ownerScope,
         });
         emitSigningLaneResolutionTrace('evm-family', selection.lane, {
           reason: 'evm_family_ecdsa_selection',

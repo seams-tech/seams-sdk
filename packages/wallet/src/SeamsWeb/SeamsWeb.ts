@@ -566,6 +566,11 @@ function normalizeResolveExactKeyExportLaneResult(
   result: ResolveExactKeyExportLaneBoundaryResult,
 ): ResolveExactKeyExportLaneBoundaryResult {
   switch (result.kind) {
+    case 'relink_required':
+      return {
+        kind: 'relink_required',
+        reason: result.reason,
+      };
     case 'ecdsa':
       return {
         kind: 'ecdsa',
@@ -2225,7 +2230,7 @@ export class SeamsWeb {
       const runtimeInventory = await assertWalletRuntimePostconditions({
         source: 'wallet_unlock',
         walletId,
-        owner: {
+        ownerScope: {
           auth: {
             kind: 'email_otp',
             providerSubjectId: args.providerIdentity.providerSubjectId,
@@ -2238,8 +2243,8 @@ export class SeamsWeb {
             chainTarget: target,
           })),
         ],
-        readPersistedAvailableSigningLanes: async (input) =>
-          await this.signingEngine.readPersistedAvailableSigningLanes(input),
+        readOwnerScopedSigningLanes: async (input) =>
+          await this.signingEngine.readOwnerScopedSigningLanes(input),
       });
       logEmailOtpUnlockActivationPlan(
         buildEmailOtpEcdsaUnlockActivationPlan({

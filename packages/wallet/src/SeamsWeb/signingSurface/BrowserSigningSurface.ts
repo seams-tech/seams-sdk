@@ -309,7 +309,11 @@ import {
   resolveExactEd25519SealedSessionRuntimeForWalletSubject,
   type ExactEd25519SealedSessionRuntime,
 } from '@/core/signingEngine/session/warmCapabilities/ed25519SealedSessionRuntime';
-import type { SigningLaneAuthBinding } from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
+import type {
+  OwnerLaneScope,
+  SigningLaneAuthBinding,
+} from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
+import { resolveOwnerLaneScope } from '@/core/signingEngine/session/identity/ownerLaneScope';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
 import type { EmailOtpEd25519YaoRecoveryBootstrapV1 } from '@/core/signingEngine/workerManager/workerTypes';
 import type { RouterAbEd25519YaoActiveClientMetadataV1 } from '@/core/signingEngine/threshold/ed25519/yaoClient';
@@ -2009,8 +2013,7 @@ export class BrowserSigningSurface {
           },
           input,
         ),
-      ownerLaneScopeStores:
-        deps.signingEngineStores.walletProfileAndSignerRecords.accountStore,
+      ownerLaneScopeStores: deps.signingEngineStores.walletProfileAndSignerRecords.accountStore,
     });
 
     this.enginePorts = createBrowserSigningSurfaceEnginePorts({
@@ -2548,6 +2551,35 @@ export class BrowserSigningSurface {
     return await sessionPublic.readPersistedAvailableSigningLanes(this.sessionPublicDeps, args);
   }
 
+  async readOwnerScopedSigningLanes(args: {
+    readonly walletId: WalletId | string;
+    readonly ownerScope: OwnerLaneScope;
+  }): Promise<AvailableSigningLanes> {
+    return await sessionPublic.readOwnerScopedSigningLanes(this.sessionPublicDeps, args);
+  }
+
+  /**
+   * R103C derivation chain for post-login operations: the unique active Wallet
+   * Session authority resolves through the active wallet auth method to one
+   * exact owner scope. Callers never supply credential or slot hints.
+   */
+  async resolveActiveOwnerLaneScope(walletId: WalletId | string): Promise<OwnerLaneScope> {
+    const parsedWalletId = parseWalletId(walletId);
+    if (!parsedWalletId.ok) throw new Error(parsedWalletId.error.message);
+    const read = await walletSessionAuthorizations.readActiveForWallet(parsedWalletId.value);
+    if (read.kind !== 'found') {
+      throw new Error(`[SigningEngine] active Wallet Session authorization is ${read.kind}`);
+    }
+    return await resolveOwnerLaneScope({
+      authorityRef: read.projection.authority,
+      stores: {
+        listWalletAuthMethodsForWallet: (id) => IndexedDBManager.listWalletAuthMethodsForWallet(id),
+        getWalletPasskeyAuthenticator: (input) =>
+          IndexedDBManager.getWalletPasskeyAuthenticator(input),
+      },
+    });
+  }
+
   async readReusableWalletSessionState(
     walletId: WalletId | string,
   ): Promise<ReusableWalletSessionState> {
@@ -2581,10 +2613,10 @@ export class BrowserSigningSurface {
     const nowMs = Date.now();
     if (authorization.expiresAtMs <= nowMs) {
       await this.retireWalletSessionAuthorizationV1({
-          active: authorization,
-          reason: 'expired',
-          retiredAtMs: nowMs,
-        });
+        active: authorization,
+        reason: 'expired',
+        retiredAtMs: nowMs,
+      });
       return {
         kind: 'expired',
         walletId: exactWalletId,
@@ -2650,10 +2682,10 @@ export class BrowserSigningSurface {
         };
       case 'expired':
         await this.retireWalletSessionAuthorizationV1({
-            active: authorization,
-            reason: 'expired',
-            retiredAtMs: Math.max(nowMs, status.expiresAtMs),
-          });
+          active: authorization,
+          reason: 'expired',
+          retiredAtMs: Math.max(nowMs, status.expiresAtMs),
+        });
         return {
           kind: 'expired',
           walletId: exactWalletId,
@@ -2665,10 +2697,10 @@ export class BrowserSigningSurface {
         };
       case 'missing':
         await this.retireWalletSessionAuthorizationV1({
-            active: authorization,
-            reason: 'invalidated',
-            retiredAtMs: nowMs,
-          });
+          active: authorization,
+          reason: 'invalidated',
+          retiredAtMs: nowMs,
+        });
         return {
           kind: 'missing',
           walletId: exactWalletId,
@@ -2678,10 +2710,10 @@ export class BrowserSigningSurface {
         };
       case 'superseded':
         await this.retireWalletSessionAuthorizationV1({
-            active: authorization,
-            reason: 'replaced',
-            retiredAtMs: nowMs,
-          });
+          active: authorization,
+          reason: 'replaced',
+          retiredAtMs: nowMs,
+        });
         // Replaced, not broken. The caller discards this session and resolves
         // current state again; reporting `invalid` sent it to an error path.
         return {
@@ -2694,10 +2726,10 @@ export class BrowserSigningSurface {
         };
       case 'invalid':
         await this.retireWalletSessionAuthorizationV1({
-            active: authorization,
-            reason: 'invalidated',
-            retiredAtMs: nowMs,
-          });
+          active: authorization,
+          reason: 'invalidated',
+          retiredAtMs: nowMs,
+        });
         return { kind: 'invalid', walletId: exactWalletId, reason: 'identity_mismatch' };
     }
   }
@@ -2712,9 +2744,7 @@ export class BrowserSigningSurface {
     readonly reason: 'expired' | 'invalidated' | 'replaced';
     readonly retiredAtMs: number;
   }): Promise<void> {
-    await walletSessionAuthorizations.write(
-      retireWalletSessionAuthorizationProjection(input),
-    );
+    await walletSessionAuthorizations.write(retireWalletSessionAuthorizationProjection(input));
     void this.destroyUnlockedWalletCustodyTransferCapabilitiesV1({
       kind: 'wallet_session',
       walletSessionId: String(input.active.walletSessionId),
@@ -3026,9 +3056,8 @@ export class BrowserSigningSurface {
     readonly ceremonyBinding: RouterAbEd25519YaoCeremonyBindingV1;
     readonly keyset: RouterAbEd25519YaoActivationKeysetV1;
   }): Promise<WasmEd25519YaoLaneClientV1> {
-    const available = await this.enginePorts.nearSigningDeps.readAvailableSigningLanesForSigning({
+    const available = await this.readPersistedAvailableSigningLanes({
       walletId: args.job.walletId,
-      curve: 'ed25519',
     });
     const lane = selectWalletHostEd25519SourceLaneV1(available, {
       walletId: args.job.walletId,
@@ -3087,9 +3116,7 @@ export class BrowserSigningSurface {
           'Wallet-host Ed25519 sealed source material is absent from the local custody cache',
         );
       case 'unusable':
-        throw new Error(
-          `Wallet-host Ed25519 sealed source material is unusable: ${loaded.reason}`,
-        );
+        throw new Error(`Wallet-host Ed25519 sealed source material is unusable: ${loaded.reason}`);
       default:
         loaded satisfies never;
     }
@@ -3262,10 +3289,7 @@ export class BrowserSigningSurface {
     const available = await this.readPersistedAvailableSigningLanes({
       walletId: input.projection.walletId,
     });
-    const candidates = selectWalletHostOwnerSourceLaneCandidatesV1(
-      available,
-      input.projection,
-    );
+    const candidates = selectWalletHostOwnerSourceLaneCandidatesV1(available, input.projection);
     const hintsByIdentity = new Map<string, LinkedDeviceOwnerSourceLaneV1>();
     for (const candidate of candidates) {
       const walletSessionToken = walletSessionTokenForCurve(
@@ -4597,11 +4621,9 @@ export class BrowserSigningSurface {
   private async resolveNearEd25519YaoSigningLane(
     subject: NearEd25519CapabilityRehydrationSubject,
   ): Promise<ConcreteAvailableEd25519SigningLane | null> {
-    const availableLanes =
-      await this.enginePorts.nearSigningDeps.readAvailableSigningLanesForSigning({
-        walletId: subject.walletId,
-        curve: 'ed25519',
-      });
+    const availableLanes = await this.readPersistedAvailableSigningLanes({
+      walletId: subject.walletId,
+    });
     const matches: ConcreteAvailableEd25519SigningLane[] = [];
     for (const lane of availableLanes.candidates.ed25519.near) {
       if (!nearEd25519LaneMatchesCapabilityRehydrationSubject(lane, subject)) continue;

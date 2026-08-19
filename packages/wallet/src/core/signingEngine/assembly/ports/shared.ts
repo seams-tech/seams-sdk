@@ -43,6 +43,7 @@ import type {
 import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { TouchIdPrompt } from '../../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
+import type { OwnerLaneScope } from '../../session/identity/signingLaneAuthBinding';
 import type { WalletSessionActivationDeps } from '../../session/passkey/ecdsaBootstrap';
 import type { ThresholdEcdsaBootstrapStorePort } from '../../session/warmCapabilities/ecdsaBootstrapPersistence';
 import type { Ed25519YaoActiveClientRegistryPort } from '../../threshold/ed25519/yaoActiveClientRegistry';
@@ -127,6 +128,7 @@ export type CreateSigningEnginePortsArgs = {
   resolveCanonicalEcdsaSigningCapability: EvmFamilySigningDeps['resolveCanonicalEcdsaSigningCapability'];
   resolveAuthorizedEcdsaSigningCapability: EvmFamilySigningDeps['resolveAuthorizedEcdsaSigningCapability'];
   resolveActiveEcdsaWalletSessionAuthorization: EvmFamilySigningDeps['resolveActiveEcdsaWalletSessionAuthorization'];
+  resolveOwnerLaneScope: (walletId: WalletId) => Promise<OwnerLaneScope>;
   touchConfirm: UiConfirmRuntimeBridgePort;
   passkeyMpcSession: PasskeyMpcSessionPort;
   passkeyMpcExport: PasskeyMpcExportPort;
