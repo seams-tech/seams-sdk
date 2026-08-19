@@ -1178,6 +1178,9 @@ class IntendedPageController {
     const flowResult = await this.seams.auth.beginGoogleEmailOtpWalletAuth({
       idToken,
       mode: 'register',
+      // The harness registers a fresh wallet per run against a persistent
+      // local stack; the fixed Google test subject may already hold one.
+      replaceExistingWallet: true,
       ecdsaTargets: this.emailOtpEcdsaTargetProfile.sdkTargets,
       emailOtpAuthPolicy: 'session',
       onEvent: this.recordLifecycleEvent,

@@ -200,8 +200,13 @@ export async function resolveGoogleEmailOtpProvider(args: {
   accountMode: 'login' | 'register';
   projectEnvironmentId: string;
   publishableKey: string;
+  /** Register-mode only: replace this subject's existing Email OTP wallet. */
+  restartRegistrationOffer?: boolean;
   fetchImpl?: FetchLike;
 }): Promise<GoogleEmailOtpProviderResolution> {
+  if (args.restartRegistrationOffer === true && args.accountMode !== 'register') {
+    throw new Error('restartRegistrationOffer is only valid with register account mode');
+  }
   const response = await postJson({
     url: joinNormalizedUrl(args.relayUrl, '/auth/google/verify'),
     fetchImpl: args.fetchImpl,
@@ -213,6 +218,9 @@ export async function resolveGoogleEmailOtpProvider(args: {
         args.projectEnvironmentId,
         'projectEnvironmentId',
       ),
+      ...(args.restartRegistrationOffer === true
+        ? { restart_registration_offer: true }
+        : {}),
     },
   });
   const mode = readString(response.mode, 'auth/google/verify mode');

@@ -245,6 +245,7 @@ export async function handleAuth(ctx: FetchRouterApiContext): Promise<Response |
         email: result.email,
         accountMode: parsed.request.accountMode,
         runtimePolicyScope: runtimePolicyScope.scope,
+        restartRegistrationOffer: parsed.request.restartRegistrationOffer,
       });
       return json(resolution, {
         status: resolution.ok ? 200 : resolution.code === 'wallet_id_collision' ? 409 : 400,

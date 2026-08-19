@@ -23,6 +23,13 @@ export type GoogleLoginVerifyRequest = {
   idToken: string;
   accountMode: 'login' | 'register';
   projectEnvironmentId: string;
+  /**
+   * Register-mode only: start a fresh registration offer even when this Google
+   * subject already holds an Email OTP wallet. Completing that registration
+   * retires the previous enrollment (the old wallet loses its email factor),
+   * so the flag must always be an explicit caller choice — never a default.
+   */
+  restartRegistrationOffer: boolean;
 };
 
 export type AuthPasskeyStepUpRequest = {
@@ -66,7 +73,12 @@ export type AuthRouteParseResult<T> =
 
 const PASSKEY_OPTIONS_KEYS = ['user_id', 'rp_id', 'ttl_ms'] as const;
 const PASSKEY_VERIFY_KEYS = ['challengeId', 'webauthn_authentication'] as const;
-const GOOGLE_VERIFY_KEYS = ['account_mode', 'id_token', 'project_environment_id'] as const;
+const GOOGLE_VERIFY_KEYS = [
+  'account_mode',
+  'id_token',
+  'project_environment_id',
+  'restart_registration_offer',
+] as const;
 const AUTH_LINK_KEYS = [
   'provider',
   'id_token',
@@ -230,12 +242,20 @@ export function parseGoogleLoginVerifyRequest(
   if (accountMode.request !== 'login' && accountMode.request !== 'register') {
     return invalidAuthBody('account_mode must be login or register');
   }
+  const restartRaw = body.request.restart_registration_offer;
+  if (restartRaw !== undefined && restartRaw !== true) {
+    return invalidAuthBody('restart_registration_offer must be true when present');
+  }
+  if (restartRaw === true && accountMode.request !== 'register') {
+    return invalidAuthBody('restart_registration_offer is only valid with account_mode register');
+  }
   return {
     ok: true,
     request: {
       idToken: idToken.request,
       accountMode: accountMode.request,
       projectEnvironmentId: projectEnvironmentId.request,
+      restartRegistrationOffer: restartRaw === true,
     },
   };
 }
