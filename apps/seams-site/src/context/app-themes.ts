@@ -179,8 +179,9 @@ export const PAPER_LIGHT_COLORS: Record<string, string> = {
 };
 
 // "Carbon" — the SDK's stock dark slate ramp (hue-240 oklch tokens from
-// theme/palette.json, resolved to sRGB), with Paper's button hierarchy kept
-// on top: one off-white ink-text CTA per card, everything else a slate slab.
+// theme/palette.json, resolved to sRGB). Every control is a slate slab; the
+// primary CTA leads by sitting one step lighter on the ramp rather than by
+// inverting to white.
 export const CARBON_DARK_COLORS: Record<string, string> = {
   primary: '#5cacff',
   primaryHover: '#499fff',
@@ -191,12 +192,14 @@ export const CARBON_DARK_COLORS: Record<string, string> = {
   textPrimary: '#f4f5f6',
   textSecondary: '#8b959d',
   textMuted: '#626e76',
-  textButton: '#12171a',
+  textButton: '#f4f5f6',
 
-  buttonBackground: '#f4f5f6',
-  buttonHoverBackground: '#ffffff',
+  // slate600 — the lit step the reference card uses for its active segment;
+  // one rung above the slabs, so the CTA leads without leaving the ramp
+  buttonBackground: '#3c4a54',
+  buttonHoverBackground: '#4c5c68',
   // secondary (Google SSO) rides the same slate slab as the other
-  // non-primary actions, so only the CTA breaks out of the ramp
+  // non-primary actions, so only the CTA sits lifted
   secondaryButtonBackground: '#252f37',
   secondaryButtonHoverBackground: '#303c45',
   secondaryButtonBorder: '#3e4952',
