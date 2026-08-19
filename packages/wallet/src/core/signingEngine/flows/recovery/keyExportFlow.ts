@@ -61,6 +61,10 @@ export type SigningEngineResolveExactKeyExportLaneInput =
 
 export type SigningEngineResolveExactKeyExportLaneResult =
   | {
+      kind: 'relink_required';
+      reason: 'missing_canonical_owner_binding';
+    }
+  | {
       kind: 'ecdsa';
       laneIdentity: ExactEcdsaSigningLaneIdentity;
     }

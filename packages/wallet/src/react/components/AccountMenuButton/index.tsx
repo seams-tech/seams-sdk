@@ -289,6 +289,11 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
               nearAccount,
             });
           }
+          if (resolvedLane.kind === 'relink_required') {
+            throw new Error(
+              'Key export requires re-linking this device to a canonical owner credential.',
+            );
+          }
           if (resolvedLane.kind !== 'ed25519') {
             throw new Error('Ed25519 export lane resolution returned the wrong curve.');
           }
@@ -326,6 +331,11 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
             walletSession,
             chainTarget,
           });
+        }
+        if (resolvedLane.kind === 'relink_required') {
+          throw new Error(
+            'Key export requires re-linking this device to a canonical owner credential.',
+          );
         }
         if (resolvedLane.kind !== 'ecdsa') {
           throw new Error('ECDSA export lane resolution returned the wrong curve.');

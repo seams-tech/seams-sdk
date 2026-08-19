@@ -22,6 +22,7 @@ import type {
   DiscoverPersistedSessionsForWalletInput,
   DiscoverPersistedSessionsForWalletResult,
 } from '@/core/signingEngine/session/public';
+import type { OwnerLaneScope } from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
 import type { ExactEcdsaSealedRuntime } from '@/core/signingEngine/session/material/ecdsaSealedRuntime';
 import type { ActiveEcdsaCapabilityManifest } from '@/core/signingEngine/session/material/ecdsaCapabilityManifest';
 import type { NearEd25519SignerBinding } from '@shared/utils/walletCapabilityBindings';
@@ -598,6 +599,10 @@ export interface SigningSessionSurface {
   readPersistedAvailableSigningLanes(
     args: Omit<ReadAvailableSigningLanesInput, 'ecdsaChainTargets'>,
   ): Promise<AvailableSigningLanes>;
+  readOwnerScopedSigningLanes(args: {
+    readonly walletId: WalletId | string;
+    readonly ownerScope: OwnerLaneScope;
+  }): Promise<AvailableSigningLanes>;
 }
 
 export interface WalletAuthenticationSurface {
@@ -639,7 +644,9 @@ export type WalletSessionReadSurface = RuntimeStartupSurface &
   > &
   Pick<
     SigningSessionSurface,
-    'readReusableWalletSessionState' | 'readPersistedAvailableSigningLanes'
+    | 'readReusableWalletSessionState'
+    | 'readPersistedAvailableSigningLanes'
+    | 'readOwnerScopedSigningLanes'
   >;
 
 export type LoginUnlockSigningSurface = WalletSessionReadSurface &

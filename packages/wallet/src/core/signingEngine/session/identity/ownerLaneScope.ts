@@ -1,4 +1,10 @@
-import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import {
+  buildEmailOtpWalletAuthAuthority,
+  buildPasskeyWalletAuthAuthority,
+  walletAuthAuthorityRef,
+  type WalletAuthAuthority,
+  type WalletAuthAuthorityRef,
+} from '@shared/utils/walletAuthAuthority';
 import { walletAuthMethodRecordId } from '@shared/utils/registrationIntent';
 import { parseSignerSlot } from '@shared/utils/signerSlot';
 import type { LocalWalletAuthMethodRecord } from '@/core/indexedDB/passkeyClientDB.types';
@@ -6,9 +12,7 @@ import { toRpId } from './evmFamilyEcdsaIdentity';
 import type { OwnerLaneScope } from './signingLaneAuthBinding';
 
 export type OwnerLaneScopeStores = {
-  listWalletAuthMethodsForWallet(
-    walletId: string,
-  ): Promise<readonly LocalWalletAuthMethodRecord[]>;
+  listWalletAuthMethodsForWallet(walletId: string): Promise<readonly LocalWalletAuthMethodRecord[]>;
   getWalletPasskeyAuthenticator(args: {
     walletId: string;
     credentialId: string;
@@ -23,11 +27,60 @@ export class OwnerLaneScopeIntegrityError extends Error {
 }
 
 /**
+ * The active authority names a credential this device holds no active
+ * canonical wallet auth method for: a pre-Phase-8 enrollment (or a device
+ * whose canonical state was removed). It cannot act as a human owner until it
+ * links again. Distinct from OwnerLaneScopeIntegrityError so request
+ * boundaries and the UI can surface "link this device again" instead of a
+ * generic integrity failure.
+ */
+export class OwnerRelinkRequiredError extends Error {
+  readonly code = 'relink_required' as const;
+  readonly reason = 'missing_canonical_owner_binding' as const;
+
+  constructor(walletAuthMethodId: string) {
+    super(
+      `[OwnerLaneScope] relink_required: no active canonical wallet auth method (${walletAuthMethodId})`,
+    );
+    this.name = 'OwnerRelinkRequiredError';
+  }
+}
+
+export function isOwnerRelinkRequiredError(error: unknown): error is OwnerRelinkRequiredError {
+  return (
+    error instanceof OwnerRelinkRequiredError &&
+    error.name === 'OwnerRelinkRequiredError' &&
+    error.code === 'relink_required'
+  );
+}
+
+function walletAuthAuthorityFromLocalRecord(
+  record: LocalWalletAuthMethodRecord,
+): WalletAuthAuthority {
+  switch (record.kind) {
+    case 'passkey':
+      return buildPasskeyWalletAuthAuthority({
+        walletId: record.walletId,
+        rpId: record.rpId,
+        credentialIdB64u: record.credentialIdB64u,
+      });
+    case 'email_otp':
+      return buildEmailOtpWalletAuthAuthority({
+        walletId: record.walletId,
+        provider: record.authority.factor.provider,
+        providerUserId: record.authority.factor.providerUserId,
+        emailHashHex: record.authority.verifier.emailHashHex,
+      });
+  }
+}
+
+/**
  * R103C owner derivation chain: active Wallet Session authority -> one active
  * wallet auth method -> exact credential -> exact local authenticator and
- * signer slot (Passkey only). Every value comes from the previous link.
- * Missing or duplicate records are integrity failures — timestamps, labels,
- * and slot searches never select another owner.
+ * signer slot (Passkey only). Every value comes from the previous link, and
+ * the resolved method must reproduce the authority digest the active session
+ * carries. Missing or duplicate records are integrity failures — timestamps,
+ * labels, and slot searches never select another owner.
  */
 export async function resolveOwnerLaneScope(args: {
   readonly authorityRef: WalletAuthAuthorityRef;
@@ -44,13 +97,26 @@ export async function resolveOwnerLaneScope(args: {
   );
   const [authMethod] = matches;
   if (!authMethod) {
-    throw new OwnerLaneScopeIntegrityError(
-      `active authority has no active wallet auth method (${expectedAuthMethodId})`,
-    );
+    throw new OwnerRelinkRequiredError(expectedAuthMethodId);
   }
   if (matches.length > 1) {
     throw new OwnerLaneScopeIntegrityError(
       `active authority resolves ${matches.length} wallet auth methods (${expectedAuthMethodId})`,
+    );
+  }
+  // The method id alone under-discriminates (an Email OTP id omits the
+  // provider subject); the recomputed authority must reproduce the digest the
+  // active session was issued for.
+  const resolvedAuthority = walletAuthAuthorityFromLocalRecord(authMethod);
+  const resolvedRef = await walletAuthAuthorityRef({ authority: resolvedAuthority });
+  if (
+    resolvedRef.kind !== args.authorityRef.kind ||
+    String(resolvedRef.walletId) !== walletId ||
+    resolvedRef.walletAuthMethodId !== args.authorityRef.walletAuthMethodId ||
+    resolvedRef.authorityDigest !== args.authorityRef.authorityDigest
+  ) {
+    throw new OwnerLaneScopeIntegrityError(
+      `resolved wallet auth method does not reproduce the active authority digest (${expectedAuthMethodId})`,
     );
   }
   if (authMethod.kind === 'email_otp') {

@@ -6,8 +6,11 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   readPersistedAvailableSigningLanes as readPersistedAvailableSigningLanesValue,
+  readOwnerScopedAvailableSigningLanes as readOwnerScopedAvailableSigningLanesValue,
   type PersistedAvailableSigningLanesDeps,
 } from './availability/persistedAvailableSigningLanes';
+import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { OwnerLaneScope } from './identity/signingLaneAuthBinding';
 import type {
   ReadAvailableSigningLanesInput,
   AvailableSigningLanes,
@@ -66,8 +69,7 @@ export async function discoverPersistedSessionsForWallet(
           ...args,
           walletId,
           authMethod: SIGNER_AUTH_METHODS.passkey,
-        })) ??
-        EMPTY_DISCOVER_PERSISTED_SESSIONS_FOR_WALLET_RESULT
+        })) ?? EMPTY_DISCOVER_PERSISTED_SESSIONS_FOR_WALLET_RESULT
       );
     default:
       args.authMethod satisfies never;
@@ -84,6 +86,21 @@ export async function readPersistedAvailableSigningLanes(
     args,
     deps.getConfiguredEcdsaChainTargets(),
   );
+}
+
+/** R103C human operational read: one exact owner, configured ECDSA targets. */
+export async function readOwnerScopedSigningLanes(
+  deps: SessionPublicDeps,
+  args: {
+    readonly walletId: WalletId | string;
+    readonly ownerScope: OwnerLaneScope;
+  },
+): Promise<AvailableSigningLanes> {
+  return await readOwnerScopedAvailableSigningLanesValue(deps.availableLanes, {
+    walletId: args.walletId,
+    ownerScope: args.ownerScope,
+    ecdsaChainTargets: deps.getConfiguredEcdsaChainTargets(),
+  });
 }
 
 export type {

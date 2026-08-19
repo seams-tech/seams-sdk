@@ -41,10 +41,7 @@ import type {
 } from '../../interfaces/operationDeps';
 import { signNearWithUiConfirm } from './nearSigningFlow';
 import { resolveThresholdEd25519CommitQueueKey } from '../../threshold/ed25519/commitQueue';
-import type {
-  MpcMaterialActivationRef,
-  ThresholdEd25519SessionId,
-} from '@shared/utils/domainIds';
+import type { MpcMaterialActivationRef, ThresholdEd25519SessionId } from '@shared/utils/domainIds';
 import {
   emailOtpAuthContextReason,
   emailOtpAuthContextRetention,
@@ -125,13 +122,10 @@ function nearWalletSessionQuotaAdmissionDecisionFromError(error: unknown) {
       },
     );
   }
-  return failure?.kind === 'in_flight'
-    ? decideWalletSessionQuotaAdmissionFailure(failure)
-    : null;
+  return failure?.kind === 'in_flight' ? decideWalletSessionQuotaAdmissionFailure(failure) : null;
 }
 import type { WalletSessionStatusIdentity } from '../../session/lifecycle/walletSessionStatus';
-import {
-} from '../../threshold/sessionPolicy';
+import {} from '../../threshold/sessionPolicy';
 import { signingAuthPlanFromSigningSessionPlan } from '../shared/signingConfirmation';
 import { resolveNearSigningSessionAuthContext } from './shared/signingSessionAuthMode';
 import {
@@ -144,9 +138,7 @@ import {
   type PreparedThresholdSigningOperation,
   type ThresholdSigningReadinessInput,
 } from '../../session/operationState/preparedOperation';
-import type {
-  ResolvedRouterAbEd25519WalletSessionState,
-} from '../../session/warmCapabilities/routerAbEd25519WalletSessionState';
+import type { ResolvedRouterAbEd25519WalletSessionState } from '../../session/warmCapabilities/routerAbEd25519WalletSessionState';
 import {
   receiveTransactionIntent,
   recordAvailableSigningLanesRead,
@@ -445,11 +437,9 @@ function selectedEd25519LanesHaveSameSignerAndAuth(
   const leftSigner = left.identity.signer;
   const rightSigner = right.identity.signer;
   return (
-    String(leftSigner.account.wallet.walletId) ===
-      String(rightSigner.account.wallet.walletId) &&
+    String(leftSigner.account.wallet.walletId) === String(rightSigner.account.wallet.walletId) &&
     String(leftSigner.account.nearAccountId) === String(rightSigner.account.nearAccountId) &&
-    String(leftSigner.nearEd25519SigningKeyId) ===
-      String(rightSigner.nearEd25519SigningKeyId) &&
+    String(leftSigner.nearEd25519SigningKeyId) === String(rightSigner.nearEd25519SigningKeyId) &&
     leftSigner.signerSlot === rightSigner.signerSlot &&
     signingLaneAuthBindingKey(left.auth) === signingLaneAuthBindingKey(right.auth)
   );
@@ -810,8 +800,7 @@ function buildNearEmailOtpEd25519StepUp(args: {
   if (
     String(args.signer.account.wallet.walletId) !==
       String(args.commandSubject.walletSession.walletId) ||
-    String(args.signer.account.nearAccountId) !==
-      String(args.commandSubject.nearAccount.accountId)
+    String(args.signer.account.nearAccountId) !== String(args.commandSubject.nearAccount.accountId)
   ) {
     throw new Error('[SigningEngine][near] Email OTP step-up lane changed subject');
   }
@@ -1154,10 +1143,12 @@ async function readNearEd25519AvailableSigningLanes(args: {
       '[SigningEngine][near] transaction signing requires available signing lanes reader',
     );
   }
+  const ownerScope = await args.deps.resolveOwnerLaneScope(walletId);
   return await args.deps
     .readAvailableSigningLanesForSigning({
       walletId,
       curve: 'ed25519',
+      ownerScope,
       ...(args.authMethod ? { authMethod: args.authMethod } : {}),
     })
     .catch((error) => {
@@ -1301,7 +1292,8 @@ async function prepareNearEd25519TransactionSigningSession(args: {
     selectedLane: selectedLane.lane,
   });
   if (initialMaterialBoundary.preparation.authorization.kind === 'authorized') {
-    const authorization = initialMaterialBoundary.preparation.authorization.authorization.projection;
+    const authorization =
+      initialMaterialBoundary.preparation.authorization.authorization.projection;
     if (
       selectedLane.lane.walletSessionId !== authorization.walletSessionId ||
       selectedLane.lane.quotaId !== authorization.quotaId
@@ -1451,7 +1443,10 @@ export async function signTransactionWithActions(
             onEvent: publicOptions.onEvent,
             signingOperationId: confirmationOperationId,
             signingSessionCoordinator,
-            selection: { kind: 'authorization_required', candidate: authorizationRequired.candidate },
+            selection: {
+              kind: 'authorization_required',
+              candidate: authorizationRequired.candidate,
+            },
             passkeyEd25519OperationStepUp:
               authorizationRequired.passkeyEd25519OperationStepUp || undefined,
             emailOtpEd25519StepUp: authorizationRequired.emailOtpEd25519StepUp || undefined,
@@ -1588,9 +1583,8 @@ export async function signTransactionWithActions(
         expiresAtMs: preparationAuthorization.authorization.status.expiresAtMs,
       });
       const isEmailOtpSession = transactionLane.auth.kind === 'email_otp';
-      const ownerStepUpReason = ownerDecision?.kind === 'step_up_required'
-        ? ownerDecision.reason
-        : undefined;
+      const ownerStepUpReason =
+        ownerDecision?.kind === 'step_up_required' ? ownerDecision.reason : undefined;
       const reason = admissionDecision
         ? admissionDecision.reason === 'stale_projection'
           ? 'wallet_signing_budget_stale_projection'
@@ -1754,9 +1748,7 @@ async function executeNearDelegateSigningAttempt(
         failure,
         coordinator: args.deps.signingSessionCoordinator,
         lane: prepared.selectedLane,
-        expiresAtMs: requireNearReusableAuthorizationExpiry(
-          prepared.yaoSigningPreparation,
-        ),
+        expiresAtMs: requireNearReusableAuthorizationExpiry(prepared.yaoSigningPreparation),
       });
       return await executeNearDelegateSigningAttempt({
         deps: args.deps,
@@ -1871,9 +1863,7 @@ async function executeNearNep413SigningAttempt(
         failure,
         coordinator: args.deps.signingSessionCoordinator,
         lane: prepared.selectedLane,
-        expiresAtMs: requireNearReusableAuthorizationExpiry(
-          prepared.yaoSigningPreparation,
-        ),
+        expiresAtMs: requireNearReusableAuthorizationExpiry(prepared.yaoSigningPreparation),
       });
       return await executeNearNep413SigningAttempt({
         deps: args.deps,

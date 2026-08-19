@@ -144,10 +144,8 @@ import {
   ecdsaAvailableLaneTargets,
   isConcreteAvailableSigningLane,
 } from '@/core/signingEngine/session/availability/availableSigningLanes';
-import {
-  assertWalletRuntimePostconditions,
-  type RuntimePostconditionLaneOwner,
-} from '@/core/signingEngine/session/postconditions/runtimePostconditions';
+import { assertWalletRuntimePostconditions } from '@/core/signingEngine/session/postconditions/runtimePostconditions';
+import type { OwnerLaneScope } from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
 import {
   thresholdEcdsaChainTargetKey,
   type ThresholdEcdsaChainTarget,
@@ -1298,7 +1296,6 @@ async function assertPasskeyUnlockRuntimePostconditions(args: {
   walletIdentity: ResolvedLoginWalletIdentity;
   signersWarmed: readonly ('ed25519' | 'ecdsa')[];
   credential: WebAuthnAuthenticationCredential;
-  signerSlot: number;
 }): Promise<void> {
   const requiredTargets = [
     ...(args.signersWarmed.includes('ed25519') ? [{ curve: 'ed25519' as const }] : []),
@@ -1312,22 +1309,36 @@ async function assertPasskeyUnlockRuntimePostconditions(args: {
   if (!credentialIdB64u) {
     throw new Error('[login] runtime lane selection requires the authenticated credential');
   }
-  const owner: RuntimePostconditionLaneOwner = {
+  // R103C: during login the verified credential is the owner-scope source, and
+  // the signer slot comes from the one local authenticator that credential
+  // resolves — never from the caller's slot hint, which is UI prioritization.
+  const walletId = String(args.walletIdentity.walletId);
+  const authenticator = await IndexedDBManager.getWalletPasskeyAuthenticator({
+    walletId,
+    credentialId: credentialIdB64u,
+  });
+  const derivedSignerSlot = parseSignerSlot(authenticator?.signerSlot, { min: 1 });
+  if (!authenticator || derivedSignerSlot === null) {
+    throw new Error(
+      '[login] authenticated credential resolves no exact local authenticator for its signer slot',
+    );
+  }
+  const ownerScope: OwnerLaneScope = {
     auth: {
       kind: 'passkey',
       rpId: toRpId(args.context.signingEngine.getRpId()),
       credentialIdB64u,
     },
-    signerSlot: args.signerSlot,
+    signerSlot: derivedSignerSlot,
   };
   if (requiredTargets.length === 0) return;
   await assertWalletRuntimePostconditions({
     source: 'wallet_unlock',
     walletId: String(args.walletIdentity.walletId),
-    owner,
+    ownerScope,
     requiredTargets,
-    readPersistedAvailableSigningLanes: async (input) =>
-      await args.context.signingEngine.readPersistedAvailableSigningLanes(input),
+    readOwnerScopedSigningLanes: async (input) =>
+      await args.context.signingEngine.readOwnerScopedSigningLanes(input),
   });
 }
 
@@ -1888,16 +1899,12 @@ async function unlockInternal(
 
       // Resolve local ECDSA key facts before planning; authenticated inventory can repair gaps.
       const storedCanonicalEcdsaContext = warmupInput.wantsEcdsaWarmup
-        ? await resolveCanonicalThresholdEcdsaWarmSessionContext(
-            context,
-            walletIdentity.walletId,
-            {
-              keyFactsInventoryAuthority: warmupInput.keyFactsInventoryAuthority,
-              keyFactsInventoryRequested: Boolean(options?.ecdsaKeyFactsInventory),
-              relayerUrl: warmupInput.relayerUrl,
-              rpId: warmupInput.rpId,
-            },
-          )
+        ? await resolveCanonicalThresholdEcdsaWarmSessionContext(context, walletIdentity.walletId, {
+            keyFactsInventoryAuthority: warmupInput.keyFactsInventoryAuthority,
+            keyFactsInventoryRequested: Boolean(options?.ecdsaKeyFactsInventory),
+            relayerUrl: warmupInput.relayerUrl,
+            rpId: warmupInput.rpId,
+          })
         : { ecdsaKeys: [] };
       const thresholdKeyMaterial = await thresholdKeyMaterialPrefetch;
       const participantIds =
@@ -1985,11 +1992,7 @@ async function unlockInternal(
         default:
           return assertNeverLoginState(warmupPasskeyCredentialPlan);
       }
-      if (
-        nearWalletBinding &&
-        !thresholdKeyMaterial &&
-        ed25519MintPlan.kind !== 'wallet_custody'
-      ) {
+      if (nearWalletBinding && !thresholdKeyMaterial && ed25519MintPlan.kind !== 'wallet_custody') {
         throw new Error(
           `[login] threshold warm-up requires threshold key material for ${nearWalletBinding.nearAccountId} signer slot ${warmupInput.signerSlot}`,
         );
@@ -2168,10 +2171,7 @@ async function unlockInternal(
     }
 
     // One verified wallet-unlock assertion mints every passkey warm session requested below.
-    if (
-      requireThresholdWarmup &&
-      localUnlockAuthMethod === SIGNER_AUTH_METHODS.passkey
-    ) {
+    if (requireThresholdWarmup && localUnlockAuthMethod === SIGNER_AUTH_METHODS.passkey) {
       const preparedActivation = await preparePasskeyExchangeEcdsaActivation({
         context,
         walletIdentity,
@@ -2255,7 +2255,6 @@ async function unlockInternal(
           walletIdentity,
           signersWarmed: warmupPhase.signersWarmed,
           credential: authenticatedCredential,
-          signerSlot: baseSignerSlot,
         });
       }
     }
@@ -3273,10 +3272,7 @@ type PasskeyEd25519CustodyLoginInput = {
 };
 
 async function ensurePasskeyEd25519OwnerProfile(
-  input: Pick<
-    PasskeyEd25519CustodyLoginInput,
-    'signingEngine' | 'walletBinding' | 'signerSlot'
-  > & {
+  input: Pick<PasskeyEd25519CustodyLoginInput, 'signingEngine' | 'walletBinding' | 'signerSlot'> & {
     readonly credentialIdB64u: string;
     readonly registeredPublicKey: Uint8Array;
   },
@@ -3287,8 +3283,7 @@ async function ensurePasskeyEd25519OwnerProfile(
   if (existing) {
     if (
       existing.walletId !== String(input.walletBinding.walletId) ||
-      existing.nearEd25519SigningKeyId !==
-        String(input.walletBinding.nearEd25519SigningKeyId) ||
+      existing.nearEd25519SigningKeyId !== String(input.walletBinding.nearEd25519SigningKeyId) ||
       existing.signerSlot !== input.signerSlot
     ) {
       throw new Error('[login] local Ed25519 owner profile identity is invalid');
@@ -3419,9 +3414,12 @@ async function openAndActivatePasskeyEd25519CustodyLogin(
           sealed,
         });
       } catch (error) {
-        console.warn('[login] wallet custody cache write failed; continuing with verified material', {
-          error,
-        });
+        console.warn(
+          '[login] wallet custody cache write failed; continuing with verified material',
+          {
+            error,
+          },
+        );
       }
       activeClient = await openWalletCustodyEd25519ActiveClientV1({
         material: { binding: materialBinding, sealed },

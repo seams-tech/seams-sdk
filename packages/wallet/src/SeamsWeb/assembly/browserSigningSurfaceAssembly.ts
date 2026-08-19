@@ -1,5 +1,11 @@
 import type { RuntimePorts } from '@/core/platform';
 import { walletSessionAuthorizations } from '@/core/indexedDB';
+import {
+  OwnerLaneScopeIntegrityError,
+  resolveOwnerLaneScope,
+  type OwnerLaneScopeStores,
+} from '@/core/signingEngine/session/identity/ownerLaneScope';
+import type { OwnerLaneScope } from '@/core/signingEngine/session/identity/signingLaneAuthBinding';
 import { IndexedDbEcdsaCapabilityManifestStore } from '@/core/indexedDB/seamsWalletDB/ecdsaCapabilityManifestStore';
 import { SIGNING_SESSION_SEAL_GROUP_ID } from '@shared/utils/signingSessionSeal';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
@@ -106,6 +112,30 @@ type ExactWalletAuthMethodStore = Pick<
   SigningEngineStorePorts['walletProfileAndSignerRecords']['accountStore'],
   'listWalletAuthMethodsForWallet'
 >;
+
+/** R103C: every human signing operation must resolve one active owner scope. */
+async function resolveActiveOwnerScopeForSigningRead(args: {
+  readonly walletId: string;
+  readonly stores: OwnerLaneScopeStores;
+}): Promise<OwnerLaneScope> {
+  const read = await walletSessionAuthorizations.readActiveForWallet(toWalletId(args.walletId));
+  switch (read.kind) {
+    case 'missing':
+      throw new OwnerLaneScopeIntegrityError('active Wallet Session authorization is missing');
+    case 'corrupt':
+      throw new OwnerLaneScopeIntegrityError('active Wallet Session authorization is corrupt');
+    case 'persistence_unavailable':
+      throw new OwnerLaneScopeIntegrityError(
+        'active Wallet Session authorization persistence is unavailable',
+      );
+    case 'found':
+      break;
+  }
+  return await resolveOwnerLaneScope({
+    authorityRef: read.projection.authority,
+    stores: args.stores,
+  });
+}
 
 /**
  * R103C: the active wallet auth-method store is the one source that resolves
@@ -554,6 +584,11 @@ export function createBrowserSigningSurfaceEnginePorts(
       getBrowserEcdsaSigningCapability(args, input),
     resolveActiveEcdsaWalletSessionAuthorization:
       createBrowserActiveEcdsaWalletSessionAuthorizationResolver(args),
+    resolveOwnerLaneScope: (walletId) =>
+      resolveActiveOwnerScopeForSigningRead({
+        walletId: String(walletId),
+        stores: args.stores.walletProfileAndSignerRecords.accountStore,
+      }),
     signerWorkerManager: args.signerWorkerManager,
     getWorkerBaseOrigin: args.getWorkerBaseOrigin,
     workerWarmupPolicy: args.workerWarmupPolicy,
@@ -607,7 +642,7 @@ export function createBrowserSigningSurfaceEnginePorts(
             omitPasskeyRestoreAuthMethod(restoreArgs),
           )
         : args.emailOtpSessions.restorePersistedSessionForSigning(restoreArgs),
-    readAvailableSigningLanesForSigning: (readArgs) =>
+    readAvailableSigningLanesForSigning: async (readArgs) =>
       readPersistedAvailableSigningLanesForSigningOperation(
         {
           ed25519YaoPublicCapabilityLanes: args.ed25519YaoPublicCapabilityReferences,

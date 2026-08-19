@@ -34,9 +34,7 @@ import type {
   WarmSessionStatusResult,
 } from '../uiConfirm/uiConfirm.types';
 import type { SignerWorkerManagerContext } from '../workerManager/SignerWorkerManager';
-import type {
-  NearEd25519YaoPreparedMaterialBoundary,
-} from './near';
+import type { NearEd25519YaoPreparedMaterialBoundary } from './near';
 import type { SigningLaneAuthBinding } from '../session/identity/signingLaneAuthBinding';
 import type { ExactEd25519SigningLaneIdentity } from '../session/identity/exactSigningLaneIdentity';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
@@ -48,6 +46,7 @@ import type {
   CanonicalEvmFamilyEcdsaSigningCapability,
 } from '../session/material/ecdsaSigningCapability';
 import type { SignerAuthMethod } from '@shared/utils/signerDomain';
+import type { OwnerLaneScope } from '../session/identity/signingLaneAuthBinding';
 
 export type EvmFamilyChain = 'tempo' | 'evm';
 
@@ -92,6 +91,7 @@ export type NearEd25519MaterialBoundaryInput = {
 
 export type NearSigningApiDeps = {
   nearRpcUrl: string;
+  resolveOwnerLaneScope: (walletId: WalletId) => Promise<OwnerLaneScope>;
   prepareNearEd25519YaoMaterialBoundary: (
     args: NearEd25519MaterialBoundaryInput,
   ) => Promise<NearEd25519YaoPreparedMaterialBoundary>;
@@ -131,56 +131,55 @@ export type PasskeyEcdsaSigningLookupArgs = EcdsaSigningLookupArgs & {
 };
 
 export type EvmFamilySigningDeps = DurableEmailOtpEcdsaSigningSessionAuthorityResolver & {
-    resolveCanonicalEcdsaSigningCapability: (args: {
-      walletId: WalletId;
-      chainTarget: ThresholdEcdsaChainTarget;
-      materialActivation: MpcMaterialActivationRef;
-    }) => Promise<CanonicalEvmFamilyEcdsaSigningCapability>;
-    resolveAuthorizedEcdsaSigningCapability: (args: {
-      walletId: WalletId;
-      chainTarget: ThresholdEcdsaChainTarget;
-      materialActivation: MpcMaterialActivationRef;
-    }) => Promise<AuthorizedEvmFamilyEcdsaSigningCapability>;
-    // Wallet-level view of the reusable Wallet Session authorization. Null
-    // means no active authorization; inactive session states never throw.
-    resolveActiveEcdsaWalletSessionAuthorization: (
-      walletId: WalletId,
-    ) => Promise<ActiveEvmFamilyWalletSessionAuthorization | null>;
-    walletSignerStore: EvmFamilyWalletSignerStorePort;
-    passkeyAuthenticatorStore: EvmFamilyPasskeyAuthenticatorStorePort;
-    seamsWebConfigs: SeamsConfigsReadonly;
-    nonceCoordinator: NonceCoordinator;
-    ensureSealedRefreshStartupParity: () => Promise<void>;
-    getSignerWorkerContext: () => SignerWorkerManagerContext;
-    withThresholdEcdsaSigningQueue: <T>(args: {
-      queueKey: string;
-      walletId: WalletId;
-      enabled: boolean;
-      shouldAbort?: () => boolean;
-      maxQueueLength?: number;
-      queueTimeoutMs?: number;
-      task: () => Promise<T>;
-    }) => Promise<T>;
-    requestEmailOtpTransactionSigningChallenge?: (args: {
-      walletSession: WalletSessionRef;
-      chain: EvmFamilyChain;
-      authority: EmailOtpEcdsaChallengeAuthority;
-    }) => Promise<EmailOtpTransactionSigningChallenge>;
-    restorePersistedSessionForSigning: (
-      args: Extract<RestorePersistedSessionForSigningInput, { curve: 'ecdsa' }>,
-    ) => Promise<unknown>;
-    readAvailableSigningLanesForSigning: (
-      args: Extract<ReadAvailableSigningLanesForSigningInput, { curve: 'ecdsa' }>,
-    ) => Promise<AvailableSigningLanes>;
-    getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
-    signingSessionCoordinator: SigningSessionCoordinator;
-    provisionThresholdEcdsaSession: (
-      args: import('../session/passkey/ecdsaSessionProvision').ThresholdEcdsaActivationRequest,
-    ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
-    touchConfirm: UiConfirmContextPort &
-      UiConfirmSigningPort &
-      UiConfirmRequestConfirmationPort;
-  };
+  resolveOwnerLaneScope: (walletId: WalletId) => Promise<OwnerLaneScope>;
+  resolveCanonicalEcdsaSigningCapability: (args: {
+    walletId: WalletId;
+    chainTarget: ThresholdEcdsaChainTarget;
+    materialActivation: MpcMaterialActivationRef;
+  }) => Promise<CanonicalEvmFamilyEcdsaSigningCapability>;
+  resolveAuthorizedEcdsaSigningCapability: (args: {
+    walletId: WalletId;
+    chainTarget: ThresholdEcdsaChainTarget;
+    materialActivation: MpcMaterialActivationRef;
+  }) => Promise<AuthorizedEvmFamilyEcdsaSigningCapability>;
+  // Wallet-level view of the reusable Wallet Session authorization. Null
+  // means no active authorization; inactive session states never throw.
+  resolveActiveEcdsaWalletSessionAuthorization: (
+    walletId: WalletId,
+  ) => Promise<ActiveEvmFamilyWalletSessionAuthorization | null>;
+  walletSignerStore: EvmFamilyWalletSignerStorePort;
+  passkeyAuthenticatorStore: EvmFamilyPasskeyAuthenticatorStorePort;
+  seamsWebConfigs: SeamsConfigsReadonly;
+  nonceCoordinator: NonceCoordinator;
+  ensureSealedRefreshStartupParity: () => Promise<void>;
+  getSignerWorkerContext: () => SignerWorkerManagerContext;
+  withThresholdEcdsaSigningQueue: <T>(args: {
+    queueKey: string;
+    walletId: WalletId;
+    enabled: boolean;
+    shouldAbort?: () => boolean;
+    maxQueueLength?: number;
+    queueTimeoutMs?: number;
+    task: () => Promise<T>;
+  }) => Promise<T>;
+  requestEmailOtpTransactionSigningChallenge?: (args: {
+    walletSession: WalletSessionRef;
+    chain: EvmFamilyChain;
+    authority: EmailOtpEcdsaChallengeAuthority;
+  }) => Promise<EmailOtpTransactionSigningChallenge>;
+  restorePersistedSessionForSigning: (
+    args: Extract<RestorePersistedSessionForSigningInput, { curve: 'ecdsa' }>,
+  ) => Promise<unknown>;
+  readAvailableSigningLanesForSigning: (
+    args: Extract<ReadAvailableSigningLanesForSigningInput, { curve: 'ecdsa' }>,
+  ) => Promise<AvailableSigningLanes>;
+  getEmailOtpWarmSessionStatus?: (sessionId: string) => Promise<WarmSessionStatusResult>;
+  signingSessionCoordinator: SigningSessionCoordinator;
+  provisionThresholdEcdsaSession: (
+    args: import('../session/passkey/ecdsaSessionProvision').ThresholdEcdsaActivationRequest,
+  ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
+  touchConfirm: UiConfirmContextPort & UiConfirmSigningPort & UiConfirmRequestConfirmationPort;
+};
 
 export type RegistrationAccountLifecycleDeps = {
   accountStore: RegistrationAccountStorePort;
