@@ -96,11 +96,11 @@ export class D1LinkedDeviceOwnerAuthBindingStoreV1 implements LinkedDeviceOwnerA
           `INSERT INTO ${BINDING_TABLE} (
              namespace, org_id, project_id, env_id,
              tenant_id, wallet_id, enrollment_id, device_id,
-             wallet_auth_method_id, factor_kind,
+             wallet_auth_method_id, base_wallet_auth_method_id, factor_kind,
              rp_id, credential_id_b64u, email_hash_hex, registration_authority_id,
              key_manifest_digest_b64u, lifecycle_state, revocation_epoch,
              record_json, created_at_ms, updated_at_ms
-           ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)`,
+           ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)`,
         )
         .bind(
           ...scopeValues(this.scope),
@@ -109,6 +109,7 @@ export class D1LinkedDeviceOwnerAuthBindingStoreV1 implements LinkedDeviceOwnerA
           columns.enrollmentId,
           columns.deviceId,
           columns.walletAuthMethodId,
+          columns.baseWalletAuthMethodId,
           columns.factorKind,
           columns.rpId,
           columns.credentialIdB64u,
@@ -325,6 +326,7 @@ type BindingColumnsV1 = {
   readonly enrollmentId: string;
   readonly deviceId: string;
   readonly walletAuthMethodId: string;
+  readonly baseWalletAuthMethodId: string;
   readonly factorKind: 'passkey' | 'email_otp';
   readonly rpId: string | null;
   readonly credentialIdB64u: string | null;
@@ -348,6 +350,9 @@ function bindingColumns(binding: LinkedDeviceOwnerAuthBindingV1): BindingColumns
           credentialIdB64u: String(factor.credentialIdB64u),
           emailHashHex: null,
           registrationAuthorityId: null,
+          // A Passkey binding IS its canonical auth method; its base row in
+          // wallet_auth_methods is itself.
+          baseWalletAuthMethodId: String(binding.walletAuthMethodId),
         }
       : {
           factorKind: 'email_otp' as const,
@@ -355,6 +360,7 @@ function bindingColumns(binding: LinkedDeviceOwnerAuthBindingV1): BindingColumns
           credentialIdB64u: null,
           emailHashHex: factor.emailHashHex,
           registrationAuthorityId: factor.registrationAuthorityId,
+          baseWalletAuthMethodId: String(factor.baseWalletAuthMethodId),
         };
   return {
     tenantId: String(binding.tenantId),
@@ -362,6 +368,7 @@ function bindingColumns(binding: LinkedDeviceOwnerAuthBindingV1): BindingColumns
     enrollmentId: String(binding.enrollmentId),
     deviceId: String(binding.deviceId),
     walletAuthMethodId: String(binding.walletAuthMethodId),
+    baseWalletAuthMethodId: identity.baseWalletAuthMethodId,
     factorKind: identity.factorKind,
     rpId: identity.rpId,
     credentialIdB64u: identity.credentialIdB64u,
@@ -398,6 +405,8 @@ function parseBindingRow(row: Record<string, unknown>): LinkedDeviceOwnerAuthBin
 
 function assertBindingIsSelfConsistent(binding: LinkedDeviceOwnerAuthBindingV1): void {
   const derived = linkedOwnerAuthMethodIdV1({
+    enrollmentId: binding.enrollmentId,
+    deviceId: binding.deviceId,
     walletId: binding.walletId,
     factor: binding.factor,
   });

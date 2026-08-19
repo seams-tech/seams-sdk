@@ -336,6 +336,26 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
     });
   }
 
+  async recordEmailOtpChallengeStateV1(input: {
+    readonly linkSessionId: LinkDeviceSessionId;
+    readonly expectedRevision: number;
+    readonly nextRecord: LinkedDeviceSessionRecordV1;
+    readonly nowMs: number;
+  }): Promise<LinkedDeviceSessionMutationResultV1> {
+    const nextState = input.nextRecord.state;
+    return this.applyStateCas({
+      linkSessionId: input.linkSessionId,
+      expectedRevision: input.expectedRevision,
+      nextRecord: input.nextRecord,
+      nowMs: input.nowMs,
+      expectedStates: ['awaiting_target_factor'],
+      replay: (current) =>
+        current.state.state === 'awaiting_target_factor' &&
+        nextState.state === 'awaiting_target_factor' &&
+        alphabetizeStringify(current.state) === alphabetizeStringify(nextState),
+    });
+  }
+
   /**
    * The session CAS as statements, for a caller that must commit it with its
    * own writes or not at all.
@@ -538,6 +558,12 @@ export class D1LinkedDeviceSessionStoreV1 implements LinkedDeviceSessionStoreV1 
     } catch (error: unknown) {
       batchFailed = true;
       batchError = error;
+      console.error('[device-linking] transcript CAS batch failed', {
+        kind: input.kind,
+        linkSessionId: input.linkSessionId,
+        expectedRevision: input.expectedRevision,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
     if (batchFailed) {
       const raced = await this.getSessionV1(input.linkSessionId);
@@ -830,7 +856,13 @@ function expiryMs(record: LinkedDeviceSessionRecordV1): number {
     case 'claimed_by_owner':
       return record.state.claimExpiresAtMs;
     case 'awaiting_target_factor':
-      return record.state.credentialDeadlineMs;
+      // The Passkey branch carries its credential deadline; the Email OTP
+      // branch's deadline is the approval expiry restated on the transcript.
+      return (
+        record.state.credentialDeadlineMs ??
+        record.approvalTranscript?.value.expiresAtMs ??
+        record.qrPayload.expiresAtMs
+      );
     case 'provisioning':
       return record.qrPayload.expiresAtMs;
     default:

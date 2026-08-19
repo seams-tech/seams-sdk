@@ -1,6 +1,9 @@
 import type { FinalizeWalletAddAuthMethodCommand } from '../../../framework/authServicePort';
 import type { WalletAddAuthMethodFinalizeResponse } from '../../../../core/registrationContracts';
-import type { LinkedOwnerEnrollmentCeremonyReaderV1 } from '../../../../core/deviceLinking/linkedOwnerEnrollmentProvenance';
+import type {
+  LinkedOwnerEmailOtpBaseFactorReaderV1,
+  LinkedOwnerEnrollmentCeremonyReaderV1,
+} from '../../../../core/deviceLinking/linkedOwnerEnrollmentProvenance';
 import { parseLinkDeviceSessionId, type LinkDeviceSessionId } from '@shared/signing-lanes/ids';
 import { readJson } from '../../../../router/framework/http';
 import { LinkedDeviceRequestProofVerifierV1 } from '../../../../core/deviceLinking/requestProof';
@@ -73,6 +76,10 @@ export type D1LinkedDeviceRouteServiceOptionsV1 = {
   readonly ownerAuthorization: LinkedDeviceOwnerAuthorizationPortV1;
   /** Reads back the add-auth-method ceremony an approval names, for provenance. */
   readonly ownerEnrollmentCeremonies: LinkedOwnerEnrollmentCeremonyReaderV1;
+  /** Approval-time base Email OTP factor provenance; unwired = fail-closed. */
+  readonly emailOtpBaseFactors?: LinkedOwnerEmailOtpBaseFactorReaderV1;
+  /** The Email OTP challenge/verify/release surface; unwired = routes answer 501. */
+  readonly emailOtpTargetFactor?: DeviceLinkingRouteServiceV1['emailOtpTargetFactor'];
   readonly authenticateOwnerRequestV1: (
     input: DeviceLinkingOwnerRequestInputV1,
   ) => Promise<DeviceLinkingAuthenticatedRequestV1 | DeviceLinkingAuthDeniedV1>;
@@ -102,6 +109,9 @@ export function createD1LinkedDeviceRouteServiceV1(
     scope: options.scope,
     ownerAuthorization: options.ownerAuthorization,
     ownerEnrollmentCeremonies: options.ownerEnrollmentCeremonies,
+    ...(options.emailOtpBaseFactors === undefined
+      ? {}
+      : { emailOtpBaseFactors: options.emailOtpBaseFactors }),
     laneLifecycle,
     nowV1,
   });
@@ -181,6 +191,8 @@ export function createD1LinkedDeviceRouteServiceV1(
     claimSessionV1: sessionService.claimSessionV1.bind(sessionService),
     recordOwnerApprovalV1: sessionService.recordOwnerApprovalV1.bind(sessionService),
     recordTargetCredentialV1: sessionService.recordTargetCredentialV1.bind(sessionService),
+    recordEmailOtpChallengeStateV1:
+      sessionService.recordEmailOtpChallengeStateV1.bind(sessionService),
     bindRecoveryContinuationV1: sessionService.bindRecoveryContinuationV1.bind(sessionService),
     cancelSessionV1: sessionService.cancelSessionV1.bind(sessionService),
     // A string input is the pre-proof, read-only QR lookup. Authenticated reads
@@ -194,6 +206,9 @@ export function createD1LinkedDeviceRouteServiceV1(
   return {
     sessionService: routeSessionService,
     nowV1,
+    ...(options.emailOtpTargetFactor === undefined
+      ? {}
+      : { emailOtpTargetFactor: options.emailOtpTargetFactor }),
     // Refactor 103 Phase 8: Device 1 seals the wallet custody seed to the
     // recipient Device 2 publishes, through this store. Left unwired, the
     // routes answer 501 and linking dies after the owner has already asserted.

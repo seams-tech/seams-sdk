@@ -1,6 +1,9 @@
 import type { LinkedDeviceAggregateActivationVerifierV1, LinkedDeviceOwnerAuthorizationPortV1, LinkedDeviceSessionServiceV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
 import { LinkedDeviceSessionServiceV1 as CoreLinkedDeviceSessionServiceV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
-import type { LinkedOwnerEnrollmentCeremonyReaderV1 } from '../../../../core/deviceLinking/linkedOwnerEnrollmentProvenance';
+import type {
+  LinkedOwnerEmailOtpBaseFactorReaderV1,
+  LinkedOwnerEnrollmentCeremonyReaderV1,
+} from '../../../../core/deviceLinking/linkedOwnerEnrollmentProvenance';
 import type { LaneLifecycleStore } from '../../../../core/signingLanes/LaneLifecycleStore';
 import type { D1DatabaseLike } from '../../../../storage/tenantRoute';
 import { D1LinkedDeviceAggregateActivationVerifierV1 } from './d1LinkedDeviceAggregateActivationVerifier';
@@ -19,6 +22,11 @@ export type D1LinkedDeviceSessionServiceOptionsV1 = {
    * digest seals it.
    */
   readonly ownerEnrollmentCeremonies: LinkedOwnerEnrollmentCeremonyReaderV1;
+  /**
+   * Resolves the wallet's active verified base Email OTP factor at approval
+   * time. Left unwired, `email_otp` approvals are refused fail-closed.
+   */
+  readonly emailOtpBaseFactors?: LinkedOwnerEmailOtpBaseFactorReaderV1;
   readonly laneLifecycle: Pick<
     LaneLifecycleStore,
     'getEnrollment' | 'getProtocol' | 'listEnrollmentProductEpochs'
@@ -46,6 +54,9 @@ export function createD1LinkedDeviceSessionServiceV1(
     authorization: options.ownerAuthorization,
     aggregateActivationVerifier,
     ownerEnrollmentCeremonies: options.ownerEnrollmentCeremonies,
+    ...(options.emailOtpBaseFactors === undefined
+      ? {}
+      : { emailOtpBaseFactors: options.emailOtpBaseFactors }),
   });
   return { sessionService, sessionStore };
 }

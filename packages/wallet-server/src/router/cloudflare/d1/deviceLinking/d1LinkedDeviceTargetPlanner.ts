@@ -29,6 +29,7 @@ import {
   parseWebAuthnRpId,
   parseWebAuthnCredentialIdB64u,
   type MpcMaterialActivationId,
+  type WebAuthnCredentialIdB64u,
   type WebAuthnRpId,
 } from '@shared/utils/domainIds';
 import type {
@@ -59,7 +60,7 @@ import type { Ed25519YaoSuiteId } from '@shared/signing-lanes/ids';
 import type { LinkedDeviceSessionRecordV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
 import type {
   LinkedDeviceTargetPlannerV1,
-  VerifiedLinkedDeviceWebAuthnCredentialV1,
+  VerifiedLinkedDeviceTargetFactorEvidenceV1,
 } from './d1LinkedDeviceTargetCredentialProvider';
 import type { LinkedDeviceTargetDeploymentDescriptorProviderV1 } from './d1LinkedDeviceTargetDeploymentDescriptorProvider';
 
@@ -136,7 +137,7 @@ export type LinkedDeviceOwnerSourceChildResolutionRequestV1 =
       readonly kind: 'commit';
       readonly preparation: LinkedDeviceTargetPreparationV1;
       readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
-      readonly credential: VerifiedLinkedDeviceWebAuthnCredentialV1;
+      readonly evidence: VerifiedLinkedDeviceTargetFactorEvidenceV1;
       readonly childIndex: number;
     };
 
@@ -226,6 +227,7 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
       walletId: input.approval.walletId,
       enrollmentId: input.approval.enrollmentId,
       deviceId: input.approval.deviceId,
+      targetFactor: input.approval.targetFactor,
       // The planner no longer mints a relying party, challenge, or user handle
       // of its own. They come from the ceremony Device 1 started during
       // owner-authenticated approval, which is the only registration Device 2
@@ -240,7 +242,7 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
   async commitVerifiedTargetV1(input: {
     readonly preparation: LinkedDeviceTargetPreparationV1;
     readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
-    readonly credential: VerifiedLinkedDeviceWebAuthnCredentialV1;
+    readonly evidence: VerifiedLinkedDeviceTargetFactorEvidenceV1;
     readonly registrationDigestB64u: DigestB64u;
     readonly requestedAtMs: number;
   }): Promise<{
@@ -262,14 +264,31 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
       throw new Error('linked-device target registration identity differs from preparation');
     }
     if (
-      input.credential.credentialIdB64u !==
-        input.registration.webauthnRegistration.credentialIdB64u ||
-      !input.credential.credentialPublicKeyB64u ||
-      !Number.isSafeInteger(input.credential.counter) ||
-      input.credential.counter < 0
+      input.evidence.kind !== input.registration.targetFactor.kind ||
+      input.evidence.kind !== input.preparation.targetFactor.kind
     ) {
-      throw new Error('verified linked-device credential does not match registration');
+      throw new Error('linked-device commit evidence factor differs from its registration');
     }
+    if (input.evidence.kind === 'passkey_prf') {
+      if (
+        !input.registration.webauthnRegistration ||
+        input.evidence.credential.credentialIdB64u !==
+          input.registration.webauthnRegistration.credentialIdB64u ||
+        !input.evidence.credential.credentialPublicKeyB64u ||
+        !Number.isSafeInteger(input.evidence.credential.counter) ||
+        input.evidence.credential.counter < 0
+      ) {
+        throw new Error('verified linked-device credential does not match registration');
+      }
+    } else if (
+      !input.registration.emailOtpVerificationGrant ||
+      input.evidence.grant.grantId !== input.registration.emailOtpVerificationGrant.grantId ||
+      input.evidence.grant.linkedOwnerAuthMethodId !==
+        input.registration.emailOtpVerificationGrant.linkedOwnerAuthMethodId
+    ) {
+      throw new Error('verified linked-device grant does not match registration');
+    }
+    const descriptorCredentialIdB64u = descriptorCredentialIdForEvidence(input.evidence);
     const preparationDigestB64u = await computeLinkedDeviceTargetPreparationDigestV1(
       input.preparation,
     );
@@ -294,7 +313,7 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
         kind: 'commit',
         preparation: input.preparation,
         registration: input.registration,
-        credential: input.credential,
+        evidence: input.evidence,
         childIndex,
       });
       assertResolutionMatchesPreparation(sourceResolution, preparationChild, childIndex);
@@ -316,10 +335,7 @@ export class D1LinkedDeviceTargetPlannerV1 implements LinkedDeviceTargetPlannerV
             targetHolderParticipantId: preparationChild.targetHolderParticipantId,
             targetPreparationDigestB64u: preparationDigestB64u,
             registrationDigestB64u,
-            credentialIdB64u: parseRequired(
-              parseWebAuthnCredentialIdB64u(input.credential.credentialIdB64u),
-              'target descriptor credentialIdB64u',
-            ),
+            credentialIdB64u: descriptorCredentialIdB64u,
           }),
           issuedAtMs: input.preparation.issuedAtMs,
           expiresAtMs: input.preparation.expiresAtMs,
@@ -441,12 +457,29 @@ function assertResolutionMatchesPreparation(
   }
 }
 
+/**
+ * The descriptor's credential binding, per factor: the WebAuthn credential id
+ * for Passkey, and the deterministic digest of the derived linked-owner
+ * authority for Email OTP (which mints no WebAuthn credential).
+ */
+function descriptorCredentialIdForEvidence(
+  evidence: VerifiedLinkedDeviceTargetFactorEvidenceV1,
+): WebAuthnCredentialIdB64u {
+  if (evidence.kind === 'passkey_prf') {
+    return parseRequired(
+      parseWebAuthnCredentialIdB64u(evidence.credential.credentialIdB64u),
+      'target descriptor credentialIdB64u',
+    );
+  }
+  return evidence.grant.descriptorCredentialIdB64u;
+}
+
 function assertDescriptorMatchesRegistration(
   descriptor: LinkedDeviceTargetDeploymentDescriptorV1,
   input: {
     readonly preparation: LinkedDeviceTargetPreparationV1;
     readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
-    readonly credential: VerifiedLinkedDeviceWebAuthnCredentialV1;
+    readonly evidence: VerifiedLinkedDeviceTargetFactorEvidenceV1;
     readonly requestedAtMs: number;
   },
   registrationDigestB64u: DigestB64u,
@@ -473,7 +506,7 @@ function assertDescriptorMatchesRegistration(
     request.targetHolderParticipantId !== preparationChild.targetHolderParticipantId ||
     request.targetPreparationDigestB64u !== input.registration.targetPreparationDigestB64u ||
     request.registrationDigestB64u !== registrationDigestB64u ||
-    request.credentialIdB64u !== input.credential.credentialIdB64u ||
+    request.credentialIdB64u !== descriptorCredentialIdForEvidence(input.evidence) ||
     descriptor.targetHolderParticipantId !== preparationChild.targetHolderParticipantId ||
     registration.holderParticipant.participantId !== descriptor.targetHolderParticipantId ||
     descriptor.issuedAtMs !== input.preparation.issuedAtMs ||

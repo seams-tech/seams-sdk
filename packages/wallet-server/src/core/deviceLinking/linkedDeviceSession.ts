@@ -60,6 +60,7 @@ import type {
   LinkedDeviceOwnerAuthorizationSourceV1,
   LinkedDeviceProtocolVersionV1,
   LinkedDeviceSessionState,
+  LinkedDeviceTargetFactorV1,
   LinkDevicePublicKeyB64u,
   QrLinkedDevicePermissionRequest,
   QrLinkedDeviceSessionPayloadV5,
@@ -68,6 +69,7 @@ import { parseOwnerLaneParticipantContinuityV1 } from '@shared/signing-lanes/own
 import { parseLinkedDeviceOwnerEnrollmentCeremonyV1 } from '@shared/device-linking/parsers';
 import {
   admitLinkedOwnerEnrollmentProvenanceV1,
+  type LinkedOwnerEmailOtpBaseFactorReaderV1,
   type LinkedOwnerEnrollmentCeremonyReaderV1,
 } from './linkedOwnerEnrollmentProvenance';
 import type { SigningLaneKind } from '@shared/signing-lanes/records';
@@ -319,6 +321,12 @@ export type LinkedDeviceSessionStoreV1 = {
     readonly nextRecord: LinkedDeviceSessionRecordV1;
     readonly nowMs: number;
   }): Promise<LinkedDeviceSessionMutationResultV1>;
+  recordEmailOtpChallengeStateV1(input: {
+    readonly linkSessionId: LinkDeviceSessionId;
+    readonly expectedRevision: number;
+    readonly nextRecord: LinkedDeviceSessionRecordV1;
+    readonly nowMs: number;
+  }): Promise<LinkedDeviceSessionMutationResultV1>;
   markCommittedCompletionRequiredV1(input: {
     readonly linkSessionId: LinkDeviceSessionId;
     readonly expectedRevision: number;
@@ -434,6 +442,20 @@ export type LinkedDeviceSessionTargetCredentialInputV1 = {
   readonly nowMs: number;
 };
 
+/** Server-issued public challenge state for an approved `email_otp` session. */
+export type LinkedDeviceSessionEmailOtpChallengeInputV1 = {
+  readonly linkSessionId: LinkDeviceSessionId;
+  readonly expectedRevision: number;
+  readonly challenge: {
+    readonly challengeId: string;
+    readonly workerEphemeralPublicKey65B64u: string;
+    readonly maskedEmailHint: string;
+    readonly expiresAtMs: number;
+    readonly resendAvailableAtMs: number;
+  };
+  readonly nowMs: number;
+};
+
 /** Reserves the current session revision for the owner-credential commit. */
 export type LinkedOwnerEnrollmentCompletionInputV1 = {
   readonly linkSessionId: LinkDeviceSessionId;
@@ -491,22 +513,36 @@ export type LinkedDeviceSessionAggregateActivationInputV1 = {
   readonly nowMs: number;
 };
 
+/**
+ * The default when no base-factor reader is wired: every Email OTP approval is
+ * refused as `email_otp_base_factor_unavailable`. Fail-closed by construction —
+ * a composition that forgets the reader cannot admit an email enrollment, and
+ * Passkey approvals never consult it.
+ */
+const FAIL_CLOSED_EMAIL_OTP_BASE_FACTOR_READER_V1: LinkedOwnerEmailOtpBaseFactorReaderV1 = {
+  readActiveEmailOtpBaseFactorV1: () => Promise.resolve(null),
+};
+
 export class LinkedDeviceSessionServiceV1 {
   private readonly store: LinkedDeviceSessionStoreV1;
   private readonly authorization: LinkedDeviceOwnerAuthorizationPortV1;
   private readonly aggregateActivationVerifier: LinkedDeviceAggregateActivationVerifierV1;
   private readonly ownerEnrollmentCeremonies: LinkedOwnerEnrollmentCeremonyReaderV1;
+  private readonly emailOtpBaseFactors: LinkedOwnerEmailOtpBaseFactorReaderV1;
 
   constructor(input: {
     readonly store: LinkedDeviceSessionStoreV1;
     readonly authorization: LinkedDeviceOwnerAuthorizationPortV1;
     readonly aggregateActivationVerifier: LinkedDeviceAggregateActivationVerifierV1;
     readonly ownerEnrollmentCeremonies: LinkedOwnerEnrollmentCeremonyReaderV1;
+    readonly emailOtpBaseFactors?: LinkedOwnerEmailOtpBaseFactorReaderV1;
   }) {
     this.store = input.store;
     this.authorization = input.authorization;
     this.aggregateActivationVerifier = input.aggregateActivationVerifier;
     this.ownerEnrollmentCeremonies = input.ownerEnrollmentCeremonies;
+    this.emailOtpBaseFactors =
+      input.emailOtpBaseFactors ?? FAIL_CLOSED_EMAIL_OTP_BASE_FACTOR_READER_V1;
   }
 
   async createUnclaimedSessionV1(
@@ -635,6 +671,7 @@ export class LinkedDeviceSessionServiceV1 {
       const provenance = await admitLinkedOwnerEnrollmentProvenanceV1({
         approval,
         ceremonies: this.ownerEnrollmentCeremonies,
+        emailOtpBaseFactors: this.emailOtpBaseFactors,
         requestedAtMs: input.nowMs,
       });
       if (!provenance.ok) {
@@ -657,7 +694,7 @@ export class LinkedDeviceSessionServiceV1 {
           message: authorization.message,
         };
       }
-      const nextState = awaitingTargetPasskeyStateV1(existing, approval);
+      const nextState = awaitingTargetFactorStateV1(existing, approval);
       const nextRecord = replaceSessionRecordV1(existing, {
         state: nextState,
         revision: existing.revision + 1,
@@ -816,7 +853,7 @@ export class LinkedDeviceSessionServiceV1 {
       if (existing.state.state !== 'awaiting_target_factor') {
         return invalidStateResult(existing);
       }
-      if (input.nowMs >= existing.state.credentialDeadlineMs) {
+      if (input.nowMs >= awaitingTargetDeadlineMsV1(existing)) {
         return { outcome: 'expired', record: existing };
       }
       const nextRecord = replaceSessionRecordV1(existing, {
@@ -828,6 +865,71 @@ export class LinkedDeviceSessionServiceV1 {
         linkSessionId: input.linkSessionId,
         expectedRevision: input.expectedRevision,
         keyManifestDigestB64u,
+        nextRecord,
+        nowMs: input.nowMs,
+      });
+    } catch (error: unknown) {
+      return { outcome: 'invalid_input', message: errorMessage(error) };
+    }
+  }
+
+  /**
+   * Records the public state of the one outstanding Email OTP challenge for an
+   * approved `email_otp` session. Only server-issued public facts enter the
+   * record — the OTP code and destination address never do. Re-recording the
+   * identical challenge replays; a different challenge id supersedes the
+   * previous one (a resend after expiry), which is why this is a revision-
+   * guarded state write rather than an append.
+   */
+  async recordEmailOtpChallengeStateV1(
+    input: LinkedDeviceSessionEmailOtpChallengeInputV1,
+  ): Promise<LinkedDeviceSessionServiceResultV1> {
+    try {
+      requireTimestamp(input.nowMs, 'nowMs');
+      requireTimestamp(input.challenge.expiresAtMs, 'challenge.expiresAtMs');
+      requireTimestamp(input.challenge.resendAvailableAtMs, 'challenge.resendAvailableAtMs');
+      if (!input.challenge.challengeId) throw new Error('challenge.challengeId is required');
+      const existing = await this.requireSession(input.linkSessionId);
+      if (
+        existing.state.state !== 'awaiting_target_factor' ||
+        existing.state.targetFactor.kind !== 'email_otp'
+      ) {
+        return invalidStateResult(existing);
+      }
+      if (input.nowMs >= awaitingTargetDeadlineMsV1(existing)) {
+        return { outcome: 'expired', record: existing };
+      }
+      const currentChallenge = existing.state.emailOtpChallenge;
+      if (!currentChallenge) return invalidStateResult(existing);
+      const nextChallenge = {
+        state: 'sent' as const,
+        challengeId: input.challenge.challengeId,
+        workerEphemeralPublicKey65B64u: input.challenge.workerEphemeralPublicKey65B64u,
+        maskedEmailHint: currentChallenge.maskedEmailHint,
+        expiresAtMs: input.challenge.expiresAtMs,
+        resendAvailableAtMs: input.challenge.resendAvailableAtMs,
+      };
+      if (
+        currentChallenge.state === 'sent' &&
+        alphabetizeStringify(currentChallenge) === alphabetizeStringify(nextChallenge)
+      ) {
+        return { outcome: 'replayed', record: existing };
+      }
+      const nextRecord = replaceSessionRecordV1(existing, {
+        state: {
+          state: 'awaiting_target_factor',
+          linkSessionId: existing.linkSessionId,
+          walletId: existing.state.walletId,
+          enrollmentId: existing.state.enrollmentId,
+          targetFactor: { kind: 'email_otp' },
+          emailOtpChallenge: nextChallenge,
+        },
+        revision: existing.revision + 1,
+        updatedAtMs: input.nowMs,
+      });
+      return await this.store.recordEmailOtpChallengeStateV1({
+        linkSessionId: input.linkSessionId,
+        expectedRevision: input.expectedRevision,
         nextRecord,
         nowMs: input.nowMs,
       });
@@ -853,7 +955,7 @@ export class LinkedDeviceSessionServiceV1 {
       if (existing.state.state !== 'awaiting_target_factor') {
         return { outcome: 'invalid_state', state: existing.state.state, record: existing };
       }
-      if (input.nowMs >= existing.state.credentialDeadlineMs) {
+      if (input.nowMs >= awaitingTargetDeadlineMsV1(existing)) {
         return { outcome: 'expired', record: existing };
       }
       return {
@@ -1191,29 +1293,87 @@ export function parseQrLinkedDeviceSessionPayloadV1(raw: unknown): QrLinkedDevic
     'linkPublicKeyB64u',
     'devicePublicKeyB64u',
     'requestedPermission',
+    'targetFactor',
     'issuedAtMs',
     'expiresAtMs',
   ]);
-  if (record.version !== 'v4') throw new Error('QR payload version is invalid');
+  if (record.version !== 'v5') throw new Error('QR payload version is invalid');
   if (record.purpose !== 'linked_device_lane_creation')
     throw new Error('QR payload purpose is invalid');
   const linkSessionId = parseId(record.linkSessionId, parseLinkDeviceSessionId, 'linkSessionId');
   const linkPublicKeyB64u = parsePublicKeyB64u(record.linkPublicKeyB64u, 'linkPublicKeyB64u');
   const devicePublicKeyB64u = parsePublicKeyB64u(record.devicePublicKeyB64u, 'devicePublicKeyB64u');
   const requestedPermission = parsePermissionV1(record.requestedPermission);
+  const targetFactor = parseTargetFactorV1(record.targetFactor);
   const issuedAtMs = requireTimestamp(record.issuedAtMs, 'issuedAtMs');
   const expiresAtMs = requireTimestamp(record.expiresAtMs, 'expiresAtMs');
   if (expiresAtMs <= issuedAtMs) throw new Error('QR payload expiresAtMs must be after issuedAtMs');
   return {
-    version: 'v4',
+    version: 'v5',
     purpose: 'linked_device_lane_creation',
     linkSessionId,
     linkPublicKeyB64u,
     devicePublicKeyB64u,
     requestedPermission,
+    targetFactor,
     issuedAtMs,
     expiresAtMs,
   };
+}
+
+function parseTargetFactorV1(raw: unknown): LinkedDeviceTargetFactorV1 {
+  const record = requireRecord(raw, 'targetFactor');
+  requireExactKeys(record, ['kind']);
+  if (record.kind === 'passkey_prf') return { kind: 'passkey_prf' };
+  if (record.kind === 'email_otp') return { kind: 'email_otp' };
+  throw new Error('targetFactor kind is invalid');
+}
+
+type LinkedDeviceEmailOtpChallengeStateV1 = Extract<
+  LinkedDeviceSessionState,
+  { readonly state: 'awaiting_target_factor'; readonly targetFactor: { readonly kind: 'email_otp' } }
+>['emailOtpChallenge'];
+
+function parseEmailOtpChallengeStateV1(raw: unknown): LinkedDeviceEmailOtpChallengeStateV1 {
+  const record = requireRecord(raw, 'emailOtpChallenge');
+  switch (record.state) {
+    case 'available':
+      requireExactKeys(record, ['state', 'maskedEmailHint']);
+      return {
+        state: 'available',
+        maskedEmailHint: parseIdentityString(record.maskedEmailHint, 'emailOtpChallenge.maskedEmailHint'),
+      };
+    case 'sent': {
+      requireExactKeys(record, [
+        'state',
+        'challengeId',
+        'workerEphemeralPublicKey65B64u',
+        'maskedEmailHint',
+        'expiresAtMs',
+        'resendAvailableAtMs',
+      ]);
+      return {
+        state: 'sent',
+        challengeId: parseIdentityString(record.challengeId, 'emailOtpChallenge.challengeId'),
+        workerEphemeralPublicKey65B64u: parseFixedBase64UrlBytes(
+          record.workerEphemeralPublicKey65B64u,
+          65,
+          'emailOtpChallenge.workerEphemeralPublicKey65B64u',
+        ),
+        maskedEmailHint: parseIdentityString(
+          record.maskedEmailHint,
+          'emailOtpChallenge.maskedEmailHint',
+        ),
+        expiresAtMs: requireTimestamp(record.expiresAtMs, 'emailOtpChallenge.expiresAtMs'),
+        resendAvailableAtMs: requireTimestamp(
+          record.resendAvailableAtMs,
+          'emailOtpChallenge.resendAvailableAtMs',
+        ),
+      };
+    }
+    default:
+      throw new Error('emailOtpChallenge.state is unsupported');
+  }
 }
 
 function buildClaimV1(
@@ -1231,6 +1391,7 @@ function buildClaimV1(
     enrollmentId: identity.enrollmentId,
     deviceId: identity.deviceId,
     devicePublicKeyB64u: payload.devicePublicKeyB64u,
+    targetFactor: payload.targetFactor,
     claimedAtMs,
     claimExpiresAtMs: identity.claimExpiresAtMs,
   };
@@ -1250,19 +1411,63 @@ function claimedByOwnerStateV1(
   };
 }
 
-function awaitingTargetPasskeyStateV1(
+function awaitingTargetFactorStateV1(
   record: LinkedDeviceSessionRecordV1,
   approval: LinkedDeviceApprovalV1,
 ): Extract<LinkedDeviceSessionState, { readonly state: 'awaiting_target_factor' }> {
   if (record.state.state !== 'claimed_by_owner')
     throw new Error('link session is not awaiting owner approval');
-  return {
-    state: 'awaiting_target_factor',
-    linkSessionId: record.linkSessionId,
-    walletId: record.state.walletId,
-    enrollmentId: record.state.enrollmentId,
-    credentialDeadlineMs: approval.expiresAtMs,
-  };
+  switch (approval.targetFactor.kind) {
+    case 'passkey_prf':
+      return {
+        state: 'awaiting_target_factor',
+        linkSessionId: record.linkSessionId,
+        walletId: record.state.walletId,
+        enrollmentId: record.state.enrollmentId,
+        targetFactor: { kind: 'passkey_prf' },
+        credentialDeadlineMs: approval.expiresAtMs,
+      };
+    case 'email_otp': {
+      if (approval.ownerEnrollment.kind !== 'linked_device_email_otp_owner_enrollment_v1') {
+        throw new Error('email OTP approval requires the email owner enrollment ceremony');
+      }
+      return {
+        state: 'awaiting_target_factor',
+        linkSessionId: record.linkSessionId,
+        walletId: record.state.walletId,
+        enrollmentId: record.state.enrollmentId,
+        targetFactor: { kind: 'email_otp' },
+        emailOtpChallenge: {
+          state: 'available',
+          maskedEmailHint: approval.ownerEnrollment.maskedEmailHint,
+        },
+      };
+    }
+  }
+  approval.targetFactor satisfies never;
+  throw new Error('approval targetFactor kind is unsupported');
+}
+
+/**
+ * The one deadline that gates leaving `awaiting_target_factor`. The Passkey
+ * branch carries its credential deadline in the state; the Email OTP branch
+ * deliberately does not carry a second clock — its deadline is the approval
+ * expiry the challenge and grant TTLs must fit inside.
+ */
+function awaitingTargetDeadlineMsV1(record: LinkedDeviceSessionRecordV1): number {
+  if (record.state.state !== 'awaiting_target_factor') {
+    throw new Error('link session is not awaiting its target factor');
+  }
+  if (record.state.targetFactor.kind === 'passkey_prf') {
+    const credentialDeadlineMs = record.state.credentialDeadlineMs;
+    if (credentialDeadlineMs === undefined) {
+      throw new Error('passkey awaiting state is missing its credential deadline');
+    }
+    return credentialDeadlineMs;
+  }
+  const approval = record.approvalTranscript?.value;
+  if (!approval) throw new Error('awaiting session is missing owner approval');
+  return approval.expiresAtMs;
 }
 
 function provisioningStateV1(
@@ -1380,7 +1585,7 @@ function sessionExpiryMsV1(record: LinkedDeviceSessionRecordV1): number {
     case 'claimed_by_owner':
       return record.state.claimExpiresAtMs;
     case 'awaiting_target_factor':
-      return record.state.credentialDeadlineMs;
+      return awaitingTargetDeadlineMsV1(record);
     case 'provisioning':
       return record.qrPayload.expiresAtMs;
     case 'active':
@@ -1588,6 +1793,19 @@ function validateApprovalMatchesSession(
   if (approval.devicePublicKeyB64u !== record.qrPayload.devicePublicKeyB64u) {
     throw new Error('approval device public key does not match QR payload');
   }
+  // The factor branch is chosen once, in the QR, and every artifact after it
+  // must repeat that exact choice. Approval is the last owner-authenticated
+  // step, so a cross-branch approval fails here — before any credential,
+  // challenge, or lane exists.
+  if (
+    approval.targetFactor.kind !== record.qrPayload.targetFactor.kind ||
+    approval.targetFactor.kind !== claim.targetFactor.kind
+  ) {
+    throw new Error('approval target factor does not match the QR session');
+  }
+  if (approval.targetFactor.kind !== approval.ownerEnrollment.targetFactor.kind) {
+    throw new Error('approval owner enrollment ceremony does not match its target factor');
+  }
   if (approval.expiresAtMs <= nowMs || approval.expiresAtMs > record.state.claimExpiresAtMs) {
     throw new Error('approval expiry is outside the claim lifetime');
   }
@@ -1608,6 +1826,7 @@ function parseLinkedDeviceApprovalV1(raw: unknown): LinkedDeviceApprovalV1 {
     'linkPublicKeyB64u',
     'devicePublicKeyB64u',
     'permission',
+    'targetFactor',
     'ownerAuthorization',
     'ownerEnrollment',
     'policyDigestB64u',
@@ -1621,8 +1840,13 @@ function parseLinkedDeviceApprovalV1(raw: unknown): LinkedDeviceApprovalV1 {
   if (record.kind !== 'linked_device_approval_v1') throw new Error('approval kind is invalid');
   const orderedKeyBindings = parseKeyBindingsV1(record.orderedKeyBindings);
   const protocolVersions = parseProtocolVersionsV1(record.protocolVersions);
-  return {
-    kind: 'linked_device_approval_v1',
+  const targetFactor = parseTargetFactorV1(record.targetFactor);
+  // The ceremony is read back through its own canonical parser rather than
+  // re-validated here: the transcript must round-trip the exact registration
+  // options the approval digest covers.
+  const ownerEnrollment = parseLinkedDeviceOwnerEnrollmentCeremonyV1(record.ownerEnrollment);
+  const base = {
+    kind: 'linked_device_approval_v1' as const,
     linkSessionId: parseId(
       record.linkSessionId,
       parseLinkDeviceSessionId,
@@ -1642,10 +1866,6 @@ function parseLinkedDeviceApprovalV1(raw: unknown): LinkedDeviceApprovalV1 {
     ),
     permission: parsePermissionV1(record.permission),
     ownerAuthorization: parseOwnerAuthorizationV1(record.ownerAuthorization),
-    // The ceremony is read back through its own canonical parser rather than
-    // re-validated here: the transcript must round-trip the exact registration
-    // options the approval digest covers.
-    ownerEnrollment: parseLinkedDeviceOwnerEnrollmentCeremonyV1(record.ownerEnrollment),
     policyDigestB64u: requireDigest(record.policyDigestB64u, 'approval.policyDigestB64u'),
     operationId: parseId(record.operationId, parseLaneOperationId, 'approval.operationId'),
     idempotencyKey: parseId(
@@ -1658,6 +1878,18 @@ function parseLinkedDeviceApprovalV1(raw: unknown): LinkedDeviceApprovalV1 {
     approvedAtMs: requireTimestamp(record.approvedAtMs, 'approval.approvedAtMs'),
     expiresAtMs: requireTimestamp(record.expiresAtMs, 'approval.expiresAtMs'),
   };
+  // The factor and its ceremony are one correlated choice; an approval pairing
+  // them across branches is rejected here, before any digest seals it.
+  if (targetFactor.kind === 'passkey_prf') {
+    if (ownerEnrollment.kind !== 'linked_device_passkey_owner_enrollment_v1') {
+      throw new Error('approval owner enrollment ceremony does not match its target factor');
+    }
+    return { ...base, targetFactor: { kind: 'passkey_prf' }, ownerEnrollment };
+  }
+  if (ownerEnrollment.kind !== 'linked_device_email_otp_owner_enrollment_v1') {
+    throw new Error('approval owner enrollment ceremony does not match its target factor');
+  }
+  return { ...base, targetFactor: { kind: 'email_otp' }, ownerEnrollment };
 }
 
 function parseRecoveryContinuationV1(raw: unknown): LinkedDeviceRecoveryContinuationV1 {
@@ -1744,6 +1976,7 @@ function parseClaimV1(raw: unknown): LinkedDeviceClaimV1 {
     'enrollmentId',
     'deviceId',
     'devicePublicKeyB64u',
+    'targetFactor',
     'claimedAtMs',
     'claimExpiresAtMs',
   ]);
@@ -1758,6 +1991,7 @@ function parseClaimV1(raw: unknown): LinkedDeviceClaimV1 {
       record.devicePublicKeyB64u,
       'claim.devicePublicKeyB64u',
     ),
+    targetFactor: parseTargetFactorV1(record.targetFactor),
     claimedAtMs: requireTimestamp(record.claimedAtMs, 'claim.claimedAtMs'),
     claimExpiresAtMs: requireTimestamp(record.claimExpiresAtMs, 'claim.claimExpiresAtMs'),
   };
@@ -1959,6 +2193,7 @@ function parseAggregateReceiptV1(raw: unknown): LinkedDeviceEnrollmentReceiptV1 
     'enrollmentId',
     'walletId',
     'deviceId',
+    'targetFactor',
     'manifestDigestB64u',
     'aggregateReceiptDigestB64u',
     'orderedChildReceipts',
@@ -1985,6 +2220,7 @@ function parseAggregateReceiptV1(raw: unknown): LinkedDeviceEnrollmentReceiptV1 
     enrollmentId,
     walletId,
     deviceId: parseId(record.deviceId, parseLinkedDeviceId, 'aggregate.deviceId'),
+    targetFactor: parseTargetFactorV1(record.targetFactor),
     manifestDigestB64u: requireDigest(record.manifestDigestB64u, 'aggregate.manifestDigestB64u'),
     aggregateReceiptDigestB64u: requireDigest(
       record.aggregateReceiptDigestB64u,
@@ -2086,28 +2322,52 @@ function parseSessionStateV1(raw: unknown): LinkedDeviceSessionState {
         ),
         claimExpiresAtMs: requireTimestamp(record.claimExpiresAtMs, 'state.claimExpiresAtMs'),
       };
-    case 'awaiting_target_factor':
+    case 'awaiting_target_factor': {
+      const targetFactor = parseTargetFactorV1(record.targetFactor);
+      const walletId = parseId(record.walletId, parseWalletId, 'state.walletId');
+      const enrollmentId = parseId(
+        record.enrollmentId,
+        parseLinkedDeviceEnrollmentId,
+        'state.enrollmentId',
+      );
+      if (targetFactor.kind === 'passkey_prf') {
+        requireExactKeys(record, [
+          'state',
+          'linkSessionId',
+          'walletId',
+          'enrollmentId',
+          'targetFactor',
+          'credentialDeadlineMs',
+        ]);
+        return {
+          state,
+          linkSessionId,
+          walletId,
+          enrollmentId,
+          targetFactor: { kind: 'passkey_prf' },
+          credentialDeadlineMs: requireTimestamp(
+            record.credentialDeadlineMs,
+            'state.credentialDeadlineMs',
+          ),
+        };
+      }
       requireExactKeys(record, [
         'state',
         'linkSessionId',
         'walletId',
         'enrollmentId',
-        'credentialDeadlineMs',
+        'targetFactor',
+        'emailOtpChallenge',
       ]);
       return {
         state,
         linkSessionId,
-        walletId: parseId(record.walletId, parseWalletId, 'state.walletId'),
-        enrollmentId: parseId(
-          record.enrollmentId,
-          parseLinkedDeviceEnrollmentId,
-          'state.enrollmentId',
-        ),
-        credentialDeadlineMs: requireTimestamp(
-          record.credentialDeadlineMs,
-          'state.credentialDeadlineMs',
-        ),
+        walletId,
+        enrollmentId,
+        targetFactor: { kind: 'email_otp' },
+        emailOtpChallenge: parseEmailOtpChallengeStateV1(record.emailOtpChallenge),
       };
+    }
     case 'provisioning':
       requireExactKeys(record, [
         'state',
@@ -2324,6 +2584,9 @@ function validateAggregateReceiptMatchesApproval(
   }
   const approval = record.approvalTranscript?.value;
   if (!approval) throw new Error('aggregate receipt session is missing owner approval');
+  if (receipt.targetFactor.kind !== approval.targetFactor.kind) {
+    throw new Error('aggregate receipt target factor differs from the approved target factor');
+  }
   if (receipt.manifestDigestB64u !== record.state.keyManifestDigestB64u) {
     throw new Error('aggregate receipt manifest digest differs from the approved manifest');
   }
@@ -2446,6 +2709,22 @@ function parsePublicKeyB64u(raw: unknown, field: string): LinkDevicePublicKeyB64
   if (bytes.length === 0 || base64UrlEncode(bytes) !== raw)
     throw new Error(`${field} is not canonical base64url`);
   return raw as LinkDevicePublicKeyB64u;
+}
+
+function parseFixedBase64UrlBytes(raw: unknown, byteLength: number, field: string): string {
+  if (typeof raw !== 'string' || !/^[A-Za-z0-9_-]+$/.test(raw)) {
+    throw new Error(`${field} is invalid`);
+  }
+  let bytes: Uint8Array;
+  try {
+    bytes = base64UrlDecode(raw);
+  } catch {
+    throw new Error(`${field} is invalid`);
+  }
+  if (bytes.length !== byteLength || base64UrlEncode(bytes) !== raw) {
+    throw new Error(`${field} must be canonical base64url for ${byteLength} bytes`);
+  }
+  return raw;
 }
 
 function requireDigest(raw: unknown, field: string): DigestB64u {

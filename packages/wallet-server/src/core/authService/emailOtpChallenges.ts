@@ -18,7 +18,7 @@ import { base64UrlEncode } from '@shared/utils/encoders';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import { errorMessage } from '@shared/utils/errors';
 import { randomNumericCode } from './bytes';
-import { maskEmailAddress, type EmailOtpConfig } from './emailOtpConfig';
+import { type EmailOtpConfig } from './emailOtpConfig';
 import type { EmailOtpAuthStateReadResult } from './emailOtpEnrollment';
 import type { EmailOtpDeliveryResult, EmailOtpMemoryOutbox } from './emailOtpDelivery';
 import type { RateLimitResult } from './rateLimits';
@@ -308,7 +308,7 @@ export async function createEmailOtpChallengeWithAction(
           delivery: {
             status: 'reused',
             mode: 'memory',
-            emailHint: maskEmailAddress(existingChallenge.email),
+            emailHint: existingChallenge.email,
           },
         };
       }

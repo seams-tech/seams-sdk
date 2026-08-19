@@ -41,7 +41,8 @@ export type EmailOtpGrantAction =
 export type EmailOtpChallengeAction =
   | typeof WALLET_EMAIL_OTP_ACTIONS.login
   | typeof WALLET_EMAIL_OTP_ACTIONS.registration
-  | typeof WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap;
+  | typeof WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap
+  | typeof WALLET_EMAIL_OTP_ACTIONS.deviceLink;
 export type EmailOtpChallengeOperation = WalletEmailOtpOperation;
 export type EmailOtpLoginChallengeOperation = WalletEmailOtpLoginOperation;
 

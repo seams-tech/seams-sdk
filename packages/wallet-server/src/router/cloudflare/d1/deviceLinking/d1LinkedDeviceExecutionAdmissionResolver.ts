@@ -33,7 +33,9 @@ import {
   parseWebAuthnCredentialIdB64u,
   type WebAuthnCredentialIdB64u,
 } from '@shared/utils/domainIds';
+import { linkedOwnerAuthBindingAdmitsUseV1 } from '@shared/device-linking/ownerAuthBinding';
 import type { D1LinkedDeviceSessionScopeV1 } from './d1LinkedDeviceSessionStore';
+import type { LinkedDeviceOwnerAuthBindingPortV1 } from './d1LinkedDeviceOwnerAuthBindingStore';
 import { CloudflareD1LaneLifecycleStore } from '../signingLanes/d1LaneLifecycleStore';
 import { LaneLifecycleStoreNormalSigningLaneMaterialResolverV1 } from '../../signingLanes/cloudflareLaneCurveExecution';
 import type { LinkedDeviceEnrollmentId, LinkedDeviceId } from '@shared/signing-lanes/ids';
@@ -55,6 +57,15 @@ export type D1LinkedDeviceExecutionAdmissionResolverOptionsV1 = {
     'readClaimedLinkedDeviceWalletSessionAuthorization'
   >;
   readonly credentials: D1LinkedDeviceCredentialResolverV1;
+  /**
+   * The derived linked-owner binding, when this deployment persists one
+   * (Phase 8 Passkey finalize; every Email OTP enrollment). Admission resolves
+   * the device through this exact binding — a paused or revoked binding fences
+   * signing even while the child lanes are still retiring, and a binding for
+   * another device never admits this one. There is deliberately no wallet-wide
+   * Email OTP fallback here.
+   */
+  readonly ownerAuthBindings?: Pick<LinkedDeviceOwnerAuthBindingPortV1, 'readByEnrollmentV1'>;
   readonly nowV1: () => number;
 };
 
@@ -66,6 +77,9 @@ export type D1LinkedDeviceExecutionAdmissionResolverOptionsV1 = {
 export class D1LinkedDeviceExecutionAdmissionResolverV1 implements LinkedDeviceExecutionAdmissionResolverV1 {
   private readonly authorization: D1LinkedDeviceExecutionAdmissionResolverOptionsV1['authorization'];
   private readonly credentials: D1LinkedDeviceCredentialResolverV1;
+  private readonly ownerAuthBindings:
+    | Pick<LinkedDeviceOwnerAuthBindingPortV1, 'readByEnrollmentV1'>
+    | null;
   private readonly nowV1: () => number;
   private readonly lanes: CloudflareD1LaneLifecycleStore;
   private readonly materialResolver: LaneLifecycleStoreNormalSigningLaneMaterialResolverV1;
@@ -74,6 +88,7 @@ export class D1LinkedDeviceExecutionAdmissionResolverV1 implements LinkedDeviceE
   constructor(options: D1LinkedDeviceExecutionAdmissionResolverOptionsV1) {
     this.authorization = options.authorization;
     this.credentials = options.credentials;
+    this.ownerAuthBindings = options.ownerAuthBindings ?? null;
     this.nowV1 = options.nowV1;
     this.scope = options.scope;
     this.lanes = new CloudflareD1LaneLifecycleStore({
@@ -220,6 +235,22 @@ export class D1LinkedDeviceExecutionAdmissionResolverV1 implements LinkedDeviceE
     });
     if (!credentialRaw) return refused('linked_execution_unavailable');
     const credentialId = parseCredentialId(credentialRaw);
+    if (this.ownerAuthBindings) {
+      const binding = await this.ownerAuthBindings.readByEnrollmentV1({
+        walletId: input.walletId,
+        enrollmentId: input.enrollmentId,
+      });
+      if (binding) {
+        // The binding is the exact principal: its device, its lifecycle, its
+        // epoch. A binding for another device never admits this one, and a
+        // paused or revoked binding fences signing immediately.
+        if (binding.deviceId !== input.deviceId) return refused('linked_enrollment_mismatch');
+        if (!linkedOwnerAuthBindingAdmitsUseV1(binding)) return refused('lane_inactive');
+        if (binding.revocationEpoch !== authorization.revocationEpoch) {
+          return refused('revocation_epoch_mismatch');
+        }
+      }
+    }
     const participantBindingDigestB64u = await computeLaneParticipantSetBindingDigestV1({
       holderParticipant: product.holderParticipant,
       signingWorkerParticipant: product.signingWorkerParticipant,

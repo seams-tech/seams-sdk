@@ -142,6 +142,13 @@ function emailOtpOperationCopy(
         caution:
           'Exported key material grants full control of your wallet. Continue only if you requested it.',
       };
+    case 'device_link':
+      return {
+        subject: 'Confirm your Seams device link',
+        heading: 'Confirm device linking',
+        introduction: 'Enter this code on the device you are linking to your Seams wallet.',
+        caution: 'Continue only if you started linking this device.',
+      };
     default:
       return assertNever(operation);
   }
