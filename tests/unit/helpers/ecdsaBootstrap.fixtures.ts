@@ -15,7 +15,7 @@ import {
 import {
   parseMpcWalletSigningQuotaId,
   parseReusableWalletSessionMintId,
-  parseSeamsSessionId,
+  parseEcdsaAuthorizationSessionId,
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 
@@ -24,10 +24,7 @@ function requireBootstrapAuthorizationId<T>(result: { ok: true; value: T } | { o
   return result.value;
 }
 import type { EcdsaRoleLocalReadyRecord } from '@/core/platform/ecdsaRoleLocalRecords';
-import {
-  toWalletId,
-  type ThresholdEcdsaChainTarget,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   buildEcdsaRoleLocalEmailOtpAuthMethod,
   buildEcdsaRoleLocalPasskeyAuthMethod,
@@ -37,7 +34,6 @@ import {
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import { parseRootShareEpoch, type RootShareEpoch } from '@shared/utils/domainIds';
 import { deriveEvmFamilySigningKeySlotId } from '@shared/signing-lanes';
-import { ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
 import {
   parseRouterAbEcdsaDerivationPublicCapabilityV1,
   parseRouterAbEcdsaPostRegistrationSessionActivationRequestV1,
@@ -222,7 +218,7 @@ export function createThresholdEcdsaBootstrapFixture(args: {
   keyHandle?: string;
   ecdsaThresholdKeyId?: string;
   sessionId?: string;
-  walletSessionJwt?: string;
+  walletSessionToken?: string;
   relayerUrl?: string;
   relayerKeyId?: string;
   clientVerifyingShareB64u?: string;
@@ -326,22 +322,8 @@ export function createThresholdEcdsaBootstrapFixture(args: {
     materialOwner: args.nearAccountId,
   });
   const expiresAtMs = args.expiresAtMs ?? Date.now() + 120_000;
-  const walletSessionJwt = toFixtureWalletSessionJwt(
-    String(args.walletSessionJwt || `jwt:${sessionId}`).trim(),
-    {
-      nearAccountId: args.nearAccountId,
-      sessionId,
-      authorizationId: `ecdsa-bootstrap-authorization:${sessionId}`,
-      authorizationSessionId: `ecdsa-bootstrap-authorization-session:${sessionId}`,
-      walletSessionId,
-      quotaId,
-      expiresAtMs,
-      relayerKeyId,
-      ecdsaThresholdKeyId,
-      participantIds,
-      chainTarget,
-      runtimePolicyScope,
-    },
+  const walletSessionToken = toFixtureWalletSessionToken(
+    String(args.walletSessionToken || `opaque-wallet-session-token:ecdsa:${sessionId}`).trim(),
   );
 
   return {
@@ -392,14 +374,14 @@ export function createThresholdEcdsaBootstrapFixture(args: {
       ok: true,
       thresholdSessionId: sessionId,
       authorizationSessionId: requireBootstrapAuthorizationId(
-        parseSeamsSessionId(`ecdsa-bootstrap-authorization-session:${sessionId}`),
+        parseEcdsaAuthorizationSessionId(`ecdsa-bootstrap-authorization-session:${sessionId}`),
       ),
       walletSessionId,
       quotaId,
       expiresAtMs,
       remainingUses: args.remainingUses ?? 5,
       runtimePolicyScope,
-      jwt: walletSessionJwt,
+      walletSessionToken,
       clientVerifyingShareB64u,
     },
   };
@@ -436,13 +418,13 @@ export function createEcdsaSessionActivationFixture(args: {
   });
   const binding = bootstrap.thresholdEcdsaKeyRef.backendBinding;
   const runtimePolicyScope = bootstrap.session.runtimePolicyScope;
-  const walletSessionJwt = bootstrap.session.jwt;
+  const walletSessionToken = bootstrap.session.walletSessionToken;
   const normalSigning = bootstrap.thresholdEcdsaKeyRef.routerAbEcdsaDerivationNormalSigning;
   if (
     !binding ||
     binding.materialKind !== 'role_local_worker_handle' ||
     !runtimePolicyScope ||
-    !walletSessionJwt ||
+    !walletSessionToken ||
     !normalSigning
   ) {
     throw new Error('ECDSA session activation fixture requires complete role-local material');
@@ -471,7 +453,7 @@ export function createEcdsaSessionActivationFixture(args: {
         quota_id: bootstrap.session.quotaId,
         expires_at_ms: bootstrap.session.expiresAtMs,
         remaining_uses: bootstrap.session.remainingUses,
-        wallet_session_jwt: walletSessionJwt,
+        wallet_session_token: walletSessionToken,
       },
       normal_signing: normalSigning,
     }),
@@ -501,49 +483,9 @@ export function fixtureEcdsaRoleLocalReadyRecordFromBootstrap(
   throw new Error('ECDSA bootstrap fixture does not carry role-local ready material');
 }
 
-function toFixtureWalletSessionJwt(
-  token: string,
-  args: {
-    nearAccountId: string;
-    sessionId: string;
-    authorizationId: string;
-    authorizationSessionId: string;
-    walletSessionId: string;
-    quotaId: string;
-    expiresAtMs: number;
-    relayerKeyId: string;
-    ecdsaThresholdKeyId: string;
-    participantIds: number[];
-    chainTarget: ThresholdEcdsaChainTarget;
-    runtimePolicyScope?: ThresholdRuntimePolicyScope;
-  },
-): string {
-  if (token.split('.').length === 3) return token;
-  const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url');
-  const payload = Buffer.from(
-    JSON.stringify({
-      sub: args.nearAccountId,
-      walletId: args.nearAccountId,
-      kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
-      authorizationKind: 'owner_wallet_session',
-      thresholdSessionId: args.sessionId,
-      authorizationId: args.authorizationId,
-      authorizationSessionId: args.authorizationSessionId,
-      sid: args.authorizationSessionId,
-      walletSessionId: args.walletSessionId,
-      quotaId: args.quotaId,
-      subjectId: args.nearAccountId,
-      chainTarget: args.chainTarget,
-      ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
-      relayerKeyId: args.relayerKeyId,
-      rpId: 'localhost',
-      thresholdExpiresAtMs: args.expiresAtMs,
-      exp: Math.floor(args.expiresAtMs / 1_000),
-      participantIds: args.participantIds,
-      ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
-    }),
-  ).toString('base64url');
-  return `${header}.${payload}.fixture`;
+function toFixtureWalletSessionToken(token: string): string {
+  if (!token) throw new Error('ECDSA bootstrap fixture requires a Wallet Session token');
+  return token;
 }
 
 /** Converts a bootstrap fixture carrying an inline role-local ready-state blob

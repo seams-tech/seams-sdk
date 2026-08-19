@@ -5,7 +5,7 @@ import {
   resolveExactEd25519SealedSessionRuntimeForWalletSubjectWithResolver,
   resolveExactEd25519SealedSessionRuntimeForWalletSubjectAndActivationWithResolver,
 } from '@/core/signingEngine/session/warmCapabilities/ed25519SealedSessionRuntime';
-import { buildRouterAbEd25519WalletSessionStateFromExactRuntime } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
+import { rebindRouterAbEd25519WalletSessionStateFromExactRuntime } from '@/core/signingEngine/session/warmCapabilities/routerAbEd25519WalletSessionState';
 import { buildEd25519PasskeySigningLane } from '@/core/signingEngine/session/operationState/lanes';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -21,7 +21,6 @@ import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef
 
 const RECORD = buildPasskeyEd25519SealedSessionRecordFixture();
 const AUTHORIZATION = buildPasskeyEd25519AuthorizationProjectionFixture(RECORD);
-const CURRENT_WALLET_SESSION_JWT = AUTHORIZATION.walletSessionTokens.ed25519.walletSessionJwt;
 const LANE = buildEd25519PasskeySigningLane({
   walletId: toWalletId(RECORD.walletId),
   nearAccountId: toAccountId(RECORD.ed25519Restore.nearAccountId),
@@ -62,11 +61,11 @@ test('resolves one exact sealed Ed25519 session without a composite record', asy
     }),
   });
   if (resolution.kind === 'resolved') {
-    expect(resolution.runtime).not.toHaveProperty('walletSessionJwt');
+    expect(resolution.runtime).not.toHaveProperty('walletSessionToken');
   }
 });
 
-test('builds passkey hydration state from the exact sealed runtime and active JWT', async () => {
+test('builds passkey hydration state from the exact sealed runtime and active Wallet Session', async () => {
   const resolution = await resolveExactEd25519SealedSessionRuntimeForLaneWithResolver(
     {
       walletId: toWalletId(RECORD.walletId),
@@ -79,10 +78,9 @@ test('builds passkey hydration state from the exact sealed runtime and active JW
   expect(resolution.kind).toBe('resolved');
   if (resolution.kind !== 'resolved') return;
 
-  const state = buildRouterAbEd25519WalletSessionStateFromExactRuntime({
+  const state = await rebindRouterAbEd25519WalletSessionStateFromExactRuntime({
     runtime: resolution.runtime,
-    walletSessionJwt: CURRENT_WALLET_SESSION_JWT,
-    authority: AUTHORIZATION.authority,
+    authorization: AUTHORIZATION,
     nowMs: resolution.runtime.expiresAtMs - 1,
   });
 

@@ -5,6 +5,7 @@ import type {
 } from '@/core/indexedDB/passkeyClientDB.types';
 import { parseWebAuthnRpId } from '@shared/utils/domainIds';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
+import { buildEmailOtpWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
 
 function walletUnlockFixtureRpId() {
   const parsed = parseWebAuthnRpId('localhost');
@@ -57,6 +58,32 @@ export function walletUnlockPasskeyAuthMethodFixture(args: {
     credentialIdB64u: args.credentialId,
     credentialPublicKeyB64u: 'AQID',
     counter: 0,
+    createdAtMs: nowMs,
+    updatedAtMs: nowMs,
+  };
+}
+
+export function walletUnlockEmailOtpAuthMethodFixture(args: {
+  walletId: string;
+  providerSubjectId: string;
+  emailHashHex: string;
+}): LocalWalletAuthMethodRecord {
+  const nowMs = Date.now();
+  const walletId = walletIdFromString(args.walletId);
+  return {
+    version: 'wallet_auth_method_v1',
+    kind: 'email_otp',
+    status: 'active',
+    localStatus: 'synced',
+    walletId,
+    emailHashHex: args.emailHashHex,
+    registrationAuthorityId: 'registration-authority',
+    authority: buildEmailOtpWalletAuthAuthority({
+      walletId,
+      provider: 'google',
+      providerUserId: args.providerSubjectId,
+      emailHashHex: args.emailHashHex,
+    }),
     createdAtMs: nowMs,
     updatedAtMs: nowMs,
   };

@@ -19,12 +19,11 @@ import {
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
   parseMpcWalletSigningQuotaId,
-  parseSeamsSessionId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
-import { parseWalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
-import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
+import { parseThresholdEd25519SessionId } from '@shared/utils/domainIds';
+import { buildWalletAuthAuthorityRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 import { buildEd25519PasskeySigningLane } from '@/core/signingEngine/session/operationState/lanes';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
 import { toAccountId } from '@/core/types/accountIds';
@@ -60,56 +59,36 @@ function validTokenVerifier(): { valid: true; payload: { sub: string; exp: numbe
   return { valid: true, payload: { sub: 'wallet', exp: NOW_SECONDS + 1 } };
 }
 
-function walletSessionJwtFixture(expiresAtMs: number): string {
-  const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url');
-  const payload = Buffer.from(
-    JSON.stringify({
-      kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-      authorizationKind: 'owner_wallet_session',
-      walletId: String(LANE.identity.signer.account.wallet.walletId),
-      authorizationId: 'refactor-92-authorization',
-      walletSessionId: 'refactor-92-wallet-session',
-      quotaId: 'refactor-92-quota',
-      sid: 'refactor-92-authorization-session',
-      thresholdExpiresAtMs: expiresAtMs,
-      exp: Math.floor(expiresAtMs / 1_000),
-    }),
-  ).toString('base64url');
-  return `${header}.${payload}.fixture`;
+function walletSessionTokenFixture(): string {
+  return 'opaque-wallet-session-token:refactor-92-boundary';
 }
 
 function activeAuthorizationFixture(expiresAtMs: number, authMethod: 'passkey' | 'email_otp') {
   const walletId = LANE.identity.signer.account.wallet.walletId;
-  const authorizationSessionId = parseSeamsSessionId('refactor-92-authorization-session');
   const walletSessionId = parseWalletSessionId('refactor-92-wallet-session');
   const authorizationId = parseWalletSessionAuthorizationId('refactor-92-authorization');
   const quotaId = parseMpcWalletSigningQuotaId('refactor-92-quota');
-  const authority = parseWalletAuthAuthorityRef({
-    kind: 'wallet_auth_authority_ref',
-    walletId,
-    authorityDigest: 'refactor-92-authority',
-  });
-  if (
-    !authorizationSessionId.ok ||
-    !authorizationId.ok ||
-    !walletSessionId.ok ||
-    !quotaId.ok ||
-    !authority
-  ) {
+  const thresholdSessionId = parseThresholdEd25519SessionId('refactor-92-session');
+  if (!authorizationId.ok || !walletSessionId.ok || !quotaId.ok || !thresholdSessionId.ok) {
     throw new Error('Failed to build Refactor 92 authorization fixture');
   }
   return buildActiveWalletSessionAuthorizationProjection({
     walletId,
-    seamsSessionId: authorizationSessionId.value,
-    authorizationId: authorizationId.value,
     walletSessionId: walletSessionId.value,
     quotaId: quotaId.value,
     walletSessionTokens: {
       kind: 'near_ed25519',
-      ed25519: { walletSessionJwt: walletSessionJwtFixture(expiresAtMs) },
+      ed25519: {
+        authorizationId: authorizationId.value,
+        walletSessionToken: walletSessionTokenFixture(),
+        thresholdSessionId: thresholdSessionId.value,
+      },
     },
     authMethod,
-    authority,
+    authority: buildWalletAuthAuthorityRefFixture({
+      walletId: String(walletId),
+      label: 'refactor-92-boundary',
+    }),
     expiresAtMs,
   });
 }

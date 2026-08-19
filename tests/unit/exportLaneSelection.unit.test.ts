@@ -29,6 +29,7 @@ import {
 import { resolveCanonicalPasskeyEcdsaExportMaterialForLane } from '@/core/signingEngine/flows/recovery/ecdsaExportMaterial';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 import { availableLaneEd25519Authorization } from './helpers/availableSigningLanes.fixtures';
+import { OwnerRelinkRequiredError } from '../../packages/wallet/src/core/signingEngine/session/identity/ownerLaneScope';
 
 const WALLET_ID = 'alice.testnet';
 const RP_ID = 'localhost';
@@ -133,7 +134,9 @@ function depsFor(lanes: ConcreteAvailableEcdsaSigningLane[]): ExportLaneSelectio
 }
 
 function ed25519Lane(
-  overrides: Partial<Extract<ConcreteAvailableEd25519SigningLane, { authorizationState: 'authorized' }>> = {},
+  overrides: Partial<
+    Extract<ConcreteAvailableEd25519SigningLane, { authorizationState: 'authorized' }>
+  > = {},
 ): Extract<ConcreteAvailableEd25519SigningLane, { authorizationState: 'authorized' }> {
   return {
     auth: passkeySigningAuth(),
@@ -160,10 +163,7 @@ function deferredEd25519Lane(
   overrides: Partial<
     Extract<ConcreteAvailableEd25519SigningLane, { authorizationState: 'authorization_required' }>
   > = {},
-): Extract<
-  ConcreteAvailableEd25519SigningLane,
-  { authorizationState: 'authorization_required' }
-> {
+): Extract<ConcreteAvailableEd25519SigningLane, { authorizationState: 'authorization_required' }> {
   return {
     auth: passkeySigningAuth(),
     curve: 'ed25519',
@@ -263,6 +263,17 @@ function depsForTargets(
   };
 }
 
+async function readRelinkRequiredLanesFixture(): Promise<AvailableSigningLanes> {
+  throw new OwnerRelinkRequiredError('passkey:localhost:pre-canonical-device');
+}
+
+function relinkRequiredDeps(): ExportLaneSelectionDeps {
+  return {
+    readPersistedAvailableSigningLanesForTargets: readRelinkRequiredLanesFixture,
+    readOwnerScopedAvailableSigningLanesForTargets: readRelinkRequiredLanesFixture,
+  };
+}
+
 function ecdsaLaneIdentity(
   lane: ConcreteAvailableEcdsaSigningLane,
   chainTarget: ThresholdEcdsaChainTarget = lane.chainTarget,
@@ -288,6 +299,22 @@ function expectEd25519ExportMaterialIdentity(lane: ConcreteAvailableEd25519Signi
 }
 
 test.describe('Ed25519 export lane selection', () => {
+  test('returns a typed re-link requirement for a pre-canonical owner enrollment', async () => {
+    await expect(
+      resolveExactKeyExportLane(relinkRequiredDeps(), {
+        kind: 'ed25519',
+        walletSession: walletSessionRefFromSession({
+          walletId: WALLET_ID,
+          walletSessionUserId: WALLET_ID,
+        }),
+        nearAccount: NEAR_ACCOUNT,
+      }),
+    ).resolves.toEqual({
+      kind: 'relink_required',
+      reason: 'missing_canonical_owner_binding',
+    });
+  });
+
   test('selects one exact ready passkey Router A/B lane', async () => {
     const lane = ed25519Lane();
 
@@ -432,7 +459,6 @@ test.describe('Ed25519 export lane selection', () => {
       materialActivation: currentOwner.materialActivation,
     });
   });
-
 });
 
 test.describe('ECDSA export lane selection', () => {
