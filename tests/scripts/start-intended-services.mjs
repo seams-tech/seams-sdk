@@ -101,6 +101,7 @@ async function main() {
   prepareD1LocalWranglerRuntimeConfig();
   applyD1LocalMigrations();
 
+  startCaddy();
   const router = startRouter();
   await waitForHttpOk(`${routerUrl}/healthz`, 'router healthz', 180_000);
   await waitForHttpOk(`${routerUrl}/readyz`, 'router readyz', 180_000);
@@ -238,6 +239,10 @@ function assertNoConflictingLocalProcesses() {
 
 function startSite() {
   return spawnManaged('site', ['-C', 'apps/seams-site', 'run', 'vite'], siteEnv());
+}
+
+function startCaddy() {
+  return spawnManaged('caddy', ['-C', 'apps/seams-site', 'run', 'caddy'], process.env);
 }
 
 function startRouter() {
@@ -382,7 +387,9 @@ function applyD1LocalMigrations() {
       throw new Error(`${databaseName} migrations failed to start: ${result.error.message}`);
     }
     if (result.status !== 0) {
-      throw new Error(`${databaseName} migrations exited with ${String(result.status ?? 'unknown')}`);
+      throw new Error(
+        `${databaseName} migrations exited with ${String(result.status ?? 'unknown')}`,
+      );
     }
   }
 }
