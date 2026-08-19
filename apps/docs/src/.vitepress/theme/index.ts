@@ -3,6 +3,7 @@ import type { Theme } from 'vitepress';
 import type { Mermaid, MermaidConfig } from 'mermaid';
 import { h } from 'vue';
 import SeamsFooter from './SeamsFooter.vue';
+import DocHeader from './DocHeader.vue';
 import './custom.css';
 
 function createMermaidRenderer() {
@@ -184,6 +185,7 @@ const theme: Theme = {
   ...DefaultTheme,
   Layout: () =>
     h(DefaultTheme.Layout, null, {
+      'doc-before': () => h(DocHeader),
       'layout-bottom': () => h(SeamsFooter),
     }),
   enhanceApp: async (ctx) => {
