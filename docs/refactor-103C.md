@@ -1,9 +1,15 @@
 # Refactor 103C — Exact Owner Lane Resolution
 
+Last reconciled: August 19, 2026 (closeout scope)
+
 ## Status
 
-Implementation in progress. The three incident gap closures below are
-implemented; focused automated coverage and the real-device gate remain.
+Implementation closeout. The three incident gap closures and focused coverage
+are implemented. One high-impact task remains: automate the real two-device
+Passkey and Email OTP flows against the composed runtime.
+
+This is the only active R103C completion task. Older unchecked phase entries
+below are implementation history rather than an active backlog.
 
 R103C fixes owner-lane selection after a wallet has more than one human owner
 credential. It also corrects the linked-device inventory source. Refactor 103B
@@ -353,26 +359,26 @@ An older enrollment without an active canonical owner auth binding cannot act
 as a human owner. Return a clear re-link requirement at the request or
 persistence boundary. Add no compatibility selector and no migration marker.
 
-## Phased TODO
+## Historical Implementation Checklist
 
 ### Phase 0 — Lock the behavioral contract
 
 - [ ] Update the exact-owner unit fixtures so two active owner credentials can
-  coexist for one wallet.
+      coexist for one wallet.
 - [ ] Replace the obsolete export expectation that sibling owners cause
-  `ambiguous_material` with exact-current-owner selection.
+      `ambiguous_material` with exact-current-owner selection.
 - [ ] Classify candidate-backed postcondition tests that repair a stale
-  aggregate as obsolete under the scoped-reader contract.
+      aggregate as obsolete under the scoped-reader contract.
 
 ### Phase 1 — Build the owner scope
 
 - [ ] Simplify `resolveExactWalletAuthAuthority` to the active auth-method
-  source.
+      source.
 - [ ] Fix exact wallet authenticator lookup across the canonical wallet and
-  NEAR-profile storage pivot.
+      NEAR-profile storage pivot.
 - [ ] Build the owner scope from the active authority and exact authenticator.
 - [ ] Add a type fixture proving a Passkey owner scope requires a signer slot
-  and Email OTP cannot carry one.
+      and Email OTP cannot carry one.
 
 ### Phase 2 — Scope the lane reader
 
@@ -400,16 +406,17 @@ persistence boundary. Add no compatibility selector and no migration marker.
 
 - [ ] Run the focused owner-scope unit and type tests.
 - [ ] Make `tests/e2e/linked-device.operating-path.test.ts` pass against the
-  composed local stack.
-- [ ] Run the real two-device gate below.
+      composed local stack.
+- [ ] Automate the real two-device Passkey and Email OTP gate below.
 - [ ] Delete stale tests and helpers that exist only for wallet-wide human owner
-  selection.
+      selection.
 - [ ] Reconcile the contradictory Refactor 103, Refactor 103B, and owner-binding
-  comments with the retained linked execution model.
+      comments with the retained linked execution model.
 
-## Verification gate
+## Automated verification gate
 
-Use two clean browser profiles and a fresh wallet.
+Use two independent clean browser profiles and a fresh wallet. Run the same
+operating path once with a Passkey target factor and once with Email OTP.
 
 1. Device 1 creates the wallet.
 2. Device 2 links with one Passkey-creation prompt.

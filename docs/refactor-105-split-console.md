@@ -2,13 +2,14 @@
 
 Date created: August 11, 2026
 
-Last reconciled: August 18, 2026 (R103 zero-prompt implementation evidence)
+Last reconciled: August 19, 2026 (closeout scope)
 
-Status: Planned; implementation is gated on the Wallet-boundary stabilization
-criteria below.
+Status: closeout. Phases 0–7 have landed. One high-impact task remains: Phase 8,
+the final repository split.
 
-Implementation gate: begin after Refactors 100-103, 103B, and 107 are complete
-and stabilized. Refactor 130A is part of the implementation baseline.
+The Phase 8 checklist and its validation are the only active Refactor 105
+tasks. Earlier unchecked phase lists and prerequisite language remain as the
+historical implementation record; they do not form a second active backlog.
 
 ## Decision
 
@@ -721,7 +722,7 @@ Move platform routes according to Refactor 99B before completing the extraction:
 - customer-visible product errors, usage, and audit remain in
   `apps/seams-console`.
 
-## Implementation Phases
+## Historical Implementation Phases And Active Final Split
 
 ### Phase 0: Reconcile And Classify The Stabilized Wallet Boundary
 

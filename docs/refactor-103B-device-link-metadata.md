@@ -1,11 +1,14 @@
 # Refactor 103B — Canonical Device-Link Metadata
 
-Status: implementation Phases 1–4 are complete. The completion gate remains
-blocked on the Refactor 103 Phase 8 intended-behavior path: Device 2 still uses
-the human linked-session activation and signing dispatch, and canonical owner
-revocation has not landed.
+Status: closeout. Implementation Phases 1–4 are complete. One high-impact gate
+remains: the automated real two-device Passkey and Email OTP flows owned by
+Refactor 103. They must prove canonical metadata persistence and exact
+credential revocation through the composed operating path.
 
-Last reconciled: August 17, 2026.
+This gate is the only active Refactor 103B task. Older prerequisite language
+and unchecked lifecycle notes below remain as historical context.
+
+Last reconciled: August 19, 2026 (closeout scope).
 
 ## Goal
 
@@ -37,9 +40,10 @@ fix the existing canonical authenticator-list projection earlier, because that
 fix is independent of device linking.
 
 Do not add a parallel metadata model to
-`linked_device_target_credentials`. That record belongs to the temporary
-signing-only path and is deleted when human devices stop using linked holder
-lanes.
+`linked_device_target_credentials`. Per Refactor 103C, human devices keep
+their linked holder lanes as the narrow per-device execution grant alongside
+canonical ownership; that record is enrollment plumbing, not the metadata
+home, and display metadata resolves through the canonical owner auth binding.
 
 ## Current State
 
@@ -174,7 +178,7 @@ on the canonical auth-method record, consume it there. If Phase 8 stores an
 immutable management binding, consume that record. Do not duplicate lifecycle
 state in both places.
 
-## Implementation Plan
+## Historical Implementation Plan
 
 ### Phase 1: Repair Canonical Authenticator Projection
 
@@ -323,11 +327,9 @@ fallback.
 
 ### Intended behavior
 
-Prerequisite status: blocked on Refactor 103 Phase 8 canonical unlock,
-ordinary owner signing/step-up dispatch, and canonical credential revocation.
-The focused metadata slice passes independently; the contract below must use
-the real two-device operating path after those cuts land. A mocked metadata
-contract does not satisfy this lifecycle gate.
+Prerequisite status: implementation is available. The remaining contract must
+use the real two-device operating path. A mocked metadata contract does not
+satisfy this lifecycle gate.
 
 Add one Phase 8 two-device contract that proves:
 
@@ -354,7 +356,9 @@ do not assert browser or operating-system metadata.
   decisions.
 - Add a new authenticator metadata framework or duplicate
   `WebAuthnAuthenticatorDeviceInfo`.
-- Preserve the temporary human linked-session management shape after Phase 8.
+- Preserve claimed link sessions as the device inventory source after Phase 8
+  (R103C: durable owner bindings are the device set; sessions are workflow
+  history).
 
 ## Completion Gate
 
