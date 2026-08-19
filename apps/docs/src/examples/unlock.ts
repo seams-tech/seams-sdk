@@ -1,33 +1,19 @@
-import type { LoginAndCreateSessionResult, UnlockFlowEvent } from '@seams/wallet';
+import type { UnlockFlowEvent } from '@seams/wallet';
 import type { SeamsContextType } from '@seams/wallet/react';
 
-type UnlockWallet = SeamsContextType['unlock'];
-
-function assertNever(value: never): never {
-  throw new Error(`Unhandled unlock result: ${String(value)}`);
-}
-
-function logUnlockEvent(event: UnlockFlowEvent): void {
-  console.log(event.phase, event.status, event.message);
-}
-
-export async function unlockWallet(
-  unlock: UnlockWallet,
-  walletId: string,
-): Promise<LoginAndCreateSessionResult> {
-  const result = await unlock(walletId, { onEvent: logUnlockEvent });
+export async function unlockWallet(unlock: SeamsContextType['unlock'], walletId: string) {
+  const result = await unlock(walletId, {
+    onEvent: (event: UnlockFlowEvent) => console.log(event.phase, event.status, event.message),
+  });
   if (!result.success) {
     throw new Error(result.error);
   }
 
-  switch (result.kind) {
-    case 'near_wallet_unlocked':
-      console.log('NEAR account ready', result.nearAccountId);
-      return result;
-    case 'ecdsa_wallet_unlocked':
-      console.log('EVM-family wallet ready', result.walletId);
-      return result;
-    default:
-      return assertNever(result);
+  // Read `nearAccountId` only from the NEAR branch.
+  if (result.kind === 'near_wallet_unlocked') {
+    console.log('NEAR account ready', result.nearAccountId);
+  } else {
+    console.log('EVM-family wallet ready', result.walletId);
   }
+  return result;
 }

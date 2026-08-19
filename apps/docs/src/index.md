@@ -1,6 +1,6 @@
 ---
 title: Start here
-description: Install Seams, create a wallet, unlock it, and sign your first operation.
+description: Install Seams, create a wallet, and sign your first operation.
 ---
 
 # Start here
@@ -36,14 +36,19 @@ opens the passkey prompt and logs progress and the branch-specific result.
 Read [Create a wallet](/getting-started/create-wallet) for the result branches
 and retry guidance.
 
-## 4. Unlock and sign
+## 4. Sign a transaction
 
-After registration, unlock the wallet with its `walletId`, then pass the exact
-wallet session and account or chain reference to a signing method.
+Registration leaves the wallet ready to sign. Pass the wallet and account
+references to a signing method; each request opens the wallet confirmation,
+and the user approves that transaction with the wallet's auth method.
 
-- [Unlock and sign a NEAR transaction](/getting-started/sign-with-policy#near-transaction)
+- [Sign a NEAR transaction](/getting-started/sign-with-policy#near-transaction)
 - [Sign a NEP-413 message](/getting-started/sign-with-policy#nep-413-message)
 - [Execute an EVM-family transaction](/getting-started/sign-with-policy#evm-family-transaction)
+
+There is no unlock step here. When your product needs repeated signatures
+without a prompt for each one, provision a signing session: read [wallet
+sessions and signing lanes](/guides/wallet-sessions-and-signing-lanes).
 
 ## Add advanced capabilities
 

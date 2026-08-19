@@ -17,10 +17,9 @@ here](/).
 
 <<< ../examples/registration.tsx
 
-The example keeps the event callback small and handles every
-`RegistrationResult` branch with an exhaustive switch. Adapt the button and
-message copy to your app instead of reading branch-specific fields before the
-branch check.
+The example treats `result.success` as the only gate and logs the branch
+`kind`. Read branch-specific fields, such as a NEAR provisioning state, only
+after checking the branch.
 
 ## Read the result
 
@@ -33,8 +32,8 @@ branch check.
 - `success: false` contains the error text to show or log for the current
   attempt.
 
-The returned `walletId` is the stable wallet identifier used by unlock and
-other wallet-scoped operations. Keep it with your application account record;
+The returned `walletId` is the stable wallet identifier used by signing,
+session provisioning, and every other wallet-scoped operation. Keep it with your application account record;
 never store passkey or holder secrets in application state.
 
 ## If registration stops
@@ -48,4 +47,4 @@ authentication errors require configuration or account changes before retrying.
 
 ## Continue
 
-[Unlock the wallet and sign an operation](/getting-started/sign-with-policy).
+[Sign an operation with policy](/getting-started/sign-with-policy).
