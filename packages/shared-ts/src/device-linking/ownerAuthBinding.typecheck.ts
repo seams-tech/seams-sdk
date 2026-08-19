@@ -29,6 +29,7 @@ declare const rpId: WebAuthnRpId;
 declare const credentialIdB64u: WebAuthnCredentialIdB64u;
 declare const emailHashHex: string;
 declare const registrationAuthorityId: string;
+declare const baseWalletAuthMethodId: WalletAuthMethodId;
 
 const passkeyFactor: LinkedOwnerAuthFactorV1 = {
   kind: 'passkey',
@@ -40,6 +41,7 @@ const emailOtpFactor: LinkedOwnerAuthFactorV1 = {
   kind: 'email_otp',
   emailHashHex,
   registrationAuthorityId,
+  baseWalletAuthMethodId,
 };
 
 // @ts-expect-error a Passkey factor cannot carry Email OTP identity
@@ -70,6 +72,20 @@ const invalidPasskeyWithoutCredential: LinkedOwnerAuthFactorV1 = {
 const invalidEmailOtpWithoutAuthority: LinkedOwnerAuthFactorV1 = {
   kind: 'email_otp',
   emailHashHex,
+  baseWalletAuthMethodId,
+};
+
+// @ts-expect-error an Email OTP factor requires its base wallet factor reference
+const invalidEmailOtpWithoutBaseFactor: LinkedOwnerAuthFactorV1 = {
+  kind: 'email_otp',
+  emailHashHex,
+  registrationAuthorityId,
+};
+
+// @ts-expect-error a Passkey factor cannot carry a base Email OTP factor reference
+const invalidPasskeyCarriesBaseFactor: LinkedOwnerAuthFactorV1 = {
+  ...passkeyFactor,
+  baseWalletAuthMethodId,
 };
 
 const activeLifecycle: LinkedOwnerAuthBindingLifecycleV1 = {

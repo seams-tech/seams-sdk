@@ -12,6 +12,7 @@ import type {
   LinkedDeviceTargetCredentialRegistrationV1,
   LinkedDeviceTargetPreparationChildV1,
   LinkedDeviceTargetPreparationV1,
+  LinkedDeviceTargetFactorV1,
 } from './contracts';
 import {
   parseAuthorizedOperationId,
@@ -156,12 +157,22 @@ function encodeKeyBinding(value: LinkedDeviceEnrollmentKeyBindingV1): Uint8Array
  * adds without meaning to.
  */
 function encodeOwnerEnrollmentCeremony(value: LinkedDeviceOwnerEnrollmentCeremonyV1): Uint8Array {
+  if (value.kind === 'linked_device_email_otp_owner_enrollment_v1') {
+    return concat([
+      text(value.kind, 'ownerEnrollment.kind'),
+      text(value.targetFactor.kind, 'ownerEnrollment.targetFactor.kind'),
+      text(value.baseWalletAuthMethodId, 'ownerEnrollment.baseWalletAuthMethodId'),
+      text(value.maskedEmailHint, 'ownerEnrollment.maskedEmailHint'),
+      u64(value.expiresAtMs, 'ownerEnrollment.expiresAtMs'),
+    ]);
+  }
   const registration = value.registration;
   const excludeCredentials = registration.excludeCredentials.map((entry) =>
     concat([text(entry.type, 'excludeCredentials.type'), text(entry.id, 'excludeCredentials.id')]),
   );
   return concat([
     text(value.kind, 'ownerEnrollment.kind'),
+    text(value.targetFactor.kind, 'ownerEnrollment.targetFactor.kind'),
     text(value.addAuthMethodCeremonyId, 'ownerEnrollment.addAuthMethodCeremonyId'),
     u64(value.expiresAtMs, 'ownerEnrollment.expiresAtMs'),
     text(registration.kind, 'registration.kind'),
@@ -194,6 +205,10 @@ function encodeOwnerEnrollmentCeremony(value: LinkedDeviceOwnerEnrollmentCeremon
   ]);
 }
 
+function encodeTargetFactor(value: LinkedDeviceTargetFactorV1): Uint8Array {
+  return text(value.kind, 'targetFactor.kind');
+}
+
 function encodeProtocolVersion(value: LinkedDeviceProtocolVersionV1): Uint8Array {
   return concat([
     text(value.keyFamily, 'protocolVersion.keyFamily'),
@@ -223,6 +238,7 @@ export function encodeLinkedDeviceSessionClaimV1(value: LinkedDeviceSessionClaim
     text(value.enrollmentId, 'enrollmentId'),
     text(value.deviceId, 'deviceId'),
     lp32(rawPublicKey(value.devicePublicKeyB64u, 'devicePublicKeyB64u'), 'devicePublicKeyB64u'),
+    lp32(encodeTargetFactor(value.targetFactor), 'targetFactor'),
     u64(value.claimedAtMs, 'claimedAtMs'),
     u64(value.claimExpiresAtMs, 'claimExpiresAtMs'),
   ]);
@@ -251,6 +267,7 @@ export function encodeLinkedDeviceApprovalV1(value: LinkedDeviceApprovalV1): Uin
     text(value.permission.kind, 'permission.kind'),
     text(value.permission.administrationScope, 'permission.administrationScope'),
     text(value.permission.localUserPresence, 'permission.localUserPresence'),
+    lp32(encodeTargetFactor(value.targetFactor), 'targetFactor'),
     lp32(encodeOwnerAuthorization(value.ownerAuthorization), 'ownerAuthorization'),
     lp32(encodeOwnerEnrollmentCeremony(value.ownerEnrollment), 'ownerEnrollment'),
     rawDigest(value.policyDigestB64u, 'policyDigestB64u'),
@@ -282,6 +299,7 @@ export function encodeLinkedDeviceTargetPreparationV1(
     text(value.walletId, 'walletId'),
     text(value.enrollmentId, 'enrollmentId'),
     text(value.deviceId, 'deviceId'),
+    lp32(encodeTargetFactor(value.targetFactor), 'targetFactor'),
     lp32(encodeOwnerEnrollmentCeremony(value.ownerEnrollment), 'ownerEnrollment'),
     u32(children.length, 'orderedChildren'),
     ...children.map((entry) => lp32(entry, 'orderedChildren.item')),
@@ -373,6 +391,7 @@ export async function assertLinkedDeviceTargetCredentialRegistrationMatchesPrepa
     registration.walletId !== preparation.walletId ||
     registration.enrollmentId !== preparation.enrollmentId ||
     registration.deviceId !== preparation.deviceId ||
+    registration.targetFactor.kind !== preparation.targetFactor.kind ||
     registration.targetPreparationDigestB64u !==
       (await computeLinkedDeviceTargetPreparationDigestV1(preparation)) ||
     registration.orderedHolderRegistrations.length !== preparation.orderedChildren.length
