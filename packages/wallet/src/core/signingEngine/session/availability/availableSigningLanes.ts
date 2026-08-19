@@ -34,6 +34,7 @@ import {
 import {
   signingLaneAuthBindingKey,
   signingLaneAuthMethod,
+  type LinkedOwnerLaneIdentityV1,
   type OwnerLaneScope,
   type SigningLaneAuthBinding,
 } from '../identity/signingLaneAuthBinding';
@@ -98,10 +99,12 @@ type ConcreteAvailableEcdsaSigningLaneAuth =
   | {
       auth: Extract<SigningLaneAuthBinding, { kind: 'passkey' }>;
       resolvedKey: ResolvedPasskeyAvailableEcdsaKey;
+      linkedOwner?: never;
     }
   | {
       auth: Extract<SigningLaneAuthBinding, { kind: 'email_otp' }>;
       resolvedKey?: never;
+      linkedOwner?: LinkedOwnerLaneIdentityV1;
     };
 
 type ConcreteAvailableEcdsaSigningLaneBase = {
@@ -238,6 +241,8 @@ type ConcreteAvailableEd25519SigningLaneBase = {
   policyHint?: AvailableSigningLanePolicyHint;
   updatedAtMs?: number;
   source?: 'durable_sealed_record' | 'public_capability_reference';
+  /** Present only for an enrollment-scoped linked owner Email OTP lane. */
+  linkedOwner?: LinkedOwnerLaneIdentityV1;
 };
 
 export type ConcreteAvailableEd25519SigningLane = ConcreteAvailableEd25519SigningLaneBase &
@@ -1665,6 +1670,16 @@ export function ed25519LaneMatchesOwnerScope(
 ): boolean {
   if (lane.state === 'missing') return false;
   if (signingLaneAuthBindingKey(lane.auth) !== signingLaneAuthBindingKey(scope.auth)) return false;
+  if (scope.linkedOwner) {
+    const linkedOwner = lane.linkedOwner;
+    return (
+      linkedOwner !== undefined &&
+      linkedOwner.enrollmentId === scope.linkedOwner.enrollmentId &&
+      linkedOwner.deviceId === scope.linkedOwner.deviceId &&
+      linkedOwner.walletAuthMethodId === scope.linkedOwner.walletAuthMethodId &&
+      linkedOwner.authorityDigest === scope.linkedOwner.authorityDigest
+    );
+  }
   return scope.auth.kind === 'email_otp' || lane.signerSlot === scope.signerSlot;
 }
 
@@ -1673,7 +1688,18 @@ export function ecdsaLaneMatchesOwnerScope(
   scope: OwnerLaneScope,
 ): boolean {
   if (lane.state === 'missing') return false;
-  return signingLaneAuthBindingKey(lane.auth) === signingLaneAuthBindingKey(scope.auth);
+  if (signingLaneAuthBindingKey(lane.auth) !== signingLaneAuthBindingKey(scope.auth)) {
+    return false;
+  }
+  if (!scope.linkedOwner) return true;
+  const linkedOwner = lane.linkedOwner;
+  return (
+    linkedOwner !== undefined &&
+    linkedOwner.enrollmentId === scope.linkedOwner.enrollmentId &&
+    linkedOwner.deviceId === scope.linkedOwner.deviceId &&
+    linkedOwner.walletAuthMethodId === scope.linkedOwner.walletAuthMethodId &&
+    linkedOwner.authorityDigest === scope.linkedOwner.authorityDigest
+  );
 }
 
 export async function readAvailableSigningLanes(

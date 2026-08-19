@@ -19,11 +19,29 @@
 import {
   buildPasskeyCustodyEnvelopeRecord,
   buildPasskeyEnvelopeFactor,
+  buildEmailOtpEnvelopeFactor,
   parseEnvelopeRevision,
+  parseEnvelopeNonceB64u,
+  parseEnvelopeCiphertextB64u,
+  parseDigestField,
   parsePasskeyCustodyEnvelopeRecord,
   type PasskeyCustodyEnvelopeRecord,
 } from '@shared/passkey-custody';
-import type { LinkedDeviceCustodyTransferPackageV1 } from '@shared/device-linking/custodyTransfer';
+import {
+  buildLinkedDeviceCustodyTransferBindingV1,
+  parseLinkedDeviceCustodyTransferPublicKeyB64u,
+  parseLinkedDeviceCustodyTransferRecipientV1,
+  parseLinkedDeviceCustodyTransferSecretBindingV1,
+  serializeLinkedDeviceCustodyTransferBindingV1,
+  LINKED_DEVICE_CUSTODY_TRANSFER_ALG_V1,
+  type LinkedDeviceCustodyTransferPackageV1,
+  type LinkedDeviceCustodyTransferRecipientV1,
+} from '@shared/device-linking/custodyTransfer';
+import type {
+  LinkedDeviceEmailOtpVerificationResultV1,
+  LinkedDeviceTargetHolderRegistrationV1,
+  LinkedDeviceTargetPreparationV1,
+} from '@shared/device-linking';
 import {
   parseLinkDeviceSessionId,
   parsePasskeyEnvelopeId,
@@ -37,7 +55,11 @@ import type {
   DeviceLinkingCustodyTransferPortV1,
   DeviceLinkingCustodyTransferRecipientHandleV1,
 } from './deviceLinkingCustodyTransfer';
-import type { DeviceLinkingAuthenticatedTransportPortV1 } from './deviceLinkingPorts';
+import type {
+  DeviceLinkingAuthenticatedTransportPortV1,
+  DeviceLinkingKeyMaterialHandleV1,
+  DeviceLinkingKeyMaterialPortV1,
+} from './deviceLinkingPorts';
 
 export async function publishLinkedDeviceCustodyRecipientV1(input: {
   readonly custodyTransfer: DeviceLinkingCustodyTransferPortV1;
@@ -59,6 +81,129 @@ export async function publishLinkedDeviceCustodyRecipientV1(input: {
     throw error;
   }
   return recipient;
+}
+
+export async function publishLinkedDeviceEmailOtpCustodyRecipientV1(input: {
+  readonly keyMaterial: DeviceLinkingKeyMaterialPortV1;
+  readonly keyHandle: DeviceLinkingKeyMaterialHandleV1;
+  readonly transport: DeviceLinkingAuthenticatedTransportPortV1;
+  readonly identity: DeviceLinkingCustodyTransferIdentityV1;
+  readonly registeredAtMs: number;
+}): Promise<LinkedDeviceCustodyTransferRecipientV1> {
+  const created = await input.keyMaterial.createEmailOtpCustodyRecipientV1({
+    handle: input.keyHandle,
+  });
+  const recipient = parseLinkedDeviceCustodyTransferRecipientV1({
+    kind: 'linked_device_custody_transfer_recipient_v1',
+    linkSessionId: input.identity.linkSessionId,
+    walletId: input.identity.walletId,
+    enrollmentId: input.identity.enrollmentId,
+    deviceId: input.identity.deviceId,
+    transferAlg: LINKED_DEVICE_CUSTODY_TRANSFER_ALG_V1,
+    recipientPublicKeyB64u: parseLinkedDeviceCustodyTransferPublicKeyB64u(
+      created.recipientPublicKeyB64u,
+    ),
+    registeredAtMs: input.registeredAtMs,
+  });
+  await input.transport.registerCustodyTransferRecipientV1({ recipient });
+  return recipient;
+}
+
+export async function acceptLinkedDeviceEmailOtpCustodyTransferV1(input: {
+  readonly keyMaterial: DeviceLinkingKeyMaterialPortV1;
+  readonly keyHandle: DeviceLinkingKeyMaterialHandleV1;
+  readonly transport: DeviceLinkingAuthenticatedTransportPortV1;
+  readonly recipient: LinkedDeviceCustodyTransferRecipientV1;
+  readonly preparation: Extract<
+    LinkedDeviceTargetPreparationV1,
+    { readonly targetFactor: { readonly kind: 'email_otp' } }
+  >;
+  readonly verification: LinkedDeviceEmailOtpVerificationResultV1;
+  readonly expiresAtMs: number;
+  readonly assertCurrentRun: () => void;
+  readonly waitForPollV1: (attempt: number) => Promise<void>;
+  readonly nowMs?: () => number;
+}): Promise<{
+  readonly custodyEnvelope: PasskeyCustodyEnvelopeRecord;
+  readonly orderedHolderRegistrations: readonly [
+    LinkedDeviceTargetHolderRegistrationV1,
+    ...LinkedDeviceTargetHolderRegistrationV1[],
+  ];
+}> {
+  const now = input.nowMs ?? Date.now;
+  const transferPackage = await awaitSealedPackageForRecipientV1({
+    transport: input.transport,
+    recipient: input.recipient,
+    expiresAtMs: input.expiresAtMs,
+    assertCurrentRun: input.assertCurrentRun,
+    waitForPollV1: input.waitForPollV1,
+    now,
+  });
+  const envelopeId = parsePasskeyEnvelopeId(
+    secureRandomId('wallet-custody-envelope', 24, 'wallet custody envelope ids'),
+  );
+  if (!envelopeId.ok) throw new Error(envelopeId.error.message);
+  const release = input.verification.factorRelease;
+  const factor = buildEmailOtpEnvelopeFactor({
+    enrollmentId: release.enrollmentId,
+    enrollmentSealKeyVersion: release.enrollmentSealKeyVersion,
+  });
+  const binding = {
+    kind: 'wallet_custody_seed_v1',
+    derivationScheme: 'wallet_seed_parallel_hkdf_sha256_v1',
+  } as const;
+  const transferBinding = buildLinkedDeviceCustodyTransferBindingV1({
+    walletId: input.recipient.walletId,
+    enrollmentId: input.recipient.enrollmentId,
+    deviceId: input.recipient.deviceId,
+    recipientPublicKeyB64u: input.recipient.recipientPublicKeyB64u,
+    binding: parseLinkedDeviceCustodyTransferSecretBindingV1(
+      binding,
+      'linked-device Email OTP transfer binding',
+    ),
+  });
+  const prepared = await input.keyMaterial.prepareEmailOtpTargetV1({
+    handle: input.keyHandle,
+    preparation: input.preparation,
+    verification: input.verification,
+    transferBindingJson: serializeLinkedDeviceCustodyTransferBindingV1(transferBinding),
+    transferPackage,
+    replacementEnvelopeBindingJson: JSON.stringify({
+      walletId: input.recipient.walletId,
+      envelopeId: envelopeId.value,
+      factor,
+      envelopeRevision: 1,
+      binding,
+    }),
+  });
+  const nowMs = now();
+  return {
+    custodyEnvelope: parsePasskeyCustodyEnvelopeRecord(
+      buildPasskeyCustodyEnvelopeRecord({
+        envelopeId: envelopeId.value,
+        walletId: input.recipient.walletId,
+        binding,
+        factor,
+        envelopeRevision: parseEnvelopeRevision(1),
+        nonceB64u: parseEnvelopeNonceB64u(prepared.resealedCustodyEnvelope.nonceB64u),
+        sealedCustodySecretB64u: parseEnvelopeCiphertextB64u(
+          prepared.resealedCustodyEnvelope.sealedCustodySecretB64u,
+        ),
+        ciphertextDigestB64u: parseDigestField(
+          prepared.resealedCustodyEnvelope.ciphertextDigestB64u,
+          'linked-device Email OTP custody ciphertext digest',
+        ),
+        aadHashB64u: parseDigestField(
+          prepared.resealedCustodyEnvelope.aadHashB64u,
+          'linked-device Email OTP custody AAD hash',
+        ),
+        lifecycle: { state: 'active', activatedAtMs: nowMs },
+        createdAtMs: nowMs,
+        updatedAtMs: nowMs,
+      }),
+    ),
+    orderedHolderRegistrations: prepared.orderedHolderRegistrations,
+  };
 }
 
 /**
@@ -168,6 +313,47 @@ async function awaitSealedPackageV1(
         transferPackage.enrollmentId !== registration.enrollmentId ||
         transferPackage.deviceId !== registration.deviceId ||
         transferPackage.recipientPublicKeyB64u !== registration.recipientPublicKeyB64u
+      ) {
+        throw new DeviceLinkingError(
+          'Device-link custody transfer package is addressed to another device',
+          DeviceLinkingErrorCode.REGISTRATION_FAILED,
+          'registration',
+        );
+      }
+      return transferPackage;
+    }
+    await input.waitForPollV1(attempt);
+    attempt += 1;
+  }
+  throw new DeviceLinkingError(
+    'Device-link session expired before the wallet custody transfer was sealed',
+    DeviceLinkingErrorCode.SESSION_EXPIRED,
+    'registration',
+  );
+}
+
+async function awaitSealedPackageForRecipientV1(input: {
+  readonly transport: DeviceLinkingAuthenticatedTransportPortV1;
+  readonly recipient: LinkedDeviceCustodyTransferRecipientV1;
+  readonly expiresAtMs: number;
+  readonly assertCurrentRun: () => void;
+  readonly waitForPollV1: (attempt: number) => Promise<void>;
+  readonly now: () => number;
+}): Promise<LinkedDeviceCustodyTransferPackageV1> {
+  const linkSessionId = parseLinkDeviceSessionId(input.recipient.linkSessionId);
+  if (!linkSessionId.ok) throw new Error(linkSessionId.error.message);
+  let attempt = 0;
+  while (input.now() < input.expiresAtMs) {
+    input.assertCurrentRun();
+    const transferPackage = await input.transport.getCustodyTransferPackageV1({
+      linkSessionId: linkSessionId.value,
+    });
+    if (transferPackage) {
+      if (
+        transferPackage.walletId !== input.recipient.walletId ||
+        transferPackage.enrollmentId !== input.recipient.enrollmentId ||
+        transferPackage.deviceId !== input.recipient.deviceId ||
+        transferPackage.recipientPublicKeyB64u !== input.recipient.recipientPublicKeyB64u
       ) {
         throw new DeviceLinkingError(
           'Device-link custody transfer package is addressed to another device',

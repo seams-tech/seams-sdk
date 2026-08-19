@@ -87,7 +87,8 @@ export async function startLinkedDeviceOwnerEnrollmentCeremonyV1(
 
   return {
     ceremony: parseLinkedDeviceOwnerEnrollmentCeremonyV1({
-      kind: 'linked_device_owner_enrollment_ceremony_v1',
+      kind: 'linked_device_passkey_owner_enrollment_v1',
+      targetFactor: { kind: 'passkey_prf' },
       addAuthMethodCeremonyId: started.addAuthMethodCeremonyId,
       registration: started.registration,
       expiresAtMs: started.expiresAtMs,

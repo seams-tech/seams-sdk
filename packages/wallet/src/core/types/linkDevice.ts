@@ -3,6 +3,7 @@ import type { AfterCall, EventCallback, LinkDeviceFlowEvent } from './sdkSentEve
 import type { ConfirmationConfig } from './signer-worker';
 import type {
   LinkedDeviceEnrollmentReceiptV1,
+  LinkedDeviceTargetFactorV1,
   LinkedDeviceSessionState,
   QrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking';
@@ -73,6 +74,7 @@ export enum DeviceLinkingErrorCode {
 }
 
 export type StartDevice2LinkingFlowArgs = {
+  readonly targetFactor: LinkedDeviceTargetFactorV1;
   ui?: 'modal' | 'inline';
 } & StartDeviceLinkingOptionsDevice2;
 
@@ -86,12 +88,88 @@ export type LinkedDeviceTargetPasskeyActivationV1 = {
   readonly createPasskey: () => Promise<void>;
 };
 
+/**
+ * Public state for the target Email OTP activation. The challenge identity and
+ * OTP remain inside the operation; the browser receives display-safe timing
+ * and destination data only.
+ */
+export type LinkedDeviceEmailOtpActivationStateV1 =
+  | {
+      readonly kind: 'sending';
+      readonly maskedEmailHint: string;
+      readonly expiresAtMs?: never;
+      readonly resendAvailableAtMs?: never;
+      readonly message?: never;
+    }
+  | {
+      readonly kind: 'code_input';
+      readonly maskedEmailHint: string;
+      readonly expiresAtMs: number;
+      readonly resendAvailableAtMs: number;
+      readonly message?: never;
+    }
+  | {
+      readonly kind: 'submitting';
+      readonly maskedEmailHint: string;
+      readonly expiresAtMs: number;
+      readonly resendAvailableAtMs: number;
+      readonly message?: never;
+    }
+  | {
+      readonly kind: 'incorrect';
+      readonly maskedEmailHint: string;
+      readonly expiresAtMs: number;
+      readonly resendAvailableAtMs: number;
+      readonly message: string;
+    }
+  | {
+      readonly kind: 'resending';
+      readonly maskedEmailHint: string;
+      readonly expiresAtMs?: never;
+      readonly resendAvailableAtMs?: never;
+      readonly message?: never;
+    }
+  | {
+      readonly kind: 'expired';
+      readonly maskedEmailHint: string;
+      readonly expiresAtMs?: never;
+      readonly resendAvailableAtMs?: never;
+      readonly message: string;
+    }
+  | {
+      readonly kind: 'unavailable';
+      readonly maskedEmailHint?: never;
+      readonly expiresAtMs?: never;
+      readonly resendAvailableAtMs?: never;
+      readonly message: string;
+    }
+  | {
+      readonly kind: 'completed';
+      readonly maskedEmailHint: string;
+      readonly expiresAtMs?: never;
+      readonly resendAvailableAtMs?: never;
+      readonly message?: never;
+    };
+
+export type LinkedDeviceTargetEmailOtpActivationV1 = {
+  readonly kind: 'linked_device_target_email_otp_activation_v1';
+  readonly state: LinkedDeviceEmailOtpActivationStateV1;
+  readonly sendCode: () => Promise<void>;
+  readonly submitCode: (otpCode: string) => Promise<void>;
+  readonly resendCode: () => Promise<void>;
+};
+
+export type LinkedDeviceTargetFactorActivationV1 =
+  | LinkedDeviceTargetPasskeyActivationV1
+  | LinkedDeviceTargetEmailOtpActivationV1;
+
 export interface StartDeviceLinkingOptionsDevice2 {
   cameraId?: string;
   options?: {
     onEvent?: EventCallback<LinkDeviceFlowEvent>;
     onError?: (error: Error) => void;
-    onTargetPasskeyRequired?: (activation: LinkedDeviceTargetPasskeyActivationV1) => void;
+    /** Receives one immutable activation snapshot for each target-factor transition. */
+    onTargetFactorRequired?: (activation: LinkedDeviceTargetFactorActivationV1) => void;
     afterCall?: AfterCall<StartDevice2LinkingFlowResults>;
     confirmationConfig?: Partial<ConfirmationConfig>;
     confirmerText?: { title?: string; body?: string };
@@ -109,3 +187,4 @@ export interface ScanAndLinkDeviceOptionsDevice1 {
 }
 
 export type { LinkDevicePublicKeyB64u } from '@shared/device-linking';
+export type { LinkedDeviceTargetFactorV1 } from '@shared/device-linking';

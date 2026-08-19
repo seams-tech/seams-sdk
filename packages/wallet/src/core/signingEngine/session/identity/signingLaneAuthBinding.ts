@@ -1,5 +1,8 @@
 import type { RpId } from './evmFamilyEcdsaIdentity';
 import { SIGNER_AUTH_METHODS, type SignerAuthMethod } from '@shared/utils/signerDomain';
+import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
+import type { LinkedDeviceEnrollmentId, LinkedDeviceId } from '@shared/signing-lanes/ids';
+import type { WalletAuthMethodId } from '@shared/utils/domainIds';
 
 export type SigningLaneAuthBinding =
   | {
@@ -13,7 +16,20 @@ export type SigningLaneAuthBinding =
       providerSubjectId: string;
       rpId?: never;
       credentialIdB64u?: never;
-    };
+  };
+
+/**
+ * Identity that distinguishes one linked Email OTP owner from the wallet-wide
+ * factor and from another enrollment using that factor. It is separate from
+ * `SigningLaneAuthBinding` because the provider subject describes the
+ * authentication mechanism, while this tuple names the linked principal.
+ */
+export type LinkedOwnerLaneIdentityV1 = {
+  readonly enrollmentId: LinkedDeviceEnrollmentId;
+  readonly deviceId: LinkedDeviceId;
+  readonly walletAuthMethodId: WalletAuthMethodId;
+  readonly authorityDigest: DigestB64u;
+};
 
 /**
  * R103C: the exact owner an authenticated human operation acts as. Derived
@@ -26,10 +42,17 @@ export type OwnerLaneScope =
   | {
       auth: Extract<SigningLaneAuthBinding, { kind: typeof SIGNER_AUTH_METHODS.passkey }>;
       signerSlot: number;
+      linkedOwner?: never;
     }
   | {
       auth: Extract<SigningLaneAuthBinding, { kind: typeof SIGNER_AUTH_METHODS.emailOtp }>;
       signerSlot?: never;
+      linkedOwner?: never;
+    }
+  | {
+      auth: Extract<SigningLaneAuthBinding, { kind: typeof SIGNER_AUTH_METHODS.emailOtp }>;
+      signerSlot?: never;
+      linkedOwner: LinkedOwnerLaneIdentityV1;
     };
 
 export function signingLaneAuthMethod(auth: SigningLaneAuthBinding): SignerAuthMethod {

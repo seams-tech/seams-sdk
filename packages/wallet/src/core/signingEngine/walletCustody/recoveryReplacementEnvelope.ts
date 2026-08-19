@@ -20,7 +20,7 @@ const RECOVERY_BINDING_FIELDS = [
  * accepts. The binding JSON is authoritative because it is what Rust used as
  * AEAD AAD; every loose field is reconstructed from it and parsed once here.
  */
-export function buildRecoveredPasskeyCustodyEnvelopeRecord(args: {
+export function buildRecoveredCustodyEnvelopeRecord(args: {
   readonly expectedWalletId: string;
   readonly replacement: RecoveryReplacementEnvelopePayload;
   readonly activatedAtMs: number;
@@ -51,11 +51,20 @@ export function buildRecoveredPasskeyCustodyEnvelopeRecord(args: {
     },
     'recoveryReplacementEnvelope',
   );
+  if (record.binding.kind !== 'wallet_custody_seed_v1') {
+    throw new Error('custody envelope must seal the wallet custody seed');
+  }
+  return record;
+}
+
+export function buildRecoveredPasskeyCustodyEnvelopeRecord(args: {
+  readonly expectedWalletId: string;
+  readonly replacement: RecoveryReplacementEnvelopePayload;
+  readonly activatedAtMs: number;
+}): PasskeyCustodyEnvelopeRecord {
+  const record = buildRecoveredCustodyEnvelopeRecord(args);
   if (record.factor.kind !== 'passkey') {
     throw new Error('credential replacement must reseal under a passkey factor');
-  }
-  if (record.binding.kind !== 'wallet_custody_seed_v1') {
-    throw new Error('credential replacement must seal the wallet custody seed');
   }
   return record;
 }

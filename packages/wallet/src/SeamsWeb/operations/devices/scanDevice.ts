@@ -172,6 +172,8 @@ export async function scanAndLinkDevice(
     const ownerEnrollment = await ports.ownerAuthorization.startOwnerEnrollmentCeremonyV1({
       linkSessionId: claim.linkSessionId,
       walletId: claim.walletId,
+      targetFactor: parsedQrData.targetFactor,
+      expiresAtMs: Math.min(owner.expiresAtMs, claim.claimExpiresAtMs),
       requestedAtMs: Date.now(),
     });
     const approvedAtMs = Date.now();
@@ -182,6 +184,7 @@ export async function scanAndLinkDevice(
       deviceId: claim.deviceId,
       linkPublicKeyB64u: parsedQrData.linkPublicKeyB64u,
       devicePublicKeyB64u: claim.devicePublicKeyB64u,
+      targetFactor: parsedQrData.targetFactor,
       permission: parsedQrData.requestedPermission,
       ownerAuthorization: owner.ownerAuthorization,
       ownerEnrollment: ownerEnrollment.ceremony,

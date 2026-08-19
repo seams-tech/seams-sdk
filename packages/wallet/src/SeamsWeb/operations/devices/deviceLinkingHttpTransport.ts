@@ -6,6 +6,11 @@ import type {
 } from '@shared/device-linking';
 import {
   parseLinkedDeviceApprovalDeliveryV1,
+  parseLinkedDeviceEmailOtpChallengeResultV1,
+  parseLinkedDeviceEmailOtpChallengeResendRequestV1,
+  parseLinkedDeviceEmailOtpChallengeStartRequestV1,
+  parseLinkedDeviceEmailOtpChallengeVerifyRequestV1,
+  parseLinkedDeviceEmailOtpVerificationResultV1,
   parseLinkedDeviceEnrollmentReceiptV1,
   parseLinkedDeviceProvisioningDeliveriesV1,
   parseLinkedDeviceSessionProjectionV1,
@@ -20,7 +25,6 @@ import {
   LINKED_DEVICE_REQUEST_PROOF_NONCE_BYTES_V1,
   type LinkedDeviceRequestProofV1,
 } from '@shared/device-linking';
-import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { parseDigestB64u } from '@shared/utils/canonicalPrimitives';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { sha256Bytes } from '@shared/utils/digests';
@@ -146,6 +150,42 @@ export function createDeviceLinkingAuthenticatedSessionTransportV1(
         linkSessionId,
       });
       return parseLinkedDeviceTargetPreparationV1(response.body);
+    },
+    startTargetEmailOtpChallengeV1: async ({ request }) => {
+      const parsedRequest = parseLinkedDeviceEmailOtpChallengeStartRequestV1(request);
+      const response = await requestDeviceV1({
+        options,
+        baseUrl,
+        method: 'POST',
+        canonicalPath: sessionActionPath(parsedRequest.linkSessionId, 'email-otp/challenge'),
+        linkSessionId: parsedRequest.linkSessionId,
+        body: parsedRequest,
+      });
+      return parseLinkedDeviceEmailOtpChallengeResultV1(response.body);
+    },
+    resendTargetEmailOtpChallengeV1: async ({ request }) => {
+      const parsedRequest = parseLinkedDeviceEmailOtpChallengeResendRequestV1(request);
+      const response = await requestDeviceV1({
+        options,
+        baseUrl,
+        method: 'POST',
+        canonicalPath: sessionActionPath(parsedRequest.linkSessionId, 'email-otp/challenge/resend'),
+        linkSessionId: parsedRequest.linkSessionId,
+        body: parsedRequest,
+      });
+      return parseLinkedDeviceEmailOtpChallengeResultV1(response.body);
+    },
+    verifyTargetEmailOtpChallengeV1: async ({ request }) => {
+      const parsedRequest = parseLinkedDeviceEmailOtpChallengeVerifyRequestV1(request);
+      const response = await requestDeviceV1({
+        options,
+        baseUrl,
+        method: 'POST',
+        canonicalPath: sessionActionPath(parsedRequest.linkSessionId, 'email-otp/challenge/verify'),
+        linkSessionId: parsedRequest.linkSessionId,
+        body: parsedRequest,
+      });
+      return parseLinkedDeviceEmailOtpVerificationResultV1(response.body);
     },
     requestProvisioningDeliveriesV1: async ({ command }) => {
       const response = await requestDeviceV1({
@@ -564,6 +604,9 @@ function sessionActionPath(
     | 'approval'
     | 'wallet-session'
     | 'target-preparation'
+    | 'email-otp/challenge'
+    | 'email-otp/challenge/resend'
+    | 'email-otp/challenge/verify'
     | 'owner-finalize'
     | 'provision'
     | 'holder-receipts'

@@ -5,6 +5,7 @@ import type {
   ScanAndLinkDeviceOptionsDevice1,
   StartDevice2LinkingFlowArgs,
   StartDevice2LinkingFlowResults,
+  LinkedDeviceTargetEmailOtpActivationV1,
   LinkedDeviceTargetPasskeyActivationV1,
 } from '@/core/types/linkDevice';
 import { DeviceLinkingError, DeviceLinkingErrorCode } from '@/core/types/linkDevice';
@@ -32,6 +33,9 @@ import type {
   LinkedDeviceProvisioningDeliveriesV1,
   LinkedDeviceTargetCredentialRegistrationV1,
   LinkedDeviceTargetPreparationV1,
+  LinkedDeviceEmailOtpChallengeResultV1,
+  LinkedDeviceEmailOtpVerificationResultV1,
+  LinkedDeviceEmailOtpFactorReleaseEnvelopeV1,
   LinkedDeviceWalletSessionDeliveryV1,
   LinkedDeviceOwnerFinalizeRequestV1,
   QrLinkedDeviceSessionPayloadV5,
@@ -46,6 +50,8 @@ import type {
   DeviceLinkingAuthenticatedTransportPortV1,
   DeviceLinkingFlowPortsV1,
   DeviceLinkingKeyMaterialHandleV1,
+  LinkedDeviceSigningSessionActivationV1,
+  EmailOtpCustodyEnvelopeRecordV1,
   DeviceLinkingTargetCredentialPortV1,
   LinkSessionSubscriptionV1,
 } from './deviceLinkingPorts';
@@ -56,11 +62,14 @@ import { buildLinkedDeviceProvisionedExecutionEvidenceV1 } from '@/core/signingE
 import { nextLinkedDevicePollingDelayMsV1 } from './deviceLinkingHttpTransport';
 import {
   acceptLinkedDeviceCustodyTransferV1,
+  acceptLinkedDeviceEmailOtpCustodyTransferV1,
   discardLinkedDeviceCustodyRecipientV1,
   publishLinkedDeviceCustodyRecipientV1,
+  publishLinkedDeviceEmailOtpCustodyRecipientV1,
 } from './deviceLinkingTargetCustodyTransfer';
 import type { DeviceLinkingCustodyTransferRecipientHandleV1 } from './deviceLinkingCustodyTransfer';
 import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
+import type { LinkedDeviceCustodyTransferRecipientV1 } from '@shared/device-linking/custodyTransfer';
 import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
 import {
   persistFinalizedLinkedOwnerPasskeyV1,
@@ -70,6 +79,58 @@ import {
 type EmitLinkDeviceEventInput = Omit<CreateLinkDeviceFlowEventInput, 'flowId' | 'accountId'> & {
   readonly accountId?: string;
 };
+
+type AwaitingTargetFactorStateV1 = Extract<
+  LinkedDeviceSessionState,
+  { readonly state: 'awaiting_target_factor' }
+>;
+type AwaitingTargetPasskeyStateV1 = Extract<
+  AwaitingTargetFactorStateV1,
+  { readonly targetFactor: { readonly kind: 'passkey_prf' } }
+>;
+type AwaitingTargetEmailOtpStateV1 = Extract<
+  AwaitingTargetFactorStateV1,
+  { readonly targetFactor: { readonly kind: 'email_otp' } }
+>;
+type PasskeyTargetPreparationV1 = Extract<
+  LinkedDeviceTargetPreparationV1,
+  { readonly targetFactor: { readonly kind: 'passkey_prf' } }
+>;
+type EmailOtpTargetPreparationV1 = Extract<
+  LinkedDeviceTargetPreparationV1,
+  { readonly targetFactor: { readonly kind: 'email_otp' } }
+>;
+
+function isPasskeyTargetPreparation(
+  preparation: LinkedDeviceTargetPreparationV1,
+): preparation is PasskeyTargetPreparationV1 {
+  return (
+    preparation.targetFactor.kind === 'passkey_prf' &&
+    preparation.ownerEnrollment.kind === 'linked_device_passkey_owner_enrollment_v1'
+  );
+}
+
+function isEmailOtpTargetPreparation(
+  preparation: LinkedDeviceTargetPreparationV1,
+): preparation is EmailOtpTargetPreparationV1 {
+  return (
+    preparation.targetFactor.kind === 'email_otp' &&
+    preparation.ownerEnrollment.kind === 'linked_device_email_otp_owner_enrollment_v1'
+  );
+}
+
+function isAwaitingTargetPasskeyState(
+  state: AwaitingTargetFactorStateV1,
+): state is AwaitingTargetPasskeyStateV1 {
+  return state.targetFactor.kind === 'passkey_prf';
+}
+
+function isAwaitingTargetEmailOtpState(
+  state: AwaitingTargetFactorStateV1,
+): state is AwaitingTargetEmailOtpStateV1 {
+  return state.targetFactor.kind === 'email_otp';
+}
+
 function createLinkSessionId(): import('@shared/signing-lanes/ids').LinkDeviceSessionId {
   const parsed = parseLinkDeviceSessionId(secureRandomId('link-session', 32));
   if (!parsed.ok) throw new Error(parsed.error.message);
@@ -196,6 +257,76 @@ type TargetCredentialActivationState =
       readonly factorSecret: Uint8Array;
     };
 
+type EmailOtpTargetActivationBaseContextV1 = {
+  readonly event: LinkedDeviceSessionTransportEventV1;
+  readonly state: AwaitingTargetEmailOtpStateV1;
+  readonly runEpoch: number;
+  readonly deviceId: import('@shared/signing-lanes/ids').LinkedDeviceId;
+  readonly preparation: EmailOtpTargetPreparationV1;
+  readonly recipient: LinkedDeviceCustodyTransferRecipientV1;
+};
+
+type EmailOtpTargetActivationContextV1 = EmailOtpTargetActivationBaseContextV1 & {
+  readonly challenge: LinkedDeviceEmailOtpChallengeResultV1;
+};
+
+function emailOtpTargetActivationBaseContextV1(
+  context: EmailOtpTargetActivationContextV1,
+): EmailOtpTargetActivationBaseContextV1 {
+  return {
+    event: context.event,
+    state: context.state,
+    runEpoch: context.runEpoch,
+    deviceId: context.deviceId,
+    preparation: context.preparation,
+    recipient: context.recipient,
+  };
+}
+
+type EmailOtpTargetActivationStateV1 =
+  | { readonly kind: 'idle' }
+  | { readonly kind: 'available'; readonly context: EmailOtpTargetActivationBaseContextV1 }
+  | {
+      readonly kind: 'starting';
+      readonly context: EmailOtpTargetActivationBaseContextV1;
+      readonly promise: Promise<void>;
+    }
+  | { readonly kind: 'awaiting_code'; readonly context: EmailOtpTargetActivationContextV1 }
+  | {
+      readonly kind: 'resending';
+      readonly context: EmailOtpTargetActivationContextV1;
+      readonly promise: Promise<void>;
+    }
+  | {
+      readonly kind: 'submitting';
+      readonly context: EmailOtpTargetActivationContextV1;
+      readonly promise: Promise<void>;
+    }
+  | { readonly kind: 'failed'; readonly runEpoch: number; readonly message: string }
+  | {
+      readonly kind: 'completed';
+      readonly runEpoch: number;
+      readonly resealedCustodyEnvelope: EmailOtpCustodyEnvelopeRecordV1;
+      readonly verificationGrant: LinkedDeviceEmailOtpVerificationResultV1['verificationGrant'];
+      readonly factorRelease: LinkedDeviceEmailOtpFactorReleaseEnvelopeV1;
+    };
+
+function requireEmailOtpCustodyEnvelopeV1(
+  envelope: PasskeyCustodyEnvelopeRecord,
+): EmailOtpCustodyEnvelopeRecordV1 {
+  if (envelope.factor.kind !== 'email_otp') {
+    throw new Error('linked-device Email OTP custody transfer returned a Passkey envelope');
+  }
+  return {
+    ...envelope,
+    factor: envelope.factor,
+  };
+}
+
+function assertNeverEmailOtpTargetActivationState(value: never): never {
+  throw new Error(`Unknown Email OTP target activation state: ${String(value)}`);
+}
+
 function assertNeverTargetCredentialActivationState(value: never): never {
   throw new Error(`Unknown target credential activation state: ${String(value)}`);
 }
@@ -232,8 +363,8 @@ type RetainedLinkedOwnerFinalizeV1 = {
 function requireFinalizedOwnerPasskeyV1(
   finalized: RetainedLinkedOwnerFinalizeV1['finalized']['response'],
   expected: {
-    readonly state: Extract<LinkedDeviceSessionState, { state: 'awaiting_target_factor' }>;
-    readonly preparation: LinkedDeviceTargetPreparationV1;
+    readonly state: AwaitingTargetPasskeyStateV1;
+    readonly preparation: PasskeyTargetPreparationV1;
     readonly credential: Awaited<
       ReturnType<DeviceLinkingTargetCredentialPortV1['createTargetCredentialV1']>
     >;
@@ -264,7 +395,7 @@ function requireFinalizedOwnerPasskeyV1(
 }
 
 /** The relying party the owner ceremony will verify this credential against. */
-function requireTargetRpIdV1(preparation: LinkedDeviceTargetPreparationV1): WebAuthnRpId {
+function requireTargetRpIdV1(preparation: PasskeyTargetPreparationV1): WebAuthnRpId {
   const rpId = parseWebAuthnRpId(preparation.ownerEnrollment.registration.rpId);
   if (!rpId.ok) throw new Error(rpId.error.message);
   return rpId.value;
@@ -276,6 +407,7 @@ export class LinkDeviceFlow {
   private readonly flowId: string;
   private session: DeviceLinkingSession | null = null;
   private keyMaterialHandle: DeviceLinkingKeyMaterialHandleV1 | null = null;
+  private emailOtpReleasePublicKey65B64u: string | null = null;
   /**
    * Refactor 103 Phase 8. The wallet custody seed resealed under this device's
    * new passkey, waiting for the canonical finalize that registers it as an
@@ -292,6 +424,7 @@ export class LinkDeviceFlow {
   private walletSessionDeliveryInProgress: Promise<void> | null = null;
   private walletSessionDeliveryPersisted = false;
   private targetCredentialActivationState: TargetCredentialActivationState = { kind: 'idle' };
+  private emailOtpTargetActivationState: EmailOtpTargetActivationStateV1 = { kind: 'idle' };
   private provisioningApproval: LinkedDeviceApprovalV1 | null = null;
   private aggregateReceipt: LinkedDeviceEnrollmentReceiptV1 | null = null;
   private targetPreparationForProvisioning: LinkedDeviceTargetPreparationV1 | null = null;
@@ -301,7 +434,7 @@ export class LinkDeviceFlow {
   private readonly handledStates = new Set<LinkedDeviceSessionState['state']>();
   private sessionEventQueue: Promise<void> = Promise.resolve();
 
-  constructor(options: StartDevice2LinkingFlowArgs = {}, ports: Device2LinkingFlowPortsV1) {
+  constructor(options: StartDevice2LinkingFlowArgs, ports: Device2LinkingFlowPortsV1) {
     this.options = options;
     this.flowId = createFlowId();
     this.ports = ports;
@@ -334,12 +467,14 @@ export class LinkDeviceFlow {
         throw new LinkDeviceFlowSupersededError();
       }
       this.keyMaterialHandle = keyMaterial.handle;
+      this.emailOtpReleasePublicKey65B64u = keyMaterial.emailOtpReleasePublicKey65B64u;
       const issuedAtMs = Date.now();
       const linkSessionId = createLinkSessionId();
       const qrData = buildQrLinkedDeviceSessionPayloadV5({
         linkSessionId,
         linkPublicKeyB64u: keyMaterial.linkPublicKeyB64u,
         devicePublicKeyB64u: keyMaterial.devicePublicKeyB64u,
+        targetFactor: this.options.targetFactor,
         issuedAtMs,
         expiresAtMs: issuedAtMs + 15 * 60 * 1000,
       });
@@ -622,17 +757,17 @@ export class LinkDeviceFlow {
         if (!this.session) throw new Error('device-link session is unavailable');
         this.session = { ...this.session, state: event.state };
         await this.ensureWalletSessionDeliveryPersistedV1({ state: event.state, runEpoch });
-        const targetFactorSecret = this.claimTargetCredentialFactorSecret(runEpoch);
+        const activation = this.claimSigningSessionActivationV1(runEpoch);
         try {
           await this.ports.sessionActivation.activateLinkedDeviceSigningSessionV1({
             walletId: event.state.walletId,
             enrollmentId: event.state.enrollmentId,
-            activation: targetFactorSecret
-              ? { kind: 'target_passkey_creation', factorSecret: targetFactorSecret }
-              : { kind: 'existing_target_passkey' },
+            activation,
           });
         } finally {
           this.clearTargetCredentialActivationState();
+          this.emailOtpTargetActivationState = { kind: 'idle' };
+          this.resealedCustodyEnvelope = null;
         }
         this.emit({
           phase: LinkDeviceEventPhase.STEP_02_QR_SCAN_STARTED,
@@ -689,8 +824,22 @@ export class LinkDeviceFlow {
     });
     this.assertCurrentRun(runEpoch);
     this.assertTargetPreparationMatchesSession({ preparation, state, deviceId });
-    const onTargetPasskeyRequired = this.options.options?.onTargetPasskeyRequired;
-    if (!onTargetPasskeyRequired) {
+    if (isAwaitingTargetEmailOtpState(state)) {
+      await this.prepareTargetEmailOtpActivation({
+        event,
+        state,
+        runEpoch,
+        deviceId,
+        preparation,
+      });
+      return;
+    }
+    if (!isAwaitingTargetPasskeyState(state)) throw new Error('Unsupported target factor');
+    if (!isPasskeyTargetPreparation(preparation)) {
+      throw new Error('Passkey session returned a non-Passkey target preparation');
+    }
+    const onTargetFactorRequired = this.options.options?.onTargetFactorRequired;
+    if (!onTargetFactorRequired) {
       throw new DeviceLinkingError(
         'Confirm passkey creation on Device 2 to continue linking',
         DeviceLinkingErrorCode.UNSUPPORTED,
@@ -707,15 +856,352 @@ export class LinkDeviceFlow {
         preparation,
       }),
     };
-    onTargetPasskeyRequired(activation);
+    onTargetFactorRequired(activation);
+  }
+
+  private async prepareTargetEmailOtpActivation(input: {
+    readonly event: LinkedDeviceSessionTransportEventV1;
+    readonly state: AwaitingTargetEmailOtpStateV1;
+    readonly runEpoch: number;
+    readonly deviceId: import('@shared/signing-lanes/ids').LinkedDeviceId;
+    readonly preparation: LinkedDeviceTargetPreparationV1;
+  }): Promise<void> {
+    if (!isEmailOtpTargetPreparation(input.preparation)) {
+      throw new Error('Email OTP session returned a non-Email OTP target preparation');
+    }
+    if (!this.keyMaterialHandle || !this.session || !this.emailOtpReleasePublicKey65B64u) {
+      throw new Error('Email OTP target key material is unavailable');
+    }
+    if (!this.options.options?.onTargetFactorRequired) {
+      throw new DeviceLinkingError(
+        'Enter the Email OTP on Device 2 to continue linking',
+        DeviceLinkingErrorCode.UNSUPPORTED,
+        'registration',
+      );
+    }
+    const authenticatedTransport = this.requireAuthenticatedTransport();
+    const recipient = await publishLinkedDeviceEmailOtpCustodyRecipientV1({
+      keyMaterial: this.ports.keyMaterial,
+      keyHandle: this.keyMaterialHandle,
+      transport: authenticatedTransport,
+      identity: {
+        linkSessionId: String(input.state.linkSessionId),
+        walletId: input.state.walletId,
+        enrollmentId: input.state.enrollmentId,
+        deviceId: input.deviceId,
+      },
+      registeredAtMs: Date.now(),
+    });
+    this.assertCurrentRun(input.runEpoch);
+    const baseContext: EmailOtpTargetActivationBaseContextV1 = {
+      event: input.event,
+      state: input.state,
+      runEpoch: input.runEpoch,
+      deviceId: input.deviceId,
+      preparation: input.preparation,
+      recipient,
+    };
+    if (input.state.emailOtpChallenge.state === 'available') {
+      this.emailOtpTargetActivationState = { kind: 'available', context: baseContext };
+      this.notifyEmailOtpActivationV1({
+        kind: 'sending',
+        maskedEmailHint: input.state.emailOtpChallenge.maskedEmailHint,
+      });
+      return;
+    }
+    const challenge: LinkedDeviceEmailOtpChallengeResultV1 = {
+      kind: 'linked_device_email_otp_challenge_result_v1',
+      challengeId: input.state.emailOtpChallenge.challengeId,
+      maskedEmailHint: input.state.emailOtpChallenge.maskedEmailHint,
+      expiresAtMs: input.state.emailOtpChallenge.expiresAtMs,
+      resendAvailableAtMs: input.state.emailOtpChallenge.resendAvailableAtMs,
+    };
+    const context: EmailOtpTargetActivationContextV1 = { ...baseContext, challenge };
+    this.emailOtpTargetActivationState = { kind: 'awaiting_code', context };
+    this.notifyEmailOtpActivationV1({
+      kind: 'code_input',
+      maskedEmailHint: challenge.maskedEmailHint,
+      expiresAtMs: challenge.expiresAtMs,
+      resendAvailableAtMs: challenge.resendAvailableAtMs,
+    });
+  }
+
+  private notifyEmailOtpActivationV1(
+    state: LinkedDeviceTargetEmailOtpActivationV1['state'],
+  ): void {
+    const onTargetFactorRequired = this.options.options?.onTargetFactorRequired;
+    if (!onTargetFactorRequired) return;
+    onTargetFactorRequired({
+      kind: 'linked_device_target_email_otp_activation_v1',
+      state,
+      sendCode: this.sendTargetEmailOtpCodeV1.bind(this),
+      submitCode: this.submitTargetEmailOtpCodeV1.bind(this),
+      resendCode: this.resendTargetEmailOtpCodeV1.bind(this),
+    });
+  }
+
+  private sendTargetEmailOtpCodeV1(): Promise<void> {
+    const state = this.emailOtpTargetActivationState;
+    switch (state.kind) {
+      case 'available': {
+        const promise = this.startTargetEmailOtpChallengeV1(state.context);
+        this.emailOtpTargetActivationState = {
+          kind: 'starting',
+          context: state.context,
+          promise,
+        };
+        return promise;
+      }
+      case 'starting':
+        return state.promise;
+      case 'resending':
+        return state.promise;
+      case 'awaiting_code':
+      case 'submitting':
+      case 'completed':
+        return Promise.resolve();
+      case 'failed':
+        return Promise.reject(new Error(state.message));
+      case 'idle':
+        return Promise.reject(new Error('Email OTP activation is unavailable'));
+      default:
+        return assertNeverEmailOtpTargetActivationState(state);
+    }
+  }
+
+  private async startTargetEmailOtpChallengeV1(
+    context: EmailOtpTargetActivationBaseContextV1,
+  ): Promise<void> {
+    try {
+      this.assertCurrentRun(context.runEpoch);
+      const workerEphemeralPublicKey65B64u = this.emailOtpReleasePublicKey65B64u;
+      if (!workerEphemeralPublicKey65B64u) {
+        throw new Error('Email OTP factor-release recipient is unavailable');
+      }
+      const challenge =
+        await this.requireAuthenticatedTransport().startTargetEmailOtpChallengeV1({
+          request: {
+            kind: 'linked_device_email_otp_challenge_start_request_v1',
+            linkSessionId: context.state.linkSessionId,
+            workerEphemeralPublicKey65B64u,
+          },
+        });
+      this.assertCurrentRun(context.runEpoch);
+      const nextContext: EmailOtpTargetActivationContextV1 = {
+        event: context.event,
+        state: context.state,
+        runEpoch: context.runEpoch,
+        deviceId: context.deviceId,
+        preparation: context.preparation,
+        recipient: context.recipient,
+        challenge,
+      };
+      this.emailOtpTargetActivationState = { kind: 'awaiting_code', context: nextContext };
+      this.notifyEmailOtpActivationV1({
+        kind: 'code_input',
+        maskedEmailHint: challenge.maskedEmailHint,
+        expiresAtMs: challenge.expiresAtMs,
+        resendAvailableAtMs: challenge.resendAvailableAtMs,
+      });
+    } catch (error: unknown) {
+      if (this.isCurrentRun(context.runEpoch)) {
+        this.emailOtpTargetActivationState = { kind: 'available', context };
+        this.notifyEmailOtpActivationV1({
+          kind: 'unavailable',
+          message: errorMessage(error),
+        });
+      }
+      throw error;
+    }
+  }
+
+  private resendTargetEmailOtpCodeV1(): Promise<void> {
+    const state = this.emailOtpTargetActivationState;
+    if (state.kind === 'resending') return state.promise;
+    if (state.kind !== 'awaiting_code') {
+      return Promise.reject(new Error('Email OTP challenge is not ready to resend'));
+    }
+    try {
+      this.assertCurrentRun(state.context.runEpoch);
+    } catch (error: unknown) {
+      return Promise.reject(error);
+    }
+    const promise = this.runTargetEmailOtpResendV1(state.context);
+    this.emailOtpTargetActivationState = {
+      kind: 'resending',
+      context: state.context,
+      promise,
+    };
+    this.notifyEmailOtpActivationV1({
+      kind: 'resending',
+      maskedEmailHint: state.context.challenge.maskedEmailHint,
+    });
+    return promise;
+  }
+
+  private async runTargetEmailOtpResendV1(
+    context: EmailOtpTargetActivationContextV1,
+  ): Promise<void> {
+    try {
+      const challenge =
+        await this.requireAuthenticatedTransport().resendTargetEmailOtpChallengeV1({
+          request: {
+            kind: 'linked_device_email_otp_challenge_resend_request_v1',
+            linkSessionId: context.state.linkSessionId,
+            challengeId: context.challenge.challengeId,
+          },
+        });
+      this.assertCurrentRun(context.runEpoch);
+      const nextContext: EmailOtpTargetActivationContextV1 = {
+        event: context.event,
+        state: context.state,
+        runEpoch: context.runEpoch,
+        deviceId: context.deviceId,
+        preparation: context.preparation,
+        recipient: context.recipient,
+        challenge,
+      };
+      this.emailOtpTargetActivationState = { kind: 'awaiting_code', context: nextContext };
+      this.notifyEmailOtpActivationV1({
+        kind: 'code_input',
+        maskedEmailHint: challenge.maskedEmailHint,
+        expiresAtMs: challenge.expiresAtMs,
+        resendAvailableAtMs: challenge.resendAvailableAtMs,
+      });
+    } catch (error: unknown) {
+      if (this.isCurrentRun(context.runEpoch)) {
+        const message = errorMessage(error) || 'Email OTP resend is unavailable';
+        this.emailOtpTargetActivationState = {
+          kind: 'available',
+          context: emailOtpTargetActivationBaseContextV1(context),
+        };
+        this.notifyEmailOtpActivationV1({ kind: 'unavailable', message });
+      }
+      throw error;
+    }
+  }
+
+  private submitTargetEmailOtpCodeV1(otpCode: string): Promise<void> {
+    const state = this.emailOtpTargetActivationState;
+    if (state.kind !== 'awaiting_code') {
+      return Promise.reject(new Error('Email OTP challenge is not ready for verification'));
+    }
+    this.assertCurrentRun(state.context.runEpoch);
+    const promise = this.completeTargetEmailOtpActivationV1(state.context, otpCode);
+    this.emailOtpTargetActivationState = {
+      kind: 'submitting',
+      context: state.context,
+      promise,
+    };
+    this.notifyEmailOtpActivationV1({
+      kind: 'submitting',
+      maskedEmailHint: state.context.challenge.maskedEmailHint,
+      expiresAtMs: state.context.challenge.expiresAtMs,
+      resendAvailableAtMs: state.context.challenge.resendAvailableAtMs,
+    });
+    return promise;
+  }
+
+  private async completeTargetEmailOtpActivationV1(
+    context: EmailOtpTargetActivationContextV1,
+    otpCode: string,
+  ): Promise<void> {
+    let verification: LinkedDeviceEmailOtpVerificationResultV1;
+    try {
+      verification = await this.requireAuthenticatedTransport().verifyTargetEmailOtpChallengeV1({
+        request: {
+          kind: 'linked_device_email_otp_challenge_verify_request_v1',
+          linkSessionId: context.state.linkSessionId,
+          challengeId: context.challenge.challengeId,
+          otpCode,
+        },
+      });
+    } catch (error: unknown) {
+      if (this.isCurrentRun(context.runEpoch)) {
+        this.emailOtpTargetActivationState = { kind: 'awaiting_code', context };
+        if (Date.now() >= context.challenge.expiresAtMs) {
+          this.notifyEmailOtpActivationV1({
+            kind: 'expired',
+            maskedEmailHint: context.challenge.maskedEmailHint,
+            message: errorMessage(error),
+          });
+        } else {
+          this.notifyEmailOtpActivationV1({
+            kind: 'incorrect',
+            maskedEmailHint: context.challenge.maskedEmailHint,
+            expiresAtMs: context.challenge.expiresAtMs,
+            resendAvailableAtMs: context.challenge.resendAvailableAtMs,
+            message: errorMessage(error),
+          });
+        }
+      }
+      throw error;
+    }
+    this.assertCurrentRun(context.runEpoch);
+    try {
+      const accepted = await acceptLinkedDeviceEmailOtpCustodyTransferV1({
+        keyMaterial: this.ports.keyMaterial,
+        keyHandle: this.requireKeyMaterialHandleV1(),
+        transport: this.requireAuthenticatedTransport(),
+        recipient: context.recipient,
+        preparation: context.preparation,
+        verification,
+        expiresAtMs: Math.min(
+          context.preparation.ownerEnrollment.expiresAtMs,
+          this.requireSessionV1().qrData.expiresAtMs,
+        ),
+        assertCurrentRun: this.assertCurrentRun.bind(this, context.runEpoch),
+        waitForPollV1: waitForSessionStateRetry,
+      });
+      this.assertCurrentRun(context.runEpoch);
+      const targetPreparationDigestB64u =
+        await computeLinkedDeviceTargetPreparationDigestV1(context.preparation);
+      const registration = buildLinkedDeviceTargetCredentialRegistrationV1({
+        linkSessionId: context.state.linkSessionId,
+        walletId: context.state.walletId,
+        enrollmentId: context.state.enrollmentId,
+        deviceId: context.deviceId,
+        targetFactor: { kind: 'email_otp' },
+        targetPreparationDigestB64u,
+        emailOtpVerificationGrant: verification.verificationGrant,
+        orderedHolderRegistrations: accepted.orderedHolderRegistrations,
+        registeredAtMs: Date.now(),
+      });
+      this.targetPreparationForProvisioning = context.preparation;
+      this.targetCredentialRegistrationForProvisioning = registration;
+      await this.requireAuthenticatedTransport().registerTargetCredentialV1({ registration });
+      this.assertCurrentRun(context.runEpoch);
+      this.emailOtpTargetActivationState = {
+        kind: 'completed',
+        runEpoch: context.runEpoch,
+        resealedCustodyEnvelope: requireEmailOtpCustodyEnvelopeV1(accepted.custodyEnvelope),
+        verificationGrant: verification.verificationGrant,
+        factorRelease: verification.factorRelease,
+      };
+    } catch (error: unknown) {
+      if (this.isCurrentRun(context.runEpoch)) {
+        const message = errorMessage(error) || 'Email OTP activation is unavailable';
+        this.emailOtpTargetActivationState = {
+          kind: 'failed',
+          runEpoch: context.runEpoch,
+          message,
+        };
+        this.notifyEmailOtpActivationV1({ kind: 'unavailable', message });
+      }
+      throw error;
+    }
+    this.notifyEmailOtpActivationV1({
+      kind: 'completed',
+      maskedEmailHint: context.challenge.maskedEmailHint,
+    });
   }
 
   private activateTargetCredential(input: {
     readonly event: LinkedDeviceSessionTransportEventV1;
-    readonly state: Extract<LinkedDeviceSessionState, { state: 'awaiting_target_factor' }>;
+    readonly state: AwaitingTargetPasskeyStateV1;
     readonly runEpoch: number;
     readonly deviceId: import('@shared/signing-lanes/ids').LinkedDeviceId;
-    readonly preparation: LinkedDeviceTargetPreparationV1;
+    readonly preparation: PasskeyTargetPreparationV1;
   }): Promise<void> {
     if (!this.isCurrentRun(input.runEpoch)) {
       return Promise.reject(new LinkDeviceFlowSupersededError());
@@ -756,10 +1242,10 @@ export class LinkDeviceFlow {
 
   private async runTargetCredentialActivation(input: {
     readonly event: LinkedDeviceSessionTransportEventV1;
-    readonly state: Extract<LinkedDeviceSessionState, { state: 'awaiting_target_factor' }>;
+    readonly state: AwaitingTargetPasskeyStateV1;
     readonly runEpoch: number;
     readonly deviceId: import('@shared/signing-lanes/ids').LinkedDeviceId;
-    readonly preparation: LinkedDeviceTargetPreparationV1;
+    readonly preparation: PasskeyTargetPreparationV1;
   }): Promise<void> {
     try {
       const factorSecret = await this.createTargetCredential(input);
@@ -791,12 +1277,27 @@ export class LinkDeviceFlow {
   }
 
   private async waitForTargetCredentialActivation(): Promise<void> {
-    const state = this.targetCredentialActivationState;
-    if (state.kind !== 'in_progress') return;
-    try {
-      await state.promise;
-    } catch {
-      return;
+    const targetFactor = this.requireSessionTargetFactorV1();
+    switch (targetFactor.kind) {
+      case 'passkey_prf': {
+        const state = this.targetCredentialActivationState;
+        if (state.kind === 'in_progress') await state.promise;
+        if (this.targetCredentialActivationState.kind !== 'factor_ready') {
+          throw new Error('linked-device target Passkey activation is incomplete');
+        }
+        return;
+      }
+      case 'email_otp': {
+        const state = this.emailOtpTargetActivationState;
+        if (state.kind === 'submitting') await state.promise;
+        if (this.emailOtpTargetActivationState.kind !== 'completed') {
+          throw new Error('linked-device target Email OTP activation is incomplete');
+        }
+        return;
+      }
+      default:
+        targetFactor satisfies never;
+        throw new Error('linked-device target factor is unsupported');
     }
   }
 
@@ -825,6 +1326,51 @@ export class LinkDeviceFlow {
     }
   }
 
+  private claimSigningSessionActivationV1(
+    runEpoch: number,
+  ): LinkedDeviceSigningSessionActivationV1 {
+    const targetFactor = this.requireSessionTargetFactorV1();
+    switch (targetFactor.kind) {
+      case 'passkey_prf': {
+        const factorSecret = this.claimTargetCredentialFactorSecret(runEpoch);
+        return factorSecret
+          ? { kind: 'target_passkey_creation', factorSecret }
+          : { kind: 'existing_target_passkey' };
+      }
+      case 'email_otp': {
+        const activationState = this.emailOtpTargetActivationState;
+        if (activationState.kind !== 'completed' || activationState.runEpoch !== runEpoch) {
+          throw new Error('linked-device target Email OTP activation is incomplete');
+        }
+        const registration = this.targetCredentialRegistrationForProvisioning;
+        if (!registration || registration.targetFactor.kind !== 'email_otp') {
+          throw new Error('linked-device Email OTP registration is unavailable');
+        }
+        const registrationGrant = registration.emailOtpVerificationGrant;
+        if (!registrationGrant) {
+          throw new Error('linked-device Email OTP verification grant is unavailable');
+        }
+        if (
+          registrationGrant.grantId !== activationState.verificationGrant.grantId ||
+          registrationGrant.grantToken !== activationState.verificationGrant.grantToken
+        ) {
+          throw new Error('linked-device Email OTP registration authority changed');
+        }
+        return {
+          kind: 'target_email_otp_activation',
+          keyMaterial: this.requireKeyMaterialHandleV1(),
+          holderMaterial: this.ports.keyMaterial,
+          resealedCustodyEnvelope: activationState.resealedCustodyEnvelope,
+          verificationGrant: activationState.verificationGrant,
+          factorRelease: activationState.factorRelease,
+        };
+      }
+      default:
+        targetFactor satisfies never;
+        throw new Error('linked-device target factor is unsupported');
+    }
+  }
+
   private clearTargetCredentialActivationState(): void {
     const state = this.targetCredentialActivationState;
     if (state.kind === 'factor_ready' || state.kind === 'consuming') {
@@ -834,10 +1380,10 @@ export class LinkDeviceFlow {
   }
 
   private async createTargetCredential(input: {
-    readonly state: Extract<LinkedDeviceSessionState, { state: 'awaiting_target_factor' }>;
+    readonly state: AwaitingTargetPasskeyStateV1;
     readonly runEpoch: number;
     readonly deviceId: import('@shared/signing-lanes/ids').LinkedDeviceId;
-    readonly preparation: LinkedDeviceTargetPreparationV1;
+    readonly preparation: PasskeyTargetPreparationV1;
   }): Promise<Uint8Array> {
     const { state, runEpoch, deviceId, preparation } = input;
     if (!this.keyMaterialHandle || !this.session)
@@ -931,6 +1477,7 @@ export class LinkDeviceFlow {
         walletId: state.walletId,
         enrollmentId: state.enrollmentId,
         deviceId,
+        targetFactor: { kind: 'passkey_prf' },
         targetPreparationDigestB64u,
         webauthnRegistration: credential.webauthnRegistration,
         orderedHolderRegistrations: credential.orderedHolderRegistrations,
@@ -1005,8 +1552,8 @@ export class LinkDeviceFlow {
    */
   private async commitLinkedOwnerEnrollmentV1(input: {
     readonly authenticatedTransport: DeviceLinkingAuthenticatedTransportPortV1;
-    readonly state: Extract<LinkedDeviceSessionState, { state: 'awaiting_target_factor' }>;
-    readonly preparation: LinkedDeviceTargetPreparationV1;
+    readonly state: AwaitingTargetPasskeyStateV1;
+    readonly preparation: PasskeyTargetPreparationV1;
     readonly credential: Awaited<
       ReturnType<DeviceLinkingTargetCredentialPortV1['createTargetCredentialV1']>
     >;
@@ -1091,6 +1638,7 @@ export class LinkDeviceFlow {
       input.preparation.walletId !== input.state.walletId ||
       input.preparation.enrollmentId !== input.state.enrollmentId ||
       input.preparation.deviceId !== input.deviceId ||
+      input.preparation.targetFactor.kind !== input.state.targetFactor.kind ||
       input.preparation.expiresAtMs <= Date.now()
     ) {
       throw new Error('linked-device target preparation does not match the claimed session');
@@ -1145,6 +1693,7 @@ export class LinkDeviceFlow {
             linkSessionId: state.linkSessionId,
             enrollmentId: state.enrollmentId,
             deviceId,
+            targetFactor: this.requireSessionTargetFactorV1(),
           }),
         });
         this.assertCurrentRun(runEpoch);
@@ -1229,6 +1778,7 @@ export class LinkDeviceFlow {
         linkSessionId: state.linkSessionId,
         enrollmentId: state.enrollmentId,
         deviceId,
+        targetFactor: this.requireSessionTargetFactorV1(),
       }),
     });
     this.assertCurrentRun(runEpoch);
@@ -1514,8 +2064,25 @@ export class LinkDeviceFlow {
     return this.authenticatedTransport;
   }
 
+  private requireSessionTargetFactorV1(): QrLinkedDeviceSessionPayloadV5['targetFactor'] {
+    if (!this.session) throw new Error('device-link session is unavailable');
+    return this.session.qrData.targetFactor;
+  }
+
+  private requireSessionV1(): DeviceLinkingSession {
+    if (!this.session) throw new Error('device-link session is unavailable');
+    return this.session;
+  }
+
+  private requireKeyMaterialHandleV1(): DeviceLinkingKeyMaterialHandleV1 {
+    if (!this.keyMaterialHandle) throw new Error('device-link key material is unavailable');
+    return this.keyMaterialHandle;
+  }
+
   private startRun(): number {
     this.clearTargetCredentialActivationState();
+    this.emailOtpTargetActivationState = { kind: 'idle' };
+    this.resealedCustodyEnvelope = null;
     this.runEpoch += 1;
     this.generationInProgress = true;
     this.cancelled = false;
@@ -1615,6 +2182,8 @@ export class LinkDeviceFlow {
 
   private async cleanupLocalResources(): Promise<void> {
     this.clearTargetCredentialActivationState();
+    this.emailOtpTargetActivationState = { kind: 'idle' };
+    this.resealedCustodyEnvelope = null;
     let failure: unknown;
     const subscription = this.subscription;
     if (subscription) {
@@ -1643,6 +2212,7 @@ export class LinkDeviceFlow {
       await discard;
       if (this.keyMaterialHandle === handle) {
         this.keyMaterialHandle = null;
+        this.emailOtpReleasePublicKey65B64u = null;
         this.authenticatedTransport = null;
       }
     } finally {
@@ -1701,7 +2271,7 @@ export class DeviceLinkingDomain {
   }
 
   async startDevice2LinkingFlow(
-    args: StartDevice2LinkingFlowArgs = {},
+    args: StartDevice2LinkingFlowArgs,
   ): Promise<StartDevice2LinkingFlowResults> {
     if (this.deps.kind === 'direct' && !this.deps.walletIframe.shouldUseWalletIframe()) {
       if (this.activeDeviceLinkFlow) {
