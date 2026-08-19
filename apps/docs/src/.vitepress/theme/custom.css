@@ -138,21 +138,44 @@
 }
 
 .VPSidebar .VPSidebarItem.level-0 {
-  padding-bottom: 12px;
+  padding-bottom: 20px;
 }
 
 .VPSidebar .VPSidebarItem.level-0.collapsed {
-  padding-bottom: 0;
+  padding-bottom: 8px;
+}
+
+/* Section headings read as labels above their items. */
+.VPSidebar .VPSidebarItem.level-0 > .item .text {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
 .VPSidebar .VPSidebarItem .text {
-  padding: 2px 0;
+  padding: 3px 0;
   line-height: 22px;
 }
 
-/* Step each level of the tree in under its heading. */
+/* Items hang off a continuous indent-guide rule under their heading; nested
+   groups repeat the rule one level in. */
 .VPSidebar .VPSidebarItem .items {
-  padding-left: 12px;
+  margin-left: 4px;
+  border-left: 1px solid var(--vp-c-divider);
+  padding-left: 14px;
+}
+
+/* The active item lights up its segment of the guide rule. */
+.VPSidebar .VPSidebarItem .item .indicator {
+  top: 4px;
+  bottom: 4px;
+  left: -15px;
+  width: 2px;
+  border-radius: 0;
+}
+
+.VPSidebar .VPSidebarItem.level-1.is-active > .item > .indicator {
+  background-color: var(--vp-c-brand-1);
 }
 
 /* The default theme paints a fixed gradient strip over the bottom of the
