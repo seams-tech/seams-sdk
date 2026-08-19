@@ -1,3 +1,27 @@
+:root {
+  --console-font-sans:
+    'Hanken Grotesk', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    Roboto, Helvetica, Arial, sans-serif;
+}
+
+html {
+  font-family: var(--console-font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  font-family: inherit;
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
 .dashboard-shell {
   /* Paper palette shared with the marketing site. */
   --dashboard-bg: #ffffff;
