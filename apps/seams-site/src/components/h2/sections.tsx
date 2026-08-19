@@ -1320,7 +1320,10 @@ export function H2Start(): React.JSX.Element {
   const contactProps = linkProps('/contact/');
 
   return (
-    <section className="h2-section h2-rule" aria-labelledby="h2-start-title">
+    <section
+      className="h2-section h2-section--flush-bottom h2-rule"
+      aria-labelledby="h2-start-title"
+    >
       <div className="h2-shell">
         <div className="h2-eco__head h2-starthead">
           <div>
@@ -1339,7 +1342,7 @@ export function H2Start(): React.JSX.Element {
       </div>
 
       {/* row 1: accounts & wallets API */}
-      <div className="h2-startrow h2-rule">
+      <div className="h2-startrow h2-rule h2-rule--midtick">
         <div className="h2-shell h2-startrow__grid">
           <div className="h2-startrow__text">
             <h3>Accounts &amp; Wallets API</h3>
@@ -1366,15 +1369,21 @@ export function H2Start(): React.JSX.Element {
             <span className="tok-kw">const</span>
             {' seams = '}
             <span className="tok-kw">new</span>
-            {' SeamsClient({ apiKey: '}
+            {' SeamsClient({ '}
+            <span className="tok-prop">apiKey</span>
+            {': '}
             <span className="tok-str">'YOUR_API_KEY'</span>
             {' });\n\n'}
             <span className="tok-kw">const</span>
             {' account = '}
             <span className="tok-kw">await</span>
-            {' seams.register({\n  method: '}
+            {' seams.register({\n  '}
+            <span className="tok-prop">method</span>
+            {': '}
             <span className="tok-str">'passkey'</span>
-            {',\n  policy: '}
+            {',\n  '}
+            <span className="tok-prop">policy</span>
+            {': '}
             <span className="tok-str">'starter-store'</span>
             {',\n});'}
           </div>
@@ -1382,7 +1391,7 @@ export function H2Start(): React.JSX.Element {
       </div>
 
       {/* row 2: policy & delegation API */}
-      <div className="h2-startrow h2-rule">
+      <div className="h2-startrow h2-rule h2-rule--midtick">
         <div className="h2-shell h2-startrow__grid">
           <div className="h2-startrow__text">
             <h3>Policy &amp; Delegation API</h3>
@@ -1405,15 +1414,25 @@ export function H2Start(): React.JSX.Element {
             <span className="tok-kw">const</span>
             {' grant = '}
             <span className="tok-kw">await</span>
-            {' seams.delegation.grant({\n  to: '}
+            {' seams.delegation.grant({\n  '}
+            <span className="tok-prop">to</span>
+            {': '}
             <span className="tok-str">'support-agent'</span>
-            {',\n  scopes: ['}
+            {',\n  '}
+            <span className="tok-prop">scopes</span>
+            {': ['}
             <span className="tok-str">'refunds:issue'</span>
             {', '}
             <span className="tok-str">'emails:send'</span>
-            {'],\n  limit: { perAction: '}
+            {'],\n  '}
+            <span className="tok-prop">limit</span>
+            {': { '}
+            <span className="tok-prop">perAction</span>
+            {': '}
             <span className="tok-str">'¥10,000'</span>
-            {', expires: '}
+            {', '}
+            <span className="tok-prop">expires</span>
+            {': '}
             <span className="tok-str">'30d'</span>
             {' },\n});\n\n'}
             <span className="tok-cm">{'// risky actions route to the owner\n'}</span>
@@ -1425,11 +1444,12 @@ export function H2Start(): React.JSX.Element {
         </div>
       </div>
 
-      {/* row 3: wallet console */}
-      <div className="h2-startrow h2-startrow--console h2-rule">
-        <div className="h2-shell h2-startrow__grid">
+      {/* row 3: wallet console — two console pages staged side by side,
+          the right one cropped by the panel (elevenlabs.io-style band) */}
+      <div className="h2-startrow h2-rule h2-rule--midtick">
+        <div className="h2-shell h2-consoleband">
           <div className="h2-startrow__text">
-            <h3>Wallet console</h3>
+            <h3 className="h2-consoleband__title">Wallet console</h3>
             <p>
               Manage wallets, signing policy, team access, and pending approvals from one dashboard.
               Invite staff and agents without writing code.
@@ -1451,25 +1471,40 @@ export function H2Start(): React.JSX.Element {
               </a>
             </div>
           </div>
-          <div className="h2-startrow__visual h2-console-preview">
-            <div className="h2-console-preview__frame">
-              <div className="h2-console-preview__chrome" aria-hidden="true">
-                <span className="h2-console-preview__controls">
-                  <span />
-                  <span />
-                  <span />
-                </span>
-                <span className="h2-console-preview__address">seams.sh/dashboard</span>
-              </div>
-              <div className="h2-console-preview__viewport">
-                <img
-                  className="h2-console-preview__image"
-                  src="/wallet-preview/wallet-console-dashboard.png"
-                  alt="Wallet console with policy, API key, sponsorship, and operations controls"
-                  loading="lazy"
-                  decoding="async"
-                />
-              </div>
+          <div className="h2-startrow__notes h2-consoleband__legend">
+            <div>
+              <strong>Overview</strong>
+              <span>Wallets, approvals, and team activity at a glance</span>
+            </div>
+            <div>
+              <strong>Policy engine</strong>
+              <span>Signing rules and spend caps checked on every action</span>
+            </div>
+          </div>
+          <div
+            className="h2-consoleband__stage"
+            role="img"
+            aria-label="Wallet console overview and policy engine pages"
+          >
+            <div className="h2-consoleband__screen h2-consoleband__screen--overview">
+              <img
+                src="/wallet-preview/wallet-console-dashboard.png"
+                alt=""
+                width={2970}
+                height={1680}
+                loading="lazy"
+                decoding="async"
+              />
+            </div>
+            <div className="h2-consoleband__screen h2-consoleband__screen--policy">
+              <img
+                src="/wallet-preview/wallet-console-policy.png"
+                alt=""
+                width={2970}
+                height={1680}
+                loading="lazy"
+                decoding="async"
+              />
             </div>
           </div>
         </div>
