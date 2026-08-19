@@ -624,6 +624,30 @@ textarea {
   color: var(--dashboard-ink);
 }
 
+.install-copy-inner {
+  position: relative;
+  display: inline-block;
+  width: var(--install-copy-icon-size, 16px);
+  height: var(--install-copy-icon-size, 16px);
+}
+
+.install-copy-check,
+.install-copy-copy-icon {
+  position: absolute;
+  inset: 0;
+  place-items: center;
+}
+
+.install-copy-check,
+.install-copy.is-copied .install-copy-copy-icon {
+  display: none;
+}
+
+.install-copy-copy-icon,
+.install-copy.is-copied .install-copy-check {
+  display: grid;
+}
+
 .dashboard-context-copy-placeholder {
   width: 30px;
   height: 30px;
