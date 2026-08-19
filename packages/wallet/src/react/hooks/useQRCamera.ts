@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { getOptimalCameraFacingMode } from '@/utils/deviceDetection';
-import type { QrLinkedDeviceSessionPayloadV4 } from '@shared/device-linking';
+import type { QrLinkedDeviceSessionPayloadV5 } from '@shared/device-linking';
 import { ScanQRCodeFlow, enumerateVideoDevices, detectFrontCamera } from '@/utils/qrScanner';
 
 /**
@@ -33,7 +33,7 @@ export enum QRScanMode {
 }
 
 export interface UseQRCameraOptions {
-  onQRDetected?: (qrData: QrLinkedDeviceSessionPayloadV4) => void;
+  onQRDetected?: (qrData: QrLinkedDeviceSessionPayloadV5) => void;
   onError?: (error: Error) => void;
   isOpen?: boolean;
   cameraId?: string;

@@ -2,7 +2,7 @@ import type {
   LinkedDeviceSessionProjectionV1,
   LinkedDeviceSessionTransportEventV1,
   LinkDevicePublicKeyB64u,
-  QrLinkedDeviceSessionPayloadV4,
+  QrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking';
 import {
   parseLinkedDeviceApprovalDeliveryV1,
@@ -304,7 +304,7 @@ async function requestMutationV1(input: {
   readonly method: 'POST';
   readonly canonicalPath: string;
   readonly linkSessionId: LinkDeviceSessionId;
-  readonly body: QrLinkedDeviceSessionPayloadV4 | Record<string, unknown>;
+  readonly body: QrLinkedDeviceSessionPayloadV5 | Record<string, unknown>;
 }): Promise<SessionMutationEnvelopeV1> {
   const response = await requestDeviceV1(input);
   return parseSessionMutationEnvelopeV1(response.body);

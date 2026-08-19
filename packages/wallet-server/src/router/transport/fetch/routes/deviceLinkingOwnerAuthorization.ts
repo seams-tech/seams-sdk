@@ -3,10 +3,10 @@ import type {
   LinkedDeviceOwnerAuthorizationSourceV1,
   LinkedDeviceEnrollmentKeyBindingV1,
   LinkedDeviceProtocolVersionV1,
-  QrLinkedDeviceSessionPayloadV4,
+  QrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking';
 import {
-  parseQrLinkedDeviceSessionPayloadV4,
+  parseQrLinkedDeviceSessionPayloadV5,
   parseLinkedDeviceOwnerAuthorizationRequestV1,
 } from '@shared/device-linking/parsers';
 import type {
@@ -110,7 +110,7 @@ export type DeviceLinkingOwnerRequestAuthenticationV1 =
 
 export type DeviceLinkingOwnerAuthorizationRouteServiceV1 = {
   authorizeOwnerForLinkingV1(input: {
-    readonly payload: QrLinkedDeviceSessionPayloadV4;
+    readonly payload: QrLinkedDeviceSessionPayloadV5;
     readonly orderedOwnerSourceLaneHints: LinkedDeviceOwnerAuthorizationRequestV1['orderedOwnerSourceLaneHints'];
     readonly requestedAtMs: number;
     readonly bodyDigestB64u: DigestB64u;

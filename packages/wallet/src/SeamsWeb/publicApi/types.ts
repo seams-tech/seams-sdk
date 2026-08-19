@@ -165,7 +165,7 @@ import type {
 import type {
   LinkedDeviceListResultV1,
   LinkedDeviceRevokeResultV1,
-  QrLinkedDeviceSessionPayloadV4,
+  QrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking';
 import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
 import type {
@@ -949,7 +949,7 @@ export interface DevicesCapability {
   cancelDeviceLinking(): Promise<void>;
 
   scanAndLinkDevice(
-    qrData: QrLinkedDeviceSessionPayloadV4,
+    qrData: QrLinkedDeviceSessionPayloadV5,
     options: ScanAndLinkDeviceOptionsDevice1,
   ): Promise<LinkDeviceResult>;
 

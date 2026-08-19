@@ -11,7 +11,7 @@ import { DeviceLinkingError, DeviceLinkingErrorCode } from '@/core/types/linkDev
 import {
   buildCancelledClaimedPrecommitLinkedDeviceSessionState,
   buildCancelledUnclaimedLinkedDeviceSessionState,
-  buildQrLinkedDeviceSessionPayloadV4,
+  buildQrLinkedDeviceSessionPayloadV5,
   buildLinkedDeviceReceiptAcknowledgementV1,
   buildLinkedDeviceProvisioningCommandV1,
   buildLinkedDeviceSessionCancelClaimedRequestV1,
@@ -20,7 +20,7 @@ import {
   buildLinkedDeviceTargetCredentialRegistrationV1,
   buildDisplayingQrLinkedDeviceSessionState,
   assertNeverLinkedDeviceSessionState,
-  serializeQrLinkedDeviceSessionPayloadV4,
+  serializeQrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking';
 import { computeLinkedDeviceTargetPreparationDigestV1 } from '@shared/device-linking';
 import type {
@@ -34,7 +34,7 @@ import type {
   LinkedDeviceTargetPreparationV1,
   LinkedDeviceWalletSessionDeliveryV1,
   LinkedDeviceOwnerFinalizeRequestV1,
-  QrLinkedDeviceSessionPayloadV4,
+  QrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking';
 import { parseLinkDeviceSessionId } from '@shared/signing-lanes/ids';
 import { secureRandomId } from '@shared/utils/secureRandomId';
@@ -131,7 +131,7 @@ function phaseForState(state: LinkedDeviceSessionState): LinkDeviceEventPhase {
     case 'cancelled_unclaimed':
       return LinkDeviceEventPhase.STEP_01_QR_PREPARE_STARTED;
     case 'claimed_by_owner':
-    case 'awaiting_target_passkey':
+    case 'awaiting_target_factor':
     case 'provisioning':
     case 'active':
     case 'expired_claimed':
@@ -232,7 +232,7 @@ type RetainedLinkedOwnerFinalizeV1 = {
 function requireFinalizedOwnerPasskeyV1(
   finalized: RetainedLinkedOwnerFinalizeV1['finalized']['response'],
   expected: {
-    readonly state: Extract<LinkedDeviceSessionState, { state: 'awaiting_target_passkey' }>;
+    readonly state: Extract<LinkedDeviceSessionState, { state: 'awaiting_target_factor' }>;
     readonly preparation: LinkedDeviceTargetPreparationV1;
     readonly credential: Awaited<
       ReturnType<DeviceLinkingTargetCredentialPortV1['createTargetCredentialV1']>
@@ -336,7 +336,7 @@ export class LinkDeviceFlow {
       this.keyMaterialHandle = keyMaterial.handle;
       const issuedAtMs = Date.now();
       const linkSessionId = createLinkSessionId();
-      const qrData = buildQrLinkedDeviceSessionPayloadV4({
+      const qrData = buildQrLinkedDeviceSessionPayloadV5({
         linkSessionId,
         linkPublicKeyB64u: keyMaterial.linkPublicKeyB64u,
         devicePublicKeyB64u: keyMaterial.devicePublicKeyB64u,
@@ -378,7 +378,7 @@ export class LinkDeviceFlow {
         stage: 'session_subscription_ready',
       });
       const qrCodeDataURL = await generateQrCodeDataUrlV1(
-        serializeQrLinkedDeviceSessionPayloadV4(qrData),
+        serializeQrLinkedDeviceSessionPayloadV5(qrData),
       );
       this.assertCurrentRun(runEpoch);
       const result = { qrData, qrCodeDataURL } satisfies StartDevice2LinkingFlowResults;
@@ -458,7 +458,7 @@ export class LinkDeviceFlow {
             };
             break;
           case 'claimed_by_owner':
-          case 'awaiting_target_passkey':
+          case 'awaiting_target_factor':
             await authenticatedTransport.cancelSessionV1({
               request: buildLinkedDeviceSessionCancelClaimedRequestV1({
                 linkSessionId: session.linkSessionId,
@@ -525,7 +525,7 @@ export class LinkDeviceFlow {
       {
         state:
           | 'claimed_by_owner'
-          | 'awaiting_target_passkey'
+          | 'awaiting_target_factor'
           | 'provisioning'
           | 'committed_completion_required'
           | 'active';
@@ -588,7 +588,7 @@ export class LinkDeviceFlow {
           interaction: { kind: 'qr_display', overlay: 'show' },
         });
         return;
-      case 'awaiting_target_passkey':
+      case 'awaiting_target_factor':
         await this.prepareTargetCredentialActivation(event, runEpoch);
         return;
       // The canonical owner finalize advances the session to provisioning.
@@ -675,7 +675,7 @@ export class LinkDeviceFlow {
     event: LinkedDeviceSessionTransportEventV1,
     runEpoch: number,
   ): Promise<void> {
-    if (event.state.state !== 'awaiting_target_passkey') {
+    if (event.state.state !== 'awaiting_target_factor') {
       throw new Error('target passkey activation requires an awaiting session');
     }
     const state = event.state;
@@ -712,7 +712,7 @@ export class LinkDeviceFlow {
 
   private activateTargetCredential(input: {
     readonly event: LinkedDeviceSessionTransportEventV1;
-    readonly state: Extract<LinkedDeviceSessionState, { state: 'awaiting_target_passkey' }>;
+    readonly state: Extract<LinkedDeviceSessionState, { state: 'awaiting_target_factor' }>;
     readonly runEpoch: number;
     readonly deviceId: import('@shared/signing-lanes/ids').LinkedDeviceId;
     readonly preparation: LinkedDeviceTargetPreparationV1;
@@ -756,7 +756,7 @@ export class LinkDeviceFlow {
 
   private async runTargetCredentialActivation(input: {
     readonly event: LinkedDeviceSessionTransportEventV1;
-    readonly state: Extract<LinkedDeviceSessionState, { state: 'awaiting_target_passkey' }>;
+    readonly state: Extract<LinkedDeviceSessionState, { state: 'awaiting_target_factor' }>;
     readonly runEpoch: number;
     readonly deviceId: import('@shared/signing-lanes/ids').LinkedDeviceId;
     readonly preparation: LinkedDeviceTargetPreparationV1;
@@ -834,7 +834,7 @@ export class LinkDeviceFlow {
   }
 
   private async createTargetCredential(input: {
-    readonly state: Extract<LinkedDeviceSessionState, { state: 'awaiting_target_passkey' }>;
+    readonly state: Extract<LinkedDeviceSessionState, { state: 'awaiting_target_factor' }>;
     readonly runEpoch: number;
     readonly deviceId: import('@shared/signing-lanes/ids').LinkedDeviceId;
     readonly preparation: LinkedDeviceTargetPreparationV1;
@@ -1005,7 +1005,7 @@ export class LinkDeviceFlow {
    */
   private async commitLinkedOwnerEnrollmentV1(input: {
     readonly authenticatedTransport: DeviceLinkingAuthenticatedTransportPortV1;
-    readonly state: Extract<LinkedDeviceSessionState, { state: 'awaiting_target_passkey' }>;
+    readonly state: Extract<LinkedDeviceSessionState, { state: 'awaiting_target_factor' }>;
     readonly preparation: LinkedDeviceTargetPreparationV1;
     readonly credential: Awaited<
       ReturnType<DeviceLinkingTargetCredentialPortV1['createTargetCredentialV1']>
@@ -1083,7 +1083,7 @@ export class LinkDeviceFlow {
 
   private assertTargetPreparationMatchesSession(input: {
     readonly preparation: import('@shared/device-linking').LinkedDeviceTargetPreparationV1;
-    readonly state: Extract<LinkedDeviceSessionState, { state: 'awaiting_target_passkey' }>;
+    readonly state: Extract<LinkedDeviceSessionState, { state: 'awaiting_target_factor' }>;
     readonly deviceId: import('@shared/signing-lanes/ids').LinkedDeviceId;
   }): void {
     if (
@@ -1298,7 +1298,7 @@ export class LinkDeviceFlow {
         case 'active':
           return 'active';
         case 'claimed_by_owner':
-        case 'awaiting_target_passkey':
+        case 'awaiting_target_factor':
         case 'provisioning':
           break;
         case 'expired_unclaimed':
@@ -1377,7 +1377,7 @@ export class LinkDeviceFlow {
       LinkedDeviceSessionState,
       {
         readonly state:
-          | 'awaiting_target_passkey'
+          | 'awaiting_target_factor'
           | 'provisioning'
           | 'committed_completion_required'
           | 'active';
@@ -1408,7 +1408,7 @@ export class LinkDeviceFlow {
       LinkedDeviceSessionState,
       {
         readonly state:
-          | 'awaiting_target_passkey'
+          | 'awaiting_target_factor'
           | 'provisioning'
           | 'committed_completion_required'
           | 'active';
@@ -1448,7 +1448,7 @@ export class LinkDeviceFlow {
       LinkedDeviceSessionState,
       {
         readonly state:
-          | 'awaiting_target_passkey'
+          | 'awaiting_target_factor'
           | 'provisioning'
           | 'committed_completion_required'
           | 'active';
@@ -1575,7 +1575,7 @@ export class LinkDeviceFlow {
     if (!transport) return;
     switch (event.state.state) {
       case 'claimed_by_owner':
-      case 'awaiting_target_passkey': {
+      case 'awaiting_target_factor': {
         const cancelledAtMs = Date.now();
         await transport.cancelSessionV1({
           request: buildLinkedDeviceSessionCancelClaimedRequestV1({
@@ -1731,7 +1731,7 @@ export class DeviceLinkingDomain {
   }
 
   async scanAndLinkDevice(
-    qrData: QrLinkedDeviceSessionPayloadV4,
+    qrData: QrLinkedDeviceSessionPayloadV5,
     options: ScanAndLinkDeviceOptionsDevice1,
   ): Promise<LinkDeviceResult> {
     if (this.deps.kind === 'direct' && !this.deps.walletIframe.shouldUseWalletIframe()) {

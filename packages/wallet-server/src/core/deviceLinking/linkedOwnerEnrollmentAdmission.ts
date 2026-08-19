@@ -14,7 +14,7 @@
  *
  * The binding records which key manifest the new owner credential is bound to.
  * That manifest arrives with the approval — read from the owner Wallet Session
- * that authorized it — so it exists from `awaiting_target_passkey` onward and
+ * that authorized it — so it exists from `awaiting_target_factor` onward and
  * the finalize no longer has to wait for a signing lane to commit one.
  */
 import type { LinkedDeviceTargetPreparationV1 } from '@shared/device-linking/contracts';
@@ -45,14 +45,14 @@ export type LinkedOwnerEnrollmentAdmissionResultV1 =
 
 /**
  * The session states a linked owner finalize may be admitted from: every state
- * an approval has been recorded in. `awaiting_target_passkey` is the state
+ * an approval has been recorded in. `awaiting_target_factor` is the state
  * Device 2 is actually in when it finalizes, and it is admissible because the
  * approval it already holds carries the manifest.
  */
 type AdmissibleSessionStateV1 = Extract<
   LinkedDeviceSessionRecordV1['state'],
   {
-    readonly state: 'awaiting_target_passkey' | 'provisioning' | 'committed_completion_required';
+    readonly state: 'awaiting_target_factor' | 'provisioning' | 'committed_completion_required';
   }
 >;
 
@@ -112,7 +112,7 @@ function admissibleState(
   state: LinkedDeviceSessionRecordV1['state'],
 ): AdmissibleSessionStateV1 | null {
   switch (state.state) {
-    case 'awaiting_target_passkey':
+    case 'awaiting_target_factor':
     case 'provisioning':
     case 'committed_completion_required':
       return state;

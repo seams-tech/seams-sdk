@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import type { QrLinkedDeviceSessionPayloadV4 } from '@shared/device-linking';
+import type { QrLinkedDeviceSessionPayloadV5 } from '@shared/device-linking';
 import {
   classifyLinkDeviceFlowEvent,
   type LinkDeviceFlowEvent,
@@ -12,7 +12,7 @@ import { Theme, useTheme } from './theme';
  * QR scanner shell for the linked-device flow.
  */
 export interface QRCodeScannerProps {
-  onQRCodeScanned?: (qrData: QrLinkedDeviceSessionPayloadV4) => void;
+  onQRCodeScanned?: (qrData: QrLinkedDeviceSessionPayloadV5) => void;
   onError?: (error: Error) => void;
   onClose?: () => void;
   onEvent?: (event: LinkDeviceFlowEvent) => void;
@@ -40,7 +40,7 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
     [theme, tokens],
   );
 
-  const scannedPayloadRef = React.useRef<QrLinkedDeviceSessionPayloadV4 | null>(null);
+  const scannedPayloadRef = React.useRef<QrLinkedDeviceSessionPayloadV5 | null>(null);
   const completionReportedRef = React.useRef(false);
 
   const handleLinkDeviceEvent = React.useCallback(
@@ -63,7 +63,7 @@ export const QRCodeScanner: React.FC<QRCodeScannerProps> = ({
   });
 
   const qrCamera = useQRCamera({
-    onQRDetected: async (qrData: QrLinkedDeviceSessionPayloadV4) => {
+    onQRDetected: async (qrData: QrLinkedDeviceSessionPayloadV5) => {
       scannedPayloadRef.current = qrData;
       await linkDevice(qrData, QRScanMode.CAMERA);
     },

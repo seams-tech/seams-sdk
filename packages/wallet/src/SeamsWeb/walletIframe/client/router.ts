@@ -138,7 +138,7 @@ import {
   parseLinkedDeviceListResultV1,
   parseLinkedDeviceRevokeRequestV1,
   parseLinkedDeviceRevokeResultV1,
-  type QrLinkedDeviceSessionPayloadV4,
+  type QrLinkedDeviceSessionPayloadV5,
   type LinkedDeviceListResultV1,
   type LinkedDeviceRevokeResultV1,
 } from '@shared/device-linking';
@@ -3423,7 +3423,7 @@ export class WalletIframeRouter {
   }
 
   async scanAndLinkDevice(payload: {
-    qrData: QrLinkedDeviceSessionPayloadV4;
+    qrData: QrLinkedDeviceSessionPayloadV5;
     options?: {
       onEvent?: (ev: LinkDeviceFlowEvent) => void;
       confirmationConfig?: Partial<ConfirmationConfig>;

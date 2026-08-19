@@ -1,10 +1,10 @@
 import { expect, test } from '@playwright/test';
 import {
   buildActiveLinkedDeviceSessionState,
-  buildAwaitingTargetPasskeyLinkedDeviceSessionState,
+  buildAwaitingTargetFactorLinkedDeviceSessionState,
   buildLinkedDeviceSessionClaimV1,
   buildProvisioningLinkedDeviceSessionState,
-  buildQrLinkedDeviceSessionPayloadV4,
+  buildQrLinkedDeviceSessionPayloadV5,
 } from '../../packages/shared-ts/src/device-linking';
 import type {
   Device1LinkingFlowPortsV1,
@@ -24,7 +24,7 @@ import {
 test('seals once and replays the exact package after a lost first submission', async () => {
   const fixture = buildR103DeviceLinkFixture();
   const now = Date.now();
-  const payload = buildQrLinkedDeviceSessionPayloadV4({
+  const payload = buildQrLinkedDeviceSessionPayloadV5({
     ...fixture.payload,
     issuedAtMs: now - 1_000,
     expiresAtMs: now + 60_000,
@@ -34,7 +34,7 @@ test('seals once and replays the exact package after a lost first submission', a
     source: fixture.approval.ownerAuthorization,
     proofDigestB64u: fixture.approval.policyDigestB64u,
   };
-  const pendingState = buildAwaitingTargetPasskeyLinkedDeviceSessionState({
+  const pendingState = buildAwaitingTargetFactorLinkedDeviceSessionState({
     linkSessionId: fixture.approval.linkSessionId,
     walletId: fixture.approval.walletId,
     enrollmentId: fixture.approval.enrollmentId,

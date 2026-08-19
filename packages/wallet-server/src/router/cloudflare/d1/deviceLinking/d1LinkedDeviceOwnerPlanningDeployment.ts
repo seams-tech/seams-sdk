@@ -1,5 +1,5 @@
 import type {
-  QrLinkedDeviceSessionPayloadV4,
+  QrLinkedDeviceSessionPayloadV5,
   LinkedDeviceOwnerSourceLaneV1,
 } from '@shared/device-linking/contracts';
 import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
@@ -67,7 +67,7 @@ export class D1LinkedDeviceOwnerPlanningDeploymentV1 implements D1LinkedDeviceOw
 
   async planOwnerPlanningV1(input: {
     readonly owner: DeviceLinkingOwnerWalletSessionContextV1;
-    readonly payload: QrLinkedDeviceSessionPayloadV4;
+    readonly payload: QrLinkedDeviceSessionPayloadV5;
     readonly orderedOwnerSourceLaneHints: NonEmpty<LinkedDeviceOwnerSourceLaneV1>;
     readonly projections: NonEmpty<ActiveOwnerWalletExecutionLaneProjection>;
   }): Promise<D1LinkedDeviceOwnerPlanningDeploymentPlanV1> {
@@ -160,7 +160,7 @@ export class D1LinkedDeviceOwnerPlanningDeploymentV1 implements D1LinkedDeviceOw
     readonly index: number;
     readonly input: {
       readonly owner: DeviceLinkingOwnerWalletSessionContextV1;
-      readonly payload: QrLinkedDeviceSessionPayloadV4;
+      readonly payload: QrLinkedDeviceSessionPayloadV5;
       readonly orderedOwnerSourceLaneHints: NonEmpty<LinkedDeviceOwnerSourceLaneV1>;
       readonly projections: NonEmpty<ActiveOwnerWalletExecutionLaneProjection>;
     };

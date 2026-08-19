@@ -390,7 +390,7 @@ function assertPreparationInput(
   requestedAtMs: number,
 ): void {
   if (
-    session.state.state !== 'awaiting_target_passkey' ||
+    session.state.state !== 'awaiting_target_factor' ||
     session.linkSessionId !== approval.linkSessionId ||
     session.state.walletId !== approval.walletId ||
     session.state.enrollmentId !== approval.enrollmentId ||

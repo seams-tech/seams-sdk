@@ -206,7 +206,7 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
       assertPreparationMatchesSession(persisted.preparation, input.session, input.approval);
       return persisted.preparation;
     }
-    if (input.session.state.state !== 'awaiting_target_passkey') {
+    if (input.session.state.state !== 'awaiting_target_factor') {
       throw new Error('linked-device target preparation is unavailable in this session state');
     }
     const preparation = parseLinkedDeviceTargetPreparationV1(

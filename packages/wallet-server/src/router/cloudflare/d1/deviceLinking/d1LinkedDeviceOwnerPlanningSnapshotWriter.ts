@@ -1,10 +1,10 @@
 import type {
   LinkedDeviceOwnerSourceLaneV1,
-  QrLinkedDeviceSessionPayloadV4,
+  QrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking/contracts';
 import {
   parseLinkedDeviceOwnerSourceLaneV1,
-  parseQrLinkedDeviceSessionPayloadV4,
+  parseQrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking/parsers';
 import { parseAuthorizedOperationId } from '@shared/authorization/capabilityKinds';
 import type { EcdsaSourceCapabilityBindingV1 } from '@shared/signing-lanes/rotation';
@@ -49,7 +49,7 @@ export type D1LinkedDeviceOwnerPlanningDeploymentPlanV1 = {
 export type D1LinkedDeviceOwnerPlanningDeploymentPortV1 = {
   planOwnerPlanningV1(input: {
     readonly owner: DeviceLinkingOwnerWalletSessionContextV1;
-    readonly payload: QrLinkedDeviceSessionPayloadV4;
+    readonly payload: QrLinkedDeviceSessionPayloadV5;
     /** Browser ECDSA manifest identity is authenticated against the D1 projection before use. */
     readonly orderedOwnerSourceLaneHints: NonEmpty<LinkedDeviceOwnerSourceLaneV1>;
     /** Every projection was resolved from the D1 wallet signer/auth records. */
@@ -79,10 +79,10 @@ export class D1LinkedDeviceOwnerPlanningSnapshotWriterV1 {
 
   async writeV1(input: {
     readonly owner: DeviceLinkingOwnerWalletSessionContextV1;
-    readonly payload: QrLinkedDeviceSessionPayloadV4;
+    readonly payload: QrLinkedDeviceSessionPayloadV5;
     readonly orderedOwnerSourceLaneHints: NonEmpty<LinkedDeviceOwnerSourceLaneV1>;
   }): Promise<D1LinkedDeviceOwnerPlanningSnapshotMutationV1> {
-    const payload = parseQrLinkedDeviceSessionPayloadV4(input.payload);
+    const payload = parseQrLinkedDeviceSessionPayloadV5(input.payload);
     const hints = normalizeHints(input.orderedOwnerSourceLaneHints, input.owner.walletId);
     const projections = await resolveAuthoritativeProjections(this.walletRegistration, hints);
     const deploymentPlan = await this.deployment.planOwnerPlanningV1({
@@ -163,7 +163,7 @@ function assertProjectionMatchesHint(
 
 function buildSnapshotInput(input: {
   readonly owner: DeviceLinkingOwnerWalletSessionContextV1;
-  readonly payload: QrLinkedDeviceSessionPayloadV4;
+  readonly payload: QrLinkedDeviceSessionPayloadV5;
   readonly hints: NonEmpty<LinkedDeviceOwnerSourceLaneV1>;
   readonly projections: NonEmpty<ActiveOwnerWalletExecutionLaneProjection>;
   readonly deploymentPlan: D1LinkedDeviceOwnerPlanningDeploymentPlanV1;
