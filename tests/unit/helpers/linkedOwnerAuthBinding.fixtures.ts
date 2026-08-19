@@ -34,6 +34,7 @@ export type LinkedOwnerAuthBindingFixtureOverridesV1 = {
   readonly walletId?: string;
   readonly enrollmentId?: string;
   readonly deviceId?: string;
+  readonly keyManifestDigestB64u?: string;
   readonly activatedAtMs?: number;
 };
 
@@ -73,7 +74,9 @@ function bindingIdentity(overrides: LinkedOwnerAuthBindingFixtureOverridesV1) {
       parseLinkedDeviceEnrollmentId(overrides.enrollmentId ?? 'enrollment:r103p8'),
     ),
     deviceId: required(parseLinkedDeviceId(overrides.deviceId ?? 'device:r103p8')),
-    keyManifestDigestB64u: KEY_MANIFEST_DIGEST_B64U,
+    keyManifestDigestB64u: overrides.keyManifestDigestB64u
+      ? parseDigestB64u(overrides.keyManifestDigestB64u)
+      : KEY_MANIFEST_DIGEST_B64U,
     activatedAtMs: overrides.activatedAtMs ?? LINKED_OWNER_BINDING_ACTIVATED_AT_MS,
   };
 }
