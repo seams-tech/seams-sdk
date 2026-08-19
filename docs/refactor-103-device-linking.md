@@ -796,91 +796,160 @@ resulting artifact.
 
 ### Phase 6: Passkey Or Email OTP Target Factor
 
-This phase extends the target-device authorization boundary. Device 2 chooses
-one factor before displaying its QR. Device 1 approves that exact factor kind,
-and every holder envelope, activation receipt, Wallet Session, and signing
-admission remains bound to the same device and enrollment. Passkey remains the
+Status: planned. The current production protocol is Passkey-only. Automation
+must not label a Passkey target as an Email OTP flow. This phase adds the
+missing production branch and then proves both branches against the composed
+runtime.
+
+Device 2 chooses its factor before creating the QR. Device 1 approves that
+exact choice. Every subsequent challenge, grant, owner authority, holder
+envelope, Wallet Session, activation receipt, and revocation command remains
+bound to the same wallet, device, and enrollment. Passkey remains the
 recommended choice.
 
-The Email OTP branch reuses Refactor 100's verified Email OTP factor and
-`email_otp_factor_release_v1`. It introduces no second OTP store, factor secret,
-or custody construction.
+The Email OTP branch reuses Refactor 100's OTP challenge store, verified wallet
+factor, and `email_otp_factor_release_v1`. It creates no second OTP system,
+factor secret, custody construction, or wallet-wide fallback.
 
-#### Exact Protocol State
+#### Identity Model
 
-- [ ] Replace the QR v4 target contract with QR v5 containing one compact,
-      public target-factor discriminator: `passkey_prf` or `email_otp`. Delete
-      the v4 parser, types, fixtures, and state branches at cutover.
-- [ ] Replace `awaiting_target_passkey` with `awaiting_target_factor`. Model the
-      target choice as a discriminated union whose Passkey and Email OTP fields
-      are mutually exclusive and whose switches are exhaustive.
-- [ ] Bind the selected factor kind into the QR transcript, owner claim,
-      approval digest, aggregate enrollment, and activation receipts.
-- [ ] Resolve the exact verified wallet Email OTP factor after the owner claim.
-      Reject the Email OTP branch before approval when the wallet has no active
-      Email OTP factor. Device 2 cannot enter an arbitrary email address.
+The verified wallet Email OTP factor answers “which email authority may
+authenticate this wallet?” It does not identify one linked device. Reusing its
+wallet-wide auth-method identity directly would cause two linked Email OTP
+devices to share owner scope, signing lanes, and revocation identity.
 
-#### Factor Completion And Holder Sealing
+Introduce one enrollment-scoped linked Email OTP owner authority. It contains:
 
-- [ ] Keep the Passkey branch's current post-approval WebAuthn creation, PRF
-      extraction, worker-only factor KEK derivation, and zeroization path.
-- [ ] Add an Email OTP branch that sends a code to the server-resolved wallet
-      email, consumes one verified OTP grant, and releases the existing factor
-      secret HPKE-encrypted directly to the wallet worker.
-- [ ] Derive the holder-envelope KEK and prepare both curve holder
-      registrations inside the worker. Raw OTP values, factor secrets, PRF
-      output, and KEKs never enter persistence or public UI state.
-- [ ] Persist one factor-specific public reference with the enrollment. The
-      reference contains the factor kind and exact server-owned enrollment
-      identity required for later authorization; it contains no secret.
+- the wallet, device, and enrollment IDs;
+- the server-owned base Email OTP auth-method reference;
+- a unique linked-owner auth-method ID derived from the wallet, enrollment,
+  device, and base factor reference;
+- the authority digest used by Wallet Sessions and R103C owner-lane scope.
 
-#### Signing And Session Admission
+The base Email OTP factor remains reusable as the authentication mechanism.
+The derived linked-owner authority is the exact principal. Revoking one linked
+device retires only its derived authority, linked Wallet Sessions, and lanes;
+it does not revoke the base factor or another device.
 
-- [ ] Replace the Passkey-only linked local-presence input with an exact
-      `LinkedDeviceFactorAuthorizationV1` union. The Passkey branch carries the
-      existing WebAuthn assertion and PRF evidence. The Email OTP branch carries
-      a consumed OTP grant and the exact Email OTP factor reference.
-- [ ] Let a successful Email OTP verification establish a device-, enrollment-,
-      factor-, wallet-, and intent-bound linked Wallet Session. Reuse that
-      session until expiry or quota exhaustion; request another code when no
-      valid session exists.
-- [ ] Preserve the ordinary NEAR, Tempo, and EVM signing entry points for both
-      branches. Linked-device admission remains the only branch-specific
-      boundary, and both curves continue through their linked normal-signing
-      implementations.
-- [ ] Apply aggregate revocation, suspension, expiry, and local material cleanup
-      identically to Passkey and Email OTP enrollments.
+#### Phase 6.1 — Protocol Cutover
 
-#### Device 2 Experience
+- [ ] Replace QR v4 with QR v5. Its only new public field is the target-factor
+      discriminator `passkey_prf | email_otp`; it carries no email address,
+      factor ID, or secret. Delete the QR v4 parser, builder, fixtures, and
+      compatibility branch in the same change.
+- [ ] Replace `awaiting_target_passkey` with an exhaustive
+      `awaiting_target_factor` union. The Passkey branch carries its credential
+      deadline. The Email OTP branch carries only server-issued public
+      challenge state and a masked email hint after owner approval.
+- [ ] Bind the factor discriminator into the QR transcript, claim, owner
+      approval, target preparation, provisioning command, aggregate receipt,
+      and every replay digest.
+- [ ] Reject a claim before approval when `email_otp` was selected and the
+      wallet has no active verified Email OTP factor. Device 2 never supplies
+      or changes the email address.
 
-- [ ] Show `Passkey (recommended)` and `Email code` before QR creation. Explain
-      that Passkey uses this device's biometric or screen lock and Email OTP
-      sends a code to the wallet's verified email.
-- [ ] After Device 1 approval, replace the QR immediately with the selected
-      factor screen. Passkey shows the existing focused confirmation action;
-      Email OTP sends the code and focuses the code input.
-- [ ] Show only the masked, server-resolved email hint. Provide direct expired,
-      incorrect-code, resend, unavailable-factor, and owner-denied recovery
-      actions without returning to an ambiguous intermediate state.
+Exit criterion: a stored session has one immutable target-factor branch, and
+replaying any artifact with the other branch fails before credential or lane
+creation.
 
-#### Verification And Cutover
+#### Phase 6.2 — Email OTP Completion And Worker Handoff
 
-- [ ] Add type fixtures proving that Passkey fields cannot enter Email OTP
-      states and Email OTP fields cannot enter Passkey states.
-- [ ] Add focused behavior tests for claim binding, factor completion, holder
-      sealing, active-session reuse, expiry, quota exhaustion, replay, wrong
-      factor identity, and revocation across both curves.
-- [ ] Run one two-device Passkey E2E and one two-device Email OTP E2E. Each must
-      link the device and sign one NEAR operation and one Tempo or EVM operation
-      through the linked routes, with exact network assertions proving the
-      owner signing routes were not used.
-- [ ] Reconcile the goal, invariants, state diagrams, API tables, validation
-      checklist, and product copy after the implementation lands. Delete the
-      superseded Passkey-only domain names in the same cutover.
+- [ ] Add authenticated link-session routes to start, resend, and verify the
+      target Email OTP challenge. Resolve the destination exclusively from the
+      approved base factor.
+- [ ] Bind each challenge and one-time verification grant to the wallet,
+      link-session, device, enrollment, target-factor kind, and target
+      preparation digest. Consume the grant exactly once and enforce its TTL.
+- [ ] Reuse `email_otp_factor_release_v1` to HPKE-encrypt the existing factor
+      secret directly to the target wallet worker's ephemeral recipient key.
+      JavaScript receives only the opaque release envelope and public result.
+- [ ] Inside the worker, decrypt the release, derive the custody and holder
+      envelope KEKs, reseal the wallet custody envelope, and prepare the exact
+      Ed25519 and ECDSA holder records. Zeroize the OTP, factor secret, and KEKs
+      after use.
+- [ ] Persist only the enrollment-scoped public factor reference, canonical
+      owner binding, sealed envelopes, and exact lane evidence. Raw OTPs,
+      factor secrets, PRF output, and KEKs never enter IndexedDB, D1, messages,
+      logs, callbacks, or React state.
 
-Phase 6 is complete when both factor branches activate the same linked-device
-lane model, holder material remains worker-confined, valid Email OTP linked
-Wallet Sessions avoid redundant step-up, and the two live browser flows pass.
+Exit criterion: Email OTP activation produces the same durable lane and
+custody postconditions as Passkey activation without exposing factor material
+outside the worker.
+
+#### Phase 6.3 — Canonical Owner And Runtime Admission
+
+- [ ] Add the enrollment-scoped Email OTP auth-method branch at the persistence
+      boundary and derive its `WalletAuthAuthorityRef` from the stored base
+      factor plus device and enrollment identity. Do not make identity fields
+      optional.
+- [ ] Extend R103C `OwnerLaneScope` so an Email OTP linked owner includes its
+      device and enrollment identity. Filter Ed25519 and ECDSA lanes by that
+      exact authority before canonicalization.
+- [ ] Replace Passkey-only linked local presence with an exhaustive
+      `LinkedDeviceFactorAuthorizationV1` union. Passkey carries the existing
+      WebAuthn evidence. Email OTP carries the consumed, intent-bound grant and
+      linked-owner authority reference.
+- [ ] Issue linked Wallet Sessions for the derived Email OTP owner authority.
+      Reuse a valid session until quota exhaustion or expiry; then require a
+      new operation-scoped code.
+- [ ] Route unlock, NEAR, Tempo, EVM, step-up, Ed25519 export, and ECDSA export
+      through the same owner-scoped operational readers used by Passkey.
+- [ ] Apply pause, revocation, expiry, and local invalidation to the exact
+      derived authority and enrollment. Refuse wallet-wide Email OTP fallback.
+
+Exit criterion: two linked Email OTP devices can coexist without sharing owner
+scope or lanes, and revoking either device leaves the other and the base factor
+operational.
+
+#### Phase 6.4 — Device Experience
+
+- [ ] Before QR creation show `Passkey (recommended)` and `Email code` as the
+      two target-factor choices. Explain that the email destination comes from
+      the wallet and cannot be entered on Device 2.
+- [ ] After owner approval, replace the QR with the selected factor screen.
+      Passkey keeps its existing focused creation action. Email OTP sends one
+      code and focuses the code input.
+- [ ] Display only the server-provided masked email hint. Model incorrect code,
+      expired code, resend, unavailable factor, owner denial, and completed
+      activation as explicit states with direct recovery actions.
+- [ ] Keep prompt counters visible to the test harness: Passkey linking creates
+      exactly one target credential; Email OTP linking performs no WebAuthn
+      operation and sends exactly one code unless resend is selected.
+
+Exit criterion: UI state follows the protocol union directly and cannot show a
+Passkey action for an Email OTP session or accept an email address from Device
+2.
+
+#### Phase 6.5 — Verification And Cleanup
+
+- [ ] Add type fixtures rejecting mixed factor branches, missing linked-owner
+      identity, optional security fields, and direct construction of invalid
+      session states.
+- [ ] Add focused boundary tests for wrong-factor replay, wrong enrollment,
+      wrong device, expired and reused grants, factor-release recipient swaps,
+      incomplete holder persistence, duplicate exact records, and independent
+      revocation.
+- [ ] Parameterize the real two-context operating-path contract over
+      `passkey_prf` and `email_otp`. Use clean browser profiles and a fresh
+      wallet for each branch.
+- [ ] For both branches prove link, refresh, lock, unlock, NEAR and EVM-family
+      signing, step-up, Ed25519 and ECDSA export, metadata, third-device link,
+      and revocation. Assert identical wallet public identity across devices.
+- [ ] Assert exact network routes and auth counts. The Email OTP branch must
+      perform zero WebAuthn operations; the Passkey branch must perform no OTP
+      verification. Both must use linked execution lanes and canonical owner
+      authorization.
+- [ ] Run the parameterized contract from `test:intended` and
+      `test:intended:ci` against the composed runtime. Keep the focused
+      `test:linked-device` command only as a developer iteration entrypoint.
+- [ ] Delete superseded Passkey-only names, QR v4 fixtures, old session-state
+      branches, and tests that encode wallet-wide Email OTP owner selection.
+      Add no compatibility mode or dual parser.
+
+Phase 6 is complete when both real browser branches pass from clean state,
+Email OTP factor material stays worker-confined, each linked Email OTP device
+has an exact independently revocable owner scope, and no Passkey-only protocol
+branch remains.
 
 ### Phase 7: Complete The Signing-Only Vertical Slice
 
