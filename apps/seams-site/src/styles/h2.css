@@ -291,6 +291,21 @@ body:has(.h2-page) {
       no-repeat;
 }
 
+/* Variant with a third tick at the row's center, for rows whose grid draws
+   a center divider: same corner ticks, plus the mid intersection */
+.h2-rule--midtick::after {
+  background:
+    linear-gradient(var(--h2-ink), var(--h2-ink)) left 10px center / 2px 2px no-repeat,
+    linear-gradient(var(--h2-ink), var(--h2-ink)) right 10px center / 2px 2px no-repeat,
+    linear-gradient(var(--h2-ink), var(--h2-ink)) center / 2px 2px no-repeat,
+    radial-gradient(circle 11px at 11px 50%, var(--h2-bg) 98%, transparent) left center / 22px 23px
+      no-repeat,
+    radial-gradient(circle 11px at 11px 50%, var(--h2-bg) 98%, transparent) right center / 22px 23px
+      no-repeat,
+    radial-gradient(circle 11px at 50% 50%, var(--h2-bg) 98%, transparent) center / 22px 23px
+      no-repeat;
+}
+
 /* No column borders below 1160px: keep the rule clean, drop the ticks */
 @media (max-width: 1160px) {
   .h2-rule::after {
@@ -305,6 +320,11 @@ body:has(.h2-page) {
 /* variant for sections whose content should hug the surrounding rules */
 .h2-section--snug {
   padding: 64px 0 14px;
+}
+
+/* variant for sections whose last row carries its own bottom spacing */
+.h2-section--flush-bottom {
+  padding-bottom: 0;
 }
 
 /* Split section header: display headline left, smoke paragraph right */
@@ -1059,12 +1079,17 @@ body:has(.h2-page) {
   filter: drop-shadow(0 22px 40px rgba(15, 23, 42, 0.14));
   transform: scale(0.8);
   margin: -52px 0;
+  /* an explicit width (not the grid's shrink-wrap) so the card inside can
+     stretch past its ~317px intrinsic footprint */
+  width: min(440px, 100%);
 }
 
 /* the card's own border (--w3a borderPrimary) vanishes against the tinted
-   aside; lift it to a visible-but-light warm gray */
+   aside; lift it to a visible-but-light warm gray. Widened past the SDK's
+   natural min(330px) footprint, which reads narrow in the hero panel. */
 .h2-heroscene__shell .w3a-signup-menu-root {
   border-color: #ddd8d1;
+  width: 100%;
 }
 
 /* the skeleton dims its disabled controls; restore the live card's contrast */
@@ -3552,17 +3577,50 @@ body:has(.h2-page) {
   padding-bottom: 50px;
 }
 
+/* the band heading runs at the custody section's display scale; the wider
+   measure keeps it to two lines at that size */
+.h2-starthead .h2-eco__title {
+  font-size: clamp(27px, 2.9vw, 38px);
+  max-width: 620px;
+}
+
 .h2-starthead__cta {
   margin-top: 24px;
 }
 
+/* the row's 50px vertical rhythm lives on the text column, not the grid, so
+   the code card can run to within 1rem of the row rules */
 .h2-startrow__grid {
+  position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
-  gap: 44px 58px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   align-items: center;
-  padding-top: 50px;
-  padding-bottom: 50px;
+  padding-top: 16px;
+  padding-bottom: 16px;
+}
+
+/* hairline between the two even halves; the halves pad away from it, and
+   .h2-rule--midtick puts a tick where it crosses the row rules */
+.h2-startrow__grid::before {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 50%;
+  border-inline-start: 1px solid var(--h2-line);
+  pointer-events: none;
+}
+
+.h2-startrow__text {
+  padding-block: 34px;
+  padding-inline-end: 56px;
+}
+
+.h2-startrow__grid > .h2-code {
+  align-self: stretch;
+  margin-inline-start: 16px;
+  /* run through the shell's inline padding so the right gap matches the
+     1rem clearance on the other sides */
+  margin-inline-end: -20px;
 }
 
 .h2-startrow__text h3 {
@@ -3615,140 +3673,142 @@ body:has(.h2-page) {
   justify-items: center;
 }
 
-.h2-startrow--console .h2-startrow__grid {
+/* Wallet console band: heading + two-page legend above a tinted stage that
+   crops two console screens, elevenlabs.io-style — the overview screen in
+   front at the left, the policy screen sliding out of the right edge. All
+   screen geometry is percentage-based so the stage scales proportionally. */
+.h2-consoleband {
+  display: grid;
+  gap: 30px;
+  padding-top: 50px;
+  padding-bottom: 32px;
+}
+
+/* legend columns track the stage split so each label sits over its screen */
+/* display-scale title, matching the custody section's heading */
+.h2-startrow__text h3.h2-consoleband__title {
+  margin: 0 0 14px;
+  font-size: clamp(27px, 2.9vw, 38px);
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  line-height: 1.08;
+}
+
+.h2-consoleband__legend {
+  grid-template-columns: minmax(0, 46fr) minmax(0, 54fr);
+  margin-top: -4px;
+}
+
+.h2-consoleband__stage {
   position: relative;
   overflow: hidden;
-}
-
-/* layered product collage: browser mockup base + floating menu + confirmer */
-.h2-console-collage {
-  position: absolute;
-  inset-inline-end: 0;
-  inset-block-end: 0;
-  width: 407px;
-  height: 254px;
-}
-
-.h2-console-preview {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  border-start-start-radius: 14px;
-  background: var(--h2-bg);
-  outline: 1px solid oklch(0 0 0 / 0.1);
-  outline-offset: -1px;
-}
-
-.h2-console-preview__chrome {
-  display: flex;
-  flex: 0 0 24px;
-  align-items: center;
-  gap: 8px;
-  padding-inline: 9px;
-  border-bottom: 1px solid var(--h2-stone);
+  aspect-ratio: 14 / 5;
+  border-radius: 26px;
+  border: 1px solid var(--h2-stone);
   background: var(--h2-taupe);
 }
 
-.h2-console-preview__controls {
-  display: flex;
-  gap: 4px;
-}
-
-.h2-console-preview__controls span {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--h2-ash);
-}
-
-.h2-console-preview__controls span:nth-child(2) {
-  opacity: 0.65;
-}
-
-.h2-console-preview__controls span:nth-child(3) {
-  opacity: 0.35;
-}
-
-.h2-console-preview__address {
-  min-width: 0;
-  max-width: 150px;
+/* each card window shows a left-crop of its page at readable scale: the img
+   is wider than the card, so the card's fixed width crops the right side and
+   the stage bottom crops the rest */
+.h2-consoleband__screen {
+  position: absolute;
   overflow: hidden;
-  padding: 2px 8px;
-  border-radius: 999px;
+  border-radius: 12px;
+  border: 1px solid #e3ded6;
   background: var(--h2-bg);
-  font-family: var(--h2-mono);
-  font-size: 7px;
-  line-height: 1.2;
-  color: var(--h2-smoke);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  box-shadow: 0 24px 60px -30px rgba(15, 23, 42, 0.3);
 }
 
-.h2-console-preview__viewport {
-  min-height: 0;
-  flex: 1;
-}
-
-.h2-console-preview__image {
+.h2-consoleband__screen img {
   display: block;
   width: 100%;
-  height: 100%;
-  object-fit: contain;
+  height: auto;
 }
 
-/* crop wrappers frame each screenshot to its card; percentages keep the
-   composition proportional at every collage size */
-.h2-console-collage__menu,
-.h2-console-collage__confirmer {
-  position: absolute;
-  overflow: hidden;
-  background: var(--h2-bg);
-  outline: 1px solid oklch(0 0 0 / 0.12);
-  outline-offset: -1px;
+/* The screens overlap by about a third and swap focus with a sliding soft
+   mask (the elevenlabs.io mechanic): each card carries a fixed gradient mask
+   twice its width, and only mask-position, translateY, and z-index change
+   between states — the unfocused card's overlapped edge dissolves, the
+   focused one reveals fully. Rest state = policy focused. */
+.h2-consoleband__screen--overview {
+  inset-inline-start: 3.5%;
+  inset-block-start: 16%;
+  z-index: 0;
+  width: 55%;
+  mask-image: linear-gradient(to right, white 78%, transparent 83.333%);
+  mask-size: 200% 100%;
+  /* rest: the fade completes where the policy card begins */
+  mask-position: -102% 0;
+  transform: translateY(12px);
 }
 
-.h2-console-collage__menu img,
-.h2-console-collage__confirmer img {
-  position: absolute;
-  display: block;
-  max-width: none;
+.h2-consoleband__screen--policy {
+  inset-inline-end: 3.5%;
+  inset-block-start: 14%;
+  z-index: 1;
+  width: 55%;
+  mask-image: linear-gradient(to left, white 78%, transparent 83.333%);
+  mask-size: 200% 100%;
+  mask-position: 50% 0;
 }
 
-.h2-console-collage__menu {
-  inset-inline-start: 14%;
-  inset-block-start: 12%;
-  z-index: 2;
-  width: 30%;
-  aspect-ratio: 528 / 815;
-  border-radius: 8px;
-  box-shadow: 0 10px 26px -12px rgba(15, 23, 42, 0.28);
+@media (hover: hover) {
+  .h2-consoleband__screen {
+    transition:
+      mask-position 500ms ease,
+      transform 500ms ease;
+  }
+
+  /* hovering the overview slides its mask off the edge and dissolves the
+     policy screen's overlap instead; hovering the policy restores rest */
+  .h2-consoleband__stage:has(.h2-consoleband__screen--overview:hover)
+    .h2-consoleband__screen--overview {
+    z-index: 1;
+    mask-position: -150% 0;
+    transform: translateY(0);
+  }
+
+  .h2-consoleband__stage:has(.h2-consoleband__screen--overview:hover)
+    .h2-consoleband__screen--policy {
+    z-index: 0;
+    mask-position: 0% 0;
+    transform: translateY(12px);
+  }
 }
 
-/* source 592x1270; crop to the menu card, ending at the divider above the
-   confirmer controls: x 47-575, y 30-845 */
-.h2-console-collage__menu img {
-  inset-inline-start: -8.9%;
-  inset-block-start: -3.68%;
-  width: 112.1%;
+@media (prefers-reduced-motion: reduce) {
+  .h2-consoleband__screen {
+    transition: none;
+  }
 }
 
-.h2-console-collage__confirmer {
-  inset-inline-end: 4.5%;
-  inset-block-end: 6%;
-  z-index: 3;
-  width: 56%;
-  aspect-ratio: 831 / 545;
-  border-radius: 13px;
-  box-shadow: 0 16px 36px -14px rgba(15, 23, 42, 0.34);
-}
+@media (max-width: 760px) {
+  .h2-consoleband {
+    padding-top: 36px;
+    padding-bottom: 24px;
+  }
 
-/* source 928x618; crop to the modal card: x 58-889, y 36-581 */
-.h2-console-collage__confirmer img {
-  inset-inline-start: -6.98%;
-  inset-block-start: -6.6%;
-  width: 111.7%;
+  .h2-consoleband__legend {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  /* narrow columns: one screen, still cropped by the stage */
+  .h2-consoleband__stage {
+    aspect-ratio: 7 / 5;
+  }
+
+  .h2-consoleband__screen--overview {
+    width: 88%;
+    inset-inline-start: 5%;
+    inset-block-start: 7%;
+    mask-image: none;
+    transform: none;
+  }
+
+  .h2-consoleband__screen--policy {
+    display: none;
+  }
 }
 
 .h2-mockcard--wide {
@@ -3769,12 +3829,16 @@ body:has(.h2-page) {
   white-space: pre;
 }
 
-/* roomier variant for the get-started rows */
+/* compact variant for the get-started rows: snug card, striking tokens */
 .h2-code--lg {
-  border-radius: 14px;
-  padding: 24px 28px;
-  font-size: var(--h2-text-md);
-  line-height: 1.85;
+  border-radius: 16px;
+  padding: 22px 24px;
+  font-size: var(--h2-text-sm);
+  line-height: 1.7;
+  /* keep the hairline ring, add a whisper of lift off the row */
+  box-shadow:
+    0 0 0 1px var(--h2-stone),
+    0 10px 24px -22px rgba(15, 23, 42, 0.12);
 }
 
 .h2-code .tok-kw {
@@ -3789,6 +3853,18 @@ body:has(.h2-page) {
   color: var(--h2-ash);
 }
 
+.h2-code--lg .tok-kw {
+  color: #d0342c;
+}
+
+.h2-code--lg .tok-prop {
+  color: #2e63c4;
+}
+
+.h2-code--lg .tok-str {
+  color: var(--h2-ink);
+}
+
 @media (max-width: 980px) {
   .h2-startrow__grid {
     grid-template-columns: 1fr;
@@ -3797,25 +3873,23 @@ body:has(.h2-page) {
     padding-bottom: 36px;
   }
 
+  .h2-startrow__grid::before {
+    display: none;
+  }
+
+  .h2-startrow__text {
+    padding-block: 0;
+    padding-inline-end: 0;
+  }
+
+  .h2-startrow__grid > .h2-code {
+    align-self: auto;
+    margin-inline-start: 0;
+    margin-inline-end: 0;
+  }
+
   .h2-starthead {
     padding-bottom: 36px;
-  }
-
-  .h2-console-collage {
-    position: relative;
-    inset: auto;
-    width: min(520px, calc(100% + 36px));
-    height: auto;
-    aspect-ratio: 407 / 254;
-    margin-inline-end: -36px;
-    justify-self: end;
-  }
-}
-
-@media (max-width: 760px) {
-  .h2-console-collage {
-    width: min(520px, calc(100% + 22px));
-    margin-inline-end: -22px;
   }
 }
 
