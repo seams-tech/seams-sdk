@@ -204,6 +204,7 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
   const [downloadingInvoicePdfId, setDownloadingInvoicePdfId] = React.useState<string>('');
   const [invoiceDownloadError, setInvoiceDownloadError] = React.useState<string>('');
   const checkoutReconcileAttemptedRef = React.useRef<Set<string>>(new Set());
+  const activeCheckoutReconcileRef = React.useRef<string>('');
 
   const refreshBillingShellData = React.useCallback(async () => {
     if (!session.claims) {
@@ -369,6 +370,7 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
   React.useEffect(() => {
     if (typeof window === 'undefined') return;
     if (isPlatformBillingPage) {
+      activeCheckoutReconcileRef.current = '';
       setCheckoutReturnMessage('');
       return;
     }
@@ -378,31 +380,36 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
       .toLowerCase();
     const checkoutSessionId = String(params.get('checkout_session_id') || '').trim();
     if (checkout === 'cancel') {
+      activeCheckoutReconcileRef.current = '';
       setCheckoutReturnMessage('Top-up checkout was canceled before settlement.');
       return;
     }
     if (checkout !== 'success') {
+      activeCheckoutReconcileRef.current = '';
       setCheckoutReturnMessage('');
       return;
     }
     if (!checkoutSessionId) {
+      activeCheckoutReconcileRef.current = '';
       setCheckoutReturnMessage(
         'Top-up checkout completed. Balance updates after settlement confirmation.',
       );
       return;
     }
     if (!session.claims || subview.kind !== 'account') {
+      activeCheckoutReconcileRef.current = '';
       setCheckoutReturnMessage('Top-up checkout completed. Verifying settlement...');
       return;
     }
-    if (checkoutReconcileAttemptedRef.current.has(checkoutSessionId)) return;
-    checkoutReconcileAttemptedRef.current.add(checkoutSessionId);
-    let cancelled = false;
+    const reconcileKey = `${session.claims.orgId}:${session.claims.userId}:${checkoutSessionId}`;
+    if (checkoutReconcileAttemptedRef.current.has(reconcileKey)) return;
+    checkoutReconcileAttemptedRef.current.add(reconcileKey);
+    activeCheckoutReconcileRef.current = reconcileKey;
     setCheckoutReturnMessage('Top-up checkout completed. Verifying settlement...');
     void (async () => {
       try {
         const result = await reconcileDashboardStripeCheckoutSession({ checkoutSessionId });
-        if (cancelled) return;
+        if (activeCheckoutReconcileRef.current !== reconcileKey) return;
         if (result.settled) {
           setCheckoutReturnMessage(
             result.settledNow
@@ -416,15 +423,12 @@ export function BillingConsoleShell(props: BillingConsoleShellProps): React.JSX.
           'Top-up checkout completed. Balance updates after settlement confirmation.',
         );
       } catch {
-        if (cancelled) return;
+        if (activeCheckoutReconcileRef.current !== reconcileKey) return;
         setCheckoutReturnMessage(
           'Top-up checkout completed, but settlement verification is still pending. Refresh again in a moment.',
         );
       }
     })();
-    return () => {
-      cancelled = true;
-    };
   }, [
     isPlatformBillingPage,
     loadInvoiceListPage,
