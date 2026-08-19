@@ -43,7 +43,6 @@ references to a signing method; each request opens the wallet confirmation,
 and the user approves that transaction with the wallet's auth method.
 
 - [Sign a NEAR transaction](/getting-started/sign-with-policy#near-transaction)
-- [Sign a NEP-413 message](/getting-started/sign-with-policy#nep-413-message)
 - [Execute an EVM-family transaction](/getting-started/sign-with-policy#evm-family-transaction)
 
 There is no unlock step here. When your product needs repeated signatures

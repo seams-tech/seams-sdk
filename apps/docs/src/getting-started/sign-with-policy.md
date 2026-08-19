@@ -22,17 +22,6 @@ The example reads the wallet identity from the React login state before
 building the references. Keep that check next to your sign button so a request
 never starts without a known wallet.
 
-## NEP-413 message
-
-Use `signNEP413Message` when an application needs a wallet signature for a
-structured off-chain message, such as a checkout quote.
-
-<<< ../examples/nep413-signing.ts
-
-The `recipient` and `state` values bind the message to the service and request
-that created it. Generate them from your application request rather than
-reusing the example values.
-
 ## EVM-family transaction
 
 Build the transaction with your EVM utilities, then pass the typed request and
