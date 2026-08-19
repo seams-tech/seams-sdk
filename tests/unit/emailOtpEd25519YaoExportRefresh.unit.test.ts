@@ -1,11 +1,12 @@
 import { expect, test } from '@playwright/test';
 import { toAccountId } from '@/core/types/accountIds';
+import type { AccountId } from '@/core/types/accountIds';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   exportEd25519YaoKeyWithFreshAuthorization,
   type Ed25519YaoExportFlowDeps,
 } from '@/core/signingEngine/flows/recovery/ed25519YaoExportFlow';
-import { exactEd25519SigningLaneIdentity } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
+import { exactEd25519ExportMaterialIdentity } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import type { UserConfirmDecision } from '@/core/signingEngine/stepUpConfirmation/types';
 import type { UserConfirmRequest } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import {
@@ -15,12 +16,13 @@ import {
 } from '@shared/utils/walletCapabilityBindings';
 import { parseNamedNearAccountId } from '@shared/utils/near';
 import { nearEd25519SigningKeyIdFromString } from '@shared/utils/registrationIntent';
-import { resolveEmailOtpAuthLane } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 import { buildMpcMaterialActivationRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
-import { buildActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
+import {
+  buildActiveWalletSessionAuthorizationProjection,
+  type ActiveWalletSessionAuthorizationProjection,
+} from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
   parseMpcWalletSigningQuotaId,
-  parseSeamsSessionId,
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
@@ -28,15 +30,21 @@ import {
   buildEmailOtpWalletAuthAuthority,
   walletAuthAuthorityRef,
 } from '@shared/utils/walletAuthAuthority';
+import { parseThresholdEd25519SessionId } from '@shared/utils/domainIds';
 
 const WALLET_ID = toWalletId('email-otp-export-refresh-wallet');
 const NEAR_ACCOUNT_ID = toAccountId('email-otp-export-refresh.testnet');
 const NEAR_SIGNING_KEY_ID = nearEd25519SigningKeyIdFromString('email-otp-export-refresh-key');
 const PROVIDER_SUBJECT_ID = 'google:email-otp-export-refresh';
-const THRESHOLD_SESSION_ID = 'threshold-email-otp-export-refresh';
+const THRESHOLD_SESSION_ID_RESULT = parseThresholdEd25519SessionId(
+  'threshold-email-otp-export-refresh',
+);
+if (!THRESHOLD_SESSION_ID_RESULT.ok) {
+  throw new Error(THRESHOLD_SESSION_ID_RESULT.error.message);
+}
+const THRESHOLD_SESSION_ID = THRESHOLD_SESSION_ID_RESULT.value;
 const WALLET_SESSION_ID = 'wallet-session-email-otp-export-refresh';
 const QUOTA_ID = 'quota-email-otp-export-refresh';
-const AUTHORIZATION_SESSION_ID = 'seams-session-email-otp-export-refresh';
 const AUTHORIZATION_ID = 'wallet-session-authorization-email-otp-export-refresh';
 const AUTHORIZATION_EXPIRES_AT_MS = 1_900_000_000_000;
 const RUNTIME_POLICY_SCOPE = {
@@ -45,8 +53,13 @@ const RUNTIME_POLICY_SCOPE = {
   envId: 'test',
   signingRootVersion: 'root-v1',
 } as const;
+const MATERIAL_ACTIVATION = buildMpcMaterialActivationRefFixture(
+  'email-otp-export-refresh',
+  String(WALLET_ID),
+);
 const CAPABILITY = {
   kind: 'router_ab_ed25519_yao_active_capability_v1',
+  materialActivation: MATERIAL_ACTIVATION,
   activeCapabilityBinding: new Array<number>(32).fill(3),
   registeredPublicKey: new Array<number>(32).fill(4),
   nearAccountId: String(NEAR_ACCOUNT_ID),
@@ -67,37 +80,25 @@ const CAPABILITY = {
     signingWorkerId: 'signing-worker-email-otp-export-refresh',
   },
   stateEpoch: 1,
+  registrationContinuity: { kind: 'recovery' as const },
 } as const;
 
-const MATERIAL_ACTIVATION = buildMpcMaterialActivationRefFixture(
-  'email-otp-export-refresh',
-  CAPABILITY.applicationBinding.wallet_id,
-);
+function ed25519AuthorizationToken(authorization: ActiveWalletSessionAuthorizationProjection) {
+  if (authorization.walletSessionTokens.kind === 'evm_family_ecdsa') {
+    throw new Error('Email OTP export fixture has no Ed25519 token');
+  }
+  return authorization.walletSessionTokens.ed25519;
+}
 
-function durableWalletSessionJwt(): string {
-  const parse = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url');
-  return [
-    parse({ alg: 'none', typ: 'JWT' }),
-    parse({
-      kind: 'router_ab_ed25519_wallet_session_v1',
-      walletId: String(WALLET_ID),
-      authorizationId: AUTHORIZATION_ID,
-      walletSessionId: WALLET_SESSION_ID,
-      quotaId: QUOTA_ID,
-      sid: AUTHORIZATION_SESSION_ID,
-      thresholdExpiresAtMs: AUTHORIZATION_EXPIRES_AT_MS,
-      exp: Math.floor(AUTHORIZATION_EXPIRES_AT_MS / 1_000),
-    }),
-    'durable-wallet-session-jwt',
-  ].join('.');
+function durableWalletSessionToken(): string {
+  return 'opaque-wallet-session-token:email-otp-export-refresh';
 }
 
 async function durableAuthorization() {
-  const seamsSessionId = parseSeamsSessionId(AUTHORIZATION_SESSION_ID);
   const authorizationId = parseWalletSessionAuthorizationId(AUTHORIZATION_ID);
   const walletSessionId = parseWalletSessionId(WALLET_SESSION_ID);
   const quotaId = parseMpcWalletSigningQuotaId(QUOTA_ID);
-  if (!seamsSessionId.ok || !authorizationId.ok || !walletSessionId.ok || !quotaId.ok) {
+  if (!authorizationId.ok || !walletSessionId.ok || !quotaId.ok) {
     throw new Error('invalid Email OTP export authorization fixture identity');
   }
   const authority = buildEmailOtpWalletAuthAuthority({
@@ -108,29 +109,20 @@ async function durableAuthorization() {
   });
   return buildActiveWalletSessionAuthorizationProjection({
     walletId: WALLET_ID,
-    seamsSessionId: seamsSessionId.value,
-    authorizationId: authorizationId.value,
     walletSessionId: walletSessionId.value,
     quotaId: quotaId.value,
     walletSessionTokens: {
       kind: 'near_ed25519',
-      ed25519: { walletSessionJwt: durableWalletSessionJwt() },
+      ed25519: {
+        authorizationId: authorizationId.value,
+        walletSessionToken: durableWalletSessionToken(),
+        thresholdSessionId: THRESHOLD_SESSION_ID,
+      },
     },
     authMethod: 'email_otp',
     authority: await walletAuthAuthorityRef({ authority }),
     expiresAtMs: AUTHORIZATION_EXPIRES_AT_MS,
   });
-}
-
-function durableEd25519AuthLane() {
-  const authLane = resolveEmailOtpAuthLane({
-    routeAuth: { kind: 'wallet_session', jwt: durableWalletSessionJwt() },
-    curve: 'ed25519',
-  });
-  if (authLane?.kind !== 'signing_session' || authLane.curve !== 'ed25519') {
-    throw new Error('expected durable Ed25519 signing-session authority');
-  }
-  return authLane;
 }
 
 function buildLaneIdentity() {
@@ -144,11 +136,9 @@ function buildLaneIdentity() {
     nearEd25519SigningKeyId: NEAR_SIGNING_KEY_ID,
     signerSlot: 1,
   });
-  return exactEd25519SigningLaneIdentity({
+  return exactEd25519ExportMaterialIdentity({
     signer,
     auth: { kind: 'email_otp', providerSubjectId: PROVIDER_SUBJECT_ID },
-    walletSessionId: WALLET_SESSION_ID,
-    quotaId: QUOTA_ID,
     thresholdSessionId: THRESHOLD_SESSION_ID,
   });
 }
@@ -200,10 +190,14 @@ class EmailOtpEd25519ExportRefreshHarness {
       materialActivation: MATERIAL_ACTIVATION,
     });
     return {
-      kind: 'email_otp_ed25519_yao_export_context_v1' as const,
+      kind: 'wallet_custody_ed25519_export_context_v1' as const,
       lane: buildLaneIdentity(),
       authorization: await durableAuthorization(),
-      material: { materialActivation: MATERIAL_ACTIVATION, capability: CAPABILITY },
+      material: {
+        kind: 'active_capability' as const,
+        materialActivation: MATERIAL_ACTIVATION,
+        capability: CAPABILITY,
+      },
     };
   }
 
@@ -211,9 +205,9 @@ class EmailOtpEd25519ExportRefreshHarness {
     request: Parameters<Ed25519YaoExportFlowDeps['emailOtp']['requestExportChallenge']>[0],
   ) {
     expect(request).toMatchObject({
-      kind: 'near_account_challenge',
-      nearAccountId: String(NEAR_ACCOUNT_ID),
-      authLane: durableEd25519AuthLane(),
+      kind: 'wallet_export_challenge',
+      walletId: WALLET_ID,
+      chain: 'near',
     });
     return {
       challengeId: 'challenge-email-otp-export-refresh',
@@ -232,8 +226,8 @@ class EmailOtpEd25519ExportRefreshHarness {
     this.exportCalls += 1;
     expect(this.viewerLoadingBeforeExport).toBe(true);
     this.exportedCapability = args.exportContext.material.capability;
-    expect(args.exportContext.authorization.walletSessionTokens.ed25519.walletSessionJwt).toContain(
-      'durable-wallet-session-jwt',
+    expect(ed25519AuthorizationToken(args.exportContext.authorization).walletSessionToken).toBe(
+      durableWalletSessionToken(),
     );
     return {
       artifactKind: 'near-ed25519-seed-v1' as const,
@@ -242,9 +236,12 @@ class EmailOtpEd25519ExportRefreshHarness {
     };
   }
 
-  async withThresholdEd25519CommitQueue<T>(
-    args: Parameters<Ed25519YaoExportFlowDeps['withThresholdEd25519CommitQueue']>[0],
-  ): Promise<T> {
+  async withThresholdEd25519CommitQueue<T>(args: {
+    queueKey: string;
+    nearAccountId: AccountId;
+    enabled: boolean;
+    task: () => Promise<T>;
+  }): Promise<T> {
     return await args.task();
   }
 
@@ -255,6 +252,7 @@ class EmailOtpEd25519ExportRefreshHarness {
         initialize: this.initialize.bind(this),
       },
       passkeyMpcExport: {
+        setWorkerBaseOrigin(): void {},
         exportPrivateKeysWithUi: this.unexpectedPasskeyExport.bind(this),
       },
       resolvePasskeyExportContext: this.resolvePasskeyExportContext.bind(this),

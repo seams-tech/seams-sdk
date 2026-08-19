@@ -7,10 +7,6 @@ import {
   type SealedSigningSessionRecord,
 } from '@shared/utils/signingSessionSeal';
 import {
-  ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
-  ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-} from '@shared/utils/sessionTokens';
-import {
   ROUTER_AB_ECDSA_DERIVATION_NORMAL_SIGNING_STATE_KIND_V1,
   requireRouterAbEcdsaDerivationNormalSigningStateV1,
 } from '@shared/utils/routerAbEcdsaDerivation';
@@ -44,8 +40,6 @@ import { buildMpcMaterialActivationRefFixture } from './ecdsaMaterialRef.fixture
 import { buildActiveWalletSessionAuthorizationProjection } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
   parseMpcWalletSigningQuotaId,
-  parseSeamsSessionId,
-  parseWalletSessionAuthorizationId,
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import type { MpcMaterialActivationRef } from '@shared/utils/domainIds';
@@ -58,16 +52,8 @@ function requireFixtureDomainId<T>(
   return result.value;
 }
 
-function encodeFixtureJwtPart(value: unknown): string {
-  return Buffer.from(JSON.stringify(value)).toString('base64url');
-}
-
-function fixtureJwt(kind: string, claims: Record<string, unknown>): string {
-  return [
-    encodeFixtureJwtPart({ alg: 'none', typ: 'JWT' }),
-    encodeFixtureJwtPart({ kind, ...claims }),
-    'fixture',
-  ].join('.');
+function fixtureWalletSessionToken(label: string): string {
+  return `opaque-wallet-session-token:${label}`;
 }
 
 export function buildPasskeyEd25519SealedSessionRecordFixture(
@@ -136,7 +122,7 @@ export function buildPasskeyEd25519SealedSessionRecordFixture(
 export function buildPasskeyEd25519AuthorizationProjectionFixture(
   record: CurrentEd25519SealedSessionRecord,
   args: {
-    authorizationSessionId?: string;
+    authorizationId?: string;
     walletSessionId?: string;
     quotaId?: string;
     authorizationExpiresAtMs?: number;
@@ -150,35 +136,22 @@ export function buildPasskeyEd25519AuthorizationProjectionFixture(
     rpId: record.ed25519Restore.rpId,
     credentialIdB64u: record.ed25519Restore.credentialIdB64u,
   });
-  const authorizationSessionId =
-    args.authorizationSessionId ?? `authorization:${record.thresholdSessionIds.ed25519}`;
-  const authorizationId = `wallet-session-authorization:${record.thresholdSessionIds.ed25519}`;
+  const authorizationId =
+    args.authorizationId ?? `wallet-session-authorization:${record.thresholdSessionIds.ed25519}`;
   const walletSessionId =
     args.walletSessionId ?? `wallet-session:${record.thresholdSessionIds.ed25519}`;
   const quotaId = args.quotaId ?? `quota:${record.thresholdSessionIds.ed25519}`;
   const authorizationExpiresAtMs = args.authorizationExpiresAtMs ?? record.expiresAtMs;
   return buildActiveWalletSessionAuthorizationProjection({
     walletId: authority.walletId,
-    seamsSessionId: requireFixtureDomainId(parseSeamsSessionId(authorizationSessionId)),
-    authorizationId: requireFixtureDomainId(parseWalletSessionAuthorizationId(authorizationId)),
     walletSessionId: requireFixtureDomainId(parseWalletSessionId(walletSessionId)),
     quotaId: requireFixtureDomainId(parseMpcWalletSigningQuotaId(quotaId)),
     walletSessionTokens: {
       kind: 'near_ed25519',
       ed25519: {
-        walletSessionJwt: fixtureJwt(ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND, {
-          authorizationKind: 'owner_wallet_session',
-          walletId: record.walletId,
-          authorizationId,
-          nearAccountId: record.ed25519Restore.nearAccountId,
-          nearEd25519SigningKeyId: record.ed25519Restore.nearEd25519SigningKeyId,
-          walletSessionId,
-          quotaId,
-          thresholdSessionId: record.thresholdSessionIds.ed25519,
-          sid: authorizationSessionId,
-          thresholdExpiresAtMs: authorizationExpiresAtMs,
-          exp: Math.floor(authorizationExpiresAtMs / 1_000),
-        }),
+        authorizationId,
+        walletSessionToken: fixtureWalletSessionToken(record.thresholdSessionIds.ed25519),
+        thresholdSessionId: record.thresholdSessionIds.ed25519,
       },
     },
     authMethod: 'passkey',
@@ -261,14 +234,6 @@ export function buildEmailOtpEd25519AuthorizationProjectionFixture(
   });
   return buildActiveWalletSessionAuthorizationProjection({
     walletId: authority.walletId,
-    seamsSessionId: requireFixtureDomainId(
-      parseSeamsSessionId(`authorization:${record.thresholdSessionIds.ed25519}`),
-    ),
-    authorizationId: requireFixtureDomainId(
-      parseWalletSessionAuthorizationId(
-        `wallet-session-authorization:${record.thresholdSessionIds.ed25519}`,
-      ),
-    ),
     walletSessionId: requireFixtureDomainId(
       parseWalletSessionId(`wallet-session:${record.thresholdSessionIds.ed25519}`),
     ),
@@ -278,19 +243,11 @@ export function buildEmailOtpEd25519AuthorizationProjectionFixture(
     walletSessionTokens: {
       kind: 'near_ed25519',
       ed25519: {
-        walletSessionJwt: fixtureJwt(ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND, {
-          authorizationKind: 'owner_wallet_session',
-          walletId: record.walletId,
-          authorizationId: `wallet-session-authorization:${record.thresholdSessionIds.ed25519}`,
-          nearAccountId: record.ed25519Restore.nearAccountId,
-          nearEd25519SigningKeyId: record.ed25519Restore.nearEd25519SigningKeyId,
-          walletSessionId: `wallet-session:${record.thresholdSessionIds.ed25519}`,
-          quotaId: `quota:${record.thresholdSessionIds.ed25519}`,
-          thresholdSessionId: record.thresholdSessionIds.ed25519,
-          sid: `authorization:${record.thresholdSessionIds.ed25519}`,
-          thresholdExpiresAtMs: record.expiresAtMs,
-          exp: Math.floor(record.expiresAtMs / 1_000),
-        }),
+        authorizationId: `wallet-session-authorization:${record.thresholdSessionIds.ed25519}`,
+        walletSessionToken: fixtureWalletSessionToken(
+          `email-otp:${record.thresholdSessionIds.ed25519}`,
+        ),
+        thresholdSessionId: record.thresholdSessionIds.ed25519,
       },
     },
     authMethod: 'email_otp',
@@ -355,27 +312,12 @@ type EmailOtpEcdsaSealedFixtureParts = {
   restore: EmailOtpEcdsaSealedRestorePayload;
 };
 
-/** ECDSA bootstrap still needs a transport JWT; restore metadata does not. */
-function fixtureSealedEcdsaWalletSessionJwt(args: {
+function fixtureSealedEcdsaWalletSessionToken(args: {
   walletId: string;
   keyHandle: string;
   thresholdSessionId: string;
 }): string {
-  const encode = (value: unknown): string =>
-    Buffer.from(JSON.stringify(value)).toString('base64url');
-  return [
-    encode({ alg: 'none', typ: 'JWT' }),
-    encode({
-      kind: ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
-      authorizationKind: 'owner_wallet_session',
-      sub: args.walletId,
-      walletId: args.walletId,
-      keyHandle: args.keyHandle,
-      thresholdSessionId: args.thresholdSessionId,
-      thresholdExpiresAtMs: Date.now() + 120_000,
-    }),
-    'fixture',
-  ].join('.');
+  return `opaque-wallet-session-token:ecdsa:${args.walletId}:${args.keyHandle}:${args.thresholdSessionId}`;
 }
 
 function emailOtpEcdsaSealedFixtureParts(
@@ -401,7 +343,7 @@ function emailOtpEcdsaSealedFixtureParts(
     keyHandle: 'key-handle',
     relayerKeyId: 'relayer-key',
     sessionId: 'ec-session',
-    walletSessionJwt: fixtureSealedEcdsaWalletSessionJwt({
+    walletSessionToken: fixtureSealedEcdsaWalletSessionToken({
       walletId,
       keyHandle: 'key-handle',
       thresholdSessionId: 'ec-session',

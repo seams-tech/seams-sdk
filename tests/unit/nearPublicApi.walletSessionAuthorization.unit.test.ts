@@ -7,37 +7,45 @@ import {
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import {
   parseMpcWalletSigningQuotaId,
-  parseSeamsSessionId,
+  parseWalletSessionAuthorizationId,
   parseWalletSessionId,
 } from '@shared/authorization/capabilityKinds';
+import { parseThresholdEd25519SessionId } from '@shared/utils/domainIds';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toAccountId } from '@/core/types/accountIds';
-import { parseWalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
+import { buildWalletAuthAuthorityRefFixture } from './helpers/ecdsaMaterialRef.fixtures';
 
 const WALLET_ID = toWalletId('wallet-near-public-funding');
 const NEAR_ACCOUNT_ID = toAccountId('a'.repeat(64));
-const WALLET_SESSION_JWT = 'eyJhbGciOiJub25lIn0.eyJraW5kIjoid2FsbGV0X3Nlc3Npb24ifQ.signature';
+const WALLET_SESSION_TOKEN = 'opaque-wallet-session-token:near-public-funding';
 
 function buildActiveAuthorization(expiresAtMs: number) {
-  const authorizationSessionId = parseSeamsSessionId('seams-session-near-public-funding');
   const walletSessionId = parseWalletSessionId('wallet-session-near-public-funding');
+  const authorizationId = parseWalletSessionAuthorizationId(
+    'wallet-session-authorization:near-public-funding',
+  );
   const quotaId = parseMpcWalletSigningQuotaId('quota-near-public-funding');
-  const authority = parseWalletAuthAuthorityRef({
-    kind: 'wallet_auth_authority_ref',
-    walletId: WALLET_ID,
-    authorityDigest: 'authority-near-public-funding',
-  });
-  if (!authorizationSessionId.ok || !walletSessionId.ok || !quotaId.ok || !authority) {
+  const thresholdSessionId = parseThresholdEd25519SessionId('threshold-near-public-funding');
+  if (!walletSessionId.ok || !authorizationId.ok || !quotaId.ok || !thresholdSessionId.ok) {
     throw new Error('Failed to build Wallet Session authorization fixture');
   }
   return buildActiveWalletSessionAuthorizationProjection({
     walletId: WALLET_ID,
-    authorizationSessionId: authorizationSessionId.value,
     walletSessionId: walletSessionId.value,
     quotaId: quotaId.value,
-    walletSessionJwt: WALLET_SESSION_JWT,
+    walletSessionTokens: {
+      kind: 'near_ed25519',
+      ed25519: {
+        authorizationId: authorizationId.value,
+        walletSessionToken: WALLET_SESSION_TOKEN,
+        thresholdSessionId: thresholdSessionId.value,
+      },
+    },
     authMethod: 'passkey',
-    authority,
+    authority: buildWalletAuthAuthorityRefFixture({
+      walletId: String(WALLET_ID),
+      label: 'near-public-funding',
+    }),
     expiresAtMs,
   });
 }
@@ -47,7 +55,10 @@ function fundingConfigs() {
     ...PASSKEY_MANAGER_DEFAULT_CONFIGS,
     network: {
       ...PASSKEY_MANAGER_DEFAULT_CONFIGS.network,
-      relayer: { url: 'https://relay.example.test' },
+      relayer: {
+        ...PASSKEY_MANAGER_DEFAULT_CONFIGS.network.relayer,
+        url: 'https://relay.example.test',
+      },
     },
   };
 }
@@ -76,13 +87,13 @@ test('implicit NEAR funding reads the canonical Wallet Session authorization pro
   try {
     const result = await fundImplicitNearAccountFromCurrentSession({
       configs: fundingConfigs(),
-      walletSession: { walletId: WALLET_ID },
-      nearAccount: { accountId: NEAR_ACCOUNT_ID },
+      walletSession: { walletId: WALLET_ID, walletSessionUserId: 'near-public-funding' },
+      nearAccount: { kind: 'implicit', accountId: NEAR_ACCOUNT_ID },
       nearPublicKey: 'ed25519:near-public-funding-key',
     });
 
     expect(result.ok).toBe(true);
-    expect(authorizationHeaders).toEqual([`Bearer ${WALLET_SESSION_JWT}`]);
+    expect(authorizationHeaders).toEqual([`Bearer ${WALLET_SESSION_TOKEN}`]);
   } finally {
     walletSessionAuthorizations.readActiveForWallet = originalRead;
     globalThis.fetch = originalFetch;
@@ -103,8 +114,8 @@ test('implicit NEAR funding rejects absent or expired authorization before fetch
     await expect(
       fundImplicitNearAccountFromCurrentSession({
         configs: fundingConfigs(),
-        walletSession: { walletId: WALLET_ID },
-        nearAccount: { accountId: NEAR_ACCOUNT_ID },
+        walletSession: { walletId: WALLET_ID, walletSessionUserId: 'near-public-funding' },
+        nearAccount: { kind: 'implicit', accountId: NEAR_ACCOUNT_ID },
         nearPublicKey: 'ed25519:near-public-funding-key',
       }),
     ).rejects.toThrow('Current Ed25519 wallet session is required');
@@ -116,8 +127,8 @@ test('implicit NEAR funding rejects absent or expired authorization before fetch
     await expect(
       fundImplicitNearAccountFromCurrentSession({
         configs: fundingConfigs(),
-        walletSession: { walletId: WALLET_ID },
-        nearAccount: { accountId: NEAR_ACCOUNT_ID },
+        walletSession: { walletId: WALLET_ID, walletSessionUserId: 'near-public-funding' },
+        nearAccount: { kind: 'implicit', accountId: NEAR_ACCOUNT_ID },
         nearPublicKey: 'ed25519:near-public-funding-key',
       }),
     ).rejects.toThrow('Current Ed25519 wallet session is required');
