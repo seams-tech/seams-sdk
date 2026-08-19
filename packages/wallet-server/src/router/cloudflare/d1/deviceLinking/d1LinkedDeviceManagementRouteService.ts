@@ -9,7 +9,6 @@ import {
 } from '../../../../core/deviceLinking/linkedDeviceManagement';
 import type { D1DatabaseLike } from '../../../../storage/tenantRoute';
 import type { D1LinkedDeviceSessionScopeV1 } from './d1LinkedDeviceSessionStore';
-import type { LinkedDeviceSessionServiceV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
 import {
   D1LinkedDeviceManagementStoreV1,
   type D1LinkedDeviceManagementMetadataPortV1,
@@ -19,7 +18,6 @@ import type { DeviceLinkingRouteServiceV1 } from '../../../../router/transport/f
 export type D1LinkedDeviceManagementRouteServiceOptionsV1 = {
   readonly database: D1DatabaseLike;
   readonly scope: D1LinkedDeviceSessionScopeV1;
-  readonly sessionService: Pick<LinkedDeviceSessionServiceV1, 'getSessionV1' | 'listSessionsForWalletV1'>;
   readonly metadata: D1LinkedDeviceManagementMetadataPortV1;
   readonly preparation: LinkedDeviceRevocationPreparationPortV1;
   readonly aggregateRevocation: LinkedDeviceAggregateRevocationPortV1;
@@ -36,8 +34,6 @@ export function createD1LinkedDeviceManagementRouteServiceV1(
   const projection = new D1LinkedDeviceManagementStoreV1({
     database: options.database,
     scope: options.scope,
-    sessionService: options.sessionService,
-    nowV1: options.nowV1,
     metadata: options.metadata,
   });
   const management = new LinkedDeviceManagementServiceV1({

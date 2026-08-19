@@ -43,7 +43,6 @@ import type {
 } from '../../../../core/deviceLinking/linkedDeviceManagement';
 import type { AuthorizationService } from '../../../../authorization/service';
 import type { CloudflareD1WalletAuthMethodService } from '../wallet/d1WalletAuthMethodService';
-import type { DeviceLinkingRouteServiceV1 } from '../../../transport/fetch/routes/deviceLinking';
 import type { DeviceManagementRouteServiceV1 } from '../../../transport/fetch/routes/deviceManagement';
 import type { LaneAggregateRevocationRequestV1 } from '../../../../core/signingLanes/LaneAggregateRevocationApplicationService';
 import type { D1LinkedDeviceSessionScopeV1 } from './d1LinkedDeviceSessionStore';
@@ -155,7 +154,6 @@ export class D1LinkedDeviceRevocationPreparationV1 implements LinkedDeviceRevoca
         enrollmentId: input.target.summary.enrollmentId,
         deviceId: input.target.summary.deviceId,
       });
-    if (authorizationMetadata.length === 0) return { kind: 'not_found' };
     const parsedEnrollmentId = parseLaneEnrollmentId(String(input.target.summary.enrollmentId));
     if (!parsedEnrollmentId.ok) return { kind: 'conflict' };
     const manifest = input.target.enrollment.value.manifest;
@@ -248,10 +246,7 @@ export class D1LinkedDeviceRevocationPreparationV1 implements LinkedDeviceRevoca
 function buildWalletSessionRevocationTargets(
   metadata: readonly D1LinkedDeviceWalletSessionAuthorizationMetadataV1[],
   deviceId: LinkedDeviceId,
-): readonly [
-  LinkedDeviceWalletSessionRevocationTargetV1,
-  ...LinkedDeviceWalletSessionRevocationTargetV1[],
-] {
+): readonly LinkedDeviceWalletSessionRevocationTargetV1[] {
   const targets: LinkedDeviceWalletSessionRevocationTargetV1[] = [];
   const identities = new Set<string>();
   for (const session of metadata) {
@@ -273,9 +268,7 @@ function buildWalletSessionRevocationTargets(
       quotaId: session.quotaId,
     });
   }
-  const first = targets[0];
-  if (!first) throw new Error('linked-device revocation requires a Wallet Session');
-  return [first, ...targets.slice(1)];
+  return targets;
 }
 
 export class AuthorizationServiceLinkedDeviceWalletSessionRevocationV1 implements LinkedDeviceWalletSessionRevocationPortV1 {
@@ -315,9 +308,7 @@ export class AuthorizationServiceLinkedDeviceWalletSessionRevocationV1 implement
 }
 
 /** Reuses the canonical wallet-auth-method mutation for an authenticated owner. */
-export class D1LinkedDeviceOwnerCredentialRevocationV1
-  implements LinkedDeviceOwnerCredentialRevocationPortV1
-{
+export class D1LinkedDeviceOwnerCredentialRevocationV1 implements LinkedDeviceOwnerCredentialRevocationPortV1 {
   constructor(
     private readonly walletAuthMethods: Pick<
       CloudflareD1WalletAuthMethodService,

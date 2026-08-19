@@ -2,13 +2,14 @@
  * Refactor 103 Phase 8 — the exact relationship between one linked-device
  * enrollment and the canonical owner auth method that enrollment created.
  *
- * Device 2 stops being a signing-only holder and becomes an ordinary owner
- * credential. Everything downstream of that — unlock, Wallet Session issuance,
- * signing, step-up, export, management, revocation — resolves the device
- * through this binding rather than through the temporary target-credential
- * registration. The binding therefore has to carry every identity those paths
- * compare, and it has to make a disagreement unrepresentable rather than
- * merely unlikely:
+ * Device 2 becomes an ordinary owner credential while keeping its narrow
+ * linked execution grant (R103C: the grant describes per-device execution and
+ * revocation, not the human's status). Everything downstream — unlock, Wallet
+ * Session issuance, signing, step-up, export, management, revocation —
+ * resolves the device through this binding rather than through the
+ * target-credential registration. The binding therefore has to carry every
+ * identity those paths compare, and it has to make a disagreement
+ * unrepresentable rather than merely unlikely:
  *
  *   tenant -> wallet -> device -> enrollment -> WalletAuthMethodId
  *          -> exact Passkey credential or Email OTP factor
@@ -226,10 +227,7 @@ export function buildLinkedOwnerEmailOtpAuthBindingV1(
 ): LinkedDeviceOwnerAuthBindingV1 {
   return buildActiveBindingV1(input, {
     kind: 'email_otp',
-    emailHashHex: requireEmailHashHex(
-      input.emailHashHex,
-      'LinkedOwnerAuthFactorV1.emailHashHex',
-    ),
+    emailHashHex: requireEmailHashHex(input.emailHashHex, 'LinkedOwnerAuthFactorV1.emailHashHex'),
     registrationAuthorityId: requireCanonicalToken(
       input.registrationAuthorityId,
       'LinkedOwnerAuthFactorV1.registrationAuthorityId',
@@ -372,9 +370,7 @@ function withLifecycleV1(
  * the stored column, so a row edited to point at another credential fails here
  * instead of authorizing that credential.
  */
-export function parseLinkedDeviceOwnerAuthBindingV1(
-  raw: unknown,
-): LinkedDeviceOwnerAuthBindingV1 {
+export function parseLinkedDeviceOwnerAuthBindingV1(raw: unknown): LinkedDeviceOwnerAuthBindingV1 {
   const record = requireRecord(raw, 'LinkedDeviceOwnerAuthBindingV1');
   rejectUnknownFields(record, BINDING_FIELDS, 'LinkedDeviceOwnerAuthBindingV1');
   for (const requiredField of BINDING_FIELDS) {
@@ -400,14 +396,8 @@ export function parseLinkedDeviceOwnerAuthBindingV1(
       'LinkedDeviceOwnerAuthBindingV1.walletAuthMethodId does not match its factor identity',
     );
   }
-  const createdAtMs = parseUnixMs(
-    record.createdAtMs,
-    'LinkedDeviceOwnerAuthBindingV1.createdAtMs',
-  );
-  const updatedAtMs = parseUnixMs(
-    record.updatedAtMs,
-    'LinkedDeviceOwnerAuthBindingV1.updatedAtMs',
-  );
+  const createdAtMs = parseUnixMs(record.createdAtMs, 'LinkedDeviceOwnerAuthBindingV1.createdAtMs');
+  const updatedAtMs = parseUnixMs(record.updatedAtMs, 'LinkedDeviceOwnerAuthBindingV1.updatedAtMs');
   if (updatedAtMs < createdAtMs) {
     throw new Error('LinkedDeviceOwnerAuthBindingV1.updatedAtMs precedes createdAtMs');
   }
@@ -453,10 +443,7 @@ export function parseLinkedOwnerAuthFactorV1(raw: unknown): LinkedOwnerAuthFacto
       );
       return {
         kind: 'passkey',
-        rpId: requireParsed(
-          parseWebAuthnRpId(record.rpId),
-          'LinkedOwnerAuthFactorV1.rpId',
-        ),
+        rpId: requireParsed(parseWebAuthnRpId(record.rpId), 'LinkedOwnerAuthFactorV1.rpId'),
         credentialIdB64u: requireParsed(
           parseWebAuthnCredentialIdB64u(record.credentialIdB64u),
           'LinkedOwnerAuthFactorV1.credentialIdB64u',
@@ -498,12 +485,10 @@ function parseLinkedOwnerAuthBindingLifecycleV1(
   );
   switch (record.state) {
     case 'active':
-      rejectUnknownFields(
-        record,
-        ['state', 'activatedAtMs'],
-        'LinkedOwnerAuthBindingLifecycleV1',
-        ['pausedAtMs', 'revokedAtMs'],
-      );
+      rejectUnknownFields(record, ['state', 'activatedAtMs'], 'LinkedOwnerAuthBindingLifecycleV1', [
+        'pausedAtMs',
+        'revokedAtMs',
+      ]);
       return { state: 'active', activatedAtMs };
     case 'paused': {
       rejectUnknownFields(
@@ -556,7 +541,9 @@ function parseKeyManifestDigest(raw: unknown): DigestB64u {
 
 function parseRevocationEpoch(raw: unknown): number {
   if (typeof raw !== 'number' || !Number.isSafeInteger(raw) || raw < 0) {
-    throw new Error('LinkedDeviceOwnerAuthBindingV1.revocationEpoch must be a non-negative integer');
+    throw new Error(
+      'LinkedDeviceOwnerAuthBindingV1.revocationEpoch must be a non-negative integer',
+    );
   }
   return raw;
 }
@@ -576,7 +563,9 @@ function requireCanonicalToken(raw: unknown, label: string): string {
 }
 
 function requireParsed<T>(
-  parsed: { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: { readonly message: string } },
+  parsed:
+    | { readonly ok: true; readonly value: T }
+    | { readonly ok: false; readonly error: { readonly message: string } },
   label: string,
 ): T {
   if (!parsed.ok) throw new Error(`${label} ${parsed.error.message}`);

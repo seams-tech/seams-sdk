@@ -7,7 +7,11 @@ import type { LinkedDeviceEnrollmentId, LinkedDeviceId } from '@shared/signing-l
 import type { WalletId } from '@shared/utils/domainIds';
 import type { WalletAuthMethodId } from '@shared/utils/domainIds';
 import { queryD1All, queryD1One } from '../../../../storage/d1Sql';
-import type { D1DatabaseLike, D1PreparedStatementLike, D1ResultLike } from '../../../../storage/tenantRoute';
+import type {
+  D1DatabaseLike,
+  D1PreparedStatementLike,
+  D1ResultLike,
+} from '../../../../storage/tenantRoute';
 import type { D1LinkedDeviceSessionScopeV1 } from './d1LinkedDeviceSessionStore';
 
 const BINDING_TABLE = 'linked_device_owner_auth_bindings';
@@ -58,6 +62,16 @@ export type LinkedDeviceOwnerAuthBindingPortV1 = {
   readonly readBatchForWalletV1: (
     walletId: WalletId,
   ) => Promise<ReadonlyMap<string, LinkedDeviceOwnerAuthBindingV1>>;
+};
+
+export type LinkedDeviceOwnerAuthBindingPageCursorV1 = {
+  readonly updatedAtMs: number;
+  readonly deviceId: LinkedDeviceId;
+};
+
+export type LinkedDeviceOwnerAuthBindingPageV1 = {
+  readonly records: readonly LinkedDeviceOwnerAuthBindingV1[];
+  readonly nextCursor: LinkedDeviceOwnerAuthBindingPageCursorV1 | null;
 };
 
 export class D1LinkedDeviceOwnerAuthBindingStoreV1 implements LinkedDeviceOwnerAuthBindingPortV1 {
@@ -226,6 +240,68 @@ export class D1LinkedDeviceOwnerAuthBindingStoreV1 implements LinkedDeviceOwnerA
     }
     return bindings;
   }
+
+  async listPageForWalletV1(input: {
+    readonly walletId: WalletId;
+    readonly limit: number;
+    readonly cursor: LinkedDeviceOwnerAuthBindingPageCursorV1 | null;
+  }): Promise<LinkedDeviceOwnerAuthBindingPageV1> {
+    if (!Number.isSafeInteger(input.limit) || input.limit < 1) {
+      throw new Error('linked-device owner auth binding page limit is invalid');
+    }
+    const rows =
+      input.cursor === null
+        ? await queryD1All(
+            this.database,
+            `SELECT wallet_id, device_id, wallet_auth_method_id, record_json, updated_at_ms
+               FROM ${BINDING_TABLE}
+              WHERE namespace = ?1 AND org_id = ?2 AND project_id = ?3 AND env_id = ?4
+                AND wallet_id = ?5
+              ORDER BY updated_at_ms DESC, device_id ASC
+              LIMIT ?6`,
+            [...scopeValues(this.scope), String(input.walletId), input.limit + 1],
+          )
+        : await queryD1All(
+            this.database,
+            `SELECT wallet_id, device_id, wallet_auth_method_id, record_json, updated_at_ms
+               FROM ${BINDING_TABLE}
+              WHERE namespace = ?1 AND org_id = ?2 AND project_id = ?3 AND env_id = ?4
+                AND wallet_id = ?5
+                AND (updated_at_ms < ?6 OR (updated_at_ms = ?6 AND device_id > ?7))
+              ORDER BY updated_at_ms DESC, device_id ASC
+              LIMIT ?8`,
+            [
+              ...scopeValues(this.scope),
+              String(input.walletId),
+              input.cursor.updatedAtMs,
+              String(input.cursor.deviceId),
+              input.limit + 1,
+            ],
+          );
+    const hasNextPage = rows.length > input.limit;
+    const pageRows = hasNextPage ? rows.slice(0, input.limit) : rows;
+    const records: LinkedDeviceOwnerAuthBindingV1[] = [];
+    const seenDevices = new Set<string>();
+    for (const row of pageRows) {
+      const binding = parseBindingRow(row);
+      const updatedAtMs = requiredIntegerColumn(row, 'updated_at_ms');
+      if (binding.updatedAtMs !== updatedAtMs) {
+        throw new Error('linked-device owner auth binding row timestamp disagrees with its record');
+      }
+      const deviceId = String(binding.deviceId);
+      if (seenDevices.has(deviceId)) {
+        throw new Error('linked-device owner auth binding page contains a duplicate device');
+      }
+      seenDevices.add(deviceId);
+      records.push(binding);
+    }
+    const last = records.at(-1);
+    return {
+      records,
+      nextCursor:
+        hasNextPage && last ? { updatedAtMs: last.updatedAtMs, deviceId: last.deviceId } : null,
+    };
+  }
 }
 
 /** Fails the whole batch when any statement did not apply. */
@@ -334,6 +410,14 @@ function requiredColumn(row: Record<string, unknown>, name: string): string {
   const value = row[name];
   if (typeof value !== 'string' || !value) {
     throw new Error(`linked-device owner auth binding row is missing ${name}`);
+  }
+  return value;
+}
+
+function requiredIntegerColumn(row: Record<string, unknown>, name: string): number {
+  const value = typeof row[name] === 'number' ? row[name] : Number(row[name]);
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`linked-device owner auth binding row ${name} is invalid`);
   }
   return value;
 }
