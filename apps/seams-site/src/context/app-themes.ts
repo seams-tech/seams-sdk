@@ -157,7 +157,7 @@ export const PAPER_LIGHT_COLORS: Record<string, string> = {
 
   hover: '#f5f3f1',
   active: '#ebe8e4',
-  focus: '#157f5f',
+  focus: '#000000',
 
   success: '#157f5f',
   warning: '#b45309',
@@ -176,6 +176,64 @@ export const PAPER_LIGHT_COLORS: Record<string, string> = {
   highlightReceiver: '#4a6fa5',
   highlightMethodName: '#000000',
   highlightAmount: '#000000',
+};
+
+// "Carbon" — the SDK's stock dark slate ramp (hue-240 oklch tokens from
+// theme/palette.json, resolved to sRGB), with Paper's button hierarchy kept
+// on top: one off-white ink-text CTA per card, everything else a slate slab.
+export const CARBON_DARK_COLORS: Record<string, string> = {
+  primary: '#5cacff',
+  primaryHover: '#499fff',
+  secondary: '#876cca',
+  secondaryHover: '#9b78de',
+  accent: '#00cb9b',
+
+  textPrimary: '#f4f5f6',
+  textSecondary: '#8b959d',
+  textMuted: '#626e76',
+  textButton: '#12171a',
+
+  buttonBackground: '#f4f5f6',
+  buttonHoverBackground: '#ffffff',
+  // secondary (Google SSO) rides the same slate slab as the other
+  // non-primary actions, so only the CTA breaks out of the ramp
+  secondaryButtonBackground: '#252f37',
+  secondaryButtonHoverBackground: '#303c45',
+  secondaryButtonBorder: '#3e4952',
+  secondaryButtonText: '#f4f5f6',
+
+  colorBackground: '#12171a',
+  // surface backs the slate slabs: secondary buttons, Scan-and-Link, and
+  // the square-shape input field
+  surface: '#252f37',
+  // chip behind the passkey halo icon: one step down from the slabs
+  passkeyHaloBackground: '#1a2329',
+  surface2: '#1a2329',
+  surface3: '#10171c',
+  surface4: '#0a1116',
+  txDetailsBackground: '#1a2329',
+
+  hover: '#303c45',
+  active: '#323c43',
+  focus: '#5cacff',
+
+  success: '#00cb9b',
+  warning: '#cea700',
+  error: '#ff7a80',
+  info: '#5cacff',
+
+  borderPrimary: '#323c43',
+  borderSecondary: '#303c45',
+  borderHover: '#3e4952',
+
+  highlightPrimary: '#5cacff',
+  highlightRow: 'rgba(92, 172, 255, 0.12)',
+  highlightHalo: '#9ecdff',
+  // one accent in the tx tree, mirroring Paper: receiver in blue, method
+  // names and amounts in off-white ink
+  highlightReceiver: '#5cacff',
+  highlightMethodName: '#f4f5f6',
+  highlightAmount: '#f4f5f6',
 };
 
 // "Greenhouse" — the Ironclad palette (ironcladapp.com, from their own color
@@ -341,6 +399,7 @@ const PASTEL_LIGHT_COLORS: Record<string, string> = {
 
 export type DemoThemeId =
   | 'paper'
+  | 'carbon'
   | 'rose-pine-dark'
   | 'rose-pine-light'
   | 'greenhouse'
@@ -362,6 +421,13 @@ export interface DemoThemePreset {
 
 export const DEMO_THEME_PRESETS: DemoThemePreset[] = [
   { id: 'paper', label: 'Paper', mode: 'light', swatch: '#fdfcfc', colors: PAPER_LIGHT_COLORS },
+  {
+    id: 'carbon',
+    label: 'Carbon',
+    mode: 'dark',
+    swatch: '#12171a',
+    colors: CARBON_DARK_COLORS,
+  },
   {
     id: 'rose-pine-dark',
     label: 'Rose Pine Dark',
