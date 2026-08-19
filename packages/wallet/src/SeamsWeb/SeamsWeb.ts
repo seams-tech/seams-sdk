@@ -1812,6 +1812,7 @@ export class SeamsWeb {
       accountMode: args.accountMode,
       projectEnvironmentId: this.configs.registration.projectEnvironmentId,
       publishableKey: this.configs.registration.publishableKey,
+      ...(args.restartRegistrationOffer === true ? { restartRegistrationOffer: true } : {}),
     });
   }
 

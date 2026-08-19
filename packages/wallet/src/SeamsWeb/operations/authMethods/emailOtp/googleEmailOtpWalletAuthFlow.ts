@@ -70,6 +70,8 @@ type GoogleEmailOtpProviderResolutionRequest<
   idToken: string;
   accountMode: TMode;
   relayUrl: string | undefined;
+  /** Register-mode only: replace this subject's existing Email OTP wallet. */
+  restartRegistrationOffer: boolean;
 };
 
 type GoogleSessionState = {
@@ -279,10 +281,14 @@ function googleEmailOtpProviderResolutionRequest<
   input: GoogleEmailOtpWalletAuthStartInput,
   accountMode: TMode,
 ): GoogleEmailOtpProviderResolutionRequest<TMode> {
+  if (input.replaceExistingWallet === true && accountMode !== 'register') {
+    throw new Error('replaceExistingWallet is only valid with register mode');
+  }
   return {
     idToken: input.idToken,
     accountMode,
     relayUrl: input.relayUrl,
+    restartRegistrationOffer: accountMode === 'register' && input.replaceExistingWallet === true,
   };
 }
 
