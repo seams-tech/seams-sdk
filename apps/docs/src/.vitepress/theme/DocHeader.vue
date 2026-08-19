@@ -3,7 +3,7 @@ import { computed, ref } from 'vue';
 import { useData } from 'vitepress';
 import type { DefaultTheme } from 'vitepress/theme';
 
-const { page, theme } = useData();
+const { frontmatter, page, theme } = useData();
 
 function normalize(link: string): string {
   const path = link.replace(/index\.md$/, '').replace(/\.md$/, '');
@@ -39,9 +39,9 @@ const crumbs = computed(() => {
 const copied = ref(false);
 
 async function copyPage(): Promise<void> {
-  const text = document.querySelector('.vp-doc')?.textContent?.trim();
-  if (!text) return;
-  await navigator.clipboard.writeText(text);
+  const body = document.querySelector('.vp-doc')?.textContent?.trim();
+  if (!body) return;
+  await navigator.clipboard.writeText(`# ${page.value.title}\n\n${body}`);
   copied.value = true;
   setTimeout(() => {
     copied.value = false;
@@ -50,43 +50,71 @@ async function copyPage(): Promise<void> {
 </script>
 
 <template>
-  <div v-if="crumbs.length" class="seams-doc-header">
-    <nav class="seams-doc-header__breadcrumb" aria-label="Breadcrumb">
-      <template v-for="(crumb, index) in crumbs" :key="crumb.text">
-        <a v-if="crumb.link" :href="crumb.link">{{ crumb.text }}</a>
-        <span v-else>{{ crumb.text }}</span>
-        <span v-if="index < crumbs.length - 1" class="seams-doc-header__sep" aria-hidden="true">
-          ›
-        </span>
-      </template>
-    </nav>
-    <button class="seams-doc-header__copy" type="button" @click="copyPage">
-      <svg
-        aria-hidden="true"
-        width="14"
-        height="14"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-      >
-        <rect width="14" height="14" x="8" y="8" rx="2" />
-        <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
-      </svg>
-      {{ copied ? 'Copied' : 'Copy page' }}
-    </button>
-  </div>
+  <header class="seams-doc-header">
+    <div class="seams-doc-header__bar">
+      <nav v-if="crumbs.length" class="seams-doc-header__breadcrumb" aria-label="Breadcrumb">
+        <template v-for="(crumb, index) in crumbs" :key="crumb.text">
+          <a v-if="crumb.link" :href="crumb.link">{{ crumb.text }}</a>
+          <span v-else>{{ crumb.text }}</span>
+          <span v-if="index < crumbs.length - 1" class="seams-doc-header__sep" aria-hidden="true">
+            ›
+          </span>
+        </template>
+      </nav>
+      <span v-else />
+      <button class="seams-doc-header__copy" type="button" @click="copyPage">
+        <svg
+          aria-hidden="true"
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <rect width="14" height="14" x="8" y="8" rx="2" />
+          <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+        </svg>
+        {{ copied ? 'Copied' : 'Copy page' }}
+      </button>
+    </div>
+    <h1 class="seams-doc-header__title">{{ page.title }}</h1>
+    <p v-if="frontmatter.description" class="seams-doc-header__subtitle">
+      {{ frontmatter.description }}
+    </p>
+  </header>
 </template>
 
 <style scoped>
 .seams-doc-header {
+  margin-bottom: 32px;
+}
+
+.seams-doc-header__bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 20px;
+  min-height: 32px;
+  margin-bottom: 12px;
+}
+
+.seams-doc-header__title {
+  margin: 0;
+  font-size: 36px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  color: var(--vp-c-text-1);
+}
+
+.seams-doc-header__subtitle {
+  margin: 10px 0 0;
+  font-size: 17px;
+  line-height: 1.6;
+  color: var(--vp-c-text-2);
 }
 
 .seams-doc-header__breadcrumb {

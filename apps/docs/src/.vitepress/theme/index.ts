@@ -4,6 +4,7 @@ import type { Mermaid, MermaidConfig } from 'mermaid';
 import { h } from 'vue';
 import SeamsFooter from './SeamsFooter.vue';
 import DocHeader from './DocHeader.vue';
+import SidebarHeader from './SidebarHeader.vue';
 import './custom.css';
 
 function createMermaidRenderer() {
@@ -185,6 +186,7 @@ const theme: Theme = {
   ...DefaultTheme,
   Layout: () =>
     h(DefaultTheme.Layout, null, {
+      'sidebar-nav-before': () => h(SidebarHeader),
       'doc-before': () => h(DocHeader),
       'layout-bottom': () => h(SeamsFooter),
     }),

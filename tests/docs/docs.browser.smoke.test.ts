@@ -46,20 +46,27 @@ test('docs onboarding, examples, search, appearance, and responsive navigation s
   await expect(page.getByRole('heading', { name: 'Examples', level: 1 })).toBeVisible();
   await expect(page.locator('.vp-doc div[class*="language-"]').first()).toBeVisible();
 
-  await page
-    .getByRole('navigation', { name: 'Main Navigation' })
-    .getByRole('link', { name: 'SDK reference', exact: true })
-    .click();
+  await sidebar.getByRole('button', { name: 'SDK reference' }).click();
+  await sidebar.locator('a[href="/reference/"]').click();
   await expect(page).toHaveURL(/\/reference\/$/);
   await expect(page.getByRole('heading', { name: 'SDK reference', level: 1 })).toBeVisible();
 
+  // The nav bar is gone: brand, search, and appearance switch live in the sidebar.
+  await expect(page.locator('.VPNav')).toBeHidden();
+  await expect(sidebar.getByRole('button', { name: 'Search' })).toBeVisible();
+
   await page.getByRole('button', { name: 'Search' }).click();
   await page.getByPlaceholder('Search').fill('wallet sessions');
-  await page.getByRole('link', { name: 'Wallet sessions', exact: true }).click();
+  await page
+    .locator('#localsearch-list')
+    .locator('a[href="/concepts/sessions/wallet-sessions#wallet-sessions"]')
+    .click();
   await expect(page).toHaveURL(/\/concepts\/sessions\/wallet-sessions#wallet-sessions$/);
 
   await page.goto('/');
-  const appearanceSwitch = page.getByRole('switch', { name: /appearance|theme/i });
+  const appearanceSwitch = page
+    .locator('.VPSidebar')
+    .getByRole('switch', { name: /appearance|theme/i });
   await expect(appearanceSwitch).toBeVisible();
   await expect
     .poll(async () => page.evaluate(readDocsAppearance))
@@ -99,10 +106,10 @@ test('docs onboarding, examples, search, appearance, and responsive navigation s
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
-  const mobileNavigation = page.getByRole('button', { name: 'mobile navigation' });
-  await mobileNavigation.click();
-  await expect(mobileNavigation).toHaveAttribute('aria-expanded', 'true');
+  // Without a nav bar, the local-nav menu button is the only sidebar handle.
+  await page.getByRole('button', { name: /menu/i }).first().click();
+  await expect(page.locator('.VPSidebar.open')).toBeVisible();
   await expect(
-    page.locator('#VPNavScreen').getByRole('link', { name: 'SDK reference', exact: true }),
+    page.locator('.VPSidebar').getByRole('link', { name: 'Create a wallet', exact: true }),
   ).toBeVisible();
 });
