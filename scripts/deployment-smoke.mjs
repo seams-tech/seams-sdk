@@ -58,7 +58,9 @@ async function runHttpCheck(check) {
     });
     return {
       name: check.name,
-      ok: check.isReady ? check.isReady(response) : response.status >= 200 && response.status < 400,
+      ok: check.isReady
+        ? await check.isReady(response)
+        : response.status >= 200 && response.status < 400,
       status: response.status,
     };
   } catch (error) {

@@ -11,7 +11,10 @@ import {
  * Serve `failures` responses of 500 before answering 200, mimicking a freshly
  * deployed Worker that is not yet consistent across the edge.
  */
-async function startFlakyServer(failures: number): Promise<{
+async function startFlakyServer(
+  failures: number,
+  responseBody = '',
+): Promise<{
   readonly origin: string;
   readonly requestCount: () => number;
   readonly close: () => Promise<void>;
@@ -20,7 +23,7 @@ async function startFlakyServer(failures: number): Promise<{
   const server: Server = createServer((_request, response) => {
     requests += 1;
     response.writeHead(requests <= failures ? 500 : 200);
-    response.end();
+    response.end(responseBody);
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
@@ -65,6 +68,10 @@ function isConsoleCorsReady(response: Response): boolean {
     response.headers.get('Access-Control-Allow-Origin') === 'https://dashboard.example.test' &&
     response.headers.get('Access-Control-Allow-Credentials') === 'true'
   );
+}
+
+async function hasReadyBody(response: Response): Promise<boolean> {
+  return (await response.text()) === 'ready';
 }
 
 test('readiness check retries through a post-deploy propagation window', async () => {
@@ -149,6 +156,28 @@ test('readiness check supports request-specific CORS assertions', async () => {
     );
     expect(results[0]?.ok).toBe(true);
     expect(results[0]?.status).toBe(204);
+  } finally {
+    await server.close();
+  }
+});
+
+test('readiness check awaits response body assertions', async () => {
+  const server = await startFlakyServer(0, 'wrong application');
+  try {
+    const results = await runReadinessChecks(
+      [
+        {
+          name: '/dashboard/login',
+          url: `${server.origin}/dashboard/login`,
+          isReady: hasReadyBody,
+        },
+      ],
+      {
+        budgetMs: 0,
+        intervalMs: 10,
+      },
+    );
+    expect(results[0]?.ok).toBe(false);
   } finally {
     await server.close();
   }
