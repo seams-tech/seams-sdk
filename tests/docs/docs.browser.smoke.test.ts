@@ -39,14 +39,13 @@ test('docs onboarding, examples, search, appearance, and responsive navigation s
   await expect(page.getByRole('heading', { name: 'Create a wallet', level: 1 })).toBeVisible();
 
   const sidebar = page.getByRole('navigation', { name: 'Sidebar Navigation' });
-  await sidebar.getByRole('button', { name: 'Guides' }).click();
+  // Top-level sections render expanded; only the nested groups toggle.
   await sidebar.getByRole('button', { name: 'Examples' }).click();
   await sidebar.locator('a[href="/examples/"]').click();
   await expect(page).toHaveURL(/\/examples\/$/);
   await expect(page.getByRole('heading', { name: 'Examples', level: 1 })).toBeVisible();
   await expect(page.locator('.vp-doc div[class*="language-"]').first()).toBeVisible();
 
-  await sidebar.getByRole('button', { name: 'SDK reference' }).click();
   await sidebar.locator('a[href="/reference/"]').click();
   await expect(page).toHaveURL(/\/reference\/$/);
   await expect(page.getByRole('heading', { name: 'SDK reference', level: 1 })).toBeVisible();

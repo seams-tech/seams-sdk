@@ -12,7 +12,6 @@ function pageUrl(page: string): string {
 
 const getStartedSection: DefaultTheme.SidebarItem = {
   text: 'Get started',
-  collapsed: true,
   items: [
     { text: 'Installation', link: '/' },
     { text: 'Create a wallet', link: '/getting-started/create-wallet' },
@@ -27,7 +26,6 @@ const getStartedSection: DefaultTheme.SidebarItem = {
 
 const guidesSection: DefaultTheme.SidebarItem = {
   text: 'Guides',
-  collapsed: true,
   items: [
     { text: 'Overview', link: '/guides/' },
     { text: 'Authentication', link: '/guides/authentication' },
@@ -66,7 +64,6 @@ const guidesSection: DefaultTheme.SidebarItem = {
 
 const referenceSection: DefaultTheme.SidebarItem = {
   text: 'SDK reference',
-  collapsed: true,
   items: [
     { text: 'Overview', link: '/reference/' },
     { text: '@seams/wallet', link: '/reference/core' },
@@ -82,7 +79,6 @@ const referenceSection: DefaultTheme.SidebarItem = {
 
 const conceptsSection: DefaultTheme.SidebarItem = {
   text: 'Concepts',
-  collapsed: true,
   items: [
     { text: 'Overview', link: '/concepts/' },
     { text: 'Architecture', link: '/concepts/architecture' },
@@ -168,7 +164,6 @@ const conceptsSection: DefaultTheme.SidebarItem = {
 
 const deployAndOperateSection: DefaultTheme.SidebarItem = {
   text: 'Deploy and operate',
-  collapsed: true,
   items: [
     { text: 'Overview', link: '/deploy-and-operate/' },
     { text: 'Hosted integration', link: '/deploy-and-operate/hosted-integration' },
@@ -183,15 +178,15 @@ const deployAndOperateSection: DefaultTheme.SidebarItem = {
 
 const useCasesSection: DefaultTheme.SidebarItem = {
   text: 'Use cases',
-  collapsed: true,
   items: [
     { text: 'Overview', link: '/use-cases/' },
     { text: 'Ecommerce agents', link: '/use-cases/ecommerce-agents' },
   ],
 };
 
-// One sidebar for every route: each top-level area is a collapsible heading, and
-// the section holding the current page expands on its own.
+// One sidebar for every route. Top-level areas stay open — they carry no
+// `collapsed`, so VitePress renders them expanded and without a toggle — while
+// the deeper groups inside Guides and Concepts stay collapsible.
 const documentationSidebar: DefaultTheme.SidebarItem[] = [
   getStartedSection,
   guidesSection,
