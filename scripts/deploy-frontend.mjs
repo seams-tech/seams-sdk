@@ -20,7 +20,13 @@ const CONSOLE_OUTPUT = path.join(CONSOLE_ROOT, 'dist');
 const DOCS_ROOT = path.join(REPOSITORY_ROOT, 'apps', 'docs');
 const DOCS_OUTPUT = path.join(DOCS_ROOT, 'dist');
 const FRONTEND_SMOKE_PATHS = Object.freeze({
-  site: ['/', '/dashboard/', '/dashboard/login', '/sdk/workers/near-signer.worker.js'],
+  site: [
+    '/',
+    { path: '/dashboard/', isReady: consoleHtmlIsReady },
+    { path: '/dashboard/login', isReady: consoleHtmlIsReady },
+    { path: '/platform/billing', isReady: consoleHtmlIsReady },
+    '/sdk/workers/near-signer.worker.js',
+  ],
   docs: ['/', '/concepts/', '/concepts/auth-methods/', '/concepts/policy/mandates'],
   wallet: [
     '/',
@@ -396,6 +402,12 @@ function jsonManifestIsReady(response) {
       .toLowerCase()
       .startsWith('application/json')
   );
+}
+
+async function consoleHtmlIsReady(response) {
+  if (response.status < 200 || response.status >= 400) return false;
+  const html = await response.text();
+  return html.includes('<title>Seams Console</title>');
 }
 
 function requireEnvironmentValues(names, environment) {
