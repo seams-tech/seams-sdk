@@ -319,6 +319,7 @@ test('rejects aggregate activation unless the approved manifest and child set ma
     enrollmentId: fixture.receipt.enrollmentId,
     walletId: fixture.receipt.walletId,
     deviceId: fixture.receipt.deviceId,
+    targetFactor: fixture.receipt.targetFactor,
     manifestDigestB64u: differentManifestDigest,
     aggregateReceiptDigestB64u: fixture.receipt.aggregateReceiptDigestB64u,
     orderedChildReceipts: fixture.receipt.orderedChildReceipts,
@@ -341,6 +342,7 @@ test('rejects aggregate activation unless the approved manifest and child set ma
     enrollmentId: fixture.receipt.enrollmentId,
     walletId: fixture.receipt.walletId,
     deviceId: fixture.receipt.deviceId,
+    targetFactor: fixture.receipt.targetFactor,
     manifestDigestB64u: fixture.receipt.manifestDigestB64u,
     aggregateReceiptDigestB64u: fixture.receipt.aggregateReceiptDigestB64u,
     orderedChildReceipts: [
@@ -366,6 +368,7 @@ test('rejects aggregate activation unless the approved manifest and child set ma
     enrollmentId: fixture.receipt.enrollmentId,
     walletId: fixture.receipt.walletId,
     deviceId: fixture.receipt.deviceId,
+    targetFactor: fixture.receipt.targetFactor,
     manifestDigestB64u: fixture.receipt.manifestDigestB64u,
     aggregateReceiptDigestB64u: fixture.receipt.aggregateReceiptDigestB64u,
     orderedChildReceipts: [child, child],
@@ -453,7 +456,7 @@ test('rejects tampered durable record and transcript rows', async () => {
 function qrPayload(session: string) {
   const linkSessionId = parseLinkDeviceSessionId(session).value;
   return {
-    version: 'v4' as const,
+    version: 'v5' as const,
     purpose: 'linked_device_lane_creation' as const,
     linkSessionId,
     linkPublicKeyB64u: 'AQ',
@@ -463,6 +466,7 @@ function qrPayload(session: string) {
       administrationScope: 'signing_only' as const,
       localUserPresence: 'required' as const,
     },
+    targetFactor: { kind: 'passkey_prf' as const },
     issuedAtMs: nowMs - 10,
     expiresAtMs: nowMs + 60_000,
   };

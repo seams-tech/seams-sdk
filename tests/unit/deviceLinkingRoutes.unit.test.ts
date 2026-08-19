@@ -658,6 +658,7 @@ test('operator recovery binds a fresh proof key before retrying committed delive
     enrollmentId: fixture.approval.enrollmentId,
     deviceId: fixture.approval.deviceId,
     devicePublicKeyB64u: fixture.payload.devicePublicKeyB64u,
+    targetFactor: fixture.payload.targetFactor,
     claimedAtMs: 1_500,
     claimExpiresAtMs: 9_000,
   });
@@ -843,7 +844,7 @@ function routeServiceFor(
       kind: 'authorized' as const,
       body: await request.json(),
       owner: ownerRequestContext(),
-      binding: requestBinding(method, pathname, 'link-session:r103', bodyDigestB64u, nowMs),
+      binding: requestBinding(method, pathname, bodyDigestB64u, nowMs),
     }),
     authenticateDeviceRequestV1: async ({ proof }) => ({
       kind: 'authorized' as const,

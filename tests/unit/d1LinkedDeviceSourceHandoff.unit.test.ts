@@ -508,6 +508,7 @@ async function createProvisioningHandoffScenario() {
     enrollmentId: approval.enrollmentId,
     walletId: approval.walletId,
     deviceId: approval.deviceId,
+    targetFactor: approval.targetFactor,
     manifestDigestB64u: handoff.manifestDigestB64u,
     aggregateReceiptDigestB64u: fixture.receipt.aggregateReceiptDigestB64u,
     orderedChildReceipts: fixture.receipt.orderedChildReceipts,
@@ -784,6 +785,7 @@ async function persistRegisteredTargetCredential(
     walletId: handoff.targetReady.walletId,
     enrollmentId: handoff.targetReady.enrollmentId,
     deviceId: handoff.targetReady.deviceId,
+    targetFactor: { kind: 'passkey_prf' },
     ownerEnrollment: buildR103OwnerEnrollmentCeremonyV1(),
     orderedChildren: [
       {
@@ -805,6 +807,7 @@ async function persistRegisteredTargetCredential(
     walletId: handoff.targetReady.walletId,
     enrollmentId: handoff.targetReady.enrollmentId,
     deviceId: handoff.targetReady.deviceId,
+    targetFactor: { kind: 'passkey_prf' },
     targetPreparationDigestB64u: await computeLinkedDeviceTargetPreparationDigestV1(preparation),
     webauthnRegistration: {
       kind: 'linked_device_webauthn_registration_v1',
@@ -835,11 +838,11 @@ async function persistRegisteredTargetCredential(
     .prepare(
       `INSERT INTO linked_device_target_credentials (
          namespace, org_id, project_id, env_id, link_session_id,
-         wallet_id, enrollment_id, device_id, state,
+         wallet_id, enrollment_id, device_id, state, target_factor,
          preparation_digest_b64u, preparation_json, registration_json,
          credential_id_b64u, credential_public_key_b64u, credential_counter,
          key_manifest_digest_b64u, prepared_at_ms, expires_at_ms, registered_at_ms
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'registered', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'registered', 'passkey_prf', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       scope.namespace,

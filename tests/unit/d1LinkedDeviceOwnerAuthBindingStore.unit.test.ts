@@ -186,11 +186,20 @@ test('an Email OTP binding stores no WebAuthn identity and derives its own auth-
     1,
   );
 
-  expect(String(binding.walletAuthMethodId)).toBe(`email_otp:wallet:r103p8:${'b'.repeat(64)}`);
+  // The principal is derived per enrollment — wallet + email hash alone names
+  // the shared base factor, and reusing it would fuse two linked devices into
+  // one revocable identity.
+  expect(String(binding.walletAuthMethodId)).toBe(
+    `email_otp_linked:wallet:r103p8:enrollment:r103p8:device:r103p8:${'b'.repeat(64)}`,
+  );
+  expect(String(binding.factor.baseWalletAuthMethodId)).toBe(
+    `email_otp:wallet:r103p8:${'b'.repeat(64)}`,
+  );
 
   const row = await database
     .prepare(
-      `SELECT factor_kind, rp_id, credential_id_b64u, email_hash_hex, registration_authority_id
+      `SELECT factor_kind, rp_id, credential_id_b64u, email_hash_hex,
+              registration_authority_id, base_wallet_auth_method_id
          FROM linked_device_owner_auth_bindings
         WHERE enrollment_id = ?1`,
     )
@@ -202,6 +211,7 @@ test('an Email OTP binding stores no WebAuthn identity and derives its own auth-
     credential_id_b64u: null,
     email_hash_hex: 'b'.repeat(64),
     registration_authority_id: 'google',
+    base_wallet_auth_method_id: `email_otp:wallet:r103p8:${'b'.repeat(64)}`,
   });
 
   expect(
@@ -244,9 +254,16 @@ test('the binding row is a foreign key into the canonical wallet auth methods ta
     from: row.from,
     to: row.to,
   }));
+  // The reference is through the BASE auth method: a Passkey binding's base is
+  // itself, an Email OTP binding's base is the shared wallet-wide factor its
+  // derived per-enrollment principal was minted from.
   expect(references).toEqual(
     expect.arrayContaining([
-      { table: 'wallet_auth_methods', from: 'wallet_auth_method_id', to: 'wallet_auth_method_id' },
+      {
+        table: 'wallet_auth_methods',
+        from: 'base_wallet_auth_method_id',
+        to: 'wallet_auth_method_id',
+      },
     ]),
   );
 });
@@ -377,6 +394,7 @@ test('a stored record that points at another credential fails closed at the boun
       kind: 'email_otp' as const,
       emailHashHex: 'c'.repeat(64),
       registrationAuthorityId: 'google',
+      baseWalletAuthMethodId: `email_otp:${String(binding.walletId)}:${'c'.repeat(64)}`,
     },
   };
   expect(() => parseLinkedDeviceOwnerAuthBindingV1(crossBranch)).toThrow(

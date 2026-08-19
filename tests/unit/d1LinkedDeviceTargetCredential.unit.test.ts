@@ -363,7 +363,9 @@ test('persists verified attestation and exact public child records before provis
   expect(persisted?.state).toBe('registered');
   expect(JSON.parse(String(persisted?.registration_json))).toEqual(target.registration);
   expect(String(persisted?.registration_json)).not.toContain('clientExtensionResults');
-  expect(String(persisted?.registration_json)).not.toContain('prf');
+  // PRF *outputs* must never persist. The `passkey_prf` factor discriminator
+  // legitimately contains the substring, so match the extension key exactly.
+  expect(String(persisted?.registration_json)).not.toContain('"prf"');
   expect(persisted?.credential_public_key_b64u).toBeTruthy();
 
   const authenticatorStore = new D1LinkedDeviceTargetAuthenticatorStoreV1({

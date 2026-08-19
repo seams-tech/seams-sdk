@@ -205,14 +205,17 @@ test.describe('R103 shared linked-device contracts', () => {
       enrollmentId: fixture.approval.enrollmentId,
       deviceId: fixture.approval.deviceId,
       devicePublicKeyB64u: fixture.payload.devicePublicKeyB64u,
+      targetFactor: fixture.payload.targetFactor,
       claimedAtMs: 1_500,
       claimExpiresAtMs: 9_000,
     });
     const approvalDigest = await computeLinkedDeviceApprovalDigestV1(fixture.approval);
-    expect(claimDigest).toBe('FgZvqK0Fekq89xChB3UoQBKz0nlTcbBvkxXAa6v6_EA');
+    // QR v5 binds the target-factor discriminator into every transcript
+    // digest, so the goldens moved with the intentional wire change.
+    expect(claimDigest).toBe('_6s0uInyXmAM1z09l78oUxD2Ays1gs9TOJLsfe3hwJA');
     // Phase 8 moved the owner enrollment ceremony inside the approval, so the
     // ceremony is part of what the owner's digest commits to.
-    expect(approvalDigest).toBe('yGPMEOkQQlA9EKdkuzHI6eVsNkmqGuCvvrJiUevVoy0');
+    expect(approvalDigest).toBe('bvphbI50NPB7ORiofhZZknNZwcepw3AW7BoYcgJnHQU');
   });
 
   test('rejects dormant QR permissions, unknown fields, non-canonical keys, and invalid expiry', () => {
@@ -296,6 +299,7 @@ test.describe('R103 shared linked-device contracts', () => {
       linkSessionId: fixture.payload.linkSessionId,
       enrollmentId: fixture.approval.enrollmentId,
       deviceId: fixture.approval.deviceId,
+      targetFactor: fixture.approval.targetFactor,
     });
     expect(parseLinkedDeviceProvisioningCommandV1(command)).toEqual(command);
 
@@ -375,6 +379,7 @@ test.describe('R103 shared linked-device contracts', () => {
       linkSessionId: fixture.payload.linkSessionId,
       enrollmentId: fixture.approval.enrollmentId,
       deviceId: fixture.approval.deviceId,
+      targetFactor: fixture.approval.targetFactor,
     });
     expect(() => parseLinkedDeviceProvisioningCommandV1({ ...command, extra: true })).toThrow(
       /not part/,
@@ -518,6 +523,7 @@ test.describe('R103 shared linked-device contracts', () => {
       walletId: fixture.approval.walletId,
       enrollmentId: fixture.approval.enrollmentId,
       deviceId: fixture.approval.deviceId,
+      targetFactor: fixture.approval.targetFactor,
       ownerEnrollment: buildR103OwnerEnrollmentCeremonyV1({ expiresAtMs: 2_000 }),
       orderedChildren: [
         {
@@ -542,6 +548,7 @@ test.describe('R103 shared linked-device contracts', () => {
       walletId: fixture.approval.walletId,
       enrollmentId: fixture.approval.enrollmentId,
       deviceId: fixture.approval.deviceId,
+      targetFactor: { kind: 'passkey_prf' },
       targetPreparationDigestB64u,
       webauthnRegistration: {
         kind: 'linked_device_webauthn_registration_v1',
