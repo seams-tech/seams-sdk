@@ -25,7 +25,7 @@ localhost {
 		rewrite * /dashboard/
 		reverse_proxy localhost:3601
 	}
-	@console_app path /dashboard/*
+	@console_app path /dashboard/* /dashboard-static/*
 	handle @console_app {
 		reverse_proxy localhost:3601
 	}

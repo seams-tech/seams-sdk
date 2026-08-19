@@ -17,12 +17,13 @@ const SITE_ROOT = path.join(REPOSITORY_ROOT, 'apps', 'seams-site');
 const SITE_OUTPUT = path.join(SITE_ROOT, 'dist');
 const CONSOLE_ROOT = path.join(REPOSITORY_ROOT, 'apps', 'seams-console');
 const CONSOLE_OUTPUT = path.join(CONSOLE_ROOT, 'dist');
+const CONSOLE_DEPLOYMENT_OUTPUT = path.join(SITE_OUTPUT, 'dashboard-static');
 const DOCS_ROOT = path.join(REPOSITORY_ROOT, 'apps', 'docs');
 const DOCS_OUTPUT = path.join(DOCS_ROOT, 'dist');
 const FRONTEND_SMOKE_PATHS = Object.freeze({
   site: [
     '/',
-    { path: '/dashboard/', isReady: consoleHtmlIsReady },
+    { path: '/dashboard/', isReady: consoleApplicationIsReady },
     { path: '/dashboard/login', isReady: consoleHtmlIsReady },
     { path: '/platform/billing', isReady: consoleHtmlIsReady },
     '/sdk/workers/near-signer.worker.js',
@@ -113,7 +114,7 @@ function printPlan(site) {
     '',
     'Order:',
     '  1. build the Wallet SDK, marketing site, Console app, and VitePress docs',
-    '  2. mount the Console build at /dashboard and deploy the site Pages project',
+    '  2. mount the Console build at /dashboard-static and deploy the site Pages project',
     '  3. deploy the docs Pages project and bind its custom domain',
     '  4. deploy one wallet Pages project for every declared network',
     '  5. smoke site, Console routes, docs, SDK, and every Wallet origin',
@@ -151,9 +152,9 @@ function buildFrontend(site) {
     env: buildEnvironment,
   });
   copySdkAssets();
-  copyDirectory(CONSOLE_OUTPUT, path.join(SITE_OUTPUT, 'dashboard'));
+  copyDirectory(CONSOLE_OUTPUT, CONSOLE_DEPLOYMENT_OUTPUT);
   assertDirectory(SITE_OUTPUT, 'Pages build output');
-  assertFile(path.join(SITE_OUTPUT, 'dashboard', 'index.html'), 'Console dashboard entry');
+  assertFile(path.join(CONSOLE_DEPLOYMENT_OUTPUT, 'index.html'), 'Console dashboard entry');
   assertFile(path.join(SITE_OUTPUT, 'wallet-service', 'index.html'), 'wallet-service entry');
   assertDirectory(DOCS_OUTPUT, 'VitePress Pages build output');
   assertFile(path.join(DOCS_OUTPUT, 'concepts', 'index.html'), 'concepts docs entry');
@@ -408,6 +409,37 @@ async function consoleHtmlIsReady(response) {
   if (response.status < 200 || response.status >= 400) return false;
   const html = await response.text();
   return html.includes('<title>Seams Console</title>');
+}
+
+async function consoleApplicationIsReady(response) {
+  if (response.status < 200 || response.status >= 400) return false;
+  const html = await response.text();
+  if (!html.includes('<title>Seams Console</title>')) return false;
+  const assetPaths = consoleAssetPaths(html);
+  if (assetPaths.length === 0) return false;
+  for (const assetPath of assetPaths) {
+    const assetResponse = await fetch(new URL(assetPath, response.url), {
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!consoleAssetIsReady(assetPath, assetResponse)) return false;
+  }
+  return true;
+}
+
+function consoleAssetPaths(html) {
+  const paths = [];
+  const assetReference = /(?:src|href)="([^"]+\.(?:js|css))"/g;
+  for (const match of html.matchAll(assetReference)) paths.push(match[1]);
+  return paths;
+}
+
+function consoleAssetIsReady(assetPath, response) {
+  if (response.status < 200 || response.status >= 400) return false;
+  if (!assetPath.startsWith('/dashboard-static/assets/')) return false;
+  const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+  if (assetPath.endsWith('.js')) return contentType.includes('javascript');
+  if (assetPath.endsWith('.css')) return contentType.startsWith('text/css');
+  return false;
 }
 
 function requireEnvironmentValues(names, environment) {
