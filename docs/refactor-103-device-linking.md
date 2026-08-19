@@ -4,9 +4,9 @@ Date created: June 15, 2026
 
 Rewritten: July 22, 2026
 
-Last reconciled: August 17, 2026 (Phase 8 zero-prompt owner handoff plan)
+Last reconciled: August 19, 2026 (closeout scope)
 
-Status: active implementation. The strict QR v4 contract, exhaustive session
+Status: closeout. The strict QR v4 contract, exhaustive session
 state, durable claim and expiry store, authenticated request-proof transport,
 owner approval responses, committed-delivery recovery, aggregate activation
 verification, private Gateway completion API, linked authorization domain, and
@@ -16,6 +16,17 @@ linked normal-signing paths, and aggregate revocation is implemented. Refactor
 lane authorization and curve execution, operator-recovery authentication, and
 management-side local-state invalidation. Deployment proof still requires the
 configured production topology and credentials.
+
+## Active Closeout Scope
+
+One high-impact task remains: automate the real two-device Passkey and Email
+OTP operating flows. Each flow must use two independent browser profiles and
+the composed runtime, then prove linking, refresh, unlock, signing, export,
+metadata persistence, and revocation without mocked lifecycle state.
+
+This closeout scope supersedes older unchecked checklist entries below. Those
+entries remain as implementation history only; they are not active Refactor
+103 completion blockers.
 
 The original passkey-only implementation checkpoint is 18/21 complete. Phase 6
 adds an exact Passkey or Email OTP target-factor choice and is excluded from
@@ -387,8 +398,7 @@ When an embedded browser rejects WebAuthn because the wallet document has a
 cross-origin ancestor, Device 2 performs the credential operation in a
 short-lived top-level wallet-origin window. That window inherits the same
 wallet origin and RP ID, closes after the prompt, and returns only the
-credential result to the wallet worker flow.
-7. Return one receipt per key and one aggregate manifest receipt.
+credential result to the wallet worker flow. 7. Return one receipt per key and one aggregate manifest receipt.
 
 The worker rejects missing or duplicate keys, wrong public identity, recipient
 swap, transcript mismatch, stale session, unsupported protocol, and any package
@@ -426,9 +436,7 @@ type LinkedDeviceWalletSessionAuthorizationV1 = {
   expiresAtMs: number;
 };
 
-type AuthorizationGrant =
-  | WalletSessionAuthorization
-  | LinkedDeviceWalletSessionAuthorizationV1;
+type AuthorizationGrant = WalletSessionAuthorization | LinkedDeviceWalletSessionAuthorizationV1;
 
 type AuthorizationGrantRef =
   | {
@@ -592,7 +600,7 @@ Wallet Session expiry and quota exhaustion belong to the linked-device
 authorization projection. They deny new admission while the enrollment and
 material activation remain intact.
 
-## Implementation Phases
+## Historical Implementation Phases
 
 ### Phase 0: Readiness
 
@@ -632,7 +640,7 @@ material activation remain intact.
 - [x] Add device management and activity summary views.
 - [ ] Add the Device 1 `owner_handoff_complete` state. Close the scanner,
       restore focus, and show `QR code scanned` with `Continue setup on your
-      other device.` only after the Gateway accepts the complete owner handoff.
+  other device.` only after the Gateway accepts the complete owner handoff.
 - [ ] Add post-v1 refresh, reprovisioning, and compromise cleanup flows.
 - [x] Add operator recovery for committed delivery that cannot complete on the
       original link session. The route binds a fresh Device 2 continuation key,
@@ -660,21 +668,21 @@ Node 26.4.0, pnpm 11.11.0, and Bun 1.2.18 on `aarch64-apple-darwin`.
 Both ECDSA derivation builds enabled `simd128`; every artifact used its
 checked-in release profile and wasm-opt configuration.
 
-| Unique affected Wasm | Baseline raw | Candidate raw | Delta raw | Baseline gzip | Candidate gzip | Delta gzip |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Ed25519 Yao client | 1,210,795 | 979,566 | -231,229 | 433,487 | 383,404 | -50,083 |
-| ECDSA derivation client | 610,161 | 700,917 | +90,756 | 245,876 | 285,620 | +39,744 |
-| ECDSA presign client | 172,129 | removed | -172,129 | 73,064 | removed | -73,064 |
-| ECDSA online client | 68,774 | removed | -68,774 | 31,585 | removed | -31,585 |
-| **Unique affected set** | **2,061,859** | **1,680,483** | **-381,376** | **784,012** | **669,024** | **-114,988** |
+| Unique affected Wasm    |  Baseline raw | Candidate raw |    Delta raw | Baseline gzip | Candidate gzip |   Delta gzip |
+| ----------------------- | ------------: | ------------: | -----------: | ------------: | -------------: | -----------: |
+| Ed25519 Yao client      |     1,210,795 |       979,566 |     -231,229 |       433,487 |        383,404 |      -50,083 |
+| ECDSA derivation client |       610,161 |       700,917 |      +90,756 |       245,876 |        285,620 |      +39,744 |
+| ECDSA presign client    |       172,129 |       removed |     -172,129 |        73,064 |        removed |      -73,064 |
+| ECDSA online client     |        68,774 |       removed |      -68,774 |        31,585 |        removed |      -31,585 |
+| **Unique affected set** | **2,061,859** | **1,680,483** | **-381,376** |   **784,012** |    **669,024** | **-114,988** |
 
-| Unique affected Wasm | Baseline Brotli | Candidate Brotli | Delta Brotli |
-| --- | ---: | ---: | ---: |
-| Ed25519 Yao client | 311,801 | 298,141 | -13,660 |
-| ECDSA derivation client | 198,286 | 231,161 | +32,875 |
-| ECDSA presign client | 60,378 | removed | -60,378 |
-| ECDSA online client | 26,382 | removed | -26,382 |
-| **Unique affected set** | **596,847** | **529,302** | **-67,545** |
+| Unique affected Wasm    | Baseline Brotli | Candidate Brotli | Delta Brotli |
+| ----------------------- | --------------: | ---------------: | -----------: |
+| Ed25519 Yao client      |         311,801 |          298,141 |      -13,660 |
+| ECDSA derivation client |         198,286 |          231,161 |      +32,875 |
+| ECDSA presign client    |          60,378 |          removed |      -60,378 |
+| ECDSA online client     |          26,382 |          removed |      -26,382 |
+| **Unique affected set** |     **596,847** |      **529,302** |  **-67,545** |
 
 The repeat-build SHA-256 digests are:
 
@@ -878,8 +886,8 @@ Wallet Sessions avoid redundant step-up, and the two live browser flows pass.
 
 This phase makes the existing linked execution model reliable before changing
 the human-device authority. It fixes demonstrated operating-path failures and
-does not add export, recovery, or account administration to the temporary
-signing-only grant.
+does not add export, recovery, or account administration to the narrow
+signing-only execution grant (retained permanently per Refactor 103C).
 
 #### Persisted Device Session And Unlock
 
@@ -1032,7 +1040,7 @@ Raw seed bytes never enter application JavaScript or persistence.
 ##### Seed Transfer
 
 - [x] Replace `sealForLinkedDeviceV1({ existingEnvelope,
-      existingFactorSecret, ... })` with a worker operation that accepts the
+  existingFactorSecret, ... })` with a worker operation that accepts the
       opaque unlocked capability and the approved recipient binding. The worker
       seals directly from its custody handle and generates a fresh X25519
       ephemeral key and nonce for every transfer.
@@ -1104,8 +1112,11 @@ specified: no prompt, no approval, no credential, no package.
 
 - [ ] Replace the human-device permission request with the canonical owner
       credential/factor enrollment request already used by wallet custody.
-      Delete the human `owner_equivalent_signing`/`signing_only` request branch
-      at cutover; do not retain a compatibility parser.
+      Superseded by Refactor 103C: the `owner_equivalent_signing`/`signing_only`
+      grant is not deleted. It remains the narrow per-device linked execution
+      grant — delivery, renewal, execution, revocation — alongside the
+      canonical owner credential. It never classifies the human as a
+      signing-only user.
 - [ ] After Device 1 approval, authenticate the exact Device 2 Passkey or Email
       OTP factor and reseal the existing wallet custody seed for that factor.
       Raw seed, PRF output, OTP factor secret, and envelope KEK remain inside
@@ -1235,10 +1246,12 @@ Lifecycle tests prove:
   remains recommended; Email OTP is available only for wallets with an active
   verified Email OTP factor.
 - Phase 7 completes and validates the signing-only lane as an operating path.
-  It does not expand that temporary grant into export or recovery authority.
-- Phase 8 makes human Device 2 a canonical owner credential and removes human
-  use of the signing-only authority. Refactor 104 owns any later agent use of
-  delegated execution under its own principal and authorization types.
+  It does not expand that narrow grant into export or recovery authority.
+- Phase 8 makes human Device 2 a canonical owner credential. Per Refactor
+  103C, the signing-only linked execution grant is retained alongside that
+  ownership as the per-device execution and revocation mechanism — it is not
+  removed. Refactor 104 owns any later agent use of delegated execution under
+  its own principal and authorization types.
 - The v1 compromise boundary is immediate aggregate revocation, server-role
   disablement, and exact local holder/session zeroization. Server-share
   destruction evidence, refresh/reprovisioning, and post-compromise recovery
