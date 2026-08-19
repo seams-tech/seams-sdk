@@ -5,7 +5,7 @@ description: Link another device, export a key, or restore a wallet account thro
 
 # Add devices, export, and recover
 
-Use these flows after your first wallet can unlock and sign. Each operation
+Use these flows after your first wallet can sign. Each operation
 has its own authorization and result; keep it separate from normal signing.
 
 ## Link another device
