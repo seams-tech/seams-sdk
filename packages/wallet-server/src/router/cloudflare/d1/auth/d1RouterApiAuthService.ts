@@ -21,6 +21,7 @@ import {
 } from '@shared/utils/domainIds';
 import { parseImplicitNearAccountId, parseNamedNearAccountId } from '@shared/utils/near';
 import { parseNearEd25519SigningKeyId } from '@shared/utils/registrationIntent';
+import type { WalletAuthMethodRecord } from '@shared/utils/registrationIntent';
 import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import { parseThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
@@ -166,6 +167,11 @@ import {
   createD1LinkedDeviceLocalPresenceVerifierV1,
 } from '../deviceLinking/d1LinkedDeviceTargetAuthenticatorStore';
 import { D1LinkedDeviceExecutionAdmissionResolverV1 } from '../deviceLinking/d1LinkedDeviceExecutionAdmissionResolver';
+import { D1LinkedDeviceEmailOtpGrantStoreV1, createLinkedDeviceEmailOtpRegistrationPortV1 } from '../deviceLinking/d1LinkedDeviceEmailOtpGrantStore';
+import {
+  D1LinkedDeviceEmailOtpTargetFactorV1,
+  linkedDeviceEmailOtpBaseFactorReaderV1,
+} from '../deviceLinking/d1LinkedDeviceEmailOtpTargetFactor';
 import { D1LinkedDeviceLocalStateInvalidationV1 } from '../deviceLinking/d1LinkedDeviceLocalStateInvalidation';
 import { D1LinkedDeviceOperatorRecoveryProviderV1 } from '../deviceLinking/d1LinkedDeviceOperatorRecoveryProvider';
 import { D1LinkedDeviceOwnerAuthBindingStoreV1 } from '../deviceLinking/d1LinkedDeviceOwnerAuthBindingStore';
@@ -341,6 +347,20 @@ function createD1LinkedDeviceComposition(input: {
    * seals it.
    */
   readonly ownerEnrollmentCeremonies: LinkedOwnerEnrollmentCeremonyReaderV1;
+  /**
+   * Refactor 103 Phase 6: the R100 Email OTP pieces the linked-device Email
+   * OTP target factor composes. Left absent, `email_otp` linking fails closed
+   * at approval and the challenge routes answer 501.
+   */
+  readonly emailOtpLinkedDevice?: {
+    readonly issuer: Pick<CloudflareD1EmailOtpChallengeIssuer, 'create'>;
+    readonly verifier: Pick<CloudflareD1EmailOtpChallengeVerifier, 'verifyExisting'>;
+    readonly enrollments: Pick<CloudflareD1EmailOtpEnrollmentStore, 'readEnrollment'>;
+    readonly walletAuthMethodStore: {
+      listForWallet(input: { readonly walletId: string }): Promise<WalletAuthMethodRecord[]>;
+    };
+    readonly serverSeal: Pick<CloudflareD1EmailOtpServerSealRuntime, 'removeEmailOtpServerSeal'>;
+  };
   /** The canonical add-auth-method service the linked finalize reuses. */
   readonly walletAuthMethods: {
     finalizeWalletAddAuthMethod(
@@ -375,11 +395,16 @@ function createD1LinkedDeviceComposition(input: {
     database: input.options.database,
     scope,
   });
+  const linkedOwnerAuthBindings = new D1LinkedDeviceOwnerAuthBindingStoreV1({
+    database: input.options.database,
+    scope,
+  });
   const linkedDeviceExecution = new D1LinkedDeviceExecutionAdmissionResolverV1({
     database: input.options.database,
     scope,
     authorization: input.authorization,
     credentials,
+    ownerAuthBindings: linkedOwnerAuthBindings,
     nowV1: config.execution.nowV1,
   });
   const linkedDeviceLocalPresence = createD1LinkedDeviceLocalPresenceVerifierV1({
@@ -457,12 +482,40 @@ function createD1LinkedDeviceComposition(input: {
       ...laneStoreOptions,
       ...laneRuntime.laneLifecycle,
     });
+    let emailOtpTargetFactor: D1LinkedDeviceEmailOtpTargetFactorV1 | undefined;
+    let emailOtpRegistrationPort:
+      | ReturnType<typeof createLinkedDeviceEmailOtpRegistrationPortV1>
+      | undefined;
+    if (input.emailOtpLinkedDevice) {
+      const linkedEmailOtpGrants = new D1LinkedDeviceEmailOtpGrantStoreV1({
+        database: input.options.database,
+        scope,
+      });
+      emailOtpTargetFactor = new D1LinkedDeviceEmailOtpTargetFactorV1({
+        issuer: input.emailOtpLinkedDevice.issuer,
+        verifier: input.emailOtpLinkedDevice.verifier,
+        enrollments: input.emailOtpLinkedDevice.enrollments,
+        walletAuthMethods: input.emailOtpLinkedDevice.walletAuthMethodStore,
+        serverSeal: input.emailOtpLinkedDevice.serverSeal,
+        grants: linkedEmailOtpGrants,
+      });
+      emailOtpRegistrationPort = createLinkedDeviceEmailOtpRegistrationPortV1({
+        grants: linkedEmailOtpGrants,
+        bindingWriter: linkedOwnerAuthBindings,
+        resolveBaseEmailOtpFactorV1:
+          emailOtpTargetFactor.resolveBaseEmailOtpFactorForCompletionV1(),
+        tenantId: tenantId.value,
+      });
+    }
     const targetCredential = new D1LinkedDeviceTargetCredentialProviderV1({
       database: input.options.database,
       scope,
       verifier: new LinkedDeviceWebAuthnRegistrationVerifierV1({
         expectedOrigin: config.execution.expectedOrigin,
       }),
+      ...(emailOtpRegistrationPort === undefined
+        ? {}
+        : { emailOtpGrants: emailOtpRegistrationPort }),
       planner: ownerAuthorizationProvider.targetPlanner,
       sourceHandoff,
     });
@@ -485,6 +538,12 @@ function createD1LinkedDeviceComposition(input: {
       authorizationService: input.authorizationService,
       ownerAuthorization: ownerAuthorizationProvider.ownerAuthorization,
       ownerEnrollmentCeremonies: input.ownerEnrollmentCeremonies,
+      ...(emailOtpTargetFactor === undefined
+        ? {}
+        : {
+            emailOtpBaseFactors: linkedDeviceEmailOtpBaseFactorReaderV1(emailOtpTargetFactor),
+            emailOtpTargetFactor,
+          }),
       authenticateOwnerRequestV1: ownerRequestAuthenticator,
       linkedDeviceLocalPresence,
       targetCredential,
@@ -1602,26 +1661,6 @@ function createCloudflareD1RouterApiAuthAssembly(
     ),
     listWalletEcdsaCustodyContinuity: walletStore.listEcdsaSignersForWallet.bind(walletStore),
   };
-  const linkedDeviceComposition = createD1LinkedDeviceComposition({
-    ownerEnrollmentCeremonies: getRegistrationCeremonyIntentStore(),
-    // Deferred: the auth-method service is built below, and the linked finalize
-    // only reaches it at request time.
-    walletAuthMethods: {
-      finalizeWalletAddAuthMethod: (command, atomicCompanionStatements) =>
-        walletAuthMethods.finalizeWalletAddAuthMethod(command, atomicCompanionStatements),
-      revokeWalletAuthMethodForOwnerSessionV1: (command) =>
-        walletAuthMethods.revokeWalletAuthMethodForOwnerSessionV1(command),
-    },
-    options,
-    authorizationSessions: createD1AuthorizationSessionRouteService({
-      authorizationService,
-      options,
-    }),
-    walletStore,
-    walletRegistration: linkedDeviceWalletRegistrationProjection,
-    authorization: authorizationStore,
-    authorizationService,
-  });
   const emailOtpChallenges = new CloudflareD1EmailOtpChallengeStore({
     database: options.database,
     namespace: options.namespace,
@@ -1787,6 +1826,34 @@ function createCloudflareD1RouterApiAuthAssembly(
     emailOtpGrants,
     emailOtpRateLimits,
     grantTtlMs: options.emailOtp.grantTtlMs,
+  });
+  // Composed after the R100 Email OTP pieces so the linked-device Email OTP
+  // target factor reuses this deployment's exact issuer, verifier, enrollment
+  // store, and server-seal runtime — never a second OTP implementation.
+  const linkedDeviceComposition = createD1LinkedDeviceComposition({
+    ownerEnrollmentCeremonies: getRegistrationCeremonyIntentStore(),
+    emailOtpLinkedDevice: {
+      issuer: emailOtpChallengeIssuer,
+      verifier: emailOtpChallengeVerifier,
+      enrollments: emailOtpEnrollments,
+      walletAuthMethodStore,
+      serverSeal: emailOtpServerSeal,
+    },
+    walletAuthMethods: {
+      finalizeWalletAddAuthMethod: (command, atomicCompanionStatements) =>
+        walletAuthMethods.finalizeWalletAddAuthMethod(command, atomicCompanionStatements),
+      revokeWalletAuthMethodForOwnerSessionV1: (command) =>
+        walletAuthMethods.revokeWalletAuthMethodForOwnerSessionV1(command),
+    },
+    options,
+    authorizationSessions: createD1AuthorizationSessionRouteService({
+      authorizationService,
+      options,
+    }),
+    walletStore,
+    walletRegistration: linkedDeviceWalletRegistrationProjection,
+    authorization: authorizationStore,
+    authorizationService,
   });
 
   return {

@@ -1402,13 +1402,15 @@ export class InMemoryRouterAbEd25519YaoRecoveryService
     }
     const stableIdentityKey = identityKey(identity);
     const installedCapabilityKey = this.identityCapabilities.get(stableIdentityKey);
-    if (installedCapabilityKey) {
+    if (installedCapabilityKey && installedCapabilityKey !== capabilityKey) {
       return {
         ok: false,
         code: 'capability_conflict',
         message: 'stable Ed25519 identity already has an installed capability',
       };
     }
+    // Rehydrate an exact persisted capability when its durable identity index
+    // survives without the matching capability record.
     this.capabilities.set(capabilityKey, { kind: 'active', identity });
     this.identityCapabilities.set(stableIdentityKey, capabilityKey);
     return capabilityInstallResult('installed', identity);

@@ -4,6 +4,9 @@ import type {
 } from '@shared/device-linking';
 import type {
   LinkedDeviceApprovalV1,
+  LinkedDeviceEmailOtpFactorReleaseEnvelopeV1,
+  LinkedDeviceEmailOtpVerificationGrantV1,
+  LinkedDeviceEmailOtpVerificationResultV1,
   LinkedDeviceEnrollmentReceiptV1,
   LinkedDeviceHolderDeliveryAcknowledgementV1,
   LinkedDeviceSessionClaimV1,
@@ -34,6 +37,11 @@ import {
   parseLinkedDeviceTargetPreparationV1,
   parseLinkedDeviceTargetReadyR102InputV1,
   parseLinkedDeviceApprovalV1,
+  parseLinkedDeviceEmailOtpChallengeResultV1,
+  parseLinkedDeviceEmailOtpChallengeResendRequestV1,
+  parseLinkedDeviceEmailOtpChallengeStartRequestV1,
+  parseLinkedDeviceEmailOtpChallengeVerifyRequestV1,
+  parseLinkedDeviceEmailOtpVerificationResultV1,
   parseQrLinkedDeviceSessionPayloadV5,
 } from '@shared/device-linking/parsers';
 import { assertLinkedDeviceTargetCredentialRegistrationMatchesPreparationV1 } from '@shared/device-linking/digests';
@@ -279,6 +287,57 @@ export type DeviceLinkingTargetCredentialProviderV1 = {
   >;
 };
 
+/**
+ * The Email OTP target-factor surface (Refactor 103 Phase 6.2). The server
+ * resolves the destination from the approved base factor; Device 2 supplies
+ * only the code it received and its worker's ephemeral recipient key. Every
+ * response carries public challenge state or an opaque encrypted release —
+ * never an OTP, factor secret, KEK, or raw holder share.
+ */
+export type DeviceLinkingEmailOtpTargetFactorProviderV1 = {
+  startChallengeV1(
+    input:
+      | {
+          readonly session: LinkedDeviceSessionRecordV1;
+          readonly approval: LinkedDeviceApprovalV1;
+          readonly preparation: LinkedDeviceTargetPreparationV1;
+          readonly resend: false;
+          readonly requestedAtMs: number;
+        }
+      | {
+          readonly session: LinkedDeviceSessionRecordV1;
+          readonly approval: LinkedDeviceApprovalV1;
+          readonly preparation: LinkedDeviceTargetPreparationV1;
+          readonly resend: true;
+          readonly requestedAtMs: number;
+        },
+  ): Promise<
+    | {
+        readonly kind: 'sent';
+        readonly challengeId: string;
+        readonly maskedEmailHint: string;
+        readonly expiresAtMs: number;
+        readonly resendAvailableAtMs: number;
+      }
+    | { readonly kind: 'refused'; readonly code: string; readonly message: string }
+  >;
+  verifyChallengeV1(input: {
+    readonly session: LinkedDeviceSessionRecordV1;
+    readonly approval: LinkedDeviceApprovalV1;
+    readonly preparation: LinkedDeviceTargetPreparationV1;
+    readonly challengeId: string;
+    readonly otpCode: string;
+    readonly requestedAtMs: number;
+  }): Promise<
+    | {
+        readonly kind: 'verified';
+        readonly grant: LinkedDeviceEmailOtpVerificationGrantV1;
+        readonly factorRelease: LinkedDeviceEmailOtpFactorReleaseEnvelopeV1;
+      }
+    | { readonly kind: 'refused'; readonly code: string; readonly message: string }
+  >;
+};
+
 export type DeviceLinkingRouteServiceV1 = {
   readonly sessionService: Pick<
     LinkedDeviceSessionServiceV1,
@@ -286,12 +345,15 @@ export type DeviceLinkingRouteServiceV1 = {
     | 'claimSessionV1'
     | 'recordOwnerApprovalV1'
     | 'recordTargetCredentialV1'
+    | 'recordEmailOtpChallengeStateV1'
     | 'bindRecoveryContinuationV1'
     | 'cancelSessionV1'
     | 'getSessionV1'
   > & {
     readonly listSessionsForWalletV1: LinkedDeviceSessionServiceV1['listSessionsForWalletV1'];
   };
+  /** Optional only when the Email OTP target factor is intentionally disabled. */
+  readonly emailOtpTargetFactor?: DeviceLinkingEmailOtpTargetFactorProviderV1;
   readonly nowV1: () => number;
   verifyPublicSessionProofV1(input: {
     readonly payload: QrLinkedDeviceSessionPayloadV5;
@@ -446,6 +508,16 @@ export async function handleDeviceLinking(ctx: FetchRouterApiContext): Promise<R
       return await handleOwnerFinalize(ctx, service, action.linkSessionId, nowMs);
     if (action.kind === 'credential')
       return await handleCredential(ctx, service, action.linkSessionId, nowMs);
+    if (action.kind === 'email-otp-challenge')
+      return await handleEmailOtpChallenge(ctx, service, action.linkSessionId, nowMs, {
+        resend: false,
+      });
+    if (action.kind === 'email-otp-resend')
+      return await handleEmailOtpChallenge(ctx, service, action.linkSessionId, nowMs, {
+        resend: true,
+      });
+    if (action.kind === 'email-otp-verify')
+      return await handleEmailOtpVerify(ctx, service, action.linkSessionId, nowMs);
     if (action.kind === 'custody-transfer-recipient')
       return await handleCustodyTransferRecipient(ctx, service, action.linkSessionId, nowMs);
     if (action.kind === 'custody-transfer')
@@ -828,7 +900,13 @@ async function handleCredential(
     session.claimTranscript?.value.deviceId !== registration.deviceId
   )
     return invalidInputResponse('target credential binding does not match session');
+  // The immutable factor branch: a Passkey artifact against an Email OTP
+  // session (and vice versa) fails here, before any credential or lane exists.
+  if (registration.targetFactor.kind !== session.qrPayload.targetFactor.kind)
+    return invalidInputResponse('target credential factor does not match session');
   const approval = requireProvisioningApproval(session);
+  if (registration.targetFactor.kind !== approval.targetFactor.kind)
+    return invalidInputResponse('target credential factor does not match approval');
   const rawPreparation = await awaitTargetPreparation(service, session, approval, nowMs);
   const preparation = parseBoundary(() => parseLinkedDeviceTargetPreparationV1(rawPreparation));
   assertTargetPreparationMatchesSession(preparation, session, approval, nowMs);
@@ -854,6 +932,209 @@ async function handleCredential(
       nowMs,
     }),
   );
+}
+
+type DeviceLinkingEmailOtpSessionContextV1 = {
+  readonly session: LinkedDeviceSessionRecordV1;
+  readonly approval: LinkedDeviceApprovalV1;
+  readonly preparation: LinkedDeviceTargetPreparationV1;
+  readonly emailOtpChallenge: Extract<
+    LinkedDeviceSessionState,
+    {
+      readonly state: 'awaiting_target_factor';
+      readonly targetFactor: { readonly kind: 'email_otp' };
+    }
+  >['emailOtpChallenge'];
+};
+
+function requireSentEmailOtpChallengeV1(
+  challenge: DeviceLinkingEmailOtpSessionContextV1['emailOtpChallenge'],
+): Extract<DeviceLinkingEmailOtpSessionContextV1['emailOtpChallenge'], { readonly state: 'sent' }> {
+  if (challenge.state !== 'sent') {
+    throw new DeviceLinkingInputError('email OTP challenge has not been sent');
+  }
+  return challenge;
+}
+
+/**
+ * Shared admission for the three Email OTP challenge routes: the session must
+ * be an approved `email_otp` session still awaiting its target factor, and
+ * the durable preparation must match it. Everything else — destination,
+ * base factor, derived authority — is the provider's to resolve server-side.
+ */
+async function requireEmailOtpAwaitingSession(
+  service: DeviceLinkingRouteServiceV1,
+  session: LinkedDeviceSessionRecordV1,
+  nowMs: number,
+): Promise<DeviceLinkingEmailOtpSessionContextV1> {
+  if (
+    session.state.state !== 'awaiting_target_factor' ||
+    session.state.targetFactor.kind !== 'email_otp' ||
+    session.qrPayload.targetFactor.kind !== 'email_otp' ||
+    !session.state.emailOtpChallenge
+  ) {
+    throw new DeviceLinkingInputError('link session is not awaiting an email OTP factor');
+  }
+  const approval = requireProvisioningApproval(session);
+  if (approval.targetFactor.kind !== 'email_otp') {
+    throw new DeviceLinkingInputError('approved target factor is not email OTP');
+  }
+  const rawPreparation = await awaitTargetPreparation(service, session, approval, nowMs);
+  const preparation = parseBoundary(() => parseLinkedDeviceTargetPreparationV1(rawPreparation));
+  assertTargetPreparationMatchesSession(preparation, session, approval, nowMs);
+  if (preparation.targetFactor.kind !== 'email_otp') {
+    throw new DeviceLinkingInputError('target preparation factor is not email OTP');
+  }
+  return { session, approval, preparation, emailOtpChallenge: session.state.emailOtpChallenge };
+}
+
+async function handleEmailOtpChallenge(
+  ctx: FetchRouterApiContext,
+  service: DeviceLinkingRouteServiceV1,
+  rawLinkSessionId: string,
+  nowMs: number,
+  options: { readonly resend: boolean },
+): Promise<Response> {
+  const authenticated = await authenticateDeviceForSession(ctx, service, rawLinkSessionId, nowMs);
+  if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
+  if (authenticated.kind === 'not_found') return notFoundResponse();
+  if (ctx.method !== 'POST') return methodNotAllowedResponse();
+  const request = options.resend
+    ? parseBoundary(() => parseLinkedDeviceEmailOtpChallengeResendRequestV1(authenticated.body))
+    : parseBoundary(() => parseLinkedDeviceEmailOtpChallengeStartRequestV1(authenticated.body));
+  if (request.linkSessionId !== authenticated.linkSessionId) {
+    return invalidInputResponse('link session id does not match route');
+  }
+  const provider = service.emailOtpTargetFactor;
+  if (!provider) {
+    return json(
+      { ok: false, code: 'not_supported', message: 'Email OTP linking is not configured' },
+      { status: 501 },
+    );
+  }
+  const context = await requireEmailOtpAwaitingSession(service, authenticated.session, nowMs);
+  const current = context.emailOtpChallenge;
+  if (request.kind === 'linked_device_email_otp_challenge_resend_request_v1') {
+    if (current.state !== 'sent' || current.challengeId !== request.challengeId) {
+      return invalidInputResponse('email OTP challenge does not match this session');
+    }
+    if (nowMs < current.resendAvailableAtMs) {
+      return json(
+        {
+          ok: false,
+          code: 'resend_unavailable',
+          message: 'Email OTP resend is not yet available',
+          resendAvailableAtMs: current.resendAvailableAtMs,
+        },
+        { status: 429 },
+      );
+    }
+  }
+  const started =
+    request.kind === 'linked_device_email_otp_challenge_start_request_v1'
+      ? await provider.startChallengeV1({
+          session: context.session,
+          approval: context.approval,
+          preparation: context.preparation,
+          resend: false,
+          requestedAtMs: nowMs,
+        })
+      : await provider.startChallengeV1({
+          session: context.session,
+          approval: context.approval,
+          preparation: context.preparation,
+          resend: true,
+          requestedAtMs: nowMs,
+        });
+  if (started.kind === 'refused') {
+    return json({ ok: false, code: started.code, message: started.message }, { status: 403 });
+  }
+  const recorded = await service.sessionService.recordEmailOtpChallengeStateV1({
+    linkSessionId: context.session.linkSessionId,
+    expectedRevision: context.session.revision,
+    challenge: {
+      challengeId: started.challengeId,
+      workerEphemeralPublicKey65B64u:
+        request.kind === 'linked_device_email_otp_challenge_start_request_v1'
+          ? request.workerEphemeralPublicKey65B64u
+          : requireSentEmailOtpChallengeV1(current).workerEphemeralPublicKey65B64u,
+      maskedEmailHint: started.maskedEmailHint,
+      expiresAtMs: started.expiresAtMs,
+      resendAvailableAtMs: started.resendAvailableAtMs,
+    },
+    nowMs,
+  });
+  if (recorded.outcome === 'unauthorized') {
+    return json({ ok: false, code: recorded.code, message: recorded.message }, { status: 403 });
+  }
+  if (recorded.outcome !== 'applied' && recorded.outcome !== 'replayed') {
+    return mutationResultResponse(recorded);
+  }
+  const response = parseBoundary(() =>
+    parseLinkedDeviceEmailOtpChallengeResultV1({
+      kind: 'linked_device_email_otp_challenge_result_v1',
+      challengeId: started.challengeId,
+      maskedEmailHint: started.maskedEmailHint,
+      expiresAtMs: started.expiresAtMs,
+      resendAvailableAtMs: started.resendAvailableAtMs,
+    }),
+  );
+  return json(response, { status: 200 });
+}
+
+async function handleEmailOtpVerify(
+  ctx: FetchRouterApiContext,
+  service: DeviceLinkingRouteServiceV1,
+  rawLinkSessionId: string,
+  nowMs: number,
+): Promise<Response> {
+  const authenticated = await authenticateDeviceForSession(ctx, service, rawLinkSessionId, nowMs);
+  if (authenticated.kind === 'denied') return authDeniedResponse(authenticated);
+  if (authenticated.kind === 'not_found') return notFoundResponse();
+  if (ctx.method !== 'POST') return methodNotAllowedResponse();
+  const request = parseBoundary(() =>
+    parseLinkedDeviceEmailOtpChallengeVerifyRequestV1(authenticated.body),
+  );
+  if (request.linkSessionId !== authenticated.linkSessionId) {
+    return invalidInputResponse('link session id does not match route');
+  }
+  const provider = service.emailOtpTargetFactor;
+  if (!provider) {
+    return json(
+      { ok: false, code: 'not_supported', message: 'Email OTP linking is not configured' },
+      { status: 501 },
+    );
+  }
+  const context = await requireEmailOtpAwaitingSession(service, authenticated.session, nowMs);
+  const current = context.emailOtpChallenge;
+  if (current.state !== 'sent' || current.challengeId !== request.challengeId) {
+    return invalidInputResponse('email OTP challenge does not match this session');
+  }
+  if (nowMs >= current.expiresAtMs) {
+    return json(
+      { ok: false, code: 'challenge_expired', message: 'Email OTP challenge has expired' },
+      { status: 410 },
+    );
+  }
+  const verified = await provider.verifyChallengeV1({
+    session: context.session,
+    approval: context.approval,
+    preparation: context.preparation,
+    challengeId: request.challengeId,
+    otpCode: request.otpCode,
+    requestedAtMs: nowMs,
+  });
+  if (verified.kind === 'refused') {
+    return json({ ok: false, code: verified.code, message: verified.message }, { status: 403 });
+  }
+  const response: LinkedDeviceEmailOtpVerificationResultV1 = parseBoundary(() =>
+    parseLinkedDeviceEmailOtpVerificationResultV1({
+      kind: 'linked_device_email_otp_verification_result_v1',
+      verificationGrant: verified.grant,
+      factorRelease: verified.factorRelease,
+    }),
+  );
+  return json(response, { status: 200 });
 }
 
 async function handleTargetPreparation(
@@ -1891,6 +2172,9 @@ function parseRoutePath(pathname: string):
         | 'provision'
         | 'holder-receipts'
         | 'credential'
+        | 'email-otp-challenge'
+        | 'email-otp-resend'
+        | 'email-otp-verify'
         | 'custody-transfer'
         | 'custody-transfer-recipient'
         | 'receipt'
@@ -1909,6 +2193,27 @@ function parseRoutePath(pathname: string):
   if (!suffix) return null;
   const parts = suffix.split('/');
   if (parts.length === 1 && parts[0]) return { kind: 'get', linkSessionId: parts[0] };
+  if (parts.length === 3 && parts[0] && parts[1] === 'email-otp' && parts[2] === 'challenge') {
+    return { kind: 'email-otp-challenge', linkSessionId: parts[0] };
+  }
+  if (
+    parts.length === 4 &&
+    parts[0] &&
+    parts[1] === 'email-otp' &&
+    parts[2] === 'challenge' &&
+    parts[3] === 'resend'
+  ) {
+    return { kind: 'email-otp-resend', linkSessionId: parts[0] };
+  }
+  if (
+    parts.length === 4 &&
+    parts[0] &&
+    parts[1] === 'email-otp' &&
+    parts[2] === 'challenge' &&
+    parts[3] === 'verify'
+  ) {
+    return { kind: 'email-otp-verify', linkSessionId: parts[0] };
+  }
   if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
   if (
     parts[1] !== 'claim' &&
@@ -1964,6 +2269,7 @@ function assertApprovalMatchesPersistedSession(
     approval.linkSessionId !== session.linkSessionId ||
     approval.linkPublicKeyB64u !== session.qrPayload.linkPublicKeyB64u ||
     approval.devicePublicKeyB64u !== session.qrPayload.devicePublicKeyB64u ||
+    approval.targetFactor.kind !== session.qrPayload.targetFactor.kind ||
     approval.permission.kind !== session.qrPayload.requestedPermission.kind ||
     approval.permission.administrationScope !==
       session.qrPayload.requestedPermission.administrationScope ||

@@ -16,13 +16,23 @@ import {
 import { alphabetizeStringify } from '@shared/utils/digests';
 import { errorMessage } from '@shared/utils/errors';
 import { parseDigestB64u, type DigestB64u } from '@shared/utils/canonicalPrimitives';
-import { hasControlCharacter, parseWebAuthnCredentialIdB64u } from '@shared/utils/domainIds';
+import {
+  hasControlCharacter,
+  parseWebAuthnCredentialIdB64u,
+  type WalletAuthMethodId,
+  type WebAuthnCredentialIdB64u,
+} from '@shared/utils/domainIds';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { sha256BytesUtf8 } from '@shared/utils/digests';
 import { computeLaneEnrollmentManifestDigestV1 } from '@shared/signing-lanes/rotationDigests';
-import type { D1DatabaseLike } from '../../../../storage/tenantRoute';
+import type {
+  D1DatabaseLike,
+  D1PreparedStatementLike,
+  D1ResultLike,
+} from '../../../../storage/tenantRoute';
 import { d1ChangedRows } from '../../../../storage/d1Sql';
 import type { LinkedDeviceSessionRecordV1 } from '../../../../core/deviceLinking/linkedDeviceSession';
+import { linkedDeviceEmailOtpDescriptorCredentialIdV1 } from '../../../../core/deviceLinking/linkedDeviceEmailOtpGrant';
 import { verifyWebAuthnRegistrationCredentialForIntent } from '../../../../core/authService/webauthn';
 import type { DeviceLinkingTargetCredentialProviderV1 } from '../../../../router/transport/fetch/routes/deviceLinking';
 import type { D1LinkedDeviceSessionScopeV1 } from './d1LinkedDeviceSessionStore';
@@ -33,6 +43,32 @@ export type VerifiedLinkedDeviceWebAuthnCredentialV1 = {
   readonly counter: number;
 };
 
+/** The consumed-grant projection an email OTP completion is committed under. */
+export type VerifiedLinkedDeviceEmailOtpGrantV1 = {
+  readonly grantId: string;
+  readonly baseWalletAuthMethodId: WalletAuthMethodId;
+  readonly linkedOwnerAuthMethodId: WalletAuthMethodId;
+  readonly authorityDigestB64u: DigestB64u;
+  readonly descriptorCredentialIdB64u: WebAuthnCredentialIdB64u;
+};
+
+/**
+ * The exact evidence a target registration was verified against, one branch
+ * per target factor. A Passkey commit cannot carry a grant and an Email OTP
+ * commit cannot carry WebAuthn material.
+ */
+export type VerifiedLinkedDeviceTargetFactorEvidenceV1 =
+  | {
+      readonly kind: 'passkey_prf';
+      readonly credential: VerifiedLinkedDeviceWebAuthnCredentialV1;
+      readonly grant?: never;
+    }
+  | {
+      readonly kind: 'email_otp';
+      readonly grant: VerifiedLinkedDeviceEmailOtpGrantV1;
+      readonly credential?: never;
+    };
+
 export type LinkedDeviceTargetCredentialVerificationPortV1 = {
   verifyRegistrationV1(input: {
     readonly preparation: LinkedDeviceTargetPreparationV1;
@@ -41,6 +77,43 @@ export type LinkedDeviceTargetCredentialVerificationPortV1 = {
     | { readonly kind: 'verified'; readonly credential: VerifiedLinkedDeviceWebAuthnCredentialV1 }
     | { readonly kind: 'rejected'; readonly message: string }
   >;
+};
+
+/**
+ * Registration-time port for the Email OTP branch: validates the one-time
+ * verification grant a registration carries and, after the external R102
+ * commit, supplies the statements that consume the grant and persist the
+ * derived linked-owner binding atomically with the credential row.
+ */
+export type LinkedDeviceEmailOtpGrantRegistrationPortV1 = {
+  verifyRegistrationGrantV1(input: {
+    readonly preparation: LinkedDeviceTargetPreparationV1;
+    readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
+    readonly requestedAtMs: number;
+  }): Promise<
+    | { readonly kind: 'verified'; readonly grant: VerifiedLinkedDeviceEmailOtpGrantV1 }
+    | { readonly kind: 'rejected'; readonly message: string }
+  >;
+  buildCompletionStatementsV1(input: {
+    readonly grant: VerifiedLinkedDeviceEmailOtpGrantV1;
+    readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
+    readonly keyManifestDigestB64u: DigestB64u;
+    readonly consumedAtMs: number;
+  }): Promise<readonly D1PreparedStatementLike[]>;
+};
+
+/**
+ * The default when no email OTP port is wired: every email registration is
+ * rejected before any credential or lane exists. Fail-closed by construction.
+ */
+const FAIL_CLOSED_EMAIL_OTP_REGISTRATION_PORT_V1: LinkedDeviceEmailOtpGrantRegistrationPortV1 = {
+  verifyRegistrationGrantV1: () =>
+    Promise.resolve({
+      kind: 'rejected' as const,
+      message: 'linked-device email OTP registration is not configured',
+    }),
+  buildCompletionStatementsV1: () =>
+    Promise.reject(new Error('linked-device email OTP registration is not configured')),
 };
 
 export class LinkedDeviceWebAuthnRegistrationVerifierV1 implements LinkedDeviceTargetCredentialVerificationPortV1 {
@@ -60,6 +133,13 @@ export class LinkedDeviceWebAuthnRegistrationVerifierV1 implements LinkedDeviceT
     | { readonly kind: 'rejected'; readonly message: string }
   > {
     const webauthn = input.registration.webauthnRegistration;
+    if (input.registration.targetFactor.kind !== 'passkey_prf' || !webauthn) {
+      return { kind: 'rejected', message: 'registration is not a Passkey registration' };
+    }
+    const ownerEnrollment = input.preparation.ownerEnrollment;
+    if (ownerEnrollment.kind !== 'linked_device_passkey_owner_enrollment_v1') {
+      return { kind: 'rejected', message: 'preparation is not a Passkey owner enrollment' };
+    }
     const verification = await verifyWebAuthnRegistrationCredentialForIntent({
       webauthnRegistration: {
         id: webauthn.credentialIdB64u,
@@ -76,9 +156,9 @@ export class LinkedDeviceWebAuthnRegistrationVerifierV1 implements LinkedDeviceT
       // The ceremony that will finalize this credential is the only source of
       // the challenge and relying party, so verification cannot be checking
       // one set of parameters while Device 2 created against another.
-      expectedChallenge: input.preparation.ownerEnrollment.registration.challengeB64u,
+      expectedChallenge: ownerEnrollment.registration.challengeB64u,
       expectedOrigin: this.expectedOrigin,
-      rpId: input.preparation.ownerEnrollment.registration.rpId,
+      rpId: ownerEnrollment.registration.rpId,
     });
     return verification.ok
       ? { kind: 'verified', credential: verification.credential }
@@ -95,7 +175,7 @@ export type LinkedDeviceTargetPlannerV1 = {
   commitVerifiedTargetV1(input: {
     readonly preparation: LinkedDeviceTargetPreparationV1;
     readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
-    readonly credential: VerifiedLinkedDeviceWebAuthnCredentialV1;
+    readonly evidence: VerifiedLinkedDeviceTargetFactorEvidenceV1;
     readonly registrationDigestB64u: DigestB64u;
     readonly requestedAtMs: number;
   }): Promise<{
@@ -121,12 +201,14 @@ export type LinkedDeviceTargetReadyPersistencePortV1 = {
 
 type TargetCredentialRowV1 = {
   readonly state?: unknown;
+  readonly target_factor?: unknown;
   readonly preparation_digest_b64u?: unknown;
   readonly preparation_json?: unknown;
   readonly registration_json?: unknown;
   readonly credential_id_b64u?: unknown;
   readonly credential_public_key_b64u?: unknown;
   readonly credential_counter?: unknown;
+  readonly email_otp_grant_id?: unknown;
   readonly key_manifest_digest_b64u?: unknown;
 };
 
@@ -144,7 +226,7 @@ type PersistedTargetCredentialV1 = {
   readonly preparation: LinkedDeviceTargetPreparationV1;
   readonly registration: {
     readonly value: LinkedDeviceTargetCredentialRegistrationV1;
-    readonly credential: VerifiedLinkedDeviceWebAuthnCredentialV1;
+    readonly evidence: VerifiedLinkedDeviceTargetFactorEvidenceV1;
     readonly keyManifestDigestB64u: DigestB64u;
   } | null;
 };
@@ -172,6 +254,7 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
   private readonly database: D1DatabaseLike;
   private readonly scope: D1LinkedDeviceSessionScopeV1;
   private readonly verifier: LinkedDeviceTargetCredentialVerificationPortV1;
+  private readonly emailOtpGrants: LinkedDeviceEmailOtpGrantRegistrationPortV1;
   private readonly planner: LinkedDeviceTargetPlannerV1;
   private readonly sourceHandoff: LinkedDeviceTargetReadyPersistencePortV1;
   private readonly inFlightCommits = new Map<
@@ -186,12 +269,14 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
     readonly database: D1DatabaseLike;
     readonly scope: D1LinkedDeviceSessionScopeV1;
     readonly verifier: LinkedDeviceTargetCredentialVerificationPortV1;
+    readonly emailOtpGrants?: LinkedDeviceEmailOtpGrantRegistrationPortV1;
     readonly planner: LinkedDeviceTargetPlannerV1;
     readonly sourceHandoff: LinkedDeviceTargetReadyPersistencePortV1;
   }) {
     this.database = input.database;
     this.scope = normalizeScope(input.scope);
     this.verifier = input.verifier;
+    this.emailOtpGrants = input.emailOtpGrants ?? FAIL_CLOSED_EMAIL_OTP_REGISTRATION_PORT_V1;
     this.planner = input.planner;
     this.sourceHandoff = input.sourceHandoff;
   }
@@ -221,9 +306,9 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
       .prepare(
         `INSERT OR IGNORE INTO ${TARGET_CREDENTIAL_TABLE} (
            namespace, org_id, project_id, env_id, link_session_id,
-           wallet_id, enrollment_id, device_id, state,
+           wallet_id, enrollment_id, device_id, state, target_factor,
            preparation_digest_b64u, preparation_json, prepared_at_ms, expires_at_ms
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'prepared', ?, ?, ?, ?)`,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'prepared', ?, ?, ?, ?, ?)`,
       )
       .bind(
         ...scopeValues(this.scope),
@@ -231,6 +316,7 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
         String(preparation.walletId),
         String(preparation.enrollmentId),
         String(preparation.deviceId),
+        preparation.targetFactor.kind,
         preparationDigestB64u,
         JSON.stringify(preparation),
         preparation.issuedAtMs,
@@ -369,27 +455,15 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
   > {
     let externalCommitCompleted = false;
     try {
-      const verification = await this.verifier.verifyRegistrationV1({
+      const evidence = await this.verifyTargetFactorEvidenceV1({
         preparation: input.persisted.preparation,
         registration: input.registration,
+        requestedAtMs: input.input.requestedAtMs,
       });
-      if (verification.kind === 'rejected') throw new Error(verification.message);
-      const credentialId = parseWebAuthnCredentialIdB64u(verification.credential.credentialIdB64u);
-      if (!credentialId.ok) throw new Error(credentialId.error.message);
-      if (credentialId.value !== input.registration.webauthnRegistration.credentialIdB64u) {
-        throw new Error('verified WebAuthn credential id differs from its registration');
-      }
-      if (
-        !Number.isSafeInteger(verification.credential.counter) ||
-        verification.credential.counter < 0 ||
-        !isCanonicalNonemptyBase64Url(verification.credential.credentialPublicKeyB64u)
-      ) {
-        throw new Error('verified WebAuthn credential material is invalid');
-      }
       const committed = await this.planner.commitVerifiedTargetV1({
         preparation: input.persisted.preparation,
         registration: input.registration,
-        credential: verification.credential,
+        evidence,
         registrationDigestB64u: input.registrationDigestB64u,
         requestedAtMs: input.input.requestedAtMs,
       });
@@ -399,28 +473,14 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
         targetReady: committed.targetReady,
         keyManifestDigestB64u,
       });
-      const result = await this.database
-        .prepare(
-          `UPDATE ${TARGET_CREDENTIAL_TABLE}
-              SET state = 'registered', registration_json = ?, credential_id_b64u = ?,
-                  credential_public_key_b64u = ?, credential_counter = ?,
-                  key_manifest_digest_b64u = ?, registered_at_ms = ?
-            WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
-              AND link_session_id = ? AND state = 'prepared'
-              AND preparation_digest_b64u = ?`,
-        )
-        .bind(
-          JSON.stringify(input.registration),
-          credentialId.value,
-          verification.credential.credentialPublicKeyB64u,
-          verification.credential.counter,
-          keyManifestDigestB64u,
-          input.input.requestedAtMs,
-          ...scopeValues(this.scope),
-          String(input.input.session.linkSessionId),
-          input.persisted.preparationDigestB64u,
-        )
-        .run();
+      const result = await this.persistRegisteredTargetV1({
+        session: input.input.session,
+        persisted: input.persisted,
+        registration: input.registration,
+        evidence,
+        keyManifestDigestB64u,
+        registeredAtMs: input.input.requestedAtMs,
+      });
       const stored = await this.readV1(input.input.session.linkSessionId);
       if (!stored?.registration) throw new Error('linked-device target credential did not persist');
       assertRegistrationReplay(stored, input.registration, keyManifestDigestB64u);
@@ -437,7 +497,7 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
         committedAtMs: input.input.requestedAtMs,
       });
       return {
-        outcome: d1ChangedRows(result) === 1 ? 'applied' : 'replayed',
+        outcome: result.applied ? 'applied' : 'replayed',
         keyManifestDigestB64u: stored.registration.keyManifestDigestB64u,
       };
     } catch (error: unknown) {
@@ -449,6 +509,133 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
       }
       return { outcome: 'invalid_input', message: errorMessage(error) };
     }
+  }
+
+  /** Verifies the registration through its factor's own port — never the other's. */
+  private async verifyTargetFactorEvidenceV1(input: {
+    readonly preparation: LinkedDeviceTargetPreparationV1;
+    readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
+    readonly requestedAtMs: number;
+  }): Promise<VerifiedLinkedDeviceTargetFactorEvidenceV1> {
+    switch (input.registration.targetFactor.kind) {
+      case 'passkey_prf': {
+        const verification = await this.verifier.verifyRegistrationV1({
+          preparation: input.preparation,
+          registration: input.registration,
+        });
+        if (verification.kind === 'rejected') throw new Error(verification.message);
+        const credentialId = parseWebAuthnCredentialIdB64u(
+          verification.credential.credentialIdB64u,
+        );
+        if (!credentialId.ok) throw new Error(credentialId.error.message);
+        if (
+          !input.registration.webauthnRegistration ||
+          credentialId.value !== input.registration.webauthnRegistration.credentialIdB64u
+        ) {
+          throw new Error('verified WebAuthn credential id differs from its registration');
+        }
+        if (
+          !Number.isSafeInteger(verification.credential.counter) ||
+          verification.credential.counter < 0 ||
+          !isCanonicalNonemptyBase64Url(verification.credential.credentialPublicKeyB64u)
+        ) {
+          throw new Error('verified WebAuthn credential material is invalid');
+        }
+        return { kind: 'passkey_prf', credential: verification.credential };
+      }
+      case 'email_otp': {
+        const verification = await this.emailOtpGrants.verifyRegistrationGrantV1({
+          preparation: input.preparation,
+          registration: input.registration,
+          requestedAtMs: input.requestedAtMs,
+        });
+        if (verification.kind === 'rejected') throw new Error(verification.message);
+        return { kind: 'email_otp', grant: verification.grant };
+      }
+    }
+    input.registration.targetFactor satisfies never;
+    throw new Error('linked-device target registration factor is unsupported');
+  }
+
+  /**
+   * Flips the credential row to `registered`. The Email OTP branch commits the
+   * flip, the grant consumption, and the derived owner-binding insert in one
+   * batch — either all of them happened or none did.
+   */
+  private async persistRegisteredTargetV1(input: {
+    readonly session: LinkedDeviceSessionRecordV1;
+    readonly persisted: PersistedTargetCredentialV1;
+    readonly registration: LinkedDeviceTargetCredentialRegistrationV1;
+    readonly evidence: VerifiedLinkedDeviceTargetFactorEvidenceV1;
+    readonly keyManifestDigestB64u: DigestB64u;
+    readonly registeredAtMs: number;
+  }): Promise<{ readonly applied: boolean }> {
+    if (input.evidence.kind === 'passkey_prf') {
+      const result = await this.database
+        .prepare(
+          `UPDATE ${TARGET_CREDENTIAL_TABLE}
+              SET state = 'registered', registration_json = ?, credential_id_b64u = ?,
+                  credential_public_key_b64u = ?, credential_counter = ?,
+                  key_manifest_digest_b64u = ?, registered_at_ms = ?
+            WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+              AND link_session_id = ? AND state = 'prepared'
+              AND preparation_digest_b64u = ?`,
+        )
+        .bind(
+          JSON.stringify(input.registration),
+          input.evidence.credential.credentialIdB64u,
+          input.evidence.credential.credentialPublicKeyB64u,
+          input.evidence.credential.counter,
+          input.keyManifestDigestB64u,
+          input.registeredAtMs,
+          ...scopeValues(this.scope),
+          String(input.session.linkSessionId),
+          input.persisted.preparationDigestB64u,
+        )
+        .run();
+      return { applied: d1ChangedRows(result) === 1 };
+    }
+    const completionStatements = await this.emailOtpGrants.buildCompletionStatementsV1({
+      grant: input.evidence.grant,
+      registration: input.registration,
+      keyManifestDigestB64u: input.keyManifestDigestB64u,
+      consumedAtMs: input.registeredAtMs,
+    });
+    const flip = this.database
+      .prepare(
+        `UPDATE ${TARGET_CREDENTIAL_TABLE}
+            SET state = 'registered', registration_json = ?, credential_id_b64u = ?,
+                email_otp_grant_id = ?, key_manifest_digest_b64u = ?, registered_at_ms = ?
+          WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
+            AND link_session_id = ? AND state = 'prepared'
+            AND preparation_digest_b64u = ?`,
+      )
+      .bind(
+        JSON.stringify(input.registration),
+        String(input.evidence.grant.descriptorCredentialIdB64u),
+        input.evidence.grant.grantId,
+        input.keyManifestDigestB64u,
+        input.registeredAtMs,
+        ...scopeValues(this.scope),
+        String(input.session.linkSessionId),
+        input.persisted.preparationDigestB64u,
+      );
+    // A guard directly after the flip: if the row was not in `prepared` any
+    // more, the whole batch fails before the grant consumption or binding
+    // insert can run — a lost flip must not spend the grant.
+    const flipGuard = this.database.prepare(
+      `INSERT INTO linked_device_session_cas_guard (guard_id)
+SELECT 1
+ WHERE changes() = 0`,
+    );
+    const results = await this.database.batch<D1ResultLike>([
+      flip,
+      flipGuard,
+      ...completionStatements,
+    ]);
+    const flipResult = results[0];
+    if (!flipResult) throw new Error('linked-device email OTP completion batch returned nothing');
+    return { applied: d1ChangedRows(flipResult) === 1 };
   }
 
   private async persistTargetReadyForReplayV1(input: {
@@ -477,7 +664,7 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
     const committed = await this.planner.commitVerifiedTargetV1({
       preparation: input.persisted.preparation,
       registration: input.persisted.registration.value,
-      credential: input.persisted.registration.credential,
+      evidence: input.persisted.registration.evidence,
       registrationDigestB64u: await digestRegistrationV1(input.persisted.registration.value),
       requestedAtMs: input.requestedAtMs,
     });
@@ -727,9 +914,9 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
   private async readV1(linkSessionId: string): Promise<PersistedTargetCredentialV1 | null> {
     const row = await this.database
       .prepare(
-        `SELECT state, preparation_digest_b64u, preparation_json, registration_json,
-                credential_id_b64u, credential_public_key_b64u, credential_counter,
-                key_manifest_digest_b64u
+        `SELECT state, target_factor, preparation_digest_b64u, preparation_json,
+                registration_json, credential_id_b64u, credential_public_key_b64u,
+                credential_counter, email_otp_grant_id, key_manifest_digest_b64u
            FROM ${TARGET_CREDENTIAL_TABLE}
           WHERE namespace = ? AND org_id = ? AND project_id = ? AND env_id = ?
             AND link_session_id = ?
@@ -738,7 +925,7 @@ export class D1LinkedDeviceTargetCredentialProviderV1 implements DeviceLinkingTa
       .bind(...scopeValues(this.scope), linkSessionId)
       .first<TargetCredentialRowV1>();
     if (!row) return null;
-    const parsed = parseTargetCredentialRow(row);
+    const parsed = await parseTargetCredentialRow(row);
     if (
       parsed.preparationDigestB64u !==
       (await computeLinkedDeviceTargetPreparationDigestV1(parsed.preparation))
@@ -803,7 +990,9 @@ function assertPreparationMatchesSession(
   }
 }
 
-function parseTargetCredentialRow(row: TargetCredentialRowV1): PersistedTargetCredentialV1 {
+async function parseTargetCredentialRow(
+  row: TargetCredentialRowV1,
+): Promise<PersistedTargetCredentialV1> {
   if (row.state !== 'prepared' && row.state !== 'registered') {
     throw new Error('linked-device target credential state is invalid');
   }
@@ -812,6 +1001,9 @@ function parseTargetCredentialRow(row: TargetCredentialRowV1): PersistedTargetCr
   }
   const preparation = parseLinkedDeviceTargetPreparationV1(JSON.parse(row.preparation_json));
   const preparationDigestB64u = parseDigestB64u(row.preparation_digest_b64u);
+  if (row.target_factor !== preparation.targetFactor.kind) {
+    throw new Error('linked-device target factor column differs from its preparation');
+  }
   if (row.state === 'prepared') {
     if (row.registration_json !== null && row.registration_json !== undefined) {
       throw new Error('prepared linked-device target contains registration data');
@@ -821,8 +1013,6 @@ function parseTargetCredentialRow(row: TargetCredentialRowV1): PersistedTargetCr
   if (
     typeof row.registration_json !== 'string' ||
     typeof row.credential_id_b64u !== 'string' ||
-    typeof row.credential_public_key_b64u !== 'string' ||
-    !Number.isSafeInteger(row.credential_counter) ||
     typeof row.key_manifest_digest_b64u !== 'string'
   ) {
     throw new Error('registered linked-device target is incomplete');
@@ -832,8 +1022,57 @@ function parseTargetCredentialRow(row: TargetCredentialRowV1): PersistedTargetCr
   const registration = parseLinkedDeviceTargetCredentialRegistrationV1(
     JSON.parse(row.registration_json),
   );
-  if (registration.webauthnRegistration.credentialIdB64u !== credentialId.value) {
-    throw new Error('linked-device credential id differs from its stored registration');
+  if (registration.targetFactor.kind !== preparation.targetFactor.kind) {
+    throw new Error('linked-device stored registration factor differs from its preparation');
+  }
+  const keyManifestDigestB64u = parseDigestB64u(row.key_manifest_digest_b64u);
+  if (registration.targetFactor.kind === 'passkey_prf') {
+    if (
+      typeof row.credential_public_key_b64u !== 'string' ||
+      !Number.isSafeInteger(row.credential_counter) ||
+      row.email_otp_grant_id != null
+    ) {
+      throw new Error('registered linked-device passkey target is incomplete');
+    }
+    if (
+      !registration.webauthnRegistration ||
+      registration.webauthnRegistration.credentialIdB64u !== credentialId.value
+    ) {
+      throw new Error('linked-device credential id differs from its stored registration');
+    }
+    return {
+      state: 'registered',
+      preparationDigestB64u,
+      preparation,
+      registration: {
+        value: registration,
+        evidence: {
+          kind: 'passkey_prf',
+          credential: {
+            credentialIdB64u: credentialId.value,
+            credentialPublicKeyB64u: row.credential_public_key_b64u,
+            counter: row.credential_counter as number,
+          },
+        },
+        keyManifestDigestB64u,
+      },
+    };
+  }
+  const wireGrant = registration.emailOtpVerificationGrant;
+  if (
+    !wireGrant ||
+    typeof row.email_otp_grant_id !== 'string' ||
+    row.email_otp_grant_id !== wireGrant.grantId ||
+    row.credential_public_key_b64u != null ||
+    row.credential_counter != null
+  ) {
+    throw new Error('registered linked-device email OTP target is incomplete');
+  }
+  const descriptorCredentialIdB64u = await linkedDeviceEmailOtpDescriptorCredentialIdV1(
+    wireGrant.linkedOwnerAuthMethodId,
+  );
+  if (descriptorCredentialIdB64u !== credentialId.value) {
+    throw new Error('linked-device email OTP descriptor binding differs from its stored grant');
   }
   return {
     state: 'registered',
@@ -841,12 +1080,17 @@ function parseTargetCredentialRow(row: TargetCredentialRowV1): PersistedTargetCr
     preparation,
     registration: {
       value: registration,
-      credential: {
-        credentialIdB64u: credentialId.value,
-        credentialPublicKeyB64u: row.credential_public_key_b64u,
-        counter: row.credential_counter as number,
+      evidence: {
+        kind: 'email_otp',
+        grant: {
+          grantId: wireGrant.grantId,
+          baseWalletAuthMethodId: wireGrant.baseWalletAuthMethodId,
+          linkedOwnerAuthMethodId: wireGrant.linkedOwnerAuthMethodId,
+          authorityDigestB64u: wireGrant.authorityDigestB64u,
+          descriptorCredentialIdB64u,
+        },
       },
-      keyManifestDigestB64u: parseDigestB64u(row.key_manifest_digest_b64u),
+      keyManifestDigestB64u,
     },
   };
 }

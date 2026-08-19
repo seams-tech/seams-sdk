@@ -1298,6 +1298,44 @@ export class CloudflareD1WalletAuthMethodService {
     readonly requestedAtMs: number;
   }): Promise<LinkedOwnerAuthMethodRevocationResultV1> {
     try {
+      // Refactor 103 Phase 6: a derived linked Email OTP owner is a binding,
+      // not a wallet_auth_methods row. Revoking that device retires only its
+      // binding and its linked Wallet Sessions — the shared base Email OTP
+      // factor and every sibling linked device stay active.
+      if (this.linkedDeviceOwnerAuthBindingStore) {
+        const linkedBinding = await this.linkedDeviceOwnerAuthBindingStore.readByAuthMethodV1({
+          walletId: input.walletId,
+          walletAuthMethodId: input.walletAuthMethodId,
+        });
+        if (linkedBinding && linkedBinding.factor.kind === 'email_otp') {
+          if (linkedBinding.lifecycle.state === 'revoked') {
+            if (this.revokeOwnerWalletSessions) {
+              await this.revokeOwnerWalletSessions({
+                walletId: input.walletId,
+                walletAuthMethodId: input.walletAuthMethodId,
+                requestedAtMs: input.requestedAtMs,
+              });
+            }
+            return { kind: 'replayed' };
+          }
+          const revokedBinding = revokeLinkedOwnerAuthBindingV1({
+            binding: linkedBinding,
+            revokedAtMs: input.requestedAtMs,
+          });
+          if (!revokedBinding.ok) return { kind: 'conflict' };
+          await this.linkedDeviceOwnerAuthBindingStore
+            .buildLifecycleUpdateV1(revokedBinding.binding, linkedBinding.revocationEpoch)
+            .statement.run();
+          if (this.revokeOwnerWalletSessions) {
+            await this.revokeOwnerWalletSessions({
+              walletId: input.walletId,
+              walletAuthMethodId: input.walletAuthMethodId,
+              requestedAtMs: input.requestedAtMs,
+            });
+          }
+          return { kind: 'applied' };
+        }
+      }
       const walletAuthMethodStore = this.getWalletAuthMethodStore();
       const walletMethods = await walletAuthMethodStore.listForWallet({
         walletId: input.walletId,

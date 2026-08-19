@@ -5,7 +5,6 @@ import type {
 } from '../EmailOtpStores';
 import type { NormalizedLogger } from '../logger';
 import type { EmailOtpConfig, EmailOtpDeliveryMode } from './emailOtpConfig';
-import { maskEmailAddress } from './emailOtpConfig';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 
 export type EmailOtpMemoryOutboxEntry = {
@@ -135,7 +134,10 @@ export async function deliverEmailOtpCode(
     };
   }
 
-  const emailHint = maskEmailAddress(input.email);
+  /* The prompt shows the address in full: the person reading it is the one
+     being asked to go open that inbox, and a masked hint makes it harder to
+     tell which account the code went to. */
+  const emailHint = input.email;
   if (input.config.deliveryMode === 'email_provider') {
     return {
       ok: false,

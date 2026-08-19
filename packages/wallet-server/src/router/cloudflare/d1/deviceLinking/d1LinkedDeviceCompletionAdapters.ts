@@ -121,6 +121,7 @@ export class D1LinkedDeviceCommittedDeliveryRetryV1 {
         linkSessionId: input.session.linkSessionId,
         enrollmentId: approval.enrollmentId,
         deviceId: approval.deviceId,
+        targetFactor: approval.targetFactor,
       }),
       session: input.session,
       approval,

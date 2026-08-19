@@ -131,7 +131,9 @@ export class D1LinkedDeviceCanonicalOwnerAuthMetadataSourceV1 implements D1Linke
 
     const authMethodIds = [
       ...new Set(
-        [...selectedBindings.values()].map((binding) => String(binding.walletAuthMethodId)),
+        [...selectedBindings.values()].map((binding) =>
+          canonicalAuthMethodIdForBinding(binding),
+        ),
       ),
     ];
     const authMethodRows = await queryD1All(
@@ -177,7 +179,7 @@ export class D1LinkedDeviceCanonicalOwnerAuthMetadataSourceV1 implements D1Linke
     for (const identity of identities) {
       const binding = selectedBindings.get(metadataKey(identity));
       if (!binding) continue;
-      const authMethod = authMethods.get(String(binding.walletAuthMethodId));
+      const authMethod = authMethods.get(canonicalAuthMethodIdForBinding(binding));
       if (!authMethod) throw new Error('linked-device canonical auth method is missing');
       result.set(
         metadataKey(identity),
@@ -631,15 +633,31 @@ function assertBindingMatchesIdentity(
   }
 }
 
+/**
+ * The wallet_auth_methods row a binding is authenticated by. A Passkey binding
+ * is its own canonical method; an Email OTP binding's canonical method is the
+ * shared base factor its derived per-enrollment principal was minted from.
+ */
+function canonicalAuthMethodIdForBinding(binding: LinkedDeviceOwnerAuthBindingV1): string {
+  return binding.factor.kind === 'email_otp'
+    ? String(binding.factor.baseWalletAuthMethodId)
+    : String(binding.walletAuthMethodId);
+}
+
 function buildCanonicalMetadataV1(input: {
   readonly binding: LinkedDeviceOwnerAuthBindingV1;
   readonly authMethod: WalletAuthMethodRecord;
   readonly authenticators: ReadonlyMap<string, ReturnType<typeof parseWebAuthnAuthenticator>>;
 }): D1LinkedDeviceManagementMetadataV1 {
   const { binding, authMethod } = input;
-  const expectedStatus = binding.lifecycle.state === 'revoked' ? 'revoked' : 'active';
-  if (authMethod.status !== expectedStatus) {
-    throw new Error('linked-device owner auth binding lifecycle disagrees with auth method');
+  if (binding.factor.kind === 'passkey') {
+    // A Passkey binding IS its canonical method, so their lifecycles move
+    // together. (The Email OTP base factor deliberately does not: it stays
+    // active while individual linked devices are revoked.)
+    const expectedStatus = binding.lifecycle.state === 'revoked' ? 'revoked' : 'active';
+    if (authMethod.status !== expectedStatus) {
+      throw new Error('linked-device owner auth binding lifecycle disagrees with auth method');
+    }
   }
   if (binding.factor.kind === 'passkey') {
     if (
@@ -664,10 +682,13 @@ function buildCanonicalMetadataV1(input: {
   }
   if (
     authMethod.kind !== 'email_otp' ||
+    // A live binding requires a live base factor. A revoked binding may
+    // outlive its base in either order, so only the active case is pinned.
+    (binding.lifecycle.state !== 'revoked' && authMethod.status !== 'active') ||
     authMethod.walletId !== binding.walletId ||
     authMethod.emailHashHex !== binding.factor.emailHashHex ||
     authMethod.registrationAuthorityId !== binding.factor.registrationAuthorityId ||
-    String(walletAuthMethodRecordId(authMethod)) !== String(binding.walletAuthMethodId)
+    String(walletAuthMethodRecordId(authMethod)) !== String(binding.factor.baseWalletAuthMethodId)
   ) {
     throw new Error('linked-device Email OTP binding disagrees with canonical auth method');
   }

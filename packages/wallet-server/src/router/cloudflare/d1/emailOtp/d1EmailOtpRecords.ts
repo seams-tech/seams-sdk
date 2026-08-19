@@ -3,6 +3,7 @@ import { base64UrlDecode } from '@shared/utils/encoders';
 import {
   EMAIL_OTP_CHANNEL,
   WALLET_EMAIL_OTP_ACTIONS,
+  WALLET_EMAIL_OTP_DEVICE_LINK_OPERATION,
   WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
   WALLET_EMAIL_OTP_UNLOCK_OPERATION,
   isWalletEmailOtpLoginOperation,
@@ -27,7 +28,8 @@ import {
 export type EmailOtpChallengeIssueAction =
   | typeof WALLET_EMAIL_OTP_ACTIONS.login
   | typeof WALLET_EMAIL_OTP_ACTIONS.registration
-  | typeof WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap;
+  | typeof WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap
+  | typeof WALLET_EMAIL_OTP_ACTIONS.deviceLink;
 
 export type EmailOtpRateLimitScope = 'challenge' | 'verify' | 'grant' | 'googleRegistrationAttempt';
 
@@ -327,6 +329,7 @@ export function parseEmailOtpChallengeOperation(input: unknown): EmailOtpChallen
   if (!operation) return null;
   if (isWalletEmailOtpLoginOperation(operation)) return operation;
   if (operation === WALLET_EMAIL_OTP_REGISTRATION_OPERATION) return operation;
+  if (operation === WALLET_EMAIL_OTP_DEVICE_LINK_OPERATION) return operation;
   return null;
 }
 
@@ -874,6 +877,7 @@ function parseEmailOtpChallengeAction(input: unknown): EmailOtpChallengeIssueAct
     case WALLET_EMAIL_OTP_ACTIONS.login:
     case WALLET_EMAIL_OTP_ACTIONS.registration:
     case WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap:
+    case WALLET_EMAIL_OTP_ACTIONS.deviceLink:
       return action;
     default:
       return null;
@@ -891,6 +895,8 @@ export function emailOtpChallengePurposeIsValid(input: {
       return input.operation === WALLET_EMAIL_OTP_REGISTRATION_OPERATION;
     case WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap:
       return input.operation === WALLET_EMAIL_OTP_UNLOCK_OPERATION;
+    case WALLET_EMAIL_OTP_ACTIONS.deviceLink:
+      return input.operation === WALLET_EMAIL_OTP_DEVICE_LINK_OPERATION;
   }
 }
 

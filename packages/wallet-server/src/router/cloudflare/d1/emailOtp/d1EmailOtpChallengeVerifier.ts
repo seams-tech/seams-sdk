@@ -1,6 +1,7 @@
 import {
   EMAIL_OTP_CHANNEL,
   WALLET_EMAIL_OTP_ACTIONS,
+  WALLET_EMAIL_OTP_DEVICE_LINK_OPERATION,
   WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
   WALLET_EMAIL_OTP_UNLOCK_OPERATION,
 } from '@shared/utils/emailOtpDomain';
@@ -42,6 +43,10 @@ export type EmailOtpExistingChallengeVerifyInput =
   | (EmailOtpExistingChallengeVerifyBaseInput & {
       readonly action: typeof WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap;
       readonly operation: typeof WALLET_EMAIL_OTP_UNLOCK_OPERATION;
+    })
+  | (EmailOtpExistingChallengeVerifyBaseInput & {
+      readonly action: typeof WALLET_EMAIL_OTP_ACTIONS.deviceLink;
+      readonly operation: typeof WALLET_EMAIL_OTP_DEVICE_LINK_OPERATION;
     });
 
 export type EmailOtpExistingChallengeVerifyResult =

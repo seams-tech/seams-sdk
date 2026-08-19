@@ -3,6 +3,7 @@ import { toOptionalTrimmedString } from '@shared/utils/validation';
 import {
   EMAIL_OTP_CHANNEL,
   WALLET_EMAIL_OTP_ACTIONS,
+  WALLET_EMAIL_OTP_DEVICE_LINK_OPERATION,
   WALLET_EMAIL_OTP_REGISTRATION_OPERATION,
   WALLET_EMAIL_OTP_UNLOCK_OPERATION,
   isWalletEmailOtpLoginOperation,
@@ -122,14 +123,16 @@ export function parseCurrentEmailOtpChallengeRecord(raw: unknown): EmailOtpChall
   if (
     action !== WALLET_EMAIL_OTP_ACTIONS.login &&
     action !== WALLET_EMAIL_OTP_ACTIONS.registration &&
-    action !== WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap
+    action !== WALLET_EMAIL_OTP_ACTIONS.recoveryBootstrap &&
+    action !== WALLET_EMAIL_OTP_ACTIONS.deviceLink
   ) {
     return null;
   }
   const operation =
     isWalletEmailOtpLoginOperation(operationRaw) ||
     operationRaw === WALLET_EMAIL_OTP_REGISTRATION_OPERATION ||
-    operationRaw === WALLET_EMAIL_OTP_UNLOCK_OPERATION
+    operationRaw === WALLET_EMAIL_OTP_UNLOCK_OPERATION ||
+    operationRaw === WALLET_EMAIL_OTP_DEVICE_LINK_OPERATION
       ? operationRaw
       : null;
   if (!operation) return null;

@@ -159,6 +159,7 @@ export function createLinkedDeviceR102ProvisioningExecutionV1(input: {
         enrollmentId: request.approval.enrollmentId,
         walletId: request.approval.walletId,
         deviceId: request.approval.deviceId,
+        targetFactor: request.approval.targetFactor,
         manifestDigestB64u: parseDigestB64u(committed.receipt.manifestDigestB64u),
         aggregateReceiptDigestB64u,
         orderedChildReceipts: [firstProjected, ...projectedChildren.slice(1)],
