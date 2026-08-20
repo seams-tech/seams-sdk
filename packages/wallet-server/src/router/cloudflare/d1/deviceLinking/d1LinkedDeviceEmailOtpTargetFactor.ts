@@ -30,7 +30,6 @@ import {
   WALLET_EMAIL_OTP_DEVICE_LINK_OPERATION,
 } from '@shared/utils/emailOtpDomain';
 import type { WalletAuthMethodRecord } from '@shared/utils/registrationIntent';
-import { maskEmailAddress } from '../../../../core/authService/emailOtpConfig';
 import {
   computeLinkedDeviceEmailOtpAuthorityDigestV1,
   computeLinkedDeviceEmailOtpChallengeBindingDigestV1,
@@ -195,7 +194,10 @@ export class D1LinkedDeviceEmailOtpTargetFactorV1 implements DeviceLinkingEmailO
     return {
       kind: 'sent',
       challengeId: issued.challenge.challengeId,
-      maskedEmailHint: issued.delivery.emailHint || context.resolved.maskedEmailHint,
+      // Resolved first: the issuer's delivery hint is the masked form shared
+      // with every other Email OTP surface, and this branch shows the address
+      // in full (see resolveBaseFactorV1).
+      maskedEmailHint: context.resolved.maskedEmailHint || issued.delivery.emailHint,
       expiresAtMs: issued.challenge.expiresAtMs,
       resendAvailableAtMs: issued.challenge.issuedAtMs + this.resendCooldownMs,
     };
@@ -436,7 +438,13 @@ export class D1LinkedDeviceEmailOtpTargetFactorV1 implements DeviceLinkingEmailO
       emailHashHex,
       registrationAuthorityId: factor.registrationAuthorityId,
       baseWalletAuthMethodId,
-      maskedEmailHint: maskEmailAddress(enrollment.verifiedEmail),
+      // The linked-device flow shows the address in full: device 2 has already
+      // scanned device 1's code, so masking hides the one fact the user needs
+      // to confirm the code is going somewhere they can read. The field keeps
+      // its `maskedEmailHint` name because it is a shared wire field; only this
+      // branch fills it with the verified address. Every other Email OTP
+      // surface still masks, through `maskEmail` in the delivery runtime.
+      maskedEmailHint: enrollment.verifiedEmail,
     };
   }
 }
