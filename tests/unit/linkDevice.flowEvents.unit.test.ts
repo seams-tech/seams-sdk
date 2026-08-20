@@ -13,6 +13,7 @@ import type {
   LinkSessionTransportPortV1,
 } from '@/SeamsWeb/operations/devices/deviceLinkingPorts';
 import { DeviceLinkingErrorCode } from '@/core/types/linkDevice';
+import { buildFullOwnerDelegatedWalletAuthorityV1 } from '@shared/authorization/delegatedAuthority';
 import {
   buildLinkedDeviceProvisionedExecutionEvidenceV1,
   type LinkedDeviceProvisionedExecutionEvidenceV1,
@@ -43,11 +44,6 @@ import {
   buildR103ProvisioningFixture,
   buildR103TargetReadySourceFixture,
 } from './helpers/deviceLinkContracts.fixtures';
-import {
-  buildLinkedDeviceCustodyTransferPackageFixtureV1,
-  buildLinkedDeviceCustodyTransferRecipientFixtureV1,
-  buildUnlockedCustodyCapabilityFixtureV1,
-} from './helpers/linkedDeviceCustodyTransfer.fixtures';
 import { parseWebAuthnCredentialIdB64u } from '../../packages/shared-ts/src/utils/domainIds';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/base64';
 import { computeLaneEnrollmentManifestDigestV1 } from '../../packages/shared-ts/src/signing-lanes/rotationDigests';
@@ -77,6 +73,8 @@ function createPorts(
     linkSessionId: fixture.payload.linkSessionId,
     linkPublicKeyB64u: fixture.payload.linkPublicKeyB64u,
     devicePublicKeyB64u: fixture.payload.devicePublicKeyB64u,
+    requestedPermission: buildFullOwnerDelegatedWalletAuthorityV1(),
+    targetFactor: fixture.payload.targetFactor,
     issuedAtMs: now - 1_000,
     expiresAtMs: now + 60_000,
   });
@@ -104,20 +102,6 @@ function createPorts(
   const ownerEnrollmentCeremony = buildR103OwnerEnrollmentCeremonyV1({
     rpId: 'wallet.example.test',
     expiresAtMs: now + 30_000,
-  });
-  // Refactor 103 Phase 8: the wallet custody seed crosses to Device 2 inside the
-  // link session, so both halves of the transfer are part of every flow here.
-  const custodyRecipient = buildLinkedDeviceCustodyTransferRecipientFixtureV1({
-    linkSessionId: String(payload.linkSessionId),
-    walletId: String(fixture.approval.walletId),
-    enrollmentId: String(fixture.approval.enrollmentId),
-    deviceId: String(fixture.approval.deviceId),
-  });
-  const custodyPackage = buildLinkedDeviceCustodyTransferPackageFixtureV1({
-    walletId: String(fixture.approval.walletId),
-    enrollmentId: String(fixture.approval.enrollmentId),
-    deviceId: String(fixture.approval.deviceId),
-    recipientPublicKeyB64u: String(custodyRecipient.recipientPublicKeyB64u),
   });
   const authenticatedTransport: DeviceLinkingAuthenticatedTransportPortV1 = {
     async createUnclaimedSessionV1(input) {
@@ -154,7 +138,9 @@ function createPorts(
         walletId: fixture.approval.walletId,
         enrollmentId: fixture.approval.enrollmentId,
         deviceId: fixture.approval.deviceId,
+        targetFactor: fixture.approval.targetFactor,
         ownerEnrollment: ownerEnrollmentCeremony,
+        ed25519ExportRoot: null,
         orderedChildren: [
           {
             kind: 'linked_device_target_preparation_child_v1',
@@ -178,15 +164,24 @@ function createPorts(
     async acknowledgeHolderDeliveriesV1() {
       throw new Error('holder delivery adapter is not configured for this test');
     },
+    async startTargetEmailOtpChallengeV1() {
+      throw new Error('Email OTP is not configured for this passkey test');
+    },
+    async resendTargetEmailOtpChallengeV1() {
+      throw new Error('Email OTP is not configured for this passkey test');
+    },
+    async verifyTargetEmailOtpChallengeV1() {
+      throw new Error('Email OTP is not configured for this passkey test');
+    },
     async registerTargetCredentialV1() {
       calls.push('credential');
     },
-    async registerCustodyTransferRecipientV1() {
-      calls.push('recipient-register');
+    async registerEd25519ExportRootRecipientV1() {
+      calls.push('export-root-recipient-register');
     },
-    async getCustodyTransferPackageV1() {
-      calls.push('package');
-      return custodyPackage;
+    async getEd25519ExportRootPackageV1() {
+      calls.push('export-root-package');
+      return null;
     },
     async finalizeOwnerAuthMethodV1() {
       calls.push('finalize');
@@ -315,12 +310,12 @@ function createPorts(
       sourceHandoff?.onSubmission(input.submission);
       return input.submission;
     },
-    async getCustodyTransferRecipientV1() {
-      calls.push('get-custody-recipient');
-      return custodyRecipient;
+    async getEd25519ExportRootRecipientV1() {
+      calls.push('get-export-root-recipient');
+      return null;
     },
-    async submitCustodyTransferPackageV1() {
-      calls.push('submit-custody-package');
+    async submitEd25519ExportRootPackageV1() {
+      calls.push('submit-export-root-package');
     },
     async subscribeApprovalV1(input) {
       calls.push('subscribe-approval');
@@ -374,6 +369,7 @@ function createPorts(
           handle: { kind: 'device_linking_key_material_handle_v1', handleId: 'test-key-material' },
           linkPublicKeyB64u: payload.linkPublicKeyB64u,
           devicePublicKeyB64u: payload.devicePublicKeyB64u,
+          emailOtpReleasePublicKey65B64u: base64UrlEncode(new Uint8Array(65).fill(4)),
         };
       },
       async prepareTargetHolderRegistrationsV1() {
@@ -381,6 +377,21 @@ function createPorts(
       },
       async openAndSealTargetHolderDeliveryV1() {
         throw new Error('holder delivery is owned by the lane provisioning fake');
+      },
+      async createEmailOtpEd25519ExportRootRecipientV1() {
+        throw new Error('Email OTP export-root preparation is outside this passkey test');
+      },
+      async prepareEmailOtpTargetV1() {
+        throw new Error('Email OTP target preparation is outside this passkey test');
+      },
+      async openPersistedHolderSigningMaterialV1() {
+        throw new Error('holder signing material is outside this orchestration test');
+      },
+      async createEd25519HolderSigningShareV1() {
+        throw new Error('holder signing material is outside this orchestration test');
+      },
+      async discardHolderSigningMaterialV1() {
+        calls.push('holder-material-discard');
       },
       async discardKeyMaterialV1() {
         calls.push('key-discard');
@@ -406,10 +417,7 @@ function createPorts(
           orderedKeyBindings: fixture.approval.orderedKeyBindings,
           protocolVersions: fixture.approval.protocolVersions,
           expiresAtMs: now + 30_000,
-          custodyTransferCapability: buildUnlockedCustodyCapabilityFixtureV1({
-            walletId: String(fixture.approval.walletId),
-            expiresAtMs: now + 30_000,
-          }),
+          exportRootRequirement: 'not_required',
         };
       },
     },
@@ -452,26 +460,18 @@ function createPorts(
         };
       },
     },
-    custodyTransfer: {
+    ed25519ExportRoot: {
       async createRecipientV1() {
-        calls.push('recipient-create');
-        return { recipientHandleId: 'test-recipient', registration: custodyRecipient };
+        throw new Error('export-root recipient is outside this signing-only test');
       },
       async sealForLinkedDeviceV1() {
-        calls.push('seal-custody');
-        return custodyPackage;
+        throw new Error('export-root sealing is outside this signing-only test');
       },
       async acceptTransferV1() {
-        calls.push('accept-custody');
-        return {
-          nonceB64u: custodyPackage.nonceB64u,
-          sealedCustodySecretB64u: custodyPackage.sealedCustodySecretB64u,
-          aadHashB64u: custodyPackage.aadHashB64u,
-          ciphertextDigestB64u: custodyPackage.ciphertextDigestB64u,
-        };
+        throw new Error('export-root acceptance is outside this signing-only test');
       },
       async discardRecipientV1() {
-        calls.push('recipient-discard');
+        calls.push('export-root-recipient-discard');
       },
     },
     sessionActivation: {
@@ -529,8 +529,11 @@ test.describe('linked-device browser orchestration', () => {
       ports: createPorts(calls),
     });
 
-    const first = domain.startDevice2LinkingFlow();
-    await expect(domain.startDevice2LinkingFlow()).rejects.toThrow(
+    const first = domain.startDevice2LinkingFlow({ targetFactor: { kind: 'passkey_prf' } });
+    await expect.poll(() => calls).toContain('create');
+    await expect(
+      domain.startDevice2LinkingFlow({ targetFactor: { kind: 'passkey_prf' } }),
+    ).rejects.toThrow(
       'Device-link QR flow is already running',
     );
     await first;
@@ -549,6 +552,7 @@ test.describe('linked-device browser orchestration', () => {
     });
     const flow = new LinkDeviceFlow(
       {
+        targetFactor: { kind: 'passkey_prf' },
         options: { onEvent: (event) => events.push(event.status) },
       },
       ports,
@@ -566,7 +570,7 @@ test.describe('linked-device browser orchestration', () => {
   test('Device 2 routes cancellation through the bound authenticated transport', async () => {
     const calls: string[] = [];
     const ports = createPorts(calls);
-    const flow = new LinkDeviceFlow({}, ports);
+    const flow = new LinkDeviceFlow({ targetFactor: { kind: 'passkey_prf' } }, ports);
 
     await flow.generateQR();
     await flow.cancel();
@@ -590,7 +594,7 @@ test.describe('linked-device browser orchestration', () => {
       const ports = createPorts(calls, undefined, undefined, undefined, (handler) => {
         emitSessionEvent = handler;
       });
-      const flow = new LinkDeviceFlow({}, ports);
+      const flow = new LinkDeviceFlow({ targetFactor: { kind: 'passkey_prf' } }, ports);
       const generated = await flow.generateQR();
       const terminalState =
         terminalKind === 'expired'
@@ -632,7 +636,7 @@ test.describe('linked-device browser orchestration', () => {
         if (discardAttempts === 1) throw new Error('worker unavailable');
       },
     });
-    const flow = new LinkDeviceFlow({}, ports);
+    const flow = new LinkDeviceFlow({ targetFactor: { kind: 'passkey_prf' } }, ports);
 
     await flow.generateQR();
     await expect(flow.cancel()).rejects.toThrow('worker unavailable');
@@ -659,7 +663,7 @@ test.describe('linked-device browser orchestration', () => {
         return await createKeyMaterial();
       },
     });
-    const flow = new LinkDeviceFlow({}, ports);
+    const flow = new LinkDeviceFlow({ targetFactor: { kind: 'passkey_prf' } }, ports);
 
     const generation = flow.generateQR();
     await expect.poll(() => calls).toContain('keygen-delayed');
