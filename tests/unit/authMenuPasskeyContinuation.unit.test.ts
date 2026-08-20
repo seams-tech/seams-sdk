@@ -396,7 +396,6 @@ test.describe('hosted auth-menu passkey continuation', () => {
       },
     });
     Reflect.apply(Reflect.get(session, 'changeLinkedDeviceEmailOtpCode'), session, ['123456']);
-    Reflect.apply(Reflect.get(session, 'submitLinkedDeviceEmailOtp'), session, []);
     await Promise.resolve();
     callbacks.onEvent(
       createLinkDeviceFlowEvent({
@@ -445,9 +444,9 @@ test.describe('hosted auth-menu passkey continuation', () => {
     session.cleanup();
   });
 
-  test('filters email-OTP-only recent accounts from the passkey selector', () => {
+  test('filters email-OTP-only accounts and keeps linked-device accounts in the selector', () => {
     const options = loginAccountOptions({
-      walletIds: ['wallet-passkey', 'wallet-email'],
+      walletIds: ['wallet-passkey', 'wallet-email', 'wallet-linked'],
       accountIds: [],
       accounts: [
         {
@@ -464,11 +463,21 @@ test.describe('hosted auth-menu passkey continuation', () => {
           signerSlot: 0,
           authMethod: 'email_otp',
         },
+        {
+          walletId: 'wallet-linked',
+          nearAccountId: 'linked.testnet',
+          displayName: 'Linked wallet',
+          signerSlot: 0,
+          authMethod: 'linked_device',
+        },
       ],
       lastUsedAccount: null,
     });
 
-    expect(options).toEqual([{ walletId: 'wallet-passkey', displayName: 'Passkey wallet' }]);
+    expect(options).toEqual([
+      { walletId: 'wallet-passkey', displayName: 'Passkey wallet' },
+      { walletId: 'wallet-linked', displayName: 'Linked wallet' },
+    ]);
   });
 
   test('requires exact external-auth request identity before starting Google OTP', async () => {

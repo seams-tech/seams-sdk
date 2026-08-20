@@ -615,6 +615,12 @@ export interface WalletAuthenticationSurface {
     readonly enrollmentId: LinkedDeviceEnrollmentId;
     readonly activation: LinkedDeviceSigningSessionActivationV1;
   }): Promise<void>;
+  unlockLinkedDeviceEmailOtpSigningSession(input: {
+    readonly walletId: WalletId;
+    readonly challengeId: string;
+    readonly otpCode: string;
+    readonly relayServerUrl?: string;
+  }): Promise<boolean>;
   restoreLinkedDeviceSigningSession(walletId: WalletId): Promise<boolean>;
   hasLinkedDeviceSigningSession(walletId: WalletId): boolean;
   clearLinkedDeviceRefreshMaterial(): Promise<void>;
@@ -758,6 +764,8 @@ export interface PasskeyLoginAssertionSurface {
 export interface EmailOtpSigningSessionSurface {
   resolveEmailOtpEd25519CustodyProjectionInternal(args: {
     walletSession: WalletSessionRef;
+    /** Email OTP provider subject id, never derived from `walletSession`. */
+    providerSubjectId: string;
   }): Promise<WalletCustodyEd25519Projection | null>;
   activateEmailOtpEd25519CustodyCapabilityInternal(args: {
     walletSession: WalletSessionRef;

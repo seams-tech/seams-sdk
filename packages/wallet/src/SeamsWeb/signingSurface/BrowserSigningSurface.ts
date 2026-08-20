@@ -378,6 +378,7 @@ import type { WalletHostCompositionDependenciesV1 } from '../operations/devices/
 import { createWalletHostSourceLanePortsV1 } from '../operations/devices/walletHostSourceLanePorts';
 import {
   closeLinkedDeviceWarmSigningSessionV1,
+  openLinkedDeviceEmailOtpWarmSigningSessionV1,
   openLinkedDeviceWarmSigningSessionV1,
   restoreLinkedDeviceWarmSigningSessionV1,
   signLinkedDeviceEvmFamilyV1,
@@ -430,7 +431,12 @@ import type {
 } from '@shared/utils/routerAbEd25519Yao';
 import { readPasskeyCustodySessionEnvelope } from '@/core/signingEngine/session/passkey/passkeyCustodySessionCache';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
-import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
+import { joinCustodyWireFromEnvelopeRecord } from '@/core/signingEngine/walletCustody/joinCustodyWire';
+import { deriveEvmFamilySigningKeySlotId } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import type {
+  PasskeyCustodyEnvelopeRecord,
+  WalletCustodyEvmFamilyPublicFacts,
+} from '@shared/passkey-custody';
 import type { WalletCustodyCeremonyTransportPort } from '@/core/signingEngine/walletCustody/ceremonyStepRunner';
 import type { UnlockedWalletCustodyCapabilityDestroyScopeV1 } from '@/core/signingEngine/workerManager/workerTypes';
 import {
@@ -489,21 +495,12 @@ function assertNeverLinkedDeviceSigningSessionActivationV1(value: never): never 
   throw new Error(`Unsupported linked-device signing session activation: ${String(value)}`);
 }
 
-function maskLinkedDeviceEmailHintV1(email: string): string {
-  const normalized = email.trim().toLowerCase();
-  const atIndex = normalized.indexOf('@');
-  if (atIndex <= 0 || atIndex === normalized.length - 1) return 'hidden';
-  const local = normalized.slice(0, atIndex);
-  const domain = normalized.slice(atIndex + 1);
-  const maskedLocal =
-    local.length <= 2 ? `${local[0] || '*'}*` : `${local[0]}***${local.slice(-1)}`;
-  const domainParts = domain.split('.');
-  const domainName = domainParts[0] || '';
-  const maskedDomainName =
-    domainName.length <= 2
-      ? `${domainName[0] || '*'}*`
-      : `${domainName[0]}***${domainName.slice(-1)}`;
-  return `${maskedLocal}@${[maskedDomainName, ...domainParts.slice(1)].join('.')}`;
+function linkedDeviceEcdsaEthereumAddress(value: string): `0x${string}` {
+  const bytes = base64UrlDecode(value);
+  if (bytes.length !== 20) throw new Error('linked-device ECDSA address must contain 20 bytes');
+  let hex = '0x';
+  for (const byte of bytes) hex += byte.toString(16).padStart(2, '0');
+  return hex as `0x${string}`;
 }
 
 async function resolveLinkedDeviceEmailOtpBaseFactorV1(input: {
@@ -514,10 +511,8 @@ async function resolveLinkedDeviceEmailOtpBaseFactorV1(input: {
   readonly baseWalletAuthMethodId: WalletAuthMethodId;
   readonly maskedEmailHint: string;
 }> {
-  const activeEmailMethods: Extract<
-    LocalWalletAuthMethodRecord,
-    { readonly kind: 'email_otp' }
-  >[] = [];
+  const activeEmailMethods: Extract<LocalWalletAuthMethodRecord, { readonly kind: 'email_otp' }>[] =
+    [];
   for (const record of input.authMethods) {
     if (
       record.kind === 'email_otp' &&
@@ -527,8 +522,15 @@ async function resolveLinkedDeviceEmailOtpBaseFactorV1(input: {
       activeEmailMethods.push(record);
     }
   }
-  if (activeEmailMethods.length !== 1) {
-    throw new Error('Linked-device Email OTP owner enrollment requires exactly one active local factor');
+  if (activeEmailMethods.length === 0) {
+    throw new Error(
+      'This wallet has no active Email OTP factor. Add an Email OTP factor before linking with Email code',
+    );
+  }
+  if (activeEmailMethods.length > 1) {
+    throw new Error(
+      'This wallet has multiple active Email OTP factors and no unambiguous linking destination',
+    );
   }
   const [record] = activeEmailMethods;
   if (!record) {
@@ -569,7 +571,7 @@ async function resolveLinkedDeviceEmailOtpBaseFactorV1(input: {
   }
   return {
     baseWalletAuthMethodId: authorityRef.walletAuthMethodId,
-    maskedEmailHint: maskLinkedDeviceEmailHintV1(user.loginDisplayName),
+    maskedEmailHint: user.loginDisplayName.trim().toLowerCase(),
   };
 }
 
@@ -2886,6 +2888,107 @@ export class BrowserSigningSurface {
     this.applyAuthenticatedWalletState(state);
   }
 
+  private async activateLinkedDevicePasskeyEcdsaOwnerV1(input: {
+    readonly session: LinkedDeviceWarmSigningSessionV1;
+    readonly activation: Extract<
+      LinkedDeviceSigningSessionActivationV1,
+      { readonly kind: 'target_passkey_creation' }
+    >;
+  }): Promise<void> {
+    const projection = input.session.bundle.ecdsaOwnerActivation;
+    if (projection.kind === 'absent') return;
+    const first = projection.signers[0];
+    const custodyWire = joinCustodyWireFromEnvelopeRecord(
+      input.activation.resealedCustodyEnvelope,
+    );
+    if (!custodyWire.ok) throw new Error(custodyWire.reason);
+    const factorSecret = input.activation.factorSecret.slice();
+    try {
+      const identity = first.activationReceipt.ecdsa_activation.public_identity;
+      const rejoined = await this.rejoinWalletCustodyEvmFamilyKeySet({
+        walletId: String(input.session.walletId),
+        custodyJson: custodyWire.custodyJson,
+        factorSecret: factorSecret.buffer,
+        evmFamilySigningKeySlotId: deriveEvmFamilySigningKeySlotId({
+          walletId: String(input.session.walletId),
+          signingRootId: first.walletKey.signingRootId,
+          signingRootVersion: first.walletKey.signingRootVersion,
+        }),
+        applicationBindingDigestB64u:
+          first.walletKey.publicCapability.context.application_binding_digest_b64u,
+        registeredClientRootPublicKey33B64u:
+          first.walletKey.derivationClientSharePublicKey33B64u,
+        relayerPublicIdentityJson: JSON.stringify({
+          relayerKeyId: first.walletKey.relayerKeyId,
+          relayerPublicKey33B64u: identity.server_public_key33_b64u,
+          groupPublicKey33B64u: identity.threshold_public_key33_b64u,
+          ethereumAddress: linkedDeviceEcdsaEthereumAddress(identity.ethereum_address20_b64u),
+          relayerShareRetryCounter: identity.server_share_retry_counter,
+        }),
+      });
+      await this.persistLinkedDeviceEcdsaOwnerRestoreV1({
+        session: input.session,
+        readyStateBlobB64u: rejoined.readyStateBlobB64u,
+        publicFacts: rejoined.publicFacts,
+      });
+    } finally {
+      factorSecret.fill(0);
+    }
+  }
+
+  private async persistLinkedDeviceEcdsaOwnerRestoreV1(input: {
+    readonly session: LinkedDeviceWarmSigningSessionV1;
+    readonly readyStateBlobB64u: string;
+    readonly publicFacts: WalletCustodyEvmFamilyPublicFacts;
+  }): Promise<void> {
+    const projection = input.session.bundle.ecdsaOwnerActivation;
+    if (projection.kind === 'absent') {
+      throw new Error('linked-device ECDSA owner restore has no admitted signer');
+    }
+    const first = projection.signers[0];
+    for (const signer of projection.signers) {
+      if (
+        signer.walletKey.walletId !== first.walletKey.walletId ||
+        signer.walletKey.keyHandle !== first.walletKey.keyHandle ||
+        signer.walletKey.ecdsaThresholdKeyId !== first.walletKey.ecdsaThresholdKeyId ||
+        signer.walletKey.signingRootId !== first.walletKey.signingRootId ||
+        signer.walletKey.signingRootVersion !== first.walletKey.signingRootVersion ||
+        signer.walletKey.relayerKeyId !== first.walletKey.relayerKeyId ||
+        JSON.stringify(signer.walletKey.publicCapability) !==
+          JSON.stringify(first.walletKey.publicCapability) ||
+        JSON.stringify(signer.activationReceipt) !== JSON.stringify(first.activationReceipt) ||
+        JSON.stringify(signer.runtimePolicyScope) !== JSON.stringify(first.runtimePolicyScope)
+      ) {
+        throw new Error('linked-device ECDSA owner continuity conflicts across targets');
+      }
+    }
+    const authorization = await walletSessionAuthorizations.readActiveForWallet(
+      input.session.walletId,
+    );
+    if (authorization.kind !== 'found') {
+      throw new Error('linked-device canonical owner authorization is unavailable');
+    }
+    const chainTargets = projection.signers.map((signer) => signer.chainTarget);
+    const [firstChainTarget, ...remainingChainTargets] = chainTargets;
+    if (!firstChainTarget) throw new Error('linked-device ECDSA owner activation is empty');
+    await this.restoreWalletCustodyEcdsaContinuity({
+      authority: authorization.projection.authority,
+      chainTargets: [firstChainTarget, ...remainingChainTargets],
+      walletId: first.walletKey.walletId,
+      keyHandle: first.walletKey.keyHandle,
+      ecdsaThresholdKeyId: first.walletKey.ecdsaThresholdKeyId,
+      signingRootId: first.walletKey.signingRootId,
+      signingRootVersion: first.walletKey.signingRootVersion,
+      relayerKeyId: first.walletKey.relayerKeyId,
+      participantIds: first.walletKey.participantIds,
+      publicCapability: first.walletKey.publicCapability,
+      activationReceipt: first.activationReceipt,
+      runtimePolicyScope: first.runtimePolicyScope,
+      readyStateBlobB64u: input.readyStateBlobB64u,
+      publicFacts: input.publicFacts,
+    });
+  }
+
   async establishLinkedDeviceSigningSession(input: {
     readonly walletId: WalletId;
     readonly enrollmentId: import('@shared/signing-lanes/ids').LinkedDeviceEnrollmentId;
@@ -2920,6 +3023,27 @@ export class BrowserSigningSurface {
       warmMaterial: this.passkeyMpcSession,
       activation,
     });
+    if (activation.kind === 'target_passkey_creation') {
+      await this.activateLinkedDevicePasskeyEcdsaOwnerV1({
+        session: nextSession,
+        activation,
+      });
+    }
+    if (activation.kind === 'target_email_otp_activation') {
+      if (
+        nextSession.bundle.ecdsaOwnerActivation.kind === 'present' &&
+        nextSession.ecdsaOwnerRestore.kind !== 'ready'
+      ) {
+        throw new Error('linked-device Email OTP activation produced no ECDSA owner material');
+      }
+      if (nextSession.ecdsaOwnerRestore.kind === 'ready') {
+        await this.persistLinkedDeviceEcdsaOwnerRestoreV1({
+          session: nextSession,
+          readyStateBlobB64u: nextSession.ecdsaOwnerRestore.readyStateBlobB64u,
+          publicFacts: nextSession.ecdsaOwnerRestore.publicFacts,
+        });
+      }
+    }
     if (this.linkedDeviceWarmSigningSession) {
       closeLinkedDeviceWarmSigningSessionV1(this.linkedDeviceWarmSigningSession);
     }
@@ -2932,6 +3056,32 @@ export class BrowserSigningSurface {
           ? 'email_otp'
           : 'passkey',
     });
+  }
+
+  async unlockLinkedDeviceEmailOtpSigningSession(input: {
+    readonly walletId: WalletId;
+    readonly challengeId: string;
+    readonly otpCode: string;
+    readonly relayServerUrl?: string;
+  }): Promise<boolean> {
+    const nextSession = await openLinkedDeviceEmailOtpWarmSigningSessionV1({
+      walletId: input.walletId,
+      relayServerUrl:
+        input.relayServerUrl ?? String(this.seamsWebConfigs.network.relayer?.url || ''),
+      challengeId: input.challengeId,
+      otpCode: input.otpCode,
+    });
+    if (!nextSession) return false;
+    if (this.linkedDeviceWarmSigningSession) {
+      closeLinkedDeviceWarmSigningSessionV1(this.linkedDeviceWarmSigningSession);
+    }
+    this.linkedDeviceWarmSigningSession = nextSession;
+    this.setWalletAuthenticated({
+      kind: 'authenticated',
+      walletId: input.walletId,
+      authMethod: 'email_otp',
+    });
+    return true;
   }
 
   async restoreLinkedDeviceSigningSession(walletId: WalletId): Promise<boolean> {
@@ -3257,9 +3407,7 @@ export class BrowserSigningSurface {
         break;
       }
       case WALLET_AUTH_METHODS.emailOtp: {
-        const capability = readUnlockedWalletCustodyTransferCapabilityV1(
-          String(args.job.walletId),
-        );
+        const capability = readUnlockedWalletCustodyTransferCapabilityV1(String(args.job.walletId));
         if (!capability) {
           throw new Error('Wallet-host Email OTP custody capability is unavailable');
         }
@@ -3430,9 +3578,7 @@ export class BrowserSigningSurface {
             'Linked-device owner enrollment could not resolve the wallet relying party',
           );
         }
-        const managedRuntimeScope = await resolveManagedRuntimeScopeBootstrap(
-          this.seamsWebConfigs,
-        );
+        const managedRuntimeScope = await resolveManagedRuntimeScopeBootstrap(this.seamsWebConfigs);
         if (!managedRuntimeScope) {
           throw new Error('Linked-device owner enrollment requires a managed runtime scope');
         }
@@ -3892,7 +4038,7 @@ export class BrowserSigningSurface {
       commitQueue: 'acquire',
       walletSession: {
         walletId: input.walletId,
-        walletSessionUserId: input.auth.providerSubjectId,
+        walletSessionUserId: String(input.walletId),
       },
       providerSubject: input.auth.providerSubjectId,
       emailHashHex: await sha256HexUtf8(user.loginDisplayName.trim().toLowerCase()),
@@ -4469,7 +4615,7 @@ export class BrowserSigningSurface {
       commitQueue: 'already_acquired',
       walletSession: {
         walletId: args.walletId,
-        walletSessionUserId: args.auth.providerSubjectId,
+        walletSessionUserId: String(args.walletId),
       },
       providerSubject: args.auth.providerSubjectId,
       emailHashHex: context.emailHashHex,
@@ -4767,7 +4913,7 @@ export class BrowserSigningSurface {
           commitQueue: 'acquire',
           walletSession: {
             walletId: args.laneIdentity.signer.account.wallet.walletId,
-            walletSessionUserId: args.laneIdentity.auth.providerSubjectId,
+            walletSessionUserId: String(args.laneIdentity.signer.account.wallet.walletId),
           },
           providerSubject: args.laneIdentity.auth.providerSubjectId,
           emailHashHex: result.emailHashHex,
@@ -5435,6 +5581,7 @@ export class BrowserSigningSurface {
 
   async resolveEmailOtpEd25519CustodyProjectionInternal(args: {
     walletSession: WalletSessionRef;
+    providerSubjectId: string;
   }): Promise<WalletCustodyEd25519Projection | null> {
     return await resolveWalletCustodyEd25519ProjectionV1(
       {
@@ -5444,6 +5591,7 @@ export class BrowserSigningSurface {
         listUsers: this.getAllUsers.bind(this),
       },
       args.walletSession,
+      args.providerSubjectId,
     );
   }
 
@@ -5588,6 +5736,7 @@ export class BrowserSigningSurface {
   ): Promise<NearEd25519SignerBinding> {
     const projection = await this.resolveEmailOtpEd25519CustodyProjectionInternal({
       walletSession: args.walletSession,
+      providerSubjectId: args.providerSubjectId,
     });
     if (!projection) {
       throw new Error('Email OTP wallet custody Ed25519 signer projection is unavailable');

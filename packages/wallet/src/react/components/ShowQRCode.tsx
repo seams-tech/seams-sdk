@@ -66,6 +66,18 @@ type ActiveDevice2Flow = {
   cancelled: boolean;
 };
 
+type Device2LinkingRuntime = {
+  readonly startDevice2LinkingFlow: ReturnType<typeof useSeams>['startDevice2LinkingFlow'];
+  readonly cancelDeviceLinking: ReturnType<typeof useSeams>['cancelDeviceLinking'];
+  readonly refreshLoginState: ReturnType<typeof useSeams>['refreshLoginState'];
+  readonly refreshAccountData: ReturnType<typeof useSeams>['refreshAccountData'];
+  readonly setInputUsername: ReturnType<typeof useSeams>['setInputUsername'];
+  readonly accountIdRaw: string;
+  readonly onClose: ShowQRCodeProps['onClose'];
+  readonly onEvent: ShowQRCodeProps['onEvent'];
+  readonly onError: ShowQRCodeProps['onError'];
+};
+
 const DEFAULT_TARGET_FACTOR: LinkedDeviceTargetFactorV1 = { kind: 'passkey_prf' };
 const FACTOR_FIELDSET_STYLE = {
   border: 0,
@@ -93,6 +105,18 @@ function stopPropagation(event: MouseEvent<HTMLDivElement>): void {
   event.stopPropagation();
 }
 
+function emailOtpDigits(code: string): readonly string[] {
+  return code.padEnd(6, ' ').slice(0, 6).split('');
+}
+
+function renderEmailOtpDigit(digit: string, index: number) {
+  return (
+    <span key={index} className={`w3a-otp-slot${digit.trim() ? ' is-filled' : ''}`}>
+      {digit}
+    </span>
+  );
+}
+
 function updateQrEventState(
   state: Device2LinkingState,
   event: LinkDeviceFlowEvent,
@@ -105,9 +129,33 @@ function updateQrEventState(
   };
 }
 
+function warnLinkedDeviceMenuRefresh(error: unknown): void {
+  console.warn('Linked device activated, but the account menu refresh failed', error);
+}
+
+function reconcileActiveLinkedDevice(
+  runtime: Device2LinkingRuntime,
+  event: LinkDeviceFlowEvent,
+  walletId: string,
+): void {
+  runtime.setInputUsername(walletId);
+  runtime.onEvent(event);
+  runtime.onClose();
+  void Promise.all([runtime.refreshLoginState(walletId), runtime.refreshAccountData()]).catch(
+    warnLinkedDeviceMenuRefresh,
+  );
+}
+
 export function ShowQRCode({ isOpen, onClose, onEvent, onError }: ShowQRCodeProps) {
-  const { startDevice2LinkingFlow, cancelDeviceLinking, accountInputState, loginState } =
-    useSeams();
+  const {
+    startDevice2LinkingFlow,
+    cancelDeviceLinking,
+    refreshLoginState,
+    refreshAccountData,
+    setInputUsername,
+    accountInputState,
+    loginState,
+  } = useSeams();
   const [deviceLinkingState, setDeviceLinkingState] = useState<Device2LinkingState>({
     kind: 'select_factor',
     targetFactor: DEFAULT_TARGET_FACTOR,
@@ -116,9 +164,12 @@ export function ShowQRCode({ isOpen, onClose, onEvent, onError }: ShowQRCodeProp
   const flowSessionRef = useRef(0);
   const activeFlowRef = useRef<ActiveDevice2Flow | null>(null);
   const initialEmailSendSessionRef = useRef<number | null>(null);
-  const flowRuntimeRef = useRef({
+  const flowRuntimeRef = useRef<Device2LinkingRuntime>({
     startDevice2LinkingFlow,
     cancelDeviceLinking,
+    refreshLoginState,
+    refreshAccountData,
+    setInputUsername,
     accountIdRaw: '',
     onClose,
     onEvent,
@@ -127,6 +178,9 @@ export function ShowQRCode({ isOpen, onClose, onEvent, onError }: ShowQRCodeProp
   flowRuntimeRef.current = {
     startDevice2LinkingFlow,
     cancelDeviceLinking,
+    refreshLoginState,
+    refreshAccountData,
+    setInputUsername,
     accountIdRaw: String(
       accountInputState?.targetAccountId || loginState?.nearAccountId || '',
     ).trim(),
@@ -190,8 +244,7 @@ export function ShowQRCode({ isOpen, onClose, onEvent, onError }: ShowQRCodeProp
                 flow.cancelled = true;
                 activeFlowRef.current = null;
                 flowSessionRef.current += 1;
-                runtime.onEvent(event);
-                runtime.onClose();
+                reconcileActiveLinkedDevice(runtime, event, String(outcome.walletId));
                 return;
               }
               if (outcome.kind === 'failed' || outcome.kind === 'invalid_active') {
@@ -403,14 +456,15 @@ function FactorSelection({
         <div className="w3a-otp-prompt" role="group" aria-labelledby="w3a-device-link-factor-title">
           <div className="w3a-otp-prompt-copy">
             <h2 id="w3a-device-link-factor-title" className="w3a-otp-title">
-              Choose a security method
+              Match your other device
             </h2>
             <p className="w3a-otp-description">
-              Choose how the linked device will be secured before creating its one-time QR code.
+              Use the same unlock method as Device 1: Passkey for a passkey wallet, or Email code
+              for an Email OTP wallet.
             </p>
           </div>
           <fieldset style={FACTOR_FIELDSET_STYLE}>
-            <legend className="w3a-field-label">Target factor</legend>
+            <legend className="w3a-field-label">Wallet unlock method</legend>
             <label>
               <input
                 type="radio"
@@ -535,6 +589,7 @@ function EmailOtpActivation({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isResending, setIsResending] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [otpCode, setOtpCode] = useState('');
   const state = activation.state;
 
   useEffect(() => {
@@ -542,8 +597,13 @@ function EmailOtpActivation({
     inputRef.current?.focus();
   }, [activation, state.kind]);
 
-  const handleCodeInput = useCallback(() => {
-    inputRef.current?.setCustomValidity('');
+  const handleCodeInput = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    const input = event.currentTarget;
+    const normalizedCode = input.value.replace(/\D/g, '').slice(0, 6);
+    input.value = normalizedCode;
+    input.setCustomValidity('');
+    setOtpCode(normalizedCode);
+    if (normalizedCode.length === 6) input.form?.requestSubmit();
   }, []);
 
   const handleSubmit = useCallback(
@@ -573,6 +633,7 @@ function EmailOtpActivation({
 
   const handleResend = useCallback(() => {
     if (isResending) return;
+    setOtpCode('');
     setIsResending(true);
     void activation
       .resendCode()
@@ -643,13 +704,18 @@ function EmailOtpActivation({
                 autoComplete="one-time-code"
                 pattern="[0-9]{6}"
                 maxLength={6}
+                aria-label="Email verification code"
                 aria-invalid={state.kind === 'incorrect'}
                 aria-describedby={
                   state.kind === 'incorrect' ? 'w3a-device-link-email-error' : undefined
                 }
+                value={otpCode}
                 disabled={state.kind === 'submitting' || isSubmitting}
                 onChange={handleCodeInput}
               />
+              <div className="w3a-otp-slots" aria-hidden="true">
+                {emailOtpDigits(otpCode).map(renderEmailOtpDigit)}
+              </div>
               {state.kind === 'incorrect' && (
                 <p id="w3a-device-link-email-error" className="w3a-otp-error" role="alert">
                   {state.message}
