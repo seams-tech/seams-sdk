@@ -2,10 +2,11 @@
 
 Date created: August 20, 2026
 
-Last reconciled: August 20, 2026 (composable delegated-permission model)
+Last reconciled: August 21, 2026 (additive delegated activation implemented)
 
-Status: planned. This document is the canonical activation model for linked
-devices and future delegated signer holders.
+Status: implemented. This document is the canonical activation model for linked
+devices and future delegated signer holders. The remaining verification gate is
+the automated real two-device Passkey and Email OTP flow.
 
 ## Decision
 
