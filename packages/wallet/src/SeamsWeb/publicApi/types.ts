@@ -16,6 +16,13 @@ import type {
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
+  EcdsaChainSelector,
+  EvmChainSelector,
+  TempoChainSelector,
+} from '@/SeamsWeb/publicApi/chainTargets';
+import type { WalletSessionInput } from '@/SeamsWeb/publicApi/currentWallet';
+export type { WalletSessionInput } from '@/SeamsWeb/publicApi/currentWallet';
+import type {
   EmailOtpChallengeDelivery,
   EmailOtpEnrollmentResult,
   DemoEmailOtpCodeResponse,
@@ -58,6 +65,8 @@ import type {
   UnlockFlowEvent,
   NearProvisioningStateChangedEvent,
 } from '@/core/types/sdkSentEvents';
+import type { AwaitNearReadyResult } from '@/SeamsWeb/publicApi/awaitNearReady';
+export type { AwaitNearReadyResult } from '@/SeamsWeb/publicApi/awaitNearReady';
 import type { EmailOtpProvider } from '@shared/utils/walletAuthAuthority';
 import type {
   ConfirmationBehavior,
@@ -216,10 +225,7 @@ export type {
 
 type PublicThresholdEcdsaSessionKeyRef = Omit<
   ThresholdEcdsaSessionBootstrapResult['thresholdEcdsaKeyRef'],
-  | 'ecdsaThresholdKeyId'
-  | 'signingRootId'
-  | 'signingRootVersion'
-  | 'ecdsaDerivationExportArtifact'
+  'ecdsaThresholdKeyId' | 'signingRootId' | 'signingRootVersion' | 'ecdsaDerivationExportArtifact'
 >;
 
 export type PublicThresholdEcdsaSessionBootstrapResult = Omit<
@@ -230,9 +236,11 @@ export type PublicThresholdEcdsaSessionBootstrapResult = Omit<
 };
 
 export type SignTempoArgs = {
-  walletSession: WalletSessionRef;
+  /** A `WalletSessionRef` or bare wallet id. Omitted, resolves to the authenticated wallet. */
+  walletSession?: WalletSessionInput;
   request: TempoSigningRequest;
-  chainTarget: TempoChainTarget;
+  /** A configured Tempo network slug, or an exact target. */
+  chainTarget: TempoChainSelector;
   options?: {
     confirmationConfig?: Partial<ConfirmationConfig>;
     /** Internal host-only cancellation probe; ignored in wallet-router calls. */
@@ -242,9 +250,11 @@ export type SignTempoArgs = {
 };
 
 export type SignEvmTransactionArgs = {
-  walletSession: WalletSessionRef;
+  /** A `WalletSessionRef` or bare wallet id. Omitted, resolves to the authenticated wallet. */
+  walletSession?: WalletSessionInput;
   request: EvmSigningRequest;
-  chainTarget: EvmEip155ChainTarget;
+  /** A configured EVM network slug, or an exact target. */
+  chainTarget: EvmChainSelector;
   options?: {
     confirmationConfig?: Partial<ConfirmationConfig>;
     /** Internal host-only cancellation probe; ignored in wallet-router calls. */
@@ -437,8 +447,10 @@ export type FinalizedEvmTxPayloadVerification =
     };
 
 type ExecuteEvmFamilyTransactionBaseArgs = {
-  walletSession: WalletSessionRef;
-  chainTarget: ThresholdEcdsaChainTarget;
+  /** A `WalletSessionRef` or bare wallet id. Omitted, resolves to the authenticated wallet. */
+  walletSession?: WalletSessionInput;
+  /** A configured EVM-family network slug, or an exact target. */
+  chainTarget: EcdsaChainSelector;
   postFinalizationCheck?: () => Promise<void>;
   finalization?: {
     timeoutMs?: number;
@@ -453,13 +465,23 @@ type ExecuteEvmFamilyTransactionBaseArgs = {
   };
 };
 
+/**
+ * On the execute path `tx.chainId` is redundant: `chainTarget` already named the
+ * chain, and a value that disagreed with it would be a bug. Omit it and the SDK
+ * fills it from the resolved target. The sign-only paths keep it required,
+ * because there is no target to derive it from there.
+ */
+type WithOptionalChainId<TRequest extends { tx: { chainId: number } }> = Omit<TRequest, 'tx'> & {
+  tx: Omit<TRequest['tx'], 'chainId'> & { chainId?: number };
+};
+
 export type ExecuteEvmFamilyTransactionArgs =
   | (ExecuteEvmFamilyTransactionBaseArgs & {
-      request: EvmSigningRequest;
+      request: WithOptionalChainId<EvmSigningRequest>;
       payloadExpectation?: FinalizedEvmEip1559PayloadExpectation;
     })
   | (ExecuteEvmFamilyTransactionBaseArgs & {
-      request: TempoSigningRequest;
+      request: WithOptionalChainId<TempoSigningRequest>;
       payloadExpectation?: FinalizedTempoEip2718PayloadExpectation;
     });
 
@@ -760,6 +782,21 @@ export interface RegistrationCapability {
   onNearProvisioningStateChanged(
     listener: (event: NearProvisioningStateChangedEvent) => void,
   ): () => void;
+  /**
+   * Waits for a pending NEAR account to become ready.
+   *
+   * A mixed registration returns `ecdsa_wallet_registered_near_pending`, which
+   * carries no NEAR account id — this is how you get one without hand-rolling
+   * the subscribe/read/timeout race. Resolves (never rejects) on `near_ready`,
+   * `near_failed_retryable`, or timeout; rejects only if `signal` aborts.
+   *
+   * @param args.timeoutMs defaults to 120_000
+   */
+  awaitNearReady(args: {
+    walletId: WalletId | string;
+    timeoutMs?: number;
+    signal?: AbortSignal;
+  }): Promise<AwaitNearReadyResult>;
   addWalletSigner(args: {
     walletId: WalletId | string;
     rpId: string;
@@ -778,6 +815,11 @@ export interface RegistrationCapability {
     signerSelection: RegistrationSignerSetSelection;
     options?: RegistrationHooksOptions;
   }): Promise<RegistrationResult>;
+  /**
+   * @deprecated Use `registerWallet` with an `email_otp` `authMethod` — this is
+   * the same function, only narrower. Two names for one operation makes the
+   * registration surface look larger than it is.
+   */
   registerWithEmailOtp(args: {
     authMethod: Extract<RegistrationAuthMethodInput, { kind: 'email_otp' }>;
     wallet: RegisterWalletInput;
@@ -801,6 +843,20 @@ export interface RegistrationCapability {
   }): Promise<EmailOtpEnrollmentResult>;
 }
 
+/**
+ * Names the wallet and NEAR account a call authorizes.
+ *
+ * Both are optional: omitted, they resolve to the currently **authenticated**
+ * wallet and its NEAR account. Pass them explicitly to target an exact subject —
+ * required whenever the application manages more than one wallet at a time.
+ */
+export type NearSubjectInput = {
+  /** A `WalletSessionRef`, or a bare wallet id. */
+  walletSession?: WalletSessionInput;
+  /** A `NearAccountRef`, or a bare NEAR account id. */
+  nearAccount?: NearAccountRef | string;
+};
+
 export interface NearSignerCapability {
   registerNearWallet(args: RegisterNearWalletArgs): Promise<RegistrationResult>;
 
@@ -810,42 +866,42 @@ export interface NearSignerCapability {
     nearPublicKey: string;
   }): Promise<FundImplicitNearAccountForTestingResult>;
 
-  executeAction(args: {
-    walletSession: WalletSessionRef;
-    nearAccount: NearAccountRef;
-    receiverId: string;
-    actionArgs: ActionArgs | ActionArgs[];
-    options: ActionHooksOptions;
-  }): Promise<ActionResult>;
+  executeAction(
+    args: NearSubjectInput & {
+      receiverId: string;
+      actionArgs: ActionArgs | ActionArgs[];
+      options?: ActionHooksOptions;
+    },
+  ): Promise<ActionResult>;
 
-  signAndSendTransaction(args: {
-    walletSession: WalletSessionRef;
-    nearAccount: NearAccountRef;
-    receiverId: string;
-    actions: ActionArgs[];
-    options: SignAndSendTransactionHooksOptions;
-  }): Promise<ActionResult>;
+  signAndSendTransaction(
+    args: NearSubjectInput & {
+      receiverId: string;
+      actions: ActionArgs[];
+      options?: SignAndSendTransactionHooksOptions;
+    },
+  ): Promise<ActionResult>;
 
-  signTransactionWithActions(args: {
-    walletSession: WalletSessionRef;
-    nearAccount: NearAccountRef;
-    transaction: TransactionInput;
-    options: SignTransactionHooksOptions;
-  }): Promise<SignTransactionResult>;
+  signTransactionWithActions(
+    args: NearSubjectInput & {
+      transaction: TransactionInput;
+      options?: SignTransactionHooksOptions;
+    },
+  ): Promise<SignTransactionResult>;
 
-  sendTransaction(args: {
-    walletSession: WalletSessionRef;
-    nearAccount: NearAccountRef;
-    signedTransaction: SignedTransaction;
-    options?: SendTransactionHooksOptions;
-  }): Promise<ActionResult>;
+  sendTransaction(
+    args: NearSubjectInput & {
+      signedTransaction: SignedTransaction;
+      options?: SendTransactionHooksOptions;
+    },
+  ): Promise<ActionResult>;
 
-  signDelegateAction(args: {
-    walletSession: WalletSessionRef;
-    nearAccount: NearAccountRef;
-    delegate: DelegateActionInput;
-    options: DelegateActionHooksOptions;
-  }): Promise<SignDelegateActionResult>;
+  signDelegateAction(
+    args: NearSubjectInput & {
+      delegate: DelegateActionInput;
+      options?: DelegateActionHooksOptions;
+    },
+  ): Promise<SignDelegateActionResult>;
 
   sendDelegateActionViaRelayer(args: {
     relayerUrl: string;
@@ -855,33 +911,64 @@ export interface NearSignerCapability {
     options?: DelegateRelayHooksOptions;
   }): Promise<DelegateRouterApiResult>;
 
-  signAndSendDelegateAction(args: {
-    walletSession: WalletSessionRef;
-    nearAccount: NearAccountRef;
-    delegate: DelegateActionInput;
-    relayerUrl: string;
-    signal?: AbortSignal;
-    options: SignAndSendDelegateActionHooksOptions;
-  }): Promise<SignAndSendDelegateActionResult>;
+  signAndSendDelegateAction(
+    args: NearSubjectInput & {
+      delegate: DelegateActionInput;
+      relayerUrl: string;
+      signal?: AbortSignal;
+      options?: SignAndSendDelegateActionHooksOptions;
+    },
+  ): Promise<SignAndSendDelegateActionResult>;
 
-  signNEP413Message(args: {
-    walletSession: WalletSessionRef;
-    nearAccount: NearAccountRef;
-    params: SignNEP413MessageParams;
-    options: SignNEP413HooksOptions;
-  }): Promise<SignNEP413MessageResult>;
+  signNEP413Message(
+    args: NearSubjectInput & {
+      params: SignNEP413MessageParams;
+      options?: SignNEP413HooksOptions;
+    },
+  ): Promise<SignNEP413MessageResult>;
 }
 
+/**
+ * Tempo-specific operations.
+ *
+ * The generic EVM-family entry points live on `seams.evm` — `seams.evm.execute`
+ * sends on any configured EVM-family chain, Tempo included. What remains here
+ * is what only Tempo has: the fee-token preference.
+ */
 export interface TempoSignerCapability {
-  signTempo(args: SignTempoArgs): Promise<TempoSignedResult>;
   getFeeTokenPreference(args: GetTempoFeeTokenPreferenceArgs): Promise<EvmAddress | null>;
   validateFeeToken(args: ValidateTempoFeeTokenArgs): Promise<TempoFeeTokenValidation>;
   setFeeTokenPreference(
     args: SetTempoFeeTokenPreferenceArgs,
   ): Promise<ExecuteEvmFamilyTransactionResult>;
+
+  /** @deprecated Use `seams.evm.sign`, which signs on any EVM-family chain. */
+  signTempo(args: SignTempoArgs): Promise<TempoSignedResult>;
+  /** @deprecated Use `seams.evm.execute`, which sends on any EVM-family chain. */
   executeEvmFamilyTransaction(
     args: ExecuteEvmFamilyTransactionArgs,
   ): Promise<ExecuteEvmFamilyTransactionResult>;
+  /** @deprecated Use `seams.evm.advanced.reportBroadcastAccepted`. */
+  reportBroadcastAccepted(args: ReportTempoBroadcastAcceptedArgs): Promise<void>;
+  /** @deprecated Use `seams.evm.advanced.reportBroadcastRejected`. */
+  reportBroadcastRejected(args: ReportTempoBroadcastRejectedArgs): Promise<void>;
+  /** @deprecated Use `seams.evm.advanced.reportFinalized`. */
+  reportFinalized(args: ReportTempoFinalizedArgs): Promise<void>;
+  /** @deprecated Use `seams.evm.advanced.reportDroppedOrReplaced`. */
+  reportDroppedOrReplaced(args: ReportTempoDroppedOrReplacedArgs): Promise<void>;
+  /** @deprecated Use `seams.evm.advanced.reconcileNonceLane`. */
+  reconcileNonceLane(args: ReconcileTempoNonceLaneArgs): Promise<TempoNonceLaneStatus>;
+  /** @deprecated Use `seams.evm.advanced.bootstrapEcdsaSession`. */
+  bootstrapEcdsaSession(
+    args: BootstrapThresholdEcdsaSessionArgs,
+  ): Promise<PublicThresholdEcdsaSessionBootstrapResult>;
+}
+
+/**
+ * Post-broadcast lifecycle. `seams.evm.execute` drives all of it; reach for
+ * these only when your application broadcasts the signed payload itself.
+ */
+export interface EvmAdvancedCapability {
   reportBroadcastAccepted(args: ReportTempoBroadcastAcceptedArgs): Promise<void>;
   reportBroadcastRejected(args: ReportTempoBroadcastRejectedArgs): Promise<void>;
   reportFinalized(args: ReportTempoFinalizedArgs): Promise<void>;
@@ -892,15 +979,44 @@ export interface TempoSignerCapability {
   ): Promise<PublicThresholdEcdsaSessionBootstrapResult>;
 }
 
+/**
+ * EVM-family signing, for every configured EVM-family chain — Tempo, Arc,
+ * Ethereum. The chain comes from `chainTarget`, not from the namespace.
+ */
 export interface EvmSignerCapability {
+  /** Sign, broadcast, and await finalization. The usual entry point. */
+  execute(args: ExecuteEvmFamilyTransactionArgs): Promise<ExecuteEvmFamilyTransactionResult>;
+  /** Sign without broadcasting, for applications that submit the payload themselves. */
+  sign(args: SignEvmFamilyArgs): Promise<TempoSignedResult | EvmSignedResult>;
+
+  /** Post-broadcast lifecycle reporting; `execute` already drives it. */
+  readonly advanced: EvmAdvancedCapability;
+
+  /** @deprecated Use `sign`, which accepts any EVM-family chain. */
   signTransaction(args: SignEvmTransactionArgs): Promise<EvmSignedResult>;
 
   registerEvmWallet(args: RegisterEvmWalletArgs): Promise<RegistrationResult>;
 
+  /** @deprecated Use `seams.evm.advanced.bootstrapEcdsaSession`. */
   bootstrapEcdsaSession(
     args: BootstrapThresholdEcdsaSessionArgs,
   ): Promise<PublicThresholdEcdsaSessionBootstrapResult>;
 }
+
+/** Sign-only args for any EVM-family chain. */
+export type SignEvmFamilyArgs = {
+  /** A `WalletSessionRef` or bare wallet id. Omitted, resolves to the authenticated wallet. */
+  walletSession?: WalletSessionInput;
+  /** A configured EVM-family network slug, or an exact target. */
+  chainTarget: EcdsaChainSelector;
+  request: EvmSigningRequest | TempoSigningRequest;
+  options?: {
+    confirmationConfig?: Partial<ConfirmationConfig>;
+    /** Internal host-only cancellation probe; ignored in wallet-router calls. */
+    shouldAbort?: () => boolean;
+    onEvent?: (event: SigningFlowEvent) => void;
+  };
+};
 
 export interface RecoveryCapability {
   syncAccount(args: {
@@ -917,7 +1033,12 @@ export interface RecoveryCapability {
   requestWalletCustodyEmailOtpChallenge(args: {
     walletId: string;
     providerSubjectId: string;
-    operation: 'credentials_list' | 'credential_label' | 'recovery_acknowledge' | 'recovery_rotate' | 'recovery_read';
+    operation:
+      | 'credentials_list'
+      | 'credential_label'
+      | 'recovery_acknowledge'
+      | 'recovery_rotate'
+      | 'recovery_read';
     payload: Record<string, unknown>;
     requestOrigin?: string;
   }): Promise<WalletCustodyEmailOtpChallengeResult>;
@@ -985,15 +1106,61 @@ export interface DevicesCapability {
 
 export type KeyExportUiOptions = SigningEngineExportKeypairWithUIInput['options'];
 
-export type ExportKeypairWithUIInput = SigningEngineExportKeypairWithUIInput;
+/** Every field of the UI options is optional, so the bag itself is too. */
+type WithOptionalOptions<T> = T extends unknown
+  ? Omit<T, 'options'> & { options?: KeyExportUiOptions }
+  : never;
+
+export type ExportKeypairWithUIInput = WithOptionalOptions<SigningEngineExportKeypairWithUIInput>;
 
 export type ResolveExactKeyExportLaneInput = SigningEngineResolveExactKeyExportLaneInput;
 export type ResolveExactKeyExportLaneResult = SigningEngineResolveExactKeyExportLaneResult;
 
+/**
+ * What `exportKeypair` did.
+ *
+ * `relink_required` is a real, reachable state — the wallet has no canonical
+ * owner binding on this device — and is returned rather than thrown so the
+ * caller can route the person to re-link instead of showing a generic error.
+ */
+export type KeyExportOutcome =
+  | { kind: 'exported' }
+  | { kind: 'relink_required'; reason: 'missing_canonical_owner_binding' };
+
+export type ExportKeypairInput =
+  | {
+      kind: 'ed25519';
+      /** A `WalletSessionRef` or bare wallet id. Omitted, resolves to the authenticated wallet. */
+      walletSession?: WalletSessionInput;
+      /** Omitted, resolves to the authenticated wallet's NEAR account. */
+      nearAccount?: NearAccountRef | string;
+      chainTarget?: never;
+      options?: KeyExportUiOptions;
+    }
+  | {
+      kind: 'ecdsa';
+      /** A `WalletSessionRef` or bare wallet id. Omitted, resolves to the authenticated wallet. */
+      walletSession?: WalletSessionInput;
+      /** A configured EVM-family network slug, or an exact target. */
+      chainTarget: EcdsaChainSelector;
+      nearAccount?: never;
+      options?: KeyExportUiOptions;
+    };
+
 export interface KeyExportCapability {
+  /**
+   * Resolve the exact export lane, then open the wallet-origin export viewer.
+   *
+   * One call: the lane resolution feeds straight into the export, and the
+   * `relink_required` lane comes back as a result instead of an exception.
+   */
+  exportKeypair(input: ExportKeypairInput): Promise<KeyExportOutcome>;
+
+  /** Lower-level: resolve the lane without exporting (e.g. to pre-check availability). */
   resolveExactKeyExportLane(
     input: ResolveExactKeyExportLaneInput,
   ): Promise<ResolveExactKeyExportLaneResult>;
+  /** Lower-level: export with a lane you already resolved. */
   exportKeypairWithUI(input: ExportKeypairWithUIInput): Promise<void>;
 }
 

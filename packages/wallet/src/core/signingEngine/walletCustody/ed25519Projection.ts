@@ -14,18 +14,23 @@ function requireNonEmpty(value: string, field: string): string {
   return normalized;
 }
 
+/**
+ * `providerSubject` is the Email OTP provider's subject id (e.g. `google:<sub>`)
+ * and is passed as its own argument. It must never be read off
+ * `walletSession.walletSessionUserId`: that field is a wallet-scoped identity,
+ * and conflating the two caused the Email OTP bootstrap regression recorded in
+ * docs/refactor-36-narrow-lifecycle-types.md.
+ */
 export async function resolveWalletCustodyEd25519ProjectionV1(
   deps: {
     listPublicCapabilityReferences(): Promise<readonly Ed25519YaoPublicCapabilityReferenceV1[]>;
     listUsers(): Promise<readonly ClientUserData[]>;
   },
   walletSession: WalletSessionRef,
+  providerSubjectId: string,
 ): Promise<WalletCustodyEd25519Projection | null> {
   const walletId = String(walletSession.walletId);
-  const providerSubject = requireNonEmpty(
-    String(walletSession.walletSessionUserId),
-    'providerSubject',
-  );
+  const providerSubject = requireNonEmpty(String(providerSubjectId), 'providerSubject');
   const users = (await deps.listUsers()).filter(
     (user) => String(user.walletId) === walletId && user.authMethod === 'email_otp',
   );

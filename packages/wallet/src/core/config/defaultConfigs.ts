@@ -24,13 +24,14 @@ export {
 /// ECDSA Threshold (Cait Sith) configs
 //////////////////////////////////////////
 
-export const DEFAULT_ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_POLICY: RouterAbEcdsaDerivationPresignaturePoolPolicy = {
-  enabled: true,
-  targetDepth: 3,
-  lowWatermark: 1,
-  maxRefillInFlight: 1,
-  refillAttemptTimeoutMs: 30_000,
-};
+export const DEFAULT_ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_POLICY: RouterAbEcdsaDerivationPresignaturePoolPolicy =
+  {
+    enabled: true,
+    targetDepth: 3,
+    lowWatermark: 1,
+    maxRefillInFlight: 1,
+    refillAttemptTimeoutMs: 30_000,
+  };
 
 export const DEFAULT_THRESHOLD_ECDSA_PROVISIONING_DEFAULTS: EcdsaSignerProvisioningDefaults = {
   tempo: {
@@ -100,7 +101,14 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: SeamsConfigsReadonly = {
   network: {
     chains: DEFAULT_CHAIN_CONFIGS,
     relayer: {
-      accountId: 'w3a-relayer.testnet',
+      // No default relayer account. It is the NEAR parent under which the Router
+      // API creates named subaccounts (`alice` -> `alice.<relayerAccount>`) and
+      // the postfix the account-name input displays — not a delegated-signing
+      // credential. A non-empty default is worse than none: `useAccountInput`
+      // skips its `/healthz` discovery when one is configured, so a wrong
+      // default silently wins over the relayer's own answer. Empty means
+      // "discover it", and the named-subaccount path throws if it cannot.
+      accountId: '',
       // No default relayer URL. Force apps to configure via env/overrides.
       // Using an empty string triggers early validation errors in code paths that require it.
       url: '',
@@ -181,7 +189,8 @@ export function buildConfigsFromEnv(
   return buildConfigsFromDefaults({
     defaults: PASSKEY_MANAGER_DEFAULT_CONFIGS,
     overrides,
-    fallbackRouterAbEcdsaDerivationPresignaturePoolPolicy: DEFAULT_ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_POLICY,
+    fallbackRouterAbEcdsaDerivationPresignaturePoolPolicy:
+      DEFAULT_ROUTER_AB_ECDSA_DERIVATION_PRESIGNATURE_POOL_POLICY,
     options,
   });
 }

@@ -2460,7 +2460,7 @@ async function commitDeferredEd25519Registration(args: {
       await args.context.signingEngine.activateEmailOtpEd25519RegistrationMaterialInternal({
         walletSession: {
           walletId: args.walletId,
-          walletSessionUserId: emailOtpAuthContextProviderUserId(auth.emailOtpAuthContext),
+          walletSessionUserId: String(args.walletId),
         },
         providerSubject: emailOtpAuthContextProviderUserId(auth.emailOtpAuthContext),
         emailHashHex: emailOtpAuthContextEmailHashHex(auth.emailOtpAuthContext),
@@ -2957,10 +2957,7 @@ async function registerEcdsaOrMixedWallet(
         expiresAtMs: registrationSession.expiresAtMs,
       });
     } else {
-      if (
-        persistenceAuth.kind !== 'email_otp' ||
-        !emailOtpCustodyCapabilityFactorSecret32
-      ) {
+      if (persistenceAuth.kind !== 'email_otp' || !emailOtpCustodyCapabilityFactorSecret32) {
         throw new Error('Email OTP registration has no custody capability material');
       }
       const registrationSession = persistencePlan.ecdsa.session.registrationEstablishedSession;

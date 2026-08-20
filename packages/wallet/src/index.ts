@@ -30,6 +30,38 @@ export type {
 } from './SeamsWeb/walletIframe/shared/exactSessionState';
 
 export * from './config';
+export {
+  defineSeamsConfig,
+  seamsTestnetConfig,
+  type DefineSeamsConfigInput,
+  type SeamsRequiredConfigInput,
+} from './core/config/defineConfig';
+
+// === Boundary references (exact subject + target for every wallet operation) ===
+export {
+  configuredThresholdEcdsaChainTargets,
+  nearAccountRefFromAccountId,
+  thresholdEcdsaChainTargetFromChainFamily,
+  thresholdEcdsaChainTargetFromConfig,
+  thresholdEcdsaChainTargetFromConfiguredRequest,
+  thresholdEcdsaChainTargetFromRequest,
+  thresholdEcdsaChainTargetKey,
+  thresholdEcdsaChainTargetsEqual,
+  toWalletId,
+  walletIdFromWalletProfile,
+  walletSessionRefFromSession,
+} from './boundary/walletRefs';
+export type {
+  EcdsaCommandSubject,
+  EvmEip155ChainTarget,
+  NearAccountRef,
+  NearCommandSubject,
+  TempoChainTarget,
+  ThresholdEcdsaChainTarget,
+  WalletId,
+  WalletSessionRef,
+} from './boundary/walletRefs';
+
 export { PASSKEY_MANAGER_DEFAULT_CONFIGS } from './core/config/defaultConfigs';
 export { buildConfigsFromEnv } from './core/config/defaultConfigs';
 export type {
@@ -78,6 +110,31 @@ export type {
   RegistrationTimingSpanV1,
   NearProvisioningStateChangedEvent,
 } from './core/types/sdkSentEvents';
+
+// === Email OTP wallet auth flow ===
+// The flow is a plain `seams.auth.*` client call with nothing React-specific
+// about it, so its types belong on the main entry too.
+export type {
+  GoogleEmailOtpWalletAuthDelivery,
+  GoogleEmailOtpWalletAuthEcdsaTargets,
+  GoogleEmailOtpWalletAuthFailure,
+  GoogleEmailOtpWalletAuthFailureCode,
+  GoogleEmailOtpWalletAuthFlow,
+  GoogleEmailOtpWalletAuthLoginFlow,
+  GoogleEmailOtpWalletAuthPromptCopy,
+  GoogleEmailOtpWalletAuthRegistrationCompleted,
+  GoogleEmailOtpWalletAuthRegistrationFlow,
+  GoogleEmailOtpWalletAuthRequestedMode,
+  GoogleEmailOtpWalletAuthResolvedMode,
+  GoogleEmailOtpWalletAuthResult,
+  GoogleEmailOtpWalletAuthStartInput,
+  GoogleEmailOtpWalletAuthSubmitSuccess,
+} from './SeamsWeb';
+// Re-exported through `./SeamsWeb`: the root entry must not name
+// `./core/signingEngine/*` directly (stable/experimental export boundary).
+export type { DemoEmailOtpCodeResponse } from './SeamsWeb';
+export type { EmailOtpAuthPolicy } from './core/types/seams';
+export type { NearClient, AccessKeyList } from './core/rpcClients/near/NearClient';
 
 export { DEFAULT_WAIT_STATUS } from './core/types/rpc';
 
@@ -160,6 +217,21 @@ export type {
   DeleteKeyAction,
   DeleteAccountAction,
 } from './core/types/actions';
+
+// === Action builders ===
+export {
+  addKey,
+  createAccount,
+  deleteAccount,
+  deleteKey,
+  deployContract,
+  functionCall,
+  stake,
+  transfer,
+} from './core/types/actionBuilders';
+
+// === Event logging ===
+export { logWalletEvents } from './core/types/eventLogging';
 
 // === ERROR TYPES ===
 export type { PasskeyErrorDetails } from './core/types/errors';
