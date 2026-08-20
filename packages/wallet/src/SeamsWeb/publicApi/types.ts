@@ -475,15 +475,33 @@ type WithOptionalChainId<TRequest extends { tx: { chainId: number } }> = Omit<TR
   tx: Omit<TRequest['tx'], 'chainId'> & { chainId?: number };
 };
 
+/** Execute an EIP-1559 transaction on a configured EVM chain. */
+export type ExecuteEvmTransactionArgs = Omit<ExecuteEvmFamilyTransactionBaseArgs, 'chainTarget'> & {
+  /** A configured EVM network slug, or an exact target. */
+  chainTarget: EvmChainSelector;
+  request: WithOptionalChainId<EvmSigningRequest>;
+  payloadExpectation?: FinalizedEvmEip1559PayloadExpectation;
+};
+
+/** Execute an EIP-2718 typed transaction on a configured Tempo chain. */
+export type ExecuteTempoTransactionArgs = Omit<
+  ExecuteEvmFamilyTransactionBaseArgs,
+  'chainTarget'
+> & {
+  /** A configured Tempo network slug, or an exact target. */
+  chainTarget: TempoChainSelector;
+  request: WithOptionalChainId<TempoSigningRequest>;
+  payloadExpectation?: FinalizedTempoEip2718PayloadExpectation;
+};
+
+/**
+ * The shared execute shape. Prefer the family-specific
+ * `seams.evm.executeTransaction` / `seams.tempo.executeTransaction`, which keep
+ * the request, the chain, and the payload expectation matched to one family.
+ */
 export type ExecuteEvmFamilyTransactionArgs =
-  | (ExecuteEvmFamilyTransactionBaseArgs & {
-      request: WithOptionalChainId<EvmSigningRequest>;
-      payloadExpectation?: FinalizedEvmEip1559PayloadExpectation;
-    })
-  | (ExecuteEvmFamilyTransactionBaseArgs & {
-      request: WithOptionalChainId<TempoSigningRequest>;
-      payloadExpectation?: FinalizedTempoEip2718PayloadExpectation;
-    });
+  | ExecuteEvmTransactionArgs
+  | ExecuteTempoTransactionArgs;
 
 export type ExecuteEvmFamilyTransactionResult = {
   txHash: `0x${string}`;
@@ -935,65 +953,80 @@ export interface NearSignerCapability {
  * sends on any configured EVM-family chain, Tempo included. What remains here
  * is what only Tempo has: the fee-token preference.
  */
+/**
+ * Post-broadcast lifecycle. `executeTransaction` drives all of it; reach for
+ * these only when your application broadcasts the signed payload itself.
+ */
+export interface EvmFamilyAdvancedCapability {
+  reportBroadcastAccepted(args: ReportTempoBroadcastAcceptedArgs): Promise<void>;
+  reportBroadcastRejected(args: ReportTempoBroadcastRejectedArgs): Promise<void>;
+  reportFinalized(args: ReportTempoFinalizedArgs): Promise<void>;
+  reportDroppedOrReplaced(args: ReportTempoDroppedOrReplacedArgs): Promise<void>;
+  reconcileNonceLane(args: ReconcileTempoNonceLaneArgs): Promise<TempoNonceLaneStatus>;
+  bootstrapEcdsaSession(
+    args: BootstrapThresholdEcdsaSessionArgs,
+  ): Promise<PublicThresholdEcdsaSessionBootstrapResult>;
+}
+
+/**
+ * Tempo signing — EIP-2718 typed transactions.
+ *
+ * Deliberately separate from `seams.evm`: a Tempo transaction is a different
+ * envelope with a different signed result (`senderHashHex`, not `txHashHex`) and
+ * its own fee-token model. The two namespaces mirror each other's method names
+ * so the shape is familiar, without unioning two chain families into one call.
+ */
 export interface TempoSignerCapability {
+  /** Sign an EIP-2718 typed transaction without broadcasting. */
+  signTransaction(args: SignTempoArgs): Promise<TempoSignedResult>;
+  /** Sign, broadcast, and await finalization. The usual entry point. */
+  executeTransaction(args: ExecuteTempoTransactionArgs): Promise<ExecuteEvmFamilyTransactionResult>;
+  /** Post-broadcast lifecycle reporting; `executeTransaction` already drives it. */
+  readonly advanced: EvmFamilyAdvancedCapability;
+
+  /** Tempo pays fees in a configurable token; this is that preference. */
   getFeeTokenPreference(args: GetTempoFeeTokenPreferenceArgs): Promise<EvmAddress | null>;
   validateFeeToken(args: ValidateTempoFeeTokenArgs): Promise<TempoFeeTokenValidation>;
   setFeeTokenPreference(
     args: SetTempoFeeTokenPreferenceArgs,
   ): Promise<ExecuteEvmFamilyTransactionResult>;
 
-  /** @deprecated Use `seams.evm.sign`, which signs on any EVM-family chain. */
+  /** @deprecated Renamed to `signTransaction`, to mirror `seams.evm`. */
   signTempo(args: SignTempoArgs): Promise<TempoSignedResult>;
-  /** @deprecated Use `seams.evm.execute`, which sends on any EVM-family chain. */
+  /** @deprecated Renamed to `executeTransaction`, to mirror `seams.evm`. */
   executeEvmFamilyTransaction(
     args: ExecuteEvmFamilyTransactionArgs,
   ): Promise<ExecuteEvmFamilyTransactionResult>;
-  /** @deprecated Use `seams.evm.advanced.reportBroadcastAccepted`. */
+  /** @deprecated Use `seams.tempo.advanced.reportBroadcastAccepted`. */
   reportBroadcastAccepted(args: ReportTempoBroadcastAcceptedArgs): Promise<void>;
-  /** @deprecated Use `seams.evm.advanced.reportBroadcastRejected`. */
+  /** @deprecated Use `seams.tempo.advanced.reportBroadcastRejected`. */
   reportBroadcastRejected(args: ReportTempoBroadcastRejectedArgs): Promise<void>;
-  /** @deprecated Use `seams.evm.advanced.reportFinalized`. */
+  /** @deprecated Use `seams.tempo.advanced.reportFinalized`. */
   reportFinalized(args: ReportTempoFinalizedArgs): Promise<void>;
-  /** @deprecated Use `seams.evm.advanced.reportDroppedOrReplaced`. */
+  /** @deprecated Use `seams.tempo.advanced.reportDroppedOrReplaced`. */
   reportDroppedOrReplaced(args: ReportTempoDroppedOrReplacedArgs): Promise<void>;
-  /** @deprecated Use `seams.evm.advanced.reconcileNonceLane`. */
+  /** @deprecated Use `seams.tempo.advanced.reconcileNonceLane`. */
   reconcileNonceLane(args: ReconcileTempoNonceLaneArgs): Promise<TempoNonceLaneStatus>;
-  /** @deprecated Use `seams.evm.advanced.bootstrapEcdsaSession`. */
+  /** @deprecated Use `seams.tempo.advanced.bootstrapEcdsaSession`. */
   bootstrapEcdsaSession(
     args: BootstrapThresholdEcdsaSessionArgs,
   ): Promise<PublicThresholdEcdsaSessionBootstrapResult>;
 }
 
 /**
- * Post-broadcast lifecycle. `seams.evm.execute` drives all of it; reach for
- * these only when your application broadcasts the signed payload itself.
- */
-export interface EvmAdvancedCapability {
-  reportBroadcastAccepted(args: ReportTempoBroadcastAcceptedArgs): Promise<void>;
-  reportBroadcastRejected(args: ReportTempoBroadcastRejectedArgs): Promise<void>;
-  reportFinalized(args: ReportTempoFinalizedArgs): Promise<void>;
-  reportDroppedOrReplaced(args: ReportTempoDroppedOrReplacedArgs): Promise<void>;
-  reconcileNonceLane(args: ReconcileTempoNonceLaneArgs): Promise<TempoNonceLaneStatus>;
-  bootstrapEcdsaSession(
-    args: BootstrapThresholdEcdsaSessionArgs,
-  ): Promise<PublicThresholdEcdsaSessionBootstrapResult>;
-}
-
-/**
- * EVM-family signing, for every configured EVM-family chain — Tempo, Arc,
- * Ethereum. The chain comes from `chainTarget`, not from the namespace.
+ * EVM signing — EIP-1559 transactions on a configured EVM chain.
+ *
+ * Mirrors `seams.tempo` method for method. The two stay separate because the
+ * envelopes and the signed results differ: this one yields `txHashHex`, Tempo's
+ * yields `senderHashHex`.
  */
 export interface EvmSignerCapability {
-  /** Sign, broadcast, and await finalization. The usual entry point. */
-  execute(args: ExecuteEvmFamilyTransactionArgs): Promise<ExecuteEvmFamilyTransactionResult>;
-  /** Sign without broadcasting, for applications that submit the payload themselves. */
-  sign(args: SignEvmFamilyArgs): Promise<TempoSignedResult | EvmSignedResult>;
-
-  /** Post-broadcast lifecycle reporting; `execute` already drives it. */
-  readonly advanced: EvmAdvancedCapability;
-
-  /** @deprecated Use `sign`, which accepts any EVM-family chain. */
+  /** Sign an EIP-1559 transaction without broadcasting. */
   signTransaction(args: SignEvmTransactionArgs): Promise<EvmSignedResult>;
+  /** Sign, broadcast, and await finalization. The usual entry point. */
+  executeTransaction(args: ExecuteEvmTransactionArgs): Promise<ExecuteEvmFamilyTransactionResult>;
+  /** Post-broadcast lifecycle reporting; `executeTransaction` already drives it. */
+  readonly advanced: EvmFamilyAdvancedCapability;
 
   registerEvmWallet(args: RegisterEvmWalletArgs): Promise<RegistrationResult>;
 
@@ -1002,21 +1035,6 @@ export interface EvmSignerCapability {
     args: BootstrapThresholdEcdsaSessionArgs,
   ): Promise<PublicThresholdEcdsaSessionBootstrapResult>;
 }
-
-/** Sign-only args for any EVM-family chain. */
-export type SignEvmFamilyArgs = {
-  /** A `WalletSessionRef` or bare wallet id. Omitted, resolves to the authenticated wallet. */
-  walletSession?: WalletSessionInput;
-  /** A configured EVM-family network slug, or an exact target. */
-  chainTarget: EcdsaChainSelector;
-  request: EvmSigningRequest | TempoSigningRequest;
-  options?: {
-    confirmationConfig?: Partial<ConfirmationConfig>;
-    /** Internal host-only cancellation probe; ignored in wallet-router calls. */
-    shouldAbort?: () => boolean;
-    onEvent?: (event: SigningFlowEvent) => void;
-  };
-};
 
 export interface RecoveryCapability {
   syncAccount(args: {
