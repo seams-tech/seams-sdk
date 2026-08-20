@@ -122,6 +122,7 @@ import type {
 } from '@/core/signingEngine/flows/signEvmFamily/emailOtpPublic';
 import {
   thresholdEcdsaChainTargetsEqual,
+  configuredThresholdEcdsaChainTargets,
   nearAccountRefFromAccountId,
   toWalletId,
   thresholdEcdsaChainTargetFromRequest,
@@ -131,6 +132,11 @@ import {
   type WalletId,
   type WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  resolveConfiguredChainTarget,
+  type EcdsaChainSelector,
+} from '@/SeamsWeb/publicApi/chainTargets';
+import type { SigningEngineExportKeypairWithUIInput } from '@/core/signingEngine/flows/recovery/public';
 import type { TempoChainTarget } from '@/core/platform/types';
 import type { LinkedDeviceWalletSessionDeliveryV1 } from '@shared/device-linking';
 import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
@@ -535,7 +541,9 @@ function requireConcreteEcdsaChainTarget(
   return thresholdEcdsaChainTargetFromRequest(value);
 }
 
-type ExportKeypairWithUIBoundaryInput = Parameters<KeyExportCapability['exportKeypairWithUI']>[0];
+// The public `options` bag is optional; it is normalized before it reaches the
+// boundary, so everything below always sees a resolved one.
+type ExportKeypairWithUIBoundaryInput = SigningEngineExportKeypairWithUIInput;
 type ResolveExactKeyExportLaneBoundaryInput = Parameters<
   KeyExportCapability['resolveExactKeyExportLane']
 >[0];
@@ -1036,6 +1044,25 @@ export class SeamsWeb {
         mode: next,
       },
     });
+  }
+
+  /**
+   * Resolve one configured ECDSA chain target by network slug, chain id, or
+   * family — the value every EVM-family signing and export call takes.
+   *
+   * Throws when the selector matches no configured chain, or more than one.
+   * Every configured chain is named in the error, so an ambiguous selector is
+   * a clear failure rather than a silent first-match pick.
+   *
+   * @example seams.chainTarget('tempo-testnet')
+   */
+  chainTarget(selector: EcdsaChainSelector): ThresholdEcdsaChainTarget {
+    return resolveConfiguredChainTarget(this.configs.network.chains, selector);
+  }
+
+  /** Every ECDSA chain target this client is configured for. */
+  configuredChainTargets(): readonly ThresholdEcdsaChainTarget[] {
+    return configuredThresholdEcdsaChainTargets(this.configs.network.chains);
   }
 
   /**
@@ -1797,6 +1824,8 @@ export class SeamsWeb {
         loginWithEmailOtpEcdsaCapability: this.loginWithEmailOtpEcdsaCapabilityDomain.bind(this),
         loginWithEmailOtpEd25519YaoCapability:
           this.loginWithEmailOtpEd25519YaoCapabilityDomain.bind(this),
+        loginWithLinkedDeviceEmailOtp:
+          this.loginWithLinkedDeviceEmailOtpDomain.bind(this),
         getWalletSession: this.getGoogleEmailOtpWalletSessionDomain.bind(this),
       },
       args,
@@ -1824,6 +1853,17 @@ export class SeamsWeb {
     walletId: string,
   ): ReturnType<GoogleEmailOtpWalletAuthDeps['getWalletSession']> {
     return await getWalletSessionDomain(this.getWalletAuthDeps(), walletId);
+  }
+
+  private async loginWithLinkedDeviceEmailOtpDomain(
+    args: Parameters<GoogleEmailOtpWalletAuthDeps['loginWithLinkedDeviceEmailOtp']>[0],
+  ): ReturnType<GoogleEmailOtpWalletAuthDeps['loginWithLinkedDeviceEmailOtp']> {
+    return await this.signingEngine.unlockLinkedDeviceEmailOtpSigningSession({
+      walletId: toWalletId(args.walletId),
+      challengeId: args.challengeId,
+      otpCode: args.otpCode,
+      ...(args.relayUrl ? { relayServerUrl: args.relayUrl } : {}),
+    });
   }
 
   private async acknowledgeWalletRecoveryCodeBackupDomain(args: { walletId: string }) {
@@ -2121,6 +2161,7 @@ export class SeamsWeb {
       const ed25519CustodyProjection =
         await this.signingEngine.resolveEmailOtpEd25519CustodyProjectionInternal({
           walletSession: args.walletSession,
+          providerSubjectId: args.providerIdentity.providerSubjectId,
         });
       const result = await this.signingEngine.loginWithEmailOtpEcdsaCapabilityInternal({
         ...args,
@@ -2485,7 +2526,7 @@ export class SeamsWeb {
   }
 
   private async exportKeypairWithUIDomain(
-    input: Parameters<KeyExportCapability['exportKeypairWithUI']>[0],
+    input: SigningEngineExportKeypairWithUIInput,
   ): Promise<void> {
     const resolvedInput = normalizeExportKeypairWithUIInput(input, this.theme);
     const routerAccountId = String(resolvedInput.walletSession.walletId || '').trim();

@@ -178,6 +178,22 @@ test('an email approval is refused when the wallet has no active base factor and
   });
   expect(matching).toEqual({ ok: true });
 
+  const maskedIdentity = await admitLinkedOwnerEnrollmentProvenanceV1({
+    approval: fixture.approval,
+    ceremonies,
+    emailOtpBaseFactors: {
+      readActiveEmailOtpBaseFactorV1: async () => ({
+        baseWalletAuthMethodId: ceremony.baseWalletAuthMethodId,
+        maskedEmailHint: 'd***e@e***e.test',
+      }),
+    },
+    requestedAtMs: 3_000,
+  });
+  expect(maskedIdentity).toEqual({
+    ok: false,
+    reason: 'email_otp_masked_hint_does_not_match',
+  });
+
   const substituted = await admitLinkedOwnerEnrollmentProvenanceV1({
     approval: fixture.approval,
     ceremonies,
@@ -279,6 +295,12 @@ async function grantScenario(): Promise<GrantScenario> {
       deviceId: approval.deviceId,
       targetPreparationDigestB64u,
       baseWalletAuthMethodId,
+      // The same email identity the base and linked-owner ids above were
+      // derived from: a wire grant carrying any other pair rebuilds a
+      // different binding than the one it names.
+      emailHashHex: EMAIL_HASH_HEX,
+      registrationAuthorityId: 'google',
+      providerUserId: 'google-subject:r103p6',
       linkedOwnerAuthMethodId,
       authorityDigestB64u,
       issuedAtMs: grantRecord.issuedAtMs,

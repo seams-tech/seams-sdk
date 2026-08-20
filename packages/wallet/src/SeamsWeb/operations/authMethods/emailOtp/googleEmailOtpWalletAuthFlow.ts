@@ -59,6 +59,8 @@ type GoogleLoginEmailOtpEcdsaCapabilityArgs = EmailOtpEcdsaCapabilityArgs & {
 
 type GoogleLoginEmailOtpEd25519YaoCapabilityArgs = {
   walletSession: ReturnType<typeof walletSessionRefFromSession>;
+  /** Email OTP provider subject id, passed alongside the wallet-scoped session ref. */
+  providerSubjectId: string;
   challengeId: string;
   otpCode: string;
   remainingUses: number;
@@ -104,6 +106,12 @@ export type GoogleEmailOtpWalletAuthDeps = {
   loginWithEmailOtpEd25519YaoCapability(
     args: GoogleLoginEmailOtpEd25519YaoCapabilityArgs,
   ): Promise<void>;
+  loginWithLinkedDeviceEmailOtp(args: {
+    walletId: string;
+    challengeId: string;
+    otpCode: string;
+    relayUrl?: string;
+  }): Promise<boolean>;
   getWalletSession(walletId: string): Promise<WalletSession>;
 };
 
@@ -447,14 +455,22 @@ async function loginWithConfiguredTargets(args: {
   otpCode: string;
   targets: readonly ThresholdEcdsaChainTarget[];
 }): Promise<void> {
-  const walletSession = walletSessionRefFromSession({
-    walletId: args.state.walletId,
-    userId: args.state.providerSubject,
+  const linkedDeviceHandled = await args.deps.loginWithLinkedDeviceEmailOtp({
+    walletId: String(args.state.walletId),
+    challengeId: args.challenge.challengeId,
+    otpCode: args.otpCode,
+    ...(args.input.relayUrl ? { relayUrl: args.input.relayUrl } : {}),
   });
+  if (linkedDeviceHandled) return;
+
+  // The session ref stays wallet-scoped; the Google provider subject travels in
+  // its own field on both the Ed25519 and the ECDSA call.
+  const walletSession = walletSessionRefFromSession({ walletId: args.state.walletId });
   const [primaryTarget] = args.targets;
   if (!primaryTarget) {
     await args.deps.loginWithEmailOtpEd25519YaoCapability({
       walletSession,
+      providerSubjectId: args.state.providerSubject,
       challengeId: args.challenge.challengeId,
       otpCode: args.otpCode,
       remainingUses: resolveGoogleEmailOtpEd25519RemainingUses(args.deps.configs),
