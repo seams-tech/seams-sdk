@@ -11,19 +11,15 @@ import type { DigestB64u } from '@shared/utils/canonicalPrimitives';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { sha256Bytes } from '@shared/utils/digests';
 import {
-  buildLinkedDeviceSessionClaimV1,
   parseLinkedDeviceWalletSessionDeliveryV1,
 } from '@shared/device-linking/parsers';
-import {
-  computeLinkedDeviceApprovalDigestV1,
-  computeLinkedDeviceSessionClaimDigestV1,
-} from '@shared/device-linking/digests';
 import {
   ROUTER_AB_ECDSA_DERIVATION_WALLET_SESSION_JWT_KIND,
   ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
   decodeJwtPayloadRecord,
 } from '@shared/utils/sessionTokens';
 import { buildPasskeyWalletAuthAuthority } from '@shared/utils/walletAuthAuthority';
+import { buildSigningOnlyDelegatedWalletAuthorityV1 } from '@shared/authorization/delegatedAuthority';
 import { unknownWebAuthnAuthenticatorDeviceInfo } from '@shared/utils/webauthnDeviceInfo';
 import {
   buildR103DeviceLinkFixture,
@@ -36,7 +32,6 @@ import {
   LinkedDeviceSessionServiceV1,
   type LinkedDeviceAggregateActivationVerifierV1,
   type LinkedDeviceOwnerAuthorizationPortV1,
-  parseLinkedDeviceSessionRecordV1,
 } from '../../packages/wallet-server/src/core/deviceLinking/linkedDeviceSession';
 import {
   D1LinkedDeviceSessionStoreV1,
@@ -591,233 +586,6 @@ test('delivers one authenticated linked Wallet Session JWT for each approved key
   expect(await unavailable.json()).toMatchObject({ code: 'authorization_unavailable' });
 });
 
-test('operator recovery is a separate authority and stays fail-closed without it', async () => {
-  const fixture = buildR103DeviceLinkFixture();
-  const active = await buildR103ActiveLinkedDeviceSessionRecordV1(fixture);
-  const recoveryDevicePublicKey = new Uint8Array(32).fill(9);
-  const recoveryRequest = {
-    kind: 'linked_device_session_operator_recovery_request_v1' as const,
-    linkSessionId: fixture.payload.linkSessionId,
-    enrollmentId: fixture.approval.enrollmentId,
-    deviceId: fixture.approval.deviceId,
-    devicePublicKeyB64u: base64UrlEncode(recoveryDevicePublicKey),
-    devicePublicKeyDigestB64u: base64UrlEncode(await sha256Bytes(recoveryDevicePublicKey)),
-    reason: 'original_link_session_lost' as const,
-    requestedAtMs: 4_000,
-  };
-  const pathname = `/wallet/device-linking/v1/sessions/${fixture.payload.linkSessionId}/operator-recovery`;
-  const unavailable = await invoke(routeServiceFor(sessionServiceForRecord(active), 4_000), {
-    method: 'POST',
-    pathname,
-    body: recoveryRequest,
-  });
-  expect(unavailable.status).toBe(501);
-  expect(await unavailable.json()).toMatchObject({ code: 'not_supported' });
-
-  let operatorAuthCalls = 0;
-  const configured = await invoke(
-    routeServiceFor(sessionServiceForRecord(active), 4_000, {
-      operatorRecovery: {
-        authenticateOperatorRecoveryRequestV1: async ({
-          request,
-          method,
-          pathname: requestPath,
-          bodyDigestB64u,
-        }) => {
-          operatorAuthCalls += 1;
-          return {
-            kind: 'authorized' as const,
-            body: await request.json(),
-            owner: ownerRequestContext(),
-            binding: {
-              kind: 'linked_device_operator_request_binding_v1' as const,
-              method: method as 'POST',
-              pathname: requestPath,
-              bodyDigestB64u,
-              expiresAtMs: 5_000,
-            },
-          };
-        },
-      },
-    }),
-    { method: 'POST', pathname, body: recoveryRequest },
-  );
-  expect(configured.status).toBe(409);
-  expect(await configured.json()).toMatchObject({
-    outcome: 'invalid_state',
-    state: 'active',
-  });
-  expect(operatorAuthCalls).toBe(1);
-});
-
-test('operator recovery binds a fresh proof key before retrying committed delivery', async () => {
-  const fixture = buildR103DeviceLinkFixture();
-  const claim = buildLinkedDeviceSessionClaimV1({
-    linkSessionId: fixture.payload.linkSessionId,
-    walletId: fixture.approval.walletId,
-    enrollmentId: fixture.approval.enrollmentId,
-    deviceId: fixture.approval.deviceId,
-    devicePublicKeyB64u: fixture.payload.devicePublicKeyB64u,
-    targetFactor: fixture.payload.targetFactor,
-    claimedAtMs: 1_500,
-    claimExpiresAtMs: 9_000,
-  });
-  let persisted = parseLinkedDeviceSessionRecordV1({
-    version: 'linked_device_session_v1',
-    linkSessionId: fixture.payload.linkSessionId,
-    qrPayload: fixture.payload,
-    state: {
-      state: 'committed_completion_required',
-      linkSessionId: fixture.payload.linkSessionId,
-      walletId: fixture.approval.walletId,
-      enrollmentId: fixture.approval.enrollmentId,
-      keyManifestDigestB64u: fixture.receipt.manifestDigestB64u,
-      transcriptSetDigestB64u: fixture.approval.policyDigestB64u,
-    },
-    revision: 3,
-    claimTranscript: {
-      digestB64u: await computeLinkedDeviceSessionClaimDigestV1(claim),
-      value: claim,
-    },
-    approvalTranscript: {
-      digestB64u: await computeLinkedDeviceApprovalDigestV1(fixture.approval),
-      value: fixture.approval,
-      sourceKeyManifestDigestB64u: fixture.receipt.manifestDigestB64u,
-    },
-    createdAtMs: 1_000,
-    updatedAtMs: 4_000,
-  });
-  let bindCalls = 0;
-  let retriedSession: typeof persisted | undefined;
-  const baseSessionService = sessionServiceForRecord(persisted);
-  const sessionService: DeviceLinkingRouteServiceV1['sessionService'] = {
-    ...baseSessionService,
-    getSessionV1: async () => persisted,
-    bindRecoveryContinuationV1: async ({ continuation }) => {
-      bindCalls += 1;
-      if (persisted.recovery.kind === 'bound') return { outcome: 'replayed', record: persisted };
-      persisted = parseLinkedDeviceSessionRecordV1({
-        ...persisted,
-        recovery: { kind: 'bound', continuation },
-        revision: persisted.revision + 1,
-        updatedAtMs: 5_000,
-      });
-      return { outcome: 'applied', record: persisted };
-    },
-  };
-  const recoveryDevicePublicKey = new Uint8Array(32).fill(9);
-  const recoveryRequest = {
-    kind: 'linked_device_session_operator_recovery_request_v1' as const,
-    linkSessionId: fixture.payload.linkSessionId,
-    enrollmentId: fixture.approval.enrollmentId,
-    deviceId: fixture.approval.deviceId,
-    devicePublicKeyB64u: base64UrlEncode(recoveryDevicePublicKey),
-    devicePublicKeyDigestB64u: base64UrlEncode(await sha256Bytes(recoveryDevicePublicKey)),
-    reason: 'original_link_session_lost' as const,
-    requestedAtMs: 4_500,
-  };
-  const pathname = `/wallet/device-linking/v1/sessions/${fixture.payload.linkSessionId}/operator-recovery`;
-  const routeService = routeServiceFor(sessionService, 5_000, {
-    authenticateDeviceRequestV1: async ({ request, method, expectedDevicePublicKeyB64u, proof }) =>
-      expectedDevicePublicKeyB64u === recoveryRequest.devicePublicKeyB64u
-        ? {
-            kind: 'authorized' as const,
-            body: method === 'GET' ? null : await request.json(),
-            owner: ownerRequestContext(),
-            proof,
-          }
-        : {
-            kind: 'denied' as const,
-            code: 'invalid' as const,
-            message: 'device request-proof key is not bound to this session',
-          },
-    operatorRecovery: {
-      authenticateOperatorRecoveryRequestV1: async ({
-        request,
-        method,
-        pathname: requestPath,
-        bodyDigestB64u,
-      }) => ({
-        kind: 'authorized' as const,
-        body: await request.json(),
-        owner: ownerRequestContext(),
-        binding: {
-          kind: 'linked_device_operator_request_binding_v1' as const,
-          method: method as 'POST',
-          pathname: requestPath,
-          bodyDigestB64u,
-          expiresAtMs: 6_000,
-        },
-      }),
-    },
-    retryCommittedDeliveryV1: async ({ session }) => {
-      retriedSession = session;
-      return { outcome: 'applied', record: session };
-    },
-  });
-  const response = await invoke(routeService, {
-    method: 'POST',
-    pathname,
-    body: recoveryRequest,
-  });
-  expect(response.status).toBe(200);
-  expect(bindCalls).toBe(1);
-  expect(retriedSession?.recovery.kind).toBe('bound');
-  expect(
-    retriedSession?.recovery.kind === 'bound' && retriedSession.recovery.continuation,
-  ).toMatchObject({
-    deviceId: fixture.approval.deviceId,
-    enrollmentId: fixture.approval.enrollmentId,
-    linkSessionId: fixture.payload.linkSessionId,
-    devicePublicKeyB64u: recoveryRequest.devicePublicKeyB64u,
-    devicePublicKeyDigestB64u: recoveryRequest.devicePublicKeyDigestB64u,
-  });
-  const retryBody = {
-    kind: 'linked_device_session_retry_committed_delivery_request_v1' as const,
-    linkSessionId: fixture.payload.linkSessionId,
-    enrollmentId: fixture.approval.enrollmentId,
-    deviceId: fixture.approval.deviceId,
-    requestedAtMs: 4_500,
-  };
-  const freshRetry = await invoke(routeService, {
-    requestProofKey: recoveryDevicePublicKey,
-    method: 'POST',
-    pathname: `/wallet/device-linking/v1/sessions/${fixture.payload.linkSessionId}/retry`,
-    body: retryBody,
-  });
-  expect(freshRetry.status).toBe(200);
-  persisted = parseLinkedDeviceSessionRecordV1({
-    ...persisted,
-    state: {
-      state: 'active',
-      linkSessionId: fixture.payload.linkSessionId,
-      walletId: fixture.approval.walletId,
-      enrollmentId: fixture.approval.enrollmentId,
-      activatedAtMs: fixture.receipt.activatedAtMs,
-    },
-    aggregateReceipt: fixture.receipt,
-    revision: persisted.revision + 1,
-    updatedAtMs: 5_100,
-  });
-  const activeFreshGet = await invoke(routeService, {
-    requestProofKey: recoveryDevicePublicKey,
-    method: 'GET',
-    pathname: `/wallet/device-linking/v1/sessions/${fixture.payload.linkSessionId}`,
-  });
-  expect(activeFreshGet.status).toBe(200);
-  const activeOldGet = await invoke(routeService, {
-    method: 'GET',
-    pathname: `/wallet/device-linking/v1/sessions/${fixture.payload.linkSessionId}`,
-  });
-  expect(activeOldGet.status).toBe(400);
-  const oldRetry = await invoke(routeService, {
-    method: 'POST',
-    pathname: `/wallet/device-linking/v1/sessions/${fixture.payload.linkSessionId}/retry`,
-    body: retryBody,
-  });
-  expect(oldRetry.status).toBe(400);
-});
-
 function routeServiceFor(
   sessionService: DeviceLinkingRouteServiceV1['sessionService'],
   nowMs: number,
@@ -828,7 +596,6 @@ function routeServiceFor(
     claimSessionV1: sessionService.claimSessionV1.bind(sessionService),
     recordOwnerApprovalV1: sessionService.recordOwnerApprovalV1.bind(sessionService),
     recordTargetCredentialV1: sessionService.recordTargetCredentialV1.bind(sessionService),
-    bindRecoveryContinuationV1: sessionService.bindRecoveryContinuationV1.bind(sessionService),
     cancelSessionV1: sessionService.cancelSessionV1.bind(sessionService),
     getSessionV1: (input) =>
       typeof input === 'string'
@@ -985,9 +752,6 @@ function sessionServiceForRecord(
     recordTargetCredentialV1: async () => {
       throw new Error('target registration is outside the active delivery fixture');
     },
-    bindRecoveryContinuationV1: async () => {
-      throw new Error('recovery continuation is outside the active delivery fixture');
-    },
     cancelSessionV1: async () => {
       throw new Error('session cancellation is outside the active delivery fixture');
     },
@@ -1006,6 +770,7 @@ function ownerRequestContext() {
     walletSessionId: parseWalletSessionId('ws:r103').value,
     authorizationId: parseWalletSessionAuthorizationId('wsa:r103').value,
     expiresAtMs: 9_000,
+    permission: buildSigningOnlyDelegatedWalletAuthorityV1(),
     keyManifestDigestB64u: parseDigestB64u('Lcwi4R-zFWWooZJB2zonKJtBMlynySPIjt55tietXWE'),
     curve: 'ed25519' as const,
   };

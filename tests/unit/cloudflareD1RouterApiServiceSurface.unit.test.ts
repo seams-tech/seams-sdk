@@ -531,9 +531,6 @@ test('Cloudflare D1 R103 composition owns lane activation and aggregate revocati
             internalServiceAuth: 'test-internal-service-auth',
             ed25519YaoKeyset: inertEd25519YaoKeyset,
           },
-          operatorRecovery: {
-            operatorSecret: 'operator-recovery-test-secret',
-          },
         },
         management: {},
       },

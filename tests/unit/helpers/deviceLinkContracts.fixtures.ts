@@ -69,6 +69,7 @@ import { ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND } from '../../../packages/sha
 import { DEFAULT_WALLET_SESSION_REMAINING_USES } from '../../../packages/shared-ts/src/threshold/sessionPolicy';
 import { parseDigestB64u } from '../../../packages/shared-ts/src/utils/canonicalPrimitives';
 import type { DigestB64u } from '../../../packages/shared-ts/src/utils/canonicalPrimitives';
+import { buildSigningOnlyDelegatedWalletAuthorityV1 } from '../../../packages/shared-ts/src/authorization/delegatedAuthority';
 import {
   parseWalletSessionAuthorizationId,
   parseWalletSessionId,
@@ -636,6 +637,7 @@ export async function buildR103TargetPreparationFixture(
     deviceId: fixture.approval.deviceId,
     targetFactor: fixture.approval.targetFactor,
     ownerEnrollment: fixture.approval.ownerEnrollment,
+    ed25519ExportRoot: null,
     orderedChildren: [
       {
         kind: 'linked_device_target_preparation_child_v1',
@@ -792,11 +794,7 @@ export function buildR103DeviceLinkFixture(
     linkSessionId,
     linkPublicKeyB64u: PUBLIC_KEY,
     devicePublicKeyB64u: PUBLIC_KEY,
-    requestedPermission: {
-      kind: 'owner_equivalent_signing',
-      administrationScope: 'signing_only',
-      localUserPresence: 'required',
-    },
+    requestedPermission: buildSigningOnlyDelegatedWalletAuthorityV1(),
     targetFactor,
     issuedAtMs: 1_000,
     expiresAtMs: 10_000,
@@ -888,6 +886,7 @@ export function buildR103DeviceLinkFixture(
       linkSessionId,
       linkPublicKeyB64u: payload.linkPublicKeyB64u,
       devicePublicKeyB64u: payload.devicePublicKeyB64u,
+      requestedPermission: payload.requestedPermission,
       targetFactor,
       issuedAtMs: 1_000,
       expiresAtMs: 10_000,

@@ -12,6 +12,8 @@ import type { DeviceLinkingKeyMaterialPortV1 } from '../../packages/wallet/src/S
 import type { HttpTransport } from '../../packages/wallet/src/core/platform/http';
 import { buildR103DeviceLinkFixture } from './helpers/deviceLinkContracts.fixtures';
 
+const EMAIL_OTP_RELEASE_PUBLIC_KEY_B64U = base64UrlEncode(new Uint8Array(65).fill(4));
+
 function responseBody(fixture: ReturnType<typeof buildR103DeviceLinkFixture>): {
   readonly ok: true;
   readonly outcome: 'applied';
@@ -69,6 +71,7 @@ test.describe('R103 authenticated linked-device browser transport', () => {
           handle: { kind: 'device_linking_key_material_handle_v1', handleId: 'worker-slot-r103' },
           linkPublicKeyB64u: fixture.payload.linkPublicKeyB64u,
           devicePublicKeyB64u: fixture.payload.devicePublicKeyB64u,
+          emailOtpReleasePublicKey65B64u: EMAIL_OTP_RELEASE_PUBLIC_KEY_B64U,
         };
       },
       async prepareTargetHolderRegistrationsV1() {
@@ -131,58 +134,13 @@ test.describe('R103 authenticated linked-device browser transport', () => {
         enrollmentId: fixture.approval.enrollmentId,
         deviceId: fixture.approval.deviceId,
         devicePublicKeyB64u: fixture.payload.devicePublicKeyB64u,
+        targetFactor: fixture.payload.targetFactor,
         claimedAtMs: 2_000,
         claimExpiresAtMs: 9_000,
       }),
     );
     expect(claim.deviceId).toBe(fixture.approval.deviceId);
     expect(JSON.stringify(projection)).not.toContain('private');
-  });
-
-  test('treats an unsealed custody transfer as pending without an HTTP error', async () => {
-    const fixture = buildR103DeviceLinkFixture();
-    let requestedPath = '';
-    const http: HttpTransport = {
-      kind: 'http_transport',
-      async request(input) {
-        requestedPath = new URL(input.url).pathname;
-        return { ok: true, value: { status: 204, body: null } };
-      },
-    };
-    const keyMaterial: DeviceLinkingKeyMaterialPortV1 = {
-      async createBootstrapKeyMaterialV1() {
-        throw new Error('bootstrap is outside this transport test');
-      },
-      async prepareTargetHolderRegistrationsV1() {
-        throw new Error('target holder preparation is outside this transport test');
-      },
-      async openAndSealTargetHolderDeliveryV1() {
-        throw new Error('holder delivery is outside this transport test');
-      },
-      async discardKeyMaterialV1() {},
-      async signDeviceSessionRequestV1() {
-        return { signatureB64u: base64UrlEncode(new Uint8Array(64).fill(9)) };
-      },
-    };
-    const transport = createDeviceLinkingAuthenticatedSessionTransportV1({
-      http,
-      relayerUrl: 'https://relay.example.test',
-      keyMaterial,
-      keyMaterialHandle: {
-        kind: 'device_linking_key_material_handle_v1',
-        handleId: 'worker-slot-r103',
-      },
-      devicePublicKeyB64u: fixture.payload.devicePublicKeyB64u,
-      nowMs: () => 2_000,
-      pollIntervalMs: 10_000,
-    });
-
-    await expect(
-      transport.getCustodyTransferPackageV1({ linkSessionId: fixture.payload.linkSessionId }),
-    ).resolves.toBeNull();
-    expect(requestedPath).toBe(
-      `/wallet/device-linking/v1/sessions/${fixture.payload.linkSessionId}/custody-transfer`,
-    );
   });
 
   test('does not schedule an orphan poll after bootstrap failure', async () => {
