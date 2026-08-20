@@ -10,7 +10,6 @@ import type {
   WebAuthnRpId,
 } from '../../packages/shared-ts/src/utils/domainIds';
 import { cleanupTemporaryD1Database, createTemporaryD1Database } from '../helpers/sqliteD1';
-import { parseRecoveryCodeReservationId } from '../../packages/shared-ts/src/wallet-recovery/recoveryCodeReservation';
 import { buildWalletRecoveryBackupAcknowledgementV1 } from '../../packages/shared-ts/src/wallet-recovery/backupAcknowledgement';
 import { applySignerMigrations } from './helpers/cloudflareD1RouterApiAuthService.fixtures';
 import {
@@ -22,7 +21,6 @@ import {
   WALLET_ID,
   passkeyCustodyEnvelope,
   rawEmailOtpFactor,
-  rawPasskeyFactor,
   rawWalletCustodySeedBinding,
   rawWalletRecoveryEnvelopeSet,
 } from './helpers/passkeyCustodyEnvelope.fixtures';
@@ -57,6 +55,20 @@ function recoverySet(overrides: Record<string, unknown> = {}) {
   });
 }
 
+function registrationCommit(input: {
+  readonly envelope: ReturnType<typeof passkeyCustodyEnvelope>;
+  readonly recoverySet: ReturnType<typeof recoverySet>;
+}) {
+  return {
+    ...input,
+    recoveryBackupAcknowledgement: buildWalletRecoveryBackupAcknowledgementV1({
+      walletId: String(input.recoverySet.walletId),
+      issuedAtMs: input.recoverySet.issuedAtMs,
+      acknowledgedAtMs: input.recoverySet.issuedAtMs + 1,
+    }),
+  };
+}
+
 async function withStores(
   run: (stores: {
     commit: CloudflareD1WalletCustodyCommitStore;
@@ -79,10 +91,12 @@ async function withStores(
 
 test('a registration commit stores the envelope and the recovery set together', async () => {
   await withStores(async ({ commit, envelopes }) => {
-    const result = await commit.commitRegistration({
-      envelope: passkeyCustodyEnvelope(),
-      recoverySet: recoverySet(),
-    });
+    const result = await commit.commitRegistration(
+      registrationCommit({
+        envelope: passkeyCustodyEnvelope(),
+        recoverySet: recoverySet(),
+      }),
+    );
     expect(result.kind).toBe('committed');
 
     // The envelope is addressed by the same key the retrieval store uses, so a
@@ -100,19 +114,23 @@ test('a wallet that already has custody is never overwritten', async () => {
   await withStores(async ({ commit }) => {
     expect(
       (
-        await commit.commitRegistration({
-          envelope: passkeyCustodyEnvelope(),
-          recoverySet: recoverySet(),
-        })
+        await commit.commitRegistration(
+          registrationCommit({
+            envelope: passkeyCustodyEnvelope(),
+            recoverySet: recoverySet(),
+          }),
+        )
       ).kind,
     ).toBe('committed');
 
     // A second ceremony for the same wallet would strand every key the first
     // seed controls, so both keys refuse to be replaced.
-    const again = await commit.commitRegistration({
-      envelope: passkeyCustodyEnvelope(),
-      recoverySet: recoverySet(),
-    });
+    const again = await commit.commitRegistration(
+      registrationCommit({
+        envelope: passkeyCustodyEnvelope(),
+        recoverySet: recoverySet(),
+      }),
+    );
     expect(again.kind).toBe('already_exists');
   });
 });
@@ -120,10 +138,12 @@ test('a wallet that already has custody is never overwritten', async () => {
 test('a commit whose recovery set already exists writes no envelope', async () => {
   await withStores(async ({ commit, envelopes }) => {
     // First wallet registers with a passkey factor.
-    await commit.commitRegistration({
-      envelope: passkeyCustodyEnvelope(),
-      recoverySet: recoverySet(),
-    });
+    await commit.commitRegistration(
+      registrationCommit({
+        envelope: passkeyCustodyEnvelope(),
+        recoverySet: recoverySet(),
+      }),
+    );
 
     // A second ceremony for the same wallet under a *different* factor: its
     // envelope key is free, but the wallet-scoped recovery-set key is taken.
@@ -131,10 +151,12 @@ test('a commit whose recovery set already exists writes no envelope', async () =
       envelopeId: 'passkey-envelope-2',
       factor: rawEmailOtpFactor(),
     });
-    const conflicted = await commit.commitRegistration({
-      envelope: otherFactorEnvelope,
-      recoverySet: recoverySet(),
-    });
+    const conflicted = await commit.commitRegistration(
+      registrationCommit({
+        envelope: otherFactorEnvelope,
+        recoverySet: recoverySet(),
+      }),
+    );
     expect(conflicted.kind).toBe('custody_already_established');
 
     // The batch rolled back: no envelope was written for the second factor.
@@ -153,10 +175,12 @@ test('a commit whose recovery set already exists writes no envelope', async () =
 
 test('a mismatched pair is refused before anything is written', async () => {
   await withStores(async ({ commit, envelopes }) => {
-    const otherWalletSet = await commit.commitRegistration({
-      envelope: passkeyCustodyEnvelope(),
-      recoverySet: recoverySet({ walletId: OTHER_WALLET_ID }),
-    });
+    const otherWalletSet = await commit.commitRegistration(
+      registrationCommit({
+        envelope: passkeyCustodyEnvelope(),
+        recoverySet: recoverySet({ walletId: OTHER_WALLET_ID }),
+      }),
+    );
     expect(otherWalletSet.kind).toBe('inconsistent');
 
     expect((await envelopes.lookupEnvelope(LOCATOR)).kind).toBe('missing');
@@ -166,10 +190,12 @@ test('a mismatched pair is refused before anything is written', async () => {
 
 test('a recovery set is readable only under the wallet it names', async () => {
   await withStores(async ({ commit }) => {
-    await commit.commitRegistration({
-      envelope: passkeyCustodyEnvelope(),
-      recoverySet: recoverySet(),
-    });
+    await commit.commitRegistration(
+      registrationCommit({
+        envelope: passkeyCustodyEnvelope(),
+        recoverySet: recoverySet(),
+      }),
+    );
     expect(await commit.readRecoveryEnvelopeSet(WALLET_ID as WalletId)).not.toBeNull();
     expect(await commit.readRecoveryEnvelopeSet(OTHER_WALLET_ID as WalletId)).toBeNull();
   });
@@ -190,100 +216,23 @@ test('a backup acknowledgement round-trips through the custody record store', as
 
 test('two wallets keep separate custody', async () => {
   await withStores(async ({ commit }) => {
-    await commit.commitRegistration({
-      envelope: passkeyCustodyEnvelope(),
-      recoverySet: recoverySet(),
-    });
-    const second = await commit.commitRegistration({
-      envelope: passkeyCustodyEnvelope({ walletId: OTHER_WALLET_ID }),
-      recoverySet: recoverySet({ walletId: OTHER_WALLET_ID }),
-    });
+    await commit.commitRegistration(
+      registrationCommit({
+        envelope: passkeyCustodyEnvelope(),
+        recoverySet: recoverySet(),
+      }),
+    );
+    const second = await commit.commitRegistration(
+      registrationCommit({
+        envelope: passkeyCustodyEnvelope({ walletId: OTHER_WALLET_ID }),
+        recoverySet: recoverySet({ walletId: OTHER_WALLET_ID }),
+      }),
+    );
     expect(second.kind).toBe('committed');
 
     const first = await commit.readRecoveryEnvelopeSet(WALLET_ID as WalletId);
     const other = await commit.readRecoveryEnvelopeSet(OTHER_WALLET_ID as WalletId);
     expect(String(first?.record.walletId)).toBe(WALLET_ID);
     expect(String(other?.record.walletId)).toBe(OTHER_WALLET_ID);
-  });
-});
-
-test('recovery finalization consumes the reservation with the replacement envelope', async () => {
-  await withStores(async ({ commit, envelopes }) => {
-    await commit.commitRegistration({
-      envelope: passkeyCustodyEnvelope(),
-      recoverySet: recoverySet(),
-    });
-    const current = await commit.readRecoveryEnvelopeSet(WALLET_ID as WalletId);
-    if (!current) throw new Error('recovery set fixture was not stored');
-    const reservationId = parseRecoveryCodeReservationId('recovery-operation-1');
-    const reservedSet = {
-      ...current.record,
-      manifestKekWraps: current.record.manifestKekWraps.map((wrap, index) =>
-        index === 0
-          ? {
-              ...wrap,
-              lifecycle: {
-                state: 'reserved' as const,
-                issuedAtMs: wrap.lifecycle.issuedAtMs,
-                reservationId,
-                reservedAtMs: 3_000,
-                reservationExpiresAtMs: 30_000,
-              },
-            }
-          : wrap,
-      ),
-      updatedAtMs: 3_000,
-    };
-    const reserved = await commit.writeRecoveryEnvelopeSet({
-      record: reservedSet,
-      expectedStoreVersion: current.storeVersion,
-    });
-    if (reserved.kind !== 'stored') throw new Error('recovery reservation fixture conflicted');
-    const consumedSet = {
-      ...reservedSet,
-      manifestKekWraps: reservedSet.manifestKekWraps.map((wrap, index) =>
-        index === 0
-          ? {
-              ...wrap,
-              lifecycle: {
-                state: 'consumed' as const,
-                issuedAtMs: wrap.lifecycle.issuedAtMs,
-                reservationId,
-                consumedAtMs: 4_000,
-              },
-            }
-          : wrap,
-      ),
-      updatedAtMs: 4_000,
-    };
-    const replacement = passkeyCustodyEnvelope({
-      envelopeId: 'replacement-envelope-1',
-      factor: rawPasskeyFactor({
-        credentialIdB64u: 'cmVwbGFjZW1lbnQtY3JlZGVudGlhbA',
-      }),
-    });
-    const finalized = await commit.commitRecoveryPromotion({
-      recoverySet: consumedSet,
-      expectedRecoverySetVersion: reserved.storeVersion,
-      replacementEnvelope: replacement,
-      reservationId,
-    });
-    expect(finalized.kind).toBe('committed');
-
-    const stored = await commit.readRecoveryEnvelopeSet(WALLET_ID as WalletId);
-    expect(stored?.record.manifestKekWraps[0]?.lifecycle).toMatchObject({
-      state: 'consumed',
-      reservationId,
-    });
-    const lookup = await envelopes.lookupEnvelope({
-      walletId: WALLET_ID as WalletId,
-      factor: {
-        kind: 'passkey',
-        rpId: RP_ID as WebAuthnRpId,
-        credentialIdB64u: 'cmVwbGFjZW1lbnQtY3JlZGVudGlhbA' as WebAuthnCredentialIdB64u,
-      },
-      envelopeId: 'replacement-envelope-1' as PasskeyEnvelopeId,
-    });
-    expect(lookup.kind).toBe('active');
   });
 });

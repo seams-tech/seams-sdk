@@ -1,4 +1,19 @@
-import { parseWebAuthnRpId, type WebAuthnRpId } from '@shared/utils/domainIds';
+import {
+  parseWalletAuthMethodId,
+  parseWalletAuthorityBindingDigest,
+  parseWalletId,
+  parseWebAuthnCredentialIdB64u,
+  parseWebAuthnRpId,
+  type WalletAuthMethodId,
+  type WalletId,
+  type WebAuthnCredentialIdB64u,
+  type WebAuthnRpId,
+} from '@shared/utils/domainIds';
+import {
+  parseRecoveryCodeReservationId,
+  type RecoveryCodeReservationId,
+} from '@shared/wallet-recovery/recoveryCodeReservation';
+import type { WalletAuthorityBindingDigest } from '@shared/utils/domainIds';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import {
   parseWebAuthnAuthenticatorDeviceInfoJson,
@@ -92,16 +107,20 @@ export type WebAuthnSyncChallengeRecord = {
 
 /** A one-shot passkey replacement ceremony bound to a wallet recovery hold. */
 export type WebAuthnRecoveryRegistrationChallengeRecord = {
-  version: 'webauthn_recovery_registration_challenge_v1';
-  challengeId: string;
-  walletId: string;
-  reservationId: string;
-  replacementId: string;
-  replacedCredentialIdB64u: string;
-  rpId: string;
-  challengeB64u: string;
-  createdAtMs: number;
-  expiresAtMs: number;
+  readonly version: 'webauthn_recovery_registration_challenge_v1';
+  readonly challengeId: string;
+  readonly walletId: WalletId;
+  readonly reservationId: RecoveryCodeReservationId;
+  readonly origin: string;
+  readonly rpId: WebAuthnRpId;
+  readonly replacementId: string;
+  readonly challengeB64u: string;
+  readonly sourceWalletAuthMethodId: WalletAuthMethodId;
+  readonly sourceCredentialIdB64u: WebAuthnCredentialIdB64u;
+  readonly sourceAuthorityDigestB64u: WalletAuthorityBindingDigest;
+  readonly sourceAuthMethodUpdatedAtMs: number;
+  readonly createdAtMs: number;
+  readonly expiresAtMs: number;
 };
 
 export function parseWebAuthnLoginChallengeRecord(
@@ -161,38 +180,85 @@ export function parseWebAuthnRecoveryRegistrationChallengeRecord(
 ): WebAuthnRecoveryRegistrationChallengeRecord | null {
   const record = parseJsonRecord(input);
   if (!record) return null;
+  const fields = Object.keys(record);
+  const expectedFields = [
+    'version',
+    'challengeId',
+    'walletId',
+    'reservationId',
+    'origin',
+    'rpId',
+    'replacementId',
+    'challengeB64u',
+    'sourceWalletAuthMethodId',
+    'sourceCredentialIdB64u',
+    'sourceAuthorityDigestB64u',
+    'sourceAuthMethodUpdatedAtMs',
+    'createdAtMs',
+    'expiresAtMs',
+  ] as const;
+  if (
+    fields.length !== expectedFields.length ||
+    expectedFields.some((field) => !fields.includes(field))
+  ) {
+    return null;
+  }
   const version = toOptionalTrimmedString(record.version);
   const challengeId = toOptionalTrimmedString(record.challengeId);
-  const walletId = toOptionalTrimmedString(record.walletId);
-  const reservationId = toOptionalTrimmedString(record.reservationId);
+  const walletId = parseWalletId(record.walletId);
+  let reservationId: RecoveryCodeReservationId | null = null;
+  try {
+    reservationId = parseRecoveryCodeReservationId(record.reservationId);
+  } catch {
+    reservationId = null;
+  }
+  const origin = toOptionalTrimmedString(record.origin);
+  const rpId = parseWebAuthnRpId(record.rpId);
   const replacementId = toOptionalTrimmedString(record.replacementId);
-  const replacedCredentialIdB64u = toOptionalTrimmedString(record.replacedCredentialIdB64u);
-  const rpId = toOptionalTrimmedString(record.rpId);
   const challengeB64u = toOptionalTrimmedString(record.challengeB64u);
+  const sourceWalletAuthMethodId = parseWalletAuthMethodId(record.sourceWalletAuthMethodId);
+  const sourceCredentialIdB64u = parseWebAuthnCredentialIdB64u(record.sourceCredentialIdB64u);
+  const sourceAuthorityDigestB64u = parseWalletAuthorityBindingDigest(
+    record.sourceAuthorityDigestB64u,
+  );
+  const sourceAuthMethodUpdatedAtMs = positiveInteger(record.sourceAuthMethodUpdatedAtMs);
   const createdAtMs = positiveInteger(record.createdAtMs);
   const expiresAtMs = positiveInteger(record.expiresAtMs);
   if (version !== 'webauthn_recovery_registration_challenge_v1') return null;
   if (
     !challengeId ||
-    !walletId ||
+    !walletId.ok ||
     !reservationId ||
+    !origin ||
+    !rpId.ok ||
     !replacementId ||
-    !replacedCredentialIdB64u ||
-    !rpId ||
-    !challengeB64u
+    !challengeB64u ||
+    !sourceWalletAuthMethodId.ok ||
+    !sourceCredentialIdB64u.ok ||
+    !sourceAuthorityDigestB64u.ok
   ) {
     return null;
   }
-  if (createdAtMs === null || expiresAtMs === null || expiresAtMs <= createdAtMs) return null;
+  if (
+    sourceAuthMethodUpdatedAtMs === null ||
+    createdAtMs === null ||
+    expiresAtMs === null ||
+    expiresAtMs <= createdAtMs
+  )
+    return null;
   return {
     version: 'webauthn_recovery_registration_challenge_v1',
     challengeId,
-    walletId,
+    walletId: walletId.value,
     reservationId,
+    origin,
+    rpId: rpId.value,
     replacementId,
-    replacedCredentialIdB64u,
-    rpId,
     challengeB64u,
+    sourceWalletAuthMethodId: sourceWalletAuthMethodId.value,
+    sourceCredentialIdB64u: sourceCredentialIdB64u.value,
+    sourceAuthorityDigestB64u: sourceAuthorityDigestB64u.value,
+    sourceAuthMethodUpdatedAtMs,
     createdAtMs,
     expiresAtMs,
   };
@@ -218,9 +284,7 @@ export function parseWebAuthnAuthenticator(
   };
 }
 
-export function parseWebAuthnBinding(
-  row: D1RecordJsonRow,
-): WebAuthnCredentialBindingRecord | null {
+export function parseWebAuthnBinding(row: D1RecordJsonRow): WebAuthnCredentialBindingRecord | null {
   const record = parseJsonRecord(row.record_json);
   if (!record) return null;
   const version = toOptionalTrimmedString(record.version);
@@ -230,12 +294,8 @@ export function parseWebAuthnBinding(
   // signerSlot is absent until the wallet's Ed25519 Yao ceremony settles, the
   // same way nearAccountId/publicKey below already are.
   const signerSlot = positiveInteger(record.signerSlot);
-  if (
-    version !== 'webauthn_credential_binding_v1' ||
-    !rpId ||
-    !credentialIdB64u ||
-    !userId
-  ) return null;
+  if (version !== 'webauthn_credential_binding_v1' || !rpId || !credentialIdB64u || !userId)
+    return null;
   const nearAccountId = toOptionalTrimmedString(record.nearAccountId);
   const nearEd25519SigningKeyId = toOptionalTrimmedString(record.nearEd25519SigningKeyId);
   const publicKey = toOptionalTrimmedString(record.publicKey);
@@ -248,7 +308,9 @@ export function parseWebAuthnBinding(
     record.runtimePolicyScope && typeof record.runtimePolicyScope === 'object'
       ? (() => {
           try {
-            return normalizeRuntimePolicyScope(record.runtimePolicyScope) satisfies ThresholdRuntimePolicyScope;
+            return normalizeRuntimePolicyScope(
+              record.runtimePolicyScope,
+            ) satisfies ThresholdRuntimePolicyScope;
           } catch {
             return undefined;
           }
@@ -274,7 +336,8 @@ export function parseWebAuthnBinding(
     createdAtMs,
     updatedAtMs,
   };
-  const hasAnyEd25519Fact = Boolean(nearAccountId || nearEd25519SigningKeyId || publicKey) || signerSlot !== null;
+  const hasAnyEd25519Fact =
+    Boolean(nearAccountId || nearEd25519SigningKeyId || publicKey) || signerSlot !== null;
   if (!hasAnyEd25519Fact) return base;
   if (!nearAccountId || !nearEd25519SigningKeyId || !publicKey || signerSlot === null) return null;
   return {

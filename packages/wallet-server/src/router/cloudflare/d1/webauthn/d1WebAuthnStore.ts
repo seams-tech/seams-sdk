@@ -191,6 +191,7 @@ export class CloudflareD1WebAuthnStore {
 
   async readRecoveryRegistrationChallenge(
     challengeId: string,
+    nowMs: number,
   ): Promise<WebAuthnRecoveryRegistrationChallengeRecord | null> {
     const row = await this.prepare(
       `SELECT record_json
@@ -203,15 +204,17 @@ export class CloudflareD1WebAuthnStore {
           AND challenge_kind = 'recovery_registration'
           AND expires_at_ms > ?
         LIMIT 1`,
-      [challengeId, Date.now()],
+      [challengeId, nowMs],
     ).first<D1RecordJsonRow>();
     return parseWebAuthnRecoveryRegistrationChallengeRecord(row?.record_json);
   }
 
   /** Delete is paired with a CAS guard in the recovery commit batch. */
-  prepareRecoveryRegistrationChallengeDeleteStatement(
-    challengeId: string,
-  ): D1PreparedStatementLike {
+  prepareRecoveryRegistrationChallengeDeleteStatement(input: {
+    readonly challengeId: string;
+    readonly record: WebAuthnRecoveryRegistrationChallengeRecord;
+    readonly nowMs: number;
+  }): D1PreparedStatementLike {
     return this.prepare(
       `DELETE FROM webauthn_challenges
         WHERE namespace = ?
@@ -220,8 +223,9 @@ export class CloudflareD1WebAuthnStore {
           AND env_id = ?
           AND challenge_id = ?
           AND challenge_kind = 'recovery_registration'
+          AND record_json = ?
           AND expires_at_ms > ?`,
-      [challengeId, Date.now()],
+      [input.challengeId, JSON.stringify(input.record), input.nowMs],
     );
   }
 

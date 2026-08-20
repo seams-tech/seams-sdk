@@ -6,17 +6,14 @@ import {
 } from '../../../framework/routeDefinitions';
 import { toFetchRouteResponse } from '../../../framework/routeResponses';
 import { readJson } from '../../../framework/http';
-import { decodeBase64UrlOrBase64 } from '../../../../core/authService/webauthnOidcHelpers';
 import {
-  deriveWalletRecoveryKeyLifecycleId,
+  isHostWithinRpId,
+  originHostnameOrEmpty,
+} from '../../../../core/authService/webauthnOidcHelpers';
+import {
   parseRecoveryCodeReservationId,
   type RecoveryCodeReservationId,
 } from '@shared/wallet-recovery/recoveryCodeReservation';
-import {
-  admitWalletRecoveryBootstrapGrant,
-  resolveWalletRecoveryBootstrapAuthorizationContext,
-  resolveWalletRecoveryAuthorizationToken,
-} from '../../../domains/passkeyCustody/walletRecoveryAuthorization';
 import {
   parseAuthorizationAuditEventId,
   parseAuthorizationEvidenceId,
@@ -52,6 +49,7 @@ import {
   parseWebAuthnCredentialIdB64u,
   parseWebAuthnRpId,
   parseWalletId,
+  type WebAuthnRpId,
   type WalletId,
 } from '@shared/utils/domainIds';
 import type { WebAuthnAuthenticationCredential } from '../../../../core/types';
@@ -73,21 +71,12 @@ import {
 import { EMAIL_OTP_CHANNEL, WALLET_EMAIL_OTP_UNLOCK_OPERATION } from '@shared/utils/emailOtpDomain';
 import { parsePasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
 import type { PasskeyCustodyEnvelopeRecord } from '@shared/passkey-custody';
-import type {
-  WalletRecoveryPreparationKeyManifestEntryV1,
-  WalletRecoveryPreparationKeyManifestV1,
-} from '../../../domains/passkeyCustody/walletRecoveryKeyManifest';
-import {
-  parseRouterAbEcdsaRegistrationActivationReceiptV1,
-  type RouterAbEcdsaRegistrationActivationReceiptV1,
-} from '@shared/utils/routerAbEcdsaDerivation';
 import { parseWalletRecoverySetRotationWireV1 } from '@shared/wallet-recovery/walletRecoveryEnvelopeSet';
 import {
-  parseWalletRecoveryEcdsaPossessionChallengeV1,
   parseWalletRecoveryEcdsaPossessionProofV1,
-  type WalletRecoveryEcdsaPossessionChallengeV1,
   type WalletRecoveryEcdsaPossessionProofV1,
 } from '@shared/wallet-recovery/walletRecoveryEcdsaPossession';
+import { base64UrlDecode } from '@shared/utils/base64';
 
 /**
  * The transport for custody envelope retrieval.
@@ -554,63 +543,6 @@ async function completeWalletCustodyOperation(
   return toFetchRouteResponse({ status, body });
 }
 
-type WalletRecoveryAuthorizedNearEntry = Extract<
-  WalletRecoveryPreparationKeyManifestEntryV1,
-  { readonly kind: 'near_ed25519' }
-> & { readonly recoveryAuthorizationJwt: string };
-type WalletRecoveryAuthorizedEcdsaEntry = Extract<
-  WalletRecoveryPreparationKeyManifestEntryV1,
-  { readonly kind: 'evm_family_ecdsa' }
->;
-
-type WalletRecoveryAuthorizedKeyManifest = Omit<
-  WalletRecoveryPreparationKeyManifestV1,
-  'entries'
-> & {
-  readonly entries: readonly (
-    | WalletRecoveryAuthorizedNearEntry
-    | WalletRecoveryAuthorizedEcdsaEntry
-  )[];
-};
-
-async function keyManifestWithRecoveryAuthorization(input: {
-  readonly session: NonNullable<FetchRouterApiContext['opts']['session']>;
-  readonly walletId: string;
-  readonly reservationId: RecoveryCodeReservationId;
-  readonly reservationExpiresAtMs: number;
-  readonly keyManifest: WalletRecoveryPreparationKeyManifestV1;
-}): Promise<WalletRecoveryAuthorizedKeyManifest> {
-  const entries = await Promise.all(
-    input.keyManifest.entries.map(async (entry) => {
-      const keySetId = entry.keySetId;
-      const lifecycleId = await deriveWalletRecoveryKeyLifecycleId({
-        reservationId: input.reservationId,
-        keySetId,
-      });
-      if (entry.kind === 'near_ed25519') {
-        const basis = entry.recoveryBasis;
-        const recoveryAuthorizationJwt = await input.session.signJwt(String(lifecycleId), {
-          kind: 'router_ab_ed25519_wallet_recovery_authorization_v1',
-          walletId: input.walletId,
-          reservationId: input.reservationId,
-          keySetId,
-          lifecycleId,
-          thresholdSessionId: `${lifecycleId}:threshold-session`,
-          rootShareEpoch: basis.scope.root_share_epoch,
-          signingWorkerId: basis.scope.signing_worker_id,
-          nearEd25519SigningKeyId: basis.applicationBinding.near_ed25519_signing_key_id,
-          participantIds: basis.participantIds,
-          expiresAtMs: input.reservationExpiresAtMs,
-          exp: Math.floor(input.reservationExpiresAtMs / 1000),
-        });
-        return { ...entry, recoveryAuthorizationJwt };
-      }
-      return entry;
-    }),
-  );
-  return { ...input.keyManifest, entries };
-}
-
 export async function handlePasskeyCustody(ctx: FetchRouterApiContext): Promise<Response | null> {
   const route = findRouteDefinitionById(ctx.routeDefinitions, ROUTE_ID);
   if (!route) throw new Error(`Missing route definition for ${ROUTE_ID}`);
@@ -900,183 +832,113 @@ export async function handleWalletRecoveryPrepare(
   if (!matchesRouteDefinitionRequest(route, ctx.method, ctx.pathname)) return null;
 
   const body = await readJsonObject(ctx.request);
-  const walletId = trimmed(body?.walletId);
-  const recoveryCode = trimmed(body?.recoveryCode);
-  const orgId = trimmed(body?.orgId);
-  const challengeId = trimmed(body?.challengeId);
-  const recoveryBootstrapGrant = trimmed(body?.recoveryBootstrapGrant);
-  const replacedCredentialIdB64u = trimmed(body?.replacedCredentialIdB64u);
-  let reservationId;
+  let parsed:
+    | {
+        readonly walletId: WalletId;
+        readonly rpId: WebAuthnRpId;
+        readonly recoveryCodeB64u: string;
+        readonly reservationId: RecoveryCodeReservationId;
+      }
+    | undefined;
   try {
-    reservationId = parseRecoveryCodeReservationId(body?.reservationId);
+    if (!body) throw new Error('wallet recovery preparation body is required');
+    requireExactObjectFields(
+      body,
+      ['walletId', 'rpId', 'recoveryCodeB64u', 'reservationId'],
+      'wallet recovery preparation',
+    );
+    const walletId = parseWalletId(body.walletId);
+    const rpId = parseWebAuthnRpId(body.rpId);
+    const recoveryCodeB64u = parseRequiredString(body.recoveryCodeB64u, 'recoveryCodeB64u');
+    if (!walletId.ok || !rpId.ok || !/^[A-Za-z0-9_-]+$/.test(recoveryCodeB64u)) {
+      throw new Error('wallet recovery preparation is invalid');
+    }
+    parsed = {
+      walletId: walletId.value,
+      rpId: rpId.value,
+      recoveryCodeB64u,
+      reservationId: parseRecoveryCodeReservationId(body.reservationId),
+    };
   } catch {
-    reservationId = null;
-  }
-  if (!trimmed(ctx.request.headers.get('origin'))) {
-    return toFetchRouteResponse({
-      status: 400,
-      body: {
-        ok: false,
-        code: 'invalid_origin',
-        message: 'wallet recovery requires the request Origin header',
-      },
-    });
-  }
-  if (
-    !walletId ||
-    !orgId ||
-    !recoveryCode ||
-    !reservationId ||
-    !replacedCredentialIdB64u ||
-    !challengeId ||
-    !recoveryBootstrapGrant ||
-    body?.otpCode !== undefined
-  ) {
     return toFetchRouteResponse({
       status: 400,
       body: {
         ok: false,
         code: 'invalid_request',
-        message:
-          'recovery preparation needs a wallet, operation id, Email OTP challenge, and recovery code',
+        message: 'wallet recovery preparation is invalid',
       },
     });
   }
 
-  const authorization = await resolveBootstrapRecoveryAuthorization(ctx, {
-    walletId,
-    orgId,
-    reservationId,
-    challengeId,
-    recoveryBootstrapGrant,
-  });
-  if (!authorization.ok) return authorizationFailure(authorization);
-  if (authorization.context.existing?.lifecycle === 'completed') {
-    return authorizedOperationReplay(authorization.context.existing);
-  }
-  const admitted = await admitWalletRecoveryBootstrapGrant({
-    context: authorization.context,
-    reservationId,
-    challengeId,
-    nowMs: Date.now(),
-  });
-  if (!admitted.ok) return authorizationFailure(admitted);
-  if (admitted.operation.lifecycle === 'completed') {
-    return authorizedOperationReplay(admitted.operation);
+  const origin = trimmed(ctx.request.headers.get('origin'));
+  if (!origin || !isHostWithinRpId(originHostnameOrEmpty(origin), parsed.rpId)) {
+    return toFetchRouteResponse({
+      status: 400,
+      body: {
+        ok: false,
+        code: 'invalid_origin',
+        message: 'wallet recovery origin does not match the relying party',
+      },
+    });
   }
 
   let recoveryCodeBytes: Uint8Array;
   try {
-    recoveryCodeBytes = decodeRecoveryCode(recoveryCode);
+    recoveryCodeBytes = base64UrlDecode(parsed.recoveryCodeB64u);
+    if (recoveryCodeBytes.length === 0) throw new Error('recovery code is empty');
   } catch {
-    /* Answered exactly like a wrong code. A distinct "malformed" reply would
-       tell an enumerating caller which candidates are even shaped like codes. */
     return toFetchRouteResponse(refusedSpend());
   }
 
-  const result = await ctx.service.passkeyCustody.prepareRecovery({
-    walletId,
-    recoveryCodeBytes,
-    reservationId,
-    authorityRef: authorization.context.authorityRef,
-    replacedCredentialIdB64u,
-  });
-
-  switch (result.kind) {
-    case 'prepared': {
-      if (!ctx.opts.session) {
+  try {
+    const result = await ctx.service.passkeyCustody.prepareRecovery({
+      walletId: parsed.walletId,
+      rpId: parsed.rpId,
+      origin,
+      recoveryCodeBytes,
+      reservationId: parsed.reservationId,
+    });
+    switch (result.kind) {
+      case 'prepared':
         return toFetchRouteResponse({
-          status: 503,
+          status: 200,
           body: {
-            ok: false,
-            code: 'recovery_authorization_unavailable',
-            message: 'wallet recovery authorization is unavailable',
+            ok: true,
+            wrap: result.wrap,
+            entries: result.entries,
+            keyManifest: result.keyManifest,
+            registration: result.registration,
+            reservationId: result.reservationId,
+            reservationExpiresAtMs: result.reservationExpiresAtMs,
+            storeVersion: result.storeVersion,
           },
         });
-      }
-      const keyManifest = await keyManifestWithRecoveryAuthorization({
-        session: ctx.opts.session,
-        walletId,
-        reservationId,
-        reservationExpiresAtMs: result.reservationExpiresAtMs,
-        keyManifest: result.keyManifest,
-      });
-      const ecdsaPossessionChallenges = keyManifest.entries
-        .filter(
-          (entry): entry is WalletRecoveryAuthorizedEcdsaEntry => entry.kind === 'evm_family_ecdsa',
-        )
-        .map((entry) => entry.recoveryBasis.possessionChallenge);
-      const recoveryAuthorizationToken = await ctx.opts.session.signJwt(String(reservationId), {
-        kind: 'wallet_recovery_authorization_v1',
-        walletId,
-        reservationId,
-        authorityRef: result.authorityRef,
-        challengeId,
-        tenantId: authorization.context.session.tenantId,
-        principalId: authorization.context.session.principalId,
-        origin: trimmed(ctx.request.headers.get('origin')),
-        ecdsaPossessionChallenges,
-        ecdsaActivationReceipts: keyManifest.entries
-          .filter(
-            (entry): entry is WalletRecoveryAuthorizedEcdsaEntry =>
-              entry.kind === 'evm_family_ecdsa',
-          )
-          .map((entry) => ({
-            keySetId: entry.keySetId,
-            activationReceipt: entry.recoveryBasis.activationReceipt,
-          })),
-        exp: Math.floor(result.reservationExpiresAtMs / 1000),
-      });
-      return toFetchRouteResponse({
-        status: 200,
-        body: {
-          ok: true,
-          wrap: result.wrap,
-          entries: result.entries,
-          keyManifest,
-          registration: result.registration,
-          authorityRef: result.authorityRef,
-          reservationId: result.reservationId,
-          reservationExpiresAtMs: result.reservationExpiresAtMs,
-          storeVersion: result.storeVersion,
-          recoveryAuthorizationToken,
-        },
-      });
+      case 'conflict':
+        return toFetchRouteResponse({
+          status: 409,
+          body: {
+            ok: false,
+            code: 'recovery_set_conflict',
+            message: 'the recovery set changed during this attempt',
+          },
+        });
+      case 'refused':
+        return toFetchRouteResponse(refusedSpend());
+      case 'manifest_unavailable':
+      case 'registration_unavailable':
+        return toFetchRouteResponse({
+          status: 409,
+          body: {
+            ok: false,
+            code: 'recovery_preparation_conflict',
+            message: 'wallet recovery could not be prepared',
+          },
+        });
     }
-    case 'conflict':
-      /* 409, and retryable: another attempt committed against the version this
-         one read. The code may still be good. */
-      return toFetchRouteResponse({
-        status: 409,
-        body: {
-          ok: false,
-          code: 'recovery_set_conflict',
-          message: 'the recovery set changed during this attempt; try again',
-        },
-      });
-    case 'refused':
-      return toFetchRouteResponse(refusedSpend());
-    case 'manifest_unavailable':
-      return toFetchRouteResponse({
-        status: 409,
-        body: {
-          ok: false,
-          code: 'recovery_manifest_unavailable',
-          message: result.reason,
-        },
-      });
-    case 'registration_unavailable':
-      return toFetchRouteResponse({
-        status: 409,
-        body: {
-          ok: false,
-          code: 'recovery_registration_unavailable',
-          message: result.reason,
-        },
-      });
+  } finally {
+    recoveryCodeBytes.fill(0);
   }
 }
-
 function refusedSpend() {
   return {
     status: 401,
@@ -1086,52 +948,6 @@ function refusedSpend() {
       message: 'that recovery code cannot be used',
     },
   };
-}
-
-async function resolveBootstrapRecoveryAuthorization(
-  ctx: FetchRouterApiContext,
-  input: {
-    readonly walletId: string;
-    readonly orgId: string;
-    readonly reservationId: RecoveryCodeReservationId;
-    readonly challengeId: string;
-    readonly recoveryBootstrapGrant: string;
-  },
-) {
-  const consumed = await ctx.service.emailOtp.consumeEmailOtpWalletRecoveryBootstrap({
-    recoveryBootstrapGrant: input.recoveryBootstrapGrant,
-    walletId: input.walletId,
-    orgId: input.orgId,
-  });
-  if (!consumed.ok) {
-    return {
-      ok: false as const,
-      status: 401,
-      code: consumed.code,
-      message: consumed.message,
-    };
-  }
-  if (consumed.challengeId !== input.challengeId) {
-    return {
-      ok: false as const,
-      status: 401,
-      code: 'recovery_bootstrap_grant_binding_mismatch',
-      message: 'Recovery bootstrap grant is invalid or expired',
-    };
-  }
-  return await resolveWalletRecoveryBootstrapAuthorizationContext({
-    grant: consumed,
-    reservationId: input.reservationId,
-    authorizedOperations: ctx.service.authorizedOperations,
-    requestOrigin: trimmed(ctx.request.headers.get('origin')),
-    nowMs: Date.now(),
-  });
-}
-
-function decodeRecoveryCode(value: string): Uint8Array {
-  const normalized = value.replace(/[\s-]/g, '');
-  if (!normalized) throw new Error('empty recovery code');
-  return decodeBase64UrlOrBase64(normalized, 'recoveryCode');
 }
 
 function parseWireRequest(
@@ -1224,34 +1040,20 @@ export async function handleWalletRecoveryFinalize(
   if (!route) throw new Error(`Missing route definition for ${RECOVERY_FINALIZE_ROUTE_ID}`);
   if (!matchesRouteDefinitionRequest(route, ctx.method, ctx.pathname)) return null;
 
-  let requestBody: WalletRecoveryFinalizeBody | null;
+  let requestBody: WalletRecoveryFinalizeBody;
   try {
     requestBody = parseWalletRecoveryFinalizeBody(await readJson(ctx.request));
   } catch {
-    requestBody = null;
-  }
-  if (!requestBody) {
     return toFetchRouteResponse({
       status: 400,
       body: {
         ok: false,
         code: 'invalid_request',
-        message:
-          'recovery finalization needs a wallet, operation id, registration, and replacement envelope',
+        message: 'wallet recovery finalization is invalid',
       },
     });
   }
-  const {
-    walletId,
-    reservationId,
-    challengeId,
-    replacementId,
-    replacedCredentialIdB64u,
-    recoveryAuthorizationToken,
-    webauthnRegistration,
-    replacementEnvelope,
-    ecdsaMaterialPossessionProofs,
-  } = requestBody;
+
   const expectedOrigin = trimmed(ctx.request.headers.get('origin'));
   if (!expectedOrigin) {
     return toFetchRouteResponse({
@@ -1259,118 +1061,47 @@ export async function handleWalletRecoveryFinalize(
       body: {
         ok: false,
         code: 'invalid_origin',
-        message: 'recovery finalization requires the request Origin header',
-      },
-    });
-  }
-
-  const authorization = await resolveWalletRecoveryAuthorizationToken({
-    token: recoveryAuthorizationToken,
-    session: ctx.opts.session,
-    walletId,
-    reservationId,
-    challengeId,
-    authorizedOperations: ctx.service.authorizedOperations,
-    requestOrigin: expectedOrigin,
-    nowMs: Date.now(),
-  });
-  if (!authorization.ok) return authorizationFailure(authorization);
-  const authorizedOperation = authorization.context.existing;
-  if (!authorizedOperation) {
-    return toFetchRouteResponse({
-      status: 403,
-      body: {
-        ok: false,
-        code: 'recovery_authorization_required',
-        message: 'wallet recovery must be prepared with fresh Email OTP authorization',
-      },
-    });
-  }
-  if (authorizedOperation.lifecycle === 'completed') {
-    return authorizedOperationReplay(authorizedOperation);
-  }
-  let ecdsaPossessionChallenges: readonly WalletRecoveryEcdsaPossessionChallengeV1[];
-  let ecdsaActivationReceipts: readonly {
-    readonly keySetId: string;
-    readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
-  }[];
-  try {
-    ecdsaPossessionChallenges = parseTokenEcdsaPossessionChallenges(
-      authorization.context.rawClaims,
-    );
-    ecdsaActivationReceipts = parseTokenEcdsaActivationReceipts(authorization.context.rawClaims);
-  } catch {
-    return toFetchRouteResponse({
-      status: 401,
-      body: {
-        ok: false,
-        code: 'recovery_authorization_invalid',
-        message: 'wallet recovery authorization is invalid',
+        message: 'wallet recovery finalization requires the request Origin header',
       },
     });
   }
 
   const result = await ctx.service.passkeyCustody.finalizeRecovery({
-    walletId,
-    reservationId,
-    challengeId,
-    replacementId,
-    replacedCredentialIdB64u,
-    webauthnRegistration,
+    walletId: requestBody.walletId,
+    reservationId: requestBody.reservationId,
+    challengeId: requestBody.challengeId,
+    replacementId: requestBody.replacementId,
+    webauthnRegistration: requestBody.webauthnRegistration,
     expectedOrigin,
-    replacementEnvelope,
-    authorityRef: authorization.context.authorityRef,
-    ecdsaMaterialPossessionProofs,
-    ecdsaPossessionChallenges,
-    ecdsaActivationReceipts,
+    replacementEnvelope: requestBody.replacementEnvelope,
+    ecdsaMaterialPossessionProofs: requestBody.ecdsaMaterialPossessionProofs,
   });
 
   switch (result.kind) {
     case 'promoted':
-      return await completeWalletRecoveryOperation(ctx, authorizedOperation, {
-        status: 200,
-        body: {
-          ok: true,
-          storeVersion: result.storeVersion,
-          retiredEnvelopeIds: result.retiredEnvelopeIds,
-          /* Surfaced rather than swallowed: the wallet is recovered, but an
-             old credential still opens it and someone has to revoke it. */
-          ...(result.retireFailures ? { retireFailures: result.retireFailures } : {}),
-        },
-      });
-    case 'refused':
-      /* 409: the recovery did not reproduce every key set. Retryable in the
-         sense that finishing the outstanding ones makes it valid — unlike a
-         rejected envelope, which will not become valid by repeating. */
       return toFetchRouteResponse({
-        status: 409,
-        body: { ok: false, code: 'promotion_incomplete', message: result.reason },
+        status: 200,
+        body: { ok: true, storeVersion: result.storeVersion },
       });
     case 'conflict':
       return toFetchRouteResponse({
         status: 409,
-        body: { ok: false, code: 'recovery_conflict', message: result.reason },
+        body: { ok: false, code: 'recovery_conflict', message: 'wallet recovery conflicted' },
       });
+    case 'refused':
     case 'envelope_rejected':
-      return toFetchRouteResponse({
-        status: 400,
-        body: { ok: false, code: 'envelope_rejected', message: result.reason },
-      });
     case 'registration_rejected':
       return toFetchRouteResponse({
         status: 400,
-        body: { ok: false, code: 'registration_rejected', message: result.reason },
+        body: { ok: false, code: 'recovery_rejected', message: 'wallet recovery was rejected' },
       });
   }
 }
-
 type WalletRecoveryFinalizeBody = {
   readonly walletId: WalletId;
-  readonly reservationId: ReturnType<typeof parseRecoveryCodeReservationId>;
+  readonly reservationId: RecoveryCodeReservationId;
   readonly challengeId: string;
   readonly replacementId: string;
-  readonly replacedCredentialIdB64u: string;
-  readonly recoveryAuthorizationToken: string;
   readonly webauthnRegistration: Record<string, unknown>;
   readonly replacementEnvelope: PasskeyCustodyEnvelopeRecord;
   readonly ecdsaMaterialPossessionProofs: readonly {
@@ -1381,59 +1112,38 @@ type WalletRecoveryFinalizeBody = {
 
 function parseWalletRecoveryFinalizeBody(value: unknown): WalletRecoveryFinalizeBody {
   if (!isObject(value)) throw new Error('wallet recovery finalization body must be an object');
-  requireExactFinalizeFields(value);
+  requireExactObjectFields(
+    value,
+    [
+      'walletId',
+      'reservationId',
+      'challengeId',
+      'replacementId',
+      'webauthnRegistration',
+      'replacementEnvelope',
+      'ecdsaMaterialPossessionProofs',
+    ],
+    'wallet recovery finalization',
+  );
   const walletId = parseWalletId(value.walletId);
   if (!walletId.ok) throw new Error('wallet recovery finalization wallet is invalid');
-  const challengeId = requireNonEmptyString(value.challengeId, 'challengeId');
-  const replacementId = requireNonEmptyString(value.replacementId, 'replacementId');
-  const replacedCredentialIdB64u = requireNonEmptyString(
-    value.replacedCredentialIdB64u,
-    'replacedCredentialIdB64u',
-  );
-  const recoveryAuthorizationToken = requireNonEmptyString(
-    value.recoveryAuthorizationToken,
-    'recoveryAuthorizationToken',
-  );
-  const webauthnRegistration = requireObject(value.webauthnRegistration, 'webauthnRegistration');
-  const ecdsaMaterialPossessionProofs = parseEcdsaMaterialPossessionProofs(
-    value.ecdsaMaterialPossessionProofs,
-  );
+  if (!isObject(value.webauthnRegistration)) {
+    throw new Error('wallet recovery finalization registration is invalid');
+  }
   return {
     walletId: walletId.value,
     reservationId: parseRecoveryCodeReservationId(value.reservationId),
-    challengeId,
-    replacementId,
-    replacedCredentialIdB64u,
-    recoveryAuthorizationToken,
-    webauthnRegistration,
+    challengeId: parseRequiredString(value.challengeId, 'challengeId'),
+    replacementId: parseRequiredString(value.replacementId, 'replacementId'),
+    webauthnRegistration: value.webauthnRegistration,
     replacementEnvelope: parsePasskeyCustodyEnvelopeRecord(
       value.replacementEnvelope,
       'walletRecoveryFinalize.replacementEnvelope',
     ),
-    ecdsaMaterialPossessionProofs,
+    ecdsaMaterialPossessionProofs: parseEcdsaMaterialPossessionProofs(
+      value.ecdsaMaterialPossessionProofs,
+    ),
   };
-}
-
-function requireExactFinalizeFields(value: Record<string, unknown>): void {
-  const allowed = new Set([
-    'walletId',
-    'reservationId',
-    'challengeId',
-    'replacementId',
-    'replacedCredentialIdB64u',
-    'recoveryAuthorizationToken',
-    'webauthnRegistration',
-    'replacementEnvelope',
-    'ecdsaMaterialPossessionProofs',
-  ]);
-  for (const field of Object.keys(value)) {
-    if (!allowed.has(field)) {
-      throw new Error(`wallet recovery finalization.${field} is not allowed`);
-    }
-  }
-  if (!allowedKeysArePresent(value, allowed)) {
-    throw new Error('wallet recovery finalization is missing a required field');
-  }
 }
 
 function parseEcdsaMaterialPossessionProofs(value: unknown): readonly {
@@ -1441,25 +1151,16 @@ function parseEcdsaMaterialPossessionProofs(value: unknown): readonly {
   readonly proof: WalletRecoveryEcdsaPossessionProofV1;
 }[] {
   if (!Array.isArray(value)) {
-    throw new Error('wallet recovery finalization.ecdsaMaterialPossessionProofs must be an array');
+    throw new Error('wallet recovery finalization ECDSA proofs must be an array');
   }
   return value.map((item, index) => {
     if (!isObject(item)) {
-      throw new Error(
-        `wallet recovery finalization.ecdsaMaterialPossessionProofs[${index}] must be an object`,
-      );
+      throw new Error(`wallet recovery finalization ECDSA proof ${index} is invalid`);
     }
-    const keys = Object.keys(item).sort();
-    if (keys.length !== 2 || keys[0] !== 'keySetId' || keys[1] !== 'proof') {
-      throw new Error(
-        `wallet recovery finalization.ecdsaMaterialPossessionProofs[${index}] has invalid fields`,
-      );
-    }
+    requireExactObjectFields(item, ['keySetId', 'proof'], `ECDSA proof ${index}`);
     const keySetId = trimmed(item.keySetId);
     if (!/^evm_family_ecdsa:\S+$/.test(keySetId)) {
-      throw new Error(
-        `wallet recovery finalization.ecdsaMaterialPossessionProofs[${index}].keySetId is invalid`,
-      );
+      throw new Error(`wallet recovery finalization ECDSA proof ${index} is invalid`);
     }
     return {
       keySetId,
@@ -1467,77 +1168,6 @@ function parseEcdsaMaterialPossessionProofs(value: unknown): readonly {
     };
   });
 }
-
-function parseTokenEcdsaPossessionChallenges(
-  claims: Record<string, unknown>,
-): readonly WalletRecoveryEcdsaPossessionChallengeV1[] {
-  const raw = claims.ecdsaPossessionChallenges;
-  if (!Array.isArray(raw)) {
-    throw new Error('wallet recovery authorization ECDSA possession challenges are invalid');
-  }
-  return raw.map((challenge) => parseWalletRecoveryEcdsaPossessionChallengeV1(challenge));
-}
-
-function parseTokenEcdsaActivationReceipts(claims: Record<string, unknown>): readonly {
-  readonly keySetId: string;
-  readonly activationReceipt: RouterAbEcdsaRegistrationActivationReceiptV1;
-}[] {
-  const raw = claims.ecdsaActivationReceipts;
-  if (!Array.isArray(raw)) {
-    throw new Error('wallet recovery authorization ECDSA activation receipts are invalid');
-  }
-  return raw.map((item, index) => {
-    if (!isObject(item)) {
-      throw new Error(`wallet recovery authorization ECDSA activation receipt ${index} is invalid`);
-    }
-    const keys = Object.keys(item).sort();
-    if (keys.length !== 2 || keys[0] !== 'activationReceipt' || keys[1] !== 'keySetId') {
-      throw new Error(`wallet recovery authorization ECDSA activation receipt ${index} is invalid`);
-    }
-    const keySetId = trimmed(item.keySetId);
-    if (!/^evm_family_ecdsa:\S+$/.test(keySetId)) {
-      throw new Error(`wallet recovery authorization ECDSA activation receipt ${index} is invalid`);
-    }
-    return {
-      keySetId,
-      activationReceipt: parseRouterAbEcdsaRegistrationActivationReceiptV1(item.activationReceipt),
-    };
-  });
-}
-
-function requireNonEmptyString(value: unknown, field: string): string {
-  if (typeof value !== 'string' || !value.trim()) {
-    throw new Error(`wallet recovery finalization.${field} is required`);
-  }
-  return value.trim();
-}
-
-function requireObject(value: unknown, field: string): Record<string, unknown> {
-  if (!isObject(value)) throw new Error(`wallet recovery finalization.${field} must be an object`);
-  return value;
-}
-
-function allowedKeysArePresent(
-  value: Record<string, unknown>,
-  allowed: ReadonlySet<string>,
-): boolean {
-  for (const field of allowed) {
-    if (!(field in value)) return false;
-  }
-  return true;
-}
-
-function authorizationFailure(input: {
-  readonly status: number;
-  readonly code: string;
-  readonly message: string;
-}): Response {
-  return toFetchRouteResponse({
-    status: input.status,
-    body: { ok: false, code: input.code, message: input.message },
-  });
-}
-
 function authorizedOperationReplay(operation: AuthorizedOperation): Response {
   if (operation.lifecycle !== 'completed') {
     return toFetchRouteResponse({
@@ -1555,32 +1185,6 @@ function authorizedOperationReplay(operation: AuthorizedOperation): Response {
   });
 }
 
-async function completeWalletRecoveryOperation(
-  ctx: FetchRouterApiContext,
-  operation: AuthorizedOperation,
-  result: { readonly status: number; readonly body: Record<string, unknown> },
-): Promise<Response> {
-  const bodyText = JSON.stringify(result.body);
-  await ctx.service.authorizedOperations.completeAuthorizedOperation({
-    operation,
-    result: 'succeeded',
-    response: { status: result.status, contentType: 'application/json', bodyText },
-    completedAtMs: Date.now(),
-  });
-  return new Response(bodyText, {
-    status: result.status,
-    headers: { 'content-type': 'application/json' },
-  });
-}
-
-/**
- * Recording that the owner saved their recovery codes.
- *
- * The one thing this must not do is succeed for a wallet with no recovery
- * set. That would write an acknowledgement covering an issuance that never
- * happened, and the user would never be asked to save the codes they
- * eventually get.
- */
 export async function handleWalletRecoveryBackupAcknowledge(
   ctx: FetchRouterApiContext,
 ): Promise<Response | null> {
