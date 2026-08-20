@@ -1,20 +1,17 @@
 # Refactor 103C — Exact Owner Lane Resolution
 
-Last reconciled: August 20, 2026 (delegated authority and activation scope)
+Last reconciled: August 21, 2026 (additive delegated activation implemented)
 
 ## Status
 
-Exact device-scope resolution, durable device inventory, and the focused
-coverage are implemented. Refactor 103D now owns the remaining activation gap:
-Device 2 must install the exact permission-derived capabilities and secret
-packages for the complete Device 1 signer manifest before the link becomes
-active.
-After R103D lands, the remaining R103C gate is the automated real two-device
-Passkey and Email OTP flow against the composed runtime.
+Exact device-scope resolution, durable device inventory, permission-derived
+Device 2 activation, and focused coverage are implemented. Device 2 installs
+the required capabilities and secret packages for the complete Device 1 signer
+manifest before the link becomes active.
 
-R103C closeout now has two ordered tasks: complete R103D, then run the automated
-real-device gate. Older unchecked phase entries below are implementation
-history rather than an active backlog.
+The remaining R103C gate is the automated real two-device Passkey and Email OTP
+flow against the composed runtime. Older unchecked phase entries below are
+implementation history rather than an active backlog.
 
 R103C fixes device-lane selection after a wallet has more than one human owner
 credential. It also corrects the linked-device inventory source. Refactor 103B
