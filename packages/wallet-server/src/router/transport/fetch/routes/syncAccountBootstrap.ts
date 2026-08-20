@@ -130,6 +130,18 @@ export async function issueSyncAccountBootstrapV1(
     );
   }
 
+  const custodyEnvelope = await resolveCustodyEnvelope(input, walletId, walletBinding);
+  if (custodyEnvelope.kind !== 'active') {
+    const manifestUnavailable = custodyEnvelope.kind === 'manifest_unavailable';
+    return bootstrapError(
+      manifestUnavailable ? 'custody_manifest_unavailable' : `custody_envelope_${custodyEnvelope.kind}`,
+      manifestUnavailable
+        ? 'Wallet custody key manifest is unavailable'
+        : 'Verified passkey has no unique active wallet custody envelope',
+      manifestUnavailable ? 503 : custodyEnvelope.kind === 'conflict' ? 409 : 404,
+    );
+  }
+
   const principalId = parsePrincipalId(walletId);
   if (!principalId.ok) {
     return bootstrapError('internal', 'Verified passkey Wallet Session identity is invalid', 500);
@@ -169,18 +181,6 @@ export async function issueSyncAccountBootstrapV1(
   });
   if (!walletSession.ok) {
     return bootstrapError(walletSession.code, walletSession.message, 500);
-  }
-
-  const custodyEnvelope = await resolveCustodyEnvelope(input, walletId, walletBinding);
-  if (custodyEnvelope.kind !== 'active') {
-    const manifestUnavailable = custodyEnvelope.kind === 'manifest_unavailable';
-    return bootstrapError(
-      manifestUnavailable ? 'custody_manifest_unavailable' : `custody_envelope_${custodyEnvelope.kind}`,
-      manifestUnavailable
-        ? 'Wallet custody key manifest is unavailable'
-        : 'Verified passkey has no unique active wallet custody envelope',
-      manifestUnavailable ? 503 : custodyEnvelope.kind === 'conflict' ? 409 : 404,
-    );
   }
 
   const ecdsaSigners = await ctx.service.walletRegistration.listWalletEcdsaCustodyContinuity({

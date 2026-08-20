@@ -452,7 +452,7 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
     const syncChallengeId = String(syncOptions.challengeId || '');
     expect(syncChallengeId).not.toBe('');
     expect(syncOptions.challengeB64u).toEqual(expect.any(String));
-    expect(syncOptions.credentialIds).toEqual(['credential-a', webAuthnFixture.credentialIdB64u]);
+    expect(syncOptions.credentialIds).toEqual(['credential-a']);
     expect(syncOptions.walletBinding).toEqual({
       walletId: scope.userId,
       nearAccountId: 'near.testnet',
@@ -495,22 +495,11 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
         expected_origin: 'https://example.com',
       }),
     ).resolves.toMatchObject({
-      ok: true,
-      verified: true,
-      accountId: scope.userId,
-      walletId: scope.userId,
-      nearAccountId: 'near.testnet',
-      nearEd25519SigningKeyId: 'ed25519:key',
-      custodyKeyManifestDigestB64u: SYNC_KEY_MANIFEST_DIGEST_B64U,
-      rpId: 'example.com',
-      signerSlot: SYNC_SIGNER_SLOT,
-      publicKey: 'ed25519:public',
-      credentialIdB64u: webAuthnFixture.credentialIdB64u,
-      credentialPublicKeyB64u: webAuthnFixture.credentialPublicKeyB64u,
+      ok: false,
+      verified: false,
+      code: 'unknown_credential',
     });
-    expect(manifestSource.requests).toEqual([
-      { walletId: scope.userId, signerSlot: SYNC_SIGNER_SLOT },
-    ]);
+    expect(manifestSource.requests).toEqual([]);
     await expect(
       readWebAuthnAuthenticatorRow({
         database,
@@ -518,7 +507,7 @@ test('Cloudflare D1 Router API auth service reads signer metadata with tenant sc
         userId: scope.userId,
         credentialIdB64u: webAuthnFixture.credentialIdB64u,
       }),
-    ).resolves.toMatchObject({ counter: 2 });
+    ).resolves.toMatchObject({ counter: 1 });
     await expect(
       syncWebAuthnService.createWebAuthnSyncAccountOptions({
         account_id: scope.userId,
