@@ -252,9 +252,20 @@ function findMethodDeclarationAndBody(source, methodName) {
   return bodyBlock ? source.slice(methodStart, bodyOpenIndex) + bodyBlock : null;
 }
 
-function expectRequiredFields(block, fields, context) {
+function expectRequiredFields(block, fields, context, options = {}) {
+  // `defaultable` fields must still be DECLARED — the point of this check is
+  // that an ECDSA input is addressed by a wallet session and by nothing else —
+  // but they may be optional, in which case the SDK fills them from the
+  // authenticated wallet. Declaring them optional does not open an alternative
+  // subject: the `forbidden` list and the nearAccountId check below still run.
+  const defaultable = new Set(options.defaultable || []);
   return fields
-    .filter((field) => !new RegExp(`\\b${field}\\s*(?::|,)`).test(block))
+    .filter((field) => {
+      const pattern = defaultable.has(field)
+        ? new RegExp(`\\b${field}\\s*(?:\\?:|:|,)`)
+        : new RegExp(`\\b${field}\\s*(?::|,)`);
+      return !pattern.test(block);
+    })
     .map((field) => `${context} is missing required ${field}`);
 }
 
@@ -824,6 +835,10 @@ function checkPublicSdkEcdsaInputsStayWalletSessionShaped() {
     {
       name: 'SignTempoArgs',
       required: ['walletSession', 'chainTarget'],
+      // `walletSession` may be omitted, in which case the SDK resolves the
+      // AUTHENTICATED wallet (never the mutable `preferences` current-wallet
+      // pointer). No alternative subject field is permitted either way.
+      defaultable: ['walletSession'],
       forbidden: ['subjectId', 'runtimePolicyScope', 'signingRootId', 'signingRootVersion'],
       allowNeverTripwire: true,
     },
@@ -837,6 +852,7 @@ function checkPublicSdkEcdsaInputsStayWalletSessionShaped() {
       name: 'ExecuteEvmFamilyTransactionArgs',
       declarationNames: ['ExecuteEvmFamilyTransactionBaseArgs', 'ExecuteEvmFamilyTransactionArgs'],
       required: ['walletSession', 'chainTarget'],
+      defaultable: ['walletSession'],
       forbidden: ['subjectId', 'runtimePolicyScope', 'signingRootId', 'signingRootVersion'],
       allowNeverTripwire: true,
     },
@@ -889,7 +905,9 @@ function checkPublicSdkEcdsaInputsStayWalletSessionShaped() {
       .map((name) => findTypeDeclaration(declarationSource, name))
       .join('\n');
     offenders.push(
-      ...expectRequiredFields(block, declaration.required, declaration.name),
+      ...expectRequiredFields(block, declaration.required, declaration.name, {
+        defaultable: declaration.defaultable,
+      }),
       ...declaration.forbidden.flatMap((field) => expectNoField(block, field, declaration.name)),
       ...expectNoNearAccountId(block, declaration.name, {
         allowNeverTripwire: declaration.allowNeverTripwire,

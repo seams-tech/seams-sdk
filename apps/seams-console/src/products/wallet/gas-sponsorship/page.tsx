@@ -13,6 +13,7 @@ import {
   DashboardTable,
   DashboardTableActionButton,
   DashboardTableActionGroup,
+  DashboardTableActionMenu,
   DashboardTableCell,
   DashboardTableHeader,
   DashboardTableHeaderCell,
@@ -21,7 +22,13 @@ import {
   dashboardTableColumns,
   useDashboardTablePagination,
 } from '@core/dashboard/components/DashboardTable';
+import { FuelIcon } from '@core/dashboard/icons/SidebarIcons';
+import {
+  clearDashboardCreateIntent,
+  readDashboardCreateIntent,
+} from '@core/dashboard/utils/routeCreateIntent';
 import { DashboardInlineModal } from '@core/dashboard/components/DashboardInlineModal';
+import { DashboardPageActions } from '@core/dashboard/components/DashboardPageActions';
 import { listDashboardEnvironments, listDashboardProjects } from '@core/dashboard/consoleContextApi';
 import { canDashboardEditProject, useDashboardConsoleSession } from '@core/dashboard/consoleSession';
 import { useSessionDraft } from '@core/dashboard/drafts/useSessionDraft';
@@ -100,7 +107,7 @@ const GAS_MAINNET_TARGET_IDS = GAS_CHAIN_TARGETS.filter(
 const GAS_TESTNET_TARGET_IDS = GAS_CHAIN_TARGETS.filter(
   (target) => target.networkClass === 'TESTNET',
 ).map((target) => target.id);
-const GAS_SPONSORSHIP_TABLE_COLUMNS = dashboardTableColumns(1.25, 1.05, 1, 1.1, 0.85, 1.1);
+const GAS_SPONSORSHIP_TABLE_COLUMNS = dashboardTableColumns(2.1, 1.05, 1, 0.9, 0.95);
 const SPEND_CAP_DECIMAL_FORMATTERS = new Map<number, Intl.NumberFormat>();
 
 type GasSponsorshipFormState = {
@@ -177,7 +184,7 @@ function createEmptyNearDelegateActionDraft(): GasNearDelegateActionDraft {
 }
 
 function formatTimestamp(value: string): string {
-  return formatDashboardTimestamp(value, '-');
+  return formatDashboardTimestamp(value, '—');
 }
 
 function normalizeSpendCapDisplayDecimals(value: number): number {
@@ -1278,6 +1285,18 @@ export function GasSponsorshipPage(): React.JSX.Element {
     setMutationNotice('');
   }, [selectedEnvironmentId, selectedOrgId, selectedProjectId]);
 
+  /* Opened from the rail's "+": wait for scope and permissions to resolve, then
+     open once and drop the param so a reload does not reopen the dialog. */
+  const createIntentHandledRef = React.useRef(false);
+  React.useEffect(() => {
+    if (createIntentHandledRef.current) return;
+    if (!readDashboardCreateIntent()) return;
+    if (!canMutatePolicy) return;
+    createIntentHandledRef.current = true;
+    clearDashboardCreateIntent();
+    openCreateModal();
+  }, [canMutatePolicy, openCreateModal]);
+
   const onEditPolicy = React.useCallback(
     (policy: DashboardGasSponsorshipPolicy) => {
       setEditingPolicyId(policy.id);
@@ -1763,8 +1782,8 @@ export function GasSponsorshipPage(): React.JSX.Element {
             className="dashboard-view__section dashboard-view__section--plain dashboard-gas-sponsorship-view__policies"
             aria-label="Gas sponsorship policies"
           >
-            <div className="dashboard-section-toolbar">
-              <h2>Gas Sponsorship Policies</h2>
+            <h2>Policies</h2>
+            <DashboardPageActions>
               <button
                 type="button"
                 className="dashboard-pagination-button dashboard-pagination-button--primary"
@@ -1773,7 +1792,7 @@ export function GasSponsorshipPage(): React.JSX.Element {
               >
                 Create policy
               </button>
-            </div>
+            </DashboardPageActions>
             <DashboardTable
               ariaLabel="Gas sponsorship rows"
               className="dashboard-gas-sponsorship-table"
@@ -1784,7 +1803,6 @@ export function GasSponsorshipPage(): React.JSX.Element {
                 <DashboardTableHeaderCell>Policy</DashboardTableHeaderCell>
                 <DashboardTableHeaderCell>Behavior</DashboardTableHeaderCell>
                 <DashboardTableHeaderCell>Spend cap</DashboardTableHeaderCell>
-                <DashboardTableHeaderCell>Rules</DashboardTableHeaderCell>
                 <DashboardTableHeaderCell>Updated</DashboardTableHeaderCell>
                 <DashboardTableHeaderCell>Actions</DashboardTableHeaderCell>
               </DashboardTableHeader>
@@ -1802,30 +1820,46 @@ export function GasSponsorshipPage(): React.JSX.Element {
                       }`}
                       key={policy.id}
                     >
-                      <DashboardTableCell title={policy.id}>
-                        <span className="dashboard-gas-sponsorship-table__policy-cell">
-                          <strong className="dashboard-data-table__summary">
-                            {policy.name || policy.id}
-                          </strong>
-                          <span
-                            className={`dashboard-data-table__badge ${
-                              enabled
-                                ? 'dashboard-data-table__badge--success'
-                                : 'dashboard-data-table__badge--neutral'
-                            }`}
-                          >
-                            {enabled ? 'Enabled' : 'Disabled'}
+                      <DashboardTableCell
+                        title={`${policy.name || policy.id} · ${formatAllowedRuleSummary(policy)}`}
+                        className="dashboard-data-table__cell--lead"
+                      >
+                        <div className="dashboard-lead">
+                          <span className="dashboard-lead__icon" aria-hidden="true">
+                            <FuelIcon size={16} />
                           </span>
-                        </span>
+                          <span className="dashboard-lead__copy">
+                            <span className="dashboard-lead__title">
+                              <span className="dashboard-data-table__summary">
+                                {policy.name || policy.id}
+                              </span>
+                              <span
+                                className={`dashboard-data-table__badge ${
+                                  enabled
+                                    ? 'dashboard-data-table__badge--success'
+                                    : 'dashboard-data-table__badge--neutral'
+                                }`}
+                              >
+                                {enabled ? 'Enabled' : 'Disabled'}
+                              </span>
+                            </span>
+                            <span className="dashboard-lead__sub">
+                              {formatAllowedRuleSummary(policy)}
+                            </span>
+                          </span>
+                        </div>
                       </DashboardTableCell>
-                      <DashboardTableCell title={formatRuleSummary(policy)}>
+                      <DashboardTableCell
+                        title={formatRuleSummary(policy)}
+                        className="dashboard-data-table__cell--nowrap"
+                      >
                         {formatRuleSummary(policy)}
                       </DashboardTableCell>
-                      <DashboardTableCell title={formatSpendCapSummary(policy)}>
+                      <DashboardTableCell
+                        title={formatSpendCapSummary(policy)}
+                        className="dashboard-data-table__cell--nowrap"
+                      >
                         {formatSpendCapSummary(policy)}
-                      </DashboardTableCell>
-                      <DashboardTableCell title={formatAllowedRuleSummary(policy)}>
-                        {formatAllowedRuleSummary(policy)}
                       </DashboardTableCell>
                       <DashboardTableCell truncate>
                         {formatTimestamp(policy.updatedAt)}
@@ -1838,24 +1872,27 @@ export function GasSponsorshipPage(): React.JSX.Element {
                           >
                             View
                           </DashboardTableActionButton>
-                          <DashboardTableActionButton
-                            onClick={() => onEditPolicy(policy)}
-                            disabled={mutating}
-                          >
-                            Edit
-                          </DashboardTableActionButton>
-                          <DashboardTableActionButton
-                            onClick={() => onToggleEnabled(policy)}
-                            disabled={!canMutatePolicy || mutating}
-                          >
-                            {enabled ? 'Disable' : 'Enable'}
-                          </DashboardTableActionButton>
-                          <DashboardTableActionButton
-                            onClick={() => onDeletePolicy(policy)}
-                            disabled={!canMutatePolicy || mutating}
-                          >
-                            Delete
-                          </DashboardTableActionButton>
+                          <DashboardTableActionMenu
+                            ariaLabel={`More actions for ${policy.name || policy.id}`}
+                            items={[
+                              {
+                                label: 'Edit',
+                                onSelect: () => onEditPolicy(policy),
+                                disabled: mutating,
+                              },
+                              {
+                                label: enabled ? 'Disable' : 'Enable',
+                                onSelect: () => onToggleEnabled(policy),
+                                disabled: !canMutatePolicy || mutating,
+                              },
+                              {
+                                label: 'Delete',
+                                onSelect: () => onDeletePolicy(policy),
+                                tone: 'danger' as const,
+                                disabled: !canMutatePolicy || mutating,
+                              },
+                            ]}
+                          />
                         </DashboardTableActionGroup>
                       </DashboardTableCell>
                     </DashboardTableRow>

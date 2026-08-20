@@ -5,18 +5,15 @@ import {
   type WalletSessionAuthorizationTokenBundle,
 } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type {
-  ThresholdEcdsaSessionId,
-  ThresholdEd25519SessionId,
-} from '@shared/utils/domainIds';
+import type { ThresholdEcdsaSessionId, ThresholdEd25519SessionId } from '@shared/utils/domainIds';
 import { parseThresholdEcdsaSessionId } from '@shared/utils/domainIds';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import type {
   MpcWalletSigningQuotaId,
-  WalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
 import { parseWalletSessionAuthorizationId } from '@shared/authorization/capabilityKinds';
+import type { ReusableWalletSessionAuthorizationId } from '@/core/types/seams';
 import type { WalletAuthMethod } from '@shared/utils/signerDomain';
 import type { WalletAuthAuthorityRef } from '@shared/utils/walletAuthAuthority';
 import { requireOpaqueWalletSessionToken } from '@shared/utils/sessionTokens';
@@ -29,7 +26,7 @@ export type WalletSessionAuthorizationProjectionWriter = Pick<
 
 type WalletSessionAuthorizationCurvePersistenceInputBase = {
   readonly walletId: WalletId;
-  readonly authorizationId: WalletSessionAuthorizationId;
+  readonly authorizationId: ReusableWalletSessionAuthorizationId;
   readonly walletSessionId: WalletSessionId;
   readonly quotaId: MpcWalletSigningQuotaId;
   readonly expiresAtMs: number;
@@ -122,12 +119,16 @@ function registrationSessionTokenBundle(
         kind: 'near_ed25519_and_evm_family_ecdsa',
         ed25519: {
           authorizationId: session.authorizationId,
-          walletSessionToken: requireOpaqueWalletSessionToken(session.tokens.ed25519.walletSessionToken),
+          walletSessionToken: requireOpaqueWalletSessionToken(
+            session.tokens.ed25519.walletSessionToken,
+          ),
           thresholdSessionId: session.tokens.ed25519.thresholdSessionId,
         },
         ecdsa: {
           authorizationId: session.authorizationId,
-          walletSessionToken: requireOpaqueWalletSessionToken(session.tokens.ecdsa.walletSessionToken),
+          walletSessionToken: requireOpaqueWalletSessionToken(
+            session.tokens.ecdsa.walletSessionToken,
+          ),
           thresholdSessionId: session.tokens.ecdsa.thresholdSessionId,
         },
       };
@@ -170,9 +171,7 @@ export async function persistActiveWalletSessionAuthorizationFromEcdsaBootstrap(
   },
 ): Promise<ActiveWalletSessionAuthorizationProjection> {
   const session = args.bootstrap.session;
-  const authorizationId = parseWalletSessionAuthorizationId(
-    String(session.authorizationSessionId),
-  );
+  const authorizationId = parseWalletSessionAuthorizationId(String(session.authorizationSessionId));
   if (!authorizationId.ok) {
     throw new Error('ECDSA bootstrap returned an invalid Wallet Session authorization id');
   }

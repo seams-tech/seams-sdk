@@ -16,9 +16,9 @@ import { signingLaneAuthMethod, type OwnerLaneScope } from '../identity/signingL
 import type { SigningSessionSealAuthMethod } from '@shared/utils/signingSessionSeal';
 import type {
   MpcWalletSigningQuotaId,
-  WalletSessionAuthorizationId,
   WalletSessionId,
 } from '@shared/authorization/capabilityKinds';
+import type { ReusableWalletSessionAuthorizationId } from '@/core/types/seams';
 import { walletSessionAuthorizationIdForCurve } from '@/core/indexedDB/seamsWalletDB/walletSessionAuthorizationStore';
 
 export type RuntimePostconditionSource = 'registration_finalize' | 'wallet_unlock';
@@ -51,7 +51,7 @@ export type UsableRuntimeLane =
       state: RuntimePostconditionLaneState;
       authMethod: SigningSessionSealAuthMethod;
       target: { curve: 'ecdsa'; chainTarget: ThresholdEcdsaChainTarget };
-      authorizationId: WalletSessionAuthorizationId;
+      authorizationId: ReusableWalletSessionAuthorizationId;
       materialActivationId: string;
       remainingSignatureUses: number;
       expiresAtMs: number;

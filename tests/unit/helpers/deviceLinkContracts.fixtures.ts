@@ -188,7 +188,8 @@ export function buildR103OwnerEnrollmentCeremonyV1(
 
 /**
  * The Email OTP branch of the ceremony: the server-resolved base factor and
- * masked destination hint, restating the approval expiry. The base auth-method
+ * normalized destination identity, restating the approval expiry. The wire
+ * field retains its historical name. The base auth-method
  * id follows the canonical wallet-wide `email_otp:<wallet>:<hash>` form so the
  * derived-identity checks exercise real derivations rather than test tokens.
  */
@@ -206,7 +207,7 @@ export function buildR103EmailOtpOwnerEnrollmentCeremonyV1(
     kind: 'linked_device_email_otp_owner_enrollment_v1',
     targetFactor: { kind: 'email_otp' },
     baseWalletAuthMethodId: `email_otp:${walletId}:${emailHashHex}`,
-    maskedEmailHint: overrides.maskedEmailHint ?? 'd***e@e***e.test',
+    maskedEmailHint: overrides.maskedEmailHint ?? 'device@example.test',
     expiresAtMs: overrides.expiresAtMs ?? 20_000,
   });
 }

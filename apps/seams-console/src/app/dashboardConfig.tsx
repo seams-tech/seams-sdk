@@ -74,6 +74,7 @@ const gasSponsorshipItem: SidebarItem = {
   path: '/dashboard/gas-sponsorship',
   icon: FuelIcon,
   component: GasSponsorshipPage,
+  createLabel: 'New gas sponsorship policy',
 };
 
 const walletsListItem: SidebarItem = {
@@ -91,6 +92,7 @@ const securityControlItems: SidebarItem[] = [
     path: '/dashboard/policy-engine',
     icon: ScaleIcon,
     component: PolicyEnginePage,
+    createLabel: 'New policy',
   },
 ];
 

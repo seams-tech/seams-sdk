@@ -1,36 +1,20 @@
-import type { SigningFlowEvent } from '@seams/wallet';
-import { ActionType, TxExecutionStatus, useSeams } from '@seams/wallet/react';
-import { nearAccountRefFromAccountId, walletSessionRefFromSession } from '@seams/wallet/advanced';
+import { functionCall, logWalletEvents, TxExecutionStatus, useWallet } from '@seams/wallet/react';
 
 export function SetGreetingButton() {
-  const { seams, loginState } = useSeams();
+  // `near` is null when nobody is signed in, and when the signed-in wallet has
+  // no NEAR account yet. One check covers both; read `status` to tell them apart.
+  const { near } = useWallet();
+  if (!near) return null;
 
   const onSign = async (): Promise<void> => {
-    if (!loginState.walletId || !loginState.nearAccountId) {
-      throw new Error('Create or open a wallet with a NEAR account before signing');
-    }
-
     // Each request opens the wallet confirmation, where the user approves this
     // transaction with the wallet's auth method.
-    await seams.near.signAndSendTransaction({
-      walletSession: walletSessionRefFromSession({
-        walletId: loginState.walletId,
-        walletSessionUserId: loginState.walletId,
-      }),
-      nearAccount: nearAccountRefFromAccountId(loginState.nearAccountId),
+    await near.signAndSendTransaction({
       receiverId: 'guest-book.testnet',
-      actions: [
-        {
-          type: ActionType.FunctionCall,
-          methodName: 'set_greeting',
-          args: { greeting: 'Hello from Seams' },
-          gas: '30000000000000',
-          deposit: '0',
-        },
-      ],
+      actions: [functionCall({ method: 'set_greeting', args: { greeting: 'Hello from Seams' } })],
       options: {
         waitUntil: TxExecutionStatus.EXECUTED_OPTIMISTIC,
-        onEvent: (event: SigningFlowEvent) => console.log(event.phase, event.status, event.message),
+        onEvent: logWalletEvents(),
       },
     });
   };

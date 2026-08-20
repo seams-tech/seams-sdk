@@ -5,6 +5,8 @@ import {
   thresholdEcdsaChainTargetFromConfig,
   thresholdEcdsaChainTargetKey,
   toWalletId,
+  type ThresholdEcdsaChainTarget,
+  type WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   ExecuteEvmFamilyTransactionArgs,
@@ -22,6 +24,8 @@ import type {
   TempoNonceLifecycleEvent,
 } from '@/SeamsWeb/signingSurface/types';
 import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
+import type { EvmSigningRequest } from '@/core/signingEngine/chains/evm/evmSigning.types';
+import type { TempoSigningRequest } from '@/core/signingEngine/chains/tempo/tempoSigning.types';
 import type { TempoSignedResult } from '@/core/signingEngine/chains/tempo/tempoAdapter';
 import {
   createSigningFlowEvent,
@@ -29,12 +33,40 @@ import {
   type CreateSigningFlowEventInput,
 } from '@/core/types/sdkSentEvents';
 
+/**
+ * Internal lifecycle args. The public `chainTarget` accepts a selector; it is
+ * resolved to an exact target by the capability before the lifecycle runs, so
+ * everything below this line always sees a concrete chain.
+ */
 export type EvmFamilyTransactionSignArgs = {
-  walletSession: ExecuteEvmFamilyTransactionArgs['walletSession'];
-  request: ExecuteEvmFamilyTransactionArgs['request'];
-  chainTarget: ExecuteEvmFamilyTransactionArgs['chainTarget'];
+  walletSession: WalletSessionRef;
+  request: EvmSigningRequest | TempoSigningRequest;
+  chainTarget: ThresholdEcdsaChainTarget;
   options?: ExecuteEvmFamilyTransactionArgs['options'];
 };
+
+/**
+ * Fills `tx.chainId` from the chain the caller already named.
+ *
+ * The execute path takes it as optional because `chainTarget` is authoritative;
+ * everything below this point wants a concrete request. A supplied value that
+ * disagrees with the target is a bug, so it is rejected rather than overwritten.
+ */
+export function withResolvedChainId(
+  request: ExecuteEvmFamilyTransactionArgs['request'],
+  chainTarget: ThresholdEcdsaChainTarget,
+): EvmSigningRequest | TempoSigningRequest {
+  const declared = request.tx.chainId;
+  if (declared !== undefined && Number(declared) !== chainTarget.chainId) {
+    throw new Error(
+      `[evm-family] request tx.chainId ${declared} does not match chain target ${thresholdEcdsaChainTargetKey(chainTarget)}`,
+    );
+  }
+  return {
+    ...request,
+    tx: { ...request.tx, chainId: chainTarget.chainId },
+  } as EvmSigningRequest | TempoSigningRequest;
+}
 
 type TempoLifecycleDeps = {
   signEvmFamily(args: EvmFamilyTransactionSignArgs): Promise<TempoSignedResult | EvmSignedResult>;
@@ -345,7 +377,7 @@ function payloadExpectationMatchesObservation(args: {
 
 export function resolveEvmFamilyRpcUrl(args: {
   chains: readonly SeamsChainConfig[];
-  chainTarget: ExecuteEvmFamilyTransactionArgs['chainTarget'];
+  chainTarget: ThresholdEcdsaChainTarget;
 }): string {
   const targetKey = thresholdEcdsaChainTargetKey(args.chainTarget);
   const compatible = args.chains.filter((chain) => {
@@ -435,7 +467,7 @@ async function verifyFinalizedPayload(args: {
 
 async function reportBroadcastFailure(args: {
   lifecycle: TempoLifecycleDeps;
-  walletSession: ExecuteEvmFamilyTransactionArgs['walletSession'];
+  walletSession: WalletSessionRef;
   signedResult: TempoSignedResult | EvmSignedResult;
   error: unknown;
   broadcastAccepted: boolean;
@@ -507,15 +539,29 @@ function assertRawTxHexOrThrow(value: unknown): `0x${string}` {
 }
 
 function ensurePayloadExpectation(
-  args: ExecuteEvmFamilyTransactionArgs,
+  args: ResolvedExecuteEvmFamilyTransactionArgs,
 ): FinalizedEvmTxPayloadExpectation {
   return args.payloadExpectation ?? payloadExpectationFromRequest(args.request);
 }
 
+/**
+ * `ExecuteEvmFamilyTransactionArgs` after its chain selector has been resolved.
+ * Distributed over the union so the `request`/`payloadExpectation` arms stay paired.
+ */
+type WithResolvedSubject<T> = T extends unknown
+  ? Omit<T, 'chainTarget' | 'walletSession' | 'request'> & {
+      chainTarget: ThresholdEcdsaChainTarget;
+      walletSession: WalletSessionRef;
+      request: EvmSigningRequest | TempoSigningRequest;
+    }
+  : never;
+export type ResolvedExecuteEvmFamilyTransactionArgs =
+  WithResolvedSubject<ExecuteEvmFamilyTransactionArgs>;
+
 export async function executeEvmFamilyTransactionLifecycle(args: {
   lifecycle: TempoLifecycleDeps;
   chains: readonly SeamsChainConfig[];
-  input: ExecuteEvmFamilyTransactionArgs;
+  input: ResolvedExecuteEvmFamilyTransactionArgs;
 }): Promise<ExecuteEvmFamilyTransactionResult> {
   const onEvent = args.input.options?.onEvent;
   const walletId = toWalletId(args.input.walletSession.walletId);

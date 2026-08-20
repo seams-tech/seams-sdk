@@ -15,19 +15,27 @@ and approves the new device.
 
 <<< ../examples/device-linking.tsx
 
-`useDeviceLinking` reports progress through `onEvent` and failures through
-`onError`. Expire an abandoned link session and request a fresh code instead of
-reusing an old QR payload.
+`ShowQRCode` owns the Device 2 side end to end: it starts the link session,
+displays the code, and cancels an abandoned session on close. `useDeviceLinking`
+runs the Device 1 side and reports progress through `onEvent` and failures
+through `onError`. Request a fresh code instead of reusing an old QR payload.
 
 ## Export a key
 
-Resolve the exact export lane, then open the wallet-origin export viewer from a
-freshly authorized action.
+`exportKeypair` resolves the exact export lane and opens the wallet-origin
+export viewer in one call, from a freshly authorized action.
 
 <<< ../examples/export-wallet.ts
 
-Ed25519 export requires the matching NEAR account and `materialActivation` from
-lane resolution. ECDSA export uses the matching threshold-ECDSA chain target.
+Ed25519 export uses the wallet's NEAR account; ECDSA export names a configured
+chain. Both default to the signed-in wallet — pass `walletSession`,
+`nearAccount`, or `chainTarget` to name an exact one.
+
+Check the outcome: `relink_required` means this device has no canonical owner
+binding, so route the person through device linking rather than showing a
+generic error. Use `resolveExactKeyExportLane` and `exportKeypairWithUI`
+directly when you want to check export availability before opening the viewer.
+
 Never place the returned key material in logs, URLs, or application analytics.
 
 ## Recover a wallet account

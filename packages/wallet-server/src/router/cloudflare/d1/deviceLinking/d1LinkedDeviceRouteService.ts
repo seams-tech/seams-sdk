@@ -48,6 +48,9 @@ import {
   computeLinkedDeviceWalletSessionRenewalIntentDigestV1,
   linkedDeviceWalletSessionRenewalAuthorizedOperationIdV1,
 } from '@shared/device-linking/digests';
+import { routerAbMpcMaterialActivationRefFromWire } from '@shared/utils/routerAbNormalSigningIdentity';
+import { ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND } from '@shared/utils/signingSessionSeal';
+import { parseNearAccountId } from '@shared/utils/near';
 
 export type D1LinkedDeviceRouteServiceOptionsV1 = {
   readonly database: D1DatabaseLike;
@@ -301,6 +304,7 @@ export function createD1LinkedDeviceRouteServiceV1(
       undefined,
       walletStore,
     ),
+    resolveEd25519OwnerActivationV1: resolveEd25519OwnerActivationV1.bind(undefined, walletStore),
     retryCommittedDeliveryV1: completion.retry.retryCommittedDeliveryV1.bind(completion.retry),
     operatorRecovery: options.operatorRecovery,
     provisioning: options.provisioning,
@@ -314,6 +318,55 @@ async function resolveNearAccountIdForEd25519WalletKeyV1(
   input: Parameters<DeviceLinkingRouteServiceV1['resolveNearAccountIdForEd25519WalletKeyV1']>[0],
 ): Promise<string> {
   return (await requireCanonicalEd25519SignerV1(walletStore, input.walletId)).nearAccountId;
+}
+
+async function resolveEd25519OwnerActivationV1(
+  walletStore: D1WalletStore,
+  input: Parameters<DeviceLinkingRouteServiceV1['resolveEd25519OwnerActivationV1']>[0],
+): ReturnType<DeviceLinkingRouteServiceV1['resolveEd25519OwnerActivationV1']> {
+  const signer = await requireCanonicalEd25519SignerV1(walletStore, input.walletId);
+  const expectedWalletKeyId = `wallet-key:ed25519:${signer.walletId}:${signer.nearEd25519SigningKeyId}`;
+  if (String(input.walletKeyId) !== expectedWalletKeyId) {
+    throw new Error('linked-device Ed25519 owner activation names another wallet key');
+  }
+  const capability = signer.activeYaoCapability;
+  const nearAccountId = parseNearAccountId(signer.nearAccountId);
+  if (!nearAccountId.ok) {
+    throw new Error('linked-device Ed25519 owner activation has an invalid NEAR account');
+  }
+  return {
+    kind: 'present',
+    nearAccountId: nearAccountId.value,
+    nearEd25519SigningKeyId: signer.nearEd25519SigningKeyId,
+    signerSlot: signer.signerSlot,
+    signingWorkerId: signer.signingWorkerId,
+    thresholdSessionId: signer.thresholdSessionId,
+    signingRootId: signer.signingRootId,
+    signingRootVersion: signer.signingRootVersion,
+    walletSessionToken: input.walletSessionToken,
+    runtimePolicyScope: signer.runtimePolicyScope,
+    routerAbNormalSigning: {
+      kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
+      signingWorkerId: signer.signingWorkerId,
+    },
+    recoveryBasis: {
+      materialActivation: routerAbMpcMaterialActivationRefFromWire(
+        capability.activationResult.public_receipt.material_activation,
+      ),
+      activeCapabilityBinding: capability.activeCapabilityBinding,
+      registeredPublicKey: capability.activationResult.public_receipt.registered_public_key,
+      applicationBinding: capability.admissionRequest.application_binding,
+      participantIds: signer.participantIds,
+      lifecycle: {
+        lifecycleId: capability.admissionRequest.scope.lifecycle_id,
+        rootShareEpoch: capability.admissionRequest.scope.root_share_epoch,
+        accountId: capability.admissionRequest.scope.account_id,
+        thresholdSessionId: signer.thresholdSessionId,
+        signerSetId: capability.admissionRequest.scope.signer_set_id,
+        signingWorkerId: signer.signingWorkerId,
+      },
+    },
+  };
 }
 
 /**

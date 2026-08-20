@@ -14,6 +14,7 @@ import './PasskeyLoginMenu.css';
 import { FRONTEND_CONFIG } from '@/config';
 import { showCopiedDemoEmailOtpToast } from './demoEmailOtpToast';
 import {
+  cancelGoogleIdTokenRequest,
   ensureGoogleIdentityScriptLoaded,
   fetchGoogleAuthOptions,
   requestGoogleIdToken,
@@ -169,6 +170,14 @@ function handleHostedAuthMenuOutcome(
   }
 }
 
+function handleHostedAuthMenuOutcomeAndCancelGoogleRequest(
+  refreshLoginState: (walletId?: string) => Promise<void>,
+  outcome: HostedAuthMenuOutcome,
+): void {
+  cancelGoogleIdTokenRequest();
+  handleHostedAuthMenuOutcome(outcome, refreshLoginState);
+}
+
 function providerUnavailableEvidence(message: string): HostedAuthMenuExternalAuthEvidence {
   return { kind: 'failed', code: 'provider_unavailable', message };
 }
@@ -185,9 +194,14 @@ function showHostedDemoEmailOtp(delivery: { otpCode: string }): void {
   });
 }
 
+function registerGoogleIdTokenRequestCancellation(): () => void {
+  return cancelGoogleIdTokenRequest;
+}
+
 export function HostedPasskeyLoginMenu(props: HostedPasskeyLoginMenuProps) {
   const authMenuContainerRef = React.useRef<HTMLDivElement>(null);
   React.useEffect(subscribeToHostedAuthMenuErrors.bind(null, authMenuContainerRef), []);
+  React.useEffect(registerGoogleIdTokenRequestCancellation, []);
   const relayerBaseUrl = React.useMemo(
     () => normalizeBaseUrl(FRONTEND_CONFIG.relayerUrl || FRONTEND_CONFIG.consoleBaseUrl),
     [],
@@ -282,7 +296,7 @@ export function HostedPasskeyLoginMenu(props: HostedPasskeyLoginMenuProps) {
         }}
         externalAuthBroker={externalAuthBroker}
         onDemoEmailOtp={showHostedDemoEmailOtp}
-        onOutcome={(outcome) => handleHostedAuthMenuOutcome(outcome, refreshLoginState)}
+        onOutcome={handleHostedAuthMenuOutcomeAndCancelGoogleRequest.bind(null, refreshLoginState)}
       />
     </div>
   );

@@ -1,7 +1,9 @@
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
-  thresholdEcdsaChainTargetFromRequest,
-  toWalletId,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+  resolveConfiguredChainTarget,
+  resolveTempoChainTarget,
+} from '@/SeamsWeb/publicApi/chainTargets';
+import type { CurrentWalletResolver, WalletSessionInput } from '@/SeamsWeb/publicApi/currentWallet';
 import { toError } from '@shared/utils/errors';
 import type { TempoSignerCapability, TempoSigningSurface } from '@/SeamsWeb/signingSurface/types';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
@@ -9,6 +11,7 @@ import type { SeamsConfigsReadonly, ThemeMode } from '@/core/types/seams';
 import type { EcdsaBootstrapRequest } from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
 import {
   executeEvmFamilyTransactionLifecycle,
+  withResolvedChainId,
   type EvmFamilyTransactionSignArgs,
 } from '@/SeamsWeb/operations/tempo/executeEvmFamilyTransaction';
 import { buildTempoBootstrapArgs, toSerializableTempoError } from '@/SeamsWeb/operations/tempo';
@@ -51,7 +54,7 @@ function toLocalTempoBootstrapRequest(
 
 function requireEvmFamilySigningCapability(
   configs: SeamsConfigsReadonly,
-  chainTarget: ReturnType<typeof thresholdEcdsaChainTargetFromRequest>,
+  chainTarget: ReturnType<typeof resolveConfiguredChainTarget>,
 ): void {
   requireBrowserCapabilityOperation(configs, {
     capabilityKind: CAPABILITY_KINDS.evmEcdsaMpcSigning,
@@ -66,15 +69,22 @@ export function createTempoSignerCapability(deps: {
   configs: SeamsConfigsReadonly;
   getTheme: () => ThemeMode;
   getWalletIframe: () => WalletIframeCoordinator;
+  currentWallet: CurrentWalletResolver;
 }): TempoSignerCapability {
-  const signEvmFamily = async (args: EvmFamilyTransactionSignArgs) => {
-    const chainTarget = thresholdEcdsaChainTargetFromRequest(args.chainTarget);
+  // Capability-level entry: `walletSession` may be omitted here and resolves to
+  // the authenticated wallet. The lifecycle below always receives a resolved one.
+  type CapabilitySignEvmFamilyArgs = Omit<EvmFamilyTransactionSignArgs, 'walletSession'> & {
+    walletSession?: WalletSessionInput;
+  };
+  const signEvmFamily = async (args: CapabilitySignEvmFamilyArgs) => {
+    const chainTarget = resolveConfiguredChainTarget(deps.configs.network.chains, args.chainTarget);
+    const walletSession = await deps.currentWallet.walletSession(args.walletSession);
     requireEvmFamilySigningCapability(deps.configs, chainTarget);
     const walletIframe = deps.getWalletIframe();
-    const walletId = toWalletId(args.walletSession.walletId);
+    const walletId = toWalletId(walletSession.walletId);
     if (!walletIframe.shouldUseWalletIframe()) {
       const result = await deps.signingEngine.signEvmFamily({
-        walletSession: args.walletSession,
+        walletSession,
         request: args.request,
         chainTarget,
         confirmationConfigOverride: args.options?.confirmationConfig,
@@ -86,7 +96,7 @@ export function createTempoSignerCapability(deps: {
     try {
       const router = await walletIframe.requireRouter(walletId);
       const result = await router.signTempo({
-        walletSession: args.walletSession,
+        walletSession,
         request: args.request,
         chainTarget,
         options: {
@@ -100,7 +110,12 @@ export function createTempoSignerCapability(deps: {
     }
   };
   const signTempo: TempoSignerCapability['signTempo'] = async (args) =>
-    requireTempoSignedResult(await signEvmFamily(args));
+    requireTempoSignedResult(
+      await signEvmFamily({
+        ...args,
+        chainTarget: resolveTempoChainTarget(deps.configs.network.chains, args.chainTarget),
+      }),
+    );
   const reportBroadcastAccepted: TempoSignerCapability['reportBroadcastAccepted'] = async (
     args,
   ) => {
@@ -249,14 +264,43 @@ export function createTempoSignerCapability(deps: {
   const executeEvmFamilyTransaction: TempoSignerCapability['executeEvmFamilyTransaction'] = async (
     args,
   ) => {
-    const chainTarget = thresholdEcdsaChainTargetFromRequest(args.chainTarget);
+    const chainTarget = resolveConfiguredChainTarget(deps.configs.network.chains, args.chainTarget);
+    const walletSession = await deps.currentWallet.walletSession(args.walletSession);
     return await executeEvmFamilyTransactionLifecycle({
       lifecycle,
       chains: deps.configs.network.chains,
-      input: { ...args, chainTarget },
+      input: {
+        ...args,
+        chainTarget,
+        walletSession,
+        request: withResolvedChainId(args.request, chainTarget),
+      },
     });
   };
+  const bootstrapEcdsaSession: TempoSignerCapability['bootstrapEcdsaSession'] = async (args) => {
+    const walletIframe = deps.getWalletIframe();
+    const bootstrapArgs = buildTempoBootstrapArgs(deps.configs, args);
+    if (!walletIframe.shouldUseWalletIframe()) {
+      return await deps.signingEngine.bootstrapEcdsaSession(
+        toLocalTempoBootstrapRequest(bootstrapArgs),
+      );
+    }
+    const router = await walletIframe.requireRouter(toWalletId(args.walletSession.walletId));
+    return await router.bootstrapEcdsaSession(bootstrapArgs);
+  };
+  const advanced = {
+    reportBroadcastAccepted,
+    reportBroadcastRejected,
+    reportFinalized,
+    reportDroppedOrReplaced,
+    reconcileNonceLane,
+    bootstrapEcdsaSession,
+  };
   return {
+    // Mirrors `seams.evm`; the deprecated names below stay wired to the same code.
+    signTransaction: signTempo,
+    executeTransaction: executeEvmFamilyTransaction,
+    advanced,
     signTempo,
     getFeeTokenPreference: async (args) =>
       await getTempoFeeTokenPreference(deps.configs.network.chains, args),
@@ -273,16 +317,6 @@ export function createTempoSignerCapability(deps: {
     reportFinalized,
     reportDroppedOrReplaced,
     reconcileNonceLane,
-    bootstrapEcdsaSession: async (args) => {
-      const walletIframe = deps.getWalletIframe();
-      const bootstrapArgs = buildTempoBootstrapArgs(deps.configs, args);
-      if (!walletIframe.shouldUseWalletIframe()) {
-        return await deps.signingEngine.bootstrapEcdsaSession(
-          toLocalTempoBootstrapRequest(bootstrapArgs),
-        );
-      }
-      const router = await walletIframe.requireRouter(toWalletId(args.walletSession.walletId));
-      return await router.bootstrapEcdsaSession(bootstrapArgs);
-    },
+    bootstrapEcdsaSession,
   };
 }

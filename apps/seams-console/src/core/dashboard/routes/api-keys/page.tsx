@@ -1,19 +1,28 @@
 import React from 'react';
 import { formatDashboardTimestamp } from '../../utils/timestamps';
+import { KeyRoundIcon } from '../../icons/SidebarIcons';
 import {
   DashboardTable,
   DashboardTableActionButton,
   DashboardTableActionGroup,
   DashboardTableActionMenu,
+  DashboardTableBadge,
   DashboardTableCell,
   DashboardTableHeader,
   DashboardTableHeaderCell,
   DashboardTableRow,
   DashboardTableState,
+  DashboardTableStatus,
   dashboardTableColumns,
   useDashboardTablePagination,
 } from '../../components/DashboardTable';
+import {
+  DASHBOARD_EMPTY_VALUE,
+  dashboardStatusLabel,
+  dashboardStatusTone,
+} from '../../utils/statusTone';
 import { DashboardInlineModal } from '../../components/DashboardInlineModal';
+import { DashboardPageActions } from '../../components/DashboardPageActions';
 import { useDashboardConsoleSession } from '../../consoleSession';
 import { useDashboardSelectedContext } from '../../selectedContext';
 import {
@@ -70,7 +79,7 @@ const PAYMENT_POLICY_OPTIONS: readonly PublishableChoiceOption<PublishablePaymen
 
 const SECRET_KEY_SCOPE_OPTIONS: readonly DashboardScopeOption<ApiCredentialScope>[] =
   API_CREDENTIAL_SCOPE_OPTIONS;
-const API_KEYS_TABLE_COLUMNS = dashboardTableColumns(1.35, 0.9, 0.7, 1.05, 1.1, 0.85, 0.95);
+const API_KEYS_TABLE_COLUMNS = dashboardTableColumns(1.6, 0.65, 1.3, 0.95, 0.8);
 const DEFAULT_SECRET_SCOPES: ApiCredentialScope[] = ['accounts.create'];
 
 type DashboardCredentialKind = DashboardConsoleApiKey['kind'];
@@ -121,7 +130,7 @@ function parseApiCredentialScopeSelection(values: string[]): ApiCredentialScope[
 }
 
 function formatTimestamp(value: string | null): string {
-  return formatDashboardTimestamp(value, '-');
+  return formatDashboardTimestamp(value, '—');
 }
 
 function normalizeOrigin(value: string): string {
@@ -145,6 +154,18 @@ function toPaymentPolicyObject(value: PublishablePaymentPolicyValue): Record<str
     mode: value,
     productId: DEFAULT_PAYMENT_PRODUCT_ID,
   };
+}
+
+const PAYMENT_POLICY_CHIP_LABELS: Record<PublishablePaymentPolicyValue, string> = {
+  disabled: 'Quota only',
+  quota_then_x402: 'Paid overage',
+  always_x402: 'x402 required',
+};
+
+function describePublishablePaymentPolicyChip(
+  value: Record<string, unknown> | null | undefined,
+): string {
+  return PAYMENT_POLICY_CHIP_LABELS[normalizePaymentPolicyValue(value)];
 }
 
 function describePublishablePaymentPolicy(
@@ -285,10 +306,12 @@ function describeCredentialOverage(apiKey: DashboardConsoleApiKey): {
   title: string;
 } {
   if (apiKey.kind !== 'publishable_key') {
-    return { short: '-', title: 'Not applicable for secret_key' };
+    return { short: DASHBOARD_EMPTY_VALUE, title: 'Not applicable for secret_key' };
   }
-  const text = describePublishablePaymentPolicy(apiKey.paymentPolicy);
-  return { short: text, title: text };
+  return {
+    short: describePublishablePaymentPolicyChip(apiKey.paymentPolicy),
+    title: describePublishablePaymentPolicy(apiKey.paymentPolicy),
+  };
 }
 
 function describeCredentialOrigins(apiKey: DashboardConsoleApiKey): {
@@ -296,10 +319,10 @@ function describeCredentialOrigins(apiKey: DashboardConsoleApiKey): {
   title: string;
 } {
   if (apiKey.kind !== 'publishable_key') {
-    return { short: '-', title: 'Not applicable for secret_key' };
+    return { short: DASHBOARD_EMPTY_VALUE, title: 'Not applicable for secret_key' };
   }
   const count = apiKey.allowedOrigins.length;
-  if (count === 0) return { short: '-', title: 'No allowed origins' };
+  if (count === 0) return { short: DASHBOARD_EMPTY_VALUE, title: 'No allowed origins' };
   /* Full URLs wrap badly in a narrow cell; show a count and put the list in
      the tooltip. */
   return {
@@ -310,6 +333,11 @@ function describeCredentialOrigins(apiKey: DashboardConsoleApiKey): {
 
 function formatCredentialKindLabel(kind: DashboardCredentialKind): string {
   return kind === 'publishable_key' ? 'Publishable Key' : 'Secret Key';
+}
+
+/* Chip-sized: the row already says "key", so the chip only has to say which. */
+function formatCredentialKindChip(kind: DashboardCredentialKind): string {
+  return kind === 'publishable_key' ? 'Publishable' : 'Secret';
 }
 
 function formatCredentialEnvironmentLabel(environmentId: string): string {
@@ -762,28 +790,16 @@ export function ApiKeyManagementPage(): React.JSX.Element {
 
   return (
     <div className="dashboard-view" aria-label="Credential management page">
-      <section
-        className="dashboard-view__section dashboard-view__section--toolbar"
-        aria-label="Credential controls"
-      >
-        <div className="dashboard-section-toolbar">
-          <div className="dashboard-section-toolbar__copy">
-            <h2>Credentials</h2>
-            <p className="dashboard-form-hint">
-              Create and manage <code>secret_key</code> and <code>publishable_key</code> credentials
-              for the selected environment.
-            </p>
-          </div>
-          <button
-            type="button"
-            className="dashboard-pagination-button dashboard-pagination-button--primary"
-            onClick={onOpenCreateModal}
-            disabled={creating || !selectedEnvironmentId}
-          >
-            Create credential
-          </button>
-        </div>
-      </section>
+      <DashboardPageActions>
+        <button
+          type="button"
+          className="dashboard-pagination-button dashboard-pagination-button--primary"
+          onClick={onOpenCreateModal}
+          disabled={creating || !selectedEnvironmentId}
+        >
+          Create credential
+        </button>
+      </DashboardPageActions>
 
       {mutationError && !isCreateModalOpen && pendingAction === null ? (
         <p className="dashboard-form-alert" role="alert">
@@ -888,10 +904,8 @@ export function ApiKeyManagementPage(): React.JSX.Element {
       >
         <DashboardTableHeader>
           <DashboardTableHeaderCell>Name</DashboardTableHeaderCell>
-          <DashboardTableHeaderCell>Kind</DashboardTableHeaderCell>
           <DashboardTableHeaderCell>Status</DashboardTableHeaderCell>
-          <DashboardTableHeaderCell>Overage</DashboardTableHeaderCell>
-          <DashboardTableHeaderCell>Origins</DashboardTableHeaderCell>
+          <DashboardTableHeaderCell>Access</DashboardTableHeaderCell>
           <DashboardTableHeaderCell>Last used</DashboardTableHeaderCell>
           <DashboardTableHeaderCell>Actions</DashboardTableHeaderCell>
         </DashboardTableHeader>
@@ -913,23 +927,40 @@ export function ApiKeyManagementPage(): React.JSX.Element {
               const origins = describeCredentialOrigins(apiKey);
               return (
                 <DashboardTableRow key={apiKey.id}>
-                  <DashboardTableCell title={apiKey.name}>
-                    <div className="dashboard-credential-table__name">
-                      <span className="dashboard-data-table__summary">{apiKey.name}</span>
-                      {preview ? (
-                        <code className="dashboard-credential-table__preview">{preview}</code>
-                      ) : null}
+                  <DashboardTableCell
+                    title={`${apiKey.name} · ${formatCredentialKindLabel(apiKey.kind)}`}
+                    className="dashboard-data-table__cell--lead"
+                  >
+                    <div className="dashboard-lead">
+                      <span className="dashboard-lead__icon" aria-hidden="true">
+                        <KeyRoundIcon size={16} />
+                      </span>
+                      <span className="dashboard-lead__copy">
+                        <span className="dashboard-lead__title">
+                          <span className="dashboard-data-table__summary">{apiKey.name}</span>
+                          <DashboardTableBadge>
+                            {formatCredentialKindChip(apiKey.kind)}
+                          </DashboardTableBadge>
+                        </span>
+                        {preview ? (
+                          <code className="dashboard-lead__sub">{preview}</code>
+                        ) : null}
+                      </span>
                     </div>
                   </DashboardTableCell>
-                  <DashboardTableCell title={formatCredentialKindLabel(apiKey.kind)}>
-                    {formatCredentialKindLabel(apiKey.kind)}
+                  <DashboardTableCell>
+                    <DashboardTableStatus tone={dashboardStatusTone(apiKey.status)}>
+                      {dashboardStatusLabel(apiKey.status)}
+                    </DashboardTableStatus>
                   </DashboardTableCell>
-                  <DashboardTableCell>{apiKey.status}</DashboardTableCell>
-                  <DashboardTableCell title={overage.title}>
-                    {overage.short || '-'}
-                  </DashboardTableCell>
-                  <DashboardTableCell title={origins.title}>
-                    {origins.short || '-'}
+                  <DashboardTableCell
+                    title={`${origins.title} · ${overage.title}`}
+                    className="dashboard-data-table__cell--nowrap"
+                  >
+                    {origins.short || DASHBOARD_EMPTY_VALUE}
+                    {apiKey.kind === 'publishable_key' && overage.short ? (
+                      <span className="dashboard-data-table__inline-note"> · {overage.short}</span>
+                    ) : null}
                   </DashboardTableCell>
                   <DashboardTableCell truncate>
                     {formatTimestamp(apiKey.lastUsedAt)}

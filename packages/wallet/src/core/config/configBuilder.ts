@@ -126,9 +126,11 @@ function resolveRegistrationConfig(args: {
      are not a precondition for the rest of the SDK. That case fails where it
      is actually wrong — at the registration call. */
   if (overrides !== undefined) {
-    if (!projectEnvironmentId) {
-      throw new Error('[configPresets] Missing required config: registration.projectEnvironmentId');
-    }
+    /* `publishableKey` alone identifies the managed environment: the key's own
+       record carries the environment it belongs to, and the Router API builds
+       the runtime policy scope from the authenticated principal.
+       `projectEnvironmentId` is an optional cross-check — supplying it makes a
+       key aimed at the wrong environment fail closed. */
     if (!publishableKey) {
       throw new Error('[configPresets] Missing required config: registration.publishableKey');
     }

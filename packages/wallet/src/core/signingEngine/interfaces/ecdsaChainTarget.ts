@@ -1,6 +1,11 @@
 import { chainFamilyFromNetwork } from '@/core/config/chains';
 import type { AccountId } from '@/core/types/accountIds';
-import type { SeamsChainConfig } from '@/core/types/seams';
+import type {
+  SeamsChainConfig,
+  SeamsEvmChainNetwork,
+  SeamsNearChainNetwork,
+  SeamsTempoChainNetwork,
+} from '@/core/types/seams';
 import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
 import type {
   EvmEip155ChainTarget,
@@ -18,6 +23,16 @@ export type {
 export type NearAccountRef =
   | { kind: 'named'; accountId: AccountId }
   | { kind: 'implicit'; accountId: AccountId };
+
+/**
+ * What `thresholdEcdsaChainTargetFromConfig` actually needs: the network slug
+ * plus — for the ECDSA families — a chain id. `rpcUrl`/`explorerUrl` stay
+ * accepted (so a resolved `SeamsChainConfig` is still assignable) but unread.
+ */
+export type ThresholdEcdsaChainTargetConfigInput =
+  | { network: SeamsNearChainNetwork; rpcUrl?: string; explorerUrl?: string }
+  | { network: SeamsTempoChainNetwork; chainId: number; rpcUrl?: string; explorerUrl?: string }
+  | { network: SeamsEvmChainNetwork; chainId: number; rpcUrl?: string; explorerUrl?: string };
 
 export type WalletSessionRef = {
   walletId: WalletId;
@@ -71,6 +86,16 @@ export function walletIdFromWalletProfile(args: { walletId: unknown }): WalletId
   return toWalletId(args.walletId);
 }
 
+/**
+ * Builds the exact wallet-session reference an operation authorizes.
+ *
+ * `walletSessionUserId` is a wallet-scoped audit subject and defaults to the
+ * wallet id — which is what every application call site uses. It is never a
+ * provider subject (`google:<sub>`); provider-scoped custody lanes carry their
+ * own `providerSubjectId` argument. See
+ * docs/refactor-36-narrow-lifecycle-types.md for the regression that rule
+ * encodes.
+ */
 export function walletSessionRefFromSession(value: {
   walletId?: unknown;
   walletSessionUserId?: unknown;
@@ -79,13 +104,11 @@ export function walletSessionRefFromSession(value: {
   if (!('walletId' in value)) {
     throw new Error('[wallet-session] missing wallet id');
   }
+  const walletId = toWalletId(value.walletId);
   const walletSessionUserId =
-    nonEmptyString(value.walletSessionUserId) || nonEmptyString(value.userId);
-  if (!walletSessionUserId) {
-    throw new Error('[wallet-session] missing wallet session user id');
-  }
+    nonEmptyString(value.walletSessionUserId) || nonEmptyString(value.userId) || String(walletId);
   return {
-    walletId: toWalletId(value.walletId),
+    walletId,
     walletSessionUserId,
   };
 }
@@ -137,8 +160,16 @@ export function thresholdEcdsaChainTargetFromChainFamily(args: {
   return { kind: 'evm', namespace: 'eip155', chainId, networkSlug };
 }
 
+/**
+ * Builds a concrete ECDSA chain target from a chain descriptor.
+ *
+ * `rpcUrl` and `explorerUrl` are accepted so a full `SeamsChainConfig` stays
+ * assignable, but they are ignored: the RPC endpoint is resolved at execution
+ * time from `configs.network.chains` by target key (`resolveEvmFamilyRpcUrl`).
+ * Prefer `seams.chainTarget(selector)`, which can only name a configured chain.
+ */
 export function thresholdEcdsaChainTargetFromConfig(
-  chain: SeamsChainConfig,
+  chain: ThresholdEcdsaChainTargetConfigInput,
 ): ThresholdEcdsaChainTarget {
   const family = chainFamilyFromNetwork(chain.network);
   if (family !== 'evm' && family !== 'tempo') {

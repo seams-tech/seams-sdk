@@ -893,6 +893,46 @@ function localConsoleOrgId(env: LocalD1DevEnv): string {
   return parseLocalConsoleOrganizationId(env.SEAMS_LOCAL_CONSOLE_ORG_ID);
 }
 
+export interface LocalConsoleScope {
+  readonly projectId: string;
+  readonly environmentId: string;
+}
+
+/**
+ * The console's own project/environment, read from the database rather than a
+ * fixed literal. Session claims carry this scope, and request metrics are
+ * stamped with the claims, so a scope that does not exist in `environments`
+ * makes every observability row unreachable from the dashboard.
+ */
+export async function resolveLocalConsoleScope(env: LocalD1DevEnv): Promise<LocalConsoleScope> {
+  const overrideProjectId = normalizeLocalString(env.SEAMS_LOCAL_CONSOLE_PROJECT_ID);
+  const overrideEnvironmentId = normalizeLocalString(env.SEAMS_LOCAL_CONSOLE_ENVIRONMENT_ID);
+  if (overrideProjectId && overrideEnvironmentId) {
+    return { projectId: overrideProjectId, environmentId: overrideEnvironmentId };
+  }
+  const orgId = await resolveLocalRouterOrganizationId(env);
+  const row = await env.CONSOLE_DB.prepare(
+    `SELECT id, project_id
+       FROM environments
+      WHERE namespace = ? AND org_id = ? AND status = 'ACTIVE'
+      ORDER BY created_at_ms ASC
+      LIMIT 1`,
+  )
+    .bind(localTenantStorageNamespace(env), orgId)
+    .first<{ readonly id: unknown; readonly project_id: unknown }>();
+  if (!row) {
+    throw new Error(
+      `Local console has no ACTIVE environment for ${orgId}. ` +
+        'Complete console onboarding, or set SEAMS_LOCAL_CONSOLE_PROJECT_ID and ' +
+        'SEAMS_LOCAL_CONSOLE_ENVIRONMENT_ID to an existing scope.',
+    );
+  }
+  return {
+    projectId: overrideProjectId || normalizeLocalString(row.project_id),
+    environmentId: overrideEnvironmentId || normalizeLocalString(row.id),
+  };
+}
+
 async function resolveLocalRouterOrganizationId(env: LocalD1DevEnv): Promise<string> {
   const environment = await env.CONSOLE_DB.prepare(
     `SELECT org_id
@@ -967,11 +1007,12 @@ function createLocalReadyCheck(env: LocalD1DevEnv): () => Promise<void> {
 }
 
 async function createLocalConsoleHandler(env: LocalD1DevEnv): Promise<FetchHandler> {
+  const consoleScope = await resolveLocalConsoleScope(env);
   const scope = {
     namespace: localTenantStorageNamespace(env),
     orgId: await resolveLocalRouterOrganizationId(env),
-    projectId: localConsoleProjectId(env),
-    envId: localConsoleEnvironmentId(env),
+    projectId: consoleScope.projectId,
+    envId: consoleScope.environmentId,
   };
   const sponsoredEvmCallConfig = await resolveSponsoredEvmCallConfigFromWorkerEnv(env);
   const billingProviders = localBillingProviderAdapters(env);

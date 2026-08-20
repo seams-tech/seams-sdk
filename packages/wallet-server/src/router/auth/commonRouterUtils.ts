@@ -1321,8 +1321,23 @@ export async function resolveThresholdRuntimePolicyScope(input: {
     }
   }
 
+  // The publishable key is the trigger and the source of truth: its own row
+  // carries the environment it belongs to, and the scope below is built purely
+  // from the authenticated principal. `projectEnvironmentId` is therefore
+  // optional — when a client does send one it is forwarded as a cross-check, so
+  // a staging key aimed at a production environment id still fails closed.
   const projectEnvironmentId = String(input.projectEnvironmentIdRaw || '').trim();
-  if (!projectEnvironmentId) return { ok: true };
+  const publishableKey = extractBearerCredential(input.headers);
+  if (!publishableKey) {
+    // No managed credential presented: this is not a managed deployment.
+    if (!projectEnvironmentId) return { ok: true };
+    return {
+      ok: false,
+      status: 401,
+      code: 'unauthorized',
+      message: 'Managed runtime scope bootstrap requires a publishable key',
+    };
+  }
 
   const publishableKeyAuth = input.publishableKeyAuth || null;
   if (!publishableKeyAuth) {
@@ -1331,16 +1346,6 @@ export async function resolveThresholdRuntimePolicyScope(input: {
       status: 500,
       code: 'route_auth_not_configured',
       message: 'Runtime scope bootstrap requires publishable key auth on this server',
-    };
-  }
-
-  const publishableKey = extractBearerCredential(input.headers);
-  if (!publishableKey) {
-    return {
-      ok: false,
-      status: 401,
-      code: 'unauthorized',
-      message: 'Managed runtime scope bootstrap requires a publishable key',
     };
   }
 
