@@ -1,24 +1,17 @@
-import type { SeamsWeb, SigningFlowEvent } from '@seams/wallet';
-import {
-  thresholdEcdsaChainTargetFromConfig,
-  walletSessionRefFromSession,
-} from '@seams/wallet/advanced';
+import { logWalletEvents, type SeamsWeb } from '@seams/wallet';
 
-export async function executeEvmTransaction(seams: SeamsWeb, walletId: string): Promise<string> {
-  const execution = await seams.tempo.executeEvmFamilyTransaction({
-    walletSession: walletSessionRefFromSession({ walletId, walletSessionUserId: walletId }),
-    chainTarget: thresholdEcdsaChainTargetFromConfig({
-      network: 'tempo-testnet',
-      rpcUrl: 'https://rpc.moderato.tempo.xyz',
-      explorerUrl: 'https://explore.testnet.tempo.xyz',
-      chainId: 42431,
-    }),
+export async function executeEvmTransaction(seams: SeamsWeb): Promise<string> {
+  // `seams.evm` sends on any configured EVM-family chain — Tempo, Arc,
+  // Ethereum. The chain comes from `chainTarget`, and the RPC endpoint from the
+  // chain you configured. Omitting `walletSession` targets the authenticated
+  // wallet, and `tx.chainId` is filled in from the target.
+  const execution = await seams.evm.execute({
+    chainTarget: 'tempo-testnet',
     request: {
       chain: 'evm',
       kind: 'eip1559',
       senderSignatureAlgorithm: 'secp256k1',
       tx: {
-        chainId: 42431,
         maxPriorityFeePerGas: 1n,
         maxFeePerGas: 1n,
         gasLimit: 21_000n,
@@ -27,9 +20,7 @@ export async function executeEvmTransaction(seams: SeamsWeb, walletId: string): 
         data: '0x',
       },
     },
-    options: {
-      onEvent: (event: SigningFlowEvent) => console.log(event.phase, event.status, event.message),
-    },
+    options: { onEvent: logWalletEvents() },
   });
   console.log('transaction hash', execution.txHash);
   return execution.txHash;
