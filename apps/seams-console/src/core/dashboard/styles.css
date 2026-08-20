@@ -2,6 +2,8 @@
   --console-font-sans:
     'Hanken Grotesk', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
     Roboto, Helvetica, Arial, sans-serif;
+  --console-font-mono:
+    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
 }
 
 html {
@@ -50,6 +52,7 @@ textarea {
   --dashboard-danger: #b91c1c;
   --dashboard-danger-soft: #f8e7e7;
   --dashboard-sidebar-width: 264px;
+  --dashboard-topbar-height: 48px;
   --dashboard-motion-sidebar: 280ms;
   --dashboard-motion-item: 220ms;
   --dashboard-motion-fast: 140ms;
@@ -83,8 +86,7 @@ textarea {
   --dashboard-env-ink: #44403b;
 }
 
-.dashboard-shell--route-overview .dashboard-topbar,
-.dashboard-shell--route-overview .dashboard-sidebar {
+.dashboard-shell--route-overview .dashboard-topbar {
   background: #ffffff;
 }
 
@@ -94,6 +96,10 @@ textarea {
 
 /* The Overview hero heading is the visual lead on that page; keep the shell
    h1 for the accessibility tree without doubling headings on screen. */
+.dashboard-shell--route-overview .dashboard-main__header {
+  display: contents;
+}
+
 .dashboard-shell--route-overview .dashboard-main__title {
   position: absolute;
   width: 1px;
@@ -115,9 +121,11 @@ textarea {
 }
 
 .dashboard-shell--sidebar-collapsed {
-  /* 44px button column + 2×8px rail padding: buttons are width:100%, so the
-     rail width is what makes collapsed buttons hug their icons. */
-  --dashboard-sidebar-width: 60px;
+  /* 40px button column + 2×12px rail padding + the rail's own 1px border.
+     The border has to be in the total or the content box lands on an odd
+     width, which puts padding-centred tiles half a pixel right of the
+     icons that centre by grid alignment. */
+  --dashboard-sidebar-width: 65px;
 }
 
 .dashboard-topbar {
@@ -131,10 +139,12 @@ textarea {
   grid-template-columns: minmax(0, 1fr) minmax(240px, 420px) minmax(0, 1fr);
   align-items: center;
   gap: 16px;
-  min-height: 56px;
-  padding: 8px 16px;
+  min-height: var(--dashboard-topbar-height);
+  padding: 4px 16px 4px 12px;
   border-bottom: 1px solid var(--dashboard-border);
-  background: var(--dashboard-surface);
+  background: color-mix(in srgb, var(--dashboard-surface) 72%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
 }
 
 .dashboard-topbar__lead {
@@ -407,7 +417,7 @@ textarea {
   gap: 8px;
   /* Extra bottom padding: the head's card-to-card gap is tight (10px), the
      wordmark wants more air above the switcher stack. */
-  padding: 6px 12px 8px;
+  padding: 6px 8px 8px;
   text-decoration: none;
   transition: padding var(--dashboard-motion-sidebar) var(--dashboard-ease-layout);
 }
@@ -489,8 +499,8 @@ textarea {
 
 .dashboard-sidebar-toggle__icon {
   display: block;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   overflow: visible;
   transition: opacity var(--dashboard-motion-fast) ease;
 }
@@ -801,25 +811,24 @@ textarea {
 }
 
 .dashboard-sidebar {
-  /* Rail-scoped neutral palette: white rail matching the content column
-     (reference-app style); the switcher cards and hover tints carry the
-     separation. Scoping the neutrals here keeps the rest of the console on
-     the paper tokens. */
-  --rail-bg: #ffffff;
+  /* Rail-scoped neutral palette: the rail carries a quiet taupe fill so the
+     white content column reads as the page, reference-app style. Hover and
+     active steps sit above that fill. Scoping the neutrals here keeps the
+     rest of the console on the paper tokens. */
+  --rail-bg: #f5f3f1;
   --rail-ink: #1c1c1c;
   --rail-muted: #9b9b98;
   --rail-icon: #6f6f6c;
-  --rail-hover: #efefee;
-  --rail-active: #eaeae8;
+  --rail-hover: #ebe8e4;
+  --rail-active: #e3ded7;
   grid-column: 1;
   /* Full-height rail: brand at top, nav, context card docked at bottom.
      Top padding lives on the sticky head so nothing can scroll above it. */
   grid-row: 1 / 3;
   min-height: 0;
   padding: 0 12px 16px;
-  /* White rail on white content: a hairline carries the separation the old
-     background tint used to provide, reference-app style. */
-  border-right: 1px solid #ececea;
+  /* The fill carries the separation; the hairline just sharpens the edge. */
+  border-right: 1px solid var(--dashboard-border);
   overflow-y: auto;
   /* flex column so the context card can dock at the bottom via margin-top */
   display: flex;
@@ -844,12 +853,12 @@ textarea {
   z-index: 5;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 1px;
   padding: 14px 0 4px;
   /* Pull the nav up under the switcher stack: the rail's 18px flex gap is
-     shared by every section, so the tighter card-to-nav spacing comes from a
-     negative margin here rather than a global gap change. */
-  margin-bottom: -10px;
+     shared by every section, so the tighter switcher-to-nav spacing comes from
+     a negative margin here rather than a global gap change. */
+  margin-bottom: -8px;
   background: inherit;
 }
 
@@ -878,11 +887,10 @@ textarea {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 9px 12px;
-  border: 1px solid #e8e8e6;
-  border-radius: 14px;
-  background: #ffffff;
-  box-shadow: 0 1px 2px rgba(20, 20, 20, 0.04);
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
   color: var(--rail-ink, var(--dashboard-ink));
   font: inherit;
   font-weight: 500;
@@ -895,7 +903,7 @@ textarea {
 }
 
 .dashboard-workspace-switcher__trigger:hover {
-  border-color: #d6d6d3;
+  background: var(--rail-hover, var(--dashboard-surface-soft));
 }
 
 .dashboard-workspace-switcher__avatar {
@@ -924,10 +932,16 @@ textarea {
   transition: opacity var(--dashboard-motion-fast) ease;
 }
 
+/* Two stacked rows in a 1.25rem window: the project sits in view, and
+   pointing at the trigger slides the environment up in its place. It used to
+   cycle on an 8s loop, which meant the rail was never quiet and the project
+   name was only correct 70% of the time. */
 .dashboard-workspace-switcher__ticker {
   display: flex;
   flex-direction: column;
   height: 2.5rem;
+  transform: translateY(0);
+  transition: transform 240ms var(--dashboard-ease-reveal);
 }
 
 .dashboard-workspace-switcher__ticker-row {
@@ -935,55 +949,21 @@ textarea {
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .dashboard-workspace-switcher__ticker-row--environment {
   color: var(--rail-icon, var(--dashboard-ink-soft));
 }
 
-.dashboard-workspace-switcher__marquee-track {
-  display: inline-flex;
-  min-width: max-content;
-  gap: 24px;
+.dashboard-workspace-switcher__trigger:hover .dashboard-workspace-switcher__ticker,
+.dashboard-workspace-switcher__trigger:focus-visible .dashboard-workspace-switcher__ticker {
+  transform: translateY(-1.25rem);
 }
 
-@media (prefers-reduced-motion: no-preference) {
+@media (prefers-reduced-motion: reduce) {
   .dashboard-workspace-switcher__ticker {
-    animation: dashboard-workspace-scope-cycle 8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
-  }
-
-  .dashboard-workspace-switcher__ticker-row--project.is-overflowing
-    .dashboard-workspace-switcher__marquee-track {
-    animation: dashboard-workspace-project-marquee 8s linear infinite;
-  }
-}
-
-@keyframes dashboard-workspace-scope-cycle {
-  0%,
-  70% {
-    transform: translateY(0);
-  }
-  75%,
-  95% {
-    transform: translateY(-1.25rem);
-  }
-  100% {
-    transform: translateY(0);
-  }
-}
-
-@keyframes dashboard-workspace-project-marquee {
-  0%,
-  5% {
-    transform: translateX(0);
-  }
-  70%,
-  75% {
-    transform: translateX(calc(-50% - 12px));
-  }
-  75.01%,
-  100% {
-    transform: translateX(0);
+    transition: none;
   }
 }
 
@@ -1007,11 +987,10 @@ textarea {
   display: flex;
   align-items: center;
   gap: 11px;
-  padding: 9px 12px;
-  border: 1px solid #e8e8e6;
-  border-radius: 14px;
-  background: #ffffff;
-  box-shadow: 0 1px 2px rgba(20, 20, 20, 0.04);
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
   color: var(--rail-ink, var(--dashboard-ink));
   font: inherit;
   cursor: pointer;
@@ -1023,7 +1002,7 @@ textarea {
 }
 
 .dashboard-product-switcher__trigger:hover {
-  border-color: #d6d6d3;
+  background: var(--rail-hover, var(--dashboard-surface-soft));
 }
 
 .dashboard-product-switcher__avatar {
@@ -1358,8 +1337,8 @@ textarea {
 /* Sentence-case muted section labels, like the "Pinned" label in the
    reference app — static text, no collapse affordance. */
 .dashboard-sidebar-group__title {
-  margin: 0 0 4px;
-  padding: 0 12px;
+  margin: 0 0 2px;
+  padding: 0 8px;
   display: block;
   /* The group is a grid column sized by its widest item. Without min-width: 0
      the title's text width becomes the column floor, so in the collapsed rail
@@ -1369,8 +1348,8 @@ textarea {
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
-  font-size: 0.9rem;
-  font-weight: 400;
+  font-size: 0.8rem;
+  font-weight: 500;
   color: var(--rail-muted, var(--dashboard-ash));
 }
 
@@ -1380,7 +1359,7 @@ textarea {
   padding: 0;
   list-style: none;
   display: grid;
-  gap: 1px;
+  gap: 0;
 }
 
 .dashboard-nav-item {
@@ -1393,10 +1372,10 @@ textarea {
   text-align: left;
   font: inherit;
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr);
+  grid-template-columns: 20px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 12px;
-  padding: 7px 12px;
+  gap: 10px;
+  padding: 5px 8px;
   cursor: pointer;
   transition:
     background-color var(--dashboard-motion-fast) ease,
@@ -1408,6 +1387,57 @@ textarea {
 /* Thin the lucide strokes so icons read lighter than their labels */
 .dashboard-nav-icon svg {
   stroke-width: 1.6;
+}
+
+/* Trailing "+" on routes that can create their primary object. It sits over
+   the row rather than inside the link so the click never navigates twice. */
+.dashboard-nav-list > li {
+  position: relative;
+  display: grid;
+}
+
+.dashboard-nav-create {
+  position: absolute;
+  inset-inline-end: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 22px;
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--rail-icon, var(--dashboard-ink-soft));
+  cursor: pointer;
+  opacity: 0.55;
+  transition:
+    background-color var(--dashboard-motion-fast) ease,
+    opacity var(--dashboard-motion-fast) ease;
+}
+
+.dashboard-nav-list > li:hover .dashboard-nav-create,
+.dashboard-nav-create:focus-visible {
+  opacity: 1;
+  background: var(--rail-active, var(--dashboard-active));
+}
+
+/* The label would otherwise run under the button. */
+.dashboard-nav-list > li:has(.dashboard-nav-create) .dashboard-nav-item {
+  padding-inline-end: 30px;
+}
+
+.dashboard-shell--sidebar-collapsed .dashboard-nav-create {
+  display: none;
+}
+
+/* The button is hidden in the rail, so the room reserved for it has to go too
+   — otherwise those two icons sit left of every other one. */
+.dashboard-shell--sidebar-collapsed
+  .dashboard-nav-list
+  > li:has(.dashboard-nav-create)
+  .dashboard-nav-item {
+  padding-inline-end: 0;
 }
 
 .dashboard-nav-item:hover {
@@ -1529,11 +1559,16 @@ textarea {
   position: relative;
   isolation: isolate;
   min-height: 0;
-  padding: 22px 24px 42px;
+  /* Content runs under the translucent bar rather than starting below it, so
+     the blur has something to blur. The negative margin overlaps the scroll
+     container with the topbar row; the top padding keeps the page title clear
+     of it. Both live here so the shorthand cannot reset the padding. */
+  margin-top: calc(-1 * var(--dashboard-topbar-height));
+  padding: calc(32px + var(--dashboard-topbar-height)) 40px 64px;
   overflow: auto;
   display: grid;
   align-content: start;
-  gap: 14px;
+  gap: 20px;
 }
 
 .dashboard-main--modal-open {
@@ -1541,11 +1576,8 @@ textarea {
 }
 
 .dashboard-overlay-layer {
-  grid-column: 2;
-  grid-row: 2;
-  position: relative;
-  min-width: 0;
-  min-height: 0;
+  position: fixed;
+  inset: 0;
   z-index: 16;
   pointer-events: none;
 }
@@ -1554,16 +1586,38 @@ textarea {
   pointer-events: auto;
 }
 
+/* Dim, don't blur: a blurred page behind a form reads as a broken render. */
 .dashboard-overlay-layer--modal-open {
-  background: color-mix(in srgb, #1c1917 14%, transparent);
-  backdrop-filter: blur(12px);
+  background: color-mix(in srgb, #1c1917 24%, transparent);
+}
+
+/* One header row per page: title left, the route's primary action right —
+   the reference app's shape. Routes fill the slot via DashboardPageActions. */
+.dashboard-main__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 44px;
+}
+
+.dashboard-main__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+}
+
+.dashboard-main__actions:empty {
+  display: none;
 }
 
 .dashboard-main__title {
-  margin: 0 0 6px;
-  font-size: 1.75rem;
+  margin: 0;
+  font-size: 2.1rem;
   font-weight: 600;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
   color: var(--dashboard-ink);
 }
 
@@ -1651,11 +1705,13 @@ textarea {
   cursor: pointer;
 }
 
+/* The type filter's longest label ("Type: EOA + Smart") was clipping inside
+   its own select, so the select columns get equal, roomier minimums. */
 .dashboard-filters {
   display: grid;
   grid-template-columns:
-    minmax(260px, 1.5fr) minmax(170px, 0.9fr) minmax(160px, 0.75fr) minmax(150px, 0.72fr)
-    minmax(156px, 0.78fr);
+    minmax(240px, 1.35fr) minmax(172px, 0.85fr) minmax(172px, 0.85fr) minmax(172px, 0.85fr)
+    minmax(172px, 0.85fr);
   gap: 10px;
 }
 
@@ -1844,15 +1900,16 @@ textarea {
 .dashboard-data-table__state {
   display: grid;
   justify-items: center;
-  gap: 12px;
-  padding: 36px 16px;
+  gap: 14px;
+  padding: 56px 16px;
+  font-size: 0.95rem;
   text-align: center;
 }
 
 .dashboard-data-table__state::before {
   content: '';
-  width: 40px;
-  height: 40px;
+  width: 48px;
+  height: 48px;
   border-radius: 9999px;
   border: 1px solid var(--dashboard-border);
   background: url('/gradients/web/aqua-evergreen.jpg') center / cover no-repeat;
@@ -1879,7 +1936,7 @@ textarea {
 
 .dashboard-data-table__header-cell {
   min-width: 0;
-  padding: 10px 12px;
+  padding: 8px 12px 12px;
   font-size: 0.84rem;
   font-weight: 500;
   color: var(--dashboard-ink-soft);
@@ -1902,14 +1959,47 @@ textarea {
 
 .dashboard-data-table__cell {
   min-width: 0;
-  padding: 14px 12px;
+  padding: 17px 12px;
   display: grid;
   align-content: start;
   gap: 8px;
   font-size: 0.9rem;
   line-height: 1.45;
   color: var(--dashboard-ink);
+  font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
+}
+
+/* Hashes, wire ids and secret previews: mono, one line, elided rather than
+   broken mid-hash. */
+.dashboard-data-table__cell code,
+.dashboard-data-table__mono {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--console-font-mono);
+  font-size: 0.84rem;
+  letter-spacing: -0.01em;
+  color: inherit;
+}
+
+.dashboard-data-table__mono--muted {
+  color: var(--dashboard-ink-soft);
+}
+
+/* Addresses and emails are unbreakable strings; eliding beats a mid-word wrap
+   that leaves an orphan fragment on line two. Block, not grid, for the same
+   reason as --truncate: text-overflow cannot reach an anonymous grid item. */
+.dashboard-data-table__cell--nowrap,
+.dashboard-data-table__cell--nowrap
+  > :is(span, strong, code, p):not(.dashboard-data-table__inline-note) {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: normal;
 }
 
 .dashboard-data-table__cell > * {
@@ -1921,16 +2011,39 @@ textarea {
   overflow-wrap: anywhere;
 }
 
+/* Block, not grid: a bare text child of a grid container becomes an anonymous
+   grid item, which text-overflow cannot reach — the cell clipped mid-glyph
+   with no ellipsis. */
 .dashboard-data-table__cell--truncate {
+  display: block;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-.dashboard-data-table__cell--truncate > :is(span, strong, code, button) {
+.dashboard-data-table__cell--truncate > :is(span, strong, code, p) {
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.dashboard-data-table__cell--truncate > button {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Line the outer columns up with the page gutter. */
+.dashboard-data-table__header-cell:first-child,
+.dashboard-data-table__cell:first-child {
+  padding-left: 0;
+}
+
+.dashboard-data-table__header-cell:last-child,
+.dashboard-data-table__cell:last-child {
+  padding-right: 0;
 }
 
 .dashboard-data-table__cell--muted {
@@ -1942,7 +2055,8 @@ textarea {
   text-align: center;
 }
 
-.dashboard-data-table__cell--end {
+.dashboard-data-table__cell--end,
+.dashboard-data-table__header-cell--end {
   justify-items: end;
   text-align: right;
 }
@@ -1965,10 +2079,9 @@ textarea {
 
 /* Policy name + enabled/disabled status badge share the first cell. */
 .dashboard-gas-sponsorship-table__policy-cell {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
+  display: grid;
+  justify-items: start;
+  gap: 6px;
 }
 
 /* A disabled policy is inert (not sponsoring gas), so the whole row reads
@@ -1994,10 +2107,82 @@ textarea {
   overflow-wrap: anywhere;
 }
 
-.dashboard-credential-table__name {
+/* Icon-led lead cell: the reference app anchors every row with a tile so the
+   list reads as objects rather than a spreadsheet line. Shared by every table
+   that has an identity column. */
+.dashboard-data-table__cell--lead {
+  align-content: center;
+}
+
+.dashboard-lead {
   display: grid;
-  gap: 6px;
-  align-content: start;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.dashboard-lead__icon {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 10px;
+  border: 1px solid var(--dashboard-border);
+  background: var(--dashboard-surface-soft);
+  color: var(--dashboard-ink-soft);
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.dashboard-lead__copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.dashboard-lead__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dashboard-lead__title > :is(span, strong, code, button) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The chip is a fixed-size label, not part of the eliding title — without this
+   the identity string squeezes it down to "b…". */
+.dashboard-lead__title > .dashboard-data-table__badge {
+  flex: none;
+  max-width: none;
+  overflow: visible;
+}
+
+/* The row identity is a link, but a table of underlined rows reads as noise. */
+.dashboard-lead__title > .dashboard-inline-link {
+  text-decoration: none;
+}
+
+.dashboard-lead__title > .dashboard-inline-link:hover,
+.dashboard-lead__title > .dashboard-inline-link:focus-visible {
+  text-decoration: underline;
+}
+
+.dashboard-lead__sub {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.84rem;
+  line-height: 1.35;
+  color: var(--dashboard-ink-soft);
 }
 
 .dashboard-credential-table__preview {
@@ -2070,27 +2255,41 @@ textarea {
   color: var(--dashboard-ink-soft);
 }
 
+/* Secondary detail that rides on the same line as its value. Declared after
+   the --nowrap block rule so it stays inline inside eliding cells. */
+.dashboard-data-table__inline-note {
+  display: inline;
+  color: var(--dashboard-ink-soft);
+  white-space: nowrap;
+}
+
+/* inline-block, not inline-flex: a pill narrower than its label has to elide
+   rather than spill into the next column when the table gets tight. Height
+   comes from padding so the text still sits centred. */
 .dashboard-data-table__badge,
 .dashboard-data-table__status {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  display: inline-block;
+  /* Grid items stretch by default; a pill has to hug its label. */
   width: fit-content;
+  justify-self: start;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   border-radius: 999px;
-  font-size: 0.76rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  font-size: 0.8rem;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .dashboard-data-table__badge {
-  min-height: 24px;
-  padding: 0 10px;
+  padding: 2px 9px;
 }
 
 .dashboard-data-table__status {
-  min-height: 30px;
-  padding: 0 16px;
+  padding: 3px 10px;
 }
 
 .dashboard-data-table__badge--neutral,
@@ -2117,12 +2316,14 @@ textarea {
   color: var(--dashboard-danger);
 }
 
+/* No min-width: a floor wider than the column made the buttons spill past the
+   cell edge on narrow viewports instead of wrapping inside it. */
 .dashboard-data-table__actions {
-  min-width: 132px;
+  min-width: 0;
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
-  gap: 10px;
+  gap: 8px;
 }
 
 .dashboard-data-table__action-button {
@@ -2166,8 +2367,8 @@ textarea {
 }
 
 .dashboard-data-table__action-menu-trigger {
-  min-width: 38px;
-  padding: 0 10px;
+  min-width: 34px;
+  padding: 0 8px;
   font-size: 1.1rem;
   line-height: 1;
 }
@@ -3003,10 +3204,11 @@ textarea {
   color: var(--dashboard-ink);
 }
 
-.dashboard-policy-segment--active {
-  border-color: var(--dashboard-active-border);
-  background: var(--dashboard-active);
-  color: var(--dashboard-ink);
+.dashboard-policy-segment--active,
+.dashboard-policy-segment--active:hover {
+  border-color: var(--dashboard-ink);
+  background: var(--dashboard-ink);
+  color: #ffffff;
 }
 
 .dashboard-policy-contract-call-mode {
@@ -3207,18 +3409,11 @@ textarea {
 
 .dashboard-team-members-view,
 .dashboard-gas-sponsorship-view {
-  width: min(100%, 1120px);
-  margin-inline: auto;
-}
-
-.dashboard-shell--route-team-members .dashboard-main__title,
-.dashboard-shell--route-gas-sponsorship .dashboard-main__title {
-  width: min(100%, 1120px);
-  margin-inline: auto;
+  width: 100%;
 }
 
 .dashboard-team-members-view {
-  gap: 20px;
+  gap: 28px;
 }
 
 .dashboard-team-members-view__intro,
@@ -3226,15 +3421,15 @@ textarea {
 .dashboard-team-members-view__invitations,
 .dashboard-gas-sponsorship-view__readiness,
 .dashboard-gas-sponsorship-view__policies {
-  border: 1px solid var(--dashboard-border);
-  border-radius: 16px;
-  background: var(--dashboard-surface);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .dashboard-team-members-view__intro {
   display: grid;
   gap: 16px;
-  padding: 20px;
+  padding: 0;
 }
 
 .dashboard-team-members-view__intro .dashboard-form-alert {
@@ -3242,7 +3437,7 @@ textarea {
 }
 
 .dashboard-team-members-view__members {
-  padding: 14px 20px 0;
+  padding: 0;
 }
 
 .dashboard-team-members-view__members .dashboard-search-control {
@@ -3250,14 +3445,10 @@ textarea {
   margin-block-end: 14px;
 }
 
-.dashboard-team-members-view__invitations {
-  overflow: hidden;
-}
-
 .dashboard-team-members-view__section-heading {
   display: grid;
   gap: 4px;
-  padding: 18px 20px 14px;
+  padding: 0 0 14px;
 }
 
 .dashboard-team-members-view__section-heading h2,
@@ -3265,23 +3456,14 @@ textarea {
   margin: 0;
 }
 
-.dashboard-team-members-view :is(.dashboard-data-table__header, .dashboard-data-table__row),
-.dashboard-gas-sponsorship-view :is(.dashboard-data-table__header, .dashboard-data-table__row) {
-  padding-inline: 8px;
-}
-
-.dashboard-team-members-view__members .dashboard-data-table {
-  border-top: 1px solid var(--dashboard-border);
-}
-
 .dashboard-gas-sponsorship-view {
-  gap: 20px;
+  gap: 28px;
 }
 
 .dashboard-gas-sponsorship-view__readiness {
   display: grid;
   gap: 16px;
-  padding: 20px;
+  padding: 0;
 }
 
 .dashboard-gas-sponsorship-view__readiness > :is(h2, p) {
@@ -3300,16 +3482,15 @@ textarea {
 }
 
 .dashboard-gas-sponsorship-view .dashboard-gas-sponsorship-view__policies {
-  border: 1px solid var(--dashboard-border);
-  border-radius: 16px;
-  background: var(--dashboard-surface);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   padding: 0;
   overflow: visible;
 }
 
 .dashboard-gas-sponsorship-view__policies > .dashboard-section-toolbar {
-  padding: 18px 20px 14px;
-  border-bottom: 1px solid var(--dashboard-border);
+  padding: 0 0 14px;
 }
 
 .dashboard-team-members-filters {
@@ -3741,7 +3922,9 @@ textarea {
 
 .dashboard-view {
   display: grid;
-  gap: 12px;
+  /* Flat sections need real air between them; the old 12px assumed each
+     section carried its own card padding. */
+  gap: 28px;
 }
 
 /* Overview hero: friendly heading + primary actions */
@@ -3947,10 +4130,20 @@ textarea {
   }
 }
 
-.dashboard-view__section,
+/* Sections are flat canvas: no box, no fill, no inset. Stacking them on the
+   page (rather than nesting card-in-card) is what makes the content column
+   read as one surface, reference-app style. Genuine cards opt in with
+   .dashboard-view-card. */
+.dashboard-view__section {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+}
+
 .dashboard-view-card {
   border: 1px solid var(--dashboard-border);
-  border-radius: 16px;
+  border-radius: 14px;
   background: var(--dashboard-surface);
   padding: 16px 18px;
 }
@@ -3969,15 +4162,20 @@ textarea {
   padding: 18px;
 }
 
+/* One section-heading scale for the whole console. Page-specific views used
+   to fall through to the browser default (24px bold), so "Team" and "Service
+   health" were two different sizes on two pages. */
+.dashboard-view h2,
 .dashboard-view__section h2,
 .dashboard-view-card h2 {
-  margin: 0 0 8px;
-  font-size: 1.05rem;
+  margin: 0 0 10px;
+  font-size: 1.1rem;
   font-weight: 600;
+  letter-spacing: -0.005em;
 }
 
 .dashboard-view__section--toolbar {
-  padding-block: 12px;
+  padding-block: 0;
 }
 
 .dashboard-audit-events__raw-metadata > summary {
@@ -4542,12 +4740,6 @@ details.dashboard-view__section[open] > summary {
   gap: 14px;
 }
 
-.dashboard-section-toolbar--stacked-start {
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: flex-start;
-}
-
 .dashboard-section-toolbar__copy {
   min-width: 0;
   display: grid;
@@ -4808,6 +5000,12 @@ select.dashboard-input {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+/* Dialogs commit on the right; inline page forms keep their left rhythm. */
+.dashboard-modal .dashboard-form-actions {
+  justify-content: flex-end;
+  padding-top: 4px;
 }
 
 .dashboard-form-error {
@@ -5118,6 +5316,13 @@ select.dashboard-input {
   gap: 10px;
 }
 
+/* A prompt is not a failure: danger red belongs to things that broke. */
+.dashboard-form-alert--notice {
+  border-color: color-mix(in srgb, var(--dashboard-warning) 34%, var(--dashboard-border) 66%);
+  background: color-mix(in srgb, var(--dashboard-warning-soft) 62%, var(--dashboard-surface) 38%);
+  color: var(--dashboard-warning);
+}
+
 .dashboard-inline-modal-backdrop {
   --dashboard-inline-modal-padding-block-start: max(24px, env(safe-area-inset-top));
   --dashboard-inline-modal-padding-block-end: max(24px, env(safe-area-inset-bottom));
@@ -5125,7 +5330,10 @@ select.dashboard-input {
   position: absolute;
   inset: 0;
   display: grid;
-  align-content: start;
+  /* Centred, but `safe` so an over-tall dialog still starts at the top edge
+     instead of having its header pushed out of reach. */
+  align-content: center;
+  align-content: safe center;
   justify-items: center;
   padding: var(--dashboard-inline-modal-padding-block-start)
     var(--dashboard-inline-modal-padding-inline) var(--dashboard-inline-modal-padding-block-end);
@@ -5136,34 +5344,35 @@ select.dashboard-input {
 }
 
 .dashboard-inline-modal-backdrop--self-styled {
-  background: color-mix(in srgb, #1c1917 14%, transparent);
-  backdrop-filter: blur(12px);
+  background: color-mix(in srgb, #1c1917 24%, transparent);
 }
 
 .dashboard-modal {
-  width: min(540px, calc(100% - 24px));
+  width: min(520px, calc(100% - 24px));
   /* Long forms scroll inside the dialog instead of clipping the footer
      off-screen. */
-  max-height: calc(100dvh - 48px);
+  max-height: calc(100dvh - 96px);
   overflow-y: auto;
-  border-radius: 16px;
+  border-radius: 18px;
   border: 1px solid var(--dashboard-border);
   background: var(--dashboard-surface);
-  padding: 16px;
+  padding: 24px;
   display: grid;
-  gap: 10px;
-  box-shadow: 0 12px 40px color-mix(in srgb, #1c1917 32%, transparent);
+  gap: 14px;
+  box-shadow: 0 24px 60px color-mix(in srgb, #1c1917 26%, transparent);
   outline: none;
 }
 
+/* 920px made single-line text inputs nearly a metre wide on a desktop. */
 .dashboard-modal--wide {
-  width: min(920px, calc(100% - 24px));
+  width: min(680px, calc(100% - 24px));
 }
 
 .dashboard-modal h2 {
   margin: 0;
-  font-size: 1.05rem;
-  font-weight: 650;
+  font-size: 1.2rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
 .dashboard-onboarding-stepper {
@@ -5555,9 +5764,8 @@ select.dashboard-input {
 .dashboard-wallet-summary__label {
   margin: 0;
   color: var(--dashboard-ink-soft);
-  font-size: 0.9rem;
-  letter-spacing: 0.02em;
-  text-transform: lowercase;
+  font-size: 0.85rem;
+  letter-spacing: 0;
 }
 
 .dashboard-wallet-summary__value {
@@ -5571,39 +5779,33 @@ select.dashboard-input {
 .dashboard-observability-summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0;
-  margin-bottom: 12px;
-  border: 1px solid var(--dashboard-border);
-  border-radius: 12px;
-  background: var(--dashboard-surface);
-  overflow: hidden;
+  gap: 24px;
+  margin-bottom: 4px;
+  border: 0;
+  background: transparent;
 }
 
 .dashboard-observability-summary__item {
-  padding: 14px 16px;
-  border-right: 1px solid var(--dashboard-border);
+  padding: 0;
   display: grid;
-  gap: 6px;
-}
-
-.dashboard-observability-summary__item:last-child {
-  border-right: 0;
+  gap: 4px;
 }
 
 .dashboard-observability-summary__label {
   margin: 0;
   color: var(--dashboard-ink-soft);
-  font-size: 0.9rem;
-  letter-spacing: 0.02em;
-  text-transform: lowercase;
+  font-size: 0.85rem;
+  letter-spacing: 0;
 }
 
 .dashboard-observability-summary__value {
   margin: 0;
   color: var(--dashboard-ink);
-  font-size: 1.4rem;
-  font-weight: 650;
+  font-size: 1.9rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
   line-height: 1.1;
+  font-variant-numeric: tabular-nums;
 }
 
 .dashboard-observability-filters {
@@ -5618,17 +5820,18 @@ select.dashboard-input {
   grid-template-columns: repeat(3, minmax(200px, 1fr));
 }
 
+/* Filters sit on the canvas: the inputs already carry their own outline, so a
+   surrounding box just adds a second frame. */
 .dashboard-observability-controls-card {
   display: grid;
   gap: 10px;
-  padding: 12px 14px;
-  border: 1px solid var(--dashboard-border);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--dashboard-surface) 94%, var(--dashboard-bg) 6%);
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .dashboard-observability-controls-card--event-log {
-  margin-bottom: 12px;
+  margin-bottom: 16px;
 }
 
 .dashboard-observability-service-health-filters {
@@ -5862,20 +6065,32 @@ select.dashboard-input {
 .dashboard-shell--sidebar-collapsed .dashboard-workspace-switcher__trigger,
 .dashboard-shell--sidebar-collapsed .dashboard-product-switcher__trigger {
   gap: 0;
-  /* 28px avatar + 7px padding + 1px border = 44px: square tile, avatar
-     centered at the final width purely by padding. */
-  padding: 7px;
+  /* 28px avatar + 6px padding = 40px, matching the nav buttons exactly. The
+     triggers lost their 1px border when the rail went flat, which is what
+     left these tiles narrower than every icon below them. */
+  padding: 6px;
 }
 
 .dashboard-shell--sidebar-collapsed .dashboard-sidebar {
-  padding-left: 8px;
-  padding-right: 8px;
+  padding-left: 12px;
+  padding-right: 12px;
 }
 
 .dashboard-shell--sidebar-collapsed .dashboard-nav-item {
   grid-template-columns: 1fr minmax(0, 0fr);
   gap: 0;
-  padding: 10px 6px;
+  padding: 11px 0;
+  justify-items: center;
+}
+
+/* The wordmark collapses to its mark, which then has to sit on the same
+   centre line as every tile below it. */
+.dashboard-shell--sidebar-collapsed .dashboard-sidebar__brand {
+  justify-content: center;
+  padding-inline: 0;
+  /* The wordmark text collapses to zero width but its flex gap does not, which
+     drags the mark off the centre line. */
+  gap: 0;
 }
 
 /* Icon-rail compaction (desktop rail mode only — below 1161px the collapsed
@@ -6214,11 +6429,10 @@ select.dashboard-input {
   .dashboard-main {
     grid-column: 1;
     grid-row: 3;
-  }
-
-  .dashboard-overlay-layer {
-    grid-column: 1;
-    grid-row: 3;
+    /* Stacked layout: the topbar is a sibling row, not an overlay, so the
+       desktop under-the-bar offset has to come back off. */
+    margin-top: 0;
+    padding-top: 32px;
   }
 
   .dashboard-shell--onboarding-focus .dashboard-main {
@@ -6570,8 +6784,11 @@ select.dashboard-input {
     font-weight: 500;
   }
 
-  .dashboard-workspace-switcher__marquee-track > span + span {
-    display: none;
+  /* Both rows are already stacked in view here, so hover has nothing to
+     reveal — sliding would just push the project name out of the box. */
+  .dashboard-workspace-switcher__trigger:hover .dashboard-workspace-switcher__ticker,
+  .dashboard-workspace-switcher__trigger:focus-visible .dashboard-workspace-switcher__ticker {
+    transform: none;
   }
 
   .dashboard-shell,

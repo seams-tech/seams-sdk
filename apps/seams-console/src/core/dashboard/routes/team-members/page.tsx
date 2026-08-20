@@ -10,10 +10,13 @@ import {
   DashboardTableHeaderCell,
   DashboardTableRow,
   DashboardTableState,
+  DashboardTableStatus,
   dashboardTableColumns,
   useDashboardTablePagination,
 } from '../../components/DashboardTable';
+import { dashboardStatusLabel, dashboardStatusTone } from '../../utils/statusTone';
 import { DashboardInlineModal } from '../../components/DashboardInlineModal';
+import { DashboardPageActions } from '../../components/DashboardPageActions';
 import { listDashboardProjects, type DashboardConsoleProject } from '../../consoleContextApi';
 import { useDashboardConsoleSession } from '../../consoleSession';
 import { formatDashboardTimestamp } from '../../utils/timestamps';
@@ -40,8 +43,8 @@ import {
   type DashboardProjectAccessLevel,
 } from './consoleTeamRbacApi';
 
-const MEMBERSHIP_COLUMNS = dashboardTableColumns(1.4, 0.65, 1.25, 0.8, 1.1);
-const INVITATION_COLUMNS = dashboardTableColumns(1.4, 0.7, 1.2, 0.9, 1.1);
+const MEMBERSHIP_COLUMNS = dashboardTableColumns(2, 1.25, 0.8, 1.05);
+const INVITATION_COLUMNS = dashboardTableColumns(2, 1.2, 0.9, 1.05);
 
 interface GrantEditorProps {
   grant: DashboardOrganizationGrant;
@@ -645,14 +648,7 @@ export function TeamMembersPage(): React.JSX.Element {
       aria-label="Organization team management page"
     >
       <section className="dashboard-team-members-view__intro">
-        <div className="dashboard-section-toolbar dashboard-team-members-toolbar">
-          <div className="dashboard-section-toolbar__copy">
-            <h2>Team</h2>
-            <p className="dashboard-pagination-note">
-              Owners have full access. Administrators use four organization permissions, and members
-              receive viewer or editor access per project.
-            </p>
-          </div>
+        <DashboardPageActions>
           <button
             type="button"
             className="dashboard-pagination-button dashboard-pagination-button--primary"
@@ -661,9 +657,9 @@ export function TeamMembersPage(): React.JSX.Element {
           >
             Invite member
           </button>
-        </div>
+        </DashboardPageActions>
         {ownerCount < 2 ? (
-          <p className="dashboard-form-alert" role="status">
+          <p className="dashboard-form-alert dashboard-form-alert--notice" role="status">
             Add a second owner to protect organization access if the current owner becomes
             unavailable.
           </p>
@@ -701,7 +697,6 @@ export function TeamMembersPage(): React.JSX.Element {
             >
               <DashboardTableHeader className="dashboard-team-members-table__row">
                 <DashboardTableHeaderCell>Member</DashboardTableHeaderCell>
-                <DashboardTableHeaderCell>Role</DashboardTableHeaderCell>
                 <DashboardTableHeaderCell>Access</DashboardTableHeaderCell>
                 <DashboardTableHeaderCell>Status</DashboardTableHeaderCell>
                 <DashboardTableHeaderCell>Actions</DashboardTableHeaderCell>
@@ -725,21 +720,38 @@ export function TeamMembersPage(): React.JSX.Element {
                       className="dashboard-team-members-table__row"
                       key={membership.id}
                     >
-                      <DashboardTableCell className="dashboard-team-members-table__member">
-                        <span className="dashboard-team-members-table__member-title">
-                          {membership.displayName || membership.email}
-                        </span>
-                        <span className="dashboard-team-members-table__member-subtitle">
-                          {membership.email}
-                        </span>
+                      <DashboardTableCell
+                        title={`${membership.displayName || membership.email} · ${membership.email}`}
+                        className="dashboard-data-table__cell--lead"
+                      >
+                        <div className="dashboard-lead">
+                          <span className="dashboard-lead__icon" aria-hidden="true">
+                            {(membership.displayName || membership.email).trim().charAt(0)}
+                          </span>
+                          <span className="dashboard-lead__copy">
+                            <span className="dashboard-lead__title">
+                              <span className="dashboard-data-table__summary">
+                                {membership.displayName || membership.email}
+                              </span>
+                              <DashboardTableBadge>
+                                {dashboardStatusLabel(membership.role)}
+                              </DashboardTableBadge>
+                            </span>
+                            <span className="dashboard-lead__sub">{membership.email}</span>
+                          </span>
+                        </div>
                       </DashboardTableCell>
-                      <DashboardTableCell>
-                        <DashboardTableBadge>{membership.role}</DashboardTableBadge>
-                      </DashboardTableCell>
-                      <DashboardTableCell title={roleSummary(membership)}>
+                      <DashboardTableCell
+                        title={roleSummary(membership)}
+                        className="dashboard-data-table__cell--nowrap"
+                      >
                         {roleSummary(membership)}
                       </DashboardTableCell>
-                      <DashboardTableCell>{membership.kind}</DashboardTableCell>
+                      <DashboardTableCell>
+                        <DashboardTableStatus tone={dashboardStatusTone(membership.kind)}>
+                          {dashboardStatusLabel(membership.kind)}
+                        </DashboardTableStatus>
+                      </DashboardTableCell>
                       <DashboardTableCell>
                         <DashboardTableActionGroup>
                           <DashboardTableActionButton
@@ -804,8 +816,7 @@ export function TeamMembersPage(): React.JSX.Element {
               columns={INVITATION_COLUMNS}
             >
               <DashboardTableHeader className="dashboard-team-members-table__row">
-                <DashboardTableHeaderCell>Email</DashboardTableHeaderCell>
-                <DashboardTableHeaderCell>Role</DashboardTableHeaderCell>
+                <DashboardTableHeaderCell>Invitee</DashboardTableHeaderCell>
                 <DashboardTableHeaderCell>Access</DashboardTableHeaderCell>
                 <DashboardTableHeaderCell>Expires</DashboardTableHeaderCell>
                 <DashboardTableHeaderCell>Actions</DashboardTableHeaderCell>
@@ -820,15 +831,31 @@ export function TeamMembersPage(): React.JSX.Element {
                     className="dashboard-team-members-table__row"
                     key={invitation.id}
                   >
-                    <DashboardTableCell>{invitation.email}</DashboardTableCell>
-                    <DashboardTableCell>
-                      <DashboardTableBadge>{invitation.role}</DashboardTableBadge>
+                    <DashboardTableCell
+                      title={invitation.email}
+                      className="dashboard-data-table__cell--lead"
+                    >
+                      <div className="dashboard-lead">
+                        <span className="dashboard-lead__icon" aria-hidden="true">
+                          {invitation.email.trim().charAt(0)}
+                        </span>
+                        <span className="dashboard-lead__copy">
+                          <span className="dashboard-lead__title">
+                            <span className="dashboard-data-table__summary">
+                              {invitation.email}
+                            </span>
+                            <DashboardTableBadge>
+                              {dashboardStatusLabel(invitation.role)}
+                            </DashboardTableBadge>
+                          </span>
+                        </span>
+                      </div>
                     </DashboardTableCell>
                     <DashboardTableCell title={invitationSummary(invitation)}>
                       {invitationSummary(invitation)}
                     </DashboardTableCell>
                     <DashboardTableCell>
-                      {formatDashboardTimestamp(invitation.expiresAt || '', '-')}
+                      {formatDashboardTimestamp(invitation.expiresAt || '', '—')}
                     </DashboardTableCell>
                     <DashboardTableCell>
                       <DashboardTableActionGroup>

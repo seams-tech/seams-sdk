@@ -3,19 +3,26 @@ import { formatDashboardTimestamp } from '@core/dashboard/utils/timestamps';
 import {
   SEARCH_USER_WALLETS_PLACEHOLDER,
   USER_WALLETS_TABLE_COLUMNS,
-  USER_WALLETS_TABLE_NOTE,
 } from '@core/dashboard/components/dashboardContent';
 import {
   DashboardTable,
+  DashboardTableBadge,
   DashboardTableCell,
   DashboardTableFooter,
   DashboardTableHeader,
   DashboardTableHeaderCell,
   DashboardTableRow,
   DashboardTableState,
+  DashboardTableStatus,
   dashboardTableColumns,
   useDashboardTablePagination,
 } from '@core/dashboard/components/DashboardTable';
+import {
+  DASHBOARD_EMPTY_VALUE,
+  dashboardStatusLabel,
+  dashboardStatusTone,
+} from '@core/dashboard/utils/statusTone';
+import { WalletCardsIcon } from '@core/dashboard/icons/SidebarIcons';
 import { useDashboardConsoleSession } from '@core/dashboard/consoleSession';
 import { useDashboardSelectedContext } from '@core/dashboard/selectedContext';
 import { listDashboardPolicies } from '../policy-engine/consolePoliciesApi';
@@ -76,10 +83,10 @@ const SORT_OPTIONS: readonly WalletSortOption[] = [
     sortOrder: 'asc',
   },
 ];
-const WALLETS_TABLE_COLUMNS = dashboardTableColumns(1.1, 1.3, 0.7, 0.95, 0.95, 0.8, 0.7, 0.95);
+const WALLETS_TABLE_COLUMNS = dashboardTableColumns(2, 1.15, 0.6, 0.75, 0.6, 0.9);
 
 function formatTimestamp(value: string): string {
-  return formatDashboardTimestamp(value, '-');
+  return formatDashboardTimestamp(value, '—');
 }
 
 export function UserWalletsListPage(): React.JSX.Element {
@@ -410,7 +417,14 @@ export function UserWalletsListPage(): React.JSX.Element {
       >
         <DashboardTableHeader>
           {USER_WALLETS_TABLE_COLUMNS.map((column) => (
-            <DashboardTableHeaderCell key={column}>{column}</DashboardTableHeaderCell>
+            <DashboardTableHeaderCell
+              key={column}
+              className={
+                column === 'Balance' ? 'dashboard-data-table__header-cell--end' : undefined
+              }
+            >
+              {column}
+            </DashboardTableHeaderCell>
           ))}
         </DashboardTableHeader>
         {loading ? (
@@ -433,27 +447,52 @@ export function UserWalletsListPage(): React.JSX.Element {
           <>
             {walletsPagination.rows.map((wallet) => (
               <DashboardTableRow key={wallet.id}>
-                <DashboardTableCell title={wallet.id}>
-                  <button
-                    type="button"
-                    className="dashboard-inline-link"
-                    onClick={() => setSelectedWalletId(wallet.id)}
-                  >
-                    {wallet.id}
-                  </button>
+                <DashboardTableCell
+                  title={`${wallet.address} · ${wallet.id}`}
+                  className="dashboard-data-table__cell--lead"
+                >
+                  <div className="dashboard-lead">
+                    <span className="dashboard-lead__icon" aria-hidden="true">
+                      <WalletCardsIcon size={16} />
+                    </span>
+                    <span className="dashboard-lead__copy">
+                      <span className="dashboard-lead__title">
+                        <button
+                          type="button"
+                          className="dashboard-inline-link dashboard-data-table__mono"
+                          onClick={() => setSelectedWalletId(wallet.id)}
+                        >
+                          {wallet.address}
+                        </button>
+                        {wallet.chain ? (
+                          <DashboardTableBadge>{wallet.chain}</DashboardTableBadge>
+                        ) : null}
+                      </span>
+                      <span className="dashboard-lead__sub">{wallet.id}</span>
+                    </span>
+                  </div>
                 </DashboardTableCell>
-                <DashboardTableCell title={wallet.address}>{wallet.address}</DashboardTableCell>
-                <DashboardTableCell>{wallet.chain || '-'}</DashboardTableCell>
-                <DashboardTableCell title={wallet.userId}>
-                  {wallet.userId || '-'}
+                <DashboardTableCell
+                  title={wallet.userId}
+                  className="dashboard-data-table__cell--nowrap"
+                >
+                  {wallet.userId || DASHBOARD_EMPTY_VALUE}
                 </DashboardTableCell>
                 <DashboardTableCell title={wallet.policyId || ''}>
-                  {wallet.policyId || '-'}
+                  {wallet.policyId ? <code>{wallet.policyId}</code> : DASHBOARD_EMPTY_VALUE}
                 </DashboardTableCell>
-                <DashboardTableCell>
+                <DashboardTableCell align="end">
                   {formatWalletBalanceMinor(wallet.balanceMinor)}
                 </DashboardTableCell>
-                <DashboardTableCell>{wallet.status || '-'}</DashboardTableCell>
+                <DashboardTableCell>
+                  {wallet.status ? (
+                    <DashboardTableStatus tone={dashboardStatusTone(wallet.status)}>
+                      {dashboardStatusLabel(wallet.status)}
+                    </DashboardTableStatus>
+                  ) : (
+                    DASHBOARD_EMPTY_VALUE
+                  )}
+                </DashboardTableCell>
                 <DashboardTableCell truncate>
                   {formatTimestamp(wallet.updatedAt)}
                 </DashboardTableCell>
@@ -462,7 +501,7 @@ export function UserWalletsListPage(): React.JSX.Element {
             <DashboardTableFooter>
               {searchMode
                 ? `Showing ${wallets.length} result${wallets.length === 1 ? '' : 's'}.`
-                : USER_WALLETS_TABLE_NOTE}
+                : `${wallets.length} wallet${wallets.length === 1 ? '' : 's'}.`}
               {walletScope.projectId
                 ? ` Scope: project ${walletScope.projectId}${
                     walletScope.environmentId ? `, environment ${walletScope.environmentId}` : ''
@@ -489,16 +528,16 @@ export function UserWalletsListPage(): React.JSX.Element {
                 <strong>Address:</strong> {selectedWallet.address}
               </li>
               <li>
-                <strong>Chain:</strong> {selectedWallet.chain || '-'}
+                <strong>Chain:</strong> {selectedWallet.chain || DASHBOARD_EMPTY_VALUE}
               </li>
               <li>
-                <strong>User:</strong> {selectedWallet.userId || '-'}
+                <strong>User:</strong> {selectedWallet.userId || DASHBOARD_EMPTY_VALUE}
               </li>
               <li>
-                <strong>Policy:</strong> {selectedWallet.policyId || '-'}
+                <strong>Policy:</strong> {selectedWallet.policyId || DASHBOARD_EMPTY_VALUE}
               </li>
               <li>
-                <strong>Status:</strong> {selectedWallet.status || '-'}
+                <strong>Status:</strong> {selectedWallet.status || DASHBOARD_EMPTY_VALUE}
               </li>
               <li>
                 <strong>Balance:</strong> {formatWalletBalanceMinor(selectedWallet.balanceMinor)}
